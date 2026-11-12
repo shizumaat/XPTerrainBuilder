@@ -64,6 +64,10 @@ PENDING_S = 900.0
 WATER_WAIT_S = 75.0
 #: Seconds between rereads of the pack's tiles and X-Plane's ``Log.txt``.
 REREAD_S = 10.0
+#: A parked aircraft's core: squares within this many square sizes of it
+#: are fetched at full resolution (``O4_Imagery_Tier_Plan.CROSSING_S``'s
+#: full tier: what a camera standing there wants).
+CORE_FULL_S = 1.65
 _GUARD = threading.Lock()
 _RUNNER: "Optional[_Runner]" = None
 
@@ -129,20 +133,24 @@ class _SessionBuilder:
         with self._lock:
             self._done.append((tile, ok))
 
-    def start(self, tile, kind: str, deadline_in_s: float, klass: str) -> bool:
+    def start(self, tile, kind: str, deadline_in_s: float, klass: str,
+              core=None) -> bool:
+        """``core`` ``(lat, lon)``: a drape whose core around that point is
+        fetched at full resolution (a parked aircraft, ``WorldJob``)."""
         tile = (int(tile[0]), int(tile[1]))
         if self.share is not None:
             verdict = self.share.take(self.owner, tile, kind)
             if verdict != "start":
                 return verdict == "adopted"
-        started = self._start(tile, kind, deadline_in_s, klass)
+        started = self._start(tile, kind, deadline_in_s, klass, core)
         if not started and self.share is not None:
             self.share.drop(self.owner, tile)
         return started
 
-    def _start(self, tile, kind: str, deadline_in_s: float, klass: str) -> bool:
+    def _start(self, tile, kind: str, deadline_in_s: float, klass: str,
+               core=None) -> bool:
         if kind == "drape":
-            return self._start_drape(tile)
+            return self._start_drape(tile, core)
         _restore_package(tile)
         with self._lock:
             self._mine.add(tile)
@@ -155,7 +163,7 @@ class _SessionBuilder:
                 self._mine.discard(tile)
         return bool(ok)
 
-    def _start_drape(self, tile) -> bool:
+    def _start_drape(self, tile, core=None) -> bool:
         if self.drape is None:
             return False
         if self._pool is None:
@@ -165,7 +173,8 @@ class _SessionBuilder:
 
         def work() -> None:
             try:
-                ok = bool(self.drape(tile))
+                ok = bool(self.drape(tile) if core is None
+                          else self.drape(tile, core))
             except Exception as error:      # logged; the job retries once
                 WORLD.write_log({"drape_error": repr(error)[:300],
                                  "tile": WP.tile_name(*tile)})
@@ -191,13 +200,15 @@ def drape_px() -> int:
         return 512
 
 
-def drape_tile(tile, provider: str, zoomlevel: int) -> bool:
+def drape_tile(tile, provider: str, zoomlevel: int, core=None) -> bool:
     """Fetch a drape tile's imagery at :func:`drape_px` with its water
     masks, and write it, staged, in the World pack's shape: the opaque
     photo plus the water-alpha copy on ``O4_World_Drape.WATER_LAYER_GROUP``
-    (``write_drape``, RULINGS 2026-11-11j).  The build folder goes once
-    the tile is staged (the DDS are hard-linked).  True when it
-    verifies."""
+    (``write_drape``, RULINGS 2026-11-11j).  ``core`` ``(lat, lon)``: a
+    parked aircraft's airport -- the squares within :data:`CORE_FULL_S`
+    of it are fetched again at full resolution (RULINGS 2026-11-12c (3)).
+    The build folder goes once the tile is staged (the DDS are
+    hard-linked).  True when it verifies."""
     import shutil
 
     import O4_File_Names as FNAMES
@@ -209,6 +220,11 @@ def drape_tile(tile, provider: str, zoomlevel: int) -> bool:
     fetched = FETCH.fetch(engine, lat, lon, parent, int(zoomlevel), provider,
                           drop=FETCH.drop_for_px(drape_px()), water_alpha=True,
                           water_wait_s=WATER_WAIT_S)
+    if core is not None:
+        cored = FETCH.fetch(engine, lat, lon, parent, int(zoomlevel), provider,
+                            drop=0, water_alpha=True, water_wait_s=WATER_WAIT_S,
+                            near=(float(core[0]), float(core[1]), CORE_FULL_S))
+        fetched["core_squares"] = cored.get("squares")
     staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
     if os.path.exists(staged):
         shutil.rmtree(staged)
@@ -219,10 +235,21 @@ def drape_tile(tile, provider: str, zoomlevel: int) -> bool:
                      **{k: fetched.get(k) for k in (
                          "squares", "dds", "download_s", "convert_s",
                          "masked", "water_late", "water_fetch_s",
-                         "water_wait_s")}})
+                         "water_wait_s", "core_squares")}})
     with contextlib.suppress(OSError):
         shutil.rmtree(fetched["tile"])
     return not DRAPE.verify_drape(staged, lat, lon, tool)["problems"]
+
+
+def _merge_held(pack: str, staged: str, lat: int, lon: int) -> None:
+    """A held tile merged in (S5: every old name kept), the staging
+    folder gone, and the user offered the reload that shows it."""
+    import shutil
+
+    from . import reload_offer as RELOAD
+    WP.swap_in(pack, staged, lat, lon, merge=True)
+    shutil.rmtree(staged, ignore_errors=True)
+    RELOAD.offer("tiles")
 
 
 class _PackPublisher:
@@ -235,28 +262,40 @@ class _PackPublisher:
         self.clock = clock
         self._pending: dict = {}
 
-    def settle(self, tile, kind: str, held: bool) -> str:
+    def settle(self, tile, kind: str, held: bool, merge: bool = False,
+               fresh: bool = False) -> str:
+        """``fresh``: the staged version replaces a real tile already in
+        the pack (a parked aircraft's drape re-made with its core).
+        ``merge``: a tile X-Plane holds, swapped for a parked aircraft
+        (RULINGS 2026-11-12c (3)): merged in file by file, no name removed
+        (rule S5, ``O4_World_Pack.swap_in(merge=True)``); the user is
+        offered the reload that shows it (``reload_offer``)."""
         from . import imagery_follow as FOLLOW
         from . import world_publish as PUBLISH
         lat, lon = tile
         pack = WORLD.pack_dir(self.scenery_dir)
         dsf = os.path.join(pack, WP.dsf_relpath(lat, lon))
-        if os.path.isfile(dsf) and not WP.is_placeholder(dsf):
+        staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
+        staged_dsf = os.path.join(staged, WP.dsf_relpath(lat, lon))
+        if (os.path.isfile(dsf) and not WP.is_placeholder(dsf)
+                and not (fresh and os.path.isfile(staged_dsf))):
             self._pending.pop(tile, None)
             return "swapped"
-        staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
-        if os.path.isfile(os.path.join(staged, WP.dsf_relpath(lat, lon))):
+        if os.path.isfile(staged_dsf):
             self._pending.pop(tile, None)
             if held:
                 return "staged"
             with FOLLOW.paused("world swap", tiles=[WP.tile_name(lat, lon)]):
-                WP.swap_staged(pack, WORLD.staging_root(),
-                               lambda la, lo: (la, lo) != (lat, lon))
+                if merge:
+                    _merge_held(pack, staged, lat, lon)
+                else:
+                    WP.swap_staged(pack, WORLD.staging_root(),
+                                   lambda la, lo: (la, lo) != (lat, lon))
             if kind != "drape":
                 PUBLISH._after_swap(self.scenery_dir,
                                     self.build_dir_of(lat, lon), lat, lon)
             WORLD.write_log({"swap_in": WP.tile_name(lat, lon), "kind": kind,
-                             "from": "world_job"})
+                             "from": "world_job", "merge": merge})
             return "swapped"
         first = self._pending.setdefault(tile, self.clock())
         return "failed" if self.clock() - first > PENDING_S else "pending"
@@ -273,13 +312,22 @@ class _Wanted:
         self._external: dict = {}
         self._at = -1e18
 
-    def __call__(self, tile) -> bool:
+    def kind(self, tile) -> Optional[str]:
+        """The pack's kind of ``tile`` (``placeholder``, ``drape``,
+        ``full``; None: not ours or another pack draws its mesh)."""
         now = time.monotonic()
         if now - self._at > REREAD_S:
             self._kinds = WP.world_tiles(WORLD.pack_dir(self.scenery_dir))
             self._at = now
-        if self._kinds.get(tuple(tile)) != "placeholder":
-            return False
+        kind = self._kinds.get(tuple(tile))
+        if kind is None or self._is_external(tuple(tile)):
+            return None
+        return kind
+
+    def __call__(self, tile) -> bool:
+        return self.kind(tile) == "placeholder"
+
+    def _is_external(self, tile) -> bool:
         if tile not in self._external:
             import O4_Mesh_Order as ORDER
             drawn = ORDER.drawn_mesh_dsf(self.scenery_dir, *tile)
@@ -287,7 +335,7 @@ class _Wanted:
                 WORLD.pack_dir(self.scenery_dir)))
             self._external[tile] = bool(drawn) and not os.path.normcase(
                 os.path.realpath(drawn)).startswith(pack)
-        return not self._external[tile]
+        return self._external[tile]
 
 
 class _Loads:
@@ -321,9 +369,14 @@ class _Runner:
         self.feed = shared(WEBAPI.base_url(int(port)) if port else None)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
-            drape=lambda tile: drape_tile(tile, provider, zoomlevel),
+            drape=lambda tile, core=None: (
+                drape_tile(tile, provider, zoomlevel) if core is None
+                else drape_tile(tile, provider, zoomlevel, core=core)),
             share=SHARE, owner="track")
         wanted = _Wanted(scenery_dir)
+
+        def kind_of(tile):
+            return None if SHARE.claimed("track", tile) else wanted.kind(tile)
         self.job = WorldJob(
             builder=builder,
             publisher=_PackPublisher(scenery_dir, session.tile_build_dir),
@@ -331,6 +384,7 @@ class _Runner:
                                  and wanted(tile)),
             slot_free=lambda slots, running: SHARE.free_for(
                 "track", slots, running),
+            kind_of=kind_of,
             kind="drape",
             estimate_s=drape_estimate(drape_px()),
             capacity=SLOTS.session_capacity(), cores=os.cpu_count() or 4,

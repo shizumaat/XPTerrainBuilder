@@ -158,6 +158,16 @@ def follow_running() -> bool:
         return job is not None and job.running
 
 
+def follow_late_landings() -> list:
+    """The running follow job's ``late`` landings (``"<tile>/<texture>"``
+    keys, in order): tiers that landed after X-Plane crossed into their
+    square (the live preview's stand-in witness)."""
+    with _FOLLOW_GUARD:
+        job = _FOLLOW["job"]
+        landings = list(job.landings) if job is not None else []
+    return [item["square"] for item in landings if item.get("late")]
+
+
 def stop_imagery_follow() -> Dict[str, Any]:
     """The command: stop the job (fetches in flight finish first); its
     counts, or ``{"status": "idle"}`` when none runs."""

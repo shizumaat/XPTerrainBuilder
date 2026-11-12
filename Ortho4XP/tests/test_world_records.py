@@ -37,7 +37,7 @@ MESH_TIME = 1794322214.03
 
 def _write(path, data, mtime=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(data if isinstance(data, str) else json.dumps(data))
     if mtime is not None:
         os.utime(path, (mtime, mtime))

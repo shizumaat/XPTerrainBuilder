@@ -23,6 +23,7 @@ pytest.importorskip("PySide6")
 
 import O4_Qt_Map as QTMAP  # noqa: E402
 import O4_Qt_Map_Labels as QTLABELS  # noqa: E402
+import O4_Tile_Band as BAND  # noqa: E402
 from PySide6.QtCore import QPointF  # noqa: E402
 from PySide6.QtGui import QColor, QImage, QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -68,7 +69,9 @@ def test_a_built_tile_is_outlined_not_tinted(view, selected):
         view._active = TILE
     image = _render_overlay(view)
     assert image.pixelColor(100, 100) == QColor("white")
-    assert image.pixelColor(100, 0) != QColor("white")
+    # the colour is a band INSIDE the edge (O4_Tile_Band, inset INSET_PT)
+    edge = int(BAND.INSET_PT) + 1
+    assert image.pixelColor(100, edge) != QColor("white")
 
 
 def test_a_dashed_selection_is_not_tinted_either(view):

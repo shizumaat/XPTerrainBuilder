@@ -37,7 +37,7 @@ import O4_Flight_Plan as FP
 
 __all__ = [
     "P0", "P1", "P2", "P3", "P4", "Job", "Facts", "Item", "route_times",
-    "margin_s", "tile_deadlines", "klass_for", "job_estimate", "rescale",
+    "margin_s", "tile_deadlines", "klass_for", "job_estimate", "rescale", "clamp_scale",
     "DRAPE_SECONDS", "drape_seconds",
     "finish_times", "feasible", "shed_order", "next_job",
     "readiness_items", "countdown_text", "DONE_STATES", "READY_KEYS",
@@ -230,14 +230,28 @@ def job_estimate(kind: str, recorded_s: Optional[float] = None,
     return (point * lo, point * hi)
 
 
-def rescale(jobs: Iterable[Job], kind: str, measured_s: float,
-            predicted_s: float) -> List[Job]:
+def clamp_scale(factor: float) -> float:
+    """A measured / predicted ratio clamped to :data:`RESCALE_RANGE`."""
+    return min(max(factor, RESCALE_RANGE[0]), RESCALE_RANGE[1])
+
+
+def rescale(jobs: Iterable[Job], kind: str = "", measured_s: float = 0.0,
+            predicted_s: float = 0.0, *, scales: Optional[dict] = None,
+            base: Optional[dict] = None) -> List[Job]:
     """After a finished ``kind`` job: scale the queued jobs of that kind by
-    measured / predicted, clamped to :data:`RESCALE_RANGE`."""
+    measured / predicted, clamped to :data:`RESCALE_RANGE`.  With
+    ``scales`` ``{kind: factor}`` and ``base`` ``{tile: (lo, hi)}`` (the
+    planned estimates): each queued job is its planned estimate times its
+    kind's factor -- set, never compounded."""
     jobs = list(jobs)
+    if scales is not None:
+        return [replace(j, est_s=tuple(v * scales[j.kind] for v in
+                                       (base or {}).get(j.tile, j.est_s)))
+                if j.kind in scales and j.state == "queued" else j
+                for j in jobs]
     if predicted_s <= 0 or measured_s <= 0:
         return jobs
-    f = min(max(measured_s / predicted_s, RESCALE_RANGE[0]), RESCALE_RANGE[1])
+    f = clamp_scale(measured_s / predicted_s)
     return [replace(j, est_s=(j.est_s[0] * f, j.est_s[1] * f))
             if j.kind == kind and j.state == "queued" else j for j in jobs]
 

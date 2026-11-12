@@ -74,7 +74,7 @@ def describe() -> Dict[str, str]:
 
 def write_pointer(world: str) -> None:
     """Name ``world`` as the tiles' home in the data folder (atomic)."""
-    path = FNAMES.data_path(FNAMES.WORLD_HOME_POINTER)
+    path = FNAMES.world_home_pointer()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     temp = path + _PART
     with open(temp, "w", encoding="utf-8", newline="\n") as handle:

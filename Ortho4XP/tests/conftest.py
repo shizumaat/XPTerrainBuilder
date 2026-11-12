@@ -353,6 +353,36 @@ def _qt_user_files_never_reach_the_checkout(tmp_path_factory):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _world_home_pointer_is_the_tests_own(monkeypatch, tmp_path_factory, request):
+    """RULINGS 2026-11-12g/h: the data folder's World-home pointer
+    (``FNAMES.world_home_pointer``) is a file of this test's own, never
+    the checkout's.  The Qt window's start moves the data folder's tiles
+    into the (redirected) World folder and writes the pointer; in the
+    checkout it would re-point ``Tile_dir`` for every later test."""
+    basetemp = tmp_path_factory.getbasetemp()
+    monkeypatch.setenv("O4_WORLD_HOME_POINTER", str(
+        basetemp / "world_home" / ("%x.json" % abs(hash(request.node.nodeid)))))
+    # ... and the move itself only ever runs on a data root under basetemp:
+    # the checkout's own ``Tiles`` (the master tree's holds real tiles) is
+    # never moved into a test's World folder; elsewhere it only reports.
+    try:
+        import O4_File_Names as FNAMES
+        from o4_engine import world_home as HOME
+    except Exception:                                   # pragma: no cover
+        yield
+        return
+    real_migrate = HOME.migrate
+
+    def migrate(*args, **kwargs):
+        if scenery_outside_tmp(FNAMES.current_data_root(), basetemp):
+            kwargs["dry_run"] = True
+        return real_migrate(*args, **kwargs)
+
+    monkeypatch.setattr(HOME, "migrate", migrate)
+    yield
+
+
 #: The folder every test's CONFIGURED Custom Scenery resolves to (#1999).
 REDIRECTED_SCENERY_PARTS = ("xplane_redirect", "Custom Scenery")
 

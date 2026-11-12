@@ -313,11 +313,24 @@ WORLD_PACKAGES_DIR = "XPTerrainBuilder_packages"
 _HOME_CACHE: dict = {}
 
 
+def world_home_pointer():
+    """The pointer file (``<data root>/world_home.json``).
+    ``O4_WORLD_HOME_POINTER`` overrides it, read AT CALL TIME, with the
+    precedence of ``O4_REBUILD_CACHE_DIR`` (:func:`rebuild_root`): an
+    explicitly chosen data root wins.  The test session points it at a
+    file of each test's own (``tests/conftest.py``)."""
+    override = os.environ.get("O4_WORLD_HOME_POINTER")
+    if override and _data_root_override is None and not os.environ.get(
+            "ORTHO4XP_DATA_ROOT"):
+        return override
+    return data_path(WORLD_HOME_POINTER)
+
+
 def world_home():
     """The World pack the data folder's pointer names as the tiles' home,
     or ``""`` (no pointer, or its tiles folder is gone).  Read at call
     time; the pointer is re-read only when it changes."""
-    path = data_path(WORLD_HOME_POINTER)
+    path = world_home_pointer()
     try:
         stamp = os.stat(path).st_mtime_ns
     except OSError:

@@ -68,7 +68,8 @@ Grep of `Tile_dir`, `build_dir(`, `custom_build_dir`, `customBuildDir`, `tileBas
 | Convert existing tiles | `world_migrate`, `world_originals`, `world_retire`, `world_adopt` work folder beside Custom Scenery | — | unchanged (its `originals/`, `lean/` are the owner's converted copies; their Undo law is 12a) |
 | Sharp imagery downgrade | `imagery_downgrade._free_cache_entry` | delete | CHANGED: moved to a mounted tier with room first |
 | Full texture lookup | `imagery_ondemand._full_entry/_serve_full` | read | CHANGED: a mounted tier is a second source |
-| Settings ▸ Storage | Mac `StorageSettingsView.swift`, Qt `O4_Qt_Settings_Storage.py` | UI | CHANGED: "Storage tiers" rows in both |
+| Settings ▸ Storage | Mac `LibraryStorage.swift` `StorageSettingsRows` + `StorageTiersSection.swift`, Qt `O4_Qt_Library_Storage.StorageRows` + `O4_Qt_Storage_Tiers.TiersBox` | UI | CHANGED: "Storage tiers" rows in both (parity manifest `STORAGE_ROWS`) |
+| Test session | `tests/conftest.py` | — | CHANGED: each test has its own pointer file (`O4_WORLD_HOME_POINTER`), and the move runs only on a data root under pytest's basetemp (the master checkout's `Tiles` holds real tiles; the Qt window's start would otherwise move them into a test's World folder) |
 
 ## 4. Not in this round
 

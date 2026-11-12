@@ -351,8 +351,8 @@ def engine(tmp_path, monkeypatch, recording):
     monkeypatch.setattr(FEED, "shared", lambda base=None: Feed())
     events, builds = [], []
     # the corridor's drapes (RULINGS 2026-11-11j): no network in a twin
-    monkeypatch.setattr(WORLD_JOB, "drape_tile", lambda tile, p, z: bool(
-        builds.append(("drape", tile))))
+    monkeypatch.setattr(WORLD_JOB, "drape_tile", lambda tile, p, z, px=None:
+                        bool(builds.append(("drape", tile, px))))
 
     class Session:
         _emit = events.append
@@ -452,7 +452,7 @@ def test_autostart_resumes_the_active_flight(engine):
 def test_create_refuses_without_the_world_pack_or_a_route(engine, tmp_path):
     session = engine[0]
     with pytest.raises(ValueError, match="no route"):
-        FC.flight_create(session, plan={"waypoints": [{"lat": 1, "lon": 2}]})
+        FC.flight_create(session, plan={"waypoints": []})
     with pytest.raises(ValueError, match="Name a flight"):
         FC.flight_create(session)
     with pytest.raises(ValueError, match="World pack"):
@@ -508,3 +508,28 @@ def test_no_plan_closes_a_prepared_flight_and_track_mode_runs(engine):
     RECORD.save(flying, folder)
     assert table["flight_end"](if_prepared=True) == {"flight": None}
     assert RECORD.load(os.path.join(folder, flying.id + ".json")).state == "flying"
+
+
+def test_create_with_a_departure_only(engine):
+    """#2023: ``flight_create`` with a departure and no arrival prepares
+    only X-Plane's window at the departure, its drapes fetched at 512 px
+    (the departure here is the kit's external tile: nothing to build)."""
+    import O4_World_Window as WINDOW
+    session, _events, builds, _folder = engine
+    table = FC.flight_handlers(session)
+    flight = table["flight_create"](
+        dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]})["flight"]
+    assert flight.endswith("-CYYR-NONE")
+    ring = {t for t, i in WINDOW.route_entries([CYYR]).items() if i <= 0}
+    assert _wait_for(lambda: len([b for b in builds if b[0] == "drape"]) >= 3)
+    drapes = [b for b in builds if b[0] == "drape"]
+    assert all(tuple(b[1]) in ring and b[2] == 512 for b in drapes)
+    jobs = FLIGHT.current().manager.jobs
+    assert {j.tile for j in jobs} <= ring
+    assert not any(j.role == "destination" for j in jobs)
+    assert table["flight_update"](flight=flight, destination={
+        "ident": "dest", "lat": DEST[0], "lon": DEST[1]}) == {"flight": flight}
+    manager = FLIGHT.current().manager
+    assert not manager.plan.departure_only
+    assert manager.record.destination["ident"] == "DEST"
+    assert any(j.role == "destination" for j in manager.jobs)

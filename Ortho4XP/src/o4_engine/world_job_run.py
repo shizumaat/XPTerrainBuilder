@@ -201,8 +201,10 @@ def drape_px() -> int:
         return 512
 
 
-def drape_tile(tile, provider: str, zoomlevel: int, core=None) -> bool:
-    """Fetch a drape tile's imagery at :func:`drape_px` with its water
+def drape_tile(tile, provider: str, zoomlevel: int, core=None,
+               px: Optional[int] = None) -> bool:
+    """Fetch a drape tile's imagery at ``px`` (else :func:`drape_px`; a
+    departure-only flight's ring is fetched at 512, #2023) with its water
     masks, and write it, staged, in the World pack's shape: the opaque
     photo plus the water-alpha copy on ``O4_World_Drape.WATER_LAYER_GROUP``
     (``write_drape``, RULINGS 2026-11-11j).  ``core`` ``(lat, lon)``: a
@@ -216,10 +218,11 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None) -> bool:
     import O4_World_Drape as DRAPE
     import O4_World_Drape_Fetch as FETCH
     lat, lon = tile
+    px = int(px or drape_px())
     engine = os.path.dirname(os.path.dirname(os.path.abspath(WP.__file__)))
     parent = FNAMES.data_path("World_build")
     fetched = FETCH.fetch(engine, lat, lon, parent, int(zoomlevel), provider,
-                          drop=FETCH.drop_for_px(drape_px()), water_alpha=True,
+                          drop=FETCH.drop_for_px(px), water_alpha=True,
                           water_wait_s=WATER_WAIT_S)
     if core is not None:
         cored = FETCH.fetch(engine, lat, lon, parent, int(zoomlevel), provider,
@@ -232,7 +235,7 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None) -> bool:
     tool = WP.dsftool_path(engine)
     DRAPE.write_drape(lat, lon, int(zoomlevel), provider, fetched["textures"],
                       staged, tool, water_layer=DRAPE.WATER_LAYER_GROUP)
-    WORLD.write_log({"drape": WP.tile_name(lat, lon), "px": drape_px(),
+    WORLD.write_log({"drape": WP.tile_name(lat, lon), "px": px,
                      **{k: fetched.get(k) for k in (
                          "squares", "dds", "download_s", "convert_s",
                          "masked", "water_late", "water_fetch_s",

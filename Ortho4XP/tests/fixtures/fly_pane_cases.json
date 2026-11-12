@@ -389,6 +389,33 @@
      "cruise_alt_ft": null,
      "route_km": 833.7904167614038
     }
+   ],
+   [
+    [
+     "cyyr",
+     53.3192,
+     -60.4258
+    ],
+    null,
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 0.0
+    }
    ]
   ],
   "cruise_kt": [
@@ -569,6 +596,802 @@
      "Alternate CYQX",
      "834 km · 1 h 30 min en route"
     ]
+   ],
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 0.0
+    },
+    250,
+    [
+     "CYYR → no destination",
+     "No alternate in the plan",
+     "Prepares the departure area; the rest builds as you fly"
+    ]
+   ]
+  ],
+  "departure_only": [
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    false
+   ],
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 0.0
+    },
+    true
+   ],
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": {
+      "ident": "CYQX",
+      "lat": 48.94,
+      "lon": -54.57,
+      "alt_ft": null,
+      "t_s": null
+     },
+     "ete_s": 5400.0,
+     "cruise_ms": 144.04444444444445,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    false
+   ]
+  ],
+  "added_destination": [
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": []
+    },
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    {
+     "ident": "CYYT",
+     "lat": 47.6186,
+     "lon": -52.7519
+    }
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": []
+    },
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 0.0
+    },
+    null
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261110T1612Z-CYYR-CYYT",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       80.0,
+       1200.0
+      ],
+      [
+       [
+        52,
+        -59
+       ],
+       "enroute",
+       "drape",
+       "swapped",
+       0.0,
+       900.0
+      ],
+      [
+       [
+        47,
+        -53
+       ],
+       "destination",
+       "full",
+       "staged",
+       0.0,
+       1080.0
+      ]
+     ],
+     "route_km": 833.6,
+     "done_km": 0.0,
+     "eta_s": 6480.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": []
+    },
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    null
+   ],
+   [
+    null,
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    null
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "closed",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": []
+    },
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    null
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": []
+    },
+    {
+     "source": "quick",
+     "origin": "CYYT",
+     "destination": "CYYR",
+     "waypoints": [
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    null
    ]
   ],
   "world_line": [
@@ -880,6 +1703,206 @@
      "waivable": []
     },
     "Building is 3 min behind"
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": []
+    },
+    "Departure only: the departure tile at full detail, the tiles around it as quick photos (Quick, whatever Photo detail ahead says); the rest builds as you fly."
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "flying",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": []
+    },
+    "Departure only: the scenery ahead builds as you fly."
    ]
   ],
   "legend_key": [

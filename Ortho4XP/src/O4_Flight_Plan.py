@@ -125,7 +125,17 @@ class FlightPlan(NamedTuple):
 
     @property
     def destination(self) -> str:
-        return self.waypoints[-1].ident
+        """The last waypoint's ident; "" for a :attr:`departure_only` plan."""
+        return "" if self.departure_only else self.waypoints[-1].ident
+
+    @property
+    def departure_only(self) -> bool:
+        """A departure and no destination (#2023): every waypoint stands
+        at the departure (the quick entry with an empty To, a plan file
+        naming one airport)."""
+        first = self.waypoints[0]
+        return all((w.lat, w.lon) == (first.lat, first.lon)
+                   for w in self.waypoints)
 
     def points(self) -> List[Tuple[float, float]]:
         return [(w.lat, w.lon) for w in self.waypoints]

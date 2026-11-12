@@ -19,14 +19,20 @@ The flight's own commands (lane F1b, capability ``flight_manager``;
 * ``flight_create {plan | path | dep + arr, build_alternate?: false,
   cruise_kt?, corridor_km?}`` -- a plan as ``flight_plan_read`` gives it
   (``.fms``, ``.lnmpln``, SimBrief), a plan file, or a departure and an
-  arrival ``{ident, lat, lon}``; the record is written and its job starts
+  arrival ``{ident, lat, lon}``.  A departure alone (``dep`` with no
+  ``arr``, a one-waypoint plan; #2023) prepares only the departure area
+  and leaves the rest to build as the aircraft flies (the record has no
+  destination); the record is written and its job starts
   (``world_job_start {mode: "flight"}``); ``{"flight": id}``.
   ``FlightStatus`` events follow.  One flight is active at a time.
 * ``flight_status {flight?}`` -- the ``FlightStatus`` fields now.
 * ``flight_update {flight, build_alternate?, cruise_kt?, corridor_km?,
-  waive_offline?}`` -- the flight card's choices; the jobs are planned
-  again.  ``waive_offline``: "Fly with X-Plane's own scenery there" for
-  the en-route tiles that need the internet (RULINGS 2026-11-10k Q3).
+  waive_offline?, destination?}`` -- the flight card's choices; the jobs
+  are planned again.  ``destination`` ``{ident, lat, lon}``: the To a
+  departure-only flight was prepared without (#2023), added later; the
+  route is planned again to it (in the air: as a diversion, spec §8.6).
+  ``waive_offline``: "Fly with X-Plane's own scenery there" for the
+  en-route tiles that need the internet (RULINGS 2026-11-10k Q3).
 * ``flight_end {flight}`` -- the flight closes; build-ahead's track mode,
   which ran beside it (#2019), runs on.  ``flight_end {if_prepared:
   true}`` (both apps, on "No plan: follow the aircraft") closes the active
@@ -121,9 +127,8 @@ def _wire_point(row: Optional[Dict[str, Any]]) -> Optional["FP.Waypoint"]:
 def plan_from_wire(doc: Dict[str, Any]) -> "FP.FlightPlan":
     """:func:`plan_wire`'s shape (what the apps send back) as a plan."""
     points = [_wire_point(w) for w in (doc or {}).get("waypoints") or ()]
-    if len(points) < 2:
-        raise ValueError("This plan has no route: it needs a departure and "
-                         "a destination.")
+    if not points:
+        raise ValueError("This plan has no route: it needs a departure.")
     return FP.FlightPlan(points, source=str(doc.get("source") or ""),
                          alternate=_wire_point(doc.get("alternate")),
                          ete_s=doc.get("ete_s"), cruise_ms=doc.get("cruise_ms"),
@@ -146,12 +151,12 @@ def _plan_of(plan, path: str, dep, arr) -> "FP.FlightPlan":
         return plan_from_wire(plan)
     if path:
         return FP.read_plan_file(path)
-    if dep and arr:
-        ends = [_wire_point(dep), _wire_point(arr)]
+    if dep:                 # an arrival is optional (#2023)
+        ends = [_wire_point(p) for p in (dep, arr) if p]
         return FP.FlightPlan([w._replace(ident=w.ident.upper()) for w in ends],
                              source="quick")
     raise ValueError("Name a flight: a plan, a plan file, or a departure "
-                     "and an arrival.")
+                     "(and an arrival when you know it).")
 
 
 def _number(value, default: Optional[float]) -> Optional[float]:
@@ -227,8 +232,8 @@ def flight_status(flight: str = "", **_ignored) -> Dict[str, Any]:
 
 
 def flight_update(flight: str = "", build_alternate=None, cruise_kt=None,
-                  corridor_km=None, waive_offline=None, **_ignored
-                  ) -> Dict[str, Any]:
+                  corridor_km=None, waive_offline=None, destination=None,
+                  **_ignored) -> Dict[str, Any]:
     """ENGINE COMMAND ``flight_update``: the flight card's choices."""
     import O4_Flight_Schedule as SCHEDULE
     runner = _runner_for(flight)
@@ -245,7 +250,12 @@ def flight_update(flight: str = "", build_alternate=None, cruise_kt=None,
         corridor = _number(corridor_km, None)
         if corridor is not None:
             record.corridor_km = corridor
-        runner.manager.replan()
+        target = _wire_point(destination)
+        if target is not None:
+            runner.manager.set_destination(
+                runner.now(), target._replace(ident=target.ident.upper()))
+        else:
+            runner.manager.replan()
         if waive_offline:
             runner.manager.waive()
     RECORD.save(record, RECORD.flights_dir())

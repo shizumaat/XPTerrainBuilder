@@ -480,19 +480,28 @@ class FlyPane(QWidget):
             self._command("flight_plan_simbrief", user=user)
 
     def use_quick_entry(self):
-        """Departure + arrival from X-Plane's airport list."""
+        """Departure + arrival from X-Plane's airport list; an empty To
+        is a departure-only plan (#2023).  A To added to the active
+        departure-only flight plans it again (``flight_update
+        {destination}``).  Swift: ``FlyModel.useQuickEntry``."""
         codes = {}
         for entry in self._airports() or ():
             codes.setdefault(entry.code.upper(), entry)
         ends = []
         for edit in (self.quick_from, self.quick_to):
+            if edit is self.quick_to and not edit.text().strip():
+                break
             entry = codes.get(edit.text().strip().upper())
             if entry is None:
                 self._say(TEXT.unknown_airport(edit.text()))
                 return
             ends.append((entry.code, entry.lat, entry.lon))
         self._say()
-        self.set_plan(TEXT.quick_plan(*ends))
+        plan = TEXT.quick_plan(*ends)
+        added = TEXT.added_destination(self.status, plan)
+        if added is not None:
+            self._update(destination=added)
+        self.set_plan(plan)
 
     def prepare(self):
         if self.plan is not None:

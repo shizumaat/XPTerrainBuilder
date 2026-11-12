@@ -56,7 +56,7 @@ from . import flight_budget as BUDGET
 from . import flight_record as RECORD
 from . import world_commands as WORLD
 from .build_share import SHARE
-from .flight_manager import FlightManager
+from .flight_manager import FlightManager, prep_drape_px
 from .world_job_run import _settings, _utc
 
 __all__ = ["STATUS_EVERY_S", "FULL_FALLBACK_S", "start",
@@ -116,15 +116,17 @@ def pack_state(scenery_dir: str) -> Callable[[Tuple[int, int]], Optional[str]]:
     return state_of
 
 
-def estimate(provider: str = "", zoomlevel: int = 0
+def estimate(provider: str = "", zoomlevel: int = 0,
+             px_of: Callable[[], Optional[int]] = lambda: None
              ) -> Callable[[Tuple[int, int], str, str], Tuple[float, float]]:
     """``estimate(tile, kind, role)`` from the recorded times (see the
-    module)."""
+    module).  ``px_of()``: the drape width the flight fetches at when it
+    is not the user's (``flight_manager.prep_drape_px``, #2023)."""
     def seconds(tile, kind, role) -> Tuple[float, float]:
         if kind == "drape":
             from .world_job_run import drape_px
-            return SCHEDULE.job_estimate(kind,
-                                         SCHEDULE.drape_seconds(drape_px()))
+            return SCHEDULE.job_estimate(kind, SCHEDULE.drape_seconds(
+                px_of() or drape_px()))
         if kind != "full":
             return SCHEDULE.job_estimate(kind)
         try:
@@ -279,15 +281,19 @@ class _Runner:
             values.get("fly_sim_priority") or "balanced")
         self.session = session
         self.reloader = _reloader(scenery_dir, session.tile_build_dir, port)
+        def px_of() -> Optional[int]:       # #2023: a departure-only ring
+            manager = getattr(self, "manager", None)
+            return prep_drape_px(manager.plan if manager else plan)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
-            drape=lambda tile: drape_tile(tile, provider, zoomlevel),
+            drape=lambda tile: drape_tile(tile, provider, zoomlevel,
+                                          px=px_of()),
             share=SHARE, owner="flight")
         self.manager = FlightManager(
             record, plan, builder=builder,
             publisher=_PackPublisher(scenery_dir, session.tile_build_dir),
             facts=lambda: {}, state_of=pack_state(scenery_dir),
-            estimate=estimate(provider, zoomlevel),
+            estimate=estimate(provider, zoomlevel, px_of),
             intermediate="drape",
             parked_slots=GOVERNOR.parked_slots(SLOTS.session_capacity()),
             flight_slots=self.cap,

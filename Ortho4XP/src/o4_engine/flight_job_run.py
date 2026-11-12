@@ -297,8 +297,7 @@ class _Runner:
         import O4_XPlane_WebAPI as WEBAPI
 
         from .position_feed import shared
-        from .world_job_run import (_PackPublisher, _SessionBuilder,
-                                    drape_tile, photo_source)
+        from .world_job_run import _PackPublisher, _SessionBuilder, drape_tile, photo_source
         values = _settings()
         provider, zoomlevel = photo_source()
         self.emit, self.scenery_dir = emit, scenery_dir

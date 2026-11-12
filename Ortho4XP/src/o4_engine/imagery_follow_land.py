@@ -24,7 +24,28 @@ row (``O4_Imagery_OnDemand_Index``) and a tier (1, 2, 3 =
 
 It returns the facts the index records and raises ``RuntimeError`` when
 nothing whole of that tier landed (the job counts it as a failure).  The tile objects are read once
-per build folder (``O4_Config_Utils.Tile.read_from_config``).
+per build folder (``O4_Config_Utils.Tile.read_from_config``), and for a
+tile another tool built (owner 2026-11-12T14:19Z, adopted tiles):
+
+* the mask and imagery settings its own tool's cfg carries
+  (:data:`OWN_KEYS`, ``Ortho4XP_<tile>.cfg`` beside it) over the global
+  ones -- this app's tile layer never reads that file (RULINGS
+  2026-10-26c);
+* whatever any cfg says, a tile whose ``.ter`` files name mask PNGs
+  (``BORDER_TEX ../textures/<y>_<x>_ZL<zl>.png``) is NEVER imprinted:
+  imprinting writes the mask into the DDS alpha and deletes the PNG the
+  ``.ter`` still names (:func:`_masks_named`).
+
+A COMBINED provider (``Providers/*.comb``: its layers composited, no
+cached JPEG of its own) is landed from the tile's own layers
+(``O4_Imagery_Utils.initialize_local_combined_providers_dict(only=)``,
+never the module's dict a build may be using): the full square is
+composited and converted, and a lower tier is cut from it
+(``O4_DDS_Tiers.tier_from_file``) -- the composite has no coarser fetch.
+
+``TierLander(source_only=True)`` lands only from the row's source (no
+cache, no network): Convert existing tiles keeps the imagery a tile
+already has near custom airports (``world_adopt.keep_cores``).
 
 :meth:`TierLander.local` says a landing needs NO download (the full
 tier's ``DDS_cache`` entry, or the tier's source JPEG, is on disk): at a
@@ -60,13 +81,22 @@ def _drop(tier: int) -> int:
     return TIERS.TIER_DROPS[int(tier)]       # (3, 2, 1, 0): tier 3 = full
 
 
+#: A tile another tool built: what its own cfg says of its masks and
+#: imagery, read over the global settings.
+OWN_KEYS = ("imprint_masks_to_dds", "mask_zl", "default_website",
+            "zone_list")
+#: A combined provider's landing composites under the module's dict.
+_COMBINED = threading.Lock()
+
+
 class TierLander:
     """``lander(row, tier) -> {"tier_px", "full_bytes", "jpeg_path",
     "dds_cache_key", "network"}``; thread safe."""
 
-    def __init__(self):
+    def __init__(self, source_only: bool = False):
         self._tiles: dict = {}
         self._guard = threading.Lock()
+        self.source_only = bool(source_only)
 
     def _tile(self, row):
         """The tile object of ``row``'s build folder (read once)."""
@@ -79,6 +109,9 @@ class TierLander:
                 tile = CFG.Tile(lat, lon, "")
                 tile.build_dir = key
                 tile.read_from_config()
+                _own_settings(tile)
+                if _masks_named(row):
+                    tile.imprint_masks_to_dds = False
                 _frozen_colour_field(tile)
                 self._tiles[key] = tile
             return tile
@@ -114,12 +147,17 @@ class TierLander:
         width = TIER_WIDTH[int(tier)]
         if _land_from_source(row.get("source_path"), final, width):
             return _facts(final, width, None, None, False)
+        if self.source_only:
+            raise RuntimeError(f"{row['name']}: its source is not here")
         key = row.get("dds_cache_key")
         if width == TIERS.FULL_WIDTH and key and DDSCACHE.serve(key, final):
             return _facts(final, width, row.get("jpeg_path"), key, False)
         tile = self._tile(row)
         til_x, til_y = texture_corner(row["name"])
         attrs = (til_x, til_y, int(row["zl"]), row["provider"])
+        if row["provider"] in IMG.combined_providers_dict:
+            _land_combined(tile, attrs, final, width)
+            return _facts(final, width, None, None, True)
         drop = _drop(tier)
         jpeg = self._source_jpeg(row, tier)
         cached = bool(jpeg) and os.path.isfile(jpeg)
@@ -129,6 +167,112 @@ class TierLander:
         IMG.convert_texture(tile, *attrs, drop=drop)
         _mirror(os.path.join(row["build_dir"], "textures", row["name"]), final)
         return _facts(final, width, jpeg, None, not cached)
+
+
+def _own_settings(tile) -> None:
+    """A tile this app did not build: the :data:`OWN_KEYS` its own tool's
+    cfg carries, over the global settings (each read as the type the tile
+    already holds; a value that does not read is left)."""
+    import ast
+
+    import O4_Config_Names as CN
+    import O4_Tile_Info as TINFO
+    if TINFO.built_here(tile.build_dir, tile.lat, tile.lon):
+        return
+    path = os.path.join(tile.build_dir,
+                        CN.ortho4xp_tile_cfg_name(tile.lat, tile.lon))
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return
+    for line in lines:
+        key, _eq, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip("'\"")
+        if key not in OWN_KEYS or not _eq:
+            continue
+        held = getattr(tile, key, None)
+        try:
+            if isinstance(held, bool):
+                setattr(tile, key, value.lower() in ("true", "1", "yes"))
+            elif isinstance(held, int):
+                setattr(tile, key, int(value))
+            elif isinstance(held, list):
+                setattr(tile, key, list(ast.literal_eval(value or "[]")))
+            else:
+                setattr(tile, key, value)
+        except (ValueError, SyntaxError, TypeError):
+            continue
+
+
+def _masks_named(row: dict) -> bool:
+    """Do the tile's ``.ter`` files name a mask PNG (``<y>_<x>_ZL<zl>.png``,
+    ``O4_File_Names.mask_file``)?  Its terrain folder: the row's, else
+    its build folder's."""
+    import re
+    mask = re.compile(r"BORDER_TEX\s+\S*?\d+_\d+_ZL\d+\.png\s*$")
+    for folder in (row.get("terrain_dir"),
+                   os.path.join(row.get("build_dir") or "", "terrain")):
+        try:
+            names = os.listdir(folder) if folder else ()
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(".ter"):
+                continue
+            with contextlib.suppress(OSError):
+                with open(os.path.join(folder, name), encoding="utf-8",
+                          errors="replace") as handle:
+                    if any(mask.match(line.strip()) for line in handle):
+                        return True
+    return False
+
+
+def _combined_layers(tile, provider: str) -> dict:
+    """The tile's own layers of the combined ``provider`` (read once per
+    tile object): ``{provider: [layer, ...]}``, ``{}`` when it has none
+    there."""
+    import O4_Imagery_Utils as IMG
+    held = getattr(tile, "_o4_combined_layers", None)
+    if held is None:
+        held = {}
+    if provider not in held:
+        found = IMG.initialize_local_combined_providers_dict(
+            tile, only=[provider]) or {}
+        held[provider] = found.get(provider) or []
+        tile._o4_combined_layers = held
+    return {provider: held[provider]} if held[provider] else {}
+
+
+def _land_combined(tile, attrs, final: str, width: int) -> None:
+    """A combined provider's square: composited at full size and
+    converted under the module's dict with the tile's own layers (the
+    provider added for the landing and taken out after, unless a build
+    put it there), the ``width`` tier cut from it and landed at
+    ``final``."""
+    import O4_Imagery_Utils as IMG
+    provider = attrs[3]
+    with _COMBINED:
+        layers = _combined_layers(tile, provider)
+        if not layers:
+            raise RuntimeError(f"{provider} has no imagery on this tile")
+        table = IMG.local_combined_providers_dict
+        added = provider not in table
+        if added:
+            table.update(layers)
+        try:
+            if not IMG.build_jpeg_ortho(tile, *attrs):
+                raise RuntimeError(f"the {provider} imagery did not download")
+            IMG.convert_texture(tile, *attrs, drop=0)
+        finally:
+            if added and table.get(provider) is layers[provider]:
+                table.pop(provider, None)
+    built = os.path.join(tile.build_dir, "textures",
+                         os.path.basename(final))
+    if width == TIERS.FULL_WIDTH:
+        _mirror(built, final)
+    elif not _land_from_source(built, final, width):
+        raise RuntimeError(f"{os.path.basename(final)}: no {width} px tier")
 
 
 def _frozen_colour_field(tile) -> None:

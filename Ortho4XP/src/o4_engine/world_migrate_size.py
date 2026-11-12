@@ -224,14 +224,22 @@ def dry_run(scenery_dir: str, names=None, *, px: int = CONVERT.DEFAULT_PX,
     totals.update(_estimate(rows, timed, max(1, workers // 2)))
     totals["seconds"] = round(time.monotonic() - started, 1)
     return {"rows": rows, "totals": totals,
-            "choices": _choices(rows, found, scenery_dir)}
+            "choices": _choices(rows, found, scenery_dir, journal, px, names)}
 
 
-def _choices(rows, found, scenery_dir: str) -> list:
-    """``[{"id", "line", **figures}]`` of every choice, in order."""
+def _choices(rows, found, scenery_dir: str, journal, px: int,
+             names=None) -> list:
+    """``[{"id", "line", **figures}]`` of every choice, in order; the
+    tiles made dynamic before that a choice adopts again
+    (``world_adopt.plan``) counted in."""
+    import O4_Custom_Scenery as SCENERY
+
+    from . import world_adopt as ADOPT
+    points = SCENERY.airport_points_by_tile(scenery_dir)
     figures = RETIRE.choice_totals(
         rows, found, RETIRE.custom_airport_tiles(scenery_dir),
-        RETIRE.disabled_names(scenery_dir))
+        RETIRE.disabled_names(scenery_dir),
+        again=ADOPT.plan(journal.records, points, px, names))
     return [{"id": choice, "line": RETIRE.choice_line(choice, figures[choice]),
              **figures[choice]} for choice in RETIRE.CHOICES]
 

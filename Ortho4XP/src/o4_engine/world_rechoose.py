@@ -62,8 +62,13 @@ def _tile_of(name: str) -> tuple:
 
 
 def _ours(record: dict, lat: int, lon: int) -> Optional[bool]:
-    """Did this app build the tile?  ``None`` when no folder can tell."""
+    """Did this app build the tile, or adopt it (``world_adopt``: an
+    adopted tile is ours to keep, package and offload)?  ``None`` when no
+    folder can tell."""
     import O4_Tile_Info as TINFO
+    if record.get("adopted") or TINFO.adopted_record(
+            record.get("config_dir") or ""):
+        return True
     for folder in (ORIGINALS.home(record), record.get("config_dir")):
         if folder and os.path.isdir(folder):
             try:

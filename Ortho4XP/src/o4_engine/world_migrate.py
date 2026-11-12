@@ -37,6 +37,13 @@ same imagery -- never by none.  The next run finishes what the journal
 says is half done; a finished tile is a no-op.  ``scenery_packs.ini`` is
 copied into ``ini_backups/`` before a run changes a row.
 
+A kept tile another tool built is ADOPTED (``world_adopt``, owner
+2026-11-12T14:19Z): stamped ours, its adopted package written; a tile an
+earlier run made dynamic is adopted again when the choice keeps it; once
+every tile is in, the imagery near custom airports is kept sharp while
+the budget has room.  A run writes a tile only while the disk keeps
+``world_adopt.RESERVE_BYTES`` free.
+
 X-Plane must be closed to migrate or revert (the converter's rule).  The
 dry run (``world_migrate_size``) writes nothing in Custom Scenery.
 """
@@ -55,6 +62,7 @@ import O4_DSF_Compress as DSFC
 import O4_Imagery_OnDemand_Convert as CONVERT
 import O4_World_Pack as WP
 
+from . import world_adopt as ADOPT
 from . import world_originals as ORIGINALS
 from . import world_retire as RETIRE
 from .imagery_convert import sibling_work_dir
@@ -320,7 +328,8 @@ def migrate_tile(entry, *, scenery_dir: str, pack: str, work: str,
         record = _stage_and_swap(entry, record, pack=pack, work=work,
                                  journal=journal, swap_lock=swap_lock,
                                  px=px, threads=threads)
-        if "problems" in record:
+        # a record carries the problems of an earlier try: the state says
+        if record.get("state") != "swapped":
             journal.set(entry.name, problems=record["problems"])
             return {**out, "status": "failed", "problems": record["problems"]}
     if register:
@@ -330,6 +339,10 @@ def migrate_tile(entry, *, scenery_dir: str, pack: str, work: str,
         with swap_lock:
             _set_row(scenery_dir, entry.name, enabled=False)
         journal.set(entry.name, state="done", problems=[])
+        if ADOPT.foreign(entry.source, entry.lat, entry.lon):
+            out.update(ADOPT.finish(entry.name, journal=journal, pack=pack,
+                                    lat=entry.lat, lon=entry.lon),
+                       adopted=True)
         kept = ORIGINALS.try_put_away(scenery_dir, entry.name, journal,
                                       index=index, lock=swap_lock)
         if kept:
@@ -430,42 +443,75 @@ def _migrate(scenery_dir: str, names, *, px: int, workers: int,
     os.makedirs(work, exist_ok=True)
     pack = _ready_pack(scenery_dir)
     journal, lock = Journal(work), threading.Lock()
-    found = entries(scenery_dir, names)
     custom = (RETIRE.custom_airport_tiles(scenery_dir)
               if choice == RETIRE.KEEP_CUSTOM else {})
+    again = dict(ADOPT.readopt_candidates(journal.records, choice, custom,
+                                          names))
+    found = [e for e in entries(scenery_dir, names) if e.name not in again]
+    found += sorted(again)
     disabled = RETIRE.disabled_names(scenery_dir)
     backup = _backup_ini(scenery_dir, work)
     _settle(scenery_dir, journal, index)
     started, done = time.monotonic(), [0]
+    kw = dict(scenery_dir=scenery_dir, pack=pack, work=work, journal=journal,
+              swap_lock=lock, px=px, threads=threads, index=index)
 
     def one(entry) -> dict:
+        name = entry if isinstance(entry, str) else entry.name
+        kind = again[name].get("kind") if name in again else entry.kind
         if _STOP.is_set():
-            return {"name": entry.name, "kind": entry.kind, "status": "stopped"}
+            return {"name": name, "kind": kind, "status": "stopped"}
+        if ADOPT.room_left(work) < ADOPT.RESERVE_BYTES:
+            return {"name": name, "kind": kind,
+                    "status": "skip: not enough free disk space"}
         try:
-            row = _one_tile(entry, choice, custom, disabled,
-                            scenery_dir=scenery_dir,
-                            pack=pack, work=work, journal=journal,
-                            swap_lock=lock, px=px, threads=threads,
-                            index=index)
+            row = (ADOPT.readopt(name, journal.get(name), **kw)
+                   if name in again
+                   else _one_tile(entry, choice, custom, disabled, **kw))
         except (OSError, ValueError, DSFC.CompressError) as error:
-            row = {"name": entry.name, "kind": entry.kind,
+            row = {"name": name, "kind": kind,
                    "status": "failed", "problems": [str(error)]}
-            if journal.get(entry.name):     # the reason stays with the tile
-                journal.set(entry.name, problems=row["problems"])
+            if journal.get(name):           # the reason stays with the tile
+                journal.set(name, problems=row["problems"])
         with lock:
             done[0] += 1
             if progress:
-                progress(done[0], len(found), entry.name)
+                progress(done[0], len(found), name)
         return row
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         rows = list(pool.map(one, found))
+    cores = _keep_cores(rows, journal, work, index)
     missing = missing_from_pack(scenery_dir, work_dir=work)
     WORLD.write_log({"migrate": _counts(rows), "choice": choice,
-                     "scenery_dir": scenery_dir, "pack_missing": len(missing)})
+                     "scenery_dir": scenery_dir, "pack_missing": len(missing),
+                     "cores": cores})
     return {"rows": rows, "counts": _counts(rows), "ini_backup": backup,
             "seconds": round(time.monotonic() - started, 1),
             "stopped": _STOP.is_set(), "choice": choice,
-            "pack_missing": len(missing)}
+            "pack_missing": len(missing), "cores": cores,
+            "adopted": sum(1 for row in rows if row.get("adopted"))}
+
+
+def _keep_cores(rows, journal: Journal, work: str,
+                index: Optional[str]) -> dict:
+    """The adopted tiles' imagery near custom airports kept
+    (``world_adopt.keep_cores``) once every tile is in; ``{}`` when the
+    run was stopped or adopted none with an on-demand copy."""
+    tiles = []
+    for row in rows:
+        record = journal.get(row["name"]) or {}
+        if row.get("adopted") and record.get("config_dir"):
+            try:
+                lat, lon = WP.parse_tile(row["name"][len(_TILE_PREFIX):])
+            except ValueError:
+                continue
+            tiles.append((record["config_dir"], lat, lon))
+    if not tiles or _STOP.is_set():
+        return {}
+    try:
+        return ADOPT.keep_cores(tiles, index=index, work=work)
+    except Exception as error:              # imagery stays low-res
+        return {"error": str(error)}
 
 
 def _settle(scenery_dir: str, journal: Journal,
@@ -542,6 +588,8 @@ def _revert_one(scenery_dir: str, pack: str, name: str, record: dict,
     lat, lon = WP.parse_tile(name[len(_TILE_PREFIX):])
     if ORIGINALS.bring_back(scenery_dir, name, work):
         _set_row(scenery_dir, name, enabled=True)
+    elif _relink(scenery_dir, name, record):
+        _set_row(scenery_dir, name, enabled=True)
     if record.get("state") in ("swapped", "done"):
         _give_back(pack, lat, lon, record.get("prior"))
     config = ORIGINALS.config_after_return(record, scenery_dir, name, work)
@@ -551,6 +599,21 @@ def _revert_one(scenery_dir: str, pack: str, name: str, record: dict,
             ONDEMAND.forget_tile(WP.tile_name(lat, lon), index)
         if record.get("kind") != "link":
             _index(config, lat, lon, None, index)
+    return True
+
+
+def _relink(scenery_dir: str, name: str, record: dict) -> bool:
+    """A kept LINK whose link is no longer in Custom Scenery (removed by
+    hand, or chosen dynamic and adopted again) made again to its target;
+    True when it was.  The target is never touched."""
+    import O4_Unmounted_Links as UL
+    path = os.path.join(scenery_dir, name)
+    target = record.get("link_target") or (
+        record.get("source") if str(record.get("kind", "")).startswith("link")
+        else None)
+    if not target or os.path.lexists(path):
+        return False
+    os.symlink(UL.clean_target(target), path)
     return True
 
 
@@ -686,10 +749,14 @@ def summary(action: str, result: Dict[str, Any]) -> str:
     if action == "migrate":
         c = result["counts"]
         text = (f"Moved {c.get('migrated', 0):,} tiles into the World pack"
+                + (f" ({result['adopted']:,} built by another tool, "
+                   "adopted: their mesh kept)" if result.get("adopted")
+                   else "")
                 + (f", made {c['dynamic']:,} dynamic" if c.get("dynamic")
                    else "")
                 + f"; {c.get('failed', 0):,} failed, {c.get('skip', 0):,} "
                 "left as they are.")
+        text += _cores_words(result.get("cores") or {})
         text += _not_done(result, "Not converted (left in Custom "
                                   "Scenery)")
         if result.get("stopped"):
@@ -701,9 +768,16 @@ def summary(action: str, result: Dict[str, Any]) -> str:
     acts = t["by_action"]
     move = acts.get("copy", 0) + acts.get("stage", 0) + acts.get("resume", 0)
     left = sum(n for a, n in acts.items() if a.startswith("skip"))
+    again = max([int(c.get("again") or 0) for c in result.get("choices")
+                 or ()] or [0])
+    if again:
+        left_words = (f" {again:,} tiles made dynamic before can be adopted "
+                      "again: see each choice.")
+    else:
+        left_words = ""
     if not move:
         return (f"Nothing to move: {acts.get('migrated', 0):,} tiles are in "
-                f"the World pack, {left:,} left as they are.")
+                f"the World pack, {left:,} left as they are." + left_words)
     when = (_duration(t["seconds_est"]) if t.get("seconds_per_tile")
             else "an unknown time")
     return (f"{move:,} tiles can move into the World pack "
@@ -711,7 +785,19 @@ def summary(action: str, result: Dict[str, Any]) -> str:
             f"on-demand copy; their files stay where they are). It needs "
             f"{t['new_bytes'] / 1e9:,.1f} GB on this drive and takes {when}. "
             f"{left:,} are left as they are; {acts.get('migrated', 0):,} "
-            "were moved before.")
+            "were moved before." + left_words)
+
+
+def _cores_words(cores: Dict[str, Any]) -> str:
+    """The sentence of the imagery kept near custom airports."""
+    if not cores.get("landed") and not cores.get("no_room"):
+        return ""
+    text = (f" Kept {cores.get('landed', 0):,} sharp squares near custom "
+            f"airports ({cores.get('bytes', 0) / 1e9:,.1f} GB)")
+    if cores.get("no_room"):
+        text += (f"; {cores['no_room']:,} stay low-res for want of room in "
+                 "the disk budget, sharpened when you fly there")
+    return text + "."
 
 
 def _not_done(result: Dict[str, Any], head: str, shown: int = 8) -> str:

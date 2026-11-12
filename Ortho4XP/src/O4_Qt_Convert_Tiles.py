@@ -38,8 +38,9 @@ TITLE = "Convert existing tiles"
 INTRO = ("Moves your per-tile ortho packs (zOrtho4XP_…) into the World pack, "
          "so X-Plane can take new tiles while it runs. Choose what to keep; "
          "Measure shows what each choice frees and still needs before "
-         "anything moves. Files on another drive are never deleted, and Undo "
-         "puts every tile back.")
+         "anything moves. The tile folders leave Custom Scenery for the "
+         "World pack's keeping, files on another drive are never deleted, "
+         "and Undo moves every tile back.")
 #: ``world_retire.CHOICES``: (id, title, the line shown before a measure).
 CHOICES = (
     ("keep_all", "Keep all existing tiles",
@@ -58,22 +59,24 @@ CONFIRM_DYNAMIC = ("Tiles made dynamic are drawn by the World pack, draped "
                    "Custom Scenery (Undo puts them back).")
 FREE_SPACE = "Free space…"
 FREE_TITLE = "Remove the dynamic tiles from this Mac?"
-FREE_TEXT = ("Quit X-Plane first. The tiles made dynamic are deleted from "
-             "Custom Scenery and Undo can no longer bring them back; they are "
-             "draped or built when you fly there. Files on other drives are "
-             "never touched.")
+FREE_TEXT = ("Quit X-Plane first. The folders of the tiles made dynamic "
+             "are deleted from this Mac and Undo can no longer bring them "
+             "back; they are draped or built when you fly there. Files on "
+             "other drives are never touched.")
 MEASURE, CONVERT, STOP, UNDO = "Measure", "Convert…", "Cancel", "Undo…"
 MEASURING = ("Measuring (a few tiles are converted into a temporary folder "
              "to time it)…")
 CONVERTING = "Converting…"
 CONFIRM_TITLE = "Move these tiles into the World pack?"
-CONFIRM_TEXT = ("Quit X-Plane first. Each tile's own pack is turned off in "
-                "scenery_packs.ini (a copy of the file is kept) and the World "
-                "pack draws it. You can stop at any time and convert again "
+CONFIRM_TEXT = ("Quit X-Plane first. Each tile folder on this Mac moves "
+                "out of Custom Scenery into the World pack's keeping "
+                "(XPTerrainBuilder_world_migrate, beside Custom Scenery) "
+                "and the World pack draws it (a copy of scenery_packs.ini "
+                "is kept). You can stop at any time and convert again "
                 "later.")
 UNDO_TITLE = "Put every converted tile back?"
-UNDO_TEXT = ("Quit X-Plane first. Each tile's own pack is turned on again and "
-             "the World pack gives the tile back.")
+UNDO_TEXT = ("Quit X-Plane first. Each tile folder moves back into Custom "
+             "Scenery, turned on, and the World pack gives the tile back.")
 NOTE_STYLE = "color: gray; font-size: 11px;"
 
 

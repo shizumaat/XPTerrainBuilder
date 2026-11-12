@@ -9,10 +9,12 @@ X-Plane folder in ``tmp_path`` (never the real install or a real drive):
   dynamic, bytes this Mac gets back, bytes another drive no longer
   needs, the drives still needed, tiles another tool built;
 * keep-custom moves the custom tile as it is and makes the rest dynamic
-  (a World pack placeholder, the ini row disabled in place, a link
-  removed, a local folder kept); the library is byte for byte unchanged;
-* Undo makes the links again and enables the rows; Free space removes
-  the local dynamic tiles, which then stay dynamic.
+  (a World pack placeholder, a link's ini row disabled in place and the
+  link removed, a local folder moved into the work folder's
+  ``originals/`` with no row); the library is byte for byte unchanged;
+* Undo makes the links again, moves the local folder back and enables
+  the rows; Free space removes the local dynamic tiles from
+  ``originals/``, which then stay dynamic.
 """
 from __future__ import annotations
 
@@ -115,16 +117,21 @@ def test_keep_custom_moves_the_custom_tile_and_makes_the_rest_dynamic(xp):  # no
     assert WP.world_tiles(xp["pack"]) == {
         (45, 7): "full", (46, 8): "placeholder", (48, 10): "placeholder"}
     rows = _rows(scenery)
-    for name in ("zOrtho4XP_+45+007", "zOrtho4XP_+46+008", "zOrtho4XP_+48+010"):
+    for name in ("zOrtho4XP_+45+007", "zOrtho4XP_+48+010"):
         assert rows[name] == "SCENERY_PACK_DISABLED", name     # kept in place
+    assert "zOrtho4XP_+46+008" not in rows
     assert os.path.islink(os.path.join(scenery, "zOrtho4XP_+45+007"))
     assert not os.path.lexists(os.path.join(scenery, "zOrtho4XP_+48+010"))
-    assert os.path.isdir(os.path.join(scenery, "zOrtho4XP_+46+008"))
+    assert not os.path.lexists(os.path.join(scenery, "zOrtho4XP_+46+008"))
+    kept = os.path.join(xp["work"], "originals", "zOrtho4XP_+46+008")
+    assert os.path.isdir(kept)
+    assert MIGRATE.Journal(xp["work"]).get("zOrtho4XP_+46+008")["original"] \
+        == kept
     assert _hashes(xp["library"]) == library
     assert "made 2 dynamic" in MIGRATE.summary("migrate", result)
     again = MIGRATE.migrate(scenery, index=xp["index"], choice=RETIRE.DYNAMIC)
-    assert {r["name"]: r["status"] for r in again["rows"]}["zOrtho4XP_+46+008"] \
-        == "dynamic"
+    assert "zOrtho4XP_+46+008" not in {r["name"] for r in again["rows"]}
+    assert os.path.isdir(kept)
     # Undo: the link again (its target as it was), every row enabled, the
     # placeholders this run wrote removed
     target = os.path.join(os.path.dirname(xp["library"]), "Gone", "zOrtho4XP_+48+010")
@@ -135,6 +142,8 @@ def test_keep_custom_moves_the_custom_tile_and_makes_the_rest_dynamic(xp):  # no
         == target                    # Windows readlink: the \\?\ form
     rows = _rows(scenery)
     assert all(rows[n] == "SCENERY_PACK" for n in back["reverted"])
+    assert os.path.isdir(os.path.join(scenery, "zOrtho4XP_+46+008"))
+    assert not os.path.lexists(kept)
     assert WP.world_tiles(xp["pack"]) == {(45, 7): "placeholder"}
     assert _hashes(xp["library"]) == library
 
@@ -145,9 +154,13 @@ def test_everything_dynamic_then_free_space_then_undo(xp):  # noqa: F811
     MIGRATE.run_command(False, scenery_dir=scenery, choice=RETIRE.DYNAMIC)
     assert not os.path.lexists(os.path.join(scenery, "zOrtho4XP_+45+007"))
     assert os.path.islink(os.path.join(scenery, "zOrtho4XP_+47+009"))  # disabled: left
+    kept = os.path.join(xp["work"], "originals", "zOrtho4XP_+46+008")
+    assert not os.path.lexists(os.path.join(scenery, "zOrtho4XP_+46+008"))
+    assert os.path.isdir(kept)
     freed = MIGRATE.run_command(False, scenery_dir=scenery, purge=True)
     assert freed["action"] == "free_space" and freed["removed"] == ["zOrtho4XP_+46+008"]
     assert freed["freed_bytes"] > 0
+    assert not os.path.exists(kept)
     assert not os.path.exists(os.path.join(scenery, "zOrtho4XP_+46+008"))
     assert _hashes(xp["library"]) == library       # another drive: never touched
     back = MIGRATE.run_command(False, True, scenery_dir=scenery)

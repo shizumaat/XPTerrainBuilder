@@ -30,6 +30,10 @@ follow job lands from them while they are mounted.
     venv/bin/python tools/ondemand_convert.py world-rechoose --package-only --tiles ...
     # lean copies given the mask PNGs and colour field they may lack
     venv/bin/python tools/ondemand_convert.py world-backfill
+    # converted local tile folders moved out of Custom Scenery into the
+    # work folder's originals/ (an install converted before 2026-11-12)
+    venv/bin/python tools/ondemand_convert.py world-tidy-originals
+    venv/bin/python tools/ondemand_convert.py world-tidy-originals --run
 
 Nothing on the source is ever written.  ``scenery_packs.ini`` is never
 edited (an entry keeps its name, so its order and enabled state hold).
@@ -103,6 +107,13 @@ def _world(args, scenery: str) -> dict:
         return result
     elif args.action == "world-backfill":
         return _backfill(scenery)
+    elif args.action == "world-tidy-originals":
+        from o4_engine.world_originals import tidy
+        result = tidy(scenery, dry_run=not args.run)
+        for row in result["failed"]:
+            print(f"{row['name']}: failed  {row['problems']}")
+        print(result["summary"])
+        return result
     else:
         result, action = MIGRATE.revert(scenery, args.tiles), "revert"
     print(MIGRATE.summary(action, result))
@@ -183,6 +194,12 @@ def main(argv=None) -> int:
                           "built (moves nothing; X-Plane may run)")
     sub.add_parser("world-backfill",
                    help="lean copies given their mask PNGs and colour field")
+    wtidy = sub.add_parser("world-tidy-originals",
+                           help="converted local tile folders moved into the "
+                                "work folder's originals/ (a dry run without "
+                                "--run)")
+    wtidy.add_argument("--run", action="store_true",
+                       help="do it (X-Plane must be closed)")
     args = parser.parse_args(argv)
     if args.data_root:
         import O4_File_Names as FNAMES

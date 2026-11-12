@@ -22,9 +22,11 @@ that hold a custom airport, or make everything DYNAMIC.
   disabled, never removed (spec §13 M1).  A LINK entry (a tile on another
   drive) is removed from Custom Scenery -- the choice retires it, the
   dialog says so -- and its target is journalled, so Undo makes it again;
-  the drive's files are never touched.  A LOCAL entry stays where it is
-  (disabled) until :func:`purge` ("Free space…") deletes it, writing its
-  package first when this app built it; Undo brings it back until then.
+  the drive's files are never touched.  A LOCAL entry's folder moves out
+  of Custom Scenery into the work folder's ``originals/`` and its row goes
+  (``world_originals``, owner 2026-11-12T13:42Z) until :func:`purge`
+  ("Free space…") deletes it there, writing its package first when this
+  app built it; Undo moves it back until then.
 * :func:`choice_totals` -- the dry run's figures for each choice, before
   anything moves: tiles kept and made dynamic, bytes this Mac gains back
   and bytes on each other drive no longer needed, the drives still
@@ -260,6 +262,11 @@ def retire_tile(entry, *, scenery_dir: str, pack: str, journal,
         if record.get("link_target") and os.path.islink(entry.path):
             os.unlink(entry.path)       # the link only, never its target
         journal.set(entry.name, state="dynamic", problems=[])
+    from . import world_originals as ORIGINALS
+    kept = ORIGINALS.try_put_away(scenery_dir, entry.name, journal,
+                                  index=index, lock=swap_lock)
+    if kept:
+        out["kept_in_place"] = kept
     return {**out, "status": "dynamic"}
 
 
@@ -270,13 +277,17 @@ def _forget(lat: int, lon: int, index: Optional[str]) -> None:
 
 
 def restore_tile(scenery_dir: str, pack: str, name: str, record: dict,
-                 set_row) -> bool:
+                 set_row, work: Optional[str] = None) -> bool:
     """Undo :func:`retire_tile`: the link made again (its target as it
-    was), the row enabled -- filed again when another program dropped it
-    (``set_row``) -- and the World pack's placeholder removed when this
-    put it there.  False when a local entry was purged (nothing to bring
-    back: the tile stays dynamic)."""
+    was) or the local folder moved back from ``work``'s ``originals/``
+    (``world_originals.bring_back``; ``OSError`` when the name is taken),
+    the row enabled -- filed again (``set_row``) -- and the World pack's
+    placeholder removed when this put it there.  False when a local entry
+    was purged (nothing to bring back: the tile stays dynamic)."""
     path = os.path.join(scenery_dir, name)
+    if work and not record.get("link_target"):
+        from . import world_originals as ORIGINALS
+        ORIGINALS.bring_back(scenery_dir, name, work)
     target = record.get("link_target")
     if target and not os.path.lexists(path):
         os.symlink(target, path)
@@ -303,17 +314,33 @@ def _package_first(first, path: str, name: str) -> None:
                    built=TINFO.built_here(path, *pair))
 
 
+def _local_folder(scenery_dir: str, name: str,
+                  work: Optional[str]) -> Optional[str]:
+    """The dynamic local entry's real folder: kept in ``work``'s
+    ``originals/``, else (converted before the folders moved) directly in
+    ``scenery_dir``; never a link, never anything deeper."""
+    from . import world_originals as ORIGINALS
+    places = [os.path.join(scenery_dir, name)]
+    if work:
+        places.insert(0, ORIGINALS.path_of(work, name))
+    for path in places:
+        if not os.path.islink(path) and os.path.isdir(path):
+            return path
+    return None
+
+
 def purge(scenery_dir: str, records: Dict[str, dict],
-          names: Optional[Iterable[str]] = None) -> Dict[str, object]:
+          names: Optional[Iterable[str]] = None,
+          work: Optional[str] = None) -> Dict[str, object]:
     """"Free space…": delete the LOCAL entries made dynamic (a real
-    folder directly in ``scenery_dir``, never a link), each one this app
-    built packaged first (``o4_engine.package_first``).  ``{"removed":
-    [names], "freed_bytes"}``; the caller marks their records purged."""
+    folder in ``work``'s ``originals/`` or directly in ``scenery_dir``,
+    never a link), each one this app built packaged first
+    (``o4_engine.package_first``).  ``{"removed": [names],
+    "freed_bytes"}``; the caller marks their records purged."""
     import O4_Tile_Info as TINFO
 
     from . import package_first as FIRST
     wanted = set(names) if names else None
-    root = os.path.realpath(scenery_dir)
     first = FIRST.Pass()
     out: Dict[str, object] = {"removed": [], "freed_bytes": 0}
     for name, record in sorted(records.items()):
@@ -321,9 +348,8 @@ def purge(scenery_dir: str, records: Dict[str, dict],
             continue
         if wanted is not None and name not in wanted:
             continue
-        path = os.path.join(scenery_dir, name)
-        if (os.path.islink(path) or not os.path.isdir(path)
-                or os.path.dirname(os.path.realpath(path)) != root):
+        path = _local_folder(scenery_dir, name, work)
+        if path is None:
             continue
         _package_first(first, path, name)
         size = TINFO.tree_size(path)

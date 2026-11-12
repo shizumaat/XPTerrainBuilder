@@ -28,7 +28,7 @@ public struct O4WorldMigrateResult: Sendable, Equatable {
     public let action: String
     /// One sentence, ready to show.
     public let summary: String
-    /// Tiles that failed (their names), migrate only.
+    /// Tiles that failed (their names): migrate, and undo (a name Custom Scenery already has).
     public let failed: [String]
     /// A migration stopped before the end (resumable).
     public let stopped: Bool
@@ -87,7 +87,7 @@ public struct O4WorldMigrateProgress: Sendable, Equatable {
 /// the same strings).
 public enum O4WorldMigrateText {
     public static let title = "Convert existing tiles"
-    public static let intro = "Moves your per-tile ortho packs (zOrtho4XP_…) into the World pack, so X-Plane can take new tiles while it runs. Choose what to keep; Measure shows what each choice frees and still needs before anything moves. Files on another drive are never deleted, and Undo puts every tile back."
+    public static let intro = "Moves your per-tile ortho packs (zOrtho4XP_…) into the World pack, so X-Plane can take new tiles while it runs. Choose what to keep; Measure shows what each choice frees and still needs before anything moves. The tile folders leave Custom Scenery for the World pack's keeping, files on another drive are never deleted, and Undo moves every tile back."
     public static let keepAllTitle = "Keep all existing tiles"
     public static let keepAllHint = "Every tile moves as it is; a drive that holds tiles stays required."
     public static let keepCustomTitle = "Keep tiles with custom airports, make the rest dynamic"
@@ -97,7 +97,7 @@ public enum O4WorldMigrateText {
     public static let confirmDynamic = "Tiles made dynamic are drawn by the World pack, draped or built when you fly there; tiles not built by XPTerrainBuilder become our drape or build, not the same tile. Their links to another drive are removed from Custom Scenery (Undo puts them back)."
     public static let freeSpace = "Free space…"
     public static let freeTitle = "Remove the dynamic tiles from this Mac?"
-    public static let freeText = "Quit X-Plane first. The tiles made dynamic are deleted from Custom Scenery and Undo can no longer bring them back; they are draped or built when you fly there. Files on other drives are never touched."
+    public static let freeText = "Quit X-Plane first. The folders of the tiles made dynamic are deleted from this Mac and Undo can no longer bring them back; they are draped or built when you fly there. Files on other drives are never touched."
 
     /// The choices (`world_retire.CHOICES`; Qt `O4_Qt_Convert_Tiles.CHOICES`):
     /// id, title, and the line shown before a measure.
@@ -113,9 +113,9 @@ public enum O4WorldMigrateText {
     public static let measuring = "Measuring (a few tiles are converted into a temporary folder to time it)…"
     public static let converting = "Converting…"
     public static let confirmTitle = "Move these tiles into the World pack?"
-    public static let confirmText = "Quit X-Plane first. Each tile's own pack is turned off in scenery_packs.ini (a copy of the file is kept) and the World pack draws it. You can stop at any time and convert again later."
+    public static let confirmText = "Quit X-Plane first. Each tile folder on this Mac moves out of Custom Scenery into the World pack's keeping (XPTerrainBuilder_world_migrate, beside Custom Scenery) and the World pack draws it (a copy of scenery_packs.ini is kept). You can stop at any time and convert again later."
     public static let undoTitle = "Put every converted tile back?"
-    public static let undoText = "Quit X-Plane first. Each tile's own pack is turned on again and the World pack gives the tile back."
+    public static let undoText = "Quit X-Plane first. Each tile folder moves back into Custom Scenery, turned on, and the World pack gives the tile back."
 
     /// The count under the bar (Qt: `O4_Qt_Convert_Tiles.progress_line`).
     public static func progressLine(_ progress: O4WorldMigrateProgress) -> String {

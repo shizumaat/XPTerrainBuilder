@@ -47,7 +47,7 @@ import O4_World_Pack as WP
 from . import world_migrate as MIGRATE
 from . import world_retire as RETIRE
 
-__all__ = ["rechoose", "summary", "start_world_rechoose"]
+__all__ = ["rechoose", "start_world_rechoose"]
 
 _PREFIX = "zOrtho4XP_"
 
@@ -68,8 +68,10 @@ def _ours(record: dict, lat: int, lon: int) -> Optional[bool]:
     return None
 
 
-def _sort(records: dict, names, only_not_ours: bool) -> Dict[str, list]:
-    """``{"pick", "ours", "unknown"}`` of the kept tiles (``names`` limits
+def _sort(records: dict, names, only_not_ours: bool,
+          links_only: bool = False) -> Dict[str, list]:
+    """``{"pick", "ours", "unknown"}`` of the kept tiles (``names`` and
+    ``links_only`` -- entries that were links to another drive -- limit
     them): ``pick`` becomes dynamic, ``ours`` (built here) is packaged
     first, ``unknown`` is left kept."""
     wanted = set(names) if names else None
@@ -77,6 +79,8 @@ def _sort(records: dict, names, only_not_ours: bool) -> Dict[str, list]:
     for name, record in sorted(records.items()):
         if record.get("state") != "done" or (wanted is not None
                                              and name not in wanted):
+            continue
+        if links_only and record.get("kind") not in ("link", "link-unmounted"):
             continue
         try:
             lat, lon = _tile_of(name)
@@ -138,15 +142,18 @@ def _rechoose_one(name: str, record: dict, *, scenery_dir: str, pack: str,
 
 
 def rechoose(scenery_dir: str, names=None, *, only_not_ours: bool = False,
+             links_only: bool = False,
              dry_run: bool = False, work_dir: Optional[str] = None,
              index: Optional[str] = None,
              progress: Optional[Callable[[int, int, str], None]] = None
              ) -> Dict[str, Any]:
     """Make the kept tiles ``names`` (all when omitted; with
-    ``only_not_ours`` only those another tool built) dynamic.  ``{"dry_run",
+    ``only_not_ours`` only those another tool built; with ``links_only``
+    only the entries that were links to another drive) dynamic.  ``{"dry_run",
     "rechosen" (names; a count in the dry run), "ours", "unknown",
     "packaged" ({action: tiles}), "failed" ([{"name", "problems"}]),
-    "pack_missing"}``."""
+    "pack_missing", "summary"}`` (``summary``: the sentence).  The engine
+    command and ``tools/ondemand_convert.py world-rechoose`` call it."""
     from . import world_commands as WORLD
     if MIGRATE._xplane_running():
         raise ValueError("Quit X-Plane first: tiles leave the World pack "
@@ -157,13 +164,14 @@ def rechoose(scenery_dir: str, names=None, *, only_not_ours: bool = False,
                          "in it to choose again.")
     work = work_dir or MIGRATE.work_dir_for(scenery_dir)
     journal = MIGRATE.Journal(work)
-    sort = _sort(journal.records, names, only_not_ours)
+    sort = _sort(journal.records, names, only_not_ours, links_only)
     out: Dict[str, Any] = {"dry_run": bool(dry_run), "ours": len(sort["ours"]),
                            "unknown": len(sort["unknown"]), "failed": []}
     with MIGRATE.active_run():
         out["packaged"] = _package_ours(sort["ours"], journal.records, dry_run)
         if dry_run:
-            return {**out, "rechosen": len(sort["pick"]), "pack_missing": 0}
+            out.update(rechosen=len(sort["pick"]), pack_missing=0)
+            return {**out, "summary": _summary(out)}
         pack = WORLD.pack_dir(scenery_dir)
         done = []
         for count, name in enumerate(sort["pick"], 1):
@@ -180,11 +188,12 @@ def rechoose(scenery_dir: str, names=None, *, only_not_ours: bool = False,
         out["pack_missing"] = len(MIGRATE.missing_from_pack(
             scenery_dir, work_dir=work))
     WORLD.write_log({"rechoose": len(done), "failed": len(out["failed"]),
-                     "only_not_ours": bool(only_not_ours)})
-    return out
+                     "only_not_ours": bool(only_not_ours),
+                     "links_only": bool(links_only)})
+    return {**out, "summary": _summary(out)}
 
 
-def summary(result: Dict[str, Any]) -> str:
+def _summary(result: Dict[str, Any]) -> str:
     """The sentence of a :func:`rechoose` result."""
     count = result["rechosen"]
     count = count if isinstance(count, int) else len(count)
@@ -209,13 +218,14 @@ def summary(result: Dict[str, Any]) -> str:
 
 def start_world_rechoose(emit: Callable[[Any], None], request: Any = None,
                          tiles=None, only_not_ours: bool = False,
+                         links_only: bool = False,
                          dry_run: bool = True, scenery_dir: str = "",
                          **_ignored) -> dict:
     """ENGINE COMMAND ``world_rechoose``: :func:`rechoose` of ``tiles``
     (entry names; every kept tile when omitted), a dry run unless
     ``dry_run`` is false.  Replies ``{"status": "started"}``;
-    ``WorldReady`` (``request`` = this command's id) carries the result
-    with ``summary``.  Shares ``world_migrate``'s one-run lock."""
+    ``WorldReady`` (``request`` = this command's id) carries the result.
+    Shares ``world_migrate``'s one-run lock."""
     from . import world_commands as WORLD
     from .events import WorldReady
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
@@ -226,9 +236,9 @@ def start_world_rechoose(emit: Callable[[Any], None], request: Any = None,
         try:
             result = rechoose(scenery_dir, tiles,
                               only_not_ours=bool(only_not_ours),
+                              links_only=bool(links_only),
                               dry_run=bool(dry_run),
                               progress=MIGRATE._count_events(emit, "move"))
-            result["summary"] = summary(result)
         except Exception as error:            # the sentence goes to the app
             emit(WorldReady(request=request, result=None,
                             error=str(error) or repr(error)))

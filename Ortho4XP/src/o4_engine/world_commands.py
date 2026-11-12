@@ -288,7 +288,7 @@ def _converted_missing(scenery_dir: str, kinds: dict) -> int:
         return 0
     from .world_migrate import missing_from_pack, work_dir_for
     if not os.path.isdir(work_dir_for(scenery_dir)):
-        return 0                            # never converted: no import cost
+        return 0                            # never converted
     try:
         return len(missing_from_pack(scenery_dir, kinds if kinds else None))
     except (OSError, ValueError):

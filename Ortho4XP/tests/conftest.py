@@ -1868,13 +1868,14 @@ def _no_test_writes_a_real_root(_real_roots_audit_guard_armed, request):
 
 
 @pytest.fixture(autouse=True)
-def _data_root_logs_are_a_tmp_folder(monkeypatch, tmp_path_factory):
-    """``FNAMES.data_path("logs")`` resolves under this run's tmp tree
-    (#1881 for ``storage.log``; 2026-11-11 for ``world_pack.log``, which
-    held 21 pytest lines): every log of a test that left the data root at
-    the checkout -- a lane worktree's mount of the real data folder --
-    lands there.  A test that points the data root at its own tmp folder
-    keeps it."""
+def _data_root_app_state_is_a_tmp_folder(monkeypatch, tmp_path_factory):
+    """``FNAMES.data_path`` of :data:`_APP_STATE_DIRS` resolves under this
+    run's tmp tree (#1881 for ``storage.log``; 2026-11-11 for
+    ``world_pack.log``, which held 21 pytest lines, and the on-demand index
+    the Qt window opens at its start): what a test that left the data root
+    at the checkout -- a lane worktree's mount of the real data folder --
+    writes there lands in scratch.  A test that points the data root at
+    its own tmp folder keeps it."""
     import O4_File_Names as FNAMES
     real = FNAMES.data_path
     base = os.path.realpath(str(tmp_path_factory.getbasetemp()))
@@ -1882,7 +1883,8 @@ def _data_root_logs_are_a_tmp_folder(monkeypatch, tmp_path_factory):
     def data_path(relative_path):
         path = real(relative_path)
         head = str(relative_path).replace("\\", "/").split("/", 1)[0]
-        if head == "logs" and not os.path.realpath(path).startswith(base + os.sep):
+        if head in _APP_STATE_DIRS and not os.path.realpath(
+                path).startswith(base + os.sep):
             return os.path.join(base, "data-root-scratch", relative_path)
         return path
 

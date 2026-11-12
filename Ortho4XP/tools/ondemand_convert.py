@@ -23,6 +23,11 @@ follow job lands from them while they are mounted.
     venv/bin/python tools/ondemand_convert.py world-dry-run --sample 6
     venv/bin/python tools/ondemand_convert.py world-migrate [--tiles ...]
     venv/bin/python tools/ondemand_convert.py world-revert [--tiles ...]
+    # kept tiles made dynamic again (another tool's only; dry run first)
+    venv/bin/python tools/ondemand_convert.py world-rechoose --only-not-ours --links-only
+    venv/bin/python tools/ondemand_convert.py world-rechoose --only-not-ours --links-only --run
+    # lean copies given the mask PNGs and colour field they may lack
+    venv/bin/python tools/ondemand_convert.py world-backfill
 
 Nothing on the source is ever written.  ``scenery_packs.ini`` is never
 edited (an entry keeps its name, so its order and enabled state hold).
@@ -84,9 +89,36 @@ def _world(args, scenery: str) -> dict:
         result, action = MIGRATE.migrate(scenery, args.tiles,
                                          workers=args.workers), "migrate"
         print(json.dumps(result["counts"]))
+    elif args.action == "world-rechoose":
+        from o4_engine.world_rechoose import rechoose
+        result = rechoose(scenery, args.tiles, only_not_ours=args.only_not_ours,
+                          links_only=args.links_only, dry_run=not args.run)
+        for row in result["failed"]:
+            print(f"{row['name']}: failed  {row['problems']}")
+        print(result["summary"])
+        return result
+    elif args.action == "world-backfill":
+        return _backfill(scenery)
     else:
         result, action = MIGRATE.revert(scenery, args.tiles), "revert"
     print(MIGRATE.summary(action, result))
+    return result
+
+
+def _backfill(scenery: str) -> dict:
+    """``O4_Imagery_OnDemand_Convert.backfill`` of every lean copy the
+    World migration keeps (``<work>/lean/<entry>``) whose source is there."""
+    import O4_Imagery_OnDemand_Convert as LEAN
+    from o4_engine import world_migrate as MIGRATE
+    lean = os.path.join(MIGRATE.work_dir_for(scenery), "lean")
+    result = {"copies": 0, "files": 0}
+    for name in sorted(os.listdir(lean)) if os.path.isdir(lean) else ():
+        folder = os.path.join(lean, name)
+        if name.startswith("zOrtho4XP_") and LEAN.is_converted(folder):
+            result["copies"] += 1
+            result["files"] += LEAN.backfill(folder)
+    print(f"{result['files']:,} files copied into {result['copies']:,} lean "
+          "copies (a copy whose drive is not connected is left as it is).")
     return result
 
 
@@ -133,6 +165,17 @@ def main(argv=None) -> int:
     wrun.add_argument("--workers", type=int, default=4)
     wback = sub.add_parser("world-revert", help="undo the World migration")
     wback.add_argument("--tiles", nargs="*", default=None)
+    wre = sub.add_parser("world-rechoose",
+                         help="kept tiles made dynamic (a dry run without --run)")
+    wre.add_argument("--tiles", nargs="*", default=None)
+    wre.add_argument("--only-not-ours", action="store_true",
+                     help="only the kept tiles another tool built")
+    wre.add_argument("--links-only", action="store_true",
+                     help="only the kept tiles that were links to another drive")
+    wre.add_argument("--run", action="store_true",
+                     help="do it (X-Plane must be closed)")
+    sub.add_parser("world-backfill",
+                   help="lean copies given their mask PNGs and colour field")
     args = parser.parse_args(argv)
     if args.data_root:
         import O4_File_Names as FNAMES

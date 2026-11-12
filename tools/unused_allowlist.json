@@ -348,5 +348,10 @@
   "path": "Ortho4XP/src/O4_Qt_Library.py",
   "name": "LibraryTilesSection",
   "reason": "PARKED, not dead: the tiles table lost its Library-mode home (RULINGS 2026-11-11k (1)) and the owner deferred its developer-tools home (2026-11-11T15:35Z: \"Don't do the developer mode part of the build view yet\"); kept until that ruling, its tests still run"
+ },
+ {
+  "path": "Ortho4XP/src/o4_engine/world_migrate.py",
+  "name": "active",
+  "reason": "read through sys.modules by O4_Scenery_Packs_Tidy._convert_running: the tidy waits for a running Convert without importing the migration"
  }
 ]

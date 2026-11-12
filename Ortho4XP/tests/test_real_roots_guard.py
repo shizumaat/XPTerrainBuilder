@@ -3,15 +3,15 @@ the events it reads, the roots and exemptions it applies, and that it is
 ARMED in this run -- a probe aimed at the real install is refused before
 it runs (each probe would fail harmlessly anyway: its folder does not
 exist, so an unarmed guard writes nothing)."""
+import _io
 import os
 import posix
 import sqlite3
 
-import _io
-import O4_File_Names as FNAMES
 import pytest
-
 from conftest import xplane_root
+
+import O4_File_Names as FNAMES
 from tests import real_roots_guard as GUARD
 
 

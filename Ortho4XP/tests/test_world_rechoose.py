@@ -19,6 +19,8 @@ from __future__ import annotations
 import os
 import shutil
 
+from test_world_migrate import _hashes, _rows, xp  # noqa: F401
+
 import O4_Scenery_Packs as SP
 import O4_Scenery_Packs_Tidy as TIDY
 import O4_World_Pack as WP
@@ -26,7 +28,6 @@ from o4_engine import world_commands as WORLD
 from o4_engine import world_migrate as MIGRATE
 from o4_engine import world_rechoose as RECHOOSE
 from o4_engine import world_retire as RETIRE
-from test_world_migrate import _hashes, _rows, xp  # noqa: F401
 
 LINK, LOCAL = "zOrtho4XP_+45+007", "zOrtho4XP_+46+008"
 
@@ -145,7 +146,7 @@ def test_rechoose_makes_the_other_tools_kept_tiles_dynamic(xp, monkeypatch):  # 
                             index=xp["index"])
     assert (dry["rechosen"], dry["ours"], dry["unknown"]) == (1, 1, 0)
     assert WP.world_tiles(xp["pack"]) == {(45, 7): "full", (46, 8): "full"}
-    assert "Would make 1 kept tiles dynamic" in RECHOOSE.summary(dry)
+    assert "Would make 1 kept tiles dynamic" in dry["summary"]
     out = RECHOOSE.rechoose(scenery, only_not_ours=True, index=xp["index"])
     assert out["rechosen"] == [LINK] and not out["failed"]
     assert packaged == [LOCAL, LOCAL]           # dry run and run, ours only
@@ -169,6 +170,20 @@ def test_rechoose_makes_the_other_tools_kept_tiles_dynamic(xp, monkeypatch):  # 
     assert MIGRATE.Journal(xp["work"]).records == {}
 
 
+def test_links_only_leaves_the_local_kept_tiles(xp, monkeypatch):  # noqa: F811
+    import O4_Tile_Info as TINFO
+    scenery = xp["scenery"]
+    monkeypatch.setattr(TINFO, "built_here", lambda *a: False)    # none ours
+    MIGRATE.migrate(scenery, index=xp["index"])
+    dry = RECHOOSE.rechoose(scenery, only_not_ours=True, links_only=True,
+                            dry_run=True, index=xp["index"])
+    assert (dry["rechosen"], dry["ours"]) == (1, 0)
+    out = RECHOOSE.rechoose(scenery, only_not_ours=True, links_only=True,
+                            index=xp["index"])
+    assert out["rechosen"] == [LINK]
+    assert MIGRATE.Journal(xp["work"]).get(LOCAL)["state"] == "done"
+
+
 def test_rechoose_leaves_a_tile_nobody_can_tell_kept(xp, monkeypatch):  # noqa: F811
     scenery = xp["scenery"]
     _ours_is_the_local_tile(monkeypatch)
@@ -178,5 +193,22 @@ def test_rechoose_leaves_a_tile_nobody_can_tell_kept(xp, monkeypatch):  # noqa: 
                 config_dir="/Volumes/NoSuchDrive9/lean")
     out = RECHOOSE.rechoose(scenery, only_not_ours=True, index=xp["index"])
     assert out["rechosen"] == [] and out["unknown"] == 1
-    assert "stay kept" in RECHOOSE.summary(out)
+    assert "stay kept" in out["summary"]
     assert WP.world_tiles(xp["pack"])[(45, 7)] == "full"
+
+
+def test_the_terminal_shell_runs_the_dry_run_then_the_backfill(xp, capsys):  # noqa: F811
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "tools", "ondemand_convert.py")
+    spec = importlib.util.spec_from_file_location("ondemand_convert_tool", path)
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    scenery = xp["scenery"]
+    MIGRATE.migrate(scenery, index=xp["index"])
+    assert tool.main(["--custom-scenery", scenery, "world-rechoose",
+                      "--links-only"]) == 0
+    assert "Would make 1 kept tiles dynamic" in capsys.readouterr().out
+    assert WP.world_tiles(xp["pack"])[(45, 7)] == "full"      # a dry run
+    assert tool.main(["--custom-scenery", scenery, "world-backfill"]) == 0
+    assert "into 1 lean copies" in capsys.readouterr().out

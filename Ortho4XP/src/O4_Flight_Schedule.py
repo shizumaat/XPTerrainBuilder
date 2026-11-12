@@ -10,17 +10,20 @@
   ``{tile: sample index}`` mapping, index 0 being the first window.
 * :class:`Job`, :func:`job_estimate`, :func:`rescale` -- what is to be
   built, with a ``[lo, hi]`` seconds range from the recorded times.
-* :func:`finish_times`, :func:`countdown`, :func:`feasible`,
-  :func:`shed_order`, :func:`next_job` -- list scheduling on ``slots``
-  build slots, the countdown, the shedding order and the dispatch pick
-  with the laxity guard.
+* :func:`finish_times`, :func:`departure_countdown`,
+  :func:`projected_late`, :func:`feasible`, :func:`shed_order`,
+  :func:`next_job` -- list scheduling on ``slots`` build slots, the
+  countdown to the departure area (RULINGS 2026-11-12c (2)), the route
+  tiles projected late, the shedding order and the dispatch pick with
+  the laxity guard.
 * :func:`readiness_items` -- the readiness rows of §6.2 from facts the
   flight manager gathers; :func:`countdown_text` -- the one line.
 
 All times are seconds.  A job's ``deadline_s`` is counted from TAKEOFF;
 0 means "before the flight loads" (class P0).  Finish times are counted
-from NOW.  The countdown T is the wait until takeoff that lets every job
-finish by ``T + deadline_s``.
+from NOW.  The countdown T is the wait until the departure area (every P0
+job) is built; a later job that does not finish by ``T + deadline_s`` is
+projected late and warned of, not waited for.
 
 No airport is named here (owner standing 2026-10-05).
 """
@@ -36,7 +39,7 @@ __all__ = [
     "P0", "P1", "P2", "P3", "P4", "Job", "Facts", "Item", "route_times",
     "margin_s", "tile_deadlines", "klass_for", "job_estimate", "rescale",
     "DRAPE_SECONDS", "drape_seconds",
-    "finish_times", "countdown", "feasible", "shed_order", "next_job",
+    "finish_times", "feasible", "shed_order", "next_job",
     "readiness_items", "countdown_text", "DONE_STATES", "READY_KEYS",
     "DEPARTURE_MARGIN_S", "departure_countdown", "projected_late",
 ]
@@ -263,79 +266,10 @@ def finish_times(jobs: Iterable[Job], slots: int) -> List[Tuple[Job, float]]:
     return out
 
 
-def _slack_s(jobs: Sequence[Job]) -> float:
-    """One build's length: a deadline job may find every slot held by a
-    build that is not interrupted mid-step (§9)."""
-    return max((j.left_hi for j in jobs if j.open and j.klass != P0), default=0.0)
-
-
 def _estimated(job: Job) -> bool:
     values = job.remaining_s or job.est_s
     return values is not None and all(
         v is not None and math.isfinite(v) for v in values)
-
-
-def finish_times_split(jobs: Iterable[Job], slots: int, flight_slots: int,
-                       takeoff_s: float) -> List[Tuple[Job, float]]:
-    """:func:`finish_times` with ``slots`` slots until ``takeoff_s`` and
-    ``flight_slots`` after it (§10: the parked capacity while preparing,
-    the flight capacity in the air); a build started is never interrupted,
-    so builds started before takeoff run on past it."""
-    running: List[float] = []
-    t, out = 0.0, []
-    for job in _plan_order(jobs):
-        while True:
-            while running and running[0] <= t:
-                heapq.heappop(running)
-            cap = max(1, int(slots if t < takeoff_s else flight_slots))
-            if len(running) < cap:
-                end = t + job.left_hi
-                heapq.heappush(running, end)
-                out.append((job, end))
-                break
-            nxt = running[0]
-            t = takeoff_s if t < takeoff_s < nxt and flight_slots > slots else nxt
-    return out
-
-
-def _wait_for(ends: Sequence[Tuple[Job, float]], slack: float) -> float:
-    wait = 0.0
-    for job, end in ends:
-        wait = max(wait, end if job.klass == P0 else end - job.deadline_s + slack)
-    return wait
-
-
-def countdown(jobs: Iterable[Job], slots: int,
-              flight_slots: Optional[int] = None) -> Optional[float]:
-    """Seconds until takeoff may be allowed (§9): every P0 job finished,
-    and every later job finishing by takeoff + its deadline, the deadline
-    side with one build's length of slack.  None when an open job has no
-    estimate (no defensible figure: the views show a dash).
-
-    With ``flight_slots`` (the capacity in the air, §10) the builds run on
-    ``slots`` until takeoff and on ``flight_slots`` after it
-    (:func:`finish_times_split`): the smallest such wait, to the second."""
-    jobs = list(jobs)
-    if not all(_estimated(j) for j in jobs if j.open):
-        return None
-    slack = _slack_s(jobs)
-    if flight_slots is None or int(flight_slots) == int(slots):
-        return _wait_for(finish_times(jobs, slots), slack)
-    hi = _wait_for(finish_times(jobs, min(slots, flight_slots)), slack)
-
-    def enough(wait: float) -> bool:
-        return _wait_for(finish_times_split(jobs, slots, flight_slots, wait),
-                         slack) <= wait
-    if enough(0.0):
-        return 0.0
-    lo = 0.0
-    while hi - lo > 1.0:
-        mid = (lo + hi) / 2.0
-        if enough(mid):
-            hi = mid
-        else:
-            lo = mid
-    return hi
 
 
 #: The readiness rows a flight waits for (RULINGS 2026-11-12c (2), owner

@@ -15,8 +15,9 @@ imagery on demand and the World pack are on, whatever the flight plan
   built this session (staged or swapped) is never built again: a
   higher-ranked job of the same kind adopts it (the result goes to the
   adopter, at once when it is built; the old owner is told ``(tile,
-  None)``: handed over), a lower-ranked job is refused.  A different kind (a flight's ``full`` departure over track
-  mode's drape) waits for the drape, then replaces it.  The flight's
+  None)``: handed over), a lower-ranked job is refused.  A different
+  kind (a flight's ``full`` departure over track mode's drape) waits for
+  the drape, then replaces it.  The flight's
   tiles are its own (:meth:`BuildShare.claimed`): track mode leaves them.
 * Results reach the owner through :meth:`BuildShare.poll`; a job that
   stops lets go of everything (:meth:`BuildShare.leave`).

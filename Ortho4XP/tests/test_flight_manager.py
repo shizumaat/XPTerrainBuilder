@@ -277,22 +277,6 @@ def test_status_is_the_wire_event_and_the_fly_fixture_shape(recording):
     assert "flight_manager" in CAPABILITIES
 
 
-def test_the_countdown_runs_parked_slots_before_takeoff():
-    """Builds run on the parked capacity until takeoff and the flight
-    capacity after it: the countdown lies between the two one-capacity
-    answers."""
-    jobs = [SCHEDULE.Job((0, i), "enroute", "drape", SCHEDULE.P0, 0.0,
-                         (100.0, 100.0)) for i in range(4)]
-    jobs += [SCHEDULE.Job((1, i), "enroute", "drape", SCHEDULE.P1,
-                          50.0 * i, (100.0, 100.0)) for i in range(6)]
-    wide = SCHEDULE.countdown(jobs, 4)
-    narrow = SCHEDULE.countdown(jobs, 1)
-    split = SCHEDULE.countdown(jobs, 4, 1)
-    assert wide <= split < narrow
-    ends = SCHEDULE.finish_times_split(jobs, 4, 1, split)
-    assert all(end <= split for job, end in ends if job.klass == SCHEDULE.P0)
-
-
 # ------------------------------------------------------------- the budget
 
 def test_the_budget_pre_check():

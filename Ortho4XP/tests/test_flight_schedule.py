@@ -88,20 +88,6 @@ def test_finish_times_on_slots_running_first():
     assert order == [((0, 3), 40.0), ((0, 0), 200.0), ((0, 1), 140.0), ((0, 2), 440.0)]
 
 
-def test_countdown_departure_only_and_with_deadlines():
-    assert S.countdown([job((0, 0), "departure", hi=600.0)], 1) == 600.0
-    assert S.countdown([], 1) == 0.0
-    # P0 600 s, then an en-route tile due 300 s after takeoff: it ends at
-    # 1000 s, so takeoff waits until 1000 - 300 + one build (400) = 1100 s.
-    jobs = [job((0, 0), "departure", hi=600.0), job((0, 1), deadline=300.0, hi=400.0)]
-    assert S.countdown(jobs, 1) == 1100.0
-    # a far deadline costs nothing beyond the departure
-    far = [job((0, 0), "departure", hi=600.0), job((0, 1), deadline=9000.0, hi=400.0)]
-    assert S.countdown(far, 1) == 600.0
-    # two slots run them side by side
-    assert S.countdown(jobs, 2) == 600.0
-
-
 def test_the_flight_waits_only_for_its_departure_area():
     """RULINGS 2026-11-12c (2): the countdown is the departure area's
     (P0: departure + first window) high-estimate finish plus a margin,
@@ -112,7 +98,6 @@ def test_the_flight_waits_only_for_its_departure_area():
             job((0, 2), deadline=100.0, hi=900.0),       # cannot make it
             job((0, 9), "destination", deadline=6000.0, hi=500.0)]
     assert S.departure_countdown(jobs, 2) == 600.0 + S.DEPARTURE_MARGIN_S
-    assert S.countdown(jobs, 2) > S.departure_countdown(jobs, 2)   # the old rule
     assert S.departure_countdown([j for j in jobs if j.klass != S.P0], 2) == 0.0
     late = S.projected_late(jobs, 2, S.departure_countdown(jobs, 2))
     assert [j.tile for j in late] == [(0, 2)]
@@ -122,7 +107,7 @@ def test_the_flight_waits_only_for_its_departure_area():
 
 def test_countdown_has_no_figure_without_estimates():
     bad = S.Job((0, 0), "departure", "full", S.P0, 0.0, (float("nan"), float("nan")))
-    assert S.countdown([bad], 1) is None
+    assert S.departure_countdown([bad], 1) is None
     assert S.countdown_text(None) == "Ready in —"
     assert S.countdown_text(0) == "Ready"
     assert S.countdown_text(30) == "Ready in under a minute"

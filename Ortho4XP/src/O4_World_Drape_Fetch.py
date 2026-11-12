@@ -25,7 +25,7 @@ the regular build's shore mask in its DDS alpha (DXT5,
 ``O4_World_Drape_Water``) for the drape's water layer; the water layers
 are fetched on a thread WHILE the photos download.
 
-``near=(lat, lon, radius_s)`` (:func:`core_squares`) fetches only the
+``near=(lat, lon, radius_s)`` (:func:`_core_squares`) fetches only the
 squares whose centre lies within ``radius_s`` square sizes of that point,
 replacing their DDS: the airport core under a parked aircraft at full
 resolution over a drape already fetched (RULINGS 2026-11-12c (3), #2019).
@@ -45,7 +45,7 @@ import sys
 import threading
 import time
 
-__all__ = ["PX_DROPS", "drop_for_px", "core_squares", "fetch", "main"]
+__all__ = ["PX_DROPS", "drop_for_px", "fetch", "main"]
 
 _INIT = threading.Lock()
 #: The drape photo tiers (setting ``drape_photo_px``): width -> zoom
@@ -61,7 +61,7 @@ def drop_for_px(px) -> int:
         return PX_DROPS[512]
 
 
-def core_squares(squares, zl: int, lat: float, lon: float,
+def _core_squares(squares, zl: int, lat: float, lon: float,
                  radius_s: float) -> list:
     """The ``(til_x, til_y)`` of ``squares`` whose centre lies within
     ``radius_s`` square sizes of ``(lat, lon)`` (a flat local frame: a
@@ -125,7 +125,7 @@ def fetch(engine: str, lat: int, lon: int, build_parent: str, zl: int,
     squares = [sq for sq in DRAPE.texture_squares(lat, lon, zl)
                if DRAPE.drape_quad(lat, lon, *sq, zl) is not None]
     if near is not None:            # the core again, finer: its DDS replaced
-        squares = core_squares(squares, zl, *near)
+        squares = _core_squares(squares, zl, *near)
         for x, y in squares:
             name = FNAMES.dds_file_name_from_attributes(x, y, zl, provider)
             with contextlib.suppress(OSError):

@@ -780,6 +780,41 @@ def test_both_tile_panes_show_the_path_under_built_by(window):
     assert isinstance(getattr(window, attr, None), QTPATHROW.TilePathRow)
 
 
+def test_both_tile_panes_read_the_world_pack_first(window):
+    """Owner 2026-11-12T20:23Z (lane ltilepane): the World-pack row stands
+    right under the tile title in both apps, with the same three actions;
+    a tile the World pack holds reads "(in the World pack)", never "(not
+    built)"."""
+    import O4_Qt_Tile_World_Row as QTWORLDROW
+    import O4_World_State_Text as WORLD_TEXT
+    from o4_engine.world_state import WorldTile
+
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    title = pane.index('Text("Tile \\(active.key)')
+    assert title < pane.index("TileWorldRow(coord:") < pane.index('detailRow("Imagery"')
+    assert "O4WorldStateText.titleInWorld" in pane
+    row = (SWIFT / "TileWorldRow.swift").read_text(encoding="utf-8")
+    for name in ("rebuildButton", "removeButton", "removeTitle", "removeMessage",
+                 "removeConfirm"):
+        assert "O4WorldStateText.%s" % name in row
+    assert "O4TilePackageCopy.exportTitle" in row
+    package = (SWIFT.parent / "SceneryKit" / "TilePackage.swift").read_text(encoding="utf-8")
+    assert 'exportTitle = "%s"' % QTWORLDROW.EXPORT_BUTTON in package
+    form = window._info_layout
+    assert (form.getWidgetPosition(window.tile_world_row)[0]
+            == form.getWidgetPosition(window.info_title)[0] + 1)
+    window.map.set_world({(30, 31): WorldTile("full", "xptb", 1.0, "originals", "")})
+    window._active_changed((30, 31))
+    assert WORLD_TEXT.TITLE_IN_WORLD in window.info_title.text()
+    assert not window.tile_world_row.isHidden()
+    assert window.tile_world_row.status_label.text() == (
+        "Built (in the World pack): mesh + full imagery")
+    assert not window.tile_world_row.actions.isHidden()
+    window._active_changed((30, 33))
+    assert WORLD_TEXT.TITLE_IN_WORLD not in window.info_title.text()
+    assert window.tile_world_row.isHidden()
+
+
 def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
     """#1958: one legend (same words, same order) and one "Airport packs"
     row under the Path row, with the same rebuild words, in both apps."""

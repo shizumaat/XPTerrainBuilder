@@ -53,6 +53,10 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// `world_measure_state` + `world_migrate {background}`: Measure on its
     /// own process, kept, started by the app (owner 2026-11-12T19:08Z).
     public static let worldMeasure = "world_measure"
+    /// `world_tile_remove`: the tile pane's "Remove from World Pack…" —
+    /// package first, then the placeholder (completes through
+    /// `LibraryReady`); flag only.
+    public static let worldTileRemove = "world_tile_remove"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

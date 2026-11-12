@@ -238,6 +238,7 @@ CAPABILITIES: tuple = (
     "scenery_reload_offer",         # 2026-11-12, #2019 reload on user click (scenery_reload)
     "scan_world",                   # 2026-11-12, #2024 ScanBatch.world + ScanDone.world_count
     "world_measure",                # 2026-11-12, world_measure_state + world_migrate background
+    "world_tile_remove",            # 2026-11-12, tile pane Remove from World Pack (LibraryReady)
 )
 
 

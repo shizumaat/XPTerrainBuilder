@@ -251,9 +251,10 @@ def test_scanners_read_placeholders_as_no_tile(world, tmp_path):
                   "wb") as h:
             h.write(b"DDS ")
     PUBLISH._publish_built(world, build, 45, 7, loaded=lambda la, lo: False)
-    pack = {p.name: p for p in CS.scan_packs(world)}[WP.PACK_NAME]
-    assert pack.tiles == frozenset({(45, 7)})       # (45, 8): a placeholder
-    assert pack.kind == "ortho"
+    # Ours, so never "other scenery" (lane ltilepane, owner
+    # 2026-11-12T20:23Z); its own listing still reads placeholders as no tile.
+    assert WP.PACK_NAME not in {p.name for p in CS.scan_packs(world)}
+    assert CS.pack_tiles(WORLD.pack_dir(world)) == {(45, 7)}  # (45, 8): a placeholder
     assert MO.tile_mesh_order(world, 45, 7, build_dir=build)["checked"] is True
     assert MO.drawn_mesh_dsf(world, 45, 8) is None   # a placeholder: no mesh
     assert sorted(LINKS.installed_tiles(world)) == [(45, 7)]

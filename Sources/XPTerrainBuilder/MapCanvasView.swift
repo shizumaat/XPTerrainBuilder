@@ -239,20 +239,14 @@ struct MapCanvasView: View {
         // Other installed ortho/mesh packages (SpainUHD, meshes, foreign
         // zOrtho tiles): gray boundary outlines showing their coverage and
         // overlap. Our own tiles are skipped — they are already the colored
-        // squares: a pack is "ours" when its folder is one of the engine
-        // scan's build dirs (covers building straight into Custom Scenery)
-        // or a symlink into the working dir.
+        // squares (`SceneryRegion.isThirdParty`: our packs by name, the
+        // engine scan's build dirs, links into the working dir).
         if sceneryFilter != .builtOnly {
             let basePath = buildModel.tileBaseFolder?.path
             let builtDirs = Set(buildModel.built.values.map(\.buildDir))
             var regionPath = Path()
-            for region in overlays.regions {
-                // Ours under either spelling: the engine scan reports the
-                // LINK path for packs symlinked from other volumes.
-                if builtDirs.contains(region.packPath)
-                    || builtDirs.contains(region.contentRootPath) { continue }
-                if let basePath, let resolved = region.resolvedPath,
-                   resolved.hasPrefix(basePath) { continue }
+            for region in overlays.regions
+            where region.isThirdParty(builtDirs: builtDirs, basePath: basePath) {
                 for edge in region.edges {
                     guard max(edge.a.lon, edge.b.lon) > minLon,
                           min(edge.a.lon, edge.b.lon) < maxLon,

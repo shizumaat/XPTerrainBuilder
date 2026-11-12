@@ -122,6 +122,8 @@ import O4_Qt_Text_Scale as QTTEXT
 import O4_Qt_Tile_Menu as QTTILEMENU
 import O4_Qt_Tile_Path_Row as QTPATHROW
 import O4_Qt_Tile_Stale_Row as QTSTALEROW
+import O4_Qt_Tile_World_Row as QTWORLDROW
+import O4_World_State_Text as WORLD_TEXT
 import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
@@ -1254,6 +1256,14 @@ class MainWindow(QMainWindow):
         # line for a font wide enough to need it.
         _never_widen(self.info_title)
         ig.addRow(self.info_title)
+        # What the World pack holds for it, read first (owner
+        # 2026-11-12T20:23Z; mac-app parity: TileWorldRow).
+        self.tile_world_row = QTWORLDROW.TileWorldRow()
+        self.tile_world_row.rebuild_requested.connect(
+            self._rebuild_tile_missing_textures)
+        self.tile_world_row.export_requested.connect(self._export_package_at)
+        self.tile_world_row.removed.connect(lambda _tile: self.refresh_tiles())
+        ig.addRow(self.tile_world_row)
         # Imagery row: the source, plus the mixed-sources warning button
         # that opens the per-source breakdown and its cleanup offer
         # (mac-app parity: BuildPane's imageryConflictPopover).
@@ -3087,7 +3097,7 @@ class MainWindow(QMainWindow):
         # The active tile stops being "(scanning…)" the moment its
         # own result streams in.
         active = self.map.active_tile()
-        if active is not None and active in event.built:
+        if active is not None and (active in event.built or active in world):
             self._active_changed(active)
 
     def _on_scan_done(self, event):
@@ -3474,6 +3484,9 @@ class MainWindow(QMainWindow):
         self.info_title.setToolTip(self.info_title.text())
         info = self._built.get(tile)
         import O4_Config_Utils as CFG
+        world = self.map.world().get(tile)
+        self.tile_world_row.scenery_dir = CFG.custom_scenery_dir or ""
+        self.tile_world_row.show_world(tile, world)
 
         # Other installed ortho/mesh packages covering this tile, and the
         # legacy-config offer — both read state already in hand, so they
@@ -3553,9 +3566,14 @@ class MainWindow(QMainWindow):
             self.tile_path_row.show_info(None)
             self.tile_stale_row.show_verdict(None, None)
             self._show_tile_pin(None, None)
+            # Held by the World pack (a placeholder too): ours, not
+            # "not built" (mac-app parity: BuildPane.titleSuffix).
+            held = world is not None and world.state != "nothing"
             self.info_title.setText(
                 self.info_title.text()
-                + ("  (scanning…)" if pending else "  (not built)")
+                + ("  " + WORLD_TEXT.TITLE_IN_WORLD if held
+                   else "  (scanning…)" if pending
+                   else "  (not built)")
             )
             self.info_title.setToolTip(self.info_title.text())
             self.install_check.setEnabled(False)

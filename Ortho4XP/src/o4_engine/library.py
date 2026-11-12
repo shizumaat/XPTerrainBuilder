@@ -46,6 +46,7 @@ import O4_Tile_Info as TINFO
 import O4_Tile_Staleness as _STALE
 
 from . import storage as _storage
+from . import world_tile_remove as _world_remove
 
 __all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "ROW_WORKERS", "library_scan",
            "cache_sizes", "free_cache", "library_delete",
@@ -545,6 +546,9 @@ _COMMANDS.update(REBUILD.COMMANDS)
 # The map's stale-tile check (#1958) runs through the same worker.
 _COMMANDS["tile_staleness"] = (tile_staleness, None)
 _REFUSED_WHILE_BUILDING.update(_storage.REFUSED_WHILE_BUILDING)
+# The tile pane's "Remove from World Pack…" (world_tile_remove).
+_COMMANDS.update(_world_remove.COMMANDS)
+_REFUSED_WHILE_BUILDING.update(_world_remove.REFUSED_WHILE_BUILDING)
 
 #: Every command :func:`start` runs (the transport registers these).
 COMMANDS = tuple(_COMMANDS)

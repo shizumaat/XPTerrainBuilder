@@ -312,3 +312,43 @@ def test_the_watch_is_in_the_command_table():
     src = Path(jsonl.__file__).read_text(encoding="utf-8")
     assert "**aircraft_watch_handlers(session._emit)" in src
     assert set(WATCH.aircraft_watch_handlers(lambda e: None)) == {"aircraft_watch"}
+
+
+def test_a_record_with_no_position_never_ends_the_watch():
+    """X-Plane answers with lat/lon null while a flight loads (1.0.494:
+    the watch thread died on float(None) and never came back)."""
+    import threading
+
+    from o4_engine import aircraft_watch as WATCH
+
+    class Reader:
+        resolved = False
+
+        def __init__(self):
+            self.recs = [{"lat": None, "lon": None},
+                         {"lat": 49.9, "lon": -97.2, "elev_m": 230.0}]
+            self.done = threading.Event()
+
+        def read(self):
+            if not self.recs:
+                self.done.set()
+                return None
+            return self.recs.pop(0)
+
+    got, stop, reader = [], threading.Event(), Reader()
+    thread = threading.Thread(target=WATCH._run, args=(
+        got.append, reader, stop, 0.01, lambda: 0.0), daemon=True)
+    thread.start()
+    assert reader.done.wait(5)
+    stop.set()
+    thread.join(5)
+    assert [round(p.lat, 1) for p in got] == [49.9]
+
+
+def test_the_reader_treats_a_null_position_as_no_read(monkeypatch):
+    import O4_XPlane_WebAPI as API
+    monkeypatch.setattr(API, "resolve_refs", lambda *a, **k: ({"lat": 1}, []))
+    monkeypatch.setattr(API, "read_position",
+                        lambda *a, **k: {"lat": None, "lon": None})
+    reader = API.PositionReader(base="http://127.0.0.1:1")
+    assert reader.read() is None and "no position yet" in reader.error

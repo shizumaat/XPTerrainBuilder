@@ -163,6 +163,10 @@ class PositionReader:
                 if self._seen_ok and self.errors_since_ok:
                     self.resets += 1
             rec = read_position(self.ids, self.base, self.timeout)
+            if not all(isinstance(rec.get(k), (int, float))
+                       for k in ("lat", "lon")):
+                # X-Plane answers while a flight loads with no position yet
+                raise ValueError("no position yet (lat/lon not a number)")
         except Exception as e:          # menu, load, restart, stale ids...
             self.ids = {}
             self.errors_since_ok += 1

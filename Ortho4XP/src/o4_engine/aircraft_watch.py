@@ -56,13 +56,16 @@ def _run(emit: Callable, reader, stop: threading.Event, period_s: float,
          clock: Callable[[], float]) -> None:
     tracker = MotionTracker()
     while not stop.is_set():
-        rec = reader.read()
-        if rec is not None:
-            if reader.resolved:
-                tracker.restart()        # a flight load: not a flight on
-            motion = tracker.add(clock(), rec["lat"], rec["lon"],
-                                 float(rec.get("elev_m") or 0.0))
-            emit(aircraft_position(rec, motion))
+        try:
+            rec = reader.read()
+            if rec is not None:
+                if reader.resolved:
+                    tracker.restart()    # a flight load: not a flight on
+                motion = tracker.add(clock(), rec["lat"], rec["lon"],
+                                     float(rec.get("elev_m") or 0.0))
+                emit(aircraft_position(rec, motion))
+        except (TypeError, ValueError, KeyError):
+            pass    # one bad record (a flight loading) never ends the watch
         stop.wait(period_s)
 
 

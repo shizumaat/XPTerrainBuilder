@@ -99,6 +99,9 @@ def write_targets(event: str, args: tuple) -> tuple:
 
 
 def _inside(path: str, root: str) -> bool:
+    """``path`` is ``root`` or under it; compared case-folded where the OS
+    folds names (Windows: ``C:\\X`` and ``c:\\x`` are one folder)."""
+    path, root = os.path.normcase(path), os.path.normcase(root)
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 

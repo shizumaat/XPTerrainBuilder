@@ -51,7 +51,7 @@ __all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "ROW_WORKERS", "libra
            "cache_sizes", "free_cache", "library_delete",
            "library_export_bundle", "library_import_bundle",
            "package_save", "package_airports", "package_estimate", "package_plan",
-           "package_install", "package_merge", "package_developer",
+           "package_install", "package_merge", "package_developer", "tile_staleness",
            "PATCH_LIBRARY_COMMANDS", "COMMANDS", "patch_library_command", "start"]
 
 #: ``built_by`` of a tile this app built
@@ -494,6 +494,17 @@ _REFUSED_WHILE_BUILDING = {
     "library_apply": "laying a library patch down",
     "rebuild_migrate": "moving tiles' rebuild data"}
 
+def tile_staleness(custom_scenery_dir: str, tiles=None, working_dir: str = "") -> dict:
+    """ENGINE COMMAND ``tile_staleness`` (#1958):
+    :func:`O4_Tile_Staleness.check_tiles` with the packs' shipped packages
+    (``tile_bundle.pack_shipped``, RULINGS 2026-11-11m (4)) — passed here,
+    not imported there, so the tile steps' code keys stay off the package
+    code (#836).  The Qt window's map runs it too."""
+    from tile_bundle import pack_shipped
+    return _STALE.check_tiles(custom_scenery_dir, tiles, working_dir,
+                              packages=(pack_shipped.scan, pack_shipped.stale_rows))
+
+
 #: The commands :func:`start` runs, and the checks each makes on the read
 #: loop so a refusal is the command's own ``ok: false`` reply.
 _COMMANDS: dict = {
@@ -522,7 +533,7 @@ _COMMANDS.update(_storage.COMMANDS)
 # Moving old tiles' rebuild data into the cache (RULINGS 2026-11-10d).
 _COMMANDS.update(REBUILD.COMMANDS)
 # The map's stale-tile check (#1958) runs through the same worker.
-_COMMANDS.update(_STALE.COMMANDS)
+_COMMANDS["tile_staleness"] = (tile_staleness, None)
 _REFUSED_WHILE_BUILDING.update(_storage.REFUSED_WHILE_BUILDING)
 
 #: Every command :func:`start` runs (the transport registers these).

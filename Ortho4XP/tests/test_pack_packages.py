@@ -20,6 +20,8 @@ import types
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
+from auto_patch_v2.airport import pack_identity as PIDENT  # noqa: E402
+from o4_engine import xplane_root as XROOT  # noqa: E402
 from test_tile_package import (  # noqa: E402,F401  (the fixture is used by name)
     LAT,
     LON,
@@ -50,10 +52,17 @@ def signed(machines, monkeypatch):  # noqa: F811
     signatures are ``SIGNATURES`` until a test changes them."""
     a, b = machines
     sig = dict(SIGNATURES)
-    monkeypatch.setattr(KEY, "xplane_root", lambda tile: os.path.dirname(
-        os.path.dirname(tile.build_dir)))
-    monkeypatch.setattr(KEY, "pack_signature", lambda root, icao, lat, lon: {
-        "pack": "PackA", "custom": True, "signature": sig.get(icao, "")})
+    def root(tile):
+        return os.path.dirname(os.path.dirname(tile.build_dir))
+
+    def signature(root, icao, lat, lon):
+        return {"pack": "PackA", "custom": True, "signature": sig.get(icao, "")}
+
+    # ``pack_dev`` reads both past ``key`` (the object stage's code key)
+    for mod, name, fake in ((KEY, "xplane_root", root), (XROOT, "xplane_root_of", root),
+                            (KEY, "pack_signature", signature),
+                            (PIDENT, "pack_signature", signature)):
+        monkeypatch.setattr(mod, name, fake)
     monkeypatch.setattr(KEY, "pack_root", lambda tile, icao: os.path.join(
         os.path.dirname(os.path.dirname(tile.build_dir)), "Custom Scenery", "PackA")
         if icao == "HECA" else "")

@@ -84,10 +84,8 @@ def _code_family() -> dict:
 
 def xplane_root(tile) -> str | None:
     """The X-Plane install the tile's build reads (its CIFP folder's)."""
-    import O4_Vector_Map as VMAP
-    from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
-    cifp = VMAP.resolve_cifp_dir_for_tile(tile)
-    return xplane_root_from_cifp_path(cifp) if cifp else None
+    from o4_engine.xplane_root import xplane_root_of
+    return xplane_root_of(tile)
 
 
 def pack_root(tile, icao: str) -> str:

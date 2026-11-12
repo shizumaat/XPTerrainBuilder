@@ -88,8 +88,11 @@ def _package_frozen(tile, icao: str) -> bool:
     entry = FNAMES.read_json_dict(path).get(str(icao).upper()) or {}
     if entry.get("objects") not in (FINAL, APPLIED) or not entry.get("signature"):
         return False
-    from .key import pack_signature, xplane_root
-    root = xplane_root(tile)
+    # not through ``.key``: the object stage runs this, and its code key
+    # would reach the whole bundle-key code (#836)
+    from auto_patch_v2.airport.pack_identity import pack_signature
+    from o4_engine.xplane_root import xplane_root_of
+    root = xplane_root_of(tile)
     return bool(root) and pack_signature(
         root, icao, tile.lat, tile.lon).get("signature") == entry["signature"]
 

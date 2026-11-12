@@ -5,7 +5,6 @@ it runs (each probe would fail harmlessly anyway: its folder does not
 exist, so an unarmed guard writes nothing)."""
 import _io
 import os
-import posix
 import sqlite3
 
 import O4_File_Names as FNAMES
@@ -13,6 +12,10 @@ import pytest
 from conftest import xplane_root
 
 from tests import real_roots_guard as GUARD
+
+#: The OS's own module (``posix`` or ``nt``): its ``remove`` is past any
+#: monkeypatch of ``os.remove``.
+_OS_NATIVE = __import__(os.name)
 
 
 def test_the_events_it_reads():
@@ -55,7 +58,7 @@ def test_the_guard_is_armed_on_the_real_install():
         with pytest.raises(GUARD.RealRootWrite):
             _io.open(probe, "w")                      # past any monkeypatch
         with pytest.raises(GUARD.RealRootWrite):
-            posix.remove(probe)
+            _OS_NATIVE.remove(probe)                  # posix / nt
         with pytest.raises(GUARD.RealRootWrite):
             sqlite3.connect(probe)
         assert {b["via"] for b in GUARD.blocked} == {

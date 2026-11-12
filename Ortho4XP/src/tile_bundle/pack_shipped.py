@@ -45,13 +45,13 @@ re-planning costs 0.4 s, measured for 11m).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
 import time
 
 import O4_File_Names as FNAMES
+from auto_patch_v2.airport.file_hash import sha256_file as _sha256_file
 
 from . import BundleRefused
 from . import pack_dev as _dev
@@ -66,16 +66,11 @@ SOURCE_PREFIX = "pack:"
 #: The notices' states.
 APPLIED, FALLBACK, CONFLICT = "applied", "fallback", "conflict"
 
+#: A record's ``utc`` stamp.
+_STAMP = "%Y-%m-%dT%H:%M:%SZ"
+
 #: Our own packs (the World pack, ``zOrtho4XP_*`` overlays): never scanned.
 _OURS_RE = re.compile(r"^(z|y)?Ortho4XP_|^XPTerrainBuilder", re.IGNORECASE)
-
-
-def _sha256(path: str) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _scenery_dir(scenery_dir) -> str:
@@ -188,7 +183,7 @@ def _set_aside_installed(row: dict, tile) -> list:
             continue
         for base, sha in sorted((entry.get("files") or {}).items()):
             path = os.path.join(folder, base)
-            if os.path.isfile(path) and _sha256(path) == sha:
+            if os.path.isfile(path) and _sha256_file(path) == sha:
                 moved.append(CUSTOM.set_aside(path))
     return moved
 
@@ -199,14 +194,14 @@ def _apply_one(row: dict, tile, record: dict, say) -> list:
     airports = row["tiles"].get(key) or {}
     texts = _texts(row["pack"], ", ".join(sorted(airports)) or "its airport")
     held = record.setdefault(_record_key(row), {})
-    sha = _sha256(row["path"])
+    sha = _sha256_file(row["path"])
     if _mismatches(row, airports, tile):
         say(0, "  [pack package] " + texts[FALLBACK])
         _set_aside_installed(row, tile)
         held.pop("sha256", None)
         if held.get("fallback") == sha:
             return []
-        held.update(fallback=sha, utc=_utc())
+        held.update(fallback=sha, utc=time.strftime(_STAMP, time.gmtime()))
         return [_notice(row, airports, FALLBACK, texts[FALLBACK], tile)]
     held.pop("fallback", None)
     notices = []
@@ -214,7 +209,8 @@ def _apply_one(row: dict, tile, record: dict, say) -> list:
         from .install import install
         done = install(row["path"], getattr(tile, "custom_build_dir", "") or "",
                        None, SOURCE_PREFIX + row["pack"])
-        held.update(sha256=sha, utc=_utc(), installed=done.get("installed", 0))
+        held.update(sha256=sha, utc=time.strftime(_STAMP, time.gmtime()),
+                    installed=done.get("installed", 0))
         if done.get("conflicts") and held.get("asked") != sha:
             held["asked"] = sha
             say(0, "  [pack package] " + texts[CONFLICT])
@@ -222,10 +218,6 @@ def _apply_one(row: dict, tile, record: dict, say) -> list:
                                    CONFLICT, texts[CONFLICT], tile))
     say(0, "  [pack package] " + texts[APPLIED])
     return [_notice(row, airports, APPLIED, texts[APPLIED], tile)] + notices
-
-
-def _utc() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def apply_for_tile(tile, scenery_dir=None, say=None) -> list:
@@ -263,7 +255,7 @@ def stale_rows(lat: int, lon: int, rows) -> list:
             continue
         held = record.get(_record_key(row)) or {}
         try:
-            sha = _sha256(row["path"])
+            sha = _sha256_file(row["path"])
         except OSError:
             continue
         if sha in (held.get("sha256"), held.get("fallback")):

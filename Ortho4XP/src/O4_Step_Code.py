@@ -917,6 +917,11 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Object_Stage_Code",
         "O4_Triangle_Binary",
         "O4_Triangle_IO",
+        # the object stage's pack-author choice (RULINGS 2026-11-11m (3)),
+        # outside its auto_patch-only key (#1901)
+        "o4_engine.xplane_root",
+        "tile_bundle",
+        "tile_bundle.pack_dev",
     ),
     "masks": (
         "O4_Coastal_Foam_Edge",

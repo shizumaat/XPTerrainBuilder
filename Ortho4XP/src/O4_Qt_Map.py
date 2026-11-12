@@ -26,6 +26,7 @@ import O4_Imagery_Sources as SOURCES
 import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
 import O4_Map_Overzoom as OVERZOOM
+import O4_Qt_Map_Controls as QTMAPCONTROLS
 import O4_Qt_Map_Favorite as QTFAVSTAR
 import O4_Qt_Map_Labels as QTLABELS
 import O4_Qt_Map_Legend as QTLEGEND
@@ -428,6 +429,8 @@ class MapView(QGraphicsView):
         self._update_timer.timeout.connect(self._refresh_tiles)
 
         self._make_scan_status()
+        # Zoom out / in / "Center on aircraft", top-right (#2016).
+        self.controls = QTMAPCONTROLS.MapControls(self)
         self._apply_zoom()
 
     def _make_scan_status(self):
@@ -745,6 +748,11 @@ class MapView(QGraphicsView):
         self.scale(scale, scale)
         self.view_changed.emit()
 
+    def zoom_step(self, delta):
+        """Zoom by ``delta`` slippy levels about the view's centre (the
+        map controls' − and +)."""
+        self._zoom_by(delta, self.viewport().rect().center())
+
     def _zoom_by(self, delta, anchor_pos=None):
         new_zoom = max(MIN_ZOOM, min(self._zoom + delta, MAX_ZOOM))
         if abs(new_zoom - self._zoom) < 1e-6:
@@ -928,14 +936,16 @@ class MapView(QGraphicsView):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._place_scan_status()
+        self.controls.place()
         for layer in self._layers:
             layer.viewport_moved()
 
     def scrollContentsBy(self, dx, dy):
         # QAbstractScrollArea pans by scrolling the whole viewport,
-        # dragging child widgets (the scan status) along — re-pin after.
+        # dragging child widgets (the scan status, the controls) along — re-pin after.
         super().scrollContentsBy(dx, dy)
         self._place_scan_status()
+        self.controls.place()
         for layer in self._layers:
             layer.viewport_moved()
         self._schedule_refresh()

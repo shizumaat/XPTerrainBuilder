@@ -199,7 +199,8 @@ def test_the_words_are_the_macs():
                  "QUICK_BUTTON", "PREPARE", "BUILD_ALTERNATE", "CRUISE_LABEL",
                  "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "LIVE_PREVIEW",
                  "LIVE_PREVIEW_HELP", "DIVERT", "END_FLIGHT",
-                 "NO_FLIGHT_MANAGER", "NO_STATUS"):
+                 "NO_FLIGHT_MANAGER", "NO_STATUS", "CENTER_ON_AIRCRAFT",
+                 "NO_AIRCRAFT_POSITION"):
         camel = re.sub(r"_(\w)", lambda m: m.group(1).upper(), name.lower())
         said = re.search(r'static let %s = "([^"]+)"' % camel, swift)
         assert said and said.group(1) == getattr(TEXT, name), name
@@ -211,6 +212,7 @@ def test_the_words_are_the_macs():
         assert '("%s", "%s")' % (value, words) in swift, value
     assert 'static let drapePxLabel = "%s"' % TEXT.DRAPE_PX_LABEL in swift
     assert 'static let drapePxKey = "%s"' % TEXT.DRAPE_PX_KEY in swift
+    assert "static let aircraftFreshS = %.1f" % TEXT.AIRCRAFT_FRESH_S in swift
     for value, words in TEXT.DRAPE_PX_CHOICES:
         assert '(%d, "%s")' % (value, words) in swift, value
     divert = SWIFT_DIVERT_TEXT.read_text(encoding="utf-8")

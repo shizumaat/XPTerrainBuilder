@@ -41,6 +41,22 @@ public enum FlyText {
     ]
     public static let livePreview = "Live flight preview"
     public static let livePreviewHelp = "Shows the imagery installed for X-Plane on the map, square by square, as it arrives; zoom in to see it."
+    /// The map's button beside the zoom controls (#2016): it pans to the
+    /// aircraft and keeps the zoom; disabled, with `noAircraftPosition` as
+    /// its help, while no position is current.
+    public static let centerOnAircraft = "Center on aircraft"
+    public static let noAircraftPosition = "No aircraft position: X-Plane is not running, or Fly mode is off."
+    /// Seconds an `AircraftPosition` stays current: the watch sends one a
+    /// second and nothing while X-Plane does not answer.
+    public static let aircraftFreshS = 5.0
+
+    /// True when the last position (received at `seenAt`) is younger than
+    /// `aircraftFreshS` — the center-on-aircraft button's rule.
+    public static func aircraftIsCurrent(seenAt: Date?, now: Date) -> Bool {
+        guard let seenAt else { return false }
+        let age = now.timeIntervalSince(seenAt)
+        return age >= 0 && age < aircraftFreshS
+    }
     public static let divert = "Divert…"
     public static let endFlight = "End flight"
     public static let noFlightManager = "This engine has no flight manager yet."

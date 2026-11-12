@@ -336,6 +336,7 @@ class _Runner:
                                     self.manager.times[-1])
         _share_slots(self.manager)
         _core_points(self.manager)
+        _sharpen_kept_endpoints(self.manager, session)
         self.t0 = time.monotonic()
         # the rows and the countdown before the first tick: the pane shows
         # the flight at once, whatever the first tick waits for
@@ -481,6 +482,38 @@ def _core_points(manager) -> None:
     for point in {waypoints[0], waypoints[-1]} if waypoints else ():
         PUBLISH.add_core_point(*FP.tile_of(point.lat, point.lon),
                                (point.ident, point.lat, point.lon))
+
+
+def _sharpen_kept_endpoints(manager, session) -> Optional[threading.Thread]:
+    """RULINGS 2026-11-12c (3), "We always need the high res imagery at an
+    airport": a departure or destination tile already ``full`` in the
+    World pack is not built, so no publish fetches its airport cores
+    (#2028: a tile moved into the pack with 512 px textures stayed coarse
+    at the departure).  Its cores around the plan's airports are fetched
+    now, on a worker (``imagery_after_build.start``), holding off only
+    while one of those tiles is built or swapped."""
+    import O4_Flight_Plan as FP
+
+    from . import imagery_after_build as AFTER
+    from . import imagery_follow as FOLLOW
+    waypoints = manager.plan.waypoints
+    points: dict = {}
+    for point in {waypoints[0], waypoints[-1]} if waypoints else ():
+        points.setdefault(FP.tile_of(point.lat, point.lon), []).append(
+            (point.ident, point.lat, point.lon))
+    kept = sorted({tuple(j.tile) for j in manager.jobs
+                   if j.kind == "full" and j.state == "swapped"
+                   and tuple(j.tile) in points})
+    if not kept:
+        return None
+    names = {WP.tile_name(*tile) for tile in kept}
+
+    def busy() -> bool:
+        building = session.building_tiles()
+        return building is True or bool(
+            names & (set(building or ()) | FOLLOW.held_tiles()))
+    return AFTER.start([(session.tile_build_dir(*tile), *tile) for tile in kept],
+                       busy=busy, extra=points)
 
 
 def current() -> "Optional[_Runner]":

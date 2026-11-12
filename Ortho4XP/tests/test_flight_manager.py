@@ -406,9 +406,6 @@ def test_create_status_update_end(engine, monkeypatch):
         assert kw["missing_art"] == "leave" and kw["klass"] in ("P0", "P2")
         # a full build: no profile (11j), always on demand (lane lcore)
         assert kw["overrides"] == {"imagery_on_demand": True}
-    with pytest.raises(ValueError, match="already active"):
-        table["flight_create"](dep={"lat": 1, "lon": 1},
-                               arr={"lat": 2, "lon": 2})
     assert WORLD_JOB.world_job_start(session) == {"status": "started"}
     assert FLIGHT.current().manager.record.id == flight
     status = table["flight_status"]()
@@ -434,6 +431,32 @@ def test_create_status_update_end(engine, monkeypatch):
     assert WORLD_JOB._RUNNER is not None        # track mode runs on
     assert RECORD.load(os.path.join(folder, flight + ".json")).state == "closed"
     assert table["flight_status"](flight=flight)["state"] == "closed"
+
+
+def test_a_new_plan_closes_every_other_flight_and_goes_first(engine, monkeypatch):
+    """Owner 2026-11-12T23:40:51Z: "if a flight plan is entered and we say
+    to use it, it should end any other flight, stop processing any other
+    region and prioritize the newly input flight plan" (#2028: after a
+    restart the resumed flight refused the new one)."""
+    from o4_engine import imagery_commands as CMDS
+    session, _events, _builds, folder = engine
+    resumed = RECORD.from_plan(_plan(), "none", WHEN)
+    RECORD.save(resumed, folder)
+    WORLD_JOB.autostart(session)                # the flight runs again
+    assert FLIGHT.current().manager.record.id == resumed.id
+    focused = []
+    monkeypatch.setattr(CMDS, "focus_imagery_follow",
+                        lambda lat, lon, tiles: focused.append((lat, lon, tiles)))
+    table = FC.flight_handlers(session)
+    new = table["flight_create"](
+        dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
+        arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})["flight"]
+    assert RECORD.load(os.path.join(folder, resumed.id + ".json")).state == "closed"
+    assert _wait_for(lambda: FLIGHT.current() is not None
+                     and FLIGHT.current().manager.record.id == new)
+    lat, lon, tiles = focused[0]                # the departure first
+    assert (lat, lon) == CYYR and [t[1:] for t in tiles] == [
+        (int(CYYR[0] // 1), int(CYYR[1] // 1))]
 
 
 def test_autostart_resumes_the_active_flight(engine):

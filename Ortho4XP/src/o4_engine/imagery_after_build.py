@@ -207,9 +207,10 @@ def sharpen(tiles: Sequence[Sequence[Any]],
                            log=log, extra=extra)
 
 
-def _work(tiles, busy, index, lander, log) -> None:
+def _work(tiles, busy, index, lander, log, extra=None) -> None:
     try:
-        sharpen(tiles, busy=busy, index=index, lander=lander, log=log)
+        sharpen(tiles, busy=busy, index=index, lander=lander, log=log,
+                extra=extra)
     except Exception as error:          # logged; the build itself is done
         FOLLOW.write_log(log, {"after_build_error": repr(error)[:300]})
 
@@ -218,14 +219,19 @@ def start(tiles: Sequence[Sequence[Any]],
           busy: Callable[[], bool] = lambda: False,
           index: Optional[str] = None,
           lander: Optional[Callable] = None,
-          log: Optional[str] = None) -> Optional[threading.Thread]:
+          log: Optional[str] = None,
+          extra: Optional[Dict[tuple, Sequence[tuple]]] = None
+          ) -> Optional[threading.Thread]:
     """Register and sharpen the cores of ``tiles`` on a worker thread (the
-    session calls it when a run ends); ``None`` when there is nothing."""
+    session calls it when a run ends; a flight for its kept departure and
+    destination); ``None`` when there is nothing.  ``extra``: more
+    airports per tile (:func:`core_wants`)."""
     tiles = [tuple(t) for t in tiles or ()]
     if not tiles:
         return None
     thread = threading.Thread(
-        target=_work, args=(tiles, busy, index, lander, log or FOLLOW.log_path()),
+        target=_work,
+        args=(tiles, busy, index, lander, log or FOLLOW.log_path(), extra),
         daemon=True, name="o4-imagery-after-build")
     thread.start()
     return thread

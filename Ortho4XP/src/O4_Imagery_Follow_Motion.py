@@ -10,11 +10,15 @@ and vertical speed from the displacement across the last :data:`WINDOW_S`
 seconds; each sample's height above the ground rides along (the plan's
 altitude rule, RULINGS 2026-11-12f).
 
-A JUMP (map jump, replay, "move to"; spec §4.5) is a displacement of more
-than :data:`JUMP_S` square sizes in under :data:`JUMP_WITHIN_S` seconds
-at a speed no aircraft flies (:data:`JUMP_MIN_MS`): the history restarts
-at the new place (speed 0 until two samples there) and
-:attr:`MotionTracker.jumps` counts it.
+A JUMP (map jump, replay, "move to", a flight loaded far away; spec
+§4.5) is a displacement between two samples of more than :data:`JUMP_S`
+square sizes at a speed no aircraft flies (:data:`JUMP_MIN_MS`), or of
+more than :data:`JUMP_FAR_M` whatever the time between them: the history
+restarts at the new place (speed 0 until two samples there) and
+:attr:`MotionTracker.jumps` counts it.  However long X-Plane took to
+answer again, the camera that appeared somewhere else jumped (#2028: a
+flight loaded 5,800 km from the first sample was no jump because its
+first position came more than 5 s after that sample).
 
 Pure: no I/O, no clock.
 """
@@ -25,17 +29,19 @@ from collections import deque
 
 from O4_Imagery_Tier_Plan import Motion
 
-__all__ = ["JUMP_MIN_MS", "JUMP_S", "JUMP_WITHIN_S", "WINDOW_S",
+__all__ = ["JUMP_FAR_M", "JUMP_MIN_MS", "JUMP_S", "WINDOW_S",
            "MotionTracker"]
 
 #: Seconds of history track and speed are measured over.
 WINDOW_S = 6.0
-#: A camera move of more than this many S in under JUMP_WITHIN_S is a jump.
+#: A camera move of more than this many S between two samples is a jump ...
 JUMP_S = 5.0
-JUMP_WITHIN_S = 5.0
-#: ... and only above this speed (m/s; Mach 3 at sea level), so an
-#: 8x-accelerated jet is still flying, not jumping.
+#: ... above this speed (m/s; Mach 3 at sea level), so an 8x-accelerated
+#: jet is still flying, not jumping ...
 JUMP_MIN_MS = 1000.0
+#: ... and a move of more than this (m) is one at any speed: no flight
+#: crosses it between two 1 Hz samples, however long they were apart.
+JUMP_FAR_M = 100_000.0
 
 _M_PER_DEG = 111_320.0
 
@@ -70,8 +76,8 @@ class MotionTracker:
             if dt <= 0:
                 return self.motion()
             dist = self.moved_m(lat, lon)
-            if (dt < JUMP_WITHIN_S and dist > JUMP_S * self.square_m
-                    and dist / dt > JUMP_MIN_MS):
+            if dist > JUMP_S * self.square_m and (
+                    dist / dt > JUMP_MIN_MS or dist > JUMP_FAR_M):
                 self.restart()
                 self.jumps += 1
                 self.jumped = True

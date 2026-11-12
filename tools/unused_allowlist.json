@@ -215,11 +215,6 @@
   "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
  },
  {
-  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
-  "name": "start",
-  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
- },
- {
   "path": "Ortho4XP/src/O4_World_Drape.py",
   "name": "default_dds_name",
   "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"

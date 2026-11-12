@@ -97,9 +97,12 @@ class FollowStatusLine(QWidget):
         self.set_running(fields.get("state") not in ("stopped", "error"))
 
     def set_running(self, running: bool) -> None:
+        """The button, and the headline that agrees with it
+        (``O4_Imagery_OnDemand_Text.follow_headline``)."""
         self.running = bool(running)
         self.toggle_btn.setText(TEXT.FOLLOW_STOP_TITLE if self.running
                                 else TEXT.FOLLOW_START_TITLE)
+        self.headline.setText(TEXT.follow_headline(self.status, self.running))
 
 
 class TilePinRow(QWidget):

@@ -24,7 +24,9 @@ The flight's own commands (lane F1b, capability ``flight_manager``;
   and leaves the rest to build as the aircraft flies (the record has no
   destination); the record is written and its job starts
   (``world_job_start {mode: "flight"}``); ``{"flight": id}``.
-  ``FlightStatus`` events follow.  One flight is active at a time.
+  ``FlightStatus`` events follow.  One flight is active at a time: a new
+  plan closes any other (owner 2026-11-12T23:40:51Z), and the follow job
+  serves its departure first (``imagery_commands.focus_imagery_follow``).
 * ``flight_status {flight?}`` -- the ``FlightStatus`` fields now.
 * ``flight_update {flight, build_alternate?, cruise_kt?, corridor_km?,
   waive_offline?, destination?}`` -- the flight card's choices; the jobs
@@ -187,10 +189,7 @@ def flight_create(session, emit=None, plan=None, path: str = "", dep=None,
     if not WORLD.managed(scenery_dir):
         raise ValueError("Install the World pack first (XPTerrainBuilder makes it when it starts): "
                          "a flight's tiles go into it.")
-    running = FLIGHT.current()
-    if running is not None:
-        raise ValueError("A flight is already active (%s): end it first."
-                         % running.manager.record.id)
+    _close_other_flights()
     settings = FLIGHT._settings()
     corridor = _number(corridor_km, _number(settings.get("fly_corridor_km"),
                                             RECORD.DEFAULT_CORRIDOR_KM))
@@ -199,9 +198,45 @@ def flight_create(session, emit=None, plan=None, path: str = "", dep=None,
         build_alternate=bool(build_alternate),
         cruise_kt=_number(cruise_kt, None), corridor_km=corridor)
     RECORD.save(record, RECORD.flights_dir())
+    _departure_first(session, flight_plan)
     WORLD_JOB.world_job_start(session, emit, mode="flight", flight=record.id,
                               scenery_dir=scenery_dir, port=port)
     return {"flight": record.id}
+
+
+def _close_other_flights() -> list:
+    """Owner 2026-11-12T23:40:51Z: "if a flight plan is entered and we say
+    to use it, it should end any other flight": the running flight stops
+    and every record still preparing, ready or flying closes (one resumed
+    after a restart among them).  The ids closed."""
+    closed = []
+    stopped = FLIGHT.stop()
+    folder = RECORD.flights_dir()
+    others = [r for r in RECORD.list_flights(folder)
+              if r.state in RECORD.ACTIVE_STATES]
+    if stopped is not None and stopped.state in RECORD.ACTIVE_STATES:
+        others = [stopped] + [r for r in others if r.id != stopped.id]
+    for record in others:
+        record.state = "closed"
+        RECORD.save(record, folder)
+        closed.append(record.id)
+    if closed:
+        WORLD.write_log({"flight": "closed_for_new_plan", "ids": closed})
+    return closed
+
+
+def _departure_first(session, plan) -> bool:
+    """"... stop processing any other region and prioritize the newly input
+    flight plan" (owner 2026-11-12T23:40:51Z): the follow job serves the
+    departure's core before anything else (``FollowJob.focus``)."""
+    from .imagery_commands import focus_imagery_follow
+    if not plan.waypoints:
+        return False
+    first = plan.waypoints[0]
+    tile = FP.tile_of(first.lat, first.lon)
+    build_dir = getattr(session, "tile_build_dir", None)
+    tiles = [(build_dir(*tile), *tile)] if build_dir is not None else []
+    return focus_imagery_follow(first.lat, first.lon, tiles)
 
 
 def _record(flight: str = "") -> Optional["RECORD.FlightRecord"]:

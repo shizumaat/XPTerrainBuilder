@@ -18,7 +18,9 @@ A WITNESS says the camera appeared somewhere it did not fly to:
 * ``flight_load`` -- positions resumed after X-Plane's Web API dropped
   (it drops while a flight loads; ``O4_XPlane_WebAPI.PositionReader``);
 * ``jump`` -- the camera moved further than any aircraft flies (map
-  jump, replay, "move to"; ``O4_Imagery_Follow_Motion``).
+  jump, replay, "move to"; ``O4_Imagery_Follow_Motion``);
+* ``plan`` -- a flight plan was entered: its departure, wherever the
+  camera is (``FollowJob.focus``; like a spawn, no window is counted on).
 
 Each witness opens an :class:`Episode`: the CORE of the new place (every
 square a camera standing there wants finer than its file on disk, by the
@@ -188,7 +190,7 @@ class SpawnWatch:
                  if is_local is not None and is_local(rows[key], tier)}
         had = {key: PLAN.tier_of_width(rows[key].get("tier_px"))
                for key in wants}
-        window_s = 0.0 if kind == "spawn" else self.window_s
+        window_s = 0.0 if kind in ("spawn", "plan") else self.window_s
         self.episode = Episode(kind, now, lat, lon, now + window_s,
                                wants, had, local)
         self.episodes += 1

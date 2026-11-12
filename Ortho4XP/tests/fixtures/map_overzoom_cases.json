@@ -28,5 +28,17 @@
   {"url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/20/432206/615763", "headers": {"Content-Length": "20001"}, "placeholder": false},
   {"url": "http://mt0.google.com/vt/lyrs=s&x=615763&y=432206&z=20", "headers": {"Content-Length": "1033"}, "placeholder": false},
   {"url": "http://mt0.google.com/vt/lyrs=s&x=615763&y=432206&z=20", "headers": {}, "placeholder": false}
+ ],
+ "max_floor_steps": 1,
+ "fetch_zoom": [
+  {"view_z": 14, "max_z": 19, "min_z": 13, "fetch": 14},
+  {"view_z": 13, "max_z": 19, "min_z": 13, "fetch": 13},
+  {"view_z": 12, "max_z": 19, "min_z": 13, "fetch": 13},
+  {"view_z": 11, "max_z": 19, "min_z": 13, "fetch": 11},
+  {"view_z": 10, "max_z": 19, "min_z": 13, "fetch": 10},
+  {"view_z": 12, "max_z": 19, "min_z": null, "fetch": 12},
+  {"view_z": 21, "max_z": 19, "min_z": 13, "fetch": 19},
+  {"view_z": 12, "max_z": 12, "min_z": 13, "fetch": 12},
+  {"view_z": 11, "max_z": 21, "min_z": 12, "fetch": 12}
  ]
 }

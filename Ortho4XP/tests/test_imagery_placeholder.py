@@ -123,7 +123,7 @@ def test_tilbox_and_names():
     assert PLACEHOLDER.tilbox(32, 48, 0) == [32, 48, 48, 64]
     with pytest.raises(ValueError):
         PLACEHOLDER.tilbox(36, 48, 3)
-    name = PLACEHOLDER.jpeg_name(128, 128, 16, "Arc", 3)
+    name = PLACEHOLDER.jpeg_name(128, 128, 16, "Arc", 3, {})
     # never the name of a ZL13 texture of a build at ZL13 (16, 16)
     assert name == "128_128_Arc16_low13.jpg"
     assert name != FNAMES.jpeg_file_name_from_attributes(16, 16, 13, "Arc")
@@ -313,3 +313,63 @@ def test_the_imagery_manifest_records_the_mode(tmp_path):
     TILE._write_imagery_manifest(off, {"done": 1}, {"done": 1})
     manifest = json.loads(open(TILE.imagery_manifest_path(off), encoding="utf-8").read())
     assert manifest["on_demand"] is False and manifest["placeholder_zl"] is None
+
+
+# --- min_source_zl (#2017) ------------------------------------------------
+
+
+def test_fetch_zoom_honours_the_providers_floor():
+    floor = {"min_source_zl": "13"}
+    assert PLACEHOLDER.min_source_zl(floor) == 13
+    assert PLACEHOLDER.min_source_zl({}) is None
+    assert PLACEHOLDER.fetch_zoom(16, 3, floor) == 13
+    assert PLACEHOLDER.fetch_zoom(15, 3, floor) == 13      # raised from 12
+    assert PLACEHOLDER.fetch_zoom(12, 0, floor) == 12      # never past zl
+    assert PLACEHOLDER.fetch_zoom(15, 3, {}) == 12         # no key: unchanged
+    assert PLACEHOLDER.jpeg_name(128, 128, 15, "BI", 3, floor) \
+        == "128_128_BI15_low13.jpg"
+    assert PLACEHOLDER.jpeg_name(128, 128, 15, "GO2", 3, {}) \
+        == "128_128_GO215_low12.jpg"
+
+
+def _spy_fetch(monkeypatch, provider):
+    from PIL import Image
+    import O4_UI_Utils as UI
+    monkeypatch.setattr(UI, "red_flag", False)
+    monkeypatch.setitem(IMG.providers_dict, "FAKE",
+                        dict(provider, code="FAKE", grid_type="webmercator"))
+    calls = []
+
+    def build(tilbox, zoom, prov, progress=None):
+        calls.append((list(tilbox), zoom))
+        side = (tilbox[2] - tilbox[0]) * 256
+        return True, Image.new("RGB", (side, side))
+    monkeypatch.setattr(IMG, "build_texture_from_tilbox", build)
+    return calls
+
+
+def test_download_fetches_the_floor_and_shrinks(tmp_path, monkeypatch):
+    calls = _spy_fetch(monkeypatch, {"min_source_zl": "13"})
+    d = str(tmp_path / "+36-122" / "FAKE_13")
+    # a ZL15 square, placeholder drop 3: z12 asked, the z13 floor fetched
+    assert IMG.download_jpeg_ortho(d, "a.jpg", 32, 48, 15, "FAKE", drop=3) == 1
+    assert calls == [([8, 12, 12, 16], 13)]               # 4 x 4 at z13
+    assert Image.open(os.path.join(d, "a.jpg")).size == (512, 512)
+
+
+def test_download_without_a_floor_is_unchanged(tmp_path, monkeypatch):
+    calls = _spy_fetch(monkeypatch, {})
+    d = str(tmp_path / "+36-122" / "FAKE_12")
+    assert IMG.download_jpeg_ortho(d, "a.jpg", 32, 48, 15, "FAKE", drop=3) == 1
+    assert calls == [([4, 6, 6, 8], 12)]
+    assert Image.open(os.path.join(d, "a.jpg")).size == (512, 512)
+
+
+def test_the_measured_floors_are_in_the_lay_files():
+    """Set only where tools/imagery_zoom_match.py measured a boundary."""
+    IMG.initialize_extents_dict()
+    IMG.initialize_providers_dict()
+    floors = {code: PLACEHOLDER.min_source_zl(IMG.providers_dict.get(code))
+              for code in ("BI", "Arc", "USA2", "Arc@", "GO2", "FRorth")}
+    assert floors == {"BI": 13, "Arc": 12, "USA2": 12, "Arc@": 14,
+                      "GO2": None, "FRorth": None}

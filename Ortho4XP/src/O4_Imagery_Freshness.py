@@ -496,7 +496,7 @@ def _discard_on_demand(lat: int, lon: int, build_dir: str, provider_code: str,
         full = os.path.join(full_dir, FNAMES.jpeg_file_name_from_attributes(
             til_x, til_y, zl, provider_code))
         low = os.path.join(low_dir, PLACEHOLDER.jpeg_name(
-            til_x, til_y, zl, provider_code, drop))
+            til_x, til_y, zl, provider_code, drop, provider))
         _remove_counted((full, low), removed, "jpegs")
         _remove_counted((_record_path(full),), removed, "")
         texture = os.path.join(build_dir, "textures", name)

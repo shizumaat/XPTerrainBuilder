@@ -1,3 +1,6 @@
 grid_type=webmercator
 url_template=https://ecn.t{switch:0,1,2,3}.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=15312
 imagery_dir=grouped
+# min_source_zl (#2017): coarser zooms serve a different capture; measured
+# with tools/imagery_zoom_match.py at KMRY, EDDM, KPHX (z12 dE 13, z13 0.4).
+min_source_zl=13

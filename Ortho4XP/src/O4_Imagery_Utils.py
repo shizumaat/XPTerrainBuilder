@@ -1973,7 +1973,9 @@ def download_jpeg_ortho(
     """Download one orthophoto into ``file_dir``; 1 on success, 0 if not.
 
     ``drop`` (#1992, placeholder build mode): the same square fetched
-    ``drop`` zoom levels coarser, a ``4096 >> drop`` px image.
+    ``drop`` zoom levels coarser, a ``4096 >> drop`` px image -- but never
+    below the provider's ``min_source_zl`` (#2017): there the floor is
+    fetched and shrunk to that size.
 
     ``require_complete`` (the background prefetch, #1002): a texture with
     a part the provider did not answer is NOT saved (no white-filled
@@ -1988,6 +1990,10 @@ def download_jpeg_ortho(
         max_zl = int(provider["max_zl"])
         if fetch_zl > max_zl:
             super_resol_factor = 2 ** (max_zl - fetch_zl)
+    # below the provider's floor (#2017) the floor is fetched and shrunk
+    floor_zl = PLACEHOLDER.fetch_zoom(zoomlevel, drop, provider)
+    if floor_zl > fetch_zl:
+        super_resol_factor = 2 ** (floor_zl - fetch_zl)
     width = height = int((4096 >> drop) * super_resol_factor)
     # we treat first the case of webmercator grid type servers
     if "grid_type" in provider and provider["grid_type"] == "webmercator":
@@ -2638,7 +2644,7 @@ def _source_jpeg_location(tile, til_x_left, til_y_top, zoomlevel,
         return (PLACEHOLDER.jpeg_dir(tile.lat, tile.lon, zoomlevel,
                                      provider, drop),
                 PLACEHOLDER.jpeg_name(til_x_left, til_y_top, zoomlevel,
-                                      provider_code, drop))
+                                      provider_code, drop, provider))
     return (FNAMES.jpeg_file_dir_from_attributes(
                 tile.lat, tile.lon, zoomlevel, provider),
             FNAMES.jpeg_file_name_from_attributes(

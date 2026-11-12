@@ -10,13 +10,21 @@ view tile finer than the source's ``max_zl`` is drawn from its deepest
 available ancestor: :func:`ancestor` names that tile and the sub-square
 of it to crop and scale up.  No URL above ``max_zl`` is ever requested,
 and the zoom badge says ``overzoom xN`` (:func:`badge_text`).
+
+Below a source's ``min_zl`` (#2017: its coarsest zoom serving the
+same capture as full zoom; Bing's older, greener capture at ZL12 and
+coarser) :func:`fetch_zoom` raises the fetched zoom to that floor when
+it is at most :data:`MAX_FLOOR_STEPS` finer than the view -- four times
+the tiles, never more; a coarser view keeps its own zoom.
 """
 
 from typing import NamedTuple, Optional
 
 __all__ = [
     "MAX_VIEW_ZL",
+    "MAX_FLOOR_STEPS",
     "Ancestor",
+    "fetch_zoom",
     "ancestor",
     "overzoom_factor",
     "badge_text",
@@ -25,6 +33,9 @@ __all__ = [
 #: The map's zoom ceiling, independent of any imagery source: deep
 #: enough (about 1 cm a pixel) to edit patch nodes at fine scale.
 MAX_VIEW_ZL = 24
+#: How many zoom levels finer than the view the map fetches to reach a
+#: source's floor: 1 (four times the tiles of the view's own zoom).
+MAX_FLOOR_STEPS = 1
 
 
 class Ancestor(NamedTuple):
@@ -52,6 +63,17 @@ def ancestor(z: int, x: int, y: int, max_z: int) -> Ancestor:
                     (x - (ax << depth)) / span,
                     (y - (ay << depth)) / span,
                     1.0 / span)
+
+
+def fetch_zoom(view_z: int, max_z: int, min_z: Optional[int] = None) -> int:
+    """The zoom the map fetches for view zoom ``view_z``: the view's,
+    capped at the source's ``max_z`` (finer view tiles are its ancestors
+    scaled up) and raised to its ``min_z`` when that is at most
+    :data:`MAX_FLOOR_STEPS` finer (a tile drawn from 2 x 2 finer ones)."""
+    z = min(view_z, max_z)
+    if min_z is not None and z < min_z <= min(z + MAX_FLOOR_STEPS, max_z):
+        z = min_z
+    return z
 
 
 def overzoom_factor(view_zl: int, max_zl: int) -> int:

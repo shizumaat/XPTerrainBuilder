@@ -57,3 +57,16 @@ def test_placeholder_tile(case):
     """The engine's download test is the rule the Mac map's
     ``MapOverzoom.isPlaceholderTile`` twins (#1540)."""
     assert IMG.is_placeholder_tile(case["url"], case["headers"]) is case["placeholder"]
+
+
+def test_floor_steps_constant():
+    assert OVERZOOM.MAX_FLOOR_STEPS == CASES["max_floor_steps"]
+
+
+@pytest.mark.parametrize("case", CASES["fetch_zoom"])
+def test_fetch_zoom(case):
+    """#2017: below a source's floor the map fetches the floor only when it
+    is one zoom finer than the view (a bounded 4x the tiles)."""
+    got = OVERZOOM.fetch_zoom(case["view_z"], case["max_z"], case["min_z"])
+    assert got == case["fetch"]
+    assert got - min(case["view_z"], case["max_z"]) <= OVERZOOM.MAX_FLOOR_STEPS

@@ -146,8 +146,8 @@ def test_status_events_fill_the_checklist_and_countdown(qapp):
     assert pane.world_line.text() == TEXT.world_line(CASES["events"]["WorldStatus"])
     # the flight's cells, then build-ahead's around the aircraft beside it
     # (#2019): +53-060 stays the flight's, +53-059 and +54-060 are added
-    assert [c[2] for c in pane.cells()] == ["built", "quick", "building", "own",
-                                            "quick", "own"]
+    assert [c[2] for c in pane.cells()] == ["built", "draped", "meshing", "own",
+                                            "draped", "own"]
     pane.end_flight_btn.click()
     assert pane.status is None and pane.readiness_list.text() == TEXT.NO_STATUS
 
@@ -266,7 +266,7 @@ def test_free_flight_draws_the_drapes_ahead_and_the_detail_is_the_global(
     assert written == [{"drape_photo_px": 4096}] and not saved
     world = CASES["events"]["WorldStatus"]
     pane.show_world(world)
-    assert pane.cells() == [(53, -60, "building"), (53, -59, "quick"),
+    assert pane.cells() == [(53, -60, "draping"), (53, -59, "draped"),
                             (54, -60, "own")]
 
 
@@ -278,7 +278,8 @@ def test_no_plan_shows_the_aircrafts_tile_and_the_key_always(qapp):
     engine = _Engine({"scenery_reload": {"sent": True}})
     pane, _ = _pane(engine)
     assert pane.here_block.isHidden() and not pane.legend_label.isHidden()
-    assert "photo, quick" in pane.legend_label.text()
+    assert "Photo being draped" in pane.legend_label.text()
+    assert "Mesh being built" in pane.legend_label.text()
     assert "full-detail photo" not in pane.legend_label.text()
     pane.chk_live_preview.setChecked(True)
     assert "full-detail photo" in pane.legend_label.text()
@@ -312,3 +313,24 @@ def test_the_aircraft_is_the_shared_airplane(qapp):
     assert image.pixel(int(at.x()), int(at.y()) - 5) == white      # fuselage
     assert image.pixel(int(at.x()) + 5, int(at.y())) == white      # right wing
     assert image.pixel(int(at.x()) + 7, int(at.y()) - 8) != white  # beside the nose
+
+
+def test_the_photo_source_is_the_global_default_website(qapp, monkeypatch):
+    """Owner 2026-11-12T19:17Z: "Photo source" lists the Build pane's
+    imagery entries and writes the global ``default_website`` (the
+    engine reads it per build: ``test_flight_manager``'s
+    ``test_the_photo_source_is_read_per_build``), never the prefs."""
+    import O4_Settings_Model as SM
+    written = []
+    monkeypatch.setattr(SM, "read_global_raw", lambda *a: {"default_website": "GO2"})
+    monkeypatch.setattr(SM, "write_global", lambda values, *a: written.append(values))
+    pane, saved = _pane(_Engine({}))
+    entries = [{"code": c, "label": c, "enabled": True, "tooltip": "",
+                "section": "World"} for c in ("BI", "GO2", "Arc")]
+    pane.set_photo_sources(entries)
+    combo = pane.photo_source_combo
+    assert [combo.itemData(i) for i in range(combo.count())] == ["BI", "GO2", "Arc"]
+    assert combo.currentData() == "GO2" and not written
+    combo.setCurrentIndex(combo.findData("Arc"))
+    combo.activated.emit(combo.currentIndex())
+    assert written == [{"default_website": "Arc"}] and not saved

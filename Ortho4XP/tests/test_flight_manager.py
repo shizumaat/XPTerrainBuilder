@@ -534,3 +534,110 @@ def test_create_with_a_departure_only(engine):
     assert not manager.plan.departure_only
     assert manager.record.destination["ident"] == "DEST"
     assert any(j.role == "destination" for j in manager.jobs)
+
+
+def test_a_batch_of_slow_drapes_scales_the_queue_once(recording):
+    """Drapes finished in one tick each set the drape scale against their
+    PLANNED estimate: the queued drapes are planned x the clamped scale,
+    never planned x 2.5 ** n (CYWG-KDLH 2026-11-12: 55 s -> 9 h)."""
+    manager, builder, _facts = _manager(recording, parked_slots=6)
+    manager.tick(0.0, None)
+    drapes = [s[0] for s in builder.started if s[1] == "drape"]
+    assert len(drapes) >= 3
+    planned = {j.tile: j.est_s for j in manager.jobs if j.state == "queued"
+               and j.kind == "drape"}
+    builder.done.extend((tile, True) for tile in drapes)
+    manager.tick(5000.0, None)
+    queued = [j for j in manager.jobs if j.tile in planned
+              and j.state == "queued"]
+    assert queued
+    top = SCHEDULE.RESCALE_RANGE[1]
+    for j in queued:
+        assert j.est_s == pytest.approx(tuple(v * top for v in planned[j.tile]))
+
+
+def test_the_first_status_comes_before_the_first_tick(engine, monkeypatch):
+    """A tick that blocks (a build start held for seconds) never hides the
+    flight: ``flight_create`` emits a ``FlightStatus`` with the rows and
+    the jobs at once, ``flight_status`` answers from it while the tick
+    holds the lock, an edit refuses instead of freezing the command loop,
+    and the slow tick is logged with its phases."""
+    import threading
+    session, events, builds, _folder = engine
+    gate = threading.Event()
+    real = session.enqueue_build
+    session.enqueue_build = lambda *a, **kw: gate.wait(20) and real(*a, **kw)
+    logs = []
+    monkeypatch.setattr(WORLD, "write_log", logs.append)
+    monkeypatch.setattr(FLIGHT, "EDIT_WAIT_S", 0.2)
+    monkeypatch.setattr(FLIGHT, "SLOW_TICK_S", 0.5)
+    table = FC.flight_handlers(session)
+    flight = table["flight_create"](
+        dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
+        arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})["flight"]
+    first = [e for e in events if isinstance(e, FlightStatus)]
+    assert first and first[0].flight == flight and first[0].items
+    assert first[0].jobs and first[0].countdown_s is not None
+    assert _wait_for(lambda: FLIGHT.current().lock.locked(), 5.0)
+    started = time.monotonic()
+    status = table["flight_status"]()
+    assert time.monotonic() - started < 2.0
+    assert status["flight"] == flight and status["jobs"]
+    with pytest.raises(ValueError, match="busy"):
+        table["flight_update"](flight=flight, corridor_km=30)
+    gate.set()
+    assert _wait_for(lambda: any("flight_slow_tick" in r for r in logs))
+    slow = next(r for r in logs if "flight_slow_tick" in r)["flight_slow_tick"]
+    assert slow["tick"] >= 0.5
+
+
+def test_the_facts_never_walk_the_pack_and_never_hold_a_tick(monkeypatch):
+    """The readiness facts read X-Plane's side through
+    ``world_commands.xplane_reads`` (no walk of the pack's tiles: beside
+    busy drape threads the walk took minutes), the first time at once and
+    after that on a worker: a slow reread never holds the tick."""
+    calls = []
+
+    def reads(scenery_dir):
+        calls.append(time.monotonic())
+        if len(calls) > 1:
+            time.sleep(1.0)
+        return {"installed": True, "xplane_running": False,
+                "seen_by_xplane": None, "loads": {}}
+    monkeypatch.setattr(WORLD, "xplane_reads", reads)
+    monkeypatch.setattr(WORLD, "_status_fields",
+                        lambda *a: pytest.fail("the tile walk"))
+    monkeypatch.setattr(FLIGHT, "REREAD_S", 0.0)
+    monkeypatch.setattr(FLIGHT._Facts, "_budget", lambda self, *a: None)
+    facts = FLIGHT._Facts("/nowhere", [], 600.0, on_disk=lambda t: True)
+    assert facts()["world_installed"] is True and len(calls) == 1
+    started = time.monotonic()
+    facts()
+    assert time.monotonic() - started < 0.5
+    assert _wait_for(lambda: len(calls) == 2, 5.0)
+
+
+def test_the_photo_source_is_read_per_build(engine, monkeypatch):
+    """The Fly pane's "Photo source" writes the global default_website
+    (owner 2026-11-12T19:17Z); the flight's builds read it per build, so
+    the next drape and the next full build fetch from the new source."""
+    session, _events, builds, _folder = engine
+    values = {"default_website": "BI", "default_zl": 16}
+    monkeypatch.setattr(WORLD_JOB, "_settings", lambda: dict(values))
+    drapes = []
+    monkeypatch.setattr(WORLD_JOB, "drape_tile", lambda tile, p, z, px=None:
+                        bool(drapes.append((tuple(tile), p, z))))
+    table = FC.flight_handlers(session)
+    table["flight_create"](
+        dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
+        arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})
+    builder = FLIGHT.current().manager.builder
+    builder.drape((53, -60))
+    values.update(default_website="GO2", default_zl=17)
+    builder.drape((53, -60))
+    assert drapes[-2:] == [((53, -60), "BI", 16), ((53, -60), "GO2", 17)]
+    seen = []
+    session.enqueue_build = lambda tiles, provider, zl, *a, **kw: bool(
+        seen.append((provider, zl)))
+    builder._start((53, -64), "full", 600.0, "P2")
+    assert seen == [("GO2", 17)]

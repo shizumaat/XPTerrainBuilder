@@ -61,6 +61,20 @@ final class FlyModel: ObservableObject {
             build?.setConfigValue(FlyText.drapePxKey, to: .int(newValue))
         }
     }
+    /// The photo source the World pack's builds fetch (the global
+    /// `default_website`, the Build pane's "Tile / global default"; owner
+    /// 2026-11-12T19:17Z), read per build by the engine.
+    var photoSource: String {
+        get {
+            let value = build?.configValue(for: FlyText.photoSourceKey)?.cfgLiteral ?? ""
+            return value.isEmpty ? "BI" : value
+        }
+        set {
+            guard !newValue.isEmpty else { return }
+            objectWillChange.send()
+            build?.setConfigValue(FlyText.photoSourceKey, to: .string(newValue))
+        }
+    }
     let preview = LivePreviewModel()
     @Published private(set) var status: O4FlightStatus?
     @Published private(set) var worldStatus: O4JSON?
@@ -255,8 +269,13 @@ final class FlyModel: ObservableObject {
 
     func prepare() {
         guard let plan else { return }
+        // the engine emits the first FlightStatus at once; the status is
+        // asked as well, so the pane shows the flight from Prepare on
+        // (owner 2026-11-12T19:02Z). Qt: `FlyPane.prepare`.
         command("flight_create", ["plan": plan.wire, "build_alternate": buildAlternate,
-                                  "cruise_kt": cruiseKt, "corridor_km": corridorKm]) { _ in }
+                                  "cruise_kt": cruiseKt, "corridor_km": corridorKm]) { [weak self] _ in
+            self?.refreshStatus()
+        }
     }
 
     private func update(_ arguments: [String: Any]) {

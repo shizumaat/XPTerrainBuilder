@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import O4_Fly_Divert_Text as DTEXT  # noqa: E402
 import O4_Fly_Layers as LAYERS  # noqa: E402
 import O4_Fly_Text as TEXT  # noqa: E402
+import O4_World_State_Text as WORLD_TEXT  # noqa: E402
 from o4_engine import aircraft_watch as WATCH  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 from o4_engine.jsonl import serialize_event  # noqa: E402
@@ -255,9 +256,19 @@ def test_the_words():
     added = TEXT.added_destination(DEP_ONLY_STATUS, plan)
     assert added == {"ident": "CYYT", "lat": 47.6186, "lon": -52.7519}
     assert TEXT.added_destination(FLIGHT_STATUS, plan) is None
-    # The plan-tier words never reach the user (§14).
+    # The plan-tier word "light" never reaches the user (§14); the Fly
+    # key names drapes as drapes and keeps the World pack's words (owner
+    # 2026-11-12T19:11Z/19:12Z: one key, one palette).
     for _key, words in TEXT.LEGEND:
-        assert not re.search(r"placeholder|drape|light", words)
+        assert not re.search(r"\blight\b", words)
+    assert {w for _k, w in TEXT.LEGEND} >= {
+        WORLD_TEXT.LEGEND_DRAPE, WORLD_TEXT.LEGEND_FULL,
+        WORLD_TEXT.LEGEND_MESH, WORLD_TEXT.LEGEND_PLACEHOLDER}
+    assert [TEXT.legend_key(k, "building") for k in ("drape", "full")] == [
+        "draping", "meshing"]
+    preparing = TEXT.follow_status_line(FLIGHT_STATUS)
+    assert preparing.startswith("Preparing: departure building")
+    assert "tiles ready" in preparing
 
 
 def test_the_words_are_the_macs():
@@ -313,8 +324,8 @@ def test_the_corridor_follows_the_jobs_once_reported():
     assert before and {k for *_t, k in before} == {"own"}
     assert (53, -61, "own") in before and (47, -53, "own") in before
     after = LAYERS.corridor_cells(plan, 20, FLIGHT_STATUS["jobs"])
-    assert after == [(47, -53, "built"), (52, -59, "quick"),
-                     (53, -61, "building"), (53, -60, "own")]
+    assert after == [(47, -53, "built"), (52, -59, "draped"),
+                     (53, -61, "meshing"), (53, -60, "own")]
 
 
 def test_free_flight_maps_the_drapes_ahead():
@@ -325,13 +336,13 @@ def test_free_flight_maps_the_drapes_ahead():
     ahead = WORLD_STATUS["jobs"]
     jobs = LAYERS.map_jobs((), False, ahead)
     assert LAYERS.corridor_cells(None, 20, jobs) == [
-        (53, -60, "building"), (53, -59, "quick"), (54, -60, "own")]
+        (53, -60, "draping"), (53, -59, "draped"), (54, -60, "own")]
     both = LAYERS.map_jobs(FLIGHT_STATUS["jobs"], False, ahead)
     assert both[:len(FLIGHT_STATUS["jobs"])] == tuple(FLIGHT_STATUS["jobs"])
     assert [tuple(r[0]) for r in both[len(FLIGHT_STATUS["jobs"]):]] == [
         tuple(r[0]) for r in ahead
         if tuple(r[0]) not in {tuple(f[0]) for f in FLIGHT_STATUS["jobs"]}]
-    assert (53, -59, "quick") in LAYERS.corridor_cells(None, 20, both)
+    assert (53, -59, "draped") in LAYERS.corridor_cells(None, 20, both)
     assert LAYERS.map_jobs((), True, ahead) == ()
     assert set(EV.WorldStatus.__dataclass_fields__) >= {"jobs", "building"}
 

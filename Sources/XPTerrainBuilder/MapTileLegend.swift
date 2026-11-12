@@ -63,6 +63,14 @@ struct MapTileLegend: View {
     }
 
     @ObservedObject var buildModel: BuildModel
+    /// The Fly view hides this legend: its pane holds the one key
+    /// (`FlyLegend`, owner 2026-11-12T19:12Z; Qt: `tile_legend_shown`).
+    @ObservedObject private var modes: AppModeModel
+
+    init(buildModel: BuildModel) {
+        self.buildModel = buildModel
+        self.modes = buildModel.appMode
+    }
 
     /// The kinds present on the map now, in the legend's order.
     static func kinds(built: [BuildModel.TileCoord: O4TileInfo],
@@ -89,7 +97,7 @@ struct MapTileLegend: View {
         let kinds = Self.kinds(built: buildModel.built, stale: buildModel.staleTiles,
                                world: buildModel.worldTiles,
                                customPatch: !buildModel.customPatchTiles.isEmpty)
-        if !kinds.isEmpty {
+        if !kinds.isEmpty, modes.mode != .fly {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(kinds, id: \.self) { kind in
                     HStack(spacing: 6) {

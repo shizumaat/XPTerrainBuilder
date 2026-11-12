@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import O4_Flight_Plan as FP
 import O4_Flight_Schedule as FS
 import O4_Glossary as GLOSSARY
+import O4_World_State_Text as WORLD_TEXT
 
 __all__ = [
     "PLAN_SOURCE_LABEL", "PLAN_CHOOSE", "PLAN_SIMBRIEF", "PLAN_NONE",
@@ -26,14 +27,15 @@ __all__ = [
     "DEPARTURE_ONLY_PREPARING", "DEPARTURE_ONLY_FLYING", "PREPARE",
     "BUILD_ALTERNATE", "CRUISE_LABEL",
     "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "SIM_PRIORITIES",
-    "DRAPE_PX_LABEL", "DRAPE_PX_KEY", "DRAPE_PX_CHOICES", "LIVE_PREVIEW",
+    "DRAPE_PX_LABEL", "DRAPE_PX_KEY", "PHOTO_SOURCE_LABEL",
+    "PHOTO_SOURCE_KEY", "DRAPE_PX_CHOICES", "LIVE_PREVIEW",
     "LIVE_PREVIEW_HELP", "CENTER_ON_AIRCRAFT", "NO_AIRCRAFT_POSITION",
     "AIRCRAFT_FRESH_S", "aircraft_is_current", "DIVERT", "END_FLIGHT", "NO_FLIGHT_MANAGER",
     "NO_STATUS", "READINESS_LABELS", "STATE_MARKS", "LEGEND", "PREVIEW_KEYS",
     "DEFAULT_CRUISE_KT", "DEFAULT_CORRIDOR_KM", "plan_row_label",
     "unknown_airport", "refusal", "quick_plan", "cruise_kt", "card_lines",
     "countdown_text", "item_text", "world_line", "follow_status_line",
-    "legend_key", "here_lines",
+    "legend_key", "preparing_line", "here_lines",
     "added_destination",
 ]
 
@@ -66,6 +68,11 @@ SIM_PRIORITIES = (("smooth", "Smooth flying first"),
                   ("balanced", "Balanced"),
                   ("fast", "Build fastest"))
 DRAPE_PX_LABEL = "Photo detail ahead"
+#: The photo source the World pack's builds fetch (owner
+#: 2026-11-12T19:17Z): the global ``default_website`` the Build pane's
+#: "Tile / global default" means; read per build by the engine.
+PHOTO_SOURCE_LABEL = "Photo source"
+PHOTO_SOURCE_KEY = "default_website"
 #: ``drape_photo_px`` (RULINGS 2026-11-11j): (value, words).
 DRAPE_PX_KEY = "drape_photo_px"
 DRAPE_PX_CHOICES = ((512, "Quick"),
@@ -106,11 +113,20 @@ READINESS_LABELS = {
 #: A readiness row's state as one mark.
 STATE_MARKS = {"done": "✓", "working": "…", "waiting": "○",
                "blocked": "!", "failed": "✕"}
-#: The map legend (§14): (key, words), drawn in this order.
-LEGEND = (("own", GLOSSARY.TERMS["xplane_own_scenery"]),
-          ("quick", "photo, quick"),
-          ("built", "built"),
-          ("building", "building"),
+#: The Fly view's ONE map key (owner 2026-11-12T19:11Z/19:12Z: one
+#: palette, drapes named as drapes): (key, words), drawn in this order.
+#: The World pack's states keep the Build map's words and colours
+#: (``O4_World_State_Text``), and the flight's tiles use them once built;
+#: a build under way is its own colour, dashed for a drape and solid for
+#: a mesh.  The Build map's tile legend is hidden on the Fly view.
+LEGEND = (("draping", "Photo being draped"),
+          ("meshing", "Mesh being built"),
+          ("draped", WORLD_TEXT.LEGEND_DRAPE),
+          ("built", WORLD_TEXT.LEGEND_FULL),
+          ("mesh", WORLD_TEXT.LEGEND_MESH),
+          ("placeholder", WORLD_TEXT.LEGEND_PLACEHOLDER),
+          ("own", "On the route, not built yet"),
+          ("custom", WORLD_TEXT.LEGEND_CUSTOM_PATCH),
           ("sharp", "full-detail photo"))
 #: The legend's keys the map draws only while "Live flight preview" is
 #: on (a square of installed imagery at full resolution, #2020).
@@ -284,6 +300,8 @@ def follow_status_line(status: Optional[Dict[str, Any]]) -> str:
     if _status_departure_only(status):
         return (DEPARTURE_ONLY_PREPARING if status.get("state") == "preparing"
                 else DEPARTURE_ONLY_FLYING)
+    if status.get("state") == "preparing":
+        return preparing_line(status)
     route, done = status.get("route_km") or 0, status.get("done_km") or 0
     if route:
         return "%s of %s km flown" % (format(int(round(done)), ","),
@@ -292,12 +310,39 @@ def follow_status_line(status: Optional[Dict[str, Any]]) -> str:
 
 
 def legend_key(kind: str, state: str) -> str:
-    """A corridor tile's legend key from its job's kind and state."""
+    """A corridor tile's legend key from its job's kind and state: a
+    drape being draped or a mesh being built, the World pack's drape or
+    full once in, else not built yet."""
     if state in _BUILDING:
-        return "building"
+        return "meshing" if kind == "full" else "draping"
     if state in _DONE:
-        return "built" if kind == "full" else "quick"
+        return "built" if kind == "full" else "draped"
     return "own"
+
+
+#: A job's state in the preparing line.
+_JOB_WORDS = {"building": "building", "fetching": "building",
+              "queued": "waiting", "late": "waiting", "staged": "ready",
+              "swapped": "ready", "external": "ready", "failed": "failed",
+              "shed": "skipped"}
+_READY_STATES = frozenset({"staged", "swapped", "external"})
+
+
+def preparing_line(status: Optional[Dict[str, Any]]) -> str:
+    """While a flight prepares: "Preparing: departure building ·
+    destination waiting · 12 of 23 tiles ready" (owner 2026-11-12T19:02Z:
+    what is happening, from Prepare on)."""
+    jobs = [row for row in (status or {}).get("jobs") or () if len(row) > 3]
+    if not jobs:
+        return "Preparing: planning the tiles"
+    parts = []
+    for role in ("departure", "destination"):
+        row = next((r for r in jobs if r[1] == role), None)
+        if row is not None:
+            parts.append("%s %s" % (role, _JOB_WORDS.get(row[3], row[3])))
+    ready = sum(1 for r in jobs if r[3] in _READY_STATES)
+    parts.append("%d of %d tiles ready" % (ready, len(jobs)))
+    return "Preparing: " + " · ".join(parts)
 
 
 def aircraft_is_current(seen_at: Optional[float], now: float) -> bool:

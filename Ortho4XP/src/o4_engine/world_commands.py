@@ -45,7 +45,7 @@ import O4_World_Pack as WP
 __all__ = ["LOG_NAME", "S3_MARGIN_KM", "pack_dir", "staging_root", "scenery_dir_or_default",
            "managed", "refuse_foreign",
            "OFFERED_KEY",
-           "tile_loaded", "world_status", "world_install", "world_onboard",
+           "tile_loaded", "xplane_reads", "world_status", "world_install", "world_onboard",
            "start_world_regions_set", "world_tile_set",
            "status_event", "write_log"]
 
@@ -243,25 +243,40 @@ def managed(scenery_dir: str) -> bool:
         os.path.join(pack_dir(scenery_dir), WP.MARKER)) and not _foreign_target(scenery_dir)
 
 
-def _status_fields(scenery_dir: str) -> dict:
-    pack = pack_dir(scenery_dir) if scenery_dir else ""
-    exists = managed(scenery_dir)
-    installed = exists and _ini_has_row(scenery_dir)
-    kinds = WP.world_tiles(pack) if exists else {}
-    counts = {kind: 0 for kind in WP.KINDS}
-    for kind in kinds.values():
-        counts[kind] = counts.get(kind, 0) + 1
-    counts["staged"] = _staged_count()
+def xplane_reads(scenery_dir: str) -> dict:
+    """The World pack as X-Plane reads it, with a handful of file reads
+    and no walk of the pack's tiles: ``installed`` (made here and in
+    ``scenery_packs.ini``), ``xplane_running``, ``seen_by_xplane`` (None
+    until ``Log.txt`` lists the packs) and ``loads`` (``{(lat, lon):
+    DsfLoad}`` this session).  The flight's readiness reads this every
+    tick: :func:`_status_fields`' tile walk is tens of thousands of file
+    calls, each giving the GIL away, and beside a dozen drape threads it
+    took minutes (the CYWG-KDLH flight of 2026-11-12 showed nothing for
+    its first ~5 minutes)."""
+    installed = managed(scenery_dir) and _ini_has_row(scenery_dir)
     running = _xplane_running()
-    seen = None
-    loaded = ()
+    seen, loads = None, {}
     if running and installed:
         loads, packages = _witness(scenery_dir)
         if packages:
             seen = any(p.rstrip("/").endswith("/" + WP.PACK_NAME)
                        for p in packages)
-        loaded = tuple(sorted(WP.tile_name(*k) for k, rec in loads.items()
-                              if rec.tris > 0))
+    return {"installed": installed, "xplane_running": running,
+            "seen_by_xplane": seen, "loads": loads}
+
+
+def _status_fields(scenery_dir: str) -> dict:
+    pack = pack_dir(scenery_dir) if scenery_dir else ""
+    exists = managed(scenery_dir)
+    reads = xplane_reads(scenery_dir)
+    installed, seen = reads["installed"], reads["seen_by_xplane"]
+    kinds = WP.world_tiles(pack) if exists else {}
+    counts = {kind: 0 for kind in WP.KINDS}
+    for kind in kinds.values():
+        counts[kind] = counts.get(kind, 0) + 1
+    counts["staged"] = _staged_count()
+    loaded = tuple(sorted(WP.tile_name(*k) for k, rec in reads["loads"].items()
+                          if rec.tris > 0))
     foreign = _foreign_target(scenery_dir)
     missing = _converted_missing(scenery_dir, kinds) if not foreign else 0
     if foreign:

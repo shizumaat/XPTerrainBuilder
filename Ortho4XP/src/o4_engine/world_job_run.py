@@ -43,7 +43,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 import O4_World_Pack as WP
 
@@ -53,7 +53,7 @@ from .fly_here import describe as describe_here
 from .world_job import WorldJob, drape_estimate
 
 __all__ = ["STATUS_EVERY_S", "FULL_OVERRIDES", "world_job_start",
-           "world_job_stop", "autostart"]
+           "world_job_stop", "autostart", "photo_source"]
 
 #: Seconds between ``WorldStatus`` events while the job runs.
 STATUS_EVERY_S = 2.0
@@ -91,6 +91,19 @@ def _settings() -> dict:
         return {}
 
 
+def photo_source() -> Tuple[str, int]:
+    """The user's photo source now ``(provider, zoom level)``: the
+    global ``default_website`` / ``default_zl`` the Build pane's and the
+    Fly pane's "Photo source" pickers both set (owner 2026-11-12T19:17Z),
+    read per job so a change applies to the next build (BI / 16 unset)."""
+    values = _settings()
+    try:
+        zoomlevel = int(values.get("default_zl") or 16)
+    except (TypeError, ValueError):
+        zoomlevel = 16
+    return str(values.get("default_website") or "BI"), zoomlevel
+
+
 def _utc() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -116,9 +129,14 @@ class _SessionBuilder:
 
     def __init__(self, session: Any, provider: str, zoomlevel: int,
                  drape: "Optional[Callable[[tuple], bool]]" = None,
-                 share: Optional[BuildShare] = None, owner: str = "") -> None:
+                 share: Optional[BuildShare] = None, owner: str = "",
+                 source: "Optional[Callable[[], Tuple[str, int]]]" = None
+                 ) -> None:
+        """``source()`` (:func:`photo_source`): the provider and zoom
+        level each build starts with; else ``provider`` / ``zoomlevel``."""
         self.session = session
         self.provider, self.zoomlevel = provider, int(zoomlevel)
+        self.source = source
         self.drape = drape
         self.share, self.owner = share, owner
         self._mine: set = set()
@@ -165,8 +183,10 @@ class _SessionBuilder:
         _restore_package(tile)
         with self._lock:
             self._mine.add(tile)
+        provider, zoomlevel = (self.source() if self.source is not None
+                               else (self.provider, self.zoomlevel))
         ok = self.session.enqueue_build(
-            [tile], self.provider, self.zoomlevel, "",
+            [tile], provider, zoomlevel, "",
             missing_art="leave", overrides=dict(FULL_OVERRIDES),
             deadline=time.time() + float(deadline_in_s), klass=klass)
         if not ok:
@@ -381,16 +401,15 @@ class _Runner:
 
         from .position_feed import shared
         values = _settings()
-        provider = values.get("default_website") or "BI"
-        zoomlevel = int(values.get("default_zl") or 16)
+        provider, zoomlevel = photo_source()
         self.emit, self.scenery_dir = emit, scenery_dir
         self.feed = shared(WEBAPI.base_url(int(port)) if port else None)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
             drape=lambda tile, core=None: (
-                drape_tile(tile, provider, zoomlevel) if core is None
-                else drape_tile(tile, provider, zoomlevel, core=core)),
-            share=SHARE, owner="track")
+                drape_tile(tile, *photo_source()) if core is None
+                else drape_tile(tile, *photo_source(), core=core)),
+            share=SHARE, owner="track", source=photo_source)
         wanted = _Wanted(scenery_dir)
 
         def kind_of(tile):

@@ -239,7 +239,7 @@ def flight_update(flight: str = "", build_alternate=None, cruise_kt=None,
     runner = _runner_for(flight)
     if runner is None:
         raise ValueError("That flight is not active.")
-    with runner.lock:
+    with runner.locked():
         record = runner.manager.record
         if build_alternate is not None:
             record.build_alternate = bool(build_alternate)
@@ -319,7 +319,7 @@ def flight_divert(flight: str = "", to: Any = "alternate", **_ignored
     runner = _runner_for(flight)
     if runner is None:
         raise ValueError("That flight is not active.")
-    with runner.lock:
+    with runner.locked():
         manager = runner.manager
         target, is_alternate = divert_target(to, manager.plan, _airport_lookup)
         name = manager.divert(runner.now(), target, is_alternate,
@@ -336,7 +336,7 @@ def flight_reload(flight: str = "", **_ignored) -> Dict[str, Any]:
     runner = _runner_for(flight)
     if runner is None:
         raise ValueError("That flight is not active.")
-    with runner.lock:
+    with runner.locked():
         manager = runner.manager
         done = manager.reload_now(runner.now())
         state = (manager.reload if manager.takeoff_at is None

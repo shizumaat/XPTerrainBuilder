@@ -20,15 +20,31 @@ struct FlyMapOverlay: View {
         self.preview = model.preview
     }
 
-    /// The legend's colors (Qt: `O4_Qt_Fly_Layer.LEGEND_COLORS`).
+    /// A build under way (dashed: a drape; solid: a mesh): a colour no
+    /// other key uses (orange is the custom-patch band, purple a changed
+    /// airport pack, teal a World mesh). Qt: `BUILDING_COLOR`.
+    static let building = Color(red: 0.37, green: 0.36, blue: 0.90)    // #5E5CE6
+
+    /// The ONE Fly-view key's colours (`FlyText.legend`; Qt:
+    /// `O4_Qt_Fly_Layer.LEGEND_COLORS`): the World pack's states in the
+    /// Build map's colours (`MapWorldStates`), the builds under way in
+    /// their own.
     static func color(_ key: String) -> Color {
         switch key {
-        case "quick": return Color(red: 0.19, green: 0.69, blue: 0.78)   // #30B0C7
-        case "built": return MapCanvasView.builtTile
-        case "building": return MapCanvasView.customPatchBand
+        case "draping", "meshing": return building
+        case "draped": return MapWorldStates.drape
+        case "built": return MapWorldStates.full
+        case "mesh": return MapWorldStates.mesh
+        case "placeholder": return MapWorldStates.placeholder.opacity(MapWorldStates.placeholderOpacity)
+        case "custom": return MapCanvasView.customPatchBand
         case "sharp": return Color(red: 1.0, green: 0.84, blue: 0.04)      // #FFD60A
         default: return Color(white: 0.55)                              // #8C8C8C
         }
+    }
+
+    /// A key's stroke: dashed for a drape being draped.
+    static func style(_ key: String) -> StrokeStyle {
+        StrokeStyle(lineWidth: 2, dash: FlyText.dashedKeys.contains(key) ? [3, 2] : [])
     }
     /// The track line; the aircraft itself is `FlyLayers.aircraftSymbol`
     /// filled white with a dark outline (G1000 style; Qt: `AIRCRAFT_FILL`,
@@ -93,7 +109,7 @@ struct FlyMapOverlay: View {
             let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
                               width: abs(b.x - a.x), height: abs(b.y - a.y))
             context.stroke(Path(rect.insetBy(dx: 2, dy: 2)),
-                           with: .color(Self.color(cell.key)), lineWidth: 2)
+                           with: .color(Self.color(cell.key)), style: Self.style(cell.key))
         }
         stroke(model.drawing, cam, size, &context, MapCanvasView.magenta, 2.5)
         stroke(model.track.parts, cam, size, &context, Self.aircraft, 2)

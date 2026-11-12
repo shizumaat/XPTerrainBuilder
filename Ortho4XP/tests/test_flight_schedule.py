@@ -184,3 +184,15 @@ def test_readiness_blocks_and_waits():
     # nothing remote needed: the network row is done offline
     assert _rows(jobs=(), network_ok=False, all_on_disk=True)["network"].state == "done"
     assert _rows(jobs=())["world"].detail == "Install the World pack"
+
+
+def test_rescale_from_planned_estimates_never_compounds():
+    """``scales`` + ``base``: each queued job is its planned estimate times
+    its kind's factor, however many times it is applied (the CYWG-KDLH
+    flight of 2026-11-12: seven drapes harvested in one tick took the
+    queue's 55 s drapes to 9 h at 2.5x each)."""
+    jobs = [job((0, 0), hi=100.0), job((0, 1), hi=100.0, kind="full")]
+    base = {j.tile: j.est_s for j in jobs}
+    once = S.rescale(jobs, scales={"drape": S.clamp_scale(9.0)}, base=base)
+    again = S.rescale(once, scales={"drape": S.clamp_scale(9.0)}, base=base)
+    assert [j.est_s[1] for j in again] == [250.0, 100.0]

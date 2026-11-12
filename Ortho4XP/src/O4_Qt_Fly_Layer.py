@@ -13,17 +13,33 @@ from __future__ import annotations
 
 import O4_Flight_Plan as FP
 import O4_Fly_Layers as LAYERS
+import O4_Qt_Map_World as QTWORLD
 from O4_Qt_Flight_Plan import ROUTE_COLOR
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPen, QPolygonF
 
-__all__ = ["FlyLayer", "LEGEND_COLORS", "AIRCRAFT_COLOR", "AIRCRAFT_FILL",
-           "AIRCRAFT_OUTLINE"]
+__all__ = ["FlyLayer", "LEGEND_COLORS", "LEGEND_DASHED", "BUILDING_COLOR",
+           "AIRCRAFT_COLOR", "AIRCRAFT_FILL", "AIRCRAFT_OUTLINE"]
 
-#: The legend's colors (Mac: ``FlyMapOverlay.color``).
-LEGEND_COLORS = {"own": QColor(140, 140, 140), "quick": QColor(48, 176, 199),
-                 "built": QColor(77, 176, 110), "building": QColor(255, 159, 10),
+#: A build under way (dashed: a drape; solid: a mesh): a colour no other
+#: key uses (orange is the custom-patch band, purple a changed airport
+#: pack, teal a World mesh).
+BUILDING_COLOR = QColor(94, 92, 230)                    # #5E5CE6
+_PLACEHOLDER = QColor(QTWORLD.PLACEHOLDER_COLOR)
+_PLACEHOLDER.setAlphaF(QTWORLD.PLACEHOLDER_ALPHA)
+#: The ONE Fly-view key's colours (``O4_Fly_Text.LEGEND``; Mac:
+#: ``FlyMapOverlay.color``): the World pack's states in the Build map's
+#: colours (``O4_Qt_Map_World``), the builds under way in their own.
+LEGEND_COLORS = {"draping": BUILDING_COLOR, "meshing": BUILDING_COLOR,
+                 "draped": QColor(QTWORLD.DRAPE_COLOR),
+                 "built": QColor(QTWORLD.FULL_COLOR),
+                 "mesh": QColor(QTWORLD.MESH_COLOR),
+                 "placeholder": _PLACEHOLDER,
+                 "own": QColor(140, 140, 140),
+                 "custom": QColor(255, 159, 10),
                  "sharp": QColor(255, 214, 10)}
+#: Keys drawn dashed (Mac: ``FlyMapOverlay.dash``).
+LEGEND_DASHED = frozenset({"draping"})
 #: The track line's color; the aircraft itself is ``O4_Fly_Layers.
 #: AIRCRAFT_SYMBOL`` filled white with a dark outline (G1000 style).
 AIRCRAFT_COLOR = QColor(10, 132, 255)
@@ -50,6 +66,8 @@ class FlyLayer:
 
     def set_shown(self, shown: bool) -> None:
         self.shown = bool(shown)
+        # ONE key on the Fly view: the pane's (owner 2026-11-12T19:12Z)
+        self._map.tile_legend_shown = not self.shown
         self._preview_on()
         self._repaint()
 
@@ -87,6 +105,8 @@ class FlyLayer:
         for lat, lon, key in self._pane.cells():
             pen = QPen(LEGEND_COLORS[key], 2)
             pen.setCosmetic(True)
+            if key in LEGEND_DASHED:
+                pen.setDashPattern([3, 2])
             painter.setPen(pen)
             rect = QRectF(self._point(lat + 1, lon), self._point(lat, lon + 1))
             painter.drawRect(rect.normalized().adjusted(2, 2, -2, -2))

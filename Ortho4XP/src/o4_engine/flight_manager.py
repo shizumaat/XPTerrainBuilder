@@ -250,7 +250,11 @@ class FlightManager:
         self.items: List["SCHEDULE.Item"] = []
         self.reason = ""
         self.jobs: List["SCHEDULE.Job"] = []
-        self._runs: Dict[Tile, dict] = {}            # attempts, times, point
+        self._runs: Dict[Tile, dict] = {}            # attempts, times
+        #: The planned estimate of each tile, before any measured scale,
+        #: and the measured scale of each kind (``SCHEDULE.rescale``).
+        self._base: Dict[Tile, Tuple[float, float]] = {}
+        self._scale: Dict[str, float] = {}
         self._finished: set = set()
         self._seen: set = set()
         self._swap_at = -math.inf
@@ -267,6 +271,8 @@ class FlightManager:
             cruise_ms=self.record.profile.get("cruise_ms"),
             intermediate=self.intermediate, state_of=self.state_of,
             estimate=self.estimate, leg=self.leg)
+        self._base.update({j.tile: j.est_s for j in jobs if j.state == "queued"})
+        jobs = SCHEDULE.rescale(jobs, scales=self._scale, base=self._base)
         self._km = [self._km_offset]
         for a, b in zip(self.samples, self.samples[1:], strict=False):
             self._km.append(self._km[-1] + FP.route_length_km([a, b]))
@@ -431,13 +437,25 @@ class FlightManager:
             run["finished_at"] = now
             if ok:
                 self._finished.add(tile)
-                self.jobs = SCHEDULE.rescale(self.jobs, job.kind,
-                                             now - run["started_at"],
-                                             run["point"])
+                self._measured(job, now - run["started_at"])
             elif run["attempts"] >= MAX_ATTEMPTS:
                 self._set(tile, state="failed")
             else:
                 self._set(tile, state="queued")
+
+    def _measured(self, job, seconds: float) -> None:
+        """A finished build's time sets its kind's scale against the
+        tile's PLANNED estimate, and the queued jobs of the kind are
+        planned estimate x scale: never compounded (a batch of drapes
+        harvested in one tick multiplied the queue by 2.5 per drape,
+        55 s -> 9 h on the CYWG-KDLH flight of 2026-11-12)."""
+        base = self._base.get(job.tile, job.est_s)
+        point = math.sqrt(base[0] * base[1])
+        if point <= 0 or seconds <= 0:
+            return
+        self._scale[job.kind] = SCHEDULE.clamp_scale(seconds / point)
+        self.jobs = SCHEDULE.rescale(self.jobs, scales=self._scale,
+                                     base=self._base)
 
     def held(self, tile: Tile, facts: dict) -> bool:
         """Rule S3 (``O4_World_Ahead.held``); never while X-Plane does
@@ -508,8 +526,7 @@ class FlightManager:
                 refused.add(job.tile)
                 continue
             run = self._runs.setdefault(job.tile, {"attempts": 0})
-            run.update(started_at=now,
-                       point=math.sqrt(job.est_s[0] * job.est_s[1]))
+            run["started_at"] = now
             run["attempts"] = run.get("attempts", 0) + 1
             self._set(job.tile, state="building")
             running += 1
@@ -545,6 +562,12 @@ class FlightManager:
         return not any(j.klass == SCHEDULE.P0 and j.state == "staged"
                        and j.role in ("departure", "enroute")
                        for j in self.jobs)
+
+    def prime(self, now: float, facts: dict) -> None:
+        """A readiness pass before the first tick (``flight_job_run``
+        emits its status at once): the rows and the countdown from the
+        plan's estimates, with the facts known so far."""
+        self._readiness(now, dict(facts or {}))
 
     def _readiness(self, now: float, facts: dict) -> None:
         jobs = self._live_jobs(now)

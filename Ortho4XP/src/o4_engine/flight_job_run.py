@@ -67,6 +67,15 @@ __all__ = ["STATUS_EVERY_S", "FULL_FALLBACK_S", "start",
 STATUS_EVERY_S = 2.0
 #: Seconds between rereads of the pack, ``Log.txt`` and the volume.
 REREAD_S = 10.0
+#: A flight tick this slow is logged with its phases (``flight_slow_tick``
+#: in ``world_pack.log``), at most once a minute: the CYWG-KDLH flight of
+#: 2026-11-12 saved and showed nothing for its first ~5 minutes.
+SLOW_TICK_S = 5.0
+#: A command waits this long for the flight's lock, then answers from the
+#: last status (``flight_status``) or refuses (the edits): the command
+#: loop is one thread, and a tick that blocks must never freeze the app.
+COMMAND_WAIT_S = 0.25
+EDIT_WAIT_S = 10.0
 #: A ``full`` build whose estimate cannot be read [estimate, wide].
 FULL_FALLBACK_S = (600.0, 3600.0)
 _GUARD = threading.Lock()
@@ -226,23 +235,31 @@ class _Facts:
                            offline_tiles=tuple(failed))
 
     def __call__(self) -> dict:
+        """The facts now.  X-Plane's side is reread every
+        :data:`REREAD_S`: the first time here (the flight's first status
+        needs it), after that on a worker, so a tick never waits on a
+        file read."""
         now = time.monotonic()
         if now - self._at > REREAD_S:
-            self._at = now
-            with contextlib.suppress(Exception):
-                self._world()
+            first, self._at = self._at < 0, now
+            if first:
+                self._reread()
+            else:
+                threading.Thread(target=self._reread, daemon=True,
+                                 name="o4-flight-facts").start()
         return dict(self.values)
 
+    def _reread(self) -> None:
+        with contextlib.suppress(Exception):
+            self._world()
+
     def _world(self) -> None:
-        fields = WORLD._status_fields(self.scenery_dir)
-        running = WORLD._xplane_running()
-        loads: dict = {}
-        if running and fields["installed"]:
-            loads = WORLD._witness(self.scenery_dir)[0]
+        reads = WORLD.xplane_reads(self.scenery_dir)   # never the tile walk
+        loads = reads["loads"]
         self.values.update(
-            world_installed=fields["installed"],
-            world_seen=fields["seen_by_xplane"], xplane_running=running,
-            loads=set(loads),
+            world_installed=reads["installed"],
+            world_seen=reads["seen_by_xplane"],
+            xplane_running=reads["xplane_running"], loads=set(loads),
             load_stamps={tile: r.t_s for tile, r in loads.items()})
 
 
@@ -280,10 +297,9 @@ class _Runner:
         import O4_XPlane_WebAPI as WEBAPI
 
         from .position_feed import shared
-        from .world_job_run import _PackPublisher, _SessionBuilder, drape_tile
+        from .world_job_run import _PackPublisher, _SessionBuilder, drape_tile, photo_source
         values = _settings()
-        provider = values.get("default_website") or "BI"
-        zoomlevel = int(values.get("default_zl") or 16)
+        provider, zoomlevel = photo_source()
         self.emit, self.scenery_dir = emit, scenery_dir
         self.feed = shared(WEBAPI.base_url(int(port)) if port else None)
         self.cap = GOVERNOR.flight_slots(os.cpu_count() or 4,
@@ -298,9 +314,8 @@ class _Runner:
             return prep_drape_px(manager.plan if manager else plan)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
-            drape=lambda tile: drape_tile(tile, provider, zoomlevel,
-                                          px=px_of()),
-            share=SHARE, owner="flight")
+            drape=lambda tile: drape_tile(tile, *photo_source(), px=px_of()),
+            share=SHARE, owner="flight", source=photo_source)
         self.manager = FlightManager(
             record, plan, builder=builder,
             publisher=_PackPublisher(scenery_dir, session.tile_build_dir),
@@ -317,6 +332,10 @@ class _Runner:
         _share_slots(self.manager)
         _core_points(self.manager)
         self.t0 = time.monotonic()
+        # the rows and the countdown before the first tick: the pane shows
+        # the flight at once, whatever the first tick waits for
+        self.manager.prime(0.0, self.manager.facts())
+        self.snapshot = self.manager.status(0.0)
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True,
@@ -339,28 +358,54 @@ class _Runner:
             WORLD.write_log({"flight_notice": notice["code"]})
 
     def status(self) -> dict:
-        with self.lock:
+        """The status now; the last tick's when a tick holds the lock
+        (``flight_status`` never waits on a tick: see
+        :data:`COMMAND_WAIT_S`)."""
+        if not self.lock.acquire(timeout=COMMAND_WAIT_S):
+            return dict(self.snapshot)
+        try:
             return self.manager.status(self.now())
+        finally:
+            self.lock.release()
+
+    @contextlib.contextmanager
+    def locked(self, wait: float = EDIT_WAIT_S):
+        """The lock for a command that edits the flight; refuses after
+        ``wait`` seconds instead of freezing the command loop."""
+        if not self.lock.acquire(timeout=wait):
+            raise ValueError("The flight is busy for a moment: try again.")
+        try:
+            yield
+        finally:
+            self.lock.release()
 
     def run(self) -> None:
-        sent_at, last, saved = -1e18, None, None
+        sent_at, last, saved, logged = -1e18, None, None, -1e18
         while not self.stop_event.wait(1.0):
             now = self.now()
             try:
+                clock = _PhaseClock()
                 rec = self.feed.read()
+                clock.mark("feed")
                 with self.lock:
+                    clock.mark("lock")
                     if rec is not None:
                         building = any(j.state == "building"
                                        for j in self.manager.jobs)
                         self.governor.observe(now, rec.get("frame_s"), building)
                         self.manager.flight_slots = self.governor.allowed(self.cap)
+                    self.manager.facts()
+                    clock.mark("facts")
                     self.manager.tick(now, rec)
+                    clock.mark("tick")
                     _share_slots(self.manager)
                     _core_points(self.manager)
                     self.reloader.sweep(self.manager.facts().get("load_stamps"))
-                    fields = self.manager.status(now)
+                    clock.mark("share")
+                    fields = self.snapshot = self.manager.status(now)
                     record = self.manager.record
                     record.tiles = self.manager.record_tiles()
+                    clock.mark("status")
                 key = (record.state, record.phase, tuple(
                     (tuple(t.tile), t.state) for t in record.tiles))
                 if key != saved:
@@ -371,8 +416,32 @@ class _Runner:
                     last, sent_at = changed, now
                     self.emit(status_event(fields))
                 self._emit_notices()
+                clock.mark("save_emit")
+                if clock.total() >= SLOW_TICK_S and now - logged >= 60.0:
+                    logged = now
+                    WORLD.write_log({"flight_slow_tick": clock.phases(),
+                                     "at_s": round(now, 1)})
             except Exception as error:      # logged; the flight goes on
                 WORLD.write_log({"flight_error": repr(error)[:300]})
+
+
+class _PhaseClock:
+    """Seconds per phase of one flight tick (``flight_slow_tick``)."""
+
+    def __init__(self) -> None:
+        self._at = self._t0 = time.monotonic()
+        self._phases: Dict[str, float] = {}
+
+    def mark(self, name: str) -> None:
+        now = time.monotonic()
+        self._phases[name] = round(now - self._at, 2)
+        self._at = now
+
+    def total(self) -> float:
+        return self._at - self._t0
+
+    def phases(self) -> Dict[str, float]:
+        return dict(self._phases)
 
 
 #: The flight's states that dispatch builds (``FlightManager.tick``).
@@ -423,6 +492,9 @@ def start(session, emit, record, plan, scenery_dir: str, port=None) -> str:
                              % runner.manager.record.id)
         _RUNNER = _Runner(emit, session, record, plan, scenery_dir, port)
         _RUNNER.thread.start()
+    # the first FlightStatus before the first tick: the pane shows the
+    # flight's rows and countdown at once
+    emit(status_event(_RUNNER.snapshot))
     WORLD.write_log({"flight": "start", "id": record.id})
     return "started"
 

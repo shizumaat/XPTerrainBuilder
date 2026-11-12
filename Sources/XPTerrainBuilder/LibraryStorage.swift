@@ -17,6 +17,7 @@ struct StorageSettingsRows: View {
         Section { DataFolderRow(model: storage) }
         Section { DiskBudgetSection(model: storage) }
         Section { ConvertTilesSection(run: buildModel.worldMigrate, autoMeasure: true) }
+        Section { StorageTiersSection() }
         Section { CachesLine(model: storage) }
             .onAppear { storage.refresh(buildModel) }
     }

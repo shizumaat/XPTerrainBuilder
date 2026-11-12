@@ -406,8 +406,16 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "world_status": WORLD.world_status,
         "world_install": WORLD.world_install,
         # The apps' start (capability world_onboard): the pack made when
-        # its folder is absent, and the tiles Convert could move.
-        "world_onboard": WORLD.world_onboard,
+        # its folder is absent, and the tiles Convert could move; the
+        # data folder's tiles and packages moved into the World folder
+        # (RULINGS 2026-11-12g/h), never a tile this session builds.
+        "world_onboard": lambda **kw: WORLD.world_onboard(
+            busy=session.building_tiles, move_home=True, **kw),
+        # Settings > Storage's tiers (RULINGS 2026-11-12g, capability
+        # storage_tiers): the mounted volumes other than the app's own and
+        # the size each may hold of sharp imagery; sync file reads.
+        "storage_tiers": _storage_tiers("storage_tiers"),
+        "storage_tier_set": _storage_tiers("storage_tier_set"),
         "world_regions_set": lambda **kw: WORLD.start_world_regions_set(
             session._emit, **kw),
         "world_tile_set": WORLD.world_tile_set,
@@ -447,6 +455,15 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # small mip, base64), both synchronous file reads.
         **live_preview_handlers(),
     }
+
+
+def _storage_tiers(name: str) -> Callable:
+    """``storage_tiers`` / ``storage_tier_set``, imported when called (the
+    session's import closure stays as it was)."""
+    def handler(**kw):
+        from . import storage_tiers as TIERS
+        return getattr(TIERS, name)(**kw)
+    return handler
 
 
 def _start_follow_and_world(session: EngineSession, start_follow: Callable,

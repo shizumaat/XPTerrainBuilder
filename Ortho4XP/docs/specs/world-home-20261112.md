@@ -9,14 +9,14 @@ Lane `lworldbuild`, branch `claude/lworldbuild`. Owner 2026-11-12T23:09:06Z "Yes
   * `<World>/XPTerrainBuilder_packages/` — the `.xptb` store (`storage_packages.store_dir`, world_adopt's `<tile>_adopted.xptb`, `packaged.json`).
   * `<World>/XPTerrainBuilder_home/` — the migration journal and its backups.
   X-Plane reads only a pack's root `Earth nav data`; a nested folder is never a pack, never scanned, never linked.
-* **One derivation site.** `FNAMES.Tile_dir` is served at access time (PEP 562, as `Mask_dir` is) from `FNAMES.tiles_root()`: the World home named by the data folder's pointer `world_home.json` when its tiles folder exists, else `<data>/Tiles`. Every reader of `Tile_dir` / `build_dir(lat, lon, "")` follows without an edit. The pointer is written only after a migration run leaves nothing to move; it lives in the data folder (disposable: the next start writes it again).
+* **One derivation site.** `FNAMES.Tile_dir` is served at access time (PEP 562, as `Mask_dir` is) from `FNAMES._tiles_root()`: the World home named by the data folder's pointer `world_home.json` when its tiles folder exists, else `<data>/Tiles`. Every reader of `Tile_dir` / `build_dir(lat, lon, "")` follows without an edit. The pointer is written only after a migration run leaves nothing to move; it lives in the data folder (disposable: the next start writes it again).
 * **No custom build folder.** The Mac `OrthoCustomBuildDir` and the Qt `output_dir` preference go; both apps send `custom_build_dir ""`. Their last value is handed to `world_onboard` once (`legacy_build_dir`), backed up (`OrthoCustomBuildDirBeforeWorld` / prefs `output_dir_before_world`), then cleared.
 * **Every build is published**, not only on-demand ones (`world_publish._publish_built` drops its on-demand gate; airport cores stay on-demand only). `O4_Scenery_Links.install` never links a build folder inside the World pack.
 * **Tiers.** Settings ▸ Storage lists every mounted volume other than the app's own (data and X-Plane volumes) with a size field; a size > 0 makes it a tier (`storage_tiers`, setting `storage_tiers` JSON `{mount: gb}`). A sharp texture the on-demand budget makes low-res again (`imagery_downgrade`) is MOVED to `<tier>/XPTerrainBuilder Tier/DDS_cache/<key>` while a tier is mounted and has room, instead of deleted; `imagery_ondemand._full_entry` finds it there and lands it back (copied into the cache, then served as today). An absent volume is simply not a source: the follow job downloads again, as adopted +51+022 does with ThunderBlade.
 
 ## 2. Migration (journaled, resumable; `o4_engine/world_home.py`)
 
-Run by `world_onboard` (both apps' start) after the pack exists, never while the tile builds (`busy`: the session's queued/building tiles are skipped and moved next start).
+Run by `world_onboard` with `move_home` (both apps' start pass it; a bare call, as in tests, only reports) after the pack exists, never while the tile builds (`busy`: the session's queued/building tiles are skipped and moved next start).
 
 1. Back up the journal (`journal.json.<stamp>-before-<run>`) before the run writes it.
 2. Sources, in order: `<data>/Tiles/zOrtho4XP_*`, then the legacy custom build folder's `zOrtho4XP_*` (skipped when it is Custom Scenery itself — those are per-tile packs and Convert existing tiles owns them, 2026-11-12a — or already the World tiles folder), then `<data>/Tile_packages/*` (packages and `packaged.json`).
@@ -33,7 +33,7 @@ Grep of `Tile_dir`, `build_dir(`, `custom_build_dir`, `customBuildDir`, `tileBas
 
 | Consumer | Where | Reads / writes | Ruling |
 |---|---|---|---|
-| `FNAMES.Tile_dir`, `build_dir(lat, lon, "")` | `O4_File_Names` | derivation site | CHANGED: served by `tiles_root()` (pointer → World home, else `<data>/Tiles`) |
+| `FNAMES.Tile_dir`, `build_dir(lat, lon, "")` | `O4_File_Names` | derivation site | CHANGED: served by `_tiles_root()` (pointer → World home, else `<data>/Tiles`) |
 | Session build folder | `session.tile_build_dir`, `enqueue_build` | write | unchanged code: default = `Tile_dir`; apps pass `""` |
 | World job full builds, flight jobs | `world_job_run`, `flight_job_run`, `flight_manager` | write via session | unchanged: they already pass `""` → World home |
 | Drape scratch `World_build`, staging `World_staging` | `world_job_run:253`, `world_commands.staging_root` | transient | unchanged: scratch removed after staging; disposable (12h) |

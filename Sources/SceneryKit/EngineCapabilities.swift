@@ -39,6 +39,10 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     public static let worldMigrate = "world_migrate"
     /// `world_onboard` (#2007): the World pack made at the start; flag only.
     public static let worldOnboard = "world_onboard"
+    /// `world_onboard`'s `home` and `legacy_build_dir` (RULINGS 2026-11-12g/h).
+    public static let worldHome = "world_home"
+    /// `storage_tiers` / `storage_tier_set` (RULINGS 2026-11-12g).
+    public static let storageTiers = "storage_tiers"
     /// `live_preview_squares` / `live_preview_mip` (#2001): flag only.
     public static let livePreview = "live_preview"
     /// `package_save` / `package_airports` / `package_plan` /

@@ -46,13 +46,18 @@ __all__ = ["KIND", "STORE_DIR", "store_dir", "packaged", "remember",
 
 #: The store row of the packages (``storage.STORES``).
 KIND = "tile_packages"
-#: The package store, in the data folder.
+#: The package store's folder in the data folder (before RULINGS 12h).
 STORE_DIR = "Tile_packages"
 _RECORD = "packaged.json"
 
 
 def store_dir() -> str:
-    """The local package store (read at call time: the data root moves)."""
+    """The local package store (read at call time: the data root moves):
+    the World home's packages folder once the World folder is the tiles'
+    home (RULINGS 2026-11-12h, ``world_home``), else the data folder's."""
+    world = FNAMES.world_home()
+    if world:
+        return os.path.join(world, FNAMES.WORLD_PACKAGES_DIR)
     return FNAMES.data_path(STORE_DIR)
 
 

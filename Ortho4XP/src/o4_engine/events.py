@@ -239,6 +239,8 @@ CAPABILITIES: tuple = (
     "scan_world",                   # 2026-11-12, #2024 ScanBatch.world + ScanDone.world_count
     "world_measure",                # 2026-11-12, world_measure_state + world_migrate background
     "world_tile_remove",            # 2026-11-12, tile pane Remove from World Pack (LibraryReady)
+    "world_home",                   # 2026-11-12, RULINGS 12g/h world_onboard home
+    "storage_tiers",                # 2026-11-12, RULINGS 12g storage_tiers / storage_tier_set
 )
 
 

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import O4_Qt_Convert_Tiles as QTCONVERT
 import O4_Qt_Settings_Storage as QTSTORAGE
+import O4_Qt_Storage_Tiers as QTTIERS
 import O4_Storage_Text as TEXT
 from O4_Qt_Library import fmt_size
 from PySide6.QtCore import Qt
@@ -290,7 +291,8 @@ class CachesLine(QWidget):
 class StorageRows(QWidget):
     """Settings ▸ Storage, top to bottom (11k (2), in 11a's order): the
     data folder (``folder_row``), the disk budget (``budget_box``),
-    Convert existing tiles (``convert_box``, World spec §13) and the
+    Convert existing tiles (``convert_box``, World spec §13), the
+    storage tiers (``tiers_box``, RULINGS 2026-11-12g) and the
     Caches line (``caches_box``; Details… opens ``storage``, the
     per-cache list, in its own window).  Measured the first time it is
     shown (:meth:`refresh`)."""
@@ -303,9 +305,11 @@ class StorageRows(QWidget):
         self.folder_row = DataFolderRow(self.storage)
         self.budget_box = DiskBudgetBox(self.storage)
         self.convert_box = QTCONVERT.ConvertTilesSection(scenery_dir)
+        # Other drives as optional tiers (RULINGS 2026-11-12g).
+        self.tiers_box = QTTIERS.TiersBox()
         self.caches_box = CachesLine(self.storage)
         for row in (self.folder_row, self.budget_box, self.convert_box,
-                    self.caches_box):
+                    self.tiers_box, self.caches_box):
             layout.addWidget(row)
 
     @property
@@ -317,7 +321,8 @@ class StorageRows(QWidget):
 
     def matches(self, query: str) -> bool:
         return self.storage.matches(query) or any(
-            word in query.lower() for word in ("budget", "convert", "tiles"))
+            word in query.lower() for word in ("budget", "convert", "tiles",
+                                               "tier", "drive"))
 
 
 class _StorageDetailsDialog(QDialog):

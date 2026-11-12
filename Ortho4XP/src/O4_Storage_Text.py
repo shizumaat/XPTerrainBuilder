@@ -24,6 +24,8 @@ __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "DOWNGRADE_TEXT", "DOWNGRADE_FLOOR", "DOWNGRADE_OK", "CACHES_TITLE",
            "CACHES_CLEAR", "CACHES_DETAILS", "CACHES_DETAILS_TITLE",
            "CLEAR_ALL_TITLE", "CLEAR_ALL_TEXT", "FOLDER_TITLE",
+           "TIERS_TITLE", "TIERS_HELP", "TIERS_NONE", "TIERS_ABSENT",
+           "TIERS_USED",
            "ONDEMAND_FLOOR_WARNING", "INSTALLED_TITLE", "INSTALLED_LOCAL",
            "INSTALLED_LINKED", "INSTALLED_UNMOUNTED", "INSTALLED_NONE",
            "INSTALLED_HELP", "WORLD_FOREIGN", "WORLD_PACK_MISSING",
@@ -85,6 +87,16 @@ CLEAR_ALL_TEXT = ("This frees up to {bytes}. Downloads come back when a build "
                   "needs them; sharp imagery is made low res, never deleted. "
                   "Built tiles and patches stay.")
 FOLDER_TITLE = "Data folder"
+#: Settings ▸ Storage ▸ Storage tiers (RULINGS 2026-11-12g,
+#: ``o4_engine.storage_tiers``): one row per other drive.
+TIERS_TITLE = "Storage tiers"
+TIERS_HELP = ("Sharp imagery the disk budget makes low res again moves to a "
+              "drive with a size here, and comes back from it while the drive "
+              "is connected. Without the drive it is downloaded again. 0 GB: "
+              "not used.")
+TIERS_NONE = "No other drive is connected."
+TIERS_ABSENT = "Not connected: its imagery is downloaded again."
+TIERS_USED = "{used} used, {free} free"
 #: The on-demand row with no disk budget set: its tiles do not fit the
 #: sharp imagery limit even at low resolution.
 ONDEMAND_FLOOR_WARNING = ("Your on-demand tiles need {floor} even at low "

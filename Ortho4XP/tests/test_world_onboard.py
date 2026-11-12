@@ -44,6 +44,7 @@ def test_the_world_folder_is_made_once_and_the_tiles_are_offered(scenery):
         (scenery / name / "Earth nav data").mkdir(parents=True)
     os.symlink(str(scenery / "gone"), str(scenery / "zOrtho4XP_+47+007"))  # unmounted
     first = WORLD.world_onboard(str(scenery))
+    assert first.pop("home")["planned"] == 0      # a bare call only reports
     assert first == {"created": True, "offer": 2, "restart_needed": False}
     assert os.path.isdir(WORLD.pack_dir(str(scenery)))
     again = WORLD.world_onboard(str(scenery))
@@ -55,8 +56,9 @@ def test_an_existing_world_folder_offers_the_tiles_once(scenery):
     never offered: asked once; "Not now" counts as offered."""
     WORLD.world_install(str(scenery))
     (scenery / "zOrtho4XP_+45+007" / "Earth nav data").mkdir(parents=True)
-    assert WORLD.world_onboard(str(scenery)) == {
-        "created": False, "offer": 1, "restart_needed": False}
+    done = WORLD.world_onboard(str(scenery))
+    done.pop("home")                        # RULINGS 2026-11-12g/h
+    assert done == {"created": False, "offer": 1, "restart_needed": False}
     assert WORLD.world_onboard(str(scenery))["offer"] == 0
 
 

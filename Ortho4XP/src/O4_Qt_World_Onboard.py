@@ -130,17 +130,27 @@ class _Onboarding(QObject):
         self.window = window
         self.scenery_dir = scenery_dir
         self.dialog = None
+        self.legacy = ""
         self.ready.connect(self._ready)
 
     def start(self):
         from o4_engine import world_commands as WORLD
         scenery = self.scenery_dir
-        emit_from_thread(lambda: WORLD.world_onboard(scenery), self.ready,
-                         "o4-qt-world-onboard")
+        # The retired build folder preference (RULINGS 2026-11-12g): its
+        # tiles move into the World folder once.
+        prefs = getattr(self.window, "prefs", None) or {}
+        self.legacy = str(prefs.get("output_dir", "") or "")
+        legacy = self.legacy
+        emit_from_thread(lambda: WORLD.world_onboard(
+            scenery, legacy_build_dir=legacy, move_home=True), self.ready,
+            "o4-qt-world-onboard")
 
     def _ready(self, result):
         if isinstance(result, Exception):
             return
+        adopt = getattr(self.window, "adopt_world_home", None)
+        if adopt is not None:
+            adopt(result.get("home"), self.legacy)
         if result.get("reason") == "world_foreign":
             self.dialog = _foreign_box(result, self.window)
             self.dialog.show()

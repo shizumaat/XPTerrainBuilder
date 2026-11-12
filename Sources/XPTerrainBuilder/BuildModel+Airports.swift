@@ -44,7 +44,7 @@ extension BuildModel {
     func buildAirportsCard(for tiles: [TileCoord]) async -> Result<O4BuildAirports, Error>? {
         guard !tiles.isEmpty, let client = buildAirportsClient() else { return nil }
         let refs = tiles.sorted().map { O4TileRef(lat: $0.lat, lon: $0.lon) }
-        let folder = engineCustomBuildDir
+        let folder = ""     // the engine's own home (RULINGS 2026-11-12g)
         do {
             return .success(try await client.buildAirports(tiles: refs, customBuildDir: folder))
         } catch {

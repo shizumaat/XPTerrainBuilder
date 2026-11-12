@@ -118,7 +118,15 @@ def _free_cache_entry(row: dict, users: "dict | None") -> int:
     own = os.path.abspath(row.get("build_dir") or "")
     if any(os.path.abspath(where) != own for where, _n in users.get(key, ())):
         return 0
-    return _remove(DDSC.entry_path(key))
+    # A mounted storage tier with room keeps it (RULINGS 2026-11-12g): moved
+    # there, not deleted; it lands back from there while mounted.
+    from . import storage_tiers as TIERS
+    entry = DDSC.entry_path(key)
+    size = DISK.freeable_bytes(entry) if os.path.isfile(entry) else 0
+    if TIERS.stash(key, entry):
+        _write_log("moved %d bytes %s to a storage tier" % (size, entry))
+        return size
+    return _remove(entry)
 
 
 def _downgrade(conn, row: dict, *, users: "dict | None" = None,

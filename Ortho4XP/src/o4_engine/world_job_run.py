@@ -29,8 +29,9 @@ gives it the session, the World pack and X-Plane.
   ``O4_World_Drape``).  A ``full`` tile (a flight's departure and
   destination) is an ordinary build through the session's queue
   (``enqueue_build`` with its ``deadline`` and class; never interactive:
-  ``missing_art="leave"``); ``world_publish.watch`` stages and publishes
-  it as every finished build.  A tile the disk budget shrank to its
+  ``missing_art="leave"``; always on demand: :data:`FULL_OVERRIDES`);
+  ``world_publish.watch`` fetches its airport cores, then stages and
+  publishes it as every finished build.  A tile the disk budget shrank to its
   package has it installed first (``storage_packages.restore``).
 * :class:`_PackPublisher` -- swaps a staged tile when the job's rule S3
   allows, holding the follow job for that tile only (S7).
@@ -51,7 +52,8 @@ from .build_share import SHARE, BuildShare
 from .fly_here import describe as describe_here
 from .world_job import WorldJob, drape_estimate
 
-__all__ = ["STATUS_EVERY_S", "world_job_start", "world_job_stop", "autostart"]
+__all__ = ["STATUS_EVERY_S", "FULL_OVERRIDES", "world_job_start",
+           "world_job_stop", "autostart"]
 
 #: Seconds between ``WorldStatus`` events while the job runs.
 STATUS_EVERY_S = 2.0
@@ -69,6 +71,14 @@ REREAD_S = 10.0
 #: are fetched at full resolution (``O4_Imagery_Tier_Plan.CROSSING_S``'s
 #: full tier: what a camera standing there wants).
 CORE_FULL_S = 1.65
+#: A World or flight ``full`` build's per-build switches
+#: (``Tile.apply_build_overrides``; owner 2026-11-12T16:34Z): always on
+#: demand, whatever the user's switch -- high resolution only at its
+#: airports and within sight of them (the cores, fetched before the tile
+#: is published: ``world_publish``), 512 px placeholders elsewhere that
+#: the follow job upgrades ahead of the aircraft.  The Build pane keeps
+#: the user's switch.
+FULL_OVERRIDES = {"imagery_on_demand": True}
 _GUARD = threading.Lock()
 _RUNNER: "Optional[_Runner]" = None
 
@@ -157,7 +167,7 @@ class _SessionBuilder:
             self._mine.add(tile)
         ok = self.session.enqueue_build(
             [tile], self.provider, self.zoomlevel, "",
-            missing_art="leave",
+            missing_art="leave", overrides=dict(FULL_OVERRIDES),
             deadline=time.time() + float(deadline_in_s), klass=klass)
         if not ok:
             with self._lock:
@@ -277,6 +287,10 @@ class _PackPublisher:
         from . import imagery_follow as FOLLOW
         from . import world_publish as PUBLISH
         lat, lon = tile
+        if PUBLISH.publishing(lat, lon):
+            # its cores fetching or staging: not yet waited on (PENDING_S)
+            self._pending.pop(tile, None)
+            return "pending"
         pack = WORLD.pack_dir(self.scenery_dir)
         dsf = os.path.join(pack, WP.dsf_relpath(lat, lon))
         staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))

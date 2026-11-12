@@ -180,8 +180,10 @@ except Exception as e:
     _LOGGER.error("Error accessing global config file: %s", e)
 
 
-#: The tile settings a build request may set for that build only (#818).
-BUILD_OVERRIDE_KEYS = ("auto_patch", "modify_custom_airports")
+#: The tile settings a build request may set for that build only (#818;
+#: ``imagery_on_demand``: World and flight full builds, lane lcore).
+BUILD_OVERRIDE_KEYS = ("auto_patch", "modify_custom_airports",
+                       "imagery_on_demand")
 
 
 ################################################################################
@@ -212,7 +214,9 @@ class Tile:
         grades nothing (``auto_patch`` "None"); on keeps the tile's own
         mode, or grades every airport when that mode is "None".  Keys
         other than :data:`BUILD_OVERRIDE_KEYS` and non-bool values are
-        ignored.
+        ignored.  ``imagery_on_demand`` on is asked for wherever the tile
+        lies (``imagery_on_demand_forced``, not a cfg variable: the
+        tile's region switch is not consulted, ``O4_Imagery_Placeholder``).
         """
         from O4_Airport_Modes import resolved_auto_patch_mode
 
@@ -228,6 +232,8 @@ class Tile:
                     value = "All"
                 else:
                     continue
+            if key == "imagery_on_demand":
+                self.imagery_on_demand_forced = value
             setattr(self, key, value)
 
     def make_dirs(self):

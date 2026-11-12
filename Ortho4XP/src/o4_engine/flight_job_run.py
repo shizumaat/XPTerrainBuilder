@@ -129,18 +129,30 @@ def estimate(provider: str = "", zoomlevel: int = 0,
                 px_of() or drape_px()))
         if kind != "full":
             return SCHEDULE.job_estimate(kind)
-        try:
-            from . import tile_time_model as TTM
-            from .plan_estimate import tile_estimate
-            row = tile_estimate(tile[0], tile[1], provider, zoomlevel, "")
-            lo, hi = (float(t) for t in row["time_s"])
-            if not row["has_history"]:
-                a_lo, a_hi = TTM.airport_seconds_range(tile[0], tile[1])
-                lo, hi = lo + a_lo, hi + a_hi
-            return (lo, hi) if hi > 0 else FULL_FALLBACK_S
-        except Exception:                   # no defensible figure: wide
-            return FULL_FALLBACK_S
+        # a full build is on demand: its airport's cores land before
+        # it is published (world_publish), so before it counts done
+        from .imagery_after_build import core_seconds
+        c_lo, c_hi = core_seconds(1)
+        lo, hi = _build_seconds(tile, provider, zoomlevel)
+        return lo + c_lo, hi + c_hi
     return seconds
+
+
+def _build_seconds(tile, provider: str, zoomlevel: int
+                   ) -> Tuple[float, float]:
+    """A ``full`` build's ``(low, high)`` seconds from the ledger (see
+    :func:`estimate`), else :data:`FULL_FALLBACK_S`."""
+    try:
+        from . import tile_time_model as TTM
+        from .plan_estimate import tile_estimate
+        row = tile_estimate(tile[0], tile[1], provider, zoomlevel, "")
+        lo, hi = (float(t) for t in row["time_s"])
+        if not row["has_history"]:
+            a_lo, a_hi = TTM.airport_seconds_range(tile[0], tile[1])
+            lo, hi = lo + a_lo, hi + a_hi
+        return (lo, hi) if hi > 0 else FULL_FALLBACK_S
+    except Exception:                       # no defensible figure: wide
+        return FULL_FALLBACK_S
 
 
 def prefetch_tile(lat: int, lon: int) -> None:
@@ -303,6 +315,7 @@ class _Runner:
         self.manager.facts = _Facts(scenery_dir, self.manager.jobs,
                                     self.manager.times[-1])
         _share_slots(self.manager)
+        _core_points(self.manager)
         self.t0 = time.monotonic()
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -343,6 +356,7 @@ class _Runner:
                         self.manager.flight_slots = self.governor.allowed(self.cap)
                     self.manager.tick(now, rec)
                     _share_slots(self.manager)
+                    _core_points(self.manager)
                     self.reloader.sweep(self.manager.facts().get("load_stamps"))
                     fields = self.manager.status(now)
                     record = self.manager.record
@@ -374,6 +388,19 @@ def _share_slots(manager, share=SHARE) -> None:
                if manager.record.state in _DISPATCHING else 0)
     share.claim("flight", [j.tile for j in jobs])
     share.publish("flight", manager.slots(), waiting)
+
+
+def _core_points(manager) -> None:
+    """Name the plan's departure and destination airports to the World
+    publish (``world_publish.add_core_point``): their tiles' cores are
+    fetched around them even when the build graded no airport there."""
+    import O4_Flight_Plan as FP
+
+    from . import world_publish as PUBLISH
+    waypoints = manager.plan.waypoints
+    for point in {waypoints[0], waypoints[-1]} if waypoints else ():
+        PUBLISH.add_core_point(*FP.tile_of(point.lat, point.lon),
+                               (point.ident, point.lat, point.lon))
 
 
 def current() -> "Optional[_Runner]":

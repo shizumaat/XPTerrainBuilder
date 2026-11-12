@@ -418,7 +418,8 @@ def test_the_session_builder_queues_a_full_build_by_deadline():
     assert builder.start((53, -64), "full", 600.0, "P1")
     tiles, provider, zoomlevel, kw = calls[0]
     assert tiles == [(53, -64)] and (provider, zoomlevel) == ("BI", 16)
-    assert "overrides" not in kw and kw["klass"] == "P1"
+    assert kw["overrides"] == {"imagery_on_demand": True}
+    assert kw["klass"] == "P1"
     assert kw["missing_art"] == "leave"
     assert before + 599 <= kw["deadline"] <= time.time() + 601
     subscribers[0](BuildDone(lat=53, lon=-64, ok=True))

@@ -28,6 +28,7 @@ named here: the cores are the airports the tile's patches graded.
 from __future__ import annotations
 
 import concurrent.futures as _futures
+import math
 import os
 import threading
 import time
@@ -41,12 +42,33 @@ import O4_Imagery_Tier_Plan as PLAN
 from . import imagery_follow as FOLLOW
 
 __all__ = ["CORE_WORKERS", "register_built", "core_wants", "fetch_cores",
-           "start", "watch"]
+           "sharpen", "core_seconds", "start", "watch"]
 
 #: Core landings at once (each is a JPEG read or download and a convert).
 CORE_WORKERS = 4
 
+#: Bytes per second a core landing is reckoned at, ``(fast, slow)``: a
+#: conservative CONSTANT (the on-demand log records no bytes per second
+#: to measure one from), for a flight's countdown only.
+CORE_RATE_BPS = (8_000_000.0, 2_000_000.0)
+
 _GUARD = threading.Lock()
+
+
+def core_seconds(airports: int = 1) -> "tuple[float, float]":
+    """``(low, high)`` seconds to land the cores of ``airports`` airports:
+    each core tier's ring (``O4_Imagery_Tier_Plan.CROSSING_S``, in square
+    sides; about pi r^2 squares) at that tier's bytes
+    (``TIER_BYTES``), ~183 MB an airport, at :data:`CORE_RATE_BPS`.
+    Cover textures finer than the tile's zoom are not counted."""
+    total = inner = 0.0
+    for tier in range(len(PLAN.TIER_BYTES) - 1, 0, -1):    # full .. 1024
+        area = math.pi * PLAN.CROSSING_S[tier] ** 2
+        total += (area - inner) * PLAN.TIER_BYTES[tier]
+        inner = area
+    total *= max(0, int(airports))
+    fast, slow = CORE_RATE_BPS
+    return total / fast, total / slow
 
 
 def _on_demand(build_dir: str, lat: int, lon: int) -> bool:
@@ -70,11 +92,16 @@ def register_built(tiles: Sequence[Sequence[Any]],
     return chosen
 
 
-def core_wants(conn, build_dir: str, lat: int,
-               lon: int) -> "list[tuple[dict, int]]":
+def core_wants(conn, build_dir: str, lat: int, lon: int,
+               extra: Sequence[tuple] = ()) -> "list[tuple[dict, int]]":
     """``(row, tier)`` of every core square of tile ``(lat, lon)`` below
-    the tier its airport wants (a cover texture: full), finest first."""
+    the tier its airport wants (a cover texture: full), finest first.
+    ``extra``: more ``(icao, lat, lon)`` airports (a flight's departure
+    when its tile graded none), each one the graded and custom points do
+    not already name."""
     points = CORES.airport_points(lat, lon)
+    named = {p[0] for p in points}
+    points += [tuple(p) for p in extra if p[0] not in named]
     base_zl = CORES.base_zoom(build_dir, lat, lon)
     wants = []
     for row in INDEX.rows(conn, tile=FNAMES.short_latlon(lat, lon)):
@@ -89,10 +116,13 @@ def fetch_cores(tiles: Sequence[Sequence[Any]], index: Optional[str] = None,
                 lander: Optional[Callable] = None,
                 busy: Callable[[], bool] = lambda: False,
                 log: Optional[str] = None,
-                workers: int = CORE_WORKERS) -> Dict[str, int]:
+                workers: int = CORE_WORKERS,
+                extra: Optional[Dict[tuple, Sequence[tuple]]] = None
+                ) -> Dict[str, int]:
     """Land every core square of ``tiles`` (``(build_dir, lat, lon)``) at
     its tier.  ``lander(row, tier)`` returns the index facts (default
-    ``TierLander``); none starts while ``busy()``.
+    ``TierLander``); none starts while ``busy()``; ``extra``: more
+    airports per ``(lat, lon)`` (:func:`core_wants`).
 
     :returns: ``{"wanted", "landed", "failed", "network", "skipped"}``
     """
@@ -106,7 +136,9 @@ def fetch_cores(tiles: Sequence[Sequence[Any]], index: Optional[str] = None,
         # finest tier first across every tile (the squares nearest the
         # airports), so a landing stopped for room keeps those
         wants = sorted((w for (build_dir, lat, lon) in tiles
-                        for w in core_wants(conn, build_dir, lat, lon)),
+                        for w in core_wants(
+                           conn, build_dir, lat, lon,
+                           (extra or {}).get((int(lat), int(lon)), ()))),
                        key=lambda want: -want[1])
         counts["wanted"] = len(wants)
         with _futures.ThreadPoolExecutor(
@@ -154,17 +186,32 @@ def _record(conn, row: dict, tier: int, future, counts: dict,
                     "network": bool(facts.get("network", True))})
 
 
+def sharpen(tiles: Sequence[Sequence[Any]],
+            busy: Callable[[], bool] = lambda: False,
+            index: Optional[str] = None,
+            lander: Optional[Callable] = None,
+            log: Optional[str] = None,
+            extra: Optional[Dict[tuple, Sequence[tuple]]] = None
+            ) -> Optional[Dict[str, int]]:
+    """:func:`register_built` then :func:`fetch_cores` for ``tiles``, one
+    pass at a time (the run's end and a World publish may hand over the
+    same tile); ``None`` when none was built on demand."""
+    log = log or FOLLOW.log_path()
+    with _GUARD:
+        chosen = register_built(tiles, index)
+        if not chosen:
+            return None
+        FOLLOW.write_log(log, {"registered": ",".join(
+            FNAMES.short_latlon(la, lo) for _d, la, lo in chosen)})
+        return fetch_cores(chosen, index=index, lander=lander, busy=busy,
+                           log=log, extra=extra)
+
+
 def _work(tiles, busy, index, lander, log) -> None:
-    with _GUARD:                         # one after-build pass at a time
-        try:
-            chosen = register_built(tiles, index)
-            if not chosen:
-                return
-            FOLLOW.write_log(log, {"registered": ",".join(
-                FNAMES.short_latlon(la, lo) for _d, la, lo in chosen)})
-            fetch_cores(chosen, index=index, lander=lander, busy=busy, log=log)
-        except Exception as error:      # logged; the build itself is done
-            FOLLOW.write_log(log, {"after_build_error": repr(error)[:300]})
+    try:
+        sharpen(tiles, busy=busy, index=index, lander=lander, log=log)
+    except Exception as error:          # logged; the build itself is done
+        FOLLOW.write_log(log, {"after_build_error": repr(error)[:300]})
 
 
 def start(tiles: Sequence[Sequence[Any]],

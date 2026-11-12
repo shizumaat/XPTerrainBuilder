@@ -403,7 +403,8 @@ def test_create_status_update_end(engine, monkeypatch):
     assert first[1][1] in range(-63, -59)
     for _tiles, kw in (b for b in builds if b[0] != "drape"):
         assert kw["missing_art"] == "leave" and kw["klass"] in ("P0", "P2")
-        assert "overrides" not in kw     # a full build: no profile (11j)
+        # a full build: no profile (11j), always on demand (lane lcore)
+        assert kw["overrides"] == {"imagery_on_demand": True}
     with pytest.raises(ValueError, match="already active"):
         table["flight_create"](dep={"lat": 1, "lon": 1},
                                arr={"lat": 2, "lon": 2})

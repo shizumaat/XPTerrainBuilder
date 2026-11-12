@@ -18,6 +18,16 @@ waits staged and :func:`_swap_waiting` swaps it later.  After the swap:
   ``zOrtho4XP_<tile>`` folder", §4.1); ``O4_Scenery_Links.install``
   links no tile the pack holds (``O4_World_Pack.holds_tile``).
 
+Before it is staged, an on-demand tile's airport cores are fetched
+(:func:`_sharpen`, ``imagery_after_build.sharpen``; owner
+2026-11-12T16:34Z: high resolution at the airport and within sight of
+it, placeholders elsewhere): the pack never shows the airport coarse,
+and a flight counts its departure ready only once it is swapped, cores
+included.  :func:`publishing` tells the World job a tile is still in this
+worker (``world_job_run._PackPublisher`` does not count that time
+against its wait); :func:`add_core_point` names an airport the tile's
+cores must cover when its build graded none (a flight's departure).
+
 The build folder stays (its rebuild data, record and the consumers of
 spec §18 that read a build folder); removing it is a later phase.
 """
@@ -36,7 +46,8 @@ import O4_World_Pack as WP
 from . import imagery_follow as FOLLOW
 from . import world_commands as WORLD
 
-__all__ = ["LAYOUT_KEY", "watch", "write_layout"]
+__all__ = ["LAYOUT_KEY", "add_core_point", "publishing", "watch",
+           "write_layout"]
 
 #: The imagery-manifest key naming a published tile's pack folders (the
 #: index's reader owns the name).
@@ -77,6 +88,48 @@ def write_layout(build_dir: str, lat: int, lon: int,
 def _on_demand(build_dir: str, lat: int, lon: int) -> bool:
     from .imagery_after_build import _on_demand as on_demand
     return on_demand(build_dir, lat, lon)
+
+
+_STATE_LOCK = threading.Lock()
+#: Tiles handed to the publish worker and not yet done with.
+_IN_WORK: set = set()
+#: ``(lat, lon)`` -> ``(icao, lat, lon)`` airports its cores must cover.
+_CORE_POINTS: dict = {}
+
+
+def publishing(lat: int, lon: int) -> bool:
+    """Is tile ``(lat, lon)`` queued or in the publish worker (its cores
+    fetching, or staging)?"""
+    with _STATE_LOCK:
+        return (int(lat), int(lon)) in _IN_WORK
+
+
+def add_core_point(lat: int, lon: int, point: tuple) -> None:
+    """Have tile ``(lat, lon)``'s next publish fetch the core of airport
+    ``point`` ``(icao, lat, lon)`` too (its build may grade none)."""
+    with _STATE_LOCK:
+        points = _CORE_POINTS.setdefault((int(lat), int(lon)), [])
+        if tuple(point) not in points:
+            points.append(tuple(point))
+
+
+def _sharpen(scenery_dir: str, build_dir: str, lat: int, lon: int
+             ) -> Optional[dict]:
+    """The airport cores of a built on-demand tile the pack will take,
+    fetched into its build folder (the publish hard-links them)."""
+    if not WORLD.managed(scenery_dir) or not _on_demand(build_dir, lat, lon):
+        return None
+    from . import imagery_after_build as AFTER
+    with _STATE_LOCK:
+        extra = {(lat, lon): list(_CORE_POINTS.get((lat, lon), ()))}
+    try:
+        counts = AFTER.sharpen([(build_dir, lat, lon)], extra=extra)
+    except Exception as error:          # logged; the tile publishes coarse
+        WORLD.write_log({"cores_error": repr(error)[:300],
+                         "tile": WP.tile_name(lat, lon)})
+        return None
+    WORLD.write_log({"cores": WP.tile_name(lat, lon), **(counts or {})})
+    return counts
 
 
 def _after_swap(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
@@ -141,8 +194,9 @@ def watch(session: Any,
         while True:
             lat, lon, where = jobs.get()
             try:
-                result = _publish_built(where, session.tile_build_dir(lat, lon),
-                                       lat, lon)
+                build_dir = session.tile_build_dir(lat, lon)
+                _sharpen(where, build_dir, lat, lon)
+                result = _publish_built(where, build_dir, lat, lon)
                 if result is not None:
                     swap = ((result["tile"], "full", _utc())
                             if result["state"] == "swapped" else ())
@@ -153,6 +207,9 @@ def watch(session: Any,
             except Exception as error:      # logged; the build is done
                 WORLD.write_log({"publish_error": repr(error)[:300],
                                  "tile": WP.tile_name(lat, lon)})
+            finally:
+                with _STATE_LOCK:
+                    _IN_WORK.discard((lat, lon))
 
     # The worker starts with the first job, not at subscription: a
     # window that never builds holds no thread (CI leaked one per test
@@ -161,6 +218,8 @@ def watch(session: Any,
     worker: list = []
 
     def enqueue(job: tuple) -> None:
+        with _STATE_LOCK:
+            _IN_WORK.add((job[0], job[1]))
         jobs.put(job)
         with started:
             if not worker:

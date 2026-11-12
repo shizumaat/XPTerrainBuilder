@@ -32,6 +32,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Dict, Optional
 
+import O4_Airport_Rank as RANK
 import O4_App_Modes as MODES
 import O4_Fly_Divert_Text as DTEXT
 import O4_Fly_Layers as LAYERS
@@ -121,10 +122,15 @@ class FlyPane(QWidget):
 
     def __init__(self, follow_line, run: Callable = None, airports: Callable = None,
                  prefs: Optional[dict] = None, save_prefs: Callable = None,
-                 parent=None):
+                 parent=None, custom_airports: Callable = None):
         super().__init__(parent)
         self._run = run or _no_engine
         self._airports = airports or (lambda: [])
+        # The enabled custom packs' airports, ``(code, lat, lon)`` (#2026).
+        self._custom_airports = custom_airports or (lambda: [])
+        # Airports a map click filled in, by code: Use finds a custom
+        # airport X-Plane's list lacks here (#2026).
+        self._clicked: Dict[str, tuple] = {}
         self.prefs = prefs if prefs is not None else {}
         self._save = save_prefs or (lambda prefs: None)
         self.plan: Optional[Dict[str, Any]] = None
@@ -255,6 +261,7 @@ class FlyPane(QWidget):
         for words in (TEXT.QUICK_FROM, TEXT.QUICK_TO):
             edit = QLineEdit()
             edit.setPlaceholderText(words)
+            edit.setToolTip(TEXT.QUICK_MAP_HINT)
             h.addWidget(edit, 1)
             edits.append(edit)
         button = QPushButton(TEXT.QUICK_BUTTON)
@@ -542,24 +549,44 @@ class FlyPane(QWidget):
         is a departure-only plan (#2023).  A To added to the active
         departure-only flight plans it again (``flight_update
         {destination}``).  Swift: ``FlyModel.useQuickEntry``."""
-        codes = {}
+        codes = dict(self._clicked)
         for entry in self._airports() or ():
-            codes.setdefault(entry.code.upper(), entry)
+            codes.setdefault(entry.code.upper(), (entry.code, entry.lat, entry.lon))
         ends = []
         for edit in (self.quick_from, self.quick_to):
             if edit is self.quick_to and not edit.text().strip():
                 break
-            entry = codes.get(edit.text().strip().upper())
-            if entry is None:
+            end = codes.get(edit.text().strip().upper())
+            if end is None:
                 self._say(TEXT.unknown_airport(edit.text()))
                 return
-            ends.append((entry.code, entry.lat, entry.lon))
+            ends.append(end)
         self._say()
         plan = TEXT.quick_plan(*ends)
         added = TEXT.added_destination(self.status, plan)
         if added is not None:
             self._update(destination=added)
         self.set_plan(plan)
+
+    def map_click(self, lat: int, lon: int, command: bool) -> bool:
+        """A click on map cell ``(lat, lon)`` in the Fly view (#2026): with
+        From and To empty, From takes the cell's largest custom airport
+        (else its largest airport); a Cmd-click (Ctrl-click off macOS)
+        once From is filled takes To.  True when it filled a field (the
+        click is then not a cell selection).  Swift: ``FlyModel.mapClick``."""
+        field = TEXT.map_click_field(command, self.quick_from.text(),
+                                     self.quick_to.text())
+        if field is None:
+            return False
+        pick = RANK.cell_airport((lat, lon), self._airports() or (),
+                                 self._custom_airports() or ())
+        if pick is None:
+            return False
+        self._clicked[pick[0].upper()] = pick
+        edit = self.quick_from if field == "from" else self.quick_to
+        edit.setText(pick[0])
+        self._say()
+        return True
 
     def prepare(self):
         """``flight_create``, then the flight's status at once: the pane

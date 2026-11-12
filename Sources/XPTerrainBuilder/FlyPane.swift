@@ -101,8 +101,8 @@ struct QuickRouteRow: View {
 
     var body: some View {
         HStack {
-            TextField(FlyText.quickFrom, text: $model.quickFrom)
-            TextField(FlyText.quickTo, text: $model.quickTo)
+            TextField(FlyText.quickFrom, text: $model.quickFrom).help(FlyText.quickMapHint)
+            TextField(FlyText.quickTo, text: $model.quickTo).help(FlyText.quickMapHint)
             Button(FlyText.quickButton) { model.useQuickEntry() }
         }
     }

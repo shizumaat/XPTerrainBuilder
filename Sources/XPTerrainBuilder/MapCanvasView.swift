@@ -664,13 +664,23 @@ struct MapCanvasView: View {
 
     /// Build mode, Qt semantics: click = select that tile (and make it
     /// active), ⌘-click = toggle in a multi-selection, ⇧-click = contiguous
-    /// rectangle from the active tile. Modifiers come from AppKit at event
+    /// rectangle from the active tile. In the Fly view a click may fill
+    /// From / To instead (`FlyModel.mapClick`, #2026). Modifiers come from AppKit at event
     /// time — SwiftUI tap gestures don't carry them.
     private func tileSelect(size: CGSize) -> some Gesture {
         SpatialTapGesture(count: 1)
             .onEnded { value in
                 let flags = NSEvent.modifierFlags
                 let coord = camera.value.coordinate(of: value.location, in: size)
+                // The Fly view: a click fills From / To (#2026).
+                if buildModel.appMode.mode == .fly,
+                   buildModel.fly.mapClick(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)),
+                                           command: flags.contains(.command),
+                                           custom: overlays.airports.map {
+                                               ($0.icao, $0.info.latitude, $0.info.longitude)
+                                           }) {
+                    return
+                }
                 buildModel.click(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)),
                                  command: flags.contains(.command),
                                  shift: flags.contains(.shift))

@@ -164,6 +164,14 @@ import Foundation
             #expect(got?.lat == c[2]["lat"]?.doubleValue)
             #expect(got?.lon == c[2]["lon"]?.doubleValue)
         }
+        let clicks = Self.cases("map_click_field")
+        #expect(clicks.count == 10)
+        for c in clicks {
+            let got = FlyText.mapClickField(command: c[0].boolValue ?? false,
+                                            from: c[1].stringValue ?? "", to: c[2].stringValue ?? "")
+            #expect(got?.rawValue == c[3].stringValue, "\(c)")
+        }
+        #expect(Self.cases("quick_map_hint").first?.first?.stringValue == FlyText.quickMapHint)
         for c in Self.cases("unknown_airport") {
             #expect(FlyText.unknownAirport(c[0].stringValue!) == c[1].stringValue)
         }

@@ -2040,7 +2040,8 @@ class MainWindow(QMainWindow):
         self.fly_pane = QTFLYPANE.FlyPane(
             self.follow_line, run=self._fly_command,
             airports=lambda: self._airports, prefs=self.prefs,
-            save_prefs=save_prefs)
+            save_prefs=save_prefs,
+            custom_airports=self.map.custom_airport_marks)
         self.fly_pane.set_photo_sources(QTIMENU.menu_entries(
             self._imagery_rows, self._imagery_status, for_map=False))
         self.live_preview = QTLIVEPREVIEW.LivePreview(self._fly_command, self)

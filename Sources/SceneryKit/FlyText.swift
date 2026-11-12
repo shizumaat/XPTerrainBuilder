@@ -145,6 +145,27 @@ public enum FlyText {
         return row.name
     }
 
+    /// The From/To fields' tooltip (#2026): a map click fills them.
+    public static let quickMapHint = "Or click a square on the map: From takes its largest "
+        + "custom airport (else its largest airport); Cmd-click "
+        + "(Ctrl-click on Windows and Linux) a second square for To."
+
+    /// A quick-entry field a Fly-view map click fills (#2026).
+    public enum QuickField: String { case from, to }
+
+    /// Which quick-entry field a click on a Fly-view map cell fills
+    /// (#2026): From for a plain click while From and To are empty, To
+    /// for a ⌘-click once From is filled and To is empty, else nil (the
+    /// click selects the cell as in Build). Python:
+    /// `O4_Fly_Text.map_click_field`.
+    public static func mapClickField(command: Bool, from: String, to: String) -> QuickField? {
+        let hasFrom = !from.trimmingCharacters(in: .whitespaces).isEmpty
+        let hasTo = !to.trimmingCharacters(in: .whitespaces).isEmpty
+        if hasTo { return nil }
+        if command { return hasFrom ? .to : nil }
+        return hasFrom ? nil : .from
+    }
+
     public static func unknownAirport(_ ident: String) -> String {
         let code = ident.trimmingCharacters(in: .whitespaces).uppercased()
         return "No airport \(code.isEmpty ? "?" : code) in X-Plane's list."

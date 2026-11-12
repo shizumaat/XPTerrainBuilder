@@ -46,6 +46,41 @@ import Foundation
         #expect(largest.count == Self.cases.largest.count)
     }
 
+    /// The Fly view's map-cell pick (#2026): the cell's largest custom
+    /// airport, else its largest airport.
+    @Test func cellAirportLikeThePythonTwin() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Ortho4XP/tests/fixtures/airport_rank_cases.json")
+        let raw = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let cells = try #require(raw["cells"] as? [[String: Any]])
+        #expect(cells.count >= 5)
+        let index = Self.cases.index.map { e in
+            GlobalAirport(icao: e.code, latitude: e.lat, longitude: e.lon,
+                          extent: e.extent.map {
+                              AirportExtent(minLatitude: $0[0], minLongitude: $0[1],
+                                            maxLatitude: $0[2], maxLongitude: $0[3])
+                          },
+                          runwayMeters: e.runway_m, sizeClass: e.size_class)
+        }
+        func place(_ any: Any?) -> (code: String, latitude: Double, longitude: Double)? {
+            guard let row = any as? [Any], row.count == 3, let code = row[0] as? String,
+                  let lat = (row[1] as? NSNumber)?.doubleValue,
+                  let lon = (row[2] as? NSNumber)?.doubleValue else { return nil }
+            return (code, lat, lon)
+        }
+        for cell in cells {
+            let tile = try #require(cell["tile"] as? [Int])
+            let custom = (cell["custom"] as? [Any] ?? []).compactMap(place)
+            let got = AirportRank.cellAirport(AirportTile(lat: tile[0], lon: tile[1]),
+                                              index: index, custom: custom)
+            let want = place(cell["pick"])
+            #expect(got?.code == want?.code, "\(tile)")
+            #expect(got?.latitude == want?.latitude, "\(tile)")
+            #expect(got?.longitude == want?.longitude, "\(tile)")
+        }
+    }
+
     @Test func titleCodesLikeThePythonTwin() {
         for c in Self.cases.titles {
             #expect(AirportRank.titleCodes(largest: c.largest, searched: c.searched) == c.codes,

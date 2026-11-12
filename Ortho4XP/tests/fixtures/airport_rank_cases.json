@@ -1,5 +1,5 @@
 {
-  "_doc": "Shared vectors for the airport size rank (#815, #817). Read by Ortho4XP/tests/test_airport_rank.py (O4_Airport_Rank) and Tests/SceneryKitTests/AirportRankTests.swift (SceneryKit AirportRank, GlobalAirportIndex). Codes are synthetic.",
+  "_doc": "Shared vectors for the airport size rank (#815, #817) and the Fly view's map-cell pick (#2026, \"cells\"). Read by Ortho4XP/tests/test_airport_rank.py (O4_Airport_Rank) and Tests/SceneryKitTests/AirportRankTests.swift (SceneryKit AirportRank, GlobalAirportIndex). Codes are synthetic.",
   "size_class": [
     {"category": "icao_airport", "longest_m": 3400, "paved_m": 3400, "class": 0},
     {"category": "icao_airport", "longest_m": 3000, "paved_m": 3000, "class": 0},
@@ -26,6 +26,14 @@
     {"tile": [30, 32], "codes": ["GGGG"]},
     {"tile": [31, 31], "codes": ["GGGG"]},
     {"tile": [31, 32], "codes": ["GGGG"]}
+  ],
+  "cells": [
+    {"tile": [30, 31], "custom": [], "pick": ["AAAA", 30.10, 31.40]},
+    {"tile": [30, 31], "custom": [["DDDD", 30.20, 31.10], ["ZZZZ", 30.60, 31.60]], "pick": ["DDDD", 30.20, 31.10]},
+    {"tile": [31, 32], "custom": [["ZZZZ", 31.50, 32.50]], "pick": ["ZZZZ", 31.50, 32.50]},
+    {"tile": [30, 31], "custom": [["ZZZZ", 30.50, 32.50]], "pick": ["AAAA", 30.10, 31.40]},
+    {"tile": [31, 32], "custom": [["GGGG", 30.95, 31.98]], "pick": ["GGGG", 30.95, 31.98]},
+    {"tile": [40, 40], "custom": [], "pick": null}
   ],
   "titles": [
     {"largest": ["AAAA", "BBBB", "GGGG", "CCCC"], "searched": [], "codes": ["AAAA", "BBBB", "GGGG", "CCCC"]},

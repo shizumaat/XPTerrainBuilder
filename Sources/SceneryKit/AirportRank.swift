@@ -45,6 +45,42 @@ public enum AirportRank {
         }
     }
 
+    /// The airport a click on map cell `tile` names in the Fly view
+    /// (#2026), or nil for a cell with no airport. `custom` are the
+    /// enabled custom packs' airports; the largest of them in the cell
+    /// wins, sized from `index` by code (a code the index lacks reads as
+    /// `unknownSizeClass`). With none, the cell's largest index airport.
+    /// Membership is `AirportCodeList.tiles` (an index airport by its
+    /// extent, a custom one by its point when the index lacks it).
+    /// Python: `O4_Airport_Rank.cell_airport`.
+    public static func cellAirport(_ tile: AirportTile, index: [GlobalAirport],
+                                   custom: [(code: String, latitude: Double, longitude: Double)])
+        -> (code: String, latitude: Double, longitude: Double)? {
+        typealias Pick = (rank: (code: String, sizeClass: Int, runwayMeters: Int),
+                          place: (code: String, latitude: Double, longitude: Double))
+        func best(_ picks: [Pick]) -> Pick? {
+            picks.min { precedes($0.rank, $1.rank) }
+        }
+        var byCode: [String: GlobalAirport] = [:]
+        for airport in index where byCode[airport.icao.uppercased()] == nil {
+            byCode[airport.icao.uppercased()] = airport
+        }
+        let customPicks: [Pick] = custom.compactMap { mark in
+            let entry = byCode[mark.code.uppercased()]
+            guard AirportCodeList.tiles(latitude: mark.latitude, longitude: mark.longitude,
+                                        extent: entry?.extent).contains(tile) else { return nil }
+            return ((mark.code, entry?.sizeClass ?? unknownSizeClass, entry?.runwayMeters ?? 0), mark)
+        }
+        if let pick = best(customPicks) { return pick.place }
+        let indexPicks: [Pick] = index.compactMap { airport in
+            guard AirportCodeList.tiles(latitude: airport.latitude, longitude: airport.longitude,
+                                        extent: airport.extent).contains(tile) else { return nil }
+            return ((airport.icao, airport.sizeClass ?? unknownSizeClass, airport.runwayMeters ?? 0),
+                    (airport.icao, airport.latitude, airport.longitude))
+        }
+        return best(indexPicks)?.place
+    }
+
     /// The codes a tile's progress row names, at most `limit`: a searched
     /// code not among the largest goes FIRST (the user asked for it by
     /// name), the largest fill the rest. Upper-cased; no code repeats.

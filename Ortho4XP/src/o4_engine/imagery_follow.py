@@ -314,7 +314,8 @@ class FollowJob:
         lat, lon = WEBAPI.camera_position(rec)
         if now - self._rows_at >= ROWS_EVERY_S:
             self._reload_rows(now)
-        self._locate(now, lat, lon, float(rec.get("elev_m") or 0.0))
+        self._locate(now, lat, lon, float(rec.get("elev_m") or 0.0),
+                     WEBAPI.camera_agl_m(rec))
         fetches = self.last_plan = self._plan(now)
         self._update_slots(fetches, now)
         if not rec.get("paused"):
@@ -348,7 +349,7 @@ class FollowJob:
     # ------------------------------------------------- spawn and jump
 
     def _locate(self, now: float, lat: float, lon: float,
-                alt_m: float) -> None:
+                alt_m: float, agl_m: float = 0.0) -> None:
         """The camera sample into the motion tracker, and the witness it
         is (spec §4.5): the session's first position, positions resumed
         after a drop, or a jump opens the spawn episode of the place."""
@@ -361,7 +362,7 @@ class FollowJob:
             if moved > SPAWN.SAME_PLACE_M:
                 self.tracker.restart()  # no track or speed across a load
         self._resets, self._read_at = self.reader.resets, now
-        self.motion = self.tracker.add(now, lat, lon, alt_m)
+        self.motion = self.tracker.add(now, lat, lon, alt_m, agl_m)
         if self.tracker.jumped:
             kind, moved = "jump", math.inf
         if not kind:

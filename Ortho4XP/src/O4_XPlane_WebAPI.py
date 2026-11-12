@@ -43,8 +43,9 @@ import urllib.request
 
 # (command_id and activate_command are reload_scenery's parts.)
 __all__ = ["DEFAULT_PORT", "POS_REFS", "RELOAD_SCENERY", "PositionReader",
-           "base_url", "camera_position", "now_stamp", "poll_positions",
-           "read_position", "reload_scenery", "resolve_refs"]
+           "base_url", "camera_agl_m", "camera_position", "now_stamp",
+           "poll_positions", "read_position", "reload_scenery",
+           "resolve_refs"]
 
 #: X-Plane's default Web API port (Settings > Network; expert setting
 #: ``xplane_web_api_port``).
@@ -249,6 +250,22 @@ def camera_position(rec: dict) -> tuple[float, float]:
         return lat, lon
     cos_lat = max(1e-6, math.cos(math.radians(lat)))
     return lat + north / _M_PER_DEG, lon + east / (_M_PER_DEG * cos_lat)
+
+
+def camera_agl_m(rec: dict) -> float:
+    """The camera's height above the ground (m): the aircraft's ``y_agl``
+    plus the camera's height over the aircraft in the local frame (+y
+    up), clamped at 0; 0 (the ground) when the record has no ``agl_m``.
+    The ground under an outside camera is taken as the aircraft's."""
+    try:
+        agl = float(rec["agl_m"])
+    except (KeyError, TypeError, ValueError):
+        return 0.0
+    try:
+        agl += float(rec["view_y"]) - float(rec["local_y"])
+    except (KeyError, TypeError, ValueError):
+        pass
+    return agl if agl > 0.0 else 0.0
 
 
 def poll_positions(emit, stop: threading.Event, period: float,

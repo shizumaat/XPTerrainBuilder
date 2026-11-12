@@ -347,7 +347,98 @@ A late tier is still landed (it shows at the next pass or reload, §2.5)
 but drops to the lowest priority. Airport cover squares (ZL17/18) follow
 the same rule with their own S (ZL18 full only inside ~2 km); rev 1's
 3,000 ft AGL and FL150 rules are deleted: the S rule already limits them,
-and slant distance (§11 U4) would limit them further at altitude.
+and the altitude rule below (slant distance) limits them further.
+
+**Altitude [rev 6, RULINGS 2026-11-12f; answers §11 U4].** Owner,
+2026-11-12T17:51Z: "Altitude is important because a low flight needs
+higher res but much smaller coverage area, but high altitude we need lower
+res farther out"; and at 17:56Z: "we should be able to calculate the right
+zoom level for altitude so it essentially looks the same quality the whole
+flight, we just need lower res the higher we go to maintain the same
+clarity, then as we descend loading higher and higher resolution until we
+land". The target is **constant apparent clarity**: each square gets the
+coarsest tier whose texel, seen from the camera, subtends no more than the
+eye angle the ground crossings already hold. The plan reads the **camera's
+height above ground** h and measures each square at its **slant
+distance** d = √(h² + r²), r the horizontal distance to the square's
+centre. A texel of a W px file over a
+square of size S subtends S / (W · d) at the eye; tier k is wanted where
+the next coarser file's texel would subtend more than the eye resolves:
+
+    tier k wanted  ⇔  S / (W_{k-1} · d) > θ_k  ⇔  d < c_k · S,
+    θ_k = 1 / (c_k · W_{k-1})
+
+so the calibrated eye angles (`EYE_RAD`) are the §2.5 crossings, read at
+the eye instead of on the map: θ_1 = 1/(5.2 · 512) = 3.76e-4 rad (1.29 arcmin),
+θ_2 = 1/(2.8 · 1024) = 3.49e-4 rad (1.20′), θ_3 = 1/(1.65 · 2048) =
+2.96e-4 rad (1.02′) — about one minute of arc per texel, the eye's (and a
+screen pixel's) resolution. `CROSSING_S` stays the one place to update.
+In the plan, tier k's crossing on the map is the circle of radius
+
+    r_k(h) = √((c_k · S)² − h²)   (no circle, tier k never wanted, when h ≥ c_k · S)
+
+and everything else in the rule (closest approach, lateral margin, lead,
+cheapest file, late) is unchanged, read in slant distance. **The camera's
+path is predicted in 3-D**: track and groundspeed as before plus its
+vertical speed (from the same position samples, `O4_Imagery_Follow_Motion`),
+so a **descent** reaches each finer tier's slant distance earlier and that
+tier's deadline — and its fetch start, `T_lead` before — falls before the
+height that needs it; a descent that meets the ground goes on level at
+h = 0. A **climb is planned level** (only a descent is extrapolated): a
+level-off then never finds the camera lower than planned, and climbing
+needs nothing new anyway. Consequences:
+
+- **on the ground** (h = 0) r_k = c_k · S: the plan is exactly the
+  ground plan above (twin); a cockpit 3 m up moves a crossing by < 1 mm;
+- **low** (1,000 ft): finest tiers, the ground radii (60°N: T3 inside
+  7.8 km, T2 13.3 km, T1 24.7 km) — a small area of full resolution;
+- **high**: a tier whose c_k · S is below h is never fetched, the rest
+  over a ring that shrinks slowly; full resolution only within 1.65 S
+  slant, so **never far below a high aircraft**. Horizontal radii
+  T1 / T2 / T3 [estimate]:
+
+| h | 60°N, S = 4.74 km | 45°N, S = 6.9 km | 0°, S = 9.78 km |
+|---|---|---|---|
+| 0 / 1,000 ft | 24.7 / 13.3 / 7.8 km | 35.9 / 19.3 / 11.4 | 50.9 / 27.4 / 16.1 |
+| 10,000 ft (3.0 km) | 24.5 / 12.9 / 7.2 | 35.8 / 19.1 / 11.0 | 50.8 / 27.2 / 15.8 |
+| 35,000 ft (10.7 km) | 22.2 / 7.9 / **none** | 34.3 / 16.1 / 4.0 | 49.7 / 25.2 / 12.1 |
+
+  At FL350 the full texture is fetched nowhere above ~48°N (ZL16) and over
+  a 4-12 km disk beneath the aircraft further south; the 1,024 and 2,048
+  rings are what a high aircraft gets, out to 22-50 km, and beyond them
+  the 512 px placeholder (on disk from the build) is the coarse imagery
+  "farther out". ZL17/18 airport cover squares (S ≈ 1.2-2.4 km) get no
+  upgrade at all above 5.2 S (6-12 km) and no full above 2-4 km.
+- **Descending** (e.g. 10 m/s over a ZL18 square, S = 1.2 km, from
+  3,000 m): the full file's deadline is the time to 1.65 S = 1.97 km,
+  ~103 s ahead, fetched from ~73 s; planned level it would never be
+  wanted. Over a climb / cruise / descent profile no square's file is ever
+  coarser than the eye wants at its slant distance once it had the landing
+  time (twin), so the clarity is the same the whole flight; planned level,
+  the descent lands late.
+- **The look-ahead does not grow with altitude.** Under this rule nothing
+  finer than the placeholder is wanted beyond 5.2 S slant at any height,
+  and the 512 px placeholder already covers the visible distance; the
+  time horizon (`HORIZON_S`, 300 s ≥ 5.2 S at cruise speeds) and the
+  fetch start (`D_k = r_k(h) + v · T_lead`) need no altitude term. The
+  slot buffer and token rate (§4.4, R6) bound the work as before, and
+  since every r_k(h) ≤ r_k(0) a higher camera never plans more files or
+  bytes than a lower one on the same track (twin).
+- **h** is the camera's: `y_agl` (the aircraft's height above the ground,
+  always published by X-Plane 12) plus the camera's local offset
+  `view_y − local_y`, clamped at 0 (`O4_XPlane_WebAPI.camera_agl_m`).
+  Without `y_agl` h = 0: the ground plan (no vertical term either), never
+  fewer files than the eye wants. The vertical speed is the MSL
+  `elevation`'s rate over the tracker window (flat ground assumed ahead). The ground under an outside camera km away is taken as the
+  ground under the aircraft.
+- **Unchanged:** spawn episodes and their cores (§4.5), airport cores and
+  favorites (§6.1) — they want what they want at any height; the
+  flight-2 replay (§14 P3a) keeps h = 0, its horizontal basis.
+
+This is a plan by the eye, not a claim about X-Plane's own loader: if
+X-Plane pages by horizontal distance (U4's open half), a high aircraft
+asks for levels finer than the eye resolves there and reads the coarser
+file on disk, which the eye angle above says looks the same.
 
 **Lead.** A tier must start `T_lead` before its crossing:
 `D_k = c_k · S + v · T_lead`, with `T_lead` covering download, convert and
@@ -773,7 +864,7 @@ build at that zoom would.
 | U1 | Does X-Plane address a smaller file's levels **relative to the file** (a 512 file's mip 0 at 25-48 km) or by **absolute pixels** against the `.ter`'s declared 4096 (then a 512 file would be read at 1/8 of the intended detail at each distance)? | The placeholder's real look and every tier's value | Recorder flight on a placeholder build: `mincore` levels touched per load of the 512 files, by distance | P1 |
 | U2 | Do the thresholds scale with S at other latitudes (fitted at 61°N, ZL16 and ZL18 only)? | Every distance in §4.3 away from 60°N | One recorder flight on a 30°N tile (the HECA tile, the default representative airport); predicted mip 0 at ~14 km | P1 |
 | U3 | Do X-Plane's texture-quality setting, screen size, FOV or VRAM pressure move the thresholds? | Users run other settings | Repeat one leg with texture quality one notch lower; compare `c_k` | P1 |
-| U4 | Horizontal or slant distance? (The analysis used horizontal; flight 2 stayed below 3.1 km.) | High-altitude fetch volume | One leg at ~6,000 m over the tile; `c_k` with either distance | P3 |
+| U4 | ~~Horizontal or slant distance? (The analysis used horizontal; flight 2 stayed below 3.1 km.)~~ **[rev 6] Answered for the plan by RULINGS 2026-11-12f:** slant distance from the camera's height above ground, at the eye angles θ_k calibrated on the ground (§4.3 "Altitude"). Still open (X-Plane's own loader, not the plan): does X-Plane page by horizontal or slant distance? | High-altitude fetch volume; whether a high aircraft's opens read a coarser file than X-Plane asked for | One leg at ~6,000 m over the tile; `c_k` with either distance; if the eye angles look soft at altitude, re-fit θ_k there | P3 |
 | U5 | How many tiers land late, and does a late landing really wait for the next pass? | Pop-in seen by the pilot | Job counts `late`; recorder pairs each landing with the next open of that name | P3 |
 | U6 | Do the provider's lower zooms (T1/T2) match the full zoom (date, colour)? A mismatch pops at each tier change | Tier ladder vs full-only | Offline: fetch ZL13-16 of 50 squares, downsample the full, per-square ΔE and change-detection; if it fails, the ladder is T0 → full, fetched earlier | P3a |
 | U7 | Download + convert time per tier under the job, and the right `T_lead` | §4.3 lead table | Offline bench on the real fetcher (no sim), 100 textures per tier per provider | P3a |

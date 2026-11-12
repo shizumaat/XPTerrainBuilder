@@ -119,8 +119,9 @@ def test_the_cyyr_flight_waits_for_readiness_then_flies(recording):
     """The flight replayed (14 parked slots, 3 in the air, light 397 s,
     full 900 s): the countdown at creation covers the real wait and never
     rose; the first-window tiles X-Plane held (its loaded columns -62 to
-    -60) went in with ONE ground reload, the column it had not loaded
-    yet (-63) by an ordinary swap; every
+    -60) went in with ONE ground reload (offered, pressed by the replayed
+    pilot, 12c (4); taken as soon as the departure area is ready, 12c (2),
+    so it may carry the first window's staged column -63 too); every
     World tile X-Plane opened in flight was swapped before it, none after
     a load; the flight is airborne by the recording's end."""
     result = R.replay_flight(*recording, DEST)
@@ -130,7 +131,9 @@ def test_the_cyyr_flight_waits_for_readiness_then_flies(recording):
     held = {r["tile"] for r in result["tiles"]
             if r["klass"] == "P0" and r["role"] == "enroute"
             and r["tile"][4:] in ("060", "061", "062")}
-    assert set(result["reloads"][0][1]) == held     # the loaded columns only
+    first_window = {r["tile"] for r in result["tiles"]
+                    if r["klass"] == "P0" and r["role"] == "enroute"}
+    assert held <= set(result["reloads"][0][1]) <= first_window
     assert result["state"] == "flying"
     opened = [r for r in result["tiles"] if r["opened_s"] is not None]
     assert {r["tile"] for r in opened} >= {"+53-063", "+53-064", "+53-065"}
@@ -146,13 +149,18 @@ def test_slow_builds_wait_longer_and_still_never_load_a_placeholder(recording):
     assert small["wait_s"] > R.replay_flight(*recording, DEST)["wait_s"]
 
 
-def test_a_faster_flight_waits_longer_on_the_ground(recording):
-    """The same flight at 3x (870 kt): the countdown moves the corridor's
-    builds before departure (10g: the flight waits for readiness) and
-    nothing X-Plane opens is late."""
+def test_a_faster_flight_leaves_with_its_departure_area_and_is_warned(
+        recording):
+    """RULINGS 2026-11-12c (2) (replacing 10g's "wait for every row"):
+    the same flight at 3x (870 kt) waits only for its departure area, as
+    long as at 1x; what its route cannot get in time is warned of
+    (``falling_behind``) instead of held on the ground."""
     slow, fast = (R.replay_flight(*recording, DEST, speed=k) for k in (1, 3))
-    assert fast["ok"], fast
-    assert fast["wait_s"] >= slow["wait_s"]
+    assert fast["wait_s"] == pytest.approx(slow["wait_s"], abs=5.0)
+    codes = {c for _t, c in fast["notices"]}
+    assert "ready" in codes
+    if not fast["ok"]:
+        assert "falling_behind" in codes
 
 
 # ------------------------------------------------------- manager details
@@ -402,8 +410,13 @@ def test_create_status_update_end(engine, monkeypatch):
     assert os.path.isfile(os.path.join(folder, flight + ".json"))
     assert _wait_for(lambda: builds and any(
         isinstance(e, FlightStatus) for e in events))
-    # the first window goes first, as drapes (the departure is external)
-    assert builds[0][0] == "drape" and builds[0][1][1] in range(-63, -59)
+    # the first window goes first, as drapes (the departure is external);
+    # the long destination starts beside it at once: with the countdown
+    # to the departure area only (12c (2)) its slack is under the
+    # laxity guard
+    assert _wait_for(lambda: any(b[0] == "drape" for b in builds[:3]))
+    first = next(b for b in builds if b[0] == "drape")
+    assert first[1][1] in range(-63, -59)
     for _tiles, kw in (b for b in builds if b[0] != "drape"):
         assert kw["missing_art"] == "leave" and kw["klass"] in ("P0", "P2")
         assert "overrides" not in kw     # a full build: no profile (11j)

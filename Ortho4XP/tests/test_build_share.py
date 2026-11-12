@@ -197,13 +197,15 @@ def test_corridor_deadlines_win_a_contended_slot(kit):
     track.tick(3.0, {"lat": CYWG[0], "lon": CYWG[1]})   # track first
     flight.tick(3.0, _parked(CYYR))
     FLIGHT._share_slots(flight, share)
-    calls = _settle(drapes, 3)
-    assert len(calls) == 3
+    # the flight's job took the slot (a corridor drape, or its tight
+    # destination's full build: the laxity guard), track mode nothing
+    building = [j for j in flight.jobs if j.state == "building"]
+    assert len(building) == 1
     corridor = {j.tile for j in flight.jobs}
-    assert calls[2] in corridor                    # the flight's tile
-    assert [j.state for j in flight.jobs].count("building") == 1
+    started = _settle(drapes, 3, seconds=0.5)[2:] + flight.builder.session.full
+    assert started == [building[0].tile] and started[0] in corridor
     track.tick(4.0, {"lat": CYWG[0], "lon": CYWG[1]})
-    assert len(_settle(drapes, 4, seconds=0.3)) == 3   # the flight still waits
+    assert len(_settle(drapes, 4, seconds=0.3)) == 2 + (building[0].kind == "drape")
     drapes.release(*drapes.calls)
 
 

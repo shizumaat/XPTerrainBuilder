@@ -37,7 +37,8 @@ __all__ = [
     "margin_s", "tile_deadlines", "klass_for", "job_estimate", "rescale",
     "DRAPE_SECONDS", "drape_seconds",
     "finish_times", "countdown", "feasible", "shed_order", "next_job",
-    "readiness_items", "countdown_text", "DONE_STATES",
+    "readiness_items", "countdown_text", "DONE_STATES", "READY_KEYS",
+    "DEPARTURE_MARGIN_S", "departure_countdown", "projected_late",
 ]
 
 Tile = Tuple[int, int]
@@ -337,6 +338,43 @@ def countdown(jobs: Iterable[Job], slots: int,
     return hi
 
 
+#: The readiness rows a flight waits for (RULINGS 2026-11-12c (2), owner
+#: 14:32Z: "be conservative with the ready to start timer, but it should
+#: definitely let the user leave as soon as the departure area is ready"):
+#: the facts and the departure area.  The route, destination, alternate
+#: and reload rows are shown, never waited for: they build in flight by
+#: their deadlines, a tile projected late is warned of
+#: (:func:`projected_late`).  Replaces the 2026-11-10 "every row" rule.
+READY_KEYS = ("world", "budget", "network", "prefetch", "departure",
+              "first_window")
+#: Added to the departure area's high-estimate finish (conservative).
+DEPARTURE_MARGIN_S = 60.0
+
+
+def departure_countdown(jobs: Iterable[Job], slots: int) -> Optional[float]:
+    """Seconds until the departure area (every open P0 job: the
+    departure and the first window) is built, list-scheduled on ``slots``
+    with the high estimates, plus :data:`DEPARTURE_MARGIN_S`; 0 when none
+    is open; None when one has no estimate."""
+    jobs = list(jobs)
+    area = [j for j in jobs if j.open and j.klass == P0]
+    if not area:
+        return 0.0
+    if not all(_estimated(j) for j in area):
+        return None
+    ends = [end for job, end in finish_times(jobs, slots) if job.klass == P0]
+    return max(ends) + DEPARTURE_MARGIN_S
+
+
+def projected_late(jobs: Iterable[Job], slots: int, takeoff_s: float
+                   ) -> List[Job]:
+    """The open en-route, destination and alternate jobs that, built on
+    ``slots`` in plan order with the high estimates, finish after their
+    tile loads with takeoff ``takeoff_s`` seconds from now."""
+    return [job for job, end in finish_times(jobs, slots)
+            if job.klass != P0 and end > takeoff_s + job.deadline_s]
+
+
 def feasible(jobs: Iterable[Job], slots: int, takeoff_s: float) -> bool:
     """Does every open job finish by ``takeoff_s + deadline_s``?"""
     return all(end <= takeoff_s + job.deadline_s
@@ -461,8 +499,9 @@ def _deadline_item(key: str, jobs: List[Job], ends: Dict[int, float]) -> Item:
 
 
 def readiness_items(facts: Facts) -> List[Item]:
-    """The rows of §6.2, in order.  The flight is ready when every row is
-    ``done``."""
+    """The rows of §6.2, in order.  The flight is ready when every row
+    of :data:`READY_KEYS` is ``done`` (the departure area); the others
+    say how the rest of the route stands."""
     jobs = list(facts.jobs)
     ends = {id(j): end for j, end in finish_times(jobs, facts.slots)}
 
@@ -488,11 +527,13 @@ def readiness_items(facts: Facts) -> List[Item]:
     in_air = ({id(j): end for j, end in finish_times(jobs, flying)}
               if flying != facts.slots else ends)
     route = [j for j in role("enroute") if j.klass != P0 and id(j) in in_air]
-    if all(in_air[id(j)] <= j.deadline_s for j in route):
+    late = [j for j in route if in_air[id(j)] > j.deadline_s]
+    if not late:
         rows.append(Item("route", "done", 0.0, ""))
     else:
-        rows.append(Item("route", "waiting",
-                         countdown(jobs, facts.slots, facts.flight_slots), ""))
+        rows.append(Item("route", "working", None,
+                         "Builds in flight; %d tile(s) may show X-Plane's "
+                         "own scenery at this speed" % len(late)))
     rows.append(_deadline_item("destination", role("destination"), ends))
     if facts.build_alternate:
         rows.append(_deadline_item("alternate", role("alternate"), ends))
@@ -500,7 +541,7 @@ def readiness_items(facts: Facts) -> List[Item]:
         rows.append(Item("loaded", "done", 0.0, ""))
     else:
         rows.append(Item("loaded", "waiting", None,
-                         "Scenery reloads once on the ground"))
+                         "Reload scenery when you choose"))
     return rows
 
 

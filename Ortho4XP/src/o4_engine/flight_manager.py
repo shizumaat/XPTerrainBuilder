@@ -36,9 +36,14 @@ RULINGS 2026-11-10k Q3: en-route tiles that cannot be built without
 the internet may be left to X-Plane's own scenery; never the departure
 or the destination).
 
-The flight always waits for readiness (10g): ``ready`` is every row of
-§6.2 ``done``; the countdown is the schedule's (``O4_Flight_Schedule``)
-from the recorded estimates, a dash (None) while a row is blocked.  Once
+The flight waits for its departure area only (RULINGS 2026-11-12c (2),
+replacing 10g's "every row"): ``ready`` is every row of
+``O4_Flight_Schedule.READY_KEYS`` ``done`` (the facts, the departure and
+the first window); the countdown is the time until that area is built
+(``departure_countdown``: high estimates plus a margin), a dash (None)
+while a row is blocked.  The route, destination and alternate build in
+flight by their deadlines; a tile projected late is warned of
+(``falling_behind``).  Once
 ready the flight stays ready (§9).  A job that fails twice is ``failed``
 (§11: two attempts, never a third).  No airport is named here.
 """
@@ -315,7 +320,7 @@ class FlightManager:
         self._offline(facts)
         was = self.record.state
         self._readiness(now, facts)
-        self._notices(was)
+        self._notices(was, now)
 
     def _move(self, now: float, rec: Optional[dict], facts: dict) -> None:
         for tile in set(facts.get("loads") or ()) - self._seen:
@@ -417,8 +422,8 @@ class FlightManager:
             return self.takeoff_at
         wait = self.countdown_s
         if wait is None:            # before the first readiness pass
-            wait = SCHEDULE.countdown(self._live_jobs(now), self.parked_slots,
-                                      self.flight_slots)
+            wait = SCHEDULE.departure_countdown(self._live_jobs(now),
+                                                self.parked_slots)
         return now + (wait or 0.0)
 
     def _mark_late(self, now: float) -> None:
@@ -508,7 +513,8 @@ class FlightManager:
             **known))
         self._maybe_reload(now)
         if (self.record.state == "preparing"
-                and all(item.state == "done" for item in self.items)):
+                and all(item.state == "done" for item in self.items
+                        if item.key in SCHEDULE.READY_KEYS)):
             self.record.state, self.record.ready_at = "ready", self.stamp()
         self.countdown_s = self._countdown(jobs)
         self.reason = next((i.detail for i in self.items
@@ -520,17 +526,27 @@ class FlightManager:
                            "X-Plane's own scenery." % late)
 
     def _countdown(self, jobs) -> Optional[float]:
-        """§9's countdown; 0 once ready; None (a dash) while a row is
-        blocked or a job has no estimate."""
+        """The countdown to the departure area (12c (2)); 0 once ready;
+        None (a dash) while a row it waits for is blocked or a job has no
+        estimate."""
         if self.record.state != "preparing":
             return 0.0
-        if any(i.state in ("blocked", "failed") for i in self.items):
+        waited = [i for i in self.items if i.key in SCHEDULE.READY_KEYS]
+        if any(i.state in ("blocked", "failed") for i in waited):
             return None
-        wait = SCHEDULE.countdown(jobs, self.parked_slots, self.flight_slots)
+        wait = SCHEDULE.departure_countdown(jobs, self.parked_slots)
         if wait is None:
             return None
-        return max([wait] + [i.eta_s for i in self.items
+        return max([wait] + [i.eta_s for i in waited
                              if i.state != "done" and i.eta_s is not None])
+
+    def projected_late(self, now: float) -> List[Tile]:
+        """The route's tiles projected to load before they are built
+        (high estimates, takeoff as flown or after the countdown)."""
+        live = self._live_jobs(now)
+        takeoff = self._takeoff_s(now) - now
+        slots = self.flight_slots if self.takeoff_at is not None else self.slots()
+        return [j.tile for j in SCHEDULE.projected_late(live, slots, takeoff)]
 
     def _maybe_reload(self, now: float) -> None:
         """Rule S6 (a): ``loaded`` is the last row; with every other row
@@ -549,7 +565,7 @@ class FlightManager:
             return
         self.reload = "ground_pending"
         others = all(i.state == "done" for i in self.items
-                     if i.key != "loaded")
+                     if i.key in SCHEDULE.READY_KEYS)
         if not others or self.record.phase not in ("parked", ""):
             return
         self._ground_tiles = [
@@ -655,8 +671,10 @@ class FlightManager:
             WP.tile_name(*t) for t in self.waivable], "at": self.stamp()})
         return len(self.waivable)
 
-    def _notices(self, was: str) -> None:
-        """The one-shot ``FlightNotice`` codes (``flight_notices``)."""
+    def _notices(self, was: str, now: float = 0.0) -> None:
+        """The one-shot ``FlightNotice`` codes (``flight_notices``); once
+        the pilot may leave, the route's tiles projected late
+        (``falling_behind``, again when their count grows; 12c (2))."""
         last, job = self._destination()
         dest = last.ident or self.diverted_to
         if was == "preparing" and self.record.state == "ready":
@@ -677,6 +695,14 @@ class FlightManager:
         late = sum(1 for j in self.jobs if j.state == "late")
         if late:
             self.board.post("tile_late", key=late, count=late)
+        if self.record.state in ("ready", "flying"):
+            ahead = len(self.projected_late(now))
+            if ahead:
+                self.board.post(
+                    "falling_behind", key=ahead,
+                    detail="%d tile(s) along the route may show X-Plane's "
+                           "own scenery when you reach them at this speed."
+                           % ahead)
         budget = next((i for i in self.items if i.key == "budget"), None)
         if budget is not None and budget.state == "blocked":
             self.board.post("budget", detail=budget.detail)

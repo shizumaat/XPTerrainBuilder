@@ -193,21 +193,21 @@ def test_divert_waiver_reload_and_notice(qapp):
     engine = _Engine(answers)
     pane, _saved = _pane(engine)
     status = dict(CASES["events"]["FlightStatus"], waivable=["+53-062"],
-                  reload="scheduled", diverted_to="CYQX")
+                  reload="offered", diverted_to="CYQX")
     pane.show_status(status)
     assert not pane.offline_waiver_row.isHidden()
     assert "1 tile(s)" in pane.waiver_label.text()
     pane.offline_waiver_row.buttons[0].click()
     assert engine.calls[-1] == ("flight_update", {
         "flight": status["flight"], "waive_offline": True})
-    assert not pane.reload_offer_row.isHidden() and not pane.not_now_btn.isHidden()
-    pane.not_now_btn.click()
-    assert engine.calls[-1] == ("flight_reload", {"flight": status["flight"],
-                                                  "not_now": True})
-    pane.show_status(dict(status, reload="offered", waivable=[]))
-    assert pane.offline_waiver_row.isHidden() and pane.not_now_btn.isHidden()
+    assert not pane.reload_offer_row.isHidden()
+    assert len(pane.reload_offer_row.buttons) == 1      # no "Not now" (#2019)
+    pane.show_status(dict(status, waivable=[]))
+    assert pane.offline_waiver_row.isHidden()
     pane.reload_offer_row.buttons[0].click()
-    assert engine.calls[-1][1]["not_now"] is False
+    assert engine.calls[-1] == ("flight_reload", {"flight": status["flight"]})
+    pane.show_status(dict(status, reload="sent", waivable=[]))
+    assert pane.reload_offer_row.isHidden()
     pane.divert_to({"ident": "CYYT", "lat": 47.6, "lon": -52.7})
     assert engine.calls[-1] == ("flight_divert", {
         "flight": status["flight"], "to": {"ident": "CYYT", "lat": 47.6,

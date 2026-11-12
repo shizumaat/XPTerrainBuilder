@@ -44,9 +44,11 @@ The rules it keeps (spec §4.7, §8):
   end of X-Plane's flight-start window (a session's first position has
   none: X-Plane may have loaded long ago).  When the core has landed and
   a file missed the window where X-Plane still shows it coarse, the job
-  asks X-Plane ONCE to reload its scenery (``reloader``, the Web API
-  command; ``reloads``); nothing missed, or nothing landed (no network):
-  no reload.
+  OFFERS the user one reload (``reloader``: ``reload_offer.offer``;
+  ``reloads`` counts the offers; ``reload_offer`` is the one pending):
+  X-Plane is never asked to reload unless the user clicks "Reload
+  scenery" (owner 2026-11-12T14:34Z); nothing missed, or nothing landed
+  (no network): no offer.
 
 ``last_near_at`` is written for the rows the camera is within their
 tier's distance of, while the sim is not paused (spec §5.3).  The job
@@ -153,6 +155,12 @@ class _InFlight(_t.NamedTuple):
     started: float
     due_at: float           # absolute time of the crossing it serves
 
+
+
+def _pending_offer() -> str:
+    """The reload offered to the user and not taken yet (``reload_offer``)."""
+    from . import reload_offer as RELOAD
+    return RELOAD.current()
 
 class FollowJob:
     """One follow session.  ``reader`` is an ``O4_XPlane_WebAPI``
@@ -595,12 +603,14 @@ class FollowJob:
             "flight_loads": self.reader.resets,
             "jumps": self.tracker.jumps,
             "reloads": self.counts["reloads"],
+            "reload_offer": _pending_offer(),
         }
 
     def _status(self, now: float, force: bool = False) -> None:
         fields = self.status()
         changed = (fields["state"], fields["reason"], fields["landed"],
-                   fields["failed"], fields["slots"], fields["reloads"])
+                   fields["failed"], fields["slots"], fields["reloads"],
+                   fields["reload_offer"])
         if not force and changed == self._last_status and (
                 now - self._status_at < STATUS_EVERY_S):
             return

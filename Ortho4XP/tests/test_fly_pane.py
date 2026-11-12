@@ -117,10 +117,15 @@ def _text_cases():
                                         ("  ", 12), ("C", 2), ("zzz", 12))],
         "divert_row_label": [[row, DTEXT.divert_row_label(row)]
                              for row in AIRPORTS[2:4]],
-        "reload_line": [[{"flight": "f", "reload": r, "diverted_to": d},
-                         DTEXT.reload_line({"reload": r, "diverted_to": d})]
-                        for r, d in (("", ""), ("scheduled", "CYQX"),
-                                     ("offered", ""), ("sent", "CYQX"))],
+        "reload_line": [[{"flight": "f", "reload": r, "diverted_to": d,
+                          "state": s},
+                         DTEXT.reload_line({"reload": r, "diverted_to": d,
+                                            "state": s})]
+                        for r, d, s in (("", "", "flying"),
+                                        ("offered", "", "flying"),
+                                        ("offered", "CYQX", "flying"),
+                                        ("offered", "", "preparing"),
+                                        ("sent", "CYQX", "flying"))],
         "waiver_line": [[{"flight": "f", "waivable": w},
                          DTEXT.waiver_line({"waivable": w})]
                         for w in ([], ["+53-062", "+53-063"])],
@@ -217,7 +222,7 @@ def test_the_words_are_the_macs():
         assert '(%d, "%s")' % (value, words) in swift, value
     divert = SWIFT_DIVERT_TEXT.read_text(encoding="utf-8")
     for name in ("DIVERT_TITLE", "DIVERT_SEARCH", "DIVERT_ALTERNATE",
-                 "DIVERT_BUTTON", "RELOAD_NOW", "NOT_NOW", "WAIVE_OFFLINE"):
+                 "DIVERT_BUTTON", "RELOAD_NOW", "WAIVE_OFFLINE"):
         camel = re.sub(r"_(\w)", lambda m: m.group(1).upper(), name.lower())
         said = re.search(r'static let %s = "([^"]+)"' % camel, divert)
         assert said and said.group(1) == getattr(DTEXT, name), name

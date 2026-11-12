@@ -37,8 +37,23 @@ public enum O4OnDemandText {
     public static let followPaused = "Imagery paused: {reason}"
     public static let followStopped = "Not following X-Plane"
     public static let followError = "Following stopped: {reason}"
-    public static let followDetail = "{queued} queued · {slots} at a time · {buffer} · {landed} landed ({bytes_landed}) · {failed} failed · X-Plane {xplane} at {lat}, {lon}, {speed} kt, track {track}° · {flight_loads} flight loads · {jumps} jumps · {reloads} reloads"
+    public static let followDetail = "{queued} queued · {slots} at a time · {buffer} · {landed} landed ({bytes_landed}) · {failed} failed · X-Plane {xplane} at {lat}, {lon}, {speed} kt, track {track}° · {flight_loads} flight loads · {jumps} jumps · {reloads} reload offers"
     public static let waitingReason = "its Web API is not answering"
+    /// The reload offer under the follow line (#2019, owner 2026-11-12:
+    /// X-Plane reloads only when the user asks): its line per
+    /// `reloadOffer` code and the button that sends `scenery_reload`.
+    public static let reloadSceneryTitle = "Reload scenery"
+    public static let reloadOfferImagery = "Sharper imagery landed after X-Plane loaded this area: reload the scenery to see it."
+    public static let reloadOfferTiles = "New tiles replaced ones X-Plane had already loaded: reload the scenery to see them."
+
+    /// The reload offer's line; empty when none is pending.
+    public static func reloadOfferLine(_ code: String) -> String {
+        switch code {
+        case "imagery": return reloadOfferImagery
+        case "tiles": return reloadOfferTiles
+        default: return ""
+        }
+    }
     /// The first sentence while the job follows (or waits) with no
     /// on-demand texture in its index.
     public static let followNoTiles = "No on-demand tiles to follow yet: build a tile with imagery on demand, or convert one in the Library"

@@ -1609,6 +1609,7 @@ class MainWindow(QMainWindow):
         # is on or a job runs (sync_imagery_follow).
         self.follow_line = QTONDEMAND.FollowStatusLine()
         self.follow_line.toggle_requested.connect(self._toggle_imagery_follow)
+        self.follow_line.reload_requested.connect(self._reload_scenery)
         self.follow_line.setVisible(False)
         self._follow_stopped_by_user = False
         bv.addWidget(build_group)
@@ -2991,6 +2992,14 @@ class MainWindow(QMainWindow):
         else:
             self._stop_imagery_follow()
         self.follow_line.set_running(start)
+
+    def _reload_scenery(self):
+        """The follow line's "Reload scenery" (#2019): the engine command
+        ``scenery_reload``, off the UI thread; the only way this app asks
+        X-Plane to reload (owner 2026-11-12T14:34Z)."""
+        from o4_engine import reload_offer as RELOAD
+        threading.Thread(target=RELOAD.scenery_reload, daemon=True,
+                         name="o4-scenery-reload").start()
 
     def _on_imagery_follow_status(self, event):
         self.follow_line.show_status(event)

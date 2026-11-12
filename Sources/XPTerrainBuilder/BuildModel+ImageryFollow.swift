@@ -20,6 +20,13 @@ extension BuildModel {
         }
     }
 
+    /// The follow line's "Reload scenery" for a pending reload offer
+    /// (#2019): sent only on this click. Python:
+    /// `O4_Qt_GUI._reload_scenery`.
+    func reloadScenery() {
+        libraryContext()?.client.reloadScenery()
+    }
+
     /// The follow line's Follow X-Plane / Stop Following.
     func toggleImageryFollow(start: Bool) {
         guard let context = libraryContext() else { return }

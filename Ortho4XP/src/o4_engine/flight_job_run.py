@@ -21,8 +21,9 @@ what it touches:
   (``flight_budget`` against ``storage_budget.status``), the corridor
   pre-fetch and the network (:func:`prefetch_tile`: elevation and map
   data of every corridor tile not on disk);
-* the reloads of rule S6 (a) and (b) (``flight_swap_reload.MergeReload``):
-  the staged tiles merged over the loaded ones (rule S5,
+* the reloads of rule S6 (a) and (b) (``flight_swap_reload.MergeReload``),
+  offered and sent only on the pilot's press (``flight_reload``; owner
+  2026-11-12T14:34Z): the staged tiles merged over the loaded ones (rule S5,
   ``O4_World_Pack.swap_in(merge=True)``), X-Plane reloads once, and the
   names the new tiles no longer use go once the witness shows the
   reload read them (lane F2);
@@ -232,14 +233,16 @@ class _Facts:
 
 
 def _reloader(scenery_dir: str, build_dir_of, port=None):
-    """Rules S6 (a), (b) with S5 (``flight_swap_reload.MergeReload``)."""
+    """Rules S6 (a), (b) with S5 (``flight_swap_reload.MergeReload``);
+    called only on the pilot's press (``flight_reload``); the reload goes
+    through ``reload_offer.send``, the one sender."""
     import O4_XPlane_WebAPI as WEBAPI
 
+    from . import reload_offer as RELOAD
     from .flight_swap_reload import MergeReload
 
     def send() -> bool:
-        base = WEBAPI.base_url(int(port)) if port else None
-        return bool(WEBAPI.reload_scenery(base))
+        return RELOAD.send(WEBAPI.base_url(int(port)) if port else None)
 
     def witness() -> dict:
         if not WORLD._xplane_running():

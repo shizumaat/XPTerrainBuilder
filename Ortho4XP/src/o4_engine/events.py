@@ -235,6 +235,7 @@ CAPABILITIES: tuple = (
     "tile_package",                 # 2026-11-11, #2014 package_save/plan/install/merge (.xptb)
     "pack_packages",                # 2026-11-11, RULINGS 11m PackPackage + package_developer
     "world_rechoose",               # 2026-11-11, kept tiles made dynamic (+ WorldReady)
+    "scenery_reload_offer",         # 2026-11-12, #2019 reload on user click (scenery_reload)
 )
 
 
@@ -1073,8 +1074,11 @@ class ImageryFollowStatus(EngineEvent):
     queued).  ``sharp`` textures at full resolution of ``textures``;
     ``landed``, ``late``, ``failed``, ``bytes_landed`` this session;
     ``flight_loads`` Web API id resets (a flight load), ``jumps`` camera
-    jumps, ``reloads`` scenery reloads the job asked X-Plane for after a
-    spawn or jump whose imagery missed the flight-start window (#1992 P5).
+    jumps, ``reloads`` scenery reloads the job OFFERED the user after a
+    spawn or jump whose imagery missed the flight-start window (#1992 P5);
+    ``reload_offer`` the offer pending (``o4_engine.reload_offer.CODES``,
+    "" none): the apps show "Reload scenery", and X-Plane reloads only
+    when the user clicks it (owner 2026-11-12T14:34Z).
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).
@@ -1100,6 +1104,7 @@ class ImageryFollowStatus(EngineEvent):
     flight_loads: int = 0
     jumps: int = 0
     reloads: int = 0
+    reload_offer: str = ""
 
 
 @dataclass(frozen=True)

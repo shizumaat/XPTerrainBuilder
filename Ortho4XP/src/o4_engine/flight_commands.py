@@ -40,8 +40,9 @@ Lane F2 (capability ``flight_notices``):
   ``{ident, lat, lon}`` (the apps' airport search), ``[lat, lon]`` or an
   ident (the engine's airport index); the destination is replaced and
   its tile built ``full`` first (spec §8.6).  ``{"flight", "diverted_to"}``.
-* ``flight_reload {flight, not_now?}`` -- the reload in the air (rule
-  S6 (b)): the pilot's "Reload now", or "Not now" for the announced one.
+* ``flight_reload {flight}`` -- the pilot's "Reload scenery now" for the
+  offered reload (rule S6 (a) on the ground, (b) in the air): the only
+  way a flight's reload is sent (owner 2026-11-12T14:34Z).
 * ``FlightNotice`` events: one per notice (``flight_notices``).
 """
 
@@ -318,18 +319,18 @@ def flight_divert(flight: str = "", to: Any = "alternate", **_ignored
     return {"flight": record.id, "diverted_to": name}
 
 
-def flight_reload(flight: str = "", not_now: bool = False, **_ignored
-                  ) -> Dict[str, Any]:
-    """ENGINE COMMAND ``flight_reload`` (see the module): ``{"flight",
-    "reload"}`` -- the reload state after the pilot's choice."""
+def flight_reload(flight: str = "", **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_reload`` (see the module): the pilot's
+    "Reload scenery now", the only way a flight's reload is sent.
+    ``{"flight", "reload"}``."""
     runner = _runner_for(flight)
     if runner is None:
         raise ValueError("That flight is not active.")
     with runner.lock:
         manager = runner.manager
-        done = (manager.not_now() if not_now
-                else manager.reload_now(runner.now()))
-        state = manager.air.state
+        done = manager.reload_now(runner.now())
+        state = (manager.reload if manager.takeoff_at is None
+                 else manager.air.state)
     if not done:
         raise ValueError("No scenery reload is waiting.")
     return {"flight": manager.record.id, "reload": state}

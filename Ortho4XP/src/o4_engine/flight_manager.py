@@ -22,15 +22,19 @@ tiles made ready by their deadlines, its readiness rows and countdown.
   budget, network, pre-fetch, X-Plane, the witness's loads),
   ``ground_reload(tiles)`` (rule S6 (a): merge the staged departure and
   first-window tiles over the loaded ones and reload once, on the
-  ground), ``others_running()`` (track mode's builds around the
-  aircraft, which run beside the flight on one slot budget, #2019).
+  ground -- only when the pilot presses "Reload scenery now",
+  :meth:`FlightManager.reload_now`; owner 2026-11-12T14:34Z: "Never ask
+  x-plane to reload unless the user requests it."), ``others_running()``
+  (track mode's builds around the aircraft, which run beside the flight
+  on one slot budget, #2019).
 
 Lane F2 adds the diversion (:meth:`FlightManager.divert`, spec §8.6,
 ``flight_divert``), the one reload in the air (rule S6 (b),
-``flight_air_reload``), the flight's notices (``flight_notices``) and the
-offline waiver (§11, RULINGS 2026-11-10k Q3: en-route tiles that cannot
-be built without the internet may be left to X-Plane's own scenery;
-never the departure or the destination).
+``flight_air_reload``; offered, sent only on the pilot's press), the
+flight's notices (``flight_notices``) and the offline waiver (§11,
+RULINGS 2026-11-10k Q3: en-route tiles that cannot be built without
+the internet may be left to X-Plane's own scenery; never the departure
+or the destination).
 
 The flight always waits for readiness (10g): ``ready`` is every row of
 §6.2 ``done``; the countdown is the schedule's (``O4_Flight_Schedule``)
@@ -78,6 +82,9 @@ AIRBORNE_HOLD_S = 10.0
 APPROACH_KM = 40.0
 ARRIVED_KM = 10.0
 ARRIVED_PARKED_S = 600.0
+#: The ``loaded`` row's detail while the ground reload waits for the
+#: pilot (S6 (a): offered, never sent on its own).
+RELOAD_OFFERED = "Reload offered: X-Plane shows the new tiles after it"
 #: Swaps are spaced this far apart (§10 Landings).
 SWAP_SPACING_S = SCHEDULE.SWAP_S
 
@@ -210,6 +217,7 @@ class FlightManager:
         self.gs_ms = 0.0
         self.takeoff_at: Optional[float] = None     # manager clock seconds
         self.reload = ""
+        self._ground_tiles: List[Tile] = []
         self.countdown_s: Optional[float] = None
         self.items: List["SCHEDULE.Item"] = []
         self.reason = ""
@@ -526,8 +534,11 @@ class FlightManager:
 
     def _maybe_reload(self, now: float) -> None:
         """Rule S6 (a): ``loaded`` is the last row; with every other row
-        done and the aircraft on the ground, the staged departure and
-        first-window tiles go in (merged, S5) and X-Plane reloads once."""
+        done and the aircraft on the ground, the reload that merges the
+        staged departure and first-window tiles in (S5) is OFFERED
+        (``reload`` "offered", a notice); it goes only when the pilot
+        presses it (:meth:`reload_now`).  The offer does not hold the
+        flight back: ``loaded`` reads done, "reload offered"."""
         loaded = next((i for i in self.items if i.key == "loaded"), None)
         if self.takeoff_at is not None:        # S6 (a) is on the ground only
             self.reload = ""
@@ -541,17 +552,24 @@ class FlightManager:
                      if i.key != "loaded")
         if not others or self.record.phase not in ("parked", ""):
             return
-        tiles = [j.tile for j in self.jobs if j.klass == SCHEDULE.P0
-                 and j.state == "staged" and j.role in ("departure", "enroute")]
-        if not self.ground_reload(tiles):
-            return
+        self._ground_tiles = [
+            j.tile for j in self.jobs if j.klass == SCHEDULE.P0
+            and j.state == "staged" and j.role in ("departure", "enroute")]
+        self.reload = "offered"
+        self.board.post("reload_offered_ground")
+        self.items = [i._replace(state="done", eta_s=0.0,
+                                 detail=RELOAD_OFFERED)
+                      if i.key == "loaded" else i for i in self.items]
+
+    def _send_ground_reload(self, now: float) -> bool:
+        tiles = list(self._ground_tiles)
+        if not tiles or not self.ground_reload(tiles):
+            return False
         self.reload = "sent"
-        self.board.post("reloading_on_ground")
         for tile in tiles:
             self._runs.setdefault(tile, {})["swapped_at"] = now
             self._set(tile, state="swapped")
-        self.items = [i._replace(state="done", eta_s=0.0, detail="")
-                      if i.key == "loaded" else i for i in self.items]
+        return True
 
     # ------------------------------------------- S6 (b), offline, notices
 
@@ -564,7 +582,7 @@ class FlightManager:
     def _air_reload(self, now: float) -> None:
         """Rule S6 (b) (``flight_air_reload``): the destination waits
         staged because X-Plane loaded its area; near the ground, the one
-        reload of the flight is announced, then sent unless "Not now"."""
+        reload of the flight is offered (sent on the pilot's press)."""
         if self.takeoff_at is None:
             return
         last, job = self._destination()
@@ -576,12 +594,9 @@ class FlightManager:
                 and self.agl_m < LOW_AGL_M
                 and FP.route_length_km([self.position, (last.lat, last.lon)])
                 <= NEAR_KM)
-        action = self.air.step(now, needed, near)
-        if action == "announce":
-            self.board.post("reload_announced", key=self.diversions,
+        if self.air.step(now, needed, near) == "offer":
+            self.board.post("reload_offered", key=self.diversions,
                             destination=last.ident)
-        elif action == "send":
-            self._send_air_reload(now, job.tile)
 
     def _send_air_reload(self, now: float, tile: Tile) -> bool:
         if not self.ground_reload([tile]):
@@ -592,18 +607,15 @@ class FlightManager:
         return True
 
     def reload_now(self, now: float) -> bool:
-        """``flight_reload``: the pilot asks for the offered reload (in
-        the air, rule S6 (b)); False when none is offered."""
+        """``flight_reload``: the pilot asks for the offered reload (on
+        the ground, rule S6 (a); in the air, S6 (b)); False when none is
+        offered.  The only way a flight's reload is sent."""
+        if self.takeoff_at is None:
+            return self.reload == "offered" and self._send_ground_reload(now)
         _last, job = self._destination()
-        if (self.takeoff_at is None or job is None or job.state != "staged"
-                or not self.air.press()):
+        if job is None or job.state != "staged" or not self.air.press():
             return False
         return self._send_air_reload(now, job.tile)
-
-    def not_now(self) -> bool:
-        """``flight_reload {not_now: true}``: the announced reload waits
-        until the pilot asks for it."""
-        return self.air.not_now()
 
     def _offline(self, facts: dict) -> None:
         """§11 / RULINGS 2026-11-10k Q3: corridor tiles whose map data or

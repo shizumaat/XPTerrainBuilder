@@ -254,10 +254,11 @@ final class FlyModel: ObservableObject {
         command("flight_divert", ["flight": flight, "to": to]) { _ in }
     }
 
-    /// The reload in the air (S6 (b)): "Reload scenery now" / "Not now".
-    func reload(notNow: Bool) {
+    /// The offered reload (S6 (a), (b)): the pilot's "Reload scenery now",
+    /// the only way it is sent (owner 2026-11-12).
+    func reload() {
         guard let flight = status?.flight else { return }
-        command("flight_reload", ["flight": flight, "not_now": notNow]) { _ in }
+        command("flight_reload", ["flight": flight]) { _ in }
     }
 
     /// "Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3).

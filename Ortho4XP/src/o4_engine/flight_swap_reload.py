@@ -6,7 +6,8 @@ after X-Plane's log shows the reload read the new DSF.
 
 :class:`MergeReload` is the flight manager's ``ground_reload(tiles)``
 callable (both reloads: on the ground before departure, and the one in
-the air for the destination or a diversion airport):
+the air for the destination or a diversion airport), called only when the
+pilot presses "Reload scenery now" (owner 2026-11-12T14:34Z):
 
 * the call merges each staged tile in (``O4_World_Pack.swap_in(merge=
   True)``: file by file, every old name kept), registers it with the

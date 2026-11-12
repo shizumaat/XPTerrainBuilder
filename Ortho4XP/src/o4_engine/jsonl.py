@@ -178,6 +178,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from O4_Tile_Texture_Check import tile_texture_check
 
     from . import patch_commands, patch_drop, patch_insert
+    from . import reload_offer as RELOAD
     from . import world_commands as WORLD
     from . import world_job_run as WORLD_JOB
     from .aircraft_watch import aircraft_watch_handlers
@@ -390,6 +391,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "imagery_follow_start": lambda **kw: _start_follow_and_world(
             session, start_imagery_follow, WORLD_JOB.autostart, **kw),
         "imagery_follow_stop": stop_imagery_follow,
+        # The user's "Reload scenery" (#2019, owner 2026-11-12T14:34Z:
+        # X-Plane reloads only when the user asks): {"sent": bool}.
+        "scenery_reload": RELOAD.scenery_reload,
         # On-demand imagery (#1992 P2, capability imagery_ondemand): the
         # index scan, a tile's pin and "Make all low-res again"; pin and
         # downgrade are refused while a build runs.

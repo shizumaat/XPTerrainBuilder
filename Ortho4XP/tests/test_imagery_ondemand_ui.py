@@ -52,6 +52,9 @@ SWIFT_TO_PYTHON = {
     "followNoTiles": TEXT.FOLLOW_NO_TILES,
     "xplaneAnswering": TEXT.XPLANE_ANSWERING, "xplaneSilent": TEXT.XPLANE_SILENT,
     "bufferNone": TEXT.BUFFER_NONE, "bufferAhead": TEXT.BUFFER_AHEAD,
+    "reloadSceneryTitle": TEXT.RELOAD_SCENERY_TITLE,
+    "reloadOfferImagery": TEXT.RELOAD_OFFER_IMAGERY,
+    "reloadOfferTiles": TEXT.RELOAD_OFFER_TILES,
 }
 
 
@@ -91,14 +94,15 @@ def test_the_status_line_renders_every_field():
               "track_deg": 271.0, "queued": 31, "in_flight": 2, "slots": 3,
               "buffer_s": 47.0, "sharp": 14, "textures": 120, "landed": 9,
               "late": 4, "failed": 5, "bytes_landed": 34_500_000,
-              "flight_loads": 6, "jumps": 7, "reloads": 8}
+              "flight_loads": 6, "jumps": 7, "reloads": 8,
+              "reload_offer": "imagery"}   # its own row (#2019), not the line
     assert set(status) == set(_event_fields()), "a field has no test value"
     headline, detail = TEXT.follow_lines(status)
     line = headline + " " + detail
     for shown in ("14 of 120 sharp", "2 downloading", "4 late", "31 queued",
                   "3 at a time", "47 s ahead", "9 landed (34.5 MB)",
                   "5 failed", "X-Plane answering", "60.123, -136.456",
-                  "194 kt", "track 271°", "6 flight loads", "7 jumps", "8 reloads"):
+                  "194 kt", "track 271°", "6 flight loads", "7 jumps", "8 reload offers"):
         assert shown in line, shown
     # reason and state: each state has its sentence, the reason verbatim.
     for state, template in TEXT.FOLLOW_TEMPLATES.items():
@@ -122,8 +126,8 @@ def test_swift_reads_every_status_property():
     text = SWIFT_TEXT.read_text(encoding="utf-8")
     body = text[text.index("func followValues"):text.index("func followLines")]
     for name in properties:
-        if name == "state":
-            continue                 # picks the template (followLines)
+        if name in ("state", "reloadOffer"):
+            continue                 # the template; the reload row (#2019)
         assert re.search(r"\$?s\.%s\b" % name, body), name
 
 
@@ -264,6 +268,35 @@ def test_the_follow_line_shows_every_field_and_toggles(qapp):
     assert toggles == [True, False]
     line.show_status({**status, "state": "stopped"})
     assert line.toggle_btn.text() == TEXT.FOLLOW_START_TITLE
+
+
+def test_the_reload_offer_shows_a_button_and_reloads_only_on_its_click(qapp):
+    """#2019 (owner 2026-11-12T14:34Z: "Never ask x-plane to reload
+    unless the user requests it."): a pending offer shows its line and
+    "Reload scenery"; only the click asks for the reload."""
+    import O4_Qt_Imagery_OnDemand as QTONDEMAND
+
+    line = QTONDEMAND.FollowStatusLine()
+    asked = []
+    line.reload_requested.connect(lambda: asked.append(1))
+    status = {"state": "following", "sharp": 1, "textures": 2}
+    line.show_status(status)
+    assert line.reload_row.isHidden() and not asked
+    for code in ("imagery", "tiles"):
+        line.show_status({**status, "reload_offer": code})
+        assert not line.reload_row.isHidden() and not asked
+        assert line.reload_label.text() == TEXT.reload_offer_line(code)
+    assert line.reload_btn.text() == TEXT.RELOAD_SCENERY_TITLE
+    line.reload_btn.click()
+    assert asked == [1]
+    line.show_status(status)
+    assert line.reload_row.isHidden()
+    assert TEXT.reload_offer_line("") == ""
+    swift = SWIFT_TEXT.read_text(encoding="utf-8")
+    assert "func reloadOfferLine" in swift
+    mac = (REPO / "Sources" / "XPTerrainBuilder" / "ImageryFollowLine.swift"
+           ).read_text(encoding="utf-8")
+    assert "reloadSceneryTitle" in mac and "reloadScenery()" in mac
 
 
 def test_storage_makes_all_low_res_after_naming_the_space(qapp, monkeypatch):

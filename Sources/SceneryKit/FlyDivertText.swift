@@ -12,7 +12,6 @@ public enum FlyDivertText {
     public static let divertAlternate = "The plan's alternate"
     public static let divertButton = "Divert"
     public static let reloadNow = "Reload scenery now"
-    public static let notNow = "Not now"
     public static let waiveOffline = "Fly with X-Plane's own scenery there"
     /// Rows the airport search shows at most.
     public static let searchLimit = 12
@@ -67,13 +66,12 @@ public enum FlyDivertText {
 
     /// The reload in the air (S6 (b)), one line; empty when none waits.
     public static func reloadLine(_ status: O4FlightStatus?) -> String {
-        guard let status else { return "" }
-        let place = status.divertedTo.isEmpty ? "the destination" : status.divertedTo
-        switch status.reload {
-        case "scheduled": return "Scenery for \(place) reloads in 30 s."
-        case "offered": return "Scenery for \(place) is ready: reload when you choose."
-        default: return ""
+        guard let status, status.reload == "offered" else { return "" }
+        if ["preparing", "ready"].contains(status.state) {
+            return "Scenery near the departure is ready: reload when you choose."
         }
+        let place = status.divertedTo.isEmpty ? "the destination" : status.divertedTo
+        return "Scenery for \(place) is ready: reload when you choose."
     }
 
     /// The offline waiver's line (Q3); empty when nothing can be waived.

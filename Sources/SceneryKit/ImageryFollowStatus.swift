@@ -11,9 +11,11 @@ import Foundation
 /// `slots` is how many textures are fetched at once (1 unless the
 /// buffer ahead of the aircraft is depleting); `bufferSeconds` is that
 /// buffer, nil when nothing is queued. `reloads` counts the scenery
-/// reloads the engine asked X-Plane for after a spawn or jump whose
-/// imagery missed the flight-start window (#1992 P5, capability
-/// `imagery_spawn_reload`). The field names are the JSON keys
+/// reloads the engine OFFERED after a spawn or jump whose imagery missed
+/// the flight-start window (#1992 P5, capability `imagery_spawn_reload`);
+/// `reloadOffer` is the offer pending (`imagery`, `tiles`, empty: none):
+/// the app shows "Reload scenery" and X-Plane reloads only when the user
+/// clicks it (owner 2026-11-12T14:34Z, `scenery_reload`). The field names are the JSON keys
 /// of `class ImageryFollowStatus` in `Ortho4XP/src/o4_engine/events.py`.
 public struct O4ImageryFollowStatus: Sendable, Equatable {
     public let state: String
@@ -36,6 +38,7 @@ public struct O4ImageryFollowStatus: Sendable, Equatable {
     public let flightLoads: Int
     public let jumps: Int
     public let reloads: Int
+    public let reloadOffer: String
 
     /// Is the job running (not stopped and not failed)?
     public var running: Bool { state != "stopped" && state != "error" }
@@ -58,6 +61,7 @@ public struct O4ImageryFollowStatus: Sendable, Equatable {
             landed: int("landed"), late: int("late"), failed: int("failed"),
             bytesLanded: (object["bytes_landed"] as? NSNumber)?.int64Value ?? 0,
             flightLoads: int("flight_loads"), jumps: int("jumps"),
-            reloads: int("reloads"))
+            reloads: int("reloads"),
+            reloadOffer: object["reload_offer"] as? String ?? "")
     }
 }

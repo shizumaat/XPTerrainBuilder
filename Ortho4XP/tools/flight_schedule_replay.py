@@ -21,7 +21,9 @@ F1b, ``o4_engine.flight_manager.FlightManager``): a flight from the
 recording's first position to that destination is created (corridor
 ``--corridor-km``, cruise ``--cruise-kt``), the pilot waits on the ground
 until it is ready (10g: the readiness rows and the countdown, the staged
-first-window tiles merged in with ONE ground reload, S6 (a)), then the
+first-window tiles merged in with ONE ground reload, S6 (a), which the
+replayed pilot presses when it is offered: the engine never reloads on
+its own, owner 2026-11-12T14:34Z), then the
 recording is flown from that moment.  A fake builder takes ``--build-s``
 per intermediate tile and ``--full-s`` per ``full`` build (departure,
 destination).  Pass: the countdown at creation covers the wait, it never
@@ -209,16 +211,27 @@ def approach_positions(last: list, airport: tuple, ground: float,
     return rows
 
 
+def _pilot_presses(manager, now: float) -> None:
+    """The replayed pilot presses "Reload scenery now" as soon as a reload
+    is offered: the engine never sends one on its own (owner
+    2026-11-12T14:34Z), so the replay is the pilot's click."""
+    offered = (manager.reload if manager.takeoff_at is None
+               else manager.air.state)
+    if offered == "offered":
+        manager.reload_now(now)
+
+
 def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "drape",
                   build_s: float | None = None, full_s: float = 900.0,
                   cruise_kt: float = 290.0, corridor_km: float = 20.0,
                   capacity: int = 16, cores: int = 18,
                   speed: float = 1.0, divert: dict | None = None,
-                  approach: bool = False) -> dict:
+                  approach: bool = False, pilot_reloads: bool = True) -> dict:
     """The flight manager over the recording (see the module): the wait,
     the countdown, the ground reload, then the flight's swaps against
     X-Plane's opens.  ``speed`` flies the recording that many times faster
-    (the plan's cruise with it)."""
+    (the plan's cruise with it).  ``pilot_reloads`` False: the pilot never
+    presses "Reload scenery now" (then nothing reloads, #2019)."""
     from datetime import datetime, timezone
 
     import O4_Flight_Plan as FP
@@ -278,6 +291,8 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "drape",
     while record.state == "preparing" and clock.now < 6 * 3600:
         builder.now = clock.now
         manager.tick(clock.now, parked)
+        if pilot_reloads:
+            _pilot_presses(manager, clock.now)
         countdowns.append((clock.now, manager.countdown_s))
         clock.now += 1.0
     wait = clock.now
@@ -308,6 +323,8 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "drape",
         before = {j.tile: j.state for j in manager.jobs}
         manager.tick(clock.now, {"lat": lat, "lon": lon,
                                  "agl_m": max(0.0, alt - ground), "gs_ms": gs})
+        if pilot_reloads:
+            _pilot_presses(manager, clock.now)
         notices += [(round(clock.now, 1), n["code"]) for n in manager.notices()]
         reloaded = {n for _at, names in reloads_air for n in names}
         for job in manager.jobs:

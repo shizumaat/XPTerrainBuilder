@@ -45,7 +45,7 @@ from typing import Any, Callable, Optional
 import O4_World_Pack as WP
 
 from . import world_commands as WORLD
-from .build_share import SHARE
+from .build_share import SHARE, BuildShare
 from .world_job import WorldJob, drape_estimate
 
 __all__ = ["STATUS_EVERY_S", "world_job_start", "world_job_stop", "autostart"]
@@ -99,7 +99,7 @@ class _SessionBuilder:
 
     def __init__(self, session: Any, provider: str, zoomlevel: int,
                  drape: "Optional[Callable[[tuple], bool]]" = None,
-                 share=None, owner: str = "") -> None:
+                 share: Optional[BuildShare] = None, owner: str = "") -> None:
         self.session = session
         self.provider, self.zoomlevel = provider, int(zoomlevel)
         self.drape = drape

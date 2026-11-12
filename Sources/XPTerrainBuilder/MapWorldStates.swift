@@ -5,13 +5,13 @@ import SceneryKit
 /// colours): what the World pack draws on each tile. Borders only, never
 /// a fill (#1256: a tint colours the imagery being judged) — each the
 /// shared fading band inside the tile's edge (`TileBand`). A full tile is
-/// the built-tile green, a mesh whose imagery streams is teal with its
+/// green (not the built-tile blue, #2027), a mesh whose imagery streams is teal with its
 /// sharp fraction as a bar along its bottom edge, a drape is pink, and a
 /// placeholder a faint thin gray outline; a tile with nothing is left
 /// unmarked. Another tool's mesh is dotted. Drawn under the built-tile
 /// borders.
 enum MapWorldStates {
-    static let full = MapCanvasView.builtTile                          // #4CAF6E
+    static let full = Color(red: 0.30, green: 0.69, blue: 0.43)        // #4CAF6E
     static let mesh = Color(red: 0.19, green: 0.69, blue: 0.78)        // #30B0C7
     static let drape = Color(red: 1.0, green: 0.39, blue: 0.51)        // #FF6482
     static let placeholder = Color(white: 0.85)

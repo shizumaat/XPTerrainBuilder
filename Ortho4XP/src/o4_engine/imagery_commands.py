@@ -208,9 +208,10 @@ def freshness_for_info(info, force: bool = False, **options) -> Dict[str, Any]:
 
 def _imagery_freshness(lat: int, lon: int, working_dir: str,
                       force: bool = False, **options) -> Dict[str, Any]:
-    """The tile's imagery check, the tile found under ``working_dir``."""
-    import O4_Tile_Info as TINFO
-    return freshness_for_info(TINFO.tile_info(int(lat), int(lon), working_dir),
+    """The tile's imagery check, the tile found under ``working_dir`` (or
+    the World pack's records folder, ``world_built.tile_info``)."""
+    from .world_built import tile_info
+    return freshness_for_info(tile_info(int(lat), int(lon), working_dir),
                               force=force, **options)
 
 

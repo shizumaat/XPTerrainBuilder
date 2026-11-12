@@ -26,7 +26,10 @@ journal knows a :class:`WorldTile`:
   work folder's ``originals/``), :data:`SOURCE_LEAN` (an on-demand copy
   in ``lean/``; ``volume`` names the drive its full imagery is on, if
   any), :data:`SOURCE_DRIVE` (only on another drive, ``volume``), or
-  ``""``.
+  ``""``;
+* ``dsf`` -- the tile's DSF in the World pack (``""`` for a journal
+  record with none): what "Show in Finder" reveals for a tile the pack
+  holds (#2027).
 
 Cost (owner's World pack, 18,259 DSFs, 2026-11-12): two directory levels
 listed, the head of each small file read (placeholders), one property
@@ -79,18 +82,20 @@ class WorldTile:
     sharp: float = 0.0
     source: str = ""
     volume: str = ""
+    dsf: str = ""
 
     def wire(self, key: Tuple[int, int]) -> list:
-        """``[lat, lon, state, origin, sharp, source, volume]``: one
-        ``ScanBatch.world`` row (positional, like ``installed``)."""
+        """``[lat, lon, state, origin, sharp, source, volume, dsf]``: one
+        ``ScanBatch.world`` row (positional, like ``installed``; a reader
+        of the first seven is unchanged)."""
         return [key[0], key[1], self.state, self.origin,
-                round(self.sharp, 3), self.source, self.volume]
+                round(self.sharp, 3), self.source, self.volume, self.dsf]
 
     def fields(self) -> dict:
         """The Library row's ``world`` dict."""
         return {"state": self.state, "origin": self.origin,
                 "sharp": round(self.sharp, 3), "source": self.source,
-                "volume": self.volume}
+                "volume": self.volume, "dsf": self.dsf}
 
 
 def _journal(scenery_dir: str) -> dict:
@@ -158,12 +163,12 @@ def _tile(pack: str, key, path: str, size: int, record: Optional[dict],
           sharpness: dict, home_volume: str) -> WorldTile:
     source, volume = _source(record, home_volume)
     if WP.is_placeholder(path, size):
-        return WorldTile(PLACEHOLDER, "", 0.0, source, volume)
+        return WorldTile(PLACEHOLDER, "", 0.0, source, volume, path)
     agent = (DSFH.dsf_properties(path) or {}).get("sim/creation_agent", "")
     if WP.kind_of_agent(agent) == DRAPE:
-        return WorldTile(DRAPE, TINFO.ORIGIN_HERE, 0.0, source, volume)
+        return WorldTile(DRAPE, TINFO.ORIGIN_HERE, 0.0, source, volume, path)
     state, sharp = _mesh_state(pack, key, sharpness)
-    return WorldTile(state, _origin(record, agent), sharp, source, volume)
+    return WorldTile(state, _origin(record, agent), sharp, source, volume, path)
 
 
 def iter_world(scenery_dir: str, *, index_path: Optional[str] = None

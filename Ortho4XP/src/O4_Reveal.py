@@ -1,4 +1,5 @@
-"""Show a folder in the platform's file manager (#938).
+"""Show a folder (or a file: a World pack tile's DSF, #2027) in the
+platform's file manager (#938).
 
 Finder on macOS (the folder selected in its parent window), Explorer on
 Windows (likewise), and the default file manager elsewhere (the folder
@@ -39,8 +40,12 @@ def reveal_command(path: str, platform: str | None = None) -> list:
 
 def reveal(path: str, platform: str | None = None,
            launch=subprocess.Popen) -> None:
-    """Start the file manager on ``path`` without waiting for it.
-    Raises ``OSError`` when the folder is gone or the launcher is missing."""
-    if not os.path.isdir(path):
+    """Start the file manager on ``path`` (a folder, or a file selected in
+    its folder) without waiting for it.  Raises ``OSError`` when it is
+    gone or the launcher is missing."""
+    if not os.path.exists(path):
         raise FileNotFoundError(path)
+    platform = platform or sys.platform
+    if not os.path.isdir(path) and not platform.startswith(("darwin", "win")):
+        path = os.path.dirname(path)    # xdg-open would open the file itself
     launch(reveal_command(path, platform))

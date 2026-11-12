@@ -107,3 +107,45 @@ def test_a_swap_rescans_once():
             else:
                 got = watch.world_status(step["world"])
             assert got is step["rescan"], case["name"]
+
+
+def _records_only_tile(tiles: Path, scenery: str, lat: int, lon: int) -> Path:
+    """An adopted World tile (#2027): its mesh in the World pack, only its
+    imagery record in the data folder's Tiles/."""
+    folder = tiles / ("zOrtho4XP_" + WP.tile_name(lat, lon))
+    folder.mkdir(parents=True)
+    (folder / ("Ortho4XP_%s_imagery.json" % WP.tile_name(lat, lon))).write_text(
+        json.dumps({"on_demand": True, "pinned": False}), encoding="utf-8",
+        newline="\n")
+    path = Path(scenery) / WP.PACK_NAME / WP.dsf_relpath(lat, lon)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(DSFB.placeholder_bytes(lat, lon, AGENT))
+    return folder
+
+
+def test_one_built_answer_counts_a_world_tile_whose_records_are_in_tiles(layout):
+    """#2027: Favorite said "not built" -- ``imagery_pin`` read only the
+    working folder; ``tile_info`` is the scan's rule for one tile."""
+    scenery, tiles, custom = layout
+    folder = _records_only_tile(Path(tiles), scenery, 8, 39)
+    info = WB.tile_info(8, 39, custom, scenery_dir=scenery)
+    assert info is not None and not info.dsf_present
+    assert info.build_dir == str(folder)
+    assert WB.tile_info(9, 38, custom, scenery_dir=scenery) is None  # not in the pack
+    assert WB.tile_info(8, 39, custom, scenery_dir="") is None       # no World pack
+
+
+def test_a_world_tile_with_records_only_can_be_a_favorite(layout, monkeypatch, tmp_path):
+    import O4_DDS_Cache as DDSC
+    from o4_engine import imagery_ondemand as ONDEMAND
+    scenery, tiles, custom = layout
+    folder = _records_only_tile(Path(tiles), scenery, 8, 39)
+    from o4_engine import storage_redundant
+    monkeypatch.setattr(storage_redundant, "_custom_scenery_dir", lambda: scenery)
+    monkeypatch.setattr(DDSC, "key_users", lambda: {})
+    out = ONDEMAND.imagery_pin(8, 39, custom, pinned=True,
+                               index=str(tmp_path / "index.sqlite"))
+    assert out["pinned"] is True
+    record = json.loads((folder / "Ortho4XP_+08+039_imagery.json").read_text(
+        encoding="utf-8"))
+    assert record["pinned"] is True

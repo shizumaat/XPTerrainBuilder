@@ -3473,6 +3473,14 @@ class MainWindow(QMainWindow):
             return info.build_dir
         return FNAMES.build_dir(tile[0], tile[1], self.output_dir())
 
+    def _tile_reveal_path(self, tile):
+        """What the tile menu's "Show in Finder" reveals: the tile's DSF in
+        the World pack when its folder holds only records (#2027), else
+        :meth:`_tile_folder`."""
+        world = self.map.world().get(tuple(tile))
+        return (WORLD_TEXT.world_dsf(self._built.get(tuple(tile)), world)
+                or self._tile_folder(tile))
+
     def _tile_menu(self, lat, lon, global_pos):
         """Right-click on a tile (#938): its menu at the pointer, after
         the copy items (#1281, #1314) and "Insert shape" (#1314); in patch
@@ -3480,7 +3488,7 @@ class MainWindow(QMainWindow):
         pos = self.map.viewport().mapFromGlobal(global_pos)
         at = self.patch_editor.lat_lon_at(pos.x(), pos.y())
         menu = QTTILEMENU.tile_menu(
-            self, lat, lon, self._tile_folder((lat, lon)),
+            self, lat, lon, self._tile_reveal_path((lat, lon)),
             self.patch_editor.context_actions(at),
             export_package=lambda: self._export_package_at((lat, lon)))
         self.patch_editor.add_copy_actions(menu, pos.x(), pos.y())
@@ -3623,7 +3631,7 @@ class MainWindow(QMainWindow):
         self.info_imagery.setText(_fmt_date(info.imagery_date))
         self.info_built_by.setText(TINFO.with_built_by(info).built_by or "—")
         self._show_build_airports(info)
-        self.tile_path_row.show_info(info)
+        self.tile_path_row.show_info(info, world)
         self.tile_stale_row.show_verdict(tile, self.map.stale().get(tile))
         self._show_tile_pin(tile, info)
         if info.size_bytes is None:

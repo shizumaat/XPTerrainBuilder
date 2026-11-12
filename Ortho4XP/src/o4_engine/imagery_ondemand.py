@@ -224,8 +224,10 @@ def imagery_pin(lat: int, lon: int, working_dir: str = "",
     :returns: ``{"tile", "pinned", "served", "to_fetch", "rows",
         "pinned_bytes"}``
     """
-    import O4_Tile_Info as TINFO
-    info = TINFO.tile_info(int(lat), int(lon), working_dir or FNAMES.Tile_dir)
+    from .world_built import tile_info
+    # the one "is it built" answer: a World pack tile whose records are in
+    # the data folder's Tiles/ is built whatever the working folder (#2027)
+    info = tile_info(int(lat), int(lon), working_dir or FNAMES.Tile_dir)
     if info is None:
         raise ValueError("imagery_pin: this tile is not built.")
     _set_manifest_pin(info.build_dir, int(lat), int(lon), pinned)

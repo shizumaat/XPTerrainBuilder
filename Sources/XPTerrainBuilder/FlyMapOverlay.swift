@@ -20,10 +20,13 @@ struct FlyMapOverlay: View {
         self.preview = model.preview
     }
 
-    /// A build under way (dashed: a drape; solid: a mesh): a colour no
-    /// other key uses (orange is the custom-patch band, purple a changed
-    /// airport pack, teal a World mesh). Qt: `BUILDING_COLOR`.
+    /// A mesh being built: a colour no other key uses (orange is the
+    /// custom-patch band, purple a changed airport pack, teal a World
+    /// mesh). Qt: `BUILDING_COLOR`.
     static let building = Color(red: 0.37, green: 0.36, blue: 0.90)    // #5E5CE6
+    /// A drape being draped: lavender, dashed (#2027: every key item its
+    /// own colour). Qt: `DRAPING_COLOR`.
+    static let draping = Color(red: 0.67, green: 0.56, blue: 1.0)      // #AC8EFF
 
     /// The ONE Fly-view key's colours (`FlyText.legend`; Qt:
     /// `O4_Qt_Fly_Layer.LEGEND_COLORS`): the World pack's states in the
@@ -31,13 +34,16 @@ struct FlyMapOverlay: View {
     /// their own.
     static func color(_ key: String) -> Color {
         switch key {
-        case "draping", "meshing": return building
+        case "meshing": return building
+        case "draping": return draping
         case "draped": return MapWorldStates.drape
         case "built": return MapWorldStates.full
         case "mesh": return MapWorldStates.mesh
         case "placeholder": return MapWorldStates.placeholder.opacity(MapWorldStates.placeholderOpacity)
         case "custom": return MapCanvasView.customPatchBand
         case "sharp": return Color(red: 1.0, green: 0.84, blue: 0.04)      // #FFD60A
+        // on the route, not built: the route line's magenta (Qt: ROUTE_COLOR)
+        case "own": return MapCanvasView.magenta                       // #C74078
         default: return Color(white: 0.55)                              // #8C8C8C
         }
     }

@@ -2,8 +2,9 @@ import AppKit
 import SceneryKit
 
 /// The map's tile right-click menu (#938; Qt O4_Qt_Tile_Menu): Show in
-/// Finder, which reveals the tile's folder (greyed out while the tile has
-/// none yet), after the patch layer's copy items when there are any
+/// Finder, which reveals the tile's folder, or its DSF in the World pack
+/// when the folder holds only records (#2027, `tileRevealURL`); greyed
+/// out while the tile has none yet. It comes after the patch layer's copy items when there are any
 /// (#1281, `PatchCopy.swift`: "Copy coordinates" anywhere, #1314) and its
 /// actions (`extra`: "Set elevation…" on selected shapes, #1357; "Insert
 /// shape" and "Insert tunnel ramp" at the click, #1314 / #1745,
@@ -123,6 +124,17 @@ final class TileContextMenu: NSObject {
 }
 
 extension BuildModel {
+    /// What "Show in Finder" reveals (#2027): the tile's DSF in the World
+    /// pack when its build folder holds only records (an adopted or
+    /// converted tile; `O4WorldTile.revealDSF`), else `tileFolder`.
+    func tileRevealURL(_ coord: TileCoord) -> URL? {
+        if let dsf = worldTiles[coord]?.revealDSF(built[coord]),
+           FileManager.default.fileExists(atPath: dsf) {
+            return URL(fileURLWithPath: dsf, isDirectory: false)
+        }
+        return tileFolder(coord)
+    }
+
     /// The tile's build folder when it exists on disk.
     func tileFolder(_ coord: TileCoord) -> URL? {
         guard let info = built[coord], !info.buildDir.isEmpty else { return nil }

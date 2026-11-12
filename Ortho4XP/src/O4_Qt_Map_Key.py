@@ -21,6 +21,12 @@ MARGIN = 10
 _PAD, _SWATCH_W, _SWATCH_H, _GAP, _SPACING = 9, 12, 9, 4, 10
 #: A built tile on another drive (O4_Qt_Map.BUILT_EXTERNAL_COLOR).
 _EXTERNAL = "#A0703C"
+#: A tile this app built (O4_Qt_Map.BUILT_COLOR): blue, never the World
+#: pack's "Full" green (#2027: every item its own colour).
+_BUILT = "#0A84FF"
+#: Another tool's mesh: the swatch is white, its dots the item (the map
+#: draws such a tile in its state's colour, dotted).
+_OTHER_TOOL = "#FFFFFF"
 
 
 def _item_color(item: str) -> QColor | None:
@@ -29,9 +35,9 @@ def _item_color(item: str) -> QColor | None:
     color = {
         "full": QTWORLD.FULL_COLOR, "mesh": QTWORLD.MESH_COLOR,
         "drape": QTWORLD.DRAPE_COLOR, "placeholder": fly["placeholder"],
-        "other_tool": QTLEGEND.OTHER_ORTHO_COLOR, "meshing": fly["meshing"],
+        "other_tool": _OTHER_TOOL, "meshing": fly["meshing"],
         "draping": fly["draping"], "route": fly["own"],
-        "built": QTWORLD.FULL_COLOR, "other": QTLEGEND.OTHER_ORTHO_COLOR,
+        "built": _BUILT, "other": QTLEGEND.OTHER_ORTHO_COLOR,
         "stale": QTLEGEND.STALE_COLOR, "external": _EXTERNAL,
         "custom": QTLEGEND.CUSTOM_PATCH_COLOR, "sharp": fly["sharp"],
     }.get(item)

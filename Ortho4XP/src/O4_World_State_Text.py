@@ -20,7 +20,8 @@ __all__ = ["LEGEND_FULL", "LEGEND_MESH", "LEGEND_DRAPE", "LEGEND_PLACEHOLDER",
            "PANE_PLACEHOLDER", "TITLE_IN_WORLD", "REBUILD_BUTTON",
            "REMOVE_BUTTON", "REMOVE_TITLE", "REMOVE_MESSAGE",
            "REMOVE_CONFIRM", "REMOVED", "REMOVED_NO_PACKAGE",
-           "pane_status", "pane_detail", "built_in_world", "removed_note"]
+           "pane_status", "pane_detail", "built_in_world", "removed_note",
+           "world_dsf"]
 
 # --- The Build map's legend (one row per state on the map, then the
 # dotted border of another tool's mesh and the custom-patch band) ---
@@ -89,6 +90,19 @@ def built_in_world(world) -> bool:
     """Does the World pack hold a real tile (not a placeholder) here?
     ``world``: a ``WorldTile.fields()`` dict or ``None``."""
     return bool(world) and world.get("state") in _BUILT_STATES
+
+
+def world_dsf(info, world) -> str:
+    """What "Show in Finder" reveals in the World pack (#2027): the tile's
+    DSF there (``WorldTile.dsf``) when its build folder holds no DSF of
+    its own (an adopted or converted tile keeps only its records in
+    Tiles/), else ``""`` (the build folder).  ``info``: the scan's
+    ``TileInfo`` or ``None``; ``world``: a ``WorldTile`` or ``None``.
+    Mac: ``O4WorldTile.revealDSF``."""
+    dsf = getattr(world, "dsf", "") or ""
+    if not dsf or (info is not None and getattr(info, "dsf_present", False)):
+        return ""
+    return dsf
 
 
 def pane_status(world) -> str:

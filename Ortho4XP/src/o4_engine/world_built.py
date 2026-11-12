@@ -13,6 +13,9 @@ patch view or editor, nothing on the map after a flight built them.
 the World pack holds that the working folder did not list — the same
 :class:`O4_Tile_Info.TileInfo` the working-folder pass reads, through the
 same ``iter_scan_tiles``.  When the two folders are one, it reads nothing.
+:func:`tile_info` is the same rule for one tile: the ONE "is it built"
+answer the tile commands share (#2027: an adopted World tile's Favorite
+said "not built" because ``imagery_pin`` read only the working folder).
 No tile or airport is named here.
 """
 from __future__ import annotations
@@ -23,7 +26,7 @@ from typing import Collection, Iterator, Optional, Tuple
 import O4_File_Names as FNAMES
 import O4_Tile_Info as TINFO
 
-__all__ = ["iter_world_built"]
+__all__ = ["iter_world_built", "tile_info"]
 
 
 def _world_tiles_dir() -> str:
@@ -52,3 +55,25 @@ def iter_world_built(
         if key is not None and (key not in world or key in found):
             key = info = None
         yield done, total, key, info
+
+
+def tile_info(lat: int, lon: int, working_dir: str,
+              scenery_dir: Optional[str] = None,
+              tiles_dir: Optional[str] = None) -> Optional[TINFO.TileInfo]:
+    """The tile's :class:`O4_Tile_Info.TileInfo` in *working_dir*; else,
+    when the World pack in *scenery_dir* (default: the setting's) holds
+    the tile, its folder in the World jobs' *tiles_dir* -- the tile the
+    scan lists (:func:`iter_world_built`); None when neither has it."""
+    info = TINFO.tile_info(int(lat), int(lon), working_dir) if working_dir else None
+    if info is not None:
+        return info
+    tiles_dir = tiles_dir or _world_tiles_dir()
+    if not os.path.isdir(tiles_dir) or _same_folder(tiles_dir, working_dir or ""):
+        return None
+    from . import storage_redundant
+    from .world_state import read_tile
+    if scenery_dir is None:
+        scenery_dir = storage_redundant._custom_scenery_dir()
+    if read_tile(scenery_dir, (lat, lon)) is None:
+        return None
+    return TINFO.tile_info(int(lat), int(lon), tiles_dir)

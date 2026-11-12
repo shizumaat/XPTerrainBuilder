@@ -50,7 +50,9 @@ struct MapCanvasView: View {
     // green/red/orange; other installed ortho packages keep their gray
     // outline.
     static let buildSelection = Color(red: 1.0, green: 0.84, blue: 0.04) // #FFD60A
-    static let builtTile = Color(red: 0.30, green: 0.69, blue: 0.43)
+    /// A tile this app built: blue, never the World pack's "Full" green
+    /// (#2027: every key item its own colour; Qt: BUILT_COLOR).
+    static let builtTile = Color(red: 0.04, green: 0.52, blue: 1.0)    // #0A84FF
     /// A built tile whose folder lives on another drive (#1987): brown,
     /// with "Requires <drive>" top-right (Qt: BUILT_EXTERNAL_COLOR).
     static let builtExternalTile = Color(red: 0.63, green: 0.44, blue: 0.24) // #A0703C
@@ -92,7 +94,7 @@ struct MapCanvasView: View {
                     let point = camera.value.coordinate(of: location, in: proxy.size)
                     let coord = BuildModel.TileCoord(lat: Int(floor(point.lat)),
                                                      lon: Int(floor(point.lon)))
-                    return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord),
+                    return TileContextMenu(coord: coord, folder: buildModel.tileRevealURL(coord),
                                            copies: buildModel.patchEdit.copyItems(at: location, camera: camera.value,
                                                                                   size: proxy.size),
                                            patch: buildModel.patchEdit,
@@ -457,7 +459,7 @@ struct MapCanvasView: View {
         MapWorldStates.draw(in: context, world: buildModel.worldTiles, visible: visible,
                             rect: rect, skip: { buildActivity.isBuilding($0) })
 
-        // Built tiles: green border (no fill — it obscures the imagery
+        // Built tiles: blue border (no fill — it obscures the imagery
         // preview), brown on another drive; installed adds the double
         // (inset) border. The imagery
         // label is drawn with the tile labels (MapCanvasLabels, #817).
@@ -471,14 +473,19 @@ struct MapCanvasView: View {
             // Build History date filter dims built tiles outside its
             // period (#1226).
             let stale = !info.builtElsewhere && buildModel.staleTiles[coord] != nil
+            // A folder of records only whose tile the World pack holds
+            // draws its World state alone (#2027).
+            let inWorld = MapKey.drawnByWorld(info, buildModel.worldTiles[coord])
             let base = info.builtElsewhere ? Self.otherOrthoTile
                 : stale ? Self.staleTile
                 : info.volume == nil ? Self.builtTile : Self.builtExternalTile
             let dim = buildModel.builtInHistoryRange(coord) ? 1.0 : 0.3
             // The shared fading band inside the edge (TileBand).
-            TileBandDrawing.draw(in: context, rect: r, color: base, opacity: dim,
-                                 dash: stale ? Self.staleDash : [])
-            if buildModel.installed.contains(coord) {
+            if !inWorld {
+                TileBandDrawing.draw(in: context, rect: r, color: base, opacity: dim,
+                                     dash: stale ? Self.staleDash : [])
+            }
+            if buildModel.installed.contains(coord), !inWorld {
                 let d = TileBand.innerInset(px: r.width)
                 context.stroke(Path(r.insetBy(dx: d, dy: d)),
                                with: .color(base.opacity(0.9 * dim)), lineWidth: 1.5)

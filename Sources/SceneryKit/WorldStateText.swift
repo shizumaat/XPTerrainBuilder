@@ -122,7 +122,7 @@ public enum O4WorldStateText {
 /// `o4_engine.world_state.WorldTile`): its state, who made its mesh, how
 /// much of its imagery is sharp, and where its own files live. Arrives as
 /// `ScanBatch.world` rows `[lat, lon, state, origin, sharp, source,
-/// volume]` and as a Library row's `world` dict.
+/// volume, dsf]` and as a Library row's `world` dict.
 public struct O4WorldTile: Sendable, Equatable, Hashable, Decodable {
     public enum State: String, Sendable, CaseIterable, Decodable {
         case full
@@ -138,14 +138,17 @@ public struct O4WorldTile: Sendable, Equatable, Hashable, Decodable {
     /// "originals", "lean", "drive", or "".
     public let source: String
     public let volume: String
+    /// The tile's DSF in the World pack (#2027; nil from an older engine).
+    public let dsf: String?
 
     public init(state: State, origin: String = "", sharp: Double = 0,
-                source: String = "", volume: String = "") {
+                source: String = "", volume: String = "", dsf: String? = nil) {
         self.state = state
         self.origin = origin
         self.sharp = sharp
         self.source = source
         self.volume = volume
+        self.dsf = dsf
     }
 
     /// One `ScanBatch.world` row; nil for a malformed one.
@@ -157,7 +160,18 @@ public struct O4WorldTile: Sendable, Equatable, Hashable, Decodable {
         return (lat, lon, O4WorldTile(state: state, origin: entry[3] as? String ?? "",
                                       sharp: (entry[4] as? NSNumber)?.doubleValue ?? 0,
                                       source: entry[5] as? String ?? "",
-                                      volume: entry[6] as? String ?? ""))
+                                      volume: entry[6] as? String ?? "",
+                                      dsf: entry.count > 7 ? entry[7] as? String : nil))
+    }
+
+    /// What "Show in Finder" reveals in the World pack (#2027): this
+    /// tile's DSF there when the tile's build folder holds no DSF of its
+    /// own (an adopted or converted tile keeps only its records in
+    /// Tiles/), else nil (the build folder). Qt:
+    /// `O4_World_State_Text.world_dsf`.
+    public func revealDSF(_ info: O4TileInfo?) -> String? {
+        guard let dsf, !dsf.isEmpty, info?.dsfPresent != true else { return nil }
+        return dsf
     }
 
     /// Another tool made the mesh (drawn dotted).

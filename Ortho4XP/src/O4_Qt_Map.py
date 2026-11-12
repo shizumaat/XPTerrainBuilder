@@ -88,9 +88,10 @@ FETCH_DEBOUNCE_MS = 250  # settle time before network fetches start
 FETCH_WORKERS = 6      # concurrent tile downloads
 LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
 
-# Built tiles are plain green — the ZL stays readable in the center
-# label ("PROV 16*"); no per-ZL color coding, no legend.
-BUILT_COLOR = "#4CAF6E"
+# Built tiles are plain blue — the ZL stays readable in the center
+# label ("PROV 16*"); no per-ZL color coding. Not the World pack's
+# "Full" green: every key entry has its own colour (#2027).
+BUILT_COLOR = "#0A84FF"
 # A built tile whose folder lives on another drive (#1987): brown, with
 # "Requires <drive>" top-right (MapCanvasView.swift builtExternalTile).
 BUILT_EXTERNAL_COLOR = "#A0703C"
@@ -1401,10 +1402,12 @@ class MapView(QGraphicsView):
         # user is judging (#1256; MapCanvasView.swift draws the same).
         painter.setBrush(Qt.NoBrush)
         if built is not None:
-            # Built: a green border (brown on another drive, #1987; gray
+            # Built: a blue border (brown on another drive, #1987; gray
             # when another tool built it, purple and dashed when its
             # airport pack changed, #1958); installed adds the inset
-            # double border.
+            # double border. A folder of records only whose tile the
+            # World pack holds draws its World state alone (#2027).
+            in_world = QTLEGEND.drawn_by_world(built, self._world.get(tile))
             elsewhere = QTLEGEND.built_elsewhere(built)
             stale = not elsewhere and tile in self._stale
             if elsewhere:
@@ -1417,9 +1420,10 @@ class MapView(QGraphicsView):
                               if getattr(built, "volume", "") else BUILT_COLOR)
             # The shared fading band inside the edge (O4_Tile_Band).
             dim = 0.3 if tile in self._dimmed else 1.0
-            QTBAND.paint_band(painter, r, scale, base, dim,
-                              dash=STALE_DASH if stale else None)
-            if tile in self._installed:
+            if not in_world:
+                QTBAND.paint_band(painter, r, scale, base, dim,
+                                  dash=STALE_DASH if stale else None)
+            if tile in self._installed and not in_world:
                 inner = QColor(base)
                 inner.setAlphaF(0.9 * dim)
                 pen = QPen(inner)

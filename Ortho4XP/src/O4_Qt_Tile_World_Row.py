@@ -16,8 +16,7 @@ import threading
 
 import O4_World_State_Text as TEXT
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QPushButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
 __all__ = ["TileWorldRow", "EXPORT_BUTTON"]
 

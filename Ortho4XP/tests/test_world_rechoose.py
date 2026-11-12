@@ -19,8 +19,6 @@ from __future__ import annotations
 import os
 import shutil
 
-from test_world_migrate import _hashes, _rows, xp  # noqa: F401
-
 import O4_Scenery_Packs as SP
 import O4_Scenery_Packs_Tidy as TIDY
 import O4_World_Pack as WP
@@ -28,6 +26,7 @@ from o4_engine import world_commands as WORLD
 from o4_engine import world_migrate as MIGRATE
 from o4_engine import world_rechoose as RECHOOSE
 from o4_engine import world_retire as RETIRE
+from test_world_migrate import _hashes, _rows, xp  # noqa: F401
 
 LINK, LOCAL = "zOrtho4XP_+45+007", "zOrtho4XP_+46+008"
 

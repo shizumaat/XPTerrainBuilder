@@ -8,10 +8,10 @@ import os
 import posix
 import sqlite3
 
+import O4_File_Names as FNAMES
 import pytest
 from conftest import xplane_root
 
-import O4_File_Names as FNAMES
 from tests import real_roots_guard as GUARD
 
 

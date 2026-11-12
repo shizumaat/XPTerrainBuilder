@@ -26,6 +26,8 @@ follow job lands from them while they are mounted.
     # kept tiles made dynamic again (another tool's only; dry run first)
     venv/bin/python tools/ondemand_convert.py world-rechoose --only-not-ours --links-only
     venv/bin/python tools/ondemand_convert.py world-rechoose --only-not-ours --links-only --run
+    # the packages of kept tiles this app built, nothing moved
+    venv/bin/python tools/ondemand_convert.py world-rechoose --package-only --tiles ...
     # lean copies given the mask PNGs and colour field they may lack
     venv/bin/python tools/ondemand_convert.py world-backfill
 
@@ -92,7 +94,9 @@ def _world(args, scenery: str) -> dict:
     elif args.action == "world-rechoose":
         from o4_engine.world_rechoose import rechoose
         result = rechoose(scenery, args.tiles, only_not_ours=args.only_not_ours,
-                          links_only=args.links_only, dry_run=not args.run)
+                          links_only=args.links_only,
+                          dry_run=not (args.run or args.package_only),
+                          package_only=args.package_only)
         for row in result["failed"]:
             print(f"{row['name']}: failed  {row['problems']}")
         print(result["summary"])
@@ -174,6 +178,9 @@ def main(argv=None) -> int:
                      help="only the kept tiles that were links to another drive")
     wre.add_argument("--run", action="store_true",
                      help="do it (X-Plane must be closed)")
+    wre.add_argument("--package-only", action="store_true",
+                     help="only write the packages of the tiles this app "
+                          "built (moves nothing; X-Plane may run)")
     sub.add_parser("world-backfill",
                    help="lean copies given their mask PNGs and colour field")
     args = parser.parse_args(argv)

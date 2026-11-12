@@ -12,7 +12,8 @@ offline on ``test_world_migrate``'s synthetic X-Plane folder in
 * ``tidy_scenery_packs`` waits while a run changes the ini;
 * rechoose: kept tiles another tool built become dynamic (placeholder in
   the pack, link removed, journal ``rechosen``), ours stay kept and are
-  packaged first; the dry run counts only; Undo round-trips.
+  packaged first; the dry run counts only; Undo round-trips;
+  ``package_only`` packages ours and moves nothing.
 """
 from __future__ import annotations
 
@@ -167,6 +168,19 @@ def test_rechoose_makes_the_other_tools_kept_tiles_dynamic(xp, monkeypatch):  # 
     rows = _rows(scenery)
     assert rows[LINK] == rows[LOCAL] == "SCENERY_PACK"
     assert MIGRATE.Journal(xp["work"]).records == {}
+
+
+def test_package_only_writes_our_packages_and_moves_nothing(xp, monkeypatch):  # noqa: F811
+    """``package_only`` (owner 2026-11-12: kept tiles whose package was
+    refused before personal packages): ours packaged, nothing moved."""
+    scenery = xp["scenery"]
+    packaged = _ours_is_the_local_tile(monkeypatch)
+    MIGRATE.migrate(scenery, index=xp["index"])
+    out = RECHOOSE.rechoose(scenery, package_only=True, index=xp["index"])
+    assert packaged == [LOCAL] and out["rechosen"] == 0
+    assert "none was moved" in out["summary"]
+    assert WP.world_tiles(xp["pack"]) == {(45, 7): "full", (46, 8): "full"}
+    assert MIGRATE.Journal(xp["work"]).get(LINK)["state"] == "done"
 
 
 def test_links_only_leaves_the_local_kept_tiles(xp, monkeypatch):  # noqa: F811

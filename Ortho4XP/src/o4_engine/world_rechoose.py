@@ -30,7 +30,9 @@ tile of the selection this app DID build gets its package written
 (``o4_engine.package_first``, as ``world_retire._package_first`` does)
 and its lean copy the mask PNGs and colour field a provider landing
 needs (``O4_Imagery_OnDemand_Convert.backfill``) while its source is
-readable.  The dry run (``dry_run``) only counts.
+readable.  The dry run (``dry_run``) only counts; ``package_only``
+writes those packages and moves nothing (a tile a refused package left
+without one, e.g. before personal packages, owner 2026-11-12).
 Refused while X-Plane runs, and while the World pack is missing.
 
 No tile or airport is named here.
@@ -143,7 +145,8 @@ def _rechoose_one(name: str, record: dict, *, scenery_dir: str, pack: str,
 
 def rechoose(scenery_dir: str, names=None, *, only_not_ours: bool = False,
              links_only: bool = False,
-             dry_run: bool = False, work_dir: Optional[str] = None,
+             dry_run: bool = False, package_only: bool = False,
+             work_dir: Optional[str] = None,
              index: Optional[str] = None,
              progress: Optional[Callable[[int, int, str], None]] = None
              ) -> Dict[str, Any]:
@@ -155,7 +158,7 @@ def rechoose(scenery_dir: str, names=None, *, only_not_ours: bool = False,
     "pack_missing", "summary"}`` (``summary``: the sentence).  The engine
     command and ``tools/ondemand_convert.py world-rechoose`` call it."""
     from . import world_commands as WORLD
-    if MIGRATE._xplane_running():
+    if not package_only and MIGRATE._xplane_running():
         raise ValueError("Quit X-Plane first: tiles leave the World pack "
                          "only while it is closed.")
     WORLD.refuse_foreign(scenery_dir)
@@ -165,12 +168,15 @@ def rechoose(scenery_dir: str, names=None, *, only_not_ours: bool = False,
     work = work_dir or MIGRATE.work_dir_for(scenery_dir)
     journal = MIGRATE.Journal(work)
     sort = _sort(journal.records, names, only_not_ours, links_only)
-    out: Dict[str, Any] = {"dry_run": bool(dry_run), "ours": len(sort["ours"]),
+    out: Dict[str, Any] = {"dry_run": bool(dry_run),
+                           "package_only": bool(package_only),
+                           "ours": len(sort["ours"]),
                            "unknown": len(sort["unknown"]), "failed": []}
     with MIGRATE.active_run():
         out["packaged"] = _package_ours(sort["ours"], journal.records, dry_run)
-        if dry_run:
-            out.update(rechosen=len(sort["pick"]), pack_missing=0)
+        if dry_run or package_only:
+            out.update(rechosen=0 if package_only else len(sort["pick"]),
+                       pack_missing=0)
             return {**out, "summary": _summary(out)}
         pack = WORLD.pack_dir(scenery_dir)
         done = []
@@ -200,6 +206,9 @@ def _summary(result: Dict[str, Any]) -> str:
     verb = "Would make" if result.get("dry_run") else "Made"
     text = (f"{verb} {count:,} kept tiles dynamic; {result['ours']:,} of the "
             "kept tiles were built by XPTerrainBuilder")
+    if result.get("package_only"):
+        text = (f"{result['ours']:,} of the kept tiles were built by "
+                "XPTerrainBuilder; none was moved")
     packaged = result.get("packaged") or {}
     if packaged:
         text += " (packages: " + ", ".join(

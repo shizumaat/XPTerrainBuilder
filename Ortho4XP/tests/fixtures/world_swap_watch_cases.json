@@ -1,0 +1,24 @@
+{
+  "_doc": "O4_World_Swap_Watch.SwapWatch / WorldSwapWatch: each case is a sequence of statuses fed to one fresh watch; 'rescan' is what each step answers.",
+  "cases": [
+    {"name": "a departure swapped in rescans once",
+     "steps": [
+       {"flight": [[[8, 38], "departure", "full", "building"]], "rescan": false},
+       {"flight": [[[8, 38], "departure", "full", "swapped"]], "rescan": true},
+       {"flight": [[[8, 38], "departure", "full", "swapped"]], "rescan": false}
+     ]},
+    {"name": "a second tile swapping rescans again",
+     "steps": [
+       {"flight": [[[8, 38], "departure", "full", "swapped"], [[9, 38], "enroute", "drape", "queued"]], "rescan": true},
+       {"flight": [[[8, 38], "departure", "full", "swapped"], [[9, 38], "enroute", "drape", "swapped"]], "rescan": true},
+       {"flight": [], "rescan": false}
+     ]},
+    {"name": "a new last swap rescans; the same one does not",
+     "steps": [
+       {"world": [], "rescan": false},
+       {"world": ["+08+038", "full", "20261112T2209Z"], "rescan": true},
+       {"world": ["+08+038", "full", "20261112T2209Z"], "rescan": false},
+       {"world": ["+09+038", "drape", "20261112T2215Z"], "rescan": true}
+     ]}
+  ]
+}

@@ -93,7 +93,7 @@ def _hashes(folder: str) -> dict:
             if not os.path.isfile(path):        # a dangling link
                 continue
             with open(path, "rb") as handle:
-                out[os.path.relpath(path, folder)] = hashlib.sha256(
+                out[os.path.relpath(path, folder).replace(os.sep, "/")] = hashlib.sha256(
                     handle.read()).hexdigest()
     return out
 

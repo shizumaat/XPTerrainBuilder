@@ -80,6 +80,11 @@ SPREAD_KNOWN = (0.75, 1.5)
 SPREAD_UNKNOWN = (0.5, 2.5)
 #: Rescaling by measured / predicted is clamped to this range (§9).
 RESCALE_RANGE = (0.5, 2.5)
+#: The widest a job's planned ``[lo, hi]`` may be: the model's unknown
+#: spread times the measured-scale ceiling (2.5 / 0.5 x 2.5 = 12.5).  A
+#: wider range is no estimate (HAAB 2026-11-12T22:11Z: [530, 134406] s,
+#: a full build priced at one 512 px request's download rate).
+MAX_SPREAD = SPREAD_UNKNOWN[1] / SPREAD_UNKNOWN[0] * RESCALE_RANGE[1]
 
 #: Job states (§6.3) after which a job needs no slot.
 DONE_STATES = frozenset({"staged", "swapped", "external"})
@@ -230,6 +235,15 @@ def job_estimate(kind: str, recorded_s: Optional[float] = None,
     return (point * lo, point * hi)
 
 
+def sane_estimate(est) -> Tuple[float, float]:
+    """``est`` ``[lo, hi]`` with its high end held to :data:`MAX_SPREAD`
+    times its low end (and never below it)."""
+    lo, hi = float(est[0]), float(est[1])
+    if lo > 0 and math.isfinite(lo):
+        hi = min(hi, lo * MAX_SPREAD)
+    return (lo, max(hi, lo))
+
+
 def clamp_scale(factor: float) -> float:
     """A measured / predicted ratio clamped to :data:`RESCALE_RANGE`."""
     return min(max(factor, RESCALE_RANGE[0]), RESCALE_RANGE[1])
@@ -242,11 +256,12 @@ def rescale(jobs: Iterable[Job], kind: str = "", measured_s: float = 0.0,
     measured / predicted, clamped to :data:`RESCALE_RANGE`.  With
     ``scales`` ``{kind: factor}`` and ``base`` ``{tile: (lo, hi)}`` (the
     planned estimates): each queued job is its planned estimate times its
-    kind's factor -- set, never compounded."""
+    kind's factor -- set, never compounded, and so never above
+    ``RESCALE_RANGE[1]`` x the planned high."""
     jobs = list(jobs)
     if scales is not None:
-        return [replace(j, est_s=tuple(v * scales[j.kind] for v in
-                                       (base or {}).get(j.tile, j.est_s)))
+        return [replace(j, est_s=tuple(v * clamp_scale(scales[j.kind]) for v
+                                       in (base or {}).get(j.tile, j.est_s)))
                 if j.kind in scales and j.state == "queued" else j
                 for j in jobs]
     if predicted_s <= 0 or measured_s <= 0:

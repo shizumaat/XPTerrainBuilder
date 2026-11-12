@@ -231,7 +231,8 @@ def flight_jobs(plan: "FP.FlightPlan", *, corridor_km: float,
         jobs.append(SCHEDULE.Job(
             tile=tile, role=role, kind=kind, klass=klass,
             deadline_s=deadlines.get(tile, times[-1]),
-            est_s=(tuple(estimate(tile, kind, role)) if state == "queued"
+            est_s=(SCHEDULE.sane_estimate(estimate(tile, kind, role))
+                   if state == "queued"
                    else (0.0, 0.0)),
             state=state, off_route_km=FP.off_route_km(samples, tile)))
     return jobs, (samples, times)
@@ -291,6 +292,10 @@ class FlightManager:
         self._airborne_since: Optional[float] = None
         self._parked_since: Optional[float] = None
         self.replan()
+
+    def _bounded_estimate(self, tile, kind, role) -> Tuple[float, float]:
+        """The estimate the pilot is shown (:func:`SCHEDULE.sane_estimate`)."""
+        return SCHEDULE.sane_estimate(self.estimate(tile, kind, role))
 
     # ------------------------------------------------------------ plan
 
@@ -413,22 +418,30 @@ class FlightManager:
 
     # ------------------------------------------------------------ tick
 
-    def tick(self, now: float, rec: Optional[dict]) -> None:
+    def tick(self, now: float, rec: Optional[dict],
+             mark: Callable[[str], None] = lambda _name: None) -> None:
         """One cycle at manager-clock ``now`` (seconds) with the position
         record ``rec`` (``lat``, ``lon``, ``agl_m``, ``gs_ms``; ``None``:
-        X-Plane does not answer)."""
+        X-Plane does not answer).  ``mark(name)`` after each part (the
+        runner's ``flight_slow_tick`` breakdown)."""
         facts = dict(self.facts() or {})
         self._move(now, rec, facts)
+        mark("move")
         self._harvest(now)
+        mark("harvest")
         self._settle(now, facts)
+        mark("settle")
         self._air_reload(now)
+        mark("air_reload")
         if self.record.state in ("preparing", "ready", "flying"):
             self._mark_late(now)
             self._dispatch(now)
+        mark("dispatch")
         self._offline(facts)
         was = self.record.state
         self._readiness(now, facts)
         self._notices(was, now)
+        mark("readiness")
 
     def _move(self, now: float, rec: Optional[dict], facts: dict) -> None:
         for tile in set(facts.get("loads") or ()) - self._seen:
@@ -911,7 +924,7 @@ class FlightManager:
             "diverted_to": self.diverted_to,
             "waivable": tuple(WP.tile_name(*t) for t in self.waivable),
             "choices": self.endpoints.rows(self.jobs, self.plan,
-                                           self.estimate),
+                                           self._bounded_estimate),
         }
 
     def record_tiles(self) -> List[TileRow]:

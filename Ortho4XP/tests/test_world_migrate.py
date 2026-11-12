@@ -116,6 +116,8 @@ def xp(tmp_path, monkeypatch):
     +45+007; a data root and an index."""
     monkeypatch.setattr(FNAMES, "data_path",
                         lambda rel: str(tmp_path / "data" / rel))
+    # a kept tile's records land in the data root's Tiles (world_records)
+    monkeypatch.setattr(FNAMES, "Tile_dir", str(tmp_path / "data" / "Tiles"))
     monkeypatch.setattr(CORES, "airport_points", lambda lat, lon: [])
     for module in (ICONV, MIGRATE, WORLD):
         monkeypatch.setattr(module, "_xplane_running", lambda: False)

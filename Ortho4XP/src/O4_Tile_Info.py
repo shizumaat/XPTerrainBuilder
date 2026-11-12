@@ -84,6 +84,13 @@ class TileInfo:
     # from its imagery record (``O4_Tile_Utils.imagery_manifest_path``).
     on_demand: bool = False
     pinned: bool = False
+    # What the build stood its airports on (owner 2026-11-12T21:55Z:
+    # "the tile details like what imagery was used, detail, ground shaped
+    # dates etc."): the elevation each airport's inset came from, grouped
+    # ("HRDEM 1 m: CYBW, CYYC"), and the airports the newest build graded
+    # with their packs; "" when unknown.
+    airport_elevation: str = ""
+    airports: str = ""
 
 
 #: :attr:`TileInfo.origin` of a tile this app built, and of another's.
@@ -324,8 +331,10 @@ def _build_tile_info(
     """Assemble a :class:`TileInfo` for one build directory, or ``None``.
 
     A tile is reported when its ``.dsf`` exists (``dsf_present=True``) or,
-    failing that, when a tile config file exists (``dsf_present=False``).
-    When neither is present ``None`` is returned so the caller skips it.
+    failing that, when a tile config file or its imagery record exists
+    (``dsf_present=False``: a tile the World pack draws keeps only its
+    records here, ``o4_engine.world_records``).  When none is present
+    ``None`` is returned so the caller skips it.
     """
     dsf_path = os.path.join(
         build_dir, "Earth nav data", FNAMES.long_latlon(lat, lon) + ".dsf"
@@ -342,7 +351,8 @@ def _build_tile_info(
         None,
     )
 
-    if not dsf_present and cfg_path is None:
+    if (not dsf_present and cfg_path is None
+            and not os.path.isfile(imagery_record_path(build_dir, lat, lon))):
         return None
 
     provider, zl, has_zones, custom_dem, high_zl_airports, cover_zl = (
@@ -353,7 +363,15 @@ def _build_tile_info(
     last_build = TILELOG.last_build(build_dir, lat, lon)
 
     detected_provider, detected_zl = _detected_imagery(build_dir)
+    if not detected_provider:
+        detected_provider, detected_zl = _recorded_imagery(build_dir, lat, lon)
     resolved_dir, volume, mounted = TVOL.tile_volume(build_dir)
+    mesh_date = _mesh_date(build_dir, lat, lon)
+    imagery_date = _imagery_date(build_dir)
+    if mesh_date is None or imagery_date is None:
+        recorded = _recorded_dates(build_dir, lat, lon)
+        mesh_date = recorded[0] if mesh_date is None else mesh_date
+        imagery_date = recorded[1] if imagery_date is None else imagery_date
     return TileInfo(
         lat=lat,
         lon=lon,
@@ -368,8 +386,8 @@ def _build_tile_info(
         custom_dem=custom_dem,
         detected_provider=detected_provider,
         detected_zl=detected_zl,
-        mesh_date=_mesh_date(build_dir, lat, lon),
-        imagery_date=_imagery_date(build_dir),
+        mesh_date=mesh_date,
+        imagery_date=imagery_date,
         size_bytes=None,
         last_build=last_build,
         built_by=TILELOG.built_by_text(last_build),
@@ -377,6 +395,8 @@ def _build_tile_info(
         volume=volume,
         volume_mounted=mounted,
         origin=origin_of(build_dir, lat, lon, last_build),
+        airport_elevation=_airport_elevation_text(build_dir),
+        airports=_airports_text(last_build),
         **_on_demand_flags(build_dir, lat, lon),
     )
 
@@ -406,6 +426,78 @@ def _on_demand_flags(build_dir: str, lat: int, lon: int) -> dict:
     record = read_imagery_record(build_dir, lat, lon)
     return {"on_demand": bool(record.get("on_demand")),
             "pinned": bool(record.get("pinned"))}
+
+
+def _recorded_imagery(build_dir: str, lat: int, lon: int
+                      ) -> Tuple[str, Optional[int]]:
+    """``(provider, zl)`` the imagery record names, for a folder with no
+    textures to read them from (a tile the World pack draws); ``("",
+    None)`` when it names none."""
+    record = read_imagery_record(build_dir, lat, lon)
+    provider = record.get("provider")
+    zl = record.get("zoomlevel")
+    if not isinstance(provider, str) or not provider:
+        return "", None
+    return (_current_provider(provider),
+            zl if isinstance(zl, int) and not isinstance(zl, bool) else None)
+
+
+def _recorded_dates(build_dir: str, lat: int, lon: int
+                    ) -> Tuple[Optional[float], Optional[float]]:
+    """``(mesh date, imagery date)`` from the imagery record, for a folder
+    that keeps a tile's records without its mesh or textures (a tile the
+    World pack draws, ``o4_engine.world_records``): the mesh's date the
+    record names, and the record's own date."""
+    record = read_imagery_record(build_dir, lat, lon)
+    if not record:
+        return None, None
+    mesh = record.get("mesh")
+    mesh_date = (float(mesh[1]) if isinstance(mesh, list) and len(mesh) > 1
+                 and isinstance(mesh[1], (int, float)) else None)
+    try:
+        written = os.path.getmtime(imagery_record_path(build_dir, lat, lon))
+    except OSError:
+        written = None
+    return mesh_date, written
+
+
+def _resolution(metres) -> str:
+    if not isinstance(metres, (int, float)):
+        return ""
+    return "%g m" % (round(metres, 1) if metres < 10 else round(metres))
+
+
+def _airport_elevation_text(build_dir: str) -> str:
+    """The elevation the tile's airports were built on, grouped by source
+    (``O4_Unpatched_Airports.read_inset_sources``): ``"HRDEM 1 m: A, B;
+    COPERNICUSGLO30 30 m: C"`` -- ``""`` when the build recorded none."""
+    import types
+
+    import O4_Unpatched_Airports as UNPATCHED
+    groups: dict = {}
+    for row in UNPATCHED.read_inset_sources(
+            types.SimpleNamespace(build_dir=build_dir)):
+        if isinstance(row, dict) and row.get("icao"):
+            head = " ".join(part for part in (
+                str(row.get("provider") or "?"),
+                _resolution(row.get("resolution_m"))) if part)
+            groups.setdefault(head, []).append(str(row["icao"]))
+    return "; ".join("%s: %s" % (head, ", ".join(sorted(names)))
+                     for head, names in groups.items())
+
+
+def _airports_text(last_build: Optional[dict]) -> str:
+    """The airports the build graded, each with its custom pack:
+    ``"HEAZ, HECA (HECA Cairo pack)"``; ``""`` when the record has none."""
+    airports = (last_build or {}).get("airports")
+    if not isinstance(airports, dict):
+        return ""
+    words = []
+    for icao in sorted(airports):
+        fact = airports[icao] if isinstance(airports[icao], dict) else {}
+        pack = fact.get("pack") if fact.get("custom") else ""
+        words.append("%s (%s)" % (icao, pack) if pack else str(icao))
+    return ", ".join(words)
 
 
 def _offline_tile_info(

@@ -701,6 +701,12 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     /// to full resolution; nil from an engine that predates the fields.
     public let onDemand: Bool?
     public let pinned: Bool?
+    /// What the build stood its airports on ("HRDEM 1 m: CYBW, CYYC") and
+    /// the airports it graded with their packs (owner 2026-11-12T21:55Z,
+    /// `O4_Tile_Info._airport_elevation_text` / `_airports_text`); nil when
+    /// the tile's records name none, or from an older engine.
+    public let airportElevation: String?
+    public let airports: String?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -738,6 +744,8 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         origin = object["origin"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         onDemand = object["on_demand"]?.boolValue
         pinned = object["pinned"]?.boolValue
+        airportElevation = object["airport_elevation"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        airports = object["airports"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// Does the tile's pin apply (built on demand, or pinned)?

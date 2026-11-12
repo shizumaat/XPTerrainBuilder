@@ -452,6 +452,11 @@ struct MapCanvasView: View {
             tileRect(lat: coord.lat, lon: coord.lon, cam: cam, size: size)
         }
 
+        // What the World pack draws on each tile (#2024), under the
+        // built-tile borders; a tile being built shows its progress only.
+        MapWorldStates.draw(in: context, world: buildModel.worldTiles, visible: visible,
+                            rect: rect, skip: { buildActivity.isBuilding($0) })
+
         // Built tiles: green border (no fill — it obscures the imagery
         // preview), brown on another drive; installed adds the double
         // (inset) border. The imagery

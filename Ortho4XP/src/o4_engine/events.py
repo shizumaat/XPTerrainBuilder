@@ -236,6 +236,7 @@ CAPABILITIES: tuple = (
     "pack_packages",                # 2026-11-11, RULINGS 11m PackPackage + package_developer
     "world_rechoose",               # 2026-11-11, kept tiles made dynamic (+ WorldReady)
     "scenery_reload_offer",         # 2026-11-12, #2019 reload on user click (scenery_reload)
+    "scan_world",                   # 2026-11-12, #2024 ScanBatch.world + ScanDone.world_count
 )
 
 
@@ -290,10 +291,15 @@ class ScanBatch(EngineEvent):
     ``built``: {(lat, lon): TileInfo-shaped dict}; ``installed``: list of
     (lat, lon).  Keys are tuples in-process and become 2-item lists over
     JSON — consumers index positionally.
+    ``world`` (capability ``scan_world``, #2024): what the World pack draws on
+    each tile it knows, ``[lat, lon, state, origin, sharp, source,
+    volume]`` rows (``o4_engine.world_state.WorldTile.wire``); a tile in
+    no row has nothing.  An older front end ignores it.
     """
 
     built: dict = field(default_factory=dict)
     installed: tuple = ()
+    world: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -302,6 +308,7 @@ class ScanDone(EngineEvent):
 
     built_count: int = 0
     installed_count: int = 0
+    world_count: int = 0
 
 
 @dataclass(frozen=True)

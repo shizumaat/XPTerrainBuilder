@@ -760,8 +760,9 @@ class EngineSession:
         self._lock = threading.Lock()
         self._seq = 0
         self._scan_generation = 0
-        # (working_dir, generation, {key: TileInfo}) of the last completed
-        # scan: the Library reuses it (scanned_tiles, #2006).
+        # (working_dir, generation, {key: TileInfo}, {key: WorldTile}) of
+        # the last completed scan: the Library reuses it (scanned_tiles,
+        # #2006; scanned_world, #2024).
         self._scanned = None
         self._building = False
         # Build display state (moved from the Qt view): current step plus
@@ -905,9 +906,10 @@ class EngineSession:
     # Command: scan (streamed; moved from the Qt view 2026-07-15)
     # ------------------------------------------------------------------
     def scan(self, working_dir: str, custom_scenery_dir: Optional[str]):
-        """Scan built tiles + installed scenery, streaming ScanBatch /
-        ScanProgress at ~10 Hz.  A newer scan supersedes an in-flight one:
-        the superseded worker stops emitting (its generation is stale)."""
+        """Scan built tiles + installed scenery + the World pack's tiles
+        (``world_state``, #2024), streaming ScanBatch / ScanProgress at
+        ~10 Hz.  A newer scan supersedes an in-flight one: the superseded
+        worker stops emitting (its generation is stale)."""
         self._scan_generation += 1
         generation = self._scan_generation
 
@@ -919,22 +921,26 @@ class EngineSession:
             installed_total = 0
             pending_built = {}
             pending_installed = []
+            pending_world = []
             scanned = {}
+            world = {}
             last_flush = 0.0
 
             def live():
                 return generation == self._scan_generation
 
             def flush(phase, done, total, force=False):
-                nonlocal pending_built, pending_installed, last_flush
+                nonlocal pending_built, pending_installed, pending_world
+                nonlocal last_flush
                 now = time.monotonic()
                 if not force and now - last_flush < SCAN_FLUSH_SECONDS:
                     return
                 last_flush = now
-                if pending_built or pending_installed:
+                if pending_built or pending_installed or pending_world:
                     self._emit(ScanBatch(built=pending_built,
-                                         installed=tuple(pending_installed)))
-                    pending_built, pending_installed = {}, []
+                                         installed=tuple(pending_installed),
+                                         world=tuple(pending_world)))
+                    pending_built, pending_installed, pending_world = {}, [], []
                 self._emit(ScanProgress(phase=phase, done=done, total=total))
 
             try:
@@ -965,11 +971,26 @@ class EngineSession:
                         flush(phase, done, total)
             except Exception as exc:
                 print("Custom Scenery scan failed:", exc)
+            try:
+                if custom_scenery_dir:
+                    from . import world_state as WSTATE
+                    phase = "Reading the World pack…"
+                    flush(phase, 0, 0, force=True)
+                    for done, total, key, tile in WSTATE.iter_world(
+                            custom_scenery_dir):
+                        if not live():
+                            return
+                        world[key] = tile
+                        pending_world.append(tile.wire(key))
+                        flush(phase, done, total)
+            except Exception as exc:
+                print("World pack scan failed:", exc)
             if live():
-                self._scanned = (working_dir, generation, scanned)
+                self._scanned = (working_dir, generation, scanned, world)
                 flush("", 0, 0, force=True)
                 self._emit(ScanDone(built_count=built_total,
-                                    installed_count=installed_total))
+                                    installed_count=installed_total,
+                                    world_count=len(world)))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -984,6 +1005,16 @@ class EngineSession:
                 or last[1] != self._scan_generation):
             return None
         return last[2]
+
+    def scanned_world(self, working_dir: str):
+        """The World states (``{(lat, lon): world_state.WorldTile}``) of
+        the last completed :meth:`scan` of ``working_dir``, or None (the
+        rule of :meth:`scanned_tiles`): the Library's World column (#2024)."""
+        last = self._scanned
+        if (last is None or last[0] != working_dir
+                or last[1] != self._scan_generation):
+            return None
+        return last[3]
 
     # ------------------------------------------------------------------
     # Command: build (worker moved from the Qt view 2026-07-15)

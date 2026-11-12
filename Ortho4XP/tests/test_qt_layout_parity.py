@@ -786,7 +786,13 @@ def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
     import O4_Qt_Tile_Stale_Row as QTSTALEROW
 
     legend = (SWIFT / "MapTileLegend.swift").read_text(encoding="utf-8")
-    swift_labels = re.findall(r'case \.\w+: return "([^"]+)"', legend)
+    # #2024: the World rows' words come from the shared text table.
+    words = dict(re.findall(r'static let (\w+) = "([^"]*)"', (
+        SWIFT.parent / "SceneryKit" / "WorldStateText.swift").read_text(
+            encoding="utf-8")))
+    label_switch = legend[legend.index("var label: String"):legend.index("var color: Color")]
+    swift_labels = [literal or words[name] for literal, name in re.findall(
+        r'case \.\w+: return (?:"([^"]+)"|O4WorldStateText\.(\w+))', label_switch)]
     assert swift_labels == list(QTLEGEND.LEGEND_LABELS.values())
     wire = (SWIFT.parent / "SceneryKit" / "TileStalenessWire.swift").read_text(
         encoding="utf-8")

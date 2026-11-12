@@ -298,7 +298,7 @@ import Foundation
 
     @Test func protocolScanBatchParsing() throws {
         let batch = event(#"{"event":"ScanBatch","built":[[47,11,{"lat":47,"lon":11,"build_dir":"/t/zOrtho4XP_+47+011","dir_name":"zOrtho4XP_+47+011","dsf_present":true,"provider":"BI","zl":17,"has_zones":true,"custom_dem":"","mesh_date":1000.5,"imagery_date":null,"size_bytes":null}]],"installed":[[47,11],[48,11]],"seq":1,"ts":1.0}"#)
-        guard case .scanBatch(let built, let installed) = batch else {
+        guard case .scanBatch(let built, let installed, _) = batch else {
             Issue.record("not a ScanBatch")
             return
         }
@@ -311,6 +311,21 @@ import Foundation
         #expect(info?.dsfPresent == true)
         #expect(info?.meshDate == 1000.5)
         #expect(info?.imageryDate == nil)
+    }
+
+    @Test func protocolScanBatchWorldRows() throws {
+        // #2024: the World pack's states, one positional row per tile.
+        let batch = event(#"{"event":"ScanBatch","built":[],"installed":[],"world":[[47,11,"mesh_lowres","adopted",0.25,"lean","Drive"],[48,11,"placeholder","",0,"",""],[49,11,"bogus","",0,"",""]],"seq":1,"ts":1.0}"#)
+        guard case .scanBatch(_, _, let world) = batch else {
+            Issue.record("not a ScanBatch")
+            return
+        }
+        #expect(world.count == 2)
+        #expect(world[0].tile == O4WorldTile(state: .meshLowRes, origin: "adopted", sharp: 0.25,
+                                             source: "lean", volume: "Drive"))
+        #expect(O4WorldStateText.cellText(world[0].tile)
+                == "Mesh, 25% sharp · adopted · low-res copy here, full imagery on Drive")
+        #expect(world[1].tile.state == .placeholder)
     }
 
     @Test func protocolEngineDetection() {

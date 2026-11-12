@@ -30,6 +30,7 @@ import O4_Qt_Map_Controls as QTMAPCONTROLS
 import O4_Qt_Map_Favorite as QTFAVSTAR
 import O4_Qt_Map_Labels as QTLABELS
 import O4_Qt_Map_Legend as QTLEGEND
+import O4_Qt_Map_World as QTWORLD
 import O4_Qt_Rotate_Cursor as ROTATE
 import O4_Qt_Selection_Ring as RING
 import O4_Qt_Text_Scale as QTTEXT
@@ -93,7 +94,7 @@ BUILT_EXTERNAL_COLOR = "#A0703C"
 #: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
 SETTINGS_BADGE_COLOR = "#0A84FF"
 #: The custom-patch band (#1229); MapCanvasView.customPatchBand.
-CUSTOM_PATCH_COLOR = "#FF9F0A"
+CUSTOM_PATCH_COLOR = QTLEGEND.CUSTOM_PATCH_COLOR  # #FF9F0A
 
 
 BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
@@ -391,6 +392,9 @@ class MapView(QGraphicsView):
         # drawn faint (MapCanvasView.swift dims the same).
         self._dimmed = set()
         self._installed = set()      # (lat, lon)
+        # What the World pack draws on each tile (#2024): {(lat, lon):
+        # world_state.WorldTile}, from the scan's ScanBatch.world.
+        self._world = {}
         self._conflicts = set()      # (lat, lon) with mixed imagery sources
         self._stale = {}             # (lat, lon) -> stale verdict (#1958)
         self._customized = set()     # (lat, lon) with tile settings (#1350)
@@ -545,6 +549,14 @@ class MapView(QGraphicsView):
     def set_installed(self, installed):
         self._installed = set(installed)
         self.viewport().update()
+
+    def set_world(self, world):
+        """The World states (#2024): ``{(lat, lon): WorldTile}``."""
+        self._world = dict(world)
+        self.viewport().update()
+
+    def world(self):
+        return dict(self._world)
 
     def set_conflicts(self, conflicts):
         """Built tiles whose textures folder mixes imagery sources — the
@@ -1243,7 +1255,8 @@ class MapView(QGraphicsView):
         if self._scenery_filter != SCENERY_FILTER_OTHERS:
             QTLEGEND.paint_legend(
                 painter, QRectF(self.viewport().rect()),
-                QTLEGEND.legend_kinds(self._built, self._stale),
+                QTLEGEND.legend_kinds(self._built, self._stale, self._world,
+                                      bool(self._custom_patched)),
                 painter.fontMetrics().height() + 24, BUILT_COLOR,
                 BUILT_EXTERNAL_COLOR)
         painter.end()
@@ -1306,6 +1319,9 @@ class MapView(QGraphicsView):
 
         if (lat_hi - lat_lo) * (lon_hi - lon_lo) < 3000:
             if self._scenery_filter != SCENERY_FILTER_OTHERS:
+                visible = list(visible)
+                QTWORLD.paint_world(painter, self._world, visible,
+                                    self._tile_rect, scale, self.is_building)
                 for tile in visible:
                     self._draw_tile_overlay(painter, tile, scale)
             if self._scenery_filter != SCENERY_FILTER_BUILT:

@@ -72,7 +72,8 @@ final class LibraryModel: ObservableObject {
         guard index.tiles.isEmpty, !buildModel.built.isEmpty else { return }
         setTiles(buildModel.built.keys.sorted().compactMap { coord in
             buildModel.built[coord].map {
-                O4LibraryTile(mapTile: $0, inXPlane: buildModel.installed.contains(coord))
+                O4LibraryTile(mapTile: $0, inXPlane: buildModel.installed.contains(coord),
+                              world: buildModel.worldTiles[coord])
             }
         })
     }
@@ -342,6 +343,8 @@ struct LibraryTilesSection: View {
             }
             .width(min: 60, ideal: 70)
             TableColumn("Built by", value: \.builtByText)
+            // What the World pack draws there (#2024).
+            TableColumn(O4WorldStateText.columnTitle, value: \.worldText)
         }
         // The tile's menu (#1992 §7): its pin (the Qt Library: the same).
         .contextMenu(forSelectionType: O4LibraryTile.ID.self) { ids in

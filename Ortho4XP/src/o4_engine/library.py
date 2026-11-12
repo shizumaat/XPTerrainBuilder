@@ -112,7 +112,7 @@ def _detected_imagery(build_dir: str) -> tuple:
     return found if found else ("", None)
 
 
-def _row(info, scenery_dir: str, packs_by_tile: dict) -> dict:
+def _row(info, scenery_dir: str, packs_by_tile: dict, world: dict) -> dict:
     key = FNAMES.short_latlon(info.lat, info.lon)
     provider, zl = info.provider, info.zl
     if not provider or zl is None:
@@ -141,6 +141,10 @@ def _row(info, scenery_dir: str, packs_by_tile: dict) -> dict:
         # Imagery on demand (#1992): built low-res, and pinned sharp.
         "on_demand": bool(getattr(info, "on_demand", False)),
         "pinned": bool(getattr(info, "pinned", False)),
+        # What the World pack draws there (#2024, world_state); None
+        # when it holds nothing for the tile.
+        "world": (world[(info.lat, info.lon)].fields()
+                  if (info.lat, info.lon) in world else None),
     }
 
 
@@ -163,13 +167,15 @@ def _packs_by_tile(scenery_dir: str) -> dict:
 # Commands
 # ---------------------------------------------------------------------------
 def library_scan(working_dir: str, scenery_dir: str = "", caches: bool = True,
-                 infos: "dict | None" = None) -> dict:
+                 infos: "dict | None" = None, world: "dict | None" = None) -> dict:
     """ENGINE COMMAND ``library_scan``: every built tile of *working_dir*
     (the per-tile build folders' parent), its total, and the caches.
 
     ``infos`` -- the map's last scan of *working_dir*
     (``EngineSession.scanned_tiles``; the transport passes it), so the
-    tile folders are not read twice (#2006); None reads them.  ``caches``
+    tile folders are not read twice (#2006); None reads them.
+    ``world`` -- that scan's World states (``EngineSession.scanned_world``,
+    #2024); None reads the World pack of *scenery_dir*.  ``caches``
     False leaves the cache walk out (``"caches": []``).  The rows are
     built :data:`ROW_WORKERS` at a time (each is a folder walk).
 
@@ -179,9 +185,13 @@ def library_scan(working_dir: str, scenery_dir: str = "", caches: bool = True,
     packs = _packs_by_tile(scenery_dir)
     if infos is None:
         infos = TINFO.scan_tiles(working_dir)
+    if world is None:
+        from . import world_state as WSTATE
+        world = WSTATE.read_world(scenery_dir)
     ordered = [info for _key, info in sorted(infos.items())]
     with ThreadPoolExecutor(ROW_WORKERS, thread_name_prefix="o4-library-row") as pool:
-        rows = list(pool.map(lambda info: _row(info, scenery_dir, packs), ordered))
+        rows = list(pool.map(lambda info: _row(info, scenery_dir, packs, world),
+                             ordered))
     return {"tiles": rows,
             "tiles_bytes": sum(row["size_bytes"] for row in rows),
             "caches": cache_sizes()["caches"] if caches else []}

@@ -290,6 +290,10 @@ final class BuildModel: ObservableObject {
         didSet { adoptArrivedTileConfig() }
     }
     @Published private(set) var installed: Set<TileCoord> = []
+    /// What the World pack draws on each tile it knows (#2024, the scan's
+    /// `ScanBatch.world`): the map's state colours and the Library's
+    /// World column. A tile not here has nothing.
+    @Published private(set) var worldTiles: [TileCoord: O4WorldTile] = [:]
     /// Built tiles whose textures folder mixes imagery sources (only one
     /// can be used) — warning badges on the map + selection pane.
     @Published private(set) var conflictTiles: Set<TileCoord> = []
@@ -309,6 +313,7 @@ final class BuildModel: ObservableObject {
     @Published private(set) var scanPhase = ""
     private var scanAccumBuilt: [TileCoord: O4TileInfo] = [:]
     private var scanAccumInstalled: Set<TileCoord> = []
+    private var scanAccumWorld: [TileCoord: O4WorldTile] = [:]
     /// (elapsed, remaining) pairs from recent runEta events — the
     /// climbing-estimate detector's window.
     private var etaSamples: [(at: Double, value: Double)] = []
@@ -896,6 +901,7 @@ final class BuildModel: ObservableObject {
         guard let client, let base = tileBaseFolder else { return }
         scanAccumBuilt = [:]
         scanAccumInstalled = []
+        scanAccumWorld = [:]
         isScanning = true
         client.send(command: "scan", arguments: [
             "working_dir": base.path,
@@ -1050,7 +1056,7 @@ final class BuildModel: ObservableObject {
             console.append(line, tile: tile)
         case .scanProgress(let phase, _, _):
             scanPhase = phase
-        case .scanBatch(let builtTriples, let installedPairs):
+        case .scanBatch(let builtTriples, let installedPairs, let worldRows):
             for (lat, lon, info) in builtTriples {
                 if let tileInfo = O4TileInfo(json: info) {
                     scanAccumBuilt[TileCoord(lat: lat, lon: lon)] = tileInfo
@@ -1059,12 +1065,19 @@ final class BuildModel: ObservableObject {
             for (lat, lon) in installedPairs {
                 scanAccumInstalled.insert(TileCoord(lat: lat, lon: lon))
             }
+            var worldBatch: [TileCoord: O4WorldTile] = [:]
+            for (lat, lon, tile) in worldRows {
+                worldBatch[TileCoord(lat: lat, lon: lon)] = tile
+            }
+            scanAccumWorld.merge(worldBatch) { _, new in new }
             // Stream into the live maps; ScanDone swaps in the final truth.
             built.merge(scanAccumBuilt) { _, new in new }
             installed.formUnion(scanAccumInstalled)
+            if !worldBatch.isEmpty { worldTiles.merge(worldBatch) { _, new in new } }
         case .scanDone:
             built = scanAccumBuilt
             installed = scanAccumInstalled
+            worldTiles = scanAccumWorld
             isScanning = false
             scanPhase = ""
             syncConsoleView()

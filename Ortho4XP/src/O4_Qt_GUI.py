@@ -114,6 +114,7 @@ import O4_Qt_Gateway_Airports as QTGATE
 import O4_Qt_Pack_Optimise as QTOPT
 import O4_Qt_Latest_Probe as QTPROBE
 import O4_Qt_Map_Legend as QTLEGEND
+import O4_Qt_Map_World as QTWORLD
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
@@ -994,6 +995,7 @@ class MainWindow(QMainWindow):
         self._boundary_pending = {}
         self._scan_built = {}
         self._scan_installed = set()
+        self._scan_world = {}
         # (working dir, Custom Scenery dir) the in-flight scan was
         # started against — the key its results are cached under, taken
         # at scan start so a folder changed mid-scan can never file the
@@ -2926,6 +2928,7 @@ class MainWindow(QMainWindow):
         # contract the one-shot scan had).
         self._scan_built = {}
         self._scan_installed = set()
+        self._scan_world = {}
         self._scanning = True
         working_dir = self.working_dir()
         self._scan_dirs = (working_dir, CFG.custom_scenery_dir)
@@ -3062,6 +3065,11 @@ class MainWindow(QMainWindow):
     def _on_scan_batch(self, event):
         self._scan_built.update(event.built)
         self._scan_installed.update(event.installed)
+        world = QTWORLD.from_wire(getattr(event, "world", ()))
+        if world:
+            # What the World pack draws (#2024), streamed like the rest.
+            self._scan_world.update(world)
+            self.map.set_world({**self.map.world(), **world})
         self._built.update(event.built)
         self._installed.update(event.installed)
         self.map.set_built(self._built)
@@ -3077,6 +3085,7 @@ class MainWindow(QMainWindow):
         self._scanning = False
         self._built = dict(self._scan_built)
         self._installed = set(self._scan_installed)
+        self.map.set_world(self._scan_world)
         self.map.clear_scan_status()
         self._push_overlays()
         # The truth, filed under the folder pair it was scanned against:

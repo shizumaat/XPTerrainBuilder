@@ -100,7 +100,7 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 __all__ = [
     "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
     "STATES", "capped_bytes", "distance_m", "forget_tile", "get",
-    "has_rows", "index_path", "lru_order",
+    "has_rows", "index_path", "lru_order", "tile_sharpness",
     "mark_late", "mark_near", "open_index", "pinned_bytes",
     "placeholder_width", "protected_cache_keys", "protected_jpegs",
     "rebuild", "reset_upgrading", "rows", "set_core",
@@ -174,6 +174,28 @@ def has_rows(path: "str | None" = None) -> bool:
             conn.close()
     except sqlite3.Error:
         return False
+
+
+def tile_sharpness(path: "str | None" = None) -> "dict[str, tuple[int, int]]":
+    """``{tile: (textures, full)}`` of every tile in the index at ``path``
+    (default :func:`index_path`): how many textures it names and how many
+    are on disk at full width (``O4_DDS_Tiers.FULL_WIDTH``).  ONE grouped
+    query, read-only: a missing or unreadable index is ``{}`` and none is
+    created (the map's World states, #2024)."""
+    path = path or index_path()
+    if not os.path.isfile(path):
+        return {}
+    try:
+        conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=5.0)
+        try:
+            found = conn.execute(
+                "SELECT tile, COUNT(*), SUM(state = 'upgraded' AND tier_px >= ?) "
+                "FROM textures GROUP BY tile", (TIERS.FULL_WIDTH,)).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {}
+    return {tile: (int(n), int(full or 0)) for tile, n, full in found}
 
 
 def open_index(path: "str | None" = None) -> sqlite3.Connection:

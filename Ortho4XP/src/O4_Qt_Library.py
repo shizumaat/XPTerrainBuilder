@@ -27,6 +27,7 @@ import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
 import O4_Qt_Imagery_OnDemand as QTONDEMAND
 import O4_Qt_Patch_Library as PATCHLIB
 import O4_Scenery_Links as LINKS
+import O4_World_State_Text as WORLD_TEXT
 from o4_engine import library as LIB
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -58,6 +59,8 @@ COLUMNS = (
     ("Packs modified", "packs_modified"),
     ("In X-Plane", "in_xplane"),
     ("Built by", "built_by"),
+    # What the World pack draws there (#2024).
+    (WORLD_TEXT.COLUMN_TITLE, "world"),
 )
 SIZE_COLUMN = 1
 IN_XPLANE_COLUMN = 7
@@ -107,6 +110,9 @@ def _cell(row, key):
         return "", int(bool(value))
     if key == "built_by":
         text = "XPTerrainBuilder" if value == LIB.BUILT_HERE else "Other tool (read-only)"
+        return text, text
+    if key == "world":
+        text = WORLD_TEXT.cell_text(value)
         return text, text
     return str(value or ""), str(value or "")
 

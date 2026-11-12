@@ -211,7 +211,7 @@ def _camel(name: str) -> str:
 
 def test_swift_says_what_python_says():
     python = {_camel(name): getattr(TEXT, name) for name in TEXT.__all__
-              if name != "cell_text"}
+              if not callable(getattr(TEXT, name))}
     assert _swift_literals() == python
 
 

@@ -226,6 +226,14 @@ struct BuildPane: View {
             let info = buildModel.built[active]
             Text("Tile \(active.key)\(titleSuffix(active, info))")
                 .scaledFont(.callout, weight: .semibold)
+            // What the World pack holds for it, read first (owner
+            // 2026-11-12T20:23Z; the Qt pane: the same row).
+            TileWorldRow(coord: active, world: buildModel.worldTiles[active],
+                         rebuild: { buildModel.rebuildWithItsImagery(active) },
+                         exportPackage: {
+                             TilePackageModel.shared.startExport([active], build: buildModel)
+                         },
+                         remove: { await buildModel.removeFromWorldPack(active) })
             HStack(spacing: 5) {
                 detailRow("Imagery", info?.provider.isEmpty == false ? info!.provider : "—")
                 if let audit = textureAudit, audit.hasConflict {
@@ -465,8 +473,12 @@ struct BuildPane: View {
     }
 
     private func titleSuffix(_ tile: BuildModel.TileCoord, _ info: O4TileInfo?) -> String {
-        if buildModel.isScanning, info == nil { return "  (scanning…)" }
-        return info == nil ? "  (not built)" : ""
+        guard info == nil else { return "" }
+        // Held by the World pack (a placeholder too): ours, not "not built".
+        if let world = buildModel.worldTiles[tile], world.state != .nothing {
+            return "  " + O4WorldStateText.titleInWorld
+        }
+        return buildModel.isScanning ? "  (scanning…)" : "  (not built)"
     }
 
     private func zlText(_ info: O4TileInfo?) -> String {
@@ -722,8 +734,9 @@ struct BuildPane: View {
     }
 
     /// Other installed ortho/mesh packages covering the active tile, with
-    /// the modification date of their DSF for that tile. Our own installed
-    /// tile links (into the working dir) are excluded, matching the map.
+    /// the modification date of their DSF for that tile. Our own packs (the
+    /// World pack, the overlay packs, tile links) are excluded, matching
+    /// the map (`SceneryRegion.isThirdParty`).
     private func refreshOtherScenery() async {
         guard let active = buildModel.activeTile else {
             otherScenery = []
@@ -734,12 +747,8 @@ struct BuildPane: View {
         let builtDirs = Set(buildModel.built.values.map(\.buildDir))
         let covering = controller.mapOverlays.regions
             .filter { region in
-                guard region.tileKeys.contains(tileKey32) else { return false }
-                if builtDirs.contains(region.packPath)
-                    || builtDirs.contains(region.contentRootPath) { return false }
-                if let basePath, let resolved = region.resolvedPath,
-                   resolved.hasPrefix(basePath) { return false }
-                return true
+                region.tileKeys.contains(tileKey32)
+                    && region.isThirdParty(builtDirs: builtDirs, basePath: basePath)
             }
             .map { (name: $0.packName, root: $0.contentRootPath) }
         let key = active.key

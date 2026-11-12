@@ -1,5 +1,6 @@
 """The words of a tile's World state in both apps (#2024): the Build map's
-legend and the Library's World column.
+legend, the Library's World column and the tile pane's "World pack" row
+(its status, and Rebuild / Export Package / Remove from World pack).
 
 The Qt window (``O4_Qt_Map_Legend``, ``O4_Qt_Library``) reads them here;
 the Mac app's mirror is ``Sources/SceneryKit/WorldStateText.swift``
@@ -14,7 +15,12 @@ from __future__ import annotations
 __all__ = ["LEGEND_FULL", "LEGEND_MESH", "LEGEND_DRAPE", "LEGEND_PLACEHOLDER",
            "LEGEND_NOTHING", "LEGEND_OTHER_TOOL", "LEGEND_CUSTOM_PATCH",
            "COLUMN_TITLE", "STATE_WORDS", "MESH_WORDS", "ORIGIN_WORDS",
-           "SOURCE_WORDS", "LEAN_ON_DRIVE", "ON_DRIVE", "cell_text"]
+           "SOURCE_WORDS", "LEAN_ON_DRIVE", "ON_DRIVE", "cell_text",
+           "PANE_ROW_TITLE", "PANE_BUILT", "PANE_WHAT", "PANE_MESH",
+           "PANE_PLACEHOLDER", "TITLE_IN_WORLD", "REBUILD_BUTTON",
+           "REMOVE_BUTTON", "REMOVE_TITLE", "REMOVE_MESSAGE",
+           "REMOVE_CONFIRM", "REMOVED", "REMOVED_NO_PACKAGE",
+           "pane_status", "pane_detail", "built_in_world", "removed_note"]
 
 # --- The Build map's legend (one row per state on the map, then the
 # dotted border of another tool's mesh and the custom-patch band) ---
@@ -48,6 +54,74 @@ SOURCE_WORDS = {
 }
 ON_DRIVE = "on {volume}"
 LEAN_ON_DRIVE = "low-res copy here, full imagery on {volume}"
+
+
+# --- The tile pane's "World pack" row (owner 2026-11-12T20:23Z: a tile
+# fully built in the World pack must not read "not built") ---
+PANE_ROW_TITLE = "World pack"
+PANE_BUILT = "Built (in the World pack): {what}"
+PANE_WHAT = {
+    "full": "mesh + full imagery",
+    "drape": "photo drape",
+}
+PANE_MESH = "mesh, {percent}% sharp"
+PANE_PLACEHOLDER = "Placeholder in the World pack: not built yet"
+#: The tile title's suffix where the Tiles folder holds no build but the
+#: World pack holds the tile (in place of "(not built)").
+TITLE_IN_WORLD = "(in the World pack)"
+REBUILD_BUTTON = "Rebuild Tile"
+REMOVE_BUTTON = "Remove from World Pack…"
+REMOVE_TITLE = "Remove tile {tile} from the World pack?"
+REMOVE_MESSAGE = ("Its package is written first (Tile_packages), then the "
+                  "tile is a placeholder again: X-Plane shows its own "
+                  "scenery there until the tile is built again. Its original "
+                  "folder (originals/) and its files on other drives are "
+                  "never touched.")
+REMOVE_CONFIRM = "Remove"
+REMOVED = "Tile {tile} is a placeholder again; its package: {package}"
+REMOVED_NO_PACKAGE = "Tile {tile} is a placeholder again; no package was written: {why}"
+
+#: The states the pane calls built (a real tile in the World pack).
+_BUILT_STATES = ("full", "mesh_lowres", "drape")
+
+
+def built_in_world(world) -> bool:
+    """Does the World pack hold a real tile (not a placeholder) here?
+    ``world``: a ``WorldTile.fields()`` dict or ``None``."""
+    return bool(world) and world.get("state") in _BUILT_STATES
+
+
+def pane_status(world) -> str:
+    """The pane's status line: "Built (in the World pack): mesh + full
+    imagery" / "…: mesh, 40% sharp" / "…: photo drape", or the placeholder
+    line; ``""`` when the World pack holds nothing of the tile."""
+    state = (world or {}).get("state", "")
+    if state == "mesh_lowres":
+        what = PANE_MESH.format(percent=int(round(100 * float(world.get("sharp") or 0))))
+        return PANE_BUILT.format(what=what)
+    if state in PANE_WHAT:
+        return PANE_BUILT.format(what=PANE_WHAT[state])
+    return PANE_PLACEHOLDER if state == "placeholder" else ""
+
+
+def pane_detail(world) -> str:
+    """Who made it and where its own files live: "built here · original
+    folder kept"; ``""`` for none."""
+    if not world:
+        return ""
+    parts = [ORIGIN_WORDS.get(world.get("origin", ""), ""),
+             _source_text(world.get("source", ""), world.get("volume", ""))]
+    return " · ".join(p for p in parts if p)
+
+
+def removed_note(reply) -> str:
+    """The pane's note after ``world_tile_remove`` (Mac:
+    ``O4WorldTileRemoved.note``)."""
+    package = reply.get("package") or {}
+    if package.get("path"):
+        return REMOVED.format(tile=reply.get("tile", ""), package=package["path"])
+    return REMOVED_NO_PACKAGE.format(tile=reply.get("tile", ""),
+                                     why=package.get("why", ""))
 
 
 def _source_text(source: str, volume: str) -> str:

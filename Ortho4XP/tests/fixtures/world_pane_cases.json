@@ -1,0 +1,36 @@
+{
+  "_doc": "Shared twin vectors (owner 2026-11-12T20:23Z, lane ltilepane): which Custom Scenery entries are the app's own packs (never 'Other scenery'), and the tile pane's World-pack status words. Read by Ortho4XP/tests/test_world_pane.py (O4_Custom_Scenery._is_our_pack, O4_World_State_Text) and Tests/SceneryKitTests/WorldPaneTests.swift (O4WorldPack.isOurs, O4WorldStateText).",
+  "packs": [
+    {"name": "zXPTerrainBuilder World", "ours": true},
+    {"name": "yXPTerrainBuilder Overlays", "ours": true},
+    {"name": "yOrtho4XP_Overlays", "ours": true},
+    {"name": "zOrtho4XP_+30+031", "ours": true},
+    {"name": "zOrtho4XP_Europe", "ours": true},
+    {"name": "zXPTerrainBuilder World copy", "ours": false},
+    {"name": "yXPTerrainBuilder Overlays (old)", "ours": false},
+    {"name": "zzz_SpainUHD", "ours": false},
+    {"name": "Global Airports", "ours": false},
+    {"name": "HECA Cairo Intl", "ours": false},
+    {"name": "", "ours": false}
+  ],
+  "pane": [
+    {"world": {"state": "full", "origin": "xptb", "sharp": 1.0, "source": "originals", "volume": ""},
+     "status": "Built (in the World pack): mesh + full imagery",
+     "detail": "built here · original folder kept", "built": true},
+    {"world": {"state": "mesh_lowres", "origin": "adopted", "sharp": 0.4, "source": "lean", "volume": "Archive"},
+     "status": "Built (in the World pack): mesh, 40% sharp",
+     "detail": "adopted · low-res copy here, full imagery on Archive", "built": true},
+    {"world": {"state": "drape", "origin": "xptb", "sharp": 0.0, "source": "", "volume": ""},
+     "status": "Built (in the World pack): photo drape",
+     "detail": "built here", "built": true},
+    {"world": {"state": "full", "origin": "other", "sharp": 1.0, "source": "drive", "volume": "Ext"},
+     "status": "Built (in the World pack): mesh + full imagery",
+     "detail": "another tool's · on Ext", "built": true},
+    {"world": {"state": "placeholder", "origin": "", "sharp": 0.0, "source": "", "volume": ""},
+     "status": "Placeholder in the World pack: not built yet",
+     "detail": "", "built": false},
+    {"world": {"state": "nothing", "origin": "", "sharp": 0.0, "source": "", "volume": ""},
+     "status": "", "detail": "", "built": false},
+    {"world": null, "status": "", "detail": "", "built": false}
+  ]
+}

@@ -231,6 +231,20 @@ struct MapOverlays: Sendable {
         let isOrtho: Bool
         /// Outer boundary: tile edges with no same-pack neighbour.
         let edges: [(a: GeoPoint, b: GeoPoint)]
+        /// One of our own packs by name (`SceneryPack.isOurs`).
+        var isOurs: Bool = false
+
+        /// Another tool's scenery: not one of our packs, not a folder the
+        /// engine scan built (`builtDirs`, either path spelling — the scan
+        /// reports the LINK path for packs symlinked from other volumes),
+        /// not a link into the tiles folder (`basePath`). The map's gray
+        /// outlines and the tile pane's "Other scenery" read this one test.
+        func isThirdParty(builtDirs: Set<String>, basePath: String?) -> Bool {
+            if isOurs || builtDirs.contains(packPath)
+                || builtDirs.contains(contentRootPath) { return false }
+            if let basePath, let resolvedPath, resolvedPath.hasPrefix(basePath) { return false }
+            return true
+        }
     }
 
     static func makeRegion(pack: SceneryPack, tileKeys: Set<Int32>) -> SceneryRegion {
@@ -262,7 +276,8 @@ struct MapOverlays: Sendable {
                              resolvedPath: pack.resolvedURL?.path,
                              tileKeys: tileKeys,
                              isOrtho: pack.kind == .ortho,
-                             edges: edges)
+                             edges: edges,
+                             isOurs: pack.isOurs)
     }
 
     /// Where a small-footprint pack lives, for a kind-colored map mark.

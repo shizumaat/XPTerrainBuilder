@@ -1,7 +1,7 @@
 import Foundation
 
 /// The words of a tile's World state in both apps (#2024): the Build map's
-/// legend and the Library's World column. The mirror of
+/// legend, the Library's World column and the tile pane's "World pack" row. The mirror of
 /// `Ortho4XP/src/O4_World_State_Text.py`, which the Qt window reads;
 /// `Ortho4XP/tests/test_world_state.py` parses the literals below and
 /// requires them to equal the Python ones.
@@ -36,6 +36,62 @@ public enum O4WorldStateText {
     ]
     public static let onDrive = "on {volume}"
     public static let leanOnDrive = "low-res copy here, full imagery on {volume}"
+
+    // The tile pane's "World pack" row (owner 2026-11-12T20:23Z: a tile
+    // fully built in the World pack must not read "not built").
+    public static let paneRowTitle = "World pack"
+    public static let paneBuilt = "Built (in the World pack): {what}"
+    public static let paneWhat: [String: String] = [
+        "full": "mesh + full imagery",
+        "drape": "photo drape",
+    ]
+    public static let paneMesh = "mesh, {percent}% sharp"
+    public static let panePlaceholder = "Placeholder in the World pack: not built yet"
+    /// The tile title's suffix where the Tiles folder holds no build but
+    /// the World pack holds the tile (in place of "(not built)").
+    public static let titleInWorld = "(in the World pack)"
+    public static let rebuildButton = "Rebuild Tile"
+    public static let removeButton = "Remove from World Pack…"
+    public static let removeTitle = "Remove tile {tile} from the World pack?"
+    public static let removeMessage = "Its package is written first (Tile_packages), then the tile is a placeholder again: X-Plane shows its own scenery there until the tile is built again. Its original folder (originals/) and its files on other drives are never touched."
+    public static let removeConfirm = "Remove"
+    public static let removed = "Tile {tile} is a placeholder again; its package: {package}"
+    public static let removedNoPackage = "Tile {tile} is a placeholder again; no package was written: {why}"
+
+    /// Does the World pack hold a real tile (not a placeholder) here?
+    /// (Qt: `O4_World_State_Text.built_in_world`.)
+    public static func builtInWorld(_ world: O4WorldTile?) -> Bool {
+        guard let world else { return false }
+        return [.full, .meshLowRes, .drape].contains(world.state)
+    }
+
+    /// The pane's status line (Qt: `pane_status`); empty when the World
+    /// pack holds nothing of the tile.
+    public static func paneStatus(_ world: O4WorldTile?) -> String {
+        guard let world else { return "" }
+        switch world.state {
+        case .meshLowRes:
+            let what = paneMesh.replacingOccurrences(
+                of: "{percent}", with: String(Int((world.sharp * 100).rounded())))
+            return paneBuilt.replacingOccurrences(of: "{what}", with: what)
+        case .full, .drape:
+            return paneBuilt.replacingOccurrences(of: "{what}",
+                                                  with: paneWhat[world.state.rawValue] ?? "")
+        case .placeholder:
+            return panePlaceholder
+        case .nothing:
+            return ""
+        }
+    }
+
+    /// Who made it and where its own files live (Qt: `pane_detail`):
+    /// "built here · original folder kept"; empty for none.
+    public static func paneDetail(_ world: O4WorldTile?) -> String {
+        guard let world else { return "" }
+        return [originWords[world.origin] ?? "", sourceText(world.source, volume: world.volume)]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
 
     static func sourceText(_ source: String, volume: String) -> String {
         if source == "lean", !volume.isEmpty {

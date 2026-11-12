@@ -12,6 +12,20 @@ public enum O4WorldPack {
     /// roads, forests and buildings for every full tile, its ini row
     /// directly above the World pack's (`O4_Overlay_Pack.PACK_NAME`).
     public static let overlaysPackName = "yXPTerrainBuilder Overlays"
+    /// The legacy overlay link (`yOrtho4XP_Overlays`) and per-tile /
+    /// grouped-build links (`zOrtho4XP_…`): ours too.
+    static let legacyOverlaysPackName = "yOrtho4XP_Overlays"
+    static let tileLinkPrefix = "zOrtho4XP_"
+
+    /// Is the Custom Scenery entry `name` one of this app's own packs —
+    /// never "Other scenery", never a third-party pack? The mirror of
+    /// `O4_Custom_Scenery._is_our_pack`; both read the cases of
+    /// `Ortho4XP/tests/fixtures/world_pane_cases.json`.
+    public static func isOurs(_ name: String) -> Bool {
+        name.hasPrefix(tileLinkPrefix)
+            || [packName, overlaysPackName, legacyOverlaysPackName].contains(name)
+    }
+
     /// `sim/creation_agent` of a placeholder DSF.
     public static let placeholderAgent = "XPTerrainBuilder world placeholder"
     /// A placeholder is 328 bytes; a larger DSF is never one.

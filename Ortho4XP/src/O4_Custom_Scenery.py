@@ -29,6 +29,7 @@ from typing import Iterator, Optional, Sequence, Set, Tuple
 import O4_File_Names as FNAMES
 
 import O4_Overlay_Pack as _overlay_pack
+import O4_World_Pack as _world_pack
 
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
 import O4_Scenery_Packs as _scenery_packs
@@ -60,10 +61,19 @@ PACK_KINDS = ("airport", "ortho", "mesh", "landmark", "library", "other")
 _SKIPPED_PACKS = frozenset({"Global Airports"})
 
 # Our own entries in Custom Scenery: per-tile links (zOrtho4XP_±XX±YYY),
-# grouped-build links (zOrtho4XP_<dir>), the shared overlay link and the
-# app's overlay pack (#2021).
-_OURS_RE = re.compile(r"^(zOrtho4XP_|yOrtho4XP_Overlays$|%s$)"
-                      % re.escape(_overlay_pack.PACK_NAME))
+# grouped-build links (zOrtho4XP_<dir>), the shared overlay link, the
+# app's overlay pack (#2021) and the World pack.  Mac mirror:
+# ``O4WorldPack.isOurs`` (Sources/SceneryKit/WorldWire.swift); the shared
+# cases are ``tests/fixtures/world_pane_cases.json``.
+_OURS_RE = re.compile(r"^(zOrtho4XP_|yOrtho4XP_Overlays$|%s$|%s$)"
+                      % (re.escape(_overlay_pack.PACK_NAME),
+                         re.escape(_world_pack.PACK_NAME)))
+
+
+def _is_our_pack(name: str) -> bool:
+    """Is the Custom Scenery entry ``name`` one of this app's own packs
+    (never "Other scenery", never a third-party pack)?"""
+    return bool(_OURS_RE.match(name or ""))
 
 _DSF_RE = re.compile(r"^([+-]\d{2})([+-]\d{3})\.dsf$", re.IGNORECASE)
 #: A per-tile subfolder of ``terrain/`` or ``textures/`` (the World pack).
@@ -289,7 +299,7 @@ def iter_airport_packs(scenery_dir: str) -> Iterator[tuple]:
     disabled = disabled_pack_names(scenery_dir)
     for entry in sorted(os.listdir(scenery_dir)):
         path = os.path.join(scenery_dir, entry)
-        if (entry in _SKIPPED_PACKS or _OURS_RE.match(entry)
+        if (entry in _SKIPPED_PACKS or _is_our_pack(entry)
                 or not os.path.isdir(path)):
             continue
         content_root = os.path.realpath(path)
@@ -432,7 +442,7 @@ def iter_packs(scenery_dir: str,
         pack = None
         path = os.path.join(scenery_dir, entry)
         if (entry not in _SKIPPED_PACKS
-                and not _OURS_RE.match(entry)
+                and not _is_our_pack(entry)
                 and os.path.isdir(path)):
             content_root = os.path.realpath(path)
             if content_root not in excluded:

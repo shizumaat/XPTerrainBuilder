@@ -158,6 +158,28 @@ public struct O4LibraryBundleImport: Decodable, Equatable, Sendable {
     public let seconds: Double
 }
 
+/// `world_tile_remove` result: the tile, and its package (`package_first`:
+/// `action` "kept" / "packaged" / "refused", `why` when refused).
+public struct O4WorldTileRemoved: Decodable, Equatable, Sendable {
+    public struct Package: Decodable, Equatable, Sendable {
+        public let action: String
+        public let path: String
+        public let why: String
+    }
+    public let tile: String
+    public let package: Package?
+
+    /// The pane's note after the removal (Qt: the same words).
+    public var note: String {
+        if let package, !package.path.isEmpty {
+            return O4WorldStateText.removed.replacingOccurrences(of: "{tile}", with: tile)
+                .replacingOccurrences(of: "{package}", with: package.path)
+        }
+        return O4WorldStateText.removedNoPackage.replacingOccurrences(of: "{tile}", with: tile)
+            .replacingOccurrences(of: "{why}", with: package?.why ?? "")
+    }
+}
+
 extension OrthoEngineClient {
     /// Every Library command replies `{"status": "started"}` and the
     /// `LibraryReady` event naming its id carries the result or the error
@@ -210,6 +232,15 @@ extension OrthoEngineClient {
         try await libraryRequest("library_delete", [
             "tiles": tiles.map { [$0.lat, $0.lon] }, "working_dir": workingDir,
             "scenery_dir": sceneryDir, "confirm": true,
+        ])
+    }
+
+    /// The tile pane's "Remove from World Pack…": the tile's package
+    /// written first, then the placeholder over it (`world_tile_remove`);
+    /// the app confirms with the user first.
+    public func worldTileRemove(lat: Int, lon: Int, sceneryDir: String) async throws -> O4WorldTileRemoved {
+        try await libraryRequest("world_tile_remove", [
+            "lat": lat, "lon": lon, "scenery_dir": sceneryDir, "confirm": true,
         ])
     }
 

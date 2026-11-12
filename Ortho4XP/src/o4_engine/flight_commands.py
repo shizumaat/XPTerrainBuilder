@@ -27,8 +27,12 @@ The flight's own commands (lane F1b, capability ``flight_manager``;
   waive_offline?}`` -- the flight card's choices; the jobs are planned
   again.  ``waive_offline``: "Fly with X-Plane's own scenery there" for
   the en-route tiles that need the internet (RULINGS 2026-11-10k Q3).
-* ``flight_end {flight}`` -- the flight closes; build-ahead's track mode
-  may start again.  ``flight_list`` -- the records, newest first.
+* ``flight_end {flight}`` -- the flight closes; build-ahead's track mode,
+  which ran beside it (#2019), runs on.  ``flight_end {if_prepared:
+  true}`` (both apps, on "No plan: follow the aircraft") closes the active
+  flight only while it is still preparing or ready, so a stale prepared
+  record never owns build-ahead; a flight in the air is left as it is.
+  ``flight_list`` -- the records, newest first.
 
 Lane F2 (capability ``flight_notices``):
 
@@ -36,8 +40,9 @@ Lane F2 (capability ``flight_notices``):
   ``{ident, lat, lon}`` (the apps' airport search), ``[lat, lon]`` or an
   ident (the engine's airport index); the destination is replaced and
   its tile built ``full`` first (spec §8.6).  ``{"flight", "diverted_to"}``.
-* ``flight_reload {flight, not_now?}`` -- the reload in the air (rule
-  S6 (b)): the pilot's "Reload now", or "Not now" for the announced one.
+* ``flight_reload {flight}`` -- the pilot's "Reload scenery now" for the
+  offered reload (rule S6 (a) on the ground, (b) in the air): the only
+  way a flight's reload is sent (owner 2026-11-12T14:34Z).
 * ``FlightNotice`` events: one per notice (``flight_notices``).
 """
 
@@ -247,11 +252,23 @@ def flight_update(flight: str = "", build_alternate=None, cruise_kt=None,
     return {"flight": record.id}
 
 
-def flight_end(session=None, flight: str = "", **_ignored) -> Dict[str, Any]:
+#: The states ``flight_end {if_prepared: true}`` closes (not yet flown).
+_PREPARED = ("preparing", "ready")
+
+
+def flight_end(session=None, flight: str = "", if_prepared: bool = False,
+               **_ignored) -> Dict[str, Any]:
     """ENGINE COMMAND ``flight_end``: the flight closes (its record keeps
-    what was built); build-ahead's track mode may start again."""
+    what was built); build-ahead's track mode runs on (started here when
+    it was not running).  ``if_prepared``: only a flight not yet flown
+    (:data:`_PREPARED`); otherwise ``{"flight": None}`` and nothing
+    changes."""
     from . import world_job_run as WORLD_JOB
     runner = _runner_for(flight)
+    if if_prepared:
+        active = runner.manager.record if runner is not None else _record(flight)
+        if active is None or active.state not in _PREPARED:
+            return {"flight": None}
     record = FLIGHT.stop() if runner is not None else _record(flight)
     if record is None:
         raise ValueError("No such flight.")
@@ -302,18 +319,18 @@ def flight_divert(flight: str = "", to: Any = "alternate", **_ignored
     return {"flight": record.id, "diverted_to": name}
 
 
-def flight_reload(flight: str = "", not_now: bool = False, **_ignored
-                  ) -> Dict[str, Any]:
-    """ENGINE COMMAND ``flight_reload`` (see the module): ``{"flight",
-    "reload"}`` -- the reload state after the pilot's choice."""
+def flight_reload(flight: str = "", **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_reload`` (see the module): the pilot's
+    "Reload scenery now", the only way a flight's reload is sent.
+    ``{"flight", "reload"}``."""
     runner = _runner_for(flight)
     if runner is None:
         raise ValueError("That flight is not active.")
     with runner.lock:
         manager = runner.manager
-        done = (manager.not_now() if not_now
-                else manager.reload_now(runner.now()))
-        state = manager.air.state
+        done = manager.reload_now(runner.now())
+        state = (manager.reload if manager.takeoff_at is None
+                 else manager.air.state)
     if not done:
         raise ValueError("No scenery reload is waiting.")
     return {"flight": manager.record.id, "reload": state}

@@ -84,12 +84,16 @@ class AircraftTrack:
 
 def map_jobs(flight: Sequence = (), planned: bool = False,
              ahead: Sequence = ()) -> Sequence:
-    """The jobs the Fly map draws: the flight's once it reports any; with
-    no flight and no plan, build-ahead's tiles (``WorldStatus.jobs``, the
-    same rows) so free flight shows its drapes; else none (the plan's
-    corridor).  Swift: ``FlyLayers.mapJobs``."""
+    """The jobs the Fly map draws: the flight's once it reports any, with
+    build-ahead's tiles around the aircraft that are not the flight's
+    (``WorldStatus.jobs``, the same rows: track mode runs beside a
+    flight, #2019); with no flight and no plan, build-ahead's tiles alone
+    so free flight shows its drapes; else none (the plan's corridor).
+    Swift: ``FlyLayers.mapJobs``."""
     if flight:
-        return flight
+        mine = {tuple(row[0]) for row in flight}
+        return tuple(flight) + tuple(row for row in ahead or ()
+                                     if tuple(row[0]) not in mine)
     return () if planned else (ahead or ())
 
 

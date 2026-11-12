@@ -25,6 +25,11 @@ the regular build's shore mask in its DDS alpha (DXT5,
 ``O4_World_Drape_Water``) for the drape's water layer; the water layers
 are fetched on a thread WHILE the photos download.
 
+``near=(lat, lon, radius_s)`` (:func:`_core_squares`) fetches only the
+squares whose centre lies within ``radius_s`` square sizes of that point,
+replacing their DDS: the airport core under a parked aircraft at full
+resolution over a drape already fetched (RULINGS 2026-11-12c (3), #2019).
+
 The DDS land in ``BUILD_PARENT/zOrtho4XP_<tile>/textures/``.  The last
 stdout line is a JSON record: squares, downloaded, failed, dds, and the
 download and convert seconds.
@@ -32,6 +37,7 @@ download and convert seconds.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import queue
@@ -55,6 +61,25 @@ def drop_for_px(px) -> int:
         return PX_DROPS[512]
 
 
+def _core_squares(squares, zl: int, lat: float, lon: float,
+                 radius_s: float) -> list:
+    """The ``(til_x, til_y)`` of ``squares`` whose centre lies within
+    ``radius_s`` square sizes of ``(lat, lon)`` (a flat local frame: a
+    core is a few squares across)."""
+    import math
+
+    import O4_World_Drape as DRAPE
+    out = []
+    for x, y in squares:
+        south, west, north, east = DRAPE._bounds(x, y, zl)
+        size = north - south
+        dlat = (south + north) / 2.0 - lat
+        dlon = ((west + east) / 2.0 - lon) * math.cos(math.radians(lat))
+        if math.hypot(dlat, dlon) <= radius_s * size:
+            out.append((x, y))
+    return out
+
+
 def _engine_imports(engine: str):
     src = os.path.join(engine, "src")
     if src not in sys.path:
@@ -73,7 +98,7 @@ def _engine_imports(engine: str):
 
 def fetch(engine: str, lat: int, lon: int, build_parent: str, zl: int,
           provider: str, drop: int, convert_workers: int = 4,
-          water_alpha: bool = False, water_wait_s=None) -> dict:
+          water_alpha: bool = False, water_wait_s=None, near=None) -> dict:
     """Fetch and convert every texture square of tile (lat, lon); returns
     the record :func:`main` prints.  ``water_wait_s``: the water copy is
     dropped (``water_late``) when the tile's water and masks are not done
@@ -99,6 +124,12 @@ def fetch(engine: str, lat: int, lon: int, build_parent: str, zl: int,
     os.makedirs(os.path.join(tile.build_dir, "textures"), exist_ok=True)
     squares = [sq for sq in DRAPE.texture_squares(lat, lon, zl)
                if DRAPE.drape_quad(lat, lon, *sq, zl) is not None]
+    if near is not None:            # the core again, finer: its DDS replaced
+        squares = _core_squares(squares, zl, *near)
+        for x, y in squares:
+            name = FNAMES.dds_file_name_from_attributes(x, y, zl, provider)
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join(tile.build_dir, "textures", name))
     downloads, converts = queue.Queue(), queue.Queue()
     for til_x, til_y in squares:
         downloads.put((til_x, til_y, zl, provider))

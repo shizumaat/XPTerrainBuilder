@@ -11,8 +11,9 @@ ahead" (the global ``drape_photo_px`` the World job's drapes are fetched
 at, RULINGS 2026-11-11j), "Live flight preview" (#2001; the map's
 ``O4_Qt_Live_Preview`` draws it), Divert… and End flight.  With no flight
 and no plan the map shows build-ahead's drapes (``WorldStatus.jobs``).
-Lane F2 adds the offline waiver row (RULINGS 2026-11-10k Q3), the reload
-offer in the air (rule S6 (b): "Reload scenery now" / "Not now") and the
+Lane F2 adds the offline waiver row (RULINGS 2026-11-10k Q3), the offered
+reload (rule S6 (a) before departure, (b) in the air: "Reload scenery
+now", the only way it is sent, owner 2026-11-12T14:34Z) and the
 "Divert…" airport search (``O4_Qt_Fly_Divert.DivertDialog``).
 
 Words and rules: :mod:`O4_Fly_Text`, :mod:`O4_Fly_Layers`.  Engine
@@ -182,9 +183,7 @@ class FlyPane(QWidget):
             lambda on: self._remember(PREF_LIVE_PREVIEW, bool(on)))
         layout.addWidget(self.chk_live_preview)
         self.reload_offer_row, self.reload_label = self._button_row(
-            ((DTEXT.RELOAD_NOW, lambda: self.reload(False)),
-             (DTEXT.NOT_NOW, lambda: self.reload(True))))
-        self.not_now_btn = self.reload_offer_row.buttons[1]
+            ((DTEXT.RELOAD_NOW, self.reload),))
         layout.addWidget(self.reload_offer_row)
         self.notice_label = _caption(gray=True)
         self.notice_label.setVisible(False)
@@ -326,7 +325,6 @@ class FlyPane(QWidget):
                  DTEXT.reload_line(self.status))):
             label.setText(line)
             row.setVisible(bool(line))
-        self.not_now_btn.setVisible((self.status or {}).get("reload") == "scheduled")
         for button in (self.divert_btn, self.end_flight_btn):
             button.setEnabled(self.status is not None)
         self.changed.emit()
@@ -355,6 +353,15 @@ class FlyPane(QWidget):
         """A ``FlightStatus`` (the flight manager's event, or its dict)."""
         self.status = _fields(event)
         self._show()
+
+    def refresh_status(self):
+        """Fly opens: the active flight's status (``flight_status``, the
+        record's when its job does not run), so a prepared flight shows
+        and "End flight" works even when no ``FlightStatus`` came (#2019).
+        Swift: ``FlyModel.refreshStatus``."""
+        reply = self._command("flight_status")
+        if (reply or {}).get("flight") and self.status is None:
+            self.show_status(reply)
 
     def show_ready(self, event):
         """A ``FlightReady``: the SimBrief plan, or why there is none."""
@@ -407,6 +414,7 @@ class FlyPane(QWidget):
             self.fetch_simbrief()
         elif choice == "none":
             self.set_plan(None)
+            self.follow_aircraft()
         elif choice:
             self.read_plan(choice)
 
@@ -471,15 +479,24 @@ class FlyPane(QWidget):
                                  flight=self.status.get("flight"), to=to)
         return None
 
-    def reload(self, not_now: bool):
-        """The reload in the air (S6 (b)): now, or "Not now"."""
+    def reload(self):
+        """The offered reload (S6 (a), (b)): the pilot's "Reload scenery
+        now"."""
         if self.status:
-            self._command("flight_reload", flight=self.status.get("flight"),
-                          not_now=bool(not_now))
+            self._command("flight_reload", flight=self.status.get("flight"))
 
     def waive_offline(self):
         """"Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3)."""
         self._update(waive_offline=True)
+
+    def follow_aircraft(self):
+        """"No plan: follow the aircraft": a flight still preparing or
+        ready closes (``flight_end {if_prepared: true}``) so a stale
+        prepared record never owns build-ahead; one in the air stays
+        (#2019).  Track mode runs either way.  Swift: ``FlyModel``."""
+        reply = self._command("flight_end", if_prepared=True)
+        if (reply or {}).get("flight"):
+            self.show_status(None)
 
     def _end_flight(self):
         if self.status and self._command(

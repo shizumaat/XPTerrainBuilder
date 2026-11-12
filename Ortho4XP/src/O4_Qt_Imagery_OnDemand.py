@@ -4,7 +4,8 @@
 
 * :class:`FollowStatusLine` -- the activity area's line while the follow
   job runs: every ``ImageryFollowStatus`` field (headline and detail),
-  and "Follow X-Plane" / "Stop Following", so a flight needs no Terminal.
+  and "Follow X-Plane" / "Stop Following", so a flight needs no Terminal;
+  a pending reload offer with "Reload scenery" (#2019).
   Shown while the world switch is on or a job runs.
 * :class:`TilePinRow` -- the tile pane's "Favorite" row ("pin" renamed
   Favorite, RULINGS 2026-11-10c (1)): a switch on every tile this app
@@ -44,6 +45,9 @@ class FollowStatusLine(QWidget):
 
     #: True: start following; False: stop.
     toggle_requested = Signal(bool)
+    #: The user's "Reload scenery" (``scenery_reload``): the only way the
+    #: app asks X-Plane to reload (owner 2026-11-12T14:34Z).
+    reload_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -65,6 +69,17 @@ class FollowStatusLine(QWidget):
         self.detail.setStyleSheet(NOTE_STYLE)
         self.detail.setVisible(False)
         layout.addWidget(self.detail)
+        self.reload_row = QWidget()
+        row = QHBoxLayout(self.reload_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.reload_label = QLabel("")
+        self.reload_label.setWordWrap(True)
+        row.addWidget(self.reload_label, 1)
+        self.reload_btn = QPushButton(TEXT.RELOAD_SCENERY_TITLE)
+        self.reload_btn.clicked.connect(self.reload_requested.emit)
+        row.addWidget(self.reload_btn, 0)
+        self.reload_row.setVisible(False)
+        layout.addWidget(self.reload_row)
         self.running = False
         self.status = None
 
@@ -76,6 +91,9 @@ class FollowStatusLine(QWidget):
         self.headline.setText(headline)
         self.detail.setText(detail)
         self.detail.setVisible(True)
+        offer = TEXT.reload_offer_line(fields.get("reload_offer") or "")
+        self.reload_label.setText(offer)
+        self.reload_row.setVisible(bool(offer))
         self.set_running(fields.get("state") not in ("stopped", "error"))
 
     def set_running(self, running: bool) -> None:

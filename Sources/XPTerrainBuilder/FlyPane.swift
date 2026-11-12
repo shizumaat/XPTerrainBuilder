@@ -215,8 +215,8 @@ struct OfflineWaiverRow: View {
     }
 }
 
-/// The one reload in the air (rule S6 (b)): announced 30 s ahead with
-/// "Not now"; after it, "Reload scenery now" (lane F2).
+/// The offered reload (rule S6 (a) before departure, (b) in the air):
+/// "Reload scenery now", the only way it is sent (owner 2026-11-12).
 struct ReloadOfferRow: View {
     @ObservedObject var model: FlyModel
 
@@ -225,12 +225,7 @@ struct ReloadOfferRow: View {
         if !line.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text(line).scaledFont(.callout)
-                HStack {
-                    Button(FlyDivertText.reloadNow) { model.reload(notNow: false) }
-                    if model.status?.reload == "scheduled" {
-                        Button(FlyDivertText.notNow) { model.reload(notNow: true) }
-                    }
-                }
+                Button(FlyDivertText.reloadNow) { model.reload() }
             }
         }
     }

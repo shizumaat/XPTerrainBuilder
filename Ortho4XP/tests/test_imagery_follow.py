@@ -520,6 +520,34 @@ def test_waiting_without_x_plane_then_a_clean_threaded_stop(tmp_path):
     assert events[-1].state == "stopped"
 
 
+def test_a_tick_that_raises_is_logged_and_the_job_goes_on(tmp_path,
+                                                          monkeypatch):
+    """#2019: one bad record (a tick that raises) is a ``tick_error`` log
+    line; the job keeps ticking and never turns ``error``."""
+    index_path, _textures = _index_rows(tmp_path)
+    events, ticks = [], []
+    log = tmp_path / "od.log"
+    job = FOLLOW.FollowJob(
+        events.append, lander=FakeLander(), index_path=index_path,
+        reader=WEBAPI.PositionReader(WEBAPI.base_url(9, "127.0.0.1"),
+                                     timeout=0.2),
+        log_path=str(log), period_s=0.02)
+
+    def tick():
+        ticks.append(1)
+        if len(ticks) <= 2:
+            raise ValueError("lat is None")
+    monkeypatch.setattr(job, "tick", tick)
+    job.start()
+    deadline = time.time() + 5
+    while len(ticks) < 5:
+        assert time.time() < deadline, "TIMED_OUT"
+        time.sleep(0.02)
+    assert job.running and job.state != "error"
+    job.stop(timeout=5)
+    assert log.read_text(encoding="utf-8").count("tick_error") == 2
+
+
 def test_the_commands_start_one_job_and_stop_it(tmp_path, monkeypatch):
     from o4_engine import imagery_commands as CMDS
     index_path, _textures = _index_rows(tmp_path)

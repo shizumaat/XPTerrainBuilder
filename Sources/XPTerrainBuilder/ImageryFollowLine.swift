@@ -50,6 +50,18 @@ struct ImageryFollowLine: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                let offer = O4OnDemandText.reloadOfferLine(model.status?.reloadOffer ?? "")
+                if !offer.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(offer)
+                            .scaledFont(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(O4OnDemandText.reloadSceneryTitle) {
+                            buildModel.reloadScenery()
+                        }
+                        .controlSize(.small)
+                    }
+                }
             }
             Spacer(minLength: 4)
             Button(model.running ? O4OnDemandText.followStopTitle

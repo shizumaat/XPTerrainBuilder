@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 __all__ = [
     "DIVERT_TITLE", "DIVERT_SEARCH", "DIVERT_ALTERNATE", "DIVERT_BUTTON",
-    "RELOAD_NOW", "NOT_NOW", "WAIVE_OFFLINE", "SEARCH_LIMIT",
+    "RELOAD_NOW", "WAIVE_OFFLINE", "SEARCH_LIMIT",
     "divert_matches", "divert_row_label", "reload_line", "waiver_line",
 ]
 
@@ -23,7 +23,6 @@ DIVERT_SEARCH = "Airport code or name"
 DIVERT_ALTERNATE = "The plan's alternate"
 DIVERT_BUTTON = "Divert"
 RELOAD_NOW = "Reload scenery now"
-NOT_NOW = "Not now"
 WAIVE_OFFLINE = "Fly with X-Plane's own scenery there"
 #: Rows the airport search shows at most.
 SEARCH_LIMIT = 12
@@ -64,13 +63,15 @@ def _place(status: Dict[str, Any]) -> str:
 
 
 def reload_line(status: Optional[Dict[str, Any]]) -> str:
-    """The reload in the air (S6 (b)), one line; empty when none waits."""
-    state = (status or {}).get("reload") or ""
-    if state == "scheduled":
-        return "Scenery for %s reloads in 30 s." % _place(status)
-    if state == "offered":
-        return "Scenery for %s is ready: reload when you choose." % _place(status)
-    return ""
+    """The offered reload (S6 (a) before departure, (b) in the air), one
+    line; empty when none waits.  Never sent unless the pilot presses
+    "Reload scenery now" (owner 2026-11-12T14:34Z)."""
+    status = status or {}
+    if (status.get("reload") or "") != "offered":
+        return ""
+    if status.get("state") in ("preparing", "ready"):
+        return "Scenery near the departure is ready: reload when you choose."
+    return "Scenery for %s is ready: reload when you choose." % _place(status)
 
 
 def waiver_line(status: Optional[Dict[str, Any]]) -> str:

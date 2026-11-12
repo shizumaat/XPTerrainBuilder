@@ -76,6 +76,14 @@ import Foundation
                                                                 ahead: status.jobs))
                 == [FlyCell(lat: 53, lon: -65, key: "building"),
                     FlyCell(lat: 53, lon: -64, key: "quick")])
+        // Beside a flight (#2019): the flight's tile wins, build-ahead's
+        // other tiles around the aircraft are drawn too.
+        let flight = [O4FlightStatus.Job(lat: 53, lon: -64, role: "enroute", kind: "drape",
+                                         state: "queued", remainingSeconds: nil,
+                                         marginSeconds: nil)]
+        let both = FlyLayers.mapJobs(flight: flight, planned: true, ahead: status.jobs)
+        #expect(both.map { [$0.lat, $0.lon] } == [[53, -64], [53, -65]])
+        #expect(both.map(\.state) == ["queued", "building"])
         #expect(abs(status.frameMS - 21.8) < 1e-9 && status.governor == "ok")
     }
 

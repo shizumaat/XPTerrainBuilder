@@ -10,17 +10,20 @@
   ``{tile: sample index}`` mapping, index 0 being the first window.
 * :class:`Job`, :func:`job_estimate`, :func:`rescale` -- what is to be
   built, with a ``[lo, hi]`` seconds range from the recorded times.
-* :func:`finish_times`, :func:`countdown`, :func:`feasible`,
-  :func:`shed_order`, :func:`next_job` -- list scheduling on ``slots``
-  build slots, the countdown, the shedding order and the dispatch pick
-  with the laxity guard.
+* :func:`finish_times`, :func:`departure_countdown`,
+  :func:`projected_late`, :func:`feasible`, :func:`shed_order`,
+  :func:`next_job` -- list scheduling on ``slots`` build slots, the
+  countdown to the departure area (RULINGS 2026-11-12c (2)), the route
+  tiles projected late, the shedding order and the dispatch pick with
+  the laxity guard.
 * :func:`readiness_items` -- the readiness rows of §6.2 from facts the
   flight manager gathers; :func:`countdown_text` -- the one line.
 
 All times are seconds.  A job's ``deadline_s`` is counted from TAKEOFF;
 0 means "before the flight loads" (class P0).  Finish times are counted
-from NOW.  The countdown T is the wait until takeoff that lets every job
-finish by ``T + deadline_s``.
+from NOW.  The countdown T is the wait until the departure area (every P0
+job) is built; a later job that does not finish by ``T + deadline_s`` is
+projected late and warned of, not waited for.
 
 No airport is named here (owner standing 2026-10-05).
 """
@@ -36,8 +39,9 @@ __all__ = [
     "P0", "P1", "P2", "P3", "P4", "Job", "Facts", "Item", "route_times",
     "margin_s", "tile_deadlines", "klass_for", "job_estimate", "rescale",
     "DRAPE_SECONDS", "drape_seconds",
-    "finish_times", "countdown", "feasible", "shed_order", "next_job",
-    "readiness_items", "countdown_text", "DONE_STATES",
+    "finish_times", "feasible", "shed_order", "next_job",
+    "readiness_items", "countdown_text", "DONE_STATES", "READY_KEYS",
+    "DEPARTURE_MARGIN_S", "departure_countdown", "projected_late",
 ]
 
 Tile = Tuple[int, int]
@@ -262,79 +266,47 @@ def finish_times(jobs: Iterable[Job], slots: int) -> List[Tuple[Job, float]]:
     return out
 
 
-def _slack_s(jobs: Sequence[Job]) -> float:
-    """One build's length: a deadline job may find every slot held by a
-    build that is not interrupted mid-step (§9)."""
-    return max((j.left_hi for j in jobs if j.open and j.klass != P0), default=0.0)
-
-
 def _estimated(job: Job) -> bool:
     values = job.remaining_s or job.est_s
     return values is not None and all(
         v is not None and math.isfinite(v) for v in values)
 
 
-def finish_times_split(jobs: Iterable[Job], slots: int, flight_slots: int,
-                       takeoff_s: float) -> List[Tuple[Job, float]]:
-    """:func:`finish_times` with ``slots`` slots until ``takeoff_s`` and
-    ``flight_slots`` after it (§10: the parked capacity while preparing,
-    the flight capacity in the air); a build started is never interrupted,
-    so builds started before takeoff run on past it."""
-    running: List[float] = []
-    t, out = 0.0, []
-    for job in _plan_order(jobs):
-        while True:
-            while running and running[0] <= t:
-                heapq.heappop(running)
-            cap = max(1, int(slots if t < takeoff_s else flight_slots))
-            if len(running) < cap:
-                end = t + job.left_hi
-                heapq.heappush(running, end)
-                out.append((job, end))
-                break
-            nxt = running[0]
-            t = takeoff_s if t < takeoff_s < nxt and flight_slots > slots else nxt
-    return out
+#: The readiness rows a flight waits for (RULINGS 2026-11-12c (2), owner
+#: 14:32Z: "be conservative with the ready to start timer, but it should
+#: definitely let the user leave as soon as the departure area is ready"):
+#: the facts and the departure area.  The route, destination, alternate
+#: and reload rows are shown, never waited for: they build in flight by
+#: their deadlines, a tile projected late is warned of
+#: (:func:`projected_late`).  Replaces the 2026-11-10 "every row" rule.
+READY_KEYS = ("world", "budget", "network", "prefetch", "departure",
+              "first_window")
+#: Added to the departure area's high-estimate finish (conservative).
+DEPARTURE_MARGIN_S = 60.0
 
 
-def _wait_for(ends: Sequence[Tuple[Job, float]], slack: float) -> float:
-    wait = 0.0
-    for job, end in ends:
-        wait = max(wait, end if job.klass == P0 else end - job.deadline_s + slack)
-    return wait
-
-
-def countdown(jobs: Iterable[Job], slots: int,
-              flight_slots: Optional[int] = None) -> Optional[float]:
-    """Seconds until takeoff may be allowed (§9): every P0 job finished,
-    and every later job finishing by takeoff + its deadline, the deadline
-    side with one build's length of slack.  None when an open job has no
-    estimate (no defensible figure: the views show a dash).
-
-    With ``flight_slots`` (the capacity in the air, §10) the builds run on
-    ``slots`` until takeoff and on ``flight_slots`` after it
-    (:func:`finish_times_split`): the smallest such wait, to the second."""
+def departure_countdown(jobs: Iterable[Job], slots: int) -> Optional[float]:
+    """Seconds until the departure area (every open P0 job: the
+    departure and the first window) is built, list-scheduled on ``slots``
+    with the high estimates, plus :data:`DEPARTURE_MARGIN_S`; 0 when none
+    is open; None when one has no estimate."""
     jobs = list(jobs)
-    if not all(_estimated(j) for j in jobs if j.open):
-        return None
-    slack = _slack_s(jobs)
-    if flight_slots is None or int(flight_slots) == int(slots):
-        return _wait_for(finish_times(jobs, slots), slack)
-    hi = _wait_for(finish_times(jobs, min(slots, flight_slots)), slack)
-
-    def enough(wait: float) -> bool:
-        return _wait_for(finish_times_split(jobs, slots, flight_slots, wait),
-                         slack) <= wait
-    if enough(0.0):
+    area = [j for j in jobs if j.open and j.klass == P0]
+    if not area:
         return 0.0
-    lo = 0.0
-    while hi - lo > 1.0:
-        mid = (lo + hi) / 2.0
-        if enough(mid):
-            hi = mid
-        else:
-            lo = mid
-    return hi
+    if not all(_estimated(j) for j in area):
+        return None
+    ends = [end for job, end in finish_times(jobs, slots) if job.klass == P0]
+    return max(ends) + DEPARTURE_MARGIN_S
+
+
+def projected_late(jobs: Iterable[Job], slots: int, takeoff_s: float
+                   ) -> List[Job]:
+    """The open en-route, destination and alternate jobs that, built on
+    ``slots`` in plan order with the high estimates, finish after their
+    tile loads with takeoff ``takeoff_s`` seconds from now."""
+    return [job for job, end in finish_times(jobs, slots)
+            if job.klass != P0 and end > takeoff_s + job.deadline_s]
 
 
 def feasible(jobs: Iterable[Job], slots: int, takeoff_s: float) -> bool:
@@ -461,8 +433,9 @@ def _deadline_item(key: str, jobs: List[Job], ends: Dict[int, float]) -> Item:
 
 
 def readiness_items(facts: Facts) -> List[Item]:
-    """The rows of §6.2, in order.  The flight is ready when every row is
-    ``done``."""
+    """The rows of §6.2, in order.  The flight is ready when every row
+    of :data:`READY_KEYS` is ``done`` (the departure area); the others
+    say how the rest of the route stands."""
     jobs = list(facts.jobs)
     ends = {id(j): end for j, end in finish_times(jobs, facts.slots)}
 
@@ -488,11 +461,13 @@ def readiness_items(facts: Facts) -> List[Item]:
     in_air = ({id(j): end for j, end in finish_times(jobs, flying)}
               if flying != facts.slots else ends)
     route = [j for j in role("enroute") if j.klass != P0 and id(j) in in_air]
-    if all(in_air[id(j)] <= j.deadline_s for j in route):
+    late = [j for j in route if in_air[id(j)] > j.deadline_s]
+    if not late:
         rows.append(Item("route", "done", 0.0, ""))
     else:
-        rows.append(Item("route", "waiting",
-                         countdown(jobs, facts.slots, facts.flight_slots), ""))
+        rows.append(Item("route", "working", None,
+                         "Builds in flight; %d tile(s) may show X-Plane's "
+                         "own scenery at this speed" % len(late)))
     rows.append(_deadline_item("destination", role("destination"), ends))
     if facts.build_alternate:
         rows.append(_deadline_item("alternate", role("alternate"), ends))
@@ -500,7 +475,7 @@ def readiness_items(facts: Facts) -> List[Item]:
         rows.append(Item("loaded", "done", 0.0, ""))
     else:
         rows.append(Item("loaded", "waiting", None,
-                         "Scenery reloads once on the ground"))
+                         "Reload scenery when you choose"))
     return rows
 
 

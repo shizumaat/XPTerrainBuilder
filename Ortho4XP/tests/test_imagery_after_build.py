@@ -233,6 +233,7 @@ def test_the_mac_app_starts_following_by_itself():
     sync = sync[:sync.index("\n    }\n")]
     assert 'configValue(for: Self.imageryOnDemandKey) == .bool(true)' in sync
     assert "workingDir: context.workingDir, ifEnabled: true" in sync
+    assert "stopImageryFollow" not in sync   # the switch never stops it (#2019)
     wire = (REPO / "Sources" / "SceneryKit" / "OrthoEngineClient.swift").read_text(
         encoding="utf-8")
     assert 'arguments["working_dir"] = workingDir' in wire

@@ -141,14 +141,27 @@ def write_placeholder(pack: str, lat: int, lon: int) -> str:
 
 def write_placeholders(pack: str, tiles) -> dict:
     """A placeholder for every tile of ``tiles`` that has no DSF in
-    ``pack`` yet (a tile of ours is never overwritten).  Returns
+    ``pack`` yet (a tile of ours is never overwritten).  Batched for the
+    world's ~20k land tiles (#2019): the pack's DSFs are listed once
+    (:func:`pack_dsfs`), each 10° folder made once.  Returns
     ``{"written", "kept"}``."""
     out = {"written": 0, "kept": 0}
+    have = {key for key, _path, _size in pack_dsfs(pack)}
+    folders: set = set()
     for lat, lon in tiles:
-        if os.path.exists(os.path.join(pack, dsf_relpath(lat, lon))):
+        if (lat, lon) in have:
             out["kept"] += 1
             continue
-        write_placeholder(pack, lat, lon)
+        dest = os.path.join(pack, dsf_relpath(lat, lon))
+        folder = os.path.dirname(dest)
+        if folder not in folders:
+            os.makedirs(folder, exist_ok=True)
+            folders.add(folder)
+        partial = dest + ".partial"
+        with open(partial, "wb") as handle:
+            handle.write(DSFB.placeholder_bytes(lat, lon, PLACEHOLDER_AGENT))
+        os.replace(partial, dest)
+        have.add((lat, lon))
         out["written"] += 1
     return out
 

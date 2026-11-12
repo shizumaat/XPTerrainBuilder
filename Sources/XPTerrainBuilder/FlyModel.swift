@@ -155,7 +155,22 @@ final class FlyModel: ObservableObject {
         watching = on
         preview.setEnabled(on && livePreview)
         context.client.aircraftWatch(on: on)
-        if on { refreshPlans() }
+        if on {
+            refreshPlans()
+            refreshStatus()
+        }
+    }
+
+    /// Fly opens: the active flight's status (`flight_status`, the
+    /// record's when its job does not run), so a prepared flight shows
+    /// and "End flight" works even when no `FlightStatus` came (#2019).
+    /// Python: `O4_Qt_Fly_Pane.refresh_status`.
+    func refreshStatus() {
+        command("flight_status", [:]) { [weak self] reply in
+            guard let self, self.status == nil,
+                  let status = O4FlightStatus.parse(reply) else { return }
+            self.status = status
+        }
     }
 
     // MARK: - Naming the flight
@@ -176,7 +191,9 @@ final class FlyModel: ObservableObject {
         switch choice {
         case "": break
         case "simbrief": fetchSimBrief()
-        case "none": plan = nil
+        case "none":
+            plan = nil
+            followAircraft()
         default: readPlan(path: choice)
         }
     }
@@ -252,15 +269,26 @@ final class FlyModel: ObservableObject {
         command("flight_divert", ["flight": flight, "to": to]) { _ in }
     }
 
-    /// The reload in the air (S6 (b)): "Reload scenery now" / "Not now".
-    func reload(notNow: Bool) {
+    /// The offered reload (S6 (a), (b)): the pilot's "Reload scenery now",
+    /// the only way it is sent (owner 2026-11-12).
+    func reload() {
         guard let flight = status?.flight else { return }
-        command("flight_reload", ["flight": flight, "not_now": notNow]) { _ in }
+        command("flight_reload", ["flight": flight]) { _ in }
     }
 
     /// "Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3).
     func waiveOffline() {
         update(["waive_offline": true])
+    }
+
+    /// "No plan: follow the aircraft": a flight still preparing or ready
+    /// closes (`flight_end {if_prepared: true}`) so a stale prepared record
+    /// never owns build-ahead; one in the air stays (#2019). Track mode runs
+    /// either way. Python: `O4_Qt_Fly_Pane.follow_aircraft`.
+    func followAircraft() {
+        command("flight_end", ["if_prepared": true]) { [weak self] reply in
+            if reply?["flight"]?.stringValue != nil { self?.status = nil }
+        }
     }
 
     func endFlight() {

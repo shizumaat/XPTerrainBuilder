@@ -82,13 +82,18 @@ public enum FlyLayers {
     /// `FlightStatus.jobs` by their job, and before the engine reports
     /// any, the tiles the route crosses plus those within `corridorKm`
     /// as X-Plane's own scenery (`O4_Fly_Layers.corridor_cells`).
-    /// The jobs the Fly map draws: the flight's once it reports any; with
-    /// no flight and no plan, build-ahead's tiles (`WorldStatus.jobs`, the
-    /// same rows) so free flight shows its drapes; else none (the plan's
+    /// The jobs the Fly map draws: the flight's once it reports any, with
+    /// build-ahead's tiles around the aircraft that are not the flight's
+    /// (`WorldStatus.jobs`, the same rows: track mode runs beside a
+    /// flight, #2019); with no flight and no plan, build-ahead's tiles
+    /// alone so free flight shows its drapes; else none (the plan's
     /// corridor). Python: `O4_Fly_Layers.map_jobs`.
     public static func mapJobs(flight: [O4FlightStatus.Job], planned: Bool,
                                ahead: [O4FlightStatus.Job]) -> [O4FlightStatus.Job] {
-        if !flight.isEmpty { return flight }
+        if !flight.isEmpty {
+            let mine = Set(flight.map { AirportTile(lat: $0.lat, lon: $0.lon) })
+            return flight + ahead.filter { !mine.contains(AirportTile(lat: $0.lat, lon: $0.lon)) }
+        }
         return planned ? [] : ahead
     }
 

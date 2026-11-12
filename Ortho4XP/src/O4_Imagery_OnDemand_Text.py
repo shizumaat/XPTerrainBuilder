@@ -20,7 +20,9 @@ __all__ = ["PIN_TITLE", "UNPIN_TITLE", "PIN_ROW_TITLE", "LOW_RES_STATE",
            "MAKE_LOW_RES_NONE", "PINS_LINE", "CORES_LINE", "OLDER_SHARP_NOTE",
            "FOLLOW_START_TITLE", "FOLLOW_STOP_TITLE", "FOLLOW_TEMPLATES",
            "FOLLOW_DETAIL", "WAITING_REASON", "FOLLOW_NO_TILES",
-           "make_low_res_message",
+           "RELOAD_SCENERY_TITLE", "RELOAD_OFFER_IMAGERY", "RELOAD_OFFER_TILES",
+           "RELOAD_OFFER_COVERAGE",
+           "make_low_res_message", "reload_offer_line",
            "pins_line", "pin_done", "follow_lines", "size_text"]
 
 # --- Favorites (spec §7: the Library's tile menu and the tile's info pane;
@@ -70,8 +72,20 @@ FOLLOW_DETAIL = ("{queued} queued · {slots} at a time · {buffer} · "
                  "{landed} landed ({bytes_landed}) · {failed} failed · "
                  "X-Plane {xplane} at {lat}, {lon}, {speed} kt, "
                  "track {track}° · {flight_loads} flight loads · {jumps} jumps · "
-                 "{reloads} reloads")
+                 "{reloads} reload offers")
 WAITING_REASON = "its Web API is not answering"
+#: The reload offer under the follow line (#2019, owner 2026-11-12T14:34Z:
+#: "Never ask x-plane to reload unless the user requests it."): the line
+#: per ``ImageryFollowStatus.reload_offer`` code, and the button that
+#: sends ``scenery_reload``.  Swift: ``O4OnDemandText.reloadOffer*``.
+RELOAD_SCENERY_TITLE = "Reload scenery"
+RELOAD_OFFER_IMAGERY = ("Sharper imagery landed after X-Plane loaded this "
+                        "area: reload the scenery to see it.")
+RELOAD_OFFER_TILES = ("New tiles replaced ones X-Plane had already loaded: "
+                      "reload the scenery to see them.")
+RELOAD_OFFER_COVERAGE = ("The World pack now covers more of the world: "
+                         "reload the scenery (or restart X-Plane) once so "
+                         "X-Plane can use it.")
 #: The first sentence while the job follows (or waits) with no on-demand
 #: texture in its index: nothing it could sharpen.
 FOLLOW_NO_TILES = ("No on-demand tiles to follow yet: build a tile with "
@@ -158,3 +172,10 @@ def follow_lines(status: Mapping) -> Tuple[str, str]:
     if state in NO_TILES_STATES and values["textures"] == "0":
         template = FOLLOW_NO_TILES
     return template.format(**values), FOLLOW_DETAIL.format(**values)
+
+
+def reload_offer_line(code: str) -> str:
+    """The reload offer's line for an ``ImageryFollowStatus.reload_offer``
+    code; empty when none is pending (the row is hidden)."""
+    return {"imagery": RELOAD_OFFER_IMAGERY, "tiles": RELOAD_OFFER_TILES,
+            "coverage": RELOAD_OFFER_COVERAGE}.get(code or "", "")

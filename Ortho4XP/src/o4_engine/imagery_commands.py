@@ -19,8 +19,10 @@ world switch is off); its settings come from the global config
 (:func:`follow_settings`); ``ImageryFollowStatus`` events report it until
 ``imagery_follow_stop`` ends it and replies its counts.  One job per
 engine.  After a spawn or jump whose imagery missed X-Plane's flight-start
-window the job asks X-Plane to reload its scenery (#1992 P5, capability
-``imagery_spawn_reload``); ``reload: false`` starts a job that never does.
+window the job offers the user a scenery reload (#1992 P5, capability
+``imagery_spawn_reload``; ``reload_offer``: X-Plane reloads only when the
+user clicks "Reload scenery", owner 2026-11-12T14:34Z); ``reload: false``
+starts a job that never offers one.
 
 On-demand imagery (#1992, capability ``imagery_ondemand``):
 ``imagery_ondemand_scan`` (the index rebuilt from the on-demand tiles),
@@ -96,17 +98,19 @@ def start_imagery_follow(emit: Callable[[Any], None],
     (:func:`follow_settings`); ``tiles`` (``[build_dir, lat, lon]`` each)
     are rescanned into the index first, else, with ``working_dir``, every
     on-demand tile under it.  ``if_enabled`` (the apps' automatic start)
-    replies ``{"status": "off"}`` while ``imagery_on_demand`` is off.
-    ``busy()`` is true while a build runs.  ``reload`` false: never ask
-    X-Plane to reload its scenery after a spawn or jump (default: ask,
-    through its Web API command)."""
+    replies ``{"status": "off"}`` only while :func:`follow_wanted` is
+    False.
+    ``busy()`` is true while a build runs.  ``reload`` false: never offer
+    a scenery reload after a spawn or jump (default: offer it to the
+    user, ``reload_offer``; never sent on the job's own)."""
     import O4_File_Names as FNAMES
     import O4_XPlane_WebAPI as WEBAPI
 
+    from . import reload_offer as RELOAD
     from .imagery_follow import FollowJob, log_path
     from .imagery_follow_land import TierLander
     settings = follow_settings()
-    if if_enabled and not settings["enabled"]:
+    if if_enabled and not follow_wanted(settings, index_path):
         return {"status": "off"}
     with _FOLLOW_GUARD:
         job = _FOLLOW["job"]
@@ -127,10 +131,24 @@ def start_imagery_follow(emit: Callable[[Any], None],
                         lead_s=float(lead_s or settings["lead_s"]),
                         lands_per_s=float(lands_per_s or settings["lands_per_s"]),
                         log_path=log_path(), rebuild_tiles=tiles or (),
+                        # an offer to the user, never a reload (owner
+                        # 2026-11-12T14:34Z; reload_offer)
                         reloader=None if reload is False else (
-                            lambda: WEBAPI.reload_scenery(base)))
+                            lambda: RELOAD.offer("imagery")))
         _FOLLOW["job"] = job.start()
     return {"status": "started"}
+
+
+def follow_wanted(settings: Optional[dict] = None,
+                  index_path: Optional[str] = None) -> bool:
+    """Should the follow job run (the apps' automatic start)?  While the
+    ``imagery_on_demand`` switch is on, or whenever the on-demand index
+    holds textures (converted, adopted or built tiles): the switch says
+    only how NEW builds are made (#2019: the switch was off on the
+    owner's Mac, so converted tiles never sharpened)."""
+    import O4_Imagery_OnDemand_Index as IDX
+    settings = follow_settings() if settings is None else settings
+    return bool(settings["enabled"]) or IDX.has_rows(index_path)
 
 
 def follow_running() -> bool:

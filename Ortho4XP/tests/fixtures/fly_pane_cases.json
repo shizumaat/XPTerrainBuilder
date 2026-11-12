@@ -1183,31 +1183,44 @@
     {
      "flight": "f",
      "reload": "",
-     "diverted_to": ""
+     "diverted_to": "",
+     "state": "flying"
     },
     ""
    ],
    [
     {
      "flight": "f",
-     "reload": "scheduled",
-     "diverted_to": "CYQX"
-    },
-    "Scenery for CYQX reloads in 30 s."
-   ],
-   [
-    {
-     "flight": "f",
      "reload": "offered",
-     "diverted_to": ""
+     "diverted_to": "",
+     "state": "flying"
     },
     "Scenery for the destination is ready: reload when you choose."
    ],
    [
     {
      "flight": "f",
+     "reload": "offered",
+     "diverted_to": "CYQX",
+     "state": "flying"
+    },
+    "Scenery for CYQX is ready: reload when you choose."
+   ],
+   [
+    {
+     "flight": "f",
+     "reload": "offered",
+     "diverted_to": "",
+     "state": "preparing"
+    },
+    "Scenery near the departure is ready: reload when you choose."
+   ],
+   [
+    {
+     "flight": "f",
      "reload": "sent",
-     "diverted_to": "CYQX"
+     "diverted_to": "CYQX",
+     "state": "flying"
     },
     ""
    ]

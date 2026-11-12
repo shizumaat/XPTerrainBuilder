@@ -97,13 +97,17 @@ def test_install_status_and_regions(world):
     assert WORLD.world_status(world)["state"] == "off"
     done = WORLD.world_install(world)
     assert done["ini_added"] is True and done["restart_needed"] is False
-    assert WORLD.world_install(world)["ini_added"] is False
+    # World coverage (#2019): every land tile of the enabled regions (all,
+    # by default) gets its placeholder at install; again: none.
+    assert done["placeholders"] == 3
+    again = WORLD.world_install(world)
+    assert again["ini_added"] is False and again["placeholders"] == 0
     europe = REGIONS.region_of(45, 7)
     africa = REGIONS.region_of(-34, 18)
     order = [c for c, _ in REGIONS.REGIONS]
     res = WORLD._regions_set([europe, africa], world)
     # Only the tiles X-Plane's own scenery has (land) get a placeholder.
-    assert res["written"] == 3
+    assert res["written"] == 0 and res["kept"] == 3
     assert res["regions"] == sorted([europe, africa], key=order.index)
     status = WORLD.world_status(world)
     assert status["installed"] and status["tiles"]["placeholder"] == 3
@@ -117,6 +121,57 @@ def test_install_status_and_regions(world):
     assert WORLD.world_status(world)["tiles"]["placeholder"] == 2
     with pytest.raises(ValueError):
         WORLD._regions_set(["atlantis"], world)
+
+
+def test_world_coverage_places_land_tiles_only_and_never_over_a_real_tile(
+        world, monkeypatch):
+    """Owner 2026-11-12T15:05Z: "Yes add world coverage otherwise draping
+    won't work" (#2019).  Regions on -> a placeholder for every LAND tile
+    (X-Plane's Global Scenery list); ocean tiles none; a full or drape tile
+    of ours untouched; idempotent; X-Plane running -> the "coverage"
+    reload OFFER, nothing sent."""
+    from o4_engine import reload_offer as RELOAD
+    monkeypatch.setattr(RELOAD, "_STATE", {"offer": ""})
+    monkeypatch.setattr(RELOAD, "send", lambda base=None: (
+        _ for _ in ()).throw(AssertionError("reload without the user")))
+    os.makedirs(os.path.join(WORLD.pack_dir(world), "Earth nav data"))
+    with open(os.path.join(WORLD.pack_dir(world), WP.MARKER), "w",
+              encoding="utf-8") as h:
+        h.write("{}")
+    pack = WORLD.pack_dir(world)
+    real = os.path.join(pack, WP.dsf_relpath(45, 8))
+    os.makedirs(os.path.dirname(real), exist_ok=True)
+    shutil.copyfile(FIXTURE_DSF, real)              # a built tile of ours
+    monkeypatch.setattr(WORLD, "_xplane_running", lambda: True)
+    done = WORLD.ensure_coverage(world)
+    assert (done["written"], done["kept"]) == (2, 1)
+    kinds = WP.world_tiles(pack)
+    assert kinds[(45, 7)] == kinds[(-34, 18)] == "placeholder"
+    assert kinds[(45, 8)] != "placeholder"          # never over a real tile
+    assert (0, -30) not in kinds                    # ocean: none
+    assert RELOAD.current() == "coverage"
+    again = WORLD.ensure_coverage(world)
+    assert (again["written"], again["kept"]) == (0, 3)
+    # Without Global Scenery the start writes nothing; the user's region
+    # choice falls back to the world mask.
+    shutil.rmtree(os.path.join(os.path.dirname(world), "Global Scenery"))
+    assert WORLD.ensure_coverage(world)["written"] == 0
+
+
+def test_world_coverage_of_the_whole_world_takes_seconds(tmp_path):
+    """The owner's ~20k land tiles: written in seconds (one listing, one
+    folder each), again in well under one."""
+    import O4_DEM_Utils as DEM
+    tiles = [t for code, _ in REGIONS.REGIONS if code != "antarctica"
+             for t in REGIONS.region_tiles(code) if DEM.tile_is_land(*t)]
+    assert len(tiles) > 15_000
+    pack = str(tmp_path / "pack")
+    t0 = time.monotonic()
+    assert WP.write_placeholders(pack, tiles)["written"] == len(tiles)
+    first = time.monotonic() - t0
+    t1 = time.monotonic()
+    assert WP.write_placeholders(pack, tiles)["kept"] == len(tiles)
+    assert first < 30.0 and time.monotonic() - t1 < 5.0
 
 
 def test_publish_a_build_and_give_it_back(world, tmp_path):

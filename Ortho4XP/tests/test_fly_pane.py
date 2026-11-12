@@ -117,10 +117,15 @@ def _text_cases():
                                         ("  ", 12), ("C", 2), ("zzz", 12))],
         "divert_row_label": [[row, DTEXT.divert_row_label(row)]
                              for row in AIRPORTS[2:4]],
-        "reload_line": [[{"flight": "f", "reload": r, "diverted_to": d},
-                         DTEXT.reload_line({"reload": r, "diverted_to": d})]
-                        for r, d in (("", ""), ("scheduled", "CYQX"),
-                                     ("offered", ""), ("sent", "CYQX"))],
+        "reload_line": [[{"flight": "f", "reload": r, "diverted_to": d,
+                          "state": s},
+                         DTEXT.reload_line({"reload": r, "diverted_to": d,
+                                            "state": s})]
+                        for r, d, s in (("", "", "flying"),
+                                        ("offered", "", "flying"),
+                                        ("offered", "CYQX", "flying"),
+                                        ("offered", "", "preparing"),
+                                        ("sent", "CYQX", "flying"))],
         "waiver_line": [[{"flight": "f", "waivable": w},
                          DTEXT.waiver_line({"waivable": w})]
                         for w in ([], ["+53-062", "+53-063"])],
@@ -217,7 +222,7 @@ def test_the_words_are_the_macs():
         assert '(%d, "%s")' % (value, words) in swift, value
     divert = SWIFT_DIVERT_TEXT.read_text(encoding="utf-8")
     for name in ("DIVERT_TITLE", "DIVERT_SEARCH", "DIVERT_ALTERNATE",
-                 "DIVERT_BUTTON", "RELOAD_NOW", "NOT_NOW", "WAIVE_OFFLINE"):
+                 "DIVERT_BUTTON", "RELOAD_NOW", "WAIVE_OFFLINE"):
         camel = re.sub(r"_(\w)", lambda m: m.group(1).upper(), name.lower())
         said = re.search(r'static let %s = "([^"]+)"' % camel, divert)
         assert said and said.group(1) == getattr(DTEXT, name), name
@@ -247,14 +252,19 @@ def test_the_corridor_follows_the_jobs_once_reported():
 
 def test_free_flight_maps_the_drapes_ahead():
     """No flight, no plan: the map draws build-ahead's tiles
-    (``WorldStatus.jobs``) by the same legend; a flight's jobs, or a plan's
-    corridor, win over them."""
+    (``WorldStatus.jobs``) by the same legend; a plan's corridor wins over
+    them; a flight's jobs win on their own tiles and build-ahead's other
+    tiles are drawn beside them (track mode runs beside a flight, #2019)."""
     ahead = WORLD_STATUS["jobs"]
     jobs = LAYERS.map_jobs((), False, ahead)
     assert LAYERS.corridor_cells(None, 20, jobs) == [
         (53, -60, "building"), (53, -59, "quick"), (54, -60, "own")]
-    assert LAYERS.map_jobs(FLIGHT_STATUS["jobs"], False, ahead) == \
-        FLIGHT_STATUS["jobs"]
+    both = LAYERS.map_jobs(FLIGHT_STATUS["jobs"], False, ahead)
+    assert both[:len(FLIGHT_STATUS["jobs"])] == tuple(FLIGHT_STATUS["jobs"])
+    assert [tuple(r[0]) for r in both[len(FLIGHT_STATUS["jobs"]):]] == [
+        tuple(r[0]) for r in ahead
+        if tuple(r[0]) not in {tuple(f[0]) for f in FLIGHT_STATUS["jobs"]}]
+    assert (53, -59, "quick") in LAYERS.corridor_cells(None, 20, both)
     assert LAYERS.map_jobs((), True, ahead) == ()
     assert set(EV.WorldStatus.__dataclass_fields__) >= {"jobs", "building"}
 

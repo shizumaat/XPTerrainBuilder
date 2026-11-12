@@ -1013,6 +1013,13 @@ public final class OrthoEngineClient: @unchecked Sendable {
         send(command: "imagery_follow_stop")
     }
 
+    /// The user's "Reload scenery" (#2019, capability
+    /// `scenery_reload_offer`): the only way the app asks X-Plane to
+    /// reload (owner 2026-11-12: never unless the user requests it).
+    public func reloadScenery() {
+        send(command: "scenery_reload")
+    }
+
     // MARK: - Build-ahead (World spec W2, capability world_job)
 
     /// Start build-ahead in track mode: tiles about to enter X-Plane's

@@ -78,6 +78,42 @@ def test_plans_list_fills_the_menu_and_a_plan_fills_the_card(qapp):
     assert pane.chk_build_alternate.isEnabled()         # the plan has one
 
 
+def test_opening_fly_shows_a_prepared_flight_so_it_can_be_ended(qapp):
+    """#2019 (owner: "the end flight button is disabled"): a prepared
+    record whose job sent no FlightStatus is read when Fly opens
+    (``flight_status``); End flight is enabled and ends it."""
+    status = dict(CASES["events"]["FlightStatus"])
+    engine = _Engine({"flight_status": status, "flight_end": {}})
+    pane, _ = _pane(engine)
+    assert not pane.end_flight_btn.isEnabled()
+    pane.refresh_status()
+    assert engine.calls[-1] == ("flight_status", {})
+    assert pane.end_flight_btn.isEnabled()
+    pane.end_flight_btn.click()
+    assert engine.calls[-1] == ("flight_end", {"flight": status["flight"]})
+    none = _Engine({"flight_status": {"flight": None}})
+    pane, _ = _pane(none)
+    pane.refresh_status()
+    assert pane.status is None and not pane.end_flight_btn.isEnabled()
+
+
+def test_no_plan_closes_a_prepared_flight_only(qapp):
+    """"No plan: follow the aircraft" asks the engine to close the active
+    flight only while it is still preparing or ready (#2019): a stale
+    prepared record never owns build-ahead; a flight in the air stays."""
+    status = CASES["events"]["FlightStatus"]
+    for reply, cleared in (({"flight": status["flight"], "state": "closed"}, True),
+                           ({"flight": None}, False)):
+        engine = _Engine({"flight_end": reply})
+        pane, _ = _pane(engine)
+        pane.show_status(NS(**status))
+        combo = pane.plan_source_combo
+        combo.setCurrentIndex(combo.findData("none"))
+        pane._source_chosen(combo.currentIndex())
+        assert ("flight_end", {"if_prepared": True}) in engine.calls
+        assert (pane.status is None) is cleared
+
+
 def test_quick_entry_and_a_refusing_engine(qapp):
     engine = _Engine({})
     pane, _ = _pane(engine)
@@ -108,7 +144,10 @@ def test_status_events_fill_the_checklist_and_countdown(qapp):
     assert pane.divert_btn.isEnabled() and pane.end_flight_btn.isEnabled()
     pane.show_world(CASES["events"]["WorldStatus"])
     assert pane.world_line.text() == TEXT.world_line(CASES["events"]["WorldStatus"])
-    assert [c[2] for c in pane.cells()] == ["built", "quick", "building", "own"]
+    # the flight's cells, then build-ahead's around the aircraft beside it
+    # (#2019): +53-060 stays the flight's, +53-059 and +54-060 are added
+    assert [c[2] for c in pane.cells()] == ["built", "quick", "building", "own",
+                                            "quick", "own"]
     pane.end_flight_btn.click()
     assert pane.status is None and pane.readiness_list.text() == TEXT.NO_STATUS
 
@@ -173,21 +212,21 @@ def test_divert_waiver_reload_and_notice(qapp):
     engine = _Engine(answers)
     pane, _saved = _pane(engine)
     status = dict(CASES["events"]["FlightStatus"], waivable=["+53-062"],
-                  reload="scheduled", diverted_to="CYQX")
+                  reload="offered", diverted_to="CYQX")
     pane.show_status(status)
     assert not pane.offline_waiver_row.isHidden()
     assert "1 tile(s)" in pane.waiver_label.text()
     pane.offline_waiver_row.buttons[0].click()
     assert engine.calls[-1] == ("flight_update", {
         "flight": status["flight"], "waive_offline": True})
-    assert not pane.reload_offer_row.isHidden() and not pane.not_now_btn.isHidden()
-    pane.not_now_btn.click()
-    assert engine.calls[-1] == ("flight_reload", {"flight": status["flight"],
-                                                  "not_now": True})
-    pane.show_status(dict(status, reload="offered", waivable=[]))
-    assert pane.offline_waiver_row.isHidden() and pane.not_now_btn.isHidden()
+    assert not pane.reload_offer_row.isHidden()
+    assert len(pane.reload_offer_row.buttons) == 1      # no "Not now" (#2019)
+    pane.show_status(dict(status, waivable=[]))
+    assert pane.offline_waiver_row.isHidden()
     pane.reload_offer_row.buttons[0].click()
-    assert engine.calls[-1][1]["not_now"] is False
+    assert engine.calls[-1] == ("flight_reload", {"flight": status["flight"]})
+    pane.show_status(dict(status, reload="sent", waivable=[]))
+    assert pane.reload_offer_row.isHidden()
     pane.divert_to({"ident": "CYYT", "lat": 47.6, "lon": -52.7})
     assert engine.calls[-1] == ("flight_divert", {
         "flight": status["flight"], "to": {"ident": "CYYT", "lat": 47.6,

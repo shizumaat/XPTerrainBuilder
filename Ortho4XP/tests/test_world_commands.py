@@ -136,7 +136,7 @@ def test_world_coverage_places_land_tiles_only_and_never_over_a_real_tile(
         _ for _ in ()).throw(AssertionError("reload without the user")))
     os.makedirs(os.path.join(WORLD.pack_dir(world), "Earth nav data"))
     with open(os.path.join(WORLD.pack_dir(world), WP.MARKER), "w",
-              encoding="utf-8") as h:
+              encoding="utf-8", newline="\n") as h:
         h.write("{}")
     pack = WORLD.pack_dir(world)
     real = os.path.join(pack, WP.dsf_relpath(45, 8))

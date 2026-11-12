@@ -248,7 +248,11 @@ final class BuildModel: ObservableObject {
     /// Step groups, matching the Qt build box's three checkboxes.
     @AppStorage("OrthoDoVector") var doVector: Bool = true
     @AppStorage("OrthoDoImagery") var doImagery: Bool = true
-    @AppStorage("OrthoDoOverlays") var doOverlays: Bool = false
+    /// X-Plane's roads, forests and buildings are automatic (#2021, RULINGS
+    /// 2026-11-12e): the engine adds the overlay step to every full tile and
+    /// skips a tile other scenery covers, so the app never asks for it (the
+    /// `OrthoDoOverlays` switch is retired).
+    let doOverlays = false
     @AppStorage("OrthoSkipBuilt") var skipBuilt: Bool = true
     /// Install finished tiles into Custom Scenery automatically.
     @AppStorage("OrthoLinkTiles") var linkTiles: Bool = true

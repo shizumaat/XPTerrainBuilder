@@ -197,6 +197,14 @@ RATE_MIN_SPAN_SECONDS = 3.0  # need this much window before trusting a rate
 RATE_MIN_GAIN_PERCENT = 0.5  # ...and this much percent gained inside it
 
 
+def with_auto_overlays(do_vector, do_imagery, do_overlays):
+    """The overlay step's switch for a batch: on for every FULL tile (map
+    data and imagery both built), whose mesh hides X-Plane's own roads,
+    forests and buildings (#2021, RULINGS 2026-11-12e); the step itself
+    skips a tile other scenery covers (``O4_Overlay_Utils.auto_overlay``)."""
+    return bool(do_overlays or (do_vector and do_imagery))
+
+
 def plan_steps(do_vector, do_imagery, do_overlays, steps=None):
     """Ordered ``(key, base_fraction, slice_fraction)`` plan for the selected
     steps, slices normalized so a full tile is exactly 1.0.
@@ -1020,6 +1028,8 @@ class EngineSession:
         """
         if self._building:
             return False
+        if steps is None:
+            do_overlays = with_auto_overlays(do_vector, do_imagery, do_overlays)
         priority = (_ORDER.rank(klass, deadline)
                     if klass is not None or deadline is not None else None)
         try:
@@ -1243,6 +1253,7 @@ class EngineSession:
         the active run).
         """
         tiles = [tuple(tile) for tile in tiles]
+        do_overlays = with_auto_overlays(do_vector, do_imagery, do_overlays)
         priority = (_ORDER.rank(klass, deadline)
                     if klass is not None or deadline is not None else None)
         with self._command_lock:
@@ -1588,7 +1599,8 @@ class EngineSession:
             "mesh": MESH.build_mesh,
             "masks": MASK.build_masks,
             "imagery": TILE.build_tile,
-            "overlays": lambda t: OVL.build_overlay(t.lat, t.lon),
+            "overlays": lambda t: OVL.auto_overlay(
+                t.lat, t.lon, getattr(CFG, "custom_scenery_dir", "") or ""),
         }
         last_ok = {}  # #1624: each tile's last outcome
         run_completed = False

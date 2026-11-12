@@ -137,7 +137,7 @@ _LAYOUT: list = [
         ("custom_scenery_dir", "Where is X-Plane's Custom Scenery folder?", "app", False,
          "Finished tiles are linked into it so X-Plane finds them."),
         ("custom_overlay_src", "Where should roads, forests and buildings come from?", "app", False,
-         "An X-Plane scenery folder, usually Global Scenery."),
+         "Usually Global Scenery. Full tiles get their roads, forests and buildings from it."),
         ("verbosity", "How much should the console show?", "app", False,
          "More detail helps when you report a problem."),
         ("cleaning_level", "Which build files should be kept?", "app", False,

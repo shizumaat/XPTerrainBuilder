@@ -623,7 +623,10 @@ def ini_install(lines: list, pack_name: str = PACK_NAME) -> bool:
     2026-11-12T14:44Z: the World row "is supposed to be at the bottom";
     filed as an ortho-group pack it landed above simHeaven overlays that sat
     below a mesh row).  A row already there is enabled and moved to the
-    bottom.  ``False`` when a row was already there."""
+    bottom.  The app's overlay pack row, when the ini has one, is moved
+    directly above it (``O4_Overlay_Pack.ini_install``, RULINGS
+    2026-11-12e).  ``False`` when a row was already there."""
+    import O4_Overlay_Pack as OPACK
     import O4_Scenery_Packs as PACKS
     had = [i for i, line in enumerate(lines)
            if line.strip().rstrip("/").endswith("Custom Scenery/" + pack_name)]
@@ -631,6 +634,8 @@ def ini_install(lines: list, pack_name: str = PACK_NAME) -> bool:
         del lines[i]
     PACKS.insert_new_packs(lines, [pack_name],
                            lambda name: "bottom" if name == pack_name else None)
+    if pack_name == PACK_NAME and OPACK.has_row(lines):
+        OPACK.ini_install(lines)
     return not had
 
 

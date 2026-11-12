@@ -160,8 +160,12 @@ BUILD_BOX = (
     ("skip_built", "Skip tiles already built", "chk_skip_built"),
     ("terrain_steps", "terrain_steps", "chk_vector"),
     ("imagery_and_scenery_file", "imagery_and_scenery_file", "chk_imagery"),
-    ("xplane_objects", "xplane_objects", "chk_overlays"),
 )
+
+#: X-Plane's roads, forests and buildings are automatic (#2021, RULINGS
+#: 2026-11-12e): no switch in either Build box, a line under Advanced of
+#: these two glossary terms (Mac ``Text``s, Qt ``overlays_note``).
+OVERLAYS_LINE = ("xplane_objects", "xplane_objects_auto")
 
 #: The Airports card's sentences: (Swift ``static let``, Qt constant).
 AIRPORTS_CARD_TEXT = (
@@ -334,6 +338,15 @@ def test_mac_build_box_is_the_manifest():
     assert _swift_build_box() == [label for _key, label, _attr in BUILD_BOX]
 
 
+def test_mac_build_box_says_the_overlays_are_automatic():
+    block = _block(SWIFT / "BuildPane.swift",
+                   "private var buildBox: some View",
+                   "// MARK: - Imagery-source conflict")
+    for term in OVERLAYS_LINE:
+        assert 'Text(O4Glossary.term("%s"))' % term in block, term
+    assert "doOverlays" not in block
+
+
 def test_the_airports_cards_say_the_same_words():
     import O4_Qt_Build_Airports as QTAIRPORTS
 
@@ -503,6 +516,15 @@ def _qt_build_box(window) -> list:
 def test_qt_build_box_is_the_manifest(window):
     expected = [getattr(window, attr) for _key, _label, attr in BUILD_BOX]
     assert _qt_build_box(window) == expected
+
+
+def test_qt_build_box_says_the_overlays_are_automatic(window):
+    import O4_Glossary as GLOSSARY
+
+    assert window.overlays_note.text() == "\n".join(
+        GLOSSARY.TERMS[term] for term in OVERLAYS_LINE)
+    assert window.overlays_note.parentWidget() is window.advanced_box
+    assert not hasattr(window, "chk_overlays")
 
 
 def test_qt_build_box_labels_are_the_macs(window):

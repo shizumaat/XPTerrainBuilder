@@ -42,7 +42,7 @@ import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Tier_Plan as PLAN
 
 __all__ = ["CORE_RING_S", "GRADED_SUFFIX", "airport_points", "base_zoom",
-           "core_names", "core_tier", "custom_points"]
+           "core_names", "core_tier"]
 
 #: The core's radius in units of a square's S: the 1024 px crossing.
 CORE_RING_S = PLAN.CROSSING_S[1]

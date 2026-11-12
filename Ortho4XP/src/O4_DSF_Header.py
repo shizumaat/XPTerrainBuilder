@@ -22,7 +22,8 @@ import lzma
 import struct
 from typing import Optional
 
-__all__ = ["HEAD_BYTES", "dsf_bytes", "dsf_properties", "dsf_is_overlay"]
+__all__ = ["HEAD_BYTES", "dsf_bytes", "dsf_property_pairs", "dsf_properties",
+           "dsf_is_overlay"]
 
 #: How much of the DSF a check decodes: HEAD comes first in every DSF.
 HEAD_BYTES = 1 << 16
@@ -115,9 +116,10 @@ def _atoms(buf: bytes, off: int, end: int):
         off += length
 
 
-def dsf_properties(path: str) -> Optional[dict]:
-    """The DSF's ``HEAD``/``PROP`` pairs (``{"sim/overlay": "1", …}``), or
-    ``None`` when the file cannot be read or decoded as a DSF."""
+def dsf_property_pairs(path: str) -> Optional[list]:
+    """The DSF's ``HEAD``/``PROP`` pairs in file order, a name repeated as
+    often as the DSF says it (``sim/exclude_net`` may be given once per
+    box), or ``None`` when the file cannot be read or decoded as a DSF."""
     try:
         buf = _head(path)
     except OSError:
@@ -130,12 +132,20 @@ def dsf_properties(path: str) -> Optional[dict]:
         for kid, kbody, kend in _atoms(buf, body, end):
             if kid in _PROP_IDS:
                 strings = buf[kbody:kend].split(b"\0")
-                return {name.decode("utf-8", "replace"):
-                        value.decode("utf-8", "replace").strip()
+                return [(name.decode("utf-8", "replace"),
+                         value.decode("utf-8", "replace").strip())
                         for name, value in zip(strings[0::2], strings[1::2], strict=False)
-                        if name}
-        return {}
+                        if name]
+        return []
     return None
+
+
+def dsf_properties(path: str) -> Optional[dict]:
+    """The DSF's ``HEAD``/``PROP`` pairs (``{"sim/overlay": "1", …}``; a
+    repeated name keeps its last value), or ``None`` when the file cannot
+    be read or decoded as a DSF."""
+    pairs = dsf_property_pairs(path)
+    return None if pairs is None else dict(pairs)
 
 
 def dsf_is_overlay(path: str) -> Optional[bool]:

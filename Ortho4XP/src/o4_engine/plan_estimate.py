@@ -255,7 +255,8 @@ def tile_estimate(lat, lon, provider, zoomlevel, custom_build_dir,
         tile_disk = [d + b for d, b in zip(tile_disk, BUILD_FILES_BYTES, strict=True)]
 
     steps = [key for key, _base, _width in SESSION.plan_steps(
-        do_vector, do_imagery, do_overlays)] if (
+        do_vector, do_imagery, SESSION.with_auto_overlays(
+            do_vector, do_imagery, do_overlays))] if (
             do_vector or do_imagery or do_overlays) else []
     seconds = sum(SESSION._predict_step_seconds(
         lat, lon, features, steps).values()) if steps else 0.0

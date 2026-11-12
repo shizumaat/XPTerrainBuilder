@@ -42,11 +42,12 @@ public struct PackActionService {
 
     /// The rows reconcile never removes (the 2026-11-11 Convert incident:
     /// 1,997 rows dropped while tiles moved, the World pack's among them
-    /// once its folder was trashed): the World pack's, and every entry the
-    /// migration journal names — a dynamic tile's link is gone by design,
-    /// and its disabled row is what Undo and X-Plane's next start read.
+    /// once its folder was trashed): the World pack's and the overlay
+    /// pack's (#2021), and every entry the migration journal names — a
+    /// dynamic tile's link is gone by design, and its disabled row is what
+    /// Undo and X-Plane's next start read.
     public func protectedNames() -> Set<String> {
-        var names: Set<String> = [O4WorldPack.packName]
+        var names: Set<String> = [O4WorldPack.packName, O4WorldPack.overlaysPackName]
         let journal = root.appendingPathComponent(Self.worldMigrateWorkDir)
             .appendingPathComponent("journal.json")
         if let data = try? Data(contentsOf: journal),

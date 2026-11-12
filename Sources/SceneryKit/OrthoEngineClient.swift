@@ -244,8 +244,11 @@ public enum O4Event: Sendable, Equatable {
     /// the line, nil for a run-level line.
     case log(level: String, text: String, tile: String?)
     case scanProgress(phase: String, done: Int, total: Int)
-    /// built: [lat, lon, info] triples; installed: [lat, lon] pairs.
-    case scanBatch(built: [(lat: Int, lon: Int, info: O4JSON)], installed: [(lat: Int, lon: Int)])
+    /// built: [lat, lon, info] triples; installed: [lat, lon] pairs;
+    /// world (capability `scan_world`, #2024): the World pack's state of
+    /// each tile it knows (`O4WorldTile.row`), empty from an older engine.
+    case scanBatch(built: [(lat: Int, lon: Int, info: O4JSON)], installed: [(lat: Int, lon: Int)],
+                   world: [(lat: Int, lon: Int, tile: O4WorldTile)] = [])
     case scanDone(builtCount: Int, installedCount: Int)
     /// `detail` (additive within protocol 1.10, #598): whole sentences for
     /// a second line under the tile's row — for a stopped tile, what it is
@@ -414,7 +417,8 @@ public enum O4Event: Sendable, Equatable {
                       let lon = (entry[1] as? NSNumber)?.intValue else { continue }
                 installed.append((lat, lon))
             }
-            return .scanBatch(built: built, installed: installed)
+            let world = (object["world"] as? [[Any]] ?? []).compactMap(O4WorldTile.row)
+            return .scanBatch(built: built, installed: installed, world: world)
         case "ScanDone":
             return .scanDone(builtCount: int("built_count"), installedCount: int("installed_count"))
         case "TileState":

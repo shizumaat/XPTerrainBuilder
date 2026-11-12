@@ -51,6 +51,9 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     /// from an engine that predates the fields.
     public let onDemand: Bool?
     public let pinned: Bool?
+    /// What the World pack draws on the tile (#2024); nil when it holds
+    /// nothing there, or from an engine before `scan_world`.
+    public private(set) var world: O4WorldTile?
     /// A row made from the map's scan before `library_scan` answered: its
     /// size, airports and packs are not read yet (#2006).
     public private(set) var detailsPending = false
@@ -60,7 +63,7 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     public var pinApplies: Bool { !readOnly && (onDemand == true || pinned == true) }
 
     private enum CodingKeys: String, CodingKey {
-        case tile, lat, lon, zl, provider, built, airports, pinned
+        case tile, lat, lon, zl, provider, built, airports, pinned, world
         case onDemand = "on_demand"
         case buildDir = "build_dir", sizeBytes = "size_bytes"
         case packsModified = "packs_modified", linkStatus = "link_status"
@@ -70,7 +73,7 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     /// The row the map's scan already knows (#2006: the Library shows the
     /// tiles at once, `library_scan` fills in sizes, airports and packs).
     /// Read-only until then unless the scan says this app built it.
-    public init(mapTile info: O4TileInfo, inXPlane: Bool) {
+    public init(mapTile info: O4TileInfo, inXPlane: Bool, world: O4WorldTile? = nil) {
         tile = TileMath.key(lat: info.lat, lon: info.lon)
         lat = info.lat
         lon = info.lon
@@ -87,6 +90,7 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
         builtBy = readOnly ? "other" : "XPTerrainBuilder"
         onDemand = info.onDemand
         pinned = info.pinned
+        self.world = world
         detailsPending = true
     }
 
@@ -98,11 +102,14 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     public var packsText: String { packsModified.map(\.packName).joined(separator: ", ") }
     public var builtByText: String { readOnly ? "Other tool (read-only)" : "XPTerrainBuilder" }
     public var inXPlaneSortKey: Int { inXPlane ? 1 : 0 }
+    /// The World column (`O4WorldStateText.cellText`).
+    public var worldText: String { O4WorldStateText.cellText(world) }
 
     /// Whether `query` (already lower-cased) appears in any listed field.
     public func matches(_ query: String) -> Bool {
         guard !query.isEmpty else { return true }
-        return [tile, provider, airportsText, packsText, builtByText, zl.map(String.init) ?? ""]
+        return [tile, provider, airportsText, packsText, builtByText, worldText,
+                zl.map(String.init) ?? ""]
             .contains { $0.lowercased().contains(query) }
     }
 }

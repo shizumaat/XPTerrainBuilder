@@ -55,7 +55,8 @@ __all__ = [
     "PACK_NAME", "MARKER", "PLACEHOLDER_AGENT", "KINDS", "PLACEHOLDER_MAX_BYTES",
     "STAGING_DIR", "tile_name", "parse_tile",
     "dsf_relpath", "placeholder_text", "write_placeholder",
-    "write_placeholders", "is_placeholder", "kind_of", "pack_dsfs",
+    "write_placeholders", "is_placeholder", "kind_of", "kind_of_agent",
+    "pack_dsfs",
     "real_tiles", "holds_tile", "world_tiles", "block_tiles", "rewrite_ter",
     "rewrite_dsf_text", "relayout_tile", "verify_tile",
     "publish", "swap_staged", "swap_in", "swap_out", "ini_install",
@@ -192,7 +193,13 @@ def kind_of(path: str) -> str | None:
     props = DSFH.dsf_properties(path)
     if props is None:
         return None
-    m = _KIND_RE.search(props.get("sim/creation_agent", ""))
+    return kind_of_agent(props.get("sim/creation_agent", ""))
+
+
+def kind_of_agent(agent: str) -> str:
+    """The kind a DSF's ``sim/creation_agent`` says (:data:`KINDS`; no
+    stamp, or a retired one, is ``full``)."""
+    m = _KIND_RE.search(agent)
     return m.group(1) if m else "full"
 
 

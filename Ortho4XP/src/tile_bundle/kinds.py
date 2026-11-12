@@ -29,7 +29,7 @@ says.  Several airport packages for one tile install side by side
 """
 from __future__ import annotations
 
-__all__ = ["TILE", "EXACT", "PATCH", "COMBINED", "KINDS", "AIRPORT_KINDS", "TITLES",
+__all__ = ["TILE", "EXACT", "PATCH", "COMBINED", "ADOPTED", "KINDS", "AIRPORT_KINDS", "TITLES",
            "EXPLANATIONS", "resolve", "still_needs", "size_text", "span_text",
            "combine", "figures_text"]
 
@@ -38,6 +38,10 @@ EXACT = "exact"
 PATCH = "patch"
 #: Packages of different kinds combined (``merge.merge_packages``).
 COMBINED = "combined"
+#: A tile another tool built that Convert existing tiles adopted: its
+#: mesh, terrain and masks (:mod:`.adopted`); written by Convert, never
+#: offered by Export.
+ADOPTED = "adopted"
 
 #: The kinds in the order the export window offers them (whole tile last).
 KINDS = (EXACT, PATCH, TILE)
@@ -45,7 +49,7 @@ AIRPORT_KINDS = (EXACT, PATCH)
 
 #: Each kind's name and one-line explanation (both apps show these).
 TITLES = {EXACT: "Exact match", PATCH: "Airport patch only", TILE: "Whole tile",
-          COMBINED: "Combined packages"}
+          COMBINED: "Combined packages", ADOPTED: "Adopted tile"}
 EXPLANATIONS = {
     EXACT: "The airport with the elevation and map data it was graded on; "
            "the recipient rebuilds it offline except imagery.",
@@ -55,6 +59,8 @@ EXPLANATIONS = {
           "tile (largest).",
     COMBINED: "Several packages in one; each airport is as its own package "
               "held it.",
+    ADOPTED: "A tile another tool built, kept as it is: its mesh, terrain "
+             "and masks; imagery is laid low-res and sharpened as you fly.",
 }
 
 

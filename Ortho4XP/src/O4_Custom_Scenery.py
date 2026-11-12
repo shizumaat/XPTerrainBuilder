@@ -36,6 +36,7 @@ __all__ = [
     "SceneryPack",
     "PACK_KINDS",
     "disabled_pack_names",
+    "airport_points_by_tile",
     "iter_packs",
     "pack_tiles",
     "pack_kind",
@@ -291,6 +292,43 @@ def iter_airport_packs(scenery_dir: str) -> Iterator[tuple]:
         airports = _pack_airports(content_root)
         if airports:
             yield (entry, path, content_root, entry not in disabled, airports)
+
+
+_POINTS: dict = {}
+
+
+def airport_points_by_tile(scenery_dir: str) -> dict:
+    """``{(lat, lon): [(icao, lat, lon), ...]}``: the airports of every
+    ENABLED custom airport pack of ``scenery_dir``
+    (:func:`iter_airport_packs`), by the one-degree tile holding each.
+    Read once per state of the folder and its ``scenery_packs.ini``."""
+    if not scenery_dir or not os.path.isdir(scenery_dir):
+        return {}
+    stamp = []
+    for path in (scenery_dir,
+                 os.path.join(scenery_dir, _scenery_packs.INI_FILENAME)):
+        try:
+            st = os.stat(path)
+            stamp.append((st.st_mtime_ns, st.st_size))
+        except OSError:
+            stamp.append(None)
+    key = os.path.realpath(scenery_dir)
+    held = _POINTS.get(key)
+    if held is not None and held[0] == stamp:
+        return held[1]
+    out: dict = {}
+    for _name, _path, _root, enabled, airports in iter_airport_packs(scenery_dir):
+        if not enabled:
+            continue
+        for apt in airports:
+            if apt.lat is None or apt.lon is None:
+                continue
+            tile = (int(apt.lat // 1), int(apt.lon // 1))
+            point = ((apt.icao or "").upper(), float(apt.lat), float(apt.lon))
+            if point not in out.setdefault(tile, []):
+                out[tile].append(point)
+    _POINTS[key] = (stamp, out)
+    return out
 
 
 def _probe_names(content_root: str, folder: str) -> list:

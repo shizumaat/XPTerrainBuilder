@@ -814,15 +814,23 @@ def initialize_combined_providers_dict():
 ################################################################################
 
 ################################################################################
-def initialize_local_combined_providers_dict(tile):
+def initialize_local_combined_providers_dict(tile, only=None):
     # This function will select from list of providers the only
     # ones whose coverage intersect the given tile.
+    # ``only`` (the on-demand lander, ``imagery_follow_land``): the
+    # combined providers to read, into a NEW dict that is returned
+    # (``0`` when one has no data on the tile); the module's own dict,
+    # which a build in this process may be using, is left alone.
     global local_combined_providers_dict, extents_dict
     UI.vprint(1, "-> Initializing providers with potential data on this tile.")
-    local_combined_providers_dict = {}
-    test_set = set([tile.default_website])
-    for region in tile.zone_list[:]:
-        test_set.add(region[2])
+    target = {}
+    if only is None:
+        local_combined_providers_dict = target
+        test_set = set([tile.default_website])
+        for region in tile.zone_list[:]:
+            test_set.add(region[2])
+    else:
+        test_set = set(only)
     for provider_code in test_set.intersection(combined_providers_dict):
         comb_list = []
         for rlayer in combined_providers_dict[provider_code]:
@@ -846,7 +854,7 @@ def initialize_local_combined_providers_dict(tile):
             )
             return 0
         if len(comb_list) == 1:
-            local_combined_providers_dict[provider_code] = comb_list
+            target[provider_code] = comb_list
             continue
         # len(comb_list > 1)
         new_comb_list = []
@@ -999,9 +1007,9 @@ def initialize_local_combined_providers_dict(tile):
                         pass
             else:
                 new_comb_list.append(rlayer)
-        local_combined_providers_dict[provider_code] = new_comb_list
+        target[provider_code] = new_comb_list
     UI.vprint(2, "     Done.")
-    return 1
+    return 1 if only is None else target
 
 
 ################################################################################

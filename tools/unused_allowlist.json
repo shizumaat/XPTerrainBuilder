@@ -211,11 +211,6 @@
  },
  {
   "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
-  "name": "fetch_cores",
-  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
- },
- {
-  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
   "name": "register_built",
   "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
  },

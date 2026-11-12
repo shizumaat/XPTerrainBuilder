@@ -89,6 +89,12 @@ class TileInfo:
 #: :attr:`TileInfo.origin` of a tile this app built, and of another's.
 ORIGIN_HERE = "xptb"
 ORIGIN_OTHER = "other"
+#: ... and of a tile another tool built that Convert existing tiles
+#: ADOPTED (``o4_engine.world_adopt``): its mesh kept, packaged and
+#: offloaded as one of ours.
+ORIGIN_ADOPTED = "adopted"
+#: The adopted tile's stamp, in its folder (written by ``world_adopt``).
+ADOPTED_STAMP = ".xptb_adopted.json"
 
 
 ##############################################################################
@@ -283,6 +289,35 @@ def built_here(build_dir: str, lat: int, lon: int,
     return False
 
 
+def adopted_record(build_dir: str) -> dict:
+    """The :data:`ADOPTED_STAMP` of ``build_dir`` (``{}`` when it has
+    none or it does not read)."""
+    import json
+    try:
+        with open(os.path.join(build_dir, ADOPTED_STAMP),
+                  encoding="utf-8") as handle:
+            record = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return record if isinstance(record, dict) else {}
+
+
+def ours(build_dir: str, lat: int, lon: int,
+         last_build: Optional[dict] = None) -> bool:
+    """This app built the tile (:func:`built_here`) or adopted it
+    (:func:`adopted_record`): ours to package and offload."""
+    return (built_here(build_dir, lat, lon, last_build)
+            or bool(adopted_record(build_dir)))
+
+
+def origin_of(build_dir: str, lat: int, lon: int,
+              last_build: Optional[dict] = None) -> str:
+    """:data:`ORIGIN_HERE`, :data:`ORIGIN_ADOPTED` or :data:`ORIGIN_OTHER`."""
+    if built_here(build_dir, lat, lon, last_build):
+        return ORIGIN_HERE
+    return ORIGIN_ADOPTED if adopted_record(build_dir) else ORIGIN_OTHER
+
+
 def _build_tile_info(
     build_dir: str, lat: int, lon: int, dir_name: str
 ) -> Optional[TileInfo]:
@@ -341,8 +376,7 @@ def _build_tile_info(
         resolved_dir=resolved_dir,
         volume=volume,
         volume_mounted=mounted,
-        origin=(ORIGIN_HERE if built_here(build_dir, lat, lon, last_build)
-                else ORIGIN_OTHER),
+        origin=origin_of(build_dir, lat, lon, last_build),
         **_on_demand_flags(build_dir, lat, lon),
     )
 

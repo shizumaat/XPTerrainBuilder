@@ -44,10 +44,12 @@ INTRO = ("Moves your per-tile ortho packs (zOrtho4XP_…) into the World pack, "
 #: ``world_retire.CHOICES``: (id, title, the line shown before a measure).
 CHOICES = (
     ("keep_all", "Keep all existing tiles",
-     "Every tile moves as it is; a drive that holds tiles stays required."),
+     "Every tile moves as it is; a tile another tool built is adopted: its "
+     "mesh kept, its imagery low-res and sharpened as you fly."),
     ("keep_custom", "Keep tiles with custom airports, make the rest dynamic",
-     "Tiles holding an installed airport pack stay as they are; the rest "
-     "are draped ahead in flight or built when you fly there."),
+     "Tiles holding an installed airport pack are kept (a tile another tool "
+     "built is adopted: its mesh kept); the rest are draped ahead in flight "
+     "or built when you fly there."),
     ("dynamic", "Make everything dynamic",
      "Every tile is draped ahead in flight or built when you fly there; no "
      "other drive is needed."),

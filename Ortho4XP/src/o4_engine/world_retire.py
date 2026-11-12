@@ -64,19 +64,12 @@ _UNMOUNTED = "skip: library not mounted"
 
 def custom_airport_tiles(scenery_dir: str) -> Dict[tuple, list]:
     """``{(lat, lon): [icao, …]}``: the tiles holding an airport of an
-    enabled custom airport pack of ``scenery_dir``."""
+    enabled custom airport pack of ``scenery_dir``
+    (``O4_Custom_Scenery.airport_points_by_tile``)."""
     import O4_Custom_Scenery as SCENERY
-    out: Dict[tuple, set] = {}
-    for _name, _path, _root, enabled, airports in (
-            SCENERY.iter_airport_packs(scenery_dir or "")):
-        if not enabled:
-            continue
-        for apt in airports:
-            if apt.lat is None or apt.lon is None:
-                continue
-            tile = (int(apt.lat // 1), int(apt.lon // 1))
-            out.setdefault(tile, set()).add((apt.icao or "").upper())
-    return {tile: sorted(codes) for tile, codes in out.items()}
+    return {tile: sorted({icao for icao, _la, _lo in points})
+            for tile, points in SCENERY.airport_points_by_tile(
+                scenery_dir or "").items()}
 
 
 def disabled_names(scenery_dir: str) -> set:
@@ -130,9 +123,10 @@ def _entry_bytes(row: dict) -> int:
 
 
 def _built_here(entry) -> bool:
+    """This app built (or adopted) the entry's tile."""
     import O4_Tile_Info as TINFO
     try:
-        return TINFO.built_here(entry.source, entry.lat, entry.lon)
+        return TINFO.ours(entry.source, entry.lat, entry.lon)
     except Exception:                     # an unreadable folder: not ours
         return False
 
@@ -156,7 +150,8 @@ def _tally_dynamic(t: dict, row: dict, entry, ours: dict) -> None:
 
 
 def choice_totals(rows: list, found: list, custom,
-                  disabled=frozenset()) -> Dict[str, dict]:
+                  disabled=frozenset(),
+                  again: Optional[Dict[str, dict]] = None) -> Dict[str, dict]:
     """``{choice: figures}`` of the dry run's ``rows`` (``found`` the
     entries, in step): ``kept``, ``dynamic``, ``left``, ``new_bytes``
     (this drive gains the kept tiles' copies), ``freed_bytes`` (this drive
@@ -164,13 +159,21 @@ def choice_totals(rows: list, found: list, custom,
     ``released`` (``{drive: bytes}`` on other drives no longer needed),
     ``links_removed``, ``drives_needed`` (``{drive: tiles}`` still
     reading their imagery there), ``not_ours`` (dynamic tiles another
-    tool built) and ``custom_tiles``.  ``disabled``: :func:`disabled_names`."""
+    tool built), ``adopted`` (kept tiles another tool built: adopted,
+    ``world_adopt``), ``again`` / ``core_bytes`` (tiles made dynamic before
+    that the choice adopts again, and what keeping the imagery near
+    custom airports takes; ``again``: ``{choice: world_adopt.plan}``) and
+    ``custom_tiles``.  ``disabled``: :func:`disabled_names`."""
     ours: Dict[str, bool] = {}
     out = {}
     for choice in CHOICES:
-        t = {"kept": 0, "dynamic": 0, "left": 0, "new_bytes": 0,
+        back = (again or {}).get(choice) or {}
+        t = {"kept": 0, "dynamic": 0, "left": 0,
+             "new_bytes": int(back.get("new_bytes") or 0),
              "freed_bytes": 0, "released": {}, "links_removed": 0,
-             "drives_needed": {}, "not_ours": 0, "custom_tiles": len(custom)}
+             "drives_needed": {}, "not_ours": 0, "custom_tiles": len(custom),
+             "adopted": 0, "again": int(back.get("tiles") or 0),
+             "core_bytes": int(back.get("core_bytes") or 0)}
         for row, entry in zip(rows, found, strict=False):
             what = fate(entry, row["action"], choice, custom, disabled)
             if what == "dynamic":
@@ -179,6 +182,9 @@ def choice_totals(rows: list, found: list, custom,
             t["kept" if what == "keep" else "left"] += 1
             if what == "keep":
                 t["new_bytes"] += int(row.get("new_bytes") or 0)
+                if entry.name not in ours:
+                    ours[entry.name] = _built_here(entry)
+                t["adopted"] += not ours[entry.name]
             drive = _drive_of(entry.source) if entry.kind in _LINKS else ""
             if drive and entry.name not in disabled:
                 _add(t["drives_needed"], drive, 1)
@@ -191,8 +197,9 @@ def _gb(n: int) -> str:
 
 
 def _dynamic_words(choice: str, t: dict) -> str:
-    head = (f"Keeps the {t['kept']:,} tiles with a custom airport and makes "
-            f"{t['dynamic']:,} dynamic" if choice == KEEP_CUSTOM
+    head = (f"Keeps the {t['kept'] + int(t.get('again') or 0):,} tiles "
+            f"with a custom airport and makes {t['dynamic']:,} dynamic"
+            if choice == KEEP_CUSTOM
             else f"Makes all {t['dynamic']:,} tiles dynamic")
     text = (f"{head}: X-Plane draws them from the World pack, draped ahead "
             f"in flight or built when you fly there. Free space then gives "
@@ -210,14 +217,37 @@ def _dynamic_words(choice: str, t: dict) -> str:
         text += (f" {t['not_ours']:,} of the dynamic tiles were not built by "
                  "XPTerrainBuilder (or their drive is not connected): they "
                  "become our drape or build, not the same tile.")
+    if choice == KEEP_CUSTOM:
+        text += _adopt_words(t)
+    return text
+
+
+def _adopt_words(t: dict) -> str:
+    """The adoption part of a choice's sentence (``world_adopt``)."""
+    adopted = int(t.get("adopted") or 0) + int(t.get("again") or 0)
+    if not adopted:
+        return ""
+    text = (f" {adopted:,} of them were built by another tool and are "
+            "adopted: their mesh is kept, their imagery is low-res and "
+            "sharpens as you fly")
+    if t.get("again"):
+        text += (f" ({t['again']:,} made dynamic before come back into the "
+                 "World pack)")
+    text += "."
+    if t.get("core_bytes"):
+        text += (f" The imagery they have near custom airports is kept, "
+                 f"up to {_gb(t['core_bytes'])} while your disk budget has "
+                 "room.")
     return text
 
 
 def choice_line(choice: str, t: dict) -> str:
     """The sentence both apps show beside a choice (its dry-run figures)."""
     if choice == KEEP_ALL:
-        text = (f"Keeps {t['kept']:,} tiles: they move into the World pack as "
-                f"they are, needing {_gb(t['new_bytes'])} on this Mac.")
+        kept = t["kept"] + int(t.get("again") or 0)
+        text = (f"Keeps {kept:,} tiles: they move into the World pack as "
+                f"they are, needing {_gb(t['new_bytes'])} on this Mac."
+                + _adopt_words(t))
     else:
         text = _dynamic_words(choice, t)
     needed = t["drives_needed"]

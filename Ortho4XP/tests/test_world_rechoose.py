@@ -23,6 +23,7 @@ import shutil
 import O4_Scenery_Packs as SP
 import O4_Scenery_Packs_Tidy as TIDY
 import O4_World_Pack as WP
+import pytest
 from o4_engine import world_commands as WORLD
 from o4_engine import world_migrate as MIGRATE
 from o4_engine import world_rechoose as RECHOOSE
@@ -30,6 +31,16 @@ from o4_engine import world_retire as RETIRE
 from test_world_migrate import _hashes, _rows, xp  # noqa: F401
 
 LINK, LOCAL = "zOrtho4XP_+45+007", "zOrtho4XP_+46+008"
+
+
+@pytest.fixture(autouse=True)
+def _kept_before_adoption(request, monkeypatch):
+    """These twins choose again among tiles KEPT before Convert adopted
+    another tool's tiles (the 2026-11-11 run): no tile is adopted by the
+    migrations they start from.  ``adopting`` tests opt out."""
+    if "adopting" not in request.node.name:
+        from o4_engine import world_adopt as ADOPT
+        monkeypatch.setattr(ADOPT, "foreign", lambda *a: False)
 
 
 def _drop_rows(scenery: str, names) -> None:
@@ -225,3 +236,15 @@ def test_the_terminal_shell_runs_the_dry_run_then_the_backfill(xp, capsys):  # n
     assert WP.world_tiles(xp["pack"])[(45, 7)] == "full"      # a dry run
     assert tool.main(["--custom-scenery", scenery, "world-backfill"]) == 0
     assert "into 1 lean copies" in capsys.readouterr().out
+
+
+def test_an_adopted_kept_tile_is_ours_so_not_chosen_again_adopting(xp, monkeypatch):  # noqa: F811
+    """Convert ADOPTS a kept tile another tool built (``world_adopt``):
+    ``only_not_ours`` then leaves it kept, as it leaves ours."""
+    scenery = xp["scenery"]
+    _ours_is_the_local_tile(monkeypatch)
+    MIGRATE.migrate(scenery, index=xp["index"])
+    assert MIGRATE.Journal(xp["work"]).get(LINK)["adopted"] is True
+    dry = RECHOOSE.rechoose(scenery, only_not_ours=True, dry_run=True,
+                            index=xp["index"])
+    assert (dry["rechosen"], dry["ours"]) == (0, 2)

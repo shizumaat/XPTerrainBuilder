@@ -414,6 +414,9 @@ def plan(path: str, custom_build_dir: str = "", choices=None) -> dict:
     :raises BundleRefused: not a package, an incompatible key, or damage.
     """
     manifest = read_manifest(path)
+    if manifest.get("kind") == _kinds.ADOPTED:
+        from . import adopted
+        return adopted.plan(path, manifest)
     if manifest["format"] == FORMAT:
         manifest.setdefault("tiles", [{"tile": manifest.get("tile", "")}])
         return _legacy_plan(path, manifest, custom_build_dir)
@@ -499,6 +502,9 @@ def install(path: str, custom_build_dir: str = "", choices=None,
     """
     t0 = time.time()
     manifest = read_manifest(path)
+    if manifest.get("kind") == _kinds.ADOPTED:
+        from . import adopted
+        return adopted.install(path, manifest)
     if manifest["format"] == FORMAT:
         from . import importer
         details = plan(path, custom_build_dir)

@@ -103,8 +103,11 @@ def fetch_cores(tiles: Sequence[Sequence[Any]], index: Optional[str] = None,
               "skipped": 0}
     conn = INDEX.open_index(index)
     try:
-        wants = [w for (build_dir, lat, lon) in tiles
-                 for w in core_wants(conn, build_dir, lat, lon)]
+        # finest tier first across every tile (the squares nearest the
+        # airports), so a landing stopped for room keeps those
+        wants = sorted((w for (build_dir, lat, lon) in tiles
+                        for w in core_wants(conn, build_dir, lat, lon)),
+                       key=lambda want: -want[1])
         counts["wanted"] = len(wants)
         with _futures.ThreadPoolExecutor(
                 max_workers=max(1, int(workers)),

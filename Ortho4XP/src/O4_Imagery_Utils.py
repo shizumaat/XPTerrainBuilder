@@ -14,9 +14,6 @@ from math import ceil, log, pi, tan
 from pathlib import Path
 
 import numpy
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
-import requests
-
 import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Color_Harmonization as HARMONIZE
 import O4_DDS_Cache as DDSCACHE
@@ -30,13 +27,15 @@ import O4_Imagery_Async as FETCH_ASYNC
 import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Machine_Slots as MACHINE_SLOTS
 import O4_Mask_Utils as MASK
-import O4_Triangle_Run as TRIANGLE_RUN
 import O4_OSM_Utils as OSM
 import O4_Sea_Nodata_Fill as SEA_FILL
 import O4_Text_Files as TEXT
+import O4_Triangle_Run as TRIANGLE_RUN
 import O4_UI_Utils as UI
 import O4_Vector_Utils as VECT
+import requests
 from O4_Parallel_Utils import effective_download_slots, parallel_execute
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # Not a decompression bomb attack!
 
@@ -1973,7 +1972,9 @@ def download_jpeg_ortho(
     """Download one orthophoto into ``file_dir``; 1 on success, 0 if not.
 
     ``drop`` (#1992, placeholder build mode): the same square fetched
-    ``drop`` zoom levels coarser, a ``4096 >> drop`` px image.
+    ``drop`` zoom levels coarser, a ``4096 >> drop`` px image -- but never
+    below the provider's ``min_source_zl`` (#2017): there the floor is
+    fetched and shrunk to that size.
 
     ``require_complete`` (the background prefetch, #1002): a texture with
     a part the provider did not answer is NOT saved (no white-filled
@@ -1988,6 +1989,10 @@ def download_jpeg_ortho(
         max_zl = int(provider["max_zl"])
         if fetch_zl > max_zl:
             super_resol_factor = 2 ** (max_zl - fetch_zl)
+    # below the provider's floor (#2017) the floor is fetched and shrunk
+    floor_zl = PLACEHOLDER.fetch_zoom(zoomlevel, drop, provider)
+    if floor_zl > fetch_zl:
+        super_resol_factor = 2 ** (floor_zl - fetch_zl)
     width = height = int((4096 >> drop) * super_resol_factor)
     # we treat first the case of webmercator grid type servers
     if "grid_type" in provider and provider["grid_type"] == "webmercator":
@@ -2638,7 +2643,7 @@ def _source_jpeg_location(tile, til_x_left, til_y_top, zoomlevel,
         return (PLACEHOLDER.jpeg_dir(tile.lat, tile.lon, zoomlevel,
                                      provider, drop),
                 PLACEHOLDER.jpeg_name(til_x_left, til_y_top, zoomlevel,
-                                      provider_code, drop))
+                                      provider_code, drop, provider))
     return (FNAMES.jpeg_file_dir_from_attributes(
                 tile.lat, tile.lon, zoomlevel, provider),
             FNAMES.jpeg_file_name_from_attributes(

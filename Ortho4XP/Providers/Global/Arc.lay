@@ -1,3 +1,6 @@
 grid_type=webmercator
 url_template=http://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{zoom}/{y}/{x}
 imagery_dir=grouped
+# min_source_zl (#2017): coarser zooms serve a different capture; measured
+# with tools/imagery_zoom_match.py at KMRY, EDDM, KPHX, LFPG (z11 dE 8-14, z12 0.7).
+min_source_zl=12

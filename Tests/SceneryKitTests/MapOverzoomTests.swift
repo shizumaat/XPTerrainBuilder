@@ -19,7 +19,12 @@ import Foundation
         struct Placeholder: Decodable {
             let url: String, headers: [String: String], placeholder: Bool
         }
+        struct FetchZoom: Decodable {
+            let view_z: Int, max_z: Int, min_z: Int?, fetch: Int
+        }
         let max_view_zl: Int
+        let max_floor_steps: Int
+        let fetch_zoom: [FetchZoom]
         let ancestor: [AncestorCase]
         let badge: [Badge]
         let placeholder: [Placeholder]
@@ -35,6 +40,15 @@ import Foundation
 
     @Test func viewCeilingLikeThePythonTwin() {
         #expect(MapOverzoom.maxViewZL == Self.cases.max_view_zl)
+    }
+
+    /// #2017: the floor is fetched only one zoom finer than the view.
+    @Test func fetchZoomLikeThePythonTwin() {
+        #expect(MapOverzoom.maxFloorSteps == Self.cases.max_floor_steps)
+        for c in Self.cases.fetch_zoom {
+            #expect(MapOverzoom.fetchZoom(viewZ: c.view_z, maxZ: c.max_z, minZ: c.min_z)
+                    == c.fetch, "\(c)")
+        }
     }
 
     @Test func ancestorLikeThePythonTwin() {

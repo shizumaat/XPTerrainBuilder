@@ -10,10 +10,29 @@ import Foundation
 /// ancestor: `ancestor(z:x:y:maxZ:)` names that tile and the sub-square of
 /// it to crop and scale up. No URL above `maxZL` is ever requested, and
 /// the zoom badge says "overzoom ×N" (`badgeText`).
+///
+/// Below a source's `minZL` (#2017: its coarsest zoom serving the same
+/// capture as full zoom — Bing's older, greener capture is ZL12 and
+/// coarser) `fetchZoom` raises the fetched zoom to that floor when it is
+/// at most `maxFloorSteps` finer than the view: four times the tiles,
+/// never more; a coarser view keeps its own zoom.
 public enum MapOverzoom {
     /// The map's zoom ceiling, independent of any imagery source: deep
     /// enough (about 1 cm a pixel) to edit patch nodes at fine scale.
     public static let maxViewZL = 24
+
+    /// How many zoom levels finer than the view the map fetches to reach a
+    /// source's floor (`O4_Map_Overzoom.MAX_FLOOR_STEPS`).
+    public static let maxFloorSteps = 1
+
+    /// The zoom the map fetches for view zoom `viewZ`: the view's, capped
+    /// at the source's `maxZ` and raised to its `minZ` when that is at most
+    /// `maxFloorSteps` finer (`O4_Map_Overzoom.ancestor` then `floor_zoom`).
+    public static func fetchZoom(viewZ: Int, maxZ: Int, minZ: Int?) -> Int {
+        let z = min(viewZ, maxZ)
+        if let minZ, z < minZ, minZ <= min(z + maxFloorSteps, maxZ) { return minZ }
+        return z
+    }
 
     /// The tile `(z, x, y)` that draws a view tile, and the sub-square of
     /// it the view tile covers, as fractions of the ancestor's side: left

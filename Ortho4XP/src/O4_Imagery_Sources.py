@@ -32,11 +32,13 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional
 
 import O4_Geo_Utils as GEO
+import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Imagery_Utils as IMG
 
 __all__ = [
     "STATUS_TIMEOUT_S", "STATUS_WORKERS", "check_status",
-    "imagery_sources", "is_previewable", "preview_max_zl", "preview_tile_url",
+    "imagery_sources", "is_previewable", "preview_max_zl", "preview_min_zl",
+    "preview_tile_url",
     "tile_source",
 ]
 
@@ -158,7 +160,11 @@ def preview_spec(provider) -> tuple[Optional[Dict[str, Any]], str]:
             return None, "This source has no tile address the map can follow."
     else:
         return None, "This source's request type can't be previewed."
-    preview = {"template": url, "referer": _referer(headers), "max_zl": max_zl}
+    # min_zl (#2017): the source's coarsest zoom serving its full-zoom
+    # capture; the map fetches it for a view one zoom coarser
+    # (O4_Map_Overzoom.floor_zoom)
+    preview = {"template": url, "referer": _referer(headers), "max_zl": max_zl,
+               "min_zl": PLACEHOLDER.min_source_zl(provider)}
     if tilematrix is not None:
         preview["tilematrix"] = tilematrix
     return preview, ""
@@ -349,6 +355,19 @@ def preview_max_zl(code: str) -> Optional[int]:
     if not zls or any(z is None for z in zls):
         return None
     return max(zls)
+
+
+def preview_min_zl(code: str) -> Optional[int]:
+    """The coarsest zoom the map should fetch a source at (#2017, None: no
+    floor); a combined source's is its layers' highest floor."""
+    row = _row(code, fresh=True)
+    if row is None:
+        return None
+    previews = ([row["preview"]] if not row["combined"]
+                else [m["preview"] for m in row["members"]])
+    zls = [p.get("min_zl") for p in previews if p is not None]
+    zls = [z for z in zls if z is not None]
+    return max(zls) if zls else None
 
 
 def tile_source(code: str, z: int, x: int, y: int) -> Optional[Dict[str, Any]]:

@@ -365,6 +365,7 @@ class MapView(QGraphicsView):
         self._provider_code = "OSM"
         self._display_code = "OSM"   # actual source drawn (fallback aware)
         self._provider_max_zl = 19
+        self._provider_min_zl = None
         self._zoom = 5.0
         self._tiles = {}             # (code, z, x, y) -> QGraphicsPixmapItem
         self._tile_age = {}          # same key -> monotonic counter
@@ -496,10 +497,12 @@ class MapView(QGraphicsView):
             # Absent max_zl means the source declares no ceiling (the
             # engine builds it at any ZL) - preview up to the fetch cap.
             self._provider_max_zl = SOURCES.preview_max_zl(code) or FETCH_MAX_ZL
+            self._provider_min_zl = SOURCES.preview_min_zl(code)
             note = ""
         elif _provider_is_mappable("OSM"):
             self._display_code = "OSM"
             self._provider_max_zl = 19
+            self._provider_min_zl = None
             note = " (no live preview for %s - showing OSM)" % code
         else:
             note = " (no live map source available)"
@@ -960,10 +963,12 @@ class MapView(QGraphicsView):
 
     def _fetch_zoom(self):
         # Past the source's ceiling the view tile's ancestor is fetched
-        # and the scene scales it up: never a URL above max_zl (#1315).
+        # and the scene scales it up: never a URL above max_zl (#1315);
+        # one zoom below its floor the floor is fetched (#2017).
         z = max(2, int(round(self._zoom)))
         ceiling = min(self._provider_max_zl, FETCH_MAX_ZL)
-        return max(2, OVERZOOM.ancestor(z, 0, 0, ceiling).z)
+        return max(2, OVERZOOM.floor_zoom(OVERZOOM.ancestor(z, 0, 0, ceiling).z,
+                                          ceiling, self._provider_min_zl))
 
     def _visible_range(self, z):
         """Visible tile index range at zoom z, with a one-tile margin."""

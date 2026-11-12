@@ -340,7 +340,11 @@ struct MapCanvasView: View {
         // Tile zoom so one 256px tile is roughly screen resolution
         // (256·2^z/360 px per degree against the camera's scale).
         let idealZ = Int(ceil(log2(cam.scale * 360 / 256)))
-        let z = min(max(idealZ, 2), min(imagery.activeMaxZL, 21))
+        // One zoom below the source's floor the tiles come from the floor
+        // (#2017, MapOverzoom.fetchZoom): never its off-season capture.
+        let z = MapOverzoom.fetchZoom(viewZ: max(idealZ, 2),
+                                      maxZ: min(imagery.activeMaxZL, 21),
+                                      minZ: imagery.activeMinZL)
         let n = 1 << z
 
         let xMin = Int(floor(WebMercator.tileX(lon: minLon, z: z)))

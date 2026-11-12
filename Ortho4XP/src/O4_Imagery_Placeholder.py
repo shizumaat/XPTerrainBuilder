@@ -20,6 +20,12 @@ tiers over it near the aircraft.
   under that zoom's folder with a name of its own (a ``<prov>_<zl-drop>``
   texture of a build AT that zoom covers 16 x 16 tiles, a placeholder
   2 x 2, so the two never share a name).
+* :func:`min_source_zl`, :func:`fetch_zoom` — a provider's coarsest
+  zoom serving the same capture as its full zoom (``min_source_zl`` in
+  its ``.lay``, #2017: Bing serves an older, greener capture at ZL12 and
+  coarser) and the zoom a texture is therefore fetched at: never below
+  that floor (``O4_Imagery_Utils.download_jpeg_ortho`` fetches the
+  floor and shrinks), and the names say the zoom actually fetched.
 * :func:`needs_build` — the scenery-file step's "is the texture on disk
   current" test: whole, and at least as fine as the mode asks.
 * :func:`keep` — the placeholder store (spec §6.2): one copy of each
@@ -44,9 +50,9 @@ import O4_DDS_Tiers as TIERS
 import O4_File_Names as FNAMES
 import O4_Imagery_Regions as REGIONS
 
-__all__ = ["ALLOWED_DROPS", "DEFAULT_DROP", "STORE_DIR", "drop", "forget",
-           "jpeg_dir", "jpeg_name", "keep", "kept_path", "land_kept",
-           "needs_build", "tilbox"]
+__all__ = ["ALLOWED_DROPS", "DEFAULT_DROP", "MIN_SOURCE_KEY", "STORE_DIR",
+           "drop", "fetch_zoom", "forget", "jpeg_dir", "jpeg_name", "keep",
+           "kept_path", "land_kept", "min_source_zl", "needs_build", "tilbox"]
 
 #: ``placeholder_zl_drop`` default: ZL13 imagery for a ZL16 texture, 512 px
 #: (owner 2026-11-10: "512 as default makes sense").
@@ -56,6 +62,8 @@ DEFAULT_DROP = 3
 ALLOWED_DROPS = (2, 3)
 #: Under the data root: the on-demand imagery's own folder.
 STORE_DIR = "Imagery_on_demand"
+#: The ``.lay`` key of a provider's coarsest trustworthy source zoom.
+MIN_SOURCE_KEY = "min_source_zl"
 #: Map tiles per side of one texture at its own zoom.
 _TILES_PER_TEXTURE = 16
 
@@ -89,19 +97,44 @@ def tilbox(til_x_left, til_y_top, drop_levels):
     return [x0, y0, x0 + side, y0 + side]
 
 
-def jpeg_name(til_x_left, til_y_top, zoomlevel, provider_code, drop_levels):
+def min_source_zl(provider):
+    """The coarsest zoom ``provider`` (its ``.lay`` dict) serves the same
+    capture at as at full zoom, or None (no floor measured)."""
+    value = (provider or {}).get(MIN_SOURCE_KEY)
+    try:
+        return None if value in (None, "") else int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_zoom(zoomlevel, drop_levels, provider):
+    """The zoom the imagery of a texture at ``zoomlevel``, ``drop_levels``
+    coarser, comes from: ``zoomlevel - drop_levels``, raised to the
+    provider's floor (:func:`min_source_zl`) but never past ``zoomlevel``."""
+    zoom = int(zoomlevel) - int(drop_levels)
+    floor = min_source_zl(provider)
+    if floor is not None and zoom < floor:
+        zoom = min(floor, int(zoomlevel))
+    return zoom
+
+
+def jpeg_name(til_x_left, til_y_top, zoomlevel, provider_code, drop_levels,
+              provider):
     """The placeholder JPEG's file name: the full texture's, marked with
-    the zoom it was fetched at."""
+    the zoom it was fetched at (``provider``: its ``.lay`` dict, whose
+    floor can raise that zoom, :func:`fetch_zoom`)."""
     full = FNAMES.jpeg_file_name_from_attributes(
         til_x_left, til_y_top, zoomlevel, provider_code)
+    TIERS.tier_width(drop_levels)
     return "%s_low%d.jpg" % (full[:-4],
-                             TIERS.tier_zoom(zoomlevel, drop_levels))
+                             fetch_zoom(zoomlevel, drop_levels, provider))
 
 
 def jpeg_dir(lat, lon, zoomlevel, provider, drop_levels):
     """The imagery cache folder of the zoom a placeholder is fetched at."""
+    TIERS.tier_width(drop_levels)
     return FNAMES.jpeg_file_dir_from_attributes(
-        lat, lon, TIERS.tier_zoom(zoomlevel, drop_levels), provider)
+        lat, lon, fetch_zoom(zoomlevel, drop_levels, provider), provider)
 
 
 def needs_build(tile, path) -> bool:

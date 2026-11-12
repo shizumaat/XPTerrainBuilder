@@ -140,6 +140,15 @@ final class ImageryModel: ObservableObject {
         return active?.maxZL ?? 21
     }
 
+    /// Zoom floor for the active source (#2017): the highest member floor
+    /// for combined, nil when none declares one (`preview_min_zl`).
+    var activeMinZL: Int? {
+        if let activeCombined {
+            return activeCombined.members.compactMap { specs[$0.code]?.preview.minZL }.max()
+        }
+        return active?.preview.minZL
+    }
+
     /// Takes the engine's source list: every single source's preview and
     /// every combined source's layers (with their own previews and extent
     /// boxes), and points the disk cache at the data root.

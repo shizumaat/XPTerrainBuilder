@@ -40,6 +40,7 @@ import os
 import shutil
 from typing import Dict, Iterable, Optional
 
+import O4_Unmounted_Links as UL
 import O4_World_Pack as WP
 
 __all__ = ["CHOICES", "KEEP_ALL", "KEEP_CUSTOM", "DYNAMIC", "DYNAMIC_STATES",
@@ -84,15 +85,21 @@ def disabled_names(scenery_dir: str) -> set:
 
 
 def _drive_of(path: str) -> str:
-    """The name of the volume ``path`` lies on (its mount point's name;
-    for a volume that is not mounted, the first missing folder under the
-    deepest one that exists -- ``/Volumes/<name>``); ``""`` for the
-    system volume (this Mac)."""
-    probe = os.path.abspath(path)
+    """The name of the drive ``path`` lies on, as the user knows it; ``""``
+    for the system drive.  Windows: the drive letter (``D:``) or the UNC
+    share.  macOS / Linux: the mount point's name (``/Volumes/<name>``,
+    ``/media/<user>/<name>``, ``/mnt/<name>``).  Under a drive that is
+    there but a folder that is not, the first missing folder."""
+    probe = os.path.abspath(UL.clean_target(path))
+    drive = os.path.splitdrive(probe)[0].upper()
+    if drive and not os.path.exists(drive + os.sep):
+        return drive                                  # not connected
     while not os.path.exists(probe) and os.path.dirname(probe) != probe:
         child, probe = probe, os.path.dirname(probe)
         if os.path.exists(probe):
             return os.path.basename(child)
+    if drive:
+        return "" if drive == os.environ.get("SystemDrive", "C:").upper() else drive
     while not os.path.ismount(probe) and os.path.dirname(probe) != probe:
         probe = os.path.dirname(probe)
     return os.path.basename(probe)
@@ -235,8 +242,8 @@ def retire_tile(entry, *, scenery_dir: str, pack: str, journal,
         record = journal.set(
             entry.name, state="retiring", kind=entry.kind, source=entry.source,
             prior=WP.kind_of(dsf),
-            link_target=(os.readlink(entry.path) if os.path.islink(entry.path)
-                         else None))
+            link_target=(UL.clean_target(os.readlink(entry.path))
+                         if os.path.islink(entry.path) else None))
     out = {"name": entry.name, "kind": entry.kind, "action": "dynamic"}
     if record["state"] == "retiring":
         with swap_lock:

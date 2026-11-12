@@ -45,7 +45,7 @@ def _pack(m) -> str:
 
 
 @pytest.fixture
-def signed(machines, monkeypatch):
+def signed(machines, monkeypatch):  # noqa: F811
     """Both machines have an X-Plane root, PackA serves HECA, and the pack
     signatures are ``SIGNATURES`` until a test changes them."""
     a, b = machines

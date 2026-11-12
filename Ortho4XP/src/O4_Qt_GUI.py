@@ -2015,6 +2015,8 @@ class MainWindow(QMainWindow):
             self.follow_line, run=self._fly_command,
             airports=lambda: self._airports, prefs=self.prefs,
             save_prefs=save_prefs)
+        self.fly_pane.set_photo_sources(QTIMENU.menu_entries(
+            self._imagery_rows, self._imagery_status, for_map=False))
         self.live_preview = QTLIVEPREVIEW.LivePreview(self._fly_command, self)
         self.fly_layer = QTFLYLAYER.FlyLayer(self.map, self.fly_pane,
                                              self.live_preview)
@@ -3058,6 +3060,11 @@ class MainWindow(QMainWindow):
             self._imagery_rows, self._imagery_status, for_map=False, tiles=tiles))
         QTIMENU.apply_status(self.map_provider_combo, QTIMENU.menu_entries(
             self._imagery_rows, self._imagery_status, for_map=True))
+        if getattr(self, "fly_pane", None) is not None:
+            QTIMENU.apply_status(self.fly_pane.photo_source_combo,
+                                 QTIMENU.menu_entries(self._imagery_rows,
+                                                      self._imagery_status,
+                                                      for_map=False))
 
     def _on_scan_progress(self, event):
         self.map.set_scan_status(event.phase, event.done, event.total)

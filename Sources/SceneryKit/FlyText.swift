@@ -38,6 +38,11 @@ public enum FlyText {
         ("fast", "Build fastest"),
     ]
     public static let drapePxLabel = "Photo detail ahead"
+    /// The photo source the World pack's builds fetch (owner
+    /// 2026-11-12T19:17Z): the global `default_website` the Build pane's
+    /// "Tile / global default" means; read per build by the engine.
+    public static let photoSourceLabel = "Photo source"
+    public static let photoSourceKey = "default_website"
     /// `drape_photo_px` (RULINGS 2026-11-11j): (value, words).
     public static let drapePxKey = "drape_photo_px"
     public static let drapePxChoices: [(Int, String)] = [
@@ -84,14 +89,26 @@ public enum FlyText {
     static let stateMarks: [String: String] = [
         "done": "✓", "working": "…", "waiting": "○", "blocked": "!", "failed": "✕",
     ]
-    /// The map legend (§14): (key, words), drawn in this order.
+    /// The Fly view's ONE map key (owner 2026-11-12T19:11Z/19:12Z: one
+    /// palette, drapes named as drapes): (key, words), drawn in this
+    /// order. The World pack's states keep the Build map's words and
+    /// colours (`O4WorldStateText`, `MapWorldStates`), and the flight's
+    /// tiles use them once built; a build under way is its own colour,
+    /// dashed for a drape and solid for a mesh. The Build map's tile
+    /// legend is hidden on the Fly view. Python: `O4_Fly_Text.LEGEND`.
     public static let legend: [(String, String)] = [
-        ("own", "X-Plane's own scenery"),
-        ("quick", "photo, quick"),
-        ("built", "built"),
-        ("building", "building"),
+        ("draping", "Photo being draped"),
+        ("meshing", "Mesh being built"),
+        ("draped", "Photo drape on X-Plane's mesh"),
+        ("built", "Full: mesh and sharp imagery"),
+        ("mesh", "Mesh: imagery sharpens in flight"),
+        ("placeholder", "Placeholder: built or draped in flight"),
+        ("own", "On the route, not built yet"),
+        ("custom", "Orange band: custom airport patch, no auto patch"),
         ("sharp", "full-detail photo"),
     ]
+    /// The keys drawn dashed (Qt: `O4_Qt_Fly_Layer.LEGEND_DASHED`).
+    public static let dashedKeys: Set<String> = ["draping"]
     /// The legend's keys the map draws only while "Live flight preview"
     /// is on (a square of installed imagery at full resolution, #2020).
     public static let previewKeys: Set<String> = ["sharp"]
@@ -240,10 +257,33 @@ public enum FlyText {
         if statusDepartureOnly(status) {
             return status.state == "preparing" ? departureOnlyPreparing : departureOnlyFlying
         }
+        if status.state == "preparing" { return preparingLine(status) }
         if status.routeKm > 0 {
             return "\(grouped(Int(status.doneKm.rounded()))) of \(grouped(Int(status.routeKm.rounded()))) km flown"
         }
         return ""
+    }
+
+    static let jobWords: [String: String] = [
+        "building": "building", "fetching": "building", "queued": "waiting",
+        "late": "waiting", "staged": "ready", "swapped": "ready",
+        "external": "ready", "failed": "failed", "shed": "skipped",
+    ]
+
+    /// While a flight prepares: "Preparing: departure building ·
+    /// destination waiting · 12 of 23 tiles ready" (owner
+    /// 2026-11-12T19:02Z). Python: `O4_Fly_Text.preparing_line`.
+    public static func preparingLine(_ status: O4FlightStatus) -> String {
+        guard !status.jobs.isEmpty else { return "Preparing: planning the tiles" }
+        var parts: [String] = []
+        for role in ["departure", "destination"] {
+            if let job = status.jobs.first(where: { $0.role == role }) {
+                parts.append("\(role) \(jobWords[job.state] ?? job.state)")
+            }
+        }
+        let ready = status.jobs.filter { ["staged", "swapped", "external"].contains($0.state) }.count
+        parts.append("\(ready) of \(status.jobs.count) tiles ready")
+        return "Preparing: " + parts.joined(separator: " · ")
     }
 
     static let hereJob: [String: String] = [
@@ -290,10 +330,12 @@ public enum FlyText {
         return lines
     }
 
-    /// A corridor tile's legend key from its job's kind and state.
+    /// A corridor tile's legend key from its job's kind and state: a
+    /// drape being draped or a mesh being built, the World pack's drape
+    /// or full once in, else not built yet.
     public static func legendKey(kind: String, state: String) -> String {
-        if state == "fetching" || state == "building" { return "building" }
-        if state == "staged" || state == "swapped" { return kind == "full" ? "built" : "quick" }
+        if state == "fetching" || state == "building" { return kind == "full" ? "meshing" : "draping" }
+        if state == "staged" || state == "swapped" { return kind == "full" ? "built" : "draped" }
         return "own"
     }
 }

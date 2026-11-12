@@ -416,6 +416,9 @@ class MapView(QGraphicsView):
         # (lat, lon) -> (provider, zl) the covering ortho pack's files say.
         self._ortho_imagery = {}
         self._scenery_filter = SCENERY_FILTER_ALL
+        #: The tile legend; the Fly view hides it (its pane holds the one
+        #: key, ``O4_Qt_Fly_Layer.FlyLayer.set_shown``).
+        self.tile_legend_shown = True
 
         # Layers drawn over the map that take the mouse first (the patch
         # editor): paint(painter), mouse_press/move/release(event) -> bool,
@@ -1252,7 +1255,8 @@ class MapView(QGraphicsView):
         for layer in self._layers:
             layer.paint(painter)
         self._draw_zoom_badge(painter)
-        if self._scenery_filter != SCENERY_FILTER_OTHERS:
+        if (self._scenery_filter != SCENERY_FILTER_OTHERS
+                and self.tile_legend_shown):
             QTLEGEND.paint_legend(
                 painter, QRectF(self.viewport().rect()),
                 QTLEGEND.legend_kinds(self._built, self._stale, self._world,

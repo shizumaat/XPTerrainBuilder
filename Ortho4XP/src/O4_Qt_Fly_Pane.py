@@ -39,7 +39,7 @@ import O4_Fly_Text as TEXT
 import O4_Glossary as GLOSSARY
 import O4_Imagery_OnDemand_Text as OTEXT
 import O4_Qt_Fly_Divert as DIVERT
-from O4_Qt_Fly_Layer import LEGEND_COLORS
+from O4_Qt_Fly_Layer import LEGEND_COLORS, LEGEND_DASHED
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -83,6 +83,23 @@ def _set_drape_px(value) -> None:
     per tile)."""
     import O4_Settings_Model as SM
     SM.write_global({TEXT.DRAPE_PX_KEY: int(value)})
+
+
+def _photo_source() -> str:
+    """The global ``default_website`` ("" when unread)."""
+    import O4_Settings_Model as SM
+    try:
+        return str(SM.read_global_raw().get(TEXT.PHOTO_SOURCE_KEY) or "")
+    except OSError:
+        return ""
+
+
+def _set_photo_source(code) -> None:
+    """Write ``default_website`` to the global cfg (the World pack's
+    builds read it per build: the next drape fetches from it)."""
+    import O4_Settings_Model as SM
+    if code:
+        SM.write_global({TEXT.PHOTO_SOURCE_KEY: str(code)})
 
 
 def _no_engine(name, **_arguments):
@@ -186,6 +203,13 @@ class FlyPane(QWidget):
         self.drape_px_combo.currentIndexChanged.connect(
             lambda _i: _set_drape_px(self.drape_px_combo.currentData()))
         layout.addWidget(self.drape_px_combo)
+        # The Build pane's imagery list (the window fills it,
+        # set_photo_sources), bound to the global default_website.
+        self.photo_source_combo = QComboBox()
+        self.photo_source_combo.setToolTip(TEXT.PHOTO_SOURCE_LABEL)
+        self.photo_source_combo.activated.connect(
+            lambda _i: _set_photo_source(self.photo_source_combo.currentData()))
+        layout.addWidget(self.photo_source_combo)
         self.chk_live_preview = QCheckBox(TEXT.LIVE_PREVIEW)
         self.chk_live_preview.setToolTip(TEXT.LIVE_PREVIEW_HELP)
         self.chk_live_preview.setChecked(bool(self.prefs.get(PREF_LIVE_PREVIEW)))
@@ -288,13 +312,25 @@ class FlyPane(QWidget):
         block.setVisible(False)
         return block
 
+    def set_photo_sources(self, entries) -> None:
+        """The Build pane's imagery entries (``O4_Qt_Imagery_Menu``),
+        the global ``default_website`` chosen (Swift: ``PhotoSourcePicker``)."""
+        import O4_Qt_Imagery_Menu as QTIMENU
+        combo = self.photo_source_combo
+        QTIMENU.fill_combo(combo, entries)
+        index = combo.findData(_photo_source() or "BI")
+        if index >= 0:
+            combo.setCurrentIndex(index)
+
     def _legend_html(self) -> str:
         """The map key (§14), each word after its color; the preview's
         keys only while "Live flight preview" is checked."""
         preview = self.chk_live_preview.isChecked()
-        return " &nbsp; ".join(
-            '<span style="color:%s">&#9632;</span> <span style="color:gray">'
-            '%s</span>' % (LEGEND_COLORS[key].name(), words)
+        return "<br>".join(
+            '<span style="color:%s">%s</span> <span style="color:gray">'
+            '%s</span>' % (LEGEND_COLORS[key].name(),
+                           "&#9476;" if key in LEGEND_DASHED else "&#9632;",
+                           words)
             for key, words in TEXT.LEGEND
             if preview or key not in TEXT.PREVIEW_KEYS)
 
@@ -504,11 +540,15 @@ class FlyPane(QWidget):
         self.set_plan(plan)
 
     def prepare(self):
+        """``flight_create``, then the flight's status at once: the pane
+        shows it from Prepare on (owner 2026-11-12T19:02Z; Swift:
+        ``FlyModel.prepare``)."""
         if self.plan is not None:
-            self._command("flight_create", plan=self.plan,
-                          build_alternate=self.chk_build_alternate.isChecked(),
-                          cruise_kt=self.cruise_kt(),
-                          corridor_km=self.corridor_km())
+            if self._command("flight_create", plan=self.plan,
+                             build_alternate=self.chk_build_alternate.isChecked(),
+                             cruise_kt=self.cruise_kt(),
+                             corridor_km=self.corridor_km()) is not None:
+                self.refresh_status()
 
     def _update(self, **arguments):
         if self.status:

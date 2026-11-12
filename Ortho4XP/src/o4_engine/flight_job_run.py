@@ -297,10 +297,10 @@ class _Runner:
         import O4_XPlane_WebAPI as WEBAPI
 
         from .position_feed import shared
-        from .world_job_run import _PackPublisher, _SessionBuilder, drape_tile
+        from .world_job_run import (_PackPublisher, _SessionBuilder,
+                                    drape_tile, photo_source)
         values = _settings()
-        provider = values.get("default_website") or "BI"
-        zoomlevel = int(values.get("default_zl") or 16)
+        provider, zoomlevel = photo_source()
         self.emit, self.scenery_dir = emit, scenery_dir
         self.feed = shared(WEBAPI.base_url(int(port)) if port else None)
         self.cap = GOVERNOR.flight_slots(os.cpu_count() or 4,
@@ -315,9 +315,8 @@ class _Runner:
             return prep_drape_px(manager.plan if manager else plan)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
-            drape=lambda tile: drape_tile(tile, provider, zoomlevel,
-                                          px=px_of()),
-            share=SHARE, owner="flight")
+            drape=lambda tile: drape_tile(tile, *photo_source(), px=px_of()),
+            share=SHARE, owner="flight", source=photo_source)
         self.manager = FlightManager(
             record, plan, builder=builder,
             publisher=_PackPublisher(scenery_dir, session.tile_build_dir),

@@ -64,6 +64,7 @@ private struct FlyPaneRows: View {
                     Picker(FlyText.drapePxLabel, selection: $fly.drapePx) {
                         ForEach(FlyText.drapePxChoices, id: \.0) { Text($0.1).tag($0.0) }
                     }
+                    PhotoSourcePicker(model: fly)
                     Toggle(FlyText.livePreview, isOn: $fly.livePreview)
                         .help(FlyText.livePreviewHelp)
                     ReloadOfferRow(model: fly)
@@ -131,6 +132,30 @@ struct FlightCard: View {
     }
 }
 
+/// "Photo source": the Build pane's imagery list, bound to the global
+/// `default_website` (owner 2026-11-12T19:17Z). Qt: `photo_source_combo`.
+struct PhotoSourcePicker: View {
+    @ObservedObject var model: FlyModel
+
+    var body: some View {
+        if let build = model.build {
+            Picker(FlyText.photoSourceLabel, selection: $model.photoSource) {
+                ForEach(ImageryMenu.sections(ImageryMenu.entries(
+                    build.imagerySources, statuses: build.imageryStatus,
+                    forMap: false))) { section in
+                    Section(section.title) {
+                        ForEach(section.entries) { entry in
+                            Text(entry.label).tag(entry.code)
+                                .disabled(!entry.enabled)
+                                .help(entry.tooltip)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The map key in Fly mode (§14's words), shown whatever the plan
 /// (#2020); the preview's keys only while "Live flight preview" is on.
 /// Qt: `FlyPane.legend_label`.
@@ -138,12 +163,12 @@ struct FlyLegend: View {
     @ObservedObject var model: FlyModel
 
     var body: some View {
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 3) {
             ForEach(FlyText.legend.filter { model.livePreview || !FlyText.previewKeys.contains($0.0) },
                     id: \.0) { key, words in
                 HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 2)
-                        .stroke(FlyMapOverlay.color(key), lineWidth: 2)
+                        .stroke(FlyMapOverlay.color(key), style: FlyMapOverlay.style(key))
                         .frame(width: 12, height: 12)
                     Text(words).scaledFont(.caption2).foregroundStyle(.secondary)
                 }

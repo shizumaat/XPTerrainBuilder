@@ -1580,7 +1580,7 @@
      "diverted_to": "",
      "waivable": []
     },
-    "0 of 834 km flown"
+    "Preparing: departure building · destination ready · 2 of 4 tiles ready"
    ],
    [
     {
@@ -1914,12 +1914,12 @@
    [
     "full",
     "fetching",
-    "building"
+    "meshing"
    ],
    [
     "full",
     "building",
-    "building"
+    "meshing"
    ],
    [
     "full",
@@ -1954,22 +1954,22 @@
    [
     "drape",
     "fetching",
-    "building"
+    "draping"
    ],
    [
     "drape",
     "building",
-    "building"
+    "draping"
    ],
    [
     "drape",
     "staged",
-    "quick"
+    "draped"
    ],
    [
     "drape",
     "swapped",
-    "quick"
+    "draped"
    ],
    [
     "drape",
@@ -1994,22 +1994,22 @@
    [
     "placeholder",
     "fetching",
-    "building"
+    "draping"
    ],
    [
     "placeholder",
     "building",
-    "building"
+    "draping"
    ],
    [
     "placeholder",
     "staged",
-    "quick"
+    "draped"
    ],
    [
     "placeholder",
     "swapped",
-    "quick"
+    "draped"
    ],
    [
     "placeholder",
@@ -3125,12 +3125,12 @@
     [
      52,
      -59,
-     "quick"
+     "draped"
     ],
     [
      53,
      -61,
-     "building"
+     "meshing"
     ],
     [
      53,
@@ -3181,12 +3181,12 @@
     [
      53,
      -60,
-     "building"
+     "draping"
     ],
     [
      53,
      -59,
-     "quick"
+     "draped"
     ],
     [
      54,

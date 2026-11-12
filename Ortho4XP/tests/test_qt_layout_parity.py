@@ -85,6 +85,7 @@ FLY_PANE = (
     ("follow_line", "ImageryFollowLine(model:", "follow_line"),
     ("sim_priority", "Picker(FlyText.simPriorityLabel", "sim_priority_combo"),
     ("drape_px", "Picker(FlyText.drapePxLabel", "drape_px_combo"),   # 11j
+    ("photo_source", "PhotoSourcePicker(model:", "photo_source_combo"),  # owner 11-12
     ("live_preview", "Toggle(FlyText.livePreview", "chk_live_preview"),   # #2001
     ("reload_offer", "ReloadOfferRow(model:", "reload_offer_row"),     # F2, S6 (b)
     ("divert", "Button(FlyText.divert)", "divert_btn"),

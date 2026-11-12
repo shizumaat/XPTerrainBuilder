@@ -615,3 +615,29 @@ def test_the_facts_never_walk_the_pack_and_never_hold_a_tick(monkeypatch):
     facts()
     assert time.monotonic() - started < 0.5
     assert _wait_for(lambda: len(calls) == 2, 5.0)
+
+
+def test_the_photo_source_is_read_per_build(engine, monkeypatch):
+    """The Fly pane's "Photo source" writes the global default_website
+    (owner 2026-11-12T19:17Z); the flight's builds read it per build, so
+    the next drape and the next full build fetch from the new source."""
+    session, _events, builds, _folder = engine
+    values = {"default_website": "BI", "default_zl": 16}
+    monkeypatch.setattr(WORLD_JOB, "_settings", lambda: dict(values))
+    drapes = []
+    monkeypatch.setattr(WORLD_JOB, "drape_tile", lambda tile, p, z, px=None:
+                        bool(drapes.append((tuple(tile), p, z))))
+    table = FC.flight_handlers(session)
+    table["flight_create"](
+        dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
+        arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})
+    builder = FLIGHT.current().manager.builder
+    builder.drape((53, -60))
+    values.update(default_website="GO2", default_zl=17)
+    builder.drape((53, -60))
+    assert drapes[-2:] == [((53, -60), "BI", 16), ((53, -60), "GO2", 17)]
+    seen = []
+    session.enqueue_build = lambda tiles, provider, zl, *a, **kw: bool(
+        seen.append((provider, zl)))
+    builder._start((53, -64), "full", 600.0, "P2")
+    assert seen == [("GO2", 17)]

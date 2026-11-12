@@ -136,6 +136,15 @@ FLY_MAP_LAYERS = (
     ("aircraft", "drawAircraft(cam.point", "self._aircraft("),
 )
 
+#: The map's top-right controls, left to right (#2016): (key, Swift marker
+#: in MapCanvasView.swift's ``zoomControls``, Qt
+#: ``O4_Qt_Map_Controls.MapControls`` attribute).
+MAP_CONTROLS = (
+    ("zoom_out", "zoom(by: 1 / 1.5)", "zoom_out_btn"),
+    ("zoom_in", "zoom(by: 1.5)", "zoom_in_btn"),
+    ("center_on_aircraft", "CenterOnAircraftButton(model:", "center_btn"),
+)
+
 #: The Build box's controls, top to bottom: (key, Swift label, Qt attribute).
 #: A Swift label is a ``Toggle``/``Picker`` title literal or its glossary
 #: term.  The Detail level (#1242) and the per-tile texture and elevation
@@ -980,3 +989,18 @@ def test_the_package_actions_have_one_home_in_each_app(window):
     assert "&File" in [getattr(o, "title", lambda: "")() for o in owners]
     menu = QTTILEMENU.tile_menu(window, 30, 31, "", export_package=lambda: None)
     assert menu.actions()[-1].text() == QTPKG.EXPORT_TITLE
+
+
+def test_both_maps_show_the_map_controls_in_order(window):
+    """#2016: zoom out, zoom in, then "Center on aircraft", top-right, in
+    both maps."""
+    view = (SWIFT / "MapCanvasView.swift").read_text(encoding="utf-8")
+    body = view[view.index("private var zoomControls"):]
+    at = [body.index(marker) for _key, marker, _attr in MAP_CONTROLS]
+    assert at == sorted(at)
+    assert ".overlay(alignment: .topTrailing) { zoomControls }" in view
+    controls = window.map.controls
+    buttons = [getattr(controls, attr) for _key, _marker, attr in MAP_CONTROLS]
+    layout = controls.layout()
+    order = [layout.indexOf(b) for b in buttons]
+    assert -1 not in order and order == sorted(order)

@@ -25,7 +25,8 @@ __all__ = [
     "QUICK_TO", "QUICK_BUTTON", "PREPARE", "BUILD_ALTERNATE", "CRUISE_LABEL",
     "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "SIM_PRIORITIES",
     "DRAPE_PX_LABEL", "DRAPE_PX_KEY", "DRAPE_PX_CHOICES", "LIVE_PREVIEW",
-    "LIVE_PREVIEW_HELP", "DIVERT", "END_FLIGHT", "NO_FLIGHT_MANAGER",
+    "LIVE_PREVIEW_HELP", "CENTER_ON_AIRCRAFT", "NO_AIRCRAFT_POSITION",
+    "AIRCRAFT_FRESH_S", "aircraft_is_current", "DIVERT", "END_FLIGHT", "NO_FLIGHT_MANAGER",
     "NO_STATUS", "READINESS_LABELS", "STATE_MARKS", "LEGEND",
     "DEFAULT_CRUISE_KT", "DEFAULT_CORRIDOR_KM", "plan_row_label",
     "unknown_airport", "refusal", "quick_plan", "cruise_kt", "card_lines",
@@ -61,6 +62,15 @@ DRAPE_PX_CHOICES = ((512, "Quick"),
 LIVE_PREVIEW = GLOSSARY.TERMS["live_flight_preview"]
 LIVE_PREVIEW_HELP = ("Shows the imagery installed for X-Plane on the map, "
                      "square by square, as it arrives; zoom in to see it.")
+#: The map's button beside the zoom controls (#2016): it pans to the
+#: aircraft and keeps the zoom; disabled, with NO_AIRCRAFT_POSITION as
+#: its help, while no position is current.
+CENTER_ON_AIRCRAFT = "Center on aircraft"
+NO_AIRCRAFT_POSITION = ("No aircraft position: X-Plane is not running, "
+                        "or Fly mode is off.")
+#: Seconds an ``AircraftPosition`` stays current: the watch sends one a
+#: second and nothing while X-Plane does not answer.
+AIRCRAFT_FRESH_S = 5.0
 DIVERT = "Divert…"
 END_FLIGHT = "End flight"
 #: An engine that answers a ``flight_*`` command with a refusal.
@@ -224,3 +234,10 @@ def legend_key(kind: str, state: str) -> str:
     if state in _DONE:
         return "built" if kind == "full" else "quick"
     return "own"
+
+
+def aircraft_is_current(seen_at: Optional[float], now: float) -> bool:
+    """True when the last ``AircraftPosition`` (received at ``seen_at``,
+    seconds on the clock ``now`` reads) is younger than
+    :data:`AIRCRAFT_FRESH_S` -- the center-on-aircraft button's rule."""
+    return seen_at is not None and 0.0 <= now - seen_at < AIRCRAFT_FRESH_S

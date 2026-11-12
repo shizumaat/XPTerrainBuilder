@@ -765,7 +765,8 @@ struct MapCanvasView: View {
 
     /// Horizontal segmented-style zoom control: − and + in separate
     /// sections (Photos/Preview convention: minus left, plus right), each
-    /// with a full-size HIG hit target instead of a bare glyph.
+    /// with a full-size HIG hit target instead of a bare glyph, then
+    /// "Center on aircraft" (#2016).
     private var zoomControls: some View {
         HStack(spacing: 0) {
             Button { zoom(by: 1 / 1.5) } label: {
@@ -782,6 +783,9 @@ struct MapCanvasView: View {
                     .contentShape(Rectangle())
             }
             .help("Zoom in (drag the map to pan)")
+            Divider()
+                .frame(height: 16)
+            CenterOnAircraftButton(model: buildModel.fly, camera: camera, canvasSize: canvasSize)
         }
         .buttonStyle(.borderless)
         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))

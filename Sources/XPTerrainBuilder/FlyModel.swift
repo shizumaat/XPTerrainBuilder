@@ -68,6 +68,8 @@ final class FlyModel: ObservableObject {
     @Published private(set) var worldJobs: [O4FlightStatus.Job] = []
     @Published private(set) var track = AircraftTrack()
     @Published private(set) var position: O4AircraftPosition?
+    /// When `position` arrived (`FlyText.aircraftIsCurrent`, #2016).
+    @Published private(set) var positionAt: Date?
     /// "Divert…": the airport search sheet and its query (lane F2).
     @Published var divertShown = false
     @Published var divertQuery = ""
@@ -112,6 +114,7 @@ final class FlyModel: ObservableObject {
 
     func show(_ position: O4AircraftPosition) {
         self.position = position
+        positionAt = Date()
         track.add(lat: position.lat, lon: position.lon, track: position.trackDegrees)
     }
 

@@ -2086,6 +2086,7 @@ class MainWindow(QMainWindow):
 
     def _on_aircraft_position(self, event):
         self.fly_pane.show_position(event)
+        self.map.controls.show_aircraft(event.lat, event.lon)
 
     def _on_flight_status(self, event):
         self.fly_pane.show_status(event)

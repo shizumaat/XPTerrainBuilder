@@ -5,18 +5,19 @@ extension BuildModel {
     /// The world switch's config key (#1992 spec §7).
     static let imageryOnDemandKey = "imagery_on_demand"
 
-    /// Follow X-Plane when the world switch is on (and the user has not
-    /// stopped it), stop when it is off (#1992 P4). Run when the engine
-    /// session starts and when the switch changes in Settings; the engine
-    /// reads the follow settings itself and finds the on-demand tiles.
+    /// Follow X-Plane whenever the engine says it is wanted (the world
+    /// switch is on, or the on-demand index holds textures: the engine's
+    /// `follow_wanted`, #2019) and the user has not stopped it. The switch
+    /// says only how NEW builds are made, so turning it off never stops
+    /// the job. Run when the engine session starts and when the switch
+    /// changes in Settings; the engine reads the follow settings itself
+    /// and finds the on-demand tiles. Python: `sync_imagery_follow`.
     func syncImageryFollow() {
         let enabled = configValue(for: Self.imageryOnDemandKey) == .bool(true)
         imageryFollow.enabled = enabled
         guard let context = libraryContext() else { return }
-        if enabled, !imageryFollow.running, !imageryFollow.stoppedByUser {
+        if !imageryFollow.running, !imageryFollow.stoppedByUser {
             startImageryFollow(context.client, workingDir: context.workingDir, ifEnabled: true)
-        } else if !enabled, imageryFollow.running {
-            context.client.stopImageryFollow()
         }
     }
 

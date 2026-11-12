@@ -308,7 +308,12 @@ def test_the_session_builder_queues_a_full_build_by_deadline():
 
 
 def test_the_commands_refuse_what_is_not_there(tmp_path, monkeypatch):
+    from o4_engine import flight_record as RECORD
     monkeypatch.setattr(RUN, "_settings", lambda: {})
+    monkeypatch.setattr(WORLD, "scenery_dir_or_default",
+                        lambda scenery_dir="": scenery_dir or str(tmp_path))
+    monkeypatch.setattr(RECORD, "flights_dir",
+                        lambda data_root=None: str(tmp_path / "Flights"))
     with pytest.raises(ValueError, match="unknown mode"):
         RUN.world_job_start(object(), mode="glide")
     with pytest.raises(ValueError, match="World pack"):       # F1b's mode
@@ -318,7 +323,7 @@ def test_the_commands_refuse_what_is_not_there(tmp_path, monkeypatch):
                                if_enabled=True) == {"status": "off"}
     with pytest.raises(ValueError, match="not installed"):
         RUN.world_job_start(object(), scenery_dir=str(tmp_path))
-    assert RUN.autostart(object()) in (None, {"status": "off"})
+    assert RUN.autostart(object()) == {"status": "off"}
     assert RUN.world_job_stop() == {"status": "stopped", "swapped": 0,
                                     "late": 0}
 

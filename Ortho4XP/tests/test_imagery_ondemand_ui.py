@@ -157,14 +157,40 @@ def test_the_settings_round_trip_through_the_cfg(tmp_path):
     assert DOWNGRADE.cap_bytes(raw) == int(12.5e9)
 
 
-def test_the_automatic_start_waits_for_the_switch(monkeypatch):
+def test_the_automatic_start_waits_for_the_switch_or_on_demand_tiles(
+        monkeypatch, tmp_path):
+    """#2019: the follow job starts by itself while the switch is on OR
+    the on-demand index holds textures (converted or adopted tiles); the
+    switch says only how new builds are made.  Off and empty: "off"."""
+    import O4_Imagery_OnDemand_Index as IDX
     from o4_engine import imagery_commands as CMDS
+    from o4_engine import imagery_follow as FOLLOW
 
     monkeypatch.setattr(CMDS, "follow_settings", lambda raw=None: {
         "enabled": False, "port": 8086, "lead_s": 30.0, "lands_per_s": 4.0})
-    assert CMDS.start_imagery_follow(lambda e: None, if_enabled=True) == {
-        "status": "off"}
+    index = str(tmp_path / "index.sqlite")
+    assert not IDX.has_rows(index) and not (tmp_path / "index.sqlite").exists()
+    assert CMDS.start_imagery_follow(lambda e: None, if_enabled=True,
+                                     index_path=index) == {"status": "off"}
     assert not CMDS.follow_running()
+    conn = IDX.open_index(index)
+    IDX.upsert(conn, {"tile": "+49-098", "name": "1_2_BI16.dds"})
+    conn.close()
+    assert IDX.has_rows(index) and CMDS.follow_wanted(index_path=index)
+
+    class Job:
+        running = True
+
+        def __init__(self, emit, **kw):
+            pass
+
+        def start(self):
+            return self
+    monkeypatch.setattr(FOLLOW, "FollowJob", Job)
+    monkeypatch.setattr(CMDS, "_FOLLOW", {"job": None})
+    assert CMDS.start_imagery_follow(lambda e: None, if_enabled=True,
+                                     index_path=index, tiles=[["x", 1, 1]]) == {
+        "status": "started"}
 
 
 def test_make_all_low_res_names_the_space_it_frees():

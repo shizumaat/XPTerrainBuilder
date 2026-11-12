@@ -354,6 +354,15 @@ class FlyPane(QWidget):
         self.status = _fields(event)
         self._show()
 
+    def refresh_status(self):
+        """Fly opens: the active flight's status (``flight_status``, the
+        record's when its job does not run), so a prepared flight shows
+        and "End flight" works even when no ``FlightStatus`` came (#2019).
+        Swift: ``FlyModel.refreshStatus``."""
+        reply = self._command("flight_status")
+        if (reply or {}).get("flight") and self.status is None:
+            self.show_status(reply)
+
     def show_ready(self, event):
         """A ``FlightReady``: the SimBrief plan, or why there is none."""
         if getattr(event, "error", ""):

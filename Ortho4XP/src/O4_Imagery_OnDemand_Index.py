@@ -100,7 +100,7 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 __all__ = [
     "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
     "STATES", "capped_bytes", "distance_m", "forget_tile", "get",
-    "index_path", "lru_order",
+    "has_rows", "index_path", "lru_order",
     "mark_late", "mark_near", "open_index", "pinned_bytes",
     "placeholder_width", "protected_cache_keys", "protected_jpegs",
     "rebuild", "reset_upgrading", "rows", "set_core",
@@ -157,6 +157,23 @@ def index_path(data_root: "str | None" = None) -> str:
     folder = (os.path.join(data_root, PLACEHOLDER.STORE_DIR) if data_root
               else FNAMES.data_path(PLACEHOLDER.STORE_DIR))
     return os.path.join(folder, INDEX_FILE)
+
+
+def has_rows(path: "str | None" = None) -> bool:
+    """Does the index at ``path`` (default :func:`index_path`) hold any
+    texture?  Read-only: a missing or unreadable file is False and none
+    is created."""
+    path = path or index_path()
+    if not os.path.isfile(path):
+        return False
+    try:
+        conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=5.0)
+        try:
+            return conn.execute("SELECT 1 FROM textures LIMIT 1").fetchone() is not None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
 
 
 def open_index(path: "str | None" = None) -> sqlite3.Connection:

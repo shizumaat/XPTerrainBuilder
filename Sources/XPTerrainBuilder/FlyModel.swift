@@ -155,7 +155,22 @@ final class FlyModel: ObservableObject {
         watching = on
         preview.setEnabled(on && livePreview)
         context.client.aircraftWatch(on: on)
-        if on { refreshPlans() }
+        if on {
+            refreshPlans()
+            refreshStatus()
+        }
+    }
+
+    /// Fly opens: the active flight's status (`flight_status`, the
+    /// record's when its job does not run), so a prepared flight shows
+    /// and "End flight" works even when no `FlightStatus` came (#2019).
+    /// Python: `O4_Qt_Fly_Pane.refresh_status`.
+    func refreshStatus() {
+        command("flight_status", [:]) { [weak self] reply in
+            guard let self, self.status == nil,
+                  let status = O4FlightStatus.parse(reply) else { return }
+            self.status = status
+        }
     }
 
     // MARK: - Naming the flight

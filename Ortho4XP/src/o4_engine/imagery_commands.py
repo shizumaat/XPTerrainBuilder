@@ -98,7 +98,8 @@ def start_imagery_follow(emit: Callable[[Any], None],
     (:func:`follow_settings`); ``tiles`` (``[build_dir, lat, lon]`` each)
     are rescanned into the index first, else, with ``working_dir``, every
     on-demand tile under it.  ``if_enabled`` (the apps' automatic start)
-    replies ``{"status": "off"}`` while ``imagery_on_demand`` is off.
+    replies ``{"status": "off"}`` only while :func:`follow_wanted` is
+    False.
     ``busy()`` is true while a build runs.  ``reload`` false: never offer
     a scenery reload after a spawn or jump (default: offer it to the
     user, ``reload_offer``; never sent on the job's own)."""
@@ -109,7 +110,7 @@ def start_imagery_follow(emit: Callable[[Any], None],
     from .imagery_follow import FollowJob, log_path
     from .imagery_follow_land import TierLander
     settings = follow_settings()
-    if if_enabled and not settings["enabled"]:
+    if if_enabled and not follow_wanted(settings, index_path):
         return {"status": "off"}
     with _FOLLOW_GUARD:
         job = _FOLLOW["job"]
@@ -136,6 +137,18 @@ def start_imagery_follow(emit: Callable[[Any], None],
                             lambda: RELOAD.offer("imagery")))
         _FOLLOW["job"] = job.start()
     return {"status": "started"}
+
+
+def follow_wanted(settings: Optional[dict] = None,
+                  index_path: Optional[str] = None) -> bool:
+    """Should the follow job run (the apps' automatic start)?  While the
+    ``imagery_on_demand`` switch is on, or whenever the on-demand index
+    holds textures (converted, adopted or built tiles): the switch says
+    only how NEW builds are made (#2019: the switch was off on the
+    owner's Mac, so converted tiles never sharpened)."""
+    import O4_Imagery_OnDemand_Index as IDX
+    settings = follow_settings() if settings is None else settings
+    return bool(settings["enabled"]) or IDX.has_rows(index_path)
 
 
 def follow_running() -> bool:

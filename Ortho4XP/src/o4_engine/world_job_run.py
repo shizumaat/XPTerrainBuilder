@@ -15,9 +15,11 @@ gives it the session, the World pack and X-Plane.
   budget through ``build_share.SHARE`` -- the flight's deadlines first,
   its tiles its own, never one tile twice.  :func:`autostart` starts
   track mode beside the follow job (both apps call
-  ``imagery_follow_start`` at launch) when imagery on demand is on and
-  the World pack is installed, and the active flight too, when a record
-  is still preparing, ready or flying.  :func:`world_job_stop` stops
+  ``imagery_follow_start`` at launch) whenever the World pack is
+  installed (the ``imagery_on_demand`` switch says only how new builds
+  are made: it was off on the owner's Mac and nothing was draped,
+  #2019), and the active flight too, when a record is still preparing,
+  ready or flying.  :func:`world_job_stop` stops
   track mode (``flight_end`` stops a flight).
 * :class:`_SessionBuilder` -- a ``drape`` tile, the kind build-ahead and a
   flight's corridor make (spec §17, RULINGS 2026-11-11j), is fetched and
@@ -362,19 +364,17 @@ def world_job_start(session, emit=None, mode: str = "track", flight=None,
                     scenery_dir: str = "", port=None,
                     if_enabled: bool = False, **_ignored) -> dict:
     """ENGINE COMMAND ``world_job_start``: ``{"status": "started" |
-    "running" | "off"}`` ("off": ``if_enabled`` and on-demand is off or
-    no World pack is installed)."""
+    "running" | "off"}`` ("off": ``if_enabled`` and no World pack is
+    installed; the ``imagery_on_demand`` switch says only how new builds
+    are made, #2019)."""
     global _RUNNER
     if mode == "flight":
         return _flight_start(session, emit, flight, scenery_dir, port)
     if mode != "track":
         raise ValueError(f"world_job_start: unknown mode {mode!r} "
                          "(known: 'track', 'flight').")
-    values = _settings()
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
-    on = str(values.get("imagery_on_demand", "True")).lower() not in (
-        "false", "0", "no", "off")
-    if if_enabled and not (on and WORLD.managed(scenery_dir)):
+    if if_enabled and not WORLD.managed(scenery_dir):
         return {"status": "off"}
     if not WORLD.managed(scenery_dir):
         raise ValueError("world_job_start: the World pack is not installed.")

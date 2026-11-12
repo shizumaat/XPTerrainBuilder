@@ -2084,6 +2084,7 @@ class MainWindow(QMainWindow):
         if shown:
             self.fly_pane.refresh_plans(
                 self.prefs.get("xplane_dir", "") or _xplane_above_custom_scenery() or "")
+            self.fly_pane.refresh_status()
 
     def _on_aircraft_position(self, event):
         self.fly_pane.show_position(event)
@@ -2947,23 +2948,29 @@ class MainWindow(QMainWindow):
 
     # -- Imagery on demand (#1992 P4) -----------------------------------
     def sync_imagery_follow(self):
-        """Start the follow job when the world switch is on (and the user
-        has not stopped it), stop it when the switch is off; the line
-        shows while either is true.  Called by the entry point after the
-        window shows and after Settings closes — never by the
-        constructor (tests build windows and may not reach the network)."""
+        """Start the follow job when it is wanted (the world switch is on,
+        or the on-demand index holds textures: ``follow_wanted``, #2019)
+        and the user has not stopped it; the switch says only how NEW
+        builds are made, so turning it off never stops the job.  The line
+        shows while it is wanted or runs.  Called by the entry point after
+        the window shows and after Settings closes — never by the
+        constructor (tests build windows and may not reach the network).
+        Swift: ``BuildModel.syncImageryFollow``."""
         from o4_engine import imagery_commands as CMDS
         enabled = CMDS.follow_settings()["enabled"]
         QTONDEMAND_BUILD.apply(self, enabled)       # RULINGS 2026-11-10e (1)
+        wanted = CMDS.follow_wanted()
         running = CMDS.follow_running()
-        if enabled and not running and not self._follow_stopped_by_user:
+        if wanted and not running and not self._follow_stopped_by_user:
             self._start_imagery_follow()
             running = True
-        elif not enabled and running:
-            self._stop_imagery_follow()
-            running = False
+        else:
+            # build-ahead runs whenever the World pack is installed, follow
+            # job or not (as the JSONL imagery_follow_start does, #2019)
+            from o4_engine import world_job_run as WORLD_JOB
+            WORLD_JOB.autostart(self._session)
         self.follow_line.set_running(running)
-        self.follow_line.setVisible(enabled or running)
+        self.follow_line.setVisible(wanted or running)
 
     def _start_imagery_follow(self):
         from o4_engine import imagery_commands as CMDS

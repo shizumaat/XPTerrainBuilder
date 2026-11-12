@@ -248,12 +248,19 @@ class FollowJob:
         return self._thread is not None and self._thread.is_alive()
 
     def run(self) -> None:
-        """The loop: :meth:`open`, then :meth:`tick` every ``period_s``."""
+        """The loop: :meth:`open`, then :meth:`tick` every ``period_s``.  A
+        tick that raises (a bad position record, a texture that will not
+        read) is logged (``tick_error``) and the next tick runs: one bad
+        record never ends the job (#2019).  Only a failed :meth:`open`
+        stops it (``error``)."""
         try:
             self.open()
             while not self._stop.is_set():
                 t0 = time.monotonic()
-                self.tick()
+                try:
+                    self.tick()
+                except Exception as error:      # logged; the job goes on
+                    self._log({"tick_error": repr(error)[:300]})
                 self._stop.wait(max(0.02, self.period_s
                                     - (time.monotonic() - t0)))
         except Exception as error:      # the event carries it; the engine lives on

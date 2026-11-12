@@ -78,6 +78,25 @@ def test_plans_list_fills_the_menu_and_a_plan_fills_the_card(qapp):
     assert pane.chk_build_alternate.isEnabled()         # the plan has one
 
 
+def test_opening_fly_shows_a_prepared_flight_so_it_can_be_ended(qapp):
+    """#2019 (owner: "the end flight button is disabled"): a prepared
+    record whose job sent no FlightStatus is read when Fly opens
+    (``flight_status``); End flight is enabled and ends it."""
+    status = dict(CASES["events"]["FlightStatus"])
+    engine = _Engine({"flight_status": status, "flight_end": {}})
+    pane, _ = _pane(engine)
+    assert not pane.end_flight_btn.isEnabled()
+    pane.refresh_status()
+    assert engine.calls[-1] == ("flight_status", {})
+    assert pane.end_flight_btn.isEnabled()
+    pane.end_flight_btn.click()
+    assert engine.calls[-1] == ("flight_end", {"flight": status["flight"]})
+    none = _Engine({"flight_status": {"flight": None}})
+    pane, _ = _pane(none)
+    pane.refresh_status()
+    assert pane.status is None and not pane.end_flight_btn.isEnabled()
+
+
 def test_no_plan_closes_a_prepared_flight_only(qapp):
     """"No plan: follow the aircraft" asks the engine to close the active
     flight only while it is still preparing or ready (#2019): a stale

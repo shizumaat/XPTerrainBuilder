@@ -22,7 +22,8 @@ tiles made ready by their deadlines, its readiness rows and countdown.
   budget, network, pre-fetch, X-Plane, the witness's loads),
   ``ground_reload(tiles)`` (rule S6 (a): merge the staged departure and
   first-window tiles over the loaded ones and reload once, on the
-  ground).
+  ground), ``others_running()`` (track mode's builds around the
+  aircraft, which run beside the flight on one slot budget, #2019).
 
 Lane F2 adds the diversion (:meth:`FlightManager.divert`, spec §8.6,
 ``flight_divert``), the one reload in the air (rule S6 (b),
@@ -184,6 +185,7 @@ class FlightManager:
                  intermediate: str = "drape", parked_slots: int = 1,
                  flight_slots: int = 1,
                  ground_reload: Callable[[List[Tile]], bool] = lambda t: False,
+                 others_running: Callable[[], int] = lambda: 0,
                  stamp: Callable[[], str] = lambda: "") -> None:
         self.record, self.plan = record, plan
         self.builder, self.publisher, self.facts = builder, publisher, facts
@@ -192,6 +194,7 @@ class FlightManager:
         self.parked_slots = max(1, int(parked_slots))
         self.flight_slots = max(1, int(flight_slots))
         self.ground_reload, self.stamp = ground_reload, stamp
+        self.others_running = others_running
         self.departure = plan.waypoints[0]
         self.leg = DIVERT.Leg()
         self.air = AirReload()
@@ -361,7 +364,8 @@ class FlightManager:
         for tile, ok in self.builder.poll(now):
             tile = tuple(tile)
             job, run = self._job(tile), self._runs.get(tile)
-            if job is None or job.state != "building" or run is None:
+            if (ok is None or job is None or job.state != "building"
+                    or run is None):
                 continue
             run["finished_at"] = now
             if ok:
@@ -428,7 +432,8 @@ class FlightManager:
         return self.parked_slots
 
     def _dispatch(self, now: float) -> None:
-        running = sum(1 for j in self.jobs if j.state == "building")
+        running = (sum(1 for j in self.jobs if j.state == "building")
+                   + self.others_running())      # track mode's, one budget
         takeoff = self._takeoff_s(now)
         refused: set = set()
         while running < self.slots():

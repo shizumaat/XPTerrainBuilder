@@ -6,14 +6,19 @@ gives it the session, the World pack and X-Plane.
 * :func:`world_job_start` (``world_job_start {mode: "track"}``) starts it
   on a thread that reads the shared position feed
   (``position_feed.shared``) once a second and emits ``WorldStatus``
-  every 2 s.  ``mode: "flight", flight: <id>`` runs that flight's job
-  instead (``flight_job_run``, lane F1b: the route's corridor, departure
-  and destination by their deadlines, ``FlightStatus``); track mode does
-  not run beside a flight.  :func:`autostart` starts it beside the follow
-  job (both apps call ``imagery_follow_start`` at launch) when imagery on
-  demand is on and the World pack is installed -- the active flight, when
-  a record is still preparing, ready or flying.  :func:`world_job_stop`
-  stops track mode (``flight_end`` stops a flight).
+  every 2 s.  ``mode: "flight", flight: <id>`` starts that flight's job
+  (``flight_job_run``, lane F1b: the route's corridor, departure and
+  destination by their deadlines, ``FlightStatus``).  Track mode runs
+  BESIDE a flight, whatever the plan (owner 2026-11-12, #2019: "No
+  matter what the flight plan is set to, we should still dynamically
+  load tiles wherever the aircraft is"): both jobs build on one slot
+  budget through ``build_share.SHARE`` -- the flight's deadlines first,
+  its tiles its own, never one tile twice.  :func:`autostart` starts
+  track mode beside the follow job (both apps call
+  ``imagery_follow_start`` at launch) when imagery on demand is on and
+  the World pack is installed, and the active flight too, when a record
+  is still preparing, ready or flying.  :func:`world_job_stop` stops
+  track mode (``flight_end`` stops a flight).
 * :class:`_SessionBuilder` -- a ``drape`` tile, the kind build-ahead and a
   flight's corridor make (spec §17, RULINGS 2026-11-11j), is fetched and
   written straight into the staging folder on the builder's thread
@@ -40,6 +45,7 @@ from typing import Any, Callable, Optional
 import O4_World_Pack as WP
 
 from . import world_commands as WORLD
+from .build_share import SHARE
 from .world_job import WorldJob, drape_estimate
 
 __all__ = ["STATUS_EVERY_S", "world_job_start", "world_job_stop", "autostart"]
@@ -86,13 +92,18 @@ def _restore_package(tile) -> None:
 
 
 class _SessionBuilder:
-    """The job's builds through the engine session (see the module)."""
+    """The job's builds through the engine session (see the module).
+    With a ``share`` (``build_share.BuildShare``) every tile is taken
+    there as ``owner`` first and its result goes to whichever job owns
+    it when the build ends."""
 
     def __init__(self, session: Any, provider: str, zoomlevel: int,
-                 drape: "Optional[Callable[[tuple], bool]]" = None) -> None:
+                 drape: "Optional[Callable[[tuple], bool]]" = None,
+                 share=None, owner: str = "") -> None:
         self.session = session
         self.provider, self.zoomlevel = provider, int(zoomlevel)
         self.drape = drape
+        self.share, self.owner = share, owner
         self._mine: set = set()
         self._done: list = []
         self._lock = threading.Lock()
@@ -104,12 +115,30 @@ class _SessionBuilder:
             return
         tile = (int(event.lat), int(event.lon))
         with self._lock:
-            if tile in self._mine:
-                self._mine.discard(tile)
-                self._done.append((tile, bool(event.ok)))
+            if tile not in self._mine:
+                return
+            self._mine.discard(tile)
+        self._finish(tile, bool(event.ok))
+
+    def _finish(self, tile, ok: bool) -> None:
+        if self.share is not None:
+            self.share.finish(tile, ok)
+            return
+        with self._lock:
+            self._done.append((tile, ok))
 
     def start(self, tile, kind: str, deadline_in_s: float, klass: str) -> bool:
         tile = (int(tile[0]), int(tile[1]))
+        if self.share is not None:
+            verdict = self.share.take(self.owner, tile, kind)
+            if verdict != "start":
+                return verdict == "adopted"
+        started = self._start(tile, kind, deadline_in_s, klass)
+        if not started and self.share is not None:
+            self.share.drop(self.owner, tile)
+        return started
+
+    def _start(self, tile, kind: str, deadline_in_s: float, klass: str) -> bool:
         if kind == "drape":
             return self._start_drape(tile)
         _restore_package(tile)
@@ -139,14 +168,15 @@ class _SessionBuilder:
                 WORLD.write_log({"drape_error": repr(error)[:300],
                                  "tile": WP.tile_name(*tile)})
                 ok = False
-            with self._lock:
-                self._done.append((tile, ok))
+            self._finish(tile, ok)
         self._pool.submit(work)
         return True
 
     def poll(self, now: float) -> list:
         with self._lock:
             done, self._done = self._done, []
+        if self.share is not None:
+            done += self.share.poll(self.owner)
         return done
 
 
@@ -289,11 +319,17 @@ class _Runner:
         self.feed = shared(WEBAPI.base_url(int(port)) if port else None)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
-            drape=lambda tile: drape_tile(tile, provider, zoomlevel))
+            drape=lambda tile: drape_tile(tile, provider, zoomlevel),
+            share=SHARE, owner="track")
+        wanted = _Wanted(scenery_dir)
         self.job = WorldJob(
             builder=builder,
             publisher=_PackPublisher(scenery_dir, session.tile_build_dir),
-            wanted=_Wanted(scenery_dir), kind="drape",
+            wanted=lambda tile: (not SHARE.claimed("track", tile)
+                                 and wanted(tile)),
+            slot_free=lambda slots, running: SHARE.free_for(
+                "track", slots, running),
+            kind="drape",
             estimate_s=drape_estimate(drape_px()),
             capacity=SLOTS.session_capacity(), cores=os.cpu_count() or 4,
             fly_slots=int(values.get("fly_build_slots") or 0),
@@ -334,9 +370,6 @@ def world_job_start(session, emit=None, mode: str = "track", flight=None,
     if mode != "track":
         raise ValueError(f"world_job_start: unknown mode {mode!r} "
                          "(known: 'track', 'flight').")
-    from . import flight_job_run as FLIGHT
-    if FLIGHT.current() is not None:
-        return {"status": "running", "mode": "flight"}
     values = _settings()
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     on = str(values.get("imagery_on_demand", "True")).lower() not in (
@@ -384,6 +417,7 @@ def world_job_stop(**_ignored) -> dict:
         return {"status": "stopped", "swapped": 0, "late": 0}
     runner.stop_event.set()
     runner.thread.join(timeout=5.0)
+    SHARE.leave("track")
     jobs = runner.job.jobs.values()
     WORLD.write_log({"world_job": "stop"})
     return {"status": "stopped",
@@ -392,15 +426,22 @@ def world_job_stop(**_ignored) -> dict:
 
 
 def autostart(session, port=None, **_ignored) -> Optional[dict]:
-    """Start the job beside the follow job when it may run (see
-    :func:`world_job_start`, ``if_enabled``); never raises."""
+    """Start track mode beside the follow job when it may run (see
+    :func:`world_job_start`, ``if_enabled``) and the active flight beside
+    it; never raises.  The reply is track mode's, with the flight's
+    ``mode`` and ``flight`` when one started."""
+    reply: Optional[dict] = None
+    try:
+        reply = world_job_start(session, port=port, if_enabled=True)
+    except Exception as error:              # logged; the follow job starts
+        WORLD.write_log({"world_job_autostart": repr(error)[:300]})
     try:
         from . import flight_record as RECORD
         active = RECORD.active_flight(RECORD.flights_dir())
         if active is not None and WORLD.managed(WORLD.scenery_dir_or_default()):
-            return world_job_start(session, mode="flight", flight=active.id,
-                                   port=port)
-        return world_job_start(session, port=port, if_enabled=True)
-    except Exception as error:              # logged; the follow job starts
+            flight = world_job_start(session, mode="flight", flight=active.id,
+                                     port=port)
+            reply = dict(reply or {}, **flight, track=(reply or {}).get("status"))
+    except Exception as error:              # logged; track mode runs on
         WORLD.write_log({"world_job_autostart": repr(error)[:300]})
-        return None
+    return reply

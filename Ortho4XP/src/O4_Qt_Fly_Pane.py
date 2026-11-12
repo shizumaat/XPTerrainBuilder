@@ -407,6 +407,7 @@ class FlyPane(QWidget):
             self.fetch_simbrief()
         elif choice == "none":
             self.set_plan(None)
+            self.follow_aircraft()
         elif choice:
             self.read_plan(choice)
 
@@ -480,6 +481,15 @@ class FlyPane(QWidget):
     def waive_offline(self):
         """"Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3)."""
         self._update(waive_offline=True)
+
+    def follow_aircraft(self):
+        """"No plan: follow the aircraft": a flight still preparing or
+        ready closes (``flight_end {if_prepared: true}``) so a stale
+        prepared record never owns build-ahead; one in the air stays
+        (#2019).  Track mode runs either way.  Swift: ``FlyModel``."""
+        reply = self._command("flight_end", if_prepared=True)
+        if (reply or {}).get("flight"):
+            self.show_status(None)
 
     def _end_flight(self):
         if self.status and self._command(

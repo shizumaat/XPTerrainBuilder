@@ -148,7 +148,7 @@ Command modules, not session methods, registered in the `jsonl.py` table beside 
 | `world_status` | sync: the fields of `WorldStatus` plus the region rows |
 | `world_install {scenery_dir}` | creates the pack folder and its `scenery_packs.ini` row (`ini_install`); `restart_needed` true when X-Plane is running |
 | `world_regions_set {regions: [id]}` | `{"status":"started"}`, then `WorldReady` (placeholders written or removed) |
-| `world_job_start {mode: "track"\|"flight", flight?}` / `world_job_stop` | starts or stops build-ahead; `WorldStatus` events follow. Starts by itself, like the follow job (loader spec §4.1), when on-demand is on, a region is enabled and positions arrive |
+| `world_job_start {mode: "track"\|"flight", flight?}` / `world_job_stop` | starts or stops build-ahead; `WorldStatus` events follow. Starts by itself, like the follow job (loader spec §4.1), when on-demand is on, a region is enabled and positions arrive. Track mode runs beside an active flight (§8.5, #2019); `world_job_stop` stops track mode, `flight_end` the flight |
 | `world_tile_set {lat, lon, kind: "placeholder"}` | Library action "Give this tile back" (swap-out, §7.4) |
 | `world_migrate {dry_run, tiles?}` | `WorldReady` (phase M) |
 | `flight_plans_list {xplane_dir}` | sync: `[{path, name, origin, destination, modified_at}]`, newest first |
@@ -325,6 +325,8 @@ This is the brief's order (build-ahead > destination > sharpening > alternate). 
 ### 8.5 Free flight (no plan)
 
 Deadlines come from the track instead of a route: the tracker is run along the straight track for the lead time of §2.2 plus a turn margin of one row and column toward the turn. Candidates are the tiles that would enter within that horizon. This is also the mode after leaving a plan's corridor. With light tiles it holds at GA speeds; above that the pane says "Flying faster than tiles can be built here: ahead stays X-Plane's own scenery".
+
+**Track mode always runs, whatever the plan (owner 2026-11-12T14:12Z, #2019):** "No matter what the flight plan is set to, we should still dynamically load tiles wherever the aircraft is right? Why do we need the 'no flight plan' option?" (Found when a prepared KMRY–KFAT flight was still active and X-Plane loaded at CYWG: the flight job had replaced track mode, so nothing near the aircraft was draped.) Track mode runs while imagery on demand and the World pack are on; an active flight's job runs BESIDE it, never instead of it. The two share one slot budget (`o4_engine/build_share.py`): the budget is the smaller of the two jobs' slot counts (§10), each job counts the other's running builds, and track mode starts only in the slots left after the flight's waiting jobs, so a corridor deadline wins a contended slot. The flight's tiles are its own (track mode leaves them), and no tile is built twice: a flight job that wants a tile track mode is building or has built, of the same kind, adopts that build; a `full` departure or destination over a running drape waits for the drape and then replaces it. "No plan: follow the aircraft" stays as the plan choice that means "no route to prepare"; the Fly pane shows the World line (track mode) and the flight's lines together, and its map draws build-ahead's tiles around the aircraft beside the flight's corridor (`FlyLayers.mapJobs` / `O4_Fly_Layers.map_jobs`).
 
 ### 8.6 Diversion
 

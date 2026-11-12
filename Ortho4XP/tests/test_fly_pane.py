@@ -247,14 +247,19 @@ def test_the_corridor_follows_the_jobs_once_reported():
 
 def test_free_flight_maps_the_drapes_ahead():
     """No flight, no plan: the map draws build-ahead's tiles
-    (``WorldStatus.jobs``) by the same legend; a flight's jobs, or a plan's
-    corridor, win over them."""
+    (``WorldStatus.jobs``) by the same legend; a plan's corridor wins over
+    them; a flight's jobs win on their own tiles and build-ahead's other
+    tiles are drawn beside them (track mode runs beside a flight, #2019)."""
     ahead = WORLD_STATUS["jobs"]
     jobs = LAYERS.map_jobs((), False, ahead)
     assert LAYERS.corridor_cells(None, 20, jobs) == [
         (53, -60, "building"), (53, -59, "quick"), (54, -60, "own")]
-    assert LAYERS.map_jobs(FLIGHT_STATUS["jobs"], False, ahead) == \
-        FLIGHT_STATUS["jobs"]
+    both = LAYERS.map_jobs(FLIGHT_STATUS["jobs"], False, ahead)
+    assert both[:len(FLIGHT_STATUS["jobs"])] == tuple(FLIGHT_STATUS["jobs"])
+    assert [tuple(r[0]) for r in both[len(FLIGHT_STATUS["jobs"]):]] == [
+        tuple(r[0]) for r in ahead
+        if tuple(r[0]) not in {tuple(f[0]) for f in FLIGHT_STATUS["jobs"]}]
+    assert (53, -59, "quick") in LAYERS.corridor_cells(None, 20, both)
     assert LAYERS.map_jobs((), True, ahead) == ()
     assert set(EV.WorldStatus.__dataclass_fields__) >= {"jobs", "building"}
 

@@ -176,7 +176,9 @@ final class FlyModel: ObservableObject {
         switch choice {
         case "": break
         case "simbrief": fetchSimBrief()
-        case "none": plan = nil
+        case "none":
+            plan = nil
+            followAircraft()
         default: readPlan(path: choice)
         }
     }
@@ -261,6 +263,16 @@ final class FlyModel: ObservableObject {
     /// "Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3).
     func waiveOffline() {
         update(["waive_offline": true])
+    }
+
+    /// "No plan: follow the aircraft": a flight still preparing or ready
+    /// closes (`flight_end {if_prepared: true}`) so a stale prepared record
+    /// never owns build-ahead; one in the air stays (#2019). Track mode runs
+    /// either way. Python: `O4_Qt_Fly_Pane.follow_aircraft`.
+    func followAircraft() {
+        command("flight_end", ["if_prepared": true]) { [weak self] reply in
+            if reply?["flight"]?.stringValue != nil { self?.status = nil }
+        }
     }
 
     func endFlight() {

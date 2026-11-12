@@ -9,7 +9,8 @@ is passed in:
 
 * ``builder`` -- ``start(tile, kind, deadline_in_s, klass)`` starts (or
   queues) a build and says whether it took it; ``poll(now)`` returns
-  ``[(tile, ok)]`` for the builds finished since the last call
+  ``[(tile, ok)]`` for the builds finished since the last call (``ok``
+  None: a flight's job took the tile over, ``build_share``)
   (``world_job_run._SessionBuilder``: a ``drape`` is fetched and written
   on the builder's own thread; a ``full`` tile goes through the engine
   session's build queue with its ``deadline`` and ``klass``);
@@ -19,7 +20,10 @@ is passed in:
 * ``wanted(tile)`` -- may the job build this tile (in an enabled region,
   a placeholder of ours, not ``external``, spec §7.2);
 * ``loads()`` -- the tiles X-Plane has loaded this session (the
-  ``Log.txt`` witness, ``O4_XPlane_Log``).
+  ``Log.txt`` witness, ``O4_XPlane_Log``);
+* ``slot_free(slots, running)`` -- how many builds may start now
+  (``build_share.BuildShare.free_for``: a flight's job runs beside
+  track mode on one budget and its deadlines come first, #2019).
 
 Each tick:
 
@@ -42,7 +46,8 @@ Each tick:
    first, with a deadline at :data:`PARKED_ASSUMED_MS`.
 4. Dispatch, earliest deadline first, while fewer builds run than the slots
    allow: ``O4_World_Governor.flight_slots`` in flight, ``parked_slots``
-   parked, less what the frame-time guard has given back.
+   parked, less what the frame-time guard has given back, less what an
+   active flight's job runs and waits to start (``slot_free``).
 
 A build that fails twice is ``failed`` (two attempts, never a third,
 spec §11).  Each finished build rescales the kind's remaining estimates by
@@ -120,12 +125,14 @@ class WorldJob:
                  fly_slots: int = 0, sim_priority: str = "balanced",
                  loads: Callable[[], Iterable[Tile]] = lambda: (),
                  estimate_s: Optional[dict] = None,
+                 slot_free: Callable[[int, int], int] = lambda s, r: s - r,
                  stamp: Callable[[], object] = lambda: "") -> None:
         if kind not in KINDS:
             raise ValueError(f"unknown intermediate kind {kind!r} "
                              f"(known: {list(KINDS)})")
         self.builder, self.publisher = builder, publisher
         self.wanted, self.loads = wanted, loads
+        self.slot_free = slot_free
         self.stamp = stamp                 # last_swap's time (UTC text)
         self.kind = kind
         self.estimate_s = dict(ESTIMATE_S, **(estimate_s or {}))
@@ -227,6 +234,9 @@ class WorldJob:
     def _harvest(self, now: float) -> None:
         for tile, ok in self.builder.poll(now):
             job = self.jobs.get(tuple(tile))
+            if job is not None and ok is None:
+                del self.jobs[tuple(tile)]  # a flight's job has it now
+                continue
             if job is None or job.state != "building":
                 continue
             job.finished_at = now
@@ -310,7 +320,7 @@ class WorldJob:
         return self.governor.allowed(cap)
 
     def _dispatch(self, now: float) -> None:
-        free = self.slots() - self._running()
+        free = self.slot_free(self.slots(), self._running())
         queued = sorted((j for j in self.jobs.values() if j.state == "queued"),
                         key=lambda j: (j.deadline, j.tile))
         for job in queued[:max(0, free)]:

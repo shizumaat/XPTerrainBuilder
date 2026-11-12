@@ -78,6 +78,23 @@ def test_plans_list_fills_the_menu_and_a_plan_fills_the_card(qapp):
     assert pane.chk_build_alternate.isEnabled()         # the plan has one
 
 
+def test_no_plan_closes_a_prepared_flight_only(qapp):
+    """"No plan: follow the aircraft" asks the engine to close the active
+    flight only while it is still preparing or ready (#2019): a stale
+    prepared record never owns build-ahead; a flight in the air stays."""
+    status = CASES["events"]["FlightStatus"]
+    for reply, cleared in (({"flight": status["flight"], "state": "closed"}, True),
+                           ({"flight": None}, False)):
+        engine = _Engine({"flight_end": reply})
+        pane, _ = _pane(engine)
+        pane.show_status(NS(**status))
+        combo = pane.plan_source_combo
+        combo.setCurrentIndex(combo.findData("none"))
+        pane._source_chosen(combo.currentIndex())
+        assert ("flight_end", {"if_prepared": True}) in engine.calls
+        assert (pane.status is None) is cleared
+
+
 def test_quick_entry_and_a_refusing_engine(qapp):
     engine = _Engine({})
     pane, _ = _pane(engine)
@@ -108,7 +125,10 @@ def test_status_events_fill_the_checklist_and_countdown(qapp):
     assert pane.divert_btn.isEnabled() and pane.end_flight_btn.isEnabled()
     pane.show_world(CASES["events"]["WorldStatus"])
     assert pane.world_line.text() == TEXT.world_line(CASES["events"]["WorldStatus"])
-    assert [c[2] for c in pane.cells()] == ["built", "quick", "building", "own"]
+    # the flight's cells, then build-ahead's around the aircraft beside it
+    # (#2019): +53-060 stays the flight's, +53-059 and +54-060 are added
+    assert [c[2] for c in pane.cells()] == ["built", "quick", "building", "own",
+                                            "quick", "own"]
     pane.end_flight_btn.click()
     assert pane.status is None and pane.readiness_list.text() == TEXT.NO_STATUS
 

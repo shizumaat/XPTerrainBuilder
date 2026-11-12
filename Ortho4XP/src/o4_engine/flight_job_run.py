@@ -30,10 +30,15 @@ what it touches:
   (lane F2), and :meth:`_Runner.cancel` for a diversion's old
   destination (``session.cancel_tile``).
 
-:func:`start` replaces build-ahead's track mode while a flight is active
-(``world_job_start {mode: "flight"}``); :func:`stop` ends it and track
-mode may start again.  ``FlightStatus`` every :data:`STATUS_EVERY_S` and
-at once on a change; the record is saved on every state change.
+:func:`start` runs the flight BESIDE build-ahead's track mode (``world_job_start
+{mode: "flight"}``; owner 2026-11-12, #2019: tiles still load wherever the
+aircraft is, whatever the plan): both build through ``build_share.SHARE``
+on one slot budget; the flight publishes its slots and its waiting jobs,
+so a corridor deadline wins a contended slot, and claims its tiles, so
+track mode leaves them; a tile is never built twice.  :func:`stop` ends
+the flight; track mode runs on.  ``FlightStatus`` every
+:data:`STATUS_EVERY_S` and at once on a change; the record is saved on
+every state change.
 """
 from __future__ import annotations
 
@@ -49,11 +54,13 @@ import O4_World_Pack as WP
 from . import flight_budget as BUDGET
 from . import flight_record as RECORD
 from . import world_commands as WORLD
+from .build_share import SHARE
 from .flight_manager import FlightManager
 from .world_job_run import _settings, _utc
 
-__all__ = ["STATUS_EVERY_S", "FULL_FALLBACK_S", "start", "stop", "current",
-           "status_event", "pack_state", "estimate", "prefetch_tile"]
+__all__ = ["STATUS_EVERY_S", "FULL_FALLBACK_S", "start",
+           "stop", "current", "status_event", "pack_state",
+           "estimate", "prefetch_tile"]
 
 #: Seconds between ``FlightStatus`` events (spec §5.3).
 STATUS_EVERY_S = 2.0
@@ -271,7 +278,8 @@ class _Runner:
         self.reloader = _reloader(scenery_dir, session.tile_build_dir, port)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
-            drape=lambda tile: drape_tile(tile, provider, zoomlevel))
+            drape=lambda tile: drape_tile(tile, provider, zoomlevel),
+            share=SHARE, owner="flight")
         self.manager = FlightManager(
             record, plan, builder=builder,
             publisher=_PackPublisher(scenery_dir, session.tile_build_dir),
@@ -281,9 +289,11 @@ class _Runner:
             parked_slots=GOVERNOR.parked_slots(SLOTS.session_capacity()),
             flight_slots=self.cap,
             ground_reload=self.reloader,
+            others_running=lambda: SHARE.others_running("flight"),
             stamp=_utc)
         self.manager.facts = _Facts(scenery_dir, self.manager.jobs,
                                     self.manager.times[-1])
+        _share_slots(self.manager)
         self.t0 = time.monotonic()
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -323,6 +333,7 @@ class _Runner:
                         self.governor.observe(now, rec.get("frame_s"), building)
                         self.manager.flight_slots = self.governor.allowed(self.cap)
                     self.manager.tick(now, rec)
+                    _share_slots(self.manager)
                     self.reloader.sweep(self.manager.facts().get("load_stamps"))
                     fields = self.manager.status(now)
                     record = self.manager.record
@@ -341,6 +352,21 @@ class _Runner:
                 WORLD.write_log({"flight_error": repr(error)[:300]})
 
 
+#: The flight's states that dispatch builds (``FlightManager.tick``).
+_DISPATCHING = ("preparing", "ready", "flying")
+
+
+def _share_slots(manager, share=SHARE) -> None:
+    """Tell ``share`` the flight's tiles (track mode leaves them), its
+    slot count and the jobs waiting for a slot (track mode starts only
+    in what is left)."""
+    jobs = manager.jobs
+    waiting = (sum(1 for j in jobs if j.state == "queued")
+               if manager.record.state in _DISPATCHING else 0)
+    share.claim("flight", [j.tile for j in jobs])
+    share.publish("flight", manager.slots(), waiting)
+
+
 def current() -> "Optional[_Runner]":
     """The running flight's runner, or None."""
     runner = _RUNNER
@@ -348,11 +374,10 @@ def current() -> "Optional[_Runner]":
 
 
 def start(session, emit, record, plan, scenery_dir: str, port=None) -> str:
-    """Run ``record``'s flight (build-ahead's track mode stops first):
-    ``"started"``, or ``"running"`` when that flight already runs; a
-    different active flight raises ``ValueError``."""
+    """Run ``record``'s flight beside track mode: ``"started"``, or
+    ``"running"`` when that flight already runs; a different active
+    flight raises ``ValueError``."""
     global _RUNNER
-    from . import world_job_run as TRACK
     with _GUARD:
         runner = current()
         if runner is not None:
@@ -360,7 +385,6 @@ def start(session, emit, record, plan, scenery_dir: str, port=None) -> str:
                 return "running"
             raise ValueError("A flight is already active (%s): end it first."
                              % runner.manager.record.id)
-        TRACK.world_job_stop()
         _RUNNER = _Runner(emit, session, record, plan, scenery_dir, port)
         _RUNNER.thread.start()
     WORLD.write_log({"flight": "start", "id": record.id})
@@ -377,5 +401,6 @@ def stop() -> "Optional[Any]":
         return None
     runner.stop_event.set()
     runner.thread.join(timeout=5.0)
+    SHARE.leave("flight")
     WORLD.write_log({"flight": "stop", "id": runner.manager.record.id})
     return runner.manager.record

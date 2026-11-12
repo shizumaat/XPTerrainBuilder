@@ -390,8 +390,8 @@ def test_create_status_update_end(engine, monkeypatch):
     """``flight_create`` from a departure + arrival writes the record and
     starts the flight in world_job's flight mode: full builds queued
     through the session (class, never interactive), ``FlightStatus``
-    events; track mode stays off while it runs; ``flight_update`` replans;
-    ``flight_end`` closes it and track mode may start again."""
+    events; track mode starts beside it (#2019); ``flight_update``
+    replans; ``flight_end`` closes it and track mode runs on."""
     session, events, builds, folder = engine
     table = FC.flight_handlers(session)
     reply = table["flight_create"](
@@ -410,8 +410,8 @@ def test_create_status_update_end(engine, monkeypatch):
     with pytest.raises(ValueError, match="already active"):
         table["flight_create"](dep={"lat": 1, "lon": 1},
                                arr={"lat": 2, "lon": 2})
-    assert WORLD_JOB.world_job_start(session) == {"status": "running",
-                                                  "mode": "flight"}
+    assert WORLD_JOB.world_job_start(session) == {"status": "started"}
+    assert FLIGHT.current().manager.record.id == flight
     status = table["flight_status"]()
     assert status["flight"] == flight and status["state"] == "preparing"
     assert status["phase"] == "parked" and status["items"]
@@ -432,18 +432,22 @@ def test_create_status_update_end(engine, monkeypatch):
     assert table["flight_end"](flight=flight) == {"flight": flight,
                                                   "state": "closed"}
     assert FLIGHT.current() is None and starts == [session]
+    assert WORLD_JOB._RUNNER is not None        # track mode runs on
     assert RECORD.load(os.path.join(folder, flight + ".json")).state == "closed"
     assert table["flight_status"](flight=flight)["state"] == "closed"
 
 
 def test_autostart_resumes_the_active_flight(engine):
-    """At launch the active record (preparing) runs again in flight mode."""
+    """At launch the active record (preparing) runs again in flight mode,
+    beside track mode (#2019)."""
     session, events, _builds, folder = engine
     record = RECORD.from_plan(_plan(), "none", WHEN)
     RECORD.save(record, folder)
     assert WORLD_JOB.autostart(session) == {"status": "started",
                                             "mode": "flight",
-                                            "flight": record.id}
+                                            "flight": record.id,
+                                            "track": "started"}
+    assert WORLD_JOB._RUNNER is not None
     assert FLIGHT.current().manager.record.id == record.id
     assert _wait_for(lambda: any(isinstance(e, FlightStatus) for e in events))
 
@@ -483,3 +487,27 @@ def test_simbrief_completes_with_flight_ready(monkeypatch):
     assert events[0].request == 5 and events[0].result["origin"] == "A"
     with pytest.raises(ValueError, match="SimBrief"):
         FC.start_flight_plan_simbrief(events.append, user=" ")
+
+
+def test_no_plan_closes_a_prepared_flight_and_track_mode_runs(engine):
+    """#2019 (the owner's CYWG case: a prepared KMRY-KFAT record still
+    active owned build-ahead): "No plan" sends ``flight_end {if_prepared:
+    true}``; a preparing flight closes, track mode runs alone; a flight
+    in the air is left as it is."""
+    session, _events, _builds, folder = engine
+    table = FC.flight_handlers(session)
+    record = RECORD.from_plan(_plan(), "none", WHEN)
+    RECORD.save(record, folder)
+    assert WORLD_JOB.autostart(session)["flight"] == record.id
+    assert WORLD_JOB._RUNNER is not None            # beside the flight
+    assert table["flight_end"](if_prepared=True) == {"flight": record.id,
+                                                     "state": "closed"}
+    assert FLIGHT.current() is None and RECORD.active_flight(folder) is None
+    assert WORLD_JOB._RUNNER is not None            # track mode runs on
+    assert table["flight_end"](if_prepared=True) == {"flight": None}
+    flying = RECORD.from_plan(_plan(), "none", WHEN)
+    flying.id += "-air"
+    flying.state = "flying"
+    RECORD.save(flying, folder)
+    assert table["flight_end"](if_prepared=True) == {"flight": None}
+    assert RECORD.load(os.path.join(folder, flying.id + ".json")).state == "flying"

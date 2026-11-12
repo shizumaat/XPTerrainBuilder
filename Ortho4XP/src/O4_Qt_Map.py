@@ -967,7 +967,8 @@ class MapView(QGraphicsView):
         # one zoom below its floor the floor is fetched (#2017).
         z = max(2, int(round(self._zoom)))
         ceiling = min(self._provider_max_zl, FETCH_MAX_ZL)
-        return max(2, OVERZOOM.fetch_zoom(z, ceiling, self._provider_min_zl))
+        return max(2, OVERZOOM.floor_zoom(OVERZOOM.ancestor(z, 0, 0, ceiling).z,
+                                          ceiling, self._provider_min_zl))
 
     def _visible_range(self, z):
         """Visible tile index range at zoom z, with a one-tile margin."""

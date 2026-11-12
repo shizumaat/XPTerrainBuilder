@@ -14,9 +14,6 @@ from math import ceil, log, pi, tan
 from pathlib import Path
 
 import numpy
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
-import requests
-
 import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Color_Harmonization as HARMONIZE
 import O4_DDS_Cache as DDSCACHE
@@ -30,13 +27,15 @@ import O4_Imagery_Async as FETCH_ASYNC
 import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Machine_Slots as MACHINE_SLOTS
 import O4_Mask_Utils as MASK
-import O4_Triangle_Run as TRIANGLE_RUN
 import O4_OSM_Utils as OSM
 import O4_Sea_Nodata_Fill as SEA_FILL
 import O4_Text_Files as TEXT
+import O4_Triangle_Run as TRIANGLE_RUN
 import O4_UI_Utils as UI
 import O4_Vector_Utils as VECT
+import requests
 from O4_Parallel_Utils import effective_download_slots, parallel_execute
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # Not a decompression bomb attack!
 

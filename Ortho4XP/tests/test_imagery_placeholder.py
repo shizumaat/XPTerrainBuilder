@@ -79,7 +79,7 @@ def test_a_tier_is_the_full_textures_own_levels(tmp_path):
 def test_tier_ladder():
     assert [TIERS.tier_width(d) for d in TIERS.TIER_DROPS] == [512, 1024,
                                                               2048, 4096]
-    assert TIERS.tier_zoom(16, 3) == 13
+    assert PLACEHOLDER.fetch_zoom(16, 3, {}) == 13
     with pytest.raises(ValueError):
         TIERS.tier_width(4)
 
@@ -333,7 +333,6 @@ def test_fetch_zoom_honours_the_providers_floor():
 
 
 def _spy_fetch(monkeypatch, provider):
-    from PIL import Image
     import O4_UI_Utils as UI
     monkeypatch.setattr(UI, "red_flag", False)
     monkeypatch.setitem(IMG.providers_dict, "FAKE",

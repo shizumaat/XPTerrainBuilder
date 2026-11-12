@@ -13,7 +13,7 @@ and the zoom badge says ``overzoom xN`` (:func:`badge_text`).
 
 Below a source's ``min_zl`` (#2017: its coarsest zoom serving the
 same capture as full zoom; Bing's older, greener capture at ZL12 and
-coarser) :func:`fetch_zoom` raises the fetched zoom to that floor when
+coarser) :func:`floor_zoom` raises the fetched zoom to that floor when
 it is at most :data:`MAX_FLOOR_STEPS` finer than the view -- four times
 the tiles, never more; a coarser view keeps its own zoom.
 """
@@ -24,7 +24,7 @@ __all__ = [
     "MAX_VIEW_ZL",
     "MAX_FLOOR_STEPS",
     "Ancestor",
-    "fetch_zoom",
+    "floor_zoom",
     "ancestor",
     "overzoom_factor",
     "badge_text",
@@ -65,14 +65,13 @@ def ancestor(z: int, x: int, y: int, max_z: int) -> Ancestor:
                     1.0 / span)
 
 
-def fetch_zoom(view_z: int, max_z: int, min_z: Optional[int] = None) -> int:
-    """The zoom the map fetches for view zoom ``view_z``: the view's,
-    capped at the source's ``max_z`` (finer view tiles are its ancestors
-    scaled up) and raised to its ``min_z`` when that is at most
-    :data:`MAX_FLOOR_STEPS` finer (a tile drawn from 2 x 2 finer ones)."""
-    z = min(view_z, max_z)
+def floor_zoom(z: int, max_z: int, min_z: Optional[int] = None) -> int:
+    """The zoom the map fetches where it would fetch ``z`` (the view's
+    zoom capped at the source's ``max_z``, :func:`ancestor`): the
+    source's floor ``min_z`` when that is at most :data:`MAX_FLOOR_STEPS`
+    finer (a tile drawn from 2 x 2 finer ones), else ``z``."""
     if min_z is not None and z < min_z <= min(z + MAX_FLOOR_STEPS, max_z):
-        z = min_z
+        return min_z
     return z
 
 

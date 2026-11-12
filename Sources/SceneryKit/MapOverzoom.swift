@@ -27,7 +27,7 @@ public enum MapOverzoom {
 
     /// The zoom the map fetches for view zoom `viewZ`: the view's, capped
     /// at the source's `maxZ` and raised to its `minZ` when that is at most
-    /// `maxFloorSteps` finer (`O4_Map_Overzoom.fetch_zoom`).
+    /// `maxFloorSteps` finer (`O4_Map_Overzoom.ancestor` then `floor_zoom`).
     public static func fetchZoom(viewZ: Int, maxZ: Int, minZ: Int?) -> Int {
         let z = min(viewZ, maxZ)
         if let minZ, z < minZ, minZ <= min(z + maxFloorSteps, maxZ) { return minZ }

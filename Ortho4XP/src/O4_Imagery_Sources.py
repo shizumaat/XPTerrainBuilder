@@ -162,7 +162,7 @@ def preview_spec(provider) -> tuple[Optional[Dict[str, Any]], str]:
         return None, "This source's request type can't be previewed."
     # min_zl (#2017): the source's coarsest zoom serving its full-zoom
     # capture; the map fetches it for a view one zoom coarser
-    # (O4_Map_Overzoom.fetch_zoom)
+    # (O4_Map_Overzoom.floor_zoom)
     preview = {"template": url, "referer": _referer(headers), "max_zl": max_zl,
                "min_zl": PLACEHOLDER.min_source_zl(provider)}
     if tilematrix is not None:

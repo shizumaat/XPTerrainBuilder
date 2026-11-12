@@ -14,6 +14,9 @@ Fetches, through the engine's own ``download_jpeg_ortho`` into
 * ``--squares`` ZL16 squares inside it at z16 (the reference, 256 each)
   and z15 (64 each) -- the one holding the point, then the farthest.
 
+The provider's own ``min_source_zl`` is switched off for the run: the
+tool measures what the server sends at each zoom.
+
 Each ZL16 square splits into 2 x 2 samples; per zoom 10..15 the tool
 prints the square-mean CIEDE2000 against z16 (mean and max over samples,
 water and failed pixels masked from the reference), the median
@@ -97,6 +100,8 @@ def _engine():
 
 
 def _fetch(IMG, out, provider, x, y, zl, drop):
+    # the server's own answer at each zoom: the floor under test is off
+    IMG.providers_dict[provider].pop("min_source_zl", None)
     d = os.path.join(out, provider, "fetch")
     name = "%d_%d_%s%d_d%d.jpg" % (y, x, provider, zl, drop)
     path = os.path.join(d, name)
@@ -168,6 +173,8 @@ def measure(provider, lat, lon, out, squares=2, res=32):
 
 
 def main(argv=None):
+    import O4_Console_Encoding
+    O4_Console_Encoding.configure_console_streams()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--provider", required=True)
     ap.add_argument("--lat", type=float, required=True)

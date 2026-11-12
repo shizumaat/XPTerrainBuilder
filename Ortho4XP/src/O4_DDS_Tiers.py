@@ -9,8 +9,9 @@ full texture's name loads (spec §2.3).
 
 * :data:`TIER_DROPS` are the tiers by drop: 3 (512 px, the placeholder),
   2 (1024), 1 (2048) and 0 (4096, full).
-* :func:`tier_width` / :func:`tier_zoom` map a drop to the file's width
-  and to the zoom its imagery comes from.
+* :func:`tier_width` maps a drop to the file's width (the zoom its
+  imagery comes from is ``O4_Imagery_Placeholder.fetch_zoom``: the drop,
+  raised to the provider's ``min_source_zl``).
 * :func:`tier_from_dds` is a lower tier of a full (or any larger) DDS:
   the same block data minus its top levels, re-headed
   (``O4_DDS_File.split_levels`` -> ``build_header`` -> ``assemble``).  A
@@ -35,7 +36,7 @@ import struct
 import O4_DDS_File as DDS
 
 __all__ = ["FULL_WIDTH", "TIER_DROPS", "is_dxt5", "texture_header",
-           "tier_from_dds", "tier_from_file", "tier_span", "tier_width", "tier_zoom"]
+           "tier_from_dds", "tier_from_file", "tier_span", "tier_width"]
 
 #: Width of a texture built at its own zoom (16 x 16 map tiles of 256 px).
 FULL_WIDTH = 4096
@@ -50,12 +51,6 @@ def tier_width(drop: int) -> int:
     if drop not in TIER_DROPS:
         raise ValueError(f"no tier {drop} zoom levels below the build's")
     return FULL_WIDTH >> drop
-
-
-def tier_zoom(zoomlevel: int, drop: int) -> int:
-    """The zoom level a tier's imagery is fetched at."""
-    tier_width(drop)
-    return int(zoomlevel) - drop
 
 
 def texture_header(path: str) -> "tuple[int, str | None] | None":

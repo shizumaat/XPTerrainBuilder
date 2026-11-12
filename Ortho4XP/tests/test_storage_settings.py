@@ -16,6 +16,7 @@ import O4_OSM_Extracts as OSMX  # noqa: E402
 import pytest  # noqa: E402
 from o4_engine import library as LIB  # noqa: E402
 from o4_engine import storage as ST  # noqa: E402
+from o4_engine import storage_range as RANGE  # noqa: E402
 from o4_engine import storage_redundant as REDUNDANT  # noqa: E402
 
 DAY = 86400.0
@@ -48,6 +49,9 @@ def root(tmp_path, monkeypatch):
                         str(tmp_path / "OSM_data" / "_regional_extracts"))
     monkeypatch.setattr(ST, "_settings", lambda: (0.0, {}))
     monkeypatch.setattr(REDUNDANT, "_custom_scenery_dir", lambda: "")
+    # A roomy disk: the budget's maximum (#2022) never follows the test
+    # machine's free space down.
+    monkeypatch.setattr(RANGE, "_free_bytes", lambda folder: 10**15)
     yield tmp_path
 
 

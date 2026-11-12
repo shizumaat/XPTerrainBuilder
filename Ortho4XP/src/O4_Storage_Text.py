@@ -19,7 +19,7 @@ import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
 
 __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "BUDGET_UNSET", "BUDGET_UNDER_FLOOR", "BUDGET_HELP",
-           "BUDGET_DEFAULT", "BUDGET_FIELD", "BUDGET_SET", "BUDGET_USE_DEFAULT",
+           "BUDGET_FIELD", "BUDGET_USE_DEFAULT",
            "BUDGET_HELD", "BUDGET_CONFIRM", "DOWNGRADE_TITLE",
            "DOWNGRADE_TEXT", "DOWNGRADE_FLOOR", "DOWNGRADE_OK", "CACHES_TITLE",
            "CACHES_CLEAR", "CACHES_DETAILS", "CACHES_DETAILS_TITLE",
@@ -28,9 +28,16 @@ __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "INSTALLED_LINKED", "INSTALLED_UNMOUNTED", "INSTALLED_NONE",
            "INSTALLED_HELP", "WORLD_FOREIGN", "WORLD_PACK_MISSING",
            "size_text", "budget_lines", "installed_lines",
-           "ondemand_warning", "cleanup_warning", "default_line",
+           "ondemand_warning", "cleanup_warning",
            "held_line", "needs_downgrade", "downgrade_text",
-           "clear_all_text"]
+           "clear_all_text", "BUDGET_MIN_END", "BUDGET_MAX_END",
+           "BUDGET_CLAMPED", "BUDGET_FOLLOWED", "BAR_PLACEHOLDERS",
+           "BAR_TILES", "BAR_AIRPORT_IMAGERY", "BAR_OTHER_IMAGERY",
+           "BAR_PACKAGES", "BAR_OTHER", "BAR_LEGEND", "PREVIEW_FITS",
+           "PREVIEW_CLEARS", "PREVIEW_THEN", "PREVIEW_CACHES",
+           "PREVIEW_IMAGERY", "PREVIEW_AIRPORTS", "PREVIEW_FAVORITES",
+           "PREVIEW_REBUILD", "PREVIEW_AIRPORTS_KEPT", "end_labels",
+           "range_notice", "bar_parts", "preview_text"]
 
 #: The help of the "Caches" and "Your tiles and patches" rows.
 CACHES_HELP = ("Files in the app's own data folder that builds download or "
@@ -51,11 +58,7 @@ BUDGET_HELP = ("More space keeps downloads and rebuild data, so tiles rebuild "
                "The recommended minimum adds room to work: half of that, at "
                "least 50 GB. Over the budget, what is cheapest to rebuild "
                "goes first, oldest first; favorites go last.")
-#: Library > Disk budget (RULINGS 2026-11-11a): the default when none is
-#: set is the larger of 200 GB and the recommended minimum.
-BUDGET_DEFAULT = "Default {base} · recommended {recommended}"
 BUDGET_FIELD = "Budget (GB)"
-BUDGET_SET = "Set"
 BUDGET_USE_DEFAULT = "Use Default"
 #: Unconfirmed (RULINGS 2026-11-11h (1)): the default is sized to the
 #: current install; Confirm records it as the budget.
@@ -99,6 +102,45 @@ INSTALLED_HELP = ("The zOrtho4XP_ entries of X-Plane's Custom Scenery folder. "
 #: ``12.3 MB`` / ``1.25 GB`` (decimal), the same in both apps.
 size_text = ONDEMAND_TEXT.size_text
 
+#: The slider's ends (#2022, owner 2026-11-12): plain words, measured.
+BUDGET_MIN_END = ("Minimum: what's always kept — world placeholders and "
+                  "your airport packages ({bytes})")
+BUDGET_MAX_END = "Most: as much as fits while keeping 50 GB free ({bytes})"
+#: A budget set outside the slider's range (``storage_range.clamp``).
+BUDGET_CLAMPED = ("Your budget of {chosen} is below what is always kept, so "
+                  "{budget} applies.")
+BUDGET_FOLLOWED = ("Your budget of {chosen} no longer fits on this disk with "
+                   "50 GB free, so it follows the disk down to {budget}.")
+#: The stacked usage bar's legend, left to right (``storage_range.BAR_PARTS``).
+BAR_PLACEHOLDERS = "World placeholders"
+BAR_TILES = "Tiles and mesh"
+BAR_AIRPORT_IMAGERY = "Airport imagery"
+BAR_OTHER_IMAGERY = "Other imagery"
+BAR_PACKAGES = "Packages"
+BAR_OTHER = "Caches and other"
+BAR_LEGEND = "{label} {bytes}"
+#: The line under the slider while it moves: what a clearing at that
+#: budget would do (``storage_range.ladder``, cheapest first).
+PREVIEW_FITS = "Nothing is cleared: the {used} in use fits."
+PREVIEW_CLEARS = "Frees about {free}: {steps}."
+PREVIEW_THEN = ", then "
+PREVIEW_CACHES = "caches go first"
+PREVIEW_IMAGERY = "distant imagery goes back to low res"
+PREVIEW_AIRPORTS = "airport imagery goes back to low res"
+PREVIEW_FAVORITES = "favorites go back to low res"
+PREVIEW_REBUILD = "older airport tiles become packages"
+PREVIEW_AIRPORTS_KEPT = " Airports keep full resolution."
+
+#: ``(budget key, legend)`` of the bar, left to right.
+_BAR = (("placeholders", BAR_PLACEHOLDERS), ("tiles", BAR_TILES),
+        ("airport_imagery", BAR_AIRPORT_IMAGERY),
+        ("other_imagery", BAR_OTHER_IMAGERY), ("packages", BAR_PACKAGES),
+        ("other", BAR_OTHER))
+#: ``(ladder step, words)`` in the order a clearing takes them.
+_STEPS = (("caches", PREVIEW_CACHES), ("imagery", PREVIEW_IMAGERY),
+          ("airport_imagery", PREVIEW_AIRPORTS),
+          ("favorites", PREVIEW_FAVORITES), ("rebuild", PREVIEW_REBUILD))
+
 
 def budget_lines(budget: Mapping) -> Tuple[str, str]:
     """``(line, warning)`` of ``storage_scan``'s ``budget`` (the warning
@@ -111,12 +153,6 @@ def budget_lines(budget: Mapping) -> Tuple[str, str]:
     line = BUDGET_LINE if chosen else BUDGET_UNSET
     warning = BUDGET_UNDER_FLOOR if budget.get("under_floor") else ""
     return line.format(**values), warning.format(**values)
-
-
-def default_line(budget: Mapping) -> str:
-    """"Default 200 GB · recommended N" (RULINGS 2026-11-11a)."""
-    return BUDGET_DEFAULT.format(base=size_text(budget.get("default_base_bytes")),
-                                 recommended=size_text(budget.get("recommended_bytes")))
 
 
 def held_line(budget: Mapping) -> str:
@@ -191,3 +227,57 @@ def cleanup_warning(done: Mapping) -> str:
     if budget.get("under_floor"):
         return budget_lines(budget)[1]
     return ondemand_warning(done.get("ondemand_floor") or {})
+
+
+def end_labels(budget: Mapping) -> Tuple[str, str]:
+    """The slider's two end labels, with the measured figures."""
+    return (BUDGET_MIN_END.format(bytes=size_text(budget.get("minimum_bytes"))),
+            BUDGET_MAX_END.format(bytes=size_text(budget.get("maximum_bytes"))))
+
+
+def range_notice(budget: Mapping) -> str:
+    """The notice of a budget set outside the range (raised to the
+    minimum, or followed down to the disk's maximum); else ""."""
+    template = {"minimum": BUDGET_CLAMPED,
+                "followed": BUDGET_FOLLOWED}.get(budget.get("clamped") or "")
+    if not template:
+        return ""
+    return template.format(chosen=size_text(budget.get("chosen_bytes")),
+                           budget=size_text(budget.get("budget_bytes")))
+
+
+def bar_parts(budget: Mapping) -> List[Tuple[str, int, str]]:
+    """``(key, bytes, legend)`` of the stacked bar, left to right."""
+    parts = budget.get("breakdown") or {}
+    out = []
+    for key, label in _BAR:
+        nbytes = int(parts.get(key) or 0)
+        out.append((key, nbytes, BAR_LEGEND.format(label=label,
+                                                   bytes=size_text(nbytes))))
+    return out
+
+
+def preview_text(budget: Mapping, new_bytes: int) -> str:
+    """What the sweep would do at a budget of ``new_bytes``, in one
+    sentence: the steps of the budget's ``ladder`` a clearing down to
+    ``low_water`` of it reaches, cheapest first."""
+    used = int(budget.get("used_bytes") or 0)
+    if int(new_bytes) >= used:
+        return PREVIEW_FITS.format(used=size_text(used))
+    over = used - int(float(budget.get("low_water") or 0.9) * int(new_bytes))
+    ladder = budget.get("ladder") or {}
+    steps, left = [], over
+    for step, words in _STEPS:
+        nbytes = int(ladder.get(step) or 0)
+        if left <= 0:
+            break
+        if nbytes > 0:
+            steps.append(step)
+            left -= nbytes
+    words = dict(_STEPS)
+    text = PREVIEW_CLEARS.format(
+        free=size_text(over),
+        steps=PREVIEW_THEN.join(words[s] for s in steps) or PREVIEW_CACHES)
+    if "airport_imagery" not in steps:
+        text += PREVIEW_AIRPORTS_KEPT
+    return text

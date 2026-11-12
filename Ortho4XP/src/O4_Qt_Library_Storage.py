@@ -9,7 +9,10 @@ feeds all of them (its ``scan_shown`` signal).
 
 - :class:`StorageRows` -- the four, top to bottom, as Settings shows them.
 - :class:`DataFolderRow` -- the data folder.
-- :class:`DiskBudgetBox` -- the budget, visible and editable; unset, the
+- :class:`DiskBudgetBox` -- the budget, visible and editable (#2022): a
+  slider from the minimum (what is always kept) to the most (keeping
+  50 GB free), a number field, the stacked usage bar (:class:`UsageBar`)
+  and, while the slider moves, what that budget would clear; unset, the
   default applies, holds the current install (RULINGS 2026-11-11h (1))
   and Confirm records it; a budget below what is in use asks
   "downgrade scenery to low res to fit?" with the bytes first (Cancel
@@ -23,6 +26,8 @@ import O4_Qt_Convert_Tiles as QTCONVERT
 import O4_Qt_Settings_Storage as QTSTORAGE
 import O4_Storage_Text as TEXT
 from O4_Qt_Library import fmt_size
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -32,6 +37,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -66,9 +72,41 @@ class DataFolderRow(QWidget):
         storage.scan_shown.connect(lambda scan: self.folder_label.setText(scan["root"]))
 
 
+class UsageBar(QWidget):
+    """What is in use by kind (``O4_Storage_Text.bar_parts``): one
+    stacked bar, its legend in :attr:`legend`."""
+
+    COLORS = ("#8E8E93", "#0A84FF", "#FF9F0A", "#30B0C7", "#BF5AF2", "#C7C7CC")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parts = []
+        self.setFixedHeight(10)
+        self.legend = _note()
+
+    def show_budget(self, budget):
+        self.parts = TEXT.bar_parts(budget) if budget else []
+        self.legend.setText(" · ".join(legend for _k, _b, legend in self.parts))
+        self.update()
+
+    def paintEvent(self, _event):
+        total = sum(nbytes for _k, nbytes, _l in self.parts)
+        if total <= 0:
+            return
+        painter = QPainter(self)
+        x = 0.0
+        for index, (_key, nbytes, _legend) in enumerate(self.parts):
+            width = self.width() * nbytes / total
+            painter.fillRect(int(x), 0, max(0, round(x + width) - int(x)),
+                             self.height(), QColor(self.COLORS[index % len(self.COLORS)]))
+            x += width
+        painter.end()
+
+
 class DiskBudgetBox(QWidget):
-    """The disk budget: its line, the default and recommended figures, a
-    field with Set (and Use Default once set, Confirm until then)."""
+    """The disk budget: its line, the usage bar, the slider with its
+    labelled ends and a number field, the preview while the slider
+    moves, and Use Default once set (Confirm until then)."""
 
     def __init__(self, storage, parent=None):
         super().__init__(parent)
@@ -81,29 +119,45 @@ class DiskBudgetBox(QWidget):
         self.budget_label.setWordWrap(True)
         self.budget_label.setToolTip(TEXT.BUDGET_HELP)
         layout.addWidget(self.budget_label)
-        self.default_label = _note()
-        layout.addWidget(self.default_label)
+        self.usage_bar = UsageBar()
+        layout.addWidget(self.usage_bar)
+        layout.addWidget(self.usage_bar.legend)
+        row = QHBoxLayout()
+        self.budget_slider = QSlider(Qt.Horizontal)
+        self.budget_slider.sliderMoved.connect(self._moved)
+        self.budget_slider.sliderReleased.connect(self._released)
+        row.addWidget(self.budget_slider, 1)
+        self.budget_edit = QLineEdit()
+        self.budget_edit.setPlaceholderText(TEXT.BUDGET_FIELD)
+        self.budget_edit.setMaximumWidth(70)
+        self.budget_edit.returnPressed.connect(self.submit)
+        row.addWidget(self.budget_edit)
+        row.addWidget(QLabel("GB"))
+        layout.addLayout(row)
+        ends = QHBoxLayout()
+        self.min_label, self.max_label = _note(), _note()
+        self.max_label.setAlignment(Qt.AlignRight)
+        ends.addWidget(self.min_label, 1)
+        ends.addWidget(self.max_label, 1)
+        layout.addLayout(ends)
+        self.preview_label = _note("font-size: 11px;")
+        self.preview_label.setVisible(False)
+        layout.addWidget(self.preview_label)
+        self.held_label = _note()
+        layout.addWidget(self.held_label)
         self.budget_warning = _note(WARNING_STYLE)
         self.budget_warning.setVisible(False)
         layout.addWidget(self.budget_warning)
-        row = QHBoxLayout()
-        self.budget_edit = QLineEdit()
-        self.budget_edit.setPlaceholderText(TEXT.BUDGET_FIELD)
-        self.budget_edit.setMaximumWidth(90)
-        self.budget_edit.returnPressed.connect(self.submit)
-        row.addWidget(self.budget_edit)
-        self.set_btn = QPushButton(TEXT.BUDGET_SET)
-        self.set_btn.clicked.connect(self.submit)
-        row.addWidget(self.set_btn)
+        buttons = QHBoxLayout()
         self.default_btn = QPushButton(TEXT.BUDGET_USE_DEFAULT)
         self.default_btn.clicked.connect(lambda: self._set(0.0))
-        row.addWidget(self.default_btn)
+        buttons.addWidget(self.default_btn)
         self.confirm_btn = QPushButton(TEXT.BUDGET_CONFIRM)
         self.confirm_btn.clicked.connect(
             lambda: self._set(int(self.budget.get("budget_bytes") or 0) / 1e9))
-        row.addWidget(self.confirm_btn)
-        row.addStretch(1)
-        layout.addLayout(row)
+        buttons.addWidget(self.confirm_btn)
+        buttons.addStretch(1)
+        layout.addLayout(buttons)
         storage.scan_shown.connect(self.show_scan)
         self.show_scan({})
 
@@ -111,20 +165,51 @@ class DiskBudgetBox(QWidget):
         self.budget = (scan or {}).get("budget") or {}
         line, warning = TEXT.budget_lines(self.budget) if self.budget else ("", "")
         self.budget_label.setText(line)
-        self.default_label.setText(TEXT.default_line(self.budget) if self.budget else "")
+        self.usage_bar.show_budget(self.budget)
+        ends = TEXT.end_labels(self.budget) if self.budget else ("", "")
+        self.min_label.setText(ends[0])
+        self.max_label.setText(ends[1])
         held = TEXT.held_line(self.budget) if self.budget else ""
-        self.default_label.setText("<br>".join(
-            t for t in (self.default_label.text(), held) if t))
-        self.budget_warning.setText(warning)
-        self.budget_warning.setVisible(bool(warning))
+        self.held_label.setText(held)
+        self.held_label.setVisible(bool(held))
+        notice = TEXT.range_notice(self.budget) if self.budget else ""
+        warnings = "<br>".join(t for t in (notice, warning) if t)
+        self.budget_warning.setText(warnings)
+        self.budget_warning.setVisible(bool(warnings))
         self.default_btn.setVisible(bool(self.budget.get("budget_set")))
         self.confirm_btn.setVisible(bool(held))
         self._show_field()
 
+    def _range(self):
+        """The slider's ends in whole GB (a degenerate range widens)."""
+        low = int(self.budget.get("minimum_bytes") or 0) // 10**9
+        high = int(self.budget.get("maximum_bytes")
+                   or self.budget.get("budget_bytes") or 0) // 10**9
+        return low, max(high, low + 1)
+
     def _show_field(self):
-        """The field shows the budget that applies (the default when unset)."""
+        """The field and slider show the budget that applies (the default
+        when unset), the slider inside its range."""
         nbytes = self.budget.get("budget_bytes")
         self.budget_edit.setText("%.0f" % (nbytes / 1e9) if nbytes else "")
+        low, high = self._range()
+        self.budget_slider.blockSignals(True)
+        self.budget_slider.setRange(low, high)
+        self.budget_slider.setValue(int(round((nbytes or 0) / 1e9)))
+        self.budget_slider.blockSignals(False)
+        self.budget_slider.setEnabled(bool(self.budget))
+
+    def _moved(self, gigabytes):
+        """While the slider moves: the field and the preview line."""
+        self.budget_edit.setText(str(gigabytes))
+        if self.budget:
+            self.preview_label.setText(TEXT.preview_text(self.budget, gigabytes * 10**9))
+            self.preview_label.setVisible(True)
+
+    def _released(self):
+        self.preview_label.setVisible(False)
+        self.budget_edit.setText(str(self.budget_slider.value()))
+        self.submit()
 
     def submit(self):
         try:

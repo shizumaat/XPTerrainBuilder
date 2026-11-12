@@ -45,12 +45,14 @@ public enum O4OnDemandText {
     public static let reloadSceneryTitle = "Reload scenery"
     public static let reloadOfferImagery = "Sharper imagery landed after X-Plane loaded this area: reload the scenery to see it."
     public static let reloadOfferTiles = "New tiles replaced ones X-Plane had already loaded: reload the scenery to see them."
+    public static let reloadOfferCoverage = "The World pack now covers more of the world: reload the scenery (or restart X-Plane) once so X-Plane can use it."
 
     /// The reload offer's line; empty when none is pending.
     public static func reloadOfferLine(_ code: String) -> String {
         switch code {
         case "imagery": return reloadOfferImagery
         case "tiles": return reloadOfferTiles
+        case "coverage": return reloadOfferCoverage
         default: return ""
         }
     }

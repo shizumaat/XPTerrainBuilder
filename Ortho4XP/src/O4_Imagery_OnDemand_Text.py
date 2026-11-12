@@ -21,6 +21,7 @@ __all__ = ["PIN_TITLE", "UNPIN_TITLE", "PIN_ROW_TITLE", "LOW_RES_STATE",
            "FOLLOW_START_TITLE", "FOLLOW_STOP_TITLE", "FOLLOW_TEMPLATES",
            "FOLLOW_DETAIL", "WAITING_REASON", "FOLLOW_NO_TILES",
            "RELOAD_SCENERY_TITLE", "RELOAD_OFFER_IMAGERY", "RELOAD_OFFER_TILES",
+           "RELOAD_OFFER_COVERAGE",
            "make_low_res_message", "reload_offer_line",
            "pins_line", "pin_done", "follow_lines", "size_text"]
 
@@ -82,6 +83,9 @@ RELOAD_OFFER_IMAGERY = ("Sharper imagery landed after X-Plane loaded this "
                         "area: reload the scenery to see it.")
 RELOAD_OFFER_TILES = ("New tiles replaced ones X-Plane had already loaded: "
                       "reload the scenery to see them.")
+RELOAD_OFFER_COVERAGE = ("The World pack now covers more of the world: "
+                         "reload the scenery (or restart X-Plane) once so "
+                         "X-Plane can use it.")
 #: The first sentence while the job follows (or waits) with no on-demand
 #: texture in its index: nothing it could sharpen.
 FOLLOW_NO_TILES = ("No on-demand tiles to follow yet: build a tile with "
@@ -173,5 +177,5 @@ def follow_lines(status: Mapping) -> Tuple[str, str]:
 def reload_offer_line(code: str) -> str:
     """The reload offer's line for an ``ImageryFollowStatus.reload_offer``
     code; empty when none is pending (the row is hidden)."""
-    return {"imagery": RELOAD_OFFER_IMAGERY,
-            "tiles": RELOAD_OFFER_TILES}.get(code or "", "")
+    return {"imagery": RELOAD_OFFER_IMAGERY, "tiles": RELOAD_OFFER_TILES,
+            "coverage": RELOAD_OFFER_COVERAGE}.get(code or "", "")

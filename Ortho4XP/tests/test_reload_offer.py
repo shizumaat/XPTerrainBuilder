@@ -52,8 +52,10 @@ def test_an_offer_waits_for_the_click(monkeypatch):
                         lambda base=None: bool(sent.append(base)) or True)
     assert RELOAD.current() == ""
     assert RELOAD.offer("imagery") and RELOAD.current() == "imagery"
+    assert RELOAD.offer("coverage") and RELOAD.current() == "coverage"
     assert RELOAD.offer("tiles") and RELOAD.offer("imagery")
-    assert RELOAD.current() == "tiles"            # the swap outranks imagery
+    assert RELOAD.offer("coverage")
+    assert RELOAD.current() == "tiles"            # the swap outranks the rest
     assert sent == []                              # nothing until the click
     assert RELOAD.scenery_reload() == {"sent": True}
     assert sent == [None] and RELOAD.current() == ""

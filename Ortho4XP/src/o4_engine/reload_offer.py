@@ -21,21 +21,24 @@ from typing import Optional
 
 __all__ = ["CODES", "offer", "current", "send", "scenery_reload"]
 
-#: What a reload would show: imagery that landed after X-Plane read the
-#: tile coarse, or World tiles that replaced ones X-Plane holds.
-CODES = ("imagery", "tiles")
+#: What a reload would show, the weightiest last: imagery that landed
+#: after X-Plane read the tile coarse; World-pack placeholders X-Plane has
+#: not seen (world coverage, ``world_commands.ensure_coverage``: a reload
+#: or a restart once); World tiles that replaced ones X-Plane holds.
+CODES = ("imagery", "coverage", "tiles")
 _LOCK = threading.Lock()
 _STATE = {"offer": ""}
 
 
 def offer(code: str) -> bool:
-    """Offer the user a reload (``code`` one of :data:`CODES`; the tile
-    swap outranks imagery when both are pending).  Returns True: the
-    offer stands (``FollowJob`` counts it)."""
+    """Offer the user a reload (``code`` one of :data:`CODES`; a pending
+    offer is replaced only by a weightier one).  Returns True: the offer
+    stands (``FollowJob`` counts it)."""
     if code not in CODES:
         raise ValueError(f"unknown reload offer {code!r} (known: {CODES})")
     with _LOCK:
-        if _STATE["offer"] != "tiles":
+        pending = _STATE["offer"]
+        if not pending or CODES.index(code) >= CODES.index(pending):
             _STATE["offer"] = code
     return True
 

@@ -55,6 +55,7 @@ SWIFT_TO_PYTHON = {
     "reloadSceneryTitle": TEXT.RELOAD_SCENERY_TITLE,
     "reloadOfferImagery": TEXT.RELOAD_OFFER_IMAGERY,
     "reloadOfferTiles": TEXT.RELOAD_OFFER_TILES,
+    "reloadOfferCoverage": TEXT.RELOAD_OFFER_COVERAGE,
 }
 
 
@@ -308,7 +309,7 @@ def test_the_reload_offer_shows_a_button_and_reloads_only_on_its_click(qapp):
     status = {"state": "following", "sharp": 1, "textures": 2}
     line.show_status(status)
     assert line.reload_row.isHidden() and not asked
-    for code in ("imagery", "tiles"):
+    for code in ("imagery", "coverage", "tiles"):
         line.show_status({**status, "reload_offer": code})
         assert not line.reload_row.isHidden() and not asked
         assert line.reload_label.text() == TEXT.reload_offer_line(code)

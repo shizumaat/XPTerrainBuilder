@@ -341,8 +341,10 @@ def world_install(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
     SP.write_ini_lines(_ini_path(scenery_dir), lines, newline)
     running = _xplane_running()
     write_log({"install": scenery_dir, "ini_added": added})
+    coverage = ensure_coverage(scenery_dir)
     return {"installed": True, "ini_added": added,
-            "restart_needed": bool(running and added)}
+            "restart_needed": bool(running and added),
+            "placeholders": coverage["written"]}
 
 
 #: The World pack marker's record that the per-tile packs were offered
@@ -397,6 +399,8 @@ def world_onboard(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
     if not os.path.isdir(pack_dir(scenery_dir)):
         out["created"] = True
         out["restart_needed"] = world_install(scenery_dir)["restart_needed"]
+    elif managed(scenery_dir):
+        ensure_coverage(scenery_dir)    # world_install already did it
     if not managed(scenery_dir) or _offered(scenery_dir):
         return out
     out["offer"] = sum(1 for entry in entries(scenery_dir)
@@ -414,6 +418,67 @@ def _global_tiles(scenery_dir: str) -> "set | None":
     if not os.path.isdir(os.path.join(root, "Earth nav data")):
         return None
     return {key for key, _path, _size in WP.pack_dsfs(root)}
+
+
+def _land(scenery_dir: str, mask: bool = True
+          ) -> Optional[Callable[[tuple], bool]]:
+    """Is a tile land: X-Plane's Global Scenery has a DSF for it, or,
+    without that folder and with ``mask``, the engine's world mask says
+    so (``O4_DEM_Utils.tile_is_land``); None: no Global Scenery and no
+    ``mask``.  Ocean-only tiles get no placeholder."""
+    tiles = _global_tiles(scenery_dir)
+    if tiles is not None:
+        return tiles.__contains__
+    if not mask:
+        return None
+    import O4_DEM_Utils as DEM
+    return lambda tile: DEM.tile_is_land(*tile)
+
+
+def _enabled_regions() -> list:
+    """The region codes whose ``imagery_on_demand_<region>`` switch is
+    on (unset: on, ``O4_Imagery_Regions.tile_on_demand``)."""
+    import O4_Imagery_Regions as REGIONS
+    import O4_Settings_Model as SM
+    raw = SM.read_global_raw()
+    return [code for code, _label in REGIONS.REGIONS
+            if str(raw.get(REGIONS.setting_name(code), "True")).strip().lower()
+            not in ("false", "0", "no", "off")]
+
+
+def ensure_coverage(scenery_dir: str = "", mask: bool = False
+                    ) -> Dict[str, Any]:
+    """World coverage (owner 2026-11-12T15:05Z: "Yes add world coverage
+    otherwise draping won't work", #2019): a placeholder for every LAND
+    tile (:func:`_land`) of the enabled regions that has no DSF in the
+    pack yet -- never over a real tile, idempotent, batched
+    (``WP.write_placeholders``; the world's ~19k land tiles in about 2 s).
+    Run at the app's start (:func:`world_onboard`) and by
+    :func:`world_install` from X-Plane's Global Scenery list (none beside
+    the Custom Scenery folder: nothing written), and by
+    ``world_regions_set``, the user's choice, with the world mask when
+    that list is missing (``mask``).  When X-Plane runs and placeholders were
+    written, the user is offered the one reload that lets X-Plane see
+    them (``reload_offer`` "coverage"; nothing reloads on its own).
+    ``{"written", "kept", "seconds"}``."""
+    import O4_Imagery_Regions as REGIONS
+    scenery_dir = scenery_dir_or_default(scenery_dir)
+    out: Dict[str, Any] = {"written": 0, "kept": 0, "seconds": 0.0}
+    if not managed(scenery_dir):
+        return out
+    t0 = time.monotonic()
+    land = _land(scenery_dir, mask)
+    if land is None:
+        return out
+    tiles = [t for code in _enabled_regions()
+             for t in REGIONS.region_tiles(code) if land(t)]
+    done = WP.write_placeholders(pack_dir(scenery_dir), tiles)
+    out.update(done, seconds=round(time.monotonic() - t0, 2))
+    if done["written"] and _xplane_running():
+        from . import reload_offer as RELOAD
+        RELOAD.offer("coverage")
+    write_log({"coverage": out})
+    return out
 
 
 def _regions_set(regions, scenery_dir: str = "") -> Dict[str, Any]:
@@ -436,16 +501,13 @@ def _regions_set(regions, scenery_dir: str = "") -> Dict[str, Any]:
            "kept": 0, "removed": 0, "swapped_out": 0}
     if not managed(scenery_dir):
         return out
-    land = _global_tiles(scenery_dir)
+    land = _land(scenery_dir)
     for code in known:
-        tiles = [t for t in REGIONS.region_tiles(code)
-                 if land is None or t in land]
-        if code in chosen:
-            done = WP.write_placeholders(pack, tiles)
-            out["written"] += done["written"]
-            out["kept"] += done["kept"]
-        else:
-            _give_back_region(pack, scenery_dir, set(tiles), out)
+        if code not in chosen:
+            tiles = {t for t in REGIONS.region_tiles(code) if land(t)}
+            _give_back_region(pack, scenery_dir, tiles, out)
+    done = ensure_coverage(scenery_dir, mask=True)
+    out["written"], out["kept"] = done["written"], done["kept"]
     write_log({"regions_set": out})
     return out
 

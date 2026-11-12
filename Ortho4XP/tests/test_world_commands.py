@@ -171,7 +171,9 @@ def test_world_coverage_of_the_whole_world_takes_seconds(tmp_path):
     first = time.monotonic() - t0
     t1 = time.monotonic()
     assert WP.write_placeholders(pack, tiles)["kept"] == len(tiles)
-    assert first < 30.0 and time.monotonic() - t1 < 5.0
+    # a bound for a loaded CI runner (5 s alone on the owner's Mac; 51 s seen
+    # beside four builds): the twin guards against a per-tile O(n) listing
+    assert first < 120.0 and time.monotonic() - t1 < 20.0
 
 
 def test_publish_a_build_and_give_it_back(world, tmp_path):

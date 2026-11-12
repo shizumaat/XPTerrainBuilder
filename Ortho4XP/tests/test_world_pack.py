@@ -294,3 +294,21 @@ def test_write_placeholders_never_overwrites_a_tile(tmp_path):
     done = WP.write_placeholders(pack, [(53, -63), (53, -62)])
     assert done == {"written": 1, "kept": 1}
     assert not WP.is_placeholder(os.path.join(pack, WP.dsf_relpath(53, -63)))
+
+
+def test_dsftool_path_falls_back_to_the_resource_utils(tmp_path, monkeypatch):
+    """The frozen app keeps Utils/ in its data folder, not beside the
+    executable: the engine-relative miss falls back to FNAMES.Utils_dir."""
+    import os
+    import sys
+
+    import O4_File_Names as FNAMES
+    import O4_World_Pack as WP
+    sub = {"darwin": ("mac", "DSFTool"), "win32": ("win", "DSFTool.exe")}
+    folder, exe = sub.get(sys.platform, ("lin", "DSFTool"))
+    utils = tmp_path / "data" / "Utils"
+    (utils / folder).mkdir(parents=True)
+    (utils / folder / exe).write_bytes(b"")
+    monkeypatch.setattr(FNAMES, "Utils_dir", str(utils))
+    assert WP.dsftool_path(str(tmp_path / "engine")) == os.path.join(
+        str(utils), folder, exe)

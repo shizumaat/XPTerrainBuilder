@@ -629,10 +629,18 @@ def ini_remove(lines: list, pack_name: str = PACK_NAME) -> int:
 
 
 def dsftool_path(engine_dir: str) -> str:
-    """The engine checkout's bundled DSFTool for this platform."""
+    """The bundled DSFTool for this platform: the engine checkout's
+    ``Utils/``, else the engine's resource ``Utils`` folder
+    (``O4_File_Names.Utils_dir``) -- in the frozen app the tools live in
+    the bundle's data folder, not beside the executable (1.0.493: every
+    drape failed with FileNotFoundError)."""
     sub = {"darwin": ("mac", "DSFTool"), "win32": ("win", "DSFTool.exe")}
     folder, exe = sub.get(os.sys.platform, ("lin", "DSFTool"))
     path = os.path.join(engine_dir, "Utils", folder, exe)
-    if not os.path.isfile(path):
-        raise FileNotFoundError(path)
-    return path
+    if os.path.isfile(path):
+        return path
+    import O4_File_Names as FNAMES
+    bundled = os.path.join(FNAMES.Utils_dir, folder, exe)
+    if os.path.isfile(bundled):
+        return bundled
+    raise FileNotFoundError(path)

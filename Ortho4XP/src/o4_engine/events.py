@@ -1220,7 +1220,11 @@ class FlightStatus(EngineEvent):
     ``sent``; ``diverted_to`` the diversion airport (``flight_divert``,
     lane F2); ``waivable`` the en-route tiles that need the internet and
     may be left to X-Plane's own scenery (``flight_update
-    {waive_offline: true}``, RULINGS 2026-11-10k Q3).
+    {waive_offline: true}``, RULINGS 2026-11-10k Q3); ``choices`` one row
+    per departure or destination on a mesh this app did not build (#2025,
+    ``flight_adopted.choice_row``: ``tile``, ``role``, ``icao``,
+    ``origin``, ``built_by``, ``patched`` yes/no/unknown,
+    ``upgrade_estimate_s``, ``choice`` ``""`` until ``flight_choose``).
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).
@@ -1242,6 +1246,7 @@ class FlightStatus(EngineEvent):
     reload: str = ""
     diverted_to: str = ""
     waivable: tuple = ()
+    choices: tuple = ()
 
 
 @dataclass(frozen=True)

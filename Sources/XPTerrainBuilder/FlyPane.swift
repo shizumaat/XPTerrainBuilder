@@ -121,6 +121,7 @@ struct FlightCard: View {
                     Text($0).scaledFont(.callout)
                 }
                 Button(FlyText.prepare) { model.prepare() }
+                AdoptedChoiceRows(model: model)
             } label: { EmptyView() }
         }
         if let message = model.message {
@@ -128,6 +129,26 @@ struct FlightCard: View {
                 .scaledFont(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// Inside the flight card (#2025): a departure or destination on a mesh
+/// this app did not build asks "fly it as it is, or upgrade it first";
+/// once answered, the answer. Qt: `O4_Qt_Fly_Pane.choice_box`.
+struct AdoptedChoiceRows: View {
+    @ObservedObject var model: FlyModel
+
+    var body: some View {
+        ForEach(model.status?.choices ?? [], id: \.role) { row in
+            VStack(alignment: .leading, spacing: 4) {
+                Text(FlyText.choiceQuestion(row)).scaledFont(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+                if row.choice.isEmpty {
+                    Button(FlyText.choiceKeepLabel(row)) { model.choose(row, "keep") }
+                    Button(FlyText.choiceUpgradeLabel(row)) { model.choose(row, "upgrade") }
+                }
+            }
         }
     }
 }

@@ -61,7 +61,23 @@ FLIGHT_STATUS = {
              [[47, -53], "destination", "full", "staged", 0.0, 1080.0]],
     "route_km": 833.6, "done_km": 0.0, "eta_s": 6480.0, "late": [],
     "shed": [], "reload": "", "diverted_to": "", "waivable": [],
+    # #2025: the departure on an adopted Ortho4XP tile, not yet answered
+    "choices": [{"tile": [53, -61], "role": "departure", "icao": "CYYR",
+                 "origin": "adopted", "built_by": "Ortho4XP",
+                 "patched": "yes", "upgrade_estimate_s": 1500.0,
+                 "choice": ""}],
 }
+#: ``FlightStatus.choices`` rows (#2025) for the words both apps say.
+_CHOICE = FLIGHT_STATUS["choices"][0]
+CHOICE_ROWS = [
+    _CHOICE,
+    dict(_CHOICE, patched="unknown", upgrade_estimate_s=None),
+    dict(_CHOICE, role="destination", icao="", tile=[47, -53],
+         origin="other", built_by="", patched="unknown"),
+    dict(_CHOICE, built_by="MeshTool", origin="other", patched="no"),
+    dict(_CHOICE, choice="keep"),
+    dict(_CHOICE, choice="upgrade", upgrade_estimate_s=20.0),
+]
 WORLD_STATUS = {"state": "building", "reason": "", "building":
                 [["+53-060", "drape", "building", 80]],
                 # build-ahead's tiles in free flight (RULINGS 2026-11-11j)
@@ -170,6 +186,8 @@ def _text_cases():
                                         ("offered", "", "preparing"),
                                         ("sent", "CYQX", "flying"))],
         "here_lines": [[h, TEXT.here_lines(h)] for h in HERE_CASES],
+        "choices": [[row, TEXT.choice_question(row), TEXT.choice_keep_label(row),
+                     TEXT.choice_upgrade_label(row)] for row in CHOICE_ROWS],
         "waiver_line": [[{"flight": "f", "waivable": w},
                          DTEXT.waiver_line({"waivable": w})]
                         for w in ([], ["+53-062", "+53-063"])],
@@ -281,7 +299,7 @@ def test_the_words_are_the_macs():
                  "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "LIVE_PREVIEW",
                  "LIVE_PREVIEW_HELP", "DIVERT", "END_FLIGHT",
                  "NO_FLIGHT_MANAGER", "NO_STATUS", "CENTER_ON_AIRCRAFT",
-                 "NO_AIRCRAFT_POSITION"):
+                 "NO_AIRCRAFT_POSITION", "CHOICE_KEEP", "CHOICE_UPGRADE"):
         camel = re.sub(r"_(\w)", lambda m: m.group(1).upper(), name.lower())
         said = re.search(r'static let %s = "([^"]+)"' % camel, swift)
         assert said and said.group(1) == getattr(TEXT, name), name

@@ -50,7 +50,8 @@ import O4_World_Pack as WP
 
 __all__ = ["FULL", "MESH_LOWRES", "DRAPE", "PLACEHOLDER", "NOTHING", "STATES",
            "SOURCE_ORIGINALS", "SOURCE_LEAN", "SOURCE_DRIVE", "SOURCES",
-           "WorldTile", "iter_world", "read_world"]
+           "WorldTile", "iter_world", "read_world", "read_tile",
+           "journal_record"]
 
 FULL = "full"
 MESH_LOWRES = "mesh_lowres"
@@ -192,6 +193,31 @@ def iter_world(scenery_dir: str, *, index_path: Optional[str] = None
         done += 1
         source, volume = _source(journal[key], home_volume)
         yield done, total, key, WorldTile(NOTHING, "", 0.0, source, volume)
+
+
+def journal_record(scenery_dir: str, key: Tuple[int, int]) -> Optional[dict]:
+    """The Convert journal's record of one tile, or None."""
+    return _journal(scenery_dir).get((int(key[0]), int(key[1])))
+
+
+def read_tile(scenery_dir: str, key: Tuple[int, int]) -> Optional[WorldTile]:
+    """One tile's :class:`WorldTile` as :func:`iter_world` reads it, the
+    on-demand index unread (a mesh with its own textures reads
+    :data:`FULL`, without them :data:`MESH_LOWRES`); None when the pack
+    holds no DSF there or is not the app's (a flight's endpoints,
+    ``flight_adopted``)."""
+    from . import world_commands as WORLD
+    if not scenery_dir or not WORLD.managed(scenery_dir):
+        return None
+    key = (int(key[0]), int(key[1]))
+    pack = WORLD.pack_dir(scenery_dir)
+    path = os.path.join(pack, WP.dsf_relpath(*key))
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return None
+    return _tile(pack, key, path, size, journal_record(scenery_dir, key), {},
+                 TVOL.volume_name(scenery_dir))
 
 
 def read_world(scenery_dir: str, *, index_path: Optional[str] = None) -> dict:

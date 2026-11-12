@@ -36,6 +36,13 @@ RULINGS 2026-11-10k Q3: en-route tiles that cannot be built without
 the internet may be left to X-Plane's own scenery; never the departure
 or the destination).
 
+A departure or destination on a mesh this app did not build (adopted, or
+another tool's; #2025, ``flight_adopted``) asks the pilot first: its job
+waits in state ``choice`` (a ``FlightStatus.choices`` row) until
+:meth:`FlightManager.choose` answers ``keep`` (the mesh as it is: ready)
+or ``upgrade`` (a ``full`` build of ours replaces it); a remembered
+answer applies without asking.  Only that endpoint waits.
+
 A plan with a departure only (#2023, ``FP.FlightPlan.departure_only``)
 plans X-Plane's window at the departure and nothing farther: the
 departure ``full``, the rest of that window as drapes at
@@ -65,13 +72,15 @@ import O4_World_Ahead as AHEAD
 import O4_World_Pack as WP
 import O4_World_Window as WINDOW
 
+from . import flight_adopted as ADOPTED
 from . import flight_divert as DIVERT
 from .flight_air_reload import LOW_AGL_M, NEAR_KM, AirReload
 from .flight_notices import Board
 from .flight_record import FlightRecord, TileRow
 
-__all__ = ["BUILT_KINDS", "FULL_ROLES", "MAX_ATTEMPTS", "PREP_DRAPE_PX",
-           "flight_jobs", "prep_drape_px", "FlightManager"]
+__all__ = ["BUILT_KINDS", "FULL_ROLES", "ENDPOINT_ROLES", "CHOICE_STATE",
+           "CHOICE_DETAIL", "MAX_ATTEMPTS", "PREP_DRAPE_PX", "flight_jobs",
+           "prep_drape_px", "FlightManager"]
 
 Tile = Tuple[int, int]
 
@@ -80,6 +89,12 @@ Tile = Tuple[int, int]
 BUILT_KINDS = frozenset({"full", "drape"})
 #: Roles built ``full`` (graded airports, the user's settings).
 FULL_ROLES = ("departure", "destination", "alternate")
+#: Roles that ask before flying an adopted mesh (#2025).
+ENDPOINT_ROLES = ("departure", "destination")
+#: The job state of an endpoint waiting for the pilot's choice, and the
+#: readiness row's words meanwhile.
+CHOICE_STATE = "choice"
+CHOICE_DETAIL = "Choose below: fly the existing mesh or upgrade it"
 #: Attempts per job (spec §11 convergence guard).
 MAX_ATTEMPTS = 2
 #: Phases (§9): on the ground under 3 m AGL (``aircraft_watch``); parked
@@ -123,12 +138,18 @@ def _roles(plan: "FP.FlightPlan", tiles: Iterable[Tile],
     return roles
 
 
-def _job_for(role: str, have: Optional[str], intermediate: str
-             ) -> Optional[Tuple[str, str]]:
+def _job_for(role: str, have: Optional[str], intermediate: str,
+             choice: Optional[str] = None) -> Optional[Tuple[str, str]]:
     """``(kind, state)`` of a tile's job, or None when the flight leaves
     it to X-Plane's own scenery (outside the regions, another pack's).
     ``stale`` (``flight_job_run.STALE``): a built tile a pack's package
-    changed for — a departure or destination builds again."""
+    changed for — a departure or destination builds again.  ``choice``
+    (``flight_adopted``): an endpoint's adopted mesh waits for the pilot
+    (``ask``), stays (``keep``) or is built again (``upgrade``)."""
+    if have == "full" and choice == ADOPTED.ASK:
+        return "full", CHOICE_STATE
+    if have == "full" and choice == ADOPTED.UPGRADE:
+        return "full", "queued"
     if have == "stale":
         return ("full", "queued") if role in FULL_ROLES else ("full", "swapped")
     if role in FULL_ROLES:
@@ -154,7 +175,8 @@ def flight_jobs(plan: "FP.FlightPlan", *, corridor_km: float,
                 build_alternate: bool, cruise_ms: Optional[float],
                 intermediate: str, state_of: Callable[[Tile], Optional[str]],
                 estimate: Callable[[Tile, str, str], Tuple[float, float]],
-                leg: Optional["DIVERT.Leg"] = None
+                leg: Optional["DIVERT.Leg"] = None,
+                choice_of: Optional[Callable[[Tile], Optional[str]]] = None
                 ) -> Tuple[List["SCHEDULE.Job"], Tuple[list, list]]:
     """The flight's jobs and its route ``(samples, seconds after
     takeoff)`` (see the module).  ``state_of(tile)`` is the World pack's
@@ -163,7 +185,9 @@ def flight_jobs(plan: "FP.FlightPlan", *, corridor_km: float,
     role)`` a ``(lo, hi)`` seconds range.  ``leg`` (a diversion,
     ``flight_divert``): an airborne leg starts at the aircraft
     ``leg.start_s`` after takeoff, with no departure and no first window;
-    the diversion airport is built in class P0 (§8.6)."""
+    the diversion airport is built in class P0 (§8.6).  ``choice_of(tile)``
+    (#2025): an endpoint's answer for its adopted mesh (``ask``, ``keep``,
+    ``upgrade``) or None (not adopted)."""
     leg = leg or DIVERT.Leg()
     samples, times = SCHEDULE.route_times(plan, cruise_ms)
     times = [t + leg.start_s for t in times]
@@ -190,7 +214,10 @@ def flight_jobs(plan: "FP.FlightPlan", *, corridor_km: float,
             roles[start] = "enroute"
     jobs = []
     for tile, role in sorted(roles.items()):
-        decided = _job_for(role, state_of(tile), intermediate)
+        have = state_of(tile)
+        choice = (choice_of(tile) if choice_of is not None and have == "full"
+                  and role in ENDPOINT_ROLES else None)
+        decided = _job_for(role, have, intermediate, choice)
         if decided is None:
             continue
         kind, state = decided
@@ -221,7 +248,9 @@ class FlightManager:
                  flight_slots: int = 1,
                  ground_reload: Callable[[List[Tile]], bool] = lambda t: False,
                  others_running: Callable[[], int] = lambda: 0,
-                 stamp: Callable[[], str] = lambda: "") -> None:
+                 stamp: Callable[[], str] = lambda: "",
+                 adopted: Callable[[Tile], Optional[dict]] = lambda t: None,
+                 choices: Optional["ADOPTED.ChoiceBook"] = None) -> None:
         self.record, self.plan = record, plan
         self.builder, self.publisher, self.facts = builder, publisher, facts
         self.state_of, self.estimate = state_of, estimate
@@ -230,6 +259,7 @@ class FlightManager:
         self.flight_slots = max(1, int(flight_slots))
         self.ground_reload, self.stamp = ground_reload, stamp
         self.others_running = others_running
+        self.endpoints = ADOPTED.Endpoints(adopted, choices)
         self.departure = plan.waypoints[0]
         self.leg = DIVERT.Leg()
         self.air = AirReload()
@@ -270,7 +300,8 @@ class FlightManager:
             build_alternate=self.record.build_alternate,
             cruise_ms=self.record.profile.get("cruise_ms"),
             intermediate=self.intermediate, state_of=self.state_of,
-            estimate=self.estimate, leg=self.leg)
+            estimate=self.estimate, leg=self.leg,
+            choice_of=self.endpoints.choice_of)
         self._base.update({j.tile: j.est_s for j in jobs if j.state == "queued"})
         jobs = SCHEDULE.rescale(jobs, scales=self._scale, base=self._base)
         self._km = [self._km_offset]
@@ -288,12 +319,38 @@ class FlightManager:
         for job in self._plan_jobs():
             prior = old.pop(job.tile, None)
             if (prior is not None and prior.kind == job.kind
-                    and prior.state not in ("queued", "late")):
+                    and prior.state not in ("queued", "late", CHOICE_STATE)):
                 job = replace(job, state=prior.state, est_s=prior.est_s)
             kept.append(job)
         kept += [j for _t, j in sorted(old.items())
                  if j.state in ("building", "staged")]
         self.jobs = kept
+
+    # --------------------------------------------- adopted endpoints
+
+    def choose(self, tile: Tile, choice: str) -> str:
+        """``flight_choose`` (#2025): the pilot's answer for an adopted
+        departure or destination, remembered for the tile; the jobs are
+        planned again (``keep``: ready as it is; ``upgrade``: a ``full``
+        build at the job's class)."""
+        tile = (int(tile[0]), int(tile[1]))
+        job = self._job(tile)
+        self.endpoints.remember(tile, job.role if job else "", choice)
+        self.record.notes.append({"adopted_choice": choice,
+                                  "tile": WP.tile_name(*tile),
+                                  "at": self.stamp()})
+        if job.state != "building":
+            self.jobs = [j for j in self.jobs if j.tile != tile]
+        self.replan()
+        return choice
+
+    def _ask_rows(self) -> None:
+        """An endpoint waiting for the pilot's choice: its readiness row
+        waits with :data:`CHOICE_DETAIL`."""
+        asking = {j.role for j in self.jobs if j.state == CHOICE_STATE}
+        self.items = [i._replace(state="waiting", eta_s=None,
+                                 detail=CHOICE_DETAIL)
+                      if i.key in asking else i for i in self.items]
 
     def divert(self, now: float, target: "FP.Waypoint",
                is_alternate: bool, cancel: Callable[[Tile], Any] = None
@@ -472,7 +529,12 @@ class FlightManager:
         for job in sorted(waiting, key=lambda j: (j.deadline_s, j.tile)):
             held = (self.held(job.tile, facts)
                     or now - self._swap_at < SWAP_SPACING_S)
-            state = self.publisher.settle(job.tile, job.kind, held)
+            # an upgraded adopted mesh: the staged build replaces the
+            # real tile the pack holds (#2025)
+            fresh = ({"fresh": True}
+                     if self.endpoints.choice_of(job.tile) == ADOPTED.UPGRADE
+                     else {})
+            state = self.publisher.settle(job.tile, job.kind, held, **fresh)
             if state == "pending":
                 continue
             self._finished.discard(job.tile)
@@ -582,6 +644,7 @@ class FlightManager:
             flight_loaded=self.flight_loaded(),
             loaded_real=self._loaded_real(),
             **known))
+        self._ask_rows()
         self._maybe_reload(now)
         if (self.record.state == "preparing"
                 and all(item.state == "done" for item in self.items
@@ -602,6 +665,9 @@ class FlightManager:
         estimate."""
         if self.record.state != "preparing":
             return 0.0
+        if any(j.state == CHOICE_STATE and j.role == "departure"
+               for j in self.jobs):
+            return None                     # the pilot's answer first
         waited = [i for i in self.items if i.key in SCHEDULE.READY_KEYS]
         if any(i.state in ("blocked", "failed") for i in waited):
             return None
@@ -844,6 +910,8 @@ class FlightManager:
             "reload": self.reload if self.takeoff_at is None else self.air.state,
             "diverted_to": self.diverted_to,
             "waivable": tuple(WP.tile_name(*t) for t in self.waivable),
+            "choices": self.endpoints.rows(self.jobs, self.plan,
+                                           self.estimate),
         }
 
     def record_tiles(self) -> List[TileRow]:

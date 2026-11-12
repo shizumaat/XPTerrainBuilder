@@ -96,6 +96,22 @@ import Foundation
         }
     }
 
+    /// #2025: the adopted endpoint's question and buttons give the Python
+    /// words, and the fixture's status carries its row.
+    @Test func adoptedChoiceWords() {
+        #expect(Self.status.choices.count == 1)
+        #expect(Self.status.choices.first?.patched == "yes")
+        for c in Self.cases("choices") {
+            guard let row = O4FlightStatus.Choice.parse(c[0]) else {
+                Issue.record("choice row does not decode")
+                continue
+            }
+            #expect(FlyText.choiceQuestion(row) == c[1].stringValue)
+            #expect(FlyText.choiceKeepLabel(row) == c[2].stringValue)
+            #expect(FlyText.choiceUpgradeLabel(row) == c[3].stringValue)
+        }
+    }
+
     @Test func countdownAndItems() {
         for c in Self.cases("countdown") {
             #expect(FlyText.countdown(c[0].doubleValue) == c[1].stringValue)

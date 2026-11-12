@@ -50,6 +50,14 @@ Lane F2 (capability ``flight_notices``):
   offered reload (rule S6 (a) on the ground, (b) in the air): the only
   way a flight's reload is sent (owner 2026-11-12T14:34Z).
 * ``FlightNotice`` events: one per notice (``flight_notices``).
+
+#2025 (an adopted departure or destination):
+
+* ``flight_choose {flight?, tile, choice}`` -- ``tile`` ``[lat, lon]`` or
+  ``+53-061``, ``choice`` ``keep`` (fly the existing mesh) or ``upgrade``
+  (a ``full`` build of ours replaces it; the adopted package stays for
+  Undo); remembered for the tile (``flight_adopted.ChoiceBook``).
+  ``{"flight", "tile", "choice"}``.
 """
 
 from __future__ import annotations
@@ -60,6 +68,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional
 
 import O4_Flight_Plan as FP
+import O4_World_Pack as WP
 
 from . import flight_job_run as FLIGHT
 from . import flight_record as RECORD
@@ -228,7 +237,7 @@ def flight_status(flight: str = "", **_ignored) -> Dict[str, Any]:
             "jobs": [[t.tile, t.role, t.kind, t.state, 0.0, None]
                      for t in record.tiles],
             "late": [], "shed": [], "reload": "", "diverted_to": "",
-            "waivable": []}
+            "waivable": [], "choices": []}
 
 
 def flight_update(flight: str = "", build_alternate=None, cruise_kt=None,
@@ -346,6 +355,23 @@ def flight_reload(flight: str = "", **_ignored) -> Dict[str, Any]:
     return {"flight": manager.record.id, "reload": state}
 
 
+def flight_choose(flight: str = "", tile: Any = None, choice: str = "",
+                  **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_choose`` (see the module)."""
+    from . import flight_adopted as ADOPTED
+    runner = _runner_for(flight)
+    if runner is None:
+        raise ValueError("That flight is not active.")
+    where = ADOPTED.parse_tile(tile)
+    choice = str(choice or "").strip().lower()
+    with runner.locked():
+        runner.manager.choose(where, choice)
+        record = runner.manager.record
+    RECORD.save(record, RECORD.flights_dir())
+    return {"flight": record.id, "tile": WP.tile_name(*where),
+            "choice": choice}
+
+
 def start_flight_plan_simbrief(emit: Callable[[Any], None], request: Any = None,
                                user: str = "", **_ignored) -> Dict[str, Any]:
     """ENGINE COMMAND ``flight_plan_simbrief``: ``{"status": "started"}``,
@@ -380,4 +406,5 @@ def flight_handlers(session) -> Dict[str, Callable]:
         "flight_list": flight_list,
         "flight_divert": flight_divert,
         "flight_reload": flight_reload,
+        "flight_choose": flight_choose,
     }

@@ -36,7 +36,8 @@ __all__ = [
     "unknown_airport", "refusal", "quick_plan", "cruise_kt", "card_lines",
     "countdown_text", "item_text", "world_line", "follow_status_line",
     "legend_key", "preparing_line", "here_lines",
-    "added_destination",
+    "added_destination", "CHOICE_KEEP", "CHOICE_UPGRADE", "choice_question",
+    "choice_keep_label", "choice_upgrade_label",
 ]
 
 PLAN_SOURCE_LABEL = "Flight plan"
@@ -324,7 +325,7 @@ def legend_key(kind: str, state: str) -> str:
 _JOB_WORDS = {"building": "building", "fetching": "building",
               "queued": "waiting", "late": "waiting", "staged": "ready",
               "swapped": "ready", "external": "ready", "failed": "failed",
-              "shed": "skipped"}
+              "shed": "skipped", "choice": "waiting for your choice"}
 _READY_STATES = frozenset({"staged", "swapped", "external"})
 
 
@@ -400,3 +401,53 @@ def here_lines(here: Optional[Dict[str, Any]]) -> List[str]:
     elif job == "building" and here.get("core"):
         lines.append("Full detail nearby: fetching")
     return lines
+
+
+# ---------------------------------------------------------------------------
+# An adopted departure or destination (#2025): the flight card asks
+# ---------------------------------------------------------------------------
+CHOICE_KEEP = "Fly the existing mesh"
+CHOICE_UPGRADE = "Upgrade with XPTerrainBuilder grading"
+_CHOICE_ROLES = {"departure": "Departure", "destination": "Destination"}
+
+
+def _choice_place(row: Dict[str, Any]) -> str:
+    """"Departure CYYR" (the tile's name when the plan has no ident)."""
+    role = _CHOICE_ROLES.get(row.get("role") or "", "Airport")
+    ident = row.get("icao") or ""
+    if not ident:
+        lat, lon = (list(row.get("tile") or ()) + [0, 0])[:2]
+        ident = "tile %+03d%+04d" % (int(lat), int(lon))
+    return "%s %s" % (role, ident)
+
+
+def choice_question(row: Dict[str, Any]) -> str:
+    """One ``FlightStatus.choices`` row's line: the question while it is
+    unanswered, the answer after (owner 2026-11-12T19:42Z)."""
+    place = _choice_place(row)
+    choice = row.get("choice") or ""
+    if choice == "keep":
+        return "%s: flying the existing mesh" % place
+    if choice == "upgrade":
+        return "%s: upgrading with XPTerrainBuilder grading" % place
+    return ("%s: its tile was not built by XPTerrainBuilder. Fly it as it "
+            "is, or upgrade it first?" % place)
+
+
+def choice_keep_label(row: Dict[str, Any]) -> str:
+    """"Fly the existing mesh (built by Ortho4XP, patched: yes)"."""
+    built_by = row.get("built_by") or ""
+    words = "built by %s" % (built_by or "another tool")
+    if built_by.lower().startswith("ortho4xp"):
+        words += ", patched: %s" % (row.get("patched") or "unknown")
+    return "%s (%s)" % (CHOICE_KEEP, words)
+
+
+def choice_upgrade_label(row: Dict[str, Any]) -> str:
+    """"Upgrade with XPTerrainBuilder grading (about 25 min)"; no figure
+    when the engine has none."""
+    seconds = row.get("upgrade_estimate_s")
+    if seconds is None:
+        return CHOICE_UPGRADE
+    return "%s (about %d min)" % (CHOICE_UPGRADE,
+                                  max(1, math.ceil(float(seconds) / 60.0)))

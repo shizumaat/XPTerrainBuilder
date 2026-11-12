@@ -310,6 +310,16 @@ final class FlyModel: ObservableObject {
         command("flight_reload", ["flight": flight]) { _ in }
     }
 
+    /// An adopted departure or destination (#2025): "Fly the existing
+    /// mesh" (`keep`) or "Upgrade with XPTerrainBuilder grading"
+    /// (`upgrade`), remembered for the tile. Python:
+    /// `O4_Qt_Fly_Pane.choose`.
+    func choose(_ row: O4FlightStatus.Choice, _ choice: String) {
+        guard let flight = status?.flight else { return }
+        command("flight_choose", ["flight": flight, "tile": [row.lat, row.lon],
+                                  "choice": choice]) { _ in }
+    }
+
     /// "Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3).
     func waiveOffline() {
         update(["waive_offline": true])

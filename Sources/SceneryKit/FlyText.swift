@@ -268,6 +268,7 @@ public enum FlyText {
         "building": "building", "fetching": "building", "queued": "waiting",
         "late": "waiting", "staged": "ready", "swapped": "ready",
         "external": "ready", "failed": "failed", "shed": "skipped",
+        "choice": "waiting for your choice",
     ]
 
     /// While a flight prepares: "Preparing: departure building ·
@@ -373,5 +374,45 @@ extension O4FlightPlanRead {
                 "cruise_ms": cruiseMS as Any? ?? NSNull(),
                 "cruise_alt_ft": cruiseAltitudeFeet as Any? ?? NSNull(),
                 "route_km": routeKm]
+    }
+}
+
+/// An adopted departure or destination (#2025): the flight card asks "fly
+/// the existing mesh, or upgrade it first". Python: `O4_Fly_Text`
+/// `choice_question` / `choice_keep_label` / `choice_upgrade_label`.
+extension FlyText {
+    public static let choiceKeep = "Fly the existing mesh"
+    public static let choiceUpgrade = "Upgrade with XPTerrainBuilder grading"
+
+    static func choicePlace(_ row: O4FlightStatus.Choice) -> String {
+        let role = ["departure": "Departure", "destination": "Destination"][row.role] ?? "Airport"
+        let ident = row.icao.isEmpty ? "tile " + String(format: "%+03d%+04d", row.lat, row.lon) : row.icao
+        return "\(role) \(ident)"
+    }
+
+    /// The question while unanswered, the answer after.
+    public static func choiceQuestion(_ row: O4FlightStatus.Choice) -> String {
+        let place = choicePlace(row)
+        switch row.choice {
+        case "keep": return "\(place): flying the existing mesh"
+        case "upgrade": return "\(place): upgrading with XPTerrainBuilder grading"
+        default:
+            return "\(place): its tile was not built by XPTerrainBuilder. Fly it as it is, or upgrade it first?"
+        }
+    }
+
+    /// "Fly the existing mesh (built by Ortho4XP, patched: yes)".
+    public static func choiceKeepLabel(_ row: O4FlightStatus.Choice) -> String {
+        var words = "built by " + (row.builtBy.isEmpty ? "another tool" : row.builtBy)
+        if row.builtBy.lowercased().hasPrefix("ortho4xp") {
+            words += ", patched: " + (row.patched.isEmpty ? "unknown" : row.patched)
+        }
+        return "\(choiceKeep) (\(words))"
+    }
+
+    /// "Upgrade with XPTerrainBuilder grading (about 25 min)".
+    public static func choiceUpgradeLabel(_ row: O4FlightStatus.Choice) -> String {
+        guard let seconds = row.upgradeEstimateSeconds else { return choiceUpgrade }
+        return "\(choiceUpgrade) (about \(max(1, Int((seconds / 60.0).rounded(.up)))) min)"
     }
 }

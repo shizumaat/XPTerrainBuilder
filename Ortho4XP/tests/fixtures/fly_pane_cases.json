@@ -128,7 +128,22 @@
    "shed": [],
    "reload": "",
    "diverted_to": "",
-   "waivable": []
+   "waivable": [],
+   "choices": [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "adopted",
+     "built_by": "Ortho4XP",
+     "patched": "yes",
+     "upgrade_estimate_s": 1500.0,
+     "choice": ""
+    }
+   ]
   },
   "WorldStatus": {
    "state": "building",
@@ -810,7 +825,22 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
     {
      "source": "quick",
@@ -940,7 +970,22 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
     {
      "source": "quick",
@@ -1081,7 +1126,22 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
     {
      "source": "quick",
@@ -1237,7 +1297,22 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
     {
      "source": "quick",
@@ -1363,7 +1438,22 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
     {
      "source": "quick",
@@ -1578,7 +1668,22 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
     "Preparing: departure building · destination ready · 2 of 4 tiles ready"
    ],
@@ -1700,7 +1805,22 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
     "Building is 3 min behind"
    ],
@@ -1800,7 +1920,22 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
     "Departure only: the departure tile at full detail, the tiles around it as quick photos (Quick, whatever Photo detail ahead says); the rest builds as you fly."
    ],
@@ -1900,7 +2035,22 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
     "Departure only: the scenery ahead builds as you fly."
    ]
@@ -2490,6 +2640,116 @@
     [
      "Imagery at CYYR: drawn by other scenery"
     ]
+   ]
+  ],
+  "choices": [
+   [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "adopted",
+     "built_by": "Ortho4XP",
+     "patched": "yes",
+     "upgrade_estimate_s": 1500.0,
+     "choice": ""
+    },
+    "Departure CYYR: its tile was not built by XPTerrainBuilder. Fly it as it is, or upgrade it first?",
+    "Fly the existing mesh (built by Ortho4XP, patched: yes)",
+    "Upgrade with XPTerrainBuilder grading (about 25 min)"
+   ],
+   [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "adopted",
+     "built_by": "Ortho4XP",
+     "patched": "unknown",
+     "upgrade_estimate_s": null,
+     "choice": ""
+    },
+    "Departure CYYR: its tile was not built by XPTerrainBuilder. Fly it as it is, or upgrade it first?",
+    "Fly the existing mesh (built by Ortho4XP, patched: unknown)",
+    "Upgrade with XPTerrainBuilder grading"
+   ],
+   [
+    {
+     "tile": [
+      47,
+      -53
+     ],
+     "role": "destination",
+     "icao": "",
+     "origin": "other",
+     "built_by": "",
+     "patched": "unknown",
+     "upgrade_estimate_s": 1500.0,
+     "choice": ""
+    },
+    "Destination tile +47-053: its tile was not built by XPTerrainBuilder. Fly it as it is, or upgrade it first?",
+    "Fly the existing mesh (built by another tool)",
+    "Upgrade with XPTerrainBuilder grading (about 25 min)"
+   ],
+   [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "other",
+     "built_by": "MeshTool",
+     "patched": "no",
+     "upgrade_estimate_s": 1500.0,
+     "choice": ""
+    },
+    "Departure CYYR: its tile was not built by XPTerrainBuilder. Fly it as it is, or upgrade it first?",
+    "Fly the existing mesh (built by MeshTool)",
+    "Upgrade with XPTerrainBuilder grading (about 25 min)"
+   ],
+   [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "adopted",
+     "built_by": "Ortho4XP",
+     "patched": "yes",
+     "upgrade_estimate_s": 1500.0,
+     "choice": "keep"
+    },
+    "Departure CYYR: flying the existing mesh",
+    "Fly the existing mesh (built by Ortho4XP, patched: yes)",
+    "Upgrade with XPTerrainBuilder grading (about 25 min)"
+   ],
+   [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "adopted",
+     "built_by": "Ortho4XP",
+     "patched": "yes",
+     "upgrade_estimate_s": 20.0,
+     "choice": "upgrade"
+    },
+    "Departure CYYR: upgrading with XPTerrainBuilder grading",
+    "Fly the existing mesh (built by Ortho4XP, patched: yes)",
+    "Upgrade with XPTerrainBuilder grading (about 1 min)"
    ]
   ],
   "waiver_line": [

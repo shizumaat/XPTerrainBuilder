@@ -52,6 +52,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import O4_Flight_Schedule as SCHEDULE
 import O4_World_Pack as WP
 
+from . import flight_adopted as ADOPTED
 from . import flight_budget as BUDGET
 from . import flight_record as RECORD
 from . import world_commands as WORLD
@@ -326,7 +327,11 @@ class _Runner:
             flight_slots=self.cap,
             ground_reload=self.reloader,
             others_running=lambda: SHARE.others_running("flight"),
-            stamp=_utc)
+            stamp=_utc,
+            # #2025: an adopted departure or destination asks first
+            adopted=ADOPTED.endpoint_reader(scenery_dir,
+                                            session.tile_build_dir),
+            choices=ADOPTED.ChoiceBook(ADOPTED.choices_path()))
         self.manager.facts = _Facts(scenery_dir, self.manager.jobs,
                                     self.manager.times[-1])
         _share_slots(self.manager)
@@ -380,12 +385,17 @@ class _Runner:
             self.lock.release()
 
     def run(self) -> None:
+        from .position_feed import start_pump
+        # the Web API is read on its own thread: a tick takes the last
+        # record and never waits on X-Plane (5-6 s "feed" per tick while
+        # X-Plane was not running, owner log 2026-11-12T20:22Z)
+        start_pump(self.feed, self.stop_event, name="o4-flight-position")
         sent_at, last, saved, logged = -1e18, None, None, -1e18
         while not self.stop_event.wait(1.0):
             now = self.now()
             try:
                 clock = _PhaseClock()
-                rec = self.feed.read()
+                rec = self.feed.latest()
                 clock.mark("feed")
                 with self.lock:
                     clock.mark("lock")
@@ -411,7 +421,8 @@ class _Runner:
                 if key != saved:
                     saved = key
                     RECORD.save(record, RECORD.flights_dir())
-                changed = (fields["state"], fields["items"], fields["reload"])
+                changed = (fields["state"], fields["items"], fields["reload"],
+                           fields["choices"])
                 if changed != last or now - sent_at >= STATUS_EVERY_S:
                     last, sent_at = changed, now
                     self.emit(status_event(fields))

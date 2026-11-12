@@ -294,7 +294,41 @@ class FlyPane(QWidget):
         self.prepare_btn = QPushButton(TEXT.PREPARE)
         self.prepare_btn.clicked.connect(self.prepare)
         v.addWidget(self.prepare_btn)
+        # #2025: an adopted departure or destination asks here (Swift:
+        # ``AdoptedChoiceRows``)
+        self.choice_box = QWidget()
+        self.choice_box.setLayout(QVBoxLayout())
+        self.choice_box.layout().setContentsMargins(0, 0, 0, 0)
+        self.choice_box.setVisible(False)
+        self._choice_key = None
+        v.addWidget(self.choice_box)
         return card
+
+    def _show_choices(self):
+        """The flight card's choice rows from ``FlightStatus.choices``:
+        the question and the two buttons while unanswered, the answer
+        after; rebuilt only when the rows change."""
+        rows = list((self.status or {}).get("choices") or ())
+        key = repr(rows)
+        if key == self._choice_key:
+            return
+        self._choice_key = key
+        layout = self.choice_box.layout()
+        while layout.count():
+            widget = layout.takeAt(0).widget()
+            if widget is not None:
+                widget.deleteLater()
+        for row in rows:
+            layout.addWidget(_caption(TEXT.choice_question(row)))
+            if row.get("choice"):
+                continue
+            for words, choice in ((TEXT.choice_keep_label(row), "keep"),
+                                  (TEXT.choice_upgrade_label(row), "upgrade")):
+                button = QPushButton(words)
+                button.clicked.connect(
+                    lambda _c=False, r=row, c=choice: self.choose(r, c))
+                layout.addWidget(button)
+        self.choice_box.setVisible(bool(rows))
 
     def _here_block(self):
         """With no plan, the aircraft's own tile (#2020): "Preparing
@@ -388,6 +422,7 @@ class FlyPane(QWidget):
         if plan is not None:
             self.card_label.setText("\n".join(TEXT.card_lines(plan, self.cruise_kt())))
         self.chk_build_alternate.setEnabled(bool(plan and plan.get("alternate")))
+        self._show_choices()
         items = (self.status or {}).get("items") or []
         self.readiness_list.setText("\n".join(TEXT.item_text(r) for r in items)
                                     if items else TEXT.NO_STATUS)
@@ -589,6 +624,13 @@ class FlyPane(QWidget):
                 print("Reload scenery: %s" % error)
         threading.Thread(target=send, daemon=True,
                          name="o4-scenery-reload").start()
+
+    def choose(self, row: Dict[str, Any], choice: str):
+        """An adopted endpoint's answer (#2025): ``keep`` or ``upgrade``,
+        remembered for the tile.  Swift: ``FlyModel.choose``."""
+        if self.status:
+            self._command("flight_choose", flight=self.status.get("flight"),
+                          tile=list(row.get("tile") or ()), choice=choice)
 
     def waive_offline(self):
         """"Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3)."""

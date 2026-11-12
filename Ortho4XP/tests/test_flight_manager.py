@@ -342,13 +342,14 @@ def engine(tmp_path, monkeypatch, recording):
                     "prefetch_done": True}
     monkeypatch.setattr(FLIGHT, "_Facts", Facts)
 
-    class Feed:
+    class Reader:
         resets = 0
 
         def read(self):
             return {"lat": CYYR[0], "lon": CYYR[1], "agl_m": 0.0,
                     "gs_ms": 0.0, "frame_s": 0.02}
-    monkeypatch.setattr(FEED, "shared", lambda base=None: Feed())
+    feed = FEED._PositionFeed(Reader())
+    monkeypatch.setattr(FEED, "shared", lambda base=None: feed)
     events, builds = [], []
     # the corridor's drapes (RULINGS 2026-11-11j): no network in a twin
     monkeypatch.setattr(WORLD_JOB, "drape_tile", lambda tile, p, z, px=None:
@@ -641,3 +642,40 @@ def test_the_photo_source_is_read_per_build(engine, monkeypatch):
         seen.append((provider, zl)))
     builder._start((53, -64), "full", 600.0, "P2")
     assert seen == [("GO2", 17)]
+
+
+def test_a_tick_never_waits_on_the_web_api(engine, monkeypatch):
+    """Owner log 2026-11-12T20:22Z: ``flight_slow_tick`` "feed" 5.7-6.2 s
+    per tick while X-Plane was not running.  The position is read on the
+    feed's pump thread; a tick takes the last record: with a feed whose
+    read takes 5 s, a tick completes in under 0.5 s."""
+    import threading
+
+    from o4_engine import position_feed as FEED
+    session, _events, _builds, _folder = engine
+    gate = threading.Event()
+
+    class SlowReader:
+        resets = 0
+
+        def read(self):
+            gate.wait(5.0)                  # X-Plane not answering
+            return None
+    feed = FEED._PositionFeed(SlowReader())
+    monkeypatch.setattr(FEED, "shared", lambda base=None: feed)
+    logs = []
+    monkeypatch.setattr(WORLD, "write_log", logs.append)
+    monkeypatch.setattr(FLIGHT, "SLOW_TICK_S", 0.5)
+    try:
+        FC.flight_handlers(session)["flight_create"](
+            dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
+            arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})
+        runner = FLIGHT.current()
+        assert _wait_for(lambda: runner.manager.record.phase == "", 5.0)
+        time.sleep(3.5)                     # three ticks beside the slow read
+        started = time.monotonic()
+        assert feed.latest() is None        # no record yet: never waited on
+        assert time.monotonic() - started < 0.5
+        assert not [r for r in logs if "flight_slow_tick" in r], logs
+    finally:
+        gate.set()

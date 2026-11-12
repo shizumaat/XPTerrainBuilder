@@ -46,7 +46,7 @@ import shutil
 import tarfile
 import time
 
-from . import PACKAGE_FORMAT, BundleRefused
+from . import PACKAGE_FORMAT, READ_ERRORS, BundleRefused
 from . import kinds as _kinds
 
 __all__ = ["DSF_DIR", "TEXTURE_LIST", "XZ_PRESET", "save", "plan",
@@ -212,7 +212,7 @@ def _read(path: str) -> tuple:
             for member in tar.getmembers():
                 if member.isfile():
                     blobs[member.name] = tar.extractfile(member).read()
-    except (OSError, tarfile.TarError) as error:
+    except READ_ERRORS as error:
         raise BundleRefused("%s does not read (%s)"
                             % (os.path.basename(path), error)) from error
     try:

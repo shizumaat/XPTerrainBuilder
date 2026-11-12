@@ -36,6 +36,7 @@ import O4_Scenery_Packs as SP
 import O4_World_Pack as WP
 import pytest
 from o4_engine import imagery_convert as ICONV
+from o4_engine import world_adopt as ADOPT
 from o4_engine import world_commands as WORLD
 from o4_engine import world_migrate as MIGRATE
 from o4_engine import world_migrate_size as SIZE
@@ -118,6 +119,9 @@ def xp(tmp_path, monkeypatch):
     monkeypatch.setattr(CORES, "airport_points", lambda lat, lon: [])
     for module in (ICONV, MIGRATE, WORLD):
         monkeypatch.setattr(module, "_xplane_running", lambda: False)
+    # the disk has room: a run skips every tile under RESERVE_BYTES free,
+    # and a CI runner's disk (Windows: ~14 GB) has less than that
+    monkeypatch.setattr(ADOPT, "room_left", lambda path: 10**13)
     library = str(tmp_path / "Library")
     scenery = tmp_path / "X-Plane" / "Custom Scenery"
     scenery.mkdir(parents=True)

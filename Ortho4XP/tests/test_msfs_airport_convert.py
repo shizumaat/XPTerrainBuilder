@@ -8,6 +8,7 @@ tools/msfs_to_obj8 converter runs on a real (synthetic) GLB.
 """
 from __future__ import annotations
 
+import importlib
 import sys
 import types
 from dataclasses import dataclass, field
@@ -15,7 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from tests import module_isolation
+#: Not a ``from tests import``: ruff sorts that name differently on Linux
+#: (the repo's ``Tests/`` folder makes it first-party on case-folding
+#: filesystems only); see ``test_real_roots_guard.GUARD``.
+module_isolation = importlib.import_module("tests.module_isolation")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tools"))

@@ -40,7 +40,7 @@ import time
 
 import O4_File_Names as FNAMES
 
-from . import FORMAT, PACKAGE_FORMAT, BundleRefused, inputs
+from . import FORMAT, PACKAGE_FORMAT, READ_ERRORS, BundleRefused, inputs
 from . import key as _key
 from . import kinds as _kinds
 from . import pack_dev as _dev
@@ -72,7 +72,7 @@ def read_manifest(path: str) -> dict:
     try:
         with tarfile.open(path, "r:*") as tar:
             doc = json.loads(tar.extractfile("manifest.json").read().decode("utf-8"))
-    except (OSError, KeyError, ValueError, AttributeError, tarfile.TarError) as error:
+    except READ_ERRORS + (KeyError, ValueError, AttributeError) as error:
         raise BundleRefused("%s is not an XPTerrainBuilder package (%s)"
                             % (os.path.basename(path), error)) from error
     if doc.get("format") not in (PACKAGE_FORMAT, FORMAT):
@@ -272,7 +272,7 @@ def _scan(path: str, manifest: dict, tiles: dict, choices, write: bool,
     except BundleRefused:
         _discard(run.rows)
         raise
-    except (OSError, tarfile.TarError, ValueError) as error:
+    except READ_ERRORS + (ValueError,) as error:
         _discard(run.rows)
         raise BundleRefused("the package could not be read (%s)" % error) from error
     if names != set(manifest.get("files") or {}):

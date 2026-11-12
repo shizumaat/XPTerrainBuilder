@@ -25,8 +25,10 @@ folder in ``tmp_path`` (never the real install or a real drive):
 """
 from __future__ import annotations
 
+import io
 import os
 import shutil
+import tarfile
 import textwrap
 import types
 
@@ -193,6 +195,24 @@ def test_a_damaged_adopted_package_is_refused(xp, tmp_path):  # noqa: F811
     from tile_bundle import BundleRefused
     MIGRATE.migrate(xp["scenery"], [LINK], index=xp["index"])
     path = MIGRATE.Journal(xp["work"]).get(LINK)["package"]
+    with open(path, "r+b") as handle:
+        handle.seek(os.path.getsize(path) // 2)
+        handle.write(b"\0" * 64)
+    with pytest.raises(BundleRefused):
+        ADOPTED.lay_out(path, str(tmp_path / "out"))
+
+
+def test_a_package_whose_xz_stream_is_corrupt_is_refused(tmp_path):
+    """Damage inside the xz stream raises ``lzma.LZMAError`` (not an
+    ``OSError``): the package is refused all the same."""
+    from tile_bundle import BundleRefused
+    path = str(tmp_path / "bad_adopted.xptb")
+    with tarfile.open(path, "w:xz") as tar:
+        for i in range(3):
+            data = os.urandom(50_000)
+            info = tarfile.TarInfo("f%d" % i)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
     with open(path, "r+b") as handle:
         handle.seek(os.path.getsize(path) // 2)
         handle.write(b"\0" * 64)

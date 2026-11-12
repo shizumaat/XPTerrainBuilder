@@ -43,8 +43,12 @@ airport's tiles build (:mod:`.pack_shipped`).
 """
 from __future__ import annotations
 
+import lzma
+import tarfile
+import zlib
+
 __all__ = ["FORMAT", "PACKAGE_FORMAT", "PACKAGE_SUFFIX", "LEGACY_SUFFIX",
-           "SUFFIXES", "BundleRefused"]
+           "SUFFIXES", "READ_ERRORS", "BundleRefused"]
 
 #: The tile bundle format this engine still reads (and the gate writes).
 FORMAT = "xptb-1"
@@ -58,6 +62,12 @@ LEGACY_SUFFIX = ".xptbundle"
 
 #: Every suffix the apps hand to the package install.
 SUFFIXES = (PACKAGE_SUFFIX, LEGACY_SUFFIX)
+
+#: What reading a damaged package raises: the decompressors' own errors
+#: (``lzma.LZMAError``, ``zlib.error``, ``EOFError`` on a cut stream)
+#: are not ``OSError`` or ``tarfile.TarError``.
+READ_ERRORS = (OSError, EOFError, tarfile.TarError, lzma.LZMAError,
+               zlib.error)
 
 
 class BundleRefused(ValueError):

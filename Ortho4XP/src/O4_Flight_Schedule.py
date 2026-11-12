@@ -245,13 +245,19 @@ def rescale(jobs: Iterable[Job], kind: str, measured_s: float,
 # ===========================================================================
 # Scheduling
 # ===========================================================================
+def _first(job: Job) -> bool:
+    """The departure tile: first of its class (#2023, the pilot waits
+    for it; the full build fetches its airport's imagery first)."""
+    return job.role == "departure" and job.klass == P0
+
+
 def _plan_order(jobs: Iterable[Job]) -> List[Job]:
     """Running jobs first (they hold their slots), then class, deadline.
     The laxity guard is a dispatch rule (:func:`next_job`); the plan
     order is the class order, so the countdown errs late, never early."""
     return sorted((j for j in jobs if j.open),
-                  key=lambda j: (j.state != "building", j.klass, j.deadline_s,
-                                 j.tile))
+                  key=lambda j: (j.state != "building", j.klass,
+                                 not _first(j), j.deadline_s, j.tile))
 
 
 def finish_times(jobs: Iterable[Job], slots: int) -> List[Tuple[Job, float]]:
@@ -348,7 +354,8 @@ def next_job(jobs: Iterable[Job], now_s: float, takeoff_s: float
     """The queued job to start next (§8.4).  Laxity guard: a job whose
     slack (takeoff + deadline - now - high estimate) is under one build's
     length (the longest queued high estimate) goes first, the tightest
-    first; otherwise class, then the earliest deadline."""
+    first; otherwise class, then the earliest deadline.  The departure
+    tile goes before any other job (#2023: the pilot waits for it)."""
     queued = [j for j in jobs if j.state == "queued"]
     if not queued:
         return None
@@ -359,8 +366,10 @@ def next_job(jobs: Iterable[Job], now_s: float, takeoff_s: float
 
     tight = [j for j in queued if slack(j) < guard]
     if tight:
-        return min(tight, key=lambda j: (slack(j), j.klass, j.tile))
-    return min(queued, key=lambda j: (j.klass, j.deadline_s, j.tile))
+        return min(tight, key=lambda j: (not _first(j), slack(j), j.klass,
+                                         j.tile))
+    return min(queued, key=lambda j: (j.klass, not _first(j), j.deadline_s,
+                                      j.tile))
 
 
 # ===========================================================================

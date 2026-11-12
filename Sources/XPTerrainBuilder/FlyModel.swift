@@ -227,7 +227,10 @@ final class FlyModel: ObservableObject {
         command("flight_plan_simbrief", ["user": simBriefUser]) { _ in }
     }
 
-    /// The departure + arrival quick entry, from X-Plane's airport list.
+    /// The departure + arrival quick entry, from X-Plane's airport list;
+    /// an empty To is a departure-only plan (#2023). A To added to the
+    /// active departure-only flight plans it again (`flight_update
+    /// {destination}`). Qt: `O4_Qt_Fly_Pane.use_quick_entry`.
     func useQuickEntry() {
         guard let build else { return }
         func find(_ code: String) -> GlobalAirport? {
@@ -235,10 +238,17 @@ final class FlyModel: ObservableObject {
             return build.globalAirports.first { $0.icao.uppercased() == ident }
         }
         guard let dep = find(quickFrom) else { message = FlyText.unknownAirport(quickFrom); return }
-        guard let arr = find(quickTo) else { message = FlyText.unknownAirport(quickTo); return }
+        var arrival: (ident: String, lat: Double, lon: Double)?
+        if !quickTo.trimmingCharacters(in: .whitespaces).isEmpty {
+            guard let arr = find(quickTo) else { message = FlyText.unknownAirport(quickTo); return }
+            arrival = (arr.icao, arr.latitude, arr.longitude)
+        }
         message = nil
-        plan = .quick(from: (dep.icao, dep.latitude, dep.longitude),
-                      to: (arr.icao, arr.latitude, arr.longitude))
+        let made = O4FlightPlanRead.quick(from: (dep.icao, dep.latitude, dep.longitude), to: arrival)
+        if let added = FlyText.addedDestination(status, made) {
+            update(["destination": ["ident": added.ident, "lat": added.lat, "lon": added.lon]])
+        }
+        plan = made
     }
 
     // MARK: - The flight manager (lane F1b's commands)

@@ -44,8 +44,11 @@ def notice(code: str, *, origin: str = "", destination: str = "",
     title, severity = CODES[code]
     place = destination or "the destination"
     text = {
-        "ready": "Your flight %sto %s is ready for departure."
-                 % ("from %s " % origin if origin else "", place),
+        "ready": ("Your flight %sto %s is ready for departure."
+                  % ("from %s " % origin if origin else "", place)
+                  if destination or not origin else
+                  "The scenery around %s is ready for departure; the rest "
+                  "builds as you fly." % origin),
         "reload_offered_ground": "The new scenery near the departure shows "
                                  "after one scenery reload: choose Reload "
                                  "scenery now when it suits you.",

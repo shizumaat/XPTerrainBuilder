@@ -116,9 +116,11 @@ import Foundation
             #expect(FlyText.planRowLabel(row) == c[1].stringValue)
         }
         for c in Self.cases("quick_plan") {
-            let d = c[0].arrayValue!, a = c[1].arrayValue!
+            let d = c[0].arrayValue!
+            // #2023: a null arrival is a departure-only plan.
+            let arrival = c[1].arrayValue.map { a in (a[0].stringValue!, a[1].doubleValue!, a[2].doubleValue!) }
             let made = O4FlightPlanRead.quick(from: (d[0].stringValue!, d[1].doubleValue!, d[2].doubleValue!),
-                                              to: (a[0].stringValue!, a[1].doubleValue!, a[2].doubleValue!))
+                                              to: arrival)
             let want = try #require(Self.plan(c[2]))
             #expect(made.origin == want.origin && made.destination == want.destination)
             #expect(made.waypoints == want.waypoints && made.source == want.source)
@@ -132,6 +134,19 @@ import Foundation
         for c in Self.cases("card") {
             let lines = (c[2].arrayValue ?? []).compactMap(\.stringValue)
             #expect(FlyText.cardLines(Self.plan(c[0])!, cruise: c[1].doubleValue!) == lines)
+        }
+        let departureOnly = Self.cases("departure_only")
+        #expect(departureOnly.count >= 3)
+        for c in departureOnly {
+            #expect(FlyText.departureOnly(Self.plan(c[0])) == c[1].boolValue)
+        }
+        let added = Self.cases("added_destination")
+        #expect(added.count >= 6)
+        for c in added {
+            let got = FlyText.addedDestination(O4FlightStatus.parse(c[0]), Self.plan(c[1]))
+            #expect(got?.ident == c[2]["ident"]?.stringValue)
+            #expect(got?.lat == c[2]["lat"]?.doubleValue)
+            #expect(got?.lon == c[2]["lon"]?.doubleValue)
         }
         for c in Self.cases("unknown_airport") {
             #expect(FlyText.unknownAirport(c[0].stringValue!) == c[1].stringValue)

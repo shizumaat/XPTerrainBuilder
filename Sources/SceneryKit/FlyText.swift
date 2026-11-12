@@ -18,8 +18,14 @@ public enum FlyText {
     public static let simbriefButton = "Fetch"
     public static let openPlan = FlightPlanCopy.openButton
     public static let quickFrom = "From"
-    public static let quickTo = "To"
+    public static let quickTo = "To (optional)"
     public static let quickButton = "Use"
+    /// A departure-only plan (#2023: From with an empty To): the card's
+    /// words, and the status line's while it prepares and once it may leave.
+    public static let noDestination = "no destination"
+    public static let departureOnlyCard = "Prepares the departure area; the rest builds as you fly"
+    public static let departureOnlyPreparing = "Departure only: the departure tile at full detail, the tiles around it as quick photos (Quick, whatever Photo detail ahead says); the rest builds as you fly."
+    public static let departureOnlyFlying = "Departure only: the scenery ahead builds as you fly."
     public static let prepare = "Prepare flight"
     public static let buildAlternate = "Also build the alternate"
     public static let cruiseLabel = "Cruise speed (kt)"
@@ -148,13 +154,49 @@ public enum FlyText {
     /// The flight card: route, alternate, distance and time en route
     /// (the plan's, else the distance at `cruise` knots).
     public static func cardLines(_ plan: O4FlightPlanRead, cruise: Double) -> [String] {
+        let origin = plan.origin.isEmpty ? "?" : plan.origin
+        let alternate = plan.alternate.map { "Alternate \($0.ident)" } ?? "No alternate in the plan"
+        if departureOnly(plan) {
+            return ["\(origin) → \(noDestination)", alternate, departureOnlyCard]
+        }
         var ete = plan.eteSeconds ?? 0
         if ete == 0, cruise > 0 { ete = plan.routeKm / (cruise * 1.852) * 3600 }
         return [
-            "\(plan.origin.isEmpty ? "?" : plan.origin) → \(plan.destination.isEmpty ? "?" : plan.destination)",
-            plan.alternate.map { "Alternate \($0.ident)" } ?? "No alternate in the plan",
+            "\(origin) → \(plan.destination.isEmpty ? "?" : plan.destination)",
+            alternate,
             "\(grouped(Int(plan.routeKm.rounded()))) km · \(duration(ete)) en route",
         ]
+    }
+
+    /// A plan with a departure and no destination (#2023): every waypoint
+    /// at the first one's position (`O4_Fly_Text.departure_only`).
+    public static func departureOnly(_ plan: O4FlightPlanRead?) -> Bool {
+        guard let plan, let first = plan.waypoints.first else { return false }
+        return plan.waypoints.allSatisfy { $0.lat == first.lat && $0.lon == first.lon }
+    }
+
+    /// A `FlightStatus` of a departure-only flight: no route, a departure
+    /// job and no destination job (`O4_Fly_Text.status_departure_only`).
+    public static func statusDepartureOnly(_ status: O4FlightStatus?) -> Bool {
+        guard let status, status.routeKm == 0 else { return false }
+        let roles = Set(status.jobs.map(\.role))
+        return roles.contains("departure") && !roles.contains("destination")
+    }
+
+    /// The `destination` of `flight_update` when the quick entry adds a To
+    /// to the active departure-only flight (#2023); nil otherwise
+    /// (`O4_Fly_Text.added_destination`).
+    public static func addedDestination(_ status: O4FlightStatus?,
+                                        _ plan: O4FlightPlanRead?) -> O4FlightPlace? {
+        guard let status, let plan, statusDepartureOnly(status), !departureOnly(plan),
+              plan.waypoints.count >= 2, let first = plan.waypoints.first,
+              let last = plan.waypoints.last,
+              ["preparing", "ready", "flying"].contains(status.state) else { return nil }
+        if let dep = status.jobs.first(where: { $0.role == "departure" }),
+           dep.lat != Int(first.lat.rounded(.down)) || dep.lon != Int(first.lon.rounded(.down)) {
+            return nil
+        }
+        return last
     }
 
     /// "Ready in about 12 min"; a dash when there is no defensible figure
@@ -195,6 +237,9 @@ public enum FlyText {
     public static func statusLine(_ status: O4FlightStatus?) -> String {
         guard let status else { return "" }
         if !status.reason.isEmpty { return status.reason }
+        if statusDepartureOnly(status) {
+            return status.state == "preparing" ? departureOnlyPreparing : departureOnlyFlying
+        }
         if status.routeKm > 0 {
             return "\(grouped(Int(status.doneKm.rounded()))) of \(grouped(Int(status.routeKm.rounded()))) km flown"
         }
@@ -256,14 +301,16 @@ public enum FlyText {
 extension O4FlightPlanRead {
     /// A two-airport plan from the departure + arrival quick entry, in
     /// `flight_plan_read`'s shape (`O4_Fly_Text.quick_plan`).
+    /// No arrival: a departure-only plan of one waypoint (#2023).
     public static func quick(from dep: (ident: String, lat: Double, lon: Double),
-                             to arr: (ident: String, lat: Double, lon: Double)) -> O4FlightPlanRead {
-        let places = [dep, arr].map {
+                             to arr: (ident: String, lat: Double, lon: Double)?) -> O4FlightPlanRead {
+        let places = ([dep] + (arr.map { [$0] } ?? [])).map {
             O4FlightPlace(ident: $0.ident.uppercased(), lat: $0.lat, lon: $0.lon,
                           altitudeFeet: nil, secondsAfterTakeoff: nil)
         }
         return O4FlightPlanRead(
-            source: "quick", origin: places[0].ident, destination: places[1].ident,
+            source: "quick", origin: places[0].ident,
+            destination: places.count > 1 ? places[1].ident : "",
             waypoints: places, alternate: nil, eteSeconds: nil, cruiseMS: nil,
             cruiseAltitudeFeet: nil,
             routeKm: RouteTiles.routeLengthKm(places.map { (lat: $0.lat, lon: $0.lon) }))

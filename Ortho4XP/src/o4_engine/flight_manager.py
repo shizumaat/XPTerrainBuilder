@@ -36,6 +36,12 @@ RULINGS 2026-11-10k Q3: en-route tiles that cannot be built without
 the internet may be left to X-Plane's own scenery; never the departure
 or the destination).
 
+A plan with a departure only (#2023, ``FP.FlightPlan.departure_only``)
+plans X-Plane's window at the departure and nothing farther: the
+departure ``full``, the rest of that window as drapes at
+:data:`PREP_DRAPE_PX`; a To added later plans the route again
+(:meth:`FlightManager.set_destination`); track mode does the rest.
+
 The flight waits for its departure area only (RULINGS 2026-11-12c (2),
 replacing 10g's "every row"): ``ready`` is every row of
 ``O4_Flight_Schedule.READY_KEYS`` ``done`` (the facts, the departure and
@@ -64,8 +70,8 @@ from .flight_air_reload import LOW_AGL_M, NEAR_KM, AirReload
 from .flight_notices import Board
 from .flight_record import FlightRecord, TileRow
 
-__all__ = ["BUILT_KINDS", "FULL_ROLES", "MAX_ATTEMPTS", "flight_jobs",
-           "FlightManager"]
+__all__ = ["BUILT_KINDS", "FULL_ROLES", "MAX_ATTEMPTS", "PREP_DRAPE_PX",
+           "flight_jobs", "prep_drape_px", "FlightManager"]
 
 Tile = Tuple[int, int]
 
@@ -90,6 +96,9 @@ ARRIVED_PARKED_S = 600.0
 #: The ``loaded`` row's detail while the ground reload waits for the
 #: pilot (S6 (a): offered, never sent on its own).
 RELOAD_OFFERED = "Reload offered: X-Plane shows the new tiles after it"
+#: A departure-only flight's ring drapes are fetched at "Quick" (#2023):
+#: the pilot waits for them; the full departure tile carries the detail.
+PREP_DRAPE_PX = 512
 #: Swaps are spaced this far apart (§10 Landings).
 SWAP_SPACING_S = SCHEDULE.SWAP_S
 
@@ -133,6 +142,14 @@ def _job_for(role: str, have: Optional[str], intermediate: str
     return None
 
 
+def prep_drape_px(plan: "FP.FlightPlan") -> Optional[int]:
+    """The drape photo width a flight's drapes are fetched at, whatever
+    ``drape_photo_px`` says: :data:`PREP_DRAPE_PX` for a departure-only
+    plan's window ring (#2023: the pilot waits for it), else None (the
+    user's setting)."""
+    return PREP_DRAPE_PX if plan.departure_only else None
+
+
 def flight_jobs(plan: "FP.FlightPlan", *, corridor_km: float,
                 build_alternate: bool, cruise_ms: Optional[float],
                 intermediate: str, state_of: Callable[[Tile], Optional[str]],
@@ -153,10 +170,16 @@ def flight_jobs(plan: "FP.FlightPlan", *, corridor_km: float,
     speed = (cruise_ms or plan.cruise_ms
              or SCHEDULE.DEFAULT_CRUISE_KT * SCHEDULE.KT_TO_MS)
     first, last = plan.waypoints[0], plan.waypoints[-1]
-    corridor = set(FP.route_tiles(plan.points(), corridor_km))
-    for end in ((last,) if leg.airborne else (first, last)):
-        corridor.update(_neighbours(FP.tile_of(end.lat, end.lon)))
     entries = WINDOW.route_entries(samples)
+    if plan.departure_only and not leg.airborne:
+        # #2023: X-Plane's window at the departure (the first window, the
+        # departure among it) and nothing farther; track mode does the
+        # rest in flight (#2019)
+        corridor = {tile for tile, index in entries.items() if index <= 0}
+    else:
+        corridor = set(FP.route_tiles(plan.points(), corridor_km))
+        for end in ((last,) if leg.airborne else (first, last)):
+            corridor.update(_neighbours(FP.tile_of(end.lat, end.lon)))
     deadlines = SCHEDULE.tile_deadlines(times, entries, speed)
     if leg.airborne:            # already in X-Plane's window: due now
         deadlines.update({t: times[0] for t, i in entries.items() if i <= 0})
@@ -296,6 +319,28 @@ class FlightManager:
         self.diverted_to, self.diversions = name, self.diversions + 1
         return name
 
+    def set_destination(self, now: float, target: "FP.Waypoint") -> str:
+        """``flight_update {destination}`` (#2023): the To a departure-only
+        flight was prepared without.  On the ground the plan becomes
+        departure → ``target`` and its jobs are planned again (what is
+        built or under way is kept, :meth:`replan`); in the air it is a
+        diversion (:meth:`divert`).  Returns the destination's name; a
+        flight that has a destination refuses (``flight_divert`` moves it)."""
+        if not self.plan.departure_only:
+            raise ValueError("This flight has a destination: divert to "
+                             "change it.")
+        if self.takeoff_at is not None:
+            return self.divert(now, target, False)
+        keep = self.plan._replace(waypoints=[self.plan.waypoints[0], target])
+        self.plan = keep
+        self.record.destination = {"ident": target.ident, "lat": target.lat,
+                                   "lon": target.lon}
+        self.record.waypoints = [
+            {"ident": w.ident, "lat": w.lat, "lon": w.lon}
+            for w in keep.waypoints]
+        self.replan()
+        return target.ident or "%.4f, %.4f" % (target.lat, target.lon)
+
     def _set(self, tile: Tile, **changes) -> None:
         self.jobs = [replace(j, **changes) if j.tile == tile else j
                      for j in self.jobs]
@@ -355,18 +400,21 @@ class FlightManager:
             self.record.departed_at = self.stamp()
             if self.record.state in ("preparing", "ready"):
                 self.record.state = "flying"
+        open_ended = self.plan.departure_only      # no destination (#2023)
         if not ground:
             self._parked_since = None
             if self.takeoff_at is None:
                 return "taxi"
-            return "approach" if to_dest <= APPROACH_KM else "airborne"
+            return ("approach" if to_dest <= APPROACH_KM and not open_ended
+                    else "airborne")
         parked = self.gs_ms < PARKED_MS
         self._parked_since = (
             (now if self._parked_since is None else self._parked_since)
             if parked else None)
         if self.takeoff_at is None:
             return "parked" if parked else "taxi"
-        if (parked and to_dest <= ARRIVED_KM and self.record.state == "flying"
+        if (parked and not open_ended and to_dest <= ARRIVED_KM
+                and self.record.state == "flying"
                 and now - self._parked_since >= ARRIVED_PARKED_S):
             self.record.state, self.record.arrived_at = "arrived", self.stamp()
         return "landed"
@@ -676,7 +724,8 @@ class FlightManager:
         the pilot may leave, the route's tiles projected late
         (``falling_behind``, again when their count grows; 12c (2))."""
         last, job = self._destination()
-        dest = last.ident or self.diverted_to
+        dest = ("" if self.plan.departure_only
+                else last.ident or self.diverted_to)
         if was == "preparing" and self.record.state == "ready":
             self.board.post("ready", origin=self.departure.ident,
                             destination=dest)

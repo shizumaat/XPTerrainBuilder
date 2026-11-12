@@ -158,15 +158,17 @@ def from_plan(plan, source_kind: str, now: datetime, *,
               build_alternate: bool = False, cruise_kt: Optional[float] = None,
               corridor_km: float = DEFAULT_CORRIDOR_KM,
               aircraft_ms: Optional[float] = None) -> FlightRecord:
-    """A new ``preparing`` record from a read plan.  ``source_kind`` is one
+    """A new ``preparing`` record from a read plan (a departure-only plan,
+    #2023, has no ``destination``).  ``source_kind`` is one
     of :data:`SOURCE_KINDS`; ``cruise_kt`` is the pilot's entry on the
     flight card, ``aircraft_ms`` the last flight's speed with this
     aircraft (§4.3 step 3: plan, else aircraft, else 250 kt)."""
     if source_kind not in SOURCE_KINDS:
         raise ValueError("unknown plan source %r" % source_kind)
-    first, last = plan.waypoints[0], plan.waypoints[-1]
+    first = plan.waypoints[0]
+    last = None if plan.departure_only else plan.waypoints[-1]
     return FlightRecord(
-        id=flight_id(first.ident, last.ident, now),
+        id=flight_id(first.ident, last.ident if last else "", now),
         source={"kind": source_kind, "name": plan.source, "read_at": _utc(now)},
         origin=_place(first), destination=_place(last),
         alternate=_place(plan.alternate), build_alternate=bool(build_alternate),

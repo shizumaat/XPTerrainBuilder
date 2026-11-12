@@ -91,8 +91,18 @@ DEP = ("cyyr", 53.3192, -60.4258)
 ARR = ("CYYT", 47.6186, -52.7519)
 
 
+#: A departure-only flight's status (#2023): no route, a departure and
+#: its window ring, no destination.
+DEP_ONLY_STATUS = dict(
+    FLIGHT_STATUS, flight="20261112T1600Z-CYYR-NONE", route_km=0.0,
+    eta_s=0.0, jobs=[[[53, -61], "departure", "full", "building", 412.0, None],
+                     [[53, -60], "enroute", "drape", "queued", 160.0, None]])
+
+
 def _text_cases():
     plan = TEXT.quick_plan(DEP, ARR)
+    alone = TEXT.quick_plan(DEP)
+    later = TEXT.quick_plan(("CYYR", 53.3192, -60.4258), ARR)
     with_alt = dict(plan, alternate={"ident": "CYQX", "lat": 48.94,
                                      "lon": -54.57, "alt_ft": None,
                                      "t_s": None}, ete_s=5400.0,
@@ -108,12 +118,21 @@ def _text_cases():
             {"name": "CYLWCYYC", "origin": "CYLW", "destination": "CYYC"},
             {"name": "VFR hop", "origin": "", "destination": ""},
             {"name": "X", "origin": "KSEA", "destination": ""})],
-        "quick_plan": [[list(DEP), list(ARR), plan]],
+        "quick_plan": [[list(DEP), list(ARR), plan], [list(DEP), None, alone]],
         "cruise_kt": [[None, TEXT.cruise_kt(None)], [plan, TEXT.cruise_kt(plan)],
                       [with_alt, TEXT.cruise_kt(with_alt)]],
         "card": [[plan, 250, TEXT.card_lines(plan, 250)],
                  [plan, 120, TEXT.card_lines(plan, 120)],
-                 [with_alt, 280, TEXT.card_lines(with_alt, 280)]],
+                 [with_alt, 280, TEXT.card_lines(with_alt, 280)],
+                 [alone, 250, TEXT.card_lines(alone, 250)]],
+        "departure_only": [[p, TEXT._departure_only(p)]
+                           for p in (plan, alone, with_alt)],
+        "added_destination": [
+            [st, p, TEXT.added_destination(st, p)] for st, p in (
+                (DEP_ONLY_STATUS, later), (DEP_ONLY_STATUS, alone),
+                (FLIGHT_STATUS, later), (None, later),
+                (dict(DEP_ONLY_STATUS, state="closed"), later),
+                (DEP_ONLY_STATUS, TEXT.quick_plan(ARR, DEP)))],
         "world_line": [[None, TEXT.world_line(None)],
                        [WORLD_STATUS, TEXT.world_line(WORLD_STATUS)],
                        [{"state": "paused", "reason": "X-Plane is not answering"},
@@ -122,7 +141,11 @@ def _text_cases():
         "status_line": [[None, TEXT.follow_status_line(None)],
                         [FLIGHT_STATUS, TEXT.follow_status_line(FLIGHT_STATUS)],
                         [dict(FLIGHT_STATUS, reason="Building is 3 min behind"),
-                         "Building is 3 min behind"]],
+                         "Building is 3 min behind"],
+                        [DEP_ONLY_STATUS, TEXT.follow_status_line(DEP_ONLY_STATUS)],
+                        [dict(DEP_ONLY_STATUS, state="flying"),
+                         TEXT.follow_status_line(dict(DEP_ONLY_STATUS,
+                                                      state="flying"))]],
         "legend_key": [[k, s, TEXT.legend_key(k, s)]
                        for k in ("full", "drape", "placeholder")
                        for s in ("queued", "fetching", "building", "staged",
@@ -219,6 +242,19 @@ def test_the_words():
     assert plan["origin"] == "CYYR" and plan["destination"] == "CYYT"
     assert 820 < plan["route_km"] < 845
     assert TEXT.card_lines(plan, 250)[1] == "No alternate in the plan"
+    # #2023: From with an empty To is a departure-only plan.
+    alone = TEXT.quick_plan(DEP)
+    assert TEXT._departure_only(alone) and not TEXT._departure_only(plan)
+    assert alone["destination"] == "" and len(alone["waypoints"]) == 1
+    assert TEXT.card_lines(alone, 250) == [
+        "CYYR → no destination", "No alternate in the plan",
+        TEXT.DEPARTURE_ONLY_CARD]
+    assert TEXT.follow_status_line(DEP_ONLY_STATUS) == \
+        TEXT.DEPARTURE_ONLY_PREPARING
+    assert "Quick" in TEXT.DEPARTURE_ONLY_PREPARING
+    added = TEXT.added_destination(DEP_ONLY_STATUS, plan)
+    assert added == {"ident": "CYYT", "lat": 47.6186, "lon": -52.7519}
+    assert TEXT.added_destination(FLIGHT_STATUS, plan) is None
     # The plan-tier words never reach the user (§14).
     for _key, words in TEXT.LEGEND:
         assert not re.search(r"placeholder|drape|light", words)
@@ -228,7 +264,9 @@ def test_the_words_are_the_macs():
     swift = SWIFT_TEXT.read_text(encoding="utf-8")
     for name in ("PLAN_SOURCE_LABEL", "PLAN_CHOOSE", "PLAN_SIMBRIEF",
                  "PLAN_NONE", "SIMBRIEF_BUTTON", "QUICK_FROM", "QUICK_TO",
-                 "QUICK_BUTTON", "PREPARE", "BUILD_ALTERNATE", "CRUISE_LABEL",
+                 "QUICK_BUTTON", "NO_DESTINATION", "DEPARTURE_ONLY_CARD",
+                 "DEPARTURE_ONLY_PREPARING", "DEPARTURE_ONLY_FLYING",
+                 "PREPARE", "BUILD_ALTERNATE", "CRUISE_LABEL",
                  "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "LIVE_PREVIEW",
                  "LIVE_PREVIEW_HELP", "DIVERT", "END_FLIGHT",
                  "NO_FLIGHT_MANAGER", "NO_STATUS", "CENTER_ON_AIRCRAFT",

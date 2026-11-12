@@ -22,7 +22,9 @@ import O4_Glossary as GLOSSARY
 __all__ = [
     "PLAN_SOURCE_LABEL", "PLAN_CHOOSE", "PLAN_SIMBRIEF", "PLAN_NONE",
     "SIMBRIEF_PLACEHOLDER", "SIMBRIEF_BUTTON", "OPEN_PLAN", "QUICK_FROM",
-    "QUICK_TO", "QUICK_BUTTON", "PREPARE", "BUILD_ALTERNATE", "CRUISE_LABEL",
+    "QUICK_TO", "QUICK_BUTTON", "NO_DESTINATION", "DEPARTURE_ONLY_CARD",
+    "DEPARTURE_ONLY_PREPARING", "DEPARTURE_ONLY_FLYING", "PREPARE",
+    "BUILD_ALTERNATE", "CRUISE_LABEL",
     "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "SIM_PRIORITIES",
     "DRAPE_PX_LABEL", "DRAPE_PX_KEY", "DRAPE_PX_CHOICES", "LIVE_PREVIEW",
     "LIVE_PREVIEW_HELP", "CENTER_ON_AIRCRAFT", "NO_AIRCRAFT_POSITION",
@@ -32,6 +34,7 @@ __all__ = [
     "unknown_airport", "refusal", "quick_plan", "cruise_kt", "card_lines",
     "countdown_text", "item_text", "world_line", "follow_status_line",
     "legend_key", "here_lines",
+    "added_destination",
 ]
 
 PLAN_SOURCE_LABEL = "Flight plan"
@@ -42,8 +45,17 @@ SIMBRIEF_PLACEHOLDER = FP.SIMBRIEF_PLACEHOLDER
 SIMBRIEF_BUTTON = "Fetch"
 OPEN_PLAN = FP.OPEN_BUTTON
 QUICK_FROM = "From"
-QUICK_TO = "To"
+QUICK_TO = "To (optional)"
 QUICK_BUTTON = "Use"
+#: A departure-only plan (#2023: From with an empty To): the card's
+#: words, and the status line's while it prepares and once it may leave.
+NO_DESTINATION = "no destination"
+DEPARTURE_ONLY_CARD = "Prepares the departure area; the rest builds as you fly"
+DEPARTURE_ONLY_PREPARING = (
+    "Departure only: the departure tile at full detail, the tiles around "
+    "it as quick photos (Quick, whatever Photo detail ahead says); the "
+    "rest builds as you fly.")
+DEPARTURE_ONLY_FLYING = "Departure only: the scenery ahead builds as you fly."
 PREPARE = "Prepare flight"
 BUILD_ALTERNATE = "Also build the alternate"
 CRUISE_LABEL = "Cruise speed (kt)"
@@ -129,19 +141,60 @@ def unknown_airport(ident: str) -> str:
     return "No airport %s in X-Plane's list." % (ident.strip().upper() or "?")
 
 
-def quick_plan(departure: Sequence, arrival: Sequence) -> Dict[str, Any]:
+def quick_plan(departure: Sequence, arrival: Optional[Sequence] = None
+               ) -> Dict[str, Any]:
     """A two-airport plan in the ``flight_plan_read`` shape (``plan_wire``)
     from ``(ident, lat, lon)`` of each end: the departure + arrival quick
-    entry."""
+    entry.  No arrival: a departure-only plan of one waypoint (#2023)."""
     places = [{"ident": str(p[0]).upper(), "lat": float(p[1]),
                "lon": float(p[2]), "alt_ft": None, "t_s": None}
-              for p in (departure, arrival)]
+              for p in (departure, arrival) if p]
     return {"source": "quick", "origin": places[0]["ident"],
-            "destination": places[1]["ident"], "waypoints": places,
+            "destination": places[1]["ident"] if arrival else "",
+            "waypoints": places,
             "alternate": None, "ete_s": None, "cruise_ms": None,
             "cruise_alt_ft": None,
             "route_km": FP.route_length_km(
                 [(p["lat"], p["lon"]) for p in places])}
+
+
+def _departure_only(plan: Optional[Dict[str, Any]]) -> bool:
+    """A plan with a departure and no destination (#2023): every
+    waypoint at the first one's position (``FlightPlan.departure_only``)."""
+    points = {(w.get("lat"), w.get("lon"))
+              for w in (plan or {}).get("waypoints") or ()}
+    return len(points) == 1
+
+
+def _status_departure_only(status: Optional[Dict[str, Any]]) -> bool:
+    """A ``FlightStatus`` of a departure-only flight: no route, a
+    departure job and no destination job."""
+    if not status or status.get("route_km"):
+        return False
+    roles = {row[1] for row in status.get("jobs") or () if len(row) > 1}
+    return "departure" in roles and "destination" not in roles
+
+
+def added_destination(status: Optional[Dict[str, Any]],
+                      plan: Optional[Dict[str, Any]]
+                      ) -> Optional[Dict[str, Any]]:
+    """The ``destination`` of ``flight_update`` when the quick entry adds
+    a To to the active departure-only flight (#2023): the plan's last
+    waypoint ``{ident, lat, lon}``, when ``plan`` starts where that
+    flight does; else None (a new plan for the next Prepare)."""
+    points = (plan or {}).get("waypoints") or []
+    if (not _status_departure_only(status) or _departure_only(plan)
+            or len(points) < 2
+            or (status or {}).get("state") not in ("preparing", "ready",
+                                                   "flying")):
+        return None
+    dep = [row[0] for row in status.get("jobs") or ()
+           if len(row) > 1 and row[1] == "departure"]
+    if dep and list(dep[0]) != [math.floor(points[0]["lat"]),
+                                math.floor(points[0]["lon"])]:
+        return None
+    last = points[-1]
+    return {"ident": last["ident"], "lat": last["lat"], "lon": last["lon"]}
 
 
 def refusal(error: str) -> str:
@@ -168,15 +221,19 @@ def _duration(seconds: float) -> str:
 def card_lines(plan: Dict[str, Any], cruise: float) -> List[str]:
     """The flight card: route, alternate, distance and time en route
     (the plan's, else the distance at ``cruise`` knots)."""
+    alternate = plan.get("alternate")
+    alternate_line = ("Alternate %s" % alternate["ident"] if alternate
+                      else "No alternate in the plan")
+    if _departure_only(plan):
+        return ["%s → %s" % (plan.get("origin") or "?", NO_DESTINATION),
+                alternate_line, DEPARTURE_ONLY_CARD]
     km = float(plan.get("route_km") or 0.0)
     ete = plan.get("ete_s")
     if not ete and cruise > 0:
         ete = km / (cruise * FP.KM_PER_NM) * 3600.0
-    alternate = plan.get("alternate")
     return ["%s → %s" % (plan.get("origin") or "?",
                          plan.get("destination") or "?"),
-            "Alternate %s" % alternate["ident"] if alternate
-            else "No alternate in the plan",
+            alternate_line,
             "%s km · %s en route" % (format(int(round(km)), ","),
                                      _duration(ete or 0.0))]
 
@@ -224,6 +281,9 @@ def follow_status_line(status: Optional[Dict[str, Any]]) -> str:
         return ""
     if status.get("reason"):
         return str(status["reason"])
+    if _status_departure_only(status):
+        return (DEPARTURE_ONLY_PREPARING if status.get("state") == "preparing"
+                else DEPARTURE_ONLY_FLYING)
     route, done = status.get("route_km") or 0, status.get("done_km") or 0
     if route:
         return "%s of %s km flown" % (format(int(round(done)), ","),

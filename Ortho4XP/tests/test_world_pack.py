@@ -312,3 +312,21 @@ def test_dsftool_path_falls_back_to_the_resource_utils(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "Utils_dir", str(utils))
     assert WP.dsftool_path(str(tmp_path / "engine")) == os.path.join(
         str(utils), folder, exe)
+
+
+def test_the_world_row_is_always_the_last_row():
+    """Owner 2026-11-12: the World row goes to the bottom, below overlays
+    that sit below a mesh row, and an existing row is moved there."""
+    import O4_World_Pack as WP
+    lines = ["I", "1000 Version", "SCENERY", "",
+             "SCENERY_PACK Custom Scenery/Some-mesh/",
+             "SCENERY_PACK Custom Scenery/simHeaven_X-WORLD-Pro_Africa-01-bridges/",
+             "SCENERY_PACK Custom Scenery/zz_mesh_last/", ""]
+    assert WP.ini_install(lines) is True
+    assert lines[-2] == f"SCENERY_PACK Custom Scenery/{WP.PACK_NAME}/"
+    lines.insert(4, f"SCENERY_PACK_DISABLED Custom Scenery/{WP.PACK_NAME}/")
+    del lines[-2]
+    assert WP.ini_install(lines) is False
+    rows = [l for l in lines if WP.PACK_NAME in l]
+    assert rows == [f"SCENERY_PACK Custom Scenery/{WP.PACK_NAME}/"]
+    assert lines[-2] == rows[0] and lines[-1] == ""

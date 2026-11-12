@@ -606,17 +606,19 @@ def swap_staged(pack: str, staging_root: str,
 
 def ini_install(lines: list, pack_name: str = PACK_NAME) -> bool:
     """File the World pack's row into ``scenery_packs.ini`` lines (edited in
-    place) as an ortho-group pack, through the app's own filing rule
-    (``O4_Scenery_Packs.insert_new_packs``).  ``False`` when a row for it
-    is already there (it is then enabled, never moved)."""
+    place) as the LAST row, below every overlay, ortho and mesh pack (owner
+    2026-11-12T14:44Z: the World row "is supposed to be at the bottom";
+    filed as an ortho-group pack it landed above simHeaven overlays that sat
+    below a mesh row).  A row already there is enabled and moved to the
+    bottom.  ``False`` when a row was already there."""
     import O4_Scenery_Packs as PACKS
-    for i, line in enumerate(lines):
-        if line.strip().rstrip("/").endswith("Custom Scenery/" + pack_name):
-            lines[i] = f"SCENERY_PACK Custom Scenery/{pack_name}/"
-            return False
+    had = [i for i, line in enumerate(lines)
+           if line.strip().rstrip("/").endswith("Custom Scenery/" + pack_name)]
+    for i in reversed(had):
+        del lines[i]
     PACKS.insert_new_packs(lines, [pack_name],
-                           lambda name: "ortho" if name == pack_name else None)
-    return True
+                           lambda name: "bottom" if name == pack_name else None)
+    return not had
 
 
 def ini_remove(lines: list, pack_name: str = PACK_NAME) -> int:

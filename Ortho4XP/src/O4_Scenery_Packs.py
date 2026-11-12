@@ -416,7 +416,9 @@ BACKUP_SUFFIX = ".o4bak"
 #: custom airports and everything below them; a mesh files BELOW every
 #: ortho, ours included, so it never hides our tiles.
 KIND_RANKS = {"airport": 0, "landmark": 2, "other": 2, "library": 4,
-              "ortho": 6, "mesh": 8}
+              "ortho": 6, "mesh": 8, "bottom": 10}
+#: ``bottom``: a pack that is always the ini's LAST row -- the World pack
+#: (owner 2026-11-12T14:44Z: "supposed to be at the bottom").
 _GLOBAL_AIRPORTS_RANK = 1
 
 

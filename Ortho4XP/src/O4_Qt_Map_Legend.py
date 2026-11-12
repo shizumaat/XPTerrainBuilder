@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import O4_Map_Key_Text as KEYTEXT
 import O4_Tile_Info as TINFO
+import O4_World_State_Text as WORLD_TEXT
 from PySide6.QtGui import QColor
 
 __all__ = ["WORLD_FULL", "WORLD_MESH", "WORLD_DRAPE", "WORLD_PLACEHOLDER",
            "WORLD_NOTHING", "WORLD_OTHER_TOOL", "BUILT", "OTHER", "STALE",
            "EXTERNAL", "CUSTOM_PATCH",
            "STALE_COLOR", "OTHER_ORTHO_COLOR", "CUSTOM_PATCH_COLOR",
-           "built_elsewhere", "legend_kinds", "stale_label"]
+           "built_elsewhere", "drawn_by_world", "legend_kinds", "stale_label"]
 
 WORLD_FULL, WORLD_MESH, WORLD_DRAPE = "full", "mesh", "drape"
 WORLD_PLACEHOLDER, WORLD_NOTHING = "placeholder", "nothing"
@@ -41,12 +42,20 @@ def built_elsewhere(info) -> bool:
     return getattr(info, "origin", "") == TINFO.ORIGIN_OTHER
 
 
+def drawn_by_world(info, world) -> bool:
+    """Is a scanned tile drawn by its World state alone (#2027): its folder
+    holds only records and the World pack holds its DSF
+    (``O4_World_State_Text.world_dsf``)?  Mac: ``MapKey.drawnByWorld``."""
+    return bool(WORLD_TEXT.world_dsf(info, world))
+
+
 def legend_kinds(built: dict, stale: dict, world: dict | None = None,
                  custom_patch: bool = False) -> list:
     """The kinds present on the map now, in the legend's order."""
     world = world or {}
     states = {row.state for row in world.values()}
-    infos = list(built.values())
+    infos = [info for key, info in built.items()
+             if not drawn_by_world(info, world.get(key))]
     present = {kind: state in states for kind, state in _WORLD_KINDS}
     present.update({
         WORLD_NOTHING: bool(world),

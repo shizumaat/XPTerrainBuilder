@@ -2367,7 +2367,11 @@ class EngineSession:
         Tiles/ whatever the working folder is: its BuildDone refreshes the
         map and the patch editor from there, owner 2026-11-12T22:19Z)."""
         import O4_Tile_Info as TINFO
-        info = TINFO.tile_info(lat, lon, working_dir)
+
+        from .world_built import tile_info
+        # a World pack tile with its records in the data folder's Tiles/
+        # (#2027: the same answer the scan and imagery_pin give)
+        info = tile_info(lat, lon, working_dir)
         built_into = self._tile_build_dirs.get((int(lat), int(lon)))
         if info is None and built_into and os.path.isdir(built_into):
             info = TINFO.tile_info(lat, lon, built_into, grouped=True)

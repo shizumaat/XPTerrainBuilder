@@ -23,7 +23,8 @@ __all__ = ["tile_menu"]
 def tile_menu(parent, lat: int, lon: int, build_dir: str,
               extra: _t.Sequence[tuple[str, _t.Callable[[], _t.Any]]] = (),
               export_package: _t.Callable[[], _t.Any] | None = None) -> QMenu:
-    """The menu for tile (lat, lon) whose folder is ``build_dir``; each
+    """The menu for tile (lat, lon) whose folder (or World pack DSF,
+    #2027) is ``build_dir``; each
     ``(title, run)`` of ``extra`` comes first, above a separator;
     ``export_package`` adds File ▸ Export Package… last (#2014)."""
     menu = QMenu(parent)
@@ -33,7 +34,7 @@ def tile_menu(parent, lat: int, lon: int, build_dir: str,
         menu.addSeparator()
     menu.setTitle(FNAMES.short_latlon(lat, lon))
     action = menu.addAction(REVEAL.menu_label())
-    exists = bool(build_dir) and os.path.isdir(build_dir)
+    exists = bool(build_dir) and os.path.exists(build_dir)
     action.setEnabled(exists)
     if not exists:
         action.setToolTip("This tile has no folder yet: build it first.")

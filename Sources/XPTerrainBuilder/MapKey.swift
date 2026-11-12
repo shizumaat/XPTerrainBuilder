@@ -40,12 +40,20 @@ struct MapKey: View {
         if states.contains(.placeholder) { present.insert("placeholder") }
         if !world.isEmpty { present.insert("nothing") }
         if world.values.contains(where: \.otherTool) { present.insert("other_tool") }
-        if built.values.contains(where: { !$0.builtElsewhere }) { present.insert("built") }
-        if built.values.contains(where: \.builtElsewhere) { present.insert("other") }
-        if !built.isEmpty, !stale.isEmpty { present.insert("stale") }
-        if built.values.contains(where: { $0.volume != nil }) { present.insert("external") }
+        let infos = built.filter { !drawnByWorld($0.value, world[$0.key]) }.values
+        if infos.contains(where: { !$0.builtElsewhere }) { present.insert("built") }
+        if infos.contains(where: \.builtElsewhere) { present.insert("other") }
+        if !infos.isEmpty, !stale.isEmpty { present.insert("stale") }
+        if infos.contains(where: { $0.volume != nil }) { present.insert("external") }
         if customPatch { present.insert("custom") }
         return MapKeyText.ordered(present)
+    }
+
+    /// Is a scanned tile drawn by its World state alone (#2027): its folder
+    /// holds only records and the World pack holds its DSF (Qt:
+    /// `O4_Qt_Map_Legend.drawn_by_world`)?
+    static func drawnByWorld(_ info: O4TileInfo, _ world: O4WorldTile?) -> Bool {
+        world?.revealDSF(info) != nil
     }
 
     /// The Fly view's items: every cell key, the preview's only while
@@ -59,12 +67,17 @@ struct MapKey: View {
     /// The item's one colour (nil: the empty swatch of an unmarked tile).
     static func color(_ item: String) -> Color? {
         switch item {
-        case "full", "built": return MapWorldStates.full
+        case "full": return MapWorldStates.full
+        case "built": return MapCanvasView.builtTile
         case "mesh": return MapWorldStates.mesh
         case "drape": return MapWorldStates.drape
         case "placeholder": return MapWorldStates.placeholder.opacity(MapWorldStates.placeholderOpacity)
-        case "other_tool", "other": return MapCanvasView.otherOrthoTile
-        case "meshing", "draping": return FlyMapOverlay.building
+        // another tool's mesh: a white swatch, its dots the item (the map
+        // draws the tile in its state's colour, dotted)
+        case "other_tool": return .white
+        case "other": return MapCanvasView.otherOrthoTile
+        case "meshing": return FlyMapOverlay.color("meshing")
+        case "draping": return FlyMapOverlay.color("draping")
         case "route": return FlyMapOverlay.color("own")
         case "stale": return MapCanvasView.staleTile
         case "external": return MapCanvasView.builtExternalTile

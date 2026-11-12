@@ -7,6 +7,7 @@ Library rows carry them; both apps say the same words and draw the same
 legend.  All on ``tmp_path``; nothing touches a real install."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
@@ -120,6 +121,10 @@ def world(tmp_path):
 def test_every_state_origin_and_source(world):
     scenery, index = world
     got = WS.read_world(scenery, index_path=index)
+    # each held tile names its DSF in the pack (#2027); a journal record none
+    assert got[(10, 12)].dsf == os.path.join(scenery, WP.PACK_NAME, WP.dsf_relpath(10, 12))
+    assert got[(10, 17)].dsf == ""
+    got = {key: dataclasses.replace(tile, dsf="") for key, tile in got.items()}
     assert got == {
         (10, 10): WS.WorldTile("full", "xptb", 1.0, "originals", ""),
         (10, 11): WS.WorldTile("full", "other", 1.0, "lean", "Archive"),
@@ -165,7 +170,8 @@ def test_the_scan_streams_world_rows(world, tmp_path, monkeypatch):
     session.scan(str(tiles), scenery)
     assert finished.wait(30)
     rows = [row for e in events if isinstance(e, ScanBatch) for row in e.world]
-    assert [10, 12, "mesh_lowres", "adopted", 0.5, "drive", "Archive"] in rows
+    assert [10, 12, "mesh_lowres", "adopted", 0.5, "drive", "Archive"] in [
+        row[:7] for row in rows]
     assert len(rows) == 9
     assert events[-1].world_count == 9
     assert session.scanned_world(str(tiles))[(10, 14)].state == "drape"
@@ -182,6 +188,7 @@ def test_library_rows_carry_the_world_state(world, tmp_path):
     known = WS.read_world(scenery, index_path=index)
     out = LIB.library_scan(str(tiles), scenery, caches=False, world=known)
     (row,) = out["tiles"]
+    assert row["world"].pop("dsf").endswith(WP.dsf_relpath(10, 12))
     assert row["world"] == {"state": "mesh_lowres", "origin": "adopted",
                             "sharp": 0.5, "source": "drive", "volume": "Archive"}
     assert TEXT.cell_text(row["world"]) == "Mesh, 50% sharp · adopted · on Archive"
@@ -242,3 +249,30 @@ def test_both_legends_and_libraries_carry_the_world():
         encoding="utf-8", newline="\n")
     for hexcode in (QTWORLD.MESH_COLOR, QTWORLD.DRAPE_COLOR):
         assert hexcode in mac
+
+
+def test_show_in_finder_reveals_the_world_dsf_of_a_records_only_tile(tmp_path):
+    """#2027: an adopted tile's folder in Tiles/ holds only records, so
+    "Show in Finder" reveals its DSF in the World pack (both apps:
+    ``world_dsf`` / ``O4WorldTile.revealDSF``), and the map draws its
+    World state alone (``drawn_by_world`` / ``MapKey.drawnByWorld``)."""
+    import types
+
+    import O4_Qt_Map_Legend as QTLEGEND
+    import O4_Qt_Map_World as QTWORLD
+    dsf = str(tmp_path / "a.dsf")
+    world = QTWORLD.from_wire([[51, 22, "full", "adopted", 1, "lean", "", dsf]])[(51, 22)]
+    assert world.dsf == dsf and world.wire((51, 22))[-1] == dsf
+    assert world.fields()["dsf"] == dsf
+    records = types.SimpleNamespace(dsf_present=False, origin="adopted")
+    own = types.SimpleNamespace(dsf_present=True, origin="xptb")
+    assert TEXT.world_dsf(records, world) == dsf
+    assert TEXT.world_dsf(None, world) == dsf
+    assert TEXT.world_dsf(own, world) == ""          # its own DSF: the folder
+    assert TEXT.world_dsf(records, None) == ""
+    assert QTWORLD.from_wire([[1, 2, "full", "", 1, "", ""]])[(1, 2)].dsf == ""
+    assert QTLEGEND.drawn_by_world(records, world)
+    assert QTLEGEND.legend_kinds({(51, 22): records}, {}, {(51, 22): world}) == [
+        QTLEGEND.WORLD_FULL, QTLEGEND.WORLD_NOTHING]
+    swift = SWIFT_TEXT.read_text(encoding="utf-8", newline="\n")
+    assert "func revealDSF(_ info: O4TileInfo?)" in swift and "entry[7]" in swift

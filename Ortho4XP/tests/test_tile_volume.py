@@ -151,12 +151,13 @@ def test_the_qt_map_draws_an_external_tile_brown(qapp, tmp_path, monkeypatch):
     view._update_timer.stop()
     try:
         colors = []
+        # the border is the shared band (O4_Qt_Tile_Band): its colour
+        monkeypatch.setattr(QTMAP.QTBAND, "paint_band",
+                            lambda _p, _r, _s, color, *a, **k: colors.append(
+                                color.name().upper()))
         for info in (_info(), _info(volume="Ext")):
             view.set_built({(10, 10): info})
-            painter = mock.MagicMock()
-            view._draw_tile_overlay(painter, (10, 10), 1.0)
-            pen = painter.setPen.call_args_list[0].args[0]
-            colors.append(pen.color().name().upper())
+            view._draw_tile_overlay(mock.MagicMock(), (10, 10), 1.0)
         assert colors == [QTMAP.BUILT_COLOR.upper(),
                           QTMAP.BUILT_EXTERNAL_COLOR.upper()]
     finally:

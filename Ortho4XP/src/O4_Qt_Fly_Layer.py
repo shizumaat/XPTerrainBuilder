@@ -24,21 +24,25 @@ from PySide6.QtGui import QColor, QPen, QPolygonF
 __all__ = ["FlyLayer", "LEGEND_COLORS", "LEGEND_DASHED", "BUILDING_COLOR",
            "AIRCRAFT_COLOR", "AIRCRAFT_FILL", "AIRCRAFT_OUTLINE"]
 
-#: A build under way (dashed: a drape; solid: a mesh): a colour no other
+#: A mesh being built: a colour no other
 #: key uses (orange is the custom-patch band, purple a changed airport
 #: pack, teal a World mesh).
 BUILDING_COLOR = QColor(94, 92, 230)                    # #5E5CE6
+#: A drape being draped: lavender, dashed (every key entry its own
+#: colour, #2027).
+DRAPING_COLOR = QColor(172, 142, 255)                   # #AC8EFF
 _PLACEHOLDER = QColor(QTWORLD.PLACEHOLDER_COLOR)
 _PLACEHOLDER.setAlphaF(QTWORLD.PLACEHOLDER_ALPHA)
 #: The ONE Fly-view key's colours (``O4_Fly_Text.LEGEND``; Mac:
 #: ``FlyMapOverlay.color``): the World pack's states in the Build map's
 #: colours (``O4_Qt_Map_World``), the builds under way in their own.
-LEGEND_COLORS = {"draping": BUILDING_COLOR, "meshing": BUILDING_COLOR,
+LEGEND_COLORS = {"draping": DRAPING_COLOR, "meshing": BUILDING_COLOR,
                  "draped": QColor(QTWORLD.DRAPE_COLOR),
                  "built": QColor(QTWORLD.FULL_COLOR),
                  "mesh": QColor(QTWORLD.MESH_COLOR),
                  "placeholder": _PLACEHOLDER,
-                 "own": QColor(140, 140, 140),
+                 # on the route, not built: the route line's magenta
+                 "own": QColor(ROUTE_COLOR),
                  "custom": QColor(255, 159, 10),
                  "sharp": QColor(255, 214, 10)}
 #: Keys drawn dashed (Mac: ``FlyMapOverlay.dash``), and their dash in points.

@@ -121,3 +121,30 @@ def test_the_zl_pill_moves_up_one_row_above_the_key(qapp, tmp_path, monkeypatch)
     assert lifts[0] == 0 and lifts[-1] > 0
     assert [t for _r, t in view._key_hits] == [KEYTEXT.FULL["draping"], KEYTEXT.FULL["full"]]
     view.deleteLater()
+
+
+def _swift_color_cases(path: Path, func: str) -> list:
+    text = path.read_text(encoding="utf-8", newline="\n")
+    body = text[text.index(func):]
+    body = body[:body.index("default:")]
+    return re.findall(r'case ([^:]+):', body)
+
+
+def test_every_item_has_its_own_colour(qapp):
+    """#2027: "Full" and "Built here" were both green -- every item of
+    the key has its own colour, in both apps and both views."""
+    import O4_Qt_Map as QTMAP
+    import O4_Qt_Map_Key as QTKEY
+    colors = {}
+    for item in KEYTEXT.SHORT:
+        color = QTKEY._item_color(item)
+        if color is not None:
+            colors.setdefault(color.rgba(), []).append(item)
+    assert [items for items in colors.values() if len(items) > 1] == []
+    assert len(colors) == len(KEYTEXT.SHORT) - 1          # "nothing": no swatch
+    assert QTKEY._item_color("built") == QTKEY.QColor(QTMAP.BUILT_COLOR)
+    app = REPO / "Sources" / "XPTerrainBuilder"
+    for path, func in ((app / "MapKey.swift", "static func color(_ item"),
+                       (app / "FlyMapOverlay.swift", "static func color(_ key")):
+        shared = [case for case in _swift_color_cases(path, func) if "," in case]
+        assert shared == [], (path.name, shared)

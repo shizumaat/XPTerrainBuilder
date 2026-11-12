@@ -20,7 +20,8 @@ __all__ = ["FULL_COLOR", "MESH_COLOR", "DRAPE_COLOR", "PLACEHOLDER_COLOR",
            "PLACEHOLDER_ALPHA", "OTHER_TOOL_DASH", "STATE_COLORS", "from_wire",
            "paint_world"]
 
-#: The built-tile green (O4_Qt_Map.BUILT_COLOR, MapCanvasView.builtTile).
+#: The World pack's "Full" green (MapWorldStates.full; the built-tile
+#: border is blue, O4_Qt_Map.BUILT_COLOR, #2027).
 FULL_COLOR = "#4CAF6E"
 MESH_COLOR = "#30B0C7"
 DRAPE_COLOR = "#FF6482"
@@ -40,7 +41,8 @@ def from_wire(rows) -> dict:
     for row in rows or ():
         if len(row) >= 7:
             out[(int(row[0]), int(row[1]))] = WS.WorldTile(
-                row[2], row[3], float(row[4] or 0), row[5], row[6])
+                row[2], row[3], float(row[4] or 0), row[5], row[6],
+                row[7] if len(row) > 7 else "")
     return out
 
 

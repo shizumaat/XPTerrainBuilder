@@ -17,11 +17,10 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication  # noqa: E402
-
 import O4_Fly_Text as TEXT  # noqa: E402
 import O4_Qt_Map as QTMAP  # noqa: E402
 import O4_Qt_Map_Controls as QTMAPCONTROLS  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 class _Clock:

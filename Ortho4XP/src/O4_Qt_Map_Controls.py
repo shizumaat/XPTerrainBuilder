@@ -14,11 +14,10 @@ from __future__ import annotations
 import math
 import time
 
+import O4_Fly_Text as TEXT
 from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap, QPolygonF
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QToolButton, QWidget
-
-import O4_Fly_Text as TEXT
 
 __all__ = ["MapControls", "ZOOM_STEP"]
 

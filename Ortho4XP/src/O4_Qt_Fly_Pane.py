@@ -39,7 +39,6 @@ import O4_Fly_Text as TEXT
 import O4_Glossary as GLOSSARY
 import O4_Imagery_OnDemand_Text as OTEXT
 import O4_Qt_Fly_Divert as DIVERT
-from O4_Qt_Fly_Layer import LEGEND_COLORS, LEGEND_DASHED
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -153,8 +152,6 @@ class FlyPane(QWidget):
         layout.addWidget(self.quick_route_row)
         self.flight_card = self._card()
         layout.addWidget(self.flight_card)
-        self.legend_label = _caption()
-        layout.addWidget(self.legend_label)
         self.message_label = _caption()
         self.message_label.setStyleSheet("color: #d97706;")
         self.message_label.setVisible(False)
@@ -359,18 +356,6 @@ class FlyPane(QWidget):
         if index >= 0:
             combo.setCurrentIndex(index)
 
-    def _legend_html(self) -> str:
-        """The map key (§14), each word after its color; the preview's
-        keys only while "Live flight preview" is checked."""
-        preview = self.chk_live_preview.isChecked()
-        return "<br>".join(
-            '<span style="color:%s">%s</span> <span style="color:gray">'
-            '%s</span>' % (LEGEND_COLORS[key].name(),
-                           "&#9476;" if key in LEGEND_DASHED else "&#9632;",
-                           words)
-            for key, words in TEXT.LEGEND
-            if preview or key not in TEXT.PREVIEW_KEYS)
-
     def _spin(self, words, lo, hi, value):
         row = QWidget()
         h = QHBoxLayout(row)
@@ -412,7 +397,6 @@ class FlyPane(QWidget):
         plan = self.plan
         self.placeholder.setVisible(plan is None and self.status is None)
         self.flight_card.setVisible(plan is not None)
-        self.legend_label.setText(self._legend_html())
         here = (self.world or {}).get("here") if plan is None else None
         self.here_label.setText("<br>".join(TEXT.here_lines(here)))
         self.here_block.setVisible(bool(here))

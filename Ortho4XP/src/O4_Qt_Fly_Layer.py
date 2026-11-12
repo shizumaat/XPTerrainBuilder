@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import O4_Flight_Plan as FP
 import O4_Fly_Layers as LAYERS
+import O4_Fly_Text as TEXT
+import O4_Map_Key_Text as KEYTEXT
 import O4_Qt_Map_World as QTWORLD
+import O4_Qt_Tile_Band as QTBAND
 from O4_Qt_Flight_Plan import ROUTE_COLOR
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPen, QPolygonF
@@ -38,8 +41,9 @@ LEGEND_COLORS = {"draping": BUILDING_COLOR, "meshing": BUILDING_COLOR,
                  "own": QColor(140, 140, 140),
                  "custom": QColor(255, 159, 10),
                  "sharp": QColor(255, 214, 10)}
-#: Keys drawn dashed (Mac: ``FlyMapOverlay.dash``).
+#: Keys drawn dashed (Mac: ``FlyMapOverlay.dash``), and their dash in points.
 LEGEND_DASHED = frozenset({"draping"})
+LEGEND_DASH = (6, 4)
 #: The track line's color; the aircraft itself is ``O4_Fly_Layers.
 #: AIRCRAFT_SYMBOL`` filled white with a dark outline (G1000 style).
 AIRCRAFT_COLOR = QColor(10, 132, 255)
@@ -57,6 +61,7 @@ class FlyLayer:
         self.preview = preview
         self.shown = False
         pane.changed.connect(self._repaint)
+        pane.chk_live_preview.toggled.connect(lambda _on: self._repaint())
         if preview is not None:
             pane.changed.connect(
                 lambda: preview.world_swapped((pane.world or {}).get("last_swap")))
@@ -66,10 +71,18 @@ class FlyLayer:
 
     def set_shown(self, shown: bool) -> None:
         self.shown = bool(shown)
-        # ONE key on the Fly view: the pane's (owner 2026-11-12T19:12Z)
-        self._map.tile_legend_shown = not self.shown
+        # ONE key on both views: the map's pill, with the Fly view's items
+        # while it shows (owner 2026-11-12T22:05Z).
+        self._map.fly_key = self.key_items if self.shown else None
         self._preview_on()
         self._repaint()
+
+    def key_items(self) -> list:
+        """The key's items on the Fly view (``O4_Map_Key_Text``): every
+        cell key, the preview's only while "Live flight preview" is on."""
+        preview = self._pane.chk_live_preview.isChecked()
+        return KEYTEXT.ordered(KEYTEXT.FLY_KEY_ITEMS[key] for key, _words in TEXT.LEGEND
+                               if preview or key not in TEXT.PREVIEW_KEYS)
 
     def _preview_on(self) -> None:
         if self.preview is None:
@@ -102,14 +115,15 @@ class FlyLayer:
             sharp.setCosmetic(True)
             self.preview.paint(painter, self._point, sharp)
         painter.setBrush(Qt.NoBrush)
+        # Each cell's colour is the shared band inside its edge
+        # (O4_Tile_Band; the Build map's World states draw the same).
         for lat, lon, key in self._pane.cells():
-            pen = QPen(LEGEND_COLORS[key], 2)
-            pen.setCosmetic(True)
-            if key in LEGEND_DASHED:
-                pen.setDashPattern([3, 2])
-            painter.setPen(pen)
             rect = QRectF(self._point(lat + 1, lon), self._point(lat, lon + 1))
-            painter.drawRect(rect.normalized().adjusted(2, 2, -2, -2))
+            if key == "placeholder":
+                QTBAND.paint_outline(painter, rect.normalized(), 1.0, LEGEND_COLORS[key])
+                continue
+            QTBAND.paint_band(painter, rect.normalized(), 1.0, LEGEND_COLORS[key],
+                              dash=LEGEND_DASH if key in LEGEND_DASHED else None)
         plan = self._pane.plan
         if plan and plan.get("waypoints"):
             points = [(w["lat"], w["lon"]) for w in plan["waypoints"]]

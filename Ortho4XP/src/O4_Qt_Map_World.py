@@ -1,7 +1,8 @@
 """The Build map's World states (Qt half; the Mac app's ``MapWorldStates``,
 same colours — #2024): what the World pack draws on each tile.
 
-Borders only, never a fill (#1256): a full tile is the built-tile green,
+Borders only, never a fill (#1256) -- each drawn as the shared fading
+band inside the tile's edge (``O4_Tile_Band``): a full tile is the built-tile green,
 a mesh whose imagery streams is teal with its sharp fraction as a bar
 along its bottom edge, a drape is pink, a placeholder a faint thin gray
 outline; a tile with nothing is left unmarked.  Another tool's mesh is
@@ -9,6 +10,7 @@ dotted.  Painted in scene space under the built-tile borders.
 """
 from __future__ import annotations
 
+import O4_Qt_Tile_Band as QTBAND
 import O4_Tile_Info as TINFO
 from o4_engine import world_state as WS
 from PySide6.QtCore import QRectF, Qt
@@ -25,7 +27,8 @@ DRAPE_COLOR = "#FF6482"
 PLACEHOLDER_COLOR = "#D9D9D9"
 #: The placeholder outline's opacity (MapWorldStates.placeholderOpacity).
 PLACEHOLDER_ALPHA = 0.30
-#: Another tool's mesh: the border's dash (MapWorldStates.otherToolDash).
+#: Another tool's mesh: the border's dash in points, dotted
+#: (MapWorldStates.otherToolDash).
 OTHER_TOOL_DASH = (2, 3)
 STATE_COLORS = {WS.FULL: FULL_COLOR, WS.MESH_LOWRES: MESH_COLOR,
                 WS.DRAPE: DRAPE_COLOR, WS.PLACEHOLDER: PLACEHOLDER_COLOR}
@@ -61,6 +64,7 @@ def paint_world(painter, world: dict, tiles, tile_rect, scale: float,
     painter.save()
     painter.setBrush(Qt.NoBrush)
     placeholder = _pen(PLACEHOLDER_COLOR, PLACEHOLDER_ALPHA, 1)
+    bands, bars = [], []
     for tile in tiles:
         row = world.get(tile)
         if row is None or skip(tile):
@@ -74,12 +78,13 @@ def paint_world(painter, world: dict, tiles, tile_rect, scale: float,
             inset = 1.0 / max(scale, 1e-12)
             painter.drawRect(r.adjusted(inset, inset, -inset, -inset))
             continue
-        painter.setPen(_pen(color, 0.85, 2,
-                            OTHER_TOOL_DASH if row.origin == TINFO.ORIGIN_OTHER else None))
-        painter.drawRect(r)
-        px = r.width() * scale
-        if row.state == WS.MESH_LOWRES and px > 24:
-            _sharp_bar(painter, r, scale, row.sharp)
+        bands.append((r, color, 1.0, OTHER_TOOL_DASH
+                      if row.origin == TINFO.ORIGIN_OTHER else None))
+        if row.state == WS.MESH_LOWRES and r.width() * scale > 24:
+            bars.append((r, row.sharp))
+    QTBAND.paint_bands(painter, bands, scale)
+    for r, sharp in bars:
+        _sharp_bar(painter, r, scale, sharp)
     painter.restore()
 
 

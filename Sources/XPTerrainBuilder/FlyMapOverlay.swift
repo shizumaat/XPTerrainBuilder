@@ -42,9 +42,10 @@ struct FlyMapOverlay: View {
         }
     }
 
-    /// A key's stroke: dashed for a drape being draped.
-    static func style(_ key: String) -> StrokeStyle {
-        StrokeStyle(lineWidth: 2, dash: FlyText.dashedKeys.contains(key) ? [3, 2] : [])
+    /// A key's dash in points: dashed for a drape being draped (Qt:
+    /// `LEGEND_DASH`).
+    static func dash(_ key: String) -> [CGFloat] {
+        FlyText.dashedKeys.contains(key) ? [6, 4] : []
     }
     /// The track line; the aircraft itself is `FlyLayers.aircraftSymbol`
     /// filled white with a dark outline (G1000 style; Qt: `AIRCRAFT_FILL`,
@@ -97,8 +98,14 @@ struct FlyMapOverlay: View {
             let b = cam.point(lon: Double(cell.lon + 1), lat: Double(cell.lat), in: size)
             let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
                               width: abs(b.x - a.x), height: abs(b.y - a.y))
-            context.stroke(Path(rect.insetBy(dx: 2, dy: 2)),
-                           with: .color(Self.color(cell.key)), style: Self.style(cell.key))
+            // Each cell's colour is the shared band inside its edge
+            // (TileBand; the Build map's World states draw the same).
+            if cell.key == "placeholder" {
+                TileBandDrawing.outline(in: context, rect: rect, color: Self.color(cell.key))
+            } else {
+                TileBandDrawing.draw(in: context, rect: rect, color: Self.color(cell.key),
+                                     dash: Self.dash(cell.key))
+            }
         }
         stroke(model.drawing, cam, size, &context, MapCanvasView.magenta, 2.5)
         stroke(model.track.parts, cam, size, &context, Self.aircraft, 2)

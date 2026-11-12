@@ -60,6 +60,8 @@ struct MapCanvasView: View {
     /// A tile whose airport pack changed since the build (#1958): purple,
     /// dashed, with "Stale: ICAO" bottom-right (Qt: STALE_COLOR).
     static let staleTile = Color(red: 0.75, green: 0.35, blue: 0.95) // #BF5AF2
+    /// The stale tile's dash, in points (Qt: O4_Qt_Map.STALE_DASH).
+    static let staleDash: [CGFloat] = [6, 4]
     static let badgeDone = Color(red: 0.18, green: 0.62, blue: 0.36)     // #2E9E5B
     static let badgeError = Color(red: 0.90, green: 0.22, blue: 0.17)    // #E5372B
     static let badgeStopped = Color(red: 0.95, green: 0.58, blue: 0.10)  // #F29419
@@ -130,11 +132,15 @@ struct MapCanvasView: View {
             }
             .overlay(alignment: .bottomLeading) { cursorReadout }
             .overlay(alignment: .bottomTrailing) {
+                // The one key at the bottom-right, the ZL pill one row
+                // above it (owner 2026-11-12T22:05Z; Qt: O4_Qt_Map_Key).
                 VStack(alignment: .trailing, spacing: 6) {
-                    if sceneryFilter != .othersOnly { MapTileLegend(buildModel: buildModel) }
                     ScanProgressChip()
                     zoomChip
+                    MapKey(buildModel: buildModel, showBuildKinds: sceneryFilter != .othersOnly,
+                           mapWidth: proxy.size.width)
                 }
+                .padding(8)
             }
             .onAppear {
                 // First layout: fit the world so the map fills the viewport
@@ -461,19 +467,21 @@ struct MapCanvasView: View {
             let r = rect(coord)
             // Brown when the folder lives on another drive (#1987), gray
             // when another tool built it, purple and dashed when its airport
-            // pack changed since the build (#1958, MapTileLegend). The
+            // pack changed since the build (#1958, MapKey). The
             // Build History date filter dims built tiles outside its
             // period (#1226).
             let stale = !info.builtElsewhere && buildModel.staleTiles[coord] != nil
             let base = info.builtElsewhere ? Self.otherOrthoTile
                 : stale ? Self.staleTile
                 : info.volume == nil ? Self.builtTile : Self.builtExternalTile
-            let color = buildModel.builtInHistoryRange(coord) ? base : base.opacity(0.3)
-            context.stroke(Path(r), with: .color(color.opacity(0.85)),
-                           style: StrokeStyle(lineWidth: 2, dash: stale ? [6, 4] : []))
+            let dim = buildModel.builtInHistoryRange(coord) ? 1.0 : 0.3
+            // The shared fading band inside the edge (TileBand).
+            TileBandDrawing.draw(in: context, rect: r, color: base, opacity: dim,
+                                 dash: stale ? Self.staleDash : [])
             if buildModel.installed.contains(coord) {
-                context.stroke(Path(r.insetBy(dx: r.width * 0.03, dy: r.height * 0.03)),
-                               with: .color(color.opacity(0.9)), lineWidth: 1.5)
+                let d = TileBand.innerInset(px: r.width)
+                context.stroke(Path(r.insetBy(dx: d, dy: d)),
+                               with: .color(base.opacity(0.9 * dim)), lineWidth: 1.5)
             }
             // Mixed imagery sources: warning triangle in the top-right
             // corner so affected tiles stand out at a glance (details +
@@ -688,7 +696,6 @@ struct MapCanvasView: View {
                 }
                 .padding(6)
                 .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
-                .padding(8)
                 .help("Scanning Custom Scenery — the map fills in as packages are found")
             }
         }
@@ -760,7 +767,6 @@ struct MapCanvasView: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
         .background(.ultraThinMaterial, in: Capsule())
-        .padding(8)
         .help(atLimit
               ? "The view is zoomed past the imagery source's finest zoom level — its finest tiles are scaled up (overzoom), so they look soft. Builds at higher ZLs would upscale the same data."
               : "The imagery zoom level matching the current view — compare with the Detail setting (ZL) in the Build pane.")

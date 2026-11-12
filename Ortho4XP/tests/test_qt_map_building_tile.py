@@ -59,9 +59,10 @@ def test_no_row_is_not_building(view):
 
 def _built_border_drawn(view):
     painter = mock.MagicMock()
-    with mock.patch.object(view, "_draw_progress_badge"):
+    with mock.patch.object(view, "_draw_progress_badge"), \
+            mock.patch.object(QTMAP.QTBAND, "paint_bands") as band:
         view._draw_tile_overlay(painter, TILE, 1.0)
-    return painter.drawRect.called
+    return band.called
 
 
 def test_a_building_tile_has_no_built_border(view):

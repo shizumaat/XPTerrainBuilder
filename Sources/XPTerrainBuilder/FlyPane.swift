@@ -48,7 +48,6 @@ private struct FlyPaneRows: View {
                     Button(FlyText.openPlan) { fly.openPlanFile() }
                     QuickRouteRow(model: fly)
                     FlightCard(model: fly)
-                    FlyLegend(model: fly)
                     Toggle(FlyText.buildAlternate, isOn: $fly.buildAlternate)
                         .disabled(fly.plan?.alternate == nil)
                     CruiseSpeedField(model: fly)
@@ -175,27 +174,6 @@ struct PhotoSourcePicker: View {
                                 .help(entry.tooltip)
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-/// The map key in Fly mode (§14's words), shown whatever the plan
-/// (#2020); the preview's keys only while "Live flight preview" is on.
-/// Qt: `FlyPane.legend_label`.
-struct FlyLegend: View {
-    @ObservedObject var model: FlyModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(FlyText.legend.filter { model.livePreview || !FlyText.previewKeys.contains($0.0) },
-                    id: \.0) { key, words in
-                HStack(spacing: 4) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .stroke(FlyMapOverlay.color(key), style: FlyMapOverlay.style(key))
-                        .frame(width: 12, height: 12)
-                    Text(words).scaledFont(.caption2).foregroundStyle(.secondary)
                 }
             }
         }

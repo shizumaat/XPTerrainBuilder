@@ -51,5 +51,6 @@
  "slots": 1,
  "frame_ms": 21.8,
  "governor": "ok",
- "bytes": 1234
+ "bytes": 1234,
+ "here": null
 }

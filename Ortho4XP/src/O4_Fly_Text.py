@@ -23,7 +23,8 @@ import O4_World_State_Text as WORLD_TEXT
 __all__ = [
     "PLAN_SOURCE_LABEL", "PLAN_CHOOSE", "PLAN_SIMBRIEF", "PLAN_NONE",
     "SIMBRIEF_PLACEHOLDER", "SIMBRIEF_BUTTON", "OPEN_PLAN", "QUICK_FROM",
-    "QUICK_TO", "QUICK_BUTTON", "NO_DESTINATION", "DEPARTURE_ONLY_CARD",
+    "QUICK_TO", "QUICK_BUTTON", "QUICK_MAP_HINT", "map_click_field",
+    "NO_DESTINATION", "DEPARTURE_ONLY_CARD",
     "DEPARTURE_ONLY_PREPARING", "DEPARTURE_ONLY_FLYING", "PREPARE",
     "BUILD_ALTERNATE", "CRUISE_LABEL",
     "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "SIM_PRIORITIES",
@@ -51,6 +52,10 @@ OPEN_PLAN = FP.OPEN_BUTTON
 QUICK_FROM = "From"
 QUICK_TO = "To (optional)"
 QUICK_BUTTON = "Use"
+#: The From/To fields' tooltip (#2026): a map click fills them.
+QUICK_MAP_HINT = ("Or click a square on the map: From takes its largest "
+                  "custom airport (else its largest airport); Cmd-click "
+                  "(Ctrl-click on Windows and Linux) a second square for To.")
 #: A departure-only plan (#2023: From with an empty To): the card's
 #: words, and the status line's while it prepares and once it may leave.
 NO_DESTINATION = "no destination"
@@ -153,6 +158,21 @@ def plan_row_label(row: Dict[str, Any]) -> str:
     if origin or destination:
         return "%s → %s (%s)" % (origin or "?", destination or "?", name)
     return name
+
+
+def map_click_field(command: bool, from_text: str, to_text: str
+                    ) -> Optional[str]:
+    """Which quick-entry field a click on a Fly-view map cell fills
+    (#2026): ``"from"`` for a plain click while From and To are empty,
+    ``"to"`` for a Cmd-click (Ctrl-click in Qt) once From is filled and To
+    is empty, else None (the click selects the cell as in Build)."""
+    has_from = bool((from_text or "").strip())
+    has_to = bool((to_text or "").strip())
+    if has_to:
+        return None
+    if command:
+        return "to" if has_from else None
+    return None if has_from else "from"
 
 
 def unknown_airport(ident: str) -> str:

@@ -168,6 +168,11 @@ def _text_cases():
                        for s in ("queued", "fetching", "building", "staged",
                                  "swapped", "late", "shed", "failed")],
         "unknown_airport": [[" zzzz ", TEXT.unknown_airport(" zzzz ")]],
+        "map_click_field": [[c, f, t, TEXT.map_click_field(c, f, t)]
+                            for c in (False, True)
+                            for f, t in (("", ""), (" ", ""), ("CYYR", ""),
+                                         ("CYYR", "CYYT"), ("", "CYYT"))],
+        "quick_map_hint": [[TEXT.QUICK_MAP_HINT]],
         "refusal": [[e, TEXT.refusal(e)] for e in (
             "", "unknown command: 'flight_create'", "No plan to build")],
         "divert_airports": AIRPORTS,

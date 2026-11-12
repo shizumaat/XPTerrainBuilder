@@ -32,6 +32,9 @@ final class FlyModel: ObservableObject {
     @Published private(set) var message: String?
     @Published var quickFrom = ""
     @Published var quickTo = ""
+    /// Airports a map click filled in, by code: Use finds a custom
+    /// airport X-Plane's list lacks here (#2026).
+    private var clicked: [String: (ident: String, lat: Double, lon: Double)] = [:]
     /// Off by default (RULINGS 2026-11-10g); per flight, never remembered.
     @Published var buildAlternate = false {
         didSet { if buildAlternate != oldValue { update(["build_alternate": buildAlternate]) } }
@@ -247,22 +250,46 @@ final class FlyModel: ObservableObject {
     /// {destination}`). Qt: `O4_Qt_Fly_Pane.use_quick_entry`.
     func useQuickEntry() {
         guard let build else { return }
-        func find(_ code: String) -> GlobalAirport? {
+        func find(_ code: String) -> (ident: String, lat: Double, lon: Double)? {
             let ident = code.trimmingCharacters(in: .whitespaces).uppercased()
+            if let hit = clicked[ident] { return hit }
             return build.globalAirports.first { $0.icao.uppercased() == ident }
+                .map { ($0.icao, $0.latitude, $0.longitude) }
         }
         guard let dep = find(quickFrom) else { message = FlyText.unknownAirport(quickFrom); return }
         var arrival: (ident: String, lat: Double, lon: Double)?
         if !quickTo.trimmingCharacters(in: .whitespaces).isEmpty {
             guard let arr = find(quickTo) else { message = FlyText.unknownAirport(quickTo); return }
-            arrival = (arr.icao, arr.latitude, arr.longitude)
+            arrival = arr
         }
         message = nil
-        let made = O4FlightPlanRead.quick(from: (dep.icao, dep.latitude, dep.longitude), to: arrival)
+        let made = O4FlightPlanRead.quick(from: dep, to: arrival)
         if let added = FlyText.addedDestination(status, made) {
             update(["destination": ["ident": added.ident, "lat": added.lat, "lon": added.lon]])
         }
         plan = made
+    }
+
+    /// A click on map cell (lat, lon) in the Fly view (#2026): with From
+    /// and To empty, From takes the cell's largest custom airport (else
+    /// its largest airport); a ⌘-click once From is filled takes To. True
+    /// when it filled a field (the click is then not a cell selection).
+    /// `custom` are the enabled packs' airport marks. Qt:
+    /// `O4_Qt_Fly_Pane.FlyPane.map_click`.
+    func mapClick(lat: Int, lon: Int, command: Bool,
+                  custom: [(code: String, latitude: Double, longitude: Double)]) -> Bool {
+        guard let build,
+              let field = FlyText.mapClickField(command: command, from: quickFrom, to: quickTo),
+              let pick = AirportRank.cellAirport(AirportTile(lat: lat, lon: lon),
+                                                 index: build.globalAirports, custom: custom)
+        else { return false }
+        clicked[pick.code.uppercased()] = (pick.code, pick.latitude, pick.longitude)
+        switch field {
+        case .from: quickFrom = pick.code
+        case .to: quickTo = pick.code
+        }
+        message = nil
+        return true
     }
 
     // MARK: - The flight manager (lane F1b's commands)

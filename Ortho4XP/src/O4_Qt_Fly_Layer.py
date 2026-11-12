@@ -5,8 +5,8 @@ The Mac app's ``FlyMapOverlay.swift`` is the same.  Under them, while
 "Live flight preview" is checked, each visible square's installed imagery
 (``O4_Qt_Live_Preview``, #2001): asked again when the map moves.
 
-A map layer (``MapView.add_layer``): paints in viewport space and never
-takes the mouse.
+A map layer (``MapView.add_layer``): paints in viewport space; it takes
+a click only when the pane fills From or To from it (#2026).
 """
 
 from __future__ import annotations
@@ -159,8 +159,16 @@ class FlyLayer:
     def mouse_move(self, _event) -> bool:
         return False
 
-    def mouse_release(self, _event) -> bool:
-        return False
+    def mouse_release(self, event) -> bool:
+        """A click on a cell in the Fly view fills From / To (#2026);
+        anything else falls through to the map."""
+        if not self.shown:
+            return False
+        cell = self._map.clicked_cell(event)
+        if cell is None:
+            return False
+        command = bool(event.modifiers() & Qt.ControlModifier)  # Cmd on macOS
+        return self._pane.map_click(cell[0], cell[1], command)
 
     def pointer_at(self, _pos) -> str | None:
         return None

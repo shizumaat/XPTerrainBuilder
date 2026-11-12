@@ -21,7 +21,7 @@ pytest.importorskip("PySide6")
 import O4_Fly_Text as TEXT  # noqa: E402
 import O4_Qt_Fly_Layer as QTFLYLAYER  # noqa: E402
 import O4_Qt_Fly_Pane as QTFLY  # noqa: E402
-from PySide6.QtCore import QPointF  # noqa: E402
+from PySide6.QtCore import QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QImage, QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
 
@@ -166,6 +166,10 @@ def test_preferences_are_remembered(qapp):
 class _Map:
     def __init__(self):
         self.updates = 0
+        self.cell = None
+
+    def clicked_cell(self, _event):
+        return self.cell
 
     def viewport(self):
         return NS(update=self._update)
@@ -175,6 +179,46 @@ class _Map:
 
     def _viewport_point(self, lat, lon):
         return QPointF((lon + 70.0) * 20.0, (60.0 - lat) * 20.0)
+
+
+def test_a_fly_view_click_fills_from_then_a_command_click_fills_to(qapp):
+    """#2026: a click on a cell with From/To empty fills From with the
+    cell's largest custom airport (else its largest); a Cmd/Ctrl-click on
+    a second cell fills To; Use finds a custom airport the index lacks."""
+    index = [NS(code="BIGA", lat=53.3, lon=-60.4, extent=None, size_class=0,
+                runway_m=3500),
+             NS(code="SMLB", lat=53.6, lon=-60.6, extent=None, size_class=3,
+                runway_m=900),
+             NS(code="ARRV", lat=47.6, lon=-52.7, extent=None, size_class=1,
+                runway_m=2500)]
+    custom = [("SMLB", 53.6, -60.6), ("XCUS", 47.2, -52.2)]
+    pane = QTFLY.FlyPane(QLabel("follow"), run=_Engine({}),
+                         airports=lambda: index, prefs={},
+                         custom_airports=lambda: custom)
+    view = _Map()
+    layer = QTFLYLAYER.FlyLayer(view, pane)
+    plain = NS(modifiers=lambda: Qt.NoModifier)
+    command = NS(modifiers=lambda: Qt.ControlModifier)
+    view.cell = (53, -61)
+    assert not layer.mouse_release(plain)            # not in Fly
+    layer.set_shown(True)
+    assert not layer.mouse_release(command)          # From empty: no To
+    assert layer.mouse_release(plain)
+    assert pane.quick_from.text() == "SMLB"          # custom beats larger
+    assert not layer.mouse_release(plain)            # From filled
+    view.cell = (47, -53)
+    assert layer.mouse_release(command)
+    assert pane.quick_to.text() == "XCUS"            # custom-only airport
+    pane.use_quick_entry()
+    assert pane.plan == TEXT.quick_plan(("SMLB", 53.6, -60.6),
+                                        ("XCUS", 47.2, -52.2))
+    assert not layer.mouse_release(command)          # To filled
+    pane.quick_from.setText("")
+    pane.quick_to.setText("")
+    view.cell = (10, 10)
+    assert not layer.mouse_release(plain)            # no airport there
+    view.cell = None
+    assert not layer.mouse_release(plain)            # a drag, not a click
 
 
 def test_the_layer_draws_in_fly_only(qapp):

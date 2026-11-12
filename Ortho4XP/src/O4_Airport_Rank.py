@@ -12,6 +12,9 @@ One rule, read by both front ends (issues #815 and #817):
 * :func:`largest_by_tile` and :func:`title_codes` give a build-progress
   row its title codes: the tile's four largest airports, the searched
   one first when it is not among them.
+* :func:`cell_airport` names the airport a click on a map cell picks in
+  the Fly view (#2026): the cell's largest custom airport, else its
+  largest airport.
 
 The macOS app's half of the last two is
 ``Sources/SceneryKit/AirportRank.swift``; both read the vectors in
@@ -36,6 +39,7 @@ __all__ = [
     "rank_key",
     "largest_by_tile",
     "title_codes",
+    "cell_airport",
 ]
 
 # Class -> what it holds.  Lower is larger.
@@ -145,3 +149,47 @@ def title_codes(largest: Sequence[str], searched: Optional[Sequence[str]] = (),
         if code not in codes:
             codes.append(code)
     return codes[:max(0, limit)]
+
+
+def cell_airport(tile: Tuple[int, int], entries: Iterable,
+                 custom: Iterable[Sequence] = ()
+                 ) -> Optional[Tuple[str, float, float]]:
+    """The airport a click on map cell ``tile`` ``(lat, lon)`` names in the
+    Fly view (#2026), as ``(code, lat, lon)``, or None for a cell with no
+    airport.
+
+    ``custom`` are the enabled custom packs' airports as ``(code, lat,
+    lon)``; the largest of them in the cell wins, sized from ``entries``
+    (the index, :class:`O4_Airport_Index.AirportEntry` rows) by code -- a
+    code the index lacks reads as :data:`UNKNOWN_SIZE_CLASS`.  With none,
+    the cell's largest index airport.  Membership is
+    :func:`O4_Airport_Batch.airport_tiles` (an index airport by its
+    extent, a custom one by its point when the index lacks it).
+    """
+    tile = (int(tile[0]), int(tile[1]))
+    entries = list(entries)
+    by_code = {}
+    for entry in entries:
+        by_code.setdefault(str(entry.code).upper(), entry)
+
+    def best(rows):
+        ranked = sorted(rows)
+        return ranked[0][1] if ranked else None
+
+    picks = []
+    for code, lat, lon in custom:
+        entry = by_code.get(str(code).upper())
+        extent = entry.extent if entry is not None else None
+        if tile not in APTBATCH.airport_tiles(lat, lon, extent):
+            continue
+        cls = entry.size_class if entry is not None else UNKNOWN_SIZE_CLASS
+        runway = entry.runway_m if entry is not None else 0
+        picks.append((rank_key(code, cls, runway),
+                      (str(code), float(lat), float(lon))))
+    found = best(picks)
+    if found is not None:
+        return found
+    return best((rank_key(e.code, e.size_class, e.runway_m),
+                 (str(e.code), float(e.lat), float(e.lon)))
+                for e in entries
+                if tile in APTBATCH.airport_tiles(e.lat, e.lon, e.extent))

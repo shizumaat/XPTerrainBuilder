@@ -2183,6 +2183,73 @@
     "No airport ZZZZ in X-Plane's list."
    ]
   ],
+  "map_click_field": [
+   [
+    false,
+    "",
+    "",
+    "from"
+   ],
+   [
+    false,
+    " ",
+    "",
+    "from"
+   ],
+   [
+    false,
+    "CYYR",
+    "",
+    null
+   ],
+   [
+    false,
+    "CYYR",
+    "CYYT",
+    null
+   ],
+   [
+    false,
+    "",
+    "CYYT",
+    null
+   ],
+   [
+    true,
+    "",
+    "",
+    null
+   ],
+   [
+    true,
+    " ",
+    "",
+    null
+   ],
+   [
+    true,
+    "CYYR",
+    "",
+    "to"
+   ],
+   [
+    true,
+    "CYYR",
+    "CYYT",
+    null
+   ],
+   [
+    true,
+    "",
+    "CYYT",
+    null
+   ]
+  ],
+  "quick_map_hint": [
+   [
+    "Or click a square on the map: From takes its largest custom airport (else its largest airport); Cmd-click (Ctrl-click on Windows and Linux) a second square for To."
+   ]
+  ],
   "refusal": [
    [
     "",

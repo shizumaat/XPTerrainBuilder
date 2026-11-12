@@ -640,6 +640,10 @@ class MapView(QGraphicsView):
         return [(row[0], row[1], row[2])
                 for row in list(self._default_airports) + list(self._custom_airports)]
 
+    def custom_airport_marks(self):
+        """The enabled custom packs' airport marks as ``(code, lat, lon)``."""
+        return [(row[0], row[1], row[2]) for row in self._custom_airports]
+
     def add_layer(self, layer):
         """Draw ``layer`` over the map and offer it the mouse first."""
         self._layers.append(layer)
@@ -929,6 +933,18 @@ class MapView(QGraphicsView):
             self._handle_click(event)
         self._press_pos = None
         super().mouseReleaseEvent(event)
+
+    def clicked_cell(self, event):
+        """The ``(lat, lon)`` cell a left-button release clicks (no drag,
+        map not locked), or None -- for layers that take a click (#2026)."""
+        if (event.button() != Qt.LeftButton or self._press_pos is None
+                or self._locked
+                or (event.position() - self._press_pos).manhattanLength()
+                >= MAP_CLICK_SLOP_PX):
+            return None
+        scene_pos = self.mapToScene(event.position().toPoint())
+        lat, lon = GEO.pix_to_wgs84(scene_pos.x(), scene_pos.y(), SCENE_ZL)
+        return (math.floor(lat), math.floor(lon))
 
     def _handle_click(self, event):
         scene_pos = self.mapToScene(event.position().toPoint())

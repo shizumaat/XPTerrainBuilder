@@ -234,6 +234,7 @@ CAPABILITIES: tuple = (
     "world_onboard",                # 2026-11-11, #2007 world_onboard (World pack at the start)
     "tile_package",                 # 2026-11-11, #2014 package_save/plan/install/merge (.xptb)
     "pack_packages",                # 2026-11-11, RULINGS 11m PackPackage + package_developer
+    "world_rechoose",               # 2026-11-11, kept tiles made dynamic (+ WorldReady)
 )
 
 

@@ -27,6 +27,9 @@ final class WorldMigrateRun: ObservableObject {
     @Published private(set) var cancelling = false
 
     var isRunning: Bool { running != nil }
+    /// Called after each step's result (the map rescans Custom Scenery,
+    /// which it skipped while the step ran).
+    var onFinish: (@MainActor () -> Void)?
     /// Cancel stops the measure and the move (Undo runs to its end).
     var canCancel: Bool { running == .measure || running == .convert }
     /// The bar's fraction; nil while the total is not known yet.
@@ -66,6 +69,7 @@ final class WorldMigrateRun: ObservableObject {
         progress = nil
         cancelling = false
         hasResult = true
+        onFinish?()
     }
 
     func markCancelling() { cancelling = true }

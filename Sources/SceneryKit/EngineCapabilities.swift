@@ -47,6 +47,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// RULINGS 2026-11-11m: `PackPackage` (a pack's shipped `.xptb` applied
     /// on build) and `package_developer` (the pack author's objects choice).
     public static let packPackages = "pack_packages"
+    /// `world_rechoose`: kept tiles of Convert existing tiles made dynamic
+    /// (completes through `WorldReady`); flag only.
+    public static let worldRechoose = "world_rechoose"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

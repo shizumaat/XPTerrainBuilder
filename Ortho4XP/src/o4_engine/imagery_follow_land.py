@@ -15,8 +15,9 @@ row (``O4_Imagery_OnDemand_Index``) and a tier (1, 2, 3 =
 * else fetches the square ``drop`` zoom levels below the texture's own
   (``O4_Imagery_Utils.build_jpeg_ortho(drop=...)``: the build's own
   fetcher, AIMD window, ``Retry-After``, per-host budget, the per-file
-  download lock) and converts it with the tile's frozen colour field and
-  masks (``convert_texture(drop=...)``), which lands a WHOLE DDS under the
+  download lock) and converts it with the tile's frozen colour field
+  (loaded with the tile object, :func:`_frozen_colour_field`) and masks
+  (``convert_texture(drop=...)``), which lands a WHOLE DDS under the
   texture's name (``O4_DDS_File.land``: partial name, ``os.replace``;
   rules R1-R3).  A full tier goes into ``DDS_cache``; 1024/2048 tiers go
   nowhere else.
@@ -78,6 +79,7 @@ class TierLander:
                 tile = CFG.Tile(lat, lon, "")
                 tile.build_dir = key
                 tile.read_from_config()
+                _frozen_colour_field(tile)
                 self._tiles[key] = tile
             return tile
 
@@ -127,6 +129,20 @@ class TierLander:
         IMG.convert_texture(tile, *attrs, drop=drop)
         _mirror(os.path.join(row["build_dir"], "textures", row["name"]), final)
         return _facts(final, width, jpeg, None, not cached)
+
+
+def _frozen_colour_field(tile) -> None:
+    """The colour field the tile's build froze (``color_field.json``,
+    ``O4_Imagery_Utils.read_color_field``) on the tile object, so a tier
+    fetched from the provider is shifted as the build's textures were;
+    none when the tile does not harmonize or kept no field."""
+    if not getattr(tile, "color_harmonization", False):
+        return
+    import O4_Imagery_Utils as IMG
+    fields, land, _record = IMG.read_color_field(tile)
+    if fields:
+        tile.color_harmonization_fields = fields
+        tile.color_harmonization_land = land
 
 
 def _mirror(built: str, final: str) -> None:

@@ -21,6 +21,14 @@ struct XPTerrainBuilderApp: App {
         controller.tidySceneryPacks = { [weak buildModel] dir, kinds in
             await buildModel?.tidySceneryPacks(customSceneryDir: dir, kinds: kinds)
         }
+        // Convert existing tiles owns scenery_packs.ini while it runs; its
+        // end rescans Custom Scenery so the ini is reconciled once, after.
+        controller.worldMigrateRunning = { [weak buildModel] in
+            buildModel?.worldMigrate.isRunning ?? false
+        }
+        buildModel.worldMigrate.onFinish = { [weak controller] in
+            controller?.refreshInstallation()
+        }
         _controller = StateObject(wrappedValue: controller)
         _buildModel = StateObject(wrappedValue: buildModel)
     }

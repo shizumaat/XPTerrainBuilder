@@ -447,13 +447,23 @@ def write_ini_lines(ini_path: str, lines: list, newline: str) -> None:
     os.replace(temporary, ini_path)
 
 
-def set_rows_enabled(lines: list, names, enabled: bool) -> list:
+def set_rows_enabled(lines: list, names, enabled: bool,
+                     insert_kind: "str | None" = None) -> list:
     """Mark the rows of the packs ``names`` ``SCENERY_PACK`` (``enabled``)
     or ``SCENERY_PACK_DISABLED`` in ``lines`` (edited in place; a row keeps
-    its place and path).  Returns the names whose row changed; a pack with
-    no row is left alone (the World migration retires a tile's row this
-    way, World spec §13 M1, and its revert enables it again)."""
+    its place and path).  Returns the names whose row changed.  A pack with
+    no row is left alone -- unless ``insert_kind`` is given: then its row
+    is filed first (:func:`insert_new_packs`, as a pack of that kind) and
+    counts as changed.  The World migration retires a tile's row this way
+    (World spec §13 M1) and its revert enables it again; it files a row
+    another program dropped, because a row is disabled, never removed
+    (the 2026-11-11 Convert incident: 1,997 rows dropped mid-run)."""
     wanted = set(names)
+    added = []
+    if insert_kind is not None:
+        listed = {_row_pack(line)[1] for line in lines}
+        added = insert_new_packs(lines, sorted(wanted - listed),
+                                 lambda _name: insert_kind)
     token = _ENABLED_TOKEN if enabled else _DISABLED_TOKEN
     changed = []
     for index, line in enumerate(lines):
@@ -465,7 +475,7 @@ def set_rows_enabled(lines: list, names, enabled: bool) -> list:
         if line.strip() != new:
             lines[index] = new
             changed.append(name)
-    return changed
+    return changed + [name for name in added if name not in changed]
 
 
 def _row_pack(line: str):

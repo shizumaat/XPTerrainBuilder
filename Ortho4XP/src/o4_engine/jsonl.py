@@ -158,7 +158,7 @@ def _ortho4xp_version() -> str:
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "plan_estimate",
                                "build_airports", "imagery_freshness",
                                "world_regions_set", "flight_plan_simbrief",
-                               "world_migrate",
+                               "world_migrate", "world_rechoose",
                                *_LIBRARY.COMMANDS})
 
 
@@ -203,6 +203,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .relief_commands import terrain_relief
     from .terrain_commands import terrain_sample
     from .world_migrate import start_world_migrate
+    from .world_rechoose import start_world_rechoose
     return {
         "scan": session.scan,
         "build": session.build,
@@ -409,6 +410,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # into the World pack -- dry run, run, revert or stop; completes
         # through WorldReady carrying this command's id.
         "world_migrate": lambda **kw: start_world_migrate(session._emit, **kw),
+        # Kept tiles made dynamic after a Convert (capability
+        # world_rechoose): a dry run unless dry_run is false; completes
+        # through WorldReady carrying this command's id.
+        "world_rechoose": lambda **kw: start_world_rechoose(session._emit, **kw),
         # Flight manager (spec flight-manager-and-world-20261110 §5.2):
         # flight_plans_list (X-Plane's Output/FMS plans, newest first) and
         # flight_plan_read, synchronous file reads.

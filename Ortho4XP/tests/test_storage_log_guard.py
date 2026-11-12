@@ -14,7 +14,7 @@ def test_storage_log_dir_resolves_inside_pytest_tmp(tmp_path_factory):
 def test_a_logged_deletion_lands_in_scratch_not_the_data_root(
         tmp_path_factory):
     base = os.path.realpath(str(tmp_path_factory.getbasetemp()))
-    real_log = os.path.join(FNAMES.data_path("logs"), ST.LOG_NAME)
+    real_log = os.path.join(FNAMES.current_data_root(), "logs", ST.LOG_NAME)
     before = os.path.getsize(real_log) if os.path.exists(real_log) else None
     sweep = ST._Sweep.__new__(ST._Sweep)
     sweep._log = None

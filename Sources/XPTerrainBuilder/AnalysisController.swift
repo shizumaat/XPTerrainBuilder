@@ -73,6 +73,11 @@ final class AnalysisController: ObservableObject {
     /// scan's last step files new packs into scenery_packs.ini by kind.
     var tidySceneryPacks: (@Sendable (String, [String: PackKind]) async
         -> Result<O4SceneryPacksTidy, O4CommandError>?)?
+    /// Is Convert existing tiles running (`BuildModel.worldMigrate`), set at
+    /// launch? While it runs the scan leaves scenery_packs.ini alone: the
+    /// engine rewrites rows one tile at a time, and a reconcile in between
+    /// would race it (the 2026-11-11 incident). Its end rescans.
+    var worldMigrateRunning: (@MainActor () -> Bool)?
 
     var rootURL: URL? {
         guard !xplanePath.isEmpty else { return nil }
@@ -104,6 +109,7 @@ final class AnalysisController: ObservableObject {
         let globals = globalAirports
         let generation = globalAirportsGeneration
         let tidy = tidySceneryPacks
+        let migrating = worldMigrateRunning?() ?? false
         Task { [weak self] in
             let (installation, overlays, reconciliation) = await Task.detached(priority: .userInitiated) {
                 // Persisted scenery index: after the first launch, unchanged
@@ -159,17 +165,20 @@ final class AnalysisController: ObservableObject {
                 // disk (X-Plane only does this at its own next launch). If
                 // the ini changed, statuses/ranks the scan derived from the
                 // OLD ini are stale — re-derive them cheaply.
-                var reconciliation = PackActionService(root: root).reconcile(
-                    installedPacks: installation.packs, previousPacks: previousPacks)
-                // Then the packs the ini does not list yet, filed by kind
-                // (meshes below every ortho) by the engine.
-                let kinds = Dictionary(
-                    installation.packs.filter { $0.isInstalled }.map { ($0.name, $0.kind) },
-                    uniquingKeysWith: { first, _ in first })
-                switch await tidy?(root.appendingPathComponent("Custom Scenery").path, kinds) {
-                case .success(let filed)?: reconciliation.added = filed.added
-                case .failure(let error)?: reconciliation.writeError = error.message
-                case nil: break
+                var reconciliation = PackActionService.IniReconciliation()
+                if !migrating {
+                    reconciliation = PackActionService(root: root).reconcile(
+                        installedPacks: installation.packs, previousPacks: previousPacks)
+                    // Then the packs the ini does not list yet, filed by kind
+                    // (meshes below every ortho) by the engine.
+                    let kinds = Dictionary(
+                        installation.packs.filter { $0.isInstalled }.map { ($0.name, $0.kind) },
+                        uniquingKeysWith: { first, _ in first })
+                    switch await tidy?(root.appendingPathComponent("Custom Scenery").path, kinds) {
+                    case .success(let filed)?: reconciliation.added = filed.added
+                    case .failure(let error)?: reconciliation.writeError = error.message
+                    case nil: break
+                    }
                 }
                 if reconciliation.changed {
                     let service = PackActionService(root: root)

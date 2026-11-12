@@ -26,7 +26,8 @@ __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "CLEAR_ALL_TITLE", "CLEAR_ALL_TEXT", "FOLDER_TITLE",
            "ONDEMAND_FLOOR_WARNING", "INSTALLED_TITLE", "INSTALLED_LOCAL",
            "INSTALLED_LINKED", "INSTALLED_UNMOUNTED", "INSTALLED_NONE",
-           "INSTALLED_HELP", "WORLD_FOREIGN", "size_text", "budget_lines", "installed_lines",
+           "INSTALLED_HELP", "WORLD_FOREIGN", "WORLD_PACK_MISSING",
+           "size_text", "budget_lines", "installed_lines",
            "ondemand_warning", "cleanup_warning", "default_line",
            "held_line", "needs_downgrade", "downgrade_text",
            "clear_all_text"]
@@ -153,6 +154,12 @@ def clear_all_text(cache_bytes) -> str:
 WORLD_FOREIGN = ("Your World folder is a link to {target}, not a folder "
                  "XPTerrainBuilder made. Remove the link or restore it before "
                  "converting tiles.")
+#: Converted tiles the World pack lacks (``world_migrate.missing_from_pack``):
+#: the result of a run and the World pack's status say so, Undo is the way back.
+WORLD_PACK_MISSING = ("{count} tiles that Convert existing tiles moved are "
+                      "missing from the World pack (was its folder moved or "
+                      "deleted?). Undo… in Convert existing tiles puts them "
+                      "back in their own packs.")
 
 
 def installed_lines(installed: Mapping) -> List[str]:

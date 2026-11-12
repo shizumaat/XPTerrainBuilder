@@ -387,3 +387,41 @@ def test_exchange_is_atomic_and_probed(tmp_path):
     assert (tmp_path / "link" / "f").read_text(encoding="utf-8") == "x"
     with pytest.raises(FileNotFoundError):
         EXCHANGE.exchange(str(tmp_path / "nope"), str(tmp_path / "d"))
+
+
+def test_the_copy_carries_the_masks_and_the_colour_field(world, tmp_path):
+    """(2026-11-11) A full tier landed from the provider while the source
+    drive is gone reads the tile's mask PNGs and frozen colour field from
+    the lean copy (``imagery_follow_land``): both are copied, and an older
+    copy is brought up to date by ``backfill`` while the source is there."""
+    mask = os.path.join(world.old, "textures", "1000_2000_ZL16.png")
+    _write(mask, b"MASK")
+    field = os.path.join(world.old, FNAMES.COLOR_FIELD_FILE)
+    _write(field, json.dumps({"grids": [], "textures": {}}))
+    plan = CONVERT.plan_tile(world.old, PX)
+    assert "textures/1000_2000_ZL16.png" in {r for (r, _s) in plan.copies}
+    assert [rel for (rel, _s, _src) in plan.extras] == [FNAMES.COLOR_FIELD_FILE]
+    staged = str(tmp_path / "copy")
+    assert not CONVERT.convert_tile(plan, staged, "+45+007")["problems"]
+    for rel in ("textures/1000_2000_ZL16.png", FNAMES.COLOR_FIELD_FILE):
+        assert os.path.isfile(os.path.join(staged, rel)), rel
+    os.remove(os.path.join(staged, "textures", "1000_2000_ZL16.png"))
+    os.remove(os.path.join(staged, FNAMES.COLOR_FIELD_FILE))
+    assert CONVERT.backfill(staged) == 2
+    assert CONVERT.backfill(staged) == 0
+    assert FNAMES.rebuild_path(staged, 45, 7, FNAMES.COLOR_FIELD_FILE) == \
+        os.path.join(staged, FNAMES.COLOR_FIELD_FILE)
+    assert CONVERT.backfill(str(tmp_path / "not-a-copy")) == 0
+
+
+def test_the_lander_tile_carries_its_frozen_colour_field(monkeypatch):
+    import O4_Imagery_Utils as IMG
+    monkeypatch.setattr(IMG, "read_color_field",
+                        lambda tile: ({(16, "BI"): "field"}, {"k": 1.0}, {}))
+    tile = SimpleNamespace(color_harmonization=True)
+    LAND._frozen_colour_field(tile)
+    assert tile.color_harmonization_fields == {(16, "BI"): "field"}
+    assert tile.color_harmonization_land == {"k": 1.0}
+    off = SimpleNamespace(color_harmonization=False)
+    LAND._frozen_colour_field(off)
+    assert not hasattr(off, "color_harmonization_fields")

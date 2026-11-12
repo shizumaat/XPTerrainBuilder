@@ -263,8 +263,13 @@ def _status_fields(scenery_dir: str) -> dict:
         loaded = tuple(sorted(WP.tile_name(*k) for k, rec in loads.items()
                               if rec.tris > 0))
     foreign = _foreign_target(scenery_dir)
+    missing = _converted_missing(scenery_dir, kinds) if not foreign else 0
     if foreign:
         state, reason = "off", _foreign_sentence(foreign)
+    elif missing:
+        from .world_migrate import pack_missing_sentence
+        state = "idle" if installed else "off"
+        reason = pack_missing_sentence(missing)
     elif not installed:
         state, reason = "off", "The World pack is not installed."
     elif seen is False:
@@ -274,6 +279,20 @@ def _status_fields(scenery_dir: str) -> dict:
     return {"state": state, "reason": reason, "installed": installed,
             "seen_by_xplane": seen, "restart_needed": seen is False,
             "tiles": counts, "loaded": loaded, "kinds": kinds}
+
+
+def _converted_missing(scenery_dir: str, kinds: dict) -> int:
+    """How many tiles Convert existing tiles moved the World pack lacks
+    (``world_migrate.missing_from_pack``); 0 with no journal."""
+    if not scenery_dir:
+        return 0
+    from .world_migrate import missing_from_pack, work_dir_for
+    if not os.path.isdir(work_dir_for(scenery_dir)):
+        return 0                            # never converted: no import cost
+    try:
+        return len(missing_from_pack(scenery_dir, kinds if kinds else None))
+    except (OSError, ValueError):
+        return 0
 
 
 def world_status(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:

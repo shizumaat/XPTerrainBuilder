@@ -13,12 +13,16 @@ The ``tidy_scenery_packs`` command is the Mac app's call after each scan
 of Custom Scenery; the Qt window calls :func:`tidy_scenery_packs` after
 its own survey.  Existing rows are never moved, disabled or dropped; the
 ini's line ending is kept; the user's ini is backed up once
-(``scenery_packs.ini.o4bak``) before the first change.
+(``scenery_packs.ini.o4bak``) before the first change.  While Convert
+existing tiles runs (``o4_engine.world_migrate.active``) the tidy waits
+(``deferred``): its read and write of the ini would put back a row the
+run had just disabled.
 """
 
 from __future__ import annotations
 
 import os
+import sys
 
 import O4_Custom_Scenery as PACKS
 import O4_DSF_Header as HEADER
@@ -70,6 +74,13 @@ def _classify(custom_scenery_dir: str, name: str):
     return kind
 
 
+def _convert_running() -> bool:
+    """Is a World migration changing the ini in this process?  Read from
+    the module only when something imported it (no run otherwise)."""
+    migrate = sys.modules.get("o4_engine.world_migrate")
+    return bool(migrate is not None and migrate.active())
+
+
 def tidy_scenery_packs(custom_scenery_dir: str = "", kinds=None,
                        names=None, **_ignored) -> dict:
     """The ``tidy_scenery_packs`` command (protocol 1.32).
@@ -82,13 +93,16 @@ def tidy_scenery_packs(custom_scenery_dir: str = "", kinds=None,
 
     :returns: ``{"added": [names filed], "backup": path or ""}`` —
         ``added`` empty when the ini already lists every pack (then it
-        is not rewritten).  Raises ``ValueError`` with the user's
+        is not rewritten); ``"deferred": True`` (nothing read or written)
+        while Convert existing tiles runs.  Raises ``ValueError`` with the user's
         sentence when the ini cannot be written.
     """
     custom_scenery_dir = str(custom_scenery_dir or "")
     reply = {"added": [], "backup": ""}
     if not custom_scenery_dir or not os.path.isdir(custom_scenery_dir):
         return reply
+    if _convert_running():
+        return {**reply, "deferred": True}
     ini = os.path.join(custom_scenery_dir, SP.INI_FILENAME)
     try:
         lines, newline = SP.read_ini_lines(ini, missing_ok=True)

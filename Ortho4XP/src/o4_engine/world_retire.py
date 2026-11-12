@@ -237,17 +237,23 @@ def retire_tile(entry, *, scenery_dir: str, pack: str, journal,
             prior=WP.kind_of(dsf),
             link_target=(os.readlink(entry.path) if os.path.islink(entry.path)
                          else None))
+    out = {"name": entry.name, "kind": entry.kind, "action": "dynamic"}
     if record["state"] == "retiring":
         with swap_lock:
             if not os.path.exists(dsf):
                 WP.write_placeholder(pack, entry.lat, entry.lon)
+            if WP.kind_of(dsf) is None:
+                # nothing would draw the tile: the entry stays as it is
+                problems = [f"The World pack has no DSF for "
+                            f"{WP.tile_name(entry.lat, entry.lon)} ({dsf})."]
+                journal.set(entry.name, problems=problems)
+                return {**out, "status": "failed", "problems": problems}
             set_row(scenery_dir, entry.name, enabled=False)
         _forget(entry.lat, entry.lon, index)
         if record.get("link_target") and os.path.islink(entry.path):
             os.unlink(entry.path)       # the link only, never its target
-        journal.set(entry.name, state="dynamic")
-    return {"name": entry.name, "kind": entry.kind, "action": "dynamic",
-            "status": "dynamic"}
+        journal.set(entry.name, state="dynamic", problems=[])
+    return {**out, "status": "dynamic"}
 
 
 def _forget(lat: int, lon: int, index: Optional[str]) -> None:
@@ -259,7 +265,8 @@ def _forget(lat: int, lon: int, index: Optional[str]) -> None:
 def restore_tile(scenery_dir: str, pack: str, name: str, record: dict,
                  set_row) -> bool:
     """Undo :func:`retire_tile`: the link made again (its target as it
-    was), the row enabled, the World pack's placeholder removed when this
+    was), the row enabled -- filed again when another program dropped it
+    (``set_row``) -- and the World pack's placeholder removed when this
     put it there.  False when a local entry was purged (nothing to bring
     back: the tile stays dynamic)."""
     path = os.path.join(scenery_dir, name)

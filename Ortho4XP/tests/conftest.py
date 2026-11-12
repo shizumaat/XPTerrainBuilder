@@ -561,35 +561,6 @@ def _no_test_window_writes_the_engine_stderr_log_into_the_tree(
     yield
 
 
-@pytest.fixture(autouse=True)
-def _storage_log_never_reaches_the_shared_corpus(
-        monkeypatch, tmp_path_factory):
-    """``logs/storage.log`` is written only under this run's tmp tree (#1881).
-
-    ``o4_engine.storage`` logs every deletion to ``<data root>/logs``; in a
-    lane worktree ``logs`` is the MOUNTED shared corpus, so a test that
-    left the data root at the cwd wrote ``pytest-of-*`` paths into the
-    shared ``storage.log``.  The rule is general: a logs folder that does
-    not resolve inside pytest's base temp is swapped for a scratch one.
-    """
-    try:  # imported here: a test may import it lazily after setup
-        from o4_engine import storage
-    except ImportError:
-        storage = None
-    if storage is not None:
-        real_dir = storage._logs_dir
-        base = os.path.realpath(str(tmp_path_factory.getbasetemp()))
-
-        def scratch_dir():
-            path = real_dir()
-            if os.path.realpath(path).startswith(base + os.sep):
-                return path
-            return os.path.join(base, "storage-log-scratch", "logs")
-
-        monkeypatch.setattr(storage, "_logs_dir", scratch_dir)
-    yield
-
-
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SRC = os.path.normpath(os.path.join(_HERE, "..", "src"))
 if _SRC not in sys.path:
@@ -1829,6 +1800,94 @@ def _no_test_writes_the_xplane_install(request):
         f"broad ``except Exception`` shape):\n{lines}\n"
         f"The install is intact; the test is not.  Point the writer at "
         f"tmp_path.", pytrace=False)
+
+
+# ── THE REAL-ROOTS AUDIT GUARD (``tests/real_roots_guard.py``) ──
+#
+# The install guard above patches Python names; the audit hook sees every
+# write the interpreter makes, including through names bound before the
+# patch and C writers.  It protects the X-Plane install and the World /
+# Convert state of each real data folder (2026-11-11: ``world_pack.log`` of
+# the real data folder held 21 pytest lines).
+
+#: The data folder's app state the World pack and Convert write.
+_APP_STATE_DIRS = ("logs", "World_staging", "Imagery_on_demand")
+
+
+def _real_roots() -> list:
+    """The X-Plane install (``xplane_root()``, and the Custom Scenery the
+    checkout's REAL global cfg names, read past the per-test redirect) and
+    :data:`_APP_STATE_DIRS` of every real data folder: the packaged app's
+    default, its remembered choice, an ambient ``ORTHO4XP_DATA_ROOT`` and
+    the checkout itself (a lane worktree mounts the real one there)."""
+    roots = [xplane_root()]
+    try:
+        import O4_Settings_Model as SM
+        scenery = SM._parse_cfg(SM._default_global_cfg()).get(
+            "custom_scenery_dir", "")
+    except Exception:                                   # pragma: no cover
+        scenery = ""
+    if scenery:
+        roots.append(scenery)
+    import O4_File_Names as FNAMES
+    data_roots = {FNAMES.default_data_root(), FNAMES.read_data_root_pointer(),
+                  _AMBIENT_DATA_ROOT, os.path.abspath(".")}
+    for root in sorted(r for r in data_roots if r):
+        roots.extend(os.path.join(root, sub) for sub in _APP_STATE_DIRS)
+    return roots
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _real_roots_audit_guard_armed(tmp_path_factory):
+    """Arm the audit hook once per process, before any test runs."""
+    from tests import real_roots_guard as GUARD
+    GUARD.arm(_real_roots(), [str(tmp_path_factory.getbasetemp())])
+    yield GUARD
+
+
+@pytest.fixture(autouse=True)
+def _no_test_writes_a_real_root(_real_roots_audit_guard_armed, request):
+    """A write the audit guard refused fails ITS test, even when the code
+    under test caught the refusal and carried on."""
+    guard = _real_roots_audit_guard_armed
+    del guard.blocked[:]
+    yield
+    if not guard.blocked:
+        return
+    for phase in ("setup", "call"):
+        report = getattr(request.node, "_o4_report_" + phase, None)
+        if report is not None and report.failed:
+            return
+    count = len(guard.blocked)
+    lines = "\n".join(f"  - BLOCKED {b['via']} '{b['path']}'"
+                      for b in guard.blocked)
+    del guard.blocked[:]
+    pytest.fail(f"the real-roots audit guard blocked {count} "
+                f"write(s) and the test carried on:\n{lines}\nPoint the "
+                f"writer at tmp_path.", pytrace=False)
+
+
+@pytest.fixture(autouse=True)
+def _data_root_logs_are_a_tmp_folder(monkeypatch, tmp_path_factory):
+    """``FNAMES.data_path("logs")`` resolves under this run's tmp tree
+    (#1881 for ``storage.log``; 2026-11-11 for ``world_pack.log``, which
+    held 21 pytest lines): every log of a test that left the data root at
+    the checkout -- a lane worktree's mount of the real data folder --
+    lands there.  A test that points the data root at its own tmp folder
+    keeps it."""
+    import O4_File_Names as FNAMES
+    real = FNAMES.data_path
+    base = os.path.realpath(str(tmp_path_factory.getbasetemp()))
+
+    def data_path(relative_path):
+        path = real(relative_path)
+        head = str(relative_path).replace("\\", "/").split("/", 1)[0]
+        if head == "logs" and not os.path.realpath(path).startswith(base + os.sep):
+            return os.path.join(base, "data-root-scratch", relative_path)
+        return path
+
+    monkeypatch.setattr(FNAMES, "data_path", data_path)
+    yield
 
 
 # ── THE Qt FILES ARE NOT xdist-SAFE: AN ACCIDENTAL PARALLEL RUN REFUSES ──

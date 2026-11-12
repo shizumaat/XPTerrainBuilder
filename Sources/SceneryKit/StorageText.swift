@@ -39,6 +39,7 @@ public enum O4StorageText {
     public static let installedHelp = "The zOrtho4XP_ entries of X-Plane's Custom Scenery folder. Folders on this disk are measured; entries linked to another drive are counted, not measured."
 
     public static let worldForeign = "Your World folder is a link to {target}, not a folder XPTerrainBuilder made. Remove the link or restore it before converting tiles."
+    public static let worldPackMissing = "{count} tiles that Convert existing tiles moved are missing from the World pack (was its folder moved or deleted?). Undo… in Convert existing tiles puts them back in their own packs."
 
     /// The sentence for a World folder that is not the app's own
     /// (`world_onboard`'s `world_foreign`; the engine refuses Convert with it).

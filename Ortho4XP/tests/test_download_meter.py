@@ -20,14 +20,26 @@ def _clean_meter():
 
 def test_throughput_from_samples():
     assert download_meter.throughput_bytes_per_second() is None
-    download_meter.record(10 << 20, 1.0)
+    download_meter.record(10 << 20, 1.0, now=100.0)
     rate = download_meter.throughput_bytes_per_second()
     assert rate == pytest.approx(10 << 20)
-    # A slower sample pulls the estimate down, but not all the way
-    # (time-decayed blend, not replacement).
-    download_meter.record(1 << 20, 1.0)
+    # A slower sample (the next second) pulls the estimate down, but not
+    # all the way (time-decayed blend, not replacement).
+    download_meter.record(1 << 20, 1.0, now=101.0)
     blended = download_meter.throughput_bytes_per_second()
     assert (1 << 20) < blended < (10 << 20)
+
+
+def test_concurrent_samples_are_aggregate_throughput():
+    """HAAB flight 2026-11-12T22:11Z: 15 drapes fetched small tiles on
+    many connections, each request ~20 kB/s; the meter took one
+    request's rate for the line's and a full build read 37 h.  Fifteen
+    transfers sharing the same second move 15 x 20 kB in that second."""
+    for second in range(30):
+        for _conn in range(15):
+            download_meter.record(20_000, 1.0, now=1000.0 + second)
+    rate = download_meter.throughput_bytes_per_second()
+    assert rate == pytest.approx(15 * 20_000, rel=0.05)
 
 
 def test_noise_samples_ignored():

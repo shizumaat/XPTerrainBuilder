@@ -5,7 +5,12 @@ Two signals, both fed by the actual downloaders:
 * A time-decayed THROUGHPUT estimate (bytes/second), sampled by every
   network fetch that moves scenery data — imagery textures, regional
   OSM extracts.  The decay constant keeps it current: a connection that
-  slows stops being priced at its old speed within about a minute.
+  slows stops being priced at its old speed within about a minute.  It
+  is the AGGREGATE rate -- bytes over the wall time some transfer was
+  in flight -- never one request's own rate: 15 drapes fetching small
+  512 px tiles on many connections each ran at ~20 kB/s, and a full
+  build priced at that rate read 37 h instead of 44 min (HAAB flight,
+  2026-11-12T22:11Z).
 * A registry of ACTIVE known-size downloads (foreground extract
   acquisitions register here).  ``active_remaining_seconds`` prices
   their unmoved bytes at the measured throughput, so the ETA can quote
@@ -41,6 +46,12 @@ _MIN_SAMPLE_SECONDS = 0.005
 
 _lock = threading.Lock()
 _rate_bytes_per_second: Optional[float] = None
+# The decayed sums behind it: bytes, and the wall seconds some sampled
+# transfer was in flight (the union of their intervals, not their sum).
+_bytes_sum = 0.0
+_wall_sum = 0.0
+_covered_until = -math.inf      # end of the union of sampled intervals
+_last_end: Optional[float] = None
 _active: dict = {}   # key -> (received_bytes, total_bytes)
 # The transfer activity (#1351): see :func:`activity`.
 _in_flight = 0
@@ -52,21 +63,29 @@ _hosts: dict = {}    # host -> [served, refused]
 _watching = False
 
 
-def record(byte_count: int, seconds: float) -> None:
-    """Fold one completed transfer sample into the throughput estimate."""
-    global _rate_bytes_per_second
+def record(byte_count: int, seconds: float,
+           now: Optional[float] = None) -> None:
+    """Fold one completed transfer sample (``byte_count`` bytes over the
+    ``seconds`` that ended at ``now``, default the wall clock) into the
+    aggregate throughput: concurrent transfers share their wall time."""
+    global _rate_bytes_per_second, _bytes_sum, _wall_sum
+    global _covered_until, _last_end
     try:
         _progressed(0, request=True)
         if byte_count <= 0 or seconds < _MIN_SAMPLE_SECONDS:
             return
-        sample = byte_count / seconds
+        end = time.time() if now is None else float(now)
+        start = end - seconds
         with _lock:
-            if _rate_bytes_per_second is None:
-                _rate_bytes_per_second = sample
-            else:
-                alpha = 1.0 - math.exp(-seconds / _TAU_SECONDS)
-                _rate_bytes_per_second += alpha * (
-                    sample - _rate_bytes_per_second)
+            decay = (0.0 if _last_end is None else
+                     math.exp(-max(end - _last_end, 0.0) / _TAU_SECONDS))
+            wall = max(0.0, end - max(start, _covered_until))
+            _bytes_sum = _bytes_sum * decay + byte_count
+            _wall_sum = _wall_sum * decay + wall
+            _covered_until = max(_covered_until, end)
+            _last_end = end if _last_end is None else max(_last_end, end)
+            if _wall_sum > 0:
+                _rate_bytes_per_second = _bytes_sum / _wall_sum
     except Exception:
         pass
 
@@ -256,9 +275,12 @@ def active_remaining_seconds() -> Optional[float]:
 
 def _reset_for_tests() -> None:
     global _rate_bytes_per_second, _in_flight, _busy_since, _bytes_moved
-    global _requests_done, _last_progress
+    global _requests_done, _last_progress, _bytes_sum, _wall_sum
+    global _covered_until, _last_end
     with _lock:
         _rate_bytes_per_second = None
+        _bytes_sum, _wall_sum = 0.0, 0.0
+        _covered_until, _last_end = -math.inf, None
         _active.clear()
         _in_flight, _busy_since, _bytes_moved = 0, None, 0
         _requests_done, _last_progress = 0, None

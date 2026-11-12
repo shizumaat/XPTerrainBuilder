@@ -589,7 +589,11 @@ def test_the_first_status_comes_before_the_first_tick(engine, monkeypatch):
     gate.set()
     assert _wait_for(lambda: any("flight_slow_tick" in r for r in logs))
     slow = next(r for r in logs if "flight_slow_tick" in r)["flight_slow_tick"]
-    assert slow["tick"] >= 0.5
+    # the breakdown names the part of the tick that held it (HAAB
+    # 2026-11-12T22:10:49Z logged only "tick": 5.4)
+    assert slow["tick.dispatch"] >= 0.5
+    assert {"tick.move", "tick.harvest", "tick.settle",
+            "tick.readiness"} <= set(slow)
 
 
 def test_the_facts_never_walk_the_pack_and_never_hold_a_tick(monkeypatch):

@@ -406,8 +406,8 @@ class _Runner:
                         self.manager.flight_slots = self.governor.allowed(self.cap)
                     self.manager.facts()
                     clock.mark("facts")
-                    self.manager.tick(now, rec)
-                    clock.mark("tick")
+                    self.manager.tick(now, rec,
+                                      lambda name: clock.mark("tick." + name))
                     _share_slots(self.manager)
                     _core_points(self.manager)
                     self.reloader.sweep(self.manager.facts().get("load_stamps"))

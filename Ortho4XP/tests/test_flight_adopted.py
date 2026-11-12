@@ -237,3 +237,39 @@ def test_the_reader_asks_for_adopted_and_other_meshes_only(tmp_path,
                      "patched": "yes", "upgrade_ok": True}
     for ours in ((53, -64), (53, -62), (53, -63), (50, 0)):
         assert info(ours) is None, ours
+
+
+def _wild_estimate(tile, kind, role):
+    """The HAAB flight of 2026-11-12T22:11Z: the upgraded departure's
+    full build priced at one 512 px request's download rate while the
+    first window's drapes fetched -- [530, 134406] s, a 2,240 min
+    countdown."""
+    if kind == "full":
+        return (529.8, 134406.1)
+    return _estimate(tile, kind, role)
+
+
+def test_an_upgrade_never_counts_down_past_the_widest_estimate():
+    """Twin of the HAAB 2,240 min countdown: the planned range is held to
+    ``MAX_SPREAD`` x its low end, a measured scale never lifts it past
+    ``RESCALE_RANGE[1]`` x the planned high, and the countdown and the
+    choice row show no more than that."""
+    manager, _builder, _pub = _manager()
+    manager.estimate = _wild_estimate
+    assert manager.status(0.0)["choices"][0]["upgrade_estimate_s"] \
+        <= 529.8 * SCHEDULE.MAX_SPREAD + 1.0
+    manager.choose(DEP_TILE, "upgrade")
+    job = _job(manager, DEP_TILE)
+    planned_hi = 529.8 * SCHEDULE.MAX_SPREAD
+    assert job.est_s == (529.8, pytest.approx(planned_hi))
+    assert job.est_s[1] < 134406.1 / 20          # was 51 x the model's
+    manager._scale["full"] = 50.0                 # an unclamped scale
+    manager.replan()
+    job = _job(manager, DEP_TILE)
+    assert job.est_s[1] <= SCHEDULE.RESCALE_RANGE[1] * planned_hi + 1e-6
+    manager.tick(0.0, None)
+    countdown = manager.status(0.0)["countdown_s"]
+    assert countdown is not None
+    assert countdown <= (SCHEDULE.RESCALE_RANGE[1] * planned_hi
+                         + 4 * SCHEDULE.PROFILE_SECONDS["drape"] * 2.5
+                         + SCHEDULE.DEPARTURE_MARGIN_S)

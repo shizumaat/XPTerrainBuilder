@@ -53,7 +53,7 @@ public enum O4WorldStateText {
     public static let rebuildButton = "Rebuild Tile"
     public static let removeButton = "Remove from World Pack…"
     public static let removeTitle = "Remove tile {tile} from the World pack?"
-    public static let removeMessage = "Its package is written first (Tile_packages), then the tile is a placeholder again: X-Plane shows its own scenery there until the tile is built again. Its original folder (originals/) and its files on other drives are never touched."
+    public static let removeMessage = "Its package is written first (XPTerrainBuilder_packages), then the tile is a placeholder again: X-Plane shows its own scenery there until the tile is built again. Its original folder (originals/) and its files on other drives are never touched."
     public static let removeConfirm = "Remove"
     public static let removed = "Tile {tile} is a placeholder again; its package: {package}"
     public static let removedNoPackage = "Tile {tile} is a placeholder again; no package was written: {why}"

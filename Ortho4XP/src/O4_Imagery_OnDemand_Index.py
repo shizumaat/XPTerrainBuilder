@@ -100,6 +100,7 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 __all__ = [
     "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
     "STATES", "capped_bytes", "distance_m", "forget_tile", "get",
+    "repoint_folder",
     "has_rows", "index_path", "lru_order", "tile_sharpness",
     "mark_late", "mark_near", "open_index", "pinned_bytes",
     "placeholder_width", "protected_cache_keys", "protected_jpegs",
@@ -317,6 +318,25 @@ def forget_tile(conn: sqlite3.Connection, tile: str) -> int:
     """Delete every row of ``tile``; returns the rows deleted."""
     return conn.execute("DELETE FROM textures WHERE tile = ?",
                         (tile,)).rowcount
+
+
+#: The columns that name a file or folder (:func:`repoint_folder`).
+_PATH_COLUMNS = ("build_dir", "textures_dir", "terrain_dir", "config_dir",
+                 "placeholder_path", "jpeg_path", "source_path")
+
+
+def repoint_folder(conn: sqlite3.Connection, old: str, new: str) -> int:
+    """Rows naming folder ``old`` (or a path inside it) name ``new``
+    instead: the folder moved (RULINGS 2026-11-12h, ``world_home``).
+    Returns the rows changed."""
+    old, new = os.path.normpath(old), os.path.normpath(new)
+    changed = 0
+    for column in _PATH_COLUMNS:
+        changed += conn.execute(
+            f"UPDATE textures SET {column} = ? || substr({column}, ?) "
+            f"WHERE {column} = ? OR substr({column}, 1, ?) = ?",
+            (new, len(old) + 1, old, len(old) + 1, old + os.sep)).rowcount
+    return changed
 
 
 def mark_late(conn: sqlite3.Connection, tile: str, name: str) -> None:

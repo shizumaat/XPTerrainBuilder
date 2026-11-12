@@ -30,7 +30,6 @@ def roots(tmp_path, monkeypatch):
     data.mkdir()
     monkeypatch.setattr(FNAMES, "_data_root_override", str(data))
     monkeypatch.delitem(FNAMES.__dict__, "Tile_dir", raising=False)
-    monkeypatch.setattr(HOME, "_reindex", lambda *a: None)
     monkeypatch.setattr(HOME, "_log", lambda out: None)
     assert WORLD.managed(str(scenery))
     return data, scenery, pack
@@ -197,3 +196,44 @@ def test_the_apps_start_moves_the_home_a_bare_call_only_reports(roots, monkeypat
     done = WORLD.world_onboard(str(scenery), move_home=True)["home"]
     assert done["moved"] == 1 and done["active"]
     assert done["tiles_dir"] == str(pack / FNAMES.WORLD_TILES_DIR)
+
+
+def test_a_moved_folder_s_index_rows_name_its_new_place(roots):
+    import O4_Imagery_OnDemand_Index as INDEX
+    data, scenery, pack = roots
+    old = _tile(data / "Tiles", "zOrtho4XP_+01+002")
+    conn = INDEX.open_index()
+    INDEX.upsert(conn, {"tile": "+01+002", "name": "a.dds",
+                        "build_dir": str(old),
+                        "textures_dir": str(old / "textures"),
+                        "config_dir": str(old), "state": "low"})
+    INDEX.upsert(conn, {"tile": "+01+003", "name": "b.dds",
+                        "build_dir": str(old) + "_other", "state": "low"})
+    conn.close()
+    out = HOME.migrate(str(scenery))
+    assert out["moved"] == 1 and out["index_rows"] == 3
+    new = pack / FNAMES.WORLD_TILES_DIR / "zOrtho4XP_+01+002"
+    conn = INDEX.open_index()
+    try:
+        row = INDEX.get(conn, "+01+002", "a.dds")
+        other = INDEX.get(conn, "+01+003", "b.dds")
+    finally:
+        conn.close()
+    assert row["build_dir"] == str(new) and row["config_dir"] == str(new)
+    assert row["textures_dir"] == str(new / "textures")
+    assert other["build_dir"] == str(old) + "_other"     # a prefix, not a path
+
+
+def test_a_copy_landed_before_a_kill_is_finished_not_a_conflict(roots):
+    import shutil
+
+    from o4_engine.world_migrate import Journal
+    data, scenery, pack = roots
+    source = _tile(data / "Tiles", "zOrtho4XP_+01+002")
+    target = pack / FNAMES.WORLD_TILES_DIR / "zOrtho4XP_+01+002"
+    shutil.copytree(source, target)          # the copy landed, then the kill
+    journal = Journal(str(pack / HOME.HOME_DIR))
+    journal.set("zOrtho4XP_+01+002@" + str(data / "Tiles"), state="moving",
+                source=str(source), target=str(target))
+    out = HOME.migrate(str(scenery))
+    assert (out["moved"], out["conflicts"]) == (1, 0) and not source.exists()

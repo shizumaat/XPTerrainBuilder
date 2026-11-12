@@ -131,8 +131,23 @@ def _copy(source: str, target: str) -> None:
 
 
 def _move(source: str, target: str, journal, key: str) -> str:
-    """One journalled move: ``moved``, ``conflict`` or ``error``."""
+    """One journalled move: ``moved``, ``conflict`` or ``error``.  A run
+    killed after a cross-volume copy landed and before its source went
+    (journal ``moving``, both there, the same bytes) is finished here."""
     if os.path.lexists(target):
+        record = journal.get(key) or {}
+        if (record.get("state") == "moving" and record.get("target") == target
+                and _bytes(target) == _bytes(source)):
+            try:
+                if os.path.isdir(source) and not os.path.islink(source):
+                    shutil.rmtree(source)
+                else:
+                    os.remove(source)
+            except OSError as error:
+                journal.set(key, state="error", error=str(error)[:300])
+                return "error"
+            journal.set(key, state="moved")
+            return "moved"
         journal.set(key, state="conflict", source=source, target=target)
         return "conflict"
     journal.set(key, state="moving", source=source, target=target)
@@ -182,19 +197,27 @@ def _tile_sources(scenery_dir: str, legacy_build_dir: str,
     return out
 
 
-def _reindex(folder: str, lat: int, lon: int) -> None:
-    """A moved on-demand tile's index rows written again from its new
-    folder (a row names its folder; the index is a cache)."""
-    import O4_World_Pack as WP
-
-    from . import imagery_ondemand as ONDEMAND
-    from .world_migrate import _manifest
-    record = _manifest(folder, lat, lon)
-    if not (record.get("on_demand") or record.get("pinned")):
-        return
-    with contextlib.suppress(Exception):
-        ONDEMAND.forget_tile(WP.tile_name(lat, lon))
-        ONDEMAND.register_tiles([(folder, lat, lon)])
+def _reindex(moves: List[tuple]) -> int:
+    """The on-demand index rows naming a moved folder name its new place
+    (``[(old, new)]``; one SQL update a folder, no tile rescanned).  The
+    rows changed; the index is a cache, so a failure is no error."""
+    if not moves:
+        return 0
+    import O4_Imagery_OnDemand_Index as INDEX
+    if not os.path.isfile(INDEX.index_path()):
+        return 0
+    try:
+        conn = INDEX.open_index()
+    except Exception:                       # no index: nothing names them
+        return 0
+    try:
+        changed = sum(INDEX.repoint_folder(conn, old, new) for old, new in moves)
+        conn.commit()
+        return changed
+    except Exception:
+        return 0
+    finally:
+        conn.close()
 
 
 def _rewrite_packaged(old_store: str, new_store: str) -> int:
@@ -278,13 +301,15 @@ def migrate(scenery_dir: str, legacy_build_dir: str = "",
     journal = Journal(dirs["work"])
     if out["planned"]:
         out["backup"] = _backup(journal.path, "world-home")
-    for source, target, lat, lon in todo["tiles"]:
+    moved = []
+    for source, target, _lat, _lon in todo["tiles"]:
         state = _move(source, target, journal, os.path.basename(source)
                       + "@" + os.path.dirname(source))
         out[{"moved": "moved", "conflict": "conflicts",
              "error": "errors"}[state]] += 1
         if state == "moved":
-            _reindex(target, lat, lon)
+            moved.append((source, target))
+    out["index_rows"] = _reindex(moved)
     old_store = FNAMES.data_path("Tile_packages")
     for source, target in todo["packages"]:
         state = _move(source, target, journal, "package:" + os.path.basename(source))

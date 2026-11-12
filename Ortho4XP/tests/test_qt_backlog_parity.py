@@ -308,6 +308,7 @@ def make_window(qapp, tmp_path, monkeypatch):
         json.dump({"output_dir": str(tmp_path)}, handle)
     cache_path = str(tmp_path / "tile-scan.json")
     monkeypatch.setattr(GUI, "PREFS_FILE", prefs_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     monkeypatch.setattr(GUI, "TILE_SCAN_CACHE_FILE", cache_path)
     import O4_UI_Utils as UI
     saved_stdout = sys.stdout

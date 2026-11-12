@@ -39,7 +39,7 @@ def window(qapp, tmp_path, monkeypatch):
     import O4_UI_Utils as UI
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
-    win.prefs["output_dir"] = str(tmp_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))
     # Never link a finished tile into the real X-Plane install (the
     # owner's prefs may have auto-install on; conftest refuses the write).
     win.prefs[GUI.AUTO_INSTALL_KEY] = False

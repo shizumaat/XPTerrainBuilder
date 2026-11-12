@@ -21,7 +21,7 @@ Run by `world_onboard` with `move_home` (both apps' start pass it; a bare call, 
 1. Back up the journal (`journal.json.<stamp>-before-<run>`) before the run writes it.
 2. Sources, in order: `<data>/Tiles/zOrtho4XP_*`, then the legacy custom build folder's `zOrtho4XP_*` (skipped when it is Custom Scenery itself — those are per-tile packs and Convert existing tiles owns them, 2026-11-12a — or already the World tiles folder), then `<data>/Tile_packages/*` (packages and `packaged.json`).
 3. Per item, journal `moving` → `moved`: one `os.rename` on the same volume; across volumes a copy under `<name>.part`, sizes verified, renamed into place, then the source removed. A name already present in the World folder is never overwritten: journal `conflict`, the source stays.
-4. After a tile folder moves: its on-demand index rows are forgotten and registered again from the new folder (`register_tiles`, a row names its folder).
+4. After the tile folders move: the on-demand index rows naming a moved folder (or a path inside it) name its new place (`O4_Imagery_OnDemand_Index.repoint_folder`, one SQL update a folder; no tile is rescanned, so 700 tiles move in seconds). A run killed after a cross-volume copy landed and before its source went (journal `moving`, both present, the same bytes) is finished by the next run, not counted as a conflict.
 5. After the store moves: `packaged.json` `path` fields under the old store are rewritten to the new one.
 6. When nothing is left to move (conflicts and busy tiles count as left), the pointer `world_home.json` is written; until then `Tile_dir` stays `<data>/Tiles`, so no tile is ever read from a half-moved home.
 
@@ -42,7 +42,7 @@ Grep of `Tile_dir`, `build_dir(`, `custom_build_dir`, `customBuildDir`, `tileBas
 | Records copy for converted tiles | `world_records.plan` (`build_dir(..., "")`) | write | unchanged code: follows `Tile_dir` |
 | Tile info / scanner / staleness / failures / stopped build | `O4_Tile_Info`, `session.scan`, `O4_Imagery_Freshness`, `O4_Tile_Failures`, `O4_Stopped_Build` | read build folder | unchanged: build folder now in the World home |
 | Library engine | `library._custom_build_dir`, `library.py:480` | read | unchanged: `working_dir == Tile_dir` → `""` |
-| On-demand index | `imagery_ondemand._tile_roots`, `on_demand_tiles`, rows' `config_dir` | read; rows name the folder | unchanged code; MIGRATION re-registers a moved tile's rows |
+| On-demand index | `imagery_ondemand._tile_roots`, `on_demand_tiles`, rows' `build_dir`/`config_dir`/`textures_dir`/`terrain_dir` | read; rows name the folder | unchanged readers; MIGRATION repoints the rows of a moved folder (`INDEX.repoint_folder`) |
 | Package store | `storage_packages.store_dir`, `world_adopt._package_path`, `package_first`, `world_tile_remove` | read/write | CHANGED: `store_dir()` = World home's `XPTerrainBuilder_packages` when the pointer is set |
 | `packaged.json` `path` | `storage_packages.remember` | absolute paths | MIGRATION rewrites them |
 | Rebuild data | `FNAMES.rebuild_root` (`Rebuild_cache`) | cache | unchanged: a cache (10d); the tile rebuilds from its package and caches without it |

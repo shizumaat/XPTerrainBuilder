@@ -48,7 +48,7 @@ def window(qapp, tmp_path, monkeypatch):
     import O4_UI_Utils as UI
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
-    win.prefs["output_dir"] = str(tmp_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))
     # Headless runs skip provider initialization; seed a stand-in code.
     win.imagery_combo.addItems(["TEST_PROVIDER"])
     win.imagery_combo.setCurrentText("TEST_PROVIDER")

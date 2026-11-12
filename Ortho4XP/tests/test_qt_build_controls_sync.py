@@ -67,7 +67,7 @@ def window(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(win._session, "boundary_airports",
                         lambda tiles=None: None)
     # Route all per-tile config reads/writes into the isolated temp dir.
-    win.prefs["output_dir"] = str(tmp_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))
     # Headless runs skip the entry point's initialize_providers_dict(),
     # leaving the imagery combo empty; seed two stand-in codes.
     win.imagery_combo.addItems(["TEST_PROVIDER_A", "TEST_PROVIDER_B"])

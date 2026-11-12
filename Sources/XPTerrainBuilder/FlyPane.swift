@@ -145,8 +145,12 @@ struct AdoptedChoiceRows: View {
                 Text(FlyText.choiceQuestion(row)).scaledFont(.caption)
                     .fixedSize(horizontal: false, vertical: true)
                 if row.choice.isEmpty {
-                    Button(FlyText.choiceKeepLabel(row)) { model.choose(row, "keep") }
-                    Button(FlyText.choiceUpgradeLabel(row)) { model.choose(row, "upgrade") }
+                    HStack {
+                        Button(FlyText.choiceKeepButton) { model.choose(row, "keep") }
+                            .help(FlyText.choiceKeepLabel(row))
+                        Button(FlyText.choiceUpgradeButton) { model.choose(row, "upgrade") }
+                            .help(FlyText.choiceUpgradeLabel(row))
+                    }
                 }
             }
         }

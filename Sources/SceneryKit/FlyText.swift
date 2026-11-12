@@ -383,6 +383,9 @@ extension O4FlightPlanRead {
 extension FlyText {
     public static let choiceKeep = "Fly the existing mesh"
     public static let choiceUpgrade = "Upgrade with XPTerrainBuilder grading"
+    /// The buttons' short titles; the long labels are their hover text.
+    public static let choiceKeepButton = "Fly as-is"
+    public static let choiceUpgradeButton = "Upgrade"
 
     static func choicePlace(_ row: O4FlightStatus.Choice) -> String {
         let role = ["departure": "Departure", "destination": "Destination"][row.role] ?? "Airport"

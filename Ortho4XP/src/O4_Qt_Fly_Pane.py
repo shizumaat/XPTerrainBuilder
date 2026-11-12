@@ -322,9 +322,12 @@ class FlyPane(QWidget):
             layout.addWidget(_caption(TEXT.choice_question(row)))
             if row.get("choice"):
                 continue
-            for words, choice in ((TEXT.choice_keep_label(row), "keep"),
-                                  (TEXT.choice_upgrade_label(row), "upgrade")):
-                button = QPushButton(words)
+            for title, words, choice in (
+                    (TEXT.CHOICE_KEEP_BUTTON, TEXT.choice_keep_label(row), "keep"),
+                    (TEXT.CHOICE_UPGRADE_BUTTON, TEXT.choice_upgrade_label(row),
+                     "upgrade")):
+                button = QPushButton(title)
+                button.setToolTip(words)
                 button.clicked.connect(
                     lambda _c=False, r=row, c=choice: self.choose(r, c))
                 layout.addWidget(button)

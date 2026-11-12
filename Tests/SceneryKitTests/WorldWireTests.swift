@@ -100,8 +100,8 @@ import Foundation
         #expect(FlyLayers.corridorCells(plan: nil, corridorKm: 20,
                                         jobs: FlyLayers.mapJobs(flight: [], planned: false,
                                                                 ahead: status.jobs))
-                == [FlyCell(lat: 53, lon: -65, key: "building"),
-                    FlyCell(lat: 53, lon: -64, key: "quick")])
+                == [FlyCell(lat: 53, lon: -65, key: "draping"),
+                    FlyCell(lat: 53, lon: -64, key: "draped")])
         // Beside a flight (#2019): the flight's tile wins, build-ahead's
         // other tiles around the aircraft are drawn too.
         let flight = [O4FlightStatus.Job(lat: 53, lon: -64, role: "enroute", kind: "drape",

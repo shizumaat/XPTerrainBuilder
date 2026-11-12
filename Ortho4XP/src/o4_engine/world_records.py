@@ -45,8 +45,7 @@ import O4_Tile_Build_Log as TLOG
 import O4_Tile_Info as TINFO
 import O4_Unpatched_Airports as UNPATCHED
 
-__all__ = ["HOME_KINDS", "homes", "plan", "copy_records", "copy_quietly",
-           "backfill"]
+__all__ = ["HOME_KINDS", "copy_quietly", "backfill"]
 
 #: Where a record came from, in the order the homes are read.
 HOME_ORIGINALS = "originals"
@@ -84,17 +83,14 @@ def homes(record: dict) -> List[Tuple[str, str]]:
     return out
 
 
-def _mtime(path: str) -> Optional[float]:
-    try:
-        return os.path.getmtime(path)
-    except OSError:
-        return None
-
-
 def _takes(source: str, target: str) -> bool:
     """Should ``target`` take ``source`` (none there, or an older one)?"""
-    have = _mtime(target)
-    return have is None or (_mtime(source) or 0) > have
+    if not os.path.exists(target):
+        return True
+    try:
+        return os.path.getmtime(source) > os.path.getmtime(target)
+    except OSError:
+        return False
 
 
 def _builds(home_list, tiles_dir: str, lat: int, lon: int) -> dict:

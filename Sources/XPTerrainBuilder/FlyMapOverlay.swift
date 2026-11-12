@@ -85,21 +85,10 @@ struct FlyMapOverlay: View {
                         east: bottomRight.lon, pxPerDegree: cam.scale)
     }
 
-    /// Each square's installed imagery (#2001), under everything else;
-    /// the full-resolution ones outlined in the legend's `sharp` (#2020).
+    /// The live preview (#2001), under everything else
+    /// (`LivePreviewDrawing`).
     private func drawPreview(_ cam: MapCamera, _ size: CGSize, _ context: inout GraphicsContext) {
-        _ = preview.revision
-        var sharp = Path()
-        for square in preview.squares {
-            guard let image = preview.image(square) else { continue }
-            let a = cam.point(lon: square.west, lat: square.north, in: size)
-            let b = cam.point(lon: square.east, lat: square.south, in: size)
-            let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
-                              width: abs(b.x - a.x), height: abs(b.y - a.y))
-            context.draw(Image(decorative: image, scale: 1), in: rect)
-            if square.sharp { sharp.addRect(rect.insetBy(dx: 0.5, dy: 0.5)) }
-        }
-        context.stroke(sharp, with: .color(Self.color("sharp")), lineWidth: 1)
+        LivePreviewDrawing.draw(preview, cam, size, &context, sharpColor: Self.color("sharp"))
     }
 
     private func drawLayers(_ cam: MapCamera, _ size: CGSize, _ context: inout GraphicsContext) {

@@ -27,11 +27,11 @@ __all__ = [
     "DRAPE_PX_LABEL", "DRAPE_PX_KEY", "DRAPE_PX_CHOICES", "LIVE_PREVIEW",
     "LIVE_PREVIEW_HELP", "CENTER_ON_AIRCRAFT", "NO_AIRCRAFT_POSITION",
     "AIRCRAFT_FRESH_S", "aircraft_is_current", "DIVERT", "END_FLIGHT", "NO_FLIGHT_MANAGER",
-    "NO_STATUS", "READINESS_LABELS", "STATE_MARKS", "LEGEND",
+    "NO_STATUS", "READINESS_LABELS", "STATE_MARKS", "LEGEND", "PREVIEW_KEYS",
     "DEFAULT_CRUISE_KT", "DEFAULT_CORRIDOR_KM", "plan_row_label",
     "unknown_airport", "refusal", "quick_plan", "cruise_kt", "card_lines",
     "countdown_text", "item_text", "world_line", "follow_status_line",
-    "legend_key",
+    "legend_key", "here_lines",
 ]
 
 PLAN_SOURCE_LABEL = "Flight plan"
@@ -98,7 +98,11 @@ STATE_MARKS = {"done": "✓", "working": "…", "waiting": "○",
 LEGEND = (("own", GLOSSARY.TERMS["xplane_own_scenery"]),
           ("quick", "photo, quick"),
           ("built", "built"),
-          ("building", "building"))
+          ("building", "building"),
+          ("sharp", "full-detail photo"))
+#: The legend's keys the map draws only while "Live flight preview" is
+#: on (a square of installed imagery at full resolution, #2020).
+PREVIEW_KEYS = frozenset({"sharp"})
 
 DEFAULT_CRUISE_KT = FS.DEFAULT_CRUISE_KT
 DEFAULT_CORRIDOR_KM = 20
@@ -241,3 +245,53 @@ def aircraft_is_current(seen_at: Optional[float], now: float) -> bool:
     seconds on the clock ``now`` reads) is younger than
     :data:`AIRCRAFT_FRESH_S` -- the center-on-aircraft button's rule."""
     return seen_at is not None and 0.0 <= now - seen_at < AIRCRAFT_FRESH_S
+
+
+#: ``here_lines``: the quick photo's state by build-ahead's ``job``.
+_HERE_JOB = {"queued": "Quick photo: waiting for a build slot",
+             "late": "Quick photo: waiting for a build slot",
+             "staged": "Quick photo: built, going in",
+             "failed": "Quick photo: the build failed"}
+#: ... and with no job, by the pack's ``kind`` of the tile.
+_HERE_KIND = {"placeholder": "Quick photo: not built yet",
+              "drape": "Quick photo: in place",
+              "full": "Scenery built at full detail"}
+
+
+def _clock(seconds) -> str:
+    seconds = max(0, int(seconds or 0))
+    return "%d:%02d" % (seconds // 60, seconds % 60)
+
+
+def here_lines(here: Optional[Dict[str, Any]]) -> List[str]:
+    """The Fly pane's block for the aircraft's own tile with no plan
+    (#2020), from ``WorldStatus.here`` (``o4_engine.fly_here``): the
+    headline ("Preparing imagery at CYYR", "Imagery ready at ..."), the
+    quick photo's state (building with elapsed and estimate), and the
+    full-detail squares around the aircraft ("3 of 9 squares sharp").
+    ``[]`` before the engine reports one."""
+    if not here:
+        return []
+    place = here.get("airport") or "tile %s" % (here.get("tile") or "?")
+    kind, job = here.get("kind") or "", here.get("job") or ""
+    squares, sharp = int(here.get("squares") or 0), int(here.get("sharp") or 0)
+    if not kind and not job:
+        return ["Imagery at %s: drawn by other scenery" % place]
+    if job == "building":
+        quick = "Quick photo: building · %s of about %d min" % (
+            _clock(here.get("elapsed_s")),
+            max(1, math.ceil((here.get("estimate_s") or 0) / 60.0)))
+    else:
+        quick = _HERE_JOB.get(job) or _HERE_KIND.get(kind, "")
+    ready = (kind in ("drape", "full") and job in ("", "swapped")
+             and sharp >= squares)
+    lines = ["%s at %s" % ("Imagery ready" if ready else "Preparing imagery",
+                           place)]
+    if quick:
+        lines.append(quick)
+    if squares:
+        lines.append("Full detail nearby: %d of %d squares sharp"
+                     % (sharp, squares))
+    elif job == "building" and here.get("core"):
+        lines.append("Full detail nearby: fetching")
+    return lines

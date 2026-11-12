@@ -1126,7 +1126,11 @@ class WorldStatus(EngineEvent):
     the Fly map draws them in free flight); ``loaded`` tiles X-Plane loaded this session (the
     ``Log.txt`` witness); ``last_swap`` ``[tile, kind, utc]``; ``slots``,
     ``frame_ms``, ``governor`` (``ok``, ``reduced``) the CPU share (W2);
-    ``bytes`` the pack's size.
+    ``bytes`` the pack's size.  ``here``: the aircraft's own tile while
+    build-ahead runs (``world_job.WorldJob.here`` with
+    ``fly_here.describe``'s ``airport``, ``squares``, ``sharp`` and
+    ``reload_offer``; None before a position): the Fly pane's "Preparing
+    imagery at ..." with no plan (#2020).
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).
@@ -1147,6 +1151,7 @@ class WorldStatus(EngineEvent):
     frame_ms: float = 0.0
     governor: str = "ok"
     bytes: int = 0
+    here: Any = None
 
 
 @dataclass(frozen=True)

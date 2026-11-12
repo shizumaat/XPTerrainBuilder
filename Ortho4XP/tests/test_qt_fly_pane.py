@@ -268,3 +268,47 @@ def test_free_flight_draws_the_drapes_ahead_and_the_detail_is_the_global(
     pane.show_world(world)
     assert pane.cells() == [(53, -60, "building"), (53, -59, "quick"),
                             (54, -60, "own")]
+
+
+def test_no_plan_shows_the_aircrafts_tile_and_the_key_always(qapp):
+    """#2020: with no plan the here block says where imagery is being
+    prepared and how far it is, and offers the reload while the follow
+    line does not; the map key shows whatever the plan, its preview key
+    only while "Live flight preview" is checked."""
+    engine = _Engine({"scenery_reload": {"sent": True}})
+    pane, _ = _pane(engine)
+    assert pane.here_block.isHidden() and not pane.legend_label.isHidden()
+    assert "photo, quick" in pane.legend_label.text()
+    assert "full-detail photo" not in pane.legend_label.text()
+    pane.chk_live_preview.setChecked(True)
+    assert "full-detail photo" in pane.legend_label.text()
+    here = [h for h in CASES["text"]["here_lines"] if h[0] and h[0].get("core")
+            and h[0].get("job") == "building"][0]
+    pane.show_world(dict(CASES["events"]["WorldStatus"],
+                         here=dict(here[0], reload_offer="tiles")))
+    assert not pane.here_block.isHidden()
+    assert pane.here_label.text() == "<br>".join(here[1])
+    assert not pane.here_offer_row.isHidden()
+    pane.set_plan(TEXT.quick_plan(("CYYR", 53.3, -60.4), ("CYYT", 47.6, -52.7)))
+    assert pane.here_block.isHidden() and not pane.legend_label.isHidden()
+
+
+def test_the_aircraft_is_the_shared_airplane(qapp):
+    """Owner 2026-11-12T15:33Z: the map's aircraft is the G1000-style
+    airplane of ``O4_Fly_Layers.AIRCRAFT_SYMBOL``, white with a dark
+    outline, the same size at any zoom."""
+    pane, _ = _pane(_Engine({}))
+    view = _Map()
+    layer = QTFLYLAYER.FlyLayer(view, pane)
+    layer.set_shown(True)
+    pane.show_position(NS(lat=53.3, lon=-60.4, track_deg=0.0))
+    image = QImage(800, 400, QImage.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    layer.paint(painter)
+    painter.end()
+    at = view._viewport_point(53.3, -60.4)
+    white = QTFLYLAYER.AIRCRAFT_FILL.rgb()
+    assert image.pixel(int(at.x()), int(at.y()) - 5) == white      # fuselage
+    assert image.pixel(int(at.x()) + 5, int(at.y())) == white      # right wing
+    assert image.pixel(int(at.x()) + 7, int(at.y()) - 8) != white  # beside the nose

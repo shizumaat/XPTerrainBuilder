@@ -313,6 +313,29 @@ def test_a_drape_without_its_core_is_cored_once_and_no_reload_is_sent(
     assert builder.started[0][4] == pytest.approx(CYWG)
 
 
+def test_here_reports_the_aircrafts_own_tile_as_it_is_built():
+    """#2020: ``WorldStatus.here`` -- the aircraft's tile, its pack kind,
+    its build with elapsed and estimate, and the core it carries."""
+    kinds = {(49, -98): "placeholder", (49, -97): "placeholder"}
+    job, builder, _publisher = _parked_job(kinds)
+    assert job.status(0.0)["here"] is None            # no position yet
+    parked = {"lat": CYWG[0], "lon": CYWG[1], "agl_m": 0.4}
+    job.tick(0.0, parked)
+    job.tick(30.0, parked)
+    here = job.status(30.0)["here"]
+    assert here["tile"] == "+49-098" and here["on_ground"]
+    assert (here["kind"], here["job"], here["core"]) == (
+        "placeholder", "building", True)
+    assert here["elapsed_s"] == 30
+    assert here["estimate_s"] == round(job.estimate()[1])
+    builder.finished.append(((49, -98), True))
+    kinds[(49, -98)] = "drape"
+    job.tick(31.0, parked)
+    here = job.here(31.0)
+    assert (here["kind"], here["job"], here["elapsed_s"], here["estimate_s"],
+            here["core"]) == ("drape", "swapped", 0, 0, True)
+
+
 def test_airborne_far_away_nothing_held_is_built():
     """In the air (AGL 3,000 m) over the same tile: no parked exception --
     the held tile is left alone."""

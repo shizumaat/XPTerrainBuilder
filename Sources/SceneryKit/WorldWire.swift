@@ -61,6 +61,9 @@ public struct O4WorldStatus: Sendable, Equatable {
     /// Build-ahead's tiles in track mode, `FlightStatus.jobs`' rows
     /// (`[[lat, lon], "ahead", kind, state]`): the Fly map in free flight.
     public var jobs: [O4FlightStatus.Job] = []
+    /// The aircraft's own tile while build-ahead runs (`fly_here`): the
+    /// Fly pane's "Preparing imagery at ..." (`FlyText.hereLines`, #2020).
+    public var here: O4JSON?
     public let loaded: [String]
     /// `[tile, kind, utc]`, empty before the first swap.
     public let lastSwap: [String]
@@ -107,6 +110,7 @@ public struct O4WorldStatus: Sendable, Equatable {
             bytes: (object["bytes"] as? NSNumber)?.int64Value ?? 0,
             regions: regions)
         status.jobs = jobRows(object["jobs"])
+        if let here = object["here"] as? [String: Any] { status.here = O4JSON.from(here) }
         return status
     }
 

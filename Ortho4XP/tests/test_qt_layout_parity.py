@@ -68,11 +68,13 @@ FLY_OFFER = ("FlyOfferBanner(model:", "fly_offer")
 #: intro text (U1's placeholder) leading while no flight is named.
 FLY_PANE = (
     ("placeholder", "AppModeText.flyPlaceholder", "placeholder"),
+    ("here", "FlyHereBlock(model:", "here_block"),                    # #2020
     ("plan_source", "Picker(FlyText.planSourceLabel", "plan_source_combo"),
     ("simbrief", "SimBriefRow(model:", "simbrief_row"),
     ("open_plan", "Button(FlyText.openPlan)", "open_plan_btn"),
     ("quick_route", "QuickRouteRow(model:", "quick_route_row"),
     ("flight_card", "FlightCard(model:", "flight_card"),
+    ("legend", "FlyLegend(model:", "legend_label"),     # #2020: whatever the plan
     ("build_alternate", "Toggle(FlyText.buildAlternate", "chk_build_alternate"),
     ("cruise_speed", "CruiseSpeedField(model:", "cruise_speed_edit"),
     ("corridor", "CorridorWidthField(model:", "corridor_edit"),

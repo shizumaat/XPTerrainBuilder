@@ -26,10 +26,15 @@ struct FlyMapOverlay: View {
         case "quick": return Color(red: 0.19, green: 0.69, blue: 0.78)   // #30B0C7
         case "built": return MapCanvasView.builtTile
         case "building": return MapCanvasView.customPatchBand
+        case "sharp": return Color(red: 1.0, green: 0.84, blue: 0.04)      // #FFD60A
         default: return Color(white: 0.55)                              // #8C8C8C
         }
     }
+    /// The track line; the aircraft itself is `FlyLayers.aircraftSymbol`
+    /// filled white with a dark outline (G1000 style; Qt: `AIRCRAFT_FILL`,
+    /// `AIRCRAFT_OUTLINE`).
     static let aircraft = Color(red: 0.04, green: 0.52, blue: 1.0)      // #0A84FF
+    static let aircraftOutline = Color(white: 0.08)                     // #141414
 
     var body: some View {
         Group {
@@ -64,9 +69,11 @@ struct FlyMapOverlay: View {
                         east: bottomRight.lon, pxPerDegree: cam.scale)
     }
 
-    /// Each square's installed imagery (#2001), under everything else.
+    /// Each square's installed imagery (#2001), under everything else;
+    /// the full-resolution ones outlined in the legend's `sharp` (#2020).
     private func drawPreview(_ cam: MapCamera, _ size: CGSize, _ context: inout GraphicsContext) {
         _ = preview.revision
+        var sharp = Path()
         for square in preview.squares {
             guard let image = preview.image(square) else { continue }
             let a = cam.point(lon: square.west, lat: square.north, in: size)
@@ -74,7 +81,9 @@ struct FlyMapOverlay: View {
             let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
                               width: abs(b.x - a.x), height: abs(b.y - a.y))
             context.draw(Image(decorative: image, scale: 1), in: rect)
+            if square.sharp { sharp.addRect(rect.insetBy(dx: 0.5, dy: 0.5)) }
         }
+        context.stroke(sharp, with: .color(Self.color("sharp")), lineWidth: 1)
     }
 
     private func drawLayers(_ cam: MapCamera, _ size: CGSize, _ context: inout GraphicsContext) {
@@ -105,18 +114,15 @@ struct FlyMapOverlay: View {
         context.stroke(path, with: .color(color), lineWidth: width)
     }
 
-    /// A triangle pointing along the track.
+    /// The G1000-style airplane (`FlyLayers.aircraftSymbol`) pointing
+    /// along the track, the same size at every zoom.
     private func drawAircraft(_ at: CGPoint, track: Double, _ context: inout GraphicsContext) {
-        let r = track * .pi / 180
-        func corner(_ angle: Double, _ length: Double) -> CGPoint {
-            CGPoint(x: at.x + length * sin(r + angle), y: at.y - length * cos(r + angle))
-        }
+        let points = FlyLayers.aircraftSymbol(x: at.x, y: at.y, trackDegrees: track)
         var path = Path()
-        path.move(to: corner(0, 11))
-        path.addLine(to: corner(2.5, 8))
-        path.addLine(to: corner(-2.5, 8))
+        path.addLines(points.map { CGPoint(x: $0.x, y: $0.y) })
         path.closeSubpath()
-        context.fill(path, with: .color(Self.aircraft))
-        context.stroke(path, with: .color(.white), lineWidth: 1.5)
+        context.fill(path, with: .color(.white))
+        context.stroke(path, with: .color(Self.aircraftOutline),
+                       style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
     }
 }

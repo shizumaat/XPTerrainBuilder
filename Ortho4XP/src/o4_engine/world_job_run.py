@@ -48,6 +48,7 @@ import O4_World_Pack as WP
 
 from . import world_commands as WORLD
 from .build_share import SHARE, BuildShare
+from .fly_here import describe as describe_here
 from .world_job import WorldJob, drape_estimate
 
 __all__ = ["STATUS_EVERY_S", "world_job_start", "world_job_stop", "autostart"]
@@ -410,8 +411,10 @@ class _Runner:
             if now - status_at >= STATUS_EVERY_S:
                 status_at = now
                 with contextlib.suppress(Exception):
-                    self.emit(WORLD.status_event(self.scenery_dir,
-                                                 **self.job.status(now)))
+                    status = self.job.status(now)
+                    status["here"] = describe_here(status["here"],
+                                                   self.scenery_dir)
+                    self.emit(WORLD.status_event(self.scenery_dir, **status))
 
 
 def world_job_start(session, emit=None, mode: str = "track", flight=None,

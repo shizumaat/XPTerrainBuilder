@@ -153,6 +153,44 @@ import Foundation
         }
     }
 
+    /// #2020: the no-plan block's lines from `WorldStatus.here`.
+    @Test func hereLines() {
+        let cases = Self.cases("here_lines")
+        #expect(cases.count >= 10)
+        for c in cases {
+            let want = (c[1].arrayValue ?? []).compactMap(\.stringValue)
+            #expect(FlyText.hereLines(c[0] == .null ? nil : c[0]) == want)
+        }
+        // The event carries it.
+        let here: [String: Any] = ["tile": "+53-061", "lat": 53.3, "lon": -60.4,
+                                   "kind": "drape", "job": "swapped", "squares": 9, "sharp": 9]
+        let status = O4WorldStatus.parse(["event": "WorldStatus", "here": here])
+        #expect(FlyText.hereLines(status.here).first == "Imagery ready at tile +53-061")
+    }
+
+    /// Owner 2026-11-12T15:33Z: the G1000 airplane, the same points as
+    /// `O4_Fly_Layers.AIRCRAFT_SYMBOL`.
+    @Test func aircraftSymbol() throws {
+        let doc = try #require(Self.doc["aircraft_symbol"])
+        let points = (doc["points"]?.arrayValue ?? []).map {
+            ($0.arrayValue![0].doubleValue!, $0.arrayValue![1].doubleValue!)
+        }
+        #expect(points.count == FlyLayers.aircraftSymbol.count)
+        for (a, b) in zip(points, FlyLayers.aircraftSymbol) {
+            #expect(a.0 == b.x && a.1 == b.y)
+        }
+        for row in doc["placed"]?.arrayValue ?? [] {
+            let c = row.arrayValue!
+            let made = FlyLayers.aircraftSymbol(x: c[0].doubleValue!, y: c[1].doubleValue!,
+                                                trackDegrees: c[2].doubleValue!)
+            let want = (c[3].arrayValue ?? []).map { $0.arrayValue! }
+            #expect(made.count == want.count)
+            for (m, w) in zip(made, want) {
+                #expect(abs(m.x - w[0].doubleValue!) < 1e-3 && abs(m.y - w[1].doubleValue!) < 1e-3)
+            }
+        }
+    }
+
     @Test func trackAndCorridor() throws {
         let track = try #require(Self.doc["track"])
         var made = AircraftTrack()

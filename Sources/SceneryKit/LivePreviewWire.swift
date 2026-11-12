@@ -19,6 +19,9 @@ public struct O4LivePreviewSquare: Sendable, Equatable {
     public let south: Double
     public let west: Double
     public let east: Double
+    /// The installed file is at full resolution (`O4_Live_Preview`'s
+    /// `sharp`): the map outlines it (#2020).
+    public var sharp = false
 
     public init(key: String, path: String, stamp: String, px: Int,
                 north: Double, south: Double, west: Double, east: Double) {
@@ -33,9 +36,12 @@ public struct O4LivePreviewSquare: Sendable, Equatable {
                   let north = row["north"]?.doubleValue, let south = row["south"]?.doubleValue,
                   let west = row["west"]?.doubleValue, let east = row["east"]?.doubleValue
             else { return nil }
-            return O4LivePreviewSquare(key: key, path: path, stamp: row["stamp"]?.stringValue ?? "",
-                                       px: row["px"]?.intValue ?? 256,
-                                       north: north, south: south, west: west, east: east)
+            var square = O4LivePreviewSquare(key: key, path: path,
+                                             stamp: row["stamp"]?.stringValue ?? "",
+                                             px: row["px"]?.intValue ?? 256,
+                                             north: north, south: south, west: west, east: east)
+            square.sharp = row["sharp"]?.boolValue ?? false
+            return square
         }
     }
 }

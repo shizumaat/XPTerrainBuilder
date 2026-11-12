@@ -17,7 +17,30 @@ import O4_Flight_Plan as FP
 import O4_Fly_Text as TEXT
 
 __all__ = ["TRACK_MAX_POINTS", "TRACK_MIN_STEP_M", "TRACK_BREAK_KM",
-           "AircraftTrack", "corridor_cells", "map_jobs"]
+           "AIRCRAFT_SYMBOL", "AircraftTrack", "aircraft_symbol",
+           "corridor_cells", "map_jobs"]
+
+#: The aircraft on the map (owner 2026-11-12T15:33Z: "a small airplane
+#: like you would typically see on a garmin g1000 mfd"): a top-down
+#: airplane, nose up, in screen pixels about the aircraft's position
+#: (x right, y forward), 21 x 22 px at every zoom; both apps fill it white
+#: with a dark outline (Mac: SceneryKit ``FlyLayers.aircraftSymbol``, the
+#: same points, held equal by ``tests/fixtures/fly_pane_cases.json``).
+AIRCRAFT_SYMBOL = (
+    (0.0, 11.0), (1.3, 9.5), (1.5, 4.0), (10.5, -1.5), (10.5, -3.5),
+    (1.5, -1.5), (1.1, -7.0), (4.5, -9.5), (4.5, -11.0), (0.0, -10.0),
+    (-4.5, -11.0), (-4.5, -9.5), (-1.1, -7.0), (-1.5, -1.5),
+    (-10.5, -3.5), (-10.5, -1.5), (-1.5, 4.0), (-1.3, 9.5))
+
+
+def aircraft_symbol(x: float, y: float, track_deg: float) -> list:
+    """:data:`AIRCRAFT_SYMBOL` at screen point ``(x, y)`` (y down), its
+    nose along ``track_deg`` (clockwise from north)."""
+    r = math.radians(track_deg)
+    c, s = math.cos(r), math.sin(r)
+    return [(round(x + px * c + py * s, 4), round(y + px * s - py * c, 4))
+            for px, py in AIRCRAFT_SYMBOL]
+
 
 #: One hour at one position a second.
 TRACK_MAX_POINTS = 3600

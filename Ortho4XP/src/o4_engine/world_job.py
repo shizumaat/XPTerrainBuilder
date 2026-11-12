@@ -157,6 +157,7 @@ class WorldJob:
         self.slot_free = slot_free
         self.kind_of = kind_of
         self.spawn: Optional[Tile] = None   # the parked aircraft's tile
+        self.on_ground = False
         self._cored: set = set()
         self.stamp = stamp                 # last_swap's time (UTC text)
         self.kind = kind
@@ -244,6 +245,7 @@ class WorldJob:
         agl = rec.get("agl_m")
         ground = (float(agl) < ON_GROUND_AGL_M if agl is not None
                   else self.gs_ms < PARKED_MS)
+        self.on_ground = ground
         if not ground or self.position is None:
             return None
         tile = (math.floor(self.position[0]), math.floor(self.position[1]))
@@ -415,4 +417,32 @@ class WorldJob:
                 "slots": self.slots(),
                 "frame_ms": self.governor.frame_ms(),
                 "governor": self.governor.state,
-                "last_swap": self.last_swap}
+                "last_swap": self.last_swap, "here": self.here(now)}
+
+    def here(self, now: float) -> Optional[dict]:
+        """The aircraft's own tile as the job sees it (#2020: the Fly
+        pane's "Preparing imagery at ..." with no plan): ``tile``,
+        ``lat``/``lon`` (the aircraft), ``on_ground``, ``kind`` (the
+        pack's: ``placeholder``, ``drape``, ``full``, "" not ours),
+        ``job`` (its build-ahead state, "" none), ``elapsed_s`` /
+        ``estimate_s`` of a running build, ``core`` (the build carries,
+        or the tile has had, the parked aircraft's full-resolution core).
+        None before the first position."""
+        if self.position is None:
+            return None
+        tile = (math.floor(self.position[0]), math.floor(self.position[1]))
+        job = self.jobs.get(tile)
+        building = (job is not None and job.state == "building"
+                    and job.started_at is not None)
+        elapsed = now - job.started_at if building else 0.0
+        return {"tile": WP.tile_name(*tile),
+                "lat": round(self.position[0], 6),
+                "lon": round(self.position[1], 6),
+                "on_ground": bool(self.on_ground),
+                "kind": self.kind_of(tile) or "",
+                "job": "" if job is None else (
+                    "staged" if job.state == "built" else job.state),
+                "elapsed_s": round(max(0.0, elapsed)),
+                "estimate_s": round(self.estimate()[1]) if building else 0,
+                "core": bool(tile in self._cored
+                             or (job is not None and job.core is not None))}

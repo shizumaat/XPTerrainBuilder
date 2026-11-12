@@ -25,6 +25,7 @@ import Foundation
         #expect(squares.count == 2)                      // the malformed row is skipped
         #expect(squares[0].key == "+53-061/21216_21712_BI16.dds")
         #expect(squares[0].px == 256 && squares[1].px == 128)
+        #expect(squares[0].sharp && !squares[1].sharp)    // #2020: full resolution
         #expect(abs(squares[0].north - 53.435719206694195) < 1e-12)
         #expect(squares[1].west == -60.64453125 && squares[1].east == -60.556640625)
         #expect(O4LivePreviewSquare.list(from: nil).isEmpty)

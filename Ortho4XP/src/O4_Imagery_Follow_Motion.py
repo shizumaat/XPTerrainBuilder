@@ -5,8 +5,10 @@ The follow job never reads ``sim/flightmodel/position/groundspeed``:
 flight 2 was flown with X-Plane's ground-speed multiplier and moved up to
 8x faster than that dataref says.  :class:`MotionTracker` takes the
 camera's ``(t, lat, lon, alt)`` samples (``t`` = this machine's clock, so
-a sim-time multiplier is measured, not trusted) and derives track and
-speed from the displacement across the last :data:`WINDOW_S` seconds.
+a sim-time multiplier is measured, not trusted) and derives track, speed
+and vertical speed from the displacement across the last :data:`WINDOW_S`
+seconds; each sample's height above the ground rides along (the plan's
+altitude rule, RULINGS 2026-11-12f).
 
 A JUMP (map jump, replay, "move to"; spec §4.5) is a displacement of more
 than :data:`JUMP_S` square sizes in under :data:`JUMP_WITHIN_S` seconds
@@ -55,11 +57,14 @@ class MotionTracker:
         self.jumps = 0
         self.jumped = False          # the last add() was a jump
         self._track = 0.0
+        self._agl_m = 0.0            # the last sample's height above ground
 
     def add(self, t: float, lat: float, lon: float,
-            alt_m: float = 0.0) -> Motion:
-        """One camera sample; the motion it implies."""
+            alt_m: float = 0.0, agl_m: float = 0.0) -> Motion:
+        """One camera sample (``agl_m``: its height above the ground); the
+        motion it implies."""
         self.jumped = False
+        self._agl_m = max(0.0, float(agl_m))
         if self.samples:
             dt = t - self.samples[-1][0]
             if dt <= 0:
@@ -93,11 +98,13 @@ class MotionTracker:
         if not self.samples:
             return None
         t1, lat1, lon1, alt1 = self.samples[-1]
-        t0, lat0, lon0, _ = self.samples[0]
-        speed = 0.0
+        t0, lat0, lon0, alt0 = self.samples[0]
+        speed = vertical = 0.0
         if t1 > t0:
             east, north = _east_north_m(lat0, lon0, lat1, lon1)
             speed = math.hypot(east, north) / (t1 - t0)
+            vertical = (alt1 - alt0) / (t1 - t0)
             if speed > 0.5:          # a parked camera keeps its last track
                 self._track = math.degrees(math.atan2(east, north)) % 360.0
-        return Motion(lat1, lon1, alt1, self._track, speed)
+        return Motion(lat1, lon1, alt1, self._track, speed, self._agl_m,
+                      vertical)

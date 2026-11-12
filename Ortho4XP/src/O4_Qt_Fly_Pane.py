@@ -10,7 +10,10 @@ countdown, the World pack and follow lines, "While flying", "Photo detail
 ahead" (the global ``drape_photo_px`` the World job's drapes are fetched
 at, RULINGS 2026-11-11j), "Live flight preview" (#2001; the map's
 ``O4_Qt_Live_Preview`` draws it), Divert… and End flight.  With no flight
-and no plan the map shows build-ahead's drapes (``WorldStatus.jobs``).
+and no plan the map shows build-ahead's drapes (``WorldStatus.jobs``)
+and the pane's here block says how the aircraft's own tile is coming on
+(``WorldStatus.here``, ``O4_Fly_Text.here_lines``, #2020); the map key
+shows whatever the plan.
 Lane F2 adds the offline waiver row (RULINGS 2026-11-10k Q3), the offered
 reload (rule S6 (a) before departure, (b) in the air: "Reload scenery
 now", the only way it is sent, owner 2026-11-12T14:34Z) and the
@@ -26,6 +29,7 @@ table, never re-spelled); the ``flight_*`` commands, ``FlightStatus`` and
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Callable, Dict, Optional
 
 import O4_App_Modes as MODES
@@ -33,7 +37,9 @@ import O4_Fly_Divert_Text as DTEXT
 import O4_Fly_Layers as LAYERS
 import O4_Fly_Text as TEXT
 import O4_Glossary as GLOSSARY
+import O4_Imagery_OnDemand_Text as OTEXT
 import O4_Qt_Fly_Divert as DIVERT
+from O4_Qt_Fly_Layer import LEGEND_COLORS
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -115,6 +121,8 @@ class FlyPane(QWidget):
         layout.addWidget(QLabel("<b>%s</b>" % GLOSSARY.TERMS["mode_fly"]))
         self.placeholder = _caption(MODES.FLY_PLACEHOLDER, gray=True)
         layout.addWidget(self.placeholder)
+        self.here_block = self._here_block()
+        layout.addWidget(self.here_block)
         self.plan_source_combo = QComboBox()
         self.plan_source_combo.setToolTip(TEXT.PLAN_SOURCE_LABEL)
         self.plan_source_combo.activated.connect(self._source_chosen)
@@ -128,6 +136,8 @@ class FlyPane(QWidget):
         layout.addWidget(self.quick_route_row)
         self.flight_card = self._card()
         layout.addWidget(self.flight_card)
+        self.legend_label = _caption()
+        layout.addWidget(self.legend_label)
         self.message_label = _caption()
         self.message_label.setStyleSheet("color: #d97706;")
         self.message_label.setVisible(False)
@@ -181,6 +191,7 @@ class FlyPane(QWidget):
         self.chk_live_preview.setChecked(bool(self.prefs.get(PREF_LIVE_PREVIEW)))
         self.chk_live_preview.toggled.connect(
             lambda on: self._remember(PREF_LIVE_PREVIEW, bool(on)))
+        self.chk_live_preview.toggled.connect(self._show)
         layout.addWidget(self.chk_live_preview)
         self.reload_offer_row, self.reload_label = self._button_row(
             ((DTEXT.RELOAD_NOW, self.reload),))
@@ -256,13 +267,36 @@ class FlyPane(QWidget):
         v.setContentsMargins(8, 6, 8, 6)
         self.card_label = _caption()
         v.addWidget(self.card_label)
-        self.legend_label = _caption(" · ".join(w for _k, w in TEXT.LEGEND),
-                                     gray=True)
-        v.addWidget(self.legend_label)
         self.prepare_btn = QPushButton(TEXT.PREPARE)
         self.prepare_btn.clicked.connect(self.prepare)
         v.addWidget(self.prepare_btn)
         return card
+
+    def _here_block(self):
+        """With no plan, the aircraft's own tile (#2020): "Preparing
+        imagery at ...", the quick photo, the full-detail squares, and the
+        reload offer while the follow line is not offering it.  Swift: ``FlyHereBlock``."""
+        block = QFrame()
+        block.setFrameShape(QFrame.StyledPanel)
+        v = QVBoxLayout(block)
+        v.setContentsMargins(8, 6, 8, 6)
+        self.here_label = _caption()
+        v.addWidget(self.here_label)
+        self.here_offer_row, self.here_offer_label = self._button_row(
+            ((OTEXT.RELOAD_SCENERY_TITLE, self.reload_scenery),))
+        v.addWidget(self.here_offer_row)
+        block.setVisible(False)
+        return block
+
+    def _legend_html(self) -> str:
+        """The map key (§14), each word after its color; the preview's
+        keys only while "Live flight preview" is checked."""
+        preview = self.chk_live_preview.isChecked()
+        return " &nbsp; ".join(
+            '<span style="color:%s">&#9632;</span> <span style="color:gray">'
+            '%s</span>' % (LEGEND_COLORS[key].name(), words)
+            for key, words in TEXT.LEGEND
+            if preview or key not in TEXT.PREVIEW_KEYS)
 
     def _spin(self, words, lo, hi, value):
         row = QWidget()
@@ -305,6 +339,16 @@ class FlyPane(QWidget):
         plan = self.plan
         self.placeholder.setVisible(plan is None and self.status is None)
         self.flight_card.setVisible(plan is not None)
+        self.legend_label.setText(self._legend_html())
+        here = (self.world or {}).get("here") if plan is None else None
+        self.here_label.setText("<br>".join(TEXT.here_lines(here)))
+        self.here_block.setVisible(bool(here))
+        follow_offer = getattr(self.follow_line, "reload_row", None)
+        offer = ("" if follow_offer is not None and not follow_offer.isHidden()
+                 else OTEXT.reload_offer_line((here or {}).get("reload_offer")
+                                              or ""))
+        self.here_offer_label.setText(offer)
+        self.here_offer_row.setVisible(bool(offer))
         if plan is not None:
             self.card_label.setText("\n".join(TEXT.card_lines(plan, self.cruise_kt())))
         self.chk_build_alternate.setEnabled(bool(plan and plan.get("alternate")))
@@ -484,6 +528,18 @@ class FlyPane(QWidget):
         now"."""
         if self.status:
             self._command("flight_reload", flight=self.status.get("flight"))
+
+    def reload_scenery(self):
+        """The here block's "Reload scenery" (``scenery_reload``): sent
+        only on this click (owner 2026-11-12T14:34Z), off the UI thread
+        (it waits on X-Plane's Web API)."""
+        def send():
+            try:
+                self._run("scenery_reload")
+            except Exception as error:      # noqa: BLE001 -- logged only
+                print("Reload scenery: %s" % error)
+        threading.Thread(target=send, daemon=True,
+                         name="o4-scenery-reload").start()
 
     def waive_offline(self):
         """"Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3)."""

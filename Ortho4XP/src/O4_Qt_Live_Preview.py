@@ -9,6 +9,11 @@ and the DDS read (``o4_engine.live_preview_commands``), this draws.
 * :meth:`LivePreview.follow_landed` -- an ``ImageryFollowStatus``'s
   ``landed`` count; when it grows a tier landed and the squares are
   asked again (a square whose ``stamp`` changed is fetched again).
+* :meth:`LivePreview.world_swapped` -- a ``WorldStatus``'s
+  ``last_swap``; when it changes build-ahead put a tile in (#2020) and
+  the squares are asked again.
+* :meth:`LivePreview.paint` outlines the squares at full resolution
+  (``sharp``) in ``outline``'s color (the legend's ``sharp``).
 * Missing images are fetched (``live_preview_mip``) a few per event-loop
   turn, at most :data:`PUMP_BUDGET_S` each, so the window never stalls.
 * At most ``O4_Live_Preview.APP_CACHE_IMAGES`` images are kept, the
@@ -23,7 +28,7 @@ import time
 from collections import OrderedDict
 
 import O4_Live_Preview as LIVE
-from PySide6.QtCore import QObject, QRectF, QTimer, Signal
+from PySide6.QtCore import QObject, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QImage
 
 __all__ = ["LivePreview", "PUMP_BUDGET_S", "SETTLE_MS"]
@@ -49,6 +54,7 @@ class LivePreview(QObject):
         self.images: "OrderedDict[str, tuple]" = OrderedDict()
         self.pending: list = []
         self._landed = None
+        self._swap = None
         self._settle = QTimer(self)
         self._settle.setSingleShot(True)
         self._settle.setInterval(SETTLE_MS)
@@ -75,6 +81,16 @@ class LivePreview(QObject):
     def follow_landed(self, landed) -> None:
         if landed != self._landed:
             self._landed = landed
+            if self.enabled:
+                self.refresh()
+
+    def world_swapped(self, last_swap) -> None:
+        """A ``WorldStatus``'s ``last_swap``: build-ahead put a tile in
+        (a quick photo, a parked aircraft's full-detail core, #2020), so
+        the squares are asked again."""
+        token = tuple(last_swap or ())
+        if token != self._swap:
+            self._swap = token
             if self.enabled:
                 self.refresh()
 
@@ -125,11 +141,13 @@ class LivePreview(QObject):
         if self.pending:
             self._pump_timer.start()
 
-    def paint(self, painter, point) -> None:
+    def paint(self, painter, point, outline=None) -> None:
         """Draw the squares that have an image; ``point(lat, lon)`` is the
-        map's viewport point."""
+        map's viewport point; ``outline`` (a pen) marks the full-
+        resolution ones."""
         if not self.enabled:
             return
+        sharp = []
         for square in self.squares:
             held = self.images.get(square["key"])
             if not held:
@@ -137,3 +155,10 @@ class LivePreview(QObject):
             rect = QRectF(point(square["north"], square["west"]),
                           point(square["south"], square["east"])).normalized()
             painter.drawImage(rect, held[2])
+            if square.get("sharp"):
+                sharp.append(rect)
+        if outline is not None and sharp:
+            painter.setPen(outline)
+            painter.setBrush(Qt.NoBrush)
+            for rect in sharp:
+                painter.drawRect(rect.adjusted(0.5, 0.5, -0.5, -0.5))

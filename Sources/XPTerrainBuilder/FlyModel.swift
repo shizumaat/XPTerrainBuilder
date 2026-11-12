@@ -64,6 +64,9 @@ final class FlyModel: ObservableObject {
     let preview = LivePreviewModel()
     @Published private(set) var status: O4FlightStatus?
     @Published private(set) var worldStatus: O4JSON?
+    /// The aircraft's own tile (`WorldStatus.here`, #2020): the pane's
+    /// "Preparing imagery at ..." with no plan.
+    @Published private(set) var here: O4JSON?
     /// Build-ahead's tiles in free flight (`WorldStatus.jobs`).
     @Published private(set) var worldJobs: [O4FlightStatus.Job] = []
     @Published private(set) var track = AircraftTrack()
@@ -147,6 +150,8 @@ final class FlyModel: ObservableObject {
             "loaded": .array(status.loaded.map { .string($0) }),
         ])
         if worldJobs != status.jobs { worldJobs = status.jobs }
+        if here != status.here { here = status.here }
+        preview.worldSwapped(status.lastSwap)
     }
 
     /// Aircraft positions while Fly is shown (`aircraft_watch`).

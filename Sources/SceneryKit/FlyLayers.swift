@@ -78,6 +78,30 @@ public struct FlyCell: Hashable, Sendable, Comparable {
 }
 
 public enum FlyLayers {
+    /// The aircraft on the map (owner 2026-11-12T15:33Z: "a small airplane
+    /// like you would typically see on a garmin g1000 mfd"): a top-down
+    /// airplane, nose up, in screen points about the aircraft's position
+    /// (x right, y forward), 21 x 22 pt at every zoom, filled white with a
+    /// dark outline. Python: `O4_Fly_Layers.AIRCRAFT_SYMBOL` (the same
+    /// points, held equal by `fly_pane_cases.json`).
+    public static let aircraftSymbol: [(x: Double, y: Double)] = [
+        (0.0, 11.0), (1.3, 9.5), (1.5, 4.0), (10.5, -1.5), (10.5, -3.5),
+        (1.5, -1.5), (1.1, -7.0), (4.5, -9.5), (4.5, -11.0), (0.0, -10.0),
+        (-4.5, -11.0), (-4.5, -9.5), (-1.1, -7.0), (-1.5, -1.5),
+        (-10.5, -3.5), (-10.5, -1.5), (-1.5, 4.0), (-1.3, 9.5),
+    ]
+
+    /// `aircraftSymbol` at screen point (`x`, `y`) (y down), its nose along
+    /// `trackDegrees` (clockwise from north). Python:
+    /// `O4_Fly_Layers.aircraft_symbol`.
+    public static func aircraftSymbol(x: Double, y: Double,
+                                      trackDegrees: Double) -> [(x: Double, y: Double)] {
+        let r = trackDegrees * .pi / 180, c = cos(r), s = sin(r)
+        return aircraftSymbol.map { p in
+            (x: x + p.x * c + p.y * s, y: y + p.x * s - p.y * c)
+        }
+    }
+
     /// The corridor's tiles with their legend key, sorted: the tiles of
     /// `FlightStatus.jobs` by their job, and before the engine reports
     /// any, the tiles the route crosses plus those within `corridorKm`

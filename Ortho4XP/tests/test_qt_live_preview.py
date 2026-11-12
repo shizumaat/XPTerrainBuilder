@@ -167,3 +167,22 @@ def test_a_refused_command_leaves_the_map_bare(qapp):
     painter = QPainter(image)
     preview.paint(painter, lambda la, lo: QPointF(0, 0))
     painter.end()
+
+
+def test_a_swapped_world_tile_is_drawn_as_installed(qapp):
+    """#2020: build-ahead put a tile in (``WorldStatus.last_swap``
+    changed): the squares are asked again and the changed one fetched."""
+    engine = _Engine([_square(0)])
+    preview = QTLIVE.LivePreview(engine)
+    preview.set_view(53, -61, 54, -60, 400)
+    preview.set_enabled(True)
+    _drain(preview)
+    preview.world_swapped(["+53-061", "drape", "t1"])
+    asked = len(engine.asked("live_preview_squares"))
+    preview.world_swapped(["+53-061", "drape", "t1"])     # the same swap
+    assert len(engine.asked("live_preview_squares")) == asked
+    engine.squares = [_square(0, stamp="2-2"), _square(1)]
+    preview.world_swapped(["+53-061", "drape", "t2"])
+    _drain(preview)
+    assert len(engine.asked("live_preview_squares")) == asked + 1
+    assert set(preview.images) == {s["key"] for s in engine.squares}

@@ -19,7 +19,10 @@ returns); this module is the rule and the read, pure of settings
   fetched at (:func:`_mip_px`: the on-screen size rounded up to a power of
   two, :data:`MIN_MIP_PX`..:data:`MAX_MIP_PX`).  Each carries a
   ``stamp`` (modification time and size): a square whose stamp changes
-  (the follow job landed a finer tier) is fetched again.
+  (the follow job landed a finer tier, build-ahead swapped a tile in) is
+  fetched again; its ``tier_px`` is the installed file's width (512 px a
+  quick drape, 4096 full resolution: what X-Plane draws there, #2020)
+  and ``sharp`` says it is full resolution: the apps outline those.
 * :func:`mip_image` -- ONE mip level of a square's DDS
   (``O4_DDS_File.read_level``: the header and that level only, never the
   whole file), decoded (``O4_DDS_Decode``) and encoded small (JPEG for an
@@ -38,12 +41,13 @@ import os
 import re
 
 import O4_DDS_File as DDS
+import O4_DDS_Tiers as TIERS
 import O4_World_Pack as WP
 from O4_DDS_Decode import decode_blocks
 
 __all__ = ["APP_CACHE_IMAGES", "MAX_MIP_PX", "MAX_SQUARES", "MAX_TILES",
            "MIN_MIP_PX", "MIN_SQUARE_PX", "existing_dirs", "mip_image",
-           "parse_texture", "squares"]
+           "parse_texture", "squares", "tile_squares"]
 
 #: Below this many screen pixels a square is not drawn (the map is too
 #: far out for imagery to read; the tile outlines say enough).
@@ -114,7 +118,10 @@ def _mip_px(screen_px: float) -> int:
     return min(MAX_MIP_PX, 2 ** math.ceil(math.log2(want)))
 
 
-def _tile_squares(folders) -> "list[dict]":
+def tile_squares(folders) -> "list[dict]":
+    """Every square installed in a tile's ``folders`` (the first folder
+    holding a name wins): :func:`parse_texture`'s fields with ``name``,
+    ``path`` and ``stamp``."""
     found = {}
     for folder in folders:
         try:
@@ -148,14 +155,14 @@ def squares(south: float, west: float, north: float, east: float,
 
     ``px_per_deg``: screen pixels per degree of longitude.  ``folders_of
     (lat, lon)``: a tile's texture folders (:func:`existing_dirs`).
-    Replies ``{"squares": [{key, path, stamp, px, zl, north, south, west,
-    east}], "capped": bool, "reason": "" | "zoom"}`` (``zoom``: squares
+    Replies ``{"squares": [{key, path, stamp, px, zl, tier_px, sharp, north,
+    south, west, east}], "capped": bool, "reason": "" | "zoom"}`` (``zoom``: squares
     are installed here but too small to draw at this zoom)."""
     tiles = _tiles_in(south, west, north, east)
     out, too_small = [], False
     capped = len(tiles) > MAX_TILES
     for lat, lon in tiles[:MAX_TILES] if px_per_deg > 0 else ():
-        for sq in _tile_squares(folders_of(lat, lon)):
+        for sq in tile_squares(folders_of(lat, lon)):
             if not _overlaps(sq, south, west, north, east):
                 continue
             screen = (sq["east"] - sq["west"]) * px_per_deg
@@ -172,6 +179,10 @@ def squares(south: float, west: float, north: float, east: float,
              + ((s["west"] + s["east"]) / 2 - clon) ** 2)
     if len(out) > MAX_SQUARES:
         out, capped = out[:MAX_SQUARES], True
+    for sq in out:
+        header = TIERS.texture_header(sq["path"])
+        sq["tier_px"] = header[0] if header else 0
+        sq["sharp"] = sq["tier_px"] >= TIERS.FULL_WIDTH
     return {"squares": out, "capped": capped,
             "reason": "zoom" if too_small and not out else ""}
 

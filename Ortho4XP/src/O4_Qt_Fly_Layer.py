@@ -11,19 +11,24 @@ takes the mouse.
 
 from __future__ import annotations
 
-import math
-
 import O4_Flight_Plan as FP
+import O4_Fly_Layers as LAYERS
 from O4_Qt_Flight_Plan import ROUTE_COLOR
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPen, QPolygonF
 
-__all__ = ["FlyLayer", "LEGEND_COLORS", "AIRCRAFT_COLOR"]
+__all__ = ["FlyLayer", "LEGEND_COLORS", "AIRCRAFT_COLOR", "AIRCRAFT_FILL",
+           "AIRCRAFT_OUTLINE"]
 
 #: The legend's colors (Mac: ``FlyMapOverlay.color``).
 LEGEND_COLORS = {"own": QColor(140, 140, 140), "quick": QColor(48, 176, 199),
-                 "built": QColor(77, 176, 110), "building": QColor(255, 159, 10)}
+                 "built": QColor(77, 176, 110), "building": QColor(255, 159, 10),
+                 "sharp": QColor(255, 214, 10)}
+#: The track line's color; the aircraft itself is ``O4_Fly_Layers.
+#: AIRCRAFT_SYMBOL`` filled white with a dark outline (G1000 style).
 AIRCRAFT_COLOR = QColor(10, 132, 255)
+AIRCRAFT_FILL = QColor("white")
+AIRCRAFT_OUTLINE = QColor(20, 20, 20)
 
 
 class FlyLayer:
@@ -37,6 +42,8 @@ class FlyLayer:
         self.shown = False
         pane.changed.connect(self._repaint)
         if preview is not None:
+            pane.changed.connect(
+                lambda: preview.world_swapped((pane.world or {}).get("last_swap")))
             preview.changed.connect(self._repaint)
             map_view.view_changed.connect(self._view_moved)
             pane.chk_live_preview.toggled.connect(lambda _on: self._preview_on())
@@ -73,7 +80,9 @@ class FlyLayer:
         if not self.shown:
             return
         if self.preview is not None:
-            self.preview.paint(painter, self._point)
+            sharp = QPen(LEGEND_COLORS["sharp"], 1)
+            sharp.setCosmetic(True)
+            self.preview.paint(painter, self._point, sharp)
         painter.setBrush(Qt.NoBrush)
         for lat, lon, key in self._pane.cells():
             pen = QPen(LEGEND_COLORS[key], 2)
@@ -98,18 +107,16 @@ class FlyLayer:
             painter.drawPolyline(QPolygonF([self._point(lat, lon) for lat, lon in part]))
 
     def _aircraft(self, painter, lat, lon, track_deg) -> None:
-        """A triangle pointing along the track."""
+        """The G1000-style airplane (``O4_Fly_Layers.aircraft_symbol``)
+        pointing along the track, the same size at every zoom."""
         at = self._point(lat, lon)
-        r = math.radians(track_deg)
-
-        def corner(angle, length):
-            return QPointF(at.x() + length * math.sin(r + angle),
-                           at.y() - length * math.cos(r + angle))
-        pen = QPen(QColor("white"), 1.5)
+        pen = QPen(AIRCRAFT_OUTLINE, 1.5)
         pen.setCosmetic(True)
+        pen.setJoinStyle(Qt.RoundJoin)
         painter.setPen(pen)
-        painter.setBrush(AIRCRAFT_COLOR)
-        painter.drawPolygon(QPolygonF([corner(0, 11), corner(2.5, 8), corner(-2.5, 8)]))
+        painter.setBrush(AIRCRAFT_FILL)
+        painter.drawPolygon(QPolygonF([
+            QPointF(x, y) for x, y in LAYERS.aircraft_symbol(at.x(), at.y(), track_deg)]))
         painter.setBrush(Qt.NoBrush)
 
     def mouse_press(self, _event) -> bool:

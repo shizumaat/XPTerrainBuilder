@@ -84,7 +84,11 @@ public enum FlyText {
         ("quick", "photo, quick"),
         ("built", "built"),
         ("building", "building"),
+        ("sharp", "full-detail photo"),
     ]
+    /// The legend's keys the map draws only while "Live flight preview"
+    /// is on (a square of installed imagery at full resolution, #2020).
+    public static let previewKeys: Set<String> = ["sharp"]
 
     public static let defaultCruiseKt = 250
     public static let defaultCorridorKm = 20
@@ -195,6 +199,50 @@ public enum FlyText {
             return "\(grouped(Int(status.doneKm.rounded()))) of \(grouped(Int(status.routeKm.rounded()))) km flown"
         }
         return ""
+    }
+
+    static let hereJob: [String: String] = [
+        "queued": "Quick photo: waiting for a build slot",
+        "late": "Quick photo: waiting for a build slot",
+        "staged": "Quick photo: built, going in",
+        "failed": "Quick photo: the build failed",
+    ]
+    static let hereKind: [String: String] = [
+        "placeholder": "Quick photo: not built yet",
+        "drape": "Quick photo: in place",
+        "full": "Scenery built at full detail",
+    ]
+
+    /// The Fly pane's block for the aircraft's own tile with no plan
+    /// (#2020), from `WorldStatus.here`: the headline, the quick photo's
+    /// state and the full-detail squares around the aircraft; empty
+    /// before the engine reports one. Python: `O4_Fly_Text.here_lines`.
+    public static func hereLines(_ here: O4JSON?) -> [String] {
+        guard let here, here.objectValue?.isEmpty == false else { return [] }
+        let airport = here["airport"]?.stringValue ?? ""
+        let place = airport.isEmpty ? "tile \(here["tile"]?.stringValue ?? "?")" : airport
+        let kind = here["kind"]?.stringValue ?? "", job = here["job"]?.stringValue ?? ""
+        let squares = here["squares"]?.intValue ?? 0, sharp = here["sharp"]?.intValue ?? 0
+        if kind.isEmpty && job.isEmpty { return ["Imagery at \(place): drawn by other scenery"] }
+        var quick: String
+        if job == "building" {
+            let elapsed = max(0, here["elapsed_s"]?.intValue ?? 0)
+            let minutes = max(1, Int(((here["estimate_s"]?.doubleValue ?? 0) / 60).rounded(.up)))
+            quick = "Quick photo: building · \(elapsed / 60):"
+                + String(format: "%02d", elapsed % 60) + " of about \(minutes) min"
+        } else {
+            quick = hereJob[job] ?? hereKind[kind] ?? ""
+        }
+        let ready = ["drape", "full"].contains(kind) && ["", "swapped"].contains(job)
+            && sharp >= squares
+        var lines = ["\(ready ? "Imagery ready" : "Preparing imagery") at \(place)"]
+        if !quick.isEmpty { lines.append(quick) }
+        if squares > 0 {
+            lines.append("Full detail nearby: \(sharp) of \(squares) squares sharp")
+        } else if job == "building", here["core"]?.boolValue == true {
+            lines.append("Full detail nearby: fetching")
+        }
+        return lines
     }
 
     /// A corridor tile's legend key from its job's kind and state.

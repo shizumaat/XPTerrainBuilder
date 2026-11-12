@@ -68,6 +68,25 @@ WORLD_STATUS = {"state": "building", "reason": "", "building":
                          [[53, -59], "ahead", "drape", "swapped"],
                          [[54, -60], "ahead", "drape", "queued"]],
                 "loaded": ["+53-061", "+53-062"]}
+#: ``WorldStatus.here`` as ``fly_here.describe`` gives it (#2020).
+_HERE = {"tile": "+53-061", "lat": 53.3192, "lon": -60.4258,
+         "on_ground": True, "kind": "placeholder", "job": "", "elapsed_s": 0,
+         "estimate_s": 0, "core": False, "airport": "CYYR", "squares": 0,
+         "sharp": 0, "reload_offer": ""}
+HERE_CASES = [
+    None, {},
+    _HERE,
+    dict(_HERE, job="queued"),
+    dict(_HERE, job="building", elapsed_s=42, estimate_s=150, core=True),
+    dict(_HERE, job="building", elapsed_s=605, estimate_s=0),
+    dict(_HERE, job="staged", core=True),
+    dict(_HERE, kind="drape", job="swapped", core=True, squares=9, sharp=4),
+    dict(_HERE, kind="drape", job="swapped", core=True, squares=9, sharp=9),
+    dict(_HERE, kind="drape", airport=""),
+    dict(_HERE, kind="full", squares=4, sharp=4),
+    dict(_HERE, job="failed"),
+    dict(_HERE, kind="", job=""),
+]
 DEP = ("cyyr", 53.3192, -60.4258)
 ARR = ("CYYT", 47.6186, -52.7519)
 
@@ -126,6 +145,7 @@ def _text_cases():
                                         ("offered", "CYQX", "flying"),
                                         ("offered", "", "preparing"),
                                         ("sent", "CYQX", "flying"))],
+        "here_lines": [[h, TEXT.here_lines(h)] for h in HERE_CASES],
         "waiver_line": [[{"flight": "f", "waivable": w},
                          DTEXT.waiver_line({"waivable": w})]
                         for w in ([], ["+53-062", "+53-063"])],
@@ -162,6 +182,13 @@ def _doc():
                        "FlightNotice": flight_notice},
             "text": _text_cases(),
             "track": _track_case(),
+            "aircraft_symbol": {
+                "points": [list(p) for p in LAYERS.AIRCRAFT_SYMBOL],
+                "placed": [[x, y, t, [list(p) for p in
+                                      LAYERS.aircraft_symbol(x, y, t)]]
+                           for x, y, t in ((100.0, 50.0, 0.0),
+                                           (100.0, 50.0, 90.0),
+                                           (10.0, 20.0, 225.0))]},
             "corridor": [[plan, 20, [], LAYERS.corridor_cells(plan, 20)],
                          [plan, 20, FLIGHT_STATUS["jobs"],
                           LAYERS.corridor_cells(plan, 20, FLIGHT_STATUS["jobs"])],
@@ -218,6 +245,8 @@ def test_the_words_are_the_macs():
     assert 'static let drapePxLabel = "%s"' % TEXT.DRAPE_PX_LABEL in swift
     assert 'static let drapePxKey = "%s"' % TEXT.DRAPE_PX_KEY in swift
     assert "static let aircraftFreshS = %.1f" % TEXT.AIRCRAFT_FRESH_S in swift
+    assert 'previewKeys: Set<String> = [%s]' % ", ".join(
+        '"%s"' % k for k in sorted(TEXT.PREVIEW_KEYS)) in swift
     for value, words in TEXT.DRAPE_PX_CHOICES:
         assert '(%d, "%s")' % (value, words) in swift, value
     divert = SWIFT_DIVERT_TEXT.read_text(encoding="utf-8")
@@ -362,3 +391,35 @@ def test_the_reader_treats_a_null_position_as_no_read(monkeypatch):
                         lambda *a, **k: {"lat": None, "lon": None})
     reader = API.PositionReader(base="http://127.0.0.1:1")
     assert reader.read() is None and "no position yet" in reader.error
+
+
+def test_the_here_block_says_where_and_how_far():
+    """#2020: no plan, the aircraft's tile -- where, the quick photo, the
+    full-detail squares; the plan-tier words never reach the user."""
+    assert TEXT.here_lines(None) == [] and TEXT.here_lines({}) == []
+    building = TEXT.here_lines(HERE_CASES[4])
+    assert building == ["Preparing imagery at CYYR",
+                        "Quick photo: building · 0:42 of about 3 min",
+                        "Full detail nearby: fetching"]
+    assert TEXT.here_lines(HERE_CASES[7])[-1] == \
+        "Full detail nearby: 4 of 9 squares sharp"
+    assert TEXT.here_lines(HERE_CASES[8])[0] == "Imagery ready at CYYR"
+    assert TEXT.here_lines(HERE_CASES[9]) == ["Imagery ready at tile +53-061",
+                                              "Quick photo: in place"]
+    for case in HERE_CASES:
+        for line in TEXT.here_lines(case):
+            assert not re.search(r"placeholder|drape|light", line), line
+
+
+def test_the_aircraft_is_a_small_airplane_along_its_track():
+    """Owner 2026-11-12T15:33Z: a G1000-style airplane, nose along the
+    track, about 21 x 22 px whatever the zoom."""
+    xs = [x for x, _y in LAYERS.AIRCRAFT_SYMBOL]
+    ys = [y for _x, y in LAYERS.AIRCRAFT_SYMBOL]
+    assert 18 <= max(xs) - min(xs) <= 24 and 18 <= max(ys) - min(ys) <= 24
+    assert LAYERS.AIRCRAFT_SYMBOL == tuple((-x, y) for x, y in
+                                           [LAYERS.AIRCRAFT_SYMBOL[0]]
+                                           + list(LAYERS.AIRCRAFT_SYMBOL[:0:-1]))
+    north = LAYERS.aircraft_symbol(100, 50, 0)
+    east = LAYERS.aircraft_symbol(100, 50, 90)
+    assert north[0] == (100.0, 39.0) and east[0] == (111.0, 50.0)

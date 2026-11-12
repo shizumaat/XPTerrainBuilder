@@ -11,6 +11,8 @@ import SceneryKit
 /// - the map moved: the squares are asked again after 0.2 s of quiet;
 /// - `ImageryFollowStatus.landed` grew: a tier landed, asked again (a
 ///   square whose stamp changed is fetched again);
+/// - `WorldStatus.lastSwap` changed: build-ahead put a tile in (a quick
+///   photo, a parked aircraft's full-detail core, #2020), asked again;
 /// - missing images are fetched one at a time; at most
 ///   `LivePreviewCache.limit` are kept.
 @MainActor
@@ -27,6 +29,7 @@ final class LivePreviewModel: ObservableObject {
     private var pending: [O4LivePreviewSquare] = []
     private var fetching = false
     private var landed: Int?
+    private var swap: [String]?
     private var settle: Task<Void, Never>?
 
     func setEnabled(_ on: Bool) {
@@ -58,6 +61,13 @@ final class LivePreviewModel: ObservableObject {
     func followLanded(_ count: Int) {
         guard count != landed else { return }
         landed = count
+        if enabled { refresh() }
+    }
+
+    /// A `WorldStatus`'s `lastSwap`.
+    func worldSwapped(_ lastSwap: [String]) {
+        guard lastSwap != swap else { return }
+        swap = lastSwap
         if enabled { refresh() }
     }
 

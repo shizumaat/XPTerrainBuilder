@@ -250,3 +250,17 @@ def test_the_commands_are_in_the_table_and_the_hello():
     assert set(CMD.live_preview_handlers()) == {"live_preview_squares",
                                                 "live_preview_mip"}
     assert "live_preview" in EV.CAPABILITIES
+
+
+def test_each_square_says_its_installed_tier(tmp_path):
+    """#2020: a square carries the installed file's width, and ``sharp``
+    at full resolution, so the map marks what X-Plane draws sharp."""
+    import O4_DDS_Tiers as TIERS
+    folder = str(tmp_path / "t")
+    quick, full = "21216_21712_BI16.dds", "21216_21728_BI16.dds"
+    _tile_textures(folder, names=[quick])
+    _write(os.path.join(folder, full), _dds(TIERS.FULL_WIDTH, 8))
+    got = {s["key"].split("/")[1]: s for s in LIVE.squares(
+        53, -61, 54, -60, 3000, lambda la, lo: [folder])["squares"]}
+    assert (got[quick]["tier_px"], got[quick]["sharp"]) == (64, False)
+    assert (got[full]["tier_px"], got[full]["sharp"]) == (TIERS.FULL_WIDTH, True)

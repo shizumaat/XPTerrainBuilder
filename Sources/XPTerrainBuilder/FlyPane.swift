@@ -35,6 +35,7 @@ private struct FlyPaneRows: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    FlyHereBlock(model: fly, follow: follow)
                     Picker(FlyText.planSourceLabel, selection: $fly.source) {
                         Text(FlyText.planChoose).tag("")
                         Text(FlyText.planSimbrief).tag("simbrief")
@@ -47,6 +48,7 @@ private struct FlyPaneRows: View {
                     Button(FlyText.openPlan) { fly.openPlanFile() }
                     QuickRouteRow(model: fly)
                     FlightCard(model: fly)
+                    FlyLegend(model: fly)
                     Toggle(FlyText.buildAlternate, isOn: $fly.buildAlternate)
                         .disabled(fly.plan?.alternate == nil)
                     CruiseSpeedField(model: fly)
@@ -106,8 +108,8 @@ struct QuickRouteRow: View {
     }
 }
 
-/// Origin, destination, alternate, distance and time en route; the map
-/// legend; Prepare flight; the last sentence for the user.
+/// Origin, destination, alternate, distance and time en route; Prepare
+/// flight; the last sentence for the user.
 struct FlightCard: View {
     @ObservedObject var model: FlyModel
 
@@ -117,7 +119,6 @@ struct FlightCard: View {
                 ForEach(FlyText.cardLines(plan, cruise: Double(model.cruiseKt)), id: \.self) {
                     Text($0).scaledFont(.callout)
                 }
-                FlyLegend()
                 Button(FlyText.prepare) { model.prepare() }
             } label: { EmptyView() }
         }
@@ -130,11 +131,16 @@ struct FlightCard: View {
     }
 }
 
-/// The map legend in Fly mode (§14's words).
+/// The map key in Fly mode (§14's words), shown whatever the plan
+/// (#2020); the preview's keys only while "Live flight preview" is on.
+/// Qt: `FlyPane.legend_label`.
 struct FlyLegend: View {
+    @ObservedObject var model: FlyModel
+
     var body: some View {
         HStack(spacing: 10) {
-            ForEach(FlyText.legend, id: \.0) { key, words in
+            ForEach(FlyText.legend.filter { model.livePreview || !FlyText.previewKeys.contains($0.0) },
+                    id: \.0) { key, words in
                 HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 2)
                         .stroke(FlyMapOverlay.color(key), lineWidth: 2)
@@ -142,6 +148,41 @@ struct FlyLegend: View {
                     Text(words).scaledFont(.caption2).foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+}
+
+/// With no plan, the aircraft's own tile (#2020, `WorldStatus.here`):
+/// "Preparing imagery at ...", the quick photo, the full-detail squares,
+/// and "Reload scenery" while the follow line is not offering it.
+/// Qt: `FlyPane.here_block`.
+struct FlyHereBlock: View {
+    @EnvironmentObject var buildModel: BuildModel
+    @ObservedObject var model: FlyModel
+    @ObservedObject var follow: ImageryFollowModel
+
+    var body: some View {
+        let lines = model.plan == nil ? FlyText.hereLines(model.here) : []
+        if !lines.isEmpty {
+            PaneBox {
+                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                    Text(line)
+                        .scaledFont(index == 0 ? .callout : .caption)
+                        .foregroundStyle(index == 0 ? .primary : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                let followOffers = follow.shown && !(follow.status?.reloadOffer ?? "").isEmpty
+                let offer = followOffers ? ""
+                    : O4OnDemandText.reloadOfferLine(model.here?["reload_offer"]?.stringValue ?? "")
+                if !offer.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(offer).scaledFont(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(O4OnDemandText.reloadSceneryTitle) { buildModel.reloadScenery() }
+                            .controlSize(.small)
+                    }
+                }
+            } label: { EmptyView() }
         }
     }
 }

@@ -639,12 +639,21 @@ _INDEX_ONLY = ("core", "last_near_at", "near_count", "late_count",
                "fetched_at", "jpeg_path")
 
 
+#: A storage tier's folder (``o4_engine.storage_tiers.TIER_DIR``, RULINGS
+#: 2026-11-12g): a ``source_path`` there was set by a downgrade, not by the
+#: manifest, so a rescan keeps it.
+_TIER_DIR = "XPTerrainBuilder Tier"
+
+
 def _carry(old: "dict | None", row: dict) -> None:
     if old is None:
         return
     for column in _INDEX_ONLY:
         if old.get(column) is not None:
             row[column] = old[column]
+    kept = old.get("source_path") or ""
+    if not row.get("source_path") and _TIER_DIR in kept.split(os.sep):
+        row["source_path"] = kept
     if old.get("tier_px") == row["tier_px"] and not row["dds_cache_key"]:
         row["dds_cache_key"] = old.get("dds_cache_key")
 

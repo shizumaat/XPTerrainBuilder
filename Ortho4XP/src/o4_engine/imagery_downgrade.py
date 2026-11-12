@@ -107,26 +107,28 @@ def _remove(path: "str | None") -> int:
     return size
 
 
-def _free_cache_entry(row: dict, users: "dict | None") -> int:
+def _free_cache_entry(row: dict, users: "dict | None") -> "tuple[int, str]":
     """Remove the row's ``DDS_cache`` entry unless another build dir's
-    notes name it (a neighbour tile's shared edge texture)."""
+    notes name it (a neighbour tile's shared edge texture); ``(bytes
+    freed, the storage tier's copy or "")``."""
     key = row.get("dds_cache_key")
     if not key:
-        return 0
+        return 0, ""
     if users is None:
         users = DDSC.key_users()
     own = os.path.abspath(row.get("build_dir") or "")
     if any(os.path.abspath(where) != own for where, _n in users.get(key, ())):
-        return 0
+        return 0, ""
     # A mounted storage tier with room keeps it (RULINGS 2026-11-12g): moved
     # there, not deleted; it lands back from there while mounted.
     from . import storage_tiers as TIERS
     entry = DDSC.entry_path(key)
     size = DISK.freeable_bytes(entry) if os.path.isfile(entry) else 0
-    if TIERS.stash(key, entry):
-        _write_log("moved %d bytes %s to a storage tier" % (size, entry))
-        return size
-    return _remove(entry)
+    kept = TIERS.stash(key, entry)
+    if kept:
+        _write_log("moved %d bytes %s to the storage tier %s" % (size, entry, kept))
+        return size, kept
+    return _remove(entry), ""
 
 
 def _downgrade(conn, row: dict, *, users: "dict | None" = None,
@@ -144,11 +146,13 @@ def _downgrade(conn, row: dict, *, users: "dict | None" = None,
     if not path or not kept or not PLACEHOLDER.land_kept(kept, path):
         return None
     freed = int(row.get("full_bytes") or 0)
-    freed += _free_cache_entry(row, users)
-    freed += _remove(row.get("jpeg_path"))
+    cache_freed, kept = _free_cache_entry(row, users)
+    freed += cache_freed + _remove(row.get("jpeg_path"))
+    # A tier's copy is the row's source while no other source is named.
+    source = {} if row.get("source_path") or not kept else {"source_path": kept}
     INDEX.set_state(conn, row["tile"], row["name"], "low",
                     tier_px=INDEX.placeholder_width(row), full_bytes=0,
-                    dds_cache_key=None, jpeg_path=None)
+                    dds_cache_key=None, jpeg_path=None, **source)
     _write_log("downgraded %d bytes %s (ondemand, %s)" % (freed, path, reason))
     return freed
 

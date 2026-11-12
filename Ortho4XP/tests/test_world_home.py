@@ -159,10 +159,10 @@ def test_a_tier_keeps_a_texture_and_gives_it_back(tmp_path, monkeypatch):
     os.makedirs(os.path.dirname(entry))
     with open(entry, "wb") as handle:
         handle.write(b"d" * 64)
-    assert STORE_TIERS.stash("abc123", entry) == 64
-    assert not os.path.exists(entry)
-    found = STORE_TIERS.find("abc123")
-    assert found and found.startswith(str(drive / STORE_TIERS.TIER_DIR))
+    kept = STORE_TIERS.stash("abc123", entry)
+    assert kept.startswith(str(drive / STORE_TIERS.TIER_DIR))
+    assert not os.path.exists(entry) and os.path.getsize(kept) == 64
+    assert STORE_TIERS.find("abc123") == kept
     monkeypatch.setattr(STORE_TIERS, "_mounted", lambda mount: False)
     assert STORE_TIERS.find("abc123") is None   # absent: downloaded again
 
@@ -176,7 +176,12 @@ def test_a_full_tier_takes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(STORE_TIERS, "_USED", {})
     entry = tmp_path / "e.dds"
     entry.write_bytes(b"d" * 64)
-    assert STORE_TIERS.stash("k", str(entry)) == 0 and entry.is_file()
+    assert STORE_TIERS.stash("k", str(entry)) == "" and entry.is_file()
+
+
+def test_the_index_knows_the_tier_folder():
+    import O4_Imagery_OnDemand_Index as INDEX
+    assert INDEX._TIER_DIR == STORE_TIERS.TIER_DIR
 
 
 def test_tier_setting_reads_only_sizes_above_zero():

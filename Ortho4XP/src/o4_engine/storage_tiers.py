@@ -15,7 +15,10 @@
 * :func:`stash` -- a sharp texture the on-demand budget makes low-res
   again (``imagery_downgrade``) MOVES to a mounted tier with room
   (``<mount>/XPTerrainBuilder Tier/DDS_cache``, the texture cache's own
-  layout) instead of being deleted.
+  layout) instead of being deleted, and its index row's ``source_path``
+  names it: the follow job lands it back from there while the drive is
+  connected (``imagery_follow_land._land_from_source``, the same path a
+  converted tile's library volume takes) and downloads it when not.
 * :func:`find` -- where a mounted tier holds a texture key; the full
   texture lookup (``imagery_ondemand._full_entry``) copies it back into
   the texture cache and lands it as before.
@@ -42,7 +45,8 @@ __all__ = ["SETTING", "TIER_DIR", "volumes", "configured", "find", "stash",
            "storage_tiers", "storage_tier_set"]
 
 SETTING = "storage_tiers"
-#: The app's folder on a tier volume.
+#: The app's folder on a tier volume (the on-demand index keeps a row's
+#: ``source_path`` there across rescans: ``O4_Imagery_OnDemand_Index._TIER_DIR``).
 TIER_DIR = "XPTerrainBuilder Tier"
 _DDS = "DDS_cache"
 _GB = 1024 ** 3
@@ -190,13 +194,13 @@ def find(key: Optional[str]) -> Optional[str]:
     return None
 
 
-def stash(key: Optional[str], entry: str) -> int:
+def stash(key: Optional[str], entry: str) -> str:
     """Move the cache ``entry`` of ``key`` to the first mounted tier with
-    room; the local bytes that freed (0: no tier took it, the caller
-    deletes as before).  Copied under a partial name and checked before
-    the local file goes."""
+    room; where it is now (``""``: no tier took it, the caller deletes as
+    before).  Copied under a partial name and checked before the local
+    file goes."""
     if not key or not os.path.isfile(entry):
-        return 0
+        return ""
     import O4_DDS_Cache as DDSC
     size = os.path.getsize(entry)
     for mount, gigabytes in configured().items():
@@ -216,8 +220,8 @@ def stash(key: Optional[str], entry: str) -> int:
                 os.remove(partial)
             continue
         _add_used(mount, size)
-        return size
-    return 0
+        return target
+    return ""
 
 
 def storage_tiers(**_ignored) -> Dict[str, Any]:

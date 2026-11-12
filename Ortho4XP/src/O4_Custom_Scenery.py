@@ -28,6 +28,8 @@ from typing import Iterator, Optional, Sequence, Set, Tuple
 
 import O4_File_Names as FNAMES
 
+import O4_Overlay_Pack as _overlay_pack
+
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
 import O4_Scenery_Packs as _scenery_packs
 
@@ -58,8 +60,10 @@ PACK_KINDS = ("airport", "ortho", "mesh", "landmark", "library", "other")
 _SKIPPED_PACKS = frozenset({"Global Airports"})
 
 # Our own entries in Custom Scenery: per-tile links (zOrtho4XP_±XX±YYY),
-# grouped-build links (zOrtho4XP_<dir>) and the shared overlay link.
-_OURS_RE = re.compile(r"^(zOrtho4XP_|yOrtho4XP_Overlays$)")
+# grouped-build links (zOrtho4XP_<dir>), the shared overlay link and the
+# app's overlay pack (#2021).
+_OURS_RE = re.compile(r"^(zOrtho4XP_|yOrtho4XP_Overlays$|%s$)"
+                      % re.escape(_overlay_pack.PACK_NAME))
 
 _DSF_RE = re.compile(r"^([+-]\d{2})([+-]\d{3})\.dsf$", re.IGNORECASE)
 #: A per-tile subfolder of ``terrain/`` or ``textures/`` (the World pack).

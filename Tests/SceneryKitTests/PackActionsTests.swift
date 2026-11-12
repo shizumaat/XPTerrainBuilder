@@ -96,6 +96,7 @@ import Foundation
         1000 Version
         SCENERY
 
+        SCENERY_PACK Custom Scenery/yXPTerrainBuilder Overlays/
         SCENERY_PACK Custom Scenery/zXPTerrainBuilder World/
         SCENERY_PACK_DISABLED Custom Scenery/zOrtho4XP_+45+007/
         SCENERY_PACK Custom Scenery/Gone Forever/
@@ -106,12 +107,14 @@ import Foundation
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         try #"{"zOrtho4XP_+45+007": {"state": "dynamic"}}"#.write(
             to: work.appendingPathComponent("journal.json"), atomically: true, encoding: .utf8)
-        #expect(service.protectedNames() == ["zXPTerrainBuilder World", "zOrtho4XP_+45+007"])
+        #expect(service.protectedNames() == ["zXPTerrainBuilder World", "yXPTerrainBuilder Overlays",
+                                             "zOrtho4XP_+45+007"])
 
         let result = service.reconcile(installedPacks: [], previousPacks: [])
         #expect(result.removed == ["Gone Forever"])
         let text = try String(contentsOf: service.iniURL, encoding: .utf8)
         #expect(text.contains("SCENERY_PACK Custom Scenery/zXPTerrainBuilder World/"))
+        #expect(text.contains("SCENERY_PACK Custom Scenery/yXPTerrainBuilder Overlays/"))
         #expect(text.contains("SCENERY_PACK_DISABLED Custom Scenery/zOrtho4XP_+45+007/"))
         #expect(!text.contains("Gone Forever"))
     }

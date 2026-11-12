@@ -64,6 +64,9 @@ TERMS = {
     # for a tile we have not built (never "placeholder").
     "live_flight_preview": "Live flight preview",
     "xplane_own_scenery": "X-Plane's own scenery",
+    # The Build pane's line under "Roads, forests and buildings from
+    # X-Plane", now automatic (#2021, RULINGS 2026-11-12e).
+    "xplane_objects_auto": "Added to every full tile, except where installed scenery such as simHeaven X-World already brings them",
 }
 
 # key -> the words it retires as a PRIMARY label (titles, buttons, toggles,

@@ -50,7 +50,7 @@ from . import PACKAGE_FORMAT, BundleRefused
 from . import kinds as _kinds
 
 __all__ = ["DSF_DIR", "TEXTURE_LIST", "XZ_PRESET", "save", "plan",
-           "lay_out", "install", "texture_names"]
+           "lay_out", "install"]
 
 #: The member folder of the DSF, and the list of the imagery left out.
 DSF_DIR = "dsf"

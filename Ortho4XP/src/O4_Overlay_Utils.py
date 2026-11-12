@@ -20,7 +20,7 @@ import O4_UI_Utils as UI
 # after this is hung, and the step ends naming it instead of waiting.
 OVERLAY_CONVERSION_TIMEOUT_S = 900.0
 
-# the following is meant to be modified directly by users who need it (in the 
+# the following is meant to be modified directly by users who need it (in the
 # config window, not here!)
 ovl_exclude_pol = [0]
 ovl_exclude_net = []
@@ -73,18 +73,72 @@ def resolve_unzip_cmd():
     return None
 
 
+class _OverlayFailure(Exception):
+    """The overlay step could not make the overlay: ``failure_code`` is
+    the ``O4_Tile_Failures`` key, ``args`` the message as the step prints
+    it."""
+
+    def __init__(self, code, *message):
+        super().__init__(*message)
+        self.failure_code = code
+
+
+def _step_failed(failure):
+    """End the overlay step on ``failure``: the tile's failure named by its
+    ``failure_code``, its message printed."""
+    UI.tile_failure("overlay_tool_failed", *failure.args, exc=failure)
+    UI.exit_message_and_bottom_line(*failure.args, code=None)
+
+
+#: Scenery-pack folders looked for ONE LEVEL DOWN from a configured source
+#: that does not itself hold ``Earth nav data`` (RULINGS 2026-09-14bu: the
+#: owner had ``…/X-Plane 12/Global Scenery`` configured -- the parent of
+#: the pack).  X-Plane's own installer names.
+GLOBAL_SCENERY_SUBDIRS = (
+    "X-Plane 12 Global Scenery",
+    "X-Plane 11 Global Scenery",
+    "X-Plane 12 Demo Areas",
+)
+
+
+def _source_candidates(lat, lon, scenery_dir=""):
+    """Where X-Plane's own DSF of the tile may be, in the order they are
+    tried: :data:`custom_overlay_src`, then its alternate, each also one
+    level down (:data:`GLOBAL_SCENERY_SUBDIRS`).  With neither set, the
+    ``Global Scenery`` folder beside Custom Scenery folder
+    ``scenery_dir`` (the X-Plane install both belong to)."""
+    roots = [root for root in (custom_overlay_src,
+                               custom_overlay_src_alternate) if root]
+    if not roots and scenery_dir:
+        roots = [os.path.join(os.path.dirname(os.path.normpath(scenery_dir)),
+                              "Global Scenery")]
+    relative = os.path.join("Earth nav data",
+                            FNAMES.long_latlon(lat, lon) + ".dsf")
+    out = []
+    for root in roots:
+        out.append(os.path.join(root, relative))
+        out += [os.path.join(root, sub, relative)
+                for sub in GLOBAL_SCENERY_SUBDIRS]
+    return out
+
+
+def _source_dsf(lat, lon, scenery_dir=""):
+    """X-Plane's own DSF of the tile (:func:`_source_candidates`), or None."""
+    return next((path for path in _source_candidates(lat, lon, scenery_dir)
+                 if os.path.isfile(path)), None)
+
+
 ################################################################################
-def convert_overlay_dsf(direction, source, converted):
-    """One DSFTool conversion of the overlay step (``direction`` is
-    ``-dsf2text`` or ``-text2dsf``); False — with the tile's failure NAMED
-    — when the converter did not do it (#591).
+def _convert(direction, source, converted, say):
+    """One DSFTool conversion (``direction`` is ``-dsf2text`` or
+    ``-text2dsf``); :class:`_OverlayFailure` when the converter did not do
+    it (#591).
 
     The converter is WAITED for and its exit read: a crash, a non-zero
     exit (even after it wrote a file) and a run past
     ``OVERLAY_CONVERSION_TIMEOUT_S`` each end the step as
-    ``overlay_tool_failed`` with the cause in the log.  What an earlier
-    run left under ``converted`` is removed first, so a file found there
-    afterwards is this run's.
+    ``overlay_tool_failed``.  What an earlier run left under ``converted``
+    is removed first, so a file found there afterwards is this run's.
     """
     try:
         os.remove(converted)
@@ -94,43 +148,46 @@ def convert_overlay_dsf(direction, source, converted):
         said = DSFTOOL.run([dsftool_cmd.strip(), direction, source, converted],
                            timeout=OVERLAY_CONVERSION_TIMEOUT_S)
     except DSFTOOL.DsfToolError as error:
-        UI.exit_message_and_bottom_line(
-            "   ERROR: the overlay could not be converted:", error,
-            code="overlay_tool_failed")
-        return False
+        raise _OverlayFailure("overlay_tool_failed",
+                             "   ERROR: the overlay could not be converted:",
+                             error) from None
     for line in said.splitlines():
-        UI.vprint(1, "     " + line)
+        say(1, "     " + line)
     if not os.path.isfile(converted) or os.path.getsize(converted) == 0:
-        UI.exit_message_and_bottom_line(
-            "   ERROR: DSFTool", direction, "ended normally but wrote nothing.",
-            code="overlay_tool_failed")
-        return False
-    return True
+        raise _OverlayFailure("overlay_tool_failed", "   ERROR: DSFTool",
+                             direction, "ended normally but wrote nothing.")
 
 
 ################################################################################
-def install_overlay_dsf(converted, destination):
-    """Put the converted overlay DSF where X-Plane reads it; False — with
-    the tile's failure NAMED — when that is refused (#585).
+def _place_overlay_dsf(converted, destination):
+    """Copy the converted overlay beside ``destination``, then move it over
+    it in one step, so a refusal (disk full, the old overlay held open by
+    X-Plane) leaves the PREVIOUS overlay untouched and loadable; the
+    refusal's ``OSError`` is raised."""
+    staged = destination + ".tmp"
+    try:
+        shutil.copy(converted, staged)
+        HELD.retrying_a_held_file(lambda: os.replace(staged, destination))
+    except OSError:
+        try:
+            os.remove(staged)
+        except OSError:
+            pass
+        raise
 
-    Copied beside the destination, then moved over it in one step, so a
-    refusal (disk full, the old overlay held open by X-Plane) leaves the
-    PREVIOUS overlay untouched and loadable; the next build replaces it.
-    """
+
+def _install_overlay_dsf(converted, destination):
+    """Put the converted overlay DSF where X-Plane reads it
+    (:func:`_place_overlay_dsf`); False -- with the tile's failure NAMED --
+    when that is refused (#585)."""
     if not os.path.isfile(converted):
         UI.exit_message_and_bottom_line(
             "   ERROR: DSFTool did not produce the overlay DSF.",
             code="overlay_tool_failed")
         return False
-    staged = destination + ".tmp"
     try:
-        shutil.copy(converted, staged)
-        HELD.retrying_a_held_file(lambda: os.replace(staged, destination))
+        _place_overlay_dsf(converted, destination)
     except OSError as exc:
-        try:
-            os.remove(staged)
-        except OSError:
-            pass
         exc.failure_code = FAILURES.code_for_activation(exc)
         UI.tile_failure("scenery_file_not_activated", exc=exc)
         UI.exit_message_and_bottom_line(
@@ -141,94 +198,32 @@ def install_overlay_dsf(converted, destination):
 
 
 ################################################################################
-def build_overlay(lat, lon):
-    if UI.is_working:
-        return 0
-    UI.is_working = 1
-    timer = time.time()
-    UI.logprint("Step 4 for tile lat=", lat, ", lon=", lon, ": starting.")
-    UI.vprint(
-        0,
-        "\nStep 4 : Extracting overlay for tile "
-        + FNAMES.short_latlon(lat, lon)
-        + " : \n--------\n",
-    )
-    file_to_sniff = os.path.join(
-        custom_overlay_src,
-        "Earth nav data",
-        FNAMES.long_latlon(lat, lon) + ".dsf",
-        )
-    if not os.path.exists(file_to_sniff):
-        file_to_sniff = os.path.join(
-        custom_overlay_src_alternate,
-        "Earth nav data",
-        FNAMES.long_latlon(lat, lon) + ".dsf",
-        )
-    if not os.path.exists(file_to_sniff):
-        UI.exit_message_and_bottom_line(
-            "   ERROR: file ",
-            file_to_sniff,
-            "absent. Recall that the overlay source directory needs to be set ",
-            "in the config window first.",
-            code="overlay_source_missing",
-        )
-        return 0
-    file_to_sniff_loc = os.path.join(
-        FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + ".dsf"
-    )
-    UI.vprint(1, "-> Making a copy of the original overlay DSF in tmp dir")
-    try:
-        shutil.copy(file_to_sniff, file_to_sniff_loc)
-    except:
-        UI.exit_message_and_bottom_line(
-            "   ERROR: could not copy it. Disk full, write permissions, erased",
-            " tmp dir ?",
-            code="output_folder_unwritable",
-        )
-        return 0
-    f = open(file_to_sniff_loc, "rb")
-    dsfid = f.read(2).decode("ascii")
-    f.close()
-    if dsfid == "7z":
-        UI.vprint(1, "-> The original DSF is a 7z archive, uncompressing...")
-        seven_zip = resolve_unzip_cmd()
-        if seven_zip is None:
-            # REFUSE here, naming the package: the alternative was a
-            # FileNotFoundError raised deep inside extraction.
-            UI.exit_message_and_bottom_line(UNZIP_MISSING_MESSAGE,
-                                            code="overlay_tool_failed")
-            return 0
-        os.replace(file_to_sniff_loc, file_to_sniff_loc + ".7z")
-        subprocess.run([seven_zip, "e", f"-o{FNAMES.Tmp_dir}", f"{file_to_sniff_loc}.7z"], **UI.external_tool_keyword_arguments())
-        os.remove(file_to_sniff_loc + ".7z")
-    UI.vprint(1, "-> Converting the copy to text format")
-    if not convert_overlay_dsf(
-        "-dsf2text",
-        file_to_sniff_loc,
-        os.path.join(
-            FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt"
-        ),
-    ):
-        return 0
-    UI.vprint(1, "-> Selecting overlays for copy/paste")
-    f = open(
-        os.path.join(
-            FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt"
-        ),
-        "r",
-        encoding="utf-8",
-        errors=DSF_TEXT_ERRORS,
-    )
-    g = open(
-        os.path.join(
-            FNAMES.Tmp_dir,
-            FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.txt",
-        ),
-        "w",
-        encoding="utf-8",
-        errors=DSF_TEXT_ERRORS,
-        newline="\n",
-    )
+def _work_names(workdir, lat, lon):
+    """The overlay step's files in ``workdir``: the source copy, its text,
+    the filtered text and the filtered DSF."""
+    stem = os.path.join(workdir, FNAMES.short_latlon(lat, lon))
+    return (stem + ".dsf", stem + "_tmp_dsf.txt",
+            stem + "_tmp_dsf_without_mesh.txt",
+            stem + "_tmp_dsf_without_mesh.dsf")
+
+
+def _remove_work_files(workdir, lat, lon):
+    copy, text, filtered, _dsf = _work_names(workdir, lat, lon)
+    for path in (filtered, _dsf, text, copy, text + ".elevation.raw",
+                 text + ".sea_level.raw"):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _filter_overlay_text(source_text, filtered_text):
+    """Copy a DSFTool text dump keeping its properties, definitions,
+    polygons and road segments and dropping its mesh (``sim/overlay 1``
+    added); :data:`ovl_exclude_pol` / :data:`ovl_exclude_net` drop more."""
+    f = open(source_text, "r", encoding="utf-8", errors=DSF_TEXT_ERRORS)
+    g = open(filtered_text, "w", encoding="utf-8", errors=DSF_TEXT_ERRORS,
+             newline="\n")
     line = f.readline()
     g.write("PROPERTY sim/overlay 1\n")
     pol_type = 0
@@ -290,76 +285,200 @@ def build_overlay(lat, lon):
         line = f.readline()
     f.close()
     g.close()
-    UI.vprint(1, "-> Converting back the text DSF to binary format")
-    if not convert_overlay_dsf(
-        "-text2dsf",
-        os.path.join(
-            FNAMES.Tmp_dir,
-            FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.txt",
-        ),
-        os.path.join(
-            FNAMES.Tmp_dir,
-            FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.dsf",
-        ),
-    ):
-        return 0
-    dest_dir = os.path.join(
-        FNAMES.Overlay_dir, "Earth nav data", FNAMES.round_latlon(lat, lon)
-    )
-    UI.vprint(1, "-> Copying the final overlay DSF in " + dest_dir)
-    if not os.path.exists(dest_dir):
-        try:
-            os.makedirs(dest_dir)
-        except:
-            UI.exit_message_and_bottom_line(
-                "   ERROR: could not create destination directory "
-                + str(dest_dir),
-                code="output_folder_unwritable",
-            )
-            return 0
-    if not install_overlay_dsf(
-        os.path.join(
-            FNAMES.Tmp_dir,
-            FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.dsf",
-        ),
-        os.path.join(dest_dir, FNAMES.short_latlon(lat, lon) + ".dsf"),
-    ):
-        return 0
-    os.remove(
-        os.path.join(
-            FNAMES.Tmp_dir,
-            FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.dsf",
-        )
-    )
-    os.remove(
-        os.path.join(
-            FNAMES.Tmp_dir,
-            FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.txt",
-        )
-    )
-    os.remove(
-        os.path.join(
-            FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt"
-        )
-    )
-    os.remove(file_to_sniff_loc)
+
+
+def _extract_overlay(lat, lon, source, workdir, say=None):
+    """Make the overlay DSF of X-Plane's own DSF ``source`` of the tile in
+    ``workdir``; returns its path.  Its roads, forests, buildings and
+    other overlay content, without the mesh.  Uses no step state of
+    ``O4_UI_Utils`` (``say`` prints, ``UI.vprint`` by default), so it
+    also runs beside a build; :class:`_OverlayFailure` names what failed.
+    The work files stay for the caller (:func:`_remove_work_files`)."""
+    say = say or UI.vprint
+    copy, text, filtered, dsf = _work_names(workdir, lat, lon)
+    say(1, "-> Making a copy of the original overlay DSF in tmp dir")
     try:
-        os.remove(
-            os.path.join(
-                FNAMES.Tmp_dir,
-                FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt.elevation.raw",
-            )
+        shutil.copy(source, copy)
+    except OSError:
+        raise _OverlayFailure(
+            "output_folder_unwritable",
+            "   ERROR: could not copy it. Disk full, write permissions,"
+            " erased", " tmp dir ?") from None
+    with open(copy, "rb") as handle:
+        archived = handle.read(2) == b"7z"
+    if archived:
+        say(1, "-> The original DSF is a 7z archive, uncompressing...")
+        seven_zip = resolve_unzip_cmd()
+        if seven_zip is None:
+            # REFUSE here, naming the package: the alternative was a
+            # FileNotFoundError raised deep inside extraction.
+            raise _OverlayFailure("overlay_tool_failed", UNZIP_MISSING_MESSAGE)
+        os.replace(copy, copy + ".7z")
+        # Its output is captured: a child writing to the engine's own
+        # stdout would land inside the app's protocol stream (jsonl.serve
+        # repoints sys.stdout only, never the inherited descriptor).
+        done = subprocess.run([seven_zip, "e", "-y", f"-o{workdir}",
+                               f"{copy}.7z"], stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT,
+                              **UI.external_tool_keyword_arguments())
+        for line in (done.stdout or b"").decode("utf-8", "replace").splitlines():
+            say(2, "     " + line)
+        os.remove(copy + ".7z")
+        if done.returncode != 0 or not os.path.isfile(copy):
+            raise _OverlayFailure(
+                "overlay_tool_failed", "   ERROR: 7-Zip could not unpack",
+                source, f"(exit {done.returncode}).")
+    say(1, "-> Converting the copy to text format")
+    _convert("-dsf2text", copy, text, say)
+    say(1, "-> Selecting overlays for copy/paste")
+    _filter_overlay_text(text, filtered)
+    say(1, "-> Converting back the text DSF to binary format")
+    _convert("-text2dsf", filtered, dsf, say)
+    return dsf
+
+
+################################################################################
+def _build_overlay(lat, lon, dest_root=None, scenery_dir=""):
+    """The overlay step: the tile's overlay DSF from X-Plane's own DSF
+    (:func:`_source_dsf`) into ``dest_root`` (``FNAMES.Overlay_dir`` by
+    default) ``/Earth nav data/<block>/<tile>.dsf``.  1 when it is there,
+    0 with the tile's failure named."""
+    if UI.is_working:
+        return 0
+    UI.is_working = 1
+    timer = time.time()
+    UI.logprint("Step 4 for tile lat=", lat, ", lon=", lon, ": starting.")
+    UI.vprint(
+        0,
+        "\nStep 4 : Extracting overlay for tile "
+        + FNAMES.short_latlon(lat, lon)
+        + " : \n--------\n",
+    )
+    source = _source_dsf(lat, lon, scenery_dir)
+    if source is None:
+        tried = _source_candidates(lat, lon, scenery_dir)
+        UI.exit_message_and_bottom_line(
+            "   ERROR: file ",
+            tried[0] if tried else FNAMES.long_latlon(lat, lon) + ".dsf",
+            "absent. Recall that the overlay source directory needs to be set ",
+            "in the config window first.",
+            code="overlay_source_missing",
         )
-        os.remove(
-            os.path.join(
-                FNAMES.Tmp_dir,
-                FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt.sea_level.raw",
-            )
+        return 0
+    try:
+        converted = _extract_overlay(lat, lon, source, FNAMES.Tmp_dir)
+    except _OverlayFailure as failure:
+        _step_failed(failure)
+        return 0
+    dest_dir = os.path.join(dest_root or FNAMES.Overlay_dir,
+                            "Earth nav data", FNAMES.round_latlon(lat, lon))
+    UI.vprint(1, "-> Copying the final overlay DSF in " + dest_dir)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+    except OSError:
+        UI.exit_message_and_bottom_line(
+            "   ERROR: could not create destination directory "
+            + str(dest_dir),
+            code="output_folder_unwritable",
         )
-    except:
-        pass
+        return 0
+    if not _install_overlay_dsf(
+            converted,
+            os.path.join(dest_dir, FNAMES.short_latlon(lat, lon) + ".dsf")):
+        return 0
+    _remove_work_files(FNAMES.Tmp_dir, lat, lon)
     UI.timings_and_bottom_line(timer)
     return 1
+
+
+################################################################################
+# The automatic overlay of a FULL tile (#2021, RULINGS 2026-11-12e)
+################################################################################
+def overlay_decision(lat, lon, scenery_dir):
+    """Does the full tile ``(lat, lon)`` get its overlay in the app's
+    overlay pack (``O4_Overlay_Pack``) of Custom Scenery folder
+    ``scenery_dir``?  ``{"state": ...}``:
+
+    * ``no_scenery`` -- no Custom Scenery folder: nothing is installed;
+    * ``no_source`` -- X-Plane's own DSF of the tile is not found
+      (:func:`_source_dsf`): there is nothing to copy (the tile is water,
+      or Global Scenery is not installed there);
+    * ``covered`` (``pack``, ``why``) -- an enabled pack already supplies
+      the tile's roads, forests and buildings (``covering_pack``);
+    * ``build`` (``source``) -- the overlay is made.
+    """
+    import O4_DSF_Header as DSFH
+    import O4_Overlay_Pack as OPACK
+    if not scenery_dir or not os.path.isdir(scenery_dir):
+        return {"state": "no_scenery"}
+    source = _source_dsf(lat, lon, scenery_dir)
+    if source is None:
+        return {"state": "no_source"}
+    agent = (DSFH.dsf_properties(source) or {}).get("sim/creation_agent")
+    cover = OPACK.covering_pack(scenery_dir, lat, lon, agent)
+    if cover is not None:
+        return {"state": "covered", "pack": cover[0], "why": cover[1]}
+    return {"state": "build", "source": source}
+
+
+def _decision_line(lat, lon, decision):
+    tile = FNAMES.short_latlon(lat, lon)
+    if decision["state"] == "covered":
+        return (f"   {tile}: no X-Plane overlay needed -- {decision['pack']} "
+                f"{decision['why']}.")
+    if decision["state"] == "no_source":
+        return (f"   {tile}: no X-Plane overlay -- X-Plane's own scenery "
+                "file of the tile was not found.")
+    return f"   {tile}: no X-Plane overlay -- no Custom Scenery folder."
+
+
+def auto_overlay(lat, lon, scenery_dir):
+    """The overlay step of a full tile's build: its overlay into the app's
+    overlay pack (installed first, ``O4_Overlay_Pack.install``) unless
+    :func:`overlay_decision` says it is not needed or cannot be made --
+    then the step says why and succeeds.  1 / 0 as every step."""
+    import O4_Overlay_Pack as OPACK
+    decision = overlay_decision(lat, lon, scenery_dir)
+    if decision["state"] != "build":
+        UI.vprint(0, _decision_line(lat, lon, decision))
+        return 1
+    try:
+        pack = OPACK.install(scenery_dir)["pack"]
+    except (OSError, ValueError) as error:
+        UI.exit_message_and_bottom_line(
+            "   ERROR: the overlay pack could not be made:", error,
+            code="output_folder_unwritable")
+        return 0
+    return _build_overlay(lat, lon, dest_root=pack, scenery_dir=scenery_dir)
+
+
+def background_overlay(lat, lon, scenery_dir, say=None):
+    """:func:`auto_overlay` for a tile that is not being built (an adopted
+    one): no step state is touched, so it runs beside a build.  Returns
+    the decision's state, ``built``, or ``failed: <cause>``."""
+    import tempfile
+
+    import O4_Overlay_Pack as OPACK
+    say = say or (lambda _level, *_words: None)
+    decision = overlay_decision(lat, lon, scenery_dir)
+    if decision["state"] != "build":
+        say(1, _decision_line(lat, lon, decision))
+        return decision["state"]
+    parent = FNAMES.Tmp_dir if os.path.isdir(FNAMES.Tmp_dir or "") else None
+    workdir = tempfile.mkdtemp(prefix="overlay_", dir=parent)
+    try:
+        OPACK.install(scenery_dir)
+        converted = _extract_overlay(lat, lon, decision["source"], workdir, say)
+        destination = OPACK.dsf_path(scenery_dir, lat, lon)
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        _place_overlay_dsf(converted, destination)
+    except _OverlayFailure as failure:
+        return "failed: " + " ".join(str(word) for word in failure.args)
+    except (OSError, ValueError) as error:
+        return f"failed: {error}"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    return "built"
 
 
 # The config's values for this module's settings (O4_Cfg_Module_Values),

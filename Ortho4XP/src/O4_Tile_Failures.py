@@ -476,6 +476,8 @@ EXCEPTION_CODES = {
     # scenery packs
     "PackDumpStale": "pack_dump_stale",
     "DsfToolError": "pack_dump_failed",
+    # the overlay step (#2021): its ``failure_code`` names the cause
+    "_OverlayFailure": "overlay_tool_failed",
     "BackupUnproven": "pack_write_failed",
     "StaleScreen": "pack_write_failed",
     "ColdPartition": "pack_write_failed",

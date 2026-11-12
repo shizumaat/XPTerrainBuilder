@@ -8,6 +8,10 @@ import Foundation
 /// `PLACEHOLDER_MAX_BYTES`).
 public enum O4WorldPack {
     public static let packName = "zXPTerrainBuilder World"
+    /// The app's overlay pack (#2021, RULINGS 2026-11-12e): X-Plane's own
+    /// roads, forests and buildings for every full tile, its ini row
+    /// directly above the World pack's (`O4_Overlay_Pack.PACK_NAME`).
+    public static let overlaysPackName = "yXPTerrainBuilder Overlays"
     /// `sim/creation_agent` of a placeholder DSF.
     public static let placeholderAgent = "XPTerrainBuilder world placeholder"
     /// A placeholder is 328 bytes; a larger DSF is never one.

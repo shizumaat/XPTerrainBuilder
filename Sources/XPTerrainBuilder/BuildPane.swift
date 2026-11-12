@@ -551,8 +551,15 @@ struct BuildPane: View {
                         .help("Downloads map data (roads, water, airports), shapes the ground and blends coastlines and water — the tile's terrain.")
                     Toggle(O4Glossary.term("imagery_and_scenery_file"), isOn: boolBinding(\.doImagery))
                         .help("Downloads imagery, converts textures and writes the final scenery file (DSF).")
-                    Toggle(O4Glossary.term("xplane_objects"), isOn: boolBinding(\.doOverlays))
-                        .help("Copies the roads, forests and buildings (overlays) of the X-Plane scenery configured as the overlay source.")
+                    // Automatic (#2021, RULINGS 2026-11-12e): a line, no switch.
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(O4Glossary.term("xplane_objects"))
+                        Text(O4Glossary.term("xplane_objects_auto"))
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .help("Copies X-Plane's own roads, forests and buildings (overlays) into the yXPTerrainBuilder Overlays pack.")
                     tileFolderRow
                 }
                 .padding(.top, 4)

@@ -61,7 +61,6 @@ def _answer(window, result, error=""):
 def test_qt_asks_for_the_tiles_and_steps_of_the_next_press(window, monkeypatch):
     sent = []
     monkeypatch.setattr(window, "_plan_handler", lambda **kw: sent.append(kw), raising=False)
-    window.chk_overlays.setChecked(False)
     window._request_plan_estimate()
     assert sent and sent[-1]["tiles"] == [[LAT, LON]]
     assert sent[-1]["request"] == window._plan_request

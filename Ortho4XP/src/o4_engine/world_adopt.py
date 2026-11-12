@@ -41,7 +41,10 @@ tool built (``O4_Tile_Info.ours`` false) is ADOPTED: kept the same way
 * :func:`install_package` -- an adopted package installed
   (``package_install``): laid out as an on-demand copy and published
   into the World pack;
-* :func:`plan` -- the dry run's figures of adopting.
+* :func:`plan` -- the dry run's figures of adopting;
+* every adopted tile gets its X-Plane overlay like a built full tile
+  (#2021): requested from ``overlay_queue`` by :func:`finish` and
+  :func:`install_package`.
 
 No tile or airport is named here.
 """
@@ -58,7 +61,7 @@ import O4_File_Names as FNAMES
 import O4_World_Pack as WP
 
 __all__ = ["RESERVE_BYTES", "CORE_RESERVE_BYTES", "PACKAGE_SUFFIX",
-           "room_left", "foreign", "package_path", "finish",
+           "room_left", "foreign", "finish",
            "readopt_candidates", "readopt", "keep_cores", "plan",
            "install_package"]
 
@@ -157,7 +160,15 @@ def finish(name: str, *, journal, pack: str, lat: int, lon: int) -> dict:
     except (BundleRefused, OSError, ValueError) as error:
         journal.set(name, adopted=True, built_by=tool,
                     package_problem=str(error), **out)
+    _request_overlay(pack, lat, lon)
     return out
+
+
+def _request_overlay(pack: str, lat: int, lon: int) -> None:
+    """An adopted full tile gets its X-Plane overlay like a built one
+    (#2021): queued, beside the World pack's Custom Scenery folder."""
+    from . import overlay_queue as OVERLAYS
+    OVERLAYS.request(lat, lon, os.path.dirname(os.path.normpath(pack)))
 
 
 # ------------------------------------------------------------- re-adopt
@@ -433,4 +444,5 @@ def install_package(path: str, scenery_dir: str = "") -> dict:
         _stamp(folder, source=path, built_by=read_manifest(path).get("built_by", ""))
         journal.set(name, state="done", adopted=True, package=path,
                     problems=[])
+    _request_overlay(pack, lat, lon)
     return {"installed": laid["files"], "tile": tile, "missing": missing}

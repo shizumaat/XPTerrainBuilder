@@ -1520,10 +1520,16 @@ class MainWindow(QMainWindow):
         self.chk_vector.setChecked(True)
         self.chk_imagery = QCheckBox(GLOSSARY.TERMS["imagery_and_scenery_file"])
         self.chk_imagery.setChecked(True)
-        self.chk_overlays = QCheckBox(GLOSSARY.TERMS["xplane_objects"])
-        for c in (self.chk_vector, self.chk_imagery, self.chk_overlays):
+        for c in (self.chk_vector, self.chk_imagery):
             _never_widen(c)
             advanced.addWidget(c)
+        # X-Plane's roads, forests and buildings are automatic (#2021,
+        # RULINGS 2026-11-12e): a line, no switch (the Mac BuildPane's).
+        self.overlays_note = QLabel("%s\n%s" % (
+            GLOSSARY.TERMS["xplane_objects"],
+            GLOSSARY.TERMS["xplane_objects_auto"]))
+        self.overlays_note.setWordWrap(True)
+        advanced.addWidget(self.overlays_note)
         self.advanced_box.setVisible(False)
         self.advanced_toggle.toggled.connect(self._advanced_toggled)
         for c in (self.chk_auto_install, self.chk_skip_built):
@@ -1538,7 +1544,7 @@ class MainWindow(QMainWindow):
         bg.addWidget(self.advanced_box)
         for c in (self.chk_grade_airports, self.chk_modify_airports,
                   self.chk_auto_install, self.chk_skip_built,
-                  self.chk_vector, self.chk_imagery, self.chk_overlays):
+                  self.chk_vector, self.chk_imagery):
             c.toggled.connect(self._schedule_plan_estimate)
         self.imagery_combo.currentTextChanged.connect(
             self._schedule_plan_estimate)
@@ -3316,8 +3322,9 @@ class MainWindow(QMainWindow):
 
     def _request_plan_estimate(self):
         tiles = self._plan_tiles()
+        # the overlay step is the engine's to add (#2021)
         steps = (self.chk_vector.isChecked(), self.chk_imagery.isChecked(),
-                 self.chk_overlays.isChecked())
+                 False)
         self._plan_request += 1
         if not tiles or not any(steps):
             self.plan_panel.clear()
@@ -4234,7 +4241,7 @@ class MainWindow(QMainWindow):
             return
         do_vector = self.chk_vector.isChecked()
         do_imagery = self.chk_imagery.isChecked()
-        do_overlays = self.chk_overlays.isChecked()
+        do_overlays = False             # the engine adds it (#2021)
         if not (do_vector or do_imagery or do_overlays):
             self._status("Choose at least one build step.")
             return
@@ -5120,7 +5127,7 @@ class MainWindow(QMainWindow):
             "zoomlevel": self.build_zl,
             "do_vector": self.chk_vector.isChecked(),
             "do_imagery": self.chk_imagery.isChecked(),
-            "do_overlays": self.chk_overlays.isChecked(),
+            "do_overlays": False,           # the engine adds it (#2021)
         }
 
     def _snapshot_run_settings(self, tiles, settings):
@@ -5771,7 +5778,7 @@ class MainWindow(QMainWindow):
         settings = dict(self._toolbar_settings() or {
             "do_vector": self.chk_vector.isChecked(),
             "do_imagery": self.chk_imagery.isChecked(),
-            "do_overlays": self.chk_overlays.isChecked(),
+            "do_overlays": False,           # the engine adds it (#2021)
         })
         info = self._built.get(tile)
         if info is not None and info.provider:

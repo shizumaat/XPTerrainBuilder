@@ -68,6 +68,7 @@ __all__ = [
     "read_ini_lines",
     "write_ini_lines",
     "set_rows_enabled",
+    "remove_rows",
     "insert_new_packs",
     "listing_snapshot",
 ]
@@ -476,6 +477,23 @@ def set_rows_enabled(lines: list, names, enabled: bool,
             lines[index] = new
             changed.append(name)
     return changed + [name for name in added if name not in changed]
+
+
+def remove_rows(lines: list, names) -> list:
+    """Drop the rows of the packs ``names`` from ``lines`` (edited in
+    place); the names whose row went.  Only for an entry that is no longer
+    in Custom Scenery (Convert existing tiles moves a local tile's folder
+    out, owner 2026-11-12T13:42Z): X-Plane drops such a row itself."""
+    wanted = set(names)
+    keep, gone = [], []
+    for line in lines:
+        is_row, name = _row_pack(line)
+        if is_row and name in wanted:
+            gone.append(name)
+        else:
+            keep.append(line)
+    lines[:] = keep
+    return gone
 
 
 def _row_pack(line: str):

@@ -15,7 +15,9 @@ a dynamic tile:
 * its on-demand index rows are forgotten (``world_retire._forget``);
 * a LINK entry (its tile on another drive) is removed from Custom
   Scenery, its target journalled; its row stays disabled (filed again
-  when another program dropped it);
+  when another program dropped it); a LOCAL entry's folder is (or moves)
+  in the work folder's ``originals/`` with no row (``world_originals``),
+  where "Free space…" deletes it;
 * the journal record goes ``done`` -> ``dynamic`` with ``rechosen: true``,
   keeping ``config_dir`` (the lean on-demand copy, which a later Convert
   reuses) and ``prior``.  Undo (``world_migrate.revert``) therefore gives
@@ -47,6 +49,7 @@ from typing import Any, Callable, Dict, Optional
 import O4_World_Pack as WP
 
 from . import world_migrate as MIGRATE
+from . import world_originals as ORIGINALS
 from . import world_retire as RETIRE
 
 __all__ = ["rechoose", "start_world_rechoose"]
@@ -61,7 +64,7 @@ def _tile_of(name: str) -> tuple:
 def _ours(record: dict, lat: int, lon: int) -> Optional[bool]:
     """Did this app build the tile?  ``None`` when no folder can tell."""
     import O4_Tile_Info as TINFO
-    for folder in (record.get("source"), record.get("config_dir")):
+    for folder in (ORIGINALS.home(record), record.get("config_dir")):
         if folder and os.path.isdir(folder):
             try:
                 return TINFO.built_here(folder, lat, lon)
@@ -109,8 +112,8 @@ def _package_ours(names, records: dict, dry_run: bool) -> Dict[str, int]:
     from . import package_first as FIRST
     first = FIRST.Pass(dry_run=dry_run)
     for name in names:
-        source = records[name].get("source")
-        if source and os.path.isdir(source):
+        source = ORIGINALS.home(records[name])
+        if source:
             RETIRE._package_first(first, source, name)
             lean = records[name].get("config_dir")
             if not dry_run and lean and CONVERT.is_converted(lean):
@@ -136,11 +139,13 @@ def _rechoose_one(name: str, record: dict, *, scenery_dir: str, pack: str,
         shutil.rmtree(os.path.join(pack, sub, WP.tile_name(lat, lon)),
                       ignore_errors=True)
     RETIRE._forget(lat, lon, index)
-    MIGRATE._set_row(scenery_dir, name, enabled=False)
+    if os.path.lexists(path):               # a kept folder has no row
+        MIGRATE._set_row(scenery_dir, name, enabled=False)
     if target and os.path.islink(path):
         os.unlink(path)                     # the link only, never its target
     journal.set(name, state="dynamic", rechosen=True, link_target=target,
                 problems=[])
+    ORIGINALS.try_put_away(scenery_dir, name, journal, index=index)
 
 
 def rechoose(scenery_dir: str, names=None, *, only_not_ours: bool = False,

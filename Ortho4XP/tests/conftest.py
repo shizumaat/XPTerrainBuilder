@@ -1868,27 +1868,34 @@ def _no_test_writes_a_real_root(_real_roots_audit_guard_armed, request):
 
 
 @pytest.fixture(autouse=True)
-def _data_root_app_state_is_a_tmp_folder(monkeypatch, tmp_path_factory):
+def _data_root_app_state_is_a_tmp_folder(tmp_path_factory):
     """``FNAMES.data_path`` of :data:`_APP_STATE_DIRS` resolves under this
     run's tmp tree (#1881 for ``storage.log``; 2026-11-11 for
     ``world_pack.log``, which held 21 pytest lines, and the on-demand index
-    the Qt window opens at its start): what a test that left the data root
-    at the checkout -- a lane worktree's mount of the real data folder --
-    writes there lands in scratch.  A test that points the data root at
-    its own tmp folder keeps it."""
+    and storage records the Qt window writes at its start): what a test
+    that left the data root at the checkout -- a lane worktree's mount of
+    the real data folder -- writes there lands in scratch.  A test that
+    points the data root at its own tmp folder keeps it.
+
+    Installed WITHOUT an undo, and again after a module reload: a window's
+    worker thread that outlives its test still writes into scratch (the
+    real-roots guard caught 22 such writes, each failing whichever test
+    was running then)."""
     import O4_File_Names as FNAMES
-    real = FNAMES.data_path
-    base = os.path.realpath(str(tmp_path_factory.getbasetemp()))
+    if not getattr(FNAMES.data_path, "_o4_app_state_scratch", False):
+        real = FNAMES.data_path
+        base = os.path.realpath(str(tmp_path_factory.getbasetemp()))
 
-    def data_path(relative_path):
-        path = real(relative_path)
-        head = str(relative_path).replace("\\", "/").split("/", 1)[0]
-        if head in _APP_STATE_DIRS and not os.path.realpath(
-                path).startswith(base + os.sep):
-            return os.path.join(base, "data-root-scratch", relative_path)
-        return path
+        def data_path(relative_path):
+            path = real(relative_path)
+            head = str(relative_path).replace("\\", "/").split("/", 1)[0]
+            if head in _APP_STATE_DIRS and not os.path.realpath(
+                    path).startswith(base + os.sep):
+                return os.path.join(base, "data-root-scratch", relative_path)
+            return path
 
-    monkeypatch.setattr(FNAMES, "data_path", data_path)
+        data_path._o4_app_state_scratch = True
+        FNAMES.data_path = data_path
     yield
 
 

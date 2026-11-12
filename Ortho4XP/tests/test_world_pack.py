@@ -327,6 +327,6 @@ def test_the_world_row_is_always_the_last_row():
     lines.insert(4, f"SCENERY_PACK_DISABLED Custom Scenery/{WP.PACK_NAME}/")
     del lines[-2]
     assert WP.ini_install(lines) is False
-    rows = [l for l in lines if WP.PACK_NAME in l]
+    rows = [line for line in lines if WP.PACK_NAME in line]
     assert rows == [f"SCENERY_PACK Custom Scenery/{WP.PACK_NAME}/"]
     assert lines[-2] == rows[0] and lines[-1] == ""

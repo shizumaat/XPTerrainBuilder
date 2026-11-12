@@ -9,8 +9,10 @@ import SceneryKit
 /// airports, make everything dynamic; each shows the dry run's figures),
 /// Measure (the dry run), Convert…, Cancel, Undo… and Free space… (removes
 /// the local tiles made dynamic). While a step runs a bar counts the tiles (owner
-/// 2026-11-11T15:32Z; `WorldMigrateRun`). The engine writes every result
-/// sentence.
+/// 2026-11-11T15:32Z; `WorldMigrateRun`) with the time since it began;
+/// Measure also starts by itself (owner 2026-11-12T19:08Z,
+/// `WorldMigrateRun.startAuto`) and its kept result shows with when it was
+/// taken. The engine writes every result sentence.
 struct ConvertTilesSection: View {
     @EnvironmentObject var buildModel: BuildModel
     /// `buildModel.worldMigrate`: one run, wherever it is shown.
@@ -18,6 +20,9 @@ struct ConvertTilesSection: View {
     /// The start's onboarding (#2007) measures at once: its "Move…" shows
     /// the dry run's numbers before anything moves.
     var measureOnAppear = false
+    /// Settings ▸ Storage: show the kept measure and start one in the
+    /// background when Custom Scenery changed since (`WorldMigrateRun.startAuto`).
+    var autoMeasure = false
     @State private var asking: Action?
 
     enum Action: Identifiable {
@@ -75,14 +80,30 @@ struct ConvertTilesSection: View {
                     ProgressView().progressViewStyle(.linear)
                 }
             }
-            if !run.status.isEmpty {
-                Text(run.status)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+            // The count with the time since the step began, and when the
+            // shown measure was taken (owner 2026-11-12T19:08Z).
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                VStack(alignment: .leading, spacing: 2) {
+                    let line = run.statusLine(now: context.date)
+                    if !line.isEmpty {
+                        Text(line)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                    if let measured = run.measuredLine(now: context.date) {
+                        Text(measured).scaledFont(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
         }
-        .onAppear { if measureOnAppear, !run.isRunning { start(.measure) } }
+        .onAppear {
+            if measureOnAppear, !run.isRunning {
+                start(.measure)
+            } else if autoMeasure {
+                startAuto()
+            }
+        }
         .alert(item: $asking) { action in
             Alert(
                 title: Text(words(action).title),
@@ -112,5 +133,11 @@ struct ConvertTilesSection: View {
     private func start(_ step: WorldMigrateRun.Step) {
         guard let context = buildModel.libraryContext() else { return }
         run.start(step, client: context.client, sceneryDir: context.sceneryDir)
+    }
+
+    private func startAuto() {
+        guard buildModel.engineCapabilities.supports(O4EngineCapabilities.worldMeasure),
+              let context = buildModel.libraryContext() else { return }
+        run.startAuto(client: context.client, sceneryDir: context.sceneryDir)
     }
 }

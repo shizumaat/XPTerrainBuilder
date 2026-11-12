@@ -928,6 +928,7 @@ class MainWindow(QMainWindow):
         from o4_engine.world_publish import watch as _watch_world
         _watch_world(self._session)
         self._storage_auto_clean()          # at launch (#1724)
+        self._auto_measure()                # Convert's Measure (owner 2026-11-12)
         self._event_handlers = {
             EV.ScanProgress: self._on_scan_progress,
             EV.ScanBatch: self._on_scan_batch,
@@ -2159,6 +2160,7 @@ class MainWindow(QMainWindow):
         # The dialog's Detail and preset cards (#822, #1242) show the
         # selection's detail level (#1549): each tile's recorded one, a
         # never-built tile the default (prefs["zl"], #1539).
+        self._auto_measure()    # Settings ▸ Storage shows it done, or follows it
         dialog = QTSET.SettingsWindow(
             dict(self.prefs),
             selected,
@@ -5531,6 +5533,15 @@ class MainWindow(QMainWindow):
         # GUI thread (a segfault / bus error at the next GC).
         session = self._session
         QTSTORE.run_auto_clean(lambda: bool(session._building), print)
+
+    def _auto_measure(self):
+        """Convert existing tiles' Measure, by itself (owner
+        2026-11-12T19:08Z): in the background on its own process when
+        Custom Scenery holds per-tile packs and the kept measure is
+        missing or stale (``O4_Qt_Convert_Tiles.auto_measure``)."""
+        import O4_Config_Utils as CFG
+        import O4_Qt_Convert_Tiles as QTCONVERT
+        QTCONVERT.auto_measure(CFG.custom_scenery_dir)
 
     def _on_run_done(self, event):
         self._building = False

@@ -26,8 +26,10 @@ struct XPTerrainBuilderApp: App {
         controller.worldMigrateRunning = { [weak buildModel] in
             buildModel?.worldMigrate.isRunning ?? false
         }
-        buildModel.worldMigrate.onFinish = { [weak controller] in
+        buildModel.worldMigrate.onFinish = { [weak controller, weak buildModel] step in
             controller?.refreshInstallation()
+            // Custom Scenery changed: measure again, in the background.
+            if step != .measure { buildModel?.startAutoMeasure() }
         }
         _controller = StateObject(wrappedValue: controller)
         _buildModel = StateObject(wrappedValue: buildModel)

@@ -6,7 +6,12 @@ import SceneryKit
 /// .worldMigrate`), so closing and reopening Settings shows the run still
 /// going. Owner 2026-11-11T15:32Z: while the measure or the move runs, a
 /// bar counts the tiles (`WorldMigrateProgress`), Cancel stops it cleanly
-/// and Done waits for the step's result line. The Qt window's
+/// and Done waits for the step's result line. Owner 2026-11-12T19:08Z:
+/// Measure starts by itself (`startAuto`: at the engine's start, when
+/// Settings ▸ Storage opens and after a step) when Custom Scenery holds
+/// per-tile packs and the kept measure is missing or stale, in the
+/// background; its result shows at once with "Measured 12 min ago", and
+/// every count shows the time since the step began. The Qt window's
 /// `O4_Qt_Convert_Tiles.ConvertTilesSection` holds the same states.
 @MainActor
 final class WorldMigrateRun: ObservableObject {
@@ -25,11 +30,18 @@ final class WorldMigrateRun: ObservableObject {
     /// A step finished and its result line is shown (Done is offered).
     @Published private(set) var hasResult = false
     @Published private(set) var cancelling = false
+    /// When the running step began (its elapsed time).
+    @Published private(set) var startedAt: Date?
+    /// The running measure started by itself (`startAuto`).
+    @Published private(set) var automatic = false
+    /// When the shown measure was taken.
+    @Published private(set) var measuredAt: Date?
 
     var isRunning: Bool { running != nil }
-    /// Called after each step's result (the map rescans Custom Scenery,
-    /// which it skipped while the step ran).
-    var onFinish: (@MainActor () -> Void)?
+    /// Called after each step's result with that step (the map rescans
+    /// Custom Scenery, which it skipped while the step ran; after a move,
+    /// undo or Free space a new measure starts by itself).
+    var onFinish: (@MainActor (Step?) -> Void)?
     /// Cancel stops the measure and the move (Undo runs to its end).
     var canCancel: Bool { running == .measure || running == .convert }
     /// The bar's fraction; nil while the total is not known yet.
@@ -38,12 +50,15 @@ final class WorldMigrateRun: ObservableObject {
         return Double(progress.done) / Double(progress.total)
     }
 
-    func begin(_ step: Step) {
+    func begin(_ step: Step, automatic: Bool = false, now: Date = Date()) {
         running = step
         progress = nil
         hasResult = false
         cancelling = false
-        status = step == .measure ? O4WorldMigrateText.measuring : O4WorldMigrateText.converting
+        startedAt = now
+        self.automatic = automatic && step == .measure
+        status = step != .measure ? O4WorldMigrateText.converting
+            : automatic ? O4WorldMigrateText.measuringBackground : O4WorldMigrateText.measuring
     }
 
     /// One `WorldMigrateProgress`; ignored when nothing runs.
@@ -53,23 +68,53 @@ final class WorldMigrateRun: ObservableObject {
         status = O4WorldMigrateText.progressLine(count)
     }
 
+    /// The line under the bar at `now`: the count (or the step's words)
+    /// with the time since the step began; the result line when idle.
+    func statusLine(now: Date = Date()) -> String {
+        guard running != nil, let startedAt else { return status }
+        let elapsed = now.timeIntervalSince(startedAt)
+        if let progress { return O4WorldMigrateText.progressLine(progress, elapsed: elapsed) }
+        return status + " " + O4WorldMigrateText.elapsedText(elapsed)
+    }
+
+    /// "Measured 12 min ago" for the shown measure (nil before one).
+    func measuredLine(now: Date = Date()) -> String? {
+        measuredAt.map { O4WorldMigrateText.measuredAgo(now.timeIntervalSince($0)) }
+    }
+
     func finish(_ outcome: Result<O4WorldMigrateResult, Error>) {
         let step = running
+        let wasAutomatic = automatic
         switch outcome {
         case .success(let result):
             status = result.summary
             measured = step == .measure ? result : nil
+            measuredAt = step == .measure ? (result.measuredAt ?? Date()) : nil
         case .failure(let error):
             // The engine's sentence (`O4CommandError.description`); its
             // localizedDescription is Foundation's generic text.
             status = "\(error)"
-            measured = nil
+            // A measure that started by itself keeps the last one shown.
+            if !wasAutomatic {
+                measured = nil
+                measuredAt = nil
+            }
         }
         running = nil
         progress = nil
         cancelling = false
+        startedAt = nil
+        automatic = false
         hasResult = true
-        onFinish?()
+        onFinish?(step)
+    }
+
+    /// The kept measure (`world_measure_state`), shown while nothing runs.
+    func restore(_ state: O4WorldMeasureState) {
+        guard running == nil, let result = state.result else { return }
+        measured = result
+        measuredAt = result.measuredAt ?? state.measuredAt
+        status = result.summary
     }
 
     func markCancelling() { cancelling = true }
@@ -83,18 +128,36 @@ final class WorldMigrateRun: ObservableObject {
     /// Tiles the chosen choice would move or make dynamic (0 before a measure).
     var toMove: Int { measured?.toMove(choice: choice) ?? 0 }
 
-    /// Start a step on `client` unless one runs.
-    func start(_ step: Step, client: OrthoEngineClient, sceneryDir: String) {
+    /// Start a step on `client` unless one runs; `automatic`: a measure
+    /// that started by itself, at the background priority.
+    func start(_ step: Step, client: OrthoEngineClient, sceneryDir: String,
+               automatic: Bool = false) {
         guard running == nil else { return }
-        begin(step)
+        begin(step, automatic: automatic)
         let choice = self.choice
         Task { @MainActor in
             do {
                 finish(.success(try await client.worldMigrate(
                     dryRun: step == .measure, revert: step == .undo,
-                    purge: step == .freeSpace, choice: choice, sceneryDir: sceneryDir)))
+                    purge: step == .freeSpace, choice: choice,
+                    background: automatic, sceneryDir: sceneryDir)))
             } catch {
                 finish(.failure(error))
+            }
+        }
+    }
+
+    /// Show the kept measure and start one in the background when the
+    /// engine says so (`world_measure_state.auto`: per-tile packs or
+    /// tiles to adopt again, and no measure kept or Custom Scenery changed
+    /// since). Nothing while a step runs.
+    func startAuto(client: OrthoEngineClient, sceneryDir: String) {
+        guard running == nil else { return }
+        Task { @MainActor in
+            guard let state = try? await client.worldMeasureState(sceneryDir: sceneryDir) else { return }
+            restore(state)
+            if state.auto, !state.running, running == nil {
+                start(.measure, client: client, sceneryDir: sceneryDir, automatic: true)
             }
         }
     }

@@ -64,4 +64,37 @@ import Foundation
         run.begin(.undo)
         #expect(run.isRunning && !run.canCancel)
     }
+
+    /// Owner 2026-11-12T19:08Z: Measure starts by itself in the background;
+    /// its count shows the time since it began; the kept measure shows at
+    /// once with when it was taken, and a failed automatic measure keeps it.
+    @Test func anAutomaticMeasureShowsElapsedAndKeepsTheLastResult() {
+        let run = WorldMigrateRun()
+        let kept = O4WorldMigrateResult(action: "dry_run", summary: "2 tiles can move.", failed: [],
+                                        stopped: false, toMove: 2,
+                                        measuredAt: Date(timeIntervalSince1970: 1000))
+        run.restore(O4WorldMeasureState(result: kept, measuredAt: kept.measuredAt, stale: true,
+                                        wanted: true, running: false, auto: true))
+        #expect(run.measured == kept && run.status == "2 tiles can move.")
+        #expect(run.measuredLine(now: Date(timeIntervalSince1970: 1000 + 12 * 60))
+                == "Measured 12 min ago")
+        let start = Date(timeIntervalSince1970: 5000)
+        run.begin(.measure, automatic: true, now: start)
+        #expect(run.automatic && run.status == O4WorldMigrateText.measuringBackground)
+        #expect(run.statusLine(now: start.addingTimeInterval(65))
+                == "Measuring in the background… 1:05 elapsed")
+        run.show(O4WorldMigrateProgress(phase: "adopt", done: 7, total: 2221, tile: "zOrtho4XP_+45+007"))
+        #expect(run.statusLine(now: start.addingTimeInterval(125))
+                == "Reading tiles made dynamic before: 7 of 2,221 tiles · zOrtho4XP_+45+007 · 2:05 elapsed")
+        run.finish(.failure(O4CommandError("Measuring cancelled: nothing was moved.")))
+        #expect(run.measured == kept && run.measuredAt == kept.measuredAt && !run.automatic)
+        // a measure that ends replaces it, with its time
+        run.begin(.measure)
+        let fresh = O4WorldMigrateResult(action: "dry_run", summary: "3 tiles can move.", failed: [],
+                                         stopped: false, toMove: 3,
+                                         measuredAt: Date(timeIntervalSince1970: 9000))
+        run.finish(.success(fresh))
+        #expect(run.measured == fresh && run.measuredAt == fresh.measuredAt)
+        #expect(run.statusLine() == "3 tiles can move.")
+    }
 }

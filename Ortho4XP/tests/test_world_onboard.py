@@ -119,6 +119,11 @@ def _hold_the_run(monkeypatch):
         return {"action": "dry_run", "summary": "3 tiles can move.",
                 "totals": {"by_action": {"copy": 3}}}
     monkeypatch.setattr(MIGRATE, "run_command", run_command)
+    # Measure runs on its own process (world_measure): held the same way
+    from o4_engine import world_measure as MEASURE
+    monkeypatch.setattr(MEASURE, "measure", lambda scenery, emit=None, **_kw:
+                        run_command(True, scenery_dir=scenery, emit=emit))
+    monkeypatch.setattr(MEASURE, "stop", lambda: None)
     return gate, calls
 
 
@@ -143,9 +148,11 @@ def test_the_measure_shows_a_count_and_holds_done(app, monkeypatch):
     _wait(app, lambda: box.bar.maximum() == 12)
     assert calls == [True] and box.running
     assert box.bar.isVisible() and box.bar.value() == 3
-    assert box.status_label.text() == QTCONVERT.progress_line(
-        "measure", 3, 12, "zOrtho4XP_+45+007") == \
+    assert QTCONVERT.progress_line("measure", 3, 12, "zOrtho4XP_+45+007") == \
         "Measuring: 3 of 12 tiles · zOrtho4XP_+45+007"
+    assert box.status_label.text().startswith(
+        "Measuring: 3 of 12 tiles · zOrtho4XP_+45+007 · 0:0")
+    assert box.status_label.text().endswith(" elapsed")
     assert box.stop_btn.isVisible() and box.stop_btn.text() == "Cancel"
     assert not dialog.not_now_btn.isEnabled()
     dialog.reject()                                  # Escape: held
@@ -211,7 +218,14 @@ def test_both_convert_sections_say_the_same():
           "undoTitle": QTCONVERT.UNDO_TITLE, "undoText": QTCONVERT.UNDO_TEXT,
           "confirmDynamic": QTCONVERT.CONFIRM_DYNAMIC,
           "freeSpace": QTCONVERT.FREE_SPACE, "freeTitle": QTCONVERT.FREE_TITLE,
-          "freeText": QTCONVERT.FREE_TEXT}
+          "freeText": QTCONVERT.FREE_TEXT,
+          "measuringBackground": QTCONVERT.MEASURING_BACKGROUND,
+          "sampling": QTCONVERT.SAMPLING, "adopting": QTCONVERT.ADOPTING,
+          "elapsed": QTCONVERT.ELAPSED,
+          "measuredJustNow": QTCONVERT.MEASURED_JUST_NOW,
+          "measuredMinutes": QTCONVERT.MEASURED_MINUTES,
+          "measuredHours": QTCONVERT.MEASURED_HOURS,
+          "measuredDays": QTCONVERT.MEASURED_DAYS}
     for key, title, hint in QTCONVERT.CHOICES:
         name = {"keep_all": "keepAll", "keep_custom": "keepCustom",
                 "dynamic": "dynamic"}[key]
@@ -221,3 +235,49 @@ def test_both_convert_sections_say_the_same():
     for piece in ('"Measuring"', '"Converting"', " of ", " tiles", '" · "'):
         assert piece in text, piece
     assert QTCONVERT.progress_line("move", 1, 4) == "Converting: 1 of 4 tiles"
+    # every phase, with the time since the step began (owner
+    # 2026-11-12T19:08Z); WorldWireTests.swift asserts the same lines
+    assert QTCONVERT.progress_line("adopt", 120, 2221, "zOrtho4XP_+45+007",
+                                   elapsed=125) == (
+        "Reading tiles made dynamic before: 120 of 2,221 tiles · "
+        "zOrtho4XP_+45+007 · 2:05 elapsed")
+    assert QTCONVERT.progress_line("sample", 1, 2) == "Timing a sample: 1 of 2 tiles"
+    assert QTCONVERT.elapsed_text(3725) == "1:02:05 elapsed"
+    assert [QTCONVERT.measured_ago(s) for s in (20, 725, 5 * 3600, 3 * 86400)] == [
+        "Measured just now", "Measured 12 min ago", "Measured 5 h ago",
+        "Measured 3 days ago"]
+    for piece in ('case "sample": return sampling', 'case "adopt": return adopting',
+                  '"%d:%02d:%02d"', '"%d:%02d"', "s < 2 * 86400"):
+        assert piece in text, piece
+
+
+def test_settings_follows_a_measure_running_elsewhere(app, monkeypatch):
+    """Owner 2026-11-12T19:08Z: Measure started at launch; Settings opened
+    while it runs follows its count with the time, then shows its result
+    and when it was taken."""
+    import time
+
+    import O4_Qt_Convert_Tiles as QTCONVERT
+    from o4_engine import world_measure as MEASURE
+    state = {"running": True, "started_at": time.time() - 65,
+             "progress": {"phase": "adopt", "done": 7, "total": 2221,
+                          "tile": "zOrtho4XP_+45+007"},
+             "result": None, "measured_at": None}
+    monkeypatch.setattr(MEASURE, "state", lambda scenery="": dict(state))
+    monkeypatch.setattr(MEASURE, "live", lambda: {
+        k: state[k] for k in ("running", "started_at", "progress")})
+    box = QTCONVERT.ConvertTilesSection("/cs")
+    assert box.running and box.following and box.bar.maximum() == 2221
+    assert box.status_label.text().startswith(
+        "Reading tiles made dynamic before: 7 of 2,221 tiles · zOrtho4XP_+45+007 · 1:0")
+    assert not box.measure_btn.isEnabled()
+    state.update(running=False, measured_at=time.time() - 725,
+                 result={"action": "dry_run", "summary": "2,221 tiles can move.",
+                         "choices": [{"id": "keep_all", "line": "Keeps 2,221 tiles.",
+                                      "kept": 0, "dynamic": 0, "again": 2221}]})
+    box._tick()
+    assert not box.running and not box.following and box.has_result
+    assert box.status_label.text() == "2,221 tiles can move."
+    assert box.measured_label.text() == "Measured 12 min ago"
+    assert box.choice_notes["keep_all"].text() == "Keeps 2,221 tiles."
+    assert box.convert_btn.isEnabled()

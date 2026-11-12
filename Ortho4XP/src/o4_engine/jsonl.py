@@ -203,6 +203,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .plan_estimate import start_plan_estimate
     from .relief_commands import terrain_relief
     from .terrain_commands import terrain_sample
+    from .world_measure import world_measure_state
     from .world_migrate import start_world_migrate
     from .world_rechoose import start_world_rechoose
     return {
@@ -414,6 +415,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # into the World pack -- dry run, run, revert or stop; completes
         # through WorldReady carrying this command's id.
         "world_migrate": lambda **kw: start_world_migrate(session._emit, **kw),
+        # Measure's kept result and whether to start one now (capability
+        # world_measure, owner 2026-11-12T19:08Z: Measure runs by itself
+        # in the background); synchronous: one small file, three stat.
+        "world_measure_state": world_measure_state,
         # Kept tiles made dynamic after a Convert (capability
         # world_rechoose): a dry run unless dry_run is false; completes
         # through WorldReady carrying this command's id.

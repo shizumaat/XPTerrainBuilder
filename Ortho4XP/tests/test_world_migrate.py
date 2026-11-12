@@ -355,19 +355,22 @@ def test_world_ready_matches_the_shared_swift_fixture(xp):
 
 
 def test_the_dry_run_and_the_move_count_their_tiles(xp):
-    """Owner 2026-11-11T15:32Z: a bar and a count while it runs.  The
-    measure counts every pack and then the timed sample, the move every
-    tile; the totals are known at the first event and the last is done."""
+    """Owner 2026-11-11T15:32Z: a bar and a count while it runs; owner
+    2026-11-12T19:08Z: a count for every phase.  The measure counts every
+    pack, then the timed sample (phase ``sample``); the move every tile;
+    each phase's total is known at its first event and its last is done."""
     from o4_engine.events import WorldMigrateProgress
     events = []
     MIGRATE.run_command(True, scenery_dir=xp["scenery"], emit=events.append)
-    measure = [e for e in events if isinstance(e, WorldMigrateProgress)]
-    assert measure and {e.phase for e in measure} == {"measure"}
-    assert len({e.total for e in measure}) == 1
-    assert measure[0].done == 0 and measure[-1].done == measure[-1].total
-    assert measure[-1].total == 4 + 2          # four packs, a sample of two
-    assert [e.done for e in measure] == sorted(e.done for e in measure)
-    assert any(e.tile.startswith("zOrtho4XP_") for e in measure)
+    counted = [e for e in events if isinstance(e, WorldMigrateProgress)]
+    assert [p for i, p in enumerate(e.phase for e in counted)
+            if i == 0 or counted[i - 1].phase != p] == ["measure", "sample"]
+    for phase, total in (("measure", 4), ("sample", 2)):   # 4 packs, 2 timed
+        measure = [e for e in counted if e.phase == phase]
+        assert {e.total for e in measure} == {total}
+        assert measure[0].done == 0 and measure[-1].done == total
+        assert [e.done for e in measure] == sorted(e.done for e in measure)
+        assert any(e.tile.startswith("zOrtho4XP_") for e in measure)
     events.clear()
     MIGRATE.run_command(False, scenery_dir=xp["scenery"], emit=events.append)
     move = [e for e in events if isinstance(e, WorldMigrateProgress)]
@@ -381,7 +384,7 @@ def test_cancel_stops_the_dry_run_and_moves_nothing(xp, monkeypatch):
     before = _hashes(xp["scenery"])
     rows = _rows(xp["scenery"])
 
-    def cancel_at_first(done, total, name):
+    def cancel_at_first(done, total, name, phase):
         if done == 1:
             MIGRATE.stop()
     with pytest.raises(ValueError, match="cancelled"):

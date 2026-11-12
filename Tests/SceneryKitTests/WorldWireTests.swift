@@ -52,6 +52,32 @@ import Foundation
         #expect(O4WorldMigrateText.stop == "Cancel")
     }
 
+    /// `world_measure_state` (owner 2026-11-12T19:08Z: Measure by itself;
+    /// `test_world_measure.py` holds the fixture's keys to the engine's):
+    /// the kept measure with its time, and `auto`. Every phase reads, with
+    /// the time since the step began, as the Qt window's.
+    @Test func worldMeasureStateDecodesThePythonState() throws {
+        let url = Self.fixtures.appendingPathComponent("world/world_measure_state.json")
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let state = O4WorldMeasureState.parse(O4JSON.from(object))
+        #expect(state.stale && state.wanted && state.auto && !state.running)
+        #expect(state.measuredAt == Date(timeIntervalSince1970: 1762974000))
+        let result = try #require(state.result)
+        #expect(result.measuredAt == state.measuredAt && result.toMove(choice: "keep_all") == 2221)
+        let adopt = O4WorldMigrateProgress(phase: "adopt", done: 120, total: 2221,
+                                           tile: "zOrtho4XP_+45+007")
+        #expect(O4WorldMigrateText.progressLine(adopt, elapsed: 125)
+                == "Reading tiles made dynamic before: 120 of 2,221 tiles · zOrtho4XP_+45+007 · 2:05 elapsed")
+        let sample = O4WorldMigrateProgress(phase: "sample", done: 1, total: 2, tile: "")
+        #expect(O4WorldMigrateText.progressLine(sample) == "Timing a sample: 1 of 2 tiles")
+        #expect(O4WorldMigrateText.elapsedText(3725) == "1:02:05 elapsed")
+        #expect(O4WorldMigrateText.measuredAgo(20) == "Measured just now")
+        #expect(O4WorldMigrateText.measuredAgo(12 * 60 + 5) == "Measured 12 min ago")
+        #expect(O4WorldMigrateText.measuredAgo(5 * 3600) == "Measured 5 h ago")
+        #expect(O4WorldMigrateText.measuredAgo(3 * 86400) == "Measured 3 days ago")
+    }
+
     @Test func worldStatusDecodesThePythonEvent() throws {
         let url = Self.fixtures.appendingPathComponent("world/world_status_event.json")
         let object = try #require(

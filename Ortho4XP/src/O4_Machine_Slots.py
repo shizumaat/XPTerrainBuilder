@@ -81,7 +81,8 @@ else:
 
 __all__ = ["BUDGET", "CLASS_WAIT_S", "ENV_DIR", "ENV_CAPACITY", "ENV_UNGATED",
            "Held", "capacity", "ensure_session", "hold_class", "lend",
-           "lower_priority", "memory_admits", "net_class", "session_capacity",
+           "background_priority", "lower_priority", "memory_admits", "net_class",
+           "session_capacity",
            "step", "take_class", "try_take", "try_take_class", "take"]
 
 #: the session's slot directory and its capacity, inherited by every child
@@ -439,5 +440,24 @@ def lower_priority() -> None:
             k32.SetPriorityClass(k32.GetCurrentProcess(), 0x4000)
         elif os.getpriority(os.PRIO_PROCESS, 0) < NICE:
             os.setpriority(os.PRIO_PROCESS, 0, NICE)
+    except Exception:
+        pass
+
+
+def background_priority() -> None:
+    """Run THIS process in the system's background band: its CPU and its
+    disk reads yield to everything else (macOS ``PRIO_DARWIN_BG``, which
+    also throttles I/O; Windows background mode; elsewhere nice 19).
+    For work nobody waits on, beside a build (owner 2026-11-12T19:08Z:
+    Measure "at background priority while builds run").  Never raises."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00100000)
+        elif hasattr(os, "PRIO_DARWIN_BG"):
+            os.setpriority(os.PRIO_DARWIN_PROCESS, 0, os.PRIO_DARWIN_BG)
+        else:
+            os.setpriority(os.PRIO_PROCESS, 0, 19)
     except Exception:
         pass

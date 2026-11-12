@@ -40,6 +40,8 @@ public struct O4WorldMigrateResult: Sendable, Equatable {
     public let toMove: Int
     /// Dry run: each choice's figures, in the order the apps list them.
     public var choices: [O4WorldMigrateChoice] = []
+    /// Dry run: when it was measured (`world_measure`; nil from an older engine).
+    public var measuredAt: Date?
 
     /// Tiles `choice` moves, adopts again or makes dynamic (the plain
     /// move count when the engine sent no choices).
@@ -57,7 +59,46 @@ public struct O4WorldMigrateResult: Sendable, Equatable {
             failed: (result["failed"]?.arrayValue ?? []).compactMap { $0["name"]?.stringValue },
             stopped: result["stopped"]?.boolValue ?? false,
             toMove: move,
-            choices: (result["choices"]?.arrayValue ?? []).map(O4WorldMigrateChoice.parse))
+            choices: (result["choices"]?.arrayValue ?? []).map(O4WorldMigrateChoice.parse),
+            measuredAt: result["measured_at"]?.doubleValue.map { Date(timeIntervalSince1970: $0) })
+    }
+}
+
+/// The answer of `world_measure_state` (capability `world_measure`,
+/// `Ortho4XP/src/o4_engine/world_measure.py`; owner 2026-11-12T19:08Z:
+/// Measure runs by itself in the background): the kept measure, whether
+/// it is stale, and `auto`: start one now.
+public struct O4WorldMeasureState: Sendable, Equatable {
+    public let result: O4WorldMigrateResult?
+    public let measuredAt: Date?
+    public let stale: Bool
+    public let wanted: Bool
+    public let running: Bool
+    public let auto: Bool
+
+    public init(result: O4WorldMigrateResult?, measuredAt: Date?, stale: Bool,
+                wanted: Bool, running: Bool, auto: Bool) {
+        self.result = result
+        self.measuredAt = measuredAt
+        self.stale = stale
+        self.wanted = wanted
+        self.running = running
+        self.auto = auto
+    }
+
+    public static func parse(_ json: O4JSON) -> O4WorldMeasureState {
+        let at = json["measured_at"]?.doubleValue.map { Date(timeIntervalSince1970: $0) }
+        var result: O4WorldMigrateResult?
+        if let raw = json["result"], raw != .null {
+            var parsed = O4WorldMigrateResult.parse(raw)
+            parsed.measuredAt = parsed.measuredAt ?? at
+            result = parsed
+        }
+        return O4WorldMeasureState(result: result, measuredAt: at,
+                                   stale: json["stale"]?.boolValue ?? false,
+                                   wanted: json["wanted"]?.boolValue ?? false,
+                                   running: json["running"]?.boolValue ?? false,
+                                   auto: json["auto"]?.boolValue ?? false)
     }
 }
 
@@ -115,17 +156,55 @@ public enum O4WorldMigrateText {
     public static let stop = "Cancel"
     public static let undo = "Undo…"
     public static let measuring = "Measuring (a few tiles are converted into a temporary folder to time it)…"
+    public static let measuringBackground = "Measuring in the background…"
+    public static let sampling = "Timing a sample"
+    public static let adopting = "Reading tiles made dynamic before"
+    public static let elapsed = "{time} elapsed"
+    public static let measuredJustNow = "Measured just now"
+    public static let measuredMinutes = "Measured {n} min ago"
+    public static let measuredHours = "Measured {n} h ago"
+    public static let measuredDays = "Measured {n} days ago"
     public static let converting = "Converting…"
     public static let confirmTitle = "Move these tiles into the World pack?"
     public static let confirmText = "Quit X-Plane first. Each tile folder on this Mac moves out of Custom Scenery into the World pack's keeping (XPTerrainBuilder_world_migrate, beside Custom Scenery) and the World pack draws it (a copy of scenery_packs.ini is kept). You can stop at any time and convert again later."
     public static let undoTitle = "Put every converted tile back?"
     public static let undoText = "Quit X-Plane first. Each tile folder moves back into Custom Scenery, turned on, and the World pack gives the tile back."
 
-    /// The count under the bar (Qt: `O4_Qt_Convert_Tiles.progress_line`).
-    public static func progressLine(_ progress: O4WorldMigrateProgress) -> String {
-        let verb = progress.phase == "measure" ? "Measuring" : "Converting"
-        let line = "\(verb): \(progress.done.formatted()) of \(progress.total.formatted()) tiles"
-        return progress.tile.isEmpty ? line : line + " · " + progress.tile
+    /// The words of a phase (`WorldMigrateProgress.phase`).
+    public static func phaseVerb(_ phase: String) -> String {
+        switch phase {
+        case "measure": return "Measuring"
+        case "sample": return sampling
+        case "adopt": return adopting
+        default: return "Converting"
+        }
+    }
+
+    /// The count under the bar, with the time since the step began (Qt:
+    /// `O4_Qt_Convert_Tiles.progress_line`).
+    public static func progressLine(_ progress: O4WorldMigrateProgress,
+                                    elapsed seconds: TimeInterval? = nil) -> String {
+        var line = "\(phaseVerb(progress.phase)): \(progress.done.formatted()) of \(progress.total.formatted()) tiles"
+        if !progress.tile.isEmpty { line += " · " + progress.tile }
+        if let seconds { line += " · " + elapsedText(seconds) }
+        return line
+    }
+
+    /// "4:07 elapsed" (h:mm:ss past an hour; Qt: `elapsed_text`).
+    public static func elapsedText(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds))
+        let (h, m, s) = (total / 3600, total % 3600 / 60, total % 60)
+        let time = h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+        return elapsed.replacingOccurrences(of: "{time}", with: time)
+    }
+
+    /// "Measured 12 min ago" (Qt: `measured_ago`).
+    public static func measuredAgo(_ seconds: TimeInterval) -> String {
+        let s = max(0, Int(seconds))
+        if s < 60 { return measuredJustNow }
+        if s < 3600 { return measuredMinutes.replacingOccurrences(of: "{n}", with: "\(s / 60)") }
+        if s < 2 * 86400 { return measuredHours.replacingOccurrences(of: "{n}", with: "\(s / 3600)") }
+        return measuredDays.replacingOccurrences(of: "{n}", with: "\(s / 86400)")
     }
 }
 
@@ -135,12 +214,15 @@ extension OrthoEngineClient {
     /// (`purge`). Asynchronous on the engine side: the reply is
     /// `{"status": "started"}` and the `WorldReady` event naming this
     /// command's id carries the result.
+    /// `background` (capability `world_measure`): the measure at the
+    /// system's background priority (the automatic one).
     public func worldMigrate(dryRun: Bool, revert: Bool = false, purge: Bool = false,
-                             choice: String = "keep_all",
+                             choice: String = "keep_all", background: Bool = false,
                              sceneryDir: String) async throws -> O4WorldMigrateResult {
         let once = O4ResumeOnce<O4WorldMigrateResult>()
         let arguments: [String: Any] = ["dry_run": dryRun, "revert": revert,
                                         "purge": purge, "choice": choice,
+                                        "background": background,
                                         "scenery_dir": sceneryDir]
         return try await withCheckedThrowingContinuation { continuation in
             once.set(continuation)
@@ -151,6 +233,21 @@ extension OrthoEngineClient {
                      }
                  },
                  completionEvent: { event in once.resume(Self.decodeWorldMigrateReady(event)) })
+        }
+    }
+
+    /// `world_measure_state` (capability `world_measure`): the kept
+    /// measure and whether to start one now; synchronous.
+    public func worldMeasureState(sceneryDir: String) async throws -> O4WorldMeasureState {
+        try await withCheckedThrowingContinuation { continuation in
+            send(command: "world_measure_state", arguments: ["scenery_dir": sceneryDir]) { reply in
+                guard reply.ok, let result = reply.result else {
+                    continuation.resume(throwing: O4CommandError(
+                        reply.error ?? "The engine refused world_measure_state."))
+                    return
+                }
+                continuation.resume(returning: O4WorldMeasureState.parse(result))
+            }
         }
     }
 

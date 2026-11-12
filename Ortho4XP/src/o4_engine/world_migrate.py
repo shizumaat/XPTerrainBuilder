@@ -688,20 +688,23 @@ STOPPED_MEASURE = "Measuring cancelled: nothing was moved."
 
 def _count_events(emit: Callable[[Any], None], phase: str,
                     every: float = 0.2):
-    """A ``progress(done, total, name)`` that emits a
-    ``WorldMigrateProgress`` of ``phase`` at most every ``every`` s (the
-    first and the last always)."""
+    """A ``progress(done, total, name[, phase])`` that emits a
+    ``WorldMigrateProgress`` of ``phase`` (or the one given) at most every
+    ``every`` s (the first and the last of each phase always)."""
     from .events import WorldMigrateProgress
-    last = [None]
+    last = [None, phase]
     lock = threading.Lock()
 
-    def progress(done: int, total: int, name: str) -> None:
+    def progress(done: int, total: int, name: str,
+                 now_phase: Optional[str] = None) -> None:
+        now_phase = now_phase or phase
         now = time.monotonic()
         with lock:
-            if last[0] is not None and now - last[0] < every and done < total:
+            if (last[0] is not None and last[1] == now_phase
+                    and now - last[0] < every and done < total):
                 return
-            last[0] = now
-        emit(WorldMigrateProgress(phase=phase, done=int(done),
+            last[0], last[1] = now, now_phase
+        emit(WorldMigrateProgress(phase=now_phase, done=int(done),
                                   total=int(total), tile=name or ""))
     return progress
 
@@ -846,14 +849,17 @@ def run_command(dry_run: bool, undo: bool = False, tiles=None,
                 scenery_dir: str = "", workers: int = 4,
                 emit: Optional[Callable[[Any], None]] = None,
                 choice: str = RETIRE.KEEP_ALL,
-                purge: bool = False) -> Dict[str, Any]:
+                purge: bool = False, facts=None,
+                rates: Optional[dict] = None) -> Dict[str, Any]:
     """The work of ``world_migrate`` on the caller's thread (the Qt window
     calls it on its own worker): the result with ``action``, ``summary``
     and the ``failed`` rows only.  ``emit`` receives the progress events:
     ``WorldMigrateProgress`` of the dry run and of a migration (whose
     ``WorldStatus`` it also receives).  The dry run answers every choice
     (``choices``); the migration runs ``choice``; ``purge`` is Free
-    space (:func:`_free_space`)."""
+    space (:func:`_free_space`).  ``facts`` and ``rates``: the dry
+    run's header cache and earlier seconds per tile (``world_measure``,
+    which runs the dry run on its own process)."""
     from . import world_commands as WORLD
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     if not scenery_dir or not os.path.isdir(scenery_dir):
@@ -861,9 +867,10 @@ def run_command(dry_run: bool, undo: bool = False, tiles=None,
     WORLD.refuse_foreign(scenery_dir)
     if dry_run and not purge:
         from .world_migrate_size import dry_run as size
-        result = size(scenery_dir, tiles, workers=max(1, int(workers)) * 2,
+        result = size(scenery_dir, tiles, move_workers=max(1, int(workers)),
                       progress=(_count_events(emit, "measure")
-                                if emit else None))
+                                if emit else None),
+                      facts=facts, rates=rates)
         action = "dry_run"
     elif purge:
         result, action = _free_space(scenery_dir, tiles), "free_space"
@@ -886,34 +893,54 @@ def start_world_migrate(emit: Callable[[Any], None], request: Any = None,
                         dry_run: bool = True, tiles=None, revert: bool = False,
                         stop: bool = False, scenery_dir: str = "",
                         workers: int = 4, choice: str = RETIRE.KEEP_ALL,
-                        purge: bool = False, **_ignored) -> dict:
+                        purge: bool = False, background: bool = False,
+                        **_ignored) -> dict:
     """ENGINE COMMAND ``world_migrate`` (spec §5.2): the dry run (default,
     with every choice's figures), the migration under ``choice``
     (``world_retire.CHOICES``), with ``revert`` its undo, or with
     ``purge`` Free space, of ``tiles`` (entry names; all when omitted).
     Replies ``{"status": "started"}``; ``WorldReady``
     (``request`` = this command's id) carries the result.  ``stop`` asks
-    a running migration to stop after the tiles in hand (it resumes on
-    the next run) and replies ``{"status": "stopping"}``."""
+    a running migration (or Measure) to stop after the tiles in hand (it
+    resumes on the next run) and replies ``{"status": "stopping"}``.
+
+    The dry run is Measure (``world_measure``): on its own process, not
+    holding the migration's lock (it writes nothing), ``background`` at
+    the system's background priority, its result kept for
+    ``world_measure_state``.  A migration cancels a running Measure."""
     from . import world_commands as WORLD
+    from . import world_measure as MEASURE
     from .events import WorldReady
     if stop:
         _STOP.set()
+        MEASURE.stop()
         return {"status": "stopping"}
-    if not _RUN.acquire(blocking=False):
+    measuring = bool(dry_run) and not purge
+    if measuring:
+        if MEASURE.running():
+            raise ValueError("Measure is already running.")
+    elif not _RUN.acquire(blocking=False):
         raise ValueError("world_migrate: a migration is already running.")
+    else:
+        MEASURE.stop()
 
     def work() -> None:
         try:
-            result = run_command(bool(dry_run), bool(revert), tiles,
-                                 scenery_dir, workers, emit,
-                                 choice=choice, purge=bool(purge))
+            if measuring:
+                result = MEASURE.measure(scenery_dir, emit, tiles=tiles,
+                                         workers=workers,
+                                         background=bool(background))
+            else:
+                result = run_command(bool(dry_run), bool(revert), tiles,
+                                     scenery_dir, workers, emit,
+                                     choice=choice, purge=bool(purge))
         except Exception as error:            # the sentence goes to the app
             emit(WorldReady(request=request, result=None,
                             error=str(error) or repr(error)))
             return
         finally:
-            _RUN.release()
+            if not measuring:
+                _RUN.release()
         emit(WorldReady(request=request, result=result))
         if not dry_run:
             emit(WORLD.status_event(scenery_dir))

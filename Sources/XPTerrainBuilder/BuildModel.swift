@@ -1050,6 +1050,7 @@ final class BuildModel: ObservableObject {
             reloadGlobalConfig()
             checkPatchLibraryAtLaunch()
             checkWorldOnboardAtLaunch()
+            startAutoMeasure()      // Convert's Measure, by itself (owner 2026-11-12)
         case .stderr(let line):
             console.append(line)
         case .log(_, let line, let tile):

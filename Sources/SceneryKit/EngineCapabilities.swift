@@ -50,6 +50,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// `world_rechoose`: kept tiles of Convert existing tiles made dynamic
     /// (completes through `WorldReady`); flag only.
     public static let worldRechoose = "world_rechoose"
+    /// `world_measure_state` + `world_migrate {background}`: Measure on its
+    /// own process, kept, started by the app (owner 2026-11-12T19:08Z).
+    public static let worldMeasure = "world_measure"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

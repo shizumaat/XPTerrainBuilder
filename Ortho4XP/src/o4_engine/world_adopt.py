@@ -55,7 +55,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 import O4_File_Names as FNAMES
 import O4_World_Pack as WP
@@ -63,6 +63,7 @@ import O4_World_Pack as WP
 __all__ = ["RESERVE_BYTES", "CORE_RESERVE_BYTES", "PACKAGE_SUFFIX",
            "room_left", "foreign", "finish",
            "readopt_candidates", "readopt", "keep_cores", "plan",
+           "plan_copy_bytes", "PLAN_WORKERS",
            "install_package"]
 
 #: A run writes a tile only while the disk keeps this much free.
@@ -180,14 +181,11 @@ def _kept_by(choice: str, tile: tuple, custom) -> bool:
                                          and tile in custom)
 
 
-def readopt_candidates(records: Dict[str, dict], choice: str, custom,
-                       names=None) -> list:
-    """``[(name, record)]`` of the journalled tiles :func:`readopt` takes
-    under ``choice``: made dynamic (or a readoption half done), not
-    removed by Free space, another tool's, their files readable."""
-    from . import world_originals as ORIGINALS
+def _pending(records: Dict[str, dict], choice: str, custom, names=None):
+    """``(name, record, tile)`` of the journalled tiles :func:`readopt`
+    may take under ``choice``, from the journal alone (no file read):
+    made dynamic (or a readoption half done), not removed by Free space."""
     wanted = set(names) if names else None
-    out = []
     for name, record in sorted(records.items()):
         state = record.get("state")
         if wanted is not None and name not in wanted:
@@ -201,12 +199,31 @@ def readopt_candidates(records: Dict[str, dict], choice: str, custom,
             tile = WP.parse_tile(name[len(_PREFIX):])
         except ValueError:
             continue
-        home = ORIGINALS.home(record)
-        if (_kept_by(choice, tile, custom) and home
-                and os.path.isfile(os.path.join(home, WP.dsf_relpath(*tile)))
-                and foreign(home, *tile)):
-            out.append((name, record))
-    return out
+        if _kept_by(choice, tile, custom):
+            yield name, record, tile
+
+
+def _readable(home: Optional[str], tile: tuple, facts=None) -> bool:
+    """Are the files of a :func:`_pending` tile at ``home`` readable and
+    another tool's (``facts``: a ``world_tile_facts.TileFacts``)?"""
+    if not home:
+        return False
+    if facts is None:
+        return (os.path.isfile(os.path.join(home, WP.dsf_relpath(*tile)))
+                and foreign(home, *tile))
+    return bool(facts.get(home, *tile, "readable",
+                          lambda: _readable(home, tile)))
+
+
+def readopt_candidates(records: Dict[str, dict], choice: str, custom,
+                       names=None) -> list:
+    """``[(name, record)]`` of the journalled tiles :func:`readopt` takes
+    under ``choice``: made dynamic (or a readoption half done), not
+    removed by Free space, another tool's, their files readable."""
+    from . import world_originals as ORIGINALS
+    return [(name, record)
+            for name, record, tile in _pending(records, choice, custom, names)
+            if _readable(ORIGINALS.home(record), tile)]
 
 
 def _entry(name: str, record: dict, scenery_dir: str):
@@ -305,25 +322,31 @@ def keep_cores(tiles, *, index: Optional[str] = None, work: str = "",
 # ---------------------------------------------------------------- plan
 
 
-def _core_bytes(folder: str, lat: int, lon: int, points,
-                source: Optional[str]) -> int:
+def _ters(folder: str) -> list:
+    """``[[texture, centre lat, centre lon, S]]`` of every ``.ter`` of
+    ``folder``'s ``terrain/`` (``O4_Imagery_OnDemand_Index._read_ter``)."""
+    import O4_Imagery_OnDemand_Index as INDEX
+    terrain = os.path.join(folder, "terrain")
+    out = []
+    for name in sorted(os.listdir(terrain)) if os.path.isdir(terrain) else ():
+        read = INDEX._read_ter(os.path.join(terrain, name)) \
+            if name.endswith(".ter") else None
+        if read is not None:
+            out.append(list(read))
+    return out
+
+
+def _core_bytes(ters: list, points, source: Optional[str]) -> int:
     """What landing the cores of one tile from its source takes: each
     ``.ter``'s square inside a core, its source DDS at the core's tier."""
     import O4_Imagery_OnDemand_Cores as CORES
-    import O4_Imagery_OnDemand_Index as INDEX
-    if not points:
+    if not points or not source:
         return 0
-    terrain = os.path.join(folder, "terrain")
     total = 0
-    for name in os.listdir(terrain) if os.path.isdir(terrain) else ():
-        read = INDEX._read_ter(os.path.join(terrain, name)) \
-            if name.endswith(".ter") else None
-        if read is None:
-            continue
-        texture, clat, clon, size = read
+    for texture, clat, clon, size in ters:
         row = {"centre_lat": clat, "centre_lon": clon, "load_size_m": size}
         tier = CORES.core_tier(row, points)
-        if tier is None or not source:
+        if tier is None:
             continue
         try:
             full = os.path.getsize(os.path.join(source, "textures", texture))
@@ -333,42 +356,89 @@ def _core_bytes(folder: str, lat: int, lon: int, points,
     return total
 
 
-def _plan_row(name: str, record: dict, points, px: int) -> dict:
-    """What re-adopting one candidate writes and keeps."""
+def _plan_row(name: str, record: dict, points, px: int, facts) -> Optional[dict]:
+    """What re-adopting one :func:`_pending` tile writes and keeps;
+    ``None`` when its files are not readable (not a candidate).  Header
+    reads go through ``facts`` (``world_tile_facts.TileFacts``)."""
     import O4_Imagery_OnDemand_Convert as CONVERT
 
     from . import world_originals as ORIGINALS
-    from .world_migrate_size import _dsf_bytes
+    from .world_migrate_size import _dsf_facts
     lat, lon = WP.parse_tile(name[len(_PREFIX):])
     home = ORIGINALS.home(record)
+    if not _readable(home, (lat, lon), facts):
+        return None
     lean = record.get("config_dir")
     row = {"custom": bool(points), "copy_bytes": 0,
-           "dsf_bytes": _dsf_bytes(os.path.join(home, WP.dsf_relpath(lat, lon)))}
+           "dsf_bytes": _dsf_facts(home, lat, lon, facts)[0]}
     copied = bool(lean) and CONVERT.is_converted(lean)
     if not copied and (record.get("kind") or "").startswith("link"):
-        found = CONVERT.plan_tile(home, px)
-        row["copy_bytes"] = found.total("textures") + found.total("copies")
-    row["core_bytes"] = _core_bytes(lean if copied else home, lat, lon,
-                                    points, home)
+        row["copy_bytes"] = plan_copy_bytes(home, lat, lon, px, facts)[0]
+    if points:
+        folder = lean if copied else home
+        row["core_bytes"] = _core_bytes(
+            facts.get(folder, lat, lon, "ters", lambda: _ters(folder)),
+            points, home)
+    else:
+        row["core_bytes"] = 0
     return row
 
 
+def plan_copy_bytes(source: str, lat: int, lon: int, px: int, facts) -> list:
+    """``[bytes an on-demand copy of source writes (placeholders and
+    copies), bytes of its full textures]`` (``O4_Imagery_OnDemand_Convert
+    .plan_tile``), kept in ``facts``."""
+    import O4_Imagery_OnDemand_Convert as CONVERT
+
+    def compute() -> list:
+        found = CONVERT.plan_tile(source, px)
+        return [found.total("textures") + found.total("copies"),
+                found.total("source_textures")]
+    return facts.get(source, lat, lon, "plan_%d" % int(px), compute)
+
+
+#: Tile folders read at once by :func:`plan` (owner 2026-11-12T19:08Z: a
+#: bounded few, at background priority beside a build).
+PLAN_WORKERS = 4
+
+
 def plan(records: Dict[str, dict], custom_points: dict, px: int,
-         names=None) -> Dict[str, dict]:
+         names=None, *, facts=None,
+         progress: Optional[Callable[[int, int, str], None]] = None,
+         stopping: Callable[[], bool] = lambda: False) -> Dict[str, dict]:
     """The dry run's figures of re-adopting, per choice
     (``world_retire.CHOICES``): ``{"tiles", "new_bytes", "dsf_bytes",
     "copy_bytes", "core_bytes", "custom_tiles"}``.  ``custom_points``:
     ``{(lat, lon): [(icao, lat, lon)]}``
     (``O4_Custom_Scenery.airport_points_by_tile``).  Reads headers and
-    ``stat`` only."""
+    ``stat`` only, through ``facts`` (``world_tile_facts.TileFacts``; a
+    fresh one, kept nowhere, when omitted), :data:`PLAN_WORKERS` tiles at
+    once; ``progress(done, total, name)`` counts the journalled tiles
+    read; ``stopping()`` true ends it early (the figures are then
+    partial: the caller raises)."""
+    from concurrent.futures import ThreadPoolExecutor
+
     from . import world_retire as RETIRE
-    rows = {name: _plan_row(name, record, custom_points.get(
-                WP.parse_tile(name[len(_PREFIX):])) or [], px)
-            for name, record in readopt_candidates(
-                records, RETIRE.KEEP_ALL, custom_points, names)}
+    from .world_migrate_size import _counter
+    from .world_tile_facts import TileFacts
+    facts = facts if facts is not None else TileFacts()
+    pending = list(_pending(records, RETIRE.KEEP_ALL, custom_points, names))
+    tick = _counter(progress, len(pending))
+    if progress and pending:
+        progress(0, len(pending), "")
+
+    def one(item) -> Optional[dict]:
+        name, record, tile = item
+        if stopping():
+            return None
+        row = _plan_row(name, record, custom_points.get(tile) or [], px, facts)
+        tick(name)
+        return row
+    with ThreadPoolExecutor(PLAN_WORKERS, thread_name_prefix="o4-adopt-plan") as pool:
+        rows = [r for r in pool.map(one, pending) if r is not None]
     out = {}
     for choice in RETIRE.CHOICES:
-        picked = [r for r in rows.values()
+        picked = [r for r in rows
                   if choice == RETIRE.KEEP_ALL
                   or (choice == RETIRE.KEEP_CUSTOM and r["custom"])]
         t = {key: sum(r[key] for r in picked)

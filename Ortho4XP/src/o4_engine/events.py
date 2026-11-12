@@ -237,6 +237,7 @@ CAPABILITIES: tuple = (
     "world_rechoose",               # 2026-11-11, kept tiles made dynamic (+ WorldReady)
     "scenery_reload_offer",         # 2026-11-12, #2019 reload on user click (scenery_reload)
     "scan_world",                   # 2026-11-12, #2024 ScanBatch.world + ScanDone.world_count
+    "world_measure",                # 2026-11-12, world_measure_state + world_migrate background
 )
 
 
@@ -1181,10 +1182,13 @@ class WorldReady(EngineEvent):
 class WorldMigrateProgress(EngineEvent):
     """How far a running ``world_migrate`` is (owner 2026-11-11T15:32Z:
     "show a progress bar and count as we run through their existing
-    tiles"): ``phase`` ``measure`` (the dry run: each pack read, then the
-    timed sample) or ``move`` (the migration); ``done`` of ``total``
-    tiles; ``tile`` the pack in hand.  At most ~5 a second; the last one
-    has ``done == total``.  ``o4_engine.world_migrate._count_events``.
+    tiles"): ``phase`` ``measure`` (the dry run: each pack read),
+    ``sample`` (its timed sample), ``adopt`` (the journalled tiles read
+    for adopting again; owner 2026-11-12T19:08Z: a count for every
+    phase) or ``move`` (the migration); ``done`` of ``total`` tiles of
+    that phase; ``tile`` the pack in hand.  At most ~5 a second; the last
+    of each phase has ``done == total``.
+    ``o4_engine.world_migrate._count_events``.
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).

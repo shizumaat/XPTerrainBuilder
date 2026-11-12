@@ -201,7 +201,7 @@ def status(rows: "list[dict]", raw: "dict | None" = None,
            "floor": parts, "recommended_bytes": _recommended_bytes(floor),
            "minimum_bytes": minimum, "minimum": least,
            "maximum_bytes": maximum, "reserve_bytes": RANGE.RESERVE_BYTES,
-           "breakdown": RANGE.breakdown(rows, used, least, split),
+           "breakdown": RANGE.breakdown(rows, used, least),
            "ladder": RANGE.ladder(rows, split),
            "under_floor": budget < floor, "over_budget": used > budget,
            "sharp_bytes": sharp}

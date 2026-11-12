@@ -768,24 +768,34 @@ def summary(action: str, result: Dict[str, Any]) -> str:
     acts = t["by_action"]
     move = acts.get("copy", 0) + acts.get("stage", 0) + acts.get("resume", 0)
     left = sum(n for a, n in acts.items() if a.startswith("skip"))
-    again = max([int(c.get("again") or 0) for c in result.get("choices")
-                 or ()] or [0])
-    if again:
-        left_words = (f" {again:,} tiles made dynamic before can be adopted "
-                      "again: see each choice.")
-    else:
-        left_words = ""
-    if not move:
+    # The journalled tiles made dynamic before that Convert adopts again
+    # count with the Custom Scenery entries (owner 2026-11-12: Measure
+    # "only found 1 tile" with 442 + 1,779 waiting in the journal).
+    keep_all = next((c for c in result.get("choices") or ()
+                     if c.get("id") == RETIRE.KEEP_ALL), {})
+    again = int(keep_all.get("again") or 0)
+    moved = (f"{acts.get('migrated', 0):,} were moved before"
+             if acts.get("migrated") else "")
+    if not move and not again:
         return (f"Nothing to move: {acts.get('migrated', 0):,} tiles are in "
-                f"the World pack, {left:,} left as they are." + left_words)
-    when = (_duration(t["seconds_est"]) if t.get("seconds_per_tile")
-            else "an unknown time")
-    return (f"{move:,} tiles can move into the World pack "
-            f"({acts.get('copy', 0):,} on another drive get a local "
-            f"on-demand copy; their files stay where they are). It needs "
-            f"{t['new_bytes'] / 1e9:,.1f} GB on this drive and takes {when}. "
-            f"{left:,} are left as they are; {acts.get('migrated', 0):,} "
-            "were moved before." + left_words)
+                f"the World pack, {left:,} left as they are.")
+    parts = []
+    if acts.get("copy"):
+        parts.append(f"{acts['copy']:,} on another drive get a local "
+                     "on-demand copy; their files stay where they are")
+    if again:
+        parts.append(f"{again:,} made dynamic before are adopted again")
+    needs = int(keep_all.get("new_bytes") or t["new_bytes"])
+    text = (f"{move + again:,} tiles can move into the World pack"
+            + (f" ({'; '.join(parts)})" if parts else "")
+            + f". It needs {needs / 1e9:,.1f} GB on this drive")
+    if move:
+        text += (" and takes " + (_duration(t["seconds_est"])
+                                  if t.get("seconds_per_tile")
+                                  else "an unknown time"))
+    tail = "; ".join(x for x in (f"{left:,} are left as they are"
+                                 if left else "", moved) if x)
+    return text + "." + (f" {tail[0].upper()}{tail[1:]}." if tail else "")
 
 
 def _cores_words(cores: Dict[str, Any]) -> str:

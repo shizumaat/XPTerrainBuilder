@@ -32,7 +32,7 @@ __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "held_line", "needs_downgrade", "downgrade_text",
            "clear_all_text", "BUDGET_MIN_END", "BUDGET_MAX_END",
            "BUDGET_CLAMPED", "BUDGET_FOLLOWED", "BAR_PLACEHOLDERS",
-           "BAR_TILES", "BAR_AIRPORT_IMAGERY", "BAR_OTHER_IMAGERY",
+           "BAR_TILES", "BAR_CACHES",
            "BAR_PACKAGES", "BAR_OTHER", "BAR_LEGEND", "PREVIEW_FITS",
            "PREVIEW_CLEARS", "PREVIEW_THEN", "PREVIEW_CACHES",
            "PREVIEW_IMAGERY", "PREVIEW_AIRPORTS", "PREVIEW_FAVORITES",
@@ -114,10 +114,10 @@ BUDGET_FOLLOWED = ("Your budget of {chosen} no longer fits on this disk with "
 #: The stacked usage bar's legend, left to right (``storage_range.BAR_PARTS``).
 BAR_PLACEHOLDERS = "World placeholders"
 BAR_TILES = "Tiles and mesh"
-BAR_AIRPORT_IMAGERY = "Airport imagery"
-BAR_OTHER_IMAGERY = "Other imagery"
 BAR_PACKAGES = "Packages"
-BAR_OTHER = "Caches and other"
+#: The Caches line's figure, the same bytes (owner 2026-11-12).
+BAR_CACHES = "Caches"
+BAR_OTHER = "Patches and other files"
 BAR_LEGEND = "{label} {bytes}"
 #: The line under the slider while it moves: what a clearing at that
 #: budget would do (``storage_range.ladder``, cheapest first).
@@ -133,8 +133,7 @@ PREVIEW_AIRPORTS_KEPT = " Airports keep full resolution."
 
 #: ``(budget key, legend)`` of the bar, left to right.
 _BAR = (("placeholders", BAR_PLACEHOLDERS), ("tiles", BAR_TILES),
-        ("airport_imagery", BAR_AIRPORT_IMAGERY),
-        ("other_imagery", BAR_OTHER_IMAGERY), ("packages", BAR_PACKAGES),
+        ("packages", BAR_PACKAGES), ("caches", BAR_CACHES),
         ("other", BAR_OTHER))
 #: ``(ladder step, words)`` in the order a clearing takes them.
 _STEPS = (("caches", PREVIEW_CACHES), ("imagery", PREVIEW_IMAGERY),

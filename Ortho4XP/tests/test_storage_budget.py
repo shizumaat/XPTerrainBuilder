@@ -151,8 +151,10 @@ def test_the_minimum_counts_world_placeholders_pack_tiles_and_airport_packages(
     other = _write(str(data / PACKAGES.STORE_DIR / "b.xptb"), 3000)
     PACKAGES.remember("+45+007", path=airport, airports=["ZZAA"])
     PACKAGES.remember("+45+008", path=other, airports=[])
+    _write(str(data / "tmp" / "cache.bin"), 4000)                 # a cache
     _budget(monkeypatch, 0)
-    figures = TOTAL.status(ST.storage_scan()["stores"])
+    scan = ST.storage_scan()
+    figures = TOTAL.status(scan["stores"])
     least = figures["minimum"]
     assert least["world_placeholders"] == 2 * placeholder
     assert least["world_dsf"] == 50000 and least["packages"] == 7000
@@ -163,6 +165,9 @@ def test_the_minimum_counts_world_placeholders_pack_tiles_and_airport_packages(
     assert sum(bar.values()) == figures["used_bytes"]
     assert bar["placeholders"] == 2 * placeholder and bar["tiles"] >= 50000
     assert bar["packages"] >= 10000
+    # owner 2026-11-12: the bar's Caches is the Caches line's figure
+    assert bar["caches"] == scan["cache_bytes"] == ST.cache_bytes(scan["stores"])
+    assert bar["caches"] >= 4000
     assert list(figures["ladder"]) == list(RANGE.LADDER_STEPS)
 
 

@@ -110,7 +110,11 @@ LIBRARY_STORAGE = (
      "caches_box", "clear_btn"),
     ("caches_details", "LibraryStorage.swift", "StorageDetailsSheet(model:",
      "caches_box", "details_btn"),
-    ("budget_field", "LibraryStorage.swift", "TextField(O4StorageText.budgetField",
+    # Owner 2026-11-12: "Budget (GB)" left, the slider beside it, the
+    # number field right, on one row.
+    ("budget_field_label", "LibraryStorage.swift", "Text(O4StorageText.budgetField)",
+     "budget_box", "budget_field_label"),
+    ("budget_field", "LibraryStorage.swift", "TextField(\"\", text: $field)",
      "budget_box", "budget_edit"),
     # #2022: the slider, its labelled ends, the preview while it moves and
     # the stacked usage bar.

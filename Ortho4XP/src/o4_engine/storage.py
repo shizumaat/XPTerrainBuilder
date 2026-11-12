@@ -57,7 +57,7 @@ import O4_File_Names as FNAMES
 
 from . import storage_packages as _PACKAGES
 
-__all__ = ["CACHE", "KEPT", "STORES", "AUTO_CLEAN_DAYS", "CAPS_SETTING",
+__all__ = ["CACHE", "KEPT", "STORES", "cache_bytes", "AUTO_CLEAN_DAYS", "CAPS_SETTING",
            "ONDEMAND", "REBUILD", "storage_scan", "storage_clear", "storage_auto_clean",
            "parse_caps", "write_log", "COMMANDS", "REFUSED_WHILE_BUILDING"]
 
@@ -603,6 +603,13 @@ def _check_clear(kwargs: dict) -> list:
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
+def cache_bytes(rows: "list[dict]") -> int:
+    """The bytes of the CACHE stores among the scan ``rows``: the
+    Caches line's total and the usage bar's Caches part (owner
+    2026-11-12: the two must be one figure)."""
+    return sum(int(r.get("bytes") or 0) for r in rows if r["policy"] == CACHE)
+
+
 def storage_scan() -> dict:
     """ENGINE COMMAND ``storage_scan``: every store with its freeable and
     apparent bytes, file count and last use (epoch seconds, None when
@@ -624,7 +631,7 @@ def storage_scan() -> dict:
     return {"root": root, "stores": rows,
             "budget": TOTAL.status(rows, installed_bytes=installed["local_bytes"]),
             "installed": installed,
-            "cache_bytes": sum(r["bytes"] for r in rows if r["policy"] == CACHE),
+            "cache_bytes": cache_bytes(rows),
             "kept_bytes": sum(r["bytes"] for r in rows if r["policy"] == KEPT),
             "measured": ("private" if DISK.private_bytes(root) is not None
                          else "allocated"),

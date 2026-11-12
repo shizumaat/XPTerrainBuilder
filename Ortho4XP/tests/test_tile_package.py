@@ -219,6 +219,8 @@ def test_a_restricted_source_writes_a_personal_package_that_warns(machines, tmp_
     assert done["personal"] is True
     assert done["warning"].startswith("For personal, non-commercial use only")
     assert "SWISSALTI3D" in done["warning"]
+    attribution = _members(done["path"])["ATTRIBUTION.txt"].decode("utf-8")
+    assert done["warning"] in attribution
     b.live()
     details = INSTALL.plan(done["path"])
     assert details["warning"] == done["warning"]

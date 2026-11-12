@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import sqlite3
 import time
 import types
 
@@ -507,3 +508,30 @@ def test_the_sweep_command_takes_a_cap_and_a_camera(scanned):
     assert out["ran"] and out["skipped_near"] >= 1 and out["downgraded"] >= 1
     conn = INDEX.open_index()
     assert INDEX.get(conn, TILE, first["name"])["state"] == "upgraded"
+
+
+def test_a_second_opener_never_drops_the_first_ones_rows(tmp_path, monkeypatch):
+    """Convert's workers open a new index at once: the opener that read
+    the old schema version first must not drop the table the other has
+    created and filled since (ubuntu CI 2026-11-12, a tile's 4 rows gone)."""
+    path = str(tmp_path / "index.sqlite")
+    real, state = sqlite3.connect, {"armed": True}
+
+    class Conn(sqlite3.Connection):
+        def execute(self, sql, *args):
+            out = super().execute(sql, *args)
+            if state["armed"] and sql == "PRAGMA user_version":
+                state["armed"] = False
+                stale = out.fetchall()              # this opener's read ...
+                first = INDEX.open_index(path)      # ... then the other opens,
+                INDEX.upsert(first, {"tile": "+45+007", "name": "a.dds"})
+                first.close()                       # writes and leaves
+                return types.SimpleNamespace(fetchone=lambda: stale[0])
+            return out
+    shim = types.SimpleNamespace(**vars(sqlite3))
+    shim.connect = lambda p, **kw: real(p, factory=Conn, **kw)
+    monkeypatch.setattr(INDEX, "sqlite3", shim)
+    conn = INDEX.open_index(path)
+    INDEX.upsert(conn, {"tile": "+60-136", "name": "b.dds"})
+    assert sorted(r["tile"] for r in INDEX.rows(conn)) == ["+45+007", "+60-136"]
+    conn.close()

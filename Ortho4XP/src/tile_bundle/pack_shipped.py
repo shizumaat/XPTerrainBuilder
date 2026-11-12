@@ -82,12 +82,13 @@ def _scenery_dir(scenery_dir) -> str:
 
 def scan(scenery_dir=None) -> list:
     """``[{"pack", "pack_root", "path", "tiles": {tile key: {icao:
-    {"pack", "signature", …}}}}]``: every package an ENABLED pack of
+    {"pack", "signature", …}}}, "warning"}]``: every package an ENABLED pack of
     ``scenery_dir`` (default: the configured Custom Scenery) ships.  A
     package whose manifest cannot be read is left out (logged once per
     build by :func:`apply_for_tile`'s caller)."""
     import O4_Scenery_Packs as SP
 
+    from .export import licence_marks
     from .install import read_manifest
     scenery_dir = _scenery_dir(scenery_dir)
     try:
@@ -107,7 +108,8 @@ def scan(scenery_dir=None) -> list:
                 continue
             out.append({"pack": name, "pack_root": root, "path": path,
                         "tiles": {e.get("tile", ""): e.get("airports") or {}
-                                  for e in manifest.get("tiles") or []}})
+                                  for e in manifest.get("tiles") or []},
+                        "warning": licence_marks(manifest.get("sources") or [])["warning"]})
     return out
 
 
@@ -157,9 +159,12 @@ def _notice(row: dict, airports, state: str, text: str, tile) -> dict:
             "lat": int(tile.lat), "lon": int(tile.lon)}
 
 
-def _texts(pack: str, icaos: str) -> dict:
+def _texts(pack: str, icaos: str, warning: str = "") -> dict:
+    """The notices' texts; ``warning`` (a personal package's, owner
+    2026-11-12) follows the APPLIED one, so both apps show it."""
     return {
-        APPLIED: "Using %s's XPTerrainBuilder data for %s" % (pack, icaos),
+        APPLIED: "Using %s's XPTerrainBuilder data for %s%s" % (
+            pack, icaos, (". " + warning) if warning else ""),
         FALLBACK: ("%s's XPTerrainBuilder data for %s was made for another "
                    "version of the pack; %s is built as usual" % (pack, icaos, icaos)),
         CONFLICT: ("%s ships a newer patch for %s than yours; yours is kept "
@@ -192,7 +197,8 @@ def _apply_one(row: dict, tile, record: dict, say) -> list:
     """The notices of one package for ``tile``; ``record`` is updated."""
     key = FNAMES.short_latlon(tile.lat, tile.lon)
     airports = row["tiles"].get(key) or {}
-    texts = _texts(row["pack"], ", ".join(sorted(airports)) or "its airport")
+    texts = _texts(row["pack"], ", ".join(sorted(airports)) or "its airport",
+                   row.get("warning") or "")
     held = record.setdefault(_record_key(row), {})
     sha = _sha256_file(row["path"])
     if _mismatches(row, airports, tile):

@@ -236,6 +236,29 @@ def test_a_shipped_package_is_applied_on_build_with_a_notice(signed, tmp_path, m
     assert again["state"] == "applied"
 
 
+def test_a_personal_package_saved_into_the_pack_warns_everywhere(
+        signed, tmp_path, monkeypatch):
+    """Owner 2026-11-12: a personal package (a source whose terms do not
+    allow sharing it) is saved into the pack all the same; the save's
+    reply, the manifest and each installation's notice carry the warning."""
+    from test_tile_package import _restricted
+    a, b, _sig = signed
+    _restricted(monkeypatch)
+    a.live()
+    done = PACKAGE.save_package([(LAT, LON)], "", airports=["HECA"], kind="patch",
+                                into_pack=True)
+    assert done["personal"] and done["warning"].startswith("For personal")
+    assert INSTALL.read_manifest(done["path"])["warning"] == done["warning"]
+    dest = DEV.package_path(_pack(b), "HECA")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.copy2(done["path"], dest)
+    b.live()
+    [notice], said = _apply(b)
+    assert notice["text"] == ("Using PackA's XPTerrainBuilder data for HECA. "
+                              + done["warning"])
+    assert said == ["  [pack package] " + notice["text"]]
+
+
 def test_the_build_posts_the_notice_as_an_event(monkeypatch):
     from o4_engine import events as EV
     from o4_engine import parallel

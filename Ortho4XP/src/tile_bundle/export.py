@@ -143,7 +143,8 @@ def _attribution(manifest: dict) -> bytes:
         manifest["tile"], manifest["key"]), "",
         "This bundle holds a terrain mesh and airport surfaces derived from:"]
     lines += [_terms.source_line(s) for s in manifest["sources"]]
-    lines += ["", _terms.statement(manifest["licence"], "bundle"), ""]
+    lines += ["", manifest.get("warning")
+              or _terms.statement(manifest["licence"], "bundle"), ""]
     return "\n".join(lines).encode("utf-8")
 
 

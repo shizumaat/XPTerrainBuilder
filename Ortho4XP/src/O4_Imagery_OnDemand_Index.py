@@ -162,22 +162,34 @@ def index_path(data_root: "str | None" = None) -> str:
 def open_index(path: "str | None" = None) -> sqlite3.Connection:
     """Open the index at ``path`` (default :func:`index_path`), creating
     its folder and table.  A file of an older schema is dropped and
-    recreated: the index is a cache, :func:`rebuild` restores it."""
+    recreated (under the write lock, the version read again, so a second
+    opener never drops the rows a first one wrote): the index is a cache,
+    :func:`rebuild` restores it."""
     path = path or index_path()
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     conn = sqlite3.connect(path, timeout=30.0, isolation_level=None)
     conn.row_factory = sqlite3.Row
     with contextlib.suppress(sqlite3.DatabaseError):
         conn.execute("PRAGMA journal_mode=WAL")
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version != SCHEMA_VERSION:
-        conn.execute("DROP TABLE IF EXISTS textures")
-    columns = ", ".join(f"{column} {kind}" for (column, kind, _d) in _SCHEMA)
-    conn.execute(f"CREATE TABLE IF NOT EXISTS textures ({columns}, "
-                 "PRIMARY KEY (tile, name))")
-    conn.execute("CREATE INDEX IF NOT EXISTS textures_lru "
-                 "ON textures (state, pinned, core, last_near_at)")
-    conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    if conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION:
+        return conn
+    # Two openers of a new index (Convert's workers): the version is read
+    # again under the write lock, so the second never drops the table the
+    # first has created and filled since.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+            conn.execute("DROP TABLE IF EXISTS textures")
+        columns = ", ".join(f"{column} {kind}" for (column, kind, _d) in _SCHEMA)
+        conn.execute(f"CREATE TABLE IF NOT EXISTS textures ({columns}, "
+                     "PRIMARY KEY (tile, name))")
+        conn.execute("CREATE INDEX IF NOT EXISTS textures_lru "
+                     "ON textures (state, pinned, core, last_near_at)")
+        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
     return conn
 
 

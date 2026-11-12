@@ -45,7 +45,9 @@ _WRITE_FLAGS = (os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT
 #: it writes (``os.rename`` is also ``os.replace``'s event; ``os.remove``
 #: also ``os.unlink``'s).  A RELATIVE path with a ``dir_fd`` names a file
 #: of that open folder (``shutil.rmtree``'s walk), not of the cwd: the
-#: walk's own top was read at its ``shutil.rmtree`` event.
+#: walk's own top was read at its ``shutil.rmtree`` event.  The events
+#: carry ``-1`` when no ``dir_fd`` was given; such a relative path is
+#: the cwd's and is checked.
 _PATH_ARGS = {
     "os.remove": ((0, 1),), "os.rmdir": ((0, 1),), "os.mkdir": ((0, 2),),
     "os.rename": ((0, 2), (1, 3)), "os.symlink": ((1, 2),),
@@ -91,6 +93,8 @@ def write_targets(event: str, args: tuple) -> tuple:
     for at, fd_at in _PATH_ARGS.get(event, ()):
         text = _text(args[at]) if at < len(args) else None
         dir_fd = args[fd_at] if fd_at is not None and fd_at < len(args) else None
+        if not isinstance(dir_fd, int) or dir_fd < 0:
+            dir_fd = None       # the audit events say -1 for "no dir_fd"
         if not text or text == ":memory:" or (
                 dir_fd is not None and not os.path.isabs(text)):
             continue

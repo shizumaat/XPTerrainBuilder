@@ -186,7 +186,8 @@ def _attribution(manifest: dict) -> bytes:
         lines.append("Made by " + manifest["creator"])
     lines += ["", "This package holds map and elevation data from:"]
     lines += [_terms.source_line(s) for s in manifest["sources"]]
-    lines += ["", _terms.statement(manifest["licence"], "package"), ""]
+    lines += ["", manifest.get("warning")
+              or _terms.statement(manifest["licence"], "package"), ""]
     return "\n".join(lines).encode("utf-8")
 
 
@@ -287,7 +288,10 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
     ``into_pack``: ``out`` is ignored and the package is saved into the
     airport's own pack folder (:func:`into_pack_path`), where every
     installation that has the pack applies it as its tiles build
-    (``pack_shipped``).  ``fields``: the optional :data:`BRANDING` fields.
+    (``pack_shipped``); a personal package is saved there too, with the
+    same ``warning``, which its manifest carries and every installation's
+    "Using …" notice repeats (owner 2026-11-12).  ``fields``: the
+    optional :data:`BRANDING` fields.
 
     :returns: ``{"path", "bytes", "data_bytes", "key", "files", "tiles",
         "noncommercial", "personal", "warning", "seconds"}`` — ``personal``

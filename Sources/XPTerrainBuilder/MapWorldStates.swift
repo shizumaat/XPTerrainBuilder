@@ -3,7 +3,8 @@ import SceneryKit
 
 /// The Build map's World states (#2024; Qt: `O4_Qt_Map_World`, same
 /// colours): what the World pack draws on each tile. Borders only, never
-/// a fill (#1256: a tint colours the imagery being judged). A full tile is
+/// a fill (#1256: a tint colours the imagery being judged) — each the
+/// shared fading band inside the tile's edge (`TileBand`). A full tile is
 /// the built-tile green, a mesh whose imagery streams is teal with its
 /// sharp fraction as a bar along its bottom edge, a drape is pink, and a
 /// placeholder a faint thin gray outline; a tile with nothing is left
@@ -17,7 +18,7 @@ enum MapWorldStates {
     /// The placeholder outline's opacity and width (Qt: PLACEHOLDER_ALPHA).
     static let placeholderOpacity = 0.30
     static let placeholderWidth: CGFloat = 1
-    /// Another tool's mesh: the border's dash (Qt: OTHER_TOOL_DASH).
+    /// Another tool's mesh: the border's dash in points, dotted (Qt: OTHER_TOOL_DASH).
     static let otherToolDash: [CGFloat] = [2, 3]
 
     static func color(_ state: O4WorldTile.State) -> Color? {
@@ -44,8 +45,8 @@ enum MapWorldStates {
         for (coord, tile) in world where visible(coord) && !skip(coord) {
             guard tile.state != .placeholder, let base = color(tile.state) else { continue }
             let r = rect(coord)
-            context.stroke(Path(r), with: .color(base.opacity(0.85)),
-                           style: StrokeStyle(lineWidth: 2, dash: tile.otherTool ? otherToolDash : []))
+            TileBandDrawing.draw(in: context, rect: r, color: base,
+                                 dash: tile.otherTool ? otherToolDash : [])
             if tile.state == .meshLowRes, r.width > 24 {
                 let h = min(max(r.height * 0.05, 3), 6)
                 let bar = CGRect(x: r.minX + 3, y: r.maxY - h - 3, width: r.width - 6, height: h)

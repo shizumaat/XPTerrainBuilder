@@ -14,6 +14,7 @@ from __future__ import annotations
 import O4_Flight_Plan as FP
 import O4_Fly_Layers as LAYERS
 import O4_Qt_Map_World as QTWORLD
+import O4_Qt_Tile_Band as QTBAND
 from O4_Qt_Flight_Plan import ROUTE_COLOR
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPen, QPolygonF
@@ -38,8 +39,9 @@ LEGEND_COLORS = {"draping": BUILDING_COLOR, "meshing": BUILDING_COLOR,
                  "own": QColor(140, 140, 140),
                  "custom": QColor(255, 159, 10),
                  "sharp": QColor(255, 214, 10)}
-#: Keys drawn dashed (Mac: ``FlyMapOverlay.dash``).
+#: Keys drawn dashed (Mac: ``FlyMapOverlay.dash``), and their dash in points.
 LEGEND_DASHED = frozenset({"draping"})
+LEGEND_DASH = (6, 4)
 #: The track line's color; the aircraft itself is ``O4_Fly_Layers.
 #: AIRCRAFT_SYMBOL`` filled white with a dark outline (G1000 style).
 AIRCRAFT_COLOR = QColor(10, 132, 255)
@@ -102,14 +104,15 @@ class FlyLayer:
             sharp.setCosmetic(True)
             self.preview.paint(painter, self._point, sharp)
         painter.setBrush(Qt.NoBrush)
+        # Each cell's colour is the shared band inside its edge
+        # (O4_Tile_Band; the Build map's World states draw the same).
         for lat, lon, key in self._pane.cells():
-            pen = QPen(LEGEND_COLORS[key], 2)
-            pen.setCosmetic(True)
-            if key in LEGEND_DASHED:
-                pen.setDashPattern([3, 2])
-            painter.setPen(pen)
             rect = QRectF(self._point(lat + 1, lon), self._point(lat, lon + 1))
-            painter.drawRect(rect.normalized().adjusted(2, 2, -2, -2))
+            if key == "placeholder":
+                QTBAND.paint_outline(painter, rect.normalized(), 1.0, LEGEND_COLORS[key])
+                continue
+            QTBAND.paint_band(painter, rect.normalized(), 1.0, LEGEND_COLORS[key],
+                              dash=LEGEND_DASH if key in LEGEND_DASHED else None)
         plan = self._pane.plan
         if plan and plan.get("waypoints"):
             points = [(w["lat"], w["lon"]) for w in plan["waypoints"]]

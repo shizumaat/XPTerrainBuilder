@@ -34,6 +34,8 @@ import O4_Qt_Map_World as QTWORLD
 import O4_Qt_Rotate_Cursor as ROTATE
 import O4_Qt_Selection_Ring as RING
 import O4_Qt_Text_Scale as QTTEXT
+import O4_Qt_Tile_Band as QTBAND
+import O4_Tile_Band as BAND
 import O4_Tile_Texture_Check as TEXCHECK
 import requests
 from PIL import Image as PILImage
@@ -91,6 +93,8 @@ BUILT_COLOR = "#4CAF6E"
 BUILT_EXTERNAL_COLOR = "#A0703C"
 # A tile another tool built is gray, one whose airport pack changed since
 # its build purple and dashed (#1958, O4_Qt_Map_Legend).
+#: The stale tile's dash, in points (MapCanvasView.staleDash).
+STALE_DASH = (6, 4)
 #: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
 SETTINGS_BADGE_COLOR = "#0A84FF"
 #: The custom-patch band (#1229); MapCanvasView.customPatchBand.
@@ -1376,16 +1380,10 @@ class MapView(QGraphicsView):
             else:
                 base = QColor(BUILT_EXTERNAL_COLOR
                               if getattr(built, "volume", "") else BUILT_COLOR)
+            # The shared fading band inside the edge (O4_Tile_Band).
             dim = 0.3 if tile in self._dimmed else 1.0
-            border = QColor(base)
-            border.setAlphaF(0.85 * dim)
-            pen = QPen(border)
-            pen.setCosmetic(True)
-            pen.setWidth(2)
-            if stale:
-                pen.setDashPattern([3, 2])
-            painter.setPen(pen)
-            painter.drawRect(r)
+            QTBAND.paint_band(painter, r, scale, base, dim,
+                              dash=STALE_DASH if stale else None)
             if tile in self._installed:
                 inner = QColor(base)
                 inner.setAlphaF(0.9 * dim)
@@ -1393,11 +1391,9 @@ class MapView(QGraphicsView):
                 pen.setCosmetic(True)
                 pen.setWidthF(1.5)
                 painter.setPen(pen)
-                inset = r.adjusted(
-                    r.width() * 0.03, r.height() * 0.03,
-                    -r.width() * 0.03, -r.height() * 0.03,
-                )
-                painter.drawRect(inset)
+                painter.setBrush(Qt.NoBrush)
+                d = BAND.inner_inset(px) / max(scale, 1e-12)
+                painter.drawRect(r.adjusted(d, d, -d, -d))
             # Mixed imagery sources: a warning triangle in the top-right
             # corner so affected tiles stand out at a glance.  Only once
             # the square is big enough to carry it — below that the badge

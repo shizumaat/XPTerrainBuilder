@@ -108,21 +108,28 @@ struct DiskBudgetSection: View {
         }
     }
 
-    /// The slider with its labelled ends, the number field, and the
-    /// preview line while the slider moves.
+    /// The labelled slider row with the number field, the slider's
+    /// labelled ends, and the preview line while the slider moves.
     @ViewBuilder private func sliderRow(_ budget: O4StorageBudget) -> some View {
         let ends = O4StorageText.endLabels(budget)
-        HStack {
+        // One row (owner 2026-11-12, 1.0.495): the label left, the slider
+        // filling the middle, the number field right; the label and field
+        // keep their size so the row never wraps the lines above it.
+        HStack(spacing: 8) {
+            Text(O4StorageText.budgetField).fixedSize()
             Slider(value: $gigabytes, in: range) { editing in
                 dragging = editing
                 field = String(format: "%.0f", gigabytes)
                 if !editing { submit() }
             }
-            TextField(O4StorageText.budgetField, text: $field)
+            .labelsHidden()
+            .frame(maxWidth: .infinity)
+            TextField("", text: $field)
+                .labelsHidden()
                 .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 70)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 70)
                 .onSubmit(submit)
-            Text("GB").foregroundStyle(.secondary)
         }
         .disabled(model.isWorking || buildModel.isBuilding)
         HStack(alignment: .top) {

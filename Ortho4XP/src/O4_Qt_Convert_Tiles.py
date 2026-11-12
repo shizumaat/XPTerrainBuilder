@@ -183,11 +183,12 @@ class ConvertTilesSection(QWidget):
             event.phase, event.done, event.total, event.tile))
 
     def _to_move(self) -> int:
-        """Tiles the chosen choice moves or makes dynamic (the last
-        measure's figures)."""
+        """Tiles the chosen choice moves, adopts again or makes dynamic
+        (the last measure's figures)."""
         for row in (self.measured or {}).get("choices") or ():
             if row.get("id") == self.choice():
-                return int(row.get("kept", 0)) + int(row.get("dynamic", 0))
+                return sum(int(row.get(k) or 0)
+                           for k in ("kept", "dynamic", "again"))
         acts = ((self.measured or {}).get("totals") or {}).get("by_action", {})
         return sum(acts.get(a, 0) for a in ("copy", "stage", "resume"))
 

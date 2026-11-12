@@ -9,12 +9,16 @@ public struct O4WorldMigrateChoice: Sendable, Equatable, Identifiable {
     public let line: String
     public let kept: Int
     public let dynamic: Int
+    /// Journalled tiles made dynamic before that the choice adopts again
+    /// (`world_adopt.plan`; none in Custom Scenery any more).
+    public var again: Int = 0
 
     public static func parse(_ row: O4JSON) -> O4WorldMigrateChoice {
         O4WorldMigrateChoice(id: row["id"]?.stringValue ?? "",
                              line: row["line"]?.stringValue ?? "",
                              kept: row["kept"]?.intValue ?? 0,
-                             dynamic: row["dynamic"]?.intValue ?? 0)
+                             dynamic: row["dynamic"]?.intValue ?? 0,
+                             again: row["again"]?.intValue ?? 0)
     }
 }
 
@@ -37,11 +41,11 @@ public struct O4WorldMigrateResult: Sendable, Equatable {
     /// Dry run: each choice's figures, in the order the apps list them.
     public var choices: [O4WorldMigrateChoice] = []
 
-    /// Tiles `choice` moves or makes dynamic (the plain move count when
-    /// the engine sent no choices).
+    /// Tiles `choice` moves, adopts again or makes dynamic (the plain
+    /// move count when the engine sent no choices).
     public func toMove(choice: String) -> Int {
         guard let row = choices.first(where: { $0.id == choice }) else { return toMove }
-        return row.kept + row.dynamic
+        return row.kept + row.dynamic + row.again
     }
 
     public static func parse(_ result: O4JSON) -> O4WorldMigrateResult {

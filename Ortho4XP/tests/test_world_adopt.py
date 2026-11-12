@@ -26,11 +26,13 @@ folder in ``tmp_path`` (never the real install or a real drive):
 from __future__ import annotations
 
 import os
+import shutil
 import textwrap
 import types
 
 import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
+import O4_File_Names as FNAMES
 import O4_Imagery_OnDemand_Cores as CORES
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Tile_Info as TINFO
@@ -105,7 +107,8 @@ def test_convert_again_adopts_the_tiles_made_dynamic(xp, monkeypatch):  # noqa: 
                      RETIRE.DYNAMIC: 0}
     keep_all = next(c for c in dry["choices"] if c["id"] == RETIRE.KEEP_ALL)
     assert "adopted" in keep_all["line"]
-    assert "can be adopted again" in MIGRATE.summary("dry_run", dry)
+    assert "1 made dynamic before are adopted again" in MIGRATE.summary(
+        "dry_run", dry)
     # a choice that does not keep it leaves it dynamic
     MIGRATE.migrate(scenery, index=xp["index"], choice=RETIRE.DYNAMIC)
     assert MIGRATE.Journal(xp["work"]).get(LINK)["state"] == "dynamic"
@@ -123,6 +126,38 @@ def test_convert_again_adopts_the_tiles_made_dynamic(xp, monkeypatch):  # noqa: 
     assert LINK in back["reverted"]
     assert os.path.islink(os.path.join(scenery, LINK))
     assert _rows(scenery)[LINK] == "SCENERY_PACK"
+
+
+def test_measure_counts_the_journalled_tiles_with_custom_scenery_empty(xp):  # noqa: F811
+    """Owner 2026-11-12 (1.0.495): with every tile out of Custom Scenery
+    and only dynamic / re-chosen records in the journal, Measure "only
+    found 1 tile".  The headline and the choice the Convert button reads
+    count the tiles Convert would adopt again."""
+    scenery = xp["scenery"]
+    for name in os.listdir(scenery):
+        path = os.path.join(scenery, name)
+        if name.startswith("zOrtho4XP_"):
+            if os.path.islink(path):
+                os.unlink(path)
+            else:
+                shutil.rmtree(path)
+    os.makedirs(xp["work"], exist_ok=True)
+    journal = MIGRATE.Journal(xp["work"])
+    for lat, lon, rechosen in ((45, 7, True), (47, 9, False)):
+        name = f"zOrtho4XP_{FNAMES.short_latlon(lat, lon)}"
+        source = os.path.join(xp["library"], name)
+        journal.set(name, state="dynamic", kind="link", source=source,
+                    link_target=source, prior=None, rechosen=rechosen)
+    dry = SIZE.dry_run(scenery, sample=0)
+    assert dry["totals"]["entries"] == 0
+    choices = {c["id"]: c for c in dry["choices"]}
+    assert choices[RETIRE.KEEP_ALL]["again"] == 2
+    assert choices[RETIRE.KEEP_ALL]["kept"] + choices[RETIRE.KEEP_ALL]["dynamic"] == 0
+    assert "Keeps 2 tiles" in choices[RETIRE.KEEP_ALL]["line"]
+    text = MIGRATE.summary("dry_run", dry)
+    assert text.startswith("2 tiles can move into the World pack")
+    assert "2 made dynamic before are adopted again" in text
+    assert not text.startswith("Nothing to move")
 
 
 def test_the_adopted_package_round_trips_and_installs(xp, tmp_path):  # noqa: F811

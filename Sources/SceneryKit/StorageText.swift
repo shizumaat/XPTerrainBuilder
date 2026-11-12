@@ -41,10 +41,10 @@ public enum O4StorageText {
     public static let budgetFollowed = "Your budget of {chosen} no longer fits on this disk with 50 GB free, so it follows the disk down to {budget}."
     public static let barPlaceholders = "World placeholders"
     public static let barTiles = "Tiles and mesh"
-    public static let barAirportImagery = "Airport imagery"
-    public static let barOtherImagery = "Other imagery"
     public static let barPackages = "Packages"
-    public static let barOther = "Caches and other"
+    /// The Caches line's figure, the same bytes (owner 2026-11-12).
+    public static let barCaches = "Caches"
+    public static let barOther = "Patches and other files"
     public static let barLegend = "{label} {bytes}"
     public static let previewFits = "Nothing is cleared: the {used} in use fits."
     public static let previewClears = "Frees about {free}: {steps}."
@@ -136,8 +136,7 @@ public enum O4StorageText {
 
     /// `(budget key, legend)` of the stacked bar, left to right.
     static let bar = [("placeholders", barPlaceholders), ("tiles", barTiles),
-                      ("airport_imagery", barAirportImagery),
-                      ("other_imagery", barOtherImagery), ("packages", barPackages),
+                      ("packages", barPackages), ("caches", barCaches),
                       ("other", barOther)]
     /// `(ladder step, words)` in the order a clearing takes them.
     static let steps = [("caches", previewCaches), ("imagery", previewImagery),

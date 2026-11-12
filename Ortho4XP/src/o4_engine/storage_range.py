@@ -38,8 +38,10 @@ __all__ = ["RESERVE_BYTES", "BAR_PARTS", "LADDER_STEPS", "world_parts",
 #: Kept free on the disk at the slider's right end (owner 2026-11-12).
 RESERVE_BYTES = 50 * 10**9
 #: The stacked bar, left to right.
-BAR_PARTS = ("placeholders", "tiles", "airport_imagery", "other_imagery",
-             "packages", "other")
+#: ``caches`` is the Caches line's total (``storage.cache_bytes``: the
+#: photos, DDS, sharp imagery, elevation, map data, rebuild data...);
+#: ``other`` the rest (patches, overlays, own elevation files).
+BAR_PARTS = ("placeholders", "tiles", "packages", "caches", "other")
 #: A clearing's steps, first to last (``storage_budget.TIERS``).
 LADDER_STEPS = ("caches", "imagery", "airport_imagery", "favorites",
                 "rebuild")
@@ -129,22 +131,19 @@ def sharp_split() -> dict:
             conn.close()
 
 
-def breakdown(rows: "list[dict]", used: int, minimum: dict, sharp: dict) -> dict:
+def breakdown(rows: "list[dict]", used: int, minimum: dict) -> dict:
     """The stacked bar (:data:`BAR_PARTS`) of ``used`` bytes, from the
-    scan ``rows``, the ``minimum`` parts and the ``sharp`` split;
-    ``other`` is the rest (caches, patches, own elevation files)."""
+    scan ``rows`` and the ``minimum`` parts; ``caches`` is the Caches
+    line's figure (``storage.cache_bytes``), ``other`` the rest."""
+    from . import storage as STORAGE
     from . import storage_packages as PACKAGES
     by_kind = {row["kind"]: int(row.get("bytes") or 0) for row in rows}
     parts = {
         "placeholders": int(minimum.get("placeholders", 0))
         + int(minimum.get("world_placeholders", 0)),
-        "tiles": by_kind.get("tiles", 0) + by_kind.get("rebuild", 0)
-        + int(minimum.get("world_dsf", 0)),
-        "airport_imagery": int(sharp.get("airport_imagery", 0)),
-        "other_imagery": int(sharp.get("ordinary", 0))
-        + int(sharp.get("favorites", 0))
-        + by_kind.get("imagery", 0) + by_kind.get("dds", 0),
+        "tiles": by_kind.get("tiles", 0) + int(minimum.get("world_dsf", 0)),
         "packages": by_kind.get(PACKAGES.KIND, 0),
+        "caches": STORAGE.cache_bytes(rows),
     }
     parts["other"] = max(0, int(used) - sum(parts.values()))
     return parts

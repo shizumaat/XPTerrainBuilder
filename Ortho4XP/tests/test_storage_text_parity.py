@@ -72,6 +72,6 @@ def test_the_slider_ends_bar_and_notice_fill_every_slot():
     assert "800.00 GB" in TEXT.range_notice(budget) and "500.00 GB" in TEXT.range_notice(budget)
     assert TEXT.range_notice({"clamped": ""}) == ""
     parts = TEXT.bar_parts(budget)
-    assert [p[0] for p in parts] == ["placeholders", "tiles", "airport_imagery",
-                                     "other_imagery", "packages", "other"]
+    assert [p[0] for p in parts] == ["placeholders", "tiles", "packages",
+                                     "caches", "other"]
     assert parts[1] == ("tiles", 5_000_000_000, "Tiles and mesh 5.00 GB")

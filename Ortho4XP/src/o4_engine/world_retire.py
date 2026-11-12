@@ -197,14 +197,21 @@ def _gb(n: int) -> str:
 
 
 def _dynamic_words(choice: str, t: dict) -> str:
-    head = (f"Keeps the {t['kept'] + int(t.get('again') or 0):,} tiles "
+    kept = t["kept"] + int(t.get("again") or 0)
+    if choice == KEEP_CUSTOM and not t["dynamic"]:
+        # nothing left to make dynamic: only the kept tiles (owner
+        # 2026-11-12: Custom Scenery empty, the journal's tiles come back)
+        text = (f"Keeps the {kept:,} tiles with a custom airport, needing "
+                f"{_gb(t['new_bytes'])} on this Mac.")
+        return text + _adopt_words(t)
+    head = (f"Keeps the {kept:,} tiles "
             f"with a custom airport and makes {t['dynamic']:,} dynamic"
             if choice == KEEP_CUSTOM
             else f"Makes all {t['dynamic']:,} tiles dynamic")
     text = (f"{head}: X-Plane draws them from the World pack, draped ahead "
             f"in flight or built when you fly there. Free space then gives "
             f"back {_gb(t['freed_bytes'])} on this Mac")
-    if t["kept"]:
+    if kept:
         text += f"; the kept tiles need {_gb(t['new_bytes'])}"
     text += "."
     for drive, size in sorted(t["released"].items()):

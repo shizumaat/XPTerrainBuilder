@@ -13,9 +13,7 @@ public enum O4StorageText {
     public static let budgetUnset = "Using {used} of the default {budget}; {floor} is never cleared."
     public static let budgetUnderFloor = "The budget is below what is never cleared ({floor}). Raise it to at least {recommended}."
     public static let budgetHelp = "More space keeps downloads and rebuild data, so tiles rebuild in minutes instead of re-downloading. Never cleared: your built tiles' scenery files and low-res imagery, your airport patches and your own elevation files. The recommended minimum adds room to work: half of that, at least 50 GB. Over the budget, what is cheapest to rebuild goes first, oldest first; favorites go last."
-    public static let budgetDefault = "Default {base} · recommended {recommended}"
     public static let budgetField = "Budget (GB)"
-    public static let budgetSet = "Set"
     public static let budgetUseDefault = "Use Default"
     public static let budgetHeld = "Until you confirm a budget, the default holds everything installed now ({held}), so nothing is cleared. Confirm it or set your own."
     public static let budgetConfirm = "Confirm"
@@ -37,6 +35,26 @@ public enum O4StorageText {
     public static let installedUnmounted = " (not connected)"
     public static let installedNone = "Set the Custom Scenery folder to measure them."
     public static let installedHelp = "The zOrtho4XP_ entries of X-Plane's Custom Scenery folder. Folders on this disk are measured; entries linked to another drive are counted, not measured."
+    public static let budgetMinEnd = "Minimum: what's always kept — world placeholders and your airport packages ({bytes})"
+    public static let budgetMaxEnd = "Most: as much as fits while keeping 50 GB free ({bytes})"
+    public static let budgetClamped = "Your budget of {chosen} is below what is always kept, so {budget} applies."
+    public static let budgetFollowed = "Your budget of {chosen} no longer fits on this disk with 50 GB free, so it follows the disk down to {budget}."
+    public static let barPlaceholders = "World placeholders"
+    public static let barTiles = "Tiles and mesh"
+    public static let barAirportImagery = "Airport imagery"
+    public static let barOtherImagery = "Other imagery"
+    public static let barPackages = "Packages"
+    public static let barOther = "Caches and other"
+    public static let barLegend = "{label} {bytes}"
+    public static let previewFits = "Nothing is cleared: the {used} in use fits."
+    public static let previewClears = "Frees about {free}: {steps}."
+    public static let previewThen = ", then "
+    public static let previewCaches = "caches go first"
+    public static let previewImagery = "distant imagery goes back to low res"
+    public static let previewAirports = "airport imagery goes back to low res"
+    public static let previewFavorites = "favorites go back to low res"
+    public static let previewRebuild = "older airport tiles become packages"
+    public static let previewAirportsKept = " Airports keep full resolution."
 
     public static let worldForeign = "Your World folder is a link to {target}, not a folder XPTerrainBuilder made. Remove the link or restore it before converting tiles."
     public static let worldPackMissing = "{count} tiles that Convert existing tiles moved are missing from the World pack (was its folder moved or deleted?). Undo… in Convert existing tiles puts them back in their own packs."
@@ -58,12 +76,6 @@ public enum O4StorageText {
                       "floor": size(b.floorBytes), "recommended": size(b.recommendedBytes)]
         return (fill((b.budgetSet ?? (b.budgetBytes > 0)) ? budgetLine : budgetUnset, values),
                 b.underFloor ? fill(budgetUnderFloor, values) : "")
-    }
-
-    /// "Default 200 GB · recommended N" (RULINGS 2026-11-11a).
-    public static func defaultLine(_ b: O4StorageBudget) -> String {
-        fill(budgetDefault, ["base": O4OnDemandText.sizeText(b.defaultBaseBytes ?? 0),
-                             "recommended": O4OnDemandText.sizeText(b.recommendedBytes)])
     }
 
     /// Unconfirmed: the default holds the current install (RULINGS
@@ -120,5 +132,65 @@ public enum O4StorageText {
         guard store.overAtFloor == true else { return "" }
         return fill(ondemandFloorWarning, ["floor": O4OnDemandText.sizeText(store.floorBytes ?? 0),
                                            "cap": O4OnDemandText.sizeText(store.capBytes ?? 0)])
+    }
+
+    /// `(budget key, legend)` of the stacked bar, left to right.
+    static let bar = [("placeholders", barPlaceholders), ("tiles", barTiles),
+                      ("airport_imagery", barAirportImagery),
+                      ("other_imagery", barOtherImagery), ("packages", barPackages),
+                      ("other", barOther)]
+    /// `(ladder step, words)` in the order a clearing takes them.
+    static let steps = [("caches", previewCaches), ("imagery", previewImagery),
+                        ("airport_imagery", previewAirports),
+                        ("favorites", previewFavorites), ("rebuild", previewRebuild)]
+
+    /// The slider's two end labels, with the measured figures (#2022).
+    public static func endLabels(_ b: O4StorageBudget) -> (min: String, max: String) {
+        (fill(budgetMinEnd, ["bytes": O4OnDemandText.sizeText(b.minimumBytes ?? 0)]),
+         fill(budgetMaxEnd, ["bytes": O4OnDemandText.sizeText(b.maximumBytes ?? 0)]))
+    }
+
+    /// The notice of a budget set outside the range; else "".
+    public static func rangeNotice(_ b: O4StorageBudget) -> String {
+        let template: String
+        switch b.clamped ?? "" {
+        case "minimum": template = budgetClamped
+        case "followed": template = budgetFollowed
+        default: return ""
+        }
+        return fill(template, ["chosen": O4OnDemandText.sizeText(b.chosenBytes ?? 0),
+                               "budget": O4OnDemandText.sizeText(b.budgetBytes)])
+    }
+
+    /// `(key, bytes, legend)` of the stacked bar, left to right.
+    public static func barParts(_ b: O4StorageBudget) -> [(key: String, bytes: Int64, legend: String)] {
+        bar.map { key, label in
+            let bytes = b.breakdown?[key] ?? 0
+            return (key, bytes, fill(barLegend, ["label": label,
+                                                 "bytes": O4OnDemandText.sizeText(bytes)]))
+        }
+    }
+
+    /// What the sweep would do at a budget of `newBytes`, in one sentence:
+    /// the ladder steps a clearing down to `lowWater` of it reaches.
+    public static func previewText(_ b: O4StorageBudget, _ newBytes: Int64) -> String {
+        let size = O4OnDemandText.sizeText
+        if newBytes >= b.usedBytes { return fill(previewFits, ["used": size(b.usedBytes)]) }
+        let over = b.usedBytes - Int64((b.lowWater ?? 0.9) * Double(newBytes))
+        var left = over
+        var reached: [(String, String)] = []
+        for (step, words) in steps {
+            if left <= 0 { break }
+            let bytes = b.ladder?[step] ?? 0
+            if bytes > 0 {
+                reached.append((step, words))
+                left -= bytes
+            }
+        }
+        let joined = reached.map(\.1).joined(separator: previewThen)
+        var text = fill(previewClears, ["free": size(over),
+                                        "steps": joined.isEmpty ? previewCaches : joined])
+        if !reached.contains(where: { $0.0 == "airport_imagery" }) { text += previewAirportsKept }
+        return text
     }
 }

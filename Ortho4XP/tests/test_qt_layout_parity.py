@@ -110,6 +110,18 @@ LIBRARY_STORAGE = (
      "caches_box", "details_btn"),
     ("budget_field", "LibraryStorage.swift", "TextField(O4StorageText.budgetField",
      "budget_box", "budget_edit"),
+    # #2022: the slider, its labelled ends, the preview while it moves and
+    # the stacked usage bar.
+    ("budget_slider", "LibraryStorage.swift", "Slider(value: $gigabytes",
+     "budget_box", "budget_slider"),
+    ("budget_ends", "LibraryStorage.swift", "O4StorageText.endLabels(",
+     "budget_box", "min_label"),
+    ("budget_preview", "LibraryStorage.swift", "O4StorageText.previewText(",
+     "budget_box", "preview_label"),
+    ("budget_notice", "LibraryStorage.swift", "O4StorageText.rangeNotice(",
+     "budget_box", "budget_warning"),
+    ("usage_bar", "LibraryStorage.swift", "StorageUsageBar(budget:",
+     "budget_box", "usage_bar"),
     ("budget_downgrade", "LibraryStorage.swift", "O4StorageText.downgradeMessage(",
      "budget_box", "_ask"),
     # RULINGS 2026-11-11h (1): unconfirmed, Confirm records the default.

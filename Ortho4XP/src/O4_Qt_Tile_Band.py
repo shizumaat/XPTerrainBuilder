@@ -71,7 +71,7 @@ def _paint_sides(painter, rect, unit, band, brushes) -> None:
     """The band's four mitred sides, each filled with its gradient."""
     for brush, (polygon, _start, _end) in zip(brushes, BAND.trapezoids(
             rect.left(), rect.top(), rect.right(), rect.bottom(),
-            band.inset * unit, band.width * unit)):
+            band.inset * unit, band.width * unit), strict=True):
         painter.setBrush(brush)
         painter.drawConvexPolygon(QPolygonF([QPointF(x, y) for x, y in polygon]))
 

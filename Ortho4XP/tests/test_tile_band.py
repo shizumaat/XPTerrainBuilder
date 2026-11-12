@@ -35,11 +35,11 @@ def test_the_numbers_are_the_macs():
 
 
 def test_the_band_scales_within_its_limits_and_small_tiles_get_a_line():
-    assert BAND.band_for(100) == BAND.Band(BAND.BAND, 1.5, 6.0)
+    assert BAND.band_for(100) == BAND._Band(BAND.BAND, 1.5, 6.0)
     assert BAND.band_for(BAND.GRADIENT_MIN_PX).width == BAND.WIDTH_MIN_PT
     assert BAND.band_for(5000).width == BAND.WIDTH_MAX_PT
-    assert BAND.band_for(20) == BAND.Band(BAND.LINE, BAND.INSET_PT, BAND.LINE_WIDTH_PT)
-    assert BAND.band_for(5) == BAND.Band(BAND.LINE, 0.0, BAND.TINY_LINE_PT)
+    assert BAND.band_for(20) == BAND._Band(BAND.LINE, BAND.INSET_PT, BAND.LINE_WIDTH_PT)
+    assert BAND.band_for(5) == BAND._Band(BAND.LINE, 0.0, BAND.TINY_LINE_PT)
     # every form stays inside half the tile
     for px in (2, 5, 10, 20, 39, 40, 80, 200, 2000):
         b = BAND.band_for(px)

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import O4_Flight_Plan as FP
 import O4_Fly_Layers as LAYERS
+import O4_Fly_Text as TEXT
+import O4_Map_Key_Text as KEYTEXT
 import O4_Qt_Map_World as QTWORLD
 import O4_Qt_Tile_Band as QTBAND
 from O4_Qt_Flight_Plan import ROUTE_COLOR
@@ -59,6 +61,7 @@ class FlyLayer:
         self.preview = preview
         self.shown = False
         pane.changed.connect(self._repaint)
+        pane.chk_live_preview.toggled.connect(lambda _on: self._repaint())
         if preview is not None:
             pane.changed.connect(
                 lambda: preview.world_swapped((pane.world or {}).get("last_swap")))
@@ -68,10 +71,18 @@ class FlyLayer:
 
     def set_shown(self, shown: bool) -> None:
         self.shown = bool(shown)
-        # ONE key on the Fly view: the pane's (owner 2026-11-12T19:12Z)
-        self._map.tile_legend_shown = not self.shown
+        # ONE key on both views: the map's pill, with the Fly view's items
+        # while it shows (owner 2026-11-12T22:05Z).
+        self._map.fly_key = self.key_items if self.shown else None
         self._preview_on()
         self._repaint()
+
+    def key_items(self) -> list:
+        """The key's items on the Fly view (``O4_Map_Key_Text``): every
+        cell key, the preview's only while "Live flight preview" is on."""
+        preview = self._pane.chk_live_preview.isChecked()
+        return KEYTEXT.ordered(KEYTEXT.FLY_KEY_ITEMS[key] for key, _words in TEXT.LEGEND
+                               if preview or key not in TEXT.PREVIEW_KEYS)
 
     def _preview_on(self) -> None:
         if self.preview is None:

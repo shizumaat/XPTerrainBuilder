@@ -28,6 +28,7 @@ import O4_Map_Labels as LABELS
 import O4_Map_Overzoom as OVERZOOM
 import O4_Qt_Map_Controls as QTMAPCONTROLS
 import O4_Qt_Map_Favorite as QTFAVSTAR
+import O4_Qt_Map_Key as QTKEY
 import O4_Qt_Map_Labels as QTLABELS
 import O4_Qt_Map_Legend as QTLEGEND
 import O4_Qt_Map_World as QTWORLD
@@ -40,6 +41,7 @@ import O4_Tile_Texture_Check as TEXCHECK
 import requests
 from PIL import Image as PILImage
 from PySide6.QtCore import (
+    QEvent,
     QObject,
     QPointF,
     QRectF,
@@ -61,6 +63,7 @@ from PySide6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
+    QToolTip,
 )
 
 SCENE_ZL = 19  # scene units = webmercator pixels at this zoom level
@@ -420,9 +423,10 @@ class MapView(QGraphicsView):
         # (lat, lon) -> (provider, zl) the covering ortho pack's files say.
         self._ortho_imagery = {}
         self._scenery_filter = SCENERY_FILTER_ALL
-        #: The tile legend; the Fly view hides it (its pane holds the one
-        #: key, ``O4_Qt_Fly_Layer.FlyLayer.set_shown``).
-        self.tile_legend_shown = True
+        #: The one key's items while the Fly view shows (a callable,
+        #: ``O4_Qt_Fly_Layer.FlyLayer.set_shown``); None: the Build view's.
+        self.fly_key = None
+        self._key_hits = []
 
         # Layers drawn over the map that take the mouse first (the patch
         # editor): paint(painter), mouse_press/move/release(event) -> bool,
@@ -1258,21 +1262,36 @@ class MapView(QGraphicsView):
         self._draw_airports(painter)
         for layer in self._layers:
             layer.paint(painter)
-        self._draw_zoom_badge(painter)
-        if (self._scenery_filter != SCENERY_FILTER_OTHERS
-                and self.tile_legend_shown):
-            QTLEGEND.paint_legend(
-                painter, QRectF(self.viewport().rect()),
-                QTLEGEND.legend_kinds(self._built, self._stale, self._world,
-                                      bool(self._custom_patched)),
-                painter.fontMetrics().height() + 24, BUILT_COLOR,
-                BUILT_EXTERNAL_COLOR)
+        # The one key (O4_Qt_Map_Key) at the bottom-right, the ZL pill
+        # one row above it (owner 2026-11-12T22:05Z).
+        pill, self._key_hits = QTKEY.paint_key(
+            painter, QRectF(self.viewport().rect()), self._key_items())
+        self._draw_zoom_badge(painter, pill.height() + 6 if self._key_hits else 0)
         painter.end()
 
-    def _draw_zoom_badge(self, painter):
-        """Bottom-right badge: the tile zoom the view equates to, and the
-        overzoom factor past the imagery source's ceiling (mac-app
-        parity, #1315)."""
+    def _key_items(self) -> list:
+        """The key's items: the Fly view's, or the kinds on the map now."""
+        if self.fly_key is not None:
+            return self.fly_key()
+        if self._scenery_filter == SCENERY_FILTER_OTHERS:
+            return []
+        return QTLEGEND.legend_kinds(self._built, self._stale, self._world,
+                                     bool(self._custom_patched))
+
+    def viewportEvent(self, event):
+        """The key's hover: an item's full sentence (its word may be
+        truncated, owner 2026-11-12T22:05Z)."""
+        if event.type() == QEvent.ToolTip:
+            text = QTKEY.tooltip_at(self._key_hits, QPointF(event.pos()))
+            if text:
+                QToolTip.showText(event.globalPos(), text, self.viewport())
+                return True
+        return super().viewportEvent(event)
+
+    def _draw_zoom_badge(self, painter, lift=0.0):
+        """Bottom-right badge, ``lift`` px above the key: the tile zoom the
+        view equates to, and the overzoom factor past the imagery source's
+        ceiling (mac-app parity, #1315)."""
         view_zl = max(2, math.ceil(self._zoom - 1e-6))
         at_limit = view_zl > self._provider_max_zl
         text = OVERZOOM.badge_text(view_zl, self._display_code,
@@ -1281,8 +1300,8 @@ class MapView(QGraphicsView):
         width = metrics.horizontalAdvance(text) + 18
         height = metrics.height() + 8
         vp = self.viewport().rect()
-        badge = QRectF(vp.right() - width - 10, vp.bottom() - height - 10,
-                       width, height)
+        badge = QRectF(vp.right() - width - QTKEY.MARGIN,
+                       vp.bottom() - height - QTKEY.MARGIN - lift, width, height)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(20, 22, 28, 175))
         painter.drawRoundedRect(badge, height / 2, height / 2)

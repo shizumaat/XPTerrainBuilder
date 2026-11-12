@@ -47,10 +47,6 @@ struct FlyMapOverlay: View {
     static func dash(_ key: String) -> [CGFloat] {
         FlyText.dashedKeys.contains(key) ? [6, 4] : []
     }
-    /// The key's legend swatch stroke (`FlyPane`): the dash at half size.
-    static func style(_ key: String) -> StrokeStyle {
-        StrokeStyle(lineWidth: 2, dash: dash(key).map { $0 / 2 })
-    }
     /// The track line; the aircraft itself is `FlyLayers.aircraftSymbol`
     /// filled white with a dark outline (G1000 style; Qt: `AIRCRAFT_FILL`,
     /// `AIRCRAFT_OUTLINE`).

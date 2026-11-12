@@ -277,12 +277,12 @@ def test_no_plan_shows_the_aircrafts_tile_and_the_key_always(qapp):
     only while "Live flight preview" is checked."""
     engine = _Engine({"scenery_reload": {"sent": True}})
     pane, _ = _pane(engine)
-    assert pane.here_block.isHidden() and not pane.legend_label.isHidden()
-    assert "Photo being draped" in pane.legend_label.text()
-    assert "Mesh being built" in pane.legend_label.text()
-    assert "full-detail photo" not in pane.legend_label.text()
+    assert pane.here_block.isHidden()
+    layer = QTFLYLAYER.FlyLayer(_Map(), pane)
+    assert {"draping", "meshing"} <= set(layer.key_items())
+    assert "sharp" not in layer.key_items()
     pane.chk_live_preview.setChecked(True)
-    assert "full-detail photo" in pane.legend_label.text()
+    assert "sharp" in layer.key_items()
     here = [h for h in CASES["text"]["here_lines"] if h[0] and h[0].get("core")
             and h[0].get("job") == "building"][0]
     pane.show_world(dict(CASES["events"]["WorldStatus"],
@@ -291,7 +291,7 @@ def test_no_plan_shows_the_aircrafts_tile_and_the_key_always(qapp):
     assert pane.here_label.text() == "<br>".join(here[1])
     assert not pane.here_offer_row.isHidden()
     pane.set_plan(TEXT.quick_plan(("CYYR", 53.3, -60.4), ("CYYT", 47.6, -52.7)))
-    assert pane.here_block.isHidden() and not pane.legend_label.isHidden()
+    assert pane.here_block.isHidden()
 
 
 def test_the_aircraft_is_the_shared_airplane(qapp):

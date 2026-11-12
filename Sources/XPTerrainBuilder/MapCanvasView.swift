@@ -132,11 +132,15 @@ struct MapCanvasView: View {
             }
             .overlay(alignment: .bottomLeading) { cursorReadout }
             .overlay(alignment: .bottomTrailing) {
+                // The one key at the bottom-right, the ZL pill one row
+                // above it (owner 2026-11-12T22:05Z; Qt: O4_Qt_Map_Key).
                 VStack(alignment: .trailing, spacing: 6) {
-                    if sceneryFilter != .othersOnly { MapTileLegend(buildModel: buildModel) }
                     ScanProgressChip()
                     zoomChip
+                    MapKey(buildModel: buildModel, showBuildKinds: sceneryFilter != .othersOnly,
+                           mapWidth: proxy.size.width)
                 }
+                .padding(8)
             }
             .onAppear {
                 // First layout: fit the world so the map fills the viewport
@@ -463,7 +467,7 @@ struct MapCanvasView: View {
             let r = rect(coord)
             // Brown when the folder lives on another drive (#1987), gray
             // when another tool built it, purple and dashed when its airport
-            // pack changed since the build (#1958, MapTileLegend). The
+            // pack changed since the build (#1958, MapKey). The
             // Build History date filter dims built tiles outside its
             // period (#1226).
             let stale = !info.builtElsewhere && buildModel.staleTiles[coord] != nil
@@ -692,7 +696,6 @@ struct MapCanvasView: View {
                 }
                 .padding(6)
                 .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
-                .padding(8)
                 .help("Scanning Custom Scenery — the map fills in as packages are found")
             }
         }
@@ -764,7 +767,6 @@ struct MapCanvasView: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
         .background(.ultraThinMaterial, in: Capsule())
-        .padding(8)
         .help(atLimit
               ? "The view is zoomed past the imagery source's finest zoom level — its finest tiles are scaled up (overzoom), so they look soft. Builds at higher ZLs would upscale the same data."
               : "The imagery zoom level matching the current view — compare with the Detail setting (ZL) in the Build pane.")

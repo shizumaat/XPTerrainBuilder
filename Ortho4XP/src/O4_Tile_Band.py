@@ -20,7 +20,7 @@ from typing import NamedTuple
 __all__ = ["INSET_PT", "WIDTH_MIN_PT", "WIDTH_MAX_PT", "WIDTH_FRACTION",
            "GRADIENT_MIN_PX", "LINE_MIN_PX", "LINE_WIDTH_PT", "TINY_LINE_PT",
            "OUTER_ALPHA", "DASHED_OUTER_ALPHA", "DASH_LINE_PT", "INNER_GAP_PT",
-           "BAND", "LINE", "Band", "band_for", "trapezoids", "inner_inset"]
+           "BAND", "LINE", "band_for", "trapezoids", "inner_inset"]
 
 #: The gap between the tile's edge and its band, so neighbours never meet.
 INSET_PT = 1.5
@@ -47,7 +47,7 @@ BAND = "band"
 LINE = "line"
 
 
-class Band(NamedTuple):
+class _Band(NamedTuple):
     """How a tile ``px`` points wide draws: ``mode`` BAND (gradient) or
     LINE (a stroke of ``width`` centred ``inset + width / 2`` inside)."""
     mode: str
@@ -55,14 +55,14 @@ class Band(NamedTuple):
     width: float
 
 
-def band_for(px: float) -> Band:
+def band_for(px: float) -> _Band:
     """The band of a tile ``px`` points wide on screen."""
     if px >= GRADIENT_MIN_PX:
         width = min(max(px * WIDTH_FRACTION, WIDTH_MIN_PT), WIDTH_MAX_PT)
-        return Band(BAND, INSET_PT, width)
+        return _Band(BAND, INSET_PT, width)
     if px >= LINE_MIN_PX:
-        return Band(LINE, INSET_PT, LINE_WIDTH_PT)
-    return Band(LINE, 0.0, TINY_LINE_PT)
+        return _Band(LINE, INSET_PT, LINE_WIDTH_PT)
+    return _Band(LINE, 0.0, TINY_LINE_PT)
 
 
 def trapezoids(left, top, right, bottom, inset, width):

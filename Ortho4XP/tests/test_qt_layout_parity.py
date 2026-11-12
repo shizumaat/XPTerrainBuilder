@@ -74,7 +74,6 @@ FLY_PANE = (
     ("open_plan", "Button(FlyText.openPlan)", "open_plan_btn"),
     ("quick_route", "QuickRouteRow(model:", "quick_route_row"),
     ("flight_card", "FlightCard(model:", "flight_card"),
-    ("legend", "FlyLegend(model:", "legend_label"),     # #2020: whatever the plan
     ("build_alternate", "Toggle(FlyText.buildAlternate", "chk_build_alternate"),
     ("cruise_speed", "CruiseSpeedField(model:", "cruise_speed_edit"),
     ("corridor", "CorridorWidthField(model:", "corridor_edit"),
@@ -816,20 +815,25 @@ def test_both_tile_panes_read_the_world_pack_first(window):
 
 
 def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
-    """#1958: one legend (same words, same order) and one "Airport packs"
-    row under the Path row, with the same rebuild words, in both apps."""
+    """#1958: one key (the same kinds in the same order; owner
+    2026-11-12T22:05Z: one pill in the Build and Fly views) and one
+    "Airport packs" row under the Path row, with the same rebuild words,
+    in both apps."""
+    import O4_Map_Key_Text as KEYTEXT
     import O4_Qt_Map_Legend as QTLEGEND
     import O4_Qt_Tile_Stale_Row as QTSTALEROW
 
-    legend = (SWIFT / "MapTileLegend.swift").read_text(encoding="utf-8")
-    # #2024: the World rows' words come from the shared text table.
-    words = dict(re.findall(r'static let (\w+) = "([^"]*)"', (
-        SWIFT.parent / "SceneryKit" / "WorldStateText.swift").read_text(
-            encoding="utf-8")))
-    label_switch = legend[legend.index("var label: String"):legend.index("var color: Color")]
-    swift_labels = [literal or words[name] for literal, name in re.findall(
-        r'case \.\w+: return (?:"([^"]+)"|O4WorldStateText\.(\w+))', label_switch)]
-    assert swift_labels == list(QTLEGEND.LEGEND_LABELS.values())
+    key = (SWIFT / "MapKey.swift").read_text(encoding="utf-8")
+    kinds = key[key.index("static func buildItems"):key.index("static func flyItems")]
+    swift_kinds = re.findall(r'present\.insert\("(\w+)"\)', kinds)
+    python_kinds = [QTLEGEND.WORLD_FULL, QTLEGEND.WORLD_MESH, QTLEGEND.WORLD_DRAPE,
+                    QTLEGEND.WORLD_PLACEHOLDER, QTLEGEND.WORLD_NOTHING,
+                    QTLEGEND.WORLD_OTHER_TOOL, QTLEGEND.BUILT, QTLEGEND.OTHER,
+                    QTLEGEND.STALE, QTLEGEND.EXTERNAL, QTLEGEND.CUSTOM_PATCH]
+    assert swift_kinds == python_kinds
+    assert set(python_kinds) <= set(KEYTEXT.SHORT)
+    canvas = (SWIFT / "MapCanvasView.swift").read_text(encoding="utf-8")
+    assert canvas.index("zoomChip\n") < canvas.index("MapKey(buildModel:")
     wire = (SWIFT.parent / "SceneryKit" / "TileStalenessWire.swift").read_text(
         encoding="utf-8")
     for name, value in (("rowTitle", QTSTALEROW.ROW_TITLE),

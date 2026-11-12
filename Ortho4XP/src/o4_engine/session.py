@@ -985,6 +985,22 @@ class EngineSession:
                         flush(phase, done, total)
             except Exception as exc:
                 print("World pack scan failed:", exc)
+            try:
+                # The World pack's tiles built into the data folder's
+                # Tiles/ (World and flight jobs, Convert's records) when
+                # the working folder is another one (owner 2026-11-12T22:19Z).
+                from .world_built import iter_world_built
+                phase = "Reading World tiles' records…"
+                for done, total, key, info in iter_world_built(
+                        working_dir, world, scanned):
+                    if not live():
+                        return
+                    if key is not None:
+                        built_total += 1
+                        pending_built[key] = scanned[key] = info
+                    flush(phase, done, total)
+            except Exception as exc:
+                print("World tiles' records scan failed:", exc)
             if live():
                 self._scanned = (working_dir, generation, scanned, world)
                 flush("", 0, 0, force=True)
@@ -2346,8 +2362,16 @@ class EngineSession:
     # Thin command wrappers (single source: the underlying modules)
     # ------------------------------------------------------------------
     def tile_info(self, lat, lon, working_dir):
+        """The tile in *working_dir*; else in the folder this session
+        built it into (a World or flight job builds into the data folder's
+        Tiles/ whatever the working folder is: its BuildDone refreshes the
+        map and the patch editor from there, owner 2026-11-12T22:19Z)."""
         import O4_Tile_Info as TINFO
-        return TINFO.with_built_by(TINFO.tile_info(lat, lon, working_dir))
+        info = TINFO.tile_info(lat, lon, working_dir)
+        built_into = self._tile_build_dirs.get((int(lat), int(lon)))
+        if info is None and built_into and os.path.isdir(built_into):
+            info = TINFO.tile_info(lat, lon, built_into, grouped=True)
+        return TINFO.with_built_by(info)
 
     def config_describe(self):
         import O4_Cfg_Vars as CFG_VARS

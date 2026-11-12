@@ -124,6 +124,7 @@ import O4_Qt_Tile_Path_Row as QTPATHROW
 import O4_Qt_Tile_Stale_Row as QTSTALEROW
 import O4_Qt_Tile_World_Row as QTWORLDROW
 import O4_World_State_Text as WORLD_TEXT
+import O4_World_Swap_Watch as SWAPWATCH
 import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
@@ -970,11 +971,13 @@ class MainWindow(QMainWindow):
             EV.FlightNotice: self._on_flight_notice,
             # Build-ahead (W2): the Fly pane's World line and, in free
             # flight, its drapes on the map (RULINGS 2026-11-11j).
-            EV.WorldStatus: lambda e: self.fly_pane.show_world(e),
+            EV.WorldStatus: self._on_world_status,
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
         self._pack_art_seen = set()
+        # A World or flight job's swap rescans the map (O4_World_Swap_Watch).
+        self._world_swaps = SWAPWATCH.SwapWatch()
         self._pack_art_boxes = []
         # #1360: the 3D trees questions already asked (one per pack, tile
         # and set); their open boxes live in _pack_art_boxes too.
@@ -2125,6 +2128,13 @@ class MainWindow(QMainWindow):
 
     def _on_flight_status(self, event):
         self.fly_pane.show_status(event)
+        if self._world_swaps.flight_status(getattr(event, "jobs", ())):
+            self.refresh_tiles()        # its tile is in the World pack
+
+    def _on_world_status(self, event):
+        self.fly_pane.show_world(event)
+        if self._world_swaps.world_status(getattr(event, "last_swap", ())):
+            self.refresh_tiles()        # the map shows the swap
 
     def _on_flight_notice(self, event):
         """One ``FlightNotice`` (lane F2): a system notification and the

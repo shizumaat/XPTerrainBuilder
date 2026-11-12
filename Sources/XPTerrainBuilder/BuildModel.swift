@@ -274,6 +274,8 @@ final class BuildModel: ObservableObject {
     /// World spec §5.3); nil before the engine sent one. The Fly pane
     /// reads it.
     @Published private(set) var worldStatus: O4WorldStatus?
+    /// Rescans the map when a World or flight job swaps a tile in.
+    private var worldSwaps = WorldSwapWatch()
     private var imageryStatusChecked = false
     @Published private(set) var missingPackages: [String]?
     @Published private(set) var globalConfigValues: [String: O4Value] = [:]
@@ -1296,10 +1298,12 @@ final class BuildModel: ObservableObject {
         case .worldStatus(let status):
             worldStatus = status
             fly.showWorld(status)      // the Fly pane's World line and map
+            if worldSwaps.worldStatus(status) { rescan() } // the map shows the swap
         case .aircraftPosition(let position):
             fly.show(position)         // the Fly map's aircraft (#2001)
         case .flightStatus(let status):
             fly.show(status)           // the Fly pane's flight (F1b)
+            if worldSwaps.flightStatus(status) { rescan() } // its tile is in the World pack
         case .flightNotice(let notice):
             fly.show(notice)           // a system notification (F2)
         case .flightReady(let reply):

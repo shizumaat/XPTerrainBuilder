@@ -23,7 +23,8 @@ __all__ = ["PIN_TITLE", "UNPIN_TITLE", "PIN_ROW_TITLE", "LOW_RES_STATE",
            "RELOAD_SCENERY_TITLE", "RELOAD_OFFER_IMAGERY", "RELOAD_OFFER_TILES",
            "RELOAD_OFFER_COVERAGE",
            "make_low_res_message", "reload_offer_line",
-           "pins_line", "pin_done", "follow_lines", "size_text"]
+           "pins_line", "pin_done", "follow_lines", "follow_headline",
+           "size_text"]
 
 # --- Favorites (spec §7: the Library's tile menu and the tile's info pane;
 # "pin" renamed Favorite by RULINGS 2026-11-10c (1); the identifiers and the
@@ -172,6 +173,19 @@ def follow_lines(status: Mapping) -> Tuple[str, str]:
     if state in NO_TILES_STATES and values["textures"] == "0":
         template = FOLLOW_NO_TILES
     return template.format(**values), FOLLOW_DETAIL.format(**values)
+
+
+def follow_headline(status, running: bool) -> str:
+    """The line's headline beside the Follow / Stop button (``running``):
+    the status's own while the two agree; else -- before the job's first
+    status, or a stale one -- "Starting..." or "Not following", so the
+    line never reads "Not following X-Plane" beside "Stop Following"
+    (#2028).  Swift: ``O4OnDemandText.followHeadline``."""
+    if status:
+        state = str(status.get("state") or "starting")
+        if (state not in ("stopped", "error")) == bool(running):
+            return follow_lines(status)[0]
+    return FOLLOW_TEMPLATES["starting" if running else "stopped"]
 
 
 def reload_offer_line(code: str) -> str:

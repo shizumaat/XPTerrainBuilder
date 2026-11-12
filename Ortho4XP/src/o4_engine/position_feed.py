@@ -60,6 +60,11 @@ class _PositionFeed:
     def error(self) -> str:
         return str(getattr(self.reader, "error", ""))
 
+    @property
+    def loading(self) -> bool:
+        """The reader's last record came while X-Plane loads a flight."""
+        return bool(getattr(self.reader, "loading", False))
+
     def read(self) -> Optional[dict]:
         """The position record (``None`` when X-Plane does not answer);
         from the last read when it is younger than ``max_age_s``."""

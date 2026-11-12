@@ -128,6 +128,16 @@ public enum O4OnDemandText {
         return (fill(template, values), fill(followDetail, values))
     }
 
+    /// The line's headline beside the Follow / Stop button (`running`):
+    /// the status's own while the two agree; else -- before the job's
+    /// first status, or a stale one -- "Starting..." or "Not following",
+    /// so the line never reads "Not following X-Plane" beside "Stop
+    /// Following" (#2028). Python: `follow_headline`.
+    public static func followHeadline(_ s: O4ImageryFollowStatus?, running: Bool) -> String {
+        if let s, s.running == running { return followLines(s).headline }
+        return running ? followStarting : followStopped
+    }
+
     /// `template` with each `{key}` replaced (Python's `str.format`).
     static func fill(_ template: String, _ values: [String: String]) -> String {
         values.reduce(template) { text, pair in

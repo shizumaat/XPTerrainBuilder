@@ -97,7 +97,8 @@ def start_imagery_follow(emit: Callable[[Any], None],
     ``lead_s`` and ``lands_per_s`` default to the settings
     (:func:`follow_settings`); ``tiles`` (``[build_dir, lat, lon]`` each)
     are rescanned into the index first, else, with ``working_dir``, every
-    on-demand tile under it.  ``if_enabled`` (the apps' automatic start)
+    on-demand tile under it beside the running job (``FollowJob``
+    ``rescan_dir``): the reply comes at once.  ``if_enabled`` (the apps' automatic start)
     replies ``{"status": "off"}`` only while :func:`follow_wanted` is
     False.
     ``busy()`` is true while a build runs.  ``reload`` false: never offer
@@ -116,11 +117,14 @@ def start_imagery_follow(emit: Callable[[Any], None],
         job = _FOLLOW["job"]
         if job is not None and job.running:
             return {"status": "running"}
+        rescan_dir = None
         if not tiles and working_dir is not None:
             # Every place a tile may be (#1992 follow-up): the build
-            # folder, the Tiles folder and Custom Scenery.
-            from .imagery_ondemand import on_demand_tiles
-            tiles = [list(t) for t in on_demand_tiles(working_dir or FNAMES.Tile_dir)]
+            # folder, the Tiles folder and Custom Scenery -- found and
+            # rescanned on the job's own thread, never here (#2028: ~560
+            # tiles held the engine's command loop and the Qt window for
+            # minutes before the job said a word).
+            rescan_dir = working_dir or FNAMES.Tile_dir
         base = WEBAPI.base_url(int(port or settings["port"]))
         # The one position reader the World pack's swap rule and later
         # the World job and flight manager share (position_feed).
@@ -131,6 +135,7 @@ def start_imagery_follow(emit: Callable[[Any], None],
                         lead_s=float(lead_s or settings["lead_s"]),
                         lands_per_s=float(lands_per_s or settings["lands_per_s"]),
                         log_path=log_path(), rebuild_tiles=tiles or (),
+                        rescan_dir=rescan_dir,
                         # an offer to the user, never a reload (owner
                         # 2026-11-12T14:34Z; reload_offer)
                         reloader=None if reload is False else (
@@ -166,6 +171,17 @@ def follow_late_landings() -> list:
         job = _FOLLOW["job"]
         landings = list(job.landings) if job is not None else []
     return [item["square"] for item in landings if item.get("late")]
+
+
+def focus_imagery_follow(lat: float, lon: float, tiles=()) -> bool:
+    """A flight plan's departure to the running follow job first
+    (``FollowJob.focus``); ``False`` when no job runs."""
+    with _FOLLOW_GUARD:
+        job = _FOLLOW["job"]
+        if job is None or not job.running:
+            return False
+        job.focus(lat, lon, tiles)
+        return True
 
 
 def stop_imagery_follow() -> Dict[str, Any]:

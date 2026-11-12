@@ -230,6 +230,7 @@ final class TilePackageModel: ObservableObject {
                 build.console.append("Saved package \(url.lastPathComponent) "
                     + "(\(ByteCountFormatter.string(fromByteCount: done.bytes, countStyle: .file)))"
                     + (done.noncommercial ? ", non-commercial." : "."))
+                if let warning = done.warning, !warning.isEmpty { message = warning }
             } catch {
                 message = "\(error)"
             }
@@ -262,6 +263,7 @@ final class TilePackageModel: ObservableObject {
                 let done = try await client.packageMerge(paths: open.urls.map(\.path), out: out.path)
                 build.console.append("Combined \(open.urls.count) packages into "
                     + "\(out.lastPathComponent) (\(done.tiles.joined(separator: ", "))).")
+                if let warning = done.warning, !warning.isEmpty { message = warning }
             } catch {
                 message = "\(error)"
             }

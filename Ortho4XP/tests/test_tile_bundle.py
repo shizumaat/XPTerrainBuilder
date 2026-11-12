@@ -251,10 +251,11 @@ def test_a_damaged_bundle_refuses_the_import(machines, tmp_path):
         IMPORTER.import_bundle(str(damaged))
 
 
-def test_the_bundle_carries_each_sources_terms_and_refuses_a_held_one(machines,
-                                                                     monkeypatch):
+def test_the_bundle_carries_each_sources_terms_and_marks_a_held_one_personal(
+        machines, monkeypatch):
     """Owner Q319, the patch library's one implementation: each source's
-    terms, a non-commercial source marks the bundle, a held one refuses."""
+    terms, a non-commercial source marks the bundle; a held one marks it
+    PERSONAL and warns (owner 2026-11-12: never refused)."""
     a, _b, _staged = machines
     members = _members(_export(a)["path"])
     manifest = json.loads(members["manifest.json"])
@@ -268,8 +269,12 @@ def test_the_bundle_carries_each_sources_terms_and_refuses_a_held_one(machines,
     assert b"NON-COMMERCIAL: this bundle" in members["ATTRIBUTION.txt"]
     monkeypatch.setattr(EXPORT, "sources", lambda tile, icao="": plain(tile, icao) + [
         {"kind": "elevation", "provider": "NORTHERNIRELAND1M", "licence": "x", "credit": ""}])
-    with pytest.raises(BundleRefused, match="NORTHERNIRELAND1M"):
-        _export(a)
+    done = _export(a)
+    manifest = json.loads(_members(done["path"])["manifest.json"])
+    assert manifest["personal"] is True and manifest["noncommercial"] is True
+    assert done["personal"] is True
+    assert "personal, non-commercial" in done["warning"]
+    assert "NORTHERNIRELAND1M" in done["warning"]
 
 
 def test_a_non_default_mesh_setting_refuses_the_export(machines):

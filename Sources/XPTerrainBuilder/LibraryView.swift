@@ -166,6 +166,7 @@ final class LibraryModel: ObservableObject {
                 let done = try await context.client.libraryExportBundle(
                     lat: row.lat, lon: row.lon, workingDir: context.workingDir, outDir: folder.path)
                 status = "Exported \(row.tile) (\(Library.size(done.bytes)))."
+                    + ((done.warning ?? "").isEmpty ? "" : " " + (done.warning ?? ""))
             } catch {
                 status = "\(error)"
             }

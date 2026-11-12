@@ -182,6 +182,49 @@ def test_plan_shows_tiles_airports_sources_and_branding(machines, tmp_path):
     assert not (b.root / "OSM_data").exists()                   # plan writes nothing
 
 
+def _restricted(monkeypatch):
+    """A source the library holds (its terms do not allow sharing it)."""
+    from patch_library import client as LIBCLIENT
+    from patch_library import terms as TERMS
+    held = dict(TERMS.DEFAULT_LICENCES, held={"SWISSALTI3D": {
+        "licence": "swisstopo free geodata terms", "summary": "no redistribution"}})
+    monkeypatch.setattr(LIBCLIENT, "licences", lambda: held)
+    plain = EXPORT.sources
+    monkeypatch.setattr(EXPORT, "sources", lambda tile, icao="": plain(tile, icao) + [
+        {"kind": "elevation", "provider": "SWISSALTI3D",
+         "licence": "swisstopo free geodata terms", "credit": ""}])
+
+
+def test_an_unrestricted_package_has_no_warning(machines, tmp_path):
+    a, _b = machines
+    a.live()
+    done = PACKAGE.save_package([(LAT, LON)], str(tmp_path / "open.xptb"))
+    assert (done["personal"], done["warning"]) == (False, "")
+    assert json.loads(_members(done["path"])["manifest.json"])["personal"] is False
+
+
+def test_a_restricted_source_writes_a_personal_package_that_warns(machines, tmp_path,
+                                                                 monkeypatch):
+    """Owner 2026-11-12: a package of a tile built from a source whose
+    terms do not allow sharing it is written (the user's own store, a
+    backup) and marked personal; exporting it, and opening it, warn."""
+    a, b = machines
+    _restricted(monkeypatch)
+    a.live()
+    done = PACKAGE.save_package([(LAT, LON)], str(tmp_path / "swiss.xptb"))
+    manifest = json.loads(_members(done["path"])["manifest.json"])
+    assert manifest["personal"] is True and manifest["noncommercial"] is True
+    assert [s["provider"] for s in manifest["sources"] if s.get("personal")] == [
+        "SWISSALTI3D"]
+    assert done["personal"] is True
+    assert done["warning"].startswith("For personal, non-commercial use only")
+    assert "SWISSALTI3D" in done["warning"]
+    b.live()
+    details = INSTALL.plan(done["path"])
+    assert details["warning"] == done["warning"]
+    assert done["warning"] in details["summary"]
+
+
 def test_a_damaged_member_refuses_and_writes_nothing(machines, tmp_path):
     a, b = machines
     path = _save(a, tmp_path, "one.xptb")

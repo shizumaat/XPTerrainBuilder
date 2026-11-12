@@ -336,6 +336,7 @@ def export(window, tiles) -> dict | None:
     print("Saved package %s (%.1f MB)%s." % (os.path.basename(done["path"]),
                                              done["bytes"] / 1e6,
                                              ", non-commercial" if done["noncommercial"] else ""))
+    _warn_personal(window, EXPORT_TITLE, done)
     return done
 
 
@@ -354,7 +355,16 @@ def combine(window) -> dict | None:
         QMessageBox.warning(window, COMBINE_TITLE, str(error))
         return None
     print("Combined %d packages into %s." % (len(paths), os.path.basename(out)))
+    _warn_personal(window, COMBINE_TITLE, done)
     return done
+
+
+def _warn_personal(window, title: str, done: dict) -> None:
+    """The engine's warning for a package built from a source whose terms
+    do not allow sharing it (owner 2026-11-12; Mac: ``TilePackageModel``
+    shows the same text)."""
+    if done.get("warning"):
+        QMessageBox.information(window, title, done["warning"])
 
 
 #: The packages already noticed (one tray notice per package and state).

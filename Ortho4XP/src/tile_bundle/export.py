@@ -9,7 +9,9 @@ the files :mod:`.contents` names, every local path tokenised
 (:mod:`.paths`).  Each source carries its terms from the patch library's
 licence gate (``patch_library.terms``, owner Q319, the one
 implementation): a non-commercial source marks the whole bundle
-non-commercial, and a held source refuses the export.  The members are
+non-commercial, and a held source (terms that do not allow sharing)
+marks it PERSONAL — written, with a warning for personal,
+non-commercial use (owner 2026-11-12, :func:`licence_marks`).  The members are
 written with fixed owners, modes and times, so two exports of the same
 tile are the same bytes.
 """
@@ -27,7 +29,7 @@ from . import key as _key
 from . import paths as _paths
 
 __all__ = ["BUNDLE_SUFFIX", "XZ_PRESET", "export_tile", "sources", "gate",
-           "load_tile"]
+           "licence_marks", "load_tile"]
 
 #: A tile bundle's file name ends so.
 BUNDLE_SUFFIX = LEGACY_SUFFIX
@@ -148,19 +150,29 @@ def _attribution(manifest: dict) -> bytes:
 def gate(found: list) -> tuple:
     """``(sources, licence)``: ``found`` each with its terms
     (``patch_library.terms``) and the licence they make — the licence
-    gate a bundle and a package both pass.
-
-    :raises BundleRefused: the library's licence gate holds a source.
+    gate a bundle and a package both pass.  A source the library holds
+    (its terms do not allow sharing it) is written ``personal`` and
+    non-commercial, never refused (owner 2026-11-12: a package of the
+    user's own tiles is theirs; exporting it warns, :func:`licence_marks`).
     """
     from patch_library import client as _client
     from patch_library import terms as _terms
     licences = _client.licences()
     found = _terms.annotate(found, licences)
-    held = _terms.held(found, licences)
-    if held:
-        raise BundleRefused("The tile was built from %s, whose terms do not "
-                            "allow sharing it (%s); not exported" % held[0])
+    held = dict(_terms.held(found, licences))
+    found = [dict(s, personal=True, noncommercial=True, why=held[s["provider"]])
+             if s.get("provider") in held else s for s in found]
     return found, _terms.entry_licence(found)
+
+
+def licence_marks(found: list) -> dict:
+    """``{"noncommercial", "personal", "warning"}`` of a manifest with
+    these (gated) sources — the manifest and the export's reply carry
+    them; ``warning`` is ``patch_library.terms.personal_warning``."""
+    from patch_library import terms as _terms
+    return {"noncommercial": any(s.get("noncommercial") for s in found),
+            "personal": any(s.get("personal") for s in found),
+            "warning": _terms.personal_warning(found)}
 
 
 def _sources_with_terms(tile) -> tuple:
@@ -195,10 +207,10 @@ def export_tile(lat: int, lon: int, out_dir: str,
     """ENGINE COMMAND ``library_export_bundle``: write the tile's bundle
     into ``out_dir``.
 
-    :returns: ``{"path", "bytes", "key", "files", "seconds"}``
+    :returns: ``{"path", "bytes", "key", "files", "seconds", "personal",
+        "warning"}``
     :raises BundleRefused: the tile is not current, not built with the
-        default mesh settings, built from a held source, or a file would
-        carry a local path.
+        default mesh settings, or a file would carry a local path.
     """
     import O4_Config_Utils as CFG
     t0 = time.time()
@@ -240,8 +252,7 @@ def export_tile(lat: int, lon: int, out_dir: str,
                 "key": _key.bundle_key(parts), "key_parts": parts,
                 "airports": _key.airport_signatures(tile),
                 "data_snapshot": _snapshot(tile), "sources": found,
-                "licence": licence,
-                "noncommercial": any(s["noncommercial"] for s in found),
+                "licence": licence, **licence_marks(found),
                 "engine_version": getattr(O4_Version, "version", ""),
                 "records": _records(tile, change), "files": files}
     manifest_bytes = (json.dumps(manifest, indent=1, sort_keys=True)
@@ -269,4 +280,5 @@ def export_tile(lat: int, lon: int, out_dir: str,
     os.replace(temporary, out_path)
     return {"path": out_path, "bytes": os.path.getsize(out_path),
             "key": manifest["key"], "files": len(members),
+            "personal": manifest["personal"], "warning": manifest["warning"],
             "seconds": round(time.time() - t0, 1)}

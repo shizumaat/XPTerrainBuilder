@@ -290,9 +290,13 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
     (``pack_shipped``).  ``fields``: the optional :data:`BRANDING` fields.
 
     :returns: ``{"path", "bytes", "data_bytes", "key", "files", "tiles",
-        "noncommercial", "seconds"}``
-    :raises BundleRefused: no tile, a tile with no downloaded data, a held
-        source, or a member that would carry a local path.
+        "noncommercial", "personal", "warning", "seconds"}`` — ``personal``
+        when a source's terms do not allow sharing it: the package is
+        written all the same (the user's own store, a backup) and
+        ``warning`` says it is for personal, non-commercial use (owner
+        2026-11-12; both apps show it on export).
+    :raises BundleRefused: no tile, a tile with no downloaded data, or a
+        member that would carry a local path.
     """
     import O4_Config_Utils as CFG
     import O4_Version
@@ -344,7 +348,7 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
                 "tiles": [_tile_entry(by_key[k], per_tile[k], chosen)
                           for k in sorted(per_tile)],
                 "sources": found, "licence": licence,
-                "noncommercial": any(s["noncommercial"] for s in found),
+                **_export.licence_marks(found),
                 "imagery": "not included", "files": files,
                 "data_bytes": sum(f["bytes"] for f in files.values())}
     out_path = write(destination_path(out, per_tile), manifest, blobs)
@@ -352,4 +356,5 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
             "data_bytes": manifest["data_bytes"], "key": manifest["key"],
             "kind": kind, "files": len(files), "tiles": sorted(per_tile),
             "noncommercial": manifest["noncommercial"],
+            "personal": manifest["personal"], "warning": manifest["warning"],
             "seconds": round(time.time() - t0, 1)}

@@ -20,6 +20,7 @@ import tarfile
 import time
 
 from . import PACKAGE_FORMAT, BundleRefused, inputs
+from . import export as _export
 from . import install as _install
 from . import key as _key
 from . import kinds as _kinds
@@ -119,7 +120,7 @@ def merge_packages(paths, out: str, **fields) -> dict:
                 "airports_only": sorted(union.only) if union.only else None,
                 "tiles": [union.tiles[k] for k in sorted(union.tiles)],
                 "sources": found, "licence": _terms.entry_licence(found),
-                "noncommercial": any(s.get("noncommercial") for s in found),
+                **_export.licence_marks(found),
                 "imagery": "not included", "files": union.files,
                 "data_bytes": sum(f["bytes"] for f in union.files.values())}
     out_path = _package.write(_package.destination_path(out, union.tiles), manifest, union.blobs)
@@ -127,4 +128,5 @@ def merge_packages(paths, out: str, **fields) -> dict:
             "data_bytes": manifest["data_bytes"], "key": manifest["key"],
             "files": len(union.files), "tiles": sorted(union.tiles),
             "noncommercial": manifest["noncommercial"],
+            "personal": manifest["personal"], "warning": manifest["warning"],
             "seconds": round(time.time() - t0, 1)}

@@ -135,6 +135,9 @@ public struct O4LibraryBundleExport: Decodable, Equatable, Sendable {
     public let key: String
     public let files: Int
     public let seconds: Double
+    /// The engine's personal, non-commercial use warning (owner
+    /// 2026-11-12), as `O4PackageSaved.warning`.
+    public let warning: String?
 }
 
 /// `library_import_bundle` result (#1699 phase 1, `tile_bundle.importer`):

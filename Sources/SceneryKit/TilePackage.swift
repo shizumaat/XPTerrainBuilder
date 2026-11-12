@@ -141,6 +141,10 @@ public struct O4PackageSaved: Decodable, Equatable, Sendable {
     public let tiles: [String]
     public let noncommercial: Bool
     public let seconds: Double
+    /// The engine's warning when a source's terms do not allow sharing
+    /// the package (personal, non-commercial use; owner 2026-11-12);
+    /// empty or absent otherwise. Both apps show it after the save.
+    public let warning: String?
 }
 
 /// `package_airports` result: the airports each tile grades or holds the

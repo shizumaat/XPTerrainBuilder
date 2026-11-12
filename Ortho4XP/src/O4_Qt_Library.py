@@ -111,6 +111,14 @@ def _cell(row, key):
     return str(value or ""), str(value or "")
 
 
+def _exported_text(tile: str, done: dict) -> str:
+    """The status line of a Library export, with the engine's warning for
+    a package built from a source whose terms do not allow sharing it
+    (owner 2026-11-12; Mac: ``LibraryView.exportBundle``)."""
+    text = "Exported %s (%s)." % (tile, fmt_size(done["bytes"]))
+    return text + (" " + done["warning"] if done.get("warning") else "")
+
+
 class _Item(QTableWidgetItem):
     """A cell that sorts by its value, not its text (sizes, dates)."""
 
@@ -442,9 +450,8 @@ class LibraryTilesSection(QWidget):
             return
         row = rows[0]
         self.status_label.setText("Exporting %s…" % row["tile"])
-        self._run(lambda: "Exported %s (%s)." % (row["tile"], fmt_size(
-            LIB.library_export_bundle(row["lat"], row["lon"], self.working_dir,
-                                      folder)["bytes"])), self.done)
+        self._run(lambda: _exported_text(row["tile"], LIB.library_export_bundle(
+            row["lat"], row["lon"], self.working_dir, folder)), self.done)
 
     def _import_bundle(self):
         path = self.choose_bundle("Import library bundle")

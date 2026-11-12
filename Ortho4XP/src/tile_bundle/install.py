@@ -46,7 +46,7 @@ from . import kinds as _kinds
 from . import pack_dev as _dev
 from . import package as _package
 from . import paths as _paths
-from .export import load_tile
+from .export import licence_marks, load_tile
 
 __all__ = ["REGISTRY", "CONFLICT_CHOICES", "SET_ASIDE", "read_manifest", "plan",
            "install", "version_tuple", "merge_index"]
@@ -334,7 +334,9 @@ def _summary(details: dict) -> list:
         "package's used." % os.path.basename(a["backup"]) if a["choice"] == "replace"
         else "It is kept unless you choose the package's.")
         for a in details["conflicts"]]
-    if details["noncommercial"]:
+    if details["warning"]:
+        lines.append(details["warning"])
+    elif details["noncommercial"]:
         lines.append("Non-commercial: a source allows non-commercial use only.")
     lines.append("Imagery is not included: building the tile downloads it.")
     return lines
@@ -358,6 +360,8 @@ def _details(path: str, manifest: dict, tiles: dict, run: _Pass) -> dict:
            "sources": manifest.get("sources") or [],
            "licence": manifest.get("licence", ""),
            "noncommercial": bool(manifest.get("noncommercial")),
+           "personal": bool(manifest.get("personal")),
+           "warning": licence_marks(manifest.get("sources") or [])["warning"],
            "bytes": os.path.getsize(path),
            "data_bytes": int(manifest.get("data_bytes") or 0),
            "files": len(run.rows), "counts": counts,
@@ -384,11 +388,15 @@ def _legacy_plan(path: str, manifest: dict, custom_build_dir: str) -> dict:
             "sources": manifest.get("sources") or [],
             "licence": manifest.get("licence", ""),
             "noncommercial": bool(manifest.get("noncommercial")),
+            "personal": bool(manifest.get("personal")),
+            "warning": licence_marks(manifest.get("sources") or [])["warning"],
             "bytes": os.path.getsize(path), "files": len(manifest.get("files") or {}),
             "conflicts": [], "summary": [
                 "Tile bundle for %s (mesh, masks and solved airports)" % manifest["tile"],
                 "Airports: " + (", ".join(airports) or "none"),
-                "Imagery is not included: building the tile downloads it."]}
+                "Imagery is not included: building the tile downloads it."]
+            + ([licence_marks(manifest.get("sources") or [])["warning"]]
+               if manifest.get("personal") else [])}
 
 
 def plan(path: str, custom_build_dir: str = "", choices=None) -> dict:
@@ -398,7 +406,8 @@ def plan(path: str, custom_build_dir: str = "", choices=None) -> dict:
     :returns: ``{"path", "format", "legacy", "key", "title", "creator",
         "notes", "url", "tiles": [{"tile", "airports": [{"icao", "pack",
         "installed_pack", "match"}]}], "sources", "licence",
-        "noncommercial", "bytes", "files", "conflicts": [{"tile", "icao",
+        "noncommercial", "personal", "warning", "bytes", "files",
+        "conflicts": [{"tile", "icao",
         "kind" ("custom" or "package"), "installed", "choice", "backup"}],
         "summary", …}``.  ``choices`` (``{icao: "keep" | "replace"}``)
         answers the conflicts; an unanswered one keeps the installed patch.

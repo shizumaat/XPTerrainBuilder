@@ -780,6 +780,25 @@ def test_both_tile_panes_show_the_path_under_built_by(window):
     assert isinstance(getattr(window, attr, None), QTPATHROW.TilePathRow)
 
 
+def test_both_tile_panes_name_the_airports_the_build_stood_on(window):
+    """Owner 2026-11-12T21:55Z (lane ltiledetail): "Airport elevation" and
+    "Graded airports" sit after the Path row in both apps, titled alike,
+    shown only when the tile's records name them."""
+    import O4_Qt_GUI as QTGUI
+
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    for title in (QTGUI.TILE_AIRPORT_ELEVATION_TITLE,
+                  QTGUI.TILE_AIRPORTS_TITLE):
+        assert '"%s"' % title in pane
+    assert (pane.index("Self.airportElevationTitle, text")
+            > pane.index(TILE_PATH_ROW[0]))
+    form = window._info_layout
+    path_row = form.getWidgetPosition(window.tile_path_row)[0]
+    assert form.getWidgetPosition(window.info_airport_elevation)[0] > path_row
+    window._show_build_airports(None)
+    assert not form.isRowVisible(window.info_airports)
+
+
 def test_both_tile_panes_read_the_world_pack_first(window):
     """Owner 2026-11-12T20:23Z (lane ltilepane): the World-pack row stands
     right under the tile title in both apps, with the same three actions;

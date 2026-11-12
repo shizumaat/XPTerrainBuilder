@@ -268,6 +268,8 @@ def readopt(name: str, record: dict, *, scenery_dir: str, pack: str,
                 problems=[])
     out.update(finish(name, journal=journal, pack=pack, lat=entry.lat,
                       lon=entry.lon))
+    from . import world_records as RECORDS
+    RECORDS.copy_quietly(journal, name, entry.lat, entry.lon)
     return {**out, "status": "migrated", "adopted": True,
             "bytes_written": record.get("bytes_written", 0)}
 

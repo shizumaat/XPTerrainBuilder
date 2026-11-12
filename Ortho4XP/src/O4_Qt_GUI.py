@@ -219,6 +219,10 @@ STOP_SIGN_COLOR = "#E5372B"
 # uses the same words.
 CUSTOM_SETTINGS = "Custom settings"
 EDIT_TILE_SETTINGS = "Edit settings…"
+# The tile pane's rows of what the build stood its airports on and graded
+# (owner 2026-11-12T21:55Z); BuildPane.swift uses the same words.
+TILE_AIRPORT_ELEVATION_TITLE = "Airport elevation"
+TILE_AIRPORTS_TITLE = "Graded airports"
 RESUME_COLOR = "#2E9E5B"
 STOPPED_COLOR = QTMAP.STOPPED_COLOR
 # Gold for a tile built with warnings (#1341; the Mac app's
@@ -1326,6 +1330,14 @@ class MainWindow(QMainWindow):
         self.tile_stale_row.rebuild_requested.connect(
             self._rebuild_tile_missing_textures)
         ig.addRow(self.tile_stale_row)
+        # What the build stood its airports on, and which it graded (owner
+        # 2026-11-12T21:55Z; mac-app parity: BuildPane, the same titles);
+        # hidden when the tile's records name none.
+        self.info_airport_elevation = TwoLineElidedLabel("—")
+        ig.addRow("%s:" % TILE_AIRPORT_ELEVATION_TITLE,
+                  self.info_airport_elevation)
+        self.info_airports = TwoLineElidedLabel("—")
+        ig.addRow("%s:" % TILE_AIRPORTS_TITLE, self.info_airports)
         self.info_elevation = TwoLineElidedLabel("—")
         ig.addRow("Elevation:", self.info_elevation)
         self.info_airport_lidar = TwoLineElidedLabel("—")
@@ -2916,9 +2928,11 @@ class MainWindow(QMainWindow):
             return
         conflicted = tile in self._conflict_tiles
         self.imagery_conflict_btn.setVisible(conflicted)
+        # the cfg's provider, else what the textures or the imagery
+        # record carry (#1334; mac-app parity: TileImageryChoice)
+        provider = (TINFO.effective_imagery(info) or ("?",))[0]
         self.info_provider.setText(
-            ("%s  ⚠ mixed" % (info.provider or "?")) if conflicted
-            else (info.provider or "?")
+            ("%s  ⚠ mixed" % provider) if conflicted else provider
         )
         self.info_provider.setToolTip(
             "This tile's textures folder also holds imagery from another "
@@ -3564,6 +3578,7 @@ class MainWindow(QMainWindow):
             ):
                 w.setText("…" if pending else "—")
             self.tile_path_row.show_info(None)
+            self._show_build_airports(None)
             self.tile_stale_row.show_verdict(None, None)
             self._show_tile_pin(None, None)
             # Held by the World pack (a placeholder too): ours, not
@@ -3580,12 +3595,13 @@ class MainWindow(QMainWindow):
             self.install_check.setChecked(False)
             return
         self._refresh_conflict_indicator(tile)
-        zl_text = GLOSSARY.detail_choice(info.zl) if info.zl else "?"
+        zl = (TINFO.effective_imagery(info) or ("", None))[1]
+        zl_text = GLOSSARY.detail_choice(zl) if zl else "?"
         # Airport high-ZL cover: show the upgraded zoomlevel and its scope
         # (e.g. "16 + ZL18 ICAO") so the setting is visible at a glance.
         mode = (getattr(info, "high_zl_airports", "") or "").strip()
         if mode not in ("", "False") and info.cover_zl and (
-            info.zl is None or info.cover_zl > info.zl
+            zl is None or info.cover_zl > zl
         ):
             scope = {"True": "All", "ICAO": "ICAO", "Existing": "Existing"}
             zl_text += " + ZL%d %s" % (info.cover_zl, scope.get(mode, mode))
@@ -3595,6 +3611,7 @@ class MainWindow(QMainWindow):
         self.info_mesh.setText(_fmt_date(info.mesh_date))
         self.info_imagery.setText(_fmt_date(info.imagery_date))
         self.info_built_by.setText(TINFO.with_built_by(info).built_by or "—")
+        self._show_build_airports(info)
         self.tile_path_row.show_info(info)
         self.tile_stale_row.show_verdict(tile, self.map.stale().get(tile))
         self._show_tile_pin(tile, info)
@@ -3636,6 +3653,18 @@ class MainWindow(QMainWindow):
             )
         else:
             self.install_check.setToolTip("")
+
+    def _show_build_airports(self, info) -> None:
+        """The rows of what the build stood its airports on and graded
+        (``TileInfo.airport_elevation`` / ``airports``); hidden when the
+        tile's records name none or no tile is shown."""
+        for label, text in ((self.info_airport_elevation,
+                             getattr(info, "airport_elevation", "")),
+                            (self.info_airports,
+                             getattr(info, "airports", ""))):
+            label.setText(text or "—")
+            label.setToolTip(text or "")
+            self._info_layout.setRowVisible(label, bool(text))
 
     def _advanced_toggled(self, shown):
         """The Build box's plumbing, collapsed by default (#818)."""

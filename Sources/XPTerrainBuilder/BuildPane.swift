@@ -60,6 +60,10 @@ struct BuildPane: View {
     /// The tile pane's customized-settings words; the Qt pane uses the
     /// same (O4_Qt_GUI.CUSTOM_SETTINGS / EDIT_TILE_SETTINGS).
     static let customSettingsTitle = "Custom settings"
+    /// What the build stood its airports on, and which it graded (owner
+    /// 2026-11-12T21:55Z; the Qt pane: the same titles).
+    static let airportElevationTitle = "Airport elevation"
+    static let gradedAirportsTitle = "Graded airports"
     static let editSettingsTitle = "Edit settings…"
 
     var body: some View {
@@ -235,7 +239,9 @@ struct BuildPane: View {
                          },
                          remove: { await buildModel.removeFromWorldPack(active) })
             HStack(spacing: 5) {
-                detailRow("Imagery", info?.provider.isEmpty == false ? info!.provider : "—")
+                // The cfg's provider, else what the textures or the
+                // imagery record carry (#1334; the Qt pane: the same).
+                detailRow("Imagery", info.flatMap(TileImageryChoice.resolve)?.provider ?? "—")
                 if let audit = textureAudit, audit.hasConflict {
                     Button {
                         trashMessage = nil
@@ -286,6 +292,12 @@ struct BuildPane: View {
                 // Its airport pack changed since the build (#1958).
                 if let stale = buildModel.staleTiles[active] {
                     TileStaleRow(stale: stale) { buildModel.rebuildWithItsImagery(active) }
+                }
+                if let text = info.airportElevation {
+                    detailRow(Self.airportElevationTitle, text).help(text)
+                }
+                if let text = info.airports {
+                    detailRow(Self.gradedAirportsTitle, text).help(text)
                 }
             }
             if let dem = info?.customDEM, !dem.isEmpty {
@@ -482,7 +494,7 @@ struct BuildPane: View {
     }
 
     private func zlText(_ info: O4TileInfo?) -> String {
-        guard let info, let zl = info.zl else { return "—" }
+        guard let info, let zl = TileImageryChoice.resolve(info)?.zl else { return "—" }
         var text = O4Glossary.detailChoice(zl)
         // Airport high-ZL cover: e.g. "ZL16 + ZL18 ICAO" makes the
         // upgraded-airports setting visible at a glance.

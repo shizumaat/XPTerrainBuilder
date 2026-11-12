@@ -34,6 +34,11 @@ follow job lands from them while they are mounted.
     # work folder's originals/ (an install converted before 2026-11-12)
     venv/bin/python tools/ondemand_convert.py world-tidy-originals
     venv/bin/python tools/ondemand_convert.py world-tidy-originals --run
+    # kept tiles given their records (cfgs, imagery record, airports,
+    # build record) in the data root's Tiles folder, read from their
+    # originals/, lean copy or source drive (a dry run without --run)
+    venv/bin/python tools/ondemand_convert.py world-records
+    venv/bin/python tools/ondemand_convert.py world-records --run
 
 Nothing on the source is ever written.  ``scenery_packs.ini`` is never
 edited (an entry keeps its name, so its order and enabled state hold).
@@ -107,6 +112,13 @@ def _world(args, scenery: str) -> dict:
         return result
     elif args.action == "world-backfill":
         return _backfill(scenery)
+    elif args.action == "world-records":
+        from o4_engine.world_records import backfill
+        result = backfill(scenery, dry_run=not args.run)
+        for row in result["failed"]:
+            print(f"{row['name']}: failed  {row['problems']}")
+        print(result["summary"])
+        return result
     elif args.action == "world-tidy-originals":
         from o4_engine.world_originals import tidy
         result = tidy(scenery, dry_run=not args.run)
@@ -200,6 +212,10 @@ def main(argv=None) -> int:
                                 "--run)")
     wtidy.add_argument("--run", action="store_true",
                        help="do it (X-Plane must be closed)")
+    wrec = sub.add_parser("world-records",
+                          help="kept tiles given their records in the Tiles "
+                               "folder (a dry run without --run)")
+    wrec.add_argument("--run", action="store_true", help="copy them")
     args = parser.parse_args(argv)
     if args.data_root:
         import O4_File_Names as FNAMES

@@ -64,6 +64,7 @@ import O4_World_Pack as WP
 
 from . import world_adopt as ADOPT
 from . import world_originals as ORIGINALS
+from . import world_records as RECORDS
 from . import world_retire as RETIRE
 from .imagery_convert import sibling_work_dir
 from .xplane_root import xplane_running as _xplane_running
@@ -347,6 +348,8 @@ def migrate_tile(entry, *, scenery_dir: str, pack: str, work: str,
                                       index=index, lock=swap_lock)
         if kept:
             out["kept_in_place"] = kept
+        # its records where a new tile keeps them (``world_records``)
+        RECORDS.copy_quietly(journal, entry.name, entry.lat, entry.lon)
     return {**out, "status": "migrated",
             "bytes_written": record.get("bytes_written", 0),
             "seconds": round(time.monotonic() - started, 2)}

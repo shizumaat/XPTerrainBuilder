@@ -242,6 +242,7 @@ CAPABILITIES: tuple = (
     "world_tile_remove",            # 2026-11-12, tile pane Remove from World Pack (LibraryReady)
     "world_home",                   # 2026-11-12, RULINGS 12g/h world_onboard home
     "storage_tiers",                # 2026-11-12, RULINGS 12g storage_tiers / storage_tier_set
+    "imagery_core_rows",            # 2026-11-13, #2039 ImageryCoresProgress + imagery_cores_stop
 )
 
 
@@ -1180,6 +1181,31 @@ class WorldReady(EngineEvent):
     request: Any = None
     result: Any = None
     error: str = ""
+
+
+@dataclass(frozen=True)
+class ImageryCoresProgress(EngineEvent):
+    """One tile's airport cores sharpening in the background (#2039,
+    capability ``imagery_core_rows``, ``o4_engine.imagery_core_rows``):
+    after a build in on-demand mode, a World publish, a flight's kept
+    endpoints or an adopt.  Both apps show it as the tile's row in the
+    Build view's Activity list (``O4_Imagery_OnDemand_Text.cores_row_status``).
+
+    ``state``: ``active`` while it runs (once at the start, then once per
+    finished square), then ``done``, ``error`` (``failed`` squares) or
+    ``stopped`` (the user's ``imagery_cores_stop``, or left for a build);
+    ``done`` of ``total`` squares landed.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    lat: int = 0
+    lon: int = 0
+    state: str = "active"
+    done: int = 0
+    failed: int = 0
+    total: int = 0
 
 
 @dataclass(frozen=True)

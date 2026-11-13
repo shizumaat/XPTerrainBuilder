@@ -43,6 +43,9 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     public static let worldHome = "world_home"
     /// `storage_tiers` / `storage_tier_set` (RULINGS 2026-11-12g).
     public static let storageTiers = "storage_tiers"
+    /// `ImageryCoresProgress` + `imagery_cores_stop` (#2039): background
+    /// core sharpening as Activity rows.
+    public static let imageryCoreRows = "imagery_core_rows"
     /// `live_preview_squares` / `live_preview_mip` (#2001): flag only.
     public static let livePreview = "live_preview"
     /// `package_save` / `package_airports` / `package_plan` /

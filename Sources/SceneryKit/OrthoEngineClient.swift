@@ -354,6 +354,9 @@ public enum O4Event: Sendable, Equatable {
     /// The imagery follow job's state (capability `imagery_follow`,
     /// #1992 P3b). See `O4ImageryFollowStatus`.
     case imageryFollowStatus(O4ImageryFollowStatus)
+    /// One tile's airport cores sharpening in the background (capability
+    /// `imagery_core_rows`, #2039). See `O4ImageryCoresProgress`.
+    case imageryCoresProgress(O4ImageryCoresProgress)
     /// The World pack's state (capability `world_pack`, flight manager /
     /// World spec §5.3). See `O4WorldStatus`.
     case worldStatus(O4WorldStatus)
@@ -552,6 +555,9 @@ public enum O4Event: Sendable, Equatable {
         // `class ImageryFollowStatus` in Ortho4XP/src/o4_engine/events.py.
         case "ImageryFollowStatus":
             return .imageryFollowStatus(O4ImageryFollowStatus.parse(object))
+        // `class ImageryCoresProgress` in Ortho4XP/src/o4_engine/events.py.
+        case "ImageryCoresProgress":
+            return .imageryCoresProgress(O4ImageryCoresProgress.parse(object))
         // `class WorldStatus` in Ortho4XP/src/o4_engine/events.py.
         case "WorldStatus":
             return .worldStatus(O4WorldStatus.parse(object))
@@ -1033,6 +1039,13 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// reload (owner 2026-11-12: never unless the user requests it).
     public func reloadScenery() {
         send(command: "scenery_reload")
+    }
+
+    /// Stop one tile's background core sharpening (#2039, capability
+    /// `imagery_core_rows`): the squares not yet started are left; the
+    /// ones landing finish. The row's last `imageryCoresProgress` follows.
+    public func stopImageryCores(lat: Int, lon: Int) {
+        send(command: "imagery_cores_stop", arguments: ["lat": lat, "lon": lon])
     }
 
     // MARK: - Build-ahead (World spec W2, capability world_job)

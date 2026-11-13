@@ -77,6 +77,21 @@ final class BuildActivityModel: ObservableObject {
     /// Each row's step strip (#825): Map data → Airports → … → Install.
     /// Protocol builds only; a row without one shows no strip.
     @Published var stepStrips: [BuildModel.TileCoord: O4StepStrip] = [:]
+    /// Background airport-core sharpenings (#2039): one row per tile under
+    /// the build rows in Activity, in the order they started; a finished
+    /// one stays until the next run begins. Qt: `O4_Qt_Core_Rows`.
+    @Published var coreRows: [O4ImageryCoresProgress] = []
+
+    /// One `ImageryCoresProgress`: the tile's row, made or updated.
+    func showCores(_ progress: O4ImageryCoresProgress) {
+        if let index = coreRows.firstIndex(where: {
+            $0.lat == progress.lat && $0.lon == progress.lon
+        }) {
+            coreRows[index] = progress
+        } else {
+            coreRows.append(progress)
+        }
+    }
 
     /// Each row's place in the list (`ActivityOrder`).
     private var stamps: [BuildModel.TileCoord: ActivityOrder.Stamp] = [:]
@@ -131,6 +146,7 @@ final class BuildActivityModel: ObservableObject {
 
     /// A new run: its counters start at zero; earlier rows stay.
     func beginRun() {
+        coreRows.removeAll { !$0.running }
         elapsedSeconds = 0
         remainingSeconds = nil
         doneTiles = 0
@@ -1290,6 +1306,8 @@ final class BuildModel: ObservableObject {
             break // the engine's scheduling signal; the tile's row moves on its own
         case .imagerySourceStatus(let code, let status):
             imageryStatus[code] = status
+        case .imageryCoresProgress(let progress):
+            activity.showCores(progress) // its Activity row (#2039)
         case .imageryFollowStatus(let status):
             imageryFollow.show(status) // the Fly pane's follow line (#1992 P4)
             fly.preview.followLanded(status.landed) // a tier landed (#2001)

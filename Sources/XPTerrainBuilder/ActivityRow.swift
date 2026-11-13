@@ -51,22 +51,7 @@ struct ActivityRow: View {
                         Button {
                             buildModel.cancelTile(coord)
                         } label: {
-                            // The octagon IS the stop-sign shape (owner-confirmed).
-                            // The white square is an overlaid SHAPE, not a second
-                            // SF Symbol: two symbols in a ZStack align by frame,
-                            // but each glyph carries its own internal padding, so
-                            // the inner one sat visibly off-centre. An overlay
-                            // centres geometrically, so this is centred by
-                            // construction — do not go back to a ZStack.
-                            Image(systemName: "octagon.fill")
-                                .font(.system(size: Self.stopIconSize))
-                                .foregroundStyle(.red)
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 0.75)
-                                        .fill(.white)
-                                        .frame(width: Self.stopIconSize * 0.38,
-                                               height: Self.stopIconSize * 0.38)
-                                }
+                            Self.stopSign
                         }
                         .buttonStyle(.borderless)
                         .controlSize(.small)
@@ -94,6 +79,24 @@ struct ActivityRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// The per-row stop sign (also `ImageryCoresRow`'s). The octagon IS
+    /// the stop-sign shape (owner-confirmed). The white square is an
+    /// overlaid SHAPE, not a second SF Symbol: two symbols in a ZStack
+    /// align by frame, but each glyph carries its own internal padding, so
+    /// the inner one sat visibly off-centre. An overlay centres
+    /// geometrically, so this is centred by construction — do not go back
+    /// to a ZStack.
+    static var stopSign: some View {
+        Image(systemName: "octagon.fill")
+            .font(.system(size: stopIconSize))
+            .foregroundStyle(.red)
+            .overlay {
+                RoundedRectangle(cornerRadius: 0.75)
+                    .fill(.white)
+                    .frame(width: stopIconSize * 0.38, height: stopIconSize * 0.38)
+            }
     }
 
     /// Gold for a tile built with warnings (#1341; Qt's `WARNING_COLOR`).

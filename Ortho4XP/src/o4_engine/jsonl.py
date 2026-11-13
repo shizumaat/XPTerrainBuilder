@@ -177,6 +177,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from O4_Tile_Customizations import tile_customizations
     from O4_Tile_Texture_Check import tile_texture_check
 
+    from . import imagery_core_rows as CORE_ROWS
     from . import patch_commands, patch_drop, patch_insert
     from . import reload_offer as RELOAD
     from . import world_commands as WORLD
@@ -397,6 +398,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # The user's "Reload scenery" (#2019, owner 2026-11-12T14:34Z:
         # X-Plane reloads only when the user asks): {"sent": bool}.
         "scenery_reload": RELOAD.scenery_reload,
+        # A background core sharpening's row stop (#2039, capability
+        # imagery_core_rows): {"stopped": bool}.
+        "imagery_cores_stop": CORE_ROWS.imagery_cores_stop,
         # On-demand imagery (#1992 P2, capability imagery_ondemand): the
         # index scan, a tile's pin and "Make all low-res again"; pin and
         # downgrade are refused while a build runs.

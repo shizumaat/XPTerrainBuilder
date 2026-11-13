@@ -25,7 +25,8 @@ __all__ = ["PIN_TITLE", "UNPIN_TITLE", "FAVORITE_TITLE",
            "RELOAD_OFFER_COVERAGE",
            "make_low_res_message", "reload_offer_line",
            "pins_line", "pin_done", "follow_lines", "follow_headline",
-           "size_text"]
+           "size_text", "CORES_ROW_TEMPLATES", "CORES_ROW_STOP_HELP",
+           "cores_row_status"]
 
 # --- Favorites (spec §7: the Library's tile menu, the star beside the tile
 # pane's title and on the Build map's built cells, #2033; "pin" renamed
@@ -112,6 +113,31 @@ BUFFER_NONE = "nothing queued"
 BUFFER_AHEAD = "{seconds} s ahead"
 #: Metres per second to knots.
 KNOTS_PER_MS = 1.943844
+
+
+#: A background core sharpening's row in the Build view's Activity list
+#: (#2039, ``ImageryCoresProgress``): the status per state, the tile's
+#: coordinate the row's title.  Swift: ``O4OnDemandText.coresRow*``.
+CORES_ROW_TEMPLATES = {
+    "active": "Sharpening airport imagery · {done} of {total} squares",
+    "done": "Airport imagery sharp · {done} of {total} squares",
+    "error": "Sharpening airport imagery failed · {failed} of {total} "
+             "squares failed",
+    "stopped": "Sharpening airport imagery stopped · {done} of {total} "
+               "squares",
+}
+
+#: The row's stop button tooltip.
+CORES_ROW_STOP_HELP = ("Stop sharpening this tile's airport imagery: the "
+                       "squares not started stay low-res until you fly near")
+
+
+def cores_row_status(state: str, done: int, total: int, failed: int = 0
+                     ) -> str:
+    """The status line of an ``ImageryCoresProgress`` row."""
+    template = CORES_ROW_TEMPLATES.get(state, CORES_ROW_TEMPLATES["active"])
+    return template.format(done=int(done), total=int(total),
+                           failed=int(failed))
 
 
 def size_text(nbytes) -> str:

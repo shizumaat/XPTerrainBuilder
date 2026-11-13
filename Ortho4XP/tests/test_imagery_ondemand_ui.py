@@ -57,6 +57,11 @@ SWIFT_TO_PYTHON = {
     "reloadOfferImagery": TEXT.RELOAD_OFFER_IMAGERY,
     "reloadOfferTiles": TEXT.RELOAD_OFFER_TILES,
     "reloadOfferCoverage": TEXT.RELOAD_OFFER_COVERAGE,
+    "coresRowActive": TEXT.CORES_ROW_TEMPLATES["active"],
+    "coresRowDone": TEXT.CORES_ROW_TEMPLATES["done"],
+    "coresRowError": TEXT.CORES_ROW_TEMPLATES["error"],
+    "coresRowStopped": TEXT.CORES_ROW_TEMPLATES["stopped"],
+    "coresRowStopHelp": TEXT.CORES_ROW_STOP_HELP,
 }
 
 

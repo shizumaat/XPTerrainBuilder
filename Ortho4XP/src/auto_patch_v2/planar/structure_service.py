@@ -91,15 +91,15 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     ground level under a raised walkway; KDEN -6306, no tunnel there).
     (e) THE PACK'S OPEN PASSAGE OUTRANKS COVER, A CROSSING, A RISE, A
     NEGATIVE LAYER AND THE FENCE (owner RULINGS 2026-10-10q, issue #548;
-    extends 10i (1) / 10k, issue #522; the layer since #710): where an ELEVATED pack part stands over a mapped
-    bore's carriageway with clear space beneath and no pack part at
-    grade covers its line (:meth:`_PackBuildings.passage`), the tag is
-    the road's passage under that part, at grade, and nothing is cut —
-    asked FIRST, after (a), of every mapped bore.  MEASURED at KCLT: a
-    313 m ``service`` bore under the terminal read 273.0 m of cover (the
-    terminal's own pad) and +0.55 .. +0.82 m of ground over its mouth
-    chord, under a road deck 6 m over the terminal's zero with nothing at
-    grade.
+    extends 10i (1) / 10k, issue #522; the layer since #710): where an
+    ELEVATED pack part stands over a mapped bore's carriageway with clear
+    space beneath and no pack part at grade covers its line
+    (:meth:`_PackBuildings.passage`), the tag is the road's passage under
+    that part, at grade, and nothing is cut — asked FIRST, after (a), of
+    every mapped bore.  MEASURED at KCLT: a 313 m ``service`` bore under
+    the terminal read 273.0 m of cover (the terminal's own pad) and +0.55
+    .. +0.82 m of ground over its mouth chord, under a road deck 6 m over
+    the terminal's zero with nothing at grade.
     A NEGATIVE ``layer`` IS NOT SENIOR TO IT (owner sim read of app
     1.0.394, issue #710, narrowing 10q's layer clause): OSM's ``layer`` is
     relative to what the way crosses, and under an elevated part with
@@ -633,7 +633,7 @@ def airside_cover(classification, law: Law) -> list[Polygon]:
     is read on (RULINGS 2026-11-13h)."""
     roles = set(airside_cut_roles(law))
     cells, _gap, polys = standing_cover(classification)
-    return [p for p, c in zip(polys, cells) if c.role in roles]
+    return [p for p, c in zip(polys, cells, strict=False) if c.role in roles]
 
 
 def airside_cut_roles(law: Law) -> tuple[str, ...]:

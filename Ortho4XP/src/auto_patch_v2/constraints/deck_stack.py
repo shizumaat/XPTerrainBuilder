@@ -10,8 +10,8 @@ both end lines — RULINGS 2026-10-30a):
 * R1 each END EDGE: the end-line road vertices (``airport/deck_ends.
   end_road_vertices``, the ONE selection the road ramp is seeded from) and
   every stack-ground vertex on a deck's end line or on its approach slab
-  (``airport/deck_ends.ground_footprint``'s ``slabs``, one sample step
-  beyond it) stand in ``[zero + top - deck_flush_m, zero + top]`` — the
+  (``airport/deck_ends.ground_footprint``'s apron slab, one sample
+  step beyond it) stand in ``[zero + top - deck_flush_m, zero + top]`` — the
   ground and the road never stand over the plate's end;
 * R2 the WALLS' TOP and the CAPS: every cap vertex, every vertex of the
   floor's void band's outer ring along a wall line and every stack-ground
@@ -105,7 +105,7 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         for v, (z, sid, oid, part) in roads.items():
             if sid == st.id:
                 r1[v] = (z - flush, z, oid, part)
-        for d, side, top, slab in ground_footprint(st, law)["slabs"]:
+        for d, side, top, _apron, slab in ground_footprint(st, law)["aprons"]:
             if slab.is_empty or not len(ground):
                 continue
             z = z0 + float(top)

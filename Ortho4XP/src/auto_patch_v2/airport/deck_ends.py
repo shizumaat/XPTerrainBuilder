@@ -69,23 +69,31 @@ def _end_length(st, d, side: str, top: float, law) -> float:
     return min(hi, max(lo, run + float(law.tables.structures.bridge.abutment_sample_step_m)))
 
 
+def _beyond(line, rect: Polygon, depth: float) -> Polygon:
+    """The plate's width beyond an end line, ``depth`` metres outward
+    (away from the deck's rectangle)."""
+    c = rect.centroid
+    mx = sum(p[0] for p in line) / len(line)
+    my = sum(p[1] for p in line) / len(line)
+    n = math.hypot(mx - c.x, my - c.y) or 1.0
+    ox, oy = (mx - c.x) / n * depth, (my - c.y) / n * depth
+    (ax, ay), (bx, by) = line[0], line[-1]
+    return Polygon([(ax, ay), (bx, by), (bx + ox, by + oy), (ax + ox, ay + oy)])
+
+
+def _ends(d) -> list:
+    """``[(side, end line, top)]`` of a deck piece's end lines."""
+    return [(side, line, top) for side, line, top in (("a", d.end_a, d.top_a),
+                                                      ("b", d.end_b, d.top_b)) if len(line) >= 2]
+
+
 def _deck_zone(st, d, rect: Polygon, law) -> Polygon:
     """The ground a deck piece's bank covers (v2 §3.2): ``ground_margin_m``
     beside its side edges, ``L_e`` and the plate's width beyond each end
-    line, the corners closed (the hull of the three)."""
+    line (the APRON), the corners closed (the hull of the three)."""
     c = rect.centroid
-    parts = [rect]
-    for side, line, top in (("a", d.end_a, d.top_a), ("b", d.end_b, d.top_b)):
-        if len(line) < 2:
-            continue
-        mx = sum(p[0] for p in line) / len(line)
-        my = sum(p[1] for p in line) / len(line)
-        n = math.hypot(mx - c.x, my - c.y) or 1.0
-        ox, oy = (mx - c.x) / n, (my - c.y) / n
-        L = _end_length(st, d, side, top, law)
-        (ax, ay), (bx, by) = line[0], line[-1]
-        parts.append(Polygon([(ax, ay), (bx, by), (bx + ox * L, by + oy * L),
-                              (ax + ox * L, ay + oy * L)]))
+    parts = [rect] + [_beyond(line, rect, _end_length(st, d, side, top, law))
+                      for side, line, top in _ends(d)]
     B = float(st.ground_margin_m)
     cs = list(rect.exterior.coords)[:4]
     edges = sorted(((cs[k], cs[(k + 1) % 4]) for k in range(4)),
@@ -98,30 +106,20 @@ def _deck_zone(st, d, rect: Polygon, law) -> Polygon:
     return unary_union(parts).convex_hull
 
 
-def _slab(d, line, rect: Polygon, H: float) -> Polygon:
-    """The APPROACH SLAB beyond an end line: the plate's width for one
-    ``abutment_sample_step_m`` (``H``) outward -- where the road keeps the
-    deck's level (the ramp's hold, v2 §3.4) and so does the ground beside
-    it."""
-    c = rect.centroid
-    mx = sum(p[0] for p in line) / len(line)
-    my = sum(p[1] for p in line) / len(line)
-    n = math.hypot(mx - c.x, my - c.y) or 1.0
-    ox, oy = (mx - c.x) / n * H, (my - c.y) / n * H
-    (ax, ay), (bx, by) = line[0], line[-1]
-    return Polygon([(ax, ay), (bx, by), (bx + ox, by + oy), (ax + ox, ay + oy)])
-
-
 def ground_footprint(st, law) -> dict:
     """The stack's ground before any other region cuts it (v2 §3.2), in
     the order of precedence: ``caps`` (the crest plates, when
     :data:`GROUND_TO_WALL_TOP`), ``shadows`` ``[(deck, polygon)]`` (each
     deck piece's rectangle less the caps, a cell two rectangles share the
-    lower level's), ``slabs`` ``[(deck, side, top, polygon)]`` (the
-    approach slab beyond each end line, :func:`_slab`: held at the plate's
-    top with the end edge, R1), ``bank`` (what joins those to the lidar),
-    ``outline`` (their union: its edge off the floor is the TOE) and
-    ``keep`` (the floor and its void band, which no piece takes)."""
+    lower level's), ``aprons`` ``[(deck, side, top, apron, slab)]`` (the
+    bank beyond each end line, the plate's width for ``L_e``: its own piece,
+    so the ground off a deck's end is triangulated on its own vertices; its
+    first ``abutment_sample_step_m``, the SLAB, is held at the plate's top
+    with the end edge, R1 -- the road's hold, v2 §3.4), ``bank`` (the rest
+    of what joins those to the lidar), ``outline`` (their union: its edge
+    off the floor is the TOE) and ``keep`` (the floor and its void band,
+    which no piece takes)."""
+    import shapely
     band = 0.5 * float(law.tables.structures.tunnel.object.wall_face_max_thickness_m)
     rings = [st.floor, *(r for r, _a, _b in st.runouts)]
     keep = unary_union([p for p in map(ring_polygon, rings) if p]).buffer(band, join_style="mitre")
@@ -134,20 +132,18 @@ def ground_footprint(st, law) -> dict:
         shadows.append((d, rect.difference(taken).difference(keep)))
         taken = taken.union(rect)
         zones.append(_deck_zone(st, d, rect, law))
-        ends += [(d, side, top, _slab(d, line, rect, H))
-                 for side, line, top in (("a", d.end_a, d.top_a), ("b", d.end_b, d.top_b))
-                 if len(line) >= 2]
-    import shapely
-    slabs = []
-    for d, side, top, g in ends:            # on a fine grid: a slab shares its end line
+        ends += [(d, side, top, _beyond(line, rect, _end_length(st, d, side, top, law)),
+                  _beyond(line, rect, H)) for side, line, top in _ends(d)]
+    aprons = []
+    for d, side, top, g, slab in ends:      # on a fine grid: an apron shares its end line
         g = shapely.difference(shapely.difference(g, taken, grid_size=1e-6), keep,
                                grid_size=1e-6)
-        slabs.append((d, side, top, g))
+        aprons.append((d, side, top, g, slab))
         taken = shapely.union(taken, g, grid_size=1e-6)
     if GROUND_TO_WALL_TOP and not caps.is_empty and st.ground_margin_m > 0.0:
         zones.append(caps.buffer(float(st.ground_margin_m)))
     outline = unary_union([taken, *zones])
-    return {"caps": caps.difference(keep), "shadows": shadows, "slabs": slabs,
+    return {"caps": caps.difference(keep), "shadows": shadows, "aprons": aprons,
             "bank": outline.difference(taken).difference(keep), "outline": outline,
             "keep": keep}
 

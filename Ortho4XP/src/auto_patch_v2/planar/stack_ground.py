@@ -15,9 +15,10 @@ from ``airport/deck_stack.ground_footprint``:
   walls' top, R2);
 * ``<stack>:shadow:<deck>#<piece>#k`` each deck's rectangle less the caps
   (held under the plate, R3; at its end edge flush with it, R1);
-* ``<stack>:slab:<deck>#<piece><end>#k`` the approach slab beyond each end
-  line, one ``abutment_sample_step_m`` deep (held at the plate's top, R1:
-  the ground beside the road keeps the deck's level as the road does);
+* ``<stack>:apron:<deck>#<piece><end>#k`` the bank beyond each end line,
+  the plate's width for ``L_e`` (its first ``abutment_sample_step_m``, the
+  slab, held at the plate's top, R1: the ground beside the road keeps the
+  deck's level as the road does, then comes off it);
 * ``<stack>:bank#k`` what joins those to the lidar (its toe pinned on the
   DEM, R4).
 
@@ -69,8 +70,8 @@ def stack_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: 
     for st, fp in fps:
         parts = [(f"{st.id}:cap", fp["caps"])]
         parts += [(f"{st.id}:shadow:{d.object_id}#{d.piece}", g) for d, g in fp["shadows"]]
-        parts += [(f"{st.id}:slab:{d.object_id}#{d.piece}{side}", g)
-                  for d, side, _top, g in fp["slabs"]]
+        parts += [(f"{st.id}:apron:{d.object_id}#{d.piece}{side}", g)
+                  for d, side, _top, g, _slab in fp["aprons"]]
         parts.append((f"{st.id}:bank", fp["bank"]))
         claimed = None
         own_air = air.difference(fp["keep"].buffer(2.0 * cut_m)) if not air.is_empty else air

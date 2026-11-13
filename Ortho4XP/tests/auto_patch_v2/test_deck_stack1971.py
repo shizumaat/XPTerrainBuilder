@@ -449,7 +449,7 @@ def test_t18_the_stack_ground_pieces(tmp_path):
     road = LineString([_at(L_XY, L_H, t) for t in (40, 120)]).buffer(4.0)
     got = _pieces(a, [road])
     kinds = {r.split(":")[3].split("#")[0] for r, _g in got}
-    assert kinds == {"cap", "shadow", "slab", "bank"}, kinds
+    assert kinds == {"cap", "shadow", "apron", "bank"}, kinds
     caps = shapely.union_all([g for r, g in got if ":cap#" in r])
     assert caps.area > 0.6 * 2 * 6.0 * 200.0           # the crest plates, off the decks' notches
     keep = DE.ground_footprint(st, LAW)["keep"]

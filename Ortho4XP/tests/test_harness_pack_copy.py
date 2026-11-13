@@ -91,3 +91,88 @@ def test_no_provider_builds_geometry_tile_dsf():
                        "texture_mode": BA.GEOMETRY_TEXTURE_MODE})(),
         {"action": "derived-from-global-defaults"})
     assert imagery["ok"]          # steps 3 + 4 run: the tile DSF is written
+
+
+# ── #2041: a pack-copy build never writes the installed pack ──────────────
+
+def _symlinked_install(tmp_path):
+    """An install whose pack is a SYMLINK into a library (the Orbx case),
+    with a symlinked folder inside it too."""
+    lib = tmp_path / "Library" / "Pack T"
+    (lib / "Earth nav data").mkdir(parents=True)
+    (lib / "Earth nav data" / "f.dsf").write_bytes(b"dsf")
+    shared = tmp_path / "Library" / "shared"
+    shared.mkdir()
+    (shared / "o.obj").write_bytes(b"obj")
+    (lib / "objects").mkdir()
+    os.symlink(shared, lib / "objects" / "tile")
+    scen = tmp_path / "X-Plane 12" / "Custom Scenery"
+    scen.mkdir(parents=True)
+    os.symlink(lib, scen / "Pack T")
+    return scen / "Pack T", tmp_path / "Library"
+
+
+def _snapshot(tree):
+    return sorted((str(p), p.stat().st_mtime_ns) for p in tree.rglob("*"))
+
+
+def test_symlinked_pack_copy_is_a_real_tree(tmp_path, monkeypatch):
+    pack, lib = _symlinked_install(tmp_path)
+    before = _snapshot(lib)
+    monkeypatch.setenv("O4_PACK_WRITES", "copy:" + str(tmp_path / "copy"))
+    target = PC.ensure_copy(str(pack))
+    assert not os.path.islink(target)
+    assert PC._links_in(target) == []
+    assert os.path.realpath(target).startswith(
+        os.path.realpath(tmp_path / "copy") + os.sep)
+    assert open(os.path.join(target, "objects", "tile", "o.obj"),
+                "rb").read() == b"obj"
+    # every engine writer passes write_guard(root) as allow_live_install
+    from auto_patch_v2.airport import placement_write as PW
+    body = type("F", (), {"resource": "objects/tile/o__b0.obj",
+                          "text": "I\n800\nOBJ\n"})()
+    PW.write_files(target, [body], allow_live_install=PC.write_guard(target))
+    assert os.path.isfile(os.path.join(target, "objects", "tile", "o__b0.obj"))
+    assert _snapshot(lib) == before                  # the install untouched
+
+
+def test_write_guard_refuses_install_roots(tmp_path, monkeypatch):
+    pack, lib = _symlinked_install(tmp_path)
+    monkeypatch.delenv("O4_PACK_WRITES", raising=False)
+    assert PC.write_guard(str(pack)) is True          # the app: as before
+    monkeypatch.setenv("O4_PACK_WRITES", "copy:" + str(tmp_path / "copy"))
+    with pytest.raises(PermissionError, match="#2041"):
+        PC.write_guard(str(pack))                     # the installed pack
+    # the pre-#2041 copy: a LINK to the installed pack inside the copy dir
+    (tmp_path / "copy").mkdir()
+    stale = tmp_path / "copy" / "Pack T"
+    os.symlink(pack, stale)
+    with pytest.raises(PermissionError, match="#2041"):
+        PC.write_guard(str(stale))
+    target = PC.ensure_copy(str(pack))                # replaced by a real tree
+    assert target == str(stale) and not os.path.islink(target)
+    assert PC.write_guard(target) is True
+
+
+def test_engine_pack_writers_pass_the_copy_guard():
+    """Every engine pack write decides ``allow_live_install`` through
+    ``pack_copy`` (``write_guard`` or ``copy_dir()``), never a literal
+    ``True``: a literal is a write that a pack-copy build cannot stop."""
+    import re
+    src = os.path.join(HERE, "..", "src")
+    bad = []
+    for root, _dirs, names in os.walk(src):
+        if os.sep + "auto_patch_v2" in root:          # the writers themselves
+            continue
+        for name in names:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(root, name)
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            for m in re.finditer(r"allow_live_install\s*=\s*(\S+)", text):
+                if not re.match(r"_copy\.(write_guard|copy_dir)\(", m.group(1)):
+                    line = text.count("\n", 0, m.start()) + 1
+                    bad.append(f"{os.path.relpath(path, src)}:{line}: "
+                               f"{m.group(0)}")
+    assert not bad, "pack writes that bypass pack_copy (#2041):\n" + "\n".join(bad)

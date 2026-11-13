@@ -149,12 +149,14 @@ def write(siblings: _t.Sequence, patch_dir: str, tool: str, *,
     from auto_patch_v2.airport.backup_state import BackupUnproven
 
     from . import dsf_reader as _DSFR
+    from . import pack_copy as _copy
     done = 0
     for k, sp in enumerate(siblings, start=1):
         cache = _dsf.mod_cache_dir(FNAMES.airport_mod_cache_root(), sp.pack_name)
         try:
             res = _pw.apply_plan(
-                sp, (), tool, patch_dir=patch_dir, allow_live_install=True,
+                sp, (), tool, patch_dir=patch_dir,
+                allow_live_install=_copy.write_guard(sp.pack_root),
                 refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
                 engine_version=engine_version, law_digest=law_digest,
                 plan_key=_sr.RIDER_KEY.format(icao=sp.icao, k=k))

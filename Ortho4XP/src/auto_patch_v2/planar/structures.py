@@ -128,7 +128,7 @@ from .deck_bridge import (deck_cut, deck_mouth, deck_pin, deck_polygon, deck_sea
                           deck_under)
 from .deck_bores import deck_bores, deck_lanes, lane_band
 from .zones import shore_region
-from .structure_service import (airside_cut_roles, deck_witness_for,
+from .structure_service import (airside_cover, airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
                                 owner_kept as _owner_kept, parts as _parts,
                                 pad_relief_m as _pad_relief_m)
@@ -279,7 +279,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     on_field = field_region_for(airport, law, cover_polygons(classification)
                                 + [c.footprint for c in corridors],
                                 corridors, deck_bridges,  # 27a (3): never a pack building
-                                portals=portals, grade_ends=grade_ends)
+                                portals=portals, grade_ends=grade_ends,
+                                airside=airside_cover(classification, law))
     stats.approach_corridors = len(on_field.corridor or ())
     stats.runway_bands = len(on_field.band or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)

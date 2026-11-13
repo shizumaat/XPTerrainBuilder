@@ -38,12 +38,14 @@ from shapely.strtree import STRtree
 from ..model.deck_stack import STACK_PREFIX, DeckStack, StackDeck, floor_level
 from . import obj8 as _obj8
 from .deck_carry import Carry, bridge_stretches, carry_of
+from .deck_ends import ring_polygon
 from .stack_walls import StackWalls, floor_between, read_stack_walls, run_beside, wall_hull
 
 __all__ = ["stack_floors", "attach_stacks", "log_line"]
 
 XY = tuple[float, float]
 RouteOf = _t.Callable[[_t.Any], LineString]
+
 
 
 def _is_deck(o) -> bool:
@@ -350,7 +352,7 @@ def _one(W, walls: StackWalls, ctx: _Ctx, anchors: _Anchors, cache, airport, law
                      f"frame on this ground — no stack")
         return None
     fz = floor_level(zero, walls.feet_y)
-    # THE RUN-OUTS (§3.7 (2)) off each open end, at the under-way's law
+    caps, margin = _caps(walls, floor, zero, airport, law)
     under_w = ctx.ways[k_under]
     rail = "railway" in under_w.tags and "highway" not in under_w.tags
     stop = _Airside(airport)
@@ -375,7 +377,40 @@ def _one(W, walls: StackWalls, ctx: _Ctx, anchors: _Anchors, cache, airport, law
         feet_y=float(walls.feet_y), crest_y=float(walls.crest_y),
         floor=fc.ring(), rim=fc.rim(), runouts=tuple(runouts),
         under_ways=tuple(under_ways), decks=tuple(decks),
-        notes=tuple(n for n in notes if n.startswith(tag)))
+        notes=tuple(n for n in notes if n.startswith(tag)), caps=caps,
+        ground_margin_m=round(margin, 2))
+
+
+def _caps(walls: StackWalls, floor: Polygon, zero: float, airport, law
+          ) -> tuple[tuple[tuple[XY, ...], ...], float]:
+    """``(caps, bank width)`` (v2 §3.2): the walls' crest plates off the
+    floor, and ``clamp(max |zero + crest - DEM| / bank_slope,
+    bank_min_width_m, 2 x platform_collar_max_m)`` over samples every
+    ``edge_grid_m`` along the caps' outer edges (off the floor's side)."""
+    from .dem import dem_z_many
+    de = law.tables.emit.design
+    plan = walls.plan.difference(floor)
+    parts = [p for p in getattr(plan, "geoms", [plan]) if p.geom_type == "Polygon"
+             and p.area >= float(law.tables.structures.tunnel.object.plate_min_area_m2)]
+    if not parts:
+        return (), 0.0
+    near = floor.buffer(float(law.tables.structures.tunnel.object.wall_face_max_thickness_m))
+    pts = []
+    for p in parts:
+        ring = LineString(p.exterior.coords)
+        n = max(2, int(ring.length / float(de.edge_grid_m)))
+        pts += [q for q in (ring.interpolate(k / n, normalized=True) for k in range(n))
+                if not near.contains(q)]
+    level = zero + float(walls.crest_y)
+    drop = 0.0
+    if pts:
+        z = dem_z_many(airport.dem, np.array([q.x for q in pts]), np.array([q.y for q in pts]))
+        z = z[np.isfinite(z)]
+        drop = float(np.max(np.abs(level - z))) if z.size else 0.0
+    hi = 2.0 * float(law.tables.structures.building_pad.platform_collar_max_m)
+    margin = min(hi, max(float(de.bank_min_width_m), drop / float(de.bank_slope)))
+    caps = tuple(tuple((float(x), float(y)) for x, y in p.exterior.coords[:-1]) for p in parts)
+    return caps, margin
 
 
 def _deck_inside(W, walls: StackWalls, decks_all: list, geoms: np.ndarray, dx: np.ndarray,
@@ -469,14 +504,6 @@ def _faces(ring: tuple[XY, ...], z0: float, z1: float) -> list:
     return out
 
 
-def _poly(ring) -> "Polygon | None":
-    if len(ring) < 3:
-        return None
-    p = Polygon(ring)
-    p = p if p.is_valid else p.buffer(0.0)
-    return None if p.is_empty else p
-
-
 def stack_floors(stacks: _t.Sequence[DeckStack], taken: _t.Iterable[str] = ()
                  ) -> tuple[list, list[str]]:
     """``(ObjectFloor per stack, notes)`` (§3.8): the floor and its
@@ -494,10 +521,10 @@ def stack_floors(stacks: _t.Sequence[DeckStack], taken: _t.Iterable[str] = ()
             continue
         fz = st.floor_z
         faces = _faces(st.floor, fz, fz)
-        polys = [_poly(st.floor)]
+        polys = [ring_polygon(st.floor)]
         for ring, z0, z1 in st.runouts:
             faces += _faces(ring, z0, z1)
-            polys.append(_poly(ring))
+            polys.append(ring_polygon(ring))
         foot = unary_union([p for p in polys if p is not None])
         if foot.is_empty or not faces:
             notes.append(f"{st.id}: an empty floor — not cut")
@@ -507,7 +534,7 @@ def stack_floors(stacks: _t.Sequence[DeckStack], taken: _t.Iterable[str] = ()
             tuple(pid for pid, _r in st.members if pid != st.walls_id),
             float(st.zero_z), float(fz), foot, np.asarray(faces, float),
             notes=st.notes, seats=tuple((pid, res, float(st.zero_z)) for pid, res in st.members),
-            kind="floor", decks=()))
+            kind="floor", decks=(), clearance_m=0.0))
     return out, notes
 
 
@@ -538,7 +565,8 @@ def _stack_shade(stacks: _t.Sequence[DeckStack], objects, cache, law):
     t = 0.5 * float(law.tables.structures.tunnel.object.wall_face_max_thickness_m)
     parts = []
     for st in stacks:
-        parts += [p for p in [_poly(st.floor), *(_poly(r) for r, _a, _b in st.runouts)] if p]
+        rings = [st.floor, *(r for r, _a, _b in st.runouts)]
+        parts += [p for p in map(ring_polygon, rings) if p]
         for pid, _r in st.members:
             o = by_id.get(pid)
             if o is None:
@@ -597,4 +625,5 @@ def log_line(icao: str, stacks: _t.Sequence[DeckStack], seconds: float | None = 
     parts = [f"{st.id}: {len(st.members)} members, {st.levels} level(s), zero {st.zero_z:.2f} "
              f"(spread {st.zero_spread_m:.2f}), floor {st.floor_z:.2f}" for st in stacks]
     return f"[{icao}] [deck-stack] {len(stacks)} stack(s){t}: " + "; ".join(parts)
+
 

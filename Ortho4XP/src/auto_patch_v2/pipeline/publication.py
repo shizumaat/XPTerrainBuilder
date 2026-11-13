@@ -1416,9 +1416,12 @@ def object_floors(planar: PlanarMap, airport: Airport,
     for f in getattr(planar, "object_floors", ()) or ():
         rec = {"id": f.id, "resource": f.resource, "objects": [f.object_id, *f.covers],
                "floor_m": round(float(f.floor_z), 3), "zero_m": round(float(f.zero_z), 3),
-               "area_m2": round(float(f.footprint.area), 1), "clearance_m": clear}
+               "area_m2": round(float(f.footprint.area), 1),
+               "clearance_m": f.cut_clearance(clear)}
         if f.id in stacks:
-            rec["stack"] = stacks[f.id].sidecar(to_ll)
+            rec["stack"] = stacks[f.id].sidecar(to_ll, band_m=0.5 * float(
+                law.tables.structures.tunnel.object.wall_face_max_thickness_m)
+                if law is not None else 0.0)
         out.append(rec)
     return out
 

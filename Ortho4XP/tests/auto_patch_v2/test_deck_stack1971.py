@@ -21,6 +21,7 @@ import types
 import numpy as np
 import pytest
 from auto_patch_v2.airport import deck_carry as DC
+from auto_patch_v2.airport import deck_ends as DE
 from auto_patch_v2.airport import deck_stack as DS
 from auto_patch_v2.airport import obj8 as O
 from auto_patch_v2.airport.object_floor import FLOOR_REF, FLOOR_WALL_REF
@@ -364,11 +365,13 @@ def test_t14_the_rows_end_lines_rim_and_ceilings(tmp_path):
     flush = LAW.tables.structures.bridge.deck_flush_m
     z_end = st.zero_z + next(d for d in st.decks if d.object_id == "L").top_a
     ends = [r for r in rows if "end a" in r.source.inputs[2]]
+    # v2 R1: never over the plate's end (Band(top - flush, top))
     assert len(ends) == 3 and all(abs(r.lo - (z_end - flush)) < 1e-9
-                                  and abs(r.hi - (z_end + flush)) < 1e-9 for r in ends)
+                                  and abs(r.hi - z_end) < 1e-9 for r in ends)
     rim = [r for r in rows if r.source.inputs[2] == "the walls' top"]
     crest = st.zero_z + st.crest_y
-    assert rim and all(abs(r.hi - crest) < 1e-9 and abs(r.lo - (crest - 0.5)) < 1e-9
+    # v2 R2: [crest - visual / 2, crest - flush]
+    assert rim and all(abs(r.hi - (crest - flush)) < 1e-9 and abs(r.lo - (crest - 0.25)) < 1e-9
                        for r in rim)
     ceil = [r for r in rows if "under the deck" in r.source.inputs[2]]
     assert ceil and all(r.lo is None for r in ceil)
@@ -413,3 +416,170 @@ def test_the_stack_floor_refs_are_the_object_floors():
     constraints do not import the floor reader)."""
     from auto_patch_v2.model import deck_stack as MDS
     assert (MDS.FLOOR_FACE_PREFIX, MDS.FLOOR_WALL_PREFIX) == (FLOOR_REF, FLOOR_WALL_REF)
+
+
+# ── v2 (spec interchange-levels-v2-20261113.md §7): the stack's ground ──
+
+def test_t17_the_stack_floor_takes_no_clearance(tmp_path):
+    from auto_patch_v2.constraints.object_floor import object_floor_pins
+    a, _o, _c = _attach(tmp_path)
+    (fl,), _n = DS.stack_floors(a.deck_stacks)
+    assert fl.clearance_m == 0.0
+    faces, verts = {}, {}
+    for k, p in enumerate(((-5.0, -50.0), (5.0, -50.0), (5.0, 50.0), (-5.0, 50.0))):
+        verts[k] = types.SimpleNamespace(xy=p, incident_faces=[0])
+    faces[0] = types.SimpleNamespace(role="tunnel_trench", ref=fl.id, ring=(0, 1, 2, 3), holes=())
+    pm = types.SimpleNamespace(faces=faces, vertices=verts, ring_vertices=lambda r: list(r))
+    for floor, want in ((fl, 0.0), (dc.replace(fl, clearance_m=None),
+                                     LAW.tables.structures.tunnel.object.floor_clearance_m)):
+        pm.object_floors = (floor,)
+        rows = object_floor_pins(pm, LAW, a)
+        assert len(rows) == 4 and all(abs(r.z - (fl.floor_z - want)) < 1e-6 for r in rows)
+
+
+def _pieces(a, apart=()):
+    from auto_patch_v2.planar.stack_ground import stack_ground_pieces
+    return stack_ground_pieces(a, [], list(apart), 1.0, 0.002, 5.0, law=LAW)
+
+
+def test_t18_the_stack_ground_pieces(tmp_path):
+    import shapely
+    a, _o, _c = _attach(tmp_path)
+    st = a.deck_stacks[0]
+    road = LineString([_at(L_XY, L_H, t) for t in (40, 120)]).buffer(4.0)
+    got = _pieces(a, [road])
+    kinds = {r.split(":")[3].split("#")[0] for r, _g in got}
+    assert kinds == {"cap", "shadow", "slab", "bank"}, kinds
+    caps = shapely.union_all([g for r, g in got if ":cap#" in r])
+    assert caps.area > 0.6 * 2 * 6.0 * 200.0           # the crest plates, off the decks' notches
+    keep = DE.ground_footprint(st, LAW)["keep"]
+    for i, (_r, g) in enumerate(got):
+        assert g.intersection(keep).area < 1e-6 and g.intersection(road).area < 1e-6
+        coords = list(g.exterior.coords)
+        edges = zip(coords[:-1], coords[1:], strict=True)
+        assert max(math.dist(p, q) for p, q in edges) <= 5.0 + 1e-6
+        for _r2, g2 in got[i + 1:]:
+            assert g.intersection(g2).area < 1e-3      # the overlay grid
+    # each deck's rectangle off the floor and the caps is shadow
+    for d in st.decks:
+        rect = Polygon(d.ring).minimum_rotated_rectangle
+        cover = shapely.union_all([g for _r, g in got] + [keep])
+        assert rect.difference(cover).area < 0.02 * rect.area + 60.0
+    assert _pieces(dc.replace(a, deck_stacks=())) == []
+
+
+def _ground_map(a):
+    """A planar stub of the stack ground pieces (each its own vertices) and
+    the floor face."""
+    st = a.deck_stacks[0]
+    faces, verts = {}, {}
+
+    def face(role, ref, pts):
+        ids = []
+        for p in pts:
+            verts[len(verts)] = types.SimpleNamespace(xy=tuple(p), incident_faces=[len(faces)],
+                                                      dem_z=107.5)
+            ids.append(len(verts) - 1)
+        faces[len(faces)] = types.SimpleNamespace(role=role, ref=ref, ring=tuple(ids), holes=())
+    face("tunnel_trench", FLOOR_REF + st.id, [(-6, -10), (6, -10), (6, 10), (-6, 10)])
+    for ref, g in _pieces(a):
+        face("graded_strip", ref, list(g.exterior.coords)[:-1])
+    return types.SimpleNamespace(faces=faces, vertices=verts, ring_vertices=lambda r: list(r))
+
+
+def test_t20_t21_end_edge_caps_and_ceilings(tmp_path):
+    from auto_patch_v2.geom.end_line import polyline_distance
+    a, _o, _c = _attach(tmp_path)
+    st = a.deck_stacks[0]
+    pm = _ground_map(a)
+    rows = deck_stack_rows(pm, LAW, a)
+    flush = LAW.tables.structures.bridge.deck_flush_m
+    by = {}
+    for r in rows:
+        by.setdefault(r.v, []).append(r)
+    on_end = 0
+    for d in st.decks:
+        for line, top in ((d.end_a, d.top_a), (d.end_b, d.top_b)):
+            z = st.zero_z + top
+            for v, vx in pm.vertices.items():
+                if polyline_distance(np.array([vx.xy]), line)[0] <= 0.5 and v in by:
+                    r1 = [r for r in by[v] if "end" in r.source.inputs[2]]
+                    if r1:
+                        on_end += 1
+                        assert abs(r1[0].hi - z) < 1e-9 and abs(r1[0].lo - (z - flush)) < 1e-9
+    assert on_end >= 4
+    crest = st.zero_z + st.crest_y
+    caps = [r for r in rows if r.source.inputs[2] == "the walls' top"]
+    assert caps and all(abs(r.lo - (crest - 0.25)) < 1e-9 and abs(r.hi - (crest - flush)) < 1e-9
+                        for r in caps)
+    ceil = {r.v: r.hi for r in rows if "under the deck" in r.source.inputs[2]}
+    shadow = {v for f in pm.faces.values() if ":shadow:" in f.ref for v in f.ring}
+    assert shadow and all(v in ceil for v in shadow if not any(
+        "end" in r.source.inputs[2] for r in by.get(v, ())))
+    for v in ceil:          # where R2 would stand over R3, R3 is kept
+        r2 = [r for r in by[v] if r.source.inputs[2] == "the walls' top"]
+        assert not r2 or r2[0].lo <= ceil[v]
+
+
+def test_t22_the_toe_is_the_outline_edge(tmp_path):
+    from auto_patch_v2.constraints.fill_bank import _stack_toe
+    a, _o, _c = _attach(tmp_path)
+    on = _stack_toe(None, LAW, a)
+    fp = DE.ground_footprint(a.deck_stacks[0], LAW)
+    edge = fp["outline"].exterior
+    p = edge.interpolate(0.37, normalized=True)
+    assert on((p.x, p.y)) and not on((9.0, 50.0))
+    assert not _stack_toe(None, LAW, dc.replace(a, deck_stacks=()))((p.x, p.y))
+
+
+def test_t23_the_deck_end_seeds_are_r1s_road_vertices(tmp_path):
+    a, _o, _c = _attach(tmp_path)
+    st = a.deck_stacks[0]
+    d = next(x for x in st.decks if x.object_id == "L")
+    ea = np.mean(np.asarray(d.end_a), axis=0)
+    pm = _stub_map(st)
+    seeds = DE.deck_end_seeds(pm, LAW, a)
+    ends = DE.end_road_vertices(pm, LAW, a)
+    assert seeds and set(seeds) == set(ends)
+    assert all(abs(z - (st.zero_z + d.top_a)) < 1e-9 for z in seeds.values())
+    assert all(math.dist(pm.vertices[v].xy, ea) < 2.0 for v in seeds)
+    old = DE.DECK_END_RAMP
+    try:
+        DE.DECK_END_RAMP = False
+        assert DE.deck_end_seeds(pm, LAW, a) == {}
+    finally:
+        DE.DECK_END_RAMP = old
+
+
+def test_t19_every_d_sample_lies_on_the_stack_ground(tmp_path):
+    """COVERAGE on the fixture (v2 §8.2): the floor, its void band and the
+    stack-ground pieces hold every D2-D6 sample of ``check_stack``."""
+    import sys
+    from pathlib import Path
+
+    import shapely
+    from auto_patch_v2.pipeline.publication import object_floors
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import drawn_check as DCK
+    a, _o, _c = _attach(tmp_path)
+    st = a.deck_stacks[0]
+    fl, _n = DS.stack_floors(a.deck_stacks)
+    (rec,) = object_floors(types.SimpleNamespace(object_floors=tuple(fl)), a, LAW)
+    polys = [g for _r, g in _pieces(a)] + [DE.ground_footprint(st, LAW)["keep"]]
+    to_xy = FRAME.transformers()[0]
+
+    class _F:
+        def at(self, lat, lon):
+            p = Point(*to_xy(lon, lat))
+            return (0.0, "graded_strip", "g") if any(g.covers(p) for g in polys) else None
+
+        def gap_m(self, lat, lon):
+            p = Point(*to_xy(lon, lat))
+            return min(g.distance(p) for g in polys)
+
+        def elevation_at_or_none(self, lat, lon):
+            return 0.0
+
+    row = DCK.check_stack(rec, None, [], 0.3, 5.0, faces=_F(), predict=True, standoff=1.0)
+    assert row["samples"] and not row["uncovered"], row["uncovered_n"]
+    assert shapely.union_all(polys).area > 0

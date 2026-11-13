@@ -87,6 +87,8 @@ from auto_patch.mesh_sampler import MeshElevationSampler  # noqa: E402
 from auto_patch.obj8_reader import load_object_file  # noqa: E402
 from auto_patch_v2.airport import dsf as dsf_text  # noqa: E402
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 M_PER_DEG = 111320.0
 DECK_ANCHOR = "deck_anchor"
 _BODY = re.compile(r"__b\d+_[0-9a-f]+$")
@@ -406,107 +408,205 @@ def _every(pts, k):
     return pts[::k] + ([pts[-1]] if pts and (len(pts) - 1) % k else [])
 
 
-def check_stack(rec, drawn, claims, tol, step=5.0):
-    """One deck stack's STACK row (spec interchange-levels §8.4): D1 one
-    zero (the members' written elevations), D2 the floor under the decks
-    (drawn mesh on the floor's centreline against the walls' drawn bottom),
-    D3 each end line (plate top against the drawn road one ``step``
-    outside), D4 nothing through a deck (plate floor over the drawn mesh,
-    2 m grid), D5 the walls' top (drawn mesh 1 m outside each wall line:
-    within 0.5 m under the top, never over), D6 no pad (3 m outside, on the
-    wall's cap: within 0.5 m of the top)."""
+#: THE STACK'S D BARS (spec ``interchange-levels-v2-20261113.md`` §8.3) on
+#: the DRAWN mesh, and on the PREDICTED patch (§8.2) each at half its
+#: tolerance: D2 |floor - walls' bottom|; D3 road / ground stations off the
+#: plate's top; D4 the plate at the cell over the ground (least); D5 / D6
+#: (under, over) the walls' top
+STACK_BARS = {"D2": 0.10, "D3r": 0.30, "D3g": 0.50, "D4": -0.05,
+              "D5": (0.50, 0.05), "D6": (0.50, 0.50)}
+PREDICTED_BARS = {"D2": 0.05, "D3r": 0.15, "D3g": 0.25, "D4": 0.0,
+                  "D5": (0.25, 0.0), "D6": (0.25, 0.0)}
+#: a residual under this is reported, never failed (spec v2 §11: materiality)
+MATERIALITY_M = 0.01
+#: the patch roles a D3 station reads as ROAD (``model/planar.ROAD_ROLES``)
+ROAD_ROLES = ("service_road", "service_junction", "groundside_pavement")
+
+
+def _plate_at(d, to_m):
+    """``f(x, y) -> plate y`` over deck ``d``'s published plate triangles
+    (``plate``: ``[[lat, lon, y] x 3]``); off every triangle (or with no
+    plate published) the plate's lowest point."""
+    lo = float(d.get("plate_min_y", 0.0))
+    tris = [[(*to_m(la, lo_), y) for la, lo_, y in t] for t in d.get("plate", [])]
+
+    def at(x, y):
+        best = None
+        for (ax, ay, az), (bx, by, bz), (cx, cy, cz) in tris:
+            det = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay)
+            if abs(det) < 1e-9:
+                continue
+            u = ((x - ax) * (cy - ay) - (cx - ax) * (y - ay)) / det
+            v = ((bx - ax) * (y - ay) - (x - ax) * (by - ay)) / det
+            if u >= -1e-6 and v >= -1e-6 and u + v <= 1 + 1e-6:
+                z = az + u * (bz - az) + v * (cz - az)
+                best = z if best is None else min(best, z)
+        return lo if best is None else best
+    return at
+
+
+class _Frame:
+    """The stack's written rows as X-Plane places them, or -- with no
+    written pack (a PREDICTED read without ``--plan``) -- the sidecar's own
+    frame: every member at the stack's zero, the walls from feet to crest."""
+
+    def __init__(self, rec, drawn, x0y0, to_m):
+        st = rec["stack"]
+        self.st, self.rows, self.elev = st, {}, {}
+        mine = {stem(rec["resource"])} | {stem(d["resource"]) for d in st["decks"]}
+        if drawn is not None:
+            for i, p in enumerate(drawn.rows):
+                if stem(p.def_path) in mine and math.hypot(
+                        *numpy.subtract(to_m(p.lat, p.lon), x0y0)) <= 400.0:
+                    self.rows.setdefault(stem(p.def_path), []).append(i)
+                    self.elev[i] = _base(drawn, i)
+        self.drawn = drawn
+        self.walls = self.rows.get(stem(rec["resource"]), [])
+
+    @property
+    def written(self):
+        return bool(self.rows)
+
+    def spread(self):
+        zs = list(self.elev.values()) if self.written else [self.st["zero_m"]]
+        return max(zs) - min(zs)
+
+    def walls_bottom_top(self):
+        if not self.written:
+            return self.st["zero_m"] + self.st["feet_y"], self.st["zero_m"] + self.st["crest_y"]
+        if not self.walls:
+            return None
+        vw = self.drawn.vertices(self.walls[0])
+        if vw is None:
+            return None
+        return float(numpy.nanmin(vw[2])), self.elev[self.walls[0]] + self.st["crest_y"]
+
+    def deck_zero(self, d):
+        if not self.written:
+            return self.st["zero_m"]
+        ids = self.rows.get(stem(d["resource"]), [])
+        return self.elev[ids[0]] if ids else None
+
+
+def check_stack(rec, drawn, claims, tol, step=5.0, faces=None, predict=False, standoff=1.0):
+    """One deck stack's STACK row (spec interchange-levels v2 §8.3): D1 one
+    zero (the members' written elevations); D2 the floor (drawn mesh on the
+    floor's centreline against the walls' drawn bottom); D3 each end line,
+    ``step`` outside it, its stations on a road face of the patch (D3r)
+    and off it (D3g) against the plate's top; D4 nothing through a deck
+    (the plate AT the cell over the drawn mesh, 2 m grid); D5 the walls'
+    top (``band_m + 0.5`` m outside each wall line); D6 the caps (3 m
+    outside, where a published cap covers the point; every point when the
+    sidecar publishes none).  ``faces``: the patch's
+    ``patch_faces.PatchFaces`` (the D3 stations' road / ground split; with
+    ``predict`` the sampler itself, and a sample no face holds within
+    ``standoff`` is UNCOVERED: the verdict is then INCOMPLETE, never a
+    pass).  ``drawn``: the written rows over the mesh, or ``None`` for the
+    sidecar's frame (``_Frame``).  ``claims`` / ``tol`` are kept for the
+    caller's signature; the bars are :data:`STACK_BARS` /
+    :data:`PREDICTED_BARS`."""
     from shapely.geometry import Point, Polygon
+    del claims, tol
+    bars = PREDICTED_BARS if predict else STACK_BARS
     st = rec["stack"]
     lat0, lon0 = st["floor_line"][len(st["floor_line"]) // 2]
     to_m, to_ll = _local(lat0)
-    row = {"site": f"stack {st['id']}", "lat": round(lat0, 6), "lon": round(lon0, 6),
-           "role": "STACK", "fails": [], "objects": [], "relief": None, "lowest_any": None}
-    mine = {stem(c.resource) for c in claims if c.claim_id == rec["id"] and c.resource}
-    mine |= {stem(d["resource"]) for d in st["decks"]}
     x0, y0 = to_m(lat0, lon0)
-    rows = [i for i, p in enumerate(drawn.rows) if stem(p.def_path) in mine
-            and math.hypot(*(numpy.subtract(to_m(p.lat, p.lon), (x0, y0)))) <= 400.0]
-    if not rows:
+    mesh = drawn.mesh if drawn is not None else faces
+    row = {"site": f"stack {st['id']}", "lat": round(lat0, 6), "lon": round(lon0, 6),
+           "role": "STACK", "mode": "PREDICTED" if predict else "DRAWN", "fails": [],
+           "objects": [], "relief": None, "lowest_any": None, "uncovered": {}, "samples": {},
+           "no_face": {}}
+    fr = _Frame(rec, drawn, (x0, y0), to_m)
+    if drawn is not None and not fr.written:
         row.update(verdict="-", why="no member row written near the stack")
         return row
-    elev = {i: _base(drawn, i) for i in rows}
-    by_res = {}
-    for i in rows:
-        by_res.setdefault(stem(drawn.rows[i].def_path), []).append(i)
-    zs = [elev[i] for i in rows]
-    row["d1_spread"] = round(max(zs) - min(zs), 3)
+    if not fr.written:
+        row["d1_from"] = "sidecar (no written pack)"
+
+    def z_at(la, lo, key):
+        row["samples"][key] = row["samples"].get(key, 0) + 1
+        if predict and faces is not None and faces.at(la, lo) is None:
+            row["no_face"][key] = row["no_face"].get(key, 0) + 1
+            if faces.gap_m(la, lo) > standoff:
+                row["uncovered"].setdefault(key, []).append([round(la, 7), round(lo, 7)])
+        return mesh_z(mesh, lo, la)
+
+    row["d1_spread"] = round(fr.spread(), 3)
     if row["d1_spread"] > 0.01:
         row["fails"].append(f"D1 the members stand {row['d1_spread']:.3f} m apart")
-    walls = by_res.get(stem(rec["resource"]), [])
-    vw = drawn.vertices(walls[0]) if walls else None
-    if vw is None:
+    bt = fr.walls_bottom_top()
+    if bt is None:
         row["fails"].append("the walls' row is not drawn")
         row["verdict"] = "FAIL"
         return row
-    bottom, top = float(numpy.nanmin(vw[2])), elev[walls[0]] + st["crest_y"]
+    bottom, top = bt
     row["walls_bottom"], row["walls_top"] = round(bottom, 2), round(top, 2)
     rings = [(d, Polygon([to_m(la, lo) for la, lo in d["ring"]])) for d in st["decks"]]
-    deck_rows = {}
-    for d in st["decks"]:
-        ids = by_res.get(stem(d["resource"]), [])
-        if ids:
-            deck_rows[d["object"]] = ids[0]
-    # D2: the floor under the decks
+    # D2: the floor
     d2, d2_both = [], []
     lv = {d["level"] for d in st["decks"]}
     for la, lo in _every(st["floor_line"], 5):
-        z = mesh_z(drawn.mesh, lo, la)
+        z = z_at(la, lo, "D2")
         if math.isnan(z):
             continue
-        q = Point(to_m(la, lo))
         d2.append(z - bottom)
-        if lv and {d["level"] for d, r in rings if r.contains(q)} == lv:
+        if lv and {d["level"] for d, r in rings if r.contains(Point(to_m(la, lo)))} == lv:
             d2_both.append(z - bottom)
     row["d2_worst"] = round(max(d2, key=abs), 2) if d2 else None
     row["d2_under_all_decks"] = round(max(d2_both, key=abs), 2) if d2_both else None
-    if d2 and abs(row["d2_worst"]) > tol:
-        row["fails"].append(f"D2 the drawn floor stands {row['d2_worst']:+.2f} off the walls' feet")
-    # D3: the end lines; D4: nothing through a deck
+    if d2 and abs(row["d2_worst"]) > bars["D2"] + MATERIALITY_M:
+        row["fails"].append(f"D2 the floor stands {row['d2_worst']:+.2f} off the walls' feet "
+                            f"(bar {bars['D2']})")
     row["d3"], row["d4"] = [], []
     for d, ring in rings:
-        i = deck_rows.get(d["object"])
-        if i is None:
+        zd = fr.deck_zero(d)
+        if zd is None:
             row["fails"].append(f"deck {d['object']} not drawn")
             continue
         c = ring.centroid
         for e in d["ends"]:
             pts = [to_m(la, lo) for la, lo in e["stations"]]
-            mx, my = numpy.mean(pts, axis=0)
-            u = numpy.subtract((mx, my), (c.x, c.y))
+            u = numpy.subtract(numpy.mean(pts, axis=0), (c.x, c.y))
             u = u / (numpy.hypot(*u) or 1.0)
-            out = [to_ll(x + u[0] * step, y + u[1] * step) for x, y in pts]
-            ms = [mesh_z(drawn.mesh, lo, la) for la, lo in out]
-            ms = [m for m in ms if not math.isnan(m)]
-            if not ms:
-                continue
-            dz = elev[i] + e["top"] - float(numpy.median(ms))
-            row["d3"].append({"deck": d["object"], "piece": d["piece"], "end": e["end"],
-                              "plate_top": round(elev[i] + e["top"], 2),
-                              "road": round(float(numpy.median(ms)), 2), "delta": round(dz, 2)})
-            if abs(dz) > tol:
-                row["fails"].append(f"D3 {d['object']}#{d['piece']} end {e['end']}: plate top "
-                                    f"{dz:+.2f} off the road")
+            ptop = zd + e["top"]
+            got = {"r": [], "g": []}
+            for x, y in pts:
+                la, lo = to_ll(x + u[0] * step, y + u[1] * step)
+                on = faces.at(la, lo) if faces is not None else None
+                k = "r" if on is not None and on[1] in ROAD_ROLES else "g"
+                z = z_at(la, lo, "D3" + k)
+                if not math.isnan(z):
+                    got[k].append(round(ptop - z, 2))
+            rec3 = {"deck": d["object"], "piece": d["piece"], "end": e["end"],
+                    "plate_top": round(ptop, 2), "road": got["r"], "ground": got["g"]}
+            row["d3"].append(rec3)
+            for k, name in (("r", "road"), ("g", "ground")):
+                if got[k] and max(map(abs, got[k])) > bars["D3" + k] + MATERIALITY_M:
+                    row["fails"].append(f"D3{k} {d['object']}#{d['piece']} end {e['end']}: "
+                                        f"the {name} {got[k]} off the plate top "
+                                        f"(bar {bars['D3' + k]})")
+        plate_y = _plate_at(d, to_m)
         x_lo, y_lo, x_hi, y_hi = ring.bounds
-        worst = math.inf
+        worst, at = math.inf, None
         for gx in numpy.arange(x_lo + 1.0, x_hi, 2.0):          # the 2 m cells' centres
             for gy in numpy.arange(y_lo + 1.0, y_hi, 2.0):
                 if ring.contains(Point(gx, gy)):
                     la, lo = to_ll(gx, gy)
-                    z = mesh_z(drawn.mesh, lo, la)
-                    if not math.isnan(z):
-                        worst = min(worst, elev[i] + d["plate_min_y"] - z)
+                    z = z_at(la, lo, "D4")
+                    if not math.isnan(z) and zd + plate_y(gx, gy) - z < worst:
+                        worst, at = zd + plate_y(gx, gy) - z, [round(float(la), 7),
+                                                                round(float(lo), 7)]
         if math.isfinite(worst):
-            row["d4"].append({"deck": d["object"], "piece": d["piece"], "least": round(worst, 2)})
-            if worst < 0.0:
+            row["d4"].append({"deck": d["object"], "piece": d["piece"],
+                              "least": round(worst, 2), "at": at})
+            if worst < bars["D4"] - MATERIALITY_M:
                 row["fails"].append(f"D4 the ground stands {-worst:.2f} m through "
-                                    f"{d['object']}#{d['piece']}")
-    # D5 / D6: the walls' top, 1 m and 3 m outside each wall line
+                                    f"{d['object']}#{d['piece']} at {at} (bar {bars['D4']})")
+    # D5 / D6: the walls' top, beside the void band and on the caps
     line = [to_m(la, lo) for la, lo in st["floor_line"]]
+    caps = [Polygon([to_m(la, lo) for la, lo in r]) for r in st.get("caps", []) if len(r) >= 3]
+    out5 = float(st.get("band_m", 1.0)) + 0.5
     d5, d6 = [], []
     for rim in st["rim"]:
         for la, lo in _every(rim, 5):
@@ -514,19 +614,23 @@ def check_stack(rec, drawn, claims, tol, step=5.0):
             nx, ny = min(line, key=lambda p: math.hypot(p[0] - x, p[1] - y))
             u = numpy.subtract((x, y), (nx, ny))
             u = u / (numpy.hypot(*u) or 1.0)
-            for off, acc in ((1.0, d5), (3.0, d6)):
-                qa, qo = to_ll(x + u[0] * off, y + u[1] * off)
-                z = mesh_z(drawn.mesh, qo, qa)
+            for off, acc, key in ((out5, d5, "D5"), (3.0, d6, "D6")):
+                q = (x + u[0] * off, y + u[1] * off)
+                if key == "D6" and "caps" in st and not any(p.covers(Point(q)) for p in caps):
+                    continue
+                qa, qo = to_ll(*q)
+                z = z_at(qa, qo, key)
                 if not math.isnan(z):
                     acc.append(z - top)
-    row["d5_range"] = [round(min(d5), 2), round(max(d5), 2)] if d5 else None
-    row["d6_range"] = [round(min(d6), 2), round(max(d6), 2)] if d6 else None
-    if d5 and (max(d5) > 0.05 or min(d5) < -0.5):
-        row["fails"].append(f"D5 the ground beside the walls {row['d5_range']} off their top")
-    if d6 and max(abs(v) for v in d6) > 0.5:
-        row["fails"].append(f"D6 the ground on the caps {row['d6_range']} off the walls' top")
+    for key, vals in (("D5", d5), ("D6", d6)):
+        row[key.lower() + "_range"] = [round(min(vals), 2), round(max(vals), 2)] if vals else None
+        under, over = bars[key]
+        if vals and (max(vals) > over + MATERIALITY_M or min(vals) < -under - MATERIALITY_M):
+            row["fails"].append(f"{key} the ground {row[key.lower() + '_range']} off the walls' "
+                                f"top (bar -{under} / +{over})")
     row["delta"] = row["d2_worst"]
-    row["verdict"] = "FAIL" if row["fails"] else "PASS"
+    row["uncovered_n"] = {k: len(v) for k, v in row["uncovered"].items()}
+    row["verdict"] = ("FAIL" if row["fails"] else "INCOMPLETE" if row["uncovered"] else "PASS")
     return row
 
 
@@ -860,12 +964,52 @@ def run(args):
     rows += [check_split(r, drawn, args.tol, lifts, roads)
              for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
     step = float(Law.for_airport(args.icao).tables.structures.bridge.abutment_sample_step_m)
-    rows += [check_stack(r, drawn, claims, args.tol, step)
+    rows += [check_stack(r, drawn, claims, args.tol, step, faces=_stack_faces(patch, r))
              for r in sidecar.get("object_floors", []) if r.get("stack")]
     return {"icao": args.icao, "tile": tile, "pack_root": pack_root,
             "pack_is_build_product": pack_is_build_product(args, pack_root),
             "tile_dsfs": tile_dsfs, "tol_m": args.tol, "radius_m": args.radius,
             "claims": [dataclasses.asdict(c) for c in claims], "sites": rows}
+
+
+def _stack_faces(patch, rec, dem=None, standoff=0.0):
+    """The patch's faces about one stack (``patch_faces.PatchFaces``)."""
+    from patch_faces import PatchFaces
+    fl = rec["stack"]["floor_line"]
+    return PatchFaces(patch, fl[len(fl) // 2], 400.0, dem=dem, standoff=standoff)
+
+
+def run_predict(args):
+    """``--predict PATCH`` (spec interchange-levels v2 §8.2): the STACK rows
+    of :func:`check_stack` over the emitted patch itself -- a point reads
+    the face covering it, else the build's DEM (UNCOVERED).  The members'
+    rows are the written pack copy's (``--plan``, ``v2_rebake_replay.py
+    plan --write-pack COPY --plan-out PLAN``), else the sidecar's frame."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import snap_margin_m
+    patch = args.predict
+    sidecar = json.load(open(patch + ".axes.json", encoding="utf-8"))
+    law = Law.for_airport(args.icao)
+    step = float(law.tables.structures.bridge.abutment_sample_step_m)
+    standoff = (float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+                + snap_margin_m(law))
+    written, pack_root = [], None
+    if getattr(args, "plan", None):
+        plan = json.load(open(args.plan, encoding="utf-8"))
+        pack_root = plan["pack_root"]
+        with tempfile.TemporaryDirectory() as tmp:
+            written = dump_dsf(plan["dsf_path"], tmp).placements
+    rows = []
+    for r in sidecar.get("object_floors", []):
+        if not r.get("stack"):
+            continue
+        faces = _stack_faces(patch, r, standoff=standoff)
+        drawn = Drawn(written, pack_root, faces) if written else None
+        rows.append(check_stack(r, drawn, [], args.tol, step, faces=faces, predict=True,
+                                standoff=standoff))
+    return {"icao": args.icao, "tile": "PREDICTED", "pack_root": pack_root or "(sidecar frame)",
+            "pack_is_build_product": True, "tile_dsfs": [patch], "tol_m": args.tol,
+            "radius_m": args.radius, "claims": [], "sites": rows, "predicted": True}
 
 
 def print_report(rep):
@@ -887,15 +1031,22 @@ def print_report(rep):
                 print(f"       FAIL {f}")
             continue
         if r.get("role") == "STACK":
-            print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} D1 spread "
-                  f"{r.get('d1_spread')} walls bottom {r.get('walls_bottom')} top "
-                  f"{r.get('walls_top')}; D2 worst {r.get('d2_worst')} (under all decks "
-                  f"{r.get('d2_under_all_decks')}); D5 {r.get('d5_range')}; D6 {r.get('d6_range')}")
+            print(f"{r['verdict']:4s} {r['site']} [{r.get('mode', 'DRAWN')}] @{r['lat']},"
+                  f"{r['lon']} D1 spread {r.get('d1_spread')} walls bottom "
+                  f"{r.get('walls_bottom')} top {r.get('walls_top')}; D2 worst "
+                  f"{r.get('d2_worst')} (under all decks {r.get('d2_under_all_decks')}); "
+                  f"D5 {r.get('d5_range')}; D6 {r.get('d6_range')}")
             for e in r.get("d3", []):
                 print(f"       D3 {e['deck']}#{e['piece']} end {e['end']}: plate top "
-                      f"{e['plate_top']} road {e['road']} ({e['delta']:+.2f})")
+                      f"{e['plate_top']} - road {e['road']} - ground {e['ground']}")
             for e in r.get("d4", []):
-                print(f"       D4 {e['deck']}#{e['piece']}: least clearance {e['least']:+.2f}")
+                print(f"       D4 {e['deck']}#{e['piece']}: least clearance {e['least']:+.2f} "
+                      f"at {e.get('at')}")
+            if r.get("samples"):
+                print("       samples " + ", ".join(
+                    f"{k} {r.get('uncovered_n', {}).get(k, 0)}/{n} uncovered "
+                    f"({r.get('no_face', {}).get(k, 0)} on no face)"
+                    for k, n in sorted(r["samples"].items())))
             for f in r["fails"]:
                 print(f"       FAIL {f}")
             continue
@@ -911,7 +1062,7 @@ def print_report(rep):
                   f"{o['bottom']:.2f} ({o['delta']:+.2f}) fate {o['fate']}")
         for f in r["fails"]:
             print(f"       FAIL {f}")
-    n = sum(r["verdict"] == "FAIL" for r in rep["sites"])
+    n = sum(r["verdict"] in ("FAIL", "INCOMPLETE") for r in rep["sites"])
     print(f"SUMMARY {rep['icao']} {rep['tile']}: {len(rep['sites'])} sites, "
           f"{sum(r['verdict'] == 'PASS' for r in rep['sites'])} PASS, {n} FAIL")
     return n
@@ -935,15 +1086,18 @@ def main(argv=None):
     ap.add_argument("--margin", type=float, default=0.012, metavar="DEG")
     ap.add_argument("--plan", help="the written o4_v2_placement_<ICAO>.json of a pack copy")
     ap.add_argument("--mesh", help="the tile's Data+XX+YYY.mesh in place of its DSF")
+    ap.add_argument("--predict", metavar="PATCH",
+                    help="PREDICTED stack rows on an emitted patch (replay --emit): faces "
+                         "else the DEM, coverage bar; --plan for the written rows")
     ap.add_argument("--json", help="write the report here")
     ap.add_argument("--against", help="baseline --json: list moved sites")
     args = ap.parse_args(argv)
-    if not (args.tile or args.tag):
-        ap.error("--tile or --tag is required")
+    if not (args.tile or args.tag or args.predict):
+        ap.error("--tile, --tag or --predict is required")
     if args.patches is None:
         import O4_File_Names as FNAMES
         args.patches = FNAMES.Patch_dir
-    rep = run(args)
+    rep = run_predict(args) if args.predict else run(args)
     fails = print_report(rep)
     if args.against:
         base = json.load(open(args.against, encoding="utf-8"))["sites"]

@@ -90,6 +90,13 @@ class DeckStack:
     under_ways: tuple[int, ...]
     decks: tuple[StackDeck, ...]
     notes: tuple[str, ...] = ()
+    #: v2 §3.2: the walls' crest plates in plan, off the floor (the CAPS:
+    #: the author's ground beside the trench, graded to the walls' top)
+    caps: tuple[tuple[XY, ...], ...] = ()
+    #: v2 §3.2: the bank's width round the caps and the decks' side edges
+    #: (``max |crest - DEM| / bank_slope`` along the caps' outer edges,
+    #: clamped); 0 = no bank
+    ground_margin_m: float = 0.0
 
     @property
     def floor_z(self) -> float:
@@ -112,15 +119,27 @@ class DeckStack:
         """The planar ref of the void band around the floor."""
         return FLOOR_WALL_PREFIX + self.id
 
-    def sidecar(self, to_ll) -> dict:
+    def ground_m(self, object_id: str, piece: int, side: str) -> "float | None":
+        """The ground one sample step outside an end line (G_e), as read
+        into the zero; ``None`` where it was not."""
+        for oid, k, s, g, _t in self.end_zeros:
+            if oid == object_id and k == piece and s == side:
+                return float(g)
+        return None
+
+    def sidecar(self, to_ll, band_m: float = 0.0) -> dict:
         """The ``"stack"`` sub-record of the floor's sidecar row
         (``pipeline/publication.object_floors``; ``tools/drawn_check``
         reads it): the zero, the walls' feet and crest, the floor's
-        centreline and wall lines, and per deck its ring, level, carried
-        ways, plate floor and end lines (stations and the plate's top on
-        each), all as lat/lon."""
+        centreline and wall lines, the caps and the void band's width
+        (``band_m``), and per deck its ring, level, carried ways, plate
+        (its triangles as lat, lon, authored y) and end lines (stations,
+        the plate's top and the ground G_e on each), all as lat/lon."""
         def ll(pts) -> list:
             return [[round(la, 8), round(lo, 8)] for la, lo in (to_ll(x, y) for x, y in pts)]
+
+        def plate(d) -> list:
+            return [[[*ll([(p[0], p[1])])[0], round(p[2], 3)] for p in t] for t in d.plate]
         n = len(self.floor) // 2
         mid = [((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
                for a, b in zip(self.floor[:n], reversed(self.floor[n:]), strict=True)]
@@ -129,11 +148,15 @@ class DeckStack:
                 "feet_y": round(self.feet_y, 3), "crest_y": round(self.crest_y, 3),
                 "members": [pid for pid, _r in self.members],
                 "floor_line": ll(mid), "rim": [ll(r) for r in self.rim],
+                "caps": [ll(c) for c in self.caps], "band_m": round(float(band_m), 3),
+                "ground_margin_m": round(self.ground_margin_m, 2),
                 "decks": [{"object": d.object_id, "resource": d.resource, "piece": d.piece,
                            "level": d.level, "carried": list(d.carried), "ring": ll(d.ring),
                            "plate_min_y": round(min((p[2] for t in d.plate for p in t),
                                                     default=min(d.top_a, d.top_b)), 3),
-                           "ends": [{"end": e, "top": round(top, 3), "stations": ll(line)}
+                           "plate": plate(d),
+                           "ends": [{"end": e, "top": round(top, 3), "stations": ll(line),
+                                     "ground_m": self.ground_m(d.object_id, d.piece, e)}
                                     for e, line, top in (("a", d.end_a, d.top_a),
                                                          ("b", d.end_b, d.top_b)) if line]}
                           for d in self.decks]}

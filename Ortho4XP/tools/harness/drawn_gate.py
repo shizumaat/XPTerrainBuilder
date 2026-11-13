@@ -412,7 +412,8 @@ def print_gate(rep, top=20):
     for s in [s for s in obj.get("sites", []) if s.get("verdict") == "FAIL"][:top]:
         print(f"     FAIL {s['site']} @{s['lat']},{s['lon']}: {'; '.join(s['fails'])}")
     if rep.get("judged_sites"):
-        print(f"  judged within {', '.join(f'{n} {r:.0f} m' for n, _a, _o, r in rep['judged_sites'])}"
+        where = ", ".join(f"{n} {r:.0f} m" for n, _a, _o, r in rep["judged_sites"])
+        print(f"  judged within {where}"
               f" (elsewhere: patch->drawn {p2d.get('elsewhere', 0)}, objects "
               f"{obj.get('elsewhere', 0)} sites, not judged)")
     for m in rep.get("moved", []):

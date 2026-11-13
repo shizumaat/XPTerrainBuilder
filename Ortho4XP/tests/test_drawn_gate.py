@@ -150,7 +150,8 @@ def test_after_build_patch_only_never_raises(tmp_path):
                                              encoding="utf-8", newline="\n")
     rec = DG.after_build("XXXX", "T", tmp_path, custom_scenery=str(tmp_path))
     assert rec["verdict"] == "INCOMPLETE" and "patch-only" in rec["line"]
-    assert json.loads((tmp_path / "T.drawn.json").read_text(encoding="utf-8"))["verdict"] == "INCOMPLETE"
+    rec = json.loads((tmp_path / "T.drawn.json").read_text(encoding="utf-8"))
+    assert rec["verdict"] == "INCOMPLETE"
 
 
 @pytest.mark.parametrize("tag,copy,root,want", [

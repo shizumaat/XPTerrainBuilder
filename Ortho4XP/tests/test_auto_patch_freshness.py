@@ -526,8 +526,17 @@ def test_config_digest_ignores_the_force_rebuild_flag(install, patch_file,
 # ──────────────────────────────────────────────────────────────────────
 # Input 4 — DEM inputs
 # ──────────────────────────────────────────────────────────────────────
-def test_dem_inset_touched_rebuilds(install, patch_file):
+def test_dem_inset_touched_keeps_the_patch(install, patch_file):
+    """#2050 (owner RULINGS 2026-11-13o): the DEM inputs are keyed by
+    CONTENT — an inset rewritten with the same bytes keeps the patch."""
     _touch_newer(install.inset)
+    install.make_tile()
+    assert install.is_current(patch_file)
+
+
+def test_dem_inset_content_changed_rebuilds(install, patch_file):
+    with open(install.inset, "ab") as fh:
+        fh.write(b"\1")
     install.make_tile()
     assert not install.is_current(patch_file)
 
@@ -590,9 +599,32 @@ def test_dem_source_spec_change_rebuilds(install, patch_file):
     assert not install.is_current(patch_file)
 
 
-def test_dem_base_raster_touched_rebuilds(install, patch_file):
+def test_dem_base_raster_touched_keeps_the_patch(install, patch_file):
+    """#2050: a base raster re-downloaded with the same bytes keeps it."""
     _touch_newer(install.dem_source)
+    assert install.is_current(patch_file)
+
+
+def test_dem_base_raster_content_changed_rebuilds(install, patch_file):
+    with open(install.dem_source, "ab") as fh:
+        fh.write(b"\1")
     assert not install.is_current(patch_file)
+
+
+def test_a_pre_2050_dem_stamp_keeps_the_patch_while_its_files_stand(
+        install, tmp_path):
+    """The stat-identity stamp every patch carried before #2050 is still
+    current while its files are as they were — the change of key alone
+    rebuilds nothing — and is stale once one is rewritten."""
+    patch = install.emit_patch(tmp_path / "KFAKE_auto.patch.osm")
+    text = patch.read_text(encoding="utf-8")
+    new = read_patch_source(str(patch))["freshness"]["o4_dem"]
+    old = provenance.dem_fingerprint(install.tile, icao="KFAKE", content=False)
+    assert new != old
+    patch.write_text(text.replace(new, old), encoding="utf-8", newline="")
+    assert install.is_current(patch)
+    _touch_newer(install.dem_source)
+    assert not install.is_current(patch)
 
 
 @pytest.mark.parametrize(
@@ -1013,6 +1045,107 @@ def test_an_osm_feed_outside_the_neighbourhood_keeps_the_patch(install,
     _feed(TILE_LAT + 2, TILE_LON)
     _feed(TILE_LAT, TILE_LON - 2, "airport_small_roads")
     assert install.is_current(patch_file)
+
+
+# ── #2050: the OSM key by CONTENT (owner RULINGS 2026-11-13o) ──────────
+_BOX_LAT, _BOX_LON = TILE_LAT + 0.5, TILE_LON + 0.5
+
+
+def _osm_xml(ways, first_id=-1) -> str:
+    """An Ortho4XP-style cache: ``ways`` as ``(tags, [(lat, lon), ...])``,
+    numbered from ``first_id`` downwards (the writer renumbers on every
+    write, so the same data can carry other ids)."""
+    out, nid, wid = ['<?xml version="1.0" encoding="UTF-8"?>',
+                     '<osm version="0.6" generator="Ortho4XP">'], first_id, first_id
+    body = []
+    for tags, pts in ways:
+        refs = []
+        for la, lo in pts:
+            out.append(f'  <node id="{nid}" lat="{la:.7f}" lon="{lo:.7f}" version="1"/>')
+            refs.append(nid)
+            nid -= 1
+        body.append(f'  <way id="{wid}" version="1">')
+        body += [f'    <nd ref="{r}"/>' for r in refs]
+        body += [f'    <tag k="{k}" v="{v}"/>' for k, v in tags.items()]
+        body.append("  </way>")
+        wid -= 1
+    return "\n".join(out + body + ["</osm>", ""])
+
+
+def _bz2_feed(lat, lon, feed, text):
+    import bz2
+    from auto_patch_v2.airport import osm as _osm
+    path = Path(_osm.tile_dir(driver.FNAMES.OSM_dir, lat, lon),
+                f"{lat:+03d}{lon:+04d}_{feed}.osm.bz2")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bz2.compress(text.encode()))
+    return path
+
+
+_TAXIWAY = ({"aeroway": "taxiway", "name": "A"},
+            [(_BOX_LAT, _BOX_LON), (_BOX_LAT + 0.001, _BOX_LON)])
+_APRON = ({"aeroway": "apron"},
+          [(_BOX_LAT + 0.01, _BOX_LON), (_BOX_LAT + 0.011, _BOX_LON)])
+_FAR = ({"highway": "residential"},
+        [(TILE_LAT + 0.9, TILE_LON + 0.9), (TILE_LAT + 0.91, TILE_LON + 0.9)])
+
+
+def _content_patch(install, tmp_path):
+    """A patch as v2 writes it since #2050: both OSM stamps."""
+    from auto_patch_v2.airport import osm_content as _oc
+    patch = install.emit_patch(tmp_path / "KFAKE_auto.patch.osm")
+    text = patch.read_text(encoding="utf-8")
+    stamp = _oc.content_stamp(driver.FNAMES.OSM_dir, _BOX_LAT, _BOX_LON, 0.05)
+    patch.write_text(text.replace(" o4_osm=", f" o4_osm_content='{stamp}' o4_osm=", 1),
+                     encoding="utf-8", newline="")
+    assert read_patch_source(str(patch))["osm_content"] == stamp
+    return patch
+
+
+def test_an_osm_refresh_with_the_same_content_keeps_the_patch(
+        install, tmp_path, monkeypatch):
+    """THE KDEN CASE (#2050): the tile's airports layer is rewritten —
+    other ids, other order, a new mtime, a way added FAR outside the
+    airport's box, a neighbour tile's layer appearing — and the ways the
+    load reads in the box are the same: the patch is kept, the proof is
+    memoised, and the next gate is stat-only again."""
+    from auto_patch_v2.airport import osm_content as _oc
+    _bz2_feed(TILE_LAT, TILE_LON, "airports", _osm_xml([_TAXIWAY, _APRON]))
+    patch = _content_patch(install, tmp_path)
+    assert install.is_current(patch)
+    _bz2_feed(TILE_LAT, TILE_LON, "airports",
+              _osm_xml([_FAR, _APRON, _TAXIWAY], first_id=-500))
+    _bz2_feed(TILE_LAT + 1, TILE_LON, "airports", _osm_xml([_FAR]))
+    seen = _reason_lines(monkeypatch)
+    assert install.is_current(patch)
+    assert seen == []
+    assert os.path.isfile(_oc.memo_path(str(tmp_path), "KFAKE"))
+    monkeypatch.setattr(_oc, "content_stamp",
+                        lambda *a: pytest.fail("the memo was not used"))
+    assert install.is_current(patch)
+
+
+def test_an_osm_content_change_in_the_box_rebuilds_and_names_the_feed(
+        install, tmp_path, monkeypatch):
+    _bz2_feed(TILE_LAT, TILE_LON, "airports", _osm_xml([_TAXIWAY, _APRON]))
+    patch = _content_patch(install, tmp_path)
+    moved = ({"aeroway": "taxiway", "name": "B"}, _TAXIWAY[1])
+    path = _bz2_feed(TILE_LAT, TILE_LON, "airports", _osm_xml([moved, _APRON]))
+    os.utime(path, ns=(1, 1))     # a rewrite in the same clock tick
+    seen = _reason_lines(monkeypatch)
+    assert not install.is_current(patch)
+    assert len(seen) == 1 and "o4_osm changed" in seen[0], seen
+    assert "content in the airport's box changed (airports)" in seen[0], seen
+
+
+def test_a_pre_content_patch_rebuilds_on_a_moved_witness(install, tmp_path):
+    """A patch stamped before #2050 has no content to compare: a moved
+    witness rebuilds it as before (and the rebuild stamps the key)."""
+    path = _bz2_feed(TILE_LAT, TILE_LON, "airports", _osm_xml([_TAXIWAY]))
+    patch = install.emit_patch(tmp_path / "KFAKE_auto.patch.osm")
+    assert read_patch_source(str(patch))["osm_content"] == ""
+    os.utime(path, ns=(1, 1))
+    assert not install.is_current(patch)
 
 
 def test_a_patch_without_the_osm_stamp_rebuilds(install, patch_file):

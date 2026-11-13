@@ -45,6 +45,7 @@ from . import object_window as _window
 from . import object_pavement as _objpav
 from . import network_pages as _netpages
 from . import osm as _osm
+from . import osm_content as _osm_content
 from . import pack as _pack
 from . import riders as _riders
 
@@ -219,6 +220,9 @@ class LoadReport:
     #: ``osm.feed_witness`` of the feeds this load could read — the patch
     #: freshness gate's OSM input (``o4_osm``, #880); "" without a root
     osm_witness: str = ""
+    #: ``osm_content.docs_content`` of the ways this load READ inside its
+    #: box — the gate's OSM key by content (``o4_osm_content``, #2050)
+    osm_content: str = ""
     #: §25 (RULINGS 2026-09-11aq item B): relations read, outer ways given
     #: the relation's tags, rings stitched, unclosable outers, inners dropped
     osm_relations: str = ""
@@ -402,10 +406,11 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     sources: list[str] = []
     osm_relations = _osm.RelationReport()
     feed_schemas: dict[str, tuple[tuple[str, str | None], ...]] = {}
+    docs: dict[str, _osm.OsmDoc] = {}
     if inputs.osm_root:
         for feed in _osm.FEEDS:
-            doc = _osm.load_feed(inputs.osm_root, feed, lat0, lon0,
-                                 inputs.radius_deg)
+            doc = docs[feed] = _osm.load_feed(inputs.osm_root, feed, lat0, lon0,
+                                              inputs.radius_deg)
             sources.extend(doc.sources)
             feed_schemas[feed] = doc.tag_schemas
             osm_relations = osm_relations.merge(doc.relations)
@@ -420,6 +425,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.osm_sources = tuple(sources)
     if inputs.osm_root:
         rep.osm_witness = _osm.feed_witness(inputs.osm_root, lat0, lon0)
+        rep.osm_content = _osm_content.docs_content(docs, lat0, lon0,
+                                                    inputs.radius_deg)
     rep.osm_shore_feeds = tuple(p for p, _s in feed_schemas.get(
         _osm.SHORE_FEED, ()))
     if inputs.osm_root and not rep.osm_shore_feeds:

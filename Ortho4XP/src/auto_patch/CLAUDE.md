@@ -103,7 +103,9 @@ builds through the harness entry with `--no-ledger` and reads v2's stage clocks 
 - **The freshness stamp.** `engine_v2._stamp_header` is the ONE writer of the `<osm>`
   header `build_support.read_patch_source` / `driver._auto_patch_is_current` read back.
   A new build input that should invalidate a patch goes into `provenance.FRESHNESS_KEYS`
-  and that stamp, never into a second header writer.
+  and that stamp, never into a second header writer. Key it by the CONTENT the build
+  read, never a file's mtime or path (RULINGS 2026-11-13o, #2050: `o4_osm_content`,
+  `o4_dem` by sha256; an older stat stamp is still accepted while its files stand).
 - **The wire protocol.** `driver` and `engine_v2` emit `o4_engine/events.py` events
   whose CLASS NAMES are the JSONL wire names the Swift client matches as string
   literals. Renaming one breaks the app silently (`tools/blast.py` reports drift).

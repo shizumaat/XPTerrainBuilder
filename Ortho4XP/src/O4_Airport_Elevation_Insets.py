@@ -172,6 +172,7 @@ from elevation_access.definitions import (
 from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access.geoid_shift import apply_geoid_shift
 from elevation_access import fetch_scratch as FETCH_SCRATCH
+from elevation_access import raster_same as ea_raster_same
 from elevation_access import inset_trim as INSET_TRIM
 from elevation_access.fetch_slots import held_inset_fetch_slot
 from elevation_access import recheck as ea_recheck
@@ -5394,10 +5395,28 @@ def ensure_airport_insets(
                 airport_record["checked"] = checked_stamp
                 _record_run_capabilities(airport_record, code, definition)
                 continue
+            # THE SAME SURFACE KEEPS THE CACHE (#2050, owner RULINGS
+            # 2026-11-13o): a re-fetch equal to the cached raster within
+            # ``raster_same.TOLERANCE_M`` keeps the cached file and its
+            # mtime, so every stamp naming it (``o4_dem``, the completion
+            # stamp, the step records) stays as it is; the kept path is
+            # noted for the refresh ledger's "unchanged".
+            unchanged = (os.path.isfile(destination)
+                         and ea_raster_same.same_raster(fetch_destination,
+                                                        destination))
             try:
-                FETCH_SCRATCH.land(fetch_destination, destination)
+                if not unchanged:
+                    FETCH_SCRATCH.land(fetch_destination, destination)
             finally:
                 FETCH_SCRATCH.discard(fetch_destination)
+            if unchanged:
+                ea_raster_same.note_kept(destination)
+                UI.vprint(1, "    [insets] %s: %s re-fetch is the cached "
+                          "raster (within %g m) - kept unchanged."
+                          % (icao, code, ea_raster_same.TOLERANCE_M))
+            # The sidecar is the record of what was ASKED (the ladder's
+            # rungs and listings the re-check reads), so it is written
+            # either way; no patch or completion stamp keys on it.
             provenance_path = FNAMES.airport_inset_provenance(
                 lat, lon, icao, code
             )
@@ -5409,7 +5428,7 @@ def ensure_airport_insets(
             # refresh=True: the raster on disk is new, so cached acceptance
             # probes from a previous (smaller) fetch must recompute.
             _store_acceptance_probes_in_record(
-                airport_record, destination, refresh=True
+                airport_record, destination, refresh=not unchanged
             )
             break
         airport_record["bounding_box"] = [
@@ -6502,16 +6521,26 @@ def _inset_completion_key(tile):
     """The cheap inputs that decide what an inset pass would fetch.
 
     The airport SET comes from the tile's OSM airports layer, so that
-    cache's identity stands in for the set itself: an unchanged cache
-    means an unchanged set, and a refreshed one invalidates the stamp
-    without anybody parsing it.
+    cache stands in for the set itself: an unchanged cache means an
+    unchanged set.  Two keys name it (#2050, owner RULINGS 2026-11-13o):
+    ``airports_layer`` is its size and mtime (the cheap match), and
+    ``airports_layer_content`` the id-free digest of its CONTENT
+    (``osm_content.layer_content_digest``) — a refresh that rewrites the
+    layer with the same data keeps the stamp (:func:`_stamp_key_validates`
+    takes either).
     """
+    airports_cache = FNAMES.osm_cached(tile.lat, tile.lon, "airports")
     try:
-        airports_cache = FNAMES.osm_cached(tile.lat, tile.lon, "airports")
         stat = os.stat(airports_cache)
         airports_identity = [stat.st_size, round(stat.st_mtime, 3)]
     except OSError:
         airports_identity = None
+    try:
+        from auto_patch_v2.airport import osm_content as _osm_content
+        airports_content = (None if airports_identity is None else
+                            _osm_content.layer_content_digest(airports_cache))
+    except Exception:
+        airports_content = None
     return {
         "schema": INSET_COMPLETION_SCHEMA,
         "margin_m": float(
@@ -6520,6 +6549,7 @@ def _inset_completion_key(tile):
             getattr(tile, "airport_elevation_providers", "auto")),
         "level": str(getattr(tile, "airport_elevation_level", "auto")),
         "airports_layer": airports_identity,
+        "airports_layer_content": airports_content,
         # §B.2: WHICH airports the pass was settled over.  The inset set
         # is a pure function of (airports layer, inset mode) and both are
         # now in the key, so the stamp is EXACT rather than a proxy.
@@ -6537,6 +6567,17 @@ def _stamp_key_validates(stamp, wanted):
     if not isinstance(stamp, dict):
         return False
     for key, value in wanted.items():
+        if key == "airports_layer_content":
+            continue                    # judged with ``airports_layer``
+        if key == "airports_layer":
+            # THE SAME LAYER BY STAT OR BY CONTENT (#2050): a stamp cut
+            # before the content key matches on stat alone, as before.
+            content = wanted.get("airports_layer_content")
+            if stamp.get(key) != value and not (
+                    content is not None
+                    and stamp.get("airports_layer_content") == content):
+                return False
+            continue
         if key == "selection_mode":
             # ORDERED, not equality (§B.2): None < ICAO < All, and the
             # tile is cached when the stamp settled a SUPERSET of what

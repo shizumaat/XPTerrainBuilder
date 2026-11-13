@@ -2677,6 +2677,26 @@ def refresh_approach_rings(root, lat, lon, prog) -> dict:
             "still_cold": problem[1] if problem else None}
 
 
+def refetched_unchanged() -> list:
+    """The shared-repo relpaths a re-fetch in this process found EQUAL to
+    the cached raster and kept (#2050, ``elevation_access.raster_same``)
+    — the ledger records them as "unchanged"."""
+    try:
+        from elevation_access import raster_same
+    except Exception:
+        return []
+    base = DATA_REPO.resolve()
+    out = []
+    for path in raster_same.kept_unchanged():
+        try:
+            rel = str(Path(path).resolve().relative_to(base))
+        except (OSError, ValueError):
+            continue
+        if rel not in out:
+            out.append(rel)
+    return out
+
+
 def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     """Warm a COLD tile's DEM frame — base raster and airport insets —
     under the ``dem`` authorisation the caller already holds.
@@ -5828,13 +5848,18 @@ def main(argv=None) -> int:
         offenders = report_unauthorised_writes(changes, requested, prog,
                                                blocked=guard.blocked,
                                                input_scope=input_scope)
+        unchanged = refetched_unchanged()
         for sc in sorted(requested):
             in_scope = {k: [r for r in v if scope_of(r) == sc]
                         for k, v in changes.items()}
-            if any(in_scope.values()):
+            kept = [r for r in unchanged if scope_of(r) == sc]
+            if any(in_scope.values()) or kept:
                 rec = record_refresh(sc, in_scope,
                                      {"lane": str(root), "tag": tag,
                                       "argv": sys.argv[1:],
+                                      # #2050: re-fetched and found equal
+                                      # to the cache, which was KEPT
+                                      "unchanged": kept,
                                       # WHAT was warmed, named: a reader
                                       # asking why an inset changed gets
                                       # the airports, not just a flag.
@@ -5849,7 +5874,8 @@ def main(argv=None) -> int:
                                          and seed_summary["copied"]
                                          else {})})
                 prog.note(f"REFRESH RECORDED [{sc}]: +{rec['added']} "
-                          f"~{rec['modified']} file(s), hash-stamped into "
+                          f"~{rec['modified']} file(s), ={len(kept)} "
+                          f"re-fetched unchanged (kept), hash-stamped into "
                           f"{REFRESH_LEDGER}")
             else:
                 prog.note(f"refresh scope '{sc}' was authorised but wrote "

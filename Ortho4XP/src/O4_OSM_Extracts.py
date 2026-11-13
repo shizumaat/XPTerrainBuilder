@@ -162,9 +162,17 @@ def _index_path() -> str:
 
 
 def _index_is_stale() -> bool:
+    """True when the stored region index is due to be asked for again.
+
+    OWNER RULINGS 2026-11-13o (#2050): OpenStreetMap data is not even
+    CHECKED until the user's cache expiry has passed — the index is
+    re-asked only when older than ``osm_extract_refresh_days`` (never
+    sooner than :data:`INDEX_REFRESH_DAYS`), the same age the extracts
+    themselves are re-downloaded at.  A missing index is asked at once."""
     try:
         age_seconds = time.time() - os.path.getmtime(_index_path())
-        return age_seconds > INDEX_REFRESH_DAYS * 86400
+        return age_seconds > max(INDEX_REFRESH_DAYS,
+                                 _extract_refresh_days()) * 86400
     except OSError:
         return True
 

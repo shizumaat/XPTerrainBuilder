@@ -20,7 +20,7 @@ from shapely.ops import unary_union
 
 from .rotated_rect import rotated_rectangle
 
-__all__ = ["ground_footprint", "ring_polygon", "GROUND_TO_WALL_TOP"]
+__all__ = ["end_aprons", "ground_footprint", "ring_polygon", "GROUND_TO_WALL_TOP"]
 
 #: OWNER QUESTION Q2 (spec ``interchange-levels-v2-20261113.md`` §10), the spec's DEFAULT (yes): the ground is
 #: graded to the walls' top along the trench (the caps) with a bank to the
@@ -75,6 +75,15 @@ def _ends(d) -> list:
     """``[(side, end line, top)]`` of a deck piece's end lines."""
     return [(side, line, top) for side, line, top in (("a", d.end_a, d.top_a),
                                                       ("b", d.end_b, d.top_b)) if len(line) >= 2]
+
+
+def end_aprons(st, law) -> list[Polygon]:
+    """Each deck end's APRON before any region cuts it: the plate's width
+    beyond the end line for ``L_e`` (v2 §3.2) -- where the road and the
+    ground beside it come off the deck (``planar/overlay`` densifies the
+    road's ribbon there, v2 §3.4)."""
+    return [_beyond(line, _deck_rect(d), _end_length(st, d, side, top, law))
+            for d in st.decks for side, line, top in _ends(d)]
 
 
 def _deck_zone(st, d, rect: Polygon, law) -> Polygon:

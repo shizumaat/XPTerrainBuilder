@@ -41,7 +41,7 @@ from ..airport.wall_sides import band_setbacks
 from ..model.airport import Airport
 from ..model.registries import Registries
 from ..model.wall_reach import is_wall_fill_ref
-from .chords import densify, ring_lines, stations
+from .chords import densify, densify_within, ring_lines, stations
 from .lidar_road import survey_road_trenches
 from .road_yield import road_carriageways, rsa_carriageways
 from .terrain_edge import EdgeReport, road_edges
@@ -54,8 +54,8 @@ from .ridge_reach import reach_pavement_edge
 from .shore import pack_shore_walls
 from .zones import shore_declarations, shore_region, shore_wedge_m, zone_regions
 from .fill_bank import fill_bank_pieces
-from .stack_ground import stack_ground_pieces
-from ..model.planar import is_stack_ground_ref
+from .stack_ground import deck_end_road_zone, stack_ground_pieces
+from ..model.planar import ROAD_ROLES, is_stack_apron_ref, is_stack_ground_ref
 from ..airport.old_dem_fill import fill_model_of
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
@@ -486,6 +486,10 @@ def build_arrangement(airport: Airport, classification: Classification,
         base_regions, pad_regions = foot_kerbs(base_regions, pad_regions, airport, law,
                                                float(grid), reg, _pad_clip)
 
+    # #1971 v2 §3.4: a road's ribbon carries a vertex every sample step
+    # where it comes off a deck stack's end (``planar/stack_ground``)
+    end_zone, end_step = deck_end_road_zone(airport, law)
+
     def _ring_lines_of(rs) -> list[LineString]:
         out: list[LineString] = []
         for r in rs:
@@ -493,6 +497,8 @@ def build_arrangement(airport: Airport, classification: Classification,
             for ring in ring_lines(tuple(r.polygon.exterior.coords)[:-1],
                                    [tuple(h.coords)[:-1] for h in r.polygon.interiors],
                                    cap):
+                if end_zone is not None and r.role in ROAD_ROLES:
+                    ring = densify_within(ring, end_zone, end_step)
                 if len(ring) >= 2:
                     out.append(LineString(ring))
         return out
@@ -887,9 +893,13 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
     keep: list[tuple[Polygon, Region] | None] = list(faces)
     hosts = set(host_roles)
     refused = set(refuse_roles)
-    # a wall's fill is held at the wall's top, narrow by construction (#1600)
+    # a wall's fill is held at the wall's top, narrow by construction (#1600);
+    # so is a deck end's apron beside the road it carries off the deck (#1971
+    # v2 §3.2: dissolved into the bank, the bank's triangles reached a D3
+    # station from a toe vertex 13 m out, 0.63 m under the plate)
     order = sorted((i for i, (_p, r) in enumerate(faces)
-                    if r.source == "zone" and not is_wall_fill_ref(r.ref)),
+                    if r.source == "zone" and not is_wall_fill_ref(r.ref)
+                    and not is_stack_apron_ref(r.ref)),
                    key=lambda i: faces[i][0].area)
 
     def _thawed(poly) -> bool:

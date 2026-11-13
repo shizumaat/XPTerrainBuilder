@@ -29,11 +29,12 @@ __all__ = ["ground_footprint", "end_road_vertices", "deck_end_seeds", "ring_poly
 DECK_END_RAMP = True
 
 
-def deck_end_seeds(pm, law, airport) -> dict[int, float]:
-    """``{vertex: zero + top_e}`` (v2 §3.4): the end-line road vertices
-    (:func:`end_road_vertices`), where the road ramp is seeded as at a foot
-    lot (``airport/road_ramp.road_ramp_targets(deck_ends=...)``).  ``{}``
+def deck_end_seeds(pm, law, airport) -> dict[int, tuple[float, float]]:
+    """``{vertex: (zero + top_e, distance to the end line)}`` (v2 §3.4): the
+    end-line road vertices (:func:`end_road_vertices`), where the road ramp
+    is seeded as at a foot lot (``airport/road_ramp.road_ramp_targets(
+    deck_ends=...)``; the hold is the slab left beyond the vertex).  ``{}``
     while owner question Q1 reads "no" (:data:`DECK_END_RAMP`)."""
     if not DECK_END_RAMP:
         return {}
-    return {v: z for v, (z, *_r) in end_road_vertices(pm, law, airport).items()}
+    return {v: (z, off) for v, (z, *_r, off) in end_road_vertices(pm, law, airport).items()}

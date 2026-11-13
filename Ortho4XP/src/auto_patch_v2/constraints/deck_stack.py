@@ -104,7 +104,7 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         # R1: vertex -> (low, high, deck, part)
         r1: dict[int, tuple[float, float, str, str]] = {}
         refused: set[int] = set()
-        for v, (z, sid, oid, part) in roads.items():
+        for v, (z, sid, oid, part, _off) in roads.items():
             if sid == st.id:
                 r1[v] = (z - flush, z, oid, part)
         for d, side, top, _apron, slab in ground_footprint(st, law)["aprons"]:

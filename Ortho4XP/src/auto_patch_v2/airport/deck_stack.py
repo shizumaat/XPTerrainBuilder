@@ -40,6 +40,7 @@ from ..model.frame import rotated_rectangle
 from . import obj8 as _obj8
 from .deck_carry import Carry, bridge_stretches, carry_of
 from .deck_ends import ring_polygon
+from .dsf_heights import on_finest_grid
 from .stack_walls import StackWalls, floor_between, read_stack_walls, run_beside, wall_hull
 
 __all__ = ["stack_floors", "attach_stacks", "log_line"]
@@ -345,7 +346,11 @@ def _one(W, walls: StackWalls, ctx: _Ctx, anchors: _Anchors, cache, airport, law
         notes.append(f"{tag}: no deck end line stands on the DEM — no stack")
         return None
     zs = [g - t for _o, _k, _s, g, t in end_zeros]
-    zero = sum(zs) / len(zs)
+    # the zero is WRITTEN (every member's OBJECT_MSL row), and the DSF stores
+    # a row's height on a quantum grid: the zero is that grid's nearest
+    # height, so the mesh solved at it and the rows drawn at it are one
+    # (v2 §8.4; round 2 drew the plate 0.014 m under the solved one)
+    zero = on_finest_grid(sum(zs) / len(zs))
     spread = max(zs) - min(zs)
     if spread > float(law.tables.structures.tunnel.clearance_m):
         notes.append(f"{tag}: the end lines' zeros spread {spread:.2f} m > [tunnel] clearance_m "
@@ -374,7 +379,7 @@ def _one(W, walls: StackWalls, ctx: _Ctx, anchors: _Anchors, cache, airport, law
     return DeckStack(
         id=STACK_PREFIX + str(W.id), walls_id=str(W.id), walls_resource=str(W.path),
         members=tuple((str(o.id), str(o.path)) for o in members),
-        zero_z=round(zero, 3), zero_spread_m=round(spread, 3), end_zeros=tuple(end_zeros),
+        zero_z=zero, zero_spread_m=round(spread, 3), end_zeros=tuple(end_zeros),
         feet_y=float(walls.feet_y), crest_y=float(walls.crest_y),
         floor=fc.ring(), rim=fc.rim(), runouts=tuple(runouts),
         under_ways=tuple(under_ways), decks=tuple(decks),

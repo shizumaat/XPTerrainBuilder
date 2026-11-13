@@ -808,7 +808,17 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
 
     A body publishing no ``geom_pts`` (a plan written before §16b) or
     reading no surface under any of them is OFF-SHEET and counted apart,
-    never guessed at (§15 (5))."""
+    never guessed at (§15 (5)).
+
+    #1896: WATER IS NO GROUND (R12 amendment 1).  Where the surface
+    carries the water bit (``surface.water``), a sample at the level of
+    the drawn water under the body (``anchor_rule.water_level_under``;
+    within ``float_tol_m`` of it — a water triangle, or the mesh's ground
+    kept at the water's level) is not the body's own ground: both bars
+    read the samples above it, and a body with none is OVER WATER,
+    counted apart (``over_water``).  PAKT's wharf decks stood "+5.68 m
+    over their own ground" on the shore unit's zero — the ground was the
+    sea at 0.00."""
     carried: list[tuple[float, str]] = []
     wide: list[tuple[float, str]] = []
     by_class: dict[str, int] = {}
@@ -819,7 +829,7 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     # is the pit floor 7 m below).  Both are counted and named apart.
     cls_of = {str(b.get("new_resource") or ""): str(b.get("class") or "")
               for s in splits for b in s.get("bodies", ())}
-    basin_wide = basin_carried = footed_carried = 0
+    basin_wide = basin_carried = footed_carried = over_water = 0
     n = off_sheet = no_geom = 0
     span_sum = 0.0
     for s in splits:
@@ -840,6 +850,12 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             if not zs:
                 off_sheet += 1
                 continue
+            level = _ar.water_level_under(None, surface, pts)
+            if level is not None:
+                zs = [z for z in zs if z > level + float_tol_m]
+                if not zs:
+                    over_water += 1
+                    continue
             n += 1
             res = str(b.get("new_resource") or s.get("placement", {})
                       .get("resource", "?"))
@@ -888,6 +904,7 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             "geom_span_gt_by_class": dict(sorted(by_class.items())),
             "basin_wide": basin_wide, "basin_carried": basin_carried,
             "footed_carried_excluded": footed_carried,
+            "over_water": over_water,
             "geom_span_max_m": span_sum,
             "float_tol_m": float_tol_m, "split_tol_m": split_tol_m,
             "bars_ok": not carried and not wide}
@@ -910,6 +927,11 @@ def census_v16b_lines(c: _t.Mapping[str, _t.Any]) -> list[str]:
            + ")"
            + ("" if not c["geom_span_gt"]
               else "   *** §16b (4) VIOLATED (bar 0) ***")]
+    if c.get("over_water"):
+        out.append(
+            f"   #1896: {c['over_water']} body(ies) stand wholly OVER WATER (no "
+            f"sample of their own geometry above the drawn water's level): "
+            f"water is no ground, so neither bar reads them")
     if c.get("footed_carried_excluded"):
         out.append(
             f"   §16c (3): {c['footed_carried_excluded']} FOOTED body(ies) "

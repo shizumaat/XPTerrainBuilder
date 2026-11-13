@@ -410,6 +410,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _clift = _frame_lifts(plan, _pw or {})
     #: R5: a written body file -> its connected unit (a rider follows it)
     _file_root: dict[str, str] = {}
+    # #1896: the files group_zero kept off their group over water — their
+    # riders (``merged_into``) stay with them
+    _afloat: set[str] = set()
     # owner RULINGS 2026-10-03e (#290): the decks that are a UNIT'S —
     # derived once per plan; their whole viaduct rides the unit's level
     _pulse.tick("placement: viaducts")
@@ -1132,7 +1135,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
-                                         adapted_zero=_az.get(m.id))
+                                         adapted_zero=_az.get(m.id),
+                                         surface=surface, gap_m=bind_ground_m,
+                                         afloat=_afloat)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
@@ -1229,7 +1234,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
-                                         adapted_zero=_az.get(m.id))
+                                         adapted_zero=_az.get(m.id),
+                                         surface=surface, gap_m=bind_ground_m,
+                                         afloat=_afloat)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
@@ -1271,7 +1278,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
-                                         adapted_zero=_az.get(m.id))
+                                         adapted_zero=_az.get(m.id),
+                                         surface=surface, gap_m=bind_ground_m,
+                                         afloat=_afloat)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 if record is not _pre:

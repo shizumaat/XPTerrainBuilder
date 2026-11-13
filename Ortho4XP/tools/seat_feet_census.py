@@ -412,6 +412,22 @@ def annotate_rows(rows: list[dict], sampler, host_m: float = 12.0) -> None:
 
 
 
+def _surface_with_water(sampler):
+    """The census surface ``(lat, lon) -> z | None`` over ``sampler``, with
+    the mesh's water bit riding it as ``.water`` where the sampler reads one
+    (#1896: §16b reads no water as ground; a graded surface has none)."""
+    def surface(la, lo):
+        return sampler.elevation_at_or_none(la, lo)
+
+    at = getattr(sampler, "sample_at_or_none", None)
+    if at is not None:
+        def water(la, lo):
+            q = at(la, lo)
+            return bool(q is not None and q.is_water)
+        surface.water = water
+    return surface
+
+
 class _GradedSampler:
     """A ``--graded`` design surface in the sampler's own shape."""
 
@@ -600,8 +616,7 @@ def _print_elevated(plan: dict, sampler=None) -> None:
     _v15 = PC.census_v15(plan.get("splits", ()), plan.get("kept", ()),
                          ground_tol_m=_pl.split_tol_m)
     _v16b = (None if sampler is None else PC.census_v16b(
-        plan.get("splits", ()),
-        lambda la, lo: sampler.elevation_at_or_none(la, lo), split_tol_m=tol))
+        plan.get("splits", ()), _surface_with_water(sampler), split_tol_m=tol))
     for line in PC.cockpit_block_lines(PC.cockpit_block(
             splits=plan.get("splits", ()), v15=_v15, v16b=_v16b)):
         print(line)

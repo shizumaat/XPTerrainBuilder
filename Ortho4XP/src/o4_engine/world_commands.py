@@ -466,7 +466,7 @@ def _global_tiles(scenery_dir: str) -> "set | None":
                         _GLOBAL_PACK)
     if not os.path.isdir(os.path.join(root, "Earth nav data")):
         return None
-    return {key for key, _path, _size in WP.pack_dsfs(root)}
+    return WP.pack_dsf_keys(root)
 
 
 def _land(scenery_dir: str, mask: bool = True

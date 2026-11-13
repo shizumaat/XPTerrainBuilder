@@ -340,6 +340,9 @@ final class BuildModel: ObservableObject {
     private var scanAccumBuilt: [TileCoord: O4TileInfo] = [:]
     private var scanAccumInstalled: Set<TileCoord> = []
     private var scanAccumWorld: [TileCoord: O4WorldTile] = [:]
+    /// When the streamed batches reach the screen (#2055): a re-render per
+    /// ~10 Hz batch kept the launch's main thread busy for the whole scan.
+    private var scanPublish = ScanStreamThrottle()
     /// (elapsed, remaining) pairs from recent runEta events — the
     /// climbing-estimate detector's window.
     private var etaSamples: [(at: Double, value: Double)] = []
@@ -523,12 +526,12 @@ final class BuildModel: ObservableObject {
               let cached = TileScanCache.load(
                   workingDir: base.path, customSceneryDir: customSceneryPath)
         else { return }
-        for info in cached.built {
-            built[TileCoord(lat: info.lat, lon: info.lon)] = info
-        }
-        for pair in cached.installed where pair.count == 2 {
-            installed.insert(TileCoord(lat: pair[0], lon: pair[1]))
-        }
+        // Assigned once each (#2055): per-tile assignment ran `built`'s
+        // didSet and published once per cached tile.
+        built = Dictionary(cached.built.map { (TileCoord(lat: $0.lat, lon: $0.lon), $0) },
+                           uniquingKeysWith: { _, new in new })
+        installed = Set(cached.installed.filter { $0.count == 2 }
+            .map { TileCoord(lat: $0[0], lon: $0[1]) })
         refreshConflictTiles()
     }
 
@@ -921,6 +924,7 @@ final class BuildModel: ObservableObject {
         scanAccumBuilt = [:]
         scanAccumInstalled = []
         scanAccumWorld = [:]
+        scanPublish.reset()
         isScanning = true
         client.send(command: "scan", arguments: [
             "working_dir": base.path,
@@ -1075,7 +1079,7 @@ final class BuildModel: ObservableObject {
         case .log(_, let line, let tile):
             console.append(line, tile: tile)
         case .scanProgress(let phase, _, _):
-            scanPhase = phase
+            if scanPhase != phase { scanPhase = phase }  // ~10 Hz, same text (#2055)
         case .scanBatch(let builtTriples, let installedPairs, let worldRows):
             for (lat, lon, info) in builtTriples {
                 if let tileInfo = O4TileInfo(json: info) {
@@ -1085,15 +1089,20 @@ final class BuildModel: ObservableObject {
             for (lat, lon) in installedPairs {
                 scanAccumInstalled.insert(TileCoord(lat: lat, lon: lon))
             }
-            var worldBatch: [TileCoord: O4WorldTile] = [:]
             for (lat, lon, tile) in worldRows {
-                worldBatch[TileCoord(lat: lat, lon: lon)] = tile
+                scanAccumWorld[TileCoord(lat: lat, lon: lon)] = tile
             }
-            scanAccumWorld.merge(worldBatch) { _, new in new }
-            // Stream into the live maps; ScanDone swaps in the final truth.
+            // Stream into the live maps, at most once a second, the active
+            // tile's own result at once (#2055; Qt: the same rule); ScanDone
+            // swaps in the final truth.
+            let mine = activeTile.map { active in
+                builtTriples.contains { $0.0 == active.lat && $0.1 == active.lon }
+                    || worldRows.contains { $0.0 == active.lat && $0.1 == active.lon }
+            } ?? false
+            guard scanPublish.shouldPublish(now: CACurrentMediaTime()) || mine else { break }
             built.merge(scanAccumBuilt) { _, new in new }
             installed.formUnion(scanAccumInstalled)
-            if !worldBatch.isEmpty { worldTiles.merge(worldBatch) { _, new in new } }
+            if !scanAccumWorld.isEmpty { worldTiles.merge(scanAccumWorld) { _, new in new } }
         case .scanDone:
             built = scanAccumBuilt
             installed = scanAccumInstalled

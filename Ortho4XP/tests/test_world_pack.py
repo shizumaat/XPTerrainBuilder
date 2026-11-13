@@ -372,3 +372,28 @@ def test_the_world_row_is_always_the_last_row():
     rows = [line for line in lines if WP.PACK_NAME in line]
     assert rows == [f"SCENERY_PACK Custom Scenery/{WP.PACK_NAME}/"]
     assert lines[-2] == rows[0] and lines[-1] == ""
+
+
+def test_2055_pack_dsf_keys_lists_without_a_stat_per_file(tmp_path, monkeypatch):
+    """#2055: the apps' start lists Global Scenery's and the World pack's
+    ~18k DSFs (coverage); the keys need the listing only, never a stat per
+    file (2.7-6.7 s of the engine's command loop on the owner's starts)."""
+    pack = str(tmp_path / "pack")
+    WP.write_placeholders(pack, [(46, 8), (47, 8), (-23, -44)])
+    open(os.path.join(pack, "Earth nav data", "+40+000", "notes.txt"), "w",
+         encoding="utf-8", newline="").close()
+    expected = {key for key, _p, _s in WP.pack_dsfs(pack)}
+    assert expected == {(46, 8), (47, 8), (-23, -44)}
+    import threading
+    real_stat = os.stat
+    calls = []
+    me = threading.get_ident()      # another test's worker thread may stat too
+
+    def counting_stat(*a, **k):
+        if threading.get_ident() == me:
+            calls.append(a)
+        return real_stat(*a, **k)
+    monkeypatch.setattr(os, "stat", counting_stat)
+    assert WP.pack_dsf_keys(pack) == expected
+    assert calls == []
+    assert WP.pack_dsf_keys(str(tmp_path / "none")) == set()

@@ -520,6 +520,9 @@ def build(airport: Airport, classification: Classification, law: Law,
                    pad_roads=frozenset(
                        c.ref for c in classification.cells
                        if (getattr(c, "evidence", None) or {}).get("pad_road")),
+                   frontage_roads=frozenset(
+                       c.ref for c in classification.cells
+                       if (getattr(c, "evidence", None) or {}).get("frontage_road")),
                    ramp_runouts=_runouts(classification),
                    jetway_ground=tuple(getattr(classification, "jetway_ground", ())),
                    registries=arr.registries)

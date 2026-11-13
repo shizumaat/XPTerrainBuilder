@@ -187,7 +187,7 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
                     "verdict": "ground shell " + (got[0] if got else "no DEM"),
                     **({"z0": round(got[1], 3), "follow": round(got[2], 3)} if got else {})})
             shape = shapes.get(key)
-            if shape is None:
+            if shape is None or not TM.admits(shape, kind):
                 continue
             rec = {"dsf": os.path.basename(dsf), "resource": defs[i], "lat": la, "lon": lo,
                    "heading": hdg, "kind": kind, "plan_m": round(shape.plan_m),

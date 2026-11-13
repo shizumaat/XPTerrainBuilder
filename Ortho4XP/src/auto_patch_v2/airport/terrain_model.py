@@ -36,9 +36,16 @@ candidate on stronger photo evidence instead of size: plan at least
 :data:`SMALL_PLAN_M` and under :data:`MIN_PLAN_M`, top relief at least
 :data:`SMALL_RELIEF_M`, and the photo spread at most
 :data:`SMALL_PHOTO_SPREAD` (one orthophoto at one resolution, to about
-12 %).  An object of :data:`MIN_PLAN_M` or more with less relief is a
-ground shell's to read (``ground_shell``), never this module's.  The
-match below is the same for both.
+12 %) -- and ONLY on an ``OBJECT_MSL`` row (:func:`admits`): a piece
+modelled at an absolute height is the author modelling the ground, which
+the on-ground conversion (RULINGS 2026-09-11d) throws onto its origin
+(TFFJ: 23-114 m in the air); a small terrain-relative row was authored to
+drape at its origin, and the frames-corpus census found the only small
+plain rows that pass every gate to be ground skins of buildings (KBNA,
+KASE condos, KCRW's runway-end fill), never a hill.  An object of
+:data:`MIN_PLAN_M` or more with less relief is a ground shell's to read
+(``ground_shell``), never this module's.  The match below is the same
+for both.
 
 AN ``OBJECT_MSL`` ROW is read like any other (#2064: LOWS's town rock,
 LXGB's Rock of Gibraltar, TFFJ's coast are all placed at an MSL height
@@ -99,7 +106,8 @@ from ..geom.terrain_deck import CELL_M, DeckGrid
 __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PEAK_ERR",
            "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
            "SMALL_PLAN_M", "SMALL_RELIEF_M", "SMALL_PHOTO_SPREAD", "RIDER_ON_PLAN",
-           "Shape", "TerrainModel", "candidate", "shape_of", "photo_spread", "match", "outer_rim",
+           "Shape", "TerrainModel", "candidate", "admits", "shape_of", "photo_spread", "match",
+           "outer_rim",
            "placement_models", "set_members", "riders", "frame_rows", "seat_records",
            "log_line", "hideable_paths", "plan_grid", "rim_seat"]
 
@@ -258,6 +266,12 @@ def candidate(plan_m: float, relief_m: float, spread: float) -> bool:
     return relief_m >= SMALL_RELIEF_M and spread <= SMALL_PHOTO_SPREAD
 
 
+def admits(shape: Shape, kind: str) -> bool:
+    """A candidate ``shape`` placed by a row of ``kind`` may be read: a
+    smaller piece only on an ``OBJECT_MSL`` row (module doc)."""
+    return shape.plan_m >= MIN_PLAN_M or kind == "OBJECT_MSL"
+
+
 def _shape(path: str) -> "Shape | None":
     from .obj8 import parse_obj8
     g = parse_obj8(path)
@@ -403,7 +417,7 @@ def placement_models(placements: _t.Sequence[tuple],
             g = None if phys is None else geometry(dpath)
             shapes[dpath] = None if g is None else shape_of(phys, g)
         shape = shapes[dpath]
-        if shape is None:
+        if shape is None or not admits(shape, kind):
             continue
         xy2 = (float(xy[0]), float(xy[1]))
         m = match(shape, xy2, float(heading), dem_many, fine)

@@ -208,6 +208,8 @@ def test_a_smaller_piece_needs_one_orthophoto(tmp_path):
                               step=10.0)) is None
     assert TM.shape_of(_write(tmp_path, "t.obj", knoll, half=60.0, step=10.0)) is None
     assert not TM.candidate(400.0, 40.0, 0.2) and TM.candidate(600.0, 60.0, 0.2)
+    # read only on an OBJECT_MSL row: a small plain row drapes at its origin
+    assert TM.admits(s, "OBJECT_MSL") and not TM.admits(s, "OBJECT")
 
 
 def _box(tmp_path, name, half, y0, y1):

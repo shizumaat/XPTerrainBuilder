@@ -599,6 +599,27 @@ def resolve(args):
     return patch_dir, tile_dsfs
 
 
+def drawn_tile_dsfs(custom_scenery, tiles):
+    """The base-mesh DSF X-Plane draws on each of ``tiles`` (``+LL+LLL``)
+    from ``custom_scenery``'s load order (``O4_Mesh_Order.drawn_mesh_dsf``)."""
+    import O4_Mesh_Order
+    found = (O4_Mesh_Order.drawn_mesh_dsf(custom_scenery, int(t[:3]), int(t[3:]))
+             for t in sorted(tiles))
+    return [f for f in found if f]
+
+
+def pack_is_build_product(args, pack_root):
+    """Is the written pack the one these products drew?  The owner's
+    products (``--tile``) and a harness build's ``--pack-copy`` are; a
+    harness tag WITHOUT a copy stood its pack writes down, so the pack read
+    is the owner's install as last written -- not this build's objects."""
+    if not getattr(args, "tag", None) or getattr(args, "plan", None):
+        return True
+    copy = getattr(args, "pack_copy", None)
+    return bool(copy) and os.path.realpath(pack_root).startswith(
+        os.path.realpath(copy) + os.sep)
+
+
 def load_plans(patch_dir, icao):
     plans = {}
     for p in glob.glob(os.path.join(os.path.dirname(patch_dir), "*",
@@ -640,9 +661,13 @@ def run(args):
                  f"build's pack copy under {copy}: the object stage did not "
                  f"write the copy (read its [v2 placement] lines)")
     if not tile_dsfs:
-        scenery = os.path.dirname(pack_root)
-        tile_dsfs = [f for t in plans for f in glob.glob(os.path.join(
-            scenery, f"zOrtho4XP_{t}", "Earth nav data", "*", f"{t}.dsf"))]
+        # THE LOAD ORDER'S MESH, never a folder name: the owner's tiles now
+        # live in the World pack, and a ``zOrtho4XP_<tile>`` beside the
+        # pack (when one is left) may be disabled or hidden (#1903)
+        tile_dsfs = drawn_tile_dsfs(os.path.dirname(pack_root), plans)
+    if not tile_dsfs:
+        sys.exit(f"no base-mesh DSF is drawn on {sorted(plans)} in the load "
+                 f"order of {os.path.dirname(pack_root)}")
     bbox = patch_bbox(patch, args.margin)
     from auto_patch_v2.airport.dsf_write import pristine_dsf_path
     written, pristine = [], {}
@@ -650,7 +675,11 @@ def run(args):
         for t, plan in sorted(plans.items()):
             written += dump_dsf(plan["dsf_path"], tmp).placements
             pristine[t] = dump_dsf(pristine_dsf_path(plan["dsf_path"]), tmp)
-    if getattr(args, "mesh", None):
+    if getattr(args, "sampler", None) is not None:
+        # the caller's sampler over the same drawn DSF(s) (the harness
+        # drawn gate streams the tile once for every layer it reads)
+        mesh, tile_dsfs = args.sampler, list(args.sampler_dsfs)
+    elif getattr(args, "mesh", None):
         # the tile's built ``Data+XX+YYY.mesh`` -- the triangles the tile DSF
         # is written from -- where the build ran the geometry half only
         mesh = MeshElevationSampler(args.mesh, bbox)
@@ -670,12 +699,18 @@ def run(args):
     rows += [check_split(r, drawn, args.tol, lifts, roads)
              for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
     return {"icao": args.icao, "tile": tile, "pack_root": pack_root,
+            "pack_is_build_product": pack_is_build_product(args, pack_root),
             "tile_dsfs": tile_dsfs, "tol_m": args.tol, "radius_m": args.radius,
             "claims": [dataclasses.asdict(c) for c in claims], "sites": rows}
 
 
 def print_report(rep):
     print(f"DRAWN CHECK {rep['icao']} {rep['tile']}  pack {rep['pack_root']}")
+    print(f"  mesh {', '.join(rep['tile_dsfs'])}")
+    if not rep.get("pack_is_build_product", True):
+        print("  WARNING: the pack read is the owner's install as last written, "
+              "NOT this build's objects (no --pack-copy): the object rows below "
+              "do not measure this build")
     for r in rep["sites"]:
         if r.get("role") == "SPLIT":
             print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} "

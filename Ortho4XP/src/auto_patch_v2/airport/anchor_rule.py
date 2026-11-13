@@ -1037,7 +1037,7 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
         if a is not None:
             return a
 
-    wet = _wet_body_anchor(body_class, geom, surface, authored_agl_m)
+    wet = _wet_body_anchor(body_class, geom, surface, authored_agl_m, tol_m)
     if wet is not None:
         return wet
     # #610: A ROOF ON ITS POSTS IS NO ANCHOR.  The pick below lets a
@@ -1056,7 +1056,8 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
 
 
 def _wet_body_anchor(body_class: BodyClass, geom: BodyGeometry,
-                     surface: Surface, authored_agl_m: float | None) -> Anchor | None:
+                     surface: Surface, authored_agl_m: float | None,
+                     tol_m: float = 0.0) -> Anchor | None:
     """#972 (owner 2026-10-19: the pack's seawall "should be seated so the
     top is < 1 m above the solved terrain"): A BODY STANDING IN WATER KEEPS
     ITS AUTHORED SEAT.
@@ -1078,7 +1079,15 @@ def _wet_body_anchor(body_class: BodyClass, geom: BodyGeometry,
     construction, so it is never read as elevated, tilted or kept.  ``None`` — the
     rule reads as before — when the surface carries no water bit, any
     foot stands on land, the origin reads no surface or is itself water,
-    or no lift is handed in."""
+    or no lift is handed in.
+
+    #1908: ... or the authored seat stands a foot OVER the water it
+    stands in, by more than ``tol_m``.  The seat is the author's only
+    where it is the author's: ENTC's ``ALS.obj`` is an ``OBJECT_MSL`` row
+    the plan reads at agl 0 on its origin, on land 6.5 m over the sea,
+    and that "authored seat" stood its masts in the sea 6.3 m over the
+    water.  A footing in the air over water is never authored; the
+    generic rule then reads the water line, as before #972."""
     water = getattr(surface, "water", None)
     if water is None or authored_agl_m is None:
         return None
@@ -1088,6 +1097,9 @@ def _wet_body_anchor(body_class: BodyClass, geom: BodyGeometry,
         return None
     z = surface(geom.origin_lat, geom.origin_lon)
     if z is None or water(geom.origin_lat, geom.origin_lon):
+        return None
+    zero = float(z) + float(authored_agl_m)
+    if any(zero + float(f[2]) - float(surface(f[0], f[1])) > tol_m for f in feet):
         return None
     return Anchor(body_class, geom.origin_lat, geom.origin_lon,
                   -float(authored_agl_m),

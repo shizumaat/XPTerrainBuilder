@@ -471,6 +471,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import dsf as _dsf2
     from auto_patch_v2.airport import placement_write as _pw
+    from auto_patch_v2.airport import free_column as _fcol
     from . import dsf_reader as _DSFR
 
     from . import pack_copy as _copy
@@ -645,6 +646,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             # is kept (an AGL row stays AGL; a split that moves nothing is not made)
             authored_keep_tol_m=float(
                 law.tables.structures.placement.authored_keep_tol_m),
+            # #1908: a free-standing column stands on its own foot
+            free_column=_fcol.law_of(law.tables.structures.placement),
             # jetway-strip spec §4 (C17): the riders' population and strips
             jetway_strips=jetway_strips,
             # a CLAMPED GATE is a clamp within D of the rider (#31)

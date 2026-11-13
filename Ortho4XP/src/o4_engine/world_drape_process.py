@@ -67,14 +67,20 @@ def _worker_setup(data_root: str, tile_cache: Optional[str]) -> None:
 def fetch_drape(engine: str, lat: int, lon: int, parent: str,
                 zoomlevel: int, provider: str, drop: int,
                 scenery_dir: str, water_wait_s: float,
-                core: Optional[Tuple[float, float, float]] = None) -> dict:
+                core: Optional[Tuple[float, float, float]] = None,
+                route: Optional[dict] = None) -> dict:
     """Drape tile ``(lat, lon)``'s imagery at the tier ``drop``, with its
     water masks and its provider blend, then ``core`` ``(lat, lon,
     radius_s)`` again at full resolution; the fetch's record (module
-    doc)."""
+    doc).  ``route``: the running flight's route split
+    (``flight_imagery_route.RouteSplit.to_dict``, #2048), which the
+    blend's neighbours are read under."""
     import O4_World_Drape_Fetch as FETCH
 
+    from . import flight_imagery_route as ROUTE
     from . import world_commands as WORLD
+    if route is not None:
+        ROUTE.set_active(ROUTE.RouteSplit.from_dict(route))
     made: dict = {}
     tile = (int(lat), int(lon))
 

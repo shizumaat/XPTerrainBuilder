@@ -337,6 +337,7 @@ class _Runner:
                                     self.manager.times[-1])
         _share_slots(self.manager)
         _core_points(self.manager)
+        self.route_key = _route_imagery(self.manager, scenery_dir)
         _sharpen_kept_endpoints(self.manager, session, scenery_dir)
         self.t0 = time.monotonic()
         # the rows and the countdown before the first tick: the pane shows
@@ -412,6 +413,8 @@ class _Runner:
                                       lambda name: clock.mark("tick." + name))
                     _share_slots(self.manager)
                     _core_points(self.manager)
+                    self.route_key = _route_imagery(
+                        self.manager, self.scenery_dir, self.route_key)
                     self.reloader.sweep(self.manager.facts().get("load_stamps"))
                     clock.mark("share")
                     fields = self.snapshot = self.manager.status(now)
@@ -483,6 +486,30 @@ def _core_points(manager) -> None:
     for point in {waypoints[0], waypoints[-1]} if waypoints else ():
         PUBLISH.add_core_point(*FP.tile_of(point.lat, point.lon),
                                (point.ident, point.lat, point.lon))
+
+
+def _route_imagery(manager, scenery_dir: str, key=None):
+    """#2048: the flight's route split (``flight_imagery_route``) made
+    active for ``world_job_run.photo_source`` -- each endpoint's provider
+    its built tile's, else region-auto's -- and made again when the plan
+    changes (a diversion, a destination given later).  Returns the plan's
+    key (its points)."""
+    import O4_Imagery_Auto as AUTO
+
+    from . import flight_imagery_route as ROUTE
+    points = tuple(manager.plan.points())
+    if points == key:
+        return key
+
+    def provider_of(tile) -> str:
+        return (ROUTE.endpoint_provider(
+            scenery_dir, tile, lambda t: drawn_build_dir(scenery_dir, t))
+            or AUTO.provider_for(int(tile[0]), int(tile[1])))
+    split = ROUTE.split_for(points, provider_of)
+    ROUTE.set_active(split)
+    WORLD.write_log({"flight_imagery_route": None if split is None else {
+        "departure": split.departure, "destination": split.destination}})
+    return points
 
 
 def drawn_build_dir(scenery_dir: str, tile) -> Optional[str]:
@@ -583,5 +610,7 @@ def stop() -> "Optional[Any]":
     runner.stop_event.set()
     runner.thread.join(timeout=5.0)
     SHARE.leave("flight")
+    from . import flight_imagery_route as ROUTE
+    ROUTE.set_active(None)              # #2048: region-auto again
     WORLD.write_log({"flight": "stop", "id": runner.manager.record.id})
     return runner.manager.record

@@ -101,8 +101,12 @@ def photo_source(tile=None) -> Tuple[str, int]:
     ``default_zl`` (16 unset).  Its default, Automatic (#2018), chooses
     per ``tile`` (``O4_Imagery_Auto.choose``: the national service
     covering it, else Bing); with no tile (the time estimates) it reads
-    Bing."""
+    Bing.  On a planned flight Automatic is the route's split instead
+    (#2048, ``flight_imagery_route``): the departure tile's provider up
+    to the route's midpoint, the destination's after it."""
     import O4_Imagery_Auto as AUTO
+
+    from . import flight_imagery_route as ROUTE
     values = _settings()
     try:
         zoomlevel = int(values.get("default_zl") or 16)
@@ -113,6 +117,9 @@ def photo_source(tile=None) -> Tuple[str, int]:
         return source, zoomlevel
     if tile is None:
         return AUTO.FALLBACK, zoomlevel
+    split = ROUTE.active()
+    if split is not None:
+        return AUTO.at_zoom(split.provider(tile), zoomlevel)
     return AUTO.choose(int(tile[0]), int(tile[1]), zoomlevel)
 
 
@@ -282,7 +289,7 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
         parent=FNAMES.data_path("World_build"), zoomlevel=int(zoomlevel),
         provider=provider, drop=FETCH.drop_for_px(px),
         scenery_dir=WORLD.scenery_dir_or_default(""),
-        water_wait_s=WATER_WAIT_S,
+        water_wait_s=WATER_WAIT_S, route=_route_dict(),
         core=None if core is None else (float(core[0]), float(core[1]),
                                         CORE_FULL_S))
     staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
@@ -300,6 +307,14 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
     with contextlib.suppress(OSError):
         shutil.rmtree(fetched["tile"])
     return not DRAPE.verify_drape(staged, lat, lon, tool)["problems"]
+
+
+def _route_dict() -> Optional[dict]:
+    """The running flight's route split for a drape's worker (#2048: its
+    blend reads the neighbours' providers with :func:`photo_source`)."""
+    from . import flight_imagery_route as ROUTE
+    split = ROUTE.active()
+    return split.to_dict() if split is not None else None
 
 
 def _record_drape(staged: str, provider: str, zoomlevel: int,

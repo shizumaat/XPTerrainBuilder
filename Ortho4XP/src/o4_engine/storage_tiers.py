@@ -5,7 +5,7 @@
     Sharp imagery is stored on a tier while it is mounted.  When a volume
     is absent, the app falls back to dynamic download."
 
-* :func:`volumes` -- the mounted volumes other than the app's own (the
+* :func:`_volumes` -- the mounted volumes other than the app's own (the
   data folder's and the Custom Scenery folder's), with their size and
   free space.
 * :data:`SETTING` -- ``storage_tiers``: ``{"<mount>": gigabytes}`` (JSON);
@@ -41,8 +41,8 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-__all__ = ["SETTING", "TIER_DIR", "volumes", "configured", "find", "stash",
-           "storage_tiers", "storage_tier_set"]
+__all__ = ["SETTING", "TIER_DIR", "find", "stash", "storage_tiers",
+           "storage_tier_set"]
 
 SETTING = "storage_tiers"
 #: The app's folder on a tier volume (the on-demand index keeps a row's
@@ -54,27 +54,24 @@ _USED: Dict[str, int] = {}
 _LOCK = threading.Lock()
 
 
-def _settings() -> dict:
-    try:
-        import O4_Settings_Model as SM
-        return SM.read_global_raw()
-    except Exception:                       # no readable settings
-        return {}
-
-
 _READ: Dict[str, Any] = {}
 #: How long a read of the setting is reused (the texture lookup asks per key).
 _READ_S = 5.0
 
 
-def configured(raw: Optional[dict] = None) -> Dict[str, float]:
+def _configured(raw: Optional[dict] = None) -> Dict[str, float]:
     """``{mount: gigabytes}`` of the tiers set (size > 0)."""
     if raw is None:
         now = time.monotonic()
         with _LOCK:
             if _READ and now - _READ["at"] < _READ_S:
                 return dict(_READ["tiers"])
-        tiers = configured(_settings())
+        try:
+            import O4_Settings_Model as SM
+            raw_now = SM.read_global_raw()
+        except Exception:                   # no readable settings: no tiers
+            raw_now = {}
+        tiers = _configured(raw_now)
         with _LOCK:
             _READ.update(at=now, tiers=tiers)
         return dict(tiers)
@@ -127,12 +124,13 @@ def _device(path: str) -> Optional[int]:
 def _own_devices() -> set:
     """The volumes the app itself lives on (never a tier)."""
     import O4_File_Names as FNAMES
+
     from . import world_commands as WORLD
     paths = [os.sep, FNAMES.current_data_root(), WORLD.scenery_dir_or_default()]
     return {d for d in (_device(p) for p in paths if p) if d is not None}
 
 
-def volumes() -> List[Dict[str, Any]]:
+def _volumes() -> List[Dict[str, Any]]:
     """``[{"mount", "name", "total_bytes", "free_bytes"}]``: the mounted
     volumes other than the app's own."""
     own = _own_devices()
@@ -185,7 +183,7 @@ def find(key: Optional[str]) -> Optional[str]:
     if not key:
         return None
     import O4_DDS_Cache as DDSC
-    for mount in configured():
+    for mount in _configured():
         if not _mounted(mount):
             continue                        # absent: download again
         path = DDSC.entry_path(key, _store(mount))
@@ -203,7 +201,7 @@ def stash(key: Optional[str], entry: str) -> str:
         return ""
     import O4_DDS_Cache as DDSC
     size = os.path.getsize(entry)
-    for mount, gigabytes in configured().items():
+    for mount, gigabytes in _configured().items():
         if not _mounted(mount) or _used(mount) + size > gigabytes * _GB:
             continue
         target = DDSC.entry_path(key, _store(mount))
@@ -230,9 +228,9 @@ def storage_tiers(**_ignored) -> Dict[str, Any]:
     every mounted volume other than the app's own, and every tier set
     whose volume is absent (``mounted`` False: its imagery is downloaded
     again while it is away)."""
-    tiers = configured()
+    tiers = _configured()
     rows = []
-    for volume in volumes():
+    for volume in _volumes():
         size = tiers.pop(volume["mount"], 0.0)
         rows.append({**volume, "size_gb": size, "mounted": True,
                      "used_bytes": _used(volume["mount"]) if size else 0})
@@ -254,8 +252,7 @@ def storage_tier_set(mount: str, size_gb: float = 0.0,
     size = float(size_gb or 0)
     if size < 0:
         raise ValueError("a tier's size is 0 or more GB")
-    raw = _settings()
-    data = configured(raw)
+    data = _configured(SM.read_global_raw())
     if size:
         data[mount] = size
     else:

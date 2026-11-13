@@ -43,7 +43,9 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import O4_File_Names as FNAMES
 
-__all__ = ["HOME_DIR", "home_dirs", "describe", "migrate", "write_pointer"]
+from .world_migrate_size import _same_volume
+
+__all__ = ["HOME_DIR", "describe", "migrate"]
 
 #: The journal's folder inside the World pack.
 HOME_DIR = "XPTerrainBuilder_home"
@@ -51,7 +53,7 @@ _TILE = re.compile(r"zOrtho4XP_([+-]\d{2})([+-]\d{3})$")
 _PART = ".part"
 
 
-def home_dirs(scenery_dir: str) -> Optional[Dict[str, str]]:
+def _home_dirs(scenery_dir: str) -> Optional[Dict[str, str]]:
     """``{"world", "tiles", "packages", "work"}`` of the World home in
     ``scenery_dir``, or ``None`` when the app has no World pack there (or
     the folder is foreign)."""
@@ -72,7 +74,7 @@ def describe() -> Dict[str, str]:
             "packages_dir": STORE.store_dir()}
 
 
-def write_pointer(world: str) -> None:
+def _write_pointer(world: str) -> None:
     """Name ``world`` as the tiles' home in the data folder (atomic)."""
     path = FNAMES.world_home_pointer()
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -86,13 +88,6 @@ def write_pointer(world: str) -> None:
 # ---------------------------------------------------------------------------
 # Moving one item
 # ---------------------------------------------------------------------------
-def _same_volume(source: str, folder: str) -> bool:
-    try:
-        return os.stat(source).st_dev == os.stat(folder).st_dev
-    except OSError:
-        return False
-
-
 def _bytes(path: str) -> tuple:
     """``(files, bytes)`` under ``path`` (a file: itself); links counted
     as links, never followed."""
@@ -286,7 +281,7 @@ def migrate(scenery_dir: str, legacy_build_dir: str = "",
     "left", "packages_moved", "backup", **describe()}``; ``active``: the
     pointer names the World home now."""
     from .world_migrate import Journal
-    dirs = home_dirs(scenery_dir)
+    dirs = _home_dirs(scenery_dir)
     if dirs is None:
         return {"active": False, "reason": "no_world_pack", **describe()}
     todo = _plan(scenery_dir, legacy_build_dir, dirs,
@@ -324,7 +319,7 @@ def migrate(scenery_dir: str, legacy_build_dir: str = "",
     # gap until the next start moves it.
     out["left"] = out["errors"] + out["busy"]
     if not out["left"]:
-        write_pointer(dirs["world"])
+        _write_pointer(dirs["world"])
     _log(out)
     return {**out, "active": bool(FNAMES.world_home()), **describe()}
 

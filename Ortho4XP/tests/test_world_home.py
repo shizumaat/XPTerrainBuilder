@@ -7,11 +7,10 @@ from __future__ import annotations
 import json
 import os
 
-import pytest
-
 import O4_File_Names as FNAMES
 import O4_Scenery_Links as LINKS
 import O4_World_Pack as WP
+import pytest
 from o4_engine import storage_packages as STORE
 from o4_engine import storage_tiers as STORE_TIERS
 from o4_engine import world_commands as WORLD
@@ -48,7 +47,7 @@ def test_tile_dir_is_the_data_folder_until_a_pointer_names_the_world(roots):
     data, _scenery, pack = roots
     assert FNAMES.Tile_dir == str(data / "Tiles")
     assert STORE.store_dir() == str(data / STORE.STORE_DIR)
-    HOME.write_pointer(str(pack))           # its tiles folder is missing
+    HOME._write_pointer(str(pack))           # its tiles folder is missing
     assert FNAMES.Tile_dir == str(data / "Tiles")
     (pack / FNAMES.WORLD_TILES_DIR).mkdir()
     assert FNAMES.Tile_dir == str(pack / FNAMES.WORLD_TILES_DIR)
@@ -150,7 +149,7 @@ def test_a_tier_keeps_a_texture_and_gives_it_back(tmp_path, monkeypatch):
     import O4_DDS_Cache as DDSC
     drive = tmp_path / "Drive"
     drive.mkdir()
-    monkeypatch.setattr(STORE_TIERS, "configured",
+    monkeypatch.setattr(STORE_TIERS, "_configured",
                         lambda raw=None: {str(drive): 1.0})
     monkeypatch.setattr(STORE_TIERS, "_mounted", lambda mount: True)
     monkeypatch.setattr(STORE_TIERS, "_USED", {})
@@ -170,7 +169,7 @@ def test_a_tier_keeps_a_texture_and_gives_it_back(tmp_path, monkeypatch):
 def test_a_full_tier_takes_nothing(tmp_path, monkeypatch):
     drive = tmp_path / "Drive"
     drive.mkdir()
-    monkeypatch.setattr(STORE_TIERS, "configured",
+    monkeypatch.setattr(STORE_TIERS, "_configured",
                         lambda raw=None: {str(drive): 1e-9})
     monkeypatch.setattr(STORE_TIERS, "_mounted", lambda mount: True)
     monkeypatch.setattr(STORE_TIERS, "_USED", {})
@@ -187,8 +186,8 @@ def test_the_index_knows_the_tier_folder():
 def test_tier_setting_reads_only_sizes_above_zero():
     raw = {STORE_TIERS.SETTING: json.dumps({"/Volumes/A": 50, "/Volumes/B": 0,
                                             "/Volumes/C": "x"})}
-    assert STORE_TIERS.configured(raw) == {"/Volumes/A": 50.0}
-    assert STORE_TIERS.configured({STORE_TIERS.SETTING: "not json"}) == {}
+    assert STORE_TIERS._configured(raw) == {"/Volumes/A": 50.0}
+    assert STORE_TIERS._configured({STORE_TIERS.SETTING: "not json"}) == {}
 
 
 def test_the_apps_start_moves_the_home_a_bare_call_only_reports(roots, monkeypatch):

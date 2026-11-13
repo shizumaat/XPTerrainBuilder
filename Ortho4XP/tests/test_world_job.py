@@ -216,6 +216,9 @@ def test_the_publisher_swaps_a_staged_tile_holding_only_its_follow(pack,
     clock["t"] = RUN.PENDING_S + 1
     assert pub.settle((53, -64), "light", held=False) == "failed"
     _stage(staging, 53, -64)
+    old = os.path.join(path, "textures", "+53-064")   # a former version's
+    os.makedirs(old)                                   # names (swap_out)
+    open(os.path.join(old, "old.dds"), "w").close()
     assert pub.settle((53, -64), "light", held=True) == "staged"
     assert WP.is_placeholder(os.path.join(path, WP.dsf_relpath(53, -64)))
     assert pub.settle((53, -64), "light", held=False) == "swapped"
@@ -223,6 +226,20 @@ def test_the_publisher_swaps_a_staged_tile_holding_only_its_follow(pack,
     assert held_during == [{"+53-064"}] and after == [(53, -64)]
     assert FOLLOW.held_tiles() == set()
     assert pub.settle((53, -64), "light", held=True) == "swapped"
+
+
+def test_2032_a_drape_over_a_held_placeholder_goes_in_when_ready(pack):
+    """#2032: the KTUS ring's drapes stayed staged while X-Plane held their
+    placeholders and never went in once the app closed.  A placeholder
+    with no file of the tile names nothing X-Plane may open: the staged
+    drape goes in at once, held or not (X-Plane shows it at its next
+    load)."""
+    scenery, path, staging = pack
+    pub = RUN._PackPublisher(scenery, lambda lat, lon: "/build")
+    _stage(staging, 53, -64)
+    assert pub.settle((53, -64), "drape", held=True) == "swapped"
+    assert not WP.is_placeholder(os.path.join(path, WP.dsf_relpath(53, -64)))
+    assert not os.path.exists(os.path.join(staging, "+53-064"))
 
 
 def test_s5_a_merge_swap_never_removes_a_name(pack):

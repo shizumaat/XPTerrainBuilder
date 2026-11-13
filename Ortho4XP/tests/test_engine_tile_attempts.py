@@ -196,3 +196,19 @@ def test_in_process_queued_tile_stops_at_once_and_can_be_queued_again(
     assert len(builds) == 1 and builds[0].ok is True
     assert {e.attempt for e in events if isinstance(e, EV.StepProgress)} == {2}
     assert run_done.done_count == 2
+
+
+def test_2032_a_batch_joining_a_live_run_keeps_its_build_folder(tmp_path):
+    """#2032 (KTUS): a tile built into Custom Scenery joined a live
+    parallel run; the session never noted its folder, so the imagery
+    registration and the World publish looked in the default Tiles
+    folder and found nothing.  Every admitted tile's folder is noted; a
+    tile the run already holds keeps the folder it is being built in."""
+    import O4_File_Names as FNAMES
+    session = EngineSession()
+    run = _bare_run(session, [(10, 10)])
+    folder = str(tmp_path / "Custom Scenery") + os.sep
+    assert run.enqueue([(11, 11), (10, 10)], "P", 16, folder,
+                       (True, False, False)) == 1
+    assert session.tile_build_dir(11, 11) == FNAMES.build_dir(11, 11, folder)
+    assert session.tile_build_dir(10, 10) == FNAMES.build_dir(10, 10, "")

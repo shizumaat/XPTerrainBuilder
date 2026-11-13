@@ -8,7 +8,9 @@ or not the tile was built with imagery on demand (RULINGS 2026-11-12g:
 every build goes into the World folder) -- :func:`_publish_built` stages it
 in the pack's shape (``O4_World_Pack.publish``: binary rewrite, verify)
 and swaps it in, unless X-Plane may hold the tile (rule S3/S4): then it
-waits staged and :func:`_swap_waiting` swaps it later.  After the swap:
+waits staged and :func:`_swap_waiting` swaps it later -- but a tile the
+pack holds only as a placeholder with no file of it goes in at once
+(``O4_World_Pack.held_by_xplane``, #2032).  After the swap:
 
 * the tile's imagery manifest names the pack's folders
   (:data:`LAYOUT_KEY`), so the on-demand index rows read and land
@@ -158,6 +160,7 @@ def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
     pack = WORLD.pack_dir(scenery_dir)
     if loaded is None:
         loaded = WORLD.tile_loaded(scenery_dir)
+    loaded = WP.held_by_xplane(pack, loaded)       # #2032
     # S7: the follow job waits for THIS tile only while it is swapped.
     with FOLLOW.paused("world publish", tiles=[WP.tile_name(lat, lon)]):
         result = WP.publish(pack, build_dir, lat, lon,
@@ -177,8 +180,8 @@ def _swap_waiting(scenery_dir: str, build_dir_of: Callable[[int, int], str],
     if not WORLD.managed(scenery_dir):
         return []
     pack = WORLD.pack_dir(scenery_dir)
-    done = WP.swap_staged(pack, WORLD.staging_root(),
-                          loaded or WORLD.tile_loaded(scenery_dir))
+    done = WP.swap_staged(pack, WORLD.staging_root(), WP.held_by_xplane(
+        pack, loaded or WORLD.tile_loaded(scenery_dir)))
     for name in done:
         lat, lon = WP.parse_tile(name)
         _after_swap(scenery_dir, build_dir_of(lat, lon), lat, lon)

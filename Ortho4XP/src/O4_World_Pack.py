@@ -59,7 +59,8 @@ __all__ = [
     "pack_dsfs",
     "real_tiles", "holds_tile", "world_tiles", "block_tiles", "rewrite_ter",
     "rewrite_dsf_text", "relayout_tile", "verify_tile",
-    "publish", "swap_staged", "swap_in", "swap_out", "ini_install",
+    "publish", "swap_staged", "swap_in", "swap_out", "nothing_held",
+    "held_by_xplane", "ini_install",
     "ini_remove", "dsftool_path", "dsf_header",
 ]
 
@@ -555,6 +556,34 @@ def swap_out(pack: str, lat: int, lon: int) -> str:
     return write_placeholder(pack, lat, lon)
 
 
+def nothing_held(pack: str, lat: int, lon: int) -> bool:
+    """May the tile be swapped in although X-Plane holds it (#2032)?  Yes
+    when the pack's DSF of it is a placeholder (or none) and the pack has
+    no terrain or texture file of it: a loaded placeholder names no file,
+    so the swap only ADDS names and replaces a DSF X-Plane read whole at
+    its load (loader rule R4).  Rules S4 and S5 change nothing X-Plane may
+    open; X-Plane shows the tile at its next load of it."""
+    dsf = os.path.join(pack, dsf_relpath(lat, lon))
+    if os.path.exists(dsf) and not is_placeholder(dsf):
+        return False
+    tile = tile_name(lat, lon)
+    for sub in ("terrain", "textures"):
+        with contextlib.suppress(FileNotFoundError, NotADirectoryError):
+            if any(not name.startswith(".")
+                   for name in os.listdir(os.path.join(pack, sub, tile))):
+                return False
+    return True
+
+
+def held_by_xplane(pack: str, loaded: Callable[[int, int], bool]
+                   ) -> Callable[[int, int], bool]:
+    """``loaded`` (rule S3: may X-Plane hold the tile?) less the tiles
+    with :func:`nothing_held`: the predicate :func:`publish` and
+    :func:`swap_staged` keep a tile staged by."""
+    return lambda lat, lon: (loaded(lat, lon)
+                             and not nothing_held(pack, lat, lon))
+
+
 def _stage_tile(build_dir: str, staging_root: str, lat: int, lon: int,
                kind: str = "full") -> dict:
     """Stage a built tile for the pack (spec §7.3 steps 2-3): an earlier
@@ -583,7 +612,8 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
     """Stage, verify and swap a built tile into ``pack`` (spec §7.3, rules
     S1-S4).  Nothing in the pack changes unless the staged tile verifies
     (S1); a tile ``loaded(lat, lon)`` says X-Plane may hold stays staged
-    (S3/S4) for :func:`swap_staged`.  Returns ``{"tile", "state"
+    (S3/S4) for :func:`swap_staged` (:func:`held_by_xplane` lets a tile
+    with :func:`nothing_held` through).  Returns ``{"tile", "state"
     ("swapped" | "staged" | "failed"), "problems", "counts"}``."""
     tile = tile_name(lat, lon)
     try:
@@ -602,10 +632,10 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
 
 
 def swap_staged(pack: str, staging_root: str,
-                loaded: Callable[[int, int], bool] = lambda lat, lon: False
-                ) -> list:
-    """Swap in every staged tile ``loaded`` now allows; the tile names
-    swapped."""
+                loaded: Callable[[int, int], bool] = lambda lat, lon: False,
+                only: "tuple[int, int] | None" = None) -> list:
+    """Swap in every staged tile ``loaded`` now allows, or tile ``only``
+    alone; the tile names swapped."""
     done = []
     try:
         names = sorted(os.listdir(staging_root))
@@ -615,6 +645,8 @@ def swap_staged(pack: str, staging_root: str,
         try:
             lat, lon = parse_tile(name)
         except ValueError:
+            continue
+        if only is not None and (lat, lon) != tuple(only):
             continue
         staged = os.path.join(staging_root, name)
         if (os.path.isfile(os.path.join(staged, dsf_relpath(lat, lon)))

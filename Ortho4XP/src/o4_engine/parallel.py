@@ -1053,12 +1053,18 @@ class ParallelBuildRun:
         admitted = []
         queued = set(self._queue)              # a planet queue: O(1) checks
         carried = {child.tile for child in self._children}
+        # The session's record of each tile's build folder (#2032: a batch
+        # that joined a live run kept the default folder, so the imagery
+        # registration and the World publish looked in the wrong place).
+        note_dirs = getattr(self._session, "_note_build_dirs", None)
         for tile in tiles:
             if (tile in queued or tile in self._next_step_index
                     or tile in carried):
                 continue
             queued.add(tile)
             admitted.append(tile)
+            if note_dirs is not None:
+                note_dirs([tile], custom_build_dir)
             self._run_cells.add((int(tile[0]), int(tile[1])))
             # A new attempt (#1326), with a clock that starts at zero: a
             # stopped or finished tile queued again must not inherit the

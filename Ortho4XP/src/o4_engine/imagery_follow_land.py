@@ -43,6 +43,11 @@ never the module's dict a build may be using): the full square is
 composited and converted, and a lower tier is cut from it
 (``O4_DDS_Tiers.tier_from_file``) -- the composite has no coarser fetch.
 
+A WORLD DRAPE's row (its build folder is the drape's rows folder,
+``imagery_follow_drape``, #2037) lands with the drape's own setup: no
+colour field, and on a water square the drape's water mask imprinted
+into the finer tier; the converter's copy there goes once landed.
+
 ``TierLander(source_only=True)`` lands only from the row's source (no
 cache, no network): Convert existing tiles keeps the imagery a tile
 already has near custom airports (``world_adopt.keep_cores``).
@@ -64,6 +69,8 @@ import O4_DDS_Tiers as TIERS
 import O4_Disk_Usage as DISK
 import O4_Imagery_OnDemand_Index as INDEX
 from O4_Imagery_Tier_Plan import TIER_WIDTH
+
+from . import imagery_follow_drape as DRAPE
 
 __all__ = ["TierLander"]
 
@@ -110,7 +117,9 @@ class TierLander:
                 tile.build_dir = key
                 tile.read_from_config()
                 _own_settings(tile)
-                if _masks_named(row):
+                if DRAPE.is_drape_dir(key):
+                    DRAPE.prepare(tile)
+                elif _masks_named(row):
                     tile.imprint_masks_to_dds = False
                 _frozen_colour_field(tile)
                 self._tiles[key] = tile
@@ -164,8 +173,14 @@ class TierLander:
         if not IMG.build_jpeg_ortho(tile, *attrs, drop=drop):
             raise RuntimeError(f"{row['name']}: the {width} px imagery did "
                              "not download")
+        drape = DRAPE.is_drape_dir(row["build_dir"])
+        if drape:
+            DRAPE.water_mask(tile, row, til_x, til_y)
         IMG.convert_texture(tile, *attrs, drop=drop)
-        _mirror(os.path.join(row["build_dir"], "textures", row["name"]), final)
+        built = os.path.join(row["build_dir"], "textures", row["name"])
+        _mirror(built, final)
+        if drape:
+            DRAPE.landed(built)
         return _facts(final, width, jpeg, None, not cached)
 
 

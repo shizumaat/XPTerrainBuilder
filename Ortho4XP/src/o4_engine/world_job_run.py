@@ -379,9 +379,10 @@ class _PackPublisher:
                 else:
                     WP.swap_staged(pack, WORLD.staging_root(),
                                    only=(lat, lon))
-            if kind != "drape":
-                PUBLISH._after_swap(self.scenery_dir,
-                                    self.build_dir_of(lat, lon), lat, lon)
+            # a drape's rows from the pack's files (#2037), a tile's from
+            # its build folder
+            PUBLISH._after_swap(self.scenery_dir,
+                                self.build_dir_of(lat, lon), lat, lon)
             WORLD.write_log({"swap_in": WP.tile_name(lat, lon), "kind": kind,
                              "from": "world_job", "merge": merge})
             return "swapped"

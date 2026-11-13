@@ -2,8 +2,9 @@
 airport pack whose apt.dat defines only OTHER airports is a companion for
 the pack-local rows inside this airport that none of its own airports
 reads (``object_window.own_claim``); a pack whose apt.dat defines this
-airport never is; a body authored far from its anchor is admitted by its
-plan centre (``companion.find``'s ``also`` witness)."""
+airport never is; a body authored far from its anchor is admitted when
+every ground-contact foot of its file stands inside (``companion.find``'s
+``also`` witness, tightened by round 2: ``test_companion_exclusion``)."""
 from __future__ import annotations
 
 import os

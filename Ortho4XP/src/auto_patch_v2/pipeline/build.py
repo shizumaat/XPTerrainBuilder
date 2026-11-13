@@ -964,7 +964,8 @@ def _companion_plans(icao: str, airport, law: Law, inputs: Inputs, out_dir,
         found = _companion.find(
             airport, inputs.mod_cache_root, *tile, say=lambda m: _say(m, out),
             margin_m=law.tables.emit.identity.dsf_pavement_admission_m,
-            radius_deg=inputs.radius_deg)
+            radius_deg=inputs.radius_deg,
+            band_m=law.tables.structures.basin.contact_band_m)
         plans = _companion.plans(airport, law, found)
     except Exception as exc:                       # noqa: BLE001
         _say(f"  [companion] {icao}: not adopted ({type(exc).__name__}: {exc})", out)

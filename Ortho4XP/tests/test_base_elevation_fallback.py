@@ -24,6 +24,7 @@ from elevation_access import registry as ea_registry
 from elevation_access.gdal_support import gdal, has_gdal
 from elevation_access.strategies import degree_cog_base_tile as ea_cog_base
 from elevation_access.strategies import degree_named_cog as ea_degree_named_cog
+from elevation_access.strategies import degree_zipped_cog as ea_zipped
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SHIPPED_PROVIDERS_DIRECTORY = os.path.normpath(
@@ -477,10 +478,11 @@ def shipped():
     INSETS.elevation_providers_dict = saved
 
 
-def test_the_shipped_fallbacks_are_copernicus_30_then_90(shipped):
+def test_the_shipped_fallbacks_are_fabdem_then_copernicus_30_then_90(shipped):
+    # Bare earth first (#1942), then the surface models it was made from.
     assert [d["code"] for d in base_fallback.fallback_definitions(shipped)] == [
-        "COPERNICUSGLO30BASE", "COPERNICUSGLO90BASE"]
-    for code in ("COPERNICUSGLO30BASE", "COPERNICUSGLO90BASE"):
+        "FABDEMBASE", "COPERNICUSGLO30BASE", "COPERNICUSGLO90BASE"]
+    for code in ("FABDEMBASE", "COPERNICUSGLO30BASE", "COPERNICUSGLO90BASE"):
         assert shipped[code]["access_strategy"] == "degree_cog_base_tile"
         assert shipped[code]["enabled"] is False
 
@@ -490,7 +492,8 @@ def test_a_fallback_is_never_the_automatic_base_source(shipped):
         for (lat, lon) in ((48, -123), (36, -87), (46, 8), (-34, 151)):
             codes = [d["code"] for d in INSETS.select_base_definitions_auto(
                 lat, lon, prefer_coarse=prefer_coarse)]
-            assert not [c for c in codes if c.startswith("COPERNICUS")]
+            assert not [c for c in codes
+                        if c.startswith(("COPERNICUS", "FABDEM"))]
 
 
 def test_the_fallback_cache_path_is_keyed_by_its_code(shipped, tmp_path,
@@ -521,6 +524,32 @@ def test_the_cell_is_the_last_input_and_absent_neighbours_are_dropped(
     absent.add("N48_00_W123")
     assert ea_cog_base.DegreeCogBaseTileStrategy()._sources(
         shipped["COPERNICUSGLO30BASE"], 48, -123) is None
+
+
+@pytest.mark.skipif(not has_gdal, reason="needs GDAL")
+def test_zipped_cells_are_read_in_place_from_their_block_archive(
+        shipped, monkeypatch):
+    """FABDEMBASE reads its cells out of 10-degree zips (#1942): the
+    cell and its neighbours are archive members, never whole downloads,
+    and a cell the archive does not list is absent."""
+    zipped = ea_registry.ACCESS_STRATEGIES["degree_zipped_cog"]
+    monkeypatch.setattr(zipped, "_url_exists", lambda self, url: True)
+    monkeypatch.setattr(zipped, "_members_by_archive", {})
+    listed = {"N54W005_FABDEM_V1-2.tif", "N53W005_FABDEM_V1-2.tif",
+              "N54W004_FABDEM_V1-2.tif"}         # N53W004 is open sea
+    monkeypatch.setattr(ea_zipped.gdal, "ReadDir",
+                        lambda path: sorted(listed))
+    sources = ea_cog_base.DegreeCogBaseTileStrategy()._sources(
+        shipped["FABDEMBASE"], 54, -5)
+    archive = ("/vsizip//vsicurl/https://data.bris.ac.uk/datasets/"
+               "s5hqmjcdj8yo2ibzi9b4ew3sn/N50W010-N60E000_FABDEM_V1-2.zip/")
+    assert sources == [archive + "N53W005_FABDEM_V1-2.tif",
+                       archive + "N54W004_FABDEM_V1-2.tif",
+                       archive + "N54W005_FABDEM_V1-2.tif"]
+    listed.discard("N54W005_FABDEM_V1-2.tif")
+    monkeypatch.setattr(zipped, "_members_by_archive", {})
+    assert ea_cog_base.DegreeCogBaseTileStrategy()._sources(
+        shipped["FABDEMBASE"], 54, -5) is None
 
 
 def test_far_edges_are_filled_from_the_next_post():

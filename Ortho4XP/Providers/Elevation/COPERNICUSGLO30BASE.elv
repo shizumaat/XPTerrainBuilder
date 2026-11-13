@@ -26,8 +26,8 @@ url_template=https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_{
 
 resolution_arc_seconds=1
 
-# Asked first when the configured base source is down.
-fallback_rank=1
+# Asked after FABDEMBASE (bare earth) when the configured base source is down.
+fallback_rank=2
 
 # It publishes a tile for every cell holding land, so its "no tile" is a
 # water witness: a cell every source has no tile for is built as sea

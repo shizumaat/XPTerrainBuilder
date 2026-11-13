@@ -1008,6 +1008,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "elevation_access.strategies.cwcb_lidar_api",
     "elevation_access.strategies.degree_cog_base_tile",
     "elevation_access.strategies.degree_named_cog",
+    "elevation_access.strategies.degree_zipped_cog",
     "elevation_access.strategies.direct_cog",
     "elevation_access.strategies.geojson_tile_index",
     "elevation_access.strategies.hgt_archive_drop",

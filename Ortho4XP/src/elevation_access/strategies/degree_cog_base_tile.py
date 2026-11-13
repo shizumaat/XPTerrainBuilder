@@ -21,7 +21,10 @@ from elevation_access.base_tiles import (
     cached_elevation_file_is_valid,
 )
 from elevation_access.gdal_support import gdal, has_gdal
-from elevation_access.registry import register_access_strategy
+from elevation_access.registry import (
+    ACCESS_STRATEGIES,
+    register_access_strategy,
+)
 from elevation_access.strategies.degree_named_cog import DegreeNamedCogStrategy
 from elevation_access.warp import (
     _geotiff_has_valid_data,
@@ -81,22 +84,36 @@ class DegreeCogBaseTileStrategy:
         return "%s_%s.tif" % (FNAMES.base_file_name(lat, lon),
                               definition["code"])
 
+    @staticmethod
+    def _cell_reader(definition):
+        """The inset strategy that locates this definition's cells:
+        ``cell_strategy=`` (an ``access_strategy`` key; default
+        ``degree_named_cog``, one COG per cell -- ``degree_zipped_cog``
+        reads the cells out of archives)."""
+        key = str(definition.get("cell_strategy") or "degree_named_cog")
+        reader = ACCESS_STRATEGIES.get(key.strip())
+        if reader is None or not issubclass(reader, DegreeNamedCogStrategy):
+            raise ProviderUnavailable(
+                "%s: cell_strategy %r is not a degree-cell strategy"
+                % (definition.get("code"), key))
+        return reader()
+
     def _sources(self, definition, lat, lon):
-        """``/vsicurl/`` inputs, the cell itself LAST (later inputs win),
-        or ``None`` when the cell is not published."""
-        cells = DegreeNamedCogStrategy()
-        url = cells._cell_url(definition, lat, lon)
-        if not cells._url_exists(url):
+        """GDAL inputs, the cell itself LAST (later inputs win), or
+        ``None`` when the cell is not published."""
+        cells = self._cell_reader(definition)
+        own = cells.cell_source(definition, lat, lon)
+        if not own:
             return None
         east = (lon + 1 + 180) % 360 - 180
         sources = []
         for (lat0, lon0) in ((lat - 1, east), (lat - 1, lon), (lat, east)):
             if lat0 < -90:
                 continue
-            neighbour = cells._cell_url(definition, lat0, lon0)
-            if cells._url_exists(neighbour):
-                sources.append("/vsicurl/" + neighbour)
-        return sources + ["/vsicurl/" + url]
+            neighbour = cells.cell_source(definition, lat0, lon0)
+            if neighbour:
+                sources.append(neighbour)
+        return sources + [own]
 
     def ensure_tile(self, definition, lat, lon, verbose=True):
         cache_path = self.tile_cache_path(definition, lat, lon)

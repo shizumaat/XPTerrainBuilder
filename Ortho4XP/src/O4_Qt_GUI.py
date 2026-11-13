@@ -3251,7 +3251,7 @@ class MainWindow(QMainWindow):
         ``TileImageryAdoption``.
         """
         self._refresh_imagery_menus()
-        selection_key = (self.output_dir(), frozenset(selection),
+        selection_key = (self.working_dir(), frozenset(selection),
                          frozenset(t for t in selection if t in self._built))
         if selection_key == self._combos_synced_to:
             return

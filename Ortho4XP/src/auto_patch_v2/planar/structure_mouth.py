@@ -165,6 +165,15 @@ def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: Lin
             continue
         if not airside and any(_own_road(r, p, half + rim_off, grid) for r in (axis, *routes)):
             continue                                  # clause 4: the ramp's own road
+        if not airside and any(_own_ribbon(r, p, half + rim_off, grid) for r in (axis, *routes)):
+            # #1938 round 3: a pack road polygon that is the ramp's road where
+            # the axis runs in it and widens elsewhere -- the ramp passes
+            # along it; what lies BESIDE the corridor still stops (19o)
+            rest = p.difference(_extend_back(axis, 2.0 * axis.length + half).buffer(
+                half + rim_off + tn.wall_gap_m + grid, cap_style="flat"))
+            if not rest.is_empty and rest.area > 0.0:
+                out.append((rest, c.ref))
+            continue
         out.append((p, c.ref))                        # clauses 2 and 4
     return out
 
@@ -186,6 +195,51 @@ def _own_road(axis: LineString, poly: Polygon, reach: float, grid: float) -> boo
     pavement the ramp runs beside or through, and stops it."""
     width = _narrow_width(poly)
     return width <= 2.0 * reach + grid and _runs_along(axis, poly, width, grid)
+
+
+def _own_ribbon(axis: LineString, poly: Polygon, reach: float, grid: float) -> bool:
+    """Clause 4's test read WHERE THE AXIS RUNS (#1938 round 3): ``poly`` is
+    no wider than the corridor across the axis (the median of its sections
+    square to the axis over the stretch the axis runs inside it) and the
+    axis runs along it.  A pack's road polygon paves the carriageways the
+    ramp is and widens into a forecourt or junction past it (measured EGLL
+    ``dsf:pol652``: 22-25 m across the dual where the ramp runs, inside the
+    entrance object's walls from 42 m, 42.7 m only at its far end); its
+    rotated rectangle (:func:`_own_road`) reads the forecourt."""
+    inside = axis.intersection(poly)
+    if inside.length <= grid:
+        return False                       # the axis never runs in it
+    width = _cross_width(axis, poly, inside, grid)
+    return width <= 2.0 * reach + grid and inside.length > width + grid
+
+
+def _cross_width(axis: LineString, poly: Polygon, inside, grid: float) -> float:
+    """The median width of ``poly`` square to ``axis`` at stations (every
+    ``_PROFILE_STEP_M`` or ``grid``) along ``inside``, the axis's own run
+    inside it: the section through the station only."""
+    step = max(grid, _PROFILE_STEP_M)
+    far = 10.0 * math.sqrt(max(poly.area, 1.0))
+    widths: list[float] = []
+    for piece in getattr(inside, "geoms", (inside,)):
+        if piece.geom_type != "LineString" or piece.length <= 0.0:
+            continue
+        t = 0.0
+        while t <= piece.length:
+            q = piece.interpolate(t)
+            s = axis.project(q)
+            a = axis.interpolate(max(0.0, s - step))
+            b = axis.interpolate(min(axis.length, s + step))
+            L = math.hypot(b.x - a.x, b.y - a.y) or 1.0
+            nx, ny = -(b.y - a.y) / L, (b.x - a.x) / L
+            cut = LineString([(q.x - nx * far, q.y - ny * far),
+                              (q.x + nx * far, q.y + ny * far)]).intersection(poly)
+            widths.extend(g.length for g in getattr(cut, "geoms", (cut,))
+                          if g.geom_type == "LineString" and g.distance(q) <= 1e-6)
+            t += step
+    if not widths:
+        return math.inf
+    widths.sort()
+    return widths[len(widths) // 2]
 
 
 def _narrow_width(poly: Polygon) -> float:

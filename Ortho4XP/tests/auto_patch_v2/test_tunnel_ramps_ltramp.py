@@ -292,3 +292,47 @@ def test_a_kept_mouth_with_no_face_at_its_cap_is_still_refused(law):
         _cells(20.0, "graded_strip"), law)
     assert tunnels == ()
     assert len(st.refused) == 2 and all("carries the road" in r for r in st.refused), st.refused
+
+
+class _Face(_Berm):
+    """A cover 6 m high over |x| < 26 whose face the terrain model spreads
+    over 6 m (26 <= |x| < 32, 1 m per m): the mapped ends at |x| = 30 stand
+    on the face's slope, as a resampled lidar draws a near-vertical one."""
+
+    def __init__(self, *a, run: float = 6.0, **kw):
+        super().__init__(*a, **kw)
+        self.run = run
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0 + 6.0 * min(1.0, max(0.0, (26.0 + self.run - abs(x)) / self.run))
+
+    def posting_m(self) -> float:
+        return 10.0
+
+
+def test_a_kept_mouths_cap_stands_at_the_top_of_its_face(law):
+    """#1938 round 3: the solve holds a KEPT mouth's cap on the DEM, so a cap
+    on the face's slope drew a short face (EGLL north: 5 m of the 8.6 m the
+    survey shows).  The mouth moves into the bore until its cap stands at
+    the top of the face, and the portal face is drawn full height."""
+    tn = law.tables.structures.tunnel
+    rim_off = tn.wall_gap_m + tn.wall_band_width_m
+    _cl, tunnels, st = build_structures(
+        _airport(law, _Face(6.0, 30.0, notch=False), _bore_ways()),
+        _cells(20.0, "graded_strip"), law)
+    assert len(tunnels) == 2, st.refused
+    for t in tunnels:
+        assert t.mouth_z == pytest.approx(700.0, abs=0.05), t.notes
+        assert t.mouth_dem_z >= 706.0 - law.tables.structures.placement.split_tol_m, t.notes
+        assert t.depth_m == pytest.approx(t.mouth_dem_z - t.mouth_z, abs=1e-6)
+        mouth_x = abs(t.axis[0][0])
+        assert 26.0 - rim_off - 0.6 <= mouth_x < 30.0 - 1.0, (mouth_x, t.notes)
+        assert any("round 3" in n for n in t.notes), t.notes
+
+    # a climb longer than one posting of the terrain model is the hillside's
+    # slope, not a face it spread: the mouth stays at its mapped end
+    _cl, tunnels, st = build_structures(
+        _airport(law, _Face(6.0, 30.0, notch=False, run=30.0), _bore_ways()),
+        _cells(20.0, "graded_strip"), law)
+    assert all(abs(t.axis[0][0]) == pytest.approx(30.0, abs=1e-6) for t in tunnels), \
+        [(t.axis[0], t.notes) for t in tunnels]

@@ -411,3 +411,26 @@ def test_under_an_entrances_walls_the_ramp_climbs_at_the_wall_foot_slope(law):
     assert tunnels and all(t.design_grade <= tn.ramp_max_grade + 1e-9 for t in tunnels)
     _cl, tunnels, st = _pinned_run(law, [], wall_reach_m=40.0, foot_grade=0.01)
     assert tunnels and all(t.design_grade >= tn.ramp_grade - 1e-9 for t in tunnels)
+
+
+def test_a_stop_beyond_an_entrances_walls_clips_but_never_steepens_them(law):
+    """#1938 round 3: under an entrance object's walls the grade is the
+    walls' (S3), so a stop beyond them clips the ramp -- at the station ON
+    the wall end when the stop allows it -- and the ramp ends free (08-07
+    ruling 3); 2026-10-08c (1)'s refit, which steepened the whole ramp to top
+    out before the stop, would bury the wall feet (EGLL: 9.65 % against the
+    feet's 7.5 %, the 44 m floor 1.3 m over them)."""
+    beyond = ("beyond", (135.0, -30.0, 160.0, 30.0))
+    _cl, tunnels, st = _pinned_run(law, [beyond], wall_reach_m=40.0, foot_grade=0.075)
+    east = [t for t in tunnels if t.axis[0][0] > 0]
+    assert east, st.refused
+    t = east[0]
+    assert t.design_grade == pytest.approx(0.075, abs=1e-6), t.notes
+    assert max(x for x, _y in t.axis) < 135.0 and t.clipped_by == "beyond"
+    assert any("round 3" in n for n in t.notes), t.notes
+    # a stop just past the wall end: the ramp reaches the wall end itself
+    _cl, tunnels, st = _pinned_run(law, [("past", (102.0, -30.0, 130.0, 30.0))],
+                                   wall_reach_m=40.0, foot_grade=0.075)
+    east = [t for t in tunnels if t.axis[0][0] > 0]
+    assert east and max(x for x, _y in east[0].axis) == pytest.approx(100.0, abs=0.6), \
+        (st.refused, east[0].axis if east else None)

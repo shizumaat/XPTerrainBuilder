@@ -185,3 +185,30 @@ def test_a_road_joining_the_ramps_road_is_a_junction_never_a_stop():
                    {"highway": "service"})]
     got = _junction_refs(SimpleNamespace(osm_ways=ways), own, 1.0)
     assert got == {"small_roads:-809"}
+
+
+def test_a_pack_road_that_widens_past_the_ramp_is_still_its_own_road(law):
+    """Clause 4 read where the axis runs (#1938 round 3): a pack road polygon
+    paving the ramp's carriageways that widens into a forecourt further out
+    (EGLL ``dsf:pol652``: 22-25 m where the ramp runs, 42.7 m at its far end)
+    is the ramp's own road -- its rotated rectangle read the forecourt and
+    made the whole road a stop.  What lies BESIDE the corridor still stops
+    the ramp (2026-10-19o); a lot as wide as the forecourt is still a stop."""
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    tn = law.tables.structures.tunnel
+    half, rim_off = 3.5, tn.wall_gap_m + tn.wall_band_width_m
+    road = Polygon([(64, -3.5), (140, -3.5), (140, -40), (170, -40), (170, 3.5), (64, 3.5)])
+    cells = [Cell(0, "service_road", "pack_road", tuple(road.exterior.coords)[:-1], (), None,
+                  None, "groundside", "road", {}),
+             Cell(1, "parking_lot", "lot", _rect(200, -40, 260, 40), (), None, None,
+                  "groundside", "lot", {})]
+    polys = [Polygon(c.ring) for c in cells]
+    axis = LineString([(60.0, 0.0), (900.0, 0.0)])
+    got = mouth_stops(cells, polys, law, airside_cut_roles(law), axis, (60.0, 0.0), half,
+                      rim_off, (), grid)
+    refs = [r for _p, r in got]
+    assert refs == ["pack_road", "lot"], refs
+    beside = got[0][0]
+    assert beside.distance(axis) >= half + rim_off + tn.wall_gap_m - 1e-6   # the forecourt only
+    assert beside.area == pytest.approx(30.0 * (40.0 - half - rim_off - tn.wall_gap_m - grid),
+                                        rel=0.02)

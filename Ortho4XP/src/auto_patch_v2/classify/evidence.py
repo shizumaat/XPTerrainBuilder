@@ -84,7 +84,8 @@ class Evidence:
     #: OSM ``highway=*`` road centrelines on pavement, deduped against the
     #: 1206 routes (owner 2026-09-04j evidence; ``rules.osm_roads``).
     road_chains: list[Chain] = _dc.field(default_factory=list)
-    #: OSM ``amenity=parking`` polygons (``rules.lot.parking_cover_fraction``).
+    #: OSM ``amenity=parking`` polygons (``rules.lot.parking_cover_fraction``),
+    #: :func:`_parking_polys` over the ``parking`` feed (#1854).
     parking_polys: list[tuple[str, Polygon]] = _dc.field(default_factory=list)
     #: THE SKIRTED PADS NEVER MINTED (owner RULINGS 2026-09-10ag, spec
     #: §22.2): one line per candidate pad dropped because skirted
@@ -327,9 +328,7 @@ def build_evidence(airport: Airport, rules: Rules,
                                                         law, runway_union)
     road_chains = _osm_roads(airport, truck_chains, pavement_union, rules,
                              len(taxi_chains) + len(truck_chains))
-    parking = [(f"osm:{w.id}", p) for w in airport.osm_ways
-               if w.closed and w.tags.get("amenity") == "parking"
-               for p in [polygon_from(w.points[:-1])] if p is not None]
+    parking = _parking_polys(airport)
 
     # main's pad set FIRST, so the module's report state is the lane's
     base_pads = None
@@ -356,6 +355,23 @@ def build_evidence(airport: Airport, rules: Rules,
                     terminal, dropped, leadins, len(dsf_pav), dsf_dropped,
                     road_chains, parking, skirted, letter_counts, base_pads,
                     jetway_ground=jetway_ground, wall_clip=wall_clip)
+
+
+def _parking_polys(airport: Airport) -> list[tuple[str, Polygon]]:
+    """The mapped SURFACE car parks (#1854): closed ``amenity=parking``
+    ways from every feed (the ``parking`` feed fills them; an aerodrome
+    feed may carry one too — a way read twice unions to itself).  An
+    ``underground`` car park is not the ground a page is drawn on: a
+    garage under a forecourt says nothing about what the forecourt is."""
+    out: dict[str, Polygon] = {}
+    for w in airport.osm_ways:
+        if not w.closed or w.tags.get("amenity") != "parking" or \
+                w.tags.get("parking") == "underground":
+            continue
+        p = polygon_from(w.points[:-1])
+        if p is not None:
+            out.setdefault(f"osm:{w.id}", p)
+    return list(out.items())
 
 
 def _wall_cut(airport: Airport, rules: Rules):

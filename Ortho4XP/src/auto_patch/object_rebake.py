@@ -1850,14 +1850,28 @@ def check(pack_root: str, mesh_path: str) -> str:
     return "STALE"
 
 
-def _v2_record_paths(pack_root: str) -> list[str]:
+def _tile_bucket(tile: str | None) -> str | None:
+    """The 10°x10° ``Earth nav data`` folder of ``tile`` (``"+46+008"`` ->
+    ``"+40+000"``); ``None`` without a tile or for a name that is not one."""
+    if not tile or len(tile) != 7:
+        return None
+    try:
+        return FNAMES.round_latlon(int(tile[:3]), int(tile[3:]))
+    except ValueError:
+        return None
+
+
+def _v2_record_paths(pack_root: str, tile: str | None = None) -> list[str]:
     """Every v2 per-DSF placement record in a pack (#26).
 
     ONE ``listdir`` of ``Earth nav data/`` plus one ``stat`` per 10°x10°
     bucket — never a deep walk: :func:`modified_packs` runs this for
     every pack in Custom Scenery.  Both layouts are read: the record
     lands beside its DSF, which is normally in a bucket folder but may
-    sit directly in ``Earth nav data/``."""
+    sit directly in ``Earth nav data/``.  With ``tile`` only the records
+    that can name its DSF: the one beside and its own bucket's -- two
+    stats, no ``listdir`` (#2055: the app asks per selected tile, at its
+    start too, across every pack in Custom Scenery)."""
     from auto_patch_v2.model.placement import PROVENANCE_FILENAME as V2_NAME
 
     nav = os.path.join(pack_root, "Earth nav data")
@@ -1865,6 +1879,10 @@ def _v2_record_paths(pack_root: str) -> list[str]:
     beside = os.path.join(nav, V2_NAME)
     if os.path.isfile(beside):
         found.append(beside)
+    bucket = _tile_bucket(tile)
+    if bucket is not None:
+        candidate = os.path.join(nav, bucket, V2_NAME)
+        return found + [candidate] if os.path.isfile(candidate) else found
     try:
         entries = sorted(os.listdir(nav))
     except OSError:
@@ -1888,7 +1906,7 @@ def _v2_record_entries(record_path: str) -> dict[str, dict]:
     return {name: doc} if isinstance(name, str) and name else {}
 
 
-def _v2_status(pack_root: str) -> dict[str, int]:
+def _v2_status(pack_root: str, tile: str | None = None) -> dict[str, int]:
     """``{tile_name: objects}`` from a pack's v2 placement records (#26).
 
     The v2 engine writes NO reanchor sidecar — it records what it did per
@@ -1896,9 +1914,10 @@ def _v2_status(pack_root: str) -> dict[str, int]:
     to :func:`modified_packs`, and "restore originals" never offered it.
     Read here in :func:`pack_status`'s frame: the tile is the DSF's own
     name (``+18-064.dsf`` -> ``+18-064``), and the count is what the
-    write changed — conversions + row seats + minted bodies."""
+    write changed — conversions + row seats + minted bodies.  ``tile``:
+    :func:`_v2_record_paths`' narrowing (other tiles may still be listed)."""
     by_tile: dict[str, int] = {}
-    for record_path in _v2_record_paths(pack_root):
+    for record_path in _v2_record_paths(pack_root, tile):
         for basename, entry in _v2_record_entries(record_path).items():
             counts = entry.get("counts")
             counts = counts if isinstance(counts, dict) else {}
@@ -1913,14 +1932,15 @@ def _v2_status(pack_root: str) -> dict[str, int]:
     return by_tile
 
 
-def recorded_dsfs(pack_root: str, record_key: str) -> list[tuple[str, dict]]:
+def recorded_dsfs(pack_root: str, record_key: str,
+                  tile: str | None = None) -> list[tuple[str, dict]]:
     """``[(dsf path, record entry), ...]`` of the pack's DSFs whose record
     carries a ``record_key`` row — a user's choice re-applied on every
     write: the X-Plane 12 3D forest upgrade (#1360), the "Optimise pack"
     recipe (#1707) — in record order; the same no-deep-walk read as
-    :func:`_v2_status`."""
+    :func:`_v2_status` (``tile`` narrows it the same way)."""
     found = []
-    for record_path in _v2_record_paths(pack_root):
+    for record_path in _v2_record_paths(pack_root, tile):
         for basename, entry in _v2_record_entries(record_path).items():
             if isinstance(entry.get(record_key), dict):
                 found.append((os.path.join(os.path.dirname(record_path),
@@ -1929,16 +1949,17 @@ def recorded_dsfs(pack_root: str, record_key: str) -> list[tuple[str, dict]]:
 
 
 def _recorded_by_tile(pack_root: str, record_key: str,
-                      count: _t.Callable[[dict], int]) -> dict[str, int]:
+                      count: _t.Callable[[dict], int],
+                      tile: str | None = None) -> dict[str, int]:
     """``{tile_name: count(row)}`` of :func:`recorded_dsfs`."""
     by_tile: dict[str, int] = {}
-    for dsf, entry in recorded_dsfs(pack_root, record_key):
-        tile = os.path.splitext(os.path.basename(dsf))[0]
+    for dsf, entry in recorded_dsfs(pack_root, record_key, tile):
+        name = os.path.splitext(os.path.basename(dsf))[0]
         try:
             n = int(count(entry[record_key]))
         except (AttributeError, TypeError, ValueError):
             n = 0
-        by_tile[tile] = by_tile.get(tile, 0) + n
+        by_tile[name] = by_tile.get(name, 0) + n
     return by_tile
 
 
@@ -2083,7 +2104,9 @@ def modified_packs(scenery_dir: str, tile: str | None = None,
     for the v2 records — no deep walks.  ``tile`` (``"+46+008"``)
     restricts to packs with objects rebaked for that tile, and each
     entry's ``objects`` then counts that tile's objects only; without it,
-    the pack's total.  Front ends (the mac app's selection pane, a future
+    the pack's total.  With ``tile`` only its bucket's v2 records are read
+    (:func:`_v2_record_paths`), so ``tiles`` lists the v2 tiles of that
+    bucket only.  Front ends (the mac app's selection pane, a future
     Qt panel) list these and offer :func:`restore` per pack.
 
     BOTH ENGINES (#26).  This read the v1 reanchor sidecar only, so a
@@ -2107,7 +2130,7 @@ def modified_packs(scenery_dir: str, tile: str | None = None,
         if not os.path.isdir(pack_root):
             continue
         by_tile = pack_status(pack_root)
-        v2_by_tile = _v2_status(pack_root)
+        v2_by_tile = _v2_status(pack_root, tile)
         if by_tile is None and not v2_by_tile:
             continue
         by_tile = by_tile or {}
@@ -2122,14 +2145,15 @@ def modified_packs(scenery_dir: str, tile: str | None = None,
         from auto_patch_v2.airport import pack_health as _ph
         from auto_patch_v2.airport import pack_optimise as _po
         forests = _recorded_by_tile(pack_root, _pf.RECORD_KEY,
-                                    lambda r: len(r.get("renames") or ()))
+                                    lambda r: len(r.get("renames") or ()), tile)
         # every optimised DSF counts at least 1, so a recipe that dropped
         # nothing still shows its Undo
         optimised = _recorded_by_tile(
             pack_root, _po.RECORD_KEY,
-            lambda r: max(1, int((r.get("dedupe") or {}).get("dropped", 0))))
+            lambda r: max(1, int((r.get("dedupe") or {}).get("dropped", 0))),
+            tile)
         # #1978: the vendor defects the health check repaired
-        repaired = _recorded_by_tile(pack_root, _ph.RECORD_KEY, _ph.count)
+        repaired = _recorded_by_tile(pack_root, _ph.RECORD_KEY, _ph.count, tile)
         results.append({
             "pack_name": name,
             "pack_path": pack_root,

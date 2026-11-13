@@ -1058,7 +1058,9 @@ def plan_mode(args) -> int:
         txt = (open(args.plan_rows, encoding="utf-8").read()
                if os.path.isfile(args.plan_rows) else args.plan_rows)
         keep = {int(t) for t in txt.replace(",", " ").split()}
-        only = (lambda b: int(b["placement"]["index"]) in keep)
+
+        def only(b):
+            return int(b["placement"]["index"]) in keep
     rep = dsp.compare(args.plan, mesh, args.base_plan, args.worse, args.base_rigid, only)
     rep["mesh"] = mesh.sources
     dsp.print_compare(rep, args.top)

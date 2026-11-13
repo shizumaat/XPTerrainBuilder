@@ -267,7 +267,7 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                      bridge: _t.Sequence[str] = (),
                      geom_boxes: _t.Sequence = (),
                      column: "tuple | None" = None,
-                     terrain: "_tb.TerrainLaw | None" = None) -> Body:
+                     terrain: _tb.TerrainLaw | None = None) -> Body:
     """§16 (3): the body written at the GROUND UNDER ITS OWN FOOTPRINT.
 
     ``column`` (#1908, ``free_column.free_columns``): a FREE-STANDING
@@ -298,8 +298,9 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
     elif tseat is not None:
         clat, clon, y0, z, margin = tseat
         why = (f"{OWN_GROUND}: {_tb.TERRAIN_CARRIED}: frame zero + b stands "
-               f"{-margin:.2f} m under this ground (#1884), base y {y0:+.2f} "
-               f"on the ground at its low side")
+               f"{abs(margin):.2f} m {'over' if margin > 0 else 'under'} this ground "
+               f"(#1884, RULINGS 2026-11-13y (2)), base y {y0:+.2f} on the ground "
+               f"at its low side")
     else:
         clat, clon = 0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])
         z = _pc.ground_under(surface, _pc.foot_boxes(

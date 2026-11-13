@@ -142,9 +142,13 @@ def free_bridge_zeros(staged: _t.Sequence[_t.Any], surface: _ar.Surface, *,
 
 
 def _overlap(a: tuple, b: tuple) -> float:
-    """Plan overlap of two ``(lat0, lon0, lat1, lon1)`` boxes, deg²."""
-    return (max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
-            * max(0.0, min(a[3], b[3]) - max(a[1], b[1])))
+    """Intersection over union of two ``(lat0, lon0, lat1, lon1)`` plan
+    boxes (a deck's own rails share its box; a neighbour's larger box that
+    merely contains it scores less)."""
+    inter = (max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+             * max(0.0, min(a[3], b[3]) - max(a[1], b[1])))
+    union = ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter)
+    return inter / union if union > 0.0 else 0.0
 
 
 def deck_of_body(b: _t.Any, resource: str,
@@ -152,7 +156,8 @@ def deck_of_body(b: _t.Any, resource: str,
     """The deck of a free bridge frame this body moves with: the deck its
     footprint names (``Body.bridge_of``, §16e (3)), else its own member's
     when that member is the deck, else in a ONE-deck frame that deck, else
-    the deck whose ring box its plan box overlaps most (a curved ramp's
+    the deck whose ring box its plan box overlaps most, by intersection
+    over union (a curved ramp's
     own rails, whose hull centre falls off the deck's footprint); ``None``
     where it overlaps none."""
     key = str(getattr(b, "bridge_of", "") or "").split("#", 1)[0]

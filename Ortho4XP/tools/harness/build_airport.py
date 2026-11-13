@@ -917,6 +917,7 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
                     "overpass QUERY, and without it the DEM prep has no "
                     "smoothing masks"))
     out.extend(unverified_inset_negatives(state, lat, lon))
+    out.extend(unsettled_inset_stamp_rows(state, lat, lon))
     if not icao:
         # A TILE build's inset pass runs over EVERY selected aerodrome of
         # the tile (#583): each one it would re-fetch is named here.
@@ -935,6 +936,46 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
     out.extend(schema_stale_osm_layers(root, lat, lon))
     out.extend(missing_pack_dsf_dumps(root, lat, lon, icao))
     return out
+
+
+def _configured_tile(lat, lon):
+    """The tile as a build reads it: ``Tile`` plus its configuration."""
+    import O4_Config_Utils as CFG
+
+    tile = CFG.Tile(int(lat), int(lon), "")
+    try:
+        tile.read_from_config()
+    except Exception:
+        pass
+    return tile
+
+
+def unsettled_inset_stamp_rows(state, lat, lon) -> list:
+    """The tile's inset completion stamp, as a ``(scope, artifact, why)``
+    row, when the engine's own ``is_cached`` says it no longer settles the
+    tile: every build (airport or tile) runs the tile's inset pass, and
+    that pass REWRITES ``complete.json`` -- a shared-repo write the guard
+    refused only at the END of a full build (KDEN 2026-11-12, rc=1).
+    Named up front instead; ``--refresh-data dem`` re-settles it
+    (:func:`_resettle_inset_stamp`)."""
+    if not state["airport_insets"] or not state["airports_layer"]:
+        return []           # refused for the whole cache / layer above
+    if not IPF.airports_layer_is_cached(lat, lon):
+        return []
+    try:
+        import O4_Airport_Elevation_Insets as INSETS
+        if INSETS.is_cached(_configured_tile(lat, lon)):
+            return []
+        stamp = INSETS.inset_completion_stamp_path(lat, lon)
+    except Exception as exc:
+        print(f"  [harness] inset-stamp check skipped ({exc!r})")
+        return []
+    return [("dem",
+             f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
+             f"{os.path.basename(stamp)}",
+             "the inset completion stamp no longer settles the tile (its "
+             "airports layer, inset mode or listed rasters changed), so the "
+             "build's inset pass would REWRITE it mid-build")]
 
 
 def insets_expected(state, lat, lon, icao) -> bool:
@@ -2687,8 +2728,12 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
         derived += _complete_pending_insets(root, lat, lon, prog,
                                             tile_wide=not icao)
         derived += _fetch_base_void_fills(lat, lon, prog)
-        if not icao:
-            derived += _resettle_inset_stamp(lat, lon, prog)
+        # The stamp is TILE-scoped: an airport build runs the tile's whole
+        # inset pass and rewrites it exactly as a tile build does, so the
+        # refresh re-settles it whatever ``icao`` names (KDEN 2026-11-12:
+        # gated on ``not icao``, the refresh said "nothing to derive" and
+        # every KDEN build was refused for writing complete.json.tmp).
+        derived += _resettle_inset_stamp(lat, lon, prog)
         if not derived:
             prog.note(f"refresh dem: tile {lat:+d}{lon:+d} already has its "
                       f"base raster and its airport insets — nothing to "
@@ -2758,6 +2803,7 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     derived += _complete_pending_insets(root, lat, lon, prog,
                                         tile_wide=not icao)
     derived += _fetch_base_void_fills(lat, lon, prog)
+    derived += _resettle_inset_stamp(lat, lon, prog)
     prog.note(f"refresh dem done: {derived}")
     return {"tile": [lat, lon], "derived": derived}
 
@@ -2787,14 +2833,9 @@ def _resettle_inset_stamp(lat, lon, prog) -> list:
     re-settles and writes the stamp.  A tile it already settles costs one
     JSON read."""
     import O4_Airport_Elevation_Insets as INSETS
-    import O4_Config_Utils as CFG
     import O4_File_Names as FNAMES
 
-    tile = CFG.Tile(int(lat), int(lon), "")
-    try:
-        tile.read_from_config()
-    except Exception:
-        pass
+    tile = _configured_tile(lat, lon)
     if INSETS.is_cached(tile):
         return []
     if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):

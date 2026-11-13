@@ -226,11 +226,6 @@
  },
  {
   "path": "Ortho4XP/src/O4_World_Drape.py",
-  "name": "is_drape",
-  "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
- },
- {
-  "path": "Ortho4XP/src/O4_World_Drape.py",
   "name": "pol_text",
   "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
  },

@@ -16,6 +16,7 @@ from auto_patch_v2.airport import pack_terrain as PT  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
 from auto_patch_v2.airport import terrain_shaped as TS  # noqa: E402
 from auto_patch_v2.airport.obj8 import parse_obj8  # noqa: E402
+from auto_patch_v2.model.frame import Frame  # noqa: E402
 
 STEP = 20.0
 HALF = 400.0
@@ -135,11 +136,16 @@ def test_the_origin_set_rides_the_model_and_the_seat_records(tmp_path):
     class _A:
         terrain_models = (("dsf:obj0", "m.obj", members["dsf:obj0"], 0.0),
                           ("dsf:obj1", "house.obj", members["dsf:obj1"], 2.0))
+        frame = Frame("TEST", (-22.95, -43.15), 11)
     recs = TM.seat_records(_A())
     z0 = models["dsf:obj0"].z0
     assert [r["elevation"] for r in recs] == [round(z0, 3), round(z0 + 2.0, 3)]
     assert TM.hideable_paths(recs) == ("m.obj",)
     assert all(r["seat"] == TS.MODEL_SEAT for r in recs)
+    # owner RULINGS 2026-11-13k: the model's own row names what the tile
+    # build cuts the ground to -- its file, anchor and heading
+    assert recs[0]["cut"] == {"file": path, "lat": -22.95, "lon": -43.15, "heading": 0.0}
+    assert "cut" not in recs[1]
 
 
 def test_the_seat_record_writes_an_msl_row():

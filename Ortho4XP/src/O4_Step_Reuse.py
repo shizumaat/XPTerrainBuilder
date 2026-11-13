@@ -337,6 +337,15 @@ def _inset_files(tile) -> list:
     return INSETS.list_cached_inset_dems(tile.lat, tile.lon)
 
 
+def _terrain_cut(tile) -> list:
+    """The terrain models whose ground the vector step cuts (owner RULINGS
+    2026-11-13k): hiding one in "Hide terrain objects", or showing it
+    again, re-runs the cut."""
+    from auto_patch import terrain_cut_stage
+    return sorted(str(r.get("id")) for r in terrain_cut_stage.cut_records(
+        FNAMES.patch_dir(tile.lat, tile.lon)))
+
+
 # Keys a record written by an older engine may hold that are no longer
 # part of a step's key: ``engine`` (the engine version, #1248 — a release
 # that leaves a step's code alone must not rebuild it; the ``code``
@@ -371,6 +380,7 @@ def _inputs(tile, step: str, previous_digest: str, osm_files=None) -> dict:
         inputs["scenery_packs"] = _scenery_packs_state(tile)
         inputs["patches"] = _patch_inputs(tile)
         inputs["insets"] = _identity(_inset_files(tile))
+        inputs["terrain_cut"] = _terrain_cut(tile)
     return inputs
 
 

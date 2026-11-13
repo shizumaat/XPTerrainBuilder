@@ -235,6 +235,11 @@ def test_no_pack_publishes_nothing_every_build_publishes(world, tmp_path):
 def test_a_held_tile_waits_staged(world, tmp_path):
     WORLD.world_install(world)
     build = _build(tmp_path)
+    # an earlier version's name in the pack (S4/S5: X-Plane may map it);
+    # with none the tile goes in at once (#2032, below)
+    old = os.path.join(WORLD.pack_dir(world), "textures", "+45+007")
+    os.makedirs(old)
+    open(os.path.join(old, "old.dds"), "wb").close()
     res = PUBLISH._publish_built(world, build, 45, 7,
                                 loaded=lambda la, lo: True)
     assert res["state"] == "staged"
@@ -242,6 +247,14 @@ def test_a_held_tile_waits_staged(world, tmp_path):
     assert PUBLISH._swap_waiting(world, lambda la, lo: build,
                                 loaded=lambda la, lo: False) == ["+45+007"]
     assert WP.holds_tile(world, 45, 7)
+
+
+def test_2032_a_held_tile_the_pack_names_nothing_of_goes_in(world, tmp_path):
+    WORLD.world_install(world)
+    build = _build(tmp_path)
+    res = PUBLISH._publish_built(world, build, 45, 7,
+                                loaded=lambda la, lo: True)
+    assert res["state"] == "swapped" and WP.holds_tile(world, 45, 7)
 
 
 def test_scanners_read_placeholders_as_no_tile(world, tmp_path):

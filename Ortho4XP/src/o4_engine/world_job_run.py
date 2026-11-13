@@ -317,7 +317,10 @@ class _PackPublisher:
         ``merge``: a tile X-Plane holds, swapped for a parked aircraft
         (RULINGS 2026-11-12c (3)): merged in file by file, no name removed
         (rule S5, ``O4_World_Pack.swap_in(merge=True)``); the user is
-        offered the reload that shows it (``reload_offer``)."""
+        offered the reload that shows it (``reload_offer``).  ``held``
+        keeps the tile staged only while the pack holds a real version of
+        it (``O4_World_Pack.nothing_held``, #2032: a drape over a
+        placeholder X-Plane loaded goes in as soon as it is ready)."""
         from . import imagery_follow as FOLLOW
         from . import world_publish as PUBLISH
         lat, lon = tile
@@ -335,14 +338,14 @@ class _PackPublisher:
             return "swapped"
         if os.path.isfile(staged_dsf):
             self._pending.pop(tile, None)
-            if held:
-                return "staged"
+            if held and not WP.nothing_held(pack, lat, lon):
+                return "staged"             # S4: a real tile X-Plane holds
             with FOLLOW.paused("world swap", tiles=[WP.tile_name(lat, lon)]):
                 if merge:
                     _merge_held(pack, staged, lat, lon)
                 else:
                     WP.swap_staged(pack, WORLD.staging_root(),
-                                   lambda la, lo: (la, lo) != (lat, lon))
+                                   only=(lat, lon))
             if kind != "drape":
                 PUBLISH._after_swap(self.scenery_dir,
                                     self.build_dir_of(lat, lon), lat, lon)

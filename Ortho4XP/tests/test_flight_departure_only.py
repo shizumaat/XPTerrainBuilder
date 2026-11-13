@@ -185,3 +185,33 @@ def test_a_flight_with_a_destination_refuses_a_new_one():
     manager.set_destination(0.0, FP.Waypoint("DEST", *DEST))
     with pytest.raises(ValueError, match="divert"):
         manager.set_destination(1.0, FP.Waypoint("X", 50.0, -60.0))
+
+
+def test_2032_ring_drapes_go_in_over_held_placeholders_and_keep_the_offer():
+    """#2032 (KTUS): X-Plane loaded the ring's placeholders before its
+    drapes were ready, so rule S3 kept them staged; they never went in
+    once the app closed.  Over a placeholder with no file the publisher
+    swaps at once (``O4_World_Pack.nothing_held``); X-Plane shows the new
+    tiles only at its next load of them, so the ground reload is still
+    offered for them until the witness shows a newer load."""
+    manager, builder = _manager(slots=4)
+    ring = {j.tile for j in manager.jobs}
+    facts = dict(FACTS, xplane_running=True, loads=set(ring),
+                 load_stamps={t: 5.0 for t in ring})
+    manager.facts = lambda: facts
+    parked = {"lat": CYYR[0], "lon": CYYR[1], "agl_m": 0.0, "gs_ms": 0.0}
+    for t in range(1, 60):
+        for tile, _kind, _klass in builder.started:
+            if tile not in {d[0] for d in builder.done}:
+                builder.done.append((tile, True))
+        manager.tick(float(t), parked)
+        if all(j.state == "swapped" for j in manager.jobs):
+            break
+    assert all(j.state == "swapped" for j in manager.jobs)
+    assert set(manager._unread) == ring
+    assert not manager._loaded_real()
+    manager.tick(70.0, parked)
+    assert manager.reload == "offered" and set(manager._ground_tiles) == ring
+    facts["load_stamps"] = {t: 80.0 for t in ring}    # X-Plane read them
+    manager.tick(81.0, parked)
+    assert manager._unread == {} and manager._loaded_real()

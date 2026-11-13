@@ -288,6 +288,10 @@ class FlightManager:
         self._scale: Dict[str, float] = {}
         self._finished: set = set()
         self._seen: set = set()
+        #: Tiles swapped in while X-Plane held their placeholder (#2032,
+        #: ``O4_World_Pack.nothing_held``): X-Plane shows them at its next
+        #: load of them; the witness's load stamp of each at the swap.
+        self._unread: Dict[Tile, Optional[float]] = {}
         self._swap_at = -math.inf
         self._airborne_since: Optional[float] = None
         self._parked_since: Optional[float] = None
@@ -447,6 +451,11 @@ class FlightManager:
         for tile in set(facts.get("loads") or ()) - self._seen:
             self._seen.add(tile)
             self.tracker.witness(*tile)
+        stamps = facts.get("load_stamps") or {}
+        for tile, before in list(self._unread.items()):
+            after = stamps.get(tile)
+            if after is not None and (before is None or after > before):
+                del self._unread[tile]          # X-Plane read the new tile
         if rec is None:
             self.record.phase = ""
             self.position = None
@@ -540,8 +549,8 @@ class FlightManager:
         waiting = [j for j in self.jobs
                    if j.tile in self._finished or j.state == "staged"]
         for job in sorted(waiting, key=lambda j: (j.deadline_s, j.tile)):
-            held = (self.held(job.tile, facts)
-                    or now - self._swap_at < SWAP_SPACING_S)
+            loaded = self.held(job.tile, facts)
+            held = loaded or now - self._swap_at < SWAP_SPACING_S
             # an upgraded adopted mesh: the staged build replaces the
             # real tile the pack holds (#2025)
             fresh = ({"fresh": True}
@@ -554,6 +563,9 @@ class FlightManager:
             if state == "swapped":
                 self._swap_at = now
                 self._runs.setdefault(job.tile, {})["swapped_at"] = now
+                if loaded:      # in over a held placeholder (#2032)
+                    self._unread[job.tile] = (
+                        facts.get("load_stamps") or {}).get(job.tile)
             self._set(job.tile, state=state)
 
     def _takeoff_s(self, now: float) -> float:
@@ -632,9 +644,12 @@ class FlightManager:
 
     def _loaded_real(self) -> bool:
         """Will X-Plane read the real departure and first-window tiles?
-        Not while one of them waits staged: X-Plane holds its placeholder
-        (rule S3 refused the swap), so only a reload reads it (S6 (a))."""
-        return not any(j.klass == SCHEDULE.P0 and j.state == "staged"
+        Not while one of them waits staged (rule S3 refused the swap) or
+        went in over a placeholder X-Plane holds (#2032) and has not been
+        read since: X-Plane shows its placeholder, so only a reload reads
+        it (S6 (a))."""
+        return not any(j.klass == SCHEDULE.P0
+                       and (j.state == "staged" or j.tile in self._unread)
                        and j.role in ("departure", "enroute")
                        for j in self.jobs)
 
@@ -720,7 +735,8 @@ class FlightManager:
             return
         self._ground_tiles = [
             j.tile for j in self.jobs if j.klass == SCHEDULE.P0
-            and j.state == "staged" and j.role in ("departure", "enroute")]
+            and (j.state == "staged" or j.tile in self._unread)
+            and j.role in ("departure", "enroute")]
         self.reload = "offered"
         self.board.post("reload_offered_ground")
         self.items = [i._replace(state="done", eta_s=0.0,
@@ -733,6 +749,7 @@ class FlightManager:
             return False
         self.reload = "sent"
         for tile in tiles:
+            self._unread.pop(tile, None)
             self._runs.setdefault(tile, {})["swapped_at"] = now
             self._set(tile, state="swapped")
         return True

@@ -22,6 +22,8 @@ The twins replay that sequence on the fake X-Plane of
 """
 from __future__ import annotations
 
+import os
+
 import O4_XPlane_WebAPI as WEBAPI
 import pytest
 import test_imagery_follow as P3B
@@ -220,6 +222,49 @@ def test_a_kept_departure_has_its_airport_core_fetched(monkeypatch):
     assert not seen["busy"]()
     building.add("+42-123")
     assert seen["busy"]()
+
+
+def test_2032_an_external_departure_of_ours_is_sharpened_in_its_pack(
+        monkeypatch, tmp_path):
+    """#2032 (KTUS): the departure tile was built into its own
+    ``zOrtho4XP_`` pack in Custom Scenery, so the flight saw it as
+    ``external`` (another pack draws the mesh) and sharpened nothing.  An
+    external endpoint's cores are fetched in the folder of the pack X-Plane
+    draws it from (through a link); a foreign pack is handed too and left
+    alone by ``register_built`` (no on-demand imagery record)."""
+    from types import SimpleNamespace as NS
+
+    import O4_Mesh_Order as ORDER
+    from o4_engine import flight_job_run as RUN
+    from o4_engine import imagery_after_build as AFTER
+    build = tmp_path / "Tiles" / "zOrtho4XP_+32-111"
+    (build / "Earth nav data" / "+30-120").mkdir(parents=True)
+    scenery = tmp_path / "Custom Scenery"
+    scenery.mkdir()
+    os.symlink(build, scenery / "zOrtho4XP_+32-111")
+    dsf = scenery / "zOrtho4XP_+32-111" / "Earth nav data" / "+30-120" / "+32-111.dsf"
+    monkeypatch.setattr(ORDER, "drawn_mesh_dsf",
+                        lambda where, lat, lon: str(dsf)
+                        if (lat, lon) == (32, -111) else None)
+    assert RUN.drawn_build_dir(str(scenery), (32, -111)) == os.path.realpath(build)
+    assert RUN.drawn_build_dir(str(scenery), (40, 10)) is None
+    seen = {}
+    monkeypatch.setattr(AFTER, "start", lambda tiles, busy, extra: seen.update(
+        tiles=tiles, busy=busy, extra=extra) or "thread")
+    from collections import namedtuple
+    point = namedtuple("Point", "ident lat lon")
+    dep = point("AAAA", 32.116, -110.941)
+    manager = NS(plan=NS(waypoints=[dep]), jobs=[
+        NS(tile=(32, -111), kind="external", state="external"),
+        NS(tile=(31, -111), kind="drape", state="staged")])
+    session = NS(building_tiles=lambda: set(),
+                 tile_build_dir=lambda lat, lon: "/wrong")
+    assert RUN._sharpen_kept_endpoints(manager, session, str(scenery)) == "thread"
+    assert seen["tiles"] == [(os.path.realpath(build), 32, -111)]
+    assert seen["extra"][(32, -111)] == [("AAAA", 32.116, -110.941)]
+    # the flight's runner passes its Custom Scenery folder; none: nothing
+    seen.clear()
+    assert RUN._sharpen_kept_endpoints(manager, session) is None and not seen
 
 
 # --- a flight plan goes first (owner 2026-11-12T23:40:51Z) ------------------

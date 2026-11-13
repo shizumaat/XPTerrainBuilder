@@ -62,7 +62,7 @@ from .world_job_run import _settings, _utc
 
 __all__ = ["STATUS_EVERY_S", "FULL_FALLBACK_S", "start",
            "stop", "current", "status_event", "pack_state",
-           "estimate", "prefetch_tile"]
+           "estimate", "prefetch_tile", "drawn_build_dir"]
 
 #: Seconds between ``FlightStatus`` events (spec §5.3).
 STATUS_EVERY_S = 2.0
@@ -336,7 +336,7 @@ class _Runner:
                                     self.manager.times[-1])
         _share_slots(self.manager)
         _core_points(self.manager)
-        _sharpen_kept_endpoints(self.manager, session)
+        _sharpen_kept_endpoints(self.manager, session, scenery_dir)
         self.t0 = time.monotonic()
         # the rows and the countdown before the first tick: the pane shows
         # the flight at once, whatever the first tick waits for
@@ -484,14 +484,37 @@ def _core_points(manager) -> None:
                                (point.ident, point.lat, point.lon))
 
 
-def _sharpen_kept_endpoints(manager, session) -> Optional[threading.Thread]:
+def drawn_build_dir(scenery_dir: str, tile) -> Optional[str]:
+    """The folder of the pack X-Plane draws ``tile``'s mesh from (an
+    ``external`` endpoint's: an enabled pack other than the World pack,
+    spec §7.2), through a link to its build folder; None when no pack
+    draws it or the pack list cannot be read."""
+    import O4_Mesh_Order as ORDER
+    try:
+        dsf = ORDER.drawn_mesh_dsf(scenery_dir, int(tile[0]), int(tile[1]))
+    except Exception:                       # an unreadable pack list
+        return None
+    if not dsf:
+        return None
+    # <pack>/Earth nav data/<10 deg>/<tile>.dsf
+    return os.path.realpath(os.path.dirname(os.path.dirname(
+        os.path.dirname(dsf))))
+
+
+def _sharpen_kept_endpoints(manager, session, scenery_dir: str = ""
+                            ) -> Optional[threading.Thread]:
     """RULINGS 2026-11-12c (3), "We always need the high res imagery at an
     airport": a departure or destination tile already ``full`` in the
     World pack is not built, so no publish fetches its airport cores
     (#2028: a tile moved into the pack with 512 px textures stayed coarse
     at the departure).  Its cores around the plan's airports are fetched
     now, on a worker (``imagery_after_build.start``), holding off only
-    while one of those tiles is built or swapped."""
+    while one of those tiles is built or swapped.  An ``external``
+    endpoint (another enabled pack draws its mesh, #2032: a tile built
+    into its own ``zOrtho4XP_`` pack in Custom Scenery) is sharpened in
+    that pack's folder (:func:`drawn_build_dir`) when it is an on-demand
+    build of ours; another tool's pack has no imagery record and is left
+    as it is (``imagery_after_build.register_built``)."""
     import O4_Flight_Plan as FP
 
     from . import imagery_after_build as AFTER
@@ -504,16 +527,21 @@ def _sharpen_kept_endpoints(manager, session) -> Optional[threading.Thread]:
     kept = sorted({tuple(j.tile) for j in manager.jobs
                    if j.kind == "full" and j.state == "swapped"
                    and tuple(j.tile) in points})
-    if not kept:
+    handed = [(session.tile_build_dir(*tile), *tile) for tile in kept]
+    for tile in sorted({tuple(j.tile) for j in manager.jobs
+                        if j.state == "external" and tuple(j.tile) in points}):
+        folder = drawn_build_dir(scenery_dir, tile) if scenery_dir else None
+        if folder:
+            handed.append((folder, *tile))
+    if not handed:
         return None
-    names = {WP.tile_name(*tile) for tile in kept}
+    names = {WP.tile_name(lat, lon) for _d, lat, lon in handed}
 
     def busy() -> bool:
         building = session.building_tiles()
         return building is True or bool(
             names & (set(building or ()) | FOLLOW.held_tiles()))
-    return AFTER.start([(session.tile_build_dir(*tile), *tile) for tile in kept],
-                       busy=busy, extra=points)
+    return AFTER.start(handed, busy=busy, extra=points)
 
 
 def current() -> "Optional[_Runner]":

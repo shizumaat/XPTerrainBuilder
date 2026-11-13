@@ -31,6 +31,12 @@ drawn vertex.  Bars (#1903 brief):
 - ramp relief (way top - floor) > 0 at a CUT-role ramp;
 - no claimed object KEPT with "split undone" in its plan.
 
+DECK STACKS (#1971; the sidecar's ``object_floors`` rows carrying
+``"stack"``): the stack's decks take the DECK bar, never the CUT bar, and
+one STACK row per stack measures D1-D6 (:func:`check_stack`: one zero, the
+floor under the decks, the end lines, nothing through a deck, the walls'
+top, no pad on their caps).
+
 SPLIT-LEVEL BUILDINGS (the sidecar's ``basin_facilities`` of kind
 ``split_level``, ``planar/split_level_pit``): per building, its written
 rows' drawn zero, its lower floor (zero + ``plate_y_m``) against the drawn
@@ -237,7 +243,10 @@ def read_claims(sidecar, tile, plans, pristine):
     for r in sidecar.get("object_cuts", []):
         raw += [("object_cut", r["id"], o) for o in r["objects"]]
     for r in sidecar.get("object_floors", []):
-        raw += [("object_floor", r["id"], o) for o in r["objects"]]
+        # a deck stack's decks (#1971) stand OVER its floor: the DECK bar
+        decks = {d["object"] for d in (r.get("stack") or {}).get("decks", [])}
+        raw += [(DECK_ANCHOR if o in decks else "object_floor", r["id"], o)
+                for o in r["objects"]]
     for r in sidecar.get("deck_anchors", []):
         raw.append((DECK_ANCHOR, f"{r.get('end', '')}", str(r.get("object", ""))))
     claims = []
@@ -370,6 +379,143 @@ def check_site(site, drawn, claims, radius_m, tol):
             row["fails"].append(f"deck under the floor {row['delta']:+.2f}")
     row["verdict"] = ("FAIL" if row["fails"] else
                       "PASS" if row["role"] != "UNCLAIMED" else "-")
+    return row
+
+
+# ── a deck stack (#1971) ────────────────────────────────────────────────
+
+def _local(lat0):
+    kx = M_PER_DEG * math.cos(math.radians(lat0))
+    return (lambda la, lo: ((lo - 0.0) * kx, la * M_PER_DEG),
+            lambda x, y: (y / M_PER_DEG, x / kx))
+
+
+def _every(pts, k):
+    return pts[::k] + ([pts[-1]] if pts and (len(pts) - 1) % k else [])
+
+
+def check_stack(rec, drawn, claims, tol, step=5.0):
+    """One deck stack's STACK row (spec interchange-levels §8.4): D1 one
+    zero (the members' written elevations), D2 the floor under the decks
+    (drawn mesh on the floor's centreline against the walls' drawn bottom),
+    D3 each end line (plate top against the drawn road one ``step``
+    outside), D4 nothing through a deck (plate floor over the drawn mesh,
+    2 m grid), D5 the walls' top (drawn mesh 1 m outside each wall line:
+    within 0.5 m under the top, never over), D6 no pad (3 m outside, on the
+    wall's cap: within 0.5 m of the top)."""
+    from shapely.geometry import Point, Polygon
+    st = rec["stack"]
+    lat0, lon0 = st["floor_line"][len(st["floor_line"]) // 2]
+    to_m, to_ll = _local(lat0)
+    row = {"site": f"stack {st['id']}", "lat": round(lat0, 6), "lon": round(lon0, 6),
+           "role": "STACK", "fails": [], "objects": [], "relief": None, "lowest_any": None}
+    mine = {stem(c.resource) for c in claims if c.claim_id == rec["id"] and c.resource}
+    mine |= {stem(d["resource"]) for d in st["decks"]}
+    x0, y0 = to_m(lat0, lon0)
+    rows = [i for i, p in enumerate(drawn.rows) if stem(p.def_path) in mine
+            and math.hypot(*(numpy.subtract(to_m(p.lat, p.lon), (x0, y0)))) <= 400.0]
+    if not rows:
+        row.update(verdict="-", why="no member row written near the stack")
+        return row
+    elev = {i: _base(drawn, i) for i in rows}
+    by_res = {}
+    for i in rows:
+        by_res.setdefault(stem(drawn.rows[i].def_path), []).append(i)
+    zs = [elev[i] for i in rows]
+    row["d1_spread"] = round(max(zs) - min(zs), 3)
+    if row["d1_spread"] > 0.01:
+        row["fails"].append(f"D1 the members stand {row['d1_spread']:.3f} m apart")
+    walls = by_res.get(stem(rec["resource"]), [])
+    vw = drawn.vertices(walls[0]) if walls else None
+    if vw is None:
+        row["fails"].append("the walls' row is not drawn")
+        row["verdict"] = "FAIL"
+        return row
+    bottom, top = float(numpy.nanmin(vw[2])), elev[walls[0]] + st["crest_y"]
+    row["walls_bottom"], row["walls_top"] = round(bottom, 2), round(top, 2)
+    deck_of = {d["object"]: d for d in st["decks"]}
+    rings = [(d, Polygon([to_m(la, lo) for la, lo in d["ring"]])) for d in st["decks"]]
+    deck_rows = {}
+    for d in st["decks"]:
+        ids = by_res.get(stem(d["resource"]), [])
+        if ids:
+            deck_rows[d["object"]] = ids[0]
+    # D2: the floor under the decks
+    d2, d2_both = [], []
+    lv = {d["level"] for d in st["decks"]}
+    for la, lo in _every(st["floor_line"], 5):
+        z = mesh_z(drawn.mesh, lo, la)
+        if math.isnan(z):
+            continue
+        q = Point(to_m(la, lo))
+        d2.append(z - bottom)
+        if lv and {d["level"] for d, r in rings if r.contains(q)} == lv:
+            d2_both.append(z - bottom)
+    row["d2_worst"] = round(max(d2, key=abs), 2) if d2 else None
+    row["d2_under_all_decks"] = round(max(d2_both, key=abs), 2) if d2_both else None
+    if d2 and abs(row["d2_worst"]) > tol:
+        row["fails"].append(f"D2 the drawn floor stands {row['d2_worst']:+.2f} off the walls' feet")
+    # D3: the end lines; D4: nothing through a deck
+    row["d3"], row["d4"] = [], []
+    for d, ring in rings:
+        i = deck_rows.get(d["object"])
+        if i is None:
+            row["fails"].append(f"deck {d['object']} not drawn")
+            continue
+        c = ring.centroid
+        for e in d["ends"]:
+            pts = [to_m(la, lo) for la, lo in e["stations"]]
+            mx, my = numpy.mean(pts, axis=0)
+            u = numpy.subtract((mx, my), (c.x, c.y))
+            u = u / (numpy.hypot(*u) or 1.0)
+            out = [to_ll(x + u[0] * step, y + u[1] * step) for x, y in pts]
+            ms = [mesh_z(drawn.mesh, lo, la) for la, lo in out]
+            ms = [m for m in ms if not math.isnan(m)]
+            if not ms:
+                continue
+            dz = elev[i] + e["top"] - float(numpy.median(ms))
+            row["d3"].append({"deck": d["object"], "piece": d["piece"], "end": e["end"],
+                              "plate_top": round(elev[i] + e["top"], 2),
+                              "road": round(float(numpy.median(ms)), 2), "delta": round(dz, 2)})
+            if abs(dz) > tol:
+                row["fails"].append(f"D3 {d['object']}#{d['piece']} end {e['end']}: plate top "
+                                    f"{dz:+.2f} off the road")
+        x_lo, y_lo, x_hi, y_hi = ring.bounds
+        worst = math.inf
+        for gx in numpy.arange(x_lo + 1.0, x_hi, 2.0):          # the 2 m cells' centres
+            for gy in numpy.arange(y_lo + 1.0, y_hi, 2.0):
+                if ring.contains(Point(gx, gy)):
+                    la, lo = to_ll(gx, gy)
+                    z = mesh_z(drawn.mesh, lo, la)
+                    if not math.isnan(z):
+                        worst = min(worst, elev[i] + d["plate_min_y"] - z)
+        if math.isfinite(worst):
+            row["d4"].append({"deck": d["object"], "piece": d["piece"], "least": round(worst, 2)})
+            if worst < 0.0:
+                row["fails"].append(f"D4 the ground stands {-worst:.2f} m through "
+                                    f"{d['object']}#{d['piece']}")
+    # D5 / D6: the walls' top, 1 m and 3 m outside each wall line
+    line = [to_m(la, lo) for la, lo in st["floor_line"]]
+    d5, d6 = [], []
+    for rim in st["rim"]:
+        for la, lo in _every(rim, 5):
+            x, y = to_m(la, lo)
+            nx, ny = min(line, key=lambda p: math.hypot(p[0] - x, p[1] - y))
+            u = numpy.subtract((x, y), (nx, ny))
+            u = u / (numpy.hypot(*u) or 1.0)
+            for off, acc in ((1.0, d5), (3.0, d6)):
+                qa, qo = to_ll(x + u[0] * off, y + u[1] * off)
+                z = mesh_z(drawn.mesh, qo, qa)
+                if not math.isnan(z):
+                    acc.append(z - top)
+    row["d5_range"] = [round(min(d5), 2), round(max(d5), 2)] if d5 else None
+    row["d6_range"] = [round(min(d6), 2), round(max(d6), 2)] if d6 else None
+    if d5 and (max(d5) > 0.05 or min(d5) < -0.5):
+        row["fails"].append(f"D5 the ground beside the walls {row['d5_range']} off their top")
+    if d6 and max(abs(v) for v in d6) > 0.5:
+        row["fails"].append(f"D6 the ground on the caps {row['d6_range']} off the walls' top")
+    row["delta"] = row["d2_worst"]
+    row["verdict"] = "FAIL" if row["fails"] else "PASS"
     return row
 
 
@@ -702,6 +848,9 @@ def run(args):
                                    "split_level_road_reach_m", 0.0) or ROAD_AT_BASE_M)
     rows += [check_split(r, drawn, args.tol, lifts, roads)
              for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
+    step = float(Law.for_airport(args.icao).tables.structures.bridge.abutment_sample_step_m)
+    rows += [check_stack(r, drawn, claims, args.tol, step)
+             for r in sidecar.get("object_floors", []) if r.get("stack")]
     return {"icao": args.icao, "tile": tile, "pack_root": pack_root,
             "pack_is_build_product": pack_is_build_product(args, pack_root),
             "tile_dsfs": tile_dsfs, "tol_m": args.tol, "radius_m": args.radius,
@@ -723,6 +872,19 @@ def print_report(rep):
                   f"(patch {r.get('patch_floor')}), upper floor {r.get('upper_floor')} vs "
                   f"open-side ground {r.get('open_ground_median')} (min "
                   f"{r.get('open_ground_min')})")
+            for f in r["fails"]:
+                print(f"       FAIL {f}")
+            continue
+        if r.get("role") == "STACK":
+            print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} D1 spread "
+                  f"{r.get('d1_spread')} walls bottom {r.get('walls_bottom')} top "
+                  f"{r.get('walls_top')}; D2 worst {r.get('d2_worst')} (under all decks "
+                  f"{r.get('d2_under_all_decks')}); D5 {r.get('d5_range')}; D6 {r.get('d6_range')}")
+            for e in r.get("d3", []):
+                print(f"       D3 {e['deck']}#{e['piece']} end {e['end']}: plate top "
+                      f"{e['plate_top']} road {e['road']} ({e['delta']:+.2f})")
+            for e in r.get("d4", []):
+                print(f"       D4 {e['deck']}#{e['piece']}: least clearance {e['least']:+.2f}")
             for f in r["fails"]:
                 print(f"       FAIL {f}")
             continue

@@ -1403,11 +1403,22 @@ def object_cuts(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
 def object_floors(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
     """Per trench object floor (``airport/object_floor``, #1903): its id,
     the floor object and its covers, the floor's lowest z and its
-    footprint's area — what ``tools/drawn_check`` claims as CUT sites."""
-    return [{"id": f.id, "resource": f.resource, "objects": [f.object_id, *f.covers],
-             "floor_m": round(float(f.floor_z), 3), "zero_m": round(float(f.zero_z), 3),
-             "area_m2": round(float(f.footprint.area), 1)}
-            for f in (getattr(planar, "object_floors", ()) or ())]
+    footprint's area — what ``tools/drawn_check`` claims as CUT sites.  A
+    deck stack's floor (#1971) adds ``"stack"``
+    (``airport/deck_stack.sidecar_record``): its decks take the DECK bar."""
+    from ..airport.deck_stack import sidecar_record
+    from ..airport.object_floor import FLOOR_REF
+    stacks = {FLOOR_REF + st.id: st for st in getattr(airport, "deck_stacks", ()) or ()}
+    to_ll = airport.frame.transformers()[1] if stacks else None
+    out = []
+    for f in getattr(planar, "object_floors", ()) or ():
+        rec = {"id": f.id, "resource": f.resource, "objects": [f.object_id, *f.covers],
+               "floor_m": round(float(f.floor_z), 3), "zero_m": round(float(f.zero_z), 3),
+               "area_m2": round(float(f.footprint.area), 1)}
+        if f.id in stacks:
+            rec["stack"] = sidecar_record(stacks[f.id], to_ll)
+        out.append(rec)
+    return out
 
 
 def basin_facilities(planar: PlanarMap, law: Law,

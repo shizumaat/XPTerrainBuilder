@@ -153,3 +153,81 @@ def test_split_level_lower_floor_on_the_floor_upper_at_the_ground(tmp_path):
 def test_split_level_upper_floor_over_the_ground_is_a_gap(tmp_path):
     row = _split(tmp_path, 104.0)
     assert any("gap to the terrain" in f for f in row["fails"])
+
+
+# ── #1971 a deck stack: its decks take the DECK bar; D1-D6 ──────────────
+
+def _ll(x, y):
+    """Local metres (east, north) about (LAT, LON) to (lat, lon)."""
+    import math
+    return (LAT + y / DC.M_PER_DEG,
+            LON + x / (DC.M_PER_DEG * math.cos(math.radians(LAT))))
+
+
+class _Mesh:
+    """A drawn mesh as a function of local metres: the floor 100 between
+    the walls (|x| <= 6), the roads 104 at the deck's ends (|x| >= 30), the
+    ground ``beside`` elsewhere."""
+
+    def __init__(self, beside=103.5):
+        self.beside = beside
+
+    def elevation_at_or_none(self, lat, lon):
+        import math
+        x = (lon - LON) * DC.M_PER_DEG * math.cos(math.radians(LAT))
+        return 100.0 if abs(x) <= 6.0 else 104.0 if abs(x) >= 30.0 else self.beside
+
+
+def _stack(deck_elev=100.0, beside=103.5):
+    import types
+
+    import numpy
+    rec = {"id": "object_floor:stack:dsf:obj0", "resource": "objects/walls.obj",
+           "objects": ["dsf:obj0", "dsf:obj1"],
+           "stack": {"id": "stack:dsf:obj0", "zero_m": 100.0, "levels": 1, "feet_y": 0.0,
+                     "crest_y": 3.5, "floor_line": [_ll(0, y) for y in range(-50, 51, 2)],
+                     "rim": [[_ll(-6, y) for y in range(-50, 51, 2)],
+                             [_ll(6, y) for y in range(-50, 51, 2)]],
+                     "decks": [{"object": "dsf:obj1", "resource": "objects/deck.obj",
+                                "piece": 0, "level": 1, "carried": [-10], "plate_min_y": 4.0,
+                                "ring": [_ll(-30, -5), _ll(30, -5), _ll(30, 5), _ll(-30, 5)],
+                                "ends": [{"end": "a", "top": 4.0,
+                                          "stations": [_ll(-30, y) for y in (-5, 0, 5)]},
+                                         {"end": "b", "top": 4.0,
+                                          "stations": [_ll(30, y) for y in (-5, 0, 5)]}]}]}}
+    rows = [types.SimpleNamespace(def_path="objects/walls.obj", lat=LAT, lon=LON,
+                                  kind="OBJECT_MSL", elevation=100.0, heading_deg=0.0),
+            types.SimpleNamespace(def_path="objects/deck.obj", lat=LAT, lon=LON,
+                                  kind="OBJECT_MSL", elevation=deck_elev, heading_deg=0.0)]
+    drawn = types.SimpleNamespace(
+        rows=rows, mesh=_Mesh(beside),
+        vertices=lambda i: (numpy.array([LON]), numpy.array([LAT]), numpy.array([100.0])))
+    claims = [DC.Claim("object_floor", rec["id"], "objects/walls.obj", "whole")]
+    return DC.check_stack(rec, drawn, claims, 0.3, 5.0), rec
+
+
+def test_a_stack_deck_takes_the_deck_bar_not_the_cut_bar():
+    import types
+    _row, rec = _stack()
+    dump = types.SimpleNamespace(placements=[types.SimpleNamespace(def_path="objects/walls.obj"),
+                                             types.SimpleNamespace(def_path="objects/deck.obj")])
+    claims = DC.read_claims({"object_floors": [rec]}, "+45+010", {}, {"+45+010": dump})
+    kinds = {c.resource: c.kind for c in claims}
+    assert kinds == {"objects/walls.obj": "object_floor", "objects/deck.obj": DC.DECK_ANCHOR}
+
+
+def test_a_seated_stack_passes_d1_to_d6():
+    row, _rec = _stack()
+    assert row["role"] == "STACK" and row["verdict"] == "PASS", row["fails"]
+    assert row["d1_spread"] == 0.0 and row["d2_worst"] == 0.0
+    assert all(abs(e["delta"]) < 1e-6 for e in row["d3"]) and len(row["d3"]) == 2
+    assert row["d4"][0]["least"] == pytest.approx(0.5)
+
+
+def test_a_deck_off_the_stack_zero_and_ground_through_a_deck_fail():
+    row, _rec = _stack(deck_elev=101.0)
+    assert any(f.startswith("D1") for f in row["fails"])
+    assert any(f.startswith("D3") for f in row["fails"])
+    row, _rec = _stack(beside=105.0)
+    assert any(f.startswith("D4") for f in row["fails"])
+    assert any(f.startswith("D5") for f in row["fails"])

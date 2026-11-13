@@ -177,6 +177,13 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats,
         taken={pid for f in floors for pid, _r, _z in f.seats})
     floors = list(floors) + more
     notes.extend(p_notes)
+    # #1971: each deck stack's floor and run-outs, one more object floor
+    # (``airport/deck_stack``; its members are claimed below like a floor's)
+    from ..airport.deck_stack import stack_floors
+    more, s_notes = stack_floors(getattr(airport, "deck_stacks", ()) or (),
+                                 taken={pid for f in floors for pid, _r, _z in f.seats})
+    floors = floors + more
+    notes.extend(s_notes)
     floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}
     if floor_ids:
         corridors = [c for c in corridors if not (set(c.objects) & floor_ids)]

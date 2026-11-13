@@ -1542,9 +1542,30 @@ def _map_tile_workers_never_start():
         view._o4_suite_no_workers = True
 
 
+def _window_storage_cleanup_never_starts():
+    """Disarm the window's automatic storage cleanup (#1724) in the suite.
+
+    ``MainWindow._storage_auto_clean`` starts a daemon thread at every
+    launch that walks the data folder (``storage_auto_clean`` ->
+    ``storage_budget.status`` -> the on-demand index).  Under a suite that
+    builds hundreds of windows, a garbage collection run ON THAT THREAD
+    destroys an earlier test's Qt objects off the GUI thread: Windows CI
+    died with an access violation (exit 139) and macOS with a bus error in
+    ``test_qt_stop_resume`` once the batch-15 storage work made the thread
+    live longer.  Same class-level rule as the map workers; the cleanup
+    itself is tested through ``O4_Qt_Settings_Storage.run_auto_clean`` and
+    ``o4_engine.storage.storage_auto_clean`` directly."""
+    gui = sys.modules.get("O4_Qt_GUI")
+    window = getattr(gui, "MainWindow", None)
+    if window is not None and not getattr(window, "_o4_suite_no_clean", False):
+        window._storage_auto_clean = lambda self: None
+        window._o4_suite_no_clean = True
+
+
 @pytest.fixture(autouse=True)
 def _qt_map_tile_workers_are_disarmed():
     _map_tile_workers_never_start()
+    _window_storage_cleanup_never_starts()
     yield
     _map_tile_workers_never_start()
 
@@ -1553,6 +1574,7 @@ def pytest_collection_finish(session):
     # Test modules import the Qt window at collection: disarm before any
     # fixture (even session-scoped) can build a MapView.
     _map_tile_workers_never_start()
+    _window_storage_cleanup_never_starts()
 
 
 @pytest.fixture(autouse=True)

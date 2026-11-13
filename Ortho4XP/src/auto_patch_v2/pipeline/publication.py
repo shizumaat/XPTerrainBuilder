@@ -1405,13 +1405,25 @@ def object_floors(planar: PlanarMap, airport: Airport,
     """Per trench object floor (``airport/object_floor``, #1903): its id,
     the floor object and its covers, the floor's lowest z, its footprint's
     area and how far the cut stands beneath it (``clearance_m``, RULINGS
-    2026-11-06d (4)) — what ``tools/drawn_check`` claims as CUT sites."""
+    2026-11-06d (4)) — what ``tools/drawn_check`` claims as CUT sites.  A
+    deck stack's floor (#1971) adds ``"stack"`` (``model/deck_stack.
+    DeckStack.sidecar``): its decks take the DECK bar."""
     clear = (float(law.tables.structures.tunnel.object.floor_clearance_m)
              if law is not None else 0.0)
-    return [{"id": f.id, "resource": f.resource, "objects": [f.object_id, *f.covers],
-             "floor_m": round(float(f.floor_z), 3), "zero_m": round(float(f.zero_z), 3),
-             "area_m2": round(float(f.footprint.area), 1), "clearance_m": clear}
-            for f in (getattr(planar, "object_floors", ()) or ())]
+    stacks = {st.floor_ref: st for st in getattr(airport, "deck_stacks", ()) or ()}
+    to_ll = airport.frame.transformers()[1] if stacks else None
+    out = []
+    for f in getattr(planar, "object_floors", ()) or ():
+        rec = {"id": f.id, "resource": f.resource, "objects": [f.object_id, *f.covers],
+               "floor_m": round(float(f.floor_z), 3), "zero_m": round(float(f.zero_z), 3),
+               "area_m2": round(float(f.footprint.area), 1),
+               "clearance_m": f.cut_clearance(clear)}
+        if f.id in stacks:
+            rec["stack"] = stacks[f.id].sidecar(to_ll, band_m=0.5 * float(
+                law.tables.structures.tunnel.object.wall_face_max_thickness_m)
+                if law is not None else 0.0)
+        out.append(rec)
+    return out
 
 
 def basin_facilities(planar: PlanarMap, law: Law,

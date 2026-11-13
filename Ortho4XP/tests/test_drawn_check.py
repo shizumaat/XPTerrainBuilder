@@ -198,3 +198,182 @@ def test_graded_facade_sites_judge_every_span_of_the_run():
     low = FS._lowered_text(text, -1.8, "Objects/e.fac")
     rows = DF._rows(poly, FS._facade_base(low), DF._surface(Mesh()))
     assert {r["verdict"] for r in rows} == {"PASS"}
+
+
+# ── #1971 a deck stack: its decks take the DECK bar; D1-D6 ──────────────
+
+def _ll(x, y):
+    """Local metres (east, north) about (LAT, LON) to (lat, lon)."""
+    import math
+    return (LAT + y / DC.M_PER_DEG,
+            LON + x / (DC.M_PER_DEG * math.cos(math.radians(LAT))))
+
+
+class _Mesh:
+    """A drawn mesh as a function of local metres: the floor 100 between
+    the walls (|x| <= 6), the roads 104 at the deck's ends (|x| >= 30), the
+    ground ``beside`` elsewhere."""
+
+    def __init__(self, beside=103.5):
+        self.beside = beside
+
+    def elevation_at_or_none(self, lat, lon):
+        import math
+        x = (lon - LON) * DC.M_PER_DEG * math.cos(math.radians(LAT))
+        return 100.0 if abs(x) <= 6.0 else 104.0 if abs(x) >= 30.0 else self.beside
+
+
+def _stack(deck_elev=100.0, beside=103.5):
+    import types
+
+    import numpy
+    rec = {"id": "object_floor:stack:dsf:obj0", "resource": "objects/walls.obj",
+           "objects": ["dsf:obj0", "dsf:obj1"],
+           "stack": {"id": "stack:dsf:obj0", "zero_m": 100.0, "levels": 1, "feet_y": 0.0,
+                     "crest_y": 3.5, "floor_line": [_ll(0, y) for y in range(-50, 51, 2)],
+                     "rim": [[_ll(-6, y) for y in range(-50, 51, 2)],
+                             [_ll(6, y) for y in range(-50, 51, 2)]],
+                     "decks": [{"object": "dsf:obj1", "resource": "objects/deck.obj",
+                                "piece": 0, "level": 1, "carried": [-10], "plate_min_y": 4.0,
+                                "ring": [_ll(-30, -5), _ll(30, -5), _ll(30, 5), _ll(-30, 5)],
+                                "ends": [{"end": "a", "top": 4.0,
+                                          "stations": [_ll(-30, y) for y in (-5, 0, 5)]},
+                                         {"end": "b", "top": 4.0,
+                                          "stations": [_ll(30, y) for y in (-5, 0, 5)]}]}]}}
+    rows = [types.SimpleNamespace(def_path="objects/walls.obj", lat=LAT, lon=LON,
+                                  kind="OBJECT_MSL", elevation=100.0, heading_deg=0.0),
+            types.SimpleNamespace(def_path="objects/deck.obj", lat=LAT, lon=LON,
+                                  kind="OBJECT_MSL", elevation=deck_elev, heading_deg=0.0)]
+    drawn = types.SimpleNamespace(
+        rows=rows, mesh=_Mesh(beside),
+        vertices=lambda i: (numpy.array([LON]), numpy.array([LAT]), numpy.array([100.0])))
+    claims = [DC.Claim("object_floor", rec["id"], "objects/walls.obj", "whole")]
+    return DC.check_stack(rec, drawn, claims, 0.3, 5.0), rec
+
+
+def test_a_stack_deck_takes_the_deck_bar_not_the_cut_bar():
+    import types
+    _row, rec = _stack()
+    dump = types.SimpleNamespace(placements=[types.SimpleNamespace(def_path="objects/walls.obj"),
+                                             types.SimpleNamespace(def_path="objects/deck.obj")])
+    claims = DC.read_claims({"object_floors": [rec]}, "+45+010", {}, {"+45+010": dump})
+    kinds = {c.resource: c.kind for c in claims}
+    assert kinds == {"objects/walls.obj": "object_floor", "objects/deck.obj": DC.DECK_ANCHOR}
+
+
+def test_a_seated_stack_passes_d1_to_d6():
+    row, _rec = _stack()
+    assert row["role"] == "STACK" and row["verdict"] == "PASS", row["fails"]
+    assert row["d1_spread"] == 0.0 and row["d2_worst"] == 0.0
+    assert all(abs(x) < 1e-6 for e in row["d3"] for x in e["road"] + e["ground"])
+    assert len(row["d3"]) == 2
+    assert row["d4"][0]["least"] == pytest.approx(0.5)
+
+
+def test_a_deck_off_the_stack_zero_and_ground_through_a_deck_fail():
+    row, _rec = _stack(deck_elev=101.0)
+    assert any(f.startswith("D1") for f in row["fails"])
+    assert any(f.startswith("D3") for f in row["fails"])
+    row, _rec = _stack(beside=105.0)
+    assert any(f.startswith("D4") for f in row["fails"])
+    assert any(f.startswith("D5") for f in row["fails"])
+
+
+# ── v2 (spec interchange-levels-v2-20261113.md §8.2 / §8.3, T24) ────────
+
+class _Faces:
+    """A synthetic patch: the road face where |x| >= 30 and |y| <= 2, the
+    ground face elsewhere within |y| <= ``covered``, nothing beyond; its
+    surface is ``mesh``."""
+
+    def __init__(self, mesh, covered=1e9):
+        self.mesh, self.covered = mesh, covered
+
+    def _xy(self, lat, lon):
+        import math
+        return ((lon - LON) * DC.M_PER_DEG * math.cos(math.radians(LAT)),
+                (lat - LAT) * DC.M_PER_DEG)
+
+    def at(self, lat, lon):
+        x, y = self._xy(lat, lon)
+        if abs(y) > self.covered:
+            return None
+        role = "service_road" if abs(x) >= 30.0 and abs(y) <= 2.0 else "graded_strip"
+        return self.mesh.elevation_at_or_none(lat, lon), role, "r"
+
+    def gap_m(self, lat, lon):
+        return max(0.0, abs(self._xy(lat, lon)[1]) - self.covered)
+
+    def elevation_at_or_none(self, lat, lon):
+        return self.mesh.elevation_at_or_none(lat, lon)
+
+
+def test_t24_d2_reads_a_hanging_wall():
+    import numpy
+    _row, rec = _stack()
+    for bottom, fails in ((100.3, True), (100.05, False)):
+        row, _ = _stack()
+        drawn = _drawn_with_bottom(bottom)
+        row = DC.check_stack(rec, drawn, [], 0.3, 5.0)
+        assert any(f.startswith("D2") for f in row["fails"]) is fails, row["fails"]
+    del numpy
+
+
+def _drawn_with_bottom(bottom, beside=103.5):
+    import types
+
+    import numpy
+    rows = [types.SimpleNamespace(def_path="objects/walls.obj", lat=LAT, lon=LON,
+                                  kind="OBJECT_MSL", elevation=100.0, heading_deg=0.0),
+            types.SimpleNamespace(def_path="objects/deck.obj", lat=LAT, lon=LON,
+                                  kind="OBJECT_MSL", elevation=100.0, heading_deg=0.0)]
+    return types.SimpleNamespace(
+        rows=rows, mesh=_Mesh(beside),
+        vertices=lambda i: (numpy.array([LON]), numpy.array([LAT]), numpy.array([bottom])))
+
+
+def test_t24_d3_reads_road_and_ground_stations_apart():
+    _row, rec = _stack()
+    row = DC.check_stack(rec, _drawn_with_bottom(100.0), [], 0.3, 5.0, faces=_Faces(_Mesh()))
+    assert all(e["road"] and e["ground"] for e in row["d3"])
+
+
+def test_t24_d4_reads_the_plate_at_the_cell():
+    """An arched plate (4.0 at the ends, 6.0 at the crown): ground at 105
+    under mid-span stands under the plate there, over its lowest point."""
+    _row, rec = _stack(beside=105.0)
+    d = rec["stack"]["decks"][0]
+    tris = []
+    for x0, x1, y0, y1 in ((-30, 0, 4.0, 6.0), (0, 30, 6.0, 4.0)):
+        a, b, c, e = _ll(x0, -5), _ll(x1, -5), _ll(x1, 5), _ll(x0, 5)
+        tris += [[[*a, y0], [*b, y1], [*c, y1]], [[*a, y0], [*c, y1], [*e, y0]]]
+    d["plate"] = tris
+    row = DC.check_stack(rec, _drawn_with_bottom(100.0, 105.0), [], 0.3, 5.0)
+    # beside 105 under the walls' notch (|x| 6..30): plate 4.4..6 over it
+    least = row["d4"][0]["least"]
+    assert least < 0.0
+    d["plate"] = []                                       # the old reading: plate_min_y
+    row_min = DC.check_stack(rec, _drawn_with_bottom(100.0, 105.0), [], 0.3, 5.0)
+    assert row_min["d4"][0]["least"] < least
+
+
+def test_t24_d6_only_on_published_caps_and_a_sample_on_no_face_is_incomplete():
+    _row, rec = _stack()
+    rec["stack"]["caps"] = [[_ll(6, -50), _ll(12, -50), _ll(12, 50), _ll(6, 50)]]
+    rec["stack"]["band_m"] = 1.0
+    row = DC.check_stack(rec, _drawn_with_bottom(100.0), [], 0.3, 5.0)
+    assert row["samples"]["D6"] < 52                       # the west rim has no cap
+    pred = DC.check_stack(rec, None, [], 0.3, 5.0, faces=_Faces(_Mesh(), covered=20.0),
+                          predict=True, standoff=1.0)
+    assert pred["mode"] == "PREDICTED" and pred["uncovered"]
+    assert pred["verdict"] in ("INCOMPLETE", "FAIL") and pred["verdict"] != "PASS"
+    assert DC.run_predict.__doc__ and DC.check_stack is DC.check_stack   # one function
+
+
+def test_d5_samples_outside_the_wall_line_at_its_end():
+    """Outside the wall line is its own normal, away from the floor -- at a
+    wall's end, past the floor's last station, the direction to that
+    station runs along the wall (KDEN l1971r2: the run-out's void band)."""
+    pts = [(0.0, 0.0), (5.0, 0.0), (10.0, 0.0)]
+    n = DC._outward(pts, 0, (20.0, 3.0))          # the floor lies north-east
+    assert abs(n[0]) < 1e-9 and n[1] == pytest.approx(-1.0)

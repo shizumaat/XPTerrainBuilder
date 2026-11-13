@@ -158,6 +158,16 @@ class ObjectFloor:
     #: frame's top along the cut's rim, metres over ``zero_z``
     #: (``airport/floor_rim``): where the ground and the pavement meet it
     rim_tops: tuple = ()
+    #: #1971 (spec interchange-levels v2 §3.1): how far the cut stands under
+    #: this floor; ``None`` is the law's ``[tunnel.object] floor_clearance_m``
+    #: (a floor plate kept clear, 2026-11-06d (4)); a deck stack's walls have
+    #: no plate and state the floor with their feet: ``0.0``
+    clearance_m: "float | None" = None
+
+    def cut_clearance(self, law_clearance: float) -> float:
+        """How far the cut stands under this floor: its own
+        :attr:`clearance_m`, else the law's (``law_clearance``)."""
+        return float(law_clearance) if self.clearance_m is None else float(self.clearance_m)
 
 
 @_dc.dataclass(frozen=True)

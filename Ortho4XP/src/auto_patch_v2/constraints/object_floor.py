@@ -46,7 +46,7 @@ def object_floor_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     floors = {f.id: f for f in (getattr(planar, "object_floors", ()) or ())}
     if not floors:
         return []
-    clearance = float(law.tables.structures.tunnel.object.floor_clearance_m)
+    law_clearance = float(law.tables.structures.tunnel.object.floor_clearance_m)
     by_floor: dict[str, set[int]] = {}
     rim_of: dict[str, set[int]] = {}
     wall_of = {FLOOR_WALL_REF + fid[len(FLOOR_REF):]: fid for fid in floors}
@@ -64,6 +64,7 @@ def object_floor_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     rows: list[Row] = []
     for fid, vs in sorted(by_floor.items()):
         fl = floors[fid]
+        clearance = fl.cut_clearance(law_clearance)       # a deck stack's: 0 (#1971 v2 §3.1)
         ids = sorted(vs)
         xy = np.array([planar.vertices[v].xy for v in ids], float)
         zs = floor_z_at(fl.faces, xy[:, 0], xy[:, 1], edge_m=_EDGE_M)

@@ -709,7 +709,10 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # tunnel mouths' walls reach into (deeper than the touch tolerance the
     # footprints chain at) was WELDED from those walls, and a weld's members
     # cannot be told apart: it mints no pad (``airport/entrance_shade``)
-    _mouths = getattr(airport, "entrance_shade", None)
+    # #1971: a deck stack's floor and walls likewise (``Airport.stack_shade``)
+    from ..geom.cluster_outline import with_shade as _with_shade
+    _mouths = _with_shade(getattr(airport, "entrance_shade", None),
+                          getattr(airport, "stack_shade", None))
     _touch = float(law.tables.structures.placement.footprint_touch_m) if law is not None else 0.0
     for b in airport.buildings:
         if not b.source.startswith(admitted):

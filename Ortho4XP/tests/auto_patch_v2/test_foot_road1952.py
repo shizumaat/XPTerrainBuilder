@@ -92,3 +92,46 @@ def test_no_foot_lot_leaves_the_targets_as_they_were(law, monkeypatch):
     pm0, _r0, _ = _arm(law, monkeypatch, None)
     pm1, rep, _ = _arm(law, monkeypatch, "dem")
     assert pm1.road_ramp_z == pm0.road_ramp_z and rep["foot_withdrawn"] == 0
+
+
+# ── #1971 v2 §3.4 (T23): a road leaves a pack deck's end as it leaves a foot ──
+
+def _deck_end_arm(law, top_over):
+    """A lone road (y 200, x -20..280) on flat ground; its x = -20 end pair
+    is a deck's end line at ``PLATEAU_Z + top_over``."""
+    airport, r = _airport(law, _Flat())
+    cells = (Cell(0, "runway", "09/27", _rect(r, -RUN_LEN / 2, -HALF_WIDTH, RUN_LEN / 2,
+                                              HALF_WIDTH), (), 3, "D", "airside", "runway", {}),
+             Cell(1, "service_road", "roadA", _rect(r, -20.0, 200.0 - ROAD_W / 2.0, 280.0,
+                                                    200.0 + ROAD_W / 2.0), (),
+                  None, "D", "groundside", "service_road", {}))
+    pm, _st = build(airport, Classification(cells, (), {}, ()), law)
+    roads = _road_vertices(pm)
+    x0 = min(pm.vertices[v].xy[0] for v in roads)
+    end = {v: PLATEAU_Z + top_over for v in roads if pm.vertices[v].xy[0] < x0 + 0.5}
+    base = rr.road_ramp_targets(pm, law, airport)
+    got = rr.road_ramp_targets(pm, law, airport, deck_ends=end)
+    return pm, end, base, got, x0
+
+
+@pytest.mark.parametrize("top_over", (1.5, -0.8))
+def test_t23_a_deck_end_seeds_the_ramp_with_the_hold(law, top_over):
+    pm, end, base, got, x0 = _deck_end_arm(law, top_over)
+    assert end and got.report["_foot"] >= frozenset(end)
+    g = float(law.tables.emit.road_contact.ramp_grade)
+    H = float(law.tables.structures.bridge.abutment_sample_step_m)
+    top = PLATEAU_Z + top_over
+    seen = 0
+    for v, z in got.targets.items():
+        if v in end:
+            continue
+        s = pm.vertices[v].xy[0] - x0
+        want = top - g * max(0.0, s - H) if top_over > 0 else top + g * max(0.0, s - H)
+        if top_over > 0:
+            assert z >= min(want, PLATEAU_Z) - 0.6, (s, z, want)
+        else:
+            assert z <= max(want, PLATEAU_Z) + 0.6, (s, z, want)
+        seen += abs(z - PLATEAU_Z) > 0.05
+    assert seen                       # the ramp reaches past the seed
+    assert got.report["deck_end_seeds" if top_over > 0 else "deck_end_cuts"] == len(end)
+    assert rr.road_ramp_targets(pm, law, _airport(law, _Flat())[0]).targets == base.targets

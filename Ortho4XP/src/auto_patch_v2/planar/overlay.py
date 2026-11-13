@@ -22,6 +22,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 import math
+import time
 
 import shapely
 from shapely.geometry import LineString, MultiLineString, Polygon
@@ -53,6 +54,8 @@ from .ridge_reach import reach_pavement_edge
 from .shore import pack_shore_walls
 from .zones import shore_declarations, shore_region, shore_wedge_m, zone_regions
 from .fill_bank import fill_bank_pieces
+from .stack_ground import stack_ground_pieces
+from ..model.planar import is_stack_ground_ref
 from ..airport.old_dem_fill import fill_model_of
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
@@ -364,6 +367,24 @@ def build_arrangement(airport: Airport, classification: Classification,
         for ref, g in _bank:
             regions.append(Region("graded_strip", ref, g, None, None,
                                   role_side(law, "graded_strip"), "zone"))
+        # #1971 v2 §3.2: a deck stack's ground (its caps, the ground under its
+        # decks and round their ends) is graded ground of its own
+        if getattr(airport, "deck_stacks", ()):
+            _t_sg = time.perf_counter()
+            _sg_notes: list[str] = []
+            for ref, g in stack_ground_pieces(
+                    airport, [r.polygon for r in regions if r.source == "zone"],
+                    [r.polygon for r in regions if r.source != "zone"]
+                    + [Polygon(c.ring, c.holes) for c in ribbon_cells]
+                    + [Polygon(k) for k in classification.keepouts if len(k) >= 3],
+                    law.tables.zones.adjacent_ground.groundside_cutback_m + snap_margin_m(law),
+                    2.0 * input_quantum_m(law), float(law.tables.emit.design.edge_grid_m),
+                    law=law, airside=air_cells, notes=_sg_notes):
+                regions.append(Region("graded_strip", ref, g, None, None,
+                                      role_side(law, "graded_strip"), "zone"))
+            print(f"    [stack-ground] {sum(1 for r in regions if is_stack_ground_ref(r.ref))} "
+                  f"piece(s) ({time.perf_counter() - _t_sg:.2f} s)"
+                  + "".join(f"; {n}" for n in _sg_notes))
 
         # §16g (10) (12) (1) THE AIRSIDE CELLS ARE NODED BEFORE ANY PAD EXISTS
         # (Fable 2026-09-16; RULINGS 2026-09-16b), and this SPLIT of the line

@@ -166,7 +166,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      portals: _t.Sequence = (), edge_bridges: _t.Sequence = (),
                      trenches: _t.Sequence = (), deck_bridges: _t.Sequence = (),
                      runs: _t.Mapping | None = None, level_b: float | None = None,
-                     object_floors: _t.Sequence = (), grade_ends: _t.Sequence = ()
+                     object_floors: _t.Sequence = (), grade_ends: _t.Sequence = (),
+                     level_seeds: _t.Sequence = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -244,7 +245,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         stats.hard_decks.extend(d_notes)
     # R6 (RULINGS 2026-10-28k Q228 a): a road under stacked viaducts inside
     # the airport is an open level a mouth depth below the apron
-    via_groups, via_notes, via_refused = viaduct_road_groups(airport, law, cells, polys)
+    # it yields to a level seed's passage (§19 S1, ``level_seeds``)
+    via_groups, via_notes, via_refused = viaduct_road_groups(airport, law, cells, polys,
+                                                             level_seeds)
     extra_groups += via_groups
     stats.viaduct_roads = via_notes
     stats.refused.extend(via_refused)
@@ -1383,7 +1386,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                 overlap_refused=overlap_refused, portals=portals,
                                 edge_bridges=edge_bridges, trenches=trenches,
                                 deck_bridges=deck_bridges, runs=runs, level_b=level_b,
-                                object_floors=object_floors, grade_ends=grade_ends)
+                                object_floors=object_floors, grade_ends=grade_ends,
+                                level_seeds=level_seeds)
     if not all(keep):
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]

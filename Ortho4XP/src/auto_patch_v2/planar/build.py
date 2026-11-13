@@ -334,7 +334,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        deck_bridges=decks,
                                                        level_b=level_b,
                                                        object_floors=floors,
-                                                       grade_ends=tstats.grade_ends)
+                                                       grade_ends=tstats.grade_ends,
+                                                       level_seeds=seeds)
     sstats.hard_decks.extend(deck_notes)
     # a pack deck over a pack object cut frames that cut (owner 2026-11-05
     # §0.5, ``planar/cut_frame``): its floor at the deck's seated zero

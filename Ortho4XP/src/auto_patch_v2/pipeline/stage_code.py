@@ -617,6 +617,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.pad_fill",
         "auto_patch_v2.planar.pad_sliver",
         "auto_patch_v2.planar.pad_terrace",
+        "auto_patch_v2.planar.passage_court",
         "auto_patch_v2.planar.plate_bays",
         "auto_patch_v2.planar.platform",
         "auto_patch_v2.planar.reach_after_pads",
@@ -2054,7 +2055,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.landing_runout planar.level_depth planar.level_regions planar.level_underside
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
-    planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
+    planar.pad_terrace planar.passage_court planar.plate_bays planar.platform planar.ribbon_weld
     planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_pad_corner
@@ -2214,7 +2215,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.landing_runout planar.level_depth planar.level_regions planar.level_underside
     planar.lidar_road planar.low_level planar.object_corridor planar.overlay planar.overpass_deck
     planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill planar.pad_sliver
-    planar.pad_terrace planar.plate_bays planar.platform planar.ribbon_weld
+    planar.pad_terrace planar.passage_court planar.plate_bays planar.platform planar.ribbon_weld
     planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_pad_corner

@@ -86,6 +86,15 @@ class LevelSeed(_t.NamedTuple):
     underside: _t.Any = None
     #: the witness kind (W1 ``"walls"``, the only one built)
     kind: str = "walls"
+    #: the carriageway of a covered R6 run under the unit and the run's
+    #: kerb zone (``viaduct_road.passage_roads``, §19 S1), or ``None``
+    road: _t.Any = None
+    kerb_zone: _t.Any = None
+    #: the unit's whole plan (every part's rings, frame xy), or ``None``
+    plan: _t.Any = None
+    #: ``((y, plan), ...)``: the unit's slabs by the plane they stand on
+    #: (:func:`_slabs`)
+    slabs: tuple = ()
 
 
 def level_seeds(airport, classification, law, cache=None
@@ -123,12 +132,23 @@ def level_seeds(airport, classification, law, cache=None
         if passage is not None:
             from .level_underside import underside_over
             under = underside_over(u.members, cache, to_xy, passage, y_feet)
+        from .low_level import _ring_poly
+        plan = valid_area(unary_union([g for p, _xy in parts for rg in p.rings
+                                       if (g := _ring_poly(rg, to_xy)) is not None]))
+        slabs = _slabs(parts, to_xy, float(law.tables.structures.placement.chain_min_height_m))
         seeds.append(LevelSeed(F, ui, round(z0, 3), round(y_feet, 3), round(z0 - y_feet, 3), n,
-                               passage, under))
+                               passage, under, plan=plan, slabs=slabs))
         notes.append(f"unit {ui} depth {z0 - y_feet:.2f} ({n} walled parts, {F.area:.0f} m2"
                      + (f", passage {passage.area:.0f} m2, soffit "
                         f"{(under or {}).get('soffit_y')}" if passage is not None else "")
                      + ")")
+    if seeds:
+        from .viaduct_road import passage_roads
+        kept = passage_roads(airport, law, seeds)
+        seeds = [s._replace(road=kept[s.unit][0], kerb_zone=kept[s.unit][1])
+                 if s.unit in kept else s for s in seeds]
+        notes += [f"unit {u}: a covered road {g.area:.0f} m2 runs in its passage (R6 yields)"
+                  for u, (g, _z) in kept.items()]
     return tuple(seeds), notes
 
 
@@ -185,18 +205,37 @@ def _unit_seed(ui, parts, tree, air, stands, law, to_xy, step: float):
     return F, z0, float(y_feet), len(low)
 
 
+def _slabs(parts, to_xy, wall_min: float) -> tuple:
+    """``((y, plan), ...)``: the unit's SLABS -- parts lower than a wall
+    (``wall_min``): a kerbside, a median, a plate -- grouped by the plane
+    they stand on (their densest feet, else their base)."""
+    from ..airport.airside_group_seat import PLANE_BAND_M
+    from .low_level import _densest, _ring_poly
+    by: dict[float, list] = {}
+    for p, _xy in parts:
+        if float(getattr(p, "height_m", 0.0) or 0.0) >= wall_min:
+            continue
+        fy = sorted(float(f[2]) for f in (getattr(p, "feet", ()) or ()))
+        y = _densest(fy, PLANE_BAND_M)[1] if fy else float(getattr(p, "base_y", 0.0) or 0.0)
+        by.setdefault(round(y, 2), []).extend(
+            g for rg in p.rings if (g := _ring_poly(rg, to_xy)) is not None)
+    return tuple((y, valid_area(unary_union(gs))) for y, gs in sorted(by.items()) if gs)
+
+
 def _ground(g, dem, step: float):
     from .low_level import _ground as ground
     return ground(g, dem, step)
 
 
 def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_all, airport,
-                law, grid: float, counts: dict, beyond: _t.Sequence = ()) -> list:
+                law, grid: float, counts: dict, beyond: _t.Sequence = (),
+                lots: _t.Sequence = ()) -> list:
     """``regs`` (the pad regions, the levels minted) with the pad under every
     seed with a passage cut into its one flat lower level (module
     docstring); each level registered in ``reg.landings``.  ``beyond``: the
     unreachable pieces, the level's floor where they touch it (step (b),
-    :func:`_pieces`)."""
+    :func:`_pieces`); ``lots`` the parking lots a passage cut out of a main
+    floor brings its unit's open courts to (``planar/passage_court``)."""
     from .low_level import LOW_KIND, level_cut
     counts["level_seeds"] = len(seeds)
     cands = [s for s in seeds if s.passage is not None]
@@ -226,19 +265,41 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
     levels: dict[str, tuple] = {}
     gaps: dict[str, _t.Any] = {}
     for s in cands:
-        pref = _pad_of(s.footprint, by_ref, reg)
+        upper = _upper_floors(s, reg)
+        pref = _pad_of(s.footprint, by_ref, upper)
         if pref is None:
             notes.append(f"unit {s.unit}: its passage stands on no pad")
             continue
-        if any(reg.landings.get(str(r.ref), {}).get("kind") == LOW_KIND for r in by_ref[pref]):
-            continue                       # the pad is already split into levels
-        P = valid_area(unary_union([r.polygon for r in by_ref[pref]]))
+        # the pad and the upper floors of it the passage is cut out of
+        host = {pref} | {k for k, b in upper.items() if b == pref and k in by_ref}
+        P = valid_area(unary_union([r.polygon for k in host for r in by_ref[k]]))
         P1 = P.buffer(1.0)
-        others = valid_area(unary_union([g.polygon for k, rs in by_ref.items() if k != pref
-                                         for g in rs if g.polygon.intersects(P1)]))
+        others = [g.polygon for k, rs in by_ref.items() if k not in host
+                  for g in rs if g.polygon.intersects(P1)]
+        # TWO FLOORS (§19, owner RULINGS 2026-11-11e): a covered road in a
+        # passage cut out of a main floor runs at the main floor its
+        # kerbside stands on -- kept out of the level as another pad is --
+        # and the pieces of the host floors the level cuts off from the
+        # airside frontage are the level (S2, ``low_level._with_orphans``);
+        # beside that road the slabs the object authors from the main
+        # floor's plane up to its zero (a kerbside, its medians, a plate)
+        # stand on the main floor, never on the level (MEASURED KMCI unit
+        # 20: the kerbside at y -8.0 over a skirt walled to -12.72 fell into
+        # the garage's level at -10.36)
+        main = len(host) > 1
+        if main and s.road is not None:
+            from ..airport.airside_group_seat import PLANE_BAND_M
+            y_main = s.z0 + max(float(reg.landings[k]["y_lo"]) for k in host
+                                if k in reg.landings)
+            # the carriageway a riser clear: its ribbon's edge never runs on
+            # the riser's (MEASURED KMCI: the coincident edges left zero-area
+            # ribbon slivers no pad row held, solved 9 m up to the deck DEM)
+            others += [s.road.buffer(w, join_style=2)] + [
+                valid_area(g.intersection(s.kerb_zone)) for y, g in s.slabs
+                if y_main - 2.0 * PLANE_BAND_M <= y <= s.z0]
         A = valid_area(air.intersection(P.buffer(50.0)))
-        cut = level_cut(P, s.footprint, A, others, law, grid, 0.0, airport, grow=False,
-                        whole=True)
+        cut = level_cut(P, s.footprint, A, valid_area(unary_union(others)), law, grid, 0.0,
+                        airport, grow=main, whole=True)
         if cut is None:
             notes.append(f"unit {s.unit}: no level left on {pref} off the airside")
             continue
@@ -270,16 +331,19 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
         # the step at every OPEN edge is vertical (Q341 a): a riser outside
         # the pad, a riser's width, kept off the airside and the pads, and
         # open where the roads leave the level (their run-outs, step 8)
-        pads = valid_area(unary_union([r.polygon for r in regs if str(r.ref) != pref]))
+        pads = valid_area(unary_union([r.polygon for r in regs if str(r.ref) not in host]))
         S = valid_area(unary_union([S, valid_area(L.buffer(w, join_style=2).difference(P)
                                                   .difference(pads.buffer(0.5 * w))
                                                   .difference(air.buffer(near)))]))
         gaps[ref + STRIP_SUFFIX] = roads_of(L)
+        # the pad is ``H``; a main floor cut too keeps its own ref and floor
+        # beyond the level and its riser
         made = ([_dc.replace(tmpl, polygon=q) for q in nonempty_polygon_parts(H)]
-                + [_dc.replace(tmpl, ref=ref, polygon=q) for q in nonempty_polygon_parts(L)]
+                if len(host) == 1 else _less(host, by_ref, L.buffer(w, join_style=2), grid))
+        made += ([_dc.replace(tmpl, ref=ref, polygon=q) for q in nonempty_polygon_parts(L)]
                 + [_dc.replace(tmpl, ref=ref + STRIP_SUFFIX, polygon=q)
                    for q in nonempty_polygon_parts(S)])
-        regs = [r for r in regs if str(r.ref) != pref] + made
+        regs = [r for r in regs if str(r.ref) not in host] + made
         by_ref = {}
         for r in regs:
             if r.polygon is not None and not r.polygon.is_empty:
@@ -303,6 +367,12 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
                              roads_of, dem, step,
                              float(law.tables.structures.building_pad.min_area_m2), gaps)
         levels.update(more)
+        if len(host) > 1:
+            regs, more = _courts(regs, reg, s, host, lots, air, airport, block, ref, near, w,
+                                 n_k, roads_of, dem, step,
+                                 float(law.tables.structures.building_pad.min_area_m2), gaps,
+                                 notes)
+            levels.update(more)
         notes.append(f"{ref} of unit {s.unit} on {pref}: y {-s.depth:+.2f} {L.area:.0f} m2, "
                      f"soffit {soffit} ({'SHORT of' if short else 'clears'} {clear:g} m), "
                      f"lowest overhead {under.get('any_y')}")
@@ -319,7 +389,7 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
 
 def _pieces(regs: list, reg: Registries, L, beyond, block: str, host: str, s, air,
             near: float, w: float, n_k: dict, roads_of, dem, step: float, pmin: float,
-            gaps: dict) -> "tuple[list, dict]":
+            gaps: dict, lots=None) -> "tuple[list, dict]":
     """``(regs, levels)``: every unreachable piece within ``pad_frontage_m``
     of the passage level ``L`` minted beside it at its floor (step (b)),
     ``<block>/p<k>`` with a riser along the pads and every open edge but
@@ -350,8 +420,10 @@ def _pieces(regs: list, reg: Registries, L, beyond, block: str, host: str, s, ai
         S = valid_area(unary_union([q.buffer(near + 0.5 * w, join_style=2),
                                     *(g for g in smalls if g.distance(q) <= near + w)])
                        .difference(q).difference(pads).difference(air.buffer(w, join_style=2)))
+        if lots is not None:
+            q, S = _to_lot(q, S, lots, pads, w)
         gaps[ref + STRIP_SUFFIX] = roads_of(q)
-        out.append(_dc.replace(tmpl, ref=ref, polygon=q))
+        out.extend(_dc.replace(tmpl, ref=ref, polygon=g) for g in nonempty_polygon_parts(q))
         out.extend(_dc.replace(tmpl, ref=ref + STRIP_SUFFIX, polygon=g)
                    for g in nonempty_polygon_parts(S))
         pads = unary_union([pads, q.buffer(w, join_style=2)])
@@ -362,17 +434,98 @@ def _pieces(regs: list, reg: Registries, L, beyond, block: str, host: str, s, ai
     return out, levels
 
 
-def _pad_of(F, by_ref: dict, reg: Registries) -> "str | None":
+def _to_lot(q, S, lots, pads, w: float) -> tuple:
+    """``(q, S)``: a court ``q`` meets its lot with no riser -- the riser
+    ``S`` within a riser's width of a lot is the court's floor (the ground
+    between the court and its lot), still a riser off every pad, and the
+    rest of the riser keeps that width off the lot, so no lot vertex is
+    shared with a riser and the court with no other pad (MEASURED KMCI
+    replay: ``dsf:objpav405`` / ``objpav660`` edge vertices on the garden
+    court's riser rose 300.1 -> 301.7-303.1 with its outer edge; the riser
+    pieces taken whole joined the court to the block and the main floor and
+    the court's rigid rows gave, 300.23 -> 302.1-302.5)."""
+    S = valid_area(S.difference(lots))
+    reach = lots.buffer(w, join_style=2)
+    T = valid_area(valid_area(S.intersection(reach)).difference(pads.buffer(w, join_style=2)))
+    return valid_area(unary_union([q, T])), valid_area(S.difference(reach))
+
+
+def _less(host: set, by_ref: dict, Lw, grid: float) -> list:
+    """Every region of the ``host`` refs less ``Lw`` (the level and its
+    riser), each piece keeping its ref."""
+    from .low_level import _overlay
+    Lw = valid_area(Lw)
+    return [_dc.replace(r, polygon=q) for k in sorted(host) for r in by_ref[k]
+            for q in nonempty_polygon_parts(valid_area(
+                _overlay(valid_area(r.polygon), Lw, "difference", grid)))]
+
+
+def _courts(regs: list, reg: Registries, s: LevelSeed, host: set, lots, air, airport,
+            block: str, ref: str, near: float, w: float, n_k: dict, roads_of, dem,
+            step: float, pmin: float, gaps: dict, notes: list) -> "tuple[list, dict]":
+    """``(regs, levels)``: the seed unit's open courts beside its lots
+    (``planar/passage_court``), each minted a piece of the passage level
+    ``ref`` (:func:`_pieces`) -- a passage cut out of its unit's main floor
+    only (``host`` holds an upper floor)."""
+    from .passage_court import courts
+    lot = valid_area(unary_union([g for g in lots if g is not None and not g.is_empty]))
+    part = getattr(airport, "partition", None)
+    if lot.is_empty or part is None or not (0 <= s.unit < len(part.units)):
+        return regs, {}
+    main = max(float(reg.landings[k]["y_lo"]) for k in host if k in reg.landings)
+    pads = valid_area(unary_union([r.polygon for r in regs if r.polygon is not None]))
+    got = courts(part.units[s.unit], s.z0 + main, pads, lot, air, roads_of,
+                 airport.frame.entry(), near, w, pmin)
+    if not got:
+        return regs, {}
+    C = valid_area(unary_union(got))
+    notes.append(f"{ref}: {len(got)} court(s) {C.area:.0f} m2 beside the lots")
+    return _pieces(regs, reg, C, got, block, ref, s, air, near, w, n_k, roads_of, dem, step,
+                   pmin, gaps, lot)
+
+
+def _pad_of(F, by_ref: dict, upper: "dict[str, str] | None" = None) -> "str | None":
     """The pad region ref holding most of the footprint ``F`` (a held block
-    or a pad of its own), or ``None``."""
-    best, area = None, 0.0
+    or a pad of its own; ``upper``: the lower levels ``{ref: block}`` whose
+    area counts as their block's, :func:`_upper_floors`), or ``None``."""
+    upper = upper or {}
+    got: dict[str, float] = {}
     for ref, rs in by_ref.items():
-        if "/" in ref or "#" in ref:
+        pad = upper.get(ref, ref)
+        if "/" in pad or "#" in pad:
             continue
-        a = sum(r.polygon.intersection(F).area for r in rs)
-        if a > area:
-            best, area = ref, a
-    return best if best is not None and area >= 0.5 * F.area else None
+        got[pad] = got.get(pad, 0.0) + sum(r.polygon.intersection(F).area for r in rs)
+    best = max(got, key=lambda k: got[k], default=None)
+    return best if best is not None and got[best] >= 0.5 * F.area else None
+
+
+def _upper_floors(s: LevelSeed, reg: Registries) -> "dict[str, str]":
+    """``{ref: block}``: the lower levels a passage seed ``s`` may be cut
+    out of -- TWO FLOORS ONE OBJECT WITNESSES (owner RULINGS 2026-11-10h):
+    a level of the seed's own zero (its record's ``top_y``, the stand floor
+    both read, within one ``PLANE_BAND_M``: the seed reads all the unit's
+    walls, the level the parts on its pad -- KMCI -5.73 / -5.81) whose
+    floor stands at least two ``PLANE_BAND_M`` over the walls' (the
+    two-plane test of ``low_level._low_plane``) is the unit's
+    MAIN FLOOR, and the roads run a storey under it at the walls' depth.
+    MEASURED KMCI ``building26``: the hall's main floor ``p1`` at -2.43
+    (its walled feet at y -8.2) over the garage's walls at -10.4 (the
+    passage, -4.63); with the seed read only off the block, the passage
+    roads stood on the main floor 2.2 m over the lot beside the garage.  A
+    level at the walls' floor already (within two bands) or another zero's
+    is no host: the seed keeps a riser off it."""
+    from ..airport.airside_group_seat import PLANE_BAND_M
+    from .low_level import LOW_KIND
+    out: dict[str, str] = {}
+    for ref, rec in reg.landings.items():
+        if rec.get("kind") != LOW_KIND or rec.get("witness") == PASSAGE_WITNESS \
+                or rec.get("top_y") is None or rec.get("y_lo") is None:
+            continue
+        if abs(float(rec["top_y"]) - float(s.z0)) <= float(PLANE_BAND_M) \
+                and float(rec["y_lo"]) >= -float(s.depth) + 2.0 * float(PLANE_BAND_M):
+            out[ref] = str(rec["block"])
+            out[ref + STRIP_SUFFIX] = str(rec["block"])
+    return out
 
 
 def _front_block(q, polys: dict, held: dict, reach: float) -> "str | None":

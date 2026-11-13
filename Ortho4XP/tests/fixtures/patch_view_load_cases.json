@@ -1,0 +1,21 @@
+{
+  "_doc": "SceneryKit PatchViewLoad / O4_Qt_Patch_View_Load (#2061): load_cases give patch_load's arguments for an engine with (fast) or without the view lane; applies_cases say whether a patch_staleness answer about answer_path completes the document opened from opened_path.",
+  "load_cases": [
+    {"name": "an engine with the view lane loads without the check",
+     "tile": "-55-069", "icao": "SAWH", "fast": true,
+     "arguments": {"tile": "-55-069", "icao": "SAWH", "staleness": false}},
+    {"name": "an older engine is asked as before",
+     "tile": "+30+031", "icao": "HECA", "fast": false,
+     "arguments": {"tile": "+30+031", "icao": "HECA"}}
+  ],
+  "applies_cases": [
+    {"name": "the answer about the opened file completes it",
+     "opened_path": "/P/+30+030/+30+031/HECA_auto.patch.osm",
+     "answer_path": "/P/+30+030/+30+031/HECA_auto.patch.osm", "applies": true},
+    {"name": "an answer about another file (a newer edit) is dropped",
+     "opened_path": "/P/+30+030/+30+031/HECA_auto.patch.osm",
+     "answer_path": "/P/+30+030/+30+031/HECA_edited.patch.osm", "applies": false},
+    {"name": "nothing opened takes no answer",
+     "opened_path": "", "answer_path": "", "applies": false}
+  ]
+}

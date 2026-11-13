@@ -123,6 +123,9 @@ class TerrainModel:
     #: share of its cells under quality elevation, and the hide offer
     quality_cover: float = 0.0
     hideable: bool = False
+    #: the resolved OBJ8 file (the tile's cut re-reads its shape from it,
+    #: ``airport/terrain_cut``); ``""`` in a capture written before it
+    file: str = ""
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -317,7 +320,7 @@ def placement_models(placements: _t.Sequence[tuple],
         out[str(oid)] = TerrainModel(str(oid), str(dpath), xy2, float(heading), m["z0"],
                                      m["corr"], m["peak_err"], m["fit_m"],
                                      shape.grid.area_m2, shape.relief_m,
-                                     m["quality_cover"], hideable)
+                                     m["quality_cover"], hideable, str(path_of(dpath) or ""))
     return out
 
 
@@ -347,14 +350,25 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
     TerrainModel, authored lift)``): seat :data:`SEAT`, ``elevation`` the
     frame zero plus the row's own lift -- the ``OBJECT_MSL`` row
     ``terrain_shaped.row_seats`` writes.  ``hideable`` (the model's own
-    row, under quality elevation) travels to the pack adjustment."""
+    row, under quality elevation) travels to the pack adjustment.  The
+    model's OWN row carries ``cut`` -- its file, anchor and heading, from
+    which the tile build cuts the ground under it (owner RULINGS
+    2026-11-13k, ``airport/terrain_cut``) unless the user hides it."""
     out = []
+    to_ll = None
     for oid, dpath, m, lift in sorted(getattr(airport, "terrain_models", ()) or (),
                                       key=lambda r: r[0]):
-        out.append({"id": oid, "resource": dpath, "datum": "terrain", "seat": SEAT,
-                    "elevation": round(m.z0 + float(lift or 0.0), 3),
-                    "hideable": bool(m.hideable and dpath == m.path),
-                    "corr": round(m.corr, 3), "quality_cover": round(m.quality_cover, 3)})
+        rec = {"id": oid, "resource": dpath, "datum": "terrain", "seat": SEAT,
+               "elevation": round(m.z0 + float(lift or 0.0), 3),
+               "hideable": bool(m.hideable and dpath == m.path),
+               "corr": round(m.corr, 3), "quality_cover": round(m.quality_cover, 3)}
+        if oid == m.id and getattr(m, "file", ""):
+            if to_ll is None:
+                to_ll = airport.frame.transformers()[1]
+            lat, lon = to_ll(*m.xy)
+            rec["cut"] = {"file": m.file, "lat": round(float(lat), 9),
+                          "lon": round(float(lon), 9), "heading": round(m.heading, 6)}
+        out.append(rec)
     return out
 
 

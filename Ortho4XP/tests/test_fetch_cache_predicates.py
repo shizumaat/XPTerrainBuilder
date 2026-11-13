@@ -53,7 +53,7 @@ def test_predicates_are_registered_for_both_fetch_steps():
 # ---------------------------------------------------------------------
 # Vector / OpenStreetMap extract
 # ---------------------------------------------------------------------
-def _write_osm_cache(path, schema=""):
+def _write_osm_cache(path, schema="", body=""):
     import bz2
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -64,6 +64,7 @@ def _write_osm_cache(path, schema=""):
     with bz2.open(path, "wt") as handle:
         handle.write('<?xml version="1.0" encoding="UTF-8"?>\n')
         handle.write(root)
+        handle.write(body)
         handle.write("</osm>\n")
 
 
@@ -261,8 +262,17 @@ def test_inset_predicate_needs_a_stamp_matching_the_configuration(
     # A different provider selection likewise.
     assert INSETS.is_cached(
         _inset_tile(airport_elevation_providers="SRTM")) is False
-    # A refreshed airports layer changes the airport set.
-    _write_osm_cache(FNAMES.osm_cached(30, 31, "airports"), "changed")
+    # #2050 (owner RULINGS 2026-11-13o): a refresh that rewrites the
+    # layer with the same CONTENT (a new mtime, its root attributes
+    # aside) keeps the stamp ...
+    path = FNAMES.osm_cached(30, 31, "airports")
+    _write_osm_cache(path, "rewritten")
+    os.utime(path, (1, 1))
+    assert INSETS.is_cached(tile) is True
+    # ... a refreshed airports layer with another aerodrome changes the set.
+    _write_osm_cache(path, body='  <node id="-1" lat="30.5" lon="31.5" '
+                     'version="1">\n    <tag k="aeroway" v="aerodrome"/>\n'
+                     '  </node>\n')
     assert INSETS.is_cached(tile) is False
 
 

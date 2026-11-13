@@ -1925,7 +1925,13 @@ def test_a_date_only_stamp_change_is_not_rewritten(tmp_path, monkeypatch):
     later = dict(base, checked="2026-10-02")
     assert EL.write_approach_ring_stamp(39, -107, later) is False
     assert json.loads(path.read_text(encoding="utf-8"))["checked"] == "2026-10-01"
-    changed = dict(later, plan_stamp="def")
+    # #2050 (RULINGS 2026-11-13o, OTHH 2026-11-13T14:34Z): the plan's
+    # record moving with the same cells answered is no change either ...
+    moved = dict(later, plan_stamp="def", neighbours_unknown=["+25+050"])
+    assert EL.write_approach_ring_stamp(39, -107, moved) is False
+    assert json.loads(path.read_text(encoding="utf-8"))["plan_stamp"] == "abc"
+    # ... a cell's outcome or a new cell is.
+    changed = dict(later, cells={"c": "ok", "d": "no-coverage"})
     assert EL.write_approach_ring_stamp(39, -107, changed) is True
 
 

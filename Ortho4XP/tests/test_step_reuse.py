@@ -886,3 +886,39 @@ def test_a_step_that_saw_the_stop_records_nothing(monkeypatch, session_dirs):
     assert calls == ["vector", "mesh"]
     assert _session_build(monkeypatch, session_dirs) == [
         "mesh", "masks", "imagery"]
+
+
+# ── #2050: data inputs by CONTENT (owner RULINGS 2026-11-13o) ─────────────
+def test_a_data_refresh_with_the_same_bytes_keeps_the_vector_step(tile,
+                                                                  tmp_path):
+    """A refresh that rewrites the tile's OSM cache or an inset with the
+    same bytes (a new mtime) reruns nothing."""
+    (tmp_path / "insets" / "OTHH_x.tif").write_bytes(b"inset")
+    _write_outputs(tile)
+    _complete_build(tile)
+    _rewrite(str(tmp_path / "osm" / "+25+051_airports.osm.bz2"), b"osm")
+    _rewrite(str(tmp_path / "insets" / "OTHH_x.tif"), b"inset")
+    assert REUSE.stale_reason(tile, "vector") is None
+    _rewrite(str(tmp_path / "insets" / "OTHH_x.tif"), b"other inset")
+    assert REUSE.stale_reason(tile, "vector") == (
+        "the airport elevation insets changed")
+
+
+def test_a_record_cut_before_content_keys_is_still_reused(tile, tmp_path):
+    """A record carrying the pre-#2050 stat identity of the OSM and inset
+    files is current while they stand — the change of key alone reruns no
+    step — and stale once one is rewritten."""
+    import json
+    _write_outputs(tile)
+    _complete_build(tile)
+    path = FNAMES.step_record_file(tile.build_dir, tile.lat, tile.lon)
+    doc = json.load(open(path, encoding="utf-8"))
+    entry = doc["committed"]["vector"]
+    entry["inputs"]["osm"] = REUSE._identity(entry["osm_files"])
+    entry["inputs"]["insets"] = REUSE._identity(REUSE._inset_files(tile))
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(doc, fh)
+    assert REUSE.stale_reason(tile, "vector") is None
+    _rewrite(str(tmp_path / "osm" / "+25+051_airports.osm.bz2"), b"osm")
+    assert REUSE.stale_reason(tile, "vector") == (
+        "the OpenStreetMap data changed")

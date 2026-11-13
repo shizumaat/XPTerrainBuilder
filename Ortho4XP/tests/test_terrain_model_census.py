@@ -22,7 +22,7 @@ def test_the_gates_count_the_pack(tmp_path):
     TTM._write(pack / "o", "mountain.obj", TTM._hill)
     TTM._write(pack / "o", "block.obj", TTM._hill, uv="atlas")
     gates, shapes = TMC.candidates(str(pack))
-    assert gates == {"objects": 2, "plan": 2, "photo": 1, "candidate": 1}
+    assert gates == {"objects": 2, "plan": 2, "photo": 1, "candidate": 1, "ground": 0}
     assert list(shapes) == ["o/mountain.obj"]
 
 

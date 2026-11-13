@@ -180,6 +180,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_seats",
         "auto_patch_v2.airport.footprint_unit",
         "auto_patch_v2.airport.frame_entry",
+        "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.msl_feet",
@@ -371,6 +372,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_unit",
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.grade_ledger",
+        "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
@@ -742,6 +744,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_seats",
         "auto_patch_v2.airport.footprint_unit",
         "auto_patch_v2.airport.frame_entry",
+        "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
@@ -896,6 +899,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_seats",
         "auto_patch_v2.airport.footprint_unit",
         "auto_patch_v2.airport.frame_entry",
+        "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.lot_level",
         "auto_patch_v2.airport.msl_feet",
@@ -1099,6 +1103,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_seats",
         "auto_patch_v2.airport.footprint_unit",
         "auto_patch_v2.airport.frame_entry",
+        "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.msl_feet",
@@ -1833,7 +1838,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model
+    airport.terrain_feature airport.terrain_model airport.ground_shell
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split
@@ -1932,7 +1937,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.file_hash airport.footprint_carry airport.footprint_connector
     airport.footprint_seats airport.footprint_unit airport.one_building airport.frame_entry
     airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model
+    airport.terrain_feature airport.terrain_model airport.ground_shell
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof airport.obj8_split
@@ -2014,7 +2019,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.footprint_unit
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model
+    airport.terrain_feature airport.terrain_model airport.ground_shell
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof
@@ -2164,7 +2169,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.footprint_unit
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model
+    airport.terrain_feature airport.terrain_model airport.ground_shell
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof
@@ -2324,7 +2329,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model
+    airport.terrain_feature airport.terrain_model airport.ground_shell
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.below_grade_witness
@@ -2425,7 +2430,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_model
+    airport.terrain_feature airport.terrain_model airport.ground_shell
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split

@@ -74,7 +74,7 @@ __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PE
            "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
            "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
            "placement_models", "set_members", "seat_records", "log_line",
-           "hideable_paths"]
+           "hideable_paths", "rim_seat"]
 
 MIN_PLAN_M = 500.0
 MIN_RELIEF_M = 50.0
@@ -126,6 +126,10 @@ class TerrainModel:
     #: the resolved OBJ8 file (the tile's cut re-reads its shape from it,
     #: ``airport/terrain_cut``); ``""`` in a capture written before it
     file: str = ""
+    #: a GROUND SHELL's verdict (``ground_shell``, issue #2056): ``"seated"``
+    #: (it lies on the ground at ``z0``) or ``"hidden"`` (its row is left
+    #: out of the written DSF); ``""`` for a terrain model of this module
+    ground: str = ""
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -272,15 +276,25 @@ def match(shape: Shape, xy: tuple[float, float], heading: float,
     peak_err = abs(float(top.max()) + fit - float(d.max())) / shape.relief_m
     if corr < MIN_CORR or peak_err > MAX_PEAK_ERR:
         return None
+    z0 = rim_seat(grid, xy, heading, dem_many)
+    if z0 is None:
+        return None
+    cover = 0.0 if fine is None else float(np.mean(np.asarray(fine(xs, ys), dtype=bool)))
+    return {"z0": z0, "corr": corr, "peak_err": float(peak_err),
+            "fit_m": fit, "quality_cover": cover}
+
+
+def rim_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,
+             dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray]
+             ) -> "float | None":
+    """THE SEAT (module doc): the zero where no visible edge floats --
+    ``min`` over the outer rim of ``(ground - bottom)`` -- or ``None``
+    with no DEM under the rim."""
     ri, rj = np.nonzero(outer_rim(grid.covered))
     rx, ry = _world(grid, ri, rj, xy, heading)
     gap = np.asarray(dem_many(rx, ry), dtype=float) - grid.bot[ri, rj]
     gap = gap[np.isfinite(gap)]
-    if not len(gap):
-        return None
-    cover = 0.0 if fine is None else float(np.mean(np.asarray(fine(xs, ys), dtype=bool)))
-    return {"z0": float(gap.min()), "corr": corr, "peak_err": float(peak_err),
-            "fit_m": fit, "quality_cover": cover}
+    return float(gap.min()) if len(gap) else None
 
 
 def _origin(xy: _t.Any, heading: float, elev: _t.Any) -> tuple:
@@ -358,6 +372,13 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
     to_ll = None
     for oid, dpath, m, lift in sorted(getattr(airport, "terrain_models", ()) or (),
                                       key=lambda r: r[0]):
+        if getattr(m, "ground", "") == "hidden":
+            # issue #2056: a ground shell no seat lays flat on our ground is
+            # left out of the written DSF -- no seat, no cut
+            from .terrain_shaped import HIDDEN_SEAT
+            out.append({"id": oid, "resource": dpath, "datum": "terrain",
+                        "seat": HIDDEN_SEAT, "elevation": round(m.z0, 3)})
+            continue
         rec = {"id": oid, "resource": dpath, "datum": "terrain", "seat": SEAT,
                "elevation": round(m.z0 + float(lift or 0.0), 3),
                "hideable": bool(m.hideable and dpath == m.path),
@@ -380,8 +401,10 @@ def hideable_paths(records: _t.Iterable[_t.Any]) -> tuple[str, ...]:
 
 
 def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:
-    """The build log's one line on the terrain models."""
-    models = sorted({m.id: m for m in models}.values(), key=lambda m: m.id)
+    """The build log's one line on the terrain models (a ground shell has
+    its own line, ``ground_shell.log_line``)."""
+    models = sorted({m.id: m for m in models if not getattr(m, "ground", "")}.values(),
+                    key=lambda m: m.id)
     if not models:
         return f"[{icao}] terrain-modelling objects: none"
     return f"[{icao}] terrain-modelling objects: " + "; ".join(

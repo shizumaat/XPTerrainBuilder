@@ -28,7 +28,8 @@ import O4_File_Names as FNAMES
 from . import patch_file as PF
 
 
-__all__ = ["patch_list", "patch_load", "patch_save", "patch_revert",
+__all__ = ["patch_list", "patch_load", "patch_staleness", "patch_save",
+           "patch_revert",
            "custom_patches", "use_auto_patch", "law_identity"]
 
 
@@ -126,22 +127,48 @@ def _staleness(tile: str, icao: str, doc: PF.PatchFile, source: str
     return bool(stale), [key for key, _was, _now in stale]
 
 
-def patch_load(tile: str, icao: str) -> dict:
-    """ENGINE COMMAND ``patch_load``: the patch the build applies for
-    *icao*, as the §2 document."""
-    icao = str(icao).upper()
+def _effective_doc(tile: str, icao: str) -> tuple[str, PF.PatchFile]:
     found = _effective_patch(_patch_dir(tile), icao)
     if found is None:
         raise ValueError(f"{icao} has no patch in tile {tile}: build this "
                          f"tile first")
-    source, path = found
-    doc = PF.read_patch(path)
-    stale, stale_inputs = _staleness(tile, icao, doc, source)
+    return found[0], PF.read_patch(found[1])
+
+
+def patch_load(tile: str, icao: str, staleness: bool = True) -> dict:
+    """ENGINE COMMAND ``patch_load``: the patch the build applies for
+    *icao*, as the §2 document.
+
+    ``staleness=False`` (capability ``patch_view_lane``, #2061) leaves the
+    §1.4 check out — ``stale`` reads False and ``stale_pending`` True — so
+    the map draws the patch at once: the check reads the airport photos'
+    cover, which finds every nearby airport's apt.dat across the install
+    (MEASURED on the owner's 1,474 packs: 11-24 s in a fresh engine, the
+    whole wait for the first patch).  :func:`patch_staleness` answers it
+    on its own."""
+    icao = str(icao).upper()
+    source, doc = _effective_doc(tile, icao)
+    path = doc.path
+    if staleness:
+        stale, stale_inputs = _staleness(tile, icao, doc, source)
+    else:
+        stale, stale_inputs = False, []
     spacing, dp = law_identity()
     return {"icao": icao, "source": source, "path": path, "stale": stale,
             "stale_inputs": stale_inputs, "min_distinct_spacing_m": spacing,
             "identity_dp": dp, "header": doc.header, "nodes": doc.nodes,
-            "ways": doc.ways}
+            "ways": doc.ways, "stale_pending": not staleness}
+
+
+def patch_staleness(tile: str, icao: str) -> dict:
+    """ENGINE COMMAND ``patch_staleness`` (#2061): the §1.4 check
+    :func:`patch_load` leaves out under ``staleness=False`` —
+    ``{"path", "stale", "stale_inputs"}`` for the patch the build applies
+    now (``path`` lets the app drop an answer about another file)."""
+    icao = str(icao).upper()
+    source, doc = _effective_doc(tile, icao)
+    stale, stale_inputs = _staleness(tile, icao, doc, source)
+    return {"path": doc.path, "stale": stale, "stale_inputs": stale_inputs}
 
 
 def _save_target(directory: str, icao: str, base_path: str) -> str:

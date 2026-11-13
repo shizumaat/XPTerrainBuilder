@@ -242,3 +242,30 @@ def test_a_ring_with_other_members_is_read_afresh(pit, monkeypatch):
     reads.clear()
     reads.update(held)
     assert _pr.ring_reads(airport, list(objects), cache, zlaw) is not reads
+
+
+def test_the_object_floors_are_read_once_across_both_planar_passes(law, monkeypatch):
+    """#1951: the object floors (``airport/object_floor.read_object_floors``)
+    read no cell, so the second planar pass of a build is handed the first
+    pass's reading, and its map equals a fresh read's."""
+    from auto_patch_v2.planar import object_floor_cells as _ofc
+    calls = {"n": 0}
+    real = _ofc.read_object_floors
+
+    def spy(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    monkeypatch.setattr(_ofc, "read_object_floors", spy)
+    airport = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_SlopeDem())
+    cl = classify(airport, law)
+    cl0 = ribbon_free(cl)
+    cache, oo = _cache(law), []
+    _pm1, st1 = planar_build(airport, cl, law, objects_out=oo, cache=cache)
+    assert calls["n"] == 1
+    pm0, _st0 = planar_build(airport, cl0, law, cache=cache, objects=oo[0],
+                             object_report=st1.basins.objects)
+    assert calls["n"] == 1
+    fresh, _f = planar_build(airport, cl0, law, cache=_cache(law), objects=oo[0],
+                             object_report=st1.basins.objects)
+    assert calls["n"] == 2
+    _same_map(pm0, fresh)

@@ -634,6 +634,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.floor_decks",
         "auto_patch_v2.planar.foot_kerb",
         "auto_patch_v2.planar.group_low",
+        "auto_patch_v2.planar.group_up",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
         "auto_patch_v2.planar.level_depth",
@@ -2186,7 +2187,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.fill_road planar.fill_riser
     model.road_yield planar.road_shadow
     constraints.wall_zone
-    geom.foot_planes constraints.group_level constraints.face_index planar.group_low
+    geom.foot_planes constraints.group_level constraints.face_index planar.group_low planar.group_up
     airport.pavement_end_plate
     airport.walled_plate law.walled_plate_schema model.stage_one model.walled_plate
     planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
@@ -2356,7 +2357,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.fill_road planar.fill_riser
     model.road_yield planar.road_shadow
     constraints.wall_zone
-    geom.foot_planes constraints.face_index constraints.group_level planar.group_low
+    geom.foot_planes constraints.face_index constraints.group_level planar.group_low planar.group_up
     airport.pavement_end_plate
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped law.walled_plate_schema
     model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads

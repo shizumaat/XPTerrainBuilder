@@ -44,8 +44,8 @@ from ..law.tables import role_side, snap_margin_m
 from .evidence import polygon_parts
 
 __all__ = ["ARM_PAD_KEY", "STOREY_M_KEY", "STOREY_Y_KEY", "STOREY_UNCONFIRMED_KEY",
-           "StoreyBand", "UPPER_FLOOR_KEY", "UPPER_UNIT_KEY", "UPPER_Y_KEY", "arm_storeys", "ground_confirms",
-           "knife_storeys", "storey_band", "storey_height"]
+           "StoreyBand", "UPPER_FLOOR_KEY", "UPPER_UNIT_KEY", "UPPER_Y_KEY", "arm_storeys",
+           "ground_confirms", "knife_storeys", "storey_band", "storey_height"]
 
 #: evidence: metres of a lot's apron contact §27 read as across a storey
 STOREY_M_KEY = "airside_edge_storey_m"
@@ -56,7 +56,7 @@ STOREY_UNCONFIRMED_KEY = "airside_edge_storey_unconfirmed_y"
 #: evidence: the upper pad a road's ARM climbs to (:func:`arm_storeys`)
 ARM_PAD_KEY = "storey_arm_pad"
 #: pad evidence: the storey's authored base ``y_p``, the unit's floor
-#: ``t`` and the unit (``airport.unit_storey.UpperPad``)
+#: ``t`` and the unit (``airport.unit_storey.upper_pads``)
 UPPER_Y_KEY = "upper_storey_y"
 UPPER_FLOOR_KEY = "upper_storey_floor"
 UPPER_UNIT_KEY = "upper_storey_unit"

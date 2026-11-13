@@ -41,7 +41,7 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-__all__ = ["Storey", "UpperPad", "dem_samples", "part_footprint", "unit_floor", "upper_pads",
+__all__ = ["Storey", "dem_samples", "part_footprint", "unit_floor", "upper_pads",
            "upper_storeys"]
 
 
@@ -58,7 +58,7 @@ class Storey:
 
 
 @_dc.dataclass(frozen=True)
-class UpperPad:
+class _UpperPad:
     """One pad under a unit's upper storey (:func:`upper_pads`): the pad's
     ref and plan, the unit, its floor ``floor_y`` and the storey's base
     ``y`` (authored), the walled-plane cover of the pad, the ground step
@@ -194,7 +194,7 @@ def _unit_reads(part, near, to_xy) -> list:
     return out
 
 
-def _upper_pad(ref, P, ur: _UnitRead, near, air, dem, law, to_xy) -> "UpperPad | None":
+def _upper_pad(ref, P, ur: _UnitRead, near, air, dem, law, to_xy) -> "_UpperPad | None":
     """:func:`upper_pads` for one pad ``P`` and one unit, or ``None``."""
     from ..geom.foot_planes import PLANE_SHARE
     from .split_level import BAND_M
@@ -215,28 +215,28 @@ def _upper_pad(ref, P, ur: _UnitRead, near, air, dem, law, to_xy) -> "UpperPad |
     floor = [g for p, g in ur.parts if getattr(p, "feet", ()) and round(p.base_y) == t
              and g.intersects(near)]
     zp = dem_samples(dem, P)
-    za = dem_samples(dem, air.intersection(unary_union(floor).buffer(near_m(law))))
+    za = dem_samples(dem, air.intersection(unary_union(floor).buffer(_near_m(law))))
     if not zp or not za:
         return None                                       # (4): no ground
     delta, relief = _st.median(zp) - _st.median(za), max(zp) - min(zp)
     if not (0.5 * rise <= delta <= 1.5 * rise) or relief >= rise:
         return None
-    reach = P.buffer(near_m(law))
+    reach = P.buffer(_near_m(law))
     fence = any(getattr(p, "line", False) and p.base_y <= y_p - 0.5 * rise
                 and p.base_y + float(getattr(p, "height_m", 0.0) or 0.0) >= y_p - BAND_M
                 and (g := part_footprint(p, to_xy)) is not None and g.intersects(reach)
                 for m in ur.unit.members for p in m.parts)
-    return UpperPad(str(ref), P, ur.ui, t, float(y_p), round(cover, 3), walled,
+    return _UpperPad(str(ref), P, ur.ui, t, float(y_p), round(cover, 3), walled,
                     round(delta, 2), round(relief, 2), fence)
 
 
-def near_m(law) -> float:
+def _near_m(law) -> float:
     """``[design] pad_frontage_m``."""
     from ..law.tables import design as design_law
     return float(design_law(law).pad_frontage_m)
 
 
-def upper_pads(airport, law, air, pads) -> list[UpperPad]:
+def upper_pads(airport, law, air, pads) -> list[_UpperPad]:
     """THE UPPER PADS (module docstring; spec 2068 §1 (1)-(5)) among
     ``pads`` (``(ref, polygon)``, the engine's frame), read against the
     airside pavement ``air``: a pad is under unit ``u``'s upper storey when
@@ -253,10 +253,10 @@ def upper_pads(airport, law, air, pads) -> list[UpperPad]:
     dem = getattr(airport, "dem", None)
     if part is None or frame is None or dem is None or air is None or air.is_empty:
         return []
-    near = air.buffer(near_m(law))
+    near = air.buffer(_near_m(law))
     to_xy = frame.entry()
     units = None
-    out: list[UpperPad] = []
+    out: list[_UpperPad] = []
     for ref, P in pads:
         if P is None or P.is_empty or P.area <= 0.0:
             continue

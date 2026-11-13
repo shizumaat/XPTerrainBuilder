@@ -768,6 +768,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.planar.foot_kerb",
     "auto_patch_v2.planar.group",
     "auto_patch_v2.planar.group_low",
+    "auto_patch_v2.planar.group_up",
     "auto_patch_v2.planar.landing",
     "auto_patch_v2.planar.landing_runout",
     "auto_patch_v2.planar.level_depth",

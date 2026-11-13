@@ -1237,8 +1237,9 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
                 knives[ref] = pads[ref].buffer(knife_m, join_style="mitre",
                                                mitre_limit=2.0)
             # a lot a storey up (``storey_edge``) meets the pad's UPPER
-            # LEVEL: welded, never held off as a hillside (#1101)
-            if hold and STOREY_Y_KEY not in c.evidence and ARM_PAD_KEY not in c.evidence \
+            # LEVEL, a road's arm its upper pad (#2068): welded, never held
+            # off as a hillside (#1101)
+            if hold and STOREY_Y_KEY not in c.evidence and c.evidence.get(ARM_PAD_KEY) != ref \
                     and is_held_step(
                     law, dem_step_m(g, pads[ref], knives[ref], airside, dem, law)):
                 held.append(ref)

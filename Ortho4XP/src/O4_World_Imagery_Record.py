@@ -4,7 +4,12 @@
 The record of tile ``<tile>`` is ``<pack>/XPTerrainBuilder_imagery/<tile>.json``::
 
     {"provider": "FRorth", "zl": 16, "kind": "drape", "auto": true,
-     "blend": {side: {"toward", "start", "mid", "end"}}, "at": "..."}
+     "blend": {side: {"toward", "knots": [[t, b_r, b_g, b_b,
+                                            gain_r, gain_g, gain_b], ...]}},
+     "at": "..."}
+
+(a first-round record's sides hold ``start``/``mid``/``end`` offsets;
+``O4_Imagery_Provider_Blend.from_record`` reads both).
 
 * :func:`write_staged` -- the drape writer puts it in the staging folder
   (``<staged>/XPTerrainBuilder_imagery.json``);

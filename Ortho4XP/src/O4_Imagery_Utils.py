@@ -3206,6 +3206,8 @@ def convert_texture(
     # #2018: a drape beside another provider's tile blends toward it
     harmonization_field = PROVIDER_BLEND.add_field(
         tile, harmonization_field, til_x_left, til_y_top, zoomlevel)
+    blend_gain = PROVIDER_BLEND.gain_field(tile, til_x_left, til_y_top,
+                                           zoomlevel)
     if (provider_code in local_combined_providers_dict) and (
         (provider_code not in providers_dict)
         or not os.path.exists(os.path.join(file_dir, jpeg_file_name))
@@ -3215,7 +3217,7 @@ def convert_texture(
         )
         if harmonization_field is not None:
             big_image = HARMONIZE.apply_color_field(
-                big_image, harmonization_field
+                big_image, harmonization_field, gain=blend_gain
             )
         if masked_texture:
             if tile.sea_nodata_fill:
@@ -3262,7 +3264,7 @@ def convert_texture(
             )
         if harmonization_field is not None:
             big_image = HARMONIZE.apply_color_field(
-                big_image, harmonization_field
+                big_image, harmonization_field, gain=blend_gain
             )
         if masked_texture:
             if tile.sea_nodata_fill:

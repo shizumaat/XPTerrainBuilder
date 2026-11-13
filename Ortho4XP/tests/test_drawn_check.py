@@ -141,8 +141,9 @@ def _split(tmp_path, msl_elev):
     rec = {"kind": "split_level", "floor_ref": "basin_floor:0",
            "resources": ["objects/portal.obj"], "anchor_longitude_latitude": [LON, LAT],
            "plate_y_m": -5.0, "floor_below_rim_m": 5.0, "floor_m": 95.0,
-           # the open side 5 m east of the anchor, north-south
-           "open_sides_ll": [[[LAT - 0.00005, LON + 0.00005], [LAT + 0.00005, LON + 0.00005]]]}
+           # the open side 5 m east of the anchor, run north to south: the
+           # building on its right, the ground it meets (east) on its left
+           "open_sides_ll": [[[LAT + 0.00005, LON + 0.00005], [LAT - 0.00005, LON + 0.00005]]]}
     return DC.check_split(rec, drawn, 0.3)
 
 
@@ -152,6 +153,36 @@ def test_split_level_lower_floor_on_the_floor_upper_at_the_ground(tmp_path):
     assert row["open_ground_median"] == pytest.approx(100.0)
     # the drawn floor is the flat 100 m mesh: the lower floor 5 m under it fails
     assert any("lower floor - drawn floor" in f for f in row["fails"])
+
+
+def test_an_open_side_is_read_on_its_left_not_away_from_the_anchor():
+    """#1903 KLAX Terminal_2 / Terminal_8: a pier's or a notch's edge faces
+    away from the building's anchor only by chance -- read "away from the
+    anchor", 1 m out landed on the building's own pit floor, a 4.00 m gap.
+    An open side runs with its building on its right
+    (``SplitLevel.open_sides``): it is read on its LEFT."""
+    # a west-facing edge (run south to north) EAST of the anchor
+    seg = [[LAT - 0.00005, LON + 0.00005], [LAT + 0.00005, LON + 0.00005]]
+    left = DC._outside(seg, None, 1.0)
+    away = DC._outside(seg, (LON, LAT), 1.0)
+    assert all(lo < LON + 0.00005 for lo, _la in left)
+    assert all(lo > LON + 0.00005 for lo, _la in away)
+
+
+def test_the_back_is_the_closed_side_across_from_the_open_one():
+    """#1903 KLAX Terminal_8 (open west, closed north / east / south): the
+    north and south walls run up the slope between the levels and are
+    never the back; the east wall across from the open side is.  A plan's
+    open boundary (pier and notch edges in every direction) no longer
+    decides it."""
+    n = [[LAT + 0.001, LON - 0.001], [LAT + 0.001, LON + 0.001]]
+    e = [[LAT + 0.001, LON + 0.001], [LAT - 0.001, LON + 0.001]]
+    s = [[LAT - 0.001, LON + 0.001], [LAT - 0.001, LON - 0.001]]
+    notch = [[LAT, LON], [LAT, LON + 0.0002]]          # an east-west notch edge
+    west = [[LAT - 0.001, LON - 0.001], [LAT + 0.001, LON - 0.001]]
+    assert DC._behind([n, e, s], [west, notch]) == [e]
+    assert DC._behind([s], [west]) == [s]
+    assert DC._behind([n, e, s], []) == [n, e, s]
 
 
 def test_split_level_upper_floor_over_the_ground_is_a_gap(tmp_path):

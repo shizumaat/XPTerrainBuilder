@@ -70,7 +70,13 @@ def test_the_nested_budget_is_the_pools_law_for_the_share_not_cores_over_two():
     share 2 and budget 1, bound ``memory`` — floor((16/2 - 11) / 2) < 1.
     That is the law, not a share that failed to arrive."""
     from auto_patch_v2.airport import pool as P
+    from auto_patch_v2.airport import pool_memory as M
     small = {"share": 2, "cpu": 4, "ram_gb": 15.6, "reserve_gb": 11.0, "allowance_gb": 2.0}
+    # issue #2044: the memory free now lifts the physical reading, never lowers it
+    big = {"share": 9, "cpu": 18, "ram_gb": 128.0, "reserve_gb": 11.0, "allowance_gb": 2.0}
+    assert SC.budget_for(big) == (1, "memory")
+    assert SC.budget_for(dict(big, free_gb=102.4, floor=0.05)) == (2, "share")
+    assert SC.budget_for(dict(small, free_gb=14.0, floor=0.05)) == (1, "memory")
     assert SC.budget_for(small) == (1, "memory")
     assert SC.budget_for(dict(small, ram_gb=64.0)) == (2, "share")
     assert SC.budget_for(dict(small, ram_gb=None)) == (2, "share")
@@ -81,10 +87,11 @@ def test_the_nested_budget_is_the_pools_law_for_the_share_not_cores_over_two():
         for share in (1, 2, 3):
             P.set_share(share)
             P.configure(None)
-            here = {"share": P.share(), "cpu": os.cpu_count() or 1,
-                    "ram_gb": P.physical_ram_gb(), "reserve_gb": P.PARENT_RESERVE_GB,
-                    "allowance_gb": P.WORKER_ALLOWANCE_GB}
-            assert P.share() == share and SC.budget_for(here) == P.budget_bound()
+            facts: dict = {}
+            got = P.budget_bound(facts)
+            here = {**facts, "reserve_gb": P.PARENT_RESERVE_GB,
+                    "allowance_gb": P.WORKER_ALLOWANCE_GB, "floor": M.SYSTEM_FREE_FLOOR}
+            assert P.share() == share and SC.budget_for(here) == got
     finally:
         P.set_share(held)
         P.configure(1)                                # the suite's pin (conftest)

@@ -20,10 +20,15 @@ The contract a caller relies on:
   the airport pool's worker initializer with the pool's own worker count,
   which already honours the airport-pool knob).  :func:`configure` pins it.
   A worker's own budget is 1: pools never nest inside this pool.
-* **a memory budget too** (:func:`budget_bound`): every worker parses its
-  own resources, so the workers are also bounded by the machine's physical
-  memory — this build's share of it, less :data:`PARENT_RESERVE_GB`, at
-  :data:`WORKER_ALLOWANCE_GB` a worker.  Never below 1: a machine without
+* **a memory budget too** (:func:`budget_bound`, :func:`memory_workers`):
+  every worker parses its own resources, so the workers are also bounded
+  by memory at :data:`WORKER_ALLOWANCE_GB` a worker — the larger of two
+  readings: this build's share of the PHYSICAL memory less
+  :data:`PARENT_RESERVE_GB` (what a machine can always afford), and its
+  share of the memory FREE NOW less the free floor and one reserve (issue
+  #2044: the first reading alone charges every sibling build OTHH's 11 GB
+  parent, so on a 128 GB machine nine airport builds left each pool ONE
+  worker with 80 % of the memory free).  Never below 1: a machine without
   the room runs the stage on one core, the same computation.  Which bound
   decided (``cores`` / ``share`` / ``memory`` / ``tasks`` / ``pinned``) is
   in :meth:`WorkPool.report` and on the ``[pool]`` line.
@@ -115,7 +120,7 @@ from . import pool_memory as _mem
 from ..model import pulse as _pulse
 
 __all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "budget_bound",
-           "physical_ram_gb", "PARENT_RESERVE_GB", "WORKER_ALLOWANCE_GB", "configure",
+           "physical_ram_gb", "free_gb", "memory_workers", "PARENT_RESERVE_GB", "WORKER_ALLOWANCE_GB", "configure",
            "set_share", "share", "share_object", "shared_object", "spec_key", "detach",
            "attached", "exit_with_parent", "exited",
            "TICK_S", "TEARDOWN_S", "SIGNAL_S", "STALL_S", "REAP_S"]
@@ -230,11 +235,36 @@ def physical_ram_gb() -> float | None:
     return total / 2.0 ** 30 if total > 0 else None
 
 
-def budget_bound() -> tuple[int, str]:
+def free_gb() -> float | None:
+    """The memory free for use on this machine NOW, in GiB
+    (``pool_memory.system_free_fraction`` of :func:`physical_ram_gb`), or
+    ``None`` where either cannot be read."""
+    ram = physical_ram_gb()
+    frac = _mem.system_free_fraction()
+    return None if ram is None or frac is None else frac * ram
+
+
+def memory_workers(ram_gb: float, share_n: int, free: float | None = None) -> int:
+    """THE MEMORY BOUND (module doc): the workers ``share_n`` airport builds
+    may each run on a machine of ``ram_gb``, ``free`` GiB of it free now
+    (``None``: unread — the physical reading alone, as before #2044).
+    Never below 1."""
+    n = max(1, int(share_n))
+    by_ram = int((ram_gb / n - PARENT_RESERVE_GB) // WORKER_ALLOWANCE_GB)
+    if free is not None:
+        room = free - _mem.SYSTEM_FREE_FLOOR * ram_gb - PARENT_RESERVE_GB
+        by_ram = max(by_ram, int(room / n // WORKER_ALLOWANCE_GB))
+    return max(1, by_ram)
+
+
+def budget_bound(facts: dict | None = None) -> tuple[int, str]:
     """``(workers a pool opened in this process may run, the bound that
     decided)`` — ``pinned`` (:func:`configure`, a worker, a daemonic
     process), ``memory``, ``share`` (the cores, shared with the airport
-    builds beside this one) or ``cores``."""
+    builds beside this one) or ``cores``.  ``facts``, when a dict, receives
+    what the derived budget was read from (``share``, ``cpu``, ``ram_gb``,
+    ``free_gb``) — the self-check re-derives it from them
+    (``O4_Pool_Selfcheck.budget_for``)."""
     if _explicit[0] is not None:
         return _explicit[0], "pinned"
     try:
@@ -243,10 +273,14 @@ def budget_bound() -> tuple[int, str]:
     except Exception:
         return 1, "pinned"
     n = share()
-    by_cores = max(1, (os.cpu_count() or 1) // n)
+    cpu = os.cpu_count() or 1
+    by_cores = max(1, cpu // n)
     ram = physical_ram_gb()
+    free = free_gb() if ram is not None else None
+    if facts is not None:
+        facts.update(share=n, cpu=cpu, ram_gb=ram, free_gb=free)
     if ram is not None:
-        by_memory = max(1, int((ram / n - PARENT_RESERVE_GB) // WORKER_ALLOWANCE_GB))
+        by_memory = memory_workers(ram, n, free)
         if by_memory < by_cores:
             return by_memory, "memory"
     return by_cores, "share" if n > 1 else "cores"

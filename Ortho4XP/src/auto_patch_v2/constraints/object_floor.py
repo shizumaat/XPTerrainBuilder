@@ -89,7 +89,8 @@ def _rim_pins(planar: PlanarMap, fl, wall_ref: str, rim: list[int], keep: set[st
     (module doc): the nearest ``rim_tops`` sample within one
     ``wall_sample_m``; a vertex a ``keep`` role shares, or another
     structure's void band (``retaining_wall`` of any ref but ``wall_ref``,
-    the floor's own), is left to it."""
+    the floor's own), is left to it, and one no surface shares is left
+    alone."""
     tops = getattr(fl, "rim_tops", ()) or ()
     if not tops or not rim:
         return []
@@ -104,6 +105,12 @@ def _rim_pins(planar: PlanarMap, fl, wall_ref: str, rim: list[int], keep: set[st
         faces = [planar.faces[f] for f in planar.vertices[v].incident_faces]
         if any(f.role in keep or (f.role == "retaining_wall"
                                   and f.ref.split("#")[0] != wall_ref) for f in faces):
+            continue
+        if all(f.ref.split("#")[0] == wall_ref for f in faces):
+            # the band's own vertex alone (the patch ends there): no surface
+            # meets the object at it, and the mesh draws the ground beyond
+            # (MEASURED legll1E1: 35 such rim nodes pinned at the top drew
+            # 1-4.3 m under it, the drawn gate's patch->drawn rows)
             continue
         d, k = tree.query(planar.vertices[v].xy)
         if d <= reach:

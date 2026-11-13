@@ -60,6 +60,13 @@ def _planar(floor):
             verts[len(verts)] = types.SimpleNamespace(xy=(x, y), incident_faces=(k,))
             ids.append(len(verts) - 1)
         faces[k] = types.SimpleNamespace(role=role, ref=ref, ring=tuple(ids), holes=())
+    # the apron the rim meets (a band vertex no surface shares is left alone)
+    apron = len(faces)
+    faces[apron] = types.SimpleNamespace(role="apron", ref="apron", ring=(), holes=())
+    for k, f in list(faces.items()):
+        if f.role == "retaining_wall":
+            for v in f.ring:
+                verts[v].incident_faces = (k, apron)
     return types.SimpleNamespace(object_floors=(floor,), faces=faces, vertices=verts,
                                  ring_vertices=lambda ring: list(ring))
 
@@ -93,5 +100,7 @@ def test_a_rim_vertex_a_road_carries_keeps_the_roads_law(tmp_path):
     road = len(planar.faces)
     planar.faces[road] = types.SimpleNamespace(role="service_road", ref="road", ring=(), holes=())
     planar.vertices[rim[0]].incident_faces = (planar.vertices[rim[0]].incident_faces[0], road)
+    alone = planar.vertices[rim[1]]
+    alone.incident_faces = alone.incident_faces[:1]           # the patch ends there
     again = {p.v for p in object_floor_pins(planar, LAW, None)}
-    assert rim[0] not in again and set(rim[1:]) <= again
+    assert rim[0] not in again and rim[1] not in again and set(rim[2:]) <= again

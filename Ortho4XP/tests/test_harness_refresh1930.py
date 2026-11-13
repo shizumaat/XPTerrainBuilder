@@ -241,3 +241,28 @@ def test_a_run_refused_by_the_write_guard_frees_its_tag(build_mod, tmp_path):
         build_mod.main_releasing_refused_tags([], run=refused)
     assert build_mod.tag_artifacts_present(tmp_path, "T4") == []
     assert (tmp_path / "T4.refused.env.json").exists()
+
+
+# #2038 -------------------------------------------------------------------
+def test_a_resting_unanswered_provider_is_no_side_effect_fetch(tmp_path,
+                                                               monkeypatch):
+    """#2038 (USGS 3DEP's TNM 504, KSFO 2026-11-12): a MISSING verdict
+    whose never-answered providers all REST is not a fetch the build would
+    make (the fetch loop skips a resting provider), so the pre-flight reads
+    it ``resting`` -- the degraded frame ``--allow-degraded-dem`` accepts --
+    and the same verdict with the provider awake stays ``missing``."""
+    import elevation_access.refusal_rest as REST
+
+    test_an_unasked_provider_above_the_cached_raster_is_named(tmp_path, monkeypatch)
+    spec = importlib.util.spec_from_file_location(
+        "harness_inset_preflight_2038", ROOT / "tools" / "harness" / "inset_preflight.py")
+    ipf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ipf)
+    problem = INSETS.airport_inset_frame_problem(LAT, LON, ICAO, BOX)
+    monkeypatch.setattr(REST, "resting_refusal", lambda code, now=None: None)
+    assert ipf.resting_verdict(INSETS, LAT, LON, ICAO, BOX, problem)[0] == "missing"
+    monkeypatch.setattr(REST, "resting_refusal",
+                        lambda code, now=None: {"at": 0} if code == "SPAIN5M" else None)
+    kind, text = ipf.resting_verdict(INSETS, LAT, LON, ICAO, BOX, problem)
+    assert kind == "resting" and "SPAIN5M" in text
+    assert kind not in ipf.REFRESHABLE_KINDS

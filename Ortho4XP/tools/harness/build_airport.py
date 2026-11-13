@@ -921,12 +921,13 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
         # A TILE build's inset pass runs over EVERY selected aerodrome of
         # the tile (#583): each one it would re-fetch is named here.
         out.extend(tile_inset_refetch_rows(state, lat, lon))
-    if inset_problem is not None and inset_problem[0] != "empty":
+    if inset_problem is not None and inset_problem[0] not in ("empty", "resting"):
         # "empty" is a DECLARED state, not a missing artifact: the build
         # reads the raster, finds it empty, says so and grades on the
         # base DEM.  Nothing is fetched or regenerated, so listing it
-        # here would refuse a build that mutates nothing.
-        # ``require_dem_frame`` names it instead, with its scope.
+        # here would refuse a build that mutates nothing.  "resting"
+        # (#2038): every never-answered provider rests, so nothing is
+        # asked either.  ``require_dem_frame`` names both, with scope.
         (kind, text) = inset_problem
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/"

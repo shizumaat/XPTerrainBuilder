@@ -394,6 +394,9 @@ class Body:
     #: DSF's tile is anchored on it and keeps its seat by its row
     #: (``split_guard.on_tile``): no mesh under the new anchor is its ground.
     msl_z: float | None = None
+    #: §9a (#2063 round 3): the ISOLATED share this body is written in
+    #: (``isolated_seat``: its lowest contact feet, one frame), else ``""``
+    isolated_of: str = ""
 
     def to_dict(self) -> dict[str, _t.Any]:
         d = self._dict()
@@ -401,6 +404,8 @@ class Body:
             d["lift_m"] = self.lift_m
         if self.msl_z is not None:
             d["msl_z"] = self.msl_z
+        if self.isolated_of:
+            d["isolated_of"] = self.isolated_of
         return d
 
     def _dict(self) -> dict[str, _t.Any]:
@@ -454,7 +459,8 @@ class Body:
                    str(d.get("unit_of") or ""),
                    str(d.get("connector_of") or ""),
                    _f(d.get("lift_m", 0.0)),
-                   None if d.get("msl_z") is None else _f(d["msl_z"]))
+                   None if d.get("msl_z") is None else _f(d["msl_z"]),
+                   str(d.get("isolated_of") or ""))
 
 
 @_dc.dataclass(frozen=True)

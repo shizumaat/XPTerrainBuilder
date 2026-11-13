@@ -149,7 +149,7 @@ def _obj(path, verts):
     out += [f"VT\t{x:.3f} {y:.3f} {z:.3f}\t0 1 0\t0 0" for x, y, z in verts]
     out += [f"IDX\t{q}" for q in idx]
     out += ["", f"TRIS\t0 {len(idx)}"]
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="") as fh:
         fh.write("\n".join(out) + "\n")
 
 

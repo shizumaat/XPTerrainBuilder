@@ -37,7 +37,7 @@ def _pack(scenery, name, apt_text=None, objs=()):
     open(os.path.join(root, DSF), "wb").close()
     for rel in objs:
         os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
-        open(os.path.join(root, rel), "w", encoding="utf-8").close()
+        open(os.path.join(root, rel), "w", encoding="utf-8", newline="").close()
     return root
 
 

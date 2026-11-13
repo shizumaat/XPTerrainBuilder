@@ -208,6 +208,24 @@ def cmd_order(args) -> int:
     return 0 if bad == 0 else 1
 
 
+def _foreign_outlines(paths: "list[str] | None") -> tuple:
+    """§9a: the part outlines of the airport's sibling plans
+    (``isolated_seat.outlines``), or ``()`` — said once: the isolation is
+    then read within this plan only."""
+    if paths is None:
+        print("  isolation read within this plan only (no --foreign)")
+        return ()
+    from auto_patch_v2.airport import isolated_seat as _iso
+    from auto_patch_v2.model import rebake as _rb
+    out: list = []
+    for p in paths:
+        with open(p, encoding="utf-8") as fh:
+            out.extend(_iso.outlines(_rb.RebakePlan.from_json(fh.read())))
+    print(f"  isolation read against {len(paths)} sibling plan(s), "
+          f"{len(out)} outline(s)")
+    return tuple(out)
+
+
 def cmd_plan(args: argparse.Namespace) -> int:
     """THE PLACEMENT STAGE, REPLAYED AND TIMED (RULINGS 2026-09-12g).
 
@@ -482,7 +500,13 @@ def cmd_plan(args: argparse.Namespace) -> int:
         # #1645: the plan's rows are narrowed to THIS tile's DSF, as the app
         # does (without it a neighbour-origin plan's ids stay ``@<tile>``
         # and every placement reads index -1)
-        tile=(int(lat), int(lon)))
+        tile=(int(lat), int(lon)),
+        # §9a (#2063 round 3): the isolated seat, as the app passes it
+        motion_step_m=getattr(getattr(law.tables.emit, "cockpit", None),
+                              "motion_step_m", None),
+        isolated_span_max_m=getattr(law.tables.structures.placement,
+                                    "group_span_max_m", None),
+        isolated_foreign=_foreign_outlines(args.foreign))
     if args.write_pack:
         # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut
         # and written into a pack COPY by ``placement_write.apply_plan``
@@ -767,6 +791,11 @@ def _main(argv: list[str] | None = None) -> int:
                     help="cut and write the replayed plan into this pack COPY "
                          "(placement_write.apply_plan; never the plan's own "
                          "pack) — the DSF and files the census reads (#1214)")
+    pl.add_argument("--foreign", nargs="*", default=None, metavar="PLAN",
+                    help="§9a: the airport's SIBLING rebake plans (main + "
+                         "companions) whose parts block an isolated share, "
+                         "as the app passes them; without it the isolation "
+                         "is read within this plan only")
     pl.add_argument("--plan-out", default="",
                     help="write the replayed o4_v2_placement_<ICAO>.json here "
                          "(lane-local) to diff against the shipped one")

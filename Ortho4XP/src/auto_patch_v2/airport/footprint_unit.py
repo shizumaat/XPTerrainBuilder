@@ -304,7 +304,8 @@ def seat_viaducts(cands: list, staged: _t.Sequence[_t.Any],
     per_v: dict[str, dict[int, list]] = {}
     for ci, c in enumerate(cands):
         st = by_mi.get(c.member)
-        if st is None or c.body_class == _ar.BASIN:
+        # §9a: an isolated share is no viaduct's (13y (4))
+        if st is None or c.body_class == _ar.BASIN or c.anchor.isolated:
             continue
         grp = (st.groups[c.group]
                if 0 <= c.group < len(st.groups) else ())

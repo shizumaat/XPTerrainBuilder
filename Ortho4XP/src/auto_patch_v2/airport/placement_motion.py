@@ -33,7 +33,7 @@ from __future__ import annotations
 import typing as _t
 
 __all__ = ["foot_float", "feet_in_band", "ground_contact_feet",
-           "census_motion", "census_motion_lines"]
+           "lowest_contact_feet", "census_motion", "census_motion_lines"]
 
 
 def foot_float(z_foot: float, z_anchor: float, y_foot: float,
@@ -91,6 +91,20 @@ def ground_contact_feet(feet: _t.Sequence[_t.Tuple[float, float, float]],
     return [f for f in fs if f[2] - floor <= tol]
 
 
+def lowest_contact_feet(feet: _t.Sequence[_t.Tuple[float, float, float]],
+                        band_m: float) -> list:
+    """§9a (#2063 round 3): THE LOWEST CONTACT FEET — those within
+    ``band_m`` (``[cockpit] motion_step_m``) of the lowest foot: the wheels
+    an isolated object stands on, never the gear legs and belly the 1 m
+    band holds.  ONE implementation for the isolated seat
+    (``isolated_seat``) and the census that judges it (:func:`census_motion`)."""
+    fs = list(feet or ())
+    if not fs:
+        return []
+    floor = min(f[2] for f in fs)
+    return [f for f in fs if f[2] - floor <= float(band_m)]
+
+
 def census_motion(bodies: _t.Sequence[_t.Mapping[str, _t.Any]],
                   surface, roles, *,
                   rolled_on: _t.AbstractSet[str],
@@ -141,9 +155,13 @@ def census_motion(bodies: _t.Sequence[_t.Mapping[str, _t.Any]],
         # old count was the model's authored relief and how much the
         # placement's — the attribution 12ap had to take by hand.
         fsb = feet_in_band(_all, band_m)
-        fs = ground_contact_feet(_all, band_m, contact_tol_m)
+        # §9a: an ISOLATED body is judged at its lowest contact feet, the
+        # feet its seat reads (``lowest_contact_feet``)
+        iso = bool(b.get("isolated"))
+        fs = (lowest_contact_feet(_all, step) if iso
+              else ground_contact_feet(_all, band_m, contact_tol_m))
         _floor = min((f[2] for f in fsb), default=0.0)
-        _tol = (float(band_m) if contact_tol_m <= 0.0
+        _tol = (step if iso else float(band_m) if contact_tol_m <= 0.0
                 else min(float(contact_tol_m), float(band_m)))
         n_band += len(fsb)
         i = len(rows)

@@ -118,6 +118,8 @@ class Body:
             d["lift_m"] = self.lift_m
         if self.msl_z is not None:
             d["msl_z"] = self.msl_z
+        if self.anchor.isolated:
+            d["isolated_of"] = self.anchor.isolated      # §9a
         return d
 
     def _dict(self) -> dict[str, _t.Any]:

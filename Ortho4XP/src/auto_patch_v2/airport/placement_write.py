@@ -167,6 +167,12 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                # #2042: the built mesh over the pack's graded facades
                # (``facade_seat.candidates_box``); ``None`` reads ``surface``
                facade_surface: _t.Callable | None = None,
+               # §9a (#2063 round 3): the isolated seat's ``[cockpit]
+               # motion_step_m`` (0 disarms), ``[placement] group_span_max_m``
+               # and the sibling plans' outlines (``isolated_seat.outlines``)
+               motion_step_m: float = 0.0,
+               isolated_span_max_m: float = 0.0,
+               isolated_foreign: _t.Sequence = (),
                ) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
@@ -214,7 +220,10 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           rows=getattr(dump, "placements", None),
                           authored_keep_tol_m=authored_keep_tol_m,
                           drape=drape, drape_law=drape_law,
-                          tile_box=_sg.box_of_tile(tile, dsf_path))
+                          tile_box=_sg.box_of_tile(tile, dsf_path),
+                          motion_step_m=motion_step_m,
+                          isolated_span_max_m=isolated_span_max_m,
+                          isolated_foreign=isolated_foreign)
     splits, kept = _pp.to_placement_records(ss)
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,

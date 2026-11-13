@@ -36,7 +36,7 @@ import O4_Machine_Slots as S
 import pytest
 from o4_engine import imagery_follow as FOLLOW
 from o4_engine import imagery_follow_house as HOUSE
-from test_imagery_follow import REPLAY, Clock, FakeLander, _index_rows
+from test_imagery_follow import REPLAY, Clock, FakeLander, _index_rows, _settle
 
 TOOLS = os.path.join(os.path.dirname(__file__), "..", "tools")
 
@@ -222,6 +222,139 @@ def test_a_slow_reread_never_holds_the_tick(tmp_path, monkeypatch):
             assert job._rows[key]["state"] == "upgraded"
     finally:
         gate.set()
+        job.close()
+
+
+def _commits(conn) -> list:
+    """Every commit on ``conn`` from now on: a ``COMMIT``, or a write made
+    outside a transaction (autocommit: its own commit)."""
+    seen = []
+
+    def trace(sql):
+        verb = sql.split(None, 1)[0].upper()
+        if verb == "COMMIT" or (verb in ("UPDATE", "INSERT", "DELETE",
+                                         "REPLACE") and not conn.in_transaction):
+            seen.append(verb)
+    conn.set_trace_callback(trace)
+    return seen
+
+
+def test_a_tick_commits_its_index_writes_once(tmp_path):
+    """#2037, the windows-latest red: a tick's 0-12 index writes (the
+    landings harvested, the fetches dispatched, the late marks) were each
+    an autocommit -- a disk flush apiece.  They go in ONE transaction: at
+    most one commit a tick, whatever it wrote, and the index holds every
+    landing the job counted."""
+    index_path, _ = _index_rows(tmp_path)
+    clock = Clock()
+    job = FOLLOW.FollowJob(lambda e: None, reader=_Reader(clock),
+                           lander=FakeLander(), index_path=index_path,
+                           clock=clock, cap_bytes=0, log_path=None)
+    job.open()
+    job.house.start()                   # its writes on its own connection
+    writes, commits = [], _commits(job._conn)
+    real = job._commit
+
+    def counted():
+        writes.append(len(job._writes))
+        real()
+    job._commit = counted
+    most = 0
+    try:
+        for t in _times(40):
+            clock.t = t
+            before = len(commits)
+            writes.clear()
+            job.tick()
+            assert len(commits) - before <= 1, (writes, commits[before:])
+            most = max(most, sum(writes))
+            _settle(job)                    # the landings harvested next
+        assert most >= 2 and job.counts["landed"] >= 2
+    finally:
+        job.close()
+    conn = INDEX.open_index(index_path)
+    landed = {lnd["square"] for lnd in job.landings}
+    for key in landed:
+        tile, name = key.split("/", 1)
+        assert INDEX.get(conn, tile, name)["state"] == "upgraded"
+    conn.close()
+
+
+class _HeldLander(FakeLander):
+    """Lands when ``gate`` opens; ``from_source``: every row lands from
+    a mounted source (or none)."""
+
+    def __init__(self, sourced):
+        super().__init__()
+        self.gate, self.sourced = threading.Event(), sourced
+
+    def __call__(self, row, tier):
+        self.gate.wait(10)
+        return super().__call__(row, tier)
+
+    def from_source(self, row):
+        return self.sourced
+
+
+@pytest.mark.parametrize("sourced", [False, True])
+def test_a_landing_from_a_source_takes_no_fetch_slot(tmp_path, sourced):
+    """#2037: ThunderBlade landings (a built tile's full DDS on a mounted
+    volume) queued behind the network's slots.  One download slot: a
+    downloaded square holds it; squares landing from their source start
+    beside it, up to the workers."""
+    import O4_Imagery_Fetch_Slots as SLOTS
+    index_path, _ = _index_rows(tmp_path)
+    clock = Clock()
+    slots = SLOTS.FetchSlots(max_slots=4)
+    slots.update = lambda buffer, now: slots.slots      # pinned at 1
+    lander = _HeldLander(sourced)
+    job = FOLLOW.FollowJob(lambda e: None, reader=_Reader(clock),
+                           lander=lander, index_path=index_path, clock=clock,
+                           cap_bytes=0, log_path=None, slots=slots)
+    job.open()
+    try:
+        most = 0
+        for t in _times(12):
+            clock.t = t
+            job.tick()
+            most = max(most, len(job._inflight))
+        assert most == (4 if sourced else 1)
+    finally:
+        lander.gate.set()
+        job.close()
+
+
+def test_a_landing_starts_when_it_is_submitted(tmp_path):
+    """#2037 attribution: on the owner's CYEG flight (1.0.506) source
+    landings read 29-163 s, every square of a batch landing within 0.1 s
+    of the others whatever its tier -- the tick's work BEFORE its dispatch
+    (the reread, then on the tick) was counted in them: ``started`` was
+    the tick's start.  It is the submit."""
+    index_path, _ = _index_rows(tmp_path)
+    clock = Clock()
+    lander = _HeldLander(False)
+    job = FOLLOW.FollowJob(lambda e: None, reader=_Reader(clock),
+                           lander=lander, index_path=index_path, clock=clock,
+                           cap_bytes=0, log_path=None)
+    job.open()
+    real = job._plan
+
+    def slow(now, planner=True):
+        clock.t += 50.0                     # the tick's work before dispatch
+        return real(now, planner)
+    job._plan = slow
+    try:
+        for t in _times(12):
+            clock.t = t
+            tick_start = t
+            job.tick()
+            if job._inflight:
+                break
+        assert job._inflight
+        for item in job._inflight.values():
+            assert item.started == tick_start + 50.0
+    finally:
+        lander.gate.set()
         job.close()
 
 

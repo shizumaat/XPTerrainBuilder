@@ -374,6 +374,32 @@ def test_lander_prefers_the_mounted_source(world, monkeypatch, tmp_path):
     assert called and DDS.is_whole(str(final))
 
 
+def test_a_mounted_source_lands_with_no_download(world, monkeypatch,
+                                                tmp_path):
+    """#2037: a row whose source holds the tier needs no download (no
+    fetch slot, and local in the spawn window); its landing says what
+    each part took."""
+    import O4_Imagery_Utils as IMG
+    monkeypatch.setattr(IMG, "build_jpeg_ortho", lambda *a, **k: False)
+    monkeypatch.setattr(LAND.TierLander, "_tile",
+                        lambda self, r: SimpleNamespace(lat=60, lon=-136))
+    name = "1000_2016_Arc16.dds"
+    final = tmp_path / "copy" / "textures" / name
+    _write(str(final), TIERS.tier_from_file(
+        os.path.join(world.new, "textures", name), PX))
+    row = {"tile": "+60-136", "name": name, "zl": 16, "provider": "Arc",
+           "build_dir": str(tmp_path / "copy"), "dds_cache_key": None,
+           "source_path": os.path.join(world.new, "textures", name)}
+    lander = LAND.TierLander()
+    assert lander.from_source(row)
+    assert lander.local(row, 0) and lander.local(row, 1)
+    assert not lander.local(row, 3)             # past the source's width
+    facts = lander(row, 0)
+    assert set(facts["source_s"]) == {"check", "read", "land"}
+    gone = dict(row, source_path=str(tmp_path / "unmounted" / name))
+    assert not lander.from_source(gone) and not lander.local(gone, 0)
+
+
 def test_exchange_is_atomic_and_probed(tmp_path):
     if not EXCHANGE_OK:
         assert not EXCHANGE.supported(str(tmp_path))

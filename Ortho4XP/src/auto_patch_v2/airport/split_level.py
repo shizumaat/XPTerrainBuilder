@@ -66,8 +66,8 @@ import shapely
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
-from . import obj8 as _obj8
 from ..geom.foot_planes import PLANE_SHARE
+from . import obj8 as _obj8
 from .object_cut import _face_normals_y
 
 __all__ = ["SplitLevel", "corner_cut", "read_split_levels", "run_faces", "take_remainder"]

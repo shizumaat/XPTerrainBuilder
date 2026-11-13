@@ -24,10 +24,10 @@ from shapely.ops import unary_union
 
 from .terrain_shaped import STOREY_SEAT as SEAT
 
-__all__ = ["SEAT", "block_zero", "rigid_rows", "seat_records"]
+__all__ = ["SEAT", "seat_records"]
 
 
-def rigid_rows(shell: _t.Any, objects: _t.Sequence[_t.Any], touch_m: float,
+def _rigid_rows(shell: _t.Any, objects: _t.Sequence[_t.Any], touch_m: float,
                cache: _t.Any = None, close_m: float = 0.0) -> list:
     """The placements of ``shell``'s RIGID SET (module docstring), sorted by
     id.  A frame's plan is its SOLIDS' covered plan (``cache``, closed by
@@ -67,7 +67,7 @@ def _solid_plan(fam: _t.Sequence[_t.Any], cache: _t.Any, close_m: float):
         if parts else None
 
 
-def block_zero(shell: _t.Any, pm: _t.Any, z_at: _t.Callable) -> "float | None":
+def _block_zero(shell: _t.Any, pm: _t.Any, z_at: _t.Callable) -> "float | None":
     """``z0``: the block pad's solved datum (the median of its vertices'
     solved levels) less the block's level."""
     xy = sorted({pm.vertices[v].xy for f in pm.faces.values() if f.ref == shell.pad_ref
@@ -84,14 +84,14 @@ def seat_records(shells: _t.Sequence[_t.Any], pm: _t.Any, z_at: _t.Callable,
     """One ``RebakePlan.authored_seats`` record per row of every shell's
     rigid set (module docstring); ``z_at(x, y)`` the solved surface's level
     at a map vertex; ``cache`` / ``close_m`` read a frame's solid plan
-    (:func:`rigid_rows`)."""
+    (:func:`_rigid_rows`)."""
     out: list[dict[str, _t.Any]] = []
     seen: set[str] = set()
     for sh in shells:
-        z0 = block_zero(sh, pm, z_at)
+        z0 = _block_zero(sh, pm, z_at)
         if z0 is None:
             continue
-        for o in rigid_rows(sh, objects, touch_m, cache, close_m):
+        for o in _rigid_rows(sh, objects, touch_m, cache, close_m):
             if str(o.id) in seen:
                 continue
             seen.add(str(o.id))

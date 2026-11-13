@@ -2482,6 +2482,9 @@ CODE_MODULES["emit"] = _mods("""
 """)
 CODE_MODULES["verify"] = _mods("""
     airport.facade airport.line_solidity classify.edge_line_mint
+    airport.below_grade_witness airport.floor_rim airport.hanging_objects airport.object_cut
+    airport.object_floor airport.wall_geometry airport.walled_pit
+    geom.author_ground geom.lowest_face geom.shape_class geom.vector
     airport.pit_frame
     geom.runway_contact
     geom.exact

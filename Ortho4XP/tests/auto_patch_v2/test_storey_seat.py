@@ -60,4 +60,4 @@ def test_no_solved_block_no_seat():
 def test_the_seat_is_a_written_row_seat():
     from auto_patch_v2.airport import terrain_shaped as TS
     assert TS._WHY[SS.SEAT] == "storey_shell"
-    assert SS.block_zero(_shell(), *_pm(31.5)) == pytest.approx(31.5)
+    assert SS._block_zero(_shell(), *_pm(31.5)) == pytest.approx(31.5)

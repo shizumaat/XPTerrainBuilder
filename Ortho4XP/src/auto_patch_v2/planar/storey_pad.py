@@ -59,8 +59,13 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.prepared import prep
 
-from ..airport.split_level import (SplitLevel, corner_cut, read_split_levels, run_faces,
-                                   take_remainder)
+from ..airport.split_level import (
+    SplitLevel,
+    corner_cut,
+    read_split_levels,
+    run_faces,
+    take_remainder,
+)
 from ..geom.parts import nonempty_polygon_parts
 from ..geom.valid_area import valid_area
 from ..law.tables import frontage_roles

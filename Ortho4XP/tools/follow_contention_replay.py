@@ -17,10 +17,17 @@ a server of their own (the CYEG flight: Bing drapes, Arc follower) unless
 ``--same-host``.  No network, no X-Plane, no texture written: a landing
 changes only the index copy.
 
+``--drapes-out`` runs each drape tile in a spawned process of its own
+sharing the session's slot budget, as the engine runs a drape since
+#2037 (``o4_engine.world_drape_process``), the ``--py-threads`` in the
+first one (that drape's water-mask polygons); without it the drapes and
+the ``--py-threads`` share the follower's process and its interpreter
+lock, as before.
+
     cd Ortho4XP && venv/bin/python tools/follow_contention_replay.py \\
         --index COPY.sqlite --lat 53.31 --lon -113.58 --seconds 120 \\
-        [--drapes 12] [--same-host] [--no-priority] [--base] \\
-        [--slots 4] [--json OUT.jsonl]
+        [--drapes 12] [--same-host] [--drapes-out] [--py-threads 1] \\
+        [--no-priority] [--base] [--slots 4] [--json OUT.jsonl]
 
 ``--base`` is the tick before #2037's house: the house's work on the tick,
 the rows read one ``sqlite3`` step per row (``INDEX.rows``), the storage
@@ -154,6 +161,27 @@ def drape_worker(provider, stop, seed: int) -> None:
         texture(provider, DRAPE_ZL, 4 * k, 8 * seed, DRAPE_SIDE)
 
 
+def _drape_process(provider, first: int, drapes: int, py_threads: int,
+                   stop) -> None:
+    """Child process (``--drapes-out``): ``drapes`` drape tiles (seeds
+    from ``first``) and ``py_threads`` of their Python work, until
+    ``stop``."""
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "src"))
+    import O4_Imagery_Utils as IMG
+    import O4_UI_Utils as UI
+    UI.red_flag = False
+    IMG.shared_tile_cache_dir = None
+    IMG.textures_in_parallel = 2
+    threads = [threading.Thread(target=drape_worker, daemon=True,
+                                args=(provider, stop, first * 2 + k))
+               for k in range(drapes * 2)]
+    threads += [threading.Thread(target=py_worker, daemon=True, args=(stop,))
+                for _ in range(py_threads)]
+    for thread in threads:
+        thread.start()
+    stop.wait()
+
+
 def burn(seconds: float) -> None:
     """Python and numpy work holding the GIL (``--cpu-threads``)."""
     import numpy as np
@@ -255,13 +283,25 @@ def run(args) -> dict:
     job = Job(lambda event: None, reader=reader, lander=lander,
               index_path=index, max_slots=args.slots, cap_bytes=10 ** 15,
               log_path=None)     # a cap never reached: measured, no sweep
-    threads = [threading.Thread(target=drape_worker, daemon=True,
-                                args=(drape_p, stop, k))
-               for k in range(args.drapes * 2)]
-    threads += [threading.Thread(target=cpu_worker, daemon=True, args=(stop,))
-                for _ in range(args.cpu_threads)]
-    threads += [threading.Thread(target=py_worker, daemon=True, args=(stop,))
-                for _ in range(args.py_threads)]
+    threads = [threading.Thread(target=cpu_worker, daemon=True, args=(stop,))
+               for _ in range(args.cpu_threads)]
+    drapes_out = []
+    if args.drapes_out:             # a process each, one budget
+        MACHINE_SLOTS.ensure_session()
+        out_stop = context.Event()
+        drapes_out = [context.Process(
+            target=_drape_process, daemon=True,
+            args=(drape_p, k, 1, args.py_threads if k == 0 else 0, out_stop))
+            for k in range(args.drapes)]
+        for proc in drapes_out:
+            proc.start()
+    else:
+        threads += [threading.Thread(target=drape_worker, daemon=True,
+                                     args=(drape_p, stop, k))
+                    for k in range(args.drapes * 2)]
+        threads += [threading.Thread(target=py_worker, daemon=True,
+                                     args=(stop,))
+                    for _ in range(args.py_threads)]
     kept = MACHINE_SLOTS.net_priority
     if args.no_priority:                        # the base: no precedence
         MACHINE_SLOTS.net_priority = _null
@@ -293,6 +333,12 @@ def run(args) -> dict:
     with counts.get_lock():
         done = [c - s for c, s in zip(counts, start_counts, strict=True)]
     stop.set()
+    if drapes_out:
+        out_stop.set()
+        for proc in drapes_out:
+            proc.join(10)
+            if proc.is_alive():
+                proc.terminate()
     job.stop(timeout=30)
     MACHINE_SLOTS.net_priority = kept
     (INDEX.all_rows, HOUSE.FLOOR_EVERY_S, SPAWN.core_wants,
@@ -306,6 +352,7 @@ def run(args) -> dict:
                 "house": "base" if args.base else "thread",
                 "slots": args.slots, "drapes": args.drapes,
                 "same_host": args.same_host, "cpu_threads": args.cpu_threads,
+                "drapes_out": args.drapes_out,
                 "py_threads": args.py_threads,
                 "latency_s": args.latency},
         "seconds": round(elapsed, 1),
@@ -367,6 +414,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--drapes", type=int, default=12)
     parser.add_argument("--same-host", action="store_true",
                         help="the drapes fetch from the follower's server")
+    parser.add_argument("--drapes-out", action="store_true",
+                        help="the drapes and --py-threads in a process "
+                             "of their own (the engine since #2037)")
     parser.add_argument("--cpu-threads", type=int, default=0,
                         help="threads of numpy and Python work")
     parser.add_argument("--py-threads", type=int, default=0,

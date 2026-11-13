@@ -218,6 +218,8 @@ class FollowJob:
         self.cap_bytes = cap_bytes
         self.house: FollowHouse | None = None
         self._seq = 0                           # landings recorded
+        self._committed = 0                     # ... and in the index
+        self._writes: list = []                 # this tick's index writes
         self._touched: dict[str, int] = {}      # key -> seq it landed at
         self.busy = busy
         self.lead_s, self.period_s = float(lead_s), float(period_s)
@@ -314,7 +316,7 @@ class FollowJob:
             from .imagery_downgrade import cap_bytes
             self.cap_bytes = cap_bytes()
         self.house = FollowHouse(
-            self.index_path, self._conn, seq=lambda: self._seq,
+            self.index_path, self._conn, seq=lambda: self._committed,
             cap_bytes=self.cap_bytes, clock=self.clock, log=self._log,
             abort=self._stop.is_set)
         self._reload_rows(self.clock())
@@ -358,6 +360,10 @@ class FollowJob:
         if pending:
             _futures.wait(pending, timeout=10.0)
         self._harvest(self.clock())
+        try:
+            self._commit()
+        except Exception as error:      # logged; the next open resets them
+            self._log({"commit_error": repr(error)[:300]})
         self._pool.shutdown(wait=False, cancel_futures=True)
         if self.house is not None:
             self.house.stop()
@@ -371,7 +377,36 @@ class FollowJob:
     # --------------------------------------------------------------- tick
 
     def tick(self) -> None:
-        """One cycle: read, plan, harvest, dispatch, report."""
+        """One cycle: read, plan, harvest, dispatch, report; its index
+        writes committed once, at its end (:meth:`_commit`)."""
+        try:
+            self._tick()
+        finally:
+            self._commit()
+
+    def _write(self, fn, *args, **columns) -> None:
+        """``fn(conn, *args, **columns)`` (an ``INDEX`` write), committed
+        with the tick's others at its end."""
+        self._writes.append((fn, args, columns))
+
+    def _commit(self) -> None:
+        """The tick's index writes in ONE transaction (#2037: 0-12
+        autocommits a tick, each a disk flush, held the windows-latest
+        tick 3.7-5 s).  The house's reread trusts the index for the
+        landings committed (:attr:`_committed`); later ones stay the
+        job's.  A failed commit keeps the writes for the next tick."""
+        writes, self._writes = self._writes, []
+        if writes:
+            try:
+                with INDEX.transaction(self._conn):
+                    for fn, args, columns in writes:
+                        fn(self._conn, *args, **columns)
+            except Exception:
+                self._writes[:0] = writes
+                raise
+        self._committed = self._seq
+
+    def _tick(self) -> None:
         now = self.clock()
         self.last_dispatched = []
         self._harvest(now)
@@ -420,6 +455,7 @@ class FollowJob:
             return              # the house's sweep downgrades: next tick
         try:
             self._dispatch(fetches, now, downloads=not offline)
+            self._commit()      # "upgrading" in the index before a sweep
         finally:
             guard.release()
 
@@ -450,6 +486,7 @@ class FollowJob:
         missing = [t for t in tiles
                    if FNAMES.short_latlon(t[1], t[2]) not in indexed]
         if missing:
+            self._commit()                  # the reread sees this tick's
             INDEX.rebuild(self._conn, missing,
                           placeholder_root=_placeholder_root())
             self._reload_rows(now)
@@ -588,11 +625,20 @@ class FollowJob:
         ahead = [f for f in planned if not f.late and f.deadline_s > 0.0]
         return ahead + core + [f for f in planned if f not in ahead]
 
-    def _local(self) -> "set[str]":
-        """The open episode's squares that need no download: they take no
-        fetch slot (a slot bounds what is asked of a provider)."""
+    def _local(self):
+        """Does a square need no download?  The open episode's local
+        squares, and any square the lander lands from its source
+        (``TierLander.from_source``: a built tile's full DDS on a mounted
+        volume, #2037): they take no fetch slot (a slot bounds what is
+        asked of a provider)."""
         episode = self.spawn.episode
-        return episode.local if episode is not None else set()
+        local = episode.local if episode is not None else frozenset()
+        from_source = getattr(self.lander, "from_source", None)
+        if from_source is None:
+            return local.__contains__
+        rows = self._rows
+        return lambda key: key in local or (
+            key in rows and from_source(rows[key]))
 
     def _update_slots(self, fetches, now: float) -> None:
         """The buffer: in-flight work first (its remaining seconds), then
@@ -600,13 +646,13 @@ class FollowJob:
         deadlines, costs = [], []
         local = self._local()
         for key, item in self._inflight.items():
-            if key in local:
+            if local(key):
                 continue
             deadlines.append(item.due_at - now)
             costs.append(max(0.0, self._fetch_s[item.fetch.tier]
                              - (now - item.started)))
         queue = [f for f in fetches if not f.late
-                 and f.square not in self._inflight and f.square not in local]
+                 and f.square not in self._inflight and not local(f.square)]
         for f in queue:
             deadlines.append(f.deadline_s)
             costs.append(self._fetch_s[f.tier])
@@ -629,22 +675,32 @@ class FollowJob:
 
     def _dispatch(self, fetches, now: float, downloads: bool = True) -> None:
         """Start the due fetches in order, as slots allow; without
-        ``downloads`` (offline) only those that need none."""
+        ``downloads`` (offline) only those that need none.  A download
+        takes one of the current slots; a landing that needs none
+        (:meth:`_local`) only a worker, so it starts past downloads that
+        wait for a slot."""
         local = self._local()
+        downloading = sum(1 for key in self._inflight if not local(key))
         for f in fetches:
-            if f.square not in local and not downloads:
+            near = local(f.square)
+            if not near and not downloads:
                 continue
-            if len(self._inflight) >= (self.slots.max_slots if f.square
-                                       in local else self.slots.slots):
+            if len(self._inflight) >= self.slots.max_slots:
                 return
             if not f.due or f.square in self._inflight:
                 continue
+            if not near and downloading >= self.slots.slots:
+                continue
             if not self._take_token(now):
                 return
+            downloading += not near
             row = self._rows[f.square]
-            INDEX.set_state(self._conn, row["tile"], row["name"], "upgrading")
+            self._write(INDEX.set_state, row["tile"], row["name"], "upgrading")
+            # started: the submit, not the tick's start (#2037: a tick
+            # slow before its dispatch read as a 29-163 s landing)
+            started = self.clock()
             future = self._pool.submit(self._land, dict(row), f.tier)
-            self._inflight[f.square] = _InFlight(future, f, row, now,
+            self._inflight[f.square] = _InFlight(future, f, row, started,
                                                  now + f.deadline_s)
             self.last_dispatched.append(f)
 
@@ -671,14 +727,14 @@ class FollowJob:
                 now: float) -> None:
         row = item.row
         late = item.fetch.late or now > item.due_at
-        INDEX.set_state(self._conn, row["tile"], row["name"], "upgraded",
+        self._write(INDEX.set_state, row["tile"], row["name"], "upgraded",
                         tier_px=facts["tier_px"],
                         full_bytes=facts.get("full_bytes", 0),
                         jpeg_path=facts.get("jpeg_path"),
                         dds_cache_key=facts.get("dds_cache_key"),
                         fetched_at=now)
         if late:
-            INDEX.mark_late(self._conn, row["tile"], row["name"])
+            self._write(INDEX.mark_late, row["tile"], row["name"])
             self.counts["late"] += 1
         was = PLAN.tier_of_width(row["tier_px"])
         row.update(state="upgraded", tier_px=facts["tier_px"])
@@ -701,6 +757,8 @@ class FollowJob:
                    "crossing": item.fetch.crossing, "late": late,
                    "started": item.started, "landed": now,
                    "slots": self.slots.slots}
+        if facts.get("source_s"):           # a source landing's parts
+            landing["source_s"] = facts["source_s"]
         self.landings.append(landing)
         self._log(landing)
 
@@ -711,7 +769,7 @@ class FollowJob:
         self.counts["failed"] += 1
         state = "failed" if count >= MAX_FAILURES else (
             "upgraded" if PLAN.tier_of_width(row["tier_px"]) > 0 else "low")
-        INDEX.set_state(self._conn, row["tile"], row["name"], state)
+        self._write(INDEX.set_state, row["tile"], row["name"], state)
         if count >= MAX_FAILURES:
             self._failed.add(key)
         if self._fail_streak >= OFFLINE_AFTER:

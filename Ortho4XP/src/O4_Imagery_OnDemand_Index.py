@@ -43,7 +43,11 @@ API (stable: the follow job, P3b, reads and writes through it):
 
 * :func:`index_path` -- where the index lives under a data root.
 * :func:`open_index` -- open (create, migrate) the index; a WAL
-  connection with ``sqlite3.Row`` rows.
+  connection with ``sqlite3.Row`` rows, in autocommit (every statement
+  its own transaction and commit).
+* :func:`transaction` -- several writes in ONE transaction and commit
+  (``BEGIN IMMEDIATE`` ... ``COMMIT``; inside one already open, they join
+  it).  ``with conn:`` is no transaction on an autocommit connection.
 * :func:`upsert` -- insert or replace one row's columns (a dict).
 * :func:`get` / :func:`rows` -- read one row / the rows matching
   ``tile``, ``state``, ``pinned``, ``core``; :func:`all_rows` -- every
@@ -107,7 +111,7 @@ __all__ = [
     "placeholder_width", "protected_cache_keys", "protected_jpegs",
     "rebuild", "reset_upgrading", "rows", "set_core",
     "set_pinned", "set_state", "texture_path", "tier_distance_m",
-    "upsert", "LAYOUT_KEY",
+    "transaction", "upsert", "LAYOUT_KEY",
 ]
 
 SCHEMA_VERSION = 3
@@ -234,6 +238,27 @@ def open_index(path: "str | None" = None) -> sqlite3.Connection:
     return conn
 
 
+@contextlib.contextmanager
+def transaction(conn: sqlite3.Connection):
+    """The writes of the block in ONE transaction and one commit
+    (``BEGIN IMMEDIATE``: the write lock taken at once, waited for up to
+    the connection's timeout), rolled back if the block raises.  Inside a
+    transaction already open the block joins it.  An autocommit
+    connection (:func:`open_index`) commits every statement on its own,
+    and each commit is a disk flush (on Windows a ``FlushFileBuffers``);
+    ``with conn:`` opens no transaction there."""
+    if conn.in_transaction:
+        yield conn
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    conn.execute("COMMIT")
+
+
 def _check(values: dict) -> None:
     unknown = set(values) - set(COLUMNS)
     if unknown:
@@ -325,7 +350,7 @@ def mark_near(conn: sqlite3.Connection, tile: str, names, now: float, *,
     ``approaching`` (the first sample of an approach).  Returns the rows
     written."""
     written = 0
-    with conn:
+    with transaction(conn):
         for name in names:
             cursor = conn.execute(
                 "UPDATE textures SET last_near_at = ? WHERE tile = ? AND "
@@ -380,7 +405,7 @@ def set_core(conn: sqlite3.Connection, tile: str, names) -> int:
     ``core = 1``, the tile's others ``core = 0``.  Returns the core rows."""
     wanted = set(names)
     count = 0
-    with conn:
+    with transaction(conn):
         for row in conn.execute("SELECT name, core FROM textures "
                                 "WHERE tile = ?", (tile,)).fetchall():
             flag = int(row["name"] in wanted)
@@ -468,7 +493,7 @@ def reset_upgrading(conn: sqlite3.Connection) -> int:
     reset."""
     found = [dict(r) for r in conn.execute(
         "SELECT * FROM textures WHERE state = 'upgrading'")]
-    with conn:
+    with transaction(conn):
         for row in found:
             path = texture_path(row)
             if path:
@@ -703,7 +728,7 @@ def rebuild(conn: sqlite3.Connection, tiles, *, now: "float | None" = None,
         keys = cache_keys(build_dir) if cache_keys else None
         found = _scan_tile(build_dir, lat, lon, placeholder_dir=keep_dir,
                           cache_keys=keys, now=now)
-        with conn:
+        with transaction(conn):
             conn.execute("DELETE FROM textures WHERE tile = ?", (tile,))
             for row in found:
                 _carry(old.get(row["name"]), row)

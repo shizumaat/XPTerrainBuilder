@@ -97,18 +97,23 @@ class CommandProcess:
     """One worker process answering :data:`COMMANDS` (module doc).  Calls
     are serial (one worker); :meth:`call` blocks the calling thread — call
     it from a worker thread, never the GUI's.  :meth:`close` is bounded and
-    idempotent; a call after it starts a new worker."""
+    idempotent; a call after it starts a new worker.  ``setup(*setup_args)``
+    (a module-level function) runs once in the worker when it starts,
+    before any configuration is read there."""
 
     def __init__(self, out: _t.Callable[[str], None] = print,
-                 stall_s: float = STALL_S) -> None:
+                 stall_s: float = STALL_S, setup: _t.Callable | None = None,
+                 setup_args: tuple = ()) -> None:
         self._out, self._stall = out, float(stall_s)
+        self._setup, self._setup_args = setup, tuple(setup_args)
         self._lock = threading.Lock()
         self._pool = None
 
     def _open(self):
         from auto_patch_v2.airport.pool import WorkPool
         if self._pool is None or not self._pool.parallel:
-            self._pool = WorkPool(workers=1, isolate=True, out=self._out,
+            self._pool = WorkPool(self._setup, self._setup_args,
+                                  workers=1, isolate=True, out=self._out,
                                   stall_s=self._stall, bound="isolated")
         return self._pool
 

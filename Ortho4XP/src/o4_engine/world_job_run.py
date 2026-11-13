@@ -25,7 +25,8 @@ gives it the session, the World pack and X-Plane.
   flight's corridor make (spec §17, RULINGS 2026-11-11j), is fetched and
   written straight into the staging folder on the builder's thread
   (:func:`drape_tile`: ``O4_World_Drape_Fetch`` at the user's
-  ``drape_photo_px``, the water copy on ``airports -1``,
+  ``drape_photo_px`` in a process of its own (``world_drape_process``,
+  #2037), the water copy on ``airports -1``,
   ``O4_World_Drape``).  A ``full`` tile (a flight's departure and
   destination) is an ordinary build through the session's queue
   (``enqueue_build`` with its ``deadline`` and class; never interactive:
@@ -48,6 +49,7 @@ from typing import Any, Callable, Optional, Tuple
 import O4_World_Pack as WP
 
 from . import world_commands as WORLD
+from . import world_drape_process as DRAPE_PROCESS
 from .build_share import SHARE, BuildShare
 from .events import TileState
 from .fly_here import describe as describe_here
@@ -263,8 +265,10 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
     (``write_drape``, RULINGS 2026-11-11j).  ``core`` ``(lat, lon)``: a
     parked aircraft's airport -- the squares within :data:`CORE_FULL_S`
     of it are fetched again at full resolution (RULINGS 2026-11-12c (3)).
-    The build folder goes once the tile is staged (the DDS are
-    hard-linked).  True when it verifies."""
+    The fetch runs in a process of its own (``world_drape_process``,
+    #2037: on an engine thread it starved the follow job).  The build
+    folder goes once the tile is staged (the DDS are hard-linked).  True
+    when it verifies."""
     import shutil
 
     import O4_File_Names as FNAMES
@@ -273,32 +277,21 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
     lat, lon = tile
     px = int(px or drape_px())
     engine = os.path.dirname(os.path.dirname(os.path.abspath(WP.__file__)))
-    parent = FNAMES.data_path("World_build")
-    made: dict = {}
-
-    def blend():                    # #2018: toward another provider's tile
-        if "blend" not in made:
-            from .world_blend import blend_for
-            made["blend"] = blend_for(tile, provider,
-                                      WORLD.scenery_dir_or_default(""),
-                                      photo_source, WORLD.write_log)
-        return made["blend"]
-    fetched = FETCH.fetch(engine, lat, lon, parent, int(zoomlevel), provider,
-                          drop=FETCH.drop_for_px(px), water_alpha=True,
-                          water_wait_s=WATER_WAIT_S, blend=blend)
-    if core is not None:
-        cored = FETCH.fetch(engine, lat, lon, parent, int(zoomlevel), provider,
-                            drop=0, water_alpha=True, water_wait_s=WATER_WAIT_S,
-                            near=(float(core[0]), float(core[1]), CORE_FULL_S),
-                            blend=blend)
-        fetched["core_squares"] = cored.get("squares")
+    fetched = DRAPE_PROCESS.run(
+        engine=engine, lat=int(lat), lon=int(lon),
+        parent=FNAMES.data_path("World_build"), zoomlevel=int(zoomlevel),
+        provider=provider, drop=FETCH.drop_for_px(px),
+        scenery_dir=WORLD.scenery_dir_or_default(""),
+        water_wait_s=WATER_WAIT_S,
+        core=None if core is None else (float(core[0]), float(core[1]),
+                                        CORE_FULL_S))
     staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
     if os.path.exists(staged):
         shutil.rmtree(staged)
     tool = WP.dsftool_path(engine)
     DRAPE.write_drape(lat, lon, int(zoomlevel), provider, fetched["textures"],
                       staged, tool, water_layer=DRAPE.WATER_LAYER_GROUP)
-    _record_drape(staged, provider, zoomlevel, made.get("blend"))
+    _record_drape(staged, provider, zoomlevel, fetched.get("blend"))
     WORLD.write_log({"drape": WP.tile_name(lat, lon), "px": px,
                      **{k: fetched.get(k) for k in (
                          "squares", "dds", "download_s", "convert_s",
@@ -309,17 +302,18 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
     return not DRAPE.verify_drape(staged, lat, lon, tool)["problems"]
 
 
-def _record_drape(staged: str, provider: str, zoomlevel: int, blend) -> None:
+def _record_drape(staged: str, provider: str, zoomlevel: int,
+                  blend: Optional[dict]) -> None:
     """The World pack record of a staged drape (#2018,
     ``O4_World_Imagery_Record``): its provider and zoom, whether
-    Automatic chose them, and the sides it blended."""
+    Automatic chose them, and the sides it blended (``blend``: the
+    blend's record, ``None`` for none)."""
     import O4_Imagery_Auto as AUTO
     import O4_World_Imagery_Record as IREC
     auto = str(_settings().get("fly_photo_source") or AUTO.AUTO) == AUTO.AUTO
     IREC.write_staged(staged, {
         "provider": provider, "zl": int(zoomlevel), "kind": "drape",
-        "auto": auto, "blend": blend.record() if blend is not None else {},
-        "at": _utc()})
+        "auto": auto, "blend": blend or {}, "at": _utc()})
 
 
 def _merge_held(pack: str, staged: str, lat: int, lon: int) -> None:

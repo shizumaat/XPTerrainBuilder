@@ -52,10 +52,15 @@ into the finer tier; the converter's copy there goes once landed.
 cache, no network): Convert existing tiles keeps the imagery a tile
 already has near custom airports (``world_adopt.keep_cores``).
 
-:meth:`TierLander.local` says a landing needs NO download (the full
-tier's ``DDS_cache`` entry, or the tier's source JPEG, is on disk): at a
-spawn or jump the follow job lands those first, inside X-Plane's
-flight-start window (spec §4.5).
+:meth:`TierLander.local` says a landing needs NO download (the row's
+``source_path`` holds the tier, the full tier's ``DDS_cache`` entry or
+the tier's source JPEG is on disk): at a spawn or jump the follow job
+lands those first, inside X-Plane's flight-start window (spec §4.5).
+:meth:`TierLander.from_source` is its cheap half for every tick (the
+row's source folder is mounted): such a landing takes no fetch slot
+(#2037: ThunderBlade landings queued behind the network's slots).  A
+landing from a source says what it took (``source_s``: the check, the
+read or copy, the rename), for the follow job's log.
 """
 from __future__ import annotations
 
@@ -63,6 +68,7 @@ import contextlib
 import os
 import shutil
 import threading
+import time
 
 import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
@@ -94,6 +100,8 @@ OWN_KEYS = ("imprint_masks_to_dds", "mask_zl", "default_website",
             "zone_list")
 #: A combined provider's landing composites under the module's dict.
 _COMBINED = threading.Lock()
+#: Seconds a source folder's presence (a library volume mounted) is kept.
+SOURCE_LOOK_S = 10.0
 
 
 class TierLander:
@@ -104,6 +112,7 @@ class TierLander:
         self._tiles: dict = {}
         self._guard = threading.Lock()
         self.source_only = bool(source_only)
+        self._folders: dict = {}        # source folder -> (looked at, there)
 
     def _tile(self, row):
         """The tile object of ``row``'s build folder (read once)."""
@@ -136,10 +145,28 @@ class TierLander:
             self._tile(row), til_x, til_y, int(row["zl"]), row["provider"],
             drop=_drop(tier)))
 
+    def from_source(self, row: dict) -> bool:
+        """Does ``row`` land from its ``source_path`` (its folder there,
+        looked at once per :data:`SOURCE_LOOK_S`)?  No file is read."""
+        source = row.get("source_path")
+        if not source:
+            return False
+        folder, now = os.path.dirname(source), time.monotonic()
+        with self._guard:
+            seen = self._folders.get(folder)
+        if seen is None or now - seen[0] >= SOURCE_LOOK_S:
+            seen = (now, os.path.isdir(folder))
+            with self._guard:
+                self._folders[folder] = seen
+        return seen[1]
+
     def local(self, row: dict, tier: int) -> bool:
         """Can ``tier`` of ``row`` land with no download?  Never raises."""
         import O4_DDS_Cache as DDSCACHE
         try:
+            if (self.from_source(row) and _source_width(
+                    row["source_path"]) >= TIER_WIDTH[int(tier)]):
+                return True
             key = row.get("dds_cache_key")
             if (TIER_WIDTH[int(tier)] == TIERS.FULL_WIDTH and key
                     and os.path.isfile(DDSCACHE.entry_path(key))):
@@ -154,8 +181,10 @@ class TierLander:
         import O4_Imagery_Utils as IMG
         final = INDEX.texture_path(row)
         width = TIER_WIDTH[int(tier)]
-        if _land_from_source(row.get("source_path"), final, width):
-            return _facts(final, width, None, None, False)
+        took: dict = {}
+        if _land_from_source(row.get("source_path"), final, width, took):
+            return dict(_facts(final, width, None, None, False),
+                        source_s=took)
         if self.source_only:
             raise RuntimeError(f"{row['name']}: its source is not here")
         key = row.get("dds_cache_key")
@@ -321,20 +350,32 @@ def _mirror(built: str, final: str) -> None:
     os.replace(partial, final)
 
 
-def _land_from_source(source, final: str, width: int) -> bool:
+def _source_width(source) -> int:
+    """The width of the whole DDS ``source``; 0 when there is none, it is
+    not mounted, not whole or not a texture header this engine reads."""
+    if not source or not DDS.is_whole(source):
+        return 0
+    header = TIERS.texture_header(source)
+    return int(header[0]) if header is not None else 0
+
+
+def _land_from_source(source, final: str, width: int,
+                      took: "dict | None" = None) -> bool:
     """Land the ``width`` px tier of the full DDS ``source`` over ``final``
     (partial name, then ``O4_DDS_File.land``); ``False`` -- nothing
     written -- when there is no source, it is not mounted or not whole, or
-    it holds no ``width`` px level."""
-    import shutil
-    if not source or not DDS.is_whole(source):
-        return False
-    header = TIERS.texture_header(source)
-    if header is None or header[0] < width:
+    it holds no ``width`` px level.  ``took`` gets the seconds of each
+    part (``check``, ``read``, ``land``)."""
+    took = {} if took is None else took
+    t0 = time.perf_counter()
+    held = _source_width(source)
+    took["check"] = round(time.perf_counter() - t0, 3)
+    if held < width:
         return False
     partial = DDS.partial_name(final)
+    t0 = time.perf_counter()
     try:
-        if header[0] == width:
+        if held == width:
             shutil.copyfile(source, partial)
         else:
             data = TIERS.tier_from_file(source, width)
@@ -346,7 +387,10 @@ def _land_from_source(source, final: str, width: int) -> bool:
         with contextlib.suppress(OSError):
             os.remove(partial)
         return False
-    return DDS.land(partial, final)
+    t1 = time.perf_counter()
+    landed = DDS.land(partial, final)
+    took.update(read=round(t1 - t0, 3), land=round(time.perf_counter() - t1, 3))
+    return landed
 
 
 def _tile_latlon(tile: str) -> tuple[int, int]:

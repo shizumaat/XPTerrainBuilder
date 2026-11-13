@@ -342,6 +342,10 @@ def test_the_world_jobs_drape_has_both_polygon_sets(tmp_path, monkeypatch):
             make(str(tex / DRAPE.default_dds_name(x, y, zl, provider)), 1024)
         return {"tile": str(build), "textures": str(tex)}
     monkeypatch.setattr(FETCH, "fetch", fake_fetch)
+    from o4_engine import world_drape_process as DRAPE_PROCESS
+    process = []                        # the work, here (twins below)
+    monkeypatch.setattr(DRAPE_PROCESS, "run", lambda **kw: process.append(
+        sorted(kw)) or DRAPE_PROCESS.fetch_drape(**kw))
     monkeypatch.setattr(RUN, "_settings", lambda: {"drape_photo_px": 1024})
     monkeypatch.setattr(WORLD, "staging_root", lambda: str(tmp_path / "staging"))
     monkeypatch.setattr(WORLD, "write_log", lambda record: None)
@@ -353,6 +357,7 @@ def test_the_world_jobs_drape_has_both_polygon_sets(tmp_path, monkeypatch):
     blend = kw.pop("blend")             # #2018: made when the fetch asks
     assert kw == {"water_alpha": True, "water_wait_s": RUN.WATER_WAIT_S}
     assert callable(blend)
+    assert len(process) == 1            # the fetch went to its process
     assert not build.exists()
     staged = tmp_path / "staging" / "+52-063"
     # the staged tile carries its World pack record (#2018)
@@ -370,3 +375,20 @@ def test_the_world_jobs_drape_has_both_polygon_sets(tmp_path, monkeypatch):
     assert layers.count("LAYER_GROUP terrain +1") == len(squares)
     assert all("NO_ALPHA" not in p.read_text(encoding="utf-8")
                for p in pols if p.name.endswith("_water.pol"))
+
+
+def _child_pid(**_kw) -> int:
+    print("CHILD-STDOUT")               # never onto the engine's protocol
+    return os.getpid()
+
+
+def test_a_drape_fetches_in_a_process_of_its_own(capfd):
+    """#2037: a drape's fetch and convert held the engine's interpreter
+    lock beside the follow job; ``world_drape_process.run`` answers from
+    another process, whose printed lines go to standard error (the
+    engine's standard output is the protocol stream it inherits)."""
+    from o4_engine import world_drape_process as DRAPE_PROCESS
+    pid = DRAPE_PROCESS.run(task=_child_pid, lat=1)
+    assert isinstance(pid, int) and pid != os.getpid()
+    out, err = capfd.readouterr()
+    assert "CHILD-STDOUT" not in out and "CHILD-STDOUT" in err

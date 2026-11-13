@@ -167,10 +167,13 @@ class FollowHouse:
     def _write_near(self, conn) -> None:
         with self._guard:
             batches, self._near = self._near, []
-        for now, names_by_tile, fresh in batches:
-            for tile, names in names_by_tile.items():
-                INDEX.mark_near(conn, tile, names, now, approaching=[
-                    n for n in names if f"{tile}/{n}" in fresh])
+        if not batches:
+            return
+        with INDEX.transaction(conn):       # one commit for them all
+            for now, names_by_tile, fresh in batches:
+                for tile, names in names_by_tile.items():
+                    INDEX.mark_near(conn, tile, names, now, approaching=[
+                        n for n in names if f"{tile}/{n}" in fresh])
 
     def _sweep_due(self, now: float) -> bool:
         with self._guard:

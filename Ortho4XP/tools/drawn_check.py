@@ -1208,7 +1208,8 @@ def print_report(rep):
             continue
         if r.get("role") == "LEVEL" and not r.get("floor_from"):
             for lid, b in r["level"].items():
-                print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} plate {b.get('plate')}, "
+                print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} plate "
+                      f"{b.get('plate')}, "
                       f"mesh over it max {b.get('over_max')} at {b.get('over_at')}, plate over "
                       f"mesh median {b.get('float_median')} ({b.get('samples')} samples)")
             for f in r["fails"]:

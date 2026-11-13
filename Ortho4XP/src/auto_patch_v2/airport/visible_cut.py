@@ -115,7 +115,8 @@ def _read_visible_cut(f: ObjectFloor, objects: _t.Mapping[str, _obj8.PlacedObjec
 
 
 def _floor_plates(f: ObjectFloor, deep: float, step: float, law) -> np.ndarray:
-    """``(m, 4)`` points ``(x, y, z, plan-area weight)`` on the hidden shell's own near-horizontal faces
+    """``(m, 4)`` points ``(x, y, z, plan-area weight)`` on the hidden
+    shell's own near-horizontal faces
     standing at or under ``deep`` (its rim less ``object_min_depth_m``):
     where its floor plates lie (:attr:`VisibleCut.extent`)."""
     fc = np.asarray(f.faces, float).reshape(-1, 3, 3)

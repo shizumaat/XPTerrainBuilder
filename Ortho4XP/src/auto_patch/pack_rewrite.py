@@ -39,6 +39,7 @@ def rewrite_dsf(pack_root: str, pack_name: str, dsf: str,
     from auto_patch_v2.model.placement import BACKUP_SUFFIX, PlacementPlan, Provenance
 
     from . import dsf_reader as _DSFR
+    from . import pack_copy as _copy
     from .object_stage import _engine_version
     backup = dsf + BACKUP_SUFFIX
     omit = (_pa.recorded(_bs.dsf_entry(_bs.read_record(dsf),
@@ -49,7 +50,8 @@ def rewrite_dsf(pack_root: str, pack_name: str, dsf: str,
                          Provenance("", _engine_version(), "", {}))
     _pj.snapshot(pack_root, dsf)          # a no-op outside a build (#598)
     _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
-                   allow_live_install=True, engine_version=_engine_version(),
+                   allow_live_install=_copy.write_guard(pack_root),
+                   engine_version=_engine_version(),
                    omit=omit, **choice)
     _DSFR.ensure_dsf_text_path(dsf, _dsf2.mod_cache_dir(
         FNAMES.airport_mod_cache_root(), pack_name))

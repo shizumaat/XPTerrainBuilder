@@ -2294,6 +2294,10 @@ def include_airports(vector_map, tile):
             tile, UNPATCHED.record(tile, auto_patch_failure.failures))
     (patches_area, patches_list, graded_area) = include_patches(
         vector_map, tile)
+    # owner RULINGS 2026-11-13k: the ground under the included airports'
+    # terrain-modelling objects is cut to them, unless the user hides them
+    import auto_patch.terrain_cut_stage as TERRAIN_CUT
+    TERRAIN_CUT.apply(tile, vector_map, patches_list)
     runway_taxiway_apron_area = APT.encode_runways_taxiways_and_aprons(
         tile, airport_layer, dico_airports, vector_map, patches_list,
         patches_area=patches_area,

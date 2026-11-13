@@ -1334,9 +1334,24 @@ def _row_of(record: Split, rows: "_t.Sequence | None") -> _t.Any:
     if not rows or not 0 <= record.index < len(rows):
         return None
     row = rows[record.index]
-    if getattr(row, "def_path", record.resource) != record.resource:
+    def_path = getattr(row, "def_path", record.resource)
+    from .obj8 import same_resource
+    if def_path != record.resource and not same_resource(
+            def_path, record.resource, _pack_root_of(record)):
         return None
     return row
+
+
+def _pack_root_of(record: Split) -> "str | None":
+    """The pack folder a split's ``resource`` is relative to: its live
+    authored file less that relative path (``pack_partition`` derives
+    ``resource`` from exactly those two)."""
+    from .pack import live_path_of
+    live = _os.path.normpath(live_path_of(record.authored_path or ""))
+    rel = _os.path.normpath(record.resource or "")
+    if not rel or rel == "." or not live.endswith(_os.sep + rel):
+        return None
+    return live[:-len(rel)]
 
 
 def _lifted(record: Split, rows: "_t.Sequence | None",

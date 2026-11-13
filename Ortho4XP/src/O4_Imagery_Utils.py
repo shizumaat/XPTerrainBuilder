@@ -1754,8 +1754,10 @@ def build_texture_from_tilbox(tilbox, zoomlevel, provider, progress=None):
             )
             download_queue.put(fargs)
     # and finally activate them
+    # the follow job's priority (#2037) carried to the request threads
     success = parallel_execute(
-        get_and_paste_wmts_part, download_queue, max_threads, progress
+        MACHINE_SLOTS.carry_net_priority(get_and_paste_wmts_part),
+        download_queue, max_threads, progress
     )
     # once out big_image has been filled and we return it
     return (success, big_image)
@@ -1932,11 +1934,13 @@ def build_texture_from_bbox_and_size(t_bbox, t_epsg, t_size, provider):
     max_threads = provider_max_threads(provider)
     if provider["request_type"] == "wms":
         success = parallel_execute(
-            get_and_paste_wms_part, download_queue, max_threads
+            MACHINE_SLOTS.carry_net_priority(get_and_paste_wms_part),
+            download_queue, max_threads
         )
     elif provider["request_type"] in ["wmts", "tms", "local_tms"]:
         success = parallel_execute(
-            get_and_paste_wmts_part, download_queue, max_threads
+            MACHINE_SLOTS.carry_net_priority(get_and_paste_wmts_part),
+            download_queue, max_threads
         )
     # We modify big_image if necessary
     if warp_needed:

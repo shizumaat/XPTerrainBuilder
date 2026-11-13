@@ -198,7 +198,7 @@ def index_short() -> str:
     fixed = sum(len(p) + 6 for p, _ in rows)          # "  —  " + newline
     width = min(120, max(40, (SHORT_INDEX_BUDGET - fixed) // max(1, len(rows))))
     out = []
-    for (path, _), first in zip(rows, firsts):
+    for (path, _), first in zip(rows, firsts, strict=True):
         if len(first) > width:
             first = first[:width - 3].rstrip() + "…"
         out.append(f"{path}  —  {first}")

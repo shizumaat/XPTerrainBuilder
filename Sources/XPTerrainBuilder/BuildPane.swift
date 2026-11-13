@@ -1020,11 +1020,7 @@ struct BuildPane: View {
         }
         if inRun > 0 { text += " · \(inRun) in current run" }
         let skipped = count - todo - inRun
-        if skipped > 0 {
-            text += buildModel.onDemandBuilds
-                ? " · \(skipped) already built (skipped; \(BuildModel.onDemandRebuildHint))"
-                : " · \(skipped) already built (skipped)"
-        }
+        if skipped > 0 { text += " · \(skipped) already built (skipped)" }
         return text
     }
 

@@ -265,3 +265,61 @@ def test_drained_notice_opens_no_row(window):
                                        label="stopped"))
     assert (30, 31) not in window._tile_rows
     assert window._building is False
+
+
+# ---------------------------------------------------------------------
+# #2043 (1.0.509): under imagery on demand a built tile could not be
+# queued into a run, and an airport list built only its unbuilt tiles.
+# The Mac twin is Tests/XPTerrainBuilderTests/BuildQueueSelectionTests.
+# ---------------------------------------------------------------------
+def _on_demand_with_built(window, tmp_path, *tiles):
+    """Imagery on demand on, and ``tiles`` built (their DSF on disk)."""
+    import O4_Qt_Build_OnDemand as QTONDEMAND_BUILD
+    import O4_Tile_Info as TINFO
+    QTONDEMAND_BUILD.apply(window, True)
+    window.chk_skip_built.setChecked(True)   # hidden; must not skip
+    for lat, lon in tiles:
+        window._built[(lat, lon)] = TINFO.TileInfo(
+            lat=lat, lon=lon, build_dir=str(tmp_path / f"t{lat}{lon}"),
+            dir_name=f"t{lat}{lon}", dsf_present=True)
+
+
+def test_a_built_tile_queues_into_a_running_build(window, enqueue_calls,
+                                                  tmp_path):
+    _on_demand_with_built(window, tmp_path, (37, -123))
+    window.map.set_selection({(39, -105)})
+    window.start_build()
+    window.map.set_selection({(39, -105), (37, -123)})
+    assert window.build_btn.isEnabled()
+    assert window.build_btn.text() == "＋ Queue 1 tile"
+    window.start_build()
+    assert [sorted(c[0]) for c in enqueue_calls] == [[(39, -105)], [(37, -123)]]
+    assert set(window._tile_rows) == {(39, -105), (37, -123)}
+
+
+def test_an_airport_list_queues_every_tile(window, enqueue_calls, tmp_path):
+    import types
+
+    _on_demand_with_built(window, tmp_path, (37, -123))
+    window._airports = [
+        types.SimpleNamespace(code="KDEN", lat=39.86, lon=-104.67, extent=None,
+                              size_class=1, runway_m=3000),
+        types.SimpleNamespace(code="KSFO", lat=37.62, lon=-122.38, extent=None,
+                              size_class=1, runway_m=3000),
+        types.SimpleNamespace(code="KBOI", lat=43.56, lon=-116.22, extent=None,
+                              size_class=1, runway_m=3000),
+    ]
+    for text, tiles in (("KDEN, KSFO", [(37, -123), (39, -105)]),
+                        ("KSFO KBOI", [(37, -123), (43, -117)])):
+        window.map.set_selection(set())
+        window.search_edit.setText(text)
+        window._search_accept_first()
+        assert window.map.selection() == set(tiles), text
+        assert window.build_btn.text() == "▶ Build 2 tiles", text
+    window.start_build()
+    assert sorted(enqueue_calls[0][0]) == [(37, -123), (43, -117)]
+    # Mid-run, a second list joins the run whole.
+    window.search_edit.setText("KDEN, KSFO")
+    window._search_accept_first()
+    window.start_build()
+    assert sorted(enqueue_calls[1][0]) == [(39, -105)]   # KSFO already in the run

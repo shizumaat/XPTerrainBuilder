@@ -98,7 +98,7 @@ def test_a_structure_member_in_the_closure_refuses_the_share():
     plan = _plan(((_m("cart", _part(0, 0.0, 0.0)), shed), 0.0))
     c: dict = {}
     assert I.shares(plan, _flat(), counts=c, **LAW) == {}
-    assert c["isolated_refused_structure"] == 1
+    assert c["isolated_parts_by_structure"] == 1    # the cart, by closure
 
 
 @pytest.mark.parametrize("kw", [dict(skirted=True), dict(deck_kind="flag"),
@@ -108,7 +108,7 @@ def test_each_structure_verdict_refuses(kw):
                    _m("x", _part(0, 0.0, 0.0), **kw)), 0.0))
     c: dict = {}
     assert I.shares(plan, _flat(), counts=c, **LAW) == {}
-    assert c["isolated_refused_structure"] == 1
+    assert c["isolated_parts_by_structure"] == 1    # the cart, by closure
 
 
 def test_a_deck_candidate_plate_is_no_deck():

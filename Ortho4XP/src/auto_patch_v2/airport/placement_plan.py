@@ -753,6 +753,15 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 _solid.append(c)
         _index = _pc.CandidateIndex(_solid, u.anchor[0]) if _solid else None
         _cand_ix = {id(c): k for k, c in enumerate(cands)}
+        _own_ix: dict = {}
+
+        def _own_index(mi: int) -> "_pc.CandidateIndex":
+            """§9a: the unit's index plus member ``mi``'s own isolated
+            bodies, made once per member."""
+            if mi not in _own_ix:
+                _own_ix[mi] = (_index.plus(_own_iso[mi]) if _index is not None
+                               else _pc.CandidateIndex(_own_iso[mi], u.anchor[0]))
+            return _own_ix[mi]
 
         def _stands_over(bx, gboxes) -> set:
             """#610: the indices of the footed candidates a carried piece
@@ -914,7 +923,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                         # loose components (§16d (1)'s orphans: one frame)
                         solid_cands=(_solid + _own_iso[st.mi]
                                      if st.mi in _own_iso else _solid),
-                        index=None if st.mi in _own_iso else _index,
+                        index=(_own_index(st.mi) if st.mi in _own_iso
+                               else _index),
                         reach_m=coarsen_reach_m,
                         not_carriers=_cut29q)            # 30m
                 # owner RULINGS 2026-10-03e (#290): a piece of a unit's

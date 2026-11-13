@@ -200,12 +200,31 @@ def shares(plan: _t.Any, surface: _ar.Surface,
                 blockers.extend((p.box, p.rings) for p in solid)
             else:
                 cand.extend((p, ui, m) for p in solid)
+    if not cand:
+        return {}
+    ref = cand[0][0].lat
+    # I2 BY CLOSURE, cheapest first: a candidate within the reach of a
+    # structure part is in that structure's cluster, and so is whatever it
+    # reaches — it stands in as a blocker for the rest (same verdict as the
+    # whole closure, without pairing the clutter round every building)
+    # — twice: the parts a structure reaches, then the parts THEY reach
+    n_cand = len(cand)
+    for _step in range(2):
+        near_s = _pcon.near_any([(c[0].box, c[0].rings) for c in cand], blockers,
+                                reach_m, ref)
+        blockers = [(c[0].box, c[0].rings)
+                    for c, d in zip(cand, near_s, strict=True) if d]
+        cand = [c for c, d in zip(cand, near_s, strict=True) if not d]
+    counts["isolated_parts_by_structure"] = (
+        counts.get("isolated_parts_by_structure", 0) + n_cand - len(cand))
+    doomed = blockers
     parts = [c[0] for c in cand]
     if not parts:
         return {}
-    n_struct = len(blockers)
-    groups, blocked = clusters(parts, reach_m, blockers + list(foreign),
-                               parts[0].lat)
+    groups, _b = clusters(parts, reach_m, (), ref)
+    outl = [(p.box, p.rings) for p in parts]
+    by_struct = _pcon.near_any(outl, doomed, reach_m, ref)
+    by_foreign = _pcon.near_any(outl, foreign, reach_m, ref)
     out: dict[int, Share] = {}
     counts["isolated_clusters"] = counts.get("isolated_clusters", 0) + len(groups)
     for ci, grp in enumerate(groups):
@@ -214,9 +233,8 @@ def shares(plan: _t.Any, surface: _ar.Surface,
             by_unit.setdefault(cand[i][1], []).append(i)
         # a structure of THIS plan within the reach is in the closure (I2);
         # a sibling plan's part only blocks (I1)
-        near = blocked.get(ci, ())
-        why = ("structure" if any(k < n_struct for k in near) else
-               "not_isolated" if near else
+        why = ("structure" if any(by_struct[i] for i in grp) else
+               "not_isolated" if any(by_foreign[i] for i in grp) else
                "span" if span_max_m > 0.0 and _span_m([parts[i] for i in grp]) > span_max_m
                else None)
         for ui, idx in sorted(by_unit.items()):

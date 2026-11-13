@@ -2072,7 +2072,8 @@ def isolated_lines(counts: dict) -> list[str]:
     refused = {r: int(counts.get(f"isolated_refused_{r}", 0)) for r in _iso.REFUSALS}
     return [f"\nISOLATED (§9a, RULINGS 2026-11-13y (5))  shares seated {n}  "
             f"bodies {int(counts.get('isolated_bodies', 0))}  clusters "
-            f"{int(counts.get('isolated_clusters', 0))}",
+            f"{int(counts.get('isolated_clusters', 0))}  parts within reach of a "
+            f"structure {int(counts.get('isolated_parts_by_structure', 0))}",
             "  refused: " + (", ".join(f"{k} {v}" for k, v in refused.items() if v)
                              or "none")]
 

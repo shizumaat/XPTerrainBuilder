@@ -26,7 +26,7 @@ from . import placement_boxes as _pb
 from ..geom.union_find import find_root
 from ..model.frame import m_per_deg_exact   # noqa: F401  (re-exported: its callers read it here)
 
-__all__ = ["boxes_touch", "rings_touch", "ring_metres", "gap_pairs",
+__all__ = ["boxes_touch", "rings_touch", "ring_metres", "gap_pairs", "near_any",
            "m_per_deg_exact", "FAMILY_MIN_MEMBERS"]
 
 #: §16f (1): two bodies of ONE member are not a family by themselves.
@@ -271,6 +271,37 @@ def gap_pairs(outlines: _t.Sequence[tuple], gap_m: float, ref_lat: float,
             qa, qb = tree.query(h, predicate="dwithin", distance=float(gap_m))
             near = sorted(set(zip(own[qb].tolist(), hown[qa].tolist(), strict=True)))
     return pairs, near
+
+
+def near_any(outlines: _t.Sequence[tuple], others: _t.Sequence[tuple],
+             gap_m: float, ref_lat: float) -> list[bool]:
+    """§9a: per outline ``(box, rings)``, does ANY of ``others`` come within
+    ``gap_m`` (:func:`gap_pairs`' relation)?  The OVERLAPPING ones first
+    (an ``intersects`` query, cheap on prepared rings), then a ``dwithin``
+    query for the rest only — OTHH's 104k candidate parts against its 39k
+    structure parts: all pairs at once 1.9 s, nearest-first 2.1 s, this
+    1.2 s (measured, lane lkrnt3)."""
+    import numpy as np
+    import shapely
+    out = [False] * len(outlines)
+    if not outlines or not others:
+        return out
+    ml, mo = m_per_deg_exact(ref_lat)
+    g, own = _outline_geoms(outlines, ml, mo)
+    h, _hown = _outline_geoms(others, ml, mo)
+    if not len(g) or not len(h):
+        return out
+    tree = shapely.STRtree(h)
+    hit = np.zeros(len(g), dtype=bool)
+    a, _b = tree.query(g, predicate="intersects")
+    hit[a] = True
+    rest = np.flatnonzero(~hit)
+    if len(rest):
+        a, _b = tree.query(g[rest], predicate="dwithin", distance=float(gap_m))
+        hit[rest[a]] = True
+    for k in np.unique(own[hit]).tolist():
+        out[k] = True
+    return out
 
 
 def _polys_touch(ra, rb, eps_m: float) -> bool:

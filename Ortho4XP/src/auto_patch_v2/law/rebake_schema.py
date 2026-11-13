@@ -524,6 +524,11 @@ class Placement:
     free_column_max_w_m: float = 0.0
     free_column_aspect: float = 0.0
     free_column_clear_m: float = 0.0
+    #: ... and only in A FIELD OF MASTS: at least this many of the
+    #: placement's elevated bodies are free columns, and at least this
+    #: share of them (a lone post of a building stays with its group)
+    free_column_min_count: int = 0
+    free_column_min_share: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

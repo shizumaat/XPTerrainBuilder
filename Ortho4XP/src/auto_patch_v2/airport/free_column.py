@@ -32,6 +32,15 @@ placed them"):
   that reach at all (another frame's heights cannot be compared, so any
   overlap is doubt).
 
+* its placement is A FIELD OF MASTS: at least ``free_column_min_count``
+  of its elevated bodies are free columns, and they are at least
+  ``free_column_min_share`` of them.  A lone post of a hangar, three
+  canopy columns of a terminal, a pair of flagpoles authored 15 m up on
+  a roof the plan does not hold: each stands on something the plan
+  cannot see, and stays with its group (measured on the frames corpus:
+  KTUL, LPHR, LIMC moved 4-15 m without this test; ENTC's ``ALS.obj``
+  holds 33 of 35, SBGL's ``ALS-2`` and ENAT's two approach-light
+  objects pass);
 * it asks the carrier question ALONE (a raw body of a footed placement;
   a footless placement's terrain group of several bodies is one rigid
   piece and stays one);
@@ -82,6 +91,8 @@ class ColumnLaw:
     max_w_m: float
     aspect: float
     clear_m: float
+    min_count: int = 0
+    min_share: float = 0.0
 
 
 def law_of(placement: _t.Any) -> "ColumnLaw | None":
@@ -92,7 +103,9 @@ def law_of(placement: _t.Any) -> "ColumnLaw | None":
         return None
     return ColumnLaw(h, float(placement.free_column_max_w_m),
                      float(placement.free_column_aspect),
-                     float(placement.free_column_clear_m))
+                     float(placement.free_column_clear_m),
+                     int(placement.free_column_min_count),
+                     float(placement.free_column_min_share))
 
 
 class PartIndex:
@@ -165,6 +178,8 @@ def free_columns(st: _t.Any, ui: int, index: PartIndex, law: ColumnLaw,
         out[i] = (lat, lon, float(col.base_y), float(z),
                   f"{_OWN_GROUND}: {FREE_COLUMN} (#1908), its foot (authored y "
                   f"{float(col.base_y):+.2f}) on the ground under it")
+    if len(out) < law.min_count or len(out) < law.min_share * len(st.elevated):
+        return {}
     return out
 
 

@@ -1404,6 +1404,11 @@ free_column_min_h_m = 2.0     # a mast, not a kerb or a lamp head
 free_column_max_w_m = 2.0     # plan width (lat/lon box side) at most this
 free_column_aspect  = 3.0     # and at least this many times taller than wide
 free_column_clear_m = 0.5     # the host search reach around the column's box
+free_column_min_count = 3     # ... only in a FIELD OF MASTS: at least this many free columns
+free_column_min_share = 0.5   # ... and at least this share of the placement's elevated bodies.
+                              # Frames census: a hangar's lone post (KTUL), a terminal's three
+                              # canopy columns (LPHR), two 15 m roof poles (LIMC) moved 4-15 m
+                              # without it; ENTC ALS 33/35, SBGL ALS-2, ENAT approach lights pass
 
 # ─────────────────────────────────────────────────────────────────────────
 # §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec

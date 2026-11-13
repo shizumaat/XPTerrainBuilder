@@ -185,3 +185,13 @@ def test_a_wet_seat_under_the_water_line_is_kept():
                       authored_agl_m=-4.4)
     assert a.datum and "on water" in a.reason and a.y_zero == 4.4
     assert math.isclose(a.surface_z, 6.5)
+
+
+def test_a_lone_mast_is_no_field_of_masts(tmp_path):
+    """A lone post of a building stays with its group: the class is the
+    placement whose elevated bodies are mostly free columns."""
+    import dataclasses
+    plan = _plan(_obj(tmp_path))
+    law = dataclasses.replace(LAW, min_count=3, min_share=0.5)
+    ss = PP.build_splits(plan, _slope, write=False, free_column=law, **ARGS)
+    assert ss.counts.get("free_columns", 0) == 0

@@ -136,6 +136,31 @@ def test_a_fixed_high_corner_is_unresolved_and_its_neighbours_stop_at_the_bound(
     assert np.all(z2 <= z)
 
 
+def test_a_shore_vertex_is_never_lowered_under_the_water_beside_it():
+    """#2053 (owner 2026-11-13): the hold never lowers a land vertex under
+    the water datum of a water vertex it shares a triangle with; the
+    samples that clamp leaves over the bound are unresolved."""
+    xy, tris = _mesh()
+    z = np.full(len(xy), 0.5)
+    water = np.flatnonzero(xy[:, 0] == 0.0)            # the shore column
+    z[water] = 0.0
+    free = np.ones(len(z), bool)
+    free[water] = False
+    verts = np.zeros(6 * len(z))
+    verts[2::6] = z
+    floor = TCS.water_floor(verts, tris, water)
+    s, b = _samples(0, 50, lambda s: np.full(len(s), -1.9))
+    z2, unresolved = TC.hold_heights(xy, z, tris, free, s, b, floor)
+    shore = np.isfinite(floor) & free
+    inland = ~np.isfinite(floor)
+    assert shore.any() and inland.any()
+    np.testing.assert_allclose(z2[shore], 0.0)         # stays at the water
+    assert np.all(z2[inland] < 0.0)                    # inland still lowers
+    assert z2[inland].min() >= -1.9 - 1e-9
+    assert unresolved > 0
+    assert TCS.water_floor(verts, tris, ()) is None
+
+
 # -- the weight boxes (C3) --------------------------------------------------
 
 def test_the_box_weight_raises_the_inset_cells():

@@ -2428,7 +2428,7 @@ def post_process_nodes_altitudes(tile):
     import auto_patch.terrain_cut_stage as TERRAIN_CUT
     TERRAIN_CUT.hold(tile, vertices, corners, itertools.chain(
         (v for tri in interp_alt_tris for v in tri), water_valued,
-        pins[0] if pins is not None else ()))
+        pins[0] if pins is not None else ()), water_valued)
     if lifted_water:
         UI.vprint(
             1,

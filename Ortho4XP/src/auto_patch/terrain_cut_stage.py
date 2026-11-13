@@ -210,7 +210,8 @@ def held_boxes(tile) -> list[tuple[float, float, float, float]]:
     return out
 
 
-def _hold_one(tile, vertices, corners, fixed: np.ndarray, rec) -> dict:
+def _hold_one(tile, vertices, corners, fixed: np.ndarray, rec,
+              floor: np.ndarray | None = None) -> dict:
     """THE HOLD of one record on the mesh (``vertices`` flat, six per
     vertex, changed in place); the counts for its log line."""
     from auto_patch_v2.airport import terrain_cut as _tc
@@ -238,7 +239,8 @@ def _hold_one(tile, vertices, corners, fixed: np.ndarray, rec) -> dict:
     z_new, rep["unresolved"] = _tc.hold_heights(
         np.c_[lx, lz], z_old, inv.reshape(-1, 3), ~np.isin(vids, fixed),
         np.c_[x0 + _tc.HOLD_CELL_M * ii, z0 + _tc.HOLD_CELL_M * jj],
-        float(rec["elevation"]) + bound[ii, jj] - UNDER_M)
+        float(rec["elevation"]) + bound[ii, jj] - UNDER_M,
+        None if floor is None else floor[vids])
     moved = vids[z_new < z_old]
     if len(moved):
         drop = (z_old - z_new)[z_new < z_old]
@@ -249,13 +251,34 @@ def _hold_one(tile, vertices, corners, fixed: np.ndarray, rec) -> dict:
     return rep
 
 
-def hold(tile, vertices, corners, fixed) -> dict:
+def water_floor(vertices, corners, water) -> np.ndarray | None:
+    """Per vertex, the highest water datum (the altitude the mesh post-
+    process gave a water-valued vertex) of any water vertex it shares a
+    triangle with; ``-inf`` elsewhere; None when there is no water.  The
+    hold never lowers a land vertex under it (#2053, owner 2026-11-13)."""
+    water = np.fromiter((int(v) for v in water), np.int64)
+    if not len(water):
+        return None
+    z = np.asarray(vertices[2::6], float)
+    is_w = np.zeros(len(z), bool)
+    is_w[water] = True
+    tri_w = np.where(is_w, z, -np.inf)[corners].max(1)
+    floor = np.full(len(z), -np.inf)
+    hit = np.isfinite(tri_w)
+    for k in range(3):
+        np.maximum.at(floor, corners[hit, k], tri_w[hit])
+    return floor
+
+
+def hold(tile, vertices, corners, fixed, water=()) -> dict:
     """THE HOLD (module doc) on the post-processed mesh: ``vertices`` the
     flat six-per-vertex node array (tile-relative x, y, altitude, normal
     x, normal y, carried altitude; changed in place: a lowered vertex's
     normal is zeroed, the ``O4_Mesh_Pins`` convention), ``corners`` the
     ``(m, 3)`` triangles, ``fixed`` the vertices it never moves (the
-    INTERP_ALT corners, the water-valued ones, the patch pins).  One log
+    INTERP_ALT corners, the water-valued ones, the patch pins), ``water``
+    the water-valued vertices (their altitude floors the land beside them,
+    ``water_floor``).  One log
     line per held record; ``{id: counts}``.  Never raises."""
     import O4_UI_Utils as UI
     try:
@@ -267,10 +290,11 @@ def hold(tile, vertices, corners, fixed) -> dict:
         return {}
     fixed = np.fromiter((int(v) for v in fixed), np.int64)
     corners = np.asarray(corners, np.int64)
+    floor = water_floor(vertices, corners, water)
     out = {}
     for rec in records:
         try:
-            r = _hold_one(tile, vertices, corners, fixed, rec)
+            r = _hold_one(tile, vertices, corners, fixed, rec, floor)
         except Exception as exc:
             UI.vprint(1, f"   terrain object {rec.get('resource')} not held ({exc})")
             UI.vprint(2, traceback.format_exc())

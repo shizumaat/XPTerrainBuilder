@@ -261,8 +261,8 @@ def _hold_pairs(xy: np.ndarray, tris: np.ndarray, sample_xy: np.ndarray
 
 
 def hold_heights(xy: np.ndarray, z: np.ndarray, tris: np.ndarray, free: np.ndarray,
-                 sample_xy: np.ndarray, sample_bound: np.ndarray
-                 ) -> tuple[np.ndarray, int]:
+                 sample_xy: np.ndarray, sample_bound: np.ndarray,
+                 floor: np.ndarray | None = None) -> tuple[np.ndarray, int]:
     """THE HOLD (module doc) on one mesh: ``(z_new, unresolved)``.
 
     ``xy`` / ``z`` the mesh vertices (plan metres, height), ``tris`` its
@@ -275,7 +275,11 @@ def hold_heights(xy: np.ndarray, z: np.ndarray, tris: np.ndarray, free: np.ndarr
     ``min(e / lambda_k, z_k - b)``; each vertex takes the largest lowering
     asked of it.  It stops when no sample stands over its bound or no such
     sample has a free corner over it (``unresolved``: those samples).  It
-    only lowers, and never under a bound its own triangles carry."""
+    only lowers, and never under a bound its own triangles carry.
+    ``floor`` (per vertex, optional): no vertex is lowered under it -- the
+    water datum beside a shore vertex (#2053, owner 2026-11-13: never lower
+    shore points below water); a sample it leaves over its bound counts as
+    ``unresolved``."""
     z = np.asarray(z, float).copy()
     tris = np.asarray(tris, np.int64)
     free = np.asarray(free, bool)
@@ -285,6 +289,8 @@ def hold_heights(xy: np.ndarray, z: np.ndarray, tris: np.ndarray, free: np.ndarr
         return z, 0
     corner = tris[t]
     b = b_all[s]
+    fl = (np.full(len(z), -np.inf) if floor is None
+          else np.asarray(floor, float))[corner]
     bad = np.zeros(len(s), bool)
     for _ in range(_HOLD_PASSES):
         zc = z[corner]
@@ -292,7 +298,7 @@ def hold_heights(xy: np.ndarray, z: np.ndarray, tris: np.ndarray, free: np.ndarr
         bad = e > _HOLD_TOL_M
         if not bad.any():
             return z, 0
-        over = np.maximum(zc[bad] - b[bad, None], 0.0)
+        over = np.maximum(zc[bad] - np.maximum(b[bad, None], fl[bad]), 0.0)
         score = lam[bad] * over * free[corner[bad]]
         k = score.argmax(1)
         rows = np.arange(len(k))

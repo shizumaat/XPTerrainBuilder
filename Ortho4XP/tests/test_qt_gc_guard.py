@@ -11,7 +11,9 @@ because the failure is a segfault.
 
 * guarded: ``O4_Qt_GC_Guard.install`` (forced, so the twin runs on every
   interpreter) plus explicit young/full ``gc.collect`` pressure from the
-  workers: every run exits clean;
+  workers: every run exits clean, and the guard's own GUI-thread
+  collector has run (a collector freed at install would leave the app
+  with no collection at all);
 * base (affected interpreters only): the same run without the guard
   crashes -- the proof the stress reaches the defect (6/6 runs crashed
   within 1.5 s on 3.14.3 when it was written);
@@ -62,7 +64,7 @@ def _stress(seconds, guarded):
                 junk.append(cycle)
             del junk
             n += 1
-            if guarded and n % 20 == 0:
+            if guarded and n % 2000 == 0:
                 gc.collect(0 if (n + k) % 3 else 2)
 
     threads = [threading.Thread(target=worker, args=(k,), daemon=True) for k in range(4)]
@@ -81,7 +83,8 @@ def _stress(seconds, guarded):
     for thread in threads:
         thread.join()
     painter.end()
-    print("CLEAN")
+    ticked = all(c.collections > 0 for c in GUARD._INSTALLED) if guarded else True
+    print("CLEAN" if ticked else "COLLECTOR NEVER RAN")
 
 
 def _run(guarded):

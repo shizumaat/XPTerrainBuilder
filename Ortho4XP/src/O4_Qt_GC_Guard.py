@@ -36,6 +36,10 @@ FULL_EVERY_S = 300.0
 
 __all__ = ["affected", "SafeCollector", "install"]
 
+# PySide holds a connected bound method weakly: without this reference the
+# collector is freed as install() returns and the timer calls nothing.
+_INSTALLED = []
+
 
 def affected(version=None) -> bool:
     """True for the interpreters whose collector walks other threads' stacks."""
@@ -50,6 +54,7 @@ class SafeCollector:
         self._gc = gc_module
         self._clock = clock
         self._last_full = clock()
+        self.collections = 0
 
     def tick(self) -> str:
         """One timer tick: 'young', 'full' or '' (nothing due)."""
@@ -58,8 +63,10 @@ class SafeCollector:
         if self._clock() - self._last_full >= FULL_EVERY_S:
             self._last_full = self._clock()
             self._gc.collect()
+            self.collections += 1
             return "full"
         self._gc.collect(0)
+        self.collections += 1
         return "young"
 
 
@@ -80,4 +87,5 @@ def install(app, *, force=False, tick_ms=TICK_MS):
     timer.timeout.connect(collector.tick)
     timer.start(tick_ms)
     collector.timer = timer
+    _INSTALLED.append(collector)
     return collector

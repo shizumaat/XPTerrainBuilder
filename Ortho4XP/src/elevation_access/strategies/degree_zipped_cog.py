@@ -71,10 +71,8 @@ class DegreeZippedCogStrategy(DegreeNamedCogStrategy):
             block_end_latitude_token=north, block_end_longitude_token=east)
 
     def _member_name(self, definition, cell_latitude, cell_longitude):
-        (latitude_token, longitude_token) = self.degree_cell_tokens(
-            cell_latitude, cell_longitude)
-        return str(definition.get("member_template", "")).format(
-            latitude_token=latitude_token, longitude_token=longitude_token)
+        return self._cell_name(
+            definition, "member_template", cell_latitude, cell_longitude)
 
     def _archive_members(self, archive_url):
         """Member names of an archive the server says exists."""

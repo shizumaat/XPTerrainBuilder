@@ -112,13 +112,19 @@ class DegreeNamedCogStrategy:
             )
         ]
 
-    def _cell_url(self, definition, cell_latitude, cell_longitude):
+    def _cell_name(self, definition, template_key, cell_latitude,
+                   cell_longitude):
+        """``definition[template_key]`` filled with the cell's tokens."""
         latitude_token, longitude_token = self.degree_cell_tokens(
             cell_latitude, cell_longitude
         )
-        return str(definition.get("url_template", "")).format(
+        return str(definition.get(template_key, "")).format(
             latitude_token=latitude_token, longitude_token=longitude_token
         )
+
+    def _cell_url(self, definition, cell_latitude, cell_longitude):
+        return self._cell_name(
+            definition, "url_template", cell_latitude, cell_longitude)
 
     def _url_exists(self, url):
         """Is this cell's object in the bucket?

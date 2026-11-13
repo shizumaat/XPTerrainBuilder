@@ -141,15 +141,6 @@ PARKING_QUERIES = [('way["amenity"="parking"]', 'rel["amenity"="parking"]')]
 PARKING_TAGS_OF_INTEREST = ["access", "amenity", "name", "parking"]
 PARKING_SUFFIX = "parking"
 PARKING_CACHE_TAG_SCHEMA = "2026-11-13"
-# THE FENCE FEED (owner RULINGS 2026-11-13s (2)): ``barrier=fence`` /
-# ``barrier=wall`` ways, the division witness the classifier's §27 flip
-# and its fence check read (``auto_patch_v2.classify.fence_division``).
-# Same shape as the parking feed; the tag list is
-# ``auto_patch_v2.airport.osm.FENCE_TAGS_OF_INTEREST`` (twin-asserted).
-FENCE_QUERIES = [('way["barrier"="fence"]', 'way["barrier"="wall"]')]
-FENCE_TAGS_OF_INTEREST = ["barrier", "name"]
-FENCE_SUFFIX = "fences"
-FENCE_CACHE_TAG_SCHEMA = "2026-11-13"
 WATER_QUERIES = [
     'rel["natural"="water"]',
     'rel["waterway"="riverbank"]',
@@ -1148,13 +1139,7 @@ TILE_FEEDS = {
               SHORE_STRUCTURE_SUFFIX, SHORE_STRUCTURE_CACHE_TAG_SCHEMA),
     "parking": (PARKING_QUERIES, PARKING_TAGS_OF_INTEREST, PARKING_SUFFIX,
                 PARKING_CACHE_TAG_SCHEMA),
-    "fences": (FENCE_QUERIES, FENCE_TAGS_OF_INTEREST, FENCE_SUFFIX,
-               FENCE_CACHE_TAG_SCHEMA),
 }
-
-#: The feeds a tile build fills for its own tile (the rest only under an
-#: explicit ``--refresh-data``).
-TILE_BUILD_FEEDS = ("parking", "fences")
 
 
 def fetch_tile_feed(lat, lon, name):
@@ -1163,8 +1148,8 @@ def fetch_tile_feed(lat, lon, name):
     OSM cache writer (``O4_OSM_Utils.OSM_queries_to_OSM_layer``), at
     ``FNAMES.osm_cached(lat, lon, suffix)``.  The harness calls it only
     under ``--refresh-data <name>`` (a download into the shared corpus is
-    an explicit, ledgered event); a tile build calls it for each of
-    :data:`TILE_BUILD_FEEDS` (:func:`run_auto_patch_generation`).  Returns ``(path, ways)``."""
+    an explicit, ledgered event); a tile build calls it for ``parking``
+    (:func:`run_auto_patch_generation`).  Returns ``(path, ways)``."""
     queries, tags_of_interest, suffix, schema = TILE_FEEDS[name]
     layer = OSM.OSM_layer()
     OSM.OSM_queries_to_OSM_layer(
@@ -2240,16 +2225,14 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
         # by name, and an app user has no --refresh-data to run).  One
         # bz2 header read per feed when current.
         road_feeds = ensure_auto_patch_road_feeds(tile)
-        # THE PARKING FEED (#1854) and THE FENCE FEED (RULINGS 2026-11-13s):
-        # classifier evidence, this tile's own (a neighbour's is read where
-        # an earlier build filled it).  Recycled when schema-current; a
-        # failed download leaves the rule without evidence, never the build
-        # without a patch.
-        for _feed in TILE_BUILD_FEEDS:
-            try:
-                fetch_tile_feed(tile.lat, tile.lon, _feed)
-            except Exception as exc:                      # noqa: BLE001
-                UI.vprint(1, f"    * {_feed} feed not fetched:", exc)
+        # THE PARKING FEED (#1854): the lot rung's evidence, this tile's
+        # own (a neighbour's is read where an earlier build filled it).
+        # Recycled when schema-current; a failed download leaves the
+        # rung without evidence, never the build without a patch.
+        try:
+            fetch_tile_feed(tile.lat, tile.lon, "parking")
+        except Exception as exc:                          # noqa: BLE001
+            UI.vprint(1, "    * Parking feed not fetched:", exc)
         # THE PATCH WAITS FOR THE AIRPORT'S OWN PHOTOS (#1359; owner RULINGS
         # 2026-10-26y): the textures the imagery step will texture each
         # airport with are downloaded FIRST, so the terrain witness reads

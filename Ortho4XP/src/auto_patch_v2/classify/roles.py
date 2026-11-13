@@ -797,6 +797,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     from .airside_edge import EDGE_CANDIDATES
     from .fence_division import (
         airside_both_sides,
+        born_airside_pages,
         fence_band,
         fence_lines,
         rejoin_unsplit,
@@ -804,7 +805,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     )
     from .storey_edge import knife_storeys, storey_band
     fences = fence_lines(airport, rules)
-    fence_cut = split_at_fences(final, fences, EDGE_CANDIDATES, rules)
+    fence_cut = split_at_fences(final, fences, EDGE_CANDIDATES, rules,
+                                born_airside_pages(final, law))
     band, storey_cuts = storey_band(airport, law, cells, final), {}
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules, [c.line for c in ev.truck_chains],

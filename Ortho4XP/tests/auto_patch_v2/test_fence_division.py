@@ -13,8 +13,8 @@ import types
 
 from auto_patch_v2.classify.airside_edge import airside_edge_flip, mapped_car_park
 from auto_patch_v2.classify.fence_division import (
-    FENCE_BARRIER_TAGS,
     airside_both_sides,
+    born_airside_pages,
     fence_band,
     fence_lines,
 )
@@ -72,13 +72,15 @@ def test_airside_never_propagates_across_a_fence():
     assert _flip({}, fence_band(short, RULES)) == (1, "apron")
 
 
-def _cell(role, g):
-    return types.SimpleNamespace(role=role, ring=tuple(g.exterior.coords)[:-1], holes=())
+def _cell(role, g, ref="pav", **evid):
+    return types.SimpleNamespace(role=role, ring=tuple(g.exterior.coords)[:-1], holes=(),
+                                 ref=ref, evidence=evid)
 
 
 def test_airside_on_both_sides_of_a_fence_is_a_defect():
     fence = [("f", LineString([(100.0, 0), (100.0, 100)]))]
-    both = [_cell("apron", box(0, 0, 100, 100)), _cell("apron", box(100, 0, 200, 100))]
+    both = [_cell("apron", box(0, 0, 100, 100), "pav1"),
+            _cell("apron", box(100, 0, 200, 100), "pav2")]
     got = airside_both_sides(both, fence, LAW, RULES)
     assert got["fence_airside_both"] == 1 and got["fence_airside_both_m"] >= 90.0
     assert got["fence_airside_both_sites"][0][0] == "f"
@@ -87,33 +89,51 @@ def test_airside_on_both_sides_of_a_fence_is_a_defect():
     assert got["fence_airside_both"] == 0 and got["fence_lines"] == 1
 
 
-def test_the_fences_are_on_top_line_objects_and_osm_barriers():
+def test_the_fences_are_the_packs_on_top_line_objects_only():
+    """RULINGS 2026-11-13y (1): "Just use fences in the scenery pack, not
+    OSM" — a mapped ``barrier=fence`` way is no fence here, and there is no
+    fence feed."""
     def el(base, solid_top):
         return EdgeLine("dsf:line0", "x.fac", ((0.0, 0.0), (50.0, 0.0)), False,
                         base, 2.0, solid_top, 0.5, 0.1)
-    ways = [OsmWay(k, "fences", ((0.0, 10.0), (50.0, 10.0)), False, {"barrier": b})
-            for k, b in enumerate(FENCE_BARRIER_TAGS + ("gate",))]
+    ways = [OsmWay(k, "airports", ((0.0, 10.0), (50.0, 10.0)), False, {"barrier": b})
+            for k, b in enumerate(("fence", "wall"))]
     ap = types.SimpleNamespace(edge_lines=(el(0.0, 0.2), el(-3.0, 2.0)), osm_ways=ways)
     ids = [i for i, _l in fence_lines(ap, RULES)]
     # the wire fence stands on its zero; the buried wall retains, it divides nothing
-    assert ids == ["dsf:line0", "osm:0", "osm:1"]
-
-
-def test_the_fence_feed_twins_the_engine_feed():
+    assert ids == ["dsf:line0"]
     import O4_Vector_Map as VM
     from auto_patch_v2.airport import osm as _osm
-    assert _osm.FENCE_FEED in _osm.FEEDS and VM.FENCE_SUFFIX == _osm.FENCE_FEED
-    assert VM.FENCE_CACHE_TAG_SCHEMA == _osm.FENCE_CACHE_TAG_SCHEMA
-    assert set(VM.FENCE_TAGS_OF_INTEREST) == set(_osm.FENCE_TAGS_OF_INTEREST)
-    assert "fences" in VM.TILE_BUILD_FEEDS and "fences" in VM.TILE_FEEDS
-    assert {q.split('"')[3] for q in VM.FENCE_QUERIES[0]} == set(FENCE_BARRIER_TAGS)
-    import sys
-    from pathlib import Path
-    harness = str(Path(__file__).resolve().parents[2] / "tools" / "harness")
-    if harness not in sys.path:
-        sys.path.insert(0, harness)
-    import shared_repo_guard as G
-    assert G.scope_of("OSM_data/-50+170/-42+174/-42+174_fences.osm.bz2") == "fences"
+    assert "fences" not in VM.TILE_FEEDS and "fences" not in _osm.FEEDS
+
+
+def test_a_barrier_inside_one_apron_page_is_no_division():
+    """13y (1): "aprons may have concrete or other types of barriers ...
+    areas of construction fenced off".  Airside on both sides inside ONE
+    page the pack drew airside is not counted; across two pages, or where
+    one side was made airside by §27, it is."""
+    fence = [("f", LineString([(100.0, 0), (100.0, 100)]))]
+    one = [_cell("apron", box(0, 0, 100, 100), "pav1"),
+           _cell("apron", box(100, 0, 200, 100), "pav1#1")]
+    got = airside_both_sides(one, fence, LAW, RULES)
+    assert got["fence_airside_both"] == 0 and got["fence_inside_airside_page"] == 1
+    flipped = [one[0], _cell("apron", box(100, 0, 200, 100), "pav1#1", airside_edge_flip=1.0)]
+    assert airside_both_sides(flipped, fence, LAW, RULES)["fence_airside_both"] == 1
+
+
+def test_a_page_born_airside_is_never_cut_by_its_barriers():
+    """13y (1): a page with an airside face is not split at a fence inside
+    it, even where a face of it is a §27 candidate."""
+    from auto_patch_v2.classify.airside_edge import EDGE_CANDIDATES
+    from auto_patch_v2.classify.fence_division import split_at_fences
+    fence = [("f", LineString([(150.0, -5), (150.0, 105)]))]
+    final = [["apron", "pav1", box(0, 0, 100, 100), None, {}, "apron"],
+             ["groundside_pavement", "pav1#1", box(100, 0, 200, 100), None, {}, "gap"]]
+    pages = born_airside_pages(final, LAW)
+    assert pages == {"pav1"}
+    assert split_at_fences(final, fence, EDGE_CANDIDATES, RULES, pages) == {}
+    assert len(final) == 2
+    assert sorted(split_at_fences(final, fence, EDGE_CANDIDATES, RULES)) == [1]
 
 
 def test_a_lot_a_fence_crosses_flips_only_on_the_apron_side():

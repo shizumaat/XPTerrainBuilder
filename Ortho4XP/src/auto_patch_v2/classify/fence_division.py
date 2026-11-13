@@ -7,8 +7,15 @@ fence").
 THE FENCES (:func:`fence_lines`): every pack LINE facade
 (``Airport.edge_lines``) that ``airport/line_solidity.kind_of`` reads as a
 wire fence, a low barrier or a solid wall standing on its zero
-(``line_solidity.ON_TOP``), and every OSM way tagged ``barrier=fence`` /
-``barrier=wall`` the loaded feeds carry.
+(``line_solidity.ON_TOP``) — the scenery pack's fences only, never OSM
+(owner RULINGS 2026-11-13y (1): "Just use fences in the scenery pack, not
+OSM").
+
+A barrier INSIDE ONE PAGE the pack drew airside is no division (13y (1):
+"aprons may have concrete or other types of barriers, and I guess do
+sometimes have areas of construction fenced off"): :func:`split_at_fences`
+never cuts a page born airside, and :func:`airside_both_sides` does not
+count a station whose two probes land in the same born-airside page.
 
 A fence RUNS ALONG an edge within ``[edge_lines] host_reach_m`` of it (the
 one tolerance the engine already has for "a line object marks this paved
@@ -27,7 +34,8 @@ runs along none of it.  Three readers:
   a fence;
 * :func:`airside_both_sides` is the DEFECT CHECK: a fence station whose
   probes either side (``[edge_lines] step_probe_m`` off the line) both land
-  in airside pavement, summed into runs of ``[edge_lines] min_run_m``."""
+  in airside pavement of two different pages (or of a page made airside by
+  §27), summed into runs of ``[edge_lines] min_run_m``."""
 from __future__ import annotations
 
 import math
@@ -44,11 +52,8 @@ from ..law.tables import role_side
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["FENCE_BARRIER_TAGS", "FenceBand", "fence_lines", "fence_band",
+__all__ = ["FenceBand", "fence_lines", "fence_band", "born_airside_pages",
            "split_at_fences", "rejoin_unsplit", "airside_both_sides"]
-
-#: OSM ``barrier=*`` values that are a fence line (the ruling's words)
-FENCE_BARRIER_TAGS = ("fence", "wall")
 
 
 def fence_lines(airport, rules: Rules) -> list[tuple[str, LineString]]:
@@ -59,10 +64,6 @@ def fence_lines(airport, rules: Rules) -> list[tuple[str, LineString]]:
             continue
         pts = list(el.points) + ([el.points[0]] if el.closed else [])
         out.append((el.id, LineString(pts)))
-    for w in tuple(getattr(airport, "osm_ways", ()) or ()):
-        if w.tags.get("barrier") in FENCE_BARRIER_TAGS and len(w.points) >= 2:
-            pts = list(w.points) + ([w.points[0]] if w.closed else [])
-            out.append((f"osm:{w.id}", LineString(pts)))
     return [(i, ln) for i, ln in out if ln.length > 0.0]
 
 
@@ -119,8 +120,21 @@ def fence_band(lines: _t.Sequence[tuple[str, LineString]], rules: Rules) -> Fenc
                      _MOUTH_TRANSVERSE_DEG)
 
 
+def page_of(ref) -> str:
+    """The pavement page a face or cell ref names (a cut piece
+    ``<ref>#<k>`` is its page's)."""
+    return str(ref).partition("#")[0]
+
+
+def born_airside_pages(final: _t.Sequence[list], law: Law) -> set[str]:
+    """The pages (:func:`page_of`) a face of ``final`` is AIRSIDE in before
+    §27 flips anything: the pages the pack drew airside."""
+    return {page_of(f[1]) for f in final if role_side(law, f[0]) == "airside"}
+
+
 def split_at_fences(final: list[list], lines: _t.Sequence[tuple[str, LineString]],
-                    roles: _t.Collection[str], rules: Rules) -> dict[int, tuple]:
+                    roles: _t.Collection[str], rules: Rules,
+                    airside_pages: _t.Collection[str] = ()) -> dict[int, tuple]:
     """Cut every ``final`` face of a role in ``roles`` that a fence CROSSES
     (divides into two or more pieces of at least ``[cells] min_area_m2``)
     along it.  Each fence is read on past its ends by ``[edge_lines]
@@ -132,7 +146,9 @@ def split_at_fences(final: list[list], lines: _t.Sequence[tuple[str, LineString]
     numbering), same role and evidence.  A piece under the floor stays
     with the piece it shares most boundary with.  Returns the cut faces:
     ``final`` index -> ``(the whole face, [indices of its other pieces])``,
-    for :func:`rejoin_unsplit`."""
+    for :func:`rejoin_unsplit`.  A face of a page in ``airside_pages``
+    (:func:`born_airside_pages`) is never cut: a barrier inside a page the
+    pack drew airside divides nothing (13y (1))."""
     if not lines:
         return {}
     reach = float(rules.edge_lines.host_reach_m)
@@ -146,7 +162,7 @@ def split_at_fences(final: list[list], lines: _t.Sequence[tuple[str, LineString]
     groups: dict[int, tuple] = {}
     extra: list[list] = []
     for i, f in enumerate(final):
-        if f[0] not in roles:
+        if f[0] not in roles or page_of(f[1]) in airside_pages:
             continue
         hits = tree.query(f[2], predicate="intersects")
         if len(hits) == 0:
@@ -163,7 +179,7 @@ def split_at_fences(final: list[list], lines: _t.Sequence[tuple[str, LineString]
         groups[i] = (f[2], list(range(len(final) + len(extra),
                                       len(final) + len(extra) + len(pieces) - 1)))
         final[i] = [f[0], f[1], pieces[0], *f[3:]]
-        base = str(f[1]).partition("#")[0]
+        base = page_of(f[1])
         for p in pieces[1:]:
             k = serial.get(base, 1)
             serial[base] = k + 1
@@ -246,32 +262,46 @@ def airside_both_sides(cells: _t.Sequence, lines: _t.Sequence[tuple[str, LineStr
     """THE DEFECT CHECK (module doc) over classified ``cells``: how many
     fences, and how many metres of them, stand with airside pavement on
     BOTH sides.  A station marks when both probes lie in a non-building
-    airside cell; consecutive marking stations at least ``min_run_m`` long
-    count.  Returns ``fence_lines``, ``fence_airside_both`` (fences),
-    ``fence_airside_both_m`` and ``fence_airside_both_sites`` (fence id and
-    the frame point of each fence's first run)."""
+    airside cell and the two are not one BORN-AIRSIDE page (same
+    :func:`page_of`, neither made airside by §27's ``airside_edge_flip``):
+    a barrier inside one apron page is no division (13y (1)).  Consecutive
+    marking stations at least ``min_run_m`` long count.  Returns
+    ``fence_lines``, ``fence_airside_both`` (fences),
+    ``fence_airside_both_m``, ``fence_inside_airside_page`` (fences with
+    such a run inside one born-airside page, not counted) and
+    ``fence_airside_both_sites`` (fence id and the frame point of each
+    fence's first run)."""
     out: dict[str, _t.Any] = {"fence_lines": len(lines), "fence_airside_both": 0,
-                              "fence_airside_both_m": 0.0, "fence_airside_both_sites": []}
-    air = [Polygon(c.ring, c.holes) for c in cells
-           if c.role != "building" and role_side(law, c.role) == "airside"]
-    air = [g if g.is_valid else g.buffer(0.0) for g in air]
-    air = [g for g in air if not g.is_empty]
-    if not lines or not air:
+                              "fence_airside_both_m": 0.0, "fence_inside_airside_page": 0,
+                              "fence_airside_both_sites": []}
+    air_cells = [c for c in cells if c.role != "building" and role_side(law, c.role) == "airside"]
+    geoms = [Polygon(c.ring, c.holes) for c in air_cells]
+    geoms = [g if g.is_valid else g.buffer(0.0) for g in geoms]
+    keep = [k for k, g in enumerate(geoms) if not g.is_empty]
+    air_cells, geoms = [air_cells[k] for k in keep], [geoms[k] for k in keep]
+    if not lines or not geoms:
         return out
-    tree = STRtree(air)
+    tree = STRtree(geoms)
     cfg = rules.edge_lines
     step, d = float(cfg.station_m), float(cfg.step_probe_m)
 
-    def inside(p: Point) -> bool:
-        return any(air[int(j)].covers(p) for j in tree.query(p))
+    def cell_at(p: Point):
+        return next((air_cells[int(j)] for j in tree.query(p) if geoms[int(j)].covers(p)), None)
+
+    def born_page(c) -> str | None:
+        return None if c.evidence.get("airside_edge_flip") else page_of(c.ref)
 
     for fid, line in lines:
-        marks = []
+        marks, inner = [], []
         for k in range(int(line.length // step) + 1):
             s = min(line.length, k * step)
-            a, b = _probe(line, s, d)
-            marks.append((s, inside(a) and inside(b)))
+            a, b = (cell_at(p) for p in _probe(line, s, d))
+            both = a is not None and b is not None
+            same = both and born_page(a) is not None and born_page(a) == born_page(b)
+            marks.append((s, both and not same))
+            inner.append((s, same))
         runs = _runs(marks, float(cfg.min_run_m))
+        out["fence_inside_airside_page"] += int(bool(_runs(inner, float(cfg.min_run_m))))
         if runs:
             out["fence_airside_both"] += 1
             out["fence_airside_both_m"] += round(sum(s1 - s0 for s0, s1 in runs), 1)

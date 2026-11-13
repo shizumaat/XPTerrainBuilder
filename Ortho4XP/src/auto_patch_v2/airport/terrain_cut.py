@@ -63,6 +63,12 @@ non-hidden terrain model's plan, after the airport patches are built:
 * "Hide terrain objects" (``drape_stage.TERRAIN``): a hidden model is not
   cut -- the ground under it is the plain DEM.
 
+THE SAME REGION, A SECOND CLASS (#2053): a ground object in the water seated
+on its bridges' far ends (``airport/bridged_ground``) writes the same seat
+record with ``cut``, and every consumer above reads it as it reads a
+terrain model's; its record names ``erode_m`` (one cell: it carries riders
+draped on the drawn ground, which a 30 m erosion would sink).
+
 Pure geometry: the tile glue that reads the plans and writes the raster is
 ``auto_patch/terrain_cut_stage``.
 """

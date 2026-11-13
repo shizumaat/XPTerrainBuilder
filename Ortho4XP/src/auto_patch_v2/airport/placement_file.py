@@ -264,8 +264,13 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                      counts: dict[str, int], by_class: dict[str, int],
                      part_boxes: _t.Sequence[_t.Sequence[tuple]] = (),
                      bridge: _t.Sequence[str] = (),
-                     geom_boxes: _t.Sequence = ()) -> Body:
+                     geom_boxes: _t.Sequence = (),
+                     column: "tuple | None" = None) -> Body:
     """§16 (3): the body written at the GROUND UNDER ITS OWN FOOTPRINT.
+
+    ``column`` (#1908, ``free_column.free_columns``): a FREE-STANDING
+    COLUMN's seat ``(lat, lon, y_zero, surface_z, reason)`` — anchored at
+    the column with its foot on the ground, not its authored y kept.
 
     §14 (1) left a footless placement whose unit held no footed body on
     its authored row (``footless_no_carrier``), and §15's search silently
@@ -279,15 +284,19 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
     cls = raw[max(grp, key=lambda i: len(raw[i][0]))][1]
     box = (_pc.hull_of(b for i in grp for b in part_boxes[i]) if part_boxes
            else _pc.box_of((), parts))
-    clat, clon = 0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])
-    z = _pc.ground_under(surface, _pc.foot_boxes(
-        [b for i in grp for b in part_boxes[i]]) if part_boxes else (), box)
-    off = authored_offset(clat, clon, 0.0, u.anchor[0], u.anchor[1], m.heading_deg)
-    a = _ar.Anchor(cls, clat, clon, 0.0,
-                   f"{OWN_GROUND}: no carrier the law accepts — the ground "
-                   f"under its own footprint, authored y kept", z, off)
+    if column is not None:
+        clat, clon, y0, z, why = column
+        counts["free_columns"] = counts.get("free_columns", 0) + 1
+    else:
+        clat, clon = 0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])
+        z = _pc.ground_under(surface, _pc.foot_boxes(
+            [b for i in grp for b in part_boxes[i]]) if part_boxes else (), box)
+        y0, why = 0.0, (f"{OWN_GROUND}: no carrier the law accepts — the ground "
+                        f"under its own footprint, authored y kept")
+        counts["footless_own_ground"] = counts.get("footless_own_ground", 0) + 1
+    off = authored_offset(clat, clon, y0, u.anchor[0], u.anchor[1], m.heading_deg)
+    a = _ar.Anchor(cls, clat, clon, y0, why, z, off)
     by_class[cls] = by_class.get(cls, 0) + 1
-    counts["footless_own_ground"] = counts.get("footless_own_ground", 0) + 1
     tris = tuple(t for i in grp for t in raw[i][5])
     cut_comps = tuple(sorted({p.comp for i in grp if not raw[i][5]
                               for p in raw[i][0]}))

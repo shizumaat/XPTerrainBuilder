@@ -863,6 +863,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # existing groundside cells).
     n_before = len(cells)
     n_pad, m_pad = mint_pad_roads(airport, ev, cells, law, rules, add, first)
+    # THE FRONTAGE ROADS (issue #2057): a road serving a pad's frontage
+    # across its unmapped kerbside is a pad road too, kerbside and all —
+    # after the pad roads, read by the same touch witness below
+    from .frontage_road import mint_frontage_roads
+    stats.update(mint_frontage_roads(airport, cells, law, rules, add))
     stats["osm_ribbons"] = n_rib + n_pad
     stats["osm_ribbon_m2"] = m_rib + m_pad
     stats["pad_roads"] = n_pad

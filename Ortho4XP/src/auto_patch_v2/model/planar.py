@@ -776,6 +776,12 @@ class PlanarMap:
     #: LAST STAGE (:func:`pad_road_faces`), solved against the levels of
     #: the map without it.
     pad_roads: frozenset[str] = _dc.field(default_factory=frozenset)
+    #: THE FRONTAGE ROADS (issue #2057, ``classify/frontage_road``): the
+    #: pad roads (:attr:`pad_roads`) that run ALONG a pad's frontage, and
+    #: the kerbside between — they fall from the pad's rim no faster than
+    #: the road's cross-section (``constraints/pad_ramp``); the ramp is
+    #: along the road beyond the frontage
+    frontage_roads: frozenset[str] = _dc.field(default_factory=frozenset)
     #: THE RAMP-FOOT RUN-OUTS (issue #669; owner RULINGS 2026-10-14c (5);
     #: ``classify/ramp_runout``): run-out ref -> ``(x0, y0, dx, dy, z0)`` —
     #: where the strip leaves the graded ground at an object ramp's foot,

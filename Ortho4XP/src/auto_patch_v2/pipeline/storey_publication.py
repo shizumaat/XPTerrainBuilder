@@ -22,7 +22,8 @@ def storey_shell_records(planar, airport, z: "_t.Sequence[float] | None") -> lis
     to_ll = airport.frame.transformers()[1]
 
     def ll(pts) -> list:
-        return [[round(float(a), 8), round(float(b), 8)] for a, b in (to_ll(x, y) for x, y in pts)]
+        return [[round(float(a), 8), round(float(b), 8)]
+                for a, b in (to_ll(x, y) for x, y in pts)]
     out = []
     for sh in shells:
         vs = sorted({v for f in planar.faces.values() if f.ref == sh.pad_ref

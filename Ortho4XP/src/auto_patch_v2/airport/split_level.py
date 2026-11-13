@@ -510,7 +510,8 @@ def _run_levels(feet: _t.Sequence[tuple["float | None", float]], step: float
     keep = list(range(len(raw)))
     while True:
         bad = [j for j in keep if held[j] < PLANE_SHARE]
-        bad += [min((a, b), key=lambda j: (held[j], -j)) for a, b in zip(keep, keep[1:])
+        bad += [min((a, b), key=lambda j: (held[j], -j))
+                for a, b in zip(keep, keep[1:], strict=False)
                 if raw[b] - raw[a] < step]
         if not bad or len(keep) == 1:
             break

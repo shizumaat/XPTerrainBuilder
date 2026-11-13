@@ -40,14 +40,14 @@ from shapely.prepared import prep
 
 from ..airport.split_level import (SplitLevel, read_split_levels, run_faces_airside,
                                    take_remainder)
-from ..geom.parts import nonempty_polygon_parts, polygon_parts_with_area
+from ..geom.parts import nonempty_polygon_parts
 from ..geom.valid_area import valid_area
 from ..law.tables import frontage_roles
 from ..model.planar import plane_ref
 from ..model.storey_shell import StoreyRun, StoreyShell
 from .basin_geometry import _rim
 from .cell_knife import knife_cells
-from .split_level_pit import _road_under, _roads
+from .split_level_pit import _largest, _road_under, _roads
 
 __all__ = ["read_storey_shells", "storey_pads", "shell_levels"]
 
@@ -93,7 +93,8 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
         name = sl.paths[0].rsplit("/", 1)[-1]
         plan = sl.pit_plan
         why = _refusal(plan, blocked, roads, grid)
-        under = [(i, p.intersection(plan).area) for i, (p, c) in enumerate(zip(polys, cells))
+        under = [(i, p.intersection(plan).area)
+                 for i, (p, c) in enumerate(zip(polys, cells, strict=True))
                  if c.role == "building" and i not in pads and p.intersects(plan)]
         under = [(i, a) for i, a in under if a > 0.0]
         if not why and not under:
@@ -103,7 +104,7 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
             continue
         i0 = max(under, key=lambda q: (q[1], -q[0]))[0]
         keep_off = [g for g in (blocked, pits, *pads.values()) if g is not None]
-        keep_off += [p for j, (p, c) in enumerate(zip(polys, cells))
+        keep_off += [p for j, (p, c) in enumerate(zip(polys, cells, strict=True))
                      if c.role == "building" and j != i0 and p.intersects(plan.buffer(grid))]
         P = valid_area(unary_union([plan, polys[i0]]))
         if keep_off:
@@ -118,13 +119,13 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
         recs.append(rec)
         notes.append(f"{sl.id} {name}: pad {rec.pad_ref} {P.area:.0f} m2 (plan "
                      f"{plan.area:.0f} m2), levels "
-                     + ", ".join(f"{r} y {rec.y_of(k):+.2f} "
-                                 f"{sum(g.area for g in nonempty_polygon_parts(rec.level_regions[k])):.0f} m2"
+                     + ", ".join(f"{r} y {rec.y_of(k):+.2f} {_area(rec.level_regions[k]):.0f} m2"
                                  for k, r in enumerate(rec.level_refs)))
     if not pads:
         return list(cells), [], notes, refused
     knife = unary_union(list(pads.values()))
-    rest = [(c, p) for i, (c, p) in enumerate(zip(cells, polys)) if i not in pads]
+    rest = [(c, p) for i, (c, p) in enumerate(zip(cells, polys, strict=True))
+            if i not in pads]
     new = [_dc.replace(cells[i], ring=tuple(P.exterior.coords)[:-1],
                        holes=tuple(tuple(h.coords)[:-1] for h in P.interiors),
                        evidence=dict(cells[i].evidence, storey_shell=1.0))
@@ -145,9 +146,8 @@ def _refusal(plan: Polygon, blocked, roads, grid: float) -> str:
     return ""
 
 
-def _largest(geom) -> "Polygon | None":
-    parts = polygon_parts_with_area(geom)
-    return max(parts, key=lambda g: g.area) if parts else None
+def _area(g) -> float:
+    return sum(q.area for q in nonempty_polygon_parts(g))
 
 
 def _record(sl: SplitLevel, pad_ref: str, P: Polygon, probe: float, air) -> StoreyShell:
@@ -169,8 +169,8 @@ def _record(sl: SplitLevel, pad_ref: str, P: Polygon, probe: float, air) -> Stor
                            air is not None and run_faces_airside(air, r))
                  for i, ((r, f), k) in enumerate(zip(sl.runs, lv, strict=True)))
     plan = sl.pit_plan
-    return StoreyShell(sl.id, tuple(sl.member_ids), tuple(sl.paths), pad_ref, tuple(sl.levels), block,
-                       tuple(refs), tuple(regions), runs,
+    return StoreyShell(sl.id, tuple(sl.member_ids), tuple(sl.paths), pad_ref,
+                       tuple(sl.levels), block, tuple(refs), tuple(regions), runs,
                        tuple(tuple(map(float, q)) for q in plan.exterior.coords)[:-1],
                        tuple(tuple(map(float, q)) for q in P.exterior.coords)[:-1],
                        tuple(map(float, sl.anchor_xy)))

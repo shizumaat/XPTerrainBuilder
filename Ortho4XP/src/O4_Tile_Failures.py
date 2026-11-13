@@ -498,6 +498,9 @@ EXCEPTION_CODES = {
     # o4_engine.command_process (#753): a queued preview read nobody wants
     # any more is skipped, never shown — never a build failure
     "Superseded": UNMAPPED,
+    # o4_engine.imagery_after_build: a core landing the user stopped is
+    # counted "skipped" by the follow job, never a build failure
+    "_Stopped": UNMAPPED,
     # O4_Unmounted_Links (#668) names its code with ``failure_code``
     "UnmountedLink": "output_link_unmounted",
     "ElevationLinkBroken": "elevation_link_broken",

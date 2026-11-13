@@ -9,7 +9,7 @@ that ground closely, and its seat record carries the flag
 into the definitions of a pack DSF dump the hiding leaves out -- the same
 omission as the draped photos' (``pack_art.MissingDef``, kind ``object``;
 ``dsf_write.write_pack(drapes=)``), offered as the row ``terrain`` of the
-pack's adjustments, unchecked (``auto_patch.drape_stage.TERRAIN``).
+pack's adjustments, unchecked (``TERRAIN`` of the drape stage).
 
 The paths are remembered per pack between builds (:func:`encode` /
 :func:`decode`, kept by ``drape_stage`` in the answers folder), so the

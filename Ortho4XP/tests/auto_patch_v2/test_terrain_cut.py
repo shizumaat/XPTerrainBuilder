@@ -124,14 +124,14 @@ def test_a_hidden_model_is_not_cut(tmp_path, monkeypatch, shaped):
             "authored_seats": [_rec(-22.5, -43.5, hideable=True),
                                dict(_rec(-22.5, -43.5), id="dsf:obj8", cut=None)]}
     path = tmp_path / "o4_v2_rebake_TEST.json"
-    path.write_text(json.dumps(plan), encoding="utf-8")
+    path.write_text(json.dumps(plan), encoding="utf-8", newline="")
     assert [r["id"] for r in TCS.cut_records(str(tmp_path), ["TEST"])] == ["dsf:obj7"]
     assert TCS.cut_records(str(tmp_path), ["OTHER"]) == []
     PC.Store(PC.TERRAIN_CHOICES).remember(root, "update")
     assert TCS.cut_records(str(tmp_path), ["TEST"]) == []
     # the answer reaches only the models offered for hiding
     plan["authored_seats"][0]["hideable"] = False
-    path.write_text(json.dumps(plan), encoding="utf-8")
+    path.write_text(json.dumps(plan), encoding="utf-8", newline="")
     assert [r["id"] for r in TCS.cut_records(str(tmp_path), ["TEST"])] == ["dsf:obj7"]
 
 

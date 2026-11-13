@@ -77,7 +77,7 @@ def edge_key(lat: int, lon: int, side: str) -> Tuple[str, int, int]:
 
 
 def _add(a, b) -> RGB:
-    return tuple(float(x) + float(y) for x, y in zip(a, b))
+    return tuple(float(x) + float(y) for x, y in zip(a, b, strict=False))
 
 
 def _scale(a, k: float) -> RGB:

@@ -38,7 +38,7 @@ OBJECT_MSL 0 -94.719717041 39.294637407 303.799313344 352.787366
 
 def _pack(tmp_path, library_name="Library.txt"):
     (tmp_path / "Objects" / "Gates").mkdir(parents=True)
-    (tmp_path / FILE).write_text("A\n800\nOBJ\n", encoding="utf-8")
+    (tmp_path / FILE).write_text("A\n800\nOBJ\n", encoding="utf-8", newline="")
     (tmp_path / library_name).write_text(
         "A\n800\nLIBRARY\n\nREGION_DEFINE Old\nREGION Old\n"
         f"EXPORT_EXCLUDE {VIRT}\tObjects/Gates/Old/bridge.obj\n"

@@ -695,7 +695,7 @@ class ProductionDem:
             return None, None
         sidecar = str(path)[:-4] + ".json"
         try:
-            with open(sidecar, "r") as handle:
+            with open(sidecar, "r", encoding="utf-8") as handle:
                 meta = json.load(handle)
         except (OSError, ValueError):
             return None, None
@@ -787,7 +787,7 @@ class ProductionDem:
             if px is None or px > max_pixel_m or not path.endswith(".tif"):
                 continue
             try:
-                with open(path[:-4] + ".json", "r") as handle:
+                with open(path[:-4] + ".json", "r", encoding="utf-8") as handle:
                     meta = json.load(handle)
                 box = (meta.get("delivered_bounding_box_wgs84")
                        or meta.get("bounding_box_wgs84"))

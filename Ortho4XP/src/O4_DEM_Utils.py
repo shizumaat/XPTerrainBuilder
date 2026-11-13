@@ -132,8 +132,11 @@ def base_source_label(dem) -> str:
             label = str(keyword)
     elif getattr(dem, "base_file", None):
         label = os.path.basename(dem.base_file)
+    rows = getattr(dem, "base_substitutions", None) or ()
+    if not rows or getattr(dem, "lat", None) is None:
+        return label            # a label: never a build failure
     own = "%+03d%+04d" % (int(dem.lat), int(dem.lon))
-    for row in getattr(dem, "base_substitutions", None) or ():
+    for row in rows:
         if isinstance(row, dict) and row.get("cell") == own:
             label = str(row.get("fallback") or label)
     return label

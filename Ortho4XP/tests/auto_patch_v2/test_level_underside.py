@@ -11,8 +11,7 @@ import numpy as np
 from shapely import STRtree
 from shapely.geometry import Point, Polygon, box
 
-from auto_patch_v2.planar.level_underside import (FLAT_DY_M, OVER_FLOOR_M,
-                                                  underside_over)
+from auto_patch_v2.planar.level_underside import FLAT_DY_M, OVER_FLOOR_M, underside_over
 
 
 def _to_frame(xy, heading_deg, x, z):
@@ -51,7 +50,8 @@ def _reference(members, cache, to_xy, region, floor_y, step=2.0):
                 continue
             cells += 1
             hit = [tris[int(j)] for j in tree.query(c, predicate="intersects")]
-            flat = [lo for _p, lo, hi in hit if hi - lo <= FLAT_DY_M and lo > floor_y + OVER_FLOOR_M]
+            flat = [lo for _p, lo, hi in hit
+                    if hi - lo <= FLAT_DY_M and lo > floor_y + OVER_FLOOR_M]
             if flat:
                 soffit.append(min(flat))
             low = [lo for _p, lo, _hi in hit if lo > floor_y + OVER_FLOOR_M]

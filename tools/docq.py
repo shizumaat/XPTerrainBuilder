@@ -187,8 +187,11 @@ def index_short() -> str:
     for path, desc in index_rows():
         first = re.split(r"(?<=[.;—])\s", desc, maxsplit=1)[0]
         first = re.sub(r"\*\*", "", first)
-        if len(first) > 140:
-            first = first[:137].rstrip() + "…"
+        # 120, not 140, since 159 rows (2026-11-12): the short index must
+        # stay under 20k characters (tests/test_docq.py); the full row is
+        # one `docq index NAME` away.
+        if len(first) > 120:
+            first = first[:117].rstrip() + "…"
         out.append(f"{path}  —  {first}")
     return "\n".join(out)
 

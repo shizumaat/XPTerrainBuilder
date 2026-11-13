@@ -21,8 +21,7 @@ import O4_World_Window as WINDOW
 from o4_engine import flight_commands as FC
 from o4_engine import flight_job_run as FLIGHT
 from o4_engine import flight_record as RECORD
-from o4_engine.flight_manager import (PREP_DRAPE_PX, FlightManager,
-                                      flight_jobs, prep_drape_px)
+from o4_engine.flight_manager import PREP_DRAPE_PX, FlightManager, flight_jobs, prep_drape_px
 from o4_engine.flight_notices import notice
 
 CYYR = (53.30427, -60.447077)

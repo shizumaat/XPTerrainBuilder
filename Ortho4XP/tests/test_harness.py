@@ -1786,6 +1786,10 @@ def test_an_authorised_osm_refresh_RE_DERIVES_a_present_but_stale_layer(
         "airports_layer": True})
     monkeypatch.setattr(build_mod, "unverified_inset_negatives",
                         lambda *a: [])
+    # the inset-stamp row (#1930) is its own pre-flight, tested apart in
+    # tests/test_harness_refresh1930.py
+    monkeypatch.setattr(build_mod, "unsettled_inset_stamp_rows",
+                        lambda *a: [])
     assert build_mod.missing_shared_artifacts(root, 40, -4) == []
     build_mod.require_no_implicit_refresh(
         build_mod.missing_shared_artifacts(root, 40, -4), set())

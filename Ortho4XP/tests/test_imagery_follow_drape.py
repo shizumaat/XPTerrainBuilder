@@ -63,10 +63,12 @@ def _pack(tmp_path):
         _dds(textures / name, 512, _mask(512) if water else None)
         rel = f"../../textures/{TILE}/{name}"
         stem = name[:-4]
-        (terrain / f"{stem}.pol").write_text(DRAPE.pol_text(rel, x, y, ZL, 512))
+        (terrain / f"{stem}.pol").write_text(
+            DRAPE.pol_text(rel, x, y, ZL, 512), encoding="utf-8", newline="")
         if water:
             (terrain / f"{stem}_water.pol").write_text(DRAPE.pol_text(
-                rel, x, y, ZL, 512, DRAPE.WATER_LAYER_GROUP, alpha=True))
+                rel, x, y, ZL, 512, DRAPE.WATER_LAYER_GROUP, alpha=True),
+                encoding="utf-8", newline="")
     dsf = pack / WP.dsf_relpath(LAT, LON)
     dsf.parent.mkdir(parents=True)
     dsf.write_bytes(b"XPLNEDSF" + DRAPE.DRAPE_AGENT.encode() + b"\0" * 64)

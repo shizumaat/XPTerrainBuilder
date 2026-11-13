@@ -96,7 +96,8 @@ def test_a_rim_vertex_a_road_carries_keeps_the_roads_law(tmp_path):
     from auto_patch_v2.constraints.object_floor import object_floor_pins
     f = _floor(tmp_path)
     planar = _planar(f)
-    rim = [p.v for p in object_floor_pins(planar, LAW, None) if _role(planar, p) == "retaining_wall"]
+    rim = [p.v for p in object_floor_pins(planar, LAW, None)
+           if _role(planar, p) == "retaining_wall"]
     road = len(planar.faces)
     planar.faces[road] = types.SimpleNamespace(role="service_road", ref="road", ring=(), holes=())
     planar.vertices[rim[0]].incident_faces = (planar.vertices[rim[0]].incident_faces[0], road)

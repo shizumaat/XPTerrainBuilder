@@ -430,7 +430,7 @@ def _note_demand(path: str) -> None:
     mark = os.path.join(folder, "%d-%d" % (os.getpid(), threading.get_ident()))
     try:
         os.makedirs(folder, exist_ok=True)
-        with open(mark, "a"):
+        with open(mark, "a", encoding="utf-8", newline=""):
             pass
         os.utime(mark)
     except OSError:

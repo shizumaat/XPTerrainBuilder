@@ -66,6 +66,9 @@ EFFECT: dict[str, tuple[tuple[str, ...], str]] = {
     "--no-imagery": (("capture",), "the airport photos are read by the LOAD "
                                    "stage (the #1359 witness), which only "
                                    "--capture runs"),
+    "--allow-degraded-dem": (("capture",), "the production DEM frame is "
+                                           "read by the LOAD stage, which "
+                                           "only --capture runs (#2038)"),
     "--mod-cache-root": (("capture",), "the airport mod cache is read by "
                                        "the LOAD stage, which only --capture "
                                        "runs"),
@@ -130,6 +133,8 @@ def given_arms(a) -> dict[str, str]:
     raw = {"--rule": a.rule, "--placement": a.placement,
            "--cifp-dir": a.cifp_dir, "--data-overlay": a.data_overlay,
            "--mod-cache-root": a.mod_cache_root,
+           "--allow-degraded-dem": "a cold or degraded DEM frame accepted"
+           if getattr(a, "allow_degraded_dem", False) else None,
            "--no-imagery": "the witness's photos off" if getattr(a, "no_imagery", False)
            else None,
            "--design-weight": a.design_weight,

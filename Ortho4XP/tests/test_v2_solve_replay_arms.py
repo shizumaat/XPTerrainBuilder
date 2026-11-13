@@ -41,6 +41,8 @@ EXPECT = {
     "--cifp-dir": {"capture"},
     "--data-overlay": {"capture"},
     "--mod-cache-root": {"capture"},
+    # #2038: a cold or degraded production DEM frame, knowingly (load stage)
+    "--allow-degraded-dem": {"capture"},
     # #1359: the terrain witness's photos off (the load stage)
     "--no-imagery": {"capture"},
     "--design-weight": REPLAY | DUMP | {"stage1-dump/why-from"},

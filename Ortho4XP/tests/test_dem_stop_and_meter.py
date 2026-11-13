@@ -13,6 +13,7 @@ Two behaviours the module gained:
 The requests session is monkeypatched so nothing touches the network.
 """
 
+import contextlib
 import sys
 
 import numpy
@@ -83,6 +84,10 @@ def _install_session(monkeypatch, get_impl):
 def test_successful_fetch_feeds_the_throughput_meter(monkeypatch):
     # Pin the elapsed measurement so the recorded sample is deterministic:
     # http_request reads time.time() once before and once after get().
+    # The server-budget slot reads the clock too (its demand marks), so it
+    # is held open here: the two reads must be http_request's own.
+    monkeypatch.setattr(DEM.MACHINE_SLOTS, "hold_class",
+                        lambda *a, **k: contextlib.nullcontext())
     times = iter([1000.0, 1000.5])
     monkeypatch.setattr(DEM.time, "time", lambda: next(times, 1000.5))
     body = b"x" * (5 * 1024 * 1024)  # 5 MiB in 0.5 s -> 10 MiB/s

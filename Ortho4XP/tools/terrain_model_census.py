@@ -35,6 +35,9 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
+import O4_Console_Encoding as _o4console  # noqa: E402
+
+_o4console.configure_console_streams()  # utf-8 console before any print (#92)
 
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
 from auto_patch_v2.airport.obj8 import parse_obj8  # noqa: E402

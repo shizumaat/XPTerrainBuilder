@@ -47,6 +47,9 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "src"))
+import O4_Console_Encoding as _o4console  # noqa: E402
+
+_o4console.configure_console_streams()  # utf-8 console before any print (#92)
 
 import O4_Machine_Slots as MACHINE_SLOTS  # noqa: E402
 from O4_Imagery_Tier_Plan import TIER_WIDTH  # noqa: E402

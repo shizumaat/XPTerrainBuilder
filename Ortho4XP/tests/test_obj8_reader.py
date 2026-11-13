@@ -82,7 +82,7 @@ def test_a_triangle_naming_an_undeclared_vertex_is_dropped(tmp_path):
         "ATTR_LOD 0 3000VT 0 0 0 0 1 0 0 0\n"
         "VT 0 0 0 0 1 0 0 0\nVT 4 0 0 0 1 0 0 0\nVT 4 3 0 0 1 0 0 0\n"
         "IDX 0\nIDX 1\nIDX 2\nIDX 1\nIDX 2\nIDX 3\nTRIS 0 6\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="")
     geometry = load_object_file(str(path))
     assert len(geometry.vertices) == 3
     assert geometry.solid_triangles == [(0, 1, 2)]

@@ -299,7 +299,7 @@ def read_imagery_manifest(tile):
     import json
 
     try:
-        with open(imagery_manifest_path(tile), "r") as handle:
+        with open(imagery_manifest_path(tile), "r", encoding="utf-8") as handle:
             manifest = json.load(handle)
         return manifest if isinstance(manifest, dict) else {}
     except (OSError, ValueError):

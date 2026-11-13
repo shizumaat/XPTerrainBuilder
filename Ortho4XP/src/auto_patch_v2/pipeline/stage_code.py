@@ -168,6 +168,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.dem",
@@ -352,6 +353,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
         "auto_patch_v2.airport.deck_carry",
+        "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_ends",
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_roof",
@@ -735,6 +737,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.dem",
@@ -889,6 +892,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_ends",
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_signature",
@@ -1096,6 +1100,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.dem",
@@ -1860,7 +1865,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
+    airport.bridge_approach airport.deck_end_read airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.pool_memory airport.rebake_plan airport.riders airport.ring_contact_batch
@@ -1959,7 +1964,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
+    airport.bridge_approach airport.deck_end_read airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.pool airport.pool_memory
     airport.rebake_plan airport.riders
@@ -2044,7 +2049,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
+    airport.bridge_approach airport.deck_end_read airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
     airport.plate_ground airport.pool airport.pool_memory
@@ -2194,7 +2199,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
+    airport.bridge_approach airport.deck_end_read airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
     airport.plate_ground airport.pool airport.pool_memory
@@ -2352,7 +2357,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
+    airport.bridge_approach airport.deck_end_read airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.pool_memory airport.rebake_plan airport.rebake_screen airport.riders
@@ -2452,7 +2457,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
+    airport.bridge_approach airport.deck_end_read airport.free_bridge_seat airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.pool_memory airport.rebake_plan airport.riders

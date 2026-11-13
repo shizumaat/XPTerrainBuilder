@@ -378,7 +378,7 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
     (#1903): the deck is a pack cut's OWN roof, the trench under its edge,
     so its end lines are read one step outside it — as the planar frame
     reads them (``cut_deck_seat.end_ground``, ``planar/cut_frame``)."""
-    plated = _plate_zero(m, surface)
+    plated = _plate_zero(m, surface, origin)
     if plated is not None:
         return plated
     w = _airside_witness(m, decks, surface)
@@ -410,11 +410,15 @@ _PLATED = {"deck": "the hard-deck bridge's end lines {lo:.2f}..{hi:.2f} over {n}
                        "(its zero on the road, y {y:+.2f}; RULINGS 2026-10-30f (5))"}
 
 
-def _plate_zero(m: _t.Any, surface: _ar.Surface) -> "tuple[float, str, tuple] | None":
+def _plate_zero(m: _t.Any, surface: _ar.Surface,
+                origin: "tuple[float, float] | None" = None
+                ) -> "tuple[float, str, tuple] | None":
     """``(zero, where, seat)`` off a hard-deck bridge's or a road
     overpass's plate, or ``None``; ``seat`` is the station ``(lat, lon,
     z)`` nearest the stations' middle — where a body of the frame whose own
-    anchor reads no surface is anchored (:func:`airside_deck`)."""
+    anchor reads no surface is anchored (:func:`airside_deck`).  An
+    OVERPASS plate whose frame anchor ``origin`` reads water is noted in
+    ``where`` (a deck over water is no road overpass: 22p, 2026-09-13v)."""
     st = tuple(getattr(m, "plate_stations", ()) or ())
     y = getattr(m, "plate_y", None)
     kind = getattr(m, "plate_kind", "")
@@ -429,7 +433,13 @@ def _plate_zero(m: _t.Any, surface: _ar.Surface) -> "tuple[float, str, tuple] | 
     cla = sum(r[0] for r in read) / len(read)
     clo = sum(r[1] for r in read) / len(read)
     seat = min(read, key=lambda r: (r[0] - cla) ** 2 + (r[1] - clo) ** 2)
-    return zero, _PLATED[kind].format(lo=min(zs), hi=max(zs), n=len(zs), y=float(y)), seat
+    where = _PLATED[kind].format(lo=min(zs), hi=max(zs), n=len(zs), y=float(y))
+    water = getattr(surface, "water", None)
+    if kind == "overpass" and origin is not None and water is not None \
+            and water(float(origin[0]), float(origin[1])):
+        where += ("; NOTE its frame anchor stands on water -- a deck over water is "
+                  "no road overpass (RULINGS 2026-10-22p, 2026-09-13v)")
+    return zero, where, seat
 
 
 def _maybe_a_building(st: _t.Any, i: int, surface: _ar.Surface) -> bool:

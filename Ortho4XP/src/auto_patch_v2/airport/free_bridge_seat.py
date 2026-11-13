@@ -25,15 +25,20 @@ or its refused reading takes is theirs; a deck carrying a plate (an
 overpass's road beneath, a hard-deck bridge's end lines, an edge, a walled
 or split-level plate) keeps that plate's reader.
 
-THE ZERO, per deck member (a frame may hold several bridges: OTHH's
-interchange puts three on one anchor): the deck-top datum of a FREE deck
-(``anchor_rule.datum_of(free_standing=True)``), read at its END LINES with
-the deck top AT each end (``airside_deck_seat.end_tops``: a ramp is
-authored on a grade) — flush at the end whose ground less its top is the
-highest, the other end floating for the terrain to grade up to (#1138).
-Every body the frame's deck footprints name (``Body.bridge_of``) takes its
-deck's zero; in a one-deck frame every body does (the supports stay
-attached, 10-22c).
+THE FRAME IS NO ALL-DECK FRAME: a frame every member of which is a deck
+(``placement_family.frame_is_bridge``) keeps 22d / 22p's datum
+(``anchor_rule._datum_anchor``) unchanged (spec S1).
+
+THE ZERO, per BRIDGE (a frame may hold several: OTHH's interchange puts
+three on one anchor): the free decks of the frame whose rings touch at
+``[placement] touch_m`` are ONE bridge (22o; 13y (4)), and it takes ONE
+zero — over its LAND-MEETING ends, the highest ``ground - top``
+(``deck_end_read.deck_end_reads``: the ground at the end line, the plate's
+own top on it), so that end is flush and every other floats for the
+terrain to grade up to (#1138).  An end abutting another deck of the same
+bridge is no land end.  Every body takes its deck's bridge's zero
+(:func:`deck_of_body`); in a one-deck frame every body does (the supports
+stay attached, 10-22c).
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -43,7 +48,8 @@ import typing as _t
 
 from . import anchor_rule as _ar
 
-__all__ = ["PLATED_KINDS", "REASON", "free_bridge_zeros", "free_bridge_seat", "deck_of_body"]
+__all__ = ["PLATED_KINDS", "REASON", "free_bridge_zeros", "free_bridge_seat", "deck_of_body",
+           "bridge_groups", "bridge_zero"]
 
 #: a member carrying one of these plates is seated by that plate's own
 #: reader (``airside_deck_seat._plate_zero``, ``anchor_rule.datum_of``)
@@ -63,79 +69,110 @@ def _free_deck(m: _t.Any) -> bool:
             and str(getattr(m, "plate_kind", "") or "") not in PLATED_KINDS)
 
 
-def _deck_zero(m: _t.Any, surface: _ar.Surface, origin: tuple[float, float],
-               agl_m: float, step_m: float, walk_max_m: float,
-               level_tol_m: float) -> "tuple[float, str] | None":
-    """``(zero, why)`` of one free deck member, or ``None`` where its end
-    lines read no land."""
-    from .airside_deck_seat import end_tops
-    from .bridge_approach import approach_seat
-    from .rebake_plan import end_line_stations
-    datum = _ar.datum_of(m, abutment_step_m=step_m, abutment_walk_max_m=walk_max_m,
-                         level_tol_m=level_tol_m, free_standing=True)
-    if datum is None:
-        return None
-    tops = None
-    if len(datum.ends) >= 2 and step_m > 0.0:
-        lines = tuple(end_line_stations([e], step_m) for e in datum.ends[:2])
-        tops = end_tops(m, lines, origin, step_m)
-    seat = approach_seat(datum, surface, origin=origin, authored_agl_m=agl_m, tops=tops)
-    if seat is not None:
-        return seat.zero, seat.reason
-    return _walked_zero(datum, surface, tops)
+def _rings_local(decks: _t.Sequence[_t.Any], origin: tuple[float, float]) -> list:
+    """Each deck's ring as a plan polygon in metres about ``origin``."""
+    from shapely.geometry import Polygon
+    from .deck_end_read import _local
+    out = []
+    for st in decks:
+        p = Polygon([_local(q, origin) for q in st.m.deck_ring])
+        out.append(p if p.is_valid else p.buffer(0))
+    return out
 
 
-def _walked_zero(datum: _t.Any, surface: _ar.Surface,
-                 tops: "_t.Sequence[float] | None") -> "tuple[float, str] | None":
-    """An end line on a bank (or off the sheet): §16e (6)'s LANDWARD WALK
-    (``anchor_rule._walked_stations``; 13v, the canal bridges), read PER
-    END with that end's own deck top — flush at the end whose walked ground
-    less its top is the highest, as :func:`bridge_approach.approach_seat`."""
-    from .rebake_plan import end_line_stations
-    stations, note = _ar._walked_stations(datum, surface, getattr(surface, "water", None))
-    sizes = [len(end_line_stations([e], datum.step_m)) for e in datum.ends] \
-        if datum.ends and datum.step_m > 0.0 else []
-    if len(sizes) < 2 or sum(sizes) != len(stations):
-        sizes = [len(stations)]
-    ys = (list(tops) if tops is not None and len(tops) == len(sizes)
-          else [float(datum.y)] * len(sizes))
-    best = None
-    k0 = 0
-    for k, n in enumerate(sizes):
-        kept, _wet, _off = _ar._line_reading(stations[k0:k0 + n], surface,
-                                             getattr(surface, "water", None))
-        k0 += n
-        if not kept:
+def bridge_groups(decks: _t.Sequence[_t.Any], origin: tuple[float, float],
+                  touch_m: float) -> list[list[int]]:
+    """The indices of ``decks`` grouped into BRIDGES: decks whose rings
+    come within ``touch_m`` of each other, transitively (module doc)."""
+    rings = _rings_local(decks, origin)
+    root = list(range(len(decks)))
+
+    def find(k: int) -> int:
+        while root[k] != k:
+            root[k] = root[root[k]]
+            k = root[k]
+        return k
+    for i in range(len(decks)):
+        for j in range(i + 1, len(decks)):
+            if rings[i].distance(rings[j]) <= touch_m:
+                root[find(j)] = find(i)
+    groups: dict[int, list[int]] = {}
+    for k in range(len(decks)):
+        groups.setdefault(find(k), []).append(k)
+    return list(groups.values())
+
+
+def _abuts(line: _t.Sequence[tuple[float, float]], others: _t.Sequence[_t.Any],
+           origin: tuple[float, float], touch_m: float) -> bool:
+    """Does an end line ABUT another deck of its bridge — most of its
+    stations within ``touch_m`` of that deck's ring?"""
+    from shapely.geometry import Point
+    from .deck_end_read import _local
+    pts = [Point(_local(q, origin)) for q in line]
+    return any(2 * sum(1 for p in pts if r.distance(p) <= touch_m) > len(pts)
+               for r in others)
+
+
+def bridge_zero(reads: _t.Sequence[_t.Any], lines_abut: _t.Sequence[_t.Sequence[bool]]
+                ) -> "tuple[float, str] | None":
+    """``(zero, why)`` of one bridge from its decks' end reads
+    (``deck_end_read.DeckEnds``, ``None`` for a deck read nowhere):
+    the highest ``ground - top`` over its land ends (``lines_abut[d][k]``
+    false), else over every end; a 22p clearance stands as one candidate."""
+    cands: list[tuple[float, str]] = []
+    every: list[tuple[float, str]] = []
+    for d, r in enumerate(reads):
+        if r is None:
             continue
-        zs = sorted(q[0] for q in kept)
-        z = zs[len(zs) // 2] - float(ys[k])
-        if best is None or z > best[0]:
-            best = (z, f"§16e {datum.label} datum: the authored y {ys[k]:+.2f} flush with "
-                       f"the walked ground {zs[len(zs) // 2]:.2f} at end line {k + 1}"
-                       f"{note} (RULINGS 2026-10-22m, 2026-09-13v)")
-    return best
+        if r.clearance is not None:
+            cands.append(r.clearance)
+            continue
+        for k, e in enumerate(r.ends):
+            c = (e.ground - e.top, e.why)
+            every.append(c)
+            if not (k < len(lines_abut[d]) and lines_abut[d][k]):
+                cands.append(c)
+    got = cands or every
+    return max(got, key=lambda c: c[0]) if got else None
 
 
 def free_bridge_zeros(staged: _t.Sequence[_t.Any], surface: _ar.Surface, *,
                       origin: tuple[float, float], agl_m: float, step_m: float,
                       walk_max_m: float = 0.0, level_tol_m: float = 0.0,
+                      touch_m: float = 0.0, unit: _t.Any = None,
                       counts: "dict | None" = None) -> dict[str, tuple[float, str, tuple]]:
     """``{deck resource: (zero, why, ring box)}`` of a frame that IS a
     free-standing bridge (module doc), or ``{}``.  ``staged`` are the
     frame's staged members (``placement_record.Staged``: ``m``, ``bridge``,
-    ``boxes``); the ring box is ``(lat0, lon0, lat1, lon1)``."""
+    ``boxes``); ``unit`` the frame's plan unit (an all-deck frame keeps
+    22d / 22p); the ring box is ``(lat0, lon0, lat1, lon1)``."""
     from .airside_deck_seat import _is_the_bridge
+    from .deck_end_read import deck_end_reads
+    from .placement_family import frame_is_bridge
+    if unit is not None and frame_is_bridge(unit):
+        return {}
     decks = [st for st in staged if _free_deck(st.m)]
     if not decks or not all(_is_the_bridge(staged, st, surface) for st in decks):
         return {}
+    reads = [deck_end_reads(st.m, surface, origin=origin, agl_m=agl_m, step_m=step_m,
+                            walk_max_m=walk_max_m, level_tol_m=level_tol_m)
+             for st in decks]
+    rings = _rings_local(decks, origin)
     out: dict[str, tuple[float, str, tuple]] = {}
-    for st in decks:
-        got = _deck_zero(st.m, surface, origin, agl_m, step_m, walk_max_m, level_tol_m)
-        if got is not None:
-            ring = st.m.deck_ring
+    for group in bridge_groups(decks, origin, touch_m):
+        abut = [[_abuts(e.line, [rings[j] for j in group if j != i], origin, touch_m)
+                 for e in (reads[i].ends if reads[i] is not None else ())]
+                for i in group]
+        got = bridge_zero([reads[i] for i in group], abut)
+        if got is None:
+            continue
+        why = got[1] if len(group) == 1 else \
+            f"{got[1]}; one bridge of {len(group)} touching decks (RULINGS 2026-10-22o)"
+        for i in group:
+            ring = decks[i].m.deck_ring
             box = (min(q[0] for q in ring), min(q[1] for q in ring),
                    max(q[0] for q in ring), max(q[1] for q in ring))
-            out[str(st.m.resource)] = (got[0], got[1], box)
+            out[str(decks[i].m.resource)] = (got[0], why, box)
     if out and counts is not None:
         counts["free_bridge_frames"] = counts.get("free_bridge_frames", 0) + 1
     return out

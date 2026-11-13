@@ -32,7 +32,11 @@ _frames``) that
   bridge covers the bridge's approaches too, and KDEN's upper deck (18.0 m
   and 20.8 m past its bridge's ends) read them as the road beneath; and
 * the pack authored the deck at least ``[bridge] clearance_minimum_m`` over
-  its zero: the zero is the road the deck spans.
+  its zero: the zero is the road the deck spans — read AT THE CROSSING, the
+  plate's own height over the road's stations (:func:`_crossing_top`), never
+  the frame's highest plate vertex (OTHH ``Bridge_01``: an abutment top at
+  y 3.53 over the road, an upper surface of 11.56 elsewhere in the frame;
+  a deck over water is no road overpass, 22p / 2026-09-13v).
 
 THE SEAT: the deck's zero sits on the road beneath — the SOLVED surface at
 the road's centreline under the deck, its stations every ``[bridge]
@@ -154,6 +158,26 @@ def _road_under(piece, ways, step: float) -> tuple[tuple[XY, ...], tuple[int, ..
     return tuple(st), tuple(ids)
 
 
+def _crossing_top(dks, cache, piece, stations) -> "float | None":
+    """The deck plate's own height (authored y) where the road beneath
+    crosses ``piece``: the median over the under-road ``stations`` of the
+    lowest plate triangle under each (``geom/lowest_face``), never the
+    frame's highest plate vertex — an abutment top under a pylon's upper
+    surfaces is no clearance (spec ``othh-deck-round2-spec.md`` S4).
+    ``None`` where no plate triangle stands under any station."""
+    import numpy as np
+
+    from ..airport.deck_stack import _plate_tris
+    from ..geom.lowest_face import floor_z_at
+    tris = [t for d in dks for t in _plate_tris(d, cache, piece)]
+    if not tris:
+        return None
+    zs = floor_z_at(np.asarray(tris, float).reshape(-1, 3, 3),
+                    [p[0] for p in stations], [p[1] for p in stations], edge_m=0.5)
+    zs = np.sort(zs[np.isfinite(zs)])
+    return float(zs[len(zs) // 2]) if zs.size else None
+
+
 def road_overpasses(objects, cache, classification, airport, law, decks=(),
                     cut_objects=()) -> tuple[tuple[_Overpass, ...], list[str]]:
     """``(every road overpass deck piece, one note per piece read)``
@@ -191,6 +215,12 @@ def road_overpasses(objects, cache, classification, airport, law, decks=(),
                 continue
             st, ids = _road_under(piece, ways, step)
             if not st:
+                continue
+            at = _crossing_top(dks, cache, piece, st)
+            if at is not None and at < float(br.clearance_minimum_m):
+                notes.append(f"{name}: no road overpass -- its plate stands y {at:+.2f} over "
+                             f"way(s) {list(ids)} (< {float(br.clearance_minimum_m):.2f} m "
+                             f"clearance; the frame's top y {top:+.2f} is not over the road)")
                 continue
             if _beside_a_building(frame, piece, roles):
                 notes.append(f"{name}: a building stands beside it in its frame (22n)")

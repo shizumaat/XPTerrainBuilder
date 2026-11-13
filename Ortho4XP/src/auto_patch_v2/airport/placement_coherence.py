@@ -96,17 +96,21 @@ def census_group_offsets(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
 def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                        decks: _t.Sequence[_t.Any], surface: Surface, *,
                        step_m: float, walk_max_m: float = 0.0,
-                       end_tol_m: float = END_TOL_M) -> dict:
-    """Per free-standing deck (``decks``: ``(unit, member)`` pairs of the
-    rebake plan, or bare members): each END's offset from the ground AT
-    its end line (``bridge_approach.end_ground``, #1214 round 3 R4) and the
-    deck SPAN under the ground at the deck's mid-line.  A deck the law
-    holds at its AUTHORED CLEARANCE (no embankment at either end, RULINGS
-    2026-10-22p) is listed with its end gaps and never barred.
-    ``walk_max_m`` is accepted and unused (the walk is retired)."""
-    from .anchor_rule import Datum
-    from .bridge_approach import approach_seat, end_ground
-    from .rebake_plan import end_line_stations
+                       end_tol_m: float = END_TOL_M, touch_m: float = 0.0) -> dict:
+    """Per free-standing BRIDGE (``decks``: ``(unit, member)`` pairs of the
+    rebake plan, or bare members; a unit's decks whose rings touch at
+    ``touch_m`` are one bridge, ``free_bridge_seat.bridge_groups``): each
+    END's offset from the ground AT its end line and the deck SPAN under
+    the ground at the deck's mid-line.  The ends are read by the seat's own
+    function (``deck_end_read.deck_end_reads``: the ground the end meets,
+    the plate's own top on it); an end abutting another deck of its bridge
+    is no land end and never barred.  A deck the law holds at its AUTHORED
+    CLEARANCE (no embankment at either end, RULINGS 2026-10-22p) is listed
+    and never barred."""
+    import types
+    from .deck_end_read import deck_end_reads
+    from .free_bridge_seat import _abuts, _rings_local, bridge_groups
+    from .placement_family import frame_is_bridge
     zeros: dict[str, list[float]] = collections.defaultdict(list)
     for s in splits:
         res = str((s.get("placement") or {}).get("resource", ""))
@@ -114,39 +118,57 @@ def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             z = plan_body_zero(b)
             if z is not None:
                 zeros[res].append(z)
-    water = getattr(surface, "water", None)
-    rows, ends_off, spans_under = [], 0, 0
+    by_unit: dict[int, tuple[_t.Any, list]] = {}
     for item in decks:
         u, m = item if isinstance(item, tuple) else (None, item)
-        ends = tuple(tuple((float(q[0]), float(q[1])) for q in ln)
-                     for ln in (getattr(m, "deck_ends", None) or ()))
-        top = getattr(m, "deck_top_y", None)
-        zs = sorted(zeros.get(str(m.resource), ()))
-        if top is None or len(ends) < 2 or not zs:
+        if getattr(m, "deck_top_y", None) is None or len(getattr(m, "deck_ends", None) or ()) < 2 \
+                or not zeros.get(str(m.resource)):
             continue
-        zero = zs[len(zs) // 2]
-        got = [end_ground(end_line_stations([e], step_m), surface, water)
-               for e in ends]
-        if any(g is None for g in got):
-            continue
-        offs = [zero + float(top) - g[0] for g in got]
-        seat = None if u is None else approach_seat(
-            Datum(float(top), (), "deck top", ends=ends, step_m=step_m),
-            surface, origin=tuple(u.anchor), authored_agl_m=u.agl_m)
-        clearance = seat is not None and "authored clearance" in seat.reason
-        mid = (0.25 * sum(q[0] for ln in ends for q in ln),
-               0.25 * sum(q[1] for ln in ends for q in ln))
-        gm = surface(*mid)
-        under = None if gm is None else zero + float(top) - float(gm)
-        # 10-22m: the NEARER end is flush; the other end floats over its
-        # approach by the gap the terrain must grade up (#1138) — only an
-        # end UNDER its approach, or a nearest end off it, is the seat's
-        n_off = 0 if clearance else (
-            int(abs(min(offs)) > end_tol_m)
-            + sum(1 for o in offs if o < -end_tol_m and o != min(offs)))
-        ends_off += n_off
-        spans_under += int(under is not None and under < 0.0)
-        rows.append((str(m.resource), offs, under, clearance))
+        by_unit.setdefault(id(u) if u is not None else id(m), (u, []))[1].append(m)
+    rows, ends_off, spans_under = [], 0, 0
+    for u, ms in by_unit.values():
+        origin = tuple(u.anchor) if u is not None else (
+            float(ms[0].deck_ends[0][0][0]), float(ms[0].deck_ends[0][0][1]))
+        agl = float(getattr(u, "agl_m", 0.0) or 0.0) if u is not None else 0.0
+        all_deck = u is None or frame_is_bridge(u)
+        staged = [types.SimpleNamespace(m=m) for m in ms]
+        ringed = not all_deck and all(len(getattr(m, "deck_ring", None) or ()) >= 3
+                                      for m in ms)
+        groups = (bridge_groups(staged, origin, touch_m) if ringed
+                  else [[i] for i in range(len(ms))])
+        rings = _rings_local(staged, origin) if ringed else []
+        for group in groups:
+            offs_land: list[float] = []
+            for i in group:
+                m = ms[i]
+                zs = sorted(zeros[str(m.resource)])
+                zero = zs[len(zs) // 2]
+                r = deck_end_reads(m, surface, origin=origin, agl_m=agl, step_m=step_m,
+                                   walk_max_m=walk_max_m, all_deck=all_deck)
+                if r is None:
+                    continue
+                clearance = r.clearance is not None
+                offs = [zero + e.top - e.ground for e in r.ends]
+                land = [o for e, o in zip(r.ends, offs, strict=True)
+                        if not (rings and _abuts(e.line, [rings[j] for j in group if j != i],
+                                                 origin, touch_m))]
+                if not clearance:
+                    offs_land.extend(land)
+                ends = tuple(tuple((float(q[0]), float(q[1])) for q in ln) for ln in m.deck_ends)
+                mid = (0.25 * sum(q[0] for ln in ends[:2] for q in ln),
+                       0.25 * sum(q[1] for ln in ends[:2] for q in ln))
+                gm = surface(*mid)
+                under = None if gm is None else zero + float(m.deck_top_y) - float(gm)
+                spans_under += int(under is not None and under < 0.0)
+                rows.append((str(m.resource), offs, under, clearance))
+            # 10-22m: the NEAREST land end of the bridge is flush; every
+            # other end floats over its approach by the gap the terrain must
+            # grade up (#1138) — only an end UNDER its approach, or a nearest
+            # end off it, is the seat's
+            if offs_land:
+                lo = min(offs_land)
+                ends_off += int(abs(lo) > end_tol_m) + sum(
+                    1 for o in offs_land if o < -end_tol_m and o != lo)
     return {"bridges": len(rows), "ends_off": ends_off,
             "spans_under": spans_under, "rows": rows, "end_tol_m": end_tol_m}
 

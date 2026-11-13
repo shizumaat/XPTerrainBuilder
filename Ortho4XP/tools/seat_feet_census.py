@@ -487,11 +487,22 @@ def _print_coherence(plan: dict, rebake_path: str, rows_dump: str,
                                      for m in u.members)
                 for m in u.members}
     decks = [(u, m) for u in reb.units if frame_is_bridge(u) for m in u.members]
-    br = Law.load().tables.structures.bridge
+    # class B (RULINGS 2026-10-22m, ``free_bridge_seat``): the free decks of
+    # a frame the plan seated as one free-standing bridge
+    from auto_patch_v2.airport.free_bridge_seat import REASON, _free_deck
+    free = {str((s.get("placement") or {}).get("resource", ""))
+            for s in plan.get("splits", ())
+            if any(str(b.get("anchor_reason", "")).startswith(REASON)
+                   for b in s.get("bodies", ()))}
+    decks += [(u, m) for u in reb.units if not frame_is_bridge(u)
+              for m in u.members if _free_deck(m) and m.resource in free]
+    law = Law.load().tables.structures
+    br = law.bridge
     g = PCo.census_group_offsets(plan.get("splits", ()), open_res)
     b = PCo.census_bridge_ends(plan.get("splits", ()), decks, surface,
                                step_m=br.abutment_sample_step_m,
-                               walk_max_m=br.abutment_walk_max_m)
+                               walk_max_m=br.abutment_walk_max_m,
+                               touch_m=law.placement.footprint_touch_m)
     r = None
     if rows_dump:
         from auto_patch_v2.airport.dsf import read_dump

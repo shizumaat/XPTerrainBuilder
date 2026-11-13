@@ -107,7 +107,7 @@ from . import anchor_rule as _ar
 from . import obj8_grade as _og
 from . import obj8_split as _split
 from . import placement_carrier as _pc
-from .placement_motion import feet_in_band, foot_float
+from .placement_motion import foot_float, ground_contact_feet
 
 __all__ = ["SeatTilt", "SEAT_REASON", "SEAT_TILT_MIN_DEG", "fit", "seat_tilt",
            "shared_frames", "frame_tilts", "with_frame_seat", "frame_key"]
@@ -315,18 +315,23 @@ def _verdict(m: _t.Any) -> str:
 
 
 def _foot_rows(feet: _t.Iterable, a: _t.Any, offset: _t.Sequence[float],
-               u: _t.Any, m: _t.Any, surface: _t.Any, band_m: float
-               ) -> tuple[list, list, int]:
+               u: _t.Any, m: _t.Any, surface: _t.Any, band_m: float,
+               contact_tol_m: float = 0.0) -> tuple[list, list, int]:
     """``(pts, rise, off_surface)``: the feet in the body's own authored
     frame (after the writer's translation by ``offset``) and how much
-    higher each must render to meet the surface — :func:`fit`'s input."""
+    higher each must render to meet the surface — :func:`fit`'s input.
+
+    #2060: the feet are the GROUND-CONTACT feet (``ground_contact_feet``:
+    within ``contact_tol_m`` of the lowest, the set §17 judges), not the
+    whole metre band — CYLW's hangar door bottoms at y +0.89 read as feet
+    and pulled the plane 1.3x too steep, floating its walls 0.3-0.6 m."""
     from .placement_plan import authored_offset  # circular at import time
     za, y0 = float(a.surface_z), float(a.y_zero)
     dx, dy, dz = (float(q) for q in offset)
     pts: list[tuple[float, float, float]] = []
     rise: list[float] = []
     off = 0
-    for f in feet_in_band(feet, band_m):
+    for f in ground_contact_feet(feet, band_m, contact_tol_m):
         lat, lon, fy = float(f[0]), float(f[1]), float(f[2])
         zf = surface(lat, lon)
         if zf is None:
@@ -389,7 +394,8 @@ def frame_tilts(staged: _t.Sequence[_t.Any], u: _t.Any, surface: _t.Any, *,
         pts: list = []
         rise: list = []
         for st, a, feet, _el in slots:
-            p, r, _off = _foot_rows(feet, a, off, u, st.m, surface, band_m)
+            p, r, _off = _foot_rows(feet, a, off, u, st.m, surface, band_m,
+                                    foot_tol_m)
             pts += p
             rise += r
         seat = fit(pts, rise, max_total_deg=cap, foot_tol_m=foot_tol_m)
@@ -448,7 +454,7 @@ def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
             counts.get("seat_tilt_anchor_off_surface", 0) + 1
         return body
     pts, rise, off_surface = _foot_rows(body.feet, a, a.offset, u, m,
-                                        surface, band_m)
+                                        surface, band_m, foot_tol_m)
     if off_surface:
         counts["seat_tilt_feet_off_surface"] = \
             counts.get("seat_tilt_feet_off_surface", 0) + off_surface

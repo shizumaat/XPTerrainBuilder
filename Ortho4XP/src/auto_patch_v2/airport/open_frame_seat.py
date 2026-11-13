@@ -573,7 +573,7 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
         z = zeros.get(group_key(r, frame))
         return None if z is None else z[0]
 
-    def off(b: _t.Any) -> bool:
+    def apart(b: _t.Any) -> bool:
         r = roots.get(id(b))
         if r is None or b.anchor.surface_z is None:
             return False
@@ -583,6 +583,12 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
         z = float(b.anchor.surface_z) - float(b.anchor.y_zero)
         return abs(z - t) > tol_m
 
+    def off(b: _t.Any) -> bool:
+        return apart(b) and not _tilted(b)
+
+    kept = sum(1 for b in record.bodies if apart(b) and _tilted(b))
+    if kept:
+        counts["group_zero_tilted_kept"] = counts.get("group_zero_tilted_kept", 0) + kept
     moved = [b for b in record.bodies if off(b)]
     if not moved:
         return record
@@ -594,6 +600,17 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                        lambda b, _r=r: roots.get(id(b)) == _r and off(b),
                        f"{GROUP_REASON} {r} at {t:.2f} (RULINGS 2026-10-22o/q)")
     return out
+
+
+def _tilted(b: _t.Any) -> bool:
+    """#2060: the body carries an APPLIED seat tilt (10-01k Q1,
+    ``placement_seat_tilt``): its plane is fitted to its own feet and
+    pinned at its origin, so a group zero moving that origin lifts or sinks
+    the whole tilted plane off the ground it was fitted to (CYLW Hangar_9:
+    +0.78 m, every wall afloat).  The tilt law already keeps unit-seated
+    bodies level; a tilted body keeps its own zero in its group."""
+    s = getattr(b, "seat", None)
+    return bool(s is not None and getattr(s, "applied", False))
 
 
 def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,

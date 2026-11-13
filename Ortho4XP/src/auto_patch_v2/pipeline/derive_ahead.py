@@ -32,7 +32,7 @@ from ..airport import pool as _pool
 from ..airport import pool_memory as _mem
 
 __all__ = ["may_start", "raw_airport", "payload", "start", "worker_deriver", "answer",
-           "install"]
+           "install", "worker_clock"]
 
 
 def may_start(what: str) -> str:
@@ -63,10 +63,27 @@ def payload(derive, runs: int, **extra: _t.Any) -> dict:
     from .front_cache import classify_side_state
     cache = derive.cache
     return {"derive_airport": raw_airport(derive.airport), "law": derive.law,
-            "inputs": derive.inputs, "pack": derive.pack, "kw": dict(derive.kw),
+            "inputs": derive.inputs, "pack": _pack(derive), "kw": dict(derive.kw),
             "common": derive.common, "runs": int(runs),
             "cache": cache.worker_state() if cache is not None else None,
             "side": classify_side_state(), **extra}
+
+
+def _law_of(derive):
+    """The law the prefix's planar stage is handed (the cache's recording
+    proxy while it is on, ``FrontCache.stage_law``)."""
+    return derive.cache.stage_law() if derive.cache is not None else derive.law
+
+
+def _pack(derive):
+    """The build's pack read with its ``ResourceCache`` carrying this
+    build's pack readings to the worker (``planar/pack_reads.shipped``)."""
+    from ..planar.pack_reads import shipped
+    pack = derive.pack
+    if getattr(pack, "resources", None) is None:
+        return pack
+    return pack._replace(resources=shipped(derive.airport, pack.objects, pack.resources,
+                                           _law_of(derive)))
 
 
 def start(task: _t.Callable, payload_: dict, extra: tuple = (), *, what: str,
@@ -102,6 +119,9 @@ def worker_deriver(p: _t.Mapping[str, _t.Any]):
     deriver = Deriver(airport, p["law"], p["inputs"], p["pack"], cache=fc,
                       common=p["common"], **p["kw"])
     deriver.runs = p["runs"]
+    if getattr(p["pack"], "resources", None) is not None:
+        from ..planar.pack_reads import adopt
+        adopt(airport, p["pack"].objects, p["pack"].resources, _law_of(deriver))
     return deriver, fc
 
 
@@ -127,3 +147,12 @@ def install(derive, res: _t.Mapping[str, _t.Any]) -> tuple:
     if derive.cache is not None and derive.cache.active:
         derive.cache.report["stages"].update(res["stages"])
     return derive.last.derived()
+
+
+def worker_clock(derive) -> str:
+    """The worker's prefix run as a phrase for the HIT line: its seconds,
+    and the planar stage's (``PrefixRecord.wall``) — a clock, never a
+    product."""
+    wall = dict(getattr(derive.last, "wall", None) or {})
+    return (f"the worker's prefix {sum(wall.values()):.1f} s "
+            f"(planar {wall.get('planar', 0.0):.1f} s)")

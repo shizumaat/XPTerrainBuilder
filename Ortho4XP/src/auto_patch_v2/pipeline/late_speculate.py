@@ -177,7 +177,8 @@ class Speculated:
         derived = _ahead.install(self.derive, res)
         self.outcome = "hit"
         self.out(f"LAST STAGE pad roads' derive speculation HIT (C4b): the worker's "
-                 f"prefix run {self.derive.runs} is the roads pass's (waited {waited:.1f} s)")
+                 f"prefix run {self.derive.runs} is the roads pass's (waited {waited:.1f} s; "
+                 f"{_ahead.worker_clock(self.derive)})")
         return derived
 
     def close(self) -> None:

@@ -156,7 +156,8 @@ class Ahead:
         derived = _ahead.install(self.derive, res[0])
         self.outcome = "hit"
         self.out(f"stage 1's ribbon-free derive ahead HIT (#2044): the worker's prefix run "
-                 f"{self.derive.runs} is stage 1's (waited {waited:.1f} s)")
+                 f"{self.derive.runs} is stage 1's (waited {waited:.1f} s; "
+                 f"{_ahead.worker_clock(self.derive)})")
         return derived
 
     def close(self) -> None:

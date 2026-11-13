@@ -175,6 +175,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.extension_cache",
+        "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
@@ -183,6 +184,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
+        "auto_patch_v2.airport.line_solidity",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
         "auto_patch_v2.airport.obj8_clip",
@@ -256,6 +258,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
         "auto_patch_v2.classify.blast_pad",
+        "auto_patch_v2.classify.edge_line_mint",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -365,6 +368,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dsf_heights",
         "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.extension_cache",
+        "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.floor_rim",
         "auto_patch_v2.airport.foot_lot",
@@ -377,6 +381,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
+        "auto_patch_v2.airport.line_solidity",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
         "auto_patch_v2.airport.obj8_clip",
@@ -475,6 +480,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
         "auto_patch_v2.classify.blast_pad",
+        "auto_patch_v2.classify.edge_line_mint",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -740,6 +746,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.extension_cache",
+        "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
@@ -747,6 +754,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_unit",
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.line_object",
+        "auto_patch_v2.airport.line_solidity",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
         "auto_patch_v2.airport.obj8_clip",
@@ -894,6 +902,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.extension_cache",
+        "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.foot_lot",
         "auto_patch_v2.airport.footprint_carry",
@@ -902,6 +911,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_unit",
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.line_object",
+        "auto_patch_v2.airport.line_solidity",
         "auto_patch_v2.airport.lot_level",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
@@ -1099,6 +1109,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.extension_cache",
+        "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
@@ -1107,6 +1118,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
+        "auto_patch_v2.airport.line_solidity",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
         "auto_patch_v2.airport.obj8_clip",
@@ -1180,6 +1192,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
         "auto_patch_v2.classify.blast_pad",
+        "auto_patch_v2.classify.edge_line_mint",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -1821,6 +1834,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    airport.facade airport.line_solidity classify.edge_line_mint
     constraints.deck_stack geom.deck_ground geom.end_line model.deck_ends
     airport.pit_frame
     constraints.airside_top
@@ -1995,6 +2009,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
     airport.walled_pit airport.portal_floor airport.pit_frame
@@ -2143,6 +2158,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
     constraints.deck_stack
@@ -2309,6 +2325,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.foot_kerb
 """)
 CODE_MODULES["emit"] = _mods("""
+    airport.facade airport.line_solidity classify.edge_line_mint
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends
     airport.walled_pit airport.pit_frame constraints.airside_top
     geom.runway_contact airport.centreline_seat
@@ -2418,6 +2435,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.foot_lot
 """)
 CODE_MODULES["verify"] = _mods("""
+    airport.facade airport.line_solidity classify.edge_line_mint
     airport.pit_frame
     geom.runway_contact
     geom.exact

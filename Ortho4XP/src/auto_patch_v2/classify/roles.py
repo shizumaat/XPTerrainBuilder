@@ -894,6 +894,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                                         _walls, rules.cells.min_area_m2,
                                         snap_margin_m(law))
     stats.update(_wstats)
+    # #2054: a pack line facade standing on a paved edge where the ground
+    # falls away marks that pavement's TRUE edge — the ground out to it is
+    # a late strip at the host's level (``classify/edge_line_mint``)
+    from .edge_line_mint import mint_edge_strips
+    stats.update(mint_edge_strips(airport, cells, law, rules, add))
     # #1697 THE HAND-SET ROLES, LAST: a pavement the user classified in the
     # patch editor is that role in every pavement cell of it — a user edit
     # no verdict above overrides (RULINGS 2026-10-15d; ``airport/user_roles``)

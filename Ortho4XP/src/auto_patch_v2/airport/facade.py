@@ -51,7 +51,7 @@ __all__ = ["Attachment", "Wall", "Floor", "FacadeDef", "EdgeWall",
            "edge_walls", "placed_edges", "PlacedEdge", "object_variants",
            "is_vehicle",
            "LINE", "ROOFED", "LOT", "PARKING_STRUCTURE", "LOT_SOURCE",
-           "is_lot_def", "read_placed"]
+           "is_lot_def", "is_line_def", "read_placed"]
 
 LINE, ROOFED, LOT, PARKING_STRUCTURE = (
     "line", "roofed", "lot", "parking_structure")
@@ -506,26 +506,39 @@ def placed_edges(fac: FacadeDef, height_m: float,
 LOT_SOURCE = "dsf:lot:fac"
 
 
-_IS_LOT: dict[tuple[str, str | None], bool] = {}
+_DEF_CLASS: dict[tuple[str, str | None], str | None] = {}
 
 
-def is_lot_def(def_path: str, pack_root: str | None,
-               index: _t.Mapping[str, str] | None) -> bool:
-    """Whether a ``POLYGON_DEF`` is a facade whose FILE is an open lot."""
+def _def_class(def_path: str, pack_root: str | None,
+              index: _t.Mapping[str, str] | None) -> str | None:
+    """The :func:`facade_class` of a ``POLYGON_DEF``'s FILE, memoised per
+    def; ``None`` for a non-facade or an unresolved / unreadable one."""
     if not def_path.lower().endswith(".fac"):
-        return False
+        return None
     key = (def_path, pack_root)
-    if key not in _IS_LOT:
+    if key not in _DEF_CLASS:
         from .obj8 import resolve_resource
         phys = resolve_resource(def_path, pack_root, index)
         try:
             # the CLASS needs no object: parsed without the index, so a
             # tile's hundred fence defs open no ``.obj``
-            _IS_LOT[key] = phys is not None and \
-                facade_class(parse_facade(phys)) == LOT
+            _DEF_CLASS[key] = None if phys is None else facade_class(parse_facade(phys))
         except OSError:
-            _IS_LOT[key] = False
-    return _IS_LOT[key]
+            _DEF_CLASS[key] = None
+    return _DEF_CLASS[key]
+
+
+def is_lot_def(def_path: str, pack_root: str | None,
+               index: _t.Mapping[str, str] | None) -> bool:
+    """Whether a ``POLYGON_DEF`` is a facade whose FILE is an open lot."""
+    return _def_class(def_path, pack_root, index) == LOT
+
+
+def is_line_def(def_path: str, pack_root: str | None,
+                index: _t.Mapping[str, str] | None) -> bool:
+    """#2054: whether a ``POLYGON_DEF`` is a LINE facade (a fence, a
+    barrier, a wall run) by what its FILE says."""
+    return _def_class(def_path, pack_root, index) == LINE
 
 
 def read_placed(poly: _t.Any, pack_root: str | None,

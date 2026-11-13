@@ -4707,6 +4707,46 @@ class MainWindow(QMainWindow):
         self._update_build_summary()
         self._active_changed(self.map.active_tile())
 
+    def _adopt_engine_queued(self, tile, event):
+        """A full build the engine queued by itself -- the Fly view's
+        flight or build-ahead (#2030) -- gets the normal row: its progress,
+        clock, stop and outcome come through the normal events from here
+        on.  Resuming it after a stop uses the Build box's settings (twin:
+        ``BuildModel.adoptEngineQueued``)."""
+        current = self._progress_states.get(tile)
+        if not ACTORDER.opens_row(event.state, event.label,
+                                  current[:2] if current else None):
+            return
+        if tile in self._stop_pending or tile in self._held_for_stop:
+            return
+        print("=== Fly queued 1 tile: %s ===" % FNAMES.short_latlon(*tile))
+        self._progress_states[tile] = ("queued", "queued", 0)
+        self._tile_clocks.pop(tile, None)
+        self._tile_started_at.pop(tile, None)
+        self._tile_results.pop(tile, None)
+        if not self._building:
+            self._building = True
+            self._stop_requested = False
+            self.stop_btn.setEnabled(True)
+            self.stop_btn.setText("■ Stop")
+            self._run_tiles = {tile}
+            self._setup_progress_page([tile])
+            info = O4_Build_Info.build_info()
+            self._stderr_log.start_run(
+                info.app, info.engine, [QTBOUND.tile_label(tile)])
+        else:
+            self._stderr_log.note(
+                STDLOG.queued_line([QTBOUND.tile_label(tile)]))
+            if tile not in self._run_tiles:
+                self._ntiles += 1
+            self._run_tiles.add(tile)
+            self._add_progress_rows([tile])
+            self.progress_title.setText(
+                "<b>Building %d tile%s</b>"
+                % (self._ntiles, "s" if self._ntiles > 1 else ""))
+        self.map.set_progress(self._map_progress())
+        self._update_build_summary()
+
     def _setup_progress_page(self, todo):
         """Start a fresh run in the Activity box: its tiles' rows queued
         below the live rows (#1605), queued; the rows of earlier runs stay under them until the app
@@ -4957,6 +4997,7 @@ class MainWindow(QMainWindow):
 
     def _on_tile_state(self, event):
         tile = (event.lat, event.lon)
+        self._adopt_engine_queued(tile, event)
         self._feed_step_strip(event)
         resolved = resolve_tile_event(
             (event.state, event.label, event.percent),

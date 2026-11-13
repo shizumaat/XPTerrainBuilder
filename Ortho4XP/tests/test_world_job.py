@@ -403,11 +403,14 @@ def test_a_published_session_build_is_a_full_tile(monkeypatch):
 
 
 def test_the_session_builder_queues_a_full_build_by_deadline():
-    calls, subscribers = [], []
+    calls, subscribers, emitted = [], [], []
 
     class Session:
         def subscribe(self, callback):
             subscribers.append(callback)
+
+        def _emit(self, event):
+            emitted.append(event)
 
         def enqueue_build(self, tiles, provider, zoomlevel, folder, **kw):
             calls.append((tiles, provider, zoomlevel, kw))
@@ -416,6 +419,10 @@ def test_the_session_builder_queues_a_full_build_by_deadline():
     builder = RUN._SessionBuilder(Session(), "BI", 16)
     before = time.time()
     assert builder.start((53, -64), "full", 600.0, "P1")
+    # #2030: the queue notice that gives the build its Activity row
+    [notice] = emitted
+    assert (type(notice).__name__, notice.lat, notice.lon, notice.state,
+            notice.label) == ("TileState", 53, -64, "queued", "queued")
     tiles, provider, zoomlevel, kw = calls[0]
     assert tiles == [(53, -64)] and (provider, zoomlevel) == ("BI", 16)
     assert kw["overrides"] == {"imagery_on_demand": True}
@@ -426,6 +433,7 @@ def test_the_session_builder_queues_a_full_build_by_deadline():
     subscribers[0](BuildDone(lat=10, lon=10, ok=True))   # not the job's
     assert builder.poll(0.0) == [((53, -64), True)] and builder.poll(0.0) == []
     assert not builder.start((53, -65), "drape", 60.0, "P1")   # no drape fn
+    assert len(emitted) == 1              # a drape has no row
 
 
 def test_the_commands_refuse_what_is_not_there(tmp_path, monkeypatch):

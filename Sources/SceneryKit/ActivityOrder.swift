@@ -41,6 +41,18 @@ public enum ActivityOrder {
         ["done", "error", "stopped"].contains(state) || label == "stopped"
     }
 
+    /// An engine `TileState` that puts its tile on the list by itself
+    /// (#2030): the engine's own queue notice (`queued`, not the drained
+    /// `stopped` one) for a build the app did not ask for -- a Fly or
+    /// build-ahead full build -- while the tile has no live row. `row`:
+    /// the tile's current (state, label), nil for no row.
+    public static func opensRow(state: String, label: String,
+                                row: (state: String, label: String)?) -> Bool {
+        guard state == "queued", label != "stopped" else { return false }
+        guard let row else { return true }
+        return isFinished(state: row.state, label: row.label)
+    }
+
     /// The pane section a row sits in (#1556): a built tile (`done`, with
     /// or without warnings) leaves Activity for Completed, where its row
     /// is compact (#1542) — title, then status and elapsed time, no bar,

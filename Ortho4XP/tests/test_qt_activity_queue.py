@@ -224,3 +224,44 @@ def test_refused_enqueue_reports_and_keeps_state(window, monkeypatch):
     # The fresh run could not start: the window returns to idle.
     assert window._building is False
     assert window.activity_group.isHidden()
+
+
+# ---------------------------------------------------------------------
+# A full build the engine queued by itself (Fly / build-ahead, #2030)
+# ---------------------------------------------------------------------
+def test_engine_queued_tile_opens_a_normal_row(window, enqueue_calls):
+    window._on_tile_state(EV.TileState(lat=30, lon=31, state="queued",
+                                       label="queued"))
+    assert window._building is True
+    assert not window.activity_group.isHidden()
+    assert (30, 31) in window._tile_rows
+    assert window._run_tiles == {(30, 31)}
+    _bar, status, _row, cancel, _clock = window._tile_rows[(30, 31)]
+    assert status.text() == "queued"
+    assert cancel.isEnabled()          # the normal row's stop
+    window._on_step_progress(EV.StepProgress(
+        lat=30, lon=31, step_key="mesh", label="mesh", percent=40.0))
+    assert window._progress_states[(30, 31)][0] == "active"
+    assert enqueue_calls == []          # the app sent nothing
+
+
+def test_engine_queued_tile_joins_the_app_run(window, enqueue_calls):
+    window.map.set_selection({(48, -6)})
+    window.start_build()
+    window._on_tile_state(EV.TileState(lat=30, lon=31, state="queued",
+                                       label="queued"))
+    assert set(window._tile_rows) == {(48, -6), (30, 31)}
+    assert window._ntiles == 2
+    # A live row is never reset by a second notice.
+    window._on_step_progress(EV.StepProgress(
+        lat=30, lon=31, step_key="mesh", label="mesh", percent=40.0))
+    window._on_tile_state(EV.TileState(lat=30, lon=31, state="queued",
+                                       label="queued"))
+    assert window._ntiles == 2
+
+
+def test_drained_notice_opens_no_row(window):
+    window._on_tile_state(EV.TileState(lat=30, lon=31, state="queued",
+                                       label="stopped"))
+    assert (30, 31) not in window._tile_rows
+    assert window._building is False

@@ -49,6 +49,7 @@ import O4_World_Pack as WP
 
 from . import world_commands as WORLD
 from .build_share import SHARE, BuildShare
+from .events import TileState
 from .fly_here import describe as describe_here
 from .world_job import WorldJob, drape_estimate
 
@@ -192,7 +193,20 @@ class _SessionBuilder:
         if not ok:
             with self._lock:
                 self._mine.discard(tile)
+        else:
+            self._announce_queued(tile)
         return bool(ok)
+
+    def _announce_queued(self, tile) -> None:
+        """The tile's row in the Build view's Activity list (#2030): the
+        session's queue notice, which both apps take as a row of their own
+        (``O4_Activity_Order.opens_row``); its progress, clock, stop and
+        outcome then come through the normal build events.  A drape is
+        no session build and has no row."""
+        emit = getattr(self.session, "_emit", None)
+        if emit is not None:
+            emit(TileState(lat=tile[0], lon=tile[1], state="queued",
+                           label="queued"))
 
     def _start_drape(self, tile, core=None) -> bool:
         if self.drape is None:

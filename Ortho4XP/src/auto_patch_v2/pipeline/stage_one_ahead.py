@@ -33,7 +33,7 @@ from ..airport import pool as _pool
 from ..airport import stage_cache as _store
 from . import derive_ahead as _ahead
 
-__all__ = ["FullView", "full_view", "start", "Ahead"]
+__all__ = ["start"]
 
 #: the longest the build waits on the worker's derive (seconds)
 STALL_S = 1800.0

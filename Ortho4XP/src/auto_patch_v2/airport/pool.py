@@ -120,7 +120,7 @@ from . import pool_memory as _mem
 from ..model import pulse as _pulse
 
 __all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "budget_bound",
-           "physical_ram_gb", "free_gb", "memory_workers", "PARENT_RESERVE_GB", "WORKER_ALLOWANCE_GB", "configure",
+           "physical_ram_gb", "PARENT_RESERVE_GB", "WORKER_ALLOWANCE_GB", "configure",
            "set_share", "share", "share_object", "shared_object", "spec_key", "detach",
            "attached", "exit_with_parent", "exited",
            "TICK_S", "TEARDOWN_S", "SIGNAL_S", "STALL_S", "REAP_S"]

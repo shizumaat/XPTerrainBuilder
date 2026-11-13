@@ -107,16 +107,19 @@ def _depth(line, span: tuple[float, float], pad: Polygon, hw: float, reach: floa
     return min(max(far - hw, reach), 2.0 * reach)
 
 
-def _kerbside(pad: Polygon, rib, depth: float, occupied: _Occupied):
+def _kerbside(pad: Polygon, rib, depth: float, occupied: _Occupied, keep_off):
     """The parts of the lens between ``pad`` and ``rib`` (``geom/lens``)
     on ground nothing holds yet, each touching both.  The lens is read at
     TWICE the kerbside's ``depth``, so its closing (half the reach) spans
     the whole gap: at ``depth`` a facade's recess as deep as the kerbside
     was left out — MEASURED KASE (lkase_arm_KASE, 39.21962, -106.86405): a
     1.4 m trough of DEM ground between the terminal's recess and the
-    kerbside."""
+    kerbside.  ``keep_off`` (the airside, one weld wide) is never taken:
+    a kerbside is junior to the pad and the road, and welded to an apron
+    it would be held by the apron's level as well (MEASURED SBRJ,
+    ``small_roads:-2931``: 0.75 m against ``apron`` within its face)."""
     box = pad.buffer(4.0 * depth, join_style=2)
-    held = box.difference(occupied.cut(box))
+    held = unary_union([box.difference(occupied.cut(box)), keep_off.intersection(box)])
     lens = lens_to_roads(pad, [rib], 2.0 * depth, held)
     if lens is None:
         return []
@@ -137,7 +140,12 @@ def mint_frontage_roads(airport: Airport, cells: list, law: Law, rules: Rules,
     tree = STRtree(pads)
     standing = unary_union([Polygon(c.ring, c.holes) for c in cells])
     occupied = _Occupied(standing)
-    sliver = 0.5 * float(law.tables.emit.identity.weld_spacing_m)
+    weld = float(law.tables.emit.identity.weld_spacing_m)
+    sliver = 0.5 * weld
+    # the airside, off which a road strip stands by one weld
+    # (``planar/fill_road.road_strips``' own rule)
+    keep_off = unary_union([Polygon(c.ring, c.holes) for c in cells
+                            if c.side == "airside" and c.role != "building"]).buffer(weld)
 
     kept: list[Polygon] = []
 
@@ -182,7 +190,7 @@ def mint_frontage_roads(airport: Airport, cells: list, law: Law, rules: Rules,
         ref = f"{OSM_RIBBON_FEEDS[w.kind]}:{w.id}"
         for p, sp in fronted:
             depth = _depth(line, sp, p, hw, reach)
-            for part in _kerbside(p, rib, depth, occupied):
+            for part in _kerbside(p, rib, depth, occupied, keep_off):
                 if stray(part, hw):
                     continue
                 n = serial.get(ref, 0)

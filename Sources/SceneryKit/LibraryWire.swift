@@ -51,16 +51,19 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     /// from an engine that predates the fields.
     public let onDemand: Bool?
     public let pinned: Bool?
+    /// What the World pack draws on the tile (#2024); nil when it holds
+    /// nothing there, or from an engine before `scan_world`.
+    public private(set) var world: O4WorldTile?
     /// A row made from the map's scan before `library_scan` answered: its
     /// size, airports and packs are not read yet (#2006).
     public private(set) var detailsPending = false
 
     public var id: String { tile }
-    /// Does the tile's pin apply (built on demand, or pinned, by this app)?
-    public var pinApplies: Bool { !readOnly && (onDemand == true || pinned == true) }
+    /// Can the tile be a Favorite (any tile this app built, #2033)?
+    public var pinApplies: Bool { !readOnly }
 
     private enum CodingKeys: String, CodingKey {
-        case tile, lat, lon, zl, provider, built, airports, pinned
+        case tile, lat, lon, zl, provider, built, airports, pinned, world
         case onDemand = "on_demand"
         case buildDir = "build_dir", sizeBytes = "size_bytes"
         case packsModified = "packs_modified", linkStatus = "link_status"
@@ -70,7 +73,7 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     /// The row the map's scan already knows (#2006: the Library shows the
     /// tiles at once, `library_scan` fills in sizes, airports and packs).
     /// Read-only until then unless the scan says this app built it.
-    public init(mapTile info: O4TileInfo, inXPlane: Bool) {
+    public init(mapTile info: O4TileInfo, inXPlane: Bool, world: O4WorldTile? = nil) {
         tile = TileMath.key(lat: info.lat, lon: info.lon)
         lat = info.lat
         lon = info.lon
@@ -87,6 +90,7 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
         builtBy = readOnly ? "other" : "XPTerrainBuilder"
         onDemand = info.onDemand
         pinned = info.pinned
+        self.world = world
         detailsPending = true
     }
 
@@ -98,11 +102,14 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     public var packsText: String { packsModified.map(\.packName).joined(separator: ", ") }
     public var builtByText: String { readOnly ? "Other tool (read-only)" : "XPTerrainBuilder" }
     public var inXPlaneSortKey: Int { inXPlane ? 1 : 0 }
+    /// The World column (`O4WorldStateText.cellText`).
+    public var worldText: String { O4WorldStateText.cellText(world) }
 
     /// Whether `query` (already lower-cased) appears in any listed field.
     public func matches(_ query: String) -> Bool {
         guard !query.isEmpty else { return true }
-        return [tile, provider, airportsText, packsText, builtByText, zl.map(String.init) ?? ""]
+        return [tile, provider, airportsText, packsText, builtByText, worldText,
+                zl.map(String.init) ?? ""]
             .contains { $0.lowercased().contains(query) }
     }
 }
@@ -135,6 +142,9 @@ public struct O4LibraryBundleExport: Decodable, Equatable, Sendable {
     public let key: String
     public let files: Int
     public let seconds: Double
+    /// The engine's personal, non-commercial use warning (owner
+    /// 2026-11-12), as `O4PackageSaved.warning`.
+    public let warning: String?
 }
 
 /// `library_import_bundle` result (#1699 phase 1, `tile_bundle.importer`):
@@ -146,6 +156,28 @@ public struct O4LibraryBundleImport: Decodable, Equatable, Sendable {
     public let bytes: Int64
     public let reused: [String]
     public let seconds: Double
+}
+
+/// `world_tile_remove` result: the tile, and its package (`package_first`:
+/// `action` "kept" / "packaged" / "refused", `why` when refused).
+public struct O4WorldTileRemoved: Decodable, Equatable, Sendable {
+    public struct Package: Decodable, Equatable, Sendable {
+        public let action: String
+        public let path: String
+        public let why: String
+    }
+    public let tile: String
+    public let package: Package?
+
+    /// The pane's note after the removal (Qt: the same words).
+    public var note: String {
+        if let package, !package.path.isEmpty {
+            return O4WorldStateText.removed.replacingOccurrences(of: "{tile}", with: tile)
+                .replacingOccurrences(of: "{package}", with: package.path)
+        }
+        return O4WorldStateText.removedNoPackage.replacingOccurrences(of: "{tile}", with: tile)
+            .replacingOccurrences(of: "{why}", with: package?.why ?? "")
+    }
 }
 
 extension OrthoEngineClient {
@@ -200,6 +232,15 @@ extension OrthoEngineClient {
         try await libraryRequest("library_delete", [
             "tiles": tiles.map { [$0.lat, $0.lon] }, "working_dir": workingDir,
             "scenery_dir": sceneryDir, "confirm": true,
+        ])
+    }
+
+    /// The tile pane's "Remove from World Pack…": the tile's package
+    /// written first, then the placeholder over it (`world_tile_remove`);
+    /// the app confirms with the user first.
+    public func worldTileRemove(lat: Int, lon: Int, sceneryDir: String) async throws -> O4WorldTileRemoved {
+        try await libraryRequest("world_tile_remove", [
+            "lat": lat, "lon": lon, "scenery_dir": sceneryDir, "confirm": true,
         ])
     }
 

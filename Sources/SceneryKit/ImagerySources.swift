@@ -58,19 +58,24 @@ public struct O4ImageryPreview: Decodable, Equatable, Sendable {
     public let template: String
     public let referer: String
     public let maxZL: Int?
+    /// The coarsest zoom serving the source's full-zoom capture (#2017;
+    /// nil: no floor): `MapOverzoom.fetchZoom` raises the map to it.
+    public let minZL: Int?
     /// WMTS matrix id per web-mercator zoom (nil where none matches).
     public let tilematrix: [String?]?
 
     private enum CodingKeys: String, CodingKey {
         case template, referer, tilematrix
         case maxZL = "max_zl"
+        case minZL = "min_zl"
     }
 
     public init(template: String, referer: String = "", maxZL: Int? = nil,
-                tilematrix: [String?]? = nil) {
+                minZL: Int? = nil, tilematrix: [String?]? = nil) {
         self.template = template
         self.referer = referer
         self.maxZL = maxZL
+        self.minZL = minZL
         self.tilematrix = tilematrix
     }
 

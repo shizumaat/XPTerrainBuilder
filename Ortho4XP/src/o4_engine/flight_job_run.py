@@ -4,22 +4,26 @@ flight-manager-and-world-20261110 §4.3, §5.2, §7.5 S6 (a), §11, §12; lane
 F1b).  The logic is ``flight_manager.FlightManager``; this module gives it
 what it touches:
 
-* builds through the session's queue (``world_job_run._SessionBuilder``:
-  ``enqueue_build`` with ``overrides={"profile": kind}``, the job's
-  ``deadline`` and class, ``missing_art="leave"``; never interactive),
-  the World pack's publish and swap (``world_job_run._PackPublisher``);
+* builds through ``world_job_run._SessionBuilder``: the corridor's
+  drapes (spec §17, RULINGS 2026-11-11j) on its drape thread, the
+  departure and destination (``full``) through the session's queue with
+  the job's ``deadline`` and class, ``missing_art="leave"``; never
+  interactive), the World pack's publish and swap
+  (``world_job_run._PackPublisher``);
 * the tile's state in the pack (:func:`pack_state`), its time from the
   recorded ledger (:func:`estimate`: ``plan_estimate.tile_estimate`` for a
   ``full`` build, with ``tile_time_model.airport_seconds_range`` for its
-  graded airport when the tile has no history; the CYYR / ldrape
-  constants for the intermediate kinds until one is recorded);
+  graded airport when the tile has no history; a drape's measured
+  seconds at the user's ``drape_photo_px``,
+  ``O4_Flight_Schedule.drape_seconds``);
 * the readiness facts (:class:`_Facts`): the World pack and this X-Plane
   session's witness (``world_commands``), the budget pre-check
   (``flight_budget`` against ``storage_budget.status``), the corridor
   pre-fetch and the network (:func:`prefetch_tile`: elevation and map
   data of every corridor tile not on disk);
-* the reloads of rule S6 (a) and (b) (``flight_swap_reload.MergeReload``):
-  the staged tiles merged over the loaded ones (rule S5,
+* the reloads of rule S6 (a) and (b) (``flight_swap_reload.MergeReload``),
+  offered and sent only on the pilot's press (``flight_reload``; owner
+  2026-11-12T14:34Z): the staged tiles merged over the loaded ones (rule S5,
   ``O4_World_Pack.swap_in(merge=True)``), X-Plane reloads once, and the
   names the new tiles no longer use go once the witness shows the
   reload read them (lane F2);
@@ -27,10 +31,15 @@ what it touches:
   (lane F2), and :meth:`_Runner.cancel` for a diversion's old
   destination (``session.cancel_tile``).
 
-:func:`start` replaces build-ahead's track mode while a flight is active
-(``world_job_start {mode: "flight"}``); :func:`stop` ends it and track
-mode may start again.  ``FlightStatus`` every :data:`STATUS_EVERY_S` and
-at once on a change; the record is saved on every state change.
+:func:`start` runs the flight BESIDE build-ahead's track mode (``world_job_start
+{mode: "flight"}``; owner 2026-11-12, #2019: tiles still load wherever the
+aircraft is, whatever the plan): both build through ``build_share.SHARE``
+on one slot budget; the flight publishes its slots and its waiting jobs,
+so a corridor deadline wins a contended slot, and claims its tiles, so
+track mode leaves them; a tile is never built twice.  :func:`stop` ends
+the flight; track mode runs on.  ``FlightStatus`` every
+:data:`STATUS_EVERY_S` and at once on a change; the record is saved on
+every state change.
 """
 from __future__ import annotations
 
@@ -43,37 +52,67 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import O4_Flight_Schedule as SCHEDULE
 import O4_World_Pack as WP
 
+from . import flight_adopted as ADOPTED
 from . import flight_budget as BUDGET
 from . import flight_record as RECORD
 from . import world_commands as WORLD
-from .flight_manager import FlightManager
+from .build_share import SHARE
+from .flight_manager import FlightManager, prep_drape_px
 from .world_job_run import _settings, _utc
 
-__all__ = ["STATUS_EVERY_S", "FULL_FALLBACK_S", "start", "stop", "current",
-           "status_event", "pack_state", "estimate", "prefetch_tile"]
+__all__ = ["STATUS_EVERY_S", "FULL_FALLBACK_S", "start",
+           "stop", "current", "status_event", "pack_state",
+           "estimate", "prefetch_tile", "drawn_build_dir"]
 
 #: Seconds between ``FlightStatus`` events (spec §5.3).
 STATUS_EVERY_S = 2.0
 #: Seconds between rereads of the pack, ``Log.txt`` and the volume.
 REREAD_S = 10.0
+#: A flight tick this slow is logged with its phases (``flight_slow_tick``
+#: in ``world_pack.log``), at most once a minute: the CYWG-KDLH flight of
+#: 2026-11-12 saved and showed nothing for its first ~5 minutes.
+SLOW_TICK_S = 5.0
+#: A command waits this long for the flight's lock, then answers from the
+#: last status (``flight_status``) or refuses (the edits): the command
+#: loop is one thread, and a tick that blocks must never freeze the app.
+COMMAND_WAIT_S = 0.25
+EDIT_WAIT_S = 10.0
 #: A ``full`` build whose estimate cannot be read [estimate, wide].
 FULL_FALLBACK_S = (600.0, 3600.0)
 _GUARD = threading.Lock()
 _RUNNER: "Optional[_Runner]" = None
 
 
+#: A built ``full`` tile an airport pack's package changed for since it
+#: was built (``tile_bundle.pack_shipped``, RULINGS 2026-11-11m (4)): a
+#: departure or destination is built again, any other tile is left as it is.
+STALE = "stale"
+
+
+def _package_stale(scenery_dir: str, tiles) -> set:
+    try:
+        from tile_bundle import pack_shipped
+        return pack_shipped.stale_tiles(scenery_dir, tiles) if tiles else set()
+    except Exception:                       # the flight plans without it
+        return set()
+
+
 def pack_state(scenery_dir: str) -> Callable[[Tuple[int, int]], Optional[str]]:
     """``state_of(tile)`` for :func:`flight_manager.flight_jobs`: the
     World pack's kind of the tile, ``external`` when another enabled pack
-    draws its mesh (spec §7.2), None when neither."""
+    draws its mesh (spec §7.2), :data:`STALE` for a built tile a pack's
+    package changed for, None when neither."""
     import O4_Mesh_Order as ORDER
     pack = WORLD.pack_dir(scenery_dir)
     kinds = WP.world_tiles(pack) if WORLD.managed(scenery_dir) else {}
     real_pack = os.path.normcase(os.path.realpath(pack))
+    stale = _package_stale(scenery_dir, [t for t, k in kinds.items() if k == "full"])
 
     def state_of(tile) -> Optional[str]:
         tile = (int(tile[0]), int(tile[1]))
         kind = kinds.get(tile)
+        if kind == "full" and tile in stale:
+            return STALE
         if kind not in (None, "placeholder"):
             return kind
         try:
@@ -87,25 +126,43 @@ def pack_state(scenery_dir: str) -> Callable[[Tuple[int, int]], Optional[str]]:
     return state_of
 
 
-def estimate(provider: str = "", zoomlevel: int = 0
+def estimate(provider: str = "", zoomlevel: int = 0,
+             px_of: Callable[[], Optional[int]] = lambda: None
              ) -> Callable[[Tuple[int, int], str, str], Tuple[float, float]]:
     """``estimate(tile, kind, role)`` from the recorded times (see the
-    module)."""
+    module).  ``px_of()``: the drape width the flight fetches at when it
+    is not the user's (``flight_manager.prep_drape_px``, #2023)."""
     def seconds(tile, kind, role) -> Tuple[float, float]:
+        if kind == "drape":
+            from .world_job_run import drape_px
+            return SCHEDULE.job_estimate(kind, SCHEDULE.drape_seconds(
+                px_of() or drape_px()))
         if kind != "full":
             return SCHEDULE.job_estimate(kind)
-        try:
-            from . import tile_time_model as TTM
-            from .plan_estimate import tile_estimate
-            row = tile_estimate(tile[0], tile[1], provider, zoomlevel, "")
-            lo, hi = (float(t) for t in row["time_s"])
-            if not row["has_history"]:
-                a_lo, a_hi = TTM.airport_seconds_range(tile[0], tile[1])
-                lo, hi = lo + a_lo, hi + a_hi
-            return (lo, hi) if hi > 0 else FULL_FALLBACK_S
-        except Exception:                   # no defensible figure: wide
-            return FULL_FALLBACK_S
+        # a full build is on demand: its airport's cores land before
+        # it is published (world_publish), so before it counts done
+        from .imagery_after_build import core_seconds
+        c_lo, c_hi = core_seconds(1)
+        lo, hi = _build_seconds(tile, provider, zoomlevel)
+        return lo + c_lo, hi + c_hi
     return seconds
+
+
+def _build_seconds(tile, provider: str, zoomlevel: int
+                   ) -> Tuple[float, float]:
+    """A ``full`` build's ``(low, high)`` seconds from the ledger (see
+    :func:`estimate`), else :data:`FULL_FALLBACK_S`."""
+    try:
+        from . import tile_time_model as TTM
+        from .plan_estimate import tile_estimate
+        row = tile_estimate(tile[0], tile[1], provider, zoomlevel, "")
+        lo, hi = (float(t) for t in row["time_s"])
+        if not row["has_history"]:
+            a_lo, a_hi = TTM.airport_seconds_range(tile[0], tile[1])
+            lo, hi = lo + a_lo, hi + a_hi
+        return (lo, hi) if hi > 0 else FULL_FALLBACK_S
+    except Exception:                       # no defensible figure: wide
+        return FULL_FALLBACK_S
 
 
 def prefetch_tile(lat: int, lon: int) -> None:
@@ -150,7 +207,8 @@ class _Facts:
                              daemon=True, name="o4-flight-prefetch").start()
 
     def _budget(self, jobs, flight_s: float, uncached: int) -> None:
-        need = BUDGET.need_bytes(jobs, flight_s, uncached)
+        from .world_job_run import drape_px
+        need = BUDGET.need_bytes(jobs, flight_s, uncached, drape_px())
         try:
             import O4_File_Names as FNAMES
 
@@ -178,35 +236,45 @@ class _Facts:
                            offline_tiles=tuple(failed))
 
     def __call__(self) -> dict:
+        """The facts now.  X-Plane's side is reread every
+        :data:`REREAD_S`: the first time here (the flight's first status
+        needs it), after that on a worker, so a tick never waits on a
+        file read."""
         now = time.monotonic()
         if now - self._at > REREAD_S:
-            self._at = now
-            with contextlib.suppress(Exception):
-                self._world()
+            first, self._at = self._at < 0, now
+            if first:
+                self._reread()
+            else:
+                threading.Thread(target=self._reread, daemon=True,
+                                 name="o4-flight-facts").start()
         return dict(self.values)
 
+    def _reread(self) -> None:
+        with contextlib.suppress(Exception):
+            self._world()
+
     def _world(self) -> None:
-        fields = WORLD._status_fields(self.scenery_dir)
-        running = WORLD._xplane_running()
-        loads: dict = {}
-        if running and fields["installed"]:
-            loads = WORLD._witness(self.scenery_dir)[0]
+        reads = WORLD.xplane_reads(self.scenery_dir)   # never the tile walk
+        loads = reads["loads"]
         self.values.update(
-            world_installed=fields["installed"],
-            world_seen=fields["seen_by_xplane"], xplane_running=running,
-            loads=set(loads),
+            world_installed=reads["installed"],
+            world_seen=reads["seen_by_xplane"],
+            xplane_running=reads["xplane_running"], loads=set(loads),
             load_stamps={tile: r.t_s for tile, r in loads.items()})
 
 
 def _reloader(scenery_dir: str, build_dir_of, port=None):
-    """Rules S6 (a), (b) with S5 (``flight_swap_reload.MergeReload``)."""
+    """Rules S6 (a), (b) with S5 (``flight_swap_reload.MergeReload``);
+    called only on the pilot's press (``flight_reload``); the reload goes
+    through ``reload_offer.send``, the one sender."""
     import O4_XPlane_WebAPI as WEBAPI
 
+    from . import reload_offer as RELOAD
     from .flight_swap_reload import MergeReload
 
     def send() -> bool:
-        base = WEBAPI.base_url(int(port)) if port else None
-        return bool(WEBAPI.reload_scenery(base))
+        return RELOAD.send(WEBAPI.base_url(int(port)) if port else None)
 
     def witness() -> dict:
         if not WORLD._xplane_running():
@@ -230,10 +298,9 @@ class _Runner:
         import O4_XPlane_WebAPI as WEBAPI
 
         from .position_feed import shared
-        from .world_job_run import _PackPublisher, _SessionBuilder, drape_tile
+        from .world_job_run import _PackPublisher, _SessionBuilder, drape_tile, photo_source
         values = _settings()
-        provider = values.get("default_website") or "BI"
-        zoomlevel = int(values.get("default_zl") or 16)
+        provider, zoomlevel = photo_source()
         self.emit, self.scenery_dir = emit, scenery_dir
         self.feed = shared(WEBAPI.base_url(int(port)) if port else None)
         self.cap = GOVERNOR.flight_slots(os.cpu_count() or 4,
@@ -243,22 +310,40 @@ class _Runner:
             values.get("fly_sim_priority") or "balanced")
         self.session = session
         self.reloader = _reloader(scenery_dir, session.tile_build_dir, port)
+        def px_of() -> Optional[int]:       # #2023: a departure-only ring
+            manager = getattr(self, "manager", None)
+            return prep_drape_px(manager.plan if manager else plan)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
-            drape=lambda tile: drape_tile(tile, provider, zoomlevel))
+            drape=lambda tile: drape_tile(tile, *photo_source(tile), px=px_of()),
+            share=SHARE, owner="flight", source=photo_source)
         self.manager = FlightManager(
             record, plan, builder=builder,
             publisher=_PackPublisher(scenery_dir, session.tile_build_dir),
             facts=lambda: {}, state_of=pack_state(scenery_dir),
-            estimate=estimate(provider, zoomlevel),
-            intermediate=values.get("world_intermediate") or "light",
+            estimate=estimate(provider, zoomlevel, px_of),
+            intermediate="drape",
             parked_slots=GOVERNOR.parked_slots(SLOTS.session_capacity()),
             flight_slots=self.cap,
             ground_reload=self.reloader,
-            stamp=_utc)
+            others_running=lambda: SHARE.others_running("flight"),
+            stamp=_utc,
+            # #2025: an adopted departure or destination asks first
+            adopted=ADOPTED.endpoint_reader(scenery_dir,
+                                            session.tile_build_dir),
+            choices=ADOPTED.ChoiceBook(ADOPTED.choices_path()),
+            patched_of=ADOPTED.airport_patched_reader(scenery_dir))
         self.manager.facts = _Facts(scenery_dir, self.manager.jobs,
                                     self.manager.times[-1])
+        _share_slots(self.manager)
+        _core_points(self.manager)
+        self.route_key = _route_imagery(self.manager, scenery_dir)
+        _sharpen_kept_endpoints(self.manager, session, scenery_dir)
         self.t0 = time.monotonic()
+        # the rows and the countdown before the first tick: the pane shows
+        # the flight at once, whatever the first tick waits for
+        self.manager.prime(0.0, self.manager.facts())
+        self.snapshot = self.manager.status(0.0)
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True,
@@ -281,38 +366,210 @@ class _Runner:
             WORLD.write_log({"flight_notice": notice["code"]})
 
     def status(self) -> dict:
-        with self.lock:
+        """The status now; the last tick's when a tick holds the lock
+        (``flight_status`` never waits on a tick: see
+        :data:`COMMAND_WAIT_S`)."""
+        if not self.lock.acquire(timeout=COMMAND_WAIT_S):
+            return dict(self.snapshot)
+        try:
             return self.manager.status(self.now())
+        finally:
+            self.lock.release()
+
+    @contextlib.contextmanager
+    def locked(self, wait: float = EDIT_WAIT_S):
+        """The lock for a command that edits the flight; refuses after
+        ``wait`` seconds instead of freezing the command loop."""
+        if not self.lock.acquire(timeout=wait):
+            raise ValueError("The flight is busy for a moment: try again.")
+        try:
+            yield
+        finally:
+            self.lock.release()
 
     def run(self) -> None:
-        sent_at, last, saved = -1e18, None, None
+        from .position_feed import start_pump
+        # the Web API is read on its own thread: a tick takes the last
+        # record and never waits on X-Plane (5-6 s "feed" per tick while
+        # X-Plane was not running, owner log 2026-11-12T20:22Z)
+        start_pump(self.feed, self.stop_event, name="o4-flight-position")
+        sent_at, last, saved, logged = -1e18, None, None, -1e18
         while not self.stop_event.wait(1.0):
             now = self.now()
             try:
-                rec = self.feed.read()
+                clock = _PhaseClock()
+                rec = self.feed.latest()
+                clock.mark("feed")
                 with self.lock:
+                    clock.mark("lock")
                     if rec is not None:
                         building = any(j.state == "building"
                                        for j in self.manager.jobs)
                         self.governor.observe(now, rec.get("frame_s"), building)
                         self.manager.flight_slots = self.governor.allowed(self.cap)
-                    self.manager.tick(now, rec)
+                    self.manager.facts()
+                    clock.mark("facts")
+                    self.manager.tick(now, rec,
+                                      lambda name: clock.mark("tick." + name))
+                    _share_slots(self.manager)
+                    _core_points(self.manager)
+                    self.route_key = _route_imagery(
+                        self.manager, self.scenery_dir, self.route_key)
                     self.reloader.sweep(self.manager.facts().get("load_stamps"))
-                    fields = self.manager.status(now)
+                    clock.mark("share")
+                    fields = self.snapshot = self.manager.status(now)
                     record = self.manager.record
                     record.tiles = self.manager.record_tiles()
+                    clock.mark("status")
                 key = (record.state, record.phase, tuple(
                     (tuple(t.tile), t.state) for t in record.tiles))
                 if key != saved:
                     saved = key
                     RECORD.save(record, RECORD.flights_dir())
-                changed = (fields["state"], fields["items"], fields["reload"])
+                changed = (fields["state"], fields["items"], fields["reload"],
+                           fields["choices"])
                 if changed != last or now - sent_at >= STATUS_EVERY_S:
                     last, sent_at = changed, now
                     self.emit(status_event(fields))
                 self._emit_notices()
+                clock.mark("save_emit")
+                if clock.total() >= SLOW_TICK_S and now - logged >= 60.0:
+                    logged = now
+                    WORLD.write_log({"flight_slow_tick": clock.phases(),
+                                     "at_s": round(now, 1)})
             except Exception as error:      # logged; the flight goes on
                 WORLD.write_log({"flight_error": repr(error)[:300]})
+
+
+class _PhaseClock:
+    """Seconds per phase of one flight tick (``flight_slow_tick``)."""
+
+    def __init__(self) -> None:
+        self._at = self._t0 = time.monotonic()
+        self._phases: Dict[str, float] = {}
+
+    def mark(self, name: str) -> None:
+        now = time.monotonic()
+        self._phases[name] = round(now - self._at, 2)
+        self._at = now
+
+    def total(self) -> float:
+        return self._at - self._t0
+
+    def phases(self) -> Dict[str, float]:
+        return dict(self._phases)
+
+
+#: The flight's states that dispatch builds (``FlightManager.tick``).
+_DISPATCHING = ("preparing", "ready", "flying")
+
+
+def _share_slots(manager, share=SHARE) -> None:
+    """Tell ``share`` the flight's tiles (track mode leaves them), its
+    slot count and the jobs waiting for a slot (track mode starts only
+    in what is left)."""
+    jobs = manager.jobs
+    waiting = (sum(1 for j in jobs if j.state == "queued")
+               if manager.record.state in _DISPATCHING else 0)
+    share.claim("flight", [j.tile for j in jobs])
+    share.publish("flight", manager.slots(), waiting)
+
+
+def _core_points(manager) -> None:
+    """Name the plan's departure and destination airports to the World
+    publish (``world_publish.add_core_point``): their tiles' cores are
+    fetched around them even when the build graded no airport there."""
+    import O4_Flight_Plan as FP
+
+    from . import world_publish as PUBLISH
+    waypoints = manager.plan.waypoints
+    for point in {waypoints[0], waypoints[-1]} if waypoints else ():
+        PUBLISH.add_core_point(*FP.tile_of(point.lat, point.lon),
+                               (point.ident, point.lat, point.lon))
+
+
+def _route_imagery(manager, scenery_dir: str, key=None):
+    """#2048: the flight's route split (``flight_imagery_route``) made
+    active for ``world_job_run.photo_source`` -- each endpoint's provider
+    its built tile's, else region-auto's -- and made again when the plan
+    changes (a diversion, a destination given later).  Returns the plan's
+    key (its points)."""
+    import O4_Imagery_Auto as AUTO
+
+    from . import flight_imagery_route as ROUTE
+    points = tuple(manager.plan.points())
+    if points == key:
+        return key
+
+    def provider_of(tile) -> str:
+        return (ROUTE.endpoint_provider(
+            scenery_dir, tile, lambda t: drawn_build_dir(scenery_dir, t))
+            or AUTO.provider_for(int(tile[0]), int(tile[1])))
+    split = ROUTE.split_for(points, provider_of)
+    ROUTE.set_active(split)
+    WORLD.write_log({"flight_imagery_route": None if split is None else {
+        "departure": split.departure, "destination": split.destination}})
+    return points
+
+
+def drawn_build_dir(scenery_dir: str, tile) -> Optional[str]:
+    """The folder of the pack X-Plane draws ``tile``'s mesh from (an
+    ``external`` endpoint's: an enabled pack other than the World pack,
+    spec §7.2), through a link to its build folder; None when no pack
+    draws it or the pack list cannot be read."""
+    import O4_Mesh_Order as ORDER
+    try:
+        dsf = ORDER.drawn_mesh_dsf(scenery_dir, int(tile[0]), int(tile[1]))
+    except Exception:                       # an unreadable pack list
+        return None
+    if not dsf:
+        return None
+    # <pack>/Earth nav data/<10 deg>/<tile>.dsf
+    return os.path.realpath(os.path.dirname(os.path.dirname(
+        os.path.dirname(dsf))))
+
+
+def _sharpen_kept_endpoints(manager, session, scenery_dir: str = ""
+                            ) -> Optional[threading.Thread]:
+    """RULINGS 2026-11-12c (3), "We always need the high res imagery at an
+    airport": a departure or destination tile already ``full`` in the
+    World pack is not built, so no publish fetches its airport cores
+    (#2028: a tile moved into the pack with 512 px textures stayed coarse
+    at the departure).  Its cores around the plan's airports are fetched
+    now, on a worker (``imagery_after_build.start``), holding off only
+    while one of those tiles is built or swapped.  An ``external``
+    endpoint (another enabled pack draws its mesh, #2032: a tile built
+    into its own ``zOrtho4XP_`` pack in Custom Scenery) is sharpened in
+    that pack's folder (:func:`drawn_build_dir`) when it is an on-demand
+    build of ours; another tool's pack has no imagery record and is left
+    as it is (``imagery_after_build.register_built``)."""
+    import O4_Flight_Plan as FP
+
+    from . import imagery_after_build as AFTER
+    from . import imagery_follow as FOLLOW
+    waypoints = manager.plan.waypoints
+    points: dict = {}
+    for point in {waypoints[0], waypoints[-1]} if waypoints else ():
+        points.setdefault(FP.tile_of(point.lat, point.lon), []).append(
+            (point.ident, point.lat, point.lon))
+    kept = sorted({tuple(j.tile) for j in manager.jobs
+                   if j.kind == "full" and j.state == "swapped"
+                   and tuple(j.tile) in points})
+    handed = [(session.tile_build_dir(*tile), *tile) for tile in kept]
+    for tile in sorted({tuple(j.tile) for j in manager.jobs
+                        if j.state == "external" and tuple(j.tile) in points}):
+        folder = drawn_build_dir(scenery_dir, tile) if scenery_dir else None
+        if folder:
+            handed.append((folder, *tile))
+    if not handed:
+        return None
+    names = {WP.tile_name(lat, lon) for _d, lat, lon in handed}
+
+    def busy() -> bool:
+        building = session.building_tiles()
+        return building is True or bool(
+            names & (set(building or ()) | FOLLOW.held_tiles()))
+    return AFTER.start(handed, busy=busy, extra=points)
 
 
 def current() -> "Optional[_Runner]":
@@ -322,11 +579,10 @@ def current() -> "Optional[_Runner]":
 
 
 def start(session, emit, record, plan, scenery_dir: str, port=None) -> str:
-    """Run ``record``'s flight (build-ahead's track mode stops first):
-    ``"started"``, or ``"running"`` when that flight already runs; a
-    different active flight raises ``ValueError``."""
+    """Run ``record``'s flight beside track mode: ``"started"``, or
+    ``"running"`` when that flight already runs; a different active
+    flight raises ``ValueError``."""
     global _RUNNER
-    from . import world_job_run as TRACK
     with _GUARD:
         runner = current()
         if runner is not None:
@@ -334,9 +590,11 @@ def start(session, emit, record, plan, scenery_dir: str, port=None) -> str:
                 return "running"
             raise ValueError("A flight is already active (%s): end it first."
                              % runner.manager.record.id)
-        TRACK.world_job_stop()
         _RUNNER = _Runner(emit, session, record, plan, scenery_dir, port)
         _RUNNER.thread.start()
+    # the first FlightStatus before the first tick: the pane shows the
+    # flight's rows and countdown at once
+    emit(status_event(_RUNNER.snapshot))
     WORLD.write_log({"flight": "start", "id": record.id})
     return "started"
 
@@ -351,5 +609,8 @@ def stop() -> "Optional[Any]":
         return None
     runner.stop_event.set()
     runner.thread.join(timeout=5.0)
+    SHARE.leave("flight")
+    from . import flight_imagery_route as ROUTE
+    ROUTE.set_active(None)              # #2048: region-auto again
     WORLD.write_log({"flight": "stop", "id": runner.manager.record.id})
     return runner.manager.record

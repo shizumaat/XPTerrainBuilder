@@ -13,6 +13,7 @@ exception).
 Offscreen (``QT_QPA_PLATFORM=offscreen``), no network, no engine.
 """
 
+import inspect
 import json
 import os
 import re
@@ -43,7 +44,8 @@ SWIFT = Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
 #: No refresh button in either app (#1258): both rescan Custom Scenery
 #: when it changes.
 TOOLBAR = (
-    # RULINGS 2026-11-10j: Build · Fly · Library leads (spec §14).
+    # RULINGS 2026-11-11k: Build · Fly leads (spec §14; 10j's Library
+    # retired).
     ("mode", "ModeSwitch(model:", "mode_switch"),
     ("imagery_preview", 'Picker("Imagery Preview"', "map_provider_combo"),
     ("scenery_filter", 'Picker("Scenery"', "scenery_filter_combo"),
@@ -51,13 +53,12 @@ TOOLBAR = (
     ("side_panel", 'Image(systemName: "sidebar.trailing")', "panel_toggle"),
 )
 
-#: The side pane per mode (RULINGS 2026-11-10j; spec §14): (key, Swift
+#: The side pane per mode (RULINGS 2026-11-11k; spec §14): (key, Swift
 #: marker in MapMainView.swift's ``ModePanes``, Qt window attribute).  One
 #: map and one selection; the Fly offer stands above the pane.
 MODE_PANES = (
     ("build", "BuildPane(", "build_pane"),
     ("fly", "FlyPane(", "fly_pane"),
-    ("library", "LibraryPane(", "library_pane"),
 )
 FLY_OFFER = ("FlyOfferBanner(model:", "fly_offer")
 
@@ -67,6 +68,7 @@ FLY_OFFER = ("FlyOfferBanner(model:", "fly_offer")
 #: intro text (U1's placeholder) leading while no flight is named.
 FLY_PANE = (
     ("placeholder", "AppModeText.flyPlaceholder", "placeholder"),
+    ("here", "FlyHereBlock(model:", "here_block"),                    # #2020
     ("plan_source", "Picker(FlyText.planSourceLabel", "plan_source_combo"),
     ("simbrief", "SimBriefRow(model:", "simbrief_row"),
     ("open_plan", "Button(FlyText.openPlan)", "open_plan_btn"),
@@ -81,32 +83,26 @@ FLY_PANE = (
     ("world_line", "WorldStatusLine(model:", "world_line"),
     ("follow_line", "ImageryFollowLine(model:", "follow_line"),
     ("sim_priority", "Picker(FlyText.simPriorityLabel", "sim_priority_combo"),
+    ("drape_px", "Picker(FlyText.drapePxLabel", "drape_px_combo"),   # 11j
+    ("photo_source", "PhotoSourcePicker(model:", "photo_source_combo"),  # owner 11-12
     ("live_preview", "Toggle(FlyText.livePreview", "chk_live_preview"),   # #2001
+    ("sharp_photo", "Toggle(FlyText.sharpPhoto", "chk_sharp_photo"),     # #2031
     ("reload_offer", "ReloadOfferRow(model:", "reload_offer_row"),     # F2, S6 (b)
     ("divert", "Button(FlyText.divert)", "divert_btn"),
     ("end_flight", "Button(FlyText.endFlight)", "end_flight_btn"),
 )
 
-#: Library mode's pane, top to bottom (key, Swift marker in
-#: LibraryPane.swift, Qt ``LibraryPane`` attribute).  Spec §14's World
-#: regions and pack health sections join in their lanes (Convert: lane M).
-#: #2007 (owner 2026-11-11): the data folder, then the disk budget, the
-#: patch library and Convert near the top, then Caches as one line; the
-#: tiles table left the pane for the split above the map (LIBRARY_SPLIT).
-LIBRARY_PANE = (
+#: Settings ▸ Storage's rows, top to bottom, above the cleanup settings
+#: (RULINGS 2026-11-11k (2); the Library pane's from #2007 until 11k, in
+#: 11a's order without the patch library): (key, Swift marker in
+#: LibraryStorage.swift's ``StorageSettingsRows``, Qt
+#: ``O4_Qt_Library_Storage.StorageRows`` attribute).
+STORAGE_ROWS = (
     ("data_folder", "DataFolderRow(", "folder_row"),
     ("disk_budget", "DiskBudgetSection(", "budget_box"),
-    ("patch_library", "PatchLibrarySection()", "patch_box"),
     ("convert", "ConvertTilesSection(", "convert_box"),            # §13
+    ("tiers", "StorageTiersSection(", "tiers_box"),                # 12g
     ("caches", "CachesLine(", "caches_box"),
-)
-
-#: Library mode's main split, top to bottom (#2007): the tiles table over
-#: the map, and no console.  (key, Swift marker in ``ModeMainSplit``'s
-#: library branch, Qt ``map_split`` widget attribute path).
-LIBRARY_SPLIT = (
-    ("tiles", "first: table", "library_pane.tiles_box"),
-    ("map", "second: map)", "map"),
 )
 
 #: The Caches line's two buttons and the start's World onboarding (#2007):
@@ -116,8 +112,24 @@ LIBRARY_STORAGE = (
      "caches_box", "clear_btn"),
     ("caches_details", "LibraryStorage.swift", "StorageDetailsSheet(model:",
      "caches_box", "details_btn"),
-    ("budget_field", "LibraryStorage.swift", "TextField(O4StorageText.budgetField",
+    # Owner 2026-11-12: "Budget (GB)" left, the slider beside it, the
+    # number field right, on one row.
+    ("budget_field_label", "LibraryStorage.swift", "Text(O4StorageText.budgetField)",
+     "budget_box", "budget_field_label"),
+    ("budget_field", "LibraryStorage.swift", "TextField(\"\", text: $field)",
      "budget_box", "budget_edit"),
+    # #2022: the slider, its labelled ends, the preview while it moves and
+    # the stacked usage bar.
+    ("budget_slider", "LibraryStorage.swift", "Slider(value: $gigabytes",
+     "budget_box", "budget_slider"),
+    ("budget_ends", "LibraryStorage.swift", "O4StorageText.endLabels(",
+     "budget_box", "min_label"),
+    ("budget_preview", "LibraryStorage.swift", "O4StorageText.previewText(",
+     "budget_box", "preview_label"),
+    ("budget_notice", "LibraryStorage.swift", "O4StorageText.rangeNotice(",
+     "budget_box", "budget_warning"),
+    ("usage_bar", "LibraryStorage.swift", "StorageUsageBar(budget:",
+     "budget_box", "usage_bar"),
     ("budget_downgrade", "LibraryStorage.swift", "O4StorageText.downgradeMessage(",
      "budget_box", "_ask"),
     # RULINGS 2026-11-11h (1): unconfirmed, Confirm records the default.
@@ -127,9 +139,12 @@ LIBRARY_STORAGE = (
      "onboard", "OnboardDialog"),
 )
 
-#: Settings ▸ Storage rows that live in the Library pane ONLY (RULINGS
-#: 2026-11-11h (3)): neither app's Settings lists them.
-LIBRARY_ONLY_SETTINGS = ("storage_budget_gb",)
+#: Settings that are no plain Settings row in either app: the disk budget
+#: is the Storage rows' ``DiskBudgetSection`` / ``DiskBudgetBox`` (RULINGS
+#: 2026-11-11h (3), its home Settings ▸ Storage since 11k (2)).
+STORAGE_BOX_SETTINGS = ("storage_budget_gb",
+                        # RULINGS 2026-11-12g: the Storage tiers rows
+                        "storage_tiers")
 
 #: Fly mode's map layers, bottom to top (key, Swift marker in
 #: FlyMapOverlay.swift, Qt marker in O4_Qt_Fly_Layer.py): "Live flight
@@ -141,6 +156,15 @@ FLY_MAP_LAYERS = (
     ("route", "stroke(model.drawing", "FP.route_drawing("),
     ("track", "stroke(model.track.parts", "track.parts()"),
     ("aircraft", "drawAircraft(cam.point", "self._aircraft("),
+)
+
+#: The map's top-right controls, left to right (#2016): (key, Swift marker
+#: in MapCanvasView.swift's ``zoomControls``, Qt
+#: ``O4_Qt_Map_Controls.MapControls`` attribute).
+MAP_CONTROLS = (
+    ("zoom_out", "zoom(by: 1 / 1.5)", "zoom_out_btn"),
+    ("zoom_in", "zoom(by: 1.5)", "zoom_in_btn"),
+    ("center_on_aircraft", "CenterOnAircraftButton(model:", "center_btn"),
 )
 
 #: The Build box's controls, top to bottom: (key, Swift label, Qt attribute).
@@ -158,8 +182,12 @@ BUILD_BOX = (
     ("skip_built", "Skip tiles already built", "chk_skip_built"),
     ("terrain_steps", "terrain_steps", "chk_vector"),
     ("imagery_and_scenery_file", "imagery_and_scenery_file", "chk_imagery"),
-    ("xplane_objects", "xplane_objects", "chk_overlays"),
 )
+
+#: X-Plane's roads, forests and buildings are automatic (#2021, RULINGS
+#: 2026-11-12e): no switch in either Build box, a line under Advanced of
+#: these two glossary terms (Mac ``Text``s, Qt ``overlays_note``).
+OVERLAYS_LINE = ("xplane_objects", "xplane_objects_auto")
 
 #: The Airports card's sentences: (Swift ``static let``, Qt constant).
 AIRPORTS_CARD_TEXT = (
@@ -178,27 +206,59 @@ PATCH_EDIT_MENU = (
 
 #: The patch library's homes (#1699 phase 2), each in both apps:
 #: (key, Swift file, Swift marker, Qt owner, Qt attribute).  The match
-#: list sits in the Airports card under the airport list; Library mode
-#: carries the "Patch library" section and the tiles' "Publish Patch…".
+#: list sits in the Airports card under the airport list; the "Patch
+#: library" section and the tiles' "Publish Patch…" are PARKED with the
+#: tiles table (owner 2026-11-11T15:35Z, RULINGS 11k (3) waits): no window
+#: shows them, both apps keep them alike.
 PATCH_LIBRARY = (
     ("match_list", "BuildAirportsCard.swift", "LibraryMatchList(matches:",
      "airports_card", "library_match_list"),
-    ("library_section", "LibraryPane.swift", "PatchLibrarySection()",
-     "library_pane", "patch_box"),
+    ("library_section", "PatchLibraryView.swift", "struct PatchLibrarySection",
+     "library_tiles", "patch_box"),
     ("publish", "LibraryView.swift", 'Button("Publish Patch…")',
      "library_tiles", "publish_btn"),
 )
 
+#: The package actions' homes (#2014; owner 2026-11-11T15:35Z: a File
+#: menu item for the selected tiles, the tile menu a shortcut to it; the
+#: Library gets nothing new): (key, Swift file, Swift marker, Qt owner,
+#: Qt attribute).
+TILE_PACKAGE = (
+    ("file_menu", "XPTerrainBuilderApp.swift", "TilePackageCommands(buildModel:",
+     "window", "export_package_action"),
+    ("tile_menu", "TileContextMenu.swift", "Self.exportPackageTitle",
+     "window", "_export_package_at"),
+    ("drop", "PatchDropInstall.swift", "TilePackageModel.shared.offer(",
+     "window", "patch_drop"),
+    # The export window is airport-first (owner 2026-11-11T16:10Z): the
+    # airport picker, then each kind with the engine's estimate row.
+    ("export_airport", "TilePackageSheets.swift", "O4TilePackageCopy.airportLabel",
+     "package", "AIRPORT_LABEL"),
+    ("export_kinds", "TilePackageSheets.swift", "row.figures",
+     "package", "_ExportDialog"),
+    ("export_estimate", "TilePackageSheets.swift", "client.packageEstimate(",
+     "package", "export"),
+    # RULINGS 2026-11-11m: the pack author's rows in the export window, and
+    # a pack's shipped package noticed (and its conflict asked) on build.
+    ("export_pack_rows", "TilePackageSheets.swift", "O4TilePackageCopy.intoPack",
+     "package", "INTO_PACK"),
+    ("pack_package_notice", "BuildModel.swift", "case .packPackage",
+     "package", "on_pack_package"),
+)
+
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
 #: Swift file, Swift marker, Qt owner, Qt attribute).  The follow line
-#: is in the Fly pane (RULINGS 2026-11-10j); the pin sits in the tile pane under the
-#: imagery check and in the Library's actions (and its tile menu); the
-#: Storage pane's ondemand row makes all low-res again.
+#: is in the Fly pane (RULINGS 2026-11-10j); the Favorite is a star beside
+#: the tile pane's title and on the Build map's built cells (#2033), and in
+#: the (parked) tiles table's actions and tile menu; the Storage details'
+#: ondemand row makes all low-res again.
 IMAGERY_ON_DEMAND = (
     ("follow_line", "FlyPane.swift", "ImageryFollowLine(model:",
      "window", "follow_line"),
-    ("tile_pin", "BuildPane.swift", "TilePinRow(pinned:",
-     "window", "tile_pin_row"),
+    ("tile_star", "BuildPane.swift", "FavoriteStarButton(pinned:",
+     "window", "favorite_star"),
+    ("map_star", "MapCanvasView.swift", "FavoriteStar.hit(",
+     "map", "favorite_requested"),
     ("library_pin", "LibraryView.swift", "model.togglePin(",
      "library_tiles", "pin_btn"),
     ("library_menu", "LibraryView.swift", ".contextMenu(forSelectionType:",
@@ -301,6 +361,15 @@ def test_mac_toolbar_is_the_manifest():
 
 def test_mac_build_box_is_the_manifest():
     assert _swift_build_box() == [label for _key, label, _attr in BUILD_BOX]
+
+
+def test_mac_build_box_says_the_overlays_are_automatic():
+    block = _block(SWIFT / "BuildPane.swift",
+                   "private var buildBox: some View",
+                   "// MARK: - Imagery-source conflict")
+    for term in OVERLAYS_LINE:
+        assert 'Text(O4Glossary.term("%s"))' % term in block, term
+    assert "doOverlays" not in block
 
 
 def test_the_airports_cards_say_the_same_words():
@@ -422,6 +491,7 @@ def window(qapp, tmp_path, monkeypatch):
     # An EXISTING prefs file: an absent one arms the first-run wizard.
     prefs.write_text(json.dumps({"output_dir": str(tmp_path)}), encoding="utf-8", newline="")
     monkeypatch.setattr(GUI, "PREFS_FILE", str(prefs))
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     monkeypatch.setattr(GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "scan.json"))
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
@@ -472,6 +542,15 @@ def _qt_build_box(window) -> list:
 def test_qt_build_box_is_the_manifest(window):
     expected = [getattr(window, attr) for _key, _label, attr in BUILD_BOX]
     assert _qt_build_box(window) == expected
+
+
+def test_qt_build_box_says_the_overlays_are_automatic(window):
+    import O4_Glossary as GLOSSARY
+
+    assert window.overlays_note.text() == "\n".join(
+        GLOSSARY.TERMS[term] for term in OVERLAYS_LINE)
+    assert window.overlays_note.parentWidget() is window.advanced_box
+    assert not hasattr(window, "chk_overlays")
 
 
 def test_qt_build_box_labels_are_the_macs(window):
@@ -649,12 +728,19 @@ def test_both_patch_panels_say_checking_while_the_scan_runs(window):
     assert sentence in swift and sentence in panel
 
 
+def _parked_tiles_table():
+    """The tiles table, parked with the developer tools (11k (3) waits):
+    no window shows it, so the test makes one."""
+    import O4_Qt_Library as QTLIB
+
+    return QTLIB.LibraryTilesSection(None, "", "")
+
+
 def test_the_patch_library_has_one_home_in_each_app(window):
     """#1699 phase 2: every patch-library control the Mac app shows, the
     Qt window shows too (and the reverse, by the manifest)."""
     owners = {"airports_card": window.airports_card,
-              "library_pane": window.library_pane,
-              "library_tiles": window.library_pane.tiles_box}
+              "library_tiles": _parked_tiles_table()}
     for key, swift_file, marker, owner, attr in PATCH_LIBRARY:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
@@ -666,24 +752,50 @@ def test_the_patch_library_has_one_home_in_each_app(window):
 def test_imagery_on_demand_has_one_home_in_each_app(window):
     """#1992 P4: the follow line, the pins and "Make all low-res again"
     are in both apps (and, by the manifest, nowhere else)."""
+    import O4_Qt_Library_Storage as QTLIBSTORE
     import O4_Qt_Settings_Storage as QTSTORE
 
-    owners = {"window": window,
-              "library_tiles": window.library_pane.tiles_box,
+    rows = QTLIBSTORE.StorageRows("")
+    owners = {"window": window, "map": window.map,
+              "library_tiles": _parked_tiles_table(),
               "storage": QTSTORE.StorageSection(),
-              "budget_box": window.library_pane.budget_box}
+              "budget_box": rows.budget_box}
     for key, swift_file, marker, owner, attr in IMAGERY_ON_DEMAND:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
     pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
-    # The follow line left the Build pane for Fly (10j); the pin follows
-    # the imagery check.
+    # The follow line left the Build pane for Fly (10j); the Favorite star
+    # stands at the title's right (#2033), no Favorite row below.
     assert "ImageryFollowLine(model:" not in pane
     assert window.follow_line.parentWidget() is window.fly_pane
-    assert pane.index("TilePinRow(pinned:") > pane.index("TileImageryFreshnessRow(")
+    title = pane.index('Text("Tile \\(active.key)')
+    assert title < pane.index("FavoriteStarButton(pinned:") < pane.index("TileWorldRow(coord:")
+    assert "TilePinRow" not in pane
+    assert window.favorite_star.parentWidget() is window.info_title_row
+    assert window.info_title.parentWidget() is window.info_title_row
+    assert not hasattr(window, "tile_pin_row")
+
+
+def test_both_tile_panes_name_the_elevation_before_one_imagery_line(window):
+    """#2033: "Elevation" (what the tile was built with) stands right
+    before "Imagery", which is source and zoom on one line; no "Imagery
+    detail" row in either pane."""
+    import O4_Glossary as GLOSSARY
+
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    assert (pane.index('detailRow("Elevation", elevationText(info))')
+            < pane.index('detailRow("Imagery", imageryText(info))'))
+    assert 'O4Glossary.term("imagery_detail")' not in pane
+    assert "O4Glossary.imagerySummary(" in pane
     form = window._info_layout
-    assert (form.getWidgetPosition(window.tile_pin_row)[0]
-            == form.getWidgetPosition(window.imagery_freshness_row)[0] + 1)
+    imagery = form.getWidgetPosition(window.info_provider.parentWidget())[0]
+    assert form.getWidgetPosition(window.info_elevation)[0] == imagery - 1
+    labels = [form.itemAt(row, form.ItemRole.LabelRole)
+              for row in range(form.rowCount())]
+    texts = [item.widget().text() for item in labels
+             if item is not None and item.widget() is not None]
+    assert "%s:" % GLOSSARY.TERMS["imagery_detail"] not in texts
+    assert not hasattr(window, "info_zl")
 
 
 def test_both_tile_panes_show_the_path_under_built_by(window):
@@ -699,15 +811,79 @@ def test_both_tile_panes_show_the_path_under_built_by(window):
     assert isinstance(getattr(window, attr, None), QTPATHROW.TilePathRow)
 
 
+def test_both_tile_panes_name_the_airports_the_build_stood_on(window):
+    """Owner 2026-11-12T21:55Z (lane ltiledetail): "Airport elevation" and
+    "Graded airports" sit after the Path row in both apps, titled alike,
+    shown only when the tile's records name them."""
+    import O4_Qt_GUI as QTGUI
+
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    for title in (QTGUI.TILE_AIRPORT_ELEVATION_TITLE,
+                  QTGUI.TILE_AIRPORTS_TITLE):
+        assert '"%s"' % title in pane
+    assert (pane.index("Self.airportElevationTitle, text")
+            > pane.index(TILE_PATH_ROW[0]))
+    form = window._info_layout
+    path_row = form.getWidgetPosition(window.tile_path_row)[0]
+    assert form.getWidgetPosition(window.info_airport_elevation)[0] > path_row
+    window._show_build_airports(None)
+    assert not form.isRowVisible(window.info_airports)
+
+
+def test_both_tile_panes_read_the_world_pack_first(window):
+    """Owner 2026-11-12T20:23Z (lane ltilepane): the World-pack row stands
+    right under the tile title in both apps, with the same three actions;
+    a tile the World pack holds reads "(in the World pack)", never "(not
+    built)"."""
+    import O4_Qt_Tile_World_Row as QTWORLDROW
+    import O4_World_State_Text as WORLD_TEXT
+    from o4_engine.world_state import WorldTile
+
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    title = pane.index('Text("Tile \\(active.key)')
+    assert title < pane.index("TileWorldRow(coord:") < pane.index('detailRow("Imagery"')
+    assert "O4WorldStateText.titleInWorld" in pane
+    row = (SWIFT / "TileWorldRow.swift").read_text(encoding="utf-8")
+    for name in ("rebuildButton", "removeButton", "removeTitle", "removeMessage",
+                 "removeConfirm"):
+        assert "O4WorldStateText.%s" % name in row
+    assert "O4TilePackageCopy.exportTitle" in row
+    package = (SWIFT.parent / "SceneryKit" / "TilePackage.swift").read_text(encoding="utf-8")
+    assert 'exportTitle = "%s"' % QTWORLDROW.EXPORT_BUTTON in package
+    form = window._info_layout
+    assert (form.getWidgetPosition(window.tile_world_row)[0]
+            == form.getWidgetPosition(window.info_title_row)[0] + 1)
+    window.map.set_world({(30, 31): WorldTile("full", "xptb", 1.0, "originals", "")})
+    window._active_changed((30, 31))
+    assert WORLD_TEXT.TITLE_IN_WORLD in window.info_title.text()
+    assert not window.tile_world_row.isHidden()
+    assert window.tile_world_row.status_label.text() == (
+        "Built (in the World pack): mesh + full imagery")
+    assert not window.tile_world_row.actions.isHidden()
+    window._active_changed((30, 33))
+    assert WORLD_TEXT.TITLE_IN_WORLD not in window.info_title.text()
+    assert window.tile_world_row.isHidden()
+
+
 def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
-    """#1958: one legend (same words, same order) and one "Airport packs"
-    row under the Path row, with the same rebuild words, in both apps."""
+    """#1958: one key (the same kinds in the same order; owner
+    2026-11-12T22:05Z: one pill in the Build and Fly views) and one
+    "Airport packs" row under the Path row, with the same rebuild words,
+    in both apps."""
+    import O4_Map_Key_Text as KEYTEXT
     import O4_Qt_Map_Legend as QTLEGEND
     import O4_Qt_Tile_Stale_Row as QTSTALEROW
 
-    legend = (SWIFT / "MapTileLegend.swift").read_text(encoding="utf-8")
-    swift_labels = re.findall(r'case \.\w+: return "([^"]+)"', legend)
-    assert swift_labels == list(QTLEGEND.LEGEND_LABELS.values())
+    key = (SWIFT / "MapKey.swift").read_text(encoding="utf-8")
+    kinds = key[key.index("static func buildItems"):key.index("static func flyItems")]
+    swift_kinds = re.findall(r'present\.insert\("(\w+)"\)', kinds)
+    python_kinds = [QTLEGEND.WORLD_FULL, QTLEGEND.WORLD_MESH, QTLEGEND.WORLD_DRAPE,
+                    QTLEGEND.WORLD_PLACEHOLDER,
+                    QTLEGEND.WORLD_OTHER_TOOL, QTLEGEND.STALE, QTLEGEND.CUSTOM_PATCH]
+    assert swift_kinds == python_kinds
+    assert set(python_kinds) <= set(KEYTEXT.SHORT)
+    canvas = (SWIFT / "MapCanvasView.swift").read_text(encoding="utf-8")
+    assert canvas.index("zoomChip\n") < canvas.index("MapKey(buildModel:")
     wire = (SWIFT.parent / "SceneryKit" / "TileStalenessWire.swift").read_text(
         encoding="utf-8")
     for name, value in (("rowTitle", QTSTALEROW.ROW_TITLE),
@@ -753,25 +929,25 @@ def test_on_demand_hides_the_same_rows_in_both_apps(window):
     QTONDEMAND_BUILD.apply(window, True)
     assert not any(getattr(window, a).isVisible() for a in QTONDEMAND_BUILD.HIDDEN)
     assert QTONDEMAND_BUILD.installs(window)
-    assert QTONDEMAND_BUILD.skips_built(window)
-    assert not QTONDEMAND_BUILD.skips_built(window, rebuild=True)
+    # Skip behaves as OFF under on demand (#2043): every selected tile builds.
+    window.chk_skip_built.setChecked(True)
+    assert not QTONDEMAND_BUILD.skips_built(window)
     QTONDEMAND_BUILD.apply(window, False)
     assert all(getattr(window, a).isVisible() for a in QTONDEMAND_BUILD.HIDDEN)
+    window.chk_auto_install.setChecked(False)
     assert not QTONDEMAND_BUILD.installs(window)
+    assert QTONDEMAND_BUILD.skips_built(window)
+    window.chk_skip_built.setChecked(False)
     assert not QTONDEMAND_BUILD.skips_built(window)
-    window.chk_skip_built.setChecked(True)
-    assert QTONDEMAND_BUILD.skips_built(window, rebuild=True)
 
 
-def test_on_demand_rebuild_hint_is_the_macs():
-    import O4_Qt_Build_OnDemand as QTONDEMAND_BUILD
-
+def test_on_demand_skip_rule_is_the_macs():
+    """#2043: one rule in both apps -- only the visible switch skips."""
     swift = (SWIFT / "BuildModel+OnDemandBuild.swift").read_text(encoding="utf-8")
-    said = re.search(r'static let onDemandRebuildHint = "([^"]+)"', swift)
-    assert said and said.group(1) == QTONDEMAND_BUILD.REBUILD_HINT
+    assert "!onDemand && skipSwitch" in swift
 
 
-# ─── the three modes (RULINGS 2026-11-10j, spec §14) ───────────────────────
+# ─── the two modes (RULINGS 2026-11-11k, spec §14) ─────────────────────────
 
 def _swift_rows(path: Path, start: str, rows) -> list:
     block = (SWIFT / path).read_text(encoding="utf-8")
@@ -787,14 +963,23 @@ def test_mac_mode_panes_are_the_manifest():
     assert -1 < offer < marks[0], "the Fly offer stands above the pane"
     fly = _swift_rows("FlyPane.swift", "struct FlyPane", FLY_PANE)
     assert -1 not in fly and fly == sorted(fly), fly
-    library = _swift_rows("LibraryPane.swift", "struct LibraryPane", LIBRARY_PANE)
-    assert -1 not in library and library == sorted(library), library
-    split = _swift_rows("MapMainView.swift", "if modes.mode == .library", LIBRARY_SPLIT)
-    assert -1 not in split and split == sorted(split), split
-    branch = (SWIFT / "MapMainView.swift").read_text(encoding="utf-8")
-    branch = branch[branch.index("if modes.mode == .library"):branch.index("} else {",
-                    branch.index("if modes.mode == .library"))]
-    assert "console" not in branch, "Library mode shows no console (#2007)"
+    main = (SWIFT / "MapMainView.swift").read_text(encoding="utf-8")
+    assert "LibraryPane(" not in main and "LibraryTilesSection(" not in main
+    assert not (SWIFT / "LibraryPane.swift").exists()
+
+
+def test_mac_settings_storage_holds_the_storage_rows():
+    """11k (2): the data folder, the budget, Convert and Caches lead
+    Settings ▸ Storage, above its cleanup settings."""
+    rows = _swift_rows("LibraryStorage.swift", "struct StorageSettingsRows",
+                       STORAGE_ROWS)
+    end = (SWIFT / "LibraryStorage.swift").read_text(encoding="utf-8")
+    end = end[end.index("struct StorageSettingsRows"):].index("struct DataFolderRow")
+    assert -1 not in rows and rows == sorted(rows) and rows[-1] < end, rows
+    pane = _block(SWIFT / "SettingsView.swift",
+                  "private struct CategoryPane", "private struct ExpertSection")
+    assert 'category.key == "storage"' in pane and "StorageSettingsRows()" in pane
+    assert "StoragePointer" not in pane
 
 
 def _laid_out(widget) -> list:
@@ -806,7 +991,7 @@ def _laid_out(widget) -> list:
 def test_qt_mode_panes_are_the_manifest(window):
     stack = window.mode_stack
     panes = [stack.widget(i) for i in range(stack.count())]
-    # Fly and Library scroll in their own area; Build is its scroll area.
+    # Fly scrolls in its own area; Build is its scroll area.
     shown = [panes[0]] + [scroll.widget() for scroll in panes[1:]]
     assert shown == [getattr(window, attr) for _k, _m, attr in MODE_PANES]
     side = _laid_out(window.side_panel)
@@ -814,43 +999,48 @@ def test_qt_mode_panes_are_the_manifest(window):
     fly = _laid_out(window.fly_pane)
     rows = [getattr(window.fly_pane, attr) for _k, _m, attr in FLY_PANE]
     assert [w for w in fly if w in rows] == rows
-    library = _laid_out(window.library_pane)
-    rows = [getattr(window.library_pane, attr) for _k, _m, attr in LIBRARY_PANE]
-    assert [w for w in library if w in rows] == rows
-    assert window.library_pane.tiles_box not in library      # above the map
+    assert not hasattr(window, "library_pane")
+    assert not hasattr(window, "map_split")
 
 
-def _attr_path(owner, path):
-    for name in path.split("."):
-        owner = getattr(owner, name)
-    return owner
+def test_qt_settings_storage_holds_the_storage_rows(window, monkeypatch):
+    """11k (2): Settings ▸ Storage shows the rows, in the manifest's order,
+    and measures the data folder the first time it is shown."""
+    import O4_Qt_Library_Storage as QTLIBSTORE
+    import O4_Qt_Settings as QTSET
+    from o4_engine import storage_shared as SHARED
 
-
-def test_qt_library_split_puts_the_table_over_the_map(window, monkeypatch):
-    """#2007: in Library the tiles table stands over the map and the
-    console is hidden; Build brings the console back as it was."""
-    monkeypatch.setattr(window.library_pane, "refresh", lambda *a: None)
-    monkeypatch.setattr(GUI, "save_prefs", lambda prefs: None)
-    split = window.map_split
-    assert [split.widget(i) for i in range(split.count())] == [
-        _attr_path(window, path) for _k, _m, path in LIBRARY_SPLIT]
-    window.show()
-    window.set_console_visible(True)
-    window.set_mode("library")
-    assert window.library_pane.tiles_box.isVisible()
-    assert not window.console_drawer.isVisible()
-    window.set_mode("build")
-    assert not window.library_pane.tiles_box.isVisible()
-    assert window.console_drawer.isVisible()
+    measured = []
+    monkeypatch.setattr(QTLIBSTORE.StorageRows, "refresh",
+                        lambda self: measured.append(True))
+    # No shared background scan yet (#2029): an earlier test's on this
+    # worker would be shown instead of measured.
+    monkeypatch.setattr(SHARED, "storage_scan_cached", lambda: {
+        "scan": None, "updating": False, "age_s": None})
+    dialog = QTSET.SettingsWindow(window.prefs, [], window.output_dir(), window)
+    try:
+        section = dialog.storage_section
+        assert isinstance(section, QTLIBSTORE.StorageRows)
+        laid = _laid_out(section)
+        assert laid == [getattr(section, attr) for _k, _m, attr in STORAGE_ROWS]
+        dialog.show()
+        dialog.category_list.setCurrentRow(
+            [key for key, _title in QTSET.SM.CATEGORIES].index("storage"))
+        assert section.isVisible() and measured
+        assert section.matches("budget") and section.matches("cache")
+    finally:
+        dialog.deleteLater()
 
 
 def test_the_library_storage_rows_have_one_home_in_each_app(window):
+    import O4_Qt_Library_Storage as QTLIBSTORE
     import O4_Qt_World_Onboard as QTONBOARD
 
     assert "QTONBOARD.check_at_launch(" in Path(GUI.__file__).read_text(encoding="utf-8")
+    rows = QTLIBSTORE.StorageRows("")
     owners = {"onboard": QTONBOARD,
-              "caches_box": window.library_pane.caches_box,
-              "budget_box": window.library_pane.budget_box}
+              "caches_box": rows.caches_box,
+              "budget_box": rows.budget_box}
     for key, swift_file, marker, owner, attr in LIBRARY_STORAGE:
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
@@ -860,18 +1050,17 @@ def test_the_disk_budget_is_not_a_settings_row_in_either_app():
     import O4_Settings_Model as SM
     swift = (SWIFT / "SettingsLayout.swift").read_text(encoding="utf-8")
     rows = {member[0] for _key, _title, members in SM._LAYOUT for member in members}
-    for name in LIBRARY_ONLY_SETTINGS:
+    for name in STORAGE_BOX_SETTINGS:
         assert name not in rows and 'SettingItem("%s"' % name not in swift, name
 
 
 def test_qt_modes_swap_the_pane_and_keep_the_selection(window, monkeypatch):
     import O4_App_Modes as MODES
 
-    monkeypatch.setattr(window.library_pane, "refresh", lambda *a: None)
     monkeypatch.setattr(GUI, "save_prefs", lambda prefs: None)
     window.map.set_selection({(47, -123), (47, -122)})
     assert window.mode() == MODES.DEFAULT          # nothing remembered yet
-    for mode in ("fly", "library", "build"):
+    for mode in ("fly", "build"):
         window.set_mode(mode)
         assert window.mode() == mode
         assert window.mode_stack.currentIndex() == MODES.MODES.index(mode)
@@ -894,7 +1083,8 @@ def test_qt_offers_fly_and_never_switches(window, monkeypatch):
     assert window.fly_offer.isVisible() and window.mode() == "build"
     window.fly_offer.open_btn.click()
     assert window.mode() == "fly" and not window.fly_offer.isVisible()
-    assert QTMODES.ModeSwitch("library").mode() == "library"
+    assert QTMODES.ModeSwitch("fly").mode() == "fly"
+    assert QTMODES.ModeSwitch("library").mode() == "build"   # retired (11k)
     assert QTMODES.ModeSwitch("nonsense").mode() == "build"
 
 
@@ -908,3 +1098,50 @@ def test_both_fly_maps_stack_the_layers_alike():
     for source, column in ((swift, 1), (qt, 2)):
         marks = [source.find(row[column]) for row in FLY_MAP_LAYERS]
         assert -1 not in marks and marks == sorted(marks), (column, marks)
+
+
+def test_the_package_actions_have_one_home_in_each_app(window):
+    """#2014: Export Package… in both File menus and both tile menus, with
+    the same words; the install sheet's and the airport-first export
+    window's words are the Qt dialog's (the kinds' names, explanations and
+    figures are the engine's, ``tile_bundle.kinds``, in both)."""
+    import O4_Qt_Tile_Menu as QTTILEMENU
+    import O4_Qt_Tile_Package as QTPKG
+
+    for key, swift_file, marker, owner, attr in TILE_PACKAGE:
+        assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
+        assert getattr({"window": window, "package": QTPKG}[owner], attr, None) is not None, key
+    assert "LIB.package_estimate(" in inspect.getsource(QTPKG.export)
+    kit = (SWIFT.parent / "SceneryKit" / "TilePackage.swift").read_text(encoding="utf-8")
+    for name, qt in (("exportTitle", QTPKG.EXPORT_TITLE), ("installTitle", QTPKG.INSTALL_TITLE),
+                     ("install", QTPKG.INSTALL), ("keepMine", QTPKG.KEEP_MINE),
+                     ("useTheirs", QTPKG.USE_THEIRS), ("combineTitle", QTPKG.COMBINE_TITLE),
+                     ("airportLabel", QTPKG.AIRPORT_LABEL),
+                     ("wholeTileOnly", QTPKG.WHOLE_TILE_ONLY),
+                     ("estimateNote", QTPKG.ESTIMATE_NOTE),
+                     ("intoPack", QTPKG.INTO_PACK), ("objectsLabel", QTPKG.OBJECTS_LABEL),
+                     ("objectsDefault", QTPKG.OBJECTS_DEFAULT),
+                     ("objectsFinal", QTPKG.OBJECTS_FINAL),
+                     ("objectsApplied", QTPKG.OBJECTS_APPLIED),
+                     ("applyFixes", QTPKG.APPLY_FIXES)):
+        said = re.search(r'static let %s = "([^"]+)"' % name, kit)
+        assert said and said.group(1) == qt, name
+    owners = window.export_package_action.associatedObjects()
+    assert "&File" in [getattr(o, "title", lambda: "")() for o in owners]
+    menu = QTTILEMENU.tile_menu(window, 30, 31, "", export_package=lambda: None)
+    assert menu.actions()[-1].text() == QTPKG.EXPORT_TITLE
+
+
+def test_both_maps_show_the_map_controls_in_order(window):
+    """#2016: zoom out, zoom in, then "Center on aircraft", top-right, in
+    both maps."""
+    view = (SWIFT / "MapCanvasView.swift").read_text(encoding="utf-8")
+    body = view[view.index("private var zoomControls"):]
+    at = [body.index(marker) for _key, marker, _attr in MAP_CONTROLS]
+    assert at == sorted(at)
+    assert ".overlay(alignment: .topTrailing) { zoomControls }" in view
+    controls = window.map.controls
+    buttons = [getattr(controls, attr) for _key, _marker, attr in MAP_CONTROLS]
+    layout = controls.layout()
+    order = [layout.indexOf(b) for b in buttons]
+    assert -1 not in order and order == sorted(order)

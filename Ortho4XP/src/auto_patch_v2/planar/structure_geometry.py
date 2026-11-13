@@ -70,8 +70,9 @@ def pad_hit(outer: Polygon, pads: list[tuple[Polygon, str]], tree: STRtree | Non
 
 
 __all__ = ["RampGeometry", "geometry", "normals", "snap", "snap_out",
-           "rim_standoff", "rim_yield_m", "corner_distance", "beyond_strip",
-           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets", "reseat_expect",
+           "rim_standoff", "rim_yield_m", "corner_distance", "beyond_strip", "pad_knife",
+           "design_points", "collapse_stations", "collapse_for_ramp", "ramp_targets",
+           "reseat_expect",
            "anchor_cut_z", "authored_crest"]
 
 
@@ -779,3 +780,24 @@ def beyond_strip(axis_fn, s_end: float, length: float) -> Polygon:
                     (e[0] - nx * length, e[1] - ny * length),
                     (e[0] - nx * length + ux * length, e[1] - ny * length + uy * length),
                     (e[0] + nx * length + ux * length, e[1] + ny * length + uy * length)])
+
+
+def pad_knife(outer, beyond, host: _t.Collection[str], pads, pad_tree):
+    """The blade a trench's ``outer`` cuts the building PADS with: all of
+    it but where a pad that is not one of its ``host`` refs stands BEYOND
+    the walls (``beyond``, :func:`beyond_strip`; ``None``: everywhere) --
+    such a pad stopped the ramp and is guarded, never cut (spec §6a row 16,
+    the flat-pad host rule 2026-09-08n; a pinned mouth's hosts and wall
+    reach, #1938 S1 / S2).  ``pads`` are ``(polygon, ref)``, ``pad_tree``
+    their index."""
+    if pad_tree is None:
+        return outer
+    guard = [pads[int(j)][0] for j in pad_tree.query(outer if beyond is None else beyond,
+                                                       predicate="intersects")
+             if pads[int(j)][1] not in host]
+    if not guard:
+        return outer
+    keep_out = unary_union(guard)
+    if beyond is not None:
+        keep_out = beyond.intersection(keep_out)
+    return outer if keep_out.is_empty else outer.difference(keep_out)

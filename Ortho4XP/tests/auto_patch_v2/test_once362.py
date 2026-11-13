@@ -242,3 +242,65 @@ def test_a_ring_with_other_members_is_read_afresh(pit, monkeypatch):
     reads.clear()
     reads.update(held)
     assert _pr.ring_reads(airport, list(objects), cache, zlaw) is not reads
+
+
+def test_the_object_floors_are_read_once_across_both_planar_passes(law, monkeypatch):
+    """#1951: the object floors (``airport/object_floor.read_object_floors``)
+    read no cell, so the second planar pass of a build is handed the first
+    pass's reading, and its map equals a fresh read's."""
+    from auto_patch_v2.planar import object_floor_cells as _ofc
+    calls = {"n": 0}
+    real = _ofc.read_object_floors
+
+    def spy(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    monkeypatch.setattr(_ofc, "read_object_floors", spy)
+    airport = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_SlopeDem())
+    cl = classify(airport, law)
+    cl0 = ribbon_free(cl)
+    cache, oo = _cache(law), []
+    _pm1, st1 = planar_build(airport, cl, law, objects_out=oo, cache=cache)
+    assert calls["n"] == 1
+    pm0, _st0 = planar_build(airport, cl0, law, cache=cache, objects=oo[0],
+                             object_report=st1.basins.objects)
+    assert calls["n"] == 1
+    fresh, _f = planar_build(airport, cl0, law, cache=_cache(law), objects=oo[0],
+                             object_report=st1.basins.objects)
+    assert calls["n"] == 2
+    _same_map(pm0, fresh)
+
+
+def test_a_shipped_store_serves_a_workers_copy_of_the_same_inputs(law, monkeypatch):
+    """#2044: a pool worker running a copy of the build's prefix
+    (``pipeline/derive_ahead``) gets the build's readings with the build's
+    ``ResourceCache`` (``shipped``: the store without the inputs it is keyed
+    on) and keys them to its OWN copies of the same inputs (``adopt``): its
+    pass calls no reader and builds the map a fresh read builds.  A store
+    read for other inputs is not shipped, and the build's own is untouched."""
+    import pickle
+    airport = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_SlopeDem())
+    cl = classify(airport, law)
+    cl0 = ribbon_free(cl)
+    calls = _counted(monkeypatch)
+    cache, oo = _cache(law), []
+    _pm1, st1 = planar_build(airport, cl, law, objects_out=oo, cache=cache)
+    assert calls == {n: 1 for n in READERS}
+    held = cache.placed[_pr._KEY]
+    # the worker's side: one pickle of the inputs and the shipped cache
+    ship = _pr.shipped(airport, oo[0], cache, law)
+    assert ship is not cache and cache.placed[_pr._KEY] is held
+    assert ship.placed[_pr._KEY][0] is None
+    w_airport, w_objects, w_cache, w_law = pickle.loads(pickle.dumps(
+        (airport, oo[0], ship, law), protocol=5))
+    assert _pr.adopt(w_airport, w_objects, w_cache, w_law)
+    got, _g = planar_build(w_airport, cl0, w_law, cache=w_cache, objects=w_objects,
+                           object_report=st1.basins.objects)
+    assert calls == {n: 1 for n in READERS}
+    fresh, _f = planar_build(airport, cl0, law, cache=_cache(law), objects=oo[0],
+                             object_report=st1.basins.objects)
+    _same_map(got, fresh)
+    # read for another object list: nothing to adopt, the worker reads afresh
+    other = _pr.shipped(airport, list(oo[0]), cache, law)
+    assert _pr._KEY not in other.placed
+    assert not _pr.adopt(airport, oo[0], other, law)

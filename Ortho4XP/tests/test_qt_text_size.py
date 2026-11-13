@@ -43,6 +43,7 @@ def make_window(qapp, tmp_path, monkeypatch):
 
     write_prefs()
     monkeypatch.setattr(GUI, "PREFS_FILE", prefs_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     monkeypatch.setattr(
         GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "tile-scan.json"))
     saved_stdout = sys.stdout

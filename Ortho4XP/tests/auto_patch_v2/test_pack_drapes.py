@@ -223,6 +223,41 @@ def test_masks_over_the_hidden_photos_go_with_them(pack, tmp_path):
                      for k in range(1, 7)}
 
 
+def _small_grid(pack, rows: int, cols: int, d: float = 0.0004) -> list:
+    """WED's photo laid as many SMALL tiles (issue #2036, SBRJ: 839 tiles
+    of 34-145 m named ``images/sdu_ortophoto_<r>x<c>.pol``, no
+    ``LOAD_CENTER``): ``rows`` x ``cols`` tiles of ``d`` degrees going
+    north from the runway, each under ``MIN_SPAN_M``."""
+    out = []
+    for r in range(rows):
+        for c in range(cols):
+            rel = f"images/sdu_ortophoto_{r}x{c}"
+            (pack / f"{rel}.pol").parent.mkdir(parents=True, exist_ok=True)
+            (pack / f"{rel}.pol").write_text(
+                "A\n850\nDRAPED_POLYGON\nDECAL_LIB lib/g10/decals/x.dcl\n"
+                f"LAYER_GROUP beaches -1\n\nTEXTURE_NOWRAP sdu_ortophoto_{r}x{c}.dds\n"
+                "SCALE 25.000000 25.000000", encoding="utf-8", newline="")
+            (pack / f"{rel}.dds").write_bytes(_dds(True))
+            out.append((f"images\\sdu_ortophoto_{r}x{c}.pol", 0.0,
+                        (51.004 + d * c, 25.000 + d * r, d)))
+    return out
+
+
+def test_a_grid_of_small_tiles_is_photo_sized_by_its_extent(pack):
+    small = _small_grid(pack, rows=20, cols=2)
+    assert all(PD._span_m((lon, lat, lon + d, lat + d)) < PD.MIN_SPAN_M
+               for _p, _t, (lon, lat, d) in small), "every tile is small"
+    found = {m.path for m in _found(pack, _dump(DEFS[:9] + small))}
+    assert found == {p for p, _t, _w in small}, \
+        "the grid's 885 m extent makes its tiles a photo (#2036)"
+
+
+def test_a_lone_small_tile_is_no_photo(pack):
+    small = _small_grid(pack, rows=1, cols=1)
+    assert _found(pack, _dump(DEFS[:9] + small)) == (), \
+        "no grid and no LOAD_CENTER: a small polygon is a decal"
+
+
 def test_draped_pavement_and_markings_are_never_photos(pack):
     for rel in ("ground/asphalt.pol", "ground/stripe.pol"):
         assert not PD.is_ortho_header(PD.pol_header(str(pack / rel)))

@@ -17,6 +17,7 @@ import O4_Rebuild_Cache as REBUILD
 import O4_Text_Files as TEXT
 import O4_Geo_Utils as GEO
 import O4_Mesh_IO as MESH_IO
+import O4_Mesh_Pins as MESH_PINS
 import O4_Triangle_IO as TRI_IO
 import O4_Triangle_Binary as TRI_BIN
 import O4_Proj_Runtime as PROJRT
@@ -913,6 +914,16 @@ def patch_valued_vertex_indices(tile, vertices):
 
     Returns ``None`` when it cannot be established.
     """
+    found = _patch_ring_vertex_indices(tile, vertices)
+    return None if found is None else found[0] | found[1]
+
+
+def _patch_ring_vertex_indices(tile, vertices, *, quiet=False):
+    """``(ring, clamped)``: the 0-based endpoints of the input ``.poly``'s
+    ``PATCH_RING_MARKER`` edges, and the input vertices the mesher clamped
+    onto the tile edge (see :func:`patch_valued_vertex_indices`, their
+    union).  ``None`` when it cannot be established -- loudly unless
+    ``quiet``."""
     try:
         nodes = TRI_IO.read_node_text(FNAMES.input_node_file(tile))
         count = nodes.n_vertices
@@ -921,6 +932,8 @@ def patch_valued_vertex_indices(tile, vertices):
         (moved, clamped) = _input_order_check(
             nodes.xy, vertices[0:6 * count:6], vertices[1:6 * count:6])
         if moved.any():
+            if quiet:
+                return None
             UI.lvprint(
                 1,
                 "WARNING: the mesher did not preserve the input "
@@ -931,12 +944,14 @@ def patch_valued_vertex_indices(tile, vertices):
         # #1296: a vertex the mesher clamped onto the tile edge is
         # BOUNDARY — it keeps its carried value (Dirichlet), never
         # re-valued from the interior.
-        indices = set(numpy.flatnonzero(clamped).tolist())
+        ring = set()
         for a, b in _patch_ring_edges(tile):
-            indices.add(a)
-            indices.add(b)
-        return indices
+            ring.add(a)
+            ring.add(b)
+        return (ring, set(numpy.flatnonzero(clamped).tolist()))
     except Exception as error:
+        if quiet:
+            return None
         UI.lvprint(
             1,
             "WARNING: could not read the vector inputs to find the "
@@ -2345,6 +2360,18 @@ def post_process_nodes_altitudes(tile):
         vertices[6 * v1 + 4] = 0
         vertices[6 * v2 + 4] = 0
         vertices[6 * v3 + 4] = 0
+    # #2034: a patch-pinned vertex no INTERP_ALT triangle reached (an open
+    # ``structure_rim`` foot outside every ring) takes its value too.
+    pins = _patch_ring_vertex_indices(tile, vertices, quiet=True)
+    if pins is not None:
+        stranded = MESH_PINS.pin_stranded_patch_vertices(
+            vertices, pins[0], interp_alt_tris, water_valued, pavement_shore)
+        if stranded:
+            UI.vprint(
+                1,
+                f"   Patch pins: {len(stranded)} patch-pinned vertex(es) "
+                "touched no INTERP_ALT triangle and took their patch value "
+                "instead of the DEM (#2034).")
     if lifted_water:
         UI.vprint(
             1,
@@ -2685,6 +2712,9 @@ def build_mesh(tile):
                 ELEVATION_LEVEL.bake_approach_rings_into_alt_dem(
                     tile, getattr(tile, "dico_airports", None) or {})
                 INSETS.bake_airport_insets_into_alt_dem(tile)
+                # owner RULINGS 2026-11-13k: and the terrain models' cut
+                import auto_patch.terrain_cut_stage as TERRAIN_CUT
+                TERRAIN_CUT.bake(tile)
                 tile.dem.write_to_file(FNAMES.alt_file(tile))
         except Exception as e:
             print(e)

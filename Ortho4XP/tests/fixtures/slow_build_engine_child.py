@@ -71,7 +71,7 @@ def _install_stub_pipeline():
     tile_module = types.ModuleType("O4_Tile_Utils")
     tile_module.build_tile = lambda tile: 1
     overlay_module = types.ModuleType("O4_Overlay_Utils")
-    overlay_module.build_overlay = lambda lat, lon: 1
+    overlay_module.auto_overlay = lambda lat, lon, scenery_dir: 1
     imagery_module = types.ModuleType("O4_Imagery_Utils")
     imagery_module.initialize_extents_dict = lambda: None
     imagery_module.initialize_color_filters_dict = lambda: None

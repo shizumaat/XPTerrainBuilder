@@ -3,7 +3,9 @@
 Show the tile's folder in the platform's file manager (Finder, Explorer,
 or the default file manager; ``O4_Reveal``), greyed out while the tile has
 no folder yet.  The patch editor adds its own items for the selection
-(``extra``: "Set elevation…" on selected shapes, #1357).
+(``extra``: "Set elevation…" on selected shapes, #1357).  "Export
+Package…" ends it (#2014): File ▸ Export Package… for the clicked tile
+or the selection.
 """
 
 from __future__ import annotations
@@ -19,9 +21,12 @@ __all__ = ["tile_menu"]
 
 
 def tile_menu(parent, lat: int, lon: int, build_dir: str,
-              extra: _t.Sequence[tuple[str, _t.Callable[[], _t.Any]]] = ()) -> QMenu:
-    """The menu for tile (lat, lon) whose folder is ``build_dir``; each
-    ``(title, run)`` of ``extra`` comes first, above a separator."""
+              extra: _t.Sequence[tuple[str, _t.Callable[[], _t.Any]]] = (),
+              export_package: _t.Callable[[], _t.Any] | None = None) -> QMenu:
+    """The menu for tile (lat, lon) whose folder (or World pack DSF,
+    #2027) is ``build_dir``; each
+    ``(title, run)`` of ``extra`` comes first, above a separator;
+    ``export_package`` adds File ▸ Export Package… last (#2014)."""
     menu = QMenu(parent)
     for title, run in extra:
         menu.addAction(title).triggered.connect(lambda _c=False, run=run: run())
@@ -29,7 +34,7 @@ def tile_menu(parent, lat: int, lon: int, build_dir: str,
         menu.addSeparator()
     menu.setTitle(FNAMES.short_latlon(lat, lon))
     action = menu.addAction(REVEAL.menu_label())
-    exists = bool(build_dir) and os.path.isdir(build_dir)
+    exists = bool(build_dir) and os.path.exists(build_dir)
     action.setEnabled(exists)
     if not exists:
         action.setToolTip("This tile has no folder yet: build it first.")
@@ -43,4 +48,8 @@ def tile_menu(parent, lat: int, lon: int, build_dir: str,
                 "Could not show %s: %s" % (build_dir, exc))
 
     action.triggered.connect(_reveal)
+    if export_package is not None:
+        import O4_Qt_Tile_Package as QTPKG
+        menu.addAction(QTPKG.EXPORT_TITLE).triggered.connect(
+            lambda _c=False: export_package())
     return menu

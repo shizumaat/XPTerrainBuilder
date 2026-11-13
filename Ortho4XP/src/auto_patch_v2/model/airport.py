@@ -481,6 +481,17 @@ class Airport:
     #: shade.  Same reader rule as ``wall_shade``; ``None`` = none, or not
     #: derived (a capture written before it).
     entrance_shade: _t.Any = None
+    #: #1971 THE DECK STACKS (``model.deck_stack.DeckStack``, derived at the
+    #: pack stage by ``airport/deck_stack``): a trench's floor and the hard
+    #: decks spanning it, one zero.  Empty = none (or a capture before them).
+    deck_stacks: tuple = ()
+    #: #1971 the stacks' floors and walls, which no pad takes (same reader
+    #: rule as ``entrance_shade``); ``None`` = none, or not derived.
+    stack_shade: _t.Any = None
+    #: #1971 the OSM ways AS MAPPED, before a stack deck's carried stretch was
+    #: rewritten a mapped bridge (``airport/deck_carry.bridge_stretches``):
+    #: the derivation always starts from them.  ``None`` = no rewrite.
+    osm_ways_mapped: tuple | None = None
     #: issue #1633 round 3 THE RETAINING WALLS READ AS TWO LEVELS
     #: (``airport/wall_sides.WallSides``: footprint, upper and lower side
     #: bands, smear, the object's top): a road is never on both sides of
@@ -500,6 +511,12 @@ class Airport:
     #: ground under it is drawn to its surface (``constraints/
     #: terrain_shaped``).  Empty = none (or a capture written before them).
     terrain_decks: tuple = ()
+    #: owner RULINGS 2026-11-13i (#2036 (c), #2040): THE TERRAIN MODELS'
+    #: ORIGIN SETS, one ``(placement id, def path, terrain_model.
+    #: TerrainModel, authored lift)`` per row, recognised on the pack
+    #: reading: written ``OBJECT_MSL`` at the model's no-float seat
+    #: (``terrain_model.seat_records``).  Empty = none.
+    terrain_models: tuple = ()
     #: RULINGS 2026-11-03 (answer 4 to Q-D, #1738): an installed COMPANION
     #: TERRAIN MESH's below-grade regions (``airport/terrain_mesh_witness``),
     #: read at load from the pre-build dump.  ``None`` = none installed (or a

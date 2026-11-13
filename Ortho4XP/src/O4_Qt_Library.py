@@ -1,9 +1,10 @@
-"""Library mode's tiles table (#824; a window until RULINGS 2026-11-10j;
-above the map since #2007, where the console is in Build -- the window's
-``map_split``): every built tile with its size, zoom level, imagery
-source, built date, graded airports, modified packs and the "In X-Plane"
-switch, its total, and the actions on the selection under it.  The
-caches are the side pane's Caches line (``O4_Qt_Library_Storage``).
+"""The tiles table (#824; Library mode's from RULINGS 2026-11-10j until
+11k retired the mode).  PARKED (owner 2026-11-11T15:35Z: the developer
+tools of 11k (3) wait): no window shows it until its home is ruled; the
+code stays.  Every built tile with its size, zoom level, imagery source,
+built date, graded airports, modified packs and the "In X-Plane" switch,
+its total, and the actions on the selection under it.  The caches are
+Settings ▸ Storage's Caches line (``O4_Qt_Library_Storage``).
 
 The Qt face of :mod:`o4_engine.library` — the Mac app's ``LibraryView``
 drives the same functions through the engine's ``library_*`` commands.
@@ -15,8 +16,8 @@ never rebuilt or deleted.  Deleting and freeing space ask first.
 to another installation (#1699 phase 1, ``tile_bundle``; the Mac app's
 Library has the same two buttons).  The "Patch library" box and "Publish
 patch…" are the shared patch library (#1699 phase 2,
-``O4_Qt_Patch_Library``; the Mac app's ``PatchLibraryView``); the pane
-places the box (it is a section of its own there).
+``O4_Qt_Patch_Library``; the Mac app's ``PatchLibraryView``); its future
+home places the box.
 """
 
 import threading
@@ -26,6 +27,7 @@ import O4_Imagery_OnDemand_Text as ONDEMAND_TEXT
 import O4_Qt_Imagery_OnDemand as QTONDEMAND
 import O4_Qt_Patch_Library as PATCHLIB
 import O4_Scenery_Links as LINKS
+import O4_World_State_Text as WORLD_TEXT
 from o4_engine import library as LIB
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -57,6 +59,8 @@ COLUMNS = (
     ("Packs modified", "packs_modified"),
     ("In X-Plane", "in_xplane"),
     ("Built by", "built_by"),
+    # What the World pack draws there (#2024).
+    (WORLD_TEXT.COLUMN_TITLE, "world"),
 )
 SIZE_COLUMN = 1
 IN_XPLANE_COLUMN = 7
@@ -107,7 +111,18 @@ def _cell(row, key):
     if key == "built_by":
         text = "XPTerrainBuilder" if value == LIB.BUILT_HERE else "Other tool (read-only)"
         return text, text
+    if key == "world":
+        text = WORLD_TEXT.cell_text(value)
+        return text, text
     return str(value or ""), str(value or "")
+
+
+def _exported_text(tile: str, done: dict) -> str:
+    """The status line of a Library export, with the engine's warning for
+    a package built from a source whose terms do not allow sharing it
+    (owner 2026-11-12; Mac: ``LibraryView.exportBundle``)."""
+    text = "Exported %s (%s)." % (tile, fmt_size(done["bytes"]))
+    return text + (" " + done["warning"] if done.get("warning") else "")
 
 
 class _Item(QTableWidgetItem):
@@ -221,7 +236,7 @@ class LibraryTilesSection(QWidget):
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
-        # Not laid out here: the Library pane places it as its own section.
+        # Not laid out here: the table's home places it (parked, 11k).
         self.patch_box = PATCHLIB.PatchLibraryBox(working_dir, building)
 
         self.loaded.connect(self._on_loaded)
@@ -321,20 +336,20 @@ class LibraryTilesSection(QWidget):
         self.publish_btn.setEnabled(len(rows) == 1 and writable and not busy
                                     and bool(rows[0]["airports"]))
         pin = self._pin_target()
-        self.pin_btn.setEnabled(pin is not None and not busy)
+        # A Favorite is set a build running or not (#2033).
+        self.pin_btn.setEnabled(pin is not None)
         self.pin_btn.setText(ONDEMAND_TEXT.UNPIN_TITLE
                              if pin is not None and pin.get("pinned")
                              else ONDEMAND_TEXT.PIN_TITLE)
 
     # ── pins (#1992 §7) ─────────────────────────────────────────────────
     def _pin_target(self):
-        """The one selected tile a pin applies to (built on demand or
-        pinned, by this app), else None."""
+        """The one selected tile that can be a Favorite (any tile this app
+        built, #2033), else None."""
         rows = self.selected_rows()
         if len(rows) != 1 or rows[0]["read_only"]:
             return None
-        row = rows[0]
-        return row if row.get("on_demand") or row.get("pinned") else None
+        return rows[0]
 
     def _tile_menu(self, point):
         row = self._pin_target()
@@ -343,7 +358,6 @@ class LibraryTilesSection(QWidget):
         menu = QMenu(self)
         action = menu.addAction(ONDEMAND_TEXT.UNPIN_TITLE if row.get("pinned")
                                 else ONDEMAND_TEXT.PIN_TITLE)
-        action.setEnabled(not self._building())
         action.triggered.connect(self._toggle_pin)
         menu.popup(self.table.viewport().mapToGlobal(point))
 
@@ -441,9 +455,8 @@ class LibraryTilesSection(QWidget):
             return
         row = rows[0]
         self.status_label.setText("Exporting %s…" % row["tile"])
-        self._run(lambda: "Exported %s (%s)." % (row["tile"], fmt_size(
-            LIB.library_export_bundle(row["lat"], row["lon"], self.working_dir,
-                                      folder)["bytes"])), self.done)
+        self._run(lambda: _exported_text(row["tile"], LIB.library_export_bundle(
+            row["lat"], row["lon"], self.working_dir, folder)), self.done)
 
     def _import_bundle(self):
         path = self.choose_bundle("Import library bundle")

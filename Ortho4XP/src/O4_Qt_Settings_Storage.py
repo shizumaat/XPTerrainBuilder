@@ -1,8 +1,8 @@
-"""Library ▸ Caches ▸ Details…: the data folder's sizes and Clear
-buttons, as the Mac app shows them (#1724; Settings ▸ Storage until 10j,
-its own window since #2007; ``StorageSettingsView.swift``'s
-``StorageSection``).  The Library pane's data folder, disk budget and
-Caches line read this section's scan (:attr:`StorageSection.scan_shown`,
+"""Settings ▸ Storage ▸ Caches ▸ Details…: the data folder's sizes and
+Clear buttons, as the Mac app shows them (#1724; its own window since
+#2007; ``StorageSettingsView.swift``'s ``StorageSection``).  Settings ▸
+Storage's data folder, disk budget and Caches line (RULINGS 2026-11-11k;
+the Library pane's until then) read this section's scan (:attr:`StorageSection.scan_shown`,
 ``O4_Qt_Library_Storage``).
 
 Every store of the data folder with the space deleting it frees and when
@@ -28,7 +28,7 @@ import O4_Storage_Text as STORAGE_TEXT
 from o4_engine import storage as STORAGE
 from O4_Qt_Library import emit_from_thread, fmt_size
 from O4_Qt_Settings_General import _row, _Section, _value
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -45,6 +45,9 @@ AGE_CHOICES = (30, 60, 90, 180, 365)
 NOTE_STYLE = "color: gray; font-size: 11px;"
 WARNING_STYLE = "color: #C0392B; font-size: 11px;"
 BUSY = "A build is running; stop it or let it finish before deleting anything."
+#: A shown scan older than this is measured again, quietly (#2029; the
+#: Mac app's ``StorageModel.staleAfterSeconds``).
+STALE_AFTER_S = 300.0
 #: The one disk budget's setting (``storage_budget.SETTING``).
 BUDGET_SETTING = "storage_budget_gb"
 
@@ -94,7 +97,7 @@ class StorageSection(_Section):
 
     title = "Data Folder"
     loaded = Signal(object)
-    #: Every scan shown (the Library pane's rows follow it).
+    #: Every scan shown (Settings ▸ Storage's rows follow it).
     scan_shown = Signal(object)
     cleared = Signal(object)
     previewed = Signal(object)
@@ -139,6 +142,8 @@ class StorageSection(_Section):
              self.older_btn)
         self.clear_buttons = {}
         self.scan = None
+        self._refreshing = False
+        self._polling = False
         self.loaded.connect(self._on_loaded)
         self.cleared.connect(self._on_cleared)
         self.previewed.connect(self._on_previewed)
@@ -149,11 +154,39 @@ class StorageSection(_Section):
         emit_from_thread(work, signal, "o4-qt-storage")
 
     def refresh(self):
-        self.status_label.setText("Measuring the data folder…")
+        # A result already shown stays, with a quiet note (#2029).
+        self.status_label.setText(STORAGE_TEXT.UPDATING if self.scan
+                                  else "Measuring the data folder…")
         self.refresh_btn.setEnabled(False)
+        self._refreshing = True
         self._run(STORAGE.storage_scan, self.loaded)
 
+    def show_shared(self, refresh=None):
+        """Settings ▸ Storage shown (#2029): the engine's background scan
+        (``o4_engine.storage_shared``) at once; while its refresh runs,
+        "Updating…" and a look every 2 s; a missing or old one is measured
+        again (``refresh``: the caller's, default :meth:`refresh`)."""
+        from o4_engine import storage_shared as SHARED
+        if self._refreshing or self._polling:
+            return
+        refresh = refresh or self.refresh
+        shared = SHARED.storage_scan_cached()
+        if shared["scan"] is not None and shared["scan"] is not self.scan:
+            self.set_scan(shared["scan"])
+        if shared["updating"]:
+            self.status_label.setText(STORAGE_TEXT.UPDATING)
+            self._polling = True
+            QTimer.singleShot(2000, lambda: self._poll_shared(refresh))
+        elif shared["scan"] is None or (shared["age_s"] or 0) > STALE_AFTER_S:
+            refresh()
+
+    def _poll_shared(self, refresh):
+        self._polling = False
+        self.status_label.setText("")
+        self.show_shared(refresh)
+
     def _on_loaded(self, result):
+        self._refreshing = False
         self.refresh_btn.setEnabled(True)
         if isinstance(result, Exception):
             self.status_label.setText(str(result))

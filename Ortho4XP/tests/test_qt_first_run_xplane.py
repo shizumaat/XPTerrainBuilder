@@ -108,6 +108,7 @@ def window(qapp, tmp_path, monkeypatch):
         # modal exec would sit there forever headless.
         json.dump({"output_dir": str(tmp_path)}, handle)
     monkeypatch.setattr(GUI, "PREFS_FILE", prefs_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     monkeypatch.setattr(
         GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "tile-scan.json"))
     import O4_UI_Utils as UI

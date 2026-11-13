@@ -16,6 +16,7 @@ import AppKit
 final class FlyModel: ObservableObject {
     static let simPriorityKey = "FlySimPriority"
     static let livePreviewKey = "FlyLivePreview"
+    static let sharpPhotoKey = "FlySharpPhoto"
 
     weak var build: BuildModel?
 
@@ -32,6 +33,9 @@ final class FlyModel: ObservableObject {
     @Published private(set) var message: String?
     @Published var quickFrom = ""
     @Published var quickTo = ""
+    /// Airports a map click filled in, by code: Use finds a custom
+    /// airport X-Plane's list lacks here (#2026).
+    private var clicked: [String: (ident: String, lat: Double, lon: Double)] = [:]
     /// Off by default (RULINGS 2026-11-10g); per flight, never remembered.
     @Published var buildAlternate = false {
         didSet { if buildAlternate != oldValue { update(["build_alternate": buildAlternate]) } }
@@ -49,11 +53,49 @@ final class FlyModel: ObservableObject {
             preview.setEnabled(watching && livePreview)
         }
     }
+    /// The live preview's "Sharp photo" toggle (#2031, default on): the
+    /// map outlines the squares X-Plane holds at full resolution.
+    @Published var sharpPhoto: Bool {
+        didSet { UserDefaults.standard.set(sharpPhoto, forKey: Self.sharpPhotoKey) }
+    }
+    /// The drapes' photo width (`drape_photo_px`, the engine's global
+    /// setting, read per tile by build-ahead; RULINGS 2026-11-11j).
+    var drapePx: Int {
+        get {
+            guard let value = build?.configValue(for: FlyText.drapePxKey) else { return 512 }
+            return value.intValue ?? Int(value.cfgLiteral) ?? 512
+        }
+        set {
+            objectWillChange.send()
+            build?.setConfigValue(FlyText.drapePxKey, to: .int(newValue))
+        }
+    }
+    /// The photo source the World pack's builds fetch (the app setting
+    /// `fly_photo_source`, owner 2026-11-12T19:17Z), read per build by the
+    /// engine: Automatic (#2018, the default) or one provider's code.
+    var photoSource: String {
+        get {
+            let value = build?.configValue(for: FlyText.photoSourceKey)?.cfgLiteral ?? ""
+            return value.isEmpty ? FlyText.photoSourceAuto : value
+        }
+        set {
+            guard !newValue.isEmpty else { return }
+            objectWillChange.send()
+            build?.setConfigValue(FlyText.photoSourceKey, to: .string(newValue))
+        }
+    }
     let preview = LivePreviewModel()
     @Published private(set) var status: O4FlightStatus?
     @Published private(set) var worldStatus: O4JSON?
+    /// The aircraft's own tile (`WorldStatus.here`, #2020): the pane's
+    /// "Preparing imagery at ..." with no plan.
+    @Published private(set) var here: O4JSON?
+    /// Build-ahead's tiles in free flight (`WorldStatus.jobs`).
+    @Published private(set) var worldJobs: [O4FlightStatus.Job] = []
     @Published private(set) var track = AircraftTrack()
     @Published private(set) var position: O4AircraftPosition?
+    /// When `position` arrived (`FlyText.aircraftIsCurrent`, #2016).
+    @Published private(set) var positionAt: Date?
     /// "Divert…": the airport search sheet and its query (lane F2).
     @Published var divertShown = false
     @Published var divertQuery = ""
@@ -74,6 +116,7 @@ final class FlyModel: ObservableObject {
         let defaults = UserDefaults.standard
         simPriority = defaults.string(forKey: Self.simPriorityKey) ?? "balanced"
         livePreview = defaults.bool(forKey: Self.livePreviewKey)
+        sharpPhoto = defaults.object(forKey: Self.sharpPhotoKey) as? Bool ?? true
         preview.context = { [weak build] in
             guard let build, build.engineCapabilities.supports(O4EngineCapabilities.livePreview),
                   let context = build.libraryContext() else { return nil }
@@ -89,13 +132,16 @@ final class FlyModel: ObservableObject {
     }
 
     var cells: [FlyCell] {
-        FlyLayers.corridorCells(plan: plan, corridorKm: Double(corridorKm), jobs: status?.jobs ?? [])
+        FlyLayers.corridorCells(plan: plan, corridorKm: Double(corridorKm),
+                                jobs: FlyLayers.mapJobs(flight: status?.jobs ?? [],
+                                                        planned: plan != nil, ahead: worldJobs))
     }
 
     // MARK: - Events
 
     func show(_ position: O4AircraftPosition) {
         self.position = position
+        positionAt = Date()
         track.add(lat: position.lat, lon: position.lon, track: position.trackDegrees)
     }
 
@@ -119,8 +165,18 @@ final class FlyModel: ObservableObject {
         FlightNotifier.post(notice)
     }
 
-    /// A `WorldStatus`'s fields (lane W1 calls this).
-    func showWorld(_ fields: O4JSON) { worldStatus = fields }
+    /// A `WorldStatus` (every 2 s while build-ahead runs): the World line's
+    /// fields and the tiles it lays ahead in free flight.
+    func showWorld(_ status: O4WorldStatus) {
+        worldStatus = .object([
+            "state": .string(status.state), "reason": .string(status.reason),
+            "building": .array(status.building.map { .string($0.tile) }),
+            "loaded": .array(status.loaded.map { .string($0) }),
+        ])
+        if worldJobs != status.jobs { worldJobs = status.jobs }
+        if here != status.here { here = status.here }
+        preview.worldSwapped(status.lastSwap)
+    }
 
     /// Aircraft positions while Fly is shown (`aircraft_watch`).
     func setWatching(_ on: Bool) {
@@ -128,7 +184,22 @@ final class FlyModel: ObservableObject {
         watching = on
         preview.setEnabled(on && livePreview)
         context.client.aircraftWatch(on: on)
-        if on { refreshPlans() }
+        if on {
+            refreshPlans()
+            refreshStatus()
+        }
+    }
+
+    /// Fly opens: the active flight's status (`flight_status`, the
+    /// record's when its job does not run), so a prepared flight shows
+    /// and "End flight" works even when no `FlightStatus` came (#2019).
+    /// Python: `O4_Qt_Fly_Pane.refresh_status`.
+    func refreshStatus() {
+        command("flight_status", [:]) { [weak self] reply in
+            guard let self, self.status == nil,
+                  let status = O4FlightStatus.parse(reply) else { return }
+            self.status = status
+        }
     }
 
     // MARK: - Naming the flight
@@ -149,7 +220,9 @@ final class FlyModel: ObservableObject {
         switch choice {
         case "": break
         case "simbrief": fetchSimBrief()
-        case "none": plan = nil
+        case "none":
+            plan = nil
+            followAircraft()
         default: readPlan(path: choice)
         }
     }
@@ -178,26 +251,65 @@ final class FlyModel: ObservableObject {
         command("flight_plan_simbrief", ["user": simBriefUser]) { _ in }
     }
 
-    /// The departure + arrival quick entry, from X-Plane's airport list.
+    /// The departure + arrival quick entry, from X-Plane's airport list;
+    /// an empty To is a departure-only plan (#2023). A To added to the
+    /// active departure-only flight plans it again (`flight_update
+    /// {destination}`). Qt: `O4_Qt_Fly_Pane.use_quick_entry`.
     func useQuickEntry() {
         guard let build else { return }
-        func find(_ code: String) -> GlobalAirport? {
+        func find(_ code: String) -> (ident: String, lat: Double, lon: Double)? {
             let ident = code.trimmingCharacters(in: .whitespaces).uppercased()
+            if let hit = clicked[ident] { return hit }
             return build.globalAirports.first { $0.icao.uppercased() == ident }
+                .map { ($0.icao, $0.latitude, $0.longitude) }
         }
         guard let dep = find(quickFrom) else { message = FlyText.unknownAirport(quickFrom); return }
-        guard let arr = find(quickTo) else { message = FlyText.unknownAirport(quickTo); return }
+        var arrival: (ident: String, lat: Double, lon: Double)?
+        if !quickTo.trimmingCharacters(in: .whitespaces).isEmpty {
+            guard let arr = find(quickTo) else { message = FlyText.unknownAirport(quickTo); return }
+            arrival = arr
+        }
         message = nil
-        plan = .quick(from: (dep.icao, dep.latitude, dep.longitude),
-                      to: (arr.icao, arr.latitude, arr.longitude))
+        let made = O4FlightPlanRead.quick(from: dep, to: arrival)
+        if let added = FlyText.addedDestination(status, made) {
+            update(["destination": ["ident": added.ident, "lat": added.lat, "lon": added.lon]])
+        }
+        plan = made
+    }
+
+    /// A click on map cell (lat, lon) in the Fly view (#2026): with From
+    /// and To empty, From takes the cell's largest custom airport (else
+    /// its largest airport); a ⌘-click once From is filled takes To. True
+    /// when it filled a field (the click is then not a cell selection).
+    /// `custom` are the enabled packs' airport marks. Qt:
+    /// `O4_Qt_Fly_Pane.FlyPane.map_click`.
+    func mapClick(lat: Int, lon: Int, command: Bool,
+                  custom: [(code: String, latitude: Double, longitude: Double)]) -> Bool {
+        guard let build,
+              let field = FlyText.mapClickField(command: command, from: quickFrom, to: quickTo),
+              let pick = AirportRank.cellAirport(AirportTile(lat: lat, lon: lon),
+                                                 index: build.globalAirports, custom: custom)
+        else { return false }
+        clicked[pick.code.uppercased()] = (pick.code, pick.latitude, pick.longitude)
+        switch field {
+        case .from: quickFrom = pick.code
+        case .to: quickTo = pick.code
+        }
+        message = nil
+        return true
     }
 
     // MARK: - The flight manager (lane F1b's commands)
 
     func prepare() {
         guard let plan else { return }
+        // the engine emits the first FlightStatus at once; the status is
+        // asked as well, so the pane shows the flight from Prepare on
+        // (owner 2026-11-12T19:02Z). Qt: `FlyPane.prepare`.
         command("flight_create", ["plan": plan.wire, "build_alternate": buildAlternate,
-                                  "cruise_kt": cruiseKt, "corridor_km": corridorKm]) { _ in }
+                                  "cruise_kt": cruiseKt, "corridor_km": corridorKm]) { [weak self] _ in
+            self?.refreshStatus()
+        }
     }
 
     private func update(_ arguments: [String: Any]) {
@@ -225,15 +337,36 @@ final class FlyModel: ObservableObject {
         command("flight_divert", ["flight": flight, "to": to]) { _ in }
     }
 
-    /// The reload in the air (S6 (b)): "Reload scenery now" / "Not now".
-    func reload(notNow: Bool) {
+    /// The offered reload (S6 (a), (b)): the pilot's "Reload scenery now",
+    /// the only way it is sent (owner 2026-11-12).
+    func reload() {
         guard let flight = status?.flight else { return }
-        command("flight_reload", ["flight": flight, "not_now": notNow]) { _ in }
+        command("flight_reload", ["flight": flight]) { _ in }
+    }
+
+    /// An adopted departure or destination (#2025): "Fly the existing
+    /// mesh" (`keep`) or "Upgrade with XPTerrainBuilder grading"
+    /// (`upgrade`), remembered for the tile. Python:
+    /// `O4_Qt_Fly_Pane.choose`.
+    func choose(_ row: O4FlightStatus.Choice, _ choice: String) {
+        guard let flight = status?.flight else { return }
+        command("flight_choose", ["flight": flight, "tile": [row.lat, row.lon],
+                                  "choice": choice]) { _ in }
     }
 
     /// "Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3).
     func waiveOffline() {
         update(["waive_offline": true])
+    }
+
+    /// "No plan: follow the aircraft": a flight still preparing or ready
+    /// closes (`flight_end {if_prepared: true}`) so a stale prepared record
+    /// never owns build-ahead; one in the air stays (#2019). Track mode runs
+    /// either way. Python: `O4_Qt_Fly_Pane.follow_aircraft`.
+    func followAircraft() {
+        command("flight_end", ["if_prepared": true]) { [weak self] reply in
+            if reply?["flight"]?.stringValue != nil { self?.status = nil }
+        }
     }
 
     func endFlight() {

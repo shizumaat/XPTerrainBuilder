@@ -44,3 +44,34 @@ def test_lines_fill_every_slot():
                      "140 linked to Ortho8TB (not connected), not measured"]
     assert TEXT.ondemand_warning({"over_at_floor": True, "floor_bytes": 2e9,
                                   "cap_bytes": 1e9}).startswith("Your on-demand")
+
+
+def test_the_slider_preview_says_what_a_budget_clears():
+    """#2022: one sentence per budget, from the ladder, cheapest first;
+    airports keep full resolution until the clearing reaches them."""
+    budget = {"used_bytes": 300e9, "low_water": 0.9,
+              "ladder": {"caches": 20e9, "imagery": 50e9, "airport_imagery": 30e9,
+                         "favorites": 0, "rebuild": 5e9}}
+    assert TEXT.preview_text(budget, 300e9) == "Nothing is cleared: the 300.00 GB in use fits."
+    assert TEXT.preview_text(budget, 280e9) == (
+        "Frees about 48.00 GB: caches go first, then distant imagery goes back "
+        "to low res. Airports keep full resolution.")
+    assert TEXT.preview_text(budget, 200e9).endswith(
+        "then airport imagery goes back to low res, then older airport tiles "
+        "become packages.")
+    assert "{" not in TEXT.preview_text({"used_bytes": 1e9}, 0)
+
+
+def test_the_slider_ends_bar_and_notice_fill_every_slot():
+    budget = {"minimum_bytes": 12e9, "maximum_bytes": 500e9, "budget_bytes": 500e9,
+              "chosen_bytes": 800e9, "clamped": "followed",
+              "breakdown": {"placeholders": 1e9, "tiles": 5e9}}
+    low, high = TEXT.end_labels(budget)
+    assert low.startswith("Minimum: what's always kept") and "12.00 GB" in low
+    assert high.startswith("Most: as much as fits") and "500.00 GB" in high
+    assert "800.00 GB" in TEXT.range_notice(budget) and "500.00 GB" in TEXT.range_notice(budget)
+    assert TEXT.range_notice({"clamped": ""}) == ""
+    parts = TEXT.bar_parts(budget)
+    assert [p[0] for p in parts] == ["placeholders", "tiles", "packages",
+                                     "caches", "other"]
+    assert parts[1] == ("tiles", 5_000_000_000, "Tiles and mesh 5.00 GB")

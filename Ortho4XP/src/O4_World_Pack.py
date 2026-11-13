@@ -17,8 +17,11 @@ World spec 2026-11-10 §2.1).
 
 Every DSF in the pack says what it is through ``sim/creation_agent``
 (:func:`kind_of`, spec §18): a placeholder (:data:`PLACEHOLDER_AGENT`) is
-NOT a tile; a drape, light or full tile is a tile of that kind (the stage
-step stamps ``[world <kind>]`` onto the builder's agent, :func:`_stamp`).
+NOT a tile; a drape or full tile is a tile of that kind (the stage step
+stamps ``[world <kind>]`` onto the builder's agent, :func:`_stamp`).  The
+``light`` kind is retired (spec §17, RULINGS 2026-11-11j): a tile an
+earlier test app stamped ``[world light]`` is a mesh tile of ours and
+reads ``full``.
 
 Publishing a build (spec §7.3): :func:`_stage_tile` lays the build folder
 out in the pack's shape under a staging folder -- textures hard-linked,
@@ -32,7 +35,8 @@ Placeholders are written in pure Python (:func:`write_placeholder`,
 DSFTool in a twin.  DSFTool is used here only by the drape writer
 (``O4_World_Drape``) through :func:`dsftool_path`.
 
-Standard library plus ``O4_DSF_Binary`` / ``O4_DSF_Header`` and
+Standard library plus ``O4_DSF_Binary`` / ``O4_DSF_Header``,
+``O4_World_Imagery_Record`` (which provider draws each tile, #2018) and
 ``O4_Scenery_Packs`` (all stdlib-only), so the module still runs from a kit
 copy beside the engine checkout.
 """
@@ -47,15 +51,18 @@ import subprocess
 from typing import Callable, Iterator
 
 import O4_DSF_Binary as DSFB
+import O4_World_Imagery_Record as IREC
 
 __all__ = [
     "PACK_NAME", "MARKER", "PLACEHOLDER_AGENT", "KINDS", "PLACEHOLDER_MAX_BYTES",
     "STAGING_DIR", "tile_name", "parse_tile",
     "dsf_relpath", "placeholder_text", "write_placeholder",
-    "write_placeholders", "is_placeholder", "kind_of", "pack_dsfs",
+    "write_placeholders", "is_placeholder", "kind_of", "kind_of_agent",
+    "pack_dsfs",
     "real_tiles", "holds_tile", "world_tiles", "block_tiles", "rewrite_ter",
     "rewrite_dsf_text", "relayout_tile", "verify_tile",
-    "publish", "swap_staged", "swap_in", "swap_out", "ini_install",
+    "publish", "swap_staged", "swap_in", "swap_out", "nothing_held",
+    "held_by_xplane", "ini_install",
     "ini_remove", "dsftool_path", "dsf_header",
 ]
 
@@ -66,14 +73,14 @@ MARKER = "XPTerrainBuilder_world.json"
 #: ``sim/creation_agent`` of a placeholder: how :func:`is_placeholder` knows one.
 PLACEHOLDER_AGENT = "XPTerrainBuilder world placeholder"
 #: The kinds of tile the pack holds (spec §3); ``placeholder`` is no tile.
-KINDS = ("placeholder", "drape", "light", "full")
+KINDS = ("placeholder", "drape", "full")
 #: A placeholder is 328 bytes; a DSF larger than this is never one, so a
 #: scan reads the head only of files this small.
 PLACEHOLDER_MAX_BYTES = 4096
 #: Staged tiles, under the data folder (never inside Custom Scenery).
 STAGING_DIR = "World_staging"
-_KIND_RE = re.compile(r"world (placeholder|drape|light|full)\b")
-_STAMP_RE = re.compile(r"\s*\[world (?:drape|light|full)\]$")
+_KIND_RE = re.compile(r"world (placeholder|drape|full)\b")
+_STAMP_RE = re.compile(r"\s*\[world \w+\]$")
 
 
 def tile_name(lat: int, lon: int) -> str:
@@ -138,14 +145,27 @@ def write_placeholder(pack: str, lat: int, lon: int) -> str:
 
 def write_placeholders(pack: str, tiles) -> dict:
     """A placeholder for every tile of ``tiles`` that has no DSF in
-    ``pack`` yet (a tile of ours is never overwritten).  Returns
+    ``pack`` yet (a tile of ours is never overwritten).  Batched for the
+    world's ~20k land tiles (#2019): the pack's DSFs are listed once
+    (:func:`pack_dsfs`), each 10° folder made once.  Returns
     ``{"written", "kept"}``."""
     out = {"written": 0, "kept": 0}
+    have = {key for key, _path, _size in pack_dsfs(pack)}
+    folders: set = set()
     for lat, lon in tiles:
-        if os.path.exists(os.path.join(pack, dsf_relpath(lat, lon))):
+        if (lat, lon) in have:
             out["kept"] += 1
             continue
-        write_placeholder(pack, lat, lon)
+        dest = os.path.join(pack, dsf_relpath(lat, lon))
+        folder = os.path.dirname(dest)
+        if folder not in folders:
+            os.makedirs(folder, exist_ok=True)
+            folders.add(folder)
+        partial = dest + ".partial"
+        with open(partial, "wb") as handle:
+            handle.write(DSFB.placeholder_bytes(lat, lon, PLACEHOLDER_AGENT))
+        os.replace(partial, dest)
+        have.add((lat, lon))
         out["written"] += 1
     return out
 
@@ -166,16 +186,23 @@ def is_placeholder(path: str, size: int | None = None) -> bool:
 
 
 def kind_of(path: str) -> str | None:
-    """What a World-pack DSF is: ``placeholder``, ``drape``, ``light`` or
-    ``full`` (its ``sim/creation_agent``; a DSF of ours with no stamp is a
-    ``full`` tile); ``None`` when there is no readable DSF."""
+    """What a World-pack DSF is: ``placeholder``, ``drape`` or ``full``
+    (its ``sim/creation_agent``; a DSF of ours with no stamp, or a retired
+    ``light`` stamp, is a ``full`` tile); ``None`` when there is no
+    readable DSF."""
     import O4_DSF_Header as DSFH
     if is_placeholder(path):
         return "placeholder"
     props = DSFH.dsf_properties(path)
     if props is None:
         return None
-    m = _KIND_RE.search(props.get("sim/creation_agent", ""))
+    return kind_of_agent(props.get("sim/creation_agent", ""))
+
+
+def kind_of_agent(agent: str) -> str:
+    """The kind a DSF's ``sim/creation_agent`` says (:data:`KINDS`; no
+    stamp, or a retired one, is ``full``)."""
+    m = _KIND_RE.search(agent)
     return m.group(1) if m else "full"
 
 
@@ -470,6 +497,7 @@ def swap_in(pack: str, staged: str, lat: int, lon: int,
     partial = dest + ".partial"
     if os.path.exists(partial):
         os.remove(partial)
+    IREC.carry(staged, pack, lat, lon)     # its provider record (#2018)
     _link_or_copy(os.path.join(staged, dsf_relpath(lat, lon)), partial)
     os.replace(partial, dest)
     return {"tile": tile, "dsf": dest, "was_placeholder": was_placeholder}
@@ -500,6 +528,7 @@ def _merge_in(pack: str, staged: str, lat: int, lon: int) -> dict:
     dest = os.path.join(pack, dsf_relpath(lat, lon))
     was_placeholder = is_placeholder(dest)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
+    IREC.carry(staged, pack, lat, lon)     # its provider record (#2018)
     _replace_with_link(os.path.join(staged, dsf_relpath(lat, lon)), dest)
     return {"tile": tile, "dsf": dest, "was_placeholder": was_placeholder,
             "stale": stale}
@@ -531,6 +560,34 @@ def swap_out(pack: str, lat: int, lon: int) -> str:
     return write_placeholder(pack, lat, lon)
 
 
+def nothing_held(pack: str, lat: int, lon: int) -> bool:
+    """May the tile be swapped in although X-Plane holds it (#2032)?  Yes
+    when the pack's DSF of it is a placeholder (or none) and the pack has
+    no terrain or texture file of it: a loaded placeholder names no file,
+    so the swap only ADDS names and replaces a DSF X-Plane read whole at
+    its load (loader rule R4).  Rules S4 and S5 change nothing X-Plane may
+    open; X-Plane shows the tile at its next load of it."""
+    dsf = os.path.join(pack, dsf_relpath(lat, lon))
+    if os.path.exists(dsf) and not is_placeholder(dsf):
+        return False
+    tile = tile_name(lat, lon)
+    for sub in ("terrain", "textures"):
+        with contextlib.suppress(FileNotFoundError, NotADirectoryError):
+            if any(not name.startswith(".")
+                   for name in os.listdir(os.path.join(pack, sub, tile))):
+                return False
+    return True
+
+
+def held_by_xplane(pack: str, loaded: Callable[[int, int], bool]
+                   ) -> Callable[[int, int], bool]:
+    """``loaded`` (rule S3: may X-Plane hold the tile?) less the tiles
+    with :func:`nothing_held`: the predicate :func:`publish` and
+    :func:`swap_staged` keep a tile staged by."""
+    return lambda lat, lon: (loaded(lat, lon)
+                             and not nothing_held(pack, lat, lon))
+
+
 def _stage_tile(build_dir: str, staging_root: str, lat: int, lon: int,
                kind: str = "full") -> dict:
     """Stage a built tile for the pack (spec §7.3 steps 2-3): an earlier
@@ -559,7 +616,8 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
     """Stage, verify and swap a built tile into ``pack`` (spec §7.3, rules
     S1-S4).  Nothing in the pack changes unless the staged tile verifies
     (S1); a tile ``loaded(lat, lon)`` says X-Plane may hold stays staged
-    (S3/S4) for :func:`swap_staged`.  Returns ``{"tile", "state"
+    (S3/S4) for :func:`swap_staged` (:func:`held_by_xplane` lets a tile
+    with :func:`nothing_held` through).  Returns ``{"tile", "state"
     ("swapped" | "staged" | "failed"), "problems", "counts"}``."""
     tile = tile_name(lat, lon)
     try:
@@ -578,10 +636,10 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
 
 
 def swap_staged(pack: str, staging_root: str,
-                loaded: Callable[[int, int], bool] = lambda lat, lon: False
-                ) -> list:
-    """Swap in every staged tile ``loaded`` now allows; the tile names
-    swapped."""
+                loaded: Callable[[int, int], bool] = lambda lat, lon: False,
+                only: "tuple[int, int] | None" = None) -> list:
+    """Swap in every staged tile ``loaded`` now allows, or tile ``only``
+    alone; the tile names swapped."""
     done = []
     try:
         names = sorted(os.listdir(staging_root))
@@ -591,6 +649,8 @@ def swap_staged(pack: str, staging_root: str,
         try:
             lat, lon = parse_tile(name)
         except ValueError:
+            continue
+        if only is not None and (lat, lon) != tuple(only):
             continue
         staged = os.path.join(staging_root, name)
         if (os.path.isfile(os.path.join(staged, dsf_relpath(lat, lon)))
@@ -602,17 +662,24 @@ def swap_staged(pack: str, staging_root: str,
 
 def ini_install(lines: list, pack_name: str = PACK_NAME) -> bool:
     """File the World pack's row into ``scenery_packs.ini`` lines (edited in
-    place) as an ortho-group pack, through the app's own filing rule
-    (``O4_Scenery_Packs.insert_new_packs``).  ``False`` when a row for it
-    is already there (it is then enabled, never moved)."""
+    place) as the LAST row, below every overlay, ortho and mesh pack (owner
+    2026-11-12T14:44Z: the World row "is supposed to be at the bottom";
+    filed as an ortho-group pack it landed above simHeaven overlays that sat
+    below a mesh row).  A row already there is enabled and moved to the
+    bottom.  The app's overlay pack row, when the ini has one, is moved
+    directly above it (``O4_Overlay_Pack.ini_install``, RULINGS
+    2026-11-12e).  ``False`` when a row was already there."""
+    import O4_Overlay_Pack as OPACK
     import O4_Scenery_Packs as PACKS
-    for i, line in enumerate(lines):
-        if line.strip().rstrip("/").endswith("Custom Scenery/" + pack_name):
-            lines[i] = f"SCENERY_PACK Custom Scenery/{pack_name}/"
-            return False
+    had = [i for i, line in enumerate(lines)
+           if line.strip().rstrip("/").endswith("Custom Scenery/" + pack_name)]
+    for i in reversed(had):
+        del lines[i]
     PACKS.insert_new_packs(lines, [pack_name],
-                           lambda name: "ortho" if name == pack_name else None)
-    return True
+                           lambda name: "bottom" if name == pack_name else None)
+    if pack_name == PACK_NAME and OPACK.has_row(lines):
+        OPACK.ini_install(lines)
+    return not had
 
 
 def ini_remove(lines: list, pack_name: str = PACK_NAME) -> int:
@@ -625,10 +692,18 @@ def ini_remove(lines: list, pack_name: str = PACK_NAME) -> int:
 
 
 def dsftool_path(engine_dir: str) -> str:
-    """The engine checkout's bundled DSFTool for this platform."""
+    """The bundled DSFTool for this platform: the engine checkout's
+    ``Utils/``, else the engine's resource ``Utils`` folder
+    (``O4_File_Names.Utils_dir``) -- in the frozen app the tools live in
+    the bundle's data folder, not beside the executable (1.0.493: every
+    drape failed with FileNotFoundError)."""
     sub = {"darwin": ("mac", "DSFTool"), "win32": ("win", "DSFTool.exe")}
     folder, exe = sub.get(os.sys.platform, ("lin", "DSFTool"))
     path = os.path.join(engine_dir, "Utils", folder, exe)
-    if not os.path.isfile(path):
-        raise FileNotFoundError(path)
-    return path
+    if os.path.isfile(path):
+        return path
+    import O4_File_Names as FNAMES
+    bundled = os.path.join(FNAMES.Utils_dir, folder, exe)
+    if os.path.isfile(bundled):
+        return bundled
+    raise FileNotFoundError(path)

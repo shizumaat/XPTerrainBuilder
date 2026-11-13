@@ -8,6 +8,9 @@ import Foundation
     struct Cases: Decodable {
         struct Finished: Decodable { let state: String; let label: String; let finished: Bool }
         struct SectionCase: Decodable { let state: String; let section: String }
+        struct OpensRow: Decodable {
+            let name: String, state: String, label: String, row: [String]?, opens: Bool
+        }
         struct Shown: Decodable {
             let name: String, rows: [String], selected: [String], shown: [String]
         }
@@ -22,6 +25,7 @@ import Foundation
         struct Sequence: Decodable { let name: String; let steps: [Step] }
         let finished: [Finished]
         let section: [SectionCase]
+        let opens_row: [OpensRow]
         let shown: [Shown]
         let list_edit: [ListEdit]
         let tones: [ToneCase]
@@ -40,6 +44,15 @@ import Foundation
         for c in Self.cases.finished {
             #expect(ActivityOrder.isFinished(state: c.state, label: c.label) == c.finished,
                     "\(c.state) \(c.label)")
+        }
+    }
+
+    @Test func opensRowLikeThePythonTwin() {
+        #expect(!Self.cases.opens_row.isEmpty)
+        for c in Self.cases.opens_row {
+            let row = c.row.map { (state: $0[0], label: $0[1]) }
+            #expect(ActivityOrder.opensRow(state: c.state, label: c.label, row: row) == c.opens,
+                    "\(c.name)")
         }
     }
 

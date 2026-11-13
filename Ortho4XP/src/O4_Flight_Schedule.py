@@ -10,17 +10,20 @@
   ``{tile: sample index}`` mapping, index 0 being the first window.
 * :class:`Job`, :func:`job_estimate`, :func:`rescale` -- what is to be
   built, with a ``[lo, hi]`` seconds range from the recorded times.
-* :func:`finish_times`, :func:`countdown`, :func:`feasible`,
-  :func:`shed_order`, :func:`next_job` -- list scheduling on ``slots``
-  build slots, the countdown, the shedding order and the dispatch pick
-  with the laxity guard.
+* :func:`finish_times`, :func:`departure_countdown`,
+  :func:`projected_late`, :func:`feasible`, :func:`shed_order`,
+  :func:`next_job` -- list scheduling on ``slots`` build slots, the
+  countdown to the departure area (RULINGS 2026-11-12c (2)), the route
+  tiles projected late, the shedding order and the dispatch pick with
+  the laxity guard.
 * :func:`readiness_items` -- the readiness rows of §6.2 from facts the
   flight manager gathers; :func:`countdown_text` -- the one line.
 
 All times are seconds.  A job's ``deadline_s`` is counted from TAKEOFF;
 0 means "before the flight loads" (class P0).  Finish times are counted
-from NOW.  The countdown T is the wait until takeoff that lets every job
-finish by ``T + deadline_s``.
+from NOW.  The countdown T is the wait until the departure area (every P0
+job) is built; a later job that does not finish by ``T + deadline_s`` is
+projected late and warned of, not waited for.
 
 No airport is named here (owner standing 2026-10-05).
 """
@@ -34,9 +37,11 @@ import O4_Flight_Plan as FP
 
 __all__ = [
     "P0", "P1", "P2", "P3", "P4", "Job", "Facts", "Item", "route_times",
-    "margin_s", "tile_deadlines", "klass_for", "job_estimate", "rescale",
-    "finish_times", "countdown", "feasible", "shed_order", "next_job",
-    "readiness_items", "countdown_text", "DONE_STATES",
+    "margin_s", "tile_deadlines", "klass_for", "job_estimate", "rescale", "clamp_scale",
+    "DRAPE_SECONDS", "drape_seconds",
+    "finish_times", "feasible", "shed_order", "next_job",
+    "readiness_items", "countdown_text", "DONE_STATES", "READY_KEYS",
+    "DEPARTURE_MARGIN_S", "departure_countdown", "projected_late",
 ]
 
 Tile = Tuple[int, int]
@@ -60,15 +65,26 @@ MARGIN_KM = 0.05 * math.pi * FP.EARTH_RADIUS_KM / 180.0
 MARGIN_MIN_S = 60.0
 #: Swaps are spaced at least this far apart (§10 Landings).
 SWAP_S = 10.0
-#: Seconds per tile before any build of the kind is recorded: the CYYR
-#: light tile (397 s cold, §2.1) and the ldrape figure (15-37 s, high end).
-PROFILE_SECONDS = {"light": 397.0, "drape": 37.0}
+#: Seconds one drape with its water copy takes cold, by photo width
+#: (``drape_photo_px``; lane ldrape2, 2026-11-11, cold caches, Labrador):
+#: 512 px 82-109 s (photos 29-70 s, the water read 47-102 s beside them,
+#: held to ``world_job_run.WATER_WAIT_S``), 1024 px 109 s, 4096 px 730 s
+#: (photos 445 s, masks 213 s; the masks now run beside the photos).
+DRAPE_SECONDS = {512: 80.0, 1024: 110.0, 4096: 730.0}
+#: Seconds per tile before any build of the kind is recorded: the drape,
+#: the one intermediate kind (spec §17, RULINGS 2026-11-11j).
+PROFILE_SECONDS = {"drape": DRAPE_SECONDS[512]}
 #: plan_estimate's spreads (TIME_SPREAD_KNOWN / _UNKNOWN), repeated so
 #: this module stays pure; tests/test_flight_schedule.py pins them equal.
 SPREAD_KNOWN = (0.75, 1.5)
 SPREAD_UNKNOWN = (0.5, 2.5)
 #: Rescaling by measured / predicted is clamped to this range (§9).
 RESCALE_RANGE = (0.5, 2.5)
+#: The widest a job's planned ``[lo, hi]`` may be: the model's unknown
+#: spread times the measured-scale ceiling (2.5 / 0.5 x 2.5 = 12.5).  A
+#: wider range is no estimate (HAAB 2026-11-12T22:11Z: [530, 134406] s,
+#: a full build priced at one 512 px request's download rate).
+MAX_SPREAD = SPREAD_UNKNOWN[1] / SPREAD_UNKNOWN[0] * RESCALE_RANGE[1]
 
 #: Job states (§6.3) after which a job needs no slot.
 DONE_STATES = frozenset({"staged", "swapped", "external"})
@@ -198,6 +214,15 @@ def klass_for(role: str, first_window: bool = False) -> int:
     return {"enroute": P1, "destination": P2, "alternate": P4}.get(role, P1)
 
 
+def drape_seconds(px) -> float:
+    """:data:`DRAPE_SECONDS` of a ``drape_photo_px`` value (512 px for a
+    width the table does not know)."""
+    try:
+        return DRAPE_SECONDS.get(int(px), DRAPE_SECONDS[512])
+    except (TypeError, ValueError):
+        return DRAPE_SECONDS[512]
+
+
 def job_estimate(kind: str, recorded_s: Optional[float] = None,
                  known: bool = False) -> Tuple[float, float]:
     """``[lo, hi]`` seconds: the recorded point estimate (``known`` = from
@@ -210,14 +235,38 @@ def job_estimate(kind: str, recorded_s: Optional[float] = None,
     return (point * lo, point * hi)
 
 
-def rescale(jobs: Iterable[Job], kind: str, measured_s: float,
-            predicted_s: float) -> List[Job]:
+def sane_estimate(est) -> Tuple[float, float]:
+    """``est`` ``[lo, hi]`` with its high end held to :data:`MAX_SPREAD`
+    times its low end (and never below it)."""
+    lo, hi = float(est[0]), float(est[1])
+    if lo > 0 and math.isfinite(lo):
+        hi = min(hi, lo * MAX_SPREAD)
+    return (lo, max(hi, lo))
+
+
+def clamp_scale(factor: float) -> float:
+    """A measured / predicted ratio clamped to :data:`RESCALE_RANGE`."""
+    return min(max(factor, RESCALE_RANGE[0]), RESCALE_RANGE[1])
+
+
+def rescale(jobs: Iterable[Job], kind: str = "", measured_s: float = 0.0,
+            predicted_s: float = 0.0, *, scales: Optional[dict] = None,
+            base: Optional[dict] = None) -> List[Job]:
     """After a finished ``kind`` job: scale the queued jobs of that kind by
-    measured / predicted, clamped to :data:`RESCALE_RANGE`."""
+    measured / predicted, clamped to :data:`RESCALE_RANGE`.  With
+    ``scales`` ``{kind: factor}`` and ``base`` ``{tile: (lo, hi)}`` (the
+    planned estimates): each queued job is its planned estimate times its
+    kind's factor -- set, never compounded, and so never above
+    ``RESCALE_RANGE[1]`` x the planned high."""
     jobs = list(jobs)
+    if scales is not None:
+        return [replace(j, est_s=tuple(v * clamp_scale(scales[j.kind]) for v
+                                       in (base or {}).get(j.tile, j.est_s)))
+                if j.kind in scales and j.state == "queued" else j
+                for j in jobs]
     if predicted_s <= 0 or measured_s <= 0:
         return jobs
-    f = min(max(measured_s / predicted_s, RESCALE_RANGE[0]), RESCALE_RANGE[1])
+    f = clamp_scale(measured_s / predicted_s)
     return [replace(j, est_s=(j.est_s[0] * f, j.est_s[1] * f))
             if j.kind == kind and j.state == "queued" else j for j in jobs]
 
@@ -225,13 +274,19 @@ def rescale(jobs: Iterable[Job], kind: str, measured_s: float,
 # ===========================================================================
 # Scheduling
 # ===========================================================================
+def _first(job: Job) -> bool:
+    """The departure tile: first of its class (#2023, the pilot waits
+    for it; the full build fetches its airport's imagery first)."""
+    return job.role == "departure" and job.klass == P0
+
+
 def _plan_order(jobs: Iterable[Job]) -> List[Job]:
     """Running jobs first (they hold their slots), then class, deadline.
     The laxity guard is a dispatch rule (:func:`next_job`); the plan
     order is the class order, so the countdown errs late, never early."""
     return sorted((j for j in jobs if j.open),
-                  key=lambda j: (j.state != "building", j.klass, j.deadline_s,
-                                 j.tile))
+                  key=lambda j: (j.state != "building", j.klass,
+                                 not _first(j), j.deadline_s, j.tile))
 
 
 def finish_times(jobs: Iterable[Job], slots: int) -> List[Tuple[Job, float]]:
@@ -246,79 +301,47 @@ def finish_times(jobs: Iterable[Job], slots: int) -> List[Tuple[Job, float]]:
     return out
 
 
-def _slack_s(jobs: Sequence[Job]) -> float:
-    """One build's length: a deadline job may find every slot held by a
-    build that is not interrupted mid-step (§9)."""
-    return max((j.left_hi for j in jobs if j.open and j.klass != P0), default=0.0)
-
-
 def _estimated(job: Job) -> bool:
     values = job.remaining_s or job.est_s
     return values is not None and all(
         v is not None and math.isfinite(v) for v in values)
 
 
-def finish_times_split(jobs: Iterable[Job], slots: int, flight_slots: int,
-                       takeoff_s: float) -> List[Tuple[Job, float]]:
-    """:func:`finish_times` with ``slots`` slots until ``takeoff_s`` and
-    ``flight_slots`` after it (§10: the parked capacity while preparing,
-    the flight capacity in the air); a build started is never interrupted,
-    so builds started before takeoff run on past it."""
-    running: List[float] = []
-    t, out = 0.0, []
-    for job in _plan_order(jobs):
-        while True:
-            while running and running[0] <= t:
-                heapq.heappop(running)
-            cap = max(1, int(slots if t < takeoff_s else flight_slots))
-            if len(running) < cap:
-                end = t + job.left_hi
-                heapq.heappush(running, end)
-                out.append((job, end))
-                break
-            nxt = running[0]
-            t = takeoff_s if t < takeoff_s < nxt and flight_slots > slots else nxt
-    return out
+#: The readiness rows a flight waits for (RULINGS 2026-11-12c (2), owner
+#: 14:32Z: "be conservative with the ready to start timer, but it should
+#: definitely let the user leave as soon as the departure area is ready"):
+#: the facts and the departure area.  The route, destination, alternate
+#: and reload rows are shown, never waited for: they build in flight by
+#: their deadlines, a tile projected late is warned of
+#: (:func:`projected_late`).  Replaces the 2026-11-10 "every row" rule.
+READY_KEYS = ("world", "budget", "network", "prefetch", "departure",
+              "first_window")
+#: Added to the departure area's high-estimate finish (conservative).
+DEPARTURE_MARGIN_S = 60.0
 
 
-def _wait_for(ends: Sequence[Tuple[Job, float]], slack: float) -> float:
-    wait = 0.0
-    for job, end in ends:
-        wait = max(wait, end if job.klass == P0 else end - job.deadline_s + slack)
-    return wait
-
-
-def countdown(jobs: Iterable[Job], slots: int,
-              flight_slots: Optional[int] = None) -> Optional[float]:
-    """Seconds until takeoff may be allowed (§9): every P0 job finished,
-    and every later job finishing by takeoff + its deadline, the deadline
-    side with one build's length of slack.  None when an open job has no
-    estimate (no defensible figure: the views show a dash).
-
-    With ``flight_slots`` (the capacity in the air, §10) the builds run on
-    ``slots`` until takeoff and on ``flight_slots`` after it
-    (:func:`finish_times_split`): the smallest such wait, to the second."""
+def departure_countdown(jobs: Iterable[Job], slots: int) -> Optional[float]:
+    """Seconds until the departure area (every open P0 job: the
+    departure and the first window) is built, list-scheduled on ``slots``
+    with the high estimates, plus :data:`DEPARTURE_MARGIN_S`; 0 when none
+    is open; None when one has no estimate."""
     jobs = list(jobs)
-    if not all(_estimated(j) for j in jobs if j.open):
-        return None
-    slack = _slack_s(jobs)
-    if flight_slots is None or int(flight_slots) == int(slots):
-        return _wait_for(finish_times(jobs, slots), slack)
-    hi = _wait_for(finish_times(jobs, min(slots, flight_slots)), slack)
-
-    def enough(wait: float) -> bool:
-        return _wait_for(finish_times_split(jobs, slots, flight_slots, wait),
-                         slack) <= wait
-    if enough(0.0):
+    area = [j for j in jobs if j.open and j.klass == P0]
+    if not area:
         return 0.0
-    lo = 0.0
-    while hi - lo > 1.0:
-        mid = (lo + hi) / 2.0
-        if enough(mid):
-            hi = mid
-        else:
-            lo = mid
-    return hi
+    if not all(_estimated(j) for j in area):
+        return None
+    ends = [end for job, end in finish_times(jobs, slots) if job.klass == P0]
+    return max(ends) + DEPARTURE_MARGIN_S
+
+
+def projected_late(jobs: Iterable[Job], slots: int, takeoff_s: float
+                   ) -> List[Job]:
+    """The open en-route, destination and alternate jobs that, built on
+    ``slots`` in plan order with the high estimates, finish after their
+    tile loads with takeoff ``takeoff_s`` seconds from now."""
+    return [job for job, end in finish_times(jobs, slots)
+            if job.klass != P0 and end > takeoff_s + job.deadline_s]
 
 
 def feasible(jobs: Iterable[Job], slots: int, takeoff_s: float) -> bool:
@@ -360,7 +383,8 @@ def next_job(jobs: Iterable[Job], now_s: float, takeoff_s: float
     """The queued job to start next (§8.4).  Laxity guard: a job whose
     slack (takeoff + deadline - now - high estimate) is under one build's
     length (the longest queued high estimate) goes first, the tightest
-    first; otherwise class, then the earliest deadline."""
+    first; otherwise class, then the earliest deadline.  The departure
+    tile goes before any other job (#2023: the pilot waits for it)."""
     queued = [j for j in jobs if j.state == "queued"]
     if not queued:
         return None
@@ -371,8 +395,10 @@ def next_job(jobs: Iterable[Job], now_s: float, takeoff_s: float
 
     tight = [j for j in queued if slack(j) < guard]
     if tight:
-        return min(tight, key=lambda j: (slack(j), j.klass, j.tile))
-    return min(queued, key=lambda j: (j.klass, j.deadline_s, j.tile))
+        return min(tight, key=lambda j: (not _first(j), slack(j), j.klass,
+                                         j.tile))
+    return min(queued, key=lambda j: (j.klass, not _first(j), j.deadline_s,
+                                      j.tile))
 
 
 # ===========================================================================
@@ -445,8 +471,9 @@ def _deadline_item(key: str, jobs: List[Job], ends: Dict[int, float]) -> Item:
 
 
 def readiness_items(facts: Facts) -> List[Item]:
-    """The rows of §6.2, in order.  The flight is ready when every row is
-    ``done``."""
+    """The rows of §6.2, in order.  The flight is ready when every row
+    of :data:`READY_KEYS` is ``done`` (the departure area); the others
+    say how the rest of the route stands."""
     jobs = list(facts.jobs)
     ends = {id(j): end for j, end in finish_times(jobs, facts.slots)}
 
@@ -472,11 +499,13 @@ def readiness_items(facts: Facts) -> List[Item]:
     in_air = ({id(j): end for j, end in finish_times(jobs, flying)}
               if flying != facts.slots else ends)
     route = [j for j in role("enroute") if j.klass != P0 and id(j) in in_air]
-    if all(in_air[id(j)] <= j.deadline_s for j in route):
+    late = [j for j in route if in_air[id(j)] > j.deadline_s]
+    if not late:
         rows.append(Item("route", "done", 0.0, ""))
     else:
-        rows.append(Item("route", "waiting",
-                         countdown(jobs, facts.slots, facts.flight_slots), ""))
+        rows.append(Item("route", "working", None,
+                         "Builds in flight; %d tile(s) may show X-Plane's "
+                         "own scenery at this speed" % len(late)))
     rows.append(_deadline_item("destination", role("destination"), ends))
     if facts.build_alternate:
         rows.append(_deadline_item("alternate", role("alternate"), ends))
@@ -484,7 +513,7 @@ def readiness_items(facts: Facts) -> List[Item]:
         rows.append(Item("loaded", "done", 0.0, ""))
     else:
         rows.append(Item("loaded", "waiting", None,
-                         "Scenery reloads once on the ground"))
+                         "Reload scenery when you choose"))
     return rows
 
 

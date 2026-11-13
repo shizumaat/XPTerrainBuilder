@@ -56,6 +56,15 @@ A class wait is bounded (:data:`CLASS_WAIT_S`): past it the caller goes
 on without a slot, so a wedged holder costs a request over the budget,
 never a hung build.
 
+PRIORITY (#2037): requests made inside :func:`net_priority` (the imagery
+follow job: the squares the camera flies toward) go FIRST in every
+class.  A priority request that finds no free slot leaves a demand mark
+in the class (``want/<pid>-<thread>``, its mtime refreshed at each
+refused attempt and live for :data:`DEMAND_TTL_S`); while any process's
+mark is live, no other request takes a slot of that class, so the next
+slot freed goes to the camera.  The class's limit is unchanged: the
+server sees the same load, ordered.
+
 Standard library only (with :mod:`O4_Parallel_Utils`' memory probes): the
 airport pool, the tile driver and the orchestrator all import it.
 """
@@ -79,9 +88,11 @@ if sys.platform == "win32":                # module level: a freezer sees it
 else:
     import fcntl as _oslock
 
-__all__ = ["BUDGET", "CLASS_WAIT_S", "ENV_DIR", "ENV_CAPACITY", "ENV_UNGATED",
-           "Held", "capacity", "ensure_session", "hold_class", "lend",
-           "lower_priority", "memory_admits", "net_class", "session_capacity",
+__all__ = ["BUDGET", "CLASS_WAIT_S", "DEMAND_TTL_S", "ENV_DIR", "ENV_CAPACITY",
+           "ENV_UNGATED", "Held", "capacity", "carry_net_priority",
+           "ensure_session", "has_net_priority", "hold_class", "lend",
+           "background_priority", "lower_priority", "memory_admits", "net_class",
+           "net_priority", "session_capacity",
            "step", "take_class", "try_take", "try_take_class", "take"]
 
 #: the session's slot directory and its capacity, inherited by every child
@@ -370,14 +381,99 @@ def _class_dir(name: str) -> str:
     return path
 
 
-def try_take_class(name: str, n: int = 1, limit: int = 1) -> Held:
+#: seconds a priority request's demand mark stands after its last refused
+#: attempt (it refreshes it every poll while it waits)
+DEMAND_TTL_S = 0.5
+#: a mark this old is a dead process's: removed by the next reader
+_DEMAND_STALE_S = 60.0
+
+_PRIORITY = threading.local()
+
+
+@contextlib.contextmanager
+def net_priority():
+    """Every class request made on this thread inside the block goes
+    first (see the module: PRIORITY)."""
+    before = getattr(_PRIORITY, "on", False)
+    _PRIORITY.on = True
+    try:
+        yield
+    finally:
+        _PRIORITY.on = before
+
+
+def has_net_priority() -> bool:
+    """Is this thread inside :func:`net_priority`?"""
+    return bool(getattr(_PRIORITY, "on", False))
+
+
+def carry_net_priority(task):
+    """``task`` run under :func:`net_priority` when THIS thread is in it
+    (a worker thread started here does not inherit the flag); else
+    ``task`` itself."""
+    if not has_net_priority():
+        return task
+
+    def run(*args, **kwargs):
+        with net_priority():
+            return task(*args, **kwargs)
+    return run
+
+
+def _demand_dir(path: str) -> str:
+    return os.path.join(path, "want")
+
+
+def _note_demand(path: str) -> None:
+    """This thread's priority request waits on the class at ``path``."""
+    folder = _demand_dir(path)
+    mark = os.path.join(folder, "%d-%d" % (os.getpid(), threading.get_ident()))
+    try:
+        os.makedirs(folder, exist_ok=True)
+        with open(mark, "a", encoding="utf-8", newline=""):
+            pass
+        os.utime(mark)
+    except OSError:
+        pass
+
+
+def _demand_live(path: str) -> bool:
+    """Does a priority request (any process) wait on the class at
+    ``path`` now?  Dead processes' old marks are removed."""
+    now = time.time()
+    live = False
+    try:
+        entries = list(os.scandir(_demand_dir(path)))
+    except OSError:
+        return False
+    for entry in entries:
+        try:
+            age = now - entry.stat().st_mtime
+        except OSError:
+            continue
+        if age < DEMAND_TTL_S:
+            live = True
+        elif age > _DEMAND_STALE_S:
+            with contextlib.suppress(OSError):
+                os.remove(entry.path)
+    return live
+
+
+def try_take_class(name: str, n: int = 1, limit: int = 1,
+                   priority: "bool | None" = None) -> Held:
     """Up to ``n`` free slots of the class ``name`` of ``limit`` slots, at
     once and never waiting (possibly none).  Every process of the session
-    that names the class shares its ``limit`` slots."""
+    that names the class shares its ``limit`` slots.  ``priority`` (default:
+    :func:`has_net_priority`) goes first: without it nothing is taken
+    while a priority request waits; with it, a refusal marks the wait."""
     limit = max(1, int(limit))
     if n <= 0:
         return Held([])
+    if priority is None:
+        priority = has_net_priority()
     path = _class_dir(name)
+    if not priority and _demand_live(path):
+        return Held([])
     fds: list = []
     start = (os.getpid() + threading.get_ident()) % limit
     for k in range(limit):
@@ -386,6 +482,8 @@ def try_take_class(name: str, n: int = 1, limit: int = 1) -> Held:
         fd = _lock(os.path.join(path, "slot-%d" % ((start + k) % limit)))
         if fd is not None:
             fds.append(fd)
+    if priority and len(fds) < n:
+        _note_demand(path)
     return Held(fds)
 
 
@@ -439,5 +537,24 @@ def lower_priority() -> None:
             k32.SetPriorityClass(k32.GetCurrentProcess(), 0x4000)
         elif os.getpriority(os.PRIO_PROCESS, 0) < NICE:
             os.setpriority(os.PRIO_PROCESS, 0, NICE)
+    except Exception:
+        pass
+
+
+def background_priority() -> None:
+    """Run THIS process in the system's background band: its CPU and its
+    disk reads yield to everything else (macOS ``PRIO_DARWIN_BG``, which
+    also throttles I/O; Windows background mode; elsewhere nice 19).
+    For work nobody waits on, beside a build (owner 2026-11-12T19:08Z:
+    Measure "at background priority while builds run").  Never raises."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00100000)
+        elif hasattr(os, "PRIO_DARWIN_BG"):
+            os.setpriority(os.PRIO_DARWIN_PROCESS, 0, os.PRIO_DARWIN_BG)
+        else:
+            os.setpriority(os.PRIO_PROCESS, 0, 19)
     except Exception:
         pass

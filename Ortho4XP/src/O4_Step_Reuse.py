@@ -148,6 +148,33 @@ def _identity(paths) -> str:
     return provenance.identity_list(paths)
 
 
+def _content(paths) -> str:
+    """The data files a step read, by CONTENT (#2050, owner RULINGS
+    2026-11-13o): a refresh that rewrites the tile's OSM caches or its
+    insets with the same bytes keeps the step."""
+    from auto_patch import provenance
+    return provenance.content_list_identity(paths)
+
+
+#: The input keys named by content since #2050, and the files each reads
+#: (``osm_files``: the vector step's recorded list).  A record cut before
+#: carries their stat identity (path+size+mtime), which still matches
+#: while the files are as they were (:func:`_legacy_equal`) — the change
+#: of key alone reruns no step.
+_CONTENT_KEYS = {
+    "osm": lambda tile, osm_files: (_osm_files(tile) if osm_files is None
+                                    else osm_files),
+    "insets": lambda tile, _osm_files_: _inset_files(tile),
+}
+
+
+def _legacy_equal(tile, key: str, recorded, osm_files) -> bool:
+    """True when ``recorded`` is the pre-#2050 stat identity of the very
+    files ``key`` names now."""
+    files = _CONTENT_KEYS.get(key)
+    return files is not None and recorded == _identity(files(tile, osm_files))
+
+
 def _read(tile) -> dict:
     try:
         with open(_record_path(tile), encoding="utf-8") as handle:
@@ -337,6 +364,15 @@ def _inset_files(tile) -> list:
     return INSETS.list_cached_inset_dems(tile.lat, tile.lon)
 
 
+def _terrain_cut(tile) -> list:
+    """The terrain models whose ground the vector step cuts (owner RULINGS
+    2026-11-13k): hiding one in "Hide terrain objects", or showing it
+    again, re-runs the cut."""
+    from auto_patch import terrain_cut_stage
+    return sorted(str(r.get("id")) for r in terrain_cut_stage.cut_records(
+        FNAMES.patch_dir(tile.lat, tile.lon)))
+
+
 # Keys a record written by an older engine may hold that are no longer
 # part of a step's key: ``engine`` (the engine version, #1248 — a release
 # that leaves a step's code alone must not rebuild it; the ``code``
@@ -366,11 +402,11 @@ def _inputs(tile, step: str, previous_digest: str, osm_files=None) -> dict:
               "settings": live_settings(tile, step)}
     inputs.update(code_identity(step))
     if step == "vector":
-        inputs["osm"] = _identity(
-            _osm_files(tile) if osm_files is None else osm_files)
+        inputs["osm"] = _content(_CONTENT_KEYS["osm"](tile, osm_files))
         inputs["scenery_packs"] = _scenery_packs_state(tile)
         inputs["patches"] = _patch_inputs(tile)
-        inputs["insets"] = _identity(_inset_files(tile))
+        inputs["insets"] = _content(_CONTENT_KEYS["insets"](tile, osm_files))
+        inputs["terrain_cut"] = _terrain_cut(tile)
     return inputs
 
 
@@ -608,7 +644,9 @@ def stale_reason(tile, step: str) -> str | None:
                     if k not in _RETIRED_KEYS}
         trusted = _trusted(entry)
         for key in sorted(set(live) | set(recorded)):
-            if key not in trusted and live.get(key) != recorded.get(key):
+            if key not in trusted and live.get(key) != recorded.get(key) \
+                    and not _legacy_equal(tile, key, recorded.get(key),
+                                          entry.get("osm_files")):
                 return _changed_words(key, live.get(key), recorded.get(key))
         rows = _outputs(tile, step, entry.get("pack_dsfs") or (),
                         entry.get("outputs") or (), _excused(tile, entry))
@@ -675,7 +713,8 @@ def edit_only_changes(tile) -> tuple:
                        entry.get("osm_files"))
         recorded = entry.get("inputs") or {}
         for key in sorted(set(live) | set(recorded)):
-            if live.get(key) != recorded.get(key):
+            if live.get(key) != recorded.get(key) and not _legacy_equal(
+                    tile, key, recorded.get(key), entry.get("osm_files")):
                 return None, _changed_words(key, live.get(key),
                                             recorded.get(key))
         known = {row[0]: row for row in entry.get("outputs") or ()}

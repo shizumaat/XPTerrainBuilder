@@ -34,23 +34,35 @@ The rules it keeps (spec §4.7, §8):
   :data:`OFFLINE_PAUSE_S` ("Offline: imagery stays low-res"; files that
   need no download still land); a texture that fails
   :data:`MAX_FAILURES` times is ``failed`` until next session;
-* X-Plane not running or its Web API off: the job idles and says so;
+* X-Plane not running or its Web API off, or X-Plane loading a flight
+  (its clock not running: no position is trusted then, #2028): the job
+  idles and says so;
 * SPAWN AND JUMP (spec §4.5, P5; ``O4_Imagery_Spawn``): the first
-  position of a session, positions resumed after a Web API drop (a
-  flight load, ``flight_loads``) and a camera jump (``jumps``) each open
+  position of a session, positions resumed after a Web API drop or a
+  load (a flight load, ``flight_loads``) and a camera jump (``jumps``:
+  any move between two samples no aircraft flies) each open
   an episode: the new place's core is fetched first, straight at the
   tiers a camera standing there wants, files that need no download
   (``lander.local``) first and up to ``max_slots`` at once, against the
   end of X-Plane's flight-start window (a session's first position has
   none: X-Plane may have loaded long ago).  When the core has landed and
   a file missed the window where X-Plane still shows it coarse, the job
-  asks X-Plane ONCE to reload its scenery (``reloader``, the Web API
-  command; ``reloads``); nothing missed, or nothing landed (no network):
-  no reload.
+  OFFERS the user one reload (``reloader``: ``reload_offer.offer``;
+  ``reloads`` counts the offers; ``reload_offer`` is the one pending):
+  X-Plane is never asked to reload unless the user clicks "Reload
+  scenery" (owner 2026-11-12T14:34Z); nothing missed, or nothing landed
+  (no network): no offer.
 
 ``last_near_at`` is written for the rows the camera is within their
 tier's distance of, while the sim is not paused (spec §5.3).  The job
 reports through ``ImageryFollowStatus`` events.
+
+OFF THE TICK (#2037): the reread of every row, the storage measure and
+sweep and the ``last_near_at`` writes run on the job's house thread
+(``imagery_follow_house.FollowHouse``); the tick takes the newest rows it
+read.  The fetches run under ``O4_Machine_Slots.net_priority``: in the
+session's per-server budget the camera's squares go before a World drape
+or an after-build core.
 """
 from __future__ import annotations
 
@@ -63,14 +75,19 @@ import time
 import typing as _t
 
 import O4_Imagery_Fetch_Slots as SLOTS
+import O4_Imagery_Follow_Reach as REACH
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Spawn as SPAWN
 import O4_Imagery_Tier_Plan as PLAN
+import O4_Machine_Slots as MACHINE_SLOTS
 import O4_XPlane_WebAPI as WEBAPI
 from O4_Imagery_Follow_Motion import MotionTracker
 
+from .imagery_follow_house import ROWS_EVERY_S, SWEEP_EVERY_S, FollowHouse
+
 __all__ = ["MAX_FAILURES", "OFFLINE_AFTER", "OFFLINE_PAUSE_S", "FollowJob",
-           "paused", "held_tiles", "log_path", "write_log"]
+           "ROWS_EVERY_S", "SWEEP_EVERY_S", "paused", "held_tiles",
+           "log_path", "write_log"]
 
 #: A texture that fails this many times is ``failed`` for the session.
 MAX_FAILURES = 3
@@ -81,15 +98,16 @@ OFFLINE_AFTER = 3
 OFFLINE_PAUSE_S = 60.0
 #: The status sentence while that pause lasts.
 OFFLINE_REASON = "Offline: imagery stays low-res"
+#: The status sentence while X-Plane loads a flight: no position is
+#: trusted until its clock runs (``O4_XPlane_WebAPI.PositionReader``).
+LOADING_REASON = "it is loading a flight"
 #: Seconds between status events when nothing changed.
 STATUS_EVERY_S = 2.0
-#: Seconds between rereads of the index rows (landings update them live).
-ROWS_EVERY_S = 30.0
 #: Seconds between ``last_near_at`` writes (the index throttles per row).
+#: (``ROWS_EVERY_S`` and ``SWEEP_EVERY_S``: ``imagery_follow_house``.)
 NEAR_EVERY_S = 10.0
-#: Seconds between storage-cap checks while landing (spec §6.2: during a
-#: session a sweep starts only over 110 % of the cap).
-SWEEP_EVERY_S = 60.0
+#: The finest tier (a "sharp" row of the status).
+_FINEST = len(PLAN.TIER_WIDTH) - 1
 #: Default seconds one landing takes per tier before any is measured
 #: (the P3a replay's model at 85 requests/s and a 2 s full convert).
 DEFAULT_FETCH_S = {1: 0.3, 2: 1.9, 3: 5.0}
@@ -142,6 +160,10 @@ def _placeholder_root() -> str:
                         "placeholders")
 
 
+def _is_sharp(row: dict) -> int:
+    return int(PLAN.tier_of_width(row["tier_px"]) == _FINEST)
+
+
 def _key(row: dict) -> str:
     return f"{row['tile']}/{row['name']}"
 
@@ -154,11 +176,21 @@ class _InFlight(_t.NamedTuple):
     due_at: float           # absolute time of the crossing it serves
 
 
+
+def _pending_offer() -> str:
+    """The reload offered to the user and not taken yet (``reload_offer``)."""
+    from . import reload_offer as RELOAD
+    return RELOAD.current()
+
 class FollowJob:
     """One follow session.  ``reader`` is an ``O4_XPlane_WebAPI``
     ``PositionReader``; ``lander(row, tier)`` lands one file and returns
     the index facts (``imagery_follow_land.TierLander``); ``index_path``
-    the index file; ``busy()`` names the tiles being built (``True``:
+    the index file; ``rebuild_tiles`` ``(build_dir, lat, lon)`` rescanned
+    into it at :meth:`open`; ``rescan_dir``: every on-demand tile under
+    that working folder rescanned BESIDE the job (``imagery_ondemand.
+    on_demand_tiles``; hundreds of tiles take minutes, #2028), which
+    follows the index as it stands meanwhile; ``busy()`` names the tiles being built (``True``:
     every tile is held, see the module); ``emit``
     receives each ``ImageryFollowStatus``; ``reloader()`` asks X-Plane to
     reload its scenery and says whether it took the request (``None``:
@@ -169,7 +201,8 @@ class FollowJob:
                  period_s: float = 1.0, max_slots: int = SLOTS.MAX_SLOTS,
                  lands_per_s: float = 4.0, clock=time.time, log_path=None,
                  slots: SLOTS.FetchSlots | None = None, rebuild_tiles=(),
-                 cap_bytes: int | None = None, reloader=None):
+                 cap_bytes: int | None = None, reloader=None,
+                 rescan_dir: str | None = None):
         self.emit = emit
         self.reader, self.lander = reader, lander
         self.reloader = reloader
@@ -178,9 +211,16 @@ class FollowJob:
         self._resets = 0                        # reader.resets seen
         self.index_path = index_path
         self.rebuild_tiles = [tuple(t) for t in rebuild_tiles or ()]
+        self.rescan_dir = rescan_dir
+        self.rescan: threading.Thread | None = None
+        self._focus = None                      # a plan's place, to take
+        self._focus_guard = threading.Lock()
         self.cap_bytes = cap_bytes
-        self._sweep_at = -math.inf
-        self._landed_since_sweep = 0
+        self.house: FollowHouse | None = None
+        self._seq = 0                           # landings recorded
+        self._committed = 0                     # ... and in the index
+        self._writes: list = []                 # this tick's index writes
+        self._touched: dict[str, int] = {}      # key -> seq it landed at
         self.busy = busy
         self.lead_s, self.period_s = float(lead_s), float(period_s)
         self.lands_per_s = float(lands_per_s)
@@ -195,7 +235,8 @@ class FollowJob:
             thread_name_prefix="o4-imagery-follow-fetch")
         self._conn = None
         self._rows: dict[str, dict] = {}
-        self._rows_at = -math.inf
+        self._tiles: dict = {}                  # REACH.by_tile(_rows)
+        self._sharp = 0                         # rows at the finest tier
         self._inflight: dict[str, _InFlight] = {}
         self._failures: dict[str, int] = {}
         self._failed: set[str] = set()
@@ -240,12 +281,21 @@ class FollowJob:
         return self._thread is not None and self._thread.is_alive()
 
     def run(self) -> None:
-        """The loop: :meth:`open`, then :meth:`tick` every ``period_s``."""
+        """The loop: :meth:`open`, then :meth:`tick` every ``period_s``.  A
+        tick that raises (a bad position record, a texture that will not
+        read) is logged (``tick_error``) and the next tick runs: one bad
+        record never ends the job (#2019).  Only a failed :meth:`open`
+        stops it (``error``)."""
         try:
+            self._status(self.clock(), force=True)      # "starting", at once
             self.open()
+            self.house.start()          # the slow index work off the tick
             while not self._stop.is_set():
                 t0 = time.monotonic()
-                self.tick()
+                try:
+                    self.tick()
+                except Exception as error:      # logged; the job goes on
+                    self._log({"tick_error": repr(error)[:300]})
                 self._stop.wait(max(0.02, self.period_s
                                     - (time.monotonic() - t0)))
         except Exception as error:      # the event carries it; the engine lives on
@@ -265,8 +315,43 @@ class FollowJob:
         if self.cap_bytes is None:
             from .imagery_downgrade import cap_bytes
             self.cap_bytes = cap_bytes()
+        self.house = FollowHouse(
+            self.index_path, self._conn, seq=lambda: self._committed,
+            cap_bytes=self.cap_bytes, clock=self.clock, log=self._log,
+            abort=self._stop.is_set)
         self._reload_rows(self.clock())
         self._log({"start": len(self.rebuild_tiles), "textures": len(self._rows)})
+        if self.rescan_dir is not None:
+            self.rescan = threading.Thread(target=self._rescan, daemon=True,
+                                           name="o4-imagery-follow-rescan")
+            self.rescan.start()
+
+    def _rescan(self) -> None:
+        """Every on-demand tile under ``rescan_dir`` into the index, on
+        its own connection, one tile at a time (the job follows the rows
+        it has meanwhile and rereads them when this is done)."""
+        from .imagery_ondemand import on_demand_tiles
+        conn = None
+        try:
+            tiles = list(on_demand_tiles(self.rescan_dir))
+            self._log({"rescan": len(tiles)})
+            conn = INDEX.open_index(self.index_path)
+            written = 0
+            for tile in tiles:
+                while (self.spawn.episode is not None
+                       and not self._stop.is_set()):
+                    self._stop.wait(1.0)    # low priority: a core first
+                if self._stop.is_set():
+                    break
+                written += INDEX.rebuild(conn, [tile],
+                                         placeholder_root=_placeholder_root())
+            self.house.want_rows()              # reread soon
+            self._log({"rescanned": len(tiles), "textures": written})
+        except Exception as error:      # logged; the job follows what it has
+            self._log({"rescan_error": repr(error)[:300]})
+        finally:
+            if conn is not None:
+                conn.close()
 
     def close(self) -> None:
         """Let the fetches in flight finish (bounded), record them, and
@@ -275,7 +360,13 @@ class FollowJob:
         if pending:
             _futures.wait(pending, timeout=10.0)
         self._harvest(self.clock())
+        try:
+            self._commit()
+        except Exception as error:      # logged; the next open resets them
+            self._log({"commit_error": repr(error)[:300]})
         self._pool.shutdown(wait=False, cancel_futures=True)
+        if self.house is not None:
+            self.house.stop()
         if self.state != "error":
             self.state, self.reason = "stopped", ""
         self._status(self.clock(), force=True)
@@ -286,40 +377,124 @@ class FollowJob:
     # --------------------------------------------------------------- tick
 
     def tick(self) -> None:
-        """One cycle: read, plan, harvest, dispatch, report."""
+        """One cycle: read, plan, harvest, dispatch, report; its index
+        writes committed once, at its end (:meth:`_commit`)."""
+        try:
+            self._tick()
+        finally:
+            self._commit()
+
+    def _write(self, fn, *args, **columns) -> None:
+        """``fn(conn, *args, **columns)`` (an ``INDEX`` write), committed
+        with the tick's others at its end."""
+        self._writes.append((fn, args, columns))
+
+    def _commit(self) -> None:
+        """The tick's index writes in ONE transaction (#2037: 0-12
+        autocommits a tick, each a disk flush, held the windows-latest
+        tick 3.7-5 s).  The house's reread trusts the index for the
+        landings committed (:attr:`_committed`); later ones stay the
+        job's.  A failed commit keeps the writes for the next tick."""
+        writes, self._writes = self._writes, []
+        if writes:
+            try:
+                with INDEX.transaction(self._conn):
+                    for fn, args, columns in writes:
+                        fn(self._conn, *args, **columns)
+            except Exception:
+                self._writes[:0] = writes
+                raise
+        self._committed = self._seq
+
+    def _tick(self) -> None:
         now = self.clock()
         self.last_dispatched = []
         self._harvest(now)
+        self._house_work(now)
+        self._take_focus(now)
         rec = self.reader.read()
         if rec is None:
+            # a plan's departure needs no camera: its core goes on
+            if self.spawn.episode is not None:
+                self._run(self._plan(now, planner=False), now)
             self.state = "waiting"
-            self.reason = "X-Plane is not running or its Web API is off"
+            self.reason = (LOADING_REASON if getattr(self.reader, "loading", False)
+                           else "X-Plane is not running or its Web API is off")
             self._status(now)
             return
         lat, lon = WEBAPI.camera_position(rec)
-        if now - self._rows_at >= ROWS_EVERY_S:
-            self._reload_rows(now)
-        self._locate(now, lat, lon, float(rec.get("elev_m") or 0.0))
-        fetches = self.last_plan = self._plan(now)
-        self._update_slots(fetches, now)
+        self._locate(now, lat, lon, float(rec.get("elev_m") or 0.0),
+                     WEBAPI.camera_agl_m(rec))
+        fetches = self._plan(now)
         if not rec.get("paused"):
             self._mark_near(now)
-        self._sweep(now)
+        self._run(fetches, now)
+        self._settle_spawn(now, lat, lon)
+        self._status(now)
+
+    def _run(self, fetches, now: float) -> None:
+        """This tick's ``fetches`` to the slots: held tiles left out, no
+        download while offline, none at all while a build holds every
+        tile; :attr:`state` says which."""
+        self.last_plan = fetches
+        self._update_slots(fetches, now)
         offline = now < self._offline_until
         held = self._held()
         if held is True or pause_count():
             self.state = "paused"
             self.reason = "A build is running; imagery waits for it"
-        else:
-            self.state, self.reason = ("paused", OFFLINE_REASON) if offline \
-                else ("following", "")
-            if held:
-                fetches = [f for f in fetches
-                           if (self._rows.get(f.square) or {}).get("tile")
-                           not in held]
+            return
+        self.state, self.reason = ("paused", OFFLINE_REASON) if offline \
+            else ("following", "")
+        if held:
+            fetches = [f for f in fetches
+                       if (self._rows.get(f.square) or {}).get("tile")
+                       not in held]
+        guard = self.house.dispatch_guard if self.house else threading.Lock()
+        if not guard.acquire(blocking=False):
+            return              # the house's sweep downgrades: next tick
+        try:
             self._dispatch(fetches, now, downloads=not offline)
-        self._settle_spawn(now, lat, lon)
-        self._status(now)
+            self._commit()      # "upgrading" in the index before a sweep
+        finally:
+            guard.release()
+
+    # ---------------------------------------------------- a flight plan
+
+    def focus(self, lat: float, lon: float, tiles=()) -> None:
+        """A flight plan was entered (owner 2026-11-12T23:40:51Z: "it
+        should end any other flight, stop processing any other region
+        and prioritize the newly input flight plan"): at the next tick
+        the departure ``(lat, lon)`` opens a ``plan`` episode -- its core
+        first, whether X-Plane is there yet or not, every other region's
+        episode dropped and the planner's fetches held until it has
+        landed -- after ``tiles`` (``(build_dir, lat, lon)``) the index
+        has no rows of are rescanned, ahead of any startup rescan (which
+        waits while an episode is open)."""
+        with self._focus_guard:
+            self._focus = (float(lat), float(lon),
+                           [tuple(t) for t in tiles or ()])
+
+    def _take_focus(self, now: float) -> None:
+        with self._focus_guard:
+            focus, self._focus = self._focus, None
+        if focus is None:
+            return
+        import O4_File_Names as FNAMES
+        lat, lon, tiles = focus
+        indexed = set(self._tiles)
+        missing = [t for t in tiles
+                   if FNAMES.short_latlon(t[1], t[2]) not in indexed]
+        if missing:
+            self._commit()                  # the reread sees this tick's
+            INDEX.rebuild(self._conn, missing,
+                          placeholder_root=_placeholder_root())
+            self._reload_rows(now)
+        episode = self.spawn.witness(
+            "plan", now, lat, lon, self._rows,
+            is_local=getattr(self.lander, "local", None), tiles=self._tiles)
+        self._log({"spawn": "plan", "core": len(episode.wants),
+                   "local": len(episode.local), "rescanned": len(missing)})
 
     def _held(self):
         """``True`` when every tile is held, else the names of the tiles
@@ -333,7 +508,7 @@ class FollowJob:
     # ------------------------------------------------- spawn and jump
 
     def _locate(self, now: float, lat: float, lon: float,
-                alt_m: float) -> None:
+                alt_m: float, agl_m: float = 0.0) -> None:
         """The camera sample into the motion tracker, and the witness it
         is (spec §4.5): the session's first position, positions resumed
         after a drop, or a jump opens the spawn episode of the place."""
@@ -346,14 +521,18 @@ class FollowJob:
             if moved > SPAWN.SAME_PLACE_M:
                 self.tracker.restart()  # no track or speed across a load
         self._resets, self._read_at = self.reader.resets, now
-        self.motion = self.tracker.add(now, lat, lon, alt_m)
+        self.motion = self.tracker.add(now, lat, lon, alt_m, agl_m)
         if self.tracker.jumped:
             kind, moved = "jump", math.inf
         if not kind:
             return
+        if kind == "spawn" and getattr(self.spawn.episode, "witness",
+                                       "") == "plan":
+            return          # the plan's departure first; the planner follows
         episode = self.spawn.witness(
             kind, now, lat, lon, self._rows, moved_m=moved, down_s=down,
-            is_local=getattr(self.lander, "local", None))
+            is_local=getattr(self.lander, "local", None), agl_m=agl_m,
+            tiles=self._tiles)
         if episode is not None:
             self._log({"spawn": kind, "core": len(episode.wants),
                        "local": len(episode.local),
@@ -384,36 +563,82 @@ class FollowJob:
     # ------------------------------------------------------------- plan
 
     def _reload_rows(self, now: float) -> None:
-        self._rows = {_key(r): r for r in INDEX.rows(self._conn)
-                      if r.get("centre_lat") is not None
-                      and r.get("load_size_m")}
-        self._rows_at = now
+        """The rows read at once, on the tick (the open, a flight plan's
+        tiles just rescanned)."""
+        self._take_snapshot(self.house.read_now())
 
-    def _plan(self, now: float) -> list[PLAN.Fetch]:
+    def _house_work(self, now: float) -> None:
+        """The house's work inline when it has no thread (the tests);
+        then the newest rows it read, and the camera for its sweep."""
+        self.house.camera = self.motion
+        if not self.house.threaded:
+            self.house.step(now)
+        snap = self.house.take_rows()
+        if snap is not None:
+            self._take_snapshot(snap)
+        self.counts["downgraded"] = self.house.downgraded
+
+    def _take_snapshot(self, snap) -> None:
+        """``snap``'s rows, with the rows this job landed after its read
+        began kept as the job has them."""
+        rows, sharp = snap.rows, snap.sharp
+        for key, seq in list(self._touched.items()):
+            if seq <= snap.seq:
+                del self._touched[key]
+            elif key in rows and key in self._rows:
+                sharp += (_is_sharp(self._rows[key]) - _is_sharp(rows[key]))
+                rows[key] = self._rows[key]
+        self._rows, self._tiles, self._sharp = rows, snap.tiles, sharp
+
+    def _plan(self, now: float, planner: bool = True) -> list[PLAN.Fetch]:
         """An open spawn episode's core first, then the planner's fetches
-        for every other square."""
-        episode = self.spawn.episode
+        for every other square (none while a ``plan`` episode is open, or
+        with ``planner`` false).  The core follows the camera
+        (``Episode.follow``), and once its flight-start window has passed
+        its files show only at a reload: the planner's fetches for a
+        crossing still AHEAD (deadline in the future: X-Plane reads the
+        file at its own step-up) go before it, the rest after (#2037)."""
+        episode, m = self.spawn.episode, self.motion
+        if episode is not None and planner and m is not None:
+            episode.follow(self._rows, m.lat, m.lon, m.agl_m)
         core = (episode.fetches(self._rows, now, self._failed)
                 if episode is not None else [])
+        if not planner or (episode is not None and episode.witness == "plan"):
+            return core
+        if m is None:
+            return core
         in_core = {f.square for f in core}
         squares, on_disk = [], {}
-        for key, row in self._rows.items():
+        for key in REACH.keys_within(self._tiles, m.lat, m.lon,
+                                     REACH.plan_reach(m, PLAN.HORIZON_S)):
+            row = self._rows[key]
             if (key in self._failed or row["state"] == "failed"
                     or key in in_core):
                 continue
             squares.append(PLAN.Square(key, row["centre_lat"],
                                        row["centre_lon"], row["load_size_m"]))
             on_disk[key] = PLAN.tier_of_width(row["tier_px"])
-        if self.motion is None:
-            return core
-        return core + PLAN.plan(self.motion, squares, on_disk,
-                                lead_s=self.lead_s, fetch_s=self._fetch_s)
+        planned = PLAN.plan(m, squares, on_disk,
+                            lead_s=self.lead_s, fetch_s=self._fetch_s)
+        if episode is None or now < episode.window_end:
+            return core + planned
+        ahead = [f for f in planned if not f.late and f.deadline_s > 0.0]
+        return ahead + core + [f for f in planned if f not in ahead]
 
-    def _local(self) -> "set[str]":
-        """The open episode's squares that need no download: they take no
-        fetch slot (a slot bounds what is asked of a provider)."""
+    def _local(self):
+        """Does a square need no download?  The open episode's local
+        squares, and any square the lander lands from its source
+        (``TierLander.from_source``: a built tile's full DDS on a mounted
+        volume, #2037): they take no fetch slot (a slot bounds what is
+        asked of a provider)."""
         episode = self.spawn.episode
-        return episode.local if episode is not None else set()
+        local = episode.local if episode is not None else frozenset()
+        from_source = getattr(self.lander, "from_source", None)
+        if from_source is None:
+            return local.__contains__
+        rows = self._rows
+        return lambda key: key in local or (
+            key in rows and from_source(rows[key]))
 
     def _update_slots(self, fetches, now: float) -> None:
         """The buffer: in-flight work first (its remaining seconds), then
@@ -421,13 +646,13 @@ class FollowJob:
         deadlines, costs = [], []
         local = self._local()
         for key, item in self._inflight.items():
-            if key in local:
+            if local(key):
                 continue
             deadlines.append(item.due_at - now)
             costs.append(max(0.0, self._fetch_s[item.fetch.tier]
                              - (now - item.started)))
         queue = [f for f in fetches if not f.late
-                 and f.square not in self._inflight and f.square not in local]
+                 and f.square not in self._inflight and not local(f.square)]
         for f in queue:
             deadlines.append(f.deadline_s)
             costs.append(self._fetch_s[f.tier])
@@ -450,28 +675,40 @@ class FollowJob:
 
     def _dispatch(self, fetches, now: float, downloads: bool = True) -> None:
         """Start the due fetches in order, as slots allow; without
-        ``downloads`` (offline) only those that need none."""
+        ``downloads`` (offline) only those that need none.  A download
+        takes one of the current slots; a landing that needs none
+        (:meth:`_local`) only a worker, so it starts past downloads that
+        wait for a slot."""
         local = self._local()
+        downloading = sum(1 for key in self._inflight if not local(key))
         for f in fetches:
-            if f.square not in local and not downloads:
+            near = local(f.square)
+            if not near and not downloads:
                 continue
-            if len(self._inflight) >= (self.slots.max_slots if f.square
-                                       in local else self.slots.slots):
+            if len(self._inflight) >= self.slots.max_slots:
                 return
             if not f.due or f.square in self._inflight:
                 continue
+            if not near and downloading >= self.slots.slots:
+                continue
             if not self._take_token(now):
                 return
+            downloading += not near
             row = self._rows[f.square]
-            INDEX.set_state(self._conn, row["tile"], row["name"], "upgrading")
+            self._write(INDEX.set_state, row["tile"], row["name"], "upgrading")
+            # started: the submit, not the tick's start (#2037: a tick
+            # slow before its dispatch read as a 29-163 s landing)
+            started = self.clock()
             future = self._pool.submit(self._land, dict(row), f.tier)
-            self._inflight[f.square] = _InFlight(future, f, row, now,
+            self._inflight[f.square] = _InFlight(future, f, row, started,
                                                  now + f.deadline_s)
             self.last_dispatched.append(f)
 
     def _land(self, row: dict, tier: int):
-        """On a worker: the lander's facts and when they landed."""
-        facts = self.lander(row, tier)
+        """On a worker: the lander's facts and when they landed.  Its
+        requests go first in the server's budget (#2037)."""
+        with MACHINE_SLOTS.net_priority():
+            facts = self.lander(row, tier)
         return facts, self.clock()
 
     def _harvest(self, now: float) -> None:
@@ -490,16 +727,22 @@ class FollowJob:
                 now: float) -> None:
         row = item.row
         late = item.fetch.late or now > item.due_at
-        INDEX.set_state(self._conn, row["tile"], row["name"], "upgraded",
+        self._write(INDEX.set_state, row["tile"], row["name"], "upgraded",
                         tier_px=facts["tier_px"],
                         full_bytes=facts.get("full_bytes", 0),
                         jpeg_path=facts.get("jpeg_path"),
                         dds_cache_key=facts.get("dds_cache_key"),
                         fetched_at=now)
         if late:
-            INDEX.mark_late(self._conn, row["tile"], row["name"])
+            self._write(INDEX.mark_late, row["tile"], row["name"])
             self.counts["late"] += 1
+        was = PLAN.tier_of_width(row["tier_px"])
         row.update(state="upgraded", tier_px=facts["tier_px"])
+        if PLAN.tier_of_width(row["tier_px"]) == _FINEST and was != _FINEST:
+            self._sharp += 1
+        self._seq += 1
+        self._touched[key] = self._seq
+        self.house.landed()
         seconds = now - item.started
         tier = item.fetch.tier
         if self.spawn.episode is not None:
@@ -508,13 +751,14 @@ class FollowJob:
             self._fetch_s[tier] = 0.7 * self._fetch_s[tier] + 0.3 * seconds
         self._fail_streak = 0
         self.counts["landed"] += 1
-        self._landed_since_sweep += 1
         self.counts["bytes"] += int(facts.get("full_bytes") or 0)
         self.counts["network"] += int(bool(facts.get("network", True)))
         landing = {"square": key, "tier": tier,
                    "crossing": item.fetch.crossing, "late": late,
                    "started": item.started, "landed": now,
                    "slots": self.slots.slots}
+        if facts.get("source_s"):           # a source landing's parts
+            landing["source_s"] = facts["source_s"]
         self.landings.append(landing)
         self._log(landing)
 
@@ -525,7 +769,7 @@ class FollowJob:
         self.counts["failed"] += 1
         state = "failed" if count >= MAX_FAILURES else (
             "upgraded" if PLAN.tier_of_width(row["tier_px"]) > 0 else "low")
-        INDEX.set_state(self._conn, row["tile"], row["name"], state)
+        self._write(INDEX.set_state, row["tile"], row["name"], state)
         if count >= MAX_FAILURES:
             self._failed.add(key)
         if self._fail_streak >= OFFLINE_AFTER:
@@ -544,39 +788,22 @@ class FollowJob:
         m = self.motion
         near_by_tile: dict[str, list[str]] = {}
         near = set()
-        for key, row in self._rows.items():
+        for key in REACH.keys_within(self._tiles, m.lat, m.lon,
+                                     REACH.near_reach()):
+            row = self._rows[key]
             if INDEX.distance_m(row, m.lat, m.lon) <= INDEX.tier_distance_m(row):
                 near.add(key)
                 near_by_tile.setdefault(row["tile"], []).append(row["name"])
-        for tile, names in near_by_tile.items():
-            fresh = [n for n in names if f"{tile}/{n}" not in self._near]
-            INDEX.mark_near(self._conn, tile, names, now, approaching=fresh)
+        if near_by_tile:                    # written by the house
+            self.house.near(now, near_by_tile, near - self._near)
         self._near = near
-
-    def _sweep(self, now: float) -> None:
-        """The 110 % trigger (spec §6.2): after landings, at most once a
-        minute, ``imagery_downgrade.sweep`` in session mode, sparing the
-        squares near the camera."""
-        if (not self._landed_since_sweep or not self.cap_bytes
-                or now - self._sweep_at < SWEEP_EVERY_S):
-            return
-        from .imagery_downgrade import sweep
-        from .storage_budget import session_budget
-        self._sweep_at, self._landed_since_sweep = now, 0
-        result = sweep(self._conn, session_budget(self._conn, self.cap_bytes),
-                       camera=self.motion,
-                       in_session=True, now=now, abort=self._stop.is_set)
-        if result["downgraded"]:
-            self.counts["downgraded"] += result["downgraded"]
-            self._reload_rows(now)
 
     # ----------------------------------------------------------- report
 
     def status(self) -> dict:
         """The fields of ``ImageryFollowStatus``."""
         m = self.motion
-        sharp = sum(1 for r in self._rows.values()
-                    if PLAN.tier_of_width(r["tier_px"]) == len(PLAN.TIER_WIDTH) - 1)
+        sharp = self._sharp     # counted at each reread and landing (#2037)
         return {
             "state": self.state, "reason": self.reason,
             "xplane": self.state not in ("waiting", "starting"),
@@ -595,12 +822,14 @@ class FollowJob:
             "flight_loads": self.reader.resets,
             "jumps": self.tracker.jumps,
             "reloads": self.counts["reloads"],
+            "reload_offer": _pending_offer(),
         }
 
     def _status(self, now: float, force: bool = False) -> None:
         fields = self.status()
         changed = (fields["state"], fields["reason"], fields["landed"],
-                   fields["failed"], fields["slots"], fields["reloads"])
+                   fields["failed"], fields["slots"], fields["reloads"],
+                   fields["reload_offer"])
         if not force and changed == self._last_status and (
                 now - self._status_at < STATUS_EVERY_S):
             return

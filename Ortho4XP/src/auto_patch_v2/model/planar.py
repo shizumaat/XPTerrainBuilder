@@ -44,7 +44,8 @@ __all__ = ["BEYOND", "NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Fa
            "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "plane_origin_ref", "BLOCK_SEP",
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
            "KERB_SUFFIX", "kerb_ref",
-           "FILL_BANK_PREFIX", "is_fill_bank_ref",
+           "FILL_BANK_PREFIX", "is_fill_bank_ref", "STACK_GROUND_PREFIX",
+           "is_stack_ground_ref", "is_stack_apron_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
@@ -141,6 +142,24 @@ FILL_BANK_PREFIX = "fill_bank:"
 def is_fill_bank_ref(ref: object) -> bool:
     """Is this face a piece of an old-DEM fill's bank?"""
     return str(ref or "").startswith(FILL_BANK_PREFIX)
+
+
+#: #1971 (spec ``interchange-levels-v2-20261113.md`` §3.2): the face ref of
+#: a deck stack's own ground (``planar/stack_ground``: its caps, the ground
+#: under its decks and the bank to the lidar) — graded ground, no zone class
+STACK_GROUND_PREFIX = "stack_ground:"
+
+
+def is_stack_ground_ref(ref: object) -> bool:
+    """Is this face a piece of a deck stack's ground?"""
+    return str(ref or "").startswith(STACK_GROUND_PREFIX)
+
+
+def is_stack_apron_ref(ref: object) -> bool:
+    """Is this face a deck end's APRON (``planar/stack_ground``: the plate's
+    width beyond an end line, its first sample step held at the plate's
+    top)?  Narrow by construction where the road takes the middle of it."""
+    return is_stack_ground_ref(ref) and ":apron:" in str(ref)
 
 
 def platform_ref_of(ref: object) -> str:

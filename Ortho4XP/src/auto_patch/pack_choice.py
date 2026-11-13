@@ -14,7 +14,8 @@ import os
 import typing as _t
 
 __all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES",
-           "GATEWAY_CHOICES", "GROUND_CHOICES", "Store", "store_path", "read",
+           "GATEWAY_CHOICES", "GROUND_CHOICES", "TERRAIN_CHOICES", "TERRAIN_FOUND",
+           "Store", "store_path", "read",
            "write", "relative", "step_list"]
 
 #: the "Optimise pack" answers file (#1707; ``optimise_stage``)
@@ -28,6 +29,11 @@ DRAPE_CHOICES = "pack_drape_choices.json"
 GATEWAY_CHOICES = "gateway_airport_choices.json"
 #: the "Hide large ground textures" answers file (#1962; ``drape_stage``)
 GROUND_CHOICES = "pack_ground_choices.json"
+#: the "Hide terrain objects" answers file (RULINGS 2026-11-13i; ``drape_stage``)
+TERRAIN_CHOICES = "pack_terrain_choices.json"
+#: the terrain objects a build offered for hiding, per pack
+#: (``auto_patch_v2.airport.pack_terrain``): the answer works outside a build
+TERRAIN_FOUND = "pack_terrain_found.json"
 
 #: the answers a store remembers ("" forgets)
 REMEMBERED = ("update", "never")

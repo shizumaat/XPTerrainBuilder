@@ -34,6 +34,7 @@ __all__ = [
     "PACK_RESTORE_KEY", "note_pack",
     "record_substitutions", "read_substitutions",
     "INSET_SOURCES_KEY", "record_inset_sources", "read_inset_sources",
+    "BASE_SOURCE_KEY", "record_base_source", "read_base_source",
     "UNMOUNTED_KEY", "record_unmounted_packs", "read_unmounted_packs",
     "DEGRADED_KEY", "record_degraded", "read_degraded",
     "warn",
@@ -273,6 +274,32 @@ def read_inset_sources(tile) -> list:
     """The winning inset per airport of the tile on disk (see
     :func:`record_inset_sources`)."""
     return _read_rows(tile, "airport_inset_sources", INSET_SOURCES_KEY)
+
+
+#: Sidecar key of the tile-wide base elevation the build read (#2033: the
+#: tile pane's "Elevation" row): one row ``{"name"}``, the source's display
+#: name -- the fallback's where the tile's own cell came from one.
+BASE_SOURCE_KEY = "base_elevation_source"
+
+
+def record_base_source(tile, name: str) -> list:
+    """Publish the base elevation's name (``O4_DEM_Utils.base_source_label``)
+    -- called by every production DEM load beside
+    :func:`record_substitutions`.  Never fatal."""
+    rows = [{"name": str(name)}] if name else []
+    try:
+        return _publish_rows(tile, "base_elevation_source", BASE_SOURCE_KEY,
+                             rows)
+    except (AttributeError, TypeError):        # a slotted stand-in tile
+        return rows
+
+
+def read_base_source(tile) -> str:
+    """The base elevation's name of the tile on disk, ``""`` when the
+    build recorded none (a tile built before #2033)."""
+    rows = _read_rows(tile, "base_elevation_source", BASE_SOURCE_KEY)
+    return str(rows[0].get("name") or "") if rows and isinstance(
+        rows[0], dict) else ""
 
 
 #: Sidecar key of the airports graded WITHOUT their pack because the pack

@@ -93,7 +93,7 @@ SPJC_TAGS = {"highway": "secondary", "lanes": "3", "tunnel": "yes"}
 
 
 def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (335.0, -100.0)),
-          tags=SPJC_TAGS, partition=None, extra_cells=(), dem=None, portals=()):
+          tags=SPJC_TAGS, partition=None, extra_cells=(), dem=None, portals=(), extra_ways=()):
     """SPJC -5724's shape: a 35 m ``secondary`` bore on a plane falling
     0.53 m, the nearest classified cell off it, inside a fence."""
     frame = Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11)
@@ -107,7 +107,8 @@ def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (33
     (ax, ay), (bx, by) = bore_pts[0], bore_pts[-1]
     road = {"highway": "secondary", "lanes": "3"}
     ways = (bore, OsmWay(-5708, "big_roads", ((ax - 150.0, ay), (ax, ay)), False, road),
-            OsmWay(-5723, "big_roads", ((bx, by), (bx + 150.0, by)), False, road))
+            OsmWay(-5723, "big_roads", ((bx, by), (bx + 150.0, by)), False, road),
+            *extra_ways)
     fences = (Boundary("boundary0", fence, ()),) if fence else ()
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     airport = Airport("ZZZZ", "Synthetic", frame, 22.0, (rw,), (), (), {}, (),
@@ -384,3 +385,68 @@ def test_a_PORTAL_over_the_bore_end_is_no_building_it_enters(law):
                  (335.0, -100.0))
     _cl, _t, st = _spjc(law, partition=tun, portals=[pin])
     assert "ENTERS A PACK BUILDING" not in " ".join(_refusals(st) + list(st.refused))
+
+
+def test_an_OSM_enclosure_over_a_PORTAL_pinned_end_is_no_building_it_enters(law):
+    """#1938 EGLL: bores -11670/-11669's south end stands 22 m inside an OSM
+    ``building=airport_terminal`` outline, where the pack's trench object
+    pins it (``trench_objects.mouth_portals``) -- the bore's own open mouth,
+    so (a) stands down there and the bore is read on, its open north mouth
+    with it.  The same end with no portal is still that building's ramp."""
+    from auto_patch_v2.airport.portal_objects import Portal
+    term = OsmWay(-871, "airports", _rect(320.0, -130.0, 400.0, -70.0) + ((320.0, -130.0),),
+                  True, {"building": "airport_terminal"})
+    _cl, _t, st = _spjc(law, extra_ways=(term,))
+    assert "-5724 ENTERS AN ENCLOSURE" in " ".join(_refusals(st))
+    pin = Portal("dsf:obj11851", "Tunnel/10.obj", (335.0, -100.0), -5724, 6.0, 0.0,
+                 (335.0, -100.0))
+    _cl, _t, st = _spjc(law, extra_ways=(term,), portals=[pin])
+    assert "ENTERS AN ENCLOSURE" not in " ".join(_refusals(st) + list(st.refused))
+
+
+# ── #1938: a passage over the APPROACH is no passage of the bore (11-13h) ─
+
+#: a roof sheet 3.4 m up beside the line over the bore's EAST approach only —
+#: EGLL ``T2_T3_22`` over -11670 / -11669 near their south mouth
+APPROACH_LINK = _ll_ring(328, -99.5, 336, -85)
+#: airside pavement over the bore's line WEST of the part, beyond its reach
+BEYOND = Cell(3, "apron", "pav51", _rect(304, -110, 316, -90), (), None, None,
+              "airside", "apron", {})
+
+
+def _approach_link():
+    return _partition(("dsf:obj8", "Airport/T2_T3_22.obj", "", (_part(3.4, 0.0, APPROACH_LINK),)))
+
+
+def test_a_PASSAGE_over_the_APPROACH_with_airside_pavement_BEYOND_is_BUILT(law):
+    """Owner 2026-11-13 (RULINGS 2026-11-13h, #1938): EGLL -11670 / -11669
+    run 600 m under the aprons beyond ``T2_T3_22``, which stands over the
+    carriageway by the south mouth with clear space beneath.  The passage
+    reading stands down there: the bore is built, BOTH mouths cut."""
+    _cl, tunnels, st = _spjc(law, partition=_approach_link(), extra_cells=(BEYOND,))
+    assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
+    with_layer = dict(SPJC_TAGS, layer="-1")
+    _cl, _t, st = _spjc(law, partition=_approach_link(), extra_cells=(BEYOND,),
+                        tags=with_layer)
+    assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
+
+
+def test_the_APPROACH_passage_still_refuses_with_no_airside_pavement_beyond(law):
+    """The same part with nothing beyond it, or with the pavement only
+    UNDER the part's reach, or with a PAD (no airside pavement) beyond:
+    10q / 14o refuse as before."""
+    under = Cell(3, "apron", "pav52", _rect(326, -110, 334, -90), (), None, None,
+                 "airside", "apron", {})
+    pad = Cell(3, "building", "pad1", _rect(304, -110, 316, -90), (), None, None,
+               "airside", "building", {})
+    for extra in ((), (under,), (pad,)):
+        _cl, tunnels, st = _spjc(law, partition=_approach_link(), extra_cells=extra)
+        assert st.tunnels == 0 and not tunnels, (extra, st.mouths_off_field_nearest)
+        assert "PASSES UNDER AN ELEVATED PACK PART" in " ".join(_refusals(st))
+
+
+def test_a_passage_SPANNING_the_bore_refuses_whatever_lies_under_it(law):
+    """KCLT's terminal link / HECA's viaduct span the whole covered run:
+    the apron under it is not beyond it (the 10q / 14o twins above)."""
+    _cl, _t, st = _spjc(law, partition=_link(), extra_cells=(BEYOND,))
+    assert st.tunnels == 0 and "PASSES UNDER AN ELEVATED PACK PART" in " ".join(_refusals(st))

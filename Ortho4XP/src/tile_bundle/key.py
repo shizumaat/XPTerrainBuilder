@@ -31,8 +31,8 @@ from auto_patch_v2.airport.pack_identity import pack_signature  # the one deriva
 from . import FORMAT
 
 __all__ = ["NOT_PROFILE", "MATCHED_NOT_REFUSED", "LOCATION_ENVS", "mesh_profile",
-           "profile_deviations", "without_locations", "xplane_root",
-           "pack_signature", "airport_signatures", "key_parts",
+           "profile_deviations", "without_locations", "xplane_root", "pack_root",
+           "pack_signature", "graded_airports", "airport_signatures", "key_parts",
            "bundle_key", "first_difference"]
 
 #: Settings in a step's key that are not part of the mesh profile: where
@@ -84,13 +84,22 @@ def _code_family() -> dict:
 
 def xplane_root(tile) -> str | None:
     """The X-Plane install the tile's build reads (its CIFP folder's)."""
-    import O4_Vector_Map as VMAP
-    from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
-    cifp = VMAP.resolve_cifp_dir_for_tile(tile)
-    return xplane_root_from_cifp_path(cifp) if cifp else None
+    from o4_engine.xplane_root import xplane_root_of
+    return xplane_root_of(tile)
 
 
-def _graded_airports(tile) -> list:
+def pack_root(tile, icao: str) -> str:
+    """The Custom Scenery pack folder serving ``icao`` for the tile's
+    build (``airport.pack.select_pack``), ``""`` for none or Global
+    Airports."""
+    from auto_patch_v2.airport.pack import select_pack
+    root = xplane_root(tile)
+    sel = select_pack(root, str(icao).upper()) if root else None
+    return sel.root if sel is not None and sel.custom else ""
+
+
+def graded_airports(tile) -> list:
+    """The ICAOs the tile's build grades (``build_airports.tile_airports``)."""
     from o4_engine.build_airports import tile_airports
     rows = tile_airports(tile.lat, tile.lon,
                          getattr(tile, "custom_build_dir", "") or "")
@@ -104,7 +113,7 @@ def airport_signatures(tile) -> dict:
     if not root:
         return {}
     return {icao: pack_signature(root, icao, tile.lat, tile.lon)
-            for icao in _graded_airports(tile)}
+            for icao in graded_airports(tile)}
 
 
 def key_parts(tile) -> dict:

@@ -235,8 +235,6 @@ def _count_dds_textures(tile):
 def _write_imagery_manifest(tile, download_stats, convert_progress):
     """Stamp a completed imagery step.  Never raises — the manifest is a
     scheduling optimisation, not a build artefact."""
-    import json
-
     import O4_Version as VERSION
 
     try:
@@ -254,8 +252,6 @@ def _write_imagery_manifest(tile, download_stats, convert_progress):
                 int(getattr(tile, "default_zl", 0) or 0)
                 - PLACEHOLDER.drop(tile)
                 if PLACEHOLDER.drop(tile) else None),
-            # The pin is the user's (imagery_pin): a rebuild keeps it.
-            "pinned": bool(read_imagery_manifest(tile).get("pinned")),
             "cleaning_level": int(UI.cleaning_level),
             "mesh": _mesh_identity(tile),
             "textures_total": int(
@@ -286,11 +282,13 @@ def _write_imagery_manifest(tile, download_stats, convert_progress):
             "color_field_reused": bool(
                 getattr(tile, "color_field_reused", False)),
         }
-        path = imagery_manifest_path(tile)
-        temporary = path + ".tmp"
-        with open(temporary, "w", newline="\n") as handle:
-            json.dump(manifest, handle, indent=2, sort_keys=True)
-        os.replace(temporary, path)
+        # The Favorite is the user's (imagery_pin), set any time, a build
+        # running or not (#2033): kept from the record as it stands, read
+        # and written under the record's lock.
+        import O4_Tile_Info as TINFO
+        TINFO.update_imagery_record(
+            tile.build_dir, tile.lat, tile.lon,
+            lambda old: dict(manifest, pinned=bool(old.get("pinned"))))
     except Exception as error:
         UI.vprint(2, "Could not write the imagery manifest:", error)
 
@@ -301,7 +299,7 @@ def read_imagery_manifest(tile):
     import json
 
     try:
-        with open(imagery_manifest_path(tile), "r") as handle:
+        with open(imagery_manifest_path(tile), "r", encoding="utf-8") as handle:
             manifest = json.load(handle)
         return manifest if isinstance(manifest, dict) else {}
     except (OSError, ValueError):

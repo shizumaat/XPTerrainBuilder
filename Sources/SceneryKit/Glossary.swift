@@ -38,9 +38,8 @@ public enum O4Glossary {
         "ondemand_region": "On demand in {region}?",
         "mode_build": "Build",
         "mode_fly": "Fly",
-        "mode_library": "Library",
         "live_flight_preview": "Live flight preview",
-        "xplane_own_scenery": "X-Plane's own scenery",
+        "xplane_objects_auto": "Added to every full tile, except where installed scenery such as simHeaven X-World already brings them",
     ]
 
     /// Engine step key (wire `step_key`, legacy driver step) -> plain name.
@@ -79,6 +78,19 @@ public enum O4Glossary {
     public static func detailChoice(_ zl: Int) -> String {
         guard let size = detailPixelSizes[zl] else { return "ZL\(zl)" }
         return "ZL\(zl) · \(size) per pixel"
+    }
+
+    /// The tile pane's one Imagery line (#2033; Python `imagery_summary`):
+    /// the source and its zoom level, "BI, ZL16", with the airports' higher
+    /// cover zoom as a range, "BI, ZL16–19"; "—" with neither.
+    public static func imagerySummary(provider: String?, zl: Int?, coverZL: Int? = nil) -> String {
+        var zoom = ""
+        if let zl, zl > 0 {
+            zoom = "ZL\(zl)"
+            if let coverZL, coverZL > zl { zoom += "–\(coverZL)" }
+        }
+        let parts = [provider ?? "", zoom].filter { !$0.isEmpty }
+        return parts.isEmpty ? "—" : parts.joined(separator: ", ")
     }
 
     /// The progress text shown for an engine `StepProgress`: the engine's

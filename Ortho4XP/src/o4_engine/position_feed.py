@@ -14,7 +14,11 @@ feed reads only while someone reads it (the follow job ticks at 1 Hz).
 :func:`shared` returns the one feed of a Web API base;
 :func:`latest_record` the freshest record any feed holds and
 :func:`latest_position` its camera position (``None`` when no feed has
-read lately).
+read lately).  The Web API read runs outside the record's lock, so
+:meth:`PositionFeed.latest` never waits on X-Plane; :func:`start_pump`
+keeps a feed read on a thread of its own for a reader that must never
+wait (the flight's tick: 5-6 s per tick with X-Plane not running, owner
+log 2026-11-12T20:22Z).
 """
 from __future__ import annotations
 
@@ -22,13 +26,15 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-__all__ = ["MAX_AGE_S", "FRESH_S", "shared",
-           "latest_record", "latest_position"]
+__all__ = ["MAX_AGE_S", "FRESH_S", "PUMP_EVERY_S", "shared",
+           "latest_record", "latest_position", "start_pump"]
 
 #: A record younger than this is served again instead of a new read.
 MAX_AGE_S = 0.5
 #: :func:`latest_position` trusts a record this young.
 FRESH_S = 5.0
+#: :func:`start_pump` reads its feed this often.
+PUMP_EVERY_S = 1.0
 
 
 class _PositionFeed:
@@ -39,7 +45,8 @@ class _PositionFeed:
         self.reader = reader
         self.max_age_s = float(max_age_s)
         self.clock = clock
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()          # the record: never held on I/O
+        self._reading = threading.Lock()       # one Web API read at a time
         self._rec: Optional[dict] = None
         self._at: Optional[float] = None
         self._subscribers: List[Callable[[Optional[dict]], None]] = []
@@ -53,16 +60,23 @@ class _PositionFeed:
     def error(self) -> str:
         return str(getattr(self.reader, "error", ""))
 
+    @property
+    def loading(self) -> bool:
+        """The reader's last record came while X-Plane loads a flight."""
+        return bool(getattr(self.reader, "loading", False))
+
     def read(self) -> Optional[dict]:
         """The position record (``None`` when X-Plane does not answer);
         from the last read when it is younger than ``max_age_s``."""
-        with self._lock:
-            now = self.clock()
-            if self._at is not None and now - self._at < self.max_age_s:
-                return self._rec
+        with self._reading:
+            with self._lock:
+                now = self.clock()
+                if self._at is not None and now - self._at < self.max_age_s:
+                    return self._rec
             rec = self.reader.read()
-            self._rec, self._at = rec, now
-            subscribers = list(self._subscribers)
+            with self._lock:
+                self._rec, self._at = rec, self.clock()
+                subscribers = list(self._subscribers)
         for callback in subscribers:
             try:
                 callback(rec)
@@ -124,3 +138,21 @@ def latest_position(max_age_s: float = FRESH_S) -> Optional[tuple]:
     import O4_XPlane_WebAPI as WEBAPI
     rec = latest_record(max_age_s)
     return None if rec is None else WEBAPI.camera_position(rec)
+
+
+def start_pump(feed: _PositionFeed, stop: threading.Event,
+               every_s: float = PUMP_EVERY_S,
+               name: str = "o4-position-pump") -> threading.Thread:
+    """Read ``feed`` every ``every_s`` on a daemon thread until ``stop``
+    is set, so its readers take :meth:`_PositionFeed.latest` and never
+    wait on the Web API."""
+    def run() -> None:
+        while not stop.is_set():
+            try:
+                feed.read()
+            except Exception:           # the reader logs; the pump goes on
+                pass
+            stop.wait(every_s)
+    thread = threading.Thread(target=run, daemon=True, name=name)
+    thread.start()
+    return thread

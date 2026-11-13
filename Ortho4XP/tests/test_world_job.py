@@ -67,19 +67,24 @@ def test_parked_the_ring_is_built_nearest_first_on_the_parked_slots():
     for t in range(3):
         job.tick(float(t), {"lat": CYYR[0], "lon": CYYR[1]})
     assert [s[0][1] for s in builder.started] == [-63, -63]
-    assert all(s[1:] == ("light", s[2], "P1") for s in builder.started)
+    assert all(s[1:] == ("drape", s[2], "P1") for s in builder.started)
     status = job.status(2.0)
     assert status["state"] == "building" and status["slots"] == 2
     assert status["queue"] == len(job.jobs) - 2
-    assert [row[1:3] for row in status["building"]] == [["light", "building"]] * 2
+    assert [row[1:3] for row in status["building"]] == [["drape", "building"]] * 2
+    # The map's rows (WorldStatus.jobs): FlightStatus.jobs' shape.
+    rows = {tuple(r[0]): r[1:] for r in status["jobs"]}
+    assert len(rows) == len(job.jobs)
+    assert rows[builder.started[0][0]] == ["ahead", "drape", "building"]
+    assert {r[3] for r in status["jobs"]} == {"building", "queued"}
 
 
 def test_flying_the_job_builds_the_column_ahead_by_its_deadline():
     """Westbound at 150 m/s from lon -60.45: column -064 enters at lon
     -61.65, 80 km (533 s) on; its deadline is that less 60 s and the
-    swap."""
+    swap.  (A 2,000 s tile so the column is in the horizon at once.)"""
     job, builder, _ = _job(wanted=lambda tile: tile[1] == -64, cores=18,
-                           capacity=16)
+                           capacity=16, estimate_s={"drape": 300.0})
     job.flight_loaded(53.3, -60.45)
     _west(job, 0, 12)
     started = {s[0]: s[2] for s in builder.started}
@@ -90,14 +95,14 @@ def test_flying_the_job_builds_the_column_ahead_by_its_deadline():
 
 def test_a_tile_that_cannot_be_built_in_time_is_late_and_not_started():
     job, builder, _ = _job(wanted=lambda tile: tile[1] == -64, cores=18,
-                           estimate_s={"light": 2000.0})
+                           estimate_s={"drape": 2000.0})
     job.flight_loaded(53.3, -60.45)
     _west(job, 0, 12)
     assert not builder.started
     assert {j.state for j in job.jobs.values()} == {"late"}
     assert "faster than tiles can be built" in job.reason
     drape, builder, _ = _job(wanted=lambda tile: tile[1] == -64, cores=18,
-                             kind="drape")
+                             kind="drape", estimate_s={"drape": 37.0})
     drape.flight_loaded(53.3, -60.45)
     _west(drape, 0, 12)
     assert not builder.started                      # beyond its horizon yet
@@ -141,7 +146,7 @@ def test_finished_tiles_swap_when_s3_allows_spaced_unless_urgent():
     assert states == ["staged", "swapped"]          # one swap per 10 s
     job.tick(11.5, {"lat": CYYR[0], "lon": CYYR[1]})
     assert {job.jobs[t].state for t in far} == {"swapped"}
-    assert job.status(12.0)["last_swap"][1] == "light"
+    assert job.status(12.0)["last_swap"][1] == "drape"
     assert len(job.swaps) == 2 and job.swaps[1][1] - job.swaps[0][1] >= 10
 
 
@@ -211,6 +216,9 @@ def test_the_publisher_swaps_a_staged_tile_holding_only_its_follow(pack,
     clock["t"] = RUN.PENDING_S + 1
     assert pub.settle((53, -64), "light", held=False) == "failed"
     _stage(staging, 53, -64)
+    old = os.path.join(path, "textures", "+53-064")   # a former version's
+    os.makedirs(old)                                   # names (swap_out)
+    open(os.path.join(old, "old.dds"), "wb").close()
     assert pub.settle((53, -64), "light", held=True) == "staged"
     assert WP.is_placeholder(os.path.join(path, WP.dsf_relpath(53, -64)))
     assert pub.settle((53, -64), "light", held=False) == "swapped"
@@ -218,6 +226,20 @@ def test_the_publisher_swaps_a_staged_tile_holding_only_its_follow(pack,
     assert held_during == [{"+53-064"}] and after == [(53, -64)]
     assert FOLLOW.held_tiles() == set()
     assert pub.settle((53, -64), "light", held=True) == "swapped"
+
+
+def test_2032_a_drape_over_a_held_placeholder_goes_in_when_ready(pack):
+    """#2032: the KTUS ring's drapes stayed staged while X-Plane held their
+    placeholders and never went in once the app closed.  A placeholder
+    with no file of the tile names nothing X-Plane may open: the staged
+    drape goes in at once, held or not (X-Plane shows it at its next
+    load)."""
+    scenery, path, staging = pack
+    pub = RUN._PackPublisher(scenery, lambda lat, lon: "/build")
+    _stage(staging, 53, -64)
+    assert pub.settle((53, -64), "drape", held=True) == "swapped"
+    assert not WP.is_placeholder(os.path.join(path, WP.dsf_relpath(53, -64)))
+    assert not os.path.exists(os.path.join(staging, "+53-064"))
 
 
 def test_s5_a_merge_swap_never_removes_a_name(pack):
@@ -241,11 +263,136 @@ def test_s5_a_merge_swap_never_removes_a_name(pack):
     assert not os.path.exists(texture)
 
 
-def test_a_published_build_takes_the_kind_its_profile_makes(monkeypatch):
+class CoreBuilder(Builder):
+    """``Builder`` that records a drape's ``core``."""
+
+    def start(self, tile, kind, deadline_in_s, klass, core=None):
+        if not super().start(tile, kind, deadline_in_s, klass):
+            return False
+        self.started[-1] += (core,)
+        return True
+
+
+class MergePublisher(Publisher):
+    def settle(self, tile, kind, held, merge=False, fresh=False):
+        self.calls.append((tile, held, merge))
+        return "staged" if held else "swapped"
+
+
+CYWG = (49.9100, -97.2399)                 # on +49-098, a placeholder
+
+
+def _parked_job(kinds):
+    builder, publisher = CoreBuilder(), MergePublisher()
+    job = JOB.WorldJob(builder=builder, publisher=publisher,
+                       wanted=lambda tile: kinds.get(tile) == "placeholder",
+                       kind_of=kinds.get, loads=lambda: {(49, -98)},
+                       capacity=4)
+    job.flight_loaded(*CYWG)
+    return job, builder, publisher
+
+
+def test_a_parked_aircraft_gets_its_own_held_tile_with_its_core():
+    """RULINGS 2026-11-12c (3), the owner's CYWG case (#2019): parked on
+    +49-098, a placeholder X-Plane has loaded.  The ring leaves held tiles
+    out, but the aircraft's own tile is built at once (P0, deadline now)
+    as a drape with its core at the aircraft; it is swapped in although
+    X-Plane holds it -- merged (S5) -- and only then; once, not again."""
+    kinds = {(49, -98): "placeholder", (49, -97): "placeholder"}
+    job, builder, publisher = _parked_job(kinds)
+    parked = {"lat": CYWG[0], "lon": CYWG[1], "agl_m": 0.4}
+    job.tick(0.0, parked)
+    own = [s for s in builder.started if s[0] == (49, -98)]
+    assert own and own[0][1:4] == ("drape", 0, "P0")
+    assert own[0][4] == pytest.approx(CYWG)
+    assert builder.started[0][0] == (49, -98)        # first, before the ring
+    assert job.held((49, -98))                       # X-Plane holds it
+    builder.finished.append(((49, -98), True))
+    job.tick(1.0, parked)
+    assert ((49, -98), False, True) in publisher.calls   # swapped, merged
+    assert job.jobs[(49, -98)].state == "swapped"
+    kinds[(49, -98)] = "drape"
+    for t in range(2, 6):
+        job.tick(float(t), parked)
+    assert len([s for s in builder.started if s[0] == (49, -98)]) == 1
+
+
+def test_a_drape_without_its_core_is_cored_once_and_no_reload_is_sent(
+        monkeypatch):
+    """Parked on a drape tile: re-draped once with its core; the
+    publisher's merge only OFFERS a reload (12c (4))."""
+    import O4_XPlane_WebAPI as WEBAPI
+    monkeypatch.setattr(WEBAPI, "reload_scenery", lambda base=None: (
+        _ for _ in ()).throw(AssertionError("reload without the user")))
+    job, builder, _publisher = _parked_job({(49, -98): "drape"})
+    job.tick(0.0, {"lat": CYWG[0], "lon": CYWG[1], "agl_m": 0.0})
+    assert [s[0] for s in builder.started] == [(49, -98)]
+    assert builder.started[0][4] == pytest.approx(CYWG)
+
+
+def test_here_reports_the_aircrafts_own_tile_as_it_is_built():
+    """#2020: ``WorldStatus.here`` -- the aircraft's tile, its pack kind,
+    its build with elapsed and estimate, and the core it carries."""
+    kinds = {(49, -98): "placeholder", (49, -97): "placeholder"}
+    job, builder, _publisher = _parked_job(kinds)
+    assert job.status(0.0)["here"] is None            # no position yet
+    parked = {"lat": CYWG[0], "lon": CYWG[1], "agl_m": 0.4}
+    job.tick(0.0, parked)
+    job.tick(30.0, parked)
+    here = job.status(30.0)["here"]
+    assert here["tile"] == "+49-098" and here["on_ground"]
+    assert (here["kind"], here["job"], here["core"]) == (
+        "placeholder", "building", True)
+    assert here["elapsed_s"] == 30
+    assert here["estimate_s"] == round(job.estimate()[1])
+    builder.finished.append(((49, -98), True))
+    kinds[(49, -98)] = "drape"
+    job.tick(31.0, parked)
+    here = job.here(31.0)
+    assert (here["kind"], here["job"], here["elapsed_s"], here["estimate_s"],
+            here["core"]) == ("drape", "swapped", 0, 0, True)
+
+
+def test_airborne_far_away_nothing_held_is_built():
+    """In the air (AGL 3,000 m) over the same tile: no parked exception --
+    the held tile is left alone."""
+    job, builder, publisher = _parked_job({(49, -98): "placeholder"})
+    job.tick(0.0, {"lat": CYWG[0], "lon": CYWG[1], "agl_m": 3000.0})
+    assert all(s[0] != (49, -98) for s in builder.started)
+    assert job.spawn is None and not publisher.calls
+
+
+def test_the_merge_swap_offers_a_reload_and_keeps_old_names(pack, monkeypatch):
+    """``_PackPublisher.settle(merge=True)``: the held tile merged in (no
+    old name removed), staging gone, ``reload_offer`` "tiles"; nothing
+    sent."""
+    from o4_engine import reload_offer as RELOAD
+    monkeypatch.setattr(RELOAD, "_STATE", {"offer": ""})
+    sent = []
+    monkeypatch.setattr(RELOAD, "send", lambda base=None: sent.append(base))
+    scenery, path, staging = pack
+    first = _stage(staging + "1", 53, -64, names=("a.ter", "x.dds"))
+    WP.swap_in(path, first, 53, -64)
+    root = _stage(staging, 53, -64, names=("a.ter", "y.dds"))
+    pub = RUN._PackPublisher(scenery, lambda lat, lon: "/build")
+    assert pub.settle((53, -64), "drape", False, merge=True,
+                      fresh=True) == "swapped"
+    assert os.path.isfile(os.path.join(path, "textures", "+53-064", "x.dds"))
+    assert os.path.isfile(os.path.join(path, "textures", "+53-064", "y.dds"))
+    assert not os.path.exists(root)
+    assert RELOAD.current() == "tiles" and sent == []
+
+
+def test_a_published_session_build_is_a_full_tile(monkeypatch):
+    """Drapes never go through the session (RULINGS 2026-11-11j): what
+    the session builds is published as ``full``."""
     published = []
     monkeypatch.setattr(PUBLISH, "_publish_built",
-                        lambda where, build, lat, lon, kind:
-                        published.append((lat, lon, kind)))
+                        lambda where, build, lat, lon:
+                        published.append((lat, lon)) or {"tile": "t",
+                                                         "state": "staged"})
+    monkeypatch.setattr(PUBLISH, "_swap_waiting", lambda *a, **k: [])
+    monkeypatch.setattr(WORLD, "status_event", lambda *a, **k: None)
 
     class Session:
         _stepwise_run = False
@@ -256,8 +403,8 @@ def test_a_published_build_takes_the_kind_its_profile_makes(monkeypatch):
         def subscribe(self, callback):
             self.subscribers.append(callback)
 
-        def tile_overrides(self, lat, lon):
-            return {"profile": "light"} if lon == -64 else {}
+        def _emit(self, event):
+            pass
 
         def tile_build_dir(self, lat, lon):
             return "/build"
@@ -269,15 +416,18 @@ def test_a_published_build_takes_the_kind_its_profile_makes(monkeypatch):
     deadline = time.time() + 10
     while len(published) < 2 and time.time() < deadline:
         time.sleep(0.02)
-    assert published == [(53, -64, "light"), (53, -65, "full")]
+    assert published == [(53, -64), (53, -65)]
 
 
-def test_the_session_builder_queues_a_light_build_by_deadline():
-    calls, subscribers = [], []
+def test_the_session_builder_queues_a_full_build_by_deadline():
+    calls, subscribers, emitted = [], [], []
 
     class Session:
         def subscribe(self, callback):
             subscribers.append(callback)
+
+        def _emit(self, event):
+            emitted.append(event)
 
         def enqueue_build(self, tiles, provider, zoomlevel, folder, **kw):
             calls.append((tiles, provider, zoomlevel, kw))
@@ -285,32 +435,41 @@ def test_the_session_builder_queues_a_light_build_by_deadline():
 
     builder = RUN._SessionBuilder(Session(), "BI", 16)
     before = time.time()
-    assert builder.start((53, -64), "light", 600.0, "P1")
+    assert builder.start((53, -64), "full", 600.0, "P1")
+    # #2030: the queue notice that gives the build its Activity row
+    [notice] = emitted
+    assert (type(notice).__name__, notice.lat, notice.lon, notice.state,
+            notice.label) == ("TileState", 53, -64, "queued", "queued")
     tiles, provider, zoomlevel, kw = calls[0]
     assert tiles == [(53, -64)] and (provider, zoomlevel) == ("BI", 16)
-    assert kw["overrides"] == {"profile": "light"} and kw["klass"] == "P1"
+    assert kw["overrides"] == {"imagery_on_demand": True}
+    assert kw["klass"] == "P1"
     assert kw["missing_art"] == "leave"
     assert before + 599 <= kw["deadline"] <= time.time() + 601
     subscribers[0](BuildDone(lat=53, lon=-64, ok=True))
     subscribers[0](BuildDone(lat=10, lon=10, ok=True))   # not the job's
     assert builder.poll(0.0) == [((53, -64), True)] and builder.poll(0.0) == []
     assert not builder.start((53, -65), "drape", 60.0, "P1")   # no drape fn
+    assert len(emitted) == 1              # a drape has no row
 
 
 def test_the_commands_refuse_what_is_not_there(tmp_path, monkeypatch):
+    from o4_engine import flight_record as RECORD
     monkeypatch.setattr(RUN, "_settings", lambda: {})
+    monkeypatch.setattr(WORLD, "scenery_dir_or_default",
+                        lambda scenery_dir="": scenery_dir or str(tmp_path))
+    monkeypatch.setattr(RECORD, "flights_dir",
+                        lambda data_root=None: str(tmp_path / "Flights"))
     with pytest.raises(ValueError, match="unknown mode"):
         RUN.world_job_start(object(), mode="glide")
     with pytest.raises(ValueError, match="World pack"):       # F1b's mode
         RUN.world_job_start(object(), mode="flight", flight="x",
                             scenery_dir=str(tmp_path))
-    with pytest.raises(ValueError, match="kind"):
-        RUN.world_job_start(object(), kind="heavy")
     assert RUN.world_job_start(object(), scenery_dir=str(tmp_path),
                                if_enabled=True) == {"status": "off"}
     with pytest.raises(ValueError, match="not installed"):
         RUN.world_job_start(object(), scenery_dir=str(tmp_path))
-    assert RUN.autostart(object()) in (None, {"status": "off"})
+    assert RUN.autostart(object()) == {"status": "off"}
     assert RUN.world_job_stop() == {"status": "stopped", "swapped": 0,
                                     "late": 0}
 
@@ -346,12 +505,14 @@ def test_the_job_runs_in_the_engine_and_reports_world_status(pack,
             pass
 
         def enqueue_build(self, tiles, *args, **kw):
-            builds.append((tiles, kw["overrides"]))
-            return True
+            raise AssertionError("track mode builds drapes, never a session build")
 
         def tile_build_dir(self, lat, lon):
             return "/build"
 
+    monkeypatch.setattr(RUN, "drape_tile",
+                        lambda tile, provider, zl: builds.append(
+                            (tile, provider, zl)) or False)
     assert RUN.world_job_start(Session(), scenery_dir=scenery) == {
         "status": "started"}
     assert RUN.world_job_start(Session(), scenery_dir=scenery) == {
@@ -363,7 +524,7 @@ def test_the_job_runs_in_the_engine_and_reports_world_status(pack,
     assert stopped["status"] == "stopped"
     # The history is unknown (no flight load seen, no witness): the union
     # of the plausible windows holds column -063, so the ring starts at -064.
-    assert builds == [([(53, -64)], {"profile": "light"})]
+    assert builds[0] == ((53, -64), "BI", 16)
     status = events[-1]
     assert type(status).__name__ == "WorldStatus" and status.installed is False
     assert status.state == "off"                     # no ini row: the pack's own

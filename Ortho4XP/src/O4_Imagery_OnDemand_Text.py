@@ -15,30 +15,47 @@ from __future__ import annotations
 
 from typing import Mapping, Tuple
 
-__all__ = ["PIN_TITLE", "UNPIN_TITLE", "PIN_ROW_TITLE", "LOW_RES_STATE",
-           "PINNED_STATE", "PINNED_BADGE", "PIN_HELP", "NOT_ON_DEMAND_STATE", "MAKE_LOW_RES_TITLE",
+__all__ = ["PIN_TITLE", "UNPIN_TITLE", "FAVORITE_TITLE",
+           "PINNED_STATE", "PINNED_BADGE", "PIN_HELP", "STAR_ADD_HELP",
+           "STAR_REMOVE_HELP", "star_help", "MAKE_LOW_RES_TITLE",
            "MAKE_LOW_RES_NONE", "PINS_LINE", "CORES_LINE", "OLDER_SHARP_NOTE",
            "FOLLOW_START_TITLE", "FOLLOW_STOP_TITLE", "FOLLOW_TEMPLATES",
            "FOLLOW_DETAIL", "WAITING_REASON", "FOLLOW_NO_TILES",
-           "make_low_res_message",
-           "pins_line", "pin_done", "follow_lines", "size_text"]
+           "RELOAD_SCENERY_TITLE", "RELOAD_OFFER_IMAGERY", "RELOAD_OFFER_TILES",
+           "RELOAD_OFFER_COVERAGE",
+           "make_low_res_message", "reload_offer_line",
+           "pins_line", "pin_done", "follow_lines", "follow_headline",
+           "size_text", "CORES_ROW_TEMPLATES", "CORES_ROW_STOP_HELP",
+           "cores_row_status"]
 
-# --- Favorites (spec §7: the Library's tile menu and the tile's info pane;
-# "pin" renamed Favorite by RULINGS 2026-11-10c (1); the identifiers and the
-# engine wire keep "pin" / ``pinned``) ---
+# --- Favorites (spec §7: the Library's tile menu, the star beside the tile
+# pane's title and on the Build map's built cells, #2033; "pin" renamed
+# Favorite by RULINGS 2026-11-10c (1); the identifiers and the engine wire
+# keep "pin" / ``pinned``).  A Favorite is STORAGE PRIORITY (owner
+# 2026-11-13T01:45Z): any built tile, set any time, a build running or
+# not; its sharp imagery is the last made low-res when storage is tight.
 PIN_TITLE = "Add to Favorites"
 UNPIN_TITLE = "Remove from Favorites"
-PIN_ROW_TITLE = "Favorite"
-LOW_RES_STATE = "Sharp near the aircraft, low-res elsewhere"
-PINNED_STATE = "Kept at full resolution"
+#: The star's accessible name.
+FAVORITE_TITLE = "Favorite"
+PINNED_STATE = "Favorite: its sharp imagery is kept longest"
 #: After a favorite tile's name in the Library.
 PINNED_BADGE = "Favorite"
-PIN_HELP = ("A favorite tile is fetched whole at full resolution. It counts "
-            "toward the ortho budget and is the last imagery made low-res "
-            "again when the budget is full.")
-#: The Favorite row of a tile built with full imagery (nothing to keep).
-NOT_ON_DEMAND_STATE = ("Built with full imagery everywhere; favorites are for "
-                       "tiles built with imagery on demand.")
+PIN_HELP = ("A favorite tile keeps its sharp imagery longest: when storage "
+            "is tight, its high-resolution imagery is the last made "
+            "low-res again.")
+#: The star's tooltip, outlined (not a favorite) and filled (one).
+STAR_ADD_HELP = ("Make this tile a favorite: its sharp imagery is the last "
+                 "made low-res when storage is tight.")
+STAR_REMOVE_HELP = ("A favorite: its sharp imagery is the last made low-res "
+                    "when storage is tight. Click to remove it from "
+                    "Favorites.")
+
+
+def star_help(pinned: bool) -> str:
+    """The star's tooltip for a tile that is (or is not) a favorite."""
+    return STAR_REMOVE_HELP if pinned else STAR_ADD_HELP
+
 
 # --- Storage (spec §6.3 / §7: the ondemand row and its pins line) ---
 MAKE_LOW_RES_TITLE = "Make all low-res again"
@@ -70,8 +87,20 @@ FOLLOW_DETAIL = ("{queued} queued · {slots} at a time · {buffer} · "
                  "{landed} landed ({bytes_landed}) · {failed} failed · "
                  "X-Plane {xplane} at {lat}, {lon}, {speed} kt, "
                  "track {track}° · {flight_loads} flight loads · {jumps} jumps · "
-                 "{reloads} reloads")
+                 "{reloads} reload offers")
 WAITING_REASON = "its Web API is not answering"
+#: The reload offer under the follow line (#2019, owner 2026-11-12T14:34Z:
+#: "Never ask x-plane to reload unless the user requests it."): the line
+#: per ``ImageryFollowStatus.reload_offer`` code, and the button that
+#: sends ``scenery_reload``.  Swift: ``O4OnDemandText.reloadOffer*``.
+RELOAD_SCENERY_TITLE = "Reload scenery"
+RELOAD_OFFER_IMAGERY = ("Sharper imagery landed after X-Plane loaded this "
+                        "area: reload the scenery to see it.")
+RELOAD_OFFER_TILES = ("New tiles replaced ones X-Plane had already loaded: "
+                      "reload the scenery to see them.")
+RELOAD_OFFER_COVERAGE = ("The World pack now covers more of the world: "
+                         "reload the scenery (or restart X-Plane) once so "
+                         "X-Plane can use it.")
 #: The first sentence while the job follows (or waits) with no on-demand
 #: texture in its index: nothing it could sharpen.
 FOLLOW_NO_TILES = ("No on-demand tiles to follow yet: build a tile with "
@@ -84,6 +113,31 @@ BUFFER_NONE = "nothing queued"
 BUFFER_AHEAD = "{seconds} s ahead"
 #: Metres per second to knots.
 KNOTS_PER_MS = 1.943844
+
+
+#: A background core sharpening's row in the Build view's Activity list
+#: (#2039, ``ImageryCoresProgress``): the status per state, the tile's
+#: coordinate the row's title.  Swift: ``O4OnDemandText.coresRow*``.
+CORES_ROW_TEMPLATES = {
+    "active": "Sharpening airport imagery · {done} of {total} squares",
+    "done": "Airport imagery sharp · {done} of {total} squares",
+    "error": "Sharpening airport imagery failed · {failed} of {total} "
+             "squares failed",
+    "stopped": "Sharpening airport imagery stopped · {done} of {total} "
+               "squares",
+}
+
+#: The row's stop button tooltip.
+CORES_ROW_STOP_HELP = ("Stop sharpening this tile's airport imagery: the "
+                       "squares not started stay low-res until you fly near")
+
+
+def cores_row_status(state: str, done: int, total: int, failed: int = 0
+                     ) -> str:
+    """The status line of an ``ImageryCoresProgress`` row."""
+    template = CORES_ROW_TEMPLATES.get(state, CORES_ROW_TEMPLATES["active"])
+    return template.format(done=int(done), total=int(total),
+                           failed=int(failed))
 
 
 def size_text(nbytes) -> str:
@@ -113,11 +167,15 @@ def pins_line(pinned_bytes, pinned_files: int, core_files: int = 0) -> str:
 
 def pin_done(result: Mapping) -> str:
     """One sentence for an ``imagery_pin`` reply."""
+    tile = result.get("tile", "The tile")
     if not result.get("pinned"):
-        return "%s is no longer a favorite." % result.get("tile", "The tile")
+        return "%s is no longer a favorite." % tile
+    served, to_fetch = (int(result.get("served", 0) or 0),
+                        int(result.get("to_fetch", 0) or 0))
+    if not served and not to_fetch:
+        return "%s is a favorite." % tile
     return ("%s is a favorite: %d texture(s) sharp now, %d to fetch."
-            % (result.get("tile", "The tile"), int(result.get("served", 0)),
-               int(result.get("to_fetch", 0))))
+            % (tile, served, to_fetch))
 
 
 def _follow_values(status: Mapping) -> dict:
@@ -158,3 +216,23 @@ def follow_lines(status: Mapping) -> Tuple[str, str]:
     if state in NO_TILES_STATES and values["textures"] == "0":
         template = FOLLOW_NO_TILES
     return template.format(**values), FOLLOW_DETAIL.format(**values)
+
+
+def follow_headline(status, running: bool) -> str:
+    """The line's headline beside the Follow / Stop button (``running``):
+    the status's own while the two agree; else -- before the job's first
+    status, or a stale one -- "Starting..." or "Not following", so the
+    line never reads "Not following X-Plane" beside "Stop Following"
+    (#2028).  Swift: ``O4OnDemandText.followHeadline``."""
+    if status:
+        state = str(status.get("state") or "starting")
+        if (state not in ("stopped", "error")) == bool(running):
+            return follow_lines(status)[0]
+    return FOLLOW_TEMPLATES["starting" if running else "stopped"]
+
+
+def reload_offer_line(code: str) -> str:
+    """The reload offer's line for an ``ImageryFollowStatus.reload_offer``
+    code; empty when none is pending (the row is hidden)."""
+    return {"imagery": RELOAD_OFFER_IMAGERY, "tiles": RELOAD_OFFER_TILES,
+            "coverage": RELOAD_OFFER_COVERAGE}.get(code or "", "")

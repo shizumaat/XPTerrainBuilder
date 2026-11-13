@@ -6,11 +6,17 @@ The Mac app's ``FlyPane.swift`` / ``FlyModel.swift`` are the layout;
 top to bottom: name a flight (X-Plane's saved FMS plans, SimBrief, a plan
 file, a departure + arrival), the flight card, "Also build the alternate"
 (off, 10g), cruise speed and corridor, the readiness checklist and
-countdown, the World pack and follow lines, "While flying", "Live flight
-preview" (#2001; the map's ``O4_Qt_Live_Preview`` draws it), Divert… and
-End flight.
-Lane F2 adds the offline waiver row (RULINGS 2026-11-10k Q3), the reload
-offer in the air (rule S6 (b): "Reload scenery now" / "Not now") and the
+countdown, the World pack and follow lines, "While flying", "Photo detail
+ahead" (the global ``drape_photo_px`` the World job's drapes are fetched
+at, RULINGS 2026-11-11j), "Live flight preview" (#2001; the map's
+``O4_Qt_Live_Preview`` draws it), Divert… and End flight.  With no flight
+and no plan the map shows build-ahead's drapes (``WorldStatus.jobs``)
+and the pane's here block says how the aircraft's own tile is coming on
+(``WorldStatus.here``, ``O4_Fly_Text.here_lines``, #2020); the map key
+shows whatever the plan.
+Lane F2 adds the offline waiver row (RULINGS 2026-11-10k Q3), the offered
+reload (rule S6 (a) before departure, (b) in the air: "Reload scenery
+now", the only way it is sent, owner 2026-11-12T14:34Z) and the
 "Divert…" airport search (``O4_Qt_Fly_Divert.DivertDialog``).
 
 Words and rules: :mod:`O4_Fly_Text`, :mod:`O4_Fly_Layers`.  Engine
@@ -23,13 +29,16 @@ table, never re-spelled); the ``flight_*`` commands, ``FlightStatus`` and
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Callable, Dict, Optional
 
+import O4_Airport_Rank as RANK
 import O4_App_Modes as MODES
 import O4_Fly_Divert_Text as DTEXT
 import O4_Fly_Layers as LAYERS
 import O4_Fly_Text as TEXT
 import O4_Glossary as GLOSSARY
+import O4_Imagery_OnDemand_Text as OTEXT
 import O4_Qt_Fly_Divert as DIVERT
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -46,11 +55,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-__all__ = ["FlyPane", "PREF_SIM_PRIORITY", "PREF_LIVE_PREVIEW"]
+__all__ = ["FlyPane", "PREF_SIM_PRIORITY", "PREF_LIVE_PREVIEW", "PREF_SHARP_PHOTO"]
 
 PREF_SIMBRIEF = "simbrief_user"          # shared with "Select from flight plan…"
 PREF_SIM_PRIORITY = "fly_sim_priority"
 PREF_LIVE_PREVIEW = "fly_live_preview"
+#: The live preview's "Sharp photo" toggle (#2031), on unless unchecked.
+PREF_SHARP_PHOTO = "fly_sharp_photo"
 
 
 def _fields(event) -> Optional[Dict[str, Any]]:
@@ -58,6 +69,41 @@ def _fields(event) -> Optional[Dict[str, Any]]:
     if event is None or isinstance(event, dict):
         return event
     return {k: v for k, v in vars(event).items() if not k.startswith("_")}
+
+
+def _drape_px() -> int:
+    """The global ``drape_photo_px`` (512 when unread)."""
+    import O4_Settings_Model as SM
+    try:
+        return int(SM.read_global_raw().get(TEXT.DRAPE_PX_KEY) or 512)
+    except (OSError, TypeError, ValueError):
+        return 512
+
+
+def _set_drape_px(value) -> None:
+    """Write ``drape_photo_px`` to the global cfg (build-ahead reads it
+    per tile)."""
+    import O4_Settings_Model as SM
+    SM.write_global({TEXT.DRAPE_PX_KEY: int(value)})
+
+
+def _photo_source() -> str:
+    """The app setting ``fly_photo_source`` (Automatic when unset or
+    unread, #2018)."""
+    import O4_Settings_Model as SM
+    try:
+        value = SM.read_global_raw().get(TEXT.PHOTO_SOURCE_KEY)
+    except OSError:
+        value = None
+    return str(value or TEXT.PHOTO_SOURCE_AUTO)
+
+
+def _set_photo_source(code) -> None:
+    """Write ``fly_photo_source`` to the global cfg (the World pack's
+    builds read it per build: the next drape fetches from it)."""
+    import O4_Settings_Model as SM
+    if code:
+        SM.write_global({TEXT.PHOTO_SOURCE_KEY: str(code)})
 
 
 def _no_engine(name, **_arguments):
@@ -80,10 +126,15 @@ class FlyPane(QWidget):
 
     def __init__(self, follow_line, run: Callable = None, airports: Callable = None,
                  prefs: Optional[dict] = None, save_prefs: Callable = None,
-                 parent=None):
+                 parent=None, custom_airports: Callable = None):
         super().__init__(parent)
         self._run = run or _no_engine
         self._airports = airports or (lambda: [])
+        # The enabled custom packs' airports, ``(code, lat, lon)`` (#2026).
+        self._custom_airports = custom_airports or (lambda: [])
+        # Airports a map click filled in, by code: Use finds a custom
+        # airport X-Plane's list lacks here (#2026).
+        self._clicked: Dict[str, tuple] = {}
         self.prefs = prefs if prefs is not None else {}
         self._save = save_prefs or (lambda prefs: None)
         self.plan: Optional[Dict[str, Any]] = None
@@ -96,6 +147,8 @@ class FlyPane(QWidget):
         layout.addWidget(QLabel("<b>%s</b>" % GLOSSARY.TERMS["mode_fly"]))
         self.placeholder = _caption(MODES.FLY_PLACEHOLDER, gray=True)
         layout.addWidget(self.placeholder)
+        self.here_block = self._here_block()
+        layout.addWidget(self.here_block)
         self.plan_source_combo = QComboBox()
         self.plan_source_combo.setToolTip(TEXT.PLAN_SOURCE_LABEL)
         self.plan_source_combo.activated.connect(self._source_chosen)
@@ -148,16 +201,41 @@ class FlyPane(QWidget):
             lambda _i: self._remember(PREF_SIM_PRIORITY,
                                       self.sim_priority_combo.currentData()))
         layout.addWidget(self.sim_priority_combo)
+        self.drape_px_combo = QComboBox()
+        self.drape_px_combo.setToolTip(TEXT.DRAPE_PX_LABEL)
+        for value, words in TEXT.DRAPE_PX_CHOICES:
+            self.drape_px_combo.addItem(words, value)
+        self.drape_px_combo.setCurrentIndex(
+            max(0, self.drape_px_combo.findData(_drape_px())))
+        self.drape_px_combo.currentIndexChanged.connect(
+            lambda _i: _set_drape_px(self.drape_px_combo.currentData()))
+        layout.addWidget(self.drape_px_combo)
+        # Automatic, then the Build pane's imagery list (the window fills
+        # it, set_photo_sources), bound to fly_photo_source (#2018).
+        self.photo_source_combo = QComboBox()
+        self.photo_source_combo.setToolTip(TEXT.PHOTO_SOURCE_LABEL)
+        self.photo_source_combo.activated.connect(
+            lambda _i: _set_photo_source(self.photo_source_combo.currentData()))
+        layout.addWidget(self.photo_source_combo)
         self.chk_live_preview = QCheckBox(TEXT.LIVE_PREVIEW)
         self.chk_live_preview.setToolTip(TEXT.LIVE_PREVIEW_HELP)
         self.chk_live_preview.setChecked(bool(self.prefs.get(PREF_LIVE_PREVIEW)))
         self.chk_live_preview.toggled.connect(
             lambda on: self._remember(PREF_LIVE_PREVIEW, bool(on)))
+        self.chk_live_preview.toggled.connect(self._show)
         layout.addWidget(self.chk_live_preview)
+        # The live preview's sharp squares (#2031: a toggle, not a key
+        # item; Mac FlyPane's Toggle(FlyText.sharpPhoto)).
+        self.chk_sharp_photo = QCheckBox(TEXT.SHARP_PHOTO)
+        self.chk_sharp_photo.setToolTip(TEXT.SHARP_PHOTO_HELP)
+        self.chk_sharp_photo.setChecked(bool(self.prefs.get(PREF_SHARP_PHOTO, True)))
+        self.chk_sharp_photo.setEnabled(self.chk_live_preview.isChecked())
+        self.chk_sharp_photo.toggled.connect(
+            lambda on: self._remember(PREF_SHARP_PHOTO, bool(on)))
+        self.chk_live_preview.toggled.connect(self.chk_sharp_photo.setEnabled)
+        layout.addWidget(self.chk_sharp_photo)
         self.reload_offer_row, self.reload_label = self._button_row(
-            ((DTEXT.RELOAD_NOW, lambda: self.reload(False)),
-             (DTEXT.NOT_NOW, lambda: self.reload(True))))
-        self.not_now_btn = self.reload_offer_row.buttons[1]
+            ((DTEXT.RELOAD_NOW, self.reload),))
         layout.addWidget(self.reload_offer_row)
         self.notice_label = _caption(gray=True)
         self.notice_label.setVisible(False)
@@ -197,6 +275,7 @@ class FlyPane(QWidget):
         for words in (TEXT.QUICK_FROM, TEXT.QUICK_TO):
             edit = QLineEdit()
             edit.setPlaceholderText(words)
+            edit.setToolTip(TEXT.QUICK_MAP_HINT)
             h.addWidget(edit, 1)
             edits.append(edit)
         button = QPushButton(TEXT.QUICK_BUTTON)
@@ -230,13 +309,74 @@ class FlyPane(QWidget):
         v.setContentsMargins(8, 6, 8, 6)
         self.card_label = _caption()
         v.addWidget(self.card_label)
-        self.legend_label = _caption(" · ".join(w for _k, w in TEXT.LEGEND),
-                                     gray=True)
-        v.addWidget(self.legend_label)
         self.prepare_btn = QPushButton(TEXT.PREPARE)
         self.prepare_btn.clicked.connect(self.prepare)
         v.addWidget(self.prepare_btn)
+        # #2025: an adopted departure or destination asks here (Swift:
+        # ``AdoptedChoiceRows``)
+        self.choice_box = QWidget()
+        self.choice_box.setLayout(QVBoxLayout())
+        self.choice_box.layout().setContentsMargins(0, 0, 0, 0)
+        self.choice_box.setVisible(False)
+        self._choice_key = None
+        v.addWidget(self.choice_box)
         return card
+
+    def _show_choices(self):
+        """The flight card's choice rows from ``FlightStatus.choices``:
+        the question and the two buttons while unanswered, the answer
+        after; rebuilt only when the rows change."""
+        rows = list((self.status or {}).get("choices") or ())
+        key = repr(rows)
+        if key == self._choice_key:
+            return
+        self._choice_key = key
+        layout = self.choice_box.layout()
+        while layout.count():
+            widget = layout.takeAt(0).widget()
+            if widget is not None:
+                widget.deleteLater()
+        for row in rows:
+            layout.addWidget(_caption(TEXT.choice_question(row)))
+            if row.get("choice"):
+                continue
+            for title, words, choice in (
+                    (TEXT.CHOICE_KEEP_BUTTON, TEXT.choice_keep_label(row), "keep"),
+                    (TEXT.CHOICE_UPGRADE_BUTTON, TEXT.choice_upgrade_label(row),
+                     "upgrade")):
+                button = QPushButton(title)
+                button.setToolTip(words)
+                button.clicked.connect(
+                    lambda _c=False, r=row, c=choice: self.choose(r, c))
+                layout.addWidget(button)
+        self.choice_box.setVisible(bool(rows))
+
+    def _here_block(self):
+        """With no plan, the aircraft's own tile (#2020): "Preparing
+        imagery at ...", the quick photo, the full-detail squares, and the
+        reload offer while the follow line is not offering it.  Swift: ``FlyHereBlock``."""
+        block = QFrame()
+        block.setFrameShape(QFrame.StyledPanel)
+        v = QVBoxLayout(block)
+        v.setContentsMargins(8, 6, 8, 6)
+        self.here_label = _caption()
+        v.addWidget(self.here_label)
+        self.here_offer_row, self.here_offer_label = self._button_row(
+            ((OTEXT.RELOAD_SCENERY_TITLE, self.reload_scenery),))
+        v.addWidget(self.here_offer_row)
+        block.setVisible(False)
+        return block
+
+    def set_photo_sources(self, entries) -> None:
+        """Automatic, then the Build pane's imagery entries
+        (``O4_Qt_Imagery_Menu``), ``fly_photo_source`` chosen (Swift:
+        ``PhotoSourcePicker``)."""
+        import O4_Qt_Imagery_Menu as QTIMENU
+        combo = self.photo_source_combo
+        QTIMENU.fill_combo(combo, TEXT.photo_source_entries(entries))
+        combo.setItemText(0, TEXT.PHOTO_SOURCE_AUTO_LABEL)
+        index = combo.findData(_photo_source())
+        combo.setCurrentIndex(index if index >= 0 else 0)
 
     def _spin(self, words, lo, hi, value):
         row = QWidget()
@@ -261,7 +401,9 @@ class FlyPane(QWidget):
         return self.corridor_edit.spin.value()
 
     def cells(self):
-        jobs = (self.status or {}).get("jobs") or ()
+        jobs = LAYERS.map_jobs((self.status or {}).get("jobs") or (),
+                               self.plan is not None,
+                               (self.world or {}).get("jobs") or ())
         return LAYERS.corridor_cells(self.plan, self.corridor_km(), jobs)
 
     def _remember(self, key, value):
@@ -277,9 +419,19 @@ class FlyPane(QWidget):
         plan = self.plan
         self.placeholder.setVisible(plan is None and self.status is None)
         self.flight_card.setVisible(plan is not None)
+        here = (self.world or {}).get("here") if plan is None else None
+        self.here_label.setText("<br>".join(TEXT.here_lines(here)))
+        self.here_block.setVisible(bool(here))
+        follow_offer = getattr(self.follow_line, "reload_row", None)
+        offer = ("" if follow_offer is not None and not follow_offer.isHidden()
+                 else OTEXT.reload_offer_line((here or {}).get("reload_offer")
+                                              or ""))
+        self.here_offer_label.setText(offer)
+        self.here_offer_row.setVisible(bool(offer))
         if plan is not None:
             self.card_label.setText("\n".join(TEXT.card_lines(plan, self.cruise_kt())))
         self.chk_build_alternate.setEnabled(bool(plan and plan.get("alternate")))
+        self._show_choices()
         items = (self.status or {}).get("items") or []
         self.readiness_list.setText("\n".join(TEXT.item_text(r) for r in items)
                                     if items else TEXT.NO_STATUS)
@@ -297,7 +449,6 @@ class FlyPane(QWidget):
                  DTEXT.reload_line(self.status))):
             label.setText(line)
             row.setVisible(bool(line))
-        self.not_now_btn.setVisible((self.status or {}).get("reload") == "scheduled")
         for button in (self.divert_btn, self.end_flight_btn):
             button.setEnabled(self.status is not None)
         self.changed.emit()
@@ -327,6 +478,15 @@ class FlyPane(QWidget):
         self.status = _fields(event)
         self._show()
 
+    def refresh_status(self):
+        """Fly opens: the active flight's status (``flight_status``, the
+        record's when its job does not run), so a prepared flight shows
+        and "End flight" works even when no ``FlightStatus`` came (#2019).
+        Swift: ``FlyModel.refreshStatus``."""
+        reply = self._command("flight_status")
+        if (reply or {}).get("flight") and self.status is None:
+            self.show_status(reply)
+
     def show_ready(self, event):
         """A ``FlightReady``: the SimBrief plan, or why there is none."""
         if getattr(event, "error", ""):
@@ -345,7 +505,8 @@ class FlyPane(QWidget):
         self.notice_label.setVisible(bool(text))
 
     def show_world(self, event):
-        """A ``WorldStatus`` (lane W1's event, or its dict)."""
+        """A ``WorldStatus`` (every 2 s while build-ahead runs): the World
+        line, and in free flight the tiles it lays ahead on the map."""
         self.world = _fields(event)
         self._show()
 
@@ -377,6 +538,7 @@ class FlyPane(QWidget):
             self.fetch_simbrief()
         elif choice == "none":
             self.set_plan(None)
+            self.follow_aircraft()
         elif choice:
             self.read_plan(choice)
 
@@ -398,26 +560,59 @@ class FlyPane(QWidget):
             self._command("flight_plan_simbrief", user=user)
 
     def use_quick_entry(self):
-        """Departure + arrival from X-Plane's airport list."""
-        codes = {}
+        """Departure + arrival from X-Plane's airport list; an empty To
+        is a departure-only plan (#2023).  A To added to the active
+        departure-only flight plans it again (``flight_update
+        {destination}``).  Swift: ``FlyModel.useQuickEntry``."""
+        codes = dict(self._clicked)
         for entry in self._airports() or ():
-            codes.setdefault(entry.code.upper(), entry)
+            codes.setdefault(entry.code.upper(), (entry.code, entry.lat, entry.lon))
         ends = []
         for edit in (self.quick_from, self.quick_to):
-            entry = codes.get(edit.text().strip().upper())
-            if entry is None:
+            if edit is self.quick_to and not edit.text().strip():
+                break
+            end = codes.get(edit.text().strip().upper())
+            if end is None:
                 self._say(TEXT.unknown_airport(edit.text()))
                 return
-            ends.append((entry.code, entry.lat, entry.lon))
+            ends.append(end)
         self._say()
-        self.set_plan(TEXT.quick_plan(*ends))
+        plan = TEXT.quick_plan(*ends)
+        added = TEXT.added_destination(self.status, plan)
+        if added is not None:
+            self._update(destination=added)
+        self.set_plan(plan)
+
+    def map_click(self, lat: int, lon: int, command: bool) -> bool:
+        """A click on map cell ``(lat, lon)`` in the Fly view (#2026): with
+        From and To empty, From takes the cell's largest custom airport
+        (else its largest airport); a Cmd-click (Ctrl-click off macOS)
+        once From is filled takes To.  True when it filled a field (the
+        click is then not a cell selection).  Swift: ``FlyModel.mapClick``."""
+        field = TEXT.map_click_field(command, self.quick_from.text(),
+                                     self.quick_to.text())
+        if field is None:
+            return False
+        pick = RANK.cell_airport((lat, lon), self._airports() or (),
+                                 self._custom_airports() or ())
+        if pick is None:
+            return False
+        self._clicked[pick[0].upper()] = pick
+        edit = self.quick_from if field == "from" else self.quick_to
+        edit.setText(pick[0])
+        self._say()
+        return True
 
     def prepare(self):
+        """``flight_create``, then the flight's status at once: the pane
+        shows it from Prepare on (owner 2026-11-12T19:02Z; Swift:
+        ``FlyModel.prepare``)."""
         if self.plan is not None:
-            self._command("flight_create", plan=self.plan,
-                          build_alternate=self.chk_build_alternate.isChecked(),
-                          cruise_kt=self.cruise_kt(),
-                          corridor_km=self.corridor_km())
+            if self._command("flight_create", plan=self.plan,
+                             build_alternate=self.chk_build_alternate.isChecked(),
+                             cruise_kt=self.cruise_kt(),
+                             corridor_km=self.corridor_km()) is not None:
+                self.refresh_status()
 
     def _update(self, **arguments):
         if self.status:
@@ -441,15 +636,43 @@ class FlyPane(QWidget):
                                  flight=self.status.get("flight"), to=to)
         return None
 
-    def reload(self, not_now: bool):
-        """The reload in the air (S6 (b)): now, or "Not now"."""
+    def reload(self):
+        """The offered reload (S6 (a), (b)): the pilot's "Reload scenery
+        now"."""
         if self.status:
-            self._command("flight_reload", flight=self.status.get("flight"),
-                          not_now=bool(not_now))
+            self._command("flight_reload", flight=self.status.get("flight"))
+
+    def reload_scenery(self):
+        """The here block's "Reload scenery" (``scenery_reload``): sent
+        only on this click (owner 2026-11-12T14:34Z), off the UI thread
+        (it waits on X-Plane's Web API)."""
+        def send():
+            try:
+                self._run("scenery_reload")
+            except Exception as error:      # noqa: BLE001 -- logged only
+                print("Reload scenery: %s" % error)
+        threading.Thread(target=send, daemon=True,
+                         name="o4-scenery-reload").start()
+
+    def choose(self, row: Dict[str, Any], choice: str):
+        """An adopted endpoint's answer (#2025): ``keep`` or ``upgrade``,
+        remembered for the tile.  Swift: ``FlyModel.choose``."""
+        if self.status:
+            self._command("flight_choose", flight=self.status.get("flight"),
+                          tile=list(row.get("tile") or ()), choice=choice)
 
     def waive_offline(self):
         """"Fly with X-Plane's own scenery there" (RULINGS 2026-11-10k Q3)."""
         self._update(waive_offline=True)
+
+    def follow_aircraft(self):
+        """"No plan: follow the aircraft": a flight still preparing or
+        ready closes (``flight_end {if_prepared: true}``) so a stale
+        prepared record never owns build-ahead; one in the air stays
+        (#2019).  Track mode runs either way.  Swift: ``FlyModel``."""
+        reply = self._command("flight_end", if_prepared=True)
+        if (reply or {}).get("flight"):
+            self.show_status(None)
 
     def _end_flight(self):
         if self.status and self._command(

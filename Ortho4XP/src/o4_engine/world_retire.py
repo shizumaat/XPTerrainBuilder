@@ -1,0 +1,396 @@
+"""The three choices of Convert existing tiles (owner 2026-11-11T15:32Z,
+RULINGS 2026-11-11l item 4): keep every existing tile, keep the tiles
+that hold a custom airport, or make everything DYNAMIC.
+
+    "I would also like the option to retire the external drive in favor
+    of our new on the fly tile creation ... keep all existing tiles - and
+    require external drive (if applicable), keep full tiles that have
+    custom airports, make everything dynamic."
+
+* :data:`CHOICES` -- ``keep_all`` (every tile moves into the World pack
+  as it is, ``world_migrate``; a tile on another drive keeps its full
+  imagery there, so that drive stays required), ``keep_custom`` (the
+  tiles with a custom airport move so, the rest become dynamic) and
+  ``dynamic`` (every tile becomes dynamic).
+* A CUSTOM AIRPORT tile (:func:`custom_airport_tiles`) is a tile holding
+  an airport of an ENABLED installed airport pack in Custom Scenery
+  (``O4_Custom_Scenery.iter_airport_packs``, the reading the Airports
+  card and the patch library use; Global Airports is not one).
+* A DYNAMIC tile (:func:`retire_tile`) is a World pack placeholder: the
+  World job drapes it ahead in flight and the flight manager builds it on
+  demand (spec §7, §8).  Its entry's ``scenery_packs.ini`` row is
+  disabled, never removed (spec §13 M1).  A LINK entry (a tile on another
+  drive) is removed from Custom Scenery -- the choice retires it, the
+  dialog says so -- and its target is journalled, so Undo makes it again;
+  the drive's files are never touched.  A LOCAL entry's folder moves out
+  of Custom Scenery into the work folder's ``originals/`` and its row goes
+  (``world_originals``, owner 2026-11-12T13:42Z) until :func:`purge`
+  ("Free space…") deletes it there, writing its package first when this
+  app built it; Undo moves it back until then.
+* :func:`choice_totals` -- the dry run's figures for each choice, before
+  anything moves: tiles kept and made dynamic, bytes this Mac gains back
+  and bytes on each other drive no longer needed, the drives still
+  needed and by how many tiles, and the dynamic tiles another tool built
+  (they become our drape or build, not the same tile).
+
+No tile or airport is named here.
+"""
+from __future__ import annotations
+
+import contextlib
+import os
+import shutil
+from typing import Dict, Iterable, Optional
+
+import O4_Unmounted_Links as UL
+import O4_World_Pack as WP
+
+__all__ = ["CHOICES", "KEEP_ALL", "KEEP_CUSTOM", "DYNAMIC", "DYNAMIC_STATES",
+           "custom_airport_tiles", "disabled_names", "fate",
+           "choice_totals",
+           "choice_line", "retire_tile", "restore_tile", "purge"]
+
+KEEP_ALL = "keep_all"
+KEEP_CUSTOM = "keep_custom"
+DYNAMIC = "dynamic"
+#: The choices, in the order both apps list them.
+CHOICES = (KEEP_ALL, KEEP_CUSTOM, DYNAMIC)
+#: Journal states of a tile made dynamic (``retiring`` is half done).
+DYNAMIC_STATES = ("retiring", "dynamic")
+_MOVES = ("copy", "stage", "resume")
+_LINKS = ("link", "link-unmounted")
+_UNMOUNTED = "skip: library not mounted"
+
+
+def custom_airport_tiles(scenery_dir: str) -> Dict[tuple, list]:
+    """``{(lat, lon): [icao, …]}``: the tiles holding an airport of an
+    enabled custom airport pack of ``scenery_dir``
+    (``O4_Custom_Scenery.airport_points_by_tile``)."""
+    import O4_Custom_Scenery as SCENERY
+    return {tile: sorted({icao for icao, _la, _lo in points})
+            for tile, points in SCENERY.airport_points_by_tile(
+                scenery_dir or "").items()}
+
+
+def disabled_names(scenery_dir: str) -> set:
+    """The entries whose ``scenery_packs.ini`` row is disabled (a link to
+    a drive that is not connected included)."""
+    import O4_Scenery_Packs as SP
+    return SP.disabled_pack_names(scenery_dir)
+
+
+def _drive_of(path: str) -> str:
+    """The name of the drive ``path`` lies on, as the user knows it; ``""``
+    for the system drive.  Windows: the drive letter (``D:``) or the UNC
+    share.  macOS / Linux: the mount point's name (``/Volumes/<name>``,
+    ``/media/<user>/<name>``, ``/mnt/<name>``).  Under a drive that is
+    there but a folder that is not, the first missing folder."""
+    probe = os.path.abspath(UL.clean_target(path))
+    drive = os.path.splitdrive(probe)[0].upper()
+    if drive and not os.path.exists(drive + os.sep):
+        return drive                                  # not connected
+    while not os.path.exists(probe) and os.path.dirname(probe) != probe:
+        child, probe = probe, os.path.dirname(probe)
+        if os.path.exists(probe):
+            return os.path.basename(child)
+    if drive:
+        return "" if drive == os.environ.get("SystemDrive", "C:").upper() else drive
+    while not os.path.ismount(probe) and os.path.dirname(probe) != probe:
+        probe = os.path.dirname(probe)
+    return os.path.basename(probe)
+
+
+def fate(entry, action: str, choice: str, custom,
+         disabled=frozenset()) -> Optional[str]:
+    """What ``choice`` does with one entry whose ``world_migrate`` action
+    is ``action``: ``keep`` (moves into the World pack as it is),
+    ``dynamic``, or ``None`` (left as it is: a row disabled in
+    ``disabled``, or nothing to move)."""
+    movable = action in _MOVES
+    if not (movable or action == _UNMOUNTED) or entry.name in disabled:
+        return None
+    if choice == DYNAMIC or (choice == KEEP_CUSTOM
+                             and (entry.lat, entry.lon) not in custom):
+        return "dynamic"
+    return "keep" if movable else None
+
+
+def _entry_bytes(row: dict) -> int:
+    """What the entry holds on its own drive: the DSF and the textures."""
+    textures = row.get("library_texture_bytes" if row["kind"] == "link"
+                       else "texture_bytes", 0)
+    return int(textures or 0) + int(row.get("dsf_bytes") or 0)
+
+
+def _built_here(entry) -> bool:
+    """This app built (or adopted) the entry's tile."""
+    import O4_Tile_Info as TINFO
+    try:
+        return TINFO.ours(entry.source, entry.lat, entry.lon)
+    except Exception:                     # an unreadable folder: not ours
+        return False
+
+
+def _add(table: dict, key: str, value: int) -> None:
+    table[key] = table.get(key, 0) + value
+
+
+def _tally_dynamic(t: dict, row: dict, entry, ours: dict) -> None:
+    t["dynamic"] += 1
+    if entry.kind in _LINKS:
+        t["links_removed"] += 1
+        drive = _drive_of(entry.source)
+        if drive:
+            _add(t["released"], drive, _entry_bytes(row))
+    else:
+        t["freed_bytes"] += _entry_bytes(row)
+    if entry.name not in ours:
+        ours[entry.name] = _built_here(entry)
+    t["not_ours"] += not ours[entry.name]
+
+
+def choice_totals(rows: list, found: list, custom,
+                  disabled=frozenset(),
+                  again: Optional[Dict[str, dict]] = None) -> Dict[str, dict]:
+    """``{choice: figures}`` of the dry run's ``rows`` (``found`` the
+    entries, in step): ``kept``, ``dynamic``, ``left``, ``new_bytes``
+    (this drive gains the kept tiles' copies), ``freed_bytes`` (this drive
+    gives back the dynamic local tiles, after Free space…),
+    ``released`` (``{drive: bytes}`` on other drives no longer needed),
+    ``links_removed``, ``drives_needed`` (``{drive: tiles}`` still
+    reading their imagery there), ``not_ours`` (dynamic tiles another
+    tool built), ``adopted`` (kept tiles another tool built: adopted,
+    ``world_adopt``), ``again`` / ``core_bytes`` (tiles made dynamic before
+    that the choice adopts again, and what keeping the imagery near
+    custom airports takes; ``again``: ``{choice: world_adopt.plan}``) and
+    ``custom_tiles``.  ``disabled``: :func:`disabled_names`."""
+    ours: Dict[str, bool] = {}
+    out = {}
+    for choice in CHOICES:
+        back = (again or {}).get(choice) or {}
+        t = {"kept": 0, "dynamic": 0, "left": 0,
+             "new_bytes": int(back.get("new_bytes") or 0),
+             "freed_bytes": 0, "released": {}, "links_removed": 0,
+             "drives_needed": {}, "not_ours": 0, "custom_tiles": len(custom),
+             "adopted": 0, "again": int(back.get("tiles") or 0),
+             "core_bytes": int(back.get("core_bytes") or 0)}
+        for row, entry in zip(rows, found, strict=False):
+            what = fate(entry, row["action"], choice, custom, disabled)
+            if what == "dynamic":
+                _tally_dynamic(t, row, entry, ours)
+                continue
+            t["kept" if what == "keep" else "left"] += 1
+            if what == "keep":
+                t["new_bytes"] += int(row.get("new_bytes") or 0)
+                if entry.name not in ours:
+                    ours[entry.name] = _built_here(entry)
+                t["adopted"] += not ours[entry.name]
+            drive = _drive_of(entry.source) if entry.kind in _LINKS else ""
+            if drive and entry.name not in disabled:
+                _add(t["drives_needed"], drive, 1)
+        out[choice] = t
+    return out
+
+
+def _gb(n: int) -> str:
+    return f"{n / 1e12:,.1f} TB" if n >= 1e12 else f"{n / 1e9:,.1f} GB"
+
+
+def _dynamic_words(choice: str, t: dict) -> str:
+    kept = t["kept"] + int(t.get("again") or 0)
+    if choice == KEEP_CUSTOM and not t["dynamic"]:
+        # nothing left to make dynamic: only the kept tiles (owner
+        # 2026-11-12: Custom Scenery empty, the journal's tiles come back)
+        text = (f"Keeps the {kept:,} tiles with a custom airport, needing "
+                f"{_gb(t['new_bytes'])} on this Mac.")
+        return text + _adopt_words(t)
+    head = (f"Keeps the {kept:,} tiles "
+            f"with a custom airport and makes {t['dynamic']:,} dynamic"
+            if choice == KEEP_CUSTOM
+            else f"Makes all {t['dynamic']:,} tiles dynamic")
+    text = (f"{head}: X-Plane draws them from the World pack, draped ahead "
+            f"in flight or built when you fly there. Free space then gives "
+            f"back {_gb(t['freed_bytes'])} on this Mac")
+    if kept:
+        text += f"; the kept tiles need {_gb(t['new_bytes'])}"
+    text += "."
+    for drive, size in sorted(t["released"].items()):
+        text += (f" {_gb(size)} on {drive} is no longer needed (its files "
+                 "are never deleted).")
+    if t["links_removed"]:
+        text += (f" {t['links_removed']:,} links to another drive are "
+                 "removed from Custom Scenery; Undo puts them back.")
+    if t["not_ours"]:
+        text += (f" {t['not_ours']:,} of the dynamic tiles were not built by "
+                 "XPTerrainBuilder (or their drive is not connected): they "
+                 "become our drape or build, not the same tile.")
+    if choice == KEEP_CUSTOM:
+        text += _adopt_words(t)
+    return text
+
+
+def _adopt_words(t: dict) -> str:
+    """The adoption part of a choice's sentence (``world_adopt``)."""
+    adopted = int(t.get("adopted") or 0) + int(t.get("again") or 0)
+    if not adopted:
+        return ""
+    text = (f" {adopted:,} of them were built by another tool and are "
+            "adopted: their mesh is kept, their imagery is low-res and "
+            "sharpens as you fly")
+    if t.get("again"):
+        text += (f" ({t['again']:,} made dynamic before come back into the "
+                 "World pack)")
+    text += "."
+    if t.get("core_bytes"):
+        text += (f" The imagery they have near custom airports is kept, "
+                 f"up to {_gb(t['core_bytes'])} while your disk budget has "
+                 "room.")
+    return text
+
+
+def choice_line(choice: str, t: dict) -> str:
+    """The sentence both apps show beside a choice (its dry-run figures)."""
+    if choice == KEEP_ALL:
+        kept = t["kept"] + int(t.get("again") or 0)
+        text = (f"Keeps {kept:,} tiles: they move into the World pack as "
+                f"they are, needing {_gb(t['new_bytes'])} on this Mac."
+                + _adopt_words(t))
+    else:
+        text = _dynamic_words(choice, t)
+    needed = t["drives_needed"]
+    if needed:
+        text += " Still needs " + ", ".join(
+            f"{drive} ({n:,} tile{'' if n == 1 else 's'})"
+            for drive, n in sorted(needed.items())) + "."
+    elif choice != KEEP_ALL:
+        text += " No other drive is needed afterwards."
+    return text
+
+
+# ------------------------------------------------------------ one tile
+
+
+def retire_tile(entry, *, scenery_dir: str, pack: str, journal,
+                swap_lock, set_row, index: Optional[str] = None) -> dict:
+    """Make one entry DYNAMIC (module doc), resumable: the journal record
+    goes ``retiring`` -> ``dynamic``; each step is idempotent.  ``set_row``
+    is ``world_migrate._set_row``."""
+    dsf = os.path.join(pack, WP.dsf_relpath(entry.lat, entry.lon))
+    record = journal.get(entry.name)
+    if not record or record.get("state") not in DYNAMIC_STATES:
+        record = journal.set(
+            entry.name, state="retiring", kind=entry.kind, source=entry.source,
+            prior=WP.kind_of(dsf),
+            link_target=(UL.clean_target(os.readlink(entry.path))
+                         if os.path.islink(entry.path) else None))
+    out = {"name": entry.name, "kind": entry.kind, "action": "dynamic"}
+    if record["state"] == "retiring":
+        with swap_lock:
+            if not os.path.exists(dsf):
+                WP.write_placeholder(pack, entry.lat, entry.lon)
+            if WP.kind_of(dsf) is None:
+                # nothing would draw the tile: the entry stays as it is
+                problems = [f"The World pack has no DSF for "
+                            f"{WP.tile_name(entry.lat, entry.lon)} ({dsf})."]
+                journal.set(entry.name, problems=problems)
+                return {**out, "status": "failed", "problems": problems}
+            set_row(scenery_dir, entry.name, enabled=False)
+        _forget(entry.lat, entry.lon, index)
+        if record.get("link_target") and os.path.islink(entry.path):
+            os.unlink(entry.path)       # the link only, never its target
+        journal.set(entry.name, state="dynamic", problems=[])
+    from . import world_originals as ORIGINALS
+    kept = ORIGINALS.try_put_away(scenery_dir, entry.name, journal,
+                                  index=index, lock=swap_lock)
+    if kept:
+        out["kept_in_place"] = kept
+    return {**out, "status": "dynamic"}
+
+
+def _forget(lat: int, lon: int, index: Optional[str]) -> None:
+    from . import imagery_ondemand as ONDEMAND
+    with contextlib.suppress(Exception):     # the index is a cache
+        ONDEMAND.forget_tile(WP.tile_name(lat, lon), index)
+
+
+def restore_tile(scenery_dir: str, pack: str, name: str, record: dict,
+                 set_row, work: Optional[str] = None) -> bool:
+    """Undo :func:`retire_tile`: the link made again (its target as it
+    was) or the local folder moved back from ``work``'s ``originals/``
+    (``world_originals.bring_back``; ``OSError`` when the name is taken),
+    the row enabled -- filed again (``set_row``) -- and the World pack's
+    placeholder removed when this put it there.  False when a local entry
+    was purged (nothing to bring back: the tile stays dynamic)."""
+    path = os.path.join(scenery_dir, name)
+    if work and not record.get("link_target"):
+        from . import world_originals as ORIGINALS
+        ORIGINALS.bring_back(scenery_dir, name, work)
+    target = record.get("link_target")
+    if target and not os.path.lexists(path):
+        os.symlink(target, path)
+    if not os.path.lexists(path):
+        return False
+    set_row(scenery_dir, name, enabled=True)
+    lat, lon = WP.parse_tile(name[len("zOrtho4XP_"):])
+    dsf = os.path.join(pack, WP.dsf_relpath(lat, lon))
+    if record.get("prior") is None and WP.is_placeholder(dsf):
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(dsf)
+    return True
+
+
+def _package_first(first, path: str, name: str) -> None:
+    """The entry's package before its folder goes, when this app built
+    it (``o4_engine.package_first``; owner 2026-11-11T16:45Z): its own
+    record says so, or the data folder's tiles folder lists it built."""
+    import O4_File_Names as FNAMES
+    import O4_Tile_Info as TINFO
+    pair = FNAMES.parse_tile_key(name.rsplit("_", 1)[-1])
+    if pair:            # not built here by its own record: the tiles folder's scan
+        first.tile(*pair, os.path.join(os.path.dirname(path), ""),
+                   built=TINFO.built_here(path, *pair))
+
+
+def _local_folder(scenery_dir: str, name: str,
+                  work: Optional[str]) -> Optional[str]:
+    """The dynamic local entry's real folder: kept in ``work``'s
+    ``originals/``, else (converted before the folders moved) directly in
+    ``scenery_dir``; never a link, never anything deeper."""
+    from . import world_originals as ORIGINALS
+    places = [os.path.join(scenery_dir, name)]
+    if work:
+        places.insert(0, ORIGINALS.path_of(work, name))
+    for path in places:
+        if not os.path.islink(path) and os.path.isdir(path):
+            return path
+    return None
+
+
+def purge(scenery_dir: str, records: Dict[str, dict],
+          names: Optional[Iterable[str]] = None,
+          work: Optional[str] = None) -> Dict[str, object]:
+    """"Free space…": delete the LOCAL entries made dynamic (a real
+    folder in ``work``'s ``originals/`` or directly in ``scenery_dir``,
+    never a link), each one this app built packaged first
+    (``o4_engine.package_first``).  ``{"removed": [names],
+    "freed_bytes"}``; the caller marks their records purged."""
+    import O4_Tile_Info as TINFO
+
+    from . import package_first as FIRST
+    wanted = set(names) if names else None
+    first = FIRST.Pass()
+    out: Dict[str, object] = {"removed": [], "freed_bytes": 0}
+    for name, record in sorted(records.items()):
+        if record.get("state") != "dynamic" or record.get("purged"):
+            continue
+        if wanted is not None and name not in wanted:
+            continue
+        path = _local_folder(scenery_dir, name, work)
+        if path is None:
+            continue
+        _package_first(first, path, name)
+        size = TINFO.tree_size(path)
+        shutil.rmtree(path)
+        out["removed"].append(name)
+        out["freed_bytes"] += size
+    return out

@@ -111,6 +111,37 @@ def resolve_default_base_source(lat, lon, elevation_level="auto"):
     return available_sources[1]
 
 
+def base_source_label(dem) -> str:
+    """The name of the tile-wide base elevation ``dem`` read (#2033, the
+    tile pane's "Elevation" row): the configured source's display name
+    (``"View"`` -> ``"Viewfinderpanoramas"``), a base file's name, or --
+    where the tile's own cell came from a fallback (#561) -- the
+    fallback's.  ``""`` when nothing says."""
+    import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
+    from elevation_access import base_fallback
+
+    label = ""
+    keyword = getattr(dem, "base_keyword", None)
+    if keyword:
+        try:
+            if not ELEVATION_PROVIDERS.elevation_providers_dict:
+                ELEVATION_PROVIDERS.initialize_elevation_providers_dict()
+            label = base_fallback.configured_label(
+                keyword, ELEVATION_PROVIDERS.elevation_providers_dict)
+        except Exception:       # a label: never a build failure
+            label = str(keyword)
+    elif getattr(dem, "base_file", None):
+        label = os.path.basename(dem.base_file)
+    rows = getattr(dem, "base_substitutions", None) or ()
+    if not rows or getattr(dem, "lat", None) is None:
+        return label            # a label: never a build failure
+    own = "%+03d%+04d" % (int(dem.lat), int(dem.lon))
+    for row in rows:
+        if isinstance(row, dict) and row.get("cell") == own:
+            label = str(row.get("fallback") or label)
+    return label
+
+
 _world_tiles_mask = [None]
 
 
@@ -390,6 +421,10 @@ class DEM:
         # its void posts (``elevation_access.base_voids``, #1465).
         self.base_keyword = None
         self.base_void_fills = []
+        # The file the base was read from when it is no keyword's (a
+        # pinned GeoTIFF, the tile's generic .tif): what
+        # :func:`base_source_label` names.
+        self.base_file = None
         if ";" in source:
             self.alt = self.alt_composite
             self.alt_vec = self.alt_vec_composite
@@ -523,6 +558,7 @@ class DEM:
                     )
         else:
             file_name = source
+            self.base_file = file_name
             (
                 self.epsg,
                 self.x0,

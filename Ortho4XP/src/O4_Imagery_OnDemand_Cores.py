@@ -18,9 +18,15 @@ after the build.
 The airports are those the tile's patches graded: one
 ``<ICAO>.graded.json`` per airport in the tile's patch folder, its
 ``frame.origin`` the airport's reference point (written by the v2
-grader).  General: no airport is named here.
+grader); and every airport of an ENABLED custom airport pack in the
+user's Custom Scenery folder (``O4_Custom_Scenery.airport_points_by_tile``,
+owner 2026-11-12T14:19Z: "keep already downloaded imagery just near any
+custom airports") -- so a tile another tool built, which no grader of
+ours read, keeps its imagery sharp around the airports the user
+installed.  General: no airport is named here.
 
 * :func:`airport_points` -- ``[(icao, lat, lon), ...]`` of a tile.
+* :func:`custom_points` -- the custom airport packs' airports of a tile.
 * :func:`base_zoom` -- the tile's own zoom level (its imagery record).
 * :func:`core_names` -- the index rows of a tile that are in a core.
 * :func:`core_tier` -- the tier (0-3, ``O4_Imagery_Tier_Plan``) a core
@@ -51,11 +57,40 @@ def _tile_patch_dir(lat: int, lon: int) -> str:
     return FNAMES.patch_dir(lat, lon)
 
 
-def airport_points(lat: int, lon: int, patch_dir: "str | None" = None
+def custom_points(lat: int, lon: int, scenery_dir: "str | None" = None
+                  ) -> "list[tuple[str, float, float]]":
+    """``(icao, lat, lon)`` of every airport of an enabled custom airport
+    pack in ``scenery_dir`` (default: the ``custom_scenery_dir`` setting)
+    that lies on tile ``(lat, lon)``; ``[]`` when there is no folder."""
+    if scenery_dir is None:
+        try:
+            import O4_Settings_Model as SM
+            scenery_dir = SM.read_global_raw().get("custom_scenery_dir", "")
+        except Exception:                   # no readable settings: none
+            scenery_dir = ""
+    import O4_Custom_Scenery as SCENERY
+    try:
+        found = SCENERY.airport_points_by_tile(scenery_dir or "")
+    except OSError:
+        return []
+    return list(found.get((int(lat), int(lon)), ()))
+
+
+def airport_points(lat: int, lon: int, patch_dir: "str | None" = None,
+                   scenery_dir: "str | None" = None
                    ) -> "list[tuple[str, float, float]]":
     """``(icao, lat, lon)`` of every airport graded for tile ``(lat,
-    lon)`` (its patch folder, or ``patch_dir``); an unreadable surface is
-    skipped."""
+    lon)`` (its patch folder, or ``patch_dir``; an unreadable surface is
+    skipped), then each custom airport pack's airport on it
+    (:func:`custom_points`) that no graded surface already names."""
+    points = _graded_points(lat, lon, patch_dir)
+    graded = {icao for icao, _la, _lo in points}
+    return points + [p for p in custom_points(lat, lon, scenery_dir)
+                     if p[0] not in graded]
+
+
+def _graded_points(lat: int, lon: int, patch_dir: "str | None"
+                   ) -> "list[tuple[str, float, float]]":
     folder = patch_dir or _tile_patch_dir(lat, lon)
     try:
         names = sorted(os.listdir(folder))

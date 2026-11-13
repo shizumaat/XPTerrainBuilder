@@ -22,10 +22,15 @@ folder's caches, the sharp imagery, rebuild data and the built tiles.
   -> scenery dumps, water masks, airport pack caches -> elevation and
   map extracts -> sharp imagery (``imagery_downgrade.sweep``: cores,
   then favorites last) -> per-tile rebuild data (:data:`REBUILD_DATA`,
-  the ``storage.REBUILD`` store, oldest first; :data:`TIER_HOOKS` stays
-  for a tier no store row holds).
-* :func:`status` -- the budget's figures for the Storage pane (and the
-  warning when the budget is under the floor); :func:`hold` -- the
+  oldest first, through :data:`TIER_HOOKS`: an older airport tile is
+  first shrunk to its ``.xptb`` package, ``storage_packages``, RULINGS
+  2026-11-11l item 5; the rest is the ``storage.REBUILD`` store's
+  eviction).  The elevation and map extract tier leaves the inputs those
+  packages will carry (``storage_packages.guarded_inputs``).
+* :func:`status` -- the budget's figures for the Storage pane: the
+  slider's range (#2022, ``storage_range``: a budget set below the
+  minimum is raised to it, one above the disk's maximum follows it
+  down), the stacked bar and the clearing ladder; :func:`hold` -- the
   automatic cleanup's step (``storage.storage_auto_clean``);
   :func:`session_budget` -- the follow job's budget between cleanups
   (the bytes other than sharp imagery that the last :func:`hold`
@@ -47,6 +52,7 @@ import O4_File_Names as FNAMES
 import O4_Imagery_OnDemand_Budget as BUDGET
 
 from . import storage as STORAGE
+from . import storage_range as RANGE
 from .storage_installed import _read_cache, write_json
 
 __all__ = ["SETTING", "DEFAULT_BUDGET_GB", "ROOM_SHARE", "ROOM_MIN_BYTES", "TIERS",
@@ -69,9 +75,17 @@ TIERS: tuple = (("tmp", "logs", "previews"), ("imagery", "dds"),
                 ("dsf_dumps", "masks", "airport_mod"),
                 ("elevation", "osm_extracts", "osm"),
                 (STORAGE.ONDEMAND,), (REBUILD_DATA,))
-#: ``{tier kind: hook(over_by, sweep, now) -> bytes freed}`` for a tier
-#: no ``storage.STORES`` row holds yet (the rebuild data).
-TIER_HOOKS: dict = {}
+def _package_rebuild(over_by: int, sweep, now: float) -> int:
+    from . import storage_packages as PACKAGES
+    return PACKAGES.evict(over_by, sweep, now)
+
+
+#: ``{tier kind: hook(over_by, sweep, now) -> bytes freed}``: a tier
+#: cleared by more than its stores' oldest-first eviction (the rebuild
+#: data: older airport tiles become packages first).
+TIER_HOOKS: dict = {REBUILD_DATA: _package_rebuild}
+#: The tier whose eviction leaves the packages' inputs.
+_INPUTS_TIER = ("elevation", "osm_extracts", "osm")
 _LAST = "storage_budget.json"
 
 
@@ -138,36 +152,57 @@ def _held_bytes(in_use: int) -> int:
     return held
 
 
+def _scenery_dir() -> str:
+    from .storage_redundant import _custom_scenery_dir
+    return _custom_scenery_dir()
+
+
 def status(rows: "list[dict]", raw: "dict | None" = None,
            installed_bytes: int = 0) -> dict:
     """The budget's figures from a scan's store ``rows``:
-    ``{"budget_bytes", "budget_set", "default_bytes", "default_base_bytes",
-    "held_bytes", "low_water",
+    ``{"budget_bytes", "budget_set", "chosen_bytes", "clamped",
+    "default_bytes", "default_base_bytes", "held_bytes", "low_water",
     "used_bytes", "floor_bytes", "floor", "recommended_bytes",
-    "under_floor", "over_budget", "sharp_bytes"}``.  ``budget_bytes`` is
-    the budget that applies: the one set (``budget_set``) or the default
+    "minimum_bytes", "minimum", "maximum_bytes", "reserve_bytes",
+    "breakdown", "ladder", "under_floor", "over_budget", "sharp_bytes"}``.
+    ``budget_bytes`` is the budget that applies: the one set
+    (``budget_set``, ``chosen_bytes`` as typed) kept between
+    ``minimum_bytes`` and ``maximum_bytes`` (``clamped``: ``"minimum"`` or
+    ``"followed"``, ``storage_range.clamp``), or the default
     (``default_bytes``); a clearing stops at ``low_water`` of it.
-    ``used`` is every store plus the placeholders (no store row counts
-    them); ``under_floor``: a budget set below the floor (the warning).
-    Unconfirmed, ``held_bytes`` is :func:`_held_bytes` of ``used`` plus
-    ``installed_bytes`` (the per-tile packs measured in Custom Scenery,
-    ``storage_installed``) -- the only write; 0 once a budget is set."""
+    ``used`` is every store plus the placeholders and the World pack's
+    DSFs (no store row counts them); ``under_floor``: a budget under the
+    floor (the warning).  Unconfirmed, ``held_bytes`` is
+    :func:`_held_bytes` of ``used`` plus ``installed_bytes`` (the
+    per-tile packs measured in Custom Scenery, ``storage_installed``) --
+    the only write; 0 once a budget is set."""
     from . import imagery_downgrade as DOWNGRADE
     parts = _floor_parts(rows)
     floor = sum(parts.values())
-    used = sum(int(row.get("bytes") or 0) for row in rows) + parts["placeholders"]
+    world = RANGE.world_parts(_scenery_dir())
+    used = (sum(int(row.get("bytes") or 0) for row in rows)
+            + parts["placeholders"] + world["placeholders"] + world["dsf"])
     sharp = sum(int(row.get("bytes") or 0) for row in rows
                 if row["kind"] == STORAGE.ONDEMAND)
+    least = RANGE.minimum_parts(parts, world)
+    minimum = sum(least.values())
+    maximum = RANGE.maximum_bytes(used, minimum, FNAMES.current_data_root())
     chosen = _budget_bytes(raw)
     held = 0 if chosen else _held_bytes(used + int(installed_bytes or 0))
     default = _default_budget_bytes(floor, held)
-    budget = chosen or default
+    budget, why = RANGE.clamp(chosen, minimum, maximum) if chosen else (default, "")
+    split = RANGE.sharp_split()
     out = {"budget_bytes": budget, "budget_set": bool(chosen),
+           "chosen_bytes": chosen, "clamped": why,
            "default_bytes": default, "default_base_bytes": int(DEFAULT_BUDGET_GB * 1e9),
            "held_bytes": held,
            "low_water": DOWNGRADE.LOW_WATER,
            "used_bytes": used, "floor_bytes": floor,
            "floor": parts, "recommended_bytes": _recommended_bytes(floor),
+           "minimum_bytes": minimum, "minimum": least,
+           "maximum_bytes": maximum, "reserve_bytes": RANGE.RESERVE_BYTES,
+           "breakdown": RANGE.breakdown(rows, used, least),
+           "ladder": RANGE.ladder(rows, split),
            "under_floor": budget < floor, "over_budget": used > budget,
            "sharp_bytes": sharp}
     return out
@@ -205,6 +240,13 @@ def _clear_sharp(over_by: int, cap: int, used: int, sweep, now: float) -> int:
         conn.close()
 
 
+def _kept(tier: tuple) -> "set | None":
+    if tier != _INPUTS_TIER:
+        return None
+    from . import storage_packages as PACKAGES
+    return PACKAGES.guarded_inputs()
+
+
 def hold(sweep, now: float,
          scan: "_t.Callable[[], dict] | None" = None) -> "dict | None":
     """Over a budget the user SET, clear tier by tier until 90 % of it
@@ -230,7 +272,8 @@ def hold(sweep, now: float,
             freed = TIER_HOOKS[tier[0]](over, sweep, now)
         else:
             stores = [STORAGE._BY_KIND[k] for k in tier if k in STORAGE._BY_KIND]
-            freed = STORAGE._evict_oldest(stores, over, sweep, now)
+            freed = STORAGE._evict_oldest(stores, over, sweep, now,
+                                          keep=_kept(tier))
         over -= freed
         used -= freed
     return figures

@@ -413,6 +413,8 @@ jobs:
           # _internal/Ortho4XP_Data/Utils/src via Ortho4XP_Qt.spec.
           python scripts/make_notices.py XPTerrainBuilder/THIRD-PARTY-NOTICES.txt
           cp LICENSE LICENSING.md XPTerrainBuilder/
+          # .xptb file association for the portable zip (#2014).
+          cp scripts/windows/register_xptb.cmd XPTerrainBuilder/
           cp Ortho4XP/Licence/gpl.txt Ortho4XP/Licence/copyright.txt \
             XPTerrainBuilder/
           7z a "XPTerrainBuilder-${{ steps.ver.outputs.version }}-win.zip" XPTerrainBuilder
@@ -554,6 +556,8 @@ jobs:
           # _internal/Ortho4XP_Data/Utils/src via Ortho4XP_Qt.spec.
           python scripts/make_notices.py XPTerrainBuilder/THIRD-PARTY-NOTICES.txt
           cp LICENSE LICENSING.md XPTerrainBuilder/
+          # .xptb file association for the portable zip (#2014).
+          cp scripts/windows/register_xptb.cmd XPTerrainBuilder/
           cp Ortho4XP/Licence/gpl.txt Ortho4XP/Licence/copyright.txt \
             XPTerrainBuilder/
           tar czf "XPTerrainBuilder-${{ steps.ver.outputs.version }}-linux.tar.gz" XPTerrainBuilder

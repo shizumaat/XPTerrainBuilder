@@ -48,7 +48,7 @@ def window(qapp, tmp_path, monkeypatch):
     import O4_UI_Utils as UI
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
-    win.prefs["output_dir"] = str(tmp_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))
     win.prefs[GUI.AUTO_INSTALL_KEY] = False
     monkeypatch.setattr(win, "refresh_tiles", lambda: None)
     monkeypatch.setattr(win._session, "enqueue_build",

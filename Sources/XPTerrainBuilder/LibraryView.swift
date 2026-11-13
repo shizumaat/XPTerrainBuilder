@@ -3,19 +3,20 @@ import SwiftUI
 import SceneryKit
 import UniformTypeIdentifiers
 
-/// Library mode's tiles table (#824; the Library window until RULINGS
-/// 2026-11-10j; above the map since #2007, where the console is in Build):
-/// every built tile with its size, zoom level, imagery source, built date,
-/// graded airports, modified packs and the "In X-Plane" switch, and the
-/// actions on the selection under it. The caches moved to the side pane's
-/// Caches line (`LibraryStorage.swift`). The engine's `library_*` commands
+/// The tiles table (#824; Library mode's from RULINGS 2026-11-10j until
+/// 11k retired the mode). PARKED (owner 2026-11-11T15:35Z: the developer
+/// tools of 11k (3) wait): no view shows it until its home is ruled; the
+/// code stays. Every built tile with its size, zoom level, imagery source, built
+/// date, graded airports, modified packs and the "In X-Plane" switch, and
+/// the actions on the selection under it. The caches are Settings ▸
+/// Storage's Caches line (`LibraryStorage.swift`). The engine's `library_*` commands
 /// do the folder walks; the Qt app's `O4_Qt_Library` shows the same columns.
 /// A tile built by another tool is read-only: it can be linked into
 /// X-Plane or out of it, never rebuilt or deleted. Deleting and freeing
 /// space ask first. Export / Import Library Bundle carry a built tile to
 /// another installation (#1699 phase 1; the Qt dialog has the same two).
 /// The "Patch library" section and "Publish Patch…" are the shared patch
-/// library (#1699 phase 2, `PatchLibraryView.swift`), placed by the pane.
+/// library (#1699 phase 2, `PatchLibraryView.swift`), placed by its future home.
 /// The table's selection IS the map's (one selection across modes).
 enum Library {
     /// A tile bundle's file extension (`tile_bundle.export.BUNDLE_SUFFIX`).
@@ -71,7 +72,8 @@ final class LibraryModel: ObservableObject {
         guard index.tiles.isEmpty, !buildModel.built.isEmpty else { return }
         setTiles(buildModel.built.keys.sorted().compactMap { coord in
             buildModel.built[coord].map {
-                O4LibraryTile(mapTile: $0, inXPlane: buildModel.installed.contains(coord))
+                O4LibraryTile(mapTile: $0, inXPlane: buildModel.installed.contains(coord),
+                              world: buildModel.worldTiles[coord])
             }
         })
     }
@@ -165,6 +167,7 @@ final class LibraryModel: ObservableObject {
                 let done = try await context.client.libraryExportBundle(
                     lat: row.lat, lon: row.lon, workingDir: context.workingDir, outDir: folder.path)
                 status = "Exported \(row.tile) (\(Library.size(done.bytes)))."
+                    + ((done.warning ?? "").isEmpty ? "" : " " + (done.warning ?? ""))
             } catch {
                 status = "\(error)"
             }
@@ -340,13 +343,14 @@ struct LibraryTilesSection: View {
             }
             .width(min: 60, ideal: 70)
             TableColumn("Built by", value: \.builtByText)
+            // What the World pack draws there (#2024).
+            TableColumn(O4WorldStateText.columnTitle, value: \.worldText)
         }
         // The tile's menu (#1992 §7): its pin (the Qt Library: the same).
         .contextMenu(forSelectionType: O4LibraryTile.ID.self) { ids in
             if ids.count == 1, let row = ids.first.flatMap(model.index.row),
                row.pinApplies {
                 Button(pinTitle(row)) { model.togglePin(row, buildModel) }
-                    .disabled(buildModel.isBuilding)
             }
         }
     }
@@ -395,7 +399,7 @@ struct LibraryTilesSection: View {
                 if let row = pinTarget { model.togglePin(row, buildModel) }
             }
             .help(O4OnDemandText.pinHelp)
-            .disabled(pinTarget == nil || buildModel.isBuilding)
+            .disabled(pinTarget == nil)  // a build running or not (#2033)
         }
         .controlSize(.small)
     }

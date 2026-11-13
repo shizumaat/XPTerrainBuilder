@@ -7,8 +7,11 @@ the custom packs the build modified, whether X-Plane loads it, and who
 built it.  ``cache_sizes`` sizes the three download caches, ``free_cache``
 empties one, and ``library_delete`` deletes built tiles.
 ``library_export_bundle`` and ``library_import_bundle`` carry a built
-tile to another installation as a tile bundle (#1699 phase 1,
-``tile_bundle``).  The ``library_check`` … ``library_signout`` commands
+tile to another installation (#1699 phase 1, ``tile_bundle``); since
+#2014 they make and install a ``.xptb`` PACKAGE, the format the
+``package_save`` / ``package_plan`` / ``package_install`` /
+``package_merge`` commands behind "Export Package…", the install sheet
+and combining packages read and write.  The ``library_check`` … ``library_signout`` commands
 are the shared PATCH LIBRARY's airport entries (#1699 phase 2,
 ``patch_library``): the check when the app opens, the build box's match
 list, laying an entry down, and "Publish patch" with its GitHub sign-in.
@@ -43,10 +46,13 @@ import O4_Tile_Info as TINFO
 import O4_Tile_Staleness as _STALE
 
 from . import storage as _storage
+from . import world_tile_remove as _world_remove
 
 __all__ = ["BUILT_HERE", "BUILT_ELSEWHERE", "CACHE_KINDS", "ROW_WORKERS", "library_scan",
            "cache_sizes", "free_cache", "library_delete",
            "library_export_bundle", "library_import_bundle",
+           "package_save", "package_airports", "package_estimate", "package_plan",
+           "package_install", "package_merge", "package_developer", "tile_staleness",
            "PATCH_LIBRARY_COMMANDS", "COMMANDS", "patch_library_command", "start"]
 
 #: ``built_by`` of a tile this app built
@@ -107,7 +113,7 @@ def _detected_imagery(build_dir: str) -> tuple:
     return found if found else ("", None)
 
 
-def _row(info, scenery_dir: str, packs_by_tile: dict) -> dict:
+def _row(info, scenery_dir: str, packs_by_tile: dict, world: dict) -> dict:
     key = FNAMES.short_latlon(info.lat, info.lon)
     provider, zl = info.provider, info.zl
     if not provider or zl is None:
@@ -136,6 +142,10 @@ def _row(info, scenery_dir: str, packs_by_tile: dict) -> dict:
         # Imagery on demand (#1992): built low-res, and pinned sharp.
         "on_demand": bool(getattr(info, "on_demand", False)),
         "pinned": bool(getattr(info, "pinned", False)),
+        # What the World pack draws there (#2024, world_state); None
+        # when it holds nothing for the tile.
+        "world": (world[(info.lat, info.lon)].fields()
+                  if (info.lat, info.lon) in world else None),
     }
 
 
@@ -158,13 +168,15 @@ def _packs_by_tile(scenery_dir: str) -> dict:
 # Commands
 # ---------------------------------------------------------------------------
 def library_scan(working_dir: str, scenery_dir: str = "", caches: bool = True,
-                 infos: "dict | None" = None) -> dict:
+                 infos: "dict | None" = None, world: "dict | None" = None) -> dict:
     """ENGINE COMMAND ``library_scan``: every built tile of *working_dir*
     (the per-tile build folders' parent), its total, and the caches.
 
     ``infos`` -- the map's last scan of *working_dir*
     (``EngineSession.scanned_tiles``; the transport passes it), so the
-    tile folders are not read twice (#2006); None reads them.  ``caches``
+    tile folders are not read twice (#2006); None reads them.
+    ``world`` -- that scan's World states (``EngineSession.scanned_world``,
+    #2024); None reads the World pack of *scenery_dir*.  ``caches``
     False leaves the cache walk out (``"caches": []``).  The rows are
     built :data:`ROW_WORKERS` at a time (each is a folder walk).
 
@@ -174,9 +186,13 @@ def library_scan(working_dir: str, scenery_dir: str = "", caches: bool = True,
     packs = _packs_by_tile(scenery_dir)
     if infos is None:
         infos = TINFO.scan_tiles(working_dir)
+    if world is None:
+        from . import world_state as WSTATE
+        world = WSTATE.read_world(scenery_dir)
     ordered = [info for _key, info in sorted(infos.items())]
     with ThreadPoolExecutor(ROW_WORKERS, thread_name_prefix="o4-library-row") as pool:
-        rows = list(pool.map(lambda info: _row(info, scenery_dir, packs), ordered))
+        rows = list(pool.map(lambda info: _row(info, scenery_dir, packs, world),
+                             ordered))
     return {"tiles": rows,
             "tiles_bytes": sum(row["size_bytes"] for row in rows),
             "caches": cache_sizes()["caches"] if caches else []}
@@ -209,11 +225,18 @@ def _check_cache(kind: str, confirm: bool) -> str:
 
 def free_cache(kind: str, confirm: bool = False) -> dict:
     """ENGINE COMMAND ``free_cache``: empty one download cache (the folder
-    itself stays).  Refused without ``confirm``.
+    itself stays); the elevation and map caches write every built tile's
+    package first (``o4_engine.package_first``).  Refused without
+    ``confirm``.
 
     :returns: ``{"kind", "freed_bytes", "redownload"}``
     """
     path = _check_cache(kind, confirm)
+    if kind in ("elevation", "osm"):         # the built tiles' packages first
+        from . import package_first as FIRST
+        first = FIRST.Pass()
+        for lat, lon in sorted(FIRST.built_tiles()):
+            first.tile(lat, lon, built=True)
     freed = 0
     try:
         names = os.listdir(path)
@@ -270,14 +293,19 @@ def library_delete(tiles, working_dir: str, scenery_dir: str = "",
     removing their X-Plane link first.  Every tile is checked before any
     is deleted: one tile built by another tool refuses the whole call.
     Refused without ``confirm``.  The tile's rebuild data (RULINGS
-    2026-11-10d) goes with it; patches (the user's airport edits) and the
-    other caches stay.
+    2026-11-10d) goes with it, its package written first
+    (``o4_engine.package_first``); patches (the user's airport edits) and
+    the other caches stay.
 
     :returns: ``{"deleted": [[lat, lon], ...], "freed_bytes": int}``
     """
+    from . import package_first as FIRST
     checked = _check_delete(tiles, working_dir, confirm)
     deleted, freed = [], 0
+    first = FIRST.Pass()
     for lat, lon, build_dir in checked:
+        # its package first (owner 2026-11-11T16:45Z, ``package_first``)
+        first.tile(lat, lon, _custom_build_dir(working_dir), built=True)
         if scenery_dir:
             status = LINKS.link_status(lat, lon, build_dir, scenery_dir)
             if status in (LINKS.LinkStatus.INSTALLED, LINKS.LinkStatus.BROKEN):
@@ -300,34 +328,118 @@ def _custom_build_dir(working_dir: str) -> str:
 
 
 def library_export_bundle(lat, lon, working_dir: str, out_dir: str) -> dict:
-    """ENGINE COMMAND ``library_export_bundle`` (#1699 phase 1): write the
-    built tile's TILE BUNDLE into ``out_dir`` (``tile_bundle.export``).
-    Refused for a tile another tool built, one not current with its last
-    build, or one built with other than the default mesh settings.
+    """ENGINE COMMAND ``library_export_bundle`` (#1699 phase 1; a PACKAGE
+    since #2014): the built tile's ``.xptb`` package in ``out_dir``, made
+    by the same code as "Export Package…" (:func:`package_save`).
+    Refused for a tile another tool built.
 
-    :returns: ``{"path", "bytes", "key", "files", "seconds"}``
+    :returns: ``{"path", "bytes", "key", "files", "seconds", …}``
     """
     lat, lon = int(lat), int(lon)
     build_dir = FNAMES.build_dir(lat, lon, _custom_build_dir(working_dir))
     if _built_by(build_dir, lat, lon) != BUILT_HERE:
         raise ValueError("tile %s was not built by this app; it has no "
-                         "bundle to export" % FNAMES.short_latlon(lat, lon))
-    from tile_bundle import export
-    return export.export_tile(lat, lon, out_dir, _custom_build_dir(working_dir))
+                         "package to export" % FNAMES.short_latlon(lat, lon))
+    return package_save([[lat, lon]], working_dir, out_dir)
 
 
 def library_import_bundle(path: str, working_dir: str) -> dict:
-    """ENGINE COMMAND ``library_import_bundle`` (#1699 phase 1): import a
-    tile bundle into ``working_dir`` (``tile_bundle.importer``).  Nothing
-    is downloaded; refused when the bundle does not match this
-    installation's packs, mesh settings or engine.  The tile's next build
-    finishes it with the user's imagery.
+    """ENGINE COMMAND ``library_import_bundle`` (#1699 phase 1): install a
+    package or a tile bundle into ``working_dir`` (:func:`package_install`,
+    which reads both).  Nothing is downloaded but, at the next build,
+    imagery.
 
-    :returns: ``{"tile", "key", "airports", "bytes", "object_stage",
-        "reused", "stale", "seconds"}``
+    :returns: ``{"tile", "key", "airports", "bytes", "reused", "seconds",
+        …}`` — a package's install details with its first tile and its
+        airports.
     """
-    from tile_bundle import importer
-    return importer.import_bundle(path, _custom_build_dir(working_dir))
+    done = package_install(path, working_dir)
+    tiles = done.get("tiles") or [{}]
+    done.setdefault("tile", tiles[0].get("tile", ""))
+    done["airports"] = sorted(a["icao"] if isinstance(a, dict) else a
+                              for t in tiles for a in t.get("airports") or [])
+    done.setdefault("reused", [])
+    done.setdefault("seconds", 0.0)
+    return done
+
+
+# ---------------------------------------------------------------------------
+# Packages (#2014): "Export Package…", the install sheet, combining
+# ---------------------------------------------------------------------------
+def package_save(tiles, working_dir: str, out: str, airports=None,
+                 title: str = "", creator: str = "", notes: str = "",
+                 url: str = "", kind: str = "", into_pack: bool = False) -> dict:
+    """ENGINE COMMAND ``package_save``: the ``.xptb`` package of ``tiles``
+    (``[[lat, lon], …]``; with ``airports``, of those airports only) at
+    ``out`` — a ``.xptb`` path or a folder (``tile_bundle.package``);
+    ``kind`` ``"exact"`` / ``"patch"`` / ``"tile"`` (``tile_bundle.kinds``;
+    empty: exact with airports, tile without); ``into_pack``: saved into
+    the airport's own pack folder instead of ``out`` (RULINGS 2026-11-11m
+    (3))."""
+    from tile_bundle import package
+    return package.save_package(tiles, out, _custom_build_dir(working_dir),
+                                airports or None, kind=kind or None,
+                                into_pack=bool(into_pack), title=title,
+                                creator=creator, notes=notes, url=url)
+
+
+def package_airports(tiles, working_dir: str = "") -> dict:
+    """ENGINE COMMAND ``package_airports``: ``{"tiles": {tile key: [icao,
+    …]}, "custom": {tile key: [icao, …]}, "default": icao}`` — the
+    airports the export window offers for the tiles, those with the
+    user's own files, and the one it opens on."""
+    from tile_bundle import package
+    return package.airports_of(tiles, _custom_build_dir(working_dir))
+
+
+def package_estimate(tiles, working_dir: str = "", airport: str = "") -> dict:
+    """ENGINE COMMAND ``package_estimate``: per package kind, the
+    estimated size, the recipient's downloads and build time of exporting
+    ``airport`` (``tile_bundle.estimate``).  Writes nothing."""
+    from tile_bundle import estimate, package
+    pairs = sorted({(int(a), int(b)) for a, b in tiles or ()})
+    if airport:
+        held = package.airports_of(pairs, _custom_build_dir(working_dir))["tiles"]
+        pairs = [p for p in pairs if str(airport).upper()
+                 in held.get(FNAMES.short_latlon(*p), [])] or pairs
+    return estimate.estimate(pairs, airport)
+
+
+def package_plan(path: str, working_dir: str = "", choices=None) -> dict:
+    """ENGINE COMMAND ``package_plan``: what installing ``path`` would do —
+    its tiles, airports and packs, sources and terms, what it adds and
+    replaces, and the questions to ask (``tile_bundle.install.plan``).
+    Writes nothing; refused for a damaged or incompatible package."""
+    from tile_bundle import install
+    return install.plan(path, _custom_build_dir(working_dir), choices)
+
+
+def package_install(path: str, working_dir: str = "", choices=None) -> dict:
+    """ENGINE COMMAND ``package_install``: install ``path``
+    (``tile_bundle.install.install``); ``choices`` ``{icao: "keep" |
+    "replace"}`` answers the plan's questions."""
+    from tile_bundle import install
+    return install.install(path, _custom_build_dir(working_dir), choices)
+
+
+def package_developer(icao: str, tiles, working_dir: str = "",
+                      action: str = "read") -> dict:
+    """ENGINE COMMAND ``package_developer`` (RULINGS 2026-11-11m (3)):
+    the airport's pack and its author's choice for its objects —
+    ``action`` ``"read"``, ``"final"`` ("Objects are final"),
+    ``"default"`` or ``"apply"`` ("Apply XPTerrainBuilder's object fixes
+    into my pack"), ``tile_bundle.pack_apply.developer``."""
+    from tile_bundle import pack_apply
+    return pack_apply.developer(icao, tiles, _custom_build_dir(working_dir), action)
+
+
+def package_merge(paths, out: str, title: str = "", creator: str = "",
+                  notes: str = "", url: str = "") -> dict:
+    """ENGINE COMMAND ``package_merge``: several packages combined into one
+    at ``out`` (``tile_bundle.merge``)."""
+    from tile_bundle import merge
+    return merge.merge_packages(paths, out, title=title, creator=creator,
+                                notes=notes, url=url)
 
 
 def _patch_library_commands() -> dict:
@@ -388,8 +500,21 @@ _REFUSED_WHILE_BUILDING = {
     "free_cache": "deleting anything", "library_delete": "deleting anything",
     "library_export_bundle": "exporting a tile",
     "library_import_bundle": "importing a tile",
+    "package_install": "installing a package",
+    "package_developer": "changing an airport pack",
     "library_apply": "laying a library patch down",
     "rebuild_migrate": "moving tiles' rebuild data"}
+
+def tile_staleness(custom_scenery_dir: str, tiles=None, working_dir: str = "") -> dict:
+    """ENGINE COMMAND ``tile_staleness`` (#1958):
+    :func:`O4_Tile_Staleness.check_tiles` with the packs' shipped packages
+    (``tile_bundle.pack_shipped``, RULINGS 2026-11-11m (4)) — passed here,
+    not imported there, so the tile steps' code keys stay off the package
+    code (#836).  The Qt window's map runs it too."""
+    from tile_bundle import pack_shipped
+    return _STALE.check_tiles(custom_scenery_dir, tiles, working_dir,
+                              packages=(pack_shipped.scan, pack_shipped.stale_rows))
+
 
 #: The commands :func:`start` runs, and the checks each makes on the read
 #: loop so a refusal is the command's own ``ok: false`` reply.
@@ -405,6 +530,13 @@ _COMMANDS: dict = {
                                                 bool(kw.get("confirm")))),
     "library_export_bundle": (library_export_bundle, None),
     "library_import_bundle": (library_import_bundle, None),
+    "package_save": (package_save, None),
+    "package_airports": (package_airports, None),
+    "package_estimate": (package_estimate, None),
+    "package_plan": (package_plan, None),
+    "package_install": (package_install, None),
+    "package_merge": (package_merge, None),
+    "package_developer": (package_developer, None),
     **{name: (patch_library_command(name), None) for name in PATCH_LIBRARY_COMMANDS},
 }
 # Settings > Storage (#1724) runs through the same worker and refusals.
@@ -412,8 +544,11 @@ _COMMANDS.update(_storage.COMMANDS)
 # Moving old tiles' rebuild data into the cache (RULINGS 2026-11-10d).
 _COMMANDS.update(REBUILD.COMMANDS)
 # The map's stale-tile check (#1958) runs through the same worker.
-_COMMANDS.update(_STALE.COMMANDS)
+_COMMANDS["tile_staleness"] = (tile_staleness, None)
 _REFUSED_WHILE_BUILDING.update(_storage.REFUSED_WHILE_BUILDING)
+# The tile pane's "Remove from World Pack…" (world_tile_remove).
+_COMMANDS.update(_world_remove.COMMANDS)
+_REFUSED_WHILE_BUILDING.update(_world_remove.REFUSED_WHILE_BUILDING)
 
 #: Every command :func:`start` runs (the transport registers these).
 COMMANDS = tuple(_COMMANDS)
@@ -428,7 +563,8 @@ def start(emit: _t.Callable[[_t.Any], None], command: str,
     on the read loop, and is the command's ``ok: false`` reply."""
     from .events import LibraryReady
     function, check = _COMMANDS[command]
-    if command in _REFUSED_WHILE_BUILDING and busy():
+    reading = command == "package_developer" and kwargs.get("action", "read") == "read"
+    if command in _REFUSED_WHILE_BUILDING and not reading and busy():
         raise ValueError("A build is running; stop it or let it finish "
                          "before %s." % _REFUSED_WHILE_BUILDING[command])
     if check is not None:

@@ -13,6 +13,8 @@ struct MapCanvasView: View {
     @EnvironmentObject var imagery: ImageryModel
     @ObservedObject var camera: ViewState<MapCamera>
     @ObservedObject var canvasSize: ViewState<CGSize>
+    /// Build or Fly (observed: the Favorite stars are the Build map's, #2033).
+    @ObservedObject var modes: AppModeModel
 
     private var overlays: MapOverlays { controller.mapOverlays }
     @AppStorage("MapSceneryFilter") private var sceneryFilterRaw = MapSceneryFilter.all.rawValue
@@ -24,6 +26,8 @@ struct MapCanvasView: View {
     @State private var cursorElevation: String?
     /// The pack outline under the cursor (#1316).
     @State private var cursorPack: String?
+    /// The photo provider of the World tile under the cursor (#2018).
+    @State private var cursorPhoto: String?
     @State private var elevationQuery: Task<Void, Never>?
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
     /// The airport layer's last plan (#817): rebuilt only when the camera,
@@ -50,16 +54,13 @@ struct MapCanvasView: View {
     // green/red/orange; other installed ortho packages keep their gray
     // outline.
     static let buildSelection = Color(red: 1.0, green: 0.84, blue: 0.04) // #FFD60A
-    static let builtTile = Color(red: 0.30, green: 0.69, blue: 0.43)
-    /// A built tile whose folder lives on another drive (#1987): brown,
-    /// with "Requires <drive>" top-right (Qt: BUILT_EXTERNAL_COLOR).
-    static let builtExternalTile = Color(red: 0.63, green: 0.44, blue: 0.24) // #A0703C
-    /// A tile another tool built (#1958, "Other ortho"): the gray of the
-    /// other packs' outlines (Qt: OTHER_ORTHO_COLOR).
-    static let otherOrthoTile = regionOutline
+    /// A built tile is drawn by its World state (#2031, `MapKey.builtLook`):
+    /// where it lives ("Requires <drive>", #1987) is a label, not a colour.
     /// A tile whose airport pack changed since the build (#1958): purple,
     /// dashed, with "Stale: ICAO" bottom-right (Qt: STALE_COLOR).
     static let staleTile = Color(red: 0.75, green: 0.35, blue: 0.95) // #BF5AF2
+    /// The stale tile's dash, in points (Qt: O4_Qt_Map.STALE_DASH).
+    static let staleDash: [CGFloat] = [6, 4]
     static let badgeDone = Color(red: 0.18, green: 0.62, blue: 0.36)     // #2E9E5B
     static let badgeError = Color(red: 0.90, green: 0.22, blue: 0.17)    // #E5372B
     static let badgeStopped = Color(red: 0.95, green: 0.58, blue: 0.10)  // #F29419
@@ -90,12 +91,17 @@ struct MapCanvasView: View {
                     let point = camera.value.coordinate(of: location, in: proxy.size)
                     let coord = BuildModel.TileCoord(lat: Int(floor(point.lat)),
                                                      lon: Int(floor(point.lon)))
-                    return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord),
+                    return TileContextMenu(coord: coord, folder: buildModel.tileRevealURL(coord),
                                            copies: buildModel.patchEdit.copyItems(at: location, camera: camera.value,
                                                                                   size: proxy.size),
                                            patch: buildModel.patchEdit,
                                            extra: buildModel.patchEdit.contextActions(lat: point.lat,
-                                                                                      lon: point.lon))
+                                                                                      lon: point.lon),
+                                           exportPackage: {
+                                               let tiles = buildModel.selected.contains(coord)
+                                                   ? Array(buildModel.selected) : [coord]
+                                               TilePackageModel.shared.startExport(tiles, build: buildModel)
+                                           })
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }
@@ -115,21 +121,29 @@ struct MapCanvasView: View {
                     cursorText = PatchNodeInspector.latLon(lat: point.lat, lon: point.lon)
                     cursorPack = buildModel.patchEdit.isShowing
                         ? buildModel.packOutlines.label(atLat: point.lat, lon: point.lon) : nil
+                    let photo = O4WorldStateText.photoText(buildModel.worldTiles[
+                        BuildModel.TileCoord(lat: Int(floor(point.lat)), lon: Int(floor(point.lon)))])
+                    cursorPhoto = photo.isEmpty ? nil : photo
                     queryElevation(lat: point.lat, lon: point.lon)
                 case .ended:
                     NSCursor.arrow.set()
                     cursorText = nil
                     cursorPack = nil
+                    cursorPhoto = nil
                     elevationQuery?.cancel()
                 }
             }
             .overlay(alignment: .bottomLeading) { cursorReadout }
             .overlay(alignment: .bottomTrailing) {
+                // The one key at the bottom-right, the ZL pill one row
+                // above it (owner 2026-11-12T22:05Z; Qt: O4_Qt_Map_Key).
                 VStack(alignment: .trailing, spacing: 6) {
-                    if sceneryFilter != .othersOnly { MapTileLegend(buildModel: buildModel) }
                     ScanProgressChip()
                     zoomChip
+                    MapKey(buildModel: buildModel, showBuildKinds: sceneryFilter != .othersOnly,
+                           mapWidth: proxy.size.width)
                 }
+                .padding(8)
             }
             .onAppear {
                 // First layout: fit the world so the map fills the viewport
@@ -234,20 +248,14 @@ struct MapCanvasView: View {
         // Other installed ortho/mesh packages (SpainUHD, meshes, foreign
         // zOrtho tiles): gray boundary outlines showing their coverage and
         // overlap. Our own tiles are skipped — they are already the colored
-        // squares: a pack is "ours" when its folder is one of the engine
-        // scan's build dirs (covers building straight into Custom Scenery)
-        // or a symlink into the working dir.
+        // squares (`SceneryRegion.isThirdParty`: our packs by name, the
+        // engine scan's build dirs, links into the working dir).
         if sceneryFilter != .builtOnly {
             let basePath = buildModel.tileBaseFolder?.path
             let builtDirs = Set(buildModel.built.values.map(\.buildDir))
             var regionPath = Path()
-            for region in overlays.regions {
-                // Ours under either spelling: the engine scan reports the
-                // LINK path for packs symlinked from other volumes.
-                if builtDirs.contains(region.packPath)
-                    || builtDirs.contains(region.contentRootPath) { continue }
-                if let basePath, let resolved = region.resolvedPath,
-                   resolved.hasPrefix(basePath) { continue }
+            for region in overlays.regions
+            where region.isThirdParty(builtDirs: builtDirs, basePath: basePath) {
                 for edge in region.edges {
                     guard max(edge.a.lon, edge.b.lon) > minLon,
                           min(edge.a.lon, edge.b.lon) < maxLon,
@@ -335,7 +343,11 @@ struct MapCanvasView: View {
         // Tile zoom so one 256px tile is roughly screen resolution
         // (256·2^z/360 px per degree against the camera's scale).
         let idealZ = Int(ceil(log2(cam.scale * 360 / 256)))
-        let z = min(max(idealZ, 2), min(imagery.activeMaxZL, 21))
+        // One zoom below the source's floor the tiles come from the floor
+        // (#2017, MapOverzoom.fetchZoom): never its off-season capture.
+        let z = MapOverzoom.fetchZoom(viewZ: max(idealZ, 2),
+                                      maxZ: min(imagery.activeMaxZL, 21),
+                                      minZ: imagery.activeMinZL)
         let n = 1 << z
 
         let xMin = Int(floor(WebMercator.tileX(lon: minLon, z: z)))
@@ -443,50 +455,59 @@ struct MapCanvasView: View {
             tileRect(lat: coord.lat, lon: coord.lon, cam: cam, size: size)
         }
 
-        // Built tiles: green border (no fill — it obscures the imagery
-        // preview), brown on another drive; installed adds the double
-        // (inset) border. The imagery
+        // What the World pack draws on each tile (#2024), under the
+        // built-tile borders; a tile being built shows its progress only.
+        // A stale built tile draws "Pack changed" in its place (#2031).
+        MapWorldStates.draw(in: context, world: buildModel.worldTiles, visible: visible,
+                            rect: rect, skip: { buildActivity.isBuilding($0)
+                                || (buildModel.staleTiles[$0] != nil && buildModel.built[$0] != nil) })
+
+        // Built tiles: drawn by their World state (no fill — it obscures
+        // the imagery preview); installed adds the double (inset)
+        // border. The imagery
         // label is drawn with the tile labels (MapCanvasLabels, #817).
         // A tile being built draws as building only (#1736): its progress
         // badge, never the border of the DSF an earlier build left.
         for (coord, info) in buildModel.built where visible(coord) && !buildActivity.isBuilding(coord) {
             let r = rect(coord)
-            // Brown when the folder lives on another drive (#1987), gray
-            // when another tool built it, purple and dashed when its airport
-            // pack changed since the build (#1958, MapTileLegend). The
-            // Build History date filter dims built tiles outside its
-            // period (#1226).
-            let stale = !info.builtElsewhere && buildModel.staleTiles[coord] != nil
-            let base = info.builtElsewhere ? Self.otherOrthoTile
-                : stale ? Self.staleTile
-                : info.volume == nil ? Self.builtTile : Self.builtExternalTile
-            let color = buildModel.builtInHistoryRange(coord) ? base : base.opacity(0.3)
-            context.stroke(Path(r), with: .color(color.opacity(0.85)),
-                           style: StrokeStyle(lineWidth: 2, dash: stale ? [6, 4] : []))
-            if buildModel.installed.contains(coord) {
-                context.stroke(Path(r.insetBy(dx: r.width * 0.03, dy: r.height * 0.03)),
-                               with: .color(color.opacity(0.9)), lineWidth: 1.5)
+            // Its World band alone when the World pack lists it, else
+            // "Full" (dotted when another tool built it); purple and dashed
+            // when its airport pack changed since the build (#1958, #2031,
+            // MapKey.builtLook). The Build History date filter dims built
+            // tiles outside its period (#1226).
+            let look = MapKey.builtLook(info, buildModel.worldTiles[coord],
+                                        stale: buildModel.staleTiles[coord] != nil)
+            let inWorld = look == nil
+            let base = look.flatMap { MapKey.color($0.item) } ?? .clear
+            let dim = buildModel.builtInHistoryRange(coord) ? 1.0 : 0.3
+            // The shared fading band inside the edge (TileBand).
+            if let look {
+                TileBandDrawing.draw(in: context, rect: r, color: base, opacity: dim,
+                                     dash: look.item == "stale" ? Self.staleDash
+                                         : look.dotted ? MapWorldStates.otherToolDash : [])
             }
-            // Mixed imagery sources: warning triangle in the top-right
-            // corner so affected tiles stand out at a glance (details +
-            // cleanup in the selection pane's Imagery row).
+            if buildModel.installed.contains(coord), !inWorld {
+                let d = TileBand.innerInset(px: r.width)
+                context.stroke(Path(r.insetBy(dx: d, dy: d)),
+                               with: .color(base.opacity(0.9 * dim)), lineWidth: 1.5)
+            }
+            // Mixed imagery sources: warning triangle in the bottom-right
+            // corner (the Favorite star holds the top-right, #2033) so
+            // affected tiles stand out at a glance (details + cleanup in
+            // the selection pane's Imagery row).
             if buildModel.conflictTiles.contains(coord), r.width > 14 {
                 let s = min(max(r.width * 0.16, 11), 20)
                 context.draw(
                     Text(Image(systemName: "exclamationmark.triangle.fill"))
                         .font(.system(size: s))
                         .foregroundStyle(.yellow),
-                    at: CGPoint(x: r.maxX - s * 0.7, y: r.minY + s * 0.7))
-            }
-            // A favorite (#1992, RULINGS 2026-11-10c (1)): a yellow star,
-            // bottom-right (Qt: O4_Qt_Map_Favorite.draw_star).
-            if info.pinned == true, r.width > 14 {
-                let s = min(max(r.width * 0.16, 11), 20)
-                context.draw(
-                    Text(Image(systemName: "star.fill"))
-                        .font(.system(size: s))
-                        .foregroundStyle(.yellow),
                     at: CGPoint(x: r.maxX - s * 0.7, y: r.maxY - s * 0.7))
+            }
+            // The Favorite star, top-right (#2033; Qt:
+            // O4_Qt_Map_Favorite.draw_star): filled when info.pinned == true,
+            // outlined on the others; a click flips it (tileSelect).
+            if modes.mode == .build {
+                FavoriteStar.draw(in: context, rect: r, pinned: info.pinned == true)
             }
         }
 
@@ -648,14 +669,33 @@ struct MapCanvasView: View {
 
     /// Build mode, Qt semantics: click = select that tile (and make it
     /// active), ⌘-click = toggle in a multi-selection, ⇧-click = contiguous
-    /// rectangle from the active tile. Modifiers come from AppKit at event
+    /// rectangle from the active tile. In the Fly view a click may fill
+    /// From / To instead (`FlyModel.mapClick`, #2026). Modifiers come from AppKit at event
     /// time — SwiftUI tap gestures don't carry them.
     private func tileSelect(size: CGSize) -> some Gesture {
         SpatialTapGesture(count: 1)
             .onEnded { value in
                 let flags = NSEvent.modifierFlags
                 let coord = camera.value.coordinate(of: value.location, in: size)
-                buildModel.click(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)),
+                // The Fly view: a click fills From / To (#2026).
+                if buildModel.appMode.mode == .fly,
+                   buildModel.fly.mapClick(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)),
+                                           command: flags.contains(.command),
+                                           custom: overlays.airports.map {
+                                               ($0.icao, $0.info.latitude, $0.info.longitude)
+                                           }) {
+                    return
+                }
+                let tile = BuildModel.TileCoord(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)))
+                // A built tile's Favorite star (#2033): the click flips it.
+                if modes.mode == .build, sceneryFilter != .othersOnly,
+                   let info = buildModel.built[tile], !buildActivity.isBuilding(tile),
+                   FavoriteStar.hit(value.location,
+                                    in: tileRect(lat: tile.lat, lon: tile.lon, cam: camera.value, size: size)) {
+                    Task { _ = await buildModel.setImageryPinned(tile, info.pinned != true) }
+                    return
+                }
+                buildModel.click(lat: tile.lat, lon: tile.lon,
                                  command: flags.contains(.command),
                                  shift: flags.contains(.shift))
             }
@@ -680,19 +720,20 @@ struct MapCanvasView: View {
                 }
                 .padding(6)
                 .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
-                .padding(8)
                 .help("Scanning Custom Scenery — the map fills in as packages are found")
             }
         }
     }
 
     /// Bottom-left readout: the cursor position in the node format (#1308),
-    /// the elevation, and the pack outline under it (#1316; Qt's
+    /// the elevation, the photo provider of the World tile under it
+    /// (#2018) and the pack outline under it (#1316; Qt's
     /// `O4_Qt_Cursor_Readout.readout_text`).
     @ViewBuilder
     private var cursorReadout: some View {
         if let cursorText {
-            Text(([cursorText] + [cursorElevation, cursorPack.map { "pack: \($0)" }].compactMap { $0 })
+            Text(([cursorText] + [cursorElevation, cursorPhoto,
+                                  cursorPack.map { "pack: \($0)" }].compactMap { $0 })
                 .joined(separator: " · "))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -752,7 +793,6 @@ struct MapCanvasView: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
         .background(.ultraThinMaterial, in: Capsule())
-        .padding(8)
         .help(atLimit
               ? "The view is zoomed past the imagery source's finest zoom level — its finest tiles are scaled up (overzoom), so they look soft. Builds at higher ZLs would upscale the same data."
               : "The imagery zoom level matching the current view — compare with the Detail setting (ZL) in the Build pane.")
@@ -760,7 +800,8 @@ struct MapCanvasView: View {
 
     /// Horizontal segmented-style zoom control: − and + in separate
     /// sections (Photos/Preview convention: minus left, plus right), each
-    /// with a full-size HIG hit target instead of a bare glyph.
+    /// with a full-size HIG hit target instead of a bare glyph, then
+    /// "Center on aircraft" (#2016).
     private var zoomControls: some View {
         HStack(spacing: 0) {
             Button { zoom(by: 1 / 1.5) } label: {
@@ -777,6 +818,9 @@ struct MapCanvasView: View {
                     .contentShape(Rectangle())
             }
             .help("Zoom in (drag the map to pan)")
+            Divider()
+                .frame(height: 16)
+            CenterOnAircraftButton(model: buildModel.fly, camera: camera, canvasSize: canvasSize)
         }
         .buttonStyle(.borderless)
         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))

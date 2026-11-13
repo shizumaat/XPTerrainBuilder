@@ -79,6 +79,8 @@ from shapely.ops import unary_union
 from ..geom import author_ground as _ag
 from ..geom import shape_class as _shape
 from ..geom.lowest_face import floor_z_at  # noqa: F401  (re-exported)
+from ..model import structures as _ms
+from . import floor_rim as _floor_rim
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
 from . import pit_frame as _pf
@@ -107,9 +109,9 @@ HIDDEN_SEAT = _ts.HIDDEN_SEAT
 FRAME_SEAT = _ts.FRAME_SEAT
 
 #: The planar ref of a floor's cut face (``FLOOR_REF + id``) and of the
-#: void band around it (``FLOOR_WALL_REF + id``).
-FLOOR_REF = "object_floor:"
-FLOOR_WALL_REF = "object_floor_wall:"
+#: void band around it (``FLOOR_WALL_REF + id``): ``model.structures``'.
+FLOOR_REF = _ms.OBJECT_FLOOR_REF
+FLOOR_WALL_REF = _ms.OBJECT_FLOOR_WALL_REF
 
 
 @_dc.dataclass(frozen=True)
@@ -152,6 +154,20 @@ class ObjectFloor:
     #: is read against (``airport/pit_frame``); ``()`` for every other floor
     authored: tuple[tuple[str, float], ...] = ()
     rim_proud_m: float = 0.0
+    #: #1921 / #1936 (RULINGS 2026-11-06d (5)): ``((x, y, dz), ...)`` the
+    #: frame's top along the cut's rim, metres over ``zero_z``
+    #: (``airport/floor_rim``): where the ground and the pavement meet it
+    rim_tops: tuple = ()
+    #: #1971 (spec interchange-levels v2 §3.1): how far the cut stands under
+    #: this floor; ``None`` is the law's ``[tunnel.object] floor_clearance_m``
+    #: (a floor plate kept clear, 2026-11-06d (4)); a deck stack's walls have
+    #: no plate and state the floor with their feet: ``0.0``
+    clearance_m: "float | None" = None
+
+    def cut_clearance(self, law_clearance: float) -> float:
+        """How far the cut stands under this floor: its own
+        :attr:`clearance_m`, else the law's (``law_clearance``)."""
+        return float(law_clearance) if self.clearance_m is None else float(self.clearance_m)
 
 
 @_dc.dataclass(frozen=True)
@@ -539,11 +555,14 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                 + (f"; sunk {sunk}" if sunk else ""))
         notes.append(note)
         # B1: the frame's every placement at the zero the floor was read at
-        seats = tuple((p.id, p.path, _zero(p, msl)) for p in (o, *covers, *(
-            p for p in mates if p not in covers)))
+        frame = (o, *covers, *(p for p in mates if p not in covers))
+        seats = tuple((p.id, p.path, _zero(p, msl)) for p in frame)
+        band = 0.5 * float(ob.wall_face_max_thickness_m)
+        tops = _floor_rim.rim_tops(foot.buffer(band, join_style="mitre"),
+                                   [(p, _zero(p, msl)) for p in frame], cache, law, scale, zero)
         out.append(ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@{k}", o.id, o.path,
                                tuple(p.id for p in covers), zero, fz, foot, faces, (note,),
-                               seats))
+                               seats, rim_tops=tops))
     out = _deepest(_share_lift(out, notes), law, notes)
     return out, notes
 

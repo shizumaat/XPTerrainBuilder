@@ -355,6 +355,14 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     airport = _dc.replace(airport, terrain_decks=tuple(
         o.terrain_fit for o in pack_objects if getattr(o, "terrain_fit", None) is not None))
     _say("  " + _terrain_shaped.log_line(icao, airport.terrain_decks), out)
+    # owner RULINGS 2026-11-13i: the terrain models' origin sets
+    from ..airport import terrain_model as _terrain_model
+    airport = _dc.replace(airport, terrain_models=tuple(
+        (o.id, o.path, o.terrain_model, o.agl_m) for o in pack_objects
+        if getattr(o, "terrain_model", None) is not None))
+    _say("  " + _terrain_model.log_line(icao, (r[2] for r in airport.terrain_models)), out)
+    from ..airport import bridged_ground as _bridged_ground
+    _say("  " + _bridged_ground.log_line(icao, (r[2] for r in airport.terrain_models)), out)
     # RULINGS 2026-11-03 (answer 4, #1738): a companion terrain mesh's cuts
     # are a portal witness (``airport/terrain_mesh_witness``)
     from ..airport import terrain_mesh_witness as _tmw
@@ -385,6 +393,15 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # #1747 (RULINGS 2026-11-06b (6)): the tunnel mouths' walls, which no pad takes
     from ..airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law)
+    # #1971: a trench's floor and the hard decks spanning it, ONE zero
+    from ..planar.deck_stack_attach import attach_deck_stacks
+    _t_ds, _ds_notes = time.perf_counter(), []
+    airport = attach_deck_stacks(airport, pack_objects, ocache, law, _ds_notes)
+    from ..airport.deck_stack import log_line as _ds_line
+    _say("  " + _ds_line(icao, airport.deck_stacks, time.perf_counter() - _t_ds), out)
+    for _n in _ds_notes:
+        if "no floor (" not in _n:              # walls with no route in them: silent
+            _say(f"  [deck-stack] {_n}", out)
     # THE FLAT-PACK WITNESS (owner direction 2026-10-20, answers 59-66; spec
     # ``flat-pack-terracing-spec.md`` §1): read once the partition is, a
     # REPORT in phase 1 (``law/flat_pack.toml`` ``terrace = false``).
@@ -591,8 +608,24 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # THE PREFIX (stage-cache spec §4b.3; ``pipeline/prefix.py``): planar →
     # flat site → road profile → target channels → shapes → constraints →
     # jetway strips → the hold, through the front cache, saying its lines
+    # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
+    # this build's own prefix, re-run on the classification without ribbons
+    # (``pipeline/stage_one_map``).  It reads the main pass's decks and deck
+    # anchors only, final once the target channels have run, so it starts in
+    # a worker THERE, beside the main pass's shapes and constraints (#2044,
+    # ``pipeline/stage_one_ahead``).  The heartbeat names THIS work, not the
+    # inner planar build's last step; the re-runs go through the same
+    # records, keyed by their own classification (stage-cache spec §4b.3).
+    from . import stage_one_ahead as _s1_ahead
+    _s1_box: dict = {}
+
+    def _stage_one_ahead(ap, pm_ch) -> None:
+        d = Deriver(ap, law, inputs, pack, cache=fc, common=_fc_in,
+                    heartbeat="stage 1 on the ribbon-free map: shapes and constraints")
+        _s1_box.update(derive=d, ahead=_s1_ahead.start(
+            cl, d, pm_ch, out=lambda m: _say(f"[{icao}] {m}", out)))
     pre = run_prefix(airport, cl, law, inputs, pack, fc, common=_fc_in, cl_digest=_cl_digest,
-                     icao=icao, lrep=lrep, out=out)
+                     icao=icao, lrep=lrep, out=out, after_channels=_stage_one_ahead)
     wall.update(pre.wall)
     if _xp:
         _xp["planar_pm"] = pre.planar_pm
@@ -621,16 +654,24 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         rep["preferred_z"] = pref
         return cs2, rep
 
-    # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
-    # this build's own prefix, re-run on the classification without ribbons
-    # (``pipeline/stage_one_map``); ``None`` when no ribbon was minted
+    # STAGE 1 ON THE RIBBON-FREE MAP (above): ``None`` when no ribbon was
+    # minted; the worker's run is taken only when the finished map's decks
+    # and anchors are the ones it was handed, else it is derived here
     from .stage_one_map import stage_one_problem
-    # the heartbeat names THIS work, not the inner planar build's last step
-    # the re-runs go through the same records, keyed by their own
-    # classification (stage-cache spec §4b.3)
-    derive = Deriver(airport, law, inputs, pack, cache=fc, common=_fc_in,
-                     heartbeat="stage 1 on the ribbon-free map: shapes and constraints")
-    _s1 = stage_one_problem(cl, derive, pm.registries, full=pm)
+    derive, _ahead = _s1_box.get("derive"), _s1_box.get("ahead")
+    if derive is None or derive.airport is not airport:
+        if _ahead is not None:
+            _ahead.close()
+        derive, _ahead = Deriver(
+            airport, law, inputs, pack, cache=fc, common=_fc_in,
+            heartbeat="stage 1 on the ribbon-free map: shapes and constraints"), None
+    try:
+        _s1 = (stage_one_problem(cl, derive, pm.registries, full=pm) if _ahead is None else
+               stage_one_problem(cl, _ahead.bind(pm), pm.registries, full=pm,
+                                 split=_ahead.split))
+    finally:
+        if _ahead is not None:
+            _ahead.close()
     _pulse.tick("solving the surface")
     if _s1 is not None:
         _s1.bind(pm)
@@ -718,6 +759,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             fc, {"airport": pre.keys.get("airport"), "rules": _fc_in.get("rules"),
                  "options": fc.digest(cfg.options)},
             identity(pre.keys.get("pm"), _solved.digest), law, cfg.options)
+        # the late derives' heartbeat names THEIR work (the owner read
+        # "stage 1 on the ribbon-free map" through the gap stage, #2044)
+        derive.kw["heartbeat"] = "the last stage: the gap pieces' map, shapes and constraints"
         pm, sol, _late = run_last_stages(
             cl_gaps, airport, law, derive,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,

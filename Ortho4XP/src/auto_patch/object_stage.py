@@ -97,7 +97,27 @@ def mesh_placement_sampler(mesh_path: str,
         return out
 
     _sample.many = _sample_many
+    # #2042: what a second reading of the same mesh needs (the graded
+    # facades may reach past the plan's own box)
+    _sample.mesh_path, _sample.bounds = mesh_path, tuple(bounds)
     return _sample
+
+
+def _facade_surface(mesh_sample, dump, pack_root: str, surface):
+    """#2042: the built mesh over the pack's graded facades — ``surface``
+    when its box already holds them, else a reading of the same mesh
+    widened to them (a 6 km shoreline facade outruns the objects' box)."""
+    from auto_patch_v2.airport import facade_seat as _fs
+    box = _fs.candidates_box(_fs.candidates(dump, pack_root))
+    have = getattr(mesh_sample, "bounds", None)
+    path = getattr(mesh_sample, "mesh_path", None)
+    if box is None or have is None or path is None or (
+            have[0] <= box[0] and have[1] <= box[1]
+            and have[2] >= box[2] and have[3] >= box[3]):
+        return surface
+    wide = (min(have[0], box[0]), min(have[1], box[1]),
+            max(have[2], box[2]), max(have[3], box[3]))
+    return _placement_surface(mesh_placement_sampler(path, wide))
 
 
 def _sampler_bounds(plan_, patch_dir: str) -> tuple[float, float, float, float]:
@@ -343,8 +363,10 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
     # #598: a no-op outside a build's object stage (the user's command)
     from auto_patch_v2.airport import pack_journal as _pj
     _pj.snapshot(pack_root, art.dsf_path)
+    from . import pack_copy as _copy
     _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
-                   allow_live_install=True, engine_version=_engine_version(),
+                   allow_live_install=_copy.write_guard(pack_root),
+                   engine_version=_engine_version(),
                    omit=art.missing if art.omit else ())
     _DSFR.ensure_dsf_text_path(art.dsf_path, _dsf2.mod_cache_dir(
         FNAMES.airport_mod_cache_root(), art.pack_name))
@@ -633,6 +655,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                               .get("runway_ends") or ()),
             approach_reach_m=float(law.tables.runway_ends.approach_reach_m),
             approach_heading_deg=float(law.tables.runway_ends.peer_parallel_deg),
+            facade_surface=_facade_surface(mesh_sample, dump, target_root, _surface),
             engine_version=_engine_version(), law_digest=digest,
             write_cuts=bool(write_enabled and not measure_only))
     _pulse.clear()
@@ -663,7 +686,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     try:
         res = _pw.apply_plan(
             plan, files, _DSFR._dsftool_path() or "DSFTool", patch_dir=patch_dir,
-            allow_live_install=True,
+            allow_live_install=_copy.write_guard(target_root),
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
             plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key))
@@ -710,8 +733,14 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                  f"round trip {'ok' if res.dsf.report.ok else 'FAILED'}), dump cache "
                  f"{'refreshed' if res.dump_refreshed else 'not refreshed'} -> "
                  f"{os.path.basename(res.plan_path)}")
+    if plan.facade_seats:
+        UI.vprint(1, f"  [v2 placement] {plan_.icao}: {len(plan.facade_seats)} "
+                     f"graded facade(s) lowered onto their drawn ground "
+                     f"(deepest {min(f.drop_m for f in plan.facade_seats):+.2f} m)")
     out = dict(res.counts)
     out.update({k: v for k, v in c.items() if k.startswith("class_")})
+    out.update({k: v for k, v in dict(plan.provenance.counts).items()
+                if k.startswith("graded_facade")})
     out["packs_written"] = 1
     if siblings:
         out["sibling_packs_written"] = _sib.write(
@@ -748,7 +777,9 @@ def restore_stopped_build(build_dir: str, lat: int, lon: int) -> list:
         tile_name = FNAMES.short_latlon(lat, lon)
         if not _pj.pending(build_dir, tile_name):
             return unproven
-        done = _pj.replay(build_dir, tile_name, allow_live_install=True)
+        from . import pack_copy as _copy
+        done = _pj.replay(build_dir, tile_name,
+                          allow_live_install=_copy.copy_dir() is None)
         for out in done:
             pack = os.path.basename(os.path.normpath(out.pack_root))
             if out.state == _pj.UNPROVEN:
@@ -971,6 +1002,18 @@ def rebake_after_mesh(tile) -> dict:
                         counts["airports_skipped_stale_plan"] = \
                             counts.get("airports_skipped_stale_plan", 0) + 1
                         continue
+                # RULINGS 2026-11-11m (3): THE PACK'S AUTHOR SAID ITS
+                # OBJECTS ARE FINAL (or already carry the fixes): nothing
+                # of it is split, reseated or rewritten — the terrain is
+                # still graded to the patch.  Before every pack read below.
+                from tile_bundle import pack_dev as _dev
+                frozen = _dev.frozen_reason(tile, icao, plan_.pack_root)
+                if frozen:
+                    UI.vprint(0, f"  [v2 rebake] {icao}: {frozen} — its objects "
+                                 f"are left as they are")
+                    counts["airports_objects_final"] = \
+                        counts.get("airports_objects_final", 0) + 1
+                    continue
                 # #433: THE PACK'S MISSING ART, before its DSF is read or
                 # rewritten — and whether or not anything is placed
                 writes = bool(write_enabled and not measure_only
@@ -1147,6 +1190,9 @@ def _pack_stand_down(tile) -> str:
         return '"Modify custom airports" is off'
     if os.environ.get("O4_PACK_WRITES") == "measure_only":
         return "this is a lane build (O4_PACK_WRITES=measure_only)"
+    from . import pack_copy as _copy
+    if _copy.copy_dir() is not None:     # #2041: the restore reads the install
+        return "this is a pack-copy lane build (O4_PACK_WRITES=copy:)"
     if not DSF_OBJECT_REANCHOR:
         return "DSF_OBJECT_REANCHOR is off"
     return ""
@@ -1171,7 +1217,10 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
     import O4_Unpatched_Airports as UNPATCHED
     from auto_patch_v2.airport import unpatched_pack as _up
     from . import dsf_reader as _DSFR
+    from tile_bundle import pack_dev as _dev
+
     from . import object_rebake as _OR
+    from . import pack_copy as _copy
     from .post_mesh import _is_protected_scenery_root
 
     counts = {_up.RESTORED: 0, _up.RECOMPOSED: 0, _up.UNPROVEN: 0}
@@ -1187,7 +1236,8 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
         for pack in _OR.modified_packs(scenery_dir, tile_name):
             pack_root = pack["pack_path"]
             if _is_protected_scenery_root(pack_root) \
-                    or not _SP.pack_enabled(pack_root):
+                    or not _SP.pack_enabled(pack_root) \
+                    or _dev.objects_frozen(pack_root):    # RULINGS 11m (3)
                 continue
             for record_path in _OR._v2_record_paths(pack_root):
                 dsf_path = os.path.join(os.path.dirname(record_path),
@@ -1202,7 +1252,7 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                             out = _up.restore_airport(
                                 pack_root, dsf_path, icao,
                                 _DSFR._dsftool_path() or "DSFTool",
-                                allow_live_install=True,
+                                allow_live_install=_copy.write_guard(pack_root),
                                 engine_version=_engine_version())
                         except Exception as exc:
                             out = _up.Outcome(_up.UNPROVEN, dsf_path,

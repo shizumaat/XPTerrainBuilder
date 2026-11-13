@@ -308,6 +308,7 @@ def make_window(qapp, tmp_path, monkeypatch):
         json.dump({"output_dir": str(tmp_path)}, handle)
     cache_path = str(tmp_path / "tile-scan.json")
     monkeypatch.setattr(GUI, "PREFS_FILE", prefs_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     monkeypatch.setattr(GUI, "TILE_SCAN_CACHE_FILE", cache_path)
     import O4_UI_Utils as UI
     saved_stdout = sys.stdout
@@ -406,7 +407,7 @@ def test_conflict_sweep_reaches_the_map_and_the_info_panel(
     assert _wait_for(qapp, lambda: window._conflict_tiles == set())
     assert window.map._conflicts == set()
     window._refresh_conflict_indicator(TILE)
-    assert window.info_provider.text() == "BI"
+    assert window.info_provider.text() == "BI, ZL16"
 
 
 def test_a_superseded_sweep_is_discarded(qapp, make_window):

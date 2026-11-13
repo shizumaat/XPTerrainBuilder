@@ -244,8 +244,11 @@ public enum O4Event: Sendable, Equatable {
     /// the line, nil for a run-level line.
     case log(level: String, text: String, tile: String?)
     case scanProgress(phase: String, done: Int, total: Int)
-    /// built: [lat, lon, info] triples; installed: [lat, lon] pairs.
-    case scanBatch(built: [(lat: Int, lon: Int, info: O4JSON)], installed: [(lat: Int, lon: Int)])
+    /// built: [lat, lon, info] triples; installed: [lat, lon] pairs;
+    /// world (capability `scan_world`, #2024): the World pack's state of
+    /// each tile it knows (`O4WorldTile.row`), empty from an older engine.
+    case scanBatch(built: [(lat: Int, lon: Int, info: O4JSON)], installed: [(lat: Int, lon: Int)],
+                   world: [(lat: Int, lon: Int, tile: O4WorldTile)] = [])
     case scanDone(builtCount: Int, installedCount: Int)
     /// `detail` (additive within protocol 1.10, #598): whole sentences for
     /// a second line under the tile's row — for a stopped tile, what it is
@@ -345,12 +348,20 @@ public enum O4Event: Sendable, Equatable {
     /// the report, or a `gateway_airports` command's outcome. See
     /// `O4GatewayAirports`.
     case gatewayAirports(O4GatewayAirports)
+    /// A package an airport pack ships, applied as a tile built
+    /// (capability `pack_packages`, RULINGS 2026-11-11m). See `O4PackPackage`.
+    case packPackage(O4PackPackage)
     /// The imagery follow job's state (capability `imagery_follow`,
     /// #1992 P3b). See `O4ImageryFollowStatus`.
     case imageryFollowStatus(O4ImageryFollowStatus)
+    /// One tile's airport cores sharpening in the background (capability
+    /// `imagery_core_rows`, #2039). See `O4ImageryCoresProgress`.
+    case imageryCoresProgress(O4ImageryCoresProgress)
     /// The World pack's state (capability `world_pack`, flight manager /
     /// World spec §5.3). See `O4WorldStatus`.
     case worldStatus(O4WorldStatus)
+    /// How far a running `world_migrate` is (`O4WorldMigrateProgress`).
+    case worldMigrateProgress(O4WorldMigrateProgress)
     /// X-Plane's aircraft once a second while `aircraftWatch(on:)` is on
     /// (capability `aircraft_position`, #2001). See `O4AircraftPosition`.
     case aircraftPosition(O4AircraftPosition)
@@ -409,7 +420,8 @@ public enum O4Event: Sendable, Equatable {
                       let lon = (entry[1] as? NSNumber)?.intValue else { continue }
                 installed.append((lat, lon))
             }
-            return .scanBatch(built: built, installed: installed)
+            let world = (object["world"] as? [[Any]] ?? []).compactMap(O4WorldTile.row)
+            return .scanBatch(built: built, installed: installed, world: world)
         case "ScanDone":
             return .scanDone(builtCount: int("built_count"), installedCount: int("installed_count"))
         case "TileState":
@@ -543,9 +555,15 @@ public enum O4Event: Sendable, Equatable {
         // `class ImageryFollowStatus` in Ortho4XP/src/o4_engine/events.py.
         case "ImageryFollowStatus":
             return .imageryFollowStatus(O4ImageryFollowStatus.parse(object))
+        // `class ImageryCoresProgress` in Ortho4XP/src/o4_engine/events.py.
+        case "ImageryCoresProgress":
+            return .imageryCoresProgress(O4ImageryCoresProgress.parse(object))
         // `class WorldStatus` in Ortho4XP/src/o4_engine/events.py.
         case "WorldStatus":
             return .worldStatus(O4WorldStatus.parse(object))
+        // `class WorldMigrateProgress` in Ortho4XP/src/o4_engine/events.py.
+        case "WorldMigrateProgress":
+            return .worldMigrateProgress(O4WorldMigrateProgress.parse(object))
         // `class AircraftPosition` in Ortho4XP/src/o4_engine/events.py.
         case "AircraftPosition":
             return .aircraftPosition(O4AircraftPosition.parse(object))
@@ -604,6 +622,13 @@ public enum O4Event: Sendable, Equatable {
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
+        // Another STRING LITERAL match: `class PackPackage` in
+        // Ortho4XP/src/o4_engine/events.py.
+        case "PackPackage":
+            return .packPackage(O4PackPackage(
+                pack: string("pack"), packRoot: string("pack_root"), path: string("path"),
+                icao: string("icao"), state: object["state"] as? String ?? "applied",
+                text: string("text"), lat: int("lat"), lon: int("lon")))
         // Another STRING LITERAL match: `class GatewayAirports` in
         // Ortho4XP/src/o4_engine/events.py.
         case "GatewayAirports":
@@ -682,6 +707,17 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     /// to full resolution; nil from an engine that predates the fields.
     public let onDemand: Bool?
     public let pinned: Bool?
+    /// What the build stood its airports on ("HRDEM 1 m: CYBW, CYYC") and
+    /// the airports it graded with their packs (owner 2026-11-12T21:55Z,
+    /// `O4_Tile_Info._airport_elevation_text` / `_airports_text`); nil when
+    /// the tile's records name none, or from an older engine.
+    public let airportElevation: String?
+    public let airports: String?
+    /// The elevation the tile was built with, base + airport insets
+    /// ("Viewfinderpanoramas + USGS3DEP 1 m inset", #2033,
+    /// `O4_Tile_Info._elevation_text`); nil when unknown or from an older
+    /// engine.
+    public let elevation: String?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -719,10 +755,10 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         origin = object["origin"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         onDemand = object["on_demand"]?.boolValue
         pinned = object["pinned"]?.boolValue
+        airportElevation = object["airport_elevation"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        airports = object["airports"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        elevation = object["elevation"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
     }
-
-    /// Does the tile's pin apply (built on demand, or pinned)?
-    public var pinApplies: Bool { onDemand == true || pinned == true }
 
     /// Another tool built it (#1958): the map draws it as "other ortho".
     /// An engine that predates `origin` says nothing, so it stays ours.
@@ -996,6 +1032,20 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// Stop the follow job (fetches in flight finish first).
     public func stopImageryFollow() {
         send(command: "imagery_follow_stop")
+    }
+
+    /// The user's "Reload scenery" (#2019, capability
+    /// `scenery_reload_offer`): the only way the app asks X-Plane to
+    /// reload (owner 2026-11-12: never unless the user requests it).
+    public func reloadScenery() {
+        send(command: "scenery_reload")
+    }
+
+    /// Stop one tile's background core sharpening (#2039, capability
+    /// `imagery_core_rows`): the squares not yet started are left; the
+    /// ones landing finish. The row's last `imageryCoresProgress` follows.
+    public func stopImageryCores(lat: Int, lon: Int) {
+        send(command: "imagery_cores_stop", arguments: ["lat": lat, "lon": lon])
     }
 
     // MARK: - Build-ahead (World spec W2, capability world_job)

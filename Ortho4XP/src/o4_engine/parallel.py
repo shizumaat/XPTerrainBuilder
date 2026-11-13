@@ -63,7 +63,6 @@ import time
 from collections import deque
 from typing import Optional
 
-import O4_Build_Profile as PROFILE
 import O4_Console_Encoding
 import O4_Edit_Cache as EDITCACHE
 import O4_File_Names as FNAMES
@@ -576,16 +575,26 @@ def tile_inputs_are_cached(tile_configuration, step_key):
     all answer yes.  Anything else — a subsystem that cannot answer, a
     predicate that raises — is NOT cached.
     """
+    return not uncached_subsystems(tile_configuration, step_key, first=True)
+
+
+def uncached_subsystems(tile_configuration, step_key, first=False):
+    """The fetch subsystems (``STEP_FETCH_SUBSYSTEMS`` names) whose
+    predicate says this step of this tile WOULD download — or cannot
+    answer, which reads the same.  ``first`` stops at the first one.
+    An installed package (#2014) reports what its tiles still fetch."""
+    out = []
     for module_name in STEP_FETCH_SUBSYSTEMS.get(step_key, ()):
         predicate = _subsystem_is_cached(module_name)
-        if predicate is None:
-            return False
         try:
-            if not predicate(tile_configuration):
-                return False
+            cached = predicate is not None and bool(predicate(tile_configuration))
         except Exception:
-            return False
-    return True
+            cached = False
+        if not cached:
+            out.append(module_name)
+            if first:
+                break
+    return out
 
 
 # Event types forwarded verbatim (modulo remapping/suppression, spec
@@ -614,6 +623,8 @@ _FORWARDED_EVENT_TYPES = (
     "PackAdjust",
     # #1989: ... and the tile's Gateway airports to offer.
     "GatewayAirports",
+    # RULINGS 11m (4): ... and the packages the tile's packs ship.
+    "PackPackage",
     "Log",
 )
 
@@ -1042,12 +1053,18 @@ class ParallelBuildRun:
         admitted = []
         queued = set(self._queue)              # a planet queue: O(1) checks
         carried = {child.tile for child in self._children}
+        # The session's record of each tile's build folder (#2032: a batch
+        # that joined a live run kept the default folder, so the imagery
+        # registration and the World publish looked in the wrong place).
+        note_dirs = getattr(self._session, "_note_build_dirs", None)
         for tile in tiles:
             if (tile in queued or tile in self._next_step_index
                     or tile in carried):
                 continue
             queued.add(tile)
             admitted.append(tile)
+            if note_dirs is not None:
+                note_dirs([tile], custom_build_dir)
             self._run_cells.add((int(tile[0]), int(tile[1])))
             # A new attempt (#1326), with a clock that starts at zero: a
             # stopped or finished tile queued again must not inherit the
@@ -1081,7 +1098,6 @@ class ParallelBuildRun:
                 features = prediction_features(
                     tile[0], tile[1], provider, zoomlevel,
                     custom_build_dir)
-                features["profile"] = PROFILE.profile_of(overrides)
                 estimates = _predict_step_seconds(
                     tile[0], tile[1], features, program)
                 self._estimates[tile] = estimates

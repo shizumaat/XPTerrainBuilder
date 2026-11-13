@@ -46,10 +46,17 @@ THE RULES (2026-10-28k, read with the questions as asked):
   already clears 5 m"; 27g's blend).  A RAIL bore is never deepened (233 a:
   rail follows the survey).
 * ``floor = min(road, cover − owed)``.  Where that floor IS the surveyed
-  road (within ``[placement] split_tol_m``), the survey already carries the
-  road and nothing is cut a second time: the mouth is refused by name.
+  road (within ``[placement] split_tol_m``, :data:`KEPT`), the survey
+  already carries the road and nothing is cut a second time -- but A
+  SURVEYED MOUTH IS STILL A MOUTH (#1938, RULINGS 2026-11-13h round 2 N1,
+  owner Q1 2026-11-13 "Yes"; narrows 226 a's "refused by name"): it is
+  built at ``floor = road`` (``extra`` 0), its cap the portal face, its rim
+  the walls, its ramp the short run to where the floor meets the survey.
+  MEASURED EGLL north mouth: the lidar carries an 8.6 m face in 4 m, the
+  refused mouth drew the road 3.7 m over it, climbing the face at 20 %.
   Otherwise the mouth is built at the floor and the ramp closes the depth
-  owed ALONG THE SURVEYED ROAD (R4, :func:`survey_design_grade`).
+  owed ALONG THE SURVEYED ROAD (R4, :func:`survey_design_grade`).  Only
+  :data:`NO_SIGN` is refused.
 
 R2 — A SURVEYED OPEN CUT IS CARRIED INTO THE SURFACE (230 a "survey cuts
 are kept").  A mouth the survey decides no longer builds the corridor whose
@@ -91,7 +98,7 @@ from .channel_geometry import _lidar_cut, _lidar_floor
 
 __all__ = ["survey_mouth", "survey_design_grade", "under_airside_pavement",
            "is_rail_group", "survey_mouth_refusal", "survey_mouth_note", "survey_trench",
-           "survey_road_trenches", "end_clearance"]
+           "survey_road_trenches", "end_clearance", "kept_face_shift"]
 
 #: the station step along the bore (the §45 cut reading's own lateral step)
 _STEP_M = 5.0
@@ -299,8 +306,54 @@ def survey_mouth(airport, law: Law, members: _t.Sequence, axis_fn, width: float,
     if cover - road < float(law.tables.structures.channel.object_min_depth_m):
         verdict = NO_SIGN
     elif road - floor <= float(law.tables.structures.placement.split_tol_m):
-        verdict = KEPT
+        verdict, floor = KEPT, road      # N1: built at the survey's own depth
     return SurveyMouth(cover, road, owed, floor, paved, rail, verdict)
+
+
+def kept_face_shift(airport, law: Law, sm: SurveyMouth, mouth: XY, inward: XY,
+                    rim_off: float) -> float:
+    """#1938 round 3 — A KEPT MOUTH'S CAP STANDS AT THE TOP OF ITS FACE:
+    how far (m) the mouth moves into the bore so that its cap (``rim_off``
+    inside the mouth line) stands where the terrain model's face reaches
+    the survey's cover, so the portal face is drawn full height.
+
+    The solve holds the cap on the DEM (``constraints/structures``' rim
+    pin), and a resampled lidar spreads the survey's near-vertical face
+    over a cell: measured EGLL north, the cap 1.6 m inside the mapped
+    portal stood at 21.55 on that slope against a cover of 25.17 and a
+    road of 16.57, so the drawn face was 5 m of the 8.6 m the survey shows.
+    The cap walks inward in identity steps while the ground still climbs
+    the face (steeper than ``ramp_max_grade``) and stops where it reaches
+    the cover (within ``split_tol_m``) or the climb ends (the brow).  No
+    move where the cap already stands at the cover or on no face at all
+    (a KEPT mouth whose cap stands on the road stays refused), nor where
+    the climb runs on past ONE posting of the terrain model
+    (``posting_m``; unknown: no move): resampling spreads a face over a
+    cell, and a longer climb is the hillside's own slope, never the
+    portal's face (measured ENTC ``-225+-89+-88``: a 25 % slope that would
+    have opened 24.5 m of the mapped bore)."""
+    if sm.verdict != KEPT:
+        return 0.0
+    tn = law.tables.structures.tunnel
+    posting = getattr(getattr(airport, "dem", None), "posting_m", None)
+    cell = posting() if callable(posting) else None
+    if not cell:
+        return 0.0
+    step = float(law.tables.emit.identity.min_distinct_spacing_m)
+    tol = float(law.tables.structures.placement.split_tol_m)
+    climb = step * float(tn.ramp_max_grade)
+
+    def z_at(s: float) -> float:
+        return dem_z_at(airport, (mouth[0] + inward[0] * s, mouth[1] + inward[1] * s))
+    s, z = rim_off, z_at(rim_off)
+    while not math.isnan(z) and z < sm.cover - tol:
+        z1 = z_at(s + step)
+        if math.isnan(z1) or z1 - z < climb:
+            break                                    # the brow: the face ends here
+        if s + step - rim_off > cell:
+            return 0.0                               # a slope, not a spread face
+        s, z = s + step, z1
+    return s - rim_off
 
 
 def survey_design_grade(airport, law: Law, axis_fn, sm: SurveyMouth, design: float,
@@ -424,6 +477,12 @@ def survey_mouth_refusal(sm: SurveyMouth) -> str:
 def survey_mouth_note(sm: SurveyMouth, grade: float) -> str:
     """The tunnel note of a mouth built at a survey floor."""
     why = "under airside pavement (231 b)" if sm.paved else "clearance_m (232 a)"
+    if sm.extra <= 0.0:
+        return (f"survey mouth: cover {sm.cover:.2f} over the bore, surveyed road {sm.road:.2f} "
+                f"at the portal ({sm.clearance:.2f} m) — it clears the {sm.owed:.2f} m owed "
+                f"{why}: built at the surveyed road, the portal face and walls at the survey's "
+                f"depth, nothing cut under it (RULINGS 2026-10-28k (226 a), narrowed by "
+                f"2026-11-13h N1)")
     return (f"survey mouth: cover {sm.cover:.2f} over the bore, surveyed road {sm.road:.2f} "
             f"at the portal ({sm.clearance:.2f} m) — owed {sm.owed:.2f} m {why}: floor "
             f"{sm.floor:.2f}, {sm.extra:.2f} m under the surveyed road, closing along it at "

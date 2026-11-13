@@ -16,7 +16,7 @@ PLANS = os.path.join(os.path.dirname(__file__), "fixtures", "flight_plan")
 
 
 def job(tile, role="enroute", klass=None, deadline=0.0, hi=100.0, state="queued",
-        kind="light", off=0.0, remaining=None):
+        kind="drape", off=0.0, remaining=None):
     if klass is None:
         klass = S.klass_for(role)
     return S.Job(tile=tile, role=role, kind=kind, klass=klass, deadline_s=deadline,
@@ -61,7 +61,9 @@ def test_estimates_and_spreads_match_plan_estimate():
     from o4_engine import plan_estimate
     assert S.SPREAD_KNOWN == plan_estimate.TIME_SPREAD_KNOWN
     assert S.SPREAD_UNKNOWN == plan_estimate.TIME_SPREAD_UNKNOWN
-    assert S.job_estimate("light") == (397 * 0.5, 397 * 2.5)
+    assert S.job_estimate("drape") == (80 * 0.5, 80 * 2.5)
+    assert S.drape_seconds(1024) == S.DRAPE_SECONDS[1024]
+    assert S.drape_seconds("junk") == S.drape_seconds(999) == S.DRAPE_SECONDS[512]
     assert S.job_estimate("full", 1000.0, known=True) == (750.0, 1500.0)
     with pytest.raises(ValueError):
         S.job_estimate("full")
@@ -70,9 +72,9 @@ def test_estimates_and_spreads_match_plan_estimate():
 def test_rescale_is_clamped_and_by_kind():
     jobs = [job((0, 0), hi=100.0), job((0, 1), hi=100.0, kind="full"),
             job((0, 2), hi=100.0, state="building")]
-    out = S.rescale(jobs, "light", measured_s=1000.0, predicted_s=100.0)
+    out = S.rescale(jobs, "drape", measured_s=1000.0, predicted_s=100.0)
     assert [j.est_s[1] for j in out] == [250.0, 100.0, 100.0]
-    assert S.rescale(jobs, "light", 10.0, 100.0)[0].est_s[1] == 50.0
+    assert S.rescale(jobs, "drape", 10.0, 100.0)[0].est_s[1] == 50.0
 
 
 # --- scheduling and the countdown -----------------------------------------------
@@ -86,23 +88,26 @@ def test_finish_times_on_slots_running_first():
     assert order == [((0, 3), 40.0), ((0, 0), 200.0), ((0, 1), 140.0), ((0, 2), 440.0)]
 
 
-def test_countdown_departure_only_and_with_deadlines():
-    assert S.countdown([job((0, 0), "departure", hi=600.0)], 1) == 600.0
-    assert S.countdown([], 1) == 0.0
-    # P0 600 s, then an en-route tile due 300 s after takeoff: it ends at
-    # 1000 s, so takeoff waits until 1000 - 300 + one build (400) = 1100 s.
-    jobs = [job((0, 0), "departure", hi=600.0), job((0, 1), deadline=300.0, hi=400.0)]
-    assert S.countdown(jobs, 1) == 1100.0
-    # a far deadline costs nothing beyond the departure
-    far = [job((0, 0), "departure", hi=600.0), job((0, 1), deadline=9000.0, hi=400.0)]
-    assert S.countdown(far, 1) == 600.0
-    # two slots run them side by side
-    assert S.countdown(jobs, 2) == 600.0
+def test_the_flight_waits_only_for_its_departure_area():
+    """RULINGS 2026-11-12c (2): the countdown is the departure area's
+    (P0: departure + first window) high-estimate finish plus a margin,
+    whatever the route; what the route cannot get in time is projected
+    late (warned of), never waited for."""
+    jobs = [job((0, 0), "departure", hi=600.0),
+            job((0, 1), klass=S.P0, hi=100.0),
+            job((0, 2), deadline=100.0, hi=900.0),       # cannot make it
+            job((0, 9), "destination", deadline=6000.0, hi=500.0)]
+    assert S.departure_countdown(jobs, 2) == 600.0 + S.DEPARTURE_MARGIN_S
+    assert S.departure_countdown([j for j in jobs if j.klass != S.P0], 2) == 0.0
+    late = S.projected_late(jobs, 2, S.departure_countdown(jobs, 2))
+    assert [j.tile for j in late] == [(0, 2)]
+    bad = job((0, 0), "departure", hi=float("nan"))
+    assert S.departure_countdown([bad], 1) is None
 
 
 def test_countdown_has_no_figure_without_estimates():
     bad = S.Job((0, 0), "departure", "full", S.P0, 0.0, (float("nan"), float("nan")))
-    assert S.countdown([bad], 1) is None
+    assert S.departure_countdown([bad], 1) is None
     assert S.countdown_text(None) == "Ready in —"
     assert S.countdown_text(0) == "Ready"
     assert S.countdown_text(30) == "Ready in under a minute"
@@ -169,10 +174,25 @@ def test_readiness_blocks_and_waits():
     assert rows["network"].state == "blocked" and rows["prefetch"].state == "working"
     assert rows["departure"] == ("departure", "working", 300.0, "")
     assert rows["first_window"] == ("first_window", "waiting", 400.0, "")
-    assert rows["route"].state == "waiting" and rows["route"].eta_s is not None
+    # the route builds in flight (12c (2)): shown, never waited for
+    assert rows["route"].state == "working" and rows["route"].eta_s is None
+    assert "1 tile(s) may show X-Plane's own scenery" in rows["route"].detail
+    assert "route" not in S.READY_KEYS and "destination" not in S.READY_KEYS
     assert rows["destination"].state == "failed"
     assert rows["alternate"].state == "waiting"
     assert rows["loaded"].state == "waiting"
     # nothing remote needed: the network row is done offline
     assert _rows(jobs=(), network_ok=False, all_on_disk=True)["network"].state == "done"
     assert _rows(jobs=())["world"].detail == "Install the World pack"
+
+
+def test_rescale_from_planned_estimates_never_compounds():
+    """``scales`` + ``base``: each queued job is its planned estimate times
+    its kind's factor, however many times it is applied (the CYWG-KDLH
+    flight of 2026-11-12: seven drapes harvested in one tick took the
+    queue's 55 s drapes to 9 h at 2.5x each)."""
+    jobs = [job((0, 0), hi=100.0), job((0, 1), hi=100.0, kind="full")]
+    base = {j.tile: j.est_s for j in jobs}
+    once = S.rescale(jobs, scales={"drape": S.clamp_scale(9.0)}, base=base)
+    again = S.rescale(once, scales={"drape": S.clamp_scale(9.0)}, base=base)
+    assert [j.est_s[1] for j in again] == [250.0, 100.0]

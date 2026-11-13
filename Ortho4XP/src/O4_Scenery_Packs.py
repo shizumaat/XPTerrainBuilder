@@ -68,6 +68,7 @@ __all__ = [
     "read_ini_lines",
     "write_ini_lines",
     "set_rows_enabled",
+    "remove_rows",
     "insert_new_packs",
     "listing_snapshot",
 ]
@@ -415,7 +416,9 @@ BACKUP_SUFFIX = ".o4bak"
 #: custom airports and everything below them; a mesh files BELOW every
 #: ortho, ours included, so it never hides our tiles.
 KIND_RANKS = {"airport": 0, "landmark": 2, "other": 2, "library": 4,
-              "ortho": 6, "mesh": 8}
+              "ortho": 6, "mesh": 8, "bottom": 10}
+#: ``bottom``: a pack that is always the ini's LAST row -- the World pack
+#: (owner 2026-11-12T14:44Z: "supposed to be at the bottom").
 _GLOBAL_AIRPORTS_RANK = 1
 
 
@@ -447,13 +450,23 @@ def write_ini_lines(ini_path: str, lines: list, newline: str) -> None:
     os.replace(temporary, ini_path)
 
 
-def set_rows_enabled(lines: list, names, enabled: bool) -> list:
+def set_rows_enabled(lines: list, names, enabled: bool,
+                     insert_kind: "str | None" = None) -> list:
     """Mark the rows of the packs ``names`` ``SCENERY_PACK`` (``enabled``)
     or ``SCENERY_PACK_DISABLED`` in ``lines`` (edited in place; a row keeps
-    its place and path).  Returns the names whose row changed; a pack with
-    no row is left alone (the World migration retires a tile's row this
-    way, World spec §13 M1, and its revert enables it again)."""
+    its place and path).  Returns the names whose row changed.  A pack with
+    no row is left alone -- unless ``insert_kind`` is given: then its row
+    is filed first (:func:`insert_new_packs`, as a pack of that kind) and
+    counts as changed.  The World migration retires a tile's row this way
+    (World spec §13 M1) and its revert enables it again; it files a row
+    another program dropped, because a row is disabled, never removed
+    (the 2026-11-11 Convert incident: 1,997 rows dropped mid-run)."""
     wanted = set(names)
+    added = []
+    if insert_kind is not None:
+        listed = {_row_pack(line)[1] for line in lines}
+        added = insert_new_packs(lines, sorted(wanted - listed),
+                                 lambda _name: insert_kind)
     token = _ENABLED_TOKEN if enabled else _DISABLED_TOKEN
     changed = []
     for index, line in enumerate(lines):
@@ -465,7 +478,24 @@ def set_rows_enabled(lines: list, names, enabled: bool) -> list:
         if line.strip() != new:
             lines[index] = new
             changed.append(name)
-    return changed
+    return changed + [name for name in added if name not in changed]
+
+
+def remove_rows(lines: list, names) -> list:
+    """Drop the rows of the packs ``names`` from ``lines`` (edited in
+    place); the names whose row went.  Only for an entry that is no longer
+    in Custom Scenery (Convert existing tiles moves a local tile's folder
+    out, owner 2026-11-12T13:42Z): X-Plane drops such a row itself."""
+    wanted = set(names)
+    keep, gone = [], []
+    for line in lines:
+        is_row, name = _row_pack(line)
+        if is_row and name in wanted:
+            gone.append(name)
+        else:
+            keep.append(line)
+    lines[:] = keep
+    return gone
 
 
 def _row_pack(line: str):

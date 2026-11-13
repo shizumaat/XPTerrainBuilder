@@ -19,16 +19,28 @@ The flight's own commands (lane F1b, capability ``flight_manager``;
 * ``flight_create {plan | path | dep + arr, build_alternate?: false,
   cruise_kt?, corridor_km?}`` -- a plan as ``flight_plan_read`` gives it
   (``.fms``, ``.lnmpln``, SimBrief), a plan file, or a departure and an
-  arrival ``{ident, lat, lon}``; the record is written and its job starts
+  arrival ``{ident, lat, lon}``.  A departure alone (``dep`` with no
+  ``arr``, a one-waypoint plan; #2023) prepares only the departure area
+  and leaves the rest to build as the aircraft flies (the record has no
+  destination); the record is written and its job starts
   (``world_job_start {mode: "flight"}``); ``{"flight": id}``.
-  ``FlightStatus`` events follow.  One flight is active at a time.
+  ``FlightStatus`` events follow.  One flight is active at a time: a new
+  plan closes any other (owner 2026-11-12T23:40:51Z), and the follow job
+  serves its departure first (``imagery_commands.focus_imagery_follow``).
 * ``flight_status {flight?}`` -- the ``FlightStatus`` fields now.
 * ``flight_update {flight, build_alternate?, cruise_kt?, corridor_km?,
-  waive_offline?}`` -- the flight card's choices; the jobs are planned
-  again.  ``waive_offline``: "Fly with X-Plane's own scenery there" for
-  the en-route tiles that need the internet (RULINGS 2026-11-10k Q3).
-* ``flight_end {flight}`` -- the flight closes; build-ahead's track mode
-  may start again.  ``flight_list`` -- the records, newest first.
+  waive_offline?, destination?}`` -- the flight card's choices; the jobs
+  are planned again.  ``destination`` ``{ident, lat, lon}``: the To a
+  departure-only flight was prepared without (#2023), added later; the
+  route is planned again to it (in the air: as a diversion, spec §8.6).
+  ``waive_offline``: "Fly with X-Plane's own scenery there" for the
+  en-route tiles that need the internet (RULINGS 2026-11-10k Q3).
+* ``flight_end {flight}`` -- the flight closes; build-ahead's track mode,
+  which ran beside it (#2019), runs on.  ``flight_end {if_prepared:
+  true}`` (both apps, on "No plan: follow the aircraft") closes the active
+  flight only while it is still preparing or ready, so a stale prepared
+  record never owns build-ahead; a flight in the air is left as it is.
+  ``flight_list`` -- the records, newest first.
 
 Lane F2 (capability ``flight_notices``):
 
@@ -36,9 +48,18 @@ Lane F2 (capability ``flight_notices``):
   ``{ident, lat, lon}`` (the apps' airport search), ``[lat, lon]`` or an
   ident (the engine's airport index); the destination is replaced and
   its tile built ``full`` first (spec §8.6).  ``{"flight", "diverted_to"}``.
-* ``flight_reload {flight, not_now?}`` -- the reload in the air (rule
-  S6 (b)): the pilot's "Reload now", or "Not now" for the announced one.
+* ``flight_reload {flight}`` -- the pilot's "Reload scenery now" for the
+  offered reload (rule S6 (a) on the ground, (b) in the air): the only
+  way a flight's reload is sent (owner 2026-11-12T14:34Z).
 * ``FlightNotice`` events: one per notice (``flight_notices``).
+
+#2025 (an adopted departure or destination):
+
+* ``flight_choose {flight?, tile, choice}`` -- ``tile`` ``[lat, lon]`` or
+  ``+53-061``, ``choice`` ``keep`` (fly the existing mesh) or ``upgrade``
+  (a ``full`` build of ours replaces it; the adopted package stays for
+  Undo); remembered for the tile (``flight_adopted.ChoiceBook``).
+  ``{"flight", "tile", "choice"}``.
 """
 
 from __future__ import annotations
@@ -49,6 +70,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional
 
 import O4_Flight_Plan as FP
+import O4_World_Pack as WP
 
 from . import flight_job_run as FLIGHT
 from . import flight_record as RECORD
@@ -116,9 +138,8 @@ def _wire_point(row: Optional[Dict[str, Any]]) -> Optional["FP.Waypoint"]:
 def plan_from_wire(doc: Dict[str, Any]) -> "FP.FlightPlan":
     """:func:`plan_wire`'s shape (what the apps send back) as a plan."""
     points = [_wire_point(w) for w in (doc or {}).get("waypoints") or ()]
-    if len(points) < 2:
-        raise ValueError("This plan has no route: it needs a departure and "
-                         "a destination.")
+    if not points:
+        raise ValueError("This plan has no route: it needs a departure.")
     return FP.FlightPlan(points, source=str(doc.get("source") or ""),
                          alternate=_wire_point(doc.get("alternate")),
                          ete_s=doc.get("ete_s"), cruise_ms=doc.get("cruise_ms"),
@@ -141,12 +162,12 @@ def _plan_of(plan, path: str, dep, arr) -> "FP.FlightPlan":
         return plan_from_wire(plan)
     if path:
         return FP.read_plan_file(path)
-    if dep and arr:
-        ends = [_wire_point(dep), _wire_point(arr)]
+    if dep:                 # an arrival is optional (#2023)
+        ends = [_wire_point(p) for p in (dep, arr) if p]
         return FP.FlightPlan([w._replace(ident=w.ident.upper()) for w in ends],
                              source="quick")
     raise ValueError("Name a flight: a plan, a plan file, or a departure "
-                     "and an arrival.")
+                     "(and an arrival when you know it).")
 
 
 def _number(value, default: Optional[float]) -> Optional[float]:
@@ -166,12 +187,9 @@ def flight_create(session, emit=None, plan=None, path: str = "", dep=None,
     flight_plan = _plan_of(plan, path, dep, arr)
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     if not WORLD.managed(scenery_dir):
-        raise ValueError("Install the World pack first (Library ▸ World): "
+        raise ValueError("Install the World pack first (XPTerrainBuilder makes it when it starts): "
                          "a flight's tiles go into it.")
-    running = FLIGHT.current()
-    if running is not None:
-        raise ValueError("A flight is already active (%s): end it first."
-                         % running.manager.record.id)
+    _close_other_flights()
     settings = FLIGHT._settings()
     corridor = _number(corridor_km, _number(settings.get("fly_corridor_km"),
                                             RECORD.DEFAULT_CORRIDOR_KM))
@@ -180,9 +198,45 @@ def flight_create(session, emit=None, plan=None, path: str = "", dep=None,
         build_alternate=bool(build_alternate),
         cruise_kt=_number(cruise_kt, None), corridor_km=corridor)
     RECORD.save(record, RECORD.flights_dir())
+    _departure_first(session, flight_plan)
     WORLD_JOB.world_job_start(session, emit, mode="flight", flight=record.id,
                               scenery_dir=scenery_dir, port=port)
     return {"flight": record.id}
+
+
+def _close_other_flights() -> list:
+    """Owner 2026-11-12T23:40:51Z: "if a flight plan is entered and we say
+    to use it, it should end any other flight": the running flight stops
+    and every record still preparing, ready or flying closes (one resumed
+    after a restart among them).  The ids closed."""
+    closed = []
+    stopped = FLIGHT.stop()
+    folder = RECORD.flights_dir()
+    others = [r for r in RECORD.list_flights(folder)
+              if r.state in RECORD.ACTIVE_STATES]
+    if stopped is not None and stopped.state in RECORD.ACTIVE_STATES:
+        others = [stopped] + [r for r in others if r.id != stopped.id]
+    for record in others:
+        record.state = "closed"
+        RECORD.save(record, folder)
+        closed.append(record.id)
+    if closed:
+        WORLD.write_log({"flight": "closed_for_new_plan", "ids": closed})
+    return closed
+
+
+def _departure_first(session, plan) -> bool:
+    """"... stop processing any other region and prioritize the newly input
+    flight plan" (owner 2026-11-12T23:40:51Z): the follow job serves the
+    departure's core before anything else (``FollowJob.focus``)."""
+    from .imagery_commands import focus_imagery_follow
+    if not plan.waypoints:
+        return False
+    first = plan.waypoints[0]
+    tile = FP.tile_of(first.lat, first.lon)
+    build_dir = getattr(session, "tile_build_dir", None)
+    tiles = [(build_dir(*tile), *tile)] if build_dir is not None else []
+    return focus_imagery_follow(first.lat, first.lon, tiles)
 
 
 def _record(flight: str = "") -> Optional["RECORD.FlightRecord"]:
@@ -218,18 +272,18 @@ def flight_status(flight: str = "", **_ignored) -> Dict[str, Any]:
             "jobs": [[t.tile, t.role, t.kind, t.state, 0.0, None]
                      for t in record.tiles],
             "late": [], "shed": [], "reload": "", "diverted_to": "",
-            "waivable": []}
+            "waivable": [], "choices": []}
 
 
 def flight_update(flight: str = "", build_alternate=None, cruise_kt=None,
-                  corridor_km=None, waive_offline=None, **_ignored
-                  ) -> Dict[str, Any]:
+                  corridor_km=None, waive_offline=None, destination=None,
+                  **_ignored) -> Dict[str, Any]:
     """ENGINE COMMAND ``flight_update``: the flight card's choices."""
     import O4_Flight_Schedule as SCHEDULE
     runner = _runner_for(flight)
     if runner is None:
         raise ValueError("That flight is not active.")
-    with runner.lock:
+    with runner.locked():
         record = runner.manager.record
         if build_alternate is not None:
             record.build_alternate = bool(build_alternate)
@@ -240,18 +294,35 @@ def flight_update(flight: str = "", build_alternate=None, cruise_kt=None,
         corridor = _number(corridor_km, None)
         if corridor is not None:
             record.corridor_km = corridor
-        runner.manager.replan()
+        target = _wire_point(destination)
+        if target is not None:
+            runner.manager.set_destination(
+                runner.now(), target._replace(ident=target.ident.upper()))
+        else:
+            runner.manager.replan()
         if waive_offline:
             runner.manager.waive()
     RECORD.save(record, RECORD.flights_dir())
     return {"flight": record.id}
 
 
-def flight_end(session=None, flight: str = "", **_ignored) -> Dict[str, Any]:
+#: The states ``flight_end {if_prepared: true}`` closes (not yet flown).
+_PREPARED = ("preparing", "ready")
+
+
+def flight_end(session=None, flight: str = "", if_prepared: bool = False,
+               **_ignored) -> Dict[str, Any]:
     """ENGINE COMMAND ``flight_end``: the flight closes (its record keeps
-    what was built); build-ahead's track mode may start again."""
+    what was built); build-ahead's track mode runs on (started here when
+    it was not running).  ``if_prepared``: only a flight not yet flown
+    (:data:`_PREPARED`); otherwise ``{"flight": None}`` and nothing
+    changes."""
     from . import world_job_run as WORLD_JOB
     runner = _runner_for(flight)
+    if if_prepared:
+        active = runner.manager.record if runner is not None else _record(flight)
+        if active is None or active.state not in _PREPARED:
+            return {"flight": None}
     record = FLIGHT.stop() if runner is not None else _record(flight)
     if record is None:
         raise ValueError("No such flight.")
@@ -292,7 +363,7 @@ def flight_divert(flight: str = "", to: Any = "alternate", **_ignored
     runner = _runner_for(flight)
     if runner is None:
         raise ValueError("That flight is not active.")
-    with runner.lock:
+    with runner.locked():
         manager = runner.manager
         target, is_alternate = divert_target(to, manager.plan, _airport_lookup)
         name = manager.divert(runner.now(), target, is_alternate,
@@ -302,21 +373,38 @@ def flight_divert(flight: str = "", to: Any = "alternate", **_ignored
     return {"flight": record.id, "diverted_to": name}
 
 
-def flight_reload(flight: str = "", not_now: bool = False, **_ignored
-                  ) -> Dict[str, Any]:
-    """ENGINE COMMAND ``flight_reload`` (see the module): ``{"flight",
-    "reload"}`` -- the reload state after the pilot's choice."""
+def flight_reload(flight: str = "", **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_reload`` (see the module): the pilot's
+    "Reload scenery now", the only way a flight's reload is sent.
+    ``{"flight", "reload"}``."""
     runner = _runner_for(flight)
     if runner is None:
         raise ValueError("That flight is not active.")
-    with runner.lock:
+    with runner.locked():
         manager = runner.manager
-        done = (manager.not_now() if not_now
-                else manager.reload_now(runner.now()))
-        state = manager.air.state
+        done = manager.reload_now(runner.now())
+        state = (manager.reload if manager.takeoff_at is None
+                 else manager.air.state)
     if not done:
         raise ValueError("No scenery reload is waiting.")
     return {"flight": manager.record.id, "reload": state}
+
+
+def flight_choose(flight: str = "", tile: Any = None, choice: str = "",
+                  **_ignored) -> Dict[str, Any]:
+    """ENGINE COMMAND ``flight_choose`` (see the module)."""
+    from . import flight_adopted as ADOPTED
+    runner = _runner_for(flight)
+    if runner is None:
+        raise ValueError("That flight is not active.")
+    where = ADOPTED.parse_tile(tile)
+    choice = str(choice or "").strip().lower()
+    with runner.locked():
+        runner.manager.choose(where, choice)
+        record = runner.manager.record
+    RECORD.save(record, RECORD.flights_dir())
+    return {"flight": record.id, "tile": WP.tile_name(*where),
+            "choice": choice}
 
 
 def start_flight_plan_simbrief(emit: Callable[[Any], None], request: Any = None,
@@ -353,4 +441,5 @@ def flight_handlers(session) -> Dict[str, Callable]:
         "flight_list": flight_list,
         "flight_divert": flight_divert,
         "flight_reload": flight_reload,
+        "flight_choose": flight_choose,
     }

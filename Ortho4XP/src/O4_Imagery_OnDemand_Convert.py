@@ -11,7 +11,13 @@ The copy holds what X-Plane reads and nothing else:
   level (no mips) or already that small is copied whole;
 * ``terrain/`` as it is (the ``.ter`` files' ``LOAD_CENTER`` and texture
   names do not change: X-Plane reads the smaller file's own header,
-  spec §2.3), and the non-DDS textures a ``.ter`` names (water borders);
+  spec §2.3), and the non-DDS textures: those a ``.ter`` names (water
+  borders) and every mask PNG (a tile built with
+  ``imprint_masks_to_dds`` names none, but its full-tier landing from the
+  provider imprints them, ``imagery_follow_land``);
+* the tile's frozen colour field (``color_field.json``, read where the
+  tile folder's rebuild record says), which that landing applies -- so a
+  tier fetched while the source drive is not connected matches the rest;
 * every DSF 7z-compressed (``O4_DSF_Compress``: proven to decode to the
   source byte for byte); one that does not compress is copied as is;
 * the tile's config files and its imagery manifest, which gains
@@ -35,6 +41,8 @@ lists each with its size).
   decodes to its source.
 * :func:`is_converted` -- is a folder a finished (stamped) copy of a
   source.
+* :func:`backfill` -- a copy made before the mask PNGs and the colour
+  field were part of it, brought up to date from its source.
 
 The source is only ever READ.  Standard library only.
 """
@@ -43,6 +51,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -54,7 +63,7 @@ import O4_DSF_Compress as DSFC
 import O4_Imagery_OnDemand_Budget as BUDGET
 
 __all__ = ["DEFAULT_PX", "STAMP", "convert_tile", "is_converted",
-           "plan_tile"]
+           "plan_tile", "backfill"]
 
 #: Placeholder width of a converted texture.  512 px is the build's
 #: placeholder (spec §3.3; owner 2026-11-10T06:26Z for converted tiles too).
@@ -66,6 +75,8 @@ _NAV = "Earth nav data"
 _TERRAIN, _TEXTURES = "terrain", "textures"
 _JUNK = (".DS_Store",)
 _KEEP_TOP_SUFFIXES = (".cfg",)
+#: A texture's mask (``O4_File_Names.mask_file``: ``<y>_<x>_ZL<zl>.png``).
+_MASK_PNG = re.compile(r"^\d+_\d+_ZL\d+\.png$")
 #: Besides the DSF, what X-Plane reads in ``Earth nav data`` (apt.dat ...);
 #: a build's DSFTool text dumps and raw rasters there are left out.
 _NAV_KEEP = (".dat",)
@@ -81,12 +92,13 @@ class _TilePlan:
     copies: list = field(default_factory=list)    # (rel, bytes)
     dsfs: list = field(default_factory=list)      # (rel, bytes, already 7z)
     skipped: list = field(default_factory=list)   # (rel, bytes)
+    extras: list = field(default_factory=list)    # (rel, bytes, abs source)
     whole_copies: int = 0       # textures copied whole (no such mip level)
     manifest: "str | None" = None                 # source imagery manifest
 
     def total(self, which: str) -> int:
         """Bytes of ``textures`` (placeholders written), ``source_textures``,
-        ``copies``, ``dsfs`` (source) or ``skipped``."""
+        ``copies``, ``extras``, ``dsfs`` (source) or ``skipped``."""
         if which == "textures":
             return sum(out for (_r, _s, out) in self.textures)
         if which == "source_textures":
@@ -141,7 +153,7 @@ def _plan_textures(plan: _TilePlan, folder: str, named: set) -> None:
             out, cut = _placeholder_size(item.path, plan.placeholder_px, size)
             plan.textures.append((rel, size, out))
             plan.whole_copies += 0 if cut else 1
-        elif item.name in named:
+        elif item.name in named or _MASK_PNG.match(item.name):
             plan.copies.append((rel, size))
         else:
             plan.skipped.append((rel, size))
@@ -183,7 +195,22 @@ def plan_tile(source: str, placeholder_px: int = DEFAULT_PX) -> _TilePlan:
             plan.copies.append((item.name, item.stat().st_size))
         else:
             plan.skipped.append((item.name, _size(item.path)))
+    _plan_colour_field(plan)
     return plan
+
+
+def _plan_colour_field(plan: _TilePlan) -> None:
+    """The tile's colour field, wherever its rebuild record keeps it, as
+    the copy's own ``color_field.json`` (``O4_File_Names.rebuild_path``
+    reads it there when the copy names no rebuild cache)."""
+    import O4_File_Names as FNAMES
+    pair = FNAMES.parse_tile_key(os.path.basename(plan.source).rsplit("_", 1)[-1])
+    if pair is None:
+        return
+    with contextlib.suppress(OSError):
+        path = FNAMES.rebuild_path(plan.source, *pair, FNAMES.COLOR_FIELD_FILE)
+        if os.path.isfile(path):
+            plan.extras.append((FNAMES.COLOR_FIELD_FILE, _size(path), path))
 
 
 # ------------------------------------------------------------- the copy
@@ -213,7 +240,10 @@ def _placeholder(plan: _TilePlan, rel: str, staged: str) -> int:
 
 def _copy(plan: _TilePlan, rel: str, staged: str) -> int:
     """Copy one file as it is (kept when size and mtime match)."""
-    src, dest = os.path.join(plan.source, rel), os.path.join(staged, rel)
+    return _copy_file(os.path.join(plan.source, rel), os.path.join(staged, rel))
+
+
+def _copy_file(src: str, dest: str) -> int:
     with contextlib.suppress(OSError):
         a, b = os.stat(src), os.stat(dest)
         if a.st_size == b.st_size and int(a.st_mtime) == int(b.st_mtime):
@@ -288,6 +318,8 @@ def convert_tile(plan: _TilePlan, staged: str, tile: str, *,
         written = sum(pool.map(lambda r: _placeholder(plan, r[0], staged),
                                plan.textures))
     written += sum(_copy(plan, rel, staged) for (rel, _s) in plan.copies)
+    written += sum(_copy_file(src, os.path.join(staged, rel))
+                   for (rel, _s, src) in plan.extras)
     compressed = 0
     for rel, _s, _z in plan.dsfs:
         size, packed = _dsf(plan, rel, staged, threads=2)
@@ -355,3 +387,26 @@ def is_converted(folder: str, source: "str | None" = None,
         return False
     return placeholder_px is None or record.get("placeholder_px") == int(
         placeholder_px)
+
+
+def backfill(folder: str) -> int:
+    """Bring a finished copy made before the masks and the colour field
+    were part of it (:func:`plan_tile`) up to date from its source, while
+    the source is readable; files copied (0 when the source is not
+    there).  The placeholders, DSFs and stamp are left as they are."""
+    record = _read_stamp(folder)
+    source = (record or {}).get("source")
+    if not source or not os.path.isdir(source):
+        return 0
+    plan = plan_tile(source, int(record.get("placeholder_px") or DEFAULT_PX))
+    wanted = [(os.path.join(source, rel), rel) for (rel, _s) in plan.copies
+              if _MASK_PNG.match(os.path.basename(rel))]
+    wanted += [(src, rel) for (rel, _s, src) in plan.extras]
+    copied = 0
+    for src, rel in wanted:
+        dest = os.path.join(folder, rel)
+        if not os.path.isfile(dest):
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            _copy_file(src, dest)
+            copied += 1
+    return copied

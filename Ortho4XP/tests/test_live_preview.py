@@ -148,23 +148,142 @@ def _tile_textures(folder, lat=53, lon=-61, zl=16, names=None) -> list:
     return names
 
 
-def test_squares_are_capped_by_zoom_and_count_nearest_first(tmp_path):
+def test_every_square_in_view_is_listed_nearest_first(tmp_path):
+    """#2012: no count cap -- a whole tile's squares (more than the old
+    160) come back, nearest the view's centre first; only the zoom gate
+    (a square under MIN_SQUARE_PX) holds them back."""
     folder = str(tmp_path / "tex")
     names = _tile_textures(folder)
-    assert len(names) > LIVE.MAX_SQUARES
+    assert len(names) > 160
     def folders(lat, lon):
         return [folder] if (lat, lon) == (53, -61) else []
     far = LIVE.squares(53, -61, 54, -60, 50, folders)       # 0.09° = 4 px
-    assert far == {"squares": [], "capped": False, "reason": "zoom"}
+    assert far == {"squares": [], "tiles": [], "reason": "zoom"}
     near = LIVE.squares(53, -61, 54, -60, 3000, folders)
-    assert near["capped"] and len(near["squares"]) == LIVE.MAX_SQUARES
-    assert {s["px"] for s in near["squares"]} == {256}
+    assert len(near["squares"]) == len(names)
+    assert {s["px"] for s in near["squares"]} == {64}         # all the file has
     centre = [((s["north"] + s["south"]) / 2 - 53.5) ** 2
               + ((s["west"] + s["east"]) / 2 + 60.5) ** 2 for s in near["squares"]]
     assert centre == sorted(centre)
     mid = LIVE.squares(53.4, -60.6, 53.6, -60.4, 600, folders)
-    assert not mid["capped"] and {s["px"] for s in mid["squares"]} == {64}
+    assert {s["px"] for s in mid["squares"]} == {64}
     assert all(s["east"] >= -60.6 and s["west"] <= -60.4 for s in mid["squares"])
+
+
+def _mixed_tile(tmp_path):
+    """A ZL16 square, two ZL18 squares on it and one ZL18 square with no
+    ZL16 square under it (CYYR's tile holds 257 ZL16 + 40 ZL18)."""
+    folder = str(tmp_path / "mixed")
+    names = ["21216_21712_BI16.dds", "84864_86848_BI18.dds",
+             "84880_86864_BI18.dds", "84864_86912_BI18.dds"]
+    _tile_textures(folder, names=names)
+    return lambda lat, lon: [folder] if (lat, lon) == (53, -61) else []
+
+
+def test_a_finer_square_is_drawn_over_the_coarser_one_it_lies_on(tmp_path):
+    """#2012: drawn nearest-first, a coarse square whose centre lay
+    farther out was painted over the finer ones on it (at CYYR 18-26 of
+    the 40 ZL18 squares, by where the view's centre lay).  The fetch order
+    stays nearest-first; the draw order is coarse level first."""
+    rows = LIVE.squares(53.35, -60.75, 53.45, -60.55, 3000,
+                        _mixed_tile(tmp_path))["squares"]
+    assert [r["zl"] for r in rows][0] == 18          # nearest is a ZL18
+    assert 16 in [r["zl"] for r in rows][1:]         # ... before the ZL16
+    drawn = LIVE.draw_order(rows)
+    assert [r["zl"] for r in drawn] == [16, 18, 18, 18]
+    assert [r["key"] for r in drawn if r["zl"] == 18] == [
+        r["key"] for r in rows if r["zl"] == 18]     # nearest-first within
+
+
+def test_zooming_out_never_opens_a_hole(tmp_path):
+    """A square too small to see is left out only where a coarser
+    installed square lies under it; one with nothing under it stays while
+    its tile's coarsest squares do, and the tile goes as a whole."""
+    folders = _mixed_tile(tmp_path)
+    view = (53.35, -60.75, 53.45, -60.55)
+    def names(ppd):
+        return sorted(r["key"].split("/")[1]
+                      for r in LIVE.squares(*view, ppd, folders)["squares"])
+    assert len(names(3000)) == 4                     # all large enough
+    assert names(300) == ["21216_21712_BI16.dds",    # ZL16 26 px, ZL18 7 px
+                          "84864_86912_BI18.dds"]    # nothing under it
+    far = LIVE.squares(*view, 100, folders)          # ZL16 9 px
+    assert far["squares"] == [] and far["reason"] == "zoom"
+
+
+@pytest.mark.parametrize("screen, tier, want", [
+    (10, 4096, 32), (40, 4096, 64), (64, 4096, 64), (200, 4096, 256),
+    (1500, 4096, 2048), (2100, 4096, 4096), (30000, 4096, 4096),
+    (2100, 512, 512), (100, 0, 128)])
+def test_the_mip_matches_the_squares_size_on_screen(screen, tier, want):
+    """The level read is the square's on-screen size in device pixels,
+    rounded up to a power of two, up to the installed width (a full-
+    resolution square at the closest zoom: its whole 4096 px)."""
+    assert LIVE.mip_px(screen, tier) == want
+
+
+def test_a_retina_screen_reads_twice_the_pixels(tmp_path):
+    folder = str(tmp_path / "t")
+    _write(os.path.join(folder, "21216_21712_BI16.dds"), _dds(4096, 4096))
+    def at(scale):
+        got = LIVE.squares(53.38, -60.74, 53.44, -60.64, 6000,
+                           lambda la, lo: [folder], scale=scale)["squares"]
+        return got[0]["px"]
+    assert (at(1.0), at(2.0)) == (1024, 2048)       # 0.088° x 6000 = 527 pt
+
+
+def test_the_fetch_plan_is_coarse_first_then_finer():
+    rows = [{"key": "a", "stamp": "1", "px": 1024},
+            {"key": "b", "stamp": "1", "px": 32},
+            {"key": "c", "stamp": "2", "px": 256},
+            {"key": "d", "stamp": "1", "px": 256}]
+    held = {"c": ("1", 4096), "d": ("1", 256)}.get
+    plan = [(sq["key"], px) for sq, px in LIVE.fetch_plan(rows, held)]
+    # a: nothing shown -> coarse, then its own size; b: small already;
+    # c: an older image stays up, no coarse step; d: current.
+    assert plan == [("a", LIVE.COARSE_MIP_PX), ("a", 1024), ("b", 32), ("c", 256)]
+
+
+def test_the_byte_cache_keeps_the_most_recent_within_its_budget():
+    cache = LIVE.ByteLRU(100)
+    for i in range(10):
+        cache.put(i, "v%d" % i, 30)
+    assert cache.keys() == [7, 8, 9] and cache.bytes == 90
+    cache.touch([7])
+    cache.put(10, "v10", 30)
+    assert cache.keys() == [9, 7, 10]
+    assert cache.bytes <= 100
+    cache.put("huge", "x", 1000)                      # the newest always stays
+    assert cache.keys() == ["huge"] and cache.get("huge") == "x"
+    cache.clear()
+    assert len(cache) == 0 and cache.bytes == 0
+
+
+def test_a_late_landed_square_is_stale_and_marked_tiles_listed(tmp_path):
+    """A square whose file changed after X-Plane loaded its tile is
+    ``stale`` (X-Plane still shows the earlier imagery: reload to see);
+    an ``own`` tile lists no squares (X-Plane draws its own scenery
+    there); every square of a ``reload`` tile is stale."""
+    folder = str(tmp_path / "t")
+    early, late = "21216_21712_BI16.dds", "21216_21728_BI16.dds"
+    _tile_textures(folder, names=[early, late])
+    for name, mtime in ((early, 1000.0), (late, 3000.0)):
+        os.utime(os.path.join(folder, name), (mtime, mtime))
+    def state(loaded_at, kind="ours"):
+        return lambda lat, lon: ((kind, loaded_at) if (lat, lon) == (53, -61)
+                                 else ("own", None))
+    def stale(tile_state, late_keys=frozenset()):
+        got = LIVE.squares(53, -61, 54, -59.5, 3000, lambda la, lo: [folder],
+                           tile_state, late=late_keys)
+        return {s["key"].split("/")[1]: s["stale"] for s in got["squares"]}, got["tiles"]
+    marks, tiles = stale(state(2000.0))
+    assert marks == {early: False, late: True}
+    assert tiles == [{"lat": 53, "lon": -60, "state": "own"}]
+    assert stale(state(None))[0] == {early: False, late: False}    # not loaded
+    assert stale(state(2000.0, "reload"))[0] == {early: True, late: True}
+    assert stale(state(None), frozenset({"+53-061/" + early}))[0] == {
+        early: True, late: False}                                   # follow job's late
+    assert stale(lambda la, lo: ("own", None))[0] == {}
 
 
 def test_the_first_folder_wins_and_partials_are_skipped(tmp_path):
@@ -210,17 +329,137 @@ def test_folders_are_where_x_plane_reads_them(tmp_path):
     assert CMD.tile_folders("", None)(53, -61) == []
 
 
+def _dsf(path, size=2048) -> str:
+    """A stand-in tile DSF (not a placeholder: none of its bytes say so)."""
+    return _write(path, b"XPLNEDSF" + b"\0" * size)
+
+
 def test_the_commands_answer_end_to_end(tmp_path, monkeypatch):
+    from o4_engine import live_preview_witness as WITNESS
     scenery = tmp_path / "cs"
-    folder = scenery / ("zOrtho4XP_" + WP.tile_name(53, -61)) / "textures"
-    _tile_textures(str(folder), names=["21216_21712_BI16.dds"])
+    pack = scenery / ("zOrtho4XP_" + WP.tile_name(53, -61))
+    _tile_textures(str(pack / "textures"), names=["21216_21712_BI16.dds"])
+    _dsf(str(pack / WP.dsf_relpath(53, -61)))
     monkeypatch.setattr(INDEX, "index_path", lambda *a: str(tmp_path / "none.sqlite"))
+    monkeypatch.setattr(WITNESS, "_xplane_running", lambda *a: False)
     reply = CMD.live_preview_squares(53.3, -60.8, 53.5, -60.6, 2000,
                                      scenery_dir=str(scenery))
     (square,) = reply["squares"]
+    assert not square["stale"] and reply["tiles"] == []
     assert not os.path.exists(tmp_path / "none.sqlite")   # never created
     mip = CMD.live_preview_mip(square["path"], square["px"])
     assert mip["format"] == "jpeg" and mip["width"] == 64
+    away = CMD.live_preview_squares(52.3, -60.8, 52.5, -60.6, 2000,
+                                    scenery_dir=str(scenery))
+    assert away["squares"] == [] and away["tiles"] == [
+        {"lat": 52, "lon": -61, "state": "own"}]          # X-Plane's own
+
+
+def _log(folder, started, lines) -> None:
+    rows = ["Log.txt for X-Plane 12.4.4", "X-Plane Started on %s" % started]
+    rows += ["%d:%02d:%06.3f I/SCN: DSF load time: 100 for file Custom Scenery/"
+             "%s/Earth nav data/%s (%d tris, 0 skipped for 0.0 m^2)"
+             % (t // 3600, t % 3600 // 60, t % 60, pack,
+                WP.dsf_relpath(lat, lon).split(os.sep, 1)[1].replace(os.sep, "/"), tris)
+             for t, pack, lat, lon, tris in lines]
+    _write(os.path.join(folder, "Log.txt"), ("\n".join(rows) + "\n").encode())
+
+
+def test_x_planes_log_says_which_tiles_need_a_reload(tmp_path):
+    """While X-Plane runs, its ``Log.txt`` dates each tile's load: a tile
+    whose DSF was swapped in after it (a placeholder X-Plane loaded that is
+    a tile now) is ``reload``; one loaded after its DSF, ``ours`` with the
+    load time (its squares newer than that are stale); one not loaded yet,
+    ``ours`` unmarked; a placeholder or nothing, ``own``."""
+    import time as TIME
+
+    from o4_engine import live_preview_witness as WITNESS
+    xplane = tmp_path / "X-Plane"
+    scenery = xplane / "Custom Scenery"
+    world = scenery / WP.PACK_NAME
+    started = TIME.time() - 600
+    stamp = TIME.strftime("%a %b %d %H:%M:%S %Y", TIME.localtime(started))
+    for lat, lon in ((53, -61), (53, -60), (52, -61)):
+        _dsf(str(world / WP.dsf_relpath(lat, lon)))
+    WP.write_placeholder(str(world), 52, -60)
+    # (53, -61) loads after its DSF was written (t = +700 s, in the
+    # future of this test); (53, -60) loaded at +10 s, its DSF since.
+    _log(str(xplane), stamp, [(700.0, WP.PACK_NAME, 53, -61, 5000),
+                              (10.0, WP.PACK_NAME, 53, -60, 0)])
+    state = WITNESS.tile_state(str(scenery), running=True,
+                               log=WITNESS.xplane_log(str(xplane)))
+    got = {t: state(*t) for t in ((53, -61), (53, -60), (52, -61), (52, -60), (51, -61))}
+    loaded_at = got[(53, -61)][1]
+    assert abs(loaded_at - (started + 700.0)) < 1.5
+    assert got[(53, -61)] == ("ours", loaded_at)
+    assert got[(53, -60)][0] == "reload"                    # swapped in since
+    assert got[(52, -61)] == ("ours", None)                 # not loaded yet
+    assert got[(52, -60)] == ("own", None) and got[(51, -61)] == ("own", None)
+    quiet = WITNESS.tile_state(str(scenery), running=False)
+    assert quiet(53, -60) == ("ours", None)                 # X-Plane not running
+    assert WITNESS.tile_state("", running=True)(53, -60) == ("ours", None)
+
+
+def test_the_follow_jobs_late_landings_stand_in_without_a_log(tmp_path, monkeypatch):
+    from o4_engine import imagery_commands as IMC
+    from o4_engine import live_preview_witness as WITNESS
+    from o4_engine import reload_offer as RELOAD
+    job = type("Job", (), {"landings": [
+        {"square": "+53-061/a.dds", "late": True},
+        {"square": "+53-061/b.dds", "late": False}]})()
+    monkeypatch.setitem(IMC._FOLLOW, "job", job)
+    monkeypatch.setitem(RELOAD._STATE, "offer", "imagery")
+    scenery = str(tmp_path / "cs")
+    assert WITNESS.late_keys(scenery, running=True, log=(None, {})) == {"+53-061/a.dds"}
+    assert WITNESS.late_keys(scenery, running=True, log=(1.0, {})) == frozenset()
+    assert WITNESS.late_keys(scenery, running=False) == frozenset()
+    monkeypatch.setitem(RELOAD._STATE, "offer", "")          # reloaded since
+    assert WITNESS.late_keys(scenery, running=True, log=(None, {})) == frozenset()
+
+
+def test_a_fine_level_is_read_off_the_command_loop(tmp_path, monkeypatch):
+    """A level above INLINE_MIP_PX replies ``pending`` and a worker reads
+    it; the next ask is served from the cache.  A small one, or
+    ``wait=True``, is read at once.  A queued level nobody asks for again
+    is dropped unread."""
+    import time as TIME
+
+    from o4_engine import live_preview_mips as MIPS
+    monkeypatch.setattr(MIPS, "_CACHE", LIVE.ByteLRU(MIPS.CACHE_MB << 20))
+    path = _write(tmp_path / "big.dds", _dds(2048, 2048))
+    assert CMD.live_preview_mip(path, 256)["width"] == 256         # inline
+    assert CMD.live_preview_mip(path, 2048) == {"pending": True}
+    deadline = TIME.monotonic() + 10
+    reply = {"pending": True}
+    while reply.get("pending") and TIME.monotonic() < deadline:
+        TIME.sleep(0.02)
+        reply = CMD.live_preview_mip(path, 2048)
+    assert reply["width"] == 2048, "TIMED_OUT"
+    other = _write(tmp_path / "other.dds", _dds(1024, 1024))
+    assert CMD.live_preview_mip(other, 1024, wait=True)["width"] == 1024
+    with MIPS._LOCK:
+        MIPS._QUEUE[("gone", 0, 0, 1024)] = TIME.monotonic() - MIPS.ASK_TTL_S - 1
+        assert MIPS._next() is None and not MIPS._QUEUE
+
+
+def test_a_texture_that_fails_on_the_worker_says_so_once(tmp_path, monkeypatch):
+    import time as TIME
+
+    from o4_engine import live_preview_mips as MIPS
+    monkeypatch.setattr(MIPS, "_CACHE", LIVE.ByteLRU(MIPS.CACHE_MB << 20))
+    data = _dds(2048, 2048)
+    path = _write(tmp_path / "cut.dds", data[:DDS.level_offset(2048, 2048, "bc1", 0) + 99])
+    assert CMD.live_preview_mip(path, 2048) == {"pending": True}
+    deadline = TIME.monotonic() + 10
+    while TIME.monotonic() < deadline:
+        TIME.sleep(0.02)
+        try:
+            CMD.live_preview_mip(path, 2048)
+        except ValueError:
+            break
+    else:
+        raise AssertionError("TIMED_OUT")
+    assert CMD.live_preview_mip(path, 2048) == {"pending": True}   # asked again
 
 
 def test_the_mac_apps_fixture_is_the_engines_reply(tmp_path):
@@ -234,12 +473,34 @@ def test_the_mac_apps_fixture_is_the_engines_reply(tmp_path):
                          .read_text(encoding="utf-8"))
     folder = str(tmp_path / "t")
     _tile_textures(folder, names=["21216_21712_BI16.dds"])
-    reply = LIVE.squares(53, -61, 54, -60, 3000, lambda la, lo: [folder])
+    reply = LIVE.squares(53, -61, 54, -59.5, 3000, lambda la, lo: [folder],
+                         lambda la, lo: ("own", None) if lo == -60 else ("ours", None))
     assert set(fixture) == set(reply)
     assert set(fixture["squares"][0]) == set(reply["squares"][0])
+    assert set(fixture["tiles"][0]) == set(reply["tiles"][0])
     swift = (here.parents[1] / "Sources" / "SceneryKit" / "LivePreviewWire.swift"
              ).read_text(encoding="utf-8")
-    assert "public static var limit: Int { %d }" % LIVE.APP_CACHE_IMAGES in swift
+    assert "public static var limitMB: Int { %d }" % LIVE.APP_CACHE_MB in swift
+    assert "static var coarsePx: Int { %d }" % LIVE.COARSE_MIP_PX in swift
+
+
+def test_the_preview_words_are_the_same_in_both_apps():
+    """``O4_Live_Preview_Text`` and ``LivePreviewText.swift`` agree."""
+    import re
+    from pathlib import Path
+
+    import O4_Live_Preview_Text as TEXT
+    swift = (Path(__file__).resolve().parents[2] / "Sources" / "SceneryKit"
+             / "LivePreviewText.swift").read_text(encoding="utf-8")
+    assert 'reloadLabel = "%s"' % TEXT.RELOAD_LABEL in swift
+    # RULINGS 2026-11-13a: an ``own`` tile carries no words in either app
+    assert "ownLabel" not in swift and not hasattr(TEXT, "OWN_LABEL")
+    assert [k for k, _v in TEXT.LEGEND] == ["reload"]
+    rows = re.findall(r'\("(\w+)", "([^"]+)"\)', swift)
+    assert rows == [(k, v) for k, v in TEXT.LEGEND if k == "reload"]
+    colours = dict((k, tuple(map(int, rgb.split(", ")))) for k, rgb in
+                   re.findall(r'"(\w+)": \((\d+, \d+, \d+)\)', swift))
+    assert colours == TEXT.MARK_COLORS
 
 
 def test_the_commands_are_in_the_table_and_the_hello():
@@ -250,3 +511,17 @@ def test_the_commands_are_in_the_table_and_the_hello():
     assert set(CMD.live_preview_handlers()) == {"live_preview_squares",
                                                 "live_preview_mip"}
     assert "live_preview" in EV.CAPABILITIES
+
+
+def test_each_square_says_its_installed_tier(tmp_path):
+    """#2020: a square carries the installed file's width, and ``sharp``
+    at full resolution, so the map marks what X-Plane draws sharp."""
+    import O4_DDS_Tiers as TIERS
+    folder = str(tmp_path / "t")
+    quick, full = "21216_21712_BI16.dds", "21216_21728_BI16.dds"
+    _tile_textures(folder, names=[quick])
+    _write(os.path.join(folder, full), _dds(TIERS.FULL_WIDTH, 8))
+    got = {s["key"].split("/")[1]: s for s in LIVE.squares(
+        53, -61, 54, -60, 3000, lambda la, lo: [folder])["squares"]}
+    assert (got[quick]["tier_px"], got[quick]["sharp"]) == (64, False)
+    assert (got[full]["tier_px"], got[full]["sharp"]) == (TIERS.FULL_WIDTH, True)

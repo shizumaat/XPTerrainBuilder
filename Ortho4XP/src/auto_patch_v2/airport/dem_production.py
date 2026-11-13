@@ -517,6 +517,7 @@ class ProductionDem:
         st.pop("_enter", None)
         # the #1408 memo is derived from the frame and the witness too
         st.pop("_entered_water", None)
+        st.pop("_fine_box_memo", None)
         return st
 
     def __setstate__(self, st: dict) -> None:
@@ -694,7 +695,7 @@ class ProductionDem:
             return None, None
         sidecar = str(path)[:-4] + ".json"
         try:
-            with open(sidecar, "r") as handle:
+            with open(sidecar, "r", encoding="utf-8") as handle:
                 meta = json.load(handle)
         except (OSError, ValueError):
             return None, None
@@ -753,6 +754,48 @@ class ProductionDem:
             m = (tl == key[0]) & (tn == key[1])
             out[m] = tile.sample(lat[m], lon[m])
         return out
+
+    def fine_many(self, xs: np.ndarray, ys: np.ndarray,
+                  max_pixel_m: float) -> np.ndarray:
+        """Whether a baked inset of ANY airport whose source pixel is
+        ``max_pixel_m`` or finer covers each frame point (its sidecar's
+        delivered box) -- quality elevation there (RULINGS 2026-11-13i,
+        ``airport/terrain_model``)."""
+        lon, lat = self._inv.transform(np.asarray(xs, dtype=np.float64),
+                                       np.asarray(ys, dtype=np.float64))
+        lon, lat = np.asarray(lon), np.asarray(lat)
+        out = np.zeros(lat.shape, dtype=bool)
+        for key in sorted(set(zip(np.floor(lat).astype(int).tolist(),
+                                  np.floor(lon).astype(int).tolist(), strict=True))):
+            for w, s, e, n in self._fine_boxes(key, float(max_pixel_m)):
+                out |= (lon >= w) & (lon <= e) & (lat >= s) & (lat <= n)
+        return out
+
+    def _fine_boxes(self, key: tuple[int, int], max_pixel_m: float) -> list:
+        """The ``(w, s, e, n)`` boxes of tile ``key``'s baked insets with a
+        source pixel of ``max_pixel_m`` or finer (memoised per tile)."""
+        memo = self.__dict__.setdefault("_fine_box_memo", {})
+        if (key, max_pixel_m) in memo:
+            return memo[(key, max_pixel_m)]
+        t = self.tile(*key)
+        boxes = []
+        for e in (t.inset_provenance if t is not None else ()):
+            if not isinstance(e, dict):
+                continue
+            px, _note = self._entry_pixel_m(e)
+            path = str(e.get("path") or "")
+            if px is None or px > max_pixel_m or not path.endswith(".tif"):
+                continue
+            try:
+                with open(path[:-4] + ".json", "r", encoding="utf-8") as handle:
+                    meta = json.load(handle)
+                box = (meta.get("delivered_bounding_box_wgs84")
+                       or meta.get("bounding_box_wgs84"))
+                boxes.append(tuple(float(v) for v in box[:4]))
+            except (OSError, ValueError, TypeError, IndexError, AttributeError):
+                continue
+        memo[(key, max_pixel_m)] = boxes
+        return boxes
 
     # ── THE WATER WITNESS (owner RULINGS 2026-09-09m; 09o (1)) ──────
     def water_many(self, xs: np.ndarray, ys: np.ndarray

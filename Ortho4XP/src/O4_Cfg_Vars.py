@@ -161,6 +161,19 @@ cfg_app_vars = {
     # Imagery on demand (#1992 spec §7): the follow job's settings, read
     # by ``o4_engine.imagery_commands.start_imagery_follow`` and the cap
     # sweep (``o4_engine.imagery_downgrade.cap_bytes``).
+    # Optional tiered storage on other drives (RULINGS 2026-11-12g;
+    # ``o4_engine.storage_tiers``): Settings > Storage's "Storage tiers".
+    "storage_tiers": {
+        "type": str,
+        "default": "",
+        "hint": (
+            "Other drives that may keep sharp imagery, as JSON "
+            "{\"/Volumes/Drive\": GB}. A texture the disk budget makes "
+            "low-res again moves there while the drive is connected and "
+            "lands back from it; without the drive it is downloaded again. "
+            "Set in Settings > Storage > Storage tiers."
+        ),
+    },
     "storage_budget_gb": {
         "type": float,
         "default": 0.0,
@@ -217,18 +230,22 @@ cfg_app_vars = {
         ),
     },
     # Build-ahead while flying (flight manager / World spec §5.5, §10, §17).
-    "world_intermediate": {
-        "type": str,
-        "default": "light",
-        "values": ("light", "drape"),
+    # RULINGS 2026-11-11j: the tiles built ahead are photo drapes; their
+    # photo detail is the user's (Fly pane and Settings, both apps).
+    "drape_photo_px": {
+        "type": int,
+        "default": 512,
+        "values": (512, 1024, 4096),
         "value_labels": {
-            "light": "Built tiles (mesh at 90 m, no airport work)",
-            "drape": "Photo, quick (laid over X-Plane's own ground)",
+            512: "Quick (512 px: about 1.5 min and 90 MB a tile)",
+            1024: "Sharper (1024 px: about 2 min and 350 MB a tile)",
+            4096: "Full detail (4096 px: about 12 min and 5 GB a tile)",
         },
         "hint": (
-            "What the app builds ahead of the aircraft by itself for tiles "
-            "not built yet. Stays a setting until the drape test flight "
-            "decides (spec decision point D1)."
+            "Photo detail of the tiles laid over X-Plane's own ground ahead "
+            "of the aircraft (tiles you have not built). Higher detail takes "
+            "longer to fetch, so fewer tiles are ready in time at speed; "
+            "airports you build stay full builds."
         ),
     },
     "fly_build_slots": {
@@ -252,6 +269,18 @@ cfg_app_vars = {
             "While flying, building gives a slot back when X-Plane's frame "
             "time rises 10 % (smooth) or 25 % (balanced) above its own; "
             "fast never does."
+        ),
+    },
+    # #2018 (owner 2026-11-13T02:00Z): the Fly pane's "Photo source".
+    # "auto" chooses per tile (O4_Imagery_Auto: the national service whose
+    # extent covers the tile, else Bing); a provider code forces it.
+    "fly_photo_source": {
+        "type": str,
+        "default": "auto",
+        "hint": (
+            "Where the tiles laid while flying get their photo: Automatic "
+            "takes each tile's national orthophoto service where one covers "
+            "it, else Bing; a source chosen here draws every tile."
         ),
     },
     "base_elevation_source": {
@@ -1084,13 +1113,15 @@ list_app_vars = [
     "storage_auto_clean_days",
     "storage_cache_caps_gb",
     "storage_budget_gb",
+    "storage_tiers",
     "imagery_on_demand_cap_gb",
     "ondemand_lead_s",
     "ondemand_lands_per_s",
     "xplane_web_api_port",
-    "world_intermediate",
+    "drape_photo_px",
     "fly_build_slots",
     "fly_sim_priority",
+    "fly_photo_source",
     "custom_scenery_dir",
     "custom_overlay_src",
     "custom_overlay_src_alternate",
@@ -1274,6 +1305,10 @@ retired_cfg_keys = {
     # ``auto_patch_engine``, a user who never chose a solve must not be
     # told one went away.
     "solve_model": None,
+    # RULINGS 2026-11-11j: D1 decided; the tiles built ahead are always
+    # drapes (``drape_photo_px`` sets their detail).  Silent: a test-app
+    # choice, never a promise to the user.
+    "world_intermediate": None,
     # RULINGS 2026-09-05k-2: the declared register is the v2 law table.
     "flat_site_declared": (
         "flat_site_declared is RETIRED and IGNORED: an airport is declared "

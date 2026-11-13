@@ -84,7 +84,7 @@ def test_a_7z_overlay_without_7zip_refuses_by_name(tmp_path, monkeypatch,
         lambda *a, **k: pytest.fail("extraction must not be attempted"))
     UI.is_working = 0
 
-    assert OVL.build_overlay(lat, lon) == 0
+    assert OVL._build_overlay(lat, lon) == 0
 
     out = capsys.readouterr().out
     assert "no 7-Zip executable was found" in out
@@ -113,7 +113,7 @@ def test_a_plain_dsf_never_looks_for_7zip(tmp_path, monkeypatch):
     # DSFTool is absent in the test environment; the call dies there, AFTER
     # the branch under test. Either outcome proves the probe was not run.
     try:
-        OVL.build_overlay(lat, lon)
+        OVL._build_overlay(lat, lon)
     except Exception:
         pass
     finally:

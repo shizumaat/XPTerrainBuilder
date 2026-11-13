@@ -14,7 +14,7 @@ shows them (:func:`step_display`).
 
 __all__ = [
     "TERMS", "RETIRED", "RETIRED_WORDS", "STEP_NAMES", "DETAIL_PIXEL_SIZES",
-    "detail_choice", "step_display", "surface_check",
+    "detail_choice", "imagery_summary", "step_display", "surface_check",
 ]
 
 # key -> the plain wording a primary label uses.  The owner's wording
@@ -55,16 +55,19 @@ TERMS = {
     # Settings ▸ Imagery's per-region switch (RULINGS 2026-11-10e (3)):
     # one of simHeaven's X-World regions.
     "ondemand_region": "On demand in {region}?",
-    # The three app modes (RULINGS 2026-11-10j): the map toolbar's
-    # segmented control and the side pane each one shows.
+    # The two app modes (RULINGS 2026-11-11k; 10j's Library retired): the
+    # map toolbar's segmented control and the side pane each one shows.
     "mode_build": "Build",
     "mode_fly": "Fly",
-    "mode_library": "Library",
     # Fly mode (spec flight-manager-and-world §14, #2001): the map's
-    # checkbox for each square's installed imagery, and the legend's word
-    # for a tile we have not built (never "placeholder").
+    # checkbox for each square's installed imagery.
     "live_flight_preview": "Live flight preview",
-    "xplane_own_scenery": "X-Plane's own scenery",
+    # The Build pane's line under "Roads, forests and buildings from
+    # X-Plane", now automatic (#2021, RULINGS 2026-11-12e).
+    "xplane_objects_auto": (
+        "Added to every full tile, except where installed scenery such as "
+        "simHeaven X-World already brings them"
+    ),
 }
 
 # key -> the words it retires as a PRIMARY label (titles, buttons, toggles,
@@ -145,6 +148,18 @@ def detail_choice(zl):
     if size is None:
         return "ZL%s" % (zl,)
     return "ZL%s · %s per pixel" % (zl, size)
+
+
+def imagery_summary(provider, zl, cover_zl=None):
+    """The tile pane's one Imagery line (#2033): the source and its zoom
+    level, ``"BI, ZL16"``, with the airports' higher cover zoom as a range,
+    ``"BI, ZL16–19"``; ``"—"`` with neither."""
+    zoom = ""
+    if zl:
+        zoom = "ZL%d" % int(zl)
+        if cover_zl and int(cover_zl) > int(zl):
+            zoom += "–%d" % int(cover_zl)
+    return ", ".join(part for part in (provider or "", zoom) if part) or "—"
 
 
 def step_display(step_key, label):

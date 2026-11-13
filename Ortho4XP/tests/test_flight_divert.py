@@ -8,7 +8,7 @@ and their use in ``flight_manager.FlightManager``.
 The end-to-end cases replay the CYYR World pack flight (W0's fixture,
 ``tools/flight_schedule_replay.py --flight --divert [--approach]``): a
 diversion halfway that is in place before X-Plane loads its area, and a
-late one whose airport waits staged until the one announced reload near
+late one whose airport waits staged until the one offered reload near
 the ground.  Hermetic: tmp_path, no network, no X-Plane, no build.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ from o4_engine import flight_record as RECORD
 from o4_engine import flight_swap_reload as SWAP
 from o4_engine import world_commands as WORLD
 from o4_engine.events import CAPABILITIES, FlightNotice
-from o4_engine.flight_air_reload import ANNOUNCE_S, LOW_AGL_M, NEAR_KM, AirReload
+from o4_engine.flight_air_reload import LOW_AGL_M, NEAR_KM, AirReload
 from o4_engine.flight_manager import FlightManager
 from o4_engine.flight_notices import CODES, Board, notice
 
@@ -79,7 +79,7 @@ def test_the_target_is_the_alternate_an_airport_a_place_or_an_ident():
         DIVERT.divert_target({"ident": "X", "lat": "?", "lon": 1}, plan)
 
 
-def _job(tile, role="enroute", kind="light", state="queued"):
+def _job(tile, role="enroute", kind="drape", state="queued"):
     return SCHEDULE.Job(tile=tile, role=role, kind=kind, klass=SCHEDULE.P1,
                         deadline_s=100.0, est_s=(10.0, 20.0), state=state)
 
@@ -101,7 +101,7 @@ def test_the_old_destination_stops_unless_the_new_leg_needs_it():
     assert merged[(52, -64)].state == "queued"
     # the new leg still crosses the old destination: its build goes on
     cancelled.clear()
-    kept = DIVERT.merge_after_divert(old, new + [_job((53, -64), kind="light")],
+    kept = DIVERT.merge_after_divert(old, new + [_job((53, -64), kind="drape")],
                                      (53, -64), cancelled.append)
     assert not cancelled
     row = next(j for j in kept if j.tile == (53, -64))
@@ -114,25 +114,23 @@ def test_the_old_destination_stops_unless_the_new_leg_needs_it():
 
 # ------------------------------------------------------- S6 (b) and notices
 
-def test_the_air_reload_is_announced_then_sent_once():
+def test_the_air_reload_is_offered_never_sent_by_itself():
+    """Owner 2026-11-12T14:34Z: "Never ask x-plane to reload unless the
+    user requests it." -- near the ground the reload is offered once;
+    no tick ever sends it; the pilot's press does, once."""
     air = AirReload()
     assert air.step(0.0, needed=True, near=False) == ""
-    assert air.step(1.0, needed=True, near=True) == "announce"
-    assert air.state == "scheduled"
-    assert air.step(1.0 + ANNOUNCE_S - 1, True, True) == ""
-    assert air.step(1.0 + ANNOUNCE_S, True, True) == "send"
-    air.sent()
-    assert air.step(100.0, True, True) == "" and air.state == "sent"
-    assert not air.press() and not air.not_now()
-
-
-def test_not_now_holds_the_reload_until_the_pilot_asks():
-    air = AirReload()
-    air.step(0.0, True, True)
-    assert air.not_now() and air.state == "offered"
-    assert air.step(500.0, True, True) == ""        # never sent by itself
+    assert air.step(1.0, needed=True, near=True) == "offer"
+    assert air.state == "offered"
+    for t in range(2, 3600, 60):
+        assert air.step(float(t), True, True) == ""     # never "send"
     assert air.press()
-    assert air.step(501.0, False, True) == "" and air.state == ""
+    air.sent()
+    assert air.step(4000.0, True, True) == "" and air.state == "sent"
+    assert not air.press()
+    gone = AirReload()
+    gone.step(0.0, True, True)
+    assert gone.step(1.0, False, True) == "" and gone.state == ""
 
 
 def test_each_notice_posts_once_and_counts_post_again_when_they_grow():
@@ -152,7 +150,7 @@ def test_each_notice_posts_once_and_counts_post_again_when_they_grow():
                   margin_s=600)["title"] == "Destination ready"
     assert "X-Plane's own scenery" in notice("offline", count=2)["text"]
     assert set(CODES) >= {"ready", "destination_ready", "diversion_ready",
-                          "offline", "reload_announced", "arrived"}
+                          "offline", "reload_offered", "arrived"}
     wire = FlightNotice(flight="f", **notice("ready"))
     assert type(wire).__name__ == "FlightNotice" and wire.severity == "info"
     assert "flight_notices" in CAPABILITIES
@@ -173,15 +171,16 @@ def test_a_diversion_in_time_is_ready_before_its_area_loads(recording):
     assert div["state"] == "swapped" and div["margin_s"] > 0
     assert result["reloads_air"] == []
     codes = [c for _t, c in result["notices"]]
-    assert codes.count("diversion_ready") == 1 and "reload_announced" not in codes
+    assert codes.count("diversion_ready") == 1 and "reload_offered" not in codes
 
 
 def test_a_late_diversion_waits_staged_for_one_reload_near_the_ground(recording):
     """Diverted 1500 s in to an airport in +52-064, a tile X-Plane loaded
     already: the full build is staged, never swapped under X-Plane; on
-    the approach (inside 20 km, below 3,000 ft) the reload is announced,
-    and sent 30 s later -- once, for that tile only (S6 (b)); en-route
-    tiles are never reloaded and no loaded tile was swapped."""
+    the approach (inside 20 km, below 3,000 ft) the reload is offered and
+    sent when the (replayed) pilot presses it -- once, for that tile only
+    (S6 (b)); en-route tiles are never reloaded and no loaded tile was
+    swapped."""
     result = R.replay_flight(*recording, DEST, full_s=600.0, approach=True,
                              divert={"at_s": 1500.0, "lat": 52.95,
                                      "lon": -63.6, "ident": "DIVB"})
@@ -189,8 +188,7 @@ def test_a_late_diversion_waits_staged_for_one_reload_near_the_ground(recording)
     assert [names for _t, names in result["reloads_air"]] == [["+52-064"]]
     notices = dict((c, t) for t, c in result["notices"])
     sent = result["reloads_air"][0][0]
-    assert notices["destination_late"] <= notices["reload_announced"]
-    assert sent - notices["reload_announced"] == pytest.approx(ANNOUNCE_S, abs=1.5)
+    assert notices["destination_late"] <= notices["reload_offered"] <= sent + 0.1
     assert notices["diversion_ready"] >= sent
     assert result["diverted"]["state"] == "swapped"
     late = [r for r in result["tiles"] if r["tile"] in result["late"]]
@@ -200,12 +198,12 @@ def test_a_late_diversion_waits_staged_for_one_reload_near_the_ground(recording)
 
 def test_the_reload_comes_only_near_the_airport_and_low(recording):
     """The same diversion without the approach (the recording ends at
-    3,000 m above the ground): the airport stays staged, announced never."""
+    3,000 m above the ground): the airport stays staged, offered never."""
     result = R.replay_flight(*recording, DEST, full_s=600.0, divert={
         "at_s": 1500.0, "lat": 52.95, "lon": -63.6, "ident": "DIVB"})
     assert result["reloads_air"] == []
     codes = [c for _t, c in result["notices"]]
-    assert "reload_announced" not in codes
+    assert "reload_offered" not in codes
     assert result["diverted"]["state"] in ("building", "staged")
     assert NEAR_KM == 20.0 and LOW_AGL_M == pytest.approx(914.4)
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import sqlite3
 import time
 import types
 
@@ -408,6 +409,9 @@ def test_the_ondemand_storage_row_and_its_clear(world):
 @pytest.fixture()
 def scanned(world, monkeypatch):
     info = types.SimpleNamespace(build_dir=str(world.build))
+    # The tiles' folder is the one the tile is in (``Tile_dir`` follows the
+    # data root at call time since RULINGS 2026-11-12g).
+    monkeypatch.setattr(FNAMES, "Tile_dir", str(world.build.parent))
     monkeypatch.setattr(TINFO, "tile_info", lambda lat, lon, wd: info)
     monkeypatch.setattr(TINFO, "scan_tiles", lambda wd: {(LAT, LON): info})
     return world
@@ -433,6 +437,68 @@ def test_pin_lands_the_full_textures_the_cache_holds(scanned):
     assert record["pinned"] is True
     assert ONDEMAND.imagery_pin(LAT, LON, "x", pinned=False)["pinned"] is False
     assert INDEX.capped_bytes(conn) > 0                  # counted again
+
+
+def test_a_favorite_is_set_while_a_build_runs(scanned):
+    """#2033: a Favorite is storage priority, settable while a build runs:
+    the record and the index change, no texture is landed, and favorites
+    go last in the downgrade order."""
+    from o4_engine import imagery_commands as COMMANDS
+
+    conn = scanned.make(3)
+    rows = INDEX.rows(conn)
+    full = scanned.tmp / "full.dds"
+    full.write_bytes(_dds_bytes(4096, 0x66))
+    key = "ab" + "4" * 38
+    assert DDSC.store(key, str(full))
+    DDSC._note_use(key, INDEX.texture_path(rows[0]))
+    conn.close()
+    handlers = COMMANDS.ondemand_handlers(lambda: True)       # building
+    out = handlers["imagery_pin"](lat=LAT, lon=LON, working_dir="x",
+                                  pinned=True)
+    assert (out["pinned"], out["served"], out["to_fetch"]) == (True, 0, 0)
+    conn = INDEX.open_index()
+    first = INDEX.get(conn, TILE, rows[0]["name"])
+    assert first["pinned"] == 1 and first["tier_px"] < 4096   # nothing landed
+    record = json.loads((scanned.build / ("Ortho4XP_%s_imagery.json" % TILE))
+                        .read_text(encoding="utf-8"))
+    assert record["pinned"] is True
+    conn.close()
+    # The other on-demand commands still wait for the build.
+    with pytest.raises(ValueError, match="not while a build runs"):
+        handlers["imagery_ondemand_sweep"]()
+
+
+def test_the_downgrade_order_takes_favorites_last(tmp_path):
+    conn = INDEX.open_index(str(tmp_path / "index.sqlite"))
+    for tile, pinned, near in (("+01+001", 1, 0.0), ("+02+002", 0, 5.0),
+                               ("+03+003", 0, 1.0)):
+        INDEX.upsert(conn, {"tile": tile, "name": "a.dds", "state": "upgraded",
+                            "pinned": pinned, "last_near_at": near,
+                            "build_dir": str(tmp_path), "tier_px": 4096})
+    order = [row["tile"] for row in INDEX.lru_order(conn, favorites=True)]
+    assert order[-1] == "+01+001"
+    assert "+01+001" not in [row["tile"] for row in INDEX.lru_order(conn)]
+
+
+def test_a_build_keeps_a_favorite_set_while_it_ran(tmp_path):
+    """The build's imagery record write keeps ``pinned`` as the record
+    holds it then, read and written under the record's lock."""
+    import types
+
+    import O4_Tile_Utils as TILE_UTILS
+
+    build = tmp_path / "zOrtho4XP_+01+001"
+    build.mkdir()
+    TINFO.update_imagery_record(str(build), 1, 1,
+                                lambda old: dict(old, pinned=True))
+    tile = types.SimpleNamespace(build_dir=str(build), lat=1, lon=1,
+                                 default_website="BI", default_zl=16)
+    TILE_UTILS._write_imagery_manifest(tile, {"done": 4}, {"done": 4})
+    record = TINFO.read_imagery_record(str(build), 1, 1)
+    assert record["pinned"] is True and record["downloaded"] == 4
+    assert not os.path.exists(TINFO.imagery_record_path(str(build), 1, 1)
+                              + ".lock")
 
 
 def test_scan_marks_cores_from_the_graded_airports(scanned, monkeypatch):
@@ -507,3 +573,30 @@ def test_the_sweep_command_takes_a_cap_and_a_camera(scanned):
     assert out["ran"] and out["skipped_near"] >= 1 and out["downgraded"] >= 1
     conn = INDEX.open_index()
     assert INDEX.get(conn, TILE, first["name"])["state"] == "upgraded"
+
+
+def test_a_second_opener_never_drops_the_first_ones_rows(tmp_path, monkeypatch):
+    """Convert's workers open a new index at once: the opener that read
+    the old schema version first must not drop the table the other has
+    created and filled since (ubuntu CI 2026-11-12, a tile's 4 rows gone)."""
+    path = str(tmp_path / "index.sqlite")
+    real, state = sqlite3.connect, {"armed": True}
+
+    class Conn(sqlite3.Connection):
+        def execute(self, sql, *args):
+            out = super().execute(sql, *args)
+            if state["armed"] and sql == "PRAGMA user_version":
+                state["armed"] = False
+                stale = out.fetchall()              # this opener's read ...
+                first = INDEX.open_index(path)      # ... then the other opens,
+                INDEX.upsert(first, {"tile": "+45+007", "name": "a.dds"})
+                first.close()                       # writes and leaves
+                return types.SimpleNamespace(fetchone=lambda: stale[0])
+            return out
+    shim = types.SimpleNamespace(**vars(sqlite3))
+    shim.connect = lambda p, **kw: real(p, factory=Conn, **kw)
+    monkeypatch.setattr(INDEX, "sqlite3", shim)
+    conn = INDEX.open_index(path)
+    INDEX.upsert(conn, {"tile": "+60-136", "name": "b.dds"})
+    assert sorted(r["tile"] for r in INDEX.rows(conn)) == ["+45+007", "+60-136"]
+    conn.close()

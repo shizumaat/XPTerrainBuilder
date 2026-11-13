@@ -917,16 +917,18 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
                     "overpass QUERY, and without it the DEM prep has no "
                     "smoothing masks"))
     out.extend(unverified_inset_negatives(state, lat, lon))
+    out.extend(unsettled_inset_stamp_rows(state, lat, lon))
     if not icao:
         # A TILE build's inset pass runs over EVERY selected aerodrome of
         # the tile (#583): each one it would re-fetch is named here.
         out.extend(tile_inset_refetch_rows(state, lat, lon))
-    if inset_problem is not None and inset_problem[0] != "empty":
+    if inset_problem is not None and inset_problem[0] not in ("empty", "resting"):
         # "empty" is a DECLARED state, not a missing artifact: the build
         # reads the raster, finds it empty, says so and grades on the
         # base DEM.  Nothing is fetched or regenerated, so listing it
-        # here would refuse a build that mutates nothing.
-        # ``require_dem_frame`` names it instead, with its scope.
+        # here would refuse a build that mutates nothing.  "resting"
+        # (#2038): every never-answered provider rests, so nothing is
+        # asked either.  ``require_dem_frame`` names both, with scope.
         (kind, text) = inset_problem
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
@@ -934,6 +936,46 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
     out.extend(schema_stale_osm_layers(root, lat, lon))
     out.extend(missing_pack_dsf_dumps(root, lat, lon, icao))
     return out
+
+
+def _configured_tile(lat, lon):
+    """The tile as a build reads it: ``Tile`` plus its configuration."""
+    import O4_Config_Utils as CFG
+
+    tile = CFG.Tile(int(lat), int(lon), "")
+    try:
+        tile.read_from_config()
+    except Exception:
+        pass
+    return tile
+
+
+def unsettled_inset_stamp_rows(state, lat, lon) -> list:
+    """The tile's inset completion stamp, as a ``(scope, artifact, why)``
+    row, when the engine's own ``is_cached`` says it no longer settles the
+    tile: every build (airport or tile) runs the tile's inset pass, and
+    that pass REWRITES ``complete.json`` -- a shared-repo write the guard
+    refused only at the END of a full build (KDEN 2026-11-12, rc=1).
+    Named up front instead; ``--refresh-data dem`` re-settles it
+    (:func:`_resettle_inset_stamp`)."""
+    if not state["airport_insets"] or not state["airports_layer"]:
+        return []           # refused for the whole cache / layer above
+    if not IPF.airports_layer_is_cached(lat, lon):
+        return []
+    try:
+        import O4_Airport_Elevation_Insets as INSETS
+        if INSETS.is_cached(_configured_tile(lat, lon)):
+            return []
+        stamp = INSETS.inset_completion_stamp_path(lat, lon)
+    except Exception as exc:
+        print(f"  [harness] inset-stamp check skipped ({exc!r})")
+        return []
+    return [("dem",
+             f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
+             f"{os.path.basename(stamp)}",
+             "the inset completion stamp no longer settles the tile (its "
+             "airports layer, inset mode or listed rasters changed), so the "
+             "build's inset pass would REWRITE it mid-build")]
 
 
 def insets_expected(state, lat, lon, icao) -> bool:
@@ -2635,6 +2677,26 @@ def refresh_approach_rings(root, lat, lon, prog) -> dict:
             "still_cold": problem[1] if problem else None}
 
 
+def refetched_unchanged() -> list:
+    """The shared-repo relpaths a re-fetch in this process found EQUAL to
+    the cached raster and kept (#2050, ``elevation_access.raster_same``)
+    — the ledger records them as "unchanged"."""
+    try:
+        from elevation_access import raster_same
+    except Exception:
+        return []
+    base = DATA_REPO.resolve()
+    out = []
+    for path in raster_same.kept_unchanged():
+        try:
+            rel = Path(path).resolve().relative_to(base).as_posix()
+        except (OSError, ValueError):
+            continue
+        if rel not in out:
+            out.append(rel)
+    return out
+
+
 def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     """Warm a COLD tile's DEM frame — base raster and airport insets —
     under the ``dem`` authorisation the caller already holds.
@@ -2686,8 +2748,12 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
         derived += _complete_pending_insets(root, lat, lon, prog,
                                             tile_wide=not icao)
         derived += _fetch_base_void_fills(lat, lon, prog)
-        if not icao:
-            derived += _resettle_inset_stamp(lat, lon, prog)
+        # The stamp is TILE-scoped: an airport build runs the tile's whole
+        # inset pass and rewrites it exactly as a tile build does, so the
+        # refresh re-settles it whatever ``icao`` names (KDEN 2026-11-12:
+        # gated on ``not icao``, the refresh said "nothing to derive" and
+        # every KDEN build was refused for writing complete.json.tmp).
+        derived += _resettle_inset_stamp(lat, lon, prog)
         if not derived:
             prog.note(f"refresh dem: tile {lat:+d}{lon:+d} already has its "
                       f"base raster and its airport insets — nothing to "
@@ -2757,6 +2823,7 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     derived += _complete_pending_insets(root, lat, lon, prog,
                                         tile_wide=not icao)
     derived += _fetch_base_void_fills(lat, lon, prog)
+    derived += _resettle_inset_stamp(lat, lon, prog)
     prog.note(f"refresh dem done: {derived}")
     return {"tile": [lat, lon], "derived": derived}
 
@@ -2786,14 +2853,9 @@ def _resettle_inset_stamp(lat, lon, prog) -> list:
     re-settles and writes the stamp.  A tile it already settles costs one
     JSON read."""
     import O4_Airport_Elevation_Insets as INSETS
-    import O4_Config_Utils as CFG
     import O4_File_Names as FNAMES
 
-    tile = CFG.Tile(int(lat), int(lon), "")
-    try:
-        tile.read_from_config()
-    except Exception:
-        pass
+    tile = _configured_tile(lat, lon)
     if INSETS.is_cached(tile):
         return []
     if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):
@@ -4390,7 +4452,10 @@ def closing_lines(out_dir: Path, tag: str, result: dict, tile: bool) -> list:
             f"  [harness] tile build dir: {result.get('build_dir')}",
             f"  [harness] tile patches (lane Patches/): {patch_dir}",
             f"  [harness] next: venv/bin/python tools/harness/census.py "
-            f"{Path(patch_dir) / '<ICAO>_auto.patch.osm' if patch_dir else '<patch>'}"]
+            f"{Path(patch_dir) / '<ICAO>_auto.patch.osm' if patch_dir else '<patch>'}"
+            ] + ([f"  [harness] {result['drawn_gate']['line']} -> "
+                  f"{result['drawn_gate']['json']}"]
+                 if result.get("drawn_gate") else [])
 
 
 def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
@@ -5086,6 +5151,10 @@ def main(argv=None) -> int:
                     help="build against a PRIVATE data corpus instead of "
                          "the shared repo, KNOWINGLY (recorded); its "
                          "numbers are not comparable with any other lane's")
+    ap.add_argument("--no-drawn-gate", action="store_true",
+                    help="--tile: skip the closing drawn gate "
+                         "(tools/harness/drawn_gate.py: the tile DSF, the "
+                         "patch it carries and the written pack, #1903)")
     ap.add_argument("--pack-copy", default=None, metavar="DIR",
                     help="--tile: the object stage writes an APFS clone of "
                          "each airport pack under DIR, never the owner's "
@@ -5779,13 +5848,18 @@ def main(argv=None) -> int:
         offenders = report_unauthorised_writes(changes, requested, prog,
                                                blocked=guard.blocked,
                                                input_scope=input_scope)
+        unchanged = refetched_unchanged()
         for sc in sorted(requested):
             in_scope = {k: [r for r in v if scope_of(r) == sc]
                         for k, v in changes.items()}
-            if any(in_scope.values()):
+            kept = [r for r in unchanged if scope_of(r) == sc]
+            if any(in_scope.values()) or kept:
                 rec = record_refresh(sc, in_scope,
                                      {"lane": str(root), "tag": tag,
                                       "argv": sys.argv[1:],
+                                      # #2050: re-fetched and found equal
+                                      # to the cache, which was KEPT
+                                      "unchanged": kept,
                                       # WHAT was warmed, named: a reader
                                       # asking why an inset changed gets
                                       # the airports, not just a flag.
@@ -5800,7 +5874,8 @@ def main(argv=None) -> int:
                                          and seed_summary["copied"]
                                          else {})})
                 prog.note(f"REFRESH RECORDED [{sc}]: +{rec['added']} "
-                          f"~{rec['modified']} file(s), hash-stamped into "
+                          f"~{rec['modified']} file(s), ={len(kept)} "
+                          f"re-fetched unchanged (kept), hash-stamped into "
                           f"{REFRESH_LEDGER}")
             else:
                 prog.note(f"refresh scope '{sc}' was authorised but wrote "
@@ -5971,6 +6046,22 @@ def main(argv=None) -> int:
     if args.tile:
         require_no_swallowed_write_block(
             guard.blocked, allow_degraded=args.allow_degraded_dem, prog=prog)
+        if not args.no_drawn_gate:
+            # THE DRAWN GATE (#1903): the verdict on what X-Plane draws from
+            # this build's own products -- the tile DSF, the patch carried
+            # by it, the written pack (``--pack-copy``) -- never the engine's
+            # records.  After the result is written: it reads it.  Imported
+            # here: it loads the engine, which must not precede the cache
+            # redirects (the belt above).
+            import drawn_gate as DG
+            result["drawn_gate"] = DG.after_build(
+                args.icao, tag, out_dir, prog=prog,
+                custom_scenery=PCA.effective_install_paths(
+                    read_cfg(OWNER_APP_CFG), read_cfg(LANE_CFG),
+                    ("custom_scenery_dir",))[0].get("custom_scenery_dir"))
+            (out_dir / f"{tag}.result.json").write_text(json.dumps(
+                {k: v for k, v in result.items() if not k.startswith("_")},
+                indent=1, default=str))
     _prune_lane_cache(root, prog)
     prog.note(f"EXIT {tag} rc=0 wall={result['wall_seconds']}s")
     for line in closing_lines(out_dir, tag, result, tile=bool(args.tile)):

@@ -54,7 +54,7 @@ def test_duplicate_ratchet_holds_on_this_tree():
     groups = ratchets.duplicate_groups()
     bad = ratchets.check_duplicates(groups, ratchets.load_baseline()["duplicates"])
     assert not bad, bad[0] + "\n" + "\n".join(
-        "%s:%d %s" % m for g in groups for m in g)
+        "%s:%d %s" % (m[0], m[2], m[1]) for g in groups for m in g)
 
 
 # ------------------------------------------------------------- the rule

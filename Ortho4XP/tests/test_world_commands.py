@@ -40,12 +40,14 @@ def wire_sample() -> WorldStatus:
     """The event the shared wire fixture holds."""
     return WorldStatus(state="idle", reason="", installed=True,
                        seen_by_xplane=True, restart_needed=False,
-                       tiles={"placeholder": 3, "drape": 0, "light": 1,
-                              "full": 2, "staged": 1},
+                       tiles={"placeholder": 3, "drape": 1, "full": 2,
+                              "staged": 1},
                        queue=2,
-                       building=(("+53-065", "light", "building", 412),),
+                       building=(("+53-065", "drape", "building", 41),),
+                       jobs=([[53, -65], "ahead", "drape", "building"],
+                             [[53, -64], "ahead", "drape", "swapped"]),
                        loaded=("+53-063",),
-                       last_swap=("+53-064", "light", "2026-11-10T15:02:24Z"),
+                       last_swap=("+53-064", "drape", "2026-11-10T15:02:24Z"),
                        slots=1, frame_ms=21.8, governor="ok", bytes=1234)
 
 
@@ -95,13 +97,17 @@ def test_install_status_and_regions(world):
     assert WORLD.world_status(world)["state"] == "off"
     done = WORLD.world_install(world)
     assert done["ini_added"] is True and done["restart_needed"] is False
-    assert WORLD.world_install(world)["ini_added"] is False
+    # World coverage (#2019): every land tile of the enabled regions (all,
+    # by default) gets its placeholder at install; again: none.
+    assert done["placeholders"] == 3
+    again = WORLD.world_install(world)
+    assert again["ini_added"] is False and again["placeholders"] == 0
     europe = REGIONS.region_of(45, 7)
     africa = REGIONS.region_of(-34, 18)
     order = [c for c, _ in REGIONS.REGIONS]
     res = WORLD._regions_set([europe, africa], world)
     # Only the tiles X-Plane's own scenery has (land) get a placeholder.
-    assert res["written"] == 3
+    assert res["written"] == 0 and res["kept"] == 3
     assert res["regions"] == sorted([europe, africa], key=order.index)
     status = WORLD.world_status(world)
     assert status["installed"] and status["tiles"]["placeholder"] == 3
@@ -115,6 +121,59 @@ def test_install_status_and_regions(world):
     assert WORLD.world_status(world)["tiles"]["placeholder"] == 2
     with pytest.raises(ValueError):
         WORLD._regions_set(["atlantis"], world)
+
+
+def test_world_coverage_places_land_tiles_only_and_never_over_a_real_tile(
+        world, monkeypatch):
+    """Owner 2026-11-12T15:05Z: "Yes add world coverage otherwise draping
+    won't work" (#2019).  Regions on -> a placeholder for every LAND tile
+    (X-Plane's Global Scenery list); ocean tiles none; a full or drape tile
+    of ours untouched; idempotent; X-Plane running -> the "coverage"
+    reload OFFER, nothing sent."""
+    from o4_engine import reload_offer as RELOAD
+    monkeypatch.setattr(RELOAD, "_STATE", {"offer": ""})
+    monkeypatch.setattr(RELOAD, "send", lambda base=None: (
+        _ for _ in ()).throw(AssertionError("reload without the user")))
+    os.makedirs(os.path.join(WORLD.pack_dir(world), "Earth nav data"))
+    with open(os.path.join(WORLD.pack_dir(world), WP.MARKER), "w",
+              encoding="utf-8", newline="\n") as h:
+        h.write("{}")
+    pack = WORLD.pack_dir(world)
+    real = os.path.join(pack, WP.dsf_relpath(45, 8))
+    os.makedirs(os.path.dirname(real), exist_ok=True)
+    shutil.copyfile(FIXTURE_DSF, real)              # a built tile of ours
+    monkeypatch.setattr(WORLD, "_xplane_running", lambda: True)
+    done = WORLD.ensure_coverage(world)
+    assert (done["written"], done["kept"]) == (2, 1)
+    kinds = WP.world_tiles(pack)
+    assert kinds[(45, 7)] == kinds[(-34, 18)] == "placeholder"
+    assert kinds[(45, 8)] != "placeholder"          # never over a real tile
+    assert (0, -30) not in kinds                    # ocean: none
+    assert RELOAD.current() == "coverage"
+    again = WORLD.ensure_coverage(world)
+    assert (again["written"], again["kept"]) == (0, 3)
+    # Without Global Scenery the start writes nothing; the user's region
+    # choice falls back to the world mask.
+    shutil.rmtree(os.path.join(os.path.dirname(world), "Global Scenery"))
+    assert WORLD.ensure_coverage(world)["written"] == 0
+
+
+def test_world_coverage_of_the_whole_world_takes_seconds(tmp_path):
+    """The owner's ~20k land tiles: written in seconds (one listing, one
+    folder each), again in well under one."""
+    import O4_DEM_Utils as DEM
+    tiles = [t for code, _ in REGIONS.REGIONS if code != "antarctica"
+             for t in REGIONS.region_tiles(code) if DEM.tile_is_land(*t)]
+    assert len(tiles) > 15_000
+    pack = str(tmp_path / "pack")
+    t0 = time.monotonic()
+    assert WP.write_placeholders(pack, tiles)["written"] == len(tiles)
+    first = time.monotonic() - t0
+    t1 = time.monotonic()
+    assert WP.write_placeholders(pack, tiles)["kept"] == len(tiles)
+    # a bound for a loaded CI runner (5 s alone on the owner's Mac; 51 s seen
+    # beside four builds): the twin guards against a per-tile O(n) listing
+    assert first < 120.0 and time.monotonic() - t1 < 20.0
 
 
 def test_publish_a_build_and_give_it_back(world, tmp_path):
@@ -156,7 +215,7 @@ def test_publish_a_build_and_give_it_back(world, tmp_path):
         WORLD.world_tile_set(45, 7, kind="full", scenery_dir=world)
 
 
-def test_no_pack_or_not_on_demand_publishes_nothing(world, tmp_path):
+def test_no_pack_publishes_nothing_every_build_publishes(world, tmp_path):
     build = _build(tmp_path)
     assert PUBLISH._publish_built(world, build, 45, 7) is None
     # A pack of that name the app did not make (the CYYR kit's): untouched.
@@ -165,13 +224,22 @@ def test_no_pack_or_not_on_demand_publishes_nothing(world, tmp_path):
     assert WORLD.world_status(world)["installed"] is False
     WORLD.world_install(world)
     assert WORLD.managed(world)
+    # RULINGS 2026-11-12g: every build goes into the World folder, imagery
+    # on demand or not.
     other = _build(tmp_path / "b", on_demand=False)
-    assert PUBLISH._publish_built(world, other, 45, 7) is None
+    res = PUBLISH._publish_built(world, other, 45, 7,
+                                 loaded=lambda la, lo: False)
+    assert res is not None and res["state"] == "swapped", res
 
 
 def test_a_held_tile_waits_staged(world, tmp_path):
     WORLD.world_install(world)
     build = _build(tmp_path)
+    # an earlier version's name in the pack (S4/S5: X-Plane may map it);
+    # with none the tile goes in at once (#2032, below)
+    old = os.path.join(WORLD.pack_dir(world), "textures", "+45+007")
+    os.makedirs(old)
+    open(os.path.join(old, "old.dds"), "wb").close()
     res = PUBLISH._publish_built(world, build, 45, 7,
                                 loaded=lambda la, lo: True)
     assert res["state"] == "staged"
@@ -179,6 +247,14 @@ def test_a_held_tile_waits_staged(world, tmp_path):
     assert PUBLISH._swap_waiting(world, lambda la, lo: build,
                                 loaded=lambda la, lo: False) == ["+45+007"]
     assert WP.holds_tile(world, 45, 7)
+
+
+def test_2032_a_held_tile_the_pack_names_nothing_of_goes_in(world, tmp_path):
+    WORLD.world_install(world)
+    build = _build(tmp_path)
+    res = PUBLISH._publish_built(world, build, 45, 7,
+                                loaded=lambda la, lo: True)
+    assert res["state"] == "swapped" and WP.holds_tile(world, 45, 7)
 
 
 def test_scanners_read_placeholders_as_no_tile(world, tmp_path):
@@ -192,9 +268,10 @@ def test_scanners_read_placeholders_as_no_tile(world, tmp_path):
                   "wb") as h:
             h.write(b"DDS ")
     PUBLISH._publish_built(world, build, 45, 7, loaded=lambda la, lo: False)
-    pack = {p.name: p for p in CS.scan_packs(world)}[WP.PACK_NAME]
-    assert pack.tiles == frozenset({(45, 7)})       # (45, 8): a placeholder
-    assert pack.kind == "ortho"
+    # Ours, so never "other scenery" (lane ltilepane, owner
+    # 2026-11-12T20:23Z); its own listing still reads placeholders as no tile.
+    assert WP.PACK_NAME not in {p.name for p in CS.scan_packs(world)}
+    assert CS.pack_tiles(WORLD.pack_dir(world)) == {(45, 7)}  # (45, 8): a placeholder
     assert MO.tile_mesh_order(world, 45, 7, build_dir=build)["checked"] is True
     assert MO.drawn_mesh_dsf(world, 45, 8) is None   # a placeholder: no mesh
     assert sorted(LINKS.installed_tiles(world)) == [(45, 7)]

@@ -476,6 +476,8 @@ EXCEPTION_CODES = {
     # scenery packs
     "PackDumpStale": "pack_dump_stale",
     "DsfToolError": "pack_dump_failed",
+    # the overlay step (#2021): its ``failure_code`` names the cause
+    "_OverlayFailure": "overlay_tool_failed",
     "BackupUnproven": "pack_write_failed",
     "StaleScreen": "pack_write_failed",
     "ColdPartition": "pack_write_failed",
@@ -496,6 +498,9 @@ EXCEPTION_CODES = {
     # o4_engine.command_process (#753): a queued preview read nobody wants
     # any more is skipped, never shown — never a build failure
     "Superseded": UNMAPPED,
+    # o4_engine.imagery_after_build: a core landing the user stopped is
+    # counted "skipped" by the follow job, never a build failure
+    "_Stopped": UNMAPPED,
     # O4_Unmounted_Links (#668) names its code with ``failure_code``
     "UnmountedLink": "output_link_unmounted",
     "ElevationLinkBroken": "elevation_link_broken",

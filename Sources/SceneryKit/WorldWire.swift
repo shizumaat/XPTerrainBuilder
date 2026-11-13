@@ -8,6 +8,24 @@ import Foundation
 /// `PLACEHOLDER_MAX_BYTES`).
 public enum O4WorldPack {
     public static let packName = "zXPTerrainBuilder World"
+    /// The app's overlay pack (#2021, RULINGS 2026-11-12e): X-Plane's own
+    /// roads, forests and buildings for every full tile, its ini row
+    /// directly above the World pack's (`O4_Overlay_Pack.PACK_NAME`).
+    public static let overlaysPackName = "yXPTerrainBuilder Overlays"
+    /// The legacy overlay link (`yOrtho4XP_Overlays`) and per-tile /
+    /// grouped-build links (`zOrtho4XP_…`): ours too.
+    static let legacyOverlaysPackName = "yOrtho4XP_Overlays"
+    static let tileLinkPrefix = "zOrtho4XP_"
+
+    /// Is the Custom Scenery entry `name` one of this app's own packs —
+    /// never "Other scenery", never a third-party pack? The mirror of
+    /// `O4_Custom_Scenery._is_our_pack`; both read the cases of
+    /// `Ortho4XP/tests/fixtures/world_pane_cases.json`.
+    public static func isOurs(_ name: String) -> Bool {
+        name.hasPrefix(tileLinkPrefix)
+            || [packName, overlaysPackName, legacyOverlaysPackName].contains(name)
+    }
+
     /// `sim/creation_agent` of a placeholder DSF.
     public static let placeholderAgent = "XPTerrainBuilder world placeholder"
     /// A placeholder is 328 bytes; a larger DSF is never one.
@@ -54,10 +72,16 @@ public struct O4WorldStatus: Sendable, Equatable {
     /// nil: unknown (X-Plane not running, or its log not read yet).
     public let seenByXPlane: Bool?
     public let restartNeeded: Bool
-    /// `placeholder`, `drape`, `light`, `full`, `staged` counts.
+    /// `placeholder`, `drape`, `full`, `staged` counts.
     public let tiles: [String: Int]
     public let queue: Int
     public let building: [Building]
+    /// Build-ahead's tiles in track mode, `FlightStatus.jobs`' rows
+    /// (`[[lat, lon], "ahead", kind, state]`): the Fly map in free flight.
+    public var jobs: [O4FlightStatus.Job] = []
+    /// The aircraft's own tile while build-ahead runs (`fly_here`): the
+    /// Fly pane's "Preparing imagery at ..." (`FlyText.hereLines`, #2020).
+    public var here: O4JSON?
     public let loaded: [String]
     /// `[tile, kind, utc]`, empty before the first swap.
     public let lastSwap: [String]
@@ -87,7 +111,7 @@ public struct O4WorldStatus: Sendable, Equatable {
                             step: row[2] as? String ?? "",
                             remainingS: (row[3] as? NSNumber)?.intValue ?? 0)
         }
-        return O4WorldStatus(
+        var status = O4WorldStatus(
             state: object["state"] as? String ?? "off",
             reason: object["reason"] as? String ?? "",
             installed: (object["installed"] as? NSNumber)?.boolValue ?? false,
@@ -103,5 +127,20 @@ public struct O4WorldStatus: Sendable, Equatable {
             governor: object["governor"] as? String ?? "ok",
             bytes: (object["bytes"] as? NSNumber)?.int64Value ?? 0,
             regions: regions)
+        status.jobs = jobRows(object["jobs"])
+        if let here = object["here"] as? [String: Any] { status.here = O4JSON.from(here) }
+        return status
+    }
+
+    /// `jobs` rows from the event's decoded JSON.
+    static func jobRows(_ value: Any?) -> [O4FlightStatus.Job] {
+        (value as? [Any] ?? []).compactMap { item in
+            guard let row = item as? [Any], row.count >= 4, let tile = row[0] as? [Any],
+                  tile.count == 2, let lat = (tile[0] as? NSNumber)?.intValue,
+                  let lon = (tile[1] as? NSNumber)?.intValue else { return nil }
+            return O4FlightStatus.Job(lat: lat, lon: lon, role: row[1] as? String ?? "",
+                                      kind: row[2] as? String ?? "", state: row[3] as? String ?? "",
+                                      remainingSeconds: nil, marginSeconds: nil)
+        }
     }
 }

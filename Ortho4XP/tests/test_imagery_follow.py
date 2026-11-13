@@ -60,7 +60,7 @@ TILE = "+60-136"
 
 #: (key, dataref) the fake X-Plane publishes; the rest read as missing.
 _OFFERED = {ref: key for key, ref, _ in WEBAPI.POS_REFS
-            if key in ("lat", "lon", "elev_m", "gs_ms", "paused",
+            if key in ("lat", "lon", "elev_m", "agl_m", "gs_ms", "paused",
                        "local_x", "local_z", "view_x", "view_z")}
 
 
@@ -73,7 +73,8 @@ class FakeXPlane:
     request."""
 
     def __init__(self):
-        self.values = {"lat": 0.0, "lon": 0.0, "elev_m": 0.0, "gs_ms": 0.0,
+        self.values = {"lat": 0.0, "lon": 0.0, "elev_m": 0.0, "agl_m": 0.0,
+                       "gs_ms": 0.0,
                        "paused": 0, "local_x": 0.0, "local_z": 0.0,
                        "view_x": 0.0, "view_z": 0.0}
         self.generation = 1
@@ -195,6 +196,18 @@ def test_the_camera_is_the_aircraft_moved_by_the_view_offset():
     assert lat == pytest.approx(60.0 + 1000 / 111_320.0)
     assert lon == pytest.approx(-136.0 + 1000 / (111_320.0 * 0.5), rel=1e-4)
     assert WEBAPI.camera_position({"lat": 1.0, "lon": 2.0}) == (1.0, 2.0)
+
+
+def test_the_camera_height_is_y_agl_plus_the_view_offset():
+    """RULINGS 2026-11-12f: the plan reads the camera's height above the
+    ground; no ``y_agl`` reads as the ground (the ground plan)."""
+    rec = {"agl_m": 300.0, "local_y": 1000.0, "view_y": 1050.0}
+    assert WEBAPI.camera_agl_m(rec) == pytest.approx(350.0)
+    assert WEBAPI.camera_agl_m({"agl_m": 300.0}) == 300.0
+    assert WEBAPI.camera_agl_m({"agl_m": 2.0, "local_y": 10.0,
+                                "view_y": 0.0}) == 0.0   # below: clamped
+    assert WEBAPI.camera_agl_m({"lat": 1.0}) == 0.0
+    assert WEBAPI.camera_agl_m({"agl_m": None}) == 0.0
 
 
 def test_the_recorder_reads_through_the_engine_module():
@@ -447,6 +460,24 @@ def test_the_job_follows_flight_2_in_planner_order(xplane, tmp_path):
         "square=") == job.counts["landed"]
 
 
+def test_the_planner_sees_the_camera_height(xplane, tmp_path):
+    """The job hands the planner the camera's height above ground
+    (RULINGS 2026-11-12f): at FL350 the planner's own fetches hold no
+    full-resolution file for a 60 N square."""
+    job, _events, clock, _lander, _textures, _ = _job(xplane, tmp_path)
+    job.open()
+    xplane.values.update(agl_m=10_668.0)
+    _fly(job, xplane, clock, [(t, lat, lon, 10_900.0 - 8.0 * t, gs)
+                              for t, lat, lon, _alt, gs in REPLAY["pos"][:4]])
+    assert job.motion.agl_m == pytest.approx(10_668.0)
+    assert job.motion.vertical_ms == pytest.approx(-8.0, rel=0.05)
+    core = (set(job.spawn.episode.wants) if job.spawn.episode is not None
+            else set())
+    assert not [f for f in job.last_plan
+                if f.square not in core and f.tier == 3]
+    job.close()
+
+
 def test_no_fetch_starts_while_a_build_runs(xplane, tmp_path):
     building = {"on": False}
     job, events, clock, lander, _t, _i = _job(
@@ -518,6 +549,34 @@ def test_waiting_without_x_plane_then_a_clean_threaded_stop(tmp_path):
     counts = job.stop(timeout=5)
     assert not job.running and counts["state"] == "stopped"
     assert events[-1].state == "stopped"
+
+
+def test_a_tick_that_raises_is_logged_and_the_job_goes_on(tmp_path,
+                                                          monkeypatch):
+    """#2019: one bad record (a tick that raises) is a ``tick_error`` log
+    line; the job keeps ticking and never turns ``error``."""
+    index_path, _textures = _index_rows(tmp_path)
+    events, ticks = [], []
+    log = tmp_path / "od.log"
+    job = FOLLOW.FollowJob(
+        events.append, lander=FakeLander(), index_path=index_path,
+        reader=WEBAPI.PositionReader(WEBAPI.base_url(9, "127.0.0.1"),
+                                     timeout=0.2),
+        log_path=str(log), period_s=0.02)
+
+    def tick():
+        ticks.append(1)
+        if len(ticks) <= 2:
+            raise ValueError("lat is None")
+    monkeypatch.setattr(job, "tick", tick)
+    job.start()
+    deadline = time.time() + 5
+    while len(ticks) < 5:
+        assert time.time() < deadline, "TIMED_OUT"
+        time.sleep(0.02)
+    assert job.running and job.state != "error"
+    job.stop(timeout=5)
+    assert log.read_text(encoding="utf-8").count("tick_error") == 2
 
 
 def test_the_commands_start_one_job_and_stop_it(tmp_path, monkeypatch):

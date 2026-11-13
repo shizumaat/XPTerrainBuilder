@@ -68,7 +68,7 @@ import re
 import typing as _t
 
 __all__ = ["MIN_TILES", "SIZE_TOL", "EDGE_TOL", "MARGIN_M", "STACK_SHARE",
-           "Layer", "hidden_stacks", "grid_indices", "pack_photos"]
+           "Layer", "hidden_stacks", "grid_indices", "grid_boxes", "pack_photos"]
 
 #: the fewest tiles that make a grid
 MIN_TILES = 4
@@ -235,6 +235,22 @@ def grid_indices(layers: _t.Sequence[Layer]) -> set[int]:
     (1)-(2)), whether it is hidden or kept: the photo rule's own, which
     no other detector may take (``pack_ground_sheets``)."""
     return {i for fam in _families(layers) for g in _grids(fam) for i in g}
+
+
+def grid_boxes(layers: _t.Sequence[Layer]) -> dict[int, Box]:
+    """``{definition index: the box of its whole grid}`` for every layer of
+    a machine-named photo grid (witness (1)-(2)): the extent the photo is
+    a tile of, which ``pack_drapes`` witness (5) reads as the photo's size
+    when its own tile is small (issue #2036)."""
+    by_index = {ly.index: ly for ly in layers}
+    out: dict[int, Box] = {}
+    for fam in _families(layers):
+        for g in _grids(fam):
+            bs = [b for i in g for b in by_index[i].boxes]
+            box = (min(b[0] for b in bs), min(b[1] for b in bs),
+                   max(b[2] for b in bs), max(b[3] for b in bs))
+            out.update((i, box) for i in g)
+    return out
 
 
 def _grow(box: Box, metres: float) -> Box:

@@ -43,6 +43,7 @@ def window(qapp, tmp_path, monkeypatch):
     with open(prefs_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"output_dir": str(tmp_path)}, handle)
     monkeypatch.setattr(GUI, "PREFS_FILE", prefs_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     monkeypatch.setattr(
         GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "tile-scan.json"))
     monkeypatch.setattr(FNAMES, "_data_root_override", str(tmp_path))

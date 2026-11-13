@@ -89,8 +89,9 @@ def install_stub_pipeline(monkeypatch, results=None, hooks=None):
     tile_module.build_tile = make_step("imagery")
     overlay_module = types.ModuleType("O4_Overlay_Utils")
     _overlay_step = make_step("overlays")
-    # The session calls OVL.build_overlay(t.lat, t.lon); the stub ignores it.
-    overlay_module.build_overlay = lambda lat, lon: _overlay_step(None)
+    # The session calls OVL.auto_overlay(t.lat, t.lon, scenery dir) (#2021);
+    # the stub ignores them.
+    overlay_module.auto_overlay = lambda lat, lon, scenery_dir: _overlay_step(None)
 
     for module in (config_module, vector_module, mesh_module, mask_module,
                    tile_module, overlay_module):
@@ -154,7 +155,8 @@ def test_two_tile_build_emits_ordered_events(monkeypatch, tmp_path):
     tiles = [(10, 20), (11, 21)]
     events = run_build(session, tiles, tmp_path)
 
-    planned = ["vector", "mesh", "masks", "imagery"]
+    # a full tile gets its X-Plane overlay step automatically (#2021)
+    planned = ["vector", "mesh", "masks", "imagery", "overlays"]
     for lat, lon in tiles:
         tile_events = _tile_events(events, lat, lon)
         starts = [e for e in tile_events if isinstance(e, EV.StepProgress)]
@@ -309,17 +311,18 @@ def test_legacy_progress_bar_drives_stepprogress_and_eta(monkeypatch,
                                                          tmp_path):
     """progress_bar() calls during a step produce StepProgress events with
     rising percent, and RunEta events whose remaining_seconds is populated
-    once step estimates exist."""
-    def vector_hook(_tile):
+    once step estimates exist.  The masks step: the vector step moves by
+    its clock, not by the bar its sub-tasks each restart (#2045)."""
+    def masks_hook(_tile):
         for percentage in (20, 50, 90):
             UI.progress_bar(1, percentage)
 
-    install_stub_pipeline(monkeypatch, hooks={"vector": vector_hook})
+    install_stub_pipeline(monkeypatch, hooks={"masks": masks_hook})
     session = EngineSession()
     events = run_build(session, [(10, 20)], tmp_path)
 
     vector_steps = [e for e in events
-                    if isinstance(e, EV.StepProgress) and e.step_key == "vector"]
+                    if isinstance(e, EV.StepProgress) and e.step_key == "masks"]
     percents = [e.percent for e in vector_steps]
     assert percents == sorted(percents)      # never restarts / never dips
     assert percents[-1] > percents[0]        # the bar traffic moved it

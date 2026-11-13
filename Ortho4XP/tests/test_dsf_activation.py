@@ -327,7 +327,7 @@ def test_a_refused_overlay_install_keeps_the_previous_overlay(
     UI.engine_session = recorder = _Recorder()
     _refuse_replace(monkeypatch, error)
 
-    assert OVL.install_overlay_dsf(converted, destination) is False
+    assert OVL._install_overlay_dsf(converted, destination) is False
 
     assert recorder.named == [code]
     assert _read(destination) == b"previous overlay"
@@ -339,7 +339,7 @@ def test_an_overlay_the_converter_did_not_write_names_the_converter(
     UI.engine_session = recorder = _Recorder()
     destination = str(tmp_path / "+60+005.dsf")
 
-    assert OVL.install_overlay_dsf(str(tmp_path / "absent.dsf"),
+    assert OVL._install_overlay_dsf(str(tmp_path / "absent.dsf"),
                                    destination) is False
 
     assert recorder.named == ["overlay_tool_failed"]
@@ -352,7 +352,7 @@ def test_an_overlay_install_that_works(tmp_path):
     _write(converted, b"new overlay")
     UI.engine_session = recorder = _Recorder()
 
-    assert OVL.install_overlay_dsf(converted, destination) is True
+    assert OVL._install_overlay_dsf(converted, destination) is True
 
     assert recorder.named == []
     assert _read(destination) == b"new overlay"

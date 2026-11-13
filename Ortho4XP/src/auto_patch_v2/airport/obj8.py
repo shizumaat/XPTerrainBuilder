@@ -59,6 +59,7 @@ from .authored_seat import anchor_family_key, lifted_by_own_depth
 __all__ = ["ObjGeometry", "Component", "PlacedObject", "FloorWitness", "ObjReport", "parse_obj8",
            "solid_components", "library_index_path", "read_library_index",
            "resolve_resource", "is_stock_library_resource", "placement_affine",
+           "library_exports", "same_resource",
            "read_placed_objects", "above_grade_footprint", "at_grade_geometry", "ResourceCache",
            "derive_base_profile", "read_ahead", "ReadLaw", "read_placement",
            "placement_grounds",
@@ -413,6 +414,87 @@ def resolve_resource(def_path: str, pack_root: str | None,
         if phys and os.path.isfile(phys):
             return phys
     return None
+
+
+_LIBRARY_TXT: dict[str, tuple[float, dict[str, tuple[str, ...]]]] = {}
+
+
+def library_exports(lib_txt: str) -> dict[str, tuple[str, ...]]:
+    """``virtual.lower() -> every physical path`` one ``library.txt``
+    exports (the merged index keeps ONE path per virtual path — for the
+    trailer an ``EmptyObject.obj`` under the exact-case key)."""
+    try:
+        mtime = os.path.getmtime(lib_txt)
+    except OSError:
+        return {}
+    hit = _LIBRARY_TXT.get(lib_txt)
+    if hit is not None and hit[0] == mtime:
+        return hit[1]
+    root = os.path.dirname(lib_txt)
+    acc: dict[str, list[str]] = {}
+    try:
+        with open(lib_txt, "r", encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                t = raw.split()
+                if len(t) < 3 or not t[0].startswith("EXPORT"):
+                    continue
+                if t[0] == "EXPORT_RATIO":
+                    t = t[1:]
+                    if len(t) < 3:
+                        continue
+                phys = os.path.join(root, " ".join(t[2:]).replace("\\", "/"))
+                lst = acc.setdefault(t[1].replace("\\", "/").lower(), [])
+                if phys not in lst:
+                    lst.append(phys)
+    except OSError:
+        return {}
+    out = {k: tuple(v) for k, v in acc.items()}
+    _LIBRARY_TXT[lib_txt] = (mtime, out)
+    return out
+
+
+def _pack_library_txt(pack_root: str) -> str | None:
+    """The pack's own ``library.txt`` (any case: packs ship
+    ``Library.txt`` too), or ``None``."""
+    try:
+        names = os.listdir(pack_root)
+    except OSError:
+        return None
+    for name in names:
+        if name.lower() == "library.txt":
+            return os.path.join(pack_root, name)
+    return None
+
+
+def _norm_rel(path: str) -> str:
+    return os.path.normcase(os.path.normpath(
+        path.replace("\\", "/").lstrip("/")))
+
+
+def same_resource(def_path: str, resource: str,
+                  pack_root: str | None) -> bool:
+    """Does the DSF definition ``def_path`` name the pack file
+    ``resource`` (pack-relative, as a plan records it)?
+
+    THE ONE IDENTITY between a dump's definition and a plan's resource.
+    A definition is either the pack-relative file itself or a VIRTUAL
+    path the pack's own ``library.txt`` exports to it: KDEN's DSF places
+    ``XCD_KDEN/Jetways/Bridge_Old_Len_5.obj`` and the plan (which reads
+    the resolved file) records ``Objects/Jetways/Bridge_Old_Len_5.obj``
+    -- the same object, which a string compare refused (2026-11-12, no
+    placement written).  Any export row of the virtual path counts: a
+    region-split export names one object under another region."""
+    if not def_path or not resource:
+        return False
+    if _norm_rel(def_path) == _norm_rel(resource):
+        return True
+    lib = _pack_library_txt(pack_root) if pack_root else None
+    if not lib:
+        return False
+    want = os.path.normcase(os.path.normpath(os.path.join(pack_root, resource)))
+    key = def_path.replace("\\", "/").lstrip("/").lower()
+    return any(os.path.normcase(os.path.normpath(p)) == want
+               for p in library_exports(lib).get(key, ()))
 
 
 # ── placement → frame ────────────────────────────────────────────────────
@@ -794,6 +876,11 @@ class PlacedObject:
     #: -- one rigid body seated by its fit to the DEM, never read either: no
     #: witness, no deck, no feet
     terrain_fit: object | None = None
+    #: owner RULINGS 2026-11-13i (#2036 (c), #2040): the TERRAIN MODEL
+    #: (``terrain_model.TerrainModel``) whose origin set this placement is
+    #: in -- seated rigid with no visible edge floating, and like a
+    #: terrain feature never read (``terrain_feature`` is set too)
+    terrain_model: object | None = None
     #: owner RULINGS 2026-10-27t/u (#1201): the runway-end WALLED PLATE this
     #: placement belongs to (``model.walled_plate.WalledPlate``; set by
     #: ``airport/walled_plate.mark``), else ``None``
@@ -1276,7 +1363,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         depth_max_m: float = math.inf,
                         ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None,
                         msl_tol_m: float = 0.3,
-                        dem_many: "_t.Callable | None" = None
+                        dem_many: "_t.Callable | None" = None,
+                        fine: "_t.Callable | None" = None
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -1306,7 +1394,9 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     ``ahead(jobs, law)`` (issue #362) may answer the placements that have a
     component to read or a hard deck to union from a work pool —
     ``[read_placement(…)]`` in job order, or ``None`` — and the report is
-    absorbed in input order either way."""
+    absorbed in input order either way.  ``fine(xs, ys)`` says where
+    quality elevation covers a frame point (``terrain_model``'s hide
+    offer; ``None``: nowhere)."""
     cache = cache or ResourceCache(thickness_m)
     law = ReadLaw(admission_depth_m, contact_band_m, shell_reaches_grade,
                   floor_plate_normal_y_min, rim_reaches_grade,
@@ -1334,6 +1424,14 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     shaped = _ts.placement_fits([p[:4] for p in placements],
                                 lambda d: _ts.grid_of_resource(d, pack_root, index),
                                 dem_many or _ts.dem_many_of(dem_z))
+    # owner RULINGS 2026-11-13i: an object that models the terrain (matched
+    # to the DEM) is one rigid frame, seated so no visible edge floats
+    from . import terrain_model as _tm
+    models = _tm.set_members(placements, _tm.placement_models(
+        placements, lambda d: resolve_resource(d, pack_root, index),
+        lambda d: _geometry_of(d, pack_root, index, cache),
+        dem_many or _ts.dem_many_of(dem_z), fine))
+    features = features | frozenset(models)
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0
         if kind == "OBJECT_AGL" and elev is not None:
@@ -1358,7 +1456,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
                                     None, None, None, None, None, None,
                                     terrain_feature=oid in features,
-                                    terrain_fit=shaped.get(oid)))
+                                    terrain_fit=None if oid in models else shaped.get(oid),
+                                    terrain_model=models.get(oid)))
             continue
         if math.isnan(anchor_z):
             rep.no_dem_at_anchor += 1

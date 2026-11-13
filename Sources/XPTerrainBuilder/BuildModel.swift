@@ -77,6 +77,24 @@ final class BuildActivityModel: ObservableObject {
     /// Each row's step strip (#825): Map data → Airports → … → Install.
     /// Protocol builds only; a row without one shows no strip.
     @Published var stepStrips: [BuildModel.TileCoord: O4StepStrip] = [:]
+    /// Background airport-core sharpenings (#2039) outside a build (a
+    /// World publish, an adopt, a flight's endpoints; a build lands its own
+    /// cores in its imagery step, RULINGS 13p): one row per tile, in the
+    /// order they started — running under the build rows in Activity, a
+    /// finished one in Completed (#2052) until the next run begins.
+    /// Qt: `O4_Qt_Core_Rows`.
+    @Published var coreRows: [O4ImageryCoresProgress] = []
+
+    /// One `ImageryCoresProgress`: the tile's row, made or updated.
+    func showCores(_ progress: O4ImageryCoresProgress) {
+        if let index = coreRows.firstIndex(where: {
+            $0.lat == progress.lat && $0.lon == progress.lon
+        }) {
+            coreRows[index] = progress
+        } else {
+            coreRows.append(progress)
+        }
+    }
 
     /// Each row's place in the list (`ActivityOrder`).
     private var stamps: [BuildModel.TileCoord: ActivityOrder.Stamp] = [:]
@@ -131,6 +149,7 @@ final class BuildActivityModel: ObservableObject {
 
     /// A new run: its counters start at zero; earlier rows stay.
     func beginRun() {
+        coreRows.removeAll { !$0.running }
         elapsedSeconds = 0
         remainingSeconds = nil
         doneTiles = 0
@@ -244,16 +263,25 @@ final class BuildModel: ObservableObject {
         }
         set { zoom.chosen(); defaultZL = newValue }
     }
-    @AppStorage("OrthoCustomBuildDir") var customBuildDir: String = ""
+    /// Where tile build folders live, as the engine's `world_onboard` said
+    /// (RULINGS 2026-11-12g: the World folder's `XPTerrainBuilder_tiles`
+    /// once the data folder's tiles moved there). There is no custom build
+    /// folder any more: the retired `OrthoCustomBuildDir` is handed to the
+    /// engine once (`WorldOnboardSheet.swift`) and cleared. Kept between
+    /// launches so the first scan reads the right folder before the
+    /// engine's answer comes.
+    @AppStorage("WorldTilesDir") var worldTilesDir: String = ""
     /// Step groups, matching the Qt build box's three checkboxes.
     @AppStorage("OrthoDoVector") var doVector: Bool = true
     @AppStorage("OrthoDoImagery") var doImagery: Bool = true
-    @AppStorage("OrthoDoOverlays") var doOverlays: Bool = false
+    /// X-Plane's roads, forests and buildings are automatic (#2021, RULINGS
+    /// 2026-11-12e): the engine adds the overlay step to every full tile and
+    /// skips a tile other scenery covers, so the app never asks for it (the
+    /// `OrthoDoOverlays` switch is retired).
+    let doOverlays = false
     @AppStorage("OrthoSkipBuilt") var skipBuilt: Bool = true
     /// Install finished tiles into Custom Scenery automatically.
     @AppStorage("OrthoLinkTiles") var linkTiles: Bool = true
-    /// An explicit rebuild is choosing its tiles (BuildModel+OnDemandBuild).
-    var rebuildRequested = false
 
     // MARK: Engine state
 
@@ -267,9 +295,11 @@ final class BuildModel: ObservableObject {
     /// Launch-time liveness per source code; absent = unknown (enabled).
     @Published private(set) var imageryStatus: [String: O4ImageryStatus] = [:]
     /// The World pack's last `WorldStatus` (capability `world_pack`,
-    /// World spec §5.3); nil before the engine sent one. The Fly and
-    /// Library panes read it.
+    /// World spec §5.3); nil before the engine sent one. The Fly pane
+    /// reads it.
     @Published private(set) var worldStatus: O4WorldStatus?
+    /// Rescans the map when a World or flight job swaps a tile in.
+    private var worldSwaps = WorldSwapWatch()
     private var imageryStatusChecked = false
     @Published private(set) var missingPackages: [String]?
     @Published private(set) var globalConfigValues: [String: O4Value] = [:]
@@ -286,6 +316,10 @@ final class BuildModel: ObservableObject {
         didSet { adoptArrivedTileConfig() }
     }
     @Published private(set) var installed: Set<TileCoord> = []
+    /// What the World pack draws on each tile it knows (#2024, the scan's
+    /// `ScanBatch.world`): the map's state colours and the Library's
+    /// World column. A tile not here has nothing.
+    @Published private(set) var worldTiles: [TileCoord: O4WorldTile] = [:]
     /// Built tiles whose textures folder mixes imagery sources (only one
     /// can be used) — warning badges on the map + selection pane.
     @Published private(set) var conflictTiles: Set<TileCoord> = []
@@ -305,6 +339,7 @@ final class BuildModel: ObservableObject {
     @Published private(set) var scanPhase = ""
     private var scanAccumBuilt: [TileCoord: O4TileInfo] = [:]
     private var scanAccumInstalled: Set<TileCoord> = []
+    private var scanAccumWorld: [TileCoord: O4WorldTile] = [:]
     /// (elapsed, remaining) pairs from recent runEta events — the
     /// climbing-estimate detector's window.
     private var etaSamples: [(at: Double, value: Double)] = []
@@ -412,7 +447,9 @@ final class BuildModel: ObservableObject {
     let imageryFollow = ImageryFollowModel()
     /// Build · Fly · Library (RULINGS 2026-11-10j) and the Fly offer.
     let appMode = AppModeModel()
-    /// Library mode's table (#2006/#2007): kept across mode switches.
+    /// Convert existing tiles' one run (onboarding and Settings ▸ Storage).
+    let worldMigrate = WorldMigrateRun()
+    /// The tiles table's model (#2006), parked with it (RULINGS 2026-11-11k).
     let library = LibraryModel()
     let console = BuildConsoleModel()
     /// The one date filter of the Build History list and the map (#1226).
@@ -773,24 +810,17 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    /// The custom build dir in the form the engine expects: a TRAILING
-    /// SEPARATOR means "create zOrtho4XP_* subfolders here"; without it the
-    /// engine uses the path verbatim as one tile's build dir and dumps the
-    /// tile's contents straight into it (legacy convention — the Qt GUI
-    /// appends the separator the same way).
-    var engineCustomBuildDir: String {
-        guard !customBuildDir.isEmpty else { return "" }
-        return customBuildDir.hasSuffix("/") ? customBuildDir : customBuildDir + "/"
-    }
-
     var tileBaseFolder: URL? {
         guard let engine else { return nil }
-        if !customBuildDir.isEmpty {
-            return URL(fileURLWithPath: customBuildDir, isDirectory: true)
+        // The engine's answer first (RULINGS 2026-11-12g: the World folder
+        // is the tiles' home once the data folder's tiles moved there).
+        if !worldTilesDir.isEmpty,
+           FileManager.default.fileExists(atPath: worldTilesDir) {
+            return URL(fileURLWithPath: worldTilesDir, isDirectory: true)
         }
-        // Tiles live under the data folder; the engine puts them there too
-        // (ORTHO4XP_DATA_ROOT). No data root chosen yet → the engine's own
-        // Tiles/, the pre-data-root behavior.
+        // Until then tiles live under the data folder; the engine puts them
+        // there too (ORTHO4XP_DATA_ROOT). No data root chosen yet → the
+        // engine's own Tiles/, the pre-data-root behavior.
         if let dataRoot = dataRootURL {
             return dataRoot.appendingPathComponent("Tiles", isDirectory: true)
         }
@@ -890,6 +920,7 @@ final class BuildModel: ObservableObject {
         guard let client, let base = tileBaseFolder else { return }
         scanAccumBuilt = [:]
         scanAccumInstalled = []
+        scanAccumWorld = [:]
         isScanning = true
         client.send(command: "scan", arguments: [
             "working_dir": base.path,
@@ -1038,13 +1069,14 @@ final class BuildModel: ObservableObject {
             reloadGlobalConfig()
             checkPatchLibraryAtLaunch()
             checkWorldOnboardAtLaunch()
+            startAutoMeasure()      // Convert's Measure, by itself (owner 2026-11-12)
         case .stderr(let line):
             console.append(line)
         case .log(_, let line, let tile):
             console.append(line, tile: tile)
         case .scanProgress(let phase, _, _):
             scanPhase = phase
-        case .scanBatch(let builtTriples, let installedPairs):
+        case .scanBatch(let builtTriples, let installedPairs, let worldRows):
             for (lat, lon, info) in builtTriples {
                 if let tileInfo = O4TileInfo(json: info) {
                     scanAccumBuilt[TileCoord(lat: lat, lon: lon)] = tileInfo
@@ -1053,12 +1085,19 @@ final class BuildModel: ObservableObject {
             for (lat, lon) in installedPairs {
                 scanAccumInstalled.insert(TileCoord(lat: lat, lon: lon))
             }
+            var worldBatch: [TileCoord: O4WorldTile] = [:]
+            for (lat, lon, tile) in worldRows {
+                worldBatch[TileCoord(lat: lat, lon: lon)] = tile
+            }
+            scanAccumWorld.merge(worldBatch) { _, new in new }
             // Stream into the live maps; ScanDone swaps in the final truth.
             built.merge(scanAccumBuilt) { _, new in new }
             installed.formUnion(scanAccumInstalled)
+            if !worldBatch.isEmpty { worldTiles.merge(worldBatch) { _, new in new } }
         case .scanDone:
             built = scanAccumBuilt
             installed = scanAccumInstalled
+            worldTiles = scanAccumWorld
             isScanning = false
             scanPhase = ""
             syncConsoleView()
@@ -1075,6 +1114,7 @@ final class BuildModel: ObservableObject {
         case .tileState(let lat, let lon, let state, let label, let percent, let detail,
                         let attempt):
             let coord = TileCoord(lat: lat, lon: lon)
+            adoptEngineQueued(coord, state: state, label: label)
             let state = TileProgress.State(rawValue: state) ?? .queued
             applyTileEvent(TileProgress(
                 state: state,
@@ -1258,6 +1298,8 @@ final class BuildModel: ObservableObject {
             packAdjust(adjust)
         case .gatewayAirports(let offer):
             gatewayAirports(offer)
+        case .packPackage(let shipped):
+            packPackage(shipped)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -1265,16 +1307,23 @@ final class BuildModel: ObservableObject {
             break // the engine's scheduling signal; the tile's row moves on its own
         case .imagerySourceStatus(let code, let status):
             imageryStatus[code] = status
+        case .imageryCoresProgress(let progress):
+            activity.showCores(progress) // its Activity row (#2039)
         case .imageryFollowStatus(let status):
             imageryFollow.show(status) // the Fly pane's follow line (#1992 P4)
             fly.preview.followLanded(status.landed) // a tier landed (#2001)
             appMode.observe(status)    // offers Fly, never switches (10j)
+        case .worldMigrateProgress(let count):
+            worldMigrate.show(count)   // Convert's bar (owner 2026-11-11)
         case .worldStatus(let status):
             worldStatus = status
+            fly.showWorld(status)      // the Fly pane's World line and map
+            if worldSwaps.worldStatus(status) { rescan() } // the map shows the swap
         case .aircraftPosition(let position):
             fly.show(position)         // the Fly map's aircraft (#2001)
         case .flightStatus(let status):
             fly.show(status)           // the Fly pane's flight (F1b)
+            if worldSwaps.flightStatus(status) { rescan() } // its tile is in the World pack
         case .flightNotice(let notice):
             fly.show(notice)           // a system notification (F2)
         case .flightReady(let reply):
@@ -1418,13 +1467,13 @@ final class BuildModel: ObservableObject {
         return (client, base.path, customSceneryPath)
     }
 
-    /// Library ▸ Rebuild: select those tiles (adopting the active one's
+    /// The tiles table's Rebuild: select those tiles (adopting the active one's
     /// recorded source) and press Build.
     func rebuild(_ coords: [TileCoord]) {
         guard !coords.isEmpty else { return }
         selected = Set(coords)
         activeTile = coords.sorted().first
-        asRebuild { startBuild() }
+        startBuild()
     }
 
     // MARK: - Reanchor status (auto-patch object reseating)
@@ -1595,11 +1644,17 @@ final class BuildModel: ObservableObject {
 
     /// Tiles the next Build press would actually build.
     var buildableSelection: [TileCoord] {
-        let inRun = selectedInRun
-        return selected.sorted().filter { coord in
-            guard !inRun.contains(coord) else { return false }
-            return !skipsBuiltTiles || built[coord]?.dsfPresent != true
-        }
+        Self.buildable(selected: selected, inRun: selectedInRun,
+                       builtWithDSF: skipsBuiltTiles ? Set(selected.filter { built[$0]?.dsfPresent == true }) : [])
+    }
+
+    /// The selected tiles a Build or Queue press hands the engine, sorted:
+    /// none already queued or building in the run, none the Skip switch
+    /// leaves out (`skipped`: built tiles, empty when nothing is skipped).
+    /// Every other selected tile, a run going or not (#2043).
+    nonisolated static func buildable(selected: Set<TileCoord>, inRun: Set<TileCoord>,
+                                      builtWithDSF skipped: Set<TileCoord>) -> [TileCoord] {
+        selected.subtracting(inRun).subtracting(skipped).sorted()
     }
 
     /// Why a build cannot start for want of X-Plane data, or `nil`.
@@ -1639,6 +1694,9 @@ final class BuildModel: ObservableObject {
     var patchLibraryCheckedAtLaunch = false
     /// The start's World onboarding (#2007): asked once when shown.
     @Published var worldOnboard: O4WorldOnboard?
+    /// Settings ▸ Storage's one model (#2029): the engine measures in the
+    /// background; the pane shows the last result at once.
+    let storage = StorageModel()
     var worldOnboardChecked = false
 
     @Published private(set) var planEstimate: O4PlanEstimate?
@@ -1656,7 +1714,7 @@ final class BuildModel: ObservableObject {
     /// `plan_estimate` that the Build box can change.
     var planEstimateKey: String {
         [buildableSelection.map(\.key).joined(separator: ","), buildProvider, String(buildZL),
-         customBuildDir, "\(doVector)\(doImagery)\(doOverlays)", "\(isBuilding)",
+         "\(doVector)\(doImagery)\(doOverlays)", "\(isBuilding)",
          protocolHello?.protocolVersion ?? ""].joined(separator: "|")
     }
 
@@ -1678,7 +1736,7 @@ final class BuildModel: ObservableObject {
             let estimate = try await client.planEstimate(
                 tiles: tiles.map { O4TileRef(lat: $0.lat, lon: $0.lon) },
                 provider: buildProvider, zoomlevel: buildZL,
-                customBuildDir: engineCustomBuildDir,
+                customBuildDir: "",
                 doVector: doVector, doImagery: doImagery, doOverlays: doOverlays)
             guard !Task.isCancelled else { return }
             planEstimate = estimate
@@ -1902,6 +1960,54 @@ final class BuildModel: ObservableObject {
                           boundaryPolicy: boundaryPolicy, overrides: batch.overrides)
     }
 
+    /// The engine takes `tiles` now: the run opens with them, or they join
+    /// the one in progress.
+    private func openRunOrQueue(_ tiles: [TileCoord]) {
+        if !isBuilding {
+            activity.beginRun()
+            isBuilding = true
+            isStopping = false
+            // A previous run that died without RunDone leaves nothing in
+            // this run's report (#562).
+            runIssueLog.begin()
+            // THE RUN BOUNDARY: the build request that opens a run starts a
+            // fresh engine-stderr.log (twin: O4_Qt_GUI._start_run_now).
+            EngineStderrLog.shared.startRun(
+                appVersion: AppVersion.current,
+                engineVersion: protocolHello?.version ?? schema.engineVersion,
+                tiles: tiles.map(\.key))
+        } else {
+            EngineStderrLog.shared.append(
+                EngineStderrLog.queuedLine(tiles: tiles.map(\.key)))
+        }
+        clearProgressTask?.cancel()
+    }
+
+    /// Put `queued` on the Activity list as queued rows.
+    private func queueActivityRows(_ queued: [TileCoord]) {
+        // Every attempt starts its step strip afresh (#825); a row still
+        // live in this run keeps its own, as `queueRows` keeps the row.
+        for coord in queued
+        where activity.tiles[coord].map(BuildActivityModel.isFinished) ?? true {
+            activity.stepStrips[coord] = O4StepStrip()
+        }
+        activity.queueRows(queued)
+        stampRunTags(queued)
+    }
+
+    /// A full build the engine queued by itself — the Fly view's flight or
+    /// build-ahead (#2030) — gets the normal row: its progress, clock,
+    /// stop and outcome come through the normal events from here on.
+    /// Resuming it after a stop uses the Build box's settings.
+    private func adoptEngineQueued(_ coord: TileCoord, state: String, label: String) {
+        let row = activity.tiles[coord].map { (state: $0.state.rawValue, label: $0.label) }
+        guard ActivityOrder.opensRow(state: state, label: label, row: row),
+              !stopPending.contains(coord), heldForStop[coord] == nil else { return }
+        openRunOrQueue([coord])
+        queueActivityRows([coord])
+        console.append("=== Fly queued 1 tile: \(coord.key) ===", tile: coord.key)
+    }
+
     private func sendProtocolBuild(_ tiles: [TileCoord], provider: String, zl: Int,
                                    boundaryPolicy: String?,
                                    overrides: [String: Bool] = [:]) {
@@ -1916,38 +2022,12 @@ final class BuildModel: ObservableObject {
         for coord in split.hold {
             heldForStop[coord] = HeldRequeue(settings: settings, boundaryPolicy: boundaryPolicy)
         }
-        if todo.isEmpty {
-            // Nothing goes to the engine yet.
-        } else if !isBuilding {
-            activity.beginRun()
-            isBuilding = true
-            isStopping = false
-            // A previous run that died without RunDone leaves nothing in
-            // this run's report (#562).
-            runIssueLog.begin()
-            // THE RUN BOUNDARY: the build request that opens a run starts a
-            // fresh engine-stderr.log (twin: O4_Qt_GUI._start_run_now).
-            EngineStderrLog.shared.startRun(
-                appVersion: AppVersion.current,
-                engineVersion: protocolHello?.version ?? schema.engineVersion,
-                tiles: todo.map(\.key))
-        } else {
-            EngineStderrLog.shared.append(
-                EngineStderrLog.queuedLine(tiles: todo.map(\.key)))
-        }
-        clearProgressTask?.cancel()
+        if !todo.isEmpty { openRunOrQueue(todo) }
         // Every enqueue — Build, Queue, Resume, Rebuild — puts the tile's
         // row back to queued with no clock (#1326): a row left "stopped"
         // would drop the new attempt's events as the stopped one's.
         let queued = todo + split.hold
-        // Every attempt starts its step strip afresh (#825); a row still
-        // live in this run keeps its own, as `queueRows` keeps the row.
-        for coord in queued
-        where activity.tiles[coord].map(BuildActivityModel.isFinished) ?? true {
-            activity.stepStrips[coord] = O4StepStrip()
-        }
-        activity.queueRows(queued)
-        stampRunTags(queued)
+        queueActivityRows(queued)
         // The settings this tile is being STARTED with — what a later
         // resume of it must use.
         for coord in queued {
@@ -1959,7 +2039,7 @@ final class BuildModel: ObservableObject {
             "tiles": todo.map { [$0.lat, $0.lon] },
             "provider": provider,
             "zoomlevel": zl,
-            "custom_build_dir": engineCustomBuildDir,
+            "custom_build_dir": "",
             "do_vector": doVector,
             "do_imagery": doImagery,
             "do_overlays": doOverlays,
@@ -2257,6 +2337,23 @@ final class BuildModel: ObservableObject {
             gatewayAirportsPrompt = offer
         } else {
             gatewayAirportsQueue.append(offer)
+        }
+    }
+
+    /// Packages already noticed this session (one per package and state).
+    private var packPackagesSeen: Set<String> = []
+
+    /// A pack's shipped `.xptb` (RULINGS 2026-11-11m (4); parity with the
+    /// Qt window's `_on_pack_package`): the tile's log line every build, a
+    /// notification once per package and state, and for a "conflict" the
+    /// install sheet on the package (the 11l (3) question).
+    private func packPackage(_ shipped: O4PackPackage) {
+        console.append(shipped.text, tile: TileCoord(lat: shipped.lat, lon: shipped.lon).key)
+        guard packPackagesSeen.insert("\(shipped.path)|\(shipped.state)").inserted else { return }
+        FlightNotifier.post(title: "XPTerrainBuilder", body: shipped.text,
+                            id: "pack-\(shipped.pack)-\(shipped.state)")
+        if shipped.state == "conflict" {
+            TilePackageModel.shared.offer([URL(fileURLWithPath: shipped.path)], build: self)
         }
     }
 
@@ -3222,7 +3319,7 @@ final class BuildModel: ObservableObject {
         let job = OrthoBuildJob(
             lat: tile.lat, lon: tile.lon, steps: legacySteps(),
             provider: buildProvider.isEmpty ? nil : buildProvider,
-            zl: buildZL, buildDir: engineCustomBuildDir)
+            zl: buildZL, buildDir: "")
         console.append("=== Tile \(tile.key) ===")
         let runner = OrthoBuildRunner()
         legacyRunner = runner

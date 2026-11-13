@@ -742,7 +742,9 @@ def _ramp_figures(ramps: _t.Sequence[_t.Mapping[str, _t.Any]], design: float,
 
 def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                       profiles=None, retaining: _t.Sequence = (),
-                      foot: _t.Mapping[int, float] | None = None) -> RampTargets:
+                      foot: _t.Mapping[int, float] | None = None, *,
+                      deck_ends: _t.Mapping[int, tuple[float, float]] | None = None
+                      ) -> RampTargets:
     """§37 (6)'s target for every groundside-road vertex, AS A FUNCTION OF
     (ROUTE, STATION) ALONE — §37 (8)'s "the ramp target is the road's
     CENTRELINE profile per station" (owner RULINGS 2026-09-13bb).
@@ -800,6 +802,18 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     mouth's is.  MEASURED KMCI ``small_roads:-12627`` shares five ring
     vertices with lot ``dsf:objpav660`` (foot 299.82 m) and carried "ramp
     to the DEM" targets 303.29-303.43 m there: the lot tilted to 301.47 m.
+
+    ``deck_ends`` -- A ROAD LEAVES A PACK DECK'S END AS IT LEAVES A FOOT LOT
+    (#1971, spec ``interchange-levels-v2-20261113.md`` §3.4; owner question
+    Q1's default): ``{vertex: (zero + the plate's top, distance to the end
+    line)}`` of a deck stack's end-line road vertices (``airport/deck_ends.
+    deck_end_seeds``: the end line and the approach slab beyond it).  They
+    join the feet with ONE difference, the HOLD: a vertex ``d`` beyond the
+    end line seeds the descent at ``top + g x (H - d)`` and the cut at
+    ``top - g x (H - d)`` (``g`` the design grade, ``H`` ``[bridge]
+    abutment_sample_step_m``), so the ramp starts one sample step out of
+    the end line and the road keeps the deck's level over that step (each
+    vertex itself is held at the top by ``constraints/deck_stack``).
     """
     roads = _road_roles(law)
     owned = _owned(pm, roads, law)
@@ -922,7 +936,16 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                                if z < floor_of[v] - STAND_M}}
     rep["foot_seeds"] = len(seeds) - len(mouths)
     rep["foot_cuts"] = sum(1 for v, z in feet.items() if z < floor_of[v] - STAND_M)
-    rep["_foot"] = frozenset(feet)
+    # #1971 v2 §3.4: the deck ends, a foot with the HOLD (docstring)
+    step = float(law.tables.structures.bridge.abutment_sample_step_m)
+    holds = {v: float(rc.ramp_grade) * max(0.0, step - float(off))
+             for v, (_z, off) in (deck_ends or {}).items() if v in floor_of}
+    ends = {v: float(z) for v, (z, _off) in (deck_ends or {}).items() if v in floor_of}
+    seeds.update({v: z + holds[v] for v, z in ends.items() if z > floor_of[v] + STAND_M})
+    cut_from.update({v: z - holds[v] for v, z in ends.items() if z < floor_of[v] - STAND_M})
+    rep["deck_end_seeds"] = sum(1 for v, z in ends.items() if z > floor_of[v] + STAND_M)
+    rep["deck_end_cuts"] = sum(1 for v, z in ends.items() if z < floor_of[v] - STAND_M)
+    rep["_foot"] = frozenset(feet) | frozenset(ends)
 
     def _level(v: int) -> float | None:
         return seeds[v] if v in seeds else floor_of.get(v)
@@ -1997,8 +2020,10 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     # terrace, and the rows across it from the road (``wall_release``)
     walls = wall_pieces(airport, service) + mouth_wall_pieces(pm)
     retaining = tuple(w.poly for w in walls if w.retains)
+    from .deck_ends import deck_end_seeds
     tg = road_ramp_targets(pm, law, airport, profiles, retaining,
-                           _foot_vertices(pm, law, walls) if walls else None)
+                           _foot_vertices(pm, law, walls) if walls else None,
+                           deck_ends=deck_end_seeds(pm, law, airport))
     frame = tg.frame
     frep = tg.report.pop("_frame_report", {})
     frep.pop("_ways", None)            # the Way objects are not a report

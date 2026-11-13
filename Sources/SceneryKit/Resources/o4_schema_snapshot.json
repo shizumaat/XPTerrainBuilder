@@ -26,13 +26,15 @@
    "storage_auto_clean_days",
    "storage_cache_caps_gb",
    "storage_budget_gb",
+   "storage_tiers",
    "imagery_on_demand_cap_gb",
    "ondemand_lead_s",
    "ondemand_lands_per_s",
    "xplane_web_api_port",
-   "world_intermediate",
+   "drape_photo_px",
    "fly_build_slots",
    "fly_sim_priority",
+   "fly_photo_source",
    "custom_scenery_dir",
    "custom_overlay_src",
    "custom_overlay_src_alternate",
@@ -462,6 +464,22 @@
    "name": "distance_masks_too",
    "type": "bool"
   },
+  "drape_photo_px": {
+   "default": 512,
+   "hint": "Photo detail of the tiles laid over X-Plane's own ground ahead of the aircraft (tiles you have not built). Higher detail takes longer to fetch, so fewer tiles are ready in time at speed; airports you build stay full builds.",
+   "name": "drape_photo_px",
+   "type": "int",
+   "valueLabels": {
+    "1024": "Sharper (1024 px: about 2 min and 350 MB a tile)",
+    "4096": "Full detail (4096 px: about 12 min and 5 GB a tile)",
+    "512": "Quick (512 px: about 1.5 min and 90 MB a tile)"
+   },
+   "values": [
+    "512",
+    "1024",
+    "4096"
+   ]
+  },
   "dsf_bathymetry": {
    "default": "auto",
    "hint": "Where the X-Plane 12 DSF gets its sea level (bathymetry) raster, which drives the simulator's depth-aware water light filtering. Auto copies the raster from the installed Global Scenery as before, and synthesizes it from measured coastal depths when that Global Scenery tile is not installed. On additionally replaces the sea part of the copied raster with measured depths where a bathymetry provider covers the tile. Only meaningful with water_tech=XP12.",
@@ -539,6 +557,12 @@
     "3",
     "4"
    ]
+  },
+  "fly_photo_source": {
+   "default": "auto",
+   "hint": "Where the tiles laid while flying get their photo: Automatic takes each tile's national orthophoto service where one covers it, else Bing; a source chosen here draws every tile.",
+   "name": "fly_photo_source",
+   "type": "str"
   },
   "fly_sim_priority": {
    "default": "balanced",
@@ -1726,6 +1750,12 @@
    "name": "storage_cache_caps_gb",
    "type": "str"
   },
+  "storage_tiers": {
+   "default": "",
+   "hint": "Other drives that may keep sharp imagery, as JSON {\"/Volumes/Drive\": GB}. A texture the disk budget makes low-res again moves there while the drive is connected and lands back from it; without the drive it is downloaded again. Set in Settings > Storage > Storage tiers.",
+   "name": "storage_tiers",
+   "type": "str"
+  },
   "terrain_casts_shadows": {
    "default": true,
    "hint": "If unset, the terrain itself will not cast (but still receive!) shadows. This option is only meaningful if scenery shadows are opted for in the X-Plane graphics settings.",
@@ -1807,20 +1837,6 @@
    "hint": "Spacing of the working elevation grid (the .alt raster the mesher reads). \"auto\" (default) keeps the historic 1 arc-second grid when the tile has no cached airport elevation insets (byte-identical to before), and densifies to the coarsest of 1/2 or 1/3 arc-second whose ideal-bake error at the stored acceptance probes stays within 1 metre when insets are present, so meter-class airport relief is not lost to the grid floor. An explicit value (\"1\", \"1/2\", \"1/3\") pins the spacing.",
    "name": "working_grid_arc_seconds",
    "type": "str"
-  },
-  "world_intermediate": {
-   "default": "light",
-   "hint": "What the app builds ahead of the aircraft by itself for tiles not built yet. Stays a setting until the drape test flight decides (spec decision point D1).",
-   "name": "world_intermediate",
-   "type": "str",
-   "valueLabels": {
-    "drape": "Photo, quick (laid over X-Plane's own ground)",
-    "light": "Built tiles (mesh at 90 m, no airport work)"
-   },
-   "values": [
-    "light",
-    "drape"
-   ]
   },
   "xplane_web_api_port": {
    "default": 8086,

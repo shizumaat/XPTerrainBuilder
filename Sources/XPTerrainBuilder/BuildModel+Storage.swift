@@ -20,4 +20,15 @@ extension BuildModel {
             if !warning.isEmpty { self?.console.append(warning) }
         }
     }
+
+    /// Convert existing tiles' Measure, by itself (owner 2026-11-12T19:08Z):
+    /// at the engine's start and after each Convert step, the kept measure
+    /// is shown and, when Custom Scenery holds per-tile packs (or tiles to
+    /// adopt again) and none is kept or it changed since, one starts in the
+    /// background (`WorldMigrateRun.startAuto`).
+    func startAutoMeasure() {
+        guard engineCapabilities.supports(O4EngineCapabilities.worldMeasure),
+              let context = libraryContext() else { return }
+        worldMigrate.startAuto(client: context.client, sceneryDir: context.sceneryDir)
+    }
 }

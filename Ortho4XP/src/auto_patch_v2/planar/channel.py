@@ -59,6 +59,7 @@ from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
 from .channel_floor import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
                             channel_floor as _floor)
 from .channel_stretch import witnessed_stretch
+from .channel_strip import strip_refusal, strips_crossed
 from .channel_depth import (cut_feet, cut_halves, cut_points, cut_profile, cut_span,
                             extend_axis)
 from .structure_underpass import aeroway_decks
@@ -721,6 +722,14 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
             f"{'+'.join(str(int(c.way.id)) for c in grp)} at {ll(axis_fn(ss[0]))} -> "
             f"{ll(axis_fn(ss[-1]))}")
         return None
+    # §45 (22) PROPOSED (#2038): a neck never infers a cut in a runway's
+    # graded strip (``planar/channel_strip``)
+    if datum == DATUM_CLEARANCE and _wits(grp) == {WITNESS_NECK} and not half_walls:
+        crossed = strips_crossed(airport, law, axis_ln, ends, half_at)
+        if crossed:
+            stats.refused.append(strip_refusal(cid, (c.way.id for c in grp), crossed,
+                                               len(decks)))
+            return None
     # §45 (12): a channel with NO DEPTH WITNESS — no pack walls (3) (i),
     # no credible lidar (3) (ii), so the floor is (3) (iii)'s "Cut the
     # road down" — needs more than one crossing, WHATEVER witnessed it.

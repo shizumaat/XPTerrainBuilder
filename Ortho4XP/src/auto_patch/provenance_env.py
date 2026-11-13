@@ -135,6 +135,10 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_REBUILD_CACHE_DIR":
         "where the tiles' rebuild data is kept (RULINGS 2026-11-10d); the "
         "airport build reads nothing there",
+    "O4_WORLD_HOME_POINTER":
+        "which file names the World folder as the tiles' home (RULINGS "
+        "2026-11-12g/h); it moves where a tile folder lives, never what "
+        "an airport build writes",
     "O4_HARNESS_IN_LEDGER": "the harness's own re-entry marker",
     "O4_HARNESS_PYTHON": "which interpreter the lane ritual uses",
     "O4_RUN_LEDGER_PATH": "where the run ledger is kept",

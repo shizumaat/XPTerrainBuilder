@@ -1,0 +1,9 @@
+{
+ "event": "WorldMigrateProgress",
+ "seq": 41,
+ "ts": 1762874400.5,
+ "phase": "measure",
+ "done": 3,
+ "total": 12,
+ "tile": "zOrtho4XP_+45+007"
+}

@@ -204,6 +204,19 @@ def test_the_osm_witness_names_the_feeds_the_load_could_read(cyxy, tmp_path):
     assert O.feed_witness(str(root), 60, -136) != before
 
 
+
+def test_the_osm_content_stamp_is_what_the_gate_recomputes(cyxy):
+    """#2050: the load's ``o4_osm_content`` is exactly the gate's
+    ``osm_content.content_stamp`` over the box it names — the two sides
+    of the content key can never disagree on an unchanged corpus."""
+    from auto_patch_v2.airport import osm_content as OC
+    a, rep = cyxy
+    lat, lon, radius, feeds = OC.parse_stamp(rep.osm_content)
+    assert set(feeds) == set(O.FEEDS) and radius == 0.05
+    assert OC.content_stamp(str(FIX / "OSM_data"), lat, lon, radius) == \
+        rep.osm_content
+
+
 # ── DSF ──────────────────────────────────────────────────────────────────
 
 def test_dsf_dump(cyxy):

@@ -96,6 +96,22 @@ import Foundation
         }
     }
 
+    /// #2025: the adopted endpoint's question and buttons give the Python
+    /// words, and the fixture's status carries its row.
+    @Test func adoptedChoiceWords() {
+        #expect(Self.status.choices.count == 1)
+        #expect(Self.status.choices.first?.patched == "yes")
+        for c in Self.cases("choices") {
+            guard let row = O4FlightStatus.Choice.parse(c[0]) else {
+                Issue.record("choice row does not decode")
+                continue
+            }
+            #expect(FlyText.choiceQuestion(row) == c[1].stringValue)
+            #expect(FlyText.choiceKeepLabel(row) == c[2].stringValue)
+            #expect(FlyText.choiceUpgradeLabel(row) == c[3].stringValue)
+        }
+    }
+
     @Test func countdownAndItems() {
         for c in Self.cases("countdown") {
             #expect(FlyText.countdown(c[0].doubleValue) == c[1].stringValue)
@@ -116,9 +132,11 @@ import Foundation
             #expect(FlyText.planRowLabel(row) == c[1].stringValue)
         }
         for c in Self.cases("quick_plan") {
-            let d = c[0].arrayValue!, a = c[1].arrayValue!
+            let d = c[0].arrayValue!
+            // #2023: a null arrival is a departure-only plan.
+            let arrival = c[1].arrayValue.map { a in (a[0].stringValue!, a[1].doubleValue!, a[2].doubleValue!) }
             let made = O4FlightPlanRead.quick(from: (d[0].stringValue!, d[1].doubleValue!, d[2].doubleValue!),
-                                              to: (a[0].stringValue!, a[1].doubleValue!, a[2].doubleValue!))
+                                              to: arrival)
             let want = try #require(Self.plan(c[2]))
             #expect(made.origin == want.origin && made.destination == want.destination)
             #expect(made.waypoints == want.waypoints && made.source == want.source)
@@ -133,6 +151,27 @@ import Foundation
             let lines = (c[2].arrayValue ?? []).compactMap(\.stringValue)
             #expect(FlyText.cardLines(Self.plan(c[0])!, cruise: c[1].doubleValue!) == lines)
         }
+        let departureOnly = Self.cases("departure_only")
+        #expect(departureOnly.count >= 3)
+        for c in departureOnly {
+            #expect(FlyText.departureOnly(Self.plan(c[0])) == c[1].boolValue)
+        }
+        let added = Self.cases("added_destination")
+        #expect(added.count >= 6)
+        for c in added {
+            let got = FlyText.addedDestination(O4FlightStatus.parse(c[0]), Self.plan(c[1]))
+            #expect(got?.ident == c[2]["ident"]?.stringValue)
+            #expect(got?.lat == c[2]["lat"]?.doubleValue)
+            #expect(got?.lon == c[2]["lon"]?.doubleValue)
+        }
+        let clicks = Self.cases("map_click_field")
+        #expect(clicks.count == 10)
+        for c in clicks {
+            let got = FlyText.mapClickField(command: c[0].boolValue ?? false,
+                                            from: c[1].stringValue ?? "", to: c[2].stringValue ?? "")
+            #expect(got?.rawValue == c[3].stringValue, "\(c)")
+        }
+        #expect(Self.cases("quick_map_hint").first?.first?.stringValue == FlyText.quickMapHint)
         for c in Self.cases("unknown_airport") {
             #expect(FlyText.unknownAirport(c[0].stringValue!) == c[1].stringValue)
         }
@@ -150,6 +189,44 @@ import Foundation
         }
         for c in Self.cases("legend_key") {
             #expect(FlyText.legendKey(kind: c[0].stringValue!, state: c[1].stringValue!) == c[2].stringValue)
+        }
+    }
+
+    /// #2020: the no-plan block's lines from `WorldStatus.here`.
+    @Test func hereLines() {
+        let cases = Self.cases("here_lines")
+        #expect(cases.count >= 10)
+        for c in cases {
+            let want = (c[1].arrayValue ?? []).compactMap(\.stringValue)
+            #expect(FlyText.hereLines(c[0] == .null ? nil : c[0]) == want)
+        }
+        // The event carries it.
+        let here: [String: Any] = ["tile": "+53-061", "lat": 53.3, "lon": -60.4,
+                                   "kind": "drape", "job": "swapped", "squares": 9, "sharp": 9]
+        let status = O4WorldStatus.parse(["event": "WorldStatus", "here": here])
+        #expect(FlyText.hereLines(status.here).first == "Imagery ready at tile +53-061")
+    }
+
+    /// Owner 2026-11-12T15:33Z: the G1000 airplane, the same points as
+    /// `O4_Fly_Layers.AIRCRAFT_SYMBOL`.
+    @Test func aircraftSymbol() throws {
+        let doc = try #require(Self.doc["aircraft_symbol"])
+        let points = (doc["points"]?.arrayValue ?? []).map {
+            ($0.arrayValue![0].doubleValue!, $0.arrayValue![1].doubleValue!)
+        }
+        #expect(points.count == FlyLayers.aircraftSymbol.count)
+        for (a, b) in zip(points, FlyLayers.aircraftSymbol) {
+            #expect(a.0 == b.x && a.1 == b.y)
+        }
+        for row in doc["placed"]?.arrayValue ?? [] {
+            let c = row.arrayValue!
+            let made = FlyLayers.aircraftSymbol(x: c[0].doubleValue!, y: c[1].doubleValue!,
+                                                trackDegrees: c[2].doubleValue!)
+            let want = (c[3].arrayValue ?? []).map { $0.arrayValue! }
+            #expect(made.count == want.count)
+            for (m, w) in zip(made, want) {
+                #expect(abs(m.x - w[0].doubleValue!) < 1e-3 && abs(m.y - w[1].doubleValue!) < 1e-3)
+            }
         }
     }
 

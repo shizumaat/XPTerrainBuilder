@@ -461,7 +461,8 @@ def _capture_guarded(icao: str, out: Path | None, mod_cache_root: str | None = N
                      rule: dict[str, object] | None = None,
                      cifp_dir: str | None = None,
                      data_overlay: str | None = None, stage_cache: str = "off",
-                     why_miss: bool = False, no_imagery: bool = False) -> dict:
+                     why_miss: bool = False, no_imagery: bool = False,
+            allow_degraded_dem: bool = False) -> dict:
     """:func:`capture` with the shared-repo guard and the lane-local cache
     redirects armed around it (``harness/build_airport.
     arm_shared_repo_protection``, the ONE arming composition).  The
@@ -480,7 +481,8 @@ def _capture_guarded(icao: str, out: Path | None, mod_cache_root: str | None = N
     _guard.__enter__()
     try:
         return capture(icao, out, mod_cache_root, placement, rule, cifp_dir,
-                       data_overlay, stage_cache, why_miss, no_imagery)
+                       data_overlay, stage_cache, why_miss, no_imagery,
+                       allow_degraded_dem)
     finally:
         _guard.__exit__(None, None, None)
         _churn(_guard)
@@ -534,7 +536,8 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
             rule: dict[str, object] | None = None,
             cifp_dir: str | None = None,
             data_overlay: str | None = None, stage_cache: str = "off",
-            why_miss: bool = False, no_imagery: bool = False) -> dict:
+            why_miss: bool = False, no_imagery: bool = False,
+            allow_degraded_dem: bool = False) -> dict:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
     load → classify → planar and SKIPPED the pack partition and the group
@@ -584,6 +587,12 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
         law, _kw = _placement_override(law, placement)
         print(f"[{icao}] CAPTURE ARM [placement] {_kw}")
     inputs = default_inputs()
+    if allow_degraded_dem:
+        # the harness's --allow-degraded-dem, as a capture arm: a provider
+        # that has never answered (an outage) is measured KNOWINGLY in the
+        # frame the build falls back to; authorises NO write (#2038)
+        inputs = _dc.replace(inputs, allow_degraded_dem=True)
+        print(f"[{icao}] CAPTURE ARM allow_degraded_dem=True")
     if no_imagery:
         # #1359 the witness's OFF arm: no airport photos, every imagery vote
         # abstains (today's law at every question the imagery decides)
@@ -683,6 +692,10 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
     from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law)   # #1747
+    from auto_patch_v2.airport.deck_stack import log_line as _ds_line
+    from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
+    airport = attach_deck_stacks(airport, pack_objects, ocache, law)     # #1971
+    print(_ds_line(icao, airport.deck_stacks))
     from auto_patch_v2.airport import flat_pack as _flat_pack     # flat-pack spec §1
     airport = _dc.replace(airport, flat_pack=_flat_pack.detect(airport, law))
     print(f"[{icao}] " + _flat_pack.log_line(icao, airport.flat_pack))
@@ -691,6 +704,15 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     from auto_patch_v2.airport import walled_plate as _walled_plate
     airport = _dc.replace(airport, walled_plates=_walled_plate.plates_of(pack_objects))
     print(f"[{icao}] " + _walled_plate.log_line(icao, airport.walled_plates))
+    # owner RULINGS 2026-11-13i: the terrain models' origin sets, as
+    # ``pipeline/build.pack_stage`` carries them
+    from auto_patch_v2.airport import terrain_model as _terrain_model
+    airport = _dc.replace(airport, terrain_models=tuple(
+        (o.id, o.path, o.terrain_model, o.agl_m) for o in pack_objects
+        if getattr(o, "terrain_model", None) is not None))
+    print(_terrain_model.log_line(icao, (r[2] for r in airport.terrain_models)))
+    from auto_patch_v2.airport import bridged_ground as _bridged_ground
+    print(_bridged_ground.log_line(icao, (r[2] for r in airport.terrain_models)))
     # RULINGS 2026-11-03 (answer 4, #1738): the companion terrain mesh, read
     # as the build's ``pipeline/build.pack_stage`` reads it
     from auto_patch_v2.airport import terrain_mesh_witness as _tmw
@@ -2223,6 +2245,17 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         if getattr(airport, "entrance_shade", None) is None:
             from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
             airport = attach_entrance_shade(airport, _objs, _ocache, law)
+        # #1971: the deck stacks, RE-DERIVED every replay from the ways as
+        # mapped (``Airport.osm_ways_mapped``), so ``--from classify``
+        # iterates on the derivation without a new capture
+        from auto_patch_v2.airport.deck_stack import log_line as _ds_line
+        from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
+        _ds_t, _ds_notes = time.perf_counter(), []
+        airport = attach_deck_stacks(airport, _objs, _ocache, law, _ds_notes)
+        print(_ds_line(icao, airport.deck_stacks, time.perf_counter() - _ds_t))
+        for _n in _ds_notes:
+            if "no floor (" not in _n:
+                print(f"[{icao}]   [deck-stack] {_n}")
     if resume == "classify":
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster
@@ -3112,6 +3145,9 @@ def main() -> int:
     ap.add_argument("--bank-from", type=Path, metavar="PKL",
                     help="replay the EMIT HALF (terrain edges + patch) off a "
                          "--solved-out pickle, without re-paying the solve")
+    ap.add_argument("--allow-degraded-dem", action="store_true",
+                    help="--capture: accept a cold or degraded production DEM frame "
+                         "knowingly (the harness flag's meaning; authorises no write)")
     ap.add_argument("--no-imagery", action="store_true",
                     help="--capture: the #1359 witness's OFF arm — no airport photos "
                          "(every imagery vote abstains)")
@@ -3226,7 +3262,7 @@ def main() -> int:
         _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl, rl,
                          a.cifp_dir, a.data_overlay,
                          "write" if a.stage_cache else "off", a.why_miss,
-                         a.no_imagery)
+                         a.no_imagery, allow_degraded_dem=a.allow_degraded_dem)
         return 0
     if a.reclassify:
         rl = dict(it.split("=", 1) for it in a.rule)

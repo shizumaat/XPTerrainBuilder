@@ -5,9 +5,12 @@ folder in ``tmp_path`` (never the real install):
 * a linked tile gets an on-demand copy (P1c) beside Custom Scenery and
   lands in the World pack from it; a local tile lands with its textures
   hard-linked; both verify, and the library and the local folder are
-  byte for byte unchanged; the link stays a link;
-* each entry's ``scenery_packs.ini`` row is DISABLED (kept in place),
-  the ini is backed up, the World pack has its row;
+  byte for byte unchanged; the link stays a link; the local folder moves
+  out of Custom Scenery into the work folder's ``originals/`` (owner
+  2026-11-12T13:42Z) and the index reads it there;
+* a link's ``scenery_packs.ini`` row is DISABLED (kept in place), the
+  local tile's row is gone, the ini is backed up, the World pack has its
+  row;
 * a second run is a no-op; a run killed between the swap and the ini
   finishes on the next run; ``revert`` gives everything back;
 * refused while X-Plane runs; the dry run writes nothing in the X-Plane
@@ -33,6 +36,7 @@ import O4_Scenery_Packs as SP
 import O4_World_Pack as WP
 import pytest
 from o4_engine import imagery_convert as ICONV
+from o4_engine import world_adopt as ADOPT
 from o4_engine import world_commands as WORLD
 from o4_engine import world_migrate as MIGRATE
 from o4_engine import world_migrate_size as SIZE
@@ -89,7 +93,7 @@ def _hashes(folder: str) -> dict:
             if not os.path.isfile(path):        # a dangling link
                 continue
             with open(path, "rb") as handle:
-                out[os.path.relpath(path, folder)] = hashlib.sha256(
+                out[os.path.relpath(path, folder).replace(os.sep, "/")] = hashlib.sha256(
                     handle.read()).hexdigest()
     return out
 
@@ -112,9 +116,14 @@ def xp(tmp_path, monkeypatch):
     +45+007; a data root and an index."""
     monkeypatch.setattr(FNAMES, "data_path",
                         lambda rel: str(tmp_path / "data" / rel))
+    # a kept tile's records land in the data root's Tiles (world_records)
+    monkeypatch.setattr(FNAMES, "Tile_dir", str(tmp_path / "data" / "Tiles"))
     monkeypatch.setattr(CORES, "airport_points", lambda lat, lon: [])
     for module in (ICONV, MIGRATE, WORLD):
         monkeypatch.setattr(module, "_xplane_running", lambda: False)
+    # the disk has room: a run skips every tile under RESERVE_BYTES free,
+    # and a CI runner's disk (Windows: ~14 GB) has less than that
+    monkeypatch.setattr(ADOPT, "room_left", lambda path: 10**13)
     library = str(tmp_path / "Library")
     scenery = tmp_path / "X-Plane" / "Custom Scenery"
     scenery.mkdir(parents=True)
@@ -167,8 +176,10 @@ def test_migrate_moves_link_and_local_tiles_and_keeps_the_sources(xp):
         assert not WP.verify_tile(xp["pack"], lat, lon)["problems"]
     # the link's textures come from its on-demand copy (no DSF there:
     # the pack has the relaid one); the local tile's are hard links
-    local_dds = os.path.join(xp["scenery"], "zOrtho4XP_+46+008", "textures",
-                             TEX + ".dds")
+    kept = os.path.join(xp["work"], "originals", "zOrtho4XP_+46+008")
+    assert not os.path.lexists(os.path.join(xp["scenery"],
+                                            "zOrtho4XP_+46+008"))
+    local_dds = os.path.join(kept, "textures", TEX + ".dds")
     pack_dds = os.path.join(xp["pack"], "textures", "+46+008", TEX + ".dds")
     assert os.stat(local_dds).st_ino == os.stat(pack_dds).st_ino
     lean = os.path.join(xp["work"], "lean", "zOrtho4XP_+45+007")
@@ -176,15 +187,17 @@ def test_migrate_moves_link_and_local_tiles_and_keeps_the_sources(xp):
     assert not os.path.exists(os.path.join(lean, "Earth nav data"))
     # sources untouched; the link is still a link onto the library
     assert _hashes(xp["library"]) == before["lib"]
-    local_now = _hashes(os.path.join(xp["scenery"], "zOrtho4XP_+46+008"))
+    local_now = _hashes(kept)
     manifest = "Ortho4XP_+46+008_imagery.json"
     assert {k: v for k, v in local_now.items() if k != manifest} == \
         {k: v for k, v in before["local"].items() if k != manifest}
     assert os.path.islink(os.path.join(xp["scenery"], "zOrtho4XP_+45+007"))
     rows = _rows(xp["scenery"])
     assert rows["zOrtho4XP_+45+007"] == "SCENERY_PACK_DISABLED"
-    assert rows["zOrtho4XP_+46+008"] == "SCENERY_PACK_DISABLED"
+    assert "zOrtho4XP_+46+008" not in rows
     assert rows["zOrtho4XP_+48+010"] == "SCENERY_PACK"
+    record = MIGRATE.Journal(xp["work"]).get("zOrtho4XP_+46+008")
+    assert record["original"] == record["config_dir"] == kept
     assert rows[WP.PACK_NAME] == "SCENERY_PACK"
     assert os.path.isfile(result["ini_backup"])
     # the on-demand index reads and lands textures in the pack
@@ -196,7 +209,7 @@ def test_migrate_moves_link_and_local_tiles_and_keeps_the_sources(xp):
     assert found and all(p.startswith(os.path.join(xp["pack"], "textures"))
                          for p in found)
     again = MIGRATE.migrate(xp["scenery"], index=xp["index"])
-    assert again["counts"]["migrated"] == 2
+    assert again["counts"]["migrated"] == 1     # the local folder is gone
     assert all(r.get("action") != "copy" for r in again["rows"])
 
 
@@ -217,7 +230,9 @@ def test_a_run_killed_after_the_swap_finishes_next_time(xp, monkeypatch):
                              index=xp["index"])
     assert second["rows"][0]["action"] == "resume"
     assert second["counts"] == {"migrated": 1}
-    assert _rows(xp["scenery"])["zOrtho4XP_+46+008"] == "SCENERY_PACK_DISABLED"
+    assert "zOrtho4XP_+46+008" not in _rows(xp["scenery"])
+    assert os.path.isdir(os.path.join(xp["work"], "originals",
+                                      "zOrtho4XP_+46+008"))
 
 
 def test_revert_gives_everything_back(xp):
@@ -339,3 +354,60 @@ def test_world_ready_matches_the_shared_swift_fixture(xp):
     assert set(wire) == set(fixture)
     assert set(wire["result"]) == set(fixture["result"])
     assert set(wire["result"]["totals"]) == set(fixture["result"]["totals"])
+
+
+def test_the_dry_run_and_the_move_count_their_tiles(xp):
+    """Owner 2026-11-11T15:32Z: a bar and a count while it runs; owner
+    2026-11-12T19:08Z: a count for every phase.  The measure counts every
+    pack, then the timed sample (phase ``sample``); the move every tile;
+    each phase's total is known at its first event and its last is done."""
+    from o4_engine.events import WorldMigrateProgress
+    events = []
+    MIGRATE.run_command(True, scenery_dir=xp["scenery"], emit=events.append)
+    counted = [e for e in events if isinstance(e, WorldMigrateProgress)]
+    assert [p for i, p in enumerate(e.phase for e in counted)
+            if i == 0 or counted[i - 1].phase != p] == ["measure", "sample"]
+    for phase, total in (("measure", 4), ("sample", 2)):   # 4 packs, 2 timed
+        measure = [e for e in counted if e.phase == phase]
+        assert {e.total for e in measure} == {total}
+        assert measure[0].done == 0 and measure[-1].done == total
+        assert [e.done for e in measure] == sorted(e.done for e in measure)
+        assert any(e.tile.startswith("zOrtho4XP_") for e in measure)
+    events.clear()
+    MIGRATE.run_command(False, scenery_dir=xp["scenery"], emit=events.append)
+    move = [e for e in events if isinstance(e, WorldMigrateProgress)]
+    assert move and {e.phase for e in move} == {"move"}
+    assert move[-1].done == move[-1].total == 4
+
+
+def test_cancel_stops_the_dry_run_and_moves_nothing(xp, monkeypatch):
+    """Cancel while measuring: the dry run ends with the sentence and no
+    sample folder is left; the X-Plane folder is unchanged."""
+    before = _hashes(xp["scenery"])
+    rows = _rows(xp["scenery"])
+
+    def cancel_at_first(done, total, name, phase):
+        if done == 1:
+            MIGRATE.stop()
+    with pytest.raises(ValueError, match="cancelled"):
+        SIZE.dry_run(xp["scenery"], workers=1, progress=cancel_at_first)
+    assert _hashes(xp["scenery"]) == before and _rows(xp["scenery"]) == rows
+    # The next run starts afresh (Cancel does not stick).
+    assert SIZE.dry_run(xp["scenery"], sample=0)["totals"]["entries"] == 4
+
+
+FIXTURE_PROGRESS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "fixtures", "world",
+                                "world_migrate_progress_event.json")
+
+
+def test_world_migrate_progress_matches_the_shared_swift_fixture():
+    """The wire of ``WorldMigrateProgress`` is the fixture
+    ``WorldWireTests.swift`` decodes (``O4WorldMigrateProgress``)."""
+    from o4_engine.events import WorldMigrateProgress
+    from o4_engine.jsonl import serialize_event
+    wire = json.loads(json.dumps(serialize_event(WorldMigrateProgress(
+        phase="measure", done=3, total=12, tile="zOrtho4XP_+45+007",
+        seq=41, ts=1762874400.5))))
+    with open(FIXTURE_PROGRESS, encoding="utf-8") as handle:
+        assert wire == json.load(handle)

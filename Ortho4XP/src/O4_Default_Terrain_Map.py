@@ -63,11 +63,7 @@ _PHYSICAL_FLAG_BIT = 1
 #: ``custom_overlay_src`` that does not itself hold ``Earth nav data``
 #: (RULINGS 2026-09-14bu: the owner had ``…/X-Plane 12/Global Scenery``
 #: configured — the parent of the pack).  X-Plane's own installer names.
-_GLOBAL_SCENERY_SUBDIRS = (
-    "X-Plane 12 Global Scenery",
-    "X-Plane 11 Global Scenery",
-    "X-Plane 12 Demo Areas",
-)
+_GLOBAL_SCENERY_SUBDIRS = OVL.GLOBAL_SCENERY_SUBDIRS
 
 
 def _dump_cache_dir() -> str:

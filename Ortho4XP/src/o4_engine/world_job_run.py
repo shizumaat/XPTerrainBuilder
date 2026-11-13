@@ -6,21 +6,34 @@ gives it the session, the World pack and X-Plane.
 * :func:`world_job_start` (``world_job_start {mode: "track"}``) starts it
   on a thread that reads the shared position feed
   (``position_feed.shared``) once a second and emits ``WorldStatus``
-  every 2 s.  ``mode: "flight", flight: <id>`` runs that flight's job
-  instead (``flight_job_run``, lane F1b: the route's corridor, departure
-  and destination by their deadlines, ``FlightStatus``); track mode does
-  not run beside a flight.  :func:`autostart` starts it beside the follow
-  job (both apps call ``imagery_follow_start`` at launch) when imagery on
-  demand is on and the World pack is installed -- the active flight, when
-  a record is still preparing, ready or flying.  :func:`world_job_stop`
-  stops track mode (``flight_end`` stops a flight).
-* :class:`_SessionBuilder` -- a ``light`` tile is an ordinary build through
-  the session's queue (``enqueue_build`` with ``overrides={"profile":
-  "light"}``, its ``deadline`` and class ``P1``; never interactive:
-  ``missing_art="leave"``); ``world_publish.watch`` stages and publishes it
-  as every finished build.  A ``drape`` tile (setting
-  ``world_intermediate``, until D1) is fetched and written straight into
-  the staging folder (``O4_World_Drape_Fetch``, ``O4_World_Drape``).
+  every 2 s.  ``mode: "flight", flight: <id>`` starts that flight's job
+  (``flight_job_run``, lane F1b: the route's corridor, departure and
+  destination by their deadlines, ``FlightStatus``).  Track mode runs
+  BESIDE a flight, whatever the plan (owner 2026-11-12, #2019: "No
+  matter what the flight plan is set to, we should still dynamically
+  load tiles wherever the aircraft is"): both jobs build on one slot
+  budget through ``build_share.SHARE`` -- the flight's deadlines first,
+  its tiles its own, never one tile twice.  :func:`autostart` starts
+  track mode beside the follow job (both apps call
+  ``imagery_follow_start`` at launch) whenever the World pack is
+  installed (the ``imagery_on_demand`` switch says only how new builds
+  are made: it was off on the owner's Mac and nothing was draped,
+  #2019), and the active flight too, when a record is still preparing,
+  ready or flying.  :func:`world_job_stop` stops
+  track mode (``flight_end`` stops a flight).
+* :class:`_SessionBuilder` -- a ``drape`` tile, the kind build-ahead and a
+  flight's corridor make (spec §17, RULINGS 2026-11-11j), is fetched and
+  written straight into the staging folder on the builder's thread
+  (:func:`drape_tile`: ``O4_World_Drape_Fetch`` at the user's
+  ``drape_photo_px`` in a process of its own (``world_drape_process``,
+  #2037), the water copy on ``airports -1``,
+  ``O4_World_Drape``).  A ``full`` tile (a flight's departure and
+  destination) is an ordinary build through the session's queue
+  (``enqueue_build`` with its ``deadline`` and class; never interactive:
+  ``missing_art="leave"``; always on demand: :data:`FULL_OVERRIDES`);
+  ``world_publish.watch`` fetches its airport cores, then stages and
+  publishes it as every finished build.  A tile the disk budget shrank to its
+  package has it installed first (``storage_packages.restore``).
 * :class:`_PackPublisher` -- swaps a staged tile when the job's rule S3
   allows, holding the follow job for that tile only (S7).
 """
@@ -31,22 +44,44 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 import O4_World_Pack as WP
 
 from . import world_commands as WORLD
-from .world_job import KINDS, WorldJob
+from . import world_drape_process as DRAPE_PROCESS
+from .build_share import SHARE, BuildShare
+from .events import TileState
+from .fly_here import describe as describe_here
+from .world_job import WorldJob, drape_estimate
 
-__all__ = ["STATUS_EVERY_S", "world_job_start", "world_job_stop", "autostart"]
+__all__ = ["STATUS_EVERY_S", "FULL_OVERRIDES", "world_job_start",
+           "world_job_stop", "autostart", "photo_source"]
 
 #: Seconds between ``WorldStatus`` events while the job runs.
 STATUS_EVERY_S = 2.0
 #: Seconds a finished build may wait to be staged by the publish worker
 #: before the job counts it failed.
 PENDING_S = 900.0
+#: A drape waits at most this long (from its start) for the tile's water
+#: before it goes without its water copy rather than late (lane ldrape2:
+#: a cold Overpass read took 47-187 s; the job keeps up on the CYYR
+#: replay at 1-3x up to ~90 s a tile, mask and write included).
+WATER_WAIT_S = 75.0
 #: Seconds between rereads of the pack's tiles and X-Plane's ``Log.txt``.
 REREAD_S = 10.0
+#: A parked aircraft's core: squares within this many square sizes of it
+#: are fetched at full resolution (``O4_Imagery_Tier_Plan.CROSSING_S``'s
+#: full tier: what a camera standing there wants).
+CORE_FULL_S = 1.65
+#: A World or flight ``full`` build's per-build switches
+#: (``Tile.apply_build_overrides``; owner 2026-11-12T16:34Z): always on
+#: demand, whatever the user's switch -- high resolution only at its
+#: airports and within sight of them (the cores, fetched before the tile
+#: is published: ``world_publish``), 512 px placeholders elsewhere that
+#: the follow job upgrades ahead of the aircraft.  The Build pane keeps
+#: the user's switch.
+FULL_OVERRIDES = {"imagery_on_demand": True}
 _GUARD = threading.Lock()
 _RUNNER: "Optional[_Runner]" = None
 
@@ -59,18 +94,70 @@ def _settings() -> dict:
         return {}
 
 
+def photo_source(tile=None) -> Tuple[str, int]:
+    """The photo source of a World or flight build now ``(provider, zoom
+    level)``, read per build so a change applies to the next one: the Fly
+    pane's "Photo source" (``fly_photo_source``) at the global
+    ``default_zl`` (16 unset).  Its default, Automatic (#2018), chooses
+    per ``tile`` (``O4_Imagery_Auto.choose``: the national service
+    covering it, else Bing); with no tile (the time estimates) it reads
+    Bing.  On a planned flight Automatic is the route's split instead
+    (#2048, ``flight_imagery_route``): the departure tile's provider up
+    to the route's midpoint, the destination's after it."""
+    import O4_Imagery_Auto as AUTO
+
+    from . import flight_imagery_route as ROUTE
+    values = _settings()
+    try:
+        zoomlevel = int(values.get("default_zl") or 16)
+    except (TypeError, ValueError):
+        zoomlevel = 16
+    source = str(values.get("fly_photo_source") or AUTO.AUTO)
+    if source != AUTO.AUTO:
+        return source, zoomlevel
+    if tile is None:
+        return AUTO.FALLBACK, zoomlevel
+    split = ROUTE.active()
+    if split is not None:
+        return AUTO.at_zoom(split.provider(tile), zoomlevel)
+    return AUTO.choose(int(tile[0]), int(tile[1]), zoomlevel)
+
+
 def _utc() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _restore_package(tile) -> None:
+    """A tile the disk budget shrank to its package gets its inputs back
+    before its build (``storage_packages.restore``): only imagery is
+    downloaded.  A package that will not install is logged; the build
+    then downloads as any other."""
+    from . import storage_packages as PACKAGES
+    try:
+        PACKAGES.restore(*tile)
+    except Exception as error:
+        WORLD.write_log({"package_restore_error": repr(error)[:300],
+                         "tile": WP.tile_name(*tile)})
+
+
 class _SessionBuilder:
-    """The job's builds through the engine session (see the module)."""
+    """The job's builds through the engine session (see the module).
+    With a ``share`` (``build_share.BuildShare``) every tile is taken
+    there as ``owner`` first and its result goes to whichever job owns
+    it when the build ends."""
 
     def __init__(self, session: Any, provider: str, zoomlevel: int,
-                 drape: "Optional[Callable[[tuple], bool]]" = None) -> None:
+                 drape: "Optional[Callable[[tuple], bool]]" = None,
+                 share: Optional[BuildShare] = None, owner: str = "",
+                 source: "Optional[Callable[[], Tuple[str, int]]]" = None
+                 ) -> None:
+        """``source(tile)`` (:func:`photo_source`): the provider and zoom
+        level each build starts with; else ``provider`` / ``zoomlevel``."""
         self.session = session
         self.provider, self.zoomlevel = provider, int(zoomlevel)
+        self.source = source
         self.drape = drape
+        self.share, self.owner = share, owner
         self._mine: set = set()
         self._done: list = []
         self._lock = threading.Lock()
@@ -82,69 +169,177 @@ class _SessionBuilder:
             return
         tile = (int(event.lat), int(event.lon))
         with self._lock:
-            if tile in self._mine:
-                self._mine.discard(tile)
-                self._done.append((tile, bool(event.ok)))
+            if tile not in self._mine:
+                return
+            self._mine.discard(tile)
+        self._finish(tile, bool(event.ok))
 
-    def start(self, tile, kind: str, deadline_in_s: float, klass: str) -> bool:
+    def _finish(self, tile, ok: bool) -> None:
+        if self.share is not None:
+            self.share.finish(tile, ok)
+            return
+        with self._lock:
+            self._done.append((tile, ok))
+
+    def start(self, tile, kind: str, deadline_in_s: float, klass: str,
+              core=None) -> bool:
+        """``core`` ``(lat, lon)``: a drape whose core around that point is
+        fetched at full resolution (a parked aircraft, ``WorldJob``)."""
         tile = (int(tile[0]), int(tile[1]))
+        if self.share is not None:
+            verdict = self.share.take(self.owner, tile, kind)
+            if verdict != "start":
+                return verdict == "adopted"
+        started = self._start(tile, kind, deadline_in_s, klass, core)
+        if not started and self.share is not None:
+            self.share.drop(self.owner, tile)
+        return started
+
+    def _start(self, tile, kind: str, deadline_in_s: float, klass: str,
+               core=None) -> bool:
         if kind == "drape":
-            return self._start_drape(tile)
+            return self._start_drape(tile, core)
+        _restore_package(tile)
         with self._lock:
             self._mine.add(tile)
+        provider, zoomlevel = (self.source(tile) if self.source is not None
+                               else (self.provider, self.zoomlevel))
         ok = self.session.enqueue_build(
-            [tile], self.provider, self.zoomlevel, "",
-            missing_art="leave", overrides={"profile": kind},
+            [tile], provider, zoomlevel, "",
+            missing_art="leave", overrides=dict(FULL_OVERRIDES),
             deadline=time.time() + float(deadline_in_s), klass=klass)
         if not ok:
             with self._lock:
                 self._mine.discard(tile)
+        else:
+            self._announce_queued(tile)
         return bool(ok)
 
-    def _start_drape(self, tile) -> bool:
+    def _announce_queued(self, tile) -> None:
+        """The tile's row in the Build view's Activity list (#2030): the
+        session's queue notice, which both apps take as a row of their own
+        (``O4_Activity_Order.opens_row``); its progress, clock, stop and
+        outcome then come through the normal build events.  A drape is
+        no session build and has no row."""
+        emit = getattr(self.session, "_emit", None)
+        if emit is not None:
+            emit(TileState(lat=tile[0], lon=tile[1], state="queued",
+                           label="queued"))
+
+    def _start_drape(self, tile, core=None) -> bool:
         if self.drape is None:
             return False
         if self._pool is None:
-            self._pool = ThreadPoolExecutor(1, thread_name_prefix="o4-drape")
+            # as many at once as the job's slots dispatch (it was one: a
+            # 3-slot flight ran its drapes one after another)
+            self._pool = ThreadPoolExecutor(thread_name_prefix="o4-drape")
 
         def work() -> None:
             try:
-                ok = bool(self.drape(tile))
+                ok = bool(self.drape(tile) if core is None
+                          else self.drape(tile, core))
             except Exception as error:      # logged; the job retries once
                 WORLD.write_log({"drape_error": repr(error)[:300],
                                  "tile": WP.tile_name(*tile)})
                 ok = False
-            with self._lock:
-                self._done.append((tile, ok))
+            self._finish(tile, ok)
         self._pool.submit(work)
         return True
 
     def poll(self, now: float) -> list:
         with self._lock:
             done, self._done = self._done, []
+        if self.share is not None:
+            done += self.share.poll(self.owner)
         return done
 
 
-def drape_tile(tile, provider: str, zoomlevel: int) -> bool:
-    """Fetch a drape tile's imagery and write it, staged, in the World
-    pack's shape (``O4_World_Drape.write_drape``); True when it
-    verifies."""
+def drape_px() -> int:
+    """The user's drape photo width now (``drape_photo_px``, read per tile
+    so a change in the Fly pane applies to the next drape)."""
+    try:
+        return int(_settings().get("drape_photo_px") or 512)
+    except (TypeError, ValueError):
+        return 512
+
+
+def drape_tile(tile, provider: str, zoomlevel: int, core=None,
+               px: Optional[int] = None) -> bool:
+    """Fetch a drape tile's imagery at ``px`` (else :func:`drape_px`; a
+    departure-only flight's ring is fetched at 512, #2023) with its water
+    masks, and write it, staged, in the World pack's shape: the opaque
+    photo plus the water-alpha copy on ``O4_World_Drape.WATER_LAYER_GROUP``
+    (``write_drape``, RULINGS 2026-11-11j).  ``core`` ``(lat, lon)``: a
+    parked aircraft's airport -- the squares within :data:`CORE_FULL_S`
+    of it are fetched again at full resolution (RULINGS 2026-11-12c (3)).
+    The fetch runs in a process of its own (``world_drape_process``,
+    #2037: on an engine thread it starved the follow job).  The build
+    folder goes once the tile is staged (the DDS are hard-linked).  True
+    when it verifies."""
+    import shutil
+
     import O4_File_Names as FNAMES
     import O4_World_Drape as DRAPE
     import O4_World_Drape_Fetch as FETCH
     lat, lon = tile
+    px = int(px or drape_px())
     engine = os.path.dirname(os.path.dirname(os.path.abspath(WP.__file__)))
-    parent = FNAMES.data_path("World_build")
-    fetched = FETCH.fetch(engine, lat, lon, parent, int(zoomlevel), provider,
-                          drop=3)
+    fetched = DRAPE_PROCESS.run(
+        engine=engine, lat=int(lat), lon=int(lon),
+        parent=FNAMES.data_path("World_build"), zoomlevel=int(zoomlevel),
+        provider=provider, drop=FETCH.drop_for_px(px),
+        scenery_dir=WORLD.scenery_dir_or_default(""),
+        water_wait_s=WATER_WAIT_S, route=_route_dict(),
+        core=None if core is None else (float(core[0]), float(core[1]),
+                                        CORE_FULL_S))
     staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
     if os.path.exists(staged):
-        import shutil
         shutil.rmtree(staged)
     tool = WP.dsftool_path(engine)
     DRAPE.write_drape(lat, lon, int(zoomlevel), provider, fetched["textures"],
-                      staged, tool)
+                      staged, tool, water_layer=DRAPE.WATER_LAYER_GROUP)
+    _record_drape(staged, provider, zoomlevel, fetched.get("blend"))
+    WORLD.write_log({"drape": WP.tile_name(lat, lon), "px": px,
+                     **{k: fetched.get(k) for k in (
+                         "squares", "dds", "download_s", "convert_s",
+                         "masked", "water_late", "water_fetch_s",
+                         "water_wait_s", "core_squares")}})
+    with contextlib.suppress(OSError):
+        shutil.rmtree(fetched["tile"])
     return not DRAPE.verify_drape(staged, lat, lon, tool)["problems"]
+
+
+def _route_dict() -> Optional[dict]:
+    """The running flight's route split for a drape's worker (#2048: its
+    blend reads the neighbours' providers with :func:`photo_source`)."""
+    from . import flight_imagery_route as ROUTE
+    split = ROUTE.active()
+    return split.to_dict() if split is not None else None
+
+
+def _record_drape(staged: str, provider: str, zoomlevel: int,
+                  blend: Optional[dict]) -> None:
+    """The World pack record of a staged drape (#2018,
+    ``O4_World_Imagery_Record``): its provider and zoom, whether
+    Automatic chose them, and the sides it blended (``blend``: the
+    blend's record, ``None`` for none)."""
+    import O4_Imagery_Auto as AUTO
+    import O4_World_Imagery_Record as IREC
+    auto = str(_settings().get("fly_photo_source") or AUTO.AUTO) == AUTO.AUTO
+    IREC.write_staged(staged, {
+        "provider": provider, "zl": int(zoomlevel), "kind": "drape",
+        "auto": auto, "blend": blend or {}, "at": _utc()})
+
+
+def _merge_held(pack: str, staged: str, lat: int, lon: int) -> None:
+    """A held tile merged in (S5: every old name kept), the staging
+    folder gone, and the user offered the reload that shows it."""
+    import shutil
+
+    from . import reload_offer as RELOAD
+    WP.swap_in(pack, staged, lat, lon, merge=True)
+    shutil.rmtree(staged, ignore_errors=True)
+    RELOAD.offer("tiles")
 
 
 class _PackPublisher:
@@ -157,28 +352,48 @@ class _PackPublisher:
         self.clock = clock
         self._pending: dict = {}
 
-    def settle(self, tile, kind: str, held: bool) -> str:
+    def settle(self, tile, kind: str, held: bool, merge: bool = False,
+               fresh: bool = False) -> str:
+        """``fresh``: the staged version replaces a real tile already in
+        the pack (a parked aircraft's drape re-made with its core).
+        ``merge``: a tile X-Plane holds, swapped for a parked aircraft
+        (RULINGS 2026-11-12c (3)): merged in file by file, no name removed
+        (rule S5, ``O4_World_Pack.swap_in(merge=True)``); the user is
+        offered the reload that shows it (``reload_offer``).  ``held``
+        keeps the tile staged only while the pack holds a real version of
+        it (``O4_World_Pack.nothing_held``, #2032: a drape over a
+        placeholder X-Plane loaded goes in as soon as it is ready)."""
         from . import imagery_follow as FOLLOW
         from . import world_publish as PUBLISH
         lat, lon = tile
+        if PUBLISH.publishing(lat, lon):
+            # its cores fetching or staging: not yet waited on (PENDING_S)
+            self._pending.pop(tile, None)
+            return "pending"
         pack = WORLD.pack_dir(self.scenery_dir)
         dsf = os.path.join(pack, WP.dsf_relpath(lat, lon))
-        if os.path.isfile(dsf) and not WP.is_placeholder(dsf):
+        staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
+        staged_dsf = os.path.join(staged, WP.dsf_relpath(lat, lon))
+        if (os.path.isfile(dsf) and not WP.is_placeholder(dsf)
+                and not (fresh and os.path.isfile(staged_dsf))):
             self._pending.pop(tile, None)
             return "swapped"
-        staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
-        if os.path.isfile(os.path.join(staged, WP.dsf_relpath(lat, lon))):
+        if os.path.isfile(staged_dsf):
             self._pending.pop(tile, None)
-            if held:
-                return "staged"
+            if held and not WP.nothing_held(pack, lat, lon):
+                return "staged"             # S4: a real tile X-Plane holds
             with FOLLOW.paused("world swap", tiles=[WP.tile_name(lat, lon)]):
-                WP.swap_staged(pack, WORLD.staging_root(),
-                               lambda la, lo: (la, lo) != (lat, lon))
-            if kind != "drape":
-                PUBLISH._after_swap(self.scenery_dir,
-                                    self.build_dir_of(lat, lon), lat, lon)
+                if merge:
+                    _merge_held(pack, staged, lat, lon)
+                else:
+                    WP.swap_staged(pack, WORLD.staging_root(),
+                                   only=(lat, lon))
+            # a drape's rows from the pack's files (#2037), a tile's from
+            # its build folder
+            PUBLISH._after_swap(self.scenery_dir,
+                                self.build_dir_of(lat, lon), lat, lon)
             WORLD.write_log({"swap_in": WP.tile_name(lat, lon), "kind": kind,
-                             "from": "world_job"})
+                             "from": "world_job", "merge": merge})
             return "swapped"
         first = self._pending.setdefault(tile, self.clock())
         return "failed" if self.clock() - first > PENDING_S else "pending"
@@ -195,13 +410,22 @@ class _Wanted:
         self._external: dict = {}
         self._at = -1e18
 
-    def __call__(self, tile) -> bool:
+    def kind(self, tile) -> Optional[str]:
+        """The pack's kind of ``tile`` (``placeholder``, ``drape``,
+        ``full``; None: not ours or another pack draws its mesh)."""
         now = time.monotonic()
         if now - self._at > REREAD_S:
             self._kinds = WP.world_tiles(WORLD.pack_dir(self.scenery_dir))
             self._at = now
-        if self._kinds.get(tuple(tile)) != "placeholder":
-            return False
+        kind = self._kinds.get(tuple(tile))
+        if kind is None or self._is_external(tuple(tile)):
+            return None
+        return kind
+
+    def __call__(self, tile) -> bool:
+        return self.kind(tile) == "placeholder"
+
+    def _is_external(self, tile) -> bool:
         if tile not in self._external:
             import O4_Mesh_Order as ORDER
             drawn = ORDER.drawn_mesh_dsf(self.scenery_dir, *tile)
@@ -209,7 +433,7 @@ class _Wanted:
                 WORLD.pack_dir(self.scenery_dir)))
             self._external[tile] = bool(drawn) and not os.path.normcase(
                 os.path.realpath(drawn)).startswith(pack)
-        return not self._external[tile]
+        return self._external[tile]
 
 
 class _Loads:
@@ -231,24 +455,35 @@ class _Loads:
 
 
 class _Runner:
-    def __init__(self, emit, session, scenery_dir: str, kind: str,
-                 port=None) -> None:
+    def __init__(self, emit, session, scenery_dir: str, port=None) -> None:
         import O4_Machine_Slots as SLOTS
         import O4_XPlane_WebAPI as WEBAPI
 
         from .position_feed import shared
         values = _settings()
-        provider = values.get("default_website") or "BI"
-        zoomlevel = int(values.get("default_zl") or 16)
+        provider, zoomlevel = photo_source()
         self.emit, self.scenery_dir = emit, scenery_dir
         self.feed = shared(WEBAPI.base_url(int(port)) if port else None)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
-            drape=lambda tile: drape_tile(tile, provider, zoomlevel))
+            drape=lambda tile, core=None: (
+                drape_tile(tile, *photo_source(tile)) if core is None
+                else drape_tile(tile, *photo_source(tile), core=core)),
+            share=SHARE, owner="track", source=photo_source)
+        wanted = _Wanted(scenery_dir)
+
+        def kind_of(tile):
+            return None if SHARE.claimed("track", tile) else wanted.kind(tile)
         self.job = WorldJob(
             builder=builder,
             publisher=_PackPublisher(scenery_dir, session.tile_build_dir),
-            wanted=_Wanted(scenery_dir), kind=kind,
+            wanted=lambda tile: (not SHARE.claimed("track", tile)
+                                 and wanted(tile)),
+            slot_free=lambda slots, running: SHARE.free_for(
+                "track", slots, running),
+            kind_of=kind_of,
+            kind="drape",
+            estimate_s=drape_estimate(drape_px()),
             capacity=SLOTS.session_capacity(), cores=os.cpu_count() or 4,
             fly_slots=int(values.get("fly_build_slots") or 0),
             sim_priority=values.get("fly_sim_priority") or "balanced",
@@ -272,44 +507,36 @@ class _Runner:
             if now - status_at >= STATUS_EVERY_S:
                 status_at = now
                 with contextlib.suppress(Exception):
-                    self.emit(WORLD.status_event(self.scenery_dir,
-                                                 **self.job.status(now)))
+                    status = self.job.status(now)
+                    status["here"] = describe_here(status["here"],
+                                                   self.scenery_dir)
+                    self.emit(WORLD.status_event(self.scenery_dir, **status))
 
 
 def world_job_start(session, emit=None, mode: str = "track", flight=None,
-                    kind: str = "", scenery_dir: str = "", port=None,
+                    scenery_dir: str = "", port=None,
                     if_enabled: bool = False, **_ignored) -> dict:
     """ENGINE COMMAND ``world_job_start``: ``{"status": "started" |
-    "running" | "off"}`` ("off": ``if_enabled`` and on-demand is off or
-    no World pack is installed)."""
+    "running" | "off"}`` ("off": ``if_enabled`` and no World pack is
+    installed; the ``imagery_on_demand`` switch says only how new builds
+    are made, #2019)."""
     global _RUNNER
     if mode == "flight":
         return _flight_start(session, emit, flight, scenery_dir, port)
     if mode != "track":
         raise ValueError(f"world_job_start: unknown mode {mode!r} "
                          "(known: 'track', 'flight').")
-    from . import flight_job_run as FLIGHT
-    if FLIGHT.current() is not None:
-        return {"status": "running", "mode": "flight"}
-    values = _settings()
-    kind = kind or values.get("world_intermediate") or "light"
-    if kind not in KINDS:
-        raise ValueError(f"world_job_start: unknown kind {kind!r} "
-                         f"(known: {list(KINDS)}).")
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
-    on = str(values.get("imagery_on_demand", "True")).lower() not in (
-        "false", "0", "no", "off")
-    if if_enabled and not (on and WORLD.managed(scenery_dir)):
+    if if_enabled and not WORLD.managed(scenery_dir):
         return {"status": "off"}
     if not WORLD.managed(scenery_dir):
         raise ValueError("world_job_start: the World pack is not installed.")
     with _GUARD:
         if _RUNNER is not None and _RUNNER.thread.is_alive():
             return {"status": "running"}
-        _RUNNER = _Runner(emit or session._emit, session, scenery_dir, kind,
-                          port)
+        _RUNNER = _Runner(emit or session._emit, session, scenery_dir, port)
         _RUNNER.thread.start()
-    WORLD.write_log({"world_job": "start", "kind": kind, "mode": mode})
+    WORLD.write_log({"world_job": "start", "kind": "drape", "mode": mode})
     return {"status": "started"}
 
 
@@ -320,7 +547,7 @@ def _flight_start(session, emit, flight, scenery_dir: str, port) -> dict:
     from . import flight_record as RECORD
     scenery_dir = WORLD.scenery_dir_or_default(scenery_dir)
     if not WORLD.managed(scenery_dir):
-        raise ValueError("Install the World pack first (Library ▸ World): "
+        raise ValueError("Install the World pack first (XPTerrainBuilder makes it when it starts): "
                          "a flight's tiles go into it.")
     path = os.path.join(RECORD.flights_dir(), f"{flight}.json")
     try:
@@ -343,6 +570,7 @@ def world_job_stop(**_ignored) -> dict:
         return {"status": "stopped", "swapped": 0, "late": 0}
     runner.stop_event.set()
     runner.thread.join(timeout=5.0)
+    SHARE.leave("track")
     jobs = runner.job.jobs.values()
     WORLD.write_log({"world_job": "stop"})
     return {"status": "stopped",
@@ -351,15 +579,22 @@ def world_job_stop(**_ignored) -> dict:
 
 
 def autostart(session, port=None, **_ignored) -> Optional[dict]:
-    """Start the job beside the follow job when it may run (see
-    :func:`world_job_start`, ``if_enabled``); never raises."""
+    """Start track mode beside the follow job when it may run (see
+    :func:`world_job_start`, ``if_enabled``) and the active flight beside
+    it; never raises.  The reply is track mode's, with the flight's
+    ``mode`` and ``flight`` when one started."""
+    reply: Optional[dict] = None
+    try:
+        reply = world_job_start(session, port=port, if_enabled=True)
+    except Exception as error:              # logged; the follow job starts
+        WORLD.write_log({"world_job_autostart": repr(error)[:300]})
     try:
         from . import flight_record as RECORD
         active = RECORD.active_flight(RECORD.flights_dir())
         if active is not None and WORLD.managed(WORLD.scenery_dir_or_default()):
-            return world_job_start(session, mode="flight", flight=active.id,
-                                   port=port)
-        return world_job_start(session, port=port, if_enabled=True)
-    except Exception as error:              # logged; the follow job starts
+            flight = world_job_start(session, mode="flight", flight=active.id,
+                                     port=port)
+            reply = dict(reply or {}, **flight, track=(reply or {}).get("status"))
+    except Exception as error:              # logged; track mode runs on
         WORLD.write_log({"world_job_autostart": repr(error)[:300]})
-        return None
+    return reply

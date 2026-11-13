@@ -6,8 +6,8 @@ tile the aircraft entered have been published before X-Plane opened it?
 The job (``o4_engine.world_job.WorldJob``, track mode) is driven by the
 recorded aircraft positions on a fake clock (the recording's own seconds,
 divided by ``--speed`` to fly the same track faster), with a fake builder
-that takes ``--build-s`` seconds a tile (default: the kind's measured
-estimate, light 397 s / drape 37 s) and a fake publisher that swaps a
+that takes ``--build-s`` seconds a tile (default: the measured 512 px
+drape, ``O4_Flight_Schedule.PROFILE_SECONDS``) and a fake publisher that swaps a
 finished tile whenever rule S3 allows.  The witness of X-Plane's loads is
 the recording's own ``.dsf`` opens of the World pack.
 
@@ -21,7 +21,9 @@ F1b, ``o4_engine.flight_manager.FlightManager``): a flight from the
 recording's first position to that destination is created (corridor
 ``--corridor-km``, cruise ``--cruise-kt``), the pilot waits on the ground
 until it is ready (10g: the readiness rows and the countdown, the staged
-first-window tiles merged in with ONE ground reload, S6 (a)), then the
+first-window tiles merged in with ONE ground reload, S6 (a), which the
+replayed pilot presses when it is offered: the engine never reloads on
+its own, owner 2026-11-12T14:34Z), then the
 recording is flown from that moment.  A fake builder takes ``--build-s``
 per intermediate tile and ``--full-s`` per ``full`` build (departure,
 destination).  Pass: the countdown at creation covers the wait, it never
@@ -38,7 +40,7 @@ The result adds the notices posted (``FlightNotice`` codes), the reloads
 in the air and the diversion tile's margin.
 
 usage:
-  flight_schedule_replay.py [FIXTURE] [--kit KIT] [--kind light|drape]
+  flight_schedule_replay.py [FIXTURE] [--kit KIT] [--kind drape]
                             [--build-s S] [--speed K ...] [--capacity N]
                             [--cores N] [--json]
                             [--flight LAT,LON [--full-s S] [--cruise-kt K]
@@ -121,7 +123,7 @@ def _opens(flight: dict, pack: str) -> dict:
     return first
 
 
-def replay(flight: dict, kit: dict, kind: str = "light",
+def replay(flight: dict, kit: dict, kind: str = "drape",
            build_s: float | None = None, speed: float = 1.0,
            capacity: int = 16, cores: int = 18) -> dict:
     """Run the job over the flight; the per-tile outcome and the verdict."""
@@ -209,16 +211,27 @@ def approach_positions(last: list, airport: tuple, ground: float,
     return rows
 
 
-def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
+def _pilot_presses(manager, now: float) -> None:
+    """The replayed pilot presses "Reload scenery now" as soon as a reload
+    is offered: the engine never sends one on its own (owner
+    2026-11-12T14:34Z), so the replay is the pilot's click."""
+    offered = (manager.reload if manager.takeoff_at is None
+               else manager.air.state)
+    if offered == "offered":
+        manager.reload_now(now)
+
+
+def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "drape",
                   build_s: float | None = None, full_s: float = 900.0,
                   cruise_kt: float = 290.0, corridor_km: float = 20.0,
                   capacity: int = 16, cores: int = 18,
                   speed: float = 1.0, divert: dict | None = None,
-                  approach: bool = False) -> dict:
+                  approach: bool = False, pilot_reloads: bool = True) -> dict:
     """The flight manager over the recording (see the module): the wait,
     the countdown, the ground reload, then the flight's swaps against
     X-Plane's opens.  ``speed`` flies the recording that many times faster
-    (the plan's cruise with it)."""
+    (the plan's cruise with it).  ``pilot_reloads`` False: the pilot never
+    presses "Reload scenery now" (then nothing reloads, #2019)."""
     from datetime import datetime, timezone
 
     import O4_Flight_Plan as FP
@@ -278,6 +291,8 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
     while record.state == "preparing" and clock.now < 6 * 3600:
         builder.now = clock.now
         manager.tick(clock.now, parked)
+        if pilot_reloads:
+            _pilot_presses(manager, clock.now)
         countdowns.append((clock.now, manager.countdown_s))
         clock.now += 1.0
     wait = clock.now
@@ -308,6 +323,8 @@ def replay_flight(flight: dict, kit: dict, dest: tuple, kind: str = "light",
         before = {j.tile: j.state for j in manager.jobs}
         manager.tick(clock.now, {"lat": lat, "lon": lon,
                                  "agl_m": max(0.0, alt - ground), "gs_ms": gs})
+        if pilot_reloads:
+            _pilot_presses(manager, clock.now)
         notices += [(round(clock.now, 1), n["code"]) for n in manager.notices()]
         reloaded = {n for _at, names in reloads_air for n in names}
         for job in manager.jobs:
@@ -396,7 +413,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("fixture", nargs="?", default=FIXTURE)
     ap.add_argument("--kit", default=KIT)
-    ap.add_argument("--kind", choices=JOB.KINDS, default="light")
+    ap.add_argument("--kind", choices=JOB.KINDS, default="drape")
     ap.add_argument("--build-s", type=float, default=None)
     ap.add_argument("--speed", type=float, nargs="+", default=[1.0])
     ap.add_argument("--capacity", type=int, default=16)

@@ -530,6 +530,34 @@ def test_level_or_open_plate_is_not_a_sunken_road(objs, law):
     assert not roads and any("roofed" in r for r in rs.refused), rs.refused
 
 
+class _SlopeDem:
+    """The ground rising 2 % along y: 6 m over the 300 m fixture road."""
+    provenance = {"synthetic": "plane 2 % up-slope in y"}
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0 + 0.02 * y
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def test_a_level_floor_on_a_slope_is_not_a_sunken_road(objs, law):
+    """#1903 KLAX (TBIT_Large_Building): the law asks the PLATE to descend
+    ``min_descent_m``.  A roofed LEVEL storey under a 2 % slope lies 0 m
+    under the ground at its downhill end and 6 m at its uphill end -- its
+    depth gains 6 m from the ground alone -- and was cut as a sunken road
+    with a flat floor and no ramp (relief 0 in the drawn gate).  It is a
+    storey on a slope, refused LEVEL; the descending road still reads."""
+    import dataclasses
+    airport, cache, objects = _read(objs, law, [("road_level", (0.0, 0.0), 0.0, 0.0, "OBJECT")])
+    airport = dataclasses.replace(airport, dem=_SlopeDem())
+    roads, rs = read_sunken_roads(airport, objects, cache, law)
+    assert not roads and any("LEVEL" in r and "falls 0.00" in r for r in rs.refused), rs.refused
+    airport, cache, objects = _read(objs, law, [("road", (0.0, 0.0), 0.0, 0.0, "OBJECT")])
+    roads, rs = read_sunken_roads(airport, objects, cache, law)
+    assert len(roads) == 1, rs.refused
+
+
 # --- lane ``gemltopology`` 2026-09-18: the GEML free-hole abort -------------
 #
 # THE MINIMAL OFFENDER, verbatim from the airport frame of GEML's

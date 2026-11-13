@@ -16,6 +16,15 @@ Global Scenery mesh, the way WED drapes an airport orthophoto:
   are Ortho4XP's own (``O4_Geo_Utils.st_coord``, Web Mercator), linear
   between corners (error under 1 m for a ZL16 square at 53 N, sub-pixel
   at 512 px);
+* with ``water_layer`` (the World job always; ``world.py drape
+  --water-alpha``), a SECOND ``.pol`` per square whose DDS carries a water
+  mask in its alpha (``O4_World_Drape_Water``): the same texture drawn
+  with its alpha on ``water_layer`` (:data:`WATER_LAYER_GROUP`), over the
+  opaque one.  The opaque ``terrain +1`` photo is hidden wherever X-Plane
+  draws its water; the alpha copy shows the photo there at
+  ``O4_World_Drape_Water.OPEN_WATER_ALPHA``, opaque on land and on mapped
+  shore the default mesh calls water.  This is the fly-over tile kind
+  (RULINGS 2026-11-11j);
 * ``sim/overlay 1`` and ``sim/creation_agent`` :data:`DRAPE_AGENT`, so
   ``world.py`` can tell a drape from a placeholder and from a real tile.
 
@@ -23,8 +32,8 @@ Same pack layout as a real tile: ``terrain/<tile>/<name>.pol`` (texture
 ``../../textures/<tile>/<name>.dds``) and the DSF at
 ``Earth nav data/<block>/<tile>.dsf``; :func:`O4_World_Pack.swap_in`
 lands it unchanged.  The imagery itself is fetched by
-``O4_World_Drape_Fetch`` (the engine's download/convert at the
-placeholder tier).
+``O4_World_Drape_Fetch`` (the engine's download/convert at the drape's
+photo tier, setting ``drape_photo_px``).
 """
 from __future__ import annotations
 
@@ -37,14 +46,21 @@ import O4_Geo_Utils as GEO
 import O4_World_Pack as WP
 
 __all__ = ["DRAPE_AGENT", "LAYER_GROUP", "texture_squares", "drape_quad",
-           "pol_text", "drape_dsf_text", "write_drape", "verify_drape",
-           "is_drape", "dds_width", "default_dds_name"]
+           "WATER_LAYER_GROUP", "pol_text", "drape_dsf_text", "write_drape",
+           "verify_drape", "is_drape", "dds_width",
+           "default_dds_name"]
 
 #: ``sim/creation_agent`` of a draped tile (:func:`is_drape`).
 DRAPE_AGENT = "XPTerrainBuilder world drape"
 #: Above the ground (default scenery puts its ground .pol at ``terrain +1``),
 #: below beaches, airport pavement and roads (OBJ8 ``ATTR_layer_group``).
 LAYER_GROUP = "terrain +1"
+#: The water copy's group (RULINGS 2026-11-11j (1)): just under airport
+#: pavement.  Measured on the owner's CYYR drape flight (2026-11-11): this
+#: group draws ABOVE X-Plane 12's water (lakes show the photo, softened
+#: shores, no seam at a built|drape edge); ``beaches +1``, where X-Plane's
+#: own ``water_body_*.pol`` draw, stays UNDER it.
+WATER_LAYER_GROUP = "airports -1"
 _M_PER_DEG = 111_320.0
 #: ``sim/exclude_<class>`` of the DSF spec (all but forests are polygons;
 #: a whole-tile rectangle serves both).
@@ -85,21 +101,22 @@ def drape_quad(lat: int, lon: int, til_x: int, til_y: int,
 
 
 def pol_text(texture_rel: str, til_x: int, til_y: int, zl: int,
-             px: int) -> str:
+             px: int, layer: str = LAYER_GROUP, alpha: bool = False) -> str:
     """The ``.pol`` of one texture square: clamped texture (an orthophoto
     sub-section, never tiled), ``LOAD_CENTER`` at the square's centre with
     its ground size and the DDS's real width.  ``SCALE`` is ignored for a
-    UV-mapped polygon; it is written as the square's size, like WED."""
+    UV-mapped polygon; it is written as the square's size, like WED.
+    ``alpha`` drops ``NO_ALPHA`` (the water copy draws the DDS alpha)."""
     south, west, north, east = _bounds(til_x, til_y, zl)
     clat, clon = (south + north) / 2, (west + east) / 2
     h_m = (north - south) * _M_PER_DEG
     w_m = (east - west) * _M_PER_DEG * math.cos(math.radians(clat))
     return "\n".join([
         "A", "850", "DRAPED_POLYGON", f"# {DRAPE_AGENT}",
-        f"LAYER_GROUP {LAYER_GROUP}",
+        f"LAYER_GROUP {layer}",
         f"TEXTURE_NOWRAP {texture_rel}",
         f"SCALE {w_m:.1f} {h_m:.1f}",
-        "NO_ALPHA",
+        *(() if alpha else ("NO_ALPHA",)),
         f"LOAD_CENTER {clat:.6f} {clon:.6f} {max(w_m, h_m):.0f} {px}", ""])
 
 
@@ -141,6 +158,16 @@ def dds_width(path: str) -> int | None:
     return int.from_bytes(head[16:20], "little")
 
 
+def _dds_has_alpha(path: str) -> bool:
+    """Whether the DDS at ``path`` is DXT5 (FourCC at byte 84)."""
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(88)
+    except OSError:
+        return False
+    return len(head) == 88 and head[:4] == b"DDS " and head[84:88] == b"DXT5"
+
+
 def default_dds_name(til_x: int, til_y: int, zl: int, provider: str) -> str:
     """``<til_y>_<til_x>_<provider><zl>.dds`` (the engine's
     ``FNAMES.dds_file_name_from_attributes`` for every provider but
@@ -150,13 +177,16 @@ def default_dds_name(til_x: int, til_y: int, zl: int, provider: str) -> str:
 
 def write_drape(lat: int, lon: int, zl: int, provider: str, tex_in: str,
                 out_dir: str, tool: str, exclude: tuple[str, ...] = (),
-                dds_name=default_dds_name) -> dict:
+                dds_name=default_dds_name, water_layer: str | None = None
+                ) -> dict:
     """Lay a draped tile out in ``out_dir`` (must not exist): the texture
     squares found as DDS in ``tex_in`` are hard-linked to
     ``textures/<tile>/``, one ``.pol`` each written to ``terrain/<tile>/``,
     and the DSF encoded by DSFTool.  Returns counts; a square that reaches
     into the tile but has no DDS is counted ``missing`` and left out (it
-    shows X-Plane's default ground)."""
+    shows X-Plane's default ground).  With ``water_layer`` each square
+    whose DDS has alpha also gets ``<name>_water.pol`` on that layer group,
+    drawn after the opaque one (counted ``water``)."""
     tile = WP.tile_name(lat, lon)
     if os.path.exists(out_dir):
         raise FileExistsError(out_dir)
@@ -164,8 +194,8 @@ def write_drape(lat: int, lon: int, zl: int, provider: str, tex_in: str,
     tex_out = os.path.join(out_dir, "textures", tile)
     os.makedirs(ter_out)
     os.makedirs(tex_out)
-    counts = {"squares": 0, "polygons": 0, "missing": 0}
-    pols = []
+    counts = {"squares": 0, "polygons": 0, "missing": 0, "water": 0}
+    pols, water = [], []
     for til_x, til_y in texture_squares(lat, lon, zl):
         quad = drape_quad(lat, lon, til_x, til_y, zl)
         if quad is None:
@@ -184,7 +214,16 @@ def write_drape(lat: int, lon: int, zl: int, provider: str, tex_in: str,
             handle.write(pol_text(f"../../textures/{tile}/{name}",
                                   til_x, til_y, zl, px))
         pols.append((f"terrain/{tile}/{pol}", quad))
-    counts["polygons"] = len(pols)
+        if water_layer and _dds_has_alpha(src):
+            wpol = os.path.splitext(name)[0] + "_water.pol"
+            with open(os.path.join(ter_out, wpol), "w", encoding="utf-8",
+                      newline="\n") as handle:
+                handle.write(pol_text(f"../../textures/{tile}/{name}", til_x,
+                                      til_y, zl, px, water_layer, alpha=True))
+            water.append((f"terrain/{tile}/{wpol}", quad))
+    counts["polygons"] = len(pols) + len(water)
+    counts["water"] = len(water)
+    pols += water
     dsf = os.path.join(out_dir, WP.dsf_relpath(lat, lon))
     os.makedirs(os.path.dirname(dsf))
     with tempfile.TemporaryDirectory() as work:

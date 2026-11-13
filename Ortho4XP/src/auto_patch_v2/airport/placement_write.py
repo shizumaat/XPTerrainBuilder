@@ -59,6 +59,7 @@ from ..model.placement import (CUT_MARK, PLAN_FILENAME, PlacementPlan,
 from . import authored_seat as _seat
 from . import backup_state as _bs
 from . import dsf_write as _dw
+from . import facade_seat as _fs
 from . import footprint_unit as _fu
 from . import pack_journal as _pj
 from . import placement_plan as _pp
@@ -163,6 +164,9 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                runway_ends: _t.Sequence = (),
                approach_reach_m: float = 0.0,
                approach_heading_deg: float = 0.0,
+               # #2042: the built mesh over the pack's graded facades
+               # (``facade_seat.candidates_box``); ``None`` reads ``surface``
+               facade_surface: _t.Callable | None = None,
                ) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
@@ -219,16 +223,21 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         elevated_m=elevated_base_m, runway_ends=runway_ends,
         approach_reach_m=approach_reach_m,
         approach_heading_deg=approach_heading_deg)
-    files = tuple(f for s in ss.splits for f in s.files)
+    # #2042: a graded facade's plane comes down onto its drawn ground
+    fseats, ffiles, fcounts = _fs.plan_seats(
+        dump, pack_root, surface if facade_surface is None else facade_surface)
+    files = tuple(f for s in ss.splits for f in s.files) + ffiles
     counts = dict(ss.counts)
     counts.update(counts_extra)
+    counts.update(fcounts)
     plan = PlacementPlan(
         icao=icao, pack_name=pack_name, pack_root=pack_root, dsf_path=dsf_path,
         dsf_backup_path=dsf_path + ".anchor_bak",
         provenance=Provenance("", engine_version, law_digest, counts),
         conversions=conversions, splits=splits, kept=kept, msl_seats=msl,
         riders=tuple(riders),
-        jetway_strips=tuple(dict(j) for j in (jetway_strips or ())))
+        jetway_strips=tuple(dict(j) for j in (jetway_strips or ())),
+        facade_seats=fseats)
     return plan, files, ss
 
 
@@ -640,7 +649,8 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
     if locked:
         plan = _sg.without_splits(plan, locked,
                                   "split undone: the pack folder is read-only")
-        keep = {r.replace("\\", "/") for r in plan.new_resources()}
+        keep = {r.replace("\\", "/")
+                for r in plan.new_resources() + plan.new_facades()}
         files = [f for f in files if f.resource.replace("\\", "/") in keep]
     # #598: the pack as it is NOW, kept until this build completes
     minted = [os.path.join(plan.pack_root,

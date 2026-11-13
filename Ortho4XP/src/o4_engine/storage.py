@@ -55,7 +55,9 @@ import O4_DDS_Cache as DDSC
 import O4_Disk_Usage as DISK
 import O4_File_Names as FNAMES
 
-__all__ = ["CACHE", "KEPT", "STORES", "AUTO_CLEAN_DAYS", "CAPS_SETTING",
+from . import storage_packages as _PACKAGES
+
+__all__ = ["CACHE", "KEPT", "STORES", "cache_bytes", "AUTO_CLEAN_DAYS", "CAPS_SETTING",
            "ONDEMAND", "REBUILD", "storage_scan", "storage_clear", "storage_auto_clean",
            "parse_caps", "write_log", "COMMANDS", "REFUSED_WHILE_BUILDING"]
 
@@ -164,6 +166,13 @@ STORES: tuple = (
           "The meshes and elevation grids of built tiles: a tile without "
           "them rebuilds from its map and elevation data, which takes "
           "longer. X-Plane never reads them.", FNAMES.rebuild_root),
+    # Older airport tiles shrunk to their package by the disk budget
+    # (RULINGS 2026-11-11l item 5, ``storage_packages``): what rebuilds
+    # them with only imagery to download; never cleared here.
+    Store(_PACKAGES.KIND, "Packaged tiles", KEPT,
+          "Older airport tiles kept as small packages of their map and "
+          "elevation data: they rebuild with only imagery to download.",
+          _PACKAGES.store_dir),
     Store("tiles", "Built tiles", KEPT,
           "Your scenery. Delete tiles in the Library.",
           lambda: FNAMES.Tile_dir),
@@ -368,9 +377,23 @@ class _Sweep:
         self.files = 0
         self.stopped = False
         self._log = None
+        self._first = None
+
+    @property
+    def first(self):
+        """The pass's package-first record (``o4_engine.package_first``):
+        a built tile's package is written before its rebuild data or
+        inputs go (owner 2026-11-11T16:45Z)."""
+        if self._first is None:
+            from . import package_first as FIRST
+            self._first = FIRST.Pass(self.dry_run)
+        return self._first
 
     def delete(self, store: Store, path: str, st: os.stat_result) -> int:
         size = DISK.freeable_bytes(path, st)
+        written = self.first.before_delete(store.kind, path)
+        if written:
+            self.freed[_PACKAGES.KIND] = self.freed.get(_PACKAGES.KIND, 0) - written
         if not self.dry_run:
             try:
                 os.remove(path)
@@ -481,13 +504,17 @@ def _clear_store(store: Store, cutoff: float | None, sweep: _Sweep,
         _prune_empty_dirs(store.path())
 
 
-def _evict_oldest(stores, over_by: int, sweep: _Sweep, now: float) -> int:
+def _evict_oldest(stores, over_by: int, sweep: _Sweep, now: float,
+                  keep: "set | None" = None) -> int:
     """Delete the deletable files of ``stores`` together, least recently
     used first, until ``over_by`` bytes are freed; the bytes freed.  A
     protected file is never evicted (the ONDEMAND store has no files:
-    it is made low-res, ``imagery_downgrade``)."""
+    it is made low-res, ``imagery_downgrade``), nor one of ``keep``
+    (``os.path.normcase`` absolute paths)."""
+    keep = keep or set()
     rows = [(store, path, st) for store in stores if store.kind != ONDEMAND
-            for path, st, deletable in _files(store, now) if deletable]
+            for path, st, deletable in _files(store, now) if deletable
+            and os.path.normcase(os.path.abspath(path)) not in keep]
     rows.sort(key=lambda row: _last_used(row[2]))
     freed = 0
     for store, path, st in rows:
@@ -576,6 +603,13 @@ def _check_clear(kwargs: dict) -> list:
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
+def cache_bytes(rows: "list[dict]") -> int:
+    """The bytes of the CACHE stores among the scan ``rows``: the
+    Caches line's total and the usage bar's Caches part (owner
+    2026-11-12: the two must be one figure)."""
+    return sum(int(r.get("bytes") or 0) for r in rows if r["policy"] == CACHE)
+
+
 def storage_scan() -> dict:
     """ENGINE COMMAND ``storage_scan``: every store with its freeable and
     apparent bytes, file count and last use (epoch seconds, None when
@@ -594,14 +628,18 @@ def storage_scan() -> dict:
     days, caps = _settings()
     root = FNAMES.current_data_root()
     installed = INSTALLED.installed_tiles(_custom_scenery_dir())
-    return {"root": root, "stores": rows,
-            "budget": TOTAL.status(rows, installed_bytes=installed["local_bytes"]),
-            "installed": installed,
-            "cache_bytes": sum(r["bytes"] for r in rows if r["policy"] == CACHE),
-            "kept_bytes": sum(r["bytes"] for r in rows if r["policy"] == KEPT),
-            "measured": ("private" if DISK.private_bytes(root) is not None
-                         else "allocated"),
-            "auto_clean_days": days, "caps": caps}
+    out = {"root": root, "stores": rows,
+           "budget": TOTAL.status(rows, installed_bytes=installed["local_bytes"]),
+           "installed": installed,
+           "cache_bytes": cache_bytes(rows),
+           "kept_bytes": sum(r["bytes"] for r in rows if r["policy"] == KEPT),
+           "measured": ("private" if DISK.private_bytes(root) is not None
+                        else "allocated"),
+           "auto_clean_days": days, "caps": caps}
+    # The shared result Settings ▸ Storage opens with (#2029).
+    from .storage_shared import remember
+    remember(out)
+    return out
 
 
 def storage_clear(kinds=None, older_than_days=None, confirm: bool = False,
@@ -678,6 +716,9 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
     out = sweep.result()
     out["budget"], out["ondemand_floor"] = budget, ondemand
     out["ran"] = bool(days > 0 or caps or out["files"])
+    if out["files"] and not dry_run:
+        from .storage_shared import refresh
+        refresh(abort)                  # the shared scan follows (#2029)
     return out
 
 

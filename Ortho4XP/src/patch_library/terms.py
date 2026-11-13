@@ -21,7 +21,8 @@ from __future__ import annotations
 from . import LICENCE, LICENCE_NC
 
 __all__ = ["CLASSES", "DEFAULT_LICENCES", "NC_MARK", "classify", "annotate",
-           "held", "entry_licence", "source_line", "statement", "problems"]
+           "held", "entry_licence", "source_line", "statement", "problems",
+           "personal_warning"]
 
 #: How a list row marks a non-commercial entry (both apps write it so).
 NC_MARK = " · non-commercial"
@@ -100,6 +101,19 @@ def statement(licence: str, what: str = "entry") -> str:
     return ("Published under the Open Database License (ODbL) 1.0, the "
             "licence of the OpenStreetMap data it is built from, and each "
             "source's terms listed above. © OpenStreetMap contributors.")
+
+
+def personal_warning(sources: list) -> str:
+    """The warning both apps show when a package built from a source whose
+    terms do not allow sharing it (marked ``personal``, owner 2026-11-12)
+    is exported or opened; ``""`` when no source is."""
+    rows = [s for s in sources or () if s.get("personal")]
+    if not rows:
+        return ""
+    names = ", ".join("%s (%s)" % (s.get("provider", ""), s.get("licence") or
+                                   s.get("why") or "its own terms") for s in rows)
+    return ("For personal, non-commercial use only: this package is built "
+            "from %s, whose terms do not allow sharing it." % names)
 
 
 def problems(doc: dict, licences: dict) -> list:

@@ -41,7 +41,7 @@ struct ImageryFollowLine: View {
             Image(systemName: "airplane")
                 .foregroundStyle(model.running ? Color.accentColor : Color.secondary)
             VStack(alignment: .leading, spacing: 2) {
-                Text(lines?.headline ?? O4OnDemandText.followStopped)
+                Text(O4OnDemandText.followHeadline(model.status, running: model.running))
                     .scaledFont(.caption)
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail = lines?.detail {
@@ -49,6 +49,18 @@ struct ImageryFollowLine: View {
                         .scaledFont(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                let offer = O4OnDemandText.reloadOfferLine(model.status?.reloadOffer ?? "")
+                if !offer.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(offer)
+                            .scaledFont(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(O4OnDemandText.reloadSceneryTitle) {
+                            buildModel.reloadScenery()
+                        }
+                        .controlSize(.small)
+                    }
                 }
             }
             Spacer(minLength: 4)

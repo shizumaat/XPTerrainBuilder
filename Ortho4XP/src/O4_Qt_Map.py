@@ -26,16 +26,22 @@ import O4_Imagery_Sources as SOURCES
 import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
 import O4_Map_Overzoom as OVERZOOM
+import O4_Qt_Map_Controls as QTMAPCONTROLS
 import O4_Qt_Map_Favorite as QTFAVSTAR
+import O4_Qt_Map_Key as QTKEY
 import O4_Qt_Map_Labels as QTLABELS
 import O4_Qt_Map_Legend as QTLEGEND
+import O4_Qt_Map_World as QTWORLD
 import O4_Qt_Rotate_Cursor as ROTATE
 import O4_Qt_Selection_Ring as RING
 import O4_Qt_Text_Scale as QTTEXT
+import O4_Qt_Tile_Band as QTBAND
+import O4_Tile_Band as BAND
 import O4_Tile_Texture_Check as TEXCHECK
 import requests
 from PIL import Image as PILImage
 from PySide6.QtCore import (
+    QEvent,
     QObject,
     QPointF,
     QRectF,
@@ -57,6 +63,7 @@ from PySide6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
+    QToolTip,
 )
 
 SCENE_ZL = 19  # scene units = webmercator pixels at this zoom level
@@ -81,18 +88,17 @@ FETCH_DEBOUNCE_MS = 250  # settle time before network fetches start
 FETCH_WORKERS = 6      # concurrent tile downloads
 LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
 
-# Built tiles are plain green — the ZL stays readable in the center
-# label ("PROV 16*"); no per-ZL color coding, no legend.
-BUILT_COLOR = "#4CAF6E"
-# A built tile whose folder lives on another drive (#1987): brown, with
-# "Requires <drive>" top-right (MapCanvasView.swift builtExternalTile).
-BUILT_EXTERNAL_COLOR = "#A0703C"
-# A tile another tool built is gray, one whose airport pack changed since
-# its build purple and dashed (#1958, O4_Qt_Map_Legend).
+# A built tile is drawn by its World state (#2031, O4_Qt_Map_Legend.
+# built_look): one the World pack does not list is "Full", dotted when
+# another tool built it; one whose airport pack changed since its build
+# is purple and dashed (#1958).  Where it lives ("Requires <drive>",
+# #1987) is a label, not a colour.
+#: The stale tile's dash, in points (MapCanvasView.staleDash).
+STALE_DASH = (6, 4)
 #: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
 SETTINGS_BADGE_COLOR = "#0A84FF"
 #: The custom-patch band (#1229); MapCanvasView.customPatchBand.
-CUSTOM_PATCH_COLOR = "#FF9F0A"
+CUSTOM_PATCH_COLOR = QTLEGEND.CUSTOM_PATCH_COLOR  # #FF9F0A
 
 
 BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
@@ -342,6 +348,8 @@ class MapView(QGraphicsView):
     built_changed = Signal()
     # A right-click without a drag (#938): lat, lon, global screen QPoint.
     tile_menu_requested = Signal(int, int, object)
+    # A click on a built tile's star (#2033): (lat, lon, wanted pinned).
+    favorite_requested = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -364,6 +372,7 @@ class MapView(QGraphicsView):
         self._provider_code = "OSM"
         self._display_code = "OSM"   # actual source drawn (fallback aware)
         self._provider_max_zl = 19
+        self._provider_min_zl = None
         self._zoom = 5.0
         self._tiles = {}             # (code, z, x, y) -> QGraphicsPixmapItem
         self._tile_age = {}          # same key -> monotonic counter
@@ -389,6 +398,9 @@ class MapView(QGraphicsView):
         # drawn faint (MapCanvasView.swift dims the same).
         self._dimmed = set()
         self._installed = set()      # (lat, lon)
+        # What the World pack draws on each tile (#2024): {(lat, lon):
+        # world_state.WorldTile}, from the scan's ScanBatch.world.
+        self._world = {}
         self._conflicts = set()      # (lat, lon) with mixed imagery sources
         self._stale = {}             # (lat, lon) -> stale verdict (#1958)
         self._customized = set()     # (lat, lon) with tile settings (#1350)
@@ -410,6 +422,12 @@ class MapView(QGraphicsView):
         # (lat, lon) -> (provider, zl) the covering ortho pack's files say.
         self._ortho_imagery = {}
         self._scenery_filter = SCENERY_FILTER_ALL
+        #: The one key's items while the Fly view shows (a callable,
+        #: ``O4_Qt_Fly_Layer.FlyLayer.set_shown``); None: the Build view's.
+        self.fly_key = None
+        self._key_hits = []
+        #: The Favorite stars on built tiles (#2033): the Build view's only.
+        self.favorite_stars = True
 
         # Layers drawn over the map that take the mouse first (the patch
         # editor): paint(painter), mouse_press/move/release(event) -> bool,
@@ -428,6 +446,8 @@ class MapView(QGraphicsView):
         self._update_timer.timeout.connect(self._refresh_tiles)
 
         self._make_scan_status()
+        # Zoom out / in / "Center on aircraft", top-right (#2016).
+        self.controls = QTMAPCONTROLS.MapControls(self)
         self._apply_zoom()
 
     def _make_scan_status(self):
@@ -493,10 +513,12 @@ class MapView(QGraphicsView):
             # Absent max_zl means the source declares no ceiling (the
             # engine builds it at any ZL) - preview up to the fetch cap.
             self._provider_max_zl = SOURCES.preview_max_zl(code) or FETCH_MAX_ZL
+            self._provider_min_zl = SOURCES.preview_min_zl(code)
             note = ""
         elif _provider_is_mappable("OSM"):
             self._display_code = "OSM"
             self._provider_max_zl = 19
+            self._provider_min_zl = None
             note = " (no live preview for %s - showing OSM)" % code
         else:
             note = " (no live map source available)"
@@ -539,6 +561,14 @@ class MapView(QGraphicsView):
     def set_installed(self, installed):
         self._installed = set(installed)
         self.viewport().update()
+
+    def set_world(self, world):
+        """The World states (#2024): ``{(lat, lon): WorldTile}``."""
+        self._world = dict(world)
+        self.viewport().update()
+
+    def world(self):
+        return dict(self._world)
 
     def set_conflicts(self, conflicts):
         """Built tiles whose textures folder mixes imagery sources — the
@@ -610,6 +640,10 @@ class MapView(QGraphicsView):
         custom packs)."""
         return [(row[0], row[1], row[2])
                 for row in list(self._default_airports) + list(self._custom_airports)]
+
+    def custom_airport_marks(self):
+        """The enabled custom packs' airport marks as ``(code, lat, lon)``."""
+        return [(row[0], row[1], row[2]) for row in self._custom_airports]
 
     def add_layer(self, layer):
         """Draw ``layer`` over the map and offer it the mouse first."""
@@ -744,6 +778,11 @@ class MapView(QGraphicsView):
         self.resetTransform()
         self.scale(scale, scale)
         self.view_changed.emit()
+
+    def zoom_step(self, delta):
+        """Zoom by ``delta`` slippy levels about the view's centre (the
+        map controls' − and +)."""
+        self._zoom_by(delta, self.viewport().rect().center())
 
     def _zoom_by(self, delta, anchor_pos=None):
         new_zoom = max(MIN_ZOOM, min(self._zoom + delta, MAX_ZOOM))
@@ -892,9 +931,41 @@ class MapView(QGraphicsView):
             and (event.position() - self._press_pos).manhattanLength() < MAP_CLICK_SLOP_PX
             and not self._locked
         ):
-            self._handle_click(event)
+            if not self._favorite_click(event):
+                self._handle_click(event)
         self._press_pos = None
         super().mouseReleaseEvent(event)
+
+    def clicked_cell(self, event):
+        """The ``(lat, lon)`` cell a left-button release clicks (no drag,
+        map not locked), or None -- for layers that take a click (#2026)."""
+        if (event.button() != Qt.LeftButton or self._press_pos is None
+                or self._locked
+                or (event.position() - self._press_pos).manhattanLength()
+                >= MAP_CLICK_SLOP_PX):
+            return None
+        scene_pos = self.mapToScene(event.position().toPoint())
+        lat, lon = GEO.pix_to_wgs84(scene_pos.x(), scene_pos.y(), SCENE_ZL)
+        return (math.floor(lat), math.floor(lon))
+
+    def _favorite_click(self, event) -> bool:
+        """A click on a built tile's star (#2033) asks for its Favorite to
+        flip (:attr:`favorite_requested`) instead of selecting the tile."""
+        if not self.favorite_stars:
+            return False
+        scene_pos = self.mapToScene(event.position().toPoint())
+        lat, lon = GEO.pix_to_wgs84(scene_pos.x(), scene_pos.y(), SCENE_ZL)
+        tile = (math.floor(lat), math.floor(lon))
+        built = None if self.is_building(tile) else self._built.get(tile)
+        if built is None:
+            return False
+        r = self._tile_rect(*tile)
+        scale = self.transform().m11()
+        if not QTFAVSTAR.hit(r, r.width() * scale, scale, scene_pos):
+            return False
+        self.favorite_requested.emit(
+            (tile[0], tile[1], not getattr(built, "pinned", False)))
+        return True
 
     def _handle_click(self, event):
         scene_pos = self.mapToScene(event.position().toPoint())
@@ -928,14 +999,16 @@ class MapView(QGraphicsView):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._place_scan_status()
+        self.controls.place()
         for layer in self._layers:
             layer.viewport_moved()
 
     def scrollContentsBy(self, dx, dy):
         # QAbstractScrollArea pans by scrolling the whole viewport,
-        # dragging child widgets (the scan status) along — re-pin after.
+        # dragging child widgets (the scan status, the controls) along — re-pin after.
         super().scrollContentsBy(dx, dy)
         self._place_scan_status()
+        self.controls.place()
         for layer in self._layers:
             layer.viewport_moved()
         self._schedule_refresh()
@@ -950,10 +1023,12 @@ class MapView(QGraphicsView):
 
     def _fetch_zoom(self):
         # Past the source's ceiling the view tile's ancestor is fetched
-        # and the scene scales it up: never a URL above max_zl (#1315).
+        # and the scene scales it up: never a URL above max_zl (#1315);
+        # one zoom below its floor the floor is fetched (#2017).
         z = max(2, int(round(self._zoom)))
         ceiling = min(self._provider_max_zl, FETCH_MAX_ZL)
-        return max(2, OVERZOOM.ancestor(z, 0, 0, ceiling).z)
+        return max(2, OVERZOOM.floor_zoom(OVERZOOM.ancestor(z, 0, 0, ceiling).z,
+                                          ceiling, self._provider_min_zl))
 
     def _visible_range(self, z):
         """Visible tile index range at zoom z, with a one-tile margin."""
@@ -1224,19 +1299,36 @@ class MapView(QGraphicsView):
         self._draw_airports(painter)
         for layer in self._layers:
             layer.paint(painter)
-        self._draw_zoom_badge(painter)
-        if self._scenery_filter != SCENERY_FILTER_OTHERS:
-            QTLEGEND.paint_legend(
-                painter, QRectF(self.viewport().rect()),
-                QTLEGEND.legend_kinds(self._built, self._stale),
-                painter.fontMetrics().height() + 24, BUILT_COLOR,
-                BUILT_EXTERNAL_COLOR)
+        # The one key (O4_Qt_Map_Key) at the bottom-right, the ZL pill
+        # one row above it (owner 2026-11-12T22:05Z).
+        pill, self._key_hits = QTKEY.paint_key(
+            painter, QRectF(self.viewport().rect()), self._key_items())
+        self._draw_zoom_badge(painter, pill.height() + 6 if self._key_hits else 0)
         painter.end()
 
-    def _draw_zoom_badge(self, painter):
-        """Bottom-right badge: the tile zoom the view equates to, and the
-        overzoom factor past the imagery source's ceiling (mac-app
-        parity, #1315)."""
+    def _key_items(self) -> list:
+        """The key's items: the Fly view's, or the kinds on the map now."""
+        if self.fly_key is not None:
+            return self.fly_key()
+        if self._scenery_filter == SCENERY_FILTER_OTHERS:
+            return []
+        return QTLEGEND.legend_kinds(self._built, self._stale, self._world,
+                                     bool(self._custom_patched))
+
+    def viewportEvent(self, event):
+        """The key's hover: an item's full sentence (its word may be
+        truncated, owner 2026-11-12T22:05Z)."""
+        if event.type() == QEvent.ToolTip:
+            text = QTKEY.tooltip_at(self._key_hits, QPointF(event.pos()))
+            if text:
+                QToolTip.showText(event.globalPos(), text, self.viewport())
+                return True
+        return super().viewportEvent(event)
+
+    def _draw_zoom_badge(self, painter, lift=0.0):
+        """Bottom-right badge, ``lift`` px above the key: the tile zoom the
+        view equates to, and the overzoom factor past the imagery source's
+        ceiling (mac-app parity, #1315)."""
         view_zl = max(2, math.ceil(self._zoom - 1e-6))
         at_limit = view_zl > self._provider_max_zl
         text = OVERZOOM.badge_text(view_zl, self._display_code,
@@ -1245,8 +1337,8 @@ class MapView(QGraphicsView):
         width = metrics.horizontalAdvance(text) + 18
         height = metrics.height() + 8
         vp = self.viewport().rect()
-        badge = QRectF(vp.right() - width - 10, vp.bottom() - height - 10,
-                       width, height)
+        badge = QRectF(vp.right() - width - QTKEY.MARGIN,
+                       vp.bottom() - height - QTKEY.MARGIN - lift, width, height)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(20, 22, 28, 175))
         painter.drawRoundedRect(badge, height / 2, height / 2)
@@ -1291,6 +1383,11 @@ class MapView(QGraphicsView):
 
         if (lat_hi - lat_lo) * (lon_hi - lon_lo) < 3000:
             if self._scenery_filter != SCENERY_FILTER_OTHERS:
+                visible = list(visible)
+                QTWORLD.paint_world(
+                    painter, self._world, visible, self._tile_rect, scale,
+                    lambda t: self.is_building(t) or (t in self._stale
+                                                      and t in self._built))
                 for tile in visible:
                     self._draw_tile_overlay(painter, tile, scale)
             if self._scenery_filter != SCENERY_FILTER_BUILT:
@@ -1327,51 +1424,44 @@ class MapView(QGraphicsView):
         # user is judging (#1256; MapCanvasView.swift draws the same).
         painter.setBrush(Qt.NoBrush)
         if built is not None:
-            # Built: a green border (brown on another drive, #1987; gray
-            # when another tool built it, purple and dashed when its
-            # airport pack changed, #1958); installed adds the inset
+            # Built: drawn by its World state (#2031, built_look) -- the
+            # World pack's own band when it lists the tile, else "Full"
+            # (dotted when another tool built it); purple and dashed when
+            # its airport pack changed (#1958); installed adds the inset
             # double border.
-            elsewhere = QTLEGEND.built_elsewhere(built)
-            stale = not elsewhere and tile in self._stale
-            if elsewhere:
-                base = QColor(QTLEGEND.OTHER_ORTHO_COLOR)
-                base.setAlpha(255)
-            elif stale:
-                base = QColor(QTLEGEND.STALE_COLOR)
-            else:
-                base = QColor(BUILT_EXTERNAL_COLOR
-                              if getattr(built, "volume", "") else BUILT_COLOR)
+            look = QTLEGEND.built_look(built, self._world.get(tile),
+                                       tile in self._stale)
+            in_world = look is None
+            item, dotted = look or (None, False)
+            base = QTKEY.item_color(item) if item else QColor()
+            # The shared fading band inside the edge (O4_Tile_Band).
             dim = 0.3 if tile in self._dimmed else 1.0
-            border = QColor(base)
-            border.setAlphaF(0.85 * dim)
-            pen = QPen(border)
-            pen.setCosmetic(True)
-            pen.setWidth(2)
-            if stale:
-                pen.setDashPattern([3, 2])
-            painter.setPen(pen)
-            painter.drawRect(r)
-            if tile in self._installed:
+            if not in_world:
+                dash = (STALE_DASH if item == QTLEGEND.STALE
+                        else QTWORLD.OTHER_TOOL_DASH if dotted else None)
+                QTBAND.paint_band(painter, r, scale, base, dim, dash=dash)
+            if tile in self._installed and not in_world:
                 inner = QColor(base)
                 inner.setAlphaF(0.9 * dim)
                 pen = QPen(inner)
                 pen.setCosmetic(True)
                 pen.setWidthF(1.5)
                 painter.setPen(pen)
-                inset = r.adjusted(
-                    r.width() * 0.03, r.height() * 0.03,
-                    -r.width() * 0.03, -r.height() * 0.03,
-                )
-                painter.drawRect(inset)
-            # Mixed imagery sources: a warning triangle in the top-right
-            # corner so affected tiles stand out at a glance.  Only once
+                painter.setBrush(Qt.NoBrush)
+                d = BAND.inner_inset(px) / max(scale, 1e-12)
+                painter.drawRect(r.adjusted(d, d, -d, -d))
+            # Mixed imagery sources: a warning triangle in the bottom-right
+            # corner (the Favorite star holds the top-right, #2033) so
+            # affected tiles stand out at a glance.  Only once
             # the square is big enough to carry it — below that the badge
             # is bigger than the tile and reads as noise on the grid.
             if tile in self._conflicts and px > 14:
                 self._draw_conflict_badge(painter, r, px, scale)
-            # A favorite (#1992, RULINGS 2026-11-10c (1)): a star.
-            if getattr(built, "pinned", False):
-                QTFAVSTAR.draw_star(painter, r, px, scale)
+            # The Favorite star, top-right (#2033): filled on a favorite,
+            # outlined on the others; a click flips it.
+            if self.favorite_stars:
+                QTFAVSTAR.draw_star(painter, r, px, scale,
+                                    bool(getattr(built, "pinned", False)))
 
         if custom_patched:
             self._draw_custom_patch_band(painter, r, scale)
@@ -1475,7 +1565,8 @@ class MapView(QGraphicsView):
 
     def _draw_conflict_badge(self, painter, r, px, scale):
         """The mixed-imagery-source warning: a yellow triangle carrying an
-        exclamation mark, top-right of the tile square.
+        exclamation mark, bottom-right of the tile square (the Favorite
+        star holds the top-right, #2033).
 
         Sized in SCREEN points (11-20, growing with the square up to a
         sixth of it) and converted back into scene units, so the badge
@@ -1484,7 +1575,7 @@ class MapView(QGraphicsView):
         """
         size = min(max(px * 0.16, 11.0), 20.0) / max(scale, 1e-12)
         cx = r.right() - size * 0.7
-        cy = r.top() + size * 0.7
+        cy = r.bottom() - size * 0.7
         triangle = QPainterPath()
         triangle.moveTo(QPointF(cx, cy - size * 0.46))
         triangle.lineTo(QPointF(cx + size * 0.5, cy + size * 0.4))

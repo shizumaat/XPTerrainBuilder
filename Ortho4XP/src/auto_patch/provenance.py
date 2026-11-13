@@ -1046,8 +1046,50 @@ def config_digest() -> str:
 _UNSET = object()
 
 
-def dem_fingerprint(tile, icao: str | None = None) -> str:
+#: ``(path, size, mtime_ns) -> sha256`` of the input files
+#: :func:`_file_content_identity` has read in this process: a file whose
+#: stat is unchanged is not read twice (a base raster is ~25 MB).
+_CONTENT_MEMO: dict = {}
+
+
+def _file_content_identity(path: str | None) -> str:
+    """``<quoted basename>|<16 hex of sha256>`` of one INPUT file — its
+    CONTENT, not where it lives or when it was written (#2050, owner
+    RULINGS 2026-11-13o: a refresh that yields the same bytes keeps every
+    patch built on it).  ``<quoted basename>|missing`` when it cannot be
+    read, ``none`` for no path.  Memoised on the file's stat."""
+    if not path:
+        return "none"
+    name = _quote(os.path.basename(path))
+    try:
+        stat = os.stat(path)
+        key = (os.path.abspath(path), stat.st_size, stat.st_mtime_ns)
+        digest = _CONTENT_MEMO.get(key)
+        if digest is None:
+            from auto_patch_v2.airport.file_hash import sha256_file
+            digest = _CONTENT_MEMO[key] = sha256_file(path)
+    except OSError:
+        return name + "|missing"
+    return f"{name}|{digest[:16]}"
+
+
+def content_list_identity(paths) -> str:
+    """``;``-joined :func:`_file_content_identity`, sorted — the content
+    twin of :func:`identity_list` (``""`` = read nothing)."""
+    return ";".join(sorted(_file_content_identity(p) for p in (paths or ())))
+
+
+def dem_fingerprint(tile, icao: str | None = None, *,
+                    content: bool = True) -> str:
     """Fingerprint of the DEM INPUTS this airport's elevations were solved on.
+
+    BY CONTENT (#2050, owner RULINGS 2026-11-13o): every input file is
+    named by its basename and the sha256 of its bytes
+    (:func:`_file_content_identity`), and the composite source string by
+    its tokens' basenames — a re-download that gives the same raster, or
+    a corpus moved to another folder, keeps the patch.  ``content=False``
+    is the stamp as written before #2050 (path+size+mtime), which the
+    gate still accepts so no patch rebuilds for the change of key alone.
 
     Deliberately NOT a fingerprint of the DEM the solve saw: that surface is a
     derived artifact (``Data<tile>.alt`` is rewritten by the vector/mesh steps
@@ -1082,17 +1124,22 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
     """
     if tile is None:
         return "absent"
+    ident = _file_content_identity if content else _identity
     dem = getattr(tile, "dem", None)
     spec_parts: list[str] = []
     source_spec = getattr(dem, "source_path", None) if dem is not None else None
     if dem is None:
         spec_parts.append("dem:nodem")
     else:
-        spec_parts.append(f"dem:{source_spec!r}")
         tokens = str(source_spec or "").split(";")
+        if content:
+            named = ";".join(os.path.basename(t) for t in tokens)
+            spec_parts.append(f"dem:{named!r}")
+        else:
+            spec_parts.append(f"dem:{source_spec!r}")
         for token in tokens:
             if token and os.path.exists(token):
-                spec_parts.append("src:" + _identity(token))
+                spec_parts.append("src:" + ident(token))
         if not tokens or not tokens[0]:
             # Empty base token: DEM.load_data falls back to the generic
             # per-tile .tif when one exists, before consulting the provider
@@ -1102,7 +1149,7 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
 
                 generic = _FNAMES.generic_tif(tile.lat, tile.lon)
                 if os.path.exists(generic):
-                    spec_parts.append("generic:" + _identity(generic))
+                    spec_parts.append("generic:" + ident(generic))
             except Exception:
                 pass
     for name in DEM_TILE_SETTINGS:
@@ -1127,7 +1174,7 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
             key=lambda r: str(r.get("cell"))):
         spec_parts.append("base_fallback:%s=%s|%s" % (
             record.get("cell"), record.get("code"),
-            _identity(record.get("path"))))
+            ident(record.get("path"))))
     # Base void posts filled from a fallback source (#1465,
     # ``elevation_access.base_voids``): none on a void-free base cell, so
     # every such stamp is unchanged.
@@ -1137,7 +1184,7 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
             key=lambda r: (str(r.get("cell")), str(r.get("code")))):
         spec_parts.append("base_voids:%s=%s|%s" % (
             record.get("cell"), record.get("code"),
-            _identity(record.get("path"))))
+            ident(record.get("path"))))
     try:
         # The app-level base source is a per-tile setting only in effect when
         # ``custom_dem`` is empty; the config registry assigns it onto
@@ -1168,7 +1215,8 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
                         continue
                 if entry.get("path"):
                     paths.append(entry["path"])
-            insets = identity_list(paths) if paths else "none"
+            insets = ((content_list_identity if content else identity_list)(
+                paths) if paths else "none")
     return f"spec:{spec[:16]};insets:{insets}"
 
 

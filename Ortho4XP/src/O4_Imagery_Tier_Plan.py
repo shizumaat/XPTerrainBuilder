@@ -27,6 +27,18 @@ own tier.  A square passed abeam beyond 2.8 S therefore gets 1024 only.
 A crossing already passed is LATE: still listed (it shows at the next
 pass or reload) but last.
 
+ALTITUDE (RULINGS 2026-11-12f and the owner's 17:56Z refinement, spec
+§4.3 "Altitude"): the same apparent clarity the whole flight.  A crossing
+is read at the eye, at the SLANT distance from a camera ``agl_m`` above the
+ground: tier k is wanted while the next coarser file's texel would subtend
+more than :data:`EYE_RAD` [k] (~1 arcmin), i.e. slant < c_k * S.  The
+camera's path is predicted in 3-D (track, groundspeed and a descending
+``vertical_ms``; level at h = 0 once the descent meets the ground; a climb
+is planned level), so a descent schedules each finer tier before the
+height that needs it.  On the ground the plan
+is the horizontal one; high up it holds coarser tiers and never the full
+file far below.
+
 GROUNDSPEED is the camera's motion over the ground as the follow job
 observes it between position samples, not ``sim/flightmodel/position/
 groundspeed``: flight 2 was flown with X-Plane's ground-speed multiplier
@@ -41,9 +53,10 @@ from dataclasses import dataclass
 from typing import Mapping
 
 __all__ = [
-    "CROSSING_S", "TIER_WIDTH", "TIER_REQUESTS", "TIER_BYTES",
+    "CROSSING_S", "EYE_RAD", "TIER_WIDTH", "TIER_REQUESTS", "TIER_BYTES",
     "DEFAULT_LEAD_S", "HORIZON_S", "LATERAL_MARGIN_S",
-    "Motion", "Square", "Fetch", "tier_for_mip", "tier_of_width", "plan",
+    "Motion", "Square", "Fetch", "tier_for_mip", "tier_of_width",
+    "texel_angle", "plan",
 ]
 
 # Tier k -> top-level width (px), source-zoom requests, BC1+mips bytes (§4.3).
@@ -53,6 +66,13 @@ TIER_BYTES = (175_000, 700_000, 2_800_000, 11_200_000)
 # Tier k is wanted inside CROSSING_S[k] * S (§2.5, flight 2 at 61 N).
 # Tier 0 (512 px) is wanted inside ~10 S and is on disk from the build.
 CROSSING_S = (10.0, 5.2, 2.8, 1.65)
+# The eye angle per texel each crossing holds (RULINGS 2026-11-12f): tier k
+# is wanted while the next coarser file's texel subtends more than
+# EYE_RAD[k] = 1 / (c_k * W_{k-1}) at the SLANT distance -- ~1 arcmin, the
+# same clarity at any height.  Derived, so CROSSING_S stays the one place
+# to update.  (EYE_RAD[0]: the 256 px level X-Plane wants beyond 10 S.)
+EYE_RAD = tuple(1.0 / (c * (TIER_WIDTH[k - 1] if k else 256))
+                for k, c in enumerate(CROSSING_S))
 
 DEFAULT_LEAD_S = 30.0       # T_lead: download + convert + queue (§4.3)
 HORIZON_S = 300.0           # "closest approach in the next few minutes"
@@ -63,12 +83,16 @@ _M_PER_DEG = 111_320.0
 
 @dataclass(frozen=True)
 class Motion:
-    """Camera position and its horizontal motion (track: degrees true)."""
+    """Camera position and its motion (track: degrees true); ``agl_m``:
+    the camera's height above the ground (0 = on the ground);
+    ``vertical_ms``: its climb (+) or descent (-) rate."""
     lat: float
     lon: float
     alt_m: float
     track_deg: float
     groundspeed_ms: float
+    agl_m: float = 0.0
+    vertical_ms: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -116,6 +140,13 @@ def tier_of_width(px) -> int:
         return 0
 
 
+def texel_angle(tier: int, size_m: float, slant_m: float) -> float:
+    """Radians one texel of a ``tier`` file over a square of size
+    ``size_m`` subtends at ``slant_m``: the apparent clarity the plan
+    holds under :data:`EYE_RAD` (spec §4.3 "Altitude")."""
+    return size_m / (TIER_WIDTH[tier] * max(1e-9, slant_m))
+
+
 def _offset_m(motion: Motion, sq: Square) -> tuple[float, float]:
     """Square centre relative to the camera, metres east / north."""
     east = (sq.lon - motion.lon) * _M_PER_DEG * math.cos(math.radians(motion.lat))
@@ -123,15 +154,20 @@ def _offset_m(motion: Motion, sq: Square) -> tuple[float, float]:
     return east, north
 
 
-def _first_inside(px, py, vx, vy, radius, horizon) -> float | None:
-    """Earliest t in [0, horizon] with |p - v t| <= radius, else None."""
-    c = px * px + py * py - radius * radius
+def _dot(a, b) -> float:
+    return sum(x * y for x, y in zip(a, b, strict=True))
+
+
+def _first_inside(p, v, radius, horizon) -> float | None:
+    """Earliest t in [0, horizon] with |p - v t| <= radius, else None
+    (``p``, ``v``: vectors of any one dimension)."""
+    c = _dot(p, p) - radius * radius
     if c <= 0.0:
         return 0.0
-    a = vx * vx + vy * vy
+    a = _dot(v, v)
     if a <= 0.0:
         return None
-    b = px * vx + py * vy               # > 0: closing
+    b = _dot(p, v)                       # > 0: closing
     disc = b * b - a * c
     if disc < 0.0 or b <= 0.0:
         return None
@@ -139,21 +175,54 @@ def _first_inside(px, py, vx, vy, radius, horizon) -> float | None:
     return t if t <= horizon else None
 
 
-def _crossings(motion: Motion, sq: Square, horizon: float, margin_s: float):
-    """([(tier, deadline_s, late)] for every tier wanted within
-    ``horizon``, coarsest first; the current distance)."""
-    px, py = _offset_m(motion, sq)
+def _legs(motion: Motion, sq: Square, horizon: float):
+    """The camera's predicted path as straight legs ``(t0, p, v, span)``:
+    ``p`` the square's centre relative to the camera at ``t0`` (east,
+    north, down to the ground: -h), ``v`` the camera's velocity.  A
+    descent meets the ground at ``h / -vz`` and goes on level at h = 0."""
+    east, north = _offset_m(motion, sq)
     trk = math.radians(motion.track_deg)
     v = max(0.0, motion.groundspeed_ms)
     vx, vy = v * math.sin(trk), v * math.cos(trk)
-    now = math.hypot(px, py)
-    a = vx * vx + vy * vy
-    t_close = 0.0 if a <= 0.0 else min(horizon, max(0.0, (px * vx + py * vy) / a))
-    closest = math.hypot(px - vx * t_close, py - vy * t_close)
+    h = max(0.0, motion.agl_m)
+    # Only a descent is predicted: a climb is planned level, so a level-off
+    # never finds the camera lower than planned (h = 0: the ground plan).
+    vz = min(0.0, motion.vertical_ms) if h > 0.0 else 0.0
+    t_ground = h / -vz if vz < 0.0 else math.inf
+    if t_ground >= horizon:
+        return [(0.0, (east, north, -h), (vx, vy, vz), horizon)]
+    p2 = (east - vx * t_ground, north - vy * t_ground, 0.0)
+    return [(0.0, (east, north, -h), (vx, vy, vz), t_ground),
+            (t_ground, p2, (vx, vy, 0.0), horizon - t_ground)]
+
+
+def _closest(legs) -> tuple[float, float]:
+    """(time, slant distance) of the closest approach along ``legs``."""
+    best = (math.inf, 0.0)
+    for t0, p, v, span in legs:
+        a = _dot(v, v)
+        t = 0.0 if a <= 0.0 else min(span, max(0.0, _dot(p, v) / a))
+        d = math.sqrt(sum((pi - vi * t) ** 2 for pi, vi in zip(p, v, strict=True)))
+        if d < best[0]:
+            best = (d, t0 + t)
+    return best[1], best[0]
+
+
+def _crossings(motion: Motion, sq: Square, horizon: float, margin_s: float):
+    """([(tier, deadline_s, late)] for every tier wanted within
+    ``horizon``, coarsest first; the current slant distance)."""
+    legs = _legs(motion, sq, horizon)
+    now = math.sqrt(_dot(legs[0][1], legs[0][1]))
+    t_close, closest = _closest(legs)
     out = []
     for tier in range(1, len(CROSSING_S)):
-        radius = CROSSING_S[tier] * sq.size_m
-        t = _first_inside(px, py, vx, vy, radius, horizon)
+        radius = CROSSING_S[tier] * sq.size_m       # slant: the eye rule
+        t = None
+        for t0, p, v, span in legs:
+            t = _first_inside(p, v, radius, span)
+            if t is not None:
+                t += t0
+                break
         if t is None and closest <= radius + margin_s * sq.size_m:
             t = t_close                  # wanted only if the track bends
         if t is None:

@@ -73,13 +73,13 @@ def _estimate(tile, kind, role):
 def test_a_flight_becomes_its_jobs(recording):
     """CYYR -> +53-064 over the kit's World pack: the departure is the
     user's own tile (external: ready as it is), the destination a full
-    build (P2), the corridor light tiles where the pack holds a
+    build (P2), the corridor drapes where the pack holds a
     placeholder -- the first window P0 (before the flight loads), the
     rest P1 with deadlines from where they enter the window; nothing
     outside the regions."""
     jobs, (_samples, times) = flight_jobs(
         _plan(), corridor_km=20, build_alternate=False,
-        cruise_ms=290 * SCHEDULE.KT_TO_MS, intermediate="light",
+        cruise_ms=290 * SCHEDULE.KT_TO_MS, intermediate="drape",
         state_of=_kit_state(recording[1]), estimate=_estimate)
     by = {WP.tile_name(*j.tile): j for j in jobs}
     assert by["+53-061"].role == "departure"
@@ -94,7 +94,7 @@ def test_a_flight_becomes_its_jobs(recording):
                      "+53-062", "+53-063", "+54-060", "+54-061", "+54-062",
                      "+54-063"}
     later = [j for j in jobs if j.klass == SCHEDULE.P1]
-    assert later and all(j.kind == "light" and j.deadline_s > 0 for j in later)
+    assert later and all(j.kind == "drape" and j.deadline_s > 0 for j in later)
     assert all(j.deadline_s <= times[-1] for j in jobs)
     assert "+51-060" not in by          # the kit has no placeholder there
 
@@ -104,7 +104,7 @@ def test_the_alternate_is_built_only_with_the_checkbox(recording):
     for on, expected in ((False, "enroute"), (True, "alternate")):
         jobs, _ = flight_jobs(_plan(alternate=alt), corridor_km=20,
                               build_alternate=on, cruise_ms=None,
-                              intermediate="light",
+                              intermediate="drape",
                               state_of=_kit_state(recording[1]),
                               estimate=_estimate)
         job = next(j for j in jobs if j.tile == (52, -63))
@@ -119,8 +119,9 @@ def test_the_cyyr_flight_waits_for_readiness_then_flies(recording):
     """The flight replayed (14 parked slots, 3 in the air, light 397 s,
     full 900 s): the countdown at creation covers the real wait and never
     rose; the first-window tiles X-Plane held (its loaded columns -62 to
-    -60) went in with ONE ground reload, the column it had not loaded
-    yet (-63) by an ordinary swap; every
+    -60) went in with ONE ground reload (offered, pressed by the replayed
+    pilot, 12c (4); taken as soon as the departure area is ready, 12c (2),
+    so it may carry the first window's staged column -63 too); every
     World tile X-Plane opened in flight was swapped before it, none after
     a load; the flight is airborne by the recording's end."""
     result = R.replay_flight(*recording, DEST)
@@ -130,7 +131,9 @@ def test_the_cyyr_flight_waits_for_readiness_then_flies(recording):
     held = {r["tile"] for r in result["tiles"]
             if r["klass"] == "P0" and r["role"] == "enroute"
             and r["tile"][4:] in ("060", "061", "062")}
-    assert set(result["reloads"][0][1]) == held     # the loaded columns only
+    first_window = {r["tile"] for r in result["tiles"]
+                    if r["klass"] == "P0" and r["role"] == "enroute"}
+    assert held <= set(result["reloads"][0][1]) <= first_window
     assert result["state"] == "flying"
     opened = [r for r in result["tiles"] if r["opened_s"] is not None]
     assert {r["tile"] for r in opened} >= {"+53-063", "+53-064", "+53-065"}
@@ -146,13 +149,18 @@ def test_slow_builds_wait_longer_and_still_never_load_a_placeholder(recording):
     assert small["wait_s"] > R.replay_flight(*recording, DEST)["wait_s"]
 
 
-def test_a_faster_flight_waits_longer_on_the_ground(recording):
-    """The same flight at 3x (870 kt): the countdown moves the corridor's
-    builds before departure (10g: the flight waits for readiness) and
-    nothing X-Plane opens is late."""
+def test_a_faster_flight_leaves_with_its_departure_area_and_is_warned(
+        recording):
+    """RULINGS 2026-11-12c (2) (replacing 10g's "wait for every row"):
+    the same flight at 3x (870 kt) waits only for its departure area, as
+    long as at 1x; what its route cannot get in time is warned of
+    (``falling_behind``) instead of held on the ground."""
     slow, fast = (R.replay_flight(*recording, DEST, speed=k) for k in (1, 3))
-    assert fast["ok"], fast
-    assert fast["wait_s"] >= slow["wait_s"]
+    assert fast["wait_s"] == pytest.approx(slow["wait_s"], abs=5.0)
+    codes = {c for _t, c in fast["notices"]}
+    assert "ready" in codes
+    if not fast["ok"]:
+        assert "falling_behind" in codes
 
 
 # ------------------------------------------------------- manager details
@@ -269,32 +277,18 @@ def test_status_is_the_wire_event_and_the_fly_fixture_shape(recording):
     assert "flight_manager" in CAPABILITIES
 
 
-def test_the_countdown_runs_parked_slots_before_takeoff():
-    """Builds run on the parked capacity until takeoff and the flight
-    capacity after it: the countdown lies between the two one-capacity
-    answers."""
-    jobs = [SCHEDULE.Job((0, i), "enroute", "light", SCHEDULE.P0, 0.0,
-                         (100.0, 100.0)) for i in range(4)]
-    jobs += [SCHEDULE.Job((1, i), "enroute", "light", SCHEDULE.P1,
-                          50.0 * i, (100.0, 100.0)) for i in range(6)]
-    wide = SCHEDULE.countdown(jobs, 4)
-    narrow = SCHEDULE.countdown(jobs, 1)
-    split = SCHEDULE.countdown(jobs, 4, 1)
-    assert wide <= split < narrow
-    ends = SCHEDULE.finish_times_split(jobs, 4, 1, split)
-    assert all(end <= split for job, end in ends if job.klass == SCHEDULE.P0)
-
-
 # ------------------------------------------------------------- the budget
 
 def test_the_budget_pre_check():
-    jobs = [SCHEDULE.Job((0, 0), "enroute", "light", SCHEDULE.P1, 0.0, (1, 2)),
+    jobs = [SCHEDULE.Job((0, 0), "enroute", "drape", SCHEDULE.P1, 0.0, (1, 2)),
             SCHEDULE.Job((0, 1), "destination", "full", SCHEDULE.P2, 0.0,
                          (1, 2)),
-            SCHEDULE.Job((0, 2), "enroute", "light", SCHEDULE.P1, 0.0, (1, 2),
+            SCHEDULE.Job((0, 2), "enroute", "drape", SCHEDULE.P1, 0.0, (1, 2),
                          state="swapped")]
     need = BUDGET.need_bytes(jobs, 3600.0, uncached_tiles=1)
-    assert need[0] == pytest.approx(100e6 + 220e6 + 0.05 * 1024 ** 3 + 2.2e9)
+    assert need[0] == pytest.approx(45e6 + 220e6 + 0.05 * 1024 ** 3 + 2.2e9)
+    sharp = BUDGET.need_bytes(jobs, 3600.0, uncached_tiles=1, drape_px=1024)
+    assert sharp[0] - need[0] == pytest.approx(3 * 45e6)    # (1024/512)^2
     assert BUDGET.verdict(need, None, None) == (True, "")
     fits = {"budget_bytes": 100e9, "used_bytes": 50e9, "floor_bytes": 20e9}
     assert BUDGET.verdict(need, fits, 500e9) == (True, "")
@@ -348,14 +342,18 @@ def engine(tmp_path, monkeypatch, recording):
                     "prefetch_done": True}
     monkeypatch.setattr(FLIGHT, "_Facts", Facts)
 
-    class Feed:
+    class Reader:
         resets = 0
 
         def read(self):
             return {"lat": CYYR[0], "lon": CYYR[1], "agl_m": 0.0,
                     "gs_ms": 0.0, "frame_s": 0.02}
-    monkeypatch.setattr(FEED, "shared", lambda base=None: Feed())
+    feed = FEED._PositionFeed(Reader())
+    monkeypatch.setattr(FEED, "shared", lambda base=None: feed)
     events, builds = [], []
+    # the corridor's drapes (RULINGS 2026-11-11j): no network in a twin
+    monkeypatch.setattr(WORLD_JOB, "drape_tile", lambda tile, p, z, px=None:
+                        bool(builds.append(("drape", tile, px))))
 
     class Session:
         _emit = events.append
@@ -383,10 +381,10 @@ def _wait_for(predicate, seconds=15.0):
 
 def test_create_status_update_end(engine, monkeypatch):
     """``flight_create`` from a departure + arrival writes the record and
-    starts the flight in world_job's flight mode: builds queued through
-    the session (profile, class, never interactive), ``FlightStatus``
-    events; track mode stays off while it runs; ``flight_update`` replans;
-    ``flight_end`` closes it and track mode may start again."""
+    starts the flight in world_job's flight mode: full builds queued
+    through the session (class, never interactive), ``FlightStatus``
+    events; track mode starts beside it (#2019); ``flight_update``
+    replans; ``flight_end`` closes it and track mode runs on."""
     session, events, builds, folder = engine
     table = FC.flight_handlers(session)
     reply = table["flight_create"](
@@ -397,14 +395,19 @@ def test_create_status_update_end(engine, monkeypatch):
     assert os.path.isfile(os.path.join(folder, flight + ".json"))
     assert _wait_for(lambda: builds and any(
         isinstance(e, FlightStatus) for e in events))
-    _tiles, kw = builds[0]
-    assert kw["missing_art"] == "leave" and kw["klass"] in ("P0", "P2")
-    assert kw["overrides"]["profile"] in ("light", "full")
-    with pytest.raises(ValueError, match="already active"):
-        table["flight_create"](dep={"lat": 1, "lon": 1},
-                               arr={"lat": 2, "lon": 2})
-    assert WORLD_JOB.world_job_start(session) == {"status": "running",
-                                                  "mode": "flight"}
+    # the first window goes first, as drapes (the departure is external);
+    # the long destination starts beside it at once: with the countdown
+    # to the departure area only (12c (2)) its slack is under the
+    # laxity guard
+    assert _wait_for(lambda: any(b[0] == "drape" for b in builds[:3]))
+    first = next(b for b in builds if b[0] == "drape")
+    assert first[1][1] in range(-63, -59)
+    for _tiles, kw in (b for b in builds if b[0] != "drape"):
+        assert kw["missing_art"] == "leave" and kw["klass"] in ("P0", "P2")
+        # a full build: no profile (11j), always on demand (lane lcore)
+        assert kw["overrides"] == {"imagery_on_demand": True}
+    assert WORLD_JOB.world_job_start(session) == {"status": "started"}
+    assert FLIGHT.current().manager.record.id == flight
     status = table["flight_status"]()
     assert status["flight"] == flight and status["state"] == "preparing"
     assert status["phase"] == "parked" and status["items"]
@@ -425,18 +428,48 @@ def test_create_status_update_end(engine, monkeypatch):
     assert table["flight_end"](flight=flight) == {"flight": flight,
                                                   "state": "closed"}
     assert FLIGHT.current() is None and starts == [session]
+    assert WORLD_JOB._RUNNER is not None        # track mode runs on
     assert RECORD.load(os.path.join(folder, flight + ".json")).state == "closed"
     assert table["flight_status"](flight=flight)["state"] == "closed"
 
 
+def test_a_new_plan_closes_every_other_flight_and_goes_first(engine, monkeypatch):
+    """Owner 2026-11-12T23:40:51Z: "if a flight plan is entered and we say
+    to use it, it should end any other flight, stop processing any other
+    region and prioritize the newly input flight plan" (#2028: after a
+    restart the resumed flight refused the new one)."""
+    from o4_engine import imagery_commands as CMDS
+    session, _events, _builds, folder = engine
+    resumed = RECORD.from_plan(_plan(), "none", WHEN)
+    RECORD.save(resumed, folder)
+    WORLD_JOB.autostart(session)                # the flight runs again
+    assert FLIGHT.current().manager.record.id == resumed.id
+    focused = []
+    monkeypatch.setattr(CMDS, "focus_imagery_follow",
+                        lambda lat, lon, tiles: focused.append((lat, lon, tiles)))
+    table = FC.flight_handlers(session)
+    new = table["flight_create"](
+        dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
+        arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})["flight"]
+    assert RECORD.load(os.path.join(folder, resumed.id + ".json")).state == "closed"
+    assert _wait_for(lambda: FLIGHT.current() is not None
+                     and FLIGHT.current().manager.record.id == new)
+    lat, lon, tiles = focused[0]                # the departure first
+    assert (lat, lon) == CYYR and [t[1:] for t in tiles] == [
+        (int(CYYR[0] // 1), int(CYYR[1] // 1))]
+
+
 def test_autostart_resumes_the_active_flight(engine):
-    """At launch the active record (preparing) runs again in flight mode."""
+    """At launch the active record (preparing) runs again in flight mode,
+    beside track mode (#2019)."""
     session, events, _builds, folder = engine
     record = RECORD.from_plan(_plan(), "none", WHEN)
     RECORD.save(record, folder)
     assert WORLD_JOB.autostart(session) == {"status": "started",
                                             "mode": "flight",
-                                            "flight": record.id}
+                                            "flight": record.id,
+                                            "track": "started"}
+    assert WORLD_JOB._RUNNER is not None
     assert FLIGHT.current().manager.record.id == record.id
     assert _wait_for(lambda: any(isinstance(e, FlightStatus) for e in events))
 
@@ -444,7 +477,7 @@ def test_autostart_resumes_the_active_flight(engine):
 def test_create_refuses_without_the_world_pack_or_a_route(engine, tmp_path):
     session = engine[0]
     with pytest.raises(ValueError, match="no route"):
-        FC.flight_create(session, plan={"waypoints": [{"lat": 1, "lon": 2}]})
+        FC.flight_create(session, plan={"waypoints": []})
     with pytest.raises(ValueError, match="Name a flight"):
         FC.flight_create(session)
     with pytest.raises(ValueError, match="World pack"):
@@ -476,3 +509,237 @@ def test_simbrief_completes_with_flight_ready(monkeypatch):
     assert events[0].request == 5 and events[0].result["origin"] == "A"
     with pytest.raises(ValueError, match="SimBrief"):
         FC.start_flight_plan_simbrief(events.append, user=" ")
+
+
+def test_no_plan_closes_a_prepared_flight_and_track_mode_runs(engine):
+    """#2019 (the owner's CYWG case: a prepared KMRY-KFAT record still
+    active owned build-ahead): "No plan" sends ``flight_end {if_prepared:
+    true}``; a preparing flight closes, track mode runs alone; a flight
+    in the air is left as it is."""
+    session, _events, _builds, folder = engine
+    table = FC.flight_handlers(session)
+    record = RECORD.from_plan(_plan(), "none", WHEN)
+    RECORD.save(record, folder)
+    assert WORLD_JOB.autostart(session)["flight"] == record.id
+    assert WORLD_JOB._RUNNER is not None            # beside the flight
+    assert table["flight_end"](if_prepared=True) == {"flight": record.id,
+                                                     "state": "closed"}
+    assert FLIGHT.current() is None and RECORD.active_flight(folder) is None
+    assert WORLD_JOB._RUNNER is not None            # track mode runs on
+    assert table["flight_end"](if_prepared=True) == {"flight": None}
+    flying = RECORD.from_plan(_plan(), "none", WHEN)
+    flying.id += "-air"
+    flying.state = "flying"
+    RECORD.save(flying, folder)
+    assert table["flight_end"](if_prepared=True) == {"flight": None}
+    assert RECORD.load(os.path.join(folder, flying.id + ".json")).state == "flying"
+
+
+def test_create_with_a_departure_only(engine):
+    """#2023: ``flight_create`` with a departure and no arrival prepares
+    only X-Plane's window at the departure, its drapes fetched at 512 px
+    (the departure here is the kit's external tile: nothing to build)."""
+    import O4_World_Window as WINDOW
+    session, _events, builds, _folder = engine
+    table = FC.flight_handlers(session)
+    flight = table["flight_create"](
+        dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]})["flight"]
+    assert flight.endswith("-CYYR-NONE")
+    ring = {t for t, i in WINDOW.route_entries([CYYR]).items() if i <= 0}
+    assert _wait_for(lambda: len([b for b in builds if b[0] == "drape"]) >= 3)
+    drapes = [b for b in builds if b[0] == "drape"]
+    assert all(tuple(b[1]) in ring and b[2] == 512 for b in drapes)
+    jobs = FLIGHT.current().manager.jobs
+    assert {j.tile for j in jobs} <= ring
+    assert not any(j.role == "destination" for j in jobs)
+    assert table["flight_update"](flight=flight, destination={
+        "ident": "dest", "lat": DEST[0], "lon": DEST[1]}) == {"flight": flight}
+    manager = FLIGHT.current().manager
+    assert not manager.plan.departure_only
+    assert manager.record.destination["ident"] == "DEST"
+    assert any(j.role == "destination" for j in manager.jobs)
+
+
+def test_a_batch_of_slow_drapes_scales_the_queue_once(recording):
+    """Drapes finished in one tick each set the drape scale against their
+    PLANNED estimate: the queued drapes are planned x the clamped scale,
+    never planned x 2.5 ** n (CYWG-KDLH 2026-11-12: 55 s -> 9 h)."""
+    manager, builder, _facts = _manager(recording, parked_slots=6)
+    manager.tick(0.0, None)
+    drapes = [s[0] for s in builder.started if s[1] == "drape"]
+    assert len(drapes) >= 3
+    planned = {j.tile: j.est_s for j in manager.jobs if j.state == "queued"
+               and j.kind == "drape"}
+    builder.done.extend((tile, True) for tile in drapes)
+    manager.tick(5000.0, None)
+    queued = [j for j in manager.jobs if j.tile in planned
+              and j.state == "queued"]
+    assert queued
+    top = SCHEDULE.RESCALE_RANGE[1]
+    for j in queued:
+        assert j.est_s == pytest.approx(tuple(v * top for v in planned[j.tile]))
+
+
+def test_the_first_status_comes_before_the_first_tick(engine, monkeypatch):
+    """A tick that blocks (a build start held for seconds) never hides the
+    flight: ``flight_create`` emits a ``FlightStatus`` with the rows and
+    the jobs at once, ``flight_status`` answers from it while the tick
+    holds the lock, an edit refuses instead of freezing the command loop,
+    and the slow tick is logged with its phases."""
+    import threading
+    session, events, builds, _folder = engine
+    gate = threading.Event()
+    real = session.enqueue_build
+    session.enqueue_build = lambda *a, **kw: gate.wait(20) and real(*a, **kw)
+    logs = []
+    monkeypatch.setattr(WORLD, "write_log", logs.append)
+    monkeypatch.setattr(FLIGHT, "EDIT_WAIT_S", 0.2)
+    monkeypatch.setattr(FLIGHT, "SLOW_TICK_S", 0.5)
+    table = FC.flight_handlers(session)
+    flight = table["flight_create"](
+        dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
+        arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})["flight"]
+    first = [e for e in events if isinstance(e, FlightStatus)]
+    assert first and first[0].flight == flight and first[0].items
+    assert first[0].jobs and first[0].countdown_s is not None
+    assert _wait_for(lambda: FLIGHT.current().lock.locked(), 5.0)
+    started = time.monotonic()
+    status = table["flight_status"]()
+    assert time.monotonic() - started < 2.0
+    assert status["flight"] == flight and status["jobs"]
+    with pytest.raises(ValueError, match="busy"):
+        table["flight_update"](flight=flight, corridor_km=30)
+    gate.set()
+    assert _wait_for(lambda: any("flight_slow_tick" in r for r in logs))
+    slow = next(r for r in logs if "flight_slow_tick" in r)["flight_slow_tick"]
+    # the breakdown names the part of the tick that held it (HAAB
+    # 2026-11-12T22:10:49Z logged only "tick": 5.4)
+    assert slow["tick.dispatch"] >= 0.5
+    assert {"tick.move", "tick.harvest", "tick.settle",
+            "tick.readiness"} <= set(slow)
+
+
+def test_the_facts_never_walk_the_pack_and_never_hold_a_tick(monkeypatch):
+    """The readiness facts read X-Plane's side through
+    ``world_commands.xplane_reads`` (no walk of the pack's tiles: beside
+    busy drape threads the walk took minutes), the first time at once and
+    after that on a worker: a slow reread never holds the tick."""
+    calls = []
+
+    def reads(scenery_dir):
+        calls.append(time.monotonic())
+        if len(calls) > 1:
+            time.sleep(1.0)
+        return {"installed": True, "xplane_running": False,
+                "seen_by_xplane": None, "loads": {}}
+    monkeypatch.setattr(WORLD, "xplane_reads", reads)
+    monkeypatch.setattr(WORLD, "_status_fields",
+                        lambda *a: pytest.fail("the tile walk"))
+    monkeypatch.setattr(FLIGHT, "REREAD_S", 0.0)
+    monkeypatch.setattr(FLIGHT._Facts, "_budget", lambda self, *a: None)
+    facts = FLIGHT._Facts("/nowhere", [], 600.0, on_disk=lambda t: True)
+    assert facts()["world_installed"] is True and len(calls) == 1
+    started = time.monotonic()
+    facts()
+    assert time.monotonic() - started < 0.5
+    assert _wait_for(lambda: len(calls) == 2, 5.0)
+
+
+def test_the_photo_source_is_read_per_build(engine, monkeypatch):
+    """The Fly pane's "Photo source" writes ``fly_photo_source`` (owner
+    2026-11-12T19:17Z, #2018); the flight's builds read it per build, so
+    the next drape and the next full build fetch from the new source."""
+    session, _events, builds, _folder = engine
+    values = {"fly_photo_source": "BI", "default_zl": 16}
+    monkeypatch.setattr(WORLD_JOB, "_settings", lambda: dict(values))
+    drapes = []
+    monkeypatch.setattr(WORLD_JOB, "drape_tile", lambda tile, p, z, px=None:
+                        bool(drapes.append((tuple(tile), p, z))))
+    table = FC.flight_handlers(session)
+    table["flight_create"](
+        dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
+        arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})
+    builder = FLIGHT.current().manager.builder
+    builder.drape((53, -60))
+    values.update(fly_photo_source="GO2", default_zl=17)
+    builder.drape((53, -60))
+    assert drapes[-2:] == [((53, -60), "BI", 16), ((53, -60), "GO2", 17)]
+    seen = []
+    session.enqueue_build = lambda tiles, provider, zl, *a, **kw: bool(
+        seen.append((provider, zl)))
+    builder._start((53, -64), "full", 600.0, "P2")
+    assert seen == [("GO2", 17)]
+
+
+
+def test_automatic_on_a_flight_is_the_route_split(engine, monkeypatch):
+    """#2018 / #2048 (RULINGS 2026-11-13n): on a planned flight Automatic
+    takes the departure tile's provider up to the route's midpoint and the
+    destination tile's after it -- never a third, region-auto provider in
+    between; the full build of a tile follows the same split.  The flight's
+    end gives region-auto back."""
+    import O4_Imagery_Auto as AUTO
+    from o4_engine import flight_imagery_route as ROUTE
+    session, _events, _builds, _folder = engine
+    monkeypatch.setattr(WORLD_JOB, "_settings", lambda: {"default_zl": 16})
+    region = {(53, -61): "NL", (53, -64): "BI"}       # CYYR's tile, DEST's
+    monkeypatch.setattr(AUTO, "provider_for",
+                        lambda lat, lon: region.get((lat, lon), "GO2"))
+    monkeypatch.setattr(AUTO, "choose", lambda lat, lon, zl: (
+        region.get((lat, lon), "GO2"), zl))
+    drapes = []
+    monkeypatch.setattr(WORLD_JOB, "drape_tile", lambda tile, p, z, px=None:
+                        bool(drapes.append((tuple(tile), p, z))))
+    table = FC.flight_handlers(session)
+    table["flight_create"](
+        dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
+        arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})
+    builder = FLIGHT.current().manager.builder
+    builder.drape((53, -62))            # centre west of the midpoint
+    builder.drape((53, -63))            # centre east of it
+    assert drapes[-2:] == [((53, -62), "NL", 16), ((53, -63), "BI", 16)]
+    seen = []
+    session.enqueue_build = lambda tiles, provider, zl, *a, **kw: bool(
+        seen.append((tuple(tiles[0]), provider, zl)))
+    builder._start((53, -62), "full", 600.0, "P2")
+    assert seen == [((53, -62), "NL", 16)]
+    FLIGHT.stop()
+    assert ROUTE.active() is None
+    assert WORLD_JOB.photo_source((53, -62)) == ("GO2", 16)
+
+
+def test_a_tick_never_waits_on_the_web_api(engine, monkeypatch):
+    """Owner log 2026-11-12T20:22Z: ``flight_slow_tick`` "feed" 5.7-6.2 s
+    per tick while X-Plane was not running.  The position is read on the
+    feed's pump thread; a tick takes the last record: with a feed whose
+    read takes 5 s, a tick completes in under 0.5 s."""
+    import threading
+
+    from o4_engine import position_feed as FEED
+    session, _events, _builds, _folder = engine
+    gate = threading.Event()
+
+    class SlowReader:
+        resets = 0
+
+        def read(self):
+            gate.wait(5.0)                  # X-Plane not answering
+            return None
+    feed = FEED._PositionFeed(SlowReader())
+    monkeypatch.setattr(FEED, "shared", lambda base=None: feed)
+    logs = []
+    monkeypatch.setattr(WORLD, "write_log", logs.append)
+    monkeypatch.setattr(FLIGHT, "SLOW_TICK_S", 0.5)
+    try:
+        FC.flight_handlers(session)["flight_create"](
+            dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
+            arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})
+        runner = FLIGHT.current()
+        assert _wait_for(lambda: runner.manager.record.phase == "", 5.0)
+        time.sleep(3.5)                     # three ticks beside the slow read
+        started = time.monotonic()
+        assert feed.latest() is None        # no record yet: never waited on
+        assert time.monotonic() - started < 0.5
+        assert not [r for r in logs if "flight_slow_tick" in r], logs
+    finally:
+        gate.set()

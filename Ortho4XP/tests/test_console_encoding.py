@@ -1064,7 +1064,7 @@ def test_overlay_echoes_dsftool_whatever_its_path_encoding(
     monkeypatch.setattr(OVL.subprocess, "Popen", _echo_popen(OVL, written_in))
     UI.is_working = 0
     try:
-        OVL.build_overlay(lat, lon)
+        OVL._build_overlay(lat, lon)
     finally:
         UI.is_working = 0
     printed = capsys.readouterr().out

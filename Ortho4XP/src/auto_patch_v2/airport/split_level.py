@@ -83,7 +83,9 @@ class SplitLevel:
     footprint: Polygon
     y_lo: float
     y_up: float
-    #: the OPEN sides (frame segments) and the closed ones
+    #: the OPEN sides (frame segments, each running with the building on
+    #: its RIGHT: the ground it meets lies on its left, #1903) and the
+    #: closed ones
     open_sides: tuple[LineString, ...]
     closed_sides: tuple[LineString, ...]
     ground_open_m: float
@@ -183,18 +185,23 @@ def _covered_plan(v: np.ndarray, t: np.ndarray, close_m: float, min_hole_m2: flo
     return Polygon(big.exterior, [h for h in big.interiors if Polygon(h).area >= min_hole_m2])
 
 
-def _open_edges(plan: Polygon, closed: _t.Sequence[LineString], probe: float
-                ) -> list[LineString]:
+def _open_edges(plan: Polygon, closed: _t.Sequence[LineString], probe: float,
+                back_m: float = 0.0) -> list[LineString]:
     """The OPEN boundary of a pit under ``plan``: the straight edges of its
     outline that face OUT of the building (away from its centroid) and lie
     more than ``probe`` off the TALL sides (``closed``, the box's sides
     walled down to the lower floor) -- the open side the upper ground meets.
     An edge facing back into the building (a notch between piers) is no
-    side of it."""
+    side of it, nor is one FACING a tall side within ``back_m`` (the
+    ``split_level_back_cut_m`` over which the pit cuts the back down to the
+    lower floor: #1903 KLAX ``Terminal_8``'s east facade, 3.1-3.4 m inside
+    its tall side's line, read open over the back cut).  Each edge runs
+    CLOCKWISE: the building on its right, the ground it meets on its left."""
     ring = plan.exterior
     if ring.is_ccw:
         ring = LineString(list(ring.coords)[::-1])
     tall = unary_union(list(closed)).buffer(probe, cap_style="flat") if closed else None
+    lines = unary_union(list(closed)) if closed and back_m > 0.0 else None
     cx, cy = plan.centroid.x, plan.centroid.y
     out = []
     pts = list(ring.coords)
@@ -204,9 +211,24 @@ def _open_edges(plan: Polygon, closed: _t.Sequence[LineString], probe: float
             continue
         # clockwise ring: the outward normal is the edge turned left
         nx, ny = -(y1 - y0), (x1 - x0)
-        if (0.5 * (x0 + x1) - cx) * nx + (0.5 * (y0 + y1) - cy) * ny > 0.0:
-            out.append(seg)
+        mx, my = 0.5 * (x0 + x1), 0.5 * (y0 + y1)
+        if (mx - cx) * nx + (my - cy) * ny <= 0.0:
+            continue
+        k = back_m / seg.length
+        if lines is not None and LineString([(mx, my), (mx + nx * k, my + ny * k)]
+                                            ).intersects(lines):
+            continue
+        out.append(seg)
     return out
+
+
+def _outward_left(side: LineString, centre: tuple[float, float]) -> LineString:
+    """``side`` running with ``centre`` on its RIGHT (the open sides'
+    orientation, :attr:`SplitLevel.open_sides`)."""
+    (x0, y0), (x1, y1) = side.coords[0], side.coords[-1]
+    if (centre[0] - x0) * -(y1 - y0) + (centre[1] - y0) * (x1 - x0) > 0.0:
+        return LineString(list(side.coords)[::-1])
+    return side
 
 
 def _side_feet(v: np.ndarray, t: np.ndarray, sides: _t.Sequence[tuple], probe: float,
@@ -332,6 +354,7 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
     if cover <= 0.0 or step <= 0.0 or dem_z is None:
         return [], []
     probe = float(bp.split_level_probe_m)
+    back = float(getattr(bp, "split_level_back_cut_m", 0.0) or 0.0)
     pmin = float(bp.min_area_m2)
     out: list[SplitLevel] = []
     notes: list[str] = []
@@ -406,8 +429,10 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
         plan = None if cov is None else Polygon(
             [frame(c) for c in cov.exterior.coords],
             [[frame(c) for c in h.coords] for h in cov.interiors])
-        if plan is not None:
-            opened = _open_edges(plan, closed, probe) or opened
+        # the plan's open edges run clockwise already; the box's sides are
+        # turned to (the box is convex: its centre lies inside every side)
+        edges = _open_edges(plan, closed, probe, back) if plan is not None else []
+        opened = edges or [_outward_left(s, centre) for s in opened]
         out.append(SplitLevel(str(o.id), tuple(str(m.id) for m in fam),
                               tuple(sorted({m.path for m in fam})), foot[0],
                               round(y_lo, 3), round(y_up, 3), tuple(opened), tuple(closed),

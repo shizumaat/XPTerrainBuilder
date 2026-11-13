@@ -17,7 +17,7 @@ holds every tile the app manages, placeholders where none is built.
   2026-11-10e (3): the ``imagery_on_demand_<region>`` switches) set, then
   placeholders written for the tiles of the regions turned on that X-Plane's
   own scenery holds, and the regions turned off given back (their drape
-  and light tiles swapped out, their placeholders removed; full tiles
+  tiles swapped out, their placeholders removed; full tiles
   stay).  Replies ``{"status": "started"}``; ``WorldReady`` completes it.
 * :func:`world_tile_set` -- "Give this tile back": the placeholder over the
   tile (``swap_out``, spec §7.4); its folders go only when X-Plane cannot
@@ -45,7 +45,7 @@ import O4_World_Pack as WP
 __all__ = ["LOG_NAME", "S3_MARGIN_KM", "pack_dir", "staging_root", "scenery_dir_or_default",
            "managed", "refuse_foreign",
            "OFFERED_KEY",
-           "tile_loaded", "world_status", "world_install", "world_onboard",
+           "tile_loaded", "xplane_reads", "world_status", "world_install", "world_onboard",
            "start_world_regions_set", "world_tile_set",
            "status_event", "write_log"]
 
@@ -243,28 +243,48 @@ def managed(scenery_dir: str) -> bool:
         os.path.join(pack_dir(scenery_dir), WP.MARKER)) and not _foreign_target(scenery_dir)
 
 
-def _status_fields(scenery_dir: str) -> dict:
-    pack = pack_dir(scenery_dir) if scenery_dir else ""
-    exists = managed(scenery_dir)
-    installed = exists and _ini_has_row(scenery_dir)
-    kinds = WP.world_tiles(pack) if exists else {}
-    counts = {kind: 0 for kind in WP.KINDS}
-    for kind in kinds.values():
-        counts[kind] = counts.get(kind, 0) + 1
-    counts["staged"] = _staged_count()
+def xplane_reads(scenery_dir: str) -> dict:
+    """The World pack as X-Plane reads it, with a handful of file reads
+    and no walk of the pack's tiles: ``installed`` (made here and in
+    ``scenery_packs.ini``), ``xplane_running``, ``seen_by_xplane`` (None
+    until ``Log.txt`` lists the packs) and ``loads`` (``{(lat, lon):
+    DsfLoad}`` this session).  The flight's readiness reads this every
+    tick: :func:`_status_fields`' tile walk is tens of thousands of file
+    calls, each giving the GIL away, and beside a dozen drape threads it
+    took minutes (the CYWG-KDLH flight of 2026-11-12 showed nothing for
+    its first ~5 minutes)."""
+    installed = managed(scenery_dir) and _ini_has_row(scenery_dir)
     running = _xplane_running()
-    seen = None
-    loaded = ()
+    seen, loads = None, {}
     if running and installed:
         loads, packages = _witness(scenery_dir)
         if packages:
             seen = any(p.rstrip("/").endswith("/" + WP.PACK_NAME)
                        for p in packages)
-        loaded = tuple(sorted(WP.tile_name(*k) for k, rec in loads.items()
-                              if rec.tris > 0))
+    return {"installed": installed, "xplane_running": running,
+            "seen_by_xplane": seen, "loads": loads}
+
+
+def _status_fields(scenery_dir: str) -> dict:
+    pack = pack_dir(scenery_dir) if scenery_dir else ""
+    exists = managed(scenery_dir)
+    reads = xplane_reads(scenery_dir)
+    installed, seen = reads["installed"], reads["seen_by_xplane"]
+    kinds = WP.world_tiles(pack) if exists else {}
+    counts = {kind: 0 for kind in WP.KINDS}
+    for kind in kinds.values():
+        counts[kind] = counts.get(kind, 0) + 1
+    counts["staged"] = _staged_count()
+    loaded = tuple(sorted(WP.tile_name(*k) for k, rec in reads["loads"].items()
+                          if rec.tris > 0))
     foreign = _foreign_target(scenery_dir)
+    missing = _converted_missing(scenery_dir, kinds) if not foreign else 0
     if foreign:
         state, reason = "off", _foreign_sentence(foreign)
+    elif missing:
+        from .world_migrate import pack_missing_sentence
+        state = "idle" if installed else "off"
+        reason = pack_missing_sentence(missing)
     elif not installed:
         state, reason = "off", "The World pack is not installed."
     elif seen is False:
@@ -274,6 +294,20 @@ def _status_fields(scenery_dir: str) -> dict:
     return {"state": state, "reason": reason, "installed": installed,
             "seen_by_xplane": seen, "restart_needed": seen is False,
             "tiles": counts, "loaded": loaded, "kinds": kinds}
+
+
+def _converted_missing(scenery_dir: str, kinds: dict) -> int:
+    """How many tiles Convert existing tiles moved the World pack lacks
+    (``world_migrate.missing_from_pack``); 0 with no journal."""
+    if not scenery_dir:
+        return 0
+    from .world_migrate import missing_from_pack, work_dir_for
+    if not os.path.isdir(work_dir_for(scenery_dir)):
+        return 0                            # never converted
+    try:
+        return len(missing_from_pack(scenery_dir, kinds if kinds else None))
+    except (OSError, ValueError):
+        return 0
 
 
 def world_status(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
@@ -322,8 +356,10 @@ def world_install(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
     SP.write_ini_lines(_ini_path(scenery_dir), lines, newline)
     running = _xplane_running()
     write_log({"install": scenery_dir, "ini_added": added})
+    coverage = ensure_coverage(scenery_dir)
     return {"installed": True, "ini_added": added,
-            "restart_needed": bool(running and added)}
+            "restart_needed": bool(running and added),
+            "placeholders": coverage["written"]}
 
 
 #: The World pack marker's record that the per-tile packs were offered
@@ -354,30 +390,54 @@ def _mark_offered(scenery_dir: str) -> None:
         json.dump(record, handle)
 
 
-def world_onboard(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
+def world_onboard(scenery_dir: str = "", legacy_build_dir: str = "",
+                  busy: Optional[Callable] = None, move_home: bool = False,
+                  **_ignored) -> Dict[str, Any]:
     """ENGINE COMMAND ``world_onboard`` (the apps' start, RULINGS
     2026-11-11a, 11h (2)): when no World pack folder exists in the Custom
     Scenery folder, :func:`world_install` makes it (a folder that exists
-    is never touched); ``{"created", "offer", "restart_needed"}`` --
-    ``offer``: the enabled ``zOrtho4XP_`` entries (on a mounted drive)
+    is never touched); ``{"created", "offer", "restart_needed", "home"}``
+    -- ``offer``: the enabled ``zOrtho4XP_`` entries (on a mounted drive)
     that ``world_migrate`` could move, which the apps then ask about.  It
     is non-zero ONCE per managed pack: answering it is recorded in the
     marker (:data:`OFFERED_KEY`), so Library > Convert existing tiles is
     the way back.  A foreign World folder (:func:`_foreign_target`) is
     left alone: no offer, ``reason`` :data:`_FOREIGN_REASON`, ``target``
-    and the apps' ``message``."""
+    and the apps' ``message``.
+
+    ``home`` (RULINGS 2026-11-12g/h, ``world_home``): with ``move_home``
+    (the apps' start passes it; a bare call only reports) the data folder's
+    tiles and packages moved into the World folder (``legacy_build_dir``:
+    the apps' retired custom build folder, moved too; ``busy``: the
+    session's building tiles, left for the next start), then where the
+    tiles and packages live (``tiles_dir``, ``packages_dir``).
+
+    ``superseded`` (#2047): the adopted tiles a full build of ours has
+    replaced since Convert, their adopt records retired at this start
+    (listed only without ``move_home``)."""
+    from . import world_home as HOME
     from .world_migrate import entries
     scenery_dir = scenery_dir_or_default(scenery_dir)
     out = {"created": False, "offer": 0, "restart_needed": False}
     if not scenery_dir or not os.path.isdir(scenery_dir):
-        return out
+        return {**out, "home": HOME.describe()}
     foreign = _foreign_target(scenery_dir)
     if foreign:
         return {**out, "reason": _FOREIGN_REASON, "target": foreign,
-                "message": _foreign_sentence(foreign)}
+                "message": _foreign_sentence(foreign),
+                "home": HOME.describe()}
     if not os.path.isdir(pack_dir(scenery_dir)):
         out["created"] = True
         out["restart_needed"] = world_install(scenery_dir)["restart_needed"]
+    elif managed(scenery_dir):
+        ensure_coverage(scenery_dir)    # world_install already did it
+    try:
+        out["home"] = HOME.migrate(scenery_dir, legacy_build_dir, busy=busy,
+                                   dry_run=not move_home)
+    except OSError as error:            # logged; the start goes on
+        write_log({"world_home_error": repr(error)[:300]})
+        out["home"] = {**HOME.describe(), "error": str(error)[:300]}
+    out["superseded"] = _supersede_rebuilt(scenery_dir, dry_run=not move_home)
     if not managed(scenery_dir) or _offered(scenery_dir):
         return out
     out["offer"] = sum(1 for entry in entries(scenery_dir)
@@ -385,6 +445,18 @@ def world_onboard(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
     if out["offer"]:
         _mark_offered(scenery_dir)
     return out
+
+
+def _supersede_rebuilt(scenery_dir: str, dry_run: bool) -> list:
+    """The adopted tiles a full build of ours has replaced since Convert,
+    their adopt records retired (``world_adopt_supersede.correct``,
+    #2047); with ``dry_run`` only listed."""
+    from . import world_adopt_supersede as SUPERSEDE
+    try:
+        return SUPERSEDE.correct(scenery_dir, dry_run=dry_run)["tiles"]
+    except (OSError, ValueError) as error:  # logged; the start goes on
+        write_log({"supersede_error": repr(error)[:300]})
+        return []
 
 
 def _global_tiles(scenery_dir: str) -> "set | None":
@@ -395,6 +467,67 @@ def _global_tiles(scenery_dir: str) -> "set | None":
     if not os.path.isdir(os.path.join(root, "Earth nav data")):
         return None
     return {key for key, _path, _size in WP.pack_dsfs(root)}
+
+
+def _land(scenery_dir: str, mask: bool = True
+          ) -> Optional[Callable[[tuple], bool]]:
+    """Is a tile land: X-Plane's Global Scenery has a DSF for it, or,
+    without that folder and with ``mask``, the engine's world mask says
+    so (``O4_DEM_Utils.tile_is_land``); None: no Global Scenery and no
+    ``mask``.  Ocean-only tiles get no placeholder."""
+    tiles = _global_tiles(scenery_dir)
+    if tiles is not None:
+        return tiles.__contains__
+    if not mask:
+        return None
+    import O4_DEM_Utils as DEM
+    return lambda tile: DEM.tile_is_land(*tile)
+
+
+def _enabled_regions() -> list:
+    """The region codes whose ``imagery_on_demand_<region>`` switch is
+    on (unset: on, ``O4_Imagery_Regions.tile_on_demand``)."""
+    import O4_Imagery_Regions as REGIONS
+    import O4_Settings_Model as SM
+    raw = SM.read_global_raw()
+    return [code for code, _label in REGIONS.REGIONS
+            if str(raw.get(REGIONS.setting_name(code), "True")).strip().lower()
+            not in ("false", "0", "no", "off")]
+
+
+def ensure_coverage(scenery_dir: str = "", mask: bool = False
+                    ) -> Dict[str, Any]:
+    """World coverage (owner 2026-11-12T15:05Z: "Yes add world coverage
+    otherwise draping won't work", #2019): a placeholder for every LAND
+    tile (:func:`_land`) of the enabled regions that has no DSF in the
+    pack yet -- never over a real tile, idempotent, batched
+    (``WP.write_placeholders``; the world's ~19k land tiles in about 2 s).
+    Run at the app's start (:func:`world_onboard`) and by
+    :func:`world_install` from X-Plane's Global Scenery list (none beside
+    the Custom Scenery folder: nothing written), and by
+    ``world_regions_set``, the user's choice, with the world mask when
+    that list is missing (``mask``).  When X-Plane runs and placeholders were
+    written, the user is offered the one reload that lets X-Plane see
+    them (``reload_offer`` "coverage"; nothing reloads on its own).
+    ``{"written", "kept", "seconds"}``."""
+    import O4_Imagery_Regions as REGIONS
+    scenery_dir = scenery_dir_or_default(scenery_dir)
+    out: Dict[str, Any] = {"written": 0, "kept": 0, "seconds": 0.0}
+    if not managed(scenery_dir):
+        return out
+    t0 = time.monotonic()
+    land = _land(scenery_dir, mask)
+    if land is None:
+        return out
+    tiles = [t for code in _enabled_regions()
+             for t in REGIONS.region_tiles(code) if land(t)]
+    done = WP.write_placeholders(pack_dir(scenery_dir), tiles)
+    out.update(done, seconds=round(time.monotonic() - t0, 2))
+    if done["written"] and _xplane_running():
+        from . import reload_offer as RELOAD
+        RELOAD.offer("coverage")
+    write_log({"coverage": out})
+    return out
 
 
 def _regions_set(regions, scenery_dir: str = "") -> Dict[str, Any]:
@@ -417,16 +550,13 @@ def _regions_set(regions, scenery_dir: str = "") -> Dict[str, Any]:
            "kept": 0, "removed": 0, "swapped_out": 0}
     if not managed(scenery_dir):
         return out
-    land = _global_tiles(scenery_dir)
+    land = _land(scenery_dir)
     for code in known:
-        tiles = [t for t in REGIONS.region_tiles(code)
-                 if land is None or t in land]
-        if code in chosen:
-            done = WP.write_placeholders(pack, tiles)
-            out["written"] += done["written"]
-            out["kept"] += done["kept"]
-        else:
-            _give_back_region(pack, scenery_dir, set(tiles), out)
+        if code not in chosen:
+            tiles = {t for t in REGIONS.region_tiles(code) if land(t)}
+            _give_back_region(pack, scenery_dir, tiles, out)
+    done = ensure_coverage(scenery_dir, mask=True)
+    out["written"], out["kept"] = done["written"], done["kept"]
     write_log({"regions_set": out})
     return out
 
@@ -442,7 +572,7 @@ def _give_back_region(pack: str, scenery_dir: str, tiles: set,
             with contextlib.suppress(OSError):
                 os.remove(path)
                 out["removed"] += 1
-        elif kind in ("drape", "light"):
+        elif kind == "drape":
             _swap_out(pack, *key, held)
             out["swapped_out"] += 1
 

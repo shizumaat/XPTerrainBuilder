@@ -219,6 +219,60 @@ def _wall_opening(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, into: "XY
     return opening_span(float(left.max()), float(right.min()), xy, into)
 
 
+#: the station spacing of the wall-foot line (#1938 S3: "the lowest solid per 2 m station")
+_FOOT_STATION_M = 2.0
+
+
+def _foot_at(along: "np.ndarray", ys: "np.ndarray", s: float) -> float:
+    """The lowest point of the triangles (``along`` / ``ys``: their vertices'
+    station and height, shape ``(n, 3)``) on the cross-section at station
+    ``s``: the least height of their edges crossing it, or ``inf``."""
+    a0, a1 = along, np.roll(along, -1, axis=1)
+    y0, y1 = ys, np.roll(ys, -1, axis=1)
+    on = (np.minimum(a0, a1) <= s) & (np.maximum(a0, a1) >= s)
+    span = np.where(a1 == a0, 1.0, a1 - a0)
+    y = np.where(a1 == a0, np.minimum(y0, y1), y0 + (y1 - y0) * (s - a0) / span)
+    return float(y[on].min()) if on.any() else math.inf
+
+
+def _wall_feet(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy: XY, into: "XY | None",
+               law) -> tuple[float, float]:
+    """An ENTRANCE object's WALL REACH and WALL-FOOT GRADE at the bore end
+    ``xy`` (#1938, RULINGS 2026-11-13h round 2 S2 / S3): the solids hanging
+    ``[tunnel.object] shell_floor_min_m`` or more under its zero, chained
+    along the APPROACH (away from ``into``) from the end, run ``reach``
+    metres out -- the trench between the pack's own walls -- and the least
+    squares slope of their lowest point per 2 m station over that reach
+    (both walls) is the grade their feet rise at, as ``(reach, grade)``;
+    ``(0.0, 0.0)`` where no such solid stands on the approach.  MEASURED
+    EGLL ``Tunnel/10.obj``: wing walls 64 m, feet -6.07 at the portal to
+    -1.27 at their end, 7.5 %."""
+    v, t = g.vertices, g.solid
+    if into is None or t is None or not len(t):
+        return 0.0, 0.0
+    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
+    px, py = a * v[:, 0] + b * v[:, 2] + xo, d * v[:, 0] + e * v[:, 2] + yo
+    along = -((px - xy[0]) * into[0] + (py - xy[1]) * into[1])
+    deep = t[v[t, 1].min(axis=1) <= -float(law.tables.structures.tunnel.object.shell_floor_min_m)]
+    if not len(deep):
+        return 0.0, 0.0
+    lo, hi = along[deep].min(axis=1), along[deep].max(axis=1)
+    reach = 0.0
+    for k in np.argsort(lo):           # chained from the end: a wall the reach meets
+        if lo[k] > reach + _FOOT_STATION_M:
+            break
+        reach = max(reach, float(hi[k]))
+    if reach <= _FOOT_STATION_M:
+        return 0.0, 0.0
+    ss = np.arange(0.0, reach + 1e-9, _FOOT_STATION_M)
+    feet = [(s, _foot_at(along[deep], v[deep, 1], float(s))) for s in ss]
+    feet = [(s, f) for s, f in feet if math.isfinite(f)]
+    if len(feet) < 2:
+        return float(reach), 0.0
+    slope = float(np.polyfit([s for s, _f in feet], [f for _s, f in feet], 1)[0])
+    return float(reach), max(0.0, slope)
+
+
 #: a face top with more of its plate than this beyond the face reach is a lid
 _LID_SHARE = 0.05
 
@@ -286,8 +340,16 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     under it, ``floor_z`` = the surveyed ground over the face's top
     (:func:`_cover_over`) less the face's height (top − bottom), and
     ``bottom_y`` the face's bottom under the object's zero, so the object
-    stage seats that face at the floor (``Tunnel.portal_seat``).  Any other
-    entrance (a floor plate, a sheet) keeps its bottom at the pack's zero.  MEASURED
+    stage seats that face at the floor (``Tunnel.portal_seat``).  A WALLED
+    entrance whose top is NOT flush (a coping standing over its zero) keeps
+    its floor at the pack's zero plus its bottom and publishes ``bottom_y``
+    too (#1938 S4, RULINGS 2026-11-13h round 2), so its body is seated by
+    the ENTRANCE record at the pack's own zero -- never by the roofed
+    portal's (zero on the floor), which buried EGLL ``Tunnel/10.obj``; it
+    has no face top (no skirt, no airside top).  Any other entrance (a floor
+    plate, a sheet) keeps its bottom at the pack's zero and publishes none.
+    Each pin carries the object's wall reach and wall-foot grade along the
+    approach (:func:`_wall_feet`).  MEASURED
     LOWS (1.0.465): the floor was read at the pack's own zero — 4.0 m over
     the ground at the face (its zero is the DEM at the anchor 650 m away) —
     giving a 0.5 m "ramp" 12-24 m long (a pit), while the object stage set
@@ -334,14 +396,19 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             # floor plate deep under the zero (LFLL ``TGV_LY_13``: top -10.01,
             # bottom -10.06) or a shallow sheet is no face: its bottom stays
             # where the pack's zero puts it
-            cover = _cover_over(plan, dem_z) if (
-                abs(top) <= flush and top - bottom >= floor_min) else None
+            walled = top - bottom >= floor_min
+            cover = _cover_over(plan, dem_z) if walled and abs(top) <= flush else None
             floor = (zero + bottom) if cover is None else cover - (top - bottom)
             width, edges = _wall_opening(o, g, xy, end_into, 2.0 * tol, law)
+            reach, foot = _wall_feet(o, g, xy, end_into, law)
             out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
                               ground - floor, 0.0, (float(xy[0]), float(xy[1])),
                               floor_z=float(floor), opening_m=width, opening_xy=edges,
-                              bottom_y=None if cover is None else float(bottom),
+                              # #1938 S4: a WALLED entrance publishes its bottom
+                              # flush or not -- its body takes the ENTRANCE seat
+                              # (zero = floor - bottom), never a roofed portal's
+                              bottom_y=float(bottom) if walled else None,
+                              wall_reach_m=reach, foot_grade=foot,
                               face_plan=None if cover is None else _face_top(
                                   plan, xy, end_into, 2.0 * tol),
                               face_top_z=None if cover is None else float(cover),

@@ -19,12 +19,15 @@ world switch is off); its settings come from the global config
 (:func:`follow_settings`); ``ImageryFollowStatus`` events report it until
 ``imagery_follow_stop`` ends it and replies its counts.  One job per
 engine.  After a spawn or jump whose imagery missed X-Plane's flight-start
-window the job asks X-Plane to reload its scenery (#1992 P5, capability
-``imagery_spawn_reload``); ``reload: false`` starts a job that never does.
+window the job offers the user a scenery reload (#1992 P5, capability
+``imagery_spawn_reload``; ``reload_offer``: X-Plane reloads only when the
+user clicks "Reload scenery", owner 2026-11-12T14:34Z); ``reload: false``
+starts a job that never offers one.
 
 On-demand imagery (#1992, capability ``imagery_ondemand``):
 ``imagery_ondemand_scan`` (the index rebuilt from the on-demand tiles),
-``imagery_pin`` (a tile's "always full resolution"),
+``imagery_pin`` (a tile's Favorite: storage priority, settable while a
+build runs, #2033),
 ``imagery_ondemand_sweep`` (hold the storage cap now) and
 ``imagery_ondemand_downgrade_all`` ("Make all low-res again"), synchronous
 file work in :mod:`o4_engine.imagery_ondemand`; those that change
@@ -95,28 +98,34 @@ def start_imagery_follow(emit: Callable[[Any], None],
     ``lead_s`` and ``lands_per_s`` default to the settings
     (:func:`follow_settings`); ``tiles`` (``[build_dir, lat, lon]`` each)
     are rescanned into the index first, else, with ``working_dir``, every
-    on-demand tile under it.  ``if_enabled`` (the apps' automatic start)
-    replies ``{"status": "off"}`` while ``imagery_on_demand`` is off.
-    ``busy()`` is true while a build runs.  ``reload`` false: never ask
-    X-Plane to reload its scenery after a spawn or jump (default: ask,
-    through its Web API command)."""
+    on-demand tile under it beside the running job (``FollowJob``
+    ``rescan_dir``): the reply comes at once.  ``if_enabled`` (the apps' automatic start)
+    replies ``{"status": "off"}`` only while :func:`follow_wanted` is
+    False.
+    ``busy()`` is true while a build runs.  ``reload`` false: never offer
+    a scenery reload after a spawn or jump (default: offer it to the
+    user, ``reload_offer``; never sent on the job's own)."""
     import O4_File_Names as FNAMES
     import O4_XPlane_WebAPI as WEBAPI
 
+    from . import reload_offer as RELOAD
     from .imagery_follow import FollowJob, log_path
     from .imagery_follow_land import TierLander
     settings = follow_settings()
-    if if_enabled and not settings["enabled"]:
+    if if_enabled and not follow_wanted(settings, index_path):
         return {"status": "off"}
     with _FOLLOW_GUARD:
         job = _FOLLOW["job"]
         if job is not None and job.running:
             return {"status": "running"}
+        rescan_dir = None
         if not tiles and working_dir is not None:
             # Every place a tile may be (#1992 follow-up): the build
-            # folder, the Tiles folder and Custom Scenery.
-            from .imagery_ondemand import on_demand_tiles
-            tiles = [list(t) for t in on_demand_tiles(working_dir or FNAMES.Tile_dir)]
+            # folder, the Tiles folder and Custom Scenery -- found and
+            # rescanned on the job's own thread, never here (#2028: ~560
+            # tiles held the engine's command loop and the Qt window for
+            # minutes before the job said a word).
+            rescan_dir = working_dir or FNAMES.Tile_dir
         base = WEBAPI.base_url(int(port or settings["port"]))
         # The one position reader the World pack's swap rule and later
         # the World job and flight manager share (position_feed).
@@ -127,10 +136,25 @@ def start_imagery_follow(emit: Callable[[Any], None],
                         lead_s=float(lead_s or settings["lead_s"]),
                         lands_per_s=float(lands_per_s or settings["lands_per_s"]),
                         log_path=log_path(), rebuild_tiles=tiles or (),
+                        rescan_dir=rescan_dir,
+                        # an offer to the user, never a reload (owner
+                        # 2026-11-12T14:34Z; reload_offer)
                         reloader=None if reload is False else (
-                            lambda: WEBAPI.reload_scenery(base)))
+                            lambda: RELOAD.offer("imagery")))
         _FOLLOW["job"] = job.start()
     return {"status": "started"}
+
+
+def follow_wanted(settings: Optional[dict] = None,
+                  index_path: Optional[str] = None) -> bool:
+    """Should the follow job run (the apps' automatic start)?  While the
+    ``imagery_on_demand`` switch is on, or whenever the on-demand index
+    holds textures (converted, adopted or built tiles): the switch says
+    only how NEW builds are made (#2019: the switch was off on the
+    owner's Mac, so converted tiles never sharpened)."""
+    import O4_Imagery_OnDemand_Index as IDX
+    settings = follow_settings() if settings is None else settings
+    return bool(settings["enabled"]) or IDX.has_rows(index_path)
 
 
 def follow_running() -> bool:
@@ -138,6 +162,27 @@ def follow_running() -> bool:
     with _FOLLOW_GUARD:
         job = _FOLLOW["job"]
         return job is not None and job.running
+
+
+def follow_late_landings() -> list:
+    """The running follow job's ``late`` landings (``"<tile>/<texture>"``
+    keys, in order): tiers that landed after X-Plane crossed into their
+    square (the live preview's stand-in witness)."""
+    with _FOLLOW_GUARD:
+        job = _FOLLOW["job"]
+        landings = list(job.landings) if job is not None else []
+    return [item["square"] for item in landings if item.get("late")]
+
+
+def focus_imagery_follow(lat: float, lon: float, tiles=()) -> bool:
+    """A flight plan's departure to the running follow job first
+    (``FollowJob.focus``); ``False`` when no job runs."""
+    with _FOLLOW_GUARD:
+        job = _FOLLOW["job"]
+        if job is None or not job.running:
+            return False
+        job.focus(lat, lon, tiles)
+        return True
 
 
 def stop_imagery_follow() -> Dict[str, Any]:
@@ -180,9 +225,10 @@ def freshness_for_info(info, force: bool = False, **options) -> Dict[str, Any]:
 
 def _imagery_freshness(lat: int, lon: int, working_dir: str,
                       force: bool = False, **options) -> Dict[str, Any]:
-    """The tile's imagery check, the tile found under ``working_dir``."""
-    import O4_Tile_Info as TINFO
-    return freshness_for_info(TINFO.tile_info(int(lat), int(lon), working_dir),
+    """The tile's imagery check, the tile found under ``working_dir`` (or
+    the World pack's records folder, ``world_built.tile_info``)."""
+    from .world_built import tile_info
+    return freshness_for_info(tile_info(int(lat), int(lon), working_dir),
                               force=force, **options)
 
 
@@ -218,9 +264,10 @@ def imagery_freshness_discard(lat: int, lon: int, working_dir: str) -> Dict[str,
 
 
 #: The on-demand commands that land textures: refused while a build runs
-#: (a build may be converting the same tile's textures).
-ONDEMAND_REFUSED_WHILE_BUILDING = {"imagery_pin": "pinning a tile",
-                                   "imagery_ondemand_sweep":
+#: (a build may be converting the same tile's textures).  A Favorite is
+#: not one of them (#2033): set while a build runs, it changes the tile
+#: record and the index only (``imagery_pin(serve=False)``).
+ONDEMAND_REFUSED_WHILE_BUILDING = {"imagery_ondemand_sweep":
                                    "holding the imagery storage limit",
                                    "imagery_ondemand_downgrade_all":
                                    "making imagery low-res again"}
@@ -239,9 +286,12 @@ def ondemand_handlers(building: Callable[[], bool]) -> Dict[str, Callable]:
                                  % (name, ONDEMAND_REFUSED_WHILE_BUILDING[name]))
             return function(**kwargs)
         return run
+
+    def favorite(**kwargs):
+        return ONDEMAND.imagery_pin(**kwargs, serve=not building())
     return {
         "imagery_ondemand_scan": ONDEMAND.imagery_ondemand_scan,
-        "imagery_pin": guarded("imagery_pin", ONDEMAND.imagery_pin),
+        "imagery_pin": favorite,
         "imagery_ondemand_sweep": guarded("imagery_ondemand_sweep",
                                           ONDEMAND.imagery_ondemand_sweep),
         "imagery_ondemand_downgrade_all": guarded(

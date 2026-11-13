@@ -33,9 +33,10 @@ SWIFT_STATUS = REPO / "Sources" / "SceneryKit" / "ImageryFollowStatus.swift"
 #: Swift ``static let`` -> the Python value it mirrors.
 SWIFT_TO_PYTHON = {
     "pinTitle": TEXT.PIN_TITLE, "unpinTitle": TEXT.UNPIN_TITLE,
-    "pinRowTitle": TEXT.PIN_ROW_TITLE, "lowResState": TEXT.LOW_RES_STATE,
+    "favoriteTitle": TEXT.FAVORITE_TITLE,
     "pinnedState": TEXT.PINNED_STATE, "pinnedBadge": TEXT.PINNED_BADGE,
-    "pinHelp": TEXT.PIN_HELP, "notOnDemandState": TEXT.NOT_ON_DEMAND_STATE,
+    "pinHelp": TEXT.PIN_HELP, "starAddHelp": TEXT.STAR_ADD_HELP,
+    "starRemoveHelp": TEXT.STAR_REMOVE_HELP,
     "makeLowResTitle": TEXT.MAKE_LOW_RES_TITLE,
     "makeLowResNone": TEXT.MAKE_LOW_RES_NONE, "pinsLine": TEXT.PINS_LINE,
     "coresLine": TEXT.CORES_LINE,
@@ -52,6 +53,15 @@ SWIFT_TO_PYTHON = {
     "followNoTiles": TEXT.FOLLOW_NO_TILES,
     "xplaneAnswering": TEXT.XPLANE_ANSWERING, "xplaneSilent": TEXT.XPLANE_SILENT,
     "bufferNone": TEXT.BUFFER_NONE, "bufferAhead": TEXT.BUFFER_AHEAD,
+    "reloadSceneryTitle": TEXT.RELOAD_SCENERY_TITLE,
+    "reloadOfferImagery": TEXT.RELOAD_OFFER_IMAGERY,
+    "reloadOfferTiles": TEXT.RELOAD_OFFER_TILES,
+    "reloadOfferCoverage": TEXT.RELOAD_OFFER_COVERAGE,
+    "coresRowActive": TEXT.CORES_ROW_TEMPLATES["active"],
+    "coresRowDone": TEXT.CORES_ROW_TEMPLATES["done"],
+    "coresRowError": TEXT.CORES_ROW_TEMPLATES["error"],
+    "coresRowStopped": TEXT.CORES_ROW_TEMPLATES["stopped"],
+    "coresRowStopHelp": TEXT.CORES_ROW_STOP_HELP,
 }
 
 
@@ -91,14 +101,15 @@ def test_the_status_line_renders_every_field():
               "track_deg": 271.0, "queued": 31, "in_flight": 2, "slots": 3,
               "buffer_s": 47.0, "sharp": 14, "textures": 120, "landed": 9,
               "late": 4, "failed": 5, "bytes_landed": 34_500_000,
-              "flight_loads": 6, "jumps": 7, "reloads": 8}
+              "flight_loads": 6, "jumps": 7, "reloads": 8,
+              "reload_offer": "imagery"}   # its own row (#2019), not the line
     assert set(status) == set(_event_fields()), "a field has no test value"
     headline, detail = TEXT.follow_lines(status)
     line = headline + " " + detail
     for shown in ("14 of 120 sharp", "2 downloading", "4 late", "31 queued",
                   "3 at a time", "47 s ahead", "9 landed (34.5 MB)",
                   "5 failed", "X-Plane answering", "60.123, -136.456",
-                  "194 kt", "track 271°", "6 flight loads", "7 jumps", "8 reloads"):
+                  "194 kt", "track 271°", "6 flight loads", "7 jumps", "8 reload offers"):
         assert shown in line, shown
     # reason and state: each state has its sentence, the reason verbatim.
     for state, template in TEXT.FOLLOW_TEMPLATES.items():
@@ -122,8 +133,8 @@ def test_swift_reads_every_status_property():
     text = SWIFT_TEXT.read_text(encoding="utf-8")
     body = text[text.index("func followValues"):text.index("func followLines")]
     for name in properties:
-        if name == "state":
-            continue                 # picks the template (followLines)
+        if name in ("state", "reloadOffer"):
+            continue                 # the template; the reload row (#2019)
         assert re.search(r"\$?s\.%s\b" % name, body), name
 
 
@@ -153,14 +164,40 @@ def test_the_settings_round_trip_through_the_cfg(tmp_path):
     assert DOWNGRADE.cap_bytes(raw) == int(12.5e9)
 
 
-def test_the_automatic_start_waits_for_the_switch(monkeypatch):
+def test_the_automatic_start_waits_for_the_switch_or_on_demand_tiles(
+        monkeypatch, tmp_path):
+    """#2019: the follow job starts by itself while the switch is on OR
+    the on-demand index holds textures (converted or adopted tiles); the
+    switch says only how new builds are made.  Off and empty: "off"."""
+    import O4_Imagery_OnDemand_Index as IDX
     from o4_engine import imagery_commands as CMDS
+    from o4_engine import imagery_follow as FOLLOW
 
     monkeypatch.setattr(CMDS, "follow_settings", lambda raw=None: {
         "enabled": False, "port": 8086, "lead_s": 30.0, "lands_per_s": 4.0})
-    assert CMDS.start_imagery_follow(lambda e: None, if_enabled=True) == {
-        "status": "off"}
+    index = str(tmp_path / "index.sqlite")
+    assert not IDX.has_rows(index) and not (tmp_path / "index.sqlite").exists()
+    assert CMDS.start_imagery_follow(lambda e: None, if_enabled=True,
+                                     index_path=index) == {"status": "off"}
     assert not CMDS.follow_running()
+    conn = IDX.open_index(index)
+    IDX.upsert(conn, {"tile": "+49-098", "name": "1_2_BI16.dds"})
+    conn.close()
+    assert IDX.has_rows(index) and CMDS.follow_wanted(index_path=index)
+
+    class Job:
+        running = True
+
+        def __init__(self, emit, **kw):
+            pass
+
+        def start(self):
+            return self
+    monkeypatch.setattr(FOLLOW, "FollowJob", Job)
+    monkeypatch.setattr(CMDS, "_FOLLOW", {"job": None})
+    assert CMDS.start_imagery_follow(lambda e: None, if_enabled=True,
+                                     index_path=index, tiles=[["x", 1, 1]]) == {
+        "status": "started"}
 
 
 def test_make_all_low_res_names_the_space_it_frees():
@@ -211,7 +248,8 @@ def test_the_library_pin_calls_imagery_pin(qapp, monkeypatch):
     assert dialog.pin_btn.isEnabled()
     assert dialog.pin_btn.text() == TEXT.PIN_TITLE
     dialog.pin_btn.click()
-    assert calls == [(60, -136, {"working_dir": "/tiles", "pinned": True})]
+    assert calls == [(60, -136, {"working_dir": "/tiles", "pinned": True,
+                                 "serve": True})]
     assert "3 texture(s) sharp now, 5 to fetch" in dialog.status_label.text()
     dialog.set_library({"tiles": [{**row, "pinned": True}], "caches": [],
                         "tiles_bytes": 1})
@@ -220,31 +258,66 @@ def test_the_library_pin_calls_imagery_pin(qapp, monkeypatch):
     assert dialog.pin_btn.text() == TEXT.UNPIN_TITLE
 
 
-def test_the_tile_pane_pin_row(qapp):
+def test_the_tile_pane_star(qapp):
+    """#2033: the Favorite star beside the tile title, on every tile this
+    app built (on demand or not): outlined, filled on a favorite; a click
+    asks for the other state."""
     from types import SimpleNamespace as NS
 
     import O4_Qt_Imagery_OnDemand as QTONDEMAND
 
-    row = QTONDEMAND.TilePinRow()
+    star = QTONDEMAND.FavoriteStar()
     asked = []
-    row.pin_requested.connect(asked.append)
-    # RULINGS 2026-11-10c (1): a Favorite switch on every tile this app
-    # built, working on a tile built on demand.
+    star.pin_requested.connect(asked.append)
     full = NS(on_demand=False, pinned=False, origin="")
-    assert not row.applies(full) and row.shows(full)
-    assert not row.shows(NS(on_demand=False, pinned=False, origin="other"))
-    row.show_tile((60, -136), full)
-    assert not row.switch.isEnabled()
-    assert row.label.text() == TEXT.NOT_ON_DEMAND_STATE
-    row.show_tile((60, -136), NS(on_demand=True, pinned=False))
-    assert row.label.text() == TEXT.LOW_RES_STATE
-    assert row.switch.isEnabled() and not row.switch.isChecked()
-    row.switch.click()
+    assert star.shows(full)
+    assert not star.shows(NS(on_demand=False, pinned=False, origin="other"))
+    star.show_tile((60, -136), full)
+    assert not star.isHidden()
+    assert star.text() == QTONDEMAND.STAR_OUTLINED
+    assert star.toolTip() == TEXT.STAR_ADD_HELP
+    star.click()
     assert asked == [(60, -136, True)]
-    row.show_tile((60, -136), NS(on_demand=True, pinned=True))
-    assert row.switch.isChecked() and row.label.text() == TEXT.PINNED_STATE
-    row.switch.click()
+    star.show_tile((60, -136), NS(on_demand=False, pinned=True, origin=""))
+    assert star.text() == QTONDEMAND.STAR_FILLED
+    assert star.toolTip() == TEXT.STAR_REMOVE_HELP
+    star.click()
     assert asked[-1] == (60, -136, False)
+
+
+def test_a_pin_during_a_build_is_set_without_landing(qapp, monkeypatch):
+    """#2033: the Qt pin runs while a build runs, with ``serve=False``."""
+    import O4_Qt_Imagery_OnDemand as QTONDEMAND
+    from o4_engine import imagery_ondemand as ONDEMAND
+    from PySide6.QtCore import QObject, Signal
+
+    calls = []
+    monkeypatch.setattr(ONDEMAND, "imagery_pin", lambda lat, lon, **kw: (
+        calls.append(kw) or {"tile": "+60-136", "pinned": True}))
+    _sync_thread(monkeypatch)
+
+    class Bridge(QObject):
+        done = Signal(object)
+    bridge, got = Bridge(), []
+    bridge.done.connect(got.append)
+    QTONDEMAND.pin_tile(60, -136, True, bridge.done, busy=lambda: True)
+    assert calls[0]["serve"] is False and got[0]["pinned"] is True
+    assert TEXT.pin_done({"tile": "+60-136", "pinned": True}) == (
+        "+60-136 is a favorite.")
+
+
+def test_no_user_text_names_the_engine_command():
+    """#2033: the user sees "Favorite", never "imagery_pin" / "pinning",
+    and the full-imagery note is gone."""
+    texts = [value for name, value in vars(TEXT).items()
+             if name.isupper() and isinstance(value, str)]
+    swift = SWIFT_TEXT.read_text(encoding="utf-8")
+    for text in texts + [swift]:
+        assert "favorites are for tiles built with imagery on demand" not in text
+    for text in texts:
+        assert "imagery_pin" not in text and "pinning" not in text.lower()
+    from o4_engine import imagery_commands as COMMANDS
+    assert "imagery_pin" not in COMMANDS.ONDEMAND_REFUSED_WHILE_BUILDING
 
 
 def test_the_follow_line_shows_every_field_and_toggles(qapp):
@@ -264,6 +337,35 @@ def test_the_follow_line_shows_every_field_and_toggles(qapp):
     assert toggles == [True, False]
     line.show_status({**status, "state": "stopped"})
     assert line.toggle_btn.text() == TEXT.FOLLOW_START_TITLE
+
+
+def test_the_reload_offer_shows_a_button_and_reloads_only_on_its_click(qapp):
+    """#2019 (owner 2026-11-12T14:34Z: "Never ask x-plane to reload
+    unless the user requests it."): a pending offer shows its line and
+    "Reload scenery"; only the click asks for the reload."""
+    import O4_Qt_Imagery_OnDemand as QTONDEMAND
+
+    line = QTONDEMAND.FollowStatusLine()
+    asked = []
+    line.reload_requested.connect(lambda: asked.append(1))
+    status = {"state": "following", "sharp": 1, "textures": 2}
+    line.show_status(status)
+    assert line.reload_row.isHidden() and not asked
+    for code in ("imagery", "coverage", "tiles"):
+        line.show_status({**status, "reload_offer": code})
+        assert not line.reload_row.isHidden() and not asked
+        assert line.reload_label.text() == TEXT.reload_offer_line(code)
+    assert line.reload_btn.text() == TEXT.RELOAD_SCENERY_TITLE
+    line.reload_btn.click()
+    assert asked == [1]
+    line.show_status(status)
+    assert line.reload_row.isHidden()
+    assert TEXT.reload_offer_line("") == ""
+    swift = SWIFT_TEXT.read_text(encoding="utf-8")
+    assert "func reloadOfferLine" in swift
+    mac = (REPO / "Sources" / "XPTerrainBuilder" / "ImageryFollowLine.swift"
+           ).read_text(encoding="utf-8")
+    assert "reloadSceneryTitle" in mac and "reloadScenery()" in mac
 
 
 def test_storage_makes_all_low_res_after_naming_the_space(qapp, monkeypatch):
@@ -333,9 +435,26 @@ def test_favorites_show_a_star_on_both_maps(qapp):
     painter = QPainter(image)
     STAR.draw_star(painter, QRectF(0, 0, 64, 64), 64.0, 1.0)
     painter.end()
-    assert image.pixelColor(56, 57).alpha() > 0          # bottom-right
-    assert image.pixelColor(8, 8).alpha() == 0
-    assert "QTFAVSTAR.draw_star" in Path(QTMAP.__file__).read_text(encoding="utf-8")
-    mac = (REPO / "Sources" / "XPTerrainBuilder" / "MapCanvasView.swift").read_text(
-        encoding="utf-8")
-    assert 'info.pinned == true' in mac and 'systemName: "star.fill"' in mac
+    assert image.pixelColor(56, 8).alpha() > 0           # top-right (#2033)
+    assert image.pixelColor(56, 57).alpha() == 0
+    # Outlined on a tile that is not a favorite: the centre stays clear.
+    image.fill(0)
+    painter = QPainter(image)
+    STAR.draw_star(painter, QRectF(0, 0, 64, 64), 64.0, 1.0, pinned=False)
+    painter.end()
+    cx, cy, _size = STAR._star_box(QRectF(0, 0, 64, 64), 64.0, 1.0)
+    assert image.pixelColor(int(cx), int(cy) + 1).alpha() == 0
+    # The star is a click target, and only where the square carries it.
+    from PySide6.QtCore import QPointF
+    assert STAR.hit(QRectF(0, 0, 64, 64), 64.0, 1.0, QPointF(cx, cy))
+    assert not STAR.hit(QRectF(0, 0, 64, 64), 64.0, 1.0, QPointF(8, 56))
+    assert not STAR.hit(QRectF(0, 0, 10, 10), 10.0, 1.0, QPointF(7, 3))
+    source = Path(QTMAP.__file__).read_text(encoding="utf-8")
+    assert "QTFAVSTAR.draw_star" in source and "QTFAVSTAR.hit(" in source
+    app = REPO / "Sources" / "XPTerrainBuilder"
+    mac = (app / "MapCanvasView.swift").read_text(encoding="utf-8")
+    assert "FavoriteStar.draw(in: context, rect: r, pinned: info.pinned == true)" in mac
+    assert "FavoriteStar.hit(value.location" in mac
+    star = (app / "FavoriteStar.swift").read_text(encoding="utf-8")
+    assert 'pinned ? "star.fill" : "star"' in star
+    assert "rect.minY + size * 0.7" in star and "minSquarePx: CGFloat = 14" in star

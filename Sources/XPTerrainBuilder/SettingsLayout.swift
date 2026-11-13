@@ -83,7 +83,7 @@ enum SettingsLayout {
     /// covers with its own X-Plane and data-folder settings).
     static let engineGeneral: [SettingItem] = [
         SettingItem("custom_scenery_dir", "Where is X-Plane's Custom Scenery folder?", .app, summary: "Finished tiles are linked into it so X-Plane finds them."),
-        SettingItem("custom_overlay_src", "Where should roads, forests and buildings come from?", .app, summary: "An X-Plane scenery folder, usually Global Scenery."),
+        SettingItem("custom_overlay_src", "Where should roads, forests and buildings come from?", .app, summary: "Usually Global Scenery. Full tiles get their roads, forests and buildings from it."),
         SettingItem("verbosity", "How much should the console show?", .app, summary: "More detail helps when you report a problem."),
         SettingItem("cleaning_level", "Which build files should be kept?", .app, summary: "Keeping more makes a rebuild faster but uses more disk."),
         SettingItem("custom_overlay_src_alternate", "Alternate overlay source", .app, expert: true),
@@ -133,7 +133,7 @@ enum SettingsLayout {
             SettingItem("ondemand_lead_s", "Start fetching this many seconds ahead", .app, expert: true),
             SettingItem("ondemand_lands_per_s", "Imagery swaps per second, at most", .app, expert: true),
             // World spec §5.5 / §17: the intermediate kind, until D1 decides.
-            SettingItem("world_intermediate", "Tiles built ahead of the aircraft", .app, expert: true),
+            SettingItem("drape_photo_px", "Photo detail of tiles laid ahead", .app, expert: true),
         ]),
         SettingCategory(key: "mesh", title: "Ground Shape", icon: "triangle", items: [
             SettingItem("curvature_tol", "Curvature tolerance", .tile, expert: true),

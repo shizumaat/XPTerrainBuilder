@@ -2,14 +2,18 @@
 ``live_preview``): the engine reads the installed textures, both apps
 draw what it returns (``O4_Live_Preview`` holds the rule and the read).
 
-* ``live_preview_squares {south, west, north, east, px_per_deg,
-  scenery_dir?}`` -- sync: the squares to draw for the viewport
-  (``O4_Live_Preview.squares``), each with its texture path, stamp and
-  mip size.  An app asks again when the view moves and when the follow
-  job lands a tier (``ImageryFollowStatus.landed`` grows); a square whose
-  stamp changed is fetched again.
-* ``live_preview_mip {path, px?}`` -- sync: one mip of one square,
-  ``{width, height, format, data}`` (base64 JPEG/PNG, ~20 KB at 256 px).
+* ``live_preview_squares {south, west, north, east, px_per_deg, scale?,
+  scenery_dir?}`` -- sync: every square of the viewport
+  (``O4_Live_Preview.squares``), each with its texture path, stamp, the
+  mip size the map shows it at (``scale``: device pixels per point) and
+  ``stale``, and the tiles X-Plane shows otherwise
+  (``live_preview_witness``).  An app asks again when the view moves and
+  when the follow job lands a tier (``ImageryFollowStatus.landed``
+  grows); a square whose stamp changed is fetched again.
+* ``live_preview_mip {path, px?, wait?}`` -- one mip of one square,
+  ``{width, height, format, data}`` (base64 JPEG/PNG), or ``{pending:
+  true}`` while a level finer than ``O4_Live_Preview.INLINE_MIP_PX`` is
+  read on a worker (``live_preview_mips``): ask again.
 
 A tile's textures are read where X-Plane reads them: the on-demand index
 rows' folder (``O4_Imagery_OnDemand_Index.texture_path``; a tile
@@ -64,14 +68,20 @@ def tile_folders(scenery_dir: str, conn=None) -> Callable[[int, int], list]:
 
 def live_preview_squares(south: float, west: float, north: float,
                          east: float, px_per_deg: float,
-                         scenery_dir: str = "") -> Dict[str, Any]:
+                         scenery_dir: str = "",
+                         scale: float = 1.0) -> Dict[str, Any]:
     """See the module docstring."""
     import O4_Imagery_OnDemand_Index as INDEX
     import O4_Live_Preview as LIVE
 
+    from . import live_preview_witness as WITNESS
     from .world_commands import scenery_dir_or_default
 
     scenery = scenery_dir_or_default(scenery_dir)
+    state = WITNESS.tile_state(scenery)
+    late = frozenset()
+    with contextlib.suppress(Exception):          # no follow job: none late
+        late = WITNESS.late_keys(scenery)
     conn = None
     with contextlib.suppress(Exception):          # no index: none read
         if os.path.isfile(INDEX.index_path()):
@@ -79,17 +89,19 @@ def live_preview_squares(south: float, west: float, north: float,
     try:
         return LIVE.squares(float(south), float(west), float(north),
                             float(east), float(px_per_deg),
-                            tile_folders(scenery, conn))
+                            tile_folders(scenery, conn), state,
+                            scale=max(1.0, float(scale or 1.0)), late=late)
     finally:
         if conn is not None:
             conn.close()
 
 
-def live_preview_mip(path: str, px: int = 256) -> Dict[str, Any]:
+def live_preview_mip(path: str, px: int = 256,
+                     wait: bool = False) -> Dict[str, Any]:
     """See the module docstring."""
-    import O4_Live_Preview as LIVE
+    from .live_preview_mips import mip
 
-    return LIVE.mip_image(str(path), int(px))
+    return mip(str(path), int(px), bool(wait))
 
 
 def live_preview_handlers() -> Dict[str, Callable]:

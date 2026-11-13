@@ -226,6 +226,7 @@ def test_the_memory_bound(monkeypatch):
     monkeypatch.setattr(P.os, "cpu_count", lambda: 16)
     monkeypatch.setattr(P, "_share", [1])
     monkeypatch.setattr(P, "_explicit", [None])
+    monkeypatch.setattr(P, "free_gb", lambda: None)       # the physical reading alone
     res, per = P.PARENT_RESERVE_GB, P.WORKER_ALLOWANCE_GB
     got = {}
     for ram in (8, 16, 32, 64, 128):
@@ -253,6 +254,61 @@ def test_the_memory_bound(monkeypatch):
     monkeypatch.undo()
     ram = P.physical_ram_gb()
     assert ram is None or ram > 0.5
+
+
+def test_the_memory_bound_reads_the_memory_free_now(monkeypatch):
+    """issue #2044: the physical reading charges EVERY sibling build the
+    largest parent's reserve, so a 128 GB / 18-core machine with nine
+    airport builds left each pool one worker (bound ``memory``) with 80 %
+    of its memory free.  The memory free now — less the free floor and ONE
+    reserve, shared by the builds running — lifts it; it never lowers what
+    the physical reading allows, and an unread figure leaves that alone."""
+    from auto_patch_v2.airport import pool_memory as M
+    res, per, floor = P.PARENT_RESERVE_GB, P.WORKER_ALLOWANCE_GB, M.SYSTEM_FREE_FLOOR
+    # the owner's machine, nine builds, 80 % free: was 1, now the cores' 2
+    assert P.memory_workers(128.0, 9) == 1
+    assert P.memory_workers(128.0, 9, 0.8 * 128.0) == int(
+        (0.8 * 128 - floor * 128 - res) / 9 // per) == 4
+    # a 16 GB machine never gets more than the physical reading gave it
+    for free in (0.5, 3.0, 8.0, 15.0):
+        assert P.memory_workers(16.0, 1, free) == max(1, int((16 - res) // per)) == 2
+    assert P.memory_workers(16.0, 2, 15.0) == 1
+    # little free: the physical reading stands (the guard watches the rest)
+    assert P.memory_workers(64.0, 1, 4.0) == int((64 - res) // per)
+    assert P.memory_workers(8.0, 1, None) == 1
+    # through budget_bound, with the facts it read
+    monkeypatch.setattr(P.os, "cpu_count", lambda: 18)
+    monkeypatch.setattr(P, "_explicit", [None])
+    monkeypatch.setattr(P, "_live", [None])
+    monkeypatch.setattr(P, "physical_ram_gb", lambda: 128.0)
+    monkeypatch.setattr(P, "free_gb", lambda: 0.8 * 128.0)
+    P.set_share(9)
+    facts: dict = {}
+    assert P.budget_bound(facts) == (2, "share")
+    assert facts == {"share": 9, "cpu": 18, "ram_gb": 128.0, "free_gb": 0.8 * 128.0}
+    monkeypatch.setattr(P, "free_gb", lambda: None)
+    assert P.budget_bound() == (1, "memory")          # the reading #2044 found
+    P.set_share(1)
+    # the real figure is a fraction of the machine wherever it can be read
+    monkeypatch.undo()
+    got = P.free_gb()
+    assert got is None or 0.0 <= got <= (P.physical_ram_gb() or 0.0) + 1e-6
+
+
+def test_room_for_a_copy_of_the_build(monkeypatch):
+    """A stage that runs a COPY of the build's own work in a worker (the
+    speculative derives) asks first whether the machine has room for one
+    more process this size; an unreadable figure says yes."""
+    from auto_patch_v2.airport import pool_memory as M
+    big = lambda _p: M.Reading(8.0, (), 0.8)          # noqa: E731
+    ok, why = M.room_for_copy(128.0, reader=big)
+    assert ok and "GB free" in why
+    assert M.room_for_copy(16.0, reader=big)[0] is True       # 12.8 >= 10 + 0.8
+    tight = lambda _p: M.Reading(8.0, (), 0.5)        # noqa: E731
+    ok, why = M.room_for_copy(16.0, reader=tight)
+    assert not ok and "needs 10.8 GB" in why
+    assert M.room_for_copy(None, reader=tight)[0] is True
+    assert M.room_for_copy(16.0, reader=lambda _p: M.Reading(8.0, (), None))[0] is True
 
 
 def test_the_pulse_is_restored():

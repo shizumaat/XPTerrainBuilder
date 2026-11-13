@@ -53,6 +53,7 @@ import weakref
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
+from ..geom.valid_area import minus
 from ..model.planar import COLLAR_SUFFIX, STRIP_SUFFIX, pad_base_ref
 from ..model.platform import LANDING_SEP
 from ..model.registries import Registries
@@ -185,6 +186,47 @@ def _cut_back(plats, f, law, blocks):
     return unary_union(near).buffer(keep, join_style=2)
 
 
+def _wet(airport, g, grow_m: float = 0.0):
+    """THE WATER a fill or a collar never takes (issue #2036): the
+    production frame's water witness (``dem.water_geometry``, the flat
+    site's own cut) over ``g``'s box; ``None`` where there is none, or
+    no reader (an authored ``DemSampler``, a test double).
+
+    A FILL is ground raised under a plate's or a viaduct print's OUTLINE
+    and a COLLAR is a bank around it: neither has an object standing on
+    it, so neither may stand in the water (owner 2026-11-13: "no pad or
+    flatten may stand in water where there's no object/building
+    footprint on it").  MEASURED, SBRJ (-22.9171, -43.1634, the
+    runway 02 end): the pack's wet-pavement shine ``Piso Molhado/
+    sbrj_molhado_a.obj`` is a 0.23 m plate whose outline reads 772,171
+    m2 against 386,086 m2 of faces; its fill ``building6/landing0`` and
+    the collars stood 4.41 m over the bay on 17,879 m2 of water
+    (4,192 landing + 13,687 collar), none of it under a face of the
+    plate — the slabs with cliff walls the owner saw at both runway
+    ends.  A deck's own landing is its ramp's footprint and keeps its
+    ground."""
+    fn = getattr(getattr(airport, "dem", None), "water_geometry", None)
+    if not callable(fn) or g is None or g.is_empty:
+        return None
+    try:
+        w = fn(g.buffer(grow_m).bounds if grow_m > 0.0 else g.bounds)
+    except Exception:                           # pragma: no cover
+        return None
+    return None if w is None or w.is_empty else w
+
+
+def _dry(held, airport, g, counts: dict, key: str, grow_m: float = 0.0):
+    """``held`` with the water over ``g`` (its box grown by ``grow_m``)
+    added (:func:`_wet`), the wet area ``g`` loses counted under ``key``."""
+    w = _wet(airport, g, grow_m)
+    if w is None:
+        return held
+    lost = minus(g, held).intersection(w).area
+    if lost > 0.0:
+        counts[key] = round(counts.get(key, 0.0) + lost, 1)
+    return unary_union([held, w])
+
+
 def _fills(part, to_xy, law, blocks, vias, collar_m: float) -> list:
     """The pad fills of ``planar/pad_fill`` over this mint's blocks and
     viaducts: prints within two bank widths are one fill."""
@@ -200,13 +242,17 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
                     air_polys: _t.Sequence[Polygon], airport, law,
                     grid: float, collar_m: float,
                     counts: dict, *, reg: Registries, strips: _t.Sequence = (),
-                    lots: _t.Sequence = ()) -> list:
+                    lots: _t.Sequence = (), structures: _t.Sequence = ()) -> list:
     """The landing + collar regions to add to the pad regions ``out``
     (module docstring), registering each in ``reg.landings`` (and its
     run-outs in ``reg.landing_runouts``).  ``strips``: the ROAD STRIPS a
     fill that cannot bank down runs to (``planar/fill_road``); ``lots``:
     the lots it runs to as well, which keep lot law (RULINGS 2026-10-27i).
-    Such a fill mints its RISERS at the far kerb (``planar/fill_riser``)."""
+    Such a fill mints its RISERS at the far kerb (``planar/fill_riser``).
+    ``structures``: the STRUCTURE faces (a tunnel ramp and its walls, a
+    trench) -- never a landing's nor its collar's to take (#1938: a pinned
+    ramp cuts the pad it stands in, and the collar of a landing on that pad
+    spread into the hole, a 4 m island on the EGLL south ramp)."""
     held, landings, runouts = reg.held, reg.landings, reg.landing_runouts
     landings.clear()
     runouts.clear()
@@ -291,7 +337,8 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     _cut = cutting_corridors(airport, law)
     base_hard = unary_union([r.polygon for r in out if r.polygon is not None]
                             + [air_u.buffer(_keep) if _keep > 0.0 else air_u]
-                            + ([_cut] if _cut is not None else []))
+                            + ([_cut] if _cut is not None else [])
+                            + [q for q in structures if q is not None and not q.is_empty])
     taken = base_hard
     plats: list = []
     for key, bref, voters, unit, tmpl, pieces in recs:
@@ -350,6 +397,9 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
         tmpl = template.get(f.block) or next(
             (r for r in out if str(r.ref).startswith(f.block)), None)
         held_f = unary_union([taken, _cut_back(plats, f, law, blocks)])
+        held_f = _dry(held_f, airport, f.extent, counts, "pad_fill_water_m2",
+                      float(getattr(law.tables.structures.building_pad,
+                                    "fill_road_reach_m", 0.0)))
         E, level = _to_road(f, held, airport, law, targets, collar_m, counts, held_f)
         Ls = _free_pieces(E, held_f, grid)
         if tmpl is None or not Ls:
@@ -394,7 +444,8 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
                                    if getattr(r, "polygon", None) is not None), *reached])
     tmpls: dict[str, _t.Any] = {}
     for ref, Ls, Lu, y_land, key, bref, voters, _unit, tmpl in plats:
-        C = Lu.buffer(collar_m, join_style=2).difference(held_c)
+        C = Lu.buffer(collar_m, join_style=2)
+        C = minus(C, _dry(held_c, airport, C, counts, "collar_water_m2"))
         cparts = [q for q in _parts(C) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])
         tmpls[ref] = tmpl
@@ -424,7 +475,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # seated on the landing at 101.78 m, +10.91 m)
     for rref, rec in sorted(runouts.items()):
         band = rec["axis"].buffer(0.5 * rec["width_m"] + collar_m, cap_style=2, join_style=2)
-        cparts = [q for q in _parts(band.difference(held_c)) if q.area >= max(grid * grid, 1.0)]
+        cparts = [q for q in _parts(minus(band, held_c)) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])
         tmpl = tmpls[rec["landing"]]
         added.extend(_dc.replace(tmpl, ref=rref + COLLAR_SUFFIX, polygon=q) for q in cparts)

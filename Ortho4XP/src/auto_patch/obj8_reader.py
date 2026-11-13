@@ -368,6 +368,7 @@ def load_object_file(path: str) -> ObjectGeometry:
     draped: list[tuple[int, int, int]] = []
     solid_hardness: list[str] = []
     index_count = len(indices)
+    vertex_count = len(vertices)
     for offset, count, is_draped, hardness in triangle_ranges:
         for position in range(offset, min(offset + count, index_count - 2), 3):
             triangle = (
@@ -375,6 +376,13 @@ def load_object_file(path: str) -> ObjectGeometry:
                 indices[position + 1],
                 indices[position + 2],
             )
+            if max(triangle) >= vertex_count:
+                # A triangle naming a vertex the file never declares is
+                # dropped (issue #2036: SBRJ's flag OBJs glue a ``VT`` row
+                # onto ``ATTR_LOD 0 3000VT …`` — 8,938 rows for 8,939
+                # points — and the one IndexError cost the whole pack its
+                # object footprints, "list index out of range").
+                continue
             if is_draped:
                 draped.append(triangle)
             else:

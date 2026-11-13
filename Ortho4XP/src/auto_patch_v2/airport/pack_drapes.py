@@ -34,7 +34,12 @@ name:
 5. at least one of them lies over one of the pack's airports
    (:func:`airport_boxes`) and is PHOTO-SIZED: the ``.pol`` carries WED's
    orthophoto ``LOAD_CENTER``, or the polygon spans at least
-   :data:`MIN_SPAN_M`;
+   :data:`MIN_SPAN_M`, or it is a tile of a machine-named photo grid
+   (``pack_drape_grid.grid_boxes``) whose whole extent spans at least
+   :data:`MIN_SPAN_M` (issue #2036: SBRJ's pack lays its photo as 839
+   tiles of 34-145 m, ``images/sdu_ortophoto_<r>x<c>.pol``, with no
+   ``LOAD_CENTER``; the grid spans 1,538 m, and no tile read
+   photo-sized, so nothing was offered for hiding);
 6. its image is not (nearly) all transparent
    (``image_opacity.opaque_fraction`` at least :data:`MIN_OPAQUE`): a
    weathering overlay laid north-up is still a see-through decal.
@@ -277,6 +282,7 @@ def photo_layers(pack_root: str, source: str | _t.Sequence[str],
     layers: list[Layer] = []
     ground: list[Box] = []
     kin: list[Layer] = []
+    small: dict[int, str] = {}          # over an airport, but no tile photo-sized
     for i, path in enumerate(defs):
         if i not in uses or not path.lower().endswith(".pol"):
             continue
@@ -295,14 +301,39 @@ def photo_layers(pack_root: str, source: str | _t.Sequence[str],
             kin.append(Layer(i, path, texture, (), False, _layer(header)))
             continue                                    # (4)
         photo = "LOAD_CENTER" in header
-        over = any(u.mapped and any(_overlaps(u.box, a) for a in areas)
-                   and (photo or _span_m(u.box) >= MIN_SPAN_M)
-                   for u in uses[i])                    # (5)
+        on = [u for u in uses[i] if u.mapped and any(_overlaps(u.box, a) for a in areas)]
+        over = any(photo or _span_m(u.box) >= MIN_SPAN_M for u in on)   # (5)
+        if on and not over:
+            small[i] = local
         layers.append(Layer(i, path, texture,
                             tuple(u.box for u in uses[i] if u.mapped),
                             over and _image_opaque(local, header),  # (6)
                             _layer(header)))
+    if small:
+        layers = _grid_sized(layers, small)
     return _PhotoLayers(defs, uses, layers, ground, kin)
+
+
+def _grid_sized(layers: list, small: _t.Mapping[int, str]) -> list:
+    """Witness (5) read on the GRID: a layer over an airport whose own
+    tiles are small passes when it is a tile of a machine-named photo grid
+    spanning at least :data:`MIN_SPAN_M` and its image is opaque (6).  One
+    passing tile carries its grid (``pack_drape_grid`` (4) asks for one),
+    so the images of a grid are read only until one passes."""
+    from .pack_drape_grid import grid_boxes
+    boxes = grid_boxes(layers)
+    carried: set = set()
+    out = []
+    for ly in layers:
+        local = small.get(ly.index)
+        box = boxes.get(ly.index)
+        if (local is not None and box is not None and box not in carried
+                and _span_m(box) >= MIN_SPAN_M
+                and _image_opaque(local, pol_header(local))):
+            ly = ly._replace(witness=True)
+            carried.add(box)
+        out.append(ly)
+    return out
 
 
 def draped_orthos(pack_root: str, source: str | _t.Sequence[str],

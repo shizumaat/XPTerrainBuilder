@@ -6,7 +6,8 @@ import Foundation
 ///
 /// Edits preserve the rest of the file untouched; X-Plane re-adds any missing
 /// entries as enabled on its next launch, so removing a vanished pack's line
-/// is safe.
+/// is safe — EXCEPT for the rows Convert existing tiles owns
+/// (`protectedNames`): a row it retired is disabled, never removed.
 public struct PackActionService {
     public let root: URL
 
@@ -33,6 +34,29 @@ public struct PackActionService {
         return nil
     }
 
+    // MARK: - Rows Convert existing tiles owns
+
+    /// The work folder of `world_migrate` beside Custom Scenery
+    /// (`o4_engine/world_migrate.py` `WORK_DIR_NAME`, `work_dir_for`).
+    static let worldMigrateWorkDir = "XPTerrainBuilder_world_migrate"
+
+    /// The rows reconcile never removes (the 2026-11-11 Convert incident:
+    /// 1,997 rows dropped while tiles moved, the World pack's among them
+    /// once its folder was trashed): the World pack's and the overlay
+    /// pack's (#2021), and every entry the migration journal names — a
+    /// dynamic tile's link is gone by design, and its disabled row is what
+    /// Undo and X-Plane's next start read.
+    public func protectedNames() -> Set<String> {
+        var names: Set<String> = [O4WorldPack.packName, O4WorldPack.overlaysPackName]
+        let journal = root.appendingPathComponent(Self.worldMigrateWorkDir)
+            .appendingPathComponent("journal.json")
+        if let data = try? Data(contentsOf: journal),
+           let records = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            names.formUnion(records.keys)
+        }
+        return names
+    }
+
     // MARK: - Folder ↔ ini reconciliation
 
     /// What reconcile did to scenery_packs.ini.
@@ -41,6 +65,7 @@ public struct PackActionService {
         public var removed: [String] = []
         public var renamed: [String] = []   // "old → new"
         public var writeError: String? = nil
+        public init() {}
         public var changed: Bool { !(added.isEmpty && removed.isEmpty && renamed.isEmpty) }
     }
 
@@ -49,7 +74,8 @@ public struct PackActionService {
     /// added, removed or renamed in Finder would otherwise sit misrepresented
     /// until then.
     ///
-    /// - Deleted folder → its line is removed.
+    /// - Deleted folder → its line is removed, unless Convert existing
+    ///   tiles owns it (`protectedNames`).
     /// - New folder → left to the ENGINE's `tidy_scenery_packs`
     ///   (`O4_Scenery_Packs_Tidy.py`, the rule the Qt window runs too),
     ///   which files it in its kind's group, meshes below every ortho;
@@ -72,6 +98,7 @@ public struct PackActionService {
         }
         let installedNames = Set(installed.map { $0.name })
         var toRemove = Set(lineIndexByName.keys).subtracting(installedNames)
+            .subtracting(protectedNames())
         // Unlisted names, for the rename match only.
         var toAdd = installedNames.subtracting(lineIndexByName.keys)
 

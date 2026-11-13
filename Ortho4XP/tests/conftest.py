@@ -353,6 +353,59 @@ def _qt_user_files_never_reach_the_checkout(tmp_path_factory):
     yield
 
 
+def _migrate_only_under(basetemp, real_migrate):
+    """``world_home.migrate`` that only MOVES (and writes the pointer) on a
+    data root under *basetemp*; elsewhere it only reports (dry run)."""
+    import O4_File_Names as FNAMES
+
+    def migrate(*args, **kwargs):
+        if scenery_outside_tmp(FNAMES.current_data_root(), basetemp):
+            kwargs["dry_run"] = True
+        return real_migrate(*args, **kwargs)
+    return migrate
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _world_home_guard_outlives_each_test(tmp_path_factory):
+    """The per-test guard below, for the WHOLE run and never undone.
+
+    The Qt window's start runs the World onboarding on a thread
+    (``O4_Qt_World_Onboard``) that can finish AFTER its test's monkeypatch
+    is undone: the real ``migrate`` then moved the data folder's tiles and
+    wrote ``world_home.json`` into the checkout, naming a pytest World
+    folder — every later run from that checkout served its tiles from a
+    deleted tmp folder.  Here the fallback pointer is a session file and
+    the move is guarded between tests too."""
+    basetemp = tmp_path_factory.getbasetemp()
+    try:
+        from o4_engine import world_home as HOME
+    except Exception:                                   # pragma: no cover
+        yield
+        return
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("O4_WORLD_HOME_POINTER",
+                  str(basetemp / "world_home" / "session.json"))
+        mp.setattr(HOME, "migrate", _migrate_only_under(basetemp, HOME.migrate))
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _world_home_pointer_is_the_tests_own(monkeypatch, tmp_path_factory, request):
+    """RULINGS 2026-11-12g/h: the data folder's World-home pointer
+    (``FNAMES.world_home_pointer``) is a file of this test's own, never
+    the checkout's.  The Qt window's start moves the data folder's tiles
+    into the (redirected) World folder and writes the pointer; in the
+    checkout it would re-point ``Tile_dir`` for every later test."""
+    basetemp = tmp_path_factory.getbasetemp()
+    monkeypatch.setenv("O4_WORLD_HOME_POINTER", str(
+        basetemp / "world_home" / ("%x.json" % abs(hash(request.node.nodeid)))))
+    # The move itself only ever runs on a data root under basetemp: the
+    # checkout's own ``Tiles`` (the master tree's holds real tiles) is never
+    # moved into a test's World folder; elsewhere it only reports
+    # (:func:`_world_home_guard_outlives_each_test`, session-wide).
+    yield
+
+
 #: The folder every test's CONFIGURED Custom Scenery resolves to (#1999).
 REDIRECTED_SCENERY_PARTS = ("xplane_redirect", "Custom Scenery")
 
@@ -520,6 +573,17 @@ def _edit_cache_session_is_per_test(monkeypatch, tmp_path_factory, request):
 
 
 @pytest.fixture(autouse=True)
+def _airport_solve_times_are_per_test(monkeypatch, tmp_path_factory):
+    """No test appends a solved airport to the user's
+    ``~/.ortho4xp/auto_patch_build_times`` (the session records every
+    solve there, #2045) or prices an airport from it."""
+    from o4_engine import airport_time_model as ATM
+    monkeypatch.setattr(ATM, "STORE_DIRECTORY",
+                        str(tmp_path_factory.mktemp("airport_times")))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _provider_refusal_rest_is_per_test(monkeypatch):
     """No test inherits another's 24-hour provider rest
     (``elevation_access.refusal_rest``): a refusal one test provokes would
@@ -558,35 +622,6 @@ def _no_test_window_writes_the_engine_stderr_log_into_the_tree(
                 "logs", "engine-stderr.log")
 
         monkeypatch.setattr(log, "engine_stderr_log_path", scratch_path)
-    yield
-
-
-@pytest.fixture(autouse=True)
-def _storage_log_never_reaches_the_shared_corpus(
-        monkeypatch, tmp_path_factory):
-    """``logs/storage.log`` is written only under this run's tmp tree (#1881).
-
-    ``o4_engine.storage`` logs every deletion to ``<data root>/logs``; in a
-    lane worktree ``logs`` is the MOUNTED shared corpus, so a test that
-    left the data root at the cwd wrote ``pytest-of-*`` paths into the
-    shared ``storage.log``.  The rule is general: a logs folder that does
-    not resolve inside pytest's base temp is swapped for a scratch one.
-    """
-    try:  # imported here: a test may import it lazily after setup
-        from o4_engine import storage
-    except ImportError:
-        storage = None
-    if storage is not None:
-        real_dir = storage._logs_dir
-        base = os.path.realpath(str(tmp_path_factory.getbasetemp()))
-
-        def scratch_dir():
-            path = real_dir()
-            if os.path.realpath(path).startswith(base + os.sep):
-                return path
-            return os.path.join(base, "storage-log-scratch", "logs")
-
-        monkeypatch.setattr(storage, "_logs_dir", scratch_dir)
     yield
 
 
@@ -1518,9 +1553,30 @@ def _map_tile_workers_never_start():
         view._o4_suite_no_workers = True
 
 
+def _window_storage_cleanup_never_starts():
+    """Disarm the window's automatic storage cleanup (#1724) in the suite.
+
+    ``MainWindow._storage_auto_clean`` starts a daemon thread at every
+    launch that walks the data folder (``storage_auto_clean`` ->
+    ``storage_budget.status`` -> the on-demand index).  Under a suite that
+    builds hundreds of windows, a garbage collection run ON THAT THREAD
+    destroys an earlier test's Qt objects off the GUI thread: Windows CI
+    died with an access violation (exit 139) and macOS with a bus error in
+    ``test_qt_stop_resume`` once the batch-15 storage work made the thread
+    live longer.  Same class-level rule as the map workers; the cleanup
+    itself is tested through ``O4_Qt_Settings_Storage.run_auto_clean`` and
+    ``o4_engine.storage.storage_auto_clean`` directly."""
+    gui = sys.modules.get("O4_Qt_GUI")
+    window = getattr(gui, "MainWindow", None)
+    if window is not None and not getattr(window, "_o4_suite_no_clean", False):
+        window._storage_auto_clean = lambda self: None
+        window._o4_suite_no_clean = True
+
+
 @pytest.fixture(autouse=True)
 def _qt_map_tile_workers_are_disarmed():
     _map_tile_workers_never_start()
+    _window_storage_cleanup_never_starts()
     yield
     _map_tile_workers_never_start()
 
@@ -1529,6 +1585,7 @@ def pytest_collection_finish(session):
     # Test modules import the Qt window at collection: disarm before any
     # fixture (even session-scoped) can build a MapView.
     _map_tile_workers_never_start()
+    _window_storage_cleanup_never_starts()
 
 
 @pytest.fixture(autouse=True)
@@ -1831,6 +1888,103 @@ def _no_test_writes_the_xplane_install(request):
         f"tmp_path.", pytrace=False)
 
 
+# ── THE REAL-ROOTS AUDIT GUARD (``tests/real_roots_guard.py``) ──
+#
+# The install guard above patches Python names; the audit hook sees every
+# write the interpreter makes, including through names bound before the
+# patch and C writers.  It protects the X-Plane install and the World /
+# Convert state of each real data folder (2026-11-11: ``world_pack.log`` of
+# the real data folder held 21 pytest lines).
+
+#: The data folder's app state the World pack and Convert write.
+_APP_STATE_DIRS = ("logs", "World_staging", "Imagery_on_demand")
+
+
+def _real_roots() -> list:
+    """The X-Plane install (``xplane_root()``, and the Custom Scenery the
+    checkout's REAL global cfg names, read past the per-test redirect) and
+    :data:`_APP_STATE_DIRS` of every real data folder: the packaged app's
+    default, its remembered choice, an ambient ``ORTHO4XP_DATA_ROOT`` and
+    the checkout itself (a lane worktree mounts the real one there)."""
+    roots = [xplane_root()]
+    try:
+        import O4_Settings_Model as SM
+        scenery = SM._parse_cfg(SM._default_global_cfg()).get(
+            "custom_scenery_dir", "")
+    except Exception:                                   # pragma: no cover
+        scenery = ""
+    if scenery:
+        roots.append(scenery)
+    import O4_File_Names as FNAMES
+    data_roots = {FNAMES.default_data_root(), FNAMES.read_data_root_pointer(),
+                  _AMBIENT_DATA_ROOT, os.path.abspath(".")}
+    for root in sorted(r for r in data_roots if r):
+        roots.extend(os.path.join(root, sub) for sub in _APP_STATE_DIRS)
+    return roots
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _real_roots_audit_guard_armed(tmp_path_factory):
+    """Arm the audit hook once per process, before any test runs."""
+    from tests import real_roots_guard as GUARD
+    GUARD.arm(_real_roots(), [str(tmp_path_factory.getbasetemp())])
+    yield GUARD
+
+
+@pytest.fixture(autouse=True)
+def _no_test_writes_a_real_root(_real_roots_audit_guard_armed, request):
+    """A write the audit guard refused fails ITS test, even when the code
+    under test caught the refusal and carried on."""
+    guard = _real_roots_audit_guard_armed
+    del guard.blocked[:]
+    yield
+    if not guard.blocked:
+        return
+    for phase in ("setup", "call"):
+        report = getattr(request.node, "_o4_report_" + phase, None)
+        if report is not None and report.failed:
+            return
+    count = len(guard.blocked)
+    lines = "\n".join(f"  - BLOCKED {b['via']} '{b['path']}'"
+                      for b in guard.blocked)
+    del guard.blocked[:]
+    pytest.fail(f"the real-roots audit guard blocked {count} "
+                f"write(s) and the test carried on:\n{lines}\nPoint the "
+                f"writer at tmp_path.", pytrace=False)
+
+
+@pytest.fixture(autouse=True)
+def _data_root_app_state_is_a_tmp_folder(tmp_path_factory):
+    """``FNAMES.data_path`` of :data:`_APP_STATE_DIRS` resolves under this
+    run's tmp tree (#1881 for ``storage.log``; 2026-11-11 for
+    ``world_pack.log``, which held 21 pytest lines, and the on-demand index
+    and storage records the Qt window writes at its start): what a test
+    that left the data root at the checkout -- a lane worktree's mount of
+    the real data folder -- writes there lands in scratch.  A test that
+    points the data root at its own tmp folder keeps it.
+
+    Installed WITHOUT an undo, and again after a module reload: a window's
+    worker thread that outlives its test still writes into scratch (the
+    real-roots guard caught 22 such writes, each failing whichever test
+    was running then)."""
+    import O4_File_Names as FNAMES
+    if not getattr(FNAMES.data_path, "_o4_app_state_scratch", False):
+        real = FNAMES.data_path
+        base = os.path.realpath(str(tmp_path_factory.getbasetemp()))
+
+        def data_path(relative_path):
+            path = real(relative_path)
+            head = str(relative_path).replace("\\", "/").split("/", 1)[0]
+            if head in _APP_STATE_DIRS and not os.path.realpath(
+                    path).startswith(base + os.sep):
+                return os.path.join(base, "data-root-scratch", relative_path)
+            return path
+
+        data_path._o4_app_state_scratch = True
+        FNAMES.data_path = data_path
+    yield
+
+
 # ── THE Qt FILES ARE NOT xdist-SAFE: AN ACCIDENTAL PARALLEL RUN REFUSES ──
 #
 # ``tests/test_qt_*.py`` build real widgets and pump real event loops
@@ -1994,3 +2148,15 @@ def median_wall(run, runs):
     return statistics.median(run() for _ in range(runs))
 
 
+@pytest.fixture(autouse=True)
+def _no_background_storage_scan(monkeypatch):
+    """#2029: the engine session's background storage scan (it walks the
+    whole data folder, the shared corpus through its links) never starts
+    by itself in a test; a test of it drives ``storage_shared._work``."""
+    try:
+        from o4_engine import storage_shared as SHARED
+    except Exception:                                   # pragma: no cover
+        yield
+        return
+    monkeypatch.setattr(SHARED, "refresh", lambda *args, **kwargs: False)
+    yield

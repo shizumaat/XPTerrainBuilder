@@ -211,17 +211,7 @@
  },
  {
   "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
-  "name": "fetch_cores",
-  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
- },
- {
-  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
   "name": "register_built",
-  "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
- },
- {
-  "path": "Ortho4XP/src/o4_engine/imagery_after_build.py",
-  "name": "start",
   "reason": "step of the after-build imagery job, composed by watch() (reached from jsonl.py and O4_Qt_GUI.py) and twinned step by step in its tests"
  },
  {
@@ -232,11 +222,6 @@
  {
   "path": "Ortho4XP/src/O4_World_Drape.py",
   "name": "drape_dsf_text",
-  "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
- },
- {
-  "path": "Ortho4XP/src/O4_World_Drape.py",
-  "name": "is_drape",
   "reason": "draped-tile step: composed by write_drape/verify_drape (reached from Ortho4XP/tools/world_pack.py) or read there directly, and twinned in tests/test_world_drape.py; the ratchet reads only src/ users"
  },
  {
@@ -343,5 +328,10 @@
   "path": "Ortho4XP/src/o4_engine/library.py",
   "name": "free_cache",
   "reason": "ENGINE COMMAND `free_cache`, dispatched by name through library.COMMANDS (JSONL) and SceneryKit's freeCache; the Library's own Free space buttons gave way to Library > Caches (#2007) but the command stays on the wire for released front ends"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Qt_Library.py",
+  "name": "LibraryTilesSection",
+  "reason": "PARKED, not dead: the tiles table lost its Library-mode home (RULINGS 2026-11-11k (1)) and the owner deferred its developer-tools home (2026-11-11T15:35Z: \"Don't do the developer mode part of the build view yet\"); kept until that ruling, its tests still run"
  }
 ]

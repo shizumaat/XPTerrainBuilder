@@ -180,10 +180,10 @@ except Exception as e:
     _LOGGER.error("Error accessing global config file: %s", e)
 
 
-#: The tile settings a build request may set for that build only (#818),
-#: plus ``profile`` (World spec §8.4: a named set of settings,
-#: ``O4_Build_Profile``).
-BUILD_OVERRIDE_KEYS = ("auto_patch", "modify_custom_airports", "profile")
+#: The tile settings a build request may set for that build only (#818;
+#: ``imagery_on_demand``: World and flight full builds, lane lcore).
+BUILD_OVERRIDE_KEYS = ("auto_patch", "modify_custom_airports",
+                       "imagery_on_demand")
 
 
 ################################################################################
@@ -214,20 +214,13 @@ class Tile:
         grades nothing (``auto_patch`` "None"); on keeps the tile's own
         mode, or grades every airport when that mode is "None".  Keys
         other than :data:`BUILD_OVERRIDE_KEYS` and non-bool values are
-        ignored.  ``profile`` (a name, World spec §8.4) lands every
-        setting of ``O4_Build_Profile.profile_settings`` the same way,
-        before the switches.
+        ignored.  ``imagery_on_demand`` on is asked for wherever the tile
+        lies (``imagery_on_demand_forced``, not a cfg variable: the
+        tile's region switch is not consulted, ``O4_Imagery_Placeholder``).
         """
         from O4_Airport_Modes import resolved_auto_patch_mode
 
         saved = self.__dict__.setdefault("_build_override_saved", {})
-        if (overrides or {}).get("profile"):
-            import O4_Build_Profile as PROFILE
-
-            for key, value in PROFILE.profile_settings(
-                    overrides["profile"]).items():
-                saved.setdefault(key, getattr(self, key))
-                setattr(self, key, value)
         for key, value in (overrides or {}).items():
             if key not in BUILD_OVERRIDE_KEYS or not isinstance(value, bool):
                 continue
@@ -239,6 +232,8 @@ class Tile:
                     value = "All"
                 else:
                     continue
+            if key == "imagery_on_demand":
+                self.imagery_on_demand_forced = value
             setattr(self, key, value)
 
     def make_dirs(self):

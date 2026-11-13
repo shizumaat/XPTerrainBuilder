@@ -111,8 +111,7 @@ def test_the_library_budget_asks_before_it_downgrades(app, monkeypatch):
     try:
         section.set_scan(dict(SCAN, budget=budget))
         assert box.budget_edit.text() == "300"                 # the default applies
-        assert "200.00 GB" in box.default_label.text() and "255.00 GB" in box.default_label.text()
-        assert "holds everything installed now (300.00 GB)" in box.default_label.text()
+        assert "holds everything installed now (300.00 GB)" in box.held_label.text()
         assert not box.confirm_btn.isHidden() and box.default_btn.isHidden()
         box.confirm_btn.click()                                # Confirm records it
         assert written == [{QTSTORE.BUDGET_SETTING: "300.0"}]
@@ -126,5 +125,40 @@ def test_the_library_budget_asks_before_it_downgrades(app, monkeypatch):
         box.budget_edit.setText("150")
         box.submit()
         assert applied == [150.0]
+    finally:
+        section.deleteLater()
+
+
+def test_the_budget_slider_spans_the_range_and_previews(app, monkeypatch):
+    """#2022: the slider runs from the minimum to the most, its ends say
+    so with the figures, it previews what a budget clears while it moves
+    and sets it on release (asked first below what is in use)."""
+    import O4_Qt_Library_Storage as QTLIBSTORE
+    import O4_Storage_Text as TEXT
+    section = QTSTORE.StorageSection()
+    box = QTLIBSTORE.DiskBudgetBox(section)
+    applied, asked = [], []
+    monkeypatch.setattr(section, "apply_budget", applied.append)
+    budget = {"budget_bytes": 400e9, "budget_set": True, "chosen_bytes": 900e9,
+              "clamped": "followed", "used_bytes": 300e9, "floor_bytes": 20e9,
+              "recommended_bytes": 70e9, "minimum_bytes": 25e9,
+              "maximum_bytes": 400e9, "low_water": 0.9,
+              "breakdown": {"tiles": 200e9, "other": 100e9},
+              "ladder": {"caches": 40e9, "imagery": 100e9}}
+    try:
+        section.set_scan(dict(SCAN, budget=budget))
+        assert (box.budget_slider.minimum(), box.budget_slider.maximum()) == (25, 400)
+        assert box.budget_slider.value() == 400 and box.budget_edit.text() == "400"
+        assert box.min_label.text() == TEXT.end_labels(budget)[0]
+        assert "follows the disk down to 400.00 GB" in box.budget_warning.text()
+        assert "Tiles and mesh 200.00 GB" in box.usage_bar.legend.text()
+        box.budget_slider.setSliderPosition(250)
+        box._moved(250)
+        assert not box.preview_label.isHidden()
+        assert box.preview_label.text() == TEXT.preview_text(budget, 250e9)
+        box.confirm = lambda title, text: asked.append(title) or True
+        box._released()
+        assert box.preview_label.isHidden() and asked == [TEXT.DOWNGRADE_TITLE]
+        assert applied == [250.0]
     finally:
         section.deleteLater()

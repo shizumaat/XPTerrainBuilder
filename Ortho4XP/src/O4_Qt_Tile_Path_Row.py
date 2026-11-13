@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import O4_Reveal as REVEAL
 import O4_Tile_Volume as TVOL
+import O4_World_State_Text as WORLD_TEXT
 from O4_Qt_Widgets import ElidedRowLabel
 from PySide6.QtWidgets import (QHBoxLayout, QMessageBox, QSizePolicy,
                                QToolButton, QVBoxLayout, QWidget)
@@ -55,12 +56,14 @@ class TilePathRow(QWidget):
         outer.addWidget(self.note_label)
         self._path = ""
 
-    def show_info(self, info) -> None:
-        """The row for a tile's ``TileInfo`` (``None``: no tile folder)."""
-        path = ""
+    def show_info(self, info, world=None) -> None:
+        """The row for a tile's ``TileInfo`` (``None``: no tile folder) and
+        its ``WorldTile``: the tile's DSF in the World pack when its
+        folder holds only records (#2027, ``O4_World_State_Text.world_dsf``)."""
+        path = WORLD_TEXT.world_dsf(info, world)
         volume = ""
-        mounted = False
-        if info is not None:
+        mounted = bool(path)
+        if info is not None and not path:
             path = (getattr(info, "resolved_dir", "")
                     or getattr(info, "build_dir", "") or "")
             volume = getattr(info, "volume", "") or ""

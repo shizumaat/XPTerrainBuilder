@@ -47,8 +47,17 @@ def floor_z_at(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float]
             out[k] = float(z[inside].min())
         elif edge_m > 0.0:
             # how far outside each candidate the point stands, in metres:
-            # the least barycentric weight times the face's height there
-            h = np.abs(den[c]) / np.maximum(np.hypot(x1[c] - x2[c], y1[c] - y2[c]), 1e-9)
+            # the least barycentric weight times the face's height OVER THE
+            # EDGE THAT WEIGHT IS MEASURED FROM (#1936: the height over edge
+            # 1-2 alone read a ring vertex 0.16-0.33 m off a long sliver face
+            # as metres out, and EGLL 11b left 81 ring vertices unpinned,
+            # the mesh standing up to 5 m over its floor between them)
+            w = np.stack([w0, w1, w2])
+            edge = np.stack([np.hypot(x1[c] - x2[c], y1[c] - y2[c]),
+                             np.hypot(x2[c] - x0[c], y2[c] - y0[c]),
+                             np.hypot(x0[c] - x1[c], y0[c] - y1[c])])
+            i = np.argmin(w, axis=0)
+            h = np.abs(den[c]) / np.maximum(edge[i, np.arange(len(c))], 1e-9)
             near = -least * h <= edge_m
             if near.any():
                 out[k] = float(z[near].min())

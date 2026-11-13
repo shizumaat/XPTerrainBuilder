@@ -49,12 +49,14 @@ from .events import (
     PackOptimise,
     PackAdjust,
     GatewayAirports,
+    PackPackage,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     SlowStep,
     StepProgress,
     TileClocks,
     TileState,
 )
+from . import step_clock as STEP_CLOCK
 from .slow_step import SlowStepWatch
 
 #: The queue rank of a tile whose batch named no class or deadline.
@@ -196,6 +198,14 @@ RATE_MIN_SPAN_SECONDS = 3.0  # need this much window before trusting a rate
 RATE_MIN_GAIN_PERCENT = 0.5  # ...and this much percent gained inside it
 
 
+def with_auto_overlays(do_vector, do_imagery, do_overlays):
+    """The overlay step's switch for a batch: on for every FULL tile (map
+    data and imagery both built), whose mesh hides X-Plane's own roads,
+    forests and buildings (#2021, RULINGS 2026-11-12e); the step itself
+    skips a tile other scenery covers (``O4_Overlay_Utils.auto_overlay``)."""
+    return bool(do_overlays or (do_vector and do_imagery))
+
+
 def plan_steps(do_vector, do_imagery, do_overlays, steps=None):
     """Ordered ``(key, base_fraction, slice_fraction)`` plan for the selected
     steps, slices normalized so a full tile is exactly 1.0.
@@ -282,6 +292,44 @@ def _clear_boundary_skips():
         pass
 
 
+#: The tile row's label while its imagery step lands the airport cores
+#: (RULINGS 13p); the core row's own words (``O4_Imagery_OnDemand_Text``).
+CORES_STEP_LABEL = "Sharpening airport imagery · %d of %d squares"
+
+
+def _core_seconds_for(airports):
+    """Predicted seconds to land ``airports`` airports' cores (the middle
+    of ``imagery_after_build.core_seconds``); 0 for none."""
+    if not airports:
+        return 0.0
+    from .imagery_after_build import core_seconds
+    low, high = core_seconds(int(airports))
+    return (low + high) / 2.0
+
+
+def _core_airports(tile, planned):
+    """Airports whose cores an on-demand build of ``tile`` lands in its
+    imagery step (at least one); 0 for a build not on demand."""
+    try:
+        import O4_Imagery_Placeholder as PLACEHOLDER
+        if not PLACEHOLDER.drop(tile):
+            return 0
+        if planned is None:
+            from . import tile_time_model
+            planned = tile_time_model.planned_airports(tile.lat, tile.lon)
+    except Exception:
+        return 0
+    return max(1, int(planned or 0))
+
+
+def _core_share(cores, estimates):
+    """The imagery step's share that is its airport cores: their
+    predicted ``cores`` seconds over the step's (which
+    :func:`_predict_step_seconds` made include them); 0 for none."""
+    total = float(estimates.get("imagery", 0.0) or 0.0)
+    return min(1.0, cores / total) if cores > 0 and total > 0 else 0.0
+
+
 def _predict_step_seconds(lat, lon, features, steps):
     """Learned per-step estimates, or static-weight-scaled defaults when the
     time model is unavailable (module optional during bring-up).  A step
@@ -289,6 +337,7 @@ def _predict_step_seconds(lat, lon, features, steps):
     :data:`REUSED_STEP_SECONDS`, so its window of the bar is a sliver."""
     features = dict(features or {})
     reused_steps = set(features.pop("reused_steps", ()) or ())
+    core_airports = int(features.pop("core_airports", 0) or 0)
     try:
         from . import tile_time_model
         estimates = tile_time_model.predict_step_seconds(
@@ -297,6 +346,11 @@ def _predict_step_seconds(lat, lon, features, steps):
         estimates = {k: 600.0 * STEP_WEIGHTS[k] for k in steps}
     for key in reused_steps & set(estimates):
         estimates[key] = REUSED_STEP_SECONDS
+    if core_airports and "imagery" in estimates:
+        # RULINGS 13p: an on-demand build lands its airport cores inside
+        # the imagery step; their seconds weigh that step (#2045).
+        estimates["imagery"] = (float(estimates["imagery"])
+                                + _core_seconds_for(core_airports))
     return estimates
 
 
@@ -311,12 +365,21 @@ def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
     raises.
     """
     features = {"zoomlevel": zoomlevel, "provider": provider}
+    try:
+        from . import tile_time_model
+        planned = tile_time_model.planned_airports(lat, lon)
+        if planned is not None:
+            features["airports_planned"] = planned
+    except Exception:
+        pass
     tile = None
     try:
         import O4_Config_Utils as CFG
         tile = CFG.Tile(lat, lon, custom_build_dir)
         tile.read_from_config()
         features["reused_steps"] = list(REUSE.predicted_reuse(tile))
+        features["core_airports"] = _core_airports(
+            tile, features.get("airports_planned"))
     except Exception:
         pass
     try:
@@ -363,80 +426,49 @@ def _imagery_cache_directory(lat, lon, zoomlevel, provider):
         return None
 
 
-# How far a step's DISPLAY window may drift from its canonical
-# STEP_WEIGHTS share.  Learned seconds adapt the bar (a cached imagery
-# step shrinks toward its floor), but an outlier history must never
-# swallow it: one hours-long vector record (the 2026-07-23 slow-inset
-# era) reweighted vector to ~99 % and the bar read "done" three steps
-# before imagery — normally the LARGEST part of a build (owner ruling
-# 2026-07-23: every planned step keeps an honest share).
-DISPLAY_WEIGHT_DRIFT_LIMIT = 3.0
+# Every planned step keeps at least this share of the bar, so its
+# window never vanishes (a reused step is priced at a second).
+DISPLAY_MIN_SHARE = 0.01
 
 
 def reweight_plan_by_seconds(plan, estimated_seconds):
     """The plan's step windows re-scaled by predicted per-step seconds.
 
     The static :data:`STEP_WEIGHTS` say imagery is 60 % of every build —
-    wildly wrong for a cached rebuild or an auto-patch-heavy tile.  With
-    a per-step second estimate in hand, the whole-tile percent scale is
-    proportional to predicted time instead, so the bar moves at a
-    steady pace through the build.  Steps missing an estimate keep a
-    tiny floor so their window never vanishes, and every step's share
-    stays within :data:`DISPLAY_WEIGHT_DRIFT_LIMIT` of its canonical
-    STEP_WEIGHTS proportion so no outlier estimate can flatten the
-    others' windows.
+    wildly wrong for a cached rebuild or an airport-heavy tile.  With a
+    per-step second estimate in hand, the whole-tile percent scale is
+    proportional to predicted time, so the bar moves at the pace of the
+    work (#2045).  A step missing an estimate is priced at a second, and
+    every step keeps :data:`DISPLAY_MIN_SHARE` of the bar.
+
+    There is no CEILING any more.  The 2026-07-23 cap (3x a step's
+    canonical share) answered one hours-long vector record poisoning the
+    history; it also capped every honest airport solve near a third of
+    the bar, so +39-105 (2026-11-13: KDEN, 89 % of the build in the
+    vector step) sat still for ~90 % of the build and raced through the
+    rest.  Outliers are the model's to absorb (medians over three
+    records, per-airport solve times), not the bar's.
     """
     keys = [key for (key, _base, _width) in plan]
     seconds = {}
     for key in keys:
         estimate = (estimated_seconds or {}).get(key)
         if not isinstance(estimate, (int, float)) or estimate <= 0:
-            estimate = None
-        seconds[key] = estimate if estimate is not None else 1.0
+            estimate = 1.0
+        seconds[key] = float(estimate)
     total = sum(seconds.values())
-    if total <= 0:
+    if not keys or total <= 0:
         return list(plan)
-    # Ceiling-only: a measured-cheap step SHOULD collapse (the cached
-    # imagery case), but no step may bloat past the drift limit — the
-    # mass it cannot claim goes to the remaining steps in proportion,
-    # so a poisoned vector history caps near a third of the bar and
-    # imagery inherits the honest bulk.  Ceilings sum to over 1 by
-    # construction, so the fixing loop always terminates with room.
-    canonical_total = sum(STEP_WEIGHTS[key] for key in keys)
-    ceiling = {
-        key: min(1.0, (STEP_WEIGHTS[key] / canonical_total)
-                 * DISPLAY_WEIGHT_DRIFT_LIMIT)
-        for key in keys
-    }
-    fixed = {}
-    while True:
-        remaining = [key for key in keys if key not in fixed]
-        if not remaining:
-            break
-        remaining_mass = 1.0 - sum(fixed.values())
-        sub_total = sum(seconds[key] for key in remaining)
-        widths = {
-            key: seconds[key] / sub_total * remaining_mass
-            for key in remaining
-        }
-        over = [
-            key for key in remaining if widths[key] > ceiling[key] + 1e-9
-        ]
-        if not over:
-            fixed.update(widths)
-            break
-        for key in over:
-            fixed[key] = ceiling[key]
+    floor = min(DISPLAY_MIN_SHARE, 1.0 / len(keys))
+    raw = {key: seconds[key] / total for key in keys}
+    lifted = {key: max(share, floor) for key, share in raw.items()}
+    scale = sum(lifted.values())
     reweighted, base = [], 0.0
     for key in keys:
-        reweighted.append((key, base, fixed[key]))
-        base += fixed[key]
+        width = lifted[key] / scale
+        reweighted.append((key, base, width))
+        base += width
     return reweighted
-
-
-def _profile_of(overrides):
-    import O4_Build_Profile as PROFILE
-    return PROFILE.profile_of(overrides)
 
 
 def _record_tile_build(lat, lon, features, step_seconds):
@@ -478,10 +510,11 @@ class _EtaTracker:
       estimate within seconds instead of at 60 % weight; while the rate
       is unwarmed, the model estimate minus elapsed (floored at zero) is
       used instead.
-    * While auto-patch owns the vector step, the auto-patch time model's
-      own per-airport ``eta_total_seconds`` (already blended against
-      elapsed by that model) replaces the in-step extrapolation — the
-      strongest signal available and previously discarded by the Qt view.
+    * A step with no live percentage of its own (vector, mesh,
+      overlays) is priced by its :class:`~o4_engine.step_clock.StepClock`
+      (``step_clock``, set by the session at the step's start): the
+      vector step's airports one by one from their predicted solve
+      seconds (#2045), an overrun receding rather than reading "done".
     * No estimate is reported at all until SOME basis exists (views show
       a dash, never a wild number).
     """
@@ -504,7 +537,7 @@ class _EtaTracker:
         # maxlen bounds a percent that stalls forever (the gain-based
         # trim below only fires on gain).
         self.bar_windows = {}
-        self.autopatch = None                  # {"icao": (t_begin, eta_total)}
+        self.step_clock = None                 # the running step's clock
         self.finished_steps = {}               # (lat,lon) -> set(step)
         # Per-tile wall clocks (TileClocks event, protocol 1.3): first
         # step start stamp, and the frozen final elapsed at the tile's
@@ -540,7 +573,7 @@ class _EtaTracker:
     def step_finished(self, tile, key):
         self.finished_steps.setdefault(tile, set()).add(key)
         self.step_key = None
-        self.autopatch = None
+        self.step_clock = None
         if self.is_tile_finished(tile):
             self.tile_terminal(tile)
 
@@ -587,18 +620,6 @@ class _EtaTracker:
             return (100.0 - p_last) * span / gained
         return None
 
-    def autopatch_begin(self, airports):
-        now = time.time()
-        self.autopatch = {a: [now, None, False] for a in airports}
-
-    def autopatch_progress(self, airport, status, eta_total_seconds):
-        if self.autopatch is None or airport not in self.autopatch:
-            return
-        entry = self.autopatch[airport]
-        if eta_total_seconds:
-            entry[1] = float(eta_total_seconds)
-        entry[2] = status in ("done", "fail")
-
     # -- read ------------------------------------------------------------
     def _current_step_remaining(self):
         """Model/bar estimate, floored by live phase telemetry: while a
@@ -625,20 +646,11 @@ class _EtaTracker:
         tile = self.tiles[self.tile_index]
         estimate = self.estimates.get(tile, {}).get(self.step_key)
         elapsed = time.time() - self.step_started_at
-        # Auto-patch live model beats everything while it runs.
-        if self.step_key == "vector" and self.autopatch:
-            now = time.time()
-            remaining = 0.0
-            have_any = False
-            for t_begin, eta_total, finished in self.autopatch.values():
-                if finished:
-                    continue
-                if eta_total is not None:
-                    have_any = True
-                    remaining += remaining_step_seconds(
-                        eta_total, now - t_begin)
-            if have_any:
-                return remaining
+        # The step's own clock, for a step with no live percentage.
+        clock = self.step_clock
+        if clock is not None and clock.key == self.step_key \
+                and self.step_key in STEP_CLOCK.CLOCK_STEPS:
+            return clock.remaining(time.time())
         # Live per-bar rates once any window has substance: the step's
         # activities run concurrently, so the SLOWEST bar is the step's
         # remaining time (bars without a rate yet simply don't vote —
@@ -756,8 +768,9 @@ class EngineSession:
         self._lock = threading.Lock()
         self._seq = 0
         self._scan_generation = 0
-        # (working_dir, generation, {key: TileInfo}) of the last completed
-        # scan: the Library reuses it (scanned_tiles, #2006).
+        # (working_dir, generation, {key: TileInfo}, {key: WorldTile}) of
+        # the last completed scan: the Library reuses it (scanned_tiles,
+        # #2006; scanned_world, #2024).
         self._scanned = None
         self._building = False
         # Build display state (moved from the Qt view): current step plus
@@ -767,6 +780,8 @@ class EngineSession:
         self._slow_step = SlowStepWatch(self._emit)
         self._bar_values = {1: 0, 2: 0, 3: 0}
         self._autopatch_state = None
+        # The running step's clock (#2045, ``step_clock``).
+        self._step_clock: Optional[STEP_CLOCK.StepClock] = None
         # The causes declared for the tile currently building (H1's
         # per-airport records, the steps' named error exits): raw
         # ``O4_Tile_Failures.record`` dicts, folded into its BuildDone.
@@ -901,9 +916,10 @@ class EngineSession:
     # Command: scan (streamed; moved from the Qt view 2026-07-15)
     # ------------------------------------------------------------------
     def scan(self, working_dir: str, custom_scenery_dir: Optional[str]):
-        """Scan built tiles + installed scenery, streaming ScanBatch /
-        ScanProgress at ~10 Hz.  A newer scan supersedes an in-flight one:
-        the superseded worker stops emitting (its generation is stale)."""
+        """Scan built tiles + installed scenery + the World pack's tiles
+        (``world_state``, #2024), streaming ScanBatch / ScanProgress at
+        ~10 Hz.  A newer scan supersedes an in-flight one: the superseded
+        worker stops emitting (its generation is stale)."""
         self._scan_generation += 1
         generation = self._scan_generation
 
@@ -915,22 +931,26 @@ class EngineSession:
             installed_total = 0
             pending_built = {}
             pending_installed = []
+            pending_world = []
             scanned = {}
+            world = {}
             last_flush = 0.0
 
             def live():
                 return generation == self._scan_generation
 
             def flush(phase, done, total, force=False):
-                nonlocal pending_built, pending_installed, last_flush
+                nonlocal pending_built, pending_installed, pending_world
+                nonlocal last_flush
                 now = time.monotonic()
                 if not force and now - last_flush < SCAN_FLUSH_SECONDS:
                     return
                 last_flush = now
-                if pending_built or pending_installed:
+                if pending_built or pending_installed or pending_world:
                     self._emit(ScanBatch(built=pending_built,
-                                         installed=tuple(pending_installed)))
-                    pending_built, pending_installed = {}, []
+                                         installed=tuple(pending_installed),
+                                         world=tuple(pending_world)))
+                    pending_built, pending_installed, pending_world = {}, [], []
                 self._emit(ScanProgress(phase=phase, done=done, total=total))
 
             try:
@@ -961,11 +981,42 @@ class EngineSession:
                         flush(phase, done, total)
             except Exception as exc:
                 print("Custom Scenery scan failed:", exc)
+            try:
+                if custom_scenery_dir:
+                    from . import world_state as WSTATE
+                    phase = "Reading the World pack…"
+                    flush(phase, 0, 0, force=True)
+                    for done, total, key, tile in WSTATE.iter_world(
+                            custom_scenery_dir):
+                        if not live():
+                            return
+                        world[key] = tile
+                        pending_world.append(tile.wire(key))
+                        flush(phase, done, total)
+            except Exception as exc:
+                print("World pack scan failed:", exc)
+            try:
+                # The World pack's tiles built into the data folder's
+                # Tiles/ (World and flight jobs, Convert's records) when
+                # the working folder is another one (owner 2026-11-12T22:19Z).
+                from .world_built import iter_world_built
+                phase = "Reading World tiles' records…"
+                for done, total, key, info in iter_world_built(
+                        working_dir, world, scanned):
+                    if not live():
+                        return
+                    if key is not None:
+                        built_total += 1
+                        pending_built[key] = scanned[key] = info
+                    flush(phase, done, total)
+            except Exception as exc:
+                print("World tiles' records scan failed:", exc)
             if live():
-                self._scanned = (working_dir, generation, scanned)
+                self._scanned = (working_dir, generation, scanned, world)
                 flush("", 0, 0, force=True)
                 self._emit(ScanDone(built_count=built_total,
-                                    installed_count=installed_total))
+                                    installed_count=installed_total,
+                                    world_count=len(world)))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -980,6 +1031,16 @@ class EngineSession:
                 or last[1] != self._scan_generation):
             return None
         return last[2]
+
+    def scanned_world(self, working_dir: str):
+        """The World states (``{(lat, lon): world_state.WorldTile}``) of
+        the last completed :meth:`scan` of ``working_dir``, or None (the
+        rule of :meth:`scanned_tiles`): the Library's World column (#2024)."""
+        last = self._scanned
+        if (last is None or last[0] != working_dir
+                or last[1] != self._scan_generation):
+            return None
+        return last[3]
 
     # ------------------------------------------------------------------
     # Command: build (worker moved from the Qt view 2026-07-15)
@@ -1017,8 +1078,6 @@ class EngineSession:
         switches, ``{"auto_patch": bool, "modify_custom_airports": bool}``
         (either key optional), landed on each tile after its cfg is read
         and never written back to it (``Tile.apply_build_overrides``).
-        ``{"profile": "light"}`` (World spec §8.4) names a set of them
-        (``O4_Build_Profile``).
 
         ``deadline`` (wall-clock seconds) and ``klass`` (``P0``..``P4``)
         rank this batch's tiles in the run's queue (World spec §8.4,
@@ -1026,6 +1085,8 @@ class EngineSession:
         """
         if self._building:
             return False
+        if steps is None:
+            do_overlays = with_auto_overlays(do_vector, do_imagery, do_overlays)
         priority = (_ORDER.rank(klass, deadline)
                     if klass is not None or deadline is not None else None)
         try:
@@ -1151,6 +1212,7 @@ class EngineSession:
         airport photos already cached."""
         if key != "vector":
             return function(tile)
+        self._apply_pack_packages(tile)
         import functools
 
         import O4_Imagery_Prefetch as PREFETCH
@@ -1167,6 +1229,18 @@ class EngineSession:
         with PREFETCH.alongside(tile, on_done=downloads_done) as prefetch:
             tile.airport_imagery_fetch = prefetch.fetch_airports
             return function(tile)
+
+    def _apply_pack_packages(self, tile):
+        """RULINGS 2026-11-11m (4): before the vector step reads the
+        tile's patches, the packages its installed airport packs ship are
+        applied, each with its notice (``tile_bundle.pack_shipped``).
+        Never raises: the tile builds as usual."""
+        try:
+            from tile_bundle import pack_shipped
+            for row in pack_shipped.apply_for_tile(tile):
+                self._emit(PackPackage(**row))
+        except Exception as error:
+            UI.vprint(1, "  [pack package] not read (%s)" % error)
 
     def _seed_work_queue(self, tiles, provider, zoomlevel,
                          custom_build_dir, plan):
@@ -1185,12 +1259,6 @@ class EngineSession:
         if overrides:
             for tile in tiles:
                 self._tile_overrides[tuple(tile)] = dict(overrides)
-
-    def tile_overrides(self, lat, lon):
-        """The per-build switches the live run builds tile ``(lat, lon)``
-        with (``{}`` for none); a World-pack publish reads its
-        ``profile`` from them."""
-        return dict(self._tile_overrides.get((int(lat), int(lon))) or {})
 
     def _note_priority(self, tiles, priority):
         """Remember a batch's queue rank for each of its tiles (World spec
@@ -1242,6 +1310,7 @@ class EngineSession:
         the active run).
         """
         tiles = [tuple(tile) for tile in tiles]
+        do_overlays = with_auto_overlays(do_vector, do_imagery, do_overlays)
         priority = (_ORDER.rank(klass, deadline)
                     if klass is not None or deadline is not None else None)
         with self._command_lock:
@@ -1459,6 +1528,7 @@ class EngineSession:
                 if self._eta is None:
                     break
                 try:
+                    self._tick_step_clock()
                     self._emit_eta()
                     self._poll_slow_step()
                 except Exception:
@@ -1586,8 +1656,9 @@ class EngineSession:
             "vector": VMAP.build_poly_file,
             "mesh": MESH.build_mesh,
             "masks": MASK.build_masks,
-            "imagery": TILE.build_tile,
-            "overlays": lambda t: OVL.build_overlay(t.lat, t.lon),
+            "imagery": lambda t: self._imagery_and_cores(t, TILE.build_tile),
+            "overlays": lambda t: OVL.auto_overlay(
+                t.lat, t.lon, getattr(CFG, "custom_scenery_dir", "") or ""),
         }
         last_ok = {}  # #1624: each tile's last outcome
         run_completed = False
@@ -1611,6 +1682,7 @@ class EngineSession:
                     lat, lon, custom_build_dir))
             step_seconds = {}
             autopatch_airports = 0
+            airport_seconds = {}
             self._tile_failures = []           # per-tile (H1, #562)
             try:
                 tile = CFG.Tile(lat, lon, custom_build_dir)
@@ -1682,6 +1754,8 @@ class EngineSession:
                         FASTPATH.after_step_recorded(tile, key)
                     if self._autopatch_state is not None:
                         autopatch_airports = self._autopatch_state["total"]
+                        airport_seconds = dict(
+                            self._autopatch_state.get("seconds") or {})
                     self._finish_step((lat, lon), key)
                     if (result == 0 and UI.red_flag
                             and self._failed_not_cancelled((lat, lon))):
@@ -1783,12 +1857,14 @@ class EngineSession:
                     _record_tile_build(
                         lat, lon,
                         {"zoomlevel": zoomlevel, "provider": provider,
-                         # World spec §9: a light build's times never
-                         # predict a full one (tile_time_model).
-                         "profile": _profile_of(overrides),
                          "airports": autopatch_airports,
                          "autopatch_seconds":
                              self._autopatch_elapsed_seconds(),
+                         # Each airport's finish, seconds after the
+                         # airports began (they build in parallel): what
+                         # a package estimate prices one airport at
+                         # (``tile_time_model.airport_seconds_of``).
+                         "airport_seconds": airport_seconds,
                          # Cold/warm cache state, measured by build_dsf
                          # (zero when the imagery step did not run).
                          "textures_total": int(getattr(
@@ -1864,15 +1940,54 @@ class EngineSession:
         self._bar_values = {1: 0, 2: 0, 3: 0}
         self._step_detail = ""
         self._step_percent = base * 100.0
+        estimate = (self._eta.estimates.get(tile, {}).get(key)
+                    if self._eta else None)
+        self._step_clock = STEP_CLOCK.for_step(tile, key, estimate,
+                                               time.time())
         if self._eta:
             self._eta.step_started(tile, key)
-        indeterminate = step_progress(key, {}) is None
+            self._eta.step_clock = self._step_clock
         self._emit(StepProgress(
             lat=tile[0], lon=tile[1], step_key=key,
-            label=self._step_label(key),
-            percent=base * 100.0, indeterminate=indeterminate))
+            label=self._step_label(key), percent=base * 100.0))
         self._emit_eta(force=True)
         self._slow_step.begin(tile, key, STEP_FAILURE_NOUNS.get(key, key))
+
+    def _imagery_and_cores(self, tile, build_tile):
+        """The imagery step: the textures, then -- on an on-demand build --
+        the airport cores at the tier the settings ask for (owner
+        2026-11-13, RULINGS 13p: the tile is done only once its airports
+        fly sharp with no X-Plane reload; ``imagery_after_build.
+        land_in_build``).  The cores take the step window's last share,
+        their predicted seconds (:func:`_core_share`); a Stop leaves the
+        squares not yet started and the tile stopped."""
+        result = build_tile(tile)
+        if result != 1 or UI.red_flag:
+            return result
+        from . import imagery_after_build as AFTER
+        current = self._current_step
+        if current is None:
+            return result
+        (tile_key, _key, base, width) = current
+        share = _core_share(
+            _core_seconds_for(_core_airports(tile, None)),
+            self._eta.estimates.get(tile_key, {}) if self._eta else {})
+
+        def progress(done, total):
+            fraction = done / total if total else 1.0
+            percent = 100.0 * (base + width * (1 - share * (1 - fraction)))
+            self._step_percent = max(self._step_percent, percent)
+            self._emit(StepProgress(
+                lat=tile_key[0], lon=tile_key[1], step_key="imagery",
+                label=CORES_STEP_LABEL % (done, total),
+                percent=self._step_percent))
+        try:
+            AFTER.land_in_build(tile.build_dir, tile.lat, tile.lon,
+                                stopped=lambda: UI.red_flag,
+                                progress=progress)
+        except Exception as error:      # the follow job lands them later
+            UI.vprint(1, "   Airport cores not landed:", repr(error)[:200])
+        return result
 
     def _reuse_step(self, tile, tile_key, key, base, width):
         """Skip ``key`` when its output is current (#615), or when the
@@ -1927,6 +2042,7 @@ class EngineSession:
             REUSE.record(tile, "mesh")
 
     def _finish_step(self, tile, key):
+        self._step_clock = None
         self._slow_step.end()
         if self._eta:
             self._eta.step_finished(tile, key)
@@ -1984,8 +2100,9 @@ class EngineSession:
             self._emit_eta()
             return
         tile, key, base, width = self._current_step
-        inside = step_progress(key, self._bar_values,
-                               getattr(self, "_imagery_weights", None))
+        inside = (None if key in STEP_CLOCK.CLOCK_STEPS
+                  else step_progress(key, self._bar_values,
+                                     getattr(self, "_imagery_weights", None)))
         if inside is None:
             self._emit_eta()
             return
@@ -1997,6 +2114,30 @@ class EngineSession:
             lat=tile[0], lon=tile[1], step_key=key,
             label=self._step_label(key), percent=percent))
         self._emit_eta()
+
+    def _tick_step_clock(self):
+        """The heartbeat's move of a step with no percentage of its own
+        (``step_clock.CLOCK_STEPS``): its window advances with the
+        clock's fraction, so the bar never sits still while work runs
+        (#2045).  Auto-patch keeps its own label."""
+        current = self._current_step
+        clock = getattr(self, "_step_clock", None)
+        if current is None or clock is None:
+            return
+        tile, key, base, width = current
+        if key != clock.key or key not in STEP_CLOCK.CLOCK_STEPS:
+            return
+        if self._autopatch_running():
+            self._render_autopatch()
+            return
+        percent = min(100.0, (base + width * clock.fraction(time.time()))
+                      * 100.0)
+        if percent < getattr(self, "_step_percent", 0.0) + 0.05:
+            return
+        self._step_percent = percent
+        self._emit(StepProgress(
+            lat=tile[0], lon=tile[1], step_key=key,
+            label=self._step_label(key), percent=percent))
 
     def _step_label(self, key):
         """The step's label, plus what it is doing right now when a phase
@@ -2043,10 +2184,13 @@ class EngineSession:
             "finished": set(),
             "frac": {},
             "current": "",
+            "seconds": {},
         }
         self._autopatch_t0 = time.time()
-        if self._eta:
-            self._eta.autopatch_begin(airports)
+        clock = getattr(self, "_step_clock", None)
+        if clock is not None and clock.key == "vector":
+            clock.airports_begin(STEP_CLOCK.predict_airports(airports),
+                                 self._autopatch_t0)
         tile = self._current_step[0] if self._current_step else (0, 0)
         self._emit(AutoPatchBegin(airports=tuple(airports),
                                   lat=tile[0], lon=tile[1]))
@@ -2059,6 +2203,9 @@ class EngineSession:
             return
         fraction = min(float(done) / float(total), 1.0) if total else 0.0
         if status in ("done", "fail"):
+            if status == "done" and self._autopatch_t0:
+                state.setdefault("seconds", {})[str(airport)] = round(
+                    time.time() - self._autopatch_t0, 1)
             state["finished"].add(airport)
             state["frac"][airport] = 1.0
             if state["current"] == airport:
@@ -2066,8 +2213,7 @@ class EngineSession:
         else:
             state["frac"][airport] = fraction
             state["current"] = airport
-        if self._eta:
-            self._eta.autopatch_progress(airport, status, eta_total_seconds)
+        self._clock_airport(str(airport), fraction, status)
         tile = self._current_step[0] if self._current_step else (0, 0)
         self._emit(AutoPatchProgress(
             airport=str(airport), done=float(done), total=float(total),
@@ -2075,6 +2221,20 @@ class EngineSession:
             eta_total_seconds=eta_total_seconds,
             lat=tile[0], lon=tile[1]))
         self._render_autopatch()
+
+    def _clock_airport(self, airport, fraction, status):
+        """Feed the vector step's clock one airport report; a solved
+        airport's measured seconds go to the airport time model, so the
+        next build of any tile with it predicts from them (#2045)."""
+        clock = getattr(self, "_step_clock", None)
+        if clock is None or clock.key != "vector":
+            return
+        ended = status in ("done", "fail")
+        clock.airport(airport, 1.0 if ended else fraction, ended, time.time())
+        seconds = clock.airport_seconds(airport) if status == "done" else None
+        if seconds:
+            from . import airport_time_model as ATM
+            ATM.record(airport, seconds, ATM.size_km(airport))
 
     def autopatch_failed(self, airport, stage, error, code="", params=None):
         """One airport's build failed — emit the DIAGNOSIS and remember it.
@@ -2279,11 +2439,20 @@ class EngineSession:
         if state is None:
             return
         tile, key, base, width = self._current_step
-        overall = sum(state["frac"].values()) / state["total"]
+        clock = getattr(self, "_step_clock", None)
+        if clock is not None and clock.key == key:
+            overall = clock.fraction(time.time())
+        else:
+            overall = sum(state["frac"].values()) / state["total"]
         percent = min(100.0, (base + width * min(overall, 1.0)) * 100)
+        self._step_percent = max(getattr(self, "_step_percent", 0.0),
+                                 percent)
+        percent = self._step_percent
         label = "auto-patch %d/%d" % (len(state["finished"]), state["total"])
         if state["current"]:
             label += " · " + state["current"]
+        if not self._autopatch_running():      # the step's own work again
+            label = self._step_label(key)
         self._emit(StepProgress(
             lat=tile[0], lon=tile[1], step_key=key,
             label=label, percent=percent))
@@ -2293,8 +2462,20 @@ class EngineSession:
     # Thin command wrappers (single source: the underlying modules)
     # ------------------------------------------------------------------
     def tile_info(self, lat, lon, working_dir):
+        """The tile in *working_dir*; else in the folder this session
+        built it into (a World or flight job builds into the data folder's
+        Tiles/ whatever the working folder is: its BuildDone refreshes the
+        map and the patch editor from there, owner 2026-11-12T22:19Z)."""
         import O4_Tile_Info as TINFO
-        return TINFO.with_built_by(TINFO.tile_info(lat, lon, working_dir))
+
+        from .world_built import tile_info
+        # a World pack tile with its records in the data folder's Tiles/
+        # (#2027: the same answer the scan and imagery_pin give)
+        info = tile_info(lat, lon, working_dir)
+        built_into = self._tile_build_dirs.get((int(lat), int(lon)))
+        if info is None and built_into and os.path.isdir(built_into):
+            info = TINFO.tile_info(lat, lon, built_into, grouped=True)
+        return TINFO.with_built_by(info)
 
     def config_describe(self):
         import O4_Cfg_Vars as CFG_VARS

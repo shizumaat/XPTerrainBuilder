@@ -88,6 +88,10 @@ public struct SceneryPack: Codable, Sendable {
     /// Where analyzers must walk from.
     public var contentRoot: URL { resolvedURL ?? url }
 
+    /// One of this app's own packs (the World pack, the overlay packs,
+    /// per-tile links): never third-party scenery (`O4WorldPack.isOurs`).
+    public var isOurs: Bool { O4WorldPack.isOurs(name) }
+
     public var isEnabled: Bool { status == .enabled }
     public var isInstalled: Bool { status != .uninstalled }
 

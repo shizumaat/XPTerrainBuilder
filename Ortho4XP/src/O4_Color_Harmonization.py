@@ -29,6 +29,7 @@ barrier, nested-zoom conditioning) lives in ``O4_Imagery_Utils``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy
 from PIL import Image, ImageChops
@@ -513,8 +514,13 @@ def bilinear_field(field: OffsetField, key, size: int = FIELD_SIZE) -> numpy.nda
     return field.sample(gx[None, :], gy[:, None]).astype(numpy.float32)
 
 
-def apply_color_field(image: Image.Image, field: numpy.ndarray) -> Image.Image:
+def apply_color_field(image: Image.Image, field: numpy.ndarray,
+                      gain: Optional[numpy.ndarray] = None) -> Image.Image:
     """Add a correction field to an image with saturating uint8 arithmetic.
+
+    ``gain`` (a ``(h, w, 3)`` slope field ``k``, the provider blend's
+    contrast term, #2018) makes each pixel ``x * (1 + k) + field``
+    instead: :func:`_apply_affine_field`.
 
     ``field`` is a ``(h, w, 3)`` float array (any size).  It is rounded to
     whole counts, BIASED by +128 into uint8, upsampled with
@@ -537,6 +543,8 @@ def apply_color_field(image: Image.Image, field: numpy.ndarray) -> Image.Image:
     input is never mutated.  When the whole field rounds to zero a copy is
     returned unchanged.
     """
+    if gain is not None:
+        return _apply_affine_field(image, field, gain)
     rounded = numpy.rint(numpy.asarray(field, dtype=numpy.float32))
     if not numpy.any(rounded):
         return image.copy()
@@ -551,4 +559,33 @@ def apply_color_field(image: Image.Image, field: numpy.ndarray) -> Image.Image:
     result = ImageChops.add(rgb, upsampled, 1.0, -128)
     if has_alpha:
         result.putalpha(alpha)
+    return result
+
+
+def _apply_affine_field(image: Image.Image, field: numpy.ndarray,
+                        gain: numpy.ndarray) -> Image.Image:
+    """``x * (1 + gain) + field`` per channel, clipped to [0, 255]: both
+    fields upsampled with ``Image.BILINEAR`` (the same sampling as
+    :func:`apply_color_field`, so a texture's edge reads the field its
+    neighbour reads) and applied one channel at a time in float32 (a
+    4096-px texture holds one 64 MB channel at a time).  Alpha passes
+    through untouched; the input is never mutated."""
+    has_alpha = image.mode == "RGBA"
+    rgb = image.convert("RGB")
+    size = rgb.size
+    offset = numpy.asarray(field, dtype=numpy.float32)
+    slope = numpy.asarray(gain, dtype=numpy.float32)
+    bands = []
+    for ch, band in enumerate(rgb.split()):
+        k = numpy.asarray(Image.fromarray(numpy.ascontiguousarray(slope[..., ch]),
+                                          "F").resize(size, Image.BILINEAR))
+        b = numpy.asarray(Image.fromarray(numpy.ascontiguousarray(offset[..., ch]),
+                                          "F").resize(size, Image.BILINEAR))
+        value = numpy.asarray(band, dtype=numpy.float32)
+        value = value * (1.0 + k) + b
+        bands.append(Image.fromarray(
+            numpy.clip(numpy.rint(value), 0, 255).astype(numpy.uint8), "L"))
+    result = Image.merge("RGB", bands)
+    if has_alpha:
+        result.putalpha(image.getchannel("A"))
     return result

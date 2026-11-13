@@ -35,6 +35,7 @@ private struct FlyPaneRows: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    FlyHereBlock(model: fly, follow: follow)
                     Picker(FlyText.planSourceLabel, selection: $fly.source) {
                         Text(FlyText.planChoose).tag("")
                         Text(FlyText.planSimbrief).tag("simbrief")
@@ -59,8 +60,15 @@ private struct FlyPaneRows: View {
                     Picker(FlyText.simPriorityLabel, selection: $fly.simPriority) {
                         ForEach(FlyText.simPriorities, id: \.0) { Text($0.1).tag($0.0) }
                     }
+                    Picker(FlyText.drapePxLabel, selection: $fly.drapePx) {
+                        ForEach(FlyText.drapePxChoices, id: \.0) { Text($0.1).tag($0.0) }
+                    }
+                    PhotoSourcePicker(model: fly)
                     Toggle(FlyText.livePreview, isOn: $fly.livePreview)
                         .help(FlyText.livePreviewHelp)
+                    Toggle(FlyText.sharpPhoto, isOn: $fly.sharpPhoto)
+                        .help(FlyText.sharpPhotoHelp)
+                        .disabled(!fly.livePreview)
                     ReloadOfferRow(model: fly)
                     Button(FlyText.divert) { fly.divertShown = true }
                         .disabled(fly.status == nil)
@@ -96,15 +104,15 @@ struct QuickRouteRow: View {
 
     var body: some View {
         HStack {
-            TextField(FlyText.quickFrom, text: $model.quickFrom)
-            TextField(FlyText.quickTo, text: $model.quickTo)
+            TextField(FlyText.quickFrom, text: $model.quickFrom).help(FlyText.quickMapHint)
+            TextField(FlyText.quickTo, text: $model.quickTo).help(FlyText.quickMapHint)
             Button(FlyText.quickButton) { model.useQuickEntry() }
         }
     }
 }
 
-/// Origin, destination, alternate, distance and time en route; the map
-/// legend; Prepare flight; the last sentence for the user.
+/// Origin, destination, alternate, distance and time en route; Prepare
+/// flight; the last sentence for the user.
 struct FlightCard: View {
     @ObservedObject var model: FlyModel
 
@@ -114,8 +122,8 @@ struct FlightCard: View {
                 ForEach(FlyText.cardLines(plan, cruise: Double(model.cruiseKt)), id: \.self) {
                     Text($0).scaledFont(.callout)
                 }
-                FlyLegend()
                 Button(FlyText.prepare) { model.prepare() }
+                AdoptedChoiceRows(model: model)
             } label: { EmptyView() }
         }
         if let message = model.message {
@@ -127,18 +135,88 @@ struct FlightCard: View {
     }
 }
 
-/// The map legend in Fly mode (§14's words).
-struct FlyLegend: View {
+/// Inside the flight card (#2025): a departure or destination on a mesh
+/// this app did not build asks "fly it as it is, or upgrade it first";
+/// once answered, the answer. Qt: `O4_Qt_Fly_Pane.choice_box`.
+struct AdoptedChoiceRows: View {
+    @ObservedObject var model: FlyModel
+
     var body: some View {
-        HStack(spacing: 10) {
-            ForEach(FlyText.legend, id: \.0) { key, words in
-                HStack(spacing: 4) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .stroke(FlyMapOverlay.color(key), lineWidth: 2)
-                        .frame(width: 12, height: 12)
-                    Text(words).scaledFont(.caption2).foregroundStyle(.secondary)
+        ForEach(model.status?.choices ?? [], id: \.role) { row in
+            VStack(alignment: .leading, spacing: 4) {
+                Text(FlyText.choiceQuestion(row)).scaledFont(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+                if row.choice.isEmpty {
+                    HStack {
+                        Button(FlyText.choiceKeepButton) { model.choose(row, "keep") }
+                            .help(FlyText.choiceKeepLabel(row))
+                        Button(FlyText.choiceUpgradeButton) { model.choose(row, "upgrade") }
+                            .help(FlyText.choiceUpgradeLabel(row))
+                    }
                 }
             }
+        }
+    }
+}
+
+/// "Photo source": Automatic (#2018), then the Build pane's imagery list,
+/// bound to `fly_photo_source` (owner 2026-11-12T19:17Z). Qt:
+/// `photo_source_combo` (`O4_Fly_Text.photo_source_entries`).
+struct PhotoSourcePicker: View {
+    @ObservedObject var model: FlyModel
+
+    var body: some View {
+        if let build = model.build {
+            Picker(FlyText.photoSourceLabel, selection: $model.photoSource) {
+                Text(FlyText.photoSourceAutoLabel).tag(FlyText.photoSourceAuto)
+                    .help(FlyText.photoSourceAutoHelp)
+                ForEach(ImageryMenu.sections(ImageryMenu.entries(
+                    build.imagerySources, statuses: build.imageryStatus,
+                    forMap: false))) { section in
+                    Section(section.title) {
+                        ForEach(section.entries) { entry in
+                            Text(entry.label).tag(entry.code)
+                                .disabled(!entry.enabled)
+                                .help(entry.tooltip)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// With no plan, the aircraft's own tile (#2020, `WorldStatus.here`):
+/// "Preparing imagery at ...", the quick photo, the full-detail squares,
+/// and "Reload scenery" while the follow line is not offering it.
+/// Qt: `FlyPane.here_block`.
+struct FlyHereBlock: View {
+    @EnvironmentObject var buildModel: BuildModel
+    @ObservedObject var model: FlyModel
+    @ObservedObject var follow: ImageryFollowModel
+
+    var body: some View {
+        let lines = model.plan == nil ? FlyText.hereLines(model.here) : []
+        if !lines.isEmpty {
+            PaneBox {
+                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                    Text(line)
+                        .scaledFont(index == 0 ? .callout : .caption)
+                        .foregroundStyle(index == 0 ? .primary : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                let followOffers = follow.shown && !(follow.status?.reloadOffer ?? "").isEmpty
+                let offer = followOffers ? ""
+                    : O4OnDemandText.reloadOfferLine(model.here?["reload_offer"]?.stringValue ?? "")
+                if !offer.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(offer).scaledFont(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(O4OnDemandText.reloadSceneryTitle) { buildModel.reloadScenery() }
+                            .controlSize(.small)
+                    }
+                }
+            } label: { EmptyView() }
         }
     }
 }
@@ -212,8 +290,8 @@ struct OfflineWaiverRow: View {
     }
 }
 
-/// The one reload in the air (rule S6 (b)): announced 30 s ahead with
-/// "Not now"; after it, "Reload scenery now" (lane F2).
+/// The offered reload (rule S6 (a) before departure, (b) in the air):
+/// "Reload scenery now", the only way it is sent (owner 2026-11-12).
 struct ReloadOfferRow: View {
     @ObservedObject var model: FlyModel
 
@@ -222,12 +300,7 @@ struct ReloadOfferRow: View {
         if !line.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text(line).scaledFont(.callout)
-                HStack {
-                    Button(FlyDivertText.reloadNow) { model.reload(notNow: false) }
-                    if model.status?.reload == "scheduled" {
-                        Button(FlyDivertText.notNow) { model.reload(notNow: true) }
-                    }
-                }
+                Button(FlyDivertText.reloadNow) { model.reload() }
             }
         }
     }

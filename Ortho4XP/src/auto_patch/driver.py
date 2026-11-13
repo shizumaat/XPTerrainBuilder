@@ -310,6 +310,32 @@ def _rebuild_reason(icao: str, key: str) -> None:
     UI.lvprint(0, "   Auto-patch:", icao, "rebuilding —", key, "changed.")
 
 
+#: What a content-keyed stamp's change MEANS, for the rebuild line (#2050:
+#: the build log names which input's content changed).
+_STALE_WORDS = {
+    "o4_dem": "the elevation data's content (base raster or airport "
+              "insets) or a DEM setting changed",
+    "o4_imagery": "the airport's photos changed",
+}
+
+
+def _stale_line(icao: str, stale: list) -> None:
+    """The rebuild line for a list of ``(key, was, now)`` stale rows: the
+    first key with what its change means, then every other key that moved
+    (no paths, no values — those stay at ``vprint(2)``)."""
+    key, was, now = stale[0]
+    if key == "o4_osm":
+        from auto_patch_v2.airport import osm_content as _osm_content
+        words = _osm_content.describe(was, now)
+    else:
+        words = _STALE_WORDS.get(key, "")
+    others = [k for k, _w, _n in stale[1:] if k != key]
+    UI.lvprint(0, "   Auto-patch:", icao, "rebuilding —", key, "changed"
+               + (" — " + words if words else "") + "."
+               + (" Also changed: " + ", ".join(dict.fromkeys(others)) + "."
+                  if others else ""))
+
+
 def _name_unclassified_environment() -> None:
     """Name every set ``O4_`` variable that is in no class (#607).
 
@@ -482,19 +508,20 @@ def auto_patch_stale_inputs(meta: dict, patch_file: str, xp_root: str,
         if b_stored is None or b_now is None or abs(b_now - b_stored) >= 1e-6:
             stale.append(("o4_apt_dat_borrowed_mtime", b_stored, b_now))
 
-    # ── Input 1c: the OSM feeds the load could read (#880) ────────────────
-    # STAT ONLY: ``o4_osm`` names the airport's home tile and one digest of
-    # the size/mtime/absence of every feed file over its 3x3 neighbourhood
-    # (``auto_patch_v2.airport.osm.feed_witness``, the ONE derivation, the
-    # emitter's too).  Missing or malformed — a patch before #880 — is
-    # changed (fail-safe).
-    osm_stamp = meta.get("osm") or ""
-    m = re.fullmatch(r"(-?\d+),(-?\d+)\|[0-9a-f]{16}", osm_stamp)
-    from auto_patch_v2.airport import osm as _osm
-    osm_now = (_osm.feed_witness(FNAMES.OSM_dir, int(m.group(1)), int(m.group(2)))
-               if m else None)
-    if osm_now != osm_stamp:
-        stale.append(("o4_osm", osm_stamp or None, osm_now))
+    # ── Input 1c: the OSM the load read (#880, by CONTENT since #2050) ────
+    # ``o4_osm`` (the size/mtime/absence of every feed file over the 3x3
+    # neighbourhood, ``osm.feed_witness``) is the stat-only fast path; when
+    # it moved, ``o4_osm_content`` — the ways the load read in the
+    # airport's box, id-free — is recomputed and compared, and an equal
+    # answer keeps the patch (owner RULINGS 2026-11-13o:
+    # ``auto_patch_v2.airport.osm_content``).  Missing or malformed — a
+    # patch before #880 — is changed (fail-safe).
+    from auto_patch_v2.airport import osm_content as _osm_content
+    osm_row = _osm_content.osm_input_stale(
+        meta.get("osm") or "", meta.get("osm_content") or "",
+        FNAMES.OSM_dir, os.path.dirname(patch_file), icao)
+    if osm_row is not None:
+        stale.append(("o4_osm",) + osm_row)       # (key, was, now)
 
     # ── Inputs 2-7 ────────────────────────────────────────────────────────
     stamped = meta.get("freshness") or {}
@@ -503,8 +530,13 @@ def auto_patch_stale_inputs(meta: dict, patch_file: str, xp_root: str,
     live["o4_dsf"] = _dsf_identities_now(
         apt_now, stamped.get("o4_dsf_tiles", "?"))
     from . import provenance as _prov
-    stale.extend((key, stamped.get(key), live.get(key))
-                 for key in _prov.freshness_mismatches(stamped, live))
+    for key in _prov.freshness_mismatches(stamped, live):
+        if key == "o4_dem" and stamped.get(key) == _prov.dem_fingerprint(
+                tile, icao=icao, content=False):
+            # A stamp cut before #2050 (path+size+mtime) whose files are
+            # as they were: the change of key alone rebuilds nothing.
+            continue
+        stale.append((key, stamped.get(key), live.get(key)))
     return stale
 
 
@@ -630,7 +662,7 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
         apt_dat_now=apt_dat_now, imagery_paths=imagery_paths)
     if stale:
         key, was, now = stale[0]
-        _rebuild_reason(icao, key)
+        _stale_line(icao, stale)
         UI.vprint(2, "   Auto-patch:", icao, "rebuild —", key,
                   "changed (was", repr(was), ", now", repr(now) + ").")
         return False

@@ -460,8 +460,8 @@ def under_cover(line: LineString, polys: _t.Sequence[Polygon], tree) -> bool:
 
 def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
                      corridors: _t.Sequence = (), decks: _t.Sequence = (),
-                     portals: _t.Sequence = (), grade_ends: _t.Sequence = ()
-                     ) -> "FieldRegion":
+                     portals: _t.Sequence = (), grade_ends: _t.Sequence = (),
+                     airside: _t.Sequence[Polygon] = ()) -> "FieldRegion":
     """THE REGION A MOUTH MAY STAND IN, assembled in ONE place: the
     classified cover (with the roofed corridors' footprints, which the
     caller passes in ``polys``) ⊕ ``[tunnel] mouth_standoff_m``, union
@@ -478,7 +478,10 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     entrance objects) — each a portal witness at its end
     (``planar/end_witness``; owner 2026-11-04 KBUF).  ``grade_ends`` are
     the bore ends a roofed pack object stands over AT GRADE
-    (``portal_objects.GradeEnd``): §34 (12) (5) (a)'s pack buildings."""
+    (``portal_objects.GradeEnd``): §34 (12) (5) (a)'s pack buildings.
+    ``airside`` is the AIRSIDE PAVEMENT (``structure_service.airside_cover``)
+    §34 (12) (5) (e) reads a bore's run beyond a passage on (RULINGS
+    2026-11-13h)."""
     region = FieldRegion(list(polys),
                          law.tables.structures.tunnel.mouth_standoff_m,
                          approach_corridor_of(airport, law),
@@ -491,6 +494,7 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     region.deck_polys = [deck_polygon(d) for d in decks]
     region.portal_ends = [(tuple(p.end_xy), p.object_id, p.resource) for p in portals]
     region.grade_ends = list(grade_ends)
+    region.airside = list(airside)
     return region
 
 

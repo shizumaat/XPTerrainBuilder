@@ -6,9 +6,10 @@
   ``.ter`` files and manifests (``O4_Imagery_OnDemand_Index.rebuild``),
   the airport cores (``O4_Imagery_OnDemand_Cores``), interrupted fetches
   reset; answers the Storage figures.
-* :func:`imagery_pin` -- "Always keep full resolution" / "Let it go
-  low-res again" for one tile: the tile record (``pinned`` in its imagery
-  manifest) and the index; pinning lands every full texture the
+* :func:`imagery_pin` -- a tile's Favorite (#2033: storage priority, any
+  built tile, a build running or not): the tile record (``pinned`` in
+  its imagery manifest) and the index; its sharp imagery is made low-res
+  last.  Outside a build, pinning lands every full texture the
   ``DDS_cache`` still holds for the tile (``O4_DDS_Cache.serve``) and
   answers how many are still to fetch (the follow job fetches them).
 * :func:`imagery_ondemand_sweep` -- hold the cap now (the sweep the
@@ -25,7 +26,7 @@ tile is named here.
 """
 from __future__ import annotations
 
-import json
+import contextlib
 import os
 import time
 from typing import Any, Dict, Optional
@@ -48,15 +49,11 @@ __all__ = ["forget_tile", "on_demand_tiles", "imagery_ondemand_scan", "imagery_p
 
 
 def _set_manifest_pin(build_dir: str, lat: int, lon: int, pinned: bool) -> None:
-    """Write ``pinned`` into the tile record (atomic replace)."""
+    """Write ``pinned`` into the tile record, under the record's lock (a
+    build may be writing it, #2033)."""
     import O4_Tile_Info as TINFO
-    path = TINFO.imagery_record_path(build_dir, lat, lon)
-    data = TINFO.read_imagery_record(build_dir, lat, lon)
-    data["pinned"] = bool(pinned)
-    temporary = path + ".tmp"
-    with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
-        json.dump(data, handle, indent=2, sort_keys=True)
-    os.replace(temporary, path)
+    TINFO.update_imagery_record(build_dir, lat, lon,
+                                lambda old: dict(old, pinned=bool(pinned)))
 
 
 def _placeholder_root() -> str:
@@ -191,13 +188,37 @@ def imagery_ondemand_scan(working_dir: str = "",
 
 def _full_entry(keys) -> "Optional[tuple[str, str]]":
     """The first ``(key, entry)`` of ``keys`` the store holds as a whole
-    full-width texture."""
+    full-width texture; one a mounted storage tier keeps (RULINGS
+    2026-11-12g) is copied back into the store first."""
     for key in reversed(keys or ()):
         entry = DDSC.entry_path(key)
+        if not os.path.isfile(entry):
+            _from_tier(key, entry)
         header = TIERS.texture_header(entry)
         if header and header[0] == TIERS.FULL_WIDTH and DDS.is_whole(entry):
             return key, entry
     return None
+
+
+def _from_tier(key: str, entry: str) -> bool:
+    """Copy ``key``'s texture from a mounted storage tier into the store
+    (under a partial name, renamed into place); False when no tier has it."""
+    import shutil
+
+    from . import storage_tiers as STORE_TIERS
+    found = STORE_TIERS.find(key)
+    if not found:
+        return False
+    partial = entry + ".part"
+    try:
+        os.makedirs(os.path.dirname(entry), exist_ok=True)
+        shutil.copyfile(found, partial)
+        os.replace(partial, entry)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.remove(partial)
+        return False
+    return True
 
 
 def _serve_full(conn, row: dict, keys) -> bool:
@@ -215,29 +236,36 @@ def _serve_full(conn, row: dict, keys) -> bool:
 
 def imagery_pin(lat: int, lon: int, working_dir: str = "",
                 pinned: bool = True,
-                index: Optional[str] = None) -> Dict[str, Any]:
-    """ENGINE COMMAND ``imagery_pin``: pin (or unpin) tile ``(lat, lon)``.
-    A favorite (pinned) tile counts in the ortho budget and is made
-    low-res last (RULINGS 2026-11-10c (2)); pinning
-    lands every full texture the ``DDS_cache`` holds for it.
+                index: Optional[str] = None,
+                serve: bool = True) -> Dict[str, Any]:
+    """ENGINE COMMAND ``imagery_pin``: make tile ``(lat, lon)`` a Favorite
+    (or not).  A favorite tile counts in the ortho budget and its sharp
+    imagery is made low-res last (RULINGS 2026-11-10c (2), #2033); any
+    built tile may be one.  With ``serve`` (no build running) pinning also
+    lands every full texture the ``DDS_cache`` holds for it and indexes a
+    tile the index lacks; without it only the record and the index's
+    rows change -- a build may be writing the tile's textures, and the
+    scan after it reads the pin from the record.
 
     :returns: ``{"tile", "pinned", "served", "to_fetch", "rows",
         "pinned_bytes"}``
     """
-    import O4_Tile_Info as TINFO
-    info = TINFO.tile_info(int(lat), int(lon), working_dir or FNAMES.Tile_dir)
+    from .world_built import tile_info
+    # the one "is it built" answer: a World pack tile whose records are in
+    # the data folder's Tiles/ is built whatever the working folder (#2027)
+    info = tile_info(int(lat), int(lon), working_dir or FNAMES.Tile_dir)
     if info is None:
         raise ValueError("imagery_pin: this tile is not built.")
     _set_manifest_pin(info.build_dir, int(lat), int(lon), pinned)
     tile = FNAMES.short_latlon(int(lat), int(lon))
     conn = INDEX.open_index(index)
     try:
-        if not INDEX.rows(conn, tile=tile):
+        if serve and not INDEX.rows(conn, tile=tile):
             INDEX.rebuild(conn, [(info.build_dir, int(lat), int(lon))],
                           placeholder_root=_placeholder_root())
         INDEX.set_pinned(conn, tile, pinned)
         served = to_fetch = 0
-        if pinned:
+        if pinned and serve:
             users = _keys_by_texture(DDSC.key_users())
             own = os.path.abspath(info.build_dir)
             for row in INDEX.rows(conn, tile=tile):

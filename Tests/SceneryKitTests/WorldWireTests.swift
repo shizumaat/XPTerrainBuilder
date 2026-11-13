@@ -23,6 +23,59 @@ import Foundation
         #expect(result.action == "dry_run" && result.toMove == 2590)
         #expect(result.summary.hasPrefix("2,590 tiles can move") && result.failed.isEmpty)
         #expect(!result.stopped)
+        // Convert's three choices (owner 2026-11-11T15:32Z; the fixture's
+        // choice figures are illustrative, its lines the engine's
+        // `world_retire.choice_line` of them).
+        #expect(result.choices.map(\.id) == O4WorldMigrateText.choices.map(\.id))
+        #expect(result.toMove(choice: "keep_custom") == 2592)
+        #expect(result.choices[2].line.hasSuffix("No other drive is needed afterwards."))
+    }
+
+    /// `WorldMigrateProgress` (owner 2026-11-11T15:32Z: a bar and a count
+    /// while Convert runs; `test_world_migrate.py` holds the fixture to the
+    /// engine's wire) decodes, and the count reads as the Qt window's.
+    @Test func worldMigrateProgressDecodesThePythonEvent() throws {
+        let url = Self.fixtures.appendingPathComponent("world/world_migrate_progress_event.json")
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        guard case .worldMigrateProgress(let count) = try #require(O4Event.parse(object: object)) else {
+            Issue.record("WorldMigrateProgress did not decode as .worldMigrateProgress")
+            return
+        }
+        #expect(count == O4WorldMigrateProgress(phase: "measure", done: 3, total: 12,
+                                                tile: "zOrtho4XP_+45+007"))
+        // The same line `test_world_onboard.py` asserts for the Qt window.
+        #expect(O4WorldMigrateText.progressLine(count)
+                == "Measuring: 3 of 12 tiles · zOrtho4XP_+45+007")
+        let moving = O4WorldMigrateProgress(phase: "move", done: 1, total: 4, tile: "")
+        #expect(O4WorldMigrateText.progressLine(moving) == "Converting: 1 of 4 tiles")
+        #expect(O4WorldMigrateText.stop == "Cancel")
+    }
+
+    /// `world_measure_state` (owner 2026-11-12T19:08Z: Measure by itself;
+    /// `test_world_measure.py` holds the fixture's keys to the engine's):
+    /// the kept measure with its time, and `auto`. Every phase reads, with
+    /// the time since the step began, as the Qt window's.
+    @Test func worldMeasureStateDecodesThePythonState() throws {
+        let url = Self.fixtures.appendingPathComponent("world/world_measure_state.json")
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let state = O4WorldMeasureState.parse(O4JSON.from(object))
+        #expect(state.stale && state.wanted && state.auto && !state.running)
+        #expect(state.measuredAt == Date(timeIntervalSince1970: 1762974000))
+        let result = try #require(state.result)
+        #expect(result.measuredAt == state.measuredAt && result.toMove(choice: "keep_all") == 2221)
+        let adopt = O4WorldMigrateProgress(phase: "adopt", done: 120, total: 2221,
+                                           tile: "zOrtho4XP_+45+007")
+        #expect(O4WorldMigrateText.progressLine(adopt, elapsed: 125)
+                == "Reading tiles made dynamic before: 120 of 2,221 tiles · zOrtho4XP_+45+007 · 2:05 elapsed")
+        let sample = O4WorldMigrateProgress(phase: "sample", done: 1, total: 2, tile: "")
+        #expect(O4WorldMigrateText.progressLine(sample) == "Timing a sample: 1 of 2 tiles")
+        #expect(O4WorldMigrateText.elapsedText(3725) == "1:02:05 elapsed")
+        #expect(O4WorldMigrateText.measuredAgo(20) == "Measured just now")
+        #expect(O4WorldMigrateText.measuredAgo(12 * 60 + 5) == "Measured 12 min ago")
+        #expect(O4WorldMigrateText.measuredAgo(5 * 3600) == "Measured 5 h ago")
+        #expect(O4WorldMigrateText.measuredAgo(3 * 86400) == "Measured 3 days ago")
     }
 
     @Test func worldStatusDecodesThePythonEvent() throws {
@@ -35,12 +88,28 @@ import Foundation
         }
         #expect(status.state == "idle" && status.installed)
         #expect(status.seenByXPlane == true && !status.restartNeeded)
-        #expect(status.tiles == ["placeholder": 3, "drape": 0, "light": 1, "full": 2, "staged": 1])
+        #expect(status.tiles == ["placeholder": 3, "drape": 1, "full": 2, "staged": 1])
         #expect(status.queue == 2 && status.slots == 1 && status.bytes == 1234)
         #expect(status.loaded == ["+53-063"])
-        #expect(status.building == [.init(tile: "+53-065", kind: "light", step: "building",
-                                          remainingS: 412)])
-        #expect(status.lastSwap == ["+53-064", "light", "2026-11-10T15:02:24Z"])
+        #expect(status.building == [.init(tile: "+53-065", kind: "drape", step: "building",
+                                          remainingS: 41)])
+        #expect(status.lastSwap == ["+53-064", "drape", "2026-11-10T15:02:24Z"])
+        // Build-ahead's tiles: the Fly map's cells in free flight (11j).
+        #expect(status.jobs.map { [$0.lat, $0.lon] } == [[53, -65], [53, -64]])
+        #expect(status.jobs.map(\.state) == ["building", "swapped"])
+        #expect(FlyLayers.corridorCells(plan: nil, corridorKm: 20,
+                                        jobs: FlyLayers.mapJobs(flight: [], planned: false,
+                                                                ahead: status.jobs))
+                == [FlyCell(lat: 53, lon: -65, key: "draping"),
+                    FlyCell(lat: 53, lon: -64, key: "draped")])
+        // Beside a flight (#2019): the flight's tile wins, build-ahead's
+        // other tiles around the aircraft are drawn too.
+        let flight = [O4FlightStatus.Job(lat: 53, lon: -64, role: "enroute", kind: "drape",
+                                         state: "queued", remainingSeconds: nil,
+                                         marginSeconds: nil)]
+        let both = FlyLayers.mapJobs(flight: flight, planned: true, ahead: status.jobs)
+        #expect(both.map { [$0.lat, $0.lon] } == [[53, -64], [53, -65]])
+        #expect(both.map(\.state) == ["queued", "building"])
         #expect(abs(status.frameMS - 21.8) < 1e-9 && status.governor == "ok")
     }
 

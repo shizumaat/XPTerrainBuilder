@@ -21,6 +21,16 @@ struct XPTerrainBuilderApp: App {
         controller.tidySceneryPacks = { [weak buildModel] dir, kinds in
             await buildModel?.tidySceneryPacks(customSceneryDir: dir, kinds: kinds)
         }
+        // Convert existing tiles owns scenery_packs.ini while it runs; its
+        // end rescans Custom Scenery so the ini is reconciled once, after.
+        controller.worldMigrateRunning = { [weak buildModel] in
+            buildModel?.worldMigrate.isRunning ?? false
+        }
+        buildModel.worldMigrate.onFinish = { [weak controller, weak buildModel] step in
+            controller?.refreshInstallation()
+            // Custom Scenery changed: measure again, in the background.
+            if step != .measure { buildModel?.startAutoMeasure() }
+        }
         _controller = StateObject(wrappedValue: controller)
         _buildModel = StateObject(wrappedValue: buildModel)
     }
@@ -86,6 +96,11 @@ struct AppCommands: Commands {
                 .keyboardShortcut("o", modifiers: [.command, .shift])
         }
 
+        // .xptb packages (#2014; Qt: the File menu too).
+        CommandGroup(after: .importExport) {
+            TilePackageCommands(buildModel: buildModel)
+        }
+
         // The patch editor's ⌘S (#46): saves the edited patch.
         CommandGroup(replacing: .saveItem) {
             PatchSaveCommand(model: buildModel.patchEdit)
@@ -103,10 +118,6 @@ struct AppCommands: Commands {
                 openWindow(id: TerrainPreview.windowID, value: TerrainPreview.windowValue)
             }
             .keyboardShortcut("3", modifiers: .command)
-            // The Library is a mode of the main window (RULINGS
-            // 2026-11-10j; Qt: View ▸ Library, Ctrl+L).
-            Button(AppMode.library.title) { buildModel.appMode.mode = .library }
-                .keyboardShortcut("l", modifiers: .command)
             // View ▸ Bigger / Smaller / Actual Size text (#827).
             Divider()
             TextScaleCommands()
@@ -162,7 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Patch files or folders opened on the Dock icon or with "Open With"
-    /// (#1979): the map offers to install them (PatchDropInstall.swift).
+    /// (#1979), and `.xptb` packages double-clicked in Finder (#2014): the
+    /// map offers to install them (PatchDropInstall.swift).
     func application(_ application: NSApplication, open urls: [URL]) {
         MainActor.assumeIsolated { PatchDropInbox.shared.receive(urls) }
     }

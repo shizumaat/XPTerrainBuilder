@@ -43,10 +43,15 @@ API (stable: the follow job, P3b, reads and writes through it):
 
 * :func:`index_path` -- where the index lives under a data root.
 * :func:`open_index` -- open (create, migrate) the index; a WAL
-  connection with ``sqlite3.Row`` rows.
+  connection with ``sqlite3.Row`` rows, in autocommit (every statement
+  its own transaction and commit).
+* :func:`transaction` -- several writes in ONE transaction and commit
+  (``BEGIN IMMEDIATE`` ... ``COMMIT``; inside one already open, they join
+  it).  ``with conn:`` is no transaction on an autocommit connection.
 * :func:`upsert` -- insert or replace one row's columns (a dict).
 * :func:`get` / :func:`rows` -- read one row / the rows matching
-  ``tile``, ``state``, ``pinned``, ``core``.
+  ``tile``, ``state``, ``pinned``, ``core``; :func:`all_rows` -- every
+  row, read one tile per ``sqlite3`` step (the follow job's reread).
 * :func:`set_state` -- a state change with the columns it carries
   (``upgrading`` -> ``upgraded`` with ``tier_px``, ``full_bytes``, ...).
 * :func:`mark_near` -- ``last_near_at = now`` for names the camera came
@@ -99,13 +104,14 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 
 __all__ = [
     "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
-    "STATES", "capped_bytes", "distance_m", "forget_tile", "get",
-    "index_path", "lru_order",
+    "STATES", "all_rows", "capped_bytes", "distance_m", "forget_tile", "get",
+    "repoint_folder",
+    "has_rows", "index_path", "lru_order", "tile_sharpness",
     "mark_late", "mark_near", "open_index", "pinned_bytes",
     "placeholder_width", "protected_cache_keys", "protected_jpegs",
     "rebuild", "reset_upgrading", "rows", "set_core",
     "set_pinned", "set_state", "texture_path", "tier_distance_m",
-    "upsert", "LAYOUT_KEY",
+    "transaction", "upsert", "LAYOUT_KEY",
 ]
 
 SCHEMA_VERSION = 3
@@ -159,26 +165,98 @@ def index_path(data_root: "str | None" = None) -> str:
     return os.path.join(folder, INDEX_FILE)
 
 
+def has_rows(path: "str | None" = None) -> bool:
+    """Does the index at ``path`` (default :func:`index_path`) hold any
+    texture?  Read-only: a missing or unreadable file is False and none
+    is created."""
+    path = path or index_path()
+    if not os.path.isfile(path):
+        return False
+    try:
+        conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=5.0)
+        try:
+            return conn.execute("SELECT 1 FROM textures LIMIT 1").fetchone() is not None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+
+
+def tile_sharpness(path: "str | None" = None) -> "dict[str, tuple[int, int]]":
+    """``{tile: (textures, full)}`` of every tile in the index at ``path``
+    (default :func:`index_path`): how many textures it names and how many
+    are on disk at full width (``O4_DDS_Tiers.FULL_WIDTH``).  ONE grouped
+    query, read-only: a missing or unreadable index is ``{}`` and none is
+    created (the map's World states, #2024)."""
+    path = path or index_path()
+    if not os.path.isfile(path):
+        return {}
+    try:
+        conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=5.0)
+        try:
+            found = conn.execute(
+                "SELECT tile, COUNT(*), SUM(state = 'upgraded' AND tier_px >= ?) "
+                "FROM textures GROUP BY tile", (TIERS.FULL_WIDTH,)).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {}
+    return {tile: (int(n), int(full or 0)) for tile, n, full in found}
+
+
 def open_index(path: "str | None" = None) -> sqlite3.Connection:
     """Open the index at ``path`` (default :func:`index_path`), creating
     its folder and table.  A file of an older schema is dropped and
-    recreated: the index is a cache, :func:`rebuild` restores it."""
+    recreated (under the write lock, the version read again, so a second
+    opener never drops the rows a first one wrote): the index is a cache,
+    :func:`rebuild` restores it."""
     path = path or index_path()
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     conn = sqlite3.connect(path, timeout=30.0, isolation_level=None)
     conn.row_factory = sqlite3.Row
     with contextlib.suppress(sqlite3.DatabaseError):
         conn.execute("PRAGMA journal_mode=WAL")
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version != SCHEMA_VERSION:
-        conn.execute("DROP TABLE IF EXISTS textures")
-    columns = ", ".join(f"{column} {kind}" for (column, kind, _d) in _SCHEMA)
-    conn.execute(f"CREATE TABLE IF NOT EXISTS textures ({columns}, "
-                 "PRIMARY KEY (tile, name))")
-    conn.execute("CREATE INDEX IF NOT EXISTS textures_lru "
-                 "ON textures (state, pinned, core, last_near_at)")
-    conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    if conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION:
+        return conn
+    # Two openers of a new index (Convert's workers): the version is read
+    # again under the write lock, so the second never drops the table the
+    # first has created and filled since.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+            conn.execute("DROP TABLE IF EXISTS textures")
+        columns = ", ".join(f"{column} {kind}" for (column, kind, _d) in _SCHEMA)
+        conn.execute(f"CREATE TABLE IF NOT EXISTS textures ({columns}, "
+                     "PRIMARY KEY (tile, name))")
+        conn.execute("CREATE INDEX IF NOT EXISTS textures_lru "
+                     "ON textures (state, pinned, core, last_near_at)")
+        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
     return conn
+
+
+@contextlib.contextmanager
+def transaction(conn: sqlite3.Connection):
+    """The writes of the block in ONE transaction and one commit
+    (``BEGIN IMMEDIATE``: the write lock taken at once, waited for up to
+    the connection's timeout), rolled back if the block raises.  Inside a
+    transaction already open the block joins it.  An autocommit
+    connection (:func:`open_index`) commits every statement on its own,
+    and each commit is a disk flush (on Windows a ``FlushFileBuffers``);
+    ``with conn:`` opens no transaction there."""
+    if conn.in_transaction:
+        yield conn
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    conn.execute("COMMIT")
 
 
 def _check(values: dict) -> None:
@@ -228,6 +306,29 @@ def rows(conn: sqlite3.Connection, *, tile: "str | None" = None,
         f"SELECT * FROM textures{clause} ORDER BY tile, name", args)]
 
 
+def all_rows(conn: sqlite3.Connection) -> "list[dict]":
+    """Every row, ordered by tile and name, as :func:`rows` reads them --
+    but one ``sqlite3`` step per TILE (its rows as one JSON array), not
+    per row.  Each step releases and re-takes the GIL; beside threads
+    that hold it (a World drape run) a re-take waits its turn, and the
+    follow job's reread of 215,209 rows one step each took minutes
+    (#2037: 15 s for 5,000 rows beside two busy threads; this reads all
+    of them in 8.6 s, 0.6 s idle).  An SQLite without JSON reads them as
+    :func:`rows` does."""
+    pairs = ", ".join(f"'{c}', {c}" for c in COLUMNS)
+    try:
+        cursor = conn.execute(
+            f"SELECT json_group_array(json_object({pairs})) FROM "
+            "(SELECT * FROM textures ORDER BY tile, name) GROUP BY tile "
+            "ORDER BY tile")
+        out: list = []
+        for (text,) in cursor:
+            out.extend(json.loads(text))
+        return out
+    except sqlite3.OperationalError:
+        return rows(conn)
+
+
 def set_state(conn: sqlite3.Connection, tile: str, name: str, state: str,
               **columns) -> bool:
     """Set ``(tile, name)``'s state and the ``columns`` that go with it;
@@ -249,7 +350,7 @@ def mark_near(conn: sqlite3.Connection, tile: str, names, now: float, *,
     ``approaching`` (the first sample of an approach).  Returns the rows
     written."""
     written = 0
-    with conn:
+    with transaction(conn):
         for name in names:
             cursor = conn.execute(
                 "UPDATE textures SET last_near_at = ? WHERE tile = ? AND "
@@ -266,6 +367,25 @@ def forget_tile(conn: sqlite3.Connection, tile: str) -> int:
     """Delete every row of ``tile``; returns the rows deleted."""
     return conn.execute("DELETE FROM textures WHERE tile = ?",
                         (tile,)).rowcount
+
+
+#: The columns that name a file or folder (:func:`repoint_folder`).
+_PATH_COLUMNS = ("build_dir", "textures_dir", "terrain_dir", "config_dir",
+                 "placeholder_path", "jpeg_path", "source_path")
+
+
+def repoint_folder(conn: sqlite3.Connection, old: str, new: str) -> int:
+    """Rows naming folder ``old`` (or a path inside it) name ``new``
+    instead: the folder moved (RULINGS 2026-11-12h, ``world_home``).
+    Returns the rows changed."""
+    old, new = os.path.normpath(old), os.path.normpath(new)
+    changed = 0
+    for column in _PATH_COLUMNS:
+        changed += conn.execute(
+            f"UPDATE textures SET {column} = ? || substr({column}, ?) "
+            f"WHERE {column} = ? OR substr({column}, 1, ?) = ?",
+            (new, len(old) + 1, old, len(old) + 1, old + os.sep)).rowcount
+    return changed
 
 
 def mark_late(conn: sqlite3.Connection, tile: str, name: str) -> None:
@@ -285,7 +405,7 @@ def set_core(conn: sqlite3.Connection, tile: str, names) -> int:
     ``core = 1``, the tile's others ``core = 0``.  Returns the core rows."""
     wanted = set(names)
     count = 0
-    with conn:
+    with transaction(conn):
         for row in conn.execute("SELECT name, core FROM textures "
                                 "WHERE tile = ?", (tile,)).fetchall():
             flag = int(row["name"] in wanted)
@@ -373,7 +493,7 @@ def reset_upgrading(conn: sqlite3.Connection) -> int:
     reset."""
     found = [dict(r) for r in conn.execute(
         "SELECT * FROM textures WHERE state = 'upgrading'")]
-    with conn:
+    with transaction(conn):
         for row in found:
             path = texture_path(row)
             if path:
@@ -568,12 +688,21 @@ _INDEX_ONLY = ("core", "last_near_at", "near_count", "late_count",
                "fetched_at", "jpeg_path")
 
 
+#: A storage tier's folder (``o4_engine.storage_tiers.TIER_DIR``, RULINGS
+#: 2026-11-12g): a ``source_path`` there was set by a downgrade, not by the
+#: manifest, so a rescan keeps it.
+_TIER_DIR = "XPTerrainBuilder Tier"
+
+
 def _carry(old: "dict | None", row: dict) -> None:
     if old is None:
         return
     for column in _INDEX_ONLY:
         if old.get(column) is not None:
             row[column] = old[column]
+    kept = old.get("source_path") or ""
+    if not row.get("source_path") and _TIER_DIR in kept.split(os.sep):
+        row["source_path"] = kept
     if old.get("tier_px") == row["tier_px"] and not row["dds_cache_key"]:
         row["dds_cache_key"] = old.get("dds_cache_key")
 
@@ -599,7 +728,7 @@ def rebuild(conn: sqlite3.Connection, tiles, *, now: "float | None" = None,
         keys = cache_keys(build_dir) if cache_keys else None
         found = _scan_tile(build_dir, lat, lon, placeholder_dir=keep_dir,
                           cache_keys=keys, now=now)
-        with conn:
+        with transaction(conn):
             conn.execute("DELETE FROM textures WHERE tile = ?", (tile,))
             for row in found:
                 _carry(old.get(row["name"]), row)

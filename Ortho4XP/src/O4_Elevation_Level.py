@@ -2138,12 +2138,27 @@ def read_approach_ring_stamp(lat, lon):
 #: The stamp's date-of-derivation key; a change in it alone never rewrites.
 APPROACH_RING_STAMP_DATE_KEY = "checked"
 
+#: THE STAMP'S CONTENT: the planned cells and each one's outcome (the
+#: rasters themselves are the data; ``ok`` / ``no-coverage`` is all any
+#: reader takes from the file -- :func:`approach_ring_frame_problem`,
+#: :func:`summarize_approach_rings`, :func:`ensure_approach_rings`).  The
+#: other keys (``plan_stamp``, ``feathers``, ``layers``,
+#: ``neighbours_unknown``) are a record of the plan that cut them, which
+#: the patch provenance re-derives from the LIVE plan, never from here.
+APPROACH_RING_STAMP_CONTENT_KEYS = ("cells",)
+
 
 def write_approach_ring_stamp(lat, lon, stamp):
-    """Write the ring stamp -- ONLY when it changed.
+    """Write the ring stamp -- ONLY when its CONTENT changed.
 
     A byte-identical stamp is never rewritten (owner ruling e9daef5: a
-    build must not touch the shared repo as a side effect).
+    build must not touch the shared repo as a side effect), and since
+    #2050 (owner RULINGS 2026-11-13o) neither is one whose cells and
+    outcomes (:data:`APPROACH_RING_STAMP_CONTENT_KEYS`) are as recorded:
+    a neighbour tile's airports layer appearing or going, or the plan
+    digest moving with the same cells answered, changes no ring raster,
+    and rewriting the index for it made every OTHH build a refused
+    shared-repo write after a refresh (owner 2026-11-13T14:34Z).
     """
     path = FNAMES.approach_ring_index(lat, lon)
     payload = json.dumps(stamp, indent=2, sort_keys=True)
@@ -2162,9 +2177,9 @@ def write_approach_ring_stamp(lat, lon, stamp):
             except ValueError:
                 before = None
             if isinstance(before, dict):
-                strip = lambda d: {k: v for k, v in d.items()
-                                   if k != APPROACH_RING_STAMP_DATE_KEY}
-                if strip(before) == strip(stamp):
+                content = lambda d: {k: d.get(k) for k in
+                                     APPROACH_RING_STAMP_CONTENT_KEYS}
+                if content(before) == content(stamp):
                     return False
         except OSError:
             pass

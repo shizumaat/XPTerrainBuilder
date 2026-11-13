@@ -14,9 +14,6 @@ from math import ceil, log, pi, tan
 from pathlib import Path
 
 import numpy
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
-import requests
-
 import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Color_Harmonization as HARMONIZE
 import O4_DDS_Cache as DDSCACHE
@@ -28,15 +25,18 @@ import O4_Geo_Utils as GEO
 import O4_Http_Pushback as PUSHBACK
 import O4_Imagery_Async as FETCH_ASYNC
 import O4_Imagery_Placeholder as PLACEHOLDER
+import O4_Imagery_Provider_Blend as PROVIDER_BLEND
 import O4_Machine_Slots as MACHINE_SLOTS
 import O4_Mask_Utils as MASK
-import O4_Triangle_Run as TRIANGLE_RUN
 import O4_OSM_Utils as OSM
 import O4_Sea_Nodata_Fill as SEA_FILL
 import O4_Text_Files as TEXT
+import O4_Triangle_Run as TRIANGLE_RUN
 import O4_UI_Utils as UI
 import O4_Vector_Utils as VECT
+import requests
 from O4_Parallel_Utils import effective_download_slots, parallel_execute
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # Not a decompression bomb attack!
 
@@ -814,15 +814,23 @@ def initialize_combined_providers_dict():
 ################################################################################
 
 ################################################################################
-def initialize_local_combined_providers_dict(tile):
+def initialize_local_combined_providers_dict(tile, only=None):
     # This function will select from list of providers the only
     # ones whose coverage intersect the given tile.
+    # ``only`` (the on-demand lander, ``imagery_follow_land``): the
+    # combined providers to read, into a NEW dict that is returned
+    # (``0`` when one has no data on the tile); the module's own dict,
+    # which a build in this process may be using, is left alone.
     global local_combined_providers_dict, extents_dict
     UI.vprint(1, "-> Initializing providers with potential data on this tile.")
-    local_combined_providers_dict = {}
-    test_set = set([tile.default_website])
-    for region in tile.zone_list[:]:
-        test_set.add(region[2])
+    target = {}
+    if only is None:
+        local_combined_providers_dict = target
+        test_set = set([tile.default_website])
+        for region in tile.zone_list[:]:
+            test_set.add(region[2])
+    else:
+        test_set = set(only)
     for provider_code in test_set.intersection(combined_providers_dict):
         comb_list = []
         for rlayer in combined_providers_dict[provider_code]:
@@ -846,7 +854,7 @@ def initialize_local_combined_providers_dict(tile):
             )
             return 0
         if len(comb_list) == 1:
-            local_combined_providers_dict[provider_code] = comb_list
+            target[provider_code] = comb_list
             continue
         # len(comb_list > 1)
         new_comb_list = []
@@ -999,9 +1007,9 @@ def initialize_local_combined_providers_dict(tile):
                         pass
             else:
                 new_comb_list.append(rlayer)
-        local_combined_providers_dict[provider_code] = new_comb_list
+        target[provider_code] = new_comb_list
     UI.vprint(2, "     Done.")
-    return 1
+    return 1 if only is None else target
 
 
 ################################################################################
@@ -1746,8 +1754,10 @@ def build_texture_from_tilbox(tilbox, zoomlevel, provider, progress=None):
             )
             download_queue.put(fargs)
     # and finally activate them
+    # the follow job's priority (#2037) carried to the request threads
     success = parallel_execute(
-        get_and_paste_wmts_part, download_queue, max_threads, progress
+        MACHINE_SLOTS.carry_net_priority(get_and_paste_wmts_part),
+        download_queue, max_threads, progress
     )
     # once out big_image has been filled and we return it
     return (success, big_image)
@@ -1924,11 +1934,13 @@ def build_texture_from_bbox_and_size(t_bbox, t_epsg, t_size, provider):
     max_threads = provider_max_threads(provider)
     if provider["request_type"] == "wms":
         success = parallel_execute(
-            get_and_paste_wms_part, download_queue, max_threads
+            MACHINE_SLOTS.carry_net_priority(get_and_paste_wms_part),
+            download_queue, max_threads
         )
     elif provider["request_type"] in ["wmts", "tms", "local_tms"]:
         success = parallel_execute(
-            get_and_paste_wmts_part, download_queue, max_threads
+            MACHINE_SLOTS.carry_net_priority(get_and_paste_wmts_part),
+            download_queue, max_threads
         )
     # We modify big_image if necessary
     if warp_needed:
@@ -1973,7 +1985,9 @@ def download_jpeg_ortho(
     """Download one orthophoto into ``file_dir``; 1 on success, 0 if not.
 
     ``drop`` (#1992, placeholder build mode): the same square fetched
-    ``drop`` zoom levels coarser, a ``4096 >> drop`` px image.
+    ``drop`` zoom levels coarser, a ``4096 >> drop`` px image -- but never
+    below the provider's ``min_source_zl`` (#2017): there the floor is
+    fetched and shrunk to that size.
 
     ``require_complete`` (the background prefetch, #1002): a texture with
     a part the provider did not answer is NOT saved (no white-filled
@@ -1988,6 +2002,10 @@ def download_jpeg_ortho(
         max_zl = int(provider["max_zl"])
         if fetch_zl > max_zl:
             super_resol_factor = 2 ** (max_zl - fetch_zl)
+    # below the provider's floor (#2017) the floor is fetched and shrunk
+    floor_zl = PLACEHOLDER.fetch_zoom(zoomlevel, drop, provider)
+    if floor_zl > fetch_zl:
+        super_resol_factor = 2 ** (floor_zl - fetch_zl)
     width = height = int((4096 >> drop) * super_resol_factor)
     # we treat first the case of webmercator grid type servers
     if "grid_type" in provider and provider["grid_type"] == "webmercator":
@@ -2638,7 +2656,7 @@ def _source_jpeg_location(tile, til_x_left, til_y_top, zoomlevel,
         return (PLACEHOLDER.jpeg_dir(tile.lat, tile.lon, zoomlevel,
                                      provider, drop),
                 PLACEHOLDER.jpeg_name(til_x_left, til_y_top, zoomlevel,
-                                      provider_code, drop))
+                                      provider_code, drop, provider))
     return (FNAMES.jpeg_file_dir_from_attributes(
                 tile.lat, tile.lon, zoomlevel, provider),
             FNAMES.jpeg_file_name_from_attributes(
@@ -3185,6 +3203,11 @@ def convert_texture(
     harmonization_field = color_harmonization_field_for_texture(
         tile, til_x_left, til_y_top, zoomlevel, provider_code
     )
+    # #2018: a drape beside another provider's tile blends toward it
+    harmonization_field = PROVIDER_BLEND.add_field(
+        tile, harmonization_field, til_x_left, til_y_top, zoomlevel)
+    blend_gain = PROVIDER_BLEND.gain_field(tile, til_x_left, til_y_top,
+                                           zoomlevel)
     if (provider_code in local_combined_providers_dict) and (
         (provider_code not in providers_dict)
         or not os.path.exists(os.path.join(file_dir, jpeg_file_name))
@@ -3194,7 +3217,7 @@ def convert_texture(
         )
         if harmonization_field is not None:
             big_image = HARMONIZE.apply_color_field(
-                big_image, harmonization_field
+                big_image, harmonization_field, gain=blend_gain
             )
         if masked_texture:
             if tile.sea_nodata_fill:
@@ -3241,7 +3264,7 @@ def convert_texture(
             )
         if harmonization_field is not None:
             big_image = HARMONIZE.apply_color_field(
-                big_image, harmonization_field
+                big_image, harmonization_field, gain=blend_gain
             )
         if masked_texture:
             if tile.sea_nodata_fill:

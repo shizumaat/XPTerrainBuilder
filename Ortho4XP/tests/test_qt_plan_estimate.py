@@ -38,6 +38,7 @@ def window(tmp_path, monkeypatch):
     prefs = tmp_path / "prefs.json"
     prefs.write_text(json.dumps({"output_dir": str(tmp_path)}), encoding="utf-8", newline="")
     monkeypatch.setattr(GUI, "PREFS_FILE", str(prefs))
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     monkeypatch.setattr(GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "scan.json"))
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
@@ -61,7 +62,6 @@ def _answer(window, result, error=""):
 def test_qt_asks_for_the_tiles_and_steps_of_the_next_press(window, monkeypatch):
     sent = []
     monkeypatch.setattr(window, "_plan_handler", lambda **kw: sent.append(kw), raising=False)
-    window.chk_overlays.setChecked(False)
     window._request_plan_estimate()
     assert sent and sent[-1]["tiles"] == [[LAT, LON]]
     assert sent[-1]["request"] == window._plan_request

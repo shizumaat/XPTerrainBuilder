@@ -34,7 +34,8 @@ STUB_WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "fixtures", "stub_engine_worker.py")
 FIRST = (10, 10)
 QUEUED_LATER = [(11, 11), (12, 12), (13, 13), (14, 14)]
-PROGRAM = ["vector", "mesh", "masks", "imagery"]
+# a full tile gets its X-Plane overlay step automatically (#2021)
+PROGRAM = ["vector", "mesh", "masks", "imagery", "overlays"]
 
 
 @pytest.fixture(autouse=True)
@@ -124,7 +125,7 @@ def test_an_intermediate_step_done_pair_is_never_forwarded():
     session._emit = emitted.append
     session._run_finished = lambda: None
     run = parallel.ParallelBuildRun(
-        session, [FIRST], "P", 16, "", (True, True, False), 2)
+        session, [FIRST], "P", 16, "", (True, True, True), 2)
 
     class Child:
         tile = FIRST

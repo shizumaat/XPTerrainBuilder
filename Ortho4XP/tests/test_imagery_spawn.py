@@ -406,7 +406,10 @@ def test_a_job_that_first_reads_the_field_counts_on_no_window(
     assert down < start + 20 and len(flight.reloads) == 1
     assert down < flight.reloads[0] <= down + 1.5   # the next tick
     if before == "here":                # on disk long before X-Plane's opens
-        assert flight.served() == (67, 70)
+        # 68: a cached square no longer waits behind downloads that wait
+        # for a slot (#2037), so one boundary square opened a tier finer
+        # than the core rule is on disk too
+        assert flight.served() == (68, 70)
     last = flight.close()
     assert last.reloads == 1
     assert "spawn=spawn core=71 local=71 window_s=0.0" in (

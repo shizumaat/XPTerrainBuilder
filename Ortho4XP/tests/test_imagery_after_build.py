@@ -159,7 +159,9 @@ def test_no_core_fetch_starts_while_a_build_runs(world, patches):  # noqa: F811
     assert lander.calls == [] and counts["skipped"] == counts["wanted"] > 0
 
 
-def test_the_session_hands_its_built_tiles_over(monkeypatch, tmp_path):
+def test_the_run_end_hands_no_tile_over(monkeypatch, tmp_path):
+    """RULINGS 13p: a build lands its cores in its imagery step, so the
+    run's end starts no background sharpening of its tiles."""
     from o4_engine.events import BuildDone, RunDone
     from o4_engine.session import EngineSession
 
@@ -168,17 +170,80 @@ def test_the_session_hands_its_built_tiles_over(monkeypatch, tmp_path):
                         lambda tiles, busy=None: handed.append(list(tiles)))
     session = EngineSession()
     AFTER.watch(session)
-    session._note_build_dirs([(LAT, LON)], str(tmp_path) + "/")
-    session._emit(BuildDone(lat=LAT, lon=LON, ok=True))
-    session._emit(BuildDone(lat=LAT + 1, lon=LON, ok=False, error="x"))
-    session._emit(RunDone(done_count=1, error_count=1))
-    assert handed == [[(FNAMES.build_dir(LAT, LON, str(tmp_path) + "/"),
-                        LAT, LON)]]
-    session._emit(RunDone(done_count=0, error_count=0))   # nothing new
-    session._stepwise_run = True                          # a worker child
     session._emit(BuildDone(lat=LAT, lon=LON, ok=True))
     session._emit(RunDone(done_count=1, error_count=0))
-    assert len(handed) == 1
+    assert handed == []
+
+
+def _imagery_step(monkeypatch, land):
+    import O4_UI_Utils as UI
+    from o4_engine.session import EngineSession
+
+    session = EngineSession()
+    events = []
+    session.subscribe(events.append)
+    session._current_step = ((LAT, LON), "imagery", 0.4, 0.6)
+    session._step_percent = 40.0
+    monkeypatch.setattr(AFTER, "land_in_build", land)
+    monkeypatch.setattr(UI, "red_flag", False)
+
+    class Tile:
+        lat, lon, build_dir = LAT, LON, "/nowhere"
+    order = []
+
+    def build_tile(_tile):
+        order.append("textures")
+        return 1
+    result = session._imagery_and_cores(Tile(), build_tile)
+    return result, order, events
+
+
+def test_the_imagery_step_ends_after_its_cores_land(monkeypatch):
+    """A tile's imagery step (so its BuildDone) returns only once its
+    cores have landed, and says so on the tile's own row."""
+    from o4_engine.events import StepProgress
+
+    landed = []
+
+    def land(build_dir, lat, lon, stopped, progress):
+        progress(0, 2)
+        progress(2, 2)
+        landed.append("cores")
+    result, order, events = _imagery_step(monkeypatch, land)
+    assert result == 1 and order == ["textures"] and landed == ["cores"]
+    progress = [e for e in events if isinstance(e, StepProgress)]
+    assert progress[-1].label == "Sharpening airport imagery · 2 of 2 squares"
+    assert progress[-1].percent <= 100.0
+
+
+def test_a_stopped_build_stops_its_cores(monkeypatch):
+    import O4_UI_Utils as UI
+    seen = []
+
+    def land(build_dir, lat, lon, stopped, progress):
+        seen.append(stopped())
+        UI.red_flag = True                  # the user's Stop
+        seen.append(stopped())
+    _imagery_step(monkeypatch, land)
+    assert seen == [False, True]
+
+
+def test_land_in_build_lands_without_a_core_row(world, patches, monkeypatch):  # noqa: F811
+    tiles = _fresh_build(world)
+    _graded(FNAMES.patch_dir(LAT, LON), *_centre(0))
+    rows = []
+    monkeypatch.setattr(AFTER.ROWS, "CoreRows",
+                        lambda totals: rows.append(totals))
+    seen = []
+    lander = Lander()
+    counts = AFTER.land_in_build(tiles[0][0], LAT, LON, lambda: False,
+                                 progress=lambda d, t: seen.append((d, t)),
+                                 lander=lander)
+    assert counts["landed"] == len(lander.calls) > 0 and rows == []
+    assert seen[-1] == (len(lander.calls), len(lander.calls))
+    stopped = AFTER.land_in_build(tiles[0][0], LAT, LON, lambda: True,
+                                  lander=lander)
+    assert stopped["landed"] == 0
 
 
 def test_both_apps_watch_their_session():
@@ -233,6 +298,7 @@ def test_the_mac_app_starts_following_by_itself():
     sync = sync[:sync.index("\n    }\n")]
     assert 'configValue(for: Self.imageryOnDemandKey) == .bool(true)' in sync
     assert "workingDir: context.workingDir, ifEnabled: true" in sync
+    assert "stopImageryFollow" not in sync   # the switch never stops it (#2019)
     wire = (REPO / "Sources" / "SceneryKit" / "OrthoEngineClient.swift").read_text(
         encoding="utf-8")
     assert 'arguments["working_dir"] = workingDir' in wire

@@ -137,7 +137,7 @@ _LAYOUT: list = [
         ("custom_scenery_dir", "Where is X-Plane's Custom Scenery folder?", "app", False,
          "Finished tiles are linked into it so X-Plane finds them."),
         ("custom_overlay_src", "Where should roads, forests and buildings come from?", "app", False,
-         "An X-Plane scenery folder, usually Global Scenery."),
+         "Usually Global Scenery. Full tiles get their roads, forests and buildings from it."),
         ("verbosity", "How much should the console show?", "app", False,
          "More detail helps when you report a problem."),
         ("cleaning_level", "Which build files should be kept?", "app", False,
@@ -210,8 +210,8 @@ _LAYOUT: list = [
          "Low-res imagery detail (zoom levels below the build's)", "app", True, ""),
         ("ondemand_lead_s", "Start fetching this many seconds ahead", "app", True, ""),
         ("ondemand_lands_per_s", "Imagery swaps per second, at most", "app", True, ""),
-        # World spec §5.5 / §17: the intermediate kind, until D1 decides.
-        ("world_intermediate", "Tiles built ahead of the aircraft", "app", True, ""),
+        # RULINGS 2026-11-11j: the drapes built ahead; also in the Fly pane.
+        ("drape_photo_px", "Photo detail of tiles laid ahead", "app", True, ""),
     ]),
     ("mesh", "Ground Shape", [
         ("curvature_tol", "Curvature tolerance", "tile", True, ""),

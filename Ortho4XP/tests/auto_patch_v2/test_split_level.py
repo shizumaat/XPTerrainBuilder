@@ -221,3 +221,45 @@ def test_the_pit_is_under_the_building_not_its_box():
     assert sls[0].open_sides and all(min(e.distance(c) for c in tall) >= 0.0
                                      for e in sls[0].open_sides)
     assert all(e.within(sls[0].pit_plan.exterior.buffer(1e-6)) for e in sls[0].open_sides)
+
+
+def test_an_edge_facing_a_tall_side_within_the_back_cut_is_not_open():
+    """#1903 KLAX ``Terminal_8``: its east facade stands 3.1-3.4 m inside
+    the box's tall east side -- just past ``split_level_probe_m`` -- and was
+    read OPEN while the back cut (``split_level_back_cut_m``) took the
+    ground outside it down to the lower floor: the drawn gate saw a 4 m
+    gap.  An edge facing a tall side within the back cut is the back, not
+    an open side; the edges facing away from it stay open, and every open
+    edge runs with the building on its right."""
+    from auto_patch_v2.airport.split_level import _open_edges
+    from shapely.geometry import Polygon
+    plan = Polygon([(0, 0), (36.6, 0), (36.6, 30), (0, 30)])
+    tall = [LineString([(40, -5), (40, 35)])]
+    bp = LAW.tables.structures.building_pad
+    probe, back = float(bp.split_level_probe_m), float(bp.split_level_back_cut_m)
+    assert back > 3.4 > probe
+    east = [e for e in _open_edges(plan, tall, probe) if min(p[0] for p in e.coords) > 36.0]
+    assert east, "the probe alone leaves the facade 3.4 m in open"
+    edges = _open_edges(plan, tall, probe, back)
+    assert not [e for e in edges if min(p[0] for p in e.coords) > 36.0]
+    assert len(edges) == 3
+    c = plan.centroid
+    for e in edges:
+        (x0, y0), (x1, y1) = e.coords
+        # the centroid lies on the RIGHT of each edge
+        assert (c.x - x0) * -(y1 - y0) + (c.y - y0) * (x1 - x0) < 0.0
+
+
+def test_open_box_sides_run_with_the_building_on_their_right():
+    """The walls-only model (no plan) keeps the box's open side; it is
+    turned so the ground it meets lies on its left, the way the drawn gate
+    (``tools/drawn_check.check_split``) reads it."""
+    v, t = _building(12.0)
+    objs, cache = _placed(v, t)
+    sls, _ = read_split_levels(objs, cache, LAW, lambda x, y: 100.0 - 0.6 * y)
+    sl = sls[0]
+    c = sl.footprint.centroid
+    assert sl.plan is None and sl.open_sides
+    for e in sl.open_sides:
+        (x0, y0), (x1, y1) = e.coords[0], e.coords[-1]
+        assert (c.x - x0) * -(y1 - y0) + (c.y - y0) * (x1 - x0) < 0.0

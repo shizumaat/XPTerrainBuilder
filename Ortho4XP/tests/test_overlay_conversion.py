@@ -83,7 +83,7 @@ def test_a_conversion_that_works_installs_the_overlay(step, monkeypatch):
     recorder, final = step
     calls = _dsftool(monkeypatch)
 
-    assert OVL.build_overlay(LAT, LON) == 1
+    assert OVL._build_overlay(LAT, LON) == 1
 
     assert final.read_bytes() == b"XPLNEDSF-overlay"
     assert recorder.named == []
@@ -98,7 +98,7 @@ def test_a_crash_of_the_first_conversion_ends_the_step_by_name(
     calls = _dsftool(monkeypatch, dsf2text={"returncode": -11,
                                             "writes": False})
 
-    assert OVL.build_overlay(LAT, LON) == 0
+    assert OVL._build_overlay(LAT, LON) == 0
 
     assert recorder.named == ["overlay_tool_failed"]
     assert "crashed (SIGSEGV)" in recorder.detail[0]
@@ -113,7 +113,7 @@ def test_a_non_zero_exit_after_writing_a_file_is_not_accepted(
     recorder, final = step
     _dsftool(monkeypatch, **{direction: {"returncode": 1}})
 
-    assert OVL.build_overlay(LAT, LON) == 0
+    assert OVL._build_overlay(LAT, LON) == 0
 
     assert recorder.named == ["overlay_tool_failed"]
     assert "failed (exit 1)" in recorder.detail[0]
@@ -126,7 +126,7 @@ def test_a_converter_past_its_time_limit_is_a_named_failure(
     recorder, final = step
     _dsftool(monkeypatch, **{direction: {"hangs": True}})
 
-    assert OVL.build_overlay(LAT, LON) == 0
+    assert OVL._build_overlay(LAT, LON) == 0
 
     assert recorder.named == ["overlay_tool_failed"]
     assert "did not finish within" in recorder.detail[0]
@@ -145,7 +145,7 @@ def test_an_exit_zero_that_wrote_nothing_does_not_reuse_an_older_file(
         handle.write(DUMP)
     _dsftool(monkeypatch, dsf2text={"writes": False})
 
-    assert OVL.build_overlay(LAT, LON) == 0
+    assert OVL._build_overlay(LAT, LON) == 0
 
     assert recorder.named == ["overlay_tool_failed"]
     assert "wrote nothing" in recorder.detail[0]

@@ -10,7 +10,6 @@ function the Mac app reaches through the ``tile_staleness`` command.
 from __future__ import annotations
 
 import O4_Qt_Map_Legend as QTLEGEND
-import O4_Tile_Staleness as STALE
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
@@ -26,7 +25,8 @@ REBUILD_BUTTON = "Rebuild Tile"
 def check_stale(tiles, scenery_dir, should_stop=None) -> dict:
     """Worker thread: ``{(lat, lon): verdict}`` of the stale tiles among
     ``tiles`` (``[(lat, lon, build_dir), ...]``)."""
-    reply = STALE.check_tiles(scenery_dir, tiles)
+    from o4_engine.library import tile_staleness
+    reply = tile_staleness(scenery_dir, tiles)
     return {(row["lat"], row["lon"]): row for row in reply["tiles"]
             if row["stale"]}
 

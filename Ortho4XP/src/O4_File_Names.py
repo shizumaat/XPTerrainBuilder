@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import types
 from math import floor
 
 import O4_UI_Utils as UI
@@ -237,7 +238,9 @@ Imagery_dir = ""
 Elevation_dir = ""
 Geotiff_dir = ""
 Patch_dir = ""
-Tile_dir = ""
+# ``Tile_dir`` is ABSENT from this block too: it is served by the module
+# ``__getattr__`` below from :func:`_tiles_root` (RULINGS 2026-11-12g: the
+# World folder is the tiles' home once its migration is done).
 Tmp_dir = ""
 Overlay_dir = ""
 # DSFTool text dumps of default Global Scenery DSFs (used by the
@@ -262,12 +265,14 @@ def __getattr__(name):
     """
     if name == "Mask_dir":
         return masks_root()
+    if name == "Tile_dir":
+        return _tiles_root()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _apply_data_root():
     global Auto_extent_dir, Preview_dir, OSM_dir, Imagery_dir
-    global Elevation_dir, Geotiff_dir, Patch_dir, Tile_dir, Tmp_dir
+    global Elevation_dir, Geotiff_dir, Patch_dir, Tmp_dir
     global Overlay_dir, Default_dsf_cache_dir
     Auto_extent_dir = data_path(os.path.join("Extents", "Auto"))
     Preview_dir = data_path("Previews")
@@ -276,7 +281,9 @@ def _apply_data_root():
     Elevation_dir = data_path("Elevation_data")
     Geotiff_dir = data_path("Geotiffs")
     Patch_dir = data_path("Patches")
-    Tile_dir = data_path("Tiles")
+    # A ``Tile_dir`` override (:func:`_tiles_root`) names a folder of the
+    # OLD root: a new root drops it, and the computed home serves again.
+    globals().pop("Tile_dir", None)
     Tmp_dir = data_path("tmp")
     Overlay_dir = data_path("yOrtho4XP_Overlays")
     # ``O4_DSF_CACHE_DIR`` wins here rather than at the assignment sites:
@@ -291,6 +298,104 @@ def _apply_data_root():
 
 
 _apply_data_root()
+
+
+# ---------------------------------------------------------------------------
+# The tiles' home (owner RULINGS 2026-11-12g/h): once the World folder's
+# migration has left nothing to move (``o4_engine.world_home``), every build
+# folder lives in ``<World pack>/XPTerrainBuilder_tiles`` and the packages
+# in ``<World pack>/XPTerrainBuilder_packages``.  The data folder keeps only
+# the POINTER naming the World pack (disposable: the next start writes it
+# again).  THE ONE RESOLUTION POINT is :func:`_tiles_root`.
+# ---------------------------------------------------------------------------
+WORLD_HOME_POINTER = "world_home.json"
+WORLD_TILES_DIR = "XPTerrainBuilder_tiles"
+WORLD_PACKAGES_DIR = "XPTerrainBuilder_packages"
+_HOME_CACHE: dict = {}
+
+
+def world_home_pointer():
+    """The pointer file (``<data root>/world_home.json``).
+    ``O4_WORLD_HOME_POINTER`` overrides it, read AT CALL TIME, with the
+    precedence of ``O4_REBUILD_CACHE_DIR`` (:func:`rebuild_root`): an
+    explicitly chosen data root wins.  The test session points it at a
+    file of each test's own (``tests/conftest.py``)."""
+    override = os.environ.get("O4_WORLD_HOME_POINTER")
+    if override and _data_root_override is None and not os.environ.get(
+            "ORTHO4XP_DATA_ROOT"):
+        return override
+    return data_path(WORLD_HOME_POINTER)
+
+
+def world_home():
+    """The World pack the data folder's pointer names as the tiles' home,
+    or ``""`` (no pointer, or its tiles folder is gone).  Read at call
+    time; the pointer is re-read only when it changes."""
+    path = world_home_pointer()
+    try:
+        stamp = os.stat(path).st_mtime_ns
+    except OSError:
+        return ""
+    if _HOME_CACHE.get("key") != (path, stamp):
+        try:
+            import json
+            with open(path, encoding="utf-8") as handle:
+                world = str(json.load(handle).get("world_dir") or "")
+        except (OSError, ValueError, AttributeError):
+            world = ""
+        _HOME_CACHE.update(key=(path, stamp), world=world)
+    world = _HOME_CACHE["world"]
+    if world and os.path.isdir(os.path.join(world, WORLD_TILES_DIR)):
+        return world
+    return ""
+
+
+def _tiles_root():
+    """Where tile build folders live: the World home's tiles folder, else
+    ``<data root>/Tiles`` (``Tile_dir`` is served from here).
+
+    THE ONE OVERRIDE HOOK: an assigned ``Tile_dir`` (``FNAMES.Tile_dir =
+    folder`` or ``monkeypatch.setattr(FNAMES, "Tile_dir", folder)``) is
+    held in the module dict, which attribute lookup finds before the
+    module ``__getattr__``, and is honoured here too, so every reader —
+    ``FNAMES.Tile_dir``, :func:`build_dir`, this function — sees one
+    folder.  Deleting it (a monkeypatch undo) restores the computed home;
+    :func:`set_data_root` drops it (:class:`_FileNamesModule`)."""
+    override = globals().get("Tile_dir")
+    if override:
+        return override
+    world = world_home()
+    if world:
+        return os.path.join(world, WORLD_TILES_DIR)
+    return data_path("Tiles")
+
+
+class _FileNamesModule(types.ModuleType):
+    """This module's type: it keeps the ``Tile_dir`` override hook
+    (:func:`_tiles_root`) exact under both monkeypatch undo styles.
+
+    * pytest >= 9.2 undoes ``monkeypatch.setattr(FNAMES, "Tile_dir", x)``
+      by DELETING the dict entry (it records the dict's own value, and a
+      computed ``Tile_dir`` has none); a :func:`set_data_root` in between
+      has already dropped it, so deleting an absent override is a no-op.
+    * older pytest undoes it by ASSIGNING the value it read, the computed
+      home: assigning the computed home is no override (it would pin that
+      folder after the World home or the data root moves)."""
+
+    def __setattr__(self, name, value):
+        if name == "Tile_dir":
+            self.__dict__.pop("Tile_dir", None)
+            if value == _tiles_root():
+                return
+        super().__setattr__(name, value)
+
+    def __delattr__(self, name):
+        if name == "Tile_dir" and name not in self.__dict__:
+            return
+        super().__delattr__(name)
+
+
+sys.modules[__name__].__class__ = _FileNamesModule
 
 
 def set_data_root(path):
@@ -473,7 +578,7 @@ def tile_dir(lat, lon):
 
 def build_dir(lat, lon, custom_build_dir):
     if not custom_build_dir:
-        return os.path.join(Tile_dir, tile_dir(lat, lon))
+        return os.path.join(_tiles_root(), tile_dir(lat, lon))
     elif custom_build_dir.endswith(("/", "\\")):
         return os.path.join(custom_build_dir[:-1], tile_dir(lat, lon))
     else:

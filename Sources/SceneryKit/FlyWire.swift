@@ -55,6 +55,20 @@ public struct O4FlightStatus: Sendable, Equatable {
         public let state: String
         public let remainingSeconds: Double?
         public let marginSeconds: Double?
+
+        /// Rows `[[lat, lon], role, kind, state, remaining_s?, margin_s?]`
+        /// (`FlightStatus.jobs`, and `WorldStatus.jobs` in free flight).
+        public static func rows(_ json: O4JSON?) -> [Job] {
+            (json?.arrayValue ?? []).compactMap { row in
+                guard let r = row.arrayValue, r.count >= 4, let tile = r[0].arrayValue,
+                      tile.count == 2, let lat = tile[0].intValue, let lon = tile[1].intValue
+                else { return nil }
+                return Job(lat: lat, lon: lon, role: r[1].stringValue ?? "",
+                           kind: r[2].stringValue ?? "", state: r[3].stringValue ?? "",
+                           remainingSeconds: r.count > 4 ? r[4].doubleValue : nil,
+                           marginSeconds: r.count > 5 ? r[5].doubleValue : nil)
+            }
+        }
     }
 
     public let flight: String
@@ -73,6 +87,49 @@ public struct O4FlightStatus: Sendable, Equatable {
     /// En-route tiles that need the internet and may be left to X-Plane's
     /// own scenery (`flight_update {waive_offline: true}`, F2).
     public var waivable: [String] = []
+    /// One row per departure or destination on a mesh this app did not
+    /// build (#2025): the flight card asks "fly it or upgrade it".
+    public var choices: [Choice] = []
+
+    /// One `FlightStatus.choices` row (`o4_engine.flight_adopted.choice_row`).
+    public struct Choice: Sendable, Equatable {
+        public let lat: Int
+        public let lon: Int
+        public let role: String
+        public let icao: String
+        public let origin: String
+        public let builtBy: String
+        public let patched: String
+        public let upgradeEstimateSeconds: Double?
+        /// `""` until `flight_choose` answers `keep` or `upgrade`.
+        public let choice: String
+
+        public init(lat: Int, lon: Int, role: String, icao: String, origin: String,
+                    builtBy: String, patched: String, upgradeEstimateSeconds: Double?,
+                    choice: String) {
+            self.lat = lat
+            self.lon = lon
+            self.role = role
+            self.icao = icao
+            self.origin = origin
+            self.builtBy = builtBy
+            self.patched = patched
+            self.upgradeEstimateSeconds = upgradeEstimateSeconds
+            self.choice = choice
+        }
+
+        public static func parse(_ json: O4JSON?) -> Choice? {
+            guard let json, let tile = json["tile"]?.arrayValue, tile.count == 2,
+                  let lat = tile[0].intValue, let lon = tile[1].intValue else { return nil }
+            return Choice(lat: lat, lon: lon, role: json["role"]?.stringValue ?? "",
+                          icao: json["icao"]?.stringValue ?? "",
+                          origin: json["origin"]?.stringValue ?? "",
+                          builtBy: json["built_by"]?.stringValue ?? "",
+                          patched: json["patched"]?.stringValue ?? "unknown",
+                          upgradeEstimateSeconds: json["upgrade_estimate_s"]?.doubleValue,
+                          choice: json["choice"]?.stringValue ?? "")
+        }
+    }
 
     public static func parse(_ json: O4JSON?) -> O4FlightStatus? {
         guard let json, let flight = json["flight"]?.stringValue else { return nil }
@@ -82,15 +139,7 @@ public struct O4FlightStatus: Sendable, Equatable {
                         etaSeconds: r.count > 2 ? r[2].doubleValue : nil,
                         detail: r.count > 3 ? (r[3].stringValue ?? "") : "")
         }
-        let jobs: [Job] = (json["jobs"]?.arrayValue ?? []).compactMap { row in
-            guard let r = row.arrayValue, r.count >= 4, let tile = r[0].arrayValue,
-                  tile.count == 2, let lat = tile[0].intValue, let lon = tile[1].intValue
-            else { return nil }
-            return Job(lat: lat, lon: lon, role: r[1].stringValue ?? "",
-                       kind: r[2].stringValue ?? "", state: r[3].stringValue ?? "",
-                       remainingSeconds: r.count > 4 ? r[4].doubleValue : nil,
-                       marginSeconds: r.count > 5 ? r[5].doubleValue : nil)
-        }
+        let jobs = Job.rows(json["jobs"])
         var status = O4FlightStatus(
             flight: flight, state: json["state"]?.stringValue ?? "preparing",
             phase: json["phase"]?.stringValue ?? "",
@@ -104,6 +153,7 @@ public struct O4FlightStatus: Sendable, Equatable {
             reload: json["reload"]?.stringValue ?? "",
             divertedTo: json["diverted_to"]?.stringValue ?? "")
         status.waivable = (json["waivable"]?.arrayValue ?? []).compactMap { $0.stringValue }
+        status.choices = (json["choices"]?.arrayValue ?? []).compactMap { Choice.parse($0) }
         return status
     }
 }

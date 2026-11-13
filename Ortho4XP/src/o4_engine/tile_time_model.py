@@ -365,15 +365,14 @@ def _record_step_seconds(record: dict, step_key: str):
 def _same_tile_compatible(record: dict, features: dict, step_key: str) -> bool:
     """Whether a past record is comparable to the planned build for a step.
 
-    A record of another build profile (``light`` vs ``full``, World spec
-    §9; a record without one is ``full``) never is.  Only imagery is
+    A record of the retired ``light`` profile (World spec §17, RULINGS
+    2026-11-11j; a record without a profile is a normal build) never is.  Only imagery is
     zoom-sensitive: a tile rebuilt at a different zoom
     level fetches and converts a completely different number of textures,
     so its imagery time is not a valid predictor.  Every other step is
     zoom-independent, so any record of the same tile is compatible.
     """
-    if (((record.get("features") or {}).get("profile") or "full")
-            != ((features or {}).get("profile") or "full")):
+    if ((record.get("features") or {}).get("profile") or "full") != "full":
         return False
     if step_key != "imagery":
         return True
@@ -548,9 +547,10 @@ def _imagery_components(features: dict, same_tile_records: list,
     converts = max(0.0, float(features.get("textures_missing") or 0)
                    - downloads)
     render = _median([
-        _record_step_seconds(r, "imagery")
-        for r in same_tile_records[-_SAME_TILE_WINDOW:]
-        if not (r.get("features") or {}).get("textures_missing")])
+        seconds for seconds in (
+            _record_step_seconds(r, "imagery") for r in same_tile_records
+            if not (r.get("features") or {}).get("textures_missing"))
+        if seconds is not None][-_SAME_TILE_WINDOW:])
     rates = None
     if render is None or downloads:
         rates = _global_median_imagery_rates(
@@ -564,13 +564,13 @@ def _imagery_components(features: dict, same_tile_records: list,
                   "convert": converts * DEFAULT_SECONDS_PER_CONVERTED_TEXTURE,
                   "download": 0.0}
     if downloads:
-        per_texture = _seconds_per_downloaded_texture(
-            features.get("provider"), all_records)
-        if per_texture is None and rates and rates[0] > 0:
-            per_texture = rates[0]
-        if per_texture is None:
-            per_texture = DEFAULT_SECONDS_PER_DOWNLOADED_TEXTURE
-        components["download"] = downloads * per_texture
+        seconds = _download_seconds(features.get("provider"), downloads,
+                                    all_records)
+        if seconds is None:
+            per_texture = (rates[0] if rates and rates[0] > 0
+                           else DEFAULT_SECONDS_PER_DOWNLOADED_TEXTURE)
+            seconds = downloads * per_texture
+        components["download"] = seconds
     return components
 
 
@@ -590,21 +590,56 @@ def imagery_components(lat: int, lon: int, features: dict):
         return None
 
 
-def _seconds_per_downloaded_texture(provider, all_records: list):
-    """Median measured wall seconds per downloaded texture, preferring
-    this imagery source's builds; ``None`` before any build measured it."""
+#: Download records the fit reads: the newest of this source, so a
+#: faster network or a changed provider is learned within a few builds.
+DOWNLOAD_FIT_WINDOW = 30
+
+
+def _download_samples(provider, all_records: list) -> list:
+    """``[(textures_downloaded, download_seconds)]`` of the newest builds
+    that downloaded — this imagery source's when two or more exist."""
     by_source, every = [], []
-    for record in all_records:
+    for record in sorted(all_records,
+                         key=lambda r: float(r.get("finished_at") or 0)):
         record_features = record.get("features") or {}
         count = record_features.get("textures_downloaded")
         seconds = record_features.get("download_seconds")
         if not (isinstance(count, (int, float)) and count > 0
-                and isinstance(seconds, (int, float)) and seconds > 0):
+                and isinstance(seconds, (int, float)) and seconds > 0
+                and math.isfinite(seconds)):
             continue
-        every.append(seconds / count)
+        every.append((float(count), float(seconds)))
         if record_features.get("provider") == provider:
-            by_source.append(seconds / count)
-    return _median(by_source) if by_source else _median(every)
+            by_source.append((float(count), float(seconds)))
+    chosen = by_source if len(by_source) >= 2 else every
+    return chosen[-DOWNLOAD_FIT_WINDOW:]
+
+
+def _download_seconds(provider, downloads: float, all_records: list):
+    """Wall seconds to download ``downloads`` textures, or ``None`` before
+    any build measured a download (#2045).
+
+    Downloads run CONCURRENTLY, so a build's download time is a latency
+    plus a per-texture share, not a per-texture rate: the owner's 307
+    textures took 58.6 s (0.19 s each) where single-texture builds took
+    35-100 s.  The fit is Theil-Sen (the median pairwise slope, then the
+    median intercept, both floored at zero) over the newest
+    :data:`DOWNLOAD_FIT_WINDOW` downloads — robust to one throttled
+    build.  Replayed over the owner's 225 recorded downloads it cut the
+    p90 error from 8.5x (median seconds per texture) to 3.8x.  One
+    sample, or samples of one size, price at their seconds per texture.
+    """
+    samples = _download_samples(provider, all_records)
+    if not samples:
+        return None
+    slopes = [(b[1] - a[1]) / (b[0] - a[0])
+              for i, a in enumerate(samples) for b in samples[i + 1:]
+              if b[0] != a[0]]
+    if not slopes:
+        return downloads * _median([s / c for c, s in samples])
+    slope = max(0.0, _median(slopes))
+    intercept = max(0.0, _median([s - slope * c for c, s in samples]))
+    return intercept + slope * downloads
 
 
 def _learned_vector_overhead(same_tile_records: list, all_records: list):
@@ -638,8 +673,28 @@ def _learned_vector_overhead(same_tile_records: list, all_records: list):
     return None
 
 
+def _planned_autopatch_seconds(features: dict, all_records: list,
+                               before=None):
+    """The airport solves' wall seconds this build will spend, or None
+    without a basis: the caller's own prediction
+    (``autopatch_prediction_s``), else the planned airports
+    (``airports_planned``: ICAO -> runway count or None, ``{}`` = none)
+    priced by :mod:`o4_engine.airport_time_model` (#2045)."""
+    given = (features or {}).get("autopatch_prediction_s")
+    if isinstance(given, (int, float)) and math.isfinite(given) \
+            and given > 0:
+        return float(given)
+    planned = (features or {}).get("airports_planned")
+    if not isinstance(planned, dict):
+        return None
+    from . import airport_time_model
+    return airport_time_model.wall_seconds(planned, all_records,
+                                           before=before)
+
+
 def _predict_one_step(step_key: str, features: dict,
-                      same_tile_records: list, all_records: list):
+                      same_tile_records: list, all_records: list,
+                      before=None):
     """Predicted seconds for a single step, or ``None`` for no basis.
 
     Applies the shared prediction order — same-tile history, then a
@@ -652,23 +707,24 @@ def _predict_one_step(step_key: str, features: dict,
                   if _same_tile_compatible(r, features, step_key)]
 
     if step_key == "vector":
-        autopatch_prediction = (features or {}).get("autopatch_prediction_s")
-        if isinstance(autopatch_prediction, (int, float)) \
-                and math.isfinite(autopatch_prediction) \
-                and autopatch_prediction > 0:
+        autopatch = _planned_autopatch_seconds(features, all_records, before)
+        if autopatch is not None:
             overhead = _learned_vector_overhead(compatible, all_records)
             if overhead is None:
                 overhead = MINIMUM_VECTOR_OVERHEAD_S
-            return overhead + float(autopatch_prediction)
+            return overhead + autopatch
 
     if step_key == "imagery" and "textures_to_download" in (features or {}):
         return _predict_imagery(features, compatible, all_records)
 
-    # Source 1: this tile's own recent, compatible history for the step.
-    same_tile_samples = [_record_step_seconds(r, step_key)
-                         for r in compatible[-_SAME_TILE_WINDOW:]]
-    same_tile_median = _median(
-        [value for value in same_tile_samples if value is not None])
+    # Source 1: this tile's own recent, compatible history for the step
+    # — its newest records OF THIS STEP: a phase-aware run records each
+    # step on its own, and windowing every record first left a mesh
+    # estimate with no mesh record in its window (#2045).
+    same_tile_samples = [value for value in (
+        _record_step_seconds(r, step_key) for r in compatible)
+        if value is not None][-_SAME_TILE_WINDOW:]
+    same_tile_median = _median(same_tile_samples)
     if same_tile_median is not None:
         return same_tile_median
 
@@ -707,16 +763,28 @@ def predict_step_seconds(lat: int, lon: int, features: dict,
         same_tile_records = []
         all_records = []
     for step_key in (steps or ()):
-        estimate = None
-        try:
-            estimate = _predict_one_step(
-                step_key, features or {}, same_tile_records, all_records)
-        except Exception:
-            estimate = None
-        if estimate is None or not math.isfinite(estimate) or estimate < 0:
-            estimate = DEFAULT_STEP_SECONDS.get(step_key, 60.0)
-        predictions[step_key] = float(estimate)
+        predictions[step_key] = predict_for_replay(
+            step_key, features or {}, same_tile_records, all_records)
     return predictions
+
+
+def predict_for_replay(step_key: str, features: dict,
+                       same_tile_records: list, all_records: list,
+                       before=None) -> float:
+    """One step's seconds from the history GIVEN — the prediction
+    :func:`predict_step_seconds` makes, constant fallback included, with
+    the records injected (``o4_engine.estimate_error`` replays every
+    recorded build from the records that existed before it; ``before``
+    limits the per-airport store the same way).  Never raises."""
+    try:
+        estimate = _predict_one_step(
+            step_key, features or {}, same_tile_records, all_records,
+            before)
+    except Exception:
+        estimate = None
+    if estimate is None or not math.isfinite(estimate) or estimate < 0:
+        estimate = DEFAULT_STEP_SECONDS.get(step_key, 60.0)
+    return float(estimate)
 
 
 # What grading one airport costs when no build has been recorded yet: a
@@ -772,3 +840,44 @@ def airport_seconds_range(lat: int, lon: int) -> tuple:
         (low, high) = (middle * SINGLE_SAMPLE_SPREAD[0],
                        middle * SINGLE_SAMPLE_SPREAD[1])
     return (float(low), float(high))
+
+
+#: A tile's newest vector-step records whose solved airports form its
+#: planned list.
+PLANNED_AIRPORT_WINDOW = 3
+
+
+def planned_airports(lat: int, lon: int):
+    """The airports a build of this tile is planned to solve
+    (``{icao: None}``), or None with no record of its airports (#2045):
+    every airport its newest :data:`PLANNED_AIRPORT_WINDOW` vector-step
+    records solved (a phase-aware run records each step on its own, so
+    the window counts vector records, never the mesh or imagery ones).
+    A union, not the last build's list — a rebuild that reused
+    every patch solves none, and the next code change solves them all
+    again; pricing those as free kept the bar still for KDEN's 22 min.
+    An airport that turns out current only makes the bar move faster."""
+    try:
+        seen, known = {}, False
+        vector = [r for r in _load_tile_records(lat, lon)
+                  if "vector" in (r.get("step_seconds") or {})]
+        for record in vector[-PLANNED_AIRPORT_WINDOW:]:
+            solved = (record.get("features") or {}).get("airport_seconds")
+            if isinstance(solved, dict):
+                known = True
+                seen.update({str(icao): None for icao in solved})
+        return seen if known else None
+    except Exception:
+        return None
+
+
+def tile_records(lat: int, lon: int) -> list:
+    """This tile's recorded builds, oldest first (``[]`` on any problem):
+    what a package estimate prices the recipient's steps from
+    (``tile_bundle.recipient_time``)."""
+    return _load_tile_records(lat, lon)
+
+
+def every_record() -> list:
+    """Every recorded build of every tile (``[]`` on any problem)."""
+    return _load_all_records()

@@ -92,7 +92,7 @@ from ..model.planar import OSM_RIBBON_FEEDS, ROAD_ROLES
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
            "road_end_after_slide", "covered_stretch", "own_road_blade", "road_over_mouth",
-           "portal_note",
+           "portal_note", "pinned_trench_notes",
            "PORTAL_YIELDS", "strip_keepout",
            "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth", "edge_wall_mouth", "face_top_z"]
 
@@ -165,6 +165,15 @@ def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: Lin
             continue
         if not airside and any(_own_road(r, p, half + rim_off, grid) for r in (axis, *routes)):
             continue                                  # clause 4: the ramp's own road
+        if not airside and any(_own_ribbon(r, p, half + rim_off, grid) for r in (axis, *routes)):
+            # #1938 round 3: a pack road polygon that is the ramp's road where
+            # the axis runs in it and widens elsewhere -- the ramp passes
+            # along it; what lies BESIDE the corridor still stops (19o)
+            rest = p.difference(_extend_back(axis, 2.0 * axis.length + half).buffer(
+                half + rim_off + tn.wall_gap_m + grid, cap_style="flat"))
+            if not rest.is_empty and rest.area > 0.0:
+                out.append((rest, c.ref))
+            continue
         out.append((p, c.ref))                        # clauses 2 and 4
     return out
 
@@ -186,6 +195,51 @@ def _own_road(axis: LineString, poly: Polygon, reach: float, grid: float) -> boo
     pavement the ramp runs beside or through, and stops it."""
     width = _narrow_width(poly)
     return width <= 2.0 * reach + grid and _runs_along(axis, poly, width, grid)
+
+
+def _own_ribbon(axis: LineString, poly: Polygon, reach: float, grid: float) -> bool:
+    """Clause 4's test read WHERE THE AXIS RUNS (#1938 round 3): ``poly`` is
+    no wider than the corridor across the axis (the median of its sections
+    square to the axis over the stretch the axis runs inside it) and the
+    axis runs along it.  A pack's road polygon paves the carriageways the
+    ramp is and widens into a forecourt or junction past it (measured EGLL
+    ``dsf:pol652``: 22-25 m across the dual where the ramp runs, inside the
+    entrance object's walls from 42 m, 42.7 m only at its far end); its
+    rotated rectangle (:func:`_own_road`) reads the forecourt."""
+    inside = axis.intersection(poly)
+    if inside.length <= grid:
+        return False                       # the axis never runs in it
+    width = _cross_width(axis, poly, inside, grid)
+    return width <= 2.0 * reach + grid and inside.length > width + grid
+
+
+def _cross_width(axis: LineString, poly: Polygon, inside, grid: float) -> float:
+    """The median width of ``poly`` square to ``axis`` at stations (every
+    ``_PROFILE_STEP_M`` or ``grid``) along ``inside``, the axis's own run
+    inside it: the section through the station only."""
+    step = max(grid, _PROFILE_STEP_M)
+    far = 10.0 * math.sqrt(max(poly.area, 1.0))
+    widths: list[float] = []
+    for piece in getattr(inside, "geoms", (inside,)):
+        if piece.geom_type != "LineString" or piece.length <= 0.0:
+            continue
+        t = 0.0
+        while t <= piece.length:
+            q = piece.interpolate(t)
+            s = axis.project(q)
+            a = axis.interpolate(max(0.0, s - step))
+            b = axis.interpolate(min(axis.length, s + step))
+            L = math.hypot(b.x - a.x, b.y - a.y) or 1.0
+            nx, ny = -(b.y - a.y) / L, (b.x - a.x) / L
+            cut = LineString([(q.x - nx * far, q.y - ny * far),
+                              (q.x + nx * far, q.y + ny * far)]).intersection(poly)
+            widths.extend(g.length for g in getattr(cut, "geoms", (cut,))
+                          if g.geom_type == "LineString" and g.distance(q) <= 1e-6)
+            t += step
+    if not widths:
+        return math.inf
+    widths.sort()
+    return widths[len(widths) // 2]
 
 
 def _narrow_width(poly: Polygon) -> float:
@@ -569,7 +623,10 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     slid.  The stops are read at the mapped mouth; those the mouth's own
     end (its cap and first spacing of ramp, ``mouth_ring``) stands in are
     the portal's opening and dropped, building pads alike (the portal's own
-    footprint) — the rest end the ramp's top.  A
+    footprint) — the rest end the ramp's top.  The refs of the pads dropped
+    come back as a seventh element, the opening's HOST pads, which the
+    tunnel's footprint cuts (#1938 S1, RULINGS 2026-11-13h round 2: dropped as stops and left
+    uncut, the pad kept the ground over the ramp).  A
     TAXIWAY face at the opening is never dropped (clause 1): its ref is
     returned instead (a string), and the caller slides the mouth — unless
     ``taxi_yields`` is false (an edge bridge's pin is never slid)."""
@@ -590,6 +647,7 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
         # stands in is the portal object's own footprint (an entrance's
         # walls read as a building): the ramp grades into it to the
         # object's bottom, and only the pads beyond end its top
+        hosts = tuple(r for p, r in pads if p.intersects(mouth_ring))
         pads = [(p, r) for p, r in pads if not p.intersects(mouth_ring)]
     if own_lines:
         stops = [(p, r) for p, r in stops if not any(
@@ -608,7 +666,7 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     stops = [(p, r) for p, r in stops if str(r).split("#", 1)[0] not in joins]
     stops = list(pads) + stops
     tree = STRtree([p for p, _r in stops]) if stops else None
-    return axis, mouth, stops, tree, "", None
+    return axis, mouth, stops, tree, "", None, hosts if mouth_ring is not None else ()
 
 
 def _junction_refs(airport, own: _t.Sequence[LineString], tol: float) -> set[str]:
@@ -625,6 +683,26 @@ def _junction_refs(airport, own: _t.Sequence[LineString], tol: float) -> set[str
             feed = OSM_RIBBON_FEEDS.get(str(getattr(w, "kind", "")))
             if feed:
                 out.add(f"{feed}:{w.id}")
+    return out
+
+
+def pinned_trench_notes(pin, hosts, walls_s: float, grade: float, mouth_z: float) -> list:
+    """The tunnel record's lines for the #1938 round-2 rules a pinned mouth
+    met (RULINGS 2026-11-13h): S1 the host pads its footprint cuts, S2 / S3
+    an entrance object's wall reach and the grade its wall feet set, S4 a
+    walled entrance seated by its ENTRANCE record (zero = floor - bottom)."""
+    out = []
+    if hosts:
+        out.append(f"#1938 S1: the pinned opening's host pad(s) {', '.join(sorted(hosts))} "
+                   f"are cut by its footprint")
+    if walls_s > 0.0:
+        out.append(f"#1938 S2/S3: inside the entrance object's wall reach {walls_s:.1f} m the "
+                   f"trench is senior to a pad; design grade {grade:.4f} (wall feet "
+                   f"{getattr(pin, 'foot_grade', 0.0):.4f})")
+    bottom = getattr(pin, "bottom_y", None)
+    if bottom is not None and getattr(pin, "face_plan", None) is None:
+        out.append(f"#1938 S4: a walled entrance, seated by its ENTRANCE record at zero "
+                   f"{mouth_z - float(bottom):.2f} (bottom {float(bottom):.2f})")
     return out
 
 

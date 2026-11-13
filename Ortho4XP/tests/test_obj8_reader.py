@@ -71,6 +71,24 @@ def test_tab_separated_vertex_and_index_lines_parse():
     assert geometry.solid_reach_metres() == pytest.approx(expected_reach)
 
 
+def test_a_triangle_naming_an_undeclared_vertex_is_dropped(tmp_path):
+    """Issue #2036: a flag OBJ glues its first ``VT`` onto the ``ATTR_LOD``
+    line, so one point is never declared; the triangles naming it are
+    dropped instead of raising IndexError out of the whole pack's
+    footprint read."""
+    path = tmp_path / "flag.obj"
+    path.write_text(
+        "I\n800\nOBJ\n\nPOINT_COUNTS 4 0 0 6\n"
+        "ATTR_LOD 0 3000VT 0 0 0 0 1 0 0 0\n"
+        "VT 0 0 0 0 1 0 0 0\nVT 4 0 0 0 1 0 0 0\nVT 4 3 0 0 1 0 0 0\n"
+        "IDX 0\nIDX 1\nIDX 2\nIDX 1\nIDX 2\nIDX 3\nTRIS 0 6\n",
+        encoding="utf-8", newline="")
+    geometry = load_object_file(str(path))
+    assert len(geometry.vertices) == 3
+    assert geometry.solid_triangles == [(0, 1, 2)]
+    assert geometry.solid_reach_metres() == pytest.approx(4.0)
+
+
 def test_vertex_line_indices_parallel_to_vertices():
     geometry = load_object_file(fixture_path("two_boxes_tab_separated.obj"))
     assert len(geometry.vertex_line_indices) == len(geometry.vertices)

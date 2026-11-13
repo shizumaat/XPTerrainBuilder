@@ -232,13 +232,55 @@ def test_binary_rewrite_equals_the_dsftool_round_trip(tmp_path, fixture,
               else WP.write_placeholder(str(tmp_path / "ph"), lat, lon))
     build = _build_dir(tmp_path, source, lat, lon)
     staged = str(tmp_path / "staged")
-    WP.relayout_tile(build, staged, lat, lon, kind="light")
+    WP.relayout_tile(build, staged, lat, lon, kind="drape")
     got = _dsf2text(os.path.join(staged, WP.dsf_relpath(lat, lon)))
     want, _n = WP.rewrite_dsf_text(_dsf2text(source), WP.tile_name(lat, lon))
     agent = re.compile(r"^PROPERTY sim/creation_agent (.*)$", re.M)
     old = agent.search(want).group(1)
-    assert agent.search(got).group(1) == WP._stamp(old, "light")
+    assert agent.search(got).group(1) == WP._stamp(old, "drape")
     assert agent.sub("", got) == agent.sub("", want)
+
+
+def _old_name(pack, lat, lon, name="old.dds"):
+    folder = os.path.join(pack, "textures", WP.tile_name(lat, lon))
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, name), "wb") as h:
+        h.write(b"DDS ")
+
+
+def test_2032_a_held_placeholder_with_no_file_is_swapped_at_once(tmp_path):
+    """#2032: a tile whose pack DSF is a placeholder and which has no
+    terrain or texture file in the pack names nothing X-Plane may open:
+    it goes in at once although X-Plane holds it (S4/S5 intact); a
+    placeholder over an earlier version's names, or a real tile, waits."""
+    lat, lon = 45, 7
+    build = _build_dir(tmp_path, os.path.join(FIXTURES, "full_ortho.dsf"),
+                       lat, lon)
+    pack, stage = str(tmp_path / "pack"), str(tmp_path / "stage")
+    WP.write_placeholders(pack, [(lat, lon), (lat, lon + 1)])
+    assert WP.nothing_held(pack, lat, lon)
+    assert WP.nothing_held(pack, 10, 10)            # no DSF at all
+    _old_name(pack, lat, lon + 1)
+    assert not WP.nothing_held(pack, lat, lon + 1)
+    held = WP.held_by_xplane(pack, lambda la, lo: True)
+    assert WP.publish(pack, build, lat, lon, staging_root=stage, kind="drape",
+                      loaded=lambda la, lo: True)["state"] == "staged"
+    res = WP.publish(pack, build, lat, lon, staging_root=stage, kind="drape",
+                     loaded=held)
+    assert res["state"] == "swapped"
+    assert not WP.nothing_held(pack, lat, lon)      # a real tile now
+    assert WP.world_tiles(pack)[(lat, lon)] == "drape"
+    # staged tiles: only the one with nothing held goes, ``only`` limits
+    for la, lo in ((lat, lon + 1), (lat + 1, lon)):
+        dsf = os.path.join(stage, WP.tile_name(la, lo), WP.dsf_relpath(la, lo))
+        os.makedirs(os.path.dirname(dsf))
+        shutil.copyfile(os.path.join(FIXTURES, "full_ortho.dsf"), dsf)
+        for sub in ("terrain", "textures"):
+            os.makedirs(os.path.join(stage, WP.tile_name(la, lo), sub,
+                                     WP.tile_name(la, lo)))
+    assert WP.swap_staged(pack, stage, held, only=(lat, lon + 1)) == []
+    assert WP.swap_staged(pack, stage, held) == ["+46+007"]
+    assert WP.swap_staged(pack, stage, held) == []      # +45+008 waits
 
 
 def test_kind_stamp_and_publish(tmp_path):
@@ -267,6 +309,10 @@ def test_kind_stamp_and_publish(tmp_path):
         "XPTerrainBuilder 1.0 [world full]"
     with pytest.raises(ValueError):
         WP._stamp("x", "placeholder")
+    with pytest.raises(ValueError):             # retired (RULINGS 2026-11-11j)
+        WP._stamp("x", "light")
+    # an earlier test app's light tile is a mesh tile of ours: it reads full
+    assert WP._KIND_RE.search("XPTerrainBuilder 1.0 [world light]") is None
 
 
 def test_publish_refuses_a_tile_that_does_not_verify(tmp_path):
@@ -290,3 +336,39 @@ def test_write_placeholders_never_overwrites_a_tile(tmp_path):
     done = WP.write_placeholders(pack, [(53, -63), (53, -62)])
     assert done == {"written": 1, "kept": 1}
     assert not WP.is_placeholder(os.path.join(pack, WP.dsf_relpath(53, -63)))
+
+
+def test_dsftool_path_falls_back_to_the_resource_utils(tmp_path, monkeypatch):
+    """The frozen app keeps Utils/ in its data folder, not beside the
+    executable: the engine-relative miss falls back to FNAMES.Utils_dir."""
+    import os
+    import sys
+
+    import O4_File_Names as FNAMES
+    import O4_World_Pack as WP
+    sub = {"darwin": ("mac", "DSFTool"), "win32": ("win", "DSFTool.exe")}
+    folder, exe = sub.get(sys.platform, ("lin", "DSFTool"))
+    utils = tmp_path / "data" / "Utils"
+    (utils / folder).mkdir(parents=True)
+    (utils / folder / exe).write_bytes(b"")
+    monkeypatch.setattr(FNAMES, "Utils_dir", str(utils))
+    assert WP.dsftool_path(str(tmp_path / "engine")) == os.path.join(
+        str(utils), folder, exe)
+
+
+def test_the_world_row_is_always_the_last_row():
+    """Owner 2026-11-12: the World row goes to the bottom, below overlays
+    that sit below a mesh row, and an existing row is moved there."""
+    import O4_World_Pack as WP
+    lines = ["I", "1000 Version", "SCENERY", "",
+             "SCENERY_PACK Custom Scenery/Some-mesh/",
+             "SCENERY_PACK Custom Scenery/simHeaven_X-WORLD-Pro_Africa-01-bridges/",
+             "SCENERY_PACK Custom Scenery/zz_mesh_last/", ""]
+    assert WP.ini_install(lines) is True
+    assert lines[-2] == f"SCENERY_PACK Custom Scenery/{WP.PACK_NAME}/"
+    lines.insert(4, f"SCENERY_PACK_DISABLED Custom Scenery/{WP.PACK_NAME}/")
+    del lines[-2]
+    assert WP.ini_install(lines) is False
+    rows = [line for line in lines if WP.PACK_NAME in line]
+    assert rows == [f"SCENERY_PACK Custom Scenery/{WP.PACK_NAME}/"]
+    assert lines[-2] == rows[0] and lines[-1] == ""

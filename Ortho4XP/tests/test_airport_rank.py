@@ -42,6 +42,17 @@ def test_largest_by_tile():
     assert set(largest) == {tuple(c["tile"]) for c in CASES["largest"]}
 
 
+@pytest.mark.parametrize("case", CASES["cells"])
+def test_cell_airport(case):
+    """A Fly-view click on a cell names its largest custom airport, else
+    its largest airport (#2026)."""
+    pick = RANK.cell_airport(tuple(case["tile"]),
+                             [_entry(r) for r in CASES["index"]],
+                             [tuple(c) for c in case["custom"]])
+    want = tuple(case["pick"]) if case["pick"] else None
+    assert pick == want
+
+
 @pytest.mark.parametrize("case", CASES["titles"])
 def test_title_codes(case):
     assert RANK.title_codes(case["largest"], case["searched"]) == case["codes"]

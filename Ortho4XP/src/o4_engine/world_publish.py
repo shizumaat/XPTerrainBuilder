@@ -3,23 +3,43 @@ World spec §4.1, §7.3), when there is one.
 
 The build runs in its ordinary build folder; when it is done
 (``BuildDone`` ok) and the app's World pack (made by ``world_install``,
-``world_commands.managed``) is in the Custom Scenery folder and the tile
-was built with imagery on demand, :func:`_publish_built` stages it
+``world_commands.managed``) is in the Custom Scenery folder -- whether
+or not the tile was built with imagery on demand (RULINGS 2026-11-12g:
+every build goes into the World folder) -- :func:`_publish_built` stages it
 in the pack's shape (``O4_World_Pack.publish``: binary rewrite, verify)
 and swaps it in, unless X-Plane may hold the tile (rule S3/S4): then it
-waits staged and :func:`_swap_waiting` swaps it later.  After the swap:
+waits staged and :func:`_swap_waiting` swaps it later -- but a tile the
+pack holds only as a placeholder with no file of it goes in at once
+(``O4_World_Pack.held_by_xplane``, #2032).  After the swap:
 
 * the tile's imagery manifest names the pack's folders
   (:data:`LAYOUT_KEY`), so the on-demand index rows read and land
   textures there (``O4_Imagery_OnDemand_Index`` resolves every texture
   path through them) and the tile's rows are re-registered;
+* a DRAPE swapped in (it has no build folder) gets its index rows from
+  the pack's own files (``imagery_follow_drape.register``, #2037), so the
+  follow job sharpens it like any on-demand tile;
+* a full build of ours supersedes the tile's adopt record from Convert
+  (``world_adopt_supersede``, #2047): the map and Library say built here;
 * the tile's own ``zOrtho4XP_<tile>`` link to the same build folder is
   removed: the World pack draws the tile ("instead of a new
   ``zOrtho4XP_<tile>`` folder", §4.1); ``O4_Scenery_Links.install``
   links no tile the pack holds (``O4_World_Pack.holds_tile``).
 
+Before it is staged, an on-demand tile's airport cores are fetched
+(:func:`_sharpen`, ``imagery_after_build.sharpen``; owner
+2026-11-12T16:34Z: high resolution at the airport and within sight of
+it, placeholders elsewhere): the pack never shows the airport coarse,
+and a flight counts its departure ready only once it is swapped, cores
+included.  :func:`publishing` tells the World job a tile is still in this
+worker (``world_job_run._PackPublisher`` does not count that time
+against its wait); :func:`add_core_point` names an airport the tile's
+cores must cover when its build graded none (a flight's departure).
+
 The build folder stays (its rebuild data, record and the consumers of
-spec §18 that read a build folder); removing it is a later phase.
+spec §18 that read a build folder); since RULINGS 2026-11-12g it lives in
+the World folder itself (``<World>/XPTerrainBuilder_tiles``,
+``world_home``), so its textures hard-link into the pack on one volume.
 """
 from __future__ import annotations
 
@@ -30,14 +50,14 @@ import queue
 import threading
 from typing import Any, Callable, Optional
 
-import O4_Build_Profile as PROFILE
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_World_Pack as WP
 
 from . import imagery_follow as FOLLOW
 from . import world_commands as WORLD
 
-__all__ = ["LAYOUT_KEY", "watch", "write_layout"]
+__all__ = ["LAYOUT_KEY", "add_core_point", "publishing", "watch",
+           "write_layout"]
 
 #: The imagery-manifest key naming a published tile's pack folders (the
 #: index's reader owns the name).
@@ -80,10 +100,64 @@ def _on_demand(build_dir: str, lat: int, lon: int) -> bool:
     return on_demand(build_dir, lat, lon)
 
 
+_STATE_LOCK = threading.Lock()
+#: Tiles handed to the publish worker and not yet done with.
+_IN_WORK: set = set()
+#: ``(lat, lon)`` -> ``(icao, lat, lon)`` airports its cores must cover.
+_CORE_POINTS: dict = {}
+
+
+def publishing(lat: int, lon: int) -> bool:
+    """Is tile ``(lat, lon)`` queued or in the publish worker (its cores
+    fetching, or staging)?"""
+    with _STATE_LOCK:
+        return (int(lat), int(lon)) in _IN_WORK
+
+
+def add_core_point(lat: int, lon: int, point: tuple) -> None:
+    """Have tile ``(lat, lon)``'s next publish fetch the core of airport
+    ``point`` ``(icao, lat, lon)`` too (its build may grade none)."""
+    with _STATE_LOCK:
+        points = _CORE_POINTS.setdefault((int(lat), int(lon)), [])
+        if tuple(point) not in points:
+            points.append(tuple(point))
+
+
+def _sharpen(scenery_dir: str, build_dir: str, lat: int, lon: int
+             ) -> Optional[dict]:
+    """The airport cores of a built on-demand tile the pack will take,
+    fetched into its build folder (the publish hard-links them)."""
+    if not WORLD.managed(scenery_dir) or not _on_demand(build_dir, lat, lon):
+        return None
+    from . import imagery_after_build as AFTER
+    with _STATE_LOCK:
+        extra = {(lat, lon): list(_CORE_POINTS.get((lat, lon), ()))}
+    try:
+        counts = AFTER.sharpen([(build_dir, lat, lon)], extra=extra)
+    except Exception as error:          # logged; the tile publishes coarse
+        WORLD.write_log({"cores_error": repr(error)[:300],
+                         "tile": WP.tile_name(lat, lon)})
+        return None
+    WORLD.write_log({"cores": WP.tile_name(lat, lon), **(counts or {})})
+    return counts
+
+
 def _after_swap(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
     import O4_Scenery_Links as LINKS
+    import O4_World_Drape as DRAPE
 
     from . import imagery_ondemand as ONDEMAND
+    pack = WORLD.pack_dir(scenery_dir)
+    from . import imagery_follow_drape as DRAPE_ROWS
+    if DRAPE.is_drape(os.path.join(pack, WP.dsf_relpath(lat, lon))):
+        try:
+            DRAPE_ROWS.register(pack, lat, lon)
+        except Exception as error:      # logged; the index is a cache
+            WORLD.write_log({"drape_rows_error": repr(error)[:300],
+                             "tile": WP.tile_name(lat, lon)})
+        return
+    DRAPE_ROWS.forget(lat, lon)         # a drape it replaces (#2037)
+    _supersede(scenery_dir, build_dir, lat, lon)
     write_layout(build_dir, lat, lon, WORLD.pack_dir(scenery_dir))
     with contextlib.suppress(Exception):     # the index is a cache
         ONDEMAND.register_tiles([(build_dir, lat, lon)])
@@ -91,17 +165,32 @@ def _after_swap(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
         LINKS.uninstall(lat, lon, build_dir, scenery_dir)
 
 
+def _supersede(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
+    """Our full build retires the tile's adopt record (#2047)."""
+    from . import world_adopt_supersede as SUPERSEDE
+    try:
+        done = SUPERSEDE.supersede(scenery_dir, build_dir, lat, lon)
+    except (OSError, ValueError) as error:  # logged; the next start retries
+        WORLD.write_log({"supersede_error": repr(error)[:300],
+                         "tile": WP.tile_name(lat, lon)})
+        return
+    if any(done.values()):
+        WORLD.write_log({"adopt_superseded": [WP.tile_name(lat, lon)], **done})
+
+
 def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
                   kind: str = "full",
                   loaded: Optional[Callable[[int, int], bool]] = None
                   ) -> Optional[dict]:
     """Publish one built tile (see the module docstring); ``None`` when
-    there is no World pack or the tile was not built on demand."""
-    if not WORLD.managed(scenery_dir) or not _on_demand(build_dir, lat, lon):
+    there is no World pack.  Every build is published, imagery on demand
+    or not (RULINGS 2026-11-12g: no Tiles-folder-then-link step)."""
+    if not WORLD.managed(scenery_dir):
         return None
     pack = WORLD.pack_dir(scenery_dir)
     if loaded is None:
         loaded = WORLD.tile_loaded(scenery_dir)
+    loaded = WP.held_by_xplane(pack, loaded)       # #2032
     # S7: the follow job waits for THIS tile only while it is swapped.
     with FOLLOW.paused("world publish", tiles=[WP.tile_name(lat, lon)]):
         result = WP.publish(pack, build_dir, lat, lon,
@@ -121,8 +210,8 @@ def _swap_waiting(scenery_dir: str, build_dir_of: Callable[[int, int], str],
     if not WORLD.managed(scenery_dir):
         return []
     pack = WORLD.pack_dir(scenery_dir)
-    done = WP.swap_staged(pack, WORLD.staging_root(),
-                          loaded or WORLD.tile_loaded(scenery_dir))
+    done = WP.swap_staged(pack, WORLD.staging_root(), WP.held_by_xplane(
+        pack, loaded or WORLD.tile_loaded(scenery_dir)))
     for name in done:
         lat, lon = WP.parse_tile(name)
         _after_swap(scenery_dir, build_dir_of(lat, lon), lat, lon)
@@ -140,12 +229,13 @@ def watch(session: Any,
 
     def work() -> None:
         while True:
-            lat, lon, where, kind = jobs.get()
+            lat, lon, where = jobs.get()
             try:
-                result = _publish_built(where, session.tile_build_dir(lat, lon),
-                                       lat, lon, kind)
+                build_dir = session.tile_build_dir(lat, lon)
+                _sharpen(where, build_dir, lat, lon)
+                result = _publish_built(where, build_dir, lat, lon)
                 if result is not None:
-                    swap = ((result["tile"], kind, _utc())
+                    swap = ((result["tile"], "full", _utc())
                             if result["state"] == "swapped" else ())
                     # Tiles staged earlier swap in now if they may (S3);
                     # the build-ahead job (W2) retries them on its own.
@@ -154,6 +244,9 @@ def watch(session: Any,
             except Exception as error:      # logged; the build is done
                 WORLD.write_log({"publish_error": repr(error)[:300],
                                  "tile": WP.tile_name(lat, lon)})
+            finally:
+                with _STATE_LOCK:
+                    _IN_WORK.discard((lat, lon))
 
     # The worker starts with the first job, not at subscription: a
     # window that never builds holds no thread (CI leaked one per test
@@ -162,6 +255,8 @@ def watch(session: Any,
     worker: list = []
 
     def enqueue(job: tuple) -> None:
+        with _STATE_LOCK:
+            _IN_WORK.add((job[0], job[1]))
         jobs.put(job)
         with started:
             if not worker:
@@ -173,13 +268,11 @@ def watch(session: Any,
         if (type(event).__name__ == "BuildDone" and event.ok
                 and not getattr(session, "_stepwise_run", False)):
             # The Custom Scenery folder as configured NOW, on the
-            # emitting thread (not when the worker gets to it), and the
-            # kind the build's profile makes (a light tile, World spec
-            # §8.4), read while the run still holds its overrides.
+            # emitting thread (not when the worker gets to it).  A session
+            # build is a full tile (drapes are written by the World job,
+            # never built; RULINGS 2026-11-11j).
             lat, lon = int(event.lat), int(event.lon)
-            overrides = getattr(session, "tile_overrides",
-                                lambda la, lo: {})(lat, lon)
-            enqueue((lat, lon, scenery_dir(), PROFILE.profile_of(overrides)))
+            enqueue((lat, lon, scenery_dir()))
     session.subscribe(on_event)
 
 

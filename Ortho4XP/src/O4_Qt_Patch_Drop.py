@@ -8,7 +8,8 @@ three ways: a drag onto the main window (:class:`DropFilter` on the window
 and the map's viewport), a file opened on the app icon (``QFileOpenEvent``,
 macOS; :class:`DropFilter` on the application) and paths given as launch
 arguments (Windows "Open with" / a drop on the executable, Linux desktop
-files; :func:`launch_paths`).
+files; :func:`launch_paths`).  A ``.xptb`` package arriving any of
+those ways goes to ``O4_Qt_Tile_Package`` instead (#2014).
 """
 from __future__ import annotations
 
@@ -27,10 +28,12 @@ INSTALL = "Install"
 
 
 def _local_paths(mime) -> list[str]:
-    """The local files and folders a drag carries."""
+    """The local files and folders a drag carries, in the platform's own
+    form (Qt gives ``C:/x`` on Windows; the user's path is ``C:\\x``)."""
     if mime is None or not mime.hasUrls():
         return []
-    return [u.toLocalFile() for u in mime.urls() if u.isLocalFile()]
+    return [os.path.normpath(u.toLocalFile()) for u in mime.urls()
+            if u.isLocalFile()]
 
 
 def launch_paths(argv) -> list[str]:
@@ -46,7 +49,16 @@ def _tiles_in_run(window, plan) -> list[str]:
 
 def offer(window, paths) -> bool:
     """Show what dropping *paths* installs and install it on "Install".
-    True when something was installed."""
+    True when something was installed.  A ``.xptb`` package goes to the
+    package install (#2014, ``O4_Qt_Tile_Package``)."""
+    import O4_Qt_Tile_Package as QTPKG
+
+    paths = list(paths)
+    packages = [p for p in paths if QTPKG.is_package(p)]
+    paths = [p for p in paths if not QTPKG.is_package(p)]
+    installed = bool(packages) and QTPKG.offer(window, packages)
+    if not paths:
+        return installed
     try:
         plan = PD.patch_drop_plan(paths)
     except ValueError as error:

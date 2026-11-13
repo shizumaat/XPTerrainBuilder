@@ -232,6 +232,17 @@ CAPABILITIES: tuple = (
     "world_migrate",                # 2026-11-10, World spec M world_migrate (+ WorldReady)
     "live_preview",                 # 2026-11-10, #2001 live_preview_squares / live_preview_mip
     "world_onboard",                # 2026-11-11, #2007 world_onboard (World pack at the start)
+    "tile_package",                 # 2026-11-11, #2014 package_save/plan/install/merge (.xptb)
+    "pack_packages",                # 2026-11-11, RULINGS 11m PackPackage + package_developer
+    "world_rechoose",               # 2026-11-11, kept tiles made dynamic (+ WorldReady)
+    "scenery_reload_offer",         # 2026-11-12, #2019 reload on user click (scenery_reload)
+    "scan_world",                   # 2026-11-12, #2024 ScanBatch.world + ScanDone.world_count
+    "world_measure",                # 2026-11-12, world_measure_state + world_migrate background
+    "storage_scan_cached",          # 2026-11-12, #2029 storage_scan_cached (background scan)
+    "world_tile_remove",            # 2026-11-12, tile pane Remove from World Pack (LibraryReady)
+    "world_home",                   # 2026-11-12, RULINGS 12g/h world_onboard home
+    "storage_tiers",                # 2026-11-12, RULINGS 12g storage_tiers / storage_tier_set
+    "imagery_core_rows",            # 2026-11-13, #2039 ImageryCoresProgress + imagery_cores_stop
 )
 
 
@@ -286,10 +297,15 @@ class ScanBatch(EngineEvent):
     ``built``: {(lat, lon): TileInfo-shaped dict}; ``installed``: list of
     (lat, lon).  Keys are tuples in-process and become 2-item lists over
     JSON — consumers index positionally.
+    ``world`` (capability ``scan_world``, #2024): what the World pack draws on
+    each tile it knows, ``[lat, lon, state, origin, sharp, source,
+    volume]`` rows (``o4_engine.world_state.WorldTile.wire``); a tile in
+    no row has nothing.  An older front end ignores it.
     """
 
     built: dict = field(default_factory=dict)
     installed: tuple = ()
+    world: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -298,6 +314,7 @@ class ScanDone(EngineEvent):
 
     built_count: int = 0
     installed_count: int = 0
+    world_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -329,11 +346,14 @@ class TileState(EngineEvent):
 class StepProgress(EngineEvent):
     """Whole-tile progress while a build step runs.
 
-    The session owns ALL percent/label math (step weighting, legacy-bar
-    mapping, auto-patch folding) — views only render.  ``indeterminate``
-    marks steps that report no usable percentage (mesh triangulation,
-    overlay extraction): show a busy indicator while HOLDING ``percent``.
-    ``attempt``: as on ``TileState`` (#1326).
+    The session owns ALL percent/label math (step weighting by predicted
+    seconds, legacy-bar mapping, auto-patch folding) — views only render.
+    Every step moves (#2045): one with no percentage of its own (vector,
+    mesh, overlays) advances along its predicted seconds
+    (``o4_engine.step_clock``), so this engine sends ``indeterminate``
+    False; a view still shows a busy indicator while HOLDING ``percent``
+    when it is True (older engines).  ``attempt``: as on ``TileState``
+    (#1326).
     """
 
     lat: int = 0
@@ -889,6 +909,39 @@ class GatewayAirports(EngineEvent):
 
 
 @dataclass(frozen=True)
+class PackPackage(EngineEvent):
+    """A package an installed airport pack ships in its ``XPTerrainBuilder``
+    folder, applied when a tile holding the airport built (RULINGS
+    2026-11-11m (4); capability ``pack_packages``; ``tile_bundle.
+    pack_shipped``).  Emitted at the start of the tile's vector step.
+    ``state``:
+
+    * ``"applied"`` — the build uses it: a notice, ``text`` "Using
+      <pack>'s XPTerrainBuilder data for <ICAO>";
+    * ``"fallback"`` — the installed pack is not the version the package
+      was made for: the airport is processed as usual (noticed once per
+      package);
+    * ``"conflict"`` — the package's patch is newer than the user's own,
+      which is kept: the app opens the install sheet on ``path`` once
+      (the "Keep my patch" / "Back up mine and use the package's"
+      question, RULINGS 2026-11-11l (3)).
+
+    Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
+    matches this class name as a STRING LITERAL (renaming it breaks the
+    app silently).
+    """
+
+    pack: str = ""
+    pack_root: str = ""
+    path: str = ""
+    icao: str = ""
+    state: str = "applied"
+    text: str = ""
+    lat: int = 0
+    lon: int = 0
+
+
+@dataclass(frozen=True)
 class PackObjectsReady(EngineEvent):
     """The completion half of the ``pack_objects`` command (protocol 1.12,
     patch-editor spec §2 and §5): the command replies
@@ -1037,8 +1090,11 @@ class ImageryFollowStatus(EngineEvent):
     queued).  ``sharp`` textures at full resolution of ``textures``;
     ``landed``, ``late``, ``failed``, ``bytes_landed`` this session;
     ``flight_loads`` Web API id resets (a flight load), ``jumps`` camera
-    jumps, ``reloads`` scenery reloads the job asked X-Plane for after a
-    spawn or jump whose imagery missed the flight-start window (#1992 P5).
+    jumps, ``reloads`` scenery reloads the job OFFERED the user after a
+    spawn or jump whose imagery missed the flight-start window (#1992 P5);
+    ``reload_offer`` the offer pending (``o4_engine.reload_offer.CODES``,
+    "" none): the apps show "Reload scenery", and X-Plane reloads only
+    when the user clicks it (owner 2026-11-12T14:34Z).
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).
@@ -1064,6 +1120,7 @@ class ImageryFollowStatus(EngineEvent):
     flight_loads: int = 0
     jumps: int = 0
     reloads: int = 0
+    reload_offer: str = ""
 
 
 @dataclass(frozen=True)
@@ -1078,12 +1135,18 @@ class WorldStatus(EngineEvent):
     show.  ``installed``: the pack and its ``scenery_packs.ini`` row exist;
     ``seen_by_xplane``: this X-Plane session listed it (``None``: unknown);
     ``restart_needed``: installed while X-Plane runs without it.
-    ``tiles``: ``{placeholder, drape, light, full, staged}`` counts;
+    ``tiles``: ``{placeholder, drape, full, staged}`` counts;
     ``queue`` jobs waiting; ``building`` rows ``[tile, kind, step,
-    remaining_s]``; ``loaded`` tiles X-Plane loaded this session (the
+    remaining_s]``; ``jobs`` build-ahead's tiles in track mode,
+    ``[[lat, lon], "ahead", kind, state]`` (``FlightStatus.jobs``' shape:
+    the Fly map draws them in free flight); ``loaded`` tiles X-Plane loaded this session (the
     ``Log.txt`` witness); ``last_swap`` ``[tile, kind, utc]``; ``slots``,
     ``frame_ms``, ``governor`` (``ok``, ``reduced``) the CPU share (W2);
-    ``bytes`` the pack's size.
+    ``bytes`` the pack's size.  ``here``: the aircraft's own tile while
+    build-ahead runs (``world_job.WorldJob.here`` with
+    ``fly_here.describe``'s ``airport``, ``squares``, ``sharp`` and
+    ``reload_offer``; None before a position): the Fly pane's "Preparing
+    imagery at ..." with no plan (#2020).
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).
@@ -1097,12 +1160,14 @@ class WorldStatus(EngineEvent):
     tiles: Any = None
     queue: int = 0
     building: tuple = ()
+    jobs: tuple = ()
     loaded: tuple = ()
     last_swap: tuple = ()
     slots: int = 0
     frame_ms: float = 0.0
     governor: str = "ok"
     bytes: int = 0
+    here: Any = None
 
 
 @dataclass(frozen=True)
@@ -1119,6 +1184,53 @@ class WorldReady(EngineEvent):
     request: Any = None
     result: Any = None
     error: str = ""
+
+
+@dataclass(frozen=True)
+class ImageryCoresProgress(EngineEvent):
+    """One tile's airport cores sharpening in the background (#2039,
+    capability ``imagery_core_rows``, ``o4_engine.imagery_core_rows``):
+    after a build in on-demand mode, a World publish, a flight's kept
+    endpoints or an adopt.  Both apps show it as the tile's row in the
+    Build view's Activity list (``O4_Imagery_OnDemand_Text.cores_row_status``).
+
+    ``state``: ``active`` while it runs (once at the start, then once per
+    finished square), then ``done``, ``error`` (``failed`` squares) or
+    ``stopped`` (the user's ``imagery_cores_stop``, or left for a build);
+    ``done`` of ``total`` squares landed.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    lat: int = 0
+    lon: int = 0
+    state: str = "active"
+    done: int = 0
+    failed: int = 0
+    total: int = 0
+
+
+@dataclass(frozen=True)
+class WorldMigrateProgress(EngineEvent):
+    """How far a running ``world_migrate`` is (owner 2026-11-11T15:32Z:
+    "show a progress bar and count as we run through their existing
+    tiles"): ``phase`` ``measure`` (the dry run: each pack read),
+    ``sample`` (its timed sample), ``adopt`` (the journalled tiles read
+    for adopting again; owner 2026-11-12T19:08Z: a count for every
+    phase) or ``move`` (the migration); ``done`` of ``total`` tiles of
+    that phase; ``tile`` the pack in hand.  At most ~5 a second; the last
+    of each phase has ``done == total``.
+    ``o4_engine.world_migrate._count_events``.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    phase: str = ""
+    done: int = 0
+    total: int = 0
+    tile: str = ""
 
 
 @dataclass(frozen=True)
@@ -1141,7 +1253,11 @@ class FlightStatus(EngineEvent):
     ``sent``; ``diverted_to`` the diversion airport (``flight_divert``,
     lane F2); ``waivable`` the en-route tiles that need the internet and
     may be left to X-Plane's own scenery (``flight_update
-    {waive_offline: true}``, RULINGS 2026-11-10k Q3).
+    {waive_offline: true}``, RULINGS 2026-11-10k Q3); ``choices`` one row
+    per departure or destination on a mesh this app did not build (#2025,
+    ``flight_adopted.choice_row``: ``tile``, ``role``, ``icao``,
+    ``origin``, ``built_by``, ``patched`` yes/no/unknown,
+    ``upgrade_estimate_s``, ``choice`` ``""`` until ``flight_choose``).
 
     ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
     as a STRING LITERAL (renaming it breaks the app silently).
@@ -1163,6 +1279,7 @@ class FlightStatus(EngineEvent):
     reload: str = ""
     diverted_to: str = ""
     waivable: tuple = ()
+    choices: tuple = ()
 
 
 @dataclass(frozen=True)

@@ -84,11 +84,28 @@ class TileInfo:
     # from its imagery record (``O4_Tile_Utils.imagery_manifest_path``).
     on_demand: bool = False
     pinned: bool = False
+    # What the build stood its airports on (owner 2026-11-12T21:55Z:
+    # "the tile details like what imagery was used, detail, ground shaped
+    # dates etc."): the elevation each airport's inset came from, grouped
+    # ("HRDEM 1 m: CYBW, CYYC"), and the airports the newest build graded
+    # with their packs; "" when unknown.
+    airport_elevation: str = ""
+    airports: str = ""
+    # The elevation the tile was built with (#2033, the tile pane's
+    # "Elevation" row, before Imagery): the base and the airport insets,
+    # "Viewfinderpanoramas + USGS3DEP 1 m inset"; "" when unknown.
+    elevation: str = ""
 
 
 #: :attr:`TileInfo.origin` of a tile this app built, and of another's.
 ORIGIN_HERE = "xptb"
 ORIGIN_OTHER = "other"
+#: ... and of a tile another tool built that Convert existing tiles
+#: ADOPTED (``o4_engine.world_adopt``): its mesh kept, packaged and
+#: offloaded as one of ours.
+ORIGIN_ADOPTED = "adopted"
+#: The adopted tile's stamp, in its folder (written by ``world_adopt``).
+ADOPTED_STAMP = ".xptb_adopted.json"
 
 
 ##############################################################################
@@ -283,14 +300,48 @@ def built_here(build_dir: str, lat: int, lon: int,
     return False
 
 
+def adopted_record(build_dir: str) -> dict:
+    """The :data:`ADOPTED_STAMP` of ``build_dir`` (``{}`` when it has
+    none, it does not read, or a full build of ours has superseded it:
+    ``o4_engine.world_adopt_supersede``, #2047)."""
+    import json
+    try:
+        with open(os.path.join(build_dir, ADOPTED_STAMP),
+                  encoding="utf-8") as handle:
+            record = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(record, dict) or record.get("superseded"):
+        return {}
+    return record
+
+
+def ours(build_dir: str, lat: int, lon: int,
+         last_build: Optional[dict] = None) -> bool:
+    """This app built the tile (:func:`built_here`) or adopted it
+    (:func:`adopted_record`): ours to package and offload."""
+    return (built_here(build_dir, lat, lon, last_build)
+            or bool(adopted_record(build_dir)))
+
+
+def origin_of(build_dir: str, lat: int, lon: int,
+              last_build: Optional[dict] = None) -> str:
+    """:data:`ORIGIN_HERE`, :data:`ORIGIN_ADOPTED` or :data:`ORIGIN_OTHER`."""
+    if built_here(build_dir, lat, lon, last_build):
+        return ORIGIN_HERE
+    return ORIGIN_ADOPTED if adopted_record(build_dir) else ORIGIN_OTHER
+
+
 def _build_tile_info(
     build_dir: str, lat: int, lon: int, dir_name: str
 ) -> Optional[TileInfo]:
     """Assemble a :class:`TileInfo` for one build directory, or ``None``.
 
     A tile is reported when its ``.dsf`` exists (``dsf_present=True``) or,
-    failing that, when a tile config file exists (``dsf_present=False``).
-    When neither is present ``None`` is returned so the caller skips it.
+    failing that, when a tile config file or its imagery record exists
+    (``dsf_present=False``: a tile the World pack draws keeps only its
+    records here, ``o4_engine.world_records``).  When none is present
+    ``None`` is returned so the caller skips it.
     """
     dsf_path = os.path.join(
         build_dir, "Earth nav data", FNAMES.long_latlon(lat, lon) + ".dsf"
@@ -307,7 +358,8 @@ def _build_tile_info(
         None,
     )
 
-    if not dsf_present and cfg_path is None:
+    if (not dsf_present and cfg_path is None
+            and not os.path.isfile(imagery_record_path(build_dir, lat, lon))):
         return None
 
     provider, zl, has_zones, custom_dem, high_zl_airports, cover_zl = (
@@ -318,7 +370,15 @@ def _build_tile_info(
     last_build = TILELOG.last_build(build_dir, lat, lon)
 
     detected_provider, detected_zl = _detected_imagery(build_dir)
+    if not detected_provider:
+        detected_provider, detected_zl = _recorded_imagery(build_dir, lat, lon)
     resolved_dir, volume, mounted = TVOL.tile_volume(build_dir)
+    mesh_date = _mesh_date(build_dir, lat, lon)
+    imagery_date = _imagery_date(build_dir)
+    if mesh_date is None or imagery_date is None:
+        recorded = _recorded_dates(build_dir, lat, lon)
+        mesh_date = recorded[0] if mesh_date is None else mesh_date
+        imagery_date = recorded[1] if imagery_date is None else imagery_date
     return TileInfo(
         lat=lat,
         lon=lon,
@@ -333,16 +393,18 @@ def _build_tile_info(
         custom_dem=custom_dem,
         detected_provider=detected_provider,
         detected_zl=detected_zl,
-        mesh_date=_mesh_date(build_dir, lat, lon),
-        imagery_date=_imagery_date(build_dir),
+        mesh_date=mesh_date,
+        imagery_date=imagery_date,
         size_bytes=None,
         last_build=last_build,
         built_by=TILELOG.built_by_text(last_build),
         resolved_dir=resolved_dir,
         volume=volume,
         volume_mounted=mounted,
-        origin=(ORIGIN_HERE if built_here(build_dir, lat, lon, last_build)
-                else ORIGIN_OTHER),
+        origin=origin_of(build_dir, lat, lon, last_build),
+        airport_elevation=_airport_elevation_text(build_dir),
+        elevation=_elevation_text(build_dir, custom_dem),
+        airports=_airports_text(last_build),
         **_on_demand_flags(build_dir, lat, lon),
     )
 
@@ -367,11 +429,134 @@ def read_imagery_record(build_dir: str, lat: int, lon: int) -> dict:
     return record if isinstance(record, dict) else {}
 
 
+#: How long a record write waits for another writer (a build's imagery
+#: step beside a Favorite click, #2033) before it writes anyway.
+RECORD_LOCK_SECONDS = 30.0
+
+
+def update_imagery_record(build_dir: str, lat: int, lon: int, change) -> dict:
+    """Read, change and write the tile's imagery record under its file
+    lock, so a build's imagery step and a Favorite set while it runs never
+    lose each other's keys (#2033).  ``change(old) -> new`` gets the
+    record as read (``{}`` when none); ``new`` is written atomically and
+    returned."""
+    import json
+
+    import O4_File_Lock as LOCK
+    path = imagery_record_path(build_dir, lat, lon)
+    with LOCK.hold_file_lock(path, timeout_seconds=RECORD_LOCK_SECONDS):
+        data = change(read_imagery_record(build_dir, lat, lon))
+        temporary = "%s.%d.tmp" % (path, os.getpid())
+        with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(data, handle, indent=2, sort_keys=True)
+        os.replace(temporary, path)
+    return data
+
+
 def _on_demand_flags(build_dir: str, lat: int, lon: int) -> dict:
     """``{"on_demand", "pinned"}`` from the tile's imagery record (#1992)."""
     record = read_imagery_record(build_dir, lat, lon)
     return {"on_demand": bool(record.get("on_demand")),
             "pinned": bool(record.get("pinned"))}
+
+
+def _recorded_imagery(build_dir: str, lat: int, lon: int
+                      ) -> Tuple[str, Optional[int]]:
+    """``(provider, zl)`` the imagery record names, for a folder with no
+    textures to read them from (a tile the World pack draws); ``("",
+    None)`` when it names none."""
+    record = read_imagery_record(build_dir, lat, lon)
+    provider = record.get("provider")
+    zl = record.get("zoomlevel")
+    if not isinstance(provider, str) or not provider:
+        return "", None
+    return (_current_provider(provider),
+            zl if isinstance(zl, int) and not isinstance(zl, bool) else None)
+
+
+def _recorded_dates(build_dir: str, lat: int, lon: int
+                    ) -> Tuple[Optional[float], Optional[float]]:
+    """``(mesh date, imagery date)`` from the imagery record, for a folder
+    that keeps a tile's records without its mesh or textures (a tile the
+    World pack draws, ``o4_engine.world_records``): the mesh's date the
+    record names, and the record's own date."""
+    record = read_imagery_record(build_dir, lat, lon)
+    if not record:
+        return None, None
+    mesh = record.get("mesh")
+    mesh_date = (float(mesh[1]) if isinstance(mesh, list) and len(mesh) > 1
+                 and isinstance(mesh[1], (int, float)) else None)
+    try:
+        written = os.path.getmtime(imagery_record_path(build_dir, lat, lon))
+    except OSError:
+        written = None
+    return mesh_date, written
+
+
+def _resolution(metres) -> str:
+    if not isinstance(metres, (int, float)):
+        return ""
+    return "%g m" % (round(metres, 1) if metres < 10 else round(metres))
+
+
+def _airport_elevation_text(build_dir: str) -> str:
+    """The elevation the tile's airports were built on, grouped by source
+    (``O4_Unpatched_Airports.read_inset_sources``): ``"HRDEM 1 m: A, B;
+    COPERNICUSGLO30 30 m: C"`` -- ``""`` when the build recorded none."""
+    import types
+
+    import O4_Unpatched_Airports as UNPATCHED
+    groups: dict = {}
+    for row in UNPATCHED.read_inset_sources(
+            types.SimpleNamespace(build_dir=build_dir)):
+        if isinstance(row, dict) and row.get("icao"):
+            head = " ".join(part for part in (
+                str(row.get("provider") or "?"),
+                _resolution(row.get("resolution_m"))) if part)
+            groups.setdefault(head, []).append(str(row["icao"]))
+    return "; ".join("%s: %s" % (head, ", ".join(sorted(names)))
+                     for head, names in groups.items())
+
+
+def _elevation_text(build_dir: str, custom_dem: str = "") -> str:
+    """The elevation the tile was built with: the base the build recorded
+    (``O4_Unpatched_Airports.read_base_source``; else the cfg's pinned
+    ``custom_dem`` file), then its airport insets' sources --
+    ``"Copernicus GLO-30 + USGS3DEP 1 m inset"``; ``""`` when unknown."""
+    import types
+
+    import O4_Unpatched_Airports as UNPATCHED
+    tile = types.SimpleNamespace(build_dir=build_dir)
+    base = UNPATCHED.read_base_source(tile)
+    if not base and custom_dem:
+        base = os.path.basename(custom_dem.split(";")[0].strip())
+    insets: list = []
+    for row in UNPATCHED.read_inset_sources(tile):
+        if isinstance(row, dict) and row.get("icao"):
+            head = " ".join(part for part in (
+                str(row.get("provider") or "?"),
+                _resolution(row.get("resolution_m"))) if part)
+            if head not in insets:
+                insets.append(head)
+    parts = [base] if base else []
+    if insets:
+        parts.append(", ".join(insets)
+                     + (" inset" if len(insets) == 1 else " insets"))
+    return " + ".join(parts)
+
+
+def _airports_text(last_build: Optional[dict]) -> str:
+    """The airports the build graded, each with its custom pack:
+    ``"HEAZ, HECA (HECA Cairo pack)"``; ``""`` when the record has none."""
+    airports = (last_build or {}).get("airports")
+    if not isinstance(airports, dict):
+        return ""
+    words = []
+    for icao in sorted(airports):
+        fact = airports[icao] if isinstance(airports[icao], dict) else {}
+        pack = fact.get("pack") if fact.get("custom") else ""
+        words.append("%s (%s)" % (icao, pack) if pack else str(icao))
+    return ", ".join(words)
 
 
 def _offline_tile_info(

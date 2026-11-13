@@ -48,6 +48,7 @@ def window(qapp, tmp_path, monkeypatch):
     with open(prefs_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"output_dir": str(tmp_path)}, handle)
     monkeypatch.setattr(GUI, "PREFS_FILE", prefs_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     monkeypatch.setattr(
         GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "tile-scan.json"))
     import O4_UI_Utils as UI
@@ -93,6 +94,18 @@ def test_the_ground_textures_open_unticked(qapp):
     assert QTADJ._detail(rows[2]) == (
         "17 painted ground or grass images (55 polygons) laid mostly over "
         "unpaved ground at the airport cover the tile’s imagery.")
+
+
+def test_the_terrain_objects_open_unticked(qapp):
+    """RULINGS 2026-11-13i: "Hide terrain objects" is offered beside the
+    drapes and the ground, off by default."""
+    rows = ITEMS[:2] + [{"key": "terrain", "count": 1, "uses": 1,
+                         "automatic": False, "checked": False}] + ITEMS[2:]
+    box, _buttons = QTADJ.pack_adjust_box(_event(items=rows))
+    assert list(box.item_boxes) == ["trees", "drapes", "terrain"]
+    assert box.checked_items() == ["trees", "drapes"]
+    assert QTADJ.ITEM_TITLES["terrain"] == (
+        "Hide terrain objects included with the package")
 
 
 def test_the_copy_matches_the_mac_app():

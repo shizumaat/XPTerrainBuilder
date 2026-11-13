@@ -186,4 +186,62 @@ def cover_row_elevations(text: str) -> str:
     return text
 
 
-__all__ = ["cover_row_elevations", "pin_heights", "pool_header"]
+#: the finest elevation quantum an overlay's object pools carry:
+#: ``GuessGoodHeights`` halves the plane's 65535 m span at most five times
+#: (:func:`_guess_good_heights`) over a whole-metre base, so a height on
+#: this grid is stored exactly by every pool whose rows span under 1,024 m
+FINEST_QUANTUM_M = 65535.0 / 32.0 / 65535.0
+
+
+def on_finest_grid(z: float) -> float:
+    """``z`` on the :data:`FINEST_QUANTUM_M` grid (nearest): the height a
+    written ``OBJECT_MSL`` row stores without loss, so a level the solve
+    reads and the row drawn at it are one height (#1971: a stack zero of
+    1626.545 m was drawn at 1626.531)."""
+    return round(float(z) / FINEST_QUANTUM_M) * FINEST_QUANTUM_M
+
+
+def nearest_row_elevations(text: str) -> str:
+    """``text`` with every elevated object row whose height ``--text2dsf``
+    would FLOOR to a lower quantum written so it encodes to its NEAREST.
+
+    The encoder stores ``base + quantum * floor((z - base) / quantum)``
+    (measured, DSFTool 2.4.0-b1, ``HEIGHTS 0.03125 0.0``: 1626.56 ->
+    1626.53125, 1626.5312 -> 1626.5): a row up to one quantum under the
+    height the plan seated, and a height ON the grid written at four
+    places drops a whole quantum.  Such a row's height token becomes
+    ``base + quantum * (k + 0.5)``, ``k`` the nearest quantum, which floors
+    to ``k``.  A row the encoder already stores at its nearest (every row
+    read back from a DSF, every whole or on-grid height) is left byte for
+    byte; so is a text with no ``HEIGHTS`` row."""
+    hq = None
+    for line in text.splitlines():
+        if _HEIGHTS_LINE.match(line) is not None:
+            toks = line.split()
+            try:
+                hq = (float(toks[1]), float(toks[2]))
+            except (IndexError, ValueError):
+                return text
+            break
+    if hq is None or hq[0] <= 0.0:
+        return text
+    quantum, base = hq
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if not line.startswith(_ELEVATED):
+            continue
+        parts = re.split(r"(\s+)", line)        # tokens at even indices
+        try:
+            u = (float(parts[8]) - base) / quantum
+        except (IndexError, ValueError):
+            continue
+        k = round(u)
+        if math.floor(u) == k:
+            continue
+        parts[8] = f"{base + quantum * (k + 0.5):.6f}"
+        lines[i] = "".join(parts)
+    return "".join(lines)
+
+
+__all__ = ["FINEST_QUANTUM_M", "cover_row_elevations", "nearest_row_elevations",
+           "on_finest_grid", "pin_heights", "pool_header"]

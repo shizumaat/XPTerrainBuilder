@@ -1,5 +1,5 @@
 {
-  "_doc": "The Activity list's row order and status tone (#1341), the section a row sits in (#1556) and which rows the list shows selected and the map selection after a list edit (#1537). Read by Ortho4XP/tests/test_activity_order.py (O4_Activity_Order) and Tests/SceneryKitTests/ActivityOrderTests.swift (SceneryKit ActivityOrder). Each sequence starts with no stamps and counter 0; each step lists every row [key, state, label] in the order the rows were made, and the order the list shows after it: live rows first-queued at the top, new and re-queued rows appended below (#1605), then finished rows in finish order.",
+  "_doc": "The Activity list's row order and status tone (#1341), the section a row sits in (#1556), which engine queue notices open a row (#2030) and which rows the list shows selected and the map selection after a list edit (#1537). Read by Ortho4XP/tests/test_activity_order.py (O4_Activity_Order) and Tests/SceneryKitTests/ActivityOrderTests.swift (SceneryKit ActivityOrder). Each sequence starts with no stamps and counter 0; each step lists every row [key, state, label] in the order the rows were made, and the order the list shows after it: live rows first-queued at the top, new and re-queued rows appended below (#1605), then finished rows in finish order.",
   "section": [
     {"state": "done", "section": "completed"},
     {"state": "error", "section": "activity"},
@@ -50,6 +50,16 @@
     {"state": "error", "label": "failed", "finished": true},
     {"state": "stopped", "label": "stopped", "finished": true},
     {"state": "queued", "label": "stopped", "finished": true}
+  ],
+  "opens_row": [
+    {"name": "an engine-queued tile with no row opens one", "state": "queued", "label": "queued", "row": null, "opens": true},
+    {"name": "a finished row is queued again", "state": "queued", "label": "queued", "row": ["done", "done"], "opens": true},
+    {"name": "a stopped row is queued again", "state": "queued", "label": "queued", "row": ["stopped", "stopped"], "opens": true},
+    {"name": "a live row is left as it is", "state": "queued", "label": "queued", "row": ["active", "mesh"], "opens": false},
+    {"name": "the app's own queued row is left as it is", "state": "queued", "label": "queued", "row": ["queued", "queued"], "opens": false},
+    {"name": "the drained notice never opens a row", "state": "queued", "label": "stopped", "row": null, "opens": false},
+    {"name": "progress never opens a row", "state": "active", "label": "mesh", "row": null, "opens": false},
+    {"name": "a terminal never opens a row", "state": "done", "label": "done", "row": null, "opens": false}
   ],
   "tones": [
     {"state": "queued", "label": "queued", "has_issues": false, "tone": "live"},

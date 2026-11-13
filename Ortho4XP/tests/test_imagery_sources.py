@@ -234,3 +234,15 @@ def test_shared_fixture_rows_have_the_wire_shape(sources):
         assert set(row) == set(wire[row["code"]]), row["code"]
         for member in row["members"]:
             assert set(member) == {"code", "extent", "bbox", "preview"}
+
+
+def test_preview_carries_the_providers_floor(sources):
+    """#2017: the map reads each source's ``min_source_zl`` as the preview's
+    ``min_zl``; a source without one has none, a combined source takes its
+    layers' highest (EUR: the Arc@ base)."""
+    rows = _rows(sources)
+    assert rows["BI"]["preview"]["min_zl"] == 13
+    assert rows["GO2"]["preview"]["min_zl"] is None
+    assert sources.preview_min_zl("BI") == 13
+    assert sources.preview_min_zl("GO2") is None
+    assert sources.preview_min_zl("EUR") == 14

@@ -39,8 +39,33 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     public static let worldMigrate = "world_migrate"
     /// `world_onboard` (#2007): the World pack made at the start; flag only.
     public static let worldOnboard = "world_onboard"
+    /// `world_onboard`'s `home` and `legacy_build_dir` (RULINGS 2026-11-12g/h).
+    public static let worldHome = "world_home"
+    /// `storage_tiers` / `storage_tier_set` (RULINGS 2026-11-12g).
+    public static let storageTiers = "storage_tiers"
+    /// `ImageryCoresProgress` + `imagery_cores_stop` (#2039): background
+    /// core sharpening as Activity rows.
+    public static let imageryCoreRows = "imagery_core_rows"
     /// `live_preview_squares` / `live_preview_mip` (#2001): flag only.
     public static let livePreview = "live_preview"
+    /// `package_save` / `package_airports` / `package_plan` /
+    /// `package_install` / `package_merge` (#2014, `.xptb`): flag only.
+    public static let tilePackage = "tile_package"
+    /// `storage_scan_cached` (#2029): the background storage scan, shared.
+    public static let storageScanCached = "storage_scan_cached"
+    /// RULINGS 2026-11-11m: `PackPackage` (a pack's shipped `.xptb` applied
+    /// on build) and `package_developer` (the pack author's objects choice).
+    public static let packPackages = "pack_packages"
+    /// `world_rechoose`: kept tiles of Convert existing tiles made dynamic
+    /// (completes through `WorldReady`); flag only.
+    public static let worldRechoose = "world_rechoose"
+    /// `world_measure_state` + `world_migrate {background}`: Measure on its
+    /// own process, kept, started by the app (owner 2026-11-12T19:08Z).
+    public static let worldMeasure = "world_measure"
+    /// `world_tile_remove`: the tile pane's "Remove from World Pack…" —
+    /// package first, then the placeholder (completes through
+    /// `LibraryReady`); flag only.
+    public static let worldTileRemove = "world_tile_remove"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

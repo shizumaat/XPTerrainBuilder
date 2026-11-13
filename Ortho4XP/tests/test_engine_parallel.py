@@ -51,13 +51,18 @@ def reset_ui_routing():
 
 
 @pytest.fixture
-def stub_worker(monkeypatch):
+def stub_worker(monkeypatch, tmp_path):
     """Point the scheduler at the stub worker and stub the time model.
 
     The time model is only consulted on the in-process path, but stubbing
     it (as ``test_engine_session`` does) keeps every run deterministic and
-    off the real ``~/.ortho4xp`` store.
+    off the real ``~/.ortho4xp`` store.  The tiles' home is this test's
+    own (``FNAMES.Tile_dir``, the one override): the run's build logs went
+    into the checkout's ``Tiles`` (``custom_build_dir=""``), where the
+    World-home move then counted them.
     """
+    import O4_File_Names as FNAMES
+    monkeypatch.setattr(FNAMES, "Tile_dir", str(tmp_path / "Tiles"))
     monkeypatch.setattr(
         parallel, "tile_worker_command",
         lambda: [sys.executable, STUB_WORKER])
@@ -276,7 +281,10 @@ def test_a_steps_warnings_ride_on_the_tiles_terminal_build_done(
 def test_cancel_queued_tile_never_starts(stub_worker, tmp_path):
     """cancel_tile on a QUEUED tile (3 tiles, slots=2, third queued behind
     two sleepers): the third emits TileState 'stopped', NEVER a
-    StepProgress, and RunDone done=2."""
+    StepProgress, and RunDone done=2.  Memory admission unconstrained:
+    a small runner admits one step at a time, and two ~5 s sleepers in
+    series overran the 10 s wait on macos CI (PR #2015)."""
+    _unconstrain_memory_admission(stub_worker)
     session = EngineSession()
     collector = Collector(session)
     # Two slow sleepers keep both slots busy so the third stays queued.
@@ -284,7 +292,7 @@ def test_cancel_queued_tile_never_starts(stub_worker, tmp_path):
     assert _start_parallel(session, tiles, slots=2) is True
     # Cancel the queued tile immediately (before either sleeper frees a slot).
     assert session.cancel_tile(12, 3) is True
-    run_done = collector.wait_run_done()
+    run_done = collector.wait_run_done(30.0)
 
     queued = collector.tile_events(12, 3)
     assert any(isinstance(e, EV.TileState) and e.label == "stopped"
@@ -543,6 +551,10 @@ def test_in_process_enqueue_build_appends_to_running_queue(monkeypatch,
     """enqueue_build during an in-process run appends the batch to the
     live work queue: the run builds it after the original tiles, under
     ONE RunDone."""
+    import O4_File_Names as FNAMES
+
+    # the "" batch builds in this test's own tiles' home
+    monkeypatch.setattr(FNAMES, "Tile_dir", str(tmp_path / "Tiles"))
     holder = {}
     fired = {"done": False}
 

@@ -11,7 +11,13 @@ user can choose to hide or not".  Two kinds (:class:`_Kind`), one each:
   (``auto_patch_v2.airport.pack_drapes``); checked when asked;
 * :data:`GROUND` (row ``ground``) — the ground sheets
   (``auto_patch_v2.airport.pack_ground_sheets``); UNCHECKED when asked,
-  never hidden without the user's tick (#1946).
+  never hidden without the user's tick (#1946);
+* :data:`TERRAIN` (row ``terrain``, owner RULINGS 2026-11-13i, #2036 (c))
+  — the objects that model terrain where quality elevation models the
+  same ground (``auto_patch_v2.airport.terrain_model`` /
+  ``pack_terrain``); UNCHECKED when asked.  Its witness needs the build's
+  DEM: a build remembers the resources it offered (``TERRAIN_FOUND``) and
+  the check outside a build reads them back.
 
 Both are one omission: ``dsf_write.write_pack(drapes=)`` leaves the
 definitions and their polygons out of the rewritten DSF, keeps the
@@ -45,7 +51,7 @@ from . import pack_choice as _PC
 from . import pack_rewrite as _PR
 from .pack_choice import relative as _relative
 
-__all__ = ["ACTIONS", "STORE", "PHOTOS", "GROUND", "KINDS", "check_all",
+__all__ = ["ACTIONS", "STORE", "PHOTOS", "GROUND", "TERRAIN", "KINDS", "check_all",
            "scanned", "drape_stage", "drape_choice"]
 
 #: the actions of a drape row of the ``pack_adjust`` command
@@ -62,7 +68,10 @@ class _Kind(_t.NamedTuple):
 
 PHOTOS = _Kind("drapes", _PC.Store(_PC.DRAPE_CHOICES), "draped photo")
 GROUND = _Kind("ground", _PC.Store(_PC.GROUND_CHOICES), "draped ground texture")
-KINDS = (PHOTOS, GROUND)
+TERRAIN = _Kind("terrain", _PC.Store(_PC.TERRAIN_CHOICES), "terrain object")
+KINDS = (PHOTOS, GROUND, TERRAIN)
+#: the terrain objects a build offered, per pack (any string value)
+_FOUND = _PC.Store(_PC.TERRAIN_FOUND, lambda v: isinstance(v, str) and bool(v))
 #: the photos' answers (the name ``adjust_stage`` and older callers read)
 STORE = PHOTOS.store
 
@@ -185,13 +194,29 @@ def scanned(scenery_dir: str, lat: int, lon: int) -> list[str]:
             and (_runway_apt(p) or _ships_photo_grid(p))]
 
 
+def terrain_paths(pack_root: str, paths: _t.Iterable[str] | None = None
+                  ) -> tuple[str, ...]:
+    """The terrain objects offered for the pack: ``paths`` (a build's,
+    remembered now) or, with ``None``, the last build's."""
+    from auto_patch_v2.airport import pack_terrain as _pt
+    if paths is None:
+        return _pt.decode(_FOUND.choice(pack_root))
+    paths = tuple(sorted(set(paths)))
+    _FOUND.remember(pack_root, _pt.encode(paths))
+    return paths
+
+
 def check_all(pack_root: str, lat: int, lon: int, *,
-              read_only: bool) -> dict[str, PackDrapes]:
+              read_only: bool, terrain: _t.Iterable[str] | None = None
+              ) -> dict[str, PackDrapes]:
     """THE CHECK for one pack's tile DSF, one :class:`PackDrapes` per kind
-    (``{}`` when there is nothing to judge: ``object_stage.pack_dump``)."""
+    (``{}`` when there is nothing to judge: ``object_stage.pack_dump``).
+    ``terrain``: the terrain objects a build offers (:func:`terrain_paths`;
+    ``None`` reads the last build's)."""
     from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import pack_drapes as _pd
     from auto_patch_v2.airport import pack_ground_sheets as _pg
+    from auto_patch_v2.airport import pack_terrain as _pt
     from auto_patch_v2.airport.file_hash import sha256_file
 
     from .object_stage import pack_dump
@@ -203,7 +228,9 @@ def check_all(pack_root: str, lat: int, lon: int, *,
     found = {PHOTOS.key: _pd.draped_orthos(pack_root, pd.dump_path, areas,
                                            bounded=bounded),
              GROUND.key: _pg.ground_sheets(pack_root, pd.dump_path, apts,
-                                           areas)}
+                                           areas),
+             TERRAIN.key: _pt.terrain_objects(pd.dump_path,
+                                              terrain_paths(pack_root, terrain))}
     hidden: tuple = ()
     if os.path.isfile(pd.pristine) and pd.pristine != pd.dsf_path:
         entry = _bs.dsf_entry(_bs.read_record(pd.dsf_path),

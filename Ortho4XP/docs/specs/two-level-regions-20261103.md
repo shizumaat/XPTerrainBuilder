@@ -1046,3 +1046,397 @@ patched off, LFPG the round-4b head 5829e7731):
   run-out ends 0; verify 3164 -> 3166 (`pad_flat` 83 -> 85, the T1 level);
   census adjudicated 2403 -> 2403, 0 new rows; solve-owned airside movers
   1 x 0.01 m.
+
+## 18. A passage under a main floor, and its court (lane lkmci2, 2026-11-10; owner RULINGS 2026-11-10h)
+
+Owner, KMCI 1.0.480 sim read: "the garden level stays part of the group,
+shouldn't change relative to the terminal, it's just the terrain should be
+graded flat at the lot level under it so it's exposed, and the lower road
+level runs along the bottom of the parking garage smoothly".
+
+**Attribution (replay `--from planar`, capture `.harness/frames/lkmci/KMCI.pkl`,
+tree claude/lkmci 7f7479e34).** Once lkmci restored the hall's main floor
+(`building26/p1`, -2.43, `planar/low_level.plan_low`, 43,782 m2 cut out of
+the block and the garage beside it), the W1 seed of unit 20 (the garage's
+walls, feet -10.36 under the stand floor -5.73: depth 4.63) found 26,550 of
+its 31,718 m2 on `p1`, not on the block: `_pad_of` read "its passage stands
+on no pad" and the passage level was never minted (the guard "the pad is
+already split into levels" never fired: it tested the block's own ref). The
+garage and the roads along it stood on the main floor at 302.44, 2.2 m over
+the lot. The garden (planters, paths, rails at y -8.0 .. -8.3, 302.6 m) stands
+outside every pad, between `dsf:objpav405` / `objpav660` (300.10-300.16) and
+the hall's facade, on DEM 302.5-303.8 the patch never touched.
+
+**As built.**
+1. TWO FLOORS ONE OBJECT WITNESSES (`level_regions._upper_floors`): a lower
+   level of the seed's own zero (`top_y` within one `PLANE_BAND_M` of the
+   seed's `z0`) whose floor stands at least two `PLANE_BAND_M` over the
+   walls' is the unit's main floor; its area counts as its block's for
+   `_pad_of`, and the passage is cut out of the block AND it (each host
+   region keeps its ref beyond the level and its riser). A level already at
+   the walls' floor, or of another zero, is no host.
+2. A LEVEL CUT INTO ITS GROUND (`low_fill`): the fill band reads the lower of
+   the level's ground median and its predicted height (`datum_pred + y_lo`).
+   Read against the median (303.33), 6,863 m2 of the garage floor at 300.78
+   was "fill" and left the patch.
+3. THE COURT (`planar/passage_court`, minted by `level_regions._courts` as
+   pieces of the passage level, `_pieces`): the unit's parts with feet at or
+   under the main floor whose centre lies on no pad / lot / airside region,
+   clustered within two `pad_frontage_m`; a cluster within two
+   `pad_frontage_m` plus a riser of a lot: the convex hull of the parts and
+   the lot's edge within that reach, grown by `pad_frontage_m`, less pads +
+   riser, lots, carriageways and airside + `pad_frontage_m`. Riser pieces
+   that reach a lot join the court (`_to_lot`): no lot vertex is shared with
+   a riser. Only for a passage cut out of a main floor (host > 1 ref).
+
+**Consumer census (RULINGS 2026-08-30l).** The new geometry is one more
+`low_level` landing of a block at a different floor, and (court) a piece of
+it -- the shape #1306's extensions already have. Every reader of
+`Registries.landings` kind `low_level`:
+
+| reader | reads | ruling |
+|---|---|---|
+| `constraints/platform.landing_rows` | per record, `z = D + y_lo` | unchanged: p3/p4 held at D - 4.63 |
+| `constraints/riser` | low vs block; two floors (`_level_floors`) | unchanged: rows spanning p1/p3 withdrawn (#1306 path) |
+| `constraints/pads` (withdrawn sets) | `kind != low_level` | unchanged |
+| `constraints/group_level` | `air_xy` records only | not reached (block-held) |
+| `constraints/road_ramp` | `wall_strips` records | not reached |
+| `planar/low_extent.extend_levels` | runs before the seeds | unchanged (p2 kept) |
+| `planar/level_regions.region_depths` | same zero, touching, floors within 1 band | p1 -2.43 / p2 -3.57 / p3, p4 -4.63: no merge |
+| `planar/low_fill.cut_fill_bands` | each level | item 2 above |
+| `planar/cut_runout` (`_run_out`) | the passage's levels + pieces | 8 run-outs, the roads leaving p3 |
+| `airport/placement_read` | `plane_origin_ref` folds `/p<k>` to the block | unchanged: the unit seats as one body |
+| `pipeline/publication`, `emit/osm_adapter` | sidecar `landings` | evidence only |
+| `model/platform`, `planar/fill_riser`, `airport/riser_wall` | fill / deck kinds | not reached |
+
+Emittable: every new region is a flat pad face with a riser strip, as the
+round-4 levels.
+
+### 18.1 Round 2 (lane lkmci3, 2026-11-10; owner RULINGS 2026-11-10n): measured, one mechanism refuted
+
+Owner (21:37Z): "1. It should be flush with the bottom of the garage, which
+should stay seated as part of the terminal object group. I believe that would
+be one story below the departures deck 2. All the objects in the vicinity
+there should stay as a group, then terrain is cut or lifted to meet the
+various levels the author made."
+
+**What the authored group says (KMCI `building26`, unit 20, adapted-row zero
+310.696).**  The garage's walls stand at y -10.36 (300.34 m): its base.  The
+departures deck (one slab, y -6.85 .. -5.38, 13,424 m2) spans the corridor
+between the hall and the garage, its soffit at 303.85 m.  The hall's lower
+(main) floor parts stand at y -8.1 .. -8.3 (302.4-302.6 m).
+
+**As measured on the base (lkmci2 fd020bd63 + main a653addd5, capture
+lkmci3, closing tile build lkmci3_d24a7f2).**  The passage `p7` stands at
+300.319 m (datum 304.947 - 4.628): 0.02 m under the garage's authored base
+(lkmci2's build: 300.235, 0.105 m under, its datum 304.863).  `big_roads:-11871`
+under the deck 300.31-300.50 (lkmci2 301.47-301.86), climbing beyond the deck
+to its ground (301.7).  `big_roads:-12349` (under the deck) 300.31 but where
+its south end meets the main floor's strip over the covered tunnel in the
+garage's west aisle (302.44; the aisle's authored slabs and wall feet at y
+-9.2 .. -8.75, 301.5-301.9 m).
+
+**Refuted: "the main floor is where its parts stand".**  A rule joining to
+the passage every piece of the main floor (after the passage's cut) that no
+part of the unit stands on at the main floor's plane, off the block, fired
+at KMCI on 701 m2 (a 378 m2 band north of the garage, a 301 m2 band south of
+it, a 22 m2 sliver) and moved neither named road (`-12349`'s contact is the
+witnessed aisle strip).  The replay census on one capture (lkmci/KMCI.pkl,
+base vs arm) read +8 airside `terrace_actual_step` rows with the pieces
+re-cut into the level, +11 with them joined as they were, all at the south
+band's west end (39.29680-39.29684, -94.71816 .. -94.71838: the passage's
+riser ending against `building26/p3`'s riser).  Deleted (RULINGS: refuted
+mechanisms are deleted); the record is this section and git (lkmci3
+d24a7f2fc / 20f546564).
+
+**For the owner (needs-owner).**
+1. A road plate of the group (`concreteroad`, y -8.10 .. -7.58, 3.4 m x
+   377 m) runs under the departures deck along the mapped road the passage
+   carries at the garage's base (`big_roads:-11605`), at the main floor
+   (302.6 m, 1.25 m under the deck's soffit); road plates at y -7.9 .. -8.1
+   (2,300 m2) cover the deck's north end, and grass medians (y -7.90, 2.9 m
+   wide) stand under the deck.  10n (1) puts the road under the deck at the
+   garage's base: the plates and medians stand 2.2-2.5 m over the ground;
+   10n (2) lifts the ground to them: the road leaves the garage's base.
+2. `big_roads:-12349` runs from under the deck into the garage's west aisle,
+   whose ground (over the covered tunnel) stands at the main floor by its
+   own slabs (y -9.2 / -8.75).  Flush with the garage's base there means
+   cutting the aisle over the tunnel 2.1 m.
+
+## 19. Round 3 (lane lkmci4; two-round-cap review 2026-11-11; owner RULINGS 2026-11-10h, 10n, 2026-11-11b)
+
+OWNER ANSWER (RULINGS 2026-11-11e, 2026-11-11T01:10Z, "kmci, option b"): the pack models no arrivals road deck, only the kerbside (sidewalk 2,393 m2, medians, a 3.4 m plate at y −8.0 = 302.7) along the hall face. The road under the departures roadway STAYS LEVEL WITH THE KERBSIDE (≈302.5, as 1.0.480); only the garage and its west aisle drop to the garage base (300.34). This OVERRIDES the parts below that put the road at the garage base:
+- S1 (B branch): the covered R6 run under the departures roadway does not trench; its floor is the MAIN FLOOR / kerbside level (not the level's y_lo). Refuse the trench by name as written, but the corridor LEAVES the passage: the passage level (garage + aisle) excludes the carriageway and its kerbside, and the road meets the passage only where its exits run out (S3).
+- 19.3 site 1 becomes: road mid-garage 39.29817,−94.71846 within 0.10 m of the kerbside level (authored y −8.0 less the kerb, ≈302.5 at zero 310.696, confirm by D0), smooth (max − min ≤ 0.10 m from 39.29730,−94.71871 to 39.29901,−94.71822), no `viaduct-road:*` face; the kerbside parts seated 0.00 .. 0.15 m over it.
+- D (kerbside ends): no longer a dock; D1's end keep applies only to the departures roadway's ramp feet.
+- Sites 2–5, 7–9 unchanged (garage and aisle at the garage base; S2 orphan growth still takes the aisle).
+
+### 19.R Why rounds 1 (lkmci2) and 2 (lkmci3) missed (review, read-only)
+
+- M1. Neither round touched the mechanism that owns the road under the deck. OSM -11605 (covered, 4 lanes, 247 m) under bridge ways -11604/-12351/-12350 fires R6: `planar/viaduct_road.py:297-331` (floor = apron − tn.mouth_depth_m, :331), called from `planar/structures.py:247`; capture `viaduct-road:0/a,b` "floor 296.39 = apron 303.89 − 7.5 … clipped at building pad building26 at 120.0 m"; `constraints/viaduct_floor.py` holds it. Emitted mid-road 39.29817,−94.71846: 297.36 / 297.36 / 297.45 (lkmci/lkmci2/lkmci3) — 2.9 m under the garage base. Both diffs touched only `planar/level_regions.py`, `low_fill.py`, `low_level.py`, `passage_court.py`.
+- M2. The aisle and garage bands survive because `level_regions.py:240` calls `level_cut(..., grow=False, whole=True)`; `low_level._with_orphans` (:419-451, RULINGS 10-24a, measured on this aisle) never runs for a seed. The aisle is one 4,866 m2 piece of building26/p1 carrying -13328 (258 m) and -13333 (187 m); `_with_roads` skips -13328 (corridor > pad_frontage_m 3.0, emit.toml:749; low_level.py:409). lkmci3 wrote `main_floor_witness` instead of reusing the orphan rule; it excluded the aisle by construction.
+- M3. `planar/cut_runout._exits` (:55, :62) takes an end only where the way runs outside every pad for CLEAR_M = 20; run-outs on the passage went 8 (lkmci capture) → 2 (lkmci3) after batch-10 levels p3–p6. South-west exit (-12358, 39.29700,−94.71880): a closed riser across the arrivals road 300.32 → 304.6.
+- M4. Round 1's census rise is riser geometry: building26/p3#strip has 88 emitted edges |Δz| > 0.25 m (worst 4.98 m at 39.29646,−94.71732); sidecar terrace_joints 159 → 169 → 199; joint step = max over its vertex pairs (`pipeline/publication.py:1062-1069`), census pairs nearest straddling vertices (`tools/check_grade.py:8984`); faces are role building, sided airside by role (check_grade.py:1589). §18's consumer table missed the #strip readers, shape-joint publication and census families; no replay census ran before the closing build. (Row-level attribution not verified.)
+- M5. §18.1's deck premise read `Part.base_y + height_m`; `height_m` is the LOCAL solid height (`airport/pack_partition.py:912`, `airport/contact.py:102-107`). From the OBJs: departures roadway concreteroad y −0.25 (310.45); arrivals kerbside y −8.0 (302.7) — ~7 m under the roadway, not 1.25 m.
+- M6. Round 2 ran on a moved base (lkmci2 + batch 10: new p3–p6, six run-outs gone, #2005 false pits) without a control.
+
+Law: 10h (garden rigid, ground under it at the lot level; lower road along the
+garage's base, smoothly), 10n ((1) the road under the departures deck flush
+with the garage's base; (2) the group rigid, terrain meets its levels), 11b
+((1) authored decks: ground grades to their ends like bridges; (2) the pad
+under a multi-level garage at or below its lowest authored level; (3) a road
+in a garage aisle over a covered run is cut to the garage base), 2026-11-03b
+Q342 a (R6's depth applies "where no object sets level B's height"), 10-24a
+(the block is its airside frontage), 10-03e (grade the ground to the
+landings), 10a (5) (the land side of a terminal is groundside and may step
+down from the pad), 10f (1) (a road at a deck's place is carried).
+
+Base: main after #2005's fix (lane l1949c) + `origin/claude/lkmci2` fd020bd63
+(its three mechanisms stay: `_upper_floors`, `low_fill` `top`,
+`planar/passage_court`).  lkmci3 carries no code.  Nothing here names a pack,
+a resource or an airport.
+
+### 19.0 What the object says (KMCI unit 20, zero 310.696; OBJ read, review)
+
+| authored level | y | world | where |
+|---|---|---|---|
+| departures roadway (`concreteroad` up-facing) | −0.25 | 310.45 | 39.29686,−94.71887 → 39.29963,−94.71808 |
+| its south ramp foot | −5.75 | 304.95 | 39.29605,−94.71835 (edge of the south building's pad) |
+| its north ramp foot | ≈ −6.6 | 304.1 | 39.30011,−94.71691 (over the garage's basement ramp) |
+| arrivals kerbside (sidewalk 2,393 m2, medians, a 3.4 m plate) | −8.0 | 302.7 | along the hall face, ends 39.29708,−94.71877 and 39.29917,−94.71817 |
+| aisle slabs / kerb feet | −9.2 .. −8.75 | 301.5–301.9 | between the road and the garage |
+| garage walls' feet (no floor slab; first slab −4.0, then every 3.75 m) | −10.36 | 300.34 | 23,268 m2 |
+| skirt, basement ramp walls | −12.72 | 297.98 | perimeter, north ramp |
+
+`Part.height_m` is the LOCAL solid height: never read a part's top as
+`base_y + height_m` (§18.1's "deck y −6.85 .. −5.38" was that reading).
+The review's OBJ read used its own transform (unit anchor, heading 192.7°);
+confirm these coordinates and heights with D0 before relying on them.
+
+### 19.1 The rules
+
+**S1. R6 yields to an object-witnessed level (10n (1); 03b Q342 a).**  A
+covered run of `planar/viaduct_road` whose road is the PASSAGE of a level
+seed (`level_regions.LevelSeed.passage`, read at `planar/build.py:312`,
+before `build_structures` at :329) mints no trench: at least half the run's
+stations stand in the seed's passage or within `pad_frontage_m` of its
+footprint.  The seeds are handed to `build_structures` and on to
+`viaduct_road_groups` (`structures.py:247`); the run is REFUSED BY NAME in the
+existing `refused` list ("stands in unit N's passage level: the level's floor
+is the road's").  No new depth: the level's own `y_lo` is the road's floor,
+because the corridor returns to the pad and `level_cut._with_roads` takes the
+carriageway in.  Single derivation site; `constraints/viaduct_floor` then has
+no half to tie.
+
+**S2. The passage takes what it cuts off (11b (2), (3); 10-24a).**  For a
+passage cut out of its unit's main floor (`host` holds an upper floor,
+lkmci2's own gate) `seed_levels` calls `level_cut` with the orphan growth:
+`low_level._with_orphans` as it stands.  A piece of the host floors that the
+level and its roads cut off from the airside frontage (no nearer the airside
+than `pad_frontage_m` + a riser) is the level.  No new function, no part
+witness.  A lower level of the same block and zero that ends up cut off the
+same way (a `low_extent` piece under a ramp) is host too.  Consequence, by
+construction: no pad of the unit stands above the walls' foot plane within
+`pad_frontage_m` of the seed's walled footprint.  Seeds whose host is the
+block alone (KIAH, LFPG 2A) keep `grow=False`.
+
+**S3. A passage road leaves by a run-out, never over a riser.**  No new
+run-out machinery (§16.1 lists three withdrawn attempts).  After S1 + S2 the
+level reaches the pad's own edge along its roads, and `cut_runout._exits`
+finds the ends it found on the 1.0.480 capture (8).  Where an exit is still
+taken by a pad after S2, it is LISTED with the pad's ref; the lane stops and
+reports, it does not add a release.
+
+**S4. The census side of a passage level (10a (5); #1777 precedent).**  Only
+if the replay census after S1–S3 still shows net-new rows whose two faces are
+both faces of a `witness: passage` level, its strip, pieces, court or
+run-out: those faces carry `side = "groundside"` (the level is kept
+`pad_frontage_m` off the airside at `low_level.py:346`), set in one post-pass
+as `planar/wall_slope.py:192` does, and published by the existing
+`emit/osm_adapter.face_sides`.  First list the readers of `Face.side`
+(`constraints/group_level.py:219` is one; it excludes `building`).  If any row
+generator would change, STOP and report.  The bar in 19.3 counts
+airside + mixed, so nothing can be moved out of sight.
+
+**D. Authored decks are spans; the ground meets them at their end lines
+(11b (1)).**
+- D0, the reading (dry first, printed): beside `planar/level_underside.
+  underside_over` (same cache, same 2 m cells) the unit's up-facing
+  near-horizontal solids at least one `PLANE_BAND_M` over the passage floor,
+  clustered by `PLANE_BAND_M` into deck levels and plan strips.  A strip's
+  END LINE is its end across its long axis; a ramp's FOOT is its lowest
+  `landing.BAND_M`.  Print per end: lat/lon, authored y, the ground now.
+- D1, the end keep: the level stops at a deck strip's end line.  Its
+  footprint is trimmed, at the single derivation site (`seed_levels`, before
+  `level_cut`), by each strip's end cap (`pad_frontage_m` along the axis)
+  less the mapped carriageways.  The ground there stays the host floor's,
+  the riser is the abutment, and the roads beside it keep the level and run
+  out beyond (S3).
+- D2, the foot landing (10-03e): a ramp foot standing more than
+  `landing.BAND_M` over its ground gets the existing landing: record kind
+  `deck` in `planar/landing.landing_regions` (its pieces from D0 in place of
+  `bridge_family.landing_pieces`), level `zero + y_foot`, collar
+  (`constraints/platform.platform_collar_rows`), run-out
+  (`planar/landing_runout.landing_runouts`, rows `constraints/ramp_runout.
+  landing_runout_rows`).  A foot whose cap a structure or a pad takes is
+  counted `landing_taken` (existing counter) and LISTED, never forced.  The
+  `landing_below_unit` gate is read against the floor the foot lands on, not
+  the unit's pad.
+- Instruments: `airport/placement_coherence.census_bridge_ends`,
+  `airport/written_seat_census.deck_rows`, `airport/bridge_approach.
+  end_ground` (the end-line reading).
+
+Order: S1, S2, S3 (one replay each, `--replay --from planar` on a fresh
+capture of the base), the replay census, S4 only if needed, then D0, D1, D2.
+STOP rules: S3's listed exit; S4's reader; D2 needing more than the named
+extensions.  Each is a report to the spec author, not a third mechanism.
+
+### 19.2 Consumer census (RULINGS 2026-08-30l)
+
+Regions touched: (R) the R6 group and its `tunnel_ramp` / `tunnel_wall`
+faces; (L) the passage level, strip, pieces, court; (H) host floors and
+cut-off lower levels; (X) run-out records; (K) deck end caps / foot landings.
+"probe" = decide on the replay, not by reading.
+
+| reader | reads | ruling |
+|---|---|---|
+| `planar/viaduct_road.viaduct_road_groups` | R derivation | S1: refuse by name |
+| `planar/structures.build_structures` (:247) | R groups | S1: seeds passed through; one group fewer |
+| `constraints/viaduct_floor`, `constraints/structures.py:453` | R halves by id prefix | not reached |
+| `planar/structure_overlap` (run-through) | R pairs | not reached |
+| `pipeline/planar_report.py:126`, `structure_stats.viaduct_roads` | R notes | shows the refusal |
+| `pipeline/publication` (`tunnel_mouth_depths`, `object_cuts`) | structures | one record fewer |
+| `planar/low_level.plan_low` / `low_level_split` | H: who holds the returned corridor | probe: block or main floor, both host |
+| `planar/low_extent.extend_levels` | H extents, before the seeds | unchanged; cut-off extents become host (S2) |
+| `planar/level_regions.seed_levels` (`_upper_floors`, `_pad_of`, `level_cut`, `_pieces`, `_courts`) | L, H | S2 (`grow`), D1 (trim) |
+| `low_level._with_roads` / `_with_orphans` | L outline | reused as they stand |
+| `level_regions.region_depths` | touching levels within one band | probe: an absorbed extent must not re-mint |
+| `planar/low_fill.cut_fill_bands` | each level against its lots | lkmci2 `top` kept; probe `fill_cut_m2` |
+| `planar/passage_court.courts`, `_to_lot` | court beside a lot | unchanged; probe no lot vertex on a riser |
+| `planar/cut_runout.cut_runouts(roads=True)`, `level_regions._run_out` | X | S3: no code; count the ends |
+| `planar/landing.landing_cut` | X strips as base regions | unchanged |
+| `planar/landing.landing_regions`, `landing_runout` | K | D2: one more source of pieces |
+| `constraints/platform.landing_rows` | L at `D + y_lo`; K at `zero + y` | unchanged |
+| `constraints/riser` (`riser_sets`, `_level_floors`) | low vs block, two floors | unchanged; fewer strips |
+| `constraints/pads`, `group_level`, `road_ramp`, `foot_road`, `assembly` | withdrawn sets, strips | probe counts only |
+| `constraints/ramp_runout.landing_runout_rows` | X, sign | unchanged |
+| `solve/design_stage.stage_split`, `solve/wall_cut`, `solve/design_ground` | floors, strips | probe: stage-1 vertex set identical to the control |
+| `planar/shapes` → `publication.terrace_joints_ll` | shape joints at L's edges | fewer joints; the count is reported |
+| `emit/osm_adapter` (`landings`, `face_sides`) | sidecar | S4 only |
+| `airport/placement_read.plane_origin_ref` | `/p<k>` folds to the block | unchanged: the unit seats as one body |
+| object stage (`auto_patch/object_stage.rebake_after_mesh`) | mesh at the feet | the plan diff must show unit 20 unmoved |
+| `airport/walled_pit` (#2005) | false pits in the group | lane l1949c; not this round |
+| `tools/check_grade` (`_is_platform_collar`, `base_plane_step`, `_check_terrace_actual_step`, `row_side`) | strips, joints, side | read only; no census edit this round |
+| `classify/storey_edge`, `planar/foot_kerb`, `group_low`, `station_level`, `covered_cut`, `ribbons`, `fill_riser`, `airport/riser_wall`, `airport/road_ramp`, `airport/cluster_profile`, `verify/strips` | `#strip` refs | probe: grep + replay counts; expected not reached |
+
+Emittable: every region is a flat pad face, a riser strip or a run-out
+strip, as round 4's.
+
+### 19.3 Closing test
+
+Synthetic first: one `--capture KMCI` on the base, `--replay --from planar`
+per step, the replay census (`--emit --verify`) base against arm before any
+build.  Start the harness census on a KMCI patch in the BACKGROUND at minute
+one (it took > 23 CPU-minutes in the review).  Then ONE tile build of KMCI
+through `tools/harness/build_airport.py` with `--base-arm` for the control on
+the same base, the harness census on both patches, and the rebake plan diff.
+Sites and bars (zero 310.696; world heights move with the solved datum, the
+bars are relative):
+
+1. Road under the departures roadway, mid-garage, 39.29817,−94.71846:
+   within 0.05 m of the passage floor and not above the garage walls' feet
+   (300.34); along the road from 39.29730,−94.71871 to 39.29901,−94.71822
+   max − min ≤ 0.05 m; no face of a `viaduct-road:*` structure in the patch.
+   (Now 297.45.)
+2. Garage west aisle, 39.29815,−94.71825, and the bands along the garage's
+   north and south walls: no emitted vertex within 3 m of the garage's
+   walled footprint above the walls' feet + 0.05 m.  (Now 302.44.)
+3. The group: unit 20's bodies identical to the control in the rebake plan;
+   garage walls' feet over the ground by 0.00 .. 0.15 m.
+4. Garden court by the two lots north of the hall (39.2995,−94.71858):
+   court ≤ lot + 0.25 m; no lot vertex above the control's lot maximum
+   + 0.05 m.  (lkmci3's patch has a lot vertex at 304.93.)
+5. Exits, south-west (39.29700,−94.71880) and north (39.29945,−94.71800): no
+   step over 0.5 m between consecutive vertices along the road; grade ≤ 10 %;
+   the run-out count reported against the control's.
+6. Deck ends (D): kerbside ends 39.29708,−94.71877 and 39.29917,−94.71817
+   (302.7): the ground off the carriageway 0 .. 0.5 m under.  Roadway feet
+   39.29605,−94.71835 (304.95) and 39.30011,−94.71691 (304.1; today 1.7 m
+   over the road): 0 .. 0.5 m under, or listed `landing_taken` with the
+   taker.
+7. Census, adjudicated, law-true: AIRSIDE ≤ control; airside + mixed ≤
+   control; `cross_shape` building|building airside ≤ control;
+   `terrace_actual_step` ≤ control.  Reference from the pre-lkmci2 frame:
+   209 / 262 / 3 / 1.
+8. Airside untouched: every apron, taxiway and runway vertex within 0.02 m
+   of the control.
+9. Other airports: on each registered capture with a passage seed, the
+   replay prints the same `level_seed_list` and R6 list as before, or the
+   lane names the run that changed and why.
+
+A miss is any of 1–5, 7, 8 failing.  A listed foot in 6 or a changed run in 9
+is a reported residual for the owner's sign-off, not a miss.  Materiality
+0.01 m; two fix iterations per site, then stop and report.  Build time: one
+refusal test per R6 run and one existing overlay; under 0.1 s expected,
+reported from `KMCI.report.json`.  Under RULINGS 2026-11-11c a miss of this
+round goes to the owner (park / ship / redesign).
+
+Brief lines: edit by shell in the lane's own worktree; never raise the lane
+cap; delete scratch builds when reporting; report net lines and new public
+symbols; the report ends with a Process line.  Review scratch tools a lane may
+reuse (copy into its own scratch): map_all.png, samp.py, deckprof.py in the
+master's scratchpad.
+
+### 19.A As built (lane lkmci4, 2026-11-11) — deviations from 19.1, for the spec author
+
+- S1's witness. The covered run (OSM -11605, 247 m, 50 stations) stands
+  16.8 m off the garage's walled footprint: 0 of 50 stations in the passage
+  or within `pad_frontage_m` of the footprint, so the predicate as written
+  never fired. Every station stands under unit 20's PLAN (the union of all
+  its parts' rings: the departures deck is part of the unit), so
+  `viaduct_road._in_passage` reads "within `pad_frontage_m` of the unit's
+  plan" (`LevelSeed.plan`). The refusal is by name in `refused`;
+  `viaduct_road.passage_roads` hands the run's carriageway to the seed
+  (`LevelSeed.road`).
+- Answer B's "excludes the carriageway and its kerbside". The level's
+  footprint (`LevelSeed.footprint`) holds a 5,182 m2 skirt walled to y
+  -12.72 under the kerbside, so the kerbside (authored -8.0) fell into the
+  level. Kept out, at the single derivation site (`seed_levels`, handed to
+  `level_cut` as `others`, as another pad is): the carriageway a riser
+  clear, and the unit's SLABS (parts under `chain_min_height_m`) standing
+  from the main floor's plane (`z0 + y_lo` of the host's upper floor, less
+  two `PLANE_BAND_M`) up to the unit's zero, within the run's KERB ZONE
+  (the run, flat-capped, `dual_carriageway_max_separation_m` either side,
+  `LevelSeed.kerb_zone`). Only for a passage cut out of a main floor.
+  Refuted on the way (replays): the level read from the walls at the
+  `y_feet` plane alone (lost the north and south arms the road exits
+  through to the main floor: 90 pad rows relaxed, the garage ramp's top
+  dragged into p1); the whole mapped route kept (same arms lost).
+- The carriageway is kept a riser (`w`) clear: with its edge on the
+  riser's, zero-area ribbon slivers (`big_roads:-11605#7`) carried no pad
+  row and solved 9 m up to the DEM, which reads the deck.
+- S2 as written (`grow=True` for a main-floor host) did not take the aisle:
+  the aisle piece of the host joins the hall across the kept road.
+  `low_level._with_orphans` now splits the host's pieces by `others` too
+  (a road kept at another floor joins no piece to the frontage). Callers
+  whose `others` do not overlap the pad are unchanged.
+- S3: no code; the passage's run-out ends 8 (control) -> 9. S4: not needed
+  (the replay census fell). D0-D2: not done this round.
+- LFPG (registered capture lfpg6): both R6 runs (the T2 central road, unit
+  2) now stand under a passage seed's plan and are refused; unit 2's host is
+  its block alone, so the road takes the level's floor (y -7.42 under the
+  zero) instead of apron - 7.5. Reported for sign-off (19.3 item 9).
+- OPEN, REPLAY ONLY: with the trench refused, two degenerate ribbon pieces
+  of the kept road (`big_roads:-11605#7`, 4 vertices, zero area, mid-road
+  at 39.29787..39.29827,-94.7184x; `-11605#5`, 2 vertices at
+  39.2986,-94.7183) carry vertices no other face shares. In the
+  `--replay --from planar` arms they solve to the DEM, which reads the
+  departures deck (310.87 - 311.41 and 305.7 m over a road at 302.45). The
+  closing patch build (lkmci4_449722b3a) holds them at 302.41 (no vertex
+  over 306 m in the window). Keeping the carriageway a riser clear did not
+  remove them from the replay. Still to find: what emits them.
+- Exits in the closing build: the south-west exit keeps a riser on the
+  road (`big_roads:-12358#6`, 2.30 m at 39.29708,-94.71878; the control
+  replay's was 2.36 m on -11605 at the same place) and
+  `small_roads:-13577#1` 4.67 m at 39.29695,-94.71895. The north exit
+  -11871 steps 0.55 m (6.0 %). 19.3 item 5 is not met.

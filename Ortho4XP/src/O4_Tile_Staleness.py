@@ -16,7 +16,13 @@ A tile is STALE for an airport when its recorded pack
 * ``disabled``   — is disabled in ``scenery_packs.ini``;
 * ``superseded`` — is not the pack X-Plane draws for that airport any more
   (``airport.pack.select_pack``, the selector the build runs);
-* ``changed``    — has other content (its signature differs).
+* ``changed``    — has other content (its signature differs);
+* ``package``    — ships XPTerrainBuilder data (a ``.xptb`` in its
+  ``XPTerrainBuilder`` folder, RULINGS 2026-11-11m (4)) other than the one
+  the tile was last built with (``tile_bundle.pack_shipped``, which the
+  CALLER passes as ``packages``: the tile steps import this module, and
+  an import of the package code here would put all of it in their code
+  keys, #836).
 
 A tile with no record of its packs (built before build logs, or by
 another tool) is not checkable: ``checked`` is False and it is never
@@ -36,11 +42,11 @@ import re
 import O4_Scenery_Packs as SCENERY_PACKS
 import O4_Tile_Build_Log as TILELOG
 
-__all__ = ["REASONS", "COMMANDS", "record_airports",
+__all__ = ["REASONS", "record_airports",
            "check_tiles"]
 
 #: Why a tile is stale for one airport, in the order they are judged.
-REASONS = ("gone", "disabled", "superseded", "changed")
+REASONS = ("gone", "disabled", "superseded", "changed", "package")
 
 #: A build's apt.dat choice (``auto_patch.build_support``).
 _PAV = re.compile(r"\[pav-builder\] ([A-Z0-9]{3,7}): apt\.dat (.+?)\s*$")
@@ -167,7 +173,7 @@ def _airport_staleness(icao: str, entry: dict, xp_root: str, lat: int,
 
 
 def _tile_staleness(build_dir: str, lat: int, lon: int, custom_scenery_dir: str,
-                   disabled: set | None = None) -> dict:
+                   disabled: set | None = None, shipped=(), packages=None) -> dict:
     """One tile's verdict: ``{"lat", "lon", "checked", "stale",
     "airports": [stale airport, ...], "packs": {icao: pack}}``."""
     _row, recorded = _recorded_airports(build_dir, lat, lon)
@@ -185,14 +191,22 @@ def _tile_staleness(build_dir: str, lat: int, lon: int, custom_scenery_dir: str,
             verdict = None
         if verdict is not None:
             out["airports"].append(verdict)
+    if shipped and packages is not None:
+        out["airports"] += packages[1](lat, lon, shipped)
     out["stale"] = bool(out["airports"])
     return out
 
 
-def check_tiles(custom_scenery_dir: str, tiles=None, working_dir: str = "") -> dict:
+def check_tiles(custom_scenery_dir: str, tiles=None, working_dir: str = "",
+                packages=None) -> dict:
     """ENGINE COMMAND ``tile_staleness``: the verdict of every built tile —
     ``tiles`` (``[[lat, lon, build_dir], ...]``, what the app's scan
     already holds) or, without it, every tile of ``working_dir``.
+
+    ``packages``: the shipped-package reader, ``(scan, stale_rows)`` of
+    ``tile_bundle.pack_shipped`` — reason ``package`` is checked only when
+    the caller passes it (``o4_engine.library.tile_staleness``, which both
+    apps run).
 
     :returns: ``{"tiles": [verdict, ...], "stale": n, "checked": n}``,
         only the tiles whose packs are on record listed.
@@ -202,19 +216,21 @@ def check_tiles(custom_scenery_dir: str, tiles=None, working_dir: str = "") -> d
         tiles = [(info.lat, info.lon, info.build_dir) for info in
                  TINFO.scan_tiles(working_dir).values()] if working_dir else []
     disabled = SCENERY_PACKS.disabled_pack_names(custom_scenery_dir or "")
+    try:
+        shipped = (packages[0](custom_scenery_dir)
+                   if packages is not None and custom_scenery_dir else [])
+    except Exception:                       # the pack check goes on without
+        shipped = []
     rows = []
     with SCENERY_PACKS.listing_snapshot():
         for lat, lon, build_dir in tiles:
             if not build_dir or not os.path.isdir(build_dir):
                 continue
             verdict = _tile_staleness(build_dir, int(lat), int(lon),
-                                     custom_scenery_dir, disabled)
+                                     custom_scenery_dir, disabled, shipped, packages)
             if verdict["checked"]:
                 rows.append(verdict)
     rows.sort(key=lambda row: (row["lat"], row["lon"]))
     return {"tiles": rows, "stale": sum(row["stale"] for row in rows),
             "checked": len(rows)}
 
-
-#: The command the Library worker runs (``o4_engine.library.start``).
-COMMANDS: dict = {"tile_staleness": (check_tiles, None)}

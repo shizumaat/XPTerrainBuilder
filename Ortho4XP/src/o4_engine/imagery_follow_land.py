@@ -15,20 +15,52 @@ row (``O4_Imagery_OnDemand_Index``) and a tier (1, 2, 3 =
 * else fetches the square ``drop`` zoom levels below the texture's own
   (``O4_Imagery_Utils.build_jpeg_ortho(drop=...)``: the build's own
   fetcher, AIMD window, ``Retry-After``, per-host budget, the per-file
-  download lock) and converts it with the tile's frozen colour field and
-  masks (``convert_texture(drop=...)``), which lands a WHOLE DDS under the
+  download lock) and converts it with the tile's frozen colour field
+  (loaded with the tile object, :func:`_frozen_colour_field`) and masks
+  (``convert_texture(drop=...)``), which lands a WHOLE DDS under the
   texture's name (``O4_DDS_File.land``: partial name, ``os.replace``;
   rules R1-R3).  A full tier goes into ``DDS_cache``; 1024/2048 tiers go
   nowhere else.
 
 It returns the facts the index records and raises ``RuntimeError`` when
 nothing whole of that tier landed (the job counts it as a failure).  The tile objects are read once
-per build folder (``O4_Config_Utils.Tile.read_from_config``).
+per build folder (``O4_Config_Utils.Tile.read_from_config``), and for a
+tile another tool built (owner 2026-11-12T14:19Z, adopted tiles):
 
-:meth:`TierLander.local` says a landing needs NO download (the full
-tier's ``DDS_cache`` entry, or the tier's source JPEG, is on disk): at a
-spawn or jump the follow job lands those first, inside X-Plane's
-flight-start window (spec §4.5).
+* the mask and imagery settings its own tool's cfg carries
+  (:data:`OWN_KEYS`, ``Ortho4XP_<tile>.cfg`` beside it) over the global
+  ones -- this app's tile layer never reads that file (RULINGS
+  2026-10-26c);
+* whatever any cfg says, a tile whose ``.ter`` files name mask PNGs
+  (``BORDER_TEX ../textures/<y>_<x>_ZL<zl>.png``) is NEVER imprinted:
+  imprinting writes the mask into the DDS alpha and deletes the PNG the
+  ``.ter`` still names (:func:`_masks_named`).
+
+A COMBINED provider (``Providers/*.comb``: its layers composited, no
+cached JPEG of its own) is landed from the tile's own layers
+(``O4_Imagery_Utils.initialize_local_combined_providers_dict(only=)``,
+never the module's dict a build may be using): the full square is
+composited and converted, and a lower tier is cut from it
+(``O4_DDS_Tiers.tier_from_file``) -- the composite has no coarser fetch.
+
+A WORLD DRAPE's row (its build folder is the drape's rows folder,
+``imagery_follow_drape``, #2037) lands with the drape's own setup: no
+colour field, and on a water square the drape's water mask imprinted
+into the finer tier; the converter's copy there goes once landed.
+
+``TierLander(source_only=True)`` lands only from the row's source (no
+cache, no network): Convert existing tiles keeps the imagery a tile
+already has near custom airports (``world_adopt.keep_cores``).
+
+:meth:`TierLander.local` says a landing needs NO download (the row's
+``source_path`` holds the tier, the full tier's ``DDS_cache`` entry or
+the tier's source JPEG is on disk): at a spawn or jump the follow job
+lands those first, inside X-Plane's flight-start window (spec §4.5).
+:meth:`TierLander.from_source` is its cheap half for every tick (the
+row's source folder is mounted): such a landing takes no fetch slot
+(#2037: ThunderBlade landings queued behind the network's slots).  A
+landing from a source says what it took (``source_s``: the check, the
+read or copy, the rename), for the follow job's log.
 """
 from __future__ import annotations
 
@@ -36,12 +68,15 @@ import contextlib
 import os
 import shutil
 import threading
+import time
 
 import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
 import O4_Disk_Usage as DISK
 import O4_Imagery_OnDemand_Index as INDEX
 from O4_Imagery_Tier_Plan import TIER_WIDTH
+
+from . import imagery_follow_drape as DRAPE
 
 __all__ = ["TierLander"]
 
@@ -59,13 +94,25 @@ def _drop(tier: int) -> int:
     return TIERS.TIER_DROPS[int(tier)]       # (3, 2, 1, 0): tier 3 = full
 
 
+#: A tile another tool built: what its own cfg says of its masks and
+#: imagery, read over the global settings.
+OWN_KEYS = ("imprint_masks_to_dds", "mask_zl", "default_website",
+            "zone_list")
+#: A combined provider's landing composites under the module's dict.
+_COMBINED = threading.Lock()
+#: Seconds a source folder's presence (a library volume mounted) is kept.
+SOURCE_LOOK_S = 10.0
+
+
 class TierLander:
     """``lander(row, tier) -> {"tier_px", "full_bytes", "jpeg_path",
     "dds_cache_key", "network"}``; thread safe."""
 
-    def __init__(self):
+    def __init__(self, source_only: bool = False):
         self._tiles: dict = {}
         self._guard = threading.Lock()
+        self.source_only = bool(source_only)
+        self._folders: dict = {}        # source folder -> (looked at, there)
 
     def _tile(self, row):
         """The tile object of ``row``'s build folder (read once)."""
@@ -78,6 +125,12 @@ class TierLander:
                 tile = CFG.Tile(lat, lon, "")
                 tile.build_dir = key
                 tile.read_from_config()
+                _own_settings(tile)
+                if DRAPE.is_drape_dir(key):
+                    DRAPE.prepare(tile)
+                elif _masks_named(row):
+                    tile.imprint_masks_to_dds = False
+                _frozen_colour_field(tile)
                 self._tiles[key] = tile
             return tile
 
@@ -92,10 +145,28 @@ class TierLander:
             self._tile(row), til_x, til_y, int(row["zl"]), row["provider"],
             drop=_drop(tier)))
 
+    def from_source(self, row: dict) -> bool:
+        """Does ``row`` land from its ``source_path`` (its folder there,
+        looked at once per :data:`SOURCE_LOOK_S`)?  No file is read."""
+        source = row.get("source_path")
+        if not source:
+            return False
+        folder, now = os.path.dirname(source), time.monotonic()
+        with self._guard:
+            seen = self._folders.get(folder)
+        if seen is None or now - seen[0] >= SOURCE_LOOK_S:
+            seen = (now, os.path.isdir(folder))
+            with self._guard:
+                self._folders[folder] = seen
+        return seen[1]
+
     def local(self, row: dict, tier: int) -> bool:
         """Can ``tier`` of ``row`` land with no download?  Never raises."""
         import O4_DDS_Cache as DDSCACHE
         try:
+            if (self.from_source(row) and _source_width(
+                    row["source_path"]) >= TIER_WIDTH[int(tier)]):
+                return True
             key = row.get("dds_cache_key")
             if (TIER_WIDTH[int(tier)] == TIERS.FULL_WIDTH and key
                     and os.path.isfile(DDSCACHE.entry_path(key))):
@@ -110,23 +181,156 @@ class TierLander:
         import O4_Imagery_Utils as IMG
         final = INDEX.texture_path(row)
         width = TIER_WIDTH[int(tier)]
-        if _land_from_source(row.get("source_path"), final, width):
-            return _facts(final, width, None, None, False)
+        took: dict = {}
+        if _land_from_source(row.get("source_path"), final, width, took):
+            return dict(_facts(final, width, None, None, False),
+                        source_s=took)
+        if self.source_only:
+            raise RuntimeError(f"{row['name']}: its source is not here")
         key = row.get("dds_cache_key")
         if width == TIERS.FULL_WIDTH and key and DDSCACHE.serve(key, final):
             return _facts(final, width, row.get("jpeg_path"), key, False)
         tile = self._tile(row)
         til_x, til_y = texture_corner(row["name"])
         attrs = (til_x, til_y, int(row["zl"]), row["provider"])
+        if row["provider"] in IMG.combined_providers_dict:
+            _land_combined(tile, attrs, final, width)
+            return _facts(final, width, None, None, True)
         drop = _drop(tier)
         jpeg = self._source_jpeg(row, tier)
         cached = bool(jpeg) and os.path.isfile(jpeg)
         if not IMG.build_jpeg_ortho(tile, *attrs, drop=drop):
             raise RuntimeError(f"{row['name']}: the {width} px imagery did "
                              "not download")
+        drape = DRAPE.is_drape_dir(row["build_dir"])
+        if drape:
+            DRAPE.water_mask(tile, row, til_x, til_y)
         IMG.convert_texture(tile, *attrs, drop=drop)
-        _mirror(os.path.join(row["build_dir"], "textures", row["name"]), final)
+        built = os.path.join(row["build_dir"], "textures", row["name"])
+        _mirror(built, final)
+        if drape:
+            DRAPE.landed(built)
         return _facts(final, width, jpeg, None, not cached)
+
+
+def _own_settings(tile) -> None:
+    """A tile this app did not build: the :data:`OWN_KEYS` its own tool's
+    cfg carries, over the global settings (each read as the type the tile
+    already holds; a value that does not read is left)."""
+    import ast
+
+    import O4_Config_Names as CN
+    import O4_Tile_Info as TINFO
+    if TINFO.built_here(tile.build_dir, tile.lat, tile.lon):
+        return
+    path = os.path.join(tile.build_dir,
+                        CN.ortho4xp_tile_cfg_name(tile.lat, tile.lon))
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return
+    for line in lines:
+        key, _eq, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip("'\"")
+        if key not in OWN_KEYS or not _eq:
+            continue
+        held = getattr(tile, key, None)
+        try:
+            if isinstance(held, bool):
+                setattr(tile, key, value.lower() in ("true", "1", "yes"))
+            elif isinstance(held, int):
+                setattr(tile, key, int(value))
+            elif isinstance(held, list):
+                setattr(tile, key, list(ast.literal_eval(value or "[]")))
+            else:
+                setattr(tile, key, value)
+        except (ValueError, SyntaxError, TypeError):
+            continue
+
+
+def _masks_named(row: dict) -> bool:
+    """Do the tile's ``.ter`` files name a mask PNG (``<y>_<x>_ZL<zl>.png``,
+    ``O4_File_Names.mask_file``)?  Its terrain folder: the row's, else
+    its build folder's."""
+    import re
+    mask = re.compile(r"BORDER_TEX\s+\S*?\d+_\d+_ZL\d+\.png\s*$")
+    for folder in (row.get("terrain_dir"),
+                   os.path.join(row.get("build_dir") or "", "terrain")):
+        try:
+            names = os.listdir(folder) if folder else ()
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(".ter"):
+                continue
+            with contextlib.suppress(OSError):
+                with open(os.path.join(folder, name), encoding="utf-8",
+                          errors="replace") as handle:
+                    if any(mask.match(line.strip()) for line in handle):
+                        return True
+    return False
+
+
+def _combined_layers(tile, provider: str) -> dict:
+    """The tile's own layers of the combined ``provider`` (read once per
+    tile object): ``{provider: [layer, ...]}``, ``{}`` when it has none
+    there."""
+    import O4_Imagery_Utils as IMG
+    held = getattr(tile, "_o4_combined_layers", None)
+    if held is None:
+        held = {}
+    if provider not in held:
+        found = IMG.initialize_local_combined_providers_dict(
+            tile, only=[provider]) or {}
+        held[provider] = found.get(provider) or []
+        tile._o4_combined_layers = held
+    return {provider: held[provider]} if held[provider] else {}
+
+
+def _land_combined(tile, attrs, final: str, width: int) -> None:
+    """A combined provider's square: composited at full size and
+    converted under the module's dict with the tile's own layers (the
+    provider added for the landing and taken out after, unless a build
+    put it there), the ``width`` tier cut from it and landed at
+    ``final``."""
+    import O4_Imagery_Utils as IMG
+    provider = attrs[3]
+    with _COMBINED:
+        layers = _combined_layers(tile, provider)
+        if not layers:
+            raise RuntimeError(f"{provider} has no imagery on this tile")
+        table = IMG.local_combined_providers_dict
+        added = provider not in table
+        if added:
+            table.update(layers)
+        try:
+            if not IMG.build_jpeg_ortho(tile, *attrs):
+                raise RuntimeError(f"the {provider} imagery did not download")
+            IMG.convert_texture(tile, *attrs, drop=0)
+        finally:
+            if added and table.get(provider) is layers[provider]:
+                table.pop(provider, None)
+    built = os.path.join(tile.build_dir, "textures",
+                         os.path.basename(final))
+    if width == TIERS.FULL_WIDTH:
+        _mirror(built, final)
+    elif not _land_from_source(built, final, width):
+        raise RuntimeError(f"{os.path.basename(final)}: no {width} px tier")
+
+
+def _frozen_colour_field(tile) -> None:
+    """The colour field the tile's build froze (``color_field.json``,
+    ``O4_Imagery_Utils.read_color_field``) on the tile object, so a tier
+    fetched from the provider is shifted as the build's textures were;
+    none when the tile does not harmonize or kept no field."""
+    if not getattr(tile, "color_harmonization", False):
+        return
+    import O4_Imagery_Utils as IMG
+    fields, land, _record = IMG.read_color_field(tile)
+    if fields:
+        tile.color_harmonization_fields = fields
+        tile.color_harmonization_land = land
 
 
 def _mirror(built: str, final: str) -> None:
@@ -146,20 +350,32 @@ def _mirror(built: str, final: str) -> None:
     os.replace(partial, final)
 
 
-def _land_from_source(source, final: str, width: int) -> bool:
+def _source_width(source) -> int:
+    """The width of the whole DDS ``source``; 0 when there is none, it is
+    not mounted, not whole or not a texture header this engine reads."""
+    if not source or not DDS.is_whole(source):
+        return 0
+    header = TIERS.texture_header(source)
+    return int(header[0]) if header is not None else 0
+
+
+def _land_from_source(source, final: str, width: int,
+                      took: "dict | None" = None) -> bool:
     """Land the ``width`` px tier of the full DDS ``source`` over ``final``
     (partial name, then ``O4_DDS_File.land``); ``False`` -- nothing
     written -- when there is no source, it is not mounted or not whole, or
-    it holds no ``width`` px level."""
-    import shutil
-    if not source or not DDS.is_whole(source):
-        return False
-    header = TIERS.texture_header(source)
-    if header is None or header[0] < width:
+    it holds no ``width`` px level.  ``took`` gets the seconds of each
+    part (``check``, ``read``, ``land``)."""
+    took = {} if took is None else took
+    t0 = time.perf_counter()
+    held = _source_width(source)
+    took["check"] = round(time.perf_counter() - t0, 3)
+    if held < width:
         return False
     partial = DDS.partial_name(final)
+    t0 = time.perf_counter()
     try:
-        if header[0] == width:
+        if held == width:
             shutil.copyfile(source, partial)
         else:
             data = TIERS.tier_from_file(source, width)
@@ -171,7 +387,10 @@ def _land_from_source(source, final: str, width: int) -> bool:
         with contextlib.suppress(OSError):
             os.remove(partial)
         return False
-    return DDS.land(partial, final)
+    t1 = time.perf_counter()
+    landed = DDS.land(partial, final)
+    took.update(read=round(t1 - t0, 3), land=round(time.perf_counter() - t1, 3))
+    return landed
 
 
 def _tile_latlon(tile: str) -> tuple[int, int]:

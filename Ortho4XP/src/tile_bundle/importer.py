@@ -31,7 +31,7 @@ import time
 
 import O4_Step_Reuse as REUSE
 
-from . import FORMAT, BundleRefused, contents
+from . import FORMAT, READ_ERRORS, BundleRefused, contents
 from . import key as _key
 from . import paths as _paths
 from .export import load_tile
@@ -45,7 +45,7 @@ def read_manifest(bundle_path: str) -> dict:
         with tarfile.open(bundle_path, "r:*") as tar:
             member = tar.extractfile("manifest.json")
             doc = json.loads(member.read().decode("utf-8"))
-    except (OSError, KeyError, ValueError, tarfile.TarError) as error:
+    except READ_ERRORS + (KeyError, ValueError) as error:
         raise BundleRefused("%s is not a tile bundle (%s)"
                             % (os.path.basename(bundle_path), error)) from error
     if doc.get("format") != FORMAT:

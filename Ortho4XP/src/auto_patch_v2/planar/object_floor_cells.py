@@ -163,9 +163,16 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats,
               if c.id.startswith("object-cut:") and c.id in cover_of for o in c.objects}
     from ..airport.dem import dem_z_many
     from ..model.frame import xplane_metre_scale
-    floors, notes = read_object_floors(objects, cache, law, msl, shells=shells,
-                                       ground=lambda xs, ys: dem_z_many(airport.dem, xs, ys),
-                                       scale=xplane_metre_scale(airport.frame.origin[0]))
+    from .pack_reads import held_read
+    # a pack read: the same floors in every planar pass of a build (#1951)
+    shell_key = tuple(sorted((o, cid, None if region is None else region.wkb)
+                             for o, (cid, region) in shells.items()))
+    floors, notes = held_read(airport, objects, cache, law, ("object_floors", shell_key),
+                              lambda: read_object_floors(
+                                  objects, cache, law, msl, shells=shells,
+                                  ground=lambda xs, ys: dem_z_many(airport.dem, xs, ys),
+                                  scale=xplane_metre_scale(airport.frame.origin[0])))
+    floors, notes = list(floors), list(notes)
     floors, deck_notes = floor_decks(floors, objects, cache, classification, airport, law)
     notes.extend(f"object floor {n}" for n in deck_notes)
     # #1949: a roofed portal whose row stands off the road its roof states
@@ -177,6 +184,13 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats,
         taken={pid for f in floors for pid, _r, _z in f.seats})
     floors = list(floors) + more
     notes.extend(p_notes)
+    # #1971: each deck stack's floor and run-outs, one more object floor
+    # (``airport/deck_stack``; its members are claimed below like a floor's)
+    from ..airport.deck_stack import stack_floors
+    more, s_notes = stack_floors(getattr(airport, "deck_stacks", ()) or (),
+                                 taken={pid for f in floors for pid, _r, _z in f.seats})
+    floors = floors + more
+    notes.extend(s_notes)
     floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}
     if floor_ids:
         corridors = [c for c in corridors if not (set(c.objects) & floor_ids)]

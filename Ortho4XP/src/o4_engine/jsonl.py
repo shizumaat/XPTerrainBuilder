@@ -158,7 +158,7 @@ def _ortho4xp_version() -> str:
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "plan_estimate",
                                "build_airports", "imagery_freshness",
                                "world_regions_set", "flight_plan_simbrief",
-                               "world_migrate",
+                               "world_migrate", "world_rechoose",
                                *_LIBRARY.COMMANDS})
 
 
@@ -177,7 +177,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from O4_Tile_Customizations import tile_customizations
     from O4_Tile_Texture_Check import tile_texture_check
 
+    from . import imagery_core_rows as CORE_ROWS
     from . import patch_commands, patch_drop, patch_insert
+    from . import reload_offer as RELOAD
     from . import world_commands as WORLD
     from . import world_job_run as WORLD_JOB
     from .aircraft_watch import aircraft_watch_handlers
@@ -202,7 +204,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .plan_estimate import start_plan_estimate
     from .relief_commands import terrain_relief
     from .terrain_commands import terrain_sample
+    from .world_measure import world_measure_state
     from .world_migrate import start_world_migrate
+    from .world_rechoose import start_world_rechoose
     return {
         "scan": session.scan,
         "build": session.build,
@@ -360,6 +364,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # and is refused while a build runs, and a build that starts
         # mid-sweep stops it.
         **{name: _library_handler(session, name) for name in _LIBRARY.COMMANDS},
+        # The shared background scan (#2029, capability storage_scan_cached).
+        "storage_scan_cached": _storage_scan_cached,
         # Build cost (protocol 1.15, #820): download, disk and time ranges
         # for the tiles about to be built.  Replies {"status": "started"};
         # PlanEstimateReady carrying this command's id completes it.
@@ -389,6 +395,12 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "imagery_follow_start": lambda **kw: _start_follow_and_world(
             session, start_imagery_follow, WORLD_JOB.autostart, **kw),
         "imagery_follow_stop": stop_imagery_follow,
+        # The user's "Reload scenery" (#2019, owner 2026-11-12T14:34Z:
+        # X-Plane reloads only when the user asks): {"sent": bool}.
+        "scenery_reload": RELOAD.scenery_reload,
+        # A background core sharpening's row stop (#2039, capability
+        # imagery_core_rows): {"stopped": bool}.
+        "imagery_cores_stop": CORE_ROWS.imagery_cores_stop,
         # On-demand imagery (#1992 P2, capability imagery_ondemand): the
         # index scan, a tile's pin and "Make all low-res again"; pin and
         # downgrade are refused while a build runs.
@@ -400,8 +412,16 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "world_status": WORLD.world_status,
         "world_install": WORLD.world_install,
         # The apps' start (capability world_onboard): the pack made when
-        # its folder is absent, and the tiles Convert could move.
-        "world_onboard": WORLD.world_onboard,
+        # its folder is absent, and the tiles Convert could move; the
+        # data folder's tiles and packages moved into the World folder
+        # (RULINGS 2026-11-12g/h), never a tile this session builds.
+        "world_onboard": lambda **kw: WORLD.world_onboard(
+            busy=session.building_tiles, move_home=True, **kw),
+        # Settings > Storage's tiers (RULINGS 2026-11-12g, capability
+        # storage_tiers): the mounted volumes other than the app's own and
+        # the size each may hold of sharp imagery; sync file reads.
+        "storage_tiers": _storage_tiers("storage_tiers"),
+        "storage_tier_set": _storage_tiers("storage_tier_set"),
         "world_regions_set": lambda **kw: WORLD.start_world_regions_set(
             session._emit, **kw),
         "world_tile_set": WORLD.world_tile_set,
@@ -409,6 +429,14 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # into the World pack -- dry run, run, revert or stop; completes
         # through WorldReady carrying this command's id.
         "world_migrate": lambda **kw: start_world_migrate(session._emit, **kw),
+        # Measure's kept result and whether to start one now (capability
+        # world_measure, owner 2026-11-12T19:08Z: Measure runs by itself
+        # in the background); synchronous: one small file, three stat.
+        "world_measure_state": world_measure_state,
+        # Kept tiles made dynamic after a Convert (capability
+        # world_rechoose): a dry run unless dry_run is false; completes
+        # through WorldReady carrying this command's id.
+        "world_rechoose": lambda **kw: start_world_rechoose(session._emit, **kw),
         # Flight manager (spec flight-manager-and-world-20261110 §5.2):
         # flight_plans_list (X-Plane's Output/FMS plans, newest first) and
         # flight_plan_read, synchronous file reads.
@@ -435,6 +463,15 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     }
 
 
+def _storage_tiers(name: str) -> Callable:
+    """``storage_tiers`` / ``storage_tier_set``, imported when called (the
+    session's import closure stays as it was)."""
+    def handler(**kw):
+        from . import storage_tiers as TIERS
+        return getattr(TIERS, name)(**kw)
+    return handler
+
+
 def _start_follow_and_world(session: EngineSession, start_follow: Callable,
                             start_world: Callable, **kw) -> Dict[str, Any]:
     """``imagery_follow_start``: the follow job, holding only the tiles
@@ -444,6 +481,11 @@ def _start_follow_and_world(session: EngineSession, start_follow: Callable,
     reply = start_follow(session._emit, busy=session.building_tiles, **kw)
     start_world(session, port=kw.get("port"))
     return reply
+
+
+def _storage_scan_cached(**kw):
+    from .storage_shared import storage_scan_cached
+    return storage_scan_cached(**kw)
 
 
 def _library_handler(session: EngineSession, name: str) -> Callable:
@@ -457,6 +499,7 @@ def _library_handler(session: EngineSession, name: str) -> Callable:
         # The map's last scan, so the tile folders are read once (#2006).
         def scan(**kw):
             kw.setdefault("infos", session.scanned_tiles(kw.get("working_dir", "")))
+            kw.setdefault("world", session.scanned_world(kw.get("working_dir", "")))
             return _LIBRARY.start(session._emit, name, busy=building, **kw)
         return scan
     return lambda **kw: _LIBRARY.start(
@@ -737,6 +780,10 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         # (flight manager / World spec §7.3).
         from .world_publish import watch as _watch_world
         _watch_world(session)
+        # Settings > Storage's scan measured in the background, shared and
+        # refreshed after each run (#2029).
+        from .storage_shared import watch as _watch_storage
+        _watch_storage(session)
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.
         # ``capabilities`` defaults to ``events.CAPABILITIES`` — ONE list

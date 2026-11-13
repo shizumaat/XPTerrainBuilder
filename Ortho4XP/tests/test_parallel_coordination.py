@@ -1236,7 +1236,7 @@ def test_cache_aware_admission_changes_nothing_a_worker_is_asked_to_do(
             "tile %s was asked for different work: %s vs %s"
             % (tile, off[tile], on[tile]))
         assert [c["steps"] for c in on[tile]] == [
-            ["vector"], ["mesh"], ["masks"], ["imagery"]], (
+            ["vector"], ["mesh"], ["masks"], ["imagery"], ["overlays"]], (
             "the step programme itself must be untouched")
 
 

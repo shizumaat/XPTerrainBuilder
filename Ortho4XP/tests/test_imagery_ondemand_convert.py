@@ -374,6 +374,32 @@ def test_lander_prefers_the_mounted_source(world, monkeypatch, tmp_path):
     assert called and DDS.is_whole(str(final))
 
 
+def test_a_mounted_source_lands_with_no_download(world, monkeypatch,
+                                                tmp_path):
+    """#2037: a row whose source holds the tier needs no download (no
+    fetch slot, and local in the spawn window); its landing says what
+    each part took."""
+    import O4_Imagery_Utils as IMG
+    monkeypatch.setattr(IMG, "build_jpeg_ortho", lambda *a, **k: False)
+    monkeypatch.setattr(LAND.TierLander, "_tile",
+                        lambda self, r: SimpleNamespace(lat=60, lon=-136))
+    name = "1000_2016_Arc16.dds"
+    final = tmp_path / "copy" / "textures" / name
+    _write(str(final), TIERS.tier_from_file(
+        os.path.join(world.new, "textures", name), PX))
+    row = {"tile": "+60-136", "name": name, "zl": 16, "provider": "Arc",
+           "build_dir": str(tmp_path / "copy"), "dds_cache_key": None,
+           "source_path": os.path.join(world.new, "textures", name)}
+    lander = LAND.TierLander()
+    assert lander.from_source(row)
+    assert lander.local(row, 0) and lander.local(row, 1)
+    assert not lander.local(row, 3)             # past the source's width
+    facts = lander(row, 0)
+    assert set(facts["source_s"]) == {"check", "read", "land"}
+    gone = dict(row, source_path=str(tmp_path / "unmounted" / name))
+    assert not lander.from_source(gone) and not lander.local(gone, 0)
+
+
 def test_exchange_is_atomic_and_probed(tmp_path):
     if not EXCHANGE_OK:
         assert not EXCHANGE.supported(str(tmp_path))
@@ -387,3 +413,41 @@ def test_exchange_is_atomic_and_probed(tmp_path):
     assert (tmp_path / "link" / "f").read_text(encoding="utf-8") == "x"
     with pytest.raises(FileNotFoundError):
         EXCHANGE.exchange(str(tmp_path / "nope"), str(tmp_path / "d"))
+
+
+def test_the_copy_carries_the_masks_and_the_colour_field(world, tmp_path):
+    """(2026-11-11) A full tier landed from the provider while the source
+    drive is gone reads the tile's mask PNGs and frozen colour field from
+    the lean copy (``imagery_follow_land``): both are copied, and an older
+    copy is brought up to date by ``backfill`` while the source is there."""
+    mask = os.path.join(world.old, "textures", "1000_2000_ZL16.png")
+    _write(mask, b"MASK")
+    field = os.path.join(world.old, FNAMES.COLOR_FIELD_FILE)
+    _write(field, json.dumps({"grids": [], "textures": {}}))
+    plan = CONVERT.plan_tile(world.old, PX)
+    assert "textures/1000_2000_ZL16.png" in {r for (r, _s) in plan.copies}
+    assert [rel for (rel, _s, _src) in plan.extras] == [FNAMES.COLOR_FIELD_FILE]
+    staged = str(tmp_path / "copy")
+    assert not CONVERT.convert_tile(plan, staged, "+45+007")["problems"]
+    for rel in ("textures/1000_2000_ZL16.png", FNAMES.COLOR_FIELD_FILE):
+        assert os.path.isfile(os.path.join(staged, rel)), rel
+    os.remove(os.path.join(staged, "textures", "1000_2000_ZL16.png"))
+    os.remove(os.path.join(staged, FNAMES.COLOR_FIELD_FILE))
+    assert CONVERT.backfill(staged) == 2
+    assert CONVERT.backfill(staged) == 0
+    assert FNAMES.rebuild_path(staged, 45, 7, FNAMES.COLOR_FIELD_FILE) == \
+        os.path.join(staged, FNAMES.COLOR_FIELD_FILE)
+    assert CONVERT.backfill(str(tmp_path / "not-a-copy")) == 0
+
+
+def test_the_lander_tile_carries_its_frozen_colour_field(monkeypatch):
+    import O4_Imagery_Utils as IMG
+    monkeypatch.setattr(IMG, "read_color_field",
+                        lambda tile: ({(16, "BI"): "field"}, {"k": 1.0}, {}))
+    tile = SimpleNamespace(color_harmonization=True)
+    LAND._frozen_colour_field(tile)
+    assert tile.color_harmonization_fields == {(16, "BI"): "field"}
+    assert tile.color_harmonization_land == {"k": 1.0}
+    off = SimpleNamespace(color_harmonization=False)
+    LAND._frozen_colour_field(off)
+    assert not hasattr(off, "color_harmonization_fields")

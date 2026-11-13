@@ -48,7 +48,7 @@ def window(qapp, tmp_path, monkeypatch):
     import O4_UI_Utils as UI
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
-    win.prefs["output_dir"] = str(tmp_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))
     # Headless runs skip provider initialization; seed a stand-in code.
     win.imagery_combo.addItems(["TEST_PROVIDER"])
     win.imagery_combo.setCurrentText("TEST_PROVIDER")
@@ -224,3 +224,102 @@ def test_refused_enqueue_reports_and_keeps_state(window, monkeypatch):
     # The fresh run could not start: the window returns to idle.
     assert window._building is False
     assert window.activity_group.isHidden()
+
+
+# ---------------------------------------------------------------------
+# A full build the engine queued by itself (Fly / build-ahead, #2030)
+# ---------------------------------------------------------------------
+def test_engine_queued_tile_opens_a_normal_row(window, enqueue_calls):
+    window._on_tile_state(EV.TileState(lat=30, lon=31, state="queued",
+                                       label="queued"))
+    assert window._building is True
+    assert not window.activity_group.isHidden()
+    assert (30, 31) in window._tile_rows
+    assert window._run_tiles == {(30, 31)}
+    _bar, status, _row, cancel, _clock = window._tile_rows[(30, 31)]
+    assert status.text() == "queued"
+    assert cancel.isEnabled()          # the normal row's stop
+    window._on_step_progress(EV.StepProgress(
+        lat=30, lon=31, step_key="mesh", label="mesh", percent=40.0))
+    assert window._progress_states[(30, 31)][0] == "active"
+    assert enqueue_calls == []          # the app sent nothing
+
+
+def test_engine_queued_tile_joins_the_app_run(window, enqueue_calls):
+    window.map.set_selection({(48, -6)})
+    window.start_build()
+    window._on_tile_state(EV.TileState(lat=30, lon=31, state="queued",
+                                       label="queued"))
+    assert set(window._tile_rows) == {(48, -6), (30, 31)}
+    assert window._ntiles == 2
+    # A live row is never reset by a second notice.
+    window._on_step_progress(EV.StepProgress(
+        lat=30, lon=31, step_key="mesh", label="mesh", percent=40.0))
+    window._on_tile_state(EV.TileState(lat=30, lon=31, state="queued",
+                                       label="queued"))
+    assert window._ntiles == 2
+
+
+def test_drained_notice_opens_no_row(window):
+    window._on_tile_state(EV.TileState(lat=30, lon=31, state="queued",
+                                       label="stopped"))
+    assert (30, 31) not in window._tile_rows
+    assert window._building is False
+
+
+# ---------------------------------------------------------------------
+# #2043 (1.0.509): under imagery on demand a built tile could not be
+# queued into a run, and an airport list built only its unbuilt tiles.
+# The Mac twin is Tests/XPTerrainBuilderTests/BuildQueueSelectionTests.
+# ---------------------------------------------------------------------
+def _on_demand_with_built(window, tmp_path, *tiles):
+    """Imagery on demand on, and ``tiles`` built (their DSF on disk)."""
+    import O4_Qt_Build_OnDemand as QTONDEMAND_BUILD
+    import O4_Tile_Info as TINFO
+    QTONDEMAND_BUILD.apply(window, True)
+    window.chk_skip_built.setChecked(True)   # hidden; must not skip
+    for lat, lon in tiles:
+        window._built[(lat, lon)] = TINFO.TileInfo(
+            lat=lat, lon=lon, build_dir=str(tmp_path / f"t{lat}{lon}"),
+            dir_name=f"t{lat}{lon}", dsf_present=True)
+
+
+def test_a_built_tile_queues_into_a_running_build(window, enqueue_calls,
+                                                  tmp_path):
+    _on_demand_with_built(window, tmp_path, (37, -123))
+    window.map.set_selection({(39, -105)})
+    window.start_build()
+    window.map.set_selection({(39, -105), (37, -123)})
+    assert window.build_btn.isEnabled()
+    assert window.build_btn.text() == "＋ Queue 1 tile"
+    window.start_build()
+    assert [sorted(c[0]) for c in enqueue_calls] == [[(39, -105)], [(37, -123)]]
+    assert set(window._tile_rows) == {(39, -105), (37, -123)}
+
+
+def test_an_airport_list_queues_every_tile(window, enqueue_calls, tmp_path):
+    import types
+
+    _on_demand_with_built(window, tmp_path, (37, -123))
+    window._airports = [
+        types.SimpleNamespace(code="KDEN", lat=39.86, lon=-104.67, extent=None,
+                              size_class=1, runway_m=3000),
+        types.SimpleNamespace(code="KSFO", lat=37.62, lon=-122.38, extent=None,
+                              size_class=1, runway_m=3000),
+        types.SimpleNamespace(code="KBOI", lat=43.56, lon=-116.22, extent=None,
+                              size_class=1, runway_m=3000),
+    ]
+    for text, tiles in (("KDEN, KSFO", [(37, -123), (39, -105)]),
+                        ("KSFO KBOI", [(37, -123), (43, -117)])):
+        window.map.set_selection(set())
+        window.search_edit.setText(text)
+        window._search_accept_first()
+        assert window.map.selection() == set(tiles), text
+        assert window.build_btn.text() == "▶ Build 2 tiles", text
+    window.start_build()
+    assert sorted(enqueue_calls[0][0]) == [(37, -123), (43, -117)]
+    # Mid-run, a second list joins the run whole.
+    window.search_edit.setText("KDEN, KSFO")
+    window._search_accept_first()
+    window.start_build()
+    assert sorted(enqueue_calls[1][0]) == [(39, -105)]   # KSFO already in the run

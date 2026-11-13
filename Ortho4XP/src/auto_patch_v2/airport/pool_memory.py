@@ -45,8 +45,9 @@ import typing as _t
 import weakref
 
 __all__ = ["MemoryCeilingError", "Reading", "WORKER_CEILING_GB", "BUILD_RAM_SHARE",
-           "SYSTEM_FREE_FLOOR", "CHECK_S",
-           "breach", "check", "register", "describe"]
+           "SYSTEM_FREE_FLOOR", "COPY_MARGIN", "CHECK_S",
+           "breach", "check", "register", "describe", "system_free_fraction",
+           "room_for_copy"]
 
 #: one worker's resident ceiling, GiB (4 x ``pool.WORKER_ALLOWANCE_GB``)
 WORKER_CEILING_GB = 8.0
@@ -56,6 +57,10 @@ BUILD_RAM_SHARE = 0.6
 SYSTEM_FREE_FLOOR = 0.05
 #: seconds between two readings inside one pool wait
 CHECK_S = 2.0
+#: :func:`room_for_copy`: a worker that runs this build's own prefix grows
+#: to about this process's size (KDEN 1.0.509: the pad roads' derive worker
+#: 6.4 -> 8.8 GB beside a 7-8 GB build), asked with this margin on top
+COPY_MARGIN = 1.25
 
 _KIB_PER_GIB = 1024.0 * 1024.0
 #: the pools whose workers count as this build's (:func:`register`)
@@ -159,7 +164,7 @@ def _resident_kib_windows(pids: list[int]) -> dict[int, int]:
         return {}
 
 
-def _system_free_fraction() -> float | None:
+def system_free_fraction() -> float | None:
     """The fraction of the machine's memory free for use, or ``None``."""
     try:
         if sys.platform == "darwin":
@@ -201,7 +206,7 @@ def _read(worker_pids: _t.Iterable[int] = ()) -> Reading:
     kib = _resident_kib([me, *worker_pids])
     return Reading(kib.get(me, 0) / _KIB_PER_GIB,
                    tuple(kib[p] / _KIB_PER_GIB for p in sorted(kib) if p != me),
-                   _system_free_fraction())
+                   system_free_fraction())
 
 
 def breach(r: Reading, ram_gb: float | None, share: int = 1) -> str:
@@ -231,6 +236,27 @@ def check(what: str, worker_pids: _t.Iterable[int], ram_gb: float | None,
         raise MemoryCeilingError(f"{what or 'build'}: stopped before the computer runs "
                                  f"out of memory — {why}; {r.text()}", r)
     return r
+
+
+def room_for_copy(ram_gb: float | None, reader: _t.Callable[..., Reading] = _read
+                  ) -> tuple[bool, str]:
+    """Whether the machine has room NOW for one more process as big as this
+    one (x :data:`COPY_MARGIN`) above the free floor — the question a stage
+    asks before it runs a copy of the build's own work in a worker (the
+    speculative derives, ``pipeline/late_speculate``, ``pipeline/
+    stage_one_ahead``).  ``(answer, the reading as a phrase)``; a reading
+    that cannot be made says yes (the pool's own bounds and the ceilings
+    above still hold)."""
+    try:
+        r = reader(())
+    except Exception:
+        return True, ""
+    if r.free_fraction is None or not ram_gb or r.parent_gb <= 0:
+        return True, r.text()
+    need = COPY_MARGIN * r.parent_gb + SYSTEM_FREE_FLOOR * ram_gb
+    have = r.free_fraction * ram_gb
+    return have >= need, (f"{have:.1f} GB free, a copy of this build needs "
+                          f"{need:.1f} GB ({r.text()})")
 
 
 # ── the heartbeat's phrase ────────────────────────────────────────────────

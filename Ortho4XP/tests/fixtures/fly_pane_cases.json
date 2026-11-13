@@ -93,9 +93,9 @@
       -60
      ],
      "enroute",
-     "light",
+     "drape",
      "queued",
-     397.0,
+     80.0,
      1200.0
     ],
     [
@@ -104,7 +104,7 @@
       -59
      ],
      "enroute",
-     "light",
+     "drape",
      "swapped",
      0.0,
      900.0
@@ -128,7 +128,22 @@
    "shed": [],
    "reload": "",
    "diverted_to": "",
-   "waivable": []
+   "waivable": [],
+   "choices": [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "adopted",
+     "built_by": "Ortho4XP",
+     "patched": "yes",
+     "upgrade_estimate_s": 1500.0,
+     "choice": ""
+    }
+   ]
   },
   "WorldStatus": {
    "state": "building",
@@ -136,9 +151,38 @@
    "building": [
     [
      "+53-060",
-     "light",
-     "mesh",
-     120.0
+     "drape",
+     "building",
+     80
+    ]
+   ],
+   "jobs": [
+    [
+     [
+      53,
+      -60
+     ],
+     "ahead",
+     "drape",
+     "building"
+    ],
+    [
+     [
+      53,
+      -59
+     ],
+     "ahead",
+     "drape",
+     "swapped"
+    ],
+    [
+     [
+      54,
+      -60
+     ],
+     "ahead",
+     "drape",
+     "queued"
     ]
    ],
    "loaded": [
@@ -360,6 +404,33 @@
      "cruise_alt_ft": null,
      "route_km": 833.7904167614038
     }
+   ],
+   [
+    [
+     "cyyr",
+     53.3192,
+     -60.4258
+    ],
+    null,
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 0.0
+    }
    ]
   ],
   "cruise_kt": [
@@ -540,6 +611,877 @@
      "Alternate CYQX",
      "834 km · 1 h 30 min en route"
     ]
+   ],
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 0.0
+    },
+    250,
+    [
+     "CYYR → no destination",
+     "No alternate in the plan",
+     "Prepares the departure area; the rest builds as you fly"
+    ]
+   ]
+  ],
+  "departure_only": [
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    false
+   ],
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 0.0
+    },
+    true
+   ],
+   [
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": {
+      "ident": "CYQX",
+      "lat": 48.94,
+      "lon": -54.57,
+      "alt_ft": null,
+      "t_s": null
+     },
+     "ete_s": 5400.0,
+     "cruise_ms": 144.04444444444445,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    false
+   ]
+  ],
+  "added_destination": [
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
+    },
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    {
+     "ident": "CYYT",
+     "lat": 47.6186,
+     "lon": -52.7519
+    }
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
+    },
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 0.0
+    },
+    null
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261110T1612Z-CYYR-CYYT",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       80.0,
+       1200.0
+      ],
+      [
+       [
+        52,
+        -59
+       ],
+       "enroute",
+       "drape",
+       "swapped",
+       0.0,
+       900.0
+      ],
+      [
+       [
+        47,
+        -53
+       ],
+       "destination",
+       "full",
+       "staged",
+       0.0,
+       1080.0
+      ]
+     ],
+     "route_km": 833.6,
+     "done_km": 0.0,
+     "eta_s": 6480.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
+    },
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    null
+   ],
+   [
+    null,
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    null
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "closed",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
+    },
+    {
+     "source": "quick",
+     "origin": "CYYR",
+     "destination": "CYYT",
+     "waypoints": [
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    null
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
+    },
+    {
+     "source": "quick",
+     "origin": "CYYT",
+     "destination": "CYYR",
+     "waypoints": [
+      {
+       "ident": "CYYT",
+       "lat": 47.6186,
+       "lon": -52.7519,
+       "alt_ft": null,
+       "t_s": null
+      },
+      {
+       "ident": "CYYR",
+       "lat": 53.3192,
+       "lon": -60.4258,
+       "alt_ft": null,
+       "t_s": null
+      }
+     ],
+     "alternate": null,
+     "ete_s": null,
+     "cruise_ms": null,
+     "cruise_alt_ft": null,
+     "route_km": 833.7904167614038
+    },
+    null
    ]
   ],
   "world_line": [
@@ -554,9 +1496,38 @@
      "building": [
       [
        "+53-060",
-       "light",
-       "mesh",
-       120.0
+       "drape",
+       "building",
+       80
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -60
+       ],
+       "ahead",
+       "drape",
+       "building"
+      ],
+      [
+       [
+        53,
+        -59
+       ],
+       "ahead",
+       "drape",
+       "swapped"
+      ],
+      [
+       [
+        54,
+        -60
+       ],
+       "ahead",
+       "drape",
+       "queued"
       ]
      ],
      "loaded": [
@@ -662,9 +1633,9 @@
         -60
        ],
        "enroute",
-       "light",
+       "drape",
        "queued",
-       397.0,
+       80.0,
        1200.0
       ],
       [
@@ -673,7 +1644,7 @@
         -59
        ],
        "enroute",
-       "light",
+       "drape",
        "swapped",
        0.0,
        900.0
@@ -697,9 +1668,24 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
-    "0 of 834 km flown"
+    "Preparing: departure building · destination ready · 2 of 4 tiles ready"
    ],
    [
     {
@@ -784,9 +1770,9 @@
         -60
        ],
        "enroute",
-       "light",
+       "drape",
        "queued",
-       397.0,
+       80.0,
        1200.0
       ],
       [
@@ -795,7 +1781,7 @@
         -59
        ],
        "enroute",
-       "light",
+       "drape",
        "swapped",
        0.0,
        900.0
@@ -819,9 +1805,254 @@
      "shed": [],
      "reload": "",
      "diverted_to": "",
-     "waivable": []
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
     },
     "Building is 3 min behind"
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "preparing",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
+    },
+    "Departure only: the departure tile at full detail, the tiles around it as quick photos (Quick, whatever Photo detail ahead says); the rest builds as you fly."
+   ],
+   [
+    {
+     "event": "FlightStatus",
+     "flight": "20261112T1600Z-CYYR-NONE",
+     "state": "flying",
+     "phase": "parked",
+     "ready": false,
+     "countdown_s": 712.0,
+     "reason": "",
+     "items": [
+      [
+       "world",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "budget",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "network",
+       "done",
+       0.0,
+       ""
+      ],
+      [
+       "prefetch",
+       "working",
+       null,
+       ""
+      ],
+      [
+       "departure",
+       "working",
+       412.0,
+       ""
+      ],
+      [
+       "first_window",
+       "waiting",
+       600.0,
+       ""
+      ],
+      [
+       "route",
+       "waiting",
+       712.0,
+       ""
+      ],
+      [
+       "destination",
+       "done",
+       0.0,
+       "Ready 18 min before it loads"
+      ],
+      [
+       "loaded",
+       "done",
+       0.0,
+       ""
+      ]
+     ],
+     "jobs": [
+      [
+       [
+        53,
+        -61
+       ],
+       "departure",
+       "full",
+       "building",
+       412.0,
+       null
+      ],
+      [
+       [
+        53,
+        -60
+       ],
+       "enroute",
+       "drape",
+       "queued",
+       160.0,
+       null
+      ]
+     ],
+     "route_km": 0.0,
+     "done_km": 0.0,
+     "eta_s": 0.0,
+     "late": [],
+     "shed": [],
+     "reload": "",
+     "diverted_to": "",
+     "waivable": [],
+     "choices": [
+      {
+       "tile": [
+        53,
+        -61
+       ],
+       "role": "departure",
+       "icao": "CYYR",
+       "origin": "adopted",
+       "built_by": "Ortho4XP",
+       "patched": "yes",
+       "upgrade_estimate_s": 1500.0,
+       "choice": ""
+      }
+     ]
+    },
+    "Departure only: the scenery ahead builds as you fly."
    ]
   ],
   "legend_key": [
@@ -833,12 +2064,12 @@
    [
     "full",
     "fetching",
-    "building"
+    "meshing"
    ],
    [
     "full",
     "building",
-    "building"
+    "meshing"
    ],
    [
     "full",
@@ -866,46 +2097,6 @@
     "own"
    ],
    [
-    "light",
-    "queued",
-    "own"
-   ],
-   [
-    "light",
-    "fetching",
-    "building"
-   ],
-   [
-    "light",
-    "building",
-    "building"
-   ],
-   [
-    "light",
-    "staged",
-    "quick"
-   ],
-   [
-    "light",
-    "swapped",
-    "quick"
-   ],
-   [
-    "light",
-    "late",
-    "own"
-   ],
-   [
-    "light",
-    "shed",
-    "own"
-   ],
-   [
-    "light",
-    "failed",
-    "own"
-   ],
-   [
     "drape",
     "queued",
     "own"
@@ -913,22 +2104,22 @@
    [
     "drape",
     "fetching",
-    "building"
+    "draping"
    ],
    [
     "drape",
     "building",
-    "building"
+    "draping"
    ],
    [
     "drape",
     "staged",
-    "quick"
+    "draped"
    ],
    [
     "drape",
     "swapped",
-    "quick"
+    "draped"
    ],
    [
     "drape",
@@ -953,22 +2144,22 @@
    [
     "placeholder",
     "fetching",
-    "building"
+    "draping"
    ],
    [
     "placeholder",
     "building",
-    "building"
+    "draping"
    ],
    [
     "placeholder",
     "staged",
-    "quick"
+    "draped"
    ],
    [
     "placeholder",
     "swapped",
-    "quick"
+    "draped"
    ],
    [
     "placeholder",
@@ -990,6 +2181,73 @@
    [
     " zzzz ",
     "No airport ZZZZ in X-Plane's list."
+   ]
+  ],
+  "map_click_field": [
+   [
+    false,
+    "",
+    "",
+    "from"
+   ],
+   [
+    false,
+    " ",
+    "",
+    "from"
+   ],
+   [
+    false,
+    "CYYR",
+    "",
+    null
+   ],
+   [
+    false,
+    "CYYR",
+    "CYYT",
+    null
+   ],
+   [
+    false,
+    "",
+    "CYYT",
+    null
+   ],
+   [
+    true,
+    "",
+    "",
+    null
+   ],
+   [
+    true,
+    " ",
+    "",
+    null
+   ],
+   [
+    true,
+    "CYYR",
+    "",
+    "to"
+   ],
+   [
+    true,
+    "CYYR",
+    "CYYT",
+    null
+   ],
+   [
+    true,
+    "",
+    "CYYT",
+    null
+   ]
+  ],
+  "quick_map_hint": [
+   [
+    "Or click a square on the map: From takes its largest custom airport (else its largest airport); Cmd-click (Ctrl-click on Windows and Linux) a second square for To."
    ]
   ],
   "refusal": [
@@ -1165,33 +2423,400 @@
     {
      "flight": "f",
      "reload": "",
-     "diverted_to": ""
+     "diverted_to": "",
+     "state": "flying"
     },
     ""
    ],
    [
     {
      "flight": "f",
-     "reload": "scheduled",
-     "diverted_to": "CYQX"
-    },
-    "Scenery for CYQX reloads in 30 s."
-   ],
-   [
-    {
-     "flight": "f",
      "reload": "offered",
-     "diverted_to": ""
+     "diverted_to": "",
+     "state": "flying"
     },
     "Scenery for the destination is ready: reload when you choose."
    ],
    [
     {
      "flight": "f",
+     "reload": "offered",
+     "diverted_to": "CYQX",
+     "state": "flying"
+    },
+    "Scenery for CYQX is ready: reload when you choose."
+   ],
+   [
+    {
+     "flight": "f",
+     "reload": "offered",
+     "diverted_to": "",
+     "state": "preparing"
+    },
+    "Scenery near the departure is ready: reload when you choose."
+   ],
+   [
+    {
+     "flight": "f",
      "reload": "sent",
-     "diverted_to": "CYQX"
+     "diverted_to": "CYQX",
+     "state": "flying"
     },
     ""
+   ]
+  ],
+  "here_lines": [
+   [
+    null,
+    []
+   ],
+   [
+    {},
+    []
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "placeholder",
+     "job": "",
+     "elapsed_s": 0,
+     "estimate_s": 0,
+     "core": false,
+     "airport": "CYYR",
+     "squares": 0,
+     "sharp": 0,
+     "reload_offer": ""
+    },
+    [
+     "Preparing imagery at CYYR",
+     "Quick photo: not built yet"
+    ]
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "placeholder",
+     "job": "queued",
+     "elapsed_s": 0,
+     "estimate_s": 0,
+     "core": false,
+     "airport": "CYYR",
+     "squares": 0,
+     "sharp": 0,
+     "reload_offer": ""
+    },
+    [
+     "Preparing imagery at CYYR",
+     "Quick photo: waiting for a build slot"
+    ]
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "placeholder",
+     "job": "building",
+     "elapsed_s": 42,
+     "estimate_s": 150,
+     "core": true,
+     "airport": "CYYR",
+     "squares": 0,
+     "sharp": 0,
+     "reload_offer": ""
+    },
+    [
+     "Preparing imagery at CYYR",
+     "Quick photo: building · 0:42 of about 3 min",
+     "Full detail nearby: fetching"
+    ]
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "placeholder",
+     "job": "building",
+     "elapsed_s": 605,
+     "estimate_s": 0,
+     "core": false,
+     "airport": "CYYR",
+     "squares": 0,
+     "sharp": 0,
+     "reload_offer": ""
+    },
+    [
+     "Preparing imagery at CYYR",
+     "Quick photo: building · 10:05 of about 1 min"
+    ]
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "placeholder",
+     "job": "staged",
+     "elapsed_s": 0,
+     "estimate_s": 0,
+     "core": true,
+     "airport": "CYYR",
+     "squares": 0,
+     "sharp": 0,
+     "reload_offer": ""
+    },
+    [
+     "Preparing imagery at CYYR",
+     "Quick photo: built, going in"
+    ]
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "drape",
+     "job": "swapped",
+     "elapsed_s": 0,
+     "estimate_s": 0,
+     "core": true,
+     "airport": "CYYR",
+     "squares": 9,
+     "sharp": 4,
+     "reload_offer": ""
+    },
+    [
+     "Preparing imagery at CYYR",
+     "Quick photo: in place",
+     "Full detail nearby: 4 of 9 squares sharp"
+    ]
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "drape",
+     "job": "swapped",
+     "elapsed_s": 0,
+     "estimate_s": 0,
+     "core": true,
+     "airport": "CYYR",
+     "squares": 9,
+     "sharp": 9,
+     "reload_offer": ""
+    },
+    [
+     "Imagery ready at CYYR",
+     "Quick photo: in place",
+     "Full detail nearby: 9 of 9 squares sharp"
+    ]
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "drape",
+     "job": "",
+     "elapsed_s": 0,
+     "estimate_s": 0,
+     "core": false,
+     "airport": "",
+     "squares": 0,
+     "sharp": 0,
+     "reload_offer": ""
+    },
+    [
+     "Imagery ready at tile +53-061",
+     "Quick photo: in place"
+    ]
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "full",
+     "job": "",
+     "elapsed_s": 0,
+     "estimate_s": 0,
+     "core": false,
+     "airport": "CYYR",
+     "squares": 4,
+     "sharp": 4,
+     "reload_offer": ""
+    },
+    [
+     "Imagery ready at CYYR",
+     "Scenery built at full detail",
+     "Full detail nearby: 4 of 4 squares sharp"
+    ]
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "placeholder",
+     "job": "failed",
+     "elapsed_s": 0,
+     "estimate_s": 0,
+     "core": false,
+     "airport": "CYYR",
+     "squares": 0,
+     "sharp": 0,
+     "reload_offer": ""
+    },
+    [
+     "Preparing imagery at CYYR",
+     "Quick photo: the build failed"
+    ]
+   ],
+   [
+    {
+     "tile": "+53-061",
+     "lat": 53.3192,
+     "lon": -60.4258,
+     "on_ground": true,
+     "kind": "",
+     "job": "",
+     "elapsed_s": 0,
+     "estimate_s": 0,
+     "core": false,
+     "airport": "CYYR",
+     "squares": 0,
+     "sharp": 0,
+     "reload_offer": ""
+    },
+    [
+     "Imagery at CYYR: drawn by other scenery"
+    ]
+   ]
+  ],
+  "choices": [
+   [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "adopted",
+     "built_by": "Ortho4XP",
+     "patched": "yes",
+     "upgrade_estimate_s": 1500.0,
+     "choice": ""
+    },
+    "Departure CYYR: its tile was not built by XPTerrainBuilder. Fly it as it is, or upgrade it first?",
+    "Fly the existing mesh (built by Ortho4XP, patched: yes)",
+    "Upgrade with XPTerrainBuilder grading (about 25 min)"
+   ],
+   [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "adopted",
+     "built_by": "Ortho4XP",
+     "patched": "unknown",
+     "upgrade_estimate_s": null,
+     "choice": ""
+    },
+    "Departure CYYR: its tile was not built by XPTerrainBuilder. Fly it as it is, or upgrade it first?",
+    "Fly the existing mesh (built by Ortho4XP, patched: unknown)",
+    "Upgrade with XPTerrainBuilder grading"
+   ],
+   [
+    {
+     "tile": [
+      47,
+      -53
+     ],
+     "role": "destination",
+     "icao": "",
+     "origin": "other",
+     "built_by": "",
+     "patched": "unknown",
+     "upgrade_estimate_s": 1500.0,
+     "choice": ""
+    },
+    "Destination tile +47-053: its tile was not built by XPTerrainBuilder. Fly it as it is, or upgrade it first?",
+    "Fly the existing mesh (built by another tool)",
+    "Upgrade with XPTerrainBuilder grading (about 25 min)"
+   ],
+   [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "other",
+     "built_by": "MeshTool",
+     "patched": "no",
+     "upgrade_estimate_s": 1500.0,
+     "choice": ""
+    },
+    "Departure CYYR: its tile was not built by XPTerrainBuilder. Fly it as it is, or upgrade it first?",
+    "Fly the existing mesh (built by MeshTool)",
+    "Upgrade with XPTerrainBuilder grading (about 25 min)"
+   ],
+   [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "adopted",
+     "built_by": "Ortho4XP",
+     "patched": "yes",
+     "upgrade_estimate_s": 1500.0,
+     "choice": "keep"
+    },
+    "Departure CYYR: flying the existing mesh",
+    "Fly the existing mesh (built by Ortho4XP, patched: yes)",
+    "Upgrade with XPTerrainBuilder grading (about 25 min)"
+   ],
+   [
+    {
+     "tile": [
+      53,
+      -61
+     ],
+     "role": "departure",
+     "icao": "CYYR",
+     "origin": "adopted",
+     "built_by": "Ortho4XP",
+     "patched": "yes",
+     "upgrade_estimate_s": 20.0,
+     "choice": "upgrade"
+    },
+    "Departure CYYR: upgrading with XPTerrainBuilder grading",
+    "Fly the existing mesh (built by Ortho4XP, patched: yes)",
+    "Upgrade with XPTerrainBuilder grading (about 1 min)"
    ]
   ],
   "waiver_line": [
@@ -1297,6 +2922,321 @@
     [
      10.0,
      -179.9
+    ]
+   ]
+  ]
+ },
+ "aircraft_symbol": {
+  "points": [
+   [
+    0.0,
+    11.0
+   ],
+   [
+    1.3,
+    9.5
+   ],
+   [
+    1.5,
+    4.0
+   ],
+   [
+    10.5,
+    -1.5
+   ],
+   [
+    10.5,
+    -3.5
+   ],
+   [
+    1.5,
+    -1.5
+   ],
+   [
+    1.1,
+    -7.0
+   ],
+   [
+    4.5,
+    -9.5
+   ],
+   [
+    4.5,
+    -11.0
+   ],
+   [
+    0.0,
+    -10.0
+   ],
+   [
+    -4.5,
+    -11.0
+   ],
+   [
+    -4.5,
+    -9.5
+   ],
+   [
+    -1.1,
+    -7.0
+   ],
+   [
+    -1.5,
+    -1.5
+   ],
+   [
+    -10.5,
+    -3.5
+   ],
+   [
+    -10.5,
+    -1.5
+   ],
+   [
+    -1.5,
+    4.0
+   ],
+   [
+    -1.3,
+    9.5
+   ]
+  ],
+  "placed": [
+   [
+    100.0,
+    50.0,
+    0.0,
+    [
+     [
+      100.0,
+      39.0
+     ],
+     [
+      101.3,
+      40.5
+     ],
+     [
+      101.5,
+      46.0
+     ],
+     [
+      110.5,
+      51.5
+     ],
+     [
+      110.5,
+      53.5
+     ],
+     [
+      101.5,
+      51.5
+     ],
+     [
+      101.1,
+      57.0
+     ],
+     [
+      104.5,
+      59.5
+     ],
+     [
+      104.5,
+      61.0
+     ],
+     [
+      100.0,
+      60.0
+     ],
+     [
+      95.5,
+      61.0
+     ],
+     [
+      95.5,
+      59.5
+     ],
+     [
+      98.9,
+      57.0
+     ],
+     [
+      98.5,
+      51.5
+     ],
+     [
+      89.5,
+      53.5
+     ],
+     [
+      89.5,
+      51.5
+     ],
+     [
+      98.5,
+      46.0
+     ],
+     [
+      98.7,
+      40.5
+     ]
+    ]
+   ],
+   [
+    100.0,
+    50.0,
+    90.0,
+    [
+     [
+      111.0,
+      50.0
+     ],
+     [
+      109.5,
+      51.3
+     ],
+     [
+      104.0,
+      51.5
+     ],
+     [
+      98.5,
+      60.5
+     ],
+     [
+      96.5,
+      60.5
+     ],
+     [
+      98.5,
+      51.5
+     ],
+     [
+      93.0,
+      51.1
+     ],
+     [
+      90.5,
+      54.5
+     ],
+     [
+      89.0,
+      54.5
+     ],
+     [
+      90.0,
+      50.0
+     ],
+     [
+      89.0,
+      45.5
+     ],
+     [
+      90.5,
+      45.5
+     ],
+     [
+      93.0,
+      48.9
+     ],
+     [
+      98.5,
+      48.5
+     ],
+     [
+      96.5,
+      39.5
+     ],
+     [
+      98.5,
+      39.5
+     ],
+     [
+      104.0,
+      48.5
+     ],
+     [
+      109.5,
+      48.7
+     ]
+    ]
+   ],
+   [
+    10.0,
+    20.0,
+    225.0,
+    [
+     [
+      2.2218,
+      27.7782
+     ],
+     [
+      2.3632,
+      25.7983
+     ],
+     [
+      6.1109,
+      21.7678
+     ],
+     [
+      3.636,
+      11.5147
+     ],
+     [
+      5.0503,
+      10.1005
+     ],
+     [
+      10.0,
+      17.8787
+     ],
+     [
+      14.1719,
+      14.2724
+     ],
+     [
+      13.5355,
+      10.1005
+     ],
+     [
+      14.5962,
+      9.0398
+     ],
+     [
+      17.0711,
+      12.9289
+     ],
+     [
+      20.9602,
+      15.4038
+     ],
+     [
+      19.8995,
+      16.4645
+     ],
+     [
+      15.7276,
+      15.8281
+     ],
+     [
+      12.1213,
+      20.0
+     ],
+     [
+      19.8995,
+      24.9497
+     ],
+     [
+      18.4853,
+      26.364
+     ],
+     [
+      8.2322,
+      23.8891
+     ],
+     [
+      4.2017,
+      27.6368
+     ]
     ]
    ]
   ]
@@ -1475,9 +3415,9 @@
       -60
      ],
      "enroute",
-     "light",
+     "drape",
      "queued",
-     397.0,
+     80.0,
      1200.0
     ],
     [
@@ -1486,7 +3426,7 @@
       -59
      ],
      "enroute",
-     "light",
+     "drape",
      "swapped",
      0.0,
      900.0
@@ -1512,12 +3452,12 @@
     [
      52,
      -59,
-     "quick"
+     "draped"
     ],
     [
      53,
      -61,
-     "building"
+     "meshing"
     ],
     [
      53,
@@ -1531,6 +3471,56 @@
    20,
    [],
    []
+  ],
+  [
+   null,
+   20,
+   [
+    [
+     [
+      53,
+      -60
+     ],
+     "ahead",
+     "drape",
+     "building"
+    ],
+    [
+     [
+      53,
+      -59
+     ],
+     "ahead",
+     "drape",
+     "swapped"
+    ],
+    [
+     [
+      54,
+      -60
+     ],
+     "ahead",
+     "drape",
+     "queued"
+    ]
+   ],
+   [
+    [
+     53,
+     -60,
+     "draping"
+    ],
+    [
+     53,
+     -59,
+     "draped"
+    ],
+    [
+     54,
+     -60,
+     "own"
+    ]
+   ]
   ]
  ]
 }

@@ -182,8 +182,7 @@ class TestPanelFitsItsViewport:
         )
         window.info_elevation.setText(LONG_TEXT)
         window.info_airport_lidar.setText(LONG_TEXT)
-        window.info_provider.setText("GO2  ⚠ mixed")
-        window.info_zl.setText("16 (mixed: 16, 17, 18)")
+        window.info_provider.setText("GO2, ZL16–19  ⚠ mixed")
         window.info_mesh.setText("12 Sep 2026 14:30")
         window.info_imagery.setText("12 Sep 2026 14:30")
         window.info_size.setText("48.0 GB (12 folders)")
@@ -278,7 +277,7 @@ class TestScanPendingState:
         info = TINFO.TileInfo(**kwargs, provider="BI", zl=16)
         window._on_scan_batch(EV.ScanBatch(built={(36, -87): info}))
         assert "(scanning…)" not in window.info_title.text()
-        assert window.info_provider.text() == "BI"
+        assert window.info_provider.text() == "BI, ZL16"
 
     def test_rescan_returns_to_scanning_state(self, qapp, make_window):
         window = make_window()

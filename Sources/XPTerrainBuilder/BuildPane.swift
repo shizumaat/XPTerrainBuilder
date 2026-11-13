@@ -14,7 +14,6 @@ struct BuildPane: View {
 
     @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var controller: AnalysisController
-    @StateObject private var showingBaseFolderPicker = ViewState(false)
     /// Custom airport packs (own 3-D objects) in the selected tiles —
     /// the packages "Modify custom airports" would reseat.
     @State private var customAirportPacks: [String] = []
@@ -60,6 +59,10 @@ struct BuildPane: View {
     /// The tile pane's customized-settings words; the Qt pane uses the
     /// same (O4_Qt_GUI.CUSTOM_SETTINGS / EDIT_TILE_SETTINGS).
     static let customSettingsTitle = "Custom settings"
+    /// What the build stood its airports on, and which it graded (owner
+    /// 2026-11-12T21:55Z; the Qt pane: the same titles).
+    static let airportElevationTitle = "Airport elevation"
+    static let gradedAirportsTitle = "Graded airports"
     static let editSettingsTitle = "Edit settings…"
 
     var body: some View {
@@ -167,13 +170,6 @@ struct BuildPane: View {
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(buildModel.built.count)") {
             await refreshCombinedAudit()
         }
-        .fileImporter(isPresented: $showingBaseFolderPicker.value,
-                      allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                buildModel.customBuildDir = url.path
-                buildModel.rescan()
-            }
-        }
     }
 
     /// Re-reads the active tile's customizations when the tile, its cfg
@@ -224,10 +220,35 @@ struct BuildPane: View {
     private var selectionBox: some View {
         if let active = buildModel.activeTile {
             let info = buildModel.built[active]
-            Text("Tile \(active.key)\(titleSuffix(active, info))")
-                .scaledFont(.callout, weight: .semibold)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Tile \(active.key)\(titleSuffix(active, info))")
+                    .scaledFont(.callout, weight: .semibold)
+                Spacer(minLength: 4)
+                // The Favorite star, top right (#2033; the Qt pane: the
+                // same): any tile this app built, a build running or not.
+                if let info, !info.builtElsewhere {
+                    FavoriteStarButton(pinned: info.pinned == true) { pinned in
+                        await buildModel.setImageryPinned(active, pinned)
+                    }
+                }
+            }
+            // What the World pack holds for it, read first (owner
+            // 2026-11-12T20:23Z; the Qt pane: the same row).
+            TileWorldRow(coord: active, world: buildModel.worldTiles[active],
+                         rebuild: { buildModel.rebuildWithItsImagery(active) },
+                         exportPackage: {
+                             TilePackageModel.shared.startExport([active], build: buildModel)
+                         },
+                         remove: { await buildModel.removeFromWorldPack(active) })
+            // The elevation the tile was built with, before Imagery (#2033;
+            // the Qt pane: the same row): the build's record, else the
+            // cfg's pinned file.
+            detailRow("Elevation", elevationText(info))
             HStack(spacing: 5) {
-                detailRow("Imagery", info?.provider.isEmpty == false ? info!.provider : "—")
+                // Source and zoom on one line (#2033): the cfg's provider,
+                // else what the textures or the imagery record carry
+                // (#1334; the Qt pane: the same).
+                detailRow("Imagery", imageryText(info))
                 if let audit = textureAudit, audit.hasConflict {
                     Button {
                         trashMessage = nil
@@ -252,7 +273,6 @@ struct BuildPane: View {
                     await buildModel.applyMeshOrder(for: active, action: action, pack: pack)
                 }
             }
-            detailRow(O4Glossary.term("imagery_detail"), zlText(info))
             detailRow("Ground shaped", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))
             if info != nil {
@@ -262,26 +282,22 @@ struct BuildPane: View {
                     await buildModel.updateImagery(active)
                 }
             }
-            if let info, !info.builtElsewhere {
-                // Favorite (#1992 §7, RULINGS 2026-11-10c (1); the Qt pane:
-                // the same): on every built tile, switchable when on demand.
-                TilePinRow(pinned: info.pinned == true, applies: info.pinApplies) { pinned in
-                    await buildModel.setImageryPinned(active, pinned)
-                }
-            }
             if let info {
                 // Who built it (#1226, owner Q95): from the build record,
                 // else the tile's DSF.
                 detailRow("Built by", info.builtBy ?? "—")
                 // Where the folder really is, and "Show in Finder" (#1987).
-                TilePathRow(info: info)
+                TilePathRow(info: info, world: buildModel.worldTiles[active])
                 // Its airport pack changed since the build (#1958).
                 if let stale = buildModel.staleTiles[active] {
                     TileStaleRow(stale: stale) { buildModel.rebuildWithItsImagery(active) }
                 }
-            }
-            if let dem = info?.customDEM, !dem.isEmpty {
-                detailRow("Elevation", (dem as NSString).lastPathComponent)
+                if let text = info.airportElevation {
+                    detailRow(Self.airportElevationTitle, text).help(text)
+                }
+                if let text = info.airports {
+                    detailRow(Self.gradedAirportsTitle, text).help(text)
+                }
             }
             // Other installed ortho/mesh packages covering this tile.
             ForEach(otherScenery, id: \.name) { item in
@@ -465,22 +481,33 @@ struct BuildPane: View {
     }
 
     private func titleSuffix(_ tile: BuildModel.TileCoord, _ info: O4TileInfo?) -> String {
-        if buildModel.isScanning, info == nil { return "  (scanning…)" }
-        return info == nil ? "  (not built)" : ""
+        guard info == nil else { return "" }
+        // Held by the World pack (a placeholder too): ours, not "not built".
+        if let world = buildModel.worldTiles[tile], world.state != .nothing {
+            return "  " + O4WorldStateText.titleInWorld
+        }
+        return buildModel.isScanning ? "  (scanning…)" : "  (not built)"
     }
 
-    private func zlText(_ info: O4TileInfo?) -> String {
-        guard let info, let zl = info.zl else { return "—" }
-        var text = O4Glossary.detailChoice(zl)
-        // Airport high-ZL cover: e.g. "ZL16 + ZL18 ICAO" makes the
-        // upgraded-airports setting visible at a glance.
+    /// Source and zoom on one line, "BI, ZL16–19" (#2033; Qt
+    /// `_imagery_line`): the airports' cover zoom as a range.
+    private func imageryText(_ info: O4TileInfo?) -> String {
+        guard let info else { return "—" }
+        let choice = TileImageryChoice.resolve(info)
         let mode = info.highZLAirports
-        if mode != "", mode != "False", let cover = info.coverZL, cover > zl {
-            let scope = ["True": "All", "ICAO": "ICAO", "Existing": "Existing"]
-            text += " + ZL\(cover) \(scope[mode] ?? mode)"
+        let cover = mode != "" && mode != "False" ? info.coverZL : nil
+        return O4Glossary.imagerySummary(provider: choice?.provider, zl: choice?.zl, coverZL: cover)
+    }
+
+    /// The elevation the tile was built with (#2033): the build's record,
+    /// else the cfg's pinned file.
+    private func elevationText(_ info: O4TileInfo?) -> String {
+        if let text = info?.elevation { return text }
+        if let dem = info?.customDEM, !dem.isEmpty {
+            let base = dem.split(separator: ";").first.map(String.init) ?? dem
+            return (base as NSString).lastPathComponent
         }
-        if info.hasZones { text += " + zones" }
-        return text
+        return "—"
     }
 
     private func dateText(_ epoch: Double?) -> String {
@@ -551,9 +578,15 @@ struct BuildPane: View {
                         .help("Downloads map data (roads, water, airports), shapes the ground and blends coastlines and water — the tile's terrain.")
                     Toggle(O4Glossary.term("imagery_and_scenery_file"), isOn: boolBinding(\.doImagery))
                         .help("Downloads imagery, converts textures and writes the final scenery file (DSF).")
-                    Toggle(O4Glossary.term("xplane_objects"), isOn: boolBinding(\.doOverlays))
-                        .help("Copies the roads, forests and buildings (overlays) of the X-Plane scenery configured as the overlay source.")
-                    tileFolderRow
+                    // Automatic (#2021, RULINGS 2026-11-12e): a line, no switch.
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(O4Glossary.term("xplane_objects"))
+                        Text(O4Glossary.term("xplane_objects_auto"))
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .help("Copies X-Plane's own roads, forests and buildings (overlays) into the yXPTerrainBuilder Overlays pack.")
                 }
                 .padding(.top, 4)
             }
@@ -565,35 +598,6 @@ struct BuildPane: View {
             }
         }
         .toggleStyle(.checkbox)
-    }
-
-    private var tileFolderRow: some View {
-        LabeledContent("Tile folder") {
-            HStack(spacing: 4) {
-                Text(buildModel.customBuildDir.isEmpty
-                     ? "Ortho4XP/Tiles" : buildModel.customBuildDir)
-                    .scaledFont(.caption)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(.secondary)
-                Button {
-                    showingBaseFolderPicker.value = true
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(.borderless)
-                if !buildModel.customBuildDir.isEmpty {
-                    Button {
-                        buildModel.customBuildDir = ""
-                        buildModel.rescan()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.borderless)
-                }
-            }
-        }
-        .scaledFont(.callout)
     }
 
     /// Asks the engine what grading and fitting will do for the selected
@@ -715,8 +719,9 @@ struct BuildPane: View {
     }
 
     /// Other installed ortho/mesh packages covering the active tile, with
-    /// the modification date of their DSF for that tile. Our own installed
-    /// tile links (into the working dir) are excluded, matching the map.
+    /// the modification date of their DSF for that tile. Our own packs (the
+    /// World pack, the overlay packs, tile links) are excluded, matching
+    /// the map (`SceneryRegion.isThirdParty`).
     private func refreshOtherScenery() async {
         guard let active = buildModel.activeTile else {
             otherScenery = []
@@ -727,12 +732,8 @@ struct BuildPane: View {
         let builtDirs = Set(buildModel.built.values.map(\.buildDir))
         let covering = controller.mapOverlays.regions
             .filter { region in
-                guard region.tileKeys.contains(tileKey32) else { return false }
-                if builtDirs.contains(region.packPath)
-                    || builtDirs.contains(region.contentRootPath) { return false }
-                if let basePath, let resolved = region.resolvedPath,
-                   resolved.hasPrefix(basePath) { return false }
-                return true
+                region.tileKeys.contains(tileKey32)
+                    && region.isThirdParty(builtDirs: builtDirs, basePath: basePath)
             }
             .map { (name: $0.packName, root: $0.contentRootPath) }
         let key = active.key
@@ -1019,11 +1020,7 @@ struct BuildPane: View {
         }
         if inRun > 0 { text += " · \(inRun) in current run" }
         let skipped = count - todo - inRun
-        if skipped > 0 {
-            text += buildModel.onDemandBuilds
-                ? " · \(skipped) already built (skipped; \(BuildModel.onDemandRebuildHint))"
-                : " · \(skipped) already built (skipped)"
-        }
+        if skipped > 0 { text += " · \(skipped) already built (skipped)" }
         return text
     }
 

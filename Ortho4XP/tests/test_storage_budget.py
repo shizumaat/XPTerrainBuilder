@@ -16,6 +16,7 @@ import O4_File_Names as FNAMES  # noqa: E402
 import pytest  # noqa: E402
 from o4_engine import storage as ST  # noqa: E402
 from o4_engine import storage_budget as TOTAL  # noqa: E402
+from o4_engine import storage_range as RANGE  # noqa: E402
 from test_storage_settings import _write, root  # noqa: E402,F401
 
 #: Every test runs on test_storage_settings' synthetic data folder.
@@ -99,14 +100,75 @@ def test_tiers_go_cheapest_first_and_the_floor_stays(monkeypatch):
     assert os.path.exists(dsf) and os.path.exists(patch)    # the floor
 
 
-def test_a_budget_under_the_floor_warns(monkeypatch):
+def test_a_budget_under_the_minimum_is_raised_to_it(monkeypatch):
+    """#2022: a budget set below what is always kept applies as the
+    minimum, with the notice; the floor is never over it."""
+    import O4_Storage_Text as TEXT
     data = _root()
     _write(str(data / "Tiles" / "zOrtho4XP_+45+007" / "Earth nav data"
                 / "+40+000" / "+45+007.dsf"), 9000)
     _budget(monkeypatch, 1000)
     figures = TOTAL.status(ST.storage_scan()["stores"])
-    assert figures["under_floor"] and figures["over_budget"]
-    assert ST.storage_scan()["budget"]["under_floor"]
+    assert figures["clamped"] == "minimum" and figures["chosen_bytes"] == 1000
+    assert figures["budget_bytes"] == figures["minimum_bytes"] >= figures["floor_bytes"]
+    assert not figures["under_floor"]
+    assert TEXT.range_notice(figures).startswith("Your budget of 0.0 MB is below")
+
+
+def test_a_budget_over_the_disk_follows_it_down(monkeypatch):
+    """#2022: the most is what is in use plus the free space less 50 GB;
+    a budget above it follows the disk down, never under the minimum."""
+    _budget(monkeypatch, 900 * 10**9)
+    monkeypatch.setattr(RANGE, "_free_bytes", lambda folder: 120 * 10**9)
+    figures = TOTAL.status(ST.storage_scan()["stores"])
+    used = figures["used_bytes"]
+    assert figures["maximum_bytes"] == used + 70 * 10**9
+    assert figures["budget_bytes"] == figures["maximum_bytes"]
+    assert figures["clamped"] == "followed"
+    monkeypatch.setattr(RANGE, "_free_bytes", lambda folder: 10 * 10**9)
+    figures = TOTAL.status(ST.storage_scan()["stores"])
+    assert figures["budget_bytes"] == figures["maximum_bytes"] == figures["minimum_bytes"]
+    monkeypatch.setattr(RANGE, "_free_bytes", lambda folder: None)
+    assert TOTAL.status(ST.storage_scan()["stores"])["maximum_bytes"] == max(
+        figures["used_bytes"], figures["minimum_bytes"])
+
+
+def test_the_minimum_counts_world_placeholders_pack_tiles_and_airport_packages(
+        tmp_path, monkeypatch):
+    """RULINGS 2026-11-10d (2): the World pack's placeholders and tile
+    DSFs and the airport tiles' packages are always kept; a package of a
+    tile with no airport is not."""
+    import O4_World_Pack as WP
+    from o4_engine import storage_packages as PACKAGES
+    scenery = tmp_path / "Custom Scenery"
+    pack = scenery / WP.PACK_NAME
+    WP.write_placeholders(str(pack), [(45, 7), (45, 8)])
+    placeholder = os.path.getsize(pack / WP.dsf_relpath(45, 7))
+    _write(str(pack / WP.dsf_relpath(46, 7)), 50000)          # a tile of ours
+    monkeypatch.setattr(TOTAL, "_scenery_dir", lambda: str(scenery))
+    data = _root()
+    airport = _write(str(data / PACKAGES.STORE_DIR / "a.xptb"), 7000)
+    other = _write(str(data / PACKAGES.STORE_DIR / "b.xptb"), 3000)
+    PACKAGES.remember("+45+007", path=airport, airports=["ZZAA"])
+    PACKAGES.remember("+45+008", path=other, airports=[])
+    _write(str(data / "tmp" / "cache.bin"), 4000)                 # a cache
+    _budget(monkeypatch, 0)
+    scan = ST.storage_scan()
+    figures = TOTAL.status(scan["stores"])
+    least = figures["minimum"]
+    assert least["world_placeholders"] == 2 * placeholder
+    assert least["world_dsf"] == 50000 and least["packages"] == 7000
+    assert figures["minimum_bytes"] == sum(least.values())
+    assert figures["used_bytes"] >= 2 * placeholder + 50000 + 10000
+    bar = figures["breakdown"]
+    assert set(bar) == set(RANGE.BAR_PARTS)
+    assert sum(bar.values()) == figures["used_bytes"]
+    assert bar["placeholders"] == 2 * placeholder and bar["tiles"] >= 50000
+    assert bar["packages"] >= 10000
+    # owner 2026-11-12: the bar's Caches is the Caches line's figure
+    assert bar["caches"] == scan["cache_bytes"] == ST.cache_bytes(scan["stores"])
+    assert bar["caches"] >= 4000
+    assert list(figures["ladder"]) == list(RANGE.LADDER_STEPS)
 
 
 def test_the_recommended_minimum_is_half_again_above_50_gb():

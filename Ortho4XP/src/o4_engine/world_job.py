@@ -9,16 +9,21 @@ is passed in:
 
 * ``builder`` -- ``start(tile, kind, deadline_in_s, klass)`` starts (or
   queues) a build and says whether it took it; ``poll(now)`` returns
-  ``[(tile, ok)]`` for the builds finished since the last call
-  (``world_job_run.SessionBuilder``: the engine session's build queue
-  with ``overrides={"profile": kind}``, ``deadline``, ``klass="P1"``);
+  ``[(tile, ok)]`` for the builds finished since the last call (``ok``
+  None: a flight's job took the tile over, ``build_share``)
+  (``world_job_run._SessionBuilder``: a ``drape`` is fetched and written
+  on the builder's own thread; a ``full`` tile goes through the engine
+  session's build queue with its ``deadline`` and ``klass``);
 * ``publisher`` -- ``settle(tile, kind, held)`` stages / swaps a finished
   tile and returns its state (``swapped``, ``staged``, ``pending``,
   ``failed``); ``held`` is rule S3's verdict for that tile now;
 * ``wanted(tile)`` -- may the job build this tile (in an enabled region,
   a placeholder of ours, not ``external``, spec §7.2);
 * ``loads()`` -- the tiles X-Plane has loaded this session (the
-  ``Log.txt`` witness, ``O4_XPlane_Log``).
+  ``Log.txt`` witness, ``O4_XPlane_Log``);
+* ``slot_free(slots, running)`` -- how many builds may start now
+  (``build_share.BuildShare.free_for``: a flight's job runs beside
+  track mode on one budget and its deadlines come first, #2019).
 
 Each tick:
 
@@ -41,7 +46,22 @@ Each tick:
    first, with a deadline at :data:`PARKED_ASSUMED_MS`.
 4. Dispatch, earliest deadline first, while fewer builds run than the slots
    allow: ``O4_World_Governor.flight_slots`` in flight, ``parked_slots``
-   parked, less what the frame-time guard has given back.
+   parked, less what the frame-time guard has given back, less what an
+   active flight's job runs and waits to start (``slot_free``).
+
+THE PARKED AIRCRAFT (RULINGS 2026-11-12c (3), owner 14:32Z: "We always
+need the high res imagery at an airport"; #2019): on the ground (AGL
+under :data:`ON_GROUND_AGL_M`, or slower than :data:`PARKED_MS` when the
+record has no AGL), the tile under the aircraft is a candidate although
+X-Plane holds it (step 3 leaves held tiles out) -- a placeholder, or a
+drape not yet given its core this session (``kind_of``: the pack's
+kind of a tile this job may build, None for any other).  It is built at
+once (deadline now, class P0) as a drape whose squares around the
+aircraft are fetched at full resolution (``builder.start(..., core=(lat,
+lon))``), and swapped in although X-Plane holds it -- the one exception
+to S3, merged file by file so no name X-Plane may open goes (S5,
+``publisher.settle(..., merge=True, fresh=True)``), which then OFFERS the user the
+reload that shows it; nothing reloads on its own (12c (4)).
 
 A build that fails twice is ``failed`` (two attempts, never a third,
 spec §11).  Each finished build rescales the kind's remaining estimates by
@@ -53,20 +73,29 @@ import math
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Optional
 
+import O4_Flight_Schedule as SCHEDULE
 import O4_World_Ahead as AHEAD
 import O4_World_Governor as GOVERNOR
 import O4_World_Pack as WP
 import O4_World_Window as WINDOW
 from O4_Imagery_Follow_Motion import MotionTracker
 
-__all__ = ["KINDS", "ESTIMATE_S", "SPREAD", "MOVING_MS", "PARKED_ASSUMED_MS",
-           "SWAP_SPACING_S", "MAX_ATTEMPTS", "WorldJob"]
+__all__ = ["KINDS", "ESTIMATE_S", "SPREAD", "MOVING_MS",
+           "PARKED_ASSUMED_MS", "SWAP_SPACING_S", "MAX_ATTEMPTS", "WorldJob",
+           "drape_estimate"]
 
-#: The intermediate kinds the job builds (spec §3, §17: D1 picks one).
-KINDS = ("light", "drape")
-#: Seconds one tile takes before any is measured on this machine: light
-#: 397 s cold (the CYYR flight, §2.1), drape 37 s (ldrape, §3).
-ESTIMATE_S = {"light": 397.0, "drape": 37.0}
+#: The intermediate kind the job builds: D1 decided ``drape`` (spec §17,
+#: RULINGS 2026-11-11j); ``light`` is retired.
+KINDS = ("drape",)
+#: Seconds one tile takes before any is measured on this machine
+#: (``O4_Flight_Schedule.PROFILE_SECONDS``: a 512 px drape).
+ESTIMATE_S = dict(SCHEDULE.PROFILE_SECONDS)
+
+
+def drape_estimate(px) -> dict:
+    """``estimate_s`` for a job whose drapes are ``px`` wide
+    (``O4_Flight_Schedule.drape_seconds``)."""
+    return {"drape": SCHEDULE.drape_seconds(px)}
 #: An estimate's range (``plan_estimate.TIME_SPREAD_KNOWN``).
 SPREAD = (0.75, 1.5)
 #: Faster than this the aircraft has a track to run (spec §9: airborne
@@ -78,6 +107,10 @@ PARKED_ASSUMED_MS = 61.7
 SWAP_SPACING_S = 10.0
 #: Attempts per tile (spec §11 convergence guard).
 MAX_ATTEMPTS = 2
+#: On the ground: under this height above it (``flight_manager``'s), or,
+#: with no AGL in the record, slower than :data:`PARKED_MS`.
+ON_GROUND_AGL_M = 3.0
+PARKED_MS = 2.0
 #: The horizon runs this many degrees of travel past one build's length.
 HORIZON_EXTRA_DEG = 1.0
 MAX_HORIZON_S = 3600.0
@@ -100,22 +133,32 @@ class _Job:
     finished_at: Optional[float] = None
     swapped_at: Optional[float] = None
     notes: list = field(default_factory=list)
+    #: the parked aircraft's own tile: built at once with its core at
+    #: ``core`` (lat, lon), swapped in although X-Plane holds it
+    core: Optional[tuple] = None
 
 
 class WorldJob:
     """Build-ahead in track mode (see the module)."""
 
     def __init__(self, *, builder, publisher, wanted: Callable[[Tile], bool],
-                 kind: str = "light", capacity: int = 4, cores: int = 8,
+                 kind: str = "drape", capacity: int = 4, cores: int = 8,
                  fly_slots: int = 0, sim_priority: str = "balanced",
                  loads: Callable[[], Iterable[Tile]] = lambda: (),
                  estimate_s: Optional[dict] = None,
+                 slot_free: Callable[[int, int], int] = lambda s, r: s - r,
+                 kind_of: Callable[[Tile], Optional[str]] = lambda t: None,
                  stamp: Callable[[], object] = lambda: "") -> None:
         if kind not in KINDS:
             raise ValueError(f"unknown intermediate kind {kind!r} "
                              f"(known: {list(KINDS)})")
         self.builder, self.publisher = builder, publisher
         self.wanted, self.loads = wanted, loads
+        self.slot_free = slot_free
+        self.kind_of = kind_of
+        self.spawn: Optional[Tile] = None   # the parked aircraft's tile
+        self.on_ground = False
+        self._cored: set = set()
         self.stamp = stamp                 # last_swap's time (UTC text)
         self.kind = kind
         self.estimate_s = dict(ESTIMATE_S, **(estimate_s or {}))
@@ -166,6 +209,7 @@ class WorldJob:
             return
         lat, lon = float(rec["lat"]), float(rec["lon"])
         self._move(now, lat, lon, float(rec.get("elev_m") or 0.0))
+        self.spawn = self._spawn_tile(rec)
         self.governor.observe(now, rec.get("frame_s"), self._running() > 0)
         self._settle(now)
         if rec.get("paused"):
@@ -195,6 +239,20 @@ class WorldJob:
             self.turn_deg_s = delta / (now - self._track[0])
         self._track = (now, motion.track_deg)
 
+    def _spawn_tile(self, rec: dict) -> Optional[Tile]:
+        """The tile under a parked aircraft that needs its core (see the
+        module), or None."""
+        agl = rec.get("agl_m")
+        ground = (float(agl) < ON_GROUND_AGL_M if agl is not None
+                  else self.gs_ms < PARKED_MS)
+        self.on_ground = ground
+        if not ground or self.position is None:
+            return None
+        tile = (math.floor(self.position[0]), math.floor(self.position[1]))
+        if tile in self._cored:
+            return None
+        return tile if self.kind_of(tile) in ("placeholder", "drape") else None
+
     def held(self, tile: Tile) -> bool:
         """Rule S3: may X-Plane hold ``tile`` now (witnessed, in the window,
         or within the margin of entering it)?  Unknown position: yes."""
@@ -217,6 +275,9 @@ class WorldJob:
     def _harvest(self, now: float) -> None:
         for tile, ok in self.builder.poll(now):
             job = self.jobs.get(tuple(tile))
+            if job is not None and ok is None:
+                del self.jobs[tuple(tile)]  # a flight's job has it now
+                continue
             if job is None or job.state != "building":
                 continue
             job.finished_at = now
@@ -239,13 +300,20 @@ class WorldJob:
                        if j.state in ("built", "staged")),
                       key=lambda j: j.deadline)
         for job in done:
-            held = self.held(job.tile)
-            if (not held and now - self._swap_at < SWAP_SPACING_S
-                    and not self._held_soon(job.tile)):
-                held = True                 # waits for the next slot
-            state = self.publisher.settle(job.tile, job.kind, held)
+            if job.core is not None:        # the parked exception to S3
+                state = self.publisher.settle(job.tile, job.kind, False,
+                                              merge=self.held(job.tile),
+                                              fresh=True)
+            else:
+                held = self.held(job.tile)
+                if (not held and now - self._swap_at < SWAP_SPACING_S
+                        and not self._held_soon(job.tile)):
+                    held = True             # waits for the next slot
+                state = self.publisher.settle(job.tile, job.kind, held)
             if state == "swapped":
                 job.state, job.swapped_at = "swapped", now
+                if job.core is not None:
+                    self._cored.add(job.tile)
                 self._swap_at = now
                 self.swaps.append((job.tile, now))
                 self.last_swap = (WP.tile_name(*job.tile), job.kind,
@@ -277,6 +345,12 @@ class WorldJob:
         low = self.estimate()[0]
         wanted = {tile: d for tile, d in self.candidates().items()
                   if self.wanted(tile) and not self.held(tile)}
+        if self.spawn is not None:
+            wanted[self.spawn] = 0.0        # at once, although X-Plane holds it
+            done = self.jobs.get(self.spawn)
+            if done is not None and done.core is None and done.state in (
+                    "swapped", "staged"):
+                del self.jobs[self.spawn]   # drawn without its core: again
         for tile, job in list(self.jobs.items()):
             if job.state in ("queued", "late") and tile not in wanted:
                 del self.jobs[tile]         # off the track now
@@ -287,6 +361,11 @@ class WorldJob:
             if job is None:
                 job = self.jobs[tile] = _Job(tile, self.kind, now + deadline)
             job.deadline = now + deadline
+            if tile == self.spawn:
+                job.core, job.klass = self.position, "P0"
+                job.state = "queued"
+                continue
+            job.core = None
             moving = self._track is not None
             job.state = "late" if moving and deadline < low else "queued"
         late = [j for j in self.jobs.values() if j.state == "late"]
@@ -300,17 +379,27 @@ class WorldJob:
         return self.governor.allowed(cap)
 
     def _dispatch(self, now: float) -> None:
-        free = self.slots() - self._running()
+        free = self.slot_free(self.slots(), self._running())
         queued = sorted((j for j in self.jobs.values() if j.state == "queued"),
                         key=lambda j: (j.deadline, j.tile))
         for job in queued[:max(0, free)]:
+            core = {} if job.core is None else {"core": job.core}
             if not self.builder.start(job.tile, job.kind, job.deadline - now,
-                                      job.klass):
+                                      job.klass, **core):
                 continue
             job.state, job.started_at = "building", now
             job.attempts += 1
 
     # ----------------------------------------------------------- status
+
+    def job_rows(self) -> tuple:
+        """The map's rows, ``[[lat, lon], "ahead", kind, state]`` per tile
+        the job holds (``FlightStatus.jobs``' shape, so the Fly map's
+        corridor cells read both); a written drape is staged at once, so
+        ``built`` reads ``staged``."""
+        return tuple([list(j.tile), "ahead", j.kind,
+                      "staged" if j.state == "built" else j.state]
+                     for _t, j in sorted(self.jobs.items()))
 
     def status(self, now: float) -> dict:
         """The job's ``WorldStatus`` fields."""
@@ -324,7 +413,36 @@ class WorldJob:
         return {"state": self.state, "reason": self.reason,
                 "queue": sum(1 for j in self.jobs.values()
                              if j.state == "queued"),
-                "building": tuple(building), "slots": self.slots(),
+                "building": tuple(building), "jobs": self.job_rows(),
+                "slots": self.slots(),
                 "frame_ms": self.governor.frame_ms(),
                 "governor": self.governor.state,
-                "last_swap": self.last_swap}
+                "last_swap": self.last_swap, "here": self.here(now)}
+
+    def here(self, now: float) -> Optional[dict]:
+        """The aircraft's own tile as the job sees it (#2020: the Fly
+        pane's "Preparing imagery at ..." with no plan): ``tile``,
+        ``lat``/``lon`` (the aircraft), ``on_ground``, ``kind`` (the
+        pack's: ``placeholder``, ``drape``, ``full``, "" not ours),
+        ``job`` (its build-ahead state, "" none), ``elapsed_s`` /
+        ``estimate_s`` of a running build, ``core`` (the build carries,
+        or the tile has had, the parked aircraft's full-resolution core).
+        None before the first position."""
+        if self.position is None:
+            return None
+        tile = (math.floor(self.position[0]), math.floor(self.position[1]))
+        job = self.jobs.get(tile)
+        building = (job is not None and job.state == "building"
+                    and job.started_at is not None)
+        elapsed = now - job.started_at if building else 0.0
+        return {"tile": WP.tile_name(*tile),
+                "lat": round(self.position[0], 6),
+                "lon": round(self.position[1], 6),
+                "on_ground": bool(self.on_ground),
+                "kind": self.kind_of(tile) or "",
+                "job": "" if job is None else (
+                    "staged" if job.state == "built" else job.state),
+                "elapsed_s": round(max(0.0, elapsed)),
+                "estimate_s": round(self.estimate()[1]) if building else 0,
+                "core": bool(tile in self._cored
+                             or (job is not None and job.core is not None))}

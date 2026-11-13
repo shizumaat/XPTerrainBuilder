@@ -202,6 +202,18 @@ def link_status(
     return _resolve_status(os.path.join(scenery_dir, name), target_real)
 
 
+def _inside_world_pack(build_dir: str, scenery_dir: str) -> bool:
+    """Is ``build_dir`` inside ``scenery_dir``'s World pack folder?"""
+    import O4_World_Pack as WP
+    if not build_dir or not scenery_dir:
+        return False
+    pack = os.path.realpath(os.path.join(scenery_dir, WP.PACK_NAME))
+    try:
+        return os.path.commonpath([os.path.realpath(build_dir), pack]) == pack
+    except ValueError:                      # another drive (Windows)
+        return False
+
+
 def install(
     lat: int,
     lon: int,
@@ -222,6 +234,11 @@ def install(
     # The World pack draws a tile it holds (flight manager / World spec
     # §4.1): a second pack for the same tile would fight it.
     if not grouped and WP.holds_tile(scenery_dir, lat, lon):
+        return
+    # A build folder inside the World pack (RULINGS 2026-11-12g: every
+    # build writes into the World folder) is published, never linked: a
+    # per-tile link to it would be a second pack for the same tile.
+    if _inside_world_pack(build_dir, scenery_dir):
         return
     status = link_status(lat, lon, build_dir, scenery_dir, grouped)
     if status in (LinkStatus.INSTALLED, LinkStatus.PHYSICAL):

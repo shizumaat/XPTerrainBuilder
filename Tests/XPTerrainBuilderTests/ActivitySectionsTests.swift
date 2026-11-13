@@ -153,4 +153,18 @@ final class ActivitySectionsTests: XCTestCase {
         XCTAssertTrue(list.contains("List(selection:"))
         XCTAssertTrue(list.contains("Section(isExpanded:"))
     }
+
+    /// #2052: a finished core row leaves Activity for Completed. Qt twin:
+    /// `test_imagery_core_rows.py`.
+    func testFinishedCoreRowsSitInCompleted() {
+        let running = O4ImageryCoresProgress(lat: 1, lon: 2, state: "active",
+                                             done: 1, failed: 0, total: 4)
+        let done = O4ImageryCoresProgress(lat: 3, lon: 4, state: "done",
+                                          done: 4, failed: 0, total: 4)
+        let stopped = O4ImageryCoresProgress(lat: 5, lon: 6, state: "stopped",
+                                             done: 1, failed: 0, total: 4)
+        let sections = ActivitySections.coreSections([running, done, stopped])
+        XCTAssertEqual(sections.live.map(\.lat), [1])
+        XCTAssertEqual(sections.done.map(\.lat), [3, 5])
+    }
 }

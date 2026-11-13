@@ -313,8 +313,13 @@ def load_store_records(store_directory: str, name: str) -> list:
 
 def newest_airport_measurement(icao: str, store_directory: str,
                                finished_after: float = 0.0):
-    """Newest airport store record as a measurement dict, or None."""
+    """Newest airport store record as a measurement dict, or None.  The
+    app's own solve records (``"source": "app"``, the progress bar's
+    learning, ``o4_engine.airport_time_model``) ran beside a whole tile
+    build and carry no stage clocks: they are never a measurement."""
     for record in reversed(load_store_records(store_directory, icao)):
+        if record.get("source") == "app":
+            continue
         if float(record.get("finished_at") or 0.0) >= finished_after:
             return {
                 "total_seconds": float(record.get("total_seconds") or 0.0),

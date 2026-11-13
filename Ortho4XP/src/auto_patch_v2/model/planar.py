@@ -833,6 +833,11 @@ class PlanarMap:
     #: ``constraints/pad_relief`` keeps it pavement-senior: a foot standing
     #: on it founds no relief target, a pad vertex on it takes none.
     jetway_ground: tuple[tuple[tuple[float, float], ...], ...] = ()
+    #: THE STOREY SHELLS (#2062, RULINGS 2026-11-13w; ``model.storey_shell``):
+    #: the split-level buildings laid on storey pads (``planar/storey_pad``),
+    #: published as sidecar ``storey_shells`` and seated whole by the
+    #: object stage
+    storey_shells: tuple = ()
     #: THE PLANAR STAGE'S REGISTRIES (stage-cache spec §10 step 2, #841):
     #: the held platforms, plateaus, landings, run-outs, platform verdicts,
     #: declared terraces and the pad/airside publication this map's

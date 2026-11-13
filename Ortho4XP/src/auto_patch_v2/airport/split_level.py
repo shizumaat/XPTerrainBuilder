@@ -70,7 +70,7 @@ from . import obj8 as _obj8
 from ..geom.foot_planes import PLANE_SHARE
 from .object_cut import _face_normals_y
 
-__all__ = ["SplitLevel", "read_split_levels"]
+__all__ = ["SplitLevel", "read_split_levels", "run_faces_airside", "take_remainder"]
 
 #: the height band a wall side is read in (metres of authored y)
 BAND_M = 1.0
@@ -354,6 +354,15 @@ def _airside_share(airside, side: LineString, centre) -> float:
     return sum(bool(airside.contains(Point(p))) for p in pts) / len(pts) if pts else 0.0
 
 
+def run_faces_airside(airside, run: LineString) -> bool:
+    """A frame run (the building on its RIGHT) FACES AIRSIDE: half its
+    :func:`_stations` outside it lie on ``airside`` (prepared)."""
+    (x0, y0), (x1, y1) = run.coords[0], run.coords[-1]
+    L = run.length or 1.0
+    inside = (0.5 * (x0 + x1) + (y1 - y0) / L, 0.5 * (y0 + y1) - (x1 - x0) / L)
+    return _airside_share(airside, run, inside) >= 0.5
+
+
 def _slab_share(v: np.ndarray, t: np.ndarray, side: tuple, centre, y: float) -> float:
     """The share of a ``_SLAB_DEPTH_M`` strip inside the authored side
     ``side`` covered by up-facing horizontal solid faces at ``y`` (within
@@ -569,24 +578,33 @@ def _level_plans(v: np.ndarray, t: np.ndarray, plan: Polygon, levels: _t.Sequenc
             P[up & (np.abs(ym - float(y)) < BAND_M)][:, :, [0, 2]]).tolist()
             if g is not None and g.area > 1e-6]
         claim(k, tri)
-    rest = plan.difference(taken)
+    return tuple(take_remainder(out, plan.difference(taken), probe))
+
+
+def take_remainder(plans: _t.Sequence, rest, probe: float) -> list:
+    """``plans`` (one per level) with every piece of ``rest`` added to a
+    level (spec A1 (1) (c)): a piece is open downward and takes the LOWEST
+    level it shares ``probe`` of boundary with, else the level it shares
+    most with (a piece meeting no level at all waits for the others, then
+    takes the lowest)."""
+    out = list(plans)
     pieces = sorted((g for g in getattr(rest, "geoms", [rest])
                      if g.geom_type == "Polygon" and g.area > 1e-6), key=lambda g: -g.area)
-    for _pass in range(2):
+    for last in (False, True):
         later = []
         for piece in pieces:
             edge = piece.exterior
             share = [edge.intersection(g.buffer(1e-3)).length if not g.is_empty else 0.0
                      for g in out]
-            if max(share) <= 0.0 and _pass == 0:
+            if max(share) <= 0.0 and not last:
                 later.append(piece)
                 continue
             k = next((j for j, s in enumerate(share) if s >= probe), None)
             if k is None:
-                k = max(range(len(levels)), key=lambda j: (share[j], -j))
+                k = max(range(len(out)), key=lambda j: (share[j], -j))
             out[k] = unary_union([out[k], piece]).buffer(0)
         pieces = later
-    return tuple(out)
+    return out
 
 
 def _storeys(fam, cache, cs, cov, aff, probe: float, cover: float, grid: float, airside,
@@ -634,11 +652,8 @@ def _storeys(fam, cache, cs, cov, aff, probe: float, cover: float, grid: float, 
         for (r, _f), k in zip(runs, run_level, strict=True):
             if k is None:
                 continue
-            (x0, y0), (x1, y1) = r.coords[0], r.coords[-1]
-            L = r.length
-            inside = (0.5 * (x0 + x1) + (y1 - y0) / L, 0.5 * (y0 + y1) - (x1 - x0) / L)
-            if _airside_share(airside, r, inside) >= 0.5:
-                by[k] += L
+            if run_faces_airside(airside, r):
+                by[k] += r.length
         if max(by) > 0.0:
             air = max(range(len(levels)), key=lambda j: (by[j], -j))
     return {"runs": runs, "levels": levels, "run_levels": tuple(run_level),

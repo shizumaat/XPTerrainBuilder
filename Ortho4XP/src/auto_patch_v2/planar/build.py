@@ -20,7 +20,7 @@ import typing as _t
 
 import numpy as np
 import shapely
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.polygon import orient
 from shapely.strtree import STRtree
 
@@ -39,7 +39,7 @@ from .terrain_edge import EdgeReport
 from .overlay import Arrangement, build_arrangement
 from .shapes import ShapeStats, build_shapes
 from .weld import WeldStats
-from .basins import BasinStats, build_basins, read_objects
+from .basins import RUNWAY_FAMILY, BasinStats, build_basins, read_objects
 from .object_floor_cells import floor_mouths, not_floors, object_floor_stage
 from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
@@ -50,6 +50,7 @@ from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
+from .storey_pad import read_storey_shells, storey_pads
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from ..airport.bridge_ground import BridgeGround, bridge_ground, bridge_runs
@@ -146,7 +147,8 @@ def level_counts(pad_airside: _t.Mapping[str, _t.Any]) -> dict:
 
 def channels_after_basins(airport, classification, law, objects, corridors, extra,
                          plates, cache, orep, claimed_ways, shell_claimed,
-                         synth_ways=frozenset(), reads=None, cuts=()):
+                         synth_ways=frozenset(), reads=None, cuts=(),
+                         skip_split=frozenset()):
     """§45 (13) (d) AMENDED — A MEMBER OF A *BUILT* BASIN, BASINS BEFORE
     CHANNELS (owner RULINGS 2026-09-15aw).  THE ONE ORDERING SITE; the
     ``--stage structures`` replay calls this same function.
@@ -185,7 +187,8 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
     cl_s, tun0, _s0 = build_structures(airport, classification, law, objects,
                                        corridors, extra, plates, ())
     _cl_b, basins0, _b0 = build_basins(airport, cl_s, law, tun0, objects, cache,
-                                       report=orep, claimed=shell_claimed, reads=reads)
+                                       report=orep, claimed=shell_claimed, reads=reads,
+                                       skip_split=skip_split)
     pit = frozenset(str(i) for b in basins0 for i in (b.member_ids or ()))
     channels, stats = identify_channels(airport, classification, law, objects,
                                         claimed_ways, pit, synth_ways, cuts=cuts)
@@ -194,6 +197,22 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
         f"{len(pit)} member placement(s) are the exclusion (a pit CANDIDATE that never "
         f"builds a basin is not a pit shell — RULINGS 2026-09-15aw)")
     return channels, stats
+
+
+def _storey_pads(airport, classification, law, shells, basins, bstats, notes):
+    """``(classification, records)``: the storey shells' pads cut in
+    (``planar/storey_pad``) after the pits, their notes in ``bstats``."""
+    if not shells:
+        return classification, []
+    cells = list(classification.cells)
+    out, recs, more, refused = storey_pads(
+        airport, cells, [Polygon(c.ring, c.holes) for c in cells], law, shells,
+        [Polygon(b.wall_path) for b in basins if len(b.wall_path) >= 3], RUNWAY_FAMILY)
+    bstats.split_levels.extend(f"storey shell: {n}" for n in [*notes, *more])
+    bstats.refused.extend(f"storey shell: {r}" for r in refused)
+    if not recs:
+        return classification, []
+    return _dc.replace(classification, cells=tuple(out)), recs
 
 
 def _pad_terraces(terraces) -> dict[str, frozenset]:
@@ -293,9 +312,17 @@ def build(airport: Airport, classification: Classification, law: Law,
     # (7)/(11)).  §45 (13) (d) AMENDED (RULINGS 2026-09-15aw) puts the
     # BASIN PASS FIRST — see :func:`channels_after_basins`.
     hard_claims, synth_claims = crossing_claims(airport, law, corridors, classification)
+    # THE STOREY SHELLS, read ONCE (#2062 R1, spec A1 (4)): the split-level
+    # buildings laid on storey pads (``planar/storey_pad``) -- no basin pass
+    # cuts a pit under them, and their pads are minted after the pits
+    shells, shell_notes = read_storey_shells(
+        airport, classification.cells,
+        [Polygon(c.ring, c.holes) for c in classification.cells], law, objects, cache)
+    shell_ids = frozenset(m for sl in shells for m in sl.member_ids)
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
-        hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings, cuts=cuts)
+        hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings, cuts=cuts,
+        skip_split=shell_ids)
     # THE EDGE BRIDGES, read ONCE (owner RULINGS 2026-10-27l / 27r / 28d,
     # ``planar/bridge_span``): their backs pin the trench and their cover is
     # covered ground — the structure pass and the covered ground read one
@@ -372,7 +399,10 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                   channels=channels,
                                                   claimed=frozenset(tstats.shell_claimed),
                                                   reads=rings,
-                                                  rim_diagnostics=rim_diagnostics)
+                                                  rim_diagnostics=rim_diagnostics,
+                                                  skip_split=shell_ids)
+    classification, storeys = _storey_pads(airport, classification, law, shells, basins,
+                                           bstats, shell_notes)
     bstats.objects = orep
     bstats.object_read_s = read_s
     # the structure reads are DONE (issue #136: the progress window's
@@ -380,7 +410,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     _pulse.mark("structures")
     _pulse.tick("building the planar arrangement")
     arr = build_arrangement(airport, classification, law, grid_m, level_b=level_b,
-                            level_seeds=seeds)
+                            level_seeds=seeds, shells=storeys)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,
@@ -525,6 +555,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                        if (getattr(c, "evidence", None) or {}).get("frontage_road")),
                    ramp_runouts=_runouts(classification),
                    jetway_ground=tuple(getattr(classification, "jetway_ground", ())),
+                   storey_shells=tuple(storeys),
                    registries=arr.registries)
     validate(pm)
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of

@@ -172,7 +172,6 @@ from ..law import Law
 from ..law.tables import role_side
 from ..model.airport import Airport
 from ..model.frame import XY
-from ..model.planar import is_gap_ref
 from ..model.structures import Basin, Tunnel
 from ..model import pulse as _pulse
 from . import basin_datum as _basin_datum
@@ -180,7 +179,7 @@ from . import basin_floor_width as _floor_width
 from . import basin_rim as _basin_rim
 from .basin_geometry import (_floors, _floors_inside, _outer, _ramp_axis, _region_floor,
                              _renode, _rim, _snap_ring, shell_thickness_m)
-from .structure_approach import cut_gap_cells
+from .cell_knife import knife_cells
 from .structure_geometry import rim_standoff, rim_yield_m
 from ..geom.parts import polygon_parts_with_area
 
@@ -371,7 +370,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                  report: obj8.ObjReport | None = None,
                  channels: _t.Sequence = (),
                  claimed: _t.AbstractSet[str] = frozenset(),
-                 reads: dict | None = None, rim_diagnostics: bool = False
+                 reads: dict | None = None, rim_diagnostics: bool = False,
+                 skip_split: _t.AbstractSet[str] = frozenset()
                  ) -> tuple[Classification, tuple[Basin, ...], BasinStats]:
     """The classification with the basins applied (cells cut, floor and
     wall cells added, the footprints as keep-outs), the records, and the
@@ -401,7 +401,11 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     notes.  A BUILD does not: they are notes and never a refusal, they are
     the only readers of the members' at-grade LINEWORK, and without them
     this pass reads the at-grade POLYGONS alone (the basement test).  The
-    cells, the rings and every refusal are the same either way."""
+    cells, the rings and every refusal are the same either way.
+
+    ``skip_split``: the placement ids of the split-level buildings laid on
+    STOREY PADS (``planar/storey_pad``, #2062 R1; read once in
+    ``planar/build``): no pit is cut under them."""
     reads = {} if reads is None else reads
 
     def once(key: tuple, read: _t.Callable[[], object]):
@@ -453,7 +457,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         cells = list(classification.cells)
         return _apply_pits(classification, cells, [Polygon(c.ring, c.holes) for c in cells],
                            *_split_pits(airport, classification, law, objects, cache, [], [],
-                                        [], [], stats), law, bl, stats)
+                                        [], [], stats, skip_split), law, bl, stats)
     u = uu("regions", [_outer(w) for o in witnessed for w in o.witnesses])
     u = u.buffer(bl.footprint_close_m, **_MITRE).buffer(-bl.footprint_close_m, **_MITRE)
     parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and not g.is_empty]
@@ -893,20 +897,21 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     _record_grade(stats, cache, bl)
     return _apply_pits(classification, cells, polys,
                        *_split_pits(airport, classification, law, objects, cache, polys,
-                                    basins, new_cells, knives, stats), law, bl, stats)
+                                    basins, new_cells, knives, stats, skip_split), law, bl, stats)
 
 
 def _split_pits(airport, classification, law, objects, cache, polys, basins, new_cells,
-                knives, stats):
+                knives, stats, skip=frozenset()):
     """``(basins, new cells, knives)`` with the split-level buildings'
-    pits added (``planar/split_level_pit``), their notes in ``stats``."""
+    pits added (``planar/split_level_pit``; none under a placement of
+    ``skip``, a storey shell's), their notes in ``stats``."""
     from .split_level_pit import split_level_pits
     cells = list(classification.cells)
     polys = polys or [Polygon(c.ring, c.holes) for c in cells]
     sb, sc, sk, notes, refused = split_level_pits(
         airport, cells, polys, law, objects, cache or obj8.ResourceCache(
             law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law)),
-        len(basins), knives, FLOOR_ROLE, WALL_ROLE, RUNWAY_FAMILY)
+        len(basins), knives, FLOOR_ROLE, WALL_ROLE, RUNWAY_FAMILY, skip=skip)
     stats.split_levels.extend(notes)
     stats.refused.extend(refused)
     return list(basins) + sb, list(new_cells) + sc, list(knives) + sk
@@ -921,39 +926,15 @@ def _apply_pits(classification, cells, polys, basins, new_cells, knives, law, bl
     if not basins:
         return classification, (), stats
     knife = uu("knife", knives)
-    out_cells: list[Cell] = []
-
-    def _cut(c: Cell, p: Polygon, blade) -> None:
-        if c.role in RUNWAY_FAMILY or c.kind == "structure" or blade is None \
-                or not p.intersects(blade):
-            out_cells.append(c)
-            return
-        if c.role == "building" and not bl.cuts_pads:
-            out_cells.append(c)
-            return
-        rest_p = p.difference(blade)
-        stats.cells_cut += 1
-        for j, part in enumerate(polygon_parts_with_area(rest_p)):
-            if part.area < 0.25:
-                continue
-            out_cells.append(Cell(len(out_cells), c.role, c.ref if j == 0 else f"{c.ref}#{j}",
-                                  tuple(part.exterior.coords)[:-1],
-                                  tuple(tuple(h.coords)[:-1] for h in part.interiors),
-                                  c.code_number, c.code_letter, c.side, c.kind,
-                                  dict(c.evidence, basin_cut=1.0)))
-
-    # a standing cell is cut FLUSH at the rim; a §53 gap piece stands off it
-    # by the mint's stand-off, as it stands off every structure footprint —
-    # ONE knife for every structure (spec §60 (9) R1b, §53 (18)): a piece
-    # never lies on a rim, so the rim is never re-noded
-    for c, p in zip(cells, polys):
-        if not is_gap_ref(c.ref):
-            _cut(c, p, knife)
-    for role, ref, poly, holes in new_cells:
-        out_cells.append(Cell(len(out_cells), role, ref, tuple(poly.exterior.coords)[:-1],
-                              holes, None, None, role_side(law, role), "structure", {}))
-    cut_gap_cells([c for c in cells if is_gap_ref(c.ref)], knife, law, _cut)   # LAST
-    out_cells = [_dc.replace(c, id=i) for i, c in enumerate(out_cells)]
+    # ONE knife for every structure (``planar/cell_knife``): a standing
+    # cell is cut FLUSH at the rim, a §53 gap piece stands off it
+    out_cells, n_cut = knife_cells(
+        cells, polys, knife, law, RUNWAY_FAMILY, cut_pads=bool(bl.cuts_pads),
+        mark="basin_cut",
+        new_cells=[Cell(0, role, ref, tuple(poly.exterior.coords)[:-1], holes, None, None,
+                        role_side(law, role), "structure", {})
+                   for role, ref, poly, holes in new_cells])
+    stats.cells_cut += n_cut
     cl = _dc.replace(classification, cells=tuple(out_cells),
                      keepouts=tuple(classification.keepouts)
                      + tuple(tuple(k.exterior.coords)[:-1] for k in knives),

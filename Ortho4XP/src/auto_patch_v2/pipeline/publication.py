@@ -91,6 +91,7 @@ import typing as _t
 
 from ..airport import dsf as _dsf
 from ..constraints import runway_end_report as _end_report
+from .storey_publication import storey_shell_records
 from ..constraints.contiguity import road_station_caps
 from ..constraints.eat import eat_rects as _eat_rects
 from ..constraints.eat import eat_report_rects as _eat_report_rects
@@ -737,6 +738,9 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                                     (getattr(planar, "road_join_yield", None)
                                      or {}).items())],
             "basin_facilities": basin_facilities(planar, law, z),
+            # #2062 THE STOREY SHELLS (``pipeline/storey_publication``): a
+            # REPORT key the drawn check reads; no census family prices it
+            "storey_shells": storey_shell_records(planar, airport, z),
             # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; spec
             # §11a (2)/(4)): ``[[lat, lon, metres above the pad's level],
             # ...``.  Published because the pad's flatness READER

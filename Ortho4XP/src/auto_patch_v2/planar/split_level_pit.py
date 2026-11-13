@@ -66,10 +66,12 @@ SPLIT_KIND = "split_level"
 
 def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
                      taken: _t.Sequence[Polygon], floor_role: str, wall_role: str,
-                     runway_roles: _t.Collection[str]
+                     runway_roles: _t.Collection[str], skip: _t.AbstractSet[str] = frozenset()
                      ) -> tuple[list[Basin], list[tuple], list[Polygon], list[str], list[str]]:
     """``(basins, new cells, knives, notes, refusals)`` of every split-level
-    building of ``objects`` (module docstring); refs numbered from ``k0``."""
+    building of ``objects`` (module docstring); refs numbered from ``k0``.
+    A building with a placement in ``skip`` is a STOREY SHELL
+    (``planar/storey_pad``, #2062): it stands on its storey pad, no pit."""
     fr, pr = frontage_roles(law), frozenset(pavement_roles(law))
     air = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in fr]).buffer(0)
     pave = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in pr]).buffer(0)
@@ -83,6 +85,7 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
                                         None if ap.is_empty else prep(ap))
     seen = {m for sl in sls for m in sl.member_ids}
     sls = sls + [r for r in roofs if not seen.intersection(r.member_ids)]
+    sls = [sl for sl in sls if not skip.intersection(sl.member_ids)]
     notes = notes + roof_notes
     if not sls:
         return [], [], [], notes, []

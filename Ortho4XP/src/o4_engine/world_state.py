@@ -29,7 +29,10 @@ journal knows a :class:`WorldTile`:
   ``""``;
 * ``dsf`` -- the tile's DSF in the World pack (``""`` for a journal
   record with none): what "Show in Finder" reveals for a tile the pack
-  holds (#2027).
+  holds (#2027);
+* ``provider`` -- the photo provider that draws a real tile (#2018,
+  ``O4_World_Imagery_Record``: its record, else its DDS names), ``""``
+  for a placeholder or none.
 
 Cost (owner's World pack, 18,259 DSFs, 2026-11-12): two directory levels
 listed, the head of each small file read (placeholders), one property
@@ -49,6 +52,7 @@ import O4_Imagery_OnDemand_Index as INDEX
 import O4_Tile_Build_Log as TLOG
 import O4_Tile_Info as TINFO
 import O4_Tile_Volume as TVOL
+import O4_World_Imagery_Record as IREC
 import O4_World_Pack as WP
 
 __all__ = ["FULL", "MESH_LOWRES", "DRAPE", "PLACEHOLDER", "NOTHING", "STATES",
@@ -83,19 +87,22 @@ class WorldTile:
     source: str = ""
     volume: str = ""
     dsf: str = ""
+    provider: str = ""
 
     def wire(self, key: Tuple[int, int]) -> list:
-        """``[lat, lon, state, origin, sharp, source, volume, dsf]``: one
-        ``ScanBatch.world`` row (positional, like ``installed``; a reader
-        of the first seven is unchanged)."""
+        """``[lat, lon, state, origin, sharp, source, volume, dsf,
+        provider]``: one ``ScanBatch.world`` row (positional, like
+        ``installed``; a reader of the first eight is unchanged)."""
         return [key[0], key[1], self.state, self.origin,
-                round(self.sharp, 3), self.source, self.volume, self.dsf]
+                round(self.sharp, 3), self.source, self.volume, self.dsf,
+                self.provider]
 
     def fields(self) -> dict:
         """The Library row's ``world`` dict."""
         return {"state": self.state, "origin": self.origin,
                 "sharp": round(self.sharp, 3), "source": self.source,
-                "volume": self.volume, "dsf": self.dsf}
+                "volume": self.volume, "dsf": self.dsf,
+                "provider": self.provider}
 
 
 def _journal(scenery_dir: str) -> dict:
@@ -165,10 +172,13 @@ def _tile(pack: str, key, path: str, size: int, record: Optional[dict],
     if WP.is_placeholder(path, size):
         return WorldTile(PLACEHOLDER, "", 0.0, source, volume, path)
     agent = (DSFH.dsf_properties(path) or {}).get("sim/creation_agent", "")
+    provider = str(IREC.read(pack, *key).get("provider") or "")
     if WP.kind_of_agent(agent) == DRAPE:
-        return WorldTile(DRAPE, TINFO.ORIGIN_HERE, 0.0, source, volume, path)
+        return WorldTile(DRAPE, TINFO.ORIGIN_HERE, 0.0, source, volume, path,
+                         provider)
     state, sharp = _mesh_state(pack, key, sharpness)
-    return WorldTile(state, _origin(record, agent), sharp, source, volume, path)
+    return WorldTile(state, _origin(record, agent), sharp, source, volume, path,
+                     provider)
 
 
 def iter_world(scenery_dir: str, *, index_path: Optional[str] = None

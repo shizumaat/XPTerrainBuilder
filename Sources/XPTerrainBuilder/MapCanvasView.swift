@@ -24,6 +24,8 @@ struct MapCanvasView: View {
     @State private var cursorElevation: String?
     /// The pack outline under the cursor (#1316).
     @State private var cursorPack: String?
+    /// The photo provider of the World tile under the cursor (#2018).
+    @State private var cursorPhoto: String?
     @State private var elevationQuery: Task<Void, Never>?
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
     /// The airport layer's last plan (#817): rebuilt only when the camera,
@@ -117,11 +119,15 @@ struct MapCanvasView: View {
                     cursorText = PatchNodeInspector.latLon(lat: point.lat, lon: point.lon)
                     cursorPack = buildModel.patchEdit.isShowing
                         ? buildModel.packOutlines.label(atLat: point.lat, lon: point.lon) : nil
+                    let photo = O4WorldStateText.photoText(buildModel.worldTiles[
+                        BuildModel.TileCoord(lat: Int(floor(point.lat)), lon: Int(floor(point.lon)))])
+                    cursorPhoto = photo.isEmpty ? nil : photo
                     queryElevation(lat: point.lat, lon: point.lon)
                 case .ended:
                     NSCursor.arrow.set()
                     cursorText = nil
                     cursorPack = nil
+                    cursorPhoto = nil
                     elevationQuery?.cancel()
                 }
             }
@@ -712,12 +718,14 @@ struct MapCanvasView: View {
     }
 
     /// Bottom-left readout: the cursor position in the node format (#1308),
-    /// the elevation, and the pack outline under it (#1316; Qt's
+    /// the elevation, the photo provider of the World tile under it
+    /// (#2018) and the pack outline under it (#1316; Qt's
     /// `O4_Qt_Cursor_Readout.readout_text`).
     @ViewBuilder
     private var cursorReadout: some View {
         if let cursorText {
-            Text(([cursorText] + [cursorElevation, cursorPack.map { "pack: \($0)" }].compactMap { $0 })
+            Text(([cursorText] + [cursorElevation, cursorPhoto,
+                                  cursorPack.map { "pack: \($0)" }].compactMap { $0 })
                 .joined(separator: " · "))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)

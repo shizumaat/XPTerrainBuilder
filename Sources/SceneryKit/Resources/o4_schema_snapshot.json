@@ -34,6 +34,7 @@
    "drape_photo_px",
    "fly_build_slots",
    "fly_sim_priority",
+   "fly_photo_source",
    "custom_scenery_dir",
    "custom_overlay_src",
    "custom_overlay_src_alternate",
@@ -556,6 +557,12 @@
     "3",
     "4"
    ]
+  },
+  "fly_photo_source": {
+   "default": "auto",
+   "hint": "Where the tiles laid while flying get their photo: Automatic takes each tile's national orthophoto service where one covers it, else Bing; a source chosen here draws every tile.",
+   "name": "fly_photo_source",
+   "type": "str"
   },
   "fly_sim_priority": {
    "default": "balanced",

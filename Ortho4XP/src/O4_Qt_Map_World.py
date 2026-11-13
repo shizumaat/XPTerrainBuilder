@@ -43,7 +43,8 @@ def from_wire(rows) -> dict:
         if len(row) >= 7:
             out[(int(row[0]), int(row[1]))] = WS.WorldTile(
                 row[2], row[3], float(row[4] or 0), row[5], row[6],
-                row[7] if len(row) > 7 else "")
+                row[7] if len(row) > 7 else "",
+                row[8] if len(row) > 8 else "")
     return out
 
 

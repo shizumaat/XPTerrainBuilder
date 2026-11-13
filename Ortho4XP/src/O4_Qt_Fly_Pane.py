@@ -88,16 +88,18 @@ def _set_drape_px(value) -> None:
 
 
 def _photo_source() -> str:
-    """The global ``default_website`` ("" when unread)."""
+    """The app setting ``fly_photo_source`` (Automatic when unset or
+    unread, #2018)."""
     import O4_Settings_Model as SM
     try:
-        return str(SM.read_global_raw().get(TEXT.PHOTO_SOURCE_KEY) or "")
+        value = SM.read_global_raw().get(TEXT.PHOTO_SOURCE_KEY)
     except OSError:
-        return ""
+        value = None
+    return str(value or TEXT.PHOTO_SOURCE_AUTO)
 
 
 def _set_photo_source(code) -> None:
-    """Write ``default_website`` to the global cfg (the World pack's
+    """Write ``fly_photo_source`` to the global cfg (the World pack's
     builds read it per build: the next drape fetches from it)."""
     import O4_Settings_Model as SM
     if code:
@@ -208,8 +210,8 @@ class FlyPane(QWidget):
         self.drape_px_combo.currentIndexChanged.connect(
             lambda _i: _set_drape_px(self.drape_px_combo.currentData()))
         layout.addWidget(self.drape_px_combo)
-        # The Build pane's imagery list (the window fills it,
-        # set_photo_sources), bound to the global default_website.
+        # Automatic, then the Build pane's imagery list (the window fills
+        # it, set_photo_sources), bound to fly_photo_source (#2018).
         self.photo_source_combo = QComboBox()
         self.photo_source_combo.setToolTip(TEXT.PHOTO_SOURCE_LABEL)
         self.photo_source_combo.activated.connect(
@@ -366,14 +368,15 @@ class FlyPane(QWidget):
         return block
 
     def set_photo_sources(self, entries) -> None:
-        """The Build pane's imagery entries (``O4_Qt_Imagery_Menu``),
-        the global ``default_website`` chosen (Swift: ``PhotoSourcePicker``)."""
+        """Automatic, then the Build pane's imagery entries
+        (``O4_Qt_Imagery_Menu``), ``fly_photo_source`` chosen (Swift:
+        ``PhotoSourcePicker``)."""
         import O4_Qt_Imagery_Menu as QTIMENU
         combo = self.photo_source_combo
-        QTIMENU.fill_combo(combo, entries)
-        index = combo.findData(_photo_source() or "BI")
-        if index >= 0:
-            combo.setCurrentIndex(index)
+        QTIMENU.fill_combo(combo, TEXT.photo_source_entries(entries))
+        combo.setItemText(0, TEXT.PHOTO_SOURCE_AUTO_LABEL)
+        index = combo.findData(_photo_source())
+        combo.setCurrentIndex(index if index >= 0 else 0)
 
     def _spin(self, words, lo, hi, value):
         row = QWidget()

@@ -25,6 +25,7 @@ import O4_Geo_Utils as GEO
 import O4_Http_Pushback as PUSHBACK
 import O4_Imagery_Async as FETCH_ASYNC
 import O4_Imagery_Placeholder as PLACEHOLDER
+import O4_Imagery_Provider_Blend as PROVIDER_BLEND
 import O4_Machine_Slots as MACHINE_SLOTS
 import O4_Mask_Utils as MASK
 import O4_OSM_Utils as OSM
@@ -3198,6 +3199,9 @@ def convert_texture(
     harmonization_field = color_harmonization_field_for_texture(
         tile, til_x_left, til_y_top, zoomlevel, provider_code
     )
+    # #2018: a drape beside another provider's tile blends toward it
+    harmonization_field = PROVIDER_BLEND.add_field(
+        tile, harmonization_field, til_x_left, til_y_top, zoomlevel)
     if (provider_code in local_combined_providers_dict) and (
         (provider_code not in providers_dict)
         or not os.path.exists(os.path.join(file_dir, jpeg_file_name))

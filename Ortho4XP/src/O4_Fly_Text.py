@@ -29,7 +29,9 @@ __all__ = [
     "BUILD_ALTERNATE", "CRUISE_LABEL",
     "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "SIM_PRIORITIES",
     "DRAPE_PX_LABEL", "DRAPE_PX_KEY", "PHOTO_SOURCE_LABEL",
-    "PHOTO_SOURCE_KEY", "DRAPE_PX_CHOICES", "LIVE_PREVIEW",
+    "PHOTO_SOURCE_KEY", "PHOTO_SOURCE_AUTO", "PHOTO_SOURCE_AUTO_LABEL",
+    "PHOTO_SOURCE_AUTO_HELP", "photo_source_entries", "DRAPE_PX_CHOICES",
+    "LIVE_PREVIEW",
     "LIVE_PREVIEW_HELP", "SHARP_PHOTO", "SHARP_PHOTO_HELP",
     "CENTER_ON_AIRCRAFT", "NO_AIRCRAFT_POSITION",
     "AIRCRAFT_FRESH_S", "aircraft_is_current", "DIVERT", "END_FLIGHT", "NO_FLIGHT_MANAGER",
@@ -77,10 +79,17 @@ SIM_PRIORITIES = (("smooth", "Smooth flying first"),
                   ("fast", "Build fastest"))
 DRAPE_PX_LABEL = "Photo detail ahead"
 #: The photo source the World pack's builds fetch (owner
-#: 2026-11-12T19:17Z): the global ``default_website`` the Build pane's
-#: "Tile / global default" means; read per build by the engine.
+#: 2026-11-12T19:17Z), the app setting ``fly_photo_source`` read per build
+#: by the engine: Automatic (#2018, its default: each tile's national
+#: orthophoto service where one covers it, else Bing) or a source of the
+#: Build pane's list, which then draws every tile.
 PHOTO_SOURCE_LABEL = "Photo source"
-PHOTO_SOURCE_KEY = "default_website"
+PHOTO_SOURCE_KEY = "fly_photo_source"
+PHOTO_SOURCE_AUTO = "auto"
+PHOTO_SOURCE_AUTO_LABEL = "Automatic"
+PHOTO_SOURCE_AUTO_HELP = ("Each tile takes the national orthophoto service "
+                          "where one covers it, else Bing; a tile beside "
+                          "another source's blends its colour toward it.")
 #: ``drape_photo_px`` (RULINGS 2026-11-11j): (value, words).
 DRAPE_PX_KEY = "drape_photo_px"
 DRAPE_PX_CHOICES = ((512, "Quick"),
@@ -109,6 +118,16 @@ END_FLIGHT = "End flight"
 NO_FLIGHT_MANAGER = "This engine has no flight manager yet."
 #: The readiness list before the engine reports a flight.
 NO_STATUS = "Prepare a flight to see what it needs."
+
+
+def photo_source_entries(entries) -> list:
+    """The Fly pane's "Photo source" list: Automatic first, then the
+    Build pane's imagery ``entries`` (``O4_Qt_Imagery_Menu.menu_entries``
+    rows).  Mac: ``FlyText.photoSourceAuto`` heads ``PhotoSourcePicker``."""
+    auto = {"code": PHOTO_SOURCE_AUTO, "label": PHOTO_SOURCE_AUTO_LABEL,
+            "enabled": True, "tooltip": PHOTO_SOURCE_AUTO_HELP, "section": ""}
+    return [auto] + [e for e in entries if e.get("code") != PHOTO_SOURCE_AUTO]
+
 
 #: §6.2's readiness rows, in the engine's order.
 READINESS_LABELS = {

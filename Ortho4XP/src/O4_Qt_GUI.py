@@ -5851,8 +5851,17 @@ class MainWindow(QMainWindow):
             from O4_Qt_Cursor_Readout import CursorReadout
             readout = self._cursor_readout = CursorReadout(
                 self.coords_label, self.patch_editor.engine, lambda: self._built, self,
-                pack_label=self.patch_editor.pack_label_at)
+                pack_label=self.patch_editor.pack_label_at,
+                photo_label=self._world_photo_at)
         readout.hover(lat, lon)
+
+    def _world_photo_at(self, lat, lon):
+        """"photo: <provider>" of the World tile under the cursor (#2018),
+        or None (Mac: ``MapCanvasView.cursorPhoto``)."""
+        import O4_World_State_Text as WTEXT
+        world = self.map.world().get((math.floor(lat), math.floor(lon)))
+        text = WTEXT.photo_text(world.fields() if world is not None else None)
+        return text or None
 
     def _update_zoom_label(self):
         self.zoom_label.setText(

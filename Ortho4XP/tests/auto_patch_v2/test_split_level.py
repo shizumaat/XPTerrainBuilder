@@ -288,18 +288,6 @@ def test_run_feet_read_a_set_back_facade_as_its_runs_own():
     assert _storey_levels([(f, 40.0) for f in feet]) == (0.0, 12.0)
 
 
-def _floorless(upper_y: float = 6.0):
-    """A 40 x 30 m box with no floor at its lower level: three sides walled
-    from y 0, the +z side from ``upper_y`` (the upper level's wall)."""
-    v: list = []
-    t: list = []
-    _quad(v, t, (0, 0), (40, 0), 0.0, 18.0, (0, -1))
-    _quad(v, t, (40, 0), (40, 30), 0.0, 18.0, (1, 0))
-    _quad(v, t, (40, 30), (0, 30), upper_y, 18.0, (0, 1))
-    _quad(v, t, (0, 30), (0, 0), 0.0, 18.0, (-1, 0))
-    return np.array(v, float), np.array(t, int)
-
-
 _RUNS = [((0, 0), (40, 0)), ((40, 0), (40, 30)), ((40, 30), (0, 30)), ((0, 30), (0, 0))]
 _NORMALS = [(0, -1), (1, 0), (0, 1), (-1, 0)]
 
@@ -311,7 +299,6 @@ def test_a_floorless_lower_storey_takes_the_lowest_level():
     boundary with (the old "top level takes the remainder" put LPHR's
     1,767 m2 of ground floor on its +10 level)."""
     from auto_patch_v2.airport.split_level import _level_plans, _run_levels
-    v, t = _floorless()
     levels, lv, minor = _run_levels([(0.0, 40.0), (0.0, 30.0), (6.0, 40.0), (0.0, 30.0)], 3.0)
     assert levels == (0.0, 6.0) and lv == [0, 0, 1, 0] and not any(minor)
     plan = box(0, 0, 40, 30)
@@ -342,7 +329,6 @@ def test_a_remainder_meeting_no_level_by_the_probe_takes_the_most_shared():
     ``split_level_probe_m`` of boundary with every level takes the level it
     shares most with (here the upper one, though it is not the lowest)."""
     from auto_patch_v2.airport.split_level import _level_plans
-    v, t = _floorless()
     plan = box(0, 0, 40, 30)
     runs = [((0, 0), (1, 0)), ((40, 30), (38.6, 30))]
     p0, p1 = _level_plans(plan, (0.0, 6.0), runs, [(0, -1), (0, 1)], [0, 1], 3.0, 1.0)

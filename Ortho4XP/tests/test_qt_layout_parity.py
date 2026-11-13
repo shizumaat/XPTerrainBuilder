@@ -981,7 +981,6 @@ def test_qt_settings_storage_holds_the_storage_rows(window, monkeypatch):
     and measures the data folder the first time it is shown."""
     import O4_Qt_Library_Storage as QTLIBSTORE
     import O4_Qt_Settings as QTSET
-
     from o4_engine import storage_shared as SHARED
 
     measured = []

@@ -434,6 +434,11 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             "no shore-structure feed around this airport (issue #72): every "
             "coast reads NATURAL for want of a quay/seawall declaration — "
             "fill it with build_airport.py --refresh-data shore")
+    if inputs.osm_root and not feed_schemas.get(_osm.PARKING_FEED):
+        rep.notes.append(
+            "no parking feed around this airport (#1854): the [lot] "
+            "amenity=parking rung reads no evidence — fill it with "
+            "build_airport.py --refresh-data parking")
     rep.osm_relations = osm_relations.line()
     # A ROAD FEED WRITTEN UNDER A SUPERSEDED TAG WHITELIST IS REFUSED BY
     # NAME (lane ``v2othhdet``; the ``dsf_dump_stale`` refusal below is

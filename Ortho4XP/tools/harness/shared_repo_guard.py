@@ -87,6 +87,12 @@ REFRESH_SCOPES = (
      "wall=seawall/retaining_wall) that §37 (11) (7)'s quay declaration "
      "reads — an overpass download, filled only by --refresh-data shore "
      "(issue #72), never by a build"),
+    # THE PARKING FEED (#1854): the same composition as ``shore`` — its
+    # own per-tile cache beside the other layers, named by SUFFIX first.
+    ("parking", "OSM_data",
+     "the per-tile PARKING feed (amenity=parking areas) the classifier's "
+     "[lot] parking_cover_fraction rung reads — an overpass download, "
+     "filled by --refresh-data parking (#1854), never by a harness build"),
     # BEFORE ``dem``: ``scope_of`` takes the first matching prefix, and
     # a 7 GB point-cloud download is its own act (spec
     # las-tile-lidar-provider-spec.md §2, #130).  The airport inset
@@ -174,6 +180,7 @@ def install_relpath(path) -> str:
 SUFFIX_SCOPES = (
     ("shore", "OSM_data/", ("_shore_structures.osm.bz2",
                             "_shore_structures.osm.bz2.lock")),
+    ("parking", "OSM_data/", ("_parking.osm.bz2", "_parking.osm.bz2.lock")),
 )
 
 #: The ring cache directory suffix, QUOTED from the engine's own

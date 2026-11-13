@@ -137,7 +137,7 @@ class _FakeGC:
 
 def test_collector_policy():
     fake, now = _FakeGC(), [0.0]
-    collector = GUARD.SafeCollector(fake, clock=lambda: now[0])
+    collector = GUARD._SafeCollector(fake, clock=lambda: now[0])
     assert collector.tick() == "" and fake.calls == []
     fake.count = 2500
     assert collector.tick() == "young" and fake.calls == [0]

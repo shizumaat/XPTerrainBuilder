@@ -34,7 +34,7 @@ FIXED_IN = (3, 14, 5)  # incremental GC reverted (generational, no mark_stacks)
 TICK_MS = 1000
 FULL_EVERY_S = 300.0
 
-__all__ = ["affected", "SafeCollector", "install"]
+__all__ = ["affected", "install"]
 
 # PySide holds a connected bound method weakly: without this reference the
 # collector is freed as install() returns and the timer calls nothing.
@@ -47,7 +47,7 @@ def affected(version=None) -> bool:
     return (3, 14, 0) <= v < FIXED_IN
 
 
-class SafeCollector:
+class _SafeCollector:
     """The automatic collector's job, done with stack-free collections."""
 
     def __init__(self, gc_module=gc, clock=time.monotonic):
@@ -82,7 +82,7 @@ def install(app, *, force=False, tick_ms=TICK_MS):
     from PySide6.QtCore import QTimer
 
     gc.disable()
-    collector = SafeCollector()
+    collector = _SafeCollector()
     timer = QTimer(app)
     timer.timeout.connect(collector.tick)
     timer.start(tick_ms)

@@ -50,7 +50,7 @@ def densify_within(points: _t.Sequence[XY], zone, cap_m: float) -> list[XY]:
     if cap_m <= 0 or len(pts) < 2 or zone is None or zone.is_empty:
         return pts
     out: list[XY] = [pts[0]]
-    for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+    for (ax, ay), (bx, by) in zip(pts, pts[1:], strict=False):
         d = math.hypot(bx - ax, by - ay)
         seg = LineString([(ax, ay), (bx, by)])
         ts: list[float] = []

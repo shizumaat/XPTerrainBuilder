@@ -5,7 +5,8 @@ cores sharp at once (#1992 local-imagery-cache spec §6.1; owner bug
 A tile built with imagery on demand has low-res placeholders under every
 texture name.  The follow job only sharpens squares near X-Plane's camera
 and only knows the tiles its index holds, so a tile built after the job
-started was in no index and its airport stayed coarse.  A tile's own build lands them as the end of its imagery step
+started was in no index and its airport stayed coarse.  A tile's own
+build lands them as the end of its imagery step
 (:func:`land_in_build`; owner 2026-11-13, RULINGS 13p: a tile is not
 done until its airports have the imagery the settings asked for); a
 World publish, an adopt and a flight's kept endpoints hand theirs over
@@ -47,8 +48,7 @@ from . import imagery_core_rows as ROWS
 from . import imagery_follow as FOLLOW
 
 __all__ = ["CORE_WORKERS", "register_built", "core_wants", "fetch_cores",
-           "sharpen", "core_seconds", "start", "watch", "land_in_build",
-           "StepCores"]
+           "sharpen", "core_seconds", "start", "watch", "land_in_build"]
 
 #: Core landings at once (each is a JPEG read or download and a convert).
 CORE_WORKERS = 4
@@ -131,7 +131,7 @@ def fetch_cores(tiles: Sequence[Sequence[Any]], index: Optional[str] = None,
     ``TierLander``); none starts while ``busy()``; ``extra``: more
     airports per ``(lat, lon)`` (:func:`core_wants`); ``rows_for(totals)``
     reports the progress (default: the Build view's core rows; a build's
-    own imagery step passes :class:`StepCores`).
+    own imagery step passes :class:`_StepCores`).
 
     :returns: ``{"wanted", "landed", "failed", "network", "skipped"}``
     """
@@ -247,7 +247,7 @@ def sharpen(tiles: Sequence[Sequence[Any]],
                            log=log, extra=extra, rows_for=rows_for)
 
 
-class StepCores:
+class _StepCores:
     """A build's own core landing reported on its tile's row (#2052, owner
     2026-11-13 RULINGS 13p): ``progress(done, total)`` after each square,
     no core row of its own."""
@@ -257,7 +257,7 @@ class StepCores:
         self._done = 0
         self._total = 0
 
-    def __call__(self, totals: Dict[tuple, int]) -> "StepCores":
+    def __call__(self, totals: Dict[tuple, int]) -> "_StepCores":
         self._total = sum(int(n) for n in totals.values())
         self._report()
         return self
@@ -294,7 +294,7 @@ def land_in_build(build_dir: str, lat: int, lon: int,
     ``stopped()`` (the build's Stop) leaves the squares not yet started.
     ``None`` for a tile not built on demand."""
     return sharpen([(build_dir, int(lat), int(lon))], busy=stopped,
-                   index=index, lander=lander, rows_for=StepCores(progress))
+                   index=index, lander=lander, rows_for=_StepCores(progress))
 
 
 def _work(tiles, busy, index, lander, log, extra=None) -> None:

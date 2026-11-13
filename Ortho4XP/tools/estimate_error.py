@@ -14,22 +14,23 @@ The logic is ``src/o4_engine/estimate_error.py``; the predictor is the
 model the code tree carries (``tile_time_model.predict_for_replay``).
 """
 
+import argparse
+import datetime
+import json
+import os
+import sys
+
 # The console is UTF-8 before anything prints (#171, #125): ONE derivation
 # site, ``src/O4_Console_Encoding.py``.
-import os as _o4os, sys as _o4sys                                    # noqa: E402
-_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
-    _o4os.path.abspath(__file__))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console  # noqa: E402
+
 _o4console.configure_console_streams()
 
-import argparse                                                      # noqa: E402
-import datetime                                                      # noqa: E402
-import json                                                          # noqa: E402
-import os                                                            # noqa: E402
-
-from o4_engine import airport_time_model as ATM                      # noqa: E402
-from o4_engine import estimate_error as EE                           # noqa: E402
-from o4_engine import tile_time_model as TTM                         # noqa: E402
+from o4_engine import airport_time_model as ATM  # noqa: E402
+from o4_engine import estimate_error as EE  # noqa: E402
+from o4_engine import tile_time_model as TTM  # noqa: E402
 
 
 def _load(store):

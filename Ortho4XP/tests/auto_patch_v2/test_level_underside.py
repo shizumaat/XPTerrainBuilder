@@ -8,10 +8,9 @@ import math
 import types
 
 import numpy as np
+from auto_patch_v2.planar.level_underside import FLAT_DY_M, OVER_FLOOR_M, underside_over
 from shapely import STRtree
 from shapely.geometry import Point, Polygon, box
-
-from auto_patch_v2.planar.level_underside import FLAT_DY_M, OVER_FLOOR_M, underside_over
 
 
 def _to_frame(xy, heading_deg, x, z):

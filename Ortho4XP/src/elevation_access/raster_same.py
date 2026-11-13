@@ -36,6 +36,7 @@ def same_raster(new_path: str, cached_path: str,
     """True when ``new_path`` holds the surface ``cached_path`` holds."""
     try:
         import numpy as np
+
         from .gdal_support import gdal, has_gdal
         if not has_gdal:
             return False

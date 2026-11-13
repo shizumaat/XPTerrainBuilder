@@ -43,16 +43,12 @@ import O4_Tile_Build_Log as TLOG
 import O4_Tile_Info as TINFO
 import O4_World_Pack as WP
 
-__all__ = ["ours", "supersede", "correct"]
+__all__ = ["supersede", "correct"]
 
 _PREFIX = "zOrtho4XP_"
 
 
-def _utc() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-def ours(dsf: str) -> str:
+def _ours(dsf: str) -> str:
     """The creation agent of ``dsf`` when this app built it, else ``""``."""
     agent = TLOG.dsf_creation_agent(dsf)
     return agent if agent.startswith(TLOG.BUILDER_TOOL) else ""
@@ -86,11 +82,12 @@ def supersede(scenery_dir: str, build_dir: str, lat: int, lon: int,
     out = {"journal": False, "stamp": False}
     if not scenery_dir or not WORLD.managed(scenery_dir):
         return out
-    agent = ours(os.path.join(WORLD.pack_dir(scenery_dir),
+    agent = _ours(os.path.join(WORLD.pack_dir(scenery_dir),
                               WP.dsf_relpath(lat, lon)))
     if not agent:
         return out
-    fields = {"superseded": _utc(), "superseded_by": agent}
+    fields = {"superseded": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "superseded_by": agent}
     out["stamp"] = _mark_stamp(build_dir, fields)
     if journal is None:
         if MIGRATE.active():            # its own Journal holds the file
@@ -129,7 +126,7 @@ def correct(scenery_dir: str, *, dry_run: bool = False,
             lat, lon = WP.parse_tile(name[len(_PREFIX):])
         except ValueError:
             continue
-        if not ours(os.path.join(pack, WP.dsf_relpath(lat, lon))):
+        if not _ours(os.path.join(pack, WP.dsf_relpath(lat, lon))):
             continue
         out["tiles"].append(name)
         if dry_run:

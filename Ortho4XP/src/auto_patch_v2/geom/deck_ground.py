@@ -22,8 +22,8 @@ from .rotated_rect import rotated_rectangle
 
 __all__ = ["end_aprons", "ground_footprint", "ring_polygon", "GROUND_TO_WALL_TOP"]
 
-#: OWNER QUESTION Q2 (spec ``interchange-levels-v2-20261113.md`` §10), the spec's DEFAULT (yes): the ground is
-#: graded to the walls' top along the trench (the caps) with a bank to the
+#: OWNER QUESTION Q2 (spec ``interchange-levels-v2-20261113.md`` §10),
+#: the spec's DEFAULT (yes): the ground is graded to the walls' top along the trench (the caps) with a bank to the
 #: real ground beyond them.  A "no" is ``False`` here: no cap piece and no
 #: bank round the caps (the ground under and off the decks' ends stays).
 GROUND_TO_WALL_TOP = True

@@ -55,7 +55,7 @@ def _worker_setup(data_root: str, tile_cache: Optional[str]) -> None:
         sink = os.open(os.devnull, os.O_WRONLY)
         with contextlib.suppress(OSError):
             os.dup2(sink, 1)
-        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+        sys.stdout = open(os.devnull, "w", encoding="utf-8", newline="\n")
     import O4_File_Names as FNAMES
     if data_root:
         FNAMES.set_data_root(data_root)

@@ -15,14 +15,13 @@ from __future__ import annotations
 
 import types
 
-import pytest
-
 import O4_File_Names as FNAMES
 import O4_Mesh_Pins as PINS
 import O4_Mesh_Utils as MESH
 import O4_Triangle_Binary as TRI_BIN
 import O4_UI_Utils as UI
 import O4_Vector_Utils as VECT
+import pytest
 
 ATTR = VECT.Vector_Map.dico_attributes
 RING = MESH.PATCH_RING_MARKER

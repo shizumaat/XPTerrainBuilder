@@ -46,8 +46,7 @@ from . import pack_dev as _dev
 from . import paths as _paths
 
 __all__ = ["XZ_PRESET", "BRANDING", "key_parts", "package_name",
-           "branding", "destination_path", "write", "into_pack_path",
-           "save_package", "airports_of"]
+           "branding", "destination_path", "write", "save_package", "airports_of"]
 
 #: xz preset of a package (module doc: measured).
 XZ_PRESET = 9
@@ -256,7 +255,7 @@ def write(out_path: str, manifest: dict, blobs: dict) -> str:
     return out_path
 
 
-def into_pack_path(tiles, airports, custom_build_dir: str = "") -> str:
+def _into_pack_path(tiles, airports, custom_build_dir: str = "") -> str:
     """Export's "Save into this airport's pack folder" (RULINGS
     2026-11-11m (3)): ``<pack>/XPTerrainBuilder/<ICAO>.xptb`` of the one
     airport chosen.
@@ -286,7 +285,7 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
     ``kind`` (:mod:`.kinds`: ``"exact"``, the default with ``airports``,
     ``"patch"``, or ``"tile"``, the default without) what it holds.
     ``into_pack``: ``out`` is ignored and the package is saved into the
-    airport's own pack folder (:func:`into_pack_path`), where every
+    airport's own pack folder (:func:`_into_pack_path`), where every
     installation that has the pack applies it as its tiles build
     (``pack_shipped``); a personal package is saved there too, with the
     same ``warning``, which its manifest carries and every installation's
@@ -317,7 +316,7 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
         if kind == _kinds.TILE:
             raise BundleRefused("A package saved into a pack is one airport's: "
                                 "choose Exact match or Airport patch only.")
-        out = into_pack_path(pairs_in, chosen, custom_build_dir)
+        out = _into_pack_path(pairs_in, chosen, custom_build_dir)
     if kind == _kinds.TILE:
         chosen = None
     loaded = _airport_tiles([_export.load_tile(lat, lon, custom_build_dir)

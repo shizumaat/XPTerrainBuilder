@@ -852,7 +852,8 @@ def planned_airports(lat: int, lon: int):
     (``{icao: None}``), or None with no record of its airports (#2045):
     every airport its newest :data:`PLANNED_AIRPORT_WINDOW` vector-step
     records solved (a phase-aware run records each step on its own, so
-    the window counts vector records, never the mesh or imagery ones).  A union, not the last build's list — a rebuild that reused
+    the window counts vector records, never the mesh or imagery ones).
+    A union, not the last build's list — a rebuild that reused
     every patch solves none, and the next code change solves them all
     again; pricing those as free kept the bar still for KDEN's 22 min.
     An airport that turns out current only makes the bar move faster."""

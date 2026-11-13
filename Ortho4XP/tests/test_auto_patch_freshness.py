@@ -32,18 +32,16 @@ import os
 import sys
 import types
 from pathlib import Path
-
-import pytest
-
-import auto_patch.driver as driver
-import auto_patch.build_support as build_support
-import auto_patch.provenance as provenance
-import auto_patch.provenance_env as provenance_env
-from auto_patch.driver import _auto_patch_is_current
-from auto_patch.build_support import read_patch_source
-from auto_patch import engine_v2
 from urllib.parse import quote as _quote
 
+import auto_patch.build_support as build_support
+import auto_patch.driver as driver
+import auto_patch.provenance as provenance
+import auto_patch.provenance_env as provenance_env
+import pytest
+from auto_patch import engine_v2
+from auto_patch.build_support import read_patch_source
+from auto_patch.driver import _auto_patch_is_current
 
 # ──────────────────────────────────────────────────────────────────────
 # Fixtures — a fake X-Plane install and a stamped patch
@@ -1074,6 +1072,7 @@ def _osm_xml(ways, first_id=-1) -> str:
 
 def _bz2_feed(lat, lon, feed, text):
     import bz2
+
     from auto_patch_v2.airport import osm as _osm
     path = Path(_osm.tile_dir(driver.FNAMES.OSM_dir, lat, lon),
                 f"{lat:+03d}{lon:+04d}_{feed}.osm.bz2")
@@ -1966,6 +1965,7 @@ def test_a_replaced_dsf_rebuilds_once(install, patch_file):
     its size+mtime, so the next gate reads current).
     """
     import shutil
+
     from auto_patch_v2.airport import backup_state as _bs
     _rebake(install)
     assert install.is_current(patch_file)

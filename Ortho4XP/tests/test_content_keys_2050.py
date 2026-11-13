@@ -17,9 +17,8 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 import O4_Airport_Elevation_Insets as INSETS
+import pytest
 from auto_patch_v2.airport import osm as OSM
 from auto_patch_v2.airport import osm_content as OC
 from elevation_access import raster_same

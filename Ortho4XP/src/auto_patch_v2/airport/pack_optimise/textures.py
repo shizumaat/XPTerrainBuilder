@@ -28,7 +28,6 @@ current while its time is the vendor file's; the object copies
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import struct
 import typing as _t
@@ -39,6 +38,7 @@ import O4_DDS_File as _ddsf
 from O4_DDS_Decode import decode_dds
 from O4_DDS_Mips import mip_chain
 
+from ..file_hash import sha256_file
 from . import objcopy as _oc
 
 __all__ = ["BIG_PX", "HUGE_PX", "plan_textures", "texture_refs", "write_texture",
@@ -113,14 +113,6 @@ def info(path: str) -> TexInfo | None:
     return None
 
 
-def _sha(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def out_path(path: str, halve: bool) -> str:
     stem, _ext = os.path.splitext(path)
     return stem + (".o4opt-half.dds" if halve else ".o4opt.dds")
@@ -162,7 +154,7 @@ def plan_textures(pack_root: str, objects: _t.Iterable[tuple[str, float]]
     groups: dict[str, list[str]] = {}
     for e in sorted(users):
         if infos[e] is not None:
-            groups.setdefault(_sha(e), []).append(e)
+            groups.setdefault(sha256_file(e), []).append(e)
     textures: dict[str, dict[str, _t.Any]] = {}
     final: dict[str, str] = {}
     for members in groups.values():
@@ -283,7 +275,7 @@ def estimate_vram(pack_root: str, before: _t.Iterable[str], after: _t.Iterable[s
     seen: set[str] = set()
     second = 0
     for f in sorted(files(after)):     # the first of identical copies is planned
-        sha = _sha(f)
+        sha = sha256_file(f)
         if sha in seen:
             continue
         seen.add(sha)

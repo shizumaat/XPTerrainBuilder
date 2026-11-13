@@ -56,7 +56,7 @@ class RouteSplit:
     def __post_init__(self) -> None:
         self.samples = [(float(a), float(b)) for a, b in self.samples]
         along, total = [0.0], 0.0
-        for p, q in zip(self.samples, self.samples[1:]):
+        for p, q in zip(self.samples, self.samples[1:], strict=False):
             total += FP.route_length_km([p, q])
             along.append(total)
         self._along = along

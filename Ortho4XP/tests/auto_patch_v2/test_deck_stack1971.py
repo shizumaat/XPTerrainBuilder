@@ -599,9 +599,8 @@ def test_t25_a_road_ribbon_carries_a_vertex_every_step_on_an_apron():
     """``chords.densify_within``: a 60 m chord crossing a 20 m apron gains
     vertices at the apron's two edges and every <= 5 m between; outside it
     nothing changes, and every new vertex lies on the chord."""
-    from shapely.geometry import box
-
     from auto_patch_v2.planar.chords import densify_within
+    from shapely.geometry import box
     pts = [(0.0, 0.0), (60.0, 0.0), (60.0, 10.0)]
     out = densify_within(pts, box(10.0, -5.0, 30.0, 5.0), 5.0)
     xs = [x for x, y in out if y == 0.0]
@@ -620,8 +619,11 @@ def test_t26_a_written_row_is_stored_at_its_nearest_quantum():
     text without ``HEIGHTS`` are left byte for byte."""
     import math as _m
 
-    from auto_patch_v2.airport.dsf_heights import (FINEST_QUANTUM_M, nearest_row_elevations,
-                                                    on_finest_grid)
+    from auto_patch_v2.airport.dsf_heights import (
+        FINEST_QUANTUM_M,
+        nearest_row_elevations,
+        on_finest_grid,
+    )
     text = ("HEIGHTS 0.03125 0.0  # max encodeable 2047.96875\n"
             "OBJECT_MSL 0 -104.5 39.5 1626.56 0\n"
             "OBJECT_MSL 0 -104.5 39.5 1626.5312 0\n"

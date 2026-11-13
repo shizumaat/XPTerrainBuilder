@@ -165,8 +165,8 @@ def test_the_drapes_worker_reads_the_flights_route(monkeypatch):
 
 
 def test_the_flight_makes_its_split_and_remakes_it_on_a_new_plan(monkeypatch):
-    from o4_engine import flight_job_run as FLIGHT
     import O4_Imagery_Auto as AUTO
+    from o4_engine import flight_job_run as FLIGHT
     monkeypatch.setattr(FLIGHT, "drawn_build_dir", lambda s, t: None)
     monkeypatch.setattr(FLIGHT.WORLD, "write_log", lambda record: None)
     monkeypatch.setattr(AUTO, "provider_for",

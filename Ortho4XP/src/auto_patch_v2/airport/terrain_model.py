@@ -72,7 +72,7 @@ from ..geom.terrain_deck import CELL_M, DeckGrid
 
 __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PEAK_ERR",
            "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
-           "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
+           "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
            "placement_models", "set_members", "seat_records", "log_line",
            "hideable_paths"]
 
@@ -94,7 +94,7 @@ SEAT = "terrain model"
 
 
 @_dc.dataclass(frozen=True)
-class Shape:
+class _Shape:
     """A candidate's top and bottom on the plan grid (the ``DeckGrid`` of
     its static solid) and its candidate measures."""
 
@@ -189,7 +189,7 @@ def _plan_m(g: _t.Any) -> float:
     return float(max(np.ptp(v[:, 0]), np.ptp(v[:, 2])))
 
 
-def _shape(path: str) -> "Shape | None":
+def _shape(path: str) -> "_Shape | None":
     from .obj8 import parse_obj8
     g = parse_obj8(path)
     plan = _plan_m(g)
@@ -205,18 +205,18 @@ def _shape(path: str) -> "Shape | None":
     lo, hi = np.percentile(grid.top[grid.covered], [5.0, 95.0])
     if hi - lo < MIN_RELIEF_M:
         return None
-    return Shape(grid, plan, float(hi - lo), spread)
+    return _Shape(grid, plan, float(hi - lo), spread)
 
 
 @functools.lru_cache(maxsize=256)
-def _file_shape(path: str, mtime_ns: int, size: int) -> "Shape | None":
+def _file_shape(path: str, mtime_ns: int, size: int) -> "_Shape | None":
     try:
         return _shape(path)
     except (OSError, ValueError):
         return None
 
 
-def shape_of(path: str, geometry: _t.Any = None) -> "Shape | None":
+def shape_of(path: str, geometry: _t.Any = None) -> "_Shape | None":
     """THE CANDIDATE TEST on an OBJ8 file (module doc), or ``None``.
     ``geometry``: its parsed ``ObjGeometry`` when the caller holds it --
     the plan and height gates then read it and most files stop there
@@ -249,7 +249,7 @@ def _world(grid: DeckGrid, ii: np.ndarray, jj: np.ndarray, xy: tuple[float, floa
     return xy[0] + x * c - z * s, xy[1] - (x * s + z * c)
 
 
-def match(shape: Shape, xy: tuple[float, float], heading: float,
+def match(shape: _Shape, xy: tuple[float, float], heading: float,
           dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
           fine: "_t.Callable[[np.ndarray, np.ndarray], np.ndarray] | None" = None,
           ) -> "dict[str, float] | None":
@@ -300,7 +300,7 @@ def placement_models(placements: _t.Sequence[tuple],
     row only: an ``OBJECT_MSL`` row already states its author's datum."""
     from .obj8 import is_stock_library_resource
     out: dict[str, TerrainModel] = {}
-    shapes: dict[str, "Shape | None"] = {}
+    shapes: dict[str, "_Shape | None"] = {}
     for oid, dpath, xy, heading, _elev, kind in placements:
         if kind == "OBJECT_MSL" or is_stock_library_resource(dpath):
             continue

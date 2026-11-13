@@ -34,7 +34,7 @@ from . import BundleRefused
 from . import pack_dev as _dev
 
 __all__ = ["BACKUP_FOLDER", "RECORD_NAMES", "ACTIONS", "engine_files",
-           "apply_into_pack", "developer"]
+           "developer"]
 
 #: The ``package_developer`` command's actions.
 ACTIONS = ("read", "final", "default", "apply")
@@ -72,7 +72,7 @@ def _refuse_unless_writable(pack_root: str) -> None:
                             % os.path.basename(os.path.normpath(pack_root)))
 
 
-def apply_into_pack(pack_root: str, engine_version: str = "") -> dict:
+def _apply_into_pack(pack_root: str, engine_version: str = "") -> dict:
     """Make the object stage's current splits and seats the pack's own
     (module doc).
 
@@ -134,7 +134,7 @@ def developer(icao: str, tiles, custom_build_dir: str = "",
     done = {"restored": 0, "moved": 0}
     if action == "apply":
         import O4_Version
-        done["moved"] = apply_into_pack(root, getattr(O4_Version, "version", ""))["moved"]
+        done["moved"] = _apply_into_pack(root, getattr(O4_Version, "version", ""))["moved"]
     elif action == "final":
         _refuse_unless_writable(root)
         if engine_files(root):

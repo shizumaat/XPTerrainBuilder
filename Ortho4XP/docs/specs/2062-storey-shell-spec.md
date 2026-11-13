@@ -101,3 +101,17 @@ Separate finding: `wall_release` withdraws any multi-term `Linear` straddling a 
 
 ## 7. Owner question
 Q1 (R3 only). A mapped road along the base of a split-level building above its lower floor (SBSP hangar row): 11-06T02:40Z says the road keeps its slope and the ground meets the wall at the road; 13w (2) says no storey face is buried. (a) road keeps its profile, wall covered up to the road, or (b) road cut to the wall foot? Spec assumes (a).
+
+## Amendment A1 (Fable, 2026-11-13; rules on lane lshell1 bc8aaa171's deviation)
+
+The "top level takes the remainder" rule assumed every storey has a floor (LPHR's lower storey has none: levels 0/6/10, plans 419/1,331/1,971 m², 1,767 m² of ground floor sent to level 10). Replace §1's `level_plans` rule with this order:
+
+**(1) Which level a piece takes.** (a) Wall feet first: each run owns the strip `pad_frontage_m` deep inside it at that run's level. (b) Floors second: the plan of up-facing solid faces within `BAND_M` of a level belongs to that level. (c) Unwitnessed remainder last: a piece with no floor at any level is open downward; it takes the LOWEST level it shares ≥ `split_level_probe_m` of boundary with; if none, the level it shares the most boundary with. (Ground under an absent floor may be too low — hidden in the walls — but never too high.)
+
+**(2) Minimum for a level.** A level counts only when its runs hold ≥ `PLANE_SHARE` of the walled outline length (the constant `low_level.feet_levels` / `airside_group_seat.floor_plane` use; lane confirms its value) and stands `low_level_min_step_m` from its neighbours. Runs of a dropped level take the level of their neighbouring run along the outline (longer neighbour wins a tie) and are published in `storey_shells` as `minor` with their true foot; `drawn_check` lists them, does not judge them.
+
+**(3) R1 scope.** Only shells with `air_level == 0`. Shells with no airside contact or an upper-level block stay on the pit until R3.
+
+**(4) Plumbing.** Pad polygon = plan + the rest of the building cell it takes its ref from (leftover pieces take a level by (1)(c)). Read the shells once in `planar/build.build` next to `level_seeds` (`planar/build.py:312`); pass them to `build_basins` as ids to skip (it runs twice, `:187` and `:370`) and to `storey_pad`; `BasinStats.split_levels` keeps notes only.
+
+**Tests (`test_split_level.py`):** floorless lower storey with one wall at the upper level → interior level 0; a level under `PLANE_SHARE` dropped, runs `minor`; a remainder touching no level by `split_level_probe_m` falls back to most-shared boundary. Bars B1–B5 unchanged.

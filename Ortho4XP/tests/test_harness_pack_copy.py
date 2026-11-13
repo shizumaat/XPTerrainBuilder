@@ -60,11 +60,15 @@ def test_engine_copy_root_and_clone(tmp_path, monkeypatch):
 
 
 def test_arm_pack_copy_sets_env(tmp_path, monkeypatch):
-    monkeypatch.delenv("O4_PACK_WRITES", raising=False)
+    # setenv, not delenv(raising=False): it records the variable's state
+    # even when absent, so the teardown removes what arm_pack_copy wrote.
+    # (A closing monkeypatch.delenv recorded the ARMED value and restored
+    # it: every later test on the worker saw a pack copy armed, and its
+    # pack writes were refused, #2041.)
+    monkeypatch.setenv("O4_PACK_WRITES", "")
     rec = PCA.arm_pack_copy(str(tmp_path / "c"), "O4_PACK_WRITES")
     assert os.environ["O4_PACK_WRITES"] == "copy:" + str(tmp_path / "c")
     assert rec["dir"] == str(tmp_path / "c") and (tmp_path / "c").is_dir()
-    monkeypatch.delenv("O4_PACK_WRITES")
 
 
 def test_preflight_lists_every_scope():

@@ -43,9 +43,12 @@ carries the reading the storey pads (``planar/storey_pad``) are minted from,
 in FRAME coordinates (authored y plus each row's own AGL lift):
 ``runs`` -- the plan's outline cut at its vertices, each run carrying the
 foot of the wall faces facing out of it (:func:`_run_feet`), or ``None``;
-``levels`` -- the run feet clustered at ``BAND_M``; ``level_plans`` -- per
-level the plan of the solids standing under the next level up
-(:func:`_level_plans`); ``air_level`` -- the level holding most run length
+``levels`` -- the run feet clustered at ``BAND_M``, a level counting only
+where its runs hold ``PLANE_SHARE`` of the walled outline (the others'
+runs MINOR, on a neighbour's level: :func:`_run_levels`); ``level_plans``
+-- per level its walls' frontage strips, then its floors, then the
+unwitnessed remainder on the lowest level it meets (:func:`_level_plans`,
+spec Amendment A1); ``air_level`` -- the level holding most run length
 that faces airside pavement, else ``None``.
 
 Pure reading: no law constant lives here; nothing names a pack, a resource
@@ -64,6 +67,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from . import obj8 as _obj8
+from ..geom.foot_planes import PLANE_SHARE
 from .object_cut import _face_normals_y
 
 __all__ = ["SplitLevel", "read_split_levels"]
@@ -115,9 +119,14 @@ class SplitLevel:
     #: per run of the plan's outline (each run with the building on its
     #: RIGHT, ``foot`` ``None`` where no wall faces out of it) ...
     runs: tuple[tuple[LineString, "float | None"], ...] = ()
-    #: ... the run feet clustered at ``BAND_M``, ascending ...
+    #: ... the run feet clustered at ``BAND_M``, ascending (only the levels
+    #: that count, spec A1 (2)) ...
     levels: tuple[float, ...] = ()
-    #: ... one plan per level (the top one the remainder) ...
+    #: ... each run's level (``None``: no foot) and the MINOR runs (their
+    #: foot's level did not count; they take a neighbour's) ...
+    run_levels: tuple["int | None", ...] = ()
+    minor: tuple[int, ...] = ()
+    #: ... one plan per level (wall feet, floors, then the remainder) ...
     level_plans: tuple[Polygon, ...] = ()
     #: ... and the level the airside meets (``None``: no run faces it)
     air_level: "int | None" = None
@@ -470,48 +479,121 @@ def _storey_levels(feet: _t.Sequence[tuple["float | None", float]]) -> tuple[flo
     return tuple(out)
 
 
+def _run_levels(feet: _t.Sequence[tuple["float | None", float]], step: float
+                ) -> tuple[tuple[float, ...], list["int | None"], list[bool]]:
+    """THE LEVELS AND EACH RUN'S LEVEL (#2062, spec A1 (2)): the runs'
+    ``(foot, length)`` (ring order) clustered (:func:`_storey_levels`); a
+    level COUNTS only where its runs hold ``PLANE_SHARE`` of the walled
+    outline's length and it stands ``step`` from its neighbours (of two too
+    close, the one holding less goes).  A run of a dropped level is MINOR:
+    it takes the level of its neighbouring run along the outline (the
+    nearest counted run each way; the longer of the two where they differ,
+    the lower on a tie).  ``(levels, run level, minor)``; a run with no
+    foot has no level."""
+    raw = _storey_levels(feet)
+    if not raw:
+        return (), [None] * len(feet), [False] * len(feet)
+    own = [None if f is None else min(range(len(raw)), key=lambda j: abs(raw[j] - f))
+           for f, _L in feet]
+    walled = sum(L for f, L in feet if f is not None) or 1.0
+    held = [sum(L for (_f, L), k in zip(feet, own, strict=True) if k == j) / walled
+            for j in range(len(raw))]
+    keep = list(range(len(raw)))
+    while True:
+        bad = [j for j in keep if held[j] < PLANE_SHARE]
+        bad += [min((a, b), key=lambda j: (held[j], -j)) for a, b in zip(keep, keep[1:])
+                if raw[b] - raw[a] < step]
+        if not bad or len(keep) == 1:
+            break
+        keep.remove(min(bad, key=lambda j: (held[j], j)))
+    idx = {j: i for i, j in enumerate(keep)}
+    level = [None if k is None or k not in idx else idx[k] for k in own]
+    minor = [k is not None and k not in idx for k in own]
+    n = len(feet)
+    for i in [i for i in range(n) if minor[i]]:
+        near = []
+        for d in (-1, 1):
+            for s in range(1, n):
+                j = (i + d * s) % n
+                if level[j] is not None and not minor[j]:
+                    near.append(j)
+                    break
+        if not near:
+            level[i] = 0
+            continue
+        best = max(near, key=lambda j: (feet[j][1], -level[j]))
+        level[i] = level[best]
+    return tuple(raw[j] for j in keep), level, minor
+
+
+def _strip(p0, p1, n_out, depth: float) -> Polygon:
+    """The strip ``depth`` deep INSIDE the authored run ``p0 -> p1`` (its
+    outward normal ``n_out``)."""
+    a, b, n = np.asarray(p0, float), np.asarray(p1, float), np.asarray(n_out, float)
+    return Polygon([tuple(a), tuple(b), tuple(b - n * depth), tuple(a - n * depth)])
+
+
 def _level_plans(v: np.ndarray, t: np.ndarray, plan: Polygon, levels: _t.Sequence[float],
-                probe: float, grid: float) -> tuple:
-    """One plan per LEVEL (#2062): level ``k`` is the plan of every solid
-    face standing under ``levels[k + 1] - BAND_M`` (a wall as its plan line
-    widened by ``grid``), closed by ``probe``, inside ``plan`` and less the
-    lower levels'; the top level takes the remainder.  Authored ``(x, z)``."""
+                runs: _t.Sequence[tuple], normals: _t.Sequence, run_level: _t.Sequence,
+                probe: float, frontage: float) -> tuple:
+    """One plan per LEVEL (#2062, spec A1 (1)), taken in this order, each
+    rule only what the earlier left (and, within a rule, the lower level
+    first: ground under the building may be too low -- hidden in its walls
+    -- never too high): (a) WALL FEET -- each run owns the strip
+    ``frontage`` deep inside it at its level; (b) FLOORS -- the plan of the
+    up-facing solid faces within ``BAND_M`` of a level; (c) the
+    UNWITNESSED REMAINDER -- a piece with no floor at any level is open
+    downward and takes the LOWEST level it shares ``probe`` of boundary
+    with, else the level it shares most with.  Authored ``(x, z)``."""
     if len(levels) < 2:
         return (plan,)
-    ny = _face_normals_y(v, t)
+    out: list = [Polygon() for _ in levels]
+    taken = Polygon()
+
+    def claim(k: int, geoms) -> None:
+        nonlocal taken
+        if geoms:
+            g = unary_union(geoms).buffer(0).intersection(plan).difference(taken).buffer(0)
+            out[k] = unary_union([out[k], g]).buffer(0)
+            taken = unary_union([taken, g])
+    for k in range(len(levels)):
+        claim(k, [_strip(p0, p1, n, frontage) for (p0, p1), n, lv
+                  in zip(runs, normals, run_level, strict=True) if lv == k])
     P = v[t]
-    ymin = P[:, :, 1].min(axis=1)
-    wall = ny < _VERTICAL_NY
-    got = _wall_segments(v, t)
-    wseg, wy0 = (got[0], got[2]) if got is not None else (np.zeros((0, 2, 2)), np.zeros(0))
-    out: list = []
-    below = None
-    for k in range(len(levels) - 1):
-        thr = float(levels[k + 1]) - BAND_M
-        tri = [g for g in shapely.polygons(P[(ymin < thr) & ~wall][:, :, [0, 2]]).tolist()
-               if g is not None and g.area > 1e-6]
-        lines = shapely.linestrings(wseg[wy0 < thr]).tolist() if len(wseg) else []
-        geoms = [g.buffer(0) for g in tri] + [g.buffer(grid, cap_style="flat") for g in lines
-                                                if g.length > 0.0]
-        if not geoms:
-            out.append(Polygon())
-            continue
-        u = unary_union(geoms).buffer(probe, join_style="mitre").buffer(-probe,
-                                                                       join_style="mitre")
-        g = u.intersection(plan)
-        if below is not None:
-            g = g.difference(below)
-        g = g.buffer(0)
-        out.append(g)
-        below = g if below is None else unary_union([below, g])
-    out.append(plan if below is None else plan.difference(below).buffer(0))
+    n3 = -np.cross(P[:, 1] - P[:, 0], P[:, 2] - P[:, 0])
+    area = 0.5 * np.linalg.norm(n3, axis=1)
+    up = n3[:, 1] > 0.9 * np.maximum(2.0 * area, 1e-12)
+    ym = P[:, :, 1].mean(axis=1)
+    for k, y in enumerate(levels):
+        tri = [g.buffer(0) for g in shapely.polygons(
+            P[up & (np.abs(ym - float(y)) < BAND_M)][:, :, [0, 2]]).tolist()
+            if g is not None and g.area > 1e-6]
+        claim(k, tri)
+    rest = plan.difference(taken)
+    pieces = sorted((g for g in getattr(rest, "geoms", [rest])
+                     if g.geom_type == "Polygon" and g.area > 1e-6), key=lambda g: -g.area)
+    for _pass in range(2):
+        later = []
+        for piece in pieces:
+            edge = piece.exterior
+            share = [edge.intersection(g.buffer(1e-3)).length if not g.is_empty else 0.0
+                     for g in out]
+            if max(share) <= 0.0 and _pass == 0:
+                later.append(piece)
+                continue
+            k = next((j for j, s in enumerate(share) if s >= probe), None)
+            if k is None:
+                k = max(range(len(levels)), key=lambda j: (share[j], -j))
+            out[k] = unary_union([out[k], piece]).buffer(0)
+        pieces = later
     return tuple(out)
 
 
-def _storeys(fam, cache, cs, cov, aff, probe: float, cover: float, grid: float, airside
-             ) -> dict:
+def _storeys(fam, cache, cs, cov, aff, probe: float, cover: float, grid: float, airside,
+             step: float, frontage: float) -> dict:
     """The record's STOREY fields (module docstring) in the frame: runs,
-    levels, level plans and the airside's level."""
+    levels, each run's level and minor flag, level plans and the airside's
+    level."""
     lifted = any(float(getattr(o, "agl_m", 0.0) or 0.0) for o in fam)
     got = _solids(fam, cache, lifted=True) if lifted else _solids(fam, cache)
     if got is None:
@@ -535,31 +617,33 @@ def _storeys(fam, cache, cs, cov, aff, probe: float, cover: float, grid: float, 
         runs_a.append((p0, p1))
         normals.append((dz / L, -dx / L) if ccw else (-dz / L, dx / L))
     feet = _run_feet(v, t, runs_a, normals, outline, probe, cover)
+    levels, run_level, minor = _run_levels(
+        [(f, math.dist(p0, p1)) for (p0, p1), f in zip(runs_a, feet, strict=True)], step)
     # the frame runs with the building on their RIGHT (the open sides'
     # orientation): the frame ring clockwise
     cw = not Polygon([frame(p) for p in ring]).exterior.is_ccw
     runs = tuple((LineString([frame(p0), frame(p1)] if cw else [frame(p1), frame(p0)]), f)
                  for (p0, p1), f in zip(runs_a, feet, strict=True))
-    levels = _storey_levels([(f, r.length) for r, f in runs])
     from shapely import affinity
     m = [aff[0], aff[1], aff[2], aff[3], aff[4], aff[5]]
-    plans = tuple(affinity.affine_transform(g, m)
-                  for g in _level_plans(v, t, outline, levels, probe, grid))
+    plans = tuple(affinity.affine_transform(g, m) for g in _level_plans(
+        v, t, outline, levels, runs_a, normals, run_level, probe, frontage))
     air = None
     if airside is not None and len(levels) >= 2:
         by = [0.0] * len(levels)
-        for r, f in runs:
-            if f is None:
+        for (r, _f), k in zip(runs, run_level, strict=True):
+            if k is None:
                 continue
             (x0, y0), (x1, y1) = r.coords[0], r.coords[-1]
             L = r.length
             inside = (0.5 * (x0 + x1) + (y1 - y0) / L, 0.5 * (y0 + y1) - (x1 - x0) / L)
             if _airside_share(airside, r, inside) >= 0.5:
-                k = min(range(len(levels)), key=lambda j: abs(levels[j] - f))
                 by[k] += L
         if max(by) > 0.0:
             air = max(range(len(levels)), key=lambda j: (by[j], -j))
-    return {"runs": runs, "levels": levels, "level_plans": plans, "air_level": air}
+    return {"runs": runs, "levels": levels, "run_levels": tuple(run_level),
+            "minor": tuple(i for i, f in enumerate(minor) if f), "level_plans": plans,
+            "air_level": air}
 
 
 def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
@@ -576,6 +660,7 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
     back = float(getattr(bp, "split_level_back_cut_m", 0.0) or 0.0)
     pmin = float(bp.min_area_m2)
     grid = float(law.tables.emit.identity.min_distinct_spacing_m)
+    frontage = float(law.tables.emit.design.pad_frontage_m)
     out: list[SplitLevel] = []
     notes: list[str] = []
     for fam in _families(objects):
@@ -658,5 +743,5 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
                               round(y_lo, 3), round(y_up, 3), tuple(opened), tuple(closed),
                               round(go, 3), round(gc, 3), (float(o.xy[0]), float(o.xy[1])),
                               plan, **_storeys(fam, cache, cs, cov, aff, probe, cover, grid,
-                                               airside)))
+                                               airside, step, frontage)))
     return out, notes

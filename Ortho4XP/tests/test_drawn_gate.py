@@ -222,3 +222,42 @@ def test_judge_against_the_control():
                    (), base)
     assert len(rep["moved"]) == 2                                # new node, new FAIL
     assert DG.parse_site("m=45.5,10.5") == ("m", 45.5, 10.5, DG.SITE_RADIUS_M)
+
+
+def test_no_claim_read_at_a_cut_site_is_not_a_pass(monkeypatch):
+    """LOWS +47+013 closing build: its two mouths are claimed by +47+012's
+    entrance object, which a one-tile build never writes -- 0 of 0 claimed
+    sites is NOT MEASURED, never PASS."""
+    monkeypatch.setattr(DC, "run", lambda ns: {
+        "pack_root": "/c/P", "pack_is_build_product": True,
+        "claims": [{"kind": "portal", "claim_id": "tunnel:-1@0", "resource": "",
+                    "fate": "whole"}],
+        "sites": [{"site": "mouth m", "role": "UNCLAIMED", "verdict": "-"}]})
+    ns = argparse.Namespace(icao="XXXX", tag="T", out="/tmp", tile=None, patches=None)
+    rep = DG._objects(ns, None, [])
+    assert rep["verdict"] == "NOT MEASURED" and "1 claim(s)" in rep["why"]
+
+
+def test_judging_a_site_keeps_an_unmeasured_layer_unmeasured():
+    rep = _rep([], [OBJ_NEAR])
+    rep["objects"].update(verdict="NOT MEASURED", why="no claimed object")
+    rep = DG.judge(rep, [("mouth", 45.5, 10.5, 150.0)])
+    assert rep["objects"]["verdict"] == "NOT MEASURED" and rep["verdict"] == "INCOMPLETE"
+
+
+def test_a_near_vertical_step_is_read_with_horizontal_slack():
+    """LOWS east: a graded_strip node at 469.20 m 0.49 m from one at 435.11 m;
+    the drawn mesh carries it a few cm off, which a fixed-(x, y) read turns
+    into metres.  The mesh passing through the node's height within
+    XY_TOL_M is carried; 0.5 m away is not."""
+    kx = DC.M_PER_DEG * math.cos(math.radians(45.5))
+
+    def cliff(lon, _lat):                   # 70 m per metre east of 10.5
+        return 100.0 + 70.0 * (lon - 10.5) * kx
+    near = 100.0 + 70.0 * 0.1                # the height 0.1 m east
+    far = 100.0 + 70.0 * 0.5
+    nodes = [("-1", 10.5, 45.5, near, ("graded_strip",)),
+             ("-2", 10.5, 45.5, far, ("graded_strip",))]
+    rep = DG.mesh_follows_patch(nodes, cliff, (45, 10), set())
+    assert rep["over_bar"] == 1 and rep["sites"][0]["node"] == "-2"
+    assert rep["sites"][0]["delta"] == pytest.approx(-(70.0 * (0.5 - DG.XY_TOL_M)), abs=0.05)

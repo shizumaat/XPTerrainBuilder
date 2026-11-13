@@ -17,7 +17,10 @@ means all three passed:
    the airport's patch with an ``alt_abs`` inside the tile, sampled on the
    drawn mesh: a node of a pavement role (``law.tables.pavement_roles``)
    off by more than the pavement bar (0.05 m), any other node off by more
-   than the ground bar (0.5 m) -- the owner's visibility bars, the ones
+   than the ground bar (0.5 m), after ``XY_TOL_M`` of horizontal slack
+   (the drawn heights within 0.15 m bound the node: a near-vertical step
+   read at a fixed (x, y) is off by metres no eye sees) -- the owner's
+   visibility bars, the ones
    ``tools/drawn_site.py`` judges by -- is a place where the sim shows
    something other than the patch: the class a census of the patch can
    never see.  Failing nodes within ``CLUSTER_M`` fold into one site.
@@ -31,9 +34,7 @@ means all three passed:
 Verdict: FAIL when any layer fails; INCOMPLETE when nothing failed but a
 layer was not measured (a patch-only build has no drawn product; a tile
 build without ``--pack-copy`` has no written objects); PASS otherwise.
-Exit 0 only on PASS.  Every airport read so far has some patch->drawn
-sites (2026-11-12, owner products: LGAV 163 of 27,712 nodes, LOWS 43 / 71,
-KLAX 43, KIAH 23), so a round is judged where it worked and against its
+Exit 0 only on PASS.  A round is judged where it worked and against its
 control: ``--site NAME=LAT,LON[,R]`` (repeat; R 150 m) judges only the
 sites within R (the rest are counted as ``elsewhere``), and ``--against
 BASE.json`` (the control's ``--json``) fails any site new or worse by more
@@ -75,12 +76,18 @@ _o4console.configure_console_streams()
 import drawn_check as DC  # noqa: E402
 from drawn_site import GROUND_BAR_M, PAVEMENT_BAR_M  # noqa: E402
 
-__all__ = ["CLUSTER_M", "SITE_RADIUS_M", "MOVED_M", "patch_nodes",
+__all__ = ["CLUSTER_M", "XY_TOL_M", "SITE_RADIUS_M", "MOVED_M", "patch_nodes",
            "mesh_follows_patch", "mesh_layer", "gate", "judge", "after_build",
            "summary_line", "print_gate", "main"]
 
 #: Failing patch nodes within this distance are one site.
 CLUSTER_M = 10.0
+#: The horizontal slack of a patch node's reading: the drawn heights within
+#: this radius bound it.  The mesh carries a patch node a few cm off its
+#: (x, y) (measured 0.01-0.07 m, LOWS / LGAV .mesh), and on a near-vertical
+#: step (LOWS east: 469.20 -> 435.11 m over 0.49 m) a fixed-(x, y) read is
+#: off by metres that no eye sees.
+XY_TOL_M = 0.15
 #: A ``--site`` judges what lies within this radius unless it names one.
 SITE_RADIUS_M = 150.0
 #: ``--against``: a site worse than its control by more than this moved.
@@ -126,6 +133,25 @@ def _cluster(rows):
     return sites
 
 
+def _ring(sample, x, y, n=8):
+    """Drawn heights on a circle of ``XY_TOL_M`` around (x, y)."""
+    kx = DC.M_PER_DEG * math.cos(math.radians(y))
+    out = []
+    for k in range(n):
+        a = 2.0 * math.pi * k / n
+        z = sample(x + XY_TOL_M * math.cos(a) / kx, y + XY_TOL_M * math.sin(a) / DC.M_PER_DEG)
+        if not math.isnan(z):
+            out.append(z)
+    return out
+
+
+def _off_by(z, at, ring):
+    """How far ``z`` lies outside the drawn heights near it (signed: drawn
+    minus patch); 0 when the mesh passes through ``z`` within ``XY_TOL_M``."""
+    lo, hi = min([at] + ring), max([at] + ring)
+    return 0.0 if lo <= z <= hi else (lo - z if z < lo else hi - z)
+
+
 def mesh_follows_patch(nodes, sample, tile_ll, pavement,
                        pavement_bar=PAVEMENT_BAR_M, ground_bar=GROUND_BAR_M):
     """Layer 2 over ``nodes`` (:func:`patch_nodes`) inside the tile
@@ -143,7 +169,7 @@ def mesh_follows_patch(nodes, sample, tile_ll, pavement,
         n += 1
         paved = any(r in pavement for r in roles)
         bar = pavement_bar if paved else ground_bar
-        d = m - z
+        d = _off_by(z, m, _ring(sample, x, y))
         key = ("pavement " if paved else "ground ") + "+".join(roles)
         st = by_role.setdefault(key, {"nodes": 0, "over_bar": 0, "worst": 0.0})
         st["nodes"] += 1
@@ -257,9 +283,21 @@ def _objects(args, sampler, dsfs):
                        "as last written, not this build's objects"}
     sites = rep["sites"]
     failed = sum(s.get("verdict") == "FAIL" for s in sites)
-    return {"pack_root": rep["pack_root"], "sites": sites,
-            "claimed": sum(s.get("verdict") in ("PASS", "FAIL") for s in sites),
-            "failed": failed, "verdict": "FAIL" if failed else "PASS"}
+    claimed = sum(s.get("verdict") in ("PASS", "FAIL") for s in sites)
+    out = {"pack_root": rep["pack_root"], "sites": sites, "claimed": claimed,
+           "failed": failed, "verdict": "FAIL" if failed else "PASS"}
+    unclaimed = sum(s.get("role") == "UNCLAIMED" for s in sites)
+    elsewhere = sorted({c["claim_id"] for c in rep["claims"] if not c["resource"]})
+    if not claimed and (unclaimed or elsewhere):
+        # a vacuous PASS is not a pass: cut sites with no object read
+        # (a claim on a tile this build did not write -- LOWS +47+013's
+        # mouths are claimed by +47+012's entrance object)
+        out["verdict"] = "NOT MEASURED"
+        out["why"] = (f"no claimed object read at {unclaimed} cut site(s)"
+                      + (f"; {len(elsewhere)} claim(s) resolve to no written "
+                         f"row here (a tile this build did not write?)"
+                         if elsewhere else ""))
+    return out
 
 
 def _verdict(rep, t0):
@@ -305,7 +343,7 @@ def judge(rep, sites=(), base=None):
     if sites:
         for layer in ("patch_to_drawn", "objects"):
             rows = rep.get(layer, {}).get("sites")
-            if rows is None:
+            if rows is None or rep[layer]["verdict"] == "NOT MEASURED":
                 continue
             kept = [r for r in rows if _near(r, sites)]
             rep[layer]["elsewhere"] = len(rows) - len(kept)
@@ -343,8 +381,9 @@ def parse_site(text):
 def summary_line(rep):
     """One line: the verdict and each layer's count."""
     p2d, obj = rep.get("patch_to_drawn", {}), rep.get("objects", {})
-    tail = (f" ({obj['failed']} of {obj['claimed']} claimed sites FAIL)"
-            if "failed" in obj else f" ({obj['why']})" if obj.get("why") else "")
+    tail = (f" ({obj['why']})" if obj.get("why") else
+            f" ({obj['failed']} of {obj['claimed']} claimed sites FAIL)" if "failed" in obj
+            else "")
     return (f"DRAWN {rep['verdict']} {rep['icao']} {rep['tile']}: mesh "
             f"{rep['mesh']['verdict']}; patch->drawn {p2d.get('verdict')} "
             f"({p2d.get('over_bar', '-')} of {p2d.get('nodes', '-')} nodes over the "

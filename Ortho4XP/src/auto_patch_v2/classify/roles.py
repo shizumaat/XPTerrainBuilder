@@ -793,14 +793,29 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # ── §27: an airside edge makes a lot (and a road) airside ──────
     # (a contact across a unit's own storey is none, owner answer 47 #1099:
     # the lot is cut back along it, ``storey_edge``)
+    # (and airside never crosses a fence, RULINGS 2026-11-13s (2))
+    from .airside_edge import EDGE_CANDIDATES
+    from .fence_division import (
+        airside_both_sides,
+        born_airside_pages,
+        fence_band,
+        fence_lines,
+        rejoin_unsplit,
+        split_at_fences,
+    )
     from .storey_edge import knife_storeys, storey_band
+    fences = fence_lines(airport, rules)
+    fence_cut = split_at_fences(final, fences, EDGE_CANDIDATES, rules,
+                                born_airside_pages(final, law))
     band, storey_cuts = storey_band(airport, law, cells, final), {}
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules, [c.line for c in ev.truck_chains],
                           storey=band, storey_cuts=storey_cuts,
-                          to_xy=None if airport.frame is None else airport.frame.entry())
+                          to_xy=None if airport.frame is None else airport.frame.entry(),
+                          fences=fence_band(fences, rules))
     stats["storey_lots"] = knife_storeys(final, storey_cuts, law,
                                          rules.cells.min_area_m2, band)
+    stats["fence_split_faces"] = rejoin_unsplit(final, fence_cut, storey_cuts)
     # ── 19ag: pavement aircraft cannot reach is groundside (#808) ───
     from .reachability import unreachable_aprons
     stats.update(unreachable_aprons(final, [p for _rw, p in ev.runway_polys], law,
@@ -916,6 +931,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     if _hand:
         from ..airport.user_roles import apply as _user_roles
         cells, stats["user_roles"] = _user_roles(cells, _hand, lambda r: role_side(law, r))
+    # RULINGS 2026-11-13s (2): airside on BOTH sides of a fence is a defect
+    _fd = airside_both_sides(cells, fences, law, rules)
+    notes.extend(f"fence {f} airside on both sides at ({x}, {y})"
+                 for f, x, y in _fd.pop("fence_airside_both_sites"))
+    stats.update(_fd)
     cut: list[CutLine] = []
     for ln, c in taxi_parts:
         cut.append(CutLine("taxi_centerline", f"taxi{c.id}", tuple(ln.coords),

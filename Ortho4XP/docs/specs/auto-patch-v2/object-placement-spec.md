@@ -258,8 +258,9 @@ on its lowest contact feet, not the median of every component's base".
    sheets of one aircraft move as one), never kept on its row unless 14g's authored
    keep lands it.
 4. **NO GROUP SEAT MOVES IT (13y (4)).** The share is one raw body per member, never
-   cut; its parts are absent from the plan the §16g units and 22o/22q's zeros are
-   derived from (`isolated_seat.without`); it never binds (§16c (7)), is no viaduct's,
+   cut; the §16g unit seat is handed the plan-wide map less its parts
+   (`isolated_seat.without_parts` — the units and 22o/22q's zeros stay as derived, so
+   no neighbour's seat changes); it never binds (§16c (7)), is no viaduct's,
    never tilts, is never ELEVATED (§13), carries no other object (§15; only its own
    member's loose components, §16d (1), which are its own file), and pass 4's group
    seats leave it where it is (`isolated_seat.keep_isolated`). Its bodies coarsen only

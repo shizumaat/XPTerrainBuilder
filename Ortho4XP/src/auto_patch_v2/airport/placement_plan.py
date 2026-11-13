@@ -395,16 +395,17 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # deck-rider test ``footprint_unit.contents_seat`` asks
     _deck_of = {(p.unit, p.member): p for p in prints}
 
-    # §9a (#2063 round 3): the ISOLATED shares, read once per plan; their
-    # parts leave every group seat below (22o / 13y (4)) — the plan-wide
-    # units are derived without them
+    # §9a (#2063 round 3): the ISOLATED shares, read once per plan; no group
+    # seat below moves their parts (22o / 13y (4)) — the plan-wide units and
+    # their zeros are derived as before (no neighbour's seat changes), and
+    # the §16g unit seat is handed the map less the isolated parts
     _pulse.tick("placement: isolated shares")
     _iso = _iso_seat.shares(plan, surface, pads, rims, decks,
                             reach_m=rigid_reach_m, span_max_m=isolated_span_max_m,
                             split_tol_m=split_tol_m, step_m=motion_step_m,
                             foreign=isolated_foreign, counts=counts)
     _pulse.tick("placement: plan-wide seats")
-    _pw, _seats = _fu.plan_wide_seats(_iso_seat.without(plan, _iso), surface,  # §16g (1)
+    _pw, _seats = _fu.plan_wide_seats(plan, surface,  # §16g (1)
                                       pads, touch_m,
                                       cluster_min_m2, counts,
                                       connector_span_m,  # §16g (6)
@@ -669,7 +670,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             cands, staged, surface, pads, counts, unit_id=u.id,
             touch_m=touch_m, visual_m=bind_ground_m,
             cluster_min_m2=cluster_min_m2, connector_span_m=connector_span_m,
-            plan_wide=_pw, cluster_of=(_clus if airside_floor else None),
+            plan_wide=(_iso_seat.without_parts(_pw, _iso) if _pw else _pw),  # §9a
+            cluster_of=(_clus if airside_floor else None),
             airside_floor=airside_floor, welded=_welded))
         # owner RULINGS 2026-10-03e (#290): a unit's VIADUCT (deck, piers,
         # sidewalks, railings, kerbs) is ONE rigid unit at the unit's

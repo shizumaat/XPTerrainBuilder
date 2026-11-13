@@ -58,7 +58,7 @@ from . import placement_contact as _pcon
 from .placement_motion import lowest_contact_feet
 
 __all__ = ["Share", "REFUSALS", "ISO_PREFIX", "outlines", "clusters",
-           "shares", "seat", "keep_isolated", "without"]
+           "shares", "seat", "keep_isolated", "without_parts"]
 
 #: every refusal reason, in the order the witness asks them
 REFUSALS = ("not_isolated", "structure", "span", "no_feet",
@@ -295,17 +295,14 @@ def _share(plan, ui: int, sp: list, surface, pads, rims, decks,
     return Share(sid, ui, frozenset(p.pid for p in sp), a), ""
 
 
-def without(plan: _t.Any, iso: _t.Mapping[int, Share]) -> _t.Any:
-    """``plan`` less every isolated part — what the plan-wide group seats
-    (§16g units, 22o/22q zeros) are derived from, so no isolated share is
-    in a unit or lends its ground to one (13y (4))."""
+def without_parts(plan_wide: _t.Mapping[int, _t.Any], iso: _t.Mapping[int, Share]
+                  ) -> _t.Mapping[int, _t.Any]:
+    """``plan_wide`` (part id -> its §16g unit seat) less every isolated
+    part: what the unit SEAT is handed, so no isolated share is seated by a
+    unit, while the units and their zeros stay as derived (13y (4))."""
     if not iso:
-        return plan
-    units = tuple(_dc.replace(u, members=tuple(
-        _dc.replace(m, parts=tuple(p for p in m.parts if p.pid not in iso))
-        if any(p.pid in iso for p in m.parts) else m for m in u.members))
-        for u in plan.units)
-    return _dc.replace(plan, units=units)
+        return plan_wide
+    return {k: v for k, v in plan_wide.items() if k not in iso}
 
 
 def keep_isolated(record: _t.Any, pre: _t.Any) -> _t.Any:

@@ -280,10 +280,8 @@ def test_keep_isolated_restores_what_a_group_seat_moved():
     assert I.keep_isolated(moved, pre).bodies[0].anchor.y_zero == 0.0
 
 
-def test_without_drops_only_the_isolated_parts():
-    plan = _plan(((_m("x", _part(0, 0.0, 0.0), _part(1, 9.0, 0.0)),), 0.0))
-    got = I.without(plan, {0: object()})
-    assert [p.pid for p in got.units[0].members[0].parts] == [1]
+def test_without_parts_drops_only_the_isolated_parts():
+    assert I.without_parts({0: "u", 1: "u"}, {0: object()}) == {1: "u"}
 
 
 # ── through the plan: one frame, written, never carried or a carrier ─────

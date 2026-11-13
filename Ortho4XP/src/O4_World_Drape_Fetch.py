@@ -98,12 +98,16 @@ def _engine_imports(engine: str):
 
 def fetch(engine: str, lat: int, lon: int, build_parent: str, zl: int,
           provider: str, drop: int, convert_workers: int = 4,
-          water_alpha: bool = False, water_wait_s=None, near=None) -> dict:
+          water_alpha: bool = False, water_wait_s=None, near=None,
+          blend=None) -> dict:
     """Fetch and convert every texture square of tile (lat, lon); returns
     the record :func:`main` prints.  ``water_wait_s``: the water copy is
     dropped (``water_late``) when the tile's water and masks are not done
     within that many seconds of the fetch's start
-    (``O4_World_Drape_Water.start_masks``)."""
+    (``O4_World_Drape_Water.start_masks``).  ``blend``: a zero-argument
+    callable giving the tile's provider blend
+    (``O4_Imagery_Provider_Blend.Blend`` or None, #2018), called once the
+    provider registries are loaded; every square is converted with it."""
     FNAMES, CFG, IMG, IMGPROGRESS, PAR, REGIONS, TILE = _engine_imports(engine)
     import O4_World_Drape as DRAPE
     with _INIT:                 # once per process: the World job runs
@@ -121,6 +125,7 @@ def fetch(engine: str, lat: int, lon: int, build_parent: str, zl: int,
     # the tier is the drape's own, whatever the region's on-demand switch
     setattr(tile, REGIONS.setting_name(REGIONS.region_of(lat, lon)), True)
     tile.color_harmonization = False
+    tile.provider_blend = blend() if blend is not None else None
     os.makedirs(os.path.join(tile.build_dir, "textures"), exist_ok=True)
     squares = [sq for sq in DRAPE.texture_squares(lat, lon, zl)
                if DRAPE.drape_quad(lat, lon, *sq, zl) is not None]

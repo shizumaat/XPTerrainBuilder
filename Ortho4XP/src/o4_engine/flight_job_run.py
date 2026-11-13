@@ -315,7 +315,7 @@ class _Runner:
             return prep_drape_px(manager.plan if manager else plan)
         builder = _SessionBuilder(
             session, provider, zoomlevel,
-            drape=lambda tile: drape_tile(tile, *photo_source(), px=px_of()),
+            drape=lambda tile: drape_tile(tile, *photo_source(tile), px=px_of()),
             share=SHARE, owner="flight", source=photo_source)
         self.manager = FlightManager(
             record, plan, builder=builder,

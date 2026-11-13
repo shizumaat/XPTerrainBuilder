@@ -25,7 +25,7 @@ def roots(tmp_path, monkeypatch):
     scenery = tmp_path / "xp" / "Custom Scenery"
     pack = scenery / WP.PACK_NAME
     pack.mkdir(parents=True)
-    (pack / WP.MARKER).write_text("{}", encoding="utf-8")
+    (pack / WP.MARKER).write_text("{}", encoding="utf-8", newline="\n")
     data.mkdir()
     monkeypatch.setattr(FNAMES, "_data_root_override", str(data))
     monkeypatch.delitem(FNAMES.__dict__, "Tile_dir", raising=False)
@@ -39,7 +39,7 @@ def _tile(folder, name, files=("Ortho4XP_%s.cfg",)):
     path.mkdir(parents=True)
     for pattern in files:
         (path / (pattern % name[len("zOrtho4XP_"):])).write_text(
-            "x" * 10, encoding="utf-8")
+            "x" * 10, encoding="utf-8", newline="\n")
     return path
 
 
@@ -65,7 +65,7 @@ def test_migrate_moves_tiles_and_packages_then_points_home(roots):
     (store / "+01+002_adopted.xptb").write_bytes(b"p" * 20)
     (store / "packaged.json").write_text(json.dumps(
         {"+01+002": {"path": str(store / "+01+002_adopted.xptb")}}),
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
     first = HOME.migrate(str(scenery), busy=lambda: {"+03+004"})
     assert (first["moved"], first["busy"], first["left"]) == (1, 1, 1)
@@ -131,7 +131,7 @@ def test_a_foreign_world_folder_is_never_a_home(tmp_path, monkeypatch):
     scenery = tmp_path / "Custom Scenery"
     target = tmp_path / "elsewhere"
     target.mkdir()
-    (target / WP.MARKER).write_text("{}", encoding="utf-8")
+    (target / WP.MARKER).write_text("{}", encoding="utf-8", newline="\n")
     scenery.mkdir()
     os.symlink(target, scenery / WP.PACK_NAME)
     out = HOME.migrate(str(scenery))

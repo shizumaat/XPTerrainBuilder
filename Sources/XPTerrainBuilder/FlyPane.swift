@@ -159,14 +159,17 @@ struct AdoptedChoiceRows: View {
     }
 }
 
-/// "Photo source": the Build pane's imagery list, bound to the global
-/// `default_website` (owner 2026-11-12T19:17Z). Qt: `photo_source_combo`.
+/// "Photo source": Automatic (#2018), then the Build pane's imagery list,
+/// bound to `fly_photo_source` (owner 2026-11-12T19:17Z). Qt:
+/// `photo_source_combo` (`O4_Fly_Text.photo_source_entries`).
 struct PhotoSourcePicker: View {
     @ObservedObject var model: FlyModel
 
     var body: some View {
         if let build = model.build {
             Picker(FlyText.photoSourceLabel, selection: $model.photoSource) {
+                Text(FlyText.photoSourceAutoLabel).tag(FlyText.photoSourceAuto)
+                    .help(FlyText.photoSourceAutoHelp)
                 ForEach(ImageryMenu.sections(ImageryMenu.entries(
                     build.imagerySources, statuses: build.imageryStatus,
                     forMap: false))) { section in

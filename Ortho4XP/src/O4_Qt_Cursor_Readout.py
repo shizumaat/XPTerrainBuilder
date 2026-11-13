@@ -2,6 +2,7 @@
 node format (``O4_Qt_Patch_Panel.node_lat_lon``) and, once the cursor
 rests 150 ms, the elevation under it from ``cursor_elevation`` —
 ``123.4 m``, ``(DEM)`` appended when the tile has no built mesh there —
+the photo provider of the World tile under it (``photo: BI``, #2018)
 and, over a pack outline, its label (``pack: terminal.obj``, #1316).
 The Mac app's twin is ``MapCanvasView.cursorReadout``."""
 from __future__ import annotations
@@ -26,24 +27,29 @@ def elevation_text(reply) -> str | None:
 
 
 def readout_text(lat: float, lon: float, elevation: str | None = None,
-                 pack: str | None = None) -> str:
-    """``lat, lon[ · elevation][ · pack: label]``."""
+                 pack: str | None = None, photo: str | None = None) -> str:
+    """``lat, lon[ · elevation][ · photo: provider][ · pack: label]``
+    (``photo``: ``O4_World_State_Text.photo_text``)."""
     parts = [node_lat_lon(lat, lon)] + ([elevation] if elevation else []) \
-        + (["pack: " + pack] if pack else [])
+        + ([photo] if photo else []) + (["pack: " + pack] if pack else [])
     return " · ".join(parts)
 
 
 class CursorReadout(QObject):
     """Drives ``label`` from the map's hover; ``engine`` is the window's
     ``PatchEngine``, ``built()`` the scan's ``{(lat, lon): info}``,
-    ``pack_label(lat, lon)`` the pack outline under the cursor (or None)."""
+    ``pack_label(lat, lon)`` the pack outline under the cursor (or None),
+    ``photo_label(lat, lon)`` the World tile's "photo: …" (or None)."""
 
     def __init__(self, label, engine, built, parent=None,
-                 pack_label=lambda _lat, _lon: None):
+                 pack_label=lambda _lat, _lon: None,
+                 photo_label=lambda _lat, _lon: None):
         super().__init__(parent)
         self._label, self._engine, self._built = label, engine, built
         self._pack_label = pack_label
+        self._photo_label = photo_label
         self._pack = None
+        self._photo = None
         self._at = None
         self._gen = 0
         self._tries = 0
@@ -56,7 +62,9 @@ class CursorReadout(QObject):
         self._gen += 1
         self._tries = 0
         self._pack = self._pack_label(lat, lon)
-        self._label.setText(readout_text(lat, lon, pack=self._pack))
+        self._photo = self._photo_label(lat, lon)
+        self._label.setText(readout_text(lat, lon, pack=self._pack,
+                                         photo=self._photo))
         if self._engine is not None and self._engine.has("cursor_elevation"):
             self._timer.start(REST_MS)
 
@@ -69,7 +77,8 @@ class CursorReadout(QObject):
         def answered(reply, error):
             if gen != self._gen or error is not None:
                 return
-            self._label.setText(readout_text(lat, lon, elevation_text(reply), self._pack))
+            self._label.setText(readout_text(lat, lon, elevation_text(reply),
+                                             self._pack, self._photo))
             self._tries += 1
             if reply.get("pending") and self._tries < 20:
                 self._timer.start(PENDING_MS)

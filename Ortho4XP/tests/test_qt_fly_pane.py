@@ -366,22 +366,28 @@ def test_the_aircraft_is_the_shared_airplane(qapp):
     assert image.pixel(int(at.x()) + 7, int(at.y()) - 8) != white  # beside the nose
 
 
-def test_the_photo_source_is_the_global_default_website(qapp, monkeypatch):
-    """Owner 2026-11-12T19:17Z: "Photo source" lists the Build pane's
-    imagery entries and writes the global ``default_website`` (the
-    engine reads it per build: ``test_flight_manager``'s
-    ``test_the_photo_source_is_read_per_build``), never the prefs."""
+def test_the_photo_source_is_automatic_or_one_source(qapp, monkeypatch):
+    """Owner 2026-11-12T19:17Z / #2018: "Photo source" lists Automatic,
+    then the Build pane's imagery entries, and writes the app setting
+    ``fly_photo_source`` (the engine reads it per build:
+    ``test_flight_manager``'s ``test_the_photo_source_is_read_per_build``),
+    never the prefs; unset, it reads Automatic."""
     import O4_Settings_Model as SM
-    written = []
-    monkeypatch.setattr(SM, "read_global_raw", lambda *a: {"default_website": "GO2"})
-    monkeypatch.setattr(SM, "write_global", lambda values, *a: written.append(values))
+    written, values = [], {"fly_photo_source": "GO2"}
+    monkeypatch.setattr(SM, "read_global_raw", lambda *a: dict(values))
+    monkeypatch.setattr(SM, "write_global", lambda v, *a: written.append(v))
     pane, saved = _pane(_Engine({}))
     entries = [{"code": c, "label": c, "enabled": True, "tooltip": "",
                 "section": "World"} for c in ("BI", "GO2", "Arc")]
     pane.set_photo_sources(entries)
     combo = pane.photo_source_combo
-    assert [combo.itemData(i) for i in range(combo.count())] == ["BI", "GO2", "Arc"]
+    assert [combo.itemData(i) for i in range(combo.count())] == [
+        "auto", "BI", "GO2", "Arc"]
+    assert combo.itemText(0) == TEXT.PHOTO_SOURCE_AUTO_LABEL
     assert combo.currentData() == "GO2" and not written
     combo.setCurrentIndex(combo.findData("Arc"))
     combo.activated.emit(combo.currentIndex())
-    assert written == [{"default_website": "Arc"}] and not saved
+    assert written == [{"fly_photo_source": "Arc"}] and not saved
+    values.clear()
+    pane.set_photo_sources(entries)
+    assert combo.currentData() == "auto"

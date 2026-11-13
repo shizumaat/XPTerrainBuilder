@@ -350,9 +350,15 @@ def test_the_world_jobs_drape_has_both_polygon_sets(tmp_path, monkeypatch):
     assert RUN.drape_tile((52, -63), "BI", 12)
     (zl, provider, drop, kw), = calls
     assert (zl, provider, drop) == (12, "BI", FETCH.PX_DROPS[1024])
+    blend = kw.pop("blend")             # #2018: made when the fetch asks
     assert kw == {"water_alpha": True, "water_wait_s": RUN.WATER_WAIT_S}
+    assert callable(blend)
     assert not build.exists()
     staged = tmp_path / "staging" / "+52-063"
+    # the staged tile carries its World pack record (#2018)
+    record = json.loads((staged / "XPTerrainBuilder_imagery.json").read_text(
+        encoding="utf-8"))
+    assert (record["provider"], record["zl"], record["kind"]) == ("BI", 12, "drape")
     squares = _squares(52, -63, 12)
     water = len([s for i, s in enumerate(squares) if i % 3])
     res = DRAPE.verify_drape(str(staged), 52, -63, _tool())

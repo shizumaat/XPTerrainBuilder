@@ -34,6 +34,9 @@ public enum O4WorldStateText {
     ]
     public static let onDrive = "on {volume}"
     public static let leanOnDrive = "low-res copy here, full imagery on {volume}"
+    /// The photo provider that draws a World tile (#2018): the tile
+    /// pane's detail and the map's cursor readout.
+    public static let photoWords = "photo: {provider}"
 
     // The tile pane's "World pack" row (owner 2026-11-12T20:23Z: a tile
     // fully built in the World pack must not read "not built").
@@ -82,11 +85,20 @@ public enum O4WorldStateText {
         }
     }
 
-    /// Who made it and where its own files live (Qt: `pane_detail`):
-    /// "built here · original folder kept"; empty for none.
+    /// "photo: FRorth", the provider drawing a World tile (#2018; Qt:
+    /// `photo_text`); empty when none is known.
+    public static func photoText(_ world: O4WorldTile?) -> String {
+        guard let provider = world?.provider, !provider.isEmpty else { return "" }
+        return photoWords.replacingOccurrences(of: "{provider}", with: provider)
+    }
+
+    /// Who made it, its photo and where its own files live (Qt:
+    /// `pane_detail`): "built here · photo: BI · original folder kept";
+    /// empty for none.
     public static func paneDetail(_ world: O4WorldTile?) -> String {
         guard let world else { return "" }
-        return [originWords[world.origin] ?? "", sourceText(world.source, volume: world.volume)]
+        return [originWords[world.origin] ?? "", photoText(world),
+                sourceText(world.source, volume: world.volume)]
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
     }
@@ -118,9 +130,10 @@ public enum O4WorldStateText {
 
 /// What the World pack draws on one tile (#2024, the engine's
 /// `o4_engine.world_state.WorldTile`): its state, who made its mesh, how
-/// much of its imagery is sharp, and where its own files live. Arrives as
-/// `ScanBatch.world` rows `[lat, lon, state, origin, sharp, source,
-/// volume, dsf]` and as a Library row's `world` dict.
+/// much of its imagery is sharp, where its own files live and which photo
+/// provider draws it. Arrives as `ScanBatch.world` rows `[lat, lon, state,
+/// origin, sharp, source, volume, dsf, provider]` and as a Library row's
+/// `world` dict.
 public struct O4WorldTile: Sendable, Equatable, Hashable, Decodable {
     public enum State: String, Sendable, CaseIterable, Decodable {
         case full
@@ -138,15 +151,19 @@ public struct O4WorldTile: Sendable, Equatable, Hashable, Decodable {
     public let volume: String
     /// The tile's DSF in the World pack (#2027; nil from an older engine).
     public let dsf: String?
+    /// The photo provider that draws it (#2018; nil from an older engine).
+    public let provider: String?
 
     public init(state: State, origin: String = "", sharp: Double = 0,
-                source: String = "", volume: String = "", dsf: String? = nil) {
+                source: String = "", volume: String = "", dsf: String? = nil,
+                provider: String? = nil) {
         self.state = state
         self.origin = origin
         self.sharp = sharp
         self.source = source
         self.volume = volume
         self.dsf = dsf
+        self.provider = provider
     }
 
     /// One `ScanBatch.world` row; nil for a malformed one.
@@ -159,7 +176,8 @@ public struct O4WorldTile: Sendable, Equatable, Hashable, Decodable {
                                       sharp: (entry[4] as? NSNumber)?.doubleValue ?? 0,
                                       source: entry[5] as? String ?? "",
                                       volume: entry[6] as? String ?? "",
-                                      dsf: entry.count > 7 ? entry[7] as? String : nil))
+                                      dsf: entry.count > 7 ? entry[7] as? String : nil,
+                                      provider: entry.count > 8 ? entry[8] as? String : nil))
     }
 
     /// What "Show in Finder" reveals in the World pack (#2027): this

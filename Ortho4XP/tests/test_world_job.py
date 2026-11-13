@@ -218,7 +218,7 @@ def test_the_publisher_swaps_a_staged_tile_holding_only_its_follow(pack,
     _stage(staging, 53, -64)
     old = os.path.join(path, "textures", "+53-064")   # a former version's
     os.makedirs(old)                                   # names (swap_out)
-    open(os.path.join(old, "old.dds"), "w").close()
+    open(os.path.join(old, "old.dds"), "wb").close()
     assert pub.settle((53, -64), "light", held=True) == "staged"
     assert WP.is_placeholder(os.path.join(path, WP.dsf_relpath(53, -64)))
     assert pub.settle((53, -64), "light", held=False) == "swapped"

@@ -24,13 +24,19 @@ A WITNESS says the camera appeared somewhere it did not fly to:
 
 Each witness opens an :class:`Episode`: the CORE of the new place (every
 square a camera standing there wants finer than its file on disk, by the
-rule of the kept airport cores, ``O4_Imagery_OnDemand_Cores.core_tier``),
-fetched core first, each square straight at the tier it wants, files that
-need no download first, against the deadline "end of the flight-start
-window".  When nothing of the core is left to land, the episode closes:
-if a file landed after the window and the camera is still inside the
-distance where X-Plane wants that tier, ONE scenery reload is due; if
-nothing missed the window, none.  Nothing lands without a network, so no
+rule of the kept airport cores, ``O4_Imagery_OnDemand_Cores.core_tier``,
+read at the eye: the SLANT distance from a camera ``agl_m`` above the
+ground, RULINGS 2026-11-12f), fetched core first, each square straight at
+the tier it wants, files that need no download first, against the
+deadline "end of the flight-start window".  A camera that flies on
+(:meth:`Episode.follow`, every witness but ``plan``) keeps in the core
+only what it still wants from where it is now: a square left behind is
+the planner's again, at its next approach (#2037: three reloads' cores
+held every slot while the aircraft crossed a city).  When nothing of the
+core is left to land, the episode closes: if a file landed after the
+window and the camera is still inside the distance where X-Plane wants
+that tier, ONE scenery reload is due; if nothing missed the window,
+none.  Nothing lands without a network, so no
 reload follows there either (spec §8).
 
 Positions that resume where the camera was are not always a load;
@@ -51,6 +57,7 @@ passes the time, the camera and the index rows.
 from __future__ import annotations
 
 import dataclasses
+import math
 
 import O4_Imagery_OnDemand_Cores as CORES
 import O4_Imagery_OnDemand_Index as INDEX
@@ -78,17 +85,31 @@ LOAD_DOWN_S = 10.0
 SAME_PLACE_M = 2000.0
 
 
-def core_wants(rows, lat: float, lon: float) -> dict[str, int]:
+def _eye_tier(row, lat: float, lon: float, agl_m: float = 0.0):
+    """The finest tier a camera ``agl_m`` above ``(lat, lon)`` wants for
+    ``row``'s square: the airport-core rule (full inside 1.65 S, 2048
+    inside 2.8 S, 1024 inside 5.2 S) at the SLANT distance; ``None``
+    beyond (RULINGS 2026-11-12f: never the full file far below a high
+    camera)."""
+    if agl_m <= 0.0:
+        return CORES.core_tier(row, [("", lat, lon)])
+    size = float(row.get("load_size_m") or 0.0)
+    slant = math.hypot(INDEX.distance_m(row, lat, lon), agl_m)
+    inside = [k for k in range(1, len(PLAN.CROSSING_S))
+              if size > 0 and slant <= PLAN.CROSSING_S[k] * size]
+    return max(inside) if inside else None
+
+
+def core_wants(rows, lat: float, lon: float,
+               agl_m: float = 0.0) -> dict[str, int]:
     """``{key: tier}`` for the index ``rows`` (``{key: row}``) a camera
-    standing at ``(lat, lon)`` wants finer than the file on disk: full
-    inside 1.65 S, 2048 inside 2.8 S, 1024 inside 5.2 S (the airport-core
-    rule).  Failed rows are left out."""
-    here = [("", lat, lon)]
+    ``agl_m`` above ``(lat, lon)`` wants finer than the file on disk
+    (:func:`_eye_tier`).  Failed rows are left out."""
     wants = {}
     for key, row in rows.items():
         if row.get("state") == "failed":
             continue
-        tier = CORES.core_tier(row, here)
+        tier = _eye_tier(row, lat, lon, agl_m)
         if tier is not None and tier > PLAN.tier_of_width(row.get("tier_px")):
             wants[key] = tier
     return wants
@@ -134,6 +155,28 @@ class Episode:
                            False)
                 for key in self.pending(rows, failed)]
 
+    def follow(self, rows, lat: float, lon: float,
+               agl_m: float = 0.0) -> int:
+        """The camera is at ``(lat, lon)``, ``agl_m`` up, now: the core
+        keeps only the squares it still wants finer than on disk, each at
+        no more than the tier it wants from here (:func:`_eye_tier`).  A
+        ``plan`` episode is the departure wherever the camera is: kept
+        whole.  Returns the squares dropped."""
+        if self.witness == "plan":
+            return 0
+        dropped = 0
+        for key in list(self.wants):
+            row = rows.get(key)
+            if row is None or key in self.landed:
+                continue
+            now = _eye_tier(row, lat, lon, agl_m)
+            if now is None or now <= PLAN.tier_of_width(row.get("tier_px")):
+                del self.wants[key]
+                dropped += 1
+            elif now < self.wants[key]:
+                self.wants[key] = now
+        return dropped
+
     def note_landed(self, key: str, tier: int, landed_at: float) -> None:
         """A file of ``tier`` landed for ``key`` at ``landed_at``; the
         first one of the tier the core wants (or finer) counts."""
@@ -172,20 +215,21 @@ class SpawnWatch:
 
     def witness(self, kind: str, now: float, lat: float, lon: float, rows,
                 *, moved_m: float = float("inf"), down_s: float = 0.0,
-                is_local=None) -> Episode | None:
+                is_local=None, agl_m: float = 0.0) -> Episode | None:
         """A witness ``kind`` at ``now`` with the camera at ``(lat, lon)``;
         ``moved_m`` and ``down_s`` are the camera's move and the seconds
         without a position across a ``flight_load``'s drop.  Opens the
         episode of the new place (replacing an open one) and returns it,
         or ``None`` when the witness belongs to an event already known.
-        ``is_local(row, tier)`` says a file needs no download."""
+        ``is_local(row, tier)`` says a file needs no download; ``agl_m``
+        the camera's height (the core is read at the eye)."""
         if kind == "flight_load" and moved_m <= SAME_PLACE_M:
             if down_s < LOAD_DOWN_S:
                 return None                 # a stutter: nothing read again
             if (self._reload_at is not None
                     and now - self._reload_at <= RELOAD_QUIET_S):
                 return None                 # this job's own reload
-        wants = core_wants(rows, lat, lon)
+        wants = core_wants(rows, lat, lon, agl_m)
         local = {key for key, tier in wants.items()
                  if is_local is not None and is_local(rows[key], tier)}
         had = {key: PLAN.tier_of_width(rows[key].get("tier_px"))

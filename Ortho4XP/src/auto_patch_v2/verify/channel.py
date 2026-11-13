@@ -158,6 +158,17 @@ def channel_floor_at_declaration(p: Patch) -> list[Row]:
     return out
 
 
+def _ledge_pin(pins, lat: float, lon: float, reach: float) -> "float | None":
+    """The z of the declared ledge pin within ``reach`` metres, or ``None``."""
+    kx = 111320.0 * math.cos(math.radians(lat))
+    best = None
+    for la, lo, z in pins:
+        d = math.hypot((lo - lon) * kx, (la - lat) * 111320.0)
+        if d <= reach and (best is None or d < best[0]):
+            best = (d, z)
+    return None if best is None else best[1]
+
+
 def channel_crest_at_edge(p: Patch) -> list[Row]:
     """§45 (5): a channel's crest IS the governed cell's emitted level at
     the corridor edge.
@@ -168,7 +179,9 @@ def channel_crest_at_edge(p: Patch) -> list[Row]:
     non-structure ring vertex WITHOUT sharing its id — the case where the
     weld did not join them and a step could hide.  A crest vertex on bare
     adjacent ground has no governed neighbour and is not judged: §19 and
-    the zone laws govern it, and (5) forbids the DEM here."""
+    the zone laws govern it, and (5) forbids the DEM here.  A crest vertex
+    within the identity spacing of a declared LEDGE PIN (``ledge_pins``,
+    spec object-gate-member-floors §4.6) is judged against the pin."""
     recs = _records(p)
     if not recs:
         return []
@@ -184,9 +197,24 @@ def channel_crest_at_edge(p: Patch) -> list[Row]:
             ground.append((x, y, float(p.z[v]), sh, v))
     if not ground:
         return []
+    pins = [(float(q[0]), float(q[1]), float(q[2])) for r in recs
+            for q in r.get("ledge_pins") or ()]
+    spacing = float(p.law.tables.emit.identity.min_distinct_spacing_m)
     out: list[Row] = []
     for sh in _crests(p):
         for v, (x, y) in zip(sh.ids, sh.xy):
+            lat, lon = p.ll[v]
+            pin = _ledge_pin(pins, lat, lon, spacing)
+            if pin is not None:
+                got = float(p.z[v])
+                if abs(got - pin) > tol + 1e-9:
+                    out.append(row(FAMILY_CREST, ("retaining_wall", "retaining_wall"), "airside",
+                                   abs(got - pin), None, None, None, (x, y), (x, y), sh.key,
+                                   None, lat=lat, lon=lon,
+                                   out_of_scope=(f"{sh.ref}: the crest {got:.2f} stands "
+                                                 f"{got - pin:+.2f} m off its ledge pin "
+                                                 f"{pin:.2f}")))
+                continue
             best = None
             for gx, gy, gz, gsh, gv in ground:
                 if gv == v:

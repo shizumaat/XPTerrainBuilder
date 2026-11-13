@@ -21,6 +21,12 @@ replay's patch (PREDICTED) as on the built tile (DRAWN).
 
 Parsing is the harness library's (``check_grade._parse_osm``).  Only the
 faces within ``radius_m`` of the centre are triangulated.
+
+:class:`PatchAtlas` is the whole patch as one sampler (spec
+``object-gate-member-floors-20261113.md`` §3.3): the patch parsed once, one
+:class:`PatchFaces` per ``cell_m`` cell built on first use -- a written row's
+anchor can stand 1.6 km from the site it is read at, beyond any one
+fixed-radius ``PatchFaces``.
 """
 from __future__ import annotations
 
@@ -40,7 +46,7 @@ M_PER_DEG = 111320.0
 #: the feature rings that ARE faces of the drawn patch (the void band)
 FACE_FEATURES = ("structure_rim",)
 
-__all__ = ["PatchFaces", "inset_path"]
+__all__ = ["PatchFaces", "PatchAtlas", "inset_path"]
 
 
 def inset_path(patch_path) -> "str | None":
@@ -85,13 +91,20 @@ class _Dem:
                      + q[1, 0] * (1 - fc) * fr + q[1, 1] * fc * fr)
 
 
-def _rings(patch_path, kx: float, lat0: float, lon0: float, radius_m: float) -> dict:
-    """``{ref: [(role, (n, 2) local xy, [z per node])]}`` of the closed face
-    rings within ``radius_m``."""
+def parse_faces(patch_path) -> tuple:
+    """``(nodes, ways)``: the patch's nodes and every way that can be a face
+    (the ways and the :data:`FACE_FEATURES` rings) -- parsed once."""
     from check_grade import _parse_osm
     feats: dict = {}
     nodes, ways = _parse_osm(Path(patch_path), feature_out=feats)
-    ways = list(ways) + [w for f in FACE_FEATURES for w in feats.get(f, [])]
+    return nodes, list(ways) + [w for f in FACE_FEATURES for w in feats.get(f, [])]
+
+
+def _rings(patch_path, kx: float, lat0: float, lon0: float, radius_m: float,
+           parsed=None) -> dict:
+    """``{ref: [(role, (n, 2) local xy, [z per node])]}`` of the closed face
+    rings within ``radius_m``."""
+    nodes, ways = parsed if parsed is not None else parse_faces(patch_path)
     groups: dict[str, list] = {}
     for w in ways:
         ids = [n for n in w.nids if n in nodes]
@@ -112,13 +125,14 @@ class PatchFaces:
     (default: the header's inset)."""
 
     def __init__(self, patch_path, centre, radius_m: float = 400.0, dem=None,
-                 standoff: float = 0.0) -> None:
+                 standoff: float = 0.0, parsed=None) -> None:
         import shapely
         self.lat0, self.lon0 = float(centre[0]), float(centre[1])
         self.kx = M_PER_DEG * math.cos(math.radians(self.lat0))
         self.faces: list[tuple[str, str, object]] = []
         tris, tz, owner = [], [], []
-        for ref, rings in _rings(patch_path, self.kx, self.lat0, self.lon0, radius_m).items():
+        for ref, rings in _rings(patch_path, self.kx, self.lat0, self.lon0, radius_m,
+                                 parsed).items():
             poly, zs = None, {}
             for _role, xy, z in rings:
                 p = shapely.make_valid(shapely.Polygon(xy))
@@ -222,3 +236,51 @@ class PatchFaces:
         self.uncovered.append((lat, lon))
         z = self.dem(lat, lon)
         return None if z != z else z
+
+
+class PatchAtlas:
+    """The whole patch as one sampler (module doc): ``elevation_at_or_none``
+    reads the :class:`PatchFaces` of the ``cell_m`` cell holding the point
+    (centre the cell's centre, radius half its diagonal plus ``standoff``
+    and a margin), built on first use from one parse."""
+
+    def __init__(self, patch_path, cell_m: float = 300.0, dem=None,
+                 standoff: float = 0.0) -> None:
+        self.path, self.cell, self.standoff = patch_path, float(cell_m), float(standoff)
+        self.parsed = parse_faces(patch_path)
+        if dem is None:
+            p = inset_path(patch_path)
+            dem = _Dem(p) if p else (lambda _la, _lo: float("nan"))
+        self.dem = dem
+        self.cells: dict = {}
+        self.uncovered: list[tuple[float, float]] = []
+
+    def _cell(self, lat: float, lon: float) -> PatchFaces:
+        kx = M_PER_DEG * math.cos(math.radians(lat))
+        i, j = (math.floor(lat * M_PER_DEG / self.cell),
+                math.floor(lon * kx / self.cell))
+        if (i, j) not in self.cells:
+            la = (i + 0.5) * self.cell / M_PER_DEG
+            lo = (j + 0.5) * self.cell / (M_PER_DEG * math.cos(math.radians(la)))
+            # ring vertices may stand far outside the cell: a face reaching
+            # in is kept by its vertex nearest the centre, so read wide
+            r = self.cell * math.sqrt(0.5) + self.standoff + 2.0 * self.cell
+            self.cells[(i, j)] = PatchFaces(self.path, (la, lo), r, self.dem, self.standoff,
+                                            self.parsed)
+        return self.cells[(i, j)]
+
+    def at(self, lat: float, lon: float):
+        """:meth:`PatchFaces.at` of the cell holding the point."""
+        return self._cell(lat, lon).at(lat, lon)
+
+    def gap_m(self, lat: float, lon: float) -> float:
+        return self._cell(lat, lon).gap_m(lat, lon)
+
+    def elevation_at_or_none(self, lat: float, lon: float) -> "float | None":
+        """:meth:`PatchFaces.elevation_at_or_none` of the cell holding the point."""
+        f = self._cell(lat, lon)
+        n = len(f.uncovered)
+        z = f.elevation_at_or_none(lat, lon)
+        if len(f.uncovered) > n:
+            self.uncovered.append((lat, lon))
+        return z

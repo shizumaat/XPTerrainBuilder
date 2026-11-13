@@ -65,6 +65,12 @@ __all__ = ["RoadStation", "SunkenRoadRecord", "SunkenRoadStats", "RoadReader",
            "ID_PREFIX"]
 
 ID_PREFIX = "sunken-road"
+#: OWNER Q3 (spec ``object-gate-member-floors-20261113.md`` §5, RULINGS
+#: 2026-11-13q (3) "Yes"): a LEVEL roofed plate with BOTH ends at grade and
+#: the ground standing over it inside is a floor the ground breaks through
+#: (a mound), cut to the plate as a sunken road's; ``False`` refuses every
+#: level plate (lobjgate2's storey-on-a-slope rule alone)
+LEVEL_FLOOR_UNDER_MOUND = True
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 
@@ -113,6 +119,9 @@ class SunkenRoadRecord:
     #: other way (``plate_frame``) — the lane is read as THAT bay
     #: (``planar/plate_bays``), never as this road
     framed: PlateFrame | None = None
+    #: a LEVEL FLOOR under a mound (:data:`LEVEL_FLOOR_UNDER_MOUND`): both
+    #: ends at grade, the ground rising through it between
+    level: bool = False
 
     @property
     def depth_m(self) -> float:
@@ -453,7 +462,13 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
         # level storey, 3.6 m under the uphill DEM, was cut as a 12 m
         # sunken road with no ramp)
         fall = max(r[1] for r in rows) - min(r[1] for r in rows)
-        if fall < sr.min_descent_m:
+        # a level plate with BOTH ends at grade lies under a MOUND (the
+        # ground breaks through it between): cut to the plate (spec
+        # object-gate-member-floors §5.1); one end deep is still a storey
+        # on a slope (the split-level reader's)
+        level = (fall < sr.min_descent_m and LEVEL_FLOOR_UNDER_MOUND
+                 and max(d_first, d_last) <= bl.contact_band_m)
+        if fall < sr.min_descent_m and not level:
             stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 is LEVEL "
                                  f"(its floor falls {fall:.2f} m < min_descent_m "
                                  f"{sr.min_descent_m}; the ground's slope alone puts it "
@@ -542,11 +557,14 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
                  f"{bl.contact_band_m}), deepest {deepest:.2f} m; {cut_note}",
                  f"trench {total:.1f} m from the cut (floor {sts[0].z:.2f}, ground "
                  f"{sts[0].ground_z:.2f}) to the top (floor {sts[-1].z:.2f}, ground "
-                 f"{sts[-1].ground_z:.2f}); mean width {mean_w:.1f} m")
+                 f"{sts[-1].ground_z:.2f}); mean width {mean_w:.1f} m") + (
+                    (f"LEVEL FLOOR under a mound: both ends at grade ({d_first:+.2f} / "
+                     f"{d_last:+.2f} m), the plate falls {fall:.2f} m, the ground stands "
+                     f"{deepest:.2f} m over it inside",) if level else ())
         out.append((o0.path, name, SunkenRoadRecord(
             "", o0.path, tuple(sorted({o.id for o in own})), tuple(pts), tuple(sts),
             float(total), float(mean_w), float(sts[0].z), float(sts[0].ground_z),
             float(sts[-1].z), float(sts[-1].ground_z), plate,
             Polygon(region.exterior.coords), float(cover),
-            o0.xy, float(o0.anchor_z), float(o0.agl_m), notes, framed)))
+            o0.xy, float(o0.anchor_z), float(o0.agl_m), notes, framed, level)))
     return stats, out

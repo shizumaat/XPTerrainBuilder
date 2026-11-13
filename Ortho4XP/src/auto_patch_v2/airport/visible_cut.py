@@ -22,6 +22,12 @@ member lies ON the cut:
   cut's witness points (:attr:`VisibleCut.points`, each tagged with its
   component).
 
+The shell's own FLOOR PLATES (its near-horizontal faces standing
+``object_min_depth_m`` or more under its rim, sampled the same way) are
+:attr:`VisibleCut.extent`: where the floor lies, never how deep the cut is
+(spec ``object-gate-member-floors-20261113.md`` §4.1) — the channel reads it
+to tell a member standing on the floor from one on a ledge of the bank.
+
 The channel reads them along its axis (``planar/channel_depth``): a member's
 lowest point at a station is its foot there, the feet are the floor profile
 and the floor's edge, the rest of its plan the bank up to the crest.
@@ -48,7 +54,9 @@ class VisibleCut:
     ``(n, 4)`` — ``x, y, z`` and the member component's index — of the
     members lying on it (module doc), ``covers`` / ``buried`` how many
     components stood over it / under it, ``bound`` the shell's footprint
-    (the most the cut may reach, 2026-11-06d (1))."""
+    (the most the cut may reach, 2026-11-06d (1)), ``extent`` ``(m, 3)``
+    points on the shell's own floor plates (module doc) and ``members``
+    each member index's ``(placement id, authored zero)``."""
 
     shell_id: str
     points: np.ndarray = _dc.field(repr=False, compare=False)
@@ -56,6 +64,9 @@ class VisibleCut:
     buried: int = 0
     notes: tuple[str, ...] = ()
     bound: object = _dc.field(default=None, repr=False, compare=False)
+    extent: np.ndarray = _dc.field(default_factory=lambda: np.zeros((0, 3)), repr=False,
+                                   compare=False)
+    members: tuple[tuple[str, float], ...] = ()
 
 
 def _read_visible_cut(f: ObjectFloor, objects: _t.Mapping[str, _obj8.PlacedObject],
@@ -71,6 +82,7 @@ def _read_visible_cut(f: ObjectFloor, objects: _t.Mapping[str, _obj8.PlacedObjec
     decked = {d.object_id for d in f.decks}
     step = float(law.tables.structures.channel.station_m) / 4.0
     got: list[np.ndarray] = []
+    members: list[tuple[str, float]] = []
     count = {"cover": 0, "buried": 0}
     for pid, _res, zero in f.seats:
         o = objects.get(pid)
@@ -92,12 +104,33 @@ def _read_visible_cut(f: ObjectFloor, objects: _t.Mapping[str, _obj8.PlacedObjec
             pts = _dense(fc, step)
             pts = pts[pts[:, 2] <= deep]
             got.append(np.column_stack([pts, np.full(len(pts), float(len(got)))]))
+            members.append((str(pid), float(zero)))
     pts = np.concatenate(got) if got else np.zeros((0, 4))
     note = (f"{f.id}: visible cut (2026-11-06d (6)) — {len(got)} member component(s) "
             f"on the cut, lowest {pts[:, 2].min():.2f}; {count['cover']} cover(s), "
             f"{count['buried']} buried" if len(pts)
             else f"{f.id}: visible cut — no visible member lies on the cut")
-    return VisibleCut(f.id, pts, count["cover"], count["buried"], (note,), f.footprint)
+    return VisibleCut(f.id, pts, count["cover"], count["buried"], (note,), f.footprint,
+                      _floor_plates(f, deep, step, law), tuple(members))
+
+
+def _floor_plates(f: ObjectFloor, deep: float, step: float, law) -> np.ndarray:
+    """``(m, 3)`` points on the hidden shell's own near-horizontal faces
+    standing at or under ``deep`` (its rim less ``object_min_depth_m``):
+    where its floor plates lie (:attr:`VisibleCut.extent`)."""
+    fc = np.asarray(f.faces, float).reshape(-1, 3, 3)
+    if not len(fc):
+        return np.zeros((0, 3))
+    n = np.cross(fc[:, 1] - fc[:, 0], fc[:, 2] - fc[:, 0])
+    ln = np.linalg.norm(n, axis=1)
+    flat = np.abs(n[:, 2]) >= float(law.tables.structures.tunnel.object.plate_normal_y_min) \
+        * np.where(ln > 0, ln, np.inf)
+    low = fc[:, :, 2].max(axis=1) <= deep
+    keep = fc[flat & low]
+    if not len(keep):
+        return np.zeros((0, 3))
+    pts = _dense(keep, step)
+    return pts[pts[:, 2] <= deep]
 
 
 def _dense(fc: np.ndarray, step: float) -> np.ndarray:

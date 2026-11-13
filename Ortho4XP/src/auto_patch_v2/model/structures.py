@@ -401,6 +401,9 @@ class Tunnel:
     #: to the deck than this (constraints/structures, #1903); ``0.0`` where
     #: the frame states the floor
     deck_floor_min_m: float = 0.0
+    #: a sunken road's LEVEL FLOOR under a mound (spec
+    #: object-gate-member-floors §5): both ends at grade
+    level_floor: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -637,6 +640,14 @@ class Channel:
     region_ll: tuple[tuple[float, float], ...] = ()
     profile_ll: tuple[tuple[float, float, float], ...] = ()
     notes: tuple[str, ...] = ()
+    #: spec object-gate-member-floors §4.3 (a visible cut's channel only):
+    #: ``(x, y, z)`` where the crest runs through a LEDGE member's foot —
+    #: the crest vertex there is PINNED at the foot (``constraints/channel``)
+    #: — and ``(x, y, authored y, placement id, kind)`` per member foot, per
+    #: side and station (``planar/channel_depth.VisibleFloor.sides``; the drawn
+    #: gate's FEET row)
+    ledge_pins: tuple[tuple[float, float, float], ...] = ()
+    member_feet: tuple[tuple[float, float, float, str, str], ...] = ()
 
     def floor_z(self, s: float) -> float:
         """The floor at ``s`` along the axis — :func:`profile_z`, the ONE

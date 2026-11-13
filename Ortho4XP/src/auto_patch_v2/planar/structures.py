@@ -1321,7 +1321,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          ground_kind=c.ground_kind, reseat_expect_m=expect,
                          authored_crest_m=_authored_crest(c, mouth_z, design_grade, s_top)
                          if g.kind == "object" else (),
-                         trench_outside_max_m=outside,
+                         trench_outside_max_m=outside, level_floor=g.level_floor,
                          footprint=tuple((float(x), float(y)) for x, y in
                                          c.footprint.exterior.coords[:-1])
                          if c.footprint.geom_type == "Polygon" else ())

@@ -829,16 +829,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                      for grp, _bx in targets) if g]
                 st.own_ground.extend([i] for i in sorted(floor)
                                      if st.footless or i in st.elevated)
-            # #1908: a FREE-STANDING COLUMN asks the carrier question
-            # alone; where nothing it stands on answers (no carrier, or
-            # only the nearest / largest footed fallback) it stands on
-            # its own foot (``free_column``) with what rides it
-            if free_column is not None and st.elevated:
-                for i in floor:                     # a floor is filed as one
-                    _cols.pop((ui, st.mi, i), None)
-                cols = {i for i in st.elevated if (ui, st.mi, i) in _cols}
-                if cols:
-                    targets = _fcol.alone(targets, cols, st.part_boxes)
+            # #1908: a basin floor is filed as itself, never as a column
+            for i in floor:
+                _cols.pop((ui, st.mi, i), None)
             # §16d (4) (13m) / §16g (4) (13bu): a carried body's ATOMS
             # each ask their own carrier question BEFORE the search.
             _atoms = []

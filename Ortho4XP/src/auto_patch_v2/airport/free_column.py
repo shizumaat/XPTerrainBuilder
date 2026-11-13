@@ -32,12 +32,16 @@ placed them"):
   that reach at all (another frame's heights cannot be compared, so any
   overlap is doubt).
 
+* it asks the carrier question ALONE (a raw body of a footed placement;
+  a footless placement's terrain group of several bodies is one rigid
+  piece and stays one);
 * and the carrier search finds NOTHING it stands on: no carrier, or
   only §15's no-evidence fallbacks (the nearest footed body of the unit,
   its largest — ``ALS.obj``'s seven land masts rode the sea masts 30-90 m
   off that way, 9-11 m over their ground).  A carrier the column stands
   over, rests on, touches or is bound to by contact, a unit it is a
-  member of, a weld: each is a host, and the column stays with it.
+  member of, a weld, a later one-zero group: each is a host, and the
+  column stays with it.
 
 Such a body is seated with the column's foot on the design surface under
 the column (``y_zero`` = the column's authored base), anchored at the
@@ -54,11 +58,16 @@ import numpy as np
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
 from .placement_body import _plan_box_span_m
+from .placement_file import OWN_GROUND as _OWN_GROUND
 
 __all__ = ["ColumnLaw", "law_of", "PartIndex", "free_columns",
-           "fallback_only", "alone", "FREE_COLUMN"]
+           "fallback_only", "FREE_COLUMN"]
 
-#: the anchor reason's stem, read by the census instruments
+#: the anchor reason's mark, read by the census instruments.  The reason
+#: KEEPS §16 (3)'s own-ground stem: every pass that regroups an own-ground
+#: body (``open_frame_seat``'s one-zero groups, the #1146 weld, the #1726
+#: adapted frame) still takes the column back into its group — any group
+#: the law finds is doubt, and the column stays with it (13r)
 FREE_COLUMN = "free-standing column"
 
 #: a base this far under the column's own counts as reaching below it
@@ -154,7 +163,7 @@ def free_columns(st: _t.Any, ui: int, index: PartIndex, law: ColumnLaw,
             continue
         lat, lon = 0.5 * (col.box[0] + col.box[2]), 0.5 * (col.box[1] + col.box[3])
         out[i] = (lat, lon, float(col.base_y), float(z),
-                  f"{FREE_COLUMN} (#1908): its foot (authored y "
+                  f"{_OWN_GROUND}: {FREE_COLUMN} (#1908), its foot (authored y "
                   f"{float(col.base_y):+.2f}) on the ground under it")
     return out
 
@@ -168,19 +177,3 @@ def fallback_only(over: _t.Sequence[tuple[_t.Any, str]]) -> bool:
     """Did the carrier search answer only with a no-evidence fallback?"""
     return bool(over) and all(str(why).startswith(_FALLBACKS) for _c, why in over)
 
-
-def alone(targets: _t.Sequence[tuple[list[int], list]], cols: _t.Collection[int],
-          part_boxes: _t.Sequence[_t.Sequence[tuple]]) -> list[tuple[list[int], list]]:
-    """``targets`` (the carrier search's ``(group, boxes)``, in order) with
-    every column of ``cols`` asking alone, right after the group it left;
-    a group holding no column is passed through unchanged."""
-    out: list[tuple[list[int], list]] = []
-    for grp, bx in targets:
-        if not any(i in cols for i in grp) or len(grp) == 1:
-            out.append((grp, bx))
-            continue
-        rest = [j for j in grp if j not in cols]
-        if rest:
-            out.append((rest, [b for j in rest for b in part_boxes[j]]))
-        out.extend(([j], list(part_boxes[j])) for j in grp if j in cols)
-    return out

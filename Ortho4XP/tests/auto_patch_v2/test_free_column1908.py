@@ -102,7 +102,7 @@ def test_column_of_reads_a_tall_thin_lowest_part():
 def test_a_free_mast_stands_on_its_own_foot(tmp_path):
     plan = _plan(_obj(tmp_path))
     on = _mast(PP.build_splits(plan, _slope, write=False, free_column=LAW, **ARGS))
-    assert on.anchor.reason.startswith(FC.FREE_COLUMN)
+    assert FC.FREE_COLUMN in on.anchor.reason
     assert on.anchor.y_zero == pytest.approx(4.44, abs=1e-6)
     # the foot (authored y 4.44) lands ON the ground under the mast
     g = _slope(on.anchor.lat, on.anchor.lon)
@@ -113,7 +113,7 @@ def test_a_free_mast_stands_on_its_own_foot(tmp_path):
 def test_disarmed_the_mast_keeps_its_authored_lift(tmp_path):
     plan = _plan(_obj(tmp_path))
     ss = PP.build_splits(plan, _slope, write=False, **ARGS)
-    assert not any(b.anchor.reason.startswith(FC.FREE_COLUMN)
+    assert not any(FC.FREE_COLUMN in b.anchor.reason
                    for s in ss.all for b in s.bodies)
     assert ss.counts.get("free_columns", 0) == 0
 
@@ -124,7 +124,7 @@ def test_a_mast_over_a_host_stays_with_its_group(tmp_path):
     plan = _plan(_obj(tmp_path, slab=True))
     ss = PP.build_splits(plan, _slope, write=False, free_column=LAW, **ARGS)
     assert ss.counts.get("free_columns", 0) == 0
-    assert not any(b.anchor.reason.startswith(FC.FREE_COLUMN)
+    assert not any(FC.FREE_COLUMN in b.anchor.reason
                    for s in ss.all for b in s.bodies)
 
 

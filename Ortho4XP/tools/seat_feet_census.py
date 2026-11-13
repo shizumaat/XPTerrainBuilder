@@ -550,7 +550,7 @@ def _print_elevated(plan: dict, sampler=None) -> None:
     from auto_patch_v2.airport.free_column import FREE_COLUMN
 
     def _column(b: dict) -> bool:
-        return str(b.get("anchor_reason", "")).startswith(FREE_COLUMN)
+        return FREE_COLUMN in str(b.get("anchor_reason", ""))
     # §16e: A DATUM BODY IS NOT THIS CLASS.  Its ``y_zero`` is +5 … +10 m
     # BY CONSTRUCTION — a tunnel wall's crest plate, a bridge's deck top,
     # an authored height the law puts AT the ground — so counting it here

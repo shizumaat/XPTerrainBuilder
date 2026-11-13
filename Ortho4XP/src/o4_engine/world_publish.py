@@ -3,8 +3,9 @@ World spec §4.1, §7.3), when there is one.
 
 The build runs in its ordinary build folder; when it is done
 (``BuildDone`` ok) and the app's World pack (made by ``world_install``,
-``world_commands.managed``) is in the Custom Scenery folder and the tile
-was built with imagery on demand, :func:`_publish_built` stages it
+``world_commands.managed``) is in the Custom Scenery folder -- whether
+or not the tile was built with imagery on demand (RULINGS 2026-11-12g:
+every build goes into the World folder) -- :func:`_publish_built` stages it
 in the pack's shape (``O4_World_Pack.publish``: binary rewrite, verify)
 and swaps it in, unless X-Plane may hold the tile (rule S3/S4): then it
 waits staged and :func:`_swap_waiting` swaps it later.  After the swap:
@@ -29,7 +30,9 @@ against its wait); :func:`add_core_point` names an airport the tile's
 cores must cover when its build graded none (a flight's departure).
 
 The build folder stays (its rebuild data, record and the consumers of
-spec §18 that read a build folder); removing it is a later phase.
+spec §18 that read a build folder); since RULINGS 2026-11-12g it lives in
+the World folder itself (``<World>/XPTerrainBuilder_tiles``,
+``world_home``), so its textures hard-link into the pack on one volume.
 """
 from __future__ import annotations
 
@@ -148,8 +151,9 @@ def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
                   loaded: Optional[Callable[[int, int], bool]] = None
                   ) -> Optional[dict]:
     """Publish one built tile (see the module docstring); ``None`` when
-    there is no World pack or the tile was not built on demand."""
-    if not WORLD.managed(scenery_dir) or not _on_demand(build_dir, lat, lon):
+    there is no World pack.  Every build is published, imagery on demand
+    or not (RULINGS 2026-11-12g: no Tiles-folder-then-link step)."""
+    if not WORLD.managed(scenery_dir):
         return None
     pack = WORLD.pack_dir(scenery_dir)
     if loaded is None:

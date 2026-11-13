@@ -96,6 +96,7 @@ def _open_window(tmp_path, monkeypatch, index):
         # an EXISTING prefs file: an absent one arms the modal wizard
         json.dump({"output_dir": str(tmp_path)}, handle)
     monkeypatch.setattr(GUI, "PREFS_FILE", prefs_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     win = GUI.MainWindow()
     monkeypatch.setattr(win, "refresh_tiles", lambda: None)
     monkeypatch.setattr(win, "_refresh_scenery_packs", lambda: None)

@@ -160,9 +160,27 @@ public struct O4StorageCleared: Decodable, Equatable, Sendable {
     }
 }
 
+/// `storage_scan_cached` (#2029, engine `o4_engine/storage_shared.py`):
+/// the scan the engine measured in the background, at once; `scan` nil
+/// before the first, `updating` while a refresh runs.
+public struct O4StorageShared: Decodable, Sendable {
+    public let scan: O4StorageScan?
+    public let ageS: Double?
+    public let updating: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case scan, ageS = "age_s", updating
+    }
+}
+
 extension OrthoEngineClient {
     public func storageScan() async throws -> O4StorageScan {
         try await libraryRequest("storage_scan", [:])
+    }
+
+    /// `storage_scan_cached` (capability `storage_scan_cached`): sync.
+    public func storageScanCached() async throws -> O4StorageShared {
+        try await request("storage_scan_cached", [:])
     }
 
     /// Clears caches: `kinds` empty is every cache (never built tiles or

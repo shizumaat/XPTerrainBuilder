@@ -1525,8 +1525,9 @@ class SettingsWindow(SelectionEdits, QDialog):
                 self.storage_section.matches(query) if query
                 else selected in (None, "storage"))
             self.storage_section.setVisible(shown)
-            if selected == "storage" and shown and self.storage_section.scan is None:
-                self.storage_section.refresh()
+            if selected == "storage" and shown:
+                # The background scan at once, refreshed when old (#2029).
+                self.storage_section.show_shared()
         if tile_view:
             count = len(override_union)
             subject = (

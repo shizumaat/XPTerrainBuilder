@@ -161,6 +161,19 @@ cfg_app_vars = {
     # Imagery on demand (#1992 spec §7): the follow job's settings, read
     # by ``o4_engine.imagery_commands.start_imagery_follow`` and the cap
     # sweep (``o4_engine.imagery_downgrade.cap_bytes``).
+    # Optional tiered storage on other drives (RULINGS 2026-11-12g;
+    # ``o4_engine.storage_tiers``): Settings > Storage's "Storage tiers".
+    "storage_tiers": {
+        "type": str,
+        "default": "",
+        "hint": (
+            "Other drives that may keep sharp imagery, as JSON "
+            "{\"/Volumes/Drive\": GB}. A texture the disk budget makes "
+            "low-res again moves there while the drive is connected and "
+            "lands back from it; without the drive it is downloaded again. "
+            "Set in Settings > Storage > Storage tiers."
+        ),
+    },
     "storage_budget_gb": {
         "type": float,
         "default": 0.0,
@@ -1088,6 +1101,7 @@ list_app_vars = [
     "storage_auto_clean_days",
     "storage_cache_caps_gb",
     "storage_budget_gb",
+    "storage_tiers",
     "imagery_on_demand_cap_gb",
     "ondemand_lead_s",
     "ondemand_lands_per_s",

@@ -12,11 +12,33 @@ extension BuildModel {
               engineCapabilities.supports(O4EngineCapabilities.worldOnboard),
               let context = libraryContext(), !context.sceneryDir.isEmpty else { return }
         worldOnboardChecked = true
+        let legacy = UserDefaults.standard.string(forKey: Self.legacyBuildDirKey) ?? ""
         Task { @MainActor [weak self] in
-            guard let done = try? await context.client.worldOnboard(sceneryDir: context.sceneryDir)
+            guard let done = try? await context.client.worldOnboard(
+                sceneryDir: context.sceneryDir, legacyBuildDir: legacy)
             else { return }
+            self?.adoptWorldHome(done.home, legacy: legacy)
             if done.offer > 0 || done.isForeign { self?.worldOnboard = done }
         }
+    }
+
+    /// The retired custom build folder setting (RULINGS 2026-11-12g).
+    static let legacyBuildDirKey = "OrthoCustomBuildDir"
+    /// Its last value, kept once it is handed over (never read again).
+    static let legacyBuildDirBackupKey = "OrthoCustomBuildDirBeforeWorld"
+
+    /// Take the engine's tile home; the retired setting is backed up and
+    /// cleared once the engine has moved what it named (nothing `left`).
+    func adoptWorldHome(_ home: O4WorldHome?, legacy: String) {
+        guard let home else { return }
+        let before = tileBaseFolder?.path
+        if !home.tilesDir.isEmpty { worldTilesDir = home.tilesDir }
+        if !legacy.isEmpty, home.active, home.left == 0, home.error == nil {
+            let defaults = UserDefaults.standard
+            defaults.set(legacy, forKey: Self.legacyBuildDirBackupKey)
+            defaults.removeObject(forKey: Self.legacyBuildDirKey)
+        }
+        if tileBaseFolder?.path != before { rescan() }
     }
 }
 

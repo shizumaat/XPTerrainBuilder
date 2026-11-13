@@ -244,7 +244,14 @@ final class BuildModel: ObservableObject {
         }
         set { zoom.chosen(); defaultZL = newValue }
     }
-    @AppStorage("OrthoCustomBuildDir") var customBuildDir: String = ""
+    /// Where tile build folders live, as the engine's `world_onboard` said
+    /// (RULINGS 2026-11-12g: the World folder's `XPTerrainBuilder_tiles`
+    /// once the data folder's tiles moved there). There is no custom build
+    /// folder any more: the retired `OrthoCustomBuildDir` is handed to the
+    /// engine once (`WorldOnboardSheet.swift`) and cleared. Kept between
+    /// launches so the first scan reads the right folder before the
+    /// engine's answer comes.
+    @AppStorage("WorldTilesDir") var worldTilesDir: String = ""
     /// Step groups, matching the Qt build box's three checkboxes.
     @AppStorage("OrthoDoVector") var doVector: Bool = true
     @AppStorage("OrthoDoImagery") var doImagery: Bool = true
@@ -786,24 +793,17 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    /// The custom build dir in the form the engine expects: a TRAILING
-    /// SEPARATOR means "create zOrtho4XP_* subfolders here"; without it the
-    /// engine uses the path verbatim as one tile's build dir and dumps the
-    /// tile's contents straight into it (legacy convention — the Qt GUI
-    /// appends the separator the same way).
-    var engineCustomBuildDir: String {
-        guard !customBuildDir.isEmpty else { return "" }
-        return customBuildDir.hasSuffix("/") ? customBuildDir : customBuildDir + "/"
-    }
-
     var tileBaseFolder: URL? {
         guard let engine else { return nil }
-        if !customBuildDir.isEmpty {
-            return URL(fileURLWithPath: customBuildDir, isDirectory: true)
+        // The engine's answer first (RULINGS 2026-11-12g: the World folder
+        // is the tiles' home once the data folder's tiles moved there).
+        if !worldTilesDir.isEmpty,
+           FileManager.default.fileExists(atPath: worldTilesDir) {
+            return URL(fileURLWithPath: worldTilesDir, isDirectory: true)
         }
-        // Tiles live under the data folder; the engine puts them there too
-        // (ORTHO4XP_DATA_ROOT). No data root chosen yet → the engine's own
-        // Tiles/, the pre-data-root behavior.
+        // Until then tiles live under the data folder; the engine puts them
+        // there too (ORTHO4XP_DATA_ROOT). No data root chosen yet → the
+        // engine's own Tiles/, the pre-data-root behavior.
         if let dataRoot = dataRootURL {
             return dataRoot.appendingPathComponent("Tiles", isDirectory: true)
         }
@@ -1668,6 +1668,9 @@ final class BuildModel: ObservableObject {
     var patchLibraryCheckedAtLaunch = false
     /// The start's World onboarding (#2007): asked once when shown.
     @Published var worldOnboard: O4WorldOnboard?
+    /// Settings ▸ Storage's one model (#2029): the engine measures in the
+    /// background; the pane shows the last result at once.
+    let storage = StorageModel()
     var worldOnboardChecked = false
 
     @Published private(set) var planEstimate: O4PlanEstimate?
@@ -1685,7 +1688,7 @@ final class BuildModel: ObservableObject {
     /// `plan_estimate` that the Build box can change.
     var planEstimateKey: String {
         [buildableSelection.map(\.key).joined(separator: ","), buildProvider, String(buildZL),
-         customBuildDir, "\(doVector)\(doImagery)\(doOverlays)", "\(isBuilding)",
+         "\(doVector)\(doImagery)\(doOverlays)", "\(isBuilding)",
          protocolHello?.protocolVersion ?? ""].joined(separator: "|")
     }
 
@@ -1707,7 +1710,7 @@ final class BuildModel: ObservableObject {
             let estimate = try await client.planEstimate(
                 tiles: tiles.map { O4TileRef(lat: $0.lat, lon: $0.lon) },
                 provider: buildProvider, zoomlevel: buildZL,
-                customBuildDir: engineCustomBuildDir,
+                customBuildDir: "",
                 doVector: doVector, doImagery: doImagery, doOverlays: doOverlays)
             guard !Task.isCancelled else { return }
             planEstimate = estimate
@@ -1988,7 +1991,7 @@ final class BuildModel: ObservableObject {
             "tiles": todo.map { [$0.lat, $0.lon] },
             "provider": provider,
             "zoomlevel": zl,
-            "custom_build_dir": engineCustomBuildDir,
+            "custom_build_dir": "",
             "do_vector": doVector,
             "do_imagery": doImagery,
             "do_overlays": doOverlays,
@@ -3268,7 +3271,7 @@ final class BuildModel: ObservableObject {
         let job = OrthoBuildJob(
             lat: tile.lat, lon: tile.lon, steps: legacySteps(),
             provider: buildProvider.isEmpty ? nil : buildProvider,
-            zl: buildZL, buildDir: engineCustomBuildDir)
+            zl: buildZL, buildDir: "")
         console.append("=== Tile \(tile.key) ===")
         let runner = OrthoBuildRunner()
         legacyRunner = runner

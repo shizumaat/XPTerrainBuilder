@@ -11,14 +11,17 @@ import SceneryKit
 /// same rows (`StorageRows`).
 struct StorageSettingsRows: View {
     @EnvironmentObject var buildModel: BuildModel
-    @StateObject private var storage = StorageModel()
+    /// The app's one storage model (#2029): measured in the background,
+    /// shown at once.
+    private var storage: StorageModel { buildModel.storage }
 
     var body: some View {
         Section { DataFolderRow(model: storage) }
         Section { DiskBudgetSection(model: storage) }
         Section { ConvertTilesSection(run: buildModel.worldMigrate, autoMeasure: true) }
+        Section { StorageTiersSection() }
         Section { CachesLine(model: storage) }
-            .onAppear { storage.refresh(buildModel) }
+            .onAppear { storage.showShared(buildModel) }
     }
 }
 
@@ -235,6 +238,8 @@ struct CachesLine: View {
             if !model.status.isEmpty {
                 Text(model.status).scaledFont(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            } else if model.updating {
+                Text(O4StorageText.updating).scaledFont(.caption).foregroundStyle(.secondary)
             }
         }
         .modifier(StorageClearConfirm(model: model, buildModel: buildModel))

@@ -14,7 +14,6 @@ struct BuildPane: View {
 
     @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var controller: AnalysisController
-    @StateObject private var showingBaseFolderPicker = ViewState(false)
     /// Custom airport packs (own 3-D objects) in the selected tiles —
     /// the packages "Modify custom airports" would reseat.
     @State private var customAirportPacks: [String] = []
@@ -170,13 +169,6 @@ struct BuildPane: View {
         }
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(buildModel.built.count)") {
             await refreshCombinedAudit()
-        }
-        .fileImporter(isPresented: $showingBaseFolderPicker.value,
-                      allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                buildModel.customBuildDir = url.path
-                buildModel.rescan()
-            }
         }
     }
 
@@ -584,7 +576,6 @@ struct BuildPane: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .help("Copies X-Plane's own roads, forests and buildings (overlays) into the yXPTerrainBuilder Overlays pack.")
-                    tileFolderRow
                 }
                 .padding(.top, 4)
             }
@@ -596,35 +587,6 @@ struct BuildPane: View {
             }
         }
         .toggleStyle(.checkbox)
-    }
-
-    private var tileFolderRow: some View {
-        LabeledContent("Tile folder") {
-            HStack(spacing: 4) {
-                Text(buildModel.customBuildDir.isEmpty
-                     ? "Ortho4XP/Tiles" : buildModel.customBuildDir)
-                    .scaledFont(.caption)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(.secondary)
-                Button {
-                    showingBaseFolderPicker.value = true
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(.borderless)
-                if !buildModel.customBuildDir.isEmpty {
-                    Button {
-                        buildModel.customBuildDir = ""
-                        buildModel.rescan()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.borderless)
-                }
-            }
-        }
-        .scaledFont(.callout)
     }
 
     /// Asks the engine what grading and fitting will do for the selected

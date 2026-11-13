@@ -57,7 +57,10 @@ def make_window(qapp, tmp_path, monkeypatch):
     with open(prefs_path, "w", encoding="utf-8", newline="") as handle:
         # An EXISTING prefs file: an absent one arms the onboarding
         # wizard, whose modal exec would sit there forever headless.
-        json.dump({"output_dir": str(tmp_path)}, handle)
+        json.dump({"zl": 16}, handle)
+    # The window's tiles folder is the engine's (RULINGS 2026-11-12g: no
+    # output folder of its own any more).
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))
     monkeypatch.setattr(GUI, "PREFS_FILE", prefs_path)
     monkeypatch.setattr(
         GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "tile-scan.json"))
@@ -919,15 +922,20 @@ def test_simbrief_uses_the_fetch_seam_and_reports_errors(make_window):
 # ===========================================================================
 # A Qt run that cannot see its tiles or airports says so (#1240, #1241)
 # ===========================================================================
-def test_a_missing_tiles_folder_falls_back_to_the_default(make_window, tmp_path):
-    """A remembered output folder that is gone (the owner's pointed at a
-    deleted pytest folder) listed no built tiles, so the patch editor
-    never appeared: the window falls back to the default Tiles folder."""
+def test_a_retired_output_folder_is_never_the_tiles_folder(make_window, tmp_path):
+    """RULINGS 2026-11-12g: a remembered output folder (#1240's was a
+    deleted pytest folder) is no build folder any more: every build passes
+    ``""`` and the window lists the engine's tiles folder; the value waits
+    for the World onboarding, which moves its tiles and clears it."""
     with open(make_window.prefs_path, "w", encoding="utf-8", newline="") as handle:
         json.dump({"output_dir": str(tmp_path / "gone")}, handle)
     window = make_window()
-    assert window.prefs["output_dir"] == ""
+    assert window.output_dir() == ""
     assert window.working_dir() == GUI.FNAMES.Tile_dir
+    window.adopt_world_home({"active": True, "left": 0, "moved": 0},
+                            str(tmp_path / "gone"))
+    assert "output_dir" not in window.prefs
+    assert window.prefs["output_dir_before_world"] == str(tmp_path / "gone")
 
 
 def test_search_without_an_airport_index_says_why(make_window):

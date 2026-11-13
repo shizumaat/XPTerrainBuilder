@@ -390,32 +390,49 @@ def _mark_offered(scenery_dir: str) -> None:
         json.dump(record, handle)
 
 
-def world_onboard(scenery_dir: str = "", **_ignored) -> Dict[str, Any]:
+def world_onboard(scenery_dir: str = "", legacy_build_dir: str = "",
+                  busy: Optional[Callable] = None, move_home: bool = False,
+                  **_ignored) -> Dict[str, Any]:
     """ENGINE COMMAND ``world_onboard`` (the apps' start, RULINGS
     2026-11-11a, 11h (2)): when no World pack folder exists in the Custom
     Scenery folder, :func:`world_install` makes it (a folder that exists
-    is never touched); ``{"created", "offer", "restart_needed"}`` --
-    ``offer``: the enabled ``zOrtho4XP_`` entries (on a mounted drive)
+    is never touched); ``{"created", "offer", "restart_needed", "home"}``
+    -- ``offer``: the enabled ``zOrtho4XP_`` entries (on a mounted drive)
     that ``world_migrate`` could move, which the apps then ask about.  It
     is non-zero ONCE per managed pack: answering it is recorded in the
     marker (:data:`OFFERED_KEY`), so Library > Convert existing tiles is
     the way back.  A foreign World folder (:func:`_foreign_target`) is
     left alone: no offer, ``reason`` :data:`_FOREIGN_REASON`, ``target``
-    and the apps' ``message``."""
+    and the apps' ``message``.
+
+    ``home`` (RULINGS 2026-11-12g/h, ``world_home``): with ``move_home``
+    (the apps' start passes it; a bare call only reports) the data folder's
+    tiles and packages moved into the World folder (``legacy_build_dir``:
+    the apps' retired custom build folder, moved too; ``busy``: the
+    session's building tiles, left for the next start), then where the
+    tiles and packages live (``tiles_dir``, ``packages_dir``)."""
+    from . import world_home as HOME
     from .world_migrate import entries
     scenery_dir = scenery_dir_or_default(scenery_dir)
     out = {"created": False, "offer": 0, "restart_needed": False}
     if not scenery_dir or not os.path.isdir(scenery_dir):
-        return out
+        return {**out, "home": HOME.describe()}
     foreign = _foreign_target(scenery_dir)
     if foreign:
         return {**out, "reason": _FOREIGN_REASON, "target": foreign,
-                "message": _foreign_sentence(foreign)}
+                "message": _foreign_sentence(foreign),
+                "home": HOME.describe()}
     if not os.path.isdir(pack_dir(scenery_dir)):
         out["created"] = True
         out["restart_needed"] = world_install(scenery_dir)["restart_needed"]
     elif managed(scenery_dir):
         ensure_coverage(scenery_dir)    # world_install already did it
+    try:
+        out["home"] = HOME.migrate(scenery_dir, legacy_build_dir, busy=busy,
+                                   dry_run=not move_home)
+    except OSError as error:            # logged; the start goes on
+        write_log({"world_home_error": repr(error)[:300]})
+        out["home"] = {**HOME.describe(), "error": str(error)[:300]}
     if not managed(scenery_dir) or _offered(scenery_dir):
         return out
     out["offer"] = sum(1 for entry in entries(scenery_dir)

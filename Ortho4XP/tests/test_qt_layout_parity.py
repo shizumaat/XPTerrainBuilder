@@ -100,6 +100,7 @@ STORAGE_ROWS = (
     ("data_folder", "DataFolderRow(", "folder_row"),
     ("disk_budget", "DiskBudgetSection(", "budget_box"),
     ("convert", "ConvertTilesSection(", "convert_box"),            # §13
+    ("tiers", "StorageTiersSection(", "tiers_box"),                # 12g
     ("caches", "CachesLine(", "caches_box"),
 )
 
@@ -140,7 +141,9 @@ LIBRARY_STORAGE = (
 #: Settings that are no plain Settings row in either app: the disk budget
 #: is the Storage rows' ``DiskBudgetSection`` / ``DiskBudgetBox`` (RULINGS
 #: 2026-11-11h (3), its home Settings ▸ Storage since 11k (2)).
-STORAGE_BOX_SETTINGS = ("storage_budget_gb",)
+STORAGE_BOX_SETTINGS = ("storage_budget_gb",
+                        # RULINGS 2026-11-12g: the Storage tiers rows
+                        "storage_tiers")
 
 #: Fly mode's map layers, bottom to top (key, Swift marker in
 #: FlyMapOverlay.swift, Qt marker in O4_Qt_Fly_Layer.py): "Live flight
@@ -484,6 +487,7 @@ def window(qapp, tmp_path, monkeypatch):
     # An EXISTING prefs file: an absent one arms the first-run wizard.
     prefs.write_text(json.dumps({"output_dir": str(tmp_path)}), encoding="utf-8", newline="")
     monkeypatch.setattr(GUI, "PREFS_FILE", str(prefs))
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     monkeypatch.setattr(GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "scan.json"))
     saved_stdout = sys.stdout
     win = GUI.MainWindow()

@@ -215,7 +215,7 @@ def test_publish_a_build_and_give_it_back(world, tmp_path):
         WORLD.world_tile_set(45, 7, kind="full", scenery_dir=world)
 
 
-def test_no_pack_or_not_on_demand_publishes_nothing(world, tmp_path):
+def test_no_pack_publishes_nothing_every_build_publishes(world, tmp_path):
     build = _build(tmp_path)
     assert PUBLISH._publish_built(world, build, 45, 7) is None
     # A pack of that name the app did not make (the CYYR kit's): untouched.
@@ -224,8 +224,12 @@ def test_no_pack_or_not_on_demand_publishes_nothing(world, tmp_path):
     assert WORLD.world_status(world)["installed"] is False
     WORLD.world_install(world)
     assert WORLD.managed(world)
+    # RULINGS 2026-11-12g: every build goes into the World folder, imagery
+    # on demand or not.
     other = _build(tmp_path / "b", on_demand=False)
-    assert PUBLISH._publish_built(world, other, 45, 7) is None
+    res = PUBLISH._publish_built(world, other, 45, 7,
+                                 loaded=lambda la, lo: False)
+    assert res is not None and res["state"] == "swapped", res
 
 
 def test_a_held_tile_waits_staged(world, tmp_path):

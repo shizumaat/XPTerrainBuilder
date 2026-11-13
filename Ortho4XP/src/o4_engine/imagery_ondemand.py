@@ -25,6 +25,7 @@ tile is named here.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import time
@@ -191,13 +192,37 @@ def imagery_ondemand_scan(working_dir: str = "",
 
 def _full_entry(keys) -> "Optional[tuple[str, str]]":
     """The first ``(key, entry)`` of ``keys`` the store holds as a whole
-    full-width texture."""
+    full-width texture; one a mounted storage tier keeps (RULINGS
+    2026-11-12g) is copied back into the store first."""
     for key in reversed(keys or ()):
         entry = DDSC.entry_path(key)
+        if not os.path.isfile(entry):
+            _from_tier(key, entry)
         header = TIERS.texture_header(entry)
         if header and header[0] == TIERS.FULL_WIDTH and DDS.is_whole(entry):
             return key, entry
     return None
+
+
+def _from_tier(key: str, entry: str) -> bool:
+    """Copy ``key``'s texture from a mounted storage tier into the store
+    (under a partial name, renamed into place); False when no tier has it."""
+    import shutil
+
+    from . import storage_tiers as STORE_TIERS
+    found = STORE_TIERS.find(key)
+    if not found:
+        return False
+    partial = entry + ".part"
+    try:
+        os.makedirs(os.path.dirname(entry), exist_ok=True)
+        shutil.copyfile(found, partial)
+        os.replace(partial, entry)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.remove(partial)
+        return False
+    return True
 
 
 def _serve_full(conn, row: dict, keys) -> bool:

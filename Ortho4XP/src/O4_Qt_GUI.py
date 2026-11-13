@@ -842,14 +842,6 @@ class MainWindow(QMainWindow):
 
         self.prefs = load_prefs()
         self._first_run = not os.path.isfile(PREFS_FILE)
-        # A remembered tiles folder that is gone lists no built tiles at
-        # all, so the patch editor never appears (#1240): fall back to the
-        # default Tiles folder and say so.
-        gone = self.prefs.get("output_dir", "")
-        if gone and not os.path.isdir(gone):
-            print("The tiles folder %s is missing; using the default "
-                  "Tiles folder (Settings ▸ General to pick another)." % gone)
-            self.prefs["output_dir"] = ""
         self._airports = []
         self._built = {}
         self._installed = set()
@@ -934,6 +926,9 @@ class MainWindow(QMainWindow):
         _watch_built_tiles(self._session)
         from o4_engine.world_publish import watch as _watch_world
         _watch_world(self._session)
+        # Settings > Storage's scan in the background, shared (#2029).
+        from o4_engine.storage_shared import watch as _watch_storage
+        _watch_storage(self._session)
         self._storage_auto_clean()          # at launch (#1724)
         self._auto_measure()                # Convert's Measure (owner 2026-11-12)
         self._event_handlers = {
@@ -2246,16 +2241,29 @@ class MainWindow(QMainWindow):
             self._active_changed(self.map.active_tile())
 
     def output_dir(self):
-        """Custom build dir semantics: '' = default Tiles dir; a path with a
-        trailing separator = per-tile subdirectories inside it."""
-        out = self.prefs.get("output_dir", "")
-        if out and not out.endswith(("/", "\\")):
-            out += "/"
-        return out
+        """The ``custom_build_dir`` every build passes: always ``""``, the
+        engine's own home (RULINGS 2026-11-12g: every build goes into the
+        World folder; the retired ``output_dir`` preference is handed to
+        ``world_onboard`` once, :meth:`adopt_world_home`)."""
+        return ""
 
     def working_dir(self):
-        out = self.prefs.get("output_dir", "")
-        return out if out else FNAMES.Tile_dir
+        """Where the tile build folders are (``FNAMES.Tile_dir``)."""
+        return FNAMES.Tile_dir
+
+    def adopt_world_home(self, home, legacy):
+        """``world_onboard``'s ``home``: the retired ``output_dir`` backed
+        up (``output_dir_before_world``) and cleared once the engine moved
+        what it named; the tiles listed again when their folder moved."""
+        if not isinstance(home, dict):
+            return
+        if legacy and home.get("active") and not home.get("left") \
+                and not home.get("error"):
+            self.prefs["output_dir_before_world"] = legacy
+            self.prefs.pop("output_dir", None)
+            save_prefs(self.prefs)
+        if home.get("moved") or home.get("packages_moved"):
+            self.refresh_tiles()
 
     # ------------------------------------------------------------------
     # Airport search
@@ -3244,7 +3252,7 @@ class MainWindow(QMainWindow):
         ``TileImageryAdoption``.
         """
         self._refresh_imagery_menus()
-        selection_key = (self.output_dir(), frozenset(selection),
+        selection_key = (self.working_dir(), frozenset(selection),
                          frozenset(t for t in selection if t in self._built))
         if selection_key == self._combos_synced_to:
             return

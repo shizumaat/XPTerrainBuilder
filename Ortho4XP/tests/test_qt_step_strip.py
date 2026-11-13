@@ -63,7 +63,7 @@ def qt_window(tmp_path, monkeypatch):
     monkeypatch.setattr(GUI, "PREFS_FILE", str(prefs))
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
-    win.prefs["output_dir"] = str(tmp_path)
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))
     monkeypatch.setattr(win, "refresh_tiles", lambda: None)
     monkeypatch.setattr(win._session, "enqueue_build",
                         lambda tiles, **kwargs: True)

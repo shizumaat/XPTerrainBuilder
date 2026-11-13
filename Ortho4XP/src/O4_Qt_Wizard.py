@@ -35,7 +35,9 @@ from O4_Qt_Widgets import (
     wrap_and_never_widen,
 )
 
-STEPS = ["Welcome", "X-Plane", "Folders", "Imagery"]
+# No "Folders" step: every build goes into the World folder (RULINGS
+# 2026-11-12g); there is no build folder to choose.
+STEPS = ["Welcome", "X-Plane", "Imagery"]
 
 
 def detect_xplane_installs():
@@ -145,7 +147,6 @@ class OnboardingWizard(QDialog):
         self.stack = QStackedWidget()
         self.stack.addWidget(self._page_welcome())
         self.stack.addWidget(self._page_xplane())
-        self.stack.addWidget(self._page_folders())
         self.stack.addWidget(self._page_imagery(provider_codes))
         right.addWidget(self.stack, 1)
 
@@ -215,29 +216,6 @@ class OnboardingWizard(QDialog):
                 self.xplane_edit.setText(detected[0])
                 self.detect_tag.setText("detected")
         self._xplane_changed(self.xplane_edit.text())
-        return page
-
-    def _page_folders(self):
-        page, lay = self._page("Where should finished tiles go?")
-        import O4_File_Names as FNAMES
-
-        lay.addWidget(self._body(
-            "Each built tile is a folder of a few GB. Pick a drive with\n"
-            "room; leave empty to use the classic location below."
-        ))
-        row = QHBoxLayout()
-        self.output_edit = QLineEdit(self.prefs.get("output_dir", ""))
-        self.output_edit.setPlaceholderText(FNAMES.Tile_dir)
-        row.addWidget(self.output_edit, 1)
-        browse = QPushButton("Browse…")
-        browse.clicked.connect(self._browse_output)
-        row.addWidget(browse)
-        lay.addLayout(row)
-        lay.addWidget(self._body(
-            "Downloaded imagery and the live-map cache stay inside the\n"
-            "data folder and can be cleared anytime."
-        ))
-        lay.addStretch(1)
         return page
 
     def _page_imagery(self, provider_codes):
@@ -364,7 +342,6 @@ class OnboardingWizard(QDialog):
 
     def _collect(self):
         self.prefs["xplane_dir"] = self.xplane_edit.text().strip()
-        self.prefs["output_dir"] = self.output_edit.text().strip()
         self.prefs["imagery"] = self.imagery_combo.currentText()
         self.prefs["zl"] = int(self.zl_combo.currentText())
         self.preset_values = {}
@@ -379,11 +356,6 @@ class OnboardingWizard(QDialog):
         if path:
             self.xplane_edit.setText(path)
             self.detect_tag.setText("")
-
-    def _browse_output(self):
-        path = QFileDialog.getExistingDirectory(self, "Output folder")
-        if path:
-            self.output_edit.setText(path)
 
     def _xplane_changed(self, text):
         problem = xplane_problem(text.strip())

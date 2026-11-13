@@ -409,6 +409,9 @@ def test_the_ondemand_storage_row_and_its_clear(world):
 @pytest.fixture()
 def scanned(world, monkeypatch):
     info = types.SimpleNamespace(build_dir=str(world.build))
+    # The tiles' folder is the one the tile is in (``Tile_dir`` follows the
+    # data root at call time since RULINGS 2026-11-12g).
+    monkeypatch.setattr(FNAMES, "Tile_dir", str(world.build.parent))
     monkeypatch.setattr(TINFO, "tile_info", lambda lat, lon, wd: info)
     monkeypatch.setattr(TINFO, "scan_tiles", lambda wd: {(LAT, LON): info})
     return world

@@ -38,6 +38,7 @@ def window(tmp_path, monkeypatch):
     prefs = tmp_path / "prefs.json"
     prefs.write_text(json.dumps({"output_dir": str(tmp_path)}), encoding="utf-8", newline="")
     monkeypatch.setattr(GUI, "PREFS_FILE", str(prefs))
+    monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))  # 12g
     monkeypatch.setattr(GUI, "TILE_SCAN_CACHE_FILE", str(tmp_path / "scan.json"))
     saved_stdout = sys.stdout
     win = GUI.MainWindow()

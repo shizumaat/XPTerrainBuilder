@@ -188,7 +188,7 @@ def make_window(qapp, tmp_path, monkeypatch):
 
     def _make():
         win = GUI.MainWindow()
-        win.prefs["output_dir"] = str(tmp_path)
+        monkeypatch.setattr(GUI.FNAMES, "Tile_dir", str(tmp_path))
         monkeypatch.setattr(win, "refresh_tiles", lambda: None)
         monkeypatch.setattr(
             win._session, "enqueue_build",

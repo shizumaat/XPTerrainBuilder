@@ -263,3 +263,26 @@ def test_open_box_sides_run_with_the_building_on_their_right():
     for e in sl.open_sides:
         (x0, y0), (x1, y1) = e.coords[0], e.coords[-1]
         assert (c.x - x0) * -(y1 - y0) + (c.y - y0) * (x1 - x0) < 0.0
+
+
+def test_run_feet_read_a_set_back_facade_as_its_runs_own():
+    """#2062 (spec §1 runs): each run of the plan's outline carries the foot
+    of the walls facing out of it -- a lower facade set back 4 m under an
+    overhanging upper floor is its run's own (the box rule's "anywhere
+    behind")."""
+    from auto_patch_v2.airport.split_level import _run_feet, _storey_levels
+    from shapely.geometry import Polygon
+    v: list = []
+    t: list = []
+    _quad(v, t, (40, 0), (0, 0), 6.0, 24.0, (0, -1))     # -z: upper facade on the run
+    _quad(v, t, (40, 4), (0, 4), 0.0, 6.0, (0, -1))      # ... the lower one set back 4 m
+    _quad(v, t, (40, 0), (40, 30), 0.0, 24.0, (1, 0))    # +x
+    _quad(v, t, (0, 30), (0, 0), 0.0, 24.0, (-1, 0))     # -x
+    _quad(v, t, (40, 30), (0, 30), 12.0, 24.0, (0, 1))   # +z: open under 12
+    v, t = np.array(v, float), np.array(t, int)
+    plan = Polygon([(0, 0), (40, 0), (40, 30), (0, 30)])
+    runs = [((0, 0), (40, 0)), ((40, 0), (40, 30)), ((40, 30), (0, 30)), ((0, 30), (0, 0))]
+    normals = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+    feet = _run_feet(v, t, runs, normals, plan, 3.0, 0.5)
+    assert feet == [0.0, 0.0, 12.0, 0.0]
+    assert _storey_levels([(f, 40.0) for f in feet]) == (0.0, 12.0)

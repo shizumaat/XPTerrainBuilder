@@ -263,13 +263,13 @@ def gap_pairs(outlines: _t.Sequence[tuple], gap_m: float, ref_lat: float,
     a, b = tree.query(g, predicate="dwithin", distance=float(gap_m))
     oa, ob = own[a], own[b]
     keep = oa < ob
-    pairs = sorted(set(zip(oa[keep].tolist(), ob[keep].tolist())))
+    pairs = sorted(set(zip(oa[keep].tolist(), ob[keep].tolist(), strict=True)))
     near: list = []
     if others:
         h, hown = _outline_geoms(others, ml, mo)
         if len(h):
             qa, qb = tree.query(h, predicate="dwithin", distance=float(gap_m))
-            near = sorted(set(zip(own[qb].tolist(), hown[qa].tolist())))
+            near = sorted(set(zip(own[qb].tolist(), hown[qa].tolist(), strict=True)))
     return pairs, near
 
 

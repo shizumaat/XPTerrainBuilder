@@ -19,12 +19,11 @@ import types
 
 import O4_DSF_Binary as DSFB
 import O4_World_Pack as WP
-from shapely.geometry import Point, box
-
 from auto_patch_v2.airport import companion as C
 from auto_patch_v2.airport import exclusion as X
 from auto_patch_v2.airport import object_window as W
 from auto_patch_v2.model.frame import Frame
+from shapely.geometry import Point, box
 
 LAT, LON = 47, -123
 

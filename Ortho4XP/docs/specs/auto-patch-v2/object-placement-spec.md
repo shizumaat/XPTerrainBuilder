@@ -224,6 +224,50 @@ body reading are superseded by this section.
    dry run with no mesh. A DSF `FILTER` is STATE, not a row: the round-trip
    verifier compares the filter IN FORCE per placement and polygon (OTHH).
 
+## §9a THE ISOLATED SEAT — an object standing apart stands on its lowest contact feet (owner RULINGS 2026-11-13y (4)/(5), 2026-10-22o, 2026-11-13r; #2063 round 3, `2063-round3-isolated-seat-spec.md`)
+
+AMENDS §9's generic anchor (12am (2)'s median) for one class, and only where certain.
+13y (5): "a free-standing object (≥ 2 m plan gap from anything else, 22o) is seated
+on its lowest contact feet, not the median of every component's base".
+`airport/isolated_seat`.
+
+1. **THE CLUSTER AND THE SHARE.** The plan's solid parts joined where their plan
+   outlines (`Part.rings`, else `Part.box`) come within `[placement] rigid_reach_m`
+   (`placement_contact.gap_pairs`, one vectorised spatial query). A LINE part
+   neither links nor blocks (10bb); a part of a SIBLING plan of the airport (main +
+   companions, `isolated_seat.outlines`) blocks and never joins. A SHARE is the
+   cluster's parts within one plan `Unit` (one anchor frame).
+2. **THE CERTAIN WITNESS (13r: any doubt keeps today's seat), counted by reason
+   (`isolated_refused_<reason>`).** I1 `not_isolated`: no sibling outline within the
+   reach. I2 `structure`: no member of the cluster's closure is skirted, a deck
+   (`flag` / `signature` / `family`; a `candidate` plate has no spanning evidence and
+   is no deck), a plate, a datum, a basin, a connector, an authored seat, an adapted
+   frame, or carries a welded base plane. I3 `span`: plan diagonal ≤ `[placement]
+   group_span_max_m`. I4 `no_feet` / `off_author_ground`: feet, and the lowest authored
+   `y` within `split_tol_m` of `−Unit.agl_m`. I5 `no_surface` / `water` / `pad` / `deck`
+   / `rim`: every lowest contact foot reads the design surface, on land, off every
+   object pad (`pad_majority`), deck face and rim. I6 `spread`: `surface − y` over the
+   lowest contact feet within `split_tol_m` (one terrain; the object stays level, out
+   of 10-01k / #708's tilt).
+3. **THE SEAT.** The lowest contact feet `L` (`placement_motion.lowest_contact_feet`:
+   within `[cockpit] motion_step_m` of the lowest; one implementation for the seat and
+   §17's census). Over them `r = surface − y` and `Z = max(median(r), max(r) −
+   motion_step_m)`: no contact foot buried more than the step, the fall across the gear
+   shows as float. The anchor is the foot of `L` with `r` nearest `Z`. ONE frame per
+   share: every body of every member in it is written at that anchor (the `_1/_2/_3`
+   sheets of one aircraft move as one), never kept on its row unless 14g's authored
+   keep lands it.
+4. **NO GROUP SEAT MOVES IT (13y (4)).** The share is one raw body per member, never
+   cut; its parts are absent from the plan the §16g units and 22o/22q's zeros are
+   derived from (`isolated_seat.without`); it never binds (§16c (7)), is no viaduct's,
+   never tilts, is never ELEVATED (§13), carries no other object (§15; only its own
+   member's loose components, §16d (1), which are its own file), and pass 4's group
+   seats leave it where it is (`isolated_seat.keep_isolated`). Its bodies coarsen only
+   with each other, at `0.5 × motion_step_m` and within `coarsen_reach_m` (§9).
+5. **PUBLISHED.** `Anchor.isolated` / the record's `isolated_of`; the counts
+   `isolated_shares`, `isolated_bodies`, `isolated_clusters`, `isolated_refused_*`;
+   `obj8_split_report` prints the ISOLATED block and `--zero-diff BASE.json` the census.
+
 ## §10 The restore and the segment cut (RULINGS 2026-09-11f)
 
 1. **RESTORE FIRST** (11f (1)). Under `placement = "agl"`, before ANY file is
@@ -3326,7 +3370,11 @@ That was one missing reading, and it is now taken.
 3. **A BODY WHOSE EVERY FOOT STANDS ON ROLLED-ON PAVEMENT KEEPS THE MEDIAN.** 11e
    (2)'s low-side foot buys zero float at the low corner and pays the body's whole
    relief as float at the high one. Where the aircraft rolls the bar is 0.05 m and
-   the pavement is graded flat to 1.5 %, so the relief is small and is SHARED. Off
+   the pavement is graded flat to 1.5 %, so the relief is small and is SHARED.
+   AMENDED by §9a (RULINGS 2026-11-13y (5)): an ISOLATED share is not seated by this
+   median — it stands on its lowest contact feet — and the census judges an isolated
+   body at those feet (`placement_motion.lowest_contact_feet`), not the 0.3 m
+   ground-contact band. Off
    pavement 11e (2) stands unchanged, and a body with no roles reading takes the low
    side (no reading is no evidence). §10's line-object stations keep their own
    mid-foot anchor.

@@ -2048,6 +2048,7 @@ def _isolated_kwargs(law, foreign: "list[str] | None") -> dict:
     sibling plans' outlines (``--foreign``); without them the isolation is
     read within this plan only, and the tool says so."""
     import inspect
+
     from auto_patch_v2.airport import isolated_seat as _iso
     if "motion_step_m" not in inspect.signature(PP.build_splits).parameters:
         return {}

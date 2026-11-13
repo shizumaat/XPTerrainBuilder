@@ -11,7 +11,6 @@ import dataclasses as dc
 import os
 
 import pytest
-
 from auto_patch_v2.airport import anchor_rule as AR
 from auto_patch_v2.airport import isolated_seat as I
 from auto_patch_v2.airport import placement_atom as ATOM

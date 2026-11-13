@@ -120,7 +120,8 @@ def clusters(parts: _t.Sequence[_t.Any], reach_m: float,
     pairs, near = _pcon.gap_pairs([(p.box, p.rings) for p in parts], reach_m,
                                   ref_lat, blockers)
     if pairs:
-        a, b = zip(*pairs)
+        a = [q[0] for q in pairs]
+        b = [q[1] for q in pairs]
         g = coo_matrix(([1] * len(a), (a, b)), shape=(n, n))
         _k, lab = connected_components(g, directed=False)
         lab = [int(q) for q in lab]
@@ -248,7 +249,7 @@ def _share(plan, ui: int, sp: list, surface, pads, rims, decks,
     water = getattr(surface, "water", None)
     if water is not None and any(water(f[0], f[1]) for f in low):
         return None, "water"
-    rd = [(float(f[0]), float(f[1]), float(f[2]), z) for f, z in zip(low, zs)]
+    rd = [(float(f[0]), float(f[1]), float(f[2]), z) for f, z in zip(low, zs, strict=True)]
     if _ar.pad_majority(rd, pads) is not None:
         return None, "pad"
     if decks and any(_ar.deck_of(decks, f[0], f[1]) is not None for f in low):

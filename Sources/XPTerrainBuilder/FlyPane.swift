@@ -66,6 +66,9 @@ private struct FlyPaneRows: View {
                     PhotoSourcePicker(model: fly)
                     Toggle(FlyText.livePreview, isOn: $fly.livePreview)
                         .help(FlyText.livePreviewHelp)
+                    Toggle(FlyText.sharpPhoto, isOn: $fly.sharpPhoto)
+                        .help(FlyText.sharpPhotoHelp)
+                        .disabled(!fly.livePreview)
                     ReloadOfferRow(model: fly)
                     Button(FlyText.divert) { fly.divertShown = true }
                         .disabled(fly.status == nil)

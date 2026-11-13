@@ -1,8 +1,8 @@
-"""The map's ONE key (owner 2026-11-12T22:05Z; ``O4_Map_Key_Text``,
-``O4_Qt_Map_Key``; Mac ``MapKeyText`` / ``MapKey.swift``): the same
-items, words and order in both apps and both views, a pill at the map's
-bottom-right with the ZL pill one row above it, its words truncated when
-the row runs out of room and the full sentence on hover."""
+"""The map's ONE key (owner 2026-11-12T22:05Z, #2031; ``O4_Map_Key_Text``,
+``O4_Qt_Map_Key``; Mac ``MapKeyText`` / ``MapKey.swift``): the same eight
+items, words, colours and order in both apps and both views, a pill at
+the map's bottom-right with the ZL pill one row above it, its words
+truncated when the row runs out of room and the full sentence on hover."""
 from __future__ import annotations
 
 import os
@@ -37,6 +37,23 @@ def test_the_items_words_and_order_are_the_macs():
                                                     text.index("maxWidthFraction")]))
     assert fly == KEYTEXT.FLY_KEY_ITEMS
     assert ("maxWidthFraction: Double = %s" % KEYTEXT.MAX_WIDTH_FRACTION) in text
+    assert ("buildingPulseS: Double = %s" % KEYTEXT.BUILDING_PULSE_S) in text
+    assert ("buildingLowAlpha: Double = %s" % KEYTEXT.BUILDING_LOW_ALPHA) in text
+
+
+def test_the_owners_eight_items():
+    """#2031 (owner 2026-11-13T00:31Z): one key, in this order; "Built
+    here", "Other ortho", "Other drive", "Full detail", "Meshing",
+    "Draping" and the route are not items."""
+    assert [short for _i, short, _f in KEYTEXT.ITEMS] == [
+        "Full", "Mesh only", "Drape", "Placeholder", "Building",
+        "Other tool", "Pack changed", "Patch"]
+    assert KEYTEXT.FLY_KEY_ITEMS["draping"] == KEYTEXT.FLY_KEY_ITEMS["meshing"] == "building"
+    assert "own" not in KEYTEXT.FLY_KEY_ITEMS
+    # "Building" pulses: full at the start of a period, faint half way
+    assert KEYTEXT.building_alpha(0) == pytest.approx(1.0)
+    assert KEYTEXT.building_alpha(KEYTEXT.BUILDING_PULSE_S / 2) == pytest.approx(
+        KEYTEXT.BUILDING_LOW_ALPHA)
 
 
 def test_every_fly_key_has_an_item_and_the_words_are_short():
@@ -131,10 +148,10 @@ def test_the_zl_pill_moves_up_one_row_above_the_key(qapp, tmp_path, monkeypatch)
     with mock.patch.object(view, "_draw_zoom_badge",
                            side_effect=lambda _p, lift=0.0: lifts.append(lift)):
         view.grab()                                    # Build view, nothing on the map
-        view.fly_key = lambda: ["draping", "full"]     # the Fly view's key
+        view.fly_key = lambda: ["full", "building"]    # the Fly view's key
         view.grab()
     assert lifts[0] == 0 and lifts[-1] > 0
-    assert [t for _r, t in view._key_hits] == [KEYTEXT.FULL["draping"], KEYTEXT.FULL["full"]]
+    assert [t for _r, t in view._key_hits] == [KEYTEXT.FULL["full"], KEYTEXT.FULL["building"]]
     view.deleteLater()
 
 
@@ -147,20 +164,24 @@ def _swift_color_cases(path: Path, func: str) -> list:
 
 def test_every_item_has_its_own_colour(qapp):
     """#2027: "Full" and "Built here" were both green -- every item of
-    the key has its own colour, in both apps and both views."""
-    import O4_Qt_Map as QTMAP
+    the key has its own colour, in both apps and both views; #2031: a
+    Fly cell is drawn in its item's colour, a tile not built yet not at
+    all, and both apps' colour switches name exactly the items."""
+    import O4_Qt_Fly_Layer as QTFLYLAYER
     import O4_Qt_Map_Key as QTKEY
     colors = {}
     for item in KEYTEXT.SHORT:
-        color = QTKEY._item_color(item)
+        color = QTKEY.item_color(item)
         if color is not None:
             colors.setdefault(color.rgba(), []).append(item)
     assert [items for items in colors.values() if len(items) > 1] == []
     assert len(colors) == len(KEYTEXT.SHORT)
     assert "nothing" not in KEYTEXT.SHORT        # RULINGS 2026-11-13a
-    assert QTKEY._item_color("built") == QTKEY.QColor(QTMAP.BUILT_COLOR)
+    for key, item in KEYTEXT.FLY_KEY_ITEMS.items():
+        assert QTFLYLAYER.cell_color(key) == QTKEY.item_color(item), key
+    assert QTFLYLAYER.cell_color("own") is None
     app = REPO / "Sources" / "XPTerrainBuilder"
-    for path, func in ((app / "MapKey.swift", "static func color(_ item"),
-                       (app / "FlyMapOverlay.swift", "static func color(_ key")):
-        shared = [case for case in _swift_color_cases(path, func) if "," in case]
-        assert shared == [], (path.name, shared)
+    cases = _swift_color_cases(app / "MapKey.swift", "static func color(_ item")
+    assert sorted(c.strip().strip('"') for c in cases) == sorted(KEYTEXT.SHORT)
+    overlay = (app / "FlyMapOverlay.swift").read_text(encoding="utf-8")
+    assert "static func color(_ key" not in overlay      # the key's colours

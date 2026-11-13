@@ -302,7 +302,7 @@ def test_the_words_are_the_macs():
                  "DEPARTURE_ONLY_PREPARING", "DEPARTURE_ONLY_FLYING",
                  "PREPARE", "BUILD_ALTERNATE", "CRUISE_LABEL",
                  "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "LIVE_PREVIEW",
-                 "LIVE_PREVIEW_HELP", "DIVERT", "END_FLIGHT",
+                 "LIVE_PREVIEW_HELP", "SHARP_PHOTO", "SHARP_PHOTO_HELP", "DIVERT", "END_FLIGHT",
                  "NO_FLIGHT_MANAGER", "NO_STATUS", "CENTER_ON_AIRCRAFT",
                  "NO_AIRCRAFT_POSITION", "CHOICE_KEEP", "CHOICE_UPGRADE"):
         camel = re.sub(r"_(\w)", lambda m: m.group(1).upper(), name.lower())
@@ -317,8 +317,8 @@ def test_the_words_are_the_macs():
     assert 'static let drapePxLabel = "%s"' % TEXT.DRAPE_PX_LABEL in swift
     assert 'static let drapePxKey = "%s"' % TEXT.DRAPE_PX_KEY in swift
     assert "static let aircraftFreshS = %.1f" % TEXT.AIRCRAFT_FRESH_S in swift
-    assert 'previewKeys: Set<String> = [%s]' % ", ".join(
-        '"%s"' % k for k in sorted(TEXT.PREVIEW_KEYS)) in swift
+    assert 'buildingKeys: Set<String> = [%s]' % ", ".join(
+        '"%s"' % k for k in sorted(TEXT.BUILDING_KEYS)) in swift
     for value, words in TEXT.DRAPE_PX_CHOICES:
         assert '(%d, "%s")' % (value, words) in swift, value
     divert = SWIFT_DIVERT_TEXT.read_text(encoding="utf-8")

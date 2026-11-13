@@ -30,9 +30,10 @@ __all__ = [
     "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "SIM_PRIORITIES",
     "DRAPE_PX_LABEL", "DRAPE_PX_KEY", "PHOTO_SOURCE_LABEL",
     "PHOTO_SOURCE_KEY", "DRAPE_PX_CHOICES", "LIVE_PREVIEW",
-    "LIVE_PREVIEW_HELP", "CENTER_ON_AIRCRAFT", "NO_AIRCRAFT_POSITION",
+    "LIVE_PREVIEW_HELP", "SHARP_PHOTO", "SHARP_PHOTO_HELP",
+    "CENTER_ON_AIRCRAFT", "NO_AIRCRAFT_POSITION",
     "AIRCRAFT_FRESH_S", "aircraft_is_current", "DIVERT", "END_FLIGHT", "NO_FLIGHT_MANAGER",
-    "NO_STATUS", "READINESS_LABELS", "STATE_MARKS", "LEGEND", "PREVIEW_KEYS",
+    "NO_STATUS", "READINESS_LABELS", "STATE_MARKS", "LEGEND", "BUILDING_KEYS",
     "DEFAULT_CRUISE_KT", "DEFAULT_CORRIDOR_KM", "plan_row_label",
     "unknown_airport", "refusal", "quick_plan", "cruise_kt", "card_lines",
     "countdown_text", "item_text", "world_line", "follow_status_line",
@@ -88,6 +89,11 @@ DRAPE_PX_CHOICES = ((512, "Quick"),
 LIVE_PREVIEW = GLOSSARY.TERMS["live_flight_preview"]
 LIVE_PREVIEW_HELP = ("Shows the imagery installed for X-Plane on the map, "
                      "square by square, as it arrives; zoom in to see it.")
+#: The live preview's toggle (#2031, default on): outline the squares
+#: X-Plane holds at full resolution (#2020).
+SHARP_PHOTO = "Sharp photo"
+SHARP_PHOTO_HELP = ("Outlines the squares whose photo X-Plane holds at full "
+                    "resolution.")
 #: The map's button beside the zoom controls (#2016): it pans to the
 #: aircraft and keeps the zoom; disabled, with NO_AIRCRAFT_POSITION as
 #: its help, while no position is current.
@@ -120,24 +126,24 @@ READINESS_LABELS = {
 #: A readiness row's state as one mark.
 STATE_MARKS = {"done": "✓", "working": "…", "waiting": "○",
                "blocked": "!", "failed": "✕"}
-#: The Fly view's ONE map key (owner 2026-11-12T19:11Z/19:12Z: one
-#: palette, drapes named as drapes): (key, words), drawn in this order.
+#: The Fly view's corridor cells (owner 2026-11-12T19:11Z/19:12Z: one
+#: palette, drapes named as drapes): (key, words), drawn in this order;
+#: each is a map-key item (``O4_Map_Key_Text.FLY_KEY_ITEMS``, #2031).
 #: The World pack's states keep the Build map's words and colours
 #: (``O4_World_State_Text``), and the flight's tiles use them once built;
-#: a build under way is its own colour, dashed for a drape and solid for
-#: a mesh.  The Build map's tile legend is hidden on the Fly view.
+#: a build under way, mesh or drape, is the one pulsing "Building".  A
+#: corridor tile not built yet ("own", :func:`legend_key`) is not drawn:
+#: an unbuilt tile says nothing (RULINGS 2026-11-13a), the route is the
+#: magenta line.
 LEGEND = (("draping", "Photo being draped"),
           ("meshing", "Mesh being built"),
           ("draped", WORLD_TEXT.LEGEND_DRAPE),
           ("built", WORLD_TEXT.LEGEND_FULL),
           ("mesh", WORLD_TEXT.LEGEND_MESH),
           ("placeholder", WORLD_TEXT.LEGEND_PLACEHOLDER),
-          ("own", "On the route, not built yet"),
-          ("custom", WORLD_TEXT.LEGEND_CUSTOM_PATCH),
-          ("sharp", "full-detail photo"))
-#: The legend's keys the map draws only while "Live flight preview" is
-#: on (a square of installed imagery at full resolution, #2020).
-PREVIEW_KEYS = frozenset({"sharp"})
+          ("custom", WORLD_TEXT.LEGEND_CUSTOM_PATCH))
+#: The cells of a build under way, drawn as the one pulsing "Building".
+BUILDING_KEYS = frozenset({"draping", "meshing"})
 
 DEFAULT_CRUISE_KT = FS.DEFAULT_CRUISE_KT
 DEFAULT_CORRIDOR_KM = 20

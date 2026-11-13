@@ -2,11 +2,12 @@
 same colours — #2024): what the World pack draws on each tile.
 
 Borders only, never a fill (#1256) -- each drawn as the shared fading
-band inside the tile's edge (``O4_Tile_Band``): a full tile is the built-tile green,
+band inside the tile's edge (``O4_Tile_Band``): a full tile is green,
 a mesh whose imagery streams is teal with its sharp fraction as a bar
 along its bottom edge, a drape is pink, a placeholder a faint thin gray
 outline; a tile with nothing is left unmarked.  Another tool's mesh is
-dotted.  Painted in scene space under the built-tile borders.
+dotted.  A built tile is drawn by its World state (#2031,
+``O4_Qt_Map_Legend.built_look``).  Painted in scene space.
 """
 from __future__ import annotations
 
@@ -20,8 +21,8 @@ __all__ = ["FULL_COLOR", "MESH_COLOR", "DRAPE_COLOR", "PLACEHOLDER_COLOR",
            "PLACEHOLDER_ALPHA", "OTHER_TOOL_DASH", "STATE_COLORS", "from_wire",
            "paint_world"]
 
-#: The World pack's "Full" green (MapWorldStates.full; the built-tile
-#: border is blue, O4_Qt_Map.BUILT_COLOR, #2027).
+#: The World pack's "Full" green (MapWorldStates.full), also a built tile
+#: the World pack does not list (#2031).
 FULL_COLOR = "#4CAF6E"
 MESH_COLOR = "#30B0C7"
 DRAPE_COLOR = "#FF6482"

@@ -86,6 +86,7 @@ FLY_PANE = (
     ("drape_px", "Picker(FlyText.drapePxLabel", "drape_px_combo"),   # 11j
     ("photo_source", "PhotoSourcePicker(model:", "photo_source_combo"),  # owner 11-12
     ("live_preview", "Toggle(FlyText.livePreview", "chk_live_preview"),   # #2001
+    ("sharp_photo", "Toggle(FlyText.sharpPhoto", "chk_sharp_photo"),     # #2031
     ("reload_offer", "ReloadOfferRow(model:", "reload_offer_row"),     # F2, S6 (b)
     ("divert", "Button(FlyText.divert)", "divert_btn"),
     ("end_flight", "Button(FlyText.endFlight)", "end_flight_btn"),
@@ -851,8 +852,7 @@ def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
     swift_kinds = re.findall(r'present\.insert\("(\w+)"\)', kinds)
     python_kinds = [QTLEGEND.WORLD_FULL, QTLEGEND.WORLD_MESH, QTLEGEND.WORLD_DRAPE,
                     QTLEGEND.WORLD_PLACEHOLDER,
-                    QTLEGEND.WORLD_OTHER_TOOL, QTLEGEND.BUILT, QTLEGEND.OTHER,
-                    QTLEGEND.STALE, QTLEGEND.EXTERNAL, QTLEGEND.CUSTOM_PATCH]
+                    QTLEGEND.WORLD_OTHER_TOOL, QTLEGEND.STALE, QTLEGEND.CUSTOM_PATCH]
     assert swift_kinds == python_kinds
     assert set(python_kinds) <= set(KEYTEXT.SHORT)
     canvas = (SWIFT / "MapCanvasView.swift").read_text(encoding="utf-8")

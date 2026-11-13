@@ -23,13 +23,14 @@ __all__ = ["LEGEND_FULL", "LEGEND_MESH", "LEGEND_DRAPE", "LEGEND_PLACEHOLDER",
            "pane_status", "pane_detail", "built_in_world", "removed_note",
            "world_dsf"]
 
-# --- The Build map's legend (one row per state on the map, then the
-# dotted border of another tool's mesh and the custom-patch band) ---
+# --- The map key's World-state sentences (``O4_Map_Key_Text``, #2031:
+# the Build and Fly views say the same; another tool's tile is dotted,
+# the custom-patch band orange) ---
 LEGEND_FULL = "Full: mesh and sharp imagery"
-LEGEND_MESH = "Mesh: imagery sharpens in flight"
+LEGEND_MESH = "Mesh only: imagery sharpens in flight"
 LEGEND_DRAPE = "Photo drape on X-Plane's mesh"
 LEGEND_PLACEHOLDER = "Placeholder: built or draped in flight"
-LEGEND_OTHER_TOOL = "Dotted: another tool's mesh"
+LEGEND_OTHER_TOOL = "Dotted: a tile another tool built"
 #: The orange band (#1229) the owner asked about (2026-11-12, "gold").
 LEGEND_CUSTOM_PATCH = "Orange band: custom airport patch, no auto patch"
 

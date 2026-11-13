@@ -8,51 +8,46 @@ view both paint it (``O4_Qt_Map.MapView.paintEvent``).
 from __future__ import annotations
 
 import O4_Map_Key_Text as KEYTEXT
-import O4_Qt_Fly_Layer as QTFLYLAYER
 import O4_Qt_Map_Legend as QTLEGEND
 import O4_Qt_Map_World as QTWORLD
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPen
 
-__all__ = ["MARGIN", "paint_key", "tooltip_at"]
+__all__ = ["MARGIN", "item_color", "paint_key", "tooltip_at"]
 
 #: The pill's right and bottom margin, the ZL pill's (O4_Qt_Map).
 MARGIN = 10
 _PAD, _SWATCH_W, _SWATCH_H, _GAP, _SPACING = 9, 12, 9, 4, 10
-#: A built tile on another drive (O4_Qt_Map.BUILT_EXTERNAL_COLOR).
-_EXTERNAL = "#A0703C"
-#: A tile this app built (O4_Qt_Map.BUILT_COLOR): blue, never the World
-#: pack's "Full" green (#2027: every item its own colour).
-_BUILT = "#0A84FF"
-#: Another tool's mesh: the swatch is white, its dots the item (the map
+#: Another tool's tile: the swatch is white, its dots the item (the map
 #: draws such a tile in its state's colour, dotted).
 _OTHER_TOOL = "#FFFFFF"
 
 
-def _item_color(item: str) -> QColor | None:
-    """The item's one colour (None: the empty swatch of an unmarked tile)."""
-    fly = QTFLYLAYER.LEGEND_COLORS
+def item_color(item: str) -> QColor | None:
+    """The item's one colour (Mac ``MapKey.color``), the same on the
+    Build and Fly views (#2031)."""
+    if item == "placeholder":
+        color = QColor(QTWORLD.PLACEHOLDER_COLOR)
+        color.setAlphaF(QTWORLD.PLACEHOLDER_ALPHA)
+        return color
     color = {
         "full": QTWORLD.FULL_COLOR, "mesh": QTWORLD.MESH_COLOR,
-        "drape": QTWORLD.DRAPE_COLOR, "placeholder": fly["placeholder"],
-        "other_tool": _OTHER_TOOL, "meshing": fly["meshing"],
-        "draping": fly["draping"], "route": fly["own"],
-        "built": _BUILT, "other": QTLEGEND.OTHER_ORTHO_COLOR,
-        "stale": QTLEGEND.STALE_COLOR, "external": _EXTERNAL,
-        "custom": QTLEGEND.CUSTOM_PATCH_COLOR, "sharp": fly["sharp"],
+        "drape": QTWORLD.DRAPE_COLOR, "building": QTLEGEND.BUILDING_COLOR,
+        "other_tool": _OTHER_TOOL, "stale": QTLEGEND.STALE_COLOR,
+        "custom": QTLEGEND.CUSTOM_PATCH_COLOR,
     }.get(item)
     return None if color is None else QColor(color)
 
 
 def _item_pen(item: str) -> QPen | None:
-    """The swatch's pen: dashed for a drape being draped or a stale tile,
-    dotted for another tool's mesh, thick for the custom-patch band."""
-    color = _item_color(item)
+    """The swatch's pen: dashed for a stale tile, dotted for another
+    tool's tile, thick for the custom-patch band."""
+    color = item_color(item)
     if color is None:
         return None
     pen = QPen(color)
     pen.setWidthF({"custom": 3, "placeholder": 1}.get(item, 2))
-    if item in ("stale", "draping"):
+    if item == "stale":
         pen.setDashPattern([2, 1])
     elif item == "other_tool":
         pen.setDashPattern([1, 1.5])

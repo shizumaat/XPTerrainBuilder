@@ -5,7 +5,7 @@ import SceneryKit
 /// colours): what the World pack draws on each tile. Borders only, never
 /// a fill (#1256: a tint colours the imagery being judged) — each the
 /// shared fading band inside the tile's edge (`TileBand`). A full tile is
-/// green (not the built-tile blue, #2027), a mesh whose imagery streams is teal with its
+/// green (also a built tile the World pack does not list, #2031), a mesh whose imagery streams is teal with its
 /// sharp fraction as a bar along its bottom edge, a drape is pink, and a
 /// placeholder a faint thin gray outline; a tile with nothing is left
 /// unmarked. Another tool's mesh is dotted. Drawn under the built-tile

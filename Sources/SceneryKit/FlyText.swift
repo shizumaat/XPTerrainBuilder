@@ -52,6 +52,10 @@ public enum FlyText {
     ]
     public static let livePreview = "Live flight preview"
     public static let livePreviewHelp = "Shows the imagery installed for X-Plane on the map, square by square, as it arrives; zoom in to see it."
+    /// The live preview's toggle (#2031, default on): outline the squares
+    /// X-Plane holds at full resolution (#2020).
+    public static let sharpPhoto = "Sharp photo"
+    public static let sharpPhotoHelp = "Outlines the squares whose photo X-Plane holds at full resolution."
     /// The map's button beside the zoom controls (#2016): it pans to the
     /// aircraft and keeps the zoom; disabled, with `noAircraftPosition` as
     /// its help, while no position is current.
@@ -89,29 +93,27 @@ public enum FlyText {
     static let stateMarks: [String: String] = [
         "done": "✓", "working": "…", "waiting": "○", "blocked": "!", "failed": "✕",
     ]
-    /// The Fly view's ONE map key (owner 2026-11-12T19:11Z/19:12Z: one
+    /// The Fly view's corridor cells (owner 2026-11-12T19:11Z/19:12Z: one
     /// palette, drapes named as drapes): (key, words), drawn in this
-    /// order. The World pack's states keep the Build map's words and
-    /// colours (`O4WorldStateText`, `MapWorldStates`), and the flight's
-    /// tiles use them once built; a build under way is its own colour,
-    /// dashed for a drape and solid for a mesh. The Build map's tile
-    /// legend is hidden on the Fly view. Python: `O4_Fly_Text.LEGEND`.
+    /// order; each is a map-key item (`MapKeyText.flyKeyItems`, #2031).
+    /// The World pack's states keep the Build map's words and colours
+    /// (`O4WorldStateText`, `MapWorldStates`); a build under way, mesh or
+    /// drape, is the one pulsing "Building". A corridor tile not built
+    /// yet ("own") is not drawn: an unbuilt tile says nothing (RULINGS
+    /// 2026-11-13a), the route is the magenta line. Python:
+    /// `O4_Fly_Text.LEGEND`.
     public static let legend: [(String, String)] = [
         ("draping", "Photo being draped"),
         ("meshing", "Mesh being built"),
         ("draped", "Photo drape on X-Plane's mesh"),
         ("built", "Full: mesh and sharp imagery"),
-        ("mesh", "Mesh: imagery sharpens in flight"),
+        ("mesh", "Mesh only: imagery sharpens in flight"),
         ("placeholder", "Placeholder: built or draped in flight"),
-        ("own", "On the route, not built yet"),
         ("custom", "Orange band: custom airport patch, no auto patch"),
-        ("sharp", "full-detail photo"),
     ]
-    /// The keys drawn dashed (Qt: `O4_Qt_Fly_Layer.LEGEND_DASHED`).
-    public static let dashedKeys: Set<String> = ["draping"]
-    /// The legend's keys the map draws only while "Live flight preview"
-    /// is on (a square of installed imagery at full resolution, #2020).
-    public static let previewKeys: Set<String> = ["sharp"]
+    /// The cells of a build under way, drawn as the one pulsing
+    /// "Building" (#2031; Python: `BUILDING_KEYS`).
+    public static let buildingKeys: Set<String> = ["draping", "meshing"]
 
     public static let defaultCruiseKt = 250
     public static let defaultCorridorKm = 20

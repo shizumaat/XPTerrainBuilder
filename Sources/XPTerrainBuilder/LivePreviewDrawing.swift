@@ -19,7 +19,7 @@ enum LivePreviewDrawing {
     }
 
     static func draw(_ preview: LivePreviewModel, _ cam: MapCamera, _ size: CGSize,
-                     _ context: inout GraphicsContext, sharpColor: Color) {
+                     _ context: inout GraphicsContext, sharpColor: Color?) {
         _ = preview.revision
         func rect(north: Double, west: Double, south: Double, east: Double) -> CGRect {
             let a = cam.point(lon: west, lat: north, in: size)
@@ -36,7 +36,8 @@ enum LivePreviewDrawing {
             if square.sharp { sharp.addRect(r.insetBy(dx: 0.5, dy: 0.5)) }
             if square.stale { stale.append(r) }
         }
-        context.stroke(sharp, with: .color(sharpColor), lineWidth: 1)
+        // "Sharp photo" (#2031, the preview's toggle): nil hides the outlines
+        if let sharpColor { context.stroke(sharp, with: .color(sharpColor), lineWidth: 1) }
         func tileRects(_ state: String) -> [CGRect] {
             preview.tiles.filter { $0.state == state }.map {
                 rect(north: Double($0.lat + 1), west: Double($0.lon),

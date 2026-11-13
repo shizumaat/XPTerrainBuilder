@@ -23,7 +23,7 @@ the same; the engine owns the rule and the DDS read
   (``ByteLRU``, the least recently listed dropped first); a square keeps
   its old image until the new one arrives.
 * :meth:`LivePreview.paint` outlines the squares at full resolution
-  (``sharp``) in ``outline``'s color (the legend's ``sharp``), hatches
+  (``sharp``) in ``outline``'s color (the "Sharp photo" toggle, #2031), hatches
   the ``stale`` squares and ``reload`` tiles, and washes the ``own``
   tiles (``O4_Live_Preview_Text``), each labelled when large enough.
 """

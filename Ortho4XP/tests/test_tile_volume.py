@@ -142,24 +142,36 @@ def _info(volume="", mounted=True, resolved="/Volumes/Ext/zOrtho4XP_+10+010"):
                           volume_mounted=mounted)
 
 
-def test_the_qt_map_draws_an_external_tile_brown(qapp, tmp_path, monkeypatch):
+def test_the_qt_map_draws_a_built_tile_by_its_world_state(qapp, tmp_path, monkeypatch):
+    """#2031: where a tile lives is a label ("Requires <drive>"), not a
+    colour -- a built tile is drawn by its World state: "Full" when the
+    World pack does not list it, its World band alone when it does, the
+    dashed "Pack changed" when its airport pack changed."""
     import O4_Qt_Map as QTMAP
+    import O4_Qt_Map_Legend as QTLEGEND
+    import O4_Qt_Map_World as QTWORLD
     monkeypatch.setattr(QTMAP, "livemap_cache_dir",
                         lambda: str(tmp_path / "livemap"))
     view = QTMAP.MapView()
     view._start_workers = lambda: None
     view._update_timer.stop()
     try:
-        colors = []
+        drawn = []
         # the border is the shared band (O4_Qt_Tile_Band): its colour
         monkeypatch.setattr(QTMAP.QTBAND, "paint_band",
-                            lambda _p, _r, _s, color, *a, **k: colors.append(
-                                color.name().upper()))
+                            lambda _p, _r, _s, color, *a, dash=None, **k: drawn.append(
+                                (color.name().upper(), dash)))
         for info in (_info(), _info(volume="Ext")):
             view.set_built({(10, 10): info})
             view._draw_tile_overlay(mock.MagicMock(), (10, 10), 1.0)
-        assert colors == [QTMAP.BUILT_COLOR.upper(),
-                          QTMAP.BUILT_EXTERNAL_COLOR.upper()]
+        assert drawn == [(QTWORLD.FULL_COLOR.upper(), None)] * 2
+        drawn.clear()
+        view.set_world(QTWORLD.from_wire([[10, 10, "drape", "xptb", 0, "", ""]]))
+        view._draw_tile_overlay(mock.MagicMock(), (10, 10), 1.0)
+        assert drawn == []
+        view.set_stale({(10, 10): {"airports": [{"icao": "EGKK"}]}})
+        view._draw_tile_overlay(mock.MagicMock(), (10, 10), 1.0)
+        assert drawn == [(QTLEGEND.STALE_COLOR.upper(), QTMAP.STALE_DASH)]
     finally:
         view.deleteLater()
 

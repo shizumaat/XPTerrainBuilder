@@ -2,11 +2,13 @@ import SwiftUI
 import SceneryKit
 
 /// Fly mode's map layers (spec §4.3 (4, 6), §14; #2001; lane U2): the
-/// corridor tiles by legend, the route, the aircraft's track and the
+/// corridor tiles by key item (#2031: a build under way pulses, a tile not
+/// built yet is not drawn), the route, the aircraft's track and the
 /// aircraft. Its own view, so the base map never redraws for it; drawn in
 /// Fly mode only. The Qt window's `O4_Qt_Fly_Layer.FlyLayer` is the same.
 /// Under them, while "Live flight preview" is on, each visible square's
-/// installed imagery (`LivePreviewModel`), asked again when the map moves.
+/// installed imagery (`LivePreviewModel`), asked again when the map moves;
+/// "Sharp photo" (default on) outlines its full-resolution squares.
 struct FlyMapOverlay: View {
     @ObservedObject var model: FlyModel
     @ObservedObject var modes: AppModeModel
@@ -20,39 +22,20 @@ struct FlyMapOverlay: View {
         self.preview = model.preview
     }
 
-    /// A mesh being built: a colour no other key uses (orange is the
-    /// custom-patch band, purple a changed airport pack, teal a World
-    /// mesh). Qt: `BUILDING_COLOR`.
+    /// A mesh or a drape under way (#2031: one colour, pulsing): a colour
+    /// no other key item uses. Qt: `O4_Qt_Map_Legend.BUILDING_COLOR`.
     static let building = Color(red: 0.37, green: 0.36, blue: 0.90)    // #5E5CE6
-    /// A drape being draped: lavender, dashed (#2027: every key item its
-    /// own colour). Qt: `DRAPING_COLOR`.
-    static let draping = Color(red: 0.67, green: 0.56, blue: 1.0)      // #AC8EFF
+    /// The live preview's "Sharp photo" outline (#2020, #2031: a toggle,
+    /// not a key item). Qt: `SHARP_COLOR`.
+    static let sharp = Color(red: 1.0, green: 0.84, blue: 0.04)        // #FFD60A
 
-    /// The ONE Fly-view key's colours (`FlyText.legend`; Qt:
-    /// `O4_Qt_Fly_Layer.LEGEND_COLORS`): the World pack's states in the
-    /// Build map's colours (`MapWorldStates`), the builds under way in
-    /// their own.
-    static func color(_ key: String) -> Color {
-        switch key {
-        case "meshing": return building
-        case "draping": return draping
-        case "draped": return MapWorldStates.drape
-        case "built": return MapWorldStates.full
-        case "mesh": return MapWorldStates.mesh
-        case "placeholder": return MapWorldStates.placeholder.opacity(MapWorldStates.placeholderOpacity)
-        case "custom": return MapCanvasView.customPatchBand
-        case "sharp": return Color(red: 1.0, green: 0.84, blue: 0.04)      // #FFD60A
-        // on the route, not built: the route line's magenta (Qt: ROUTE_COLOR)
-        case "own": return MapCanvasView.magenta                       // #C74078
-        default: return Color(white: 0.55)                              // #8C8C8C
-        }
+    /// A corridor cell's colour: its map-key item's (`MapKeyText.
+    /// flyKeyItems`, `MapKey.color`; Qt: `cell_color`); nil for a cell
+    /// with no item (a tile not built yet says nothing, RULINGS 2026-11-13a).
+    static func cellColor(_ key: String) -> Color? {
+        MapKeyText.flyKeyItems[key].flatMap(MapKey.color)
     }
 
-    /// A key's dash in points: dashed for a drape being draped (Qt:
-    /// `LEGEND_DASH`).
-    static func dash(_ key: String) -> [CGFloat] {
-        FlyText.dashedKeys.contains(key) ? [6, 4] : []
-    }
     /// The track line; the aircraft itself is `FlyLayers.aircraftSymbol`
     /// filled white with a dark outline (G1000 style; Qt: `AIRCRAFT_FILL`,
     /// `AIRCRAFT_OUTLINE`).
@@ -70,10 +53,15 @@ struct FlyMapOverlay: View {
 
     private var canvas: some View {
         GeometryReader { proxy in
-            Canvas { context, size in
-                let cam = camera.value
-                drawPreview(cam, size, &context)
-                drawLayers(cam, size, &context)
+            // "Building" pulses (#2031): redrawn on a clock only while a
+            // cell is building.
+            TimelineView(.animation(minimumInterval: 0.08, paused: !building)) { timeline in
+                Canvas { context, size in
+                    let cam = camera.value
+                    let pulse = MapKeyText.buildingAlpha(timeline.date.timeIntervalSinceReferenceDate)
+                    drawPreview(cam, size, &context)
+                    drawLayers(cam, size, pulse, &context)
+                }
             }
             .onAppear { viewMoved(proxy.size) }
             .onChange(of: camera.value) { _, _ in viewMoved(proxy.size) }
@@ -95,11 +83,19 @@ struct FlyMapOverlay: View {
     /// The live preview (#2001), under everything else
     /// (`LivePreviewDrawing`).
     private func drawPreview(_ cam: MapCamera, _ size: CGSize, _ context: inout GraphicsContext) {
-        LivePreviewDrawing.draw(preview, cam, size, &context, sharpColor: Self.color("sharp"))
+        LivePreviewDrawing.draw(preview, cam, size, &context,
+                                sharpColor: model.sharpPhoto ? Self.sharp : nil)
     }
 
-    private func drawLayers(_ cam: MapCamera, _ size: CGSize, _ context: inout GraphicsContext) {
+    /// Is a corridor cell building (it pulses)?
+    private var building: Bool {
+        model.cells.contains { FlyText.buildingKeys.contains($0.key) }
+    }
+
+    private func drawLayers(_ cam: MapCamera, _ size: CGSize, _ pulse: Double,
+                            _ context: inout GraphicsContext) {
         for cell in model.cells {
+            guard let color = Self.cellColor(cell.key) else { continue }
             let a = cam.point(lon: Double(cell.lon), lat: Double(cell.lat + 1), in: size)
             let b = cam.point(lon: Double(cell.lon + 1), lat: Double(cell.lat), in: size)
             let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
@@ -107,10 +103,10 @@ struct FlyMapOverlay: View {
             // Each cell's colour is the shared band inside its edge
             // (TileBand; the Build map's World states draw the same).
             if cell.key == "placeholder" {
-                TileBandDrawing.outline(in: context, rect: rect, color: Self.color(cell.key))
+                TileBandDrawing.outline(in: context, rect: rect, color: color)
             } else {
-                TileBandDrawing.draw(in: context, rect: rect, color: Self.color(cell.key),
-                                     dash: Self.dash(cell.key))
+                TileBandDrawing.draw(in: context, rect: rect, color: color,
+                                     opacity: FlyText.buildingKeys.contains(cell.key) ? pulse : 1)
             }
         }
         stroke(model.drawing, cam, size, &context, MapCanvasView.magenta, 2.5)

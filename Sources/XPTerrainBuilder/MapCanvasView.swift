@@ -50,15 +50,8 @@ struct MapCanvasView: View {
     // green/red/orange; other installed ortho packages keep their gray
     // outline.
     static let buildSelection = Color(red: 1.0, green: 0.84, blue: 0.04) // #FFD60A
-    /// A tile this app built: blue, never the World pack's "Full" green
-    /// (#2027: every key item its own colour; Qt: BUILT_COLOR).
-    static let builtTile = Color(red: 0.04, green: 0.52, blue: 1.0)    // #0A84FF
-    /// A built tile whose folder lives on another drive (#1987): brown,
-    /// with "Requires <drive>" top-right (Qt: BUILT_EXTERNAL_COLOR).
-    static let builtExternalTile = Color(red: 0.63, green: 0.44, blue: 0.24) // #A0703C
-    /// A tile another tool built (#1958, "Other ortho"): the gray of the
-    /// other packs' outlines (Qt: OTHER_ORTHO_COLOR).
-    static let otherOrthoTile = regionOutline
+    /// A built tile is drawn by its World state (#2031, `MapKey.builtLook`):
+    /// where it lives ("Requires <drive>", #1987) is a label, not a colour.
     /// A tile whose airport pack changed since the build (#1958): purple,
     /// dashed, with "Stale: ICAO" bottom-right (Qt: STALE_COLOR).
     static let staleTile = Color(red: 0.75, green: 0.35, blue: 0.95) // #BF5AF2
@@ -456,34 +449,34 @@ struct MapCanvasView: View {
 
         // What the World pack draws on each tile (#2024), under the
         // built-tile borders; a tile being built shows its progress only.
+        // A stale built tile draws "Pack changed" in its place (#2031).
         MapWorldStates.draw(in: context, world: buildModel.worldTiles, visible: visible,
-                            rect: rect, skip: { buildActivity.isBuilding($0) })
+                            rect: rect, skip: { buildActivity.isBuilding($0)
+                                || (buildModel.staleTiles[$0] != nil && buildModel.built[$0] != nil) })
 
-        // Built tiles: blue border (no fill — it obscures the imagery
-        // preview), brown on another drive; installed adds the double
-        // (inset) border. The imagery
+        // Built tiles: drawn by their World state (no fill — it obscures
+        // the imagery preview); installed adds the double (inset)
+        // border. The imagery
         // label is drawn with the tile labels (MapCanvasLabels, #817).
         // A tile being built draws as building only (#1736): its progress
         // badge, never the border of the DSF an earlier build left.
         for (coord, info) in buildModel.built where visible(coord) && !buildActivity.isBuilding(coord) {
             let r = rect(coord)
-            // Brown when the folder lives on another drive (#1987), gray
-            // when another tool built it, purple and dashed when its airport
-            // pack changed since the build (#1958, MapKey). The
-            // Build History date filter dims built tiles outside its
-            // period (#1226).
-            let stale = !info.builtElsewhere && buildModel.staleTiles[coord] != nil
-            // A folder of records only whose tile the World pack holds
-            // draws its World state alone (#2027).
-            let inWorld = MapKey.drawnByWorld(info, buildModel.worldTiles[coord])
-            let base = info.builtElsewhere ? Self.otherOrthoTile
-                : stale ? Self.staleTile
-                : info.volume == nil ? Self.builtTile : Self.builtExternalTile
+            // Its World band alone when the World pack lists it, else
+            // "Full" (dotted when another tool built it); purple and dashed
+            // when its airport pack changed since the build (#1958, #2031,
+            // MapKey.builtLook). The Build History date filter dims built
+            // tiles outside its period (#1226).
+            let look = MapKey.builtLook(info, buildModel.worldTiles[coord],
+                                        stale: buildModel.staleTiles[coord] != nil)
+            let inWorld = look == nil
+            let base = look.flatMap { MapKey.color($0.item) } ?? .clear
             let dim = buildModel.builtInHistoryRange(coord) ? 1.0 : 0.3
             // The shared fading band inside the edge (TileBand).
-            if !inWorld {
+            if let look {
                 TileBandDrawing.draw(in: context, rect: r, color: base, opacity: dim,
-                                     dash: stale ? Self.staleDash : [])
+                                     dash: look.item == "stale" ? Self.staleDash
+                                         : look.dotted ? MapWorldStates.otherToolDash : [])
             }
             if buildModel.installed.contains(coord), !inWorld {
                 let d = TileBand.innerInset(px: r.width)

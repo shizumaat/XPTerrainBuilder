@@ -55,11 +55,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-__all__ = ["FlyPane", "PREF_SIM_PRIORITY", "PREF_LIVE_PREVIEW"]
+__all__ = ["FlyPane", "PREF_SIM_PRIORITY", "PREF_LIVE_PREVIEW", "PREF_SHARP_PHOTO"]
 
 PREF_SIMBRIEF = "simbrief_user"          # shared with "Select from flight plan…"
 PREF_SIM_PRIORITY = "fly_sim_priority"
 PREF_LIVE_PREVIEW = "fly_live_preview"
+#: The live preview's "Sharp photo" toggle (#2031), on unless unchecked.
+PREF_SHARP_PHOTO = "fly_sharp_photo"
 
 
 def _fields(event) -> Optional[Dict[str, Any]]:
@@ -220,6 +222,16 @@ class FlyPane(QWidget):
             lambda on: self._remember(PREF_LIVE_PREVIEW, bool(on)))
         self.chk_live_preview.toggled.connect(self._show)
         layout.addWidget(self.chk_live_preview)
+        # The live preview's sharp squares (#2031: a toggle, not a key
+        # item; Mac FlyPane's Toggle(FlyText.sharpPhoto)).
+        self.chk_sharp_photo = QCheckBox(TEXT.SHARP_PHOTO)
+        self.chk_sharp_photo.setToolTip(TEXT.SHARP_PHOTO_HELP)
+        self.chk_sharp_photo.setChecked(bool(self.prefs.get(PREF_SHARP_PHOTO, True)))
+        self.chk_sharp_photo.setEnabled(self.chk_live_preview.isChecked())
+        self.chk_sharp_photo.toggled.connect(
+            lambda on: self._remember(PREF_SHARP_PHOTO, bool(on)))
+        self.chk_live_preview.toggled.connect(self.chk_sharp_photo.setEnabled)
+        layout.addWidget(self.chk_sharp_photo)
         self.reload_offer_row, self.reload_label = self._button_row(
             ((DTEXT.RELOAD_NOW, self.reload),))
         layout.addWidget(self.reload_offer_row)

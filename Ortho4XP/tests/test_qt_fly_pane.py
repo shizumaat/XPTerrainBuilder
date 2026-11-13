@@ -317,16 +317,23 @@ def test_free_flight_draws_the_drapes_ahead_and_the_detail_is_the_global(
 def test_no_plan_shows_the_aircrafts_tile_and_the_key_always(qapp):
     """#2020: with no plan the here block says where imagery is being
     prepared and how far it is, and offers the reload while the follow
-    line does not; the map key shows whatever the plan, its preview key
-    only while "Live flight preview" is checked."""
+    line does not; the map key shows whatever the plan (#2031: the one
+    key's items, "Building" for a mesh or a drape under way, no route or
+    sharp item); "Sharp photo" is the live preview's toggle, on by
+    default and live only while "Live flight preview" is checked."""
     engine = _Engine({"scenery_reload": {"sent": True}})
-    pane, _ = _pane(engine)
+    pane, saved = _pane(engine)
     assert pane.here_block.isHidden()
     layer = QTFLYLAYER.FlyLayer(_Map(), pane)
-    assert {"draping", "meshing"} <= set(layer.key_items())
-    assert "sharp" not in layer.key_items()
+    assert layer.key_items() == ["full", "mesh", "drape", "placeholder",
+                                 "building", "custom"]
+    assert pane.chk_sharp_photo.isChecked()
+    assert not pane.chk_sharp_photo.isEnabled()
     pane.chk_live_preview.setChecked(True)
-    assert "sharp" in layer.key_items()
+    assert pane.chk_sharp_photo.isEnabled()
+    assert "sharp" not in layer.key_items()
+    pane.chk_sharp_photo.setChecked(False)
+    assert pane.prefs[QTFLY.PREF_SHARP_PHOTO] is False
     here = [h for h in CASES["text"]["here_lines"] if h[0] and h[0].get("core")
             and h[0].get("job") == "building"][0]
     pane.show_world(dict(CASES["events"]["WorldStatus"],

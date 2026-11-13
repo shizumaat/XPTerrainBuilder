@@ -256,7 +256,7 @@ def test_show_in_finder_reveals_the_world_dsf_of_a_records_only_tile(tmp_path):
     """#2027: an adopted tile's folder in Tiles/ holds only records, so
     "Show in Finder" reveals its DSF in the World pack (both apps:
     ``world_dsf`` / ``O4WorldTile.revealDSF``), and the map draws its
-    World state alone (``drawn_by_world`` / ``MapKey.drawnByWorld``)."""
+    World state alone (``built_look`` / ``MapKey.builtLook``, #2031)."""
     import types
 
     import O4_Qt_Map_Legend as QTLEGEND
@@ -272,8 +272,18 @@ def test_show_in_finder_reveals_the_world_dsf_of_a_records_only_tile(tmp_path):
     assert TEXT.world_dsf(own, world) == ""          # its own DSF: the folder
     assert TEXT.world_dsf(records, None) == ""
     assert QTWORLD.from_wire([[1, 2, "full", "", 1, "", ""]])[(1, 2)].dsf == ""
-    assert QTLEGEND.drawn_by_world(records, world)
+    assert QTLEGEND.built_look(records, world, False) is None
     assert QTLEGEND.legend_kinds({(51, 22): records}, {}, {(51, 22): world}) == [
         QTLEGEND.WORLD_FULL]
+    # #2031: a built tile the World pack does not list is "Full", dotted
+    # when another tool built it; a stale one is "Pack changed" alone
+    other = types.SimpleNamespace(dsf_present=True, origin="other")
+    assert QTLEGEND.built_look(own, None, False) == (QTLEGEND.WORLD_FULL, False)
+    assert QTLEGEND.built_look(other, None, False) == (QTLEGEND.WORLD_FULL, True)
+    assert QTLEGEND.built_look(own, world, True) == (QTLEGEND.STALE, False)
+    assert QTLEGEND.legend_kinds({(1, 1): own, (1, 2): other}, {}) == [
+        QTLEGEND.WORLD_FULL, QTLEGEND.WORLD_OTHER_TOOL]
+    assert QTLEGEND.legend_kinds({(51, 22): own}, {(51, 22): {"airports": []}},
+                                 {(51, 22): world}) == [QTLEGEND.STALE]
     swift = SWIFT_TEXT.read_text(encoding="utf-8", newline="\n")
     assert "func revealDSF(_ info: O4TileInfo?)" in swift and "entry[7]" in swift

@@ -6,12 +6,12 @@ import Foundation
 /// `Ortho4XP/tests/test_world_state.py` parses the literals below and
 /// requires them to equal the Python ones.
 public enum O4WorldStateText {
-    // The Build map's legend.
+    // The map key's World-state sentences (`MapKeyText`, #2031).
     public static let legendFull = "Full: mesh and sharp imagery"
-    public static let legendMesh = "Mesh: imagery sharpens in flight"
+    public static let legendMesh = "Mesh only: imagery sharpens in flight"
     public static let legendDrape = "Photo drape on X-Plane's mesh"
     public static let legendPlaceholder = "Placeholder: built or draped in flight"
-    public static let legendOtherTool = "Dotted: another tool's mesh"
+    public static let legendOtherTool = "Dotted: a tile another tool built"
     /// The orange band (#1229) the owner asked about (2026-11-12, "gold").
     public static let legendCustomPatch = "Orange band: custom airport patch, no auto patch"
 

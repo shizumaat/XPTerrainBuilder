@@ -16,6 +16,7 @@ import AppKit
 final class FlyModel: ObservableObject {
     static let simPriorityKey = "FlySimPriority"
     static let livePreviewKey = "FlyLivePreview"
+    static let sharpPhotoKey = "FlySharpPhoto"
 
     weak var build: BuildModel?
 
@@ -51,6 +52,11 @@ final class FlyModel: ObservableObject {
             UserDefaults.standard.set(livePreview, forKey: Self.livePreviewKey)
             preview.setEnabled(watching && livePreview)
         }
+    }
+    /// The live preview's "Sharp photo" toggle (#2031, default on): the
+    /// map outlines the squares X-Plane holds at full resolution.
+    @Published var sharpPhoto: Bool {
+        didSet { UserDefaults.standard.set(sharpPhoto, forKey: Self.sharpPhotoKey) }
     }
     /// The drapes' photo width (`drape_photo_px`, the engine's global
     /// setting, read per tile by build-ahead; RULINGS 2026-11-11j).
@@ -110,6 +116,7 @@ final class FlyModel: ObservableObject {
         let defaults = UserDefaults.standard
         simPriority = defaults.string(forKey: Self.simPriorityKey) ?? "balanced"
         livePreview = defaults.bool(forKey: Self.livePreviewKey)
+        sharpPhoto = defaults.object(forKey: Self.sharpPhotoKey) as? Bool ?? true
         preview.context = { [weak build] in
             guard let build, build.engineCapabilities.supports(O4EngineCapabilities.livePreview),
                   let context = build.libraryContext() else { return nil }

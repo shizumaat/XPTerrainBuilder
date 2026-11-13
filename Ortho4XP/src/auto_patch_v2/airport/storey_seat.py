@@ -27,9 +27,11 @@ from .terrain_shaped import STOREY_SEAT as SEAT
 __all__ = ["SEAT", "block_zero", "rigid_rows", "seat_records"]
 
 
-def rigid_rows(shell: _t.Any, objects: _t.Sequence[_t.Any], touch_m: float) -> list:
+def rigid_rows(shell: _t.Any, objects: _t.Sequence[_t.Any], touch_m: float,
+               cache: _t.Any = None, close_m: float = 0.0) -> list:
     """The placements of ``shell``'s RIGID SET (module docstring), sorted by
-    id."""
+    id.  A frame's plan is its SOLIDS' covered plan (``cache``, closed by
+    ``close_m``: ``split_level``'s reading), else its rows' plan boxes."""
     from shapely.geometry import Polygon
     from .split_level import _families
     plan = Polygon(shell.plan).buffer(float(touch_m))
@@ -40,10 +42,27 @@ def rigid_rows(shell: _t.Any, objects: _t.Sequence[_t.Any], touch_m: float) -> l
             out.extend(fam)
             continue
         boxes = [o.plan_bbox for o in fam if getattr(o, "plan_bbox", None) is not None]
-        g = unary_union(boxes) if boxes else None
+        if not boxes or not unary_union(boxes).intersects(plan):
+            continue
+        g = _solid_plan(fam, cache, close_m) if cache is not None else unary_union(boxes)
         if g is not None and g.area > 0.0 and g.intersection(plan).area >= 0.5 * g.area:
             out.extend(fam)
     return sorted(out, key=lambda o: str(o.id))
+
+
+def _solid_plan(fam: _t.Sequence[_t.Any], cache: _t.Any, close_m: float):
+    """The frame's solids' covered plan in the airport frame (every part:
+    ``split_level._covered_parts``), or ``None``."""
+    from shapely import affinity
+    from . import obj8 as _obj8
+    from .split_level import _covered_parts, _solids
+    got = _solids(fam, cache)
+    if got is None:
+        return None
+    a = _obj8.placement_affine(fam[0].xy, fam[0].heading_deg)
+    parts = _covered_parts(*got, float(close_m), 1.0)
+    return unary_union([affinity.affine_transform(p, list(a[:6])) for p in parts]) \
+        if parts else None
 
 
 def block_zero(shell: _t.Any, pm: _t.Any, z_at: _t.Callable) -> "float | None":
@@ -58,17 +77,19 @@ def block_zero(shell: _t.Any, pm: _t.Any, z_at: _t.Callable) -> "float | None":
 
 
 def seat_records(shells: _t.Sequence[_t.Any], pm: _t.Any, z_at: _t.Callable,
-                 objects: _t.Sequence[_t.Any], touch_m: float) -> list[dict[str, _t.Any]]:
+                 objects: _t.Sequence[_t.Any], touch_m: float, cache: _t.Any = None,
+                 close_m: float = 0.0) -> list[dict[str, _t.Any]]:
     """One ``RebakePlan.authored_seats`` record per row of every shell's
     rigid set (module docstring); ``z_at(x, y)`` the solved surface's level
-    at a map vertex."""
+    at a map vertex; ``cache`` / ``close_m`` read a frame's solid plan
+    (:func:`rigid_rows`)."""
     out: list[dict[str, _t.Any]] = []
     seen: set[str] = set()
     for sh in shells:
         z0 = block_zero(sh, pm, z_at)
         if z0 is None:
             continue
-        for o in rigid_rows(sh, objects, touch_m):
+        for o in rigid_rows(sh, objects, touch_m, cache, close_m):
             if str(o.id) in seen:
                 continue
             seen.add(str(o.id))

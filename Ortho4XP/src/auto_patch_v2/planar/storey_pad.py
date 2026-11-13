@@ -39,7 +39,9 @@ SCOPE (spec A2 (4)): a shell with two counted levels or more whose block is
 its LOWEST level -- (i) the airside meets the lowest level
 (``air_level == 0``), or (ii) no run faces the airside and half the lowest
 level's run length faces a structure floor (a tunnel ramp, an entrance
-bank, a channel or basin floor: the block follows that floor).  Upper-block
+bank, a channel or basin floor: the block follows that floor).  Scope (ii)
+is read and NAMED but HELD (:data:`FLOOR_HELD`): the follower is a new row
+family.  Upper-block
 shells stay on the pit (``planar/split_level_pit``) until R3, and so does a
 scope-(ii) shell the pit already built.  Refused, by name, as the pit
 refuses: a plan overlapping the runway family or a structure, a mapped
@@ -135,7 +137,7 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
         name = sl.paths[0].rsplit("/", 1)[-1]
         scope = "airside" if sl.air_level == 0 else "floor"
         plan = sl.pit_plan
-        why = "" if scope == "airside" else _floor_scope(sl, floors, pitted)
+        why = "" if scope == "airside" else (_floor_scope(sl, floors, pitted) or FLOOR_HELD)
         why = why or _refusal(plan, blocked, roads, grid)
         under = [(i, p.intersection(plan).area)
                  for i, (p, c) in enumerate(zip(polys, cells, strict=True))
@@ -187,6 +189,17 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
                              runway_roles, cut_pads=False, mark="storey_cut", new_cells=new)
     notes.append(f"{len(recs)} storey pad(s), {n_cut} cell(s) cut at them")
     return out, recs, notes, refused
+
+
+#: SCOPE (ii) IS HELD (#2062 A2 (6), K0 measured on the KLAX capture): a
+#: block with no airside contact has no stage-1 datum column
+#: (``model.platform.datum_vertices``), so its upper level's landing rows
+#: hold nothing, and no row makes the block follow the structure floor one
+#: way -- a new row family, an owner decision; such a shell keeps today's
+#: path until one exists
+FLOOR_HELD = ("scope (ii): its lowest level stands on a structure floor, but no row "
+              "makes the block follow that floor (no floor-led datum; #2062 A2 (6)) -- "
+              "held, today's path")
 
 
 def _floor_scope(sl: SplitLevel, floors, pitted: _t.AbstractSet[str]) -> str:

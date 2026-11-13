@@ -105,7 +105,7 @@ from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbo
 from .airside_edge import airside_edge_flip
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
 from .blast_pad import blast_pad_end
-from .storey_edge import STOREY_Y_KEY
+from .storey_edge import ARM_PAD_KEY, STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import cover_arms, necks_of, road_arms, split_at_necks
 from .open_default import (apron_evidence, narrow_road, open_pavement_role,
@@ -803,7 +803,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         rejoin_unsplit,
         split_at_fences,
     )
-    from .storey_edge import knife_storeys, storey_band
+    from .storey_edge import arm_storeys, knife_storeys, storey_band
     fences = fence_lines(airport, rules)
     fence_cut = split_at_fences(final, fences, EDGE_CANDIDATES, rules,
                                 born_airside_pages(final, law))
@@ -815,6 +815,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                           fences=fence_band(fences, rules))
     stats["storey_lots"] = knife_storeys(final, storey_cuts, law,
                                          rules.cells.min_area_m2, band)
+    # RULINGS 2026-11-13aa (1): a pad under an upper storey keeps its road
+    upper = arm_storeys(final, cells, ev.pads, airport, law, rules.cells.min_area_m2)
     stats["fence_split_faces"] = rejoin_unsplit(final, fence_cut, storey_cuts)
     # ── 19ag: pavement aircraft cannot reach is groundside (#808) ───
     from .reachability import unreachable_aprons
@@ -833,7 +835,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
 
     # ── pads ───────────────────────────────────────────────────────
     for ref, poly in ev.pads:
-        add("building", ref, poly, "building")
+        add("building", ref, poly, "building", evidence=upper.get(ref))
     stats["pads_dropped"] = ev.dropped_pads
     # owner RULINGS 2026-09-10ag: the pads a SKIRT made unnecessary
     stats["pads_skirted"] = len(ev.skirted_pads)
@@ -1236,7 +1238,8 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
                                                mitre_limit=2.0)
             # a lot a storey up (``storey_edge``) meets the pad's UPPER
             # LEVEL: welded, never held off as a hillside (#1101)
-            if hold and STOREY_Y_KEY not in c.evidence and is_held_step(
+            if hold and STOREY_Y_KEY not in c.evidence and ARM_PAD_KEY not in c.evidence \
+                    and is_held_step(
                     law, dem_step_m(g, pads[ref], knives[ref], airside, dem, law)):
                 held.append(ref)
                 cutters.append(knives[ref])    # HELD: the terrace's knife

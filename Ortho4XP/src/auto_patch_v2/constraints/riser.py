@@ -24,7 +24,9 @@ one -- is held rigid by its own landing rows, its riser the object's
 storey: a row spanning it is withdrawn the same way (the lot's pavement
 ceiling and road grade rows read across a 6 m riser outranked the level's
 landing rows, MEASURED LPHR arm: 520 -> 145 relaxed hard rows).  A non-shell
-upper level (``planar/low_level`` ``plan_up``) is unchanged.
+upper level (``planar/low_level`` ``plan_up``) is unchanged.  An UPPER PAD's level
+(``planar/group_up``, #2068: the pad under a unit's upper storey, held at
+its unit block's datum + the storey) is a level of the same kind.
 
 TWO LOWER LEVELS AT TWO FLOORS (#1306, RULINGS 2026-10-27h): a level's
 extension (``planar/low_extent``) stands at the bottom of the objects on it,
@@ -37,6 +39,7 @@ import typing as _t
 
 from ..model.constraints import Row
 from ..model.planar import STRIP_SUFFIX, PlanarMap, face_vertex_set
+from ..planar.group_up import GROUP_UP
 
 __all__ = ["riser_sets", "riser_exempt", "LANDING_INPUT_PREFIX", "STATS"]
 
@@ -55,7 +58,8 @@ def riser_sets(planar: PlanarMap) -> "tuple[frozenset[int], frozenset[int], dict
     face carries (for the #1138 site list)."""
     lands = getattr(planar.registries, "landings", {}) or {}
     lows = {ref: rec["block"] for ref, rec in lands.items()
-            if rec.get("kind") == "low_level" or rec.get("shell")}
+            if rec.get("kind") == "low_level" or rec.get("shell")
+            or rec.get("witness") == GROUP_UP}
     if not lows:
         return frozenset(), frozenset(), {}
     blocks = set(lows.values())

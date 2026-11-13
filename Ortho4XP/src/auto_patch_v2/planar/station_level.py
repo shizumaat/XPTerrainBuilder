@@ -28,10 +28,25 @@ from shapely.ops import unary_union
 from ..geom.parts import nonempty_polygon_parts
 from ..model.planar import STRIP_SUFFIX, plane_ref
 
-__all__ = ["station_split"]
+__all__ = ["block_top", "next_plane", "station_split"]
 
 
-def _next_plane(block: str, reg) -> str:
+def block_top(B, airport, air_polys, tree, law, to_xy, R) -> "float | None":
+    """The held block ``B``'s TOP level (``covered_cut._top``, off the
+    reach ``R``): the floor its own share of its unit stands on."""
+    from ..law.tables import design as design_law
+    from .covered_cut import _top
+    from .low_level import unit_share
+    parts = unit_share(B, airport, to_xy)[1]
+    if not parts:
+        return None
+    air_b = unary_union([air_polys[int(j)] for j in
+                         tree.query(B.buffer(50.0), predicate="intersects")])
+    return _top(parts, air_b, airport, law, to_xy, float(design_law(law).pad_frontage_m), R)
+
+
+def next_plane(block: str, reg) -> str:
+    """The block's next free plane ref ``<block>/p<k>``."""
     k = 1
     while plane_ref(block, k) in reg.landings:
         k += 1
@@ -54,17 +69,9 @@ def station_split(out: list, held: _t.Mapping[str, dict], st, st_reach, st_open,
     to_xy = airport.frame.entry()
     _units: dict = {}
 
-    from ..law.tables import design as design_law
-    from .covered_cut import _top
-    near = float(design_law(law).pad_frontage_m)
-
     def top_of(k: str) -> "float | None":
-        """The held block's TOP level (``covered_cut._top``, off the tracks)."""
-        B = held_union[k]
-        parts = unit_share(B, airport, to_xy)[1]
-        air_b = unary_union([air_polys[int(j)] for j in
-                             tree.query(B.buffer(50.0), predicate="intersects")])
-        return _top(parts, air_b, airport, law, to_xy, near, st_reach) if parts else None
+        """The held block's TOP level (off the tracks)."""
+        return block_top(held_union[k], airport, air_polys, tree, law, to_xy, st_reach)
 
     def unit_of(k: str):
         if k not in _units:
@@ -101,7 +108,7 @@ def station_split(out: list, held: _t.Mapping[str, dict], st, st_reach, st_open,
                 counts.setdefault("station_level_refused_list", []).append(f"{ref}: {why[0]}")
             continue
         H, L, S, rec = got
-        low = _next_plane(block, reg)
+        low = next_plane(block, reg)
         tmpl = regs[0]
         replaced[ref] = ([_dc.replace(tmpl, polygon=q) for q in nonempty_polygon_parts(H)]
                          + [_dc.replace(tmpl, ref=low, polygon=q)

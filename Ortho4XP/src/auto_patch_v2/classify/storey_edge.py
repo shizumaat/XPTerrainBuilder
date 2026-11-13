@@ -24,7 +24,12 @@ Three pieces, one witness (``airport.unit_storey``):
   dropped run by the pad set-back (``groundside_cutback_m`` + the snap
   margin): the storey is a riser, and two levels never share a vertex
   (the §28 (6) knife's form, RULINGS 2026-10-09j "if there's any gap the
-  road can climb or descend and leave a steep wall")."""
+  road can climb or descend and leave a steep wall").
+* :func:`arm_storeys` — a pad under a unit's UPPER storey
+  (``airport.unit_storey.upper_pads``, RULINGS 2026-11-13aa (1), #2068):
+  the road §27 flipped to apron round it is cut at its neck back to the
+  road it was born, its ARM, welded to the pad's level; the pad's cell
+  carries the storey (``UPPER_Y_KEY`` / ``UPPER_UNIT_KEY``)."""
 from __future__ import annotations
 
 import dataclasses as _dc
@@ -38,8 +43,9 @@ from ..law import Law
 from ..law.tables import role_side, snap_margin_m
 from .evidence import polygon_parts
 
-__all__ = ["STOREY_M_KEY", "STOREY_Y_KEY", "STOREY_UNCONFIRMED_KEY", "StoreyBand",
-           "ground_confirms", "knife_storeys", "storey_band", "storey_height"]
+__all__ = ["ARM_PAD_KEY", "STOREY_M_KEY", "STOREY_Y_KEY", "STOREY_UNCONFIRMED_KEY",
+           "StoreyBand", "UPPER_FLOOR_KEY", "UPPER_UNIT_KEY", "UPPER_Y_KEY", "arm_storeys", "ground_confirms",
+           "knife_storeys", "storey_band", "storey_height"]
 
 #: evidence: metres of a lot's apron contact §27 read as across a storey
 STOREY_M_KEY = "airside_edge_storey_m"
@@ -47,6 +53,16 @@ STOREY_M_KEY = "airside_edge_storey_m"
 STOREY_Y_KEY = "airside_edge_storey_y"
 #: evidence: a storey rise the lot's ground does not confirm (reported)
 STOREY_UNCONFIRMED_KEY = "airside_edge_storey_unconfirmed_y"
+#: evidence: the upper pad a road's ARM climbs to (:func:`arm_storeys`)
+ARM_PAD_KEY = "storey_arm_pad"
+#: pad evidence: the storey's authored base ``y_p``, the unit's floor
+#: ``t`` and the unit (``airport.unit_storey.UpperPad``)
+UPPER_Y_KEY = "upper_storey_y"
+UPPER_FLOOR_KEY = "upper_storey_floor"
+UPPER_UNIT_KEY = "upper_storey_unit"
+#: what §27's flip wrote on a face (dropped from an arm cut back)
+_FLIP_KEYS = ("airside_edge_m", "airside_edge_flip", "airside_edge_round",
+              "airside_edge_was")
 
 
 @_dc.dataclass(frozen=True)
@@ -95,29 +111,10 @@ def storey_height(band: StoreyBand, run, to_xy) -> "float | None":
     return float(min(_st.multimode(rise))) if rise else None
 
 
-def _median_dem(dem, g, step: float = 2.0) -> "float | None":
-    """The median DEM over ``g`` on a ``step`` grid (at most ~400 samples)."""
-    import math
-
-    from shapely.geometry import Point
-    if dem is None or g is None or g.is_empty:
-        return None
-    x0, y0, x1, y1 = g.bounds
-    h = max(step, math.sqrt(max(g.area, 1.0) / 400.0))
-    zs = []
-    y = y0 + 0.5 * h
-    while y < y1:
-        x = x0 + 0.5 * h
-        while x < x1:
-            if g.contains(Point(x, y)):
-                try:
-                    z = float(dem.z(x, y))
-                except Exception:  # noqa: BLE001 -- off the raster
-                    z = float("nan")
-                if z == z:
-                    zs.append(z)
-            x += h
-        y += h
+def _median_dem(dem, g) -> "float | None":
+    """The median DEM over ``g`` (``airport.unit_storey.dem_samples``)."""
+    from ..airport.unit_storey import dem_samples
+    zs = dem_samples(dem, g)
     return _st.median(zs) if zs else None
 
 
@@ -167,3 +164,66 @@ def knife_storeys(final: list[list], cuts: _t.Mapping[int, _t.Any], law: Law,
         extra.extend([f[0], f"{f[1]}#{k}", p, *f[3:]] for k, p in enumerate(parts[1:], 1))
     final.extend(extra)
     return n
+
+
+def _arm(face, pad, others, weld: float, opening: float):
+    """The ARM of ``face`` (spec 2068 §1 Classify): the face less every
+    other airside within its mean width ``2A/P``, opened by ``opening``,
+    the parts within ``weld`` of ``pad``."""
+    R = 2.0 * face.area / face.length
+    far = face.difference(others.buffer(R)) if not others.is_empty else face
+    far = far.buffer(-opening, join_style="mitre").buffer(opening, join_style="mitre")
+    arm = [p for p in polygon_parts(far.intersection(face)) if p.distance(pad) <= weld]
+    return unary_union(arm) if arm else None
+
+
+def arm_storeys(final: list[list], cells, pads, airport, law: Law,
+                min_area_m2: float) -> dict[str, dict]:
+    """A PAD UNDER AN UPPER STOREY KEEPS ITS ROAD (module docstring): each
+    face of ``final`` §27 flipped from a road role that touches an upper
+    pad among ``pads`` (``(ref, polygon)``) is cut: its arm goes back to
+    the role it was born as ``<ref>#<k>`` with ``ARM_PAD_KEY``, the rest
+    keeps the flip.  Returns ``{pad ref: its evidence}`` for every upper
+    pad."""
+    from ..airport.unit_storey import upper_pads
+    from .airside_edge import _ROAD_ROLES
+    if airport is None or not pads:
+        return {}
+    air_g = [Polygon(c.ring, c.holes) for c in cells
+             if c.role != "building" and c.side == "airside"]
+    ups = upper_pads(airport, law, unary_union(
+        air_g + [f[2] for f in final
+                 if f[0] != "building" and role_side(law, f[0]) == "airside"]), pads)
+    if not ups:
+        return {}
+    from ..law.tables import design as design_law
+    weld = float(law.tables.emit.identity.weld_spacing_m)
+    opening = 0.5 * float(design_law(law).pad_frontage_m)
+    extra: list[list] = []
+    for up in ups:
+        for i, f in enumerate(final):
+            if (f[0] != "apron" or f[4].get("airside_edge_was") not in _ROAD_ROLES
+                    or f[2].distance(up.polygon) > weld):
+                continue
+            others = unary_union(air_g + [g[2] for j, g in enumerate(final) if j != i
+                                          and g[0] != "building"
+                                          and role_side(law, g[0]) == "airside"])
+            arm = _arm(f[2], up.polygon, others, weld, opening)
+            if arm is None:
+                continue
+            born = str(f[4]["airside_edge_was"])
+            ev = {k: v for k, v in f[4].items() if k not in _FLIP_KEYS}
+            ev = dict(ev, kind=str(ev.get("source_class") or born), **{ARM_PAD_KEY: up.ref})
+            rest = sorted((p for p in polygon_parts(f[2].difference(arm))
+                           if p.area >= min_area_m2), key=lambda p: -p.area)
+            arms = [p for p in polygon_parts(arm) if p.area >= min_area_m2]
+            if not rest or not arms:
+                continue
+            final[i] = [f[0], f[1], rest[0], *f[3:]]
+            used = {str(g[1]) for g in final + extra}
+            names = (f"{f[1]}#{k}" for k in range(1, 10 ** 6) if f"{f[1]}#{k}" not in used)
+            extra.extend([f[0], next(names), p, *f[3:]] for p in rest[1:])
+            extra.extend([born, next(names), p, f[3], ev, ev["kind"]] for p in arms)
+    final.extend(extra)
+    return {up.ref: {UPPER_Y_KEY: up.y, UPPER_FLOOR_KEY: up.floor_y,
+                     UPPER_UNIT_KEY: float(up.unit)} for up in ups}

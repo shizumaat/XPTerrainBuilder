@@ -433,7 +433,6 @@ def check_stack(rec, drawn, claims, tol, step=5.0):
         return row
     bottom, top = float(numpy.nanmin(vw[2])), elev[walls[0]] + st["crest_y"]
     row["walls_bottom"], row["walls_top"] = round(bottom, 2), round(top, 2)
-    deck_of = {d["object"]: d for d in st["decks"]}
     rings = [(d, Polygon([to_m(la, lo) for la, lo in d["ring"]])) for d in st["decks"]]
     deck_rows = {}
     for d in st["decks"]:

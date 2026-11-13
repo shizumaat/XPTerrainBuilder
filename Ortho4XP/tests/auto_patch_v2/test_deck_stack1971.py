@@ -20,9 +20,6 @@ import types
 
 import numpy as np
 import pytest
-from shapely import affinity
-from shapely.geometry import LineString, Point, Polygon, box
-
 from auto_patch_v2.airport import deck_carry as DC
 from auto_patch_v2.airport import deck_stack as DS
 from auto_patch_v2.airport import obj8 as O
@@ -36,6 +33,8 @@ from auto_patch_v2.model.airport import OsmWay
 from auto_patch_v2.model.deck_stack import DeckStack, StackDeck
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
+from shapely import affinity
+from shapely.geometry import LineString, Point, Polygon, box
 
 LAW = Law.for_airport("")
 THICK = LAW.tables.structures.basin.min_solid_thickness_m

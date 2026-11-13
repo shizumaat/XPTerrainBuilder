@@ -184,13 +184,14 @@ def test_an_msl_row_is_read_and_keeps_its_datum(tmp_path):
     models = _models(path, rows)
     m = models["dsf:obj0"]
     assert m.msl and m.datum == 12.0 and m.z0 == pytest.approx(0.0, abs=0.5)
-    assert set(TM.set_members(rows, models)) == {"dsf:obj0", "dsf:obj1"}
+    members = TM.set_members(rows, models)
+    assert set(members) == {"dsf:obj0", "dsf:obj1"}
 
     class _O:
-        def __init__(self, oid, agl):
-            self.id, self.path, self.agl_m, self.terrain_model = oid, "x.obj", agl, m
-    assert [r[3] for r in TM.frame_rows([_O("dsf:obj0", 12.0), _O("dsf:obj1", 12.0)])] \
-        == [0.0, 0.0]
+        # a loaded MSL row carries no AGL lift (``obj8.PlacedObject``)
+        def __init__(self, oid):
+            self.id, self.path, self.agl_m, self.terrain_model = oid, "x.obj", 0.0, members[oid]
+    assert [r[3] for r in TM.frame_rows([_O("dsf:obj0"), _O("dsf:obj1")])] == [0.0, 0.0]
 
 
 def test_a_smaller_piece_needs_one_orthophoto(tmp_path):
@@ -239,13 +240,14 @@ def test_an_msl_rider_moves_with_its_model(tmp_path):
                                  _dem(_hill, 400.0))
     assert set(models) == {"dsf:obj0"}
     got = TM.riders(rows, models, lambda d: parse_obj8(files[d]))
-    assert set(got) == {"dsf:obj1"} and got["dsf:obj1"] is models["dsf:obj0"]
+    assert set(got) == {"dsf:obj1"} and got["dsf:obj1"].id == "dsf:obj0"
     m = models["dsf:obj0"]
+    rows_of = {**TM.set_members(rows, models), **got}
 
     class _O:
-        def __init__(self, oid, agl):
-            self.id, self.path, self.agl_m, self.terrain_model = oid, "x.obj", agl, m
-    lifts = [r[3] for r in TM.frame_rows([_O("dsf:obj0", 430.0), _O("dsf:obj1", 560.0)])]
+        def __init__(self, oid):
+            self.id, self.path, self.agl_m, self.terrain_model = oid, "x.obj", 0.0, rows_of[oid]
+    lifts = [r[3] for r in TM.frame_rows([_O("dsf:obj0"), _O("dsf:obj1")])]
     assert lifts == [0.0, 130.0]
     # written at the seat plus that lift: the authored 560 m plus the move
     assert m.z0 + lifts[1] == pytest.approx(560.0 + (m.z0 - 430.0))

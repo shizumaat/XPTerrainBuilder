@@ -178,6 +178,10 @@ class TerrainModel:
     datum: float = 0.0
     #: the model row is ``OBJECT_MSL`` (its riders are, :func:`riders`)
     msl: bool = False
+    #: on a ROW's copy (:func:`set_members`, :func:`riders`): that row's
+    #: elevation less ``datum`` -- written at ``z0`` plus this; ``None`` on
+    #: a model no membership read (its row's own AGL lift is used)
+    lift: "float | None" = None
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -419,7 +423,7 @@ def set_members(placements: _t.Sequence[tuple],
                 models: _t.Mapping[str, TerrainModel]) -> dict[str, TerrainModel]:
     """Every placement id sharing an origin (xy, heading, elevation) with
     a terrain model, mapped to that model (the lowest seat where two
-    models share one frame)."""
+    models share one frame) -- a copy carrying the row's ``lift``."""
     by_id = {str(p[0]): p for p in placements}
     seeds: dict[tuple, TerrainModel] = {}
     for oid, m in models.items():
@@ -431,7 +435,8 @@ def set_members(placements: _t.Sequence[tuple],
             seeds[k] = m
     if not seeds:
         return {}
-    return {str(oid): seeds[k] for oid, _d, xy, h, e, kind in placements
+    return {str(oid): _dc.replace(seeds[k], lift=float(e or 0.0) - seeds[k].datum)
+            for oid, _d, xy, h, e, kind in placements
             if (k := _origin(xy, h, e, kind)) in seeds}
 
 
@@ -466,7 +471,9 @@ def riders(placements: _t.Sequence[tuple], models: _t.Mapping[str, TerrainModel]
     origin set whose covered plan lies at least :data:`RIDER_ON_PLAN` over
     an ``OBJECT_MSL`` model's plan and stands out of its top somewhere at
     the two authored heights, mapped to that model (the lowest seat where
-    two qualify).  ``geometry(def path)``: the parsed geometry or ``None``."""
+    two qualify), a copy carrying the row's ``lift`` (its authored height
+    over the model's).  ``geometry(def path)``: the parsed geometry or
+    ``None``; ``placements`` rows carry an ``OBJECT_MSL`` row's height."""
     own = [m for m in {m.id: m for m in models.values()}.values()
            if m.msl and not m.ground and not m.seat_by and m.file]
     if not own:
@@ -493,18 +500,24 @@ def riders(placements: _t.Sequence[tuple], models: _t.Mapping[str, TerrainModel]
             proud = float(elev) + grid.top[ii, jj][on] - (m.datum + under[on])
             if float(proud.max()) > 0.0 and (str(oid) not in out
                                             or m.z0 < out[str(oid)].z0):
-                out[str(oid)] = m
+                out[str(oid)] = _dc.replace(m, lift=float(elev) - m.datum)
     return out
 
 
 def frame_rows(objects: _t.Iterable[_t.Any]) -> tuple:
     """``Airport.terrain_models``: ``(id, def path, TerrainModel, lift)``
-    of every loaded placement carrying a model's frame, ``lift`` its own
-    elevation less the model's ``datum`` (a member of the origin set: 0;
-    a rider: its authored height over the model's)."""
-    return tuple((o.id, o.path, o.terrain_model,
-                  float(o.agl_m or 0.0) - float(getattr(o.terrain_model, "datum", 0.0)))
-                 for o in objects if getattr(o, "terrain_model", None) is not None)
+    of every loaded placement carrying a model's frame, ``lift`` the row's
+    own (``TerrainModel.lift``: its elevation less the model's ``datum`` --
+    a member of the origin set 0, a rider its authored height over the
+    model's), else its AGL lift."""
+    out = []
+    for o in objects:
+        m = getattr(o, "terrain_model", None)
+        if m is None:
+            continue
+        lift = getattr(m, "lift", None)
+        out.append((o.id, o.path, m, float(o.agl_m or 0.0) if lift is None else float(lift)))
+    return tuple(out)
 
 
 def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:

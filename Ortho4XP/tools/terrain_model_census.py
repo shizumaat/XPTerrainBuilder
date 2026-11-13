@@ -221,7 +221,8 @@ def main(argv=None) -> int:
             msl = (f" [MSL {row['authored_msl']:.2f}"
                    + (f", moves {row['z0'] - row['authored_msl']:+.2f}" if "z0" in row and
                       "corr" in row else "") + "]") if row.get("authored_msl") is not None else ""
-            extra = msl + (f" z0 {row['z0']:.2f} m corr {row['corr']:.2f} peak_err {row['peak_err']:.2f}"
+            extra = msl + (f" z0 {row['z0']:.2f} m corr {row['corr']:.2f}"
+                     f" peak_err {row['peak_err']:.2f}"
                      f" quality {row['quality_cover']:.0%}{' HIDEABLE' if row['hideable'] else ''}"
                      if "corr" in row else
                      f" z0 {row['z0']:.2f} m follow {row['follow']:.0%}" if "z0" in row else "")

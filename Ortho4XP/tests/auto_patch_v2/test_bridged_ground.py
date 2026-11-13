@@ -115,7 +115,7 @@ def test_the_origin_set_rides_the_island_on_the_terrain_model_path():
                                   else _geom(_island(arm=False, body=True) * 0.01))
     out = BG.mark(_airport(_sea()), objs, cache)
     got = {o.id: o for o in out}
-    assert got["dsf:obj0"].terrain_model is got["dsf:obj1"].terrain_model
+    assert got["dsf:obj0"].terrain_model == got["dsf:obj1"].terrain_model
     m = got["dsf:obj0"].terrain_model
     assert m.seat_by == BG.SEAT_BY and abs(m.z0 + 2.0) < 0.02 and not m.hideable
     assert got["dsf:obj0"].terrain_feature and got["dsf:obj0"].deck_kind == ""

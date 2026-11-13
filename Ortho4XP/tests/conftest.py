@@ -353,6 +353,43 @@ def _qt_user_files_never_reach_the_checkout(tmp_path_factory):
     yield
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _world_home_pointer_outlives_no_test(tmp_path_factory):
+    """The World-home pointer and its move, guarded for the WHOLE run, not
+    only inside a test (#2033): the Qt window's start runs
+    ``world_onboard(move_home=True)`` on a daemon thread that can outlive
+    the test that opened the window -- after the per-test fixture below
+    has undone its redirect, the pointer resolved to the checkout's
+    ``Ortho4XP/world_home.json`` (seen after
+    ``test_qt_layout_parity::test_qt_mode_panes_are_the_manifest``) and the
+    move ran for real.  Set here, never undone during the run, a test's
+    own monkeypatch restores to this session file and session guard."""
+    basetemp = tmp_path_factory.getbasetemp()
+    previous = os.environ.get("O4_WORLD_HOME_POINTER")
+    os.environ["O4_WORLD_HOME_POINTER"] = str(
+        basetemp / "world_home" / "session.json")
+    home = real_migrate = None
+    try:
+        import O4_File_Names as FNAMES
+        from o4_engine import world_home as home
+        real_migrate = home.migrate
+
+        def migrate(*args, **kwargs):
+            if scenery_outside_tmp(FNAMES.current_data_root(), basetemp):
+                kwargs["dry_run"] = True
+            return real_migrate(*args, **kwargs)
+        home.migrate = migrate
+    except Exception:                                   # pragma: no cover
+        pass
+    yield
+    if home is not None and real_migrate is not None:
+        home.migrate = real_migrate
+    if previous is None:
+        os.environ.pop("O4_WORLD_HOME_POINTER", None)
+    else:
+        os.environ["O4_WORLD_HOME_POINTER"] = previous
+
+
 @pytest.fixture(autouse=True)
 def _world_home_pointer_is_the_tests_own(monkeypatch, tmp_path_factory, request):
     """RULINGS 2026-11-12g/h: the data folder's World-home pointer

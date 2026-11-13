@@ -558,6 +558,37 @@ def test_a_level_floor_on_a_slope_is_not_a_sunken_road(objs, law):
     assert len(roads) == 1, rs.refused
 
 
+class _MoundDem:
+    """A 3 m mound over the fixture road's middle: 697 at both ends, 700 on top
+    (the fixture's anchor ground, so its zero stands; the plate at 697)."""
+    provenance = {"synthetic": "3 m mound, 120 m half-width"}
+
+    def z(self, x: float, y: float) -> float:
+        return 697.0 + 3.0 * max(0.0, 1.0 - abs(y) / 120.0)
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def test_a_level_floor_under_a_mound_keeps_its_cut(objs, law, monkeypatch):
+    """spec object-gate-member-floors §5 (KIAH's garage; owner Q3): a roofed
+    LEVEL plate with BOTH ends at grade and the ground rising through it in
+    between is cut to the plate, as 1.0.501 cut it, and named a level
+    floor; the switch off refuses it with lobjgate2's storey rule."""
+    import dataclasses
+
+    from auto_patch_v2.airport import sunken_roads as SR
+    airport, cache, objects = _read(objs, law, [("road_level", (0.0, 0.0), 0.0, 0.0, "OBJECT")])
+    airport = dataclasses.replace(airport, dem=_MoundDem())
+    roads, rs = read_sunken_roads(airport, objects, cache, law)
+    assert len(roads) == 1 and roads[0].level, rs.refused
+    assert max(z for _s, z in roads[0].profile) - min(z for _s, z in roads[0].profile) < 0.01
+    assert any("LEVEL FLOOR under a mound" in n for n in roads[0].notes)
+    monkeypatch.setattr(SR, "LEVEL_FLOOR_UNDER_MOUND", False)
+    roads, rs = read_sunken_roads(airport, objects, cache, law)
+    assert not roads and any("LEVEL" in r for r in rs.refused), rs.refused
+
+
 # --- lane ``gemltopology`` 2026-09-18: the GEML free-hole abort -------------
 #
 # THE MINIMAL OFFENDER, verbatim from the airport frame of GEML's

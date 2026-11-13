@@ -43,7 +43,7 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
     (i) READ OFF A VISIBLE CUT (owner RULINGS 2026-11-06d (6)): where a
     hidden shell stood over the corridor, ``visible`` is the profile its
     visible members' bottoms state along the axis
-    (``planar/channel_depth.cut_profile``) and it IS the pack's floor — a
+    (``planar/channel_depth.VisibleFloor.profile``) and it IS the pack's floor — a
     profile, never one flat datum, and never the hidden shell's faces.
 
     The clamp is stated as ``min over decks of (z_d + grade·|s − s_d|)``,

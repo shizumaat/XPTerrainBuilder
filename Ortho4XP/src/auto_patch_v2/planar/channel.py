@@ -60,8 +60,7 @@ from .channel_floor import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
                             channel_floor as _floor)
 from .channel_stretch import witnessed_stretch
 from .channel_strip import strip_refusal, strips_crossed
-from .channel_depth import (cut_feet, cut_halves, cut_points, cut_profile, cut_span,
-                            extend_axis)
+from .channel_depth import VisibleFloor, extend_axis
 from .structure_underpass import aeroway_decks
 from ..airport.dem import dem_z_at
 
@@ -645,8 +644,8 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # 2026-11-06d (6): A VISIBLE CUT over the corridor (a hidden shell's
     # members lying on it, ``planar/channel_depth``) reaches the ends to the
     # stations its members span
-    cut_pts = cut_points(cuts, axis_ln, cap)
-    span = cut_span(cut_pts)
+    vis = VisibleFloor(cuts, axis_ln, cap)
+    span = vis.span
     if span is not None:
         ends = (max(0.0, min(ends[0], span[0])), min(axis_ln.length, max(ends[1], span[1])))
     elif packs and _lidar_credible(airport, law):
@@ -675,10 +674,9 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         return (round(la, 7), round(lo_, 7))
 
     # ── (3) THE FLOOR DATUM, in the ruled precedence ───────────────────
-    feet = cut_feet(cut_pts, ss, step) if len(cut_pts) else None
     profile, datum, wall_shape, witness_name = _floor(
         airport, law, cid, grp, axis_ln, axis_fn, ss, decks, half_at, objects, stats,
-        packs, lidar, visible=cut_profile(feet, ss) if feet is not None else None)
+        packs, lidar, visible=vis.profile(ss, step, tn.object.shell_flat_m))
     if profile is None:
         return None
     # §45 (13) (a) A BRIDGE-ONLY WITNESS IS §34 (5)'s UNDERPASS (owner
@@ -764,16 +762,17 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         stats.datum_clearance += 1
 
     # 2026-11-06d (6): the visible cut's members state the floor's edge and
-    # the crest at every station (``planar/channel_depth.cut_halves``)
+    # the crest at every station (``planar/channel_depth.VisibleFloor.sides``)
     halves = crests = None
-    if feet is not None and witness_name == "visible cut":
-        halves, crests = cut_halves(
-            cut_pts, feet, ss, profile, step, tn.object.shell_flat_m, half_base, cap,
-            tn.wall_gap_m + tn.wall_band_width_m, ch.corridor_min_length_m)
-        half_at, width_src = max(halves), "the visible cut (2026-11-06d (6))"
-        widths = tuple((float(s), float(h)) for s, h in zip(ss, halves, strict=True))
+    pins = feet = ()
+    if vis.feet is not None and witness_name == "visible cut":
+        halves, crests, pins, feet = vis.sides(profile, axis_fn, half_base, cap, tn.wall_gap_m
+                                               + tn.wall_band_width_m,
+                                               ch.corridor_min_length_m, ch.foot_margin_m)
+        widths = tuple((float(s), max(a, b)) for s, a, b in zip(ss, *halves, strict=True))
+        half_at, width_src = max(h for _s, h in widths), "the visible cut (2026-11-06d (6))"
     # ── (5) THE WALLS: crest = the DESIGN surface, shape witness-first ──
-    left, right = _sides(axis_fn, ss, halves if halves is not None else half_at)
+    left, right = _sides(axis_fn, ss, *(halves or (half_at,)))
     walls = (ChannelWall("left", wall_shape, CREST_DESIGN, tuple(left), tuple(left),
                          witness_name),
              ChannelWall("right", wall_shape, CREST_DESIGN, tuple(right), tuple(right),
@@ -805,7 +804,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
                            law.tables.emit.identity.min_distinct_spacing_m),
                toe_top - half_at if wall_shape == "lidar" else 0.0,
                tn.wall_gap_m + tn.wall_band_width_m)
-    lo, ro = _sides(axis_fn, ss, crests if crests is not None else half_at + bank)
+    lo, ro = _sides(axis_fn, ss, *(crests or (half_at + bank,)))
     crest_ring = tuple(lo) + tuple(reversed(ro))
     wits = sorted(_wits(grp))
     notes = [f"{cid}: {len(grp)} way(s) within [channel] merge_m {ch.merge_m:.0f} m share the "
@@ -841,7 +840,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         crest_ring=crest_ring,
         region_ll=tuple(ll(p) for p in region),
         profile_ll=tuple((*ll(axis_fn(s)), float(z)) for s, z in profile),
-        notes=tuple(notes))
+        notes=tuple(notes), ledge_pins=pins, member_feet=feet)
 
 
 

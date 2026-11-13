@@ -7396,8 +7396,21 @@ def _check_channel_floor_at_declaration(ways, nodes, channel_declared) -> List[V
     return out
 
 
+def _channel_ledge_pins(channel_facilities) -> list:
+    """Sidecar rows -> ``[(lat, lon, z), ...]``: every visible cut's declared
+    LEDGE PINS (spec object-gate-member-floors §4.6); empty before it."""
+    out = []
+    for rec in (channel_facilities or []):
+        for q in (rec.get("ledge_pins") or ()) if isinstance(rec, dict) else ():
+            try:
+                out.append((float(q[0]), float(q[1]), float(q[2])))
+            except (TypeError, ValueError, IndexError):
+                continue
+    return out
+
+
 def _check_channel_crest_at_edge(ways, nodes, channel_declared,
-                                 tol_m: float) -> List[Violation]:
+                                 tol_m: float, ledge_pins=()) -> List[Violation]:
     """§45 (5): a channel's crest IS the governed cell's emitted level at
     the corridor edge -- ``crest = "design"``, never ``DEM(x, y)``, which
     at LGAV stands 2-4 m under the real rim.
@@ -7408,7 +7421,8 @@ def _check_channel_crest_at_edge(ways, nodes, channel_declared,
     sharing its id -- where the weld did not join them and a step could
     hide.  A crest node on bare adjacent ground has no governed
     neighbour: it is not judged, because (5) forbids pinning it at the
-    DEM and the zone laws govern it."""
+    DEM and the zone laws govern it.  A crest node within ``tol_m`` of a
+    declared LEDGE PIN is judged against the pin (``ledge_pins``)."""
     out: List[Violation] = []
     if not channel_declared:
         return out
@@ -7433,6 +7447,17 @@ def _check_channel_crest_at_edge(ways, nodes, channel_declared,
             if z is None or nid not in nodes:
                 continue
             lat, lon = nodes[nid]
+            pin = min(((_hav_m(lat, lon, pla, plo), pz) for pla, plo, pz in ledge_pins),
+                      default=None)
+            if pin is not None and pin[0] <= tol_m:
+                if abs(z - pin[1]) > _CHANNEL_TOL_M:
+                    v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=pin[0],
+                                  de_m=abs(z - pin[1]), way_a=w, way_b=w,
+                                  pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+                                  elev_a=z, elev_b=pin[1])
+                    v.lat, v.lon = lat, lon
+                    out.append(v)
+                continue
             best = None
             for gla, glo, gz, gw in ground:
                 d = _hav_m(lat, lon, gla, glo)
@@ -13564,7 +13589,8 @@ def run_checks(
     within = within + channel_floor
     channel_crest = _fam(
         "channel_crest_at_edge",
-        _check_channel_crest_at_edge(ways, nodes, channel_declared, proximity_m))
+        _check_channel_crest_at_edge(ways, nodes, channel_declared, proximity_m,
+                                     _channel_ledge_pins(channel_facilities)))
     _pv("CHANNEL CREST off the governed cell it edges (§45 (5): crest = "
         "\"design\" — the SOLVED surface at the corridor edge, never DEM)",
         channel_crest, top_n)

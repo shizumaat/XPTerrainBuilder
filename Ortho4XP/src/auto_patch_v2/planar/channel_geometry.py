@@ -238,20 +238,27 @@ def _deck_ring(axis_fn, s0: float, s1: float, half: float) -> tuple[XY, ...]:
     return tuple(left) + tuple(reversed(right))
 
 
-def _sides(axis_fn, ss: _t.Sequence[float], half: "float | _t.Sequence[float]"
+def _sides(axis_fn, ss: _t.Sequence[float], half: "float | _t.Sequence[float]",
+           right_half: "float | _t.Sequence[float] | None" = None
            ) -> tuple[list[XY], list[XY]]:
     """The two sides of the corridor at ``half`` from the axis — one value,
-    or one per station of ``ss`` (a visible cut's widths)."""
+    or one per station of ``ss`` (a visible cut's widths); ``right_half``
+    the right side's where it differs (a visible cut's sides, spec
+    object-gate-member-floors §4.2)."""
     left: list[XY] = []
     right: list[XY] = []
-    halves = [float(half)] * len(ss) if isinstance(half, (int, float)) else list(half)
-    for s, half in zip(ss, halves, strict=True):
+
+    def per(h):
+        return [float(h)] * len(ss) if isinstance(h, (int, float)) else list(h)
+    halves = per(half)
+    rights = halves if right_half is None else per(right_half)
+    for s, half, rh in zip(ss, halves, rights, strict=True):
         p = axis_fn(s)
         a, b = axis_fn(max(0.0, s - 1.0)), axis_fn(s + 1.0)
         u = unit(a, b)
         nv = (-u[1], u[0])
         left.append((p[0] + nv[0] * half, p[1] + nv[1] * half))
-        right.append((p[0] - nv[0] * half, p[1] - nv[1] * half))
+        right.append((p[0] - nv[0] * rh, p[1] - nv[1] * rh))
     return left, right
 
 

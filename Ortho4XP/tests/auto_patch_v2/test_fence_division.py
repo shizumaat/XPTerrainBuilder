@@ -11,15 +11,17 @@ from __future__ import annotations
 
 import types
 
-from shapely.geometry import LineString, box
-
 from auto_patch_v2.classify.airside_edge import airside_edge_flip, mapped_car_park
-from auto_patch_v2.classify.fence_division import (FENCE_BARRIER_TAGS,
-                                                    airside_both_sides, fence_band,
-                                                    fence_lines)
+from auto_patch_v2.classify.fence_division import (
+    FENCE_BARRIER_TAGS,
+    airside_both_sides,
+    fence_band,
+    fence_lines,
+)
 from auto_patch_v2.classify.rules import load_rules
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import EdgeLine, OsmWay
+from shapely.geometry import LineString, box
 
 LAW = Law.for_airport("SYNT")
 RULES = load_rules()
@@ -45,8 +47,9 @@ def test_a_mapped_car_park_is_not_flipped_by_its_apron_edge():
 
 
 def test_the_source_record_publishes_its_parking_cover():
-    from auto_patch_v2.classify.sources import SourceRecord
     import dataclasses as dc
+
+    from auto_patch_v2.classify.sources import SourceRecord
     f = {x.name: 0 for x in dc.fields(SourceRecord)}
     f.update(id="s", description="", cls="lot", reason="", taxi_name="",
              taxi_designator="", parking_cover=0.8)

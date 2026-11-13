@@ -102,7 +102,8 @@ class FenceBand:
         """The run of ``contact`` (a line geometry) a fence runs along."""
         near = contact.intersection(self.geom)
         segs = [LineString([p, q]) for g in getattr(near, "geoms", [near])
-                if g.geom_type == "LineString" for p, q in zip(g.coords, list(g.coords)[1:])]
+                if g.geom_type == "LineString"
+                for p, q in zip(g.coords, list(g.coords)[1:], strict=False)]
         keep = [s for s in segs if s.length > 0.0 and self._parallel(s)]
         return unary_union(keep) if keep else None
 

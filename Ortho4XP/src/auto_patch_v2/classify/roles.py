@@ -795,8 +795,13 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # the lot is cut back along it, ``storey_edge``)
     # (and airside never crosses a fence, RULINGS 2026-11-13s (2))
     from .airside_edge import EDGE_CANDIDATES
-    from .fence_division import (airside_both_sides, fence_band, fence_lines,
-                                 rejoin_unsplit, split_at_fences)
+    from .fence_division import (
+        airside_both_sides,
+        fence_band,
+        fence_lines,
+        rejoin_unsplit,
+        split_at_fences,
+    )
     from .storey_edge import knife_storeys, storey_band
     fences = fence_lines(airport, rules)
     fence_cut = split_at_fences(final, fences, EDGE_CANDIDATES, rules)

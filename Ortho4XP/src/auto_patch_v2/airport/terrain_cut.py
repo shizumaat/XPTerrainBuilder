@@ -11,7 +11,7 @@ the object covers it -- the way the patch under a terrain-shaped deck is
 drawn to the deck (#1730, ``geom/terrain_deck.target_at``), here with
 ``fill`` off: the ground is only ever lowered.
 
-THE CUT SURFACE (:func:`cut_grid`, on the model's own plan grid, metres
+THE CUT SURFACE (:func:`_cut_grid`, on the model's own plan grid, metres
 over its zero): inside the plan the ground stands at most at
 
     erode(top, ERODE_M) - UNDER_M
@@ -36,19 +36,32 @@ THE CONSUMER CENSUS (CLAUDE.md, RULINGS 2026-08-30l), ruled before any
 consumer was edited.  The region is the tile ``.alt`` raster inside a
 non-hidden terrain model's plan, after the airport patches are built:
 
-| consumer | reads the region | ruling |
-|---|---|---|
-| Triangle4XP (mesh step) | the ``.alt`` | CUT -- the purpose |
-| tile edge (gluing edges; the neighbour's raster) | ``.alt`` at the edge | never cut within two postings of the tile edge (the neighbour is not) |
-| the plan's edge | -- | a DUMMY constrained ring, sampled on the cut raster |
-| the auto patch's DEM (``ProductionDem``: the seat, the match) | the corpus, not the ``.alt`` | UNCUT: the seat is read on the ground the object models |
-| a patch face inside the plan | its ``alt_abs`` nodes | the patch is the ground there (INTERP_ALT keeps its own values) |
-| roads, unpatched airports, water (step 1, after the cut) | ``tile.dem`` | follow the cut ground: under the object, hidden with it |
-| pack ``OBJECT`` / ``AGL`` rows, autogen in the plan (X-Plane, the object stage) | the drawn mesh | follow the cut ground, under the object; the model's origin set is ``OBJECT_MSL`` and does not move |
-| masks step, DSF elevation raster, coastline vetting | the raw source DEM | UNCUT (not the drawn ground) |
-| mesh-step refinement re-bake (``tile.iterate``) | rewrites the ``.alt`` | re-applies the cut |
-| step reuse | the hide answers | a vector-step input: an answer re-runs the cut |
-| "Hide terrain objects" (``drape_stage.TERRAIN``) | the answer | a hidden model is not cut: the ground is the plain DEM |
+* Triangle4XP (mesh step) reads the ``.alt``: CUT -- the purpose.
+* The tile's edge (gluing edges; the neighbour's raster is not cut):
+  never cut within two postings of it.
+* The plan's edge: a DUMMY constrained ring, sampled on the cut raster.
+* The auto patch's DEM (``ProductionDem``: the seat, the match) reads the
+  corpus, not the ``.alt``: UNCUT -- the seat is read on the ground the
+  object models.
+* A patch face inside the plan: its ``alt_abs`` nodes are the ground
+  there (INTERP_ALT keeps its own values).
+* Roads and unpatched airports (step 1, after the cut) read ``tile.dem``:
+  they follow the cut ground, under the object.
+* Sea and water triangles: the water is a datum (RULINGS 2026-09-09m), its
+  vertices stay at the water level, so the cut never reaches under water;
+  a skirt modelled below the water surface stays under the water (SBRJ's
+  Sugarloaf: 15.5 % of its plan, the skirt 5-27 m deep).
+* The pack's ``OBJECT`` / ``AGL`` rows and autogen in the plan (X-Plane,
+  the object stage) stand on the drawn mesh: they follow the cut ground,
+  under the object; the model's origin set is ``OBJECT_MSL`` and stays.
+* The masks step, the DSF elevation raster, the coastline vetting read
+  the raw source DEM: UNCUT (not the drawn ground).
+* The mesh step's refinement re-bake (``tile.iterate``) rewrites the
+  ``.alt``: it re-applies the cut.
+* Step reuse: the set of models cut is a vector-step input, so a hide
+  answer re-runs the cut.
+* "Hide terrain objects" (``drape_stage.TERRAIN``): a hidden model is not
+  cut -- the ground under it is the plain DEM.
 
 Pure geometry: the tile glue that reads the plans and writes the raster is
 ``auto_patch/terrain_cut_stage``.
@@ -62,7 +75,7 @@ import numpy as np
 
 from ..geom.terrain_deck import CELL_M, DeckGrid, TerrainFit, target_at
 
-__all__ = ["ERODE_M", "BAND_M", "cut_grid", "cut_fit", "projector", "cut_heights",
+__all__ = ["ERODE_M", "BAND_M", "cut_fit", "projector", "cut_heights",
            "outline_rings", "plan_box"]
 
 #: the radius the top is eroded over inside the plan (module doc): wider
@@ -72,7 +85,7 @@ ERODE_M = 30.0
 BAND_M = 10.0
 
 
-def cut_grid(grid: DeckGrid) -> DeckGrid:
+def _cut_grid(grid: DeckGrid) -> DeckGrid:
     """The CUT SURFACE of a model's plan grid (module doc) as a
     :class:`DeckGrid` whose ``top`` is the bound (``bot`` the model's own;
     the cut never fills)."""
@@ -97,7 +110,7 @@ def cut_grid(grid: DeckGrid) -> DeckGrid:
 def cut_fit(grid: DeckGrid, zero: float, heading: float) -> TerrainFit:
     """The cut as a :class:`TerrainFit` anchored at the frame origin (the
     model's anchor), seated at ``zero``, filling nothing."""
-    cut = cut_grid(grid)
+    cut = _cut_grid(grid)
     return TerrainFit("cut", "", (0.0, 0.0), float(heading), float(zero), 1.0,
                       cut.area_m2, 0.0, cut, fill=False)
 
@@ -107,6 +120,7 @@ def projector(lat: float, lon: float) -> tuple[_t.Callable, _t.Callable]:
     north of the anchor (the transverse Mercator the airport frames use,
     centred on the anchor, so its north is the object's)."""
     from pyproj import Transformer
+
     from ..model.frame import Frame
     crs = Frame("", (float(lat), float(lon)), 11).crs
     fwd = Transformer.from_crs("EPSG:4326", crs, always_xy=True)

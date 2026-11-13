@@ -30,14 +30,14 @@ import numpy as np
 
 from . import pack_choice as _PC
 
-__all__ = ["cut_records", "bake", "apply", "hidden"]
+__all__ = ["cut_records", "bake", "apply"]
 
 #: the raster postings left uncut at the tile's edge (the neighbour's
 #: raster is not cut, and the two must meet)
 _EDGE_POSTS = 2
 
 
-def hidden(rec: _t.Mapping[str, _t.Any], pack_root: str) -> bool:
+def _hidden(rec: _t.Mapping[str, _t.Any], pack_root: str) -> bool:
     """The user hides this model: it is offered (``hideable``) and the
     pack's "Hide terrain objects" answer is ``update``."""
     return bool(rec.get("hideable")) and \
@@ -64,7 +64,7 @@ def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
         root = str(plan.get("pack_root") or "")
         for rec in plan.get("authored_seats") or ():
             if (isinstance(rec, dict) and rec.get("seat") == _tm.SEAT
-                    and isinstance(rec.get("cut"), dict) and not hidden(rec, root)):
+                    and isinstance(rec.get("cut"), dict) and not _hidden(rec, root)):
                 out.append(dict(rec, icao=plan.get("icao", "")))
     return out
 

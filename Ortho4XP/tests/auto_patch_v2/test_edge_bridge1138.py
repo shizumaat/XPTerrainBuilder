@@ -122,7 +122,8 @@ def test_the_cover_is_covered_ground_and_the_back_one_walled_mouth(tmp_path, mon
     mouth piece, the object's depth tall, taking in the object beyond it."""
     br = _bridge(tmp_path)
     cells = [types.SimpleNamespace(role="primary_parallel", ref="t1", kind="pavement")]
-    monkeypatch.setattr(CG, "standing_cover", lambda _c: (cells, [], [PAV]))
+    # the airside pavement (``structure_service.airside_cover``): one taxiway
+    monkeypatch.setattr(CG, "airside_cover", lambda _c, _law: [PAV])
     cl = types.SimpleNamespace(cells=tuple(cells))
     ap = types.SimpleNamespace(dem=_Dem(), osm_ways=list(_cut()[0][0].ways))
     xs = np.array([25.0, 0.0])          # outside the ribbon (|x| > 20) / inside

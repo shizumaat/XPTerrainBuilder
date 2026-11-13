@@ -47,11 +47,20 @@ KASE condos, KCRW's runway-end fill), never a hill.  An object of
 (``ground_shell``), never this module's.  The match below is the same
 for both.
 
-AN ``OBJECT_MSL`` ROW is read like any other (#2064: LOWS's town rock,
-LXGB's Rock of Gibraltar, TFFJ's coast are all placed at an MSL height
-the author chose against X-Plane's own mesh, not ours).  Its datum is
-kept on the model (``TerrainModel.datum``) so every row of its frame
-keeps its authored height relative to it.
+AN ``OBJECT_MSL`` ROW is recognised like any other (#2064: LOWS's town
+rock, LXGB's Rock of Gibraltar, TFFJ's coast, KSEZ's buttes) and KEEPS ITS
+AUTHOR'S HEIGHT: an absolute datum is the author's statement of where the
+ground is (owner RULINGS 2026-10-20aq: a whole mountain "should be seated
+as the author intended"), so its frame is written ``OBJECT_MSL`` at that
+height -- never converted to on-ground (RULINGS 2026-09-11d threw LOWS's
+rock 91 m and TFFJ's pieces 23-114 m into the air on their origins) --
+and the terrain under it is cut (13k).  The no-float seat below is for a
+row with no datum of its own; on an MSL row it is only REPORTED, as how far
+an edge stands over our ground at the authored height
+(``TerrainModel.floats_m``).  The census over the frames corpus read the
+rim seat on MSL rows as a move of -90 to +29 m (KSEZ's buttes), -20.6 m
+(LOWS) and -10 m (LXGB, a rim cell on a sea cliff), against an author
+whose edges meet the ground.
 
 THE MATCH (the DEM under the placement, :func:`match`): the top surface
 sampled over its covered cells follows the ground --
@@ -79,8 +88,9 @@ RIDERS (#2064, LOWS's fortress on its rock): an ``OBJECT_MSL`` row of
 ANOTHER origin over an ``OBJECT_MSL`` terrain model's plan -- at least
 :data:`RIDER_ON_PLAN` of its covered cells inside the model's, and some of
 it standing out of the model's top at the two authored heights -- was
-authored against that model at an absolute height: it moves with the model
-(:func:`riders`), written at its authored height plus the model's move.
+authored against that model at an absolute height: it is of the model's
+frame (:func:`riders`), written at its authored height with it -- never
+converted onto its own origin (LOWS's fortress: -6.3 m).
 Only that pair is certain (owner RULINGS 2026-11-13r: any doubt, and an
 object stays where its author placed it); a terrain-relative row over the
 plan is left to the object stage.
@@ -190,6 +200,9 @@ class TerrainModel:
     #: elevation less ``datum`` -- written at ``z0`` plus this; ``None`` on
     #: a model no membership read (its row's own AGL lift is used)
     lift: "float | None" = None
+    #: an ``OBJECT_MSL`` model kept at its author's height: how far its
+    #: outer rim stands over our ground there (the no-float seat's reading)
+    floats_m: float = 0.0
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -425,11 +438,16 @@ def placement_models(placements: _t.Sequence[tuple],
             continue
         hideable = (m["quality_cover"] >= MIN_QUALITY_COVER
                     and m["corr"] >= MIN_QUALITY_CORR)
-        out[str(oid)] = TerrainModel(str(oid), str(dpath), xy2, float(heading), m["z0"],
+        z0, floats = m["z0"], 0.0
+        if kind == "OBJECT_MSL" and elev is not None:
+            # the author's datum stands (module doc); the rim is reported
+            z0, floats = float(elev), max(0.0, float(elev) - m["z0"])
+        out[str(oid)] = TerrainModel(str(oid), str(dpath), xy2, float(heading), z0,
                                      m["corr"], m["peak_err"], m["fit_m"],
                                      shape.grid.area_m2, shape.relief_m,
                                      m["quality_cover"], hideable, str(path_of(dpath) or ""),
-                                     datum=float(elev or 0.0), msl=kind == "OBJECT_MSL")
+                                     datum=float(elev or 0.0), msl=kind == "OBJECT_MSL",
+                                     floats_m=floats)
     return out
 
 
@@ -591,7 +609,8 @@ def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:
         return f"[{icao}] terrain-modelling objects: none"
     return f"[{icao}] terrain-modelling objects: " + "; ".join(
         f"{m.path} ({m.id}) seated at {m.z0:.2f} m (no edge floats"
-        + (f"; authored MSL {m.datum:.2f} m" if m.msl else "") + "), top follows "
+        + (f"; the author's MSL, an edge {m.floats_m:.1f} m over our ground" if m.msl else "")
+        + "), top follows "
         f"the DEM r={m.corr:.2f}, peak off {m.peak_err:.0%} of {m.relief_m:.0f} m, "
         f"{m.area_m2:,.0f} m2" + (f", hideable ({m.quality_cover:.0%} under quality "
                                   f"elevation)" if m.hideable else "")

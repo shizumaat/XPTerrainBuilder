@@ -183,7 +183,9 @@ def test_an_msl_row_is_read_and_keeps_its_datum(tmp_path):
             ("dsf:obj2", "car.obj", (0.0, 0.0), 0.0, None, "OBJECT")]
     models = _models(path, rows)
     m = models["dsf:obj0"]
-    assert m.msl and m.datum == 12.0 and m.z0 == pytest.approx(0.0, abs=0.5)
+    # the author's height stands; the rim seat (0 m here) is reported
+    assert m.msl and m.datum == 12.0 and m.z0 == 12.0
+    assert m.floats_m == pytest.approx(12.0, abs=0.5)
     members = TM.set_members(rows, models)
     assert set(members) == {"dsf:obj0", "dsf:obj1"}
 
@@ -251,8 +253,8 @@ def test_an_msl_rider_moves_with_its_model(tmp_path):
             self.id, self.path, self.agl_m, self.terrain_model = oid, "x.obj", 0.0, rows_of[oid]
     lifts = [r[3] for r in TM.frame_rows([_O("dsf:obj0"), _O("dsf:obj1")])]
     assert lifts == [0.0, 130.0]
-    # written at the seat plus that lift: the authored 560 m plus the move
-    assert m.z0 + lifts[1] == pytest.approx(560.0 + (m.z0 - 430.0))
+    # written with the model at its author's height: the rider at its own
+    assert m.z0 == 430.0 and m.z0 + lifts[1] == 560.0
 
 
 def test_the_hidden_definitions_of_a_dump():

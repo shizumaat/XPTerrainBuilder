@@ -199,6 +199,11 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
             if kind == "OBJECT_MSL":
                 # #2064: an MSL row is read too; its author's height is kept
                 rec["authored_msl"] = elev
+            if m and kind == "OBJECT_MSL" and elev is not None:
+                # #2064: an MSL model keeps its author's height; the rim
+                # seat is how far an edge stands over the ground there
+                m["floats_m"] = max(0.0, elev - m["z0"])
+                m["z0"] = elev
             if m:
                 rec.update({k: round(v, 3) for k, v in m.items()})
                 rec["hideable"] = bool(m["quality_cover"] >= TM.MIN_QUALITY_COVER
@@ -218,9 +223,9 @@ def main(argv=None) -> int:
     for r in report:
         print(f"== {r['pack']}: gates {r['gates']}")
         for row in r["rows"]:
-            msl = (f" [MSL {row['authored_msl']:.2f}"
-                   + (f", moves {row['z0'] - row['authored_msl']:+.2f}" if "z0" in row and
-                      "corr" in row else "") + "]") if row.get("authored_msl") is not None else ""
+            msl = (f" [MSL {row['authored_msl']:.2f} kept"
+                   + (f", an edge {row['floats_m']:.2f} m over the ground" if "floats_m" in row
+                      else "") + "]") if row.get("authored_msl") is not None else ""
             extra = msl + (f" z0 {row['z0']:.2f} m corr {row['corr']:.2f}"
                      f" peak_err {row['peak_err']:.2f}"
                      f" quality {row['quality_cover']:.0%}{' HIDEABLE' if row['hideable'] else ''}"

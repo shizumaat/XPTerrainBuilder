@@ -19,6 +19,8 @@ pack holds only as a placeholder with no file of it goes in at once
 * a DRAPE swapped in (it has no build folder) gets its index rows from
   the pack's own files (``imagery_follow_drape.register``, #2037), so the
   follow job sharpens it like any on-demand tile;
+* a full build of ours supersedes the tile's adopt record from Convert
+  (``world_adopt_supersede``, #2047): the map and Library say built here;
 * the tile's own ``zOrtho4XP_<tile>`` link to the same build folder is
   removed: the World pack draws the tile ("instead of a new
   ``zOrtho4XP_<tile>`` folder", §4.1); ``O4_Scenery_Links.install``
@@ -155,11 +157,25 @@ def _after_swap(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
                              "tile": WP.tile_name(lat, lon)})
         return
     DRAPE_ROWS.forget(lat, lon)         # a drape it replaces (#2037)
+    _supersede(scenery_dir, build_dir, lat, lon)
     write_layout(build_dir, lat, lon, WORLD.pack_dir(scenery_dir))
     with contextlib.suppress(Exception):     # the index is a cache
         ONDEMAND.register_tiles([(build_dir, lat, lon)])
     with contextlib.suppress(ValueError, OSError):
         LINKS.uninstall(lat, lon, build_dir, scenery_dir)
+
+
+def _supersede(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
+    """Our full build retires the tile's adopt record (#2047)."""
+    from . import world_adopt_supersede as SUPERSEDE
+    try:
+        done = SUPERSEDE.supersede(scenery_dir, build_dir, lat, lon)
+    except (OSError, ValueError) as error:  # logged; the next start retries
+        WORLD.write_log({"supersede_error": repr(error)[:300],
+                         "tile": WP.tile_name(lat, lon)})
+        return
+    if any(done.values()):
+        WORLD.write_log({"adopt_superseded": [WP.tile_name(lat, lon)], **done})
 
 
 def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,

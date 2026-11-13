@@ -302,7 +302,8 @@ def built_here(build_dir: str, lat: int, lon: int,
 
 def adopted_record(build_dir: str) -> dict:
     """The :data:`ADOPTED_STAMP` of ``build_dir`` (``{}`` when it has
-    none or it does not read)."""
+    none, it does not read, or a full build of ours has superseded it:
+    ``o4_engine.world_adopt_supersede``, #2047)."""
     import json
     try:
         with open(os.path.join(build_dir, ADOPTED_STAMP),
@@ -310,7 +311,9 @@ def adopted_record(build_dir: str) -> dict:
             record = json.load(handle)
     except (OSError, ValueError):
         return {}
-    return record if isinstance(record, dict) else {}
+    if not isinstance(record, dict) or record.get("superseded"):
+        return {}
+    return record
 
 
 def ours(build_dir: str, lat: int, lon: int,

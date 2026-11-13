@@ -216,25 +216,17 @@ def _shape(path: str) -> "Shape | None":
     return Shape(grid, plan, float(hi - lo), spread)
 
 
-@functools.lru_cache(maxsize=64)
-def _file_grid(path: str, mtime_ns: int, size: int) -> "DeckGrid | None":
+def plan_grid(path: str) -> "DeckGrid | None":
+    """The plan grid of an OBJ8 file's static solid -- the grid a seat
+    record's ``cut`` is made from (``auto_patch/terrain_cut_stage``), for a
+    terrain model and for a ground object on its bridges
+    (``bridged_ground``) alike; ``None`` when unreadable.  Read fresh: the
+    tile build asks it once per record and step."""
     from .obj8 import parse_obj8
     try:
         return _grid(parse_obj8(path))
     except (OSError, ValueError):
         return None
-
-
-def plan_grid(path: str) -> "DeckGrid | None":
-    """The plan grid of an OBJ8 file's static solid -- the grid a seat
-    record's ``cut`` is made from (``auto_patch/terrain_cut_stage``), for a
-    terrain model and for a ground object on its bridges
-    (``bridged_ground``) alike; ``None`` when unreadable."""
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None
-    return _file_grid(path, st.st_mtime_ns, st.st_size)
 
 
 @functools.lru_cache(maxsize=256)

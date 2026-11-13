@@ -66,7 +66,7 @@ _WAY = [(-1, LineString([(80.0, 0.0), (155.0, 0.0)]))]
 def test_the_arm_end_meets_the_shore():
     """The deck stops at x 150, 5 m short of the mapped end: its top there
     (4.0) is put on the shore 1.5 m beyond (2.0) -- zero -2.0."""
-    ends = BG.arm_ends(_island(), (0.0, 0.0), 0.0, _WAY, _dem, _sea())
+    ends = BG._arm_ends(_island(), (0.0, 0.0), 0.0, _WAY, _dem, _sea())
     assert len(ends) == 1
     e = ends[0]
     assert abs(e.xy[0] - 150.0) <= BG.STEP_M and abs(e.xy[1]) < 1e-6
@@ -77,17 +77,17 @@ def test_the_arm_end_meets_the_shore():
 def test_a_bridge_of_its_own_is_no_arm():
     """A deck that stops at both ends (no body behind the way) is a bridge,
     the deck law's -- not an arm of a ground object."""
-    assert BG.arm_ends(_island(body=False), (0.0, 0.0), 0.0, _WAY, _dem, _sea()) == []
+    assert BG._arm_ends(_island(body=False), (0.0, 0.0), 0.0, _WAY, _dem, _sea()) == []
 
 
 def test_an_end_over_water_is_no_arm():
-    assert BG.arm_ends(_island(), (0.0, 0.0), 0.0, _WAY, _dem, _sea(shore_x=1e9)) == []
+    assert BG._arm_ends(_island(), (0.0, 0.0), 0.0, _WAY, _dem, _sea(shore_x=1e9)) == []
 
 
 def test_the_ring_outside_the_island_is_read_for_water():
     tris = _island()
-    assert BG.rim_water_share(tris, (0.0, 0.0), 0.0, _sea()) > 0.9
-    land = BG.rim_water_share(tris, (0.0, 0.0), 0.0,
+    assert BG._rim_water_share(tris, (0.0, 0.0), 0.0, _sea()) > 0.9
+    land = BG._rim_water_share(tris, (0.0, 0.0), 0.0,
                               lambda xs, ys: np.zeros(len(np.asarray(xs)), dtype=bool))
     assert land == 0.0
 

@@ -62,8 +62,8 @@ import numpy as np
 from ..geom.terrain_deck import CELL_M
 
 __all__ = ["MIN_PLAN_M", "MIN_RIM_WATER", "EXTEND_M", "CONTINUE_M", "GAP_M",
-           "PROBE_M", "TOP_SPAN_M", "STEP_M", "ERODE_M", "RING_M", "SEAT_BY", "ArmEnd",
-           "arm_ends", "rim_water_share", "mark", "log_line"]
+           "PROBE_M", "TOP_SPAN_M", "STEP_M", "ERODE_M", "RING_M", "SEAT_BY",
+           "mark", "log_line"]
 
 #: the least longer plan side of the object's static solid (m)
 MIN_PLAN_M = 100.0
@@ -94,7 +94,7 @@ SEAT_BY = "bridge ends"
 
 
 @_dc.dataclass(frozen=True)
-class ArmEnd:
+class _ArmEnd:
     """One arm's far end: the way, where the deck stops (frame metres), the
     authored deck top there, the ground beyond it and the zero that puts
     the one on the other."""
@@ -200,16 +200,16 @@ def _far_end(cov: np.ndarray, s: np.ndarray, total: float) -> "int | None":
     return None
 
 
-def arm_ends(tris: np.ndarray, xy: _t.Sequence[float], heading: float,
+def _arm_ends(tris: np.ndarray, xy: _t.Sequence[float], heading: float,
              ways: _t.Sequence[tuple[int, _t.Any]],
              dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
              water_many: "_t.Callable[[np.ndarray, np.ndarray], np.ndarray] | None"
-             ) -> list[ArmEnd]:
+             ) -> list[_ArmEnd]:
     """Every ARM'S FAR END (module doc) of one placement of ``tris``
     (authored static solid) at ``xy`` / ``heading``, along the mapped
     bridges ``ways`` (``deck_signature.bridge_lines``, frame)."""
     lo, hi = tris.min(axis=(0, 1)), tris.max(axis=(0, 1))
-    out: list[ArmEnd] = []
+    out: list[_ArmEnd] = []
     for wid, line in ways:
         pts = np.asarray(line.coords, dtype=float)[:, :2]
         if len(pts) < 2:
@@ -233,12 +233,12 @@ def arm_ends(tris: np.ndarray, xy: _t.Sequence[float], heading: float,
                 continue
             if water_many is not None and bool(np.asarray(water_many(pe, pn))[0]):
                 continue
-            out.append(ArmEnd(int(wid), (float(st[e][0]), float(st[e][1])),
+            out.append(_ArmEnd(int(wid), (float(st[e][0]), float(st[e][1])),
                               float(np.median(top[span])), g))
     return out
 
 
-def rim_water_share(tris: np.ndarray, xy: _t.Sequence[float], heading: float,
+def _rim_water_share(tris: np.ndarray, xy: _t.Sequence[float], heading: float,
                     water_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray]
                     ) -> float:
     """The share of the plan cells within :data:`RING_M` OUTSIDE the
@@ -294,8 +294,8 @@ def _models(airport: _t.Any, objects: _t.Sequence[_t.Any], cache: _t.Any) -> dic
         tris = None if g is None else _static_tris(g)
         if tris is None or float(np.ptp(tris[:, :, [0, 2]], axis=(0, 1)).max()) < MIN_PLAN_M:
             continue
-        ends = arm_ends(tris, o.xy, o.heading_deg, ways, dem_many, water)
-        if not ends or rim_water_share(tris, o.xy, o.heading_deg, water) < MIN_RIM_WATER:
+        ends = _arm_ends(tris, o.xy, o.heading_deg, ways, dem_many, water)
+        if not ends or _rim_water_share(tris, o.xy, o.heading_deg, water) < MIN_RIM_WATER:
             continue
         zeros = [a.zero for a in ends]
         out[str(o.id)] = TerrainModel(

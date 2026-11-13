@@ -113,6 +113,14 @@ class Portal:
     #: abuts it, the face's top is that pavement's level
     #: (``constraints/airside_top``); ``None`` otherwise
     top_plan: object = None
+    #: #1938 (RULINGS 2026-11-13h, round 2 S2/S3): an ENTRANCE object's
+    #: WALL REACH -- how far its solids hanging ``shell_floor_min_m`` or more
+    #: under its zero run along the approach from the end (metres; inside it
+    #: the trench is senior to a pad) -- and its WALL-FOOT GRADE, the slope of
+    #: the lowest solid along that reach (the ramp's design grade there,
+    #: ``trench_objects.wall_feet``); ``0.0`` for any other pin
+    wall_reach_m: float = 0.0
+    foot_grade: float = 0.0
     #: #1949: a ROOFED portal's zero as its row reads (``below_grade_witness
     #: .zero_of``): off the road its roof states at the bore end, its own
     #: floor is the cut there (``airport/portal_floor``); ``None`` with no

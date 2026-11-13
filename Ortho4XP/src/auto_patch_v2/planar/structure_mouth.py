@@ -92,7 +92,7 @@ from ..model.planar import OSM_RIBBON_FEEDS, ROAD_ROLES
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
            "road_end_after_slide", "covered_stretch", "own_road_blade", "road_over_mouth",
-           "portal_note",
+           "portal_note", "pinned_trench_notes",
            "PORTAL_YIELDS", "strip_keepout",
            "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth", "edge_wall_mouth", "face_top_z"]
 
@@ -569,7 +569,10 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     slid.  The stops are read at the mapped mouth; those the mouth's own
     end (its cap and first spacing of ramp, ``mouth_ring``) stands in are
     the portal's opening and dropped, building pads alike (the portal's own
-    footprint) — the rest end the ramp's top.  A
+    footprint) — the rest end the ramp's top.  The refs of the pads dropped
+    come back as a seventh element, the opening's HOST pads, which the
+    tunnel's footprint cuts (#1938 S1, RULINGS 2026-11-13h round 2: dropped as stops and left
+    uncut, the pad kept the ground over the ramp).  A
     TAXIWAY face at the opening is never dropped (clause 1): its ref is
     returned instead (a string), and the caller slides the mouth — unless
     ``taxi_yields`` is false (an edge bridge's pin is never slid)."""
@@ -590,6 +593,7 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
         # stands in is the portal object's own footprint (an entrance's
         # walls read as a building): the ramp grades into it to the
         # object's bottom, and only the pads beyond end its top
+        hosts = tuple(r for p, r in pads if p.intersects(mouth_ring))
         pads = [(p, r) for p, r in pads if not p.intersects(mouth_ring)]
     if own_lines:
         stops = [(p, r) for p, r in stops if not any(
@@ -608,7 +612,7 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     stops = [(p, r) for p, r in stops if str(r).split("#", 1)[0] not in joins]
     stops = list(pads) + stops
     tree = STRtree([p for p, _r in stops]) if stops else None
-    return axis, mouth, stops, tree, "", None
+    return axis, mouth, stops, tree, "", None, hosts if mouth_ring is not None else ()
 
 
 def _junction_refs(airport, own: _t.Sequence[LineString], tol: float) -> set[str]:
@@ -625,6 +629,26 @@ def _junction_refs(airport, own: _t.Sequence[LineString], tol: float) -> set[str
             feed = OSM_RIBBON_FEEDS.get(str(getattr(w, "kind", "")))
             if feed:
                 out.add(f"{feed}:{w.id}")
+    return out
+
+
+def pinned_trench_notes(pin, hosts, walls_s: float, grade: float, mouth_z: float) -> list:
+    """The tunnel record's lines for the #1938 round-2 rules a pinned mouth
+    met (RULINGS 2026-11-13h): S1 the host pads its footprint cuts, S2 / S3
+    an entrance object's wall reach and the grade its wall feet set, S4 a
+    walled entrance seated by its ENTRANCE record (zero = floor - bottom)."""
+    out = []
+    if hosts:
+        out.append(f"#1938 S1: the pinned opening's host pad(s) {', '.join(sorted(hosts))} "
+                   f"are cut by its footprint")
+    if walls_s > 0.0:
+        out.append(f"#1938 S2/S3: inside the entrance object's wall reach {walls_s:.1f} m the "
+                   f"trench is senior to a pad; design grade {grade:.4f} (wall feet "
+                   f"{getattr(pin, 'foot_grade', 0.0):.4f})")
+    bottom = getattr(pin, "bottom_y", None)
+    if bottom is not None and getattr(pin, "face_plan", None) is None:
+        out.append(f"#1938 S4: a walled entrance, seated by its ENTRANCE record at zero "
+                   f"{mouth_z - float(bottom):.2f} (bottom {float(bottom):.2f})")
     return out
 
 

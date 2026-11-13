@@ -222,7 +222,7 @@ def test_the_landing_cut_takes_a_lot_never_a_road_or_airside():
 
 # ── spec §56 (10) R-L: the landing gate ──────────────────────────────────
 
-def _regions_for_foot(monkeypatch, foot_y):
+def _regions_for_foot(monkeypatch, foot_y, structures=()):
     """``landing_regions`` on a 100 m ramp whose foot stands ``foot_y``
     against its unit's pad, the unit a held 200 x 200 m block beside it."""
     from shapely.geometry import box
@@ -246,8 +246,28 @@ def _regions_for_foot(monkeypatch, foot_y):
     reg = Registries()
     reg.held["u"] = {"unit": "u", "k": 0, "blocks": 1}
     got = LD.landing_regions([pad], {}, [box(-900, 0, -800, 10)], airport,
-                             Law.load(), 0.0, 15.0, counts, reg=reg)
+                             Law.load(), 0.0, 15.0, counts, reg=reg, structures=structures)
     return got, counts, dict(reg.landings)
+
+
+def test_a_landing_collar_never_takes_a_structure_face(monkeypatch):
+    """#1938 (RULINGS 2026-11-13h round 2): a pinned tunnel ramp cuts the pad
+    its opening stands in; a landing on that pad banked its collar into the
+    hole (EGLL ``building31/landing1#collar``: a 29 m2 island on the south
+    ramp, held 4 m over the ramp floor).  A structure face is never a
+    landing's nor its collar's."""
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    got, _c, _l = _regions_for_foot(monkeypatch, -0.2)
+    collar = unary_union([r.polygon for r in got if str(r.ref).endswith("#collar")])
+    assert collar.area > 0.0
+    x0, y0, x1, y1 = collar.bounds
+    ramp = box(x0, y0, 0.5 * (x0 + x1), y1)
+    assert collar.intersection(ramp).area > 1.0
+    got, _c, _l = _regions_for_foot(monkeypatch, -0.2, structures=[ramp])
+    collar = unary_union([r.polygon for r in got if str(r.ref).endswith("#collar")])
+    assert collar.intersection(ramp).area < 1e-6
+    assert all(r.polygon.intersection(ramp).area < 1e-6 for r in got)
 
 
 def test_a_foot_within_the_band_of_its_units_pad_is_a_landing(monkeypatch):

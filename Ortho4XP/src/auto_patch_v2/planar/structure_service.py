@@ -38,12 +38,12 @@ from shapely.geometry import LineString, Polygon
 
 from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_side
-from .structure_approach import carriageway_width_m, under_cover
+from .structure_approach import carriageway_width_m, standing_cover, under_cover
 
 if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
     from ..model.airport import Airport
 
-__all__ = ["airside_cut_roles", "deck_witness_for",
+__all__ = ["airside_cover", "airside_cut_roles", "deck_witness_for",
            "decked_exclusion", "owner_kept", "pad_relief_m",
            "parts", "SURFACE_LINE_KINDS", "terrain_tunnel_witness", "knee_nodes"]
 
@@ -91,15 +91,15 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     ground level under a raised walkway; KDEN -6306, no tunnel there).
     (e) THE PACK'S OPEN PASSAGE OUTRANKS COVER, A CROSSING, A RISE, A
     NEGATIVE LAYER AND THE FENCE (owner RULINGS 2026-10-10q, issue #548;
-    extends 10i (1) / 10k, issue #522; the layer since #710): where an ELEVATED pack part stands over a mapped
-    bore's carriageway with clear space beneath and no pack part at
-    grade covers its line (:meth:`_PackBuildings.passage`), the tag is
-    the road's passage under that part, at grade, and nothing is cut —
-    asked FIRST, after (a), of every mapped bore.  MEASURED at KCLT: a
-    313 m ``service`` bore under the terminal read 273.0 m of cover (the
-    terminal's own pad) and +0.55 .. +0.82 m of ground over its mouth
-    chord, under a road deck 6 m over the terminal's zero with nothing at
-    grade.
+    extends 10i (1) / 10k, issue #522; the layer since #710): where an
+    ELEVATED pack part stands over a mapped bore's carriageway with clear
+    space beneath and no pack part at grade covers its line
+    (:meth:`_PackBuildings.passage`), the tag is the road's passage under
+    that part, at grade, and nothing is cut — asked FIRST, after (a), of
+    every mapped bore.  MEASURED at KCLT: a 313 m ``service`` bore under
+    the terminal read 273.0 m of cover (the terminal's own pad) and +0.55
+    .. +0.82 m of ground over its mouth chord, under a road deck 6 m over
+    the terminal's zero with nothing at grade.
     A NEGATIVE ``layer`` IS NOT SENIOR TO IT (owner sim read of app
     1.0.394, issue #710, narrowing 10q's layer clause): OSM's ``layer`` is
     relative to what the way crosses, and under an elevated part with
@@ -111,6 +111,18 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     ground, going below an elevated road deck, not below ground"; no
     other bore at the seven sweep airports reads both a passage and a
     negative layer.
+    A PASSAGE OVER THE BORE'S APPROACH IS NO PASSAGE OF THE BORE (owner
+    2026-11-13, RULINGS 2026-11-13h, #1938; narrows 10q / 14o): where the
+    bore runs ``terrain_cover_min_m`` or more under AIRSIDE PAVEMENT
+    (:func:`airside_cover`) beyond the elevated parts' reach over its
+    carriageway, the part stands over the approach of a terrain tunnel —
+    the bore is built, both mouths by the mouth law, and the part keeps its
+    seat above the ramp.  MEASURED at EGLL: -11670 / -11669 (632 m,
+    ``layer`` -1, +5.0 m over the mouth chord) run under the aprons north
+    of ``T2_T3_22`` (5.8 / 1.3 m of clear space over the carriageway near
+    the south mouth, where the pack's trench ``10.obj`` pins it).  Under a
+    part that spans the whole covered run (KCLT's terminal link, HECA's
+    viaduct) nothing is left beyond it and (e) refuses as before.
 
     THE LAST TWO ARE §34 (12) (4)'S OWN WITNESSES, in the form a BORE
     takes them: (4) (i) reads a tag, (4) (ii) reads the DEM against the
@@ -248,6 +260,14 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
         if _osm_tunnel(bore, tn.admitted_values):
             width = max(carriageway_width_m(w.tags or {}, law) for w in bore.ways)
             over = pack_bldg.passage(ln, width, tn.terrain_cover_min_m)
+            beyond = (_airside_beyond(on_field, ln, pack_bldg.elevated_over(ln, width), width)
+                      if over is not None else 0.0)
+            if over is not None and beyond >= tn.terrain_cover_min_m:
+                res, uid, base = over
+                return True, (f"under airside pavement for {beyond:.1f} m beyond {res} "
+                              f"({uid}), which stands {base:.1f} m over its approach: a "
+                              f"passage over the approach is no passage of the bore "
+                              f"(§34 (12) (5) (e), owner RULINGS 2026-11-13h, #1938)")
             if over is not None:
                 res, uid, base = over
                 return False, (f"bore {ids} PASSES UNDER AN ELEVATED PACK PART AT "
@@ -441,6 +461,16 @@ class _PackBuildings:
                 best = (res, uid, base)
         return best
 
+    def elevated_over(self, line, width_m: float):
+        """The footprints of every ELEVATED part (its lowest ``y`` above
+        ``[rebake] elevated_base_m``) over the bore's carriageway — the
+        parts :meth:`passage` reads — as one frame geometry, or ``None``."""
+        from shapely.ops import unary_union
+        corridor = line.buffer(width_m / 2.0, cap_style="flat")
+        polys = [poly for poly, _r, _u, base in self._touching(corridor)
+                 if base > self._elevated]
+        return unary_union(polys) if polys else None
+
     def at_grade_over(self, line, cover_min_m: float):
         """``(resource, unit id)`` of a pack building part AT GRADE (its
         lowest ``y`` at or under ``[rebake] elevated_base_m``) whose
@@ -488,6 +518,24 @@ def _fence_of(airport):
         if not p.is_empty:
             polys.append(p)
     return unary_union(polys) if polys else None
+
+
+def _airside_beyond(on_field, line, over, width_m: float) -> float:
+    """Metres of the bore ``line`` under AIRSIDE PAVEMENT (``on_field.
+    airside``, :func:`airside_cover`) where no elevated part stands over its
+    carriageway: ``over`` grown by half the carriageway is taken off the
+    line first (a part drawn beside the mapped line spans the road there
+    too — KCLT -11194's link, 0.5 m off it)."""
+    from shapely.ops import unary_union
+    polys = list(getattr(on_field, "airside", ()) or ())
+    if not polys:
+        return 0.0
+    rest = line if over is None else line.difference(over.buffer(width_m / 2.0))
+    if rest.is_empty:
+        return 0.0
+    parts = [rest.intersection(p) for p in polys if p.intersects(rest)]
+    parts = [g for g in parts if not g.is_empty]
+    return float(unary_union(parts).length) if parts else 0.0
 
 
 def _osm_tunnel(bore, admitted) -> bool:
@@ -575,6 +623,17 @@ def pad_relief_m(airport: Airport, poly: Polygon) -> float:
     from ..airport.skirt import ring_relief_m
     return ring_relief_m(lambda x, y: float(airport.dem.z(x, y)), poly.exterior.coords)
 
+
+
+def airside_cover(classification, law: Law) -> list[Polygon]:
+    """THE AIRSIDE PAVEMENT as polygons: the STANDING cells
+    (``structure_approach.standing_cover``) of :func:`airside_cut_roles` —
+    runway, taxi and apron surfaces, never a pad.  The cover the covered-
+    ground cuts are served by and §34 (12) (5) (e)'s run beyond a passage
+    is read on (RULINGS 2026-11-13h)."""
+    roles = set(airside_cut_roles(law))
+    cells, _gap, polys = standing_cover(classification)
+    return [p for p, c in zip(polys, cells, strict=False) if c.role in roles]
 
 
 def airside_cut_roles(law: Law) -> tuple[str, ...]:

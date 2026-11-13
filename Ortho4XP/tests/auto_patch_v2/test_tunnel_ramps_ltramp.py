@@ -261,3 +261,34 @@ def test_a_built_dual_ramp_is_no_wider_than_its_carriageways_at_the_mouth(law):
     across = LineString([(x0, -40.0), (x0, 40.0)])
     span = max(across.intersection(p).length for p in ramp)
     assert span == pytest.approx(16.0, abs=1.0)
+
+
+def test_a_kept_mouth_with_a_face_is_built_at_the_surveyed_road(law):
+    """#1938 N1 (RULINGS 2026-11-13h round 2, owner Q1 "Yes"): a mouth the
+    survey already carries (KEPT: the road clears the depth owed) is still a
+    mouth -- built at ``floor == road``, nothing cut under it, its cap the
+    portal face at the survey's cover, its ramp the short run to where the
+    floor meets the survey (at most two stations), and its open trench still
+    a keepout (R2)."""
+    cl, tunnels, st = build_structures(
+        _airport(law, _Berm(6.0, 30.0, notch=False), _bore_ways()),
+        _cells(20.0, "graded_strip"), law)
+    assert len(tunnels) == 2 and st.survey_cuts == 2, st.refused
+    for t in tunnels:
+        assert t.mouth_z == pytest.approx(700.0, abs=0.05), t.notes
+        assert t.mouth_dem_z == pytest.approx(706.0, abs=0.05), t.notes
+        assert t.depth_m == pytest.approx(t.mouth_dem_z - t.mouth_z, abs=1e-6)
+        assert len(t.axis) <= 3, t.axis
+        assert any("built at the surveyed road" in n for n in t.notes), t.notes
+    assert len(cl.keepouts) >= 4                    # both corridors and both survey trenches
+
+
+def test_a_kept_mouth_with_no_face_at_its_cap_is_still_refused(law):
+    """#1938 N1: a KEPT mouth whose cap stands on the surveyed road (the
+    cover's face lies further inside the bore than the mapped end) has no
+    face to draw, and stays refused by name."""
+    _cl, tunnels, st = build_structures(
+        _airport(law, _Berm(6.0, 20.0, notch=False), _bore_ways()),
+        _cells(20.0, "graded_strip"), law)
+    assert tunnels == ()
+    assert len(st.refused) == 2 and all("carries the road" in r for r in st.refused), st.refused

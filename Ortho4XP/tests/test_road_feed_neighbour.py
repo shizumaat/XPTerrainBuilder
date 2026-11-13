@@ -267,6 +267,8 @@ def test_the_still_stale_feeds_reach_the_driver(corpus, monkeypatch):
         lambda tile: VMAP.RoadFeedPrecheck([], residual))
     monkeypatch.setattr(VMAP, "resolved_auto_patch_mode",
                         lambda tile: "ICAO")
+    # the per-tile parking feed fill (#1854) reaches Overpass: stub it
+    monkeypatch.setattr(VMAP, "fetch_tile_feed", lambda *a, **k: None)
     import O4_Settings_Model as SETTINGS
     monkeypatch.setattr(SETTINGS, "resolve_cifp_dir",
                         lambda *a, **k: str(corpus))

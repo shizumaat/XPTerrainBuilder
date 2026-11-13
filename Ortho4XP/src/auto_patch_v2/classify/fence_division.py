@@ -122,7 +122,11 @@ def split_at_fences(final: list[list], lines: _t.Sequence[tuple[str, LineString]
                     roles: _t.Collection[str], rules: Rules) -> dict[int, tuple]:
     """Cut every ``final`` face of a role in ``roles`` that a fence CROSSES
     (divides into two or more pieces of at least ``[cells] min_area_m2``)
-    along it: the largest piece keeps the entry, the rest are appended as
+    along it.  Each fence is read on past its ends by ``[edge_lines]
+    host_reach_m`` (the reach it runs along an edge within): a gate's gap
+    or a fence stopping short of the paved edge still divides (KCRW
+    ``dsf:pol45``: its fences stand 0.2-10 m in from the lot's rim and
+    divide it only so read). the largest piece keeps the entry, the rest are appended as
     ``<ref>#<k>`` (the next free serial of the ref, ``pad_road_exit``'s
     numbering), same role and evidence.  A piece under the floor stays
     with the piece it shares most boundary with.  Returns the cut faces:
@@ -130,6 +134,8 @@ def split_at_fences(final: list[list], lines: _t.Sequence[tuple[str, LineString]
     for :func:`rejoin_unsplit`."""
     if not lines:
         return {}
+    reach = float(rules.edge_lines.host_reach_m)
+    lines = [(i, _extended(ln, reach)) for i, ln in lines]
     tree = STRtree([ln for _i, ln in lines])
     grid, floor = float(rules.cells.snap_grid_m), float(rules.cells.min_area_m2)
     serial: dict[str, int] = {}
@@ -147,7 +153,7 @@ def split_at_fences(final: list[list], lines: _t.Sequence[tuple[str, LineString]
         cut = unary_union([lines[int(j)][1] for j in hits])
         try:
             pieces = polygon_parts(split(f[2], cut))
-        except (ValueError, shapely.errors.GEOSException):
+        except (ValueError, shapely.errors.ShapelyError):
             continue
         pieces = _fold_small(pieces, floor)
         if len(pieces) < 2:
@@ -183,6 +189,16 @@ def rejoin_unsplit(final: list[list], groups: dict[int, tuple],
             split_left += 1
     final[:] = [f for j, f in enumerate(final) if j not in drop]
     return split_left
+
+
+def _extended(line: LineString, d: float) -> LineString:
+    """``line`` read on ``d`` past each end along its end segment."""
+    c = list(line.coords)
+
+    def past(p, q):
+        u = _unit(q[0], q[1], p[0], p[1])
+        return p if u is None else (p[0] + u[0] * d, p[1] + u[1] * d)
+    return LineString([past(c[0], c[1]), *c, past(c[-1], c[-2])])
 
 
 def _fold_small(pieces: list[Polygon], floor: float) -> list[Polygon]:

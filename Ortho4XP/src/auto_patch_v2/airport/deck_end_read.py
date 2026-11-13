@@ -33,14 +33,14 @@ import numpy as np
 
 from . import anchor_rule as _ar
 
-__all__ = ["EndRead", "DeckEnds", "plate_faces", "plate_end_tops", "deck_end_reads"]
+__all__ = ["deck_end_reads"]
 
 #: how far inside the deck an end station is moved to read the plate (m)
 HAIR_M = 0.05
 
 
 @_dc.dataclass(frozen=True)
-class EndRead:
+class _EndRead:
     """One end of a deck: the ground its end line meets, the deck's top
     there (authored y) and its end line's stations ``(lat, lon)``."""
 
@@ -51,16 +51,16 @@ class EndRead:
 
 
 @_dc.dataclass(frozen=True)
-class DeckEnds:
-    """A deck's ends (:class:`EndRead`, in end order), or ``clearance``:
+class _DeckEnds:
+    """A deck's ends (:class:`_EndRead`, in end order), or ``clearance``:
     the ``(zero, why)`` 22p keeps for a deck with no embankment at either
     end (its ends are then not read)."""
 
-    ends: tuple[EndRead, ...] = ()
+    ends: tuple[_EndRead, ...] = ()
     clearance: "tuple[float, str] | None" = None
 
 
-def plate_faces(m: _t.Any, origin: "tuple[float, float] | None") -> np.ndarray:
+def _plate_faces(m: _t.Any, origin: "tuple[float, float] | None") -> np.ndarray:
     """The AUTHORED hard-deck plate of a member as ``(n, 3, 3)`` triangles
     of ``(east, north, y)`` metres about the placement ``origin`` at its
     heading (``airside_deck_seat.slab_points``' map); empty where the file
@@ -92,7 +92,7 @@ def _local(q: _t.Sequence[float], origin: tuple[float, float]) -> tuple[float, f
     return ((float(q[1]) - float(origin[1])) * mo, (float(q[0]) - float(origin[0])) * ml)
 
 
-def plate_end_tops(m: _t.Any, lines: _t.Sequence[_t.Sequence[tuple[float, float]]],
+def _plate_end_tops(m: _t.Any, lines: _t.Sequence[_t.Sequence[tuple[float, float]]],
                    origin: "tuple[float, float] | None", step_m: float
                    ) -> tuple[float, ...]:
     """The deck top AT each of two end lines (module doc, S3): the plate's
@@ -101,7 +101,7 @@ def plate_end_tops(m: _t.Any, lines: _t.Sequence[_t.Sequence[tuple[float, float]
     stands under any station."""
     from .airside_deck_seat import end_tops
     from .deck_carry import _plate_top
-    plate = plate_faces(m, origin)
+    plate = _plate_faces(m, origin)
     mids = [(sum(q[0] for q in ln) / len(ln), sum(q[1] for q in ln) / len(ln))
             for ln in lines]
     fallback = None
@@ -122,7 +122,7 @@ def plate_end_tops(m: _t.Any, lines: _t.Sequence[_t.Sequence[tuple[float, float]
 
 
 def _walked(datum: _t.Any, surface: _ar.Surface, tops: _t.Sequence[float],
-            lines: _t.Sequence[_t.Sequence[tuple[float, float]]]) -> tuple[EndRead, ...]:
+            lines: _t.Sequence[_t.Sequence[tuple[float, float]]]) -> tuple[_EndRead, ...]:
     """§16e (6)'s LANDWARD WALK read PER END (RULINGS 2026-09-13v): the
     median walked ground of each end, with that end's own top."""
     water = getattr(surface, "water", None)
@@ -130,7 +130,7 @@ def _walked(datum: _t.Any, surface: _ar.Surface, tops: _t.Sequence[float],
     sizes = [len(ln) for ln in lines]
     if sum(sizes) != len(stations):
         sizes, tops = [len(stations)], [max(tops)]
-    out: list[EndRead] = []
+    out: list[_EndRead] = []
     k0 = 0
     for k, n in enumerate(sizes):
         walked = tuple(stations[k0:k0 + n])
@@ -141,7 +141,7 @@ def _walked(datum: _t.Any, surface: _ar.Surface, tops: _t.Sequence[float],
             continue
         zs = sorted(q[0] for q in kept)
         g = zs[len(zs) // 2]
-        out.append(EndRead(float(g), float(tops[k]), line,
+        out.append(_EndRead(float(g), float(tops[k]), line,
                            f"§16e {datum.label} datum: the authored y {tops[k]:+.2f} flush "
                            f"with the walked ground {g:.2f} at end line {k + 1}{note} "
                            f"(RULINGS 2026-10-22m, 2026-09-13v)"))
@@ -150,7 +150,7 @@ def _walked(datum: _t.Any, surface: _ar.Surface, tops: _t.Sequence[float],
 
 def deck_end_reads(m: _t.Any, surface: _ar.Surface, *, origin: tuple[float, float],
                    agl_m: float, step_m: float, walk_max_m: float = 0.0,
-                   level_tol_m: float = 0.0, all_deck: bool = False) -> "DeckEnds | None":
+                   level_tol_m: float = 0.0, all_deck: bool = False) -> "_DeckEnds | None":
     """The ends of one free deck member (module doc), or ``None`` where it
     has no free-standing datum with two end lines.  ``all_deck``: the
     member's frame is all decks (``placement_family.frame_is_bridge``), whose
@@ -170,14 +170,14 @@ def deck_end_reads(m: _t.Any, surface: _ar.Surface, *, origin: tuple[float, floa
         # 22p reads the road under the span only with the anchor under it
         datum = _dc.replace(datum, ring=tuple((float(q[0]), float(q[1]))
                                               for q in (getattr(m, "deck_ring", None) or ())))
-        tops = plate_end_tops(m, lines, origin, step_m)
+        tops = _plate_end_tops(m, lines, origin, step_m)
     seat = approach_seat(datum, surface, origin=origin, authored_agl_m=agl_m, tops=tops)
     if seat is not None and "authored clearance" in seat.reason:
-        return DeckEnds(clearance=(seat.zero, seat.reason))
+        return _DeckEnds(clearance=(seat.zero, seat.reason))
     if seat is None:
-        return DeckEnds(ends=_walked(datum, surface, tops, lines))
-    return DeckEnds(ends=tuple(
-        EndRead(float(g), float(tops[k]), lines[k],
+        return _DeckEnds(ends=_walked(datum, surface, tops, lines))
+    return _DeckEnds(ends=tuple(
+        _EndRead(float(g), float(tops[k]), lines[k],
                 f"§16e {datum.label} datum: the authored y {tops[k]:+.2f} flush with the "
                 f"ground {g:.2f} at end line {k + 1} (the end nearer its ground; the other "
                 f"end's gap graded by the terrain, #1138; RULINGS 2026-10-22m)")

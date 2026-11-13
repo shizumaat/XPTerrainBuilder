@@ -11,8 +11,13 @@ import types
 
 from auto_patch_v2.airport import anchor_rule as AR
 from auto_patch_v2.airport import bridge_approach as BA
+from auto_patch_v2.airport import deck_end_read as DE
 from auto_patch_v2.airport import free_bridge_seat as FB
+from auto_patch_v2.airport import obj8 as O
 from auto_patch_v2.airport.placement_record import Body, Split
+from auto_patch_v2.planar import overpass_deck as OD
+from shapely.geometry import box as _sbox
+from tests.auto_patch_v2.test_overpass_deck1692 import FRAME, LAW, THICK
 
 # a 78 m canal bridge along latitude: banks at 40.0 and 40.0007, water between
 RING = ((40.0, -3.0), (40.0, -2.9998), (40.0007, -2.9998), (40.0007, -3.0))
@@ -115,13 +120,6 @@ def test_every_body_of_a_one_deck_frame_takes_the_decks_zero():
 
 
 # ── round 2 (spec othh-deck-round2-spec.md S1-S4) ────────────────────────
-
-from shapely.geometry import box as _sbox  # noqa: E402
-
-from auto_patch_v2.airport import deck_end_read as DE  # noqa: E402
-from auto_patch_v2.airport import obj8 as O  # noqa: E402
-from auto_patch_v2.planar import overpass_deck as OD  # noqa: E402
-from tests.auto_patch_v2.test_overpass_deck1692 import FRAME, LAW, THICK  # noqa: E402
 
 M_LAT = 111_000.0          # about; the end lines below are built in degrees
 
@@ -237,7 +235,7 @@ def test_a_pylon_top_near_an_end_does_not_set_the_end_top(tmp_path):
     lines = [((40.0 - 25.0 / ml, -3.0 - 8.0 / mo), (40.0 - 25.0 / ml, -3.0 + 8.0 / mo)),
              ((40.0 + 25.0 / ml, -3.0 - 8.0 / mo), (40.0 + 25.0 / ml, -3.0 + 8.0 / mo))]
     m = _member(authored_path=path, deck_top_y=11.56)
-    assert all(abs(t - 3.5) < 1e-6 for t in DE.plate_end_tops(m, lines, origin, 5.0))
+    assert all(abs(t - 3.5) < 1e-6 for t in DE._plate_end_tops(m, lines, origin, 5.0))
     assert abs(end_tops(m, (list(lines[0]), list(lines[1])), origin, 5.0)[0] - 11.56) < 1e-6
 
 

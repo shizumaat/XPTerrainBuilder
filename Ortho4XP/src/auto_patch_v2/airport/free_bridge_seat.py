@@ -37,7 +37,7 @@ zero — over its LAND-MEETING ends, the highest ``ground - top``
 own top on it), so that end is flush and every other floats for the
 terrain to grade up to (#1138).  An end abutting another deck of the same
 bridge is no land end.  Every body takes its deck's bridge's zero
-(:func:`deck_of_body`); in a one-deck frame every body does (the supports
+(:func:`_deck_of_body`); in a one-deck frame every body does (the supports
 stay attached, 10-22c).
 
 Nothing here names a pack, a resource or an airport.
@@ -48,8 +48,8 @@ import typing as _t
 
 from . import anchor_rule as _ar
 
-__all__ = ["PLATED_KINDS", "REASON", "free_bridge_zeros", "free_bridge_seat", "deck_of_body",
-           "bridge_groups", "bridge_zero"]
+__all__ = ["PLATED_KINDS", "REASON", "free_bridge_zeros", "free_bridge_seat",
+           "bridge_groups"]
 
 #: a member carrying one of these plates is seated by that plate's own
 #: reader (``airside_deck_seat._plate_zero``, ``anchor_rule.datum_of``)
@@ -72,6 +72,7 @@ def _free_deck(m: _t.Any) -> bool:
 def _rings_local(decks: _t.Sequence[_t.Any], origin: tuple[float, float]) -> list:
     """Each deck's ring as a plan polygon in metres about ``origin``."""
     from shapely.geometry import Polygon
+
     from .deck_end_read import _local
     out = []
     for st in decks:
@@ -107,16 +108,17 @@ def _abuts(line: _t.Sequence[tuple[float, float]], others: _t.Sequence[_t.Any],
     """Does an end line ABUT another deck of its bridge — most of its
     stations within ``touch_m`` of that deck's ring?"""
     from shapely.geometry import Point
+
     from .deck_end_read import _local
     pts = [Point(_local(q, origin)) for q in line]
     return any(2 * sum(1 for p in pts if r.distance(p) <= touch_m) > len(pts)
                for r in others)
 
 
-def bridge_zero(reads: _t.Sequence[_t.Any], lines_abut: _t.Sequence[_t.Sequence[bool]]
+def _bridge_zero(reads: _t.Sequence[_t.Any], lines_abut: _t.Sequence[_t.Sequence[bool]]
                 ) -> "tuple[float, str] | None":
     """``(zero, why)`` of one bridge from its decks' end reads
-    (``deck_end_read.DeckEnds``, ``None`` for a deck read nowhere):
+    (``deck_end_read._DeckEnds``, ``None`` for a deck read nowhere):
     the highest ``ground - top`` over its land ends (``lines_abut[d][k]``
     false), else over every end; a 22p clearance stands as one candidate."""
     cands: list[tuple[float, str]] = []
@@ -163,7 +165,7 @@ def free_bridge_zeros(staged: _t.Sequence[_t.Any], surface: _ar.Surface, *,
         abut = [[_abuts(e.line, [rings[j] for j in group if j != i], origin, touch_m)
                  for e in (reads[i].ends if reads[i] is not None else ())]
                 for i in group]
-        got = bridge_zero([reads[i] for i in group], abut)
+        got = _bridge_zero([reads[i] for i in group], abut)
         if got is None:
             continue
         why = got[1] if len(group) == 1 else \
@@ -188,7 +190,7 @@ def _overlap(a: tuple, b: tuple) -> float:
     return inter / union if union > 0.0 else 0.0
 
 
-def deck_of_body(b: _t.Any, resource: str,
+def _deck_of_body(b: _t.Any, resource: str,
                  zeros: _t.Mapping[str, tuple[float, str, tuple]]) -> "str | None":
     """The deck of a free bridge frame this body moves with: the deck its
     footprint names (``Body.bridge_of``, §16e (3)), else its own member's
@@ -213,7 +215,7 @@ def deck_of_body(b: _t.Any, resource: str,
 
 def free_bridge_seat(record: _t.Any, m: _t.Any,
                      zeros: _t.Mapping[str, tuple[float, str, tuple]]) -> _t.Any:
-    """Every body of ``record`` at the zero of its deck (:func:`deck_of_body`);
+    """Every body of ``record`` at the zero of its deck (:func:`_deck_of_body`);
     a body no deck takes keeps its own seat."""
     if not zeros:
         return record
@@ -222,7 +224,7 @@ def free_bridge_seat(record: _t.Any, m: _t.Any,
     out = record
     for key, (zero, why, _box) in zeros.items():
         def take(b, _k=key, _z=zero):
-            return (deck_of_body(b, res, zeros) == _k and b.anchor.surface_z is not None
+            return (_deck_of_body(b, res, zeros) == _k and b.anchor.surface_z is not None
                     and abs(float(b.anchor.surface_z) - float(b.anchor.y_zero) - _z) > 1e-6)
         out = at_zero(out, m, zero, take, f"{REASON} {zero:.2f} ({why})")
     return out

@@ -108,6 +108,7 @@ def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     CLEARANCE (no embankment at either end, RULINGS 2026-10-22p) is listed
     and never barred."""
     import types
+
     from .deck_end_read import deck_end_reads
     from .free_bridge_seat import _abuts, _rings_local, bridge_groups
     from .placement_family import frame_is_bridge

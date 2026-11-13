@@ -68,6 +68,8 @@ def test_shipped_definitions_parse(shipped_registry):
         "COPERNICUSGLO30",
         "COPERNICUSGLO30BASE",
         "COPERNICUSGLO90BASE",
+        "FABDEM",
+        "FABDEMBASE",
         "VIEWFINDER1",
         "VIEWFINDER3",
         "NED1",
@@ -772,9 +774,11 @@ def test_summary_reports_base_and_inset_availability(
     assert ("ENGLAND1M", 1.0) in summary["inset_providers"]
     assert summary["fetched_airports"] is None
     # Doha tile: no national source reaches the Middle East, so the
-    # only inset provider is the global surface-model fallback.
+    # inset providers are the global fallbacks: bare-earth FABDEM first,
+    # then the surface model it was made from (#1942).
     summary = INSETS.summarize_tile_elevation_sources(25, 51)
-    assert summary["inset_providers"] == [("COPERNICUSGLO30", 30.0)]
+    assert summary["inset_providers"] == [("FABDEM", 30.0),
+                                          ("COPERNICUSGLO30", 30.0)]
     # Zurich tile: the swisstopo 0.5 m lidar.
     summary = INSETS.summarize_tile_elevation_sources(47, 8)
     assert ("SWISSALTI3D", 0.5) in summary["inset_providers"]

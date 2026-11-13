@@ -8,6 +8,7 @@ shares with other strategies is imported from ``elevation_access``.
 
 import datetime
 import os
+import re
 
 from elevation_access.base import ProviderUnavailable, TransientFetchError
 from elevation_access.definitions import _coverage_bbox_intersects
@@ -172,20 +173,33 @@ class DegreeNamedCogStrategy:
             "recorded as no-coverage" % (url, response.status_code)
         )
 
+    def cell_source(self, definition, cell_latitude, cell_longitude):
+        """The GDAL path of one cell's raster, or ``None`` when the
+        publisher has no raster for it (a durable absent).
+
+        THE ONE CELL READER: discovery here and the base-tile cut
+        (``degree_cog_base_tile``) both ask it, so a strategy that keeps
+        its cells elsewhere (inside archives: ``degree_zipped_cog``)
+        overrides this method alone.  Raises what :meth:`_url_exists`
+        raises.
+        """
+        url = self._cell_url(definition, cell_latitude, cell_longitude)
+        return "/vsicurl/" + url if self._url_exists(url) else None
+
     def discover(self, definition, bounding_box_wgs84):
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
         if not str(definition.get("url_template", "")).strip():
             return None
         sources = [
-            {"source": "/vsicurl/" + url, "cell": [cell_latitude, cell_longitude]}
+            {"source": source, "cell": [cell_latitude, cell_longitude]}
             for (cell_latitude, cell_longitude) in (
                 self.degree_cells_of_bounding_box(bounding_box_wgs84)
             )
-            for url in [
-                self._cell_url(definition, cell_latitude, cell_longitude)
+            for source in [
+                self.cell_source(definition, cell_latitude, cell_longitude)
             ]
-            if self._url_exists(url)
+            if source
         ]
         return sources or None
 
@@ -222,7 +236,7 @@ class DegreeNamedCogStrategy:
             "provider": definition.get("code"),
             "access_strategy": definition.get("access_strategy"),
             "source_urls": [
-                entry["source"].replace("/vsicurl/", "", 1)
+                re.sub(r"^(/vsizip/)?/vsicurl/", "", entry["source"])
                 for entry in sources
             ],
             "native_resolution_m": definition.get("native_resolution_m"),

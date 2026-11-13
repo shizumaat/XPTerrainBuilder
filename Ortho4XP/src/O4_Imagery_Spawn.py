@@ -65,7 +65,7 @@ import O4_Imagery_Tier_Plan as PLAN
 
 # The follow job's surface; Episode and core_wants are SpawnWatch's parts.
 __all__ = ["FLIGHT_START_WINDOW_S", "LOAD_DOWN_S", "RELOAD_QUIET_S",
-           "SAME_PLACE_M", "WINDOW_MARGIN_S", "SpawnWatch", "eye_tier"]
+           "SAME_PLACE_M", "WINDOW_MARGIN_S", "SpawnWatch"]
 
 #: Seconds from a flight load's first (mip 4) texture opens to X-Plane's
 #: finer opens (flight 1: 24-25 s; one sample, spec §11 U11).
@@ -85,7 +85,7 @@ LOAD_DOWN_S = 10.0
 SAME_PLACE_M = 2000.0
 
 
-def eye_tier(row, lat: float, lon: float, agl_m: float = 0.0):
+def _eye_tier(row, lat: float, lon: float, agl_m: float = 0.0):
     """The finest tier a camera ``agl_m`` above ``(lat, lon)`` wants for
     ``row``'s square: the airport-core rule (full inside 1.65 S, 2048
     inside 2.8 S, 1024 inside 5.2 S) at the SLANT distance; ``None``
@@ -104,12 +104,12 @@ def core_wants(rows, lat: float, lon: float,
                agl_m: float = 0.0) -> dict[str, int]:
     """``{key: tier}`` for the index ``rows`` (``{key: row}``) a camera
     ``agl_m`` above ``(lat, lon)`` wants finer than the file on disk
-    (:func:`eye_tier`).  Failed rows are left out."""
+    (:func:`_eye_tier`).  Failed rows are left out."""
     wants = {}
     for key, row in rows.items():
         if row.get("state") == "failed":
             continue
-        tier = eye_tier(row, lat, lon, agl_m)
+        tier = _eye_tier(row, lat, lon, agl_m)
         if tier is not None and tier > PLAN.tier_of_width(row.get("tier_px")):
             wants[key] = tier
     return wants
@@ -159,7 +159,7 @@ class Episode:
                agl_m: float = 0.0) -> int:
         """The camera is at ``(lat, lon)``, ``agl_m`` up, now: the core
         keeps only the squares it still wants finer than on disk, each at
-        no more than the tier it wants from here (:func:`eye_tier`).  A
+        no more than the tier it wants from here (:func:`_eye_tier`).  A
         ``plan`` episode is the departure wherever the camera is: kept
         whole.  Returns the squares dropped."""
         if self.witness == "plan":
@@ -169,7 +169,7 @@ class Episode:
             row = rows.get(key)
             if row is None or key in self.landed:
                 continue
-            now = eye_tier(row, lat, lon, agl_m)
+            now = _eye_tier(row, lat, lon, agl_m)
             if now is None or now <= PLAN.tier_of_width(row.get("tier_px")):
                 del self.wants[key]
                 dropped += 1

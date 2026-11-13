@@ -140,7 +140,7 @@ def test_a_core_the_camera_left_behind_is_dropped():
     assert dropped > 0 and set(episode.wants) < set(wanted)
     for key, tier in episode.wants.items():     # what it wants from here
         assert tier == min(wanted[key],
-                           SPAWN.eye_tier(rows[key], on, -135.5, 2300.0))
+                           SPAWN._eye_tier(rows[key], on, -135.5, 2300.0))
     episode.follow(rows, 60.95, -135.5, 2300.0)     # far on: nothing left
     assert not episode.pending(rows)
     assert watch.settle(rows, 60.95, -135.5) == []

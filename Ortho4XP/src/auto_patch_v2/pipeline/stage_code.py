@@ -360,6 +360,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dem_witness",
         "auto_patch_v2.airport.door_wells",
         "auto_patch_v2.airport.dsf",
+        "auto_patch_v2.airport.dsf_heights",
         "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.file_hash",
@@ -1993,7 +1994,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
     airport.walled_pit airport.portal_floor airport.pit_frame
     geom.runway_contact geom.collapsed_spike
-    airport.old_dem_fill planar.fill_bank
+    airport.old_dem_fill planar.fill_bank airport.dsf_heights
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor airport.floor_rim geom.author_ground geom.lowest_face
     planar.object_floor_cells
@@ -2142,7 +2143,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.deck_stack
     airport.walled_pit airport.portal_floor airport.pit_frame constraints.airside_top
     geom.runway_contact geom.collapsed_spike
-    airport.old_dem_fill constraints.fill_bank planar.fill_bank
+    airport.old_dem_fill constraints.fill_bank planar.fill_bank airport.dsf_heights
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor airport.floor_rim constraints.object_floor
     planar.object_floor_cells

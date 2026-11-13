@@ -103,7 +103,7 @@ def deck_end_road_zone(airport, law) -> tuple[_t.Any, float]:
     and not on one chord to the next way node 12-35 m out (v2 §3.4: KDEN
     round 2, the road 0.26 m off the plate one step outside the end line).
     ``(None, step)`` without a stack."""
-    step = float(law.tables.structures.bridge.abutment_sample_step_m) if law else 0.0
+    step = float(law.tables.structures.bridge.abutment_sample_step_m) if law is not None else 0.0
     stacks = tuple(getattr(airport, "deck_stacks", ()) or ())
     if not stacks or law is None:
         return None, step

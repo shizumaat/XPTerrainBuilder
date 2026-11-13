@@ -13,7 +13,7 @@ polygonal parts (a repaired self-touching sliver also yields lines and
 points, which carry no area).  A valid floating shape is returned as is.
 ``geom`` imports nothing of v2.
 
-:func:`covered_area` reads the area a shape COVERS — the union of its
+:func:`_covered_area` reads the area a shape COVERS — the union of its
 parts' valid areas — for a shape whose parts overlap or nest, where
 ``make_valid`` would read a nested part as a HOLE.  :func:`minus` is the
 difference that cannot abort a build: the exact overlay, and only where
@@ -24,7 +24,7 @@ from __future__ import annotations
 import shapely
 from shapely.geometry import Polygon
 
-__all__ = ["covered_area", "minus", "valid_area"]
+__all__ = ["minus", "valid_area"]
 
 
 def valid_area(geom):
@@ -44,7 +44,7 @@ def valid_area(geom):
     return polys[0] if len(polys) == 1 else shapely.union_all(polys)
 
 
-def covered_area(geom):
+def _covered_area(geom):
     """The area ``geom`` covers: each part's :func:`valid_area`, unioned.
     A valid shape is returned as is.  MEASURED KHOU (#2051): a mitre
     ``buffer`` of a valid landing came back as an outer shell with a
@@ -64,9 +64,9 @@ def covered_area(geom):
 def minus(a, b):
     """``a.difference(b)``; where GEOS refuses it (``TopologyException``
     on an invalid operand, #2051), the difference of their
-    :func:`covered_area`.  A difference GEOS answers is returned as GEOS
+    :func:`_covered_area`.  A difference GEOS answers is returned as GEOS
     answers it, so no build that did not throw changes."""
     try:
         return a.difference(b)
     except shapely.errors.GEOSException:
-        return covered_area(a).difference(covered_area(b))
+        return _covered_area(a).difference(_covered_area(b))

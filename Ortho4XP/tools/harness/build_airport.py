@@ -2689,7 +2689,7 @@ def refetched_unchanged() -> list:
     out = []
     for path in raster_same.kept_unchanged():
         try:
-            rel = str(Path(path).resolve().relative_to(base))
+            rel = Path(path).resolve().relative_to(base).as_posix()
         except (OSError, ValueError):
             continue
         if rel not in out:

@@ -89,5 +89,6 @@ def test_a_real_world_folder_is_unchanged(scenery):
     assert WORLD._foreign_target(str(scenery)) == ""
     first = WORLD.world_onboard(str(scenery))
     first.pop("home")                       # RULINGS 2026-11-12g/h
-    assert first == {"created": True, "offer": 1, "restart_needed": False}
+    assert first == {"created": True, "offer": 1, "restart_needed": False,
+                     "superseded": []}
     assert WORLD._foreign_target(str(scenery)) == "" and WORLD.managed(str(scenery))

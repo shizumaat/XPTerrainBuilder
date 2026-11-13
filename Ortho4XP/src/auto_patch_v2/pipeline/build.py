@@ -391,6 +391,15 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # #1747 (RULINGS 2026-11-06b (6)): the tunnel mouths' walls, which no pad takes
     from ..airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law)
+    # #1971: a trench's floor and the hard decks spanning it, ONE zero
+    from ..planar.deck_stack_attach import attach_deck_stacks
+    _t_ds, _ds_notes = time.perf_counter(), []
+    airport = attach_deck_stacks(airport, pack_objects, ocache, law, _ds_notes)
+    from ..airport.deck_stack import log_line as _ds_line
+    _say("  " + _ds_line(icao, airport.deck_stacks, time.perf_counter() - _t_ds), out)
+    for _n in _ds_notes:
+        if "no floor (" not in _n:              # walls with no route in them: silent
+            _say(f"  [deck-stack] {_n}", out)
     # THE FLAT-PACK WITNESS (owner direction 2026-10-20, answers 59-66; spec
     # ``flat-pack-terracing-spec.md`` §1): read once the partition is, a
     # REPORT in phase 1 (``law/flat_pack.toml`` ``terrace = false``).

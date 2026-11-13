@@ -96,6 +96,7 @@ import O4_Qt_Imagery_Menu as QTIMENU
 import O4_Qt_Map as QTMAP
 import O4_Qt_Imagery_Freshness as QTFRESH
 import O4_Qt_Imagery_OnDemand as QTONDEMAND
+import O4_Qt_Core_Rows as QTCORES
 import O4_Qt_Mesh_Order as QTMESHORDER
 import O4_Qt_Missing_Textures as QTMISSING
 from o4_engine.session import EngineSession
@@ -958,6 +959,7 @@ class MainWindow(QMainWindow):
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
             EV.ImageryFollowStatus: self._on_imagery_follow_status,
+            EV.ImageryCoresProgress: self._on_imagery_cores_progress,
             EV.AircraftPosition: self._on_aircraft_position,
             # The flight manager (lane F1b): the Fly pane's state, and
             # flight_plan_simbrief's plan.
@@ -1632,6 +1634,8 @@ class MainWindow(QMainWindow):
         pg.addWidget(self.run_footer)
         self.activity_group.setVisible(False)
         self._activity_shown = False
+        # Background airport-core sharpenings' rows (#2039).
+        self._core_rows = QTCORES.CoreRowSet(self._make_core_row)
 
         # The boxes and the run list share a splitter (#1625): its wide
         # handle drags to resize the list, and the sizes are kept in
@@ -3073,6 +3077,27 @@ class MainWindow(QMainWindow):
         threading.Thread(target=RELOAD.scenery_reload, daemon=True,
                          name="o4-scenery-reload").start()
 
+    def _make_core_row(self, tile):
+        """A background core sharpening's row (#2039), the build rows'
+        icon, colours and margins."""
+        row = QTCORES.CoreRow(tile, stop_sign_icon(), STOP_ICON_PT,
+                              TONE_COLORS, ROW_SMALL_PX,
+                              QTACT.row_margins(self.style()))
+        row.stop_requested.connect(self._stop_imagery_cores)
+        return row
+
+    def _on_imagery_cores_progress(self, event):
+        """Its tile's row at the foot of Activity (twin:
+        ``BuildActivityModel.showCores``)."""
+        if self._core_rows.show(event):
+            self.activity_list.place_cores(self._core_rows.rows())
+            self._sync_run_list()
+
+    def _stop_imagery_cores(self, tile):
+        """The row's stop (twin: ``BuildModel.stopImageryCores``)."""
+        from o4_engine.imagery_core_rows import stop
+        stop(*tile)
+
     def _on_imagery_follow_status(self, event):
         self.follow_line.show_status(event)
         self.live_preview.follow_landed(getattr(event, "landed", None))  # #2001
@@ -4214,9 +4239,11 @@ class MainWindow(QMainWindow):
         window grows; without it, the spacer returns so the boxes sit
         top-aligned."""
         listed = self.activity_list
-        listed.set_activity_shown(self._activity_shown)
+        listed.set_activity_shown(self._activity_shown
+                                  or bool(listed.core_rows()))
         self.run_footer.setVisible(self._activity_shown)
-        shows = self._activity_shown or not listed.completed_item.isHidden()
+        shows = (self._activity_shown or bool(listed.core_rows())
+                 or not listed.completed_item.isHidden())
         self.activity_group.setVisible(shows)
         layout = self._panel_layout
         layout.setStretch(self._panel_spacer_index, 0 if shows else 1)
@@ -4758,6 +4785,8 @@ class MainWindow(QMainWindow):
         self._tile_clocks = {}
         self._eta_samples = []
         self._eta_unreliable = False
+        if self._core_rows.drop_finished():
+            self.activity_list.place_cores(self._core_rows.rows())
         self._add_progress_rows(todo)
         self._done_count = 0
         self._ntiles = len(todo)

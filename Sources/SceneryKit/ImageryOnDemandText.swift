@@ -143,6 +143,28 @@ public enum O4OnDemandText {
         return running ? followStarting : followStopped
     }
 
+    // A background core sharpening's row in the Build view's Activity
+    // list (#2039, `ImageryCoresProgress`): the status per state, the
+    // tile's coordinate the row's title. Python: `CORES_ROW_TEMPLATES`.
+    public static let coresRowActive = "Sharpening airport imagery · {done} of {total} squares"
+    public static let coresRowDone = "Airport imagery sharp · {done} of {total} squares"
+    public static let coresRowError = "Sharpening airport imagery failed · {failed} of {total} squares failed"
+    public static let coresRowStopped = "Sharpening airport imagery stopped · {done} of {total} squares"
+    public static let coresRowStopHelp = "Stop sharpening this tile's airport imagery: the squares not started stay low-res until you fly near"
+
+    /// The status line of an `ImageryCoresProgress` row. Python:
+    /// `cores_row_status`.
+    public static func coresRowStatus(_ p: O4ImageryCoresProgress) -> String {
+        let template: String
+        switch p.state {
+        case "done": template = coresRowDone
+        case "error": template = coresRowError
+        case "stopped": template = coresRowStopped
+        default: template = coresRowActive
+        }
+        return fill(template, ["done": "\(p.done)", "total": "\(p.total)", "failed": "\(p.failed)"])
+    }
+
     /// `template` with each `{key}` replaced (Python's `str.format`).
     static func fill(_ template: String, _ values: [String: String]) -> String {
         values.reduce(template) { text, pair in

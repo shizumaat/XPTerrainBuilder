@@ -35,17 +35,21 @@ struct ActivitySections: View {
 
     /// Whether the pane shows the list at all: a run, or rows left over.
     static func shows(building: Bool, activity: BuildActivityModel) -> Bool {
-        building || !activity.displayOrder.isEmpty
+        building || !activity.displayOrder.isEmpty || !activity.coreRows.isEmpty
     }
 
     var body: some View {
         let live = activity.rows(in: .activity)
         let completed = activity.rows(in: .completed)
         List(selection: selection) {
-            if buildModel.isBuilding || !live.isEmpty {
+            if buildModel.isBuilding || !live.isEmpty || !activity.coreRows.isEmpty {
                 Section {
                     ForEach(Self.rowIDs(live, in: .activity)) { row in
                         ActivityRow(coord: row.coord, compact: false).tag(row.coord)
+                    }
+                    // Background core sharpenings (#2039): not selectable.
+                    ForEach(activity.coreRows, id: \.coresRowID) { progress in
+                        ImageryCoresRow(progress: progress)
                     }
                 } header: {
                     Text("Activity")

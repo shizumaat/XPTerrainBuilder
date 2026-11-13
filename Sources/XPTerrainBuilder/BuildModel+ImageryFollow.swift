@@ -28,6 +28,12 @@ extension BuildModel {
         libraryContext()?.client.reloadScenery()
     }
 
+    /// A background core sharpening row's stop (#2039). Python:
+    /// `O4_Qt_GUI._stop_imagery_cores`.
+    func stopImageryCores(_ progress: O4ImageryCoresProgress) {
+        libraryContext()?.client.stopImageryCores(lat: progress.lat, lon: progress.lon)
+    }
+
     /// The follow line's Follow X-Plane / Stop Following.
     func toggleImageryFollow(start: Bool) {
         guard let context = libraryContext() else { return }

@@ -22,7 +22,9 @@ every tile the run built here (:func:`start`):
   first, a download only when they are gone), without X-Plane.  No fetch
   starts while a build runs (``busy``); the next run's end resumes.
 
-Each landing is a line of ``logs/imagery_on_demand.log``.  No airport is
+Each landing is a line of ``logs/imagery_on_demand.log``, and each tile
+of a batch a row of the Build view's Activity list
+(``imagery_core_rows``, #2039), whoever started it.  No airport is
 named here: the cores are the airports the tile's patches graded.
 """
 from __future__ import annotations
@@ -39,6 +41,7 @@ import O4_Imagery_OnDemand_Cores as CORES
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Tier_Plan as PLAN
 
+from . import imagery_core_rows as ROWS
 from . import imagery_follow as FOLLOW
 
 __all__ = ["CORE_WORKERS", "register_built", "core_wants", "fetch_cores",
@@ -132,48 +135,77 @@ def fetch_cores(tiles: Sequence[Sequence[Any]], index: Optional[str] = None,
     counts = {"wanted": 0, "landed": 0, "failed": 0, "network": 0,
               "skipped": 0}
     conn = INDEX.open_index(index)
+    rows = None
     try:
         # finest tier first across every tile (the squares nearest the
         # airports), so a landing stopped for room keeps those
-        wants = sorted((w for (build_dir, lat, lon) in tiles
-                        for w in core_wants(
+        wants = sorted((((int(lat), int(lon)), row, tier)
+                        for (build_dir, lat, lon) in tiles
+                        for row, tier in core_wants(
                            conn, build_dir, lat, lon,
                            (extra or {}).get((int(lat), int(lon)), ()))),
-                       key=lambda want: -want[1])
+                       key=lambda want: -want[2])
         counts["wanted"] = len(wants)
+        totals: Dict[tuple, int] = {}
+        for tile, _row, _tier in wants:
+            totals[tile] = totals.get(tile, 0) + 1
+        rows = ROWS.CoreRows(totals)    # the Build view's rows (#2039)
         with _futures.ThreadPoolExecutor(
                 max_workers=max(1, int(workers)),
                 thread_name_prefix="o4-imagery-cores") as pool:
             futures = {}
-            for row, tier in wants:
-                if busy():
+            for tile, row, tier in wants:
+                if busy() or ROWS.stopped(*tile):
                     counts["skipped"] += 1
+                    rows.skipped(tile)
                     continue
                 INDEX.set_state(conn, row["tile"], row["name"], "upgrading")
-                futures[pool.submit(lander, dict(row), tier)] = (row, tier)
+                futures[pool.submit(_land, lander, tile, dict(row), tier)] = (
+                    tile, row, tier)
             for future in _futures.as_completed(futures):
-                row, tier = futures[future]
-                _record(conn, row, tier, future, counts, log)
+                tile, row, tier = futures[future]
+                outcome = _record(conn, row, tier, future, counts, log)
+                if outcome == "skipped":
+                    rows.skipped(tile)
+                else:
+                    rows.landed(tile, outcome == "landed")
     finally:
         conn.close()
+        if rows is not None:
+            rows.finish()
     FOLLOW.write_log(log, {"cores_done": len(tiles), **counts})
     return counts
 
 
+class _Stopped(Exception):
+    """The user stopped the square's tile (``imagery_core_rows.stop``)."""
+
+
+def _land(lander: Callable, tile: tuple, row: dict, tier: int) -> dict:
+    """``lander(row, tier)``, unless the tile was stopped meanwhile."""
+    if ROWS.stopped(*tile):
+        raise _Stopped()
+    return lander(row, tier)
+
+
 def _record(conn, row: dict, tier: int, future, counts: dict,
-            log: Optional[str]) -> None:
-    """The index row of one finished core landing, and its log line."""
+            log: Optional[str]) -> str:
+    """The index row of one finished core landing, and its log line:
+    ``landed``, ``failed`` or ``skipped`` (stopped before it started)."""
     square = f"{row['tile']}/{row['name']}"
     try:
         facts = future.result()
     except Exception as error:          # counted; the follow job retries it
-        counts["failed"] += 1
+        stopped = isinstance(error, _Stopped)
+        counts["skipped" if stopped else "failed"] += 1
         INDEX.set_state(conn, row["tile"], row["name"],
                         "upgraded" if PLAN.tier_of_width(row["tier_px"]) > 0
                         else "low")
+        if stopped:
+            return "skipped"
         FOLLOW.write_log(log, {"core": square, "tier": tier,
                         "error": repr(error)[:200]})
-        return
+        return "failed"
     INDEX.set_state(conn, row["tile"], row["name"], "upgraded",
                     tier_px=facts["tier_px"],
                     full_bytes=facts.get("full_bytes", 0),
@@ -184,6 +216,7 @@ def _record(conn, row: dict, tier: int, future, counts: dict,
     counts["network"] += int(bool(facts.get("network", True)))
     FOLLOW.write_log(log, {"core": square, "tier": tier,
                     "network": bool(facts.get("network", True))})
+    return "landed"
 
 
 def sharpen(tiles: Sequence[Sequence[Any]],
@@ -244,6 +277,7 @@ def watch(session) -> None:
     per-step worker child's runs are its parent's to hand over."""
     built: list = []
     guard = threading.Lock()
+    ROWS.set_sink(getattr(session, "_emit", None))   # the rows (#2039)
 
     def on_event(event) -> None:
         name = type(event).__name__

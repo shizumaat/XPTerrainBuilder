@@ -846,7 +846,7 @@ def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
     kinds = key[key.index("static func buildItems"):key.index("static func flyItems")]
     swift_kinds = re.findall(r'present\.insert\("(\w+)"\)', kinds)
     python_kinds = [QTLEGEND.WORLD_FULL, QTLEGEND.WORLD_MESH, QTLEGEND.WORLD_DRAPE,
-                    QTLEGEND.WORLD_PLACEHOLDER, QTLEGEND.WORLD_NOTHING,
+                    QTLEGEND.WORLD_PLACEHOLDER,
                     QTLEGEND.WORLD_OTHER_TOOL, QTLEGEND.BUILT, QTLEGEND.OTHER,
                     QTLEGEND.STALE, QTLEGEND.EXTERNAL, QTLEGEND.CUSTOM_PATCH]
     assert swift_kinds == python_kinds

@@ -14,7 +14,6 @@ public enum MapKeyText {
         ("mesh", "Mesh", O4WorldStateText.legendMesh),
         ("drape", "Drape", O4WorldStateText.legendDrape),
         ("placeholder", "Placeholder", O4WorldStateText.legendPlaceholder),
-        ("nothing", "Unmarked", O4WorldStateText.legendNothing),
         ("other_tool", "Other tool", O4WorldStateText.legendOtherTool),
         ("meshing", "Meshing", "Mesh being built"),
         ("draping", "Draping", "Photo being draped (dashed)"),

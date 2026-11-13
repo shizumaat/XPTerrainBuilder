@@ -8,16 +8,14 @@ import Foundation
 ///
 /// Keys: `reload` — X-Plane still shows what was there before the file
 /// changed (drawn hatched); `own` — X-Plane draws its own scenery, the
-/// map's base imagery shows, marked (the Fly legend's `own`).
+/// map's base imagery shows, marked (the Fly legend's `own`), with no
+/// words (RULINGS 2026-11-13a: a tile with no build says nothing).
 public enum LivePreviewText {
     /// Drawn on a stale square or tile large enough to hold it.
     public static let reloadLabel = "Reload scenery to see"
-    /// Drawn on a tile where X-Plane draws its own scenery.
-    public static var ownLabel: String { O4Glossary.term("xplane_own_scenery") }
     /// (key, words) for a legend row.
     public static var legend: [(String, String)] {
-        [("reload", "X-Plane shows the earlier imagery until you reload scenery"),
-         ("own", ownLabel)]
+        [("reload", "X-Plane shows the earlier imagery until you reload scenery")]
     }
     /// The marks' colors, RGB 0–255.
     public static let markColors: [String: (Int, Int, Int)] = [

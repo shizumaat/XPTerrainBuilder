@@ -156,7 +156,8 @@ def test_every_item_has_its_own_colour(qapp):
         if color is not None:
             colors.setdefault(color.rgba(), []).append(item)
     assert [items for items in colors.values() if len(items) > 1] == []
-    assert len(colors) == len(KEYTEXT.SHORT) - 1          # "nothing": no swatch
+    assert len(colors) == len(KEYTEXT.SHORT)
+    assert "nothing" not in KEYTEXT.SHORT        # RULINGS 2026-11-13a
     assert QTKEY._item_color("built") == QTKEY.QColor(QTMAP.BUILT_COLOR)
     app = REPO / "Sources" / "XPTerrainBuilder"
     for path, func in ((app / "MapKey.swift", "static func color(_ item"),

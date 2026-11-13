@@ -21,7 +21,6 @@ ITEMS = (
     ("mesh", "Mesh", WORLD_TEXT.LEGEND_MESH),
     ("drape", "Drape", WORLD_TEXT.LEGEND_DRAPE),
     ("placeholder", "Placeholder", WORLD_TEXT.LEGEND_PLACEHOLDER),
-    ("nothing", "Unmarked", WORLD_TEXT.LEGEND_NOTHING),
     ("other_tool", "Other tool", WORLD_TEXT.LEGEND_OTHER_TOOL),
     ("meshing", "Meshing", "Mesh being built"),
     ("draping", "Draping", "Photo being draped (dashed)"),

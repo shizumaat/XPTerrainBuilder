@@ -51,6 +51,14 @@ lamps draped on the drawn ground), and the 30 m erosion a hill takes would
 sink half of SBRJ's 180 more than 0.5 m under its top (5 m: 26) -- and to
 its FLOOR per cell, the ground under a roof a storey or more over it,
 never the roof (``terrain_cut`` THE FLOOR, #2053 round 2).  Never hideable.
+
+The one-cell erosion alone does NOT keep the drawn ground under the object
+(#2053 round 3): 13k's argument holds for triangles no wider than the
+erosion, and the mesher draws a point from one triangle edge plus one
+posting diagonal (about 30 + 15 m).  The guarantee comes from the MESH --
+THE HOLD (``terrain_cut``): posting-sized triangles over the plan, every
+free vertex lowered under the object's 1 m bound, and the patch under the
+plan reading the cut ground (``object_ground``).
 """
 from __future__ import annotations
 

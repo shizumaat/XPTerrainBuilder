@@ -511,6 +511,25 @@ def inset_box_curv_weight(resolution_m):
     return max(INSET_BOX_REFERENCE_CLASS_M / float(resolution_m), 1.0)
 
 
+def raise_box_curv_weight(tile, weight_array, box, weight):
+    """Raise ``weight_array`` (the 1001 x 1001 per-tile grid) over ``box``
+    (``(west, south, east, north)``, EPSG:4326) to ``weight`` where that
+    is tighter than what the cell already holds (the airport rectangle's
+    cell arithmetic).  Returns the number of cells raised."""
+    (west, south, east, north) = box
+    colmin = max(round((west - tile.lon) * 1000), 0)
+    colmax = min(round((east - tile.lon) * 1000), 1000)
+    rowmin = max(round((tile.lat + 1 - north) * 1000), 0)
+    rowmax = min(round((tile.lat + 1 - south) * 1000), 1000)
+    if colmin > colmax or rowmin > rowmax:
+        return 0
+    weight = numpy.float32(weight)
+    cells = weight_array[rowmin : rowmax + 1, colmin : colmax + 1]
+    raised = int((cells < weight).sum())
+    numpy.maximum(cells, weight, out=cells)
+    return raised
+
+
 def apply_inset_box_curv_weights(tile, weight_array, inset_boxes):
     """Raise ``weight_array`` over each ``(box, resolution_m, ...)`` of
     ``inset_boxes`` (``box`` = ``(west, south, east, north)``, EPSG:4326)
@@ -518,22 +537,51 @@ def apply_inset_box_curv_weights(tile, weight_array, inset_boxes):
     cell already holds.  Returns the number of cells raised."""
     raised = 0
     for entry in inset_boxes:
-        ((west, south, east, north), resolution_m) = (entry[0], entry[1])
+        (box, resolution_m) = (entry[0], entry[1])
         if not resolution_m or resolution_m <= 0:
             continue
-        weight = numpy.float32(inset_box_curv_weight(resolution_m))
+        weight = inset_box_curv_weight(resolution_m)
         if weight <= 1.0:
             continue
-        # Same cell arithmetic as the airport rectangle below.
-        colmin = max(round((west - tile.lon) * 1000), 0)
-        colmax = min(round((east - tile.lon) * 1000), 1000)
-        rowmin = max(round((tile.lat + 1 - north) * 1000), 0)
-        rowmax = min(round((tile.lat + 1 - south) * 1000), 1000)
-        if colmin > colmax or rowmin > rowmax:
-            continue
-        cells = weight_array[rowmin : rowmax + 1, colmin : colmax + 1]
-        raised += int((cells < weight).sum())
-        numpy.maximum(cells, weight, out=cells)
+        raised += raise_box_curv_weight(tile, weight_array, box, weight)
+    return raised
+
+
+# THE HOLD'S WEIGHT (#2053 round 3, ``auto_patch_v2.airport.terrain_cut``
+# THE HOLD): over the plan of an object the mesh holds the cut ground
+# under (a ground object carrying riders), Triangle4XP refines to one
+# posting wherever the cut ground steps by the owner's ground visibility
+# bar (0.5 m, 2026-10-15): refinement asks ``maxedge * K * w > curv_tol``,
+# and a step ``s`` over one posting ``p`` is ``K ~ s / p**2``, so
+# ``w = curv_tol * p / HOLD_STEP_M`` (about 41 at SBRJ: tol 2, p 10.3 m).
+HOLD_STEP_M = 0.5
+
+
+def hold_curv_weight(tile):
+    """The weight over a held plan (above): from the tile raster's own
+    posting (the geometric mean of its two spacings, Triangle4XP's floor)."""
+    dem = tile.dem
+    px = (dem.x1 - dem.x0) / (dem.nxdem - 1) * GEO.lon_to_m(tile.lat)
+    py = (dem.y1 - dem.y0) / (dem.nydem - 1) * GEO.lat_to_m
+    return max(float(tile.curvature_tol) * math.sqrt(px * py) / HOLD_STEP_M, 1.0)
+
+
+def apply_hold_curv_weights(tile, weight_array):
+    """Raise the weight over every held plan of the tile (above), outside
+    the airport switch: the hold is the cut's guarantee, not a density
+    preference.  Never raises."""
+    try:
+        import auto_patch.terrain_cut_stage as TERRAIN_CUT
+        boxes = TERRAIN_CUT.held_boxes(tile)
+        if not boxes:
+            return 0
+        weight = hold_curv_weight(tile)
+        raised = sum(raise_box_curv_weight(tile, weight_array, b, weight) for b in boxes)
+    except Exception as error:
+        UI.vprint(1, "   WARNING: the hold's weight boxes unreadable:", str(error))
+        return 0
+    UI.vprint(1, "-> Modifying curv_tol weight map over %d held object plan(s) "
+              "(weight %.1f, %d cells, #2053)." % (len(boxes), weight, raised))
     return raised
 
 
@@ -580,6 +628,7 @@ def build_curv_tol_weight_map(tile, weight_array):
                 1, "-> Modifying curv_tol weight map according to airport "
                 "elevation inset boxes (%d cells)." % raised
             )
+    apply_hold_curv_weights(tile, weight_array)
     if tile.coast_curv_tol != tile.curvature_tol:
         UI.vprint(
             1,
@@ -2372,6 +2421,13 @@ def post_process_nodes_altitudes(tile):
                 f"   Patch pins: {len(stranded)} patch-pinned vertex(es) "
                 "touched no INTERP_ALT triangle and took their patch value "
                 "instead of the DEM (#2034).")
+    # #2053 round 3: THE HOLD -- the free vertices under an object the mesh
+    # holds the cut ground under (auto_patch.terrain_cut_stage.hold)
+    import auto_patch.terrain_cut_stage as TERRAIN_CUT
+    held_fixed = {v for tri in interp_alt_tris for v in tri} | water_valued
+    if pins is not None:
+        held_fixed |= set(pins[0])
+    TERRAIN_CUT.hold(tile, vertices, corners, held_fixed)
     if lifted_water:
         UI.vprint(
             1,

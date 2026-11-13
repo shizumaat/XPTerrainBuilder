@@ -74,7 +74,7 @@ __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PE
            "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
            "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
            "placement_models", "set_members", "seat_records", "log_line",
-           "hideable_paths", "plan_grid"]
+           "hideable_paths", "plan_grid", "plan_solid"]
 
 MIN_PLAN_M = 500.0
 MIN_RELIEF_M = 50.0
@@ -180,14 +180,20 @@ def photo_spread(vertices: np.ndarray, vt: np.ndarray, tris: np.ndarray) -> floa
     return float(q90 - q10)
 
 
-def _grid(g: _t.Any) -> "DeckGrid | None":
-    from .terrain_shaped import grid_of_triangles
+def _solid(g: _t.Any) -> "np.ndarray | None":
+    """``(n, 3, 3)`` authored corners of a geometry's static solid."""
     tris = g.solid
     if g.animated.shape[0]:
         tris = tris[~g.animated]
     if not tris.shape[0]:
         return None
-    return grid_of_triangles(g.vertices[tris])
+    return g.vertices[tris]
+
+
+def _grid(g: _t.Any) -> "DeckGrid | None":
+    from .terrain_shaped import grid_of_triangles
+    p = _solid(g)
+    return None if p is None else grid_of_triangles(p)
 
 
 def _plan_m(g: _t.Any) -> float:
@@ -229,6 +235,17 @@ def plan_grid(path: str) -> "DeckGrid | None":
     from .obj8 import parse_obj8
     try:
         return _grid(parse_obj8(path))
+    except (OSError, ValueError):
+        return None
+
+
+def plan_solid(path: str) -> "np.ndarray | None":
+    """The ``(n, 3, 3)`` authored static solid triangles of an OBJ8 file
+    (what :func:`plan_grid` bins) -- THE HOLD's bound is binned finer from
+    them (``terrain_cut.hold_bound``); ``None`` when unreadable."""
+    from .obj8 import parse_obj8
+    try:
+        return _solid(parse_obj8(path))
     except (OSError, ValueError):
         return None
 

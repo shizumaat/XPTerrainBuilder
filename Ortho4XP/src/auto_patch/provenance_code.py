@@ -456,6 +456,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.obj8_split",
     "auto_patch_v2.airport.object_cut",
     "auto_patch_v2.airport.object_floor",
+    "auto_patch_v2.airport.object_ground",
     "auto_patch_v2.airport.object_pack",
     "auto_patch_v2.airport.object_pavement",
     "auto_patch_v2.airport.object_plan",

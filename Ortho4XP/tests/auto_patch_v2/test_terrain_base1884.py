@@ -109,6 +109,19 @@ def test_a_house_whose_rigid_base_clears_our_ground_stands_on_it_too(tmp_path):
     assert ss.counts.get("terrain_carried_over_ground") == 1
 
 
+def test_the_over_ground_switch_refuses_and_counts():
+    """``[placement] terrain_base_over_ground = false``: the spec's witness
+    3 — a base clearing our ground stays on its own ground, counted."""
+    import dataclasses as dc
+    walls = [_p(1, 20.0, 6.0, BOX)]
+    law = dc.replace(_law(walls, _hill(12.0)), over_ground=False)
+    counts: dict = {}
+    assert TB.seat(walls, None, FR[0], 0.0, law, counts) is None
+    assert counts == {"terrain_carried_refused_over_ground": 1}
+    on = dc.replace(law, over_ground=True)
+    assert TB.seat(walls, None, FR[0], 0.0, on, counts) is not None
+
+
 def test_a_thin_piece_in_the_air_keeps_its_authored_y(tmp_path):
     """13y (3): no walled part — §16 (3)'s own ground, authored y kept."""
     plate = _prism(0.0, -68.0, 8.0, 20.0, 20.5)

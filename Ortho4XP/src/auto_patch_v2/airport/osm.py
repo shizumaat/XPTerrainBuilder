@@ -40,7 +40,9 @@ import xml.etree.ElementTree as ET
 __all__ = ["OsmDoc", "RawWay", "RelationReport", "read_osm_file", "feed_path",
            "load_feed", "feed_witness", "TAGS_OF_INTEREST", "FEEDS", "RELATION_TYPES",
            "ROAD_FEEDS", "ROAD_CACHE_TAG_SCHEMA", "feed_tag_schema",
-           "SHORE_FEED", "SHORE_TAGS_OF_INTEREST", "SHORE_CACHE_TAG_SCHEMA"]
+           "SHORE_FEED", "SHORE_TAGS_OF_INTEREST", "SHORE_CACHE_TAG_SCHEMA",
+           "PARKING_FEED", "PARKING_TAGS_OF_INTEREST",
+           "PARKING_CACHE_TAG_SCHEMA"]
 
 TAGS_OF_INTEREST = frozenset((
     "highway", "railway", "bridge", "tunnel", "layer", "aeroway",
@@ -68,7 +70,13 @@ TAGS_OF_INTEREST = frozenset((
 #: ``--refresh-data shore``), never by a build; an absent tile is an empty
 #: feed and is NAMED on the load report.
 SHORE_FEED = "shore_structures"
-FEEDS = ("airports", "airport_small_roads", "big_roads", SHORE_FEED)
+#: THE PARKING FEED (#1854 / #1338): ``amenity=parking`` areas, the
+#: ``[lot] parking_cover_fraction`` rung's evidence (``classify/
+#: evidence.py``).  Written by ``O4_Vector_Map.fetch_parking`` (``--refresh-
+#: data parking`` in the harness, the auto-patch step in a tile build).
+PARKING_FEED = "parking"
+FEEDS = ("airports", "airport_small_roads", "big_roads", SHORE_FEED,
+         PARKING_FEED)
 
 #: The shore feed keeps ITS OWN tags and no others: a ``man_made=pier``
 #: that is also a ``highway=footway`` must not arrive a second time as a
@@ -79,6 +87,18 @@ SHORE_TAGS_OF_INTEREST = frozenset(("man_made", "barrier", "wall", "landuse",
 #: Mirrored from ``O4_Vector_Map.SHORE_STRUCTURE_CACHE_TAG_SCHEMA``
 #: (twin-asserted equal, like ``ROAD_CACHE_TAG_SCHEMA``).
 SHORE_CACHE_TAG_SCHEMA = "2026-09-29"
+
+#: The parking feed's own whitelist: never ``building`` (a garage mapped
+#: ``building=parking`` must not arrive as a second building beside the
+#: pack's), never ``highway`` / ``layer`` (no road or deck reader may see
+#: it).  Mirrored from ``O4_Vector_Map.PARKING_TAGS_OF_INTEREST``.
+PARKING_TAGS_OF_INTEREST = frozenset(("access", "amenity", "name", "parking"))
+PARKING_CACHE_TAG_SCHEMA = "2026-11-13"
+
+#: Each feed with its own whitelist; every other feed reads
+#: :data:`TAGS_OF_INTEREST`.
+_FEED_TAGS = {SHORE_FEED: SHORE_TAGS_OF_INTEREST,
+              PARKING_FEED: PARKING_TAGS_OF_INTEREST}
 
 #: The feeds written under a TAG WHITELIST — ``O4_Vector_Map``'s
 #: ``ROADS_TAGS_OF_INTEREST``.  The airports feed keeps ``["all"]`` and
@@ -380,8 +400,7 @@ def load_feed(osm_root: str, feed: str, lat: float, lon: float,
         schemas.append((path, feed_tag_schema(path)))
         ns = f"{tlat:+03d}{tlon:+04d}:"
         nodes, ways, frep = read_osm_file(
-            path, ns, SHORE_TAGS_OF_INTEREST if feed == SHORE_FEED
-            else TAGS_OF_INTEREST)
+            path, ns, _FEED_TAGS.get(feed, TAGS_OF_INTEREST))
         rep = rep.merge(frep)
         for wid, nds, tags in ways:
             pts = tuple(nodes[n] for n in nds if n in nodes)

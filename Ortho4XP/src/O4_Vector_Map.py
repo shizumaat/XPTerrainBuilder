@@ -131,6 +131,16 @@ SHORE_STRUCTURE_QUERIES = [tuple(
 SHORE_STRUCTURE_TAGS_OF_INTEREST = sorted(SHORE_STRUCTURE_TAGS) + ["name"]
 SHORE_STRUCTURE_SUFFIX = "shore_structures"
 SHORE_STRUCTURE_CACHE_TAG_SCHEMA = "2026-09-29"
+# THE PARKING FEED (#1854 / #1338): ``amenity=parking`` areas, the
+# evidence the classifier's ``[lot] parking_cover_fraction`` rung reads.
+# No cached feed carried them (the airports layer queries ``aeroway`` only),
+# so the rung never fired.  Same shape as the shore feed: its own per-tile
+# cache and schema, read by the v2 loader where present.  The tag list is
+# ``auto_patch_v2.airport.osm.PARKING_TAGS_OF_INTEREST`` (twin-asserted).
+PARKING_QUERIES = [('way["amenity"="parking"]', 'rel["amenity"="parking"]')]
+PARKING_TAGS_OF_INTEREST = ["access", "amenity", "name", "parking"]
+PARKING_SUFFIX = "parking"
+PARKING_CACHE_TAG_SCHEMA = "2026-11-13"
 WATER_QUERIES = [
     'rel["natural"="water"]',
     'rel["waterway"="riverbank"]',
@@ -1122,20 +1132,37 @@ def osm_layer_warm_specifications(tile):
 
 
 def fetch_shore_structures(lat, lon):
-    """Fill (or recycle) tile ``(lat, lon)``'s shore-structure feed through
-    the ONE OSM cache writer (``O4_OSM_Utils.OSM_queries_to_OSM_layer``),
-    at ``FNAMES.osm_cached(lat, lon, SHORE_STRUCTURE_SUFFIX)``.  Called
-    by ``build_airport.py --refresh-data shore`` only (issue #72): a
-    download into the shared corpus is an explicit, ledgered event.
+    """Fill (or recycle) tile ``(lat, lon)``'s shore-structure feed
+    (:func:`fetch_tile_feed`).  Called by ``build_airport.py --refresh-data
+    shore`` only (issue #72): a download into the shared corpus is an
+    explicit, ledgered event.  Returns ``(path, ways)``."""
+    return fetch_tile_feed(lat, lon, SHORE_STRUCTURE_QUERIES,
+                           SHORE_STRUCTURE_TAGS_OF_INTEREST,
+                           SHORE_STRUCTURE_SUFFIX,
+                           SHORE_STRUCTURE_CACHE_TAG_SCHEMA)
+
+
+def fetch_parking(lat, lon):
+    """Fill (or recycle) tile ``(lat, lon)``'s parking feed (#1854,
+    :func:`fetch_tile_feed`): ``build_airport.py --refresh-data parking``
+    in the harness, :func:`run_auto_patch_generation` in a tile build.
     Returns ``(path, ways)``."""
+    return fetch_tile_feed(lat, lon, PARKING_QUERIES,
+                           PARKING_TAGS_OF_INTEREST, PARKING_SUFFIX,
+                           PARKING_CACHE_TAG_SCHEMA)
+
+
+def fetch_tile_feed(lat, lon, queries, tags_of_interest, suffix, schema):
+    """Fill (or recycle — a schema-current cache is never re-downloaded)
+    one per-tile evidence feed through the ONE OSM cache writer
+    (``O4_OSM_Utils.OSM_queries_to_OSM_layer``), at
+    ``FNAMES.osm_cached(lat, lon, suffix)``.  Returns ``(path, ways)``."""
     layer = OSM.OSM_layer()
     OSM.OSM_queries_to_OSM_layer(
-        SHORE_STRUCTURE_QUERIES, layer, lat, lon,
-        SHORE_STRUCTURE_TAGS_OF_INTEREST,
-        cached_suffix=SHORE_STRUCTURE_SUFFIX,
-        cache_schema=SHORE_STRUCTURE_CACHE_TAG_SCHEMA)
+        queries, layer, lat, lon, tags_of_interest,
+        cached_suffix=suffix, cache_schema=schema)
     ways = len(getattr(layer, "dicosmw", {}) or {})
-    return FNAMES.osm_cached(lat, lon, SHORE_STRUCTURE_SUFFIX), ways
+    return FNAMES.osm_cached(lat, lon, suffix), ways
 
 
 def _layer_cache_is_current(lat, lon, cached_suffix, cache_schema):
@@ -2204,6 +2231,14 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
         # by name, and an app user has no --refresh-data to run).  One
         # bz2 header read per feed when current.
         road_feeds = ensure_auto_patch_road_feeds(tile)
+        # THE PARKING FEED (#1854): the lot rung's evidence, this tile's
+        # own (a neighbour's is read where an earlier build filled it).
+        # Recycled when schema-current; a failed download leaves the
+        # rung without evidence, never the build without a patch.
+        try:
+            fetch_parking(tile.lat, tile.lon)
+        except Exception as exc:                          # noqa: BLE001
+            UI.vprint(1, "    * Parking feed not fetched:", exc)
         # THE PATCH WAITS FOR THE AIRPORT'S OWN PHOTOS (#1359; owner RULINGS
         # 2026-10-26y): the textures the imagery step will texture each
         # airport with are downloaded FIRST, so the terrain witness reads

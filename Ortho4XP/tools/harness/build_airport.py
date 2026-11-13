@@ -2542,14 +2542,23 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
             "layer_source": extract_plan}
 
 
-# THE AUTHORISED SHORE-FEED FILL (--refresh-data shore, issue #72)
-def refresh_shore_feed(root, lat, lon, prog) -> dict:
-    """Fill tile ``(lat, lon)``'s shore-structure feed — the ONE engine
-    writer (``O4_Vector_Map.fetch_shore_structures``: the OSM cache writer
-    at its own per-tile path, whose tag list is ``planar.zones.
-    SHORE_WALL_TAGS``).  The build's OWN tile only, deliberately: the v2
-    loader reads the 3x3 neighbourhood and NAMES how many feed files it
-    found (``[load] shore feed``), so a neighbour left unfilled is a
+# THE AUTHORISED PER-TILE FEED FILLS (--refresh-data shore, issue #72;
+# --refresh-data parking, #1854): scope -> (engine writer, suffix, schema,
+# what an empty answer is not)
+TILE_FEED_SCOPES = {
+    "shore": ("fetch_shore_structures", "SHORE_STRUCTURE_SUFFIX",
+              "SHORE_STRUCTURE_CACHE_TAG_SCHEMA", "an empty coast"),
+    "parking": ("fetch_parking", "PARKING_SUFFIX",
+                "PARKING_CACHE_TAG_SCHEMA", "a tile with no car park"),
+}
+
+
+def refresh_tile_feed(root, lat, lon, prog, scope) -> dict:
+    """Fill tile ``(lat, lon)``'s ``scope`` feed (:data:`TILE_FEED_SCOPES`)
+    through its ONE engine writer (``O4_Vector_Map.fetch_tile_feed``: the
+    OSM cache writer at its own per-tile path).  The build's OWN tile
+    only, deliberately: the v2 loader reads the 3x3 neighbourhood and
+    NAMES a feed it found none of, so a neighbour left unfilled is a
     reported gap, and filling nine tiles per run is an owner call.
 
     A cache already on disk under the current schema is RECYCLED, not
@@ -2562,21 +2571,22 @@ def refresh_shore_feed(root, lat, lon, prog) -> dict:
     import O4_OSM_Utils as OSM                             # noqa: E402
     import O4_Vector_Map as VMAP                           # noqa: E402
     import O4_File_Names as FNAMES                         # noqa: E402
-    path = FNAMES.osm_cached(int(lat), int(lon), VMAP.SHORE_STRUCTURE_SUFFIX)
-    was = (os.path.isfile(path) and OSM._cached_osm_schema_matches(
-        path, VMAP.SHORE_STRUCTURE_CACHE_TAG_SCHEMA))
-    path, ways = VMAP.fetch_shore_structures(int(lat), int(lon))
+    writer, suffix, schema, not_empty = TILE_FEED_SCOPES[scope]
+    suffix, schema = getattr(VMAP, suffix), getattr(VMAP, schema)
+    path = FNAMES.osm_cached(int(lat), int(lon), suffix)
+    was = (os.path.isfile(path)
+           and OSM._cached_osm_schema_matches(path, schema))
+    path, ways = getattr(VMAP, writer)(int(lat), int(lon))
     if not os.path.isfile(path):
         raise SystemExit(
-            f"REFUSING: --refresh-data shore derived NOTHING for "
+            f"REFUSING: --refresh-data {scope} derived NOTHING for "
             f"{int(lat):+d}{int(lon):+d} ({path} absent after the fetch — "
-            f"an overpass failure, not an empty coast)")
+            f"an overpass failure, not {not_empty})")
     summary = {"tile": [int(lat), int(lon)], "path": path, "ways": ways,
-               "recycled": bool(was),
-               "schema": VMAP.SHORE_STRUCTURE_CACHE_TAG_SCHEMA}
-    prog.note(f"shore feed {int(lat):+d}{int(lon):+d}: "
+               "recycled": bool(was), "schema": schema}
+    prog.note(f"{scope} feed {int(lat):+d}{int(lon):+d}: "
               f"{'RECYCLED (schema-current)' if was else 'FILLED'} — "
-              f"{ways} shore-structure way(s) at {path}")
+              f"{ways} way(s) at {path}")
     return summary
 
 
@@ -5660,6 +5670,7 @@ def main(argv=None) -> int:
     seed_summary = None
     osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
     shore_refresh_summary = rings_refresh_summary = None
+    parking_refresh_summary = None
     runway_refs_summary = None
     mod_cache_refresh_summary = None
     t0 = time.time()
@@ -5721,8 +5732,12 @@ def main(argv=None) -> int:
                                                    lon, prog)
         if "shore" in requested and lat is not None:
             with guard:
-                shore_refresh_summary = refresh_shore_feed(
-                    root, lat, lon, prog)
+                shore_refresh_summary = refresh_tile_feed(
+                    root, lat, lon, prog, "shore")
+        if "parking" in requested and lat is not None:
+            with guard:
+                parking_refresh_summary = refresh_tile_feed(
+                    root, lat, lon, prog, "parking")
         # THE RUNWAY-END CROSS-CHECK CACHE (#1342): global, not per tile —
         # independent of every pass around it
         if "runway_refs" in requested:
@@ -5794,6 +5809,7 @@ def main(argv=None) -> int:
                       "refresh_osm_layers": osm_refresh_summary,
                       "refresh_dem": dem_refresh_summary,
                       "refresh_shore": shore_refresh_summary,
+                      "refresh_parking": parking_refresh_summary,
                       "refresh_runway_refs": runway_refs_summary,
                       "refresh_rings": rings_refresh_summary,
                       "refresh_airport_mod_cache": mod_cache_refresh_summary,
@@ -5903,6 +5919,7 @@ def main(argv=None) -> int:
     frame["refresh_osm_layers"] = osm_refresh_summary
     frame["refresh_dem"] = dem_refresh_summary
     frame["refresh_shore"] = shore_refresh_summary
+    frame["refresh_parking"] = parking_refresh_summary
     frame["refresh_rings"] = rings_refresh_summary
     frame["reconcile_ledger"] = reconcile_summary
     frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)

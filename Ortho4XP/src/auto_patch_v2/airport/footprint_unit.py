@@ -1254,6 +1254,7 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     conn: dict[int, tuple[str, str]] = {}
     left: dict[str, dict[int, list]] = {}
     far: list[tuple[int, _t.Any, str, list]] = []
+    wet: set[int] = set()
     for ci, c in enumerate(cands):
         if c.body_class in (_ar.LINE_SEGMENT, _ar.BASIN):
             continue
@@ -1324,6 +1325,15 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             # verdict waits for the unit's other contacts (#1140,
             # :func:`_rests_on_unit`).
             far.append((ci, st, uid, cc))
+        elif _ar.hangs_over_water(cc, surface, z, visual_m, _ar.box_points(
+                c.part_boxes or ((c.box,) if c.box else ()))):
+            # #1896: A MEMBER THE UNIT'S ZERO WOULD HANG OVER WATER is far
+            # from it whatever the datum's source — water is no ground
+            # (R12 amendment 1); the same rest test keeps a deck on the
+            # unit's own piers (PAKT's float-dock piles stood 6.1 m over
+            # the water on the shore unit's median ground)
+            far.append((ci, st, uid, cc))
+            wet.add(ci)
         per_uid.setdefault(uid, {})[ci] = cc
         info[uid] = (z, where, src)
     resting: set[int] = set()
@@ -1341,8 +1351,9 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             counts["unit_members_kept_resting_on_unit"] = \
                 counts.get("unit_members_kept_resting_on_unit", 0) + 1
             continue
-        counts["unit_members_left_far_below"] = \
-            counts.get("unit_members_left_far_below", 0) + 1
+        why = ("unit_members_left_over_water" if ci in wet
+               else "unit_members_left_far_below")
+        counts[why] = counts.get(why, 0) + 1
         _leave(cands, ci, st, uid)
         del per_uid[uid][ci]
         left.setdefault(uid, {})[ci] = cc

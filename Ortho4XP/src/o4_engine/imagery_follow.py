@@ -68,6 +68,7 @@ import time
 import typing as _t
 
 import O4_Imagery_Fetch_Slots as SLOTS
+import O4_Imagery_Follow_Reach as REACH
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Spawn as SPAWN
 import O4_Imagery_Tier_Plan as PLAN
@@ -218,6 +219,7 @@ class FollowJob:
             thread_name_prefix="o4-imagery-follow-fetch")
         self._conn = None
         self._rows: dict[str, dict] = {}
+        self._tiles: dict = {}                  # REACH.by_tile(_rows)
         self._rows_at = -math.inf
         self._inflight: dict[str, _InFlight] = {}
         self._failures: dict[str, int] = {}
@@ -467,7 +469,7 @@ class FollowJob:
             return          # the plan's departure first; the planner follows
         episode = self.spawn.witness(
             kind, now, lat, lon, self._rows, moved_m=moved, down_s=down,
-            is_local=getattr(self.lander, "local", None))
+            is_local=getattr(self.lander, "local", None), agl_m=agl_m)
         if episode is not None:
             self._log({"spawn": kind, "core": len(episode.wants),
                        "local": len(episode.local),
@@ -501,30 +503,43 @@ class FollowJob:
         self._rows = {_key(r): r for r in INDEX.rows(self._conn)
                       if r.get("centre_lat") is not None
                       and r.get("load_size_m")}
+        self._tiles = REACH.by_tile(self._rows)
         self._rows_at = now
 
     def _plan(self, now: float, planner: bool = True) -> list[PLAN.Fetch]:
         """An open spawn episode's core first, then the planner's fetches
         for every other square (none while a ``plan`` episode is open, or
-        with ``planner`` false)."""
-        episode = self.spawn.episode
+        with ``planner`` false).  The core follows the camera
+        (``Episode.follow``), and once its flight-start window has passed
+        its files show only at a reload: the planner's fetches for a
+        crossing still AHEAD (deadline in the future: X-Plane reads the
+        file at its own step-up) go before it, the rest after (#2037)."""
+        episode, m = self.spawn.episode, self.motion
+        if episode is not None and planner and m is not None:
+            episode.follow(self._rows, m.lat, m.lon, m.agl_m)
         core = (episode.fetches(self._rows, now, self._failed)
                 if episode is not None else [])
         if not planner or (episode is not None and episode.witness == "plan"):
             return core
+        if m is None:
+            return core
         in_core = {f.square for f in core}
         squares, on_disk = [], {}
-        for key, row in self._rows.items():
+        for key in REACH.keys_within(self._tiles, m.lat, m.lon,
+                                     REACH.plan_reach(m, PLAN.HORIZON_S)):
+            row = self._rows[key]
             if (key in self._failed or row["state"] == "failed"
                     or key in in_core):
                 continue
             squares.append(PLAN.Square(key, row["centre_lat"],
                                        row["centre_lon"], row["load_size_m"]))
             on_disk[key] = PLAN.tier_of_width(row["tier_px"])
-        if self.motion is None:
-            return core
-        return core + PLAN.plan(self.motion, squares, on_disk,
-                                lead_s=self.lead_s, fetch_s=self._fetch_s)
+        planned = PLAN.plan(m, squares, on_disk,
+                            lead_s=self.lead_s, fetch_s=self._fetch_s)
+        if episode is None or now < episode.window_end:
+            return core + planned
+        ahead = [f for f in planned if not f.late and f.deadline_s > 0.0]
+        return ahead + core + [f for f in planned if f not in ahead]
 
     def _local(self) -> "set[str]":
         """The open episode's squares that need no download: they take no
@@ -661,7 +676,9 @@ class FollowJob:
         m = self.motion
         near_by_tile: dict[str, list[str]] = {}
         near = set()
-        for key, row in self._rows.items():
+        for key in REACH.keys_within(self._tiles, m.lat, m.lon,
+                                     REACH.near_reach()):
+            row = self._rows[key]
             if INDEX.distance_m(row, m.lat, m.lon) <= INDEX.tier_distance_m(row):
                 near.add(key)
                 near_by_tile.setdefault(row["tile"], []).append(row["name"])

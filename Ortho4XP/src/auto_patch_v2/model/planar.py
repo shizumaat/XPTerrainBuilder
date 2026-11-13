@@ -49,6 +49,7 @@ __all__ = ["BEYOND", "NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Fa
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
+           "EDGE_STRIP_PREFIX", "is_edge_strip_ref", "edge_strip_host",
            "is_late_ref", "GAP_PREFIX", "is_gap_ref", "GAP_APRON_PREFIX",
            "is_gap_apron_ref", "gap_part_kind", "gap_parts_across_knife",
            "gap_step_part", "shares_gap_part",
@@ -775,6 +776,12 @@ class PlanarMap:
     #: LAST STAGE (:func:`pad_road_faces`), solved against the levels of
     #: the map without it.
     pad_roads: frozenset[str] = _dc.field(default_factory=frozenset)
+    #: THE FRONTAGE ROADS (issue #2057, ``classify/frontage_road``): the
+    #: pad roads (:attr:`pad_roads`) that run ALONG a pad's frontage, and
+    #: the kerbside between — they fall from the pad's rim no faster than
+    #: the road's cross-section (``constraints/pad_ramp``); the ramp is
+    #: along the road beyond the frontage
+    frontage_roads: frozenset[str] = _dc.field(default_factory=frozenset)
     #: THE RAMP-FOOT RUN-OUTS (issue #669; owner RULINGS 2026-10-14c (5);
     #: ``classify/ramp_runout``): run-out ref -> ``(x0, y0, dx, dy, z0)`` —
     #: where the strip leaves the graded ground at an object ramp's foot,
@@ -1148,10 +1155,29 @@ def is_facade_strip_ref(ref) -> bool:
     return str(ref or "").split(":", 1)[0] == FACADE_STRIP_PREFIX
 
 
+#: #2054: the ref ``classify/edge_line_mint`` spells — ``edgestrip:<k>:<host
+#: ref>`` for the ground a pack line facade marks as its paved host's edge
+#: (the host ref is everything after the second colon: a ribbon's own ref
+#: carries colons and ``#``)
+EDGE_STRIP_PREFIX = "edgestrip"
+
+
 def is_facade_ref(ref) -> bool:
-    """A face the facade mint made — strip or lot."""
+    """A face a facade mint made — a §52 strip or lot, or a #2054 edge
+    strip (a pack LINE facade's)."""
     return str(ref or "").split(":", 1)[0] in (FACADE_STRIP_PREFIX,
-                                               FACADE_LOT_PREFIX)
+                                               FACADE_LOT_PREFIX, EDGE_STRIP_PREFIX)
+
+
+def is_edge_strip_ref(ref) -> bool:
+    """A #2054 edge strip (it stands at its paved host's level)."""
+    return str(ref or "").split(":", 1)[0] == EDGE_STRIP_PREFIX
+
+
+def edge_strip_host(ref) -> "str | None":
+    """The paved host ref an edge strip takes its level from, else ``None``."""
+    parts = str(ref or "").split(":", 2)
+    return parts[2] if len(parts) == 3 and parts[0] == EDGE_STRIP_PREFIX else None
 
 
 def facade_strip_host(ref) -> "str | None":

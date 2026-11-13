@@ -127,8 +127,11 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
     for u in part.units:
         got: list[WallComponent] = []
         for m in u.members:
-            if _not_a_wall(m.resource):
-                continue                    # 29h (Q-72b): a fence is no wall
+            # 29h (Q-72b): a fence is no wall -- unless its GEOMETRY is a
+            # retaining wall's (#2054: KLAX ``Fence_Terminal_1.obj``)
+            fence = _not_a_wall(m.resource)
+            if fence and not _buried_solid(m, cfg):
+                continue
             seat = None
             for p in m.parts:
                 if not p.rings or getattr(p, "line", False) or \
@@ -167,10 +170,19 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                     airport, whole, wide, float(p.height_m), cfg, depth,
                     seat + top_y if one and _hangs_from_zero(top_y, seat, cfg) else None,
                 ) if _stands_on_ground(p) else 0.0
+                buried = False
+                if not retained and one and depth is not None and \
+                        _stands_on_ground(p) and _buried_solid(m, cfg):
+                    retained = _buried_step(airport, whole, wide, float(p.height_m),
+                                            depth, cfg)
+                    buried = retained > 0.0
+                if fence and not retained:
+                    continue                # a fence retaining nothing is no wall
                 retains = retained > 0.0
-                # the face a depth retains reaches its zero, not its top
-                kept_top = 0.0 if retains and depth is not None and \
-                    retained == depth and retained != float(p.height_m) else None
+                # the face a depth retains reaches its zero, not its top; so
+                # does a buried wall's (#2054: its zero is the upper ground)
+                kept_top = 0.0 if retains and depth is not None and (buried or (
+                    retained == depth and retained != float(p.height_m))) else None
                 source, sheet = ("dem" if retains else ""), None
                 if not retains and hung_wall(p, one, top_y, seat, cfg):
                     sheet = _sheet_wall(airport, u, m, p, tuple(polys), cfg, to_xy, paved)
@@ -186,6 +198,49 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                                          *(sheet or ())))
         out.extend(_one_wall_per_composite(got, u, to_xy, cfg))
     return out
+
+
+_BURIED: dict[str, bool] = {}
+
+
+def _buried_solid(member, cfg) -> bool:
+    """#2054 (owner 2026-11-13 15:33Z / 15:36Z): whether ``member``'s OBJ
+    reads a RETAINING WALL by its geometry and texture
+    (``airport/line_solidity.kind_of``: authored at least
+    ``line_retaining_buried_min_m`` under its zero, solid over it),
+    whatever its name; memoised per file."""
+    path = str(getattr(member, "authored_path", "") or "")
+    if not path or getattr(cfg, "line_retaining_buried_min_m", None) is None:
+        return False
+    if path not in _BURIED:
+        from .line_solidity import RETAINING_WALL, kind_of, obj_solidity
+        sol = obj_solidity(path)
+        _BURIED[path] = sol is not None and kind_of(sol, cfg) == RETAINING_WALL
+    return _BURIED[path]
+
+
+def _buried_step(airport: Airport, whole, wide: float, height: float,
+                 depth: float, cfg) -> float:
+    """THE BURIED WITNESS (#2054; owner 2026-11-13 15:33Z: "the wall marks
+    where the drop is, and should be seated so its bottom is at the lowest
+    point"): a thin one-part wall the author drew below its zero
+    (:func:`_buried_solid`) retains the STEP the ground takes across it
+    (:func:`_step_across`, the witness's own reading) when that is at least
+    ``retaining_wall_min_height_m`` and within its buried face
+    (``retaining_wall_step_max_fraction`` of ``depth``) -- the low side's
+    ground stands on its buried face, not at its foot.  MEASURED KLAX
+    ``Fence_Terminal_1.obj`` (8.00 m solid, 4.20 m under its zero): the
+    ground steps 2.84 m across it (90th percentile at the 8 m ring), under
+    the 0.75 x 4.20 m the depth witness needs.  0.0 where it retains none."""
+    ring_m = getattr(cfg, "retaining_wall_step_ring_m", None)
+    hi = getattr(cfg, "retaining_wall_step_max_fraction", None)
+    dem = getattr(airport, "dem", None)
+    if ring_m is None or hi is None or dem is None or wide > float(cfg.retaining_wall_max_width_m):
+        return 0.0
+    step = _step_across(dem, whole, wide, max(float(ring_m), height))
+    if step is None or not float(cfg.retaining_wall_min_height_m) <= step <= float(hi) * depth:
+        return 0.0
+    return float(step)
 
 
 def _sheet_wall(airport: Airport, unit, member, part, pieces: tuple, cfg, to_xy,

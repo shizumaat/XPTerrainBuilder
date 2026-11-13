@@ -713,6 +713,8 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     print(_terrain_model.log_line(icao, (r[2] for r in airport.terrain_models)))
     from auto_patch_v2.airport import bridged_ground as _bridged_ground
     print(_bridged_ground.log_line(icao, (r[2] for r in airport.terrain_models)))
+    from auto_patch_v2.airport import ground_shell as _ground_shell
+    print(_ground_shell.log_line(icao, (r[2] for r in airport.terrain_models)))
     # RULINGS 2026-11-03 (answer 4, #1738): the companion terrain mesh, read
     # as the build's ``pipeline/build.pack_stage`` reads it
     from auto_patch_v2.airport import terrain_mesh_witness as _tmw

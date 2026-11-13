@@ -110,6 +110,29 @@ def test_download_textures_counts_permanent_failures(monkeypatch):
     assert convert_queue.empty()
 
 
+def test_a_raised_download_says_its_reason_once(monkeypatch):
+    """A download that RAISES (a refused write, a full disk) says the
+    last attempt's reason at the default verbosity, once per texture:
+    two OTHH harness builds (2026-11-13) failed with only "every texture
+    download failed" while the reason was a write guard's refusal."""
+    def _raise(tile, *attrs):
+        raise RuntimeError("BLOCKED: write refused\n  scope: orthophotos")
+    monkeypatch.setattr(TILE.IMG, "build_jpeg_ortho", _raise)
+    monkeypatch.setattr(UI, "red_flag", False)
+    said = []
+    monkeypatch.setattr(UI, "lvprint", lambda level, *a: said.append(
+        " ".join(str(x) for x in a)))
+    download_queue = queue.Queue()
+    download_queue.put((4096, 2725, 16, "BI"))
+    stats = {}
+    TILE.download_textures(None, download_queue, queue.Queue(), workers=1,
+                           stats=stats)
+    assert stats == {"done": 0, "failed": 1}
+    reasons = [line for line in said if "not downloaded" in line]
+    assert reasons == ["   Texture 2725_4096_BI16.dds not downloaded after "
+                       "3 attempts: BLOCKED: write refused"]
+
+
 def test_download_textures_counts_successes(monkeypatch):
     """Successful downloads land in ``stats['done']`` and are queued for
     conversion."""

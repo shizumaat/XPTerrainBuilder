@@ -425,9 +425,11 @@ final class ImageryModel: ObservableObject {
             return
         }
         if let downloaded, let cachePath {
-            try? FileManager.default.createDirectory(
-                at: cachePath.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? downloaded.write(to: cachePath)
+            Task.detached(priority: .utility) {   // disk off the main thread (#2055)
+                try? FileManager.default.createDirectory(
+                    at: cachePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? downloaded.write(to: cachePath)
+            }
         }
         memory[key] = image
         lru.append(key)
@@ -443,10 +445,14 @@ final class ImageryModel: ObservableObject {
         startFadeTicker()
     }
 
+    /// Decodes NOW, on the calling (background) thread (#2055): a lazily
+    /// decoded JPEG is decoded by the first draw, on the main thread — the
+    /// launch's map fill spent ~1.5 s of main-thread time there.
     private nonisolated static func decode(data: Data) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         return CGImageSourceCreateImageAtIndex(source, 0, [
             kCGImageSourceShouldCache: true,
+            kCGImageSourceShouldCacheImmediately: true,
         ] as CFDictionary)
     }
 }

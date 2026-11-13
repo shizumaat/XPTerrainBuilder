@@ -396,7 +396,7 @@ def test_main_runs_the_pass_and_carries_the_named_airport(build_mod):
     # step order (2026-10-02e) is untouched, and the new pass follows it
     order = [src.index(call, i_try) for call in (
         "refresh_stale_osm_layers(", "warm_airport_insets(",
-        "refresh_shore_feed(", "refresh_tile_dem(",
+        "refresh_tile_feed(", "refresh_tile_dem(",
         "refresh_approach_rings(", "refresh_airport_mod_cache(")]
     assert order == sorted(order), order
 

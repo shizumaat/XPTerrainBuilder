@@ -167,7 +167,8 @@ def test_a_groundside_host_takes_the_ground_out_to_the_barriers_base():
     (road,) = cells
     g = Polygon(road.ring, road.holes)
     assert road.ref == "small_roads:-1232#1" and road.role == "service_road"
-    assert g.bounds[3] == pytest.approx(13.35, abs=0.1)       # the line + its half base
+    # the line + its half base, at least one lattice step (#2054 round 2 R4)
+    assert g.bounds[3] == pytest.approx(13.5, abs=0.1)
     assert road.evidence["edge_kind"] == ls.LOW_BARRIER
 
 
@@ -178,7 +179,7 @@ def test_an_airside_host_gets_a_late_strip_and_never_grows():
     assert role == "groundside_pavement" and ref == "edgestrip:0:pav2"
     assert mp.edge_strip_host(ref) == "pav2" and mp.is_late_ref(ref)
     assert ev["edge_kind"] == ls.LOW_BARRIER and st["edge_strips"] == 1
-    assert poly.bounds[3] == pytest.approx(13.35, abs=0.1)
+    assert poly.bounds[3] == pytest.approx(13.5, abs=0.1)     # R4: >= 0.5 m past it
     assert poly.distance(Polygon(ROAD)) >= 1.4                # the §52 stand-off
     assert Polygon(cells[0].ring).equals(Polygon(ROAD))       # the apron as it was
 
@@ -213,7 +214,9 @@ def test_ground_rising_past_a_boundary_fence_marks_the_edge_too():
     cells = []
     _mint((wire,), Rising(), grown=cells)
     assert cells[0].evidence["edge_kind"] == ls.WIRE_FENCE
-    assert Polygon(cells[0].ring).bounds[3] == pytest.approx(13.0, abs=0.1)
+    # R4 (#2054 round 2): a line with no base width (a v800 fence reads 0.0)
+    # still takes the ground one lattice step past it
+    assert Polygon(cells[0].ring).bounds[3] == pytest.approx(13.5, abs=0.1)
 
 
 def test_the_edge_ground_stops_at_the_water():

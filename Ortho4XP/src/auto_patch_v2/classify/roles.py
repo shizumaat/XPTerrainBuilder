@@ -893,12 +893,17 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # is CUT BACK at a retaining wall's faces, here, once — the footprint
     # and the far side are never its (``classify/wall_cutback``)
     from ..law.tables import road_family_roles
+    from ..airport.walled_plate import body_plan
     from .wall_cutback import cut_lines_at_walls, cut_roads_at_walls
     _walls = tuple(getattr(airport, "retaining_walls", ()) or ())
     cells, _wstats = cut_roads_at_walls(cells, frozenset(road_family_roles(law)),
                                         _walls, rules.cells.min_area_m2,
-                                        snap_margin_m(law))
+                                        snap_margin_m(law), body_plan(airport))
     stats.update(_wstats)
+    # #2054 round 2 (R2): a road or lot at a retaining wall's foot takes the
+    # ground to the wall's lower face (``classify/edge_line_mint``)
+    from .edge_line_mint import grow_feet_to_walls
+    stats.update(grow_feet_to_walls(airport, cells, law, rules))
     # #2054: a pack line facade standing on a paved edge where the ground
     # falls away marks that pavement's TRUE edge — the ground out to it is
     # a late strip at the host's level (``classify/edge_line_mint``)

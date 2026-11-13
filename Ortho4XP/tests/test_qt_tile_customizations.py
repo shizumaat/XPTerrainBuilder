@@ -48,6 +48,20 @@ def window(tiles_dir, tmp_path, monkeypatch):
         sys.stdout = saved_stdout
 
 
+def _refresh_badges(window):
+    """Every built tile's badges, read off the GUI thread (#2055): wait
+    (bounded) for the worker's answer to reach the map."""
+    import time
+
+    from PySide6.QtWidgets import QApplication
+    window._refresh_customized_tiles()
+    deadline = time.monotonic() + 10
+    while window._customized_probe.in_flight() and time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    QApplication.processEvents()
+
+
 def _badges_drawn(tile_map, monkeypatch):
     """The tiles a repaint draws the settings badge on."""
     drawn = []
@@ -68,7 +82,7 @@ def test_qt_badge_pane_and_clearing(window, tiles_dir, monkeypatch):
     window.map.set_built(window._built)
     window.map.resize(600, 600)
     window.map.center_on_tile(45, 5, zoom=7)
-    window._refresh_customized_tiles()
+    _refresh_badges(window)
     assert window.map.customized() == {tile}
     assert _badges_drawn(window.map, monkeypatch) == 1
 
@@ -86,7 +100,7 @@ def test_qt_badge_pane_and_clearing(window, tiles_dir, monkeypatch):
     # Clearing the overrides (what Settings' reset writes) drops the badge.
     SM.write_tile(45, 5, tiles_dir + "/", {"road_level": "4",
                                       "approach_rings": "auto"})
-    window._refresh_customized_tiles()
+    _refresh_badges(window)
     assert window.map.customized() == set()
     assert _badges_drawn(window.map, monkeypatch) == 0
     window._refresh_custom_settings(tile)

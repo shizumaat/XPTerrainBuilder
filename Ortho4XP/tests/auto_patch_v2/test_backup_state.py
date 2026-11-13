@@ -51,10 +51,11 @@ def _clean_memo():
     B.invalidate_memo()
 
 
-def _pack(tmp_path, *, dsf_text: str = DUMP, name: str = "+40-004.dsf"):
+def _pack(tmp_path, *, dsf_text: str = DUMP, name: str = "+40-004.dsf",
+          bucket: str = "+40-010"):
     pack = tmp_path / "pack"
     (pack / "objects").mkdir(parents=True, exist_ok=True)
-    nav = pack / "Earth nav data" / "+40-010"
+    nav = pack / "Earth nav data" / bucket
     nav.mkdir(parents=True, exist_ok=True)
     dsf = nav / name
     dsf.write_text(dsf_text, encoding="utf-8", newline="")
@@ -1162,7 +1163,10 @@ def _v2_scenery(tmp_path, monkeypatch, *, both: bool = False):
     TNCM on ``+18-064.dsf``, and TFFG on the same DSF when ``both``.  No
     v1 reanchor sidecar exists: this is the pack the front ends could not
     see."""
-    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf")
+    # its own 10° bucket, as X-Plane lays it out (#2055: a tile's
+    # reanchor_status reads only that bucket's records)
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name="+18-064.dsf",
+                      bucket="+10-070")
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     p1, f1 = _tncm(pack, dsf)
     PW.apply_plan(p1, f1, tool, patch_dir=str(tmp_path / "patch"),

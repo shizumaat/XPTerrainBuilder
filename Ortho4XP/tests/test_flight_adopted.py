@@ -7,7 +7,8 @@ Such an endpoint waits in state ``choice`` with a ``FlightStatus.choices``
 row while the rest of the flight prepares; ``keep`` makes it ready with no
 build, ``upgrade`` queues a ``full`` build that replaces the mesh in the
 pack (``fresh``), and the answer is remembered for the tile.  ``patched``
-reads yes / no / unknown from the source's Ortho4XP install.  Hermetic:
+reads yes / no / unknown from the source's Ortho4XP install, or
+for the endpoint's airport from the build's own data in the tile folder.  Hermetic:
 tmp_path, no network, no X-Plane, no build.
 """
 from __future__ import annotations
@@ -23,6 +24,7 @@ import pytest
 from o4_engine import flight_adopted as ADOPTED
 from o4_engine import flight_commands as FC
 from o4_engine import flight_record as RECORD
+from o4_engine import ortho4xp_patched as PATCHED
 from o4_engine.flight_manager import CHOICE_DETAIL, CHOICE_STATE, FlightManager
 
 CYYR = (53.30427, -60.447077)
@@ -180,19 +182,122 @@ def test_patched_reads_the_source_install(tmp_path):
     no = _install(tmp_path / "b", mark="Patches")
     alone = tmp_path / "c" / "somewhere" / "zOrtho4XP_+53-061"
     alone.mkdir(parents=True)
-    assert ADOPTED.ortho4xp_root(str(yes)) == str((tmp_path / "a").resolve())
-    assert ADOPTED.patched({"source": str(yes)}, *DEP_TILE) == "yes"
-    assert ADOPTED.patched({"source": str(no)}, *DEP_TILE) == "no"
-    assert ADOPTED.patched({"source": str(alone)}, *DEP_TILE) == "unknown"
-    assert ADOPTED.patched(None, *DEP_TILE) == "unknown"
+    assert PATCHED._ortho4xp_root(str(yes)) == str((tmp_path / "a").resolve())
+    assert ADOPTED._patched({"source": str(yes)}, *DEP_TILE) == "yes"
+    assert ADOPTED._patched({"source": str(no)}, *DEP_TILE) == "no"
+    assert ADOPTED._patched({"source": str(alone)}, *DEP_TILE) == "unknown"
+    assert ADOPTED._patched(None, *DEP_TILE) == "unknown"
     # a cfg / log of the tile's folder naming a patch
     (alone / "Ortho4XP_+53-061.log").write_text(
         "including CYYR.patch.osm\n", "utf-8")
-    assert ADOPTED.patched({"source": str(alone)}, *DEP_TILE) == "yes"
+    assert ADOPTED._patched({"source": str(alone)}, *DEP_TILE) == "yes"
     # a link in Custom Scenery to the install's tile folder
     link = tmp_path / "link"
     link.symlink_to(yes)
-    assert ADOPTED.patched({"link_target": str(link)}, *DEP_TILE) == "yes"
+    assert ADOPTED._patched({"link_target": str(link)}, *DEP_TILE) == "yes"
+
+
+def _build_data(folder, *, encoded, other=True):
+    """An Ortho4XP build's data in a tile folder: ``Data<tile>.apt``
+    listing CYYR (and an airport of no interest), ``.node`` and ``.poly``
+    with a RUNWAY-marked edge on CYYR's runway when ``encoded``, and one
+    elsewhere when ``other``."""
+    import pickle
+
+    from shapely import geometry
+    runway = geometry.MultiPolygon([geometry.box(0.40, 0.30, 0.42, 0.32)])
+    elsewhere = geometry.MultiPolygon([geometry.box(0.80, 0.80, 0.81, 0.81)])
+    airports = {"CYYR": {"key_type": "icao", "runway": (runway, [], [])},
+                "Some Field": {"key_type": "name",
+                               "runway": (elsewhere, [], [])}}
+    stem = folder / "Data+53-061"
+    (folder / "Data+53-061.apt").write_bytes(pickle.dumps(airports))
+    nodes = [(0.41, 0.305), (0.41, 0.315), (0.805, 0.802), (0.805, 0.808),
+             (0.1, 0.1), (0.2, 0.2)]
+    stem.with_suffix(".node").write_text(
+        "%d 2 1 0\n" % len(nodes) + "".join(
+            "%d %.9f %.9f 100.0\n" % (i + 1, x, y)
+            for i, (x, y) in enumerate(nodes)), "utf-8")
+    edges = [(5, 6, 8 | 32)]                # the build's marker set
+    if encoded:
+        edges.append((1, 2, 16))
+    if other:
+        edges.append((3, 4, 16 | 8))
+    stem.with_suffix(".poly").write_text(
+        "0 2 1 0\n\n%d 1\n" % len(edges) + "".join(
+            "%d %d %d %d\n" % (i + 1, a, b, m)
+            for i, (a, b, m) in enumerate(edges)) + "\n0\n", "utf-8")
+
+
+def test_the_build_data_reads_an_airport_patched(tmp_path):
+    """Twin of the owner's adopted tiles (2026-11-13, no Ortho4XP install
+    on disk): an airport the build knew whose runways carry no RUNWAY
+    edge was patched; one with them was not; the witness is silent for an
+    airport the build did not know, or a build that marks no runway."""
+    no, yes, silent = (tmp_path / n for n in ("no", "yes", "silent"))
+    for folder in (no, yes, silent):
+        folder.mkdir()
+    _build_data(no, encoded=True)
+    _build_data(yes, encoded=False)
+    _build_data(silent, encoded=False, other=False)
+    old = tmp_path / "old"                  # Ortho4XP 1.30: 16 is no runway
+    old.mkdir()
+    _build_data(old, encoded=True)
+    poly = old / "Data+53-061.poly"
+    poly.write_text(poly.read_text("utf-8").replace(" 40\n", " 8\n"), "utf-8")
+    assert PATCHED._airport_encoded(str(old), *DEP_TILE, "CYYR") is None
+    assert PATCHED._airport_encoded(str(no), *DEP_TILE, "cyyr") is True
+    assert PATCHED._airport_encoded(str(yes), *DEP_TILE, "CYYR") is False
+    assert PATCHED._airport_encoded(str(silent), *DEP_TILE, "CYYR") is None
+    assert PATCHED._airport_encoded(str(no), *DEP_TILE, "KXXX") is None
+    assert ADOPTED._patched({"source": str(no)}, *DEP_TILE, "CYYR") == "no"
+    assert ADOPTED._patched({"source": str(yes)}, *DEP_TILE, "CYYR") == "yes"
+    assert ADOPTED._patched({"source": str(yes)}, *DEP_TILE) == "unknown"
+    assert ADOPTED._patched({"source": str(silent)}, *DEP_TILE,
+                           "CYYR") == "unknown"
+    # an install's patch named for the airport answers before the data
+    install = _install(tmp_path / "o4", patch=True)
+    _build_data(install, encoded=True)
+    assert ADOPTED._patched({"source": str(install)}, *DEP_TILE,
+                           "CYYR") == "yes"
+
+
+def test_an_airport_file_naming_anything_else_is_not_read(tmp_path):
+    import pickle
+
+    class Planted:
+        def __reduce__(self):
+            return (print, ("planted",))
+    (tmp_path / "Data+53-061.apt").write_bytes(pickle.dumps(
+        {"CYYR": Planted()}))
+    assert PATCHED._airport_encoded(str(tmp_path), *DEP_TILE, "CYYR") is None
+
+
+def test_an_endpoint_airport_patched_is_read_once_and_remembered(tmp_path):
+    book = ADOPTED.ChoiceBook(str(tmp_path / ADOPTED.CHOICES_FILE))
+    reads = []
+
+    def patched_of(tile, icao):
+        reads.append((tile, icao))
+        return "no"
+    manager, _b, _p = _manager(book, info=dict(INFO, patched="unknown"))
+    manager.endpoints = ADOPTED.Endpoints(manager.endpoints._read, book,
+                                          patched_of)
+    assert manager.status(0.0)["choices"][0]["patched"] == "no"
+    assert manager.status(1.0)["choices"][0]["patched"] == "no"
+    assert reads == [(DEP_TILE, "CYYR")]
+    manager.choose(DEP_TILE, "keep")        # the answer keeps the reading
+    saved = json.loads((tmp_path / ADOPTED.CHOICES_FILE).read_text("utf-8"))
+    assert saved["+53-061"]["patched"] == {"CYYR": "no"}
+    assert saved["+53-061"]["choice"] == "keep"
+    # a later flight with the source's drive gone: remembered
+    again = ADOPTED.Endpoints(lambda t: dict(INFO, patched="unknown"),
+                              ADOPTED.ChoiceBook(book.path),
+                              lambda t, i: "unknown")
+    assert again.patched(DEP_TILE, "CYYR", {}) == "no"
+    # unknown is not remembered: read again next time
+    book.set_patched(DEP_TILE, "XXXX", "unknown")
+    assert book.patched(DEP_TILE, "XXXX") is None
 
 
 def test_upgrade_overwrites_the_package_folder(tmp_path):

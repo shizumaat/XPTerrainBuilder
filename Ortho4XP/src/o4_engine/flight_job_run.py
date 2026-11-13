@@ -331,7 +331,8 @@ class _Runner:
             # #2025: an adopted departure or destination asks first
             adopted=ADOPTED.endpoint_reader(scenery_dir,
                                             session.tile_build_dir),
-            choices=ADOPTED.ChoiceBook(ADOPTED.choices_path()))
+            choices=ADOPTED.ChoiceBook(ADOPTED.choices_path()),
+            patched_of=ADOPTED.airport_patched_reader(scenery_dir))
         self.manager.facts = _Facts(scenery_dir, self.manager.jobs,
                                     self.manager.times[-1])
         _share_slots(self.manager)

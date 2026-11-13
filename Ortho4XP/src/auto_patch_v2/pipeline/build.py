@@ -606,8 +606,24 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # THE PREFIX (stage-cache spec §4b.3; ``pipeline/prefix.py``): planar →
     # flat site → road profile → target channels → shapes → constraints →
     # jetway strips → the hold, through the front cache, saying its lines
+    # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
+    # this build's own prefix, re-run on the classification without ribbons
+    # (``pipeline/stage_one_map``).  It reads the main pass's decks and deck
+    # anchors only, final once the target channels have run, so it starts in
+    # a worker THERE, beside the main pass's shapes and constraints (#2044,
+    # ``pipeline/stage_one_ahead``).  The heartbeat names THIS work, not the
+    # inner planar build's last step; the re-runs go through the same
+    # records, keyed by their own classification (stage-cache spec §4b.3).
+    from . import stage_one_ahead as _s1_ahead
+    _s1_box: dict = {}
+
+    def _stage_one_ahead(ap, pm_ch) -> None:
+        d = Deriver(ap, law, inputs, pack, cache=fc, common=_fc_in,
+                    heartbeat="stage 1 on the ribbon-free map: shapes and constraints")
+        _s1_box.update(derive=d, ahead=_s1_ahead.start(
+            cl, d, pm_ch, out=lambda m: _say(f"[{icao}] {m}", out)))
     pre = run_prefix(airport, cl, law, inputs, pack, fc, common=_fc_in, cl_digest=_cl_digest,
-                     icao=icao, lrep=lrep, out=out)
+                     icao=icao, lrep=lrep, out=out, after_channels=_stage_one_ahead)
     wall.update(pre.wall)
     if _xp:
         _xp["planar_pm"] = pre.planar_pm
@@ -636,16 +652,24 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         rep["preferred_z"] = pref
         return cs2, rep
 
-    # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
-    # this build's own prefix, re-run on the classification without ribbons
-    # (``pipeline/stage_one_map``); ``None`` when no ribbon was minted
+    # STAGE 1 ON THE RIBBON-FREE MAP (above): ``None`` when no ribbon was
+    # minted; the worker's run is taken only when the finished map's decks
+    # and anchors are the ones it was handed, else it is derived here
     from .stage_one_map import stage_one_problem
-    # the heartbeat names THIS work, not the inner planar build's last step
-    # the re-runs go through the same records, keyed by their own
-    # classification (stage-cache spec §4b.3)
-    derive = Deriver(airport, law, inputs, pack, cache=fc, common=_fc_in,
-                     heartbeat="stage 1 on the ribbon-free map: shapes and constraints")
-    _s1 = stage_one_problem(cl, derive, pm.registries, full=pm)
+    derive, _ahead = _s1_box.get("derive"), _s1_box.get("ahead")
+    if derive is None or derive.airport is not airport:
+        if _ahead is not None:
+            _ahead.close()
+        derive, _ahead = Deriver(
+            airport, law, inputs, pack, cache=fc, common=_fc_in,
+            heartbeat="stage 1 on the ribbon-free map: shapes and constraints"), None
+    try:
+        _s1 = (stage_one_problem(cl, derive, pm.registries, full=pm) if _ahead is None else
+               stage_one_problem(cl, _ahead.bind(pm), pm.registries, full=pm,
+                                 split=_ahead.split))
+    finally:
+        if _ahead is not None:
+            _ahead.close()
     _pulse.tick("solving the surface")
     if _s1 is not None:
         _s1.bind(pm)
@@ -733,6 +757,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             fc, {"airport": pre.keys.get("airport"), "rules": _fc_in.get("rules"),
                  "options": fc.digest(cfg.options)},
             identity(pre.keys.get("pm"), _solved.digest), law, cfg.options)
+        # the late derives' heartbeat names THEIR work (the owner read
+        # "stage 1 on the ribbon-free map" through the gap stage, #2044)
+        derive.kw["heartbeat"] = "the last stage: the gap pieces' map, shapes and constraints"
         pm, sol, _late = run_last_stages(
             cl_gaps, airport, law, derive,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,

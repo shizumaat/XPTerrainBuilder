@@ -512,6 +512,18 @@ class Placement:
     #: arms it here; it stays a floor on the EVIDENCE, never a refusal —
     #: a cluster below it falls through to the OSM half.
     evidence_min_coverage: float = 0.0
+    #: #1908 A FREE-STANDING COLUMN STANDS ON ITS OWN FOOT
+    #: (``airport/free_column``): an elevated body whose one lowest part is
+    #: a column at least ``free_column_min_h_m`` tall, at most
+    #: ``free_column_max_w_m`` wide and ``free_column_aspect`` times taller
+    #: than wide, with nothing within ``free_column_clear_m`` that could
+    #: host it, is seated with that foot on the ground.  ENTC's ``ALS.obj``
+    #: masts: 6.83 m tall, 1.0-1.3 m wide.  ``free_column_min_h_m = 0``
+    #: disarms the class (every such body keeps its authored y, §16 (3)).
+    free_column_min_h_m: float = 0.0
+    free_column_max_w_m: float = 0.0
+    free_column_aspect: float = 0.0
+    free_column_clear_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

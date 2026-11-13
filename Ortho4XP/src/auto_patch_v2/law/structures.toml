@@ -1393,6 +1393,18 @@ authored_keep_tol_m = 0.05
 # garage: 0.6 m between panels, 1.8-2.3 m across its doors).  0 disarms.
 piece_reach_m       = 2.5
 
+# A FREE-STANDING COLUMN STANDS ON ITS OWN FOOT (#1908; airport/free_column.py).
+# An elevated body whose one lowest part is a tall thin COLUMN with nothing under
+# it (no part of its own unit reaching below its foot, no part of any other unit,
+# within free_column_clear_m) is seated with that foot on the ground, not at its
+# authored y over it (owner RULINGS 2026-11-13r: only where certain).  ENTC's
+# approach-light masts: 6.83 m tall, 1.0-1.3 m wide in plan, authored 4.4-6.1 m
+# over the placement's zero -- they stood 4.4-11 m over the shore.  0 disarms.
+free_column_min_h_m = 2.0     # a mast, not a kerb or a lamp head
+free_column_max_w_m = 2.0     # plan width (lat/lon box side) at most this
+free_column_aspect  = 3.0     # and at least this many times taller than wide
+free_column_clear_m = 0.5     # the host search reach around the column's box
+
 # ─────────────────────────────────────────────────────────────────────────
 # §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec
 # design-surface-spec.md §49).  The emitted `bridge_deck:*` face is a datum

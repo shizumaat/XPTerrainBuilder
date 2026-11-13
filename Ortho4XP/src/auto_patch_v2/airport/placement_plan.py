@@ -88,6 +88,7 @@ from .placement_read import (PAD_FACE_ROLE, RIM_BREAKLINE_KIND,  # noqa: F401
                              pads_rims_from_graded_doc, plan_units_with,
                              read_plan)
 from . import placement_deck as _deck                            # §49
+from . import free_column as _fcol                               # #1908
 
 __all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "plan_units_with", "build_splits", "coarsen",
            "is_elevated",
@@ -226,7 +227,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # #1903: the DSF's tile ``(west, south, east, north)``; a body
                  # anchored off it keeps its seat by its row
                  # (``split_guard.on_tile``).  ``None`` disarms
-                 tile_box: "tuple[float, float, float, float] | None" = None
+                 tile_box: "tuple[float, float, float, float] | None" = None,
+                 # #1908: ``free_column.law_of([placement])``; ``None`` disarms
+                 free_column: "_fcol.ColumnLaw | None" = None
                  ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -426,6 +429,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # plan whose footless pieces all find a footed carrier pays nothing
     # (``unit_carry_index`` walks every part of the plan).
     _uix: list[dict] = []
+    # #1908: every part of the plan by box, built only if a column asks
+    _pix: list = []
+    #: ``(unit, member, raw index) -> seat`` of each free-standing column
+    _cols: dict[tuple[int, int, int], tuple] = {}
 
     def _unit_ix() -> dict:
         if not _uix:
@@ -624,11 +631,23 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # the airside floor lifts AS ONE — published by the bind, never
         # re-derived here
         _clus: dict[int, int] = {}
+        # #1908: the unit's FREE-STANDING COLUMNS, read before the bind
+        # (rule (a) never binds one to its member's NEAREST footed body)
+        if free_column is not None:
+            for st in staged:
+                if not st.elevated:
+                    continue
+                if not _pix:
+                    _pix.append(_fcol.PartIndex(plan))
+                _cols.update({(ui, st.mi, i): v for i, v in _fcol.free_columns(
+                    st, ui, _pix[0], free_column, surface,
+                    elevated_base_m).items()})
         forced, cl_census = _atom.bind_unit(
             cands, staged, surface, unit_pairs.get(ui, ()), counts,
             near_m=coarsen_reach_m, bind_ground_m=bind_ground_m,
             roof_bind_m=roof_bind_m,
             cluster_out=_clus,
+            no_near=frozenset((mi, i) for (u_, mi, i) in _cols if u_ == ui),
             # #610: the §16g unit of a footed body (the part-id join)
             unit_of=((lambda pids: getattr(
                 _fu.unit_by_pid(pids, _pw, _unit_ix()), "unit", ""))
@@ -810,6 +829,16 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                      for grp, _bx in targets) if g]
                 st.own_ground.extend([i] for i in sorted(floor)
                                      if st.footless or i in st.elevated)
+            # #1908: a FREE-STANDING COLUMN asks the carrier question
+            # alone; where nothing it stands on answers (no carrier, or
+            # only the nearest / largest footed fallback) it stands on
+            # its own foot (``free_column``) with what rides it
+            if free_column is not None and st.elevated:
+                for i in floor:                     # a floor is filed as one
+                    _cols.pop((ui, st.mi, i), None)
+                cols = {i for i in st.elevated if (ui, st.mi, i) in _cols}
+                if cols:
+                    targets = _fcol.alone(targets, cols, st.part_boxes)
             # §16d (4) (13m) / §16g (4) (13bu): a carried body's ATOMS
             # each ask their own carrier question BEFORE the search.
             _atoms = []
@@ -879,6 +908,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                         solid_cands=_solid, index=_index,
                         reach_m=coarsen_reach_m,
                         not_carriers=_cut29q)            # 30m
+                # #1908: a free column a fallback alone would carry has
+                # no carrier: nothing it stands on answered
+                if (over and len(grp) == 1 and (ui, st.mi, grp[0]) in _cols
+                        and _fcol.fallback_only(over)):
+                    over = []
                 # owner RULINGS 2026-10-03e (#290): a piece of a unit's
                 # VIADUCT — authored in the deck's own placement frame and
                 # standing on the deck's authored surface (or at its edge,
@@ -1177,7 +1211,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     _own_ground_file(st.raw, grp, m, u, surface,
                                      len(bodies), counts, by_class,
                                      st.part_boxes, st.bridge,
-                                     st.geom_boxes),
+                                     st.geom_boxes,
+                                     column=(_cols.get((ui, st.mi, grp[0]))
+                                             if len(grp) == 1 else None)),
                     u, m, decks, on_fraction=deck_on_fraction, edge_m=deck_edge_m,
                     surface=surface, under_m=deck_under_m, counts=counts))
             # issue #31: the unit-carried pieces, BEFORE the §15 carries

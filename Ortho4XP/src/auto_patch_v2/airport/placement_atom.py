@@ -383,6 +383,10 @@ class RigidNode:
     #: its §16g FOOTPRINT UNIT (the plan-wide part-id join), "" for none —
     #: the roof witness never binds across two units (#610)
     unit: str = ""
+    #: #1908: may rule (a) bind it to the NEAREST footed body of its
+    #: member when it stands over none?  Not a FREE-STANDING COLUMN
+    #: (``free_column``): the nearest body is no evidence it stands on it
+    near_bind: bool = True
 
 
 def unit_rigid(nodes: _t.Sequence[RigidNode],
@@ -510,7 +514,7 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
                     max(0.0, max(b[1] - q[3], q[1] - b[3])) * mo))
                 if d < near_d:
                     near, near_d = j, d
-            if best < 0:
+            if best < 0 and nodes[i].near_bind:
                 best = near
             if best >= 0:
                 _union(i, best)
@@ -803,7 +807,8 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
           bind_ground_m: float = 0.0,
           cluster_out: "dict[int, int] | None" = None,
           roof_bind_m: float = 0.0,
-          unit_of: "_t.Callable[[frozenset], str] | None" = None
+          unit_of: "_t.Callable[[frozenset], str] | None" = None,
+          no_near: _t.AbstractSet[tuple[int, int]] = frozenset()
           ) -> tuple[dict, list]:
     """§16c (7) APPLIED TO ONE UNIT (owner RULINGS 2026-09-12q).
 
@@ -872,7 +877,8 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
                 footprint_m2=sum(_pc.box_area_m2(b)
                                  for b in st.part_boxes[_bi]),
                 footed=False, bindable=_r[1] not in _never_bind,
-                zero=None, part_boxes=tuple(st.part_boxes[_bi])))
+                zero=None, part_boxes=tuple(st.part_boxes[_bi]),
+                near_bind=(st.mi, _bi) not in no_near))       # #1908
     senior_node, cl_census = unit_rigid(
         nodes, contacts, span_max_m=UNIT_CLUSTER_SPAN_MAX_M, near_m=near_m,
         bind_ground_m=bind_ground_m, counts=counts, roof_bind_m=roof_bind_m)

@@ -174,6 +174,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.footprint_unit",
     "auto_patch_v2.airport.frame_entry",
     "auto_patch_v2.airport.frame_riders",
+    "auto_patch_v2.airport.free_column",
     "auto_patch_v2.airport.hung_rows",
     "auto_patch_v2.airport.image_opacity",
     "auto_patch_v2.airport.line_object",

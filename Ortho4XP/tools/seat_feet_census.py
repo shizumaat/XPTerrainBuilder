@@ -545,6 +545,12 @@ def _print_elevated(plan: dict, sampler=None) -> None:
     what catches the class: the 218 LEMD bodies of 11s censused PERFECT
     because the writer had put each one's lowest vertex on the ground."""
     base = _elevated_base_m(plan)
+    # #1908: a FREE-STANDING COLUMN's ``y_zero`` is its authored foot,
+    # which the law puts ON the ground — counted apart, like a datum
+    from auto_patch_v2.airport.free_column import FREE_COLUMN
+
+    def _column(b: dict) -> bool:
+        return str(b.get("anchor_reason", "")).startswith(FREE_COLUMN)
     # §16e: A DATUM BODY IS NOT THIS CLASS.  Its ``y_zero`` is +5 … +10 m
     # BY CONSTRUCTION — a tunnel wall's crest plate, a bridge's deck top,
     # an authored height the law puts AT the ground — so counting it here
@@ -555,7 +561,9 @@ def _print_elevated(plan: dict, sampler=None) -> None:
            for b in s.get("bodies", ())
            if len(b.get("authored_offset", ())) > 1
            and float(b["authored_offset"][1]) > base
-           and not b.get("datum")]
+           and not b.get("datum") and not _column(b)]
+    columns = sum(1 for s in plan.get("splits", ())
+                  for b in s.get("bodies", ()) if _column(b))
     datums = [(b.get("y_zero", 0.0), b.get("new_resource", "?"))
               for s in plan.get("splits", ())
               for b in s.get("bodies", ()) if b.get("datum")]
@@ -575,6 +583,9 @@ def _print_elevated(plan: dict, sampler=None) -> None:
               f"{len(datums)}")
         for y, res in sorted(datums, reverse=True)[:5]:
             print(f"      y_zero {y:+.2f} m  {res}")
+    if columns:
+        print(f"   #1908 free-standing columns on their own foot (an authored "
+              f"foot AT the ground, counted apart from §13's bar): {columns}")
     print(f"   §13/§16 footless placements with no carrier "
           f"(their own ground): {footless}; "
           f"elevated bodies carried at their authored offset: {carried}")

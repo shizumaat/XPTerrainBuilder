@@ -40,12 +40,13 @@ MIN_HANDLE_EDGE_PX = 24.0
 MAX_HANDLE_SELECTION = 200
 
 #: Lower first: graded ground under pavement, buildings and roads on top.
-DRAW_ORDER = ("ground", "apron", "taxiway", "runway", "building", "road")
+DRAW_ORDER = ("ground", "groundside", "apron", "taxiway", "runway", "building", "road")
 
 _ROLE_CLASSES = {
     "runway": "runway",
     "taxiway": "taxiway",
-    "apron": "apron", "groundside_pavement": "apron",
+    "apron": "apron",
+    "groundside_pavement": "groundside", "parking_lot": "groundside",
     "building": "building",
     "service_road": "road", "service_junction": "road", "road": "road",
     "graded_strip": "ground", "runway_clearance": "ground", "ols_cut": "ground",

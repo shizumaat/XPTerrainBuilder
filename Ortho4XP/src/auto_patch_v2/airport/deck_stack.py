@@ -28,7 +28,6 @@ airport; every number is a law-table value.
 from __future__ import annotations
 
 import math
-import time
 import typing as _t
 
 import numpy as np
@@ -576,13 +575,11 @@ def attach_stacks(airport, objects, cache, law, route_of: RouteOf,
     running it twice gives the same airport.  With no stack the airport's
     ways are left as they are."""
     import dataclasses as _dc
-    t0 = time.perf_counter()
     mapped = getattr(airport, "osm_ways_mapped", None) or airport.osm_ways
     base = airport if mapped is airport.osm_ways else _dc.replace(airport, osm_ways=mapped)
     stacks, notes = _deck_stacks(base, objects, cache, law, route_of)
     if notes_out is not None:
         notes_out.extend(notes)
-        notes_out.append(f"[deck-stack] {time.perf_counter() - t0:.3f} s")
     if not stacks:
         if getattr(airport, "osm_ways_mapped", None) is None:
             return airport

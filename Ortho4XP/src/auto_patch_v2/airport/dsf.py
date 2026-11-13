@@ -295,10 +295,12 @@ def find_text_dump(mod_cache_root: str, pack_name: str, lat: int,
     return max(hits, key=os.path.getmtime)
 
 
-def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
-              ) -> DsfDump:
+def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None,
+              keep_line: _t.Callable[[str], bool] | None = None) -> DsfDump:
     """Parse the dump; ``accept_polygon(def_path)`` limits which polygons
-    are materialised (default: facades and pavement pages only)."""
+    are materialised (default: facades and pavement pages only).
+    ``keep_line(def_path)`` (#2054): an accepted polygon it names keeps a
+    TWO-node winding — a straight fence run is a line, not a ring."""
     object_defs: list[str] = []
     polygon_defs: list[str] = []
     polygons: list[DsfPolygon] = []
@@ -343,8 +345,9 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
                 windings.append(winding)
                 winding = None
             elif kw == "END_POLYGON" and cur_def is not None:
+                least = 2 if keep_line is not None and keep_line(polygon_defs[cur_def]) else 3
                 rings = tuple(r for r in (_flatten(w, cur_cpp, cur_param) for w in windings)
-                              if len(r) >= 3)
+                              if len(r) >= least)
                 if rings:
                     polygons.append(DsfPolygon(
                         polygon_defs[cur_def], cur_param, rings, cur_cpp,
@@ -383,7 +386,7 @@ def _flatten(points: list[list[str]], cpp: int, param: int = 0) -> tuple[LonLat,
     columns 2-3 are texture coordinates: cpp 4 = ``lon lat u v`` (no
     control), cpp 6 = ``lon lat ctrl_lon ctrl_lat u v``."""
     n = len(points)
-    if n < 3:
+    if n < 2:                       # the caller keeps a ring of 3+, a line of 2+
         return ()
     if param == UV_MAPPED_PARAM:
         if cpp <= 4:

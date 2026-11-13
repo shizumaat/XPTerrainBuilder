@@ -18,6 +18,12 @@ water flattening), so a seat it prints can differ from a build's by the
 bake; the verdicts (candidate / match / hideable) are the thresholds'
 calibration.  Read-only: the DSF is copied and dumped in a temporary
 folder, never in the pack or the mod cache.
+
+GROUND SHELLS (issue #2056, ``auto_patch_v2/airport/ground_shell``): an
+object past the plan and photo gates but too flat for a terrain model is
+asked the ground shell's own candidate test (a lowest surface departing
+from its plane by >= 5 m) and, per placement, its verdict at the no-float
+seat: SEATED (lies on the ground) or HIDDEN.
 """
 from __future__ import annotations
 
@@ -39,6 +45,7 @@ import O4_Console_Encoding as _o4console  # noqa: E402
 
 _o4console.configure_console_streams()  # utf-8 console before any print (#92)
 
+from auto_patch_v2.airport import ground_shell as GS  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
 from auto_patch_v2.airport.obj8 import parse_obj8  # noqa: E402
 
@@ -105,8 +112,9 @@ def sampler(dems: list, lon0: float, lat0: float, *, fine: bool = False):
 
 
 def candidates(pack_root: str) -> tuple[dict, dict]:
-    """``(gate counts, {relative path: Shape})`` over the pack's OBJ8s."""
-    gates = {"objects": 0, "plan": 0, "photo": 0, "candidate": 0}
+    """``(gate counts, {relative path: Shape})`` over the pack's OBJ8s; a
+    ground shell's Shape is keyed ``("ground", path)``."""
+    gates = {"objects": 0, "plan": 0, "photo": 0, "candidate": 0, "ground": 0}
     shapes = {}
     for path in glob.glob(os.path.join(pack_root, "**", "*.[oO][bB][jJ]"), recursive=True):
         if "__b" in os.path.basename(path):          # the app's own split bodies
@@ -116,6 +124,11 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
             g = parse_obj8(path)
         except (OSError, ValueError):
             continue
+        rel = os.path.relpath(path, pack_root).replace(os.sep, "/").lower()
+        shell = GS.shape_of(path, g)
+        if shell is not None:
+            gates["ground"] += 1
+            shapes[("ground", rel)] = shell
         if TM._plan_m(g) < TM.MIN_PLAN_M:
             continue
         gates["plan"] += 1
@@ -126,7 +139,7 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
         shape = TM.shape_of(path, g)
         if shape is not None:
             gates["candidate"] += 1
-            shapes[os.path.relpath(path, pack_root).replace(os.sep, "/").lower()] = shape
+            shapes[rel] = shape
     return gates, shapes
 
 
@@ -158,7 +171,18 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
         defs, rows = placements(src, dsftool)
         dems = rasters(elevation_root, lat, lon) if shapes else []
         for i, lo, la, hdg, kind in rows:
-            shape = shapes.get(defs[i].replace("\\", "/").lower()) if i < len(defs) else None
+            key = defs[i].replace("\\", "/").lower() if i < len(defs) else ""
+            shell = shapes.get(("ground", key))
+            if shell is not None and kind != "OBJECT_MSL":
+                got = GS.verdict(shell.grid, (0.0, 0.0), hdg, sampler(dems, lo, la))
+                out["rows"].append({
+                    "dsf": os.path.basename(dsf), "resource": defs[i], "lat": la, "lon": lo,
+                    "heading": hdg, "kind": kind, "plan_m": round(shell.plan_m),
+                    "relief_m": round(shell.relief_m, 1),
+                    "photo_spread": round(shell.photo_spread, 3),
+                    "verdict": "ground shell " + (got[0] if got else "no DEM"),
+                    **({"z0": round(got[1], 3), "follow": round(got[2], 3)} if got else {})})
+            shape = shapes.get(key)
             if shape is None:
                 continue
             rec = {"dsf": os.path.basename(dsf), "resource": defs[i], "lat": la, "lon": lo,
@@ -192,7 +216,8 @@ def main(argv=None) -> int:
         for row in r["rows"]:
             extra = (f" z0 {row['z0']:.2f} m corr {row['corr']:.2f} peak_err {row['peak_err']:.2f}"
                      f" quality {row['quality_cover']:.0%}{' HIDEABLE' if row['hideable'] else ''}"
-                     if "z0" in row else "")
+                     if "corr" in row else
+                     f" z0 {row['z0']:.2f} m follow {row['follow']:.0%}" if "z0" in row else "")
             print(f"   {row['verdict']:<14} {row['resource']} @({row['lat']:.5f},{row['lon']:.5f})"
                   f" plan {row['plan_m']} relief {row['relief_m']}{extra}")
     if a.json:

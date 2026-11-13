@@ -81,7 +81,8 @@ def _rim_stand_offs(planar: PlanarMap, law: Law, vs: _t.Iterable[int],
     return out
 
 
-def _welded_ribbon_vertices(planar: PlanarMap, law: Law
+def _welded_ribbon_vertices(planar: PlanarMap, law: Law,
+                            sources: frozenset[int] = frozenset()
                             ) -> tuple[dict[int, tuple[int, float]], frozenset[int]]:
     """``{ribbon vertex: (its nearest pad-rim vertex, the RUN to it)}`` over
     THE ROADS ADMITTED FOR A PAD (``model.planar.pad_road_faces``: the
@@ -96,7 +97,10 @@ def _welded_ribbon_vertices(planar: PlanarMap, law: Law
     metric the exit walk (``classify/pad_road_exit``) and the reach read
     (``pad_road_reach``) use — never the straight line, which cuts a bend
     short and leaves the ramp above the terrain at its far end.  The
-    second value is the pad rims' vertices."""
+    second value is the pad rims' vertices.  ``sources`` lead like rim
+    vertices (issue #2057: a frontage road's vertices, so a ramp is run
+    from the frontage's END along the road, never from the facade across
+    the kerbside) and are not answered."""
     import heapq
     from ..law.tables import airside_stage_roles
     from ..model.planar import face_edge_ids, pad_road_faces
@@ -138,7 +142,7 @@ def _welded_ribbon_vertices(planar: PlanarMap, law: Law
             d = _dist(planar, a, b)
             adj.setdefault(a, []).append((b, d))
             adj.setdefault(b, []).append((a, d))
-    best = {v: (0.0, v) for v in sorted(adj) if v in rim}
+    best = {v: (0.0, v) for v in sorted(adj) if v in rim or v in sources}
     best.update({v: dr for v, dr in off.items() if v in adj})
     heap = [(d, v, r) for v, (d, r) in best.items()]
     heapq.heapify(heap)
@@ -147,10 +151,12 @@ def _welded_ribbon_vertices(planar: PlanarMap, law: Law
         if (d, r) > best[v]:
             continue
         for w, dw in adj[v]:
-            if w not in rim and (d + dw, r) < best.get(w, (float("inf"), -1)):
+            if w not in rim and w not in sources and \
+                    (d + dw, r) < best.get(w, (float("inf"), -1)):
                 best[w] = (d + dw, r)
                 heapq.heappush(heap, (d + dw, w, r))
-    return {v: (r, d) for v, (d, r) in best.items() if v not in rim}, rim
+    return {v: (r, d) for v, (d, r) in best.items()
+            if v not in rim and v not in sources}, rim
 
 
 def _pad_road_unknowns(planar: PlanarMap, law: Law, levels: _t.Mapping[int, float]
@@ -165,6 +171,52 @@ def _pad_road_unknowns(planar: PlanarMap, law: Law, levels: _t.Mapping[int, floa
         for v in planar.ring_vertices(cyc) if v not in levels
         and not any(q in F and is_rigid_role(law, F[q].role)
                     for q in planar.vertices[v].incident_faces))
+
+
+def _frontage_vertices(planar: PlanarMap, law: Law) -> dict[int, float]:
+    """``{vertex: its face's transverse cap}`` over THE FRONTAGE ROADS
+    (``PlanarMap.frontage_roads``, issue #2057) — the tightest where two
+    meet."""
+    from ..law.tables import role_cap
+    refs = getattr(planar, "frontage_roads", None) or frozenset()
+    out: dict[int, float] = {}
+    for f in planar.faces.values():
+        cap = role_cap(law, f.role) if f.ref in refs else None
+        if cap is None:
+            continue
+        for cyc in (f.ring, *f.holes):
+            for v in planar.ring_vertices(cyc):
+                out[v] = min(out.get(v, cap.transverse), cap.transverse)
+    return out
+
+
+def _rim_cap(planar: PlanarMap, law: Law, r: int, default: float) -> float:
+    """The tightest transverse cap of the rigid faces (the pad) at rim
+    vertex ``r``: a pair from the rim across the kerbside is read under the
+    pad's cap as well as the road's (issue #2057, the census's
+    ``road_cross_section`` on a ``building|service_road`` pair)."""
+    from ..law.tables import is_rigid_role, role_cap
+    caps = [c.transverse for f in planar.vertices[r].incident_faces
+            if f in planar.faces and is_rigid_role(law, planar.faces[f].role)
+            for c in [role_cap(law, planar.faces[f].role)] if c is not None]
+    return min(caps, default=default)
+
+
+def _nearest_rim(planar: PlanarMap, rim: frozenset[int], vs: _t.Iterable[int]
+                 ) -> dict[int, tuple[int, float]]:
+    """``{v: (nearest rim vertex, the straight distance to it)}`` for each
+    of ``vs`` (issue #2057): ACROSS a frontage the fall is the road's
+    cross-section, read on the straight line to the facade — the run along
+    the ring edges of a kerbside goes round its perimeter."""
+    import numpy as np
+    from scipy.spatial import cKDTree
+    rs = sorted(rim)
+    vs = [v for v in vs if v not in rim]
+    if not rs or not vs:
+        return {}
+    tree = cKDTree(np.array([planar.vertices[r].xy for r in rs]))
+    dist, idx = tree.query(np.array([planar.vertices[v].xy for v in vs]))
+    return {v: (rs[int(i)], float(d)) for v, d, i in zip(vs, dist, idx, strict=True)}
 
 
 def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
@@ -277,12 +329,26 @@ def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
          "excess_m": 0.0, "stage": "2p"} for v, z, _s in released]
     pref = getattr(planar, "preferred_z", None) or {}
     levels = levels or {}
-    for v, (r, d) in sorted(near.items()):
+    # issue #2057: ALONG a pad's frontage the road and its kerbside fall
+    # from the rim (straight across) no faster than the road's own
+    # cross-section; the rest of the road ramps from the FRONTAGE'S level
+    # at its end, along the road
+    front = _frontage_vertices(planar, law)
+    lateral = _nearest_rim(planar, rim, (v for v in near if v in front))
+    via = _welded_ribbon_vertices(planar, law, frozenset(lateral))[0] if lateral else {}
+    planned: dict[int, float] = {}
+    for v, (r, d) in [*sorted(lateral.items()),
+                      *((v, via.get(v, rd)) for v, rd in sorted(near.items())
+                        if v not in lateral)]:
         dv, dr = planar.vertices[v].dem_z, planar.vertices[r].dem_z
-        zr = levels.get(r, pref.get(r, dr))
+        zr = planned.get(r, levels.get(r, pref.get(r, dr)))
         if dv is None or zr is None:
             continue
         delta = ramp_delta(float(dv), float(zr), float(dv if dr is None else dr), g, d)
+        if v in lateral:
+            cap = min(front[v], _rim_cap(planar, law, r, front[v]))
+            delta = max(-cap * d, min(cap * d, delta))
+            planned[v] = float(zr) + delta
         ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
                     if planar.faces[f].ref), "")
         # ONE-WAY (``[design] one_way_rulings``): the rim is the LEADER,

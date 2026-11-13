@@ -96,6 +96,14 @@ class Service:
     #: RULINGS 2026-10-20ba (#1158): a retaining wall taller than this cuts
     #: the pavement it crosses (``classify/wall_clip``)
     retaining_wall_clear_step_m: float = 2.0
+    #: #2054 WHAT A LINE OBJECT IS, by its geometry and texture
+    #: (``airport/line_solidity.kind_of``): read by the wall classifier
+    #: (a buried solid wall retains, whatever its name) and the edge-line
+    #: mint (the rest stand on the upper level)
+    line_wire_max_solid_m: float = 0.3
+    line_low_barrier_max_solid_m: float = 1.5
+    line_retaining_buried_min_m: float = 1.0
+    line_elevated_base_m: float = 0.5
 
 
 @_dc.dataclass(frozen=True)
@@ -181,6 +189,19 @@ class Buildings:
 
 
 @_dc.dataclass(frozen=True)
+class EdgeLines:
+    """#2054: where a pack line object marks a paved level's true edge
+    (``classify/edge_line_mint``); what it IS is ``[service]``'s
+    (``airport/line_solidity.kind_of``)."""
+
+    host_reach_m: float = 8.0
+    station_m: float = 2.0
+    step_probe_m: float = 3.0
+    step_min_m: float = 0.5
+    min_run_m: float = 6.0
+
+
+@_dc.dataclass(frozen=True)
 class Rules:
     """Every threshold the scorer reads."""
 
@@ -200,6 +221,7 @@ class Rules:
     dsf_pavement: DsfPavement
     surfaces: Surfaces
     buildings: Buildings
+    edge_lines: EdgeLines
 
 
 def _build(cls: type, data: _t.Mapping[str, _t.Any], where: str) -> _t.Any:
@@ -260,7 +282,8 @@ def load_rules(path: str | Path | None = None) -> Rules:
              "osm_roads": OsmRoads, "lot": Lot, "taxi_name": TaxiName,
              "groundside": Groundside, "taxi_subrole": TaxiSubrole,
              "leadin": Leadin, "dsf_pavement": DsfPavement,
-             "surfaces": Surfaces, "buildings": Buildings}
+             "surfaces": Surfaces, "buildings": Buildings,
+             "edge_lines": EdgeLines}
     for name, cls in types.items():
         if name not in data:
             raise RulesError(f"rules.toml: missing section [{name}]")

@@ -43,8 +43,8 @@ import numpy as np
 from ..law import Law
 from ..law.tables import design as design_law, role_cap, role_side
 from ..model.jetway import StripSet
-from ..model.planar import (PlanarMap, facade_strip_host,
-                            is_facade_strip_ref, pad_base_ref)
+from ..model.planar import (PlanarMap, edge_strip_host, facade_strip_host,
+                            is_edge_strip_ref, is_facade_strip_ref, pad_base_ref)
 
 __all__ = ["StripReport", "project_strips", "project_facade_strips"]
 
@@ -397,37 +397,49 @@ def project_facade_strips(planar: PlanarMap, law: Law,
     and counted in ``shared``.  A vertex an AIRSIDE-side face carries (an
     apron the strip was trimmed against, a pad corner) is NEVER moved: the
     strip yields there, counted in ``yielded`` (airside is king).  Returns
-    the new ``z`` and the report."""
-    faces = [f for f in planar.faces.values() if is_facade_strip_ref(f.ref)]
+    the new ``z`` and the report.
+
+    #2054: a ``edgestrip:<k>:<host>`` face (``classify/edge_line_mint``,
+    the ground a pack line facade marks as its paved host's edge) is
+    projected the same way onto the rim of the faces carrying its host's
+    ref, whatever their role — a road ribbon, a lot, an apron."""
+    def _strip(ref) -> bool:
+        return is_facade_strip_ref(ref) or is_edge_strip_ref(ref)
+    faces = [f for f in planar.faces.values() if _strip(f.ref)]
     rep: dict[str, _t.Any] = {"strips": [], "vertices": 0, "no_host": 0,
                               "shared": 0, "yielded": 0, "moved_max_m": 0.0}
     if not faces:
         return tuple(z), rep
     pad_edges: dict[str, set[tuple[int, int]]] = {}
+    host_edges: dict[str, set[tuple[int, int]]] = {}
+    wanted = {edge_strip_host(f.ref) for f in faces} - {None}
     strip_vs: dict[int, set[int]] = {}
     users: dict[int, int] = {}
     airside: set[int] = set()
     for f in planar.faces.values():
         rings = [planar.ring_vertices(ring) for ring in (f.ring, *f.holes)]
         vs = {v for ring in rings for v in ring}
-        if is_facade_strip_ref(f.ref):
+        if _strip(f.ref):
             strip_vs[f.id] = vs
             continue
         for v in vs:
             users[v] = users.get(v, 0) + 1
         if role_side(law, f.role) == "airside":
             airside.update(vs)
+        rim = {(min(a, b), max(a, b)) for ring in rings
+               for a, b in zip(ring, tuple(ring[1:]) + tuple(ring[:1])) if a != b}
         if bool(getattr(law.tables.precedence.roles.get(f.role), "rigid", False)):
-            acc = pad_edges.setdefault(pad_base_ref(f.ref), set())
-            for ring in rings:
-                acc.update((min(a, b), max(a, b))
-                           for a, b in zip(ring, tuple(ring[1:]) + tuple(ring[:1]))
-                           if a != b)
+            pad_edges.setdefault(pad_base_ref(f.ref), set()).update(rim)
+        for key in {f.ref, pad_base_ref(f.ref)} & wanted:
+            host_edges.setdefault(key, set()).update(rim)
     out = [float(v) for v in z]
     xy = {v: planar.vertices[v].xy for v in planar.vertices}
     for f in sorted(faces, key=lambda f: f.id):
         host = facade_strip_host(f.ref)
-        edges = sorted(e for e in pad_edges.get(host or "", ())
+        rims = pad_edges
+        if host is None:
+            host, rims = edge_strip_host(f.ref), host_edges
+        edges = sorted(e for e in rims.get(host or "", ())
                        if e[0] < len(out) and e[1] < len(out))
         vs = sorted(v for v in strip_vs[f.id] if v < len(out))
         if not edges or not vs:

@@ -363,6 +363,8 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     _say("  " + _terrain_model.log_line(icao, (r[2] for r in airport.terrain_models)), out)
     from ..airport import bridged_ground as _bridged_ground
     _say("  " + _bridged_ground.log_line(icao, (r[2] for r in airport.terrain_models)), out)
+    from ..airport import ground_shell as _ground_shell
+    _say("  " + _ground_shell.log_line(icao, (r[2] for r in airport.terrain_models)), out)
     # RULINGS 2026-11-03 (answer 4, #1738): a companion terrain mesh's cuts
     # are a portal witness (``airport/terrain_mesh_witness``)
     from ..airport import terrain_mesh_witness as _tmw

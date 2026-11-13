@@ -6,7 +6,8 @@ The engine says what was dropped and where it goes
 "Install", and prints what was installed to the console.  Drops reach it
 three ways: a drag onto the main window (:class:`DropFilter` on the window
 and the map's viewport), a file opened on the app icon (``QFileOpenEvent``,
-macOS; :class:`DropFilter` on the application) and paths given as launch
+macOS; :meth:`DropFilter.file_opened`, called by the application's own
+``event`` -- never an application-wide filter, #2055) and paths given as launch
 arguments (Windows "Open with" / a drop on the executable, Linux desktop
 files; :func:`launch_paths`).  A ``.xptb`` package arriving any of
 those ways goes to ``O4_Qt_Tile_Package`` instead (#2014).
@@ -105,10 +106,18 @@ class DropFilter(QObject):
         widget.installEventFilter(self)
         self._targets.append(widget)
 
+    def file_opened(self, event) -> bool:
+        """A file opened on the app icon (``QFileOpenEvent``): offered;
+        True when the event was one (the application's ``event`` hook,
+        ``Ortho4XP_Qt.XPTBApplication``, #2055)."""
+        if event.type() == QEvent.FileOpen and event.file():
+            offer(self._window, [event.file()])
+            return True
+        return False
+
     def eventFilter(self, obj, event):      # noqa: N802 (Qt's name)
         kind = event.type()
-        if kind == QEvent.FileOpen and event.file():
-            offer(self._window, [event.file()])
+        if self.file_opened(event):
             return True
         if obj not in self._targets:
             return False

@@ -89,6 +89,11 @@ retaining_wall_step_ring_m    = 3.0
 # change in less than 3 m" — cuts every pavement polygon it crosses at its
 # outline, each side its own shape (classify/wall_clip).
 retaining_wall_clear_step_m   = 2.0
+# #2054 WHAT A PACK LINE OBJECT IS, read from its geometry and texture (airport/line_solidity.kind_of; owner 2026-11-13 15:36Z): the height of its OPAQUE band and how far it is authored under its zero. Read by the wall classifier (a buried solid wall retains whatever its name says) and by [edge_lines] (the rest stand on the upper level)
+line_wire_max_solid_m        = 0.3  # a WIRE / see-through fence: solid band under this. MEASURED: LEMD LEMDzaun.obj 0.00 m (chain link from the foot, 39 % opaque)
+line_low_barrier_max_solid_m = 1.5  # a LOW BARRIER: solid band up to this. MEASURED: KSFO Fence_Concrete_Barrier.fac 1.25 m (a jersey barrier with chain link to 3.99 m above it). Taller and NOT buried = a SOLID WALL standing on its zero (KSFO Fence_Steel.fac 4.00 m, base -0.02): it too stands on the upper level
+line_retaining_buried_min_m  = 1.0  # a RETAINING WALL: authored at least this far under its zero (a buried footing), solid over it. MEASURED: KLAX Fence_Terminal_1.obj 4.20 m under, solid 8.00 m. A fence sunk by design reads 0.50-0.62 m (4,540 fence-named OBJs in the installed packs: Orbx NEWFENCE -0.61, KPDX -0.60, LEMDzaun -0.59, nss-fence -0.62); the deeper readings are whole-perimeter fences authored over the relief (EGGW Fence2019 -30.9 m over 2.8 km) or split bodies standing wholly under their zero, and the wall classifier admits a buried wall only as ONE thin part with a ground step across it
+line_elevated_base_m         = 0.5  # a body whose base stands higher over its zero is ELEVATED and marks no edge (KSFO Tunnel_Steel_Old_5m.fac: base 5.03 m, a jetway tunnel run)
 
 [osm_roads]                    # OSM highway=* ways as ground-vehicle centrelines beside the 1206 routes (RULINGS 2026-08-15: the mapped road IS the spine where nothing better exists; owner 2026-09-04j evidence)
 enabled   = true
@@ -154,3 +159,10 @@ graded_codes = [1, 2, 3, 4, 5, 12, 14]   # apt.dat surfaces that are pavement to
 sources = ["osm", "dsf:fac", "dsf:object", "dsf:agp"]   # footprint sources admitted as pads (v1: OSM + DSF facades + OBJ8 structures + the stock-library hangar .agp placements — issue #263: v1 `AGP_BUILDINGS` was never ported, CYXY's Med_Blue_Hangar.agp at 60.7081125,-135.0757268 had no pad; `airport/dsf.agp_building_role` is the def-path gate, `airport/riders.agp_footprint_xy` the footprint)
 facade_strip_min_reach_m = 5.0   # §52 (owner RULINGS 2026-10-04d (3) (b)): a facade wall is graded for what it ATTACHES when the attachment reaches at least this far off the wall - trailers 13.2 m and entrance canopies 8.1 m are; stairs 2.9 m are not. 0 disarms the strip.
 pad_gate_near_m = 1.0   # issue #336 (owner RULINGS 2026-10-04e (2) "yes give the third cargo terminal a pad"): a pack building standing WHOLLY outside the apt.dat boundary but within this distance of it gets a pad. CENSUS (dry, captures; pieces refused at the gate with no area inside, within 10 m): SPJC dsf:fac201 Cargo_Terminal 3,542 m2 at 0.47 m (-12.028403, -77.103267); KASE one cluster piece 3,135 m2 at 7.06 m (39.219959, -106.861349); HECA, CYXY, KCLT, NLWF none. So 1 / 2 / 5 m admit fac201 alone and 10 m adds KASE: the smallest value carrying fac201 is 1. A piece STRADDLING the boundary keeps the 25 % area rule (HECA dsf:object696, 13 % inside, stays out). 0 restores the pre-#336 gate.
+
+[edge_lines]                   # issue #2054 (owner 2026-11-13 15:29Z, 16:04Z): a pack LINE object standing on the graded level ([service] line_*: a wire fence, a low barrier, a solid wall on its zero) along a paved edge where the ground departs beyond it (falls or rises) marks the graded area's TRUE edge: the level holds to the line, the cut or fill to natural ground happens outside it
+host_reach_m            = 8.0  # the line marks the edge of the paved face within this distance of it (one lane past the road the ribbon under-draws: [service] retaining_wall_reach_m)
+station_m               = 2.0  # stations along the line
+step_probe_m            = 3.0  # the ground beyond the line's base read this far out
+step_min_m              = 0.5  # the ground DEPARTS beyond the line - water there, or the DEM this much under OR over the host edge's (KSFO falls to the bay; KCRW 38.363304, -81.588474 rises past the boundary fence, owner 16:04Z)
+min_run_m               = 6.0  # a run of falling stations shorter than this marks nothing

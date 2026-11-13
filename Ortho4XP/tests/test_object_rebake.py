@@ -1376,3 +1376,29 @@ def test_apply_bakes_a_pack_outside_custom_scenery(tmp_path):
         tmp_path, {BOX_RESOURCE: _two_box_object_text()})
     report = apply(_two_box_decision(), pack_root, mesh_path)
     assert report.objects_written == [BOX_RESOURCE]
+
+
+def test_2055_a_tile_reads_only_its_own_buckets_v2_records(tmp_path):
+    """#2055: the app asks ``reanchor_status`` per selected tile at its
+    start, across every pack; with a tile only the records that can name
+    its DSF are read (beside + its 10° bucket), never the other buckets."""
+    import json as _json
+
+    from auto_patch import object_rebake as OR
+    from auto_patch_v2.model.placement import PROVENANCE_FILENAME
+
+    pack = tmp_path / "Pack"
+    for bucket, dsf in (("+10-070", "+18-064.dsf"), ("+40+000", "+46+008.dsf")):
+        folder = pack / "Earth nav data" / bucket
+        folder.mkdir(parents=True)
+        (folder / PROVENANCE_FILENAME).write_text(_json.dumps(
+            {"dsfs": {dsf: {"counts": {"conversions": 2, "bodies": 1}}}}),
+            encoding="utf-8", newline="")
+    nav = pack / "Earth nav data"
+    assert OR._v2_record_paths(str(pack), "+18-064") == [
+        str(nav / "+10-070" / PROVENANCE_FILENAME)]
+    assert len(OR._v2_record_paths(str(pack))) == 2
+    [row] = OR.modified_packs(str(tmp_path), tile="+18-064")
+    assert row["objects"] == 3 and row["tiles"] == ["+18-064"]
+    assert OR.modified_packs(str(tmp_path), tile="+55+008") == []
+    assert [r["objects"] for r in OR.modified_packs(str(tmp_path))] == [6]

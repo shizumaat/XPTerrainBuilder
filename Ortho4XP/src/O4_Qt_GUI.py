@@ -90,6 +90,7 @@ import O4_Map_Guidance as GUIDE
 import O4_Text_Scale as TEXTSCALE
 import O4_Flight_Plan as FLIGHTPLAN
 import O4_Scenery_Links as LINKS
+import O4_Scan_Stream_Throttle as QTSCANRATE
 import O4_Tile_Info as TINFO
 import O4_Settings_Selection as SEL
 import O4_Qt_Imagery_Menu as QTIMENU
@@ -729,6 +730,8 @@ class _EngineBridge(QObject):
     reanchor_ready = Signal(object)
     # An ``imagery_pin`` reply (or its error) from a worker (#1992).
     pin_done = Signal(object)
+    # The built tiles' settings badges from a worker (#2055).
+    customized_ready = Signal(object)
     # [AirportEntry, ...] once the Global Airports index has loaded.
     airports_ready = Signal(object)
     # (generation, [O4_Custom_Scenery.SceneryPack, ...]) from a worker
@@ -792,6 +795,18 @@ def _scan_modified_airports(tile, scenery_dir, should_stop):
     except Exception:
         packs = []
     return (tile, packs)
+
+
+def _customized_tiles(tiles, output_dir, should_stop):
+    """Worker thread (#2055: holds no window object): the tiles among
+    ``tiles`` whose cfg customizes a setting -- the map's badges."""
+    import O4_Tile_Customizations as TC
+
+    del should_stop     # one pass over the built tiles' cfgs
+    try:
+        return tiles, TC.customized_tiles(tiles, output_dir)
+    except Exception:
+        return tiles, set()
 
 
 def _tidy_scenery_packs(scenery_dir, packs):
@@ -917,6 +932,12 @@ class MainWindow(QMainWindow):
             QTSTALEROW.check_stale, self._bridge.stale_ready.emit,
             name="o4-stale-probe")
         self._bridge.stale_ready.connect(self._on_stale_ready)
+        # #2055: every built tile's cfg is read after each scan -- off the
+        # GUI thread (1.3 s on the owner-scale install), newest wins.
+        self._customized_probe = QTPROBE.LatestProbe(
+            _customized_tiles, self._bridge.customized_ready.emit,
+            name="o4-customized-probe")
+        self._bridge.customized_ready.connect(self._on_customized_ready)
         self._bridge.airports_ready.connect(self._on_airports_ready)
         self._bridge.packs_ready.connect(self._on_packs_ready)
         self._bridge.pin_done.connect(self._on_pin_done)
@@ -1003,6 +1024,11 @@ class MainWindow(QMainWindow):
         self._scan_built = {}
         self._scan_installed = set()
         self._scan_world = {}
+        # When the streamed scan reaches the map (#2055): a repaint per
+        # ~10 Hz batch / progress kept the GUI thread busy all scan long.
+        self._scan_publish = QTSCANRATE.ScanStreamThrottle()
+        self._scan_status_rate = QTSCANRATE.ScanStreamThrottle()
+        self._scan_phase_shown = None
         # (working dir, Custom Scenery dir) the in-flight scan was
         # started against — the key its results are cached under, taken
         # at scan start so a folder changed mid-scan can never file the
@@ -2988,6 +3014,9 @@ class MainWindow(QMainWindow):
         self._scan_built = {}
         self._scan_installed = set()
         self._scan_world = {}
+        self._scan_publish.reset()
+        self._scan_status_rate.reset()
+        self._scan_phase_shown = None
         self._scanning = True
         working_dir = self.working_dir()
         self._scan_dirs = (working_dir, CFG.custom_scenery_dir)
@@ -3145,25 +3174,33 @@ class MainWindow(QMainWindow):
                                                       for_map=False))
 
     def _on_scan_progress(self, event):
-        self.map.set_scan_status(event.phase, event.done, event.total)
+        # A new phase shows at once, its count at most once a second (#2055).
+        if (event.phase != self._scan_phase_shown
+                or self._scan_status_rate.should_publish(time.monotonic())):
+            self._scan_phase_shown = event.phase
+            self.map.set_scan_status(event.phase, event.done, event.total)
 
     def _on_scan_batch(self, event):
         self._scan_built.update(event.built)
         self._scan_installed.update(event.installed)
         world = QTWORLD.from_wire(getattr(event, "world", ()))
-        if world:
-            # What the World pack draws (#2024), streamed like the rest.
-            self._scan_world.update(world)
-            self.map.set_world({**self.map.world(), **world})
-        self._built.update(event.built)
-        self._installed.update(event.installed)
+        # What the World pack draws (#2024), streamed like the rest.
+        self._scan_world.update(world)
+        # The active tile stops being "(scanning…)" the moment its own
+        # result streams in; the rest reaches the map at most once a
+        # second (#2055).  ScanDone swaps in the truth.
+        active = self.map.active_tile()
+        mine = active is not None and (active in event.built or active in world)
+        if not (self._scan_publish.should_publish(time.monotonic()) or mine):
+            return
+        if self._scan_world:
+            self.map.set_world({**self.map.world(), **self._scan_world})
+        self._built.update(self._scan_built)
+        self._installed.update(self._scan_installed)
         self.map.set_built(self._built)
         self._refresh_empty_state()
         self.map.set_installed(self._installed)
-        # The active tile stops being "(scanning…)" the moment its
-        # own result streams in.
-        active = self.map.active_tile()
-        if active is not None and (active in event.built or active in world):
+        if mine:
             self._active_changed(active)
 
     def _on_scan_done(self, event):
@@ -3941,16 +3978,24 @@ class MainWindow(QMainWindow):
         import O4_Tile_Customizations as TC
 
         if tiles is None:
-            scope = set(self._built) | set(self.map.selection())
-            kept = set()
-        else:
-            scope = set(tiles)
-            kept = self.map.customized() - scope
+            # Every built tile: off the GUI thread (#2055).
+            self._customized_probe.submit(
+                sorted(set(self._built) | set(self.map.selection())),
+                self.output_dir())
+            return
+        scope = set(tiles)
+        kept = self.map.customized() - scope
         try:
             found = TC.customized_tiles(sorted(scope), self.output_dir())
         except Exception:
             found = set()
         self.map.set_customized(kept | found)
+
+    def _on_customized_ready(self, payload):
+        """A worker's badges for ``scope``; a tile outside it keeps its
+        badge (a selection change may have set it meanwhile)."""
+        scope, found = payload
+        self.map.set_customized((self.map.customized() - set(scope)) | found)
 
     def _refresh_custom_settings(self, tile):
         """The tile pane's Custom settings section for the active tile."""
@@ -6004,6 +6049,7 @@ class MainWindow(QMainWindow):
         # The reanchor probe: no result after close, its worker joined.
         self._reanchor_probe.close()
         self._stale_probe.close()
+        self._customized_probe.close()
         self.imagery_freshness_row.close_probe()
         self._stop_imagery_follow()
         # The 3D preview's building reader runs in a worker process (#753).

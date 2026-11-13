@@ -46,7 +46,7 @@ def _clean_memo():
 @pytest.fixture
 def seated(tmp_path, monkeypatch):
     """A pack whose one DSF both TNCM and TFFG re-seated."""
-    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name=DSF)
+    pack, dsf = _pack(tmp_path, dsf_text=DUMP4, name=DSF, bucket="+10-070")
     tool = _stand_in_dsftool(tmp_path, monkeypatch)
     patch = str(tmp_path / "patch")
     world = types.SimpleNamespace(pack=pack, dsf=dsf, tool=tool, patch=patch,

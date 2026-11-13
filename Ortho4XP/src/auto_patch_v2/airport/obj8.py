@@ -1427,10 +1427,22 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     # owner RULINGS 2026-11-13i: an object that models the terrain (matched
     # to the DEM) is one rigid frame, seated so no visible edge floats
     from . import terrain_model as _tm
-    models = _tm.set_members(placements, _tm.placement_models(
+    found = _tm.placement_models(
         placements, lambda d: resolve_resource(d, pack_root, index),
         lambda d: _geometry_of(d, pack_root, index, cache),
-        dem_many or _ts.dem_many_of(dem_z), fine))
+        dem_many or _ts.dem_many_of(dem_z), fine)
+    # issue #2056: a ground shell too flat for a terrain model lies on the
+    # ground at the no-float seat (a terrain model) or is hidden alone
+    from . import ground_shell as _gs
+    shells = _gs.placement_shells(
+        placements, lambda d: resolve_resource(d, pack_root, index),
+        lambda d: _geometry_of(d, pack_root, index, cache),
+        dem_many or _ts.dem_many_of(dem_z), skip=frozenset(found))
+    found.update((k, m) for k, m in shells.items() if m.ground == _gs.SEATED)
+    models = _tm.set_members(placements, found)
+    hidden = {k: m for k, m in shells.items() if m.ground == _gs.HIDDEN}
+    riders = frozenset(_tm.set_members(placements, hidden)) - frozenset(hidden)
+    models.update(hidden)
     features = features | frozenset(models)
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0
@@ -1502,7 +1514,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             obj = _dc.replace(obj, family=ids)
         out[i] = obj
         _absorb(rep, sub)
-    return [_msl_frame(o, msl_lift) for o in out], rep
+    return [_gs.off_the_shell(_msl_frame(o, msl_lift)) if o.id in riders
+            else _msl_frame(o, msl_lift) for o in out], rep
 
 
 def _msl_frame(o: PlacedObject, lifts: _t.Mapping[str, "float | None"]) -> PlacedObject:

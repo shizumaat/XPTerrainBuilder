@@ -97,11 +97,13 @@ def download_textures(
             progress_state["pending"] += 1
             _update_progress_locked()
 
+        error = None
         try:
             ok = IMG.build_jpeg_ortho(tile, *attrs)
         except Exception as err:
             UI.vprint(2, f"Download failed: {err}")
             ok = 0
+            error = err
 
         should_retry = False
         with progress_lock:
@@ -117,6 +119,14 @@ def download_textures(
                     attempts.pop(attrs, None)
                     progress_state["failed"] += 1
             _update_progress_locked()
+        if error is not None and not should_retry and not ok:
+            # The LAST attempt's reason, said at every verbosity: a
+            # raised download (a refused write, a full disk) otherwise
+            # reaches the log only as "every texture download failed".
+            UI.lvprint(1, "   Texture %s not downloaded after %d attempts: %s"
+                       % (FNAMES.dds_file_name_from_attributes(*attrs[:4]),
+                          max_attempts, str(error).splitlines()[0]
+                          if str(error) else type(error).__name__))
 
         if ok:
             # Color harmonization statistics are collected here, on the

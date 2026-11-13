@@ -6,6 +6,7 @@ below-grade regions and the solved deck datum — ONE assembly
 that replays its rebake section."""
 from __future__ import annotations
 
+import dataclasses as _dc
 import typing as _t
 
 from ..emit.rebake import deck_datum_from_surface
@@ -342,7 +343,12 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     excluded |= {str(r["id"]) for r in floor_seats if r.get("seat") != _of.FRAME_SEAT}
     # owner RULINGS 2026-11-13i: a terrain model's origin set is seated whole
     # at its no-float zero -- no other seat moves a row of it
+    from ..airport import ground_shell as _gs
     from ..airport import terrain_model as _tm
+    # issue #2056: airside is king -- a seated ground shell never stands
+    # over the solved airside surface
+    airport = _dc.replace(airport, terrain_models=_gs.airside_capped(
+        getattr(airport, "terrain_models", ()) or (), surf, _to_xy))
     model_seats = _tm.seat_records(airport)
     modelled = {str(m["id"]) for m in model_seats}
     floor_seats = [r for r in floor_seats if str(r["id"]) not in modelled]

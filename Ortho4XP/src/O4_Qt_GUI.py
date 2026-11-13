@@ -4238,10 +4238,10 @@ class MainWindow(QMainWindow):
         window grows; without it, the spacer returns so the boxes sit
         top-aligned."""
         listed = self.activity_list
-        listed.set_activity_shown(self._activity_shown
-                                  or bool(listed.core_rows()))
+        running = any(row.running for row in listed.core_rows())
+        listed.set_activity_shown(self._activity_shown or running)
         self.run_footer.setVisible(self._activity_shown)
-        shows = (self._activity_shown or bool(listed.core_rows())
+        shows = (self._activity_shown or running
                  or not listed.completed_item.isHidden())
         self.activity_group.setVisible(shows)
         layout = self._panel_layout

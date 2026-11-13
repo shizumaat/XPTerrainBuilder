@@ -137,7 +137,17 @@ def test_the_qt_row_sits_under_the_tiles_and_is_not_selectable(qapp):  # noqa: F
     row.stop_requested.connect(stops.append)
     row.stop.click()
     assert stops == [(LAT, LON)]
+    assert listed.completed_item.isHidden()
+    assert rows.show(ImageryCoresProgress(lat=LAT, lon=LON, state="done",
+                                          done=4, total=4))
+    assert row.stop.isHidden() and row.bar.value() == 1000
+    # #2052: a finished row leaves the queue for Completed.
+    listed.place_cores(rows.rows())
+    assert item.childCount() == 1
+    done = listed.completed_item
+    assert done.childCount() == 1 and not done.isHidden()
+    assert listed.itemWidget(done.child(0), 0).row() is row
+    assert done.text(0) == "Completed (1)"
     assert not rows.show(ImageryCoresProgress(lat=LAT, lon=LON, state="done",
                                               done=4, total=4))
-    assert row.stop.isHidden() and row.bar.value() == 1000
     assert rows.drop_finished() and rows.rows() == []

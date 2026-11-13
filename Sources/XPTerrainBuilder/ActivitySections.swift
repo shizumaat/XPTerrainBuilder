@@ -33,6 +33,13 @@ struct ActivitySections: View {
         coords.map { RowID(section: section, coord: $0) }
     }
 
+    /// The core rows' sections (#2052): running ones in Activity, finished
+    /// ones (done, failed, stopped) in Completed. Qt: `place_cores`.
+    static func coreSections(_ rows: [O4ImageryCoresProgress])
+        -> (live: [O4ImageryCoresProgress], done: [O4ImageryCoresProgress]) {
+        (rows.filter(\.running), rows.filter { !$0.running })
+    }
+
     /// Whether the pane shows the list at all: a run, or rows left over.
     static func shows(building: Bool, activity: BuildActivityModel) -> Bool {
         building || !activity.displayOrder.isEmpty || !activity.coreRows.isEmpty
@@ -41,14 +48,17 @@ struct ActivitySections: View {
     var body: some View {
         let live = activity.rows(in: .activity)
         let completed = activity.rows(in: .completed)
+        // Background core sharpenings (#2039): a running one in Activity,
+        // a finished one in Completed (#2052), so the queue shows only
+        // live work. Not selectable.
+        let (liveCores, doneCores) = Self.coreSections(activity.coreRows)
         List(selection: selection) {
-            if buildModel.isBuilding || !live.isEmpty || !activity.coreRows.isEmpty {
+            if buildModel.isBuilding || !live.isEmpty || !liveCores.isEmpty {
                 Section {
                     ForEach(Self.rowIDs(live, in: .activity)) { row in
                         ActivityRow(coord: row.coord, compact: false).tag(row.coord)
                     }
-                    // Background core sharpenings (#2039): not selectable.
-                    ForEach(activity.coreRows, id: \.coresRowID) { progress in
+                    ForEach(liveCores, id: \.coresRowID) { progress in
                         ImageryCoresRow(progress: progress)
                     }
                 } header: {
@@ -57,13 +67,16 @@ struct ActivitySections: View {
                     runClock
                 }
             }
-            if !completed.isEmpty {
+            if !completed.isEmpty || !doneCores.isEmpty {
                 Section(isExpanded: $activity.completedExpanded) {
                     ForEach(Self.rowIDs(completed, in: .completed)) { row in
                         ActivityRow(coord: row.coord, compact: true).tag(row.coord)
                     }
+                    ForEach(doneCores, id: \.coresRowID) { progress in
+                        ImageryCoresRow(progress: progress)
+                    }
                 } header: {
-                    Text(Self.completedTitle(completed.count))
+                    Text(Self.completedTitle(completed.count + doneCores.count))
                 }
             }
         }

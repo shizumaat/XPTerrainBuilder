@@ -5,7 +5,8 @@ each tile's airport cores (``o4_engine.imagery_core_rows``) and says so
 with ``ImageryCoresProgress``.  The row shows the tile, "Sharpening
 airport imagery · n of N squares", a bar, and a stop button while it
 runs; then done, failed or stopped.  It is not a build row: no clock, no
-steps, not selectable (``O4_Qt_Activity_List.ActivityList.place_cores``).
+steps, not selectable; once finished it moves to Completed (#2052,
+``O4_Qt_Activity_List.ActivityList.place_cores``).
 
 The Mac app's twin is ``ImageryCoresRow`` (``ImageryCoresRow.swift``);
 both word it with ``O4_Imagery_OnDemand_Text.cores_row_status``.
@@ -94,7 +95,7 @@ class CoreRow(QWidget):
 class CoreRowSet:
     """The run list's core rows, one per tile in the order they started:
     ``make(tile)`` builds a new tile's :class:`CoreRow`.  A finished row
-    stays until the next run begins (:meth:`drop_finished`), as the Mac
+    sits in Completed (#2052) until the next run begins (:meth:`drop_finished`), as the Mac
     app's ``BuildActivityModel.coreRows``."""
 
     def __init__(self, make):
@@ -105,14 +106,16 @@ class CoreRowSet:
         return list(self._rows.values())
 
     def show(self, event):
-        """Paint ``event`` on its tile's row; True when the row is new."""
+        """Paint ``event`` on its tile's row; True when the row is new or
+        has just finished (it then moves to Completed, #2052)."""
         tile = (int(event.lat), int(event.lon))
         row = self._rows.get(tile)
         new = row is None
         if new:
             row = self._rows[tile] = self._make(tile)
+        was_running = row.running
         row.show_progress(event)
-        return new
+        return new or was_running != row.running
 
     def drop_finished(self):
         """Forget the finished rows; True when one went."""

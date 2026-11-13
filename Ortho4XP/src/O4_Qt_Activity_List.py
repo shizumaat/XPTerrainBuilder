@@ -123,6 +123,7 @@ class ActivityList(QTreeWidget):
         self._items = {}   # tile -> its row's item
         self._cores = []   # background core rows (#2039), under the tiles
         self._core_items = []
+        self._completed_tiles = 0
         self._shown = set()   # what the list last showed selected
         self._syncing = False
         self._anchor = None   # the row a Shift-click ranges from
@@ -148,6 +149,13 @@ class ActivityList(QTreeWidget):
         self.activity_item.setHidden(not shown)
 
     def set_completed_count(self, count):
+        """``count`` built tiles; the finished core rows (#2052) count too."""
+        self._completed_tiles = count
+        self._show_completed_count()
+
+    def _show_completed_count(self):
+        count = self._completed_tiles + sum(
+            1 for row in self._cores if not row.running)
         self.completed_item.setText(0, completed_title(count))
         self.completed_item.setHidden(count == 0)
 
@@ -200,9 +208,10 @@ class ActivityList(QTreeWidget):
 
     def place_cores(self, rows):
         """Show ``rows`` -- the background core sharpenings' row widgets
-        (``O4_Qt_Core_Rows.CoreRow``, #2039), in order -- at the foot of
-        Activity, under the tile rows.  They are not selectable: the
-        selection stays the map's tiles."""
+        (``O4_Qt_Core_Rows.CoreRow``, #2039), in order -- a running one at
+        the foot of Activity, a finished one (done, failed, stopped) at the
+        foot of Completed (#2052), so the queue shows only live work.  They
+        are not selectable: the selection stays the map's tiles."""
         self._detach_cores()
         self._cores = list(rows)
         self._attach_cores()
@@ -224,9 +233,12 @@ class ActivityList(QTreeWidget):
         for row in self._cores:
             item = QTreeWidgetItem()
             item.setFlags(Qt.ItemIsEnabled)
-            self.activity_item.addChild(item)
+            parent = (self.activity_item if row.running
+                      else self.completed_item)
+            parent.addChild(item)
             self.setItemWidget(item, 0, _Cell(item, row))
             self._core_items.append(item)
+        self._show_completed_count()
 
     # ── selection ─────────────────────────────────────────────────────
     def selected_tiles(self):

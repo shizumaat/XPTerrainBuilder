@@ -49,7 +49,7 @@ from .door_ramps import RampCorridor
 from .object_corridor import Group
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
 
-__all__ = ["viaduct_road_groups", "ID_PREFIX"]
+__all__ = ["viaduct_road_groups", "passage_roads", "ID_PREFIX"]
 
 ID_PREFIX = "viaduct-road"
 #: the station step the covered run is read at (the §45 lateral step)
@@ -294,16 +294,16 @@ def _half(axis_ln: LineString, flat_m: float, top_z: float, floor: float, rid: s
                  kind=_KIND, spacing_m=_STEP_M, profile=profile, mouth_strip=False, sibling=sib)
 
 
-def viaduct_road_groups(airport, law: Law, cells, polys
-                        ) -> tuple[list[Group], list[str], list[str]]:
-    """``(groups, notes, refused)`` — the R6 build groups (module doc)."""
+def _covered_runs(airport, law: Law) -> list[tuple]:
+    """``(route, s0, s1, half width, ids)`` per covered run of the airport
+    (module doc: the witness and the route walk)."""
     tn = law.tables.structures.tunnel
     ways = list(getattr(airport, "osm_ways", ()) or ())
     vias = [w for w in ways if len(w.points) >= 2 and is_bridge(w)
             and _layer(w.tags or {}) >= tn.viaduct_min_layer]
     inside = _boundary(airport) if vias else None
     if not vias or inside is None:
-        return [], [], []
+        return []
     deck = unary_union([LineString(w.points).buffer(carriageway_width_m(w.tags, law) / 2.0)
                         for w in vias])
     roads, seen = [], set()
@@ -316,13 +316,75 @@ def viaduct_road_groups(airport, law: Law, cells, polys
             continue
         seen.add(key)
         roads.append(w)
-    runs = _runs(roads, deck, inside, law)
+    return _runs(roads, deck, inside, law)
+
+
+def _in_passage(run: LineString, seeds: _t.Sequence, near: float):
+    """The level seed (``planar/level_regions.LevelSeed``) whose passage
+    the covered ``run`` stands in -- at least half its stations in the
+    seed's passage or within ``near`` of its unit's plan (the object over
+    the road; MEASURED KMCI unit 20: the covered road runs 16.8 m off the
+    garage's walls, every station under the unit's departures deck) -- or
+    ``None``."""
+    from shapely.prepared import prep
+    n = max(2, int(run.length // _STEP_M) + 1)
+    pts = [run.interpolate(run.length * k / (n - 1)) for k in range(n)]
+    for s in seeds:
+        if getattr(s, "passage", None) is None:
+            continue
+        plan = s.plan if getattr(s, "plan", None) is not None else s.footprint
+        zone = prep(unary_union([s.passage, plan.buffer(near)]))
+        if 2 * sum(1 for p in pts if zone.covers(p)) >= n:
+            return s
+    return None
+
+
+def passage_roads(airport, law: Law, seeds: _t.Sequence) -> dict[int, tuple]:
+    """``{seed unit: (carriageway, kerb zone)}`` -- R6 YIELDS TO AN
+    OBJECT-WITNESSED LEVEL (spec two-level-regions §19 S1; owner RULINGS
+    2026-11-10n (1), 2026-11-03b Q342 a "where no object sets level B's
+    height", 2026-11-11e): a covered run standing in a level seed's passage
+    (:func:`_in_passage`) mints no trench; the object states the road's
+    level, the MAIN FLOOR its kerbside stands on, so its carriageway along
+    the run is kept out of the passage level.  The kerb zone is the run's
+    span, ``dual_carriageway_max_separation_m`` either side (the road and
+    the kerbs beside it), flat at the run's ends."""
+    from ..law.tables import design as design_law
+    if not any(getattr(s, "passage", None) is not None for s in seeds):
+        return {}
+    near = float(design_law(law).pad_frontage_m)
+    sep = float(law.tables.structures.tunnel.dual_carriageway_max_separation_m)
+    out: dict[int, list] = {}
+    for route, s0, s1, half_w, _ids in _covered_runs(airport, law):
+        run = substring(route, s0, s1)
+        s = _in_passage(run, seeds, near)
+        if s is not None:
+            out.setdefault(s.unit, []).append((run.buffer(half_w, cap_style="flat"),
+                                               run.buffer(sep, cap_style="flat")))
+    return {u: (unary_union([c for c, _z in gs]), unary_union([z for _c, z in gs]))
+            for u, gs in out.items()}
+
+
+def viaduct_road_groups(airport, law: Law, cells, polys, seeds: _t.Sequence = ()
+                        ) -> tuple[list[Group], list[str], list[str]]:
+    """``(groups, notes, refused)`` — the R6 build groups (module doc);
+    a run in a level seed's passage is refused by name
+    (:func:`passage_roads`)."""
+    from ..law.tables import design as design_law
+    tn = law.tables.structures.tunnel
+    near = float(design_law(law).pad_frontage_m)
     groups: list[Group] = []
     notes: list[str] = []
     refused: list[str] = []
-    for k, (route, s0, s1, half_w, ids) in enumerate(runs):
+    for k, (route, s0, s1, half_w, ids) in enumerate(_covered_runs(airport, law)):
         rid = f"{ID_PREFIX}:{k}"
         run = substring(route, s0, s1)
+        seed = _in_passage(run, seeds, near)
+        if seed is not None:
+            refused.append(f"{rid} ({ids}): stands in unit {seed.unit}'s passage level: the "
+                           f"main floor its kerbside stands on is the road's (RULINGS "
+                           f"2026-11-11e)")
+            continue
         apron = _apron_level(airport, law, run, cells, polys, tn.viaduct_apron_reach_m)
         if apron is None:
             refused.append(f"{rid} ({ids}): no airside apron within "

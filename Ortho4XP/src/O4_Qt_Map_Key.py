@@ -84,16 +84,12 @@ def paint_key(painter, viewport: QRectF, items: list) -> tuple:
     height = metrics.height() + 8
     words = [KEYTEXT.SHORT[item] for item in items]
     fixed = 2 * _PAD + len(items) * (_SWATCH_W + _GAP) + (len(items) - 1) * _SPACING
-    limit = viewport.width() * KEYTEXT.MAX_WIDTH_FRACTION
+    # capped at MAX_WIDTH_FRACTION of the map, like the Mac: the words
+    # truncate to fit and the pill never grows past it (RULINGS 2026-11-13f)
+    limit = min(viewport.width() * KEYTEXT.MAX_WIDTH_FRACTION,
+                viewport.width() - 2 * MARGIN)
     natural = [metrics.horizontalAdvance(w) for w in words]
-    # a word keeps at least a couple of letters and its "…"; past that the
-    # pill grows beyond its limit, up to the map's width
-    least = metrics.horizontalAdvance("Mm…")
-    caps = [max(cap, min(least, w)) for cap, w in
-            zip(_fit_caps(natural, limit - fixed), natural, strict=True)]
-    room = viewport.width() - 2 * MARGIN - fixed
-    if sum(caps) > room:
-        caps = _fit_caps(natural, room)
+    caps = _fit_caps(natural, limit - fixed)
     shown = [w if c >= n else metrics.elidedText(w, Qt.ElideRight, int(c))
              for w, c, n in zip(words, caps, natural, strict=True)]
     width = fixed + sum(metrics.horizontalAdvance(w) for w in shown)

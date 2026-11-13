@@ -21,10 +21,13 @@ extension PatchEditModel {
             siblings = siblings.filter { wanted[$0.key] != nil }
             publishSiblings()
         }
+        // Drawn read-only: never the staleness check (#2061).
+        let fast = build?.engineCapabilities.supports(O4EngineCapabilities.patchViewLane) ?? false
         for (key, item) in wanted where siblings[key] == nil {
             siblings[key] = .some(nil) // loading
             Task { [weak self] in
-                guard let reply = try? await client.patchLoad(tile: item.tile, icao: item.entry.icao) else {
+                guard let reply = try? await client.patchLoad(tile: item.tile, icao: item.entry.icao,
+                                                              staleness: !fast) else {
                     return
                 }
                 let geometry = await Task.detached(priority: .userInitiated) {

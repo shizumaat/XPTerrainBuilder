@@ -55,10 +55,10 @@ GUIDEWAY = EMBANKMENT.replace(
 
 
 def test_base_is_the_vertices_at_or_below_the_ground_line():
-    b = FS.facade_base(EMBANKMENT)
+    b = FS._facade_base(EMBANKMENT)
     assert b is not None and b.ring is False
     assert b.feet == ((-7.3, -0.16), (13.6, -0.48))
-    g = FS.facade_base(GUIDEWAY)
+    g = FS._facade_base(GUIDEWAY)
     assert g is not None and g.feet == ((0.5, -3.98),)
 
 
@@ -69,16 +69,16 @@ def test_base_is_the_vertices_at_or_below_the_ground_line():
     ("FLOOR see\n", "FLOOR see\nROOF_HEIGHT 6.0\n"),   # a roof
 ])
 def test_files_no_edit_can_lower(edit):
-    assert FS.facade_base(EMBANKMENT.replace(*edit)) is None
+    assert FS._facade_base(EMBANKMENT.replace(*edit)) is None
 
 
 def test_a_facade_drawn_to_hang_has_no_base():
     hang = EMBANKMENT.replace("-0.16", "0.20").replace("-0.48", "0.30")
-    assert FS.facade_base(hang) is None
+    assert FS._facade_base(hang) is None
 
 
 def test_lowered_copy_moves_every_height_and_carries_the_mark():
-    out = FS.lowered_text(EMBANKMENT, -1.6, "Objects/see.fac")
+    out = FS._lowered_text(EMBANKMENT, -1.6, "Objects/see.fac")
     lines = out.splitlines()
     assert lines[:3] == ["A", "1000", "FACADE"]
     assert lines[3].startswith(CUT_MARK + "Objects/see.fac")
@@ -89,12 +89,12 @@ def test_lowered_copy_moves_every_height_and_carries_the_mark():
     d = next(ln.split() for ln in lines if ln.startswith("ATTACH_DRAPED"))
     assert float(g[3]) == pytest.approx(-1.1) and d[3] == "0.0"
     # the copy is still a graded mesh facade, its feet moved by the drop
-    feet = dict(FS.facade_base(out).feet)
+    feet = dict(FS._facade_base(out).feet)
     assert feet[-7.3] == pytest.approx(-1.76) and feet[13.6] == pytest.approx(-2.08)
-    a = FS.variant_resource("Objects/see.fac", EMBANKMENT, -1.6)
+    a = FS._variant_resource("Objects/see.fac", EMBANKMENT, -1.6)
     assert a.startswith("Objects/see__g_") and a.endswith(".fac")
-    assert a == FS.variant_resource("Objects/see.fac", EMBANKMENT, -1.6)
-    assert a != FS.variant_resource("Objects/see.fac", EMBANKMENT, -1.5)
+    assert a == FS._variant_resource("Objects/see.fac", EMBANKMENT, -1.6)
+    assert a != FS._variant_resource("Objects/see.fac", EMBANKMENT, -1.5)
 
 
 # ── a synthetic shore: land (2.0 m) east of lon 0, water (0.0) west ──────
@@ -110,21 +110,21 @@ def _southward(n=3):
 
 def test_seat_reads_the_first_wall_and_every_foot():
     # walking south the right foot (13.6 m, -0.48) lies WEST, over water
-    s = FS.seat_polygon(_southward(), FS.facade_base(EMBANKMENT), _shore)
+    s = FS._seat_polygon(_southward(), FS._facade_base(EMBANKMENT), _shore)
     assert s.anchor_z == 2.0
     assert s.need_z == pytest.approx(0.48)
     assert s.drop_m == pytest.approx(-1.52)
     # walking north the left foot (-0.16) is the one over the water
     north = list(reversed(_southward()))
-    s = FS.seat_polygon(north, FS.facade_base(EMBANKMENT), _shore)
+    s = FS._seat_polygon(north, FS._facade_base(EMBANKMENT), _shore)
     assert s.drop_m == pytest.approx(-1.84)
 
 
 def test_never_raised_and_a_guideway_stays_up():
-    up = FS.seat_polygon(_southward(), FS.facade_base(EMBANKMENT),
+    up = FS._seat_polygon(_southward(), FS._facade_base(EMBANKMENT),
                          lambda la, lo: 2.0)
     assert up.drop_m == 0.0                      # the feet are buried already
-    col = FS.seat_polygon(_southward(), FS.facade_base(GUIDEWAY), _shore)
+    col = FS._seat_polygon(_southward(), FS._facade_base(GUIDEWAY), _shore)
     assert col.drop_m == 0.0                     # columns 3.98 m deep: no float
 
 
@@ -149,7 +149,7 @@ def test_plan_seats_lowers_the_pack_facade_and_writes_one_copy(tmp_path):
     assert counts == {"graded_facades": 1, "graded_facades_lowered": 1,
                       "graded_facade_drop_max_m": s.drop_m}
     assert files[0].resource == s.new_resource
-    feet = dict(FS.facade_base(files[0].text).feet)
+    feet = dict(FS._facade_base(files[0].text).feet)
     assert feet[13.6] == pytest.approx(-0.48 + s.drop_m)
     box = FS.candidates_box(FS.candidates(dump, root))
     assert box[0] < -0.0001 and box[2] > 0.0001     # widened by the feet

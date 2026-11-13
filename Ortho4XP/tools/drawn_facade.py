@@ -3,7 +3,7 @@ graded facade hang over the ground X-Plane draws under it?
 
 Reads only products: the WRITTEN pack DSF (each ``.fac`` polygon and the
 definition it now names — a lowered copy ``<stem>__g_<hash>.fac`` or the
-authored file), that file's own base (``airport/facade_seat.facade_base``:
+authored file), that file's own base (``airport/facade_seat``:
 its mesh vertices at or below its ground line) and the DRAWN tile mesh.
 X-Plane stands a graded facade on the ground at its first wall's centre
 and keeps it flat; each foot station's float is that plane plus the

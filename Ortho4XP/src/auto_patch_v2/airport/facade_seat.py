@@ -42,10 +42,8 @@ import typing as _t
 
 from ..model.placement import CUT_MARK, FacadeSeat
 
-__all__ = ["FLOAT_TOL_M", "STEP_M", "FacadeBase", "FacadeFile", "Seat",
-           "facade_base", "lowered_text", "variant_resource", "seat_polygon",
-           "station_floats",
-           "candidates", "candidates_box", "plan_seats"]
+__all__ = ["FLOAT_TOL_M", "STEP_M", "station_floats", "candidates",
+           "candidates_box", "plan_seats"]
 
 #: A foot this far over its ground is not lowered (the owner's pavement
 #: visibility bar, ``tools/drawn_site.PAVEMENT_BAR_M``): mesh noise under
@@ -59,7 +57,7 @@ X_BUCKET_M = 0.5
 
 
 @_dc.dataclass(frozen=True)
-class FacadeBase:
+class _FacadeBase:
     """The authored base of one graded mesh facade: ``feet`` are ``(x out,
     y up)`` of its vertices at or below ``y = 0``, one per ``x`` bucket
     (the highest ``y`` there).  ``ring`` is the file's ``RING``."""
@@ -69,7 +67,7 @@ class FacadeBase:
 
 
 @_dc.dataclass(frozen=True)
-class FacadeFile:
+class _FacadeFile:
     """A lowered copy: pack-relative ``resource`` and its whole ``text``
     (the shape ``placement_write.write_files`` writes)."""
 
@@ -78,7 +76,7 @@ class FacadeFile:
 
 
 @_dc.dataclass(frozen=True)
-class Seat:
+class _Seat:
     """What one polygon's base asks of its plane."""
 
     anchor: tuple[float, float]       # (lon, lat) of the first wall's centre
@@ -109,7 +107,7 @@ def _segments_meshed(lines: _t.Sequence[str]) -> bool:
     return not (open_seg and not meshed)
 
 
-def facade_base(text: str) -> FacadeBase | None:
+def _facade_base(text: str) -> _FacadeBase | None:
     """The authored base of a ``.fac``'s text, or ``None`` when no file edit
     can lower it (module doc): not a v1000 ``GRADED`` facade, a segment
     with no ``MESH``, a roof (``ROOF_HEIGHT`` > 0, ``ROOF_OBJ``), or no
@@ -141,10 +139,10 @@ def facade_base(text: str) -> FacadeBase | None:
                 best[b] = (x, y)
     if not graded or not best:
         return None
-    return FacadeBase(ring, tuple(best[b] for b in sorted(best)))
+    return _FacadeBase(ring, tuple(best[b] for b in sorted(best)))
 
 
-def lowered_text(text: str, drop_m: float, resource: str) -> str:
+def _lowered_text(text: str, drop_m: float, resource: str) -> str:
     """``text`` with every ``VERTEX`` and ``ATTACH_GRADED`` height moved by
     ``drop_m`` and this writer's ``CUT_MARK`` after the header (a ``#``
     comment line, as shipped packs carry them)."""
@@ -165,7 +163,7 @@ def lowered_text(text: str, drop_m: float, resource: str) -> str:
     return eol.join(out) + eol
 
 
-def variant_resource(resource: str, text: str, drop_m: float) -> str:
+def _variant_resource(resource: str, text: str, drop_m: float) -> str:
     """``<dir>/<stem>__g_<hash>.fac`` beside the original: one name per
     (file, drop), so polygons asking the same drop share one copy."""
     stem, _ext = os.path.splitext(resource.replace("\\", "/"))
@@ -175,7 +173,7 @@ def variant_resource(resource: str, text: str, drop_m: float) -> str:
 
 # ── one placed polygon ───────────────────────────────────────────────────
 
-def _stations(nodes: _t.Sequence[tuple[float, float]], base: FacadeBase
+def _stations(nodes: _t.Sequence[tuple[float, float]], base: _FacadeBase
               ) -> list[tuple[float, float, float, float]]:
     """``(lon, lat, foot y, metres along)`` of every foot at every station
     of every wall.  The wall frame: ``x`` is outward, to the RIGHT of the
@@ -201,7 +199,7 @@ def _stations(nodes: _t.Sequence[tuple[float, float]], base: FacadeBase
     return pts
 
 
-def station_floats(nodes: _t.Sequence[tuple[float, float]], base: FacadeBase,
+def station_floats(nodes: _t.Sequence[tuple[float, float]], base: _FacadeBase,
                    surface: _t.Callable):
     """How far each foot station of one placed polygon floats over the
     ground under it: ``(anchor (lon, lat), anchor z, [(lon, lat, metres
@@ -228,8 +226,8 @@ def station_floats(nodes: _t.Sequence[tuple[float, float]], base: FacadeBase,
                         if z is not None]
 
 
-def seat_polygon(nodes: _t.Sequence[tuple[float, float]], base: FacadeBase,
-                 surface: _t.Callable) -> Seat | None:
+def _seat_polygon(nodes: _t.Sequence[tuple[float, float]], base: _FacadeBase,
+                 surface: _t.Callable) -> _Seat | None:
     """The plane one placed polygon stands on and the highest its base
     allows (:func:`station_floats`); ``None`` when the anchor or every
     foot station is off the surface."""
@@ -238,28 +236,28 @@ def seat_polygon(nodes: _t.Sequence[tuple[float, float]], base: FacadeBase,
         return None
     anchor, az, rows = got
     worst = max(rows, key=lambda r: r[3])
-    return Seat(anchor, az, az - worst[3], (worst[0], worst[1]))
+    return _Seat(anchor, az, az - worst[3], (worst[0], worst[1]))
 
 
 # ── the pack ─────────────────────────────────────────────────────────────
 
-def _read_base(path: str) -> tuple[str, FacadeBase] | None:
+def _read_base(path: str) -> tuple[str, _FacadeBase] | None:
     if not os.path.isfile(path):
         return None
     try:
         with open(path, "r", encoding="latin-1") as fh:
             text = fh.read()
-        base = facade_base(text)
+        base = _facade_base(text)
     except (OSError, ValueError):
         return None
     return None if base is None else (text, base)
 
 
 def candidates(dump: _t.Any, pack_root: str
-               ) -> list[tuple[_t.Any, str, FacadeBase]]:
+               ) -> list[tuple[_t.Any, str, _FacadeBase]]:
     """``(polygon, file text, base)`` for every polygon of ``dump`` whose
     definition is a PACK-LOCAL graded mesh facade (module doc)."""
-    read: dict[str, tuple[str, FacadeBase] | None] = {}
+    read: dict[str, tuple[str, _FacadeBase] | None] = {}
     out = []
     for poly in getattr(dump, "polygons", ()):
         d = poly.def_path
@@ -290,22 +288,22 @@ def candidates_box(cands: _t.Sequence) -> tuple[float, float, float, float] | No
 
 def plan_seats(dump: _t.Any, pack_root: str, surface: _t.Callable,
                cands: _t.Sequence | None = None
-               ) -> tuple[tuple[FacadeSeat, ...], tuple[FacadeFile, ...],
+               ) -> tuple[tuple[FacadeSeat, ...], tuple[_FacadeFile, ...],
                           dict[str, _t.Any]]:
     """``(seats, lowered files, counts)`` for the pack's graded mesh
     facades standing on ``surface`` (the built mesh)."""
     cands = candidates(dump, pack_root) if cands is None else cands
     seats: list[FacadeSeat] = []
-    files: dict[str, FacadeFile] = {}
+    files: dict[str, _FacadeFile] = {}
     deepest = 0.0
     for poly, text, base in cands:
-        s = seat_polygon([(n[0], n[1]) for n in poly.nodes[0]], base, surface)
+        s = _seat_polygon([(n[0], n[1]) for n in poly.nodes[0]], base, surface)
         if s is None or s.drop_m > -FLOAT_TOL_M:
             continue
         drop = math.floor(s.drop_m * 100.0) / 100.0
-        res = variant_resource(poly.def_path, text, drop)
+        res = _variant_resource(poly.def_path, text, drop)
         if res not in files:
-            files[res] = FacadeFile(res, lowered_text(text, drop, poly.def_path))
+            files[res] = _FacadeFile(res, _lowered_text(text, drop, poly.def_path))
         seats.append(FacadeSeat(int(poly.index), poly.def_path, res, drop,
                                 s.anchor[0], s.anchor[1], round(s.anchor_z, 3),
                                 round(s.need_z, 3)))

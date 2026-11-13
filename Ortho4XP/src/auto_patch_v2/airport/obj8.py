@@ -59,6 +59,7 @@ from .authored_seat import anchor_family_key, lifted_by_own_depth
 __all__ = ["ObjGeometry", "Component", "PlacedObject", "FloorWitness", "ObjReport", "parse_obj8",
            "solid_components", "library_index_path", "read_library_index",
            "resolve_resource", "is_stock_library_resource", "placement_affine",
+           "library_exports", "same_resource",
            "read_placed_objects", "above_grade_footprint", "at_grade_geometry", "ResourceCache",
            "derive_base_profile", "read_ahead", "ReadLaw", "read_placement",
            "placement_grounds",
@@ -413,6 +414,87 @@ def resolve_resource(def_path: str, pack_root: str | None,
         if phys and os.path.isfile(phys):
             return phys
     return None
+
+
+_LIBRARY_TXT: dict[str, tuple[float, dict[str, tuple[str, ...]]]] = {}
+
+
+def library_exports(lib_txt: str) -> dict[str, tuple[str, ...]]:
+    """``virtual.lower() -> every physical path`` one ``library.txt``
+    exports (the merged index keeps ONE path per virtual path — for the
+    trailer an ``EmptyObject.obj`` under the exact-case key)."""
+    try:
+        mtime = os.path.getmtime(lib_txt)
+    except OSError:
+        return {}
+    hit = _LIBRARY_TXT.get(lib_txt)
+    if hit is not None and hit[0] == mtime:
+        return hit[1]
+    root = os.path.dirname(lib_txt)
+    acc: dict[str, list[str]] = {}
+    try:
+        with open(lib_txt, "r", encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                t = raw.split()
+                if len(t) < 3 or not t[0].startswith("EXPORT"):
+                    continue
+                if t[0] == "EXPORT_RATIO":
+                    t = t[1:]
+                    if len(t) < 3:
+                        continue
+                phys = os.path.join(root, " ".join(t[2:]).replace("\\", "/"))
+                lst = acc.setdefault(t[1].replace("\\", "/").lower(), [])
+                if phys not in lst:
+                    lst.append(phys)
+    except OSError:
+        return {}
+    out = {k: tuple(v) for k, v in acc.items()}
+    _LIBRARY_TXT[lib_txt] = (mtime, out)
+    return out
+
+
+def _pack_library_txt(pack_root: str) -> str | None:
+    """The pack's own ``library.txt`` (any case: packs ship
+    ``Library.txt`` too), or ``None``."""
+    try:
+        names = os.listdir(pack_root)
+    except OSError:
+        return None
+    for name in names:
+        if name.lower() == "library.txt":
+            return os.path.join(pack_root, name)
+    return None
+
+
+def _norm_rel(path: str) -> str:
+    return os.path.normcase(os.path.normpath(
+        path.replace("\\", "/").lstrip("/")))
+
+
+def same_resource(def_path: str, resource: str,
+                  pack_root: str | None) -> bool:
+    """Does the DSF definition ``def_path`` name the pack file
+    ``resource`` (pack-relative, as a plan records it)?
+
+    THE ONE IDENTITY between a dump's definition and a plan's resource.
+    A definition is either the pack-relative file itself or a VIRTUAL
+    path the pack's own ``library.txt`` exports to it: KDEN's DSF places
+    ``XCD_KDEN/Jetways/Bridge_Old_Len_5.obj`` and the plan (which reads
+    the resolved file) records ``Objects/Jetways/Bridge_Old_Len_5.obj``
+    -- the same object, which a string compare refused (2026-11-12, no
+    placement written).  Any export row of the virtual path counts: a
+    region-split export names one object under another region."""
+    if not def_path or not resource:
+        return False
+    if _norm_rel(def_path) == _norm_rel(resource):
+        return True
+    lib = _pack_library_txt(pack_root) if pack_root else None
+    if not lib:
+        return False
+    want = os.path.normcase(os.path.normpath(os.path.join(pack_root, resource)))
+    key = def_path.replace("\\", "/").lstrip("/").lower()
+    return any(os.path.normcase(os.path.normpath(p)) == want
+               for p in library_exports(lib).get(key, ()))
 
 
 # ── placement → frame ────────────────────────────────────────────────────

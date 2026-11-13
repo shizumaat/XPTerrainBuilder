@@ -103,7 +103,16 @@ def test_fmt_date_includes_time():
 # Now pinned at the session: no Qt required at all.
 # ---------------------------------------------------------------------------
 @pytest.fixture
-def session():
+def session(monkeypatch, tmp_path):
+    # Every airport priced alike, and solves recorded into tmp: the
+    # airport time model never reads or writes the user's store here.
+    from o4_engine import airport_time_model as ATM
+    from o4_engine import step_clock as STEP_CLOCK
+    monkeypatch.setattr(ATM, "STORE_DIRECTORY", str(tmp_path / "airports"))
+    monkeypatch.setattr(STEP_CLOCK, "predict_airports",
+                        lambda icaos: {icao: 100.0 for icao in icaos})
+    from o4_engine import tile_time_model as TTM
+    monkeypatch.setattr(TTM, "planned_airports", lambda lat, lon: None)
     s = EngineSession()
     events = []
     s.subscribe(events.append)
@@ -181,49 +190,74 @@ def test_ui_utils_routes_to_session(session):
     assert ap.eta_total_seconds == 120.0
 
 
-def test_run_eta_uses_autopatch_model(session):
-    """The auto-patch model's live total estimate drives the run clock
-    while auto-patch owns the vector step (the previously-discarded
-    signal the 2026-07-15 estimation rework leverages)."""
+def test_run_eta_prices_the_airports_by_their_predictions(session,
+                                                         monkeypatch):
+    """#2045: while the airports solve, the vector step's remaining is
+    the longest airport's predicted remaining plus the step's own tail —
+    each airport priced by the airport time model, not by the vector
+    step's median (KDEN: 22 min against a 7 min vector estimate)."""
     s, events = session
+    from o4_engine import step_clock as STEP_CLOCK
+    monkeypatch.setattr(STEP_CLOCK, "predict_airports",
+                        lambda icaos: {"KBNA": 300.0, "KJWN": 100.0})
+    clock = [1000.0]
+    monkeypatch.setattr(SESSION.time, "time", lambda: clock[0])
     s._eta = SESSION._EtaTracker(
         [(48, -6)], SESSION.plan_steps(True, True, False),
-        {(48, -6): {"vector": 30.0, "mesh": 10.0, "masks": 5.0,
+        {(48, -6): {"vector": 340.0, "mesh": 10.0, "masks": 5.0,
                     "imagery": 20.0}})
-    s._eta.step_started((48, -6), "vector")
+    s._start_step((48, -6), "vector", 0.0, 0.5)
     s.autopatch_begin(["KBNA", "KJWN"])
-    s.autopatch_event("KBNA", 0.1, 1.0, "solving", "run",
-                      eta_total_seconds=300.0)
-    s.autopatch_event("KJWN", 0.1, 1.0, "solving", "run",
-                      eta_total_seconds=100.0)
+    s.autopatch_event("KBNA", 0.0, 1.0, "loading", "run")
+    s.autopatch_event("KJWN", 0.0, 1.0, "loading", "run")
+    clock[0] += 30.0
     remaining = s._eta.remaining()
-    # ~400 s of auto-patch remain + the 35 s of future steps; far above
-    # what the static vector estimate (30 s) would have said.
-    assert remaining > 300.0
-    # An airport finishing removes its share.
-    s.autopatch_event("KBNA", 1.0, 1.0, "done", "done")
-    assert s._eta.remaining() < remaining
+    # KBNA's 270 s left + the vector tail + 35 s of future steps.
+    assert 290.0 < remaining < 340.0
+    # KJWN finishing changes nothing: KBNA is the long pole.
+    s.autopatch_event("KJWN", 1.0, 1.0, "done", "done")
+    assert s._eta.remaining() == pytest.approx(remaining)
+    clock[0] += 300.0                    # KBNA 30 s past its prediction
+    overrun = s._eta.remaining()
+    assert 35.0 < overrun < remaining    # receding, never "done"
 
 
-def test_run_eta_autopatch_overrun_keeps_receding(session):
-    """An airport that outlives its predicted total must not pin the
-    run clock at "almost done" — the live HECA defect (2026-07-17):
-    the display sat under a minute for the five minutes the overrun
-    lasted.  Overrun remaining grows with elapsed instead."""
+def test_the_bar_moves_while_one_airport_solves(session, monkeypatch):
+    """THE OWNER'S DEFECT (+39-105, 2026-11-13): KDEN sat in one stage
+    for 9 min and the bar with it.  The heartbeat moves the vector
+    window along the airport's predicted seconds between stage lines."""
     s, events = session
+    clock = [1000.0]
+    monkeypatch.setattr(SESSION.time, "time", lambda: clock[0])
+    s._start_step((48, -6), "vector", 0.0, 0.9)
+    s.autopatch_begin(["KDEN"])
+    s.autopatch_event("KDEN", 69, 100, "Solving the surface", "run")
+    seen = []
+    for _ in range(10):
+        clock[0] += 5.0
+        s._tick_step_clock()
+        seen.append(_step_events(events)[-1].percent)
+    assert seen == sorted(seen) and seen[-1] > seen[0]
+    assert seen[-1] < 90.0
+
+
+def test_mesh_creeps_along_its_prediction(session, monkeypatch):
+    """A step with no percentage of its own (mesh) moves with the clock
+    against its predicted seconds instead of holding (#2045)."""
+    s, events = session
+    clock = [1000.0]
+    monkeypatch.setattr(SESSION.time, "time", lambda: clock[0])
     s._eta = SESSION._EtaTracker(
-        [(30, 31)], SESSION.plan_steps(True, True, False),
-        {(30, 31): {"vector": 30.0, "mesh": 10.0, "masks": 5.0,
+        [(48, -6)], SESSION.plan_steps(True, True, False),
+        {(48, -6): {"vector": 10.0, "mesh": 100.0, "masks": 5.0,
                     "imagery": 20.0}})
-    s._eta.step_started((30, 31), "vector")
-    s.autopatch_begin(["HECA"])
-    s.autopatch_event("HECA", 0.5, 1.0, "solving", "run",
-                      eta_total_seconds=60.0)
-    # Simulate the airport running 360 s against its 60 s prediction.
-    s._eta.autopatch["HECA"][0] -= 360.0
-    remaining = s._eta.remaining()
-    # 0.5 × 300 s overrun + 35 s of future steps — nowhere near zero.
-    assert 175.0 < remaining < 195.0
+    s._start_step((48, -6), "mesh", 0.5, 0.2)
+    clock[0] += 50.0
+    s._tick_step_clock()
+    assert _step_events(events)[-1].percent == pytest.approx(60.0)
+    clock[0] += 1000.0                   # far past its prediction
+    s._tick_step_clock()
+    assert 69.0 < _step_events(events)[-1].percent < 70.0
 
 
 def test_set_parallel_siblings_updates_environment(session, monkeypatch):
@@ -323,15 +357,22 @@ def test_fmt_tile_clock():
     assert GUI._fmt_tile_clock(0.0, None, False) == ""
 
 
-def test_a_neighbour_insets_pass_names_its_tile_in_the_label(session):
+def test_a_neighbour_insets_pass_names_its_tile_in_the_label(session,
+                                                             monkeypatch):
     """Issue #33 / spec §D.3: while a NEIGHBOUR tile's airport-insets pass
     runs inside the vector step, every StepProgress — the legacy-bar ones
     included — names it; afterwards the plain label returns."""
     s, events = session
+    clock = [1000.0]
+    monkeypatch.setattr(SESSION.time, "time", lambda: clock[0])
+    s._start_step((48, -6), "vector", 0.0, 0.286)
+    events.clear()
     s.step_detail("airport insets +48-007 (neighbour of +48-006)")
-    s.legacy_progress(1, 50)
+    clock[0] += 5.0
+    s._tick_step_clock()                 # the vector step's clock moves
     s.step_detail("")
-    s.legacy_progress(1, 60)
+    clock[0] += 5.0
+    s._tick_step_clock()
     labels = [e.label for e in _step_events(events)]
     assert labels == [
         "vector data · airport insets +48-007 (neighbour of +48-006)",

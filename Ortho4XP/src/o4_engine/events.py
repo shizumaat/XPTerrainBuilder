@@ -346,11 +346,14 @@ class TileState(EngineEvent):
 class StepProgress(EngineEvent):
     """Whole-tile progress while a build step runs.
 
-    The session owns ALL percent/label math (step weighting, legacy-bar
-    mapping, auto-patch folding) — views only render.  ``indeterminate``
-    marks steps that report no usable percentage (mesh triangulation,
-    overlay extraction): show a busy indicator while HOLDING ``percent``.
-    ``attempt``: as on ``TileState`` (#1326).
+    The session owns ALL percent/label math (step weighting by predicted
+    seconds, legacy-bar mapping, auto-patch folding) — views only render.
+    Every step moves (#2045): one with no percentage of its own (vector,
+    mesh, overlays) advances along its predicted seconds
+    (``o4_engine.step_clock``), so this engine sends ``indeterminate``
+    False; a view still shows a busy indicator while HOLDING ``percent``
+    when it is True (older engines).  ``attempt``: as on ``TileState``
+    (#1326).
     """
 
     lat: int = 0

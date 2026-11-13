@@ -573,6 +573,17 @@ def _edit_cache_session_is_per_test(monkeypatch, tmp_path_factory, request):
 
 
 @pytest.fixture(autouse=True)
+def _airport_solve_times_are_per_test(monkeypatch, tmp_path_factory):
+    """No test appends a solved airport to the user's
+    ``~/.ortho4xp/auto_patch_build_times`` (the session records every
+    solve there, #2045) or prices an airport from it."""
+    from o4_engine import airport_time_model as ATM
+    monkeypatch.setattr(ATM, "STORE_DIRECTORY",
+                        str(tmp_path_factory.mktemp("airport_times")))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _provider_refusal_rest_is_per_test(monkeypatch):
     """No test inherits another's 24-hour provider rest
     (``elevation_access.refusal_rest``): a refusal one test provokes would

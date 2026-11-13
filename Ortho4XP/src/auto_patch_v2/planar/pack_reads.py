@@ -58,7 +58,7 @@ from ..airport.wall_corridors import WallCorridorStats
 from ..airport.wall_family import read_wall_corridors
 from ..model import pulse as _pulse
 
-__all__ = ["PackReads", "pack_reads", "pool_report", "ring_reads",
+__all__ = ["PackReads", "held_read", "pack_reads", "pool_report", "ring_reads",
            "wall_corridor_reads"]
 
 #: the key on ``ResourceCache.placed``
@@ -188,6 +188,19 @@ def wall_corridor_reads(airport, objects: _t.Sequence, cache, law, field=None
         store[_WALLS] = read_wall_corridors(airport, objects, cache, law, field=field)
     walls, stats = store[_WALLS]
     return list(walls), copy.deepcopy(stats)
+
+
+def held_read(airport, objects: _t.Sequence, cache, law, key: tuple,
+              read: _t.Callable[[], _t.Any]) -> _t.Any:
+    """Another classification-free reading on the same store: ``read()``
+    on the first call for ``key`` (a VALUE: the reader's inputs beyond the
+    store's own), the held answer after it.  The caller hands out its own
+    copy of anything a pass writes (#1951: the object floors, ~16 s of every
+    planar pass at KMCI, read four times a build)."""
+    store = _store(airport, objects, cache, law)
+    if key not in store:
+        store[key] = read()
+    return store[key]
 
 
 def ring_reads(airport, objects: _t.Sequence, cache, law) -> dict:

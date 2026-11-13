@@ -311,17 +311,18 @@ def test_legacy_progress_bar_drives_stepprogress_and_eta(monkeypatch,
                                                          tmp_path):
     """progress_bar() calls during a step produce StepProgress events with
     rising percent, and RunEta events whose remaining_seconds is populated
-    once step estimates exist."""
-    def vector_hook(_tile):
+    once step estimates exist.  The masks step: the vector step moves by
+    its clock, not by the bar its sub-tasks each restart (#2045)."""
+    def masks_hook(_tile):
         for percentage in (20, 50, 90):
             UI.progress_bar(1, percentage)
 
-    install_stub_pipeline(monkeypatch, hooks={"vector": vector_hook})
+    install_stub_pipeline(monkeypatch, hooks={"masks": masks_hook})
     session = EngineSession()
     events = run_build(session, [(10, 20)], tmp_path)
 
     vector_steps = [e for e in events
-                    if isinstance(e, EV.StepProgress) and e.step_key == "vector"]
+                    if isinstance(e, EV.StepProgress) and e.step_key == "masks"]
     percents = [e.percent for e in vector_steps]
     assert percents == sorted(percents)      # never restarts / never dips
     assert percents[-1] > percents[0]        # the bar traffic moved it

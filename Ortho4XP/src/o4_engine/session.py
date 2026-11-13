@@ -56,6 +56,7 @@ from .events import (
     TileClocks,
     TileState,
 )
+from . import step_clock as STEP_CLOCK
 from .slow_step import SlowStepWatch
 
 #: The queue rank of a tile whose batch named no class or deadline.
@@ -320,6 +321,13 @@ def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
     raises.
     """
     features = {"zoomlevel": zoomlevel, "provider": provider}
+    try:
+        from . import tile_time_model
+        planned = tile_time_model.planned_airports(lat, lon)
+        if planned is not None:
+            features["airports_planned"] = planned
+    except Exception:
+        pass
     tile = None
     try:
         import O4_Config_Utils as CFG
@@ -372,74 +380,48 @@ def _imagery_cache_directory(lat, lon, zoomlevel, provider):
         return None
 
 
-# How far a step's DISPLAY window may drift from its canonical
-# STEP_WEIGHTS share.  Learned seconds adapt the bar (a cached imagery
-# step shrinks toward its floor), but an outlier history must never
-# swallow it: one hours-long vector record (the 2026-07-23 slow-inset
-# era) reweighted vector to ~99 % and the bar read "done" three steps
-# before imagery — normally the LARGEST part of a build (owner ruling
-# 2026-07-23: every planned step keeps an honest share).
-DISPLAY_WEIGHT_DRIFT_LIMIT = 3.0
+# Every planned step keeps at least this share of the bar, so its
+# window never vanishes (a reused step is priced at a second).
+DISPLAY_MIN_SHARE = 0.01
 
 
 def reweight_plan_by_seconds(plan, estimated_seconds):
     """The plan's step windows re-scaled by predicted per-step seconds.
 
     The static :data:`STEP_WEIGHTS` say imagery is 60 % of every build —
-    wildly wrong for a cached rebuild or an auto-patch-heavy tile.  With
-    a per-step second estimate in hand, the whole-tile percent scale is
-    proportional to predicted time instead, so the bar moves at a
-    steady pace through the build.  Steps missing an estimate keep a
-    tiny floor so their window never vanishes, and every step's share
-    stays within :data:`DISPLAY_WEIGHT_DRIFT_LIMIT` of its canonical
-    STEP_WEIGHTS proportion so no outlier estimate can flatten the
-    others' windows.
+    wildly wrong for a cached rebuild or an airport-heavy tile.  With a
+    per-step second estimate in hand, the whole-tile percent scale is
+    proportional to predicted time, so the bar moves at the pace of the
+    work (#2045).  A step missing an estimate is priced at a second, and
+    every step keeps :data:`DISPLAY_MIN_SHARE` of the bar.
+
+    There is no CEILING any more.  The 2026-07-23 cap (3x a step's
+    canonical share) answered one hours-long vector record poisoning the
+    history; it also capped every honest airport solve near a third of
+    the bar, so +39-105 (2026-11-13: KDEN, 89 % of the build in the
+    vector step) sat still for ~90 % of the build and raced through the
+    rest.  Outliers are the model's to absorb (medians over three
+    records, per-airport solve times), not the bar's.
     """
     keys = [key for (key, _base, _width) in plan]
     seconds = {}
     for key in keys:
         estimate = (estimated_seconds or {}).get(key)
         if not isinstance(estimate, (int, float)) or estimate <= 0:
-            estimate = None
-        seconds[key] = estimate if estimate is not None else 1.0
+            estimate = 1.0
+        seconds[key] = float(estimate)
     total = sum(seconds.values())
-    if total <= 0:
+    if not keys or total <= 0:
         return list(plan)
-    # Ceiling-only: a measured-cheap step SHOULD collapse (the cached
-    # imagery case), but no step may bloat past the drift limit — the
-    # mass it cannot claim goes to the remaining steps in proportion,
-    # so a poisoned vector history caps near a third of the bar and
-    # imagery inherits the honest bulk.  Ceilings sum to over 1 by
-    # construction, so the fixing loop always terminates with room.
-    canonical_total = sum(STEP_WEIGHTS[key] for key in keys)
-    ceiling = {
-        key: min(1.0, (STEP_WEIGHTS[key] / canonical_total)
-                 * DISPLAY_WEIGHT_DRIFT_LIMIT)
-        for key in keys
-    }
-    fixed = {}
-    while True:
-        remaining = [key for key in keys if key not in fixed]
-        if not remaining:
-            break
-        remaining_mass = 1.0 - sum(fixed.values())
-        sub_total = sum(seconds[key] for key in remaining)
-        widths = {
-            key: seconds[key] / sub_total * remaining_mass
-            for key in remaining
-        }
-        over = [
-            key for key in remaining if widths[key] > ceiling[key] + 1e-9
-        ]
-        if not over:
-            fixed.update(widths)
-            break
-        for key in over:
-            fixed[key] = ceiling[key]
+    floor = min(DISPLAY_MIN_SHARE, 1.0 / len(keys))
+    raw = {key: seconds[key] / total for key in keys}
+    lifted = {key: max(share, floor) for key, share in raw.items()}
+    scale = sum(lifted.values())
     reweighted, base = [], 0.0
     for key in keys:
-        reweighted.append((key, base, fixed[key]))
-        base += fixed[key]
+        width = lifted[key] / scale
+        reweighted.append((key, base, width))
+        base += width
     return reweighted
 
 
@@ -482,10 +464,11 @@ class _EtaTracker:
       estimate within seconds instead of at 60 % weight; while the rate
       is unwarmed, the model estimate minus elapsed (floored at zero) is
       used instead.
-    * While auto-patch owns the vector step, the auto-patch time model's
-      own per-airport ``eta_total_seconds`` (already blended against
-      elapsed by that model) replaces the in-step extrapolation — the
-      strongest signal available and previously discarded by the Qt view.
+    * A step with no live percentage of its own (vector, mesh,
+      overlays) is priced by its :class:`~o4_engine.step_clock.StepClock`
+      (``step_clock``, set by the session at the step's start): the
+      vector step's airports one by one from their predicted solve
+      seconds (#2045), an overrun receding rather than reading "done".
     * No estimate is reported at all until SOME basis exists (views show
       a dash, never a wild number).
     """
@@ -508,7 +491,7 @@ class _EtaTracker:
         # maxlen bounds a percent that stalls forever (the gain-based
         # trim below only fires on gain).
         self.bar_windows = {}
-        self.autopatch = None                  # {"icao": (t_begin, eta_total)}
+        self.step_clock = None                 # the running step's clock
         self.finished_steps = {}               # (lat,lon) -> set(step)
         # Per-tile wall clocks (TileClocks event, protocol 1.3): first
         # step start stamp, and the frozen final elapsed at the tile's
@@ -544,7 +527,7 @@ class _EtaTracker:
     def step_finished(self, tile, key):
         self.finished_steps.setdefault(tile, set()).add(key)
         self.step_key = None
-        self.autopatch = None
+        self.step_clock = None
         if self.is_tile_finished(tile):
             self.tile_terminal(tile)
 
@@ -591,18 +574,6 @@ class _EtaTracker:
             return (100.0 - p_last) * span / gained
         return None
 
-    def autopatch_begin(self, airports):
-        now = time.time()
-        self.autopatch = {a: [now, None, False] for a in airports}
-
-    def autopatch_progress(self, airport, status, eta_total_seconds):
-        if self.autopatch is None or airport not in self.autopatch:
-            return
-        entry = self.autopatch[airport]
-        if eta_total_seconds:
-            entry[1] = float(eta_total_seconds)
-        entry[2] = status in ("done", "fail")
-
     # -- read ------------------------------------------------------------
     def _current_step_remaining(self):
         """Model/bar estimate, floored by live phase telemetry: while a
@@ -629,20 +600,11 @@ class _EtaTracker:
         tile = self.tiles[self.tile_index]
         estimate = self.estimates.get(tile, {}).get(self.step_key)
         elapsed = time.time() - self.step_started_at
-        # Auto-patch live model beats everything while it runs.
-        if self.step_key == "vector" and self.autopatch:
-            now = time.time()
-            remaining = 0.0
-            have_any = False
-            for t_begin, eta_total, finished in self.autopatch.values():
-                if finished:
-                    continue
-                if eta_total is not None:
-                    have_any = True
-                    remaining += remaining_step_seconds(
-                        eta_total, now - t_begin)
-            if have_any:
-                return remaining
+        # The step's own clock, for a step with no live percentage.
+        clock = self.step_clock
+        if clock is not None and clock.key == self.step_key \
+                and self.step_key in STEP_CLOCK.CLOCK_STEPS:
+            return clock.remaining(time.time())
         # Live per-bar rates once any window has substance: the step's
         # activities run concurrently, so the SLOWEST bar is the step's
         # remaining time (bars without a rate yet simply don't vote —
@@ -772,6 +734,8 @@ class EngineSession:
         self._slow_step = SlowStepWatch(self._emit)
         self._bar_values = {1: 0, 2: 0, 3: 0}
         self._autopatch_state = None
+        # The running step's clock (#2045, ``step_clock``).
+        self._step_clock: Optional[STEP_CLOCK.StepClock] = None
         # The causes declared for the tile currently building (H1's
         # per-airport records, the steps' named error exits): raw
         # ``O4_Tile_Failures.record`` dicts, folded into its BuildDone.
@@ -1518,6 +1482,7 @@ class EngineSession:
                 if self._eta is None:
                     break
                 try:
+                    self._tick_step_clock()
                     self._emit_eta()
                     self._poll_slow_step()
                 except Exception:
@@ -1929,13 +1894,16 @@ class EngineSession:
         self._bar_values = {1: 0, 2: 0, 3: 0}
         self._step_detail = ""
         self._step_percent = base * 100.0
+        estimate = (self._eta.estimates.get(tile, {}).get(key)
+                    if self._eta else None)
+        self._step_clock = STEP_CLOCK.for_step(tile, key, estimate,
+                                               time.time())
         if self._eta:
             self._eta.step_started(tile, key)
-        indeterminate = step_progress(key, {}) is None
+            self._eta.step_clock = self._step_clock
         self._emit(StepProgress(
             lat=tile[0], lon=tile[1], step_key=key,
-            label=self._step_label(key),
-            percent=base * 100.0, indeterminate=indeterminate))
+            label=self._step_label(key), percent=base * 100.0))
         self._emit_eta(force=True)
         self._slow_step.begin(tile, key, STEP_FAILURE_NOUNS.get(key, key))
 
@@ -1992,6 +1960,7 @@ class EngineSession:
             REUSE.record(tile, "mesh")
 
     def _finish_step(self, tile, key):
+        self._step_clock = None
         self._slow_step.end()
         if self._eta:
             self._eta.step_finished(tile, key)
@@ -2049,8 +2018,9 @@ class EngineSession:
             self._emit_eta()
             return
         tile, key, base, width = self._current_step
-        inside = step_progress(key, self._bar_values,
-                               getattr(self, "_imagery_weights", None))
+        inside = (None if key in STEP_CLOCK.CLOCK_STEPS
+                  else step_progress(key, self._bar_values,
+                                     getattr(self, "_imagery_weights", None)))
         if inside is None:
             self._emit_eta()
             return
@@ -2062,6 +2032,30 @@ class EngineSession:
             lat=tile[0], lon=tile[1], step_key=key,
             label=self._step_label(key), percent=percent))
         self._emit_eta()
+
+    def _tick_step_clock(self):
+        """The heartbeat's move of a step with no percentage of its own
+        (``step_clock.CLOCK_STEPS``): its window advances with the
+        clock's fraction, so the bar never sits still while work runs
+        (#2045).  Auto-patch keeps its own label."""
+        current = self._current_step
+        clock = getattr(self, "_step_clock", None)
+        if current is None or clock is None:
+            return
+        tile, key, base, width = current
+        if key != clock.key or key not in STEP_CLOCK.CLOCK_STEPS:
+            return
+        if self._autopatch_running():
+            self._render_autopatch()
+            return
+        percent = min(100.0, (base + width * clock.fraction(time.time()))
+                      * 100.0)
+        if percent < getattr(self, "_step_percent", 0.0) + 0.05:
+            return
+        self._step_percent = percent
+        self._emit(StepProgress(
+            lat=tile[0], lon=tile[1], step_key=key,
+            label=self._step_label(key), percent=percent))
 
     def _step_label(self, key):
         """The step's label, plus what it is doing right now when a phase
@@ -2111,8 +2105,10 @@ class EngineSession:
             "seconds": {},
         }
         self._autopatch_t0 = time.time()
-        if self._eta:
-            self._eta.autopatch_begin(airports)
+        clock = getattr(self, "_step_clock", None)
+        if clock is not None and clock.key == "vector":
+            clock.airports_begin(STEP_CLOCK.predict_airports(airports),
+                                 self._autopatch_t0)
         tile = self._current_step[0] if self._current_step else (0, 0)
         self._emit(AutoPatchBegin(airports=tuple(airports),
                                   lat=tile[0], lon=tile[1]))
@@ -2135,8 +2131,7 @@ class EngineSession:
         else:
             state["frac"][airport] = fraction
             state["current"] = airport
-        if self._eta:
-            self._eta.autopatch_progress(airport, status, eta_total_seconds)
+        self._clock_airport(str(airport), fraction, status)
         tile = self._current_step[0] if self._current_step else (0, 0)
         self._emit(AutoPatchProgress(
             airport=str(airport), done=float(done), total=float(total),
@@ -2144,6 +2139,20 @@ class EngineSession:
             eta_total_seconds=eta_total_seconds,
             lat=tile[0], lon=tile[1]))
         self._render_autopatch()
+
+    def _clock_airport(self, airport, fraction, status):
+        """Feed the vector step's clock one airport report; a solved
+        airport's measured seconds go to the airport time model, so the
+        next build of any tile with it predicts from them (#2045)."""
+        clock = getattr(self, "_step_clock", None)
+        if clock is None or clock.key != "vector":
+            return
+        ended = status in ("done", "fail")
+        clock.airport(airport, 1.0 if ended else fraction, ended, time.time())
+        seconds = clock.airport_seconds(airport) if status == "done" else None
+        if seconds:
+            from . import airport_time_model as ATM
+            ATM.record(airport, seconds, ATM.size_km(airport))
 
     def autopatch_failed(self, airport, stage, error, code="", params=None):
         """One airport's build failed — emit the DIAGNOSIS and remember it.
@@ -2348,11 +2357,20 @@ class EngineSession:
         if state is None:
             return
         tile, key, base, width = self._current_step
-        overall = sum(state["frac"].values()) / state["total"]
+        clock = getattr(self, "_step_clock", None)
+        if clock is not None and clock.key == key:
+            overall = clock.fraction(time.time())
+        else:
+            overall = sum(state["frac"].values()) / state["total"]
         percent = min(100.0, (base + width * min(overall, 1.0)) * 100)
+        self._step_percent = max(getattr(self, "_step_percent", 0.0),
+                                 percent)
+        percent = self._step_percent
         label = "auto-patch %d/%d" % (len(state["finished"]), state["total"])
         if state["current"]:
             label += " · " + state["current"]
+        if not self._autopatch_running():      # the step's own work again
+            label = self._step_label(key)
         self._emit(StepProgress(
             lat=tile[0], lon=tile[1], step_key=key,
             label=label, percent=percent))

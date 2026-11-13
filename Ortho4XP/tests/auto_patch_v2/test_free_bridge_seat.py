@@ -47,7 +47,7 @@ def test_a_canal_bridge_frame_with_piers_is_seated_flush_at_its_banks():
     zs = FB.free_bridge_zeros(_staged(_member(), pier), _canal,
                               origin=(40.00035, -2.9999), agl_m=-0.65, step_m=5.0,
                               walk_max_m=60.0, level_tol_m=0.3)
-    zero, why = zs[DECK]
+    zero, why, _box = zs[DECK]
     # deck top 4.65 flush with the 3.9 banks; the piers sink into the canal
     assert abs(zero + 4.65 - 3.9) < 1e-6 and "22m" in why
 
@@ -93,16 +93,22 @@ def test_22p_reads_the_road_under_only_with_the_anchor_under_the_deck():
 
 
 def test_every_body_of_a_one_deck_frame_takes_the_decks_zero():
-    def body(i, zero, key=""):
+    def body(i, zero, key="", box=None):
         a = AR.Anchor(AR.OTHER, 40.0, -3.0, 3.9 - zero, "own", 3.9,
                       offset=(0.0, 3.9 - zero, 0.0))
-        return Body(i, AR.OTHER, (i,), a, f"objects/b__b{i}.obj", bridge_of=key)
-    rec = Split(0, "dsf:obj1", DECK, "/x/" + DECK, 40.0, -3.0, 0.0,
-                (body(0, 1.78, DECK), body(1, 1.78), body(2, -0.75, DECK + "#1")))
-    m = types.SimpleNamespace(resource=DECK, zero_y=0.0)
-    out = FB.free_bridge_seat(rec, m, {DECK: (-0.75, "why")})
+        return Body(i, AR.OTHER, (i,), a, f"objects/b__b{i}.obj", bridge_of=key,
+                    geom_box=box)
+    far = (41.0, -3.0, 41.001, -2.999)
+    rec = Split(0, "dsf:obj1", "objects/rails.obj", "/x/objects/rails.obj", 40.0, -3.0,
+                0.0, (body(0, 1.78, DECK), body(1, 1.78, box=RING[0] + RING[2]),
+                      body(2, -0.75, DECK + "#1"), body(3, 1.78, box=far)))
+    m = types.SimpleNamespace(resource="objects/rails.obj", zero_y=0.0)
+    box = RING[0] + RING[2]
+    out = FB.free_bridge_seat(rec, m, {DECK: (-0.75, "why", box)})
     assert {round(b.anchor.surface_z - b.anchor.y_zero, 2) for b in out.bodies} == {-0.75}
-    # several decks: a body no footprint names keeps its seat
-    two = FB.free_bridge_seat(rec, m, {DECK: (-0.75, "a"), "objects/other.obj": (9.0, "b")})
+    # several decks: a body no footprint names goes with the deck its box
+    # overlaps; one overlapping none keeps its seat
+    two = FB.free_bridge_seat(rec, m, {DECK: (-0.75, "a", box),
+                                       "objects/other.obj": (9.0, "b", (50.0, 0.0, 50.1, 0.1))})
     assert [round(b.anchor.surface_z - b.anchor.y_zero, 2)
-            for b in two.bodies] == [-0.75, 1.78, -0.75]
+            for b in two.bodies] == [-0.75, -0.75, -0.75, 1.78]

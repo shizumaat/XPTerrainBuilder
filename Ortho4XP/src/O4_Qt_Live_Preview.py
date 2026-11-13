@@ -233,7 +233,7 @@ class LivePreview(QObject):
         def rect_of(north, west, south, east):
             return QRectF(point(north, west), point(south, east)).normalized()
         sharp, stale = [], []
-        for square in self.squares:
+        for square in LIVE.draw_order(self.squares):   # coarse first, #2012
             held = self.images.peek(square["key"])
             if not held:
                 continue

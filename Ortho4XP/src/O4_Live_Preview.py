@@ -15,8 +15,13 @@ the folders, ``o4_engine.live_preview_witness`` what X-Plane holds).
   order given, that exist (each once, by real path); the first folder
   holding a name wins.
 * :func:`squares` -- EVERY square of a viewport (no count cap, #2012),
-  nearest the viewport's centre first; none while the map is so far out
-  that a square would be under :data:`MIN_SQUARE_PX` on screen.  Each
+  nearest the viewport's centre first (the order an app fetches in); none
+  while the map is so far out that a square would be under
+  :data:`MIN_SQUARE_PX` on screen.  A square under that size is left out
+  only where a coarser installed square of its tile lies under it (that
+  one shows its ground, :func:`_covered`), or with its tile's coarsest
+  squares: a tile goes as a whole as the map zooms out, never opening a
+  hole.  Each
   carries the mip to fetch (:func:`mip_px`: the square's on-screen size
   in device pixels rounded up to a power of two, up to the installed
   file's full width -- 4096 px for a full-resolution square), its
@@ -28,6 +33,10 @@ the folders, ``o4_engine.live_preview_witness`` what X-Plane holds).
   there -- no tile of ours, or a World-pack placeholder; the map's base
   imagery shows, marked) and ``reload`` (our tile is installed, X-Plane
   loaded what was there before).
+* :func:`draw_order` -- the order an app DRAWS the squares in: the
+  coarsest texture zoom level first, each finer level on top (where
+  X-Plane has both, its mesh shows the finer, #2012: drawn nearest-first a
+  coarse square covered the finer ones by where the view's centre lay).
 * :func:`fetch_plan` -- the order an app fetches mips in: a coarse
   :data:`COARSE_MIP_PX` image for every square that has none, nearest
   first, then each square at its own size (coarse first, then finer).
@@ -60,7 +69,7 @@ from O4_DDS_Decode import decode_blocks
 
 __all__ = ["APP_CACHE_MB", "COARSE_MIP_PX", "INLINE_MIP_PX", "MAX_MIP_PX",
            "MIN_MIP_PX", "MIN_SQUARE_PX", "TILE_STATES", "ByteLRU",
-           "existing_dirs", "fetch_plan", "mip_image", "mip_px",
+           "draw_order", "existing_dirs", "fetch_plan", "mip_image", "mip_px",
            "parse_texture", "squares", "tile_squares"]
 
 #: Below this many screen pixels a square is not drawn (the map is too
@@ -194,6 +203,25 @@ def _overlaps(sq: dict, south, west, north, east) -> bool:
                 or sq["north"] < south or sq["south"] > north)
 
 
+def _covered(tile: "list[dict]") -> "set[str]":
+    """The names of a tile's squares that lie on a coarser installed
+    square of the same tile (texture squares sit on a 16-tile grid, so a
+    square at ``zl`` lies on exactly one square at each coarser level)."""
+    have = {(sq["zl"], sq["row"], sq["col"]) for sq in tile}
+    levels = sorted({sq["zl"] for sq in tile})
+    out = set()
+    for sq in tile:
+        for zl in levels:
+            if zl >= sq["zl"]:
+                break
+            shift = sq["zl"] - zl
+            if (zl, (sq["row"] >> shift) // 16 * 16,
+                    (sq["col"] >> shift) // 16 * 16) in have:
+                out.add(sq["name"])
+                break
+    return out
+
+
 def _no_witness(_lat: int, _lon: int):
     return "ours", None
 
@@ -224,11 +252,18 @@ def squares(south: float, west: float, north: float, east: float,
             marks.append({"lat": lat, "lon": lon, "state": state})
         if state == "own":
             continue                    # X-Plane does not draw ours here
-        for sq in tile_squares(folders_of(lat, lon)):
+        tile = tile_squares(folders_of(lat, lon))
+        covered = _covered(tile)
+        # the tile's coarsest squares on screen: while they show, so does
+        # every finer square with no coarser one under it
+        coarse = max((sq["east"] - sq["west"] for sq in tile), default=0)
+        coarse_shown = coarse * px_per_deg >= MIN_SQUARE_PX
+        for sq in tile:
             if not _overlaps(sq, south, west, north, east):
                 continue
             screen = (sq["east"] - sq["west"]) * px_per_deg
-            if screen < MIN_SQUARE_PX:
+            if screen < MIN_SQUARE_PX and (sq["name"] in covered
+                                           or not coarse_shown):
                 too_small = True
                 continue
             key = "%s/%s" % (WP.tile_name(lat, lon), sq["name"])
@@ -249,6 +284,13 @@ def squares(south: float, west: float, north: float, east: float,
         sq["px"] = mip_px(sq["px"], sq["tier_px"])
     return {"squares": out, "tiles": marks,
             "reason": "zoom" if too_small and not out else ""}
+
+
+def draw_order(rows) -> list:
+    """``rows`` (:func:`squares`' list) in the order they are drawn: by
+    texture zoom level, coarsest first, so a finer square is painted over
+    the coarser one it lies on; within a level the given order."""
+    return sorted(rows, key=lambda sq: sq.get("zl", 0))
 
 
 def fetch_plan(rows, held) -> "list[tuple[dict, int]]":

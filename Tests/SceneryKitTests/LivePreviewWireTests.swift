@@ -32,10 +32,23 @@ import Foundation
         #expect(!squares[0].stale && squares[1].stale)    // X-Plane holds the earlier one
         #expect(abs(squares[0].north - 53.435719206694195) < 1e-12)
         #expect(squares[1].west == -60.64453125 && squares[1].east == -60.556640625)
+        #expect(squares[0].zl == 16)
         #expect(O4LivePreviewSquare.list(from: nil).isEmpty)
         let tiles = O4LivePreviewTile.list(from: Self.reply)
         #expect(tiles == [O4LivePreviewTile(lat: 53, lon: -62, state: "own"),
                           O4LivePreviewTile(lat: 54, lon: -61, state: "reload")])
+    }
+
+    /// `test_a_finer_square_is_drawn_over_the_coarser_one_it_lies_on`
+    /// (#2012): coarse level first, the reply's order within a level.
+    @Test func aFinerSquareIsDrawnOverTheCoarserOne() {
+        func at(_ key: String, _ zl: Int) -> O4LivePreviewSquare {
+            var square = Self.square(key)
+            square.zl = zl
+            return square
+        }
+        let rows = [at("a", 18), at("b", 16), at("c", 18), at("d", 16)]
+        #expect(O4LivePreviewSquare.drawOrder(rows).map(\.key) == ["b", "d", "a", "c"])
     }
 
     @Test func aPendingMipIsToldApart() {

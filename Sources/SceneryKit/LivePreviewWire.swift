@@ -26,6 +26,9 @@ public struct O4LivePreviewSquare: Sendable, Equatable {
     /// X-Plane still shows what was here before this file changed: the
     /// map hatches it, "reload to see" (`LivePreviewText`).
     public var stale = false
+    /// The texture's zoom level: a finer square is drawn over the coarser
+    /// one it lies on (`drawOrder`).
+    public var zl = 0
 
     public init(key: String, path: String, stamp: String, px: Int,
                 north: Double, south: Double, west: Double, east: Double) {
@@ -46,8 +49,18 @@ public struct O4LivePreviewSquare: Sendable, Equatable {
                                              north: north, south: south, west: west, east: east)
             square.sharp = row["sharp"]?.boolValue ?? false
             square.stale = row["stale"]?.boolValue ?? false
+            square.zl = row["zl"]?.intValue ?? 0
             return square
         }
+    }
+
+    /// `rows` in the order they are drawn (`O4_Live_Preview.draw_order`):
+    /// coarsest zoom level first, each finer level on top (X-Plane's mesh
+    /// shows the finer where it has both, #2012); within a level the
+    /// reply's order.
+    public static func drawOrder(_ rows: [O4LivePreviewSquare]) -> [O4LivePreviewSquare] {
+        rows.enumerated().sorted { ($0.element.zl, $0.offset) < ($1.element.zl, $1.offset) }
+            .map(\.element)
     }
 }
 

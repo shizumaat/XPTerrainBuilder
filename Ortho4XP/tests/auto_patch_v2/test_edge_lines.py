@@ -145,27 +145,42 @@ def _line(base=0.0, solid_top=1.25, y=13.0):
                     ((0.0, y), (100.0, y)), False, base, 4.0, solid_top, 0.6, 0.35)
 
 
-def _mint(lines, dem=None):
+def _mint(lines, dem=None, role="service_road", ref="small_roads:-1232#1",
+          side="groundside", grown=None):
     law, rules = Law.for_airport("KSFO"), load_rules()
-    cells = [Cell(0, "service_road", "small_roads:-1232#1", ROAD, (), None, None,
-                  "groundside", "service_road", {})]
+    cells = [Cell(0, role, ref, ROAD, (), None, None, side, role, {})]
     out = []
 
-    def add(role, ref, poly, kind, cn=None, cl=None, evidence=None):
-        out.append((role, ref, poly, dict(evidence or {})))
+    def add(r, rf, poly, kind, cn=None, cl=None, evidence=None):
+        out.append((r, rf, poly, dict(evidence or {})))
     st = em.mint_edge_strips(types.SimpleNamespace(edge_lines=lines, dem=dem or _Dem()),
                              cells, law, rules, add)
+    if grown is not None:
+        grown.extend(cells)
     return out, st
 
 
-def test_a_barrier_on_a_falling_edge_mints_the_strip_out_to_its_base():
-    out, st = _mint((_line(),))
+def test_a_groundside_host_takes_the_ground_out_to_the_barriers_base():
+    cells = []
+    out, st = _mint((_line(),), grown=cells)
+    assert out == [] and st["edge_hosts_grown"] == 1
+    (road,) = cells
+    g = Polygon(road.ring, road.holes)
+    assert road.ref == "small_roads:-1232#1" and road.role == "service_road"
+    assert g.bounds[3] == pytest.approx(13.35, abs=0.1)       # the line + its half base
+    assert road.evidence["edge_kind"] == ls.LOW_BARRIER
+
+
+def test_an_airside_host_gets_a_late_strip_and_never_grows():
+    cells = []
+    out, st = _mint((_line(),), role="apron", ref="pav2", side="airside", grown=cells)
     ((role, ref, poly, ev),) = out
-    assert role == "groundside_pavement" and ref == "edgestrip:0:small_roads:-1232#1"
-    assert mp.edge_strip_host(ref) == "small_roads:-1232#1" and mp.is_late_ref(ref)
+    assert role == "groundside_pavement" and ref == "edgestrip:0:pav2"
+    assert mp.edge_strip_host(ref) == "pav2" and mp.is_late_ref(ref)
     assert ev["edge_kind"] == ls.LOW_BARRIER and st["edge_strips"] == 1
-    assert poly.bounds[3] == pytest.approx(13.35, abs=0.1)   # the line + its half base
+    assert poly.bounds[3] == pytest.approx(13.35, abs=0.1)
     assert poly.distance(Polygon(ROAD)) >= 1.4                # the §52 stand-off
+    assert Polygon(cells[0].ring).equals(Polygon(ROAD))       # the apron as it was
 
 
 def test_no_strip_where_the_ground_does_not_fall_or_the_line_retains():
@@ -175,15 +190,36 @@ def test_no_strip_where_the_ground_does_not_fall_or_the_line_retains():
 
         def water_many(self, xs, ys):
             return np.zeros(np.shape(ys), bool), np.full(np.shape(ys), np.nan)
-    assert _mint((_line(),), Level())[0] == []
+    assert _mint((_line(),), Level())[1].get("edge_hosts_grown", 0) == 0
     out, st = _mint((_line(base=-4.2, solid_top=3.8),))
-    assert out == [] and st["edge_kind_retaining_wall"] == 1
-    assert _mint((_line(y=30.0),))[0] == []                   # beyond the host's reach
+    assert st["edge_kind_retaining_wall"] == 1 and st.get("edge_hosts_grown", 0) == 0
+    assert _mint((_line(y=30.0),))[1].get("edge_hosts_grown", 0) == 0   # out of reach
 
 
-def test_the_strip_stops_at_the_water():
-    ((_r, _ref, poly, _e),) = _mint((_line(y=16.0),))[0]
-    assert poly.bounds[3] <= 15.0 + 1e-6
+def test_ground_rising_past_a_boundary_fence_marks_the_edge_too():
+    """KCRW 38.363304, -81.588474 (owner 16:04Z): the terrain RISES outside
+    the fence -- the graded level holds to the fence all the same."""
+    class Rising(_Dem):
+        def z_many(self, xs, ys):
+            return np.where(np.asarray(ys, float) > 13.5, 304.0, 300.0)
+
+        def water_many(self, xs, ys):
+            return np.zeros(np.shape(ys), bool), np.full(np.shape(ys), np.nan)
+
+        def water_geometry(self, bounds):
+            return None
+    wire = EdgeLine("dsf:line0", "lib/constructions/fencing/fence_MeshHigh_05.fac",
+                    ((0.0, 13.0), (100.0, 13.0)), False, -0.05, 2.33, -0.05, 0.3, 0.0)
+    cells = []
+    _mint((wire,), Rising(), grown=cells)
+    assert cells[0].evidence["edge_kind"] == ls.WIRE_FENCE
+    assert Polygon(cells[0].ring).bounds[3] == pytest.approx(13.0, abs=0.1)
+
+
+def test_the_edge_ground_stops_at_the_water():
+    cells = []
+    _mint((_line(y=16.0),), grown=cells)
+    assert Polygon(cells[0].ring).bounds[3] <= 15.0 + 1e-6
 
 
 def test_projection_levels_the_edge_strip_on_its_host_rim():

@@ -19,15 +19,21 @@ zero (``airport/line_solidity.kind_of``) — is read every
   bay, a rise past a boundary fence).
 
 Consecutive marking stations of one host and side, at least ``min_run_m``
-long, mint ONE STRIP: the ground from the host's edge out to the line
-plus its base half-width (``EdgeLine.half_width_m``), less the water and
-less every cell standing with the §52 stand-off round it.  Role
-``groundside_pavement``, ref ``edgestrip:<k>:<host ref>``
-(``model.planar.edge_strip_host``).  Like the §52 facade strip it is a
-LATE cell (``model.planar.is_late_ref``): the airside and every cell
-standing are what they were BY CONSTRUCTION (airside is king), and its
-level is the host's, taken at the host's nearest rim point AFTER the
-solve (``solve/project_strip.project_facade_strips``).  The cut or fill
+long, mark THE EDGE GROUND: from the host's edge out to the line plus its
+base half-width (``EdgeLine.half_width_m``), less the water.
+
+* A GROUNDSIDE host (a road ribbon, a lot) TAKES it, as the §47 road takes
+  the ground to its retaining wall: the host cell grows by it, less every
+  other cell standing — one face at the host's own grade, however narrow
+  the gap (MEASURED KSFO: the ribbon stands within 0.3 m of the barrier,
+  under the §52 stand-off, and the barrier's base stood on the drop).
+* An AIRSIDE host never grows (airside is king): the ground is ONE STRIP,
+  less every cell standing with the §52 stand-off round it, role
+  ``groundside_pavement``, ref ``edgestrip:<k>:<host ref>``
+  (``model.planar.edge_strip_host``), a LATE cell (``model.planar.
+  is_late_ref``) whose level is the host's rim, taken AFTER the solve
+  (``solve/project_strip.project_facade_strips``): the airside and every
+  cell standing are what they were BY CONSTRUCTION.  The cut or fill
 to natural ground is then the one-triangle step from the strip's outer
 edge to the ground beyond the line — outside the line, never inside it.
 
@@ -35,6 +41,7 @@ A RETAINING WALL (authored below its zero) marks no strip here: it is the
 step itself, seated at its low side's ground (``airport/wall_class``)."""
 from __future__ import annotations
 
+import dataclasses as _dc
 import math
 import typing as _t
 
@@ -63,6 +70,7 @@ class _Station(_t.NamedTuple):
     q: tuple[float, float]          # the host's nearest edge point
     host: str
     side: int                       # +1: the host is left of the line
+    cell: int = -1                  # the host cell's id
 
 
 def _stations(line: LineString, step: float) -> list[tuple[float, tuple, tuple]]:
@@ -111,7 +119,7 @@ def _marking(el, line: LineString, paved, tree: STRtree, dem, cfg) -> list[_Stat
         if any(paved[int(j)][1].contains(Point(f)) for j in tree.query(Point(f))):
             continue                        # paved beyond as well: no edge
         rows.append((s, p, (q.x, q.y), c.ref.split("#")[0] if c.role == "building"
-                     else c.ref, side, f))
+                     else c.ref, side, f, c.id))
     if not rows:
         return []
     q = np.array([r[2] for r in rows], dtype=float)
@@ -120,7 +128,7 @@ def _marking(el, line: LineString, paved, tree: STRtree, dem, cfg) -> list[_Stat
     wet = _water(dem, f[:, 0], f[:, 1])
     departs = wet | (np.isfinite(zq) & np.isfinite(zf)
                      & (np.abs(zq - zf) >= float(cfg.step_min_m)))
-    return [_Station(*r[:5]) for r, ok in zip(rows, departs, strict=True) if ok]
+    return [_Station(*r[:5], r[6]) for r, ok in zip(rows, departs, strict=True) if ok]
 
 
 def _runs(st: list[_Station], step: float, min_run: float) -> list[list[_Station]]:
@@ -180,6 +188,8 @@ def mint_edge_strips(airport, cells: list, law: Law, rules: Rules, add) -> dict[
     dem = getattr(airport, "dem", None)
     wg = getattr(dem, "water_geometry", None)
     n, grid = 0, rules.cells.snap_grid_m
+    by_id = {c.id: k for k, c in enumerate(cells)}
+    grow: dict[int, list] = {}              # groundside host index -> its extensions
     for el in lines:
         kind = kind_of(el, rules.service)
         stats[f"edge_kind_{kind}"] = stats.get(f"edge_kind_{kind}", 0) + 1
@@ -198,6 +208,13 @@ def mint_edge_strips(airport, cells: list, law: Law, rules: Rules, add) -> dict[
             wet = wg(geom.bounds) if wg is not None else None
             if wet is not None:
                 geom = geom.difference(wet)
+            k = by_id.get(run[0].cell, -1)
+            if k >= 0 and cells[k].side == "groundside":
+                # a GROUNDSIDE host takes the ground itself, as the §47 road
+                # takes the ground to its retaining wall: one face, graded
+                # with it, nothing airside in its rows
+                grow.setdefault(k, []).append((geom, el, kind, run))
+                continue
             geom = shapely.set_precision(geom.difference(keep_off), grid)
             for part in polygon_parts(geom):
                 if part.area < rules.cells.min_area_m2:
@@ -210,4 +227,35 @@ def mint_edge_strips(airport, cells: list, law: Law, rules: Rules, add) -> dict[
                 n += 1
                 stats["edge_strips"] += 1
                 stats["edge_strip_m2"] += round(part.area, 1)
+    stats.update(_grow_hosts(cells, grow, rules))
     return stats
+
+
+def _grow_hosts(cells: list, grow: dict, rules: Rules) -> dict[str, float]:
+    """Each groundside host cell grown by its edge ground (``grow``: cell
+    index -> ``[(geom, line, kind, run)]``), less every OTHER cell standing:
+    the part joined to the host replaces it, same role and ref."""
+    out = {"edge_hosts_grown": 0, "edge_host_m2": 0.0}
+    if not grow:
+        return out
+    polys = [Polygon(c.ring, c.holes).buffer(0.0) for c in cells]
+    tree = STRtree(polys)
+    for k in sorted(grow):
+        host = polys[k]
+        ext = unary_union([g for g, *_r in grow[k]])
+        others = [polys[int(j)] for j in tree.query(ext) if int(j) != k]
+        if others:
+            ext = ext.difference(unary_union(others))
+        got = shapely.set_precision(unary_union([host, ext]), rules.cells.snap_grid_m)
+        part = max(polygon_parts(got), key=lambda g: g.intersection(host).area, default=None)
+        if part is None or part.area <= host.area + rules.cells.min_area_m2:
+            continue
+        _g, el, kind, run = grow[k][0]
+        c = cells[k]
+        cells[k] = _dc.replace(c, ring=tuple(part.exterior.coords)[:-1],
+                               holes=tuple(tuple(h.coords)[:-1] for h in part.interiors),
+                               evidence=dict(c.evidence, edge_line=el.id, edge_kind=kind,
+                                             edge_grown_m2=round(part.area - host.area, 1)))
+        out["edge_hosts_grown"] += 1
+        out["edge_host_m2"] += round(part.area - host.area, 1)
+    return out

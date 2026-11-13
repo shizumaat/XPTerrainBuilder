@@ -766,7 +766,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         tuple(runways), pavements, lines, taxi_nodes, taxi_edges, routes,
         boundaries, startups, tuple(osm_ways), tuple(buildings),
         tuple(dsf_objects), pack, dem, law.ruleset_key,
-        gap_sheets=tuple(gap_sheets))
+        gap_sheets=tuple(gap_sheets), edge_lines=tuple(polys.edge_lines))
     # THE THRESHOLD WITNESS (#1359; owner RULINGS 2026-10-26q / 26v): a CIFP
     # record the installed layout and the imagery both outvote is DROPPED
     # for its end before the pin rule judges it — ONE site
@@ -1148,6 +1148,7 @@ class _DsfPolygons:
         self.pavements: list[Pavement] = []
         self.sheets: list[Pavement] = []
         self.buildings: list[Building] = []
+        self.edge_lines: list = []
         self.n_fac = self.n_lot = self.n_far = 0
 
     def _near(self, ring) -> bool:
@@ -1168,8 +1169,12 @@ class _DsfPolygons:
         # §52 (RULINGS 2026-10-04d (3) (c)): an OPEN-LOT facade is read by
         # what its FILE says, never by name — the only class the name gate
         # does not already carry that this stage admits
+        def _line(p: str) -> bool:
+            return rest and not _named(p) and _facade.is_line_def(p, root, index)
+
         dump = _dsf.read_dump(
-            dump_path, lambda p: _named(p) or (rest and _facade.is_lot_def(p, root, index)))
+            dump_path, lambda p: _named(p) or (rest and _facade.is_lot_def(p, root, index))
+            or _line(p), keep_line=_line)
         i = -1          # the id index counts the NAME-GATED polygons, as before
         # §60: a page admitted by its own SURFACE is a GAP SHEET.  It is
         # consumed BEFORE the index advances, so no ``dsf:pol<i>`` /
@@ -1177,6 +1182,15 @@ class _DsfPolygons:
         for poly in dump.polygons:
             ring = _ring(poly.windings[0], to_xy)
             holes = tuple(_ring(h, to_xy) for h in poly.windings[1:])
+            if _line(poly.def_path):
+                # #2054: a LINE facade (fence, barrier, wall run) is no
+                # building and no lot: it marks an edge (``EdgeLine``)
+                if self._near(ring):
+                    got = _edge_line(f"dsf:line{len(self.edge_lines)}", poly, root,
+                                     index, to_xy, mark)
+                    if got is not None:
+                        self.edge_lines.append(got)
+                continue
             if not _named(poly.def_path):
                 if rest and self._near(ring):
                     self.buildings.append(Building(
@@ -1221,6 +1235,26 @@ class _DsfPolygons:
                 _facade.read_placed(poly, root, index, to_xy)))
             self.n_fac += 1
         return dump
+
+
+def _edge_line(eid: str, poly, root: str, index, to_xy, mark):
+    """#2054: the ``EdgeLine`` of one placed line facade, or ``None`` when
+    its file cannot be measured."""
+    from ..model.airport import EdgeLine
+    from .line_solidity import facade_solidity
+    phys = _obj8.resolve_resource(poly.def_path, root, index)
+    sol = facade_solidity(phys, index) if phys else None
+    if sol is None:
+        return None
+    # the DSF's own nodes: an open line is never closed by the ring
+    # flattening's wrap from its last node back to its first
+    pts = tuple(to_xy(n[0], n[1]) for n in poly.nodes[0]) if poly.nodes and poly.nodes[0] \
+        else tuple(to_xy(lo, la) for lo, la in poly.windings[0])
+    fac = _facade.read_facade(poly.def_path, root, index)
+    return EdgeLine(_dsf.on_tile(eid, mark), poly.def_path, pts,
+                    bool(fac is not None and fac.ring), float(sol.base_y),
+                    float(sol.top_y), float(sol.solid_top_y),
+                    float(sol.opaque_share), float(sol.half_width_m))
 
 
 def _ring(pts: _t.Sequence[tuple[float, float]],

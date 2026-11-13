@@ -272,6 +272,26 @@ class FacadeRead:
 
 
 @_dc.dataclass(frozen=True)
+class EdgeLine:
+    """#2054: one placed pack LINE facade (a fence, a barrier, a wall run
+    — ``airport/facade.facade_class`` ``line``) with what its file is made
+    of (``airport/line_solidity.Solidity``, flattened here: ``model`` reads
+    no ``airport``).  ``points`` the DSF's own nodes in the frame, open
+    unless ``closed``.  Read at load; ``classify/edge_line_mint`` decides
+    what it marks."""
+
+    id: str
+    def_path: str
+    points: tuple[XY, ...]
+    closed: bool
+    base_y: float
+    top_y: float
+    solid_top_y: float
+    opaque_share: float
+    half_width_m: float
+
+
+@_dc.dataclass(frozen=True)
 class Building:
     """A building footprint (OSM ``building=*`` or a DSF object's
     footprint) with its pad law inputs (RULINGS 2026-09-01g/i)."""
@@ -543,3 +563,8 @@ class Airport:
     #: a user edit the classifier applies to that pavement's cells, never
     #: overrides (RULINGS 2026-10-15d).  ``()`` = none.
     role_overrides: tuple[tuple[str, str], ...] = ()
+    #: #2054 THE PACK'S LINE FACADES (``EdgeLine``): read at load; the
+    #: edge-line mint (``classify/edge_line_mint``) extends a paved level
+    #: out to the one standing along its edge.  ``()`` = none, or a
+    #: capture written before them.
+    edge_lines: tuple = ()

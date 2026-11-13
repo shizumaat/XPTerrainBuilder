@@ -132,6 +132,9 @@ class TerrainModel:
     seat_by: str = ""
     #: the cut's erosion radius when not ``terrain_cut.ERODE_M`` (m)
     erode_m: "float | None" = None
+    #: the cut reads the object's LOWEST surface per cell -- its ground,
+    #: not its roofs (``terrain_cut.cut_fit`` ``floor``; #2053 round 2)
+    cut_floor: bool = False
     #: how far the other seat points sink under their ground at ``z0`` (m)
     spread_m: float = 0.0
 
@@ -393,6 +396,8 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
                           "lon": round(float(lon), 9), "heading": round(m.heading, 6)}
             if getattr(m, "erode_m", None) is not None:
                 rec["cut"]["erode_m"] = float(m.erode_m)
+            if getattr(m, "cut_floor", False):
+                rec["cut"]["floor"] = True
         out.append(rec)
     return out
 

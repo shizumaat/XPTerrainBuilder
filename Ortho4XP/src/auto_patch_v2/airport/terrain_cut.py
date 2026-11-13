@@ -69,6 +69,15 @@ record with ``cut``, and every consumer above reads it as it reads a
 terrain model's; its record names ``erode_m`` (one cell: it carries riders
 draped on the drawn ground, which a 30 m erosion would sink).
 
+THE FLOOR (#2053 round 2): a terrain model's top IS its ground; a ground
+object's top is not -- over its ground stand roofs and raised terraces, and
+cut to the HIGHEST surface the ground under a roof stays uncut, so the mesh
+triangle from that posting to the open ground beside the wall lifts the
+open ground through the object (SBRJ's island: 53 of 1,156 open samples
+over its top, worst 1.44 m).  Its record names ``floor``: the surface
+eroded is each cell's LOWEST (the ground under the roof, the walk under a
+canopy).  A terrain model keeps its top.
+
 Pure geometry: the tile glue that reads the plans and writes the raster is
 ``auto_patch/terrain_cut_stage``.
 """
@@ -91,16 +100,18 @@ ERODE_M = 30.0
 BAND_M = 10.0
 
 
-def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M) -> DeckGrid:
+def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M, floor: bool = False
+              ) -> DeckGrid:
     """The CUT SURFACE of a model's plan grid (module doc) as a
     :class:`DeckGrid` whose ``top`` is the bound (``bot`` the model's own;
     the cut never fills).  ``erode_m``: the erosion radius (a ground object
-    carrying riders takes one cell, ``bridged_ground.ERODE_M``)."""
+    carrying riders takes one cell, ``bridged_ground.ERODE_M``).
+    ``floor``: the surface eroded is each cell's LOWEST (module doc, THE FLOOR)."""
     from scipy import ndimage
     cov = grid.covered
     k = max(1, int(round(erode_m / CELL_M)))
     disc = np.hypot(*np.mgrid[-k:k + 1, -k:k + 1]) <= k
-    top = np.where(cov, grid.top, np.inf)
+    top = np.where(cov, grid.bot if floor else grid.top, np.inf)
     eroded = ndimage.minimum_filter(top, footprint=disc, mode="constant", cval=np.inf)
     # the edge cells: covered, touching an uncovered one (8-neighbours,
     # the outer rim and the edge of every hole), and how far each cell is
@@ -111,14 +122,19 @@ def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M) -> DeckGrid:
     lowest = ndimage.maximum_filter(np.where(rim, grid.bot, -np.inf), footprint=band,
                                     mode="constant", cval=-np.inf)
     bound = np.where(edge <= BAND_M, np.maximum(eroded, lowest), eroded)
+    if floor:
+        # the band never lifts the ground over a cell's own lowest surface:
+        # an open court at the edge beside a raised terrace stays cut to it
+        bound = np.minimum(bound, grid.bot)
     return DeckGrid(grid.x0, grid.z0, grid.bot.copy(), np.where(cov, bound, np.nan))
 
 
 def cut_fit(grid: DeckGrid, zero: float, heading: float,
-            erode_m: float = ERODE_M) -> TerrainFit:
+            erode_m: float = ERODE_M, floor: bool = False) -> TerrainFit:
     """The cut as a :class:`TerrainFit` anchored at the frame origin (the
-    model's anchor), seated at ``zero``, filling nothing."""
-    cut = _cut_grid(grid, erode_m)
+    model's anchor), seated at ``zero``, filling nothing; ``floor``: cut to
+    the object's lowest surface per cell (module doc, THE FLOOR)."""
+    cut = _cut_grid(grid, erode_m, floor)
     return TerrainFit("cut", "", (0.0, 0.0), float(heading), float(zero), 1.0,
                       cut.area_m2, 0.0, cut, fill=False)
 

@@ -93,7 +93,7 @@ node inside the plan carries the uncut DEM.  A record whose ``cut`` names
 
 (a) the mesh step's curvature weight over its plan box is raised so
     Triangle4XP refines to one posting wherever the cut ground steps by
-    the 0.5 m ground bar (``O4_Mesh_Utils.apply_hold_curv_weights``);
+    the 0.5 m ground bar (``O4_Mesh_Utils._apply_hold_curv_weights``);
 (b) after the altitudes are post-processed every FREE vertex is lowered by
     the least amount that puts every drawn triangle under the object's
     bound at every :data:`HOLD_CELL_M` sample (:func:`hold_bound`, the cut

@@ -144,7 +144,7 @@ def test_the_box_weight_raises_the_inset_cells():
     w1 = np.ones((1001, 1001), np.float32)
     w2 = np.ones((1001, 1001), np.float32)
     n1 = MESH.apply_inset_box_curv_weights(tile, w1, [(box, 3.0)])
-    n2 = MESH.raise_box_curv_weight(tile, w2, box, MESH.inset_box_curv_weight(3.0))
+    n2 = MESH._raise_box_curv_weight(tile, w2, box, MESH.inset_box_curv_weight(3.0))
     assert n1 == n2 > 0
     np.testing.assert_array_equal(w1, w2)
     w3 = np.ones((1001, 1001), np.float32)
@@ -272,3 +272,19 @@ def test_the_object_ground_reads_no_terrain_model(square):
     zs = np.array([5.0])
     out, rep = OG.object_ground(airport, np.array([100.0]), np.array([50.0]), zs, set())
     assert out[0] == 5.0 and rep.models == []
+
+
+def test_the_road_profile_sampler_reads_the_cut_ground_under_a_held_object(square):
+    """The census row "a patch row reading airport.dem directly" (SBRJ's
+    south-west road joined a core ribbon at the uncut DEM)."""
+    m = _model()
+    airport = types.SimpleNamespace(terrain_models=(("dsf:obj9", "x.obj", m, 0.0),))
+
+    def flat(xs, ys):
+        return np.full(len(np.atleast_1d(xs)), 5.0)
+    s = OG.object_sampler(flat, airport)
+    z = s(np.array([100.0, 300.0]), np.array([50.0, 50.0]))
+    assert z[0] == pytest.approx(-UNDER_M) and z[1] == 5.0
+    assert s.lowered == 1
+    none = types.SimpleNamespace(terrain_models=(("dsf:obj9", "x.obj", _model(""), 0.0),))
+    assert OG.object_sampler(flat, none) is flat

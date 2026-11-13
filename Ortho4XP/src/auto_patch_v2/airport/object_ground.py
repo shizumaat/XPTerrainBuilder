@@ -20,6 +20,14 @@ keep their DEM (airside is king) and are counted.  The seat
 (``bridged_ground``'s models) was read before, on the uncut DEM, and
 stays.  A terrain model (``seat_by`` empty) is not read here: its cut has
 no riders and the patch over it is the DEM's.
+
+THE ROAD PROFILES (the census row "a patch row reading ``airport.dem``
+directly", probed on SBRJ's capture): ``airport/road_profile.core_profiles``
+samples the corpus DEM for the core's road clamp (the ribbon the patch
+joins, 27a (10)), so the island's south-west road joined a ribbon at the
+uncut 5.01 m over a cut ground of 3.46 m.  :func:`object_sampler` chains
+the same cut into its sampler, after ``bridge_ground.bridge_sampler`` --
+the core's own ribbon reads the cut ``tile.dem`` there too.
 """
 from __future__ import annotations
 
@@ -34,11 +42,11 @@ from . import terrain_model as _tm
 from .bridged_ground import SEAT_BY
 from .terrain_cut import ERODE_M, cut_fit
 
-__all__ = ["ObjectGround", "object_ground"]
+__all__ = ["object_ground", "object_sampler"]
 
 
 @_dc.dataclass
-class ObjectGround:
+class _ObjectGround:
     """What the object ground did at the planar site (the build's line)."""
 
     models: list[str] = _dc.field(default_factory=list)
@@ -74,12 +82,12 @@ def _cuts(airport: _t.Any) -> list:
 
 
 def object_ground(airport: _t.Any, xs: np.ndarray, ys: np.ndarray, zs: np.ndarray,
-                  airside: _t.AbstractSet[int]) -> tuple[np.ndarray, ObjectGround]:
+                  airside: _t.AbstractSet[int]) -> tuple[np.ndarray, _ObjectGround]:
     """THE PLANAR SITE (module doc): ``zs`` with every vertex under a held
     object's plan that no airside face carries lowered to the cut ground;
     and the report."""
     cuts = _cuts(airport)
-    rep = ObjectGround(models=[oid for oid, _f in cuts])
+    rep = _ObjectGround(models=[oid for oid, _f in cuts])
     out = np.array(zs, dtype=float, copy=True)
     xs, ys = np.asarray(xs, float), np.asarray(ys, float)
     for _oid, fit in cuts:
@@ -97,3 +105,27 @@ def object_ground(airport: _t.Any, xs: np.ndarray, ys: np.ndarray, zs: np.ndarra
             if here - cut[v] > rep.max_lower_m:
                 rep.max_lower_m, rep.max_xy = here - float(cut[v]), (float(xs[v]), float(ys[v]))
     return out, rep
+
+
+def object_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
+                   airport: _t.Any):
+    """``sample`` read under every held object's plan: the lower of it and
+    the cut ground (THE VALUE); ``sample`` itself where none is held."""
+    cuts = _cuts(airport)
+    if not cuts:
+        return sample
+
+    def _sample(xs, ys):
+        xs = np.atleast_1d(np.asarray(xs, float))
+        ys = np.atleast_1d(np.asarray(ys, float))
+        z = np.array(sample(xs, ys), dtype=float)
+        for _oid, fit in cuts:
+            cut, inside = target_at(fit, xs, ys, z)
+            low = inside & np.isfinite(z) & (cut < z)
+            _sample.lowered += int(low.sum())
+            z[low] = cut[low]
+        return z
+
+    #: stations lowered to the cut ground (the report)
+    _sample.lowered = 0
+    return _sample

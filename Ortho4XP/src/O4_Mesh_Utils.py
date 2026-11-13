@@ -511,7 +511,7 @@ def inset_box_curv_weight(resolution_m):
     return max(INSET_BOX_REFERENCE_CLASS_M / float(resolution_m), 1.0)
 
 
-def raise_box_curv_weight(tile, weight_array, box, weight):
+def _raise_box_curv_weight(tile, weight_array, box, weight):
     """Raise ``weight_array`` (the 1001 x 1001 per-tile grid) over ``box``
     (``(west, south, east, north)``, EPSG:4326) to ``weight`` where that
     is tighter than what the cell already holds (the airport rectangle's
@@ -543,7 +543,7 @@ def apply_inset_box_curv_weights(tile, weight_array, inset_boxes):
         weight = inset_box_curv_weight(resolution_m)
         if weight <= 1.0:
             continue
-        raised += raise_box_curv_weight(tile, weight_array, box, weight)
+        raised += _raise_box_curv_weight(tile, weight_array, box, weight)
     return raised
 
 
@@ -566,7 +566,7 @@ def hold_curv_weight(tile):
     return max(float(tile.curvature_tol) * math.sqrt(px * py) / HOLD_STEP_M, 1.0)
 
 
-def apply_hold_curv_weights(tile, weight_array):
+def _apply_hold_curv_weights(tile, weight_array):
     """Raise the weight over every held plan of the tile (above), outside
     the airport switch: the hold is the cut's guarantee, not a density
     preference.  Never raises."""
@@ -576,7 +576,7 @@ def apply_hold_curv_weights(tile, weight_array):
         if not boxes:
             return 0
         weight = hold_curv_weight(tile)
-        raised = sum(raise_box_curv_weight(tile, weight_array, b, weight) for b in boxes)
+        raised = sum(_raise_box_curv_weight(tile, weight_array, b, weight) for b in boxes)
     except Exception as error:
         UI.vprint(1, "   WARNING: the hold's weight boxes unreadable:", str(error))
         return 0
@@ -628,7 +628,7 @@ def build_curv_tol_weight_map(tile, weight_array):
                 1, "-> Modifying curv_tol weight map according to airport "
                 "elevation inset boxes (%d cells)." % raised
             )
-    apply_hold_curv_weights(tile, weight_array)
+    _apply_hold_curv_weights(tile, weight_array)
     if tile.coast_curv_tol != tile.curvature_tol:
         UI.vprint(
             1,
@@ -2423,11 +2423,12 @@ def post_process_nodes_altitudes(tile):
                 "instead of the DEM (#2034).")
     # #2053 round 3: THE HOLD -- the free vertices under an object the mesh
     # holds the cut ground under (auto_patch.terrain_cut_stage.hold)
+    # (``fixed`` is lazy: read only when the tile holds an object)
+    import itertools
     import auto_patch.terrain_cut_stage as TERRAIN_CUT
-    held_fixed = {v for tri in interp_alt_tris for v in tri} | water_valued
-    if pins is not None:
-        held_fixed |= set(pins[0])
-    TERRAIN_CUT.hold(tile, vertices, corners, held_fixed)
+    TERRAIN_CUT.hold(tile, vertices, corners, itertools.chain(
+        (v for tri in interp_alt_tris for v in tri), water_valued,
+        pins[0] if pins is not None else ()))
     if lifted_water:
         UI.vprint(
             1,

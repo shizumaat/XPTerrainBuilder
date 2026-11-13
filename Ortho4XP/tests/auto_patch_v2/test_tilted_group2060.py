@@ -7,8 +7,9 @@ low corner, then moved +0.78 m by its connected group's zero (22o) — the
 pad's median, a LEVEL body's zero.  Every wall stood 1.1-1.4 m over the
 drawn mesh.  Two defects, two twins:
 
-* a tilted body keeps its own zero in its group (``open_frame_seat.
-  group_zero``): moving the pinned origin lifts the whole tilted plane;
+* a tilted body ALONE in its group share keeps its own zero
+  (``open_frame_seat.group_zero``): moving the pinned origin lifts the
+  whole tilted plane; a share with other objects still moves as one (22o);
 * the tilt is fitted to the GROUND-CONTACT feet (``ground_contact_feet``),
   not the whole metre band: the door bottoms at y +0.89 pulled the plane
   1.3x too steep and left the walls 0.3-0.6 m up even on the tilt's zero.
@@ -88,21 +89,43 @@ def _split(*bodies):
                  LAT, LON, 0.0, tuple(bodies))
 
 
-def test_a_tilted_body_keeps_its_own_zero_in_its_group():
-    pw = {1: ("fu:24:559/host", 417.877)}
-    plan = types.SimpleNamespace(units=(types.SimpleNamespace(
+def _plan(*members):
+    return types.SimpleNamespace(units=(types.SimpleNamespace(
         id="unit:24", agl_m=0.0,
-        members=(types.SimpleNamespace(parts=(types.SimpleNamespace(pid=1),)),)),))
-    zeros = OFS.root_zeros(pw, plan)
+        members=tuple(types.SimpleNamespace(id=mid, parts=tuple(
+            types.SimpleNamespace(pid=q) for q in pids)) for mid, pids in members)),))
+
+
+def _z(rec):
+    b = rec.bodies[0]
+    return round(b.anchor.surface_z - b.anchor.y_zero, 3)
+
+
+def test_a_tilted_body_alone_in_its_share_keeps_its_own_zero():
+    pw = {1: ("fu:24:559/host", 417.877)}
+    solo: set = set()
+    zeros = OFS.root_zeros(pw, _plan(("dsf:obj563", (1,))), solo_out=solo)
+    assert solo == {"fu:24:559|unit:24"}
     level = _body(_walls())
     tilted = dc.replace(level, seat=_seat(_walls()))
     assert tilted.seat.applied
     counts: dict = {}
-    out = OFS.group_zero(_split(tilted), _M, pw, zeros, counts, "unit:24")
-    b = out.bodies[0]
-    assert b.anchor.surface_z - b.anchor.y_zero == Z0
+    out = OFS.group_zero(_split(tilted), _M, pw, zeros, counts, "unit:24", solo=solo)
+    assert _z(out) == Z0
     assert counts.get("group_zero_tilted_kept") == 1
     assert "group_zero_bodies" not in counts
-    # a LEVEL body of the same group still takes the group's zero (22o)
-    lv = OFS.group_zero(_split(level), _M, pw, zeros, {}, "unit:24").bodies[0]
-    assert round(lv.anchor.surface_z - lv.anchor.y_zero, 3) == 417.877
+    # a LEVEL body of the same share still takes the group's zero (22o)
+    assert _z(OFS.group_zero(_split(level), _M, pw, zeros, {}, "unit:24", solo=solo)) == 417.877
+
+
+def test_a_tilted_body_sharing_its_group_with_another_object_takes_the_group_zero():
+    """22o: connected objects stay one group -- the keep is for a share
+    with nothing else in it (HECA's material-split terminal pieces)."""
+    pw = {1: ("fu:24:559/host", 417.877), 2: ("fu:24:559/host", 417.877)}
+    solo: set = set()
+    zeros = OFS.root_zeros(pw, _plan(("dsf:obj563", (1,)), ("dsf:obj564", (2,))),
+                           solo_out=solo)
+    assert not solo
+    tilted = dc.replace(_body(_walls()), seat=_seat(_walls()))
+    out = OFS.group_zero(_split(tilted), _M, pw, zeros, {}, "unit:24", solo=solo)
+    assert _z(out) == 417.877

@@ -398,7 +398,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # #1214 round 3, R5 (owner RULINGS 2026-10-22o): one zero per CONNECTED
     # unit — the pieces the pad-level and block passes cut put back together
     _gz_air: dict[str, tuple[float, int]] = {}           # 23e: airside wins
-    _gz = _root_zeros(_pw or {}, plan, surface, counts, _gz_air)   # 22q: airside first
+    _gz_solo: set[str] = set()                           # #2060: one-member shares
+    _gz = _root_zeros(_pw or {}, plan, surface, counts, _gz_air,   # 22q: airside first
+                      solo_out=_gz_solo)
     # #1949 (RULINGS 2026-11-11f): a rail group meeting a walled pit stays
     # grouped with it; the more airside-visible of the two sets the frame
     _pit_join = _pit_joiner(plan, _gz, _gz_air, counts)
@@ -1132,7 +1134,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
-                                         adapted_zero=_az.get(m.id))
+                                         adapted_zero=_az.get(m.id), solo=_gz_solo)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
@@ -1229,7 +1231,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
-                                         adapted_zero=_az.get(m.id))
+                                         adapted_zero=_az.get(m.id), solo=_gz_solo)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
@@ -1271,7 +1273,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
-                                         adapted_zero=_az.get(m.id))
+                                         adapted_zero=_az.get(m.id), solo=_gz_solo)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 if record is not _pre:

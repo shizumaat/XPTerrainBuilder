@@ -201,13 +201,34 @@ class PatchFaces:
             poly = self.faces[int(k)][2]
             p = shapely.ops.nearest_points(poly.boundary, q)[0]
             d = max(p.distance(q), 1e-3)
-            # a hair inside the face (its edge point may round off it)
-            x = p.x + (p.x - q.x) / d * 0.01
-            y = p.y + (p.y - q.y) / d * 0.01
-            got = self.at(y / M_PER_DEG + self.lat0, x / self.kx + self.lon0)
-            if got is not None:
-                num, den = num + got[0] / d, den + 1.0 / d
+            z = self._on_edge(int(k), p.x, p.y)
+            if z is not None:
+                num, den = num + z / d, den + 1.0 / d
         return num / den if den else None
+
+    def _on_edge(self, k: int, x: float, y: float) -> "float | None":
+        """Face ``k``'s height AT its boundary point ``(x, y)``: the plane of
+        its triangle on that edge, read at the point itself -- linear along
+        the edge's two ring vertices, which is what the mesh carries there.
+        (A point nudged into the face read a sliver triangle's far vertex:
+        KDEN round 2, 0.01 m into a 0.5 m triangle falling 5.5 m to a
+        trench's run-out read the walls' top 0.11 m low.)"""
+        import shapely
+        best = None
+        for i in self._tree.query(shapely.Point(x, y).buffer(1e-6), predicate="intersects"):
+            i = int(i)
+            if self.owner[i] != k:
+                continue
+            a, b, c = self.tris[i]
+            m = numpy.array([[b[0] - a[0], c[0] - a[0]], [b[1] - a[1], c[1] - a[1]]])
+            if abs(numpy.linalg.det(m)) < 1e-12:
+                continue
+            u, v = numpy.linalg.solve(m, [x - a[0], y - a[1]])
+            off = -min(u, v, 1.0 - u - v)          # how far outside (<= 0 inside)
+            if best is None or off < best[0]:
+                z = self.tz[i]
+                best = (off, float(z[0] + u * (z[1] - z[0]) + v * (z[2] - z[0])))
+        return None if best is None else best[1]
 
     def elevation_at_or_none(self, lat: float, lon: float) -> "float | None":
         """The drawn-mesh interface: the covering face's plane, else across

@@ -35,10 +35,11 @@ import shapely
 import shapely.prepared
 
 from ..airport.deck_ends import ground_footprint
+from ..geom.deck_ground import end_aprons
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..model.planar import STACK_GROUND_PREFIX
 
-__all__ = ["stack_ground_pieces"]
+__all__ = ["stack_ground_pieces", "deck_end_road_zone"]
 
 
 def _areal(g):
@@ -92,3 +93,19 @@ def stack_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: 
                 out.append((f"{STACK_GROUND_PREFIX}{name}#{k}", shapely.segmentize(part, vertex_m)))
                 k += 1
     return out
+
+
+def deck_end_road_zone(airport, law) -> tuple[_t.Any, float]:
+    """``(zone, step)``: where a road's ribbon carries a vertex every
+    ``step`` (``[bridge] abutment_sample_step_m``) -- every deck end's
+    apron (``geom/deck_ground.end_aprons``, the plate's width for ``L_e``
+    beyond the end line), so the road comes off the deck on its own ramp
+    and not on one chord to the next way node 12-35 m out (v2 §3.4: KDEN
+    round 2, the road 0.26 m off the plate one step outside the end line).
+    ``(None, step)`` without a stack."""
+    step = float(law.tables.structures.bridge.abutment_sample_step_m) if law else 0.0
+    stacks = tuple(getattr(airport, "deck_stacks", ()) or ())
+    if not stacks or law is None:
+        return None, step
+    zone = shapely.union_all([a for st in stacks for a in end_aprons(st, law)])
+    return (None if zone.is_empty else zone), step

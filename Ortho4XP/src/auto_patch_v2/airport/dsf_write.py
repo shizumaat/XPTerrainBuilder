@@ -1396,6 +1396,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
         # a seat under the pinned HEIGHTS base cannot be encoded
         edited = _dh.cover_row_elevations(edited)
+        # ... and a seat is stored at its nearest quantum, never floored
+        edited = _dh.nearest_row_elevations(edited)
         with open(edited_text, "w", encoding="utf-8",
                   errors="surrogateescape", newline="\n") as fh:
             fh.write(edited)

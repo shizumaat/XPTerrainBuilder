@@ -377,3 +377,22 @@ def test_d5_samples_outside_the_wall_line_at_its_end():
     pts = [(0.0, 0.0), (5.0, 0.0), (10.0, 0.0)]
     n = DC._outward(pts, 0, (20.0, 3.0))          # the floor lies north-east
     assert abs(n[0]) < 1e-9 and n[1] == pytest.approx(-1.0)
+
+
+def test_a_gap_reads_the_face_at_its_edge_not_inside_a_sliver_triangle():
+    """``patch_faces.PatchFaces._on_edge`` (lkden3): a face's height at its
+    boundary point is the plane of its triangle read AT the point -- linear
+    along the edge's ring vertices -- so a 0.5 m sliver triangle whose far
+    vertex falls 5.5 m reads the edge's own height (KDEN round 2's predicted
+    D5 -0.30 against a drawn -0.24)."""
+    import numpy as np
+    import shapely
+
+    import patch_faces as pf
+    f = pf.PatchFaces.__new__(pf.PatchFaces)
+    f.tris = np.array([[[0.0, -1.0], [0.0, 1.0], [-0.5, 3.0]]])
+    f.tz = np.array([[10.0, 10.0, 4.5]])
+    f.owner = np.array([0])
+    f._tree = shapely.STRtree(shapely.polygons(f.tris))
+    assert f._on_edge(0, 0.0, 0.0) == pytest.approx(10.0)
+    assert f._on_edge(1, 0.0, 0.0) is None

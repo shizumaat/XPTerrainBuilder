@@ -108,7 +108,8 @@ def _deck_end_arm(law, top_over):
     pm, _st = build(airport, Classification(cells, (), {}, ()), law)
     roads = _road_vertices(pm)
     x0 = min(pm.vertices[v].xy[0] for v in roads)
-    end = {v: PLATEAU_Z + top_over for v in roads if pm.vertices[v].xy[0] < x0 + 0.5}
+    end = {v: (PLATEAU_Z + top_over, pm.vertices[v].xy[0] - x0) for v in roads
+           if pm.vertices[v].xy[0] < x0 + 0.5}
     base = rr.road_ramp_targets(pm, law, airport)
     got = rr.road_ramp_targets(pm, law, airport, deck_ends=end)
     return pm, end, base, got, x0

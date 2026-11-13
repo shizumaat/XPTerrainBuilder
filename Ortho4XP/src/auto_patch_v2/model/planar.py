@@ -45,7 +45,7 @@ __all__ = ["BEYOND", "NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Fa
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
            "KERB_SUFFIX", "kerb_ref",
            "FILL_BANK_PREFIX", "is_fill_bank_ref", "STACK_GROUND_PREFIX",
-           "is_stack_ground_ref",
+           "is_stack_ground_ref", "is_stack_apron_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
@@ -153,6 +153,13 @@ STACK_GROUND_PREFIX = "stack_ground:"
 def is_stack_ground_ref(ref: object) -> bool:
     """Is this face a piece of a deck stack's ground?"""
     return str(ref or "").startswith(STACK_GROUND_PREFIX)
+
+
+def is_stack_apron_ref(ref: object) -> bool:
+    """Is this face a deck end's APRON (``planar/stack_ground``: the plate's
+    width beyond an end line, its first sample step held at the plate's
+    top)?  Narrow by construction where the road takes the middle of it."""
+    return is_stack_ground_ref(ref) and ":apron:" in str(ref)
 
 
 def platform_ref_of(ref: object) -> str:

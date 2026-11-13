@@ -277,7 +277,10 @@ def test_t9_one_zero_is_the_mean_over_the_end_lines(tmp_path):
     a, _o, _c = _attach(tmp_path)
     st = a.deck_stacks[0]
     zs = [g - t for _d, _k, _s, g, t in st.end_zeros]
-    assert len(zs) == 4 and abs(st.zero_z - sum(zs) / len(zs)) < 1e-3
+    # the mean, on the written rows' height grid (the DSF's finest quantum)
+    from auto_patch_v2.airport.dsf_heights import FINEST_QUANTUM_M
+    assert len(zs) == 4 and abs(st.zero_z - sum(zs) / len(zs)) <= FINEST_QUANTUM_M / 2
+    assert (st.zero_z / FINEST_QUANTUM_M) == round(st.zero_z / FINEST_QUANTUM_M)
     assert abs(st.zero_z - 104.0) < 0.01 and abs(st.floor_z - 104.0) < 0.01
     notes: list[str] = []
     a, _o, _c = _attach(tmp_path, dem=_Dem(u_end=122.0), notes=notes)
@@ -526,7 +529,11 @@ def test_t22_the_toe_is_the_outline_edge(tmp_path):
     a, _o, _c = _attach(tmp_path)
     on = _stack_toe(None, LAW, a)
     fp = DE.ground_footprint(a.deck_stacks[0], LAW)
-    edge = fp["outline"].exterior
+    # a point of the outline's edge off the floor's keep (where the edge
+    # crosses the keep, at the run-outs, is no toe)
+    import shapely
+    edge = shapely.line_merge(fp["outline"].exterior.difference(fp["keep"].buffer(1.0)))
+    edge = max(shapely.get_parts(edge), key=lambda g: g.length)
     p = edge.interpolate(0.37, normalized=True)
     assert on((p.x, p.y)) and not on((9.0, 50.0))
     assert not _stack_toe(None, LAW, dc.replace(a, deck_stacks=()))((p.x, p.y))
@@ -541,7 +548,8 @@ def test_t23_the_deck_end_seeds_are_r1s_road_vertices(tmp_path):
     seeds = DE.deck_end_seeds(pm, LAW, a)
     ends = DE.end_road_vertices(pm, LAW, a)
     assert seeds and set(seeds) == set(ends)
-    assert all(abs(z - (st.zero_z + d.top_a)) < 1e-9 for z in seeds.values())
+    assert all(abs(z - (st.zero_z + d.top_a)) < 1e-9 and off <= 5.0 + 1e-3
+               for z, off in seeds.values())
     assert all(math.dist(pm.vertices[v].xy, ea) < 2.0 for v in seeds)
     old = DE.DECK_END_RAMP
     try:
@@ -583,3 +591,56 @@ def test_t19_every_d_sample_lies_on_the_stack_ground(tmp_path):
     row = DCK.check_stack(rec, None, [], 0.3, 5.0, faces=_F(), predict=True, standoff=1.0)
     assert row["samples"] and not row["uncovered"], row["uncovered_n"]
     assert shapely.union_all(polys).area > 0
+
+
+# ── lkden3: the residuals of round 2's predicted check ──
+
+def test_t25_a_road_ribbon_carries_a_vertex_every_step_on_an_apron():
+    """``chords.densify_within``: a 60 m chord crossing a 20 m apron gains
+    vertices at the apron's two edges and every <= 5 m between; outside it
+    nothing changes, and every new vertex lies on the chord."""
+    from shapely.geometry import box
+
+    from auto_patch_v2.planar.chords import densify_within
+    pts = [(0.0, 0.0), (60.0, 0.0), (60.0, 10.0)]
+    out = densify_within(pts, box(10.0, -5.0, 30.0, 5.0), 5.0)
+    xs = [x for x, y in out if y == 0.0]
+    assert out[0] == pts[0] and out[-2:] == pts[1:]
+    assert [x for x in xs if 10.0 - 1e-9 <= x <= 30.0 + 1e-9] == pytest.approx(
+        [10.0, 15.0, 20.0, 25.0, 30.0])
+    assert not [x for x in xs if 0.0 < x < 10.0 - 1e-9 or 30.0 + 1e-9 < x < 60.0]
+    assert densify_within(pts, box(100.0, 100.0, 110.0, 110.0), 5.0) == pts
+
+
+def test_t26_a_written_row_is_stored_at_its_nearest_quantum():
+    """``dsf_heights.nearest_row_elevations``: ``--text2dsf`` floors a row's
+    height to its quantum (measured: 1626.56 -> 1626.53125, 1626.5312 ->
+    1626.5 at ``HEIGHTS 0.03125 0.0``); a row it would floor to a lower
+    quantum is written mid-quantum of its nearest, an on-grid row and a
+    text without ``HEIGHTS`` are left byte for byte."""
+    import math as _m
+
+    from auto_patch_v2.airport.dsf_heights import (FINEST_QUANTUM_M, nearest_row_elevations,
+                                                    on_finest_grid)
+    text = ("HEIGHTS 0.03125 0.0  # max encodeable 2047.96875\n"
+            "OBJECT_MSL 0 -104.5 39.5 1626.56 0\n"
+            "OBJECT_MSL 0 -104.5 39.5 1626.5312 0\n"
+            "OBJECT_MSL 0 -104.5 39.5 1626.531250000 0.000000\n"
+            "OBJECT 0 -104.5 39.5 0\n")
+    out = nearest_row_elevations(text).splitlines()
+    stored = [_m.floor(float(line.split()[4]) / 0.03125) * 0.03125 for line in out[1:4]]
+    assert stored == [1626.5625, 1626.53125, 1626.53125]
+    assert out[3] == text.splitlines()[3] and out[4] == text.splitlines()[4]
+    assert nearest_row_elevations(text.split("\n", 1)[1]) == text.split("\n", 1)[1]
+    assert FINEST_QUANTUM_M == 1.0 / 32.0 and on_finest_grid(1626.545) == 1626.53125
+
+
+def test_t27_the_slab_road_vertices_hold_and_the_ramp_starts_one_step_out(tmp_path):
+    """v2 §3.4 with the ribbon densified: a road vertex on the approach slab
+    (at most one step beyond the end line) is an end-line vertex with its
+    distance; one past the slab is not (it is on the ramp)."""
+    a, _o, _c = _attach(tmp_path)
+    st = a.deck_stacks[0]
+    ends = DE.end_road_vertices(_stub_map(st), LAW, a)
+    H = float(LAW.tables.structures.bridge.abutment_sample_step_m)
+    assert ends and all(0.0 <= e[-1] <= H + 0.01 for e in ends.values())

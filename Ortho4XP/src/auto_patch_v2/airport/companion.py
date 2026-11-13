@@ -43,7 +43,7 @@ their ids name the main pack's rows.
 
 AN AIRPORT PACK'S OBJECTS AT ANOTHER AIRPORT (#2063, KRNT, the owner's
 sim read 2026-11-13 "some floating airplanes").  The Seattle pack's
-apt.dat defines KSEA only, yet its ``+47-123`` DSF places 26 parked
+apt.dat defines KSEA only, yet its ``+47-123`` DSF places dozens of parked
 aircraft of its own on KRNT's aprons, each file one aircraft authored up
 to 300 m from a shared anchor.  KSEA's window never reads them (they lie
 outside its extent), KRNT is served by its own pack, and the rule above

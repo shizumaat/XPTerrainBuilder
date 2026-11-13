@@ -63,7 +63,7 @@ def tile_candidates(main_root: str, lat: int, lon: int,
     folder-name order.
 
     ``icao`` (#2063): a pack whose apt.dat defines OTHER airports only is
-    a candidate too — the Seattle pack (apt.dat: KSEA) places 26 aircraft
+    a candidate too — the Seattle pack (apt.dat: KSEA) places parked aircraft
     of its own on KRNT's aprons, which KRNT's own pack serves; a pack
     whose apt.dat defines ``icao`` itself is a rival pack of the same
     airport and never is.  Which of its rows are this airport's, and not

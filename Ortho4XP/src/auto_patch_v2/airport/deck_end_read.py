@@ -112,7 +112,10 @@ def _plate_end_tops(m: _t.Any, lines: _t.Sequence[_t.Sequence[tuple[float, float
             a, b = _local(mids[k], origin), _local(mids[1 - k], origin)
             d = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
             inward = ((b[0] - a[0]) / d * HAIR_M, (b[1] - a[1]) / d * HAIR_M)
-            top = _plate_top(plate, [_local(q, origin) for q in ln], inward)
+            # stations UNDER the plate only: a pack deck's plate carries
+            # edge-on faces whose plane read off them runs away (OTHH
+            # Bridge_01 LOD0_003 read -511 at 0.5 m off one)
+            top = _plate_top(plate, [_local(q, origin) for q in ln], inward, edge_m=0.0)
         if not math.isfinite(top):
             if fallback is None:
                 fallback = end_tops(m, (list(lines[0]), list(lines[1])), origin, step_m)

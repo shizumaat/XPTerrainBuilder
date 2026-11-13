@@ -72,14 +72,17 @@ def _end_stations(edge: tuple[XY, XY], step: float) -> tuple[XY, ...]:
     return tuple((ax + (bx - ax) * k / n, ay + (by - ay) * k / n) for k in range(n + 1))
 
 
-def _plate_top(plate: np.ndarray, stations: _t.Sequence[XY], inward: XY = (0.0, 0.0)) -> float:
+def _plate_top(plate: np.ndarray, stations: _t.Sequence[XY], inward: XY = (0.0, 0.0),
+               edge_m: float = 0.5) -> float:
     """The plate's own height on an end line: the mean over ``stations``
     (moved ``inward`` a hair onto the plate) of the plate triangle under
     each (``plate``: ``(n, 3, 3)`` frame x, y, authored y); ``nan`` where
-    no triangle stands under any."""
+    no triangle stands under any.  ``edge_m``: how far off a face a station
+    still reads it on its plane (``floor_z_at``; 0 for a plate with edge-on
+    faces, whose plane extrapolates without bound)."""
     xs = [x + inward[0] for x, _y in stations]
     ys = [y + inward[1] for _x, y in stations]
-    zs = floor_z_at(plate, xs, ys, edge_m=0.5)
+    zs = floor_z_at(plate, xs, ys, edge_m=edge_m)
     zs = zs[np.isfinite(zs)]
     return float(zs.mean()) if zs.size else math.nan
 

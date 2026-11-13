@@ -160,11 +160,15 @@ def _road_under(piece, ways, step: float) -> tuple[tuple[XY, ...], tuple[int, ..
 
 def _crossing_top(dks, cache, piece, stations) -> "float | None":
     """The deck plate's own height (authored y) where the road beneath
-    crosses ``piece``: the median over the under-road ``stations`` of the
-    lowest plate triangle under each (``geom/lowest_face``), never the
-    frame's highest plate vertex — an abutment top under a pylon's upper
-    surfaces is no clearance (spec ``othh-deck-round2-spec.md`` S4).
-    ``None`` where no plate triangle stands under any station."""
+    crosses ``piece``: over the under-road ``stations``, the highest of the
+    LOWEST plate triangle standing over each (``geom/lowest_face``, read
+    only under a triangle: an edge-on face's plane runs away off it) — the
+    clearance the road passes under where the plate stands highest over
+    it, never the frame's highest plate vertex anywhere: an abutment top
+    under a pylon's upper surfaces is no clearance (spec
+    ``othh-deck-round2-spec.md`` S4; OTHH ``Bridge_01`` reads -2.34 / 3.17 /
+    3.58 over its roads, LGAV ``Bridges1_00``'s ramps 7.15 where they cross).
+    ``None`` where no plate triangle stands over any station."""
     import numpy as np
 
     from ..airport.deck_stack import _plate_tris
@@ -173,9 +177,9 @@ def _crossing_top(dks, cache, piece, stations) -> "float | None":
     if not tris:
         return None
     zs = floor_z_at(np.asarray(tris, float).reshape(-1, 3, 3),
-                    [p[0] for p in stations], [p[1] for p in stations], edge_m=0.5)
-    zs = np.sort(zs[np.isfinite(zs)])
-    return float(zs[len(zs) // 2]) if zs.size else None
+                    [p[0] for p in stations], [p[1] for p in stations])
+    zs = zs[np.isfinite(zs)]
+    return float(zs.max()) if zs.size else None
 
 
 def road_overpasses(objects, cache, classification, airport, law, decks=(),

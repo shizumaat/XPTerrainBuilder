@@ -2087,6 +2087,8 @@ def compose_tile_dem_from_disk(tile, dico_airports, write_alt_file=True):
         # empty list in every ordinary build).
         UNPATCHED.record_substitutions(
             tile, getattr(tile.dem, "base_substitutions", None))
+        # The base it read, named for the tile pane (#2033).
+        UNPATCHED.record_base_source(tile, DEM.base_source_label(tile.dem))
     # Densify the working grid over inset tiles (spec Phase C1) BEFORE
     # smoothing and baking, so the finer posting carries the meter-class
     # airport relief through to the mesh. No-op (byte-identical) when no

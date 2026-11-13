@@ -9,17 +9,22 @@ import Foundation
 /// template, filled with the same number formats as the Qt window's, so
 /// every `ImageryFollowStatus` field is shown, worded once.
 public enum O4OnDemandText {
-    // Favorites (spec §7: the Library's tile menu and the tile's info pane;
-    // "pin" renamed Favorite by RULINGS 2026-11-10c (1); identifiers and the
-    // engine wire keep "pin" / `pinned`).
+    // Favorites (spec §7: the Library's tile menu, the star beside the tile
+    // pane's title and on the Build map's built cells, #2033; "pin" renamed
+    // Favorite by RULINGS 2026-11-10c (1); identifiers and the engine wire
+    // keep "pin" / `pinned`). A Favorite is storage priority: any built
+    // tile, set any time, its sharp imagery made low-res last.
     public static let pinTitle = "Add to Favorites"
     public static let unpinTitle = "Remove from Favorites"
-    public static let pinRowTitle = "Favorite"
-    public static let lowResState = "Sharp near the aircraft, low-res elsewhere"
-    public static let pinnedState = "Kept at full resolution"
+    public static let favoriteTitle = "Favorite"
+    public static let pinnedState = "Favorite: its sharp imagery is kept longest"
     public static let pinnedBadge = "Favorite"
-    public static let pinHelp = "A favorite tile is fetched whole at full resolution. It counts toward the ortho budget and is the last imagery made low-res again when the budget is full."
-    public static let notOnDemandState = "Built with full imagery everywhere; favorites are for tiles built with imagery on demand."
+    public static let pinHelp = "A favorite tile keeps its sharp imagery longest: when storage is tight, its high-resolution imagery is the last made low-res again."
+    public static let starAddHelp = "Make this tile a favorite: its sharp imagery is the last made low-res when storage is tight."
+    public static let starRemoveHelp = "A favorite: its sharp imagery is the last made low-res when storage is tight. Click to remove it from Favorites."
+
+    /// The star's tooltip for a tile that is (or is not) a favorite.
+    public static func starHelp(_ pinned: Bool) -> String { pinned ? starRemoveHelp : starAddHelp }
 
     // Storage (spec §6.3 / §7: the ondemand row and its pins line).
     public static let makeLowResTitle = "Make all low-res again"
@@ -95,9 +100,9 @@ public enum O4OnDemandText {
 
     /// One sentence for an `imagery_pin` reply.
     public static func pinDone(_ result: O4ImageryPinResult) -> String {
-        result.pinned
-            ? "\(result.tile) is a favorite: \(result.served) texture(s) sharp now, \(result.toFetch) to fetch."
-            : "\(result.tile) is no longer a favorite."
+        if !result.pinned { return "\(result.tile) is no longer a favorite." }
+        if result.served == 0, result.toFetch == 0 { return "\(result.tile) is a favorite." }
+        return "\(result.tile) is a favorite: \(result.served) texture(s) sharp now, \(result.toFetch) to fetch."
     }
 
     /// The template slots of one status, formatted as the Qt window does.

@@ -336,20 +336,20 @@ class LibraryTilesSection(QWidget):
         self.publish_btn.setEnabled(len(rows) == 1 and writable and not busy
                                     and bool(rows[0]["airports"]))
         pin = self._pin_target()
-        self.pin_btn.setEnabled(pin is not None and not busy)
+        # A Favorite is set a build running or not (#2033).
+        self.pin_btn.setEnabled(pin is not None)
         self.pin_btn.setText(ONDEMAND_TEXT.UNPIN_TITLE
                              if pin is not None and pin.get("pinned")
                              else ONDEMAND_TEXT.PIN_TITLE)
 
     # ── pins (#1992 §7) ─────────────────────────────────────────────────
     def _pin_target(self):
-        """The one selected tile a pin applies to (built on demand or
-        pinned, by this app), else None."""
+        """The one selected tile that can be a Favorite (any tile this app
+        built, #2033), else None."""
         rows = self.selected_rows()
         if len(rows) != 1 or rows[0]["read_only"]:
             return None
-        row = rows[0]
-        return row if row.get("on_demand") or row.get("pinned") else None
+        return rows[0]
 
     def _tile_menu(self, point):
         row = self._pin_target()
@@ -358,7 +358,6 @@ class LibraryTilesSection(QWidget):
         menu = QMenu(self)
         action = menu.addAction(ONDEMAND_TEXT.UNPIN_TITLE if row.get("pinned")
                                 else ONDEMAND_TEXT.PIN_TITLE)
-        action.setEnabled(not self._building())
         action.triggered.connect(self._toggle_pin)
         menu.popup(self.table.viewport().mapToGlobal(point))
 

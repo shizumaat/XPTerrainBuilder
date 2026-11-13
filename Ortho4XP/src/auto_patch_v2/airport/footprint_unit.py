@@ -1286,7 +1286,8 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             # verdict waits for the unit's other contacts (#1140,
             # :func:`_rests_on_unit`).
             far.append((ci, st, uid, cc))
-        elif _ar.hangs_over_water(cc, surface, z, visual_m, _hull(c)):
+        elif _ar.hangs_over_water(cc, surface, z, visual_m, _ar.box_points(
+                c.part_boxes or ((c.box,) if c.box else ()))):
             # #1896: A MEMBER THE UNIT'S ZERO WOULD HANG OVER WATER is far
             # from it whatever the datum's source — water is no ground
             # (R12 amendment 1); the same rest test keeps a deck on the
@@ -1370,16 +1371,6 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
         out.extend(_left_units(cands, by_mi, surface, counts, per, uid,
                                touch_m, visual_m))
     return out
-
-
-def _hull(c: _t.Any) -> "tuple[float, float, float, float] | None":
-    """A candidate's plan hull ``(lat0, lon0, lat1, lon1)`` over its part
-    boxes (else its box) — where #1896's water reading looks under it."""
-    bs = tuple(c.part_boxes or ((c.box,) if c.box else ()))
-    if not bs:
-        return None
-    return (min(b[0] for b in bs), min(b[1] for b in bs),
-            max(b[2] for b in bs), max(b[3] for b in bs))
 
 
 def _left_units(cands: list, by_mi: _t.Mapping[int, _t.Any],

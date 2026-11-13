@@ -66,7 +66,7 @@ from ..model.placement import TOL_DEG as _TOL_DEG
 __all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
            "anchor_for", "roof_on_posts", "datum_of", "keep_off_row", "rim_of", "ring_of_part", "rim_anchor_point",
            "pad_majority", "fold_pad_ref", "pad_contains", "all_on_water",
-           "water_level_under", "hangs_over_water",
+           "water_level_under", "hangs_over_water", "box_points",
            "BUILDING", "SKIRTED", "BASIN", "LINE_SEGMENT", "DECK", "PLATE_ONLY", "OTHER"]
 
 BUILDING = "building"
@@ -1068,62 +1068,85 @@ def all_on_water(feet: _t.Sequence[tuple], surface: Surface) -> bool:
                for f in feet)
 
 
-#: the samples per side of a body's plan box :func:`water_level_under` reads
-WATER_GRID_N = 5
+#: the most plan boxes :func:`box_points` reads (strided past it)
+WATER_BOXES_MAX = 64
 
 
-def water_level_under(box: "_t.Sequence[float] | None", surface: Surface,
-                      feet: _t.Sequence[tuple] = ()) -> "float | None":
+def box_points(boxes: _t.Iterable[_t.Sequence[float]]) -> list[tuple[float, float]]:
+    """The corners and centre of each plan box ``(lat0, lon0, lat1, lon1)``
+    — a body's plan read part by part (its part boxes), never through one
+    hull, which for a rotated slab reaches ground the body does not cover
+    (PAKT's 110 m float-dock deck at 43 deg: its hull takes in the shore)."""
+    bs = list(boxes)
+    step = max(1, len(bs) // WATER_BOXES_MAX)
+    out: list[tuple[float, float]] = []
+    for q in bs[::step]:
+        la0, lo0, la1, lo1 = (float(v) for v in q)
+        out += [(la0, lo0), (la0, lo1), (la1, lo0), (la1, lo1),
+                (0.5 * (la0 + la1), 0.5 * (lo0 + lo1))]
+    return out
+
+
+def _water_samples(pts: _t.Iterable[_t.Sequence[float]], surface: Surface
+                   ) -> list[tuple[float, bool]]:
+    """``(z, on water)`` at each point ``(lat, lon, ...)`` that reads a
+    surface; the surface must carry ``.water``."""
+    water = surface.water
+    out = []
+    for q in pts:
+        z = surface(q[0], q[1])
+        if z is not None:
+            out.append((float(z), bool(water(q[0], q[1]))))
+    return out
+
+
+def water_level_under(pts: _t.Iterable[_t.Sequence[float]], surface: Surface
+                      ) -> "float | None":
     """#1896: the level of the DRAWN WATER under a body — the median height
-    of the samples on water (``surface.water``) over a :data:`WATER_GRID_N`
-    grid of its plan ``box`` ``(lat0, lon0, lat1, lon1)`` and its ``feet``;
-    ``None`` where none of them is on water or the surface carries no water
-    bit.  The mesh levels water to one datum (sea 0.00, a lake its mean), so
-    the median is that datum."""
-    water = getattr(surface, "water", None)
-    if water is None:
+    of its plan points ``(lat, lon, ...)`` that stand on water
+    (``surface.water``); ``None`` where none does or the surface carries no
+    water bit.  The mesh levels water to one datum (sea 0.00, a lake its
+    mean), so the median is it."""
+    if getattr(surface, "water", None) is None:
         return None
-    pts = [(float(f[0]), float(f[1])) for f in feet]
-    if box:
-        la0, lo0, la1, lo1 = (float(q) for q in box)
-        k = WATER_GRID_N - 1
-        pts += [(la0 + (la1 - la0) * i / k, lo0 + (lo1 - lo0) * j / k)
-                for i in range(WATER_GRID_N) for j in range(WATER_GRID_N)]
-    zs = sorted(float(z) for z, la, lo in ((surface(la, lo), la, lo)
-                                           for la, lo in pts)
-                if z is not None and water(la, lo))
+    zs = sorted(z for z, wet in _water_samples(pts, surface) if wet)
     return zs[len(zs) // 2] if zs else None
 
 
 def hangs_over_water(feet: _t.Sequence[tuple], surface: Surface, zero: float,
-                     gap_m: float, box: "_t.Sequence[float] | None" = None
+                     gap_m: float, plan_pts: _t.Sequence[_t.Sequence[float]] = ()
                      ) -> bool:
     """#1896: would a body seated at ``zero`` HANG OVER WATER?  True where
-    drawn water lies under it (:func:`water_level_under`), the drawn
-    surface under EVERY ground-contact foot ``(lat, lon, authored y)`` is no
-    higher than ``gap_m`` over that water — a water triangle, or ground the
-    mesh keeps at the water's level — and at ``zero`` every foot stands more
-    than ``gap_m`` above it (``zero + y - surface > gap_m``).
+    drawn water lies under it, NOTHING under it — no ground-contact foot
+    ``(lat, lon, authored y)`` and no point of its plan ``plan_pts`` (its
+    written geometry's samples, or :func:`box_points` of its part boxes) —
+    stands more than ``gap_m`` over that water's level (a water triangle,
+    or ground the mesh keeps at the water's level), and at ``zero`` every
+    foot stands more than ``gap_m`` above the surface under it
+    (``zero + y - surface > gap_m``).
 
     Water is a datum, not ground (R12 amendment 1): such a body has nothing
     under it but the water.  PAKT's float-dock deck, pulled by box proximity
     to the shore unit's 5.68, stood 6.0-6.5 m over Tongass Narrows with
-    every foot on the water's level.  A pier's piles, a seawall's footing or
-    anything authored INTO the water reaches the surface at that zero, and a
-    body whose feet stand on land above the water is on ground: neither
-    hangs, and both stay with their group where the author placed them
-    (owner RULINGS 2026-11-13r).  The cheap test (every foot clear) runs
-    before the water is read."""
+    every point of its plan at the water's level.  A pier's piles, a
+    seawall's footing or anything authored INTO the water reaches the
+    surface at that zero; a body with land under any part of its plan (an
+    island's quay, a bridge reaching its banks) has ground: neither hangs,
+    and both stay with their group where the author placed them (owner
+    RULINGS 2026-11-13r).  The cheap test (every foot clear) runs before the
+    water is read."""
     if gap_m <= 0.0 or not feet or getattr(surface, "water", None) is None:
         return False
-    zs = []
     for f in feet:
         z = surface(f[0], f[1])
         if z is None or float(zero) + float(f[2]) - float(z) <= gap_m:
             return False
-        zs.append(float(z))
-    level = water_level_under(box, surface, feet)
-    return level is not None and max(zs) <= level + gap_m
+    got = _water_samples(list(feet) + list(plan_pts), surface)
+    wet = sorted(z for z, w in got if w)
+    if not wet:
+        return False
+    level = wet[len(wet) // 2]
+    return max(z for z, _w in got) <= level + gap_m
 
 
 def _wet_body_anchor(body_class: BodyClass, geom: BodyGeometry,

@@ -850,7 +850,7 @@ def census_v16b(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
             if not zs:
                 off_sheet += 1
                 continue
-            level = _ar.water_level_under(None, surface, pts)
+            level = _ar.water_level_under(pts, surface)
             if level is not None:
                 zs = [z for z in zs if z > level + float_tol_m]
                 if not zs:

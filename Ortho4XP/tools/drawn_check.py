@@ -44,7 +44,8 @@ SPLIT-LEVEL BUILDINGS (the sidecar's ``basin_facilities`` of kind
 ``split_level``, ``planar/split_level_pit``): per building, its written
 rows' drawn zero, its lower floor (zero + ``plate_y_m``) against the drawn
 mesh over its floor, and its upper floor (+ ``floor_below_rim_m``) against
-the drawn mesh 1 m outside each open side.  Bars: |lower floor - drawn
+the drawn mesh 1 m outside each open side (on its LEFT: an open side runs
+with its building on its right, #1903).  Bars: |lower floor - drawn
 floor| <= tol; |upper floor - median open-side ground| <= tol; no open-side
 station with the ground more than tol under the upper floor (a gap that
 shows the open wall).
@@ -656,14 +657,21 @@ def _base(drawn, i):
 
 def _outside(seg, centre, out_m, n=5):
     """``n`` (lon, lat) stations ``out_m`` outside the (lat, lon) segment
-    ``seg``, away from ``centre`` (lon, lat)."""
+    ``seg``, away from ``centre`` (lon, lat); ``centre`` ``None``: on the
+    segment's LEFT -- a split-level OPEN side runs with its building on its
+    right (``airport/split_level.SplitLevel.open_sides``), and a pier's or
+    a notch's edge faces away from the building's anchor only by chance
+    (#1903 KLAX: Terminal_2 / Terminal_8 read their own pit floor 1 m
+    "outside", a 4.00 m gap)."""
     (la0, lo0), (la1, lo1) = seg[0], seg[-1]
     kx = M_PER_DEG * math.cos(math.radians(la0))
     x0, y0, x1, y1 = lo0 * kx, la0 * M_PER_DEG, lo1 * kx, la1 * M_PER_DEG
     L = math.hypot(x1 - x0, y1 - y0) or 1.0
     nx, ny = (y1 - y0) / L, -(x1 - x0) / L
-    cx, cy = centre[0] * kx, centre[1] * M_PER_DEG
-    if (cx - 0.5 * (x0 + x1)) * nx + (cy - 0.5 * (y0 + y1)) * ny > 0.0:
+    if centre is None:
+        nx, ny = -nx, -ny
+    elif ((centre[0] * kx - 0.5 * (x0 + x1)) * nx
+          + (centre[1] * M_PER_DEG - 0.5 * (y0 + y1)) * ny > 0.0):
         nx, ny = -nx, -ny
     out = []
     for k in range(n):
@@ -713,9 +721,14 @@ def _road_at(roads, lon, lat):
 
 
 def _behind(closed, opened):
-    """The ``closed`` (lat, lon) sides parallel (within 45 degrees) to an
-    ``opened`` one: the sides behind the building; all of ``closed`` when
-    it has no open side."""
+    """The ``closed`` (lat, lon) box sides ACROSS from an open one -- the
+    sides behind the building, the reader's own ``across``
+    (``airport/split_level``): a closed side with another closed side
+    parallel to it (within 45 degrees) is a side wall running up the
+    slope between the levels, never the back; all of ``closed`` when it
+    has no open side.  (Read off the open boundary instead, a plan's pier
+    and notch edges run in every direction and made every side wall
+    "behind": #1903 KLAX Terminal_8's south wall read +4.00 m.)"""
     def axis(sd):
         (la0, lo0), (la1, lo1) = sd[0], sd[-1]
         kx = math.cos(math.radians(la0))
@@ -724,9 +737,11 @@ def _behind(closed, opened):
         return d[0] / n, d[1] / n
     if not opened:
         return list(closed)
-    ax = [axis(o) for o in opened]
-    return [c for c in closed
-            if any(abs(axis(c)[0] * a[0] + axis(c)[1] * a[1]) >= math.sqrt(0.5) for a in ax)]
+
+    def parallel(c, d):
+        return abs(axis(c)[0] * axis(d)[0] + axis(c)[1] * axis(d)[1]) >= math.sqrt(0.5)
+    return [c for k, c in enumerate(closed)
+            if not any(parallel(c, d) for j, d in enumerate(closed) if j != k)]
 
 
 def body_offsets_y(plans):
@@ -779,7 +794,7 @@ def check_split(rec, drawn, tol, lifts=None, roads=None):
     z0 = float(numpy.nanmedian(zeros))
     floor = mesh_z(drawn.mesh, lon, lat)
     ground = [mesh_z(drawn.mesh, x, y) for sd in rec.get("open_sides_ll", [])
-              for x, y in _outside(sd, (lon, lat), 1.0)]
+              for x, y in _outside(sd, None, 1.0)]
     ground = [g for g in ground if not math.isnan(g)]
     out.update({"zero": round(z0, 2), "zero_spread": round(max(zeros) - min(zeros), 2),
                 "lower_floor": round(z0 + y_lo, 2), "drawn_floor": round(floor, 2),

@@ -447,6 +447,19 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
         deep_end = 1 if d_last >= d_first else 0
         shallow = min(d_first, d_last)
         deepest = max(d for _s, d in depths)
+        # THE PLATE descends (law: "the plate descends at least this"), not
+        # its depth under a sloping ground: a level floor on a slope gains
+        # depth from the ground alone (#1903 KLAX: TBIT_Large_Building's
+        # level storey, 3.6 m under the uphill DEM, was cut as a 12 m
+        # sunken road with no ramp)
+        fall = max(r[1] for r in rows) - min(r[1] for r in rows)
+        if fall < sr.min_descent_m:
+            stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 is LEVEL "
+                                 f"(its floor falls {fall:.2f} m < min_descent_m "
+                                 f"{sr.min_descent_m}; the ground's slope alone puts it "
+                                 f"{deepest - shallow:.2f} m deeper) — a storey on a "
+                                 f"slope, not a sunken road")
+            continue
         if deepest - shallow < sr.min_descent_m:
             stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 is LEVEL "
                                  f"(descent {deepest - shallow:.2f} m < min_descent_m "

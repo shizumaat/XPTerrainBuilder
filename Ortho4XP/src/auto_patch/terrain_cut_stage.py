@@ -71,8 +71,9 @@ def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
 
 def _fit(rec):
     """One record's cut as a ``TerrainFit`` (its file's plan grid at the
-    record's zero and heading, eroded by its ``erode_m`` when it names one),
-    or ``None`` where the file cannot be read."""
+    record's zero and heading, eroded by its ``erode_m`` when it names one,
+    to its floor when it names ``floor_m``), or ``None`` where the
+    file cannot be read."""
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_model as _tm
     c = rec["cut"]
@@ -80,7 +81,7 @@ def _fit(rec):
     if grid is None:
         return None
     return _tc.cut_fit(grid, float(rec["elevation"]), float(c["heading"]),
-                       float(c.get("erode_m", _tc.ERODE_M)))
+                       float(c.get("erode_m", _tc.ERODE_M)), float(c.get("floor_m", 0.0)))
 
 
 def _cut_one(dem, tile, rec) -> int:

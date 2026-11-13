@@ -69,6 +69,20 @@ record with ``cut``, and every consumer above reads it as it reads a
 terrain model's; its record names ``erode_m`` (one cell: it carries riders
 draped on the drawn ground, which a 30 m erosion would sink).
 
+THE FLOOR (#2053 round 2): a terrain model's top IS its ground; a ground
+object's top is not -- over its ground stand roofs and raised terraces, and
+cut to the HIGHEST surface the ground under a roof stays uncut, so the mesh
+triangle from that posting to the open ground beside the wall lifts the
+open ground through the object (SBRJ's island: 53 of 1,156 open samples
+over its top, worst 1.44 m).  Its record names ``floor_m`` (one storey,
+``[building_pad] low_level_min_step_m``): where a roof stands that far or
+more over a cell's lowest surface, the surface eroded beyond the edge band
+is that lowest one (the ground under the roof); a thinner stack (a
+footbridge over a court) keeps its top.  The edge band keeps the top and
+its rule: a bridge's arch carries its deck metres over its own underside,
+and at the arm's far end the ground must meet the deck.  A terrain model
+keeps its top.
+
 Pure geometry: the tile glue that reads the plans and writes the raster is
 ``auto_patch/terrain_cut_stage``.
 """
@@ -91,17 +105,30 @@ ERODE_M = 30.0
 BAND_M = 10.0
 
 
-def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M) -> DeckGrid:
+def _floor(grid: DeckGrid, floor_m: float) -> np.ndarray:
+    """Each cell's walkable surface (module doc, THE FLOOR): its lowest
+    where a roof stands ``floor_m`` or more over it, else its top."""
+    return np.where(grid.top - grid.bot >= floor_m, grid.bot, grid.top)
+
+
+def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M, floor_m: float = 0.0
+              ) -> DeckGrid:
     """The CUT SURFACE of a model's plan grid (module doc) as a
     :class:`DeckGrid` whose ``top`` is the bound (``bot`` the model's own;
     the cut never fills).  ``erode_m``: the erosion radius (a ground object
-    carrying riders takes one cell, ``bridged_ground.ERODE_M``)."""
+    carrying riders takes one cell, ``bridged_ground.ERODE_M``).
+    ``floor_m`` > 0: beyond the edge band the surface eroded is each
+    cell's FLOOR (:func:`_floor`); the band keeps the top."""
     from scipy import ndimage
     cov = grid.covered
     k = max(1, int(round(erode_m / CELL_M)))
     disc = np.hypot(*np.mgrid[-k:k + 1, -k:k + 1]) <= k
-    top = np.where(cov, grid.top, np.inf)
-    eroded = ndimage.minimum_filter(top, footprint=disc, mode="constant", cval=np.inf)
+
+    def erode(surf):
+        return ndimage.minimum_filter(np.where(cov, surf, np.inf), footprint=disc,
+                                      mode="constant", cval=np.inf)
+
+    eroded = erode(grid.top)
     # the edge cells: covered, touching an uncovered one (8-neighbours,
     # the outer rim and the edge of every hole), and how far each cell is
     rim = cov & ndimage.binary_dilation(~np.pad(cov, 1), np.ones((3, 3), bool))[1:-1, 1:-1]
@@ -110,15 +137,17 @@ def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M) -> DeckGrid:
     band = np.hypot(*np.mgrid[-b:b + 1, -b:b + 1]) <= b
     lowest = ndimage.maximum_filter(np.where(rim, grid.bot, -np.inf), footprint=band,
                                     mode="constant", cval=-np.inf)
-    bound = np.where(edge <= BAND_M, np.maximum(eroded, lowest), eroded)
+    inner = erode(_floor(grid, floor_m)) if floor_m > 0.0 else eroded
+    bound = np.where(edge <= BAND_M, np.maximum(eroded, lowest), inner)
     return DeckGrid(grid.x0, grid.z0, grid.bot.copy(), np.where(cov, bound, np.nan))
 
 
 def cut_fit(grid: DeckGrid, zero: float, heading: float,
-            erode_m: float = ERODE_M) -> TerrainFit:
+            erode_m: float = ERODE_M, floor_m: float = 0.0) -> TerrainFit:
     """The cut as a :class:`TerrainFit` anchored at the frame origin (the
-    model's anchor), seated at ``zero``, filling nothing."""
-    cut = _cut_grid(grid, erode_m)
+    model's anchor), seated at ``zero``, filling nothing; ``floor_m`` > 0:
+    cut to the object's floor per cell (module doc, THE FLOOR)."""
+    cut = _cut_grid(grid, erode_m, floor_m)
     return TerrainFit("cut", "", (0.0, 0.0), float(heading), float(zero), 1.0,
                       cut.area_m2, 0.0, cut, fill=False)
 

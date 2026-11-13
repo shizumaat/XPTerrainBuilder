@@ -48,8 +48,9 @@ model's, so the tile build cuts the ground under its plan to its surface
 (owner RULINGS 2026-11-13k, ``auto_patch/terrain_cut_stage``), with the top
 eroded over :data:`ERODE_M` only -- the island CARRIES riders (trees, cars,
 lamps draped on the drawn ground), and the 30 m erosion a hill takes would
-sink half of SBRJ's 180 more than 0.5 m under its top (5 m: 26).  Never
-hideable.
+sink half of SBRJ's 180 more than 0.5 m under its top (5 m: 26) -- and to
+its FLOOR per cell, the ground under a roof a storey or more over it,
+never the roof (``terrain_cut`` THE FLOOR, #2053 round 2).  Never hideable.
 """
 from __future__ import annotations
 
@@ -286,6 +287,9 @@ def _models(airport: _t.Any, objects: _t.Sequence[_t.Any], cache: _t.Any) -> dic
     if not ways or water is None:
         return {}
     dem_many = dem_many_of(airport.dem)
+    from ..law import Law
+    from .airside_group_seat import storey_m
+    storey = storey_m(Law.load())
     out = {}
     for o in objects:
         if not _candidate(o):
@@ -301,7 +305,7 @@ def _models(airport: _t.Any, objects: _t.Sequence[_t.Any], cache: _t.Any) -> dic
         out[str(o.id)] = TerrainModel(
             str(o.id), str(o.path), (float(o.xy[0]), float(o.xy[1])),
             float(o.heading_deg), float(min(zeros)), 0.0, 0.0, 0.0, 0.0, 0.0,
-            file=str(o.resolved), seat_by=SEAT_BY, erode_m=ERODE_M,
+            file=str(o.resolved), seat_by=SEAT_BY, erode_m=ERODE_M, cut_floor_m=storey,
             spread_m=float(max(zeros) - min(zeros)))
     return out
 

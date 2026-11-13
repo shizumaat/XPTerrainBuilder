@@ -88,10 +88,10 @@ def _road(wid=-500, tags=None):
                   dict(tags or {"highway": "motorway", "lanes": "3"}))
 
 
-def _airport(law, pavements, ways, dem=None, dsf=()):
+def _airport(law, pavements, ways, dem=None, dsf=(), runway_y=1000.0):
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
-    ends = (RunwayEnd("09", (-600.0, 1000.0), (60.5, -135.5), 0.0, 0.0, 100.0, "fixture"),
-            RunwayEnd("27", (600.0, 1000.0), (60.5, -135.5), 0.0, 0.0, 100.0, "fixture"))
+    ends = (RunwayEnd("09", (-600.0, runway_y), (60.5, -135.5), 0.0, 0.0, 100.0, "fixture"),
+            RunwayEnd("27", (600.0, runway_y), (60.5, -135.5), 0.0, 0.0, 100.0, "fixture"))
     rw = Runway("09/27", 45.0, 1, ends, 3, "D")
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     return Airport("ZZZZ", "Synthetic", frame, 100.0, (rw,), tuple(pavements), (), {},
@@ -321,6 +321,28 @@ def test_c_the_object_is_dropped_from_the_basin_seeds(law):
 
 
 # ── (d) two decks 58 m apart ─────────────────────────────────────────────
+
+def test_22_a_neck_never_infers_a_cut_in_a_runway_strip(law, monkeypatch):
+    """§45 (22) proposed (#2038, KSFO): the same two-neck fixture under a
+    coarse DEM is a channel while the runway stands 1 km away, and is
+    refused BY NAME once the runway's graded strip (``airport/
+    runway_strip.strip_band``) lies across its corridor — "Cut the road
+    down" would dig 5.1 m into a strip that carries no open cut.  KSFO's
+    service roads crossing the four runways at grade were admitted as
+    channels with the runways as decks, and channel:1's floor dragged
+    runway 10L/28R's edge to -0.02 m beside a 3.05 m crest."""
+    import auto_patch_v2.planar.channel as chmod
+    monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: False)
+    cls = Classification(tuple(_cells()), (), {}, ())
+    chans, st = identify_channels(
+        _airport(law, [_pavement_with_corridor()], [_road()]), cls, law)
+    assert len(chans) == 1 and chans[0].datum_source == DATUM_CLEARANCE, st.refused
+    chans, st = identify_channels(
+        _airport(law, [_pavement_with_corridor()], [_road()], runway_y=60.0), cls, law)
+    assert chans == [], [c.id for c in chans]
+    refusal = [r for r in st.refused if "graded strip" in r]
+    assert refusal and "09/27" in refusal[0] and "-500" in refusal[0], st.refused
+
 
 def test_d_two_decks_58_m_apart_keep_the_floor_down_between_them(law):
     """(d) KPHX: two decks closer than ``2 x clearance / ramp_max_grade``

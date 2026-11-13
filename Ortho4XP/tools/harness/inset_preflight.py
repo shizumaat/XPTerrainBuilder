@@ -26,6 +26,7 @@ __all__ = [
     "inset_selection_admits",
     "ladder_owed_problem",
     "required_boxes",
+    "resting_verdict",
     "stale_negative_airports",
     "tile_pending_refetches",
 ]
@@ -93,8 +94,30 @@ def airport_problem(lat, lon, icao, required, ladder_problem):
 
     problem = INSETS.airport_inset_frame_problem(lat, lon, icao, required)
     if problem is not None:
-        return problem
+        return resting_verdict(INSETS, lat, lon, icao, required, problem)
     return ladder_problem(INSETS, lat, lon, icao, required)
+
+
+def resting_verdict(INSETS, lat, lon, icao, required, problem):
+    """A ``missing`` verdict whose never-answered providers ALL REST
+    (``elevation_access.refusal_rest``: a provider that refused a query —
+    USGS 3DEP's TNM 504 on 2026-11-12 — is not asked again for a day)
+    reads ``("resting", ...)``: the build's fetch loop does not ask a
+    resting provider, so nothing would be fetched and it is NOT a
+    side-effect fetch (#2038).  The frame is the degraded one the app
+    builds on during the rest; ``--allow-degraded-dem`` still has to
+    accept it (``dem_production.frame_state`` keeps calling it cold).
+    Any other verdict is returned unchanged."""
+    if problem[0] != "missing":
+        return problem
+    from elevation_access.refusal_rest import resting_refusal
+
+    codes = INSETS.unanswered_inset_providers(lat, lon, icao, required)
+    if not codes or not all(resting_refusal(c) is not None for c in codes):
+        return problem
+    return ("resting", f"{problem[1]} — RESTING: {', '.join(codes)} refused a "
+            f"query and is not asked again for a day, so the build fetches "
+            f"nothing for it (#2038)")
 
 
 def ladder_owed_problem(INSETS, lat, lon, icao, required):

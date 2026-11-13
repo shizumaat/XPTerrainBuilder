@@ -576,6 +576,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.channel_floor",
         "auto_patch_v2.planar.channel_geometry",
         "auto_patch_v2.planar.channel_stretch",
+        "auto_patch_v2.planar.channel_strip",
         "auto_patch_v2.planar.channel_witness",
         "auto_patch_v2.planar.chords",
         "auto_patch_v2.planar.covered_bores",
@@ -2048,6 +2049,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry planar.channel_stretch
+    planar.channel_strip
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     geom.station_runs airport.bridge_ground
@@ -2209,6 +2211,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry planar.channel_stretch
+    planar.channel_strip
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
     geom.station_runs airport.bridge_ground

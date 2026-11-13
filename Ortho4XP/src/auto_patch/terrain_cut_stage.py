@@ -69,15 +69,27 @@ def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
     return out
 
 
-def _cut_one(dem, tile, rec) -> int:
-    """Cut ``tile.dem.alt_dem`` under one record's plan; the postings cut."""
+def _fit(rec):
+    """One record's cut as a ``TerrainFit`` (its file's plan grid at the
+    record's zero and heading, eroded by its ``erode_m`` when it names one),
+    or ``None`` where the file cannot be read."""
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_model as _tm
     c = rec["cut"]
-    shape = _tm.shape_of(str(c["file"]))
-    if shape is None:
+    grid = _tm.plan_grid(str(c["file"]))
+    if grid is None:
+        return None
+    return _tc.cut_fit(grid, float(rec["elevation"]), float(c["heading"]),
+                       float(c.get("erode_m", _tc.ERODE_M)))
+
+
+def _cut_one(dem, tile, rec) -> int:
+    """Cut ``tile.dem.alt_dem`` under one record's plan; the postings cut."""
+    from auto_patch_v2.airport import terrain_cut as _tc
+    fit = _fit(rec)
+    if fit is None:
         return 0
-    fit = _tc.cut_fit(shape.grid, float(rec["elevation"]), float(c["heading"]))
+    c = rec["cut"]
     to_xy, to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))
     w, s, e, n = _tc.plan_box(fit, to_ll)
     a = dem.alt_dem
@@ -130,12 +142,10 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None) -> i
 def _outline(rec) -> list:
     """The plan's edge of one record, tile-relative ``(lon, lat)`` rings."""
     from auto_patch_v2.airport import terrain_cut as _tc
-    from auto_patch_v2.airport import terrain_model as _tm
-    c = rec["cut"]
-    shape = _tm.shape_of(str(c["file"]))
-    if shape is None:
+    fit = _fit(rec)
+    if fit is None:
         return []
-    fit = _tc.cut_fit(shape.grid, float(rec["elevation"]), float(c["heading"]))
+    c = rec["cut"]
     return _tc.outline_rings(fit, _tc.projector(float(c["lat"]), float(c["lon"]))[1])
 
 

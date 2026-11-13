@@ -81,6 +81,9 @@ def _rec(lat, lon, hideable=False):
 def shaped(monkeypatch):
     g = _skin()
     monkeypatch.setattr(TM, "shape_of", lambda p, geometry=None: types.SimpleNamespace(grid=g))
+    # the cut reads the file's plan grid (a ground object on its bridges,
+    # #2053, is no terrain-model candidate and is cut too)
+    monkeypatch.setattr(TM, "plan_grid", lambda p: g)
     return g
 
 

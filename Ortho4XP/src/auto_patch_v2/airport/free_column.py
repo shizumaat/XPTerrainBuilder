@@ -161,7 +161,7 @@ def free_columns(st: _t.Any, ui: int, index: PartIndex, law: ColumnLaw,
     that are free-standing columns, each with its seat
     ``(lat, lon, y_zero, surface_z, reason)`` for
     ``placement_file._own_ground_file``."""
-    out: dict[int, tuple] = {}
+    cols: list[tuple[int, _t.Any]] = []
     for i in sorted(st.elevated):
         r = st.raw[i]
         if r[5]:                       # a cut segment is a footed line's
@@ -169,8 +169,14 @@ def free_columns(st: _t.Any, ui: int, index: PartIndex, law: ColumnLaw,
         col = _column_of(r[0], law)
         if col is None or col.base_y <= elevated_base_m:
             continue
-        if index.hosts(col, ui, {p.pid for p in r[0]}, law.clear_m):
-            continue
+        if not index.hosts(col, ui, {p.pid for p in r[0]}, law.clear_m):
+            cols.append((i, col))
+    # A FIELD OF MASTS, read on the geometry alone (a column the surface
+    # does not cover still counts toward its field)
+    if len(cols) < law.min_count or len(cols) < law.min_share * len(st.elevated):
+        return {}
+    out: dict[int, tuple] = {}
+    for i, col in cols:
         z = _pb.ground_under(surface, (tuple(col.box),), tuple(col.box))
         if z is None:
             continue
@@ -178,10 +184,7 @@ def free_columns(st: _t.Any, ui: int, index: PartIndex, law: ColumnLaw,
         out[i] = (lat, lon, float(col.base_y), float(z),
                   f"{_OWN_GROUND}: {FREE_COLUMN} (#1908), its foot (authored y "
                   f"{float(col.base_y):+.2f}) on the ground under it")
-    if len(out) < law.min_count or len(out) < law.min_share * len(st.elevated):
-        return {}
     return out
-
 
 #: the carrier search's NO-EVIDENCE answers (``placement_carrier.carriers_for``
 #: (c)/(d)): some footed body of the unit, nothing the column stands on

@@ -77,9 +77,12 @@ final class BuildActivityModel: ObservableObject {
     /// Each row's step strip (#825): Map data → Airports → … → Install.
     /// Protocol builds only; a row without one shows no strip.
     @Published var stepStrips: [BuildModel.TileCoord: O4StepStrip] = [:]
-    /// Background airport-core sharpenings (#2039): one row per tile under
-    /// the build rows in Activity, in the order they started; a finished
-    /// one stays until the next run begins. Qt: `O4_Qt_Core_Rows`.
+    /// Background airport-core sharpenings (#2039) outside a build (a
+    /// World publish, an adopt, a flight's endpoints; a build lands its own
+    /// cores in its imagery step, RULINGS 13p): one row per tile, in the
+    /// order they started — running under the build rows in Activity, a
+    /// finished one in Completed (#2052) until the next run begins.
+    /// Qt: `O4_Qt_Core_Rows`.
     @Published var coreRows: [O4ImageryCoresProgress] = []
 
     /// One `ImageryCoresProgress`: the tile's row, made or updated.

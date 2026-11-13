@@ -292,6 +292,44 @@ def _clear_boundary_skips():
         pass
 
 
+#: The tile row's label while its imagery step lands the airport cores
+#: (RULINGS 13p); the core row's own words (``O4_Imagery_OnDemand_Text``).
+CORES_STEP_LABEL = "Sharpening airport imagery · %d of %d squares"
+
+
+def _core_seconds_for(airports):
+    """Predicted seconds to land ``airports`` airports' cores (the middle
+    of ``imagery_after_build.core_seconds``); 0 for none."""
+    if not airports:
+        return 0.0
+    from .imagery_after_build import core_seconds
+    low, high = core_seconds(int(airports))
+    return (low + high) / 2.0
+
+
+def _core_airports(tile, planned):
+    """Airports whose cores an on-demand build of ``tile`` lands in its
+    imagery step (at least one); 0 for a build not on demand."""
+    try:
+        import O4_Imagery_Placeholder as PLACEHOLDER
+        if not PLACEHOLDER.drop(tile):
+            return 0
+        if planned is None:
+            from . import tile_time_model
+            planned = tile_time_model.planned_airports(tile.lat, tile.lon)
+    except Exception:
+        return 0
+    return max(1, int(planned or 0))
+
+
+def _core_share(cores, estimates):
+    """The imagery step's share that is its airport cores: their
+    predicted ``cores`` seconds over the step's (which
+    :func:`_predict_step_seconds` made include them); 0 for none."""
+    total = float(estimates.get("imagery", 0.0) or 0.0)
+    return min(1.0, cores / total) if cores > 0 and total > 0 else 0.0
+
+
 def _predict_step_seconds(lat, lon, features, steps):
     """Learned per-step estimates, or static-weight-scaled defaults when the
     time model is unavailable (module optional during bring-up).  A step
@@ -299,6 +337,7 @@ def _predict_step_seconds(lat, lon, features, steps):
     :data:`REUSED_STEP_SECONDS`, so its window of the bar is a sliver."""
     features = dict(features or {})
     reused_steps = set(features.pop("reused_steps", ()) or ())
+    core_airports = int(features.pop("core_airports", 0) or 0)
     try:
         from . import tile_time_model
         estimates = tile_time_model.predict_step_seconds(
@@ -307,6 +346,11 @@ def _predict_step_seconds(lat, lon, features, steps):
         estimates = {k: 600.0 * STEP_WEIGHTS[k] for k in steps}
     for key in reused_steps & set(estimates):
         estimates[key] = REUSED_STEP_SECONDS
+    if core_airports and "imagery" in estimates:
+        # RULINGS 13p: an on-demand build lands its airport cores inside
+        # the imagery step; their seconds weigh that step (#2045).
+        estimates["imagery"] = (float(estimates["imagery"])
+                                + _core_seconds_for(core_airports))
     return estimates
 
 
@@ -334,6 +378,8 @@ def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
         tile = CFG.Tile(lat, lon, custom_build_dir)
         tile.read_from_config()
         features["reused_steps"] = list(REUSE.predicted_reuse(tile))
+        features["core_airports"] = _core_airports(
+            tile, features.get("airports_planned"))
     except Exception:
         pass
     try:
@@ -1610,7 +1656,7 @@ class EngineSession:
             "vector": VMAP.build_poly_file,
             "mesh": MESH.build_mesh,
             "masks": MASK.build_masks,
-            "imagery": TILE.build_tile,
+            "imagery": lambda t: self._imagery_and_cores(t, TILE.build_tile),
             "overlays": lambda t: OVL.auto_overlay(
                 t.lat, t.lon, getattr(CFG, "custom_scenery_dir", "") or ""),
         }
@@ -1906,6 +1952,42 @@ class EngineSession:
             label=self._step_label(key), percent=base * 100.0))
         self._emit_eta(force=True)
         self._slow_step.begin(tile, key, STEP_FAILURE_NOUNS.get(key, key))
+
+    def _imagery_and_cores(self, tile, build_tile):
+        """The imagery step: the textures, then -- on an on-demand build --
+        the airport cores at the tier the settings ask for (owner
+        2026-11-13, RULINGS 13p: the tile is done only once its airports
+        fly sharp with no X-Plane reload; ``imagery_after_build.
+        land_in_build``).  The cores take the step window's last share,
+        their predicted seconds (:func:`_core_share`); a Stop leaves the
+        squares not yet started and the tile stopped."""
+        result = build_tile(tile)
+        if result != 1 or UI.red_flag:
+            return result
+        from . import imagery_after_build as AFTER
+        current = self._current_step
+        if current is None:
+            return result
+        (tile_key, _key, base, width) = current
+        share = _core_share(
+            _core_seconds_for(_core_airports(tile, None)),
+            self._eta.estimates.get(tile_key, {}) if self._eta else {})
+
+        def progress(done, total):
+            fraction = done / total if total else 1.0
+            percent = 100.0 * (base + width * (1 - share * (1 - fraction)))
+            self._step_percent = max(self._step_percent, percent)
+            self._emit(StepProgress(
+                lat=tile_key[0], lon=tile_key[1], step_key="imagery",
+                label=CORES_STEP_LABEL % (done, total),
+                percent=self._step_percent))
+        try:
+            AFTER.land_in_build(tile.build_dir, tile.lat, tile.lon,
+                                stopped=lambda: UI.red_flag,
+                                progress=progress)
+        except Exception as error:      # the follow job lands them later
+            UI.vprint(1, "   Airport cores not landed:", repr(error)[:200])
+        return result
 
     def _reuse_step(self, tile, tile_key, key, base, width):
         """Skip ``key`` when its output is current (#615), or when the

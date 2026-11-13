@@ -5,9 +5,11 @@ cores sharp at once (#1992 local-imagery-cache spec §6.1; owner bug
 A tile built with imagery on demand has low-res placeholders under every
 texture name.  The follow job only sharpens squares near X-Plane's camera
 and only knows the tiles its index holds, so a tile built after the job
-started was in no index and its airport stayed coarse.  When a run ends
-the session's watcher (:func:`watch`, subscribed by both apps) hands
-every tile the run built here (:func:`start`):
+started was in no index and its airport stayed coarse.  A tile's own build lands them as the end of its imagery step
+(:func:`land_in_build`; owner 2026-11-13, RULINGS 13p: a tile is not
+done until its airports have the imagery the settings asked for); a
+World publish, an adopt and a flight's kept endpoints hand theirs over
+on a worker (:func:`start`):
 
 * :func:`register_built` -- each tile whose imagery record says on demand
   (or pinned) gets its index rows and core marks
@@ -20,7 +22,7 @@ every tile the run built here (:func:`start`):
   that tier by the follow job's own lander
   (``imagery_follow_land.TierLander``: the build's cached source JPEGs
   first, a download only when they are gone), without X-Plane.  No fetch
-  starts while a build runs (``busy``); the next run's end resumes.
+  starts while a build runs (``busy``) outside a build's own step.
 
 Each landing is a line of ``logs/imagery_on_demand.log``, and each tile
 of a batch a row of the Build view's Activity list
@@ -45,7 +47,8 @@ from . import imagery_core_rows as ROWS
 from . import imagery_follow as FOLLOW
 
 __all__ = ["CORE_WORKERS", "register_built", "core_wants", "fetch_cores",
-           "sharpen", "core_seconds", "start", "watch"]
+           "sharpen", "core_seconds", "start", "watch", "land_in_build",
+           "StepCores"]
 
 #: Core landings at once (each is a JPEG read or download and a convert).
 CORE_WORKERS = 4
@@ -120,12 +123,15 @@ def fetch_cores(tiles: Sequence[Sequence[Any]], index: Optional[str] = None,
                 busy: Callable[[], bool] = lambda: False,
                 log: Optional[str] = None,
                 workers: int = CORE_WORKERS,
-                extra: Optional[Dict[tuple, Sequence[tuple]]] = None
+                extra: Optional[Dict[tuple, Sequence[tuple]]] = None,
+                rows_for: Callable = ROWS.CoreRows
                 ) -> Dict[str, int]:
     """Land every core square of ``tiles`` (``(build_dir, lat, lon)``) at
     its tier.  ``lander(row, tier)`` returns the index facts (default
     ``TierLander``); none starts while ``busy()``; ``extra``: more
-    airports per ``(lat, lon)`` (:func:`core_wants`).
+    airports per ``(lat, lon)`` (:func:`core_wants`); ``rows_for(totals)``
+    reports the progress (default: the Build view's core rows; a build's
+    own imagery step passes :class:`StepCores`).
 
     :returns: ``{"wanted", "landed", "failed", "network", "skipped"}``
     """
@@ -149,7 +155,7 @@ def fetch_cores(tiles: Sequence[Sequence[Any]], index: Optional[str] = None,
         totals: Dict[tuple, int] = {}
         for tile, _row, _tier in wants:
             totals[tile] = totals.get(tile, 0) + 1
-        rows = ROWS.CoreRows(totals)    # the Build view's rows (#2039)
+        rows = rows_for(totals)    # the Build view's rows (#2039)
         with _futures.ThreadPoolExecutor(
                 max_workers=max(1, int(workers)),
                 thread_name_prefix="o4-imagery-cores") as pool:
@@ -224,11 +230,12 @@ def sharpen(tiles: Sequence[Sequence[Any]],
             index: Optional[str] = None,
             lander: Optional[Callable] = None,
             log: Optional[str] = None,
-            extra: Optional[Dict[tuple, Sequence[tuple]]] = None
+            extra: Optional[Dict[tuple, Sequence[tuple]]] = None,
+            rows_for: Callable = ROWS.CoreRows
             ) -> Optional[Dict[str, int]]:
     """:func:`register_built` then :func:`fetch_cores` for ``tiles``, one
-    pass at a time (the run's end and a World publish may hand over the
-    same tile); ``None`` when none was built on demand."""
+    pass at a time (a build and a World publish may hand over the same
+    tile); ``None`` when none was built on demand."""
     log = log or FOLLOW.log_path()
     with _GUARD:
         chosen = register_built(tiles, index)
@@ -237,7 +244,57 @@ def sharpen(tiles: Sequence[Sequence[Any]],
         FOLLOW.write_log(log, {"registered": ",".join(
             FNAMES.short_latlon(la, lo) for _d, la, lo in chosen)})
         return fetch_cores(chosen, index=index, lander=lander, busy=busy,
-                           log=log, extra=extra)
+                           log=log, extra=extra, rows_for=rows_for)
+
+
+class StepCores:
+    """A build's own core landing reported on its tile's row (#2052, owner
+    2026-11-13 RULINGS 13p): ``progress(done, total)`` after each square,
+    no core row of its own."""
+
+    def __init__(self, progress: Callable[[int, int], None]):
+        self._progress = progress
+        self._done = 0
+        self._total = 0
+
+    def __call__(self, totals: Dict[tuple, int]) -> "StepCores":
+        self._total = sum(int(n) for n in totals.values())
+        self._report()
+        return self
+
+    def landed(self, _tile, _ok: bool) -> None:
+        self._done += 1
+        self._report()
+
+    def skipped(self, _tile) -> None:
+        self._done += 1
+        self._report()
+
+    def finish(self) -> None:
+        pass
+
+    def _report(self) -> None:
+        try:
+            self._progress(self._done, self._total)
+        except Exception:               # a label is never worth the tile
+            pass
+
+
+def land_in_build(build_dir: str, lat: int, lon: int,
+                  stopped: Callable[[], bool],
+                  progress: Callable[[int, int], None] = lambda d, t: None,
+                  index: Optional[str] = None,
+                  lander: Optional[Callable] = None
+                  ) -> Optional[Dict[str, int]]:
+    """THE TILE'S IMAGERY STEP ENDS HERE (owner 2026-11-13, RULINGS 13p):
+    a tile built on demand is not done until its airport cores are landed
+    at the tier the user's settings ask for, so it flies with no X-Plane
+    reload; imagery away from the airports stays on demand (the follow
+    job).  Registers the tile and lands its cores now, in the build;
+    ``stopped()`` (the build's Stop) leaves the squares not yet started.
+    ``None`` for a tile not built on demand."""
+    return sharpen([(build_dir, int(lat), int(lon))], busy=stopped,
+                   index=index, lander=lander, rows_for=StepCores(progress))
 
 
 def _work(tiles, busy, index, lander, log, extra=None) -> None:
@@ -271,26 +328,10 @@ def start(tiles: Sequence[Sequence[Any]],
 
 
 def watch(session) -> None:
-    """Subscribe to ``session`` (an ``EngineSession``): each tile its run
-    built (``BuildDone`` ok) goes to :func:`start` when the run ends
-    (``RunDone``), in its build folder (``session.tile_build_dir``).  A
-    per-step worker child's runs are its parent's to hand over."""
-    built: list = []
-    guard = threading.Lock()
-    ROWS.set_sink(getattr(session, "_emit", None))   # the rows (#2039)
-
-    def on_event(event) -> None:
-        name = type(event).__name__
-        if name == "BuildDone" and event.ok:
-            with guard:
-                built.append((int(event.lat), int(event.lon)))
-        elif name == "RunDone":
-            with guard:
-                tiles, built[:] = list(built), []
-            if tiles and not getattr(session, "_stepwise_run", False):
-                # The follow job holds only the tiles a build has queued
-                # or is building (World spec §8.7).
-                start([(session.tile_build_dir(*t), *t) for t in tiles],
-                      busy=getattr(session, "building_tiles",
-                                   lambda: bool(session._building)))
-    session.subscribe(on_event)
+    """Send the background core rows (#2039) of ``session`` (an
+    ``EngineSession``) to its event stream.  A build's own tiles are not
+    handed over at the run's end any more: their cores land inside the
+    tile's imagery step (:func:`land_in_build`, RULINGS 13p), so the rows
+    are only for sharpening outside a build (a World publish, an adopt, a
+    flight's kept endpoints)."""
+    ROWS.set_sink(getattr(session, "_emit", None))

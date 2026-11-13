@@ -379,7 +379,8 @@ def survey_design_grade(airport, law: Law, axis_fn, sm: SurveyMouth, design: flo
     floor runs flat from both mouths, and a 5 % ramp from the surveyed road
     stood 1.2 m over it at its top, 24 m out, with the road beyond pulled up
     2.3 m to meet it.  Where the survey climbs at the design grade or more
-    (EGLL north) the design grade stands."""
+    the design grade stands.  (EGLL's north mouth, KEPT: 5 % -> 0.65 %, the
+    survey's own climb over its first 12 m; floor and top unchanged.)"""
     if sm.verdict == KEPT and sm.extra <= 0.0 and design > 0.0:
         z0, z1 = dem_z_at(airport, axis_fn(0.0)), dem_z_at(airport, axis_fn(_ROAD_M))
         if math.isnan(z0) or math.isnan(z1):

@@ -242,6 +242,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.split_guard",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_feature",
+        "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
@@ -443,6 +444,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.sunken_roads",
         "auto_patch_v2.airport.terrain_feature",
+        "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.thin_plates",
         "auto_patch_v2.airport.topology_cache",
@@ -792,6 +794,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.split_guard",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_feature",
+        "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.wall_class",
@@ -950,6 +953,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.split_guard",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_feature",
+        "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.wall_class",
@@ -1143,6 +1147,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.split_guard",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_feature",
+        "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
@@ -1797,7 +1802,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_shaped airport.pack_ground geom.terrain_deck
+    airport.terrain_feature airport.terrain_model
+    airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
@@ -1895,7 +1901,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.file_hash airport.footprint_carry airport.footprint_connector
     airport.footprint_seats airport.footprint_unit airport.one_building airport.frame_entry
     airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_shaped airport.pack_ground geom.terrain_deck
+    airport.terrain_feature airport.terrain_model
+    airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof airport.obj8_split
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
@@ -1974,7 +1981,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.footprint_unit
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_shaped airport.pack_ground geom.terrain_deck
+    airport.terrain_feature airport.terrain_model
+    airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof
     airport.below_grade_witness
@@ -2119,7 +2127,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.footprint_unit
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_shaped airport.pack_ground geom.terrain_deck
+    airport.terrain_feature airport.terrain_model
+    airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof
     airport.below_grade_witness
@@ -2276,7 +2285,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_shaped airport.pack_ground geom.terrain_deck
+    airport.terrain_feature airport.terrain_model
+    airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.below_grade_witness
     airport.obj8_split
@@ -2376,7 +2386,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
-    airport.terrain_feature airport.terrain_shaped airport.pack_ground geom.terrain_deck
+    airport.terrain_feature airport.terrain_model
+    airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split
     airport.obj8_rest airport.pack_health airport.pack_health.light_records

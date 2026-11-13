@@ -74,7 +74,7 @@ def stage(tmp_path, monkeypatch):
 def test_one_question_lists_every_row(stage):
     out = AS.adjust_stage(stage["plan"], TILE, writes=True)
     assert out == {"flatten": "removed", "trees": "found", "drapes": "found",
-                   "ground": "found"}
+                   "ground": "found", "terrain": ""}
     assert stage["forests"] == [], "the trees no longer ask on their own"
     [ev] = stage["adjust"]
     assert ev["state"] == "found" and (ev["lat"], ev["lon"]) == (25, 51)
@@ -185,7 +185,33 @@ def test_never_and_undo_go_to_every_row(stage, monkeypatch):
     assert stage["answers"] == [("drapes", "never")]
     AS.adjust_choice(root, "undo")
     assert stage["answers"][1:] == [("trees", "undo"), ("drapes", "undo"),
-                                    ("ground", "undo")]
+                                    ("ground", "undo"), ("terrain", "undo")]
+
+
+def test_the_terrain_objects_are_offered_unticked(stage, monkeypatch):
+    """RULINGS 2026-11-13i (#2036 (c)): a build whose plan offers a terrain
+    object for hiding asks it as the row ``terrain``, unticked; the offer
+    is remembered so the answer works outside a build."""
+    mountain = PA.MissingDef("object", 7, "Objetos/mountain.obj", 1)
+    offered = []
+
+    def check_all(*a, terrain=None, **k):
+        offered.append(DS.terrain_paths(stage["plan"].pack_root, terrain))
+        return {"drapes": stage["pd"], "terrain": DS.PackDrapes(
+            "Some Pack", "/p/d.dsf", (mountain,), (), (PHOTO,))}
+    monkeypatch.setattr(DS, "check_all", check_all)
+    stage["plan"].authored_seats = (
+        {"id": "dsf:obj7", "resource": "Objetos/mountain.obj",
+         "seat": "terrain model", "hideable": True},
+        {"id": "dsf:obj8", "resource": "Objetos/house.obj",
+         "seat": "terrain model", "hideable": False})
+    out = AS.adjust_stage(stage["plan"], TILE, writes=True)
+    assert out["terrain"] == "found" and offered == [("Objetos/mountain.obj",)]
+    [ev] = stage["adjust"]
+    row = next(r for r in ev["items"] if r["key"] == "terrain")
+    assert row["checked"] is False and row["count"] == 1
+    assert DS.terrain_paths(stage["plan"].pack_root) == ("Objetos/mountain.obj",), \
+        "the offer is remembered for the answer outside a build"
 
 
 def test_ask_is_the_report(stage):

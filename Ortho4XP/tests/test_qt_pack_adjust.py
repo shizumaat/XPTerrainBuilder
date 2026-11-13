@@ -96,6 +96,18 @@ def test_the_ground_textures_open_unticked(qapp):
         "unpaved ground at the airport cover the tile’s imagery.")
 
 
+def test_the_terrain_objects_open_unticked(qapp):
+    """RULINGS 2026-11-13i: "Hide terrain objects" is offered beside the
+    drapes and the ground, off by default."""
+    rows = ITEMS[:2] + [{"key": "terrain", "count": 1, "uses": 1,
+                         "automatic": False, "checked": False}] + ITEMS[2:]
+    box, _buttons = QTADJ.pack_adjust_box(_event(items=rows))
+    assert list(box.item_boxes) == ["trees", "drapes", "terrain"]
+    assert box.checked_items() == ["trees", "drapes"]
+    assert QTADJ.ITEM_TITLES["terrain"] == (
+        "Hide terrain objects included with the package")
+
+
 def test_the_copy_matches_the_mac_app():
     swift = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
                          "SceneryKit", "PackAdjust.swift")

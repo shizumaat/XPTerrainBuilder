@@ -340,9 +340,15 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     # pavement drives across is planned: ``ObjectFloor.decks``, B2)
     floor_seats = _of.seat_records(floors, airport.frame.transformers()[1])
     excluded |= {str(r["id"]) for r in floor_seats if r.get("seat") != _of.FRAME_SEAT}
+    # owner RULINGS 2026-11-13i: a terrain model's origin set is seated whole
+    # at its no-float zero -- no other seat moves a row of it
+    from ..airport import terrain_model as _tm
+    model_seats = _tm.seat_records(airport)
+    modelled = {str(m["id"]) for m in model_seats}
+    floor_seats = [r for r in floor_seats if str(r["id"]) not in modelled]
     from ..airport.adapted_riders import seat_records as _adapted_seats
     adapted = (_adapted_seats(objects, excluded - _authored_seats.kept_ids(seats)
-                              - {str(r["id"]) for r in floor_seats},
+                              - {str(r["id"]) for r in floor_seats} - modelled,
                               airport.frame.transformers()[1]) if objects else [])
     return {
         "tunnel_objects": _plate_seats(pm, law, seats),
@@ -351,7 +357,8 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
                            + tuple(_ts.portal_seat_records(
                                pm.structures, airport.frame.transformers()[1],
                                zeros=solved_entrance_zeros(pm, law, surf, _to_xy)))
-                           + tuple(floor_seats) + tuple(adapted)),
+                           + tuple(floor_seats) + tuple(adapted)
+                           + tuple(model_seats)),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``

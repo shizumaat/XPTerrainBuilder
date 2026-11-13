@@ -91,7 +91,11 @@ FRAME_SEAT = "object floor frame"
 ADAPTED_SEAT = "adapted row"
 #: the ``MslSeat.why`` of an :data:`ADAPTED_SEAT` row (14g (2) filters it)
 ADAPTED_WHY = "adapted_row"
-_WHY = {SEAT: "terrain_fit", PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
+#: owner RULINGS 2026-11-13i: a terrain model's origin-set row at its
+#: no-float zero (``airport/terrain_model.seat_records``)
+MODEL_SEAT = "terrain model"
+_WHY = {SEAT: "terrain_fit", MODEL_SEAT: "terrain_model",
+        PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
         OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden", ADAPTED_SEAT: ADAPTED_WHY}
 
 

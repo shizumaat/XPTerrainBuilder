@@ -18,6 +18,10 @@ the question opens; ``flatten`` listed as automatic):
   airport (``drape_stage.GROUND``, #1962): the one row that is UNCHECKED
   when the question opens (``checked``), never hidden without the user's
   tick (RULINGS 2026-11-09a (3));
+* ``terrain`` — hide the pack's objects that model terrain where quality
+  elevation models the same ground (``drape_stage.TERRAIN``, owner RULINGS
+  2026-11-13i, #2036 (c)): UNCHECKED when the question opens, offered only
+  when a build found one (its witness needs the build's DEM);
 * ``flatten`` — the apt.dat's ``1302 flatten 1`` rows, removed on every
   write with no question (RULINGS 2026-10-20ac;
   ``auto_patch_v2.airport.apt_flatten``), undone by Restore originals.
@@ -45,9 +49,9 @@ __all__ = ["CHOICES", "ACTIONS", "adjust_stage", "tile_stage",
            "adjust_choice"]
 
 #: the rows the user chooses, in the question's order
-CHOICES = ("trees", "drapes", "ground")
+CHOICES = ("trees", "drapes", "ground", "terrain")
 #: the rows left unticked when the question opens
-UNCHECKED = ("ground",)
+UNCHECKED = ("ground", "terrain")
 #: the actions of the ``pack_adjust`` command
 ACTIONS = ("update", "never", "undo", "ask")
 
@@ -170,13 +174,24 @@ def _drape_stages(plan_, tile, writes: bool) -> dict[str, tuple]:
     pack_root = getattr(plan_, "pack_root", "") or ""
     try:
         found = _DS.check_all(pack_root, tile.lat, tile.lon,
-                              read_only=not writes)
+                              read_only=not writes, terrain=_offered(plan_))
     except Exception as exc:
         UI.vprint(1, f"  [pack] draped-polygon check skipped ({exc})")
         UI.vprint(2, traceback.format_exc())
         return {k.key: ("", None) for k in _DS.KINDS}
     return {k.key: _DS.drape_stage(plan_, tile, writes=writes, kind=k,
                                    found=found) for k in _DS.KINDS}
+
+
+def _offered(plan_) -> "tuple[str, ...] | None":
+    """The terrain objects a build's plan offers for hiding (its seat
+    records, ``terrain_model.hideable_paths``), or ``None`` with no plan
+    records (the tile's scan: the last build's are read back)."""
+    records = getattr(plan_, "authored_seats", None)
+    if records is None:
+        return None
+    from auto_patch_v2.airport import terrain_model as _tm
+    return _tm.hideable_paths(records)
 
 
 def _configured_dirs() -> list[str]:

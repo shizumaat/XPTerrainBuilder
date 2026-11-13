@@ -3,13 +3,15 @@ import Foundation
 /// One adjustment of an airport pack (engine `PackAdjust.items`, issue
 /// #1916): `trees` (point old flat forests at the X-Plane 12 3D trees),
 /// `drapes` (hide the package's draped photos over the airport), `ground`
-/// (hide its large ground textures, #1962) — each a checkbox, ticked when
-/// the sheet opens as `checked` says (`ground` is not: RULINGS 2026-11-09a
-/// (3)) — or `flatten` (the apt.dat's `1302 flatten 1`, removed with no
+/// (hide its large ground textures, #1962), `terrain` (hide its objects
+/// that model terrain where detailed elevation covers them, RULINGS
+/// 2026-11-13i) — each a checkbox, ticked when the sheet opens as
+/// `checked` says (`ground` and `terrain` are not: RULINGS 2026-11-09a (3),
+/// 2026-11-13i) — or `flatten` (the apt.dat's `1302 flatten 1`, removed with no
 /// question: `automatic`).
 public struct O4PackAdjustItem: Sendable, Equatable, Identifiable {
     public let key: String
-    /// Definitions (`trees`, `drapes`, `ground`).
+    /// Definitions (`trees`, `drapes`, `ground`, `terrain`).
     public let count: Int
     /// Polygons drawing them.
     public let uses: Int
@@ -95,6 +97,7 @@ public enum O4PackAdjustCopy {
         "trees": "Update trees",
         "drapes": "Hide draped orthophotos included with the package",
         "ground": "Hide large ground textures included with the package",
+        "terrain": "Hide terrain objects included with the package",
         "flatten": "Remove the airport’s flatten flag (always)",
     ]
 
@@ -107,6 +110,8 @@ public enum O4PackAdjustCopy {
         "ground": "{n} painted ground or grass images ({uses} polygons) laid "
             + "mostly over unpaved ground at the airport cover the tile’s "
             + "imagery.",
+        "terrain": "{n} objects ({uses} placements) model hills or shoreline "
+            + "that the tile’s detailed elevation data already describes.",
         "flatten": "The apt.dat asks X-Plane to flatten the airport, which "
             + "does not work with this app’s terrain mesh.",
     ]

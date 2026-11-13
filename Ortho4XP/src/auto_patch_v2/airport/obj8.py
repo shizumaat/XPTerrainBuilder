@@ -794,6 +794,11 @@ class PlacedObject:
     #: -- one rigid body seated by its fit to the DEM, never read either: no
     #: witness, no deck, no feet
     terrain_fit: object | None = None
+    #: owner RULINGS 2026-11-13i (#2036 (c), #2040): the TERRAIN MODEL
+    #: (``terrain_model.TerrainModel``) whose origin set this placement is
+    #: in -- seated rigid with no visible edge floating, and like a
+    #: terrain feature never read (``terrain_feature`` is set too)
+    terrain_model: object | None = None
     #: owner RULINGS 2026-10-27t/u (#1201): the runway-end WALLED PLATE this
     #: placement belongs to (``model.walled_plate.WalledPlate``; set by
     #: ``airport/walled_plate.mark``), else ``None``
@@ -1276,7 +1281,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         depth_max_m: float = math.inf,
                         ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None,
                         msl_tol_m: float = 0.3,
-                        dem_many: "_t.Callable | None" = None
+                        dem_many: "_t.Callable | None" = None,
+                        fine: "_t.Callable | None" = None
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -1306,7 +1312,9 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     ``ahead(jobs, law)`` (issue #362) may answer the placements that have a
     component to read or a hard deck to union from a work pool —
     ``[read_placement(…)]`` in job order, or ``None`` — and the report is
-    absorbed in input order either way."""
+    absorbed in input order either way.  ``fine(xs, ys)`` says where
+    quality elevation covers a frame point (``terrain_model``'s hide
+    offer; ``None``: nowhere)."""
     cache = cache or ResourceCache(thickness_m)
     law = ReadLaw(admission_depth_m, contact_band_m, shell_reaches_grade,
                   floor_plate_normal_y_min, rim_reaches_grade,
@@ -1334,6 +1342,14 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     shaped = _ts.placement_fits([p[:4] for p in placements],
                                 lambda d: _ts.grid_of_resource(d, pack_root, index),
                                 dem_many or _ts.dem_many_of(dem_z))
+    # owner RULINGS 2026-11-13i: an object that models the terrain (matched
+    # to the DEM) is one rigid frame, seated so no visible edge floats
+    from . import terrain_model as _tm
+    models = _tm.set_members(placements, _tm.placement_models(
+        placements, lambda d: resolve_resource(d, pack_root, index),
+        lambda d: _geometry_of(d, pack_root, index, cache),
+        dem_many or _ts.dem_many_of(dem_z), fine))
+    features = features | frozenset(models)
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0
         if kind == "OBJECT_AGL" and elev is not None:
@@ -1358,7 +1374,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
                                     None, None, None, None, None, None,
                                     terrain_feature=oid in features,
-                                    terrain_fit=shaped.get(oid)))
+                                    terrain_fit=None if oid in models else shaped.get(oid),
+                                    terrain_model=models.get(oid)))
             continue
         if math.isnan(anchor_z):
             rep.no_dem_at_anchor += 1

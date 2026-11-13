@@ -74,7 +74,7 @@ __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PE
            "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
            "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
            "placement_models", "set_members", "seat_records", "log_line",
-           "hideable_paths"]
+           "hideable_paths", "plan_grid"]
 
 MIN_PLAN_M = 500.0
 MIN_RELIEF_M = 50.0
@@ -126,6 +126,14 @@ class TerrainModel:
     #: the resolved OBJ8 file (the tile's cut re-reads its shape from it,
     #: ``airport/terrain_cut``); ``""`` in a capture written before it
     file: str = ""
+    #: how ``z0`` was read when not by the outer rim: ``""`` (this module)
+    #: or ``bridged_ground.SEAT_BY`` (#2053: a ground object in the water
+    #: on its bridges' far ends -- the match fields above are then 0)
+    seat_by: str = ""
+    #: the cut's erosion radius when not ``terrain_cut.ERODE_M`` (m)
+    erode_m: "float | None" = None
+    #: how far the other seat points sink under their ground at ``z0`` (m)
+    spread_m: float = 0.0
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -206,6 +214,27 @@ def _shape(path: str) -> "Shape | None":
     if hi - lo < MIN_RELIEF_M:
         return None
     return Shape(grid, plan, float(hi - lo), spread)
+
+
+@functools.lru_cache(maxsize=64)
+def _file_grid(path: str, mtime_ns: int, size: int) -> "DeckGrid | None":
+    from .obj8 import parse_obj8
+    try:
+        return _grid(parse_obj8(path))
+    except (OSError, ValueError):
+        return None
+
+
+def plan_grid(path: str) -> "DeckGrid | None":
+    """The plan grid of an OBJ8 file's static solid -- the grid a seat
+    record's ``cut`` is made from (``auto_patch/terrain_cut_stage``), for a
+    terrain model and for a ground object on its bridges
+    (``bridged_ground``) alike; ``None`` when unreadable."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return _file_grid(path, st.st_mtime_ns, st.st_size)
 
 
 @functools.lru_cache(maxsize=256)
@@ -362,12 +391,16 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
                "elevation": round(m.z0 + float(lift or 0.0), 3),
                "hideable": bool(m.hideable and dpath == m.path),
                "corr": round(m.corr, 3), "quality_cover": round(m.quality_cover, 3)}
+        if getattr(m, "seat_by", ""):
+            rec["by"] = m.seat_by
         if oid == m.id and getattr(m, "file", ""):
             if to_ll is None:
                 to_ll = airport.frame.transformers()[1]
             lat, lon = to_ll(*m.xy)
             rec["cut"] = {"file": m.file, "lat": round(float(lat), 9),
                           "lon": round(float(lon), 9), "heading": round(m.heading, 6)}
+            if getattr(m, "erode_m", None) is not None:
+                rec["cut"]["erode_m"] = float(m.erode_m)
         out.append(rec)
     return out
 
@@ -380,8 +413,10 @@ def hideable_paths(records: _t.Iterable[_t.Any]) -> tuple[str, ...]:
 
 
 def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:
-    """The build log's one line on the terrain models."""
-    models = sorted({m.id: m for m in models}.values(), key=lambda m: m.id)
+    """The build log's one line on the terrain models (a ground object
+    seated on its bridges has its own line, ``bridged_ground.log_line``)."""
+    models = sorted({m.id: m for m in models if not getattr(m, "seat_by", "")}.values(),
+                    key=lambda m: m.id)
     if not models:
         return f"[{icao}] terrain-modelling objects: none"
     return f"[{icao}] terrain-modelling objects: " + "; ".join(

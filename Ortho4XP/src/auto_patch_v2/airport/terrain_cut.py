@@ -85,13 +85,14 @@ ERODE_M = 30.0
 BAND_M = 10.0
 
 
-def _cut_grid(grid: DeckGrid) -> DeckGrid:
+def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M) -> DeckGrid:
     """The CUT SURFACE of a model's plan grid (module doc) as a
     :class:`DeckGrid` whose ``top`` is the bound (``bot`` the model's own;
-    the cut never fills)."""
+    the cut never fills).  ``erode_m``: the erosion radius (a ground object
+    carrying riders takes one cell, ``bridged_ground.ERODE_M``)."""
     from scipy import ndimage
     cov = grid.covered
-    k = max(1, int(round(ERODE_M / CELL_M)))
+    k = max(1, int(round(erode_m / CELL_M)))
     disc = np.hypot(*np.mgrid[-k:k + 1, -k:k + 1]) <= k
     top = np.where(cov, grid.top, np.inf)
     eroded = ndimage.minimum_filter(top, footprint=disc, mode="constant", cval=np.inf)
@@ -107,10 +108,11 @@ def _cut_grid(grid: DeckGrid) -> DeckGrid:
     return DeckGrid(grid.x0, grid.z0, grid.bot.copy(), np.where(cov, bound, np.nan))
 
 
-def cut_fit(grid: DeckGrid, zero: float, heading: float) -> TerrainFit:
+def cut_fit(grid: DeckGrid, zero: float, heading: float,
+            erode_m: float = ERODE_M) -> TerrainFit:
     """The cut as a :class:`TerrainFit` anchored at the frame origin (the
     model's anchor), seated at ``zero``, filling nothing."""
-    cut = _cut_grid(grid)
+    cut = _cut_grid(grid, erode_m)
     return TerrainFit("cut", "", (0.0, 0.0), float(heading), float(zero), 1.0,
                       cut.area_m2, 0.0, cut, fill=False)
 

@@ -319,7 +319,10 @@ def _core_airports(tile, planned):
             planned = tile_time_model.planned_airports(tile.lat, tile.lon)
     except Exception:
         return 0
-    return max(1, int(planned or 0))
+    # ``planned_airports`` answers ``{icao: None}`` (a mapping), a caller
+    # may pass a count: count the airports either way (EGNS 1.0.513).
+    count = len(planned) if hasattr(planned, "__len__") else int(planned or 0)
+    return max(1, count)
 
 
 def _core_share(cores, estimates):

@@ -247,7 +247,7 @@ def _fake_built_tile(window, lat, lon, texture_names):
     import O4_File_Names as FNAMES
     import O4_Tile_Info as TINFO
 
-    build_dir = os.path.join(window.output_dir(), "zOrtho4XP_" + FNAMES.short_latlon(lat, lon))
+    build_dir = FNAMES.build_dir(lat, lon, window.output_dir())
     dsf = os.path.join(build_dir, "Earth nav data", FNAMES.round_latlon(lat, lon),
                        FNAMES.short_latlon(lat, lon) + ".dsf")
     os.makedirs(os.path.dirname(dsf), exist_ok=True)

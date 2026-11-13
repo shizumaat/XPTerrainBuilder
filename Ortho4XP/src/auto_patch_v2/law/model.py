@@ -548,6 +548,11 @@ class Bridge:
     #: carries is read this many DEM postings past the carriageway's
     #: half-width + the stand-off, each side
     ground_probe_dem_cells: float
+    #: #2065 (``airport/bridge_witness`` W2): a free bridge's route chain,
+    #: buffered this far each side, covers at least ``free_route_cover_min``
+    #: of the deck plate's plan
+    free_route_half_width_m: float
+    free_route_cover_min: float
 
 
 @_dc.dataclass(frozen=True)

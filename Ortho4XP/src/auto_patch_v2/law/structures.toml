@@ -616,6 +616,13 @@ deck_min_clearance_under_m = 1.0   # AFTER the seat: the mesh under SOME station
 # carriageway's half-width + the stand-off on each side, is a deck in the
 # DEM; under it the ground is interpolated from the two sides (lower only).
 ground_probe_dem_cells = 2.0
+# #2065 bridge classifier (spec bridge-classifier-spec.md §1 W2; Fable 2026-11-13,
+# owner-asked design 23:08Z): THE RIBBON — a free bridge's route chain, buffered
+# this far each side of its centreline, covers at least free_route_cover_min of
+# the deck plate's plan (probe: real bridges 0.67-1.00, refused non-bridges
+# 0.14-0.66).  Read by airport/bridge_witness W2 only.
+free_route_half_width_m = 12.0
+free_route_cover_min    = 0.6
 
 [building_pad]
 weld_to_touching_pavement = true   # contact = value (09-01g)

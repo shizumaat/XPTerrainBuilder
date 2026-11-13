@@ -129,3 +129,164 @@ def test_a_tilted_body_sharing_its_group_with_another_object_takes_the_group_zer
     tilted = dc.replace(_body(_walls()), seat=_seat(_walls()))
     out = OFS.group_zero(_split(tilted), _M, pw, zeros, {}, "unit:24", solo=solo)
     assert _z(out) == 417.877
+
+
+# ── round 2 (spec 2060-round2): tilt and zero belong to the FRAME, its
+# carried riders included (14p (1): a shared frame tilts as one rigid group)
+
+CARRIER = "objects/hangar__b0_tilted.obj"
+
+
+def _rider(merged_into: str = CARRIER, body_id: int = 1, resource: str = "objects/roof.obj"):
+    """A footless piece carried on the hangar: its carrier's anchor, no feet."""
+    a = AR.Anchor(AR.BUILDING, LAT, LON, 0.0, f"carried by {merged_into} (rests on it)",
+                  Z0, offset=(0.0, 0.0, 0.0))
+    return Body(body_id, AR.BUILDING, (1,), a, f"{resource[:-4]}__b{body_id}.obj",
+                feet=(), merged_into=merged_into, merged_into_written=True, elevated=True)
+
+
+class _MR:
+    heading_deg = 0.0
+    resource = "objects/roof.obj"
+    zero_y = 0.0
+
+
+def _tilted_carrier():
+    b = dc.replace(_body(_walls()), seat=_seat(_walls()))
+    from auto_patch_v2.airport.placement_file import named_body
+    return named_body(_M, b)
+
+
+def test_a_cross_member_rider_takes_its_carriers_tilt_and_its_hash_follows():
+    seat = _seat(_walls())
+    seats = {(0, 0): seat}
+    level = _rider()
+    out = PST.rider_seat(level, _MR, seats, (0, 0), written=True)
+    assert out.seat is seat and out.seat.grad == seat.grad
+    assert out.new_resource != level.new_resource
+    # the carrier's own file name moves by the same tilt: one hash
+    carrier = _body(_walls())
+    from auto_patch_v2.airport.placement_file import baked_name
+    assert (baked_name(_M, carrier, seat).rsplit("_", 1)[1]
+            == out.new_resource.rsplit("_", 1)[1])
+    counts: dict = {}
+    PST.rider_counts((out,), {CARRIER}, counts)
+    assert counts == {"seat_tilt_rider_followed": 1}
+
+
+def test_a_carrier_kept_whole_bakes_no_tilt_so_its_rider_takes_none():
+    seats = {(0, 0): _seat(_walls())}
+    level = _rider()
+    assert PST.rider_seat(level, _MR, seats, (0, 0), written=False) is level
+    assert PST.rider_seat(level, _MR, {(0, 0): None}, (0, 0), written=True) is level
+
+
+def test_a_rider_left_level_on_a_tilted_carrier_is_counted():
+    counts: dict = {}
+    PST.rider_counts((_rider(),), {CARRIER}, counts)
+    assert counts == {"seat_tilt_level_rider": 1}
+
+
+def _frame_with_rider(rider_heading: float):
+    """One post-feet member whose body frame carries a footless piece of
+    ANOTHER member placed at ``rider_heading``."""
+    from test_seat_tilt_shared708 import _frame_staged
+    from test_objtilt162 import _feet
+    sts = _frame_staged([_feet(), _feet()])[:1]
+    rider_m = types.SimpleNamespace(heading_deg=rider_heading, resource="objects/r.obj",
+                                    base_profile={})
+    carrier = types.SimpleNamespace(member=0, group=0)
+    sts.append(types.SimpleNamespace(mi=1, m=rider_m, raw=[], groups=[],
+                                     carried=[([0], carrier, "rests on it")]))
+    return sts
+
+
+def _frame_seats(sts):
+    from test_objtilt162 import BAND_M, CAP_DEG, TOL_M, _U, _surface
+    counts: dict = {}
+    seats = PST.frame_tilts(sts, _U(), _surface(0.0136), max_total_deg=CAP_DEG,
+                            frame_max_deg=1.0, foot_tol_m=TOL_M, band_m=BAND_M,
+                            counts=counts)
+    return seats, counts
+
+
+def test_a_rider_at_another_heading_keeps_the_frame_level():
+    """One rotation is one gradient pair only in one authored frame: a
+    rider placed at another heading would bake another plane."""
+    seats, counts = _frame_seats(_frame_with_rider(0.0))
+    assert len(seats) == 1 and "frame_tilt_mixed_heading" not in counts
+    seats, counts = _frame_seats(_frame_with_rider(90.0))
+    assert seats == {} and counts["frame_tilt_mixed_heading"] == 1
+
+
+def _solo():
+    pw = {1: ("fu:24:559/host", 417.877)}
+    solo: set = set()
+    zeros = OFS.root_zeros(pw, _plan(("dsf:obj563", (1,))), solo_out=solo)
+    return pw, zeros, solo
+
+
+def _zero_of(b):
+    return round(b.anchor.surface_z - b.anchor.y_zero, 3)
+
+
+def test_a_solo_tilted_carrier_and_its_cross_member_rider_keep_the_carriers_zero():
+    pw, zeros, solo = _solo()
+    carrier = _tilted_carrier()
+    led: set = set()
+    counts: dict = {}
+    out = OFS.group_zero(_split(carrier), _M, pw, zeros, counts, "unit:24",
+                         solo=solo, led=led)
+    assert _zero_of(out.bodies[0]) == Z0
+    assert led == {"fu:24:559|unit:24"}
+    # the rider is another member's record, cut AFTER its carrier: its root
+    # is its carrier's (``file_root``), and it follows the kept zero
+    rider = PST.rider_seat(_rider(carrier.new_resource), _MR,
+                           {(0, 0): carrier.seat}, (0, 0), written=True)
+    rec = Split(1, "dsf:obj1", _MR.resource, "/x/roof.obj", LAT, LON, 0.0, (rider,))
+    out = OFS.group_zero(rec, _MR, pw, zeros, counts, "unit:24",
+                         file_root={carrier.new_resource: "fu:24:559"}, solo=solo, led=led)
+    assert _zero_of(out.bodies[0]) == Z0
+    assert counts["group_zero_rider_kept"] == 1
+    assert "group_zero_bodies" not in counts
+    rc: dict = {}
+    PST.rider_counts((rider,), {carrier.new_resource}, rc)
+    assert "seat_tilt_level_rider" not in rc
+
+
+def test_a_solo_tilted_carrier_and_its_same_member_rider_keep_its_zero():
+    pw, zeros, solo = _solo()
+    carrier = _tilted_carrier()
+    rider = PST.rider_seat(_rider(carrier.new_resource), _M,
+                           {(0, 0): carrier.seat}, (0, 0), written=True)
+    counts: dict = {}
+    out = OFS.group_zero(_split(carrier, rider), _M, pw, zeros, counts, "unit:24",
+                         file_root={carrier.new_resource: "fu:24:559"}, solo=solo,
+                         led=set())
+    assert [_zero_of(b) for b in out.bodies] == [Z0, Z0]
+    assert counts.get("group_zero_tilted_kept") == 1
+    assert counts.get("group_zero_rider_kept") == 1
+    assert "group_zero_bodies" not in counts
+
+
+def test_a_tilted_body_in_a_two_member_share_takes_the_group_zero_counted():
+    pw = {1: ("fu:24:559/host", 417.877), 2: ("fu:24:559/host", 417.877)}
+    solo: set = set()
+    zeros = OFS.root_zeros(pw, _plan(("dsf:obj563", (1,)), ("dsf:obj564", (2,))),
+                           solo_out=solo)
+    led: set = set()
+    counts: dict = {}
+    out = OFS.group_zero(_split(_tilted_carrier()), _M, pw, zeros, counts, "unit:24",
+                         solo=solo, led=led)
+    assert _zero_of(out.bodies[0]) == 417.877 and not led
+    assert counts["group_zero_tilted_moved"] == 1
+
+
+def test_a_cut_deck_seat_clears_the_seat_it_no_longer_bakes(tmp_path):
+    from test_cut_deck_seat1331 import _cut, _deck_obj, _member, _record, _surface
+    from auto_patch_v2.airport import cut_deck_seat as CDS
+    rec = _record()
+    rec = dc.replace(rec, bodies=(dc.replace(rec.bodies[0], seat=_seat(_walls())),))
+    out = CDS.seat_cut_decks(rec, _member(_deck_obj(tmp_path)), (40.0, -3.0), _surface(),
+                             (_cut(),), 2.0, 0.5, {})
+    assert out.bodies[0].seat is None and not out.bodies[0].merged_into

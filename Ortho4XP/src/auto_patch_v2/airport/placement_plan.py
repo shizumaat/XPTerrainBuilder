@@ -130,7 +130,8 @@ from .open_frame_seat import (  # noqa: E402
     frame_root_boxes as _frame_root_boxes, frame_zero as _frame_zero,
     group_zero as _group_zero, open_zero as _open_zero, at_zero as _at_zero,
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
-    rigid_open as _rigid_open, root_zeros as _root_zeros)
+    rigid_open as _rigid_open, root_zeros as _root_zeros,
+    unit_root as _ofs_unit_root)
 from .pad_level_group import pad_level_links as _pad_level_links  # noqa: E402
 from .adapted_riders import member_zeros as _adapted_member_zeros  # noqa: E402
 from .placement_file import (  # noqa: E402,F401
@@ -158,6 +159,12 @@ def _keeps_seat(ring: _t.Any, on_fraction: float, seats: _t.Sequence, body: _t.A
     cut's body in its ring (:func:`_rides_frame`)."""
     return ((ring is not None and _rides_frame(ring, on_fraction, body)) or _cds.seated(body)
             or _cds.seat_under(body, seats, on_fraction) is not None)
+
+
+def _applied(b: _t.Any) -> _t.Any:
+    """``b``'s seat when its tilt is APPLIED (baked), else None (#2060 r2)."""
+    s = getattr(b, "seat", None)
+    return s if s is not None and getattr(s, "applied", False) else None
 
 
 def build_splits(plan: RebakePlan, surface: _ar.Surface,
@@ -399,6 +406,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # unit — the pieces the pad-level and block passes cut put back together
     _gz_air: dict[str, tuple[float, int]] = {}           # 23e: airside wins
     _gz_solo: set[str] = set()                           # #2060: one-member shares
+    _gz_led: set[str] = set()      # #2060 r2: shares whose tilted frame kept its zero
+    # #2060 r2 (R4): the written files baking an applied seat, their units,
+    # and the units the unit-carried pieces ride -- what the counts read
+    _tilted_files: set[str] = set()
+    _tilted_roots: set[str] = set()
+    _unit_riders: list[str] = []
     _gz = _root_zeros(_pw or {}, plan, surface, counts, _gz_air,   # 22q: airside first
                       solo_out=_gz_solo)
     # #1949 (RULINGS 2026-11-11f): a rail group meeting a walled pit stays
@@ -1086,6 +1099,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # puts a carrier before whatever rides it, so this map is
         # populated by the time the carried body asks.
         file_of: dict[tuple[int, int], str] = {}
+        # #2060 round 2 (14p (1)): the seat each carrier slot was written
+        # with, beside its file -- what a body carried on it bakes too
+        seat_of: dict[tuple[int, int], _t.Any] = {}
         # #708: the frames more than one body is written in, never tilted alone
         tilt_shared = _pst.shared_frames(staged)
         # 14p (1): ...but the whole frame tilts as one when gently enough
@@ -1134,7 +1150,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
-                                         adapted_zero=_az.get(m.id), solo=_gz_solo)
+                                         adapted_zero=_az.get(m.id), solo=_gz_solo,
+                                         led=_gz_led)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
@@ -1174,6 +1191,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # ``merged_into``
             for _gi, _b in enumerate(bodies):
                 file_of[(st.mi, _gi)] = _b.new_resource
+                seat_of[(st.mi, _gi)] = _applied(_b)
             for grp in st.own_ground:
                 bodies.append(_deck.deck_seat(                          # §49
                     _own_ground_file(st.raw, grp, m, u, surface,
@@ -1198,17 +1216,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     by_class, st.part_boxes, st.bridge, st.geom_boxes))
             for grp, c, why in st.carried:
                 cw = written_of.get(c.member, True)
-                bodies.append(_carried_file(
+                # 14p (1): a body carried on a frame that tilts as one
+                # tilts with it -- its carrier's WRITTEN seat (#2060 r2)
+                bodies.append(_pst.rider_seat(_carried_file(
                     st.raw, grp, m, u, c, why,
                     (file_of.get((c.member, c.group), c.resource) if cw
                      else by_mi[c.member].m.resource), cw,
                     len(bodies), counts, by_class, st.part_boxes, st.bridge,
-                    st.geom_boxes))
-            # 14p (1): a body carried on a frame that tilts as one tilts with it
-            if frame_seats:
-                bodies = [b if b.seat is not None else _pst.with_frame_seat(
-                    b, m, frame_seats.get(_pst.frame_key(b.anchor)))
-                    for b in bodies]
+                    st.geom_boxes), m, seat_of, (c.member, c.group), cw))
             counts["bodies"] += len(bodies)
             record = Split(_index_of(m.id), m.id, m.resource, m.authored_path,
                            u.anchor[0], u.anchor[1], m.heading_deg, tuple(bodies))
@@ -1231,7 +1246,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
-                                         adapted_zero=_az.get(m.id), solo=_gz_solo)
+                                         adapted_zero=_az.get(m.id), solo=_gz_solo,
+                                         led=_gz_led)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
@@ -1273,7 +1289,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
-                                         adapted_zero=_az.get(m.id), solo=_gz_solo)
+                                         adapted_zero=_az.get(m.id), solo=_gz_solo,
+                                         led=_gz_led)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
                 if record is not _pre:
@@ -1296,9 +1313,24 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 for _b in splits[-1].bodies:
                     if (st.mi, _b.body_id) in file_of:
                         file_of[(st.mi, _b.body_id)] = _b.new_resource
+                        seat_of[(st.mi, _b.body_id)] = _applied(_b)
                     _r = _body_root(_b, _pw or {}, _file_root)
                     if _r:
                         _file_root[_b.new_resource] = _r
+                    if _applied(_b) is not None:
+                        _tilted_files.add(_b.new_resource)
+                        if _r:
+                            _tilted_roots.add(_r)
+                _unit_ids = {uc.unit for _g, uc in st.unit_carried}
+                _unit_riders.extend(_ofs_unit_root(_b.merged_into)
+                                    for _b in splits[-1].bodies
+                                    if _b.merged_into in _unit_ids)
+                _pst.rider_counts(splits[-1].bodies, _tilted_files, counts)
+    # #2060 round 2, count only: a piece carried by a UNIT whose written
+    # bodies tilt stays level on the unit's datum
+    _n = sum(1 for r in _unit_riders if r in _tilted_roots)
+    if _n:
+        counts["seat_tilt_level_unit_rider"] = _n
     for k, v in sorted(by_class.items()):
         counts[f"class_{k}"] = v
     # §16 (3): why a candidate was refused the carry — reported, never

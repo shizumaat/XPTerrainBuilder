@@ -354,4 +354,6 @@ def _seat_body(record, m, b, slab, origin, surface, cuts, step_m, on_fraction, c
                              f"{t2:+.2f}), zero {zero:.2f} (RULINGS 2026-10-26d; was: "
                              f"{a.reason})"))
     counts["cut_deck_bodies"] = counts.get("cut_deck_bodies", 0) + 1
-    return named_body(m, b, anchor=a2, merged_into="")
+    # #2060 round 2: a body re-seated on its own end lines leaves its
+    # carrier's frame -- and the carrier's tilt with it
+    return named_body(m, b, anchor=a2, merged_into="", seat=None)

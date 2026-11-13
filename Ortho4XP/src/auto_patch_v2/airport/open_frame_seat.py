@@ -547,7 +547,8 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                root_boxes: "_t.Mapping[str, _t.Sequence[tuple]] | None" = None,
                merged: "_t.Mapping[str, str] | None" = None,
                adapted_zero: "float | None" = None,
-               solo: _t.AbstractSet[str] = frozenset()) -> _t.Any:
+               solo: _t.AbstractSet[str] = frozenset(),
+               led: "set[str] | None" = None) -> _t.Any:
     """R5 / 22o: every body of ``record`` (a placement of frame ``frame``,
     the plan unit id) whose parts belong to a connected unit takes the ONE
     zero of that frame's share of it (:func:`root_zeros`), whatever pass
@@ -566,7 +567,15 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
     names its unit — keeps its own zero: the group zero is a LEVEL body's
     datum, and moving the tilt's pinned origin lifts the whole fitted plane
     off its feet (CYLW Hangar_9 +0.78 m).  A tilted body sharing its group
-    with any other object still takes the group's zero (22o)."""
+    with any other object still takes the group's zero (22o).
+
+    #2060 round 2: the zero follows the CARRIER.  A body carried on such a
+    tilted body is its frame, not another object: the carrier keeps its
+    zero when every other body of the record in its share rides it, and
+    those riders keep it too.  ``led`` (the plan's, filled here) holds the
+    :func:`group_key` of every share whose tilted frame kept its zero; a
+    carried body (``merged_into``) of such a share in a LATER record —
+    ``cut_order`` writes carriers first — is not moved either."""
     if adapted_zero is not None:
         record = _loose_to(record, m, adapted_zero, tol_m, counts)
     lead = walled_lead(record, m)
@@ -606,19 +615,36 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
 
     def alone(b: _t.Any) -> bool:
         r = roots.get(id(b))
-        return (_tilted(b) and group_key(str(r), frame) in solo
-                and sum(1 for q in record.bodies if roots.get(id(q)) == r) == 1)
+        return (_tilted(b) and not getattr(b, "merged_into", "")
+                and group_key(str(r), frame) in solo
+                and all(getattr(q, "merged_into", "") == b.new_resource
+                        for q in record.bodies
+                        if q is not b and roots.get(id(q)) == r))
+
+    leaders = [b for b in record.bodies if alone(b)]
+    lead_files = {b.new_resource for b in leaders}
+    led = set() if led is None else led
+    led.update(group_key(str(roots.get(id(b))), frame) for b in leaders)
+
+    def follows(b: _t.Any) -> bool:
+        carrier = getattr(b, "merged_into", "") or ""
+        return bool(carrier) and (carrier in lead_files or group_key(
+            str(roots.get(id(b))), frame) in led)
 
     def off(b: _t.Any) -> bool:
-        return apart(b) and not alone(b)
+        return apart(b) and not alone(b) and not follows(b)
 
-    kept = sum(1 for b in record.bodies if apart(b) and alone(b))
-    if kept:
-        counts["group_zero_tilted_kept"] = counts.get("group_zero_tilted_kept", 0) + kept
+    _count(counts, "group_zero_tilted_kept",
+           sum(1 for b in leaders if apart(b)))
+    _count(counts, "group_zero_rider_kept", sum(
+        1 for b in record.bodies if apart(b) and not alone(b) and follows(b)))
     moved = [b for b in record.bodies if off(b)]
     if not moved:
         return record
     counts["group_zero_bodies"] = counts.get("group_zero_bodies", 0) + len(moved)
+    # residual (not decided): a tilted frame in a multi-member share takes
+    # the group's LEVEL zero (22o)
+    _count(counts, "group_zero_tilted_moved", sum(1 for b in moved if _tilted(b)))
     out = record
     for r in sorted({roots[id(b)] for b in moved}):
         t = target(r)
@@ -626,6 +652,11 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                        lambda b, _r=r: roots.get(id(b)) == _r and off(b),
                        f"{GROUP_REASON} {r} at {t:.2f} (RULINGS 2026-10-22o/q)")
     return out
+
+
+def _count(counts: dict, key: str, n: int) -> None:
+    if n:
+        counts[key] = counts.get(key, 0) + n
 
 
 def _tilted(b: _t.Any) -> bool:

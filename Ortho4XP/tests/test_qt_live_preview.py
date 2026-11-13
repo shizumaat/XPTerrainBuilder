@@ -268,3 +268,38 @@ def test_a_late_landed_square_and_x_planes_own_tile_are_marked(qapp):
     own = QColor(*TEXT.MARK_COLORS["own"])
     assert any(QColor(big.pixel(x, y)) == own
                for x in range(2, 60) for y in range(402, 460))
+
+
+class _Coloured(_Engine):
+    """Each square's mip in its own colour (``colours[path]``)."""
+
+    def __init__(self, squares, colours):
+        super().__init__(squares)
+        self.colours = colours
+
+    def __call__(self, name, **arguments):
+        if name == "live_preview_mip":
+            self.calls.append((name, arguments))
+            return {"width": 32, "height": 32, "format": "jpeg",
+                    "data": _jpeg(self.colours[arguments["path"]])}
+        return super().__call__(name, **arguments)
+
+
+def test_a_finer_square_is_drawn_over_the_coarser_one(qapp):
+    """#2012: the reply lists the finer (ZL18) square first, nearest the
+    view's centre; it is still drawn on top of the ZL16 square under it
+    (``O4_Live_Preview.draw_order``)."""
+    coarse = _square(0)                                 # 0.1° = 40 px
+    fine = dict(_square(1), key="+53-061/fine.dds", path="/x/fine.dds",
+                zl=18, west=-60.975, east=-60.95, north=53.975, south=53.95)
+    engine = _Coloured([fine, coarse], {"/x/0.dds": (255, 0, 0),
+                                        "/x/fine.dds": (0, 0, 255)})
+    preview = QTLIVE.LivePreview(engine)
+    preview.set_view(53, -61, 54, -60, 400)
+    preview.set_enabled(True)
+    _drain(qapp, preview)
+    image = _paint(preview, 400)
+    inside = QColor(image.pixel(15, 15))                # in the fine square
+    assert inside.blue() > 200 and inside.red() < 60
+    beside = QColor(image.pixel(30, 30))                # coarse only
+    assert beside.red() > 200 and beside.blue() < 60

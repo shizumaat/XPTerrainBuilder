@@ -29,7 +29,7 @@ enum LivePreviewDrawing {
         }
         var sharp = Path()
         var stale: [CGRect] = []
-        for square in preview.squares {
+        for square in preview.drawn {        // coarse level first (#2012)
             guard let image = preview.image(square) else { continue }
             let r = rect(north: square.north, west: square.west, south: square.south, east: square.east)
             context.draw(Image(decorative: image, scale: 1), in: r)

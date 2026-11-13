@@ -24,7 +24,10 @@ import SceneryKit
 ///   `LivePreviewCache.limitMB` of images are kept.
 @MainActor
 final class LivePreviewModel: ObservableObject {
+    /// Nearest the view's centre first (the fetch order).
     @Published private(set) var squares: [O4LivePreviewSquare] = []
+    /// `squares` coarse level first (the draw order, #2012).
+    private(set) var drawn: [O4LivePreviewSquare] = []
     @Published private(set) var tiles: [O4LivePreviewTile] = []
     @Published private(set) var revision = 0
     private(set) var cache = LivePreviewCache<CGImage>()
@@ -57,6 +60,7 @@ final class LivePreviewModel: ObservableObject {
             refresh()
         } else {
             squares = []
+            drawn = []
             tiles = []
             queue = []
             waiting = []
@@ -110,6 +114,7 @@ final class LivePreviewModel: ObservableObject {
     private func show(_ rows: [O4LivePreviewSquare], _ marks: [O4LivePreviewTile], _ asked: Int) {
         guard enabled, asked == generation else { return }
         squares = rows
+        drawn = O4LivePreviewSquare.drawOrder(rows)
         tiles = marks
         listed = Dictionary(rows.map { ($0.key, $0.stamp) }, uniquingKeysWith: { a, _ in a })
         cache.touch(rows.map(\.key))

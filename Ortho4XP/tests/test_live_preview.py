@@ -170,6 +170,47 @@ def test_every_square_in_view_is_listed_nearest_first(tmp_path):
     assert all(s["east"] >= -60.6 and s["west"] <= -60.4 for s in mid["squares"])
 
 
+def _mixed_tile(tmp_path):
+    """A ZL16 square, two ZL18 squares on it and one ZL18 square with no
+    ZL16 square under it (CYYR's tile holds 257 ZL16 + 40 ZL18)."""
+    folder = str(tmp_path / "mixed")
+    names = ["21216_21712_BI16.dds", "84864_86848_BI18.dds",
+             "84880_86864_BI18.dds", "84864_86912_BI18.dds"]
+    _tile_textures(folder, names=names)
+    return lambda lat, lon: [folder] if (lat, lon) == (53, -61) else []
+
+
+def test_a_finer_square_is_drawn_over_the_coarser_one_it_lies_on(tmp_path):
+    """#2012: drawn nearest-first, a coarse square whose centre lay
+    farther out was painted over the finer ones on it (at CYYR 18-26 of
+    the 40 ZL18 squares, by where the view's centre lay).  The fetch order
+    stays nearest-first; the draw order is coarse level first."""
+    rows = LIVE.squares(53.35, -60.75, 53.45, -60.55, 3000,
+                        _mixed_tile(tmp_path))["squares"]
+    assert [r["zl"] for r in rows][0] == 18          # nearest is a ZL18
+    assert 16 in [r["zl"] for r in rows][1:]         # ... before the ZL16
+    drawn = LIVE.draw_order(rows)
+    assert [r["zl"] for r in drawn] == [16, 18, 18, 18]
+    assert [r["key"] for r in drawn if r["zl"] == 18] == [
+        r["key"] for r in rows if r["zl"] == 18]     # nearest-first within
+
+
+def test_zooming_out_never_opens_a_hole(tmp_path):
+    """A square too small to see is left out only where a coarser
+    installed square lies under it; one with nothing under it stays while
+    its tile's coarsest squares do, and the tile goes as a whole."""
+    folders = _mixed_tile(tmp_path)
+    view = (53.35, -60.75, 53.45, -60.55)
+    def names(ppd):
+        return sorted(r["key"].split("/")[1]
+                      for r in LIVE.squares(*view, ppd, folders)["squares"])
+    assert len(names(3000)) == 4                     # all large enough
+    assert names(300) == ["21216_21712_BI16.dds",    # ZL16 26 px, ZL18 7 px
+                          "84864_86912_BI18.dds"]    # nothing under it
+    far = LIVE.squares(*view, 100, folders)          # ZL16 9 px
+    assert far["squares"] == [] and far["reason"] == "zoom"
+
+
 @pytest.mark.parametrize("screen, tier, want", [
     (10, 4096, 32), (40, 4096, 64), (64, 4096, 64), (200, 4096, 256),
     (1500, 4096, 2048), (2100, 4096, 4096), (30000, 4096, 4096),

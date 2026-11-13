@@ -91,6 +91,10 @@ class TileInfo:
     # with their packs; "" when unknown.
     airport_elevation: str = ""
     airports: str = ""
+    # The elevation the tile was built with (#2033, the tile pane's
+    # "Elevation" row, before Imagery): the base and the airport insets,
+    # "Viewfinderpanoramas + USGS3DEP 1 m inset"; "" when unknown.
+    elevation: str = ""
 
 
 #: :attr:`TileInfo.origin` of a tile this app built, and of another's.
@@ -396,6 +400,7 @@ def _build_tile_info(
         volume_mounted=mounted,
         origin=origin_of(build_dir, lat, lon, last_build),
         airport_elevation=_airport_elevation_text(build_dir),
+        elevation=_elevation_text(build_dir, custom_dem),
         airports=_airports_text(last_build),
         **_on_demand_flags(build_dir, lat, lon),
     )
@@ -419,6 +424,30 @@ def read_imagery_record(build_dir: str, lat: int, lon: int) -> dict:
     except (OSError, ValueError):
         return {}
     return record if isinstance(record, dict) else {}
+
+
+#: How long a record write waits for another writer (a build's imagery
+#: step beside a Favorite click, #2033) before it writes anyway.
+RECORD_LOCK_SECONDS = 30.0
+
+
+def update_imagery_record(build_dir: str, lat: int, lon: int, change) -> dict:
+    """Read, change and write the tile's imagery record under its file
+    lock, so a build's imagery step and a Favorite set while it runs never
+    lose each other's keys (#2033).  ``change(old) -> new`` gets the
+    record as read (``{}`` when none); ``new`` is written atomically and
+    returned."""
+    import json
+
+    import O4_File_Lock as LOCK
+    path = imagery_record_path(build_dir, lat, lon)
+    with LOCK.hold_file_lock(path, timeout_seconds=RECORD_LOCK_SECONDS):
+        data = change(read_imagery_record(build_dir, lat, lon))
+        temporary = "%s.%d.tmp" % (path, os.getpid())
+        with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(data, handle, indent=2, sort_keys=True)
+        os.replace(temporary, path)
+    return data
 
 
 def _on_demand_flags(build_dir: str, lat: int, lon: int) -> dict:
@@ -484,6 +513,33 @@ def _airport_elevation_text(build_dir: str) -> str:
             groups.setdefault(head, []).append(str(row["icao"]))
     return "; ".join("%s: %s" % (head, ", ".join(sorted(names)))
                      for head, names in groups.items())
+
+
+def _elevation_text(build_dir: str, custom_dem: str = "") -> str:
+    """The elevation the tile was built with: the base the build recorded
+    (``O4_Unpatched_Airports.read_base_source``; else the cfg's pinned
+    ``custom_dem`` file), then its airport insets' sources --
+    ``"Copernicus GLO-30 + USGS3DEP 1 m inset"``; ``""`` when unknown."""
+    import types
+
+    import O4_Unpatched_Airports as UNPATCHED
+    tile = types.SimpleNamespace(build_dir=build_dir)
+    base = UNPATCHED.read_base_source(tile)
+    if not base and custom_dem:
+        base = os.path.basename(custom_dem.split(";")[0].strip())
+    insets: list = []
+    for row in UNPATCHED.read_inset_sources(tile):
+        if isinstance(row, dict) and row.get("icao"):
+            head = " ".join(part for part in (
+                str(row.get("provider") or "?"),
+                _resolution(row.get("resolution_m"))) if part)
+            if head not in insets:
+                insets.append(head)
+    parts = [base] if base else []
+    if insets:
+        parts.append(", ".join(insets)
+                     + (" inset" if len(insets) == 1 else " insets"))
+    return " + ".join(parts)
 
 
 def _airports_text(last_build: Optional[dict]) -> str:

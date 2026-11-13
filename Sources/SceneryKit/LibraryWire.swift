@@ -59,8 +59,8 @@ public struct O4LibraryTile: Decodable, Equatable, Identifiable, Sendable {
     public private(set) var detailsPending = false
 
     public var id: String { tile }
-    /// Does the tile's pin apply (built on demand, or pinned, by this app)?
-    public var pinApplies: Bool { !readOnly && (onDemand == true || pinned == true) }
+    /// Can the tile be a Favorite (any tile this app built, #2033)?
+    public var pinApplies: Bool { !readOnly }
 
     private enum CodingKeys: String, CodingKey {
         case tile, lat, lon, zl, provider, built, airports, pinned, world

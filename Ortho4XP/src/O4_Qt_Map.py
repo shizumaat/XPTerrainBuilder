@@ -348,6 +348,8 @@ class MapView(QGraphicsView):
     built_changed = Signal()
     # A right-click without a drag (#938): lat, lon, global screen QPoint.
     tile_menu_requested = Signal(int, int, object)
+    # A click on a built tile's star (#2033): (lat, lon, wanted pinned).
+    favorite_requested = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -424,6 +426,8 @@ class MapView(QGraphicsView):
         #: ``O4_Qt_Fly_Layer.FlyLayer.set_shown``); None: the Build view's.
         self.fly_key = None
         self._key_hits = []
+        #: The Favorite stars on built tiles (#2033): the Build view's only.
+        self.favorite_stars = True
 
         # Layers drawn over the map that take the mouse first (the patch
         # editor): paint(painter), mouse_press/move/release(event) -> bool,
@@ -927,7 +931,8 @@ class MapView(QGraphicsView):
             and (event.position() - self._press_pos).manhattanLength() < MAP_CLICK_SLOP_PX
             and not self._locked
         ):
-            self._handle_click(event)
+            if not self._favorite_click(event):
+                self._handle_click(event)
         self._press_pos = None
         super().mouseReleaseEvent(event)
 
@@ -942,6 +947,25 @@ class MapView(QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         lat, lon = GEO.pix_to_wgs84(scene_pos.x(), scene_pos.y(), SCENE_ZL)
         return (math.floor(lat), math.floor(lon))
+
+    def _favorite_click(self, event) -> bool:
+        """A click on a built tile's star (#2033) asks for its Favorite to
+        flip (:attr:`favorite_requested`) instead of selecting the tile."""
+        if not self.favorite_stars:
+            return False
+        scene_pos = self.mapToScene(event.position().toPoint())
+        lat, lon = GEO.pix_to_wgs84(scene_pos.x(), scene_pos.y(), SCENE_ZL)
+        tile = (math.floor(lat), math.floor(lon))
+        built = None if self.is_building(tile) else self._built.get(tile)
+        if built is None:
+            return False
+        r = self._tile_rect(*tile)
+        scale = self.transform().m11()
+        if not QTFAVSTAR.hit(r, r.width() * scale, scale, scene_pos):
+            return False
+        self.favorite_requested.emit(
+            (tile[0], tile[1], not getattr(built, "pinned", False)))
+        return True
 
     def _handle_click(self, event):
         scene_pos = self.mapToScene(event.position().toPoint())
@@ -1426,15 +1450,18 @@ class MapView(QGraphicsView):
                 painter.setBrush(Qt.NoBrush)
                 d = BAND.inner_inset(px) / max(scale, 1e-12)
                 painter.drawRect(r.adjusted(d, d, -d, -d))
-            # Mixed imagery sources: a warning triangle in the top-right
-            # corner so affected tiles stand out at a glance.  Only once
+            # Mixed imagery sources: a warning triangle in the bottom-right
+            # corner (the Favorite star holds the top-right, #2033) so
+            # affected tiles stand out at a glance.  Only once
             # the square is big enough to carry it — below that the badge
             # is bigger than the tile and reads as noise on the grid.
             if tile in self._conflicts and px > 14:
                 self._draw_conflict_badge(painter, r, px, scale)
-            # A favorite (#1992, RULINGS 2026-11-10c (1)): a star.
-            if getattr(built, "pinned", False):
-                QTFAVSTAR.draw_star(painter, r, px, scale)
+            # The Favorite star, top-right (#2033): filled on a favorite,
+            # outlined on the others; a click flips it.
+            if self.favorite_stars:
+                QTFAVSTAR.draw_star(painter, r, px, scale,
+                                    bool(getattr(built, "pinned", False)))
 
         if custom_patched:
             self._draw_custom_patch_band(painter, r, scale)
@@ -1538,7 +1565,8 @@ class MapView(QGraphicsView):
 
     def _draw_conflict_badge(self, painter, r, px, scale):
         """The mixed-imagery-source warning: a yellow triangle carrying an
-        exclamation mark, top-right of the tile square.
+        exclamation mark, bottom-right of the tile square (the Favorite
+        star holds the top-right, #2033).
 
         Sized in SCREEN points (11-20, growing with the square up to a
         sixth of it) and converted back into scene units, so the badge
@@ -1547,7 +1575,7 @@ class MapView(QGraphicsView):
         """
         size = min(max(px * 0.16, 11.0), 20.0) / max(scale, 1e-12)
         cx = r.right() - size * 0.7
-        cy = r.top() + size * 0.7
+        cy = r.bottom() - size * 0.7
         triangle = QPainterPath()
         triangle.moveTo(QPointF(cx, cy - size * 0.46))
         triangle.lineTo(QPointF(cx + size * 0.5, cy + size * 0.4))

@@ -105,6 +105,18 @@ def test_swift_detail_choice_matches_python():
     assert "detailNames" not in text
 
 
+def test_imagery_summary_is_source_and_zoom_in_both_apps():
+    """#2033: the tile pane's Imagery row is the source and its zoom
+    level on one line, the airports' cover zoom as a range."""
+    assert GLOSSARY.imagery_summary("BI", 16) == "BI, ZL16"
+    assert GLOSSARY.imagery_summary("BI", 16, 19) == "BI, ZL16–19"
+    assert GLOSSARY.imagery_summary("BI", 16, 16) == "BI, ZL16"
+    assert GLOSSARY.imagery_summary("", None) == "—"
+    text = SWIFT_GLOSSARY.read_text(encoding="utf-8")
+    assert 'zoom = "ZL\\(zl)"' in text and 'zoom += "–\\(coverZL)"' in text
+    assert 'joined(separator: ", ")' in text
+
+
 def test_surface_check():
     assert GLOSSARY.surface_check(3) == (
         "Airport surface check: 3 spots outside the rules")

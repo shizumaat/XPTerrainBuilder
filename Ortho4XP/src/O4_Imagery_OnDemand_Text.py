@@ -15,8 +15,9 @@ from __future__ import annotations
 
 from typing import Mapping, Tuple
 
-__all__ = ["PIN_TITLE", "UNPIN_TITLE", "PIN_ROW_TITLE", "LOW_RES_STATE",
-           "PINNED_STATE", "PINNED_BADGE", "PIN_HELP", "NOT_ON_DEMAND_STATE", "MAKE_LOW_RES_TITLE",
+__all__ = ["PIN_TITLE", "UNPIN_TITLE", "FAVORITE_TITLE",
+           "PINNED_STATE", "PINNED_BADGE", "PIN_HELP", "STAR_ADD_HELP",
+           "STAR_REMOVE_HELP", "star_help", "MAKE_LOW_RES_TITLE",
            "MAKE_LOW_RES_NONE", "PINS_LINE", "CORES_LINE", "OLDER_SHARP_NOTE",
            "FOLLOW_START_TITLE", "FOLLOW_STOP_TITLE", "FOLLOW_TEMPLATES",
            "FOLLOW_DETAIL", "WAITING_REASON", "FOLLOW_NO_TILES",
@@ -26,22 +27,34 @@ __all__ = ["PIN_TITLE", "UNPIN_TITLE", "PIN_ROW_TITLE", "LOW_RES_STATE",
            "pins_line", "pin_done", "follow_lines", "follow_headline",
            "size_text"]
 
-# --- Favorites (spec §7: the Library's tile menu and the tile's info pane;
-# "pin" renamed Favorite by RULINGS 2026-11-10c (1); the identifiers and the
-# engine wire keep "pin" / ``pinned``) ---
+# --- Favorites (spec §7: the Library's tile menu, the star beside the tile
+# pane's title and on the Build map's built cells, #2033; "pin" renamed
+# Favorite by RULINGS 2026-11-10c (1); the identifiers and the engine wire
+# keep "pin" / ``pinned``).  A Favorite is STORAGE PRIORITY (owner
+# 2026-11-13T01:45Z): any built tile, set any time, a build running or
+# not; its sharp imagery is the last made low-res when storage is tight.
 PIN_TITLE = "Add to Favorites"
 UNPIN_TITLE = "Remove from Favorites"
-PIN_ROW_TITLE = "Favorite"
-LOW_RES_STATE = "Sharp near the aircraft, low-res elsewhere"
-PINNED_STATE = "Kept at full resolution"
+#: The star's accessible name.
+FAVORITE_TITLE = "Favorite"
+PINNED_STATE = "Favorite: its sharp imagery is kept longest"
 #: After a favorite tile's name in the Library.
 PINNED_BADGE = "Favorite"
-PIN_HELP = ("A favorite tile is fetched whole at full resolution. It counts "
-            "toward the ortho budget and is the last imagery made low-res "
-            "again when the budget is full.")
-#: The Favorite row of a tile built with full imagery (nothing to keep).
-NOT_ON_DEMAND_STATE = ("Built with full imagery everywhere; favorites are for "
-                       "tiles built with imagery on demand.")
+PIN_HELP = ("A favorite tile keeps its sharp imagery longest: when storage "
+            "is tight, its high-resolution imagery is the last made "
+            "low-res again.")
+#: The star's tooltip, outlined (not a favorite) and filled (one).
+STAR_ADD_HELP = ("Make this tile a favorite: its sharp imagery is the last "
+                 "made low-res when storage is tight.")
+STAR_REMOVE_HELP = ("A favorite: its sharp imagery is the last made low-res "
+                    "when storage is tight. Click to remove it from "
+                    "Favorites.")
+
+
+def star_help(pinned: bool) -> str:
+    """The star's tooltip for a tile that is (or is not) a favorite."""
+    return STAR_REMOVE_HELP if pinned else STAR_ADD_HELP
+
 
 # --- Storage (spec §6.3 / §7: the ondemand row and its pins line) ---
 MAKE_LOW_RES_TITLE = "Make all low-res again"
@@ -128,11 +141,15 @@ def pins_line(pinned_bytes, pinned_files: int, core_files: int = 0) -> str:
 
 def pin_done(result: Mapping) -> str:
     """One sentence for an ``imagery_pin`` reply."""
+    tile = result.get("tile", "The tile")
     if not result.get("pinned"):
-        return "%s is no longer a favorite." % result.get("tile", "The tile")
+        return "%s is no longer a favorite." % tile
+    served, to_fetch = (int(result.get("served", 0) or 0),
+                        int(result.get("to_fetch", 0) or 0))
+    if not served and not to_fetch:
+        return "%s is a favorite." % tile
     return ("%s is a favorite: %d texture(s) sharp now, %d to fetch."
-            % (result.get("tile", "The tile"), int(result.get("served", 0)),
-               int(result.get("to_fetch", 0))))
+            % (tile, served, to_fetch))
 
 
 def _follow_values(status: Mapping) -> dict:

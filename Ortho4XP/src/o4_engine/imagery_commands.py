@@ -26,7 +26,8 @@ starts a job that never offers one.
 
 On-demand imagery (#1992, capability ``imagery_ondemand``):
 ``imagery_ondemand_scan`` (the index rebuilt from the on-demand tiles),
-``imagery_pin`` (a tile's "always full resolution"),
+``imagery_pin`` (a tile's Favorite: storage priority, settable while a
+build runs, #2033),
 ``imagery_ondemand_sweep`` (hold the storage cap now) and
 ``imagery_ondemand_downgrade_all`` ("Make all low-res again"), synchronous
 file work in :mod:`o4_engine.imagery_ondemand`; those that change
@@ -263,9 +264,10 @@ def imagery_freshness_discard(lat: int, lon: int, working_dir: str) -> Dict[str,
 
 
 #: The on-demand commands that land textures: refused while a build runs
-#: (a build may be converting the same tile's textures).
-ONDEMAND_REFUSED_WHILE_BUILDING = {"imagery_pin": "pinning a tile",
-                                   "imagery_ondemand_sweep":
+#: (a build may be converting the same tile's textures).  A Favorite is
+#: not one of them (#2033): set while a build runs, it changes the tile
+#: record and the index only (``imagery_pin(serve=False)``).
+ONDEMAND_REFUSED_WHILE_BUILDING = {"imagery_ondemand_sweep":
                                    "holding the imagery storage limit",
                                    "imagery_ondemand_downgrade_all":
                                    "making imagery low-res again"}
@@ -284,9 +286,12 @@ def ondemand_handlers(building: Callable[[], bool]) -> Dict[str, Callable]:
                                  % (name, ONDEMAND_REFUSED_WHILE_BUILDING[name]))
             return function(**kwargs)
         return run
+
+    def favorite(**kwargs):
+        return ONDEMAND.imagery_pin(**kwargs, serve=not building())
     return {
         "imagery_ondemand_scan": ONDEMAND.imagery_ondemand_scan,
-        "imagery_pin": guarded("imagery_pin", ONDEMAND.imagery_pin),
+        "imagery_pin": favorite,
         "imagery_ondemand_sweep": guarded("imagery_ondemand_sweep",
                                           ONDEMAND.imagery_ondemand_sweep),
         "imagery_ondemand_downgrade_all": guarded(

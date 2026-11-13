@@ -707,6 +707,11 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     /// the tile's records name none, or from an older engine.
     public let airportElevation: String?
     public let airports: String?
+    /// The elevation the tile was built with, base + airport insets
+    /// ("Viewfinderpanoramas + USGS3DEP 1 m inset", #2033,
+    /// `O4_Tile_Info._elevation_text`); nil when unknown or from an older
+    /// engine.
+    public let elevation: String?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -746,10 +751,8 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         pinned = object["pinned"]?.boolValue
         airportElevation = object["airport_elevation"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         airports = object["airports"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        elevation = object["elevation"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
     }
-
-    /// Does the tile's pin apply (built on demand, or pinned)?
-    public var pinApplies: Bool { onDemand == true || pinned == true }
 
     /// Another tool built it (#1958): the map draws it as "other ortho".
     /// An engine that predates `origin` says nothing, so it stays ours.

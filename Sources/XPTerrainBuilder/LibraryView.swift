@@ -351,7 +351,6 @@ struct LibraryTilesSection: View {
             if ids.count == 1, let row = ids.first.flatMap(model.index.row),
                row.pinApplies {
                 Button(pinTitle(row)) { model.togglePin(row, buildModel) }
-                    .disabled(buildModel.isBuilding)
             }
         }
     }
@@ -400,7 +399,7 @@ struct LibraryTilesSection: View {
                 if let row = pinTarget { model.togglePin(row, buildModel) }
             }
             .help(O4OnDemandText.pinHelp)
-            .disabled(pinTarget == nil || buildModel.isBuilding)
+            .disabled(pinTarget == nil)  // a build running or not (#2033)
         }
         .controlSize(.small)
     }

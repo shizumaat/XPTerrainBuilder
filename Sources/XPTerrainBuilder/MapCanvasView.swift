@@ -13,6 +13,8 @@ struct MapCanvasView: View {
     @EnvironmentObject var imagery: ImageryModel
     @ObservedObject var camera: ViewState<MapCamera>
     @ObservedObject var canvasSize: ViewState<CGSize>
+    /// Build or Fly (observed: the Favorite stars are the Build map's, #2033).
+    @ObservedObject var modes: AppModeModel
 
     private var overlays: MapOverlays { controller.mapOverlays }
     @AppStorage("MapSceneryFilter") private var sceneryFilterRaw = MapSceneryFilter.all.rawValue
@@ -483,26 +485,23 @@ struct MapCanvasView: View {
                 context.stroke(Path(r.insetBy(dx: d, dy: d)),
                                with: .color(base.opacity(0.9 * dim)), lineWidth: 1.5)
             }
-            // Mixed imagery sources: warning triangle in the top-right
-            // corner so affected tiles stand out at a glance (details +
-            // cleanup in the selection pane's Imagery row).
+            // Mixed imagery sources: warning triangle in the bottom-right
+            // corner (the Favorite star holds the top-right, #2033) so
+            // affected tiles stand out at a glance (details + cleanup in
+            // the selection pane's Imagery row).
             if buildModel.conflictTiles.contains(coord), r.width > 14 {
                 let s = min(max(r.width * 0.16, 11), 20)
                 context.draw(
                     Text(Image(systemName: "exclamationmark.triangle.fill"))
                         .font(.system(size: s))
                         .foregroundStyle(.yellow),
-                    at: CGPoint(x: r.maxX - s * 0.7, y: r.minY + s * 0.7))
-            }
-            // A favorite (#1992, RULINGS 2026-11-10c (1)): a yellow star,
-            // bottom-right (Qt: O4_Qt_Map_Favorite.draw_star).
-            if info.pinned == true, r.width > 14 {
-                let s = min(max(r.width * 0.16, 11), 20)
-                context.draw(
-                    Text(Image(systemName: "star.fill"))
-                        .font(.system(size: s))
-                        .foregroundStyle(.yellow),
                     at: CGPoint(x: r.maxX - s * 0.7, y: r.maxY - s * 0.7))
+            }
+            // The Favorite star, top-right (#2033; Qt:
+            // O4_Qt_Map_Favorite.draw_star): filled when info.pinned == true,
+            // outlined on the others; a click flips it (tileSelect).
+            if modes.mode == .build {
+                FavoriteStar.draw(in: context, rect: r, pinned: info.pinned == true)
             }
         }
 
@@ -681,7 +680,16 @@ struct MapCanvasView: View {
                                            }) {
                     return
                 }
-                buildModel.click(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)),
+                let tile = BuildModel.TileCoord(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)))
+                // A built tile's Favorite star (#2033): the click flips it.
+                if modes.mode == .build, sceneryFilter != .othersOnly,
+                   let info = buildModel.built[tile], !buildActivity.isBuilding(tile),
+                   FavoriteStar.hit(value.location,
+                                    in: tileRect(lat: tile.lat, lon: tile.lon, cam: camera.value, size: size)) {
+                    Task { _ = await buildModel.setImageryPinned(tile, info.pinned != true) }
+                    return
+                }
+                buildModel.click(lat: tile.lat, lon: tile.lon,
                                  command: flags.contains(.command),
                                  shift: flags.contains(.shift))
             }

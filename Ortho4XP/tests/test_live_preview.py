@@ -452,8 +452,9 @@ def test_the_preview_words_are_the_same_in_both_apps():
     swift = (Path(__file__).resolve().parents[2] / "Sources" / "SceneryKit"
              / "LivePreviewText.swift").read_text(encoding="utf-8")
     assert 'reloadLabel = "%s"' % TEXT.RELOAD_LABEL in swift
-    assert 'O4Glossary.term("xplane_own_scenery")' in swift
-    assert TEXT.OWN_LABEL == "X-Plane's own scenery"
+    # RULINGS 2026-11-13a: an ``own`` tile carries no words in either app
+    assert "ownLabel" not in swift and not hasattr(TEXT, "OWN_LABEL")
+    assert [k for k, _v in TEXT.LEGEND] == ["reload"]
     rows = re.findall(r'\("(\w+)", "([^"]+)"\)', swift)
     assert rows == [(k, v) for k, v in TEXT.LEGEND if k == "reload"]
     colours = dict((k, tuple(map(int, rgb.split(", ")))) for k, rgb in

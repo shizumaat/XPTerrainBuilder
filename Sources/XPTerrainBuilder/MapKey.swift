@@ -38,7 +38,6 @@ struct MapKey: View {
         if states.contains(.meshLowRes) { present.insert("mesh") }
         if states.contains(.drape) { present.insert("drape") }
         if states.contains(.placeholder) { present.insert("placeholder") }
-        if !world.isEmpty { present.insert("nothing") }
         if world.values.contains(where: \.otherTool) { present.insert("other_tool") }
         let infos = built.filter { !drawnByWorld($0.value, world[$0.key]) }.values
         if infos.contains(where: { !$0.builtElsewhere }) { present.insert("built") }

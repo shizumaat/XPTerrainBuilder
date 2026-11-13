@@ -1097,6 +1097,7 @@ final class BuildModel: ObservableObject {
         case .tileState(let lat, let lon, let state, let label, let percent, let detail,
                         let attempt):
             let coord = TileCoord(lat: lat, lon: lon)
+            adoptEngineQueued(coord, state: state, label: label)
             let state = TileProgress.State(rawValue: state) ?? .queued
             applyTileEvent(TileProgress(
                 state: state,
@@ -1934,6 +1935,54 @@ final class BuildModel: ObservableObject {
                           boundaryPolicy: boundaryPolicy, overrides: batch.overrides)
     }
 
+    /// The engine takes `tiles` now: the run opens with them, or they join
+    /// the one in progress.
+    private func openRunOrQueue(_ tiles: [TileCoord]) {
+        if !isBuilding {
+            activity.beginRun()
+            isBuilding = true
+            isStopping = false
+            // A previous run that died without RunDone leaves nothing in
+            // this run's report (#562).
+            runIssueLog.begin()
+            // THE RUN BOUNDARY: the build request that opens a run starts a
+            // fresh engine-stderr.log (twin: O4_Qt_GUI._start_run_now).
+            EngineStderrLog.shared.startRun(
+                appVersion: AppVersion.current,
+                engineVersion: protocolHello?.version ?? schema.engineVersion,
+                tiles: tiles.map(\.key))
+        } else {
+            EngineStderrLog.shared.append(
+                EngineStderrLog.queuedLine(tiles: tiles.map(\.key)))
+        }
+        clearProgressTask?.cancel()
+    }
+
+    /// Put `queued` on the Activity list as queued rows.
+    private func queueActivityRows(_ queued: [TileCoord]) {
+        // Every attempt starts its step strip afresh (#825); a row still
+        // live in this run keeps its own, as `queueRows` keeps the row.
+        for coord in queued
+        where activity.tiles[coord].map(BuildActivityModel.isFinished) ?? true {
+            activity.stepStrips[coord] = O4StepStrip()
+        }
+        activity.queueRows(queued)
+        stampRunTags(queued)
+    }
+
+    /// A full build the engine queued by itself — the Fly view's flight or
+    /// build-ahead (#2030) — gets the normal row: its progress, clock,
+    /// stop and outcome come through the normal events from here on.
+    /// Resuming it after a stop uses the Build box's settings.
+    private func adoptEngineQueued(_ coord: TileCoord, state: String, label: String) {
+        let row = activity.tiles[coord].map { (state: $0.state.rawValue, label: $0.label) }
+        guard ActivityOrder.opensRow(state: state, label: label, row: row),
+              !stopPending.contains(coord), heldForStop[coord] == nil else { return }
+        openRunOrQueue([coord])
+        queueActivityRows([coord])
+        console.append("=== Fly queued 1 tile: \(coord.key) ===", tile: coord.key)
+    }
+
     private func sendProtocolBuild(_ tiles: [TileCoord], provider: String, zl: Int,
                                    boundaryPolicy: String?,
                                    overrides: [String: Bool] = [:]) {
@@ -1948,38 +1997,12 @@ final class BuildModel: ObservableObject {
         for coord in split.hold {
             heldForStop[coord] = HeldRequeue(settings: settings, boundaryPolicy: boundaryPolicy)
         }
-        if todo.isEmpty {
-            // Nothing goes to the engine yet.
-        } else if !isBuilding {
-            activity.beginRun()
-            isBuilding = true
-            isStopping = false
-            // A previous run that died without RunDone leaves nothing in
-            // this run's report (#562).
-            runIssueLog.begin()
-            // THE RUN BOUNDARY: the build request that opens a run starts a
-            // fresh engine-stderr.log (twin: O4_Qt_GUI._start_run_now).
-            EngineStderrLog.shared.startRun(
-                appVersion: AppVersion.current,
-                engineVersion: protocolHello?.version ?? schema.engineVersion,
-                tiles: todo.map(\.key))
-        } else {
-            EngineStderrLog.shared.append(
-                EngineStderrLog.queuedLine(tiles: todo.map(\.key)))
-        }
-        clearProgressTask?.cancel()
+        if !todo.isEmpty { openRunOrQueue(todo) }
         // Every enqueue — Build, Queue, Resume, Rebuild — puts the tile's
         // row back to queued with no clock (#1326): a row left "stopped"
         // would drop the new attempt's events as the stopped one's.
         let queued = todo + split.hold
-        // Every attempt starts its step strip afresh (#825); a row still
-        // live in this run keeps its own, as `queueRows` keeps the row.
-        for coord in queued
-        where activity.tiles[coord].map(BuildActivityModel.isFinished) ?? true {
-            activity.stepStrips[coord] = O4StepStrip()
-        }
-        activity.queueRows(queued)
-        stampRunTags(queued)
+        queueActivityRows(queued)
         // The settings this tile is being STARTED with — what a later
         // resume of it must use.
         for coord in queued {

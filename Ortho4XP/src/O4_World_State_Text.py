@@ -13,7 +13,7 @@ Pure: no Qt, no engine session.
 from __future__ import annotations
 
 __all__ = ["LEGEND_FULL", "LEGEND_MESH", "LEGEND_DRAPE", "LEGEND_PLACEHOLDER",
-           "LEGEND_NOTHING", "LEGEND_OTHER_TOOL", "LEGEND_CUSTOM_PATCH",
+           "LEGEND_OTHER_TOOL", "LEGEND_CUSTOM_PATCH",
            "COLUMN_TITLE", "STATE_WORDS", "MESH_WORDS", "ORIGIN_WORDS",
            "SOURCE_WORDS", "LEAN_ON_DRIVE", "ON_DRIVE", "cell_text",
            "PANE_ROW_TITLE", "PANE_BUILT", "PANE_WHAT", "PANE_MESH",
@@ -29,18 +29,17 @@ LEGEND_FULL = "Full: mesh and sharp imagery"
 LEGEND_MESH = "Mesh: imagery sharpens in flight"
 LEGEND_DRAPE = "Photo drape on X-Plane's mesh"
 LEGEND_PLACEHOLDER = "Placeholder: built or draped in flight"
-LEGEND_NOTHING = "Unmarked: X-Plane's own scenery"
 LEGEND_OTHER_TOOL = "Dotted: another tool's mesh"
 #: The orange band (#1229) the owner asked about (2026-11-12, "gold").
 LEGEND_CUSTOM_PATCH = "Orange band: custom airport patch, no auto patch"
 
-# --- The Library's World column ---
+# --- The Library's World column (a tile with no build, World state
+# "nothing", says nothing: RULINGS 2026-11-13a) ---
 COLUMN_TITLE = "World"
 STATE_WORDS = {
     "full": "Full",
     "drape": "Drape",
     "placeholder": "Placeholder",
-    "nothing": "Nothing",
 }
 #: A mesh whose imagery streams: ``{percent}`` of its textures sharp.
 MESH_WORDS = "Mesh, {percent}% sharp"

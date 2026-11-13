@@ -255,11 +255,12 @@ class LivePreview(QObject):
                for t in self.tiles if t.get("state") == "own"]
         _marks(painter, stale + reload_tiles, "reload", Qt.BDiagPattern,
                TEXT.RELOAD_LABEL)
-        _marks(painter, own, "own", Qt.Dense6Pattern, TEXT.OWN_LABEL)
+        _marks(painter, own, "own", Qt.Dense6Pattern, None)   # no words
 
 
 def _marks(painter, rects, key, pattern, label) -> None:
-    """``rects`` hatched in the mark's color, outlined and labelled."""
+    """``rects`` hatched in the mark's color, outlined and labelled
+    (``label`` None: no words)."""
     if not rects:
         return
     color = QColor(*TEXT.MARK_COLORS[key])
@@ -270,7 +271,7 @@ def _marks(painter, rects, key, pattern, label) -> None:
     for rect in rects:
         painter.drawRect(rect.adjusted(0.5, 0.5, -0.5, -0.5))
     painter.setBrush(Qt.NoBrush)
-    for rect in rects:
+    for rect in rects if label else ():
         _label(painter, rect, label, color)
 
 

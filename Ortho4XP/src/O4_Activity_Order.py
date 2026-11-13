@@ -21,6 +21,7 @@ Pure, no Qt.  Twin: ``Sources/SceneryKit/ActivityOrder.swift``; both read
 """
 
 __all__ = ["FINISHED_STATES", "ACTIVITY", "COMPLETED", "is_finished",
+           "opens_row",
            "section", "shown_selected", "list_edit", "status_tone", "restamp",
            "display_order"]
 
@@ -32,6 +33,17 @@ def is_finished(state, label=""):
     """True for a row whose tile has left the run: done, failed, stopped
     here, or drained by the engine (state ``queued``, label ``stopped``)."""
     return state in FINISHED_STATES or label == "stopped"
+
+
+def opens_row(state, label, row=None):
+    """True when an engine ``TileState`` puts its tile on the list by
+    itself (#2030): the engine's own queue notice (``queued``, not the
+    drained ``stopped`` one) for a build the app did not ask for -- a
+    Fly or build-ahead ``full`` build -- while the tile has no live row.
+    ``row``: the tile's current ``(state, label)``, None for no row."""
+    if state != "queued" or label == "stopped":
+        return False
+    return row is None or is_finished(*row)
 
 
 #: The pane sections a row sits in (#1556).

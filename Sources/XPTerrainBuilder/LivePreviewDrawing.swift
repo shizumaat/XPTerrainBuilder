@@ -47,12 +47,13 @@ enum LivePreviewDrawing {
         mark(stale + tileRects("reload"), color("reload"), spacing: 8, opacity: 0.9,
              label: LivePreviewText.reloadLabel, bounds, &context)
         mark(tileRects("own"), color("own"), spacing: 14, opacity: 0.6,
-             label: LivePreviewText.ownLabel, bounds, &context)
+             label: nil, bounds, &context)
     }
 
-    /// `rects` hatched with diagonal lines, outlined and labelled.
+    /// `rects` hatched with diagonal lines, outlined and labelled (no
+    /// words for a nil `label`).
     private static func mark(_ rects: [CGRect], _ color: Color, spacing: CGFloat, opacity: Double,
-                             label: String, _ bounds: CGRect, _ context: inout GraphicsContext) {
+                             label: String?, _ bounds: CGRect, _ context: inout GraphicsContext) {
         guard !rects.isEmpty else { return }
         for r in rects {
             let shown = r.intersection(bounds)
@@ -68,7 +69,7 @@ enum LivePreviewDrawing {
             clipped.clip(to: Path(shown))
             clipped.stroke(hatch, with: .color(color.opacity(opacity)), lineWidth: 1)
             context.stroke(Path(r.insetBy(dx: 0.5, dy: 0.5)), with: .color(color), lineWidth: 1)
-            guard shown.width >= labelMinWidth else { continue }
+            guard let label, shown.width >= labelMinWidth else { continue }
             let text = context.resolve(Text(label).font(.caption).foregroundColor(.white))
             let measured = text.measure(in: shown.size)
             let plate = CGRect(x: shown.midX - measured.width / 2 - 6, y: shown.midY - measured.height / 2 - 3,

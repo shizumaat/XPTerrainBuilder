@@ -15,13 +15,13 @@ import O4_World_State_Text as WORLD_TEXT
 from PySide6.QtGui import QColor
 
 __all__ = ["WORLD_FULL", "WORLD_MESH", "WORLD_DRAPE", "WORLD_PLACEHOLDER",
-           "WORLD_NOTHING", "WORLD_OTHER_TOOL", "BUILT", "OTHER", "STALE",
+           "WORLD_OTHER_TOOL", "BUILT", "OTHER", "STALE",
            "EXTERNAL", "CUSTOM_PATCH",
            "STALE_COLOR", "OTHER_ORTHO_COLOR", "CUSTOM_PATCH_COLOR",
            "built_elsewhere", "drawn_by_world", "legend_kinds", "stale_label"]
 
 WORLD_FULL, WORLD_MESH, WORLD_DRAPE = "full", "mesh", "drape"
-WORLD_PLACEHOLDER, WORLD_NOTHING = "placeholder", "nothing"
+WORLD_PLACEHOLDER = "placeholder"
 WORLD_OTHER_TOOL = "other_tool"
 BUILT, OTHER, STALE, EXTERNAL = "built", "other", "stale", "external"
 CUSTOM_PATCH = "custom"
@@ -58,7 +58,6 @@ def legend_kinds(built: dict, stale: dict, world: dict | None = None,
              if not drawn_by_world(info, world.get(key))]
     present = {kind: state in states for kind, state in _WORLD_KINDS}
     present.update({
-        WORLD_NOTHING: bool(world),
         WORLD_OTHER_TOOL: any(row.origin == TINFO.ORIGIN_OTHER
                               for row in world.values()),
         BUILT: any(not built_elsewhere(i) for i in infos),

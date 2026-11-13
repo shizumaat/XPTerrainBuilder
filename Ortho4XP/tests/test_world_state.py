@@ -242,9 +242,10 @@ def test_both_legends_and_libraries_carry_the_world():
     world = QTWORLD.from_wire([[10, 12, "mesh_lowres", "other", 0.5, "", ""],
                                [10, 13, "placeholder", "", 0, "", ""]])
     kinds = QTLEGEND.legend_kinds({}, {}, world, custom_patch=True)
+    # a tile with no build has no key item (RULINGS 2026-11-13a)
     assert kinds == [QTLEGEND.WORLD_MESH, QTLEGEND.WORLD_PLACEHOLDER,
-                     QTLEGEND.WORLD_NOTHING, QTLEGEND.WORLD_OTHER_TOOL,
-                     QTLEGEND.CUSTOM_PATCH]
+                     QTLEGEND.WORLD_OTHER_TOOL, QTLEGEND.CUSTOM_PATCH]
+    assert TEXT.cell_text({"state": "nothing"}) == ""
     mac = (REPO / "Sources" / "XPTerrainBuilder" / "MapWorldStates.swift").read_text(
         encoding="utf-8", newline="\n")
     for hexcode in (QTWORLD.MESH_COLOR, QTWORLD.DRAPE_COLOR):
@@ -273,6 +274,6 @@ def test_show_in_finder_reveals_the_world_dsf_of_a_records_only_tile(tmp_path):
     assert QTWORLD.from_wire([[1, 2, "full", "", 1, "", ""]])[(1, 2)].dsf == ""
     assert QTLEGEND.drawn_by_world(records, world)
     assert QTLEGEND.legend_kinds({(51, 22): records}, {}, {(51, 22): world}) == [
-        QTLEGEND.WORLD_FULL, QTLEGEND.WORLD_NOTHING]
+        QTLEGEND.WORLD_FULL]
     swift = SWIFT_TEXT.read_text(encoding="utf-8", newline="\n")
     assert "func revealDSF(_ info: O4TileInfo?)" in swift and "entry[7]" in swift

@@ -24,6 +24,12 @@ def test_finished(case):
     assert ORDER.is_finished(case["state"], case["label"]) is case["finished"]
 
 
+@pytest.mark.parametrize("case", CASES["opens_row"], ids=lambda c: c["name"])
+def test_opens_row(case):
+    row = tuple(case["row"]) if case["row"] is not None else None
+    assert ORDER.opens_row(case["state"], case["label"], row) is case["opens"]
+
+
 @pytest.mark.parametrize("case", CASES["section"])
 def test_section(case):
     assert ORDER.section(case["state"]) == case["section"]

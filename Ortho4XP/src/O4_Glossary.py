@@ -60,10 +60,8 @@ TERMS = {
     "mode_build": "Build",
     "mode_fly": "Fly",
     # Fly mode (spec flight-manager-and-world §14, #2001): the map's
-    # checkbox for each square's installed imagery, and the legend's word
-    # for a tile we have not built (never "placeholder").
+    # checkbox for each square's installed imagery.
     "live_flight_preview": "Live flight preview",
-    "xplane_own_scenery": "X-Plane's own scenery",
     # The Build pane's line under "Roads, forests and buildings from
     # X-Plane", now automatic (#2021, RULINGS 2026-11-12e).
     "xplane_objects_auto": "Added to every full tile, except where installed scenery such as simHeaven X-World already brings them",

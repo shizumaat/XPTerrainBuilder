@@ -11,7 +11,6 @@ public enum O4WorldStateText {
     public static let legendMesh = "Mesh: imagery sharpens in flight"
     public static let legendDrape = "Photo drape on X-Plane's mesh"
     public static let legendPlaceholder = "Placeholder: built or draped in flight"
-    public static let legendNothing = "Unmarked: X-Plane's own scenery"
     public static let legendOtherTool = "Dotted: another tool's mesh"
     /// The orange band (#1229) the owner asked about (2026-11-12, "gold").
     public static let legendCustomPatch = "Orange band: custom airport patch, no auto patch"
@@ -22,7 +21,6 @@ public enum O4WorldStateText {
         "full": "Full",
         "drape": "Drape",
         "placeholder": "Placeholder",
-        "nothing": "Nothing",
     ]
     public static let meshWords = "Mesh, {percent}% sharp"
     public static let originWords: [String: String] = [

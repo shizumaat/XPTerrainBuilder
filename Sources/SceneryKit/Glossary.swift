@@ -39,7 +39,6 @@ public enum O4Glossary {
         "mode_build": "Build",
         "mode_fly": "Fly",
         "live_flight_preview": "Live flight preview",
-        "xplane_own_scenery": "X-Plane's own scenery",
         "xplane_objects_auto": "Added to every full tile, except where installed scenery such as simHeaven X-World already brings them",
     ]
 

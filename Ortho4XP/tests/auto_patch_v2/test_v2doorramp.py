@@ -574,3 +574,35 @@ def test_entry_keeps_the_lawful_members_beside_an_invalid_one():
     assert u is not None and u.is_valid
     assert u.area == pytest.approx(21.0 + 0.2736, abs=1e-3)
     assert _fe.enter([], _fe.IDENTITY, 0.001).size == 0
+
+
+class _RiseDem:
+    """The ground rises 1.4 m over the middle of a level roofed plate and
+    falls back to it at both ends (#1903 drawn gate, KIAH 1.0.501)."""
+    provenance = {"synthetic": "a 1.4 m rise 60 m north of the origin"}
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0 + 1.4 * math.exp(-((y - 60.0) / 50.0) ** 2)
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def test_a_level_floor_under_a_rise_is_not_a_sunken_road(tmp_path, law):
+    """KIAH 1.0.501 (``KIAH_ParkingGarage1``, drawn gate site ramp -10657):
+    a parking garage's LEVEL ground floor, roofed by its decks, under a DEM
+    rise of 1.2 m read 'shallow end -0.29, deepest 1.16 m' and passed rule
+    4 as a descending plate; it was cut as a sunken road whose deep end
+    stood 0.16 m OVER the ground.  Rule 4 reads the plate's own fall."""
+    import dataclasses
+    d = tmp_path / "objects"
+    d.mkdir()
+    (tmp_path / "Earth nav data").mkdir()
+    (tmp_path / "Earth nav data" / "apt.dat").write_text("I\n1000 Version\n", encoding="utf-8")
+    objs = {"dir": d, "garage": _road_obj(d / "garage.obj", drop=1.6, level=True)}
+    airport = dataclasses.replace(_airport(objs, law, [("garage", (0.0, 0.0), 0.0, 0.0, "OBJECT")]),
+                                  dem=_RiseDem())
+    cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
+    objects, _rep = read_objects(airport, law, cache)
+    roads, rs = read_sunken_roads(airport, objects, cache, law)
+    assert not roads and any("is LEVEL: it falls" in r for r in rs.refused), rs.refused

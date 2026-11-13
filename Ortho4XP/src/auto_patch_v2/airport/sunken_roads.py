@@ -473,6 +473,18 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
         else:
             s_cut = _cross(ordered, i_cut - 1, i_cut, sr.max_depth_m) if i_cut > 0 else ordered[0][0]
             cut_note = f"cut ends where the plate reaches max_depth_m {sr.max_depth_m}"
+        # rule 4 reads the PLATE's own descent: a level plate under a rise
+        # of the ground reads deeper in its middle, but it does not descend
+        # (#1903 drawn gate, KIAH 1.0.501: a parking garage's level ground
+        # floor under a 1.2 m DEM rise read as a sunken road at -0.16 m)
+        fall = _interp(rows, s_top, 1) - _interp(rows, s_cut, 1)
+        if fall < sr.min_descent_m:
+            stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 is LEVEL: it "
+                                 f"falls {fall:.2f} m from its grade end to its deep end "
+                                 f"(< min_descent_m {sr.min_descent_m}); the ground rises "
+                                 f"{deepest - shallow:.2f} m over it — a floor under a rise, "
+                                 f"the basin pass's")
+            continue
         if abs(s_cut - s_top) < sr.station_m:
             stats.refused.append(f"{name} at {site}: the trench would be {abs(s_cut - s_top):.1f} m "
                                  f"long (< station_m {sr.station_m})")

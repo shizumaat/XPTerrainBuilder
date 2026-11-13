@@ -557,6 +557,10 @@ class Datum:
     step_m: float = 0.0
     walk_max_m: float = 0.0
     level_tol_m: float = 0.0
+    #: the deck's plan ring ``(lat, lon)``: 22p reads the ground at the
+    #: anchor as the road under the span only where the anchor stands
+    #: inside it (``bridge_approach.approach_seat``); empty = not read
+    ring: tuple[tuple[float, float], ...] = ()
 
 
 def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
@@ -645,7 +649,9 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
                          ends=ends if len(ends) >= 2 else (),
                          step_m=float(abutment_step_m),
                          walk_max_m=float(abutment_walk_max_m),
-                         level_tol_m=float(level_tol_m))
+                         level_tol_m=float(level_tol_m),
+                         ring=tuple((float(q[0]), float(q[1]))
+                                    for q in (getattr(m, "deck_ring", None) or ())))
     return None
 
 

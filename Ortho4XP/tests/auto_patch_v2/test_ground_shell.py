@@ -60,8 +60,8 @@ def test_a_roof_over_the_ground_and_a_soft_skin_are_not(tmp_path):
     roof = TTM._write(tmp_path, "r.obj", lambda x, z: _skin(x, z) + 12.0)
     assert GS.shape_of(roof) is None
     soft = tmp_path / "s.obj"
-    soft.write_text(open(TTM._write(tmp_path, "k.obj", _skin)).read()
-                    .replace("ATTR_hard\n", ""), encoding="utf-8")
+    soft.write_text(open(TTM._write(tmp_path, "k.obj", _skin), encoding="utf-8").read()
+                    .replace("ATTR_hard\n", ""), encoding="utf-8", newline="\n")
     assert GS.shape_of(str(soft)) is None
 
 

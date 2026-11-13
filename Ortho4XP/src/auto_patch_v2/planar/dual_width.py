@@ -71,18 +71,34 @@ def dual_half_fn(axis_fn: _t.Callable[[float], XY], members: _t.Sequence, half: 
     return fn
 
 
-def compose_half_fn(pav_hw: dict, dual, half: float, base
+def compose_half_fn(pav_hw: dict, dual, half: float, base, wide: bool = False
                     ) -> _t.Callable[[float], tuple[float, float]] | None:
     """The ramp's ``half_fn``: the pavement tracing the road where it reads
     (``pav_hw``, 2026-09-06b (2)), else the dual's carriageways (``dual``),
     else the constant ``half``; ``base`` (the group's own) when neither
-    reads anywhere."""
+    reads anywhere.
+
+    ``wide`` (a DUAL group, #1939): the pavement trace never narrows the
+    ramp below its carriageways -- per side the wider of the trace and the
+    dual's reading (``dual``, else ``base``, else ``half``).  A dual's axis
+    is the MEAN of its routes and runs between them, so a pavement it
+    traces is one carriageway's ribbon (measured ESSA taxiway U, four
+    carriageways 45 m across: the trace read 1.5 / 4.2 m 12 m out and the
+    ring folded at the mouth)."""
     if not pav_hw and dual is None:
         return base
 
+    def under(s: float) -> tuple[float, float]:
+        if dual is not None:
+            return dual(s)
+        return base(s) if wide and base is not None else (half, half)
+
     def fn(s: float) -> tuple[float, float]:
         got = pav_hw.get(s)
-        if got is not None:
-            return got
-        return dual(s) if dual is not None else (half, half)
+        if got is None:
+            return under(s)
+        if wide:
+            low = under(s)
+            return (max(got[0], low[0]), max(got[1], low[1]))
+        return got
     return fn

@@ -142,6 +142,7 @@ from .structure_stats import StructureStats
 from .entrance_skirt import (entrance_skirt, entrance_top, face_front_mouth, is_entrance_face,
                              skirt_refs)
 from .mouth_opening import group_opening, opening_halves
+from .survey_cut import cutting_of
 from .structure_underpass import (underpass_bores as _underpass_bores,
                                   approach_along, bore_roads, mouth_parent, UNDERPASS_TAG,
                                   UNDERPASS_NOTE)
@@ -600,6 +601,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 axis_ln, roads_ix, law, [m.approach for m in members if hasattr(m, "approach")]),
             pinned=pin is not None, road_floor=road_f,
             road_extra=0.0 if road_rd is None else road_rd.extra,
+            cutting=cutting_of(airport, law, road_rd, width),      # #1939
             slide=edge is None and deck is None,
             own_lines=() if edge is None and deck is None else [
                 LineString(m.approach) for m in members
@@ -1001,8 +1003,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # tracing the road sets the ramp's edges per station
             pav_hw, traced = pavement_half_widths(axis_fn, ss, cells, polys, law, half)
             # #807: a dual's edges are its carriageways' — one span where they fold
-            dual_fn = compose_half_fn(pav_hw, dual_half_fn(axis_fn, members, half), half, half_fn)
-            half_fn = compose_half_fn(pav_hw, None, half, half_fn)
+            wide = len(members) >= 2         # #1939: a dual's trace never narrows it
+            dual_fn = compose_half_fn(pav_hw, dual_half_fn(axis_fn, members, half), half, half_fn,
+                                      wide)
+            half_fn = compose_half_fn(pav_hw, None, half, half_fn, wide)
             if dual_fn is not half_fn and ring_for(c, axis_fn, ss, half, rim_off, inward, grid,
                                                    g, dual_fn) is not None:
                 half_fn = dual_fn

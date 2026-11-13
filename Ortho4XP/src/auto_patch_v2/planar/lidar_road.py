@@ -98,7 +98,8 @@ from .channel_geometry import _lidar_cut, _lidar_floor
 
 __all__ = ["survey_mouth", "survey_design_grade", "under_airside_pavement",
            "is_rail_group", "survey_mouth_refusal", "survey_mouth_note", "survey_trench",
-           "survey_road_trenches", "end_clearance", "kept_face_shift"]
+           "survey_road_trenches", "end_clearance", "kept_face_shift", "surround_level",
+           "surveyed_road"]
 
 #: the station step along the bore (the §45 cut reading's own lateral step)
 _STEP_M = 5.0
@@ -282,6 +283,12 @@ def _road(airport, axis_fn, width: float) -> float:
     return min(zs) if zs else math.nan
 
 
+#: The surrounding ground and the surveyed road under their public names
+#: (``planar/survey_cut`` re-reads them at a slid mouth, #1939).
+surround_level = _surround
+surveyed_road = _road
+
+
 def survey_mouth(airport, law: Law, members: _t.Sequence, axis_fn, width: float,
                  credible: bool, start_m: float, paved: bool) -> SurveyMouth | None:
     """The credible survey's reading of the group's mouth, or ``None`` on a
@@ -364,7 +371,20 @@ def survey_design_grade(airport, law: Law, axis_fn, sm: SurveyMouth, design: flo
     the road's own rise over the closing length plus ``design``, never
     above ``cap``.  On a flat approach it is ``design`` (unchanged); where
     the survey's trench descends to the mouth, the ramp follows it instead
-    of cutting under it for a design ramp's length."""
+    of cutting under it for a design ramp's length.
+
+    A KEPT mouth (nothing to close: its floor IS the surveyed road, N1) is
+    never built steeper than the survey it lies on, up to ``design`` (#1939):
+    its ramp is the surveyed road.  MEASURED ESSA (taxiway U): the cutting
+    floor runs flat from both mouths, and a 5 % ramp from the surveyed road
+    stood 1.2 m over it at its top, 24 m out, with the road beyond pulled up
+    2.3 m to meet it.  Where the survey climbs at the design grade or more
+    (EGLL north) the design grade stands."""
+    if sm.verdict == KEPT and sm.extra <= 0.0 and design > 0.0:
+        z0, z1 = dem_z_at(airport, axis_fn(0.0)), dem_z_at(airport, axis_fn(_ROAD_M))
+        if math.isnan(z0) or math.isnan(z1):
+            return design
+        return min(design, max(0.0, (z1 - z0) / _ROAD_M))
     if sm.extra <= 0.0 or design <= 0.0:
         return design
     run = max(_ROAD_STEP_M, sm.extra / design)

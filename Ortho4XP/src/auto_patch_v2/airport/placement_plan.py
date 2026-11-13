@@ -226,7 +226,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # #1903: the DSF's tile ``(west, south, east, north)``; a body
                  # anchored off it keeps its seat by its row
                  # (``split_guard.on_tile``).  ``None`` disarms
-                 tile_box: "tuple[float, float, float, float] | None" = None
+                 tile_box: "tuple[float, float, float, float] | None" = None,
+                 # #1884: ``routable(lat, lon)`` — another DSF of the pack
+                 # carries a body standing there (``tile_route``)
+                 routable: "_t.Callable[[float, float], bool] | None" = None
                  ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -329,7 +332,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
     def _on_tile(r, mm):
         # #1903: a body off the DSF's tile keeps its seat (``split_guard``)
-        return _sg.on_tile(r, tile_box, lambda b: _ens.face_zero(b, mm, _entr))
+        return _sg.on_tile(r, tile_box, lambda b: _ens.face_zero(b, mm, _entr),
+                           routable)
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,

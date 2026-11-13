@@ -64,6 +64,7 @@ from . import footprint_unit as _fu
 from . import pack_journal as _pj
 from . import placement_plan as _pp
 from . import split_guard as _sg
+from . import tile_route as _route
 from . import torn_pack as _tp
 from .pit_frame import shifted as _pit_shifted
 
@@ -214,7 +215,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           rows=getattr(dump, "placements", None),
                           authored_keep_tol_m=authored_keep_tol_m,
                           drape=drape, drape_law=drape_law,
-                          tile_box=_sg.box_of_tile(tile, dsf_path))
+                          tile_box=_sg.box_of_tile(tile, dsf_path),
+                          routable=_route.routable(pack_root, tile))
     splits, kept = _pp.to_placement_records(ss)
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,
@@ -621,7 +623,20 @@ def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False,
 
 # ── steps 0-5: the whole write ──────────────────────────────────────────
 
-def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
+def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str,
+               **kw: _t.Any) -> "PlacementWriteResult":
+    """:func:`_apply_plan` (every keyword is its) under the pack record's
+    cross-process lock: since #1884 a tile's build also writes the guest
+    rows of a NEIGHBOUR tile's DSF, whose own build may be writing it at
+    the same time, and the record beside the DSFs is read, composed and
+    written back by both (``O4_File_Lock``; a holder that never releases
+    is waited for 15 min, then the write proceeds as before)."""
+    import O4_File_Lock as _lock
+    with _lock.hold_file_lock(_bs.record_path_for(plan.dsf_path)):
+        return _apply_plan(plan, files, tool, **kw)
+
+
+def _apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                patch_dir: str = "", allow_live_install: bool = False,
                work_dir: str | None = None,
                refresh_dump: _t.Callable[[str], str | None] | None = None,

@@ -46,7 +46,8 @@ from ..law.reference_code import runway_status
 from ..law.tables import runway_safety_area_length_m, zone2_half_width_m
 from ..model.walled_plate import WalledPlate
 
-__all__ = ["recognise", "mark", "plates_of", "log_line", "JOINT_KEY", "declare_joints"]
+__all__ = ["recognise", "mark", "plates_of", "log_line", "JOINT_KEY", "declare_joints",
+           "body_plan"]
 
 
 class _End(_t.NamedTuple):
@@ -308,6 +309,53 @@ def plates_of(objects: _t.Sequence[_t.Any]) -> tuple[WalledPlate, ...]:
         if p is not None:
             seen.setdefault(p.ids, p)
     return tuple(seen.values())
+
+
+#: :func:`body_plan`'s memo: ``(id(partition), ids) -> (partition, plan)``
+_BODY_PLAN: dict[tuple, tuple] = {}
+
+
+def body_plan(airport) -> _t.Any:
+    """NO ROAD UNDER A RUNWAY-END BODY (#2054 round 2, spec R3): the plan
+    of every walled plate's static solid — every part of every member of
+    its origin set (``Airport.walled_plates`` ids, the load partition's
+    member rings), embankment slopes and all, in frame xy; ``None`` when
+    there is none.  The walled plate's ``footprint`` is its plate alone
+    (MEASURED KCRW ``dsf:obj3228``: 9,040 m² of a 13,802 m² plan), so a
+    road under the slopes was capped at the plate.  Derived once per
+    partition (memoised); no ``WalledPlate`` field."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    plates = tuple(getattr(airport, "walled_plates", ()) or ())
+    part = getattr(airport, "partition", None)
+    frame = getattr(airport, "frame", None)
+    if not plates or part is None or frame is None:
+        return None
+    ids = frozenset(i for p in plates for i in p.ids)
+    key = (id(part), ids)
+    hit = _BODY_PLAN.get(key)
+    if hit is not None and hit[0] is part:
+        return hit[1]
+    to_xy = frame.entry()
+    polys = []
+    for u in part.units:
+        for m in u.members:
+            if m.id not in ids:
+                continue
+            for p in m.parts:
+                for rg in getattr(p, "rings", None) or ():
+                    if len(rg) < 3:
+                        continue
+                    g = Polygon([to_xy(lon, lat) for lat, lon in rg])
+                    g = g if g.is_valid else g.buffer(0.0)
+                    if not g.is_empty:
+                        polys.append(g)
+    plan = unary_union(polys) if polys else None
+    plan = None if plan is None or plan.is_empty else plan
+    if len(_BODY_PLAN) >= 4:
+        _BODY_PLAN.clear()
+    _BODY_PLAN[key] = (part, plan)
+    return plan
 
 
 def log_line(icao: str, plates: _t.Sequence[WalledPlate]) -> str:

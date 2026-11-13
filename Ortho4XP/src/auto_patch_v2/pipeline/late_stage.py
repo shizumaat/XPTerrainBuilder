@@ -298,13 +298,14 @@ def late_cut(cl, airport, law: Law, base_solution: _t.Mapping[str, _t.Any], *,
         # wall like every other road (``classify/wall_cutback``, the one
         # helper ``classify/roles`` runs; a pad road's exit ran through the
         # KATL ``muro_concreto5`` footprint)
+        from ..airport.walled_plate import body_plan
         from ..classify.wall_cutback import cut_roads_at_walls
         from ..law.tables import road_family_roles, snap_margin_m
         cells, wcut = cut_roads_at_walls(
             cl_cut.cells, frozenset(road_family_roles(law)),
             tuple(getattr(airport, "retaining_walls", ()) or ()),
-            rules.cells.min_area_m2, snap_margin_m(law))
-        if wcut["wall_cut_cells"]:
+            rules.cells.min_area_m2, snap_margin_m(law), body_plan(airport))
+        if wcut["wall_cut_cells"] or wcut.get("plate_cut_cells"):
             cl_cut = _dc.replace(cl_cut, cells=tuple(cells))
             out(f"LAST STAGE roads cut back at retaining walls: {wcut}")
         cut = {"pieces": [], "parts": 0, "knives": 0, "merged": 0, "stations": 0,

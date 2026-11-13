@@ -2014,7 +2014,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
     airport.walled_pit airport.portal_floor airport.pit_frame
     geom.runway_contact geom.collapsed_spike
-    airport.old_dem_fill planar.fill_bank airport.dsf_heights
+    airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor airport.floor_rim geom.author_ground geom.lowest_face
     planar.object_floor_cells
@@ -2164,7 +2164,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.deck_stack
     airport.walled_pit airport.portal_floor airport.pit_frame constraints.airside_top
     geom.runway_contact geom.collapsed_spike
-    airport.old_dem_fill constraints.fill_bank planar.fill_bank airport.dsf_heights
+    airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor airport.floor_rim constraints.object_floor
     planar.object_floor_cells

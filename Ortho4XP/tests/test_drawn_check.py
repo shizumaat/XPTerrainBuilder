@@ -337,3 +337,12 @@ def test_t24_d6_only_on_published_caps_and_a_sample_on_no_face_is_incomplete():
     assert pred["mode"] == "PREDICTED" and pred["uncovered"]
     assert pred["verdict"] in ("INCOMPLETE", "FAIL") and pred["verdict"] != "PASS"
     assert DC.run_predict.__doc__ and DC.check_stack is DC.check_stack   # one function
+
+
+def test_d5_samples_outside_the_wall_line_at_its_end():
+    """Outside the wall line is its own normal, away from the floor -- at a
+    wall's end, past the floor's last station, the direction to that
+    station runs along the wall (KDEN l1971r2: the run-out's void band)."""
+    pts = [(0.0, 0.0), (5.0, 0.0), (10.0, 0.0)]
+    n = DC._outward(pts, 0, (20.0, 3.0))          # the floor lies north-east
+    assert abs(n[0]) < 1e-9 and n[1] == pytest.approx(-1.0)

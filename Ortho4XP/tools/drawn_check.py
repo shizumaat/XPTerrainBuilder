@@ -445,6 +445,18 @@ def _plate_at(d, to_m):
     return at
 
 
+def _outward(pts, k, inside):
+    """The unit normal of the wall line ``pts`` at its ``k``-th point, on
+    the side away from ``inside`` (the floor's centreline point nearest
+    it): "outside the wall line", which at a wall's end -- where the line
+    runs past the floor's last station -- the direction to that station is
+    not (spec v2 §8.3 D5 / D6)."""
+    a, b = pts[max(0, k - 1)], pts[min(len(pts) - 1, k + 1)]
+    t = numpy.subtract(b, a)
+    n = numpy.array([-t[1], t[0]]) / (numpy.hypot(*t) or 1.0)
+    return -n if float(numpy.dot(n, numpy.subtract(inside, pts[k]))) > 0.0 else n
+
+
 class _Frame:
     """The stack's written rows as X-Plane places them, or -- with no
     written pack (a PREDICTED read without ``--plan``) -- the sidecar's own
@@ -609,11 +621,10 @@ def check_stack(rec, drawn, claims, tol, step=5.0, faces=None, predict=False, st
     out5 = float(st.get("band_m", 1.0)) + 0.5
     d5, d6 = [], []
     for rim in st["rim"]:
-        for la, lo in _every(rim, 5):
-            x, y = to_m(la, lo)
-            nx, ny = min(line, key=lambda p: math.hypot(p[0] - x, p[1] - y))
-            u = numpy.subtract((x, y), (nx, ny))
-            u = u / (numpy.hypot(*u) or 1.0)
+        pts = [to_m(la, lo) for la, lo in rim]
+        for k in sorted({*range(0, len(pts), 5), len(pts) - 1}):
+            x, y = pts[k]
+            u = _outward(pts, k, min(line, key=lambda p: math.hypot(p[0] - x, p[1] - y)))
             for off, acc, key in ((out5, d5, "D5"), (3.0, d6, "D6")):
                 q = (x + u[0] * off, y + u[1] * off)
                 if key == "D6" and "caps" in st and not any(p.covers(Point(q)) for p in caps):

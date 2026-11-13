@@ -2685,6 +2685,9 @@ def build_mesh(tile):
                 ELEVATION_LEVEL.bake_approach_rings_into_alt_dem(
                     tile, getattr(tile, "dico_airports", None) or {})
                 INSETS.bake_airport_insets_into_alt_dem(tile)
+                # owner RULINGS 2026-11-13k: and the terrain models' cut
+                import auto_patch.terrain_cut_stage as TERRAIN_CUT
+                TERRAIN_CUT.bake(tile)
                 tile.dem.write_to_file(FNAMES.alt_file(tile))
         except Exception as e:
             print(e)

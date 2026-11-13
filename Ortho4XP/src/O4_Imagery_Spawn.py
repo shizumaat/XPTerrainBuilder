@@ -59,6 +59,7 @@ from __future__ import annotations
 import dataclasses
 import math
 
+import O4_Imagery_Follow_Reach as REACH
 import O4_Imagery_OnDemand_Cores as CORES
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Tier_Plan as PLAN
@@ -101,12 +102,19 @@ def _eye_tier(row, lat: float, lon: float, agl_m: float = 0.0):
 
 
 def core_wants(rows, lat: float, lon: float,
-               agl_m: float = 0.0) -> dict[str, int]:
+               agl_m: float = 0.0, tiles=None) -> dict[str, int]:
     """``{key: tier}`` for the index ``rows`` (``{key: row}``) a camera
     ``agl_m`` above ``(lat, lon)`` wants finer than the file on disk
-    (:func:`_eye_tier`).  Failed rows are left out."""
+    (:func:`_eye_tier`).  Failed rows are left out.  ``tiles``
+    (``O4_Imagery_Follow_Reach.by_tile`` of ``rows``): only the tiles
+    within the coarsest core crossing are read (#2037: the whole index,
+    215,209 rows, took 0.13 s idle at every spawn and far longer beside
+    a drape run)."""
     wants = {}
-    for key, row in rows.items():
+    keys = (rows.keys() if tiles is None else REACH.keys_within(
+        tiles, lat, lon, (0.0, PLAN.CROSSING_S[1])))
+    for key in keys:
+        row = rows[key]
         if row.get("state") == "failed":
             continue
         tier = _eye_tier(row, lat, lon, agl_m)
@@ -215,21 +223,23 @@ class SpawnWatch:
 
     def witness(self, kind: str, now: float, lat: float, lon: float, rows,
                 *, moved_m: float = float("inf"), down_s: float = 0.0,
-                is_local=None, agl_m: float = 0.0) -> Episode | None:
+                is_local=None, agl_m: float = 0.0,
+                tiles=None) -> Episode | None:
         """A witness ``kind`` at ``now`` with the camera at ``(lat, lon)``;
         ``moved_m`` and ``down_s`` are the camera's move and the seconds
         without a position across a ``flight_load``'s drop.  Opens the
         episode of the new place (replacing an open one) and returns it,
         or ``None`` when the witness belongs to an event already known.
         ``is_local(row, tier)`` says a file needs no download; ``agl_m``
-        the camera's height (the core is read at the eye)."""
+        the camera's height (the core is read at the eye); ``tiles`` the
+        rows by tile (:func:`core_wants`)."""
         if kind == "flight_load" and moved_m <= SAME_PLACE_M:
             if down_s < LOAD_DOWN_S:
                 return None                 # a stutter: nothing read again
             if (self._reload_at is not None
                     and now - self._reload_at <= RELOAD_QUIET_S):
                 return None                 # this job's own reload
-        wants = core_wants(rows, lat, lon, agl_m)
+        wants = core_wants(rows, lat, lon, agl_m, tiles)
         local = {key for key, tier in wants.items()
                  if is_local is not None and is_local(rows[key], tier)}
         had = {key: PLAN.tier_of_width(rows[key].get("tier_px"))

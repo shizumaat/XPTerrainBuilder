@@ -16,6 +16,9 @@ pack holds only as a placeholder with no file of it goes in at once
   (:data:`LAYOUT_KEY`), so the on-demand index rows read and land
   textures there (``O4_Imagery_OnDemand_Index`` resolves every texture
   path through them) and the tile's rows are re-registered;
+* a DRAPE swapped in (it has no build folder) gets its index rows from
+  the pack's own files (``imagery_follow_drape.register``, #2037), so the
+  follow job sharpens it like any on-demand tile;
 * the tile's own ``zOrtho4XP_<tile>`` link to the same build folder is
   removed: the World pack draws the tile ("instead of a new
   ``zOrtho4XP_<tile>`` folder", §4.1); ``O4_Scenery_Links.install``
@@ -139,8 +142,19 @@ def _sharpen(scenery_dir: str, build_dir: str, lat: int, lon: int
 
 def _after_swap(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
     import O4_Scenery_Links as LINKS
+    import O4_World_Drape as DRAPE
 
     from . import imagery_ondemand as ONDEMAND
+    pack = WORLD.pack_dir(scenery_dir)
+    from . import imagery_follow_drape as DRAPE_ROWS
+    if DRAPE.is_drape(os.path.join(pack, WP.dsf_relpath(lat, lon))):
+        try:
+            DRAPE_ROWS.register(pack, lat, lon)
+        except Exception as error:      # logged; the index is a cache
+            WORLD.write_log({"drape_rows_error": repr(error)[:300],
+                             "tile": WP.tile_name(lat, lon)})
+        return
+    DRAPE_ROWS.forget(lat, lon)         # a drape it replaces (#2037)
     write_layout(build_dir, lat, lon, WORLD.pack_dir(scenery_dir))
     with contextlib.suppress(Exception):     # the index is a cache
         ONDEMAND.register_tiles([(build_dir, lat, lon)])

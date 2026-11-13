@@ -174,12 +174,18 @@ def _checkin(group: str, cap: int, fetcher: Any, timeout_s: float | None = None)
         _idle.setdefault((group, cap, timeout_s), []).append(fetcher)
 
 
-def _server_budget(limit: int) -> Callable[[Any], Any]:
-    """The fetcher's ``budget``: one free slot of the request's server class, or None."""
+def _server_budget(limit: int, priority: bool = False) -> Callable[[Any], Any]:
+    """The fetcher's ``budget``: one free slot of the request's server class, or None.
+
+    ``priority``: the caller ran under ``O4_Machine_Slots.net_priority`` (the follow job's
+    squares, #2037); the budget is called on the loop thread, so the caller's flag is
+    carried here."""
     import O4_Machine_Slots as MACHINE_SLOTS
 
     def take(request: Any) -> Any:
-        held = MACHINE_SLOTS.try_take_class(MACHINE_SLOTS.net_class(request.url), 1, limit)
+        held = MACHINE_SLOTS.try_take_class(
+            MACHINE_SLOTS.net_class(request.url), 1, limit, priority=priority
+        )
         return held if held.count else None
 
     return take
@@ -218,7 +224,12 @@ def fetch_parts(
     cap = max(1, int(cap))
     requests_ = [FetchRequest(key, url, dict(headers or {}), group) for key, url, headers in parts]
     fetcher = _checkout(group, cap, timeout_s)
-    fetcher.budget = _server_budget(host_limit) if host_limit else None
+    if host_limit:
+        import O4_Machine_Slots as MACHINE_SLOTS
+
+        fetcher.budget = _server_budget(host_limit, MACHINE_SLOTS.has_net_priority())
+    else:
+        fetcher.budget = None
 
     async def run() -> list[Any]:
         cancel = asyncio.Event()

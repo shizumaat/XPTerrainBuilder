@@ -46,7 +46,8 @@ API (stable: the follow job, P3b, reads and writes through it):
   connection with ``sqlite3.Row`` rows.
 * :func:`upsert` -- insert or replace one row's columns (a dict).
 * :func:`get` / :func:`rows` -- read one row / the rows matching
-  ``tile``, ``state``, ``pinned``, ``core``.
+  ``tile``, ``state``, ``pinned``, ``core``; :func:`all_rows` -- every
+  row, read one tile per ``sqlite3`` step (the follow job's reread).
 * :func:`set_state` -- a state change with the columns it carries
   (``upgrading`` -> ``upgraded`` with ``tier_px``, ``full_bytes``, ...).
 * :func:`mark_near` -- ``last_near_at = now`` for names the camera came
@@ -99,7 +100,7 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 
 __all__ = [
     "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
-    "STATES", "capped_bytes", "distance_m", "forget_tile", "get",
+    "STATES", "all_rows", "capped_bytes", "distance_m", "forget_tile", "get",
     "repoint_folder",
     "has_rows", "index_path", "lru_order", "tile_sharpness",
     "mark_late", "mark_near", "open_index", "pinned_bytes",
@@ -278,6 +279,29 @@ def rows(conn: sqlite3.Connection, *, tile: "str | None" = None,
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     return [dict(r) for r in conn.execute(
         f"SELECT * FROM textures{clause} ORDER BY tile, name", args)]
+
+
+def all_rows(conn: sqlite3.Connection) -> "list[dict]":
+    """Every row, ordered by tile and name, as :func:`rows` reads them --
+    but one ``sqlite3`` step per TILE (its rows as one JSON array), not
+    per row.  Each step releases and re-takes the GIL; beside threads
+    that hold it (a World drape run) a re-take waits its turn, and the
+    follow job's reread of 215,209 rows one step each took minutes
+    (#2037: 15 s for 5,000 rows beside two busy threads; this reads all
+    of them in 8.6 s, 0.6 s idle).  An SQLite without JSON reads them as
+    :func:`rows` does."""
+    pairs = ", ".join(f"'{c}', {c}" for c in COLUMNS)
+    try:
+        cursor = conn.execute(
+            f"SELECT json_group_array(json_object({pairs})) FROM "
+            "(SELECT * FROM textures ORDER BY tile, name) GROUP BY tile "
+            "ORDER BY tile")
+        out: list = []
+        for (text,) in cursor:
+            out.extend(json.loads(text))
+        return out
+    except sqlite3.OperationalError:
+        return rows(conn)
 
 
 def set_state(conn: sqlite3.Connection, tile: str, name: str, state: str,

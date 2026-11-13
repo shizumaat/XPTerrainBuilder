@@ -164,11 +164,14 @@ def pad_shade_extra(airport):
     (``Airport.sunken_ramps``), issue #1633's retaining walls
     (``Airport.wall_shade``: a wall that retains its height is two levels,
     never a flat pad) and #1747's tunnel mouths (``Airport.entrance_shade``:
-    a mouth's walls are no building).  The ``extra`` every pad reader hands
-    ``base_slab.pad_shades``; ``None`` where there is none."""
-    return with_shade(with_shade(getattr(airport, "sunken_ramps", None),
-                                 getattr(airport, "wall_shade", None)),
-                      getattr(airport, "entrance_shade", None))
+    a mouth's walls are no building) and #1971's deck stacks
+    (``Airport.stack_shade``: a stack's floor and walls are no pad).  The
+    ``extra`` every pad reader hands ``base_slab.pad_shades``; ``None``
+    where there is none."""
+    return with_shade(with_shade(with_shade(getattr(airport, "sunken_ramps", None),
+                                            getattr(airport, "wall_shade", None)),
+                                 getattr(airport, "entrance_shade", None)),
+                      getattr(airport, "stack_shade", None))
 
 
 #: v1's EVIDENCE SOURCE (a) population: which ``model.airport.Building``

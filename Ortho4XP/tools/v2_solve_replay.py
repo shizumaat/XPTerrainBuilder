@@ -683,6 +683,10 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
     from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law)   # #1747
+    from auto_patch_v2.airport.deck_stack import log_line as _ds_line
+    from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
+    airport = attach_deck_stacks(airport, pack_objects, ocache, law)     # #1971
+    print(_ds_line(icao, airport.deck_stacks))
     from auto_patch_v2.airport import flat_pack as _flat_pack     # flat-pack spec §1
     airport = _dc.replace(airport, flat_pack=_flat_pack.detect(airport, law))
     print(f"[{icao}] " + _flat_pack.log_line(icao, airport.flat_pack))
@@ -2223,6 +2227,17 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         if getattr(airport, "entrance_shade", None) is None:
             from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
             airport = attach_entrance_shade(airport, _objs, _ocache, law)
+        # #1971: the deck stacks, RE-DERIVED every replay from the ways as
+        # mapped (``Airport.osm_ways_mapped``), so ``--from classify``
+        # iterates on the derivation without a new capture
+        from auto_patch_v2.airport.deck_stack import log_line as _ds_line
+        from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
+        _ds_t, _ds_notes = time.perf_counter(), []
+        airport = attach_deck_stacks(airport, _objs, _ocache, law, _ds_notes)
+        print(_ds_line(icao, airport.deck_stacks, time.perf_counter() - _ds_t))
+        for _n in _ds_notes:
+            if "no floor (" not in _n:
+                print(f"[{icao}]   [deck-stack] {_n}")
     if resume == "classify":
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster

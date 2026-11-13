@@ -350,20 +350,34 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     airport = _dc.replace(airport, terrain_models=_gs.airside_capped(
         getattr(airport, "terrain_models", ()) or (), surf, _to_xy))
     model_seats = _tm.seat_records(airport)
+    # #2062 R2: a storey shell's rigid set is written whole at the
+    # building's zero plus each row's lift -- no other seat moves a row of it
+    from ..airport import storey_seat as _ss
+    from ..airport.open_frame_seat import TOUCH_M
+    from ..constraints.airside_top import _surface_z_at
+    storey_seats = _ss.seat_records(tuple(getattr(pm, "storey_shells", ()) or ()), pm,
+                                    _surface_z_at(surf, _to_xy), objects, TOUCH_M) \
+        if objects else []
+    shelled = {str(r["id"]) for r in storey_seats}
+    excluded |= shelled
+    model_seats = [r for r in model_seats if str(r["id"]) not in shelled] + storey_seats
     modelled = {str(m["id"]) for m in model_seats}
     floor_seats = [r for r in floor_seats if str(r["id"]) not in modelled]
     from ..airport.adapted_riders import seat_records as _adapted_seats
     adapted = (_adapted_seats(objects, excluded - _authored_seats.kept_ids(seats)
                               - {str(r["id"]) for r in floor_seats} - modelled,
                               airport.frame.transformers()[1]) if objects else [])
+    authored = (tuple(seats[k] for k in sorted(seats))
+                + tuple(_ts.seat_records(airport))
+                + tuple(_ts.portal_seat_records(
+                    pm.structures, airport.frame.transformers()[1],
+                    zeros=solved_entrance_zeros(pm, law, surf, _to_xy)))
+                + tuple(floor_seats) + tuple(adapted))
     return {
         "tunnel_objects": _plate_seats(pm, law, seats),
-        "authored_seats": (tuple(seats[k] for k in sorted(seats))
-                           + tuple(_ts.seat_records(airport))
-                           + tuple(_ts.portal_seat_records(
-                               pm.structures, airport.frame.transformers()[1],
-                               zeros=solved_entrance_zeros(pm, law, surf, _to_xy)))
-                           + tuple(floor_seats) + tuple(adapted)
+        # one authority per row (``terrain_shaped.row_seats``): a storey
+        # shell's row takes its shell's seat alone
+        "authored_seats": (tuple(r for r in authored if str(r.get("id")) not in shelled)
                            + tuple(model_seats)),
         "exclude": excluded,
         "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],

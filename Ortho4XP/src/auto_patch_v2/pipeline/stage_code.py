@@ -589,6 +589,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.road_yield",
         "auto_patch_v2.model.stage_one",
+        "auto_patch_v2.model.storey_shell",
         "auto_patch_v2.model.structures",
         "auto_patch_v2.model.wall_reach",
         "auto_patch_v2.model.walled_plate",
@@ -603,6 +604,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.bore_continuation",
         "auto_patch_v2.planar.bridge_span",
         "auto_patch_v2.planar.build",
+        "auto_patch_v2.planar.cell_knife",
         "auto_patch_v2.planar.channel",
         "auto_patch_v2.planar.channel_claims",
         "auto_patch_v2.planar.channel_depth",
@@ -671,6 +673,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.split_level_pit",
         "auto_patch_v2.planar.stack_ground",
         "auto_patch_v2.planar.station_level",
+        "auto_patch_v2.planar.storey_pad",
         "auto_patch_v2.planar.strip_keepout",
         "auto_patch_v2.planar.structure_approach",
         "auto_patch_v2.planar.structure_deck",
@@ -1099,6 +1102,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.rebake",
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.stage_one",
+        "auto_patch_v2.model.storey_shell",
         "auto_patch_v2.model.structures",
         "auto_patch_v2.model.wall_reach",
         "auto_patch_v2.model.walled_plate",
@@ -2191,6 +2195,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.taxi_route_yield
     airport.foot_lot
     planar.foot_kerb
+    model.storey_shell planar.cell_knife planar.storey_pad
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
@@ -2360,6 +2365,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.taxi_route_yield
     airport.foot_lot
     planar.foot_kerb
+    model.storey_shell planar.cell_knife planar.storey_pad
 """)
 CODE_MODULES["emit"] = _mods("""
     airport.facade airport.line_solidity classify.edge_line_mint
@@ -2472,6 +2478,7 @@ CODE_MODULES["emit"] = _mods("""
     model.stage_one
     constraints.taxi_route_yield
     airport.foot_lot
+    airport.split_level airport.storey_seat model.storey_shell pipeline.storey_publication
 """)
 CODE_MODULES["verify"] = _mods("""
     airport.facade airport.line_solidity classify.edge_line_mint
@@ -2567,6 +2574,7 @@ CODE_MODULES["verify"] = _mods("""
     model.stage_one
     verify.deck_flush
     constraints.taxi_route_yield
+    pipeline.storey_publication
 """)
 
 

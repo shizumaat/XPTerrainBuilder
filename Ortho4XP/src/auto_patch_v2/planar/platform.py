@@ -42,6 +42,7 @@ from ..law.tables import frontage_roles
 from ..model.planar import STRIP_SUFFIX, block_ref, is_bank_ref
 from ..model.platform import Platform
 from ..model.registries import Registries
+from ..model.storey_shell import SHELL_VERDICT
 from ..geom.parts import nonempty_polygon_parts
 
 __all__ = ["platform_split", "Platform", "merge_platform_faces"]
@@ -165,10 +166,28 @@ def rim_relief_m(P: Polygon, air, near_m: float, dem, slope_max: float
     return float(np.max(np.abs(A[:, 2] - M @ c)))
 
 
+def _shell_held(pr, P, tree, air_polys, near: float, dem, slope_max: float, platforms,
+                held) -> None:
+    """A storey shell's pad region ``pr`` HELD: non-conforming, one block
+    (``planar/storey_pad``); its platform record once per ref."""
+    ref = str(pr.ref)
+    if ref in held:
+        return
+    cand = [air_polys[int(j)] for j in tree.query(P, predicate="dwithin", distance=near)]
+    air = unary_union(cand) if cand else None
+    nw = _welded_samples(P, air, near) if air is not None else 0
+    platforms.append(Platform(ref, round(P.area, 1), nw,
+                              rim_relief_m(P, air, near, dem, slope_max)
+                              if air is not None else 0.0))
+    held[ref] = {"unit": ref, "k": 0, "blocks": 1, "datum_pred": None,
+                 "verdict": SHELL_VERDICT, "samples_xy": None, "samples_held": None,
+                 "samples_reach": None, "samples_ramp": None}
+
+
 def platform_split(base_regions, pad_regions, law: Law,
                    grid: float = 0.0, dem=None, airport=None, *,
                    reg: Registries, storey: _t.Mapping[str, float] | None = None,
-                   seeds: _t.Sequence = ()) -> tuple[list, dict]:
+                   seeds: _t.Sequence = (), shells: _t.Sequence = ()) -> tuple[list, dict]:
     """THE BLOCK PLANNER (module docstring).  Returns ``(pad_regions,
     counts)``.
 
@@ -179,7 +198,11 @@ def platform_split(base_regions, pad_regions, law: Law,
 
     ``storey`` maps a lot's ref to the rise of the unit storey it meets the
     apron across (``classify.storey_edge``): the held pad it touches gets
-    an UPPER level (``planar/low_level``, #1101)."""
+    an UPPER level (``planar/low_level``, #1101).
+
+    ``shells`` are the STOREY SHELLS (``planar/storey_pad``, #2062): each
+    shell's pad is HELD, non-conforming, ONE block (never partitioned at
+    its necks) and split at its storeys by ``low_level_split``."""
     platforms, held = reg.platforms, reg.held
     platforms.clear()
     held.clear()
@@ -207,10 +230,17 @@ def platform_split(base_regions, pad_regions, law: Law,
     tree = STRtree(air_polys)
     draped = draped_facade_pads(pad_regions, airport)
     hold = bool(getattr(bp, "frontage_hold", False))
+    shell_refs = frozenset(str(sh.pad_ref) for sh in shells)
     out: list = []
     unit_ids: set[int] = set()
     for pr in pad_regions:
         P = pr.polygon
+        if str(pr.ref) in shell_refs and P is not None and not P.is_empty:
+            # A STOREY SHELL'S PAD (#2062): held, non-conforming, one block
+            _shell_held(pr, P, tree, air_polys, near, dem, slope_max, platforms, held)
+            unit_ids.add(id(pr))
+            out.append(pr)
+            continue
         if (P is None or P.is_empty or not isinstance(P, Polygon)
                 or P.area < min_m2 or is_bank_ref(pr.ref)):
             out.append(pr)
@@ -354,7 +384,7 @@ def platform_split(base_regions, pad_regions, law: Law,
                           # along" its own unreachable apron)
                           lots=[r.polygon for r in base_regions if r.polygon is not None
                                 and r.role in LOT_ROLES and BEYOND not in str(r.ref)],
-                          seeds=seeds)
+                          seeds=seeds, shells=shells)
     counts["platforms"] = sum(1 for p in platforms if not p.refused)
     counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(

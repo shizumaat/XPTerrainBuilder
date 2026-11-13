@@ -1054,6 +1054,8 @@ def run(args):
                                    "split_level_road_reach_m", 0.0) or ROAD_AT_BASE_M)
     rows += [check_split(r, drawn, args.tol, lifts, roads)
              for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
+    # #2062: every storey shell's runs on the drawn ground
+    rows += [_storey(r, drawn, lifts) for r in sidecar.get("storey_shells", [])]
     # #2042: every graded facade's feet on the drawn ground
     import drawn_facade
     with tempfile.TemporaryDirectory() as tmp:
@@ -1125,6 +1127,28 @@ def _stack_faces(patch, rec, dem=None, standoff=0.0):
     return PatchFaces(patch, fl[len(fl) // 2], 400.0, dem=dem, standoff=standoff)
 
 
+def PatchFaces_at(patch, rec):
+    """The patch's faces about one storey shell (``patch_faces.PatchFaces``)."""
+    from patch_faces import PatchFaces
+    lon, lat = rec["anchor_longitude_latitude"]
+    return PatchFaces(patch, (lat, lon), 400.0)
+
+
+def _storey(rec, drawn, lifts):
+    """One storey shell's row (``drawn_storey``): its written rows' drawn
+    zero (each row's own lift off) where they are read, else the record's."""
+    import drawn_storey
+    stems = {stem(r) for r in rec.get("resources", [])}
+    lon, lat = rec["anchor_longitude_latitude"]
+    kx = M_PER_DEG * math.cos(math.radians(lat))
+    rows = [i for i, p in enumerate(drawn.rows) if stem(p.def_path) in stems
+            and math.hypot((p.lon - lon) * kx, (p.lat - lat) * M_PER_DEG) <= 300.0]
+    zeros = [_base(drawn, i) - lifts.get(drawn.rows[i].def_path, 0.0) for i in rows]
+    zeros = [z for z in zeros if not math.isnan(z)]
+    return drawn_storey.check(rec, drawn.mesh,
+                              float(numpy.median(zeros)) if zeros else None, zeros)
+
+
 def run_predict(args):
     """``--predict PATCH`` (spec interchange-levels v2 §8.2): the STACK rows
     of :func:`check_stack` over the emitted patch itself -- a point reads
@@ -1159,6 +1183,11 @@ def run_predict(args):
         drawn = Drawn(written, pack_root, atlas)
         claims = read_claims(sidecar, tile, {tile: plan}, pristine)
         rows += member_rows(args, patch, sidecar, drawn, claims, pristine, tile)
+    for r in sidecar.get("storey_shells", []):
+        import drawn_storey
+        faces = PatchFaces_at(patch, r)
+        rows.append(_storey(r, Drawn(written, pack_root, faces), {}) if written
+                    else drawn_storey.check(r, faces))
     for r in sidecar.get("object_floors", []):
         if not r.get("stack"):
             continue
@@ -1218,6 +1247,10 @@ def print_report(rep):
         if r.get("role") == "FRAME":
             print(f"   - {r['site']} rim - ground {r['misfit']} off share {r['off_share']} "
                   f"(hidden {r['hidden']}; measured only)")
+            continue
+        if r.get("role") == "STOREY":
+            import drawn_storey
+            drawn_storey.print_row(r)
             continue
         if r.get("role") == "STACK":
             print(f"{r['verdict']:4s} {r['site']} [{r.get('mode', 'DRAWN')}] @{r['lat']},"

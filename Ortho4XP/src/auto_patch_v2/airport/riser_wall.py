@@ -34,7 +34,7 @@ from shapely.ops import unary_union
 from ..law import Law
 from ..model.planar import KERB_SUFFIX, STRIP_SUFFIX, PlanarMap
 
-__all__ = ["riser_walls", "LABEL_PREFIX"]
+__all__ = ["riser_walls", "shell_kerbs", "LABEL_PREFIX"]
 
 #: the record label's head: ``fill_riser:<landing ref>#<k>``
 LABEL_PREFIX = "fill_riser:"
@@ -53,6 +53,18 @@ def _face_poly(pm: PlanarMap, f) -> Polygon:
 def _inside(pm: PlanarMap, f) -> Point:
     """A point inside face ``f``."""
     return _face_poly(pm, f).representative_point()
+
+
+def shell_kerbs(pm: PlanarMap) -> tuple[Polygon, ...]:
+    """The plan polygons of every STOREY SHELL's kerb (#2062 spec A2 (3),
+    ``planar/storey_pad``): a wall that RETAINS the higher lot or road
+    over the shell's back cut -- the road ramp reads them with the pack's
+    retaining walls, so a road on a kerb's high side takes no mouth at the
+    cut's level (``airport/road_ramp.with_road_ramp``)."""
+    from ..model.storey_shell import SHELL_VERDICT
+    held = getattr(pm.registries, "held", None) or {}
+    return tuple(Polygon(k["ring"]) for rec in held.values()
+                 if rec.get("verdict") == SHELL_VERDICT for k in rec.get("kerbs") or ())
 
 
 def riser_walls(pm: PlanarMap, law: Law, counts: dict | None = None

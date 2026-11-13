@@ -536,7 +536,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                     storey_lots: _t.Sequence = (),
                     air_all: _t.Sequence | None = None,
                     beyond: _t.Sequence = (),
-                    lots: _t.Sequence = (), seeds: _t.Sequence = ()) -> list:
+                    lots: _t.Sequence = (), seeds: _t.Sequence = (),
+                    shells: _t.Sequence = ()) -> list:
     """The pad regions ``out`` with every held block whose unit carries a
     lower storey split into its high block, its low level ``<ref>/p1`` and
     the riser strip (module docstring); each low level registered in
@@ -550,7 +551,10 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     the parking lots a level's fill band is cut along (``planar/low_fill``);
     ``seeds`` the units whose walls stand a storey under their zero, whose
     lower levels take the unreachable pieces they touch
-    (``planar/level_regions.seed_levels``, round 4)."""
+    (``planar/level_regions.seed_levels``, round 4); ``shells`` the storey
+    shells (``planar/storey_pad``, #2062), whose pads are split at their
+    own storeys through the same level / strip / landing grammar and read
+    by none of the readings above (their levels are never extended)."""
     from ..airport.obj8_grade import STEPPED
     from .group_low import plan_group_low
     from .pad_blocks import unit_base
@@ -575,7 +579,12 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     st_reach = station_corridors(airport, law, widen=1.0) if st is not None else None
     st_open = station_corridors(airport, law, open_only=True) if st is not None else None
     cut_levels: dict[str, tuple] = {}
+    by_pad = {str(sh.pad_ref): sh for sh in shells}
     for ref, regs in sorted(groups.items()):
+        if ref in by_pad:
+            done[ref] = _shell_split(ref, regs, by_pad[ref], air_polys, tree, law, grid, reg,
+                                     out)
+            continue
         if held[ref].get("conforming"):
             continue
         P = unary_union([r.polygon for r in regs])
@@ -645,7 +654,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         from .station_level import station_split
         out = station_split(out, held, st, st_reach, st_open, air_polys, tree, airport,
                             law, grid, counts, reg, cut_levels)
-    _upper_split(groups, done, out, tree, air_polys, storey_lots, law, grid, reg)
+    _upper_split({r: g for r, g in groups.items() if r not in by_pad}, done, out, tree,
+                 air_polys, storey_lots, law, grid, reg)
     if cut_levels:
         # the cut's ENDS grade to the open cut at the rail grade (28r (3),
         # ``planar/cut_runout``): landing run-outs of the level
@@ -691,6 +701,41 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         f"{k} on {v['block']} +{v['y']:.2f} {v['area_m2']:g} m2"
         for k, v in sorted(reg.landings.items()) if v.get("kind") == UP_KIND)
     return res
+
+
+def _shell_split(ref: str, regs: list, shell, air_polys, tree, law, grid: float,
+                 reg: Registries, pads: list) -> list:
+    """A storey shell's pad regions ``regs`` split at its storeys
+    (``planar/storey_pad.shell_levels``), each level registered in
+    ``reg.landings``; its KERB (``StoreyShell.kerb``, spec A2 (3)) carved
+    out first and minted ``<pad>#kerb#strip``, its wall records on the
+    pad's held record (``planar/foot_kerb``'s shape, read by
+    ``airport/riser_wall``).  ``pads`` the pad regions (the other pads the
+    levels keep a riser's width off)."""
+    from ..model.planar import kerb_ref
+    from .storey_pad import shell_levels
+    P = unary_union([r.polygon for r in regs])
+    air = unary_union([air_polys[int(j)] for j in
+                       tree.query(P.buffer(50.0), predicate="intersects")])
+    K = valid_area(P.intersection(shell.kerb)) if shell.kerb is not None else Polygon()
+    K = valid_area(unary_union([q for q in nonempty_polygon_parts(K)
+                                if q.area >= max(grid * grid, 1.0)]))
+    P1 = P.buffer(1.0)
+    others = unary_union([r.polygon for r in pads if str(r.ref) != ref
+                          and r.polygon is not None and r.polygon.intersects(P1)])
+    H, levels = shell_levels(valid_area(P.difference(K)), shell, air, law, grid, others)
+    tmpl = regs[0]
+    out = [_dc.replace(tmpl, polygon=q) for q in nonempty_polygon_parts(H)]
+    if not K.is_empty:
+        out += [_dc.replace(tmpl, ref=kerb_ref(ref), polygon=q) for q in nonempty_polygon_parts(K)]
+        reg.held[ref] = {**reg.held[ref], "kerbs": [
+            k for k in shell.kerbs if Polygon(k["ring"]).intersects(K)]}
+    for lref, U, S, rec in levels:
+        out += [_dc.replace(tmpl, ref=lref, polygon=q) for q in nonempty_polygon_parts(U)]
+        out += [_dc.replace(tmpl, ref=lref + STRIP_SUFFIX, polygon=q)
+                for q in nonempty_polygon_parts(S)]
+        reg.landings[lref] = {"block": ref, "deck": None, **rec}
+    return out
 
 
 def _seeded(regs: list, reg: Registries, seeds, air_all, airport, law, grid: float,

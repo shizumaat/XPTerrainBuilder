@@ -4,7 +4,7 @@
 (``rules.lot.parking_cover_fraction``) but no cached feed carried
 ``amenity=parking`` — the airports layer queries ``aeroway`` only — so the
 rung never fired on any airport.  A per-tile ``parking`` feed is now
-filled by ``O4_Vector_Map.fetch_parking`` (``--refresh-data parking`` in
+filled by ``O4_Vector_Map.fetch_tile_feed`` (``--refresh-data parking`` in
 the harness, the auto-patch step in a tile build) and read by the v2
 loader with ITS OWN tag whitelist.
 """
@@ -67,6 +67,9 @@ def test_the_engine_writer_is_the_readers_twin():
     assert VM.PARKING_SUFFIX == _osm.PARKING_FEED
     assert VM.PARKING_CACHE_TAG_SCHEMA == _osm.PARKING_CACHE_TAG_SCHEMA
     assert set(VM.PARKING_TAGS_OF_INTEREST) == set(_osm.PARKING_TAGS_OF_INTEREST)
+    assert VM.TILE_FEEDS["parking"] == (
+        VM.PARKING_QUERIES, VM.PARKING_TAGS_OF_INTEREST, VM.PARKING_SUFFIX,
+        VM.PARKING_CACHE_TAG_SCHEMA)
     for stmt in VM.PARKING_QUERIES[0]:
         items = stmt.split('"')          # the cache writer's own parse
         assert (items[1], items[3]) == ("amenity", "parking")

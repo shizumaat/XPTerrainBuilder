@@ -66,13 +66,13 @@ TAGS_OF_INTEREST = frozenset((
 #: ``barrier=wall`` / ``retaining_wall`` / ``seawall``, ``wall=seawall`` /
 #: ``retaining_wall``, ``man_made=embankment``, ``landuse=reclaimed`` (owner
 #: RULINGS 2026-09-29a (1)) — ``planar.zones.SHORE_WALL_TAGS``, the one reader.
-#: Written by ``O4_Vector_Map.fetch_shore_structures`` (the explicit
+#: Written by ``O4_Vector_Map.fetch_tile_feed`` (the explicit
 #: ``--refresh-data shore``), never by a build; an absent tile is an empty
 #: feed and is NAMED on the load report.
 SHORE_FEED = "shore_structures"
 #: THE PARKING FEED (#1854 / #1338): ``amenity=parking`` areas, the
 #: ``[lot] parking_cover_fraction`` rung's evidence (``classify/
-#: evidence.py``).  Written by ``O4_Vector_Map.fetch_parking`` (``--refresh-
+#: evidence.py``).  Written by ``O4_Vector_Map.fetch_tile_feed`` (``--refresh-
 #: data parking`` in the harness, the auto-patch step in a tile build).
 PARKING_FEED = "parking"
 FEEDS = ("airports", "airport_small_roads", "big_roads", SHORE_FEED,

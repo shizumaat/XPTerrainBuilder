@@ -115,7 +115,7 @@ AIRPORTS_QUERIES = [('node["aeroway"]', 'way["aeroway"]', 'rel["aeroway"]')]
 # (twin-asserted equal: this module must not import the v2 package's
 # planar stage).  The feed is NOT in the tile prefetch: it is filled only
 # by the explicit, ledgered ``build_airport.py --refresh-data shore``
-# (``fetch_shore_structures``), and the v2 loader reads it where present
+# (``fetch_tile_feed(lat, lon, "shore")``), and the v2 loader reads it where present
 # and NAMES the tiles where it is absent.  Production's own fill is owed.
 SHORE_STRUCTURE_TAGS = {
     "man_made": ("quay", "pier", "breakwater", "seawall", "groyne", "dyke",
@@ -1131,32 +1131,26 @@ def osm_layer_warm_specifications(tile):
     ] + _osm_layer_prefetch_specifications(tile)
 
 
-def fetch_shore_structures(lat, lon):
-    """Fill (or recycle) tile ``(lat, lon)``'s shore-structure feed
-    (:func:`fetch_tile_feed`).  Called by ``build_airport.py --refresh-data
-    shore`` only (issue #72): a download into the shared corpus is an
-    explicit, ledgered event.  Returns ``(path, ways)``."""
-    return fetch_tile_feed(lat, lon, SHORE_STRUCTURE_QUERIES,
-                           SHORE_STRUCTURE_TAGS_OF_INTEREST,
-                           SHORE_STRUCTURE_SUFFIX,
-                           SHORE_STRUCTURE_CACHE_TAG_SCHEMA)
+#: THE PER-TILE EVIDENCE FEEDS a ``build_airport.py --refresh-data <name>``
+#: fills (issue #72 shore, #1854 parking): name -> (queries, tags of
+#: interest, cache suffix, cache schema).
+TILE_FEEDS = {
+    "shore": (SHORE_STRUCTURE_QUERIES, SHORE_STRUCTURE_TAGS_OF_INTEREST,
+              SHORE_STRUCTURE_SUFFIX, SHORE_STRUCTURE_CACHE_TAG_SCHEMA),
+    "parking": (PARKING_QUERIES, PARKING_TAGS_OF_INTEREST, PARKING_SUFFIX,
+                PARKING_CACHE_TAG_SCHEMA),
+}
 
 
-def fetch_parking(lat, lon):
-    """Fill (or recycle) tile ``(lat, lon)``'s parking feed (#1854,
-    :func:`fetch_tile_feed`): ``build_airport.py --refresh-data parking``
-    in the harness, :func:`run_auto_patch_generation` in a tile build.
-    Returns ``(path, ways)``."""
-    return fetch_tile_feed(lat, lon, PARKING_QUERIES,
-                           PARKING_TAGS_OF_INTEREST, PARKING_SUFFIX,
-                           PARKING_CACHE_TAG_SCHEMA)
-
-
-def fetch_tile_feed(lat, lon, queries, tags_of_interest, suffix, schema):
+def fetch_tile_feed(lat, lon, name):
     """Fill (or recycle — a schema-current cache is never re-downloaded)
-    one per-tile evidence feed through the ONE OSM cache writer
-    (``O4_OSM_Utils.OSM_queries_to_OSM_layer``), at
-    ``FNAMES.osm_cached(lat, lon, suffix)``.  Returns ``(path, ways)``."""
+    tile ``(lat, lon)``'s :data:`TILE_FEEDS` feed ``name`` through the ONE
+    OSM cache writer (``O4_OSM_Utils.OSM_queries_to_OSM_layer``), at
+    ``FNAMES.osm_cached(lat, lon, suffix)``.  The harness calls it only
+    under ``--refresh-data <name>`` (a download into the shared corpus is
+    an explicit, ledgered event); a tile build calls it for ``parking``
+    (:func:`run_auto_patch_generation`).  Returns ``(path, ways)``."""
+    queries, tags_of_interest, suffix, schema = TILE_FEEDS[name]
     layer = OSM.OSM_layer()
     OSM.OSM_queries_to_OSM_layer(
         queries, layer, lat, lon, tags_of_interest,
@@ -2236,7 +2230,7 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
         # Recycled when schema-current; a failed download leaves the
         # rung without evidence, never the build without a patch.
         try:
-            fetch_parking(tile.lat, tile.lon)
+            fetch_tile_feed(tile.lat, tile.lon, "parking")
         except Exception as exc:                          # noqa: BLE001
             UI.vprint(1, "    * Parking feed not fetched:", exc)
         # THE PATCH WAITS FOR THE AIRPORT'S OWN PHOTOS (#1359; owner RULINGS

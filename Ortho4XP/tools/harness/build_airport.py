@@ -2543,14 +2543,10 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
 
 
 # THE AUTHORISED PER-TILE FEED FILLS (--refresh-data shore, issue #72;
-# --refresh-data parking, #1854): scope -> (engine writer, suffix, schema,
-# what an empty answer is not)
-TILE_FEED_SCOPES = {
-    "shore": ("fetch_shore_structures", "SHORE_STRUCTURE_SUFFIX",
-              "SHORE_STRUCTURE_CACHE_TAG_SCHEMA", "an empty coast"),
-    "parking": ("fetch_parking", "PARKING_SUFFIX",
-                "PARKING_CACHE_TAG_SCHEMA", "a tile with no car park"),
-}
+# --refresh-data parking, #1854): scope -> what an empty answer is not.
+# The feed itself is the engine's ``O4_Vector_Map.TILE_FEEDS[scope]``.
+TILE_FEED_SCOPES = {"shore": "an empty coast",
+                    "parking": "a tile with no car park"}
 
 
 def refresh_tile_feed(root, lat, lon, prog, scope) -> dict:
@@ -2571,12 +2567,12 @@ def refresh_tile_feed(root, lat, lon, prog, scope) -> dict:
     import O4_OSM_Utils as OSM                             # noqa: E402
     import O4_Vector_Map as VMAP                           # noqa: E402
     import O4_File_Names as FNAMES                         # noqa: E402
-    writer, suffix, schema, not_empty = TILE_FEED_SCOPES[scope]
-    suffix, schema = getattr(VMAP, suffix), getattr(VMAP, schema)
+    not_empty = TILE_FEED_SCOPES[scope]
+    _q, _t, suffix, schema = VMAP.TILE_FEEDS[scope]
     path = FNAMES.osm_cached(int(lat), int(lon), suffix)
     was = (os.path.isfile(path)
            and OSM._cached_osm_schema_matches(path, schema))
-    path, ways = getattr(VMAP, writer)(int(lat), int(lon))
+    path, ways = VMAP.fetch_tile_feed(int(lat), int(lon), scope)
     if not os.path.isfile(path):
         raise SystemExit(
             f"REFUSING: --refresh-data {scope} derived NOTHING for "

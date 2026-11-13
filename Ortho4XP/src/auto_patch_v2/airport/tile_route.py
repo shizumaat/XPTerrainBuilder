@@ -20,7 +20,15 @@ from its own ground.  A placement every body of which went is deleted
 from this DSF.  The guest rows are recorded in the neighbour's pack
 record under :func:`dsf.guest_key` (``LOWS@+47+012``), beside its own
 ``LOWS`` row, so each tile's build re-applies the other's rows and
-replaces only its own (``dsf_write._sibling_plans``, #25).
+replaces only its own (``dsf_write._sibling_plans``, #25).  The guest
+rows belong to the tile that wrote them: only that tile's build, or its
+airport being left without a patch there, takes them out
+(``unpatched_pack``, #1884 round 2 B1).
+
+THE WRITE is ONE function and ONE transaction
+(``placement_write.apply_routed``): this tile's DSF, every neighbour DSF
+that takes guest rows and every body file, all or nothing, under the
+pack's write lock (``pack_lock``).
 
 THE NEIGHBOUR'S GROUND FOR THE SPLIT.  This tile's mesh ends at its edge,
 so a body past it had no ground at all: the split lumped every such body
@@ -35,7 +43,8 @@ route (:func:`routable`) instead of seating it by an ``OBJECT_MSL`` row
 at that DEM's height.
 
 A body is NOT routed — it stays for ``split_guard``'s undo, as before —
-when the tile it stands on has no DSF in the pack, or when its anchor is
+when the tile it stands on has no DSF in the pack, or one whose write
+would stand down (``placement_write.apply_routed``), or when its anchor is
 within :data:`EDGE_MARGIN_DEG` of a tile edge (DSFTool could refuse the
 requantised row on either side).
 """
@@ -44,14 +53,15 @@ from __future__ import annotations
 import dataclasses as _dc
 import math
 import os
+import re
 import typing as _t
 
 from ..model.placement import PlacementPlan, Provenance, Split
 from . import dsf as _dsf
 
 __all__ = ["Tile", "route", "routable", "guest_plan", "recorded_omit",
-           "write_guests", "with_neighbour_ground", "airport_ground",
-           "EDGE_MARGIN_DEG"]
+           "with_neighbour_ground", "airport_ground", "tile_of_dsf",
+           "tile_of_key", "guest_dsfs", "EDGE_MARGIN_DEG"]
 
 Tile = tuple[int, int]
 
@@ -224,46 +234,36 @@ def recorded_omit(dsf_path: str, pack_root: str) -> tuple:
     return tuple(_pa.recorded(entry, sha256_file(backup), pack_root))
 
 
-def write_guests(plan: PlacementPlan, files: _t.Sequence, here: Tile,
-                 apply: _t.Callable[[PlacementPlan, list], _t.Any],
-                 say: _t.Callable[[str], None] = lambda _s: None
-                 ) -> tuple[PlacementPlan, list, list]:
-    """Route ``plan`` (:func:`route`) and write each neighbour's guest rows
-    with ``apply(guest plan, its body files)`` — ``placement_write.
-    apply_plan`` with the build's own keywords.  Returns ``(plan for this
-    tile's DSF, its files, the guest files written)``.
+def tile_of_dsf(dsf_path: str) -> Tile | None:
+    """The ``(lat, lon)`` tile a DSF is named for (``+47+012.dsf``)."""
+    m = re.fullmatch(r"([+-]\d{2})([+-]\d{3})\.dsf", os.path.basename(dsf_path or ""))
+    return None if m is None else (int(m.group(1)), int(m.group(2)))
 
-    The guests are written FIRST and this tile's DSF after, by the caller:
-    a neighbour whose write fails keeps nothing, and its bodies go back to
-    this tile's plan for ``split_guard``'s undo (written whole, as before
-    #1884).  The caller writes the guest files once more after its own
-    write: a body that was this tile's last build and is a guest now has
-    the name the own write's restore removes."""
-    has = _pack_has_dsf(plan.pack_root)
-    routed, guests = route(plan, here, has)
-    if not guests:
-        return plan, list(files), []
-    by_res = {f.resource.replace("\\", "/"): f for f in files}
-    failed: set[Tile] = set()
-    written: list = []
-    for there, splits in guests.items():
-        gp = guest_plan(plan, here, there, splits)
-        gfiles = [by_res[r] for r in gp.new_resources() if r in by_res]
-        try:
-            apply(gp, gfiles)
-        except Exception as exc:                 # the bodies stay here
-            failed.add(there)
-            say(f"{len(gp.new_resources())} body(ies) standing on "
-                f"{_dsf.on_tile('', there)[1:]} could not be written in its "
-                f"DSF ({exc}); their placements are written whole")
+
+def tile_of_key(key: str) -> Tile | None:
+    """The tile whose build wrote a guest key (``LOWS@+47+012`` ->
+    ``(47, 12)``, :func:`dsf.guest_key`); ``None`` for a plain ICAO."""
+    _icao, mark, tail = str(key).partition(_dsf.TILE_MARK)
+    m = re.fullmatch(r"([+-]\d{2})([+-]\d{3})", tail) if mark else None
+    return None if m is None else (int(m.group(1)), int(m.group(2)))
+
+
+def guest_dsfs(pack_root: str, key: str) -> list[str]:
+    """Every DSF of the pack whose record holds the guest rows ``key``
+    (one ``listdir`` of ``Earth nav data`` and one record per folder)."""
+    from . import backup_state as _bs
+    nav = os.path.join(pack_root, "Earth nav data")
+    try:
+        folders = [""] + sorted(os.listdir(nav))
+    except OSError:
+        return []
+    out: list[str] = []
+    for folder in folders:
+        where = os.path.join(nav, folder)
+        if not os.path.isdir(where):
             continue
-        written += gfiles
-        say(f"{sum(len(s.bodies) for s in splits)} body(ies) of "
-            f"{len(splits)} placement(s) stand on "
-            f"{_dsf.on_tile('', there)[1:]}: written in its DSF")
-    if failed:
-        routed, guests = route(plan, here, lambda t: t not in failed and has(t))
-    gone = {r for t, sp in guests.items() if t not in failed
-            for r in guest_plan(plan, here, t, sp).new_resources()}
-    own = [f for f in files if f.resource.replace("\\", "/") not in gone]
-    return routed, own, written
+        dsfs = _bs.read_record(os.path.join(where, "_.dsf")).get("dsfs")
+        for base, entry in sorted((dsfs or {}).items()):
+            if isinstance(entry, dict) and key in (entry.get("airports") or {}):
+                out.append(os.path.join(where, base))
+    return out

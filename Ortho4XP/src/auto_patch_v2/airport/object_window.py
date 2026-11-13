@@ -33,7 +33,7 @@ from . import apt_dat as _apt
 from .apt_dat import airports_in
 from .object_pack import region_in
 
-__all__ = ["Window", "box_xy", "pack_apt_dat", "rivals"]
+__all__ = ["Window", "box_xy", "own_claim", "pack_apt_dat", "rivals"]
 
 #: neighbours whose reference point is farther than this (deg) cannot reach
 #: this airport's extent and are not projected (a pre-filter only)
@@ -118,6 +118,41 @@ def rivals(apt_dat_path: str | None, icao: str, ref: tuple[float, float],
         if region is not None and region.distance(extent) == 0.0:
             out.append((other, region))
     return tuple(sorted(out, key=lambda r: r[0]))
+
+
+def own_claim(apt_dat_path: str | None, ref: tuple[float, float], to_xy,
+              margin_m: float, radius_deg: float):
+    """#2063: where the airports of a pack's OWN apt.dat read its
+    placements, in the caller's ``to_xy`` frame — the union, over each of
+    them near ``ref``, of what ``load`` admits for it: its runways,
+    pavements and boundary grown by ``margin_m``, and the ``radius_deg``
+    box about its reference point.  A row inside it may be one of that
+    pack's own airports' and is never adopted by another (in doubt an
+    object stays with its group, RULINGS 2026-11-13r).  ``None`` when the
+    pack defines no airport near ``ref``."""
+    import dataclasses as _dc
+    from shapely.ops import unary_union
+    if not apt_dat_path:
+        return None
+    try:
+        st = os.stat(apt_dat_path)
+    except OSError:
+        return None
+    lat0, lon0 = ref
+    parts = []
+    for _icao, apt in _parsed(apt_dat_path, st.st_mtime_ns, st.st_size):
+        try:
+            la, lo = apt.reference_point()
+        except ValueError:          # placed by nothing the reader reads
+            continue
+        if abs(la - lat0) > _RIVAL_PREFILTER_DEG or abs(lo - lon0) > _RIVAL_PREFILTER_DEG:
+            continue
+        parts.append(box_xy(to_xy, la, lo, radius_deg))
+        for a in (apt, _dc.replace(apt, boundaries=())):
+            region = region_in(a, to_xy)
+            if region is not None:
+                parts.append(region.buffer(float(margin_m)))
+    return unary_union(parts) if parts else None
 
 
 @functools.lru_cache(maxsize=8)

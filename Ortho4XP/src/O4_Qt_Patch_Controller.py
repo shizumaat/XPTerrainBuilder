@@ -21,6 +21,7 @@ from PySide6.QtWidgets import QMessageBox
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Qt_Map as QTMAP
+import O4_Qt_Patch_View_Load as VIEWLOAD
 from o4_engine import patch_edit as PE
 
 from O4_Qt_Patch_Model import LoadedPatch, PatchEditModel
@@ -261,6 +262,8 @@ class PatchController(QObject):
         self._loading_key = key
         self._set_state(self.LOADING, entry["icao"])
 
+        fast = self._fast_load()
+
         def done(reply, error):
             if self._loading_key != key:
                 return
@@ -273,7 +276,26 @@ class PatchController(QObject):
             self._dismissed_key = None
             self.file_mtime = _mtime(reply["path"])
             self._set_state(self.LOADED)
-        self.engine.call("patch_load", done, tile=tile, icao=entry["icao"])
+            if fast:
+                self._check_staleness(self.model.patch, reply["path"])
+        self.engine.call("patch_load", done, **VIEWLOAD.load_arguments(tile, entry["icao"], fast))
+
+    def _fast_load(self) -> bool:
+        """Whether the engine answers the staleness check on its own (#2061)."""
+        has = getattr(self.engine, "has", None)
+        return bool(has and has("patch_staleness"))
+
+    def _check_staleness(self, patch: LoadedPatch, opened_path: str) -> None:
+        """The check the fast load left out (#2061): the panel's note
+        appears when it is answered, on the document it was asked for only."""
+        def done(reply, error):
+            if (error is not None or self.model.patch is not patch
+                    or not VIEWLOAD.staleness_applies(opened_path, (reply or {}).get("path", ""))):
+                return
+            patch.stale = bool(reply.get("stale"))
+            patch.stale_inputs = list(reply.get("stale_inputs") or [])
+            self.state_changed.emit()
+        self.engine.call("patch_staleness", done, tile=patch.tile, icao=patch.icao)
 
     def _show_siblings(self, entries) -> None:
         """Load the shown airport's patches on the other tiles in view."""
@@ -292,7 +314,8 @@ class PatchController(QObject):
                     return
                 self.siblings[key] = PE.PatchDoc.from_wire(reply["nodes"], reply["ways"])
                 self.siblings_changed.emit()
-            self.engine.call("patch_load", done, tile=tile, icao=entry["icao"])
+            self.engine.call("patch_load", done,  # read-only: never the check
+                             **VIEWLOAD.load_arguments(tile, entry["icao"], self._fast_load()))
 
     # ─── unsaved edits ─────────────────────────────────────────────────
     def _hold_for_unsaved(self, icao: str, key: str) -> bool:

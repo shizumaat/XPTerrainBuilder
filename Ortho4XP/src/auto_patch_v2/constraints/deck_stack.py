@@ -30,13 +30,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..airport.deck_ends import end_road_vertices, ground_footprint
+from ..geom.deck_ground import ground_footprint
 from ..geom.end_line import polyline_distance
 from ..geom.lowest_face import floor_z_at
 from ..law import Law
 from ..law.tables import snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Band, Row, Source
+from ..model.deck_ends import end_road_vertices
+from ..model.frame import rotated_rectangle
 from ..model.planar import STACK_GROUND_PREFIX, PlanarMap
 from .edge_deck import RIGID
 
@@ -123,7 +125,7 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         r3: dict[int, tuple[float, str]] = {}
         for d in st.decks:
             ring = Polygon(d.ring)
-            rect = ring.minimum_rotated_rectangle.buffer(grid, join_style="mitre")
+            rect = rotated_rectangle(ring).buffer(grid, join_style="mitre")
             inside = shapely.contains_xy(ring, axy[:, 0], axy[:, 1]) if len(allv) else []
             on_rect = shapely.contains_xy(rect, axy[:, 0], axy[:, 1]) if len(allv) else []
             ks = [allv[k] for k in range(len(allv))

@@ -22,7 +22,8 @@ tier over it.  :func:`register` writes them when the drape swaps in
 The lander (``imagery_follow_land.TierLander``) treats a row of a rows
 folder as a drape's (:func:`is_drape_dir`): the tile object is set up as
 the drape's fetch sets it up (:func:`prepare`: no colour field, alpha
-imprinted), a WATER square (its kept file is DXT5: the water copy draws
+imprinted, the provider blend its World pack record says it was made
+with, #2018), a WATER square (its kept file is DXT5: the water copy draws
 its alpha) has that alpha imprinted into the finer tier
 (:func:`water_mask`: the drape's mask, decoded by ``O4_DDS_Alpha`` and
 scaled by the converter), and the converter's copy in the rows folder is
@@ -142,10 +143,31 @@ def forget(lat: int, lon: int, store: "str | None" = None) -> bool:
 
 def prepare(tile) -> None:
     """A drape row's tile object as ``O4_World_Drape_Fetch`` sets up its
-    own: no colour field or blend, a mask imprinted into the alpha."""
+    own: no colour field, a mask imprinted into the alpha, and the
+    provider blend the drape was made with (:func:`_blend_of`), so a
+    finer tier lands in the colour of the tier it replaces."""
     tile.color_harmonization = False
-    tile.provider_blend = None
+    tile.provider_blend = _blend_of(tile)
     tile.imprint_masks_to_dds = True
+
+
+def _blend_of(tile):
+    """The provider blend of the drape whose rows folder is
+    ``tile.build_dir``: rebuilt from the World pack record beside the
+    textures its manifest names (``O4_World_Imagery_Record``); None when
+    there is none or it does not read."""
+    import O4_File_Names as FNAMES
+    import O4_Imagery_Provider_Blend as BLEND
+    import O4_World_Imagery_Record as IREC
+    name = FNAMES.short_latlon(tile.lat, tile.lon)
+    try:
+        with open(_manifest_path(tile.build_dir, name), encoding="utf-8") as handle:
+            textures = json.load(handle)[INDEX.LAYOUT_KEY]["textures_dir"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    pack = os.path.dirname(os.path.dirname(os.path.normpath(textures)))
+    record = IREC.read(pack, tile.lat, tile.lon)
+    return BLEND.from_record(tile.lat, tile.lon, record.get("blend") or {})
 
 
 def water_mask(tile, row: dict, til_x: int, til_y: int) -> bool:

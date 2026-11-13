@@ -165,3 +165,27 @@ def test_the_world_publish_registers_a_drape(tmp_path, monkeypatch):
     (pack / WP.dsf_relpath(LAT, LON)).write_bytes(b"XPLNEDSF a full tile")
     PUBLISH._after_swap(str(tmp_path), str(tmp_path / "build"), LAT, LON)
     assert calls[-1] == ("forget", LAT, LON)
+
+
+def test_a_drape_row_lands_with_the_blend_it_was_made_with(tmp_path):
+    """#2018: a finer tier of a drape is shifted as its first tier was --
+    the lander's tile carries the blend of the drape's World pack record."""
+    import O4_World_Imagery_Record as IREC
+    from o4_engine.imagery_follow_land import TierLander
+    pack = _pack(tmp_path)
+    index = str(tmp_path / "index.sqlite")
+    DRAPE_ROWS.register(str(pack), LAT, LON, index=index,
+                        store=str(tmp_path / "store"))
+    conn = INDEX.open_index(index)
+    row = INDEX.rows(conn, tile=TILE)[0]
+    conn.close()
+    assert TierLander()._tile(row).provider_blend is None   # no record
+    sides = {"N": {"toward": "USA2", "knots": [
+        [0.0, 0, 0, 0, 1, 1, 1], [0.5, 6, 2, -4, 1.2, 1.1, 1.0],
+        [1.0, 0, 0, 0, 1, 1, 1]]}}
+    IREC.write_staged(str(tmp_path / "staged"), {"provider": "BI", "blend": sides})
+    IREC.carry(str(tmp_path / "staged"), str(pack), LAT, LON)
+    blend = TierLander()._tile(row).provider_blend
+    assert blend.toward == {"N": "USA2"}
+    value = blend.at(numpy.array([LAT + 1.0]), numpy.array([LON + 0.5]))[0]
+    numpy.testing.assert_allclose(value, (6, 2, -4, 0.2, 0.1, 0.0), atol=1e-9)

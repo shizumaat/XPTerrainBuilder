@@ -36,6 +36,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..model.deck_stack import STACK_PREFIX, DeckStack, StackDeck, floor_level
+from ..model.frame import rotated_rectangle
 from . import obj8 as _obj8
 from .deck_carry import Carry, bridge_stretches, carry_of
 from .deck_ends import ring_polygon
@@ -589,7 +590,7 @@ def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack]) -> tuple:
     cuts: dict[int, list] = {}
     for st in stacks:
         for d in st.decks:
-            rect = Polygon(d.ring).minimum_rotated_rectangle
+            rect = rotated_rectangle(Polygon(d.ring))
             for wid in d.carried:
                 cuts.setdefault(int(wid), []).append((d.object_id, rect))
     return bridge_stretches(ways, cuts) if cuts else tuple(ways)

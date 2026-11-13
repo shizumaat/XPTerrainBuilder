@@ -41,7 +41,7 @@ def _stack_toe(planar: PlanarMap, law: Law, airport: Airport):
     floor's keep), within the identity grid."""
     import shapely
 
-    from ..airport.deck_ends import ground_footprint
+    from ..geom.deck_ground import ground_footprint
     stacks = tuple(getattr(airport, "deck_stacks", ()) or ())
     if not stacks:
         return lambda _xy: False

@@ -34,6 +34,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import substring
 
 from ..geom.lowest_face import floor_z_at
+from ..model.frame import rotated_rectangle
 
 __all__ = ["Carry", "carry_of", "bridge_stretches", "DECK_TAG"]
 
@@ -86,7 +87,7 @@ def _plate_top(plate: np.ndarray, stations: _t.Sequence[XY], inward: XY = (0.0, 
 def _edges(piece: Polygon) -> "tuple | None":
     """``(end a, end b, side, side, long, short)`` of the minimum rotated
     rectangle (end edges = the short sides)."""
-    rect = piece.minimum_rotated_rectangle
+    rect = rotated_rectangle(piece)
     if rect.geom_type != "Polygon":
         return None
     c = list(rect.exterior.coords)[:4]

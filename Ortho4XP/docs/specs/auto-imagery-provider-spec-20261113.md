@@ -94,6 +94,21 @@ For a drape tile T with provider P:
   position per tile, applied by `O4_Color_Harmonization.apply_color_field`),
   so two textures agree on their shared edge.
 * Full builds take the automatic provider but no blend this round.
+* **Follow-up (lane lblend2018b, 2026-11-13).** Measured on cached
+  BI/USA2 (150 m strips either side of the line, per-square mean Lab,
+  ΔE76): the cast varies ALONG an edge as much as across it (H 32 N
+  110 W: squares 7–31), and real casts exceed ±40. So (a) the cast is
+  measured per straddling square (`O4_Imagery_Provider_Cast._measure`), each a knot at its
+  centre's fraction `t` of the edge, and `v_s(t)` is piecewise linear
+  through them (corners as before, from the end knots); (b) each knot
+  is an affine `x → (1+k)x + b` matching mean AND spread: the target
+  spread is the geometric mean of the two (w = ½) or the neighbour's
+  (w = 1), the gain clipped to [½, 2]; the field is two continuous
+  fields (offset, slope), applied by `apply_color_field(gain=)`; (c) the
+  band is 1/128° (~0.87 km); (d) the cap is ±80. H 32 N: raw 18.25,
+  first round 9.70, now 2.68; H 33 N: 9.47, 4.98, 1.97; same-provider
+  control 0.8–1.5. Upgraded drape tiers re-apply the blend from the
+  pack record (`imagery_follow_drape.prepare`).
 
 ## 4. World pack record (`O4_World_Imagery_Record`)
 

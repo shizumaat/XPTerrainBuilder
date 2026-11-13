@@ -764,7 +764,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
             base_y=lambda i: shims[i].base_y, ml=ml, mo=mo,
             deck_verdict=lambda i: member_is_deck(
-                plan.units[shims[i].key[0]].members[shims[i].key[1]]))
+                plan.units[shims[i].key[0]].members[shims[i].key[1]]),
+            stands_free=_rider_witness(plan, shims, ml, mo))     # 13r
     held: dict[int, list[int]] = {}
     for i, k in sorted(contents.items()):
         held.setdefault(k, []).append(i)
@@ -793,6 +794,19 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
         conns.extend(connectors_of_cluster(cl, uid, shims, touch_m,
                                            connector_span_m, index, pool))
     return out, conns
+
+
+def _rider_witness(plan: _t.Any, shims: _t.Sequence[_PShim], ml: float,
+                   mo: float) -> _t.Callable:
+    """owner RULINGS 2026-11-13r (#2053): the free-rider witness at the
+    law's ``[basin] contact_band_m`` (``airport/rider_floor``)."""
+    from ..law import Law
+    from .contents import _poly
+    from .rider_floor import free_rider_witness
+    band = float(Law.load().tables.structures.basin.contact_band_m)
+    return free_rider_witness(
+        plan, shims, lambda i: _poly(shims[i].rings, shims[i].part_boxes,
+                                     ml, mo), ml, mo, band)
 
 
 def _top_y(pids: _t.AbstractSet[int], parts_of: _t.Mapping[int, _t.Any]

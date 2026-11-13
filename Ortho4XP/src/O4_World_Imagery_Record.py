@@ -29,7 +29,8 @@ import json
 import os
 import re
 
-__all__ = ["RECORD_DIR", "STAGED_NAME", "write_staged", "carry", "read"]
+__all__ = ["RECORD_DIR", "STAGED_NAME", "write_staged", "carry", "read",
+           "from_folder"]
 
 RECORD_DIR = "XPTerrainBuilder_imagery"
 STAGED_NAME = "XPTerrainBuilder_imagery.json"
@@ -70,10 +71,10 @@ def carry(staged: str, pack: str, lat: int, lon: int) -> bool:
     return True
 
 
-def from_textures(pack: str, lat: int, lon: int) -> dict:
-    """``{"provider", "zl", "derived": True}`` from the first DDS of the
-    tile's textures folder in ``pack``; ``{}`` when there is none."""
-    folder = os.path.join(pack, "textures", _tile_name(lat, lon))
+def from_folder(folder: str) -> dict:
+    """``{"provider", "zl", "derived": True}`` from the first DDS named
+    ``<y>_<x>_<provider><zl>.dds`` in ``folder``; ``{}`` when there is
+    none (also an adopted tile's own pack's ``textures``, #2048)."""
     try:
         with os.scandir(folder) as entries:
             for entry in entries:
@@ -84,6 +85,11 @@ def from_textures(pack: str, lat: int, lon: int) -> dict:
     except OSError:
         pass
     return {}
+
+
+def from_textures(pack: str, lat: int, lon: int) -> dict:
+    """:func:`from_folder` of the tile's textures folder in ``pack``."""
+    return from_folder(os.path.join(pack, "textures", _tile_name(lat, lon)))
 
 
 def read(pack: str, lat: int, lon: int) -> dict:

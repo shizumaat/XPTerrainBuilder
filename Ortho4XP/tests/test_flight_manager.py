@@ -672,14 +672,21 @@ def test_the_photo_source_is_read_per_build(engine, monkeypatch):
 
 
 
-def test_automatic_chooses_per_tile(engine, monkeypatch):
-    """#2018: Automatic (the default) asks ``O4_Imagery_Auto`` for each
-    tile -- the drape and the full build of two tiles can differ."""
+def test_automatic_on_a_flight_is_the_route_split(engine, monkeypatch):
+    """#2018 / #2048 (RULINGS 2026-11-13n): on a planned flight Automatic
+    takes the departure tile's provider up to the route's midpoint and the
+    destination tile's after it -- never a third, region-auto provider in
+    between; the full build of a tile follows the same split.  The flight's
+    end gives region-auto back."""
     import O4_Imagery_Auto as AUTO
+    from o4_engine import flight_imagery_route as ROUTE
     session, _events, _builds, _folder = engine
     monkeypatch.setattr(WORLD_JOB, "_settings", lambda: {"default_zl": 16})
+    region = {(53, -61): "NL", (53, -64): "BI"}       # CYYR's tile, DEST's
+    monkeypatch.setattr(AUTO, "provider_for",
+                        lambda lat, lon: region.get((lat, lon), "GO2"))
     monkeypatch.setattr(AUTO, "choose", lambda lat, lon, zl: (
-        ("NL", zl) if lon == -60 else ("BI", zl)))
+        region.get((lat, lon), "GO2"), zl))
     drapes = []
     monkeypatch.setattr(WORLD_JOB, "drape_tile", lambda tile, p, z, px=None:
                         bool(drapes.append((tuple(tile), p, z))))
@@ -688,14 +695,17 @@ def test_automatic_chooses_per_tile(engine, monkeypatch):
         dep={"ident": "cyyr", "lat": CYYR[0], "lon": CYYR[1]},
         arr={"ident": "dest", "lat": DEST[0], "lon": DEST[1]})
     builder = FLIGHT.current().manager.builder
-    builder.drape((53, -60))
-    builder.drape((53, -61))
-    assert drapes[-2:] == [((53, -60), "NL", 16), ((53, -61), "BI", 16)]
+    builder.drape((53, -62))            # centre west of the midpoint
+    builder.drape((53, -63))            # centre east of it
+    assert drapes[-2:] == [((53, -62), "NL", 16), ((53, -63), "BI", 16)]
     seen = []
     session.enqueue_build = lambda tiles, provider, zl, *a, **kw: bool(
         seen.append((tuple(tiles[0]), provider, zl)))
-    builder._start((53, -60), "full", 600.0, "P2")
-    assert seen == [((53, -60), "NL", 16)]
+    builder._start((53, -62), "full", 600.0, "P2")
+    assert seen == [((53, -62), "NL", 16)]
+    FLIGHT.stop()
+    assert ROUTE.active() is None
+    assert WORLD_JOB.photo_source((53, -62)) == ("GO2", 16)
 
 
 def test_a_tick_never_waits_on_the_web_api(engine, monkeypatch):

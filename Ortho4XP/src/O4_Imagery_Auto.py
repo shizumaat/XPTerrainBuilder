@@ -32,7 +32,7 @@ import numpy
 import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Imagery_Utils as IMG
 
-__all__ = ["AUTO", "FALLBACK", "COVER_FRACTION", "choose"]
+__all__ = ["AUTO", "FALLBACK", "COVER_FRACTION", "choose", "at_zoom"]
 
 #: The ``fly_photo_source`` value meaning "choose per tile".
 AUTO = "auto"
@@ -90,7 +90,12 @@ def choose(lat: int, lon: int, zoomlevel: int) -> Tuple[str, int]:
     """``(provider, zoom level)`` of tile (``lat``, ``lon``) under
     Automatic: :func:`provider_for`, at ``zoomlevel`` raised to the
     provider's ``min_source_zl`` (#2017)."""
-    code = provider_for(int(lat), int(lon))
+    return at_zoom(provider_for(int(lat), int(lon)), zoomlevel)
+
+
+def at_zoom(code: str, zoomlevel: int) -> Tuple[str, int]:
+    """``(code, zoom level)``: ``zoomlevel`` raised to provider ``code``'s
+    ``min_source_zl`` (#2017)."""
     floor = PLACEHOLDER.min_source_zl(IMG.providers_dict.get(code))
     return code, max(int(zoomlevel), floor or 0)
 

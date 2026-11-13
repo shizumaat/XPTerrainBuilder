@@ -241,3 +241,43 @@ def test_a_run_refused_by_the_write_guard_frees_its_tag(build_mod, tmp_path):
         build_mod.main_releasing_refused_tags([], run=refused)
     assert build_mod.tag_artifacts_present(tmp_path, "T4") == []
     assert (tmp_path / "T4.refused.env.json").exists()
+
+
+# (4) KDEN 2026-11-12 ------------------------------------------------------
+# The completion stamp is TILE-scoped and an AIRPORT build rewrites it too:
+# ``--refresh-data dem`` for a named airport must re-settle it, and the
+# pre-flight must name an unsettled stamp up front (not refuse at rc=1
+# after the whole build).
+WARM = {"base_raster": True, "airport_insets": True, "airports_layer": True,
+        "tile_stem": "N40W004"}
+
+
+def test_an_airport_refresh_resettles_the_tile_stamp(
+        build_mod, tmp_path, monkeypatch):
+    monkeypatch.setattr(build_mod, "dem_cache_state", lambda *a: WARM)
+    for name in ("_refresh_airport_inset", "_complete_pending_insets",
+                 "_fetch_base_void_fills"):
+        monkeypatch.setattr(build_mod, name, lambda *a, **k: [])
+    calls = []
+    monkeypatch.setattr(build_mod, "_resettle_inset_stamp",
+                        lambda lat, lon, prog: calls.append((lat, lon))
+                        or ["complete.json"])
+    out = build_mod.refresh_tile_dem(tmp_path, LAT, LON, _Notes(), icao=ICAO)
+    assert calls == [(LAT, LON)]
+    assert out["derived"] == ["complete.json"]
+
+
+def test_an_unsettled_stamp_is_named_before_the_build(
+        build_mod, tmp_path, monkeypatch):
+    layer = tmp_path / "airports.osm"
+    layer.write_text("", encoding="utf-8", newline="\n")
+    monkeypatch.setattr(FNAMES, "osm_cached", lambda *a: str(layer))
+    monkeypatch.setattr(build_mod, "_configured_tile", lambda lat, lon: None)
+    monkeypatch.setattr(INSETS, "is_cached", lambda tile: False)
+    rows = build_mod.unsettled_inset_stamp_rows(WARM, LAT, LON)
+    assert [(scope, art.rsplit("/", 1)[-1]) for (scope, art, _) in rows] \
+        == [("dem", "complete.json")]
+    monkeypatch.setattr(INSETS, "is_cached", lambda tile: True)
+    assert build_mod.unsettled_inset_stamp_rows(WARM, LAT, LON) == []
+    cold = dict(WARM, airport_insets=False)
+    assert build_mod.unsettled_inset_stamp_rows(cold, LAT, LON) == []

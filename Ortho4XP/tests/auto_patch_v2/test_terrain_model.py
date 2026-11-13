@@ -105,6 +105,26 @@ def test_a_rim_standing_proud_of_the_ground_lowers_the_seat(tmp_path):
     assert m is not None and m["z0"] == pytest.approx(-12.0, abs=0.5)
 
 
+def test_the_seat_is_read_at_the_edge_not_half_a_cell_inside(tmp_path):
+    """#2064 (LXGB's Rock, SBRJ's Sugarloaf): a cliff over a coarse DEM
+    that shows sea within 20 m of the edge -- the rim CELL reads the cliff
+    face metres up and would sink the frame; the edge itself meets the sea
+    at y = 0, so the seat is 0."""
+    def cliff(x, z):
+        # the outermost vertices (x or z at 398 / -400) at y = 0; the 21 m
+        # quads put the rim cell centres 3 m inside the +x / +z edge
+        return 0.0 if max(abs(x), abs(z)) >= 397.0 else _hill(x, z)
+    s = TM.shape_of(_write(tmp_path, "c.obj", cliff, step=21.0))
+    assert len(s.edge) > 0
+
+    def sea_cliff(xs, ys):
+        out = _dem(_hill)(xs, ys)
+        near = np.maximum(np.abs(np.asarray(xs)), np.abs(np.asarray(ys))) > HALF - 20.0
+        return np.where(near, 0.0, out)
+    assert TM.rim_seat(s.grid, (0.0, 0.0), 0.0, sea_cliff) < -1.0
+    assert TM.edge_seat(s, (0.0, 0.0), 0.0, sea_cliff) == pytest.approx(0.0, abs=0.05)
+
+
 def test_a_mismatched_ground_is_not_a_model(tmp_path):
     """A shape over flat ground (a city block, a bridge over water) does
     not follow the DEM: no match, no seat."""

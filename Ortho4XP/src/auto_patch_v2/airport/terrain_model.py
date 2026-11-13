@@ -60,7 +60,10 @@ THE SEAT -- no visible edge floats: the object's ``y = 0`` plane is set at
 the outer rim being every covered cell touching the uncovered exterior (a
 hole inside the plan is not an edge one sees from outside) and ``bottom``
 the lowest solid there: every lower edge then meets or lies under the
-ground, and no lower seat is taken than that.  The seat is one rigid
+ground, and no lower seat is taken than that.  Where the solid has an
+OPEN outer edge the rim is read AT that edge, vertex by vertex
+(:func:`edge_seat`, #2064): a rim cell reads the surface up to half a cell
+inside the edge, which on a cliff stands metres over the edge's foot.  The seat is one rigid
 frame: every row sharing the model's origin (the buildings a shell
 carries, the cable-car stations on Sugarloaf) is written as an
 ``OBJECT_MSL`` row at ``z0`` plus its own authored lift, so each keeps its
@@ -100,7 +103,8 @@ __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PE
            "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
            "SMALL_PLAN_M", "SMALL_RELIEF_M", "SMALL_PHOTO_SPREAD", "RIDER_ON_PLAN",
            "Shape", "TerrainModel", "candidate", "shape_of", "photo_spread", "match", "outer_rim",
-           "placement_models", "set_members", "riders", "frame_rows", "seat_records",
+           "placement_models", "set_members", "outer_edge", "edge_seat", "riders",
+           "frame_rows", "seat_records",
            "log_line", "hideable_paths", "plan_grid", "rim_seat"]
 
 MIN_PLAN_M = 500.0
@@ -135,6 +139,9 @@ class Shape:
     plan_m: float
     relief_m: float
     photo_spread: float
+    #: its OUTER EDGE: points along the static solid's open boundary on the
+    #: exterior side ``(k, 3)`` (:func:`outer_edge`); empty for a closed solid
+    edge: np.ndarray = _dc.field(default_factory=lambda: np.zeros((0, 3)))
 
 
 @_dc.dataclass(frozen=True)
@@ -274,7 +281,43 @@ def _shape(path: str) -> "Shape | None":
     lo, hi = np.percentile(grid.top[grid.covered], [5.0, 95.0])
     if not candidate(plan, float(hi - lo), spread):
         return None
-    return Shape(grid, plan, float(hi - lo), spread)
+    return Shape(grid, plan, float(hi - lo), spread, outer_edge(g.vertices, tris, grid))
+
+
+def outer_edge(vertices: np.ndarray, tris: np.ndarray, grid: DeckGrid) -> np.ndarray:
+    """Points ``(k, 3)`` along the solid's OPEN outer boundary: every edge
+    of one triangle (vertices welded at 1 mm) whose middle lies within two
+    cells of the uncovered exterior -- a hole's edge or an inner seam is not
+    an edge one sees from outside -- sampled at most half a cell apart."""
+    from scipy import ndimage
+    if not len(tris):
+        return np.zeros((0, 3))
+    _u, weld = np.unique(np.round(vertices, 3), axis=0, return_inverse=True)
+    weld = weld.ravel()
+    t = weld[tris]
+    e = np.sort(np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]]), axis=1)
+    u, n = np.unique(e, axis=0, return_counts=True)
+    u = u[n == 1]
+    if not len(u):
+        return np.zeros((0, 3))
+    pos = np.zeros((int(weld.max()) + 1, 3))
+    pos[weld] = vertices
+    a, b = pos[u[:, 0]], pos[u[:, 1]]
+    pad = np.pad(grid.covered, 1, constant_values=False)
+    lab, _n = ndimage.label(~pad)
+    ext = ndimage.binary_dilation(lab == lab[0, 0], structure=np.ones((3, 3), dtype=bool),
+                                  iterations=2)[1:-1, 1:-1]
+    mid = 0.5 * (a + b)
+    i = np.clip(np.rint((mid[:, 0] - grid.x0) / CELL_M).astype(int), 0, ext.shape[0] - 1)
+    j = np.clip(np.rint((mid[:, 2] - grid.z0) / CELL_M).astype(int), 0, ext.shape[1] - 1)
+    a, b = a[ext[i, j]], b[ext[i, j]]
+    if not len(a):
+        return np.zeros((0, 3))
+    steps = np.maximum(1, np.ceil(np.hypot(b[:, 0] - a[:, 0], b[:, 2] - a[:, 2])
+                                  / (0.5 * CELL_M)).astype(int))
+    k = np.repeat(np.arange(len(a)), steps + 1)
+    f = np.concatenate([np.linspace(0.0, 1.0, m + 1) for m in steps])[:, None]
+    return a[k] + f * (b[k] - a[k])
 
 
 def plan_grid(path: str) -> "DeckGrid | None":
@@ -354,12 +397,44 @@ def match(shape: Shape, xy: tuple[float, float], heading: float,
     peak_err = abs(float(top.max()) + fit - float(d.max())) / shape.relief_m
     if corr < MIN_CORR or peak_err > MAX_PEAK_ERR:
         return None
-    z0 = rim_seat(grid, xy, heading, dem_many)
+    z0 = edge_seat(shape, xy, heading, dem_many)
     if z0 is None:
         return None
     cover = 0.0 if fine is None else float(np.mean(np.asarray(fine(xs, ys), dtype=bool)))
     return {"z0": z0, "corr": corr, "peak_err": float(peak_err),
             "fit_m": fit, "quality_cover": cover}
+
+
+def edge_seat(shape: Shape, xy: tuple[float, float], heading: float,
+              dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray]
+              ) -> "float | None":
+    """THE SEAT read AT THE EDGE (#2064): ``min`` of ``(ground - y)`` along
+    the outer edge (:func:`outer_edge`), and of :func:`rim_seat`'s
+    ``(ground - bottom)`` over the rim cells no edge point lies within a
+    cell of (a closed side).  The rim CELL alone reads the surface up to half a cell
+    inside the edge: on a cliff that is metres over the edge's own foot,
+    and the frame sank by it (LXGB's Rock -10.00 where every edge vertex
+    meets the sea at its authored 0; SBRJ's Sugarloaf -27.5 where the
+    edge stands at sea level)."""
+    grid, p = shape.grid, shape.edge
+    if not len(p):
+        return rim_seat(grid, xy, heading, dem_many)
+    h = math.radians(heading)
+    s, c = math.sin(h), math.cos(h)
+    ex, ey = xy[0] + p[:, 0] * c - p[:, 2] * s, xy[1] - (p[:, 0] * s + p[:, 2] * c)
+    gaps = [np.asarray(dem_many(ex, ey), dtype=float) - p[:, 1]]
+    near = np.zeros(grid.covered.shape, dtype=bool)
+    near[np.clip(np.rint((p[:, 0] - grid.x0) / CELL_M).astype(int), 0, near.shape[0] - 1),
+         np.clip(np.rint((p[:, 2] - grid.z0) / CELL_M).astype(int), 0, near.shape[1] - 1)] = True
+    from scipy import ndimage
+    near = ndimage.binary_dilation(near, structure=np.ones((3, 3), dtype=bool))
+    ri, rj = np.nonzero(outer_rim(grid.covered) & ~near)
+    if len(ri):
+        rx, ry = _world(grid, ri, rj, xy, heading)
+        gaps.append(np.asarray(dem_many(rx, ry), dtype=float) - grid.bot[ri, rj])
+    gap = np.concatenate(gaps)
+    gap = gap[np.isfinite(gap)]
+    return float(gap.min()) if len(gap) else None
 
 
 def rim_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,

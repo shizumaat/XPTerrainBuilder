@@ -155,3 +155,39 @@ def test_a_plate_fill_is_a_landing_of_its_block_with_its_collar(monkeypatch):
         assert r.polygon.distance(air) >= keep - 0.01   # the round buffer's chord
     assert counts["landings"] == 1
 
+
+
+def test_a_fill_and_its_collar_never_stand_in_the_water(monkeypatch):
+    """Issue #2036 (SBRJ, the runway 02 end): a plate's outline reaching
+    over the bay raised a pad 4.41 m out of the water with cliff walls.  A
+    fill and every collar stop at the water witness's line
+    (``dem.water_geometry``); the dry part keeps its fill and bank."""
+    from auto_patch_v2.airport import slab_faces as SF
+    from auto_patch_v2.model.registries import Registries
+    from auto_patch_v2.planar import landing as LD
+    from auto_patch_v2.planar.overlay import Region
+    monkeypatch.setattr(SF, "witness_faces", lambda _lw: _faces())
+    sea = box(130, -500, 500, 500)
+    plate = _part(0, box(50, 0, 160, 100))
+    dem = types.SimpleNamespace(
+        water_geometry=lambda b: sea.intersection(box(*b)) if sea.intersects(box(*b)) else None)
+    airport = types.SimpleNamespace(partition=_partition(plate), dem=dem,
+                                    frame=types.SimpleNamespace(entry=lambda: to_xy))
+    pad = Region("building", "b5", box(0, 0, 100, 100), None, None, "groundside", "cell")
+    reg = Registries()
+    reg.held["b5"] = {"unit": "b5", "k": 0, "blocks": 1}
+    counts: dict = {}
+    got = LD.landing_regions([pad], {}, [], airport, LAW, 0.0, 15.0, counts, reg=reg)
+    assert {str(r.ref) for r in got} == {"b5/landing0", "b5/landing0#collar"}
+    for r in got:
+        assert r.polygon.intersection(sea).area < 1e-6, str(r.ref)
+    dry = sum(r.polygon.area for r in got if str(r.ref) == "b5/landing0")
+    assert counts["pad_fill_water_m2"] == pytest.approx(30 * 100)
+    assert counts["collar_water_m2"] > 0.0
+    # no water witness (an authored sampler): the fill keeps the wet part
+    airport.dem = types.SimpleNamespace()
+    reg2 = Registries()
+    reg2.held["b5"] = {"unit": "b5", "k": 0, "blocks": 1}
+    got2 = LD.landing_regions([pad], {}, [], airport, LAW, 0.0, 15.0, {}, reg=reg2)
+    whole = sum(r.polygon.area for r in got2 if str(r.ref) == "b5/landing0")
+    assert whole - dry == pytest.approx(30 * 100)

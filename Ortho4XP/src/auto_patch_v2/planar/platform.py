@@ -307,6 +307,7 @@ def platform_split(base_regions, pad_regions, law: Law,
     # a ``<unit>/landing<k>``)
     from .landing import LOT_ROLES, landing_regions
     from .fill_road import road_strips as _strips
+    from ..law.tables import is_structure_role as _is_structure
     from ..law.tables import role_side as _side
 
     def _road_strips(base, law_, roles=None):
@@ -325,7 +326,10 @@ def platform_split(base_regions, pad_regions, law: Law,
         # RULINGS 2026-10-20d R2: the road strips a fill runs to, and
         # (27i) the lots between it and its road, which keep lot law
         strips=_road_strips(base_regions, law),
-        lots=_road_strips(base_regions, law, LOT_ROLES)))
+        lots=_road_strips(base_regions, law, LOT_ROLES),
+        # #1938: a structure face (a tunnel ramp, its walls) is no collar's
+        structures=[r.polygon for r in base_regions if r.polygon is not None
+                    and _is_structure(law, r.role)]))
     # owner RULINGS 2026-10-19ai (#809): a held block whose unit carries
     # its own one-storey step gets a second, LOWER level along it, tied to
     # the block's datum (``planar/low_level``); after the landings, which

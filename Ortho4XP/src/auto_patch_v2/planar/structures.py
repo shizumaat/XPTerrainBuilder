@@ -118,7 +118,7 @@ from .structure_mouth import (covered_stretch, face_top_z, own_road_blade, road_
                               road_over_mouth)
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement
 from .structure_mouth import pinned_trench_notes
-from .lidar_road import (KEPT, NO_SIGN, is_rail_group, survey_design_grade, survey_mouth,
+from .lidar_road import (NO_SIGN, is_rail_group, survey_design_grade, survey_mouth,
                          survey_mouth_note, survey_mouth_refusal, survey_trench,
                          under_airside_pavement)
 from .dual_width import compose_half_fn, dual_half_fn
@@ -709,12 +709,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 stats.refused.append(
                     f"{tid}: {survey_mouth_refusal(_dc.replace(road_rd, verdict='kept'))}")
                 continue
-            if road_rd.verdict == KEPT and road_rd.cover > mouth_dem:
-                # #1938 N1: a KEPT mouth's cap stands over its floor (a face
-                # to draw) and IS the portal face's top -- the survey's cover
-                # over the bore, never the DEM on the face's own slope
-                mouth_dem = road_rd.cover
-                slid_depth = mouth_dem - mouth_z
         if rt is not None and c is None and level_b is not None:
             # Q344 a / owner 2026-11-03 "7 m everywhere under the A1 decks": a
             # run-through's floor is the airport's level B under the airside

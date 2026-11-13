@@ -435,8 +435,8 @@ def survey_mouth_note(sm: SurveyMouth, grade: float) -> str:
         return (f"survey mouth: cover {sm.cover:.2f} over the bore, surveyed road {sm.road:.2f} "
                 f"at the portal ({sm.clearance:.2f} m) — it clears the {sm.owed:.2f} m owed "
                 f"{why}: built at the surveyed road, the portal face and walls at the survey's "
-                f"depth, nothing cut under it; the crest is the survey's cover (RULINGS "
-                f"2026-10-28k (226 a), narrowed by 2026-11-13h N1)")
+                f"depth, nothing cut under it (RULINGS 2026-10-28k (226 a), narrowed by "
+                f"2026-11-13h N1)")
     return (f"survey mouth: cover {sm.cover:.2f} over the bore, surveyed road {sm.road:.2f} "
             f"at the portal ({sm.clearance:.2f} m) — owed {sm.owed:.2f} m {why}: floor "
             f"{sm.floor:.2f}, {sm.extra:.2f} m under the surveyed road, closing along it at "

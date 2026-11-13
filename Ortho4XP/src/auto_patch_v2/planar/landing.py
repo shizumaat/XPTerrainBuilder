@@ -241,13 +241,17 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
                     air_polys: _t.Sequence[Polygon], airport, law,
                     grid: float, collar_m: float,
                     counts: dict, *, reg: Registries, strips: _t.Sequence = (),
-                    lots: _t.Sequence = ()) -> list:
+                    lots: _t.Sequence = (), structures: _t.Sequence = ()) -> list:
     """The landing + collar regions to add to the pad regions ``out``
     (module docstring), registering each in ``reg.landings`` (and its
     run-outs in ``reg.landing_runouts``).  ``strips``: the ROAD STRIPS a
     fill that cannot bank down runs to (``planar/fill_road``); ``lots``:
     the lots it runs to as well, which keep lot law (RULINGS 2026-10-27i).
-    Such a fill mints its RISERS at the far kerb (``planar/fill_riser``)."""
+    Such a fill mints its RISERS at the far kerb (``planar/fill_riser``).
+    ``structures``: the STRUCTURE faces (a tunnel ramp and its walls, a
+    trench) -- never a landing's nor its collar's to take (#1938: a pinned
+    ramp cuts the pad it stands in, and the collar of a landing on that pad
+    spread into the hole, a 4 m island on the EGLL south ramp)."""
     held, landings, runouts = reg.held, reg.landings, reg.landing_runouts
     landings.clear()
     runouts.clear()
@@ -332,7 +336,8 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     _cut = cutting_corridors(airport, law)
     base_hard = unary_union([r.polygon for r in out if r.polygon is not None]
                             + [air_u.buffer(_keep) if _keep > 0.0 else air_u]
-                            + ([_cut] if _cut is not None else []))
+                            + ([_cut] if _cut is not None else [])
+                            + [q for q in structures if q is not None and not q.is_empty])
     taken = base_hard
     plats: list = []
     for key, bref, voters, unit, tmpl, pieces in recs:

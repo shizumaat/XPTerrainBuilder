@@ -14,14 +14,12 @@ import os
 import types
 
 import pytest
-
 from auto_patch_v2.airport import anchor_rule as AR
 from auto_patch_v2.airport import footprint_unit as FU
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport import placement_plan as PP
 from auto_patch_v2.airport import terrain_base as TB
 from auto_patch_v2.model.rebake import Member, Part, RebakePlan, Unit
-
 from test_v2objsplit import _box, _write_obj  # noqa: E402
 
 LAT, LON = 40.0, -3.0

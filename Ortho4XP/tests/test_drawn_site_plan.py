@@ -80,7 +80,8 @@ def test_groups_and_own_ground(tmp_path):
     assert rows["b0"]["offset"] == rows["b1"]["offset"] == 0.0
     assert rows["b2"]["kind"] == "own_ground" and rows["b2"]["foot_min"] == 0.0
     g = DP.group_seats(list(rows.values()))
-    assert g[0]["group"] == "fu:1:263" and g[0]["foot_min"] == 28.6   # the group floats (b1 on the 105 m step)
+    # the group floats (b1 on the 105 m step)
+    assert g[0]["group"] == "fu:1:263" and g[0]["foot_min"] == 28.6
 
 
 def test_worse_and_the_rigid_base(tmp_path):

@@ -52,7 +52,7 @@ def _write(path, top):
     return str(path)
 
 
-def _read(tmp_path, top=7.5, road=True, taxi=False, cut_objects=()):
+def _read(tmp_path, top=7.5, road=True, taxi=False, cut_objects=(), extra=()):
     deck = _sbox(-8.0, -25.0, 8.0, 25.0)
     o = types.SimpleNamespace(
         id="dsf:obj9", path="objects/crossing.obj", resolved=_write(tmp_path / "c.obj", top),
@@ -60,6 +60,7 @@ def _read(tmp_path, top=7.5, road=True, taxi=False, cut_objects=()):
         deck_kind="flag", hard_deck=deck, deck_top_z=100.0 + top, plan_bbox=deck)
     ways = [types.SimpleNamespace(id=-7, points=[(-60.0, 1.0), (60.0, 1.0)],
                                   tags={"highway": "secondary"})] if road else []
+    ways += [types.SimpleNamespace(id=i, points=list(pts), tags=dict(t)) for i, pts, t in extra]
     airport = types.SimpleNamespace(frame=FRAME, osm_ways=ways)
     cells = ()
     if taxi:
@@ -117,3 +118,58 @@ def test_the_overpass_plate_seats_the_frame_on_the_road_beneath_off_the_map_too(
                          (zero, where, seat), {}).bodies[0]
     assert b.anchor.surface_z == 167.0 and abs(b.anchor.surface_z - b.anchor.y_zero - 167.0) < 1e-9
     assert (b.anchor.lat, b.anchor.lon) == (seat[0], seat[1])
+
+
+_PRIMARY = {"highway": "primary"}
+_BRIDGE = {"highway": "primary", "bridge": "yes", "layer": "1"}
+
+
+def test_the_decks_own_approaches_under_its_overhang_are_never_the_road_beneath(tmp_path):
+    """#2035 (found at KDEN, the upper deck overhanging its mapped bridge by
+    18.0 / 20.8 m): the road the deck CARRIES runs along its axis — a
+    mapped bridge shorter than the plate, its approaches joined to it at
+    nodes under the plate.  Those approaches are the deck's own route,
+    never the road beneath; the road crossing under it still is."""
+    extra = ((-21, [(0.0, -80.0), (0.0, -15.0)], _PRIMARY),
+             (-22, [(0.0, -15.0), (0.0, 15.0)], _BRIDGE),
+             (-23, [(0.0, 15.0), (0.0, 80.0)], _PRIMARY))
+    (ov,), _ = _read(tmp_path, extra=extra)
+    assert ov.ways == (-7,)
+    assert all(abs(y - 1.0) < 1e-6 for _x, y in ov.stations)
+    ovs, _ = _read(tmp_path, road=False, extra=extra)
+    assert ovs == ()           # only its own route under it: no overpass
+
+
+def test_a_carried_route_with_no_bridge_tag_is_the_decks_own(tmp_path):
+    """#2035: a mapped road running through BOTH end edges of the deck's
+    axis (``airport/deck_carry``) is what the deck carries, a bridge tag or
+    none — the road beneath crosses it side to side."""
+    extra = ((-31, [(0.0, -80.0), (0.0, 0.0)], _PRIMARY),
+             (-32, [(0.0, 0.0), (0.0, 80.0)], _PRIMARY))
+    (ov,), _ = _read(tmp_path, extra=extra)
+    assert ov.ways == (-7,)
+
+
+def test_a_road_ending_under_the_deck_joined_to_no_bridge_stays_beneath(tmp_path):
+    """#2035's limit: a road that ends under the plate but joins no bridge
+    and runs through only one end edge is no carried route — it stays the
+    road beneath."""
+    extra = ((-41, [(0.0, -80.0), (0.0, -10.0)], _PRIMARY),)
+    (ov,), _ = _read(tmp_path, road=False, extra=extra)
+    assert ov.ways == (-41,)
+
+
+def test_a_road_meeting_the_approach_at_a_junction_at_grade_stays_beneath(tmp_path):
+    """#2035's limit (LGAV ``Bridges1_00``): the chain of the deck's own
+    route runs on through its bridge's end nodes and through nodes where
+    the way is merely split; a junction of roads at grade ends it — a road
+    leaving that junction under the plate is still the road beneath (the
+    leg on past it too: only a split or a bridge's end carries the route
+    on)."""
+    extra = ((-51, [(0.0, -80.0), (0.0, -15.0)], _PRIMARY),
+             (-52, [(0.0, -15.0), (0.0, 15.0)], _BRIDGE),
+             (-53, [(0.0, 15.0), (0.0, 20.0)], _PRIMARY),
+             (-54, [(0.0, 20.0), (0.0, 80.0)], _PRIMARY),
+             (-55, [(0.0, 20.0), (60.0, 20.0)], _PRIMARY))
+    (ov,), _ = _read(tmp_path, road=False, extra=extra)
+    assert ov.ways == (-54, -55)

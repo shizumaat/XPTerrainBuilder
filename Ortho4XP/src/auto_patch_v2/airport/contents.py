@@ -106,7 +106,8 @@ def attach_contents(shims: _t.Sequence[_t.Any],
                     ml: float, mo: float,
                     deck_verdict: "_t.Callable[[int], bool] | None" = None,
                     stands_free: "_t.Callable[[list[int], int], bool] | None"
-                    = None) -> "tuple[dict[int, int], list[int]]":
+                    = None, freed: "list[list[int]] | None" = None
+                    ) -> "tuple[dict[int, int], list[int]]":
     """``(leaf shim index -> host key, walled singletons that host
     contents)``.
 
@@ -130,8 +131,9 @@ def attach_contents(shims: _t.Sequence[_t.Any],
     ``stands_free`` (owner RULINGS 2026-11-13r, #2053): ``airport/
     rider_floor.free_rider_witness`` — a rider MEMBER whose every leaf body
     lies in ONE walled singleton and which the witness is CERTAIN stands on
-    no surface of it leaves the host's contents (its own ground, §16g (10)
-    (4)); the host stays the unit it was.  Any doubt keeps it (F.9)."""
+    no surface of it leaves the host's contents and is appended to
+    ``freed`` (its leaf bodies), for the caller to seat on its own ground;
+    the host stays the unit it was.  Any doubt keeps it (F.9)."""
     if min_fraction <= 0.0 or not leaves or not walled_ix:
         return {}, []
     in_cluster = {i for cl in clusters for i in cl}
@@ -184,7 +186,7 @@ def attach_contents(shims: _t.Sequence[_t.Any],
             continue
         out[i] = k
     singles = sorted({-1 - k for k in out.values() if k < 0})
-    n_rider = _free_riders(out, shims, leaves, stands_free)
+    n_rider = _free_riders(out, shims, leaves, stands_free, freed)
     if counts is not None:
         counts["contents_free_riders"] = n_rider
         counts["contents_bodies"] = len(out)
@@ -200,8 +202,8 @@ def attach_contents(shims: _t.Sequence[_t.Any],
 
 def _free_riders(out: dict[int, int], shims: _t.Sequence[_t.Any],
                  leaves: _t.Sequence[int],
-                 stands_free: "_t.Callable[[list[int], int], bool] | None"
-                 ) -> int:
+                 stands_free: "_t.Callable[[list[int], int], bool] | None",
+                 freed: "list[list[int]] | None" = None) -> int:
     """13r: drop from ``out`` each rider member the witness frees; returns
     how many bodies left.  A member is read WHOLE — every one of its leaf
     bodies contents of the same walled singleton, or it stays."""
@@ -224,4 +226,6 @@ def _free_riders(out: dict[int, int], shims: _t.Sequence[_t.Any],
         for i in body:
             del out[i]
         n += len(body)
+        if freed is not None:
+            freed.append(sorted(body))
     return n

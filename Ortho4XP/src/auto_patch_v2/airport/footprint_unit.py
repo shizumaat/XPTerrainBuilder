@@ -753,6 +753,7 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     # can link two units and the connector index above is the walled one
     contents: dict[int, int] = {}
     singles: list[int] = []
+    freed: list[list[int]] = []
     if contents_min_fraction > 0.0 and leaves and walled_ix:
         from .contents import attach_contents
         ml, mo = m_per_deg_exact(shims[walled_ix[0]].box[0])
@@ -765,7 +766,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
             base_y=lambda i: shims[i].base_y, ml=ml, mo=mo,
             deck_verdict=lambda i: member_is_deck(
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
-            stands_free=_rider_witness(plan, shims, ml, mo))     # 13r
+            stands_free=_rider_witness(plan, shims, ml, mo),     # 13r
+            freed=freed)
     held: dict[int, list[int]] = {}
     for i, k in sorted(contents.items()):
         held.setdefault(k, []).append(i)
@@ -793,7 +795,28 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
             continue
         conns.extend(connectors_of_cluster(cl, uid, shims, touch_m,
                                            connector_span_m, index, pool))
+    out.extend(_rider_units(freed, shims))
     return out, conns
+
+
+def _rider_units(freed: _t.Sequence[_t.Sequence[int]],
+                 shims: _t.Sequence[_PShim]) -> list[PlanUnit]:
+    """owner RULINGS 2026-11-13r (#2053): each rider the witness freed is a
+    unit of its OWN (``fu:<unit>:<body>/rider``, a root of its own), so
+    :func:`plan_unit_datums` seats it on the ground (or pad) under its own
+    parts with no wall base — never on its host's walls, and never on the
+    per-body low-side foot, which reads a figure's hands inside the contact
+    band as feet (SBRJ ``policeman4``: 0.90 m under)."""
+    out = []
+    for body in freed:
+        boxes = [b for i in body for b in shims[i].part_boxes]
+        out.append(PlanUnit(
+            id=f"fu:{shims[body[0]].key[0]}:{body[0]}/rider",
+            bodies=tuple(shims[i].key for i in body),
+            pids=frozenset().union(*(shims[i].pids for i in body)),
+            members=tuple(sorted({shims[i].resource for i in body})),
+            boxes=tuple(boxes), area_m2=union_area_m2(boxes)))
+    return out
 
 
 def _rider_witness(plan: _t.Any, shims: _t.Sequence[_PShim], ml: float,

@@ -1440,6 +1440,9 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         dem_many or _ts.dem_many_of(dem_z), skip=frozenset(found))
     found.update((k, m) for k, m in shells.items() if m.ground == _gs.SEATED)
     models = _tm.set_members(placements, found)
+    # #2064: an MSL row authored over an MSL model's top moves with it
+    models.update(_tm.riders(placements, found,
+                             lambda d: _geometry_of(d, pack_root, index, cache)))
     hidden = {k: m for k, m in shells.items() if m.ground == _gs.HIDDEN}
     riders = frozenset(_tm.set_members(placements, hidden)) - frozenset(hidden)
     models.update(hidden)

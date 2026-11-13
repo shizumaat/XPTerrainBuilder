@@ -357,9 +357,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     _say("  " + _terrain_shaped.log_line(icao, airport.terrain_decks), out)
     # owner RULINGS 2026-11-13i: the terrain models' origin sets
     from ..airport import terrain_model as _terrain_model
-    airport = _dc.replace(airport, terrain_models=tuple(
-        (o.id, o.path, o.terrain_model, o.agl_m) for o in pack_objects
-        if getattr(o, "terrain_model", None) is not None))
+    airport = _dc.replace(airport, terrain_models=_terrain_model.frame_rows(pack_objects))
     _say("  " + _terrain_model.log_line(icao, (r[2] for r in airport.terrain_models)), out)
     from ..airport import bridged_ground as _bridged_ground
     _say("  " + _bridged_ground.log_line(icao, (r[2] for r in airport.terrain_models)), out)

@@ -28,9 +28,10 @@ def _hill(x, z):
     return max(0.0, 150.0 * (1.0 - r * r))
 
 
-def _write(tmp_path, name, height, *, uv="photo", rim_y=None):
+def _write(tmp_path, name, height, *, uv="photo", rim_y=None, half=HALF, step=STEP):
     """A grid OBJ8 of ``height(x, z)``; ``uv`` "photo" maps the plan onto
     one image, "atlas" packs every cell into a tile of its own scale."""
+    HALF, STEP = half, step  # noqa: N806 -- the module defaults, overridable
     n = int(2 * HALF / STEP) + 1
     rng = np.random.default_rng(7)
     vt, idx = [], []
@@ -170,10 +171,84 @@ def test_without_quality_elevation_nothing_is_hideable(tmp_path):
     assert not _models(path, rows)["dsf:obj0"].hideable
 
 
-def test_an_msl_row_states_its_own_datum(tmp_path):
+def test_an_msl_row_is_read_and_keeps_its_datum(tmp_path):
+    """#2064 (LOWS's town rock, LXGB's Rock): an OBJECT_MSL row that follows
+    the DEM is a terrain model; its authored height is its ``datum``, and
+    its origin set (same origin AND an MSL row) is written at the seat plus
+    each row's height over that datum -- a plain row at that origin is not
+    of its frame."""
     path = _write(tmp_path, "m.obj", _hill)
-    rows = [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, 12.0, "OBJECT_MSL")]
-    assert _models(path, rows) == {}
+    rows = [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, 12.0, "OBJECT_MSL"),
+            ("dsf:obj1", "gun.obj", (0.0, 0.0), 0.0, 12.0, "OBJECT_MSL"),
+            ("dsf:obj2", "car.obj", (0.0, 0.0), 0.0, None, "OBJECT")]
+    models = _models(path, rows)
+    m = models["dsf:obj0"]
+    assert m.msl and m.datum == 12.0 and m.z0 == pytest.approx(0.0, abs=0.5)
+    assert set(TM.set_members(rows, models)) == {"dsf:obj0", "dsf:obj1"}
+
+    class _O:
+        def __init__(self, oid, agl):
+            self.id, self.path, self.agl_m, self.terrain_model = oid, "x.obj", agl, m
+    assert [r[3] for r in TM.frame_rows([_O("dsf:obj0", 12.0), _O("dsf:obj1", 12.0)])] \
+        == [0.0, 0.0]
+
+
+def test_a_smaller_piece_needs_one_orthophoto(tmp_path):
+    """#2064 (a coast modelled as cliffs and rocks): a 240 m piece 30 m
+    high is a candidate under one orthophoto, never under an atlas, and a
+    smaller one never."""
+    def knoll(x, z):
+        r = math.hypot(x, z) / 120.0
+        return max(0.0, 30.0 * (1.0 - r * r))
+    s = TM.shape_of(_write(tmp_path, "k.obj", knoll, half=120.0, step=10.0))
+    assert s is not None and s.plan_m < TM.MIN_PLAN_M
+    assert s.photo_spread <= TM.SMALL_PHOTO_SPREAD and s.relief_m >= TM.SMALL_RELIEF_M
+    assert TM.shape_of(_write(tmp_path, "a.obj", knoll, uv="atlas", half=120.0,
+                              step=10.0)) is None
+    assert TM.shape_of(_write(tmp_path, "t.obj", knoll, half=60.0, step=10.0)) is None
+    assert not TM.candidate(400.0, 40.0, 0.2) and TM.candidate(600.0, 60.0, 0.2)
+
+
+def _box(tmp_path, name, half, y0, y1):
+    """A closed box OBJ8 ``2 half`` square, from ``y0`` to ``y1``."""
+    c = [(x, z) for x in (-half, half) for z in (-half, half)]
+    vt = [f"VT {x} {y} {z} 0 1 0 0 0" for y in (y0, y1) for x, z in c]
+    quads = [(4, 5, 7, 6), (0, 1, 3, 2), (0, 1, 5, 4), (2, 3, 7, 6), (0, 2, 6, 4), (1, 3, 7, 5)]
+    idx = [i for a, b, cc, d in quads for i in (a, b, cc, a, cc, d)]
+    body = ["I", "800", "OBJ", f"POINT_COUNTS {len(vt)} 0 0 {len(idx)}", *vt]
+    body += [f"IDX {i}" for i in idx] + [f"TRIS 0 {len(idx)}"]
+    path = tmp_path / name
+    path.write_text("\n".join(body) + "\n", encoding="utf-8", newline="\n")
+    return str(path)
+
+
+def test_an_msl_rider_moves_with_its_model(tmp_path):
+    """#2064 (LOWS's fortress, its own MSL origin on the rock): an MSL row
+    over an MSL model's plan, standing out of its top, rides the model --
+    written at its authored height plus the model's move.  A plain row on
+    the plan, an MSL row off it and an MSL row buried inside it stay."""
+    path = _write(tmp_path, "m.obj", _hill)
+    keep = _box(tmp_path, "keep.obj", 20.0, 0.0, 30.0)
+    rows = [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, 430.0, "OBJECT_MSL"),
+            ("dsf:obj1", "keep.obj", (50.0, 30.0), 329.5, 560.0, "OBJECT_MSL"),
+            ("dsf:obj2", "keep.obj", (50.0, 30.0), 329.5, None, "OBJECT"),
+            ("dsf:obj3", "keep.obj", (900.0, 0.0), 0.0, 430.0, "OBJECT_MSL"),
+            ("dsf:obj4", "keep.obj", (-50.0, 0.0), 0.0, 480.0, "OBJECT_MSL")]
+    files = {"m.obj": path, "keep.obj": keep}
+    models = TM.placement_models(rows, files.get, lambda d: parse_obj8(files[d]),
+                                 _dem(_hill, 400.0))
+    assert set(models) == {"dsf:obj0"}
+    got = TM.riders(rows, models, lambda d: parse_obj8(files[d]))
+    assert set(got) == {"dsf:obj1"} and got["dsf:obj1"] is models["dsf:obj0"]
+    m = models["dsf:obj0"]
+
+    class _O:
+        def __init__(self, oid, agl):
+            self.id, self.path, self.agl_m, self.terrain_model = oid, "x.obj", agl, m
+    lifts = [r[3] for r in TM.frame_rows([_O("dsf:obj0", 430.0), _O("dsf:obj1", 560.0)])]
+    assert lifts == [0.0, 130.0]
+    # written at the seat plus that lift: the authored 560 m plus the move
+    assert m.z0 + lifts[1] == pytest.approx(560.0 + (m.z0 - 430.0))
 
 
 def test_the_hidden_definitions_of_a_dump():

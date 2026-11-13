@@ -30,6 +30,22 @@ THE CANDIDATE (no DEM; one verdict per file version, :func:`shape_of`):
   2.2).  A building or a bridge packs facades, roofs and details into an
   atlas at many densities.
 
+A SMALLER PIECE (issue #2064: a pack that models a coast as several
+cliffs, rocks and hilltops, each 150-450 m across and 20-90 m high) is a
+candidate on stronger photo evidence instead of size: plan at least
+:data:`SMALL_PLAN_M` and under :data:`MIN_PLAN_M`, top relief at least
+:data:`SMALL_RELIEF_M`, and the photo spread at most
+:data:`SMALL_PHOTO_SPREAD` (one orthophoto at one resolution, to about
+12 %).  An object of :data:`MIN_PLAN_M` or more with less relief is a
+ground shell's to read (``ground_shell``), never this module's.  The
+match below is the same for both.
+
+AN ``OBJECT_MSL`` ROW is read like any other (#2064: LOWS's town rock,
+LXGB's Rock of Gibraltar, TFFJ's coast are all placed at an MSL height
+the author chose against X-Plane's own mesh, not ours).  Its datum is
+kept on the model (``TerrainModel.datum``) so every row of its frame
+keeps its authored height relative to it.
+
 THE MATCH (the DEM under the placement, :func:`match`): the top surface
 sampled over its covered cells follows the ground --
 
@@ -52,6 +68,16 @@ place on the shell.  A terrain model's origin set is never split, never
 re-anchored, never read as a pit, a pad or a deck (``obj8``'s
 ``terrain_feature`` path, RULINGS 2026-10-20aq).
 
+RIDERS (#2064, LOWS's fortress on its rock): an ``OBJECT_MSL`` row of
+ANOTHER origin over an ``OBJECT_MSL`` terrain model's plan -- at least
+:data:`RIDER_ON_PLAN` of its covered cells inside the model's, and some of
+it standing out of the model's top at the two authored heights -- was
+authored against that model at an absolute height: it moves with the model
+(:func:`riders`), written at its authored height plus the model's move.
+Only that pair is certain (owner RULINGS 2026-11-13r: any doubt, and an
+object stays where its author placed it); a terrain-relative row over the
+plan is left to the object stage.
+
 HIDING (the pack adjustment "Hide terrain objects", off by default) is
 offered only where QUALITY ELEVATION models the same ground: at least
 :data:`MIN_QUALITY_COVER` of the model's cells lie inside an inset whose
@@ -72,9 +98,10 @@ from ..geom.terrain_deck import CELL_M, DeckGrid
 
 __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PEAK_ERR",
            "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
-           "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
-           "placement_models", "set_members", "seat_records", "log_line",
-           "hideable_paths", "plan_grid", "rim_seat"]
+           "SMALL_PLAN_M", "SMALL_RELIEF_M", "SMALL_PHOTO_SPREAD", "RIDER_ON_PLAN",
+           "Shape", "TerrainModel", "candidate", "shape_of", "photo_spread", "match", "outer_rim",
+           "placement_models", "set_members", "riders", "frame_rows", "seat_records",
+           "log_line", "hideable_paths", "plan_grid", "rim_seat"]
 
 MIN_PLAN_M = 500.0
 MIN_RELIEF_M = 50.0
@@ -84,6 +111,12 @@ MAX_PEAK_ERR = 0.25
 QUALITY_PIXEL_M = 10.0
 MIN_QUALITY_COVER = 0.9
 MIN_QUALITY_CORR = 0.9
+#: a smaller piece (module doc): plan, top relief and photo spread
+SMALL_PLAN_M = 150.0
+SMALL_RELIEF_M = 20.0
+SMALL_PHOTO_SPREAD = 0.05
+#: the least share of a rider's covered cells over its model's plan
+RIDER_ON_PLAN = 0.9
 #: an upward-facing triangle (unit normal ``y`` at least this) is the top
 _UP_NY = 0.5
 #: the least plan area (m2) of a triangle the density reads
@@ -138,6 +171,13 @@ class TerrainModel:
     #: (it lies on the ground at ``z0``) or ``"hidden"`` (its row is left
     #: out of the written DSF); ``""`` for a terrain model of this module
     ground: str = ""
+    #: the model row's authored elevation (#2064): its MSL height for an
+    #: ``OBJECT_MSL`` row, its AGL lift for an ``OBJECT_AGL`` one, else 0.
+    #: A row of its frame is written at ``z0`` plus its own elevation less
+    #: this (:func:`frame_rows`)
+    datum: float = 0.0
+    #: the model row is ``OBJECT_MSL`` (its riders are, :func:`riders`)
+    msl: bool = False
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -192,30 +232,43 @@ def _grid(g: _t.Any) -> "DeckGrid | None":
 
 def _plan_m(g: _t.Any) -> float:
     """The longer plan side of a geometry's static solid when its height
-    span reaches :data:`MIN_RELIEF_M`, else 0 (the cheap gates, on a
-    geometry the caller already parsed)."""
+    span reaches its size class's relief (:data:`MIN_RELIEF_M` from
+    :data:`MIN_PLAN_M` up, :data:`SMALL_RELIEF_M` below), else 0 (the cheap
+    gates, on a geometry the caller already parsed)."""
     from .msl_feet import static_vertices
     v = static_vertices(g) if g is not None else None
-    if v is None or float(np.ptp(v[:, 1])) < MIN_RELIEF_M:
+    if v is None or not len(v):
         return 0.0
-    return float(max(np.ptp(v[:, 0]), np.ptp(v[:, 2])))
+    plan = float(max(np.ptp(v[:, 0]), np.ptp(v[:, 2])))
+    need = MIN_RELIEF_M if plan >= MIN_PLAN_M else SMALL_RELIEF_M
+    return plan if float(np.ptp(v[:, 1])) >= need else 0.0
+
+
+def candidate(plan_m: float, relief_m: float, spread: float) -> bool:
+    """THE CANDIDATE's size and photo gates (module doc): a hill, or a
+    smaller piece under one orthophoto."""
+    if spread > MAX_PHOTO_SPREAD or plan_m < SMALL_PLAN_M:
+        return False
+    if plan_m >= MIN_PLAN_M:
+        return relief_m >= MIN_RELIEF_M
+    return relief_m >= SMALL_RELIEF_M and spread <= SMALL_PHOTO_SPREAD
 
 
 def _shape(path: str) -> "Shape | None":
     from .obj8 import parse_obj8
     g = parse_obj8(path)
     plan = _plan_m(g)
-    if plan < MIN_PLAN_M:
+    if plan < SMALL_PLAN_M:
         return None
     tris = g.solid[~g.animated] if g.animated.shape[0] else g.solid
     spread = photo_spread(g.vertices, _vt_rows(path), tris)
-    if spread > MAX_PHOTO_SPREAD:
+    if not candidate(plan, math.inf, spread):
         return None
     grid = _grid(g)
     if grid is None or not grid.covered.any():
         return None
     lo, hi = np.percentile(grid.top[grid.covered], [5.0, 95.0])
-    if hi - lo < MIN_RELIEF_M:
+    if not candidate(plan, float(hi - lo), spread):
         return None
     return Shape(grid, plan, float(hi - lo), spread)
 
@@ -246,7 +299,7 @@ def shape_of(path: str, geometry: _t.Any = None) -> "Shape | None":
     ``geometry``: its parsed ``ObjGeometry`` when the caller holds it --
     the plan and height gates then read it and most files stop there
     without a second parse."""
-    if geometry is not None and _plan_m(geometry) < MIN_PLAN_M:
+    if geometry is not None and _plan_m(geometry) < SMALL_PLAN_M:
         return None
     try:
         st = os.stat(path)
@@ -318,9 +371,11 @@ def rim_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,
     return float(gap.min()) if len(gap) else None
 
 
-def _origin(xy: _t.Any, heading: float, elev: _t.Any) -> tuple:
+def _origin(xy: _t.Any, heading: float, elev: _t.Any, kind: str = "") -> tuple:
+    """One author's frame: origin, heading, elevation -- and whether that
+    elevation is MSL (an ``OBJECT_MSL`` row at 0 m is not a plain row)."""
     from .msl_feet import origin_key
-    return origin_key(xy, heading) + (round(float(elev or 0.0), 3),)
+    return origin_key(xy, heading) + (round(float(elev or 0.0), 3), kind == "OBJECT_MSL")
 
 
 def placement_models(placements: _t.Sequence[tuple],
@@ -331,13 +386,13 @@ def placement_models(placements: _t.Sequence[tuple],
     """The terrain models among ``placements`` -- ``(id, def path, xy,
     heading, elevation, kind)`` rows -- by id.  ``path_of(def path)`` is
     the resolved file or ``None``, ``geometry(def path)`` its parsed
-    geometry (the reader's cache) or ``None``.  A plain ``OBJECT`` or ``OBJECT_AGL``
-    row only: an ``OBJECT_MSL`` row already states its author's datum."""
+    geometry (the reader's cache) or ``None``.  Any row kind (#2064): an
+    ``OBJECT_MSL`` row's height is kept as the model's ``datum``."""
     from .obj8 import is_stock_library_resource
     out: dict[str, TerrainModel] = {}
     shapes: dict[str, "Shape | None"] = {}
-    for oid, dpath, xy, heading, _elev, kind in placements:
-        if kind == "OBJECT_MSL" or is_stock_library_resource(dpath):
+    for oid, dpath, xy, heading, elev, kind in placements:
+        if is_stock_library_resource(dpath):
             continue
         if dpath not in shapes:
             phys = path_of(dpath)
@@ -355,7 +410,8 @@ def placement_models(placements: _t.Sequence[tuple],
         out[str(oid)] = TerrainModel(str(oid), str(dpath), xy2, float(heading), m["z0"],
                                      m["corr"], m["peak_err"], m["fit_m"],
                                      shape.grid.area_m2, shape.relief_m,
-                                     m["quality_cover"], hideable, str(path_of(dpath) or ""))
+                                     m["quality_cover"], hideable, str(path_of(dpath) or ""),
+                                     datum=float(elev or 0.0), msl=kind == "OBJECT_MSL")
     return out
 
 
@@ -370,13 +426,85 @@ def set_members(placements: _t.Sequence[tuple],
         p = by_id.get(oid)
         if p is None:
             continue
-        k = _origin(p[2], p[3], p[4])
+        k = _origin(p[2], p[3], p[4], p[5])
         if k not in seeds or m.z0 < seeds[k].z0:
             seeds[k] = m
     if not seeds:
         return {}
-    return {str(oid): seeds[k] for oid, _d, xy, h, e, _k in placements
-            if (k := _origin(xy, h, e)) in seeds}
+    return {str(oid): seeds[k] for oid, _d, xy, h, e, kind in placements
+            if (k := _origin(xy, h, e, kind)) in seeds}
+
+
+def _cells_xy(grid: DeckGrid, xy: tuple[float, float], heading: float
+              ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """``(i, j, east, north)`` of a plan grid's covered cells."""
+    ii, jj = np.nonzero(grid.covered)
+    xs, ys = _world(grid, ii, jj, xy, heading)
+    return ii, jj, xs, ys
+
+
+def _top_at(grid: DeckGrid, xy: tuple[float, float], heading: float,
+            xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+    """A model's authored top (its own frame metres) under frame points,
+    NaN off its covered plan (the inverse of :func:`_world`)."""
+    h = math.radians(heading)
+    s, c = math.sin(h), math.cos(h)
+    de, dn = np.asarray(xs, dtype=float) - xy[0], np.asarray(ys, dtype=float) - xy[1]
+    x, z = de * c - dn * s, -de * s - dn * c
+    i = np.rint((x - grid.x0) / CELL_M).astype(int)
+    j = np.rint((z - grid.z0) / CELL_M).astype(int)
+    ok = (i >= 0) & (j >= 0) & (i < grid.covered.shape[0]) & (j < grid.covered.shape[1])
+    out = np.full(len(x), np.nan)
+    ok[ok] = grid.covered[i[ok], j[ok]]
+    out[ok] = grid.top[i[ok], j[ok]]
+    return out
+
+
+def riders(placements: _t.Sequence[tuple], models: _t.Mapping[str, TerrainModel],
+           geometry: _t.Callable[[str], _t.Any]) -> dict[str, TerrainModel]:
+    """RIDERS (module doc): every ``OBJECT_MSL`` row outside a model's
+    origin set whose covered plan lies at least :data:`RIDER_ON_PLAN` over
+    an ``OBJECT_MSL`` model's plan and stands out of its top somewhere at
+    the two authored heights, mapped to that model (the lowest seat where
+    two qualify).  ``geometry(def path)``: the parsed geometry or ``None``."""
+    own = [m for m in {m.id: m for m in models.values()}.values()
+           if m.msl and not m.ground and not m.seat_by and m.file]
+    if not own:
+        return {}
+    grids = {m.id: plan_grid(m.file) for m in own}
+    taken = set(set_members(placements, models))
+    out: dict[str, TerrainModel] = {}
+    for oid, dpath, xy, heading, elev, kind in placements:
+        if kind != "OBJECT_MSL" or str(oid) in taken or elev is None:
+            continue
+        g = geometry(dpath)
+        grid = None if g is None else _grid(g)
+        if grid is None or not grid.covered.any():
+            continue
+        ii, jj, xs, ys = _cells_xy(grid, (float(xy[0]), float(xy[1])), float(heading))
+        for m in own:
+            mg = grids.get(m.id)
+            if mg is None:
+                continue
+            under = _top_at(mg, m.xy, m.heading, xs, ys)
+            on = np.isfinite(under)
+            if on.mean() < RIDER_ON_PLAN:
+                continue
+            proud = float(elev) + grid.top[ii, jj][on] - (m.datum + under[on])
+            if float(proud.max()) > 0.0 and (str(oid) not in out
+                                            or m.z0 < out[str(oid)].z0):
+                out[str(oid)] = m
+    return out
+
+
+def frame_rows(objects: _t.Iterable[_t.Any]) -> tuple:
+    """``Airport.terrain_models``: ``(id, def path, TerrainModel, lift)``
+    of every loaded placement carrying a model's frame, ``lift`` its own
+    elevation less the model's ``datum`` (a member of the origin set: 0;
+    a rider: its authored height over the model's)."""
+    return tuple((o.id, o.path, o.terrain_model,
+                  float(o.agl_m or 0.0) - float(getattr(o.terrain_model, "datum", 0.0)))
+                 for o in objects if getattr(o, "terrain_model", None) is not None)
 
 
 def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
@@ -435,7 +563,8 @@ def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:
     if not models:
         return f"[{icao}] terrain-modelling objects: none"
     return f"[{icao}] terrain-modelling objects: " + "; ".join(
-        f"{m.path} ({m.id}) seated at {m.z0:.2f} m (no edge floats), top follows "
+        f"{m.path} ({m.id}) seated at {m.z0:.2f} m (no edge floats"
+        + (f"; authored MSL {m.datum:.2f} m" if m.msl else "") + "), top follows "
         f"the DEM r={m.corr:.2f}, peak off {m.peak_err:.0%} of {m.relief_m:.0f} m, "
         f"{m.area_m2:,.0f} m2" + (f", hideable ({m.quality_cover:.0%} under quality "
                                   f"elevation)" if m.hideable else "")

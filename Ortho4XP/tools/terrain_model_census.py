@@ -129,11 +129,12 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
         if shell is not None:
             gates["ground"] += 1
             shapes[("ground", rel)] = shell
-        if TM._plan_m(g) < TM.MIN_PLAN_M:
+        if TM._plan_m(g) < TM.SMALL_PLAN_M:
             continue
         gates["plan"] += 1
         tris = g.solid[~g.animated] if g.animated.shape[0] else g.solid
-        if TM.photo_spread(g.vertices, TM._vt_rows(path), tris) > TM.MAX_PHOTO_SPREAD:
+        spread = TM.photo_spread(g.vertices, TM._vt_rows(path), tris)
+        if spread > TM.MAX_PHOTO_SPREAD:
             continue
         gates["photo"] += 1
         shape = TM.shape_of(path, g)
@@ -144,8 +145,9 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
 
 
 def placements(dsf: str, dsftool: str) -> tuple[list[str], list[tuple]]:
-    """``(OBJECT_DEF paths, [(def index, lon, lat, heading, kind)])`` of a
-    DSF, dumped in a temporary folder."""
+    """``(OBJECT_DEF paths, [(def index, lon, lat, heading, kind,
+    elevation)])`` of a DSF, dumped in a temporary folder (an ``OBJECT_AGL``
+    / ``OBJECT_MSL`` row carries its elevation BEFORE its heading)."""
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, "in.dsf")
         shutil.copyfile(dsf, src)
@@ -158,7 +160,9 @@ def placements(dsf: str, dsftool: str) -> tuple[list[str], list[tuple]]:
                     defs.append(line[11:].strip())
                 elif line.startswith(("OBJECT ", "OBJECT_AGL ", "OBJECT_MSL ")):
                     t = line.split()
-                    rows.append((int(t[1]), float(t[2]), float(t[3]), float(t[4]), t[0]))
+                    elev = None if t[0] == "OBJECT" else float(t[4])
+                    hdg = float(t[4] if t[0] == "OBJECT" else t[5])
+                    rows.append((int(t[1]), float(t[2]), float(t[3]), hdg, t[0], elev))
     return defs, rows
 
 
@@ -170,7 +174,7 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
         lat, lon = int(os.path.basename(dsf)[:3]), int(os.path.basename(dsf)[3:7])
         defs, rows = placements(src, dsftool)
         dems = rasters(elevation_root, lat, lon) if shapes else []
-        for i, lo, la, hdg, kind in rows:
+        for i, lo, la, hdg, kind, elev in rows:
             key = defs[i].replace("\\", "/").lower() if i < len(defs) else ""
             shell = shapes.get(("ground", key))
             if shell is not None and kind != "OBJECT_MSL":
@@ -189,16 +193,16 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
                    "heading": hdg, "kind": kind, "plan_m": round(shape.plan_m),
                    "relief_m": round(shape.relief_m, 1),
                    "photo_spread": round(shape.photo_spread, 3)}
+            m = TM.match(shape, (0.0, 0.0), hdg, sampler(dems, lo, la),
+                         sampler(dems, lo, la, fine=True))
+            rec["verdict"] = "terrain model" if m else "no DEM match"
             if kind == "OBJECT_MSL":
-                rec["verdict"] = "msl row (its author's datum)"
-            else:
-                m = TM.match(shape, (0.0, 0.0), hdg, sampler(dems, lo, la),
-                             sampler(dems, lo, la, fine=True))
-                rec["verdict"] = "terrain model" if m else "no DEM match"
-                if m:
-                    rec.update({k: round(v, 3) for k, v in m.items()})
-                    rec["hideable"] = bool(m["quality_cover"] >= TM.MIN_QUALITY_COVER
-                                           and m["corr"] >= TM.MIN_QUALITY_CORR)
+                # #2064: an MSL row is read too; its author's height is kept
+                rec["authored_msl"] = elev
+            if m:
+                rec.update({k: round(v, 3) for k, v in m.items()})
+                rec["hideable"] = bool(m["quality_cover"] >= TM.MIN_QUALITY_COVER
+                                       and m["corr"] >= TM.MIN_QUALITY_CORR)
             out["rows"].append(rec)
     return out
 
@@ -214,7 +218,10 @@ def main(argv=None) -> int:
     for r in report:
         print(f"== {r['pack']}: gates {r['gates']}")
         for row in r["rows"]:
-            extra = (f" z0 {row['z0']:.2f} m corr {row['corr']:.2f} peak_err {row['peak_err']:.2f}"
+            msl = (f" [MSL {row['authored_msl']:.2f}"
+                   + (f", moves {row['z0'] - row['authored_msl']:+.2f}" if "z0" in row and
+                      "corr" in row else "") + "]") if row.get("authored_msl") is not None else ""
+            extra = msl + (f" z0 {row['z0']:.2f} m corr {row['corr']:.2f} peak_err {row['peak_err']:.2f}"
                      f" quality {row['quality_cover']:.0%}{' HIDEABLE' if row['hideable'] else ''}"
                      if "corr" in row else
                      f" z0 {row['z0']:.2f} m follow {row['follow']:.0%}" if "z0" in row else "")

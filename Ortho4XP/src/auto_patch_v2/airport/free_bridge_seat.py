@@ -82,12 +82,38 @@ def _deck_zero(m: _t.Any, surface: _ar.Surface, origin: tuple[float, float],
     seat = approach_seat(datum, surface, origin=origin, authored_agl_m=agl_m, tops=tops)
     if seat is not None:
         return seat.zero, seat.reason
-    # an end line on a bank: §16e (6)'s landward walk (13v, the canal bridges)
-    a = _ar._datum_anchor(_ar.DECK, _ar.BodyGeometry((), origin[0], origin[1]),
-                          surface, datum, agl_m)
-    if a is None or a.surface_z is None:
-        return None
-    return float(a.surface_z) - float(a.y_zero), a.reason
+    return _walked_zero(datum, surface, tops)
+
+
+def _walked_zero(datum: _t.Any, surface: _ar.Surface,
+                 tops: "_t.Sequence[float] | None") -> "tuple[float, str] | None":
+    """An end line on a bank (or off the sheet): §16e (6)'s LANDWARD WALK
+    (``anchor_rule._walked_stations``; 13v, the canal bridges), read PER
+    END with that end's own deck top — flush at the end whose walked ground
+    less its top is the highest, as :func:`bridge_approach.approach_seat`."""
+    from .rebake_plan import end_line_stations
+    stations, note = _ar._walked_stations(datum, surface, getattr(surface, "water", None))
+    sizes = [len(end_line_stations([e], datum.step_m)) for e in datum.ends] \
+        if datum.ends and datum.step_m > 0.0 else []
+    if len(sizes) < 2 or sum(sizes) != len(stations):
+        sizes = [len(stations)]
+    ys = (list(tops) if tops is not None and len(tops) == len(sizes)
+          else [float(datum.y)] * len(sizes))
+    best = None
+    k0 = 0
+    for k, n in enumerate(sizes):
+        kept, _wet, _off = _ar._line_reading(stations[k0:k0 + n], surface,
+                                             getattr(surface, "water", None))
+        k0 += n
+        if not kept:
+            continue
+        zs = sorted(q[0] for q in kept)
+        z = zs[len(zs) // 2] - float(ys[k])
+        if best is None or z > best[0]:
+            best = (z, f"§16e {datum.label} datum: the authored y {ys[k]:+.2f} flush with "
+                       f"the walked ground {zs[len(zs) // 2]:.2f} at end line {k + 1}"
+                       f"{note} (RULINGS 2026-10-22m, 2026-09-13v)")
+    return best
 
 
 def free_bridge_zeros(staged: _t.Sequence[_t.Any], surface: _ar.Surface, *,

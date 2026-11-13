@@ -47,7 +47,8 @@ def _parse(h):
 
 def test_colours_widths_match_mac():
     src = _swift("XPTerrainBuilder/PatchOverlay.swift")
-    rows = re.findall(r"case \.(\w+): PatchStyle\(fill: (nil|hex\([^)]*\)), stroke: (hex\([^)]*\)), "
+    rows = re.findall(r"case \.(\w+): PatchStyle\(fill: (nil|hex\([^)]*\)), "
+                      r"stroke: (hex\([^)]*\)), "
                       r"width: ([\d.]+)", src)
     assert {r[0] for r in rows} == set(OV.STYLES)
     for cls, fill, stroke, width in rows:

@@ -53,6 +53,7 @@ import weakref
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
+from ..geom.valid_area import minus
 from ..model.planar import COLLAR_SUFFIX, STRIP_SUFFIX, pad_base_ref
 from ..model.platform import LANDING_SEP
 from ..model.registries import Registries
@@ -220,7 +221,7 @@ def _dry(held, airport, g, counts: dict, key: str, grow_m: float = 0.0):
     w = _wet(airport, g, grow_m)
     if w is None:
         return held
-    lost = g.difference(held).intersection(w).area
+    lost = minus(g, held).intersection(w).area
     if lost > 0.0:
         counts[key] = round(counts.get(key, 0.0) + lost, 1)
     return unary_union([held, w])
@@ -444,7 +445,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     tmpls: dict[str, _t.Any] = {}
     for ref, Ls, Lu, y_land, key, bref, voters, _unit, tmpl in plats:
         C = Lu.buffer(collar_m, join_style=2)
-        C = C.difference(_dry(held_c, airport, C, counts, "collar_water_m2"))
+        C = minus(C, _dry(held_c, airport, C, counts, "collar_water_m2"))
         cparts = [q for q in _parts(C) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])
         tmpls[ref] = tmpl
@@ -474,7 +475,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # seated on the landing at 101.78 m, +10.91 m)
     for rref, rec in sorted(runouts.items()):
         band = rec["axis"].buffer(0.5 * rec["width_m"] + collar_m, cap_style=2, join_style=2)
-        cparts = [q for q in _parts(band.difference(held_c)) if q.area >= max(grid * grid, 1.0)]
+        cparts = [q for q in _parts(minus(band, held_c)) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])
         tmpl = tmpls[rec["landing"]]
         added.extend(_dc.replace(tmpl, ref=rref + COLLAR_SUFFIX, polygon=q) for q in cparts)

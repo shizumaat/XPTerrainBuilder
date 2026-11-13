@@ -31,7 +31,13 @@ means all three passed:
 Verdict: FAIL when any layer fails; INCOMPLETE when nothing failed but a
 layer was not measured (a patch-only build has no drawn product; a tile
 build without ``--pack-copy`` has no written objects); PASS otherwise.
-Exit 0 only on PASS.
+Exit 0 only on PASS.  Every airport read so far has some patch->drawn
+sites (2026-11-12, owner products: LGAV 163 of 27,712 nodes, LOWS 43 / 71,
+KLAX 43, KIAH 23), so a round is judged where it worked and against its
+control: ``--site NAME=LAT,LON[,R]`` (repeat; R 150 m) judges only the
+sites within R (the rest are counted as ``elsewhere``), and ``--against
+BASE.json`` (the control's ``--json``) fails any site new or worse by more
+than ``MOVED_M`` -- a patch node by id, an object site by name.
 
 ``build_airport.py --tile`` runs it on its own products after every tile
 build (``<tag>.drawn.json``, ``result["drawn_gate"]``, a ``DRAWN`` line in
@@ -46,6 +52,7 @@ Usage (from Ortho4XP/):
 from __future__ import annotations
 
 import argparse
+import copy
 import glob
 import json
 import math
@@ -59,14 +66,25 @@ for _p in (os.path.join(os.path.dirname(_TOOLS), "src"), _TOOLS):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``.  Twin: ``tests/test_console_encoding.py``.
+import O4_Console_Encoding as _o4console  # noqa: E402, I001
+
+_o4console.configure_console_streams()
+
 import drawn_check as DC  # noqa: E402
 from drawn_site import GROUND_BAR_M, PAVEMENT_BAR_M  # noqa: E402
 
-__all__ = ["CLUSTER_M", "patch_nodes", "mesh_follows_patch", "mesh_layer",
-           "gate", "after_build", "summary_line", "print_gate", "main"]
+__all__ = ["CLUSTER_M", "SITE_RADIUS_M", "MOVED_M", "patch_nodes",
+           "mesh_follows_patch", "mesh_layer", "gate", "judge", "after_build",
+           "summary_line", "print_gate", "main"]
 
 #: Failing patch nodes within this distance are one site.
 CLUSTER_M = 10.0
+#: A ``--site`` judges what lies within this radius unless it names one.
+SITE_RADIUS_M = 150.0
+#: ``--against``: a site worse than its control by more than this moved.
+MOVED_M = 0.05
 
 
 # -- layer 2: does the drawn mesh carry the patch? -------------------------
@@ -245,13 +263,79 @@ def _objects(args, sampler, dsfs):
 
 
 def _verdict(rep, t0):
+    rep["seconds"] = round(time.time() - t0, 1)
+    return judge(rep)
+
+
+# -- judging a round: its sites, its control -------------------------------
+
+def _near(row, sites):
+    for _name, lat, lon, r in sites:
+        kx = DC.M_PER_DEG * math.cos(math.radians(lat))
+        if math.hypot((row["lon"] - lon) * kx, (row["lat"] - lat) * DC.M_PER_DEG) <= r:
+            return True
+    return False
+
+
+def _moved(rep, base):
+    """Sites new or worse than the control ``base`` (a gate ``--json``)."""
+    out = []
+    was = {s["node"]: s for s in base.get("patch_to_drawn", {}).get("sites", [])}
+    for s in rep.get("patch_to_drawn", {}).get("sites", []):
+        b = was.get(s["node"])
+        if b is None or abs(s["delta"]) > abs(b["delta"]) + MOVED_M:
+            out.append(f"patch->drawn node {s['node']} @{s['lat']},{s['lon']}: "
+                       f"{'new' if b is None else b['delta']} -> {s['delta']:+.2f}")
+    was = {r["site"]: r for r in base.get("objects", {}).get("sites", [])}
+    for r in rep.get("objects", {}).get("sites", []):
+        if r.get("verdict") != "FAIL":
+            continue
+        b = was.get(r["site"])
+        if b is None or b.get("verdict") != "FAIL":
+            out.append(f"objects {r['site']}: {b.get('verdict') if b else 'new'} -> FAIL")
+        elif (r.get("delta") is not None and b.get("delta") is not None
+              and abs(r["delta"]) > abs(b["delta"]) + MOVED_M):
+            out.append(f"objects {r['site']}: FAIL {b['delta']:+.2f} -> {r['delta']:+.2f}")
+    return out
+
+
+def judge(rep, sites=(), base=None):
+    """Narrow ``rep``'s verdict to ``sites`` (``(name, lat, lon, r)``) and
+    fail anything that moved against ``base``; records what it judged."""
+    if sites:
+        for layer in ("patch_to_drawn", "objects"):
+            rows = rep.get(layer, {}).get("sites")
+            if rows is None:
+                continue
+            kept = [r for r in rows if _near(r, sites)]
+            rep[layer]["elsewhere"] = len(rows) - len(kept)
+            rep[layer]["sites"] = kept
+            bad = [r for r in kept if layer == "patch_to_drawn" or r.get("verdict") == "FAIL"]
+            if layer == "objects":
+                rep[layer]["failed"] = len(bad)
+                rep[layer]["claimed"] = sum(r.get("verdict") in ("PASS", "FAIL") for r in kept)
+            else:
+                rep[layer]["over_bar"] = sum(r["nodes"] for r in kept)
+            rep[layer]["verdict"] = "FAIL" if bad else "PASS"
+        rep["judged_sites"] = [list(s) for s in sites]
+    if base is not None:
+        rep["moved"] = _moved(rep, base)
     layers = [rep["mesh"]["verdict"], rep["patch_to_drawn"]["verdict"],
               rep["objects"]["verdict"]]
-    rep["verdict"] = ("FAIL" if "FAIL" in layers else
+    rep["verdict"] = ("FAIL" if "FAIL" in layers or rep.get("moved") else
                       "INCOMPLETE" if "NOT MEASURED" in layers or rep["incomplete"]
                       else "PASS")
-    rep["seconds"] = round(time.time() - t0, 1)
     return rep
+
+
+def parse_site(text):
+    """``NAME=LAT,LON[,R]`` -> ``(name, lat, lon, r)``."""
+    name, _, rest = text.rpartition("=")
+    parts = [float(v) for v in rest.split(",")]
+    if len(parts) not in (2, 3):
+        raise SystemExit(f"--site {text!r}: want NAME=LAT,LON[,R]")
+    return (name or rest, parts[0], parts[1],
+            parts[2] if len(parts) == 3 else SITE_RADIUS_M)
 
 
 # -- reporting -------------------------------------------------------------
@@ -288,6 +372,12 @@ def print_gate(rep, top=20):
           f"{obj['failed']} of {obj['claimed']} claimed sites FAIL"))
     for s in [s for s in obj.get("sites", []) if s.get("verdict") == "FAIL"][:top]:
         print(f"     FAIL {s['site']} @{s['lat']},{s['lon']}: {'; '.join(s['fails'])}")
+    if rep.get("judged_sites"):
+        print(f"  judged within {', '.join(f'{n} {r:.0f} m' for n, _a, _o, r in rep['judged_sites'])}"
+              f" (elsewhere: patch->drawn {p2d.get('elsewhere', 0)}, objects "
+              f"{obj.get('elsewhere', 0)} sites, not judged)")
+    for m in rep.get("moved", []):
+        print(f"     MOVED {m}")
     print(summary_line(rep) + f"  [{rep['seconds']} s]")
 
 
@@ -326,6 +416,10 @@ def main(argv=None):
                     help="Patches root for --tile (default: FNAMES.Patch_dir)")
     ap.add_argument("--custom-scenery", default=None,
                     help="X-Plane Custom Scenery (default: the cfg's custom_scenery_dir)")
+    ap.add_argument("--site", action="append", default=[], metavar="NAME=LAT,LON[,R]",
+                    help=f"judge only within R (default {SITE_RADIUS_M:.0f} m) of it; repeat")
+    ap.add_argument("--against", default=None, metavar="BASE.json",
+                    help="the control's --json: fail any site new or worse")
     ap.add_argument("--json", default=None, help="write the full report here")
     ap.add_argument("--top", type=int, default=20, help="sites printed per layer")
     args = ap.parse_args(argv)
@@ -334,11 +428,16 @@ def main(argv=None):
     if args.tile and args.patches is None:
         import O4_File_Names as FNAMES
         args.patches = FNAMES.Patch_dir
-    rep = gate(args)
+    full = gate(args)
+    base = json.load(open(args.against, encoding="utf-8")) if args.against else None
+    rep = judge(copy.deepcopy(full), [parse_site(t) for t in args.site], base)
     print_gate(rep, args.top)
     if args.json:
+        # the WHOLE reading (a later round's --against control) and the
+        # judged verdict beside it
+        full["judged"] = {k: rep.get(k) for k in ("verdict", "judged_sites", "moved")}
         with open(args.json, "w", encoding="utf-8", newline="\n") as fh:
-            json.dump(rep, fh, indent=1, default=str)
+            json.dump(full, fh, indent=1, default=str)
     return 0 if rep["verdict"] == "PASS" else 1
 
 

@@ -89,8 +89,8 @@ def test_nan_is_off_mesh_not_a_pass():
 
 def test_mesh_layer_stale_hidden(tmp_path):
     dsf, patch = tmp_path / "t.dsf", tmp_path / "p.osm"
-    dsf.write_text("x")
-    patch.write_text("x")
+    dsf.write_text("x", encoding="utf-8", newline="\n")
+    patch.write_text("x", encoding="utf-8", newline="\n")
     os.utime(dsf, (1000, 1000))
     os.utime(patch, (2000, 2000))
     rep = DG.mesh_layer([str(dsf)], str(patch), ["Some Airport Mesh"])
@@ -107,11 +107,12 @@ def _tag_world(tmp_path, monkeypatch, nodes, ways, hidden=()):
     patch_dir = tmp_path / "Patches" / "+40+010" / TILE
     patch_dir.mkdir(parents=True)
     _patch(patch_dir / "XXXX_auto.patch.osm", nodes, ways)
-    (patch_dir / "XXXX_auto.patch.osm.axes.json").write_text("{}")
-    dsf.write_text("dsf")
+    (patch_dir / "XXXX_auto.patch.osm.axes.json").write_text("{}", encoding="utf-8", newline="\n")
+    dsf.write_text("dsf", encoding="utf-8", newline="\n")
     os.utime(dsf, (4e9, 4e9))                  # newer than the patch
     (tmp_path / "T.result.json").write_text(json.dumps(
-        {"build_dir": str(build), "patch_dir": str(patch_dir)}))
+        {"build_dir": str(build), "patch_dir": str(patch_dir)}),
+        encoding="utf-8", newline="\n")
     monkeypatch.setattr(DC, "stream_dsf", lambda _p: iter(MESH_TEXT.splitlines(True)))
     import O4_Mesh_Order
     monkeypatch.setattr(O4_Mesh_Order, "tile_mesh_order", lambda *a, **k: {
@@ -145,10 +146,11 @@ def test_gate_fails_when_hidden(tmp_path, monkeypatch):
 
 
 def test_after_build_patch_only_never_raises(tmp_path):
-    (tmp_path / "T.result.json").write_text(json.dumps({"patch": "x.osm"}))
+    (tmp_path / "T.result.json").write_text(json.dumps({"patch": "x.osm"}),
+                                             encoding="utf-8", newline="\n")
     rec = DG.after_build("XXXX", "T", tmp_path, custom_scenery=str(tmp_path))
     assert rec["verdict"] == "INCOMPLETE" and "patch-only" in rec["line"]
-    assert json.loads((tmp_path / "T.drawn.json").read_text())["verdict"] == "INCOMPLETE"
+    assert json.loads((tmp_path / "T.drawn.json").read_text(encoding="utf-8"))["verdict"] == "INCOMPLETE"
 
 
 @pytest.mark.parametrize("tag,copy,root,want", [
@@ -170,3 +172,53 @@ def test_drawn_tile_dsfs_reads_the_load_order(monkeypatch):
     assert DC.drawn_tile_dsfs("/cs", {"+45+010": {}, "+46+010": {}}) == \
         ["/cs/World/4510.dsf"]
     assert seen == [("/cs", 45, 10), ("/cs", 46, 10)]
+
+
+def test_a_site_off_the_drawn_mesh_carries_no_bar():
+    """A mouth on the neighbour tile reads nan on this tile's mesh: no FAIL
+    (LOWS +47+012 read its east mouth on +47+013 as 'bottom-floor +nan')."""
+    class _Off:
+        mesh = DC.drawn_mesh([iter(MESH_TEXT.splitlines(True))],
+                             (10.49, 45.49, 10.51, 45.51))
+
+        @staticmethod
+        def bottoms_near(*_a, **_k):
+            return {}
+    site = DC.Site("mouth m", 11.5, 45.5, math.nan, math.nan, "mouth")
+    row = DC.check_site(site, _Off(), [], 15.0, 0.3)
+    assert row["verdict"] == "-" and row["role"] == "OFF MESH" and not row["fails"]
+
+
+def _rep(p2d_sites, obj_sites):
+    return {"mesh": {"verdict": "PASS"}, "incomplete": [],
+            "patch_to_drawn": {"verdict": "FAIL" if p2d_sites else "PASS",
+                               "sites": p2d_sites, "over_bar": len(p2d_sites)},
+            "objects": {"verdict": "FAIL", "sites": obj_sites, "failed": 1, "claimed": 2}}
+
+
+SITE_A = {"node": "-1", "lat": 45.5, "lon": 10.5, "delta": 0.4, "nodes": 1}
+SITE_FAR = {"node": "-2", "lat": 45.6, "lon": 10.6, "delta": 3.0, "nodes": 1}
+OBJ_FAR = {"site": "tunnel_ramp -7", "lat": 45.6, "lon": 10.6, "verdict": "FAIL",
+           "delta": 2.0, "fails": ["bottom-floor"]}
+OBJ_NEAR = {"site": "tunnel_ramp -8", "lat": 45.5, "lon": 10.5, "verdict": "PASS",
+            "delta": 0.1, "fails": []}
+
+
+def test_judge_narrows_to_the_round_site():
+    rep = DG.judge(_rep([SITE_FAR], [OBJ_FAR, OBJ_NEAR]), [("mouth", 45.5, 10.5, 150.0)])
+    assert rep["verdict"] == "PASS"
+    assert rep["patch_to_drawn"]["elsewhere"] == 1 and rep["objects"]["elsewhere"] == 1
+    rep = DG.judge(_rep([SITE_A, SITE_FAR], [OBJ_FAR, OBJ_NEAR]),
+                   [("mouth", 45.5, 10.5, 150.0)])
+    assert rep["verdict"] == "FAIL" and rep["patch_to_drawn"]["over_bar"] == 1
+
+
+def test_judge_against_the_control():
+    base = _rep([dict(SITE_FAR, delta=2.99)], [dict(OBJ_FAR, delta=1.99), OBJ_NEAR])
+    rep = DG.judge(_rep([SITE_FAR], [OBJ_FAR, OBJ_NEAR]), [("far", 45.6, 10.6, 50.0)],
+                   base)
+    assert rep["moved"] == [] and rep["verdict"] == "FAIL"      # failing, not moved
+    rep = DG.judge(_rep([SITE_FAR, SITE_A], [OBJ_FAR, dict(OBJ_NEAR, verdict="FAIL")]),
+                   (), base)
+    assert len(rep["moved"]) == 2                                # new node, new FAIL
+    assert DG.parse_site("m=45.5,10.5") == ("m", 45.5, 10.5, DG.SITE_RADIUS_M)

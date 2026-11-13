@@ -332,6 +332,10 @@ def check_site(site, drawn, claims, radius_m, tol):
            "lowest_any": None, "role": "UNCLAIMED", "fails": []}
     if site.kind == "tunnel_ramp":
         row["relief"] = round(site.top - site.floor, 2)
+    if math.isnan(zm):
+        # off the drawn mesh read (a mouth on the neighbour tile): no bar
+        row.update(role="OFF MESH", verdict="-")
+        return row
     if bottoms:
         j = min(bottoms, key=bottoms.get)
         row["lowest_any"] = {"resource": drawn.rows[j].def_path,

@@ -168,6 +168,19 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     # object over a bore END standing on the author's ground
     # (``portal_objects.GradeEnd``) is a building over the road there
     at_grade_ends = list(getattr(on_field, "grade_ends", ()) or ())
+    # (a) STANDS DOWN AT THE BORE'S OWN MOUTH (#1938): an end a pack PORTAL
+    # pins (``portal_objects`` / ``trench_objects.mouth_portals``: the
+    # pack's entrance object there) is the bore's open mouth, never a
+    # building's ramp — an OSM enclosure outline drawn over it is no
+    # enclosure there (EGLL bores -11670/-11669: the south end, 22 m inside
+    # building=airport_terminal way -871, is pinned by the pack's trench
+    # object 10.obj, and the bore was refused whole, its open north mouth
+    # with it)
+    portal_ends = [tuple(e) for e, _oid, _res in getattr(on_field, "portal_ends", ()) or ()]
+
+    def own_mouth(end) -> bool:
+        return any(abs(px - end[0]) <= _SAME_END_M and abs(py - end[1]) <= _SAME_END_M
+                   for px, py in portal_ends)
 
     # (b)/(c) the roads and railways AT GRADE.  A `bridge` way, or one at
     # `layer >= 1`, is the sim's elevated road and is not a crossing.
@@ -202,7 +215,7 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
         for end in (bore.points[0], bore.points[-1]):
             pt = Point(end)
             for j in (encl_tree.query(pt, predicate="within")
-                      if encl_tree is not None else ()):
+                      if encl_tree is not None and not own_mouth(end) else ()):
                 _p, why, wid = encl[int(j)]
                 return False, (f"bore {ids} ENTERS AN ENCLOSURE at "
                                f"{end[0]:.0f},{end[1]:.0f} — way {wid} {why}: it is "

@@ -93,7 +93,7 @@ SPJC_TAGS = {"highway": "secondary", "lanes": "3", "tunnel": "yes"}
 
 
 def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (335.0, -100.0)),
-          tags=SPJC_TAGS, partition=None, extra_cells=(), dem=None, portals=()):
+          tags=SPJC_TAGS, partition=None, extra_cells=(), dem=None, portals=(), extra_ways=()):
     """SPJC -5724's shape: a 35 m ``secondary`` bore on a plane falling
     0.53 m, the nearest classified cell off it, inside a fence."""
     frame = Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11)
@@ -107,7 +107,8 @@ def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (33
     (ax, ay), (bx, by) = bore_pts[0], bore_pts[-1]
     road = {"highway": "secondary", "lanes": "3"}
     ways = (bore, OsmWay(-5708, "big_roads", ((ax - 150.0, ay), (ax, ay)), False, road),
-            OsmWay(-5723, "big_roads", ((bx, by), (bx + 150.0, by)), False, road))
+            OsmWay(-5723, "big_roads", ((bx, by), (bx + 150.0, by)), False, road),
+            *extra_ways)
     fences = (Boundary("boundary0", fence, ()),) if fence else ()
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     airport = Airport("ZZZZ", "Synthetic", frame, 22.0, (rw,), (), (), {}, (),
@@ -384,3 +385,20 @@ def test_a_PORTAL_over_the_bore_end_is_no_building_it_enters(law):
                  (335.0, -100.0))
     _cl, _t, st = _spjc(law, partition=tun, portals=[pin])
     assert "ENTERS A PACK BUILDING" not in " ".join(_refusals(st) + list(st.refused))
+
+
+def test_an_OSM_enclosure_over_a_PORTAL_pinned_end_is_no_building_it_enters(law):
+    """#1938 EGLL: bores -11670/-11669's south end stands 22 m inside an OSM
+    ``building=airport_terminal`` outline, where the pack's trench object
+    pins it (``trench_objects.mouth_portals``) -- the bore's own open mouth,
+    so (a) stands down there and the bore is read on, its open north mouth
+    with it.  The same end with no portal is still that building's ramp."""
+    from auto_patch_v2.airport.portal_objects import Portal
+    term = OsmWay(-871, "airports", _rect(320.0, -130.0, 400.0, -70.0) + ((320.0, -130.0),),
+                  True, {"building": "airport_terminal"})
+    _cl, _t, st = _spjc(law, extra_ways=(term,))
+    assert "-5724 ENTERS AN ENCLOSURE" in " ".join(_refusals(st))
+    pin = Portal("dsf:obj11851", "Tunnel/10.obj", (335.0, -100.0), -5724, 6.0, 0.0,
+                 (335.0, -100.0))
+    _cl, _t, st = _spjc(law, extra_ways=(term,), portals=[pin])
+    assert "ENTERS AN ENCLOSURE" not in " ".join(_refusals(st) + list(st.refused))

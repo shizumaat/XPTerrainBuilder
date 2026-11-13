@@ -214,6 +214,18 @@ floor_walled_min_share = 0.5
 # +0.67 off plates, concretetile +0.26 off the DEM: its neighbours cover 9 %
 # of the ring); EGLL's seven floors +3.41..+5.98 m (no plates: the DEM).
 floor_sunken_min_m = 2.0
+# THE CUT LIES BENEATH THE FLOOR (owner RULINGS 2026-11-06d (4), #1921 /
+# #1936: "the cut is deep enough that it's completely below the floor so the
+# floor is visible"; 2026-11-10o (1) "fully beneath the tunnel object floor"):
+# every vertex of a floor's cut face stands this far UNDER the floor face over
+# it, so the drawn mesh never meets the floor plate (a floor within +-0.2 m
+# of the mesh z-fights or is covered -- the t476 drawn read).  The basin's
+# clearance under its floor plate (2026-09-11t, ``[basin] floor_clearance_m``)
+# is the same rule; this one stays under the drawn ground bar (0.5 m,
+# ``tools/drawn_site`` FLOAT) so the floor never reads as floating, and over
+# the +-0.2 m the owner saw hidden.  A floor face is one plane, which the
+# mesh's harmonic interior reproduces exactly, so the drawn mesh keeps it.
+floor_clearance_m = 0.3
 author_ground_inner_m = 2.0
 author_ground_outer_m = 50.0
 author_ground_step_m = 2.0

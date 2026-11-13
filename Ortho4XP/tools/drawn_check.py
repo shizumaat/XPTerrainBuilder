@@ -25,7 +25,10 @@ stem -- a reader claimed) with OBJ vertices within R, and their lowest
 drawn vertex.  Bars (#1903 brief):
 
 - CUT role (portal / tunnel_object / object_cut not also a deck_anchor):
-  |drawn object bottom - cut floor| <= --tol (0.3 m);
+  |drawn object bottom - cut floor| <= --tol (0.3 m); an OBJECT FLOOR's
+  cut stands its ``clearance_m`` (sidecar ``object_floors``) beneath the
+  floor (owner RULINGS 2026-11-06d (4): the floor drawn, never covered), so
+  its bar is |bottom - floor - clearance| <= tol;
 - DECK role (the object is a deck_anchor): the deck stands over the floor
   (bottom - floor >= -tol); clearance reported;
 - ramp relief (way top - floor) > 0 at a CUT-role ramp;
@@ -100,6 +103,8 @@ class Claim:
     claim_id: str
     resource: str         # pristine def path ('' when unresolved)
     fate: str             # split / KEPT: <reason> / whole
+    #: an object floor's cut stands this far beneath its floor (2026-11-06d (4))
+    clearance: float = 0.0
 
 
 # ── the drawn mesh ──────────────────────────────────────────────────────
@@ -236,8 +241,10 @@ def read_claims(sidecar, tile, plans, pristine):
         raw += [("tunnel_object:" + r["kind"], r["id"], o) for o in r["objects"]]
     for r in sidecar.get("object_cuts", []):
         raw += [("object_cut", r["id"], o) for o in r["objects"]]
+    clear = {}
     for r in sidecar.get("object_floors", []):
         raw += [("object_floor", r["id"], o) for o in r["objects"]]
+        clear[r["id"]] = float(r.get("clearance_m", 0.0) or 0.0)
     for r in sidecar.get("deck_anchors", []):
         raw.append((DECK_ANCHOR, f"{r.get('end', '')}", str(r.get("object", ""))))
     claims = []
@@ -250,7 +257,8 @@ def read_claims(sidecar, tile, plans, pristine):
         dump = pristine.get(t)
         if not res and dump is not None and i < len(dump.placements):
             res = dump.placements[i].def_path
-        claims.append(Claim(kind, cid, res, fate))
+        claims.append(Claim(kind, cid, res, fate,
+                            clear.get(cid, 0.0) if kind == "object_floor" else 0.0))
     return claims
 
 
@@ -347,20 +355,24 @@ def check_site(site, drawn, claims, radius_m, tol):
             continue
         is_deck = any(c.kind == DECK_ANCHOR for c in cs)
         fate = next((c.fate for c in cs if c.kind != DECK_ANCHOR), cs[0].fate)
+        clear = max((c.clearance for c in cs), default=0.0)
         rec = {"row": i, "resource": drawn.rows[i].def_path,
                "kind": drawn.rows[i].kind, "bottom": round(z, 2),
                "delta": round(z - floor, 2), "role": "DECK" if is_deck else "CUT",
-               "fate": fate}
+               "fate": fate, "clearance": clear}
         row["objects"].append(rec)
         (deck if is_deck else cut).append(rec)
         if "split undone" in fate:
             row["fails"].append(f"split undone: {rec['resource']}")
     if cut:
         row["role"] = "CUT"
-        best = min(cut, key=lambda r: abs(r["delta"]))
+        best = min(cut, key=lambda r: abs(r["delta"] - r["clearance"]))
         row["delta"] = best["delta"]
-        if math.isnan(best["delta"]) or abs(best["delta"]) > tol:
-            row["fails"].append(f"bottom-floor {best['delta']:+.2f} > {tol}")
+        miss = best["delta"] - best["clearance"]
+        if math.isnan(miss) or abs(miss) > tol:
+            row["fails"].append(f"bottom-floor {best['delta']:+.2f}"
+                                + (f" (clearance {best['clearance']:g})"
+                                   if best["clearance"] else "") + f" > {tol}")
         if row["relief"] is not None and not row["relief"] > 0.0:
             row["fails"].append(f"ramp relief {row['relief']:+.2f}")
     elif deck:

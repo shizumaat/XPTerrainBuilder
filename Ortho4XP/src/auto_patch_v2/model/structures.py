@@ -26,7 +26,8 @@ from .frame import XY
 
 __all__ = ["Deck", "Tunnel", "DeckAnchor", "DeckBridge", "Basin", "Channel", "ChannelWall",
            "profile_z", "deck_z_on_faces", "deck_reach", "DECK_GROUND_REF", "CHANNEL_FLOOR_ROLE",
-           "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM", "SKIRT_ROLE"]
+           "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM", "SKIRT_ROLE", "OBJECT_FLOOR_REF",
+           "OBJECT_FLOOR_WALL_REF"]
 
 #: §45 (8) EMISSION: the channel's floor faces carry ``tunnel_trench``
 #: (already an ``emit/graded.FLOOR_ROLES`` member) and its banks the VOID
@@ -165,6 +166,13 @@ UNDERPASS_NOTE = "underpass under aeroway "
 #: no rim, no pad, no grade cap (``law/precedence.toml``; the census skips
 #: it too)
 SKIRT_ROLE = "object_pad"
+
+#: The planar ref of a trench object floor's cut face (``OBJECT_FLOOR_REF +
+#: id``) and of the void band round it (``OBJECT_FLOOR_WALL_REF + id``):
+#: ``airport/object_floor`` mints them, ``planar/object_floor_cells`` cuts
+#: them, ``constraints/object_floor`` pins them (#1903).
+OBJECT_FLOOR_REF = "object_floor:"
+OBJECT_FLOOR_WALL_REF = "object_floor_wall:"
 
 
 @_dc.dataclass(frozen=True)

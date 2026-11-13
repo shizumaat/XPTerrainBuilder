@@ -421,6 +421,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.flat_site_prep",
     "auto_patch_v2.airport.flat_site_read",
     "auto_patch_v2.airport.flat_site_shore_roads",
+    "auto_patch_v2.airport.floor_rim",
     "auto_patch_v2.airport.foot_lot",
     "auto_patch_v2.airport.footprint_carry",
     "auto_patch_v2.airport.footprint_connector",

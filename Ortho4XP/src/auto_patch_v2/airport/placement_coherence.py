@@ -253,7 +253,7 @@ def coherence_lines(groups: "dict | None", bridges: "dict | None",
             out.append(f"      {res.rsplit('/', 1)[-1]:28s} ends "
                        + " / ".join(f"{o:+.2f}" for o in offs)
                        + ("  AUTHORED CLEARANCE (22p): end gaps listed for #1138"
-                          if clear else
+                          if clear else "  no end read" if not offs else
                           f"  far-end gap to grade (#1138) {max(offs) - min(offs):.2f} m")
                        + ("" if under is None else f"  span {under:+.2f}"))
     if riders is not None:

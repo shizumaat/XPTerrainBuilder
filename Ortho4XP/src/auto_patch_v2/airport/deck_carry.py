@@ -12,7 +12,7 @@ map's routes — never a name:
 * ACROSS: a route through both side edges (``airport/deck_stack`` rules it
   under or over by the levels); one end and one side is a note only;
 * the END LINES: stations every ``abutment_sample_step_m`` along each end
-  edge; ``top`` is the PLATE's own height there (:func:`plate_top`: the
+  edge; ``top`` is the PLATE's own height there (:func:`_plate_top`: the
   plate triangle under each station, ``geom/lowest_face``), never the
   maximum within a reach — an arched plate stands at its ends' height on
   its end lines, not its crown's.
@@ -35,7 +35,7 @@ from shapely.ops import substring
 
 from ..geom.lowest_face import floor_z_at
 
-__all__ = ["Carry", "carry_of", "plate_top", "bridge_stretches", "end_stations", "DECK_TAG"]
+__all__ = ["Carry", "carry_of", "bridge_stretches", "DECK_TAG"]
 
 XY = tuple[float, float]
 
@@ -64,14 +64,14 @@ class Carry:
     notes: tuple[str, ...] = ()
 
 
-def end_stations(edge: tuple[XY, XY], step: float) -> tuple[XY, ...]:
+def _end_stations(edge: tuple[XY, XY], step: float) -> tuple[XY, ...]:
     """Stations every ``step`` along an end edge, its corners included."""
     (ax, ay), (bx, by) = edge
     n = max(1, int(round(math.dist(edge[0], edge[1]) / step)))
     return tuple((ax + (bx - ax) * k / n, ay + (by - ay) * k / n) for k in range(n + 1))
 
 
-def plate_top(plate: np.ndarray, stations: _t.Sequence[XY], inward: XY = (0.0, 0.0)) -> float:
+def _plate_top(plate: np.ndarray, stations: _t.Sequence[XY], inward: XY = (0.0, 0.0)) -> float:
     """The plate's own height on an end line: the mean over ``stations``
     (moved ``inward`` a hair onto the plate) of the plate triangle under
     each (``plate``: ``(n, 3, 3)`` frame x, y, authored y); ``nan`` where
@@ -118,10 +118,10 @@ def carry_of(piece: Polygon, plate: np.ndarray, routes: _t.Sequence[tuple[_t.Any
     d = math.dist(ma, mb)
     out_a = ((ma[0] - mb[0]) / d, (ma[1] - mb[1]) / d)
     out_b = (-out_a[0], -out_a[1])
-    sa, sb = end_stations(ea, step), end_stations(eb, step)
+    sa, sb = _end_stations(ea, step), _end_stations(eb, step)
     hair = 0.05
-    top_a = plate_top(plate, sa, (-out_a[0] * hair, -out_a[1] * hair))
-    top_b = plate_top(plate, sb, (-out_b[0] * hair, -out_b[1] * hair))
+    top_a = _plate_top(plate, sa, (-out_a[0] * hair, -out_a[1] * hair))
+    top_b = _plate_top(plate, sb, (-out_b[0] * hair, -out_b[1] * hair))
     if not (math.isfinite(top_a) and math.isfinite(top_b)):
         return "its plate stands on neither end line"
     la, lb, l1, l2 = _seg(ea), _seg(eb), _seg(s1), _seg(s2)

@@ -41,8 +41,7 @@ from . import obj8 as _obj8
 from .deck_carry import Carry, bridge_stretches, carry_of
 from .stack_walls import StackWalls, floor_between, read_stack_walls, run_beside, wall_hull
 
-__all__ = ["deck_stacks", "stack_floors", "stack_shade", "rewrite_ways", "attach_stacks",
-           "log_line"]
+__all__ = ["stack_floors", "attach_stacks", "log_line"]
 
 XY = tuple[float, float]
 RouteOf = _t.Callable[[_t.Any], LineString]
@@ -401,7 +400,7 @@ def _deck_inside(W, walls: StackWalls, decks_all: list, geoms: np.ndarray, dx: n
     return out
 
 
-def deck_stacks(airport, objects, cache, law, route_of: RouteOf, taken: _t.Iterable[str] = ()
+def _deck_stacks(airport, objects, cache, law, route_of: RouteOf, taken: _t.Iterable[str] = ()
                 ) -> tuple[tuple[DeckStack, ...], list[str]]:
     """``(every deck stack, notes)`` (module doc).  ``route_of(way)``: the
     route through a mapped way (``planar/viaduct_road``'s walk, handed in
@@ -530,7 +529,7 @@ def _solid_plan(o, cache):
     return shapely.union_all(polys[shapely.area(polys) > 1e-6])
 
 
-def stack_shade(stacks: _t.Sequence[DeckStack], objects, cache, law):
+def _stack_shade(stacks: _t.Sequence[DeckStack], objects, cache, law):
     """The planar region no pad takes (§3.9: a member's footprint is no
     pad): each stack's floor and run-outs, its walls' whole solid plan, its
     decks' plates and every other member's plan."""
@@ -557,7 +556,7 @@ def stack_shade(stacks: _t.Sequence[DeckStack], objects, cache, law):
     return None if got.is_empty else got
 
 
-def rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack]) -> tuple:
+def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack]) -> tuple:
     """``ways`` with every stack deck's carried stretch a mapped bridge
     (``deck_carry.bridge_stretches``, §3.5)."""
     cuts: dict[int, list] = {}
@@ -571,8 +570,8 @@ def rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack]) -> tuple:
 
 def attach_stacks(airport, objects, cache, law, route_of: RouteOf,
                   notes_out: "list | None" = None):
-    """``airport`` with its deck stacks (§3.1): ``deck_stacks``,
-    ``stack_shade`` and the carried stretches rewritten in ``osm_ways`` —
+    """``airport`` with its deck stacks (§3.1): ``_deck_stacks``,
+    ``_stack_shade`` and the carried stretches rewritten in ``osm_ways`` —
     always derived from the ways AS MAPPED (``osm_ways_mapped``), so
     running it twice gives the same airport.  With no stack the airport's
     ways are left as they are."""
@@ -580,7 +579,7 @@ def attach_stacks(airport, objects, cache, law, route_of: RouteOf,
     t0 = time.perf_counter()
     mapped = getattr(airport, "osm_ways_mapped", None) or airport.osm_ways
     base = airport if mapped is airport.osm_ways else _dc.replace(airport, osm_ways=mapped)
-    stacks, notes = deck_stacks(base, objects, cache, law, route_of)
+    stacks, notes = _deck_stacks(base, objects, cache, law, route_of)
     if notes_out is not None:
         notes_out.extend(notes)
         notes_out.append(f"[deck-stack] {time.perf_counter() - t0:.3f} s")
@@ -589,8 +588,8 @@ def attach_stacks(airport, objects, cache, law, route_of: RouteOf,
             return airport
         return _dc.replace(airport, osm_ways=mapped, osm_ways_mapped=None, deck_stacks=(),
                            stack_shade=None)
-    return _dc.replace(airport, osm_ways=rewrite_ways(mapped, stacks), osm_ways_mapped=mapped,
-                       deck_stacks=stacks, stack_shade=stack_shade(stacks, objects, cache, law))
+    return _dc.replace(airport, osm_ways=_rewrite_ways(mapped, stacks), osm_ways_mapped=mapped,
+                       deck_stacks=stacks, stack_shade=_stack_shade(stacks, objects, cache, law))
 
 
 def log_line(icao: str, stacks: _t.Sequence[DeckStack], seconds: float | None = None) -> str:

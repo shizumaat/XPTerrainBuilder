@@ -50,7 +50,7 @@ from shapely.geometry import LineString, MultiPoint, Point, Polygon
 
 from . import obj8 as _obj8
 
-__all__ = ["StackWalls", "FloorCast", "read_stack_walls", "floor_between", "wall_hull",
+__all__ = ["StackWalls", "read_stack_walls", "floor_between", "wall_hull",
            "run_beside"]
 
 XY = tuple[float, float]
@@ -91,7 +91,7 @@ class StackWalls:
 
 
 @_dc.dataclass(frozen=True)
-class FloorCast:
+class _FloorCast:
     """The floor between the walls (§3.3): ``left`` / ``right`` the hit
     points per station (frame), ``walled`` per station which sides a wall
     face stands on, ``polygon`` the floor, ``length`` along the route of
@@ -249,7 +249,7 @@ def _cast(p: XY, n: XY, segs: np.ndarray) -> tuple[float, XY]:
     return d, (p[0] + n[0] * d, p[1] + n[1] * d)
 
 
-def floor_between(walls: StackWalls, route: LineString, law) -> "FloorCast | str":
+def floor_between(walls: StackWalls, route: LineString, law) -> "_FloorCast | str":
     """The floor between ``walls`` along ``route`` (module doc), or why
     none."""
     ob = law.tables.structures.tunnel.object
@@ -312,7 +312,7 @@ def floor_between(walls: StackWalls, route: LineString, law) -> "FloorCast | str
     length = sum(step for w in walled if w[0] and w[1])
     if length < float(ob.hull_min_length_m):
         return f"walls on both sides for {length:.0f} m < hull_min_length_m"
-    return FloorCast(left, right, tuple(walled), poly, float(length), rows[0][0], rows[-1][0])
+    return _FloorCast(left, right, tuple(walled), poly, float(length), rows[0][0], rows[-1][0])
 
 
 def run_beside(route: LineString, walls: StackWalls) -> float:

@@ -822,14 +822,16 @@ def _rider_units(freed: _t.Sequence[_t.Sequence[int]],
 def _rider_witness(plan: _t.Any, shims: _t.Sequence[_PShim], ml: float,
                    mo: float) -> _t.Callable:
     """owner RULINGS 2026-11-13r (#2053): the free-rider witness at the
-    law's ``[basin] contact_band_m`` (``airport/rider_floor``)."""
+    law's ``[basin] contact_band_m`` and ``[placement] split_tol_m``
+    (``airport/rider_floor``)."""
     from ..law import Law
     from .contents import _poly
     from .rider_floor import free_rider_witness
-    band = float(Law.load().tables.structures.basin.contact_band_m)
+    st = Law.load().tables.structures
     return free_rider_witness(
         plan, shims, lambda i: _poly(shims[i].rings, shims[i].part_boxes,
-                                     ml, mo), ml, mo, band)
+                                     ml, mo), ml, mo,
+        float(st.basin.contact_band_m), float(st.placement.split_tol_m))
 
 
 def _top_y(pids: _t.AbstractSet[int], parts_of: _t.Mapping[int, _t.Any]

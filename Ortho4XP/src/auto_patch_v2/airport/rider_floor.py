@@ -30,6 +30,13 @@ on no surface of its host?"  True only when EVERY clause holds:
    calls a terminal with a RAISED floor floorless (the named false
    positive the ruling refuses).
 
+4. the host's group seat LIFTS the rider: the median of the host's own
+   ground feet stands more than ``[placement] split_tol_m`` (the
+   materiality the sim read is judged at) UNDER the rider's lowest foot —
+   walls authored down past the ground the rider stands on.  A rider whose
+   feet stand level with the walls' feet (a multi-file building's piece,
+   a statue inside a fence) gains nothing by leaving and stays.
+
 Anything else is doubt and the rider stays with its group.  Name-free.
 """
 from __future__ import annotations
@@ -106,11 +113,13 @@ def _covered(member: _t.Any, foot: _t.Any, top_y: float,
 
 def free_rider_witness(plan: _t.Any, shims: _t.Sequence[_t.Any],
                        poly: _t.Callable[[int], _t.Any],
-                       ml: float, mo: float, band_m: float
+                       ml: float, mo: float, band_m: float,
+                       lift_m: float = 0.0
                        ) -> _t.Callable[[_t.Sequence[int], int], bool]:
     """The 13r witness over ``shims`` (``footprint_unit._PShim``):
     ``free(rider bodies, host singleton) -> certain``.  ``poly(i)`` is a
-    body's plan polygon in the frame's metres (``contents._poly``)."""
+    body's plan polygon in the frame's metres (``contents._poly``);
+    ``lift_m`` clause 4's materiality."""
     parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
     geoms: list = []
     ok: list[int] = []
@@ -152,10 +161,15 @@ def free_rider_witness(plan: _t.Any, shims: _t.Sequence[_t.Any],
         if (not feet or own is None or me is None or walls is None
                 or any(g is None for g in gs) or own[1] != me[1]):
             return False
+        low = min(float(f[2]) for f in feet)
+        base = sorted(float(f[2]) for q in shims[host].pids if q in parts
+                      for f in parts[q].feet)
+        if not base or base[len(base) // 2] >= low - lift_m:
+            return False                    # clause 4: nothing lifts him
         if not all(walls.covers(Point(f[1] * mo, f[0] * ml)) for f in feet):
             return False
         foot = shapely.union_all(gs)
-        top = min(float(f[2]) for f in feet) + band_m
+        top = low + band_m
         for key in sorted({shims[host].key[:2]} | others(rider, foot)):
             fr = frame(key)
             if fr is None or fr[1] != me[1]:

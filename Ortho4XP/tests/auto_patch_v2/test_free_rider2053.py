@@ -84,10 +84,10 @@ def _member(mid, path, parts):
 
 
 def _plan(tmp_path, host_quads, rider_box=(-0.2, 0.2, -0.2, 0.2),
-          host_path=None, extra=()):
+          host_path=None, extra=(), walls_y=-0.69):
     hp = host_path or _write_obj(tmp_path / "host.obj", host_quads)
-    host = _member("host", hp, [_part(0, -1.0, 1.0, -1.0, 1.0, -0.69, 3.19,
-                                      feet_y=-0.69)])
+    host = _member("host", hp, [_part(0, -1.0, 1.0, -1.0, 1.0, walls_y,
+                                      2.5 - walls_y, feet_y=walls_y)])
     rp = _write_obj(tmp_path / "rider.obj", [_plate(*rider_box, 1.7)])
     rider = _member("rider", rp, [_part(1, *rider_box, 0.0, 1.8, feet_y=0.0)])
     units = [Unit("unit:0", (LAT0, LON0), 0.0, (host,)),
@@ -111,7 +111,7 @@ def _free(plan) -> bool:
     w = RF.free_rider_witness(plan, shims,
                               lambda i: _poly(shims[i].rings,
                                               shims[i].part_boxes, ML, MO),
-                              ML, MO, 1.0)
+                              ML, MO, 1.0, 0.3)
     return w([1], 0)
 
 
@@ -141,6 +141,17 @@ def test_a_rider_half_over_a_floor_keeps_his_group(tmp_path):
 
 def test_feet_outside_the_walls_keep_the_group(tmp_path):
     assert not _free(_plan(tmp_path, _walls(), rider_box=(0.8, 1.3, -0.2, 0.2)))
+
+
+def test_walls_level_with_his_feet_keep_the_group(tmp_path):
+    """Clause 4: the census found multi-file buildings' pieces (KBNA) and
+    statues in a fence (KBUF) whose feet stand level with the host's walls
+    — leaving lifts nothing, so they stay (and walls 0.2 m down: under
+    ``split_tol_m``)."""
+    q = _walls(lo=0.0) + [_plate(-1, 1, -1, 1, 2.5)]
+    assert not _free(_plan(tmp_path, q, walls_y=0.0))
+    q = _walls(lo=-0.2) + [_plate(-1, 1, -1, 1, 2.5)]
+    assert not _free(_plan(tmp_path, q, walls_y=-0.2))
 
 
 def test_an_unreadable_host_keeps_the_group(tmp_path):

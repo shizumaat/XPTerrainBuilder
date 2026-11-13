@@ -130,7 +130,7 @@ def test_the_origin_set_rides_the_island_on_the_terrain_model_path():
         frame = Frame("TEST", (-22.95, -43.15), 11)
     rec = TM.seat_records(_A())[0]
     assert rec["by"] == BG.SEAT_BY and rec["cut"]["erode_m"] == BG.ERODE_M
-    assert rec["cut"]["floor"] is True
+    assert rec["cut"]["floor_m"] == 3.0
     assert TM.log_line("TEST", [m]).endswith("none")
     assert "dsf:obj0" in BG.log_line("TEST", [m])
 
@@ -148,23 +148,23 @@ def test_the_cut_erodes_by_the_radius_it_is_given():
 
 
 def test_the_cut_reads_the_floor_under_a_roof():
-    """#2053 round 2: cut to its LOWEST surface, the ground under a roof is
-    cut to the ground (not left at the roof), and the edge band never lifts
-    an open court over its own surface beside a raised terrace."""
+    """#2053 round 2: beyond the edge band the ground under a roof a storey
+    or more over it is cut to the ground (not left at the roof); a thinner
+    stack keeps its top, and the edge band is the terrain model's rule."""
     from auto_patch_v2.geom.terrain_deck import DeckGrid
     bot = np.full((40, 40), 2.0)
     top = bot.copy()
     top[10:20, 10:20] = 9.0               # a roof over the ground
-    bot[0:3, 20:30] = top[0:3, 20:30] = 6.0   # a raised terrace at the edge
+    top[25:31, 25:31] = 3.0               # a footbridge over a court
+    top[0:3, 20:30] = 9.0                 # a roof at the edge
     g = DeckGrid(0.0, 0.0, bot, top)
     old = TC._cut_grid(g, BG.ERODE_M).top
-    new = TC._cut_grid(g, BG.ERODE_M, floor=True).top
+    new = TC._cut_grid(g, BG.ERODE_M, floor_m=3.0).top
     assert old[15, 15] == 9.0 and new[15, 15] == 2.0
-    assert old[0, 18] == 6.0 and new[0, 18] == 2.0      # open court at the edge
-    assert np.all(new <= g.bot + 1e-9)
-    # the record names it, and the tile build reads it
-    fit = TC.cut_fit(g, 0.0, 0.0, BG.ERODE_M, floor=True)
-    assert np.nanmax(fit.grid.top) <= 6.0
+    assert new[28, 28] == 3.0
+    assert new[1, 25] == old[1, 25] == 9.0
+    fit = TC.cut_fit(g, 0.0, 0.0, BG.ERODE_M, floor_m=3.0)
+    assert fit.grid.top[15, 15] == 2.0
 
 
 def test_the_tile_build_cuts_to_the_floor_its_record_names(monkeypatch):
@@ -175,7 +175,7 @@ def test_the_tile_build_cuts_to_the_floor_its_record_names(monkeypatch):
     top[3:7, 3:7] = 8.0
     monkeypatch.setattr(TM, "plan_grid", lambda path: DeckGrid(0.0, 0.0, bot, top))
     rec = {"elevation": 0.0, "cut": {"file": "x.obj", "heading": 0.0,
-                                     "erode_m": BG.ERODE_M, "floor": True}}
+                                     "erode_m": BG.ERODE_M, "floor_m": 3.0}}
     assert np.nanmax(TCS._fit(rec).grid.top) == 1.0
-    del rec["cut"]["floor"]
+    del rec["cut"]["floor_m"]
     assert np.nanmax(TCS._fit(rec).grid.top) == 8.0

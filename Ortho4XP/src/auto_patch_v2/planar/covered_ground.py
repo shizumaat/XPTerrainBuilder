@@ -82,9 +82,8 @@ from shapely.strtree import STRtree
 from ..airport.dem import dem_z_many
 from ..geom.station_runs import section_runs as _station_runs
 from ..law import Law
-from .structure_approach import (Bore, carriageway_width_m, chains, is_tunnel,
-                                 standing_cover)
-from .structure_service import airside_cut_roles
+from .structure_approach import Bore, carriageway_width_m, chains, is_tunnel
+from .structure_service import airside_cover
 
 __all__ = ["CoveredGround", "covered_ground", "covered_cuts", "ground_beside",
            "section_runs"]
@@ -389,9 +388,7 @@ def covered_cuts(airport, classification, law: Law, decks: _t.Sequence = ()):
             if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
     if dem is None or not ways or not classification.cells:
         return [], None
-    roles = set(airside_cut_roles(law))
-    cells, _gap, polys = standing_cover(classification)
-    airside = [p for p, c in zip(polys, cells) if c.role in roles]
+    airside = airside_cover(classification, law)
     served = _served(chains(ways), airside, float(tn.terrain_cover_min_m), decks)
     cuts = []
     for b in served:

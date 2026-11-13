@@ -120,6 +120,10 @@ def main(argv=None) -> int:
     r = sub.add_parser("run")
     r.add_argument("icao")
     r.add_argument("--out", type=Path, required=True)
+    r.add_argument("--allow-degraded-dem", action="store_true",
+                   help="passed to the dry replay: measure a corpus whose smoothing "
+                        "masks or DEM cache are cold, KNOWINGLY (the witness reads "
+                        "no mask; the rise column is then the degraded frame's)")
     d = sub.add_parser("diff")
     d.add_argument("base", type=Path)
     d.add_argument("branch", type=Path)
@@ -143,7 +147,8 @@ def main(argv=None) -> int:
         structure_service, [], lambda rows: log.write_text(
             json.dumps(rows, indent=1), encoding="utf-8", newline="\n"))
     sys.argv = ["auto_patch_v2.planar", a.icao, "--stage", "structures",
-                "--out", str(a.out / a.icao)]
+                "--out", str(a.out / a.icao)] + (
+                    ["--allow-degraded-dem"] if a.allow_degraded_dem else [])
     runpy.run_module("auto_patch_v2.planar", run_name="__main__")
     return 0
 

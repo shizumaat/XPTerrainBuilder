@@ -285,6 +285,45 @@ def _object_defs(lines: _t.Sequence[str]) -> tuple[list[str], int]:
     return defs, last + 1
 
 
+def _facade_rows(lines: _t.Sequence[str], plan: PlacementPlan
+                 ) -> tuple[dict[int, list[str]], list[str], int]:
+    """#2042: the ``BEGIN_POLYGON`` rows the plan's facade seats re-point
+    at their lowered copies — ``{line index: new row}`` — the ``POLYGON_DEF``
+    rows to append and the line index after the last ``POLYGON_DEF``.
+    Raises ``ValueError`` when a seat does not describe this dump."""
+    seats = {f.index: f for f in getattr(plan, "facade_seats", ())}
+    if not seats:
+        return {}, [], -1
+    defs: list[str] = []
+    after = -1
+    new_res = plan.new_facades()
+    out: dict[int, list[str]] = {}
+    ordinal = 0
+    for i, raw in enumerate(lines):
+        if raw.startswith("POLYGON_DEF"):
+            defs.append(raw[len("POLYGON_DEF"):].strip())
+            after = i + 1
+        elif raw.startswith("BEGIN_POLYGON"):
+            toks = raw.split()
+            if len(toks) < 4:
+                continue
+            seat = seats.get(ordinal)
+            ordinal += 1
+            if seat is None:
+                continue
+            if defs[int(toks[1])] != seat.resource:
+                raise ValueError(f"polygon {seat.index}: dump definition "
+                                 f"{defs[int(toks[1])]!r}, plan says "
+                                 f"{seat.resource!r}")
+            toks[1] = str(len(defs) + new_res.index(seat.new_resource))
+            out[i] = [" ".join(toks) + _eol(lines)]
+    missing = sorted(set(seats) - set(range(ordinal)))
+    if missing:
+        raise ValueError(f"plan names polygons this dump does not have: "
+                         f"{missing[:8]} (dump has {ordinal})")
+    return out, [f"POLYGON_DEF {r}{_eol(lines)}" for r in new_res], after
+
+
 def _eol(lines: _t.Sequence[str]) -> str:
     for raw in lines:
         if raw.endswith("\r\n"):
@@ -434,6 +473,9 @@ def edit_dump(text: str, plan: PlacementPlan,
             edits[i] = [_body_row(toks, b, new_index[b.new_resource]) + eol
                         for b in spl[o].bodies]
 
+    poly_rows, poly_defs, poly_at = _facade_rows(lines, plan)
+    edits.update(poly_rows)
+
     mark_at = _mark_row_at(lines)
     mark = (f"PROPERTY {_bs.OWNERSHIP_PROPERTY} "
             f"{engine_version or 'unknown'}{eol}")
@@ -443,11 +485,15 @@ def edit_dump(text: str, plan: PlacementPlan,
             out.append(mark)
         if i == append_at and new_res:
             out.extend(f"OBJECT_DEF {r}{eol}" for r in new_res)
+        if i == poly_at:
+            out.extend(poly_defs)
         out.extend(edits.get(i, (raw,)))
     if mark_at >= len(lines):
         out.append(mark)
     if new_res and append_at >= len(lines):
         out.extend(f"OBJECT_DEF {r}{eol}" for r in new_res)
+    if poly_at >= len(lines):
+        out.extend(poly_defs)
     return "".join(out)
 
 
@@ -1110,7 +1156,8 @@ def missing_body_files(pack_root: str, plan: _t.Any) -> list[str]:
     """Every ``new_resource`` the plan writes an ``OBJECT_DEF`` for that is
     not a file in the pack — the DSF would reference art nothing wrote
     (#1214 round 3, R1: the owner's 1.0.417 LFPG and KMCI DSFs named 21)."""
-    return [r for r in plan.new_resources()
+    facades = getattr(plan, "new_facades", tuple)()           # #2042
+    return [r for r in tuple(plan.new_resources()) + tuple(facades)
             if not os.path.isfile(os.path.join(pack_root, *r.replace("\\", "/").split("/")))]
 
 
@@ -1369,7 +1416,7 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         for f in body_files)
     # #1703: a split a hand-set seat stands over keeps its bodies — the
     # record still names them, and clearing the seat writes them again
-    live_res = set(composed.new_resources())
+    live_res = set(composed.new_resources()) | set(composed.new_facades())
     undone_res = asked - set(plan.new_resources())       # #1246
     orphaned: list[str] = [b for b in own_bodies if b in undone_res]
     own_bodies = [b for b in own_bodies if b not in undone_res]

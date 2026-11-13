@@ -59,6 +59,10 @@ class DsfPolygon:
     #: the facade reader (``airport/facade.py``, issue #334) needs the
     #: wall each edge was given.  Empty for a UV-mapped polygon.
     nodes: tuple[tuple[tuple[float, float, int | None, bool], ...], ...] = ()
+    #: the polygon's ORDINAL among every ``BEGIN_POLYGON`` of the dump
+    #: (dump order, accepted or not) — the identity ``dsf_write`` edits
+    #: a polygon by (#2042); ``-1`` when not read from a dump
+    index: int = -1
 
 
 @_dc.dataclass(frozen=True)
@@ -302,6 +306,7 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
     cur_def: int | None = None
     cur_param = 0
     cur_cpp = 2
+    ordinal, cur_ordinal = 0, -1
     windings: list[list[list[str]]] = []
     winding: list[list[str]] | None = None
     accept = accept_polygon or (lambda p: p.lower().endswith((".fac", ".pol")))
@@ -320,6 +325,7 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
             elif kw in ("OBJECT_MSL", "OBJECT_AGL") and len(toks) >= 5:
                 _placement(placements, object_defs, toks, 5, 4, kw)
             elif kw == "BEGIN_POLYGON" and len(toks) >= 4:
+                cur_ordinal, ordinal = ordinal, ordinal + 1
                 try:
                     idx = int(toks[1])
                     cur_param, cur_cpp = int(toks[2]), int(toks[3])
@@ -342,7 +348,8 @@ def read_dump(path: str, accept_polygon: _t.Callable[[str], bool] | None = None
                 if rings:
                     polygons.append(DsfPolygon(
                         polygon_defs[cur_def], cur_param, rings, cur_cpp,
-                        tuple(_nodes(w, cur_cpp, cur_param) for w in windings)))
+                        tuple(_nodes(w, cur_cpp, cur_param) for w in windings),
+                        cur_ordinal))
                 cur_def = None
     return DsfDump(path, tuple(object_defs), tuple(polygon_defs),
                    tuple(polygons), tuple(placements))

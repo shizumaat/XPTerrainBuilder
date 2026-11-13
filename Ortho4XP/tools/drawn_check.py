@@ -691,17 +691,7 @@ def run(args):
         for t, plan in sorted(plans.items()):
             written += dump_dsf(plan["dsf_path"], tmp).placements
             pristine[t] = dump_dsf(pristine_dsf_path(plan["dsf_path"]), tmp)
-    if getattr(args, "sampler", None) is not None:
-        # the caller's sampler over the same drawn DSF(s) (the harness
-        # drawn gate streams the tile once for every layer it reads)
-        mesh, tile_dsfs = args.sampler, list(args.sampler_dsfs)
-    elif getattr(args, "mesh", None):
-        # the tile's built ``Data+XX+YYY.mesh`` -- the triangles the tile DSF
-        # is written from -- where the build ran the geometry half only
-        mesh = MeshElevationSampler(args.mesh, bbox)
-        tile_dsfs = [args.mesh]
-    else:
-        mesh = drawn_mesh([stream_dsf(f) for f in tile_dsfs], bbox)
+    mesh, tile_dsfs = _sampler(args, tile_dsfs, bbox)
     claims = read_claims(sidecar, tile, plans, pristine)
     drawn = Drawn(written, pack_root, mesh)
     rows = [check_site(s, drawn, claims, args.radius, args.tol)
@@ -714,10 +704,32 @@ def run(args):
                                    "split_level_road_reach_m", 0.0) or ROAD_AT_BASE_M)
     rows += [check_split(r, drawn, args.tol, lifts, roads)
              for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
+    # #2042: every graded facade's feet on the drawn ground
+    import drawn_facade
+    with tempfile.TemporaryDirectory() as tmp:
+        rows += drawn_facade.check([p["dsf_path"] for _t, p in sorted(plans.items())],
+                                   pack_root, mesh, tmp)
     return {"icao": args.icao, "tile": tile, "pack_root": pack_root,
             "pack_is_build_product": pack_is_build_product(args, pack_root),
             "tile_dsfs": tile_dsfs, "tol_m": args.tol, "radius_m": args.radius,
             "claims": [dataclasses.asdict(c) for c in claims], "sites": rows}
+
+
+def _sampler(args, tile_dsfs, bbox):
+    """The drawn mesh: the caller's sampler, a built ``.mesh`` or the tile
+    DSF(s) streamed."""
+    if getattr(args, "sampler", None) is not None:
+        # the caller's sampler over the same drawn DSF(s) (the harness
+        # drawn gate streams the tile once for every layer it reads)
+        mesh, tile_dsfs = args.sampler, list(args.sampler_dsfs)
+    elif getattr(args, "mesh", None):
+        # the tile's built ``Data+XX+YYY.mesh`` -- the triangles the tile DSF
+        # is written from -- where the build ran the geometry half only
+        mesh = MeshElevationSampler(args.mesh, bbox)
+        tile_dsfs = [args.mesh]
+    else:
+        mesh = drawn_mesh([stream_dsf(f) for f in tile_dsfs], bbox)
+    return mesh, tile_dsfs
 
 
 def print_report(rep):
@@ -728,6 +740,13 @@ def print_report(rep):
               "NOT this build's objects (no --pack-copy): the object rows below "
               "do not measure this build")
     for r in rep["sites"]:
+        if r.get("role") == "FACADE":
+            print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} plane "
+                  f"{r['plane']:.2f} (first wall {r['anchor'][0]},{r['anchor'][1]}) "
+                  f"worst foot {r['delta']:+.2f} at {r['worst'][0]},{r['worst'][1]}")
+            for f in r["fails"]:
+                print(f"       FAIL {f}")
+            continue
         if r.get("role") == "SPLIT":
             print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} "
                   f"{','.join(os.path.basename(x) for x in r['resources'])} rows {r['rows']}: "

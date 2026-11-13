@@ -97,7 +97,27 @@ def mesh_placement_sampler(mesh_path: str,
         return out
 
     _sample.many = _sample_many
+    # #2042: what a second reading of the same mesh needs (the graded
+    # facades may reach past the plan's own box)
+    _sample.mesh_path, _sample.bounds = mesh_path, tuple(bounds)
     return _sample
+
+
+def _facade_surface(mesh_sample, dump, pack_root: str, surface):
+    """#2042: the built mesh over the pack's graded facades — ``surface``
+    when its box already holds them, else a reading of the same mesh
+    widened to them (a 6 km shoreline facade outruns the objects' box)."""
+    from auto_patch_v2.airport import facade_seat as _fs
+    box = _fs.candidates_box(_fs.candidates(dump, pack_root))
+    have = getattr(mesh_sample, "bounds", None)
+    path = getattr(mesh_sample, "mesh_path", None)
+    if box is None or have is None or path is None or (
+            have[0] <= box[0] and have[1] <= box[1]
+            and have[2] >= box[2] and have[3] >= box[3]):
+        return surface
+    wide = (min(have[0], box[0]), min(have[1], box[1]),
+            max(have[2], box[2]), max(have[3], box[3]))
+    return _placement_surface(mesh_placement_sampler(path, wide))
 
 
 def _sampler_bounds(plan_, patch_dir: str) -> tuple[float, float, float, float]:
@@ -633,6 +653,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                               .get("runway_ends") or ()),
             approach_reach_m=float(law.tables.runway_ends.approach_reach_m),
             approach_heading_deg=float(law.tables.runway_ends.peer_parallel_deg),
+            facade_surface=_facade_surface(mesh_sample, dump, target_root, _surface),
             engine_version=_engine_version(), law_digest=digest,
             write_cuts=bool(write_enabled and not measure_only))
     _pulse.clear()
@@ -710,8 +731,14 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                  f"round trip {'ok' if res.dsf.report.ok else 'FAILED'}), dump cache "
                  f"{'refreshed' if res.dump_refreshed else 'not refreshed'} -> "
                  f"{os.path.basename(res.plan_path)}")
+    if plan.facade_seats:
+        UI.vprint(1, f"  [v2 placement] {plan_.icao}: {len(plan.facade_seats)} "
+                     f"graded facade(s) lowered onto their drawn ground "
+                     f"(deepest {min(f.drop_m for f in plan.facade_seats):+.2f} m)")
     out = dict(res.counts)
     out.update({k: v for k, v in c.items() if k.startswith("class_")})
+    out.update({k: v for k, v in dict(plan.provenance.counts).items()
+                if k.startswith("graded_facade")})
     out["packs_written"] = 1
     if siblings:
         out["sibling_packs_written"] = _sib.write(

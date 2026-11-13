@@ -36,6 +36,7 @@ __all__ = [
     "KIND_ON_GROUND", "KIND_MSL", "KIND_AGL", "CONVERTIBLE_KINDS",
     "BODY_CLASSES", "Provenance", "Conversion", "Anchor", "PlacementRef",
     "Body", "Split", "Kept", "PlacementPlan", "MslSeat", "Rider",
+    "FacadeSeat",
     "POOL_QUANTA", "TOL_DEG",
 ]
 
@@ -142,6 +143,38 @@ class MslSeat:
         return cls(int(d["index"]), str(d["resource"]), _f(d["lon"]),
                    _f(d["lat"]), _f(d.get("heading", 0.0)),
                    _f(d.get("elevation", 0.0)), str(d.get("why", "")))
+
+
+@_dc.dataclass(frozen=True)
+class FacadeSeat:
+    """#2042: one GRADED facade polygon pointed at a LOWERED copy of its
+    ``.fac`` (``airport/facade_seat``).  ``index`` is the polygon's ORDINAL
+    in the dump (every ``BEGIN_POLYGON``, dump order), ``resource`` its
+    authored ``POLYGON_DEF``, ``new_resource`` the copy whose heights are
+    moved by ``drop_m`` (negative); the anchor is the first wall's centre,
+    where X-Plane reads the plane (``anchor_z``), and ``need_z`` the highest
+    plane its base allows on the drawn ground."""
+
+    index: int
+    resource: str
+    new_resource: str
+    drop_m: float
+    lon: float
+    lat: float
+    anchor_z: float
+    need_z: float
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        return {"index": self.index, "resource": self.resource,
+                "new_resource": self.new_resource, "drop_m": self.drop_m,
+                "lon": self.lon, "lat": self.lat, "anchor_z": self.anchor_z,
+                "need_z": self.need_z}
+
+    @classmethod
+    def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "FacadeSeat":
+        return cls(int(d["index"]), str(d["resource"]), str(d["new_resource"]),
+                   _f(d["drop_m"]), _f(d.get("lon", 0.0)), _f(d.get("lat", 0.0)),
+                   _f(d.get("anchor_z", 0.0)), _f(d.get("need_z", 0.0)))
 
 
 @_dc.dataclass(frozen=True)
@@ -497,6 +530,8 @@ class PlacementPlan:
     #: ``jetway_strips`` records, carried verbatim)
     riders: tuple[Rider, ...] = ()
     jetway_strips: tuple[_t.Mapping[str, _t.Any], ...] = ()
+    #: #2042: graded facade polygons pointed at a lowered copy of their file
+    facade_seats: tuple[FacadeSeat, ...] = ()
 
     # ── views the writers use ───────────────────────────────────────────
     def conversion_indices(self) -> frozenset[int]:
@@ -516,6 +551,11 @@ class PlacementPlan:
                 seen.setdefault(b.new_resource, None)
         return tuple(seen)
 
+    def new_facades(self) -> tuple[str, ...]:
+        """Every lowered facade copy a ``POLYGON_DEF`` is appended for, in
+        first-appearance order, de-duplicated (#2042)."""
+        return tuple(dict.fromkeys(f.new_resource for f in self.facade_seats))
+
     def counts(self) -> dict[str, int]:
         per_kind: dict[str, int] = {}
         for c in self.conversions:
@@ -528,7 +568,8 @@ class PlacementPlan:
                 "new_resources": len(self.new_resources()),
                 "kept": len(self.kept),
                 # §16g (5): placements seated by their DSF row
-                "msl_seats": len(self.msl_seats)}
+                "msl_seats": len(self.msl_seats),
+                "facade_seats": len(self.facade_seats)}
 
     # ── the shared DSF (#25) ────────────────────────────────────────────
     def claimed_indices(self) -> frozenset[int]:
@@ -548,6 +589,7 @@ class PlacementPlan:
         return {"version": PLAN_VERSION, "icao": self.icao,
                 "conversions": [c.to_dict() for c in self.conversions],
                 "msl_seats": [m.to_dict() for m in self.msl_seats],
+                "facade_seats": [f.to_dict() for f in self.facade_seats],
                 "splits": [{"placement": s.placement.to_dict(),
                             "bodies": [{"body_id": b.body_id,
                                         "class": b.body_class,
@@ -589,8 +631,15 @@ class PlacementPlan:
                 if s.placement.index not in taken:
                     spl.append(s)
                     taken.add(s.placement.index)
+        fac = list(self.facade_seats)
+        polys = {f.index for f in fac}
+        for o in others:                    # #2042: polygon ordinals
+            for f in o.facade_seats:
+                if f.index not in polys:
+                    fac.append(f)
+                    polys.add(f.index)
         return _dc.replace(self, conversions=tuple(conv), msl_seats=tuple(msl),
-                           splits=tuple(spl))
+                           splits=tuple(spl), facade_seats=tuple(fac))
 
     # ── JSON ────────────────────────────────────────────────────────────
     def to_dict(self) -> dict[str, _t.Any]:
@@ -603,6 +652,7 @@ class PlacementPlan:
                 "splits": [s.to_dict() for s in self.splits],
                 "kept": [k.to_dict() for k in self.kept],
                 "msl_seats": [m.to_dict() for m in self.msl_seats],
+                "facade_seats": [f.to_dict() for f in self.facade_seats],
                 "riders": [r.to_dict() for r in self.riders],
                 "jetway_strips": [dict(j) for j in self.jetway_strips]}
 
@@ -625,6 +675,8 @@ class PlacementPlan:
                    kept=tuple(Kept.from_dict(k) for k in d.get("kept", ())),
                    msl_seats=tuple(MslSeat.from_dict(m)
                                    for m in d.get("msl_seats", ())),
+                   facade_seats=tuple(FacadeSeat.from_dict(f)
+                                      for f in d.get("facade_seats", ())),
                    riders=tuple(Rider.from_dict(r) for r in d.get("riders", ())),
                    jetway_strips=tuple(dict(j) for j in d.get("jetway_strips", ())))
 

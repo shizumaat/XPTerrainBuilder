@@ -275,7 +275,9 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
                icao: str | None = None, lrep=None,
                out: _t.Callable[[str], None] | None = None, heartbeat: str | None = None,
                targets: _t.Callable[[_t.Any], _t.Any] | None = None,
-               rows: _t.Callable[[_t.Any], _t.Any] | None = None) -> PrefixRecord:
+               rows: _t.Callable[[_t.Any], _t.Any] | None = None,
+               after_channels: _t.Callable[[_t.Any, _t.Any], None] | None = None
+               ) -> PrefixRecord:
     """THE PREFIX on ``cl`` (module docstring).
 
     ``cache`` is the build's ``FrontCache`` (its planar, flat_site,
@@ -288,7 +290,10 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
     main pass's lines (``None``: silent); ``heartbeat`` names every step's
     pulse (a re-run's own work).  ``targets(pm) -> pm`` replaces the target
     channels and ``rows(cs) -> cs`` filters the constraint set (the replay
-    tool's arms; ``None`` in a build)."""
+    tool's arms; ``None`` in a build).  ``after_channels(airport, pm)`` is
+    called once the target channels have run — the airport with its
+    flat-site verdict, the map with its decks and deck anchors final (the
+    build starts stage 1's derive there, ``pipeline/stage_one_ahead``)."""
     icao = icao or airport.icao
     say = out or (lambda m: None)
     lrep = lrep if lrep is not None else _types.SimpleNamespace()
@@ -358,6 +363,8 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
     else:
         pm, yield_records = _channels(icao, pm, law, law_c, airport, road_profiles, road_rep,
                                       wall["road_profile"], lrep, say)
+    if after_channels is not None:
+        after_channels(airport, pm)
     # THE SHAPE STAGE (owner RULINGS 2026-09-08k; ``pipeline/shapes.py``):
     # the route bands, the withdraw set, the joint filter, the yield transform
     t = time.perf_counter()
@@ -456,12 +463,17 @@ class Deriver:
         self.runs = 0
         self.last: PrefixRecord | None = None
 
-    def __call__(self, cl) -> tuple:
+    def __call__(self, cl, cl_digest: str | None = None) -> tuple:
+        """``cl_digest``: ``cl``'s digest as the BUILD's process computed
+        it (a run ahead in a worker, ``pipeline/stage_one_ahead``: the
+        canonical digest follows object identity, and a classification
+        unpickled in a worker need not digest as the build's own did)."""
         self.runs += 1
-        cl_digest = None
         if self.cache is not None:
             self.cache.reopen(f"prefix{self.runs}")
-            cl_digest = self.cache.digest(cl)
+            cl_digest = self.cache.digest(cl) if cl_digest is None else cl_digest
+        else:
+            cl_digest = None
         try:
             self.last = run_prefix(self.airport, cl, self.law, self.inputs, self.pack,
                                    self.cache, common=self.common, cl_digest=cl_digest,

@@ -59,7 +59,7 @@ from ..airport.wall_family import read_wall_corridors
 from ..model import pulse as _pulse
 
 __all__ = ["PackReads", "held_read", "pack_reads", "pool_report", "ring_reads",
-           "wall_corridor_reads"]
+           "wall_corridor_reads", "shipped", "adopt"]
 
 #: the key on ``ResourceCache.placed``
 _KEY = "planar_pack_reads"
@@ -141,7 +141,7 @@ def _store(airport, objects: _t.Sequence, cache, law) -> dict:
     SAME object and dropped whole when one is not."""
     inputs = _inputs(airport, objects, law)
     held = cache.placed.get(_KEY)
-    if held is None or len(held[0]) != len(inputs) \
+    if held is None or held[0] is None or len(held[0]) != len(inputs) \
             or any(a is not b for a, b in zip(held[0], inputs)):
         # the inputs are held WITH the readings, so their identities cannot
         # be recycled while they stand
@@ -201,6 +201,38 @@ def held_read(airport, objects: _t.Sequence, cache, law, key: tuple,
     if key not in store:
         store[key] = read()
     return store[key]
+
+
+def shipped(airport, objects: _t.Sequence, cache, law):
+    """THIS BUILD'S ``ResourceCache`` FOR A POOL WORKER that runs a copy of
+    its prefix (``pipeline/derive_ahead``, issue #2044): a shallow copy
+    whose store holds this build's readings WITHOUT the inputs they are
+    keyed on — the build's DEM recorder and law proxy are this process's
+    objects (the recorder holds hundreds of MB of samples) — when they were
+    read for exactly these inputs; else no store (the worker reads afresh).
+    Without it a worker re-reads every pack reading here, on one core (a
+    worker's own pools are budget 1): the door wells alone were 628 s at
+    OTHH.  :func:`adopt` keys the store in the worker."""
+    out = copy.copy(cache)
+    out.placed = {k: v for k, v in cache.placed.items() if k != _KEY}
+    held = cache.placed.get(_KEY)
+    inputs = _inputs(airport, objects, law)
+    if held is not None and held[0] is not None and len(held[0]) == len(inputs) \
+            and all(a is b for a, b in zip(held[0], inputs)):
+        out.placed[_KEY] = (None, {k: v for k, v in held[1].items() if k != _POOL})
+    return out
+
+
+def adopt(airport, objects: _t.Sequence, cache, law) -> bool:
+    """IN THE WORKER: the store :func:`shipped` carried, keyed to this
+    process's own copies of the SAME inputs (the worker's DEM recorder and
+    law proxy over the build's DEM and law, the build's objects); ``False``
+    when none was carried."""
+    held = cache.placed.get(_KEY)
+    if held is None or held[0] is not None:
+        return False
+    cache.placed[_KEY] = (_inputs(airport, objects, law), held[1])
+    return True
 
 
 def ring_reads(airport, objects: _t.Sequence, cache, law) -> dict:

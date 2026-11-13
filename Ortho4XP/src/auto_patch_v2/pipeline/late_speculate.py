@@ -25,13 +25,13 @@ digest the moment it has it, so a miss is known without waiting for the
 derive."""
 from __future__ import annotations
 
-import dataclasses as _dc
 import time
 import typing as _t
 from multiprocessing import shared_memory as _shm
 
 from ..airport import pool as _pool
 from ..airport import stage_cache as _store
+from . import derive_ahead as _ahead
 
 __all__ = ["speculate", "Speculated"]
 
@@ -41,57 +41,42 @@ STALL_S = 1800.0
 _POST = 33
 
 
-def _raw(airport):
-    """``airport`` with its real DEM (a cache's recorder stays here)."""
-    from ..airport.dem_record import DemRecorder
-    dem = getattr(airport, "dem", None)
-    return _dc.replace(airport, dem=dem.target()) if type(dem) is DemRecorder else airport
-
-
 def speculate(derive, cl_all, airport, law, base_solution: _t.Mapping[str, _t.Any], *,
               rules=None, out: _t.Callable[[str], None] = print) -> "Speculated | None":
     """Start the roads pass's cut and derive in a worker (module doc), or
     ``None`` (said through ``out``) when no worker can take it: the derive
     is not the build's :class:`~pipeline.prefix.Deriver`, the pool's
-    budget is one, or the payload will not ship."""
-    from .front_cache import classify_side_state
+    budget is one, the machine has no room for a second build
+    (``derive_ahead.may_start``), or the payload will not ship."""
     from .prefix import Deriver
     if not isinstance(derive, Deriver):
         return None
-    allowed, bound = _pool.budget_bound()
-    if allowed < 2:
-        out(f"LAST STAGE pad roads' derive not speculated (C4b): pool budget 1 ({bound})")
+    why = _ahead.may_start("build")
+    if why:
+        out(f"LAST STAGE pad roads' derive not speculated (C4b): {why}")
         return None
     if rules is None:
         from ..classify.rules import load_rules
         rules = load_rules()
-    cache = derive.cache
-    payload = {"cl": cl_all, "airport": _raw(airport), "derive_airport": _raw(derive.airport),
-               "law": law, "base": {"pm": base_solution["pm"], "z": base_solution["z"]},
-               "rules": rules, "inputs": derive.inputs, "pack": derive.pack,
-               "kw": dict(derive.kw), "common": derive.common,
-               # the gap stage's derive is this derive's next run: the
-               # roads pass's is the one after it
-               "runs": derive.runs + 1,
-               "cache": cache.worker_state() if cache is not None else None,
-               "side": classify_side_state()}
-    post = shared = None
+    # the gap stage's derive is this derive's next run: the roads pass's
+    # is the one after it
+    payload = _ahead.payload(derive, derive.runs + 1, cl=cl_all, airport=_ahead.raw_airport(
+        airport), base={"pm": base_solution["pm"], "z": base_solution["z"]}, rules=rules)
+    post = None
     try:
         post = _shm.SharedMemory(create=True, size=_POST)
         post.buf[:_POST] = bytes(_POST)
-        shared = _pool.share_object(payload)
     except Exception as exc:                       # no shared memory: serial
         out(f"LAST STAGE pad roads' derive not speculated (C4b): {type(exc).__name__}: {exc}")
-        _release(post, shared)
+        _release(post, None)
         return None
-    pool = _pool.WorkPool(workers=1, isolate=True, out=out, stall_s=STALL_S)
-    pending = pool.begin(_derive_roads, [(shared.spec, post.name)],
-                         what="the pad roads' derive (speculative)", unit="derive")
-    if pending is None:
-        out(f"LAST STAGE pad roads' derive not speculated (C4b): {pool.reason}")
-        pool.close()
-        _release(post, shared)
+    got = _ahead.start(_derive_roads, payload, (post.name,),
+                       what="the pad roads' derive (speculative)", out=out, stall_s=STALL_S)
+    if isinstance(got, str):
+        out(f"LAST STAGE pad roads' derive not speculated (C4b): {got}")
+        _release(post, None)
         return None
+    pool, pending, shared = got
     out(f"LAST STAGE pad roads' cut and derive speculated off the main base (C4b): "
         f"worker pid {pool.pids()}, payload {shared.nbytes / 1e6:.0f} MB")
     return Speculated(derive, pool, pending, shared, post, out)
@@ -113,26 +98,14 @@ def _derive_roads(_state, task) -> dict:
     the build's prefix on it through the build's records."""
     spec, post_name = task
     p = _pool.shared_object(spec)
-    from .front_cache import FrontCache, install_classify_side_state
     from .late_stage import late_cut
-    from .prefix import Deriver
-    install_classify_side_state(p["side"])
+    deriver, fc = _ahead.worker_deriver(p)
     cut = late_cut(p["cl"], p["airport"], p["law"], p["base"], rules=p["rules"],
                    out=lambda _m: None, roads_only=True)
     digest = _store.content_digest(cut.cl)
     _post(post_name, digest)
-    airport = p["derive_airport"]
-    fc = None if p["cache"] is None else FrontCache.in_worker(p["cache"], airport, p["law"])
-    if fc is not None:
-        airport = fc.airport(airport)
-    deriver = Deriver(airport, p["law"], p["inputs"], p["pack"], cache=fc,
-                      common=p["common"], **p["kw"])
-    deriver.runs = p["runs"]
     deriver(cut.cl)
-    rec = deriver.last
-    stages = fc.finish().get("stages", {}) if fc is not None else {}
-    return {"digest": digest, "flat_site": rec.airport.flat_site, "stages": stages,
-            "record": _dc.replace(rec, airport=None, hold=None)}
+    return _ahead.answer(deriver, fc, digest=digest)
 
 
 def _post(name: str, digest: str) -> None:
@@ -201,18 +174,12 @@ class Speculated:
 
     def _install(self, res: dict, waited: float) -> tuple:
         """The worker's prefix run as this derive's own next run."""
-        from ..constraints.no_step import hold_pass
-        d = self.derive
-        airport = _dc.replace(d.airport, flat_site=res["flat_site"])
-        rec = _dc.replace(res["record"], airport=airport)
-        d.runs += 1
-        d.last = _dc.replace(rec, hold=hold_pass(rec.pm, d.law, airport))
-        if d.cache is not None and d.cache.active:
-            d.cache.report["stages"].update(res["stages"])
+        derived = _ahead.install(self.derive, res)
         self.outcome = "hit"
         self.out(f"LAST STAGE pad roads' derive speculation HIT (C4b): the worker's "
-                 f"prefix run {d.runs} is the roads pass's (waited {waited:.1f} s)")
-        return d.last.derived()
+                 f"prefix run {self.derive.runs} is the roads pass's (waited {waited:.1f} s; "
+                 f"{_ahead.worker_clock(self.derive)})")
+        return derived
 
     def close(self) -> None:
         """Release the worker and the shared blocks (idempotent)."""

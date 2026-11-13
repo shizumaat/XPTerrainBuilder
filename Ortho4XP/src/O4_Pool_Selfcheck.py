@@ -177,12 +177,15 @@ def _nested(task: tuple) -> dict:
     """ONE airport-pool child: what the pool budget reads here, then the
     whole core run in work pools of its own."""
     from auto_patch_v2.airport import pool as _pool
+    from auto_patch_v2.airport import pool_memory as _pmem
     workers, work = task
     got = _core(workers, work, say=lambda _s: None)
-    budget, bound = _pool.budget_bound()
+    facts: dict = {}
+    budget, bound = _pool.budget_bound(facts)
     got.update(budget=budget, bound=bound, share=_pool.share(), cpu=os.cpu_count() or 1,
                ram_gb=_pool.physical_ram_gb(), reserve_gb=_pool.PARENT_RESERVE_GB,
                allowance_gb=_pool.WORKER_ALLOWANCE_GB, pid=os.getpid(),
+               free_gb=facts.get("free_gb"), floor=_pmem.SYSTEM_FREE_FLOOR,
                daemon=bool(_mp.current_process().daemon))
     stamp(got["procs"], [os.getpid()], "airport-pool child")
     return got
@@ -191,14 +194,20 @@ def _nested(task: tuple) -> dict:
 def budget_for(row: dict) -> tuple:
     """``(workers, bound)`` the pool's law gives a process that shares the
     machine as ``row`` says (``share``, ``cpu``, ``ram_gb``, ``reserve_gb``,
-    ``allowance_gb``) — ``pool.budget_bound``'s rule, re-derived from the
-    recorded facts so the check does not ask the function it is checking.
+    ``allowance_gb``; ``free_gb`` and ``floor``, the memory free when the
+    budget was read and the free floor, where the row has them — issue
+    #2044) — ``pool.budget_bound``'s rule, re-derived from the recorded
+    facts so the check does not ask the function it is checking.
     Standard library only (``scripts/check_frozen_pool.py`` calls it)."""
     share = max(1, int(row.get("share") or 1))
     by_cores = max(1, int(row.get("cpu") or 1) // share)
     if row.get("ram_gb") is not None:
-        by_memory = max(1, int((row["ram_gb"] / share - row["reserve_gb"])
-                               // row["allowance_gb"]))
+        by_ram = int((row["ram_gb"] / share - row["reserve_gb"]) // row["allowance_gb"])
+        if row.get("free_gb") is not None:
+            room = (row["free_gb"] - float(row.get("floor") or 0.0) * row["ram_gb"]
+                    - row["reserve_gb"])
+            by_ram = max(by_ram, int(room / share // row["allowance_gb"]))
+        by_memory = max(1, by_ram)
         if by_memory < by_cores:
             return by_memory, "memory"
     return by_cores, "share" if share > 1 else "cores"

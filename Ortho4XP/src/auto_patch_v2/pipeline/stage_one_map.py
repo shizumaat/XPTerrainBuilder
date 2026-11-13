@@ -44,7 +44,8 @@ from ..model.planar import face_vertex_set as _face_vertices
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
                                  Offset, Pin)
 
-__all__ = ["StageOne", "base_pad_map", "ribbon_free", "stage_one_problem", "remap_row",
+__all__ = ["StageOne", "base_pad_map", "ribbon_free", "stage_one_classification",
+           "stage_one_problem", "remap_row",
            "gap_free", "late_followers", "late_fixed", "late_constraints",
            "row_vertices", "late_rim_levels", "last_stage_head"]
 
@@ -525,8 +526,20 @@ class StageOne:
         return _dc.replace(pm_full, fronting_vertices=fv, fronting_ref=fref)
 
 
+def stage_one_classification(cl) -> tuple | None:
+    """``(cl0, cl_b, cl_r)``: the classification stage 1 is derived on
+    (main's pad set, :func:`base_pad_map`, then no ribbon,
+    :func:`ribbon_free`) and the two steps' own results, or ``None`` when
+    ``cl`` carries no ribbon and no 19w pad."""
+    cl_b = base_pad_map(cl)
+    cl_r = ribbon_free(cl_b if cl_b is not None else cl)
+    cl0 = cl_r if cl_r is not None else cl_b
+    return None if cl0 is None else (cl0, cl_b, cl_r)
+
+
 def stage_one_problem(cl, derive: _t.Callable[[_t.Any], tuple],
-                      caller: _t.Any = None, full: _t.Any = None) -> StageOne | None:
+                      caller: _t.Any = None, full: _t.Any = None,
+                      split: tuple | None = None) -> StageOne | None:
     """THE RIBBON-FREE STAGE-1 PROBLEM: ``derive(cl0) -> (pm, cs, strips,
     hold)`` is the CALLER's own prefix (the build's, the replay's) run on
     the classification without ribbons.  ``None`` when ``cl`` carries no
@@ -534,12 +547,13 @@ def stage_one_problem(cl, derive: _t.Callable[[_t.Any], tuple],
     own) are recorded as the problem's, and ``caller`` (the full map's
     ``registries``) is re-installed from its snapshot around it.  ``full``
     (the full map): its decks and deck anchors are stage 1's
-    (``model/stage_one.from_full``, deck redesign §1)."""
-    cl_b = base_pad_map(cl)
-    cl_r = ribbon_free(cl_b if cl_b is not None else cl)
-    cl0 = cl_r if cl_r is not None else cl_b
-    if cl0 is None:
+    (``model/stage_one.from_full``, deck redesign §1).  ``split``: what
+    :func:`stage_one_classification` already gave for ``cl`` (the build's
+    stage 1 run ahead, ``pipeline/stage_one_ahead``)."""
+    split = stage_one_classification(cl) if split is None else split
+    if split is None:
         return None
+    cl0, cl_b, cl_r = split
     from ..constraints.door_pad import stage_one as _no_door_pads
     from ..model.stage_one import from_full
     from ..planar.group_low import stage_one as _no_group_levels

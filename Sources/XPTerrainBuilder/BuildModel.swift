@@ -1668,6 +1668,9 @@ final class BuildModel: ObservableObject {
     var patchLibraryCheckedAtLaunch = false
     /// The start's World onboarding (#2007): asked once when shown.
     @Published var worldOnboard: O4WorldOnboard?
+    /// Settings ▸ Storage's one model (#2029): the engine measures in the
+    /// background; the pane shows the last result at once.
+    let storage = StorageModel()
     var worldOnboardChecked = false
 
     @Published private(set) var planEstimate: O4PlanEstimate?

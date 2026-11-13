@@ -25,6 +25,7 @@ public enum O4StorageText {
     public static let cachesClear = "Clear…"
     public static let cachesDetails = "Details…"
     public static let cachesDetailsTitle = "Storage Details"
+    public static let updating = "Updating…"
     public static let clearAllTitle = "Clear every cache?"
     public static let clearAllText = "This frees up to {bytes}. Downloads come back when a build needs them; sharp imagery is made low res, never deleted. Built tiles and patches stay."
     public static let folderTitle = "Data folder"

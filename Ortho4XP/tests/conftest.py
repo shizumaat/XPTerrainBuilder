@@ -2092,3 +2092,15 @@ def median_wall(run, runs):
     return statistics.median(run() for _ in range(runs))
 
 
+@pytest.fixture(autouse=True)
+def _no_background_storage_scan(monkeypatch):
+    """#2029: the engine session's background storage scan (it walks the
+    whole data folder, the shared corpus through its links) never starts
+    by itself in a test; a test of it drives ``storage_shared._work``."""
+    try:
+        from o4_engine import storage_shared as SHARED
+    except Exception:                                   # pragma: no cover
+        yield
+        return
+    monkeypatch.setattr(SHARED, "refresh", lambda *args, **kwargs: False)
+    yield

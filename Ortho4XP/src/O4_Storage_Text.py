@@ -38,7 +38,7 @@ __all__ = ["CACHES_HELP", "KEPT_HELP", "BUDGET_TITLE", "BUDGET_LINE",
            "BAR_PACKAGES", "BAR_OTHER", "BAR_LEGEND", "PREVIEW_FITS",
            "PREVIEW_CLEARS", "PREVIEW_THEN", "PREVIEW_CACHES",
            "PREVIEW_IMAGERY", "PREVIEW_AIRPORTS", "PREVIEW_FAVORITES",
-           "PREVIEW_REBUILD", "PREVIEW_AIRPORTS_KEPT", "end_labels",
+           "PREVIEW_REBUILD", "PREVIEW_AIRPORTS_KEPT", "end_labels", "UPDATING",
            "range_notice", "bar_parts", "preview_text"]
 
 #: The help of the "Caches" and "Your tiles and patches" rows.
@@ -82,6 +82,8 @@ CACHES_TITLE = "Caches"
 CACHES_CLEAR = "Clear…"
 CACHES_DETAILS = "Details…"
 CACHES_DETAILS_TITLE = "Storage Details"
+#: Settings ▸ Storage while the shared scan refreshes (#2029).
+UPDATING = "Updating…"
 CLEAR_ALL_TITLE = "Clear every cache?"
 CLEAR_ALL_TEXT = ("This frees up to {bytes}. Downloads come back when a build "
                   "needs them; sharp imagery is made low res, never deleted. "

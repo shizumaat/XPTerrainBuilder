@@ -16,6 +16,8 @@ import SceneryKit
 final class StorageModel: ObservableObject {
     @Published var scan: O4StorageScan?
     @Published var isWorking = false
+    /// A quiet refresh is running while the last result is shown (#2029).
+    @Published var updating = false
     @Published var status = ""
     /// A clear the user is being asked to confirm.
     @Published var pending: PendingClear?
@@ -60,6 +62,38 @@ final class StorageModel: ObservableObject {
             }
             isWorking = false
             refresh(buildModel)
+        }
+    }
+
+    /// A shown result older than this is measured again, quietly.
+    static let staleAfterSeconds = 300.0
+
+    /// Settings ▸ Storage opened (#2029): the engine's background scan at
+    /// once, then a quiet refresh when it is missing or old; while one
+    /// runs, "Updating…" and the shown result stay.
+    func showShared(_ buildModel: BuildModel) {
+        guard buildModel.engineCapabilities.supports(O4EngineCapabilities.storageScanCached),
+              let client = buildModel.libraryContext()?.client else {
+            if scan == nil { refresh(buildModel) }
+            return
+        }
+        guard !updating, !isWorking else { return }
+        updating = true
+        Task {
+            // The engine's own refresh may be running: wait for it (2 s
+            // steps, at most 10 minutes) rather than measure twice.
+            for _ in 0..<300 {
+                guard let shared = try? await client.storageScanCached() else { break }
+                if let measured = shared.scan { scan = measured }
+                if !shared.updating {
+                    if shared.scan == nil || (shared.ageS ?? .infinity) > Self.staleAfterSeconds {
+                        if let fresh = try? await client.storageScan() { scan = fresh }
+                    }
+                    break
+                }
+                try? await Task.sleep(for: .seconds(2))
+            }
+            updating = false
         }
     }
 
@@ -237,7 +271,7 @@ struct StorageSection: View {
                 Text(model.status).font(.caption).foregroundStyle(.secondary)
             }
         }
-        .onAppear { if model.scan == nil { model.refresh(buildModel) } }
+        .onAppear { model.showShared(buildModel) }
         if let scan = model.scan {
             Section("Caches") {
                 ForEach(scan.stores.filter(\.isCache)) { store in

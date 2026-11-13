@@ -319,6 +319,11 @@ class StorageRows(QWidget):
     def refresh(self):
         self.storage.refresh()
 
+    def show_shared(self):
+        """Shown (#2029): the background scan at once, then a quiet
+        refresh when it is missing or old (:meth:`refresh`)."""
+        self.storage.show_shared(self.refresh)
+
     def matches(self, query: str) -> bool:
         return self.storage.matches(query) or any(
             word in query.lower() for word in ("budget", "convert", "tiles",

@@ -926,6 +926,9 @@ class MainWindow(QMainWindow):
         _watch_built_tiles(self._session)
         from o4_engine.world_publish import watch as _watch_world
         _watch_world(self._session)
+        # Settings > Storage's scan in the background, shared (#2029).
+        from o4_engine.storage_shared import watch as _watch_storage
+        _watch_storage(self._session)
         self._storage_auto_clean()          # at launch (#1724)
         self._auto_measure()                # Convert's Measure (owner 2026-11-12)
         self._event_handlers = {

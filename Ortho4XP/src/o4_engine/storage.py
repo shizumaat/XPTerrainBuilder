@@ -628,14 +628,18 @@ def storage_scan() -> dict:
     days, caps = _settings()
     root = FNAMES.current_data_root()
     installed = INSTALLED.installed_tiles(_custom_scenery_dir())
-    return {"root": root, "stores": rows,
-            "budget": TOTAL.status(rows, installed_bytes=installed["local_bytes"]),
-            "installed": installed,
-            "cache_bytes": cache_bytes(rows),
-            "kept_bytes": sum(r["bytes"] for r in rows if r["policy"] == KEPT),
-            "measured": ("private" if DISK.private_bytes(root) is not None
-                         else "allocated"),
-            "auto_clean_days": days, "caps": caps}
+    out = {"root": root, "stores": rows,
+           "budget": TOTAL.status(rows, installed_bytes=installed["local_bytes"]),
+           "installed": installed,
+           "cache_bytes": cache_bytes(rows),
+           "kept_bytes": sum(r["bytes"] for r in rows if r["policy"] == KEPT),
+           "measured": ("private" if DISK.private_bytes(root) is not None
+                        else "allocated"),
+           "auto_clean_days": days, "caps": caps}
+    # The shared result Settings ▸ Storage opens with (#2029).
+    from .storage_shared import remember
+    remember(out)
+    return out
 
 
 def storage_clear(kinds=None, older_than_days=None, confirm: bool = False,
@@ -712,6 +716,9 @@ def storage_auto_clean(days=None, caps=None, dry_run: bool = False,
     out = sweep.result()
     out["budget"], out["ondemand_floor"] = budget, ondemand
     out["ran"] = bool(days > 0 or caps or out["files"])
+    if out["files"] and not dry_run:
+        from .storage_shared import refresh
+        refresh(abort)                  # the shared scan follows (#2029)
     return out
 
 

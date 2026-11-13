@@ -363,6 +363,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # and is refused while a build runs, and a build that starts
         # mid-sweep stops it.
         **{name: _library_handler(session, name) for name in _LIBRARY.COMMANDS},
+        # The shared background scan (#2029, capability storage_scan_cached).
+        "storage_scan_cached": _storage_scan_cached,
         # Build cost (protocol 1.15, #820): download, disk and time ranges
         # for the tiles about to be built.  Replies {"status": "started"};
         # PlanEstimateReady carrying this command's id completes it.
@@ -475,6 +477,11 @@ def _start_follow_and_world(session: EngineSession, start_follow: Callable,
     reply = start_follow(session._emit, busy=session.building_tiles, **kw)
     start_world(session, port=kw.get("port"))
     return reply
+
+
+def _storage_scan_cached(**kw):
+    from .storage_shared import storage_scan_cached
+    return storage_scan_cached(**kw)
 
 
 def _library_handler(session: EngineSession, name: str) -> Callable:
@@ -769,6 +776,10 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         # (flight manager / World spec §7.3).
         from .world_publish import watch as _watch_world
         _watch_world(session)
+        # Settings > Storage's scan measured in the background, shared and
+        # refreshed after each run (#2029).
+        from .storage_shared import watch as _watch_storage
+        _watch_storage(session)
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.
         # ``capabilities`` defaults to ``events.CAPABILITIES`` — ONE list

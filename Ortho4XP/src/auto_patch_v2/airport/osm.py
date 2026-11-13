@@ -75,8 +75,13 @@ SHORE_FEED = "shore_structures"
 #: evidence.py``).  Written by ``O4_Vector_Map.fetch_tile_feed`` (``--refresh-
 #: data parking`` in the harness, the auto-patch step in a tile build).
 PARKING_FEED = "parking"
+#: THE FENCE FEED (owner RULINGS 2026-11-13s (2)): ``barrier=fence`` /
+#: ``wall`` ways, the division witness (``classify/fence_division``).
+#: Written by ``O4_Vector_Map.fetch_tile_feed`` (``--refresh-data fences``
+#: in the harness, the auto-patch step in a tile build).
+FENCE_FEED = "fences"
 FEEDS = ("airports", "airport_small_roads", "big_roads", SHORE_FEED,
-         PARKING_FEED)
+         PARKING_FEED, FENCE_FEED)
 
 #: The shore feed keeps ITS OWN tags and no others: a ``man_made=pier``
 #: that is also a ``highway=footway`` must not arrive a second time as a
@@ -94,11 +99,16 @@ SHORE_CACHE_TAG_SCHEMA = "2026-09-29"
 #: it).  Mirrored from ``O4_Vector_Map.PARKING_TAGS_OF_INTEREST``.
 PARKING_TAGS_OF_INTEREST = frozenset(("access", "amenity", "name", "parking"))
 PARKING_CACHE_TAG_SCHEMA = "2026-11-13"
+#: The fence feed's own whitelist (mirrored from ``O4_Vector_Map.
+#: FENCE_TAGS_OF_INTEREST``): a fence is a line, never a road or a building.
+FENCE_TAGS_OF_INTEREST = frozenset(("barrier", "name"))
+FENCE_CACHE_TAG_SCHEMA = "2026-11-13"
 
 #: Each feed with its own whitelist; every other feed reads
 #: :data:`TAGS_OF_INTEREST`.
 _FEED_TAGS = {SHORE_FEED: SHORE_TAGS_OF_INTEREST,
-              PARKING_FEED: PARKING_TAGS_OF_INTEREST}
+              PARKING_FEED: PARKING_TAGS_OF_INTEREST,
+              FENCE_FEED: FENCE_TAGS_OF_INTEREST}
 
 #: The feeds written under a TAG WHITELIST — ``O4_Vector_Map``'s
 #: ``ROADS_TAGS_OF_INTEREST``.  The airports feed keeps ``["all"]`` and

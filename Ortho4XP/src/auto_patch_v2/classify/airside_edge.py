@@ -32,7 +32,7 @@ from ..law.tables import role_side
 from ..model.frame import rectangle_axes
 from .rules import Rules
 
-__all__ = ["airside_edge_flip"]
+__all__ = ["airside_edge_flip", "mapped_car_park"]
 
 
 #: §27 (owner RULINGS 2026-09-12c, Fable 12e): a face this thin — area
@@ -78,6 +78,16 @@ def _road_neck(evid: dict) -> bool:
     RULINGS 2026-11-11e (1a): HECA's crossing leg east of taxiway G)."""
     return bool(evid.get("arm_road") and evid.get("corridor_road_arm")
                 and (evid.get("neck_kind") == "neck" or evid.get("neck_road_beside")))
+
+
+def mapped_car_park(evid: dict, rules: Rules) -> bool:
+    """RULINGS 2026-11-13s (1) (#1338, #1854): a face whose verdict is LOT
+    by OSM car-park cover (``amenity=parking`` over at least ``[lot]
+    parking_cover_fraction`` of its source page) is a surveyed car park —
+    an airside edge does not make it apron (12c's own case, LEMD shape 81,
+    carries no ``amenity=parking``)."""
+    return evid.get("source_class") == "lot" and \
+        float(evid.get("source_parking_cover", 0.0)) >= float(rules.lot.parking_cover_fraction)
 
 
 def _strip_axis_width(poly: Polygon,
@@ -272,7 +282,7 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
                        air: list[tuple[Polygon, bool]], weld_m: float,
                        factor: float, cache: dict | None = None,
                        roads: _Roads | None = None, storey=None,
-                       across: list | None = None) -> float:
+                       across: list | None = None, fences=None) -> float:
     """Metres of ``face``'s boundary running LATERALLY along airside
     pavement, measured WELD-TOLERANT at ``emit.identity.weld_spacing_m``.
 
@@ -290,6 +300,10 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
     footprints of pack parts authored a storey above their unit's airside
     floor (``airport.unit_storey``), widened by the weld — is dropped, and
     appended to ``across`` when one is handed in.
+
+    A contact a FENCE RUNS ALONG is no apron contact either (owner RULINGS
+    2026-11-13s (2): "never airside on both sides of a fence"): its run
+    inside ``fences`` (``fence_division.fence_band``) is dropped.
     """
     lateral = []
     for j in tree.query(face.buffer(weld_m), predicate="intersects"):
@@ -300,6 +314,10 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
         if _is_mouth(face, other, contact, factor, face_is_road,
                      other_is_road, cache, roads):
             continue
+        if fences is not None:
+            contact = contact.difference(fences)
+            if contact.is_empty:
+                continue
         if storey is not None:
             if across is not None:
                 across.append(contact.intersection(storey))
@@ -331,7 +349,7 @@ def airside_edge_flip(final: list[list], cells, law: Law,
                        rules: Rules, roads=(),
                        road_class: _t.AbstractSet[int] | None = None,
                        storey=None, storey_cuts: dict | None = None,
-                       to_xy=None) -> tuple[int, int]:
+                       to_xy=None, fences=None) -> tuple[int, int]:
     """§27 AN AIRSIDE EDGE MAKES A LOT AIRSIDE (owner RULINGS 2026-09-12c:
     "shapeID 81 ... cannot be groundside because it shares a long edge
     with an apron. Something can only be groundside if it has no
@@ -381,6 +399,11 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     ``storey_edge.STOREY_M_KEY`` / ``STOREY_Y_KEY`` (the storey's rise,
     read through ``to_xy``), and its run lands in ``storey_cuts`` (face
     index -> run) for ``storey_edge.knife_storeys``.
+
+    RULINGS 2026-11-13s: a MAPPED CAR PARK (``mapped_car_park``) never
+    flips, and ``fences`` (``fence_division.fence_band``), when given, is
+    the ground fences run along: a contact's run inside it is no apron
+    contact, so airside never crosses a fence.
     """
     min_m = float(rules.lot.airside_edge_min_m)
     frac = float(rules.lot.road_airside_edge_frac)
@@ -420,12 +443,13 @@ def airside_edge_flip(final: list[list], cells, law: Law,
             per = face.length
             if per <= 0.0 or face.area / per < _LOT_SLIVER_RADIUS_M:
                 continue
-            if _road_neck(evid):
+            if _road_neck(evid) or mapped_car_park(evid, rules):
                 continue
             across: list = []
             shared = _lateral_airside_m(face, was_road[i], tree, air, weld_m,
                                         factor, cache, road_ctx,
-                                        None if storey is None else storey.geom, across)
+                                        None if storey is None else storey.geom, across,
+                                        fences)
             if shared < min_m:
                 run = unary_union(across) if across else None
                 if run is not None and run.length >= min_m:

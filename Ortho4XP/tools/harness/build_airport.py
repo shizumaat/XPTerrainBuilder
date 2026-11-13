@@ -2546,7 +2546,8 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
 # --refresh-data parking, #1854): scope -> what an empty answer is not.
 # The feed itself is the engine's ``O4_Vector_Map.TILE_FEEDS[scope]``.
 TILE_FEED_SCOPES = {"shore": "an empty coast",
-                    "parking": "a tile with no car park"}
+                    "parking": "a tile with no car park",
+                    "fences": "a tile with no mapped fence"}
 
 
 def refresh_tile_feed(root, lat, lon, prog, scope) -> dict:
@@ -5666,7 +5667,7 @@ def main(argv=None) -> int:
     seed_summary = None
     osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
     shore_refresh_summary = rings_refresh_summary = None
-    parking_refresh_summary = None
+    parking_refresh_summary = fences_refresh_summary = None
     runway_refs_summary = None
     mod_cache_refresh_summary = None
     t0 = time.time()
@@ -5734,6 +5735,10 @@ def main(argv=None) -> int:
             with guard:
                 parking_refresh_summary = refresh_tile_feed(
                     root, lat, lon, prog, "parking")
+        if "fences" in requested and lat is not None:
+            with guard:
+                fences_refresh_summary = refresh_tile_feed(
+                    root, lat, lon, prog, "fences")
         # THE RUNWAY-END CROSS-CHECK CACHE (#1342): global, not per tile —
         # independent of every pass around it
         if "runway_refs" in requested:
@@ -5806,6 +5811,7 @@ def main(argv=None) -> int:
                       "refresh_dem": dem_refresh_summary,
                       "refresh_shore": shore_refresh_summary,
                       "refresh_parking": parking_refresh_summary,
+                      "refresh_fences": fences_refresh_summary,
                       "refresh_runway_refs": runway_refs_summary,
                       "refresh_rings": rings_refresh_summary,
                       "refresh_airport_mod_cache": mod_cache_refresh_summary,
@@ -5916,6 +5922,7 @@ def main(argv=None) -> int:
     frame["refresh_dem"] = dem_refresh_summary
     frame["refresh_shore"] = shore_refresh_summary
     frame["refresh_parking"] = parking_refresh_summary
+    frame["refresh_fences"] = fences_refresh_summary
     frame["refresh_rings"] = rings_refresh_summary
     frame["reconcile_ledger"] = reconcile_summary
     frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)

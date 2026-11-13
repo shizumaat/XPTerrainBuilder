@@ -93,6 +93,10 @@ REFRESH_SCOPES = (
      "the per-tile PARKING feed (amenity=parking areas) the classifier's "
      "[lot] parking_cover_fraction rung reads — an overpass download, "
      "filled by --refresh-data parking (#1854), never by a harness build"),
+    ("fences", "OSM_data",
+     "the per-tile FENCE feed (barrier=fence/wall ways) the classifier's "
+     "fence division reads (RULINGS 2026-11-13s) — an overpass download, "
+     "filled by --refresh-data fences, never by a harness build"),
     # BEFORE ``dem``: ``scope_of`` takes the first matching prefix, and
     # a 7 GB point-cloud download is its own act (spec
     # las-tile-lidar-provider-spec.md §2, #130).  The airport inset
@@ -181,6 +185,7 @@ SUFFIX_SCOPES = (
     ("shore", "OSM_data/", ("_shore_structures.osm.bz2",
                             "_shore_structures.osm.bz2.lock")),
     ("parking", "OSM_data/", ("_parking.osm.bz2", "_parking.osm.bz2.lock")),
+    ("fences", "OSM_data/", ("_fences.osm.bz2", "_fences.osm.bz2.lock")),
 )
 
 #: The ring cache directory suffix, QUOTED from the engine's own

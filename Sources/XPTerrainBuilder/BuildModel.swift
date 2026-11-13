@@ -279,8 +279,6 @@ final class BuildModel: ObservableObject {
     @AppStorage("OrthoSkipBuilt") var skipBuilt: Bool = true
     /// Install finished tiles into Custom Scenery automatically.
     @AppStorage("OrthoLinkTiles") var linkTiles: Bool = true
-    /// An explicit rebuild is choosing its tiles (BuildModel+OnDemandBuild).
-    var rebuildRequested = false
 
     // MARK: Engine state
 
@@ -1472,7 +1470,7 @@ final class BuildModel: ObservableObject {
         guard !coords.isEmpty else { return }
         selected = Set(coords)
         activeTile = coords.sorted().first
-        asRebuild { startBuild() }
+        startBuild()
     }
 
     // MARK: - Reanchor status (auto-patch object reseating)
@@ -1643,11 +1641,17 @@ final class BuildModel: ObservableObject {
 
     /// Tiles the next Build press would actually build.
     var buildableSelection: [TileCoord] {
-        let inRun = selectedInRun
-        return selected.sorted().filter { coord in
-            guard !inRun.contains(coord) else { return false }
-            return !skipsBuiltTiles || built[coord]?.dsfPresent != true
-        }
+        Self.buildable(selected: selected, inRun: selectedInRun,
+                       builtWithDSF: skipsBuiltTiles ? Set(selected.filter { built[$0]?.dsfPresent == true }) : [])
+    }
+
+    /// The selected tiles a Build or Queue press hands the engine, sorted:
+    /// none already queued or building in the run, none the Skip switch
+    /// leaves out (`skipped`: built tiles, empty when nothing is skipped).
+    /// Every other selected tile, a run going or not (#2043).
+    nonisolated static func buildable(selected: Set<TileCoord>, inRun: Set<TileCoord>,
+                                      builtWithDSF skipped: Set<TileCoord>) -> [TileCoord] {
+        selected.subtracting(inRun).subtracting(skipped).sorted()
     }
 
     /// Why a build cannot start for want of X-Plane data, or `nil`.

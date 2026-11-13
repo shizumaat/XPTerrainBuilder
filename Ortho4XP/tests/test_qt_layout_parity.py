@@ -929,22 +929,22 @@ def test_on_demand_hides_the_same_rows_in_both_apps(window):
     QTONDEMAND_BUILD.apply(window, True)
     assert not any(getattr(window, a).isVisible() for a in QTONDEMAND_BUILD.HIDDEN)
     assert QTONDEMAND_BUILD.installs(window)
-    assert QTONDEMAND_BUILD.skips_built(window)
-    assert not QTONDEMAND_BUILD.skips_built(window, rebuild=True)
+    # Skip behaves as OFF under on demand (#2043): every selected tile builds.
+    window.chk_skip_built.setChecked(True)
+    assert not QTONDEMAND_BUILD.skips_built(window)
     QTONDEMAND_BUILD.apply(window, False)
     assert all(getattr(window, a).isVisible() for a in QTONDEMAND_BUILD.HIDDEN)
+    window.chk_auto_install.setChecked(False)
     assert not QTONDEMAND_BUILD.installs(window)
+    assert QTONDEMAND_BUILD.skips_built(window)
+    window.chk_skip_built.setChecked(False)
     assert not QTONDEMAND_BUILD.skips_built(window)
-    window.chk_skip_built.setChecked(True)
-    assert QTONDEMAND_BUILD.skips_built(window, rebuild=True)
 
 
-def test_on_demand_rebuild_hint_is_the_macs():
-    import O4_Qt_Build_OnDemand as QTONDEMAND_BUILD
-
+def test_on_demand_skip_rule_is_the_macs():
+    """#2043: one rule in both apps -- only the visible switch skips."""
     swift = (SWIFT / "BuildModel+OnDemandBuild.swift").read_text(encoding="utf-8")
-    said = re.search(r'static let onDemandRebuildHint = "([^"]+)"', swift)
-    assert said and said.group(1) == QTONDEMAND_BUILD.REBUILD_HINT
+    assert "!onDemand && skipSwitch" in swift
 
 
 # ─── the two modes (RULINGS 2026-11-11k, spec §14) ─────────────────────────

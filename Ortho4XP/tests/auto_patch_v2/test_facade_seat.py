@@ -88,9 +88,10 @@ def test_lowered_copy_moves_every_height_and_carries_the_mark():
     g = next(ln.split() for ln in lines if ln.startswith("ATTACH_GRADED"))
     d = next(ln.split() for ln in lines if ln.startswith("ATTACH_DRAPED"))
     assert float(g[3]) == pytest.approx(-1.1) and d[3] == "0.0"
-    # the copy is still a graded mesh facade, its feet moved by the drop
-    feet = dict(FS._facade_base(out).feet)
-    assert feet[-7.3] == pytest.approx(-1.76) and feet[13.6] == pytest.approx(-2.08)
+    # the copy is still a graded mesh facade: its base is the SAME feet,
+    # moved by the drop — the crest it brought under 0 is not base
+    assert FS._facade_base(out).feet == ((-7.3, pytest.approx(-1.76)),
+                                         (13.6, pytest.approx(-2.08)))
     a = FS._variant_resource("Objects/see.fac", EMBANKMENT, -1.6)
     assert a.startswith("Objects/see__g_") and a.endswith(".fac")
     assert a == FS._variant_resource("Objects/see.fac", EMBANKMENT, -1.6)

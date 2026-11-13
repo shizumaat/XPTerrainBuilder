@@ -38,6 +38,7 @@ import dataclasses as _dc
 import hashlib
 import math
 import os
+import re
 import typing as _t
 
 from ..model.placement import CUT_MARK, FacadeSeat
@@ -107,11 +108,26 @@ def _segments_meshed(lines: _t.Sequence[str]) -> bool:
     return not (open_seg and not meshed)
 
 
+#: The words :func:`_lowered_text` writes after ``CUT_MARK``: a copy's
+#: AUTHORED ground line is its drop, read back from them.
+_LOWERED = re.compile(r"graded facade lowered ([+-]?\d+(?:\.\d+)?) m")
+
+
+def _ground_line(lines: _t.Sequence[str]) -> float:
+    """The authored ground line in the file's frame: ``0``, or a lowered
+    copy's drop (its crest must not read as base once it is under ``0``)."""
+    for raw in lines[3:5]:
+        m = _LOWERED.search(raw) if raw.startswith(CUT_MARK) else None
+        if m:
+            return float(m.group(1))
+    return 0.0
+
+
 def _facade_base(text: str) -> _FacadeBase | None:
     """The authored base of a ``.fac``'s text, or ``None`` when no file edit
     can lower it (module doc): not a v1000 ``GRADED`` facade, a segment
     with no ``MESH``, a roof (``ROOF_HEIGHT`` > 0, ``ROOF_OBJ``), or no
-    vertex at or below the ground line."""
+    vertex at or below the ground line (``0``; a lowered copy's: its drop)."""
     lines = text.splitlines()
     try:
         if int(lines[1].split()[0]) < 1000 or lines[2].split()[0] != "FACADE":
@@ -120,7 +136,7 @@ def _facade_base(text: str) -> _FacadeBase | None:
         return None
     if not _segments_meshed(lines[3:]):
         return None
-    graded, ring = False, True
+    graded, ring, ground = False, True, _ground_line(lines)
     best: dict[int, tuple[float, float]] = {}
     for raw in lines[3:]:
         t = raw.split()
@@ -132,7 +148,7 @@ def _facade_base(text: str) -> _FacadeBase | None:
         elif k.startswith("ROOF_OBJ") or (k == "ROOF_HEIGHT" and len(t) > 1
                                           and float(t[1]) > 0.0):
             return None
-        elif k == "VERTEX" and len(t) >= 4 and float(t[2]) <= 1e-6:
+        elif k == "VERTEX" and len(t) >= 4 and float(t[2]) <= ground + 1e-6:
             x, y = float(t[1]), float(t[2])
             b = int(math.floor(x / X_BUCKET_M))
             if b not in best or y > best[b][1]:

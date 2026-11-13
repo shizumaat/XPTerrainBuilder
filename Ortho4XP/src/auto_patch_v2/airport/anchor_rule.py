@@ -65,7 +65,7 @@ from ..model.placement import TOL_DEG as _TOL_DEG
 
 __all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
            "anchor_for", "roof_on_posts", "datum_of", "keep_off_row", "rim_of", "ring_of_part", "rim_anchor_point",
-           "pad_majority", "fold_pad_ref", "pad_contains", "all_on_water",
+           "pad_majority", "fold_pad_ref", "pad_contains",
            "water_level_under", "hangs_over_water", "box_points",
            "BUILDING", "SKIRTED", "BASIN", "LINE_SEGMENT", "DECK", "PLATE_ONLY", "OTHER"]
 
@@ -1056,7 +1056,7 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     return a
 
 
-def all_on_water(feet: _t.Sequence[tuple], surface: Surface) -> bool:
+def _all_on_water(feet: _t.Sequence[tuple], surface: Surface) -> bool:
     """Does EVERY foot ``(lat, lon, ...)`` stand on DRAWN WATER (the water
     bit riding the surface callable as ``surface.water``, R12 amendment 1)?
     A surface without the bit, no foot, or a foot off every face is no
@@ -1186,7 +1186,7 @@ def _wet_body_anchor(body_class: BodyClass, geom: BodyGeometry,
     if water is None or authored_agl_m is None:
         return None
     feet = [f for _la, _lo, _by, fs in geom.parts for f in fs or ()]
-    if not all_on_water(feet, surface):
+    if not _all_on_water(feet, surface):
         return None
     z = surface(geom.origin_lat, geom.origin_lon)
     if z is None or water(geom.origin_lat, geom.origin_lon):

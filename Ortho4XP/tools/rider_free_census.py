@@ -31,6 +31,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tools"))
 
+import O4_Console_Encoding as _o4console  # noqa: E402
+
+_o4console.configure_console_streams()
 from auto_patch_v2.airport import footprint_unit as fu  # noqa: E402
 from auto_patch_v2.law import Law  # noqa: E402
 

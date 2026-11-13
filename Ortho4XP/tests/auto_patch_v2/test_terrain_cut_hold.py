@@ -181,7 +181,7 @@ def test_the_box_weight_raises_the_inset_cells():
 def test_the_hold_weight_reads_the_raster_posting():
     dem = types.SimpleNamespace(x0=0.0, x1=1.0, y0=0.0, y1=1.0, nxdem=10801, nydem=10801)
     tile = types.SimpleNamespace(lat=-23, lon=-44, curvature_tol=2.0, dem=dem)
-    w = MESH.hold_curv_weight(tile)
+    w = MESH._hold_curv_weight(tile)
     assert 39.0 < w < 42.0
 
 

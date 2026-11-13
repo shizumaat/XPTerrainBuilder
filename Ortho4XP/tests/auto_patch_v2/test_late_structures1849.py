@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import dataclasses as _dc
 
-from shapely.geometry import box
-
 from auto_patch_v2.model.planar import GAP_PREFIX, ROAD_REACH_KEY
 from auto_patch_v2.pipeline.stage_one_map import gap_free
-from auto_patch_v2.planar.structure_approach import (cover_polygons, cut_gap_cells,
-                                                     standing_cover)
+from auto_patch_v2.planar.structure_approach import cover_polygons, cut_gap_cells, standing_cover
+from shapely.geometry import box
 
 
 @_dc.dataclass(frozen=True)

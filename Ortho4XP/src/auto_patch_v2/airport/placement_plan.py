@@ -229,7 +229,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # (``split_guard.on_tile``).  ``None`` disarms
                  tile_box: "tuple[float, float, float, float] | None" = None,
                  # #1908: ``free_column.law_of([placement])``; ``None`` disarms
-                 free_column: "_fcol.ColumnLaw | None" = None
+                 free_column: "_fcol._ColumnLaw | None" = None
                  ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e

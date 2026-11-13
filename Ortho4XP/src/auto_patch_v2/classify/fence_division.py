@@ -30,7 +30,7 @@ runs along none of it.  Three readers:
   whose pieces all ended in one role, so a fence changes no geometry where
   it divides nothing;
 * §27 (``airside_edge.airside_edge_flip``) drops the run of a contact a
-  fence runs along (:class:`FenceBand`) — airside never propagates across
+  fence runs along (:class:`_FenceBand`) — airside never propagates across
   a fence;
 * :func:`airside_both_sides` is the DEFECT CHECK: a fence station whose
   probes either side (``[edge_lines] step_probe_m`` off the line) both land
@@ -52,7 +52,7 @@ from ..law.tables import role_side
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["FenceBand", "fence_lines", "fence_band", "born_airside_pages",
+__all__ = ["fence_lines", "fence_band", "born_airside_pages",
            "split_at_fences", "rejoin_unsplit", "airside_both_sides"]
 
 
@@ -72,7 +72,7 @@ def _unit(ax: float, ay: float, bx: float, by: float) -> tuple[float, float] | N
     return None if n <= 0.0 else ((bx - ax) / n, (by - ay) / n)
 
 
-class FenceBand:
+class _FenceBand:
     """The fences of an airport as §27 reads them: :meth:`along` is the
     part of a contact a fence RUNS ALONG (module doc)."""
 
@@ -109,14 +109,14 @@ class FenceBand:
         return unary_union(keep) if keep else None
 
 
-def fence_band(lines: _t.Sequence[tuple[str, LineString]], rules: Rules) -> FenceBand | None:
-    """The :class:`FenceBand` of ``lines`` (reach ``[edge_lines]
+def fence_band(lines: _t.Sequence[tuple[str, LineString]], rules: Rules) -> _FenceBand | None:
+    """The :class:`_FenceBand` of ``lines`` (reach ``[edge_lines]
     host_reach_m``, angle §27's ``_MOUTH_TRANSVERSE_DEG``); ``None`` with
     no fence."""
     if not lines:
         return None
     from .airside_edge import _MOUTH_TRANSVERSE_DEG
-    return FenceBand([ln for _i, ln in lines], rules.edge_lines.host_reach_m,
+    return _FenceBand([ln for _i, ln in lines], rules.edge_lines.host_reach_m,
                      _MOUTH_TRANSVERSE_DEG)
 
 

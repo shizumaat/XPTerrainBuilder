@@ -11,12 +11,11 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Vector_Map as VMAP  # noqa: E402
-from auto_patch import selection as SELECTION  # noqa: E402
+import pytest  # noqa: E402
 from auto_patch import build_support as BS  # noqa: E402
+from auto_patch import selection as SELECTION  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 from o4_engine import jsonl  # noqa: E402
 from o4_engine import patch_commands as PC  # noqa: E402
@@ -259,6 +258,7 @@ def test_a_view_command_is_answered_while_the_loop_is_busy(patches, monkeypatch)
     while a loop command waits for it (without the view lane the loop
     command times out first and the listing replies after it)."""
     import threading
+
     from o4_engine import view_lane
     path = os.path.join(patches, "LXYZ.patch.osm")
     with open(path, "w", encoding="utf-8", newline="\n") as f:

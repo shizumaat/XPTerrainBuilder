@@ -557,7 +557,7 @@ def apply_inset_box_curv_weights(tile, weight_array, inset_boxes):
 HOLD_STEP_M = 0.5
 
 
-def hold_curv_weight(tile):
+def _hold_curv_weight(tile):
     """The weight over a held plan (above): from the tile raster's own
     posting (the geometric mean of its two spacings, Triangle4XP's floor)."""
     dem = tile.dem
@@ -575,7 +575,7 @@ def _apply_hold_curv_weights(tile, weight_array):
         boxes = TERRAIN_CUT.held_boxes(tile)
         if not boxes:
             return 0
-        weight = hold_curv_weight(tile)
+        weight = _hold_curv_weight(tile)
         raised = sum(_raise_box_curv_weight(tile, weight_array, b, weight) for b in boxes)
     except Exception as error:
         UI.vprint(1, "   WARNING: the hold's weight boxes unreadable:", str(error))

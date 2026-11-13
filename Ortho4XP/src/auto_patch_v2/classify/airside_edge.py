@@ -303,7 +303,7 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
 
     A contact a FENCE RUNS ALONG is no apron contact either (owner RULINGS
     2026-11-13s (2): "never airside on both sides of a fence"): its run
-    ``fences.along`` reads (``fence_division.FenceBand``) is dropped.
+    ``fences.along`` reads (``fence_division._FenceBand``) is dropped.
     """
     lateral = []
     for j in tree.query(face.buffer(weld_m), predicate="intersects"):
@@ -402,7 +402,7 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     index -> run) for ``storey_edge.knife_storeys``.
 
     RULINGS 2026-11-13s: a MAPPED CAR PARK (``mapped_car_park``) never
-    flips, and ``fences`` (``fence_division.FenceBand``), when given, are
+    flips, and ``fences`` (``fence_division._FenceBand``), when given, are
     the fences: a contact's run a fence runs along is no apron contact, so
     airside never crosses a fence.
     """

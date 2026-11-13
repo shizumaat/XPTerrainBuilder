@@ -13,17 +13,15 @@ import math
 import os
 
 import pytest
-
 from auto_patch_v2.airport import anchor_rule as AR
 from auto_patch_v2.airport import free_column as FC
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport import placement_plan as PP
 from auto_patch_v2.model.rebake import Member, Part, RebakePlan, Unit
-
 from test_v2objsplit import _box, _write_obj  # noqa: E402
 
 LAT, LON = 40.0, -3.0
-LAW = FC.ColumnLaw(min_h_m=2.0, max_w_m=2.0, aspect=3.0, clear_m=0.5)
+LAW = FC._ColumnLaw(min_h_m=2.0, max_w_m=2.0, aspect=3.0, clear_m=0.5)
 ARGS = dict(split_tol_m=0.3, elevated_base_m=0.5, bind_ground_m=0.5,
             coarsen_reach_m=100.0)
 

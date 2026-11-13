@@ -69,7 +69,7 @@ from . import placement_boxes as _pb
 from .placement_body import _plan_box_span_m
 from .placement_file import OWN_GROUND as _OWN_GROUND
 
-__all__ = ["ColumnLaw", "law_of", "PartIndex", "free_columns",
+__all__ = ["law_of", "PartIndex", "free_columns",
            "fallback_only", "FREE_COLUMN"]
 
 #: the anchor reason's mark, read by the census instruments.  The reason
@@ -84,7 +84,7 @@ _BELOW_TOL_M = 0.05
 
 
 @_dc.dataclass(frozen=True)
-class ColumnLaw:
+class _ColumnLaw:
     """``[placement] free_column_*`` (module doc)."""
 
     min_h_m: float
@@ -95,13 +95,13 @@ class ColumnLaw:
     min_share: float = 0.0
 
 
-def law_of(placement: _t.Any) -> "ColumnLaw | None":
+def law_of(placement: _t.Any) -> "_ColumnLaw | None":
     """The column law of a ``[placement]`` table, ``None`` (disarmed)
     where ``free_column_min_h_m`` is absent or not positive."""
     h = float(getattr(placement, "free_column_min_h_m", 0.0) or 0.0)
     if h <= 0.0:
         return None
-    return ColumnLaw(h, float(placement.free_column_max_w_m),
+    return _ColumnLaw(h, float(placement.free_column_max_w_m),
                      float(placement.free_column_aspect),
                      float(placement.free_column_clear_m),
                      int(placement.free_column_min_count),
@@ -138,7 +138,7 @@ class PartIndex:
         return bool((near & (~mine | below)).any())
 
 
-def _column_of(parts: _t.Sequence[_t.Any], law: ColumnLaw) -> _t.Any:
+def _column_of(parts: _t.Sequence[_t.Any], law: _ColumnLaw) -> _t.Any:
     """The body's one COLUMN foot, or ``None`` (module doc, the first two
     tests).  A plan written before ``Part.height_m`` reads no column."""
     if not parts:
@@ -155,7 +155,7 @@ def _column_of(parts: _t.Sequence[_t.Any], law: ColumnLaw) -> _t.Any:
     return low
 
 
-def free_columns(st: _t.Any, ui: int, index: PartIndex, law: ColumnLaw,
+def free_columns(st: _t.Any, ui: int, index: PartIndex, law: _ColumnLaw,
                  surface: _ar.Surface, elevated_base_m: float) -> dict[int, tuple]:
     """The elevated raw bodies of ``st`` (a ``placement_record.Staged``)
     that are free-standing columns, each with its seat

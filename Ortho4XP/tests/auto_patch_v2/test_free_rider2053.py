@@ -15,7 +15,6 @@ from __future__ import annotations
 import types
 
 import pytest
-
 from auto_patch_v2.airport import footprint_unit as FU
 from auto_patch_v2.airport import rider_floor as RF
 from auto_patch_v2.airport.contents import _poly

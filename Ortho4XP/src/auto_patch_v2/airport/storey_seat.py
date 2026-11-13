@@ -33,6 +33,7 @@ def rigid_rows(shell: _t.Any, objects: _t.Sequence[_t.Any], touch_m: float,
     id.  A frame's plan is its SOLIDS' covered plan (``cache``, closed by
     ``close_m``: ``split_level``'s reading), else its rows' plan boxes."""
     from shapely.geometry import Polygon
+
     from .split_level import _families
     plan = Polygon(shell.plan).buffer(float(touch_m))
     own = set(str(m) for m in shell.member_ids)
@@ -54,6 +55,7 @@ def _solid_plan(fam: _t.Sequence[_t.Any], cache: _t.Any, close_m: float):
     """The frame's solids' covered plan in the airport frame (every part:
     ``split_level._covered_parts``), or ``None``."""
     from shapely import affinity
+
     from . import obj8 as _obj8
     from .split_level import _covered_parts, _solids
     got = _solids(fam, cache)

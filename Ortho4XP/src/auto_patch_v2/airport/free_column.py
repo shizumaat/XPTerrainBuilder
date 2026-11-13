@@ -53,8 +53,9 @@ import numpy as np
 
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
+from .placement_body import _plan_box_span_m
 
-__all__ = ["ColumnLaw", "law_of", "PartIndex", "column_of", "free_columns",
+__all__ = ["ColumnLaw", "law_of", "PartIndex", "free_columns",
            "fallback_only", "alone", "FREE_COLUMN"]
 
 #: the anchor reason's stem, read by the census instruments
@@ -115,12 +116,7 @@ class PartIndex:
         return bool((near & (~mine | below)).any())
 
 
-def _width_m(box: _t.Sequence[float]) -> float:
-    ml, mo = _ar._m_per_deg(0.5 * (box[0] + box[2]))
-    return max((box[2] - box[0]) * ml, (box[3] - box[1]) * mo)
-
-
-def column_of(parts: _t.Sequence[_t.Any], law: ColumnLaw) -> _t.Any:
+def _column_of(parts: _t.Sequence[_t.Any], law: ColumnLaw) -> _t.Any:
     """The body's one COLUMN foot, or ``None`` (module doc, the first two
     tests).  A plan written before ``Part.height_m`` reads no column."""
     if not parts:
@@ -129,7 +125,7 @@ def column_of(parts: _t.Sequence[_t.Any], law: ColumnLaw) -> _t.Any:
     h = float(getattr(low, "height_m", 0.0) or 0.0)
     if not getattr(low, "box", None) or h < law.min_h_m:
         return None
-    w = _width_m(low.box)
+    w = _plan_box_span_m(low.box)
     if w > law.max_w_m or h < law.aspect * w:
         return None
     if any(p is not low and p.base_y < low.base_y + law.min_h_m for p in parts):
@@ -148,7 +144,7 @@ def free_columns(st: _t.Any, ui: int, index: PartIndex, law: ColumnLaw,
         r = st.raw[i]
         if r[5]:                       # a cut segment is a footed line's
             continue
-        col = column_of(r[0], law)
+        col = _column_of(r[0], law)
         if col is None or col.base_y <= elevated_base_m:
             continue
         if index.hosts(col, ui, {p.pid for p in r[0]}, law.clear_m):

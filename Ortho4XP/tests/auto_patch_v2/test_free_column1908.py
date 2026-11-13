@@ -88,14 +88,14 @@ def test_column_of_reads_a_tall_thin_lowest_part():
                 height_m=6.83)
     bar = Part(pid=2, comp=2, lat=LAT, lon=LON, base_y=11.2, area_m2=8.0, box=box,
                height_m=0.1)
-    assert FC.column_of([bar, mast], LAW) is mast
+    assert FC._column_of([bar, mast], LAW) is mast
     wide = Part(pid=3, comp=3, lat=LAT, lon=LON, base_y=4.44, area_m2=36.0,
                 box=(LAT, LON, LAT + 6 / ml, LON + 6 / mo), height_m=6.83)
-    assert FC.column_of([wide], LAW) is None                  # a block, not a mast
+    assert FC._column_of([wide], LAW) is None                  # a block, not a mast
     leg2 = Part(pid=4, comp=4, lat=LAT, lon=LON, base_y=4.6, area_m2=1.0, box=box,
                 height_m=6.6)
-    assert FC.column_of([mast, leg2], LAW) is None            # a gantry: two legs
-    assert FC.column_of([Part(pid=5, comp=5, lat=LAT, lon=LON, base_y=4.4, area_m2=1.0,
+    assert FC._column_of([mast, leg2], LAW) is None            # a gantry: two legs
+    assert FC._column_of([Part(pid=5, comp=5, lat=LAT, lon=LON, base_y=4.4, area_m2=1.0,
                               box=box)], LAW) is None          # no height: a pre-field plan
 
 

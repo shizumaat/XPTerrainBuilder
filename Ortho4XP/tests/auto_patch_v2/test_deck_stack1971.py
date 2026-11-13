@@ -235,11 +235,16 @@ def test_t4_nothing_below_grade_never_mints_a_stack(tmp_path, case):
 
 
 def test_t5_a_spanning_deck_off_the_floor_is_no_member(tmp_path):
+    """Anchored on the walls' cap (3 m off the floor) the deck is read and
+    named; 30 m off it never passes the screen (a member stands inside the
+    walls' own plan) — either way no stack."""
     notes: list[str] = []
-    objs = _objects(tmp_path, upper=False, l_xy=(20.0, 0.0), l_h=90.0)
+    objs = _objects(tmp_path, upper=False, l_xy=(9.0, 30.0), l_h=90.0)
     a, _o, _c = _attach(tmp_path, objects=objs, notes=notes)
     assert a.deck_stacks == ()
     assert any("deck L spans the floor but is no member" in n for n in notes)
+    objs = _objects(tmp_path, upper=False, l_xy=(30.0, 0.0), l_h=90.0)
+    assert _attach(tmp_path, objects=objs)[0].deck_stacks == ()
 
 
 def test_t6_the_arched_decks_end_top_is_the_plate_on_its_end_edge(tmp_path):
@@ -401,3 +406,11 @@ def test_t16_the_sidecar_floor_record_carries_the_stack(tmp_path):
     assert {d["object"] for d in st["decks"]} == {"L", "U"} and st["levels"] == 2
     assert all(len(d["ends"]) == 2 and d["ends"][0]["stations"] for d in st["decks"])
     assert st["floor_line"] and len(st["rim"]) == 2
+
+
+def test_the_stack_floor_refs_are_the_object_floors():
+    """The stack floor IS an object floor: its face and void-band refs are
+    ``airport/object_floor``'s prefixes (the model holds them so the
+    constraints do not import the floor reader)."""
+    from auto_patch_v2.model import deck_stack as MDS
+    assert (MDS.FLOOR_FACE_PREFIX, MDS.FLOOR_WALL_PREFIX) == (FLOOR_REF, FLOOR_WALL_REF)

@@ -18,12 +18,19 @@ import dataclasses as _dc
 
 from .frame import XY
 
-__all__ = ["StackDeck", "DeckStack", "XY3", "STACK_PREFIX", "floor_level"]
+__all__ = ["StackDeck", "DeckStack", "XY3", "STACK_PREFIX", "FLOOR_FACE_PREFIX",
+           "FLOOR_WALL_PREFIX", "floor_level"]
 
 XY3 = tuple[float, float, float]
 
 #: ``DeckStack.id`` is this + the walls' placement id
 STACK_PREFIX = "stack:"
+#: the planar refs of a stack's floor face and its void band: the object
+#: floor's own (``airport/object_floor.FLOOR_REF`` / ``FLOOR_WALL_REF``, held
+#: equal by ``tests/auto_patch_v2/test_deck_stack1971.py``) + the stack id —
+#: the stack floor IS an object floor
+FLOOR_FACE_PREFIX = "object_floor:"
+FLOOR_WALL_PREFIX = "object_floor_wall:"
 
 
 def floor_level(zero_z: float, feet_y: float) -> float:
@@ -93,3 +100,40 @@ class DeckStack:
     def levels(self) -> int:
         """How many deck levels stand over the floor."""
         return max((d.level for d in self.decks), default=0)
+
+    @property
+    def floor_ref(self) -> str:
+        """The planar ref of the stack floor's cut face (and its object
+        floor's id)."""
+        return FLOOR_FACE_PREFIX + self.id
+
+    @property
+    def wall_ref(self) -> str:
+        """The planar ref of the void band around the floor."""
+        return FLOOR_WALL_PREFIX + self.id
+
+    def sidecar(self, to_ll) -> dict:
+        """The ``"stack"`` sub-record of the floor's sidecar row
+        (``pipeline/publication.object_floors``; ``tools/drawn_check``
+        reads it): the zero, the walls' feet and crest, the floor's
+        centreline and wall lines, and per deck its ring, level, carried
+        ways, plate floor and end lines (stations and the plate's top on
+        each), all as lat/lon."""
+        def ll(pts) -> list:
+            return [[round(la, 8), round(lo, 8)] for la, lo in (to_ll(x, y) for x, y in pts)]
+        n = len(self.floor) // 2
+        mid = [((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+               for a, b in zip(self.floor[:n], reversed(self.floor[n:]), strict=True)]
+        return {"id": self.id, "zero_m": round(self.zero_z, 3),
+                "spread_m": round(self.zero_spread_m, 3), "levels": self.levels,
+                "feet_y": round(self.feet_y, 3), "crest_y": round(self.crest_y, 3),
+                "members": [pid for pid, _r in self.members],
+                "floor_line": ll(mid), "rim": [ll(r) for r in self.rim],
+                "decks": [{"object": d.object_id, "resource": d.resource, "piece": d.piece,
+                           "level": d.level, "carried": list(d.carried), "ring": ll(d.ring),
+                           "plate_min_y": round(min((p[2] for t in d.plate for p in t),
+                                                    default=min(d.top_a, d.top_b)), 3),
+                           "ends": [{"end": e, "top": round(top, 3), "stations": ll(line)}
+                                    for e, line, top in (("a", d.end_a, d.top_a),
+                                                         ("b", d.end_b, d.top_b)) if line]}
+                          for d in self.decks]}

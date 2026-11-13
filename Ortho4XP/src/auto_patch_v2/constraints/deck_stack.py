@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..airport.object_floor import FLOOR_REF, FLOOR_WALL_REF
 from ..geom.lowest_face import floor_z_at
 from ..law import Law
 from ..law.tables import is_structure_role
@@ -88,7 +87,7 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     rxy = _xy(planar, roads)
     rows: list[Row] = []
     for st in stacks:
-        floor_vs = _ref_vertices(planar, FLOOR_REF + st.id)
+        floor_vs = _ref_vertices(planar, st.floor_ref)
         if not floor_vs:
             continue                    # the floor never entered the map
         z0 = float(st.zero_z)
@@ -114,7 +113,7 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             rows.append(Band(v, z - flush, z + flush, Source(GEN, RIGID, (st.id, oid, part))))
         # THE WALLS' TOP along the wall lines
         crest = z0 + float(st.crest_y)
-        band = sorted(_ref_vertices(planar, FLOOR_WALL_REF + st.id) - floor_vs)
+        band = sorted(_ref_vertices(planar, st.wall_ref) - floor_vs)
         if band and st.rim:
             bxy = _xy(planar, band)
             d_rim = np.min([_seg_dist(bxy, np.asarray(r, float)) for r in st.rim], axis=0)

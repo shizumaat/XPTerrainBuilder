@@ -13,6 +13,10 @@ question, never this module's.
 
 THE WITNESS (geometry, never a name):
 
+0. the walls stand ON the placement's zero: the lowest genuine solid
+   (``feet_y``) within ``plate_bin_m`` of it (§0: "walls that stand on
+   their own zero"; a trench hanging under its zero — LGAV's ``Trench_*``
+   — is the other readers');
 1. walls rising from the feet: genuine vertical faces (``|n_y| <
    [tunnel.object] plate_normal_y_min``) starting within ``plate_bin_m`` of
    the lowest genuine solid (``feet_y``) and rising at least
@@ -38,6 +42,7 @@ walls' convex hull (MEASURED KDEN: it flares to 69 m at the south end).
 from __future__ import annotations
 
 import dataclasses as _dc
+import functools
 import math
 
 import numpy as np
@@ -61,7 +66,28 @@ class StackWalls:
     feet_y: float
     crest_y: float
     segs: np.ndarray = _dc.field(repr=False, compare=False)
-    plan: object = _dc.field(repr=False, compare=False, default=None)
+    #: the crest plates' triangles in the frame, ``(n, 3, 2)``
+    crest_tris: np.ndarray = _dc.field(repr=False, compare=False, default=None)
+
+    @functools.cached_property
+    def plan(self):
+        """The crest plates' plan (frame)."""
+        import shapely
+        polys = shapely.polygons(self.crest_tris)
+        return shapely.union_all(polys[shapely.area(polys) > 1e-6])
+
+    @functools.cached_property
+    def hull(self) -> Polygon:
+        """The plan hull of the wall faces (the under-way's search region)."""
+        return MultiPoint(self.segs.reshape(-1, 2).tolist()).convex_hull
+
+    def crest_zone(self, reach: float):
+        """The crest plates grown by ``reach``, prepared (the cast's test)."""
+        got = self.__dict__.setdefault("_zones", {})
+        if reach not in got:
+            from shapely.prepared import prep
+            got[reach] = prep(self.plan.buffer(reach))
+        return got[reach]
 
 
 @_dc.dataclass(frozen=True)
@@ -124,13 +150,17 @@ def _authored(g: _obj8.ObjGeometry, comps, law) -> "tuple | str":
     ob = law.tables.structures.tunnel.object
     if not comps:
         return "no genuine solid"
+    feet = float(min(c.min_y for c in comps))
+    bin_m = float(ob.plate_bin_m)
+    if abs(feet) > bin_m:
+        # a floor-datum wall stands ON its zero; one hanging under it (or
+        # lifted over it) is the other trench readers' (they measure down)
+        return f"its feet stand {feet:+.2f} m off its zero"
     tris = np.concatenate([c.tris for c in comps])
     v = np.asarray(g.vertices[:, :3], float)
-    feet = float(min(c.min_y for c in comps))
     ny, plan = _normals(v, tris)
     ys = v[tris][:, :, 1]
     lo, hi = ys.min(axis=1), ys.max(axis=1)
-    bin_m = float(ob.plate_bin_m)
     vert = (ny < float(ob.plate_normal_y_min)) & (lo <= feet + bin_m) \
         & (hi - lo >= float(ob.edge_wall_min_skirt_m))
     if not vert.any():
@@ -172,25 +202,26 @@ def read_stack_walls(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law
         return got
     feet, crest, wall, top = got
     g = cache.geometry(o.resolved)
+    aff = _obj8.placement_affine(o.xy, o.heading_deg)
     v = np.asarray(g.vertices[:, :3], float)
-    segs = []
-    for t in wall:
-        pts = [_obj8._to_frame(o.xy, o.heading_deg, v[i, 0], v[i, 2]) for i in t]
-        a, b = max(((p, q) for p in pts for q in pts), key=lambda pq: math.dist(*pq))
-        if math.dist(a, b) > 0.02:
-            segs.append((a, b))
-    if not segs:
+    fx = aff[0] * v[:, 0] + aff[1] * v[:, 2] + aff[4]
+    fy = aff[2] * v[:, 0] + aff[3] * v[:, 2] + aff[5]
+    # each wall face's plan segment: its two plan-farthest corners
+    p = np.stack([fx[wall], fy[wall]], axis=-1)                     # (k, 3, 2)
+    d = np.stack([np.hypot(*(p[:, a] - p[:, b]).T) for a, b in ((0, 1), (1, 2), (0, 2))], axis=1)
+    pick = np.array(((0, 1), (1, 2), (0, 2)))[np.argmax(d, axis=1)]
+    rows = np.arange(len(p))
+    segs = np.stack([p[rows, pick[:, 0]], p[rows, pick[:, 1]]], axis=1)
+    segs = segs[d.max(axis=1) > 0.02]
+    if not len(segs):
         return "no wall face stands in plan"
-    import shapely
-    polys = shapely.polygons(np.array([[_obj8._to_frame(o.xy, o.heading_deg, v[i, 0], v[i, 2])
-                                         for i in t] for t in top]))
-    plan = shapely.union_all(polys[shapely.area(polys) > 1e-6])
-    return StackWalls(str(o.id), feet, crest, np.asarray(segs, float), plan)
+    return StackWalls(str(o.id), feet, crest, segs,
+                      np.stack([fx[top], fy[top]], axis=-1))
 
 
 def wall_hull(walls: StackWalls) -> Polygon:
     """The plan hull of the wall faces (the under-way's search region)."""
-    return MultiPoint(walls.segs.reshape(-1, 2).tolist()).convex_hull
+    return walls.hull
 
 
 def _tangent(route: LineString, s: float) -> XY:
@@ -229,8 +260,7 @@ def floor_between(walls: StackWalls, route: LineString, law) -> "FloorCast | str
     s0, s1 = max(0.0, min(ss)), min(route.length, max(ss))
     if s1 - s0 < float(ob.hull_min_length_m):
         return f"the route runs {s1 - s0:.1f} m beside the walls < hull_min_length_m"
-    from shapely.prepared import prep
-    crest = prep(walls.plan.buffer(float(ob.wall_face_max_thickness_m)))
+    crest = walls.crest_zone(float(ob.wall_face_max_thickness_m))
     n_st = max(1, int(math.floor((s1 - s0) / step)))
     stations = [s0 + k * (s1 - s0) / n_st for k in range(n_st + 1)]
     rows: list[tuple[float, XY, XY, float, float]] = []

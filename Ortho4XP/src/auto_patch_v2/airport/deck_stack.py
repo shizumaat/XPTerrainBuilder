@@ -43,7 +43,7 @@ from .deck_carry import Carry, bridge_stretches, carry_of
 from .stack_walls import StackWalls, floor_between, read_stack_walls, run_beside, wall_hull
 
 __all__ = ["deck_stacks", "stack_floors", "stack_shade", "rewrite_ways", "attach_stacks",
-           "log_line", "sidecar_record"]
+           "log_line"]
 
 XY = tuple[float, float]
 RouteOf = _t.Callable[[_t.Any], LineString]
@@ -115,14 +115,20 @@ class _Ctx:
         return r
 
 
-def _under_way(walls: StackWalls, ctx: _Ctx, law):
+def _under_way(walls: StackWalls, ctx: _Ctx, law, tries: int = 1):
     """``(way index, route, floor cast)`` of the route running furthest
-    beside ``walls`` with a floor between them, or a note."""
+    beside ``walls`` with a floor between them, or a note.  The ways are
+    ranked by their own length inside the walls' hull; the route of the
+    first (``tries``) is walked and the floor cast along it."""
     hull = wall_hull(walls)
-    cands = sorted(((run_beside(ctx.route(k), walls), k) for k in ctx.near(hull)), reverse=True)
+    floor_min = float(law.tables.structures.tunnel.object.hull_min_length_m)
+    own = sorted(((ctx.lines[k].intersection(hull).length, k) for k in ctx.near(hull)),
+                 reverse=True)[:tries]
+    cands = sorted(((run_beside(ctx.route(k), walls), k) for run, k in own if run > 0.0),
+                   reverse=True)
     why = "no mapped highway or railway runs in it"
     for run, k in cands:
-        if run < float(law.tables.structures.tunnel.object.hull_min_length_m):
+        if run < floor_min:
             break
         fc = floor_between(walls, ctx.route(k), law)
         if not isinstance(fc, str):
@@ -375,6 +381,27 @@ def _one(W, walls: StackWalls, ctx: _Ctx, anchors: _Anchors, cache, airport, law
         notes=tuple(n for n in notes if n.startswith(tag)))
 
 
+def _deck_inside(W, walls: StackWalls, decks_all: list, geoms: np.ndarray, dx: np.ndarray,
+                 dy: np.ndarray) -> list:
+    """The cheap screen before the floor cast: the hard decks reaching over
+    the walls' hull, and of them those that may be members — anchored inside
+    it at W's AGL (a member stands on the floor, which lies between the
+    walls).  ``[(deck, may be a member)]``."""
+    import shapely
+    hull = wall_hull(walls)
+    shapely.prepare(hull)
+    over = np.flatnonzero(shapely.intersects(hull, geoms))
+    if not len(over):
+        return []
+    inside = shapely.contains_xy(hull, dx[over], dy[over])
+    out = []
+    for k, ok in zip(over.tolist(), inside.tolist(), strict=True):
+        o = decks_all[k]
+        out.append((o, bool(ok) and o.kind == "OBJECT"
+                    and abs(float(o.agl_m) - float(W.agl_m)) <= 1e-3))
+    return out
+
+
 def deck_stacks(airport, objects, cache, law, route_of: RouteOf, taken: _t.Iterable[str] = ()
                 ) -> tuple[tuple[DeckStack, ...], list[str]]:
     """``(every deck stack, notes)`` (module doc).  ``route_of(way)``: the
@@ -388,6 +415,7 @@ def deck_stacks(airport, objects, cache, law, route_of: RouteOf, taken: _t.Itera
     if not decks_all:
         return (), notes
     used = {str(t) for t in taken}
+    tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
     tree = STRtree([d.hard_deck for d in decks_all])
     cand = [o for o in objects if o.kind == "OBJECT" and getattr(o, "plan_bbox", None) is not None]
     if not cand:
@@ -397,12 +425,29 @@ def deck_stacks(airport, objects, cache, law, route_of: RouteOf, taken: _t.Itera
     ctx: "_Ctx | None" = None
     anchors: "_Anchors | None" = None
     out: list[DeckStack] = []
+    # the cheapest screen first: a member deck stands anchored on the floor,
+    # inside W's own plan, at W's AGL
+    import shapely
+    dx = np.array([float(d.xy[0]) for d in decks_all])
+    dy = np.array([float(d.xy[1]) for d in decks_all])
+    dagl = np.array([float(d.agl_m) for d in decks_all])
+    dobj = np.array([d.kind == "OBJECT" for d in decks_all])
+    geoms = np.array([d.hard_deck for d in decks_all], dtype=object)
     for i in idx:
         W = cand[i]
         if str(W.id) in used:
             continue
+        on = dobj & (np.abs(dagl - float(W.agl_m)) <= 1e-3)
+        if not on.any() or not shapely.contains_xy(W.plan_bbox.buffer(tol), dx[on], dy[on]).any():
+            continue
         walls = read_stack_walls(W, cache, law)
         if isinstance(walls, str):
+            continue
+        over = _deck_inside(W, walls, decks_all, geoms, dx, dy)
+        if not any(ok for _o, ok in over):
+            notes.extend(f"{W.id} {str(W.path).rsplit('/', 1)[-1]}: deck {o.id} spans the "
+                         f"floor but is no member (anchored off the walls or at another AGL): "
+                         f"it keeps its reading" for o, _ok in over if o is not W)
             continue
         ctx = ctx or _Ctx(airport, route_of)
         anchors = anchors or _Anchors(objects)
@@ -442,7 +487,7 @@ def stack_floors(stacks: _t.Sequence[DeckStack], taken: _t.Iterable[str] = ()
     walls its object, the other members its covers, every member seated
     whole at the stack's zero.  A stack whose member an earlier floor
     reader claimed is left out, with a note."""
-    from .object_floor import FLOOR_REF, ObjectFloor
+    from .object_floor import ObjectFloor
     taken = {str(t) for t in taken}
     out, notes = [], []
     for st in stacks:
@@ -461,7 +506,7 @@ def stack_floors(stacks: _t.Sequence[DeckStack], taken: _t.Iterable[str] = ()
             notes.append(f"{st.id}: an empty floor — not cut")
             continue
         out.append(ObjectFloor(
-            FLOOR_REF + st.id, st.walls_id, st.walls_resource,
+            st.floor_ref, st.walls_id, st.walls_resource,
             tuple(pid for pid, _r in st.members if pid != st.walls_id),
             float(st.zero_z), float(fz), foot, np.asarray(faces, float),
             notes=st.notes, seats=tuple((pid, res, float(st.zero_z)) for pid, res in st.members),
@@ -469,9 +514,27 @@ def stack_floors(stacks: _t.Sequence[DeckStack], taken: _t.Iterable[str] = ()
     return out, notes
 
 
+def _solid_plan(o, cache):
+    """The plan of every genuine solid face of placement ``o`` (frame)."""
+    import shapely
+    comps = cache.genuine(o.resolved) if o.resolved else []
+    g = cache.geometry(o.resolved) if o.resolved else None
+    if not comps or g is None:
+        return None
+    v = np.asarray(g.vertices[:, :3], float)
+    tris = np.concatenate([c.tris for c in comps])
+    aff = _obj8.placement_affine(o.xy, o.heading_deg)
+    pts = v[tris][:, :, [0, 2]]
+    x = aff[0] * pts[..., 0] + aff[1] * pts[..., 1] + aff[4]
+    y = aff[2] * pts[..., 0] + aff[3] * pts[..., 1] + aff[5]
+    polys = shapely.polygons(np.stack([x, y], axis=-1))
+    return shapely.union_all(polys[shapely.area(polys) > 1e-6])
+
+
 def stack_shade(stacks: _t.Sequence[DeckStack], objects, cache, law):
-    """The planar region no pad takes (§3.9): each stack's floor and
-    run-outs and its walls' faces and crest plates."""
+    """The planar region no pad takes (§3.9: a member's footprint is no
+    pad): each stack's floor and run-outs, its walls' whole solid plan, its
+    decks' plates and every other member's plan."""
     if not stacks:
         return None
     by_id = {str(o.id): o for o in objects}
@@ -479,11 +542,18 @@ def stack_shade(stacks: _t.Sequence[DeckStack], objects, cache, law):
     parts = []
     for st in stacks:
         parts += [p for p in [_poly(st.floor), *(_poly(r) for r, _a, _b in st.runouts)] if p]
-        W = by_id.get(st.walls_id)
-        w = read_stack_walls(W, cache, law) if W is not None else None
-        if isinstance(w, StackWalls):
-            parts.append(w.plan.buffer(t))
-            parts += [LineString(s).buffer(t) for s in w.segs.tolist()]
+        for pid, _r in st.members:
+            o = by_id.get(pid)
+            if o is None:
+                continue
+            if pid == st.walls_id:
+                plan = _solid_plan(o, cache)
+                if plan is not None:
+                    parts.append(plan.buffer(t))
+            elif _is_deck(o):
+                parts.append(o.hard_deck)
+            elif getattr(o, "plan_bbox", None) is not None:
+                parts.append(o.plan_bbox)
     got = unary_union(parts)
     return None if got.is_empty else got
 
@@ -533,27 +603,3 @@ def log_line(icao: str, stacks: _t.Sequence[DeckStack], seconds: float | None = 
              f"(spread {st.zero_spread_m:.2f}), floor {st.floor_z:.2f}" for st in stacks]
     return f"[{icao}] [deck-stack] {len(stacks)} stack(s){t}: " + "; ".join(parts)
 
-
-def sidecar_record(st: DeckStack, to_ll) -> dict:
-    """The stack's ``"stack"`` sub-record of its object floor's sidecar row
-    (``pipeline/publication.object_floors``; ``tools/drawn_check`` reads it):
-    the zero, the walls' feet and crest, the floor's centreline and wall
-    lines, and per deck its ring, level, carried ways, plate floor and end
-    lines (stations and the plate's top on each), all as lat/lon."""
-    def ll(pts) -> list:
-        return [[round(la, 8), round(lo, 8)] for la, lo in (to_ll(x, y) for x, y in pts)]
-    n = len(st.floor) // 2
-    mid = [((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
-           for a, b in zip(st.floor[:n], reversed(st.floor[n:]), strict=True)]
-    return {"id": st.id, "zero_m": round(st.zero_z, 3), "spread_m": round(st.zero_spread_m, 3),
-            "levels": st.levels, "feet_y": round(st.feet_y, 3), "crest_y": round(st.crest_y, 3),
-            "members": [pid for pid, _r in st.members],
-            "floor_line": ll(mid), "rim": [ll(r) for r in st.rim],
-            "decks": [{"object": d.object_id, "resource": d.resource, "piece": d.piece,
-                       "level": d.level, "carried": list(d.carried), "ring": ll(d.ring),
-                       "plate_min_y": round(min((p[2] for t in d.plate for p in t),
-                                                default=min(d.top_a, d.top_b)), 3),
-                       "ends": [{"end": e, "top": round(top, 3), "stations": ll(line)}
-                                for e, line, top in (("a", d.end_a, d.top_a),
-                                                     ("b", d.end_b, d.top_b)) if line]}
-                      for d in st.decks]}

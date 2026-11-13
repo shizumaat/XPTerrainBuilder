@@ -500,6 +500,12 @@ class Airport:
     #: ground under it is drawn to its surface (``constraints/
     #: terrain_shaped``).  Empty = none (or a capture written before them).
     terrain_decks: tuple = ()
+    #: owner RULINGS 2026-11-13i (#2036 (c), #2040): THE TERRAIN MODELS'
+    #: ORIGIN SETS, one ``(placement id, def path, terrain_model.
+    #: TerrainModel, authored lift)`` per row, recognised on the pack
+    #: reading: written ``OBJECT_MSL`` at the model's no-float seat
+    #: (``terrain_model.seat_records``).  Empty = none.
+    terrain_models: tuple = ()
     #: RULINGS 2026-11-03 (answer 4 to Q-D, #1738): an installed COMPANION
     #: TERRAIN MESH's below-grade regions (``airport/terrain_mesh_witness``),
     #: read at load from the pre-build dump.  ``None`` = none installed (or a

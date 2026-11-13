@@ -700,6 +700,13 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     from auto_patch_v2.airport import walled_plate as _walled_plate
     airport = _dc.replace(airport, walled_plates=_walled_plate.plates_of(pack_objects))
     print(f"[{icao}] " + _walled_plate.log_line(icao, airport.walled_plates))
+    # owner RULINGS 2026-11-13i: the terrain models' origin sets, as
+    # ``pipeline/build.pack_stage`` carries them
+    from auto_patch_v2.airport import terrain_model as _terrain_model
+    airport = _dc.replace(airport, terrain_models=tuple(
+        (o.id, o.path, o.terrain_model, o.agl_m) for o in pack_objects
+        if getattr(o, "terrain_model", None) is not None))
+    print(_terrain_model.log_line(icao, (r[2] for r in airport.terrain_models)))
     # RULINGS 2026-11-03 (answer 4, #1738): the companion terrain mesh, read
     # as the build's ``pipeline/build.pack_stage`` reads it
     from auto_patch_v2.airport import terrain_mesh_witness as _tmw

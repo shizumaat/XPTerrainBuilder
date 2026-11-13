@@ -355,6 +355,12 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     airport = _dc.replace(airport, terrain_decks=tuple(
         o.terrain_fit for o in pack_objects if getattr(o, "terrain_fit", None) is not None))
     _say("  " + _terrain_shaped.log_line(icao, airport.terrain_decks), out)
+    # owner RULINGS 2026-11-13i: the terrain models' origin sets
+    from ..airport import terrain_model as _terrain_model
+    airport = _dc.replace(airport, terrain_models=tuple(
+        (o.id, o.path, o.terrain_model, o.agl_m) for o in pack_objects
+        if getattr(o, "terrain_model", None) is not None))
+    _say("  " + _terrain_model.log_line(icao, (r[2] for r in airport.terrain_models)), out)
     # RULINGS 2026-11-03 (answer 4, #1738): a companion terrain mesh's cuts
     # are a portal witness (``airport/terrain_mesh_witness``)
     from ..airport import terrain_mesh_witness as _tmw

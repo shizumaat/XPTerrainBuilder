@@ -99,7 +99,8 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
                                              law.tables.structures.placement.split_tol_m),
                                          ahead=lambda jobs, rl: _work.placements_ahead(
                                              pool, jobs, rl),
-                                         dem_many=getattr(airport.dem, "z_many", None))
+                                         dem_many=getattr(airport.dem, "z_many", None),
+                                         fine=_fine_of(airport.dem))
     # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a
     # mapped bridge way are decks; ``ATTR_hard_deck`` stays primary
     objs, drep = deck_signature.classify(objs, cache, law,
@@ -118,6 +119,16 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
     objs = _pack_ground.mark(airport, objs, cache)
     cache.placed["objects"] = (objs, rep)
     return objs, rep
+
+
+def _fine_of(dem: _t.Any) -> "_t.Callable | None":
+    """Where quality elevation covers a frame point (``terrain_model``),
+    or ``None`` for a DEM that cannot say."""
+    many = getattr(dem, "fine_many", None)
+    if many is None:
+        return None
+    from .terrain_model import QUALITY_PIXEL_M
+    return lambda xs, ys: many(xs, ys, QUALITY_PIXEL_M)
 
 
 def basin_member_ids(airport, law: "Law",

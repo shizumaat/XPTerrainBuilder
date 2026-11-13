@@ -1037,12 +1037,29 @@ def _run(args, sites, tool: str, work: str) -> dict:
         label = ", ".join(list(args.object) + list(args.row))
         report["sites"].append(measure_site(Site("objects: " + label, p0.lat, p0.lon, 0.0),
                                             named, mesh, args.clearance_only))
+    ends = plan_end_lines(args.end_lines) if args.end_lines else None
     for s in report["sites"]:
         s["objects"] = object_bars(s["components"], args.tol, GROUND_BAR_M, PRINT_RUN_M,
                                    s.get("placements", []),
                                    (s["lat"], s["lon"], s["radius_m"])
-                                   if args.mouth and s["radius_m"] else None)
+                                   if args.mouth and s["radius_m"] else None, ends)
     return report
+
+
+def plan_end_lines(path: str) -> dict:
+    """END-EDGE MODE (spec othh-deck-round2 S5): ``{OBJ stem: [end line,
+    ...]}`` of every deck member of a rebake plan carrying its end lines
+    (``deck_ends``, the lines the seat reads)."""
+    from drawn_site_bars import _stem
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    out: dict = {}
+    for u in doc.get("units", ()):
+        for m in u.get("members", ()):
+            for ln in m.get("deck_ends") or ():
+                out.setdefault(_stem(m["resource"]), []).append(
+                    tuple((float(q[0]), float(q[1])) for q in ln[:2]))
+    return out
 
 
 def parse_datarefs(items) -> dict[str, float]:
@@ -1173,6 +1190,9 @@ def main(argv=None) -> int:
                     help="NAME=VALUE: an ANIM dataref's rest value (default 0.0)")
     ap.add_argument("--tol", type=float, default=SEAM_TOL_M,
                     help="seam bar of the class bars, m (deck end, mouth floor, edge)")
+    ap.add_argument("--end-lines", default=None, metavar="REBAKE_PLAN",
+                    help="END-EDGE MODE: read each deck's END at the rebake plan's end "
+                         "lines (deck_ends), not the longest open edges")
     ap.add_argument("--mouth", action="store_true",
                     help="each --site names a MOUTH: judge the floor opening nearest it")
     ap.add_argument("--summary", action="store_true",

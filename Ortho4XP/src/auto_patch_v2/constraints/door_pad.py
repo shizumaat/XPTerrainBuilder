@@ -152,16 +152,19 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
     if not pads or not apron_v or not king_g:
         return []
     king_u = unary_union(king_g)
+    # A STOREY SHELL's block (#2062, ``planar/storey_pad``) is ONE level by
+    # its own record: no shelf share or float reading decides it (its back
+    # cut lengthens the rim off the apron, spec A2 (3))
+    shells = {str(s.pad_ref) for s in getattr(planar, "storey_shells", ()) or ()}
     out: list[DoorPad] = []
     for ref, fs in sorted(pads.items()):
         P = unary_union([_poly(planar, f.ring) for f in fs])
-        if P.is_empty or P.area >= min_m2:
+        if P.is_empty or (P.area >= min_m2 and ref not in shells):
             continue
         rim = {v for f in fs for v in planar.ring_vertices(f.ring)}
         on = sum(1 for v in rim if v in apron_v)
-        if not rim or on < share * len(rim):
-            continue
-        if seat_float_m(P, dem.z) <= t:
+        if ref not in shells and (not rim or on < share * len(rim)
+                                  or seat_float_m(P, dem.z) <= t):
             continue
         # EVERY vertex of the pad, the ones it shares with a taxiway too:
         # the tower's door wall IS a junction's edge, and a pad left uneven

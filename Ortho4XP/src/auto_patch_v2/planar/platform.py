@@ -42,6 +42,7 @@ from ..law.tables import frontage_roles
 from ..model.planar import STRIP_SUFFIX, block_ref, is_bank_ref
 from ..model.platform import Platform
 from ..model.registries import Registries
+from ..model.storey_shell import SHELL_VERDICT
 from ..geom.parts import nonempty_polygon_parts
 
 __all__ = ["platform_split", "Platform", "merge_platform_faces"]
@@ -70,8 +71,6 @@ _MIN_WELDED = 3
 DRAPED_FACADE_COVER = 0.5
 #: The ``Platform.refused`` reason of such a pad.
 REFUSED_DRAPED_FACADE = "draped_facade"
-#: the held verdict of a storey shell's pad (#2062, ``planar/storey_pad``)
-SHELL_VERDICT = "storey_shell"
 
 
 def draped_facade_pads(pad_regions, airport) -> "set[int]":

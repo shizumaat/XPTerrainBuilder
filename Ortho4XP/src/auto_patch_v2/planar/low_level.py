@@ -582,7 +582,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     by_pad = {str(sh.pad_ref): sh for sh in shells}
     for ref, regs in sorted(groups.items()):
         if ref in by_pad:
-            done[ref] = _shell_split(ref, regs, by_pad[ref], air_polys, tree, law, grid, reg)
+            done[ref] = _shell_split(ref, regs, by_pad[ref], air_polys, tree, law, grid, reg,
+                                     out)
             continue
         if held[ref].get("conforming"):
             continue
@@ -703,17 +704,32 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
 
 
 def _shell_split(ref: str, regs: list, shell, air_polys, tree, law, grid: float,
-                 reg: Registries) -> list:
+                 reg: Registries, pads: list) -> list:
     """A storey shell's pad regions ``regs`` split at its storeys
     (``planar/storey_pad.shell_levels``), each level registered in
-    ``reg.landings``."""
+    ``reg.landings``; its KERB (``StoreyShell.kerb``, spec A2 (3)) carved
+    out first and minted ``<pad>#kerb#strip``, its wall records on the
+    pad's held record (``planar/foot_kerb``'s shape, read by
+    ``airport/riser_wall``).  ``pads`` the pad regions (the other pads the
+    levels keep a riser's width off)."""
+    from ..model.planar import kerb_ref
     from .storey_pad import shell_levels
     P = unary_union([r.polygon for r in regs])
     air = unary_union([air_polys[int(j)] for j in
                        tree.query(P.buffer(50.0), predicate="intersects")])
-    H, levels = shell_levels(P, shell, air, law, grid)
+    K = valid_area(P.intersection(shell.kerb)) if shell.kerb is not None else Polygon()
+    K = valid_area(unary_union([q for q in nonempty_polygon_parts(K)
+                                if q.area >= max(grid * grid, 1.0)]))
+    P1 = P.buffer(1.0)
+    others = unary_union([r.polygon for r in pads if str(r.ref) != ref
+                          and r.polygon is not None and r.polygon.intersects(P1)])
+    H, levels = shell_levels(valid_area(P.difference(K)), shell, air, law, grid, others)
     tmpl = regs[0]
     out = [_dc.replace(tmpl, polygon=q) for q in nonempty_polygon_parts(H)]
+    if not K.is_empty:
+        out += [_dc.replace(tmpl, ref=kerb_ref(ref), polygon=q) for q in nonempty_polygon_parts(K)]
+        reg.held[ref] = {**reg.held[ref], "kerbs": [
+            k for k in shell.kerbs if Polygon(k["ring"]).intersects(K)]}
     for lref, U, S, rec in levels:
         out += [_dc.replace(tmpl, ref=lref, polygon=q) for q in nonempty_polygon_parts(U)]
         out += [_dc.replace(tmpl, ref=lref + STRIP_SUFFIX, polygon=q)

@@ -50,7 +50,7 @@ from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
-from .storey_pad import read_storey_shells, storey_pads
+from .storey_pad import pit_skip, read_storey_shells, storey_pads
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from ..airport.bridge_ground import BridgeGround, bridge_ground, bridge_runs
@@ -204,10 +204,12 @@ def _storey_pads(airport, classification, law, shells, basins, bstats, notes):
     (``planar/storey_pad``) after the pits, their notes in ``bstats``."""
     if not shells:
         return classification, []
+    from .split_level_pit import SPLIT_KIND
     cells = list(classification.cells)
     out, recs, more, refused = storey_pads(
         airport, cells, [Polygon(c.ring, c.holes) for c in cells], law, shells,
-        [Polygon(b.wall_path) for b in basins if len(b.wall_path) >= 3], RUNWAY_FAMILY)
+        [Polygon(b.wall_path) for b in basins if len(b.wall_path) >= 3], RUNWAY_FAMILY,
+        frozenset(str(m) for b in basins if b.kind == SPLIT_KIND for m in b.member_ids or ()))
     bstats.split_levels.extend(f"storey shell: {n}" for n in [*notes, *more])
     bstats.refused.extend(f"storey shell: {r}" for r in refused)
     if not recs:
@@ -312,13 +314,14 @@ def build(airport: Airport, classification: Classification, law: Law,
     # (7)/(11)).  §45 (13) (d) AMENDED (RULINGS 2026-09-15aw) puts the
     # BASIN PASS FIRST — see :func:`channels_after_basins`.
     hard_claims, synth_claims = crossing_claims(airport, law, corridors, classification)
-    # THE STOREY SHELLS, read ONCE (#2062 R1, spec A1 (4)): the split-level
-    # buildings laid on storey pads (``planar/storey_pad``) -- no basin pass
-    # cuts a pit under them, and their pads are minted after the pits
+    # THE STOREY SHELLS, read ONCE (#2062, spec A1 (4), A2 (4)): the
+    # split-level buildings laid on storey pads (``planar/storey_pad``) -- no
+    # basin pass cuts a pit under a scope-(i) one, and their pads are
+    # minted after the pits (scope (ii) once the structures are cut)
     shells, shell_notes = read_storey_shells(
         airport, classification.cells,
         [Polygon(c.ring, c.holes) for c in classification.cells], law, objects, cache)
-    shell_ids = frozenset(m for sl in shells for m in sl.member_ids)
+    shell_ids = pit_skip(shells)
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
         hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings, cuts=cuts,

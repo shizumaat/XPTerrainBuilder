@@ -70,7 +70,7 @@ from . import obj8 as _obj8
 from ..geom.foot_planes import PLANE_SHARE
 from .object_cut import _face_normals_y
 
-__all__ = ["SplitLevel", "read_split_levels", "run_faces_airside", "take_remainder"]
+__all__ = ["SplitLevel", "corner_cut", "read_split_levels", "run_faces", "take_remainder"]
 
 #: the height band a wall side is read in (metres of authored y)
 BAND_M = 1.0
@@ -130,6 +130,9 @@ class SplitLevel:
     level_plans: tuple[Polygon, ...] = ()
     #: ... and the level the airside meets (``None``: no run faces it)
     air_level: "int | None" = None
+    #: which part of the covered plan this record reads (#2062 spec A2
+    #: (5)): 0 the largest (the pit's), ``k`` the record ``<witness>#<k>``
+    part: int = 0
 
     @property
     def pit_plan(self) -> Polygon:
@@ -203,20 +206,28 @@ def _covered_plan(v: np.ndarray, t: np.ndarray, close_m: float, min_hole_m2: flo
     of their non-vertical faces' plan triangles, closed by ``close_m``
     (walls a door apart are one building), holes under ``min_hole_m2``
     filled; the largest part, or ``None``."""
+    parts = _covered_parts(v, t, close_m, min_hole_m2)
+    return parts[0] if parts else None
+
+
+def _covered_parts(v: np.ndarray, t: np.ndarray, close_m: float, min_hole_m2: float
+                   ) -> list[Polygon]:
+    """Every part of the covered plan (:func:`_covered_plan`), the largest
+    first (#2062 spec A2 (5): each part of at least ``min_area_m2`` is read
+    as its own storey record)."""
     ny = _face_normals_y(v, t)
     P = v[t[ny >= _VERTICAL_NY]][:, :, [0, 2]]
     if not len(P):
-        return None
+        return []
     tris = [g for g in shapely.polygons(P).tolist() if g is not None and g.area > 1e-6]
     if not tris:
-        return None
+        return []
     u = unary_union([g.buffer(0) for g in tris]).buffer(close_m, join_style="mitre")
     u = u.buffer(-close_m, join_style="mitre")
-    parts = [g for g in getattr(u, "geoms", [u]) if g.geom_type == "Polygon" and g.area > 0.0]
-    if not parts:
-        return None
-    big = max(parts, key=lambda g: g.area)
-    return Polygon(big.exterior, [h for h in big.interiors if Polygon(h).area >= min_hole_m2])
+    parts = sorted((g for g in getattr(u, "geoms", [u])
+                    if g.geom_type == "Polygon" and g.area > 0.0), key=lambda g: -g.area)
+    return [Polygon(g.exterior, [h for h in g.interiors if Polygon(h).area >= min_hole_m2])
+            for g in parts]
 
 
 def _open_edges(plan: Polygon, closed: _t.Sequence[LineString], probe: float,
@@ -354,13 +365,14 @@ def _airside_share(airside, side: LineString, centre) -> float:
     return sum(bool(airside.contains(Point(p))) for p in pts) / len(pts) if pts else 0.0
 
 
-def run_faces_airside(airside, run: LineString) -> bool:
-    """A frame run (the building on its RIGHT) FACES AIRSIDE: half its
-    :func:`_stations` outside it lie on ``airside`` (prepared)."""
+def run_faces(ground, run: LineString) -> bool:
+    """A frame run (the building on its RIGHT) FACES ``ground`` (a prepared
+    plan geometry: the airside pavement, a structure floor): half its
+    :func:`_stations` outside it lie on it."""
     (x0, y0), (x1, y1) = run.coords[0], run.coords[-1]
     L = run.length or 1.0
     inside = (0.5 * (x0 + x1) + (y1 - y0) / L, 0.5 * (y0 + y1) - (x1 - x0) / L)
-    return _airside_share(airside, run, inside) >= 0.5
+    return _airside_share(ground, run, inside) >= 0.5
 
 
 def _slab_share(v: np.ndarray, t: np.ndarray, side: tuple, centre, y: float) -> float:
@@ -543,43 +555,78 @@ def _strip(p0, p1, n_out, depth: float) -> Polygon:
     return Polygon([tuple(a), tuple(b), tuple(b - n * depth), tuple(a - n * depth)])
 
 
-def _level_plans(v: np.ndarray, t: np.ndarray, plan: Polygon, levels: _t.Sequence[float],
-                runs: _t.Sequence[tuple], normals: _t.Sequence, run_level: _t.Sequence,
-                probe: float, frontage: float) -> tuple:
-    """One plan per LEVEL (#2062, spec A1 (1)), taken in this order, each
-    rule only what the earlier left (and, within a rule, the lower level
-    first: ground under the building may be too low -- hidden in its walls
-    -- never too high): (a) WALL FEET -- each run owns the strip
-    ``frontage`` deep inside it at its level; (b) FLOORS -- the plan of the
-    up-facing solid faces within ``BAND_M`` of a level; (c) the
-    UNWITNESSED REMAINDER -- a piece with no floor at any level is open
-    downward and takes the LOWEST level it shares ``probe`` of boundary
-    with, else the level it shares most with.  Authored ``(x, z)``."""
+def _level_plans(plan: Polygon, levels: _t.Sequence[float], runs: _t.Sequence[tuple],
+                 normals: _t.Sequence, run_level: _t.Sequence, probe: float,
+                 frontage: float) -> tuple:
+    """One plan per LEVEL (#2062, spec A1 (1) as amended by A2 (1)), taken
+    in this order: (a) WALL FEET -- each run owns the strip ``frontage``
+    deep inside it at its level; where the strips of two outline-adjacent
+    runs of different levels overlap, the overlap is cut by the bisector
+    through their common vertex (:func:`corner_cut`); any other overlap
+    goes to the lower level (ground under the building may be too low --
+    hidden in its walls -- never too high); (c) the UNWITNESSED REMAINDER
+    -- open downward, it takes the LOWEST level it shares ``probe`` of
+    boundary with, else the level it shares most with.  FLOORS ARE NO
+    WITNESS OF GROUND (A2 (1)): an upper floor over lower ground is a deck.
+    Authored ``(x, z)``."""
     if len(levels) < 2:
         return (plan,)
+    strips = corner_cut([_strip(p0, p1, n, frontage) for (p0, p1), n
+                          in zip(runs, normals, strict=True)], runs, normals, run_level)
     out: list = [Polygon() for _ in levels]
     taken = Polygon()
-
-    def claim(k: int, geoms) -> None:
-        nonlocal taken
-        if geoms:
-            g = unary_union(geoms).buffer(0).intersection(plan).difference(taken).buffer(0)
+    for k in range(len(levels)):
+        gs = [g for g, lv in zip(strips, run_level, strict=True) if lv == k]
+        if gs:
+            g = unary_union(gs).buffer(0).intersection(plan).difference(taken).buffer(0)
             out[k] = unary_union([out[k], g]).buffer(0)
             taken = unary_union([taken, g])
-    for k in range(len(levels)):
-        claim(k, [_strip(p0, p1, n, frontage) for (p0, p1), n, lv
-                  in zip(runs, normals, run_level, strict=True) if lv == k])
-    P = v[t]
-    n3 = -np.cross(P[:, 1] - P[:, 0], P[:, 2] - P[:, 0])
-    area = 0.5 * np.linalg.norm(n3, axis=1)
-    up = n3[:, 1] > 0.9 * np.maximum(2.0 * area, 1e-12)
-    ym = P[:, :, 1].mean(axis=1)
-    for k, y in enumerate(levels):
-        tri = [g.buffer(0) for g in shapely.polygons(
-            P[up & (np.abs(ym - float(y)) < BAND_M)][:, :, [0, 2]]).tolist()
-            if g is not None and g.area > 1e-6]
-        claim(k, tri)
     return tuple(take_remainder(out, plan.difference(taken), probe))
+
+
+def corner_cut(strips: list, runs: _t.Sequence[tuple], normals: _t.Sequence,
+               run_level: _t.Sequence) -> list:
+    """``strips`` (one per run, ring order) with the overlap of every two
+    OUTLINE-ADJACENT runs of different levels (sharing an end vertex) split
+    by the bisector of their corner: each keeps the overlap on its own
+    side (spec A2 (1)).  ``normals`` point AWAY from the strips (the runs'
+    outward normals for strips inside the plan, inward for strips outside
+    it: ``planar/storey_pad``'s back cut)."""
+    out = list(strips)
+    n = len(runs)
+    for i in range(n if n > 2 else n - 1):
+        j = (i + 1) % n
+        if run_level[i] is None or run_level[j] is None or run_level[i] == run_level[j]:
+            continue
+        p = _shared_end(runs[i], runs[j])
+        if p is None:
+            continue
+        ov = out[i].intersection(out[j])
+        if ov.is_empty or ov.area <= 1e-9:
+            continue
+        d = -(np.asarray(normals[i], float) + np.asarray(normals[j], float))
+        if float(np.linalg.norm(d)) < 1e-9:
+            continue
+        d = d / np.linalg.norm(d)
+        side = np.array([-d[1], d[0]])
+        big = 1e3 * (1.0 + max(out[i].length, out[j].length))
+        for a, b in ((i, j), (j, i)):
+            mid = 0.5 * (np.asarray(runs[a][0], float) + np.asarray(runs[a][1], float))
+            sg = 1.0 if float((mid - p) @ side) >= 0.0 else -1.0
+            other = Polygon([tuple(p - d * big), tuple(p + d * big),
+                             tuple(p + d * big - side * sg * big),
+                             tuple(p - d * big - side * sg * big)])
+            out[a] = out[a].difference(ov.intersection(other)).buffer(0)
+    return out
+
+
+def _shared_end(a: _t.Sequence, b: _t.Sequence) -> "np.ndarray | None":
+    """The end vertex runs ``a`` and ``b`` share (either orientation)."""
+    for p in (a[0], a[-1]):
+        for q in (b[0], b[-1]):
+            if math.dist(p, q) <= 1e-6:
+                return np.asarray(p, float)
+    return None
 
 
 def take_remainder(plans: _t.Sequence, rest, probe: float) -> list:
@@ -646,14 +693,14 @@ def _storeys(fam, cache, cs, cov, aff, probe: float, cover: float, grid: float, 
     from shapely import affinity
     m = [aff[0], aff[1], aff[2], aff[3], aff[4], aff[5]]
     plans = tuple(affinity.affine_transform(g, m) for g in _level_plans(
-        v, t, outline, levels, runs_a, normals, run_level, probe, frontage))
+        outline, levels, runs_a, normals, run_level, probe, frontage))
     air = None
     if airside is not None and len(levels) >= 2:
         by = [0.0] * len(levels)
         for (r, _f), k in zip(runs, run_level, strict=True):
             if k is None:
                 continue
-            if run_faces_airside(airside, r):
+            if run_faces(airside, r):
                 by[k] += r.length
         if max(by) > 0.0:
             air = max(range(len(levels)), key=lambda j: (by[j], -j))
@@ -746,18 +793,31 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
                      + (f": SPLIT-LEVEL (by the {by})" if verdict else why))
         if not verdict:
             continue
-        cov = _covered_plan(v, t, probe, pmin)
-        plan = None if cov is None else Polygon(
-            [frame(c) for c in cov.exterior.coords],
-            [[frame(c) for c in h.coords] for h in cov.interiors])
+        covs = _covered_parts(v, t, probe, pmin)
+        cov = covs[0] if covs else None
+        plan = None if cov is None else _framed(cov, frame)
         # the plan's open edges run clockwise already; the box's sides are
         # turned to (the box is convex: its centre lies inside every side)
         edges = _open_edges(plan, closed, probe, back) if plan is not None else []
         opened = edges or [_outward_left(s, centre) for s in opened]
-        out.append(SplitLevel(str(o.id), tuple(str(m.id) for m in fam),
-                              tuple(sorted({m.path for m in fam})), foot[0],
-                              round(y_lo, 3), round(y_up, 3), tuple(opened), tuple(closed),
-                              round(go, 3), round(gc, 3), (float(o.xy[0]), float(o.xy[1])),
-                              plan, **_storeys(fam, cache, cs, cov, aff, probe, cover, grid,
-                                               airside, step, frontage)))
+        sl = SplitLevel(str(o.id), tuple(str(m.id) for m in fam),
+                        tuple(sorted({m.path for m in fam})), foot[0],
+                        round(y_lo, 3), round(y_up, 3), tuple(opened), tuple(closed),
+                        round(go, 3), round(gc, 3), (float(o.xy[0]), float(o.xy[1])),
+                        plan, **_storeys(fam, cache, cs, cov, aff, probe, cover, grid,
+                                         airside, step, frontage))
+        out.append(sl)
+        # EVERY PART of the covered plan (#2062 spec A2 (5)): a part of
+        # ``min_area_m2`` or more is its own storey record ``<witness>#<k>``
+        # (the pit reads part 0 only)
+        out.extend(_dc.replace(sl, id=f"{sl.id}#{k}", plan=_framed(c, frame), part=k,
+                               **_storeys(fam, cache, cs, c, aff, probe, cover, grid,
+                                          airside, step, frontage))
+                   for k, c in enumerate(covs) if k and c.area >= pmin)
     return out, notes
+
+
+def _framed(g: Polygon, frame) -> Polygon:
+    """The authored plan polygon ``g`` in the airport frame."""
+    return Polygon([frame(c) for c in g.exterior.coords],
+                   [[frame(c) for c in h.coords] for h in g.interiors])

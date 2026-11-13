@@ -2019,7 +2019,10 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     # the mouths on it away from the ramp, the feet across it from the
     # terrace, and the rows across it from the road (``wall_release``)
     walls = wall_pieces(airport, service) + mouth_wall_pieces(pm)
-    retaining = tuple(w.poly for w in walls if w.retains)
+    # ... and a storey shell's kerbs (#2062 A2 (3)): the road on a kerb's
+    # high side meets the wall, never the cut below it
+    from .riser_wall import shell_kerbs
+    retaining = tuple(w.poly for w in walls if w.retains) + shell_kerbs(pm)
     from .deck_ends import deck_end_seeds
     tg = road_ramp_targets(pm, law, airport, profiles, retaining,
                            _foot_vertices(pm, law, walls) if walls else None,

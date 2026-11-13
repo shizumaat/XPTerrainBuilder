@@ -13,7 +13,10 @@ the record's solved ``zero``.  Each run with a foot is judged at stations
 airside, ``GROUNDSIDE_TOL_M`` on the groundside, and no station of any run
 with the ground under the foot by more than the run's bar (an open side
 showing).  MINOR runs (their foot's level did not count, spec A1 (2)) are
-listed with their numbers and never judged.
+listed with their numbers and never judged; so are the stations of a run
+whose BACK CUT was clipped (spec A2 (3), bar B5) that lie off the cut: by a
+mapped road (``base_road``: the road keeps its profile) or by blocked
+ground (``blocked``).
 """
 from __future__ import annotations
 
@@ -57,12 +60,31 @@ def check(rec: _t.Mapping, mesh, zero: "float | None" = None,
         return out
     worst_air = worst_gnd = 0.0
     under = 0
-    for i, r in enumerate(rec.get("runs", [])):
+    out["clipped"] = []
+    out["unjudged"] = []
+    cut = _back_cut(rec)
+    runs = rec.get("runs", [])
+    for i, r in enumerate(runs):
         if r.get("foot") is None:
             continue
-        g = [mesh_z(mesh, x, y) for x, y in _outside(r["ll"], OUT_M, _STATIONS)]
+        st = _own(_outside(r["ll"], OUT_M, _STATIONS), i, runs)
+        why = _clip_reason(r)
+        if why:
+            off = [p for p in st if cut is None or not cut.contains(_point(p))]
+            st = [p for p in st if p not in off]
+            g = [mesh_z(mesh, x, y) for x, y in off]
+            d = [v - (z0 + float(r["foot"])) for v in g if not math.isnan(v)]
+            if d:
+                out["clipped"].append({"run": i, "foot": r["foot"], "why": why,
+                                       "stations": len(d), "worst": round(max(d, key=abs), 3)})
+        g = [mesh_z(mesh, x, y) for x, y in st]
         g = [v for v in g if not math.isnan(v)]
         if not g:
+            # NOT JUDGED, and SAID: every station ceded at a corner, off the
+            # back cut, or off the drawn surface (an off-patch drape)
+            out["unjudged"].append({"run": i, "foot": r["foot"], "why": (
+                "no drawn surface outside it" if st else "its stations lie in other runs' "
+                "fronts or off the back cut")})
             continue
         d = [v - (z0 + float(r["foot"])) for v in g]
         row = {"run": i, "foot": r["foot"], "airside": bool(r.get("airside")),
@@ -90,6 +112,55 @@ def check(rec: _t.Mapping, mesh, zero: "float | None" = None,
     return out
 
 
+def _own(stations: list, i: int, runs: _t.Sequence[_t.Mapping]) -> list:
+    """The stations of run ``i`` that are its own: a station nearer another
+    run at another foot lies past the corner's bisector, in THAT run's
+    front (spec A2 (1); the back cut is split there the same way)."""
+    from shapely.geometry import LineString, Point
+    if not stations:
+        return stations
+    lat0 = runs[i]["ll"][0][0]
+    kx = math.cos(math.radians(lat0))
+
+    def m(lon, lat):
+        return (lon * kx, lat)
+    lines = [(j, LineString([m(lo, la) for la, lo in r["ll"]])) for j, r in enumerate(runs)
+             if r.get("foot") is not None and len(r["ll"]) >= 2]
+    mine = next(g for j, g in lines if j == i)
+    foot = float(runs[i]["foot"])
+    out = []
+    for lon, lat in stations:
+        p = Point(m(lon, lat))
+        d = mine.distance(p)
+        if all(g.distance(p) >= d - 1e-12 or float(runs[j]["foot"]) == foot
+               for j, g in lines if j != i):
+            out.append((lon, lat))
+    return out
+
+
+def _clip_reason(run: _t.Mapping) -> str:
+    """``base_road`` / ``blocked`` for a run whose back cut was clipped
+    (``clipped_by`` in the sidecar), else ``""``."""
+    by = run.get("clipped_by") or ()
+    if not by or run.get("back_cut_m") is None:
+        return ""
+    return "base_road" if "road" in by else "blocked"
+
+
+def _back_cut(rec: _t.Mapping):
+    """The record's back cut (``back_cut_ll``) as one (lon, lat) geometry."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    rings = [Polygon([(lo, la) for la, lo in ring]) for ring in rec.get("back_cut_ll") or ()
+             if len(ring) >= 3]
+    return unary_union(rings).buffer(1e-7) if rings else None
+
+
+def _point(p):
+    from shapely.geometry import Point
+    return Point(p)
+
+
 def print_row(r: _t.Mapping) -> None:
     """The report lines of one storey row."""
     print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} zero {r['zero']} "
@@ -100,5 +171,11 @@ def print_row(r: _t.Mapping) -> None:
     for m in r["minor"]:
         print(f"       minor run {m['run']} foot {m['foot']:+.2f}: drawn - (zero + foot) "
               f"{m['worst']:+.2f} (lowest {m['lowest']:+.2f})")
+    for u in r.get("unjudged", ()):
+        print(f"       unjudged run {u['run']} foot {u['foot']:+.2f}: {u['why']}")
+    for c in r.get("clipped", ()):
+        print(f"       {c['why']} run {c['run']} foot {c['foot']:+.2f}: {c['stations']} "
+              f"station(s) off the back cut, drawn - (zero + foot) {c['worst']:+.2f} "
+              "(listed, not judged)")
     for f in r["fails"]:
         print(f"       FAIL {f}")

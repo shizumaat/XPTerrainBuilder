@@ -403,9 +403,9 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     this pass reads the at-grade POLYGONS alone (the basement test).  The
     cells, the rings and every refusal are the same either way.
 
-    ``skip_split``: the placement ids of the split-level buildings laid on
-    STOREY PADS (``planar/storey_pad``, #2062 R1; read once in
-    ``planar/build``): no pit is cut under them."""
+    ``skip_split``: the record ids (``SplitLevel.id``) of the split-level
+    buildings laid on STOREY PADS (``planar/storey_pad``, #2062; read once
+    in ``planar/build``): no pit is cut under them."""
     reads = {} if reads is None else reads
 
     def once(key: tuple, read: _t.Callable[[], object]):

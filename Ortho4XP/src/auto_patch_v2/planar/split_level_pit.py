@@ -58,7 +58,7 @@ from ..law.tables import apron_roles, frontage_roles, pavement_roles, role_side
 from ..model.structures import Basin
 from .basin_geometry import _region_floor, _rim
 
-__all__ = ["SPLIT_KIND", "split_level_pits"]
+__all__ = ["SPLIT_KIND", "back_band", "split_level_pits"]
 
 #: the ``Basin.kind`` of a split-level building's pit
 SPLIT_KIND = "split_level"
@@ -70,8 +70,9 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
                      ) -> tuple[list[Basin], list[tuple], list[Polygon], list[str], list[str]]:
     """``(basins, new cells, knives, notes, refusals)`` of every split-level
     building of ``objects`` (module docstring); refs numbered from ``k0``.
-    A building with a placement in ``skip`` is a STOREY SHELL
-    (``planar/storey_pad``, #2062): it stands on its storey pad, no pit."""
+    A building whose record id is in ``skip`` is a STOREY SHELL
+    (``planar/storey_pad``, #2062): it stands on its storey pad, no pit;
+    the pit reads part 0 of a covered plan only (spec A2 (5))."""
     fr, pr = frontage_roles(law), frozenset(pavement_roles(law))
     air = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in fr]).buffer(0)
     pave = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in pr]).buffer(0)
@@ -85,7 +86,7 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
                                         None if ap.is_empty else prep(ap))
     seen = {m for sl in sls for m in sl.member_ids}
     sls = sls + [r for r in roofs if not seen.intersection(r.member_ids)]
-    sls = [sl for sl in sls if not skip.intersection(sl.member_ids)]
+    sls = [sl for sl in sls if sl.part == 0 and sl.id not in skip]
     notes = notes + roof_notes
     if not sls:
         return [], [], [], notes, []
@@ -221,6 +222,17 @@ def _largest(geom) -> "Polygon | None":
     return max(parts, key=lambda g: g.area) if parts else None
 
 
+def back_band(lines: _t.Sequence[LineString], reach: float):
+    """THE BACK CUT's band: ``reach`` either side of ``lines`` chained (two
+    meeting lines take the corner between them), flat at the chain's ends
+    -- the pit's (:func:`_cut_region`) and the storey pad's
+    (``planar/storey_pad``, #2062 A2 (3)); the caller keeps the outside."""
+    sides = unary_union(list(lines))
+    # one line unions to a LineString, which linemerge refuses
+    chain = sides if sides.geom_type == "LineString" else linemerge(sides)
+    return chain.buffer(reach, cap_style="flat", join_style="mitre")
+
+
 def _cut_region(sl: SplitLevel, reach: float, blocked, footprint=None) -> Polygon:
     """The pit's plan (module docstring): the building's box (``footprint``,
     default ``sl.footprint``) and, ``reach`` outside its TALL sides
@@ -230,10 +242,7 @@ def _cut_region(sl: SplitLevel, reach: float, blocked, footprint=None) -> Polygo
     foot = sl.footprint if footprint is None else footprint
     if reach <= 0.0 or not sl.closed_sides:
         return foot
-    sides = unary_union(list(sl.closed_sides))
-    # one tall side unions to a LineString, which linemerge refuses
-    chain = sides if sides.geom_type == "LineString" else linemerge(sides)
-    band = chain.buffer(reach, cap_style="flat", join_style="mitre")
+    band = back_band(sl.closed_sides, reach)
     strip = band.difference(sl.footprint)
     if sl.plan is not None:
         # ... and inside the box, between the building's plan and its tall

@@ -315,10 +315,10 @@ def test_a_floorless_lower_storey_takes_the_lowest_level():
     levels, lv, minor = _run_levels([(0.0, 40.0), (0.0, 30.0), (6.0, 40.0), (0.0, 30.0)], 3.0)
     assert levels == (0.0, 6.0) and lv == [0, 0, 1, 0] and not any(minor)
     plan = box(0, 0, 40, 30)
-    p0, p1 = _level_plans(v, t, plan, levels, _RUNS, _NORMALS, lv, 3.0, 3.0)
-    # the upper wall's strip only, less the corners the lower walls' strips
-    # took first (the lower level first: never too high)
-    assert abs(p1.area - (40 * 3 - 2 * 9)) < 1e-6
+    p0, p1 = _level_plans(plan, levels, _RUNS, _NORMALS, lv, 3.0, 3.0)
+    # the upper wall's strip only, its corners with the lower walls' strips
+    # split by the corner bisectors (spec A2 (1))
+    assert abs(p1.area - (40 * 3 - 2 * 4.5)) < 1e-6
     assert abs(p0.area - (40 * 30 - p1.area)) < 1e-6
     assert p0.contains(box(5, 5, 35, 25))
 
@@ -345,6 +345,6 @@ def test_a_remainder_meeting_no_level_by_the_probe_takes_the_most_shared():
     v, t = _floorless()
     plan = box(0, 0, 40, 30)
     runs = [((0, 0), (1, 0)), ((40, 30), (38.6, 30))]
-    p0, p1 = _level_plans(v, t, plan, (0.0, 6.0), runs, [(0, -1), (0, 1)], [0, 1], 3.0, 1.0)
+    p0, p1 = _level_plans(plan, (0.0, 6.0), runs, [(0, -1), (0, 1)], [0, 1], 3.0, 1.0)
     assert abs(p0.area - 1.0) < 1e-6
     assert abs(p1.area - (40 * 30 - 1.0)) < 1e-6

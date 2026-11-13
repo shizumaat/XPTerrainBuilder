@@ -11,6 +11,8 @@ from __future__ import annotations
 import statistics as _st
 import typing as _t
 
+from ..geom.parts import nonempty_polygon_parts as _parts
+
 __all__ = ["storey_shell_records"]
 
 
@@ -38,6 +40,12 @@ def storey_shell_records(planar, airport, z: "_t.Sequence[float] | None") -> lis
             "zero": None if block_z is None else round(block_z - float(sh.levels[sh.block]), 3),
             "anchor_longitude_latitude": [round(float(lon), 8), round(float(lat), 8)],
             "plan_ll": ll(sh.plan), "pad_ll": ll(sh.pad),
+            "scope": sh.scope, "kerbs": len(sh.kerbs),
+            # the cut's FLOOR: the back cut less its kerb (the riser up to the lot)
+            "back_cut_ll": [ll(q.exterior.coords) for q in _parts(
+                sh.back_cut if sh.kerb is None or sh.back_cut is None
+                else sh.back_cut.difference(sh.kerb))],
             "runs": [{"ll": ll(r.xy), "foot": r.foot, "level": r.level, "minor": r.minor,
-                      "airside": r.airside} for r in sh.runs]})
+                      "airside": r.airside, "back_cut_m": r.back_cut_m,
+                      "clipped_by": list(r.clipped_by)} for r in sh.runs]})
     return out

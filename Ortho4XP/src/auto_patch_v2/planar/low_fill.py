@@ -149,7 +149,7 @@ def cut_fill_bands(res: list, reg, lots: _t.Sequence[Polygon], airport, law,
     pmin = float(bp.min_area_m2)
     out = list(res)
     for ref, rec in sorted(reg.landings.items()):
-        if rec.get("kind") != kind:
+        if rec.get("kind") != kind or rec.get("shell"):
             continue
         mine = [r for r in out if str(r.ref) == ref and r.polygon is not None]
         if not mine:

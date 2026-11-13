@@ -13,7 +13,10 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["StoreyShell", "StoreyRun"]
+__all__ = ["StoreyShell", "StoreyRun", "SHELL_VERDICT"]
+
+#: the held verdict of a storey shell's pad (``planar/platform``)
+SHELL_VERDICT = "storey_shell"
 
 
 @_dc.dataclass(frozen=True)
@@ -29,6 +32,12 @@ class StoreyRun:
     level: "int | None"
     minor: bool = False
     airside: bool = False
+    #: THE BACK CUT outside a groundside run at the lowest level (spec A2
+    #: (3)): its mean depth (metres; ``None``: no back cut is asked here)
+    #: and what clipped it (``"road"`` -- a mapped road keeps its profile,
+    #: ``"airside"``, ``"structure"``, ``"pad"``, ``"pit"``)
+    back_cut_m: "float | None" = None
+    clipped_by: tuple[str, ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -56,6 +65,18 @@ class StoreyShell:
     plan: tuple[tuple[float, float], ...]
     pad: tuple[tuple[float, float], ...]
     anchor_xy: tuple[float, float]
+    #: THE BACK CUT ``T`` (at the block's level) and THE KERB ``R`` (the
+    #: declared riser between it and the higher lot, spec A2 (3)), frame
+    #: polygons (empty: none), and the kerb's wall records in
+    #: ``planar/foot_kerb``'s shape (``ring``, ``upper`` -- the lot's side,
+    #: high -- ``height_m``)
+    back_cut: _t.Any = None
+    kerb: _t.Any = None
+    kerbs: tuple[dict, ...] = ()
+    #: the scope that laid it on its pad (spec A2 (4)): ``"airside"`` (its
+    #: block the airside's level) or ``"floor"`` (its lowest level on a
+    #: structure floor)
+    scope: str = "airside"
 
     def y_of(self, k: int) -> float:
         """Level ``k``'s height over the block (its landing's ``y``)."""

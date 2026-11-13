@@ -17,6 +17,15 @@ with the rows kept, 832 pad rows were relaxed in stage 2 and 112 of the
 lower level's 622 vertices stood up to 2.04 m over it where ``big_roads``
 ribbons crossed the riser.
 
+A STOREY SHELL'S LEVELS (#2062, spec ``2062-storey-shell-spec`` A2 (2)):
+every level of a split-level building's storey pad (``planar/storey_pad``;
+its landing record carries ``shell``) -- an UPPER level as well as a lower
+one -- is held rigid by its own landing rows, its riser the object's
+storey: a row spanning it is withdrawn the same way (the lot's pavement
+ceiling and road grade rows read across a 6 m riser outranked the level's
+landing rows, MEASURED LPHR arm: 520 -> 145 relaxed hard rows).  A non-shell
+upper level (``planar/low_level`` ``plan_up``) is unchanged.
+
 TWO LOWER LEVELS AT TWO FLOORS (#1306, RULINGS 2026-10-27h): a level's
 extension (``planar/low_extent``) stands at the bottom of the objects on it,
 so two levels of one group may stand at different floors with a riser
@@ -34,18 +43,19 @@ __all__ = ["riser_sets", "riser_exempt", "LANDING_INPUT_PREFIX", "STATS"]
 #: the last run's #1138 sites: the road refs whose rows crossed a riser
 STATS: dict[str, _t.Any] = {}
 
-#: the input id a lower level's own landing row carries
+#: the input ids a level's own landing rows carry
 #: (``constraints/platform.landing_rows``) -- the one row that spans it
-LANDING_INPUT_PREFIX = "low_level:"
+LANDING_INPUT_PREFIX = ("low_level:", "landing:")
 
 
 def riser_sets(planar: PlanarMap) -> "tuple[frozenset[int], frozenset[int], dict[int, str]]":
-    """``(low, high, road)``: the vertices of every lower level's own faces,
-    the vertices of its block's faces and its strip's far edge, and the
-    road ref of every vertex a groundside road face carries (for the
-    #1138 site list)."""
+    """``(low, high, road)``: the vertices of every lower level's (and every
+    storey shell level's) own faces, the vertices of its block's faces and
+    its strip's far edge, and the road ref of every vertex a groundside road
+    face carries (for the #1138 site list)."""
     lands = getattr(planar.registries, "landings", {}) or {}
-    lows = {ref: rec["block"] for ref, rec in lands.items() if rec.get("kind") == "low_level"}
+    lows = {ref: rec["block"] for ref, rec in lands.items()
+            if rec.get("kind") == "low_level" or rec.get("shell")}
     if not lows:
         return frozenset(), frozenset(), {}
     blocks = set(lows.values())

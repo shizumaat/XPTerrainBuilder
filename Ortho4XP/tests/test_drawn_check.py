@@ -47,7 +47,7 @@ OBJ = "I\n800\nOBJ\n\nPOINT_COUNTS 4 0 0 0\n" + "".join(
     for x, y, z in ((-2, -5, -2), (2, -5, -2), (2, 0, 2), (-2, 0, 2)))
 
 
-def _world(tmp_path, msl_elev, kept_reason=None, deck=False):
+def _world(tmp_path, msl_elev, kept_reason=None, deck=False, floor_clearance=None):
     root = tmp_path / "pack"
     (root / "objects").mkdir(parents=True)
     (root / "objects" / "portal.obj").write_text(OBJ, encoding="utf-8", newline="\n")
@@ -71,6 +71,10 @@ def _world(tmp_path, msl_elev, kept_reason=None, deck=False):
                                         "mouth_ll": [LAT, LON], "depth_m": 5.0}]}
     if deck:
         sidecar["deck_anchors"] = [{"object": "dsf:obj0", "end": "A"}]
+    if floor_clearance is not None:
+        sidecar["portal_cuts"] = []
+        sidecar["object_floors"] = [{"id": "object_floor:portal.obj@0", "objects": ["dsf:obj0"],
+                                     "clearance_m": floor_clearance}]
     plan = {"kept": [{"index": 0, "resource": "objects/portal.obj",
                       "reason": kept_reason}]} if kept_reason else {}
     written = dsf_text.read_dump(str(dump), accept_polygon=lambda _p: False)
@@ -153,3 +157,13 @@ def test_split_level_lower_floor_on_the_floor_upper_at_the_ground(tmp_path):
 def test_split_level_upper_floor_over_the_ground_is_a_gap(tmp_path):
     row = _split(tmp_path, 104.0)
     assert any("gap to the terrain" in f for f in row["fails"])
+
+
+def test_an_object_floor_stands_its_clearance_over_the_cut(tmp_path):
+    """RULINGS 2026-11-06d (4) (#1921 / #1936): an object floor's cut stands
+    ``clearance_m`` beneath the floor, so the floor drawn 0.3 m over the cut
+    PASSES and one ON the cut (hidden, z-fighting) FAILS."""
+    rows, _ = _world(tmp_path, 100.3, floor_clearance=0.3)   # bottom 95.3 over floor 95
+    assert rows[0]["role"] == "CUT" and rows[0]["verdict"] == "PASS"
+    rows, _ = _world(tmp_path / "b", 99.65, floor_clearance=0.3)  # bottom 94.65: covered
+    assert rows[0]["verdict"] == "FAIL"

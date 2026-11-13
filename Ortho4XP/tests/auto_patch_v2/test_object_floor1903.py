@@ -126,3 +126,13 @@ def test_the_authors_plates_are_the_ground_a_floor_is_sunk_under(tmp_path):
     assert floors == [], notes
     assert any("dsf:obj2" in n and "not a sunken floor" in n and "plates" in n
                for n in notes), notes
+
+
+def test_a_ring_vertex_a_hair_off_a_sliver_face_reads_its_plane():
+    """#1936 EGLL 11b: a ring vertex 0.3 m outside a long sliver face's long
+    edge is within ``edge_m``; the reach was measured over the wrong edge
+    (30 m here) and 81 ring vertices were left unpinned, the mesh standing
+    up to 5 m over the floor between them."""
+    faces = np.array([[[0.0, 0.0, 7.0], [100.0, 0.0, 7.0], [100.0, 1.0, 7.0]]])
+    z = OF.floor_z_at(faces, [50.0, 50.0], [-0.3, -1.5], edge_m=1.0)
+    assert abs(z[0] - 7.0) < 1e-9 and np.isnan(z[1])

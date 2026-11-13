@@ -519,17 +519,9 @@ def stretches(e: np.ndarray, n: np.ndarray, d: np.ndarray, frame: Frame) -> list
     return out
 
 
-def edge_points(V: np.ndarray, tris: np.ndarray, spacing: float) -> np.ndarray:
-    """Every triangle edge of a component densified to ``spacing`` in 3D:
-    ``(n, 3)`` points.  A wall's face has corners only at its ends; its
-    densified edges say where the wall stands and how low and high it
-    reaches all along it."""
-    a = V[tris[:, [0, 1, 2]]].reshape(-1, 3)
-    b = V[tris[:, [1, 2, 0]]].reshape(-1, 3)
-    n = np.maximum(1, np.ceil(np.linalg.norm(b - a, axis=1) / spacing).astype(int))
-    rep_ = np.repeat(np.arange(len(a)), n + 1)
-    t = np.concatenate([np.linspace(0.0, 1.0, k + 1) for k in n])
-    return a[rep_] + (b - a)[rep_] * t[:, None]
+#: every triangle edge densified (``geom/shape_class.edge_points``, the
+#: engine's own reading of a wall's foot and crest)
+edge_points = _shape.edge_points
 
 
 def outline_reach(P: np.ndarray, be, bn, step: float) -> tuple[np.ndarray, np.ndarray]:

@@ -359,6 +359,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.file_hash",
+        "auto_patch_v2.airport.floor_rim",
         "auto_patch_v2.airport.foot_lot",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
@@ -1953,7 +1954,8 @@ CODE_MODULES["solve"] = _mods("""
     geom.runway_contact geom.collapsed_spike
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
-    airport.object_floor geom.author_ground geom.lowest_face planar.object_floor_cells
+    airport.object_floor airport.floor_rim geom.author_ground geom.lowest_face
+    planar.object_floor_cells
     airport.visible_cut planar.channel_depth
     pipeline.lot_follow solve.follow_stage
     geom.exact
@@ -2096,7 +2098,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.runway_contact geom.collapsed_spike
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
-    airport.object_floor constraints.object_floor planar.object_floor_cells
+    airport.object_floor airport.floor_rim constraints.object_floor
+    planar.object_floor_cells
     geom.author_ground geom.lowest_face
     airport.visible_cut planar.channel_depth
     solve.follow_stage
@@ -2256,7 +2259,8 @@ CODE_MODULES["emit"] = _mods("""
     geom.runway_contact airport.centreline_seat
     geom.station_runs airport.bridge_ground
     geom.shape_class
-    airport.hanging_objects airport.object_cut airport.object_floor airport.wall_geometry
+    airport.hanging_objects airport.object_cut airport.object_floor airport.floor_rim
+    airport.wall_geometry
     geom.author_ground geom.lowest_face geom.vector
     airport.lot_level solve.follow_stage
     geom.exact

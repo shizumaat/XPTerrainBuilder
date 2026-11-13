@@ -332,7 +332,8 @@ def _mark_row_at(lines: _t.Sequence[str]) -> int:
 
 def edit_dump(text: str, plan: PlacementPlan,
               engine_version: str = "",
-              also_drop: _t.AbstractSet[int] = frozenset()) -> str:
+              also_drop: _t.AbstractSet[int] = frozenset(),
+              pack_root: str | None = None) -> str:
     """The edited dump text (§3.2).  Pure: no I/O, no DSFTool.
 
     §12a: ONE row is added — ``PROPERTY o4/placement_rewrite
@@ -350,7 +351,12 @@ def edit_dump(text: str, plan: PlacementPlan,
 
     ``also_drop`` (issue #1707 D1) is more placement ordinals to delete:
     the duplicates the user's "Optimise pack" drops
-    (``pack_optimise.dedupe``).  None may be a row the plan edits."""
+    (``pack_optimise.dedupe``).  None may be a row the plan edits.
+
+    ``pack_root`` lets a row's VIRTUAL definition match the pack file the
+    plan records (``obj8.same_resource``: the pack's own ``library.txt``
+    is read, memoised, only for a definition that is not the file)."""
+    from .obj8 import same_resource
     lines = text.splitlines(keepends=True)
     rows = placement_rows(lines)
     by_ordinal = {o: (i, toks) for o, i, toks in rows}
@@ -380,13 +386,14 @@ def edit_dump(text: str, plan: PlacementPlan,
             raise ValueError(f"placement {idx}: dump row is {toks[0]}, plan says "
                              f"{c.kind_before}")
         res = defs[int(toks[1])]
-        if c.resource and res != c.resource:
+        if c.resource and not same_resource(res, c.resource, pack_root):
             raise ValueError(f"placement {idx}: dump resource {res!r}, plan says "
                              f"{c.resource!r}")
     for idx, s in spl.items():
         _i, toks = by_ordinal[idx]
         res = defs[int(toks[1])]
-        if s.placement.resource and res != s.placement.resource:
+        if (s.placement.resource
+                and not same_resource(res, s.placement.resource, pack_root)):
             raise ValueError(f"placement {idx}: dump resource {res!r}, plan says "
                              f"{s.placement.resource!r}")
         if not s.bodies:
@@ -1522,7 +1529,8 @@ def _edited_text(text: str, composed: PlacementPlan, omit: _t.Sequence,
                    | {m.index for m in getattr(composed, "msl_seats", ())})
     also_drop, optimised = _po.drop_ordinals(
         text.splitlines(keepends=True), optimise, edited_rows)
-    edited = edit_dump(text, composed, engine_version, also_drop)
+    edited = edit_dump(text, composed, engine_version, also_drop,
+                       pack_root=pack_root)
     edited, polys = _ph.repair_polygons(edited)
     omitted: dict[str, int] = {}
     if omit:

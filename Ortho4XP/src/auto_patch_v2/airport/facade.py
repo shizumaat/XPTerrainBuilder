@@ -216,41 +216,10 @@ def edge_walls(floor: Floor, edge_lengths_m: _t.Sequence[float],
 
 # ── the object table ─────────────────────────────────────────────────────
 
-_LIBRARY_TXT: dict[str, tuple[float, dict[str, tuple[str, ...]]]] = {}
-
-
 def _library_exports(lib_txt: str) -> dict[str, tuple[str, ...]]:
-    """``virtual.lower() -> every physical path`` one ``library.txt``
-    exports (the merged index keeps ONE path per virtual path — for the
-    trailer an ``EmptyObject.obj`` under the exact-case key)."""
-    try:
-        mtime = os.path.getmtime(lib_txt)
-    except OSError:
-        return {}
-    hit = _LIBRARY_TXT.get(lib_txt)
-    if hit is not None and hit[0] == mtime:
-        return hit[1]
-    root = os.path.dirname(lib_txt)
-    acc: dict[str, list[str]] = {}
-    try:
-        with open(lib_txt, "r", encoding="utf-8", errors="replace") as fh:
-            for raw in fh:
-                t = raw.split()
-                if len(t) < 3 or not t[0].startswith("EXPORT"):
-                    continue
-                if t[0] == "EXPORT_RATIO":
-                    t = t[1:]
-                    if len(t) < 3:
-                        continue
-                phys = os.path.join(root, " ".join(t[2:]).replace("\\", "/"))
-                lst = acc.setdefault(t[1].replace("\\", "/").lower(), [])
-                if phys not in lst:
-                    lst.append(phys)
-    except OSError:
-        return {}
-    out = {k: tuple(v) for k, v in acc.items()}
-    _LIBRARY_TXT[lib_txt] = (mtime, out)
-    return out
+    """``obj8.library_exports`` -- the one ``library.txt`` reader."""
+    from .obj8 import library_exports
+    return library_exports(lib_txt)
 
 
 def _library_txt_of(phys: str) -> str | None:

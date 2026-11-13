@@ -51,7 +51,7 @@ __all__ = ["Attachment", "Wall", "Floor", "FacadeDef", "EdgeWall",
            "edge_walls", "placed_edges", "PlacedEdge", "object_variants",
            "is_vehicle",
            "LINE", "ROOFED", "LOT", "PARKING_STRUCTURE", "LOT_SOURCE",
-           "is_lot_def", "is_line_def", "def_class", "read_placed"]
+           "is_lot_def", "is_line_def", "read_placed"]
 
 LINE, ROOFED, LOT, PARKING_STRUCTURE = (
     "line", "roofed", "lot", "parking_structure")
@@ -509,7 +509,7 @@ LOT_SOURCE = "dsf:lot:fac"
 _DEF_CLASS: dict[tuple[str, str | None], str | None] = {}
 
 
-def def_class(def_path: str, pack_root: str | None,
+def _def_class(def_path: str, pack_root: str | None,
               index: _t.Mapping[str, str] | None) -> str | None:
     """The :func:`facade_class` of a ``POLYGON_DEF``'s FILE, memoised per
     def; ``None`` for a non-facade or an unresolved / unreadable one."""
@@ -531,14 +531,14 @@ def def_class(def_path: str, pack_root: str | None,
 def is_lot_def(def_path: str, pack_root: str | None,
                index: _t.Mapping[str, str] | None) -> bool:
     """Whether a ``POLYGON_DEF`` is a facade whose FILE is an open lot."""
-    return def_class(def_path, pack_root, index) == LOT
+    return _def_class(def_path, pack_root, index) == LOT
 
 
 def is_line_def(def_path: str, pack_root: str | None,
                 index: _t.Mapping[str, str] | None) -> bool:
     """#2054: whether a ``POLYGON_DEF`` is a LINE facade (a fence, a
     barrier, a wall run) by what its FILE says."""
-    return def_class(def_path, pack_root, index) == LINE
+    return _def_class(def_path, pack_root, index) == LINE
 
 
 def read_placed(poly: _t.Any, pack_root: str | None,

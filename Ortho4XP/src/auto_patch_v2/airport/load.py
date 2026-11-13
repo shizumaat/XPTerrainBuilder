@@ -1241,9 +1241,9 @@ def _edge_line(eid: str, poly, root: str, index, to_xy, mark):
     """#2054: the ``EdgeLine`` of one placed line facade, or ``None`` when
     its file cannot be measured."""
     from ..model.airport import EdgeLine
-    from .line_solidity import facade_solidity
+    from .line_solidity import Solidity, facade_solidity
     phys = _obj8.resolve_resource(poly.def_path, root, index)
-    sol = facade_solidity(phys, index) if phys else None
+    sol: Solidity | None = facade_solidity(phys, index) if phys else None
     if sol is None:
         return None
     # the DSF's own nodes: an open line is never closed by the ring

@@ -22,9 +22,11 @@ here only when ALL hold, and each refusal is counted by reason:
 
 * I1 ``not_isolated``: no foreign outline within the reach;
 * I2 ``structure``: no member of the CLUSTER is skirted, a deck, a plate, a
-  datum, a basin, a connector, an authored seat, an adapted frame, or
-  carries a welded base plane (a part of such a member within the reach of
-  a candidate refuses it the same way: the closure would hold it);
+  datum, a basin, a connector, an authored seat, an adapted frame, a member
+  of an OPEN STRUCTURE's frame (every member a deck or deck candidate,
+  which 22c moves as one rigid group), or carries a welded base plane (a
+  part of such a member within the reach of a candidate refuses it the
+  same way: the closure would hold it);
 * I3 ``span``: the cluster's plan diagonal is within ``span_max_m``;
 * I4 ``no_feet`` / ``off_author_ground``: the share has feet and its
   lowest authored ``y`` is within ``split_tol_m`` of ``-Unit.agl_m``;
@@ -193,10 +195,15 @@ def shares(plan: _t.Any, surface: _ar.Surface,
     conn = frozenset(q for v in (verdicts_of(plan) or ()) for q in v.pids)
     cand: list[tuple[_t.Any, int, _t.Any]] = []
     blockers: list[tuple] = []
+    from .open_frame_seat import OPEN_KINDS
     for ui, u in enumerate(plan.units):
+        # an OPEN STRUCTURE's frame (every member a deck or deck candidate)
+        # moves as ONE rigid group (RULINGS 2026-10-22c): all structure
+        open_frame = bool(u.members) and all(
+            str(getattr(x, "deck_kind", "") or "") in OPEN_KINDS for x in u.members)
         for m in u.members:
             solid = [p for p in m.parts if not p.line]
-            if _structure(m, rims, seats, adapted, conn):
+            if open_frame or _structure(m, rims, seats, adapted, conn):
                 blockers.extend((p.box, p.rings) for p in solid)
             else:
                 cand.extend((p, ui, m) for p in solid)

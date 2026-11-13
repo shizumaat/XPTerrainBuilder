@@ -112,9 +112,13 @@ def test_each_structure_verdict_refuses(kw):
 
 
 def test_a_deck_candidate_plate_is_no_deck():
-    """A wing reads as a plate with no spanning evidence: no deck."""
-    plan = _plan(((_m("x", _part(0, 0.0, 0.0), deck_kind="candidate"),), 0.0))
+    """A wing reads as a plate with no spanning evidence: no deck — unless
+    every member of its frame is one (22c's open structure, one rigid group)."""
+    plan = _plan(((_m("x", _part(0, 0.0, 0.0), deck_kind="candidate"),
+                   _m("y", _part(1, 0.5, 0.0))), 0.0))
     assert I.shares(plan, _flat(), counts={}, **LAW)
+    plan = _plan(((_m("x", _part(0, 0.0, 0.0), deck_kind="candidate"),), 0.0))
+    assert I.shares(plan, _flat(), counts={}, **LAW) == {}
 
 
 def test_a_cluster_wider_than_the_span_refuses():

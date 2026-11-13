@@ -224,14 +224,24 @@ the string never appears in Python source. `blast.py` reports drift.
 
 ## The standard test harness (build and measure ONLY through this)
 
-Four entries, run from `Ortho4XP/`. They are THE way to build and measure;
+Five entries, run from `Ortho4XP/`. They are THE way to build and measure;
 a lane-private build or census wrapper is a **defect**, not a shortcut.
 
     venv/bin/python tools/harness/build_airport.py ICAO [--tile LAT LON] [--dem M]
     venv/bin/python tools/harness/census.py PATCH.osm [PATCH.osm ...]
     venv/bin/python tools/harness/oracle.py ICAO
+    venv/bin/python tools/harness/drawn_gate.py ICAO --tag T [--site NAME=LAT,LON[,R]] [--against BASE.json]
     tools/harness/lane_worktree.sh {up|check|down} NAME [REF]
     tools/harness/lane_worktree.sh data          # who is on which corpus
+
+**Drawn gate (owner 2026-11-13T03:17Z, RULINGS 2026-11-13g, #1903).** A
+lane's closing tile build runs with `--pack-copy`, and its closing bar is
+`drawn_gate.py` PASS at the round's `--site`s and `--against` the control
+(no MOVED): the gate reads the mesh, patch and objects as X-Plane draws
+them. `build_airport.py --tile` runs it and writes `<tag>.drawn.json`. A
+replay or census pass alone is not a lane pass (LOWS/LGAV/KIAH/KLAX passed
+those bars while the drawn objects were unchanged). A one-tile build cannot
+measure claims that live on the neighbour tile: build both, or say so.
 
 Why: two lanes each wrote their own census wrapper. One dropped
 `terrace_joints_ll` (lawful declared terraces reported as violations); the

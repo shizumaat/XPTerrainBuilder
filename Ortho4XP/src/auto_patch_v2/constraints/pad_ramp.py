@@ -190,6 +190,18 @@ def _frontage_vertices(planar: PlanarMap, law: Law) -> dict[int, float]:
     return out
 
 
+def _rim_cap(planar: PlanarMap, law: Law, r: int, default: float) -> float:
+    """The tightest transverse cap of the rigid faces (the pad) at rim
+    vertex ``r``: a pair from the rim across the kerbside is read under the
+    pad's cap as well as the road's (issue #2057, the census's
+    ``road_cross_section`` on a ``building|service_road`` pair)."""
+    from ..law.tables import is_rigid_role, role_cap
+    caps = [c.transverse for f in planar.vertices[r].incident_faces
+            if f in planar.faces and is_rigid_role(law, planar.faces[f].role)
+            for c in [role_cap(law, planar.faces[f].role)] if c is not None]
+    return min(caps, default=default)
+
+
 def _nearest_rim(planar: PlanarMap, rim: frozenset[int], vs: _t.Iterable[int]
                  ) -> dict[int, tuple[int, float]]:
     """``{v: (nearest rim vertex, the straight distance to it)}`` for each
@@ -334,7 +346,8 @@ def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
             continue
         delta = ramp_delta(float(dv), float(zr), float(dv if dr is None else dr), g, d)
         if v in lateral:
-            delta = max(-front[v] * d, min(front[v] * d, delta))
+            cap = min(front[v], _rim_cap(planar, law, r, front[v]))
+            delta = max(-cap * d, min(cap * d, delta))
             planned[v] = float(zr) + delta
         ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
                     if planar.faces[f].ref), "")

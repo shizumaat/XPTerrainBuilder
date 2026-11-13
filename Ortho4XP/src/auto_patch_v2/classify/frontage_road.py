@@ -108,12 +108,16 @@ def _depth(line, span: tuple[float, float], pad: Polygon, hw: float, reach: floa
 
 
 def _kerbside(pad: Polygon, rib, depth: float, occupied: _Occupied):
-    """The parts of the lens between ``pad`` and ``rib`` (``geom/lens``,
-    at the kerbside's ``depth``) on ground nothing holds yet, each touching
-    both."""
-    box = pad.buffer(2.0 * depth, join_style=2)
+    """The parts of the lens between ``pad`` and ``rib`` (``geom/lens``)
+    on ground nothing holds yet, each touching both.  The lens is read at
+    TWICE the kerbside's ``depth``, so its closing (half the reach) spans
+    the whole gap: at ``depth`` a facade's recess as deep as the kerbside
+    was left out — MEASURED KASE (lkase_arm_KASE, 39.21962, -106.86405): a
+    1.4 m trough of DEM ground between the terminal's recess and the
+    kerbside."""
+    box = pad.buffer(4.0 * depth, join_style=2)
     held = box.difference(occupied.cut(box))
-    lens = lens_to_roads(pad, [rib], depth, held)
+    lens = lens_to_roads(pad, [rib], 2.0 * depth, held)
     if lens is None:
         return []
     return [q for q in polygon_parts(lens.difference(pad)) if q.distance(rib) <= 1e-3]

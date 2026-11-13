@@ -10,11 +10,17 @@ bridge): one wide mouth spanning every carriageway the deck crosses.
   one of them traces (``dual_width.compose_half_fn(wide=True)``);
 * a KEPT survey mouth opens into the surveyed cutting
   (``survey_cut.Cutting``): pavement on the cutting floor is no stop, a slid
-  mouth where the survey still reads the cut is built, and its ramp lies on
-  the survey (``lidar_road.survey_design_grade``).
+  mouth where the survey still reads the cut is built (round 2 R0: its ramp
+  keeps the design grade, ``lidar_road.survey_design_grade``);
+* round 2 R1: a class-K mouth stands on the deck's line through the
+  outermost member end, its ring sheared onto it
+  (``underpass_mouth.place_mouth`` / ``sheared_ring``).
 
 Synthetic geometry only; law values read from the tables."""
 from __future__ import annotations
+
+import dataclasses
+import math
 
 import pytest
 from shapely.geometry import LineString, Polygon
@@ -27,6 +33,7 @@ from auto_patch_v2.planar.lidar_road import KEPT, SurveyMouth, survey_design_gra
 from auto_patch_v2.planar.structure_mouth import member_lanes, mouth_stops
 from auto_patch_v2.planar.structure_service import airside_cut_roles
 from auto_patch_v2.planar.survey_cut import Cutting, cutting_of
+from auto_patch_v2.planar.underpass_mouth import place_mouth, sheared_ring
 
 
 @pytest.fixture(scope="module")
@@ -174,16 +181,80 @@ def test_a_slid_mouth_in_the_cut_is_built_at_the_surveyed_road(law):
     assert cutting_of(flat, law, _kept(), 10.0).slid_floor(axis) is None
 
 
-def test_a_kept_ramp_lies_on_the_survey(law):
-    """A KEPT mouth on a flat cutting floor: its ramp is built at the
-    survey's own grade (0), never the design grade over it; where the
-    survey climbs faster than the design grade the design grade stands."""
+def test_a_kept_ramp_keeps_the_design_grade(law):
+    """Round 2 R0 (the round-1 KEPT clause reverted): a KEPT mouth's ramp
+    is planned at the design grade, flat survey or not -- a surveyed
+    underpass mouth is class K (``underpass_mouth``), never a flatter ramp."""
     tn = law.tables.structures.tunnel
 
     def along(s):
         return (0.0, s)
     assert survey_design_grade(_CUT, law, along, _kept(), tn.ramp_grade,
-                               tn.ramp_max_grade) == 0.0
+                               tn.ramp_max_grade) == tn.ramp_grade
     steep = _Airport(lambda x, y: 24.0 + 0.2 * max(0.0, y))
     assert survey_design_grade(steep, law, along, _kept(), tn.ramp_grade,
                                tn.ramp_max_grade) == tn.ramp_grade
+
+
+def _deck_group(angle_deg: float):
+    """Four parallel carriageways (x = -15, -5, 5, 15) running north, their
+    south ends on a deck line at ``angle_deg`` off east-west through the
+    origin; the mouth is the north side (outward +y)."""
+    t = math.tan(math.radians(angle_deg))
+    ms = []
+    for x in (-15.0, -5.0, 5.0, 15.0):
+        m = _Member(x, 7.0)
+        y0 = 10.0 + t * x                  # the covered edge, parallel to the deck
+        m.xy, m.inward = (x, y0), (0.0, -1.0)
+        m.bore = _Bore([(x, y0 - 30.0), (x, y0)])
+        m.approach = [(x, y0), (x, y0 + 300.0)]
+        ms.append(m)
+    deck = [(-60.0, -60.0 * t), (60.0, 60.0 * t)]
+    y_out = max(m.xy[1] for m in ms)
+    axis = LineString([(0.0, y_out), (0.0, y_out + 300.0)])
+    return ms, deck, axis
+
+
+def test_a_skewed_deck_shears_the_mouth_onto_its_line(law):
+    """The deck crosses the roads at 59 deg (31 deg off square): the mouth
+    edge runs parallel to the deck within 1 deg through the outermost
+    member end, and the ring stands clear of the deck's pavement."""
+    tn = law.tables.structures.tunnel
+    grid = law.tables.emit.identity.min_distinct_spacing_m
+    rim_off = tn.wall_gap_m + tn.wall_band_width_m
+    ms, deck, axis = _deck_group(31.0)
+    sk, ax, _note = place_mouth(deck, "-74", ms, axis, (0.0, -1.0), 19.0, rim_off, law)
+    assert sk is not None and sk.sigma != 0.0
+    end = max(ms, key=lambda m: m.xy[0] * -sk.e[1] + m.xy[1] * sk.e[0]).xy
+    # the mouth on the axis lies on the deck's line through that end
+    assert abs((ax.coords[0][0] - end[0]) * sk.e[1] - (ax.coords[0][1] - end[1]) * sk.e[0]) < 1e-6
+
+    def fn(s, _ln=ax):
+        q = _ln.interpolate(min(s, _ln.length))
+        return (q.x, q.y)
+    @dataclasses.dataclass
+    class G:
+        inward: tuple
+        capped: bool = True
+        far_capped: bool = False
+        rim_fn: object = None
+        cap_off: object = None
+        far_off: object = None
+    ring = sheared_ring(sk, None, fn, [0.0, 12.0], 19.0, rim_off, (0.0, -1.0), grid,
+                        G((0.0, -1.0)))
+    assert ring is not None
+    (x0, y0), (x1, y1) = ring.right[0], ring.left[0]
+    edge = math.degrees(math.atan2(y1 - y0, x1 - x0)) % 180.0
+    assert abs(edge - 31.0) < 1.0 or abs(edge - 211.0) < 1.0
+    deck_pav = LineString(deck).buffer(5.0)          # the deck's pavement up to the edge
+    assert ring.ramp.distance(deck_pav) > 0.0
+
+
+def test_a_square_crossing_keeps_the_square_ring(law):
+    """Identity where the shear moves the ring's corner no more than
+    ``wall_gap_m``: the square mouth stands."""
+    tn = law.tables.structures.tunnel
+    rim_off = tn.wall_gap_m + tn.wall_band_width_m
+    ms, deck, axis = _deck_group(0.2)
+    sk, ax, note = place_mouth(deck, "-74", ms, axis, (0.0, -1.0), 19.0, rim_off, law)
+    assert sk is not None and sk.sigma == 0.0 and ax is axis and "square" in note

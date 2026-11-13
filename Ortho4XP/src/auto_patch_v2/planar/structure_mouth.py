@@ -310,7 +310,7 @@ def _runs_along(axis: LineString, poly: Polygon, width: float, grid: float) -> b
 def clear_mouth(axis: LineString, stops: list[tuple[Polygon, str]], half: float,
                 rim_off: float, gap: float, spacing: float, grid: float,
                 ring_of: _t.Callable[[float], "Polygon | None"],
-                max_slide: float = math.inf) -> tuple[float, str]:
+                max_slide: float = math.inf, skew=None) -> tuple[float, str]:
     """``(s0, ref)``: the least station ``s0`` along ``axis`` at which the
     corridor's mouth end — its real ring over the first ``spacing``,
     ``ring_of(s0)`` — stands ``gap`` clear of every stop; ``ref`` the stop
@@ -323,7 +323,9 @@ def clear_mouth(axis: LineString, stops: list[tuple[Polygon, str]], half: float,
     whose mouths stand among side roads, so the bound is a length.)
     The rectangle ``half + rim_off`` either side of the axis, ``rim_off``
     behind the mouth line, is a necessary test (the real ring is never
-    narrower) and keeps the ring builder off every station it fails."""
+    narrower) and keeps the ring builder off every station it fails.
+    ``skew`` (a class-K mouth, ``underpass_mouth.Skew``, #1939 R1): the
+    rectangle is sheared onto the deck's line like the ring it tests."""
     if not stops:
         return 0.0, ""
     tree = STRtree([p for p, _r in stops])
@@ -336,6 +338,10 @@ def clear_mouth(axis: LineString, stops: list[tuple[Polygon, str]], half: float,
         seg = substring(axis, max(0.0, s - rim_off), min(axis.length, s + spacing))
         if s < rim_off:
             seg = _extend_back(seg, rim_off - s)     # the cap stands behind s = 0
+        if skew is not None and skew.sigma != 0.0:
+            from .underpass_mouth import skewed_box
+            q = axis.interpolate(s)
+            return skewed_box(seg, (q.x, q.y), half, rim_off, skew)
         return seg.buffer(half + rim_off, cap_style="flat")
 
     ring0 = ring_of(0.0)
@@ -433,7 +439,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       pinned: bool = False, road_floor: float | None = None,
                       road_extra: float = 0.0, slide: bool = True, own_lines=(), own_area=None,
                       keep_out: _t.Sequence[tuple[Polygon, str]] = (), own_cut=None,
-                      cutting=None):
+                      cutting=None, skew=None):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
     axis starting at the mouth that stands clear of the pavement (the
@@ -442,7 +448,9 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     pavement.  ``cutting`` (``survey_cut.Cutting``, a KEPT survey mouth,
     #1939): pavement on the surveyed cutting floor is no stop, and a slid
     mouth where the survey still reads the cut is built at the surveyed
-    road there instead of refused.  ``floor_z`` is a SLID mouth's floor on the road's own
+    road there instead of refused.  ``skew`` (a class-K mouth,
+    ``underpass_mouth.Skew``, #1939 R1): the probe rings are sheared onto
+    the deck's line as the built ring is.  ``floor_z`` is a SLID mouth's floor on the road's own
     profile, held under the pavement it slid out of (:func:`road_profile`;
     ``None`` for a mouth that did not slide, or without ``airport``): the
     caller's datum is never deeper.  ``decked`` are the corridor's own deck
@@ -483,7 +491,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     mouth is still refused by ``strip_keepout``.  Before this a mouth whose
     mapped portal stands in the strip was refused outright."""
     from .structure_approach import pavement_half_widths
-    from .structure_geometry import ring_for
+    from .underpass_mouth import sheared_ring
     def ring_of(s0: float):
         ln = substring(axis, s0, axis.length)
 
@@ -504,8 +512,8 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         # (``dual_width.compose_half_fn``) -- a trace narrower than the lanes
         # at the mouth snaps its rim corner out past the lanes' ring (LFPG,
         # 0.23 m from the taxiway the mouth slid 0.5 m out of: refused)
-        rings = [g.outer for g in (ring_for(None, fn, ss, half, rim_off, group.inward, grid,
-                                            group, f)
+        rings = [g.outer for g in (sheared_ring(skew, None, fn, ss, half, rim_off, group.inward,
+                                                grid, group, f)
                                    for f in (half_fn, lambda s, _hw=hw: _hw.get(s, (half, half))))
                  if g is not None]
         return None if not rings else unary_union(rings)
@@ -537,7 +545,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                             grid, _routes(group), lanes, on_floor) + list(crossing)
         s0, ref = clear_mouth(here, stops + list(keep_out), half, rim_off, gap, spacing, grid,
                               lambda s, _t=total: ring_of(_t + s),
-                              law.tables.structures.tunnel.mouth_slide_max_m - total)
+                              law.tables.structures.tunnel.mouth_slide_max_m - total, skew)
         cover.extend(p for p, _r in stops + list(keep_out))
         if math.isnan(s0) or s0 <= 0.0:
             break

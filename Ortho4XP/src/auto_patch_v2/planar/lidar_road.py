@@ -371,21 +371,7 @@ def survey_design_grade(airport, law: Law, axis_fn, sm: SurveyMouth, design: flo
     the road's own rise over the closing length plus ``design``, never
     above ``cap``.  On a flat approach it is ``design`` (unchanged); where
     the survey's trench descends to the mouth, the ramp follows it instead
-    of cutting under it for a design ramp's length.
-
-    A KEPT mouth (nothing to close: its floor IS the surveyed road, N1) is
-    never built steeper than the survey it lies on, up to ``design`` (#1939):
-    its ramp is the surveyed road.  MEASURED ESSA (taxiway U): the cutting
-    floor runs flat from both mouths, and a 5 % ramp from the surveyed road
-    stood 1.2 m over it at its top, 24 m out, with the road beyond pulled up
-    2.3 m to meet it.  Where the survey climbs at the design grade or more
-    the design grade stands.  (EGLL's north mouth, KEPT: 5 % -> 0.65 %, the
-    survey's own climb over its first 12 m; floor and top unchanged.)"""
-    if sm.verdict == KEPT and sm.extra <= 0.0 and design > 0.0:
-        z0, z1 = dem_z_at(airport, axis_fn(0.0)), dem_z_at(airport, axis_fn(_ROAD_M))
-        if math.isnan(z0) or math.isnan(z1):
-            return design
-        return min(design, max(0.0, (z1 - z0) / _ROAD_M))
+    of cutting under it for a design ramp's length."""
     if sm.extra <= 0.0 or design <= 0.0:
         return design
     run = max(_ROAD_STEP_M, sm.extra / design)

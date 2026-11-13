@@ -401,6 +401,13 @@ class Tunnel:
     #: to the deck than this (constraints/structures, #1903); ``0.0`` where
     #: the frame states the floor
     deck_floor_min_m: float = 0.0
+    #: #1939 R2 (a class-K surveyed underpass mouth, ``planar/underpass_mouth``):
+    #: the floor along the sheared mouth edge ``(z0, k, a, b)`` -- ``z0 + k .
+    #: tau``, ``tau`` the metres from ``axis[0]`` toward ``b`` along the edge
+    #: from corner ``a`` to corner ``b``; the ramp is pinned to it there and to
+    #: the ground beyond (``constraints/structures``), no station rows.
+    #: ``None`` for every other mouth
+    survey_floor: tuple | None = None
 
 
 @_dc.dataclass(frozen=True)

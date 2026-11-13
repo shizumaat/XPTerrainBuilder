@@ -982,9 +982,15 @@ def test_qt_settings_storage_holds_the_storage_rows(window, monkeypatch):
     import O4_Qt_Library_Storage as QTLIBSTORE
     import O4_Qt_Settings as QTSET
 
+    from o4_engine import storage_shared as SHARED
+
     measured = []
     monkeypatch.setattr(QTLIBSTORE.StorageRows, "refresh",
                         lambda self: measured.append(True))
+    # No shared background scan yet (#2029): an earlier test's on this
+    # worker would be shown instead of measured.
+    monkeypatch.setattr(SHARED, "storage_scan_cached", lambda: {
+        "scan": None, "updating": False, "age_s": None})
     dialog = QTSET.SettingsWindow(window.prefs, [], window.output_dir(), window)
     try:
         section = dialog.storage_section

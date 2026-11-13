@@ -25,7 +25,7 @@ def roots(tmp_path, monkeypatch):
     scenery = tmp_path / "xp" / "Custom Scenery"
     pack = scenery / WP.PACK_NAME
     pack.mkdir(parents=True)
-    (pack / WP.MARKER).write_text("{}", encoding="utf-8")
+    (pack / WP.MARKER).write_text("{}", encoding="utf-8", newline="\n")
     data.mkdir()
     monkeypatch.setattr(FNAMES, "_data_root_override", str(data))
     monkeypatch.delitem(FNAMES.__dict__, "Tile_dir", raising=False)
@@ -39,7 +39,7 @@ def _tile(folder, name, files=("Ortho4XP_%s.cfg",)):
     path.mkdir(parents=True)
     for pattern in files:
         (path / (pattern % name[len("zOrtho4XP_"):])).write_text(
-            "x" * 10, encoding="utf-8")
+            "x" * 10, encoding="utf-8", newline="\n")
     return path
 
 
@@ -65,7 +65,7 @@ def test_migrate_moves_tiles_and_packages_then_points_home(roots):
     (store / "+01+002_adopted.xptb").write_bytes(b"p" * 20)
     (store / "packaged.json").write_text(json.dumps(
         {"+01+002": {"path": str(store / "+01+002_adopted.xptb")}}),
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
     first = HOME.migrate(str(scenery), busy=lambda: {"+03+004"})
     assert (first["moved"], first["busy"], first["left"]) == (1, 1, 1)
@@ -131,7 +131,7 @@ def test_a_foreign_world_folder_is_never_a_home(tmp_path, monkeypatch):
     scenery = tmp_path / "Custom Scenery"
     target = tmp_path / "elsewhere"
     target.mkdir()
-    (target / WP.MARKER).write_text("{}", encoding="utf-8")
+    (target / WP.MARKER).write_text("{}", encoding="utf-8", newline="\n")
     scenery.mkdir()
     os.symlink(target, scenery / WP.PACK_NAME)
     out = HOME.migrate(str(scenery))
@@ -241,3 +241,25 @@ def test_a_copy_landed_before_a_kill_is_finished_not_a_conflict(roots):
                 source=str(source), target=str(target))
     out = HOME.migrate(str(scenery))
     assert (out["moved"], out["conflicts"]) == (1, 0) and not source.exists()
+
+
+def test_an_assigned_tile_dir_is_the_one_override_every_reader_honours(
+        roots, tmp_path):
+    """``Tile_dir`` assigned (a monkeypatch) is THE override: the attribute,
+    ``_tiles_root`` and ``build_dir`` all serve it; both monkeypatch undo
+    styles (delete — pytest >= 9.2 — and assign-back) restore the computed
+    home, also after ``set_data_root`` has dropped the override."""
+    data, _scenery, _pack = roots
+    elsewhere = str(tmp_path / "elsewhere")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(FNAMES, "Tile_dir", elsewhere)
+        assert FNAMES.Tile_dir == FNAMES._tiles_root() == elsewhere
+        assert FNAMES.build_dir(1, 2, "") == os.path.join(
+            elsewhere, "zOrtho4XP_+01+002")
+        FNAMES._apply_data_root()            # a new root drops it ...
+        assert FNAMES.Tile_dir == str(data / "Tiles")
+    assert FNAMES.Tile_dir == str(data / "Tiles")   # ... and the undo is clean
+    FNAMES.Tile_dir = elsewhere
+    FNAMES.Tile_dir = str(data / "Tiles")    # the computed home: no pin
+    assert "Tile_dir" not in FNAMES.__dict__
+    del FNAMES.Tile_dir                      # absent: a no-op

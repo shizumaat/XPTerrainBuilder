@@ -36,6 +36,11 @@ def scenery(tmp_path, monkeypatch):
     monkeypatch.setattr(SM, "_default_global_cfg", lambda: str(tmp_path / "x.cfg"))
     monkeypatch.setattr(WORLD, "_xplane_running", lambda: False)
     monkeypatch.setattr(WORLD, "write_log", lambda record: None)
+    # A data folder of this test's own: the home move plans the data
+    # folder's tiles, and the checkout's (or the runner's) is not empty.
+    import O4_File_Names as FNAMES
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(FNAMES, "_data_root_override", str(tmp_path / "data"))
     return folder
 
 

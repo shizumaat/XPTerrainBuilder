@@ -22,7 +22,7 @@ from o4_engine import storage_redundant as REDUNDANT  # noqa: E402
 DAY = 86400.0
 _DATA_ROOT_GLOBALS = ("_data_root_override", "Auto_extent_dir", "Preview_dir",
                       "OSM_dir", "Imagery_dir", "Elevation_dir", "Geotiff_dir",
-                      "Patch_dir", "Tile_dir", "Tmp_dir", "Overlay_dir",
+                      "Patch_dir", "Tmp_dir", "Overlay_dir",
                       "Default_dsf_cache_dir")
 
 

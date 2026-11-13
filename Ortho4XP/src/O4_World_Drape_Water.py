@@ -37,7 +37,7 @@ import numpy
 import O4_Geo_Utils as GEO
 from PIL import Image, ImageDraw
 
-__all__ = ["OPEN_WATER_ALPHA", "tile_water", "square_mask", "start_masks"]
+__all__ = ["OPEN_WATER_ALPHA", "square_mask", "start_masks"]
 
 #: Photo opacity over open water on a drape's water copy, 0-255 (RULINGS
 #: 2026-11-11j (2), owner 14:17Z "halfway between those two": the regular
@@ -135,17 +135,11 @@ def _sea_or_none(tile):
         return None
 
 
-def tile_water(tile):
-    """The tile's water, tile-relative degrees (shapely): its inland OSM
-    water and its sea (see the module), read from the cache, each layer
-    fetched once when nothing is on disk.  ``None`` when no data could be
-    had."""
-    return _union(_inland(tile), _sea_or_none(tile))
-
-
 def _start_water(tile):
-    """Start the tile's water (:func:`tile_water`) on two threads, inland
-    and sea at once, so the fetch overlaps the photo download; the
+    """Start the tile's water -- its inland OSM water and its sea (see the
+    module), tile-relative degrees, read from the cache, each layer
+    fetched once when nothing is on disk -- on two threads, inland and sea
+    at once, so the fetch overlaps the photo download; the
     returned callable ``join(timeout=None)`` gives ``(area, seconds)``,
     re-raising what a thread raised; past ``timeout`` seconds it gives
     ``(None, None)`` and leaves the threads to fill the cache."""

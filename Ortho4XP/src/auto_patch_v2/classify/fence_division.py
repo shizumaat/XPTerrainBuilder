@@ -10,29 +10,42 @@ wire fence, a low barrier or a solid wall standing on its zero
 (``line_solidity.ON_TOP``), and every OSM way tagged ``barrier=fence`` /
 ``barrier=wall`` the loaded feeds carry.
 
-A fence RUNS ALONG an edge within ``[edge_lines] host_reach_m`` of it: the
+A fence RUNS ALONG an edge within ``[edge_lines] host_reach_m`` of it (the
 one tolerance the engine already has for "a line object marks this paved
-edge" (``classify/edge_line_mint``, #2054).  Two readers:
+edge", ``classify/edge_line_mint``, #2054) and within §27's own
+``_MOUTH_TRANSVERSE_DEG`` of its direction — a fence that CROSSES an edge
+runs along none of it.  Three readers:
 
-* §27 (``airside_edge.airside_edge_flip``) drops the run of a contact
-  inside :func:`fence_band` — airside never propagates across a fence;
+* :func:`split_at_fences` cuts a §27 candidate face a fence CROSSES into
+  its pieces, so the flip can take the airside piece and leave the one
+  beyond the fence (KCRW ``dsf:pol45``: one lot page, eleven fences through
+  it, flipped whole); :func:`rejoin_unsplit` puts back whole every face
+  whose pieces all ended in one role, so a fence changes no geometry where
+  it divides nothing;
+* §27 (``airside_edge.airside_edge_flip``) drops the run of a contact a
+  fence runs along (:class:`FenceBand`) — airside never propagates across
+  a fence;
 * :func:`airside_both_sides` is the DEFECT CHECK: a fence station whose
   probes either side (``[edge_lines] step_probe_m`` off the line) both land
   in airside pavement, summed into runs of ``[edge_lines] min_run_m``."""
 from __future__ import annotations
 
+import math
 import typing as _t
 
+import shapely
 from shapely.geometry import LineString, Point, Polygon
-from shapely.ops import unary_union
+from shapely.ops import split, unary_union
 from shapely.strtree import STRtree
 
 from ..airport.line_solidity import ON_TOP, kind_of
 from ..law import Law
 from ..law.tables import role_side
+from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["FENCE_BARRIER_TAGS", "fence_lines", "fence_band", "airside_both_sides"]
+__all__ = ["FENCE_BARRIER_TAGS", "FenceBand", "fence_lines", "fence_band",
+           "split_at_fences", "rejoin_unsplit", "airside_both_sides"]
 
 #: OSM ``barrier=*`` values that are a fence line (the ruling's words)
 FENCE_BARRIER_TAGS = ("fence", "wall")
@@ -53,13 +66,135 @@ def fence_lines(airport, rules: Rules) -> list[tuple[str, LineString]]:
     return [(i, ln) for i, ln in out if ln.length > 0.0]
 
 
-def fence_band(lines: _t.Sequence[tuple[str, LineString]], rules: Rules):
-    """The ground a fence RUNS ALONG: each line widened by ``[edge_lines]
-    host_reach_m``; ``None`` with no fence."""
+def _unit(ax: float, ay: float, bx: float, by: float) -> tuple[float, float] | None:
+    n = math.hypot(bx - ax, by - ay)
+    return None if n <= 0.0 else ((bx - ax) / n, (by - ay) / n)
+
+
+class FenceBand:
+    """The fences of an airport as §27 reads them: :meth:`along` is the
+    part of a contact a fence RUNS ALONG (module doc)."""
+
+    __slots__ = ("lines", "tree", "geom", "reach", "cos_min")
+
+    def __init__(self, lines: _t.Sequence[LineString], reach: float, max_deg: float):
+        self.lines = list(lines)
+        self.tree = STRtree(self.lines)
+        self.reach = float(reach)
+        self.geom = unary_union([ln.buffer(self.reach, cap_style="flat") for ln in self.lines])
+        self.cos_min = math.cos(math.radians(max_deg))
+
+    def _parallel(self, seg: LineString) -> bool:
+        """``seg`` runs within the angle of the fence nearest its middle."""
+        c = list(seg.coords)
+        d = _unit(*c[0], *c[-1])
+        if d is None:
+            return False
+        mid = seg.interpolate(0.5, normalized=True)
+        j = self.tree.nearest(mid)
+        ln = self.lines[int(j)]
+        s = ln.project(mid)
+        a, b = ln.interpolate(max(0.0, s - 1.0)), ln.interpolate(min(ln.length, s + 1.0))
+        f = _unit(a.x, a.y, b.x, b.y)
+        return f is not None and abs(d[0] * f[0] + d[1] * f[1]) >= self.cos_min
+
+    def along(self, contact):
+        """The run of ``contact`` (a line geometry) a fence runs along."""
+        near = contact.intersection(self.geom)
+        segs = [LineString([p, q]) for g in getattr(near, "geoms", [near])
+                if g.geom_type == "LineString" for p, q in zip(g.coords, list(g.coords)[1:])]
+        keep = [s for s in segs if s.length > 0.0 and self._parallel(s)]
+        return unary_union(keep) if keep else None
+
+
+def fence_band(lines: _t.Sequence[tuple[str, LineString]], rules: Rules) -> FenceBand | None:
+    """The :class:`FenceBand` of ``lines`` (reach ``[edge_lines]
+    host_reach_m``, angle §27's ``_MOUTH_TRANSVERSE_DEG``); ``None`` with
+    no fence."""
     if not lines:
         return None
-    reach = float(rules.edge_lines.host_reach_m)
-    return unary_union([ln.buffer(reach, cap_style="flat") for _i, ln in lines])
+    from .airside_edge import _MOUTH_TRANSVERSE_DEG
+    return FenceBand([ln for _i, ln in lines], rules.edge_lines.host_reach_m,
+                     _MOUTH_TRANSVERSE_DEG)
+
+
+def split_at_fences(final: list[list], lines: _t.Sequence[tuple[str, LineString]],
+                    roles: _t.Collection[str], rules: Rules) -> dict[int, tuple]:
+    """Cut every ``final`` face of a role in ``roles`` that a fence CROSSES
+    (divides into two or more pieces of at least ``[cells] min_area_m2``)
+    along it: the largest piece keeps the entry, the rest are appended as
+    ``<ref>#<k>`` (the next free serial of the ref, ``pad_road_exit``'s
+    numbering), same role and evidence.  A piece under the floor stays
+    with the piece it shares most boundary with.  Returns the cut faces:
+    ``final`` index -> ``(the whole face, [indices of its other pieces])``,
+    for :func:`rejoin_unsplit`."""
+    if not lines:
+        return {}
+    tree = STRtree([ln for _i, ln in lines])
+    grid, floor = float(rules.cells.snap_grid_m), float(rules.cells.min_area_m2)
+    serial: dict[str, int] = {}
+    for f in final:
+        base, _h, k = str(f[1]).partition("#")
+        serial[base] = max(serial.get(base, 0), (int(k) if k.isdigit() else 0) + 1)
+    groups: dict[int, tuple] = {}
+    extra: list[list] = []
+    for i, f in enumerate(final):
+        if f[0] not in roles:
+            continue
+        hits = tree.query(f[2], predicate="intersects")
+        if len(hits) == 0:
+            continue
+        cut = unary_union([lines[int(j)][1] for j in hits])
+        try:
+            pieces = polygon_parts(split(f[2], cut))
+        except (ValueError, shapely.errors.GEOSException):
+            continue
+        pieces = _fold_small(pieces, floor)
+        if len(pieces) < 2:
+            continue
+        pieces = sorted((shapely.set_precision(p, grid) for p in pieces), key=lambda p: -p.area)
+        groups[i] = (f[2], list(range(len(final) + len(extra),
+                                      len(final) + len(extra) + len(pieces) - 1)))
+        final[i] = [f[0], f[1], pieces[0], *f[3:]]
+        base = str(f[1]).partition("#")[0]
+        for p in pieces[1:]:
+            k = serial.get(base, 1)
+            serial[base] = k + 1
+            extra.append([f[0], f"{base}#{k}", p, f[3], dict(f[4], fence_split=1.0), *f[5:]])
+    final.extend(extra)
+    return groups
+
+
+def rejoin_unsplit(final: list[list], groups: dict[int, tuple],
+                   keep: _t.Collection[int] = ()) -> int:
+    """Put back whole each :func:`split_at_fences` face whose pieces all
+    carry one role (the fence divided nothing), unless a piece is in
+    ``keep`` (one ``storey_edge.knife_storeys`` has cut).  Index-free
+    afterwards: the dropped pieces leave ``final``.  Returns the faces that
+    stay split."""
+    drop: set[int] = set()
+    split_left = 0
+    for i, (whole, extra) in groups.items():
+        members = [i, *extra]
+        if len({final[j][0] for j in members}) == 1 and not set(members) & set(keep):
+            final[i] = [final[i][0], final[i][1], whole, *final[i][3:]]
+            drop.update(extra)
+        else:
+            split_left += 1
+    final[:] = [f for j, f in enumerate(final) if j not in drop]
+    return split_left
+
+
+def _fold_small(pieces: list[Polygon], floor: float) -> list[Polygon]:
+    """``pieces`` with each one under ``floor`` m2 unioned into the big
+    piece it shares the longest boundary with."""
+    big = [p for p in pieces if p.area >= floor]
+    if len(big) < 2:
+        return big
+    for p in (q for q in pieces if q.area < floor):
+        k = max(range(len(big)), key=lambda j: big[j].boundary.intersection(p.boundary).length)
+        big[k] = big[k].union(p)
+    return big
 
 
 def _probe(line: LineString, s: float, d: float) -> tuple[Point, Point]:

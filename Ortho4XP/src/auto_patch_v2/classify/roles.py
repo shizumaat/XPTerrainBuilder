@@ -794,10 +794,13 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # (a contact across a unit's own storey is none, owner answer 47 #1099:
     # the lot is cut back along it, ``storey_edge``)
     # (and airside never crosses a fence, RULINGS 2026-11-13s (2))
-    from .fence_division import airside_both_sides, fence_band, fence_lines
+    from .airside_edge import EDGE_CANDIDATES
+    from .fence_division import (airside_both_sides, fence_band, fence_lines,
+                                 rejoin_unsplit, split_at_fences)
     from .storey_edge import knife_storeys, storey_band
-    band, storey_cuts = storey_band(airport, law, cells, final), {}
     fences = fence_lines(airport, rules)
+    fence_cut = split_at_fences(final, fences, EDGE_CANDIDATES, rules)
+    band, storey_cuts = storey_band(airport, law, cells, final), {}
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules, [c.line for c in ev.truck_chains],
                           storey=band, storey_cuts=storey_cuts,
@@ -805,6 +808,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                           fences=fence_band(fences, rules))
     stats["storey_lots"] = knife_storeys(final, storey_cuts, law,
                                          rules.cells.min_area_m2, band)
+    stats["fence_split_faces"] = rejoin_unsplit(final, fence_cut, storey_cuts)
     # ── 19ag: pavement aircraft cannot reach is groundside (#808) ───
     from .reachability import unreachable_aprons
     stats.update(unreachable_aprons(final, [p for _rw, p in ev.runway_polys], law,

@@ -32,7 +32,7 @@ from ..law.tables import role_side
 from ..model.frame import rectangle_axes
 from .rules import Rules
 
-__all__ = ["airside_edge_flip", "mapped_car_park"]
+__all__ = ["airside_edge_flip", "mapped_car_park", "EDGE_CANDIDATES"]
 
 
 #: §27 (owner RULINGS 2026-09-12c, Fable 12e): a face this thin — area
@@ -60,8 +60,8 @@ _MOUTH_TRANSVERSE_DEG = 45.0
 #: STRUCTURE ramps (`tunnel_ramp`, `door_ramp`, `garage_ramp`,
 #: `wall_corridor_ramp`) are NOT pavement anyone drives an aircraft on and
 #: are never candidates.
-_AIRSIDE_EDGE_CANDIDATES = ("parking_lot", "service_road", "service_junction",
-                            "groundside_pavement")
+EDGE_CANDIDATES = (
+    "parking_lot", "service_road", "service_junction", "groundside_pavement")
 
 #: The FREE ROADS: the only faces that offer a MOUTH (§27 (5)).
 _ROAD_ROLES = ("service_road", "service_junction")
@@ -303,7 +303,7 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
 
     A contact a FENCE RUNS ALONG is no apron contact either (owner RULINGS
     2026-11-13s (2): "never airside on both sides of a fence"): its run
-    inside ``fences`` (``fence_division.fence_band``) is dropped.
+    ``fences.along`` reads (``fence_division.FenceBand``) is dropped.
     """
     lateral = []
     for j in tree.query(face.buffer(weld_m), predicate="intersects"):
@@ -314,8 +314,9 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
         if _is_mouth(face, other, contact, factor, face_is_road,
                      other_is_road, cache, roads):
             continue
-        if fences is not None:
-            contact = contact.difference(fences)
+        run = fences.along(contact) if fences is not None else None
+        if run is not None:
+            contact = contact.difference(run.buffer(1e-6))
             if contact.is_empty:
                 continue
         if storey is not None:
@@ -401,9 +402,9 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     index -> run) for ``storey_edge.knife_storeys``.
 
     RULINGS 2026-11-13s: a MAPPED CAR PARK (``mapped_car_park``) never
-    flips, and ``fences`` (``fence_division.fence_band``), when given, is
-    the ground fences run along: a contact's run inside it is no apron
-    contact, so airside never crosses a fence.
+    flips, and ``fences`` (``fence_division.FenceBand``), when given, are
+    the fences: a contact's run a fence runs along is no apron contact, so
+    airside never crosses a fence.
     """
     min_m = float(rules.lot.airside_edge_min_m)
     frac = float(rules.lot.road_airside_edge_frac)
@@ -438,7 +439,7 @@ def airside_edge_flip(final: list[list], cells, law: Law,
         moved = 0
         for i, f in enumerate(final):
             role, ref, face, _letter, evid = f[0], f[1], f[2], f[3], f[4]
-            if role not in _AIRSIDE_EDGE_CANDIDATES:
+            if role not in EDGE_CANDIDATES:
                 continue
             per = face.length
             if per <= 0.0 or face.area / per < _LOT_SLIVER_RADIUS_M:

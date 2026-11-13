@@ -37,6 +37,7 @@ from O4_Cfg_Vars import (
     list_vector_vars,
     cfg_stamp_key,
     cleanup_retired_cfg_keys,
+    BUILD_IDENTITY_KEYS,
     migrate_changed_defaults,
     legacy_cfg_value,
     _legacy_cfg_reported,
@@ -134,11 +135,14 @@ try:
             continue
         try:
             (var, value) = line.split("=", 1)
-            if var in RETIRED_CFG_KEYS:
+            if var in RETIRED_CFG_KEYS or var in BUILD_IDENTITY_KEYS:
                 # A key from an older version: skipped here and DELETED
                 # from the file after the read (the cleanup below,
                 # owner RULINGS 2026-09-13a (2)) — never reported as an
-                # invalid line, never a warning.
+                # invalid line, never a warning.  A per-tile build
+                # identity key (BUILD_IDENTITY_KEYS) is not the global
+                # cfg's either: skipped, so no Tile inherits it, and
+                # dropped with the retired keys.
                 continue
             value = config_compatibility(value)
             # Set all tile and app config variables
@@ -153,7 +157,8 @@ try:
     # THE CLEANUP (owner RULINGS 2026-09-13a (2)): the global reader and
     # the tile reader share it — a retired key is removed from the file
     # it was read from and reported once, never warned about forever.
-    for _info in cleanup_retired_cfg_keys(global_cfg_file):
+    for _info in cleanup_retired_cfg_keys(global_cfg_file,
+                                          dropped=BUILD_IDENTITY_KEYS):
         UI.lvprint(0, "   INFO:", _info)
     # A raised registry default reaches a cfg that stored the old one
     # automatically (owner 2026-11-04, masks_width 100 -> 500).

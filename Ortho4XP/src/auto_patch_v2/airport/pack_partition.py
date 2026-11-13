@@ -408,6 +408,24 @@ def _still_parts(comps: list, counts: dict[str, int]) -> list:
     return still
 
 
+def _flat_plates(paths: _t.Collection[str], keyed, law: Law) -> set[str]:
+    """Which of the multi-anchor resources ``paths`` are ONE FLAT PLATE
+    (``slab_faces.flat_plate_file``), read on each one's resolved file
+    once."""
+    if not paths:
+        return set()
+    from ..law.tables import base_slab_law
+    from .slab_faces import flat_plate_file
+    lw = base_slab_law(law)
+    if not lw.armed:
+        return set()
+    file_of: dict[str, str] = {}
+    for _key, o in keyed:
+        if o.path in paths:
+            file_of.setdefault(o.path, str(o.resolved))
+    return {r for r, f in file_of.items() if flat_plate_file(f, lw)}
+
+
 @_names_its_object
 def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                   sc: Screen, deck_family_ids: _t.Collection[str], pack_root: str,
@@ -726,7 +744,15 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     # mesh (H7 +12 m over the airside).
     deck_paths = {o.path for o in objects if o.id in deck_family_ids}
     counts["multi_anchor_decks_kept"] = len(multi & deck_paths)
-    drop_now = multi - set(sc.plate_paths) - deck_paths
+    # owner RULINGS 2026-11-13aa (2), #2068: ...nor a FLAT PLATE's (a
+    # sidewalk, a kerb slab, a paving plate — ``slab_faces.flat_plate_file``):
+    # left to X-Plane's one-anchor seat, LPPI's 70 m ``Marciapiedi`` stood
+    # +0.44/+0.71 m over a regraded lot.  Kept, each placement is a member
+    # seated on the graded ground (the base-slab drape, 10-14d).
+    flat_paths = _flat_plates(multi - deck_paths - set(sc.plate_paths),
+                              keyed, law)
+    counts["multi_anchor_plates_kept"] = len(flat_paths)
+    drop_now = multi - set(sc.plate_paths) - deck_paths - flat_paths
     counts["multi_anchor"] = len(drop_now)
     for r in sorted(drop_now):
         skipped[r] = (f"placed at {len(anchors_by_resource[r])} anchors — one "

@@ -66,6 +66,17 @@ component's own faces:
    (``airport/slab_drape``) — it stands rigid as authored, and its feet
    are the sunken-ramp (#655) and run-out (#690) rules'.
 
+8. A FOOTLESS FLAT PLATE (owner RULINGS 2026-11-13aa (2), #2068): a
+   file of nothing but zero-thickness panels is admitted with its feet
+   stripped (``pack_partition._build_member``: a VOR marker's panels are no
+   ground contacts), so rule 1 cannot read it.  On the drape side such a
+   part is AT GROUND when the face reader reads it as a flat plate — no
+   more side faces than rule 5 allows and its up-facing faces LEVEL
+   within ``level_m`` at the objects' zero (rule 2 bounds its ``y``).
+   MEASURED at LPPI: ``lppi_terminal_09`` comp 3, the 811 m2 sidewalk
+   along the terminal's west face, single-sided at y 0.18, was carried
+   rigid with the cluster 0.54-0.71 m over falling ground.
+
 Without a face reader the reading is the walled-touch witness alone, as
 it was.
 
@@ -168,9 +179,25 @@ def _ring_poly(part: _t.Any, to_xy) -> "Polygon | None":
 
 
 def _is_candidate(part: _t.Any, lw: _t.Any) -> bool:
-    return (bool(getattr(part, "feet", ()))
-            and abs(float(part.base_y)) <= lw.base_y_max_m
+    return (bool(getattr(part, "feet", ())) and _at_zero(part, lw))
+
+
+def _at_zero(part: _t.Any, lw: _t.Any) -> bool:
+    """Rules 2 and 3: at the objects' zero and thin."""
+    return (abs(float(part.base_y)) <= lw.base_y_max_m
             and float(getattr(part, "height_m", 0.0)) <= lw.max_height_m)
+
+
+def _footless_plate(part: _t.Any, member: _t.Any, lw: _t.Any,
+                    faces: "_t.Callable | None") -> bool:
+    """Rule 8: a footless part at the zero that its faces read as a flat
+    plate (rule 5's side share, rule 6's level top)."""
+    if faces is None or getattr(part, "feet", ()) or not _at_zero(part, lw):
+        return False
+    ff = faces(member, int(part.comp))
+    return (ff is not None
+            and float(ff.side_share) <= float(getattr(lw, "max_side_share", 0.0) or 1.0)
+            and float(ff.top_relief_m) <= float(getattr(lw, "level_m", 0.0)))
 
 
 _MEMO: list = []
@@ -222,7 +249,8 @@ def base_slabs(partition: _t.Any, to_xy, lw: _t.Any,
             for q in m.parts:
                 if getattr(q, "line", False) or getattr(q, "scatter", False):
                     continue
-                if (_is_candidate(q, lw) and float(q.area_m2) > 0.0
+                if ((_is_candidate(q, lw) or _footless_plate(q, m, lw, faces))
+                        and float(q.area_m2) > 0.0
                         and _box_m2(tuple(q.box)) >= lw.min_m2):
                     cands.append((u, m, q))
                 else:

@@ -18,8 +18,10 @@ journal knows a :class:`WorldTile`:
   built (X-Plane's default scenery for now); :data:`NOTHING`: no DSF (a
   journal record only).  A tile neither holds is not listed: nothing;
 * ``origin`` -- ``O4_Tile_Info.ORIGIN_HERE`` / ``ORIGIN_ADOPTED`` /
-  ``ORIGIN_OTHER`` for a mesh (the journal's ``adopted`` or the adopted
-  stamp of its on-demand copy; else the DSF's ``sim/creation_agent``),
+  ``ORIGIN_OTHER`` for a mesh (``ORIGIN_HERE`` when the DSF's
+  ``sim/creation_agent`` is ours, a rebuild newer than any adopt record,
+  #2047; else the journal's ``adopted`` or the adopted stamp of its
+  on-demand copy; else another tool's),
   ``ORIGIN_HERE`` for a drape, ``""`` for a placeholder;
 * ``source`` (:data:`SOURCES`) and ``volume`` -- where the tile's own
   files live now: :data:`SOURCE_ORIGINALS` (its folder in the Convert
@@ -140,13 +142,15 @@ def _source(record: Optional[dict], home_volume: str) -> Tuple[str, str]:
 
 
 def _origin(record: Optional[dict], agent: str) -> str:
-    """Adopted, built here, or another tool's (module docstring)."""
+    """Built here, adopted, or another tool's (module docstring).  The
+    DSF is the newest word: a mesh of ours is ours whatever an older adopt
+    record says (#2047, ``world_adopt_supersede``)."""
+    if agent.startswith(TLOG.BUILDER_TOOL):
+        return TINFO.ORIGIN_HERE
     if record and (record.get("adopted")
                    or (_is_dir(record.get("config_dir"))
                        and TINFO.adopted_record(record["config_dir"]))):
         return TINFO.ORIGIN_ADOPTED
-    if agent.startswith(TLOG.BUILDER_TOOL):
-        return TINFO.ORIGIN_HERE
     return TINFO.ORIGIN_OTHER
 
 

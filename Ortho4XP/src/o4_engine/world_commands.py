@@ -410,7 +410,11 @@ def world_onboard(scenery_dir: str = "", legacy_build_dir: str = "",
     tiles and packages moved into the World folder (``legacy_build_dir``:
     the apps' retired custom build folder, moved too; ``busy``: the
     session's building tiles, left for the next start), then where the
-    tiles and packages live (``tiles_dir``, ``packages_dir``)."""
+    tiles and packages live (``tiles_dir``, ``packages_dir``).
+
+    ``superseded`` (#2047): the adopted tiles a full build of ours has
+    replaced since Convert, their adopt records retired at this start
+    (listed only without ``move_home``)."""
     from . import world_home as HOME
     from .world_migrate import entries
     scenery_dir = scenery_dir_or_default(scenery_dir)
@@ -433,6 +437,7 @@ def world_onboard(scenery_dir: str = "", legacy_build_dir: str = "",
     except OSError as error:            # logged; the start goes on
         write_log({"world_home_error": repr(error)[:300]})
         out["home"] = {**HOME.describe(), "error": str(error)[:300]}
+    out["superseded"] = _supersede_rebuilt(scenery_dir, dry_run=not move_home)
     if not managed(scenery_dir) or _offered(scenery_dir):
         return out
     out["offer"] = sum(1 for entry in entries(scenery_dir)
@@ -440,6 +445,18 @@ def world_onboard(scenery_dir: str = "", legacy_build_dir: str = "",
     if out["offer"]:
         _mark_offered(scenery_dir)
     return out
+
+
+def _supersede_rebuilt(scenery_dir: str, dry_run: bool) -> list:
+    """The adopted tiles a full build of ours has replaced since Convert,
+    their adopt records retired (``world_adopt_supersede.correct``,
+    #2047); with ``dry_run`` only listed."""
+    from . import world_adopt_supersede as SUPERSEDE
+    try:
+        return SUPERSEDE.correct(scenery_dir, dry_run=dry_run)["tiles"]
+    except (OSError, ValueError) as error:  # logged; the start goes on
+        write_log({"supersede_error": repr(error)[:300]})
+        return []
 
 
 def _global_tiles(scenery_dir: str) -> "set | None":

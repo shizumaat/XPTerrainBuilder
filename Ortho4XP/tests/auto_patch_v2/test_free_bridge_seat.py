@@ -112,3 +112,155 @@ def test_every_body_of_a_one_deck_frame_takes_the_decks_zero():
                                        "objects/other.obj": (9.0, "b", (50.0, 0.0, 50.1, 0.1))})
     assert [round(b.anchor.surface_z - b.anchor.y_zero, 2)
             for b in two.bodies] == [-0.75, -0.75, -0.75, 1.78]
+
+
+# ── round 2 (spec othh-deck-round2-spec.md S1-S4) ────────────────────────
+
+from shapely.geometry import box as _sbox  # noqa: E402
+
+from auto_patch_v2.airport import deck_end_read as DE  # noqa: E402
+from auto_patch_v2.airport import obj8 as O  # noqa: E402
+from auto_patch_v2.planar import overpass_deck as OD  # noqa: E402
+from tests.auto_patch_v2.test_overpass_deck1692 import FRAME, LAW, THICK  # noqa: E402
+
+M_LAT = 111_000.0          # about; the end lines below are built in degrees
+
+
+def _quad(x0, z0, x1, z1, y):
+    """Two upward triangles of a flat plate at height ``y``."""
+    a, b, c, d = (x0, y, z0), (x1, y, z0), (x1, y, z1), (x0, y, z1)
+    return [(a, b, c), (a, c, d)]
+
+
+def _obj(path, plates):
+    """An OBJ8 whose every triangle is ``ATTR_hard_deck`` (``plates``:
+    lists of triangles)."""
+    verts = [p for tris in plates for tri in tris for p in tri]
+    out = ["A", "800", "OBJ", "", f"POINT_COUNTS {len(verts)} 0 0 {len(verts)}"]
+    out += [f"VT {v[0]:.4f} {v[1]:.4f} {v[2]:.4f} 0 1 0 0 0" for v in verts]
+    out += [f"IDX {i}" for i in range(len(verts))]
+    out += ["ATTR_hard_deck concrete", f"TRIS 0 {len(verts)}"]
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
+    return str(path)
+
+
+def test_an_all_deck_frame_keeps_22d_and_22p():
+    """S1: a frame every member of which is a deck is no class B frame."""
+    unit = types.SimpleNamespace(members=(_member(),))
+    assert FB.free_bridge_zeros(_staged(_member()), _canal, origin=(40.00035, -2.9999),
+                                agl_m=0.0, step_m=5.0, unit=unit) == {}
+
+
+def test_a_22p_bridge_with_its_anchor_off_the_ring_keeps_its_clearance_on_the_old_path():
+    """S1: the all-deck datum (``anchor_rule.datum_of``) carries no ring, so
+    22p reads the road at an anchor 4 m off the deck as before (F7)."""
+    flat = lambda la, lo: 3.96                                 # noqa: E731
+    d = AR.datum_of(_member(), abutment_step_m=5.0, free_standing=True)
+    assert d is not None and d.ring == ()
+    off = (40.0, -3.0 - 4.0 / 85_000.0)                        # 4 m west of the ring
+    s = BA.approach_seat(d, flat, origin=off, authored_agl_m=4.0)
+    assert "22p" in s.reason and abs(s.zero - 7.96) < 1e-6
+
+
+def _deck(res, lat0, lat1, lon0=-3.0, lon1=-2.9998, top=4.65):
+    ring = ((lat0, lon0), (lat0, lon1), (lat1, lon1), (lat1, lon0))
+    ends = (((lat0, lon0), (lat0, lon1)), ((lat1, lon0), (lat1, lon1)))
+    return _member(resource=res, deck_ring=ring, deck_ends=ends, deck_top_y=top)
+
+
+class _NoPad:
+    """Face roles with no object pad anywhere (no building in the frame)."""
+
+    def roles_many(self, la, lo):
+        return [""] * len(la)
+
+
+def _bridge_frame(*members):
+    """Staged members of one bridge frame: each body named by its own
+    member, its hull box on no pad."""
+    return [types.SimpleNamespace(m=m, bridge=[m.resource], boxes=[(40.0, -3.0, 40.0, -3.0)])
+            for m in members]
+
+
+def _on(f):
+    f.roles = _NoPad()
+    return f
+
+
+def test_two_touching_decks_take_one_zero_and_two_apart_take_two():
+    """S2: decks whose rings touch at ``touch_m`` are one bridge, one zero
+    (the highest ``ground - top`` over its land ends); 2 m apart, two."""
+    @_on
+    def land(la, lo):
+        return 5.0 if la < 40.0005 else 3.0
+    pier = _member(resource="objects/piers.obj", deck_kind="", deck_top_y=None, deck_ring=None)
+    a = _deck("objects/a.obj", 40.0, 40.0005)
+    b = _deck("objects/b.obj", 40.0005, 40.001)
+    st = _bridge_frame(a, b, pier)
+    zs = FB.free_bridge_zeros(st, land, origin=(40.002, -2.9999), agl_m=0.0, step_m=5.0,
+                              touch_m=0.5)
+    # one bridge: flush at a's south end (5.0 - 4.65), b's north end floats
+    assert abs(zs["objects/a.obj"][0] - 0.35) < 1e-6
+    assert zs["objects/b.obj"][0] == zs["objects/a.obj"][0]
+    gap = 2.0 / M_LAT
+    b2 = _deck("objects/b.obj", 40.0005 + gap, 40.001)
+    zs2 = FB.free_bridge_zeros(_bridge_frame(a, b2, pier), land,
+                               origin=(40.002, -2.9999), agl_m=0.0, step_m=5.0, touch_m=0.5)
+    assert abs(zs2["objects/a.obj"][0] - 0.35) < 1e-6
+    assert abs(zs2["objects/b.obj"][0] - (3.0 - 4.65)) < 1e-6
+
+
+def test_an_end_abutting_another_deck_of_its_bridge_is_no_land_end():
+    """S2: the joint between two decks of one bridge is not a land end —
+    its ground (a hump under the joint) never sets the zero."""
+    @_on
+    def hump(la, lo):
+        return 9.0 if abs(la - 40.0005) < 1e-5 else 3.0
+    a = _deck("objects/a.obj", 40.0, 40.0005)
+    b = _deck("objects/b.obj", 40.0005, 40.001)
+    zs = FB.free_bridge_zeros(_bridge_frame(a, b), hump,
+                              origin=(40.002, -2.9999), agl_m=0.0, step_m=5.0, touch_m=0.5)
+    assert abs(zs["objects/a.obj"][0] - (3.0 - 4.65)) < 1e-6
+
+
+def test_a_pylon_top_near_an_end_does_not_set_the_end_top(tmp_path):
+    """S3: the end's top is the PLATE's own height on the end line (3.5),
+    never the maximum within a reach (an upper surface at 11.56 beside it,
+    OTHH Bridge_01's LOD0_003)."""
+    from auto_patch_v2.airport.airside_deck_seat import end_tops
+    from auto_patch_v2.airport.rebake_plan import _mpd
+    path = _obj(tmp_path / "deck.obj", [_quad(-8.0, -25.0, 8.0, 25.0, 3.5),
+                                        _quad(-8.0, 19.0, 8.0, 25.0, 11.56)])
+    origin = (40.0, -3.0)
+    ml, mo = _mpd(40.0)
+    # obj z = +25 stands 25 m SOUTH of the origin (north = -z)
+    lines = [((40.0 - 25.0 / ml, -3.0 - 8.0 / mo), (40.0 - 25.0 / ml, -3.0 + 8.0 / mo)),
+             ((40.0 + 25.0 / ml, -3.0 - 8.0 / mo), (40.0 + 25.0 / ml, -3.0 + 8.0 / mo))]
+    m = _member(authored_path=path, deck_top_y=11.56)
+    assert all(abs(t - 3.5) < 1e-6 for t in DE.plate_end_tops(m, lines, origin, 5.0))
+    assert abs(end_tops(m, (list(lines[0]), list(lines[1])), origin, 5.0)[0] - 11.56) < 1e-6
+
+
+def _crossing(tmp_path, plates):
+    path = _obj(tmp_path / "crossing.obj", plates)
+    deck = _sbox(-8.0, -25.0, 8.0, 25.0)
+    o = types.SimpleNamespace(
+        id="dsf:obj9", path="objects/crossing.obj", resolved=path, xy=(0.0, 0.0),
+        heading_deg=0.0, kind="OBJECT", anchor_z=100.0, agl_m=0.0, deck_kind="flag",
+        hard_deck=deck, deck_top_z=111.0, plan_bbox=deck)
+    ways = [types.SimpleNamespace(id=-7, points=[(-60.0, 1.0), (60.0, 1.0)],
+                                  tags={"highway": "secondary"})]
+    airport = types.SimpleNamespace(frame=FRAME, osm_ways=ways)
+    return OD.road_overpasses([o], O.ResourceCache(THICK), types.SimpleNamespace(cells=()),
+                              airport, LAW, (), ())
+
+
+def test_an_overpass_reads_its_clearance_at_the_crossing(tmp_path):
+    """S4: the plate over the road beneath stands y 3.5 (an abutment top)
+    while an upper surface elsewhere in the frame stands 11.56 — no road
+    overpass (< 4.2 m); a plate at 7.5 over the road is one."""
+    low, notes = _crossing(tmp_path, [_quad(-8.0, -25.0, 8.0, 25.0, 3.5),
+                                      _quad(-8.0, 19.0, 8.0, 25.0, 11.56)])
+    assert low == () and "no road overpass" in notes[0]
+    (kept,), _n = _crossing(tmp_path, [_quad(-8.0, -25.0, 8.0, 25.0, 7.5)])
+    assert abs(kept.top_y - 7.5) < 1e-6

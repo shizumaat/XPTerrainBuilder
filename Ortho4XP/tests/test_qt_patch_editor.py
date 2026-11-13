@@ -1021,7 +1021,8 @@ def test_the_patch_draws_before_its_staleness_check(qapp, patches, tmp_path, mon
     view.resize(900, 700)
     view._start_workers = lambda: None
     view._update_timer.stop()
-    ed = PatchEditor(view, view, mock.Mock(), lambda: {(30, 31): {"provider": "BI"}}, run_async=False)
+    built = {(30, 31): {"provider": "BI"}}
+    ed = PatchEditor(view, view, mock.Mock(), lambda: built, run_async=False)
     ed.outlines.set_enabled(False)
     x, y = scene_xy(30.1006, 31.4006, QTMAP.SCENE_ZL)
     view._zoom = 18.0

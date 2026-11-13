@@ -243,7 +243,7 @@ CAPABILITIES: tuple = (
     "world_home",                   # 2026-11-12, RULINGS 12g/h world_onboard home
     "storage_tiers",                # 2026-11-12, RULINGS 12g storage_tiers / storage_tier_set
     "imagery_core_rows",            # 2026-11-13, #2039 ImageryCoresProgress + imagery_cores_stop
-    "patch_view_lane",              # 2026-11-13, #2061 view lane + patch_load {staleness} + patch_staleness
+    "patch_view_lane",              # 2026-11-13, #2061 view lane, patch_staleness
 )
 
 

@@ -289,8 +289,9 @@ class PatchController(QObject):
         """The check the fast load left out (#2061): the panel's note
         appears when it is answered, on the document it was asked for only."""
         def done(reply, error):
+            answered = (reply or {}).get("path", "")
             if (error is not None or self.model.patch is not patch
-                    or not VIEWLOAD.staleness_applies(opened_path, (reply or {}).get("path", ""))):
+                    or not VIEWLOAD.staleness_applies(opened_path, answered)):
                 return
             patch.stale = bool(reply.get("stale"))
             patch.stale_inputs = list(reply.get("stale_inputs") or [])

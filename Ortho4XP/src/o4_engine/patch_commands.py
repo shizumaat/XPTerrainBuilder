@@ -4,8 +4,9 @@ protocol 1.12): ``patch_list``, ``patch_load``, ``patch_save``,
 2026-10-26c): ``custom_patches`` (the map band, the tile info line) and
 ``use_auto_patch`` (sets a tile's custom patches aside, never deletes).
 
-Plain synchronous functions on the JSON-lines read loop (registered in
-``o4_engine.jsonl``), like ``failure_report``: they read and write files in
+Plain synchronous functions registered in ``o4_engine.jsonl``, like
+``failure_report`` (the reads ``patch_list`` / ``patch_load`` /
+``patch_staleness`` are answered on its view lane, #2061): they read and write files in
 one tile's ``Patches`` folder and nothing else — no build, no download.  A
 refusal raises ``ValueError`` whose text is the user's sentence (the
 transport replies ``ok: false`` with it).

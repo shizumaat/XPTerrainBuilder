@@ -363,8 +363,10 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
     # #598: a no-op outside a build's object stage (the user's command)
     from auto_patch_v2.airport import pack_journal as _pj
     _pj.snapshot(pack_root, art.dsf_path)
+    from . import pack_copy as _copy
     _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
-                   allow_live_install=True, engine_version=_engine_version(),
+                   allow_live_install=_copy.write_guard(pack_root),
+                   engine_version=_engine_version(),
                    omit=art.missing if art.omit else ())
     _DSFR.ensure_dsf_text_path(art.dsf_path, _dsf2.mod_cache_dir(
         FNAMES.airport_mod_cache_root(), art.pack_name))
@@ -684,7 +686,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     try:
         res = _pw.apply_plan(
             plan, files, _DSFR._dsftool_path() or "DSFTool", patch_dir=patch_dir,
-            allow_live_install=True,
+            allow_live_install=_copy.write_guard(target_root),
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
             plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key))
@@ -775,7 +777,9 @@ def restore_stopped_build(build_dir: str, lat: int, lon: int) -> list:
         tile_name = FNAMES.short_latlon(lat, lon)
         if not _pj.pending(build_dir, tile_name):
             return unproven
-        done = _pj.replay(build_dir, tile_name, allow_live_install=True)
+        from . import pack_copy as _copy
+        done = _pj.replay(build_dir, tile_name,
+                          allow_live_install=_copy.copy_dir() is None)
         for out in done:
             pack = os.path.basename(os.path.normpath(out.pack_root))
             if out.state == _pj.UNPROVEN:
@@ -1186,6 +1190,9 @@ def _pack_stand_down(tile) -> str:
         return '"Modify custom airports" is off'
     if os.environ.get("O4_PACK_WRITES") == "measure_only":
         return "this is a lane build (O4_PACK_WRITES=measure_only)"
+    from . import pack_copy as _copy
+    if _copy.copy_dir() is not None:     # #2041: the restore reads the install
+        return "this is a pack-copy lane build (O4_PACK_WRITES=copy:)"
     if not DSF_OBJECT_REANCHOR:
         return "DSF_OBJECT_REANCHOR is off"
     return ""
@@ -1213,6 +1220,7 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
     from tile_bundle import pack_dev as _dev
 
     from . import object_rebake as _OR
+    from . import pack_copy as _copy
     from .post_mesh import _is_protected_scenery_root
 
     counts = {_up.RESTORED: 0, _up.RECOMPOSED: 0, _up.UNPROVEN: 0}
@@ -1244,7 +1252,7 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                             out = _up.restore_airport(
                                 pack_root, dsf_path, icao,
                                 _DSFR._dsftool_path() or "DSFTool",
-                                allow_live_install=True,
+                                allow_live_install=_copy.write_guard(pack_root),
                                 engine_version=_engine_version())
                         except Exception as exc:
                             out = _up.Outcome(_up.UNPROVEN, dsf_path,

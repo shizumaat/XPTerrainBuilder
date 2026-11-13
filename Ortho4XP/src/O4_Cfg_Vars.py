@@ -1074,11 +1074,19 @@ cfg_tile_vars = {
     },
 }
 
+#: A tile's BUILD IDENTITY: production supplies these per build (the
+#: app's job), so they live in a tile cfg and never in the global one.
+#: A global cfg line naming one is a stray (the 2026-11-12 Fly pane wrote
+#: ``default_website`` there until #2018 moved it to ``fly_photo_source``):
+#: the global reader skips it and drops it from the file
+#: (``cleanup_retired_cfg_keys(..., dropped=BUILD_IDENTITY_KEYS)``).
+BUILD_IDENTITY_KEYS = ("default_website", "default_zl", "zone_list")
+
 # Create dictionary from cfg_tile_vars with prefix and remove keys not in global config
 cfg_global_tile_vars = {
     f"{global_prefix}{key}": value
     for key, value in cfg_tile_vars.items()
-    if key not in ["default_website", "default_zl", "zone_list"]
+    if key not in BUILD_IDENTITY_KEYS
 }
 
 cfg_vars = {**cfg_app_vars, **cfg_tile_vars, **cfg_global_tile_vars}
@@ -1360,9 +1368,10 @@ def legacy_cfg_value(var, value):
     return None
 
 
-def cleanup_retired_cfg_keys(source):
-    """REMOVE every retired key from the cfg file *source*, and MIGRATE
-    every legacy value in it to its current spelling.
+def cleanup_retired_cfg_keys(source, dropped=()):
+    """REMOVE every retired key from the cfg file *source* (and every key
+    in *dropped*: the global reader passes :data:`BUILD_IDENTITY_KEYS`),
+    and MIGRATE every legacy value in it to its current spelling.
 
     The owner's ruling (2026-09-13a (2)): a retired key found on READ is
     not warned about for the rest of time — it is deleted from the file,
@@ -1395,7 +1404,8 @@ def cleanup_retired_cfg_keys(source):
         import O4_Settings_Model as SETTINGS
 
         data = SETTINGS._parse_cfg(path, strip_quotes=False)
-        stale = [var for var in data if var in retired_cfg_keys]
+        stale = [var for var in data
+                 if var in retired_cfg_keys or var in dropped]
         migrated = {var: legacy_cfg_value(var, value)
                     for var, value in data.items()
                     if var not in retired_cfg_keys
@@ -1422,7 +1432,10 @@ def cleanup_retired_cfg_keys(source):
             if (path, var) in _retired_cfg_reported:
                 continue
             _retired_cfg_reported.add((path, var))
-            lines.append("removed retired key " + var + " from " + path)
+            lines.append("removed " + ("retired key " if var in
+                                       retired_cfg_keys else
+                                       "per-tile key ") + var + " from "
+                         + path)
         for var, value in migrated.items():
             lines.append("rewrote legacy value " + str(data[var]) + " of "
                          + var + " as " + value + " in " + path)

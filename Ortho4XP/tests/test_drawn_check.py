@@ -167,3 +167,34 @@ def test_an_object_floor_stands_its_clearance_over_the_cut(tmp_path):
     assert rows[0]["role"] == "CUT" and rows[0]["verdict"] == "PASS"
     rows, _ = _world(tmp_path / "b", 99.65, floor_clearance=0.3)  # bottom 94.65: covered
     assert rows[0]["verdict"] == "FAIL"
+
+
+def test_graded_facade_sites_judge_every_span_of_the_run():
+    """#2042: ``drawn_facade`` stands a graded facade flat on the drawn
+    ground at its first wall's centre and fails each 500 m span where a
+    foot hangs over the ground; a lowered copy (feet moved down) passes."""
+    import types
+
+    import drawn_facade as DF
+    from auto_patch_v2.airport import facade_seat as FS
+    text = ("A\n1000\nFACADE\nRING 0\nGRADED\nFLOOR f\nSEGMENT 0\n"
+            "MESH 0 5000 2 3 3\nVERTEX\t-5.0 -0.2 0 0 1 0 0 0\n"
+            "VERTEX\t0.0 2.0 0 0 1 0 0 0\nVERTEX\t5.0 -0.2 0 0 1 0 0 0\n"
+            "WALL 0 10000 0 0 f\nSPELLING 0\n")
+
+    class Mesh:                       # land 2 m east of lon 0.00008, water west
+        def elevation_at_or_none(self, lat, lon):
+            return 2.0 if lon > 0.00008 else 0.0
+
+        def sample_many(self, lats, lons):
+            return [types.SimpleNamespace(elevation_metres=self.elevation_at_or_none(a, o))
+                    for a, o in zip(lats, lons, strict=True)]
+
+    nodes = ((0.0001, 0.0, 0, False), (0.0001, 0.009, 0, False))   # 1 km north
+    poly = types.SimpleNamespace(def_path="Objects/e.fac", index=0, nodes=(nodes,))
+    rows = DF._rows(poly, FS._facade_base(text), DF._surface(Mesh()))
+    assert [r["verdict"] for r in rows] == ["FAIL", "FAIL"]       # 0 m, 500 m
+    assert rows[0]["delta"] == pytest.approx(1.8)          # 2.0 - 0.2 over water
+    low = FS._lowered_text(text, -1.8, "Objects/e.fac")
+    rows = DF._rows(poly, FS._facade_base(low), DF._surface(Mesh()))
+    assert {r["verdict"] for r in rows} == {"PASS"}

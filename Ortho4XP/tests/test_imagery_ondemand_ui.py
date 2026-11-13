@@ -33,9 +33,10 @@ SWIFT_STATUS = REPO / "Sources" / "SceneryKit" / "ImageryFollowStatus.swift"
 #: Swift ``static let`` -> the Python value it mirrors.
 SWIFT_TO_PYTHON = {
     "pinTitle": TEXT.PIN_TITLE, "unpinTitle": TEXT.UNPIN_TITLE,
-    "pinRowTitle": TEXT.PIN_ROW_TITLE, "lowResState": TEXT.LOW_RES_STATE,
+    "favoriteTitle": TEXT.FAVORITE_TITLE,
     "pinnedState": TEXT.PINNED_STATE, "pinnedBadge": TEXT.PINNED_BADGE,
-    "pinHelp": TEXT.PIN_HELP, "notOnDemandState": TEXT.NOT_ON_DEMAND_STATE,
+    "pinHelp": TEXT.PIN_HELP, "starAddHelp": TEXT.STAR_ADD_HELP,
+    "starRemoveHelp": TEXT.STAR_REMOVE_HELP,
     "makeLowResTitle": TEXT.MAKE_LOW_RES_TITLE,
     "makeLowResNone": TEXT.MAKE_LOW_RES_NONE, "pinsLine": TEXT.PINS_LINE,
     "coresLine": TEXT.CORES_LINE,
@@ -242,7 +243,8 @@ def test_the_library_pin_calls_imagery_pin(qapp, monkeypatch):
     assert dialog.pin_btn.isEnabled()
     assert dialog.pin_btn.text() == TEXT.PIN_TITLE
     dialog.pin_btn.click()
-    assert calls == [(60, -136, {"working_dir": "/tiles", "pinned": True})]
+    assert calls == [(60, -136, {"working_dir": "/tiles", "pinned": True,
+                                 "serve": True})]
     assert "3 texture(s) sharp now, 5 to fetch" in dialog.status_label.text()
     dialog.set_library({"tiles": [{**row, "pinned": True}], "caches": [],
                         "tiles_bytes": 1})
@@ -251,31 +253,66 @@ def test_the_library_pin_calls_imagery_pin(qapp, monkeypatch):
     assert dialog.pin_btn.text() == TEXT.UNPIN_TITLE
 
 
-def test_the_tile_pane_pin_row(qapp):
+def test_the_tile_pane_star(qapp):
+    """#2033: the Favorite star beside the tile title, on every tile this
+    app built (on demand or not): outlined, filled on a favorite; a click
+    asks for the other state."""
     from types import SimpleNamespace as NS
 
     import O4_Qt_Imagery_OnDemand as QTONDEMAND
 
-    row = QTONDEMAND.TilePinRow()
+    star = QTONDEMAND.FavoriteStar()
     asked = []
-    row.pin_requested.connect(asked.append)
-    # RULINGS 2026-11-10c (1): a Favorite switch on every tile this app
-    # built, working on a tile built on demand.
+    star.pin_requested.connect(asked.append)
     full = NS(on_demand=False, pinned=False, origin="")
-    assert not row.applies(full) and row.shows(full)
-    assert not row.shows(NS(on_demand=False, pinned=False, origin="other"))
-    row.show_tile((60, -136), full)
-    assert not row.switch.isEnabled()
-    assert row.label.text() == TEXT.NOT_ON_DEMAND_STATE
-    row.show_tile((60, -136), NS(on_demand=True, pinned=False))
-    assert row.label.text() == TEXT.LOW_RES_STATE
-    assert row.switch.isEnabled() and not row.switch.isChecked()
-    row.switch.click()
+    assert star.shows(full)
+    assert not star.shows(NS(on_demand=False, pinned=False, origin="other"))
+    star.show_tile((60, -136), full)
+    assert not star.isHidden()
+    assert star.text() == QTONDEMAND.STAR_OUTLINED
+    assert star.toolTip() == TEXT.STAR_ADD_HELP
+    star.click()
     assert asked == [(60, -136, True)]
-    row.show_tile((60, -136), NS(on_demand=True, pinned=True))
-    assert row.switch.isChecked() and row.label.text() == TEXT.PINNED_STATE
-    row.switch.click()
+    star.show_tile((60, -136), NS(on_demand=False, pinned=True, origin=""))
+    assert star.text() == QTONDEMAND.STAR_FILLED
+    assert star.toolTip() == TEXT.STAR_REMOVE_HELP
+    star.click()
     assert asked[-1] == (60, -136, False)
+
+
+def test_a_pin_during_a_build_is_set_without_landing(qapp, monkeypatch):
+    """#2033: the Qt pin runs while a build runs, with ``serve=False``."""
+    import O4_Qt_Imagery_OnDemand as QTONDEMAND
+    from o4_engine import imagery_ondemand as ONDEMAND
+    from PySide6.QtCore import QObject, Signal
+
+    calls = []
+    monkeypatch.setattr(ONDEMAND, "imagery_pin", lambda lat, lon, **kw: (
+        calls.append(kw) or {"tile": "+60-136", "pinned": True}))
+    _sync_thread(monkeypatch)
+
+    class Bridge(QObject):
+        done = Signal(object)
+    bridge, got = Bridge(), []
+    bridge.done.connect(got.append)
+    QTONDEMAND.pin_tile(60, -136, True, bridge.done, busy=lambda: True)
+    assert calls[0]["serve"] is False and got[0]["pinned"] is True
+    assert TEXT.pin_done({"tile": "+60-136", "pinned": True}) == (
+        "+60-136 is a favorite.")
+
+
+def test_no_user_text_names_the_engine_command():
+    """#2033: the user sees "Favorite", never "imagery_pin" / "pinning",
+    and the full-imagery note is gone."""
+    texts = [value for name, value in vars(TEXT).items()
+             if name.isupper() and isinstance(value, str)]
+    swift = SWIFT_TEXT.read_text(encoding="utf-8")
+    for text in texts + [swift]:
+        assert "favorites are for tiles built with imagery on demand" not in text
+    for text in texts:
+        assert "imagery_pin" not in text and "pinning" not in text.lower()
+    from o4_engine import imagery_commands as COMMANDS
+    assert "imagery_pin" not in COMMANDS.ONDEMAND_REFUSED_WHILE_BUILDING
 
 
 def test_the_follow_line_shows_every_field_and_toggles(qapp):
@@ -393,9 +430,26 @@ def test_favorites_show_a_star_on_both_maps(qapp):
     painter = QPainter(image)
     STAR.draw_star(painter, QRectF(0, 0, 64, 64), 64.0, 1.0)
     painter.end()
-    assert image.pixelColor(56, 57).alpha() > 0          # bottom-right
-    assert image.pixelColor(8, 8).alpha() == 0
-    assert "QTFAVSTAR.draw_star" in Path(QTMAP.__file__).read_text(encoding="utf-8")
-    mac = (REPO / "Sources" / "XPTerrainBuilder" / "MapCanvasView.swift").read_text(
-        encoding="utf-8")
-    assert 'info.pinned == true' in mac and 'systemName: "star.fill"' in mac
+    assert image.pixelColor(56, 8).alpha() > 0           # top-right (#2033)
+    assert image.pixelColor(56, 57).alpha() == 0
+    # Outlined on a tile that is not a favorite: the centre stays clear.
+    image.fill(0)
+    painter = QPainter(image)
+    STAR.draw_star(painter, QRectF(0, 0, 64, 64), 64.0, 1.0, pinned=False)
+    painter.end()
+    cx, cy, _size = STAR._star_box(QRectF(0, 0, 64, 64), 64.0, 1.0)
+    assert image.pixelColor(int(cx), int(cy) + 1).alpha() == 0
+    # The star is a click target, and only where the square carries it.
+    from PySide6.QtCore import QPointF
+    assert STAR.hit(QRectF(0, 0, 64, 64), 64.0, 1.0, QPointF(cx, cy))
+    assert not STAR.hit(QRectF(0, 0, 64, 64), 64.0, 1.0, QPointF(8, 56))
+    assert not STAR.hit(QRectF(0, 0, 10, 10), 10.0, 1.0, QPointF(7, 3))
+    source = Path(QTMAP.__file__).read_text(encoding="utf-8")
+    assert "QTFAVSTAR.draw_star" in source and "QTFAVSTAR.hit(" in source
+    app = REPO / "Sources" / "XPTerrainBuilder"
+    mac = (app / "MapCanvasView.swift").read_text(encoding="utf-8")
+    assert "FavoriteStar.draw(in: context, rect: r, pinned: info.pinned == true)" in mac
+    assert "FavoriteStar.hit(value.location" in mac
+    star = (app / "FavoriteStar.swift").read_text(encoding="utf-8")
+    assert 'pinned ? "star.fill" : "star"' in star
+    assert "rect.minY + size * 0.7" in star and "minSquarePx: CGFloat = 14" in star

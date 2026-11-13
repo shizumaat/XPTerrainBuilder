@@ -39,10 +39,15 @@ public enum FlyText {
     ]
     public static let drapePxLabel = "Photo detail ahead"
     /// The photo source the World pack's builds fetch (owner
-    /// 2026-11-12T19:17Z): the global `default_website` the Build pane's
-    /// "Tile / global default" means; read per build by the engine.
+    /// 2026-11-12T19:17Z), the app setting `fly_photo_source` read per
+    /// build by the engine: Automatic (#2018, its default: each tile's
+    /// national orthophoto service where one covers it, else Bing) or a
+    /// source of the Build pane's list, which then draws every tile.
     public static let photoSourceLabel = "Photo source"
-    public static let photoSourceKey = "default_website"
+    public static let photoSourceKey = "fly_photo_source"
+    public static let photoSourceAuto = "auto"
+    public static let photoSourceAutoLabel = "Automatic"
+    public static let photoSourceAutoHelp = "Each tile takes the national orthophoto service where one covers it, else Bing; a tile beside another source's blends its colour toward it."
     /// `drape_photo_px` (RULINGS 2026-11-11j): (value, words).
     public static let drapePxKey = "drape_photo_px"
     public static let drapePxChoices: [(Int, String)] = [

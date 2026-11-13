@@ -220,8 +220,18 @@ struct BuildPane: View {
     private var selectionBox: some View {
         if let active = buildModel.activeTile {
             let info = buildModel.built[active]
-            Text("Tile \(active.key)\(titleSuffix(active, info))")
-                .scaledFont(.callout, weight: .semibold)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Tile \(active.key)\(titleSuffix(active, info))")
+                    .scaledFont(.callout, weight: .semibold)
+                Spacer(minLength: 4)
+                // The Favorite star, top right (#2033; the Qt pane: the
+                // same): any tile this app built, a build running or not.
+                if let info, !info.builtElsewhere {
+                    FavoriteStarButton(pinned: info.pinned == true) { pinned in
+                        await buildModel.setImageryPinned(active, pinned)
+                    }
+                }
+            }
             // What the World pack holds for it, read first (owner
             // 2026-11-12T20:23Z; the Qt pane: the same row).
             TileWorldRow(coord: active, world: buildModel.worldTiles[active],
@@ -230,10 +240,15 @@ struct BuildPane: View {
                              TilePackageModel.shared.startExport([active], build: buildModel)
                          },
                          remove: { await buildModel.removeFromWorldPack(active) })
+            // The elevation the tile was built with, before Imagery (#2033;
+            // the Qt pane: the same row): the build's record, else the
+            // cfg's pinned file.
+            detailRow("Elevation", elevationText(info))
             HStack(spacing: 5) {
-                // The cfg's provider, else what the textures or the
-                // imagery record carry (#1334; the Qt pane: the same).
-                detailRow("Imagery", info.flatMap(TileImageryChoice.resolve)?.provider ?? "—")
+                // Source and zoom on one line (#2033): the cfg's provider,
+                // else what the textures or the imagery record carry
+                // (#1334; the Qt pane: the same).
+                detailRow("Imagery", imageryText(info))
                 if let audit = textureAudit, audit.hasConflict {
                     Button {
                         trashMessage = nil
@@ -258,7 +273,6 @@ struct BuildPane: View {
                     await buildModel.applyMeshOrder(for: active, action: action, pack: pack)
                 }
             }
-            detailRow(O4Glossary.term("imagery_detail"), zlText(info))
             detailRow("Ground shaped", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))
             if info != nil {
@@ -266,13 +280,6 @@ struct BuildPane: View {
                 // pane: the same row)?
                 TileImageryFreshnessRow(freshness: imageryFreshness) {
                     await buildModel.updateImagery(active)
-                }
-            }
-            if let info, !info.builtElsewhere {
-                // Favorite (#1992 §7, RULINGS 2026-11-10c (1); the Qt pane:
-                // the same): on every built tile, switchable when on demand.
-                TilePinRow(pinned: info.pinned == true, applies: info.pinApplies) { pinned in
-                    await buildModel.setImageryPinned(active, pinned)
                 }
             }
             if let info {
@@ -291,9 +298,6 @@ struct BuildPane: View {
                 if let text = info.airports {
                     detailRow(Self.gradedAirportsTitle, text).help(text)
                 }
-            }
-            if let dem = info?.customDEM, !dem.isEmpty {
-                detailRow("Elevation", (dem as NSString).lastPathComponent)
             }
             // Other installed ortho/mesh packages covering this tile.
             ForEach(otherScenery, id: \.name) { item in
@@ -485,18 +489,25 @@ struct BuildPane: View {
         return buildModel.isScanning ? "  (scanning…)" : "  (not built)"
     }
 
-    private func zlText(_ info: O4TileInfo?) -> String {
-        guard let info, let zl = TileImageryChoice.resolve(info)?.zl else { return "—" }
-        var text = O4Glossary.detailChoice(zl)
-        // Airport high-ZL cover: e.g. "ZL16 + ZL18 ICAO" makes the
-        // upgraded-airports setting visible at a glance.
+    /// Source and zoom on one line, "BI, ZL16–19" (#2033; Qt
+    /// `_imagery_line`): the airports' cover zoom as a range.
+    private func imageryText(_ info: O4TileInfo?) -> String {
+        guard let info else { return "—" }
+        let choice = TileImageryChoice.resolve(info)
         let mode = info.highZLAirports
-        if mode != "", mode != "False", let cover = info.coverZL, cover > zl {
-            let scope = ["True": "All", "ICAO": "ICAO", "Existing": "Existing"]
-            text += " + ZL\(cover) \(scope[mode] ?? mode)"
+        let cover = mode != "" && mode != "False" ? info.coverZL : nil
+        return O4Glossary.imagerySummary(provider: choice?.provider, zl: choice?.zl, coverZL: cover)
+    }
+
+    /// The elevation the tile was built with (#2033): the build's record,
+    /// else the cfg's pinned file.
+    private func elevationText(_ info: O4TileInfo?) -> String {
+        if let text = info?.elevation { return text }
+        if let dem = info?.customDEM, !dem.isEmpty {
+            let base = dem.split(separator: ";").first.map(String.init) ?? dem
+            return (base as NSString).lastPathComponent
         }
-        if info.hasZones { text += " + zones" }
-        return text
+        return "—"
     }
 
     private func dateText(_ epoch: Double?) -> String {

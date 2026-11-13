@@ -21,7 +21,7 @@ __all__ = ["LEGEND_FULL", "LEGEND_MESH", "LEGEND_DRAPE", "LEGEND_PLACEHOLDER",
            "REMOVE_BUTTON", "REMOVE_TITLE", "REMOVE_MESSAGE",
            "REMOVE_CONFIRM", "REMOVED", "REMOVED_NO_PACKAGE",
            "pane_status", "pane_detail", "built_in_world", "removed_note",
-           "world_dsf"]
+           "world_dsf", "PHOTO_WORDS", "photo_text"]
 
 # --- The map key's World-state sentences (``O4_Map_Key_Text``, #2031:
 # the Build and Fly views say the same; another tool's tile is dotted,
@@ -54,6 +54,9 @@ SOURCE_WORDS = {
     "lean": "low-res copy here",
 }
 ON_DRIVE = "on {volume}"
+#: The photo provider that draws a World tile (#2018): the tile pane's
+#: detail and the map's cursor readout.
+PHOTO_WORDS = "photo: {provider}"
 LEAN_ON_DRIVE = "low-res copy here, full imagery on {volume}"
 
 
@@ -118,12 +121,20 @@ def pane_status(world) -> str:
     return PANE_PLACEHOLDER if state == "placeholder" else ""
 
 
+def photo_text(world) -> str:
+    """"photo: FRorth" -- the provider drawing a World tile (#2018);
+    ``""`` when none is known.  ``world``: a ``WorldTile.fields()`` dict
+    or ``None``.  Mac: ``O4WorldStateText.photoText``."""
+    provider = (world or {}).get("provider") or ""
+    return PHOTO_WORDS.format(provider=provider) if provider else ""
+
+
 def pane_detail(world) -> str:
-    """Who made it and where its own files live: "built here · original
-    folder kept"; ``""`` for none."""
+    """Who made it, its photo and where its own files live: "built here ·
+    photo: BI · original folder kept"; ``""`` for none."""
     if not world:
         return ""
-    parts = [ORIGIN_WORDS.get(world.get("origin", ""), ""),
+    parts = [ORIGIN_WORDS.get(world.get("origin", ""), ""), photo_text(world),
              _source_text(world.get("source", ""), world.get("volume", ""))]
     return " · ".join(p for p in parts if p)
 

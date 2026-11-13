@@ -407,7 +407,7 @@ def test_conflict_sweep_reaches_the_map_and_the_info_panel(
     assert _wait_for(qapp, lambda: window._conflict_tiles == set())
     assert window.map._conflicts == set()
     window._refresh_conflict_indicator(TILE)
-    assert window.info_provider.text() == "BI"
+    assert window.info_provider.text() == "BI, ZL16"
 
 
 def test_a_superseded_sweep_is_discarded(qapp, make_window):

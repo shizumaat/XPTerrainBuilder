@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import types
 from math import floor
 
 import O4_UI_Utils as UI
@@ -280,8 +281,8 @@ def _apply_data_root():
     Elevation_dir = data_path("Elevation_data")
     Geotiff_dir = data_path("Geotiffs")
     Patch_dir = data_path("Patches")
-    # A ``Tile_dir`` assigned since (a monkeypatch's undo writes the value it
-    # read back) would pin the old root: the recompute serves it again.
+    # A ``Tile_dir`` override (:func:`_tiles_root`) names a folder of the
+    # OLD root: a new root drops it, and the computed home serves again.
     globals().pop("Tile_dir", None)
     Tmp_dir = data_path("tmp")
     Overlay_dir = data_path("yOrtho4XP_Overlays")
@@ -351,11 +352,50 @@ def world_home():
 
 def _tiles_root():
     """Where tile build folders live: the World home's tiles folder, else
-    ``<data root>/Tiles`` (``Tile_dir`` is served from here)."""
+    ``<data root>/Tiles`` (``Tile_dir`` is served from here).
+
+    THE ONE OVERRIDE HOOK: an assigned ``Tile_dir`` (``FNAMES.Tile_dir =
+    folder`` or ``monkeypatch.setattr(FNAMES, "Tile_dir", folder)``) is
+    held in the module dict, which attribute lookup finds before the
+    module ``__getattr__``, and is honoured here too, so every reader —
+    ``FNAMES.Tile_dir``, :func:`build_dir`, this function — sees one
+    folder.  Deleting it (a monkeypatch undo) restores the computed home;
+    :func:`set_data_root` drops it (:class:`_FileNamesModule`)."""
+    override = globals().get("Tile_dir")
+    if override:
+        return override
     world = world_home()
     if world:
         return os.path.join(world, WORLD_TILES_DIR)
     return data_path("Tiles")
+
+
+class _FileNamesModule(types.ModuleType):
+    """This module's type: it keeps the ``Tile_dir`` override hook
+    (:func:`_tiles_root`) exact under both monkeypatch undo styles.
+
+    * pytest >= 9.2 undoes ``monkeypatch.setattr(FNAMES, "Tile_dir", x)``
+      by DELETING the dict entry (it records the dict's own value, and a
+      computed ``Tile_dir`` has none); a :func:`set_data_root` in between
+      has already dropped it, so deleting an absent override is a no-op.
+    * older pytest undoes it by ASSIGNING the value it read, the computed
+      home: assigning the computed home is no override (it would pin that
+      folder after the World home or the data root moves)."""
+
+    def __setattr__(self, name, value):
+        if name == "Tile_dir":
+            self.__dict__.pop("Tile_dir", None)
+            if value == _tiles_root():
+                return
+        super().__setattr__(name, value)
+
+    def __delattr__(self, name):
+        if name == "Tile_dir" and name not in self.__dict__:
+            return
+        super().__delattr__(name)
+
+
+sys.modules[__name__].__class__ = _FileNamesModule
 
 
 def set_data_root(path):
@@ -538,9 +578,7 @@ def tile_dir(lat, lon):
 
 def build_dir(lat, lon, custom_build_dir):
     if not custom_build_dir:
-        # an assigned ``Tile_dir`` (a test monkeypatch) shadows the home
-        root = globals().get("Tile_dir") or _tiles_root()
-        return os.path.join(root, tile_dir(lat, lon))
+        return os.path.join(_tiles_root(), tile_dir(lat, lon))
     elif custom_build_dir.endswith(("/", "\\")):
         return os.path.join(custom_build_dir[:-1], tile_dir(lat, lon))
     else:

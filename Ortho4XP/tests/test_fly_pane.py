@@ -304,7 +304,9 @@ def test_the_words_are_the_macs():
                  "CORRIDOR_LABEL", "SIM_PRIORITY_LABEL", "LIVE_PREVIEW",
                  "LIVE_PREVIEW_HELP", "SHARP_PHOTO", "SHARP_PHOTO_HELP", "DIVERT", "END_FLIGHT",
                  "NO_FLIGHT_MANAGER", "NO_STATUS", "CENTER_ON_AIRCRAFT",
-                 "NO_AIRCRAFT_POSITION", "CHOICE_KEEP", "CHOICE_UPGRADE"):
+                 "NO_AIRCRAFT_POSITION", "CHOICE_KEEP", "CHOICE_UPGRADE",
+                 "PHOTO_SOURCE_LABEL", "PHOTO_SOURCE_KEY", "PHOTO_SOURCE_AUTO",
+                 "PHOTO_SOURCE_AUTO_LABEL", "PHOTO_SOURCE_AUTO_HELP"):
         camel = re.sub(r"_(\w)", lambda m: m.group(1).upper(), name.lower())
         said = re.search(r'static let %s = "([^"]+)"' % camel, swift)
         assert said and said.group(1) == getattr(TEXT, name), name

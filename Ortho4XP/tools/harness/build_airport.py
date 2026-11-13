@@ -4390,7 +4390,10 @@ def closing_lines(out_dir: Path, tag: str, result: dict, tile: bool) -> list:
             f"  [harness] tile build dir: {result.get('build_dir')}",
             f"  [harness] tile patches (lane Patches/): {patch_dir}",
             f"  [harness] next: venv/bin/python tools/harness/census.py "
-            f"{Path(patch_dir) / '<ICAO>_auto.patch.osm' if patch_dir else '<patch>'}"]
+            f"{Path(patch_dir) / '<ICAO>_auto.patch.osm' if patch_dir else '<patch>'}"
+            ] + ([f"  [harness] {result['drawn_gate']['line']} -> "
+                  f"{result['drawn_gate']['json']}"]
+                 if result.get("drawn_gate") else [])
 
 
 def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
@@ -5086,6 +5089,10 @@ def main(argv=None) -> int:
                     help="build against a PRIVATE data corpus instead of "
                          "the shared repo, KNOWINGLY (recorded); its "
                          "numbers are not comparable with any other lane's")
+    ap.add_argument("--no-drawn-gate", action="store_true",
+                    help="--tile: skip the closing drawn gate "
+                         "(tools/harness/drawn_gate.py: the tile DSF, the "
+                         "patch it carries and the written pack, #1903)")
     ap.add_argument("--pack-copy", default=None, metavar="DIR",
                     help="--tile: the object stage writes an APFS clone of "
                          "each airport pack under DIR, never the owner's "
@@ -5971,6 +5978,22 @@ def main(argv=None) -> int:
     if args.tile:
         require_no_swallowed_write_block(
             guard.blocked, allow_degraded=args.allow_degraded_dem, prog=prog)
+        if not args.no_drawn_gate:
+            # THE DRAWN GATE (#1903): the verdict on what X-Plane draws from
+            # this build's own products -- the tile DSF, the patch carried
+            # by it, the written pack (``--pack-copy``) -- never the engine's
+            # records.  After the result is written: it reads it.  Imported
+            # here: it loads the engine, which must not precede the cache
+            # redirects (the belt above).
+            import drawn_gate as DG
+            result["drawn_gate"] = DG.after_build(
+                args.icao, tag, out_dir, prog=prog,
+                custom_scenery=PCA.effective_install_paths(
+                    read_cfg(OWNER_APP_CFG), read_cfg(LANE_CFG),
+                    ("custom_scenery_dir",))[0].get("custom_scenery_dir"))
+            (out_dir / f"{tag}.result.json").write_text(json.dumps(
+                {k: v for k, v in result.items() if not k.startswith("_")},
+                indent=1, default=str))
     _prune_lane_cache(root, prog)
     prog.note(f"EXIT {tag} rc=0 wall={result['wall_seconds']}s")
     for line in closing_lines(out_dir, tag, result, tile=bool(args.tile)):

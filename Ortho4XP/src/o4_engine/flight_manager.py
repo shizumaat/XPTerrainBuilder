@@ -251,7 +251,9 @@ class FlightManager:
                  others_running: Callable[[], int] = lambda: 0,
                  stamp: Callable[[], str] = lambda: "",
                  adopted: Callable[[Tile], Optional[dict]] = lambda t: None,
-                 choices: Optional["ADOPTED.ChoiceBook"] = None) -> None:
+                 choices: Optional["ADOPTED.ChoiceBook"] = None,
+                 patched_of: Optional[Callable[[Tile, str], str]] = None
+                 ) -> None:
         self.record, self.plan = record, plan
         self.builder, self.publisher, self.facts = builder, publisher, facts
         self.state_of, self.estimate = state_of, estimate
@@ -260,7 +262,7 @@ class FlightManager:
         self.flight_slots = max(1, int(flight_slots))
         self.ground_reload, self.stamp = ground_reload, stamp
         self.others_running = others_running
-        self.endpoints = ADOPTED.Endpoints(adopted, choices)
+        self.endpoints = ADOPTED.Endpoints(adopted, choices, patched_of)
         self.departure = plan.waypoints[0]
         self.leg = DIVERT.Leg()
         self.air = AirReload()

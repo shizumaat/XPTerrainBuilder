@@ -248,14 +248,17 @@ TILE_PACKAGE = (
 
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
 #: Swift file, Swift marker, Qt owner, Qt attribute).  The follow line
-#: is in the Fly pane (RULINGS 2026-11-10j); the pin sits in the tile pane under the
-#: imagery check and in the (parked) tiles table's actions and tile menu;
-#: the Storage details' ondemand row makes all low-res again.
+#: is in the Fly pane (RULINGS 2026-11-10j); the Favorite is a star beside
+#: the tile pane's title and on the Build map's built cells (#2033), and in
+#: the (parked) tiles table's actions and tile menu; the Storage details'
+#: ondemand row makes all low-res again.
 IMAGERY_ON_DEMAND = (
     ("follow_line", "FlyPane.swift", "ImageryFollowLine(model:",
      "window", "follow_line"),
-    ("tile_pin", "BuildPane.swift", "TilePinRow(pinned:",
-     "window", "tile_pin_row"),
+    ("tile_star", "BuildPane.swift", "FavoriteStarButton(pinned:",
+     "window", "favorite_star"),
+    ("map_star", "MapCanvasView.swift", "FavoriteStar.hit(",
+     "map", "favorite_requested"),
     ("library_pin", "LibraryView.swift", "model.togglePin(",
      "library_tiles", "pin_btn"),
     ("library_menu", "LibraryView.swift", ".contextMenu(forSelectionType:",
@@ -753,7 +756,7 @@ def test_imagery_on_demand_has_one_home_in_each_app(window):
     import O4_Qt_Settings_Storage as QTSTORE
 
     rows = QTLIBSTORE.StorageRows("")
-    owners = {"window": window,
+    owners = {"window": window, "map": window.map,
               "library_tiles": _parked_tiles_table(),
               "storage": QTSTORE.StorageSection(),
               "budget_box": rows.budget_box}
@@ -761,14 +764,38 @@ def test_imagery_on_demand_has_one_home_in_each_app(window):
         assert marker in (SWIFT / swift_file).read_text(encoding="utf-8"), key
         assert getattr(owners[owner], attr, None) is not None, key
     pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
-    # The follow line left the Build pane for Fly (10j); the pin follows
-    # the imagery check.
+    # The follow line left the Build pane for Fly (10j); the Favorite star
+    # stands at the title's right (#2033), no Favorite row below.
     assert "ImageryFollowLine(model:" not in pane
     assert window.follow_line.parentWidget() is window.fly_pane
-    assert pane.index("TilePinRow(pinned:") > pane.index("TileImageryFreshnessRow(")
+    title = pane.index('Text("Tile \\(active.key)')
+    assert title < pane.index("FavoriteStarButton(pinned:") < pane.index("TileWorldRow(coord:")
+    assert "TilePinRow" not in pane
+    assert window.favorite_star.parentWidget() is window.info_title_row
+    assert window.info_title.parentWidget() is window.info_title_row
+    assert not hasattr(window, "tile_pin_row")
+
+
+def test_both_tile_panes_name_the_elevation_before_one_imagery_line(window):
+    """#2033: "Elevation" (what the tile was built with) stands right
+    before "Imagery", which is source and zoom on one line; no "Imagery
+    detail" row in either pane."""
+    import O4_Glossary as GLOSSARY
+
+    pane = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    assert (pane.index('detailRow("Elevation", elevationText(info))')
+            < pane.index('detailRow("Imagery", imageryText(info))'))
+    assert 'O4Glossary.term("imagery_detail")' not in pane
+    assert "O4Glossary.imagerySummary(" in pane
     form = window._info_layout
-    assert (form.getWidgetPosition(window.tile_pin_row)[0]
-            == form.getWidgetPosition(window.imagery_freshness_row)[0] + 1)
+    imagery = form.getWidgetPosition(window.info_provider.parentWidget())[0]
+    assert form.getWidgetPosition(window.info_elevation)[0] == imagery - 1
+    labels = [form.itemAt(row, form.ItemRole.LabelRole)
+              for row in range(form.rowCount())]
+    texts = [item.widget().text() for item in labels
+             if item is not None and item.widget() is not None]
+    assert "%s:" % GLOSSARY.TERMS["imagery_detail"] not in texts
+    assert not hasattr(window, "info_zl")
 
 
 def test_both_tile_panes_show_the_path_under_built_by(window):
@@ -825,7 +852,7 @@ def test_both_tile_panes_read_the_world_pack_first(window):
     assert 'exportTitle = "%s"' % QTWORLDROW.EXPORT_BUTTON in package
     form = window._info_layout
     assert (form.getWidgetPosition(window.tile_world_row)[0]
-            == form.getWidgetPosition(window.info_title)[0] + 1)
+            == form.getWidgetPosition(window.info_title_row)[0] + 1)
     window.map.set_world({(30, 31): WorldTile("full", "xptb", 1.0, "originals", "")})
     window._active_changed((30, 31))
     assert WORLD_TEXT.TITLE_IN_WORLD in window.info_title.text()
@@ -981,10 +1008,15 @@ def test_qt_settings_storage_holds_the_storage_rows(window, monkeypatch):
     and measures the data folder the first time it is shown."""
     import O4_Qt_Library_Storage as QTLIBSTORE
     import O4_Qt_Settings as QTSET
+    from o4_engine import storage_shared as SHARED
 
     measured = []
     monkeypatch.setattr(QTLIBSTORE.StorageRows, "refresh",
                         lambda self: measured.append(True))
+    # No shared background scan yet (#2029): an earlier test's on this
+    # worker would be shown instead of measured.
+    monkeypatch.setattr(SHARED, "storage_scan_cached", lambda: {
+        "scan": None, "updating": False, "age_s": None})
     dialog = QTSET.SettingsWindow(window.prefs, [], window.output_dir(), window)
     try:
         section = dialog.storage_section

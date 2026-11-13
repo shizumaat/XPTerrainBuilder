@@ -115,3 +115,17 @@
   the `runways +1` draped band, no z-fight with the pack's own draped
   concrete, the author's UVs unstretched, the rigid rest of each object
   (booths, kerbs not draped) where it was.
+
+- **#2018 automatic photo source + provider-edge blend (lane l2018,
+  2026-11-13).** Measured offline only: unit twins
+  (`tests/test_imagery_auto_blend.py`) and the seam ΔE on cached BI/USA2
+  imagery at 32 N 110 W (150 m strips, ΔE76 18.8 → 8.4). No national
+  service is in the shared imagery cache, so no France/Switzerland or
+  Netherlands/Germany pair was measured, and no drape was fetched live.
+  OWED: one flight in the app with "Photo source: Automatic" across a
+  national border (e.g. from an inland French tile into Switzerland or
+  Germany): the drapes take FRorth / CH / NL where the whole tile is
+  covered and BI beside them, the tile pane and the cursor readout say
+  "photo: …", `XPTerrainBuilder_imagery/<tile>.json` is in the World
+  pack, and the owner's sim read of the seam (no new step at a
+  same-provider edge; the provider edge softened, not a band).

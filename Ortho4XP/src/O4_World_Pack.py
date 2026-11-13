@@ -35,7 +35,8 @@ Placeholders are written in pure Python (:func:`write_placeholder`,
 DSFTool in a twin.  DSFTool is used here only by the drape writer
 (``O4_World_Drape``) through :func:`dsftool_path`.
 
-Standard library plus ``O4_DSF_Binary`` / ``O4_DSF_Header`` and
+Standard library plus ``O4_DSF_Binary`` / ``O4_DSF_Header``,
+``O4_World_Imagery_Record`` (which provider draws each tile, #2018) and
 ``O4_Scenery_Packs`` (all stdlib-only), so the module still runs from a kit
 copy beside the engine checkout.
 """
@@ -50,6 +51,7 @@ import subprocess
 from typing import Callable, Iterator
 
 import O4_DSF_Binary as DSFB
+import O4_World_Imagery_Record as IREC
 
 __all__ = [
     "PACK_NAME", "MARKER", "PLACEHOLDER_AGENT", "KINDS", "PLACEHOLDER_MAX_BYTES",
@@ -495,6 +497,7 @@ def swap_in(pack: str, staged: str, lat: int, lon: int,
     partial = dest + ".partial"
     if os.path.exists(partial):
         os.remove(partial)
+    IREC.carry(staged, pack, lat, lon)     # its provider record (#2018)
     _link_or_copy(os.path.join(staged, dsf_relpath(lat, lon)), partial)
     os.replace(partial, dest)
     return {"tile": tile, "dsf": dest, "was_placeholder": was_placeholder}
@@ -525,6 +528,7 @@ def _merge_in(pack: str, staged: str, lat: int, lon: int) -> dict:
     dest = os.path.join(pack, dsf_relpath(lat, lon))
     was_placeholder = is_placeholder(dest)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
+    IREC.carry(staged, pack, lat, lon)     # its provider record (#2018)
     _replace_with_link(os.path.join(staged, dsf_relpath(lat, lon)), dest)
     return {"tile": tile, "dsf": dest, "was_placeholder": was_placeholder,
             "stale": stale}

@@ -92,17 +92,26 @@ def _settings() -> dict:
         return {}
 
 
-def photo_source() -> Tuple[str, int]:
-    """The user's photo source now ``(provider, zoom level)``: the
-    global ``default_website`` / ``default_zl`` the Build pane's and the
-    Fly pane's "Photo source" pickers both set (owner 2026-11-12T19:17Z),
-    read per job so a change applies to the next build (BI / 16 unset)."""
+def photo_source(tile=None) -> Tuple[str, int]:
+    """The photo source of a World or flight build now ``(provider, zoom
+    level)``, read per build so a change applies to the next one: the Fly
+    pane's "Photo source" (``fly_photo_source``) at the global
+    ``default_zl`` (16 unset).  Its default, Automatic (#2018), chooses
+    per ``tile`` (``O4_Imagery_Auto.choose``: the national service
+    covering it, else Bing); with no tile (the time estimates) it reads
+    Bing."""
+    import O4_Imagery_Auto as AUTO
     values = _settings()
     try:
         zoomlevel = int(values.get("default_zl") or 16)
     except (TypeError, ValueError):
         zoomlevel = 16
-    return str(values.get("default_website") or "BI"), zoomlevel
+    source = str(values.get("fly_photo_source") or AUTO.AUTO)
+    if source != AUTO.AUTO:
+        return source, zoomlevel
+    if tile is None:
+        return AUTO.FALLBACK, zoomlevel
+    return AUTO.choose(int(tile[0]), int(tile[1]), zoomlevel)
 
 
 def _utc() -> str:
@@ -133,7 +142,7 @@ class _SessionBuilder:
                  share: Optional[BuildShare] = None, owner: str = "",
                  source: "Optional[Callable[[], Tuple[str, int]]]" = None
                  ) -> None:
-        """``source()`` (:func:`photo_source`): the provider and zoom
+        """``source(tile)`` (:func:`photo_source`): the provider and zoom
         level each build starts with; else ``provider`` / ``zoomlevel``."""
         self.session = session
         self.provider, self.zoomlevel = provider, int(zoomlevel)
@@ -184,7 +193,7 @@ class _SessionBuilder:
         _restore_package(tile)
         with self._lock:
             self._mine.add(tile)
-        provider, zoomlevel = (self.source() if self.source is not None
+        provider, zoomlevel = (self.source(tile) if self.source is not None
                                else (self.provider, self.zoomlevel))
         ok = self.session.enqueue_build(
             [tile], provider, zoomlevel, "",
@@ -265,13 +274,23 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
     px = int(px or drape_px())
     engine = os.path.dirname(os.path.dirname(os.path.abspath(WP.__file__)))
     parent = FNAMES.data_path("World_build")
+    made: dict = {}
+
+    def blend():                    # #2018: toward another provider's tile
+        if "blend" not in made:
+            from .world_blend import blend_for
+            made["blend"] = blend_for(tile, provider,
+                                      WORLD.scenery_dir_or_default(""),
+                                      photo_source, WORLD.write_log)
+        return made["blend"]
     fetched = FETCH.fetch(engine, lat, lon, parent, int(zoomlevel), provider,
                           drop=FETCH.drop_for_px(px), water_alpha=True,
-                          water_wait_s=WATER_WAIT_S)
+                          water_wait_s=WATER_WAIT_S, blend=blend)
     if core is not None:
         cored = FETCH.fetch(engine, lat, lon, parent, int(zoomlevel), provider,
                             drop=0, water_alpha=True, water_wait_s=WATER_WAIT_S,
-                            near=(float(core[0]), float(core[1]), CORE_FULL_S))
+                            near=(float(core[0]), float(core[1]), CORE_FULL_S),
+                            blend=blend)
         fetched["core_squares"] = cored.get("squares")
     staged = os.path.join(WORLD.staging_root(), WP.tile_name(lat, lon))
     if os.path.exists(staged):
@@ -279,6 +298,7 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
     tool = WP.dsftool_path(engine)
     DRAPE.write_drape(lat, lon, int(zoomlevel), provider, fetched["textures"],
                       staged, tool, water_layer=DRAPE.WATER_LAYER_GROUP)
+    _record_drape(staged, provider, zoomlevel, made.get("blend"))
     WORLD.write_log({"drape": WP.tile_name(lat, lon), "px": px,
                      **{k: fetched.get(k) for k in (
                          "squares", "dds", "download_s", "convert_s",
@@ -287,6 +307,19 @@ def drape_tile(tile, provider: str, zoomlevel: int, core=None,
     with contextlib.suppress(OSError):
         shutil.rmtree(fetched["tile"])
     return not DRAPE.verify_drape(staged, lat, lon, tool)["problems"]
+
+
+def _record_drape(staged: str, provider: str, zoomlevel: int, blend) -> None:
+    """The World pack record of a staged drape (#2018,
+    ``O4_World_Imagery_Record``): its provider and zoom, whether
+    Automatic chose them, and the sides it blended."""
+    import O4_Imagery_Auto as AUTO
+    import O4_World_Imagery_Record as IREC
+    auto = str(_settings().get("fly_photo_source") or AUTO.AUTO) == AUTO.AUTO
+    IREC.write_staged(staged, {
+        "provider": provider, "zl": int(zoomlevel), "kind": "drape",
+        "auto": auto, "blend": blend.record() if blend is not None else {},
+        "at": _utc()})
 
 
 def _merge_held(pack: str, staged: str, lat: int, lon: int) -> None:
@@ -424,8 +457,8 @@ class _Runner:
         builder = _SessionBuilder(
             session, provider, zoomlevel,
             drape=lambda tile, core=None: (
-                drape_tile(tile, *photo_source()) if core is None
-                else drape_tile(tile, *photo_source(), core=core)),
+                drape_tile(tile, *photo_source(tile)) if core is None
+                else drape_tile(tile, *photo_source(tile), core=core)),
             share=SHARE, owner="track", source=photo_source)
         wanted = _Wanted(scenery_dir)
 

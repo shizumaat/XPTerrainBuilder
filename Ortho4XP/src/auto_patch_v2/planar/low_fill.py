@@ -27,6 +27,15 @@ beside the road or lot across the band, and the road's cap to it held the
 road on the plate (KMCI ``dsf:objpav781``: 302.42 over band ground 301.0,
 welded 1 m to a 0.5 m strip of ``building26/b1/p1`` at 302.52).
 
+A LEVEL CUT INTO ITS GROUND (owner RULINGS 2026-11-10h): a level that
+stands under its own ground median is on fill only where the ground falls
+under the LEVEL -- the fill test reads the lower of the two (the level's
+predicted height, its block's ``datum_pred`` + ``y_lo``).  MEASURED KMCI
+``building26/p3``, the passage level under the garage at 300.78 predicted
+over ground with median 303.33: read against the median, 6,863 m2 of the
+garage's floor (DEM 301-303, every cell over the level) was "fill" and
+left the patch for the DEM.
+
 The band leaves the level: the level's regions are what remains, and the
 band is no pad at all -- its ground places it, and the lot beside
 it keeps its own.  A level that would be left under ``[building_pad]
@@ -77,8 +86,10 @@ def _cells(L: Polygon, dem, grid: float) -> "tuple[float, list[tuple[float, floa
 
 
 def fill_band(L: Polygon, lots: Polygon, dem, grid: float, margin_m: float,
-              near_m: float) -> "Polygon | None":
-    """The part of level ``L`` on fill along a lot (module doc), or None."""
+              near_m: float, top: "float | None" = None) -> "Polygon | None":
+    """The part of level ``L`` on fill along a lot (module doc), or None.
+    ``top``: the level's predicted height, where it stands under its own
+    ground (module doc: A LEVEL CUT INTO ITS GROUND)."""
     if L.is_empty or lots.is_empty or dem is None:
         return None
     if L.distance(lots) > near_m:
@@ -87,6 +98,8 @@ def fill_band(L: Polygon, lots: Polygon, dem, grid: float, margin_m: float,
     if not cells:
         return None
     ground = _st.median(z for _x, _y, z in cells)
+    if top is not None:
+        ground = min(ground, top)
     low = [box(x - 0.5 * h, y - 0.5 * h, x + 0.5 * h, y + 0.5 * h)
            for x, y, z in cells if z < ground - margin_m]
     if not low:
@@ -111,6 +124,16 @@ def _with_edge_strips(L: Polygon, band, h: float):
     return unary_union([band, *thin]).intersection(L) if thin else band
 
 
+def _top(reg, rec) -> "float | None":
+    """The level's predicted height: its block's predicted datum + its
+    floor ``y_lo`` (``constraints/platform.landing_rows`` holds it there),
+    or ``None`` where the block predicts none."""
+    d = (getattr(reg, "held", {}) or {}).get(rec.get("block"), {}).get("datum_pred")
+    if d is None or rec.get("y_lo") is None:
+        return None
+    return float(d) + float(rec["y_lo"])
+
+
 def cut_fill_bands(res: list, reg, lots: _t.Sequence[Polygon], airport, law,
                    grid: float, counts: dict, kind: str) -> list:
     """``res`` with every lower level (``reg.landings`` of ``kind``) less its
@@ -132,7 +155,7 @@ def cut_fill_bands(res: list, reg, lots: _t.Sequence[Polygon], airport, law,
         if not mine:
             continue
         L = unary_union([r.polygon for r in mine])
-        band = fill_band(L, lot, dem, grid, margin, near)
+        band = fill_band(L, lot, dem, grid, margin, near, _top(reg, rec))
         if band is None:
             continue
         keep = L.difference(band)

@@ -14,7 +14,7 @@ shows them (:func:`step_display`).
 
 __all__ = [
     "TERMS", "RETIRED", "RETIRED_WORDS", "STEP_NAMES", "DETAIL_PIXEL_SIZES",
-    "detail_choice", "step_display", "surface_check",
+    "detail_choice", "imagery_summary", "step_display", "surface_check",
 ]
 
 # key -> the plain wording a primary label uses.  The owner's wording
@@ -145,6 +145,18 @@ def detail_choice(zl):
     if size is None:
         return "ZL%s" % (zl,)
     return "ZL%s · %s per pixel" % (zl, size)
+
+
+def imagery_summary(provider, zl, cover_zl=None):
+    """The tile pane's one Imagery line (#2033): the source and its zoom
+    level, ``"BI, ZL16"``, with the airports' higher cover zoom as a range,
+    ``"BI, ZL16–19"``; ``"—"`` with neither."""
+    zoom = ""
+    if zl:
+        zoom = "ZL%d" % int(zl)
+        if cover_zl and int(cover_zl) > int(zl):
+            zoom += "–%d" % int(cover_zl)
+    return ", ".join(part for part in (provider or "", zoom) if part) or "—"
 
 
 def step_display(step_key, label):

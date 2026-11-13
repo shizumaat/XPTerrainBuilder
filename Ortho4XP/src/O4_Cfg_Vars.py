@@ -271,6 +271,18 @@ cfg_app_vars = {
             "fast never does."
         ),
     },
+    # #2018 (owner 2026-11-13T02:00Z): the Fly pane's "Photo source".
+    # "auto" chooses per tile (O4_Imagery_Auto: the national service whose
+    # extent covers the tile, else Bing); a provider code forces it.
+    "fly_photo_source": {
+        "type": str,
+        "default": "auto",
+        "hint": (
+            "Where the tiles laid while flying get their photo: Automatic "
+            "takes each tile's national orthophoto service where one covers "
+            "it, else Bing; a source chosen here draws every tile."
+        ),
+    },
     "base_elevation_source": {
         "module": "DEM",
         "type": str,
@@ -1109,6 +1121,7 @@ list_app_vars = [
     "drape_photo_px",
     "fly_build_slots",
     "fly_sim_priority",
+    "fly_photo_source",
     "custom_scenery_dir",
     "custom_overlay_src",
     "custom_overlay_src_alternate",

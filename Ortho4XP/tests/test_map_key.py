@@ -112,23 +112,9 @@ def test_a_narrow_map_truncates_the_words_within_its_limit(qapp):
     assert len(hits) == len(items)             # every item, words truncated
     few = ["full", "mesh", "drape", "placeholder", "custom"]
     pill, hits = _paint(few, 400)
-    if pill.width() > 400 * KEYTEXT.MAX_WIDTH_FRACTION + 1:
-        # past its limit only to keep each truncated word's least letters
-        # ("Mm…", paint_key); whether that is needed depends on the font
-        from PySide6.QtGui import QImage, QPainter
-        image = QImage(1, 1, QImage.Format_ARGB32)
-        painter = QPainter(image)
-        metrics = painter.fontMetrics()
-        least = metrics.horizontalAdvance("Mm…")
-        natural = [metrics.horizontalAdvance(KEYTEXT.SHORT[i]) for i in few]
-        painter.end()
-        shown = [rect.width() - QTKEY._SWATCH_W - QTKEY._GAP for rect, _s in hits]
-        truncated = [s for s, n in zip(shown, natural, strict=True) if s < n]
-        assert truncated
-        # each floor raises its word by less than its own width
-        excess = pill.width() - 400 * KEYTEXT.MAX_WIDTH_FRACTION
-        assert excess <= least * len(truncated) + 1
-
+    # never past its limit, whatever the font (RULINGS 2026-11-13f)
+    assert pill.width() <= 400 * KEYTEXT.MAX_WIDTH_FRACTION + 1
+    assert len(hits) == len(few)
 
 def test_no_items_no_pill(qapp):
     pill, hits = _paint([], 800)

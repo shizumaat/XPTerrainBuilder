@@ -126,7 +126,8 @@ def test_every_state_origin_and_source(world):
     assert got[(10, 17)].dsf == ""
     got = {key: dataclasses.replace(tile, dsf="") for key, tile in got.items()}
     assert got == {
-        (10, 10): WS.WorldTile("full", "xptb", 1.0, "originals", ""),
+        # its textures name their provider (#2018, no record: derived)
+        (10, 10): WS.WorldTile("full", "xptb", 1.0, "originals", "", "", "BI"),
         (10, 11): WS.WorldTile("full", "other", 1.0, "lean", "Archive"),
         (10, 12): WS.WorldTile("mesh_lowres", "adopted", 0.5, "drive", "Archive"),
         (10, 13): WS.WorldTile("mesh_lowres", "adopted", 0.0, "lean", "Archive"),
@@ -190,7 +191,8 @@ def test_library_rows_carry_the_world_state(world, tmp_path):
     (row,) = out["tiles"]
     assert row["world"].pop("dsf").endswith(WP.dsf_relpath(10, 12))
     assert row["world"] == {"state": "mesh_lowres", "origin": "adopted",
-                            "sharp": 0.5, "source": "drive", "volume": "Archive"}
+                            "sharp": 0.5, "source": "drive", "volume": "Archive",
+                            "provider": ""}
     assert TEXT.cell_text(row["world"]) == "Mesh, 50% sharp · adopted · on Archive"
 
 
@@ -263,7 +265,7 @@ def test_show_in_finder_reveals_the_world_dsf_of_a_records_only_tile(tmp_path):
     import O4_Qt_Map_World as QTWORLD
     dsf = str(tmp_path / "a.dsf")
     world = QTWORLD.from_wire([[51, 22, "full", "adopted", 1, "lean", "", dsf]])[(51, 22)]
-    assert world.dsf == dsf and world.wire((51, 22))[-1] == dsf
+    assert world.dsf == dsf and world.wire((51, 22))[7] == dsf
     assert world.fields()["dsf"] == dsf
     records = types.SimpleNamespace(dsf_present=False, origin="adopted")
     own = types.SimpleNamespace(dsf_present=True, origin="xptb")

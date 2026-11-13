@@ -436,7 +436,8 @@ struct MapMainView: View {
 
     private var mapPane: some View {
         MapCanvasView(camera: controller.mapCamera,
-                      canvasSize: controller.mapCanvasSize)
+                      canvasSize: controller.mapCanvasSize,
+                      modes: buildModel.appMode)
             // Patches dropped on the map (#1979): PatchDropInstall.swift.
             .modifier(PatchDropTarget(buildModel: buildModel))
             .overlay {

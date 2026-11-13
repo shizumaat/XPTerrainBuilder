@@ -353,6 +353,42 @@ def _qt_user_files_never_reach_the_checkout(tmp_path_factory):
     yield
 
 
+def _migrate_only_under(basetemp, real_migrate):
+    """``world_home.migrate`` that only MOVES (and writes the pointer) on a
+    data root under *basetemp*; elsewhere it only reports (dry run)."""
+    import O4_File_Names as FNAMES
+
+    def migrate(*args, **kwargs):
+        if scenery_outside_tmp(FNAMES.current_data_root(), basetemp):
+            kwargs["dry_run"] = True
+        return real_migrate(*args, **kwargs)
+    return migrate
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _world_home_guard_outlives_each_test(tmp_path_factory):
+    """The per-test guard below, for the WHOLE run and never undone.
+
+    The Qt window's start runs the World onboarding on a thread
+    (``O4_Qt_World_Onboard``) that can finish AFTER its test's monkeypatch
+    is undone: the real ``migrate`` then moved the data folder's tiles and
+    wrote ``world_home.json`` into the checkout, naming a pytest World
+    folder — every later run from that checkout served its tiles from a
+    deleted tmp folder.  Here the fallback pointer is a session file and
+    the move is guarded between tests too."""
+    basetemp = tmp_path_factory.getbasetemp()
+    try:
+        from o4_engine import world_home as HOME
+    except Exception:                                   # pragma: no cover
+        yield
+        return
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("O4_WORLD_HOME_POINTER",
+                  str(basetemp / "world_home" / "session.json"))
+        mp.setattr(HOME, "migrate", _migrate_only_under(basetemp, HOME.migrate))
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _world_home_pointer_is_the_tests_own(monkeypatch, tmp_path_factory, request):
     """RULINGS 2026-11-12g/h: the data folder's World-home pointer
@@ -363,23 +399,10 @@ def _world_home_pointer_is_the_tests_own(monkeypatch, tmp_path_factory, request)
     basetemp = tmp_path_factory.getbasetemp()
     monkeypatch.setenv("O4_WORLD_HOME_POINTER", str(
         basetemp / "world_home" / ("%x.json" % abs(hash(request.node.nodeid)))))
-    # ... and the move itself only ever runs on a data root under basetemp:
-    # the checkout's own ``Tiles`` (the master tree's holds real tiles) is
-    # never moved into a test's World folder; elsewhere it only reports.
-    try:
-        import O4_File_Names as FNAMES
-        from o4_engine import world_home as HOME
-    except Exception:                                   # pragma: no cover
-        yield
-        return
-    real_migrate = HOME.migrate
-
-    def migrate(*args, **kwargs):
-        if scenery_outside_tmp(FNAMES.current_data_root(), basetemp):
-            kwargs["dry_run"] = True
-        return real_migrate(*args, **kwargs)
-
-    monkeypatch.setattr(HOME, "migrate", migrate)
+    # The move itself only ever runs on a data root under basetemp: the
+    # checkout's own ``Tiles`` (the master tree's holds real tiles) is never
+    # moved into a test's World folder; elsewhere it only reports
+    # (:func:`_world_home_guard_outlives_each_test`, session-wide).
     yield
 
 

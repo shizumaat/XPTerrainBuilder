@@ -1221,6 +1221,7 @@ class MainWindow(QMainWindow):
         self.map.selection_changed.connect(self._selection_changed)
         self.map.active_changed.connect(self._active_changed)
         self.map.tile_menu_requested.connect(self._tile_menu)
+        self.map.favorite_requested.connect(self._pin_tile)
         self.map.hover_ll.connect(self._hover)
         self.map.status_message.connect(self._status)
         # Patches dropped on the map or the window (#1979).
@@ -1257,7 +1258,17 @@ class MainWindow(QMainWindow):
         # widening the fixed-width panel; the tooltip keeps the whole
         # line for a font wide enough to need it.
         _never_widen(self.info_title)
-        ig.addRow(self.info_title)
+        # The title, and the Favorite star at its right (#2033; mac-app
+        # parity: BuildPane's FavoriteStarButton).
+        self.info_title_row = QWidget()
+        title_layout = QHBoxLayout(self.info_title_row)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(4)
+        title_layout.addWidget(self.info_title, 1)
+        self.favorite_star = QTONDEMAND.FavoriteStar()
+        self.favorite_star.pin_requested.connect(self._pin_tile)
+        title_layout.addWidget(self.favorite_star, 0)
+        ig.addRow(self.info_title_row)
         # What the World pack holds for it, read first (owner
         # 2026-11-12T20:23Z; mac-app parity: TileWorldRow).
         self.tile_world_row = QTWORLDROW.TileWorldRow()
@@ -1287,6 +1298,11 @@ class MainWindow(QMainWindow):
         )
         self.imagery_conflict_btn.setVisible(False)
         irl.addWidget(self.imagery_conflict_btn, 0)
+        # The elevation the tile was built with, before Imagery (#2033;
+        # mac-app parity: BuildPane's "Elevation" row); for a tile not
+        # built (or built before the record), the base a build would use.
+        self.info_elevation = TwoLineElidedLabel("—")
+        ig.addRow("Elevation:", self.info_elevation)
         ig.addRow("Imagery:", imagery_row)
         # An installed tile whose terrain names textures it lacks: X-Plane
         # will not load it (mac-app parity: TileMissingTexturesRow).
@@ -1298,8 +1314,6 @@ class MainWindow(QMainWindow):
         # over a local mesh (#1729; mac-app parity: TileMeshOrderRow).
         self.mesh_order_row = QTMESHORDER.MeshOrderRow()
         ig.addRow(self.mesh_order_row)
-        self.info_zl = ElidedRowLabel("—")
-        ig.addRow("%s:" % GLOSSARY.TERMS["imagery_detail"], self.info_zl)
         self.info_mesh = ElidedRowLabel("—")
         ig.addRow("Ground shaped:", self.info_mesh)
         self.info_imagery = ElidedRowLabel("—")
@@ -1310,11 +1324,6 @@ class MainWindow(QMainWindow):
         self.imagery_freshness_row.update_requested.connect(
             self._update_tile_imagery)
         ig.addRow("Imagery check:", self.imagery_freshness_row)
-        # Favorite (#1992 §7, RULINGS 2026-11-10c (1); mac-app parity:
-        # TilePinRow): the switch that keeps a tile at full resolution.
-        self.tile_pin_row = QTONDEMAND.TilePinRow()
-        self.tile_pin_row.pin_requested.connect(self._pin_tile)
-        ig.addRow("%s:" % QTONDEMAND.TEXT.PIN_ROW_TITLE, self.tile_pin_row)
         # Who built it (#1226, owner Q95): the build record, else the DSF.
         self.info_built_by = ElidedRowLabel("—")
         ig.addRow("Built by:", self.info_built_by)
@@ -1336,8 +1345,6 @@ class MainWindow(QMainWindow):
                   self.info_airport_elevation)
         self.info_airports = TwoLineElidedLabel("—")
         ig.addRow("%s:" % TILE_AIRPORTS_TITLE, self.info_airports)
-        self.info_elevation = TwoLineElidedLabel("—")
-        ig.addRow("Elevation:", self.info_elevation)
         self.info_airport_lidar = TwoLineElidedLabel("—")
         ig.addRow("Airport terrain:", self.info_airport_lidar)
         # Manual-setup affordance (VIEW): shown by the controller when
@@ -1443,7 +1450,6 @@ class MainWindow(QMainWindow):
         self._info_layout.setRowVisible(self.other_scenery_row, False)
         self._info_layout.setRowVisible(self.custom_settings_row, False)
         self._info_layout.setRowVisible(self.custom_patch_row, False)
-        self._info_layout.setRowVisible(self.tile_pin_row, False)
         self._modified_airport_packs = []
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)
@@ -2085,6 +2091,9 @@ class MainWindow(QMainWindow):
         """One map and one selection; only the side pane changes."""
         self.mode_stack.setCurrentIndex(QTMODES.MODES.MODES.index(mode))
         self.mode_stack.setFixedWidth(280)
+        # The Favorite stars are the Build map's (#2033).
+        self.map.favorite_stars = mode != "fly"
+        self.map.viewport().update()
         self._fly_shown(mode == "fly")
 
     # ------------------------------------------------------------------
@@ -2949,9 +2958,9 @@ class MainWindow(QMainWindow):
         self.imagery_conflict_btn.setVisible(conflicted)
         # the cfg's provider, else what the textures or the imagery
         # record carry (#1334; mac-app parity: TileImageryChoice)
-        provider = (TINFO.effective_imagery(info) or ("?",))[0]
+        line = _imagery_line(info)
         self.info_provider.setText(
-            ("%s  ⚠ mixed" % provider) if conflicted else provider
+            ("%s  ⚠ mixed" % line) if conflicted else line
         )
         self.info_provider.setToolTip(
             "This tile's textures folder also holds imagery from another "
@@ -3071,13 +3080,13 @@ class MainWindow(QMainWindow):
         self.fly_offer.observe(event, self.mode())
 
     def _show_tile_pin(self, tile, info):
-        self.tile_pin_row.show_tile(tile, info)
-        self._info_layout.setRowVisible(
-            self.tile_pin_row, QTONDEMAND.TilePinRow.shows(info))
+        self.favorite_star.show_tile(tile, info)
 
     def _pin_tile(self, request):
-        """The tile pane's pin: ``imagery_pin``, then the tiles rescan
-        (the pane and the Library read the pin from the tile)."""
+        """A Favorite star (the tile pane's or the map's, #2033):
+        ``imagery_pin`` -- a build running or not -- then the tiles
+        rescan (the pane, the map and the Library read it from the
+        tile)."""
         lat, lon, pinned = request
         QTONDEMAND.pin_tile(lat, lon, pinned, self._bridge.pin_done,
                             busy=lambda: bool(self._building),
@@ -3086,11 +3095,11 @@ class MainWindow(QMainWindow):
     def _on_pin_done(self, result):
         if isinstance(result, Exception):
             print(str(result))
-            # Refused: the switch goes back to the tile's state.
-            self.tile_pin_row.set_pinned(self.tile_pin_row.pinned)
             return
         print(QTONDEMAND.TEXT.pin_done(result))
-        self.tile_pin_row.set_pinned(result.get("pinned", False))
+        if self.map.active_tile() is not None and result.get("tile") == (
+                FNAMES.short_latlon(*self.map.active_tile())):
+            self.favorite_star.set_pinned(result.get("pinned", False))
         self.refresh_tiles()
 
     def _on_imagery_source_status(self, event):
@@ -3559,7 +3568,8 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             (base_text, lidar_text) = ("?", "?")
-        self.info_elevation.setText(base_text)
+        built_with = getattr(info, "elevation", "") if info else ""
+        self.info_elevation.setText(built_with or base_text)
         self.info_airport_lidar.setText(lidar_text)
         # Manual-setup affordance (CONTROLLER): ask the model which
         # manual-download sources could serve this tile and are not set
@@ -3597,7 +3607,6 @@ class MainWindow(QMainWindow):
             pending = self._scanning
             for w in (
                 self.info_provider,
-                self.info_zl,
                 self.info_mesh,
                 self.info_imagery,
                 self.info_built_by,
@@ -3622,19 +3631,6 @@ class MainWindow(QMainWindow):
             self.install_check.setChecked(False)
             return
         self._refresh_conflict_indicator(tile)
-        zl = (TINFO.effective_imagery(info) or ("", None))[1]
-        zl_text = GLOSSARY.detail_choice(zl) if zl else "?"
-        # Airport high-ZL cover: show the upgraded zoomlevel and its scope
-        # (e.g. "16 + ZL18 ICAO") so the setting is visible at a glance.
-        mode = (getattr(info, "high_zl_airports", "") or "").strip()
-        if mode not in ("", "False") and info.cover_zl and (
-            zl is None or info.cover_zl > zl
-        ):
-            scope = {"True": "All", "ICAO": "ICAO", "Existing": "Existing"}
-            zl_text += " + ZL%d %s" % (info.cover_zl, scope.get(mode, mode))
-        if info.has_zones:
-            zl_text += " + zones"
-        self.info_zl.setText(zl_text)
         self.info_mesh.setText(_fmt_date(info.mesh_date))
         self.info_imagery.setText(_fmt_date(info.imagery_date))
         self.info_built_by.setText(TINFO.with_built_by(info).built_by or "—")
@@ -5851,8 +5847,17 @@ class MainWindow(QMainWindow):
             from O4_Qt_Cursor_Readout import CursorReadout
             readout = self._cursor_readout = CursorReadout(
                 self.coords_label, self.patch_editor.engine, lambda: self._built, self,
-                pack_label=self.patch_editor.pack_label_at)
+                pack_label=self.patch_editor.pack_label_at,
+                photo_label=self._world_photo_at)
         readout.hover(lat, lon)
+
+    def _world_photo_at(self, lat, lon):
+        """"photo: <provider>" of the World tile under the cursor (#2018),
+        or None (Mac: ``MapCanvasView.cursorPhoto``)."""
+        import O4_World_State_Text as WTEXT
+        world = self.map.world().get((math.floor(lat), math.floor(lon)))
+        text = WTEXT.photo_text(world.fields() if world is not None else None)
+        return text or None
 
     def _update_zoom_label(self):
         self.zoom_label.setText(
@@ -6002,6 +6007,16 @@ def _fmt_arc_seconds(resolution_arc_seconds):
     else:
         text = "%.2f arc-second" % value
     return "%s (~%d m)" % (text, round(value * 30))
+
+
+def _imagery_line(info):
+    """The Imagery row (#2033): source and zoom level on one line,
+    ``"BI, ZL16–19"`` with the airports' cover zoom (mac-app parity:
+    ``O4Glossary.imagerySummary``)."""
+    provider, zl = (TINFO.effective_imagery(info) or ("?", None))[:2]
+    mode = (getattr(info, "high_zl_airports", "") or "").strip()
+    cover = info.cover_zl if mode not in ("", "False") else None
+    return GLOSSARY.imagery_summary(provider, zl, cover)
 
 
 def _elevation_row_texts(

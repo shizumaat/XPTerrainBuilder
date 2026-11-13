@@ -70,13 +70,13 @@ final class FlyModel: ObservableObject {
             build?.setConfigValue(FlyText.drapePxKey, to: .int(newValue))
         }
     }
-    /// The photo source the World pack's builds fetch (the global
-    /// `default_website`, the Build pane's "Tile / global default"; owner
-    /// 2026-11-12T19:17Z), read per build by the engine.
+    /// The photo source the World pack's builds fetch (the app setting
+    /// `fly_photo_source`, owner 2026-11-12T19:17Z), read per build by the
+    /// engine: Automatic (#2018, the default) or one provider's code.
     var photoSource: String {
         get {
             let value = build?.configValue(for: FlyText.photoSourceKey)?.cfgLiteral ?? ""
-            return value.isEmpty ? "BI" : value
+            return value.isEmpty ? FlyText.photoSourceAuto : value
         }
         set {
             guard !newValue.isEmpty else { return }

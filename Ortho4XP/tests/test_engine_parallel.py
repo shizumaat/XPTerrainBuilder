@@ -51,13 +51,18 @@ def reset_ui_routing():
 
 
 @pytest.fixture
-def stub_worker(monkeypatch):
+def stub_worker(monkeypatch, tmp_path):
     """Point the scheduler at the stub worker and stub the time model.
 
     The time model is only consulted on the in-process path, but stubbing
     it (as ``test_engine_session`` does) keeps every run deterministic and
-    off the real ``~/.ortho4xp`` store.
+    off the real ``~/.ortho4xp`` store.  The tiles' home is this test's
+    own (``FNAMES.Tile_dir``, the one override): the run's build logs went
+    into the checkout's ``Tiles`` (``custom_build_dir=""``), where the
+    World-home move then counted them.
     """
+    import O4_File_Names as FNAMES
+    monkeypatch.setattr(FNAMES, "Tile_dir", str(tmp_path / "Tiles"))
     monkeypatch.setattr(
         parallel, "tile_worker_command",
         lambda: [sys.executable, STUB_WORKER])
@@ -546,6 +551,10 @@ def test_in_process_enqueue_build_appends_to_running_queue(monkeypatch,
     """enqueue_build during an in-process run appends the batch to the
     live work queue: the run builds it after the original tiles, under
     ONE RunDone."""
+    import O4_File_Names as FNAMES
+
+    # the "" batch builds in this test's own tiles' home
+    monkeypatch.setattr(FNAMES, "Tile_dir", str(tmp_path / "Tiles"))
     holder = {}
     fired = {"done": False}
 

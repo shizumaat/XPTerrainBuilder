@@ -1124,7 +1124,7 @@ def _terrain_base(pids: _t.AbstractSet[int], parts: _t.Mapping[int, _t.Any],
     walled = [p for p in mine if _tb.is_walled(p, member_of.get(p.pid), wall_min_m)]
     if any(frame_of.get(p.pid) != fr for p in walled):
         return None
-    return _tb.unit_base(walled, fr[0], fr[1], law, counts, frozenset(pids))
+    return _tb.unit_base(walled, fr[0], fr[1], law, counts, mine)
 
 
 #: R5's cross-check: the lowest wall-foot plane lies this close to the

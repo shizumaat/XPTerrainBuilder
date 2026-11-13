@@ -44,6 +44,10 @@ the author placed them"):
    (``domiki_lows_34`` 47.7920, 12.9888): an upper storey authored at
    y +3.8 on its own ground floor is a unit with no foot of its own, and
    without this test 13y's reading dropped it 3.97 m through that floor.
+   Its OWN lower pieces count too: a body or unit any of whose parts
+   (walled or not) reaches under the base plane stands on them (the
+   census: a floatplane's fuselage, walled, over its unwalled floats —
+   seated by the fuselage it sank the floats 1.3-2 m).
 
 A piece with no walled part (a roof, a canopy) and no carrier keeps
 §16 (3)'s own ground with its authored y (13y (3)).  NO LAW CONSTANT LIVES HERE: the three keys are
@@ -193,14 +197,15 @@ def _witness(walled: _t.Sequence[_t.Any], anchor: _t.Sequence[float],
 
 def unit_base(walled: _t.Sequence[_t.Any], anchor: _t.Sequence[float],
               lift: float, law: TerrainLaw, counts: "dict | None" = None,
-              own: _t.AbstractSet[int] = frozenset()) -> "float | None":
+              own: _t.Sequence[_t.Any] = ()) -> "float | None":
     """Site 1 (``footprint_unit._wall_base``'s footless branch): the
     unit's wall base ``b`` where the witness holds, else ``None``.
-    ``own``: the unit's part ids."""
+    ``own``: every part of the unit."""
     w = _witness(walled, anchor, lift, law)
     if w is None:
         return None
-    if _supported(walled, w.b, _frame_of(anchor, lift), own, law):
+    if (_below(own, w.b)
+            or _supported(walled, w.b, _frame_of(anchor, lift), {p.pid for p in own}, law)):
         _count(counts, "terrain_carried_refused_structure")
         return None
     if w.over_ground(law):
@@ -223,7 +228,8 @@ def seat(parts: _t.Sequence[_t.Any], m: _t.Any, anchor: _t.Sequence[float],
     w = _witness(walled, anchor, lift, law)
     if w is None:
         return None
-    if _supported(walled, w.b, _frame_of(anchor, lift), {p.pid for p in parts}, law):
+    if (_below(parts, w.b)
+            or _supported(walled, w.b, _frame_of(anchor, lift), {p.pid for p in parts}, law)):
         _count(counts, "terrain_carried_refused_structure")
         return None
     cands = []
@@ -245,6 +251,11 @@ def seat(parts: _t.Sequence[_t.Any], m: _t.Any, anchor: _t.Sequence[float],
         _count(counts, "terrain_carried_over_ground")
     _count(counts, "terrain_carried_bodies")
     return pick[0], pick[1], w.b, pick[3], w.margin
+
+
+def _below(parts: _t.Iterable[_t.Any], b: float) -> bool:
+    """Does any of ``parts`` reach under the base plane ``b``?"""
+    return any(float(p.base_y) < b - AUTHOR_GROUND_M for p in parts)
 
 
 def _frame_of(anchor: _t.Sequence[float], lift: float) -> tuple:

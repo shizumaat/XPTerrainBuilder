@@ -159,6 +159,10 @@ def test_a_structure_under_it_is_a_carrier():
     law = _law([upper, floor], _hill(40.0))
     assert TB._supported([upper], 3.8, FR, {1}, law)
     assert TB.seat([upper], None, FR[0], 0.0, law, {}) is None
+    # ...and a body's OWN lower piece (a floatplane's float under its fuselage)
+    float_ = _p(5, 1.0, 1.0, BOX)
+    hull = _p(6, 2.3, 3.0, BOX)
+    assert TB.seat([hull, float_], None, FR[0], 0.0, _law([hull, float_], _hill(40.0)), {}) is None
     # a roof ABOVE it is no carrier, nor is a slab whose top stays under it
     roof = _p(3, 9.0, 0.5, BOX)
     slab = _p(4, 0.0, 0.2, BOX, feet=((BOX[0], BOX[1], 0.0),))
@@ -193,6 +197,11 @@ def test_site1_a_footless_unit_stands_on_its_walls_base():
     footed[3] = _p(3, 0.0, 1.0, BOX, feet=((BOX[0], BOX[1], 0.0),))
     un3 = types.SimpleNamespace(id="fu:1:264", pids=frozenset({1, 2, 3}))
     assert FU._wall_base(un3, [un3], footed, 2.5, {}, {**frame_of, 3: FR},
+                         (law, {}, {})) == 0.0
+    # its own unwalled piece under the walls (a floatplane's float) carries it
+    floats = {**walls, 5: _p(5, 32.0, 1.0, BOX)}
+    un5 = types.SimpleNamespace(id="fu:1:265", pids=frozenset({1, 2, 5}))
+    assert FU._wall_base(un5, [un5], floats, 2.5, {}, {**frame_of, 5: FR},
                          (law, {}, {})) == 0.0
     # a lifted frame keeps R5's reading
     lifted = {1: ((LAT, LON), 5.0), 2: ((LAT, LON), 5.0)}

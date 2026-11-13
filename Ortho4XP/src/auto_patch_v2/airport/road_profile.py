@@ -606,7 +606,13 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     # only: out of it the core's own profile stands)
     from .bridge_ground import bridge_runs, bridge_sampler
     bridges = bridge_runs(airport, law)
-    sample = bridge_sampler(smear_sampler(_sample_fn(airport), walls), bridges, band_fn)
+    sample = bridged = bridge_sampler(smear_sampler(_sample_fn(airport), walls), bridges,
+                                      band_fn)
+    # #2053 round 3: under a held object (a ground object on its bridges'
+    # ends) the core's ribbon reads the cut ground (``object_ground``)
+    if any(getattr(r[2], "seat_by", "") for r in getattr(airport, "terrain_models", ()) or ()):
+        from .object_ground import object_sampler
+        sample = object_sampler(sample, airport)
     inside = _inside_fn(airport)
     ways: list[Way] = []
     VECT = _core_vector_utils()
@@ -631,8 +637,11 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
                               rp.station_m, inside))
     if bridges:
         print(f"  [road_profile] bridge ground (#1935): {len(bridges)} run(s); "
-              f"{getattr(sample, 'lowered', 0)} station(s) lowered, "
-              f"{getattr(sample, 'edge_kept', 0)} kept raw outside the band")
+              f"{getattr(bridged, 'lowered', 0)} station(s) lowered, "
+              f"{getattr(bridged, 'edge_kept', 0)} kept raw outside the band")
+    if sample is not bridged:
+        print(f"  [road_profile] object ground (#2053): {sample.lowered} station(s) "
+              "lowered to the cut ground")
     prof = RoadProfiles(cap_, rp.station_m, lw, rp.answer_radius_lane_widths * lw,
                         tuple(ways), walls=walls)
     axis_set = set(axis_roles(law))

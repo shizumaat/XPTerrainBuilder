@@ -74,7 +74,7 @@ __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PE
            "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
            "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
            "placement_models", "set_members", "seat_records", "log_line",
-           "hideable_paths", "plan_grid", "rim_seat"]
+           "hideable_paths", "plan_grid", "plan_solid", "rim_seat"]
 
 MIN_PLAN_M = 500.0
 MIN_RELIEF_M = 50.0
@@ -132,6 +132,10 @@ class TerrainModel:
     seat_by: str = ""
     #: the cut's erosion radius when not ``terrain_cut.ERODE_M`` (m)
     erode_m: "float | None" = None
+    #: > 0: the cut reads each cell's LOWEST surface where a roof stands at
+    #: least this far over it -- its ground, not its roofs
+    #: (``terrain_cut.cut_fit`` ``floor_m``; #2053 round 2)
+    cut_floor_m: float = 0.0
     #: how far the other seat points sink under their ground at ``z0`` (m)
     spread_m: float = 0.0
     #: a GROUND SHELL's verdict (``ground_shell``, issue #2056): ``"seated"``
@@ -180,14 +184,20 @@ def photo_spread(vertices: np.ndarray, vt: np.ndarray, tris: np.ndarray) -> floa
     return float(q90 - q10)
 
 
-def _grid(g: _t.Any) -> "DeckGrid | None":
-    from .terrain_shaped import grid_of_triangles
+def _solid(g: _t.Any) -> "np.ndarray | None":
+    """``(n, 3, 3)`` authored corners of a geometry's static solid."""
     tris = g.solid
     if g.animated.shape[0]:
         tris = tris[~g.animated]
     if not tris.shape[0]:
         return None
-    return grid_of_triangles(g.vertices[tris])
+    return g.vertices[tris]
+
+
+def _grid(g: _t.Any) -> "DeckGrid | None":
+    from .terrain_shaped import grid_of_triangles
+    p = _solid(g)
+    return None if p is None else grid_of_triangles(p)
 
 
 def _plan_m(g: _t.Any) -> float:
@@ -229,6 +239,17 @@ def plan_grid(path: str) -> "DeckGrid | None":
     from .obj8 import parse_obj8
     try:
         return _grid(parse_obj8(path))
+    except (OSError, ValueError):
+        return None
+
+
+def plan_solid(path: str) -> "np.ndarray | None":
+    """The ``(n, 3, 3)`` authored static solid triangles of an OBJ8 file
+    (what :func:`plan_grid` bins) -- THE HOLD's bound is binned finer from
+    them (``terrain_cut.hold_bound``); ``None`` when unreadable."""
+    from .obj8 import parse_obj8
+    try:
+        return _solid(parse_obj8(path))
     except (OSError, ValueError):
         return None
 
@@ -414,6 +435,8 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
                           "lon": round(float(lon), 9), "heading": round(m.heading, 6)}
             if getattr(m, "erode_m", None) is not None:
                 rec["cut"]["erode_m"] = float(m.erode_m)
+            if getattr(m, "cut_floor_m", 0.0) > 0.0:
+                rec["cut"]["floor_m"] = float(m.cut_floor_m)
         out.append(rec)
     return out
 

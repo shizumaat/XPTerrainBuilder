@@ -35,6 +35,7 @@ function (docstrings excluded).
 | O4_Vector_Map.py | _record_coarsened_rings | 1 | degraded | elevation_coarsened | the approach-ring areas left on the base elevation after "Use coarser data" (#1351) |
 | O4_Mesh_Utils.py | hairline_preflight | 1 | diagnostic | | the pre-flight check is skipped |
 | O4_Mesh_Utils.py | build_curv_tol_weight_map | 2 | uncoded | | airport zoom upgrade or inset mesh density not applied |
+| O4_Mesh_Utils.py | _apply_hold_curv_weights | 1 | uncoded | | the hold's mesh density over a held object plan (#2053) not applied |
 | O4_Mesh_Utils.py | _patch_ring_vertex_indices | 2 | uncoded | | free-interior interpolation disabled for the tile |
 | O4_Mesh_Utils.py | patch_segment_split_values | 1 | uncoded | | ring-segment vertices keep the free-interior treatment |
 | O4_Mesh_Utils.py | _levelled_road_lines | 1 | uncoded | | bank blend overrides nothing pre-valued |

@@ -176,3 +176,14 @@ def test_the_floor_rejoins_the_road_where_its_way_runs_on():
     assert abs(out[100.0] - 65.0) < 1e-9 and abs(out[150.0] - 70.0) < 1e-9
     # 30 m of axis past s 500 is no road running on: left as stated
     assert out[500.0] == 70.0 and out[300.0] == 70.0
+
+
+def test_a_bench_wider_than_the_floor_never_sets_the_floor_level():
+    """MEASURED LGAV Trench_06 (lobjgate3): from s 290 m a 71.08 m bench
+    outweighs the 69.71 m floor; the floor level is the LOWEST plate cluster,
+    weighted by plan area (a thin strip's many points weigh little)."""
+    ext = np.array([(0.0, o, 69.71, 1.0) for o in range(-20, 21, 5)]
+                   + [(0.0, o, 71.08, 3.0) for o in range(-60, 61, 5)]
+                   + [(0.0, 40.0, 72.5, 0.01)] * 200)
+    lv = CD._shell_floor(ext, [0.0], 10.0, 1.0)
+    assert abs(lv[0] - 69.71) < 1e-9

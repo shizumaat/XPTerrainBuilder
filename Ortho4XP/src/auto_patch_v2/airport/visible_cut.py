@@ -54,8 +54,8 @@ class VisibleCut:
     ``(n, 4)`` — ``x, y, z`` and the member component's index — of the
     members lying on it (module doc), ``covers`` / ``buried`` how many
     components stood over it / under it, ``bound`` the shell's footprint
-    (the most the cut may reach, 2026-11-06d (1)), ``extent`` ``(m, 3)``
-    points on the shell's own floor plates (module doc) and ``members``
+    (the most the cut may reach, 2026-11-06d (1)), ``extent`` ``(m, 4)``
+    points ``(x, y, z, weight)`` on the shell's own floor plates (module doc) and ``members``
     each member index's ``(placement id, authored zero)``."""
 
     shell_id: str
@@ -64,7 +64,7 @@ class VisibleCut:
     buried: int = 0
     notes: tuple[str, ...] = ()
     bound: object = _dc.field(default=None, repr=False, compare=False)
-    extent: np.ndarray = _dc.field(default_factory=lambda: np.zeros((0, 3)), repr=False,
+    extent: np.ndarray = _dc.field(default_factory=lambda: np.zeros((0, 4)), repr=False,
                                    compare=False)
     members: tuple[tuple[str, float], ...] = ()
 
@@ -115,7 +115,7 @@ def _read_visible_cut(f: ObjectFloor, objects: _t.Mapping[str, _obj8.PlacedObjec
 
 
 def _floor_plates(f: ObjectFloor, deep: float, step: float, law) -> np.ndarray:
-    """``(m, 3)`` points on the hidden shell's own near-horizontal faces
+    """``(m, 4)`` points ``(x, y, z, plan-area weight)`` on the hidden shell's own near-horizontal faces
     standing at or under ``deep`` (its rim less ``object_min_depth_m``):
     where its floor plates lie (:attr:`VisibleCut.extent`)."""
     fc = np.asarray(f.faces, float).reshape(-1, 3, 3)
@@ -128,8 +128,16 @@ def _floor_plates(f: ObjectFloor, deep: float, step: float, law) -> np.ndarray:
     low = fc[:, :, 2].max(axis=1) <= deep
     keep = fc[flat & low]
     if not len(keep):
-        return np.zeros((0, 3))
-    pts = _dense(keep, step)
+        return np.zeros((0, 4))
+    # each point weighs its triangle's plan area over its point count: the
+    # subdivision follows the LONGEST edge, so a thin strip as long as a
+    # floor plate gets as many points
+    out = []
+    for t in keep:
+        pts = _dense(t[None], step)
+        area = 0.5 * abs(float(np.cross(t[1, :2] - t[0, :2], t[2, :2] - t[0, :2])))
+        out.append(np.column_stack([pts, np.full(len(pts), area / max(len(pts), 1))]))
+    pts = np.concatenate(out)
     return pts[pts[:, 2] <= deep]
 
 

@@ -101,15 +101,17 @@ def _cut_members(cuts: _t.Sequence) -> list[tuple[str, float]]:
 
 
 def _cut_extent(cuts: _t.Sequence, axis_ln: LineString, cap: float) -> np.ndarray:
-    """``(m, 3)`` ``(s, off, z)``: the hidden shells' floor-plate points
-    (``VisibleCut.extent``) projected as :func:`_cut_points`."""
+    """``(m, 4)`` ``(s, off, z, weight)``: the hidden shells' floor-plate
+    points (``VisibleCut.extent``; weight 1 where none is given) projected
+    as :func:`_cut_points`."""
     got = [np.asarray(c.extent, float) for c in cuts or ()
            if len(getattr(c, "extent", ()))]
+    got = [g if g.shape[1] >= 4 else np.column_stack([g, np.ones(len(g))]) for g in got]
     if not got:
-        return np.zeros((0, 3))
+        return np.zeros((0, 4))
     p = np.concatenate(got)
     s, off, keep = _project(axis_ln, p[:, :2], cap)
-    return np.column_stack([s[keep], off[keep], p[keep, 2]])
+    return np.column_stack([s[keep], off[keep], p[keep, 2], p[keep, 3]])
 
 
 def _project(axis_ln: LineString, xy: np.ndarray, cap: float):
@@ -144,16 +146,30 @@ def _cut_feet(points: np.ndarray, ss: _t.Sequence[float], step: float) -> list[n
     return out
 
 
-def _shell_floor(extent: np.ndarray, ss: _t.Sequence[float], step: float) -> np.ndarray:
-    """Per station the MEDIAN z of the shell's floor-plate points within
-    half a station (its 60 m floor outweighs a ledge's plate); NaN where
-    none."""
+def _shell_floor(extent: np.ndarray, ss: _t.Sequence[float], step: float,
+                 flat: float = 1.0) -> np.ndarray:
+    """Per station the shell's FLOOR level: the plan-area-weighted median z
+    of its LOWEST plate cluster within half a station -- the points within
+    ``flat`` of the weighted 10th percentile.  A median over every plate
+    (spec §4.2) reads a bench: MEASURED LGAV ``Trench_06`` from s 290 m, a
+    71.08 m plate outweighs the 69.71 m floor (p25 69.71, p50 71.08) and
+    every wall foot on the floor read BURIED.  NaN where none."""
     out = np.full(len(ss), np.nan)
+    w = extent[:, 3] if extent.shape[1] > 3 else np.ones(len(extent))
     for i, s in enumerate(ss):
         m = np.abs(extent[:, 0] - s) <= step / 2.0
         if m.any():
-            out[i] = float(np.median(extent[m, 2]))
+            z, ww = extent[m, 2], w[m]
+            k = z <= _wquantile(z, ww, 0.1) + flat
+            out[i] = _wquantile(z[k], ww[k], 0.5)
     return out
+
+
+def _wquantile(z: np.ndarray, w: np.ndarray, q: float) -> float:
+    """The weighted ``q`` quantile of ``z``."""
+    o = np.argsort(z)
+    c = np.cumsum(w[o])
+    return float(z[o][min(len(z) - 1, int(np.searchsorted(c, q * c[-1])))])
 
 
 def _classify(feet: _t.Sequence[np.ndarray], level: "np.ndarray | None", flat: float
@@ -319,7 +335,7 @@ class VisibleFloor:
             return None
         self.ss, self.step, self.flat = list(ss), step, flat
         self.feet = _cut_feet(self.points, ss, step)
-        lv = _shell_floor(self.extent, ss, step) if len(self.extent) else None
+        lv = _shell_floor(self.extent, ss, step, flat) if len(self.extent) else None
         self.kinds = _classify(self.feet, lv, flat)
         self.raw = _cut_profile(self.feet, ss, self.kinds, flat)
         return self.raw

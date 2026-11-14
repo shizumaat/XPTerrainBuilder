@@ -118,7 +118,7 @@ def _surfaces(frames: _t.Sequence[_FrameMove], lat: float, lon: float
         if x * x + z * z > f.deck.reach ** 2:
             continue
         ys, tri = f.deck.heights(x, z)
-        hits.extend((float(y), f, int(t)) for y, t in zip(ys, tri))
+        hits.extend((float(y), f, int(t)) for y, t in zip(ys, tri, strict=True))
     hits.sort(key=lambda h: h[0])
     return hits
 

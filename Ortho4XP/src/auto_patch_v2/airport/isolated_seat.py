@@ -407,12 +407,14 @@ def _share(plan, ui: int, sp: list, surface, pads, rims, decks,
 def welded(iso: _t.Mapping[int, Share], raws: _t.Iterable[tuple],
            counts: "dict | None" = None) -> frozenset:
     """A1 §3.4 (4): the ids of the shares a today raw WELDS — a raw (its
-    parts first) holding a share's part beside a part that is not that
-    share's.  Each is refused ``welded`` and its seat count taken back."""
+    parts first) holding both isolated and non-isolated parts.  Each is
+    refused ``welded`` and its seat count taken back.  A raw all of whose
+    parts are isolated welds nothing, whatever shares they are of: it is
+    vacated whole (:func:`vacate`)."""
     out: set[str] = set()
     for r in raws:
         ids = {iso[p.pid].id if p.pid in iso else None for p in r[0]}
-        if len(ids) > 1:
+        if None in ids and len(ids) > 1:
             out |= {i for i in ids if i}
     if out and counts is not None:
         _refuse(counts, "welded", len(out))
@@ -427,12 +429,13 @@ def vacate(record: _t.Any, st: _t.Any, u: _t.Any, iso_raws: "dict | None",
     """A1 §3.4 (3): ``(record, vacated?)`` — one member's record, every
     anchor already elected, with its isolated shares swapped in.
 
-    Every today raw of ``st`` all of whose parts are one share's (a key of
-    ``iso_raws``, ``share id -> placement_body.isolated_raws`` raw) is
-    dropped from its body.  A body left with no part raw vanishes and its
-    orphan raws (no parts: §16d (1)'s loose components) go to the share of
-    its senior raw; an orphan-only body CARRIED on a vanished body of this
-    member goes with that body.  A body that keeps a part raw is re-formed
+    Every today raw of ``st`` all of whose parts are isolated (each part a
+    share's: a key of ``iso_raws``, ``share id -> placement_body.
+    isolated_raws`` raw) is dropped from its body.  A body left with no
+    part raw vanishes and its orphan raws (no parts: §16d (1)'s loose
+    components) go to the LEAD share of its senior raw (:func:`_lead`); an
+    orphan-only body CARRIED on a vanished body of this member goes with
+    that body.  A body that keeps a part raw is re-formed
     over what is left — parts, components, feet, boxes — on its FROZEN
     anchor, name and seat.  The share's body is its isolated raw (the parts
     a dropped raw held) and the orphans handed to it, one body per share;
@@ -446,10 +449,8 @@ def vacate(record: _t.Any, st: _t.Any, u: _t.Any, iso_raws: "dict | None",
     raw = st.raw
     share_of_pid = {p.pid: sid for sid, r in iso_raws.items() for p in r[0]}
 
-    def share_of(i: int) -> "str | None":
-        ids = {share_of_pid.get(p.pid) for p in raw[i][0]}
-        return ids.pop() if len(ids) == 1 and None not in ids else None
-    drop = {i: q for i in range(len(raw)) if raw[i][0] and (q := share_of(i))}
+    drop = {i for i in range(len(raw))
+            if raw[i][0] and all(p.pid in share_of_pid for p in raw[i][0])}
     if not drop:
         return record, False
     hand: dict[str, list[int]] = {}
@@ -464,7 +465,7 @@ def vacate(record: _t.Any, st: _t.Any, u: _t.Any, iso_raws: "dict | None",
         if any(raw[i][0] for i in kept):
             rest[b.body_id] = kept
         else:
-            gone[b.body_id] = drop[_pc.senior_of(raw, prt)]
+            gone[b.body_id] = _lead(raw[_pc.senior_of(raw, prt)][0], share_of_pid)
             hand.setdefault(gone[b.body_id], []).extend(kept)
     for b in record.bodies:           # an orphan-only body rides its carrier
         g = grp_of.get(b.body_id, ())
@@ -484,6 +485,16 @@ def vacate(record: _t.Any, st: _t.Any, u: _t.Any, iso_raws: "dict | None",
     counts["isolated_bodies_reformed"] = counts.get("isolated_bodies_reformed", 0) + len(rest)
     counts["isolated_bodies"] = counts.get("isolated_bodies", 0) + len(news)
     return _dc.replace(record, bodies=tuple(bodies) + tuple(news)), True
+
+
+def _lead(parts: _t.Sequence[_t.Any], share_of_pid: _t.Mapping[int, str]) -> str:
+    """The share holding most of ``parts``' feet (ties to the lowest id) —
+    where the orphans of a vanished body go."""
+    n: dict[str, int] = {}
+    for p in parts:
+        q = share_of_pid[p.pid]
+        n[q] = n.get(q, 0) + len(p.feet)
+    return min(n, key=lambda q: (-n[q], q))
 
 
 def _reformed(b: _t.Any, st: _t.Any, u: _t.Any, kept: list[int]) -> _t.Any:

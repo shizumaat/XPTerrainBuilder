@@ -461,6 +461,8 @@ def test_a_raw_welding_a_share_to_another_part_refuses_it():
     assert I.welded({0: s}, [([p0, p1],), ([p1],)], c) == {"iso:0@0"}
     assert c == {"isolated_shares": 0, "isolated_refused_welded": 1}
     assert I.welded({0: s}, [([p0],), ([p1],)], {}) == frozenset()
+    s1 = I.Share("iso:1@0", 0, frozenset({1}), s.anchor)   # two shares, all
+    assert I.welded({0: s, 1: s1}, [([p0, p1],)], {}) == frozenset()  # isolated
 
 
 def test_vacate_with_no_share_is_the_identity():

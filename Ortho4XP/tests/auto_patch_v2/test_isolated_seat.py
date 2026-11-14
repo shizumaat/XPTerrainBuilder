@@ -509,3 +509,56 @@ def test_the_election_is_held_with_the_isolated_present(tmp_path):
     assert set(now) == {(1,), (0,)}
     assert now[(1,)] == base[(0, 1)]                # the remainder: frozen
     assert now[(0,)].isolated == "iso:0@0"          # the share: its own frame
+
+
+# ── #2074 I9: the ground sheet keeps today's seat ────────────────────────
+
+SHEETS = dict(WALLS, sheet_max_aspect=0.05)
+
+
+def _island(pid: int, x: float, h: float = 0.35) -> Part:
+    """A kerbed island 3.6 m x 8.5 m (HECA ``OB-asphalt_3``), ``h`` m of
+    solid, its four feet at its corners."""
+    return _tall(pid, x, 0.0, 3.6, 8.5, h,
+                 [(0.0, 0.0), (3.6, 0.0), (0.0, 8.5), (3.6, 8.5)])
+
+
+@pytest.mark.parametrize("h,sheet", [(0.35, True), (1.5, False)])
+def test_a_thin_island_is_a_ground_sheet_and_keeps_todays_seat(h, sheet):
+    """0.35 m over a 9.2 m diagonal (0.038) is a sheet; a 1.5 m car-like
+    body over the same plan (0.16) is not."""
+    plan = _plan(((_m("isl", _island(0, 0.0, h)),), 0.0))
+    c: dict = {}
+    got = I.shares(plan, _slope(per_m=0.02), counts=c, **SHEETS)
+    assert bool(got) is not sheet
+    assert c.get("isolated_refused_sheet", 0) == int(sheet)
+    assert I.ground_sheet([_island(0, 0.0, h)], 0.05, 0.05, 2.5) is sheet
+
+
+def test_a_thing_standing_on_a_sheet_is_seated_on_the_sheet():
+    """A pump on a fuel-island slab: the slab carries every lowest contact
+    foot, so the share is a sheet (the pump's base stands 0.3 m up)."""
+    slab = _island(0, 0.0, 0.3)
+    pump = _tall(1, 1.0, 3.0, 1.0, 1.0, 1.8, [(0.5, 0.5)], y=0.3)
+    assert I.ground_sheet([slab, pump], 0.05, 0.05, 2.5)
+    c: dict = {}
+    assert I.shares(_plan(((_m("fuel", slab, pump),), 0.0)), _flat(),
+                    counts=c, **SHEETS) == {}
+    assert c["isolated_refused_sheet"] == 1
+
+
+def test_a_post_and_a_tall_share_are_no_sheet():
+    """A 0.14 m bollard 0.7 m tall (EFHK ``Gates_12-31_02``) stands on its
+    foot; a share a storey tall is never thin, whatever stands under it."""
+    post = _tall(0, 0.0, 0.0, 0.14, 0.14, 0.7, [(0.0, 0.0), (0.14, 0.14)])
+    assert not I.ground_sheet([post], 0.05, 0.05, 2.5)
+    skid = _tall(1, 0.0, 0.0, 10.0, 0.2, 0.15, [(0.0, 0.0), (10.0, 0.2)])
+    cabin = _tall(2, 3.0, -1.0, 4.0, 2.0, 2.6, [(2.0, 1.0)], y=0.4)
+    assert not I.ground_sheet([skid, cabin], 0.05, 0.05, 2.5)
+    assert I.ground_sheet([skid, cabin], 0.05, 0.05, 0.0)   # no thin bound
+
+
+def test_the_sheet_key_at_zero_disarms_i9():
+    plan = _plan(((_m("isl", _island(0, 0.0)),), 0.0))
+    assert I.shares(plan, _flat(), counts={}, **dict(SHEETS, sheet_max_aspect=0.0))
+    assert not I.ground_sheet([_island(0, 0.0)], 0.05, 0.0, 2.5)

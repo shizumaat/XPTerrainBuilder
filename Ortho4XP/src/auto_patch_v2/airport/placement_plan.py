@@ -124,6 +124,7 @@ from .placement_body import isolated_raws  # noqa: E402  (§9a A1 §3.4)
 from . import cut_deck_seat as _cds  # noqa: E402
 from . import entrance_seat as _ens  # noqa: E402
 from . import split_guard as _sg  # noqa: E402
+from . import drawn_anchor as _da  # noqa: E402
 from . import terrain_shaped as _tsh  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
     airside_deck as _airside_deck, airside_frame as _airside_frame,
@@ -271,6 +272,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # #1884: ``routable(lat, lon)`` — another DSF of the pack
                  # carries a body standing there (``tile_route``)
                  routable: "_t.Callable[[float, float], bool] | None" = None,
+                 # #2075: the ``sim/exclude_obj`` boxes of the packs drawn
+                 # above this one (``exclusion.boxes_above``); a body is
+                 # drawn exactly when its placement is (``drawn_anchor``)
+                 exclusions: _t.Sequence = (),
                  # #1908: ``free_column.law_of([placement])``; ``None`` disarms
                  free_column: "_fcol._ColumnLaw | None" = None,
                  # §9a (#2063 round 3, RULINGS 2026-11-13y (5)): an ISOLATED
@@ -284,7 +289,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # §9a A1: ``[placement] isolated_base_min_fraction`` — with
                  # ``chain_min_height_m`` the WALLED-BASE witness (I7/I8);
                  # 0 disarms both
-                 isolated_base_min_fraction: float = 0.0
+                 isolated_base_min_fraction: float = 0.0,
+                 # §9a I9 (#2074): ``[placement] isolated_sheet_max_aspect``
+                 # — a ground sheet keeps today's seat; 0 disarms
+                 isolated_sheet_max_aspect: float = 0.0
                  ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -376,6 +384,28 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
     # #1883 r3 B1: a pack cut's frame at the zero its floor was read at
     _floor_zero = _tsh.frame_zeros(getattr(plan, "authored_seats", ()) or ())
+    _fseats: list = []
+
+    def _frame_seats() -> list:
+        """#1883: every frame deck piece seated over the pack's cut, read once
+        (``cut_deck_seat.cut_seats``): what the frame's riders stand on."""
+        if not _fseats:
+            _fseats.append([sb for uu in plan.units for x in uu.members
+                            if getattr(x, "id", "") in _floor_zero
+                            for sb in _cds.cut_seats(
+                                x, getattr(x, "origin", None) or tuple(uu.anchor), surface,
+                                _cuts, abutment_step_m, deck_on_fraction)])
+        return _fseats[0]
+
+    def _rides_frame_decks(r, mm, seats):
+        """#1883: each body of a frame rider standing on a seated deck piece
+        takes that piece's zero (``cut_deck_seat.seat_under``)."""
+        for zero in sorted({z for b in r.bodies
+                            if (z := _cds.seat_under(b, seats, deck_on_fraction)) is not None}):
+            r = _at_zero(r, mm, zero,
+                         lambda b, _q=zero: _cds.seat_under(b, seats, deck_on_fraction) == _q,
+                         f"on its frame's deck seated over the pack's cut at {zero:.2f} (#1883)")
+        return r
     # ...whose deck pieces stand OVER the cut: never draped onto it as a base
     # slab (LGAV Trench_00's road decks were draped 12 m down to the floor)
     drape = {k: v for k, v in (drape or {}).items() if k not in _floor_zero}
@@ -389,6 +419,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # #1903: a body off the DSF's tile keeps its seat (``split_guard``)
         return _sg.on_tile(r, tile_box, lambda b: _ens.face_zero(b, mm, _entr),
                            routable)
+
+    def _drawn(r):
+        # #2075: no body anchored where X-Plane drops it (``drawn_anchor``)
+        return _da.drawn_as_placed(r, exclusions, surface, tile_box, counts)
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,
@@ -455,7 +489,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                             split_tol_m=split_tol_m, step_m=motion_step_m,
                             foreign=isolated_foreign, counts=counts,
                             wall_min_h_m=chain_min_height_m,
-                            base_min_fraction=isolated_base_min_fraction)
+                            base_min_fraction=isolated_base_min_fraction,
+                            sheet_max_aspect=isolated_sheet_max_aspect)
     _pulse.tick("placement: plan-wide seats")
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,
@@ -1164,6 +1199,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             if fz is not None:
                 r = _at_zero(r, mm, fz, _unseated,
                              f"the pack cut's frame zero {fz:.2f} (#1883 r3 B1)")
+                if _cuts and str(getattr(mm, "deck_kind", "") or "") != "flag":
+                    r = _rides_frame_decks(r, mm, _frame_seats())
             if (_air is not None and fz is None) or not _cuts:
                 return r
             return _cds.seat_cut_decks(r, mm, getattr(mm, "origin", None) or tuple(_u.anchor),
@@ -1296,6 +1333,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _on_tile(record, m)
                 record, _v = _vacated(record, st,
                                       {body.body_id: range(len(st.raw))})
+                record = _drawn(record)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=None if _v else landed,
                               always_write=True, tilted_whole=tilted_whole,
@@ -1391,6 +1429,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                           m, _clift)
                 record = _on_tile(record, m)
                 record, _v = _vacated(record, st, _grp_of, _carrier_of)
+                record = _drawn(record)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=None if _v else landed,
                               always_write=True, tilted_whole=tilted_whole,
@@ -1443,6 +1482,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _on_tile(record, m)
                 # §9a A1 §3.4: an isolated share is WRITTEN at its own anchor
                 record, _v = _vacated(record, st, _grp_of, _carrier_of)
+                record = _drawn(record)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=None if _v else landed,
                               always_write=off_row or _v, tilted_whole=tilted_whole,

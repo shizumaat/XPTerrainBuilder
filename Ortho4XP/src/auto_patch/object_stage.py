@@ -681,7 +681,10 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                 law.tables.structures.placement.group_span_max_m),
             isolated_foreign=tuple(foreign),
             isolated_base_min_fraction=float(
-                law.tables.structures.placement.isolated_base_min_fraction))
+                law.tables.structures.placement.isolated_base_min_fraction),
+            # §9a I9 (#2074): a ground sheet keeps today's seat
+            isolated_sheet_max_aspect=float(
+                law.tables.structures.placement.isolated_sheet_max_aspect))
     _pulse.clear()
     c = dict(plan.counts())
     # §6's CLASSES ride out with the counts (lane v2planfix): they are the

@@ -32,8 +32,8 @@ Exclusion = _t.Tuple[str, _t.Tuple[float, float, float, float]]
 def boxes_above(pack_root: str, lat: int, lon: int) -> list[Exclusion]:
     """The ``sim/exclude_obj`` boxes of every enabled pack X-Plane draws
     above ``pack_root`` with a DSF for tile ``(lat, lon)``, highest
-    priority first.  ``[]`` when the pack is not under a scenery folder or
-    nothing above it excludes objects."""
+    priority first.  ``[]`` when the pack is not under a scenery folder,
+    is not one X-Plane loads, or nothing above it excludes objects."""
     import O4_DSF_Header as _DSFH
     import O4_Overlay_Pack as _OP
     import O4_Scenery_Packs as _SP
@@ -44,8 +44,13 @@ def boxes_above(pack_root: str, lat: int, lon: int) -> list[Exclusion]:
     if not os.path.isdir(scenery):
         return []
     me = os.path.basename(os.path.normpath(pack_root))
+    order = _SP.load_order(scenery)
+    if me not in order:
+        # a pack X-Plane does not load (disabled, or a lane's pack COPY
+        # beside no scenery_packs.ini row): no pack is "above" it (#2075)
+        return []
     out: list[Exclusion] = []
-    for name in _SP.load_order(scenery):
+    for name in order:
         if name == me:
             break
         dsf = dsf_path_in_pack(os.path.join(scenery, name), lat, lon)

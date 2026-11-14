@@ -144,6 +144,10 @@ class ObjectFloor:
     hidden: bool = False
     #: B2: the hard-deck pieces of its frame the pavement drives across
     decks: tuple = ()
+    #: #1883: the placements of its frame standing on one of those pieces
+    #: (``planar/floor_decks``): planned like a deck, each part riding the
+    #: piece it stands on (``cut_deck_seat.seat_under``)
+    riders: tuple[str, ...] = ()
     #: #1949: the metres its whole frame was moved so a walled pit's rim
     #: lands on the ground around it (``airport/walled_pit``); 0 = authored
     lift: float = 0.0
@@ -677,6 +681,9 @@ def seat_records(floors: _t.Iterable[ObjectFloor], to_ll=None) -> list[dict[str,
     # hidden shell's row is dropped, a deck of any frame is planned
     hidden = {f.object_id for f in floors if f.hidden}
     decks = {d.object_id: (d.resource, f.zero_z) for f in floors for d in f.decks}
+    # #1883: a rider of a deck piece is planned with it (FRAME_SEAT)
+    decks.update({pid: (res, f.zero_z) for f in floors for pid, res, _z in f.seats
+                  if pid in f.riders and pid not in hidden})
     rings = {}
     for f in floors:
         if to_ll is not None and f.decks and has_footprint(f):

@@ -1714,7 +1714,9 @@ def _main() -> int:
                          connector_span_m=_law.tables.structures.placement
                          .connector_span_m,
                          # §9a (#2063 round 3): the isolated seat
-                         **_isolated_kwargs(_law, a.foreign))
+                         **_isolated_kwargs(_law, a.foreign),
+                         # #2075: the boxes of the packs drawn above this one
+                         **_exclusion_kwargs(plan))
     # THE PLAN STAGE, timed where the shipped engine's own call is: this
     # is the number the round budgets quote, and it must not include the
     # graded parse, the Delaunay or the census the tool wraps it in.
@@ -1723,6 +1725,10 @@ def _main() -> int:
     c = ss.counts
     for line in isolated_lines(c):
         print(line)
+    print(f"  #2075 exclude boxes above the pack: re-anchored where drawn "
+          f"{c.get('exclusion_reanchored', 0)}, excluded with their placement "
+          f"{c.get('exclusion_with_placement', 0)}, left (old height unknown) "
+          f"{c.get('exclusion_unmoved', 0)}")
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")
     print(f"  bodies {c['bodies']} (uncoarsened {c.get('bodies_uncoarsened')}; "
@@ -2068,7 +2074,29 @@ def _isolated_kwargs(law, foreign: "list[str] | None") -> dict:
             "isolated_foreign": tuple(out),
             # A1: the WALLED-BASE witness (I7/I8) beside chain_min_height_m
             "isolated_base_min_fraction": float(
-                law.tables.structures.placement.isolated_base_min_fraction)}
+                law.tables.structures.placement.isolated_base_min_fraction),
+            # #2074 I9: a ground sheet keeps today's seat
+            "isolated_sheet_max_aspect": float(
+                law.tables.structures.placement.isolated_sheet_max_aspect)}
+
+
+def _exclusion_kwargs(plan) -> dict:
+    """#2075: ``build_splits``' ``exclusions`` as the app passes them
+    (``placement_write._exclusions``), read on the plan's origin tile or
+    the tile of its first unit's anchor; ``{}`` before the key existed."""
+    import inspect
+    import math
+
+    from auto_patch_v2.airport import placement_write as _pw
+    if "exclusions" not in inspect.signature(PP.build_splits).parameters:
+        return {}
+    tile = getattr(plan, "origin_tile", None)
+    if tile is None and getattr(plan, "units", ()):
+        la, lo = plan.units[0].anchor[:2]
+        tile = (math.floor(la), math.floor(lo))
+    boxes = _pw._exclusions(plan, tile, "") if tile is not None else []
+    print(f"  exclude boxes of the packs above this one: {len(boxes)}")
+    return {"exclusions": boxes}
 
 
 def isolated_lines(counts: dict) -> list[str]:

@@ -305,6 +305,19 @@ def _stamp_cut_rings(seats: dict, pm, airport) -> None:
                     seats[oid][CUT_FRAME_Z] = round(float(tn.cut_frame[1]), 3)
 
 
+def _keep_cut_rings(model_seats: list, floor_seats: _t.Sequence) -> list:
+    """#1883: a model seat that takes a floor's row (a hidden cut shell,
+    2026-11-13i) keeps the cut ring that floor's record carried
+    (``cut_deck_seat.CUT_RING``): the ring is the witness the object stage
+    seats the frame's deck pieces over the cut by, and losing it with the
+    record left LGAV's NE taxiway deck at the frame zero, 3 m under the
+    taxiway the patch ran onto it."""
+    from ..airport.cut_deck_seat import CUT_RING
+    rings = {str(r["id"]): r[CUT_RING] for r in floor_seats or () if r.get(CUT_RING)}
+    return [({**m, CUT_RING: rings[str(m["id"])]}
+             if str(m["id"]) in rings and not m.get(CUT_RING) else m) for m in model_seats]
+
+
 def _solid_cache(law):
     """A resource cache reading a frame's solids (the split-level reader's)."""
     from ..airport import frame_entry as _fe
@@ -371,6 +384,7 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     excluded |= shelled
     model_seats = [r for r in model_seats if str(r["id"]) not in shelled] + storey_seats
     modelled = {str(m["id"]) for m in model_seats}
+    model_seats = _keep_cut_rings(model_seats, floor_seats)
     floor_seats = [r for r in floor_seats if str(r["id"]) not in modelled]
     from ..airport.adapted_riders import seat_records as _adapted_seats
     adapted = (_adapted_seats(objects, excluded - _authored_seats.kept_ids(seats)

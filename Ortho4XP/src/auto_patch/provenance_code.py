@@ -411,6 +411,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.dem_shared",
     "auto_patch_v2.airport.dem_witness",
     "auto_patch_v2.airport.door_wells",
+    "auto_patch_v2.airport.drawn_anchor",
     "auto_patch_v2.airport.dsf",
     "auto_patch_v2.airport.dsf_commands",
     "auto_patch_v2.airport.dsf_dump",

@@ -232,6 +232,7 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           drape=drape, drape_law=drape_law,
                           tile_box=_sg.box_of_tile(tile, dsf_path),
                           routable=_route.routable(pack_root, tile),
+                          exclusions=_exclusions(rebake_plan, tile, dsf_path),
                           free_column=free_column,
                           motion_step_m=motion_step_m,
                           isolated_span_max_m=isolated_span_max_m,
@@ -261,6 +262,20 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         jetway_strips=tuple(dict(j) for j in (jetway_strips or ())),
         facade_seats=fseats)
     return plan, files, ss
+
+
+def _exclusions(rebake_plan: _t.Any, tile: "tuple[int, int] | None",
+                dsf_path: str) -> list:
+    """#2075: the ``sim/exclude_obj`` boxes of every pack X-Plane draws
+    above the plan's AUTHORED pack on this DSF's tile
+    (``exclusion.boxes_above``; a pack copy is read as the pack it
+    copies).  ``[]`` when the tile or the pack cannot be named."""
+    from .exclusion import boxes_above
+    box = _sg.box_of_tile(tile, dsf_path)
+    root = str(getattr(rebake_plan, "pack_root", "") or "")
+    if box is None or not root:
+        return []
+    return boxes_above(root, int(box[1]), int(box[0]))
 
 
 def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence,

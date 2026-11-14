@@ -492,7 +492,14 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         return {}
     dump = _dsf2.read_dump(dump_path)
 
-    _surface = _placement_surface(mesh_sample)
+    # #1884: past this tile's edge the split reads the airport's own DEM
+    # (``tile_route``: the bodies there are written in that tile's DSF)
+    from auto_patch_v2.airport import tile_route as _route
+    _here = (tile.lat, tile.lon)
+    _surface = _placement_surface(_route.with_neighbour_ground(
+        mesh_sample, _here, _route.airport_ground(
+            plan_.icao, _here, FNAMES.Elevation_dir,
+            float(getattr(tile, "airport_elevation_inset_feather_m", 60.0) or 60.0))))
 
     # §6's CLASS RULE reads the emitted surface (lane v2planfix): without
     # the pads and rims ``classify_body`` can never answer ``building`` or
@@ -686,9 +693,23 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                                                     _BS_SUPERSEDED,
                                                     UNRECOGNISED_INFIX as
                                                     _BS_UNRECOGNISED)
+    # #1884: a body standing on a neighbour tile is written in that tile's
+    # DSF of the pack (``tile_route``), BEFORE this one's
+    _tool = _DSFR._dsftool_path() or "DSFTool"
+    _guard = _copy.write_guard(target_root)
+
+    def _write_guest(gp, gfiles):
+        return _pw.apply_plan(
+            gp, gfiles, _tool, allow_live_install=_guard,
+            refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
+            engine_version=_engine_version(), law_digest=digest,
+            omit=_route.recorded_omit(gp.dsf_path, target_root))
+    plan, files, guest_files = _route.write_guests(
+        plan, files, (tile.lat, tile.lon), _write_guest,
+        say=lambda t, _i=plan_.icao: UI.vprint(1, f"  [v2 placement] {_i}: {t}"))
     try:
         res = _pw.apply_plan(
-            plan, files, _DSFR._dsftool_path() or "DSFTool", patch_dir=patch_dir,
+            plan, files, _tool, patch_dir=patch_dir,
             allow_live_install=_copy.write_guard(target_root),
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
@@ -745,6 +766,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     out.update({k: v for k, v in dict(plan.provenance.counts).items()
                 if k.startswith("graded_facade")})
     out["packs_written"] = 1
+    if guest_files:
+        # #1884: a guest body this tile's own write may have just removed
+        # as its previous body (``tile_route.write_guests``)
+        _pw.write_files(target_root, guest_files, allow_live_install=_guard)
+        out["guest_bodies_written"] = len(guest_files)
     if siblings:
         out["sibling_packs_written"] = _sib.write(
             siblings, patch_dir, _DSFR._dsftool_path() or "DSFTool",

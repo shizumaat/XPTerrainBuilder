@@ -29,6 +29,7 @@ from . import bridge_family as _bf
 from . import footprint_unit as _fu
 from . import obj8_split as _split
 from . import placement_carrier as _pc
+from . import terrain_base as _tb
 from .placement_cut import GEOM_PTS_MAX, _Raw, pristine_path, thin_points
 from .placement_record import Body, Kept, Split
 
@@ -265,12 +266,17 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                      part_boxes: _t.Sequence[_t.Sequence[tuple]] = (),
                      bridge: _t.Sequence[str] = (),
                      geom_boxes: _t.Sequence = (),
-                     column: "tuple | None" = None) -> Body:
+                     column: "tuple | None" = None,
+                     terrain: _tb.TerrainLaw | None = None) -> Body:
     """§16 (3): the body written at the GROUND UNDER ITS OWN FOOTPRINT.
 
     ``column`` (#1908, ``free_column.free_columns``): a FREE-STANDING
     COLUMN's seat ``(lat, lon, y_zero, surface_z, reason)`` — anchored at
     the column with its foot on the ground, not its authored y kept.
+
+    ``terrain`` (#1884 round 2 (A), ``terrain_base.seat``): a WALLED body
+    authored on its author's terrain — its walls' base plane on the
+    ground at its low side, where the witness holds.
 
     §14 (1) left a footless placement whose unit held no footed body on
     its authored row (``footless_no_carrier``), and §15's search silently
@@ -284,9 +290,17 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
     cls = raw[max(grp, key=lambda i: len(raw[i][0]))][1]
     box = (_pc.hull_of(b for i in grp for b in part_boxes[i]) if part_boxes
            else _pc.box_of((), parts))
+    tseat = (_tb.seat(parts, m, u.anchor, getattr(u, "agl_m", 0.0), terrain, counts)
+             if column is None and terrain is not None else None)
     if column is not None:
         clat, clon, y0, z, why = column
         counts["free_columns"] = counts.get("free_columns", 0) + 1
+    elif tseat is not None:
+        clat, clon, y0, z, margin = tseat
+        why = (f"{OWN_GROUND}: {_tb.TERRAIN_CARRIED}: frame zero + b stands "
+               f"{abs(margin):.2f} m {'over' if margin > 0 else 'under'} this ground "
+               f"(#1884, RULINGS 2026-11-13y (2)), base y {y0:+.2f} on the ground "
+               f"at its low side")
     else:
         clat, clon = 0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])
         z = _pc.ground_under(surface, _pc.foot_boxes(

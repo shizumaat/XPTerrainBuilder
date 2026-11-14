@@ -137,6 +137,7 @@ from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS,
                                PROVENANCE_FILENAME, TOL_DEG, PlacementPlan)
 from . import authored_landing as _al
 from . import backup_state as _bs
+from . import dsf as _dsf
 from . import dsf_commands as _cmds
 from . import dsf_dump_key as _dk
 from . import dsf_heights as _dh
@@ -358,6 +359,22 @@ def _body_row(toks: _t.Sequence[str], b: _t.Any, def_index: int) -> str:
     return " ".join((KIND_AGL,) + head[1:] + (toks[4], hdg))
 
 
+def _guest_row(b: _t.Any, def_index: int) -> str:
+    """One GUEST body's row (#1884): its placement is a row of another
+    tile's DSF, so there is no authored row to copy a token from.
+    On-ground, unless the plan seats it by its row (``msl_z``) or keeps the
+    author's lift (``lift_m``), written as the number itself."""
+    head = (str(def_index), _num(b.anchor.lon, 9), _num(b.anchor.lat, 9))
+    hdg = _num(b.anchor.heading_deg, 6)
+    msl = getattr(b, "msl_z", None)
+    if msl is not None:
+        return " ".join((KIND_MSL,) + head + (_num(float(msl), 4), hdg))
+    lift = float(getattr(b, "lift_m", 0.0) or 0.0)
+    if lift:
+        return " ".join((KIND_AGL,) + head + (_num(lift, 4), hdg))
+    return " ".join((KIND_ON_GROUND,) + head + (hdg,))
+
+
 def _mark_row_at(lines: _t.Sequence[str]) -> int:
     """Where the ownership mark goes: AFTER the last ``PROPERTY`` row.
     ``-1`` when the dump has no property atom at all (then no mark is
@@ -435,8 +452,9 @@ def edit_dump(text: str, plan: PlacementPlan,
                 and not same_resource(res, s.placement.resource, pack_root)):
             raise ValueError(f"placement {idx}: dump resource {res!r}, plan says "
                              f"{s.placement.resource!r}")
-        if not s.bodies:
-            raise ValueError(f"placement {idx}: split with no body")
+        # #1884: a split with NO body is a placement every body of which
+        # stands on another tile (``airport/tile_route``): its row goes,
+        # and the object is drawn by its guest rows in that tile's DSF
 
     # §15 (4): a split replaces EVERY row of its placement, not one of
     # them.  The first row of a duplicate group takes the body rows (the
@@ -482,6 +500,11 @@ def edit_dump(text: str, plan: PlacementPlan,
 
     poly_rows, poly_defs, poly_at = _facade_rows(lines, plan)
     edits.update(poly_rows)
+    # #1884: the GUEST bodies (another tile's placements standing on this
+    # one) are new rows, after the last placement row of the dump
+    guest_rows = [_guest_row(b, new_index[b.new_resource]) + eol
+                  for g in getattr(plan, "guests", ()) for b in g.bodies]
+    guest_at = rows[-1][1] + 1 if rows else append_at
 
     mark_at = _mark_row_at(lines)
     mark = (f"PROPERTY {_bs.OWNERSHIP_PROPERTY} "
@@ -494,6 +517,8 @@ def edit_dump(text: str, plan: PlacementPlan,
             out.extend(f"OBJECT_DEF {r}{eol}" for r in new_res)
         if i == poly_at:
             out.extend(poly_defs)
+        if i == guest_at:
+            out.extend(guest_rows)
         out.extend(edits.get(i, (raw,)))
     if mark_at >= len(lines):
         out.append(mark)
@@ -501,7 +526,10 @@ def edit_dump(text: str, plan: PlacementPlan,
         out.extend(f"OBJECT_DEF {r}{eol}" for r in new_res)
     if poly_at >= len(lines):
         out.extend(poly_defs)
+    if guest_at >= len(lines):
+        out.extend(guest_rows)
     return "".join(out)
+
 
 
 # ── DSFTool ─────────────────────────────────────────────────────────────
@@ -1136,7 +1164,8 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
     plans: list[PlacementPlan] = []
     keep: dict[str, dict] = {}
     for icao in sorted(airports):
-        if icao == plan.icao or icao in drop:
+        # #1884: a guest key (``LOWS@+47+012``) goes with its airport
+        if icao == plan.icao or icao in drop or _dsf.owner_of(icao) in drop:
             continue
         row = airports.get(icao)
         if not isinstance(row, dict) or not _dk.row_is_current(

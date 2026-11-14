@@ -532,6 +532,11 @@ class PlacementPlan:
     jetway_strips: tuple[_t.Mapping[str, _t.Any], ...] = ()
     #: #2042: graded facade polygons pointed at a lowered copy of their file
     facade_seats: tuple[FacadeSeat, ...] = ()
+    #: #1884: GUEST BODIES — splits of a placement written in ANOTHER
+    #: tile's DSF whose bodies stand on THIS DSF's tile
+    #: (``airport/tile_route``).  The placement is no row of this dump:
+    #: its bodies are APPENDED as new rows, and it claims no ordinal.
+    guests: tuple[Split, ...] = ()
 
     # ── views the writers use ───────────────────────────────────────────
     def conversion_indices(self) -> frozenset[int]:
@@ -546,7 +551,7 @@ class PlacementPlan:
         resource only by construction error, but the def list must not
         gain it twice)."""
         seen: dict[str, None] = {}
-        for s in self.splits:
+        for s in self.splits + self.guests:
             for b in s.bodies:
                 seen.setdefault(b.new_resource, None)
         return tuple(seen)
@@ -569,7 +574,9 @@ class PlacementPlan:
                 "kept": len(self.kept),
                 # §16g (5): placements seated by their DSF row
                 "msl_seats": len(self.msl_seats),
-                "facade_seats": len(self.facade_seats)}
+                "facade_seats": len(self.facade_seats),
+                # #1884: bodies of another tile's placements written here
+                "guest_bodies": sum(len(s.bodies) for s in self.guests)}
 
     # ── the shared DSF (#25) ────────────────────────────────────────────
     def claimed_indices(self) -> frozenset[int]:
@@ -590,19 +597,10 @@ class PlacementPlan:
                 "conversions": [c.to_dict() for c in self.conversions],
                 "msl_seats": [m.to_dict() for m in self.msl_seats],
                 "facade_seats": [f.to_dict() for f in self.facade_seats],
-                "splits": [{"placement": s.placement.to_dict(),
-                            "bodies": [{"body_id": b.body_id,
-                                        "class": b.body_class,
-                                        "new_resource": b.new_resource,
-                                        "anchor": b.anchor.to_dict(),
-                                        # 14g (1): the row's kept lift
-                                        **({"lift_m": b.lift_m}
-                                           if b.lift_m else {}),
-                                        # #1903: the row's MSL seat
-                                        **({"msl_z": b.msl_z}
-                                           if b.msl_z is not None else {})}
-                                       for b in s.bodies]}
-                           for s in self.splits]}
+                "splits": [_edit_split(s) for s in self.splits],
+                # #1884: appended rows, re-applied with the sibling's edits
+                **({"guests": [_edit_split(s) for s in self.guests]}
+                   if self.guests else {})}
 
     def compose(self, others: _t.Iterable["PlacementPlan"]) -> "PlacementPlan":
         """THIS plan plus every sibling's edits for the SAME DSF (#25:
@@ -638,8 +636,11 @@ class PlacementPlan:
                 if f.index not in polys:
                     fac.append(f)
                     polys.add(f.index)
+        # #1884: guest bodies claim no ordinal — every plan's are written
+        guests = self.guests + tuple(g for o in others for g in o.guests)
         return _dc.replace(self, conversions=tuple(conv), msl_seats=tuple(msl),
-                           splits=tuple(spl), facade_seats=tuple(fac))
+                           splits=tuple(spl), facade_seats=tuple(fac),
+                           guests=guests)
 
     # ── JSON ────────────────────────────────────────────────────────────
     def to_dict(self) -> dict[str, _t.Any]:
@@ -654,7 +655,9 @@ class PlacementPlan:
                 "msl_seats": [m.to_dict() for m in self.msl_seats],
                 "facade_seats": [f.to_dict() for f in self.facade_seats],
                 "riders": [r.to_dict() for r in self.riders],
-                "jetway_strips": [dict(j) for j in self.jetway_strips]}
+                "jetway_strips": [dict(j) for j in self.jetway_strips],
+                **({"guests": [s.to_dict() for s in self.guests]}
+                   if self.guests else {})}
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
@@ -678,11 +681,27 @@ class PlacementPlan:
                    facade_seats=tuple(FacadeSeat.from_dict(f)
                                       for f in d.get("facade_seats", ())),
                    riders=tuple(Rider.from_dict(r) for r in d.get("riders", ())),
-                   jetway_strips=tuple(dict(j) for j in d.get("jetway_strips", ())))
+                   jetway_strips=tuple(dict(j) for j in d.get("jetway_strips", ())),
+                   guests=tuple(Split.from_dict(s) for s in d.get("guests", ())))
 
     @classmethod
     def from_json(cls, text: str) -> "PlacementPlan":
         return cls.from_dict(json.loads(text))
+
+
+def _edit_split(s: Split) -> dict[str, _t.Any]:
+    """One split as :meth:`PlacementPlan.edit_rows` keeps it: the placement
+    and each body's ``new_resource``, anchor and row seat."""
+    return {"placement": s.placement.to_dict(),
+            "bodies": [{"body_id": b.body_id,
+                        "class": b.body_class,
+                        "new_resource": b.new_resource,
+                        "anchor": b.anchor.to_dict(),
+                        # 14g (1): the row's kept lift
+                        **({"lift_m": b.lift_m} if b.lift_m else {}),
+                        # #1903: the row's MSL seat
+                        **({"msl_z": b.msl_z} if b.msl_z is not None else {})}
+                       for b in s.bodies]}
 
 
 #: THE DSF COORDINATE QUANTUM (``airport/dsf_write``'s own measurement,

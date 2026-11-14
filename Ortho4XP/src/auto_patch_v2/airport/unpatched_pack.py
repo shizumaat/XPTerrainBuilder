@@ -39,6 +39,7 @@ import shutil
 
 from ..model.placement import BACKUP_SUFFIX, PlacementPlan, Provenance
 from . import backup_state as _bs
+from . import dsf as _dsf
 from . import dsf_write as _dw
 from . import pack_art as _pa
 from . import pack_forests as _pf
@@ -82,7 +83,9 @@ def seated_airports(dsf_path: str) -> tuple[str, ...]:
     base = os.path.basename(dsf_path)
     airports = _bs.dsf_entry(record, base).get("airports")
     if isinstance(airports, dict):
-        return tuple(sorted(str(icao) for icao in airports))
+        # #1884: a neighbour tile's guest rows (``LOWS@+47+012``) are
+        # that airport's seating too
+        return tuple(sorted({_dsf.owner_of(str(icao)) for icao in airports}))
     if record.get("dsf") == base and record.get("icao"):
         return (str(record["icao"]),)
     return ()

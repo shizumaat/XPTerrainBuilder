@@ -89,6 +89,7 @@ from .placement_read import (PAD_FACE_ROLE, RIM_BREAKLINE_KIND,  # noqa: F401
                              read_plan)
 from . import placement_deck as _deck                            # §49
 from . import free_column as _fcol                               # #1908
+from . import terrain_base as _tb                                # #1884 r2
 
 __all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "plan_units_with", "build_splits", "coarsen",
            "is_elevated",
@@ -228,6 +229,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # anchored off it keeps its seat by its row
                  # (``split_guard.on_tile``).  ``None`` disarms
                  tile_box: "tuple[float, float, float, float] | None" = None,
+                 # #1884: ``routable(lat, lon)`` — another DSF of the pack
+                 # carries a body standing there (``tile_route``)
+                 routable: "_t.Callable[[float, float], bool] | None" = None,
                  # #1908: ``free_column.law_of([placement])``; ``None`` disarms
                  free_column: "_fcol._ColumnLaw | None" = None
                  ) -> SplitSet:
@@ -332,7 +336,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
     def _on_tile(r, mm):
         # #1903: a body off the DSF's tile keeps its seat (``split_guard``)
-        return _sg.on_tile(r, tile_box, lambda b: _ens.face_zero(b, mm, _entr))
+        return _sg.on_tile(r, tile_box, lambda b: _ens.face_zero(b, mm, _entr),
+                           routable)
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,
@@ -436,6 +441,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _pix: list = []
     #: ``(unit, member, raw index) -> seat`` of each free-standing column
     _cols: dict[tuple[int, int, int], tuple] = {}
+    # #1884 r2 (A): a body nothing carries, walled on its author's terrain
+    _terrain = _tb.law_of(surface, plan, chain_min_height_m, elevated_base_m,
+                          split_tol_m)
 
     def _unit_ix() -> dict:
         if not _uix:
@@ -1146,7 +1154,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 body = _own_ground_file(st.raw, list(range(len(st.raw))), m, u,
                                         surface, 0, counts, by_class,
                                         st.part_boxes, st.bridge,
-                                        st.geom_boxes)
+                                        st.geom_boxes, terrain=_terrain)
                 body = _deck.deck_seat(body, u, m, decks,                # §49
                                        on_fraction=deck_on_fraction, edge_m=deck_edge_m,
                     surface=surface, under_m=deck_under_m,
@@ -1211,7 +1219,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                      st.part_boxes, st.bridge,
                                      st.geom_boxes,
                                      column=(_cols.get((ui, st.mi, grp[0]))
-                                             if len(grp) == 1 else None)),
+                                             if len(grp) == 1 else None),
+                                     terrain=_terrain),
                     u, m, decks, on_fraction=deck_on_fraction, edge_m=deck_edge_m,
                     surface=surface, under_m=deck_under_m, counts=counts))
             # issue #31: the unit-carried pieces, BEFORE the §15 carries

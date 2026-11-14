@@ -41,7 +41,7 @@ from ..airport.object_floor import (
     read_object_floors,
 )
 from ..airport.visible_cut import visible_cuts
-from ..geom.parts import polygon_parts_with_area
+from ..geom.parts import densified_parts, polygon_parts_with_area
 from ..geom.plane_groups import plane_groups
 from .floor_decks import floor_decks
 
@@ -123,7 +123,7 @@ def _floor_faces(fl: ObjectFloor, foot, parts, law) -> list:
     step = float(ob.wall_sample_m)
     if len(plane_groups(fl.faces, float(ob.crease_deg), float(ob.hollow_m))) > 1:
         parts = _planes(fl, foot, law)
-    return [shapely.segmentize(q, step) for q in parts]
+    return [d for q in parts for d in densified_parts(q, step)]
 
 
 def _planes(fl: ObjectFloor, foot, law) -> list:

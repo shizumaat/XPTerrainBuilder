@@ -337,6 +337,13 @@ class Placement:
     #: read <= 0.43, the lowest walled thing 0.52.  0 disarms both.
     isolated_base_min_fraction: float = 0.45
 
+    #: §9a I9 (#2074): THE GROUND SHEET an isolated object may not be — a
+    #: share under ``chain_min_height_m`` whose lowest contact feet all
+    #: belong to parts at most this tall over their own plan diagonal keeps
+    #: today's seat (a kerbed island, a curb, an arrestor bed).  Sheets read
+    #: <= 0.047, the lowest object 0.060.  0 disarms.
+    isolated_sheet_max_aspect: float = 0.05
+
     #: THE FLAT PLANE AT THE BASE OF OBJECTS (owner RULINGS 2026-10-10o
     #: (B); issue #229; ``geom/base_slab``): the base-slab witness —
     #: maximum solid height, maximum |lowest authored y|, minimum open

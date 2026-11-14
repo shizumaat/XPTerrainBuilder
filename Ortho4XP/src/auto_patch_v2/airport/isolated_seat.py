@@ -40,6 +40,14 @@ here only when ALL hold, and each refusal is counted by reason:
   the lowest wall refused 0.52);
 * I4 ``no_feet`` / ``off_author_ground``: the share has feet and its
   lowest authored ``y`` is within ``split_tol_m`` of ``-Unit.agl_m``;
+* I9 ``sheet`` (#2074): the share is no GROUND SHEET (:func:`ground_sheet`)
+  — a THIN share (under ``[placement] chain_min_height_m``) every one of
+  whose lowest contact feet belongs to a part at most ``[placement]
+  isolated_sheet_max_aspect`` as tall as its own plan diagonal (a kerbed
+  island, a curb, an arrestor bed, a snow bank, a fuel-island slab).  A
+  sheet lies ON the ground: the seat's lift over its median would float
+  it, so it keeps today's seat (HECA ``OB-asphalt_3``: islands 0.35 m
+  over 9.3 m, 0.038; the nearest object the corpus admits 0.060);
 * I5 ``no_surface`` / ``water`` / ``pad`` / ``deck`` / ``rim``: every
   lowest contact foot reads the design surface, on land, off every object
   pad (``pad_majority``), deck face and rim ring;
@@ -81,12 +89,13 @@ from . import anchor_rule as _ar
 from . import placement_contact as _pcon
 from .placement_motion import lowest_contact_feet
 
-__all__ = ["REFUSALS", "ISO_PREFIX", "outlines", "shares", "welded", "vacate"]
+__all__ = ["REFUSALS", "ISO_PREFIX", "outlines", "shares", "welded", "vacate",
+           "ground_sheet"]
 
 #: every refusal reason, in the order the witness asks them
 REFUSALS = ("not_isolated", "structure", "span", "building_file", "walled",
             "welded", "no_feet",
-            "off_author_ground", "no_surface", "water", "pad", "deck", "rim",
+            "off_author_ground", "sheet", "no_surface", "water", "pad", "deck", "rim",
             "spread")
 
 #: the share id's prefix (``Anchor.isolated``)
@@ -219,6 +228,22 @@ def building_files(members: _t.Iterable[_t.Any], reach_m: float,
     return frozenset(out)
 
 
+def ground_sheet(parts: _t.Sequence[_t.Any], step_m: float, max_aspect: float,
+                 thin_m: float = 0.0) -> bool:
+    """I9 (#2074): are ``parts`` (one share) a GROUND SHEET?  Thinner than
+    ``thin_m`` (``[placement] chain_min_height_m``; 0 sets no bound) and
+    every part carrying a lowest contact foot (``lowest_contact_feet`` at
+    ``step_m``) no taller than ``max_aspect`` of its own plan diagonal.
+    ``max_aspect`` at 0 disarms (``False``)."""
+    if max_aspect <= 0.0 or (thin_m > 0.0 and _height_m(parts) >= thin_m):
+        return False
+    low = lowest_contact_feet([(*f, i) for i, p in enumerate(parts)
+                               for f in p.feet], step_m)
+    contact = [parts[i] for i in sorted({f[3] for f in low})]
+    return bool(contact) and all(p.height_m <= max_aspect * _span_m([p])
+                                 for p in contact)
+
+
 def _surface(surface: _ar.Surface, pts: _t.Sequence[tuple]) -> list:
     many = getattr(surface, "many", None)
     if many is not None:
@@ -252,10 +277,12 @@ def shares(plan: _t.Any, surface: _ar.Surface,
            span_max_m: float, split_tol_m: float, step_m: float,
            foreign: _t.Sequence[tuple] = (), counts: "dict | None" = None,
            refused: "dict | None" = None, wall_min_h_m: float = 0.0,
-           base_min_fraction: float = 0.0) -> dict[int, Share]:
+           base_min_fraction: float = 0.0,
+           sheet_max_aspect: float = 0.0) -> dict[int, Share]:
     """Every seated share of ``plan`` (module doc), keyed by part id.  Any
     of ``reach_m``, ``split_tol_m`` or ``step_m`` at 0 disarms (``{}``);
-    ``wall_min_h_m`` or ``base_min_fraction`` at 0 disarms I7 and I8 both.
+    ``wall_min_h_m`` or ``base_min_fraction`` at 0 disarms I7 and I8 both;
+    ``sheet_max_aspect`` at 0 disarms I9.
     A plan whose parts carry no solid height (``Part.height_m`` all 0, an
     older plan) cannot ask I8 and is disarmed whole, counted
     ``isolated_disarmed_no_height``.  ``refused``, when given, is filled
@@ -334,7 +361,8 @@ def shares(plan: _t.Any, surface: _ar.Surface,
         for ui, idx in sorted(by_unit.items()):
             s, why2 = ((None, why) if why else
                        _share(plan, ui, [parts[i] for i in idx], surface, pads,
-                              rims, decks, split_tol_m, step_m))
+                              rims, decks, split_tol_m, step_m,
+                              (sheet_max_aspect, wall_min_h_m)))
             if s is None:
                 _refuse(counts, why2)
                 if refused is not None:
@@ -366,14 +394,18 @@ def _walls(grp: _t.Sequence[int], parts: _t.Sequence[_t.Any],
 
 
 def _share(plan, ui: int, sp: list, surface, pads, rims, decks,
-           split_tol_m: float, step_m: float) -> "tuple[Share | None, str]":
-    """One share's witness I4-I6 and seat, or ``(None, reason)``."""
+           split_tol_m: float, step_m: float, sheet: tuple = (0.0, 0.0)
+           ) -> "tuple[Share | None, str]":
+    """One share's witness I4, I9, I5, I6 and seat, or ``(None, reason)``;
+    ``sheet`` is I9's ``(max_aspect, thin_m)``."""
     u = plan.units[ui]
     feet = [f for p in sp for f in p.feet]
     if not feet:
         return None, "no_feet"
     if abs(min(p.base_y for p in sp) + float(u.agl_m or 0.0)) > split_tol_m:
         return None, "off_author_ground"
+    if ground_sheet(sp, step_m, *sheet):
+        return None, "sheet"
     low = lowest_contact_feet(feet, step_m)
     zs = _surface(surface, low)
     if any(z is None for z in zs):

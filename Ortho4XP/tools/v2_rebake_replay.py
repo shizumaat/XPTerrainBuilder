@@ -543,7 +543,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
                                     "group_span_max_m", None),
         isolated_foreign=_foreign_outlines(args.foreign),
         isolated_base_min_fraction=getattr(law.tables.structures.placement,
-                                           "isolated_base_min_fraction", None))
+                                           "isolated_base_min_fraction", None),
+        isolated_sheet_max_aspect=getattr(law.tables.structures.placement,
+                                          "isolated_sheet_max_aspect", None))
     if args.write_pack:
         # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut
         # and written into a pack COPY by ``placement_write.apply_plan``

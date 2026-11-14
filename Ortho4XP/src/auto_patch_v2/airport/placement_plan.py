@@ -247,7 +247,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # §9a A1: ``[placement] isolated_base_min_fraction`` — with
                  # ``chain_min_height_m`` the WALLED-BASE witness (I7/I8);
                  # 0 disarms both
-                 isolated_base_min_fraction: float = 0.0
+                 isolated_base_min_fraction: float = 0.0,
+                 # §9a I9 (#2074): ``[placement] isolated_sheet_max_aspect``
+                 # — a ground sheet keeps today's seat; 0 disarms
+                 isolated_sheet_max_aspect: float = 0.0
                  ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -418,7 +421,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                             split_tol_m=split_tol_m, step_m=motion_step_m,
                             foreign=isolated_foreign, counts=counts,
                             wall_min_h_m=chain_min_height_m,
-                            base_min_fraction=isolated_base_min_fraction)
+                            base_min_fraction=isolated_base_min_fraction,
+                            sheet_max_aspect=isolated_sheet_max_aspect)
     _pulse.tick("placement: plan-wide seats")
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,

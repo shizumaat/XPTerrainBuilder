@@ -21,11 +21,13 @@ datum from the mouth to the deck and the climb begins beyond it.
 from __future__ import annotations
 
 import dataclasses as _dc
+import typing as _t
 
 from .frame import XY
 
 __all__ = ["Deck", "Tunnel", "DeckAnchor", "DeckBridge", "Basin", "Channel", "ChannelWall",
-           "profile_z", "deck_z_on_faces", "deck_reach", "DECK_GROUND_REF", "CHANNEL_FLOOR_ROLE",
+           "profile_z", "deck_z_on_faces", "deck_reach", "deck_floor_z", "DECK_GROUND_REF",
+           "CHANNEL_FLOOR_ROLE",
            "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM", "SKIRT_ROLE", "OBJECT_FLOOR_REF",
            "OBJECT_FLOOR_WALL_REF"]
 
@@ -397,9 +399,11 @@ class Tunnel:
     #: cut is vertical at them; with none it banks (owner 2026-11-03T16:56Z)
     deck_walled: bool = False
     #: that deck's floor is the lower level's LADDER, not its frame's bottom
-    #: (``DeckBridge.floor_min_m``): the floor may sink, never rise closer
-    #: to the deck than this (constraints/structures, #1903); ``0.0`` where
-    #: the frame states the floor
+    #: (``DeckBridge.floor_min_m``): the least depth the floor should keep
+    #: under the deck.  Such a floor is PINNED before the solve at
+    #: :func:`deck_floor_z` (#2072 B1); a solved deck standing closer to it
+    #: than this is reported (``publication.tunnel_mouth_depths``), never a
+    #: row; ``0.0`` where the frame states the floor
     deck_floor_min_m: float = 0.0
     #: a sunken road's LEVEL FLOOR under a mound (spec
     #: object-gate-member-floors §5): both ends at grade
@@ -538,6 +542,32 @@ def deck_reach(tn: Tunnel):
     for _oid, stations, _depth in getattr(tn, "edge_seats", ()) or ():
         pts.extend(tuple(q) for q in stations)
     return tuple(pts)
+
+
+def deck_floor_z(tn: Tunnel, s: float, tunnels: _t.Sequence[Tunnel] = ()) -> float:
+    """THE FLOOR UNDER A HARD DECK AT STATION ``s`` of ``tn``'s axis (#2072
+    B1; owner RULINGS 2026-10-28u Q271 (b)): the trench's own floor
+    (:attr:`Tunnel.mouth_z`) under its deck; along the open stretch to a
+    second deck over the same road (``edge_floor_s`` = ``(s0, s1)``) it runs
+    LINEARLY from this floor at ``s0`` to that deck's at ``s1`` -- the floor
+    of the trenches under the other deck that seat on this one
+    (``tunnels``), so the two halves of the stretch meet at one level.  One
+    number for the ramp's target (``planar/structure_geometry.ramp_targets``)
+    and the ladder floor's pin (``constraints/structures``)."""
+    z0 = float(tn.mouth_z)
+    span = tuple(getattr(tn, "edge_floor_s", ()) or ())
+    own = getattr(tn, "deck_bridge", "")
+    if not own or len(span) != 2 or span[1] - span[0] <= 1e-9:
+        return z0
+    others = {oid for oid, _st, _d in getattr(tn, "edge_seats", ()) or () if oid != own}
+    far = [float(t.mouth_z) for t in tunnels
+           if getattr(t, "deck_bridge", "") in others
+           and any(oid == own for oid, _st, _d in getattr(t, "edge_seats", ()) or ())]
+    if not far:
+        return z0
+    z1 = sum(far) / len(far)
+    t = min(1.0, max(0.0, (s - span[0]) / (span[1] - span[0])))
+    return (1.0 - t) * z0 + t * z1
 
 
 @_dc.dataclass(frozen=True)

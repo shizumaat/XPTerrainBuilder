@@ -98,8 +98,11 @@ def test_a_lanes_bank_stops_halfway_to_the_next_carriageway():
     axis, _d = DB.deck_mouth(LineString([(60.0, 18.0), (60.0, 120.0)]), (0.0, -1.0), db)
     ramp = _sbox(55.0, -10.0, 65.0, 100.0)
     outer = ramp.buffer(1.6, join_style="mitre")
+    # #2072 C: the cut and the banks it clears (the deck's own ground)
     _r, whole = DB.deck_cut(db, axis, ramp, outer, 0.6)
+    whole = whole.union(DB.deck_banks(db, axis, 0.6))
     _r, lane = DB.deck_cut(db, axis, ramp, outer, 0.6, band=(3.75, float("inf")))
+    lane = lane.union(DB.deck_banks(db, axis, 0.6, band=(3.75, float("inf"))))
     assert abs(whole.bounds[0] + 99.4) < 1e-6
     assert abs(lane.bounds[0] - 3.75) < 1e-6 and abs(lane.bounds[2] - 99.4) < 1e-6
 

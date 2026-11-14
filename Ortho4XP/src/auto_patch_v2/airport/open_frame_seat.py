@@ -187,7 +187,8 @@ def group_key(root: str, frame: str) -> str:
 
 def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
                surface: _t.Any = None, counts: "dict | None" = None,
-               airside_out: "dict[str, tuple[float, int]] | None" = None
+               airside_out: "dict[str, tuple[float, int]] | None" = None,
+               solo_out: "set[str] | None" = None
                ) -> dict[str, tuple[float, float]]:
     """:func:`group_key` ``-> (zero, the frame's lift)`` for every frame's
     share of every connected unit (``frame`` is the plan unit id; "" with
@@ -205,11 +206,19 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
       (``footprint_seats.plan_wide_seats``: part id -> (unit, zero, ...))
       over its parts — round 3's reading, which for a unit touching
       airside let a central block over a road trench outvote the halls on
-      the apron (LFPG T2, 1.0.418)."""
+      the apron (LFPG T2, 1.0.418).
+
+    ``solo_out``, when given, is filled with the keys whose parts all
+    belong to ONE plan member (one authored placement): a share with no
+    other object to stay together with (#2060, :func:`group_zero`)."""
     frame_of: dict[int, tuple[str, float]] = {}
+    member_of: dict[int, str] = {}
     if plan is not None:
         frame_of = {p.pid: (str(u.id), float(getattr(u, "agl_m", 0.0) or 0.0))
                     for u in plan.units for m in u.members for p in m.parts}
+        member_of = {p.pid: str(getattr(m, "id", id(m)))
+                     for u in plan.units for m in u.members for p in m.parts}
+    members: dict[str, set[str]] = {}
     acc: dict[str, list[float]] = {}
     lift: dict[str, float] = {}
     #: #1726: the shares on a terrain-adapted member's zero — it cannot move
@@ -224,6 +233,7 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
         k = group_key(r, fid)
         acc.setdefault(k, []).append(float(seat[1]))
         lift[k] = lf
+        members.setdefault(k, set()).add(member_of.get(pid, ""))
         if len(seat) > 3 and seat[3] == ADAPTED_SRC and pid in touch:
             # #1726: only the adapted member's OWN frame is held on its
             # zero; another frame chained into the unit seats as before
@@ -232,6 +242,8 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
     # the unit's DOMINANT frame (most parts): the plan-wide datum is
     # spelled in it; another frame chained in is another authored object
     dominant = {r: max(sorted(n), key=lambda f: n[f]) for r, n in size.items()}
+    if solo_out is not None and member_of:
+        solo_out.update(k for k, ms in members.items() if len(ms) == 1 and "" not in ms)
     out = {}
     for k, zs in acc.items():
         zs.sort()
@@ -547,7 +559,9 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                merged: "_t.Mapping[str, str] | None" = None,
                adapted_zero: "float | None" = None,
                surface: _t.Any = None, gap_m: float = 0.0,
-               afloat: "set[str] | None" = None) -> _t.Any:
+               afloat: "set[str] | None" = None,
+               solo: _t.AbstractSet[str] = frozenset(),
+               led: "set[str] | None" = None) -> _t.Any:
     """R5 / 22o: every body of ``record`` (a placement of frame ``frame``,
     the plan unit id) whose parts belong to a connected unit takes the ONE
     zero of that frame's share of it (:func:`root_zeros`), whatever pass
@@ -567,7 +581,23 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
     #1726: ``adapted_zero`` (``adapted_riders.member_zeros``) is the zero of
     the terrain-adapted member this placement's file touches; its
     footless OWN-GROUND pieces, in no unit, hang in that frame and take
-    it (KBWI's skylight panes stood 1.1 m under and 2.4 m over it)."""
+    it (KBWI's skylight panes stood 1.1 m under and 2.4 m over it).
+
+    #2060: a body carrying an APPLIED seat tilt that is the ONLY body of
+    its share — the share's parts are one member's (``solo``,
+    :func:`root_zeros`' ``solo_out``) and no other body of the record
+    names its unit — keeps its own zero: the group zero is a LEVEL body's
+    datum, and moving the tilt's pinned origin lifts the whole fitted plane
+    off its feet (CYLW Hangar_9 +0.78 m).  A tilted body sharing its group
+    with any other object still takes the group's zero (22o).
+
+    #2060 round 2: the zero follows the CARRIER.  A body carried on such a
+    tilted body is its frame, not another object: the carrier keeps its
+    zero when every other body of the record in its share rides it, and
+    those riders keep it too.  ``led`` (the plan's, filled here) holds the
+    :func:`group_key` of every share whose tilted frame kept its zero; a
+    carried body (``merged_into``) of such a share in a LATER record —
+    ``cut_order`` writes carriers first — is not moved either."""
     if adapted_zero is not None:
         record = _loose_to(record, m, adapted_zero, tol_m, counts)
     lead = walled_lead(record, m)
@@ -595,7 +625,7 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
         z = zeros.get(group_key(r, frame))
         return None if z is None else z[0]
 
-    def off(b: _t.Any) -> bool:
+    def apart(b: _t.Any) -> bool:
         r = roots.get(id(b))
         if r is None or b.anchor.surface_z is None:
             return False
@@ -610,17 +640,46 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
         for b in record.bodies:
             r = roots.get(id(b))
             t = None if r is None or b.anchor.surface_z is None else target(r)
-            if t is not None and off(b) and _hangs(b, r, t, surface, gap_m, afloat,
+            if t is not None and apart(b) and _hangs(b, r, t, surface, gap_m, afloat,
                                                    plan_wide, file_root):
                 kept.add(id(b))
                 afloat.add(str(b.new_resource))
         if kept:
             counts["group_zero_kept_over_water"] = \
                 counts.get("group_zero_kept_over_water", 0) + len(kept)
+
+    def alone(b: _t.Any) -> bool:
+        r = roots.get(id(b))
+        return (_tilted(b) and not getattr(b, "merged_into", "")
+                and group_key(str(r), frame) in solo
+                and all(getattr(q, "merged_into", "") == b.new_resource
+                        for q in record.bodies
+                        if q is not b and roots.get(id(q)) == r))
+
+    leaders = [b for b in record.bodies if alone(b)]
+    lead_files = {b.new_resource for b in leaders}
+    led = set() if led is None else led
+    led.update(group_key(str(roots.get(id(b))), frame) for b in leaders)
+
+    def follows(b: _t.Any) -> bool:
+        carrier = getattr(b, "merged_into", "") or ""
+        return bool(carrier) and (carrier in lead_files or group_key(
+            str(roots.get(id(b))), frame) in led)
+
+    def off(b: _t.Any) -> bool:
+        return apart(b) and not alone(b) and not follows(b)
+
+    _count(counts, "group_zero_tilted_kept",
+           sum(1 for b in leaders if apart(b)))
+    _count(counts, "group_zero_rider_kept", sum(
+        1 for b in record.bodies if apart(b) and not alone(b) and follows(b)))
     moved = [b for b in record.bodies if off(b)]
     if not moved:
         return record
     counts["group_zero_bodies"] = counts.get("group_zero_bodies", 0) + len(moved)
+    # residual (not decided): a tilted frame in a multi-member share takes
+    # the group's LEVEL zero (22o)
+    _count(counts, "group_zero_tilted_moved", sum(1 for b in moved if _tilted(b)))
     out = record
     for r in sorted({roots[id(b)] for b in moved}):
         t = target(r)
@@ -660,6 +719,21 @@ def _hangs(b: _t.Any, root: str, zero: float, surface: _t.Any, gap_m: float,
             q for q in (getattr(b, "plan_box", None),) if q))
     return _ar.hangs_over_water(
         tuple(getattr(b, "feet", ()) or ()), surface, zero, gap_m, pts)
+
+
+def _count(counts: dict, key: str, n: int) -> None:
+    if n:
+        counts[key] = counts.get(key, 0) + n
+
+
+def _tilted(b: _t.Any) -> bool:
+    """#2060: the body carries an APPLIED seat tilt (10-01k Q1,
+    ``placement_seat_tilt``): its plane is fitted to its own feet and
+    pinned at its origin, so a group zero moving that origin lifts or sinks
+    the whole tilted plane off the ground it was fitted to (CYLW Hangar_9:
+    +0.78 m, every wall afloat)."""
+    s = getattr(b, "seat", None)
+    return bool(s is not None and getattr(s, "applied", False))
 
 
 def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,

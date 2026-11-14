@@ -127,9 +127,9 @@ from .covered_bores import covered_bore_ways
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
                               portal_mouth, portal_note, roof_back_mouth, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
-from .deck_bridge import (deck_cut, deck_mouth, deck_pin, deck_polygon, deck_seats, deck_side,
-                          deck_under)
-from .deck_bores import deck_bores, deck_lanes, lane_band
+from .deck_bridge import (deck_banks, deck_cut, deck_edge_pavement, deck_mouth, deck_pin,
+                          deck_polygon, deck_seats, deck_side, deck_under)
+from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, road_level
 from .zones import shore_region
 from .structure_service import (airside_cover, airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -382,7 +382,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                  _carries_runway)
                for m in mouth_list if edge_of.get(id(m)) is None} if deck_bridges else {}
     # ...but only the carriageways that are one road (``deck_bores.deck_lanes``)
-    lane_of, lane_cs = deck_lanes(mouth_list, deck_of, tn.dual_carriageway_max_separation_m)
+    # ...and stand at one level beyond the deck (#2072 B2: each lane tops out
+    # on its own road)
+    lane_of, lane_cs = deck_lanes(
+        mouth_list, deck_of, tn.dual_carriageway_max_separation_m, {
+            id(m): road_level(getattr(m, "approach", ()) or (), deck_of[id(m)],
+                              lambda x, y: dem_z_at(airport, (x, y)), tn.wall_gap_m,
+                              deck_of[id(m)].depth_m / tn.ramp_grade,
+                              law.tables.emit.chords.station_spacing_m)
+            for m in mouth_list if deck_of.get(id(m)) is not None},
+        float(law.tables.emit.cockpit.visual_m))
 
     def _edge_key(m):
         br = edge_of.get(id(m))
@@ -414,6 +423,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # §34 (12) (3)'s protected set (``structure_service``); an OSM bore's
     # ramp STOPS SHORT of these, a pack-stated corridor is never bound
     _cut_roles = set(airside_cut_roles(law))
+    # #2072 A: the airside pavement a deck trench's run-out may end on
+    air_refs = {c.ref for c in cells if c.role in _cut_roles}
     # §34 (12) (2): the water a structure may not stand on (one witness)
     sea_cut = shore_region(tuple(cells), getattr(airport, "dem", None))
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
@@ -463,6 +474,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     new_cells: list[tuple[str, str, Polygon, str]] = []
     footprints: list[Polygon] = []
     hull_knives: list[Polygon] = []
+    bank_of: dict[str, list] = {}         # #2072 C: the banks under wall-less decks
     pin_knives: dict[str, Polygon] = {}      # #1938 S1 / S2: a pinned ramp's pad blade
     knee_chords: list[LineString] = []     # §34 (7): every emitted cross-chord
     keepouts: list[Polygon] = []
@@ -1078,6 +1090,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         def _ring(ss_try):
             return sheared_ring(k_sk, c, axis_fn, ss_try, half, rim_off, inward, grid, g,
                                 half_fn)
+        dead_end = None      # #2072 A: (pavement ref, station) stopping a deck trench
         while True:
             geom = _ring(ss)
             if geom is None:
@@ -1104,12 +1117,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 break
             clipped_by = hit
             top_pinned = False
+            if deck is not None:
+                dead_end = (hit, ss[-1]) if hit in air_refs else None
             if walled and len(ss) >= 2 and ss[-2] < walls_s - 1e-6 < ss[-1] - 2e-6:
                 # #1938 round 3: a stop beyond the walls clips the ramp ON the
                 # wall end (as at an object corridor's ``g.hull_s``), never a
                 # station short of the walls
                 ss, s_top = ss[:-1] + [walls_s], walls_s
                 continue
+            if len(ss) <= 2 and dead_end is not None:
+                break               # #2072 A3: level to the stop (below), never refused
             if len(ss) <= 2:
                 stats.refused.append(
                     f"{tid}: the mouth stands against "
@@ -1143,7 +1160,25 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     osm_stops, osm_tree, gap) is None:
                 ss, s_top, geom, design_grade, steepen_note = ss_fit, s_fit, geom_fit, got, note
                 clipped_by, top_pinned = "", True
+        dead_cut = None
+        if dead_end is not None and clipped_by == dead_end[0]:
+            # #2072 A1: no ramp tops out before the airside pavement stopping
+            # the trench -- the stretch is level at the floor up to the stop,
+            # no top pin, and that pavement is a rim (A2, ``deck_cut``)
+            ss = [q for q in ss if q < dead_end[1] - 1e-9] + [dead_end[1]]
+            geom = _ring(ss)
+            if geom is None:
+                stats.refused.append(f"{tid}: the approach bends tighter than the corridor "
+                                     f"(ramp or wall ring self-intersects)")
+                continue
+            s_top = climb_from = dead_end[1]
+            top_pinned, clipped_by = False, ""     # a rim, never a clipped top
+            dead_cut = airside_stop(osm_stops, dead_end[0], deck_bridges)
+            steepen_note = (f"#2072 A: airside pavement {dead_end[0]} stops the run-out and no "
+                            f"ramp up to the cap tops out before it -- level at the floor to "
+                            f"{s_top:.1f} m, a wall on the pavement edge")
         if c is None and g.climbs and road_end is not None and level_to is None \
+                and dead_cut is None \
                 and s_top - spacing_g > road_end + gap:   # ramp_top's one station of slack
             # #1028 Q32: a ramp NEVER leaves its mapped road — no straight
             # extension across whatever lies past the road's end
@@ -1178,14 +1213,24 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # THE CUT FOLLOWS THE BACK AND TAKES IN THE OBJECT (``bridge_span``)
             ramp, outer = edge_cut(edge, ramp, outer, rim_off, axis_ln.length + reach,
                                    edge_far[1] if edge_far is not None else ())
+        banks = None
+        road_own = ramp
         if deck is not None:
             # Q-A AS RULED: the road width, banked up to just short of the deck
-            ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next,
-                                   lane_band(deck, lane_cs.get(
-                                       (id(deck), deck_side(deck, members[0].inward)), ()),
-                                             lane_of.get(id(members[0]), 0)),
-                                   deck.depth_m / float(law.tables.emit.design.bank_slope),
-                                   deck_roads, deck_uncut, rim_off)
+            d_band = lane_band(deck, lane_cs.get((id(deck), deck_side(deck, members[0].inward)),
+                                                 ()), lane_of.get(id(members[0]), 0))
+            d_run = deck.depth_m / float(law.tables.emit.design.bank_slope)
+            # the airside the cut does not take: the runway no deck carries,
+            # the pavement a dead end stops at (#2072 A2) and the deck's own
+            # airside edge band (#2072: the trench never touches airside)
+            d_edge = deck_edge_pavement(deck, gap, deck_paved, outer)
+            parts_u = [q for q in (deck_uncut, dead_cut, d_edge) if q is not None]
+            d_uncut = unary_union(parts_u) if parts_u else None
+            ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next, d_band, d_run,
+                                   deck_roads, d_uncut, rim_off)
+            # #2072 C: the banks are cleared (the knife) and left to the deck's ground
+            banks = deck_banks(deck, axis_ln, gap, deck_next, d_band, d_run, d_uncut,
+                               deck_roads, unary_union([ramp, road_own]))
         if rt is not None and c is None and level_to is not None and \
                 (deck is None or deck_next is None):
             # the half ends at its own side of the run line, open to its partner
@@ -1455,6 +1500,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 outer = outer.convex_hull
         footprints.append(outer)
         keepouts.append(outer)
+        if banks is not None:
+            # #2072 C: the knife clears the banks, no cell is minted there
+            bank_of[tid] = _parts(banks.difference(outer))
         if c is not None:
             # the walls cut EVERYTHING but the runway family — the pad too
             # (08-26: the trench is senior to the pad authority).  Beyond the
@@ -1527,6 +1575,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # 2026-11-06c (3): a kept entrance's skirt cuts what it covers and keeps the zones off
     skirts = [q for t in tunnels for q in skirt_of.get(t.id, ()) if q.geom_type == "Polygon"]
     keepouts.extend(skirts)
+    bank_cuts = [q for t in tunnels for q in bank_of.get(t.id, ())]
+    keepouts.extend(bank_cuts)
     # the channel's cells first: an object floor over a channel owns its
     # footprint and trims the channel back to its rim (#1903, LGAV)
     channels_in = add_channel_cells(channels, law, new_cells, footprints, keepouts, stats)
@@ -1540,7 +1590,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
 
     # cut the pavement the structures run through (never the runway
     # family, never a pad — those refused above; an object's walls cut pads)
-    knife = unary_union([*footprints, *skirts])
+    knife = unary_union([*footprints, *skirts, *bank_cuts])
     hull_knives += [pin_knives[t.id] for t in tunnels if t.id in pin_knives]
     hull_knife = unary_union(hull_knives) if hull_knives else None
     out_cells: list[Cell] = []

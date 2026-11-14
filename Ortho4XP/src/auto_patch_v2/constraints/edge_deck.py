@@ -213,6 +213,15 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     decks = list({tuple(e.deck.ring): e.deck for e in es}.values())
     inside = prep(unary_union([Polygon(d.ring).buffer(0.5) for d in decks]))
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
+    # THE DECK'S GROUND IS ITS OWN CELL (#2072): ``planar/deck_bridge.
+    # deck_ground`` minted it from the reach the planar stage read, which can
+    # stand wider than the final trenches' reach -- a face of it beyond
+    # that hull had no span row and (``solve/design_ground``) no datum, and
+    # bending alone stood its corner 21.9 m over the ground (KIAH obj24551)
+    mine = f"{DECK_GROUND_REF}:{oid}"
+    own = [Polygon([planar.vertices[v].xy for v in planar.ring_vertices(f.ring)])
+           for f in planar.faces.values() if str(f.ref).split("#")[0] == mine]
+    hulls += [g if g.is_valid else g.buffer(0.0) for g in own if len(g.exterior.coords) >= 4]
     beyond = prep(unary_union(hulls).buffer(0.5)) if hulls else inside
     in_cut = _in_cut(planar, tunnels)
     src = Source(GEN, RULING, (oid, oid, "deck span"))
@@ -429,7 +438,8 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None) -> l
     return out
 
 
-def deck_floor(planar: PlanarMap) -> tuple[frozenset, frozenset]:
+def deck_floor(planar: PlanarMap, air_roles: "_t.AbstractSet[str]" = frozenset()
+               ) -> tuple[frozenset, frozenset]:
     """``(floor, trench)``: the vertices of a HARD-DECK BRIDGE's trench
     floor under its deck, and every vertex of a trench (its ramps and its
     void) — ``walled_plate.release_across``'s sets (owner RULINGS
@@ -439,7 +449,19 @@ def deck_floor(planar: PlanarMap) -> tuple[frozenset, frozenset]:
     exemption, ``planar/structure_service``), so its rows stay — MEASURED
     (LFPG 09L/27R over a hard-deck road underpass, batch AR): the release
     withdrew the runway's transverse rows at the trench outline and the
-    runway edge fell 1.02 m off its crown (3.34 % against 1.52 %)."""
+    runway edge fell 1.02 m off its crown (3.34 % against 1.52 %).
+
+    THE AIRSIDE STANDS OUTSIDE THE TRENCH (#2072, #1902; airside is king):
+    a vertex carrying one of ``air_roles`` (the airside pavement, the
+    runway family aside) that is no floor vertex is never ``trench``, even
+    where it stands on the trench's wall — a deck station is the airside's,
+    and an airside row joining it to the floor is withdrawn like any other
+    row from outside.  MEASURED (KIAH replay, deaddf5e8): the deck stations
+    stood on the walls, so the taxiway's transverse and no-step rows to the
+    floor were kept; at obj24551 a floor ceiling pulled the taxi deck 2.89 m
+    under its route level (the airside bumps at both ends of #2072), and at
+    the other decks the deck lifted every floor to its 5 m bound, 2.3-2.7 m
+    over the ramp's own floor (the steps along the roads of #1902)."""
     rings = [db.ring for db in getattr(planar, "decks", ()) or ()
              if db.cut != "none" and len(db.ring) >= 3]
     if not rings:
@@ -452,8 +474,10 @@ def deck_floor(planar: PlanarMap) -> tuple[frozenset, frozenset]:
     for v, vx in planar.vertices.items():
         roles = set(planar.roles_at(v))
         if roles & (_FLOOR_ROLES | {"retaining_wall"}):
-            trench.add(v)
-            if roles & _FLOOR_ROLES and not roles & _RUNWAY_FAMILY \
-                    and inside.contains(Point(vx.xy)):
+            is_floor = bool(roles & _FLOOR_ROLES) and not roles & _RUNWAY_FAMILY \
+                and inside.contains(Point(vx.xy))
+            if is_floor:
                 floor.add(v)
+            if is_floor or not roles & (set(air_roles) - _RUNWAY_FAMILY):
+                trench.add(v)
     return frozenset(floor), frozenset(trench)

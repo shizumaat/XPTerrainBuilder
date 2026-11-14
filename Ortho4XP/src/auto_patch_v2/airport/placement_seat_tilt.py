@@ -78,18 +78,20 @@ WHAT IS NEVER TILTED
   a plane takes — or one every foot of which already stands within
   tolerance (there is nothing to seat).
 
-REPORTED, NOT DECIDED
----------------------
+A CARRIED RIDER TILTS WITH ITS CARRIER (#2060 round 2)
+---------------------------------------------------
 
-A body CARRIED onto a tilted body's anchor (§14 / §16a) takes the
-carrier's zero but NOT its rotation: it is written level on a tilted
-carrier and the pair separates by the tilt over the rider's own reach.
-Riders within ONE member are counted by the plan
-(``counts["seat_tilt_level_rider"]``); a rider carried ACROSS members is
-not censused here, and neither case is decided — the owner rules whether a
-rider inherits its carrier's seat.  No such pair exists at the site the
-ruling was read on (the KASE shelters carry nothing), which is why this
-lane reports it instead of inventing the rule.
+A body CARRIED onto a tilted carrier's anchor (§14 / §16a) takes the
+carrier's zero AND its applied rotation (:func:`rider_seat`): 14p (1)'s
+"a shared frame tilts TOGETHER as one rigid group" names every body
+written in the frame, its riders included — HECA's ``building__b44`` was
+written level on ``concrete_3__b1``'s tilted frame and the slab rose
+0.07-0.16 m through it.  One rotation is one gradient pair only in one
+authored frame, so a rider placed at another heading keeps the whole frame
+level (:func:`frame_tilts`).  A carrier kept whole on its authored row
+bakes no tilt, and its rider takes none.  :func:`rider_counts` reports a
+rider still written level on a tilted carrier (``seat_tilt_level_rider``,
+0 by construction) beside the riders that followed.
 
 This module DECIDES the tilt and nothing else; ``obj8_split.tilt_matrix``
 is the one derivation of the rotation itself, so the residual this module
@@ -107,10 +109,14 @@ from . import anchor_rule as _ar
 from . import obj8_grade as _og
 from . import obj8_split as _split
 from . import placement_carrier as _pc
-from .placement_motion import feet_in_band, foot_float
+from .open_frame_seat import TOUCH_M
+from .placement_boxes import box_gap_m
+from .placement_motion import foot_float, ground_contact_feet
 
 __all__ = ["SeatTilt", "SEAT_REASON", "SEAT_TILT_MIN_DEG", "fit", "seat_tilt",
-           "shared_frames", "frame_tilts", "with_frame_seat", "frame_key"]
+           "shared_frames", "frame_tilts", "with_frame_seat", "frame_key",
+           "rider_seat", "rider_census", "attached", "rider_boxes",
+           "applied_seat", "RIDER_ZERO_TOL_M"]
 
 #: The prefix an anchor-reason-style note carries so a reader can tell the
 #: seat tilt from every other reason without parsing a number.
@@ -317,18 +323,23 @@ def _verdict(m: _t.Any) -> str:
 
 
 def _foot_rows(feet: _t.Iterable, a: _t.Any, offset: _t.Sequence[float],
-               u: _t.Any, m: _t.Any, surface: _t.Any, band_m: float
-               ) -> tuple[list, list, int]:
+               u: _t.Any, m: _t.Any, surface: _t.Any, band_m: float,
+               contact_tol_m: float = 0.0) -> tuple[list, list, int]:
     """``(pts, rise, off_surface)``: the feet in the body's own authored
     frame (after the writer's translation by ``offset``) and how much
-    higher each must render to meet the surface — :func:`fit`'s input."""
+    higher each must render to meet the surface — :func:`fit`'s input.
+
+    #2060: the feet are the GROUND-CONTACT feet (``ground_contact_feet``:
+    within ``contact_tol_m`` of the lowest, the set §17 judges), not the
+    whole metre band — CYLW's hangar door bottoms at y +0.89 read as feet
+    and pulled the plane 1.3x too steep, floating its walls 0.3-0.6 m."""
     from .placement_plan import authored_offset  # circular at import time
     za, y0 = float(a.surface_z), float(a.y_zero)
     dx, dy, dz = (float(q) for q in offset)
     pts: list[tuple[float, float, float]] = []
     rise: list[float] = []
     off = 0
-    for f in feet_in_band(feet, band_m):
+    for f in ground_contact_feet(feet, band_m, contact_tol_m):
         lat, lon, fy = float(f[0]), float(f[1]), float(f[2])
         zf = surface(lat, lon)
         if zf is None:
@@ -363,6 +374,7 @@ def frame_tilts(staged: _t.Sequence[_t.Any], u: _t.Any, surface: _t.Any, *,
     shared = shared if shared is not None else shared_frames(staged)
     from .placement_plan import authored_offset  # circular at import time
     groups: dict[tuple, list] = {}
+    slot_key: dict[tuple[int, int], tuple] = {}
     for st in staged:
         for k, grp in enumerate(st.groups):
             if not grp or (st.mi, k) not in shared:
@@ -374,6 +386,17 @@ def frame_tilts(staged: _t.Sequence[_t.Any], u: _t.Any, surface: _t.Any, *,
             feet = tuple(f for i in grp if not st.raw[i][4] for f in st.raw[i][3])
             elevated = all(st.raw[i][4] for i in grp)
             groups.setdefault(key, []).append((st, a, feet, elevated))
+            slot_key[(st.mi, k)] = key
+    # #2060 round 2: a rider carried on a frame's slot bakes the frame's
+    # rotation in ITS member's authored frame -- its heading is the frame's too
+    # #2060 r3 (T2): an UNATTACHED rider bakes no rotation, so it sets no heading
+    rider_headings: dict[tuple, set] = {}
+    for st in staged:
+        for grp, c, _why in st.carried:
+            key = slot_key.get((c.member, c.group))
+            if key is not None and attached(rider_boxes(st, grp), c):
+                rider_headings.setdefault(key, set()).add(
+                    round(float(st.m.heading_deg), 6))
     out: dict[tuple, SeatTilt] = {}
     for key, slots in groups.items():
         if any(_excluded(a.body_class, a, False, False) for _st, a, _f, _e in slots):
@@ -381,7 +404,8 @@ def frame_tilts(staged: _t.Sequence[_t.Any], u: _t.Any, surface: _t.Any, *,
         if not any(_verdict(st.m) == _og.FEET and not el and feet
                    for st, _a, feet, el in slots):
             continue
-        if len({round(float(st.m.heading_deg), 6) for st, *_r in slots}) > 1:
+        if len({round(float(st.m.heading_deg), 6) for st, *_r in slots}
+               | rider_headings.get(key, set())) > 1:
             counts["frame_tilt_mixed_heading"] = \
                 counts.get("frame_tilt_mixed_heading", 0) + 1
             continue
@@ -391,7 +415,8 @@ def frame_tilts(staged: _t.Sequence[_t.Any], u: _t.Any, surface: _t.Any, *,
         pts: list = []
         rise: list = []
         for st, a, feet, _el in slots:
-            p, r, _off = _foot_rows(feet, a, off, u, st.m, surface, band_m)
+            p, r, _off = _foot_rows(feet, a, off, u, st.m, surface, band_m,
+                                    foot_tol_m)
             pts += p
             rise += r
         seat = fit(pts, rise, max_total_deg=cap, foot_tol_m=foot_tol_m)
@@ -406,10 +431,105 @@ def frame_tilts(staged: _t.Sequence[_t.Any], u: _t.Any, surface: _t.Any, *,
 def with_frame_seat(body: _t.Any, m: _t.Any, seat: "SeatTilt | None") -> _t.Any:
     """``body`` carrying its frame's seat (:func:`frame_tilts`), its file
     renamed for the tilt it bakes (§4.5 / 14at); unchanged with none."""
-    if seat is None or body.merged_into or not seat.applied:
+    if seat is None or not seat.applied:
         return body
     from .placement_file import named_body  # R1: the one file-name rule
     return named_body(m, body, seat=seat)
+
+
+def rider_boxes(st: _t.Any, grp: _t.Iterable[int]) -> list:
+    """The plan boxes of the parts of ``st``'s group ``grp`` (a carried
+    piece), from the member's ``part_boxes``; empty when it has none."""
+    pb = getattr(st, "part_boxes", None) or ()
+    return [b for i in grp if i < len(pb) for b in pb[i]]
+
+
+def attached(boxes: _t.Sequence[tuple], c: _t.Any,
+             touch_m: float = TOUCH_M) -> bool:
+    """#2060 round 3 (T2): does a rider whose part boxes are ``boxes``
+    TOUCH its carrier candidate ``c`` — the least plan gap between them
+    within ``touch_m`` (``open_frame_seat.TOUCH_M``, 1 m)?  Only an
+    attached rider is part of the carrier's rigid frame: a piece carried
+    over a contact chain 56 m away (HECA's grass) rotated about a far
+    pivot is not.  A side with no box is attached (``box_gap_m``)."""
+    theirs = tuple(getattr(c, "part_boxes", ()) or ()) or (getattr(c, "box", None),)
+    if not boxes:
+        return True
+    return min(box_gap_m(a, b) for a in boxes for b in theirs) <= touch_m
+
+
+def rider_seat(body: _t.Any, m: _t.Any,
+               seats: _t.Mapping[tuple[int, int], "SeatTilt | None"],
+               carrier: tuple[int, int], written: bool, *,
+               is_attached: bool = True,
+               counts: "dict[str, int] | None" = None) -> _t.Any:
+    """#2060 round 2 (14p (1)): a CARRIED ``body`` takes the seat its
+    carrier slot ``carrier`` (``(member, group)``) was formed with —
+    ``seats``, the plan's map of each slot's applied seat, filled before
+    any member is cut (round 3, T1) — renamed for the tilt it now bakes; a
+    carrier kept whole (``written`` False) bakes none, and its rider stays
+    level.  Round 3 (T2): a rider not :func:`attached` to its carrier
+    stays level on the carrier's zero (``seat_tilt_rider_unattached``)."""
+    seat = seats.get(carrier) if written else None
+    if seat is not None and not is_attached:
+        if counts is not None:
+            counts["seat_tilt_rider_unattached"] = \
+                counts.get("seat_tilt_rider_unattached", 0) + 1
+        return body
+    return with_frame_seat(body, m, seat)
+
+
+#: two written zeros closer than this are one zero (the census's tolerance)
+RIDER_ZERO_TOL_M = 0.05
+
+
+def _zero(a: _t.Any) -> "float | None":
+    """The zero an anchor's file renders its origin at; None off-surface."""
+    if a is None or a.surface_z is None:
+        return None
+    return float(a.surface_z) - float(a.y_zero)
+
+
+def _same_grad(s: _t.Any, t: _t.Any) -> bool:
+    return all(abs(float(p) - float(q)) <= 1e-9 for p, q in zip(s.grad, t.grad, strict=True))
+
+
+def rider_census(riders: _t.Iterable[tuple], carriers: _t.Mapping[tuple, _t.Any],
+                 counts: dict[str, int]) -> None:
+    """#2060 round 3 (T3): the ORDER-FREE rider census of one unit, read
+    after every member is cut.  ``riders`` are ``(body, carrier slot,
+    attached, cut before its carrier, the slot's FORMED anchor)`` for each
+    written carried body; ``carriers`` maps a slot to the body its carrier
+    was WRITTEN as (absent: kept whole).  Counts:
+    ``seat_tilt_rider_followed`` (rider and written carrier bake one
+    grad), ``seat_tilt_level_rider`` (attached, carrier written tilted,
+    zeros within :data:`RIDER_ZERO_TOL_M`, rider level: must be 0),
+    ``seat_tilt_rider_orphan`` (rider tilted, carrier kept whole, level or
+    at another grad: must be 0); ``rider_before_carrier`` and
+    ``rider_before_carrier_zero_apart`` report only."""
+    def bump(k: str) -> None:
+        counts[k] = counts.get(k, 0) + 1
+    for body, slot, att, before, formed in riders:
+        cb = carriers.get(slot)
+        rs, cs = applied_seat(body), applied_seat(cb)
+        zr = _zero(body.anchor)
+        zc = _zero(cb.anchor if cb is not None else formed)
+        if before:
+            bump("rider_before_carrier")
+            if zr is not None and zc is not None and abs(zr - zc) > RIDER_ZERO_TOL_M:
+                bump("rider_before_carrier_zero_apart")
+        if rs is not None:
+            bump("seat_tilt_rider_followed" if cs is not None and _same_grad(rs, cs)
+                 else "seat_tilt_rider_orphan")
+        elif (att and cs is not None and zr is not None and zc is not None
+              and abs(zr - zc) <= RIDER_ZERO_TOL_M):
+            bump("seat_tilt_level_rider")
+
+
+def applied_seat(b: _t.Any) -> "SeatTilt | None":
+    """``b``'s seat when its tilt is APPLIED (baked), else None (#2060 r2)."""
+    s = getattr(b, "seat", None)
+    return s if s is not None and getattr(s, "applied", False) else None
 
 
 def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
@@ -450,7 +570,7 @@ def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
             counts.get("seat_tilt_anchor_off_surface", 0) + 1
         return body
     pts, rise, off_surface = _foot_rows(body.feet, a, a.offset, u, m,
-                                        surface, band_m)
+                                        surface, band_m, foot_tol_m)
     if off_surface:
         counts["seat_tilt_feet_off_surface"] = \
             counts.get("seat_tilt_feet_off_surface", 0) + off_surface

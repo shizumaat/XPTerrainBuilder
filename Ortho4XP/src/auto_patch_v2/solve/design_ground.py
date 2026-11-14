@@ -17,6 +17,8 @@ terminal from it; neither re-derives the set.
 """
 from __future__ import annotations
 
+import typing as _t
+
 from ..law import Law
 from ..law.tables import bend_class
 from ..model.planar import PlanarMap
@@ -91,9 +93,7 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     # feasible): its DEM reads the road under the deck, and a datum there,
     # tied to the stations by the deck's span, sank KIAH's taxiway bridge
     # obj24551 1.8 m toward the road under it
-    decked = {v for f in planar.faces.values()
-              if str(getattr(f, "ref", "")).startswith(DECK_GROUND_REF + ":")
-              for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
+    decked = _deck_ground_vertices(planar, is_ground)
     out: set[int] = set()
     for fid in outer:
         f = planar.faces[fid]
@@ -107,6 +107,30 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     out.update(coverage_edge_collar_vertices(planar))
     out.update(riser_outer_vertices(planar))
     return frozenset(out)
+
+
+def _deck_ground_vertices(planar: PlanarMap, ground_fids: _t.AbstractSet[int]) -> set[int]:
+    """The vertices of a deck's own ground (``deck_ground:<object>`` faces)
+    that follow the deck and so take no datum -- save one that also bounds
+    another ground face OUTSIDE every deck ring (#2072): there it is that
+    face's ground, the deck's span never holds it (``constraints/edge_deck.
+    _bridge_ground``), and with no level of its own bending alone stood
+    KIAH obj24551's corner 21.9 m over the DEM."""
+    decked = {v for f in planar.faces.values()
+              if str(getattr(f, "ref", "")).startswith(DECK_GROUND_REF + ":")
+              for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
+    rings = [db.ring for db in getattr(planar, "decks", ()) or () if len(db.ring) >= 3]
+    if not decked or not rings:
+        return decked
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    under = prep(unary_union([Polygon(r).buffer(0.5) for r in rings]))
+
+    def shared(v: int) -> bool:
+        return any(fid in ground_fids and not str(planar.faces[fid].ref).startswith(
+            DECK_GROUND_REF + ":") for fid in planar.vertices[v].incident_faces)
+    return {v for v in decked if not shared(v) or under.contains(Point(planar.vertices[v].xy))}
 
 
 def ground_rim_vertices(planar: PlanarMap) -> frozenset[int]:

@@ -60,7 +60,22 @@ the author placed them"):
    floats, a DC-3's over its wheels — seated by the fuselage they sank).
 
 A piece with no walled part (a roof, a canopy) and no carrier keeps
-§16 (3)'s own ground with its authored y (13y (3)).  NO LAW CONSTANT LIVES HERE: the keys are
+§16 (3)'s own ground with its authored y (13y (3)) — UNLESS IT RESTS ON
+A BODY THIS WITNESS SEATS (#2077, RULINGS 2026-11-13y (4): an object
+overlapping another moves with it).  LOWS ``domiki_lows_37`` b21 is the
+roof of ``domiki_lows_13``'s house, another resource of the same frame:
+its eaves overhang the walls (89 % of it over them, under S6's
+``contents_min_fraction``), so no unit holds the pair and the carrier
+search (footed bodies only) finds nothing.  14c put the walls on the
+hill and left the roof at own ground + authored y, 40 m up.  The rider
+(:func:`seat`'s non-walled branch) takes its HOST's seat — the same
+anchor and ``y_zero`` the host's own call writes (:func:`with_hosts`
+hands it the unit's own-ground bodies before the cut, so the answer does
+not depend on which member is cut first): a carrier-less, footless body
+whose plan overlaps a walled part of an own-ground body of its frame
+and whose lowest base lies within that body's walled span
+(``split_tol_m`` either side).  Among several the host whose top is
+nearest the rider's base wins (§16c (4)'s rest-on order).  NO LAW CONSTANT LIVES HERE: the keys are
 ``[placement]``'s and ``[rebake]``'s, the plane constants
 ``footprint_unit``'s.
 """
@@ -73,7 +88,8 @@ import typing as _t
 from . import anchor_rule as _ar
 from .footprint_unit import AUTHOR_GROUND_M, PLANE_SHARE
 
-__all__ = ["TerrainLaw", "TERRAIN_CARRIED", "law_of", "is_walled", "unit_base", "seat"]
+__all__ = ["TerrainLaw", "TERRAIN_CARRIED", "law_of", "is_walled", "unit_base", "seat",
+           "with_hosts"]
 
 #: the anchor reason's mark (after §16 (3)'s own-ground stem, which every
 #: regrouping pass still reads: a group the law finds is doubt, 13r)
@@ -95,6 +111,9 @@ class TerrainLaw:
     over_ground: bool = False
     #: ``[placement] terrain_base_within_m`` (witness 3; 14c (1))
     within_m: float = 0.0
+    #: #2077: the unit's own-ground bodies a rider may rest on —
+    #: ``(parts, member, anchor, lift)`` (:func:`with_hosts`)
+    hosts: tuple = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -130,6 +149,21 @@ def law_of(surface: _ar.Surface, plan: _t.Any, wall_min_m: float,
                                               or ()),
                       float(wall_min_m), float(elevated_base_m), float(split_tol_m),
                       parts, over, within)
+
+
+def with_hosts(law: "TerrainLaw | None", bodies: _t.Iterable[tuple]
+               ) -> "TerrainLaw | None":
+    """``law`` with the own-ground ``bodies`` — ``(parts, member, anchor,
+    lift)``, every body of the unit the carrier search left on its own
+    ground — that hold a walled part in the air (witness (1)'s
+    prerequisite); a rider on one takes its seat (#2077, module doc)."""
+    if law is None:
+        return None
+    hosts = tuple(
+        (tuple(ps), m, tuple(a), float(lift or 0.0)) for ps, m, a, lift in bodies
+        if any(is_walled(p, m, law.wall_min_m)
+               and float(p.base_y) > law.elevated_base_m for p in ps))
+    return _dc.replace(law, hosts=hosts)
 
 
 def _frame(u: _t.Any) -> tuple:
@@ -243,6 +277,8 @@ def seat(parts: _t.Sequence[_t.Any], m: _t.Any, anchor: _t.Sequence[float],
     ``split_tol_m``, else the vertex nearest the base's zero plane) — or
     ``None`` where the witness does not hold."""
     walled = [p for p in parts if is_walled(p, m, law.wall_min_m)]
+    if not walled:
+        return _rider(parts, anchor, lift, law, counts)
     w = _witness(walled, anchor, lift, law)
     if w is None:
         return None
@@ -269,6 +305,38 @@ def seat(parts: _t.Sequence[_t.Any], m: _t.Any, anchor: _t.Sequence[float],
         pick = _ar._low_side_foot(cands, ())[0]
     _count(counts, "terrain_carried_bodies")
     return pick[0], pick[1], w.b, pick[3], w.margin
+
+
+def _rider(parts: _t.Sequence[_t.Any], anchor: _t.Sequence[float], lift: float,
+           law: TerrainLaw, counts: "dict | None"
+           ) -> "tuple[float, float, float, float, float] | None":
+    """#2077 (module doc): a non-walled body's HOST's seat, or ``None``."""
+    boxes = [tuple(p.box) for p in parts if getattr(p, "box", None)]
+    if not law.hosts or not boxes or any(getattr(p, "feet", ()) for p in parts):
+        return None
+    frame = _frame_of(anchor, lift)
+    base = min(float(p.base_y) for p in parts)
+    best = None
+    for k, (hp, hm, ha, hl) in enumerate(law.hosts):
+        if _frame_of(ha, hl) != frame:
+            continue
+        hw = [q for q in hp if is_walled(q, hm, law.wall_min_m)
+              and getattr(q, "box", None)]
+        if not any(_overlap(tuple(q.box), b) for q in hw for b in boxes):
+            continue
+        lo = min(float(q.base_y) for q in hw)
+        top = max(float(q.base_y) + float(q.height_m or 0.0) for q in hw)
+        if not lo - law.split_tol_m <= base <= top + law.split_tol_m:
+            continue
+        key = (round(abs(top - base), 6), k)
+        if best is None or key < best[0]:
+            best = (key, hp, hm, ha, hl)
+    if best is None:
+        return None
+    host = seat(best[1], best[2], best[3], best[4], law, None)
+    if host is not None:
+        _count(counts, "terrain_carried_riders")
+    return host
 
 
 def _over_refused(w: _Witness, law: TerrainLaw, counts: "dict | None") -> bool:

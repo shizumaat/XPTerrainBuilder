@@ -462,6 +462,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.rider_floor",
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
+        "auto_patch_v2.airport.road_descent",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_stations",
         "auto_patch_v2.airport.road_ways",
@@ -646,6 +647,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.fill_road",
         "auto_patch_v2.planar.floor_decks",
         "auto_patch_v2.planar.foot_kerb",
+        "auto_patch_v2.planar.ground_chords",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.group_up",
         "auto_patch_v2.planar.landing",
@@ -2237,7 +2239,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.deck_lines
     constraints.taxi_route_yield
     airport.foot_lot
-    planar.foot_kerb
+    planar.foot_kerb planar.ground_chords airport.road_descent
     airport.isolated_seat airport.terrain_base geom.diameter
     model.storey_shell planar.cell_knife planar.storey_pad
 """)
@@ -2412,7 +2414,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.deck_anchor
     constraints.taxi_route_yield
     airport.foot_lot
-    planar.foot_kerb
+    planar.foot_kerb planar.ground_chords airport.road_descent
     airport.isolated_seat airport.terrain_base geom.diameter
     model.storey_shell planar.cell_knife planar.storey_pad
 """)

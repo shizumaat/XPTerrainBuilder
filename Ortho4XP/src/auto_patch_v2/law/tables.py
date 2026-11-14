@@ -21,7 +21,8 @@ from .reference_code import INSTRUMENT, PRECISION
 __all__ = [
     "footprint_touch_m",
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
-    "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
+    "role_family", "role_side", "contact_roles", "is_value_role", "is_rigid_role",
+    "is_structure_role",
     "pavement_roles", "pavement_fallback_cap", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds", "generator_slack_m",
     "runway_zone_edge_offset_m", "zone_edge_offset_m", "runway_safety_area_length_m",
@@ -107,6 +108,29 @@ def role_side(law: Law, role: str) -> str:
 def is_value_role(law: Law, role: str) -> bool:
     """Whether faces of ``role`` carry their own graded elevation."""
     return law.tables.precedence.roles[role].value
+
+
+def contact_roles(law: Law) -> frozenset[str]:
+    """§37 (10) (1) THE AIRSIDE CONTACT SET (owner RULINGS 2026-09-13cs
+    item 5): every face that carries its OWN airside level — apron, the
+    pad, the whole TAXI family (``junction`` and ``stub`` with it) and the
+    runway family, §40's shoulder joining as soon as the role is declared
+    — plus the roles ``[road_contact] extra_roles`` names (the LOT, which
+    ``precedence.toml`` partitions groundside but which is stated hard
+    surface a road meets).
+
+    Read off ``precedence.toml`` (``side = "airside"`` and ``value =
+    true``), never typed here: §37 (6) named "apron, pad or lot" in PROSE
+    and a taxiway was not in it, which is why HECA's ``route0`` ended
+    short of ``pav74`` with no contact at all and targeted the DEM above
+    it — a cliff (measured figures: ``airport/road_ramp`` history, #2070
+    moved this here so ``planar/ground_chords`` reads it below the ramp).
+    """
+    roles = law.tables.precedence.roles
+    out = {r for r in roles
+           if role_side(law, r) == "airside" and is_value_role(law, r)}
+    out.update(getattr(law.tables.emit.road_contact, "extra_roles", ()) or ())
+    return frozenset(out)
 
 
 def is_rigid_role(law: Law, role: str) -> bool:

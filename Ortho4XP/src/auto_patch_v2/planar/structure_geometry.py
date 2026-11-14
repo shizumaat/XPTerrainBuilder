@@ -357,10 +357,12 @@ def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: lis
     ``tunnel_ramp`` ring vertex.  With the DEM as target the ramp's pull levered the
     apron sharing its end cap 0.49 m up through the mouth datum
     (measured on the M4 twin) — groundside pulling airside; at its
-    design the ramp has nothing to pull with."""
+    design the ramp has nothing to pull with.  Under a hard deck the design
+    is the deck's floor (``model/structures.deck_floor_z``), linear along
+    the open stretch to a second deck (#2072 B1)."""
     if not tunnels:
         return {}
-    from ..model.structures import profile_z
+    from ..model.structures import deck_floor_z, profile_z
     g = law.tables.structures.tunnel.ramp_max_grade
     axes = {tn.id: LineString(tn.axis) for tn in tunnels}
     out: dict[int, float] = {}
@@ -386,10 +388,17 @@ def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: lis
                 # carries would pull the ramp under its own design)
                 out[v] = tn.mouth_z + gt * max(0.0, min(s, tn.top_s) - tn.climb_from_s)
                 continue
+            # under a hard deck and along the open stretch to the next one
+            # the floor's own level (#2072 B1: linear between two decks)
+            base = deck_floor_z(tn, s, tunnels) if tn.deck_bridge else tn.mouth_z
+            if tn.deck_floor_min_m > 0.0 and s <= tn.climb_from_s + 1e-6:
+                # a LADDER floor is pinned there at this very value (#2072 B1)
+                out[v] = base
+                continue
             d = float(dem_z[v])
             if math.isnan(d):
                 continue
-            out[v] = max(tn.mouth_z - reach, min(tn.mouth_z + reach, d))
+            out[v] = max(base - reach, min(base + reach, d))
     return out
 
 

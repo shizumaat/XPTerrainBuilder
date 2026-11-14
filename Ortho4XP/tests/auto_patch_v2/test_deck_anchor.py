@@ -245,6 +245,9 @@ def test_the_bank_never_cuts_a_mapped_road_beside_the_cut(tmp_path):
     road = _sbox(8.0, -30.0, 12.0, 100.0)
     _r0, o0 = DBR.deck_cut(db, moved, ramp, outer, 0.6)
     r1, o1 = DBR.deck_cut(db, moved, ramp, outer, 0.6, roads=road.union(ramp))
+    # #2072 C: the banks the cut clears honour the same witness
+    o0 = o0.union(DBR.deck_banks(db, moved, 0.6))
+    o1 = o1.union(DBR.deck_banks(db, moved, 0.6, roads=road.union(ramp), own=ramp))
     assert o0.intersection(road).area > 1.0 and o1.intersection(road).area < 1e-6
     assert r1.equals(_r0)
 

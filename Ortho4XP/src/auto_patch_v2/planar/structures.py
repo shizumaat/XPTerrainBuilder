@@ -118,8 +118,8 @@ from .structure_mouth import (covered_stretch, face_top_z, own_road_blade, road_
                               road_over_mouth)
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement
 from .structure_mouth import pinned_trench_notes
-from .lidar_road import (NO_SIGN, is_rail_group, kept_face_shift, survey_design_grade,
-                         survey_mouth,
+from .lidar_road import (KEPT, NO_SIGN, is_rail_group, kept_face_shift, mouth_verdict,
+                         survey_design_grade, survey_mouth,
                          survey_mouth_note, survey_mouth_refusal, survey_trench,
                          under_airside_pavement)
 from .dual_width import compose_half_fn, dual_half_fn
@@ -142,7 +142,10 @@ from .structure_stats import StructureStats
 from .entrance_skirt import (entrance_skirt, entrance_top, face_front_mouth, is_entrance_face,
                              skirt_refs)
 from .mouth_opening import group_opening, opening_halves
-from .structure_underpass import (underpass_bores as _underpass_bores,
+from .survey_cut import cutting_of
+from .underpass_mouth import (k_deck_ref, member_roads, place_mouth, ring_stations,
+                              sheared_ring, survey_floor, under_deck_band, under_deck_blade)
+from .structure_underpass import (aeroway_decks, underpass_bores as _underpass_bores,
                                   approach_along, bore_roads, mouth_parent, UNDERPASS_TAG,
                                   UNDERPASS_NOTE)
 from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
@@ -468,6 +471,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     skirt_of: dict[str, list] = {}       # 2026-11-06c (3): an entrance face's skirt pieces
 
     seen_ids: dict[str, int] = {}
+    osm_pts: dict[str, list] | None = None       # #1939 R1: the deck ways, by id
+    under_decks: dict[str, tuple[Polygon, Polygon]] = {}   # #1939 R4: (band B, the K ramp)
     for g in groups:
         members, mouth, inward, width, axis_path = g.members, g.mouth, g.inward, g.width, g.axis
         c = g.corridor
@@ -566,6 +571,49 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         road_rd = None if c is not None or pin is not None else survey_mouth(
             airport, law, members, portal_fn, width, credible, rim_off,
             under_airside_pavement(members, cells, cell_tree, law, odecks))
+        # #1939 R1 / R2: a CLASS-K mouth (a surveyed underpass of one deck,
+        # KEPT) stands on the covered extent's edge along the deck, its ring
+        # sheared onto it, its floor the survey (``underpass_mouth``)
+        k_sk, k_floor, k_notes = None, None, []
+        k_ref = k_deck_ref(members, rail, road_rd, c, pin, edge, deck)
+        if k_ref is not None:
+            if osm_pts is None:          # the deck read (§34 (5)): ids repeat across layers
+                osm_pts = {str(w.id): w.points for w in aeroway_decks(airport, law)}
+            k_sk, k_axis, k_note = place_mouth(osm_pts.get(k_ref, ()), k_ref, members, axis_ln,
+                                               inward, half, rim_off, law)
+            k_notes.append(k_note)
+            k_reads = member_roads(airport, k_sk, members) if k_sk is not None else []
+            if k_sk is not None and k_sk.sigma != 0.0:
+                # the verdict once more at the moved mouth, the instrument
+                # ALIGNED: the cover as read there, the road the least of the
+                # members' own reads outward from L (``member_roads``)
+                def k_fn(s: float, _ln=k_axis) -> XY:
+                    p = _ln.interpolate(min(s, _ln.length))
+                    return (p.x, p.y)
+                rd2 = survey_mouth(airport, law, members, k_fn, width, credible, rim_off,
+                                   under_airside_pavement(members, cells, cell_tree, law, odecks))
+                rd2 = None if rd2 is None or not k_reads else mouth_verdict(
+                    law, rd2.cover, min(z for _t, z in k_reads), rd2.paved, rd2.rail)
+                if rd2 is None or rd2.verdict != KEPT:
+                    k_notes.append(f"#1939 R1: the survey does not read the moved mouth KEPT "
+                                   f"({'nothing' if rd2 is None else rd2.verdict or 'digs'}"
+                                   + ("" if rd2 is None else f": cover {rd2.cover:.2f}, members' "
+                                      f"least road {rd2.road:.2f}") + "): not class K, the "
+                                   "square mouth stands")
+                    k_sk = None
+                else:
+                    road_rd, axis_ln, portal_fn = rd2, k_axis, k_fn
+                    mouth = tuple(axis_ln.coords[0])
+                    g = _dc.replace(g, mouth=mouth, axis=tuple(axis_ln.coords))
+            if k_sk is not None:
+                got = survey_floor(k_reads)
+                if got is None:
+                    k_notes.append("#1939 R2: the survey reads no member road at the mouth "
+                                   "edge: not class K")
+                    k_sk = None
+                else:
+                    k_floor = got[:2]
+                    k_notes.append(got[2])
         if road_rd is not None:      # R2: the zones never grade across the survey's trench
             trench = survey_trench(airport, law, road_rd, axis_ln, width, rim_off)
             if trench is not None:
@@ -575,8 +623,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             continue
         # #1938 N1 (RULINGS 2026-11-13h): a KEPT mouth is still a mouth --
         # built at the surveyed road (``extra`` 0), nothing cut under it
-        road_f = None if road_rd is None else road_rd.floor
-        face_in = 0.0 if road_rd is None else kept_face_shift(
+        road_f = None if road_rd is None else road_rd.floor if k_floor is None else k_floor[0]
+        face_in = 0.0 if road_rd is None or k_sk is not None else kept_face_shift(
             airport, law, road_rd, tuple(axis_ln.coords[0]), inward, rim_off)
         if face_in > 0.0:
             # #1938 round 3: its cap at the top of the face it stands on, so
@@ -586,7 +634,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 axis_ln.coords[0][1] + inward[1] * face_in))
             mouth = tuple(axis_ln.coords[0])
             g = _dc.replace(g, mouth=mouth, axis=tuple(axis_ln.coords))   # the readers' mouth
-        if road_rd is not None:      # R4: the ramp closes the depth along the surveyed road
+        if road_rd is not None and k_sk is None:   # R4: the ramp closes the depth on the road
             design_g = survey_design_grade(airport, law, portal_fn, road_rd, design_g, cap_g)
         # Q286 (#1629): a road crossing over the bore at its mouth is its deck
         decked_by = road_over_mouth([m.bore.line for m in members], g.mouth, cells, polys,
@@ -604,6 +652,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 axis_ln, roads_ix, law, [m.approach for m in members if hasattr(m, "approach")]),
             pinned=pin is not None, road_floor=road_f,
             road_extra=0.0 if road_rd is None else road_rd.extra,
+            cutting=cutting_of(airport, law, road_rd, width),      # #1939
+            skew=k_sk,
             slide=edge is None and deck is None,
             own_lines=() if edge is None and deck is None else [
                 LineString(m.approach) for m in members
@@ -676,6 +726,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         mouth_dem = c.mouth_dem_z if c is not None else (
             edge.deck_z if edge is not None else deck.deck_z if deck is not None
             else dem_z_at(airport, cap_c))
+        if k_sk is not None:
+            mouth_dem = road_rd.cover        # #1939 R2: the cap stands at the survey's cover
         if math.isnan(mouth_dem):
             stats.refused.append(f"{tid}: no DEM at the mouth")
             continue
@@ -819,7 +871,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 if s_free is not None:
                     deck_ivals = [d for d in deck_ivals if d[1] <= s_free]
                     obj_ivals = [d for d in obj_ivals if d[1] <= s_free]
-        if c is None and g.climbs and (deck_ivals or obj_ivals):
+        k_ss = ring_stations(law, airport.dem, spacing_g) if k_sk is not None else None
+        if k_ss is not None:
+            # #1939 R1: a K ring is the mouth's two stations; a deck beyond them
+            # is not over it
+            deck_ivals = [d for d in deck_ivals if d[1] < k_ss[-1]]
+            obj_ivals = [d for d in obj_ivals if d[1] < k_ss[-1]]
+        if c is None and g.climbs and (deck_ivals or obj_ivals) and k_ss is None:
             # #450: a MAPPED bore's decks are the ones over its ramp too
             # — the ones it is under even AT THE CAP.  A deck the cap's
             # climb tops out before is an OBSTRUCTION of the design-grade
@@ -898,7 +956,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             pinched = (OBJECT_FRAMED, g.hull_s, design_grade)
         # a group's length law is measured from where its climb starts
         max_len_g = None if g.max_length_m is None else climb_from + g.max_length_m + spacing_g
-        if g.climbs and c is not None and fits:
+        if k_ss is not None:
+            # #1939 R1: the ring [0, R] on the survey -- no climb is planned
+            # (``_unframed_climb`` skipped): the floor and the ground beyond pin it
+            ss, s_top, climb_from, design_grade = list(k_ss), k_ss[-1], 0.0, 0.0
+        elif g.climbs and c is not None and fits:
             ss = [spacing_g * k for k in range(int(g.hull_s // spacing_g) + 1)]
             if g.hull_s - ss[-1] > 1e-6:
                 ss.append(g.hull_s)
@@ -966,7 +1028,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # a building pad across the approach CLIPS the ramp at the pad's
         # edge (08-07 ruling 3); an object corridor's WALLS are never
         # clipped (05k-1 / 08-26): only its ramp BEYOND the walls is
-        top_pinned = g.climbs and level_to is None
+        top_pinned = g.climbs and level_to is None and k_sk is None
         clipped_by = ""
         # §33 (6) C2': the station set keeps the WALL'S OWN vertices
         ss = [s for s in seed_wall_stations(ss, c, grid) if s <= s_top + 1e-9]
@@ -1005,14 +1067,17 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # tracing the road sets the ramp's edges per station
             pav_hw, traced = pavement_half_widths(axis_fn, ss, cells, polys, law, half)
             # #807: a dual's edges are its carriageways' — one span where they fold
-            dual_fn = compose_half_fn(pav_hw, dual_half_fn(axis_fn, members, half), half, half_fn)
-            half_fn = compose_half_fn(pav_hw, None, half, half_fn)
-            if dual_fn is not half_fn and ring_for(c, axis_fn, ss, half, rim_off, inward, grid,
-                                                   g, dual_fn) is not None:
+            wide = len(members) >= 2         # #1939: a dual's trace never narrows it
+            dual_fn = compose_half_fn(pav_hw, dual_half_fn(axis_fn, members, half), half, half_fn,
+                                      wide)
+            half_fn = compose_half_fn(pav_hw, None, half, half_fn, wide)
+            if dual_fn is not half_fn and sheared_ring(k_sk, c, axis_fn, ss, half, rim_off,
+                                                       inward, grid, g, dual_fn) is not None:
                 half_fn = dual_fn
         # §33 (6) B: an OBJECT CUT's ring is its OWN trench polygon
         def _ring(ss_try):
-            return ring_for(c, axis_fn, ss_try, half, rim_off, inward, grid, g, half_fn)
+            return sheared_ring(k_sk, c, axis_fn, ss_try, half, rim_off, inward, grid, g,
+                                half_fn)
         while True:
             geom = _ring(ss)
             if geom is None:
@@ -1064,7 +1129,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             steepen_note = (f"#1938 round 3: {clipped_by} beyond the walls clips the ramp at "
                             f"{s_top:.1f} m; the grade under the walls stays their foot slope "
                             f"{100.0 * design_grade:.2f} % (08-07 ruling 3: the ramp ends free)")
-        elif clipped_by and c is None and g.climbs:
+        elif clipped_by and c is None and g.climbs and k_sk is None:
             # STOPPED SHORT OF ITS TOP is a run end too: the least grade up
             # to the cap that tops out BEFORE the stop builds the ramp whole
             got, s_fit, _ss, note = _unframed_climb(
@@ -1240,7 +1305,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if rt is not None:
             deck_notes.append(f"run-through with {rt.partner}: the road stays at the lower "
                               f"level between the two cuts (RULINGS 2026-11-03b Q340 a, #1717)")
-        notes = list(deck_notes) + ([clear[4]] if clear is not None and clear[4] else []) + (
+        notes = list(k_notes) + list(deck_notes) + (
+            [clear[4]] if clear is not None and clear[4] else []) + (
             [] if pin is None else [portal_note(pin, mouth_dem, mouth_z)]) + (
             [] if road_rd is None else [survey_mouth_note(road_rd, design_grade)]) + (
             [f"#1938 round 3: mouth {face_in:.1f} m into the bore, its cap at the top of the "
@@ -1277,6 +1343,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          f"{max(a + b for a, b in hws):.1f} m over {len(hws)} stations "
                          f"(lanes default {width:.1f} m)")
         extra: dict = {} if slid_depth is None else dict(depth_m=slid_depth)
+        if k_floor is not None:
+            # #1939 R2: the floor along the sheared mouth edge, right corner to left
+            extra["survey_floor"] = (float(k_floor[0]), float(k_floor[1]),
+                                     tuple(right[0]), tuple(left[0]))
+            band = under_deck_band(cap_out, inward, members)
+            if band is not None:
+                under_decks[tid] = (band, ramp_geom)
         if pin is not None:
             extra["portal"] = pin.object_id
             if pin.floor_z is not None:
@@ -1502,8 +1575,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                   dict(c.evidence, structure_cut=1.0)))
 
     stretches = [covered[t.id] for t in tunnels if t.id in covered]
+    bands = [under_decks[t.id] for t in tunnels if t.id in under_decks]
     for c, p in zip(cells, polys):
         own = own_road_blade(c, p, law, stretches, grid) if stretches else None
+        # #1939 R4: nothing groundside at grade under a K mouth's deck
+        under = under_deck_blade(c, p, law, bands) if bands else None
+        if under is not None:
+            own = under if own is None else own.union(under)
         blade = hull_knife if c.role == "building" else knife
         _cut(c, p, blade if own is None else (own if blade is None else blade.union(own)))
     # §33 (6) B AMENDED (3) (c) (owner RULINGS 2026-09-15br): the surface

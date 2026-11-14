@@ -608,6 +608,11 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     bridges = bridge_runs(airport, law)
     sample = bridged = bridge_sampler(smear_sampler(_sample_fn(airport), walls), bridges,
                                       band_fn)
+    # #1939 R5: between two surveyed underpass mouths of one deck the road
+    # reads the bore's floor, not the deck the survey carries (in band only)
+    from .bore_ground import bore_sampler, bore_spans
+    bores = bore_spans(getattr(pm, "structures", ()), law, getattr(airport, "dem", None))
+    sample = bored = bore_sampler(sample, bores, band_fn)
     # #2053 round 3: under a held object (a ground object on its bridges'
     # ends) the core's ribbon reads the cut ground (``object_ground``)
     if any(getattr(r[2], "seat_by", "") for r in getattr(airport, "terrain_models", ()) or ()):
@@ -635,11 +640,14 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
         pts = [pm.vertices[v].xy for v in b.vertices(pm)]
         ways.extend(clamp_way(ROUTE, f"{b.ref}#{b.id}", pts, sample, cap_,
                               rp.station_m, inside))
+    if bores:
+        print(f"  [road_profile] bore ground (#1939 R5): {len(bores)} span(s); "
+              f"{getattr(bored, 'lowered', 0)} station(s) lowered")
     if bridges:
         print(f"  [road_profile] bridge ground (#1935): {len(bridges)} run(s); "
               f"{getattr(bridged, 'lowered', 0)} station(s) lowered, "
               f"{getattr(bridged, 'edge_kept', 0)} kept raw outside the band")
-    if sample is not bridged:
+    if sample is not bored:
         print(f"  [road_profile] object ground (#2053): {sample.lowered} station(s) "
               "lowered to the cut ground")
     prof = RoadProfiles(cap_, rp.station_m, lw, rp.answer_radius_lane_widths * lw,

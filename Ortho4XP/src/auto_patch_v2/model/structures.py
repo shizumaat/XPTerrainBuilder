@@ -404,6 +404,13 @@ class Tunnel:
     #: a sunken road's LEVEL FLOOR under a mound (spec
     #: object-gate-member-floors §5): both ends at grade
     level_floor: bool = False
+    #: #1939 R2 (a class-K surveyed underpass mouth, ``planar/underpass_mouth``):
+    #: the floor along the sheared mouth edge ``(z0, k, a, b)`` -- ``z0 + k .
+    #: tau``, ``tau`` the metres from ``axis[0]`` toward ``b`` along the edge
+    #: from corner ``a`` to corner ``b``; the ramp is pinned to it there and to
+    #: the ground beyond (``constraints/structures``), no station rows.
+    #: ``None`` for every other mouth
+    survey_floor: tuple | None = None
 
 
 @_dc.dataclass(frozen=True)

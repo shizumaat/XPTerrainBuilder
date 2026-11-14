@@ -357,6 +357,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.basin_witness",
         "auto_patch_v2.airport.below_grade_witness",
         "auto_patch_v2.airport.below_zero",
+        "auto_patch_v2.airport.bore_ground",
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_family",
@@ -700,7 +701,9 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.structure_stats",
         "auto_patch_v2.planar.structure_underpass",
         "auto_patch_v2.planar.structures",
+        "auto_patch_v2.planar.survey_cut",
         "auto_patch_v2.planar.terrain_edge",
+        "auto_patch_v2.planar.underpass_mouth",
         "auto_patch_v2.planar.unframed_ramp",
         "auto_patch_v2.planar.viaduct_road",
         "auto_patch_v2.planar.wall_corridor_ramps",
@@ -759,6 +762,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.backup_state",
         "auto_patch_v2.airport.basin_ring",
         "auto_patch_v2.airport.basin_witness",
+        "auto_patch_v2.airport.bore_ground",
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_family",
@@ -922,6 +926,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.backup_state",
         "auto_patch_v2.airport.basin_ring",
         "auto_patch_v2.airport.basin_witness",
+        "auto_patch_v2.airport.bore_ground",
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_family",
@@ -1328,6 +1333,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.stretches",
         "auto_patch_v2.constraints.strips",
         "auto_patch_v2.constraints.structures",
+        "auto_patch_v2.constraints.survey_floor",
         "auto_patch_v2.constraints.taxi",
         "auto_patch_v2.constraints.taxi_route_yield",
         "auto_patch_v2.constraints.taxi_trend",
@@ -1583,7 +1589,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.foot_rows
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
-        constraints.edge_floor constraints.structures constraints.entrance_skirt
+        constraints.edge_floor constraints.structures constraints.survey_floor
+        constraints.entrance_skirt
     constraints.viaduct_floor geom.base_slab geom.cluster_outline
         geom.containment
         geom.feet_graph geom.feet_mst geom.pad_evidence geom.triangulate geom.union_find
@@ -1842,6 +1849,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
         constraints.platform constraints.precedence constraints.edge_floor constraints.structures
+        constraints.survey_floor
         constraints.entrance_skirt
     constraints.viaduct_floor
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
@@ -1968,7 +1976,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.threshold_seam
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
-    constraints.strips constraints.edge_floor constraints.structures constraints.entrance_skirt
+    constraints.strips constraints.edge_floor constraints.structures constraints.survey_floor
+    constraints.entrance_skirt
     constraints.viaduct_floor constraints.taxi
     constraints.deck_lines
     constraints.taxi_trend
@@ -2184,7 +2193,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.channel_strip
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
-    geom.station_runs airport.bridge_ground airport.object_ground airport.terrain_cut
+    geom.station_runs airport.bridge_ground airport.bore_ground airport.object_ground
+    airport.terrain_cut
     planar.cut_frame planar.deck_bridge planar.deck_walls
     planar.deck_route
     planar.door_ramps planar.dual_width planar.edges planar.end_witness planar.landing
@@ -2200,7 +2210,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_approach planar.structure_deck planar.structure_fence
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
-    planar.structure_mouth planar.structure_service planar.structure_stats
+    planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service
+    planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
@@ -2328,7 +2339,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.runway_yield constraints.runway_junctions constraints.seams
     constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips
-    constraints.edge_floor constraints.structures constraints.entrance_skirt
+    constraints.edge_floor constraints.structures constraints.survey_floor
+    constraints.entrance_skirt
     constraints.viaduct_floor constraints.taxi constraints.taxi_trend
     constraints.deck_lines
     constraints.taxi_trend_cap constraints.transverse geom.trend
@@ -2356,7 +2368,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.channel_strip
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
-    geom.station_runs airport.bridge_ground airport.object_ground airport.terrain_cut
+    geom.station_runs airport.bridge_ground airport.bore_ground airport.object_ground
+    airport.terrain_cut
     planar.cut_frame planar.deck_bridge planar.deck_walls
     planar.deck_route
     planar.door_ramps planar.dual_width planar.edges planar.end_witness planar.landing
@@ -2372,7 +2385,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_approach planar.structure_deck planar.structure_fence
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
-    planar.structure_mouth planar.structure_service planar.structure_stats
+    planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service
+    planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
@@ -2407,7 +2421,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends
     airport.walled_pit airport.pit_frame constraints.airside_top
     geom.runway_contact airport.centreline_seat
-    geom.station_runs airport.bridge_ground airport.object_ground airport.terrain_cut
+    geom.station_runs airport.bridge_ground airport.bore_ground airport.object_ground
+    airport.terrain_cut
     geom.shape_class
     airport.hanging_objects airport.object_cut airport.object_floor airport.floor_rim
     airport.wall_geometry

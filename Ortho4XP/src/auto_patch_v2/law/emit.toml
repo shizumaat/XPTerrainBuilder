@@ -909,6 +909,7 @@ hard_rulings = [
   "apron body chord, stationed across the face",         # the same
   "structures.hard-deck bridge: one zero, flush at both end lines",   # owner RULINGS 2026-10-30a (1) (#1671): a pack hard-deck bridge has ONE zero, so its end lines' seat sets differ by the deck-top difference (constraints/edge_deck, the rigid row) - MEASURED as a post-solve read (class A) on the KBNA capture: the two end lines solved 2.2 m apart (171.95 / 174.18)
   "roads.edge bridge deck level with the airside abeam",   # owner RULINGS 2026-10-28d Q211 a (#1138): a road deck over an edge bridge's trench is level with the airside pavement abeam (constraints/edge_deck) - MEASURED one-way at the law weight on the KATL capture: 1.8-7.8 m under the taxiway
+  "tunnel.survey_floor",                                  # #1939 round 2 R2 (spec docs/specs/1939-round2-spec.md; RULINGS 2026-11-13h N1): a class-K surveyed underpass mouth's floor IS the survey -- its ramp vertices pinned on the mouth edge at the fitted surveyed road, bare ones at the DEM (constraints/survey_floor)
   "tunnel.mouth_depth_m",                                 # §33 (5) (Fable 2026-09-15; RULINGS 2026-09-15h): the mouth's floor is `rim - mouth_depth_m` HOWEVER its station was taken.  MEASURED soft at LEMD tunnel:-15327@0 (owner 15e item 5, "doesn't seem to be providing the right depth"): the datum equality LOST 2.17 m - floor 599.25 against its own 597.08, under a rim solving 602.16 = the DEM it is pinned at - and the census named it 32 times (`tunnel_mouth_canonical`).  A weight contest is not a law
   "gap_piece follows its standing neighbour across the stand-off",   # spec §53 (13): a Band on a piece vertex against a CONSTANT of the earlier stages (last stage only)
   "gap lot terrace holds the road's level across",                   # spec §55 (3) 4 (owner RULINGS 2026-10-06d): a lot vertex within the road law's own lateral window of the nearest road's level (last stage only)
@@ -967,6 +968,7 @@ hard_conflict_ranks = [
    "structures.building_pad frontage_hold",
    "structures.walled_plate under-plate cap"],                        # #1201 (27t/u): the plate's ground outranks the groundside rows under it
   ["road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.mouth_depth_m",
+   "tunnel.survey_floor",                                             # #1939 R2: with the mouth depth
    "roads.edge bridge deck level with the airside abeam",             # 28d Q211 (#1138)
    "roads.ramp_runout landing run-out at road grade",                 # #711: groundside, with the road ramp ceiling
    "gap_piece follows its standing neighbour across the stand-off",    # §53 (13): groundside, the last stage's own

@@ -78,6 +78,7 @@ from ..law.tables import is_rigid_role, pavement_roles
 from ..model.airport import Airport
 from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Source
 from ..model.frame import XY
+from .survey_floor import cap_line, survey_floor_pins
 from ..model.planar import Face, PlanarMap
 from ..model.structures import SKIRT_ROLE, UNDERPASS_NOTE, Basin, Tunnel, profile_z
 from .airside_top import TOP_FLUSH, top_seat, top_seats
@@ -402,7 +403,8 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             shared = (shared_with_ground if not on_deck
                       else (lambda v: v in on_deck or shared_with_ground(v)))
             groups = _rim_rows(planar, airport, path, wall_vs, shared, pin, src_wall,
-                               own_ground=bool(getattr(tn, "edge_back", ())))
+                               own_ground=bool(getattr(tn, "edge_back", ())),
+                               cap=cap_line(tn), grid=grid)
             # RULINGS 2026-11-06c (3): an entrance face's skirt is its top
             # -- #1737: held level with the airside seat where it has one
             top_at = top_seat(top_seats_of, tn)
@@ -427,6 +429,12 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         abut: list[tuple[float, list[int]]] = []     # groups beside a deck
         datum_vs: list[int] = []
         datum_groups: list[tuple[float, list[int]]] = []
+        if getattr(tn, "survey_floor", None) is not None:
+            # #1939 R2: a class-K mouth's floor IS the survey -- every ramp
+            # vertex pinned (``constraints/survey_floor``), no station rows
+            survey_floor_pins(planar, airport, tn, [f for _s, f in pieces], shared_with_ground,
+                              pin, inputs, grid, GEN, vw)
+            pieces = []
         if tn.pinched and tn.source in ("door", WALL_CORRIDOR_SOURCE):
             # A RAMP ITS OBJECTS FRAME (2026-10-07e) IS ONE PLANE, pinned
             # per vertex: no station ties, no descent rows.  A door ramp's
@@ -805,7 +813,9 @@ def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:
 
 def _rim_rows(planar: PlanarMap, airport: Airport, path: LineString, rim_vs: list[int],
               shared_with_ground: _t.Callable[[int], bool], pin: _t.Callable[..., None],
-              src_rim: Source, own_ground: bool = False) -> list[tuple[float, list[int]]]:
+              src_rim: Source, own_ground: bool = False,
+              cap: tuple[LineString, float] | None = None,
+              grid: float = 0.0) -> list[tuple[float, list[int]]]:
     """THE RIM BY STATION (2026-09-03b L1; 2026-09-06b (1); the ground
     rule): the rim's vertices grouped by station along ``path`` (the rim
     ring itself); a vertex the governed ground shares carries the
@@ -817,7 +827,9 @@ def _rim_rows(planar: PlanarMap, airport: Airport, path: LineString, rim_vs: lis
     trench, ``Tunnel.edge_back``): a bare rim vertex takes its OWN ground
     (``Vertex.dem_z`` — the covered ground's lift along the back, owner
     RULINGS 2026-10-27l), never the bare-earth road the DEM shows under the
-    bridge.  Returns the groups."""
+    bridge.  ``cap`` (#1939 R3, a class-K mouth: ``(cap line, cover)``): a
+    bare rim vertex within ``grid`` of the cap line stands at the cover.
+    Returns the groups."""
     closed = len(path.coords) > 2 and path.coords[0] == path.coords[-1]
     groups = _cluster([(path.project(Point(planar.vertices[v].xy)), v) for v in rim_vs],
                       _STATION_CLUSTER_M)
@@ -831,6 +843,8 @@ def _rim_rows(planar: PlanarMap, airport: Airport, path: LineString, rim_vs: lis
             if shared_with_ground(v):
                 continue                  # the ground's value carries the rim
             own = planar.vertices[v].dem_z if own_ground else None
+            if cap is not None and cap[0].distance(Point(planar.vertices[v].xy)) <= grid + 1e-9:
+                own = cap[1]                      # #1939 R3: the cap at the survey's cover
             p = path.interpolate(path.project(Point(planar.vertices[v].xy)))
             z = float(own) if own is not None else _dem_at(airport, p.x, p.y)
             if not math.isnan(z):

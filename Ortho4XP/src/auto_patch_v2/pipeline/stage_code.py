@@ -172,8 +172,10 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
+        "auto_patch_v2.airport.drawn_anchor",
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.entrance_seat",
+        "auto_patch_v2.airport.exclusion",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
@@ -379,9 +381,11 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dem_shared",
         "auto_patch_v2.airport.dem_witness",
         "auto_patch_v2.airport.door_wells",
+        "auto_patch_v2.airport.drawn_anchor",
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.dsf_heights",
         "auto_patch_v2.airport.entrance_seat",
+        "auto_patch_v2.airport.exclusion",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
@@ -779,8 +783,10 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
+        "auto_patch_v2.airport.drawn_anchor",
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.entrance_seat",
+        "auto_patch_v2.airport.exclusion",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
@@ -944,8 +950,10 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
+        "auto_patch_v2.airport.drawn_anchor",
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.entrance_seat",
+        "auto_patch_v2.airport.exclusion",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
@@ -1160,8 +1168,10 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.dem_witness",
+        "auto_patch_v2.airport.drawn_anchor",
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.entrance_seat",
+        "auto_patch_v2.airport.exclusion",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.facade",
         "auto_patch_v2.airport.file_hash",
@@ -1936,7 +1946,9 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
     airport.pad_block_seat airport.partition_cache airport.partition_code
-    airport.placement_atom airport.placement_body airport.placement_boxes
+    airport.placement_atom
+    airport.drawn_anchor airport.exclusion
+    airport.placement_body airport.placement_boxes
     airport.placement_carrier airport.placement_census airport.placement_cockpit
     airport.placement_contact airport.placement_cut airport.placement_deck
     airport.placement_family airport.placement_file airport.placement_geom
@@ -2040,6 +2052,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.object_pack airport.pack_local
     airport.pack_partition airport.adapted_riders airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
+    airport.drawn_anchor airport.exclusion
     airport.placement_body airport.placement_boxes airport.placement_carrier
     airport.placement_census airport.placement_cockpit airport.placement_contact
     airport.placement_cut airport.placement_deck airport.placement_family
@@ -2127,6 +2140,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.object_pack airport.pack_local
     airport.partition_cache airport.partition_code airport.placement_atom
+    airport.drawn_anchor airport.exclusion
     airport.placement_body airport.placement_boxes airport.placement_carrier
     airport.placement_census airport.placement_cockpit airport.placement_contact
     airport.placement_cut airport.placement_deck airport.placement_family
@@ -2285,6 +2299,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.object_pack airport.pack_local
     airport.partition_cache airport.partition_code airport.placement_atom
+    airport.drawn_anchor airport.exclusion
     airport.placement_body airport.placement_boxes airport.placement_carrier
     airport.placement_census airport.placement_cockpit airport.placement_contact
     airport.placement_cut airport.placement_deck airport.placement_family
@@ -2453,7 +2468,9 @@ CODE_MODULES["emit"] = _mods("""
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
     airport.pad_block_seat airport.partition_cache airport.partition_code
-    airport.placement_atom airport.placement_body airport.placement_boxes
+    airport.placement_atom
+    airport.drawn_anchor airport.exclusion
+    airport.placement_body airport.placement_boxes
     airport.placement_carrier airport.placement_census airport.placement_cockpit
     airport.placement_contact airport.placement_cut airport.placement_deck
     airport.placement_family airport.placement_file airport.placement_geom
@@ -2563,7 +2580,9 @@ CODE_MODULES["verify"] = _mods("""
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
     airport.pad_block_seat airport.partition_cache airport.partition_code
-    airport.placement_atom airport.placement_body airport.placement_boxes
+    airport.placement_atom
+    airport.drawn_anchor airport.exclusion
+    airport.placement_body airport.placement_boxes
     airport.placement_carrier airport.placement_census airport.placement_cockpit
     airport.placement_contact airport.placement_cut airport.placement_deck
     airport.placement_family airport.placement_file airport.placement_geom

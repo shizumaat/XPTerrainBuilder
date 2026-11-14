@@ -349,3 +349,31 @@ A. All-deck bridge frames that hold the witness (20 decks: KDEN 12, KLAX 2, KTPA
 B. A far end the ramp cannot close: (a, default) build nothing there and list it; (b) build the ramp
    as far as it goes and list the step.
 C. (default) One OTHH sim read after R3; R2's seats are checked on the drawn mesh by the gate.
+
+## A1-E1 — erratum after S0 (Fable ruling, 2026-11-14)
+
+E1. CLASS ORDER (corrects A1). For a deck with W1–W7 + W4b holding: `plated_deck` if it carries an `edge` /
+`walled` / `split_level` plate, else `free_bridge`. `deck_datum_z` is not read on this branch; `graded_deck`
+exists only at its old place, after `attached_bridge`. The clause "`graded_deck` if `deck_datum_z` is set" is
+struck (it contradicts A3, F6 and base spec §1). Moves exactly OTHH `Bridge_05_LOD0_000` → `plated_deck` and YSSY
+`road3_d` → `free_bridge`; the other 127 graded decks are unchanged (none holds the witness). R2 addition (08-30l):
+before admitting `road3_d`, the lane lists every reader of `deck_datum_z` for that member and what each does once
+the deck is `"free"`; a reader that still acts on it is a STOP.
+
+E2. W4b — which faces and at what height (replaces "brought to the deck's height by that object's own authored zero").
+(a) WHICH OBJECTS: every pack object whose placed solid faces' plan bounds meet the station box (station line
+buffered 1.0 m) — never select by distance from the object's origin (S0's `_Under` 600 m origin filter dropped LIMC
+traintunel_2, origin 1389 m from its ring in a shared-datum pack). (b) OWN FRAME: faces in their authored y,
+unshifted. (c) ANOTHER FRAME: authored y + [(G at that unit's anchor + its `agl_m`) − (G at the deck's unit anchor
++ its `agl_m`)], G = pre-solve DEM; with no DEM shift by the `agl_m` difference only and mark the row
+`beneath_unshifted`. (d) Window and share as A1. Twin: an object whose origin is 1 km from its geometry is still read.
+
+E3. A3 re-baseline (G0 = the named lists; counts are information).
+- `free_bridge` (6), `plated_deck` (1), `all_deck_frame` witness holds (20), `not_a_bridge` by W7 (2): as A3.
+- `all_deck_frame` witness refused: W7 ×8 (CZNL Nelson, EBCI Parkingramp, KMCI road-bridge-1 / -2 / -6, LSZH
+  VorfahrtDach, PHNL solar1, YBBN trainstation_00_02b); W4b ×2 (LIMC train-traintunel_1 / _2).
+- UNREAD, feed missing: VHHH `ROAD` (unit:96), KABQ `Terminal_Roads` (unit:84). The census prints "no OSM feed" (as
+  it prints "no DEM"), never "W1 no mapped route", when a tile has no feed. Neither is a STOP.
+- Counts on today's corpus after E1 + E2: `airside_hard_deck` 52, `road_overpass` 25, `cut_deck` 9, `graded_deck`
+  127, `attached_bridge` 41 (42 with KABQ's feed), `all_deck_frame` 127, `not_a_bridge` 308; 696 rows.
+- G0 records each plan's path and mtime. STOP rule unchanged.

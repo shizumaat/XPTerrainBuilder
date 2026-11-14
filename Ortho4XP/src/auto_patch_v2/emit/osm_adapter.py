@@ -123,6 +123,12 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # LAW INPUT for the ``deck_end_flush`` census family
     "deck_anchors",
     "road_bridge_decks", "terrace_joints", "basin_facilities",
+    # #2062 (RULINGS 2026-11-13w): the storey shells -- a REPORT key the
+    # drawn check reads (``pipeline/storey_publication``)
+    "storey_shells",
+    # #2068: the upper pads' levels and rim steps -- a REPORT key
+    # (``pipeline/upper_pad_publication``)
+    "upper_pads",
     # spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNEL records —
     # the floor datum each channel declares per station and the crest
     # law, which the two §45 C14 families judge the emitted surface

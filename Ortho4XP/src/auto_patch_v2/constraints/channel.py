@@ -29,17 +29,24 @@ from ..model.airport import Airport
 from ..model.constraints import Offset, Pin, Row, Source
 from ..model.planar import PlanarMap
 from ..model.structures import CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE, CREST_DESIGN
-from .precedence import view
 from .geometry import nearest_vertex_of_containing_cell
+from .precedence import view
 
-__all__ = ["channels", "GEN", "FLOOR_RULING", "CREST_RULING",
-           "floor_faces_of", "wall_faces_of"]
+__all__ = ["channels", "GEN", "FLOOR_RULING", "CREST_RULING", "LEDGE_RULING",
+           "floor_faces_of", "wall_faces_of", "ledge_pin_vertices"]
 
 GEN = "channels"
 FLOOR_RULING = ("channel.floor = the record's profile (spec §45 (3); owner RULINGS "
                 "2026-09-15i \"Cut the road down\")")
 CREST_RULING = ("channel.crest = \"design\": the solved surface of the governed cell at "
                 "the corridor edge, never DEM(x, y) (spec §45 (5))")
+
+LEDGE_RULING = ("channel.crest at a LEDGE member's foot = that foot (spec "
+                "object-gate-member-floors §4.4; owner RULINGS 2026-11-06d (6) with "
+                "2026-11-13i \"we don't want any visible edge to be floating\")")
+#: the crest's roles that are a structure's, never the governed ground's
+STRUCTURE_ROLES = (CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE, "tunnel_ramp", "door_ramp",
+                   "wall_corridor_ramp", "garage_ramp")
 
 #: The refs ``planar/channel.py`` writes.  A ``tunnel_trench`` face whose
 #: ref is NOT one of these is a BASIN floor (``basin_floor:``) and keeps
@@ -109,8 +116,7 @@ def channels(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     vw = view(planar, law)
     floors = floor_faces_of(planar)
     walls = wall_faces_of(planar)
-    structure_roles = (CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE, "tunnel_ramp",
-                       "door_ramp", "wall_corridor_ramp", "garage_ramp")
+    structure_roles = STRUCTURE_ROLES
     rows: list[Row] = []
     for c in chans:
         inputs = (c.id, *(f"osm:{w}" for w in c.ways))
@@ -132,10 +138,14 @@ def channels(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             s = s0 + axis.project(Point(planar.vertices[v].xy))
             rows.append(Pin(v, float(c.floor_z(s)), src_floor))
         # ── the crest ──────────────────────────────────────────────────
+        ledges = ledge_pin_vertices(planar, law, c, vw, walls, on_floor)
+        src_ledge = Source(GEN, LEDGE_RULING, inputs)
+        for v, (_k, zl) in sorted(ledges.items()):
+            rows.append(Pin(v, zl, src_ledge))
         for f in walls.get(c.id, ()):
             for v in _ring_and_holes(planar, vw, f):
-                if v in on_floor:
-                    continue          # the void's inner ring IS the floor edge
+                if v in on_floor or v in ledges:
+                    continue          # the floor edge; a ledge foot's pin
                 if _shared_with_ground(planar, vw, v, structure_roles):
                     continue          # one node, one value: the cell governs it
                 gv = nearest_vertex_of_containing_cell(planar, vw, v, structure_roles)
@@ -144,6 +154,41 @@ def channels(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 rows.append(Offset(v, gv, 0.0, src_crest))
                 rows.append(Offset(gv, v, 0.0, src_crest))
     return rows
+
+
+def ledge_pin_vertices(planar: PlanarMap, law: Law, c, vw=None, walls=None,
+                       on_floor: "set[int] | None" = None) -> dict[int, tuple[int, float]]:
+    """``{crest vertex: (ledge pin index, z)}`` (spec §4.4): the crest
+    vertex within ``emit.identity.min_distinct_spacing_m`` of each of
+    ``c.ledge_pins`` takes that pin — unless a governed cell SHARES it (one
+    node, one value: the cell governs, and the foot is published
+    ``unmet``) or it is the floor's own edge."""
+    pins = getattr(c, "ledge_pins", ()) or ()
+    if not pins:
+        return {}
+    vw = view(planar, law) if vw is None else vw
+    walls = wall_faces_of(planar) if walls is None else walls
+    if on_floor is None:
+        on_floor = {v for f in floor_faces_of(planar).get(c.id, ())
+                    for v in _ring_and_holes(planar, vw, f)}
+    tol = float(law.tables.emit.identity.min_distinct_spacing_m)
+    crest = sorted({v for f in walls.get(c.id, ()) for v in _ring_and_holes(planar, vw, f)}
+                   - set(on_floor))
+    out: dict[int, tuple[int, float]] = {}
+    if not crest:
+        return out
+    import numpy as np
+
+    from ..geom import exact as _exact
+    xy = np.array([planar.vertices[v].xy for v in crest], float)
+    for k, (px, py, pz) in enumerate(pins):
+        d = _exact.hypot_array(xy[:, 0] - px, xy[:, 1] - py)
+        j = int(np.argmin(d))
+        v = crest[j]
+        if d[j] > tol or v in out or _shared_with_ground(planar, vw, v, STRUCTURE_ROLES):
+            continue
+        out[v] = (k, float(pz))
+    return out
 
 
 def _ring_and_holes(planar: PlanarMap, vw, f) -> list[int]:

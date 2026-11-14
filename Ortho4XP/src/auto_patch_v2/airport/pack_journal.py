@@ -36,6 +36,7 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import typing as _t
 
 from . import backup_state as _bs
@@ -53,6 +54,18 @@ UNPROVEN = "unproven"
 _INDEX = "journal.json"
 #: the journal directory of the object stage running in this process
 _active: str | None = None
+#: the :func:`transaction` folders open in this thread, outermost first:
+#: a :func:`snapshot` inside one enlists its DSF (#1884 round 2 B2: one
+#: write over this tile's DSF, the neighbours' and the home DSF a stale
+#: guest row takes back)
+_open = threading.local()
+
+
+def _transactions() -> list:
+    got = getattr(_open, "dirs", None)
+    if got is None:
+        got = _open.dirs = []
+    return got
 
 
 @_dc.dataclass(frozen=True)
@@ -137,9 +150,15 @@ def snapshot(pack_root: str, dsf_path: str,
 
     ``new_bodies`` are the body files the caller is about to write (every
     call adds its own): the record names them only once the DSF write has
-    got that far, and a build killed before it must still remove them."""
+    got that far, and a build killed before it must still remove them.
+
+    Inside an open :func:`transaction` the DSF is kept there too, so a
+    raise anywhere in it puts this DSF back with the others."""
+    new_bodies = list(new_bodies)
     if _active:
         _snapshot_into(_active, pack_root, dsf_path, new_bodies)
+    for txn in _transactions():
+        _snapshot_into(txn, pack_root, dsf_path, new_bodies)
 
 
 def _snapshot_into(journal: str, pack_root: str, dsf_path: str,
@@ -181,24 +200,44 @@ def transaction(pack_root: str, dsf_path: str,
     a raise inside the block puts them back — the previous bodies first,
     then the DSF, then the ``new_bodies`` the write minted are removed —
     and re-raises.  Outside a build too: a failed encode must never leave
-    a DSF naming the bodies the restore step removed."""
+    a DSF naming the bodies the restore step removed.
+
+    Every other DSF :func:`snapshot` is called for inside the block (in
+    this thread) joins it: ONE transaction over a tile's DSF and the
+    neighbour DSFs its write touches (#1884 round 2 B2)."""
     tmp = tempfile.mkdtemp(prefix="o4_pack_txn_")
     try:
         _snapshot_into(tmp, pack_root, dsf_path, new_bodies)
+        _transactions().append(tmp)
         try:
             yield
         except Exception:
             # a stop (KeyboardInterrupt, a kill) is the build journal's
             # (:func:`replay`, #598): only a failed write is undone here
-            for entry in _read(tmp):
-                try:
-                    _put_back(tmp, entry)
-                except (OSError, ValueError, KeyError, TypeError):
-                    pass
-            _bs.invalidate_memo()
+            _put_back_all(tmp)
             raise
+        finally:
+            _transactions().remove(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _put_back_all(journal: str) -> list:
+    """Every DSF of ``journal`` put back (:func:`_put_back`); ``[(entry,
+    reason)]``.  A body ANY of them named before is kept: two DSFs of one
+    pack share ``objects/``, and a body one of them named before may be
+    what the other minted (a body that changed tile, #1884)."""
+    entries = _read(journal)
+    before = {str(name) for e in entries for name, _copy in e.get("bodies") or []}
+    out = []
+    for entry in entries:
+        try:
+            reason = _put_back(journal, entry, before)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            reason = f"{exc}."
+        out.append((entry, reason))
+    _bs.invalidate_memo()
+    return out
 
 
 def pending(build_dir: str, tile_name: str) -> bool:
@@ -218,8 +257,11 @@ def discard(build_dir: str, tile_name: str) -> None:
     shutil.rmtree(path_for(build_dir, tile_name), ignore_errors=True)
 
 
-def _put_back(journal: str, entry: dict) -> str:
-    """One DSF's files as saved; ``""`` or why the DSF was left."""
+def _put_back(journal: str, entry: dict,
+              kept: _t.Collection[str] = ()) -> str:
+    """One DSF's files as saved; ``""`` or why the DSF was left.
+    ``kept``: the pack-relative bodies another DSF of the same journal
+    named before (:func:`_put_back_all`), never removed."""
     dsf_path, pack_root = entry["dsf"], entry["pack_root"]
     saved = os.path.join(journal, str(entry.get("dsf_copy")))
     if not os.path.isfile(dsf_path):
@@ -248,7 +290,7 @@ def _put_back(journal: str, entry: dict) -> str:
         shutil.copyfile(saved, dsf_path + ".o4tmp")
         os.replace(dsf_path + ".o4tmp", dsf_path)
     _dw.remove_cut_files(_stale_bodies(
-        pack_root, recorded, entry.get("minted") or [], before))
+        pack_root, recorded, entry.get("minted") or [], [*before, *kept]))
     record = None
     if entry.get("record_copy"):
         with open(os.path.join(journal, entry["record_copy"]), "rb") as fh:
@@ -264,20 +306,23 @@ def replay(build_dir: str, tile_name: str, *,
     as every pack writer does (§3.5).  Never raises for one DSF: a file
     that cannot be put back is reported :data:`UNPROVEN`."""
     journal = path_for(build_dir, tile_name)
-    out = []
     for entry in _read(journal):
         dsf_path = str(entry.get("dsf") or "")
-        pack_root = str(entry.get("pack_root") or "")
         if _dw.live_install_roots(dsf_path) and not allow_live_install:
             raise PermissionError(
                 f"REFUSING to restore inside a live X-Plane installation: "
                 f"{dsf_path!r} (spec §3.5 — a lane writes a COPY of the pack)")
-        try:
-            reason = _put_back(journal, entry)
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            reason = f"{exc}."
-        out.append(Replayed(UNPROVEN if reason else RESTORED, pack_root,
-                            dsf_path, reason))
-    _bs.invalidate_memo()
+    # one pack write lock per pack (``pack_lock``, #1884 round 2 B3)
+    from . import pack_lock as _lock
+    roots = sorted(r for r in {str(e.get("pack_root") or "")
+                               for e in _read(journal)} if r and os.path.isdir(r))
+    with contextlib.ExitStack() as stack:
+        for root in roots:
+            stack.enter_context(_lock.hold(
+                root, allow_live_install=allow_live_install))
+        done = _put_back_all(journal)
+    out = [Replayed(UNPROVEN if reason else RESTORED,
+                    str(e.get("pack_root") or ""), str(e.get("dsf") or ""),
+                    reason) for e, reason in done]
     discard(build_dir, tile_name)
     return tuple(out)

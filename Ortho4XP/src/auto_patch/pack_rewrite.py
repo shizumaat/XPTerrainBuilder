@@ -12,6 +12,10 @@ and ground textures (#1916, #1962, ``drape_stage``).
   choice gets its pristine file back byte for byte when nothing else of
   ours is in it (:func:`_others_recorded`), else is written again without
   it.
+
+Both hold the pack's write lock (``pack_lock``, #1884 round 2 B3) for each
+DSF they write: a rewrite re-applies every airport's rows, the guest rows
+another tile's build wrote there included.
 """
 from __future__ import annotations
 
@@ -35,6 +39,7 @@ def rewrite_dsf(pack_root: str, pack_name: str, dsf: str,
     from auto_patch_v2.airport import dsf_write as _dw
     from auto_patch_v2.airport import pack_art as _pa
     from auto_patch_v2.airport import pack_journal as _pj
+    from auto_patch_v2.airport import pack_lock as _lock
     from auto_patch_v2.airport.file_hash import sha256_file
     from auto_patch_v2.model.placement import BACKUP_SUFFIX, PlacementPlan, Provenance
 
@@ -42,17 +47,18 @@ def rewrite_dsf(pack_root: str, pack_name: str, dsf: str,
     from . import pack_copy as _copy
     from .object_stage import _engine_version
     backup = dsf + BACKUP_SUFFIX
-    omit = (_pa.recorded(_bs.dsf_entry(_bs.read_record(dsf),
-                                       os.path.basename(dsf)),
-                         sha256_file(backup), pack_root)
-            if os.path.isfile(backup) else ())
-    plan = PlacementPlan("", pack_name, pack_root, dsf, backup,
-                         Provenance("", _engine_version(), "", {}))
-    _pj.snapshot(pack_root, dsf)          # a no-op outside a build (#598)
-    _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
-                   allow_live_install=_copy.write_guard(pack_root),
-                   engine_version=_engine_version(),
-                   omit=omit, **choice)
+    with _lock.hold(pack_root, allow_live_install=_copy.write_guard(pack_root)):
+        omit = (_pa.recorded(_bs.dsf_entry(_bs.read_record(dsf),
+                                           os.path.basename(dsf)),
+                             sha256_file(backup), pack_root)
+                if os.path.isfile(backup) else ())
+        plan = PlacementPlan("", pack_name, pack_root, dsf, backup,
+                             Provenance("", _engine_version(), "", {}))
+        _pj.snapshot(pack_root, dsf)      # a no-op outside a build (#598)
+        _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
+                       allow_live_install=_copy.write_guard(pack_root),
+                       engine_version=_engine_version(),
+                       omit=omit, **choice)
     _DSFR.ensure_dsf_text_path(dsf, _dsf2.mod_cache_dir(
         FNAMES.airport_mod_cache_root(), pack_name))
     return backup
@@ -74,6 +80,24 @@ def _others_recorded(entry: _t.Mapping[str, _t.Any], record_key: str) -> bool:
     # back to the vendor's defects
     return any(m.recorded(entry, sha) for m in (_pf, _po, _pd, _ph)
                if m.RECORD_KEY != record_key)
+
+
+def _original_again(pack_root: str, dsf: str) -> bool:
+    """The pristine file back over ``dsf`` and its record entry dropped,
+    under the pack's write lock; ``False`` when it is no longer a file
+    this app can prove its own."""
+    from auto_patch_v2.airport import backup_state as _bs
+    from auto_patch_v2.airport import pack_lock as _lock
+
+    from . import pack_copy as _copy
+    with _lock.hold(pack_root, allow_live_install=_copy.write_guard(pack_root)):
+        verdict = _bs.classify_dsf(dsf)
+        if verdict.state is not _bs.State.OURS or not verdict.backup:
+            return False
+        shutil.copy2(verdict.backup, dsf)
+        _bs.invalidate_memo()
+        _bs.drop_dsf_entry(dsf)
+    return True
 
 
 def undo_recorded(pack_root: str, lat: int | None, lon: int | None,
@@ -101,13 +125,12 @@ def undo_recorded(pack_root: str, lat: int | None, lon: int | None,
         verdict = _bs.classify_dsf(dsf)
         if verdict.state is not _bs.State.OURS or not verdict.backup:
             continue                    # never a file we cannot prove ours
-        if not _others_recorded(entry, record_key) and not (keeps and keeps(dsf)):
-            shutil.copy2(verdict.backup, dsf)
-            _bs.invalidate_memo()
-            _bs.drop_dsf_entry(dsf)
+        if _others_recorded(entry, record_key) or (keeps and keeps(dsf)):
+            rewrite(dsf)                # :func:`rewrite_dsf` holds the lock
+        elif not _original_again(pack_root, dsf):
+            continue
+        else:
             UI.vprint(0, f"  [pack] {os.path.basename(os.path.normpath(pack_root))}: "
                          f"{relative(pack_root, dsf)} is the original again")
-        else:
-            rewrite(dsf)
         done.append(relative(pack_root, dsf))
     return done

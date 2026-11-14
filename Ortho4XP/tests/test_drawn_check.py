@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 import drawn_check as DC  # noqa: E402
+import drawn_members as DM  # noqa: E402
 from auto_patch_v2.airport import dsf as dsf_text  # noqa: E402
 
 LON, LAT = 10.5, 45.5
@@ -47,7 +48,8 @@ OBJ = "I\n800\nOBJ\n\nPOINT_COUNTS 4 0 0 0\n" + "".join(
     for x, y, z in ((-2, -5, -2), (2, -5, -2), (2, 0, 2), (-2, 0, 2)))
 
 
-def _world(tmp_path, msl_elev, kept_reason=None, deck=False, floor_clearance=None):
+def _world(tmp_path, msl_elev, kept_reason=None, deck=False, floor_clearance=None,
+           member=None, level=None):
     root = tmp_path / "pack"
     (root / "objects").mkdir(parents=True)
     (root / "objects" / "portal.obj").write_text(OBJ, encoding="utf-8", newline="\n")
@@ -75,6 +77,17 @@ def _world(tmp_path, msl_elev, kept_reason=None, deck=False, floor_clearance=Non
         sidecar["portal_cuts"] = []
         sidecar["object_floors"] = [{"id": "object_floor:portal.obj@0", "objects": ["dsf:obj0"],
                                      "clearance_m": floor_clearance}]
+    if member is not None:
+        # spec object-gate-member-floors §3.1: obj1 the record's own object,
+        # owning ground only with ``member == "owns"``; obj0 its frame's member
+        sidecar["portal_cuts"] = []
+        sidecar["object_floors"] = [{"id": "object_floor:shell.obj@shell",
+                                     "objects": ["dsf:obj1", "dsf:obj0"], "object": "dsf:obj1",
+                                     "owns_ground": member == "owns", "hidden": True,
+                                     "clearance_m": 0.3}]
+    if level is not None:
+        sidecar["portal_cuts"] = []
+        sidecar["tunnel_objects"] = [dict(level, objects=["dsf:obj0"])]
     plan = {"kept": [{"index": 0, "resource": "objects/portal.obj",
                       "reason": kept_reason}]} if kept_reason else {}
     written = dsf_text.read_dump(str(dump), accept_polygon=lambda _p: False)
@@ -84,7 +97,9 @@ def _world(tmp_path, msl_elev, kept_reason=None, deck=False, floor_clearance=Non
                             {"+45+010": written})
     drawn = DC.Drawn(written.placements, str(root), mesh)
     sites = DC.read_sites(str(patch), sidecar, 15.0)
-    return [DC.check_site(s, drawn, claims, 15.0, 0.3) for s in sites], drawn
+    zero = DM.written_zeros(drawn, {"+45+010": written}, "+45+010", DC.stem)
+    return [DC.check_site(s, drawn, claims, 15.0, 0.3, DC.level_floors(sidecar), zero)
+            for s in sites], drawn
 
 
 def test_object_msl_reads_elevation_before_heading(tmp_path):
@@ -427,3 +442,126 @@ def test_a_gap_reads_the_face_at_its_edge_not_inside_a_sliver_triangle():
     f._tree = shapely.STRtree(shapely.polygons(f.tris))
     assert f._on_edge(0, 0.0, 0.0) == pytest.approx(10.0)
     assert f._on_edge(1, 0.0, 0.0) is None
+
+
+# ── member feet, the level floor, predict (spec object-gate-member-floors) ──
+
+def test_an_old_sidecar_reads_as_before():
+    claims = DC.read_claims({"object_floors": [{"id": "f", "objects": ["dsf:obj0"],
+                                                "clearance_m": 0.3}]}, "+45+010", {}, {})
+    assert [(c.kind, c.clearance) for c in claims] == [("object_floor", 0.3)]
+
+
+def test_a_frame_wall_buried_passes_and_one_floating_fails(tmp_path):
+    """§3.2 / owner Q4: a wall has no clearance; its foot buried 0.37 m is
+    under the ground bar and passes, its foot 2.86 m over the mesh fails."""
+    rows, _ = _world(tmp_path, 104.63, member="hidden")          # bottom 99.63, mesh 100
+    foot = next(o for o in rows[0]["objects"] if o["resource"].endswith("portal.obj"))
+    assert foot["role"] == "FOOT" and foot["gap"] == pytest.approx(-0.37, abs=0.01)
+    assert rows[0]["role"] == "CUT" and rows[0]["verdict"] == "PASS", rows[0]["fails"]
+    rows, _ = _world(tmp_path / "b", 107.86, member="hidden")   # bottom 102.86
+    assert rows[0]["verdict"] == "FAIL"
+    assert any("foot floats +2.86" in f for f in rows[0]["fails"])
+
+
+def test_a_buried_foot_fails_only_with_the_switch_off(monkeypatch):
+    assert DM.foot_verdict(-3.0, 0.3) == ("BURIED", None)
+    monkeypatch.setattr(DM, "BURIED_FOOT_PASSES", False)
+    assert DM.foot_verdict(-3.0, 0.3)[1] is not None
+
+
+def test_the_floor_object_that_owns_ground_keeps_the_clearance_bar(tmp_path):
+    rows, _ = _world(tmp_path, 100.3, member="owns")
+    roles = {o["resource"].split("/")[-1]: o["role"] for o in rows[0]["objects"]}
+    assert roles == {"other.obj": "CUT", "portal.obj": "FOOT"}, roles
+    rec = {"id": "object_floor:shell.obj@shell", "object": "dsf:obj1", "owns_ground": True}
+    assert DC._floor_kind(rec, "dsf:obj1") == "object_floor"
+    assert DC._floor_kind(rec, "dsf:obj0") == DM.FRAME_MEMBER
+
+
+def _level(plate_y=-4.0):
+    return {"id": "sunken-road:garage.obj@0", "kind": "sunken_road", "level_floor": True,
+            "plate_y_m": plate_y, "width_m": 20.0,
+            "axis_ll": [list(_ll(-20.0, 0.0)), list(_ll(20.0, 0.0))]}
+
+
+def test_a_level_floor_takes_the_floor_bar_not_relief_nor_bottom(tmp_path):
+    """§5.3: the plate (zero 104 + plate_y -4 = 100) on the mesh passes,
+    although its skirt's bottom (99) stands 4 m off the cut floor (95)."""
+    rows, _ = _world(tmp_path, 104.0, level=_level())
+    assert rows[0]["role"] == "LEVEL" and rows[0]["verdict"] == "PASS", rows[0]["fails"]
+    assert not any("bottom-floor" in f or "relief" in f for f in rows[0]["fails"])
+
+
+class _Mound:
+    """The drawn mesh 100, with a mound 101.18 east of the anchor."""
+
+    def elevation_at_or_none(self, lat, lon):
+        import math
+        x = (lon - LON) * DC.M_PER_DEG * math.cos(math.radians(LAT))
+        return 101.18 if 5.0 <= x <= 15.0 else 100.0
+
+
+def test_ground_through_a_level_floor_fails():
+    import types
+    drawn = types.SimpleNamespace(mesh=_Mound())
+    bar = DM.check_level_floor(dict(_level(0.0), objects=["dsf:obj0"]), drawn,
+                               lambda _pid: 100.0, 0.3)
+    assert bar["over_max"] == pytest.approx(1.18) and bar["fails"]
+    drawn.mesh = types.SimpleNamespace(elevation_at_or_none=lambda la, lo: 100.0)
+    assert not DM.check_level_floor(dict(_level(0.0), objects=["dsf:obj0"]), drawn,
+                                    lambda _pid: 100.0, 0.3)["fails"]
+
+
+def test_feet_rows_fail_a_floating_floor_foot_and_list_the_rest():
+    import types
+    drawn = types.SimpleNamespace(mesh=types.SimpleNamespace(
+        elevation_at_or_none=lambda la, lo: 100.0))
+    rec = {"id": "channel:0", "member_feet": [
+        [LAT, LON, 0.1, "dsf:obj0", "floor"], [LAT, LON, 2.0, "dsf:obj0", "ledge"],
+        [LAT, LON, 5.0, "dsf:obj0", "unmet"], [LAT, LON, -2.0, "dsf:obj0", "end"]]}
+    row = DM.check_feet(rec, drawn, lambda _pid: 100.0, 0.3)
+    assert row["verdict"] == "FAIL" and row["delta"] == pytest.approx(2.0)
+    assert len(row["floating"]) == 1 and row["buried"] == 1
+    assert row["counts"] == {"floor": 1, "ledge": 1, "unmet": 1, "end": 1}
+
+
+def _face_patch(path, z=100.0):
+    """A synthetic patch: one square face (role apron) 200 m wide at ``z``."""
+    corners = [(-100.0, -100.0), (100.0, -100.0), (100.0, 100.0), (-100.0, 100.0)]
+    nodes = "".join(f"<node id='{-k - 1}' lat='{_ll(x, y)[0]:.9f}' lon='{_ll(x, y)[1]:.9f}'>"
+                    f"<tag k='alt_abs' v='{z}'/></node>\n"
+                    for k, (x, y) in enumerate(corners))
+    way = ("<way id='-50'>" + "".join(f"<nd ref='{-k - 1}'/>" for k in range(4))
+           + "<nd ref='-1'/><tag k='role' v='apron'/><tag k='ref' v='pav1'/></way>\n")
+    path.write_text("<?xml version='1.0'?>\n<osm>\n" + nodes + way + "</osm>\n",
+                    encoding="utf-8", newline="\n")
+    return path
+
+
+def test_predict_reads_the_same_rows_as_the_drawn_mesh(tmp_path):
+    """§3.2 / §3.3: on an identical surface the predicted (patch) site rows
+    equal the drawn ones; ``PatchAtlas`` equals ``PatchFaces`` in a cell."""
+    from patch_faces import PatchAtlas, PatchFaces
+    patch = _face_patch(tmp_path / "faces.osm")
+    atlas = PatchAtlas(str(patch), dem=lambda _la, _lo: float("nan"))
+    one = PatchFaces(str(patch), (LAT, LON), 400.0, dem=lambda _la, _lo: float("nan"))
+    for x, y in ((0.0, 0.0), (30.0, -20.0), (-60.0, 45.0)):
+        la, lo = _ll(x, y)
+        assert atlas.elevation_at_or_none(la, lo) == pytest.approx(one.elevation_at_or_none(la, lo))
+    drawn_rows, drawn = _world(tmp_path / "d", 107.86, member="hidden")
+    pred = DC.Drawn(drawn.rows, drawn.root, atlas)
+    claims = DC.read_claims({"object_floors": [{"id": "f", "objects": ["dsf:obj1", "dsf:obj0"],
+                                                "object": "dsf:obj1", "owns_ground": False}]},
+                            "+45+010", {}, {"+45+010": types_dump(drawn)})
+    site = DC.Site("s", LON, LAT, 95.0, 98.0, "tunnel_trench")
+    a = DC.check_site(site, drawn, claims, 15.0, 0.3)
+    b = DC.check_site(site, pred, claims, 15.0, 0.3)
+    assert [(o["role"], o["gap"]) for o in a["objects"] if "gap" in o] == \
+        [(o["role"], o["gap"]) for o in b["objects"] if "gap" in o]
+    assert a["verdict"] == b["verdict"] == "FAIL"
+
+
+def types_dump(drawn):
+    import types
+    return types.SimpleNamespace(placements=drawn.rows)

@@ -362,12 +362,15 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
                          Provenance("", _engine_version(), "", {}))
     # #598: a no-op outside a build's object stage (the user's command)
     from auto_patch_v2.airport import pack_journal as _pj
-    _pj.snapshot(pack_root, art.dsf_path)
+    from auto_patch_v2.airport import pack_lock as _lock
+
     from . import pack_copy as _copy
-    _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
-                   allow_live_install=_copy.write_guard(pack_root),
-                   engine_version=_engine_version(),
-                   omit=art.missing if art.omit else ())
+    with _lock.hold(pack_root, allow_live_install=_copy.write_guard(pack_root)):     # #1884 B3
+        _pj.snapshot(pack_root, art.dsf_path)
+        _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
+                       allow_live_install=_copy.write_guard(pack_root),
+                       engine_version=_engine_version(),
+                       omit=art.missing if art.omit else ())
     _DSFR.ensure_dsf_text_path(art.dsf_path, _dsf2.mod_cache_dir(
         FNAMES.airport_mod_cache_root(), art.pack_name))
 
@@ -462,11 +465,14 @@ def _art_after_place(art: "_PackArt", plan_, tile, *, written: bool) -> None:
 
 def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                    write_enabled: bool, measure_only: bool,
-                   omit: _t.Sequence = (), plan_key: str = "") -> dict:
+                   omit: _t.Sequence = (), plan_key: str = "",
+                   foreign: _t.Sequence = ()) -> dict:
     """One airport's placement write (RULINGS 2026-09-11e (3)).  Returns
     the counts; raises nothing the caller does not already catch.
     ``omit`` is the missing art the user accepted to build without
-    (:func:`_art_stage`); the DSF write drops it."""
+    (:func:`_art_stage`); the DSF write drops it.  ``foreign``: the part
+    outlines of the airport's SIBLING plans (main + companions), which
+    block an isolated share (§9a, ``isolated_seat``)."""
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import dsf as _dsf2
@@ -492,7 +498,14 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         return {}
     dump = _dsf2.read_dump(dump_path)
 
-    _surface = _placement_surface(mesh_sample)
+    # #1884: past this tile's edge the split reads the airport's own DEM
+    # (``tile_route``: the bodies there are written in that tile's DSF)
+    from auto_patch_v2.airport import tile_route as _route
+    _here = (tile.lat, tile.lon)
+    _surface = _placement_surface(_route.with_neighbour_ground(
+        mesh_sample, _here, _route.airport_ground(
+            plan_.icao, _here, FNAMES.Elevation_dir,
+            float(getattr(tile, "airport_elevation_inset_feather_m", 60.0) or 60.0))))
 
     # §6's CLASS RULE reads the emitted surface (lane v2planfix): without
     # the pads and rims ``classify_body`` can never answer ``building`` or
@@ -660,7 +673,15 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             approach_heading_deg=float(law.tables.runway_ends.peer_parallel_deg),
             facade_surface=_facade_surface(mesh_sample, dump, target_root, _surface),
             engine_version=_engine_version(), law_digest=digest,
-            write_cuts=bool(write_enabled and not measure_only))
+            write_cuts=bool(write_enabled and not measure_only),
+            # §9a (#2063 round 3, RULINGS 2026-11-13y (5)): an object 2 m
+            # clear of everything stands on its lowest contact feet
+            motion_step_m=float(law.tables.emit.cockpit.motion_step_m),
+            isolated_span_max_m=float(
+                law.tables.structures.placement.group_span_max_m),
+            isolated_foreign=tuple(foreign),
+            isolated_base_min_fraction=float(
+                law.tables.structures.placement.isolated_base_min_fraction))
     _pulse.clear()
     c = dict(plan.counts())
     # §6's CLASSES ride out with the counts (lane v2planfix): they are the
@@ -686,14 +707,20 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                                                     _BS_SUPERSEDED,
                                                     UNRECOGNISED_INFIX as
                                                     _BS_UNRECOGNISED)
+    # #1884: a body standing on a neighbour tile is written in that tile's
+    # DSF of the pack (``tile_route``), in the SAME write as this one's
     try:
-        res = _pw.apply_plan(
-            plan, files, _DSFR._dsftool_path() or "DSFTool", patch_dir=patch_dir,
+        res = _pw.apply_routed(
+            plan, files, _DSFR._dsftool_path() or "DSFTool",
+            here=(tile.lat, tile.lon),
+            say=lambda t, _i=plan_.icao: UI.vprint(1, f"  [v2 placement] {_i}: {t}"),
+            patch_dir=patch_dir,
             allow_live_install=_copy.write_guard(target_root),
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
             plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key))
-    except BackupUnproven as exc:
+    except (BackupUnproven, TimeoutError) as exc:
+        # TimeoutError: another write of the pack held its lock (``pack_lock``)
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
         # touched — not the DSF, not an object, not a cut file: a pack
         # half-written against a DSF we may not touch is torn geometry.
@@ -704,6 +731,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # NOTHING on the normal path (D3 / D4, O1 / O2).
     _adopted = list(res.restore.adopted)
     _unproven = list(res.restore.unproven)
+    for _guest in res.guests:              # #1884: a neighbour DSF's write
+        for note in _guest.notes:
+            UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — {note}')
     if res.dsf is not None:
         for note in res.dsf.notes:
             UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — {note}')
@@ -959,6 +989,10 @@ def rebake_after_mesh(tile) -> dict:
             UI.vprint(0, f"  [v2 rebake] PACK COPY (O4_PACK_WRITES="
                          f"{os.environ.get('O4_PACK_WRITES')}): placement writes "
                          f"go to the clone, never the installed pack")
+        # §9a: each airport's plans' part outlines (main + companions), so
+        # a sibling's parts block an isolated share; a companion's is read
+        # here, the main plan's when it is built below (it sorts first)
+        sib_outlines = _sibling_outlines(plans, screens)
         for plan_path in plans:
             icao = "?"
             try:
@@ -1005,6 +1039,8 @@ def rebake_after_mesh(tile) -> dict:
                         counts["airports_skipped_stale_plan"] = \
                             counts.get("airports_skipped_stale_plan", 0) + 1
                         continue
+                sib_outlines.setdefault(_plan_icao(plan_path), {})[plan_path] = \
+                    _iso_outlines(plan_)
                 # RULINGS 2026-11-11m (3): THE PACK'S AUTHOR SAID ITS
                 # OBJECTS ARE FINAL (or already carry the fixes): nothing
                 # of it is split, reseated or rewritten — the terrain is
@@ -1070,19 +1106,24 @@ def rebake_after_mesh(tile) -> dict:
                 # placement plan written beside it
                 key = os.path.basename(plan_path)[len("o4_v2_rebake_"):-len(".json")]
 
-                def _compute(plan_=plan_, law=law, omit=omit, key=key):
+                foreign = tuple(o for p, ol in sorted(
+                    sib_outlines.get(_plan_icao(plan_path), {}).items())
+                    if p != plan_path for o in ol)
+
+                def _compute(plan_=plan_, law=law, omit=omit, key=key,
+                             foreign=foreign):
                     return _place_objects(
                         plan_, law,
                         mesh_placement_sampler(mesh_path,
                                                _sampler_bounds(plan_, patch_dir)),
                         tile, patch_dir, write_enabled, measure_only,
-                        omit=omit, plan_key=key)
+                        omit=omit, plan_key=key, foreign=foreign)
                 pc = {}
                 served = reuse.reused if reuse is not None else 0
                 try:
                     recipe = _reuse_recipe(reuse, plan_, tile, patch_dir,
                                            writes=(write_enabled, measure_only),
-                                           omit=omit)
+                                           omit=omit, foreign=foreign)
                     pc = (reuse.run(icao, _reuse_folder(plan_), recipe, _compute)
                           if recipe is not None else _compute())
                 finally:
@@ -1168,9 +1209,10 @@ def _reuse_folder(plan_) -> str:
 
 
 def _reuse_recipe(reuse, plan_, tile, patch_dir: str, *, writes: tuple,
-                  omit: _t.Sequence) -> "dict | None":
+                  omit: _t.Sequence, foreign: _t.Sequence = ()) -> "dict | None":
     """One airport's reuse key (``object_stage_reuse.airport_recipe``), or
-    ``None``: no reuse, or a key that could not be taken (it runs)."""
+    ``None``: no reuse, or a key that could not be taken (it runs).  The
+    sibling plans' outlines (§9a) key it too."""
     if reuse is None:
         return None
     try:
@@ -1179,9 +1221,52 @@ def _reuse_recipe(reuse, plan_, tile, patch_dir: str, *, writes: tuple,
                                     writes=writes, omit=omit,
                                     engine=_engine_version(),
                                     optimise=recorded_key(plan_.pack_root,
-                                                          tile.lat, tile.lon))
+                                                          tile.lat, tile.lon),
+                                    foreign=_outlines_key(foreign))
     except Exception:
         return None
+
+
+def _plan_icao(plan_path: str) -> str:
+    """The airport a plan file is of (``o4_v2_rebake_<ICAO>[~k].json``)."""
+    base = os.path.basename(plan_path)[len("o4_v2_rebake_"):]
+    return base.split("~", 1)[0].split(".", 1)[0]
+
+
+def _iso_outlines(plan_) -> tuple:
+    """§9a: ``isolated_seat.outlines`` of one plan; ``()`` for a plan whose
+    parts cannot be read (it blocks nothing, as in ``_sibling_outlines``)."""
+    from auto_patch_v2.airport.isolated_seat import outlines
+    try:
+        return outlines(plan_)
+    except Exception:                           # noqa: BLE001
+        return ()
+
+
+def _sibling_outlines(plans: _t.Sequence[str], screens: _t.Mapping) -> dict:
+    """``{icao: {plan path: outlines}}`` of every COMPANION plan already
+    written beside the patch (``~k``); a plan that cannot be read blocks
+    nothing (its own placement says why below)."""
+    from auto_patch_v2.model import rebake as _rb
+    out: dict = {}
+    for p in plans:
+        if "~" not in os.path.basename(p) or p in screens or not os.path.isfile(p):
+            continue
+        try:
+            with open(p, encoding="utf-8") as fh:
+                out.setdefault(_plan_icao(p), {})[p] = _iso_outlines(
+                    _rb.RebakePlan.from_json(fh.read()))
+        except Exception:                       # noqa: BLE001
+            continue
+    return out
+
+
+def _outlines_key(outlines: _t.Sequence) -> str:
+    """A digest of sibling outlines for the reuse key (``""``: none)."""
+    if not outlines:
+        return ""
+    import hashlib
+    return hashlib.sha256(repr(tuple(outlines)).encode()).hexdigest()[:16]
 
 
 def _pack_stand_down(tile) -> str:
@@ -1281,6 +1366,20 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                                      f"for this airport ("
                                      f"{len(out.bodies_removed)} split "
                                      f"bod(ies) removed{kept})")
+                    # #1884 round 2 B1: this tile's guest rows of the
+                    # airport in the pack's other DSFs went with it
+                    for n in out.neighbours:
+                        where = os.path.basename(n.dsf_path)
+                        if n.state == _up.UNPROVEN:
+                            UI.loud_warning(
+                                f"   {icao}: the objects of pack "
+                                f"{pack['pack_name']} this tile wrote in "
+                                f"{where} could not be taken out: {n.reason}")
+                        elif n.state != _up.NONE:
+                            UI.vprint(0, f"  [v2 rebake] {icao}: pack "
+                                         f"{pack['pack_name']} {where} no "
+                                         f"longer carries this tile's "
+                                         f"objects of the airport")
     except Exception as exc:
         UI.vprint(1, f"  [v2 rebake] unpatched-airport pack restore failed: {exc}")
         UI.vprint(2, traceback.format_exc())

@@ -1509,6 +1509,20 @@ def _main() -> int:
                          "--write-into the draped files parse back draped")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
+    ap.add_argument("--foreign", nargs="*", default=None, metavar="PLAN",
+                    help="§9a (#2063 round 3): the airport's SIBLING rebake "
+                         "plans (main + companions) whose parts block an "
+                         "isolated share, as the app passes them; without it "
+                         "the isolation is read within this plan only")
+    ap.add_argument("--zero-diff", metavar="BASE.json",
+                    help="§9a census: this run's --json against a BASE run's "
+                         "--json (another src) — every body whose zero moves "
+                         "more than 0.1 m, per component, with its resource "
+                         "and anchor, and the file-count change")
+    ap.add_argument("--zero-diff-move", type=float, default=0.1, metavar="M",
+                    help="§9a A1: the move --zero-diff lists (default 0.1 m; "
+                         "0.01 is the frozen-election bar for a body no share "
+                         "holds)")
     ap.add_argument("--units-with", metavar="SUBSTR",
                     help="PARTIAL PLAN (lane basins526, 2026-10-10): keep only "
                     "the plan units holding a member whose resource contains "
@@ -1698,13 +1712,17 @@ def _main() -> int:
                          touch_m=_law.tables.structures.placement
                          .footprint_touch_m,
                          connector_span_m=_law.tables.structures.placement
-                         .connector_span_m)
+                         .connector_span_m,
+                         # §9a (#2063 round 3): the isolated seat
+                         **_isolated_kwargs(_law, a.foreign))
     # THE PLAN STAGE, timed where the shipped engine's own call is: this
     # is the number the round budgets quote, and it must not include the
     # graded parse, the Delaunay or the census the tool wraps it in.
     print(f"  plan stage: {time.perf_counter() - _t0:.2f} s"
           + ("" if a.no_cut else " (with the OBJ8 cut)"))
     c = ss.counts
+    for line in isolated_lines(c):
+        print(line)
     print(f"\nSPLIT  placements {c['placements']}  split {c['split']} into "
           f"{c['files']} files  kept whole {c['kept']}")
     print(f"  bodies {c['bodies']} (uncoarsened {c.get('bodies_uncoarsened')}; "
@@ -2021,7 +2039,113 @@ def _main() -> int:
         out["unit_levels"] = unit_levels
         json.dump(out, open(a.json, "w", encoding="utf-8"))
         print(f"report -> {a.json}")
+    if a.zero_diff:
+        with open(a.zero_diff, encoding="utf-8") as fh:
+            base = json.load(fh)
+        for line in zero_diff_lines(base, ss.to_dict(), a.zero_diff_move):
+            print(line)
     return 0
+
+
+def _isolated_kwargs(law, foreign: "list[str] | None") -> dict:
+    """§9a: ``build_splits``' isolated-seat keys from the law, and the
+    sibling plans' outlines (``--foreign``); without them the isolation is
+    read within this plan only, and the tool says so."""
+    import inspect
+
+    from auto_patch_v2.airport import isolated_seat as _iso
+    if "motion_step_m" not in inspect.signature(PP.build_splits).parameters:
+        return {}
+    out: list = []
+    for p in foreign or ():
+        out.extend(_iso.outlines(PP.read_plan(p)[0]))
+    print("  isolation read within this plan only (no --foreign)" if foreign is None
+          else f"  isolation read against {len(foreign)} sibling plan(s), "
+               f"{len(out)} outline(s)")
+    return {"motion_step_m": float(law.tables.emit.cockpit.motion_step_m),
+            "isolated_span_max_m": float(law.tables.structures.placement
+                                         .group_span_max_m),
+            "isolated_foreign": tuple(out),
+            # A1: the WALLED-BASE witness (I7/I8) beside chain_min_height_m
+            "isolated_base_min_fraction": float(
+                law.tables.structures.placement.isolated_base_min_fraction)}
+
+
+def isolated_lines(counts: dict) -> list[str]:
+    """§9a's ISOLATED block: the shares seated on their lowest contact
+    feet and every refusal by reason (``isolated_seat.REFUSALS``)."""
+    from auto_patch_v2.airport import isolated_seat as _iso
+    n = int(counts.get("isolated_shares", 0))
+    refused = {r: int(counts.get(f"isolated_refused_{r}", 0)) for r in _iso.REFUSALS}
+    return [f"\nISOLATED (§9a, RULINGS 2026-11-13y (5))  shares seated {n}  "
+            f"bodies {int(counts.get('isolated_bodies', 0))}  clusters "
+            f"{int(counts.get('isolated_clusters', 0))}  parts within reach of a "
+            f"structure {int(counts.get('isolated_parts_by_structure', 0))}",
+            "  refused: " + (", ".join(f"{k} {v}" for k, v in refused.items() if v)
+                             or "none"),
+            # A1 §3.4: what the frozen election handed over before the cut
+            f"  vacated (A1 §3.4): today's raws {int(counts.get('isolated_raws_vacated', 0))}"
+            f", bodies gone {int(counts.get('isolated_bodies_vacated', 0))}"
+            f", re-formed on their frozen anchor "
+            f"{int(counts.get('isolated_bodies_reformed', 0))}"] + (
+        ["  DISARMED: no part of this plan carries a solid height "
+         "(Part.height_m), so the walled-base witness (A1 I8) cannot be "
+         "asked — every object keeps today's seat"]
+        if counts.get("isolated_disarmed_no_height") else [])
+
+
+def zero_diff_lines(base: dict, now: dict, move_m: float = 0.1) -> list[str]:
+    """§9a's census: per placement COMPONENT, its body's zero (``surface_z
+    - y_zero``) in ``base`` and ``now`` (two ``SplitSet.to_dict``
+    documents of one plan); every body of ``now`` whose components moved
+    more than ``move_m`` is listed with its resource, anchor and the two
+    zeros, worst first, and the body / file counts are compared.  A
+    component several bodies share (a line's segments) is compared with
+    its NEAREST base zero — a lower bound, never a false move; a component
+    written in only one run is counted, not guessed."""
+    def zeros(doc):
+        out: dict = {}
+        for sp in doc.get("splits", ()):
+            pl = sp["placement"]
+            for b in sp["bodies"]:
+                if b.get("surface_z") is None:
+                    continue
+                z = float(b["surface_z"]) - float(b["y_zero"])
+                for c in b.get("components", ()):
+                    out.setdefault((pl["index"], c), []).append(z)
+        return out
+    zb = zeros(base)
+    rows, only_now = [], 0
+    for sp in now.get("splits", ()):
+        pl = sp["placement"]
+        for b in sp["bodies"]:
+            if b.get("surface_z") is None:
+                continue
+            z = float(b["surface_z"]) - float(b["y_zero"])
+            was = [min(zb[(pl["index"], c)], key=lambda w: abs(z - w))
+                   for c in b.get("components", ()) if (pl["index"], c) in zb]
+            only_now += len(b.get("components", ())) - len(was)
+            if not was:
+                continue
+            worst = max(was, key=lambda w: abs(z - w))
+            if abs(z - worst) > move_m:
+                rows.append((z - worst, pl["resource"], b["body_id"],
+                             b["anchor"]["lat"], b["anchor"]["lon"], worst, z,
+                             b.get("isolated_of") or ""))
+    rows.sort(key=lambda r: -abs(r[0]))
+    nb = sum(len(sp["bodies"]) for sp in base.get("splits", ()))
+    nn = sum(len(sp["bodies"]) for sp in now.get("splits", ()))
+    n_iso = sum(1 for r in rows if r[7])
+    out = [f"\nZERO DIFF (§9a census): bodies {nb} -> {nn}, kept "
+           f"{len(base.get('kept', ()))} -> {len(now.get('kept', ()))}, "
+           f"{len(rows)} body(ies) whose zero moved > {move_m:g} m"
+           f"{f', {only_now} component(s) written only now' if only_now else ''}",
+           f"  moved: isolated {n_iso}, NOT isolated {len(rows) - n_iso}"
+           " (A1 §3.4 bar: NOT isolated 0)"]
+    out += [f"  {d:+.3f}  {res}  {bid}  at {la:.6f}, {lo:.6f}  {w:.3f} -> {z:.3f}"
+            + (f"  [{iso}]" if iso else "")
+            for d, res, bid, la, lo, w, z, iso in rows]
+    return out
 
 
 if __name__ == "__main__":

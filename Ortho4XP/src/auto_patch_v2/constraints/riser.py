@@ -17,6 +17,21 @@ with the rows kept, 832 pad rows were relaxed in stage 2 and 112 of the
 lower level's 622 vertices stood up to 2.04 m over it where ``big_roads``
 ribbons crossed the riser.
 
+A STOREY SHELL'S LEVELS (#2062, spec ``2062-storey-shell-spec`` A2 (2)):
+every level of a split-level building's storey pad (``planar/storey_pad``;
+its landing record carries ``shell``) -- an UPPER level as well as a lower
+one -- is held rigid by its own landing rows, its riser the object's
+storey: a row spanning it is withdrawn the same way (the lot's pavement
+ceiling and road grade rows read across a 6 m riser outranked the level's
+landing rows, MEASURED LPHR arm: 520 -> 145 relaxed hard rows).  A non-shell
+upper level (``planar/low_level`` ``plan_up``) is unchanged.  An UPPER PAD's level
+(``planar/group_up``, #2068: the pad under a unit's upper storey, held at
+its unit block's datum + the storey) is a level of the same kind, and its
+far side takes the road ARMS that climb to it too (the faces cut back
+with ``storey_arm_pad``, the record's ``arms``; spec 2068 A1 (2) (c)): the
+arm arrives under the level at the cap and its step at the rim is a
+declared terrace joint, never a row holding the arm up to the level.
+
 TWO LOWER LEVELS AT TWO FLOORS (#1306, RULINGS 2026-10-27h): a level's
 extension (``planar/low_extent``) stands at the bottom of the objects on it,
 so two levels of one group may stand at different floors with a riser
@@ -28,24 +43,27 @@ import typing as _t
 
 from ..model.constraints import Row
 from ..model.planar import STRIP_SUFFIX, PlanarMap, face_vertex_set
+from ..model.registries import GROUP_UP
 
-__all__ = ["riser_sets", "riser_exempt", "LANDING_INPUT_PREFIX", "STATS"]
+__all__ = ["riser_sets", "riser_exempt", "upper_arm_sets", "LANDING_INPUT_PREFIX", "STATS"]
 
 #: the last run's #1138 sites: the road refs whose rows crossed a riser
 STATS: dict[str, _t.Any] = {}
 
-#: the input id a lower level's own landing row carries
+#: the input ids a level's own landing rows carry
 #: (``constraints/platform.landing_rows``) -- the one row that spans it
-LANDING_INPUT_PREFIX = "low_level:"
+LANDING_INPUT_PREFIX = ("low_level:", "landing:")
 
 
 def riser_sets(planar: PlanarMap) -> "tuple[frozenset[int], frozenset[int], dict[int, str]]":
-    """``(low, high, road)``: the vertices of every lower level's own faces,
-    the vertices of its block's faces and its strip's far edge, and the
-    road ref of every vertex a groundside road face carries (for the
-    #1138 site list)."""
+    """``(low, high, road)``: the vertices of every lower level's (and every
+    storey shell level's) own faces, the vertices of its block's faces and
+    its strip's far edge, and the road ref of every vertex a groundside road
+    face carries (for the #1138 site list)."""
     lands = getattr(planar.registries, "landings", {}) or {}
-    lows = {ref: rec["block"] for ref, rec in lands.items() if rec.get("kind") == "low_level"}
+    lows = {ref: rec["block"] for ref, rec in lands.items()
+            if rec.get("kind") == "low_level" or rec.get("shell")
+            or rec.get("witness") == GROUP_UP}
     if not lows:
         return frozenset(), frozenset(), {}
     blocks = set(lows.values())
@@ -67,6 +85,7 @@ def riser_sets(planar: PlanarMap) -> "tuple[frozenset[int], frozenset[int], dict
             for v in vs:
                 road.setdefault(v, ref)
     high |= strip - low
+    high |= upper_arm_sets(planar)[1]
     return frozenset(low), frozenset(high - low), road
 
 
@@ -102,6 +121,32 @@ def riser_exempt(rows: list[Row], planar: PlanarMap, counts: dict) -> list[Row]:
     counts["riser_road_sites"] = len(sites)
     STATS["riser_road_sites"] = sorted(sites)
     return out
+
+
+def upper_arm_sets(planar: PlanarMap) -> "tuple[frozenset[int], frozenset[int]]":
+    """``(level, arm)``: the vertices of every UPPER PAD's level and the
+    vertices off it of the road arms that climb to it (``planar/group_up``
+    record ``arms``) -- the two sides of the rim's declared step (spec 2068
+    A1 (2) (c)); empty without an upper pad."""
+    lands = getattr(planar.registries, "landings", {}) or {}
+    ups = {r for r, rec in lands.items() if rec.get("witness") == GROUP_UP}
+    arms = tuple(str(a) for r in ups for a in lands[r].get("arms", ()))
+    if not ups or not arms:
+        return frozenset(), frozenset()
+    level: set[int] = set()
+    arm: set[int] = set()
+    for f in planar.faces.values():
+        ref = str(f.ref)
+        if ref in ups:
+            level |= face_vertex_set(planar, f)
+        elif "road" in str(f.role) and _is_arm(ref, arms):
+            arm |= face_vertex_set(planar, f)
+    return frozenset(level), frozenset(arm - level)
+
+
+def _is_arm(ref: str, arms: tuple[str, ...]) -> bool:
+    """``ref`` is one of ``arms`` or a planar piece of one (``<arm>#…``)."""
+    return any(ref == a or ref.startswith(a + "#") for a in arms)
 
 
 def _level_floors(planar: PlanarMap) -> dict[int, float]:

@@ -630,12 +630,41 @@ def pad_weld_release(planar: PlanarMap, law: Law, cs: ConstraintSet
                        pins=tuple(p for p in cs.pins if id(p) not in gone)), rep
 
 
+def _upper_run(s_: float, ks: _t.Sequence[float], known: _t.Sequence[tuple[float, float]],
+               lo_s: float, hi_s: float, ups: _t.Sequence[tuple[float, float]],
+               cap: float) -> float | None:
+    """The target of the vertex at station ``s_`` on a run that climbs to
+    an UPPER PAD's level (:func:`terrace_profile`, spec 2068 A1 (2) (a)),
+    or ``None`` off such a run: ``ups`` the route's ``(s, L)`` level
+    stations, ``known`` its levelled ``(s, z)`` (``ks`` their stations),
+    ``lo_s`` / ``hi_s`` the ends of the floor-pad frontage held flat."""
+    import bisect
+    i = bisect.bisect_left(ks, s_)
+    if 0 < i < len(ks):
+        (s0, z0), (s1, z1) = known[i - 1], known[i]
+        L = [z for su, z in ups if s0 < su < s1]
+        return min(min(L), z0 + cap * (s_ - s0), z1 + cap * (s1 - s_)) if L else None
+    if i == 0 and s_ < lo_s:
+        L = [(su, z) for su, z in ups if su < lo_s]
+        if L and s_ >= min(su for su, _z in L):
+            z = min(z for _su, z in L)
+            return min(z, known[0][1] + cap * (lo_s - s_))
+    if i == len(ks) and s_ > hi_s:
+        L = [(su, z) for su, z in ups if su > hi_s]
+        if L and s_ <= max(su for su, _z in L):
+            z = min(z for _su, z in L)
+            return min(z, known[-1][1] + cap * (s_ - hi_s))
+    return None
+
+
 def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                     levels: _t.Mapping[int, float],
                     floor: _t.Mapping[int, float], cap: float,
                     anchors: _t.Mapping[int, float] | None = None, *,
                     design: float | None = None, lane: float = 0.0,
-                    ceil: _t.Mapping[int, float] | None = None
+                    ceil: _t.Mapping[int, float] | None = None,
+                    upper: _t.Mapping[int, float] | None = None,
+                    upper_cap: float | None = None
                     ) -> tuple[dict[int, float], dict[str, _t.Any]]:
     """OWNER RULINGS 2026-10-03b: THE RIBBON'S PROFILE, per route, from
     ``PlanarMap.road_terrace`` (``airport/road_ramp.road_terrace``) and
@@ -691,8 +720,24 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       feet dropped instead, a reach seed lifted another road 4.5 m.  A foot
       at or below ``ceil[v]`` still brings the road down to it.
 
+    * THE ROAD TO AN UPPER PAD (spec 2068 A1 (2) (a), #2068): ``upper``
+      is ``{v: L}`` for every vertex bordered by an upper pad's level
+      (``road_terrace``'s ``level``), ``L`` that level.  A run from a
+      levelled end toward such a vertex — past the floor-pad frontage held
+      flat — climbs at the CAP (RULINGS 2026-10-07b) and never over the
+      level: ``min(L, z_e + cap·d)``, from both ends of a linked run (no
+      straight link), a 1206 / DSF road's own vertices included on that
+      run only (:func:`_upper_run`).  A ``rim`` vertex (on the level) takes
+      no target: the level's landing rows hold it.  That linked run alone
+      climbs at ``upper_cap`` (owner RULINGS 2026-11-14b: up to 20 %,
+      ``[road_contact] upper_pad_road_grade``) when given, else ``cap``.
+
     Returns ``{v: target}`` for every vertex it governs and the report."""
     foot = terrace.get("foot") or {}
+    rim = terrace.get("rim") or {}
+    upper = upper or {}
+    gaps: list[float] = []
+    ucap = cap if upper_cap is None else float(upper_cap)
     pad = terrace.get("pad") or {}
     own = terrace.get("own") or {}
     station = terrace.get("station") or {}
@@ -746,10 +791,20 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                 break
         import bisect
         dips = _link_dips([it for it in items if it[1] not in lev], known, floor, g0)
+        ups = [(s_, upper[v]) for s_, v in items if v in upper and v not in lev]
         for s_, v in items:
             if v in lev:
                 out[v] = lev[v]
                 rep["bordered"] += 1
+                continue
+            if v in rim:
+                continue        # A1 (2) (b): on the level, its landing rows hold it
+            z_up = _upper_run(s_, ks, known, lo_s, hi_s, ups, ucap) if ups else None
+            if z_up is not None:
+                out[v] = z_up
+                rep["upper_run"] = rep.get("upper_run", 0) + 1
+                if v in upper:
+                    gaps.append(upper[v] - z_up)
                 continue
             if v in own and v in pad:
                 continue        # #291: a 1206 / DSF road is its pad's frontage
@@ -819,6 +874,9 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
             rep["max_cut_m"] = float(fl) - t
     rep["max_cut_m"] = round(rep["max_cut_m"], 3)
     rep["max_link_grade"] = round(rep["max_link_grade"], 4)
+    if gaps:
+        # the ARRIVAL GAP: how far under its level the arm arrives (spec 2068 Q3)
+        rep["upper_gap_m"] = round(min(gaps), 3)
     return out, rep
 
 
@@ -881,7 +939,9 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     prof, rep = terrace_profile(
         terr, levels, floor, cap, joins,
         design=float(law.tables.emit.road_contact.ramp_grade),
-        lane=float(law.tables.emit.road_profile.lane_width_m), ceil=ceil)
+        lane=float(law.tables.emit.road_profile.lane_width_m), ceil=ceil,
+        upper=_upper_levels(planar, law, terr.get("level") or {}, levels),
+        upper_cap=float(law.tables.emit.road_contact.upper_pad_road_grade))
     # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
     # row.  Inside a RUNWAY's band it gets NO terrace target: a road there
     # beats the band at or below the band's grade (owner 2026-10-19, #951 —
@@ -907,12 +967,19 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     rep["runway_not_lifted"] = rep.pop("ceiled")
     rep["governed"] = len(prof) + len(add)
     rep["kerb"] = len(add)
-    if not prof and not add:
+    # A1 (2) (b): an upper pad's level RIM carries no §37 (6) target or
+    # ceiling — the level's landing rows hold it
+    rim = terr.get("rim") or {}
+    rep["rim_dropped"] = 0
+    if not prof and not add and not rim:
         return cs, rep
     linears = []
     for r in cs.linears:
         if r.source.generator == GEN and r.source.ruling == RULING:
             v = _vertex(r.source)
+            if v in rim:
+                rep["rim_dropped"] += 1
+                continue
             if v in prof:
                 r = _dc.replace(r, lo=prof[v], hi=prof[v])
         linears.append(r)
@@ -925,10 +992,34 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     for r in cs.bands:
         if r.source.generator == GEN and r.source.ruling == RULING_CEILING:
             v = _vertex(r.source)
+            if v in rim:
+                rep["rim_dropped"] += 1
+                continue
             if v in prof and r.hi is not None:
                 r = _dc.replace(r, hi=prof[v] + vis)
         bands.append(r)
     return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands)), rep
+
+
+def _upper_levels(planar: PlanarMap, law: Law, level: _t.Mapping[int, str],
+                  levels: _t.Mapping[int, float]) -> dict[int, float]:
+    """``{v: L}`` over ``road_terrace``'s ``level`` vertices: ``L`` the
+    upper pad's level, its block's DATUM COLUMN at stage 1's solved level
+    plus the level's ``y`` (``constraints/platform.landing_rows``' row,
+    read as a constant).  A level whose block has no solved datum column
+    is skipped."""
+    if not level:
+        return {}
+    from ..model.platform import datum_vertices
+    lands = planar.registries.landings
+    dv = datum_vertices(planar, law, fills=True)
+    at: dict[str, float] = {}
+    for ref in set(level.values()):
+        rec = lands.get(ref) or {}
+        d = dv.get(rec.get("block"))
+        if d is not None and d in levels:
+            at[ref] = float(levels[d]) + float(rec["y"])
+    return {v: at[r] for v, r in level.items() if r in at}
 
 
 def welded_join_release(planar: PlanarMap, law: Law, cs: ConstraintSet,

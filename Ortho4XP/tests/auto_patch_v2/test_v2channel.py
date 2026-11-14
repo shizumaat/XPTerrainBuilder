@@ -1144,3 +1144,62 @@ def test_0911a6_a_survey_that_reads_the_cut_keeps_the_ends(law, monkeypatch):
     assert len(chans) == 1, (st.refused, st.notes)
     assert chans[0].ends[0] < 400.0, chans[0].ends
     assert not any("2026-11-09a (6)" in n for n in st.notes + st.refused)
+
+
+# ── spec object-gate-member-floors §4.4: the crest PINNED at a ledge foot ──
+
+def _ledge_world(pins):
+    import types
+    ns = types.SimpleNamespace
+    from auto_patch_v2.model.structures import CREST_DESIGN
+    c = ns(id="channel:0", crest=CREST_DESIGN, ways=(1,), axis=((0.0, 0.0), (100.0, 0.0)),
+           profile=((0.0, 70.0), (100.0, 70.0)), floor_z=lambda s: 70.0, ledge_pins=pins)
+    verts = {0: (0.0, 5.0), 1: (100.0, 5.0), 2: (50.0, 10.0), 3: (60.0, 10.0)}
+    planar = ns(channels=(c,), vertices={k: ns(xy=v) for k, v in verts.items()},
+                faces={"G": ns(role="apron"), "W": ns(role="retaining_wall"),
+                       "F": ns(role="tunnel_trench")})
+    vw = ns(rings={"F": [0, 1], "W": [0, 1, 2, 3]}, holes={"F": [], "W": []},
+            vertex_faces={0: ["F", "W"], 1: ["F", "W"], 2: ["W"], 3: ["W", "G"]},
+            caps={"W": None, "F": None, "G": 1.0})
+    return planar, vw, c
+
+
+def test_a_ledge_pin_holds_its_crest_vertex_unless_the_ground_shares_it(law, monkeypatch):
+    from auto_patch_v2.constraints import channel as CC
+    from auto_patch_v2.model.constraints import Offset, Pin
+    pins = ((50.0, 10.0, 72.5), (60.0, 10.0, 73.0))
+    planar, vw, _c = _ledge_world(pins)
+    monkeypatch.setattr(CC, "view", lambda _p, _l: vw)
+    monkeypatch.setattr(CC, "floor_faces_of",
+                        lambda _p: {"channel:0": [type("F", (), {"id": "F"})]})
+    monkeypatch.setattr(CC, "wall_faces_of", lambda _p: {"channel:0": [type("W", (), {"id": "W"})]})
+    monkeypatch.setattr(CC, "nearest_vertex_of_containing_cell", lambda *_a: 9)
+    got = CC.ledge_pin_vertices(planar, law, planar.channels[0])
+    assert got == {2: (0, 72.5)}            # vertex 3 is the apron's: the cell governs
+    rows = CC.channels(planar, law, None)
+    crest = [r for r in rows if getattr(r, "v", None) == 2 or getattr(r, "a", None) == 2]
+    assert [type(r) for r in crest] == [Pin] and crest[0].z == pytest.approx(72.5)
+    # no visible cut: the crest vertex takes the two Offsets, exactly as before
+    planar2, vw2, _c2 = _ledge_world(())
+    monkeypatch.setattr(CC, "view", lambda _p, _l: vw2)
+    rows2 = CC.channels(planar2, law, None)
+    assert sum(isinstance(r, Offset) for r in rows2) == 2
+    assert not any(isinstance(r, Pin) and r.v == 2 for r in rows2)
+
+
+def test_the_census_judges_a_ledge_crest_against_its_pin():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import check_grade as CG
+    from check_grade_lib.rows import Way
+    nodes = {"1": (37.0, 23.0), "2": (37.0001, 23.0)}
+    crest = Way(wid="-1", role="retaining_wall", ref="channel_wall:0", aeroway="",
+                nids=["1", "2", "1"], elevs=[72.5, 71.0, 72.5], tags={})
+    ground = Way(wid="-2", role="apron", ref="pav1", aeroway="",
+                 nids=["3", "4", "3"], elevs=[60.0, 60.0, 60.0], tags={})
+    nodes.update({"3": (37.0, 23.000001), "4": (37.0002, 23.0)})
+    declared = [("channel:0", [(37.0, 23.0, 70.0)], "channel_floor:0", "channel_wall:0")]
+    pins = CG._channel_ledge_pins([{"ledge_pins": [[37.0, 23.0, 72.5]]}])
+    assert CG._check_channel_crest_at_edge([crest, ground], nodes, declared, 1.0, pins) == []
+    assert CG._check_channel_crest_at_edge([crest, ground], nodes, declared, 1.0)   # no pin: a step

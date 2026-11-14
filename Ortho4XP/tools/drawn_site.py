@@ -1048,6 +1048,31 @@ def _run(args, sites, tool: str, work: str) -> dict:
     return report
 
 
+def plan_mode(args) -> int:
+    """``--plan``: :mod:`drawn_site_plan`'s compare mode on the drawn mesh."""
+    import drawn_site_plan as dsp
+    box = dsp.box_of([p for p in (args.plan, args.base_plan) if p])
+    mesh = DrawnMesh(box, args.custom_scenery, dsftool(), args.tile_dsf, args.cache,
+                     args.tile_dir)
+    for tile, src in sorted(mesh.sources.items()):
+        print(f"mesh {tile}: {src}")
+    only = None
+    if args.plan_rows:
+        txt = (open(args.plan_rows, encoding="utf-8").read()
+               if os.path.isfile(args.plan_rows) else args.plan_rows)
+        keep = {int(t) for t in txt.replace(",", " ").split()}
+
+        def only(b):
+            return int(b["placement"]["index"]) in keep
+    rep = dsp.compare(args.plan, mesh, args.base_plan, args.worse, args.base_rigid, only)
+    rep["mesh"] = mesh.sources
+    dsp.print_compare(rep, args.top)
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as fh:
+            json.dump(rep, fh, indent=1)
+    return 0
+
+
 def parse_datarefs(items) -> dict[str, float]:
     """``NAME=VALUE`` overrides of the rest value 0.0."""
     out = {}
@@ -1157,8 +1182,22 @@ def main(argv=None) -> int:
         return drawn_cover.main([a for a in argv if a != "--cover"])
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--pack", action="append", required=True,
+    ap.add_argument("--pack", action="append", default=[],
                     help="an installed airport pack folder (repeat for every pack drawing there)")
+    ap.add_argument("--plan", default=None,
+                    help="COMPARE MODE (#1884, drawn_site_plan): judge this placement plan"
+                         " JSON (o4_v2_placement_<ICAO>.json or a replay's --plan-out) on the"
+                         " drawn mesh instead of a written pack")
+    ap.add_argument("--base-plan", default=None,
+                    help="with --plan: judge this plan too and list every body worse in --plan")
+    ap.add_argument("--base-rigid", action="store_true",
+                    help="with --plan: the base is the plan's bodies drawn RIGID at their"
+                         " placement rows (the installed reading of an undone placement)")
+    ap.add_argument("--plan-rows", default=None,
+                    help="with --plan: judge only the bodies of these placement row indices"
+                         " (a file of one index per line, or comma-separated)")
+    ap.add_argument("--worse", type=float, default=0.1,
+                    help="with --base-plan: a body's figure worse by more than this is listed, m")
     ap.add_argument("--site", action="append", default=[], help="NAME=LAT,LON[,RADIUS_M]")
     ap.add_argument("--object", action="append", default=[],
                     help="also every placement whose resource path contains this text")
@@ -1199,6 +1238,10 @@ def main(argv=None) -> int:
         args.custom_scenery = args.custom_scenery or _cfg_value("custom_scenery_dir") \
             or os.path.expanduser("~/X-Plane 12/Custom Scenery")
         args.mod_cache = args.mod_cache or FNAMES.airport_mod_cache_root()
+    if args.plan:
+        return plan_mode(args)
+    if not args.pack:
+        ap.error("--pack is required (or --plan for the compare mode)")
     rep = run(args)
     if args.clearance_only:
         print_clearances(rep, GROUND_BAR_M, args.top)

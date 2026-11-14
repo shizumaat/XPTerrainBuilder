@@ -512,6 +512,7 @@ station_m             = 10.0   # the floor profile and the banks are sampled thi
 object_min_depth_m    = 3.0    # §45 (1) (c): a pack solid along the axis whose deepest genuine solid stands this far under the crest is a wall/floor WITNESS (the 05k-1 authority: seat = floor).  Reuses tunnel.object.skirt_min_depth_m's reading of "a real wall", stated here because a channel wall need not carry a skirt
 lidar_floor_window_m  = 20.0   # §45 (3) (ii): the DTM floor per station is the MINIMUM across this window on the axis normal — the bank toes lie inside the corridor and the floor is what stands between them (KDFW's banks run 1:4 over ~35-45 m)
 toe_rise_m            = 0.5    # §45 (19) (owner RULINGS 2026-09-16g): the BANK TOE on the axis normal is the FIRST offset where the DTM stands this far above the station's own DTM floor.  The same reading as (7)'s "does the DEM see the cut" test, at the resolution a 1 m DTM answers: KDFW's banks run ~1:4, so 0.5 m is 2 m out of the floor and the toe lands where the bank starts, not where it ends
+foot_margin_m         = 1.0    # spec object-gate-member-floors-20261113 §4.2 (#1918): a visible cut's floor edge runs this far past the farthest member foot standing on the floor (M2: a foot exactly on the floor's edge stood over the falling void band, +3.05..+3.14 m at LGAV stations 77-80)
 toe_confirm_m         = 10.0   # §45 (19): ...and STAYS above it for this far outward (or to the backstop).  Without the confirmation a kerb, a sign gantry or one noisy DTM pixel inside the cut reads as the bank top
 
 [bridge]
@@ -1142,6 +1143,18 @@ pad_airside_snap_max_m = 5.0
 # carrying 3,594 of its 9,333 touch edges.  2.5 m is a storey.  0 disarms.
 chain_min_height_m  = 2.5
 
+# §9a A1 (#2063 round 3 amendment, RULINGS 2026-11-13y (4)/(5)): THE WALLED
+# BASE an isolated object may not have.  A cluster at least
+# chain_min_height_m tall whose feet spread over at least this fraction of
+# its plan diagonal (the farthest two feet over the diagonal) stands on a
+# wall line: it keeps today's seat, and so does every share of a file one
+# of whose own clusters reads so (a building file).  MEASURED over the
+# rebake corpus: aircraft read <= 0.43 (KRNT seaplanes 0.43, B737
+# 0.32-0.37, B777 0.35, Lear25 0.36, ERJ140 0.39, Bell412 0.23); the lowest
+# walled things 0.52 (KPAE ILS mast), 0.54 (LGAV lamps), 0.56 (KRNT GSE
+# cluster), buildings 0.57-1.00.  0 disarms I7 and I8 both.
+isolated_base_min_fraction = 0.45
+
 # THE FLAT PLANE AT THE BASE OF OBJECTS IS PAVEMENT (owner RULINGS
 # 2026-10-10o (B), 2026-10-02v (3b); issue #229; geom/base_slab.py).  A
 # component with ground feet, its lowest y within base_slab_base_y_max_m of
@@ -1409,6 +1422,22 @@ free_column_min_share = 0.5   # ... and at least this share of the placement's e
                               # Frames census: a hangar's lone post (KTUL), a terminal's three
                               # canopy columns (LPHR), two 15 m roof poles (LIMC) moved 4-15 m
                               # without it; ENTC ALS 33/35, SBGL ALS-2, ENAT approach lights pass
+
+# A WALLED BUILDING ON ITS AUTHOR'S TERRAIN STANDS ON OURS (#1884 r2 A;
+# airport/terrain_base.py).  true: one whose rigid base would CLEAR our ground
+# stands on our terrain as well (owner RULINGS 2026-11-13y (2): "A building
+# can't be completely in the air").  false (owner RULINGS 2026-11-14a (1)):
+# only a base at or under our ground is put on our terrain; a carrier-less
+# piece whose base stands above it keeps its authored height (13y (3)).  The
+# 166 pieces at 14 airports the true setting moved (CYYZ Terminal 1, EDDF
+# street lights on elevated roads, KBWI windows, pier interiors, ...) are
+# listed in docs/findings/1884-in-air-pieces.md.
+terrain_base_over_ground = false
+# ... but an unsupported building whose rigid base stands within this many
+# metres above our ground is seated on our terrain like one at or under it
+# (owner RULINGS 2026-11-14c (1): LOWS domiki_lows_13 stood 35.1 m in the air
+# on a base 1.50 m over our ground).  Above it 14a (1) stands.
+terrain_base_within_m = 2.0
 
 # ─────────────────────────────────────────────────────────────────────────
 # §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec

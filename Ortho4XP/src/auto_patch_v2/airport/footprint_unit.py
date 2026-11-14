@@ -304,7 +304,8 @@ def seat_viaducts(cands: list, staged: _t.Sequence[_t.Any],
     per_v: dict[str, dict[int, list]] = {}
     for ci, c in enumerate(cands):
         st = by_mi.get(c.member)
-        if st is None or c.body_class == _ar.BASIN:
+        # §9a: an isolated share is no viaduct's (13y (4))
+        if st is None or c.body_class == _ar.BASIN or c.anchor.isolated:
             continue
         grp = (st.groups[c.group]
                if 0 <= c.group < len(st.groups) else ())
@@ -854,7 +855,8 @@ def _centres(boxes: _t.Sequence[tuple[float, float, float, float]],
 def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                      surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
                      cluster_min_m2: float, piece_reach_m: float = 0.0,
-                     wall_min_m: float = 0.0, span_max_m: float = 0.0
+                     wall_min_m: float = 0.0, span_max_m: float = 0.0,
+                     counts: "dict | None" = None
                      ) -> dict[str, tuple[float, str, str]]:
     """§16g (2)'s PRIORITY DATUM, read PLAN-WIDE: ``unit id -> (zero,
     where, source)``.
@@ -901,6 +903,11 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     member_of = {p.pid: m for u in plan.units for m in u.members for p in m.parts}
     from .adapted_riders import authored_zeros
     authored = authored_zeros(getattr(plan, "authored_seats", ()) or ())
+    # #1884 r2 (A): a footless unit's walls on their AUTHOR'S TERRAIN
+    from . import terrain_base as _tb
+    terrain = _tb.law_of(surface, plan, wall_min_m, float(
+        Law.load().tables.structures.rebake.elevated_base_m))
+    terrain_of = (terrain, member_of, counts) if terrain is not None else None
     for un in units:
         zero: float | None = None
         where = src = ""
@@ -935,7 +942,8 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
             # owner RULINGS 2026-10-22b (#1214): the WALLS seat the unit —
             # its zero stands where its perimeter walls' feet meet the pad
             # (or the ground), not where its authored y = 0 would
-            base = _wall_base(un, units, parts, wall_min_m, frame_base, frame_of)
+            base = _wall_base(un, units, parts, wall_min_m, frame_base, frame_of,
+                              terrain_of)
             if p is not None and p.z and _below_its_pad(cc, p, storey, surface, pad_read):
                 # #1599: every centre stands a storey or more UNDER the
                 # pad's plane — the unit stands wholly on a LOWER LEVEL of
@@ -1054,7 +1062,8 @@ def _unit_root(uid: str) -> str:
 def _wall_base(un: _t.Any, units: _t.Sequence[_t.Any],
                parts: _t.Mapping[int, _t.Any], wall_min_m: float,
                memo: dict,
-               frame_of: "_t.Mapping[int, tuple] | None" = None) -> float:
+               frame_of: "_t.Mapping[int, tuple] | None" = None,
+               terrain: "tuple | None" = None) -> float:
     """Owner RULINGS 2026-10-22b (#1214): "for any closed object group,
     like a building with solid walls, we only need to check the
     perimeter/wall objects to determine the seat".  The authored ``y`` the
@@ -1080,6 +1089,13 @@ def _wall_base(un: _t.Any, units: _t.Sequence[_t.Any],
     origin), and a unit with no walled FEET reads its walled parts' BASES
     for the cross-check (#1214 round 6: KMCI's building at y +5.09 under
     ``OBJECT_AGL -5.502`` floated 5 m standing its y = 0 on the ground).
+
+    #1884 round 2 (A): A FOOTLESS UNLIFTED UNIT'S WALLS ON ITS AUTHOR'S
+    TERRAIN stand by their base: ``terrain`` = ``(terrain_base.TerrainLaw,
+    pid -> Member, counts)``; where no part of the unit has a foot and
+    ``terrain_base.unit_base``'s witness holds, the base is the walls'
+    lowest plane (LOWS ``fu:1:263``: the hill houses at y +33.6 floated
+    31.95 m on y = 0).
 
     Else the median authored ``y`` of the ground-contact FEET of its walled
     parts (solid height >= ``wall_min_m``); 0.0 (the zero on the pad) where
@@ -1108,7 +1124,8 @@ def _wall_base(un: _t.Any, units: _t.Sequence[_t.Any],
                     by.setdefault(frame_of[q], []).extend(
                         float(f[2]) for f in (getattr(parts[q], "feet", ()) or ()))
             by = {k: v for k, v in by.items() if v}
-            if not by:
+            footless = not by
+            if footless:
                 # #1214 round 6: a FOOTLESS unit's walls stand on their own
                 # bases (KMCI 39.294747, -94.724552: a building authored at
                 # y +5.09 under OBJECT_AGL -5.50 floated 5 m on y = 0)
@@ -1125,7 +1142,29 @@ def _wall_base(un: _t.Any, units: _t.Sequence[_t.Any],
                 if (lift != 0.0 and near >= PLANE_SHARE * len(yd)
                         and below < PLANE_SHARE * len(yd)):
                     memo[root] = -lift
+                elif footless and lift == 0.0 and terrain is not None:
+                    tb = _terrain_base(pids, parts, frame_of, fr, wall_min_m, terrain)
+                    if tb is not None:
+                        memo[root] = tb
     return memo[root]
+
+
+def _terrain_base(pids: _t.AbstractSet[int], parts: _t.Mapping[int, _t.Any],
+                  frame_of: _t.Mapping[int, tuple], fr: tuple, wall_min_m: float,
+                  terrain: tuple) -> "float | None":
+    """:func:`_wall_base`'s #1884 r2 (A) clause: ``terrain_base.unit_base``
+    over the unit's walled parts — only where NO part of the unit has a
+    foot (witness (4): nothing of it stands on anything) and every walled
+    part is of the one frame ``fr`` (two frames' heights are doubt)."""
+    from . import terrain_base as _tb
+    law, member_of, counts = terrain
+    mine = [parts[q] for q in sorted(pids) if q in parts]
+    if any(getattr(p, "feet", ()) for p in mine):
+        return None
+    walled = [p for p in mine if _tb.is_walled(p, member_of.get(p.pid), wall_min_m)]
+    if any(frame_of.get(p.pid) != fr for p in walled):
+        return None
+    return _tb.unit_base(walled, fr[0], fr[1], law, counts, mine)
 
 
 #: R5's cross-check: the lowest wall-foot plane lies this close to the

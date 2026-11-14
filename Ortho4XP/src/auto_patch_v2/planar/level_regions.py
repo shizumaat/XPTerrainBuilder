@@ -519,7 +519,7 @@ def _upper_floors(s: LevelSeed, reg: Registries) -> "dict[str, str]":
     out: dict[str, str] = {}
     for ref, rec in reg.landings.items():
         if rec.get("kind") != LOW_KIND or rec.get("witness") == PASSAGE_WITNESS \
-                or rec.get("top_y") is None or rec.get("y_lo") is None:
+                or rec.get("top_y") is None or rec.get("y_lo") is None or rec.get("shell"):
             continue
         if abs(float(rec["top_y"]) - float(s.z0)) <= float(PLANE_BAND_M) \
                 and float(rec["y_lo"]) >= -float(s.depth) + 2.0 * float(PLANE_BAND_M):
@@ -567,7 +567,8 @@ def region_depths(regs: list, reg: Registries, law, grid: float, counts: dict) -
     from .covered_cut import WITNESS as _COVERED
     from .low_level import LOW_KIND
     lows = {r: v for r, v in reg.landings.items() if v.get("kind") == LOW_KIND
-            and v.get("witness") != _COVERED and v.get("y_lo") is not None}
+            and v.get("witness") != _COVERED and v.get("y_lo") is not None
+            and not v.get("shell")}
     if len(lows) < 2:
         return regs
     from ..airport.airside_group_seat import PLANE_BAND_M

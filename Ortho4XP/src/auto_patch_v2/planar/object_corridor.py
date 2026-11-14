@@ -111,6 +111,8 @@ class Group:
     sibling: str = ""
     #: The ramp faces' role (``None`` = ``tunnel_ramp`` / ``door_ramp`` by kind).
     ramp_role: str | None = None
+    #: a sunken road's LEVEL FLOOR under a mound (``SunkenRoadRecord.level``)
+    level_floor: bool = False
 
 
 def climb_path(end: XY, out_dir: XY, width: float, osm: list[OsmWay], reach: float,

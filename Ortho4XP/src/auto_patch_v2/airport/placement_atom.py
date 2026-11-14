@@ -860,7 +860,9 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
         nodes.append(RigidNode(
             member=c.member, pids=frozenset(c.pids), box=c.box,
             footprint_m2=sum(_pc.box_area_m2(b) for b in c.part_boxes),
-            footed=True, bindable=c.body_class not in _never_bind,
+            # §9a: an isolated share binds nothing (13y (4))
+            footed=True, bindable=(c.body_class not in _never_bind
+                                   and not c.anchor.isolated),
             zero=_z, feet=c.feet, part_boxes=tuple(c.part_boxes),
             unit=(unit_of(frozenset(c.pids)) if unit_of is not None
                   else "")))

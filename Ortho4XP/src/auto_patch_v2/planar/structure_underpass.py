@@ -31,6 +31,7 @@ import math
 import typing as _t
 
 from shapely.geometry import LineString, Polygon
+from shapely.ops import unary_union
 
 from ..classify.roles import TAXI_FAMILY
 from ..law import Law
@@ -495,7 +496,7 @@ def _edges_at(p, nv, sgn: float, poly, reach: float = 600.0):
 
 
 def _covered_offset(p, nv, sgn: float, kerb: float, strip: float, tree, cells,
-                    polys, deck_cell, cut_roles, grid: float
+                    polys, deck_cell, cut_roles, grid: float, paved=None
                     ) -> tuple[float, str | None]:
     """§34 (5) (b) AMENDED — A COVERED EXTENT NEVER ENDS INSIDE A
     NEIGHBOUR'S PAVEMENT; §34 (12) (3) AMENDED — A RAMP PRIMARILY OFF
@@ -545,7 +546,7 @@ def _covered_offset(p, nv, sgn: float, kerb: float, strip: float, tree, cells,
         return kerb + strip, None
     target = kerb + strip
     hit = _airside_at(p, nv, sgn, target, tree, cells, polys,
-                      deck_cell, cut_roles)
+                      deck_cell, cut_roles, paved)
     if hit is None:
         return target, None                      # the strip stands on ground
     edges = _edges_at(p, nv, sgn, hit[1])
@@ -558,19 +559,74 @@ def _covered_offset(p, nv, sgn: float, kerb: float, strip: float, tree, cells,
 
 
 def _airside_at(p, nv, sgn: float, dist: float, tree, cells, polys,
-                deck_cell, cut_roles):
+                deck_cell, cut_roles, paved=None):
     """``(cell, polygon)`` of the AIRSIDE PAVEMENT cell standing ``dist``
     out along the normal, or ``None`` — the deck cell itself never
     counts (it is the pavement the crossing is already under)."""
     q = Point(p[0] + nv[0] * sgn * dist, p[1] + nv[1] * sgn * dist)
     for j in tree.query(q, predicate="intersects"):
         c = cells[int(j)]
-        if c is deck_cell or c.kind == "structure" or c.role not in cut_roles:
+        if _one_pavement(c, deck_cell, paved) or c.kind == "structure" or c.role not in cut_roles:
             continue
         if not polys[int(j)].contains(q):
             continue
         return c, polys[int(j)]
     return None
+
+
+def _one_pavement(c, deck_cell, paved=None) -> bool:
+    """``c`` is the deck cell or another ROLE PIECE of its pavement the axis
+    runs through (#1939, :class:`_PavementOf`): a seam inside the deck's own
+    pavement is no neighbour's pavement."""
+    return c is deck_cell or (paved is not None and paved.same(c, deck_cell))
+
+
+class _PavementOf:
+    """The polygon whose BOUNDARY is a deck cell's kerbs (#1939): the union of
+    the cell with every other ROLE PIECE of its source pavement (same
+    ``ref``) that the aeroway's own axis runs through -- the pavement the
+    crossing is carried on along its length, read once per ref.  A piece
+    the axis never enters (an apron beside the taxiway, cut from the same
+    apt.dat polygon) keeps its seam as a kerb.
+
+    Measured ESSA taxiway U (way -74 over the motorway cutting): the role
+    seam ``cross_connector``/``primary_parallel`` of ``pav24`` crosses the
+    bridge axis over the motorway, the kerb rays stopped on it at ~1 m, the
+    clip ribbon pinched to a waist there and the motorway (-99) left it
+    after 5.8 m (< ``underpass_min_span_m``): it was never bored, and its
+    siblings' mouths stood in its ribbon and were refused."""
+
+    def __init__(self, cells, polys, axis: LineString) -> None:
+        self._cells, self._polys = cells, polys
+        self._by_ref: dict[str, list[int]] = {}
+        for j in STRtree(polys).query(axis, predicate="intersects"):
+            ref = getattr(cells[int(j)], "ref", "")
+            if ref and getattr(cells[int(j)], "kind", "") != "structure":
+                self._by_ref.setdefault(ref, []).append(int(j))
+        self._memo: dict[str, list] = {}
+
+    def __call__(self, j: int):
+        ref = getattr(self._cells[j], "ref", "")
+        members = self._by_ref.get(ref, ()) if ref else ()
+        if j not in members or len(members) < 2:
+            return self._polys[j]
+        if ref not in self._memo:
+            u = unary_union([self._polys[k] for k in members])
+            self._memo[ref] = list(getattr(u, "geoms", [u]))
+        here = self._polys[j].representative_point()
+        for part in self._memo[ref]:
+            if part.contains(here):
+                return part
+        return self._polys[j]
+
+    def same(self, c, deck_cell) -> bool:
+        """``c`` and ``deck_cell`` are role pieces of one pavement the axis
+        runs through."""
+        ref = getattr(c, "ref", "")
+        if deck_cell is None or not ref or ref != getattr(deck_cell, "ref", ""):
+            return False
+        ids = {id(self._cells[k]) for k in self._by_ref.get(ref, ())}
+        return id(c) in ids and id(deck_cell) in ids
 
 
 def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
@@ -621,6 +677,8 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
     if not polys:
         return [], half_default, 0, 0
     tree = STRtree(polys)
+    paved = _PavementOf(cells, polys, LineString([axis_fn(s) for s in ss])
+                        if len(ss) >= 2 else LineString([axis_fn(0.0), axis_fn(0.0)]))
     reach = 200.0
     vals: list[float] = []
     offs: list[tuple[float, float, float]] = []
@@ -638,7 +696,7 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
             c = cells[int(j)]
             if c.kind == "structure" or not polys[int(j)].contains(pt):
                 continue
-            poly = polys[int(j)]
+            poly = paved(int(j))           # #1939: its pavement's kerbs, never a role seam
             hs = []
             for sgn in (1.0, -1.0):
                 ray = LineString([p, (p[0] + nv[0] * sgn * reach,
@@ -681,9 +739,9 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
         strip = (strip_half_width_m(law, best_cell, ref_status(status_of, best_cell.ref))
                  if law is not None else 0.0)
         hl, kl = _covered_offset(p, nv, +1.0, best[1], strip, tree, cells,
-                                 polys, best_cell, cut_roles, grid)
+                                 polys, best_cell, cut_roles, grid, paved)
         hr, kr = _covered_offset(p, nv, -1.0, best[2], strip, tree, cells,
-                                 polys, best_cell, cut_roles, grid)
+                                 polys, best_cell, cut_roles, grid, paved)
         for ref in (kl, kr):
             if ref:
                 stopped[ref] = stopped.get(ref, 0) + 1

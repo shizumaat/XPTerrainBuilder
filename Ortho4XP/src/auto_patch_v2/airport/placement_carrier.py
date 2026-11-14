@@ -104,6 +104,11 @@ def is_elevated(base_y_min: float, anchor: _ar.Anchor,
     # the datum was thrown away at the last step.
     if anchor.datum:
         return False
+    # §9a (#2063 round 3): AN ISOLATED SHARE IS ONE RIGID FRAME on its
+    # lowest contact feet — its wing sheet stands on those wheels, never
+    # on a carrier
+    if getattr(anchor, "isolated", ""):
+        return False
     return bool(base_y_min > elevated_base_m or anchor.y_zero > elevated_base_m)
 
 

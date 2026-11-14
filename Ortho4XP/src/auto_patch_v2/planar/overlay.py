@@ -266,14 +266,17 @@ def _storey_lots(cells) -> dict[str, float]:
 def build_arrangement(airport: Airport, classification: Classification,
                       law: Law, grid_m: float | None = None, *,
                       level_b: float | None = None,
-                      level_seeds: _t.Sequence = ()) -> Arrangement:
+                      level_seeds: _t.Sequence = (),
+                      shells: _t.Sequence = ()) -> Arrangement:
     """Regions + breakline sources -> ONE noded arrangement, with the
     registries its passes mint (:attr:`Arrangement.registries`).
     ``level_b``: the airport's object-stated level-B depth
     (``planar/level_depth.airport_level_b``), which arms the covered reach
     read (``planar/reach_under_covers``); ``level_seeds`` the units whose
     walls stand a storey under their zero (``planar/level_regions``), whose
-    lower levels take the unreachable pieces they touch."""
+    lower levels take the unreachable pieces they touch; ``shells`` the
+    storey shells (``planar/storey_pad``), whose pads the block planner
+    holds and splits at their storeys."""
     reg = Registries()
     grid = grid_m if grid_m is not None else \
         law.tables.emit.identity.min_distinct_spacing_m
@@ -430,13 +433,15 @@ def build_arrangement(airport: Airport, classification: Classification,
             # pad fronting airside becomes a PLATFORM inside a COLLAR — minted
             # from the FINAL pad polygon (after the 23a cut and the 28b
             # terrace), so no airside vertex is created or moved
+            from .group_up import upper_pad_reads
             from .platform import platform_split
             pad_regions, _plat = platform_split(base_regions, pad_regions, law,
                                                 float(grid),
                                                 getattr(airport, "dem", None),
                                                 airport=airport, reg=reg,
                                                 storey=_storey_lots(cells),
-                                                seeds=level_seeds)
+                                                seeds=level_seeds, shells=shells,
+                                                upper=upper_pad_reads(cells))
             _pad_clip.update(_plat)
         # #1333: a covered cutting no lower level took leaves every pad
         # (``planar/covered_cut``; #1179: a pad never fills a cut)

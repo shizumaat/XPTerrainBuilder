@@ -163,6 +163,11 @@ class ObjectFloor:
     #: (a floor plate kept clear, 2026-11-06d (4)); a deck stack's walls have
     #: no plate and state the floor with their feet: ``0.0``
     clearance_m: "float | None" = None
+    #: spec object-gate-member-floors §6 (P3, measured only): a shell's rim
+    #: against the ground along its outline -- ``({"p05", "p50", "p95"}
+    #: metres rim minus ground, share of the outline off by more than
+    #: shell_rim_ground_m)`` (:func:`_rim_misfit`); ``None`` otherwise
+    rim_misfit: "tuple | None" = None
 
     def cut_clearance(self, law_clearance: float) -> float:
         """How far the cut stands under this floor: its own
@@ -415,6 +420,30 @@ def _rim_at_ground(r: "_shape.Raster | None", ground, foot, law) -> float:
     return float((np.abs(top[ok] - gz[ok]) <= ob.shell_rim_ground_m).mean())
 
 
+def _rim_misfit(r: "_shape.Raster | None", ground, law) -> "tuple | None":
+    """P3 (spec object-gate-member-floors §6): the shell's outline band's
+    own top against ``ground`` (the DEM) -- the rigid frame's misfit to the
+    ground it stands on, published (``object_floors[].rim_misfit_m``) and
+    read by no engine rule.  Unlike :func:`_rim_at_ground` it never takes
+    the shell's own surface for the ground (that substitution reads zero
+    wherever the footprint owns the band)."""
+    ob = law.tables.structures.tunnel.object
+    if r is None or ground is None:
+        return None
+    band, _inner = _shape.outline_band(r, ob.shell_rim_band_m)
+    ij = np.argwhere(band)
+    if not len(ij):
+        return None
+    e, n = r.centres(ij)
+    d = r.top[band] - np.asarray(ground(e, n), float)
+    d = d[np.isfinite(d)]
+    if not len(d):
+        return None
+    p05, p50, p95 = (round(float(v), 2) for v in np.percentile(d, [5, 50, 95]))
+    return ({"p05": p05, "p50": p50, "p95": p95},
+            round(float((np.abs(d) > ob.shell_rim_ground_m).mean()), 3))
+
+
 def _deepest(floors: list["ObjectFloor"], law, notes: list[str]) -> list["ObjectFloor"]:
     """A4: the ground under several floors is the LOWEST — each floor less
     the plan of every other floor standing deeper over their overlap (a
@@ -630,7 +659,8 @@ def _concave(o, g, msl, law, mates, ground, notes: list[str],
     seats = tuple((p.id, p.path, _zero(p, msl)) for p in (o, *mates))
     return ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@shell", o.id, o.path,
                        tuple(p.id for p in mates), zero, fz, foot, faces, (note,), seats,
-                       kind=SHELL, rim_z=float(sh["rim"]), hidden=hidden)
+                       kind=SHELL, rim_z=float(sh["rim"]), hidden=hidden,
+                       rim_misfit=_rim_misfit(r, ground, law))
 
 
 def seat_records(floors: _t.Iterable[ObjectFloor], to_ll=None) -> list[dict[str, _t.Any]]:

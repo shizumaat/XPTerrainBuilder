@@ -53,6 +53,7 @@ import typing as _t
 import numpy as np
 
 from ..geom import exact
+from ..geom.diameter import plan_diameter as _diameter_m
 from .runway_chord import dem_degraded
 from .surface_trend import cell_samples, surface_trend_of
 from ..law import Law
@@ -123,26 +124,6 @@ def _apron_bodies(pm: PlanarMap, law: Law,
         if keep:
             out.append(keep)
     return out
-
-
-def _diameter_m(xy: np.ndarray) -> float:
-    """The body's plan DIAMETER — the largest distance between two of its
-    vertices.  Taken over the CONVEX HULL where scipy can build one (the
-    diameter is always a hull pair), else over the vertices themselves; a
-    body of thousands of vertices then costs a hull, not N squared."""
-    if xy.shape[0] < 2:
-        return 0.0
-    pts = xy
-    if xy.shape[0] > 3:
-        try:
-            from scipy.spatial import ConvexHull
-            pts = xy[ConvexHull(xy).vertices]
-        except Exception:                     # degenerate (collinear) input
-            pts = xy
-    if pts.shape[0] > 4096:                   # never quadratic in N
-        pts = pts[:: 1 + pts.shape[0] // 4096]
-    d = pts[:, None, :] - pts[None, :, :]
-    return float(np.sqrt(np.einsum("ijk,ijk->ij", d, d)).max())
 
 
 def _dem_many(airport: Airport, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:

@@ -208,6 +208,38 @@ def cmd_order(args) -> int:
     return 0 if bad == 0 else 1
 
 
+def _foreign_outlines(paths: "list[str] | None") -> tuple:
+    """§9a: the part outlines of the airport's sibling plans
+    (``isolated_seat.outlines``), or ``()`` — said once: the isolation is
+    then read within this plan only."""
+    if paths is None:
+        print("  isolation read within this plan only (no --foreign)")
+        return ()
+    from auto_patch_v2.airport import isolated_seat as _iso
+    from auto_patch_v2.model import rebake as _rb
+    out: list = []
+    for p in paths:
+        with open(p, encoding="utf-8") as fh:
+            out.extend(_iso.outlines(_rb.RebakePlan.from_json(fh.read())))
+    print(f"  isolation read against {len(paths)} sibling plan(s), "
+          f"{len(out)} outline(s)")
+    return tuple(out)
+
+
+def _also_sampler(path: str, bounds):
+    """``--mesh-also``: a built ``.mesh``, or a tile ``.dsf`` read as X-Plane
+    draws it (``drawn_site.tile_triangles``; #1884 lows4: the installed
+    neighbour, where no build of it is on disk)."""
+    if not path:
+        return None
+    from auto_patch.mesh_sampler import MeshElevationSampler
+    if not path.lower().endswith(".dsf"):
+        return MeshElevationSampler(path, bounds)
+    import drawn_site as _DS
+    return MeshElevationSampler.from_triangles(
+        _DS.tile_triangles(path, bounds, _DS.dsftool(), None), bounds)
+
+
 def cmd_plan(args: argparse.Namespace) -> int:
     """THE PLACEMENT STAGE, REPLAYED AND TIMED (RULINGS 2026-09-12g).
 
@@ -341,9 +373,21 @@ def cmd_plan(args: argparse.Namespace) -> int:
                      len(sampler._grid_triangles)
                      / max(1, len(sampler._triangles))))
 
-        def sample(la, lo, _s=sampler):
+        # #1884: a plan whose bodies stand on the NEIGHBOUR tile (guest
+        # rows) reads that tile's drawn mesh there (``--mesh-also``)
+        also = _also_sampler(getattr(args, "mesh_also", ""), plan_.bounds())
+
+        def _at(la, lo, _s=sampler):
             try:
-                s = _s.sample_at(la, lo)
+                return _s.sample_at(la, lo)
+            except OutsideMeshError:
+                if also is None:
+                    raise
+                return also.sample_at(la, lo)
+
+        def sample(la, lo):
+            try:
+                s = _at(la, lo)
             except OutsideMeshError:
                 if capture[0]:
                     oracle[(la, lo)] = None
@@ -357,7 +401,13 @@ def cmd_plan(args: argparse.Namespace) -> int:
         if hasattr(sampler, "sample_many") and not args.no_batch:
             def sample_many(las, los, _s=sampler):
                 out = []
-                for s in _s.sample_many(las, los):
+                for la, lo, s in zip(las, los, _s.sample_many(las, los),
+                                     strict=True):
+                    if s is None and also is not None:
+                        try:
+                            s = also.sample_at(la, lo)
+                        except OutsideMeshError:
+                            s = None
                     if s is None:
                         out.append(None)
                         continue
@@ -485,7 +535,15 @@ def cmd_plan(args: argparse.Namespace) -> int:
         # #1645: the plan's rows are narrowed to THIS tile's DSF, as the app
         # does (without it a neighbour-origin plan's ids stay ``@<tile>``
         # and every placement reads index -1)
-        tile=(int(lat), int(lon)))
+        tile=(int(lat), int(lon)),
+        # §9a (#2063 round 3): the isolated seat, as the app passes it
+        motion_step_m=getattr(getattr(law.tables.emit, "cockpit", None),
+                              "motion_step_m", None),
+        isolated_span_max_m=getattr(law.tables.structures.placement,
+                                    "group_span_max_m", None),
+        isolated_foreign=_foreign_outlines(args.foreign),
+        isolated_base_min_fraction=getattr(law.tables.structures.placement,
+                                           "isolated_base_min_fraction", None))
     if args.write_pack:
         # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut
         # and written into a pack COPY by ``placement_write.apply_plan``
@@ -559,12 +617,23 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
     if args.write_pack:
         from auto_patch.dsf_reader import _dsftool_path
-        res = _pw.apply_plan(last_plan, last_files, _dsftool_path(),
-                             patch_dir=os.path.dirname(os.path.abspath(
-                                 args.plan_out or os.path.join(args.write_pack, "x"))))
+        # #1884 round 2 B2: the app's one routed write — this tile's DSF
+        # and the neighbour DSFs of the copy that take guest rows
+        write = getattr(_pw, "apply_routed", None)
+        patch_dir = os.path.dirname(os.path.abspath(
+            args.plan_out or os.path.join(args.write_pack, "x")))
+        if write is None:          # a --src predating the routed write
+            res = _pw.apply_plan(last_plan, last_files, _dsftool_path(),
+                                 patch_dir=patch_dir)
+        else:
+            res = write(last_plan, last_files, _dsftool_path(),
+                        here=(int(lat), int(lon)), patch_dir=patch_dir,
+                        say=lambda t: print("  " + t))
         last_plan = res.plan
         print("  written into the copy: %d body file(s), DSF %s"
               % (len(res.files_written), last_plan.dsf_path))
+        for g in getattr(res, "guests", ()):
+            print("  guest rows written into the copy: DSF %s" % g.dsf_path)
     if args.plan_out:
         with open(args.plan_out, "w") as fh:
             fh.write(last_plan.to_json())
@@ -745,6 +814,10 @@ def _main(argv: list[str] | None = None) -> int:
                                      "over the sampler the app calls (12g)")
     pl.add_argument("plan", help="the tile build's o4_v2_rebake_<ICAO>.json")
     pl.add_argument("mesh", help="the built Data+XX+YYY.mesh")
+    pl.add_argument("--mesh-also", default="",
+                    help="a NEIGHBOUR tile's drawn mesh (.mesh, or its installed "
+                         ".dsf), read where the plan's bodies stand off the first "
+                         "(#1884 guest rows)")
     pl.add_argument("--graded", required=True,
                     help="the emitted design surface <ICAO>.graded.json "
                          "(the pads and rims §6's class rule reads)")
@@ -770,6 +843,11 @@ def _main(argv: list[str] | None = None) -> int:
                     help="cut and write the replayed plan into this pack COPY "
                          "(placement_write.apply_plan; never the plan's own "
                          "pack) — the DSF and files the census reads (#1214)")
+    pl.add_argument("--foreign", nargs="*", default=None, metavar="PLAN",
+                    help="§9a: the airport's SIBLING rebake plans (main + "
+                         "companions) whose parts block an isolated share, "
+                         "as the app passes them; without it the isolation "
+                         "is read within this plan only")
     pl.add_argument("--plan-out", default="",
                     help="write the replayed o4_v2_placement_<ICAO>.json here "
                          "(lane-local) to diff against the shipped one")

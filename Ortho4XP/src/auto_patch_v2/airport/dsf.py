@@ -39,7 +39,7 @@ __all__ = ["DsfPolygon", "DsfPlacement", "DsfDump", "find_text_dump",
            "pavement_verdict", "names_soft_ground",
            "is_pavement_def", "pavement_gate", "building_role_for_def", "read_footprint_cache",
            "footprint_cache_name",
-           "mod_cache_dir", "on_tile", "row_of"]
+           "mod_cache_dir", "on_tile", "row_of", "guest_key", "owner_of"]
 
 
 @_dc.dataclass(frozen=True)
@@ -117,6 +117,20 @@ def on_tile(oid: str, tile: "tuple[int, int] | None") -> str:
     if tile is None:
         return oid
     return f"{oid}{TILE_MARK}{int(tile[0]):+03d}{int(tile[1]):+04d}"
+
+
+def guest_key(icao: str, tile: "tuple[int, int]") -> str:
+    """The pack-record key of ``icao``'s GUEST rows in a neighbour tile's
+    DSF, written by its build of ``tile`` (#1884, ``airport/tile_route``):
+    ``LOWS@+47+012``.  The record keeps it beside the neighbour's own
+    ``LOWS`` row, so each build replaces only what it wrote."""
+    return on_tile(str(icao), tile)
+
+
+def owner_of(key: str) -> str:
+    """The airport a pack-record key belongs to: ``LOWS@+47+012`` ->
+    ``LOWS`` (:func:`guest_key`); a plain ICAO is its own owner."""
+    return str(key).partition(TILE_MARK)[0]
 
 
 def row_of(oid: str) -> "tuple[tuple[int, int] | None, int | None]":

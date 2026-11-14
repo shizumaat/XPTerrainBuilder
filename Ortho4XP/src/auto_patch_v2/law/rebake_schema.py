@@ -329,6 +329,14 @@ class Placement:
     #: rule and every body chains, as it did before 14ah.
     chain_min_height_m: float = 2.5
 
+    #: §9a A1 (#2063 round 3): THE WALLED BASE an isolated object may not
+    #: have — a cluster ``chain_min_height_m`` tall whose feet spread over
+    #: at least this fraction of its plan diagonal stands on a wall line and
+    #: keeps today's seat (I8 ``walled``), and so does every share of a file
+    #: one of whose own clusters reads so (I7 ``building_file``).  Aircraft
+    #: read <= 0.43, the lowest walled thing 0.52.  0 disarms both.
+    isolated_base_min_fraction: float = 0.45
+
     #: THE FLAT PLANE AT THE BASE OF OBJECTS (owner RULINGS 2026-10-10o
     #: (B); issue #229; ``geom/base_slab``): the base-slab witness —
     #: maximum solid height, maximum |lowest authored y|, minimum open
@@ -529,6 +537,18 @@ class Placement:
     #: share of them (a lone post of a building stays with its group)
     free_column_min_count: int = 0
     free_column_min_share: float = 0.0
+    #: #1884 round 2 (A, ``airport/terrain_base``): a walled body nothing
+    #: carries whose RIGID base would clear our ground by more than
+    #: ``[rebake] elevated_base_m`` stands on our terrain too (owner RULINGS
+    #: 2026-11-13y (2)); ``false`` keeps it on §16 (3)'s own ground with its
+    #: authored y (the spec's witness 3) — the owner's reading since RULINGS
+    #: 2026-11-14a (1).  The case is counted either way
+    #: (``terrain_carried_over_ground`` / ``..._refused_over_ground``).
+    terrain_base_over_ground: bool = False
+    #: ... except a base within this over our ground, which is seated on our
+    #: terrain like one at or under it (owner RULINGS 2026-11-14c (1));
+    #: counted ``terrain_carried_within_ground``.  0 = no reach.
+    terrain_base_within_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

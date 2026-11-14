@@ -26,7 +26,7 @@ from . import placement_boxes as _pb
 from ..geom.union_find import find_root
 from ..model.frame import m_per_deg_exact   # noqa: F401  (re-exported: its callers read it here)
 
-__all__ = ["boxes_touch", "rings_touch", "ring_metres",
+__all__ = ["boxes_touch", "rings_touch", "ring_metres", "gap_pairs", "near_any",
            "m_per_deg_exact", "FAMILY_MIN_MEMBERS"]
 
 #: §16f (1): two bodies of ONE member are not a family by themselves.
@@ -211,6 +211,99 @@ def boxes_touch(ba: _t.Sequence[tuple[float, float, float, float]],
     return False
 
 
+def _outline_geoms(outlines: _t.Sequence[tuple], ml: float, mo: float):
+    """``(geometries, owner index)``: every ring of each ``(box, rings)``
+    outline as a polygon in metres (the :func:`ring_metres` scaling), or
+    its box where it publishes no ring of three vertices."""
+    import numpy as np
+    import shapely
+    coords, ring_of, owner, boxes, box_owner = [], [], [], [], []
+    for k, (bx, rings) in enumerate(outlines):
+        got = False
+        for r in rings or ():
+            if len(r) >= 3:
+                ring_of.extend([len(owner)] * (len(r) + 1))
+                coords.extend((a * ml, b * mo) for a, b in r)
+                coords.append((r[0][0] * ml, r[0][1] * mo))
+                owner.append(k)
+                got = True
+        if not got and bx is not None:
+            boxes.append((bx[0] * ml, bx[1] * mo, bx[2] * ml, bx[3] * mo))
+            box_owner.append(k)
+    geoms = []
+    if owner:
+        geoms.append(shapely.polygons(shapely.linearrings(
+            np.asarray(coords, dtype=float), indices=np.asarray(ring_of))))
+    if boxes:
+        b = np.asarray(boxes, dtype=float)
+        geoms.append(shapely.box(b[:, 0], b[:, 1], b[:, 2], b[:, 3]))
+    if not geoms:
+        return np.zeros(0, dtype=object), np.zeros(0, dtype=int)
+    return (np.concatenate(geoms),
+            np.asarray(owner + box_owner, dtype=int))
+
+
+def gap_pairs(outlines: _t.Sequence[tuple], gap_m: float, ref_lat: float,
+              others: _t.Sequence[tuple] = ()) -> "tuple[list, list]":
+    """§9a (#2063 round 3): which plan OUTLINES ``(box, rings)`` come
+    within ``gap_m`` of each other — the relation :func:`_clusters` reads
+    at §16g's touch tolerance (rings where published, else the box), asked
+    as one vectorised spatial query: the pairwise sweep cost OTHH's
+    170,474 parts 138 s at 2 m (measured, lane lkrnt3).  Returns
+    ``(pairs, near)``: ``(i, j)`` with ``i < j`` within ``outlines``, and
+    ``(i, k)`` where ``outlines[i]`` comes within ``gap_m`` of
+    ``others[k]``.  One scaling at ``ref_lat`` (:func:`ring_metres`)."""
+    import numpy as np
+    import shapely
+    ml, mo = m_per_deg_exact(ref_lat)
+    g, own = _outline_geoms(outlines, ml, mo)
+    if not len(g):
+        return [], []
+    tree = shapely.STRtree(g)
+    a, b = tree.query(g, predicate="dwithin", distance=float(gap_m))
+    oa, ob = own[a], own[b]
+    keep = oa < ob
+    pairs = sorted(set(zip(oa[keep].tolist(), ob[keep].tolist(), strict=True)))
+    near: list = []
+    if others:
+        h, hown = _outline_geoms(others, ml, mo)
+        if len(h):
+            qa, qb = tree.query(h, predicate="dwithin", distance=float(gap_m))
+            near = sorted(set(zip(own[qb].tolist(), hown[qa].tolist(), strict=True)))
+    return pairs, near
+
+
+def near_any(outlines: _t.Sequence[tuple], others: _t.Sequence[tuple],
+             gap_m: float, ref_lat: float) -> list[bool]:
+    """§9a: per outline ``(box, rings)``, does ANY of ``others`` come within
+    ``gap_m`` (:func:`gap_pairs`' relation)?  The OVERLAPPING ones first
+    (an ``intersects`` query, cheap on prepared rings), then a ``dwithin``
+    query for the rest only — OTHH's 104k candidate parts against its 39k
+    structure parts: all pairs at once 1.9 s, nearest-first 2.1 s, this
+    1.2 s (measured, lane lkrnt3)."""
+    import numpy as np
+    import shapely
+    out = [False] * len(outlines)
+    if not outlines or not others:
+        return out
+    ml, mo = m_per_deg_exact(ref_lat)
+    g, own = _outline_geoms(outlines, ml, mo)
+    h, _hown = _outline_geoms(others, ml, mo)
+    if not len(g) or not len(h):
+        return out
+    tree = shapely.STRtree(h)
+    hit = np.zeros(len(g), dtype=bool)
+    a, _b = tree.query(g, predicate="intersects")
+    hit[a] = True
+    rest = np.flatnonzero(~hit)
+    if len(rest):
+        a, _b = tree.query(g[rest], predicate="dwithin", distance=float(gap_m))
+        hit[rest[a]] = True
+    for k in np.unique(own[hit]).tolist():
+        out[k] = True
+    return out
+
+
 def _polys_touch(ra, rb, eps_m: float) -> bool:
     """§16g (7) (1) over two BODIES, each a set of component rings: they
     touch when any ring of one reaches any ring of the other.  A body
@@ -252,6 +345,8 @@ def _clusters(cands: _t.Sequence[_t.Any], eps_m: float,
     terrain) and the other's zero is its RIM (§14 (2))."""
     live = [i for i, c in enumerate(cands)
             if c.body_class not in (_ar.LINE_SEGMENT, _ar.BASIN)
+            # §9a: an isolated share chains into no unit (13y (4))
+            and not getattr(getattr(c, "anchor", None), "isolated", "")
             and (c.part_boxes or c.box)]
     adj: dict[int, set[int]] = {}
     if len(live) < 2:

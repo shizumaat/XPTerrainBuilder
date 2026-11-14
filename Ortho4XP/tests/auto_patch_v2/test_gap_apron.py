@@ -310,7 +310,9 @@ def test_the_class_table_read_on_a_real_map():
     # RE-RECORDED (lane drape229, owner RULINGS 2026-10-14d (4)): the
     # level plates touching no wall are slabs on the drape side, and the
     # kerb ring `T23/door` comp 9 is not a plate — 10 -> 18
-    assert n_slab == 21  # #712: the thin paved plates are slabs too (18 before)
+    # RE-RECORDED (batch 18, #2068 RULINGS 2026-11-13aa (2), lplate2068):
+    # footless pack plates are base slabs too — 21 -> 26
+    assert n_slab == 26  # #712: the thin paved plates are slabs too (18 before)
     # RE-RECORDED (lane regL3, RULINGS 2026-10-15l (1), audit row 3): the
     # taxiway strip is measured from the CENTRELINE, so the band envelope a
     # gap piece may not claim (``ribbon_extent``) narrows (code E 19.0 ->

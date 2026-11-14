@@ -537,7 +537,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                     air_all: _t.Sequence | None = None,
                     beyond: _t.Sequence = (),
                     lots: _t.Sequence = (), seeds: _t.Sequence = (),
-                    shells: _t.Sequence = ()) -> list:
+                    shells: _t.Sequence = (),
+                    upper: _t.Mapping[str, tuple] | None = None) -> list:
     """The pad regions ``out`` with every held block whose unit carries a
     lower storey split into its high block, its low level ``<ref>/p1`` and
     the riser strip (module docstring); each low level registered in
@@ -554,7 +555,9 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     (``planar/level_regions.seed_levels``, round 4); ``shells`` the storey
     shells (``planar/storey_pad``, #2062), whose pads are split at their
     own storeys through the same level / strip / landing grammar and read
-    by none of the readings above (their levels are never extended)."""
+    by none of the readings above (their levels are never extended); ``upper``
+    the pads under a unit's upper storey (``planar/group_up``, #2068), taken
+    first, held or not, as their unit block's upper level."""
     from ..airport.obj8_grade import STEPPED
     from .group_low import plan_group_low
     from .pad_blocks import unit_base
@@ -580,7 +583,12 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     st_open = station_corridors(airport, law, open_only=True) if st is not None else None
     cut_levels: dict[str, tuple] = {}
     by_pad = {str(sh.pad_ref): sh for sh in shells}
+    from .group_up import plan_group_up
+    done.update(plan_group_up(out, upper or {}, air_polys, tree, airport, law, grid, counts,
+                              reg, frozenset(by_pad)))
     for ref, regs in sorted(groups.items()):
+        if ref in done:
+            continue
         if ref in by_pad:
             done[ref] = _shell_split(ref, regs, by_pad[ref], air_polys, tree, law, grid, reg,
                                      out)
@@ -654,7 +662,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         from .station_level import station_split
         out = station_split(out, held, st, st_reach, st_open, air_polys, tree, airport,
                             law, grid, counts, reg, cut_levels)
-    _upper_split({r: g for r, g in groups.items() if r not in by_pad}, done, out, tree,
+    _upper_split({r: g for r, g in groups.items() if r not in by_pad and not (
+                     r in done and r in (upper or {}))}, done, out, tree,
                  air_polys, storey_lots, law, grid, reg)
     if cut_levels:
         # the cut's ENDS grade to the open cut at the rail grade (28r (3),

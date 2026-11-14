@@ -433,13 +433,15 @@ def build_arrangement(airport: Airport, classification: Classification,
             # pad fronting airside becomes a PLATFORM inside a COLLAR — minted
             # from the FINAL pad polygon (after the 23a cut and the 28b
             # terrace), so no airside vertex is created or moved
+            from .group_up import upper_pad_reads
             from .platform import platform_split
             pad_regions, _plat = platform_split(base_regions, pad_regions, law,
                                                 float(grid),
                                                 getattr(airport, "dem", None),
                                                 airport=airport, reg=reg,
                                                 storey=_storey_lots(cells),
-                                                seeds=level_seeds, shells=shells)
+                                                seeds=level_seeds, shells=shells,
+                                                upper=upper_pad_reads(cells))
             _pad_clip.update(_plat)
         # #1333: a covered cutting no lower level took leaves every pad
         # (``planar/covered_cut``; #1179: a pad never fills a cut)

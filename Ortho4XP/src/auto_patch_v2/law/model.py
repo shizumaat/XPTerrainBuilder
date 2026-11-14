@@ -897,6 +897,11 @@ class RoadContact:
     #: the pad takes the remainder up to this, as one rigid pad; beyond it
     #: the road ends at a step (``constraints/pad_road_reach``)
     pad_shift_max_m: float
+    #: THE ROAD TO AN UPPER PAD (owner RULINGS 2026-11-14b, #2068): the
+    #: linked run climbing to an upper pad's level (the terrace ``level``
+    #: destination) climbs at up to this instead of the road cap; nothing
+    #: else changes the road cap (``constraints/road_ramp.terrace_profile``)
+    upper_pad_road_grade: float
     #: contact roles BESIDE the airside value roles (apron, pad, the taxi
     #: family, the runway family with §40's shoulder): §37 (10)'s LOT,
     #: which precedence.toml partitions groundside but which is hard

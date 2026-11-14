@@ -142,6 +142,11 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
             pinned.add(r.v)
     xy = {v: vx.xy for v, vx in planar.vertices.items()}
     src = Source(GEN, RULING, ())
+    # a pair ACROSS AN UPPER PAD'S RIM (``constraints/riser``: the level's
+    # own vertex and its road arm, #2068 A1 (2) (c)) is the step the level's
+    # landing rows and the declared joint carry, never a grade to cap
+    from .riser import upper_arm_sets
+    r_low, r_high = upper_arm_sets(planar)
     seen: set[tuple[int, int]] = set()
     out: list[Row] = []
 
@@ -158,6 +163,8 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
                 follows = gs
         seen.add(key)
         if a in collar_v or b in collar_v or (a in pinned and b in pinned):
+            return
+        if (a in r_low and b in r_high) or (a in r_high and b in r_low):
             return
         (xa, ya), (xb, yb) = xy[a], xy[b]
         d = exact.hypot(xa - xb, ya - yb)

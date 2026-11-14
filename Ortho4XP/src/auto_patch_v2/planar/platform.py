@@ -187,7 +187,8 @@ def _shell_held(pr, P, tree, air_polys, near: float, dem, slope_max: float, plat
 def platform_split(base_regions, pad_regions, law: Law,
                    grid: float = 0.0, dem=None, airport=None, *,
                    reg: Registries, storey: _t.Mapping[str, float] | None = None,
-                   seeds: _t.Sequence = (), shells: _t.Sequence = ()) -> tuple[list, dict]:
+                   seeds: _t.Sequence = (), shells: _t.Sequence = (),
+                   upper: _t.Mapping[str, tuple] | None = None) -> tuple[list, dict]:
     """THE BLOCK PLANNER (module docstring).  Returns ``(pad_regions,
     counts)``.
 
@@ -202,7 +203,8 @@ def platform_split(base_regions, pad_regions, law: Law,
 
     ``shells`` are the STOREY SHELLS (``planar/storey_pad``, #2062): each
     shell's pad is HELD, non-conforming, ONE block (never partitioned at
-    its necks) and split at its storeys by ``low_level_split``."""
+    its necks) and split at its storeys by ``low_level_split``; ``upper``
+    the pads under a unit's upper storey (``planar/group_up``, #2068)."""
     platforms, held = reg.platforms, reg.held
     platforms.clear()
     held.clear()
@@ -384,7 +386,7 @@ def platform_split(base_regions, pad_regions, law: Law,
                           # along" its own unreachable apron)
                           lots=[r.polygon for r in base_regions if r.polygon is not None
                                 and r.role in LOT_ROLES and BEYOND not in str(r.ref)],
-                          seeds=seeds, shells=shells)
+                          seeds=seeds, shells=shells, upper=upper)
     counts["platforms"] = sum(1 for p in platforms if not p.refused)
     counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(

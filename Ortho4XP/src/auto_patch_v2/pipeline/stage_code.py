@@ -184,6 +184,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.free_column",
         "auto_patch_v2.airport.ground_shell",
+        "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.line_solidity",
@@ -195,6 +196,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.obj8_rest",
         "auto_patch_v2.airport.obj8_roof",
         "auto_patch_v2.airport.obj8_split",
+        "auto_patch_v2.airport.object_cut",
         "auto_patch_v2.airport.object_pack",
         "auto_patch_v2.airport.one_building",
         "auto_patch_v2.airport.open_frame_seat",
@@ -246,6 +248,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.slab_faces",
         "auto_patch_v2.airport.slab_plates",
         "auto_patch_v2.airport.split_guard",
+        "auto_patch_v2.airport.split_level",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.terrain_model",
@@ -254,6 +257,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.user_roles",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_geometry",
         "auto_patch_v2.airport.wall_sheets",
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_plate",
@@ -299,6 +303,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.geom.valid_area",
+        "auto_patch_v2.geom.vector",
         "auto_patch_v2.law",
         "auto_patch_v2.law.airports_schema",
         "auto_patch_v2.law.base_profile_schema",
@@ -634,6 +639,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.floor_decks",
         "auto_patch_v2.planar.foot_kerb",
         "auto_patch_v2.planar.group_low",
+        "auto_patch_v2.planar.group_up",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
         "auto_patch_v2.planar.level_depth",
@@ -1146,6 +1152,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.free_column",
         "auto_patch_v2.airport.ground_shell",
+        "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.line_solidity",
@@ -1157,6 +1164,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.obj8_rest",
         "auto_patch_v2.airport.obj8_roof",
         "auto_patch_v2.airport.obj8_split",
+        "auto_patch_v2.airport.object_cut",
         "auto_patch_v2.airport.object_pack",
         "auto_patch_v2.airport.one_building",
         "auto_patch_v2.airport.open_frame_seat",
@@ -1208,6 +1216,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.slab_faces",
         "auto_patch_v2.airport.slab_plates",
         "auto_patch_v2.airport.split_guard",
+        "auto_patch_v2.airport.split_level",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.terrain_model",
@@ -1216,6 +1225,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.user_roles",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_geometry",
         "auto_patch_v2.airport.wall_sheets",
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_plate",
@@ -1343,6 +1353,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.geom.valid_area",
+        "auto_patch_v2.geom.vector",
         "auto_patch_v2.geom.water_level",
         "auto_patch_v2.law",
         "auto_patch_v2.law.airports_schema",
@@ -1868,6 +1879,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    airport.hanging_objects airport.object_cut airport.split_level airport.wall_geometry
+    geom.vector
     airport.facade airport.line_solidity classify.edge_line_mint
     constraints.deck_stack geom.deck_ground geom.end_line model.deck_ends
     airport.pit_frame
@@ -2186,7 +2199,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.fill_road planar.fill_riser
     model.road_yield planar.road_shadow
     constraints.wall_zone
-    geom.foot_planes constraints.group_level constraints.face_index planar.group_low
+    geom.foot_planes constraints.group_level constraints.face_index planar.group_low planar.group_up
     airport.pavement_end_plate
     airport.walled_plate law.walled_plate_schema model.stage_one model.walled_plate
     planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
@@ -2356,7 +2369,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.fill_road planar.fill_riser
     model.road_yield planar.road_shadow
     constraints.wall_zone
-    geom.foot_planes constraints.face_index constraints.group_level planar.group_low
+    geom.foot_planes constraints.face_index constraints.group_level planar.group_low planar.group_up
     airport.pavement_end_plate
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped law.walled_plate_schema
     model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads
@@ -2479,8 +2492,10 @@ CODE_MODULES["emit"] = _mods("""
     constraints.taxi_route_yield
     airport.foot_lot
     airport.split_level airport.storey_seat model.storey_shell pipeline.storey_publication
+    pipeline.upper_pad_publication
 """)
 CODE_MODULES["verify"] = _mods("""
+    airport.split_level
     airport.facade airport.line_solidity classify.edge_line_mint
     airport.below_grade_witness airport.floor_rim airport.hanging_objects airport.object_cut
     airport.object_floor airport.wall_geometry airport.walled_pit
@@ -2577,7 +2592,7 @@ CODE_MODULES["verify"] = _mods("""
     model.stage_one
     verify.deck_flush
     constraints.taxi_route_yield
-    pipeline.storey_publication
+    pipeline.storey_publication pipeline.upper_pad_publication
 """)
 
 

@@ -1142,6 +1142,18 @@ pad_airside_snap_max_m = 5.0
 # carrying 3,594 of its 9,333 touch edges.  2.5 m is a storey.  0 disarms.
 chain_min_height_m  = 2.5
 
+# §9a A1 (#2063 round 3 amendment, RULINGS 2026-11-13y (4)/(5)): THE WALLED
+# BASE an isolated object may not have.  A cluster at least
+# chain_min_height_m tall whose feet spread over at least this fraction of
+# its plan diagonal (the farthest two feet over the diagonal) stands on a
+# wall line: it keeps today's seat, and so does every share of a file one
+# of whose own clusters reads so (a building file).  MEASURED over the
+# rebake corpus: aircraft read <= 0.43 (KRNT seaplanes 0.43, B737
+# 0.32-0.37, B777 0.35, Lear25 0.36, ERJ140 0.39, Bell412 0.23); the lowest
+# walled things 0.52 (KPAE ILS mast), 0.54 (LGAV lamps), 0.56 (KRNT GSE
+# cluster), buildings 0.57-1.00.  0 disarms I7 and I8 both.
+isolated_base_min_fraction = 0.45
+
 # THE FLAT PLANE AT THE BASE OF OBJECTS IS PAVEMENT (owner RULINGS
 # 2026-10-10o (B), 2026-10-02v (3b); issue #229; geom/base_slab.py).  A
 # component with ground feet, its lowest y within base_slab_base_y_max_m of

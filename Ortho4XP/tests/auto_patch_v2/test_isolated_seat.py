@@ -271,19 +271,6 @@ def test_an_isolated_anchor_is_never_elevated():
     assert not is_elevated(0.6, dc.replace(a, isolated="iso:1@0"), 0.5)
 
 
-def test_keep_isolated_restores_what_a_group_seat_moved():
-    from auto_patch_v2.airport.placement_record import Body, Split
-    a = AR.Anchor(AR.OTHER, LAT, LON, 0.0, "isolated", 100.0, isolated="iso:1@0")
-    b0 = Body(0, AR.OTHER, (0,), a, "x_b0.obj")
-    pre = Split(1, "dsf:obj1", "x.obj", "", LAT, LON, 0.0, (b0,))
-    moved = dc.replace(pre, bodies=(dc.replace(b0, anchor=dc.replace(a, y_zero=0.4)),))
-    assert I.keep_isolated(moved, pre).bodies[0].anchor.y_zero == 0.0
-
-
-def test_without_parts_drops_only_the_isolated_parts():
-    assert I.without_parts({0: "u", 1: "u"}, {0: object()}) == {1: "u"}
-
-
 # ── through the plan: one frame, written, never carried or a carrier ─────
 
 def _box(x0, z0, side=1.0, h=1.0, y0=0.0):
@@ -346,7 +333,9 @@ def test_isolated_bodies_are_written_one_frame_each(tmp_path):
     assert {b.anchor.isolated for b in bodies} == {"iso:0@0", "iso:3@0"}
     for b in bodies:                       # its own wheels, never the body box
         assert abs(b.anchor.y_zero) < 0.05
-    assert ss.counts.get("carrier_refused_isolated", 0) == 2
+    # A1 §3.4: today's raws were elected as without a share, then vacated
+    assert ss.counts["isolated_bodies"] == 2
+    assert ss.counts["isolated_raws_vacated"] >= 2
     recs, _kept = PP.to_placement_records(ss)
     assert {b.isolated_of for s in recs for b in s.bodies} == {"iso:0@0", "iso:3@0"}
 
@@ -366,3 +355,155 @@ def test_a_disarmed_seat_is_todays_plan(tmp_path):
     assert "isolated_shares" not in off.counts and ss.counts["isolated_shares"] == 2
     assert not any(b.anchor.isolated for s in off.splits for b in s.bodies)
 
+
+
+# ── amendment A1: the walled base and the building file (I7 / I8) ────────
+
+WALLS = dict(LAW, wall_min_h_m=2.5, base_min_fraction=0.45)
+
+
+def _tall(pid: int, x: float, n: float, w: float, d: float, h: float,
+          feet: "list[tuple[float, float]]", y: float = 0.0) -> Part:
+    """A part ``w`` east x ``d`` north at ``(x, n)``, ``h`` m of solid
+    height from ``y``, with feet at the given local ``(east, north)``."""
+    la0, lo0 = _ll(x, n)
+    la1, lo1 = _ll(x + w, n + d)
+    ft = tuple(_ll(x + e, n + q) + (y,) for e, q in feet)
+    return Part(pid=pid, comp=pid, lat=(la0 + la1) / 2, lon=(lo0 + lo1) / 2,
+                base_y=y, area_m2=w * d, box=(la0, lo0, la1, lo1), feet=ft,
+                height_m=h)
+
+
+def _wall(pid: int, x: float, h: float) -> Part:
+    """A 10 m wall slab 0.3 m thick, its feet along its whole base."""
+    return _tall(pid, x, 0.0, 10.0, 0.3, h, [(0.0, 0.0), (5.0, 0.15), (10.0, 0.3)])
+
+
+def _airliner(pid0: int, x: float) -> list:
+    """Three wheels (nose 12 m ahead of the mains, 4 m apart), a 30 m wing
+    and a fuselage whose tail stands 7.6 m: feet spread ~0.3 of the span."""
+    wheels = [_tall(pid0 + i, x + e, q, 0.4, 0.4, 0.5, [(0.2, 0.2)])
+                    for i, (e, q) in enumerate(((13.0, 0.0), (17.0, 0.0), (15.0, 12.0)))]
+    wing = _tall(pid0 + 3, x, 1.0, 30.0, 4.0, 1.0, [(15.0, 1.5)], y=1.5)
+    body = _tall(pid0 + 4, x + 13.0, -12.0, 4.0, 30.0, 7.1, [(2.0, 13.0)], y=0.5)
+    return wheels + [wing, body]
+
+
+@pytest.mark.parametrize("h,admitted", [(3.0, False), (2.4, True)])
+def test_a_wall_slab_on_its_feet_is_refused_walled(h, admitted):
+    plan = _plan(((_m("wall", _wall(0, 0.0, h)),), 0.0))
+    c: dict = {}
+    got = I.shares(plan, _flat(), counts=c, **WALLS)
+    assert bool(got) is admitted
+    assert c.get("isolated_refused_walled", 0) == (0 if admitted else 1)
+    assert I.base_spread([_wall(0, 0.0, h)]) > 0.9
+
+
+def test_a_three_wheel_aircraft_with_a_tall_tail_is_admitted():
+    parts = _airliner(0, 0.0)
+    assert I._height_m(parts) == pytest.approx(7.6)
+    assert I.base_spread(parts) < 0.45            # ~0.3: wheels inside the span
+    plan = _plan(((_m("b737", *parts),), 0.0))
+    got = I.shares(plan, _flat(), counts={}, **WALLS)
+    assert set(got) == {p.pid for p in parts}
+
+
+def test_a_building_files_small_isolated_piece_is_refused():
+    """The file's wall stands in a structure's closure; its small piece far
+    from everything is still the BUILDING's (I7)."""
+    shed = _m("shed", _part(50, 11.0, 0.0), base_profile={"planes": [{"y": 0.0}]})
+    term = _m("terminal", _wall(0, 0.0, 6.0), _part(1, 40.0, 0.0))
+    c: dict = {}
+    assert I.shares(_plan(((term, shed), 0.0)), _flat(), counts=c, **WALLS) == {}
+    assert c["isolated_refused_building_file"] == 1
+    assert I.building_files((term,), 2.0, 2.5, 0.45) == frozenset({"terminal"})
+
+
+def test_an_aircraft_atlas_with_one_aircraft_at_a_structure_keeps_the_rest():
+    shed = _m("shed", _part(90, -1.5, 0.0), base_profile={"planes": [{"y": 0.0}]})
+    atlas = _m("atlas", *_airliner(0, 0.0), *_airliner(10, 60.0), *_airliner(20, 120.0))
+    c: dict = {}
+    got = I.shares(_plan(((atlas, shed), 0.0)), _flat(), counts=c, **WALLS)
+    assert set(got) == set(range(10, 15)) | set(range(20, 25))
+    assert not c.get("isolated_refused_building_file")
+
+
+def test_a_cluster_holding_a_building_files_piece_is_refused_whole():
+    """A cart beside a building file's loose piece: one plan cluster, every
+    share refused (the cart's too)."""
+    cart = _m("cart", _part(0, 0.0, 0.0))
+    term = _m("terminal", _part(1, 1.5, 0.0), _wall(2, 60.0, 6.0))
+    c: dict = {}
+    assert I.shares(_plan(((cart, term), 0.0)), _flat(), counts=c, **WALLS) == {}
+    assert c["isolated_refused_building_file"] == 1   # the cart's one cluster
+    assert c["isolated_refused_walled"] == 1          # the wall's own
+
+
+@pytest.mark.parametrize("kw", [dict(wall_min_h_m=0.0), dict(base_min_fraction=0.0)])
+def test_either_wall_key_at_zero_disarms_both(kw):
+    plan = _plan(((_m("wall", _wall(0, 0.0, 6.0)),), 0.0))
+    assert I.shares(plan, _flat(), counts={}, **dict(WALLS, **kw))
+
+
+def test_a_plan_with_no_solid_heights_disarms_the_seat_and_says_so():
+    plan = _plan(((_m("x", _part(0, 0.0, 0.0)),), 0.0))     # height_m 0.0
+    c: dict = {}
+    assert I.shares(plan, _flat(), counts=c, **WALLS) == {}
+    assert c["isolated_disarmed_no_height"] == 1
+
+
+# ── amendment A1 §3.4: the frozen election ───────────────────────────────
+
+def test_a_raw_welding_a_share_to_another_part_refuses_it():
+    p0, p1 = _part(0, 0.0, 0.0), _part(1, 1.0, 0.0)
+    s = I.Share("iso:0@0", 0, frozenset({0}), AR.Anchor(AR.OTHER, LAT, LON, 0.0, ""))
+    c = {"isolated_shares": 1}
+    assert I.welded({0: s}, [([p0, p1],), ([p1],)], c) == {"iso:0@0"}
+    assert c == {"isolated_shares": 0, "isolated_refused_welded": 1}
+    assert I.welded({0: s}, [([p0],), ([p1],)], {}) == frozenset()
+
+
+def test_vacate_with_no_share_is_the_identity():
+    rec = object()
+    assert I.vacate(rec, None, None, None, {}, {}, step_m=0.05, reach_m=100.0,
+                    counts={}, by_class={}) == (rec, False)
+    st = type("St", (), dict(raw=[([_part(5, 0.0, 0.0)],)], mi=0))()
+    iso = {"iso:0@0": ([_part(0, 9.0, 0.0)],)}
+    assert I.vacate(rec, st, None, iso, {}, {}, step_m=0.05, reach_m=100.0,
+                    counts={}, by_class={}) == (rec, False)
+
+
+def test_the_election_is_held_with_the_isolated_present(tmp_path):
+    """The isolated group is today's coarsen SENIOR (most feet, largest
+    footprint) of a body it shares with a piece at a shed: the piece keeps
+    the anchor it was elected on without the share; the share is vacated
+    into its own body on its lowest feet."""
+    path = _write(tmp_path / "mix.obj", [_box(0, 0, 6.0, 1.0), _box(20.0, 0, 1.0, 1.0)])
+    big = _part(0, 0.0, -6.0, side=6.0, comp=0, feet=(
+        _ll(0.0, -6.0) + (0.0,), _ll(6.0, -6.0) + (0.0,), _ll(0.0, 0.0) + (0.0,),
+        _ll(6.0, 0.0) + (0.0,)))
+    piece = _obj_part(1, 1, 20.0, 0, 1.0)
+    mix = Member(id="dsf:obj1", resource="objects/mix.obj", authored_path=path,
+                 live_path=path, heading_deg=0.0, parts=(big, piece))
+    spath = _write(tmp_path / "shed.obj", [_box(21.5, 0, 1.0, 3.0)])
+    shed = Member(id="dsf:obj2", resource="objects/shed.obj", authored_path=spath,
+                  live_path=spath, heading_deg=0.0,
+                  parts=(_obj_part(2, 0, 21.5, 0, 1.0),),
+                  base_profile={"planes": [{"y": 0.0}]})
+    plan = RebakePlan(icao="TEST", pack_name="p", pack_root=str(tmp_path),
+                      units=(Unit("u0", (LAT, LON), 0.0, (mix, shed)),),
+                      skipped=(), counts={})
+    surf = _slope(per_m=0.005)
+    on = _splits(plan, surf)
+    off = PP.build_splits(plan, surf, write=False, split_tol_m=0.3,
+                          elevated_base_m=0.5, foot_band_m=1.0,
+                          coarsen_reach_m=100.0, rigid_reach_m=2.0, touch_m=0.5)
+    assert on.counts["isolated_shares"] == 1
+    base = {b.pids: b.anchor for s in off.splits + off.whole for b in s.bodies
+            if s.placement_id == "dsf:obj1"}
+    now = {b.pids: b.anchor for s in on.splits for b in s.bodies
+           if s.placement_id == "dsf:obj1"}
+    assert set(base) == {(0, 1)}                    # one body, senior `big`
+    assert set(now) == {(1,), (0,)}
+    assert now[(1,)] == base[(0, 1)]                # the remainder: frozen
+    assert now[(0,)].isolated == "iso:0@0"          # the share: its own frame

@@ -666,7 +666,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             motion_step_m=float(law.tables.emit.cockpit.motion_step_m),
             isolated_span_max_m=float(
                 law.tables.structures.placement.group_span_max_m),
-            isolated_foreign=tuple(foreign))
+            isolated_foreign=tuple(foreign),
+            isolated_base_min_fraction=float(
+                law.tables.structures.placement.isolated_base_min_fraction))
     _pulse.clear()
     c = dict(plan.counts())
     # §6's CLASSES ride out with the counts (lane v2planfix): they are the

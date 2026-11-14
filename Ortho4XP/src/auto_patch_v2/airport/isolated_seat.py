@@ -28,6 +28,16 @@ here only when ALL hold, and each refusal is counted by reason:
   part of such a member within the reach of a candidate refuses it the
   same way: the closure would hold it);
 * I3 ``span``: the cluster's plan diagonal is within ``span_max_m``;
+* I7 ``building_file`` (amendment A1): no part of the cluster belongs to a
+  BUILDING FILE — a member one of whose own clusters (its solid non-line
+  parts joined within the reach, the parts the structure closure took
+  included) is WALLED-BASE (:func:`building_files`);
+* I8 ``walled`` (A1): the cluster itself is not WALLED-BASE — at least
+  ``[placement] chain_min_height_m`` tall AND its feet spread over at least
+  ``[placement] isolated_base_min_fraction`` of its plan diagonal
+  (:func:`base_spread`): a wall stands on a line of feet as long as itself,
+  an aircraft on three wheels well inside its span (KRNT B737 0.32-0.37,
+  the lowest wall refused 0.52);
 * I4 ``no_feet`` / ``off_author_ground``: the share has feet and its
   lowest authored ``y`` is within ``split_tol_m`` of ``-Unit.agl_m``;
 * I5 ``no_surface`` / ``water`` / ``pad`` / ``deck`` / ``rim``: every
@@ -44,6 +54,17 @@ more than the motion step, and the apron's fall across the gear shows as
 float.  ONE frame per share: every body of every member of it is written at
 that anchor.
 
+THE FROZEN ELECTION (A1 §3.4).  The election is held WITH the isolated
+present: no non-isolated body's anchor, zero, senior or carrier may differ
+because a share exists.  So today's raws are made from the full groups
+(``placement_body._raw_bodies``) and every pass runs on them unchanged; the
+share's own raws are made beside them (``placement_body.isolated_raws``) and
+read by no pass.  A share one of today's raws WELDS — a raw holding its
+parts and a part not its own — is refused ``welded`` (:func:`welded`).  Last,
+before the cut, :func:`vacate` drops every today raw all of whose parts are
+one share's, hands its components (and the orphans riding with it) to the
+share's body, and re-forms what is left of a body around its FROZEN anchor.
+
 NO LAW CONSTANT LIVES HERE.
 """
 from __future__ import annotations
@@ -53,15 +74,20 @@ import math
 import statistics
 import typing as _t
 
+import numpy as _np
+
+from ..geom.diameter import plan_diameter
 from . import anchor_rule as _ar
 from . import placement_contact as _pcon
 from .placement_motion import lowest_contact_feet
 
 __all__ = ["Share", "REFUSALS", "ISO_PREFIX", "outlines", "clusters",
-           "shares", "seat", "keep_isolated", "without_parts"]
+           "shares", "seat", "base_spread", "building_files",
+           "welded", "vacate"]
 
 #: every refusal reason, in the order the witness asks them
-REFUSALS = ("not_isolated", "structure", "span", "no_feet",
+REFUSALS = ("not_isolated", "structure", "span", "building_file", "walled",
+            "welded", "no_feet",
             "off_author_ground", "no_surface", "water", "pad", "deck", "rim",
             "spread")
 
@@ -148,6 +174,53 @@ def _span_m(parts: _t.Sequence[_t.Any]) -> float:
                       (max(p.box[3] for p in parts) - min(p.box[1] for p in parts)) * mo)
 
 
+def _height_m(parts: _t.Sequence[_t.Any]) -> float:
+    """A1: the parts' solid height — their highest top over their lowest
+    base (``Part.base_y`` + ``Part.height_m``)."""
+    return (max(p.base_y + p.height_m for p in parts)
+            - min(p.base_y for p in parts))
+
+
+def base_spread(parts: _t.Sequence[_t.Any]) -> float:
+    """A1: how far the parts' feet spread — the greatest plan distance
+    between any two of their feet (every ``Part.feet``) over the parts'
+    plan diagonal; 0 with fewer than two feet."""
+    feet = [f for p in parts for f in p.feet]
+    span = _span_m(parts) if len(feet) >= 2 else 0.0
+    if span <= 0.0:
+        return 0.0
+    la0, lo0 = feet[0][0], feet[0][1]
+    ml, mo = _pcon.m_per_deg_exact(la0)
+    xy = _np.array([((f[1] - lo0) * mo, (f[0] - la0) * ml) for f in feet])
+    return plan_diameter(xy) / span
+
+
+def _walled_base(parts: _t.Sequence[_t.Any], min_h_m: float,
+                min_fraction: float) -> bool:
+    """A1's WALLED-BASE: at least ``min_h_m`` tall and the feet spread over
+    at least ``min_fraction`` of the plan diagonal (height asked first: it
+    is the cheap half)."""
+    return bool(parts) and (_height_m(parts) >= min_h_m
+                            and base_spread(parts) >= min_fraction)
+
+
+def building_files(members: _t.Iterable[_t.Any], reach_m: float,
+                   min_h_m: float, min_fraction: float) -> frozenset:
+    """A1 I7: the ids of the BUILDING FILES among ``members`` — a member
+    one of whose own clusters (:func:`clusters` over its solid non-line
+    parts at ``reach_m``) is WALLED-BASE (:func:`_walled_base`)."""
+    out = set()
+    for m in members:
+        solid = [p for p in m.parts if not p.line]
+        if not solid:
+            continue
+        groups, _b = clusters(solid, reach_m, (), solid[0].lat)
+        if any(_walled_base([solid[i] for i in g], min_h_m, min_fraction)
+               for g in groups):
+            out.add(m.id)
+    return frozenset(out)
+
+
 def _surface(surface: _ar.Surface, pts: _t.Sequence[tuple]) -> list:
     many = getattr(surface, "many", None)
     if many is not None:
@@ -180,13 +253,23 @@ def shares(plan: _t.Any, surface: _ar.Surface,
            decks: _t.Sequence[_ar.DeckFace] = (), *, reach_m: float,
            span_max_m: float, split_tol_m: float, step_m: float,
            foreign: _t.Sequence[tuple] = (), counts: "dict | None" = None,
-           refused: "dict | None" = None) -> dict[int, Share]:
+           refused: "dict | None" = None, wall_min_h_m: float = 0.0,
+           base_min_fraction: float = 0.0) -> dict[int, Share]:
     """Every seated share of ``plan`` (module doc), keyed by part id.  Any
-    of ``reach_m``, ``split_tol_m`` or ``step_m`` at 0 disarms (``{}``).
-    ``refused``, when given, is filled ``share id -> reason`` for every
-    share refused (the report's ISOLATED block)."""
+    of ``reach_m``, ``split_tol_m`` or ``step_m`` at 0 disarms (``{}``);
+    ``wall_min_h_m`` or ``base_min_fraction`` at 0 disarms I7 and I8 both.
+    A plan whose parts carry no solid height (``Part.height_m`` all 0, an
+    older plan) cannot ask I8 and is disarmed whole, counted
+    ``isolated_disarmed_no_height``.  ``refused``, when given, is filled
+    ``share id -> reason`` for every share refused (the report's ISOLATED
+    block)."""
     counts = counts if counts is not None else {}
     if reach_m <= 0.0 or split_tol_m <= 0.0 or step_m <= 0.0:
+        return {}
+    walls = wall_min_h_m > 0.0 and base_min_fraction > 0.0
+    if walls and not any(p.height_m > 0.0 for u in plan.units
+                         for m in u.members for p in m.parts):
+        counts["isolated_disarmed_no_height"] = 1
         return {}
     from .footprint_connector import verdicts_of
     seats = frozenset(str(r.get("id")) for r in getattr(plan, "authored_seats", ()) or ()
@@ -195,6 +278,7 @@ def shares(plan: _t.Any, surface: _ar.Surface,
     conn = frozenset(q for v in (verdicts_of(plan) or ()) for q in v.pids)
     cand: list[tuple[_t.Any, int, _t.Any]] = []
     blockers: list[tuple] = []
+    member_of: dict[int, _t.Any] = {}
     from .open_frame_seat import OPEN_KINDS
     for ui, u in enumerate(plan.units):
         # an OPEN STRUCTURE's frame (every member a deck or deck candidate)
@@ -202,6 +286,7 @@ def shares(plan: _t.Any, surface: _ar.Surface,
         open_frame = bool(u.members) and all(
             str(getattr(x, "deck_kind", "") or "") in OPEN_KINDS for x in u.members)
         for m in u.members:
+            member_of.update((p.pid, m) for p in m.parts)
             solid = [p for p in m.parts if not p.line]
             if open_frame or _structure(m, rims, seats, adapted, conn):
                 blockers.extend((p.box, p.rings) for p in solid)
@@ -233,6 +318,7 @@ def shares(plan: _t.Any, surface: _ar.Surface,
     by_struct = _pcon.near_any(outl, doomed, reach_m, ref)
     by_foreign = _pcon.near_any(outl, foreign, reach_m, ref)
     out: dict[int, Share] = {}
+    files: dict[str, bool] = {}     # I7, member id -> building file (lazy)
     counts["isolated_clusters"] = counts.get("isolated_clusters", 0) + len(groups)
     for ci, grp in enumerate(groups):
         by_unit: dict[int, list[int]] = {}
@@ -244,6 +330,9 @@ def shares(plan: _t.Any, surface: _ar.Surface,
                "not_isolated" if any(by_foreign[i] for i in grp) else
                "span" if span_max_m > 0.0 and _span_m([parts[i] for i in grp]) > span_max_m
                else None)
+        if why is None and walls:
+            why = _walls(grp, parts, member_of, files, reach_m, wall_min_h_m,
+                         base_min_fraction)
         for ui, idx in sorted(by_unit.items()):
             s, why2 = ((None, why) if why else
                        _share(plan, ui, [parts[i] for i in idx], surface, pads,
@@ -256,6 +345,26 @@ def shares(plan: _t.Any, surface: _ar.Surface,
             counts["isolated_shares"] = counts.get("isolated_shares", 0) + 1
             out.update((q, s) for q in s.pids)
     return out
+
+
+def _walls(grp: _t.Sequence[int], parts: _t.Sequence[_t.Any],
+           member_of: _t.Mapping[int, _t.Any], files: dict, reach_m: float,
+           min_h_m: float, min_fraction: float) -> "str | None":
+    """A1 I8 / I7 for one plan cluster surviving I1-I3: ``walled`` when the
+    cluster itself is WALLED-BASE, else ``building_file`` when a part of it
+    belongs to a building file (``files`` caches the member verdicts), else
+    ``None``.  The cluster is asked first: a lone wall is ``walled``, and a
+    cluster no wall of its own refuses is named by the file that does."""
+    if _walled_base([parts[i] for i in grp], min_h_m, min_fraction):
+        return "walled"
+    for i in grp:
+        m = member_of[parts[i].pid]
+        if m.id not in files:
+            files[m.id] = bool(building_files((m,), reach_m, min_h_m,
+                                              min_fraction))
+        if files[m.id]:
+            return "building_file"
+    return None
 
 
 def _share(plan, ui: int, sp: list, surface, pads, rims, decks,
@@ -295,22 +404,142 @@ def _share(plan, ui: int, sp: list, surface, pads, rims, decks,
     return Share(sid, ui, frozenset(p.pid for p in sp), a), ""
 
 
-def without_parts(plan_wide: _t.Mapping[int, _t.Any], iso: _t.Mapping[int, Share]
-                  ) -> _t.Mapping[int, _t.Any]:
-    """``plan_wide`` (part id -> its §16g unit seat) less every isolated
-    part: what the unit SEAT is handed, so no isolated share is seated by a
-    unit, while the units and their zeros stay as derived (13y (4))."""
-    if not iso:
-        return plan_wide
-    return {k: v for k, v in plan_wide.items() if k not in iso}
+def welded(iso: _t.Mapping[int, Share], raws: _t.Iterable[tuple],
+           counts: "dict | None" = None) -> frozenset:
+    """A1 §3.4 (4): the ids of the shares a today raw WELDS — a raw (its
+    parts first) holding a share's part beside a part that is not that
+    share's.  Each is refused ``welded`` and its seat count taken back."""
+    out: set[str] = set()
+    for r in raws:
+        ids = {iso[p.pid].id if p.pid in iso else None for p in r[0]}
+        if len(ids) > 1:
+            out |= {i for i in ids if i}
+    if out and counts is not None:
+        _refuse(counts, "welded", len(out))
+        counts["isolated_shares"] = counts.get("isolated_shares", 0) - len(out)
+    return frozenset(out)
 
 
-def keep_isolated(record: _t.Any, pre: _t.Any) -> _t.Any:
-    """``record`` with every isolated body of ``pre`` restored: the group
-    seats of pass 4 (22o/22q, the open frames, the airside deck) never
-    move an isolated share (13y (4))."""
-    was = {b.body_id: b for b in pre.bodies if getattr(b.anchor, "isolated", "")}
-    if not was or record is pre:
-        return record
-    out = tuple(was.get(b.body_id, b) for b in record.bodies)
-    return _dc.replace(record, bodies=out)
+def vacate(record: _t.Any, st: _t.Any, u: _t.Any, iso_raws: "dict | None",
+           grp_of: _t.Mapping[int, _t.Sequence[int]],
+           carrier_of: _t.Mapping[int, tuple], *, step_m: float, reach_m: float,
+           counts: dict, by_class: dict) -> "tuple[_t.Any, bool]":
+    """A1 §3.4 (3): ``(record, vacated?)`` — one member's record, every
+    anchor already elected, with its isolated shares swapped in.
+
+    Every today raw of ``st`` all of whose parts are one share's (a key of
+    ``iso_raws``, ``share id -> placement_body.isolated_raws`` raw) is
+    dropped from its body.  A body left with no part raw vanishes and its
+    orphan raws (no parts: §16d (1)'s loose components) go to the share of
+    its senior raw; an orphan-only body CARRIED on a vanished body of this
+    member goes with that body.  A body that keeps a part raw is re-formed
+    over what is left — parts, components, feet, boxes — on its FROZEN
+    anchor, name and seat.  The share's body is its isolated raw (the parts
+    a dropped raw held) and the orphans handed to it, one body per share;
+    a member's shares join one file where their zeros agree within half the
+    motion step and they lie within ``reach_m`` (§3.3).  ``grp_of`` is
+    ``body id -> raw indices`` and ``carrier_of`` ``body id -> (member,
+    group)`` for a carried body, both as pass 4 formed the record."""
+    if not iso_raws:
+        return record, False
+    from . import placement_carrier as _pc
+    raw = st.raw
+    share_of_pid = {p.pid: sid for sid, r in iso_raws.items() for p in r[0]}
+
+    def share_of(i: int) -> "str | None":
+        ids = {share_of_pid.get(p.pid) for p in raw[i][0]}
+        return ids.pop() if len(ids) == 1 and None not in ids else None
+    drop = {i: q for i in range(len(raw)) if raw[i][0] and (q := share_of(i))}
+    if not drop:
+        return record, False
+    hand: dict[str, list[int]] = {}
+    gone: dict[int, str] = {}         # vanished body id -> its share
+    rest: dict[int, list[int]] = {}   # re-formed body id -> raws kept
+    for b in record.bodies:
+        g = list(grp_of.get(b.body_id, ()))
+        prt = [i for i in g if raw[i][0]]
+        if not any(i in drop for i in prt):
+            continue
+        kept = [i for i in g if i not in drop]
+        if any(raw[i][0] for i in kept):
+            rest[b.body_id] = kept
+        else:
+            gone[b.body_id] = drop[_pc.senior_of(raw, prt)]
+            hand.setdefault(gone[b.body_id], []).extend(kept)
+    for b in record.bodies:           # an orphan-only body rides its carrier
+        g = grp_of.get(b.body_id, ())
+        c = carrier_of.get(b.body_id)
+        if (g and b.body_id not in gone and not any(raw[i][0] for i in g)
+                and c is not None and c[0] == st.mi and c[1] in gone):
+            gone[b.body_id] = gone[c[1]]
+            hand.setdefault(gone[c[1]], []).extend(g)
+    dropped = {p.pid for i in drop for p in raw[i][0]}
+    bodies = [_reformed(b, st, u, rest[b.body_id]) if b.body_id in rest else b
+              for b in record.bodies if b.body_id not in gone]
+    news = _share_bodies(st, u, iso_raws, dropped, hand, step_m, reach_m,
+                         1 + max((b.body_id for b in record.bodies), default=-1),
+                         counts, by_class)
+    counts["isolated_raws_vacated"] = counts.get("isolated_raws_vacated", 0) + len(drop)
+    counts["isolated_bodies_vacated"] = counts.get("isolated_bodies_vacated", 0) + len(gone)
+    counts["isolated_bodies_reformed"] = counts.get("isolated_bodies_reformed", 0) + len(rest)
+    counts["isolated_bodies"] = counts.get("isolated_bodies", 0) + len(news)
+    return _dc.replace(record, bodies=tuple(bodies) + tuple(news)), True
+
+
+def _reformed(b: _t.Any, st: _t.Any, u: _t.Any, kept: list[int]) -> _t.Any:
+    """``b`` over the raws ``kept`` — what it holds and covers re-read
+    (``placement_file._group_bodies``' own derivation), its anchor, name,
+    seat and carrier frozen."""
+    from .placement_file import _group_bodies
+    f = _group_bodies(st.raw, [kept], st.m, u, {}, {}, st.part_boxes, (),
+                      st.bridge, st.geom_boxes)[0]
+    return _dc.replace(b, components=f.components, pids=f.pids,
+                       cut_components=f.cut_components, tris=f.tris,
+                       feet=f.feet if b.feet else (), plan_box=f.plan_box,
+                       geom_box=f.geom_box, foot_boxes=f.foot_boxes,
+                       fill=f.fill, geom_pts=f.geom_pts,
+                       elevated_members=f.elevated_members,
+                       bridge_of=f.bridge_of)
+
+
+def _share_bodies(st: _t.Any, u: _t.Any, iso_raws: dict, dropped: set,
+                  hand: dict, step_m: float, reach_m: float, first_id: int,
+                  counts: dict, by_class: dict) -> list:
+    """The member's share bodies (:func:`vacate`), numbered from
+    ``first_id``: each share's raw over the parts a dropped raw held, the
+    shares joined at half ``step_m`` within ``reach_m`` (§3.3), each group
+    with the orphans handed to its shares."""
+    from . import obj8_split as _split
+    from . import placement_carrier as _pc
+    from .placement_file import _group_bodies
+    sids = [q for q in sorted(iso_raws)
+            if any(p.pid in dropped for p in iso_raws[q][0])]
+    if not sids:
+        return []
+    raws = []
+    for q in sids:
+        r = iso_raws[q]
+        parts = [p for p in r[0] if p.pid in dropped]
+        raws.append((parts, r[1], r[2], tuple(f for p in parts for f in p.feet))
+                    + tuple(r[4:]))
+    boxes = [_pc.box_of(r[3], r[0]) for r in raws]
+    keys = [(k, r[2], len(r[3])) for k, r in enumerate(raws)]
+    groups = _pc.coarsen(keys, 0.5 * step_m, frozenset(), boxes,
+                         attach_elevated=False, reach_m=reach_m)
+    n0 = len(st.raw)
+    ext = list(st.raw) + raws
+    # the per-raw lists a later append (an orphan, a carrier piece) may have
+    # left short are padded, so the share raws read their own entries
+    pboxes = (list(st.part_boxes) + [[]] * (n0 - len(st.part_boxes))
+              + [[p.box for p in r[0]] for r in raws])
+    gboxes = list(st.geom_boxes) + [None] * (n0 - len(st.geom_boxes) + len(raws))
+    bridge = list(st.bridge) + [""] * (n0 - len(st.bridge) + len(raws))
+    grps = [[n0 + k for k in g] + [i for k in g for i in hand.get(sids[k], ())]
+            for g in groups]
+    out = []
+    for j, b in enumerate(_group_bodies(ext, grps, st.m, u, counts, by_class,
+                                        pboxes, (), bridge, gboxes)):
+        bid = first_id + j
+        out.append(_dc.replace(b, body_id=bid, new_resource=_split.body_resource_name(
+            st.m.resource, bid, b.anchor.offset)))
+    return out

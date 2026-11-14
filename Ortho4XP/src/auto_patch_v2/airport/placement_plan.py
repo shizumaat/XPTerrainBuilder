@@ -111,6 +111,7 @@ from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
                             _plan_span_m, _Raw, _raw_bodies, _rim_of,
                             _geom_ground, authored_latlon, pristine_path,
                             segment_anchor, surface_many, thin_points)
+from .placement_body import isolated_raws  # noqa: E402  (§9a A1 §3.4)
 
 
 # ── the authored frame and the body FILING: ``airport/placement_file``
@@ -235,7 +236,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # plans' part outlines (``isolated_seat.outlines``)
                  motion_step_m: float = 0.0,
                  isolated_span_max_m: float = 0.0,
-                 isolated_foreign: _t.Sequence = ()
+                 isolated_foreign: _t.Sequence = (),
+                 # §9a A1: ``[placement] isolated_base_min_fraction`` — with
+                 # ``chain_min_height_m`` the WALLED-BASE witness (I7/I8);
+                 # 0 disarms both
+                 isolated_base_min_fraction: float = 0.0
                  ) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
@@ -395,18 +400,19 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # deck-rider test ``footprint_unit.contents_seat`` asks
     _deck_of = {(p.unit, p.member): p for p in prints}
 
-    # §9a (#2063 round 3): the ISOLATED shares, read once per plan; no group
-    # seat below moves their parts (22o / 13y (4)) — the plan-wide units and
-    # their zeros are derived as before (no neighbour's seat changes), and
-    # the §16g unit seat is handed the map less the isolated parts
+    # §9a (#2063 round 3): the ISOLATED shares, read once per plan.  A1
+    # §3.4: the election below is held WITH them present — every pass runs
+    # on today's raws, the shares' raws wait beside, and ``vacate`` swaps
+    # them in before the cut
     _pulse.tick("placement: isolated shares")
     _iso = _iso_seat.shares(plan, surface, pads, rims, decks,
                             reach_m=rigid_reach_m, span_max_m=isolated_span_max_m,
                             split_tol_m=split_tol_m, step_m=motion_step_m,
-                            foreign=isolated_foreign, counts=counts)
+                            foreign=isolated_foreign, counts=counts,
+                            wall_min_h_m=chain_min_height_m,
+                            base_min_fraction=isolated_base_min_fraction)
     _pulse.tick("placement: plan-wide seats")
-    _pw, _seats = _fu.plan_wide_seats(plan, surface,  # §16g (1)
-                                      pads, touch_m,
+    _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,
                                       connector_span_m,  # §16g (6)
                                       chain_min_height_m,  # §16g (10) (4)
@@ -483,8 +489,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                               coarsen_reach_m=coarsen_reach_m,
                               abutment_step_m=abutment_step_m,
                               abutment_walk_max_m=abutment_walk_max_m,
-                              deck_own_ground_m=bind_ground_m,  # 30g (3)
-                              isolated=_iso)                    # §9a
+                              deck_own_ground_m=bind_ground_m)  # 30g (3)
             counts["bodies_uncoarsened"] = \
                 counts.get("bodies_uncoarsened", 0) + len(raw)
             elevated = frozenset(i for i, r in enumerate(raw) if r[4])
@@ -515,6 +520,18 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             if staged[-1].footless:
                 counts["footless"] += 1
 
+        # §9a A1 §3.4: a share one of today's raws WELDS is refused; the
+        # rest get their raws BESIDE today's (``placement_body.isolated_raws``)
+        # — no pass below reads them; ``isolated_seat.vacate`` swaps them in
+        _iso_raw: dict[int, dict] = {}
+        if _iso:
+            _wd = _iso_seat.welded(_iso, (r for st in staged for r in st.raw),
+                                   counts)
+            for st in staged:
+                _ir = isolated_raws(st.m, _iso, st.cutter, surface, _wd)
+                if _ir:
+                    _iso_raw[st.mi] = _ir
+
         # §16e (3), read once per unit and published per body — the
         # rule and its whole reading live in ``bridge_family``.
         _bf.assign_bodies(prints, staged, counts)
@@ -527,16 +544,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             raw, boxes, part_boxes = st.raw, st.boxes, st.part_boxes
             keys = [(i, r[2], len(r[3])) for i, r in enumerate(raw)]
             classes = [r[1] for r in raw]
-            # §9a: an isolated share's bodies coarsen only with each other,
-            # at half the motion step, and take no pass below
-            _isx = frozenset(i for i, r in enumerate(raw) if r[2].isolated)
-            merged = coarsen(keys, split_tol_m, st.elevated | _isx, boxes,
+            merged = coarsen(keys, split_tol_m, st.elevated, boxes,
                              attach_elevated=False, reach_m=coarsen_reach_m,
                              grounds=[r[7] for r in raw])
-            _iso_groups = (coarsen(keys, 0.5 * motion_step_m,
-                                   frozenset(range(len(raw))) - _isx, boxes,
-                                   attach_elevated=False, reach_m=coarsen_reach_m)
-                           if _isx else [])
             # §14 (2)/(3): ONE RIGID OBJECT IS ONE BODY — every BASIN
             # body of the resource binds (its floor, walls and parapet
             # share the rim's one zero however far the pit's own depth
@@ -574,7 +584,6 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                           reach_m=piece_reach_m,
                                           chain_min_height_m=chain_min_height_m,
                                           counts=counts)
-            bound = bound + _iso_groups
             st.groups = bound
             if len(bound) < len(raw) - len(st.elevated):
                 counts["placements_coarsened"] = \
@@ -670,8 +679,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             cands, staged, surface, pads, counts, unit_id=u.id,
             touch_m=touch_m, visual_m=bind_ground_m,
             cluster_min_m2=cluster_min_m2, connector_span_m=connector_span_m,
-            plan_wide=(_iso_seat.without_parts(_pw, _iso) if _pw else _pw),  # §9a
-            cluster_of=(_clus if airside_floor else None),
+            plan_wide=_pw, cluster_of=(_clus if airside_floor else None),
             airside_floor=airside_floor, welded=_welded))
         # owner RULINGS 2026-10-03e (#290): a unit's VIADUCT (deck, piers,
         # sidewalks, railings, kerbs) is ONE rigid unit at the unit's
@@ -735,16 +743,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # could this body stand over" question do not depend on the body
         # asking, and per search they were 16 M and 11 M operations.
         _solid = []
-        _own_iso: dict[int, list] = {}
         for c in cands:
             if c.body_class == _ar.LINE_SEGMENT:
                 refused["line"] = refused.get("line", 0) + 1
-            elif c.anchor.isolated:
-                # §9a: an isolated share carries nothing of another object
-                # (13y (4)) — only its OWN member's loose components, which
-                # are its own file (``_own_iso`` below)
-                refused["isolated"] = refused.get("isolated", 0) + 1
-                _own_iso.setdefault(c.member, []).append(c)
             elif _cut29q and (c.pids & _cut29q):
                 # RULINGS 2026-09-30m: a LINEAR cut connector carries only
                 # what CONTACT binds to it (``deck_riders`` above), never
@@ -755,15 +756,6 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 _solid.append(c)
         _index = _pc.CandidateIndex(_solid, u.anchor[0]) if _solid else None
         _cand_ix = {id(c): k for k, c in enumerate(cands)}
-        _own_ix: dict = {}
-
-        def _own_index(mi: int) -> "_pc.CandidateIndex":
-            """§9a: the unit's index plus member ``mi``'s own isolated
-            bodies, made once per member."""
-            if mi not in _own_ix:
-                _own_ix[mi] = (_index.plus(_own_iso[mi]) if _index is not None
-                               else _pc.CandidateIndex(_own_iso[mi], u.anchor[0]))
-            return _own_ix[mi]
 
         def _stands_over(bx, gboxes) -> set:
             """#610: the indices of the footed candidates a carried piece
@@ -921,12 +913,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                         base_y=min((q[2] for i in grp for q in st.raw[i][6]),
                                    default=None),
                         # §16d (2): the NEAREST-footed fallback is capped
-                        # §9a: a member's own isolated bodies take its own
-                        # loose components (§16d (1)'s orphans: one frame)
-                        solid_cands=(_solid + _own_iso[st.mi]
-                                     if st.mi in _own_iso else _solid),
-                        index=(_own_index(st.mi) if st.mi in _own_iso
-                               else _index),
+                        solid_cands=_solid, index=_index,
                         reach_m=coarsen_reach_m,
                         not_carriers=_cut29q)            # 30m
                 # owner RULINGS 2026-10-03e (#290): a piece of a unit's
@@ -1152,6 +1139,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         order = _pc.cut_order(deps)
         if bridge is not None and not deps.get(bridge.mi):
             order = [bridge.mi] + [q for q in order if q != bridge.mi]
+
+        def _vacated(record, st, grp_of, carrier_of=None, _u=u, _ir=_iso_raw):
+            """§9a A1 §3.4 (3): the member's isolated shares swapped in,
+            every anchor already elected (``isolated_seat.vacate``)."""
+            return _iso_seat.vacate(record, st, _u, _ir.get(st.mi), grp_of,
+                                    carrier_of or {}, step_m=motion_step_m,
+                                    reach_m=coarsen_reach_m, counts=counts,
+                                    by_class=by_class)
         for mi in order:
             st = by_mi[mi]
             m = st.m
@@ -1189,8 +1184,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                           authored_keep_tol_m, footed_frame,
                                           m, _clift)
                 record = _on_tile(record, m)
+                record, _v = _vacated(record, st,
+                                      {body.body_id: range(len(st.raw))})
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              landed=landed,
+                              landed=None if _v else landed,
                               always_write=True, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
                               drape_law=drape_law)
@@ -1222,7 +1219,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # ``merged_into``
             for _gi, _b in enumerate(bodies):
                 file_of[(st.mi, _gi)] = _b.new_resource
+            # §9a A1 §3.4: the raws behind each body, for ``vacate``
+            _grp_of: dict[int, _t.Sequence[int]] = (
+                {} if st.footless else dict(enumerate(st.groups)))
+            _carrier_of: dict[int, tuple[int, int]] = {}
             for grp in st.own_ground:
+                _grp_of[len(bodies)] = grp
                 bodies.append(_deck.deck_seat(                          # §49
                     _own_ground_file(st.raw, grp, m, u, surface,
                                      len(bodies), counts, by_class,
@@ -1241,11 +1243,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             for grp, uc in st.unit_carried:
                 _by_unit.setdefault(uc.unit, ([], uc))[0].extend(grp)
             for grp, uc in _by_unit.values():
+                _grp_of[len(bodies)] = grp
                 bodies.append(_unit_carried_file(
                     st.raw, grp, m, u, surface, uc, len(bodies), counts,
                     by_class, st.part_boxes, st.bridge, st.geom_boxes))
             for grp, c, why in st.carried:
                 cw = written_of.get(c.member, True)
+                _grp_of[len(bodies)] = grp
+                _carrier_of[len(bodies)] = (c.member, c.group)
                 bodies.append(_carried_file(
                     st.raw, grp, m, u, c, why,
                     (file_of.get((c.member, c.group), c.resource) if cw
@@ -1286,8 +1291,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                           authored_keep_tol_m, footed_frame,
                                           m, _clift)
                 record = _on_tile(record, m)
+                record, _v = _vacated(record, st, _grp_of, _carrier_of)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              landed=landed,
+                              landed=None if _v else landed,
                               always_write=True, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
                               drape_law=drape_law)
@@ -1324,11 +1330,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                          adapted_zero=_az.get(m.id))
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _one_bridge(_cut_decks(record, m), m)
-                # §9a: no group seat moves an isolated share (13y (4)), and
-                # its one frame is WRITTEN at its own anchor
-                record = _iso_seat.keep_isolated(record, _pre)
-                if record is not _pre or any(b.anchor.isolated
-                                             for b in record.bodies):
+                if record is not _pre:
                     # #1214 R3/R5: a body the group passes moved is never
                     # kept on its authored row (LFPG's one-body H4, H16,
                     # H18r stayed there)
@@ -1337,9 +1339,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                           authored_keep_tol_m, footed_frame,
                                           m, _clift)
                 record = _on_tile(record, m)
+                # §9a A1 §3.4: an isolated share is WRITTEN at its own anchor
+                record, _v = _vacated(record, st, _grp_of, _carrier_of)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              landed=landed,
-                              always_write=off_row, tilted_whole=tilted_whole,
+                              landed=None if _v else landed,
+                              always_write=off_row or _v, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
                               drape_law=drape_law)
             written_of[mi] = len(splits) > before

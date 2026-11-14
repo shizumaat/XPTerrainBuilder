@@ -1519,6 +1519,10 @@ def _main() -> int:
                          "--json (another src) — every body whose zero moves "
                          "more than 0.1 m, per component, with its resource "
                          "and anchor, and the file-count change")
+    ap.add_argument("--zero-diff-move", type=float, default=0.1, metavar="M",
+                    help="§9a A1: the move --zero-diff lists (default 0.1 m; "
+                         "0.01 is the frozen-election bar for a body no share "
+                         "holds)")
     ap.add_argument("--units-with", metavar="SUBSTR",
                     help="PARTIAL PLAN (lane basins526, 2026-10-10): keep only "
                     "the plan units holding a member whose resource contains "
@@ -2038,7 +2042,7 @@ def _main() -> int:
     if a.zero_diff:
         with open(a.zero_diff, encoding="utf-8") as fh:
             base = json.load(fh)
-        for line in zero_diff_lines(base, ss.to_dict()):
+        for line in zero_diff_lines(base, ss.to_dict(), a.zero_diff_move):
             print(line)
     return 0
 
@@ -2061,7 +2065,10 @@ def _isolated_kwargs(law, foreign: "list[str] | None") -> dict:
     return {"motion_step_m": float(law.tables.emit.cockpit.motion_step_m),
             "isolated_span_max_m": float(law.tables.structures.placement
                                          .group_span_max_m),
-            "isolated_foreign": tuple(out)}
+            "isolated_foreign": tuple(out),
+            # A1: the WALLED-BASE witness (I7/I8) beside chain_min_height_m
+            "isolated_base_min_fraction": float(
+                law.tables.structures.placement.isolated_base_min_fraction)}
 
 
 def isolated_lines(counts: dict) -> list[str]:
@@ -2075,7 +2082,16 @@ def isolated_lines(counts: dict) -> list[str]:
             f"{int(counts.get('isolated_clusters', 0))}  parts within reach of a "
             f"structure {int(counts.get('isolated_parts_by_structure', 0))}",
             "  refused: " + (", ".join(f"{k} {v}" for k, v in refused.items() if v)
-                             or "none")]
+                             or "none"),
+            # A1 §3.4: what the frozen election handed over before the cut
+            f"  vacated (A1 §3.4): today's raws {int(counts.get('isolated_raws_vacated', 0))}"
+            f", bodies gone {int(counts.get('isolated_bodies_vacated', 0))}"
+            f", re-formed on their frozen anchor "
+            f"{int(counts.get('isolated_bodies_reformed', 0))}"] + (
+        ["  DISARMED: no part of this plan carries a solid height "
+         "(Part.height_m), so the walled-base witness (A1 I8) cannot be "
+         "asked — every object keeps today's seat"]
+        if counts.get("isolated_disarmed_no_height") else [])
 
 
 def zero_diff_lines(base: dict, now: dict, move_m: float = 0.1) -> list[str]:
@@ -2119,10 +2135,13 @@ def zero_diff_lines(base: dict, now: dict, move_m: float = 0.1) -> list[str]:
     rows.sort(key=lambda r: -abs(r[0]))
     nb = sum(len(sp["bodies"]) for sp in base.get("splits", ()))
     nn = sum(len(sp["bodies"]) for sp in now.get("splits", ()))
+    n_iso = sum(1 for r in rows if r[7])
     out = [f"\nZERO DIFF (§9a census): bodies {nb} -> {nn}, kept "
            f"{len(base.get('kept', ()))} -> {len(now.get('kept', ()))}, "
            f"{len(rows)} body(ies) whose zero moved > {move_m:g} m"
-           f"{f', {only_now} component(s) written only now' if only_now else ''}"]
+           f"{f', {only_now} component(s) written only now' if only_now else ''}",
+           f"  moved: isolated {n_iso}, NOT isolated {len(rows) - n_iso}"
+           " (A1 §3.4 bar: NOT isolated 0)"]
     out += [f"  {d:+.3f}  {res}  {bid}  at {la:.6f}, {lo:.6f}  {w:.3f} -> {z:.3f}"
             + (f"  [{iso}]" if iso else "")
             for d, res, bid, la, lo, w, z, iso in rows]

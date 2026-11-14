@@ -30,7 +30,7 @@ from .placement_carrier import is_elevated
 if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
     from .placement_record import Staged as _Staged
 
-__all__ = ["_Raw", "_raw_bodies", "_whole_body"]
+__all__ = ["_Raw", "_raw_bodies", "_whole_body", "isolated_raws"]
 
 
 #: one member's raw bodies before coarsening: ``(parts, class, anchor,
@@ -54,8 +54,7 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 abutment_step_m: float = 0.0,
                 abutment_walk_max_m: float = 0.0,
                 cutter: "_LineCutter | None" = None,
-                deck_own_ground_m: float = 0.0,
-                isolated: "_t.Mapping[int, _t.Any] | None" = None
+                deck_own_ground_m: float = 0.0
                 ) -> list[_Raw]:
     """One member's bodies, classed and anchored — the per-placement half,
     unchanged by §14 except that the basin's rim anchor is now wired
@@ -69,10 +68,10 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
     groups instead.  §16 (2)'s part and triangle cuts stay exactly as
     they were for a body that stands on the ground.
 
-    §9a (#2063 round 3): the parts of an ISOLATED share (``isolated``, part
-    id -> ``isolated_seat.Share``) are ONE raw body per share, at the
-    share's anchor, never cut (:func:`_isolated_raw`); the rest of the
-    member reads as before."""
+    §9a (#2063 round 3, A1 §3.4): an ISOLATED share changes nothing here —
+    the raws are made from the full groups whatever the shares, so every
+    pass elects as it would without them; the share's own raw is made
+    beside (:func:`isolated_raws`)."""
     groups = _bodies_of(m, edges)
     parts_of_member = m.parts
     if cutter is None:
@@ -129,8 +128,6 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 counts.get("bodies_bound_by_cluster", 0) + (len(groups)
                                                             - len(merged))
         groups = merged
-    groups, iso_raw = _isolated_raw(m, groups, pid_of, isolated, cutter,
-                                    surface, counts)
     # ONE cutter per member: it holds the parsed OBJ8 and its components,
     # and §16a (1)'s carrier cut (pass 3) reads the same geometry.  Two
     # cutters meant two parses — 618 of OTHH's members parsed twice, 42 s
@@ -441,41 +438,36 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
     if floor_mark:
         for _t_ in range(n0, len(raw)):
             raw[_t_] = _floor_member(raw[_t_], floor_mark)
-    return raw + iso_raw
+    return raw
 
 
-def _isolated_raw(m: Member, groups: list, pid_of: dict,
-                  isolated: "_t.Mapping[int, _t.Any] | None",
-                  cutter: "_LineCutter", surface: _ar.Surface, counts: dict
-                  ) -> "tuple[list, list[_Raw]]":
-    """``(groups less the isolated parts, one raw body per isolated share)``
-    — §9a: the share is ONE RIGID FRAME at its own anchor (its lowest
-    contact feet), so it is neither terrain-cut, foot-cut nor triangle-cut
-    and never elevated (a wing sheet stands on the share's wheels).  A
-    member whose every part is one share's is written WHOLE (its file's
-    own triangles are the body's, §16b (1))."""
-    if not isolated:
-        return groups, []
+def isolated_raws(m: Member, isolated: _t.Mapping[int, _t.Any],
+                  cutter: "_LineCutter", surface: _ar.Surface,
+                  skip: _t.AbstractSet[str] = frozenset()) -> "dict[str, _Raw]":
+    """§9a (#2063 round 3, A1 §3.4): ``share id -> its raw body`` for every
+    isolated share of ``m`` (``isolated``: part id -> ``isolated_seat.
+    Share``) not in ``skip``.  Made BESIDE today's raws, which no share
+    strips: no pass reads these, and ``isolated_seat.vacate`` swaps them in
+    for the raws they replace once every anchor is elected.  The share is
+    ONE RIGID FRAME at its own anchor (its lowest contact feet) — neither
+    terrain-cut, foot-cut nor triangle-cut, and never elevated (a wing sheet
+    stands on the share's wheels).  A member whose every part is one
+    share's samples its whole file (its own triangles are the body's,
+    §16b (1))."""
     mine: dict[str, list] = {}
     for p in m.parts:
         s = isolated.get(p.pid)
-        if s is not None and p.pid in pid_of:
+        if s is not None and s.id not in skip:
             mine.setdefault(s.id, [s, []])[1].append(p)
-    if not mine:
-        return groups, []
-    iso = {p.pid for _s, ps in mine.values() for p in ps}
-    rest = [g2 for g2 in ([q for q in g if q not in iso] for g in groups) if g2]
-    whole = len(mine) == 1 and len(iso) == len(pid_of)
-    out: list[_Raw] = []
+    whole = len(mine) == 1 and sum(len(v[1]) for v in mine.values()) == len(m.parts)
+    out: dict[str, _Raw] = {}
     for sid in sorted(mine):
         s, parts = mine[sid]
         feet = tuple((f[0], f[1], f[2]) for p in parts for f in p.feet)
         gpts, _gs, gg = _geom_ground(cutter, parts,
                                      cutter.all_tris() if whole else (), surface)
-        out.append((parts, s.anchor.body_class, s.anchor, feet, False, (),
-                    gpts, gg))
-    counts["isolated_bodies"] = counts.get("isolated_bodies", 0) + len(out)
-    return rest, out
+        out[sid] = (parts, s.anchor.body_class, s.anchor, feet, False, (), gpts, gg)
+    return out
 
 
 def _declared_parts(m: Member, cutter: "_LineCutter") -> list[Part]:

@@ -562,16 +562,6 @@ class CandidateIndex:
             return None
         return [(i, j) for i in range(a, b + 1) for j in range(c, d + 1)]
 
-    def plus(self, extra: _t.Sequence["Candidate"]) -> "CandidateIndex":
-        """This index with ``extra`` always offered (§9a: a member's own
-        isolated bodies take its loose components) — the cells shared,
-        never re-bucketed."""
-        out = CandidateIndex.__new__(CandidateIndex)
-        out.ml, out.mo, out.cell_m, out.cells = self.ml, self.mo, self.cell_m, self.cells
-        out.all = self.all + list(extra)
-        out.big = self.big + list(extra)
-        return out
-
     def near(self, box) -> list["Candidate"]:
         """The candidates whose plan box may meet ``box``."""
         ks = self._keys(box, self.cell_m)

@@ -1180,6 +1180,10 @@ def main(argv=None) -> int:
     ap.add_argument("--clearance-only", action="store_true",
                     help="read only each placement row's CLEARANCE (no component reads) and"
                          " list the FLOAT rows -- a whole airport in minutes (#1969)")
+    ap.add_argument("--against", default=None,
+                    help="with --clearance-only: a CONTROL's --json; each moved row's"
+                         " clearance against it, a row whose file and lowest_z equal the"
+                         " control's UNMOVED (``drawn_site_against``)")
     ap.add_argument("--cache", default=None, help="keep the box's tile triangles here (.npy)")
     ap.add_argument("--top", type=int, default=40, help="components printed per site")
     ap.add_argument("--json", default=None, help="write the full report here")
@@ -1191,9 +1195,16 @@ def main(argv=None) -> int:
         args.custom_scenery = args.custom_scenery or _cfg_value("custom_scenery_dir") \
             or os.path.expanduser("~/X-Plane 12/Custom Scenery")
         args.mod_cache = args.mod_cache or FNAMES.airport_mod_cache_root()
+    if args.against and not args.clearance_only:
+        ap.error("--against reads --clearance-only reports")
     rep = run(args)
     if args.clearance_only:
         print_clearances(rep, GROUND_BAR_M, args.top)
+    if args.against:
+        from drawn_site_against import compare, print_against
+        with open(args.against, encoding="utf-8") as fh:
+            rep["against"] = compare(json.load(fh), rep)
+        print_against(rep["against"])
     elif not args.summary:
         print_report(rep, args.top)
     if not args.clearance_only:

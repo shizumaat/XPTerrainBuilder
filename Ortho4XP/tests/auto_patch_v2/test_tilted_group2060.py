@@ -170,7 +170,8 @@ def test_a_cross_member_rider_takes_its_carriers_tilt_and_its_hash_follows():
     assert (baked_name(_M, carrier, seat).rsplit("_", 1)[1]
             == out.new_resource.rsplit("_", 1)[1])
     counts: dict = {}
-    PST.rider_counts((out,), {CARRIER}, counts)
+    PST.rider_census([(out, (0, 0), True, False, None)],
+                     {(0, 0): dc.replace(carrier, seat=seat)}, counts)
     assert counts == {"seat_tilt_rider_followed": 1}
 
 
@@ -183,7 +184,8 @@ def test_a_carrier_kept_whole_bakes_no_tilt_so_its_rider_takes_none():
 
 def test_a_rider_left_level_on_a_tilted_carrier_is_counted():
     counts: dict = {}
-    PST.rider_counts((_rider(),), {CARRIER}, counts)
+    PST.rider_census([(_rider(), (0, 0), True, False, None)],
+                     {(0, 0): _tilted_carrier()}, counts)
     assert counts == {"seat_tilt_level_rider": 1}
 
 
@@ -250,7 +252,7 @@ def test_a_solo_tilted_carrier_and_its_cross_member_rider_keep_the_carriers_zero
     assert counts["group_zero_rider_kept"] == 1
     assert "group_zero_bodies" not in counts
     rc: dict = {}
-    PST.rider_counts((rider,), {carrier.new_resource}, rc)
+    PST.rider_census([(rider, (0, 0), True, False, None)], {(0, 0): carrier}, rc)
     assert "seat_tilt_level_rider" not in rc
 
 

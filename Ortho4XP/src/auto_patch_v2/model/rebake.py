@@ -215,6 +215,9 @@ class Member:
     #: deck-end-anchors spec §3: a hard deck's zero as its end-line ANCHORS
     #: state it (``constraints/deck_anchor``) — the plate zero the object
     #: stage reads off the built surface equals it where no anchor yielded.
+    #: #2090: a KEPT bridge's deck carries here the seat the pack stage
+    #: predicted and graded its ends to (``rebake_plan.with_kept``; the seat
+    #: where every end was graded, ``bridge_approach.approach_seat``).
     #: ``None`` for every other member and in every older plan.
     anchor_zero: float | None = None
     #: #2065 S2: a FREE BRIDGE's deck (``plate_kind == "free"``,

@@ -121,28 +121,38 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
 EDGE_PLATE = "edge"
 def _kept_published(airport, pm=None) -> dict[str, dict]:
     """#2065 A3 rule 9: placement id -> ``{"mode": "kept", "route_mids",
-    "graded"}`` of each KEPT stack's deck: the midpoints ``(lat, lon)`` of its
-    two route end lines and of those the pack stage GRADED
-    (``rebake_plan.with_kept`` matches them to the rectangle's ends)."""
+    "graded", "zero"}`` of each KEPT bridge's deck: the midpoints ``(lat,
+    lon)`` of its two route end lines and of those the pack stage GRADED
+    (``rebake_plan.with_kept`` matches them to the rectangle's ends), and the
+    PREDICTED seat the pack stage graded them to (``DeckStack.zero_z``).
+
+    #2090: EVERY deck of ``Airport.kept_bridges`` is published, a deck whose
+    stack was not minted (no GRADED end) or not kept by the planar stage
+    with no route ends, no graded end and no zero: the bridge class is the
+    one place its datum is decided (``with_kept`` clears the graded-face
+    datum the pack stage's predicted seat never read)."""
     from ..model.deck_stack import KEPT, live_stacks
+    out: dict[str, dict] = {}
+    for fb in getattr(airport, "kept_bridges", ()) or ():
+        for oid in fb.deck_ids():
+            out[str(oid)] = {"mode": "kept", "route_mids": [], "graded": []}
     stacks = [s for s in live_stacks(getattr(airport, "deck_stacks", ()) or (), pm)
               if s.kind == KEPT]
     if not stacks:
-        return {}
+        return out
     to_ll = airport.frame.transformers()[1]
 
     def mid(line) -> list:
         x = sum(p[0] for p in line) / len(line)
         y = sum(p[1] for p in line) / len(line)
         return [round(v, 9) for v in to_ll(x, y)]
-    out: dict[str, dict] = {}
     for st in stacks:
         for d in st.decks:
             lines = [ln for ln in (d.end_a, d.end_b) if ln]
             graded = [mid(e.stations) for e in st.graded_ends() if e.object_id == d.object_id]
             if len(lines) == 2 and graded:
                 out[d.object_id] = {"mode": "kept", "route_mids": [mid(ln) for ln in lines],
-                                    "graded": graded}
+                                    "graded": graded, "zero": round(float(st.zero_z), 4)}
     return out
 
 

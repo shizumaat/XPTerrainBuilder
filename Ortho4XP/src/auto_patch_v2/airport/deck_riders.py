@@ -32,13 +32,14 @@ Nothing here names a pack, a resource or an airport.
 """
 from __future__ import annotations
 
+import functools as _ft
 import typing as _t
 
 from .bridge_family import CONTACT_M, DeckPrint
 from .placement_family import DECK_VERDICTS
 
 __all__ = ["FAMILY_KIND", "FrameDatums", "end_tops", "riding_frames", "objects_ride",
-           "frame_datum"]
+           "frame_datum", "with_end_tops"]
 
 #: ``Member.deck_kind`` of a member of an accepted deck family that has no
 #: plate of its own (``deck_signature._apply``)
@@ -172,24 +173,18 @@ def end_tops(deck: _t.Any, ends: _t.Sequence, origin: tuple[float, float]
              ) -> "tuple[float, ...] | None":
     """The deck top AT each end line: the highest of the deck file's own
     vertices nearest the end line's midpoint (within ``_END_BAND_M`` of the
-    nearest).  A deck authored on a grade meets each end at its own height
-    (LEMG's viaduct: -0.25 at one end, -1.53 at the other, +1.28 at its
-    crown).  None where the file does not parse."""
+    nearest) — of its HARD DECK's vertices where the file declares one
+    (#2090: a parapet 0.85 m over KDEN's Parking_Hill deck is no deck top).
+    A deck authored on a grade meets each end at its own height (LEMG's
+    viaduct: -0.25 at one end, -1.53 at the other, +1.28 at its crown).
+    None where the file does not parse."""
     import math
-    import os
 
     import numpy as np
 
-    from . import obj8 as _obj8
     from .rebake_plan import _mpd
-    path = str(getattr(deck, "authored_path", "") or "")
-    if not path or not os.path.isfile(path):
-        return None
-    try:
-        v = np.asarray(_obj8.parse_obj8(path).vertices, float)[:, :3]
-    except (OSError, ValueError):
-        return None
-    if not len(v):
+    v = _vertices(str(getattr(deck, "authored_path", "") or ""))
+    if v is None:
         return None
     h = math.radians(float(getattr(deck, "heading_deg", 0.0) or 0.0))
     c, sn = math.cos(h), math.sin(h)
@@ -202,6 +197,46 @@ def end_tops(deck: _t.Any, ends: _t.Sequence, origin: tuple[float, float]
         d = np.hypot(east - mx, north - my)
         out.append(float(v[d <= float(d.min()) + _END_BAND_M, 1].max()))
     return tuple(out)
+
+
+@_ft.lru_cache(maxsize=256)
+def _vertices(path: str) -> _t.Any:
+    """The OBJ8 file's deck vertices ``(x, y, z)`` (parsed once a process):
+    its hard deck's where it declares one, else all; None where it does not
+    parse."""
+    import os
+
+    import numpy as np
+
+    from . import obj8 as _obj8
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        g = _obj8.parse_obj8(path)
+    except (OSError, ValueError):
+        return None
+    v = np.asarray(g.vertices, float)[:, :3]
+    hd = getattr(g, "hard_deck", None)
+    if hd is not None and len(hd):
+        v = v[np.unique(np.asarray(hd, dtype=np.int64).reshape(-1))]
+    return v if len(v) else None
+
+
+def with_end_tops(datum: _t.Any, deck: _t.Any, origin: tuple[float, float]) -> _t.Any:
+    """``datum`` with the deck top AT each of its end lines (#2090): a FREE
+    deck's published tops (``Member.deck_end_tops``), else :func:`end_tops`
+    off the deck's own file; unchanged where it has no two end lines, carries
+    its tops already, or the file does not parse.  A deck authored on a grade
+    meets each end at its own height (KDEN's outer train bridge: 8.0 and 1.0
+    at its ends, 16.0 at its crown — seated by its crown, its high end stood
+    8 m under its ground)."""
+    import dataclasses as _dc
+    if datum is None or len(getattr(datum, "ends", ()) or ()) < 2 or datum.tops:
+        return datum
+    pub = tuple(getattr(deck, "deck_end_tops", ()) or ())
+    tops = (tuple(float(t) for t in pub[:2]) if len(pub) >= 2
+            else end_tops(deck, datum.ends, origin))
+    return datum if tops is None else _dc.replace(datum, tops=tops)
 
 
 class FrameDatums:
@@ -238,11 +273,5 @@ def frame_datum(deck: _t.Any, origin: tuple[float, float], **kw: _t.Any) -> _t.A
     or the pack stage's member-shaped view): the free-standing deck-top
     datum (``anchor_rule.datum_of``, ``kw`` its arguments) with the deck top
     AT each end line (:func:`end_tops`); None where the deck carries none."""
-    import dataclasses as _dc
-
     from . import anchor_rule as _ar
-    datum = _ar.datum_of(deck, **kw)
-    if datum is None or len(datum.ends) < 2:
-        return datum
-    tops = end_tops(deck, datum.ends, origin)
-    return datum if tops is None else _dc.replace(datum, tops=tops)
+    return with_end_tops(_ar.datum_of(deck, **kw), deck, origin)

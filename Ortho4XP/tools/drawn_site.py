@@ -102,6 +102,11 @@ WALL_REACH_M = 0.75
 OUTSIDE_M = 1.5
 #: two surfaces this far apart at one plan point are a roof over a floor
 STACKED_M = 1.5
+#: another object's surface this far over an edge's top stands OVER it (a
+#: deck a vehicle passes under: KDEN's Mix_Master_Upper over the lower
+#: deck's long sides), never beside it -- the drawn surface outside is the
+#: mesh there (#2090)
+OVERHEAD_M = 4.0
 #: a component with less plan than this is a pole, a light, a sign
 MIN_PLAN_M2 = 4.0
 #: a hollow: the top surface this far under the component's own rim
@@ -474,7 +479,7 @@ def measure(V: np.ndarray, comp, frame: Frame, mesh: DrawnMesh, others,
     off = OUTSIDE_M + r.step / 2
     oe, on = be + bdir[:, 0] * off, bn + bdir[:, 1] * off
     out_mesh = mesh.z(*frame.leave(oe, on))
-    outside, from_obj = drawn_outside(out_mesh, others(oe, on))
+    outside, from_obj = drawn_outside(out_mesh, others(oe, on), btop)
     rim_ground = float(np.nanmedian(out_mesh)) if np.isfinite(out_mesh).any() else float("nan")
     runs = []
     open_idx = np.flatnonzero(~walled)
@@ -550,10 +555,15 @@ def outline_sides(d: np.ndarray, side: np.ndarray, bdir, be, bn, frame: Frame) -
     return out
 
 
-def drawn_outside(out_mesh, out_obj):
+def drawn_outside(out_mesh, out_obj, edge_top=None):
     """The surface drawn outside each edge cell: the higher of the mesh and
-    another object's hard surface there (the lower one is hidden)."""
+    another object's hard surface there (the lower one is hidden) -- an
+    object surface :data:`OVERHEAD_M` or more over the edge's top
+    (``edge_top``) excepted: it passes over the edge, and the ground beside
+    the edge is the mesh (#2090)."""
     from_obj = np.isfinite(out_obj) & ~(out_obj <= out_mesh)
+    if edge_top is not None:
+        from_obj &= ~(out_obj - edge_top >= OVERHEAD_M)
     return np.where(from_obj, out_obj, out_mesh), from_obj
 
 

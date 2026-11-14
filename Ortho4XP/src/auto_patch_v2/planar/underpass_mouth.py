@@ -358,8 +358,8 @@ def _crossing(ln: LineString, anchor: XY, n_out: XY) -> float | None:
 
 def under_deck_band(cap_out: _t.Sequence[XY], inward: XY, members: _t.Sequence
                     ) -> Polygon | None:
-    """R4's band B: the parallelogram from the sheared cap line (its two
-    corners) inward for half the longest member bore."""
+    """R4's band B: the sheared cap line (the cap polyline, corner to
+    corner) swept inward for half the longest member bore."""
     if len(cap_out) < 2:
         return None
     reach = 0.5 * max((LineString(m.bore.points).length for m in members
@@ -367,9 +367,10 @@ def under_deck_band(cap_out: _t.Sequence[XY], inward: XY, members: _t.Sequence
                       default=0.0)
     if reach <= 0.0:
         return None
-    a, b = cap_out[0], cap_out[-1]
-    poly = Polygon([a, b, (b[0] + inward[0] * reach, b[1] + inward[1] * reach),
-                    (a[0] + inward[0] * reach, a[1] + inward[1] * reach)])
+    # the cap polyline itself is B's edge (its centre need not be on the
+    # corners' chord: a sliver of road would stand between them)
+    back = [(p[0] + inward[0] * reach, p[1] + inward[1] * reach) for p in reversed(cap_out)]
+    poly = Polygon(list(cap_out) + back)
     return poly if poly.is_valid and poly.area > 1.0 else None
 
 

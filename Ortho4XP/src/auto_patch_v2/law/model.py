@@ -901,7 +901,7 @@ class RoadContact:
     #: linked run climbing to an upper pad's level (the terrace ``level``
     #: destination) climbs at up to this instead of the road cap; nothing
     #: else changes the road cap (``constraints/road_ramp.terrace_profile``)
-    upper_pad_road_grade: float = 0.20
+    upper_pad_road_grade: float
     #: contact roles BESIDE the airside value roles (apron, pad, the taxi
     #: family, the runway family with §40's shoulder): §37 (10)'s LOT,
     #: which precedence.toml partitions groundside but which is hard

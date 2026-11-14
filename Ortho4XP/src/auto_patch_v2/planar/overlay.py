@@ -495,9 +495,13 @@ def build_arrangement(airport: Airport, classification: Classification,
     # #1971 v2 §3.4: a road's ribbon carries a vertex every sample step
     # where it comes off a deck stack's end (``planar/stack_ground``)
     end_zone, end_step = deck_end_road_zone(airport, law)
-    # #2070: a road's ring chord follows its ground (``planar/ground_chords``);
-    # a structure's deck or ramp states its own level, never the ground's
-    ground = road_ground_densifier(airport, law)
+    # #2070: a road's ring chord follows its ground (``planar/ground_chords``),
+    # never on the designed ramp it leaves an airside contact on; a
+    # structure's deck or ramp states its own level, never the ground's
+    from ..law.tables import contact_roles
+    _contact = contact_roles(law)
+    ground = road_ground_densifier(airport, law, [
+        r.polygon for r in (*base_regions, *pad_regions) if r.role in _contact])
     stated = {c.ref for c in classification.cells if c.kind == "structure"
               or (c.evidence or {}).get("pavement_deck")}
 

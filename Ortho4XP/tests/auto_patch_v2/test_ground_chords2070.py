@@ -80,3 +80,35 @@ def test_the_densifier_reads_the_law_and_the_airports_dem(law):
     one = types.SimpleNamespace(z=lambda x, y: float(_bank([x], [y])[0]))
     assert dens([(0.0, 0.0), (48.0, 0.0)]) == \
         GC.road_ground_densifier(types.SimpleNamespace(dem=one), law)([(0.0, 0.0), (48.0, 0.0)])
+
+
+_RAMP = GC.Ramp(design=0.05, cap=0.10, stand=0.02)
+
+
+def _shelf(xs, ys):
+    """An apron on 12 m of fill: the ground drops off its edge (x = 0)
+    within 2 m and stays at the plain (``test_v2roadramp._Shelf``)."""
+    return 712.0 - 12.0 * np.clip(np.asarray(xs, dtype=float) / 2.0, 0.0, 1.0)
+
+
+def test_no_split_lands_on_the_ramp_a_road_leaves_its_contact_on():
+    """The batch-18 regression: a split 4 m out on the fill drop reshaped
+    the designed ramp (5 % -> 6.7 %).  From a MOUTH over ground the road
+    cannot follow inside its cap, the ring is the ramp's to its first meet."""
+    chord = [(0.0, 0.0), (60.0, 0.0)]
+    assert len(GC.follow_ground(chord, _shelf, 0.5, 2.0, 4.0)) > 2   # unguarded: split
+    at_mouth = lambda p: p[0] == 0.0                                  # noqa: E731
+    assert GC.follow_ground(chord, _shelf, 0.5, 2.0, 4.0, at_mouth, _RAMP) == chord
+    # walked backward too: the mouth at the chord's far end
+    back = [(60.0, 0.0), (0.0, 0.0)]
+    assert GC.follow_ground(back, _shelf, 0.5, 2.0, 4.0, at_mouth, _RAMP) == back
+
+
+def test_a_mouth_the_road_leaves_on_its_ground_guards_nothing():
+    """ENTC: the apron edge (x = 48) stands on apron-level ground — the
+    road follows its ground from it, no ramp, and the bank is split."""
+    chord = [(0.0, 0.0), (48.0, 0.0)]
+    at_mouth = lambda p: p[0] == 48.0                                 # noqa: E731
+    out = GC.follow_ground(chord, _bank, 0.5, 2.0, 4.0, at_mouth, _RAMP)
+    assert out == GC.follow_ground(chord, _bank, 0.5, 2.0, 4.0)
+    assert _worst(out, _bank) <= 0.5

@@ -84,6 +84,7 @@ from ..geom.ramp_grade import grade_envelope
 from ..law import Law
 from ..law.reference_code import ref_status
 from ..law.tables import (
+    contact_roles,
     family,
     is_structure_role,
     is_value_role,
@@ -175,28 +176,6 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str
     for v in on_deck:
         out.pop(v, None)
     return out
-
-
-def contact_roles(law: Law) -> frozenset[str]:
-    """§37 (10) (1) THE AIRSIDE CONTACT SET (owner RULINGS 2026-09-13cs
-    item 5): every face that carries its OWN airside level — apron, the
-    pad, the whole TAXI family (``junction`` and ``stub`` with it) and the
-    runway family, §40's shoulder joining as soon as the role is declared
-    — plus the roles ``[road_contact] extra_roles`` names (the LOT, which
-    ``precedence.toml`` partitions groundside but which is stated hard
-    surface a road meets).
-
-    Read off ``precedence.toml`` (``side = "airside"`` and ``value =
-    true``), never typed here: §37 (6) named "apron, pad or lot" in PROSE
-    and a taxiway was not in it, which is why HECA's ``route0`` ended
-    4.4 m short of ``pav74`` with no contact at all and targeted the DEM
-    1.2 m above it — a 33 % cliff.
-    """
-    roles = law.tables.precedence.roles
-    out = {r for r in roles
-           if role_side(law, r) == "airside" and is_value_role(law, r)}
-    out.update(getattr(law.tables.emit.road_contact, "extra_roles", ()) or ())
-    return frozenset(out)
 
 
 def _airside_level(pm: PlanarMap, v: int) -> float | None:

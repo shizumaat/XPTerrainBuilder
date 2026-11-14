@@ -289,8 +289,8 @@ def plated(bridges: _t.Sequence[FreeBridge], basins=(), objects=()
            ) -> tuple[tuple[FreeBridge, ...], list[str]]:
     """``(the free bridges no deck of which carries a split-level or walled
     plate, notes)`` (#2065 A3 rule 1: A1's ``plated_deck``, OTHH B05 — listed,
-    nothing built, owner Q3 (a); its plate's reader seats it).  A bridge
-    refused here is counted ``free_stack_refused_at_planar`` in its note."""
+    nothing built, owner Q3 (a); its plate's reader seats it).  Its stack,
+    if it had one, is dropped by :func:`planar_stacks`."""
     if not bridges:
         return (), []
     split = {str(m) for b in basins or () if getattr(b, "kind", "") == "split_level"
@@ -301,7 +301,7 @@ def plated(bridges: _t.Sequence[FreeBridge], basins=(), objects=()
         hit = sorted(set(fb.deck_ids()) & (split | walled))
         if hit:
             notes.append(f"{fb.id}: plated_deck {hit} (split-level / walled plate) — listed, "
-                         "nothing graded (owner Q3 (a)); free_stack_refused_at_planar")
+                         "nothing graded (owner Q3 (a))")
             continue
         out.append(fb)
     return tuple(out), notes

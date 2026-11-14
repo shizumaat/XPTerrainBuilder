@@ -285,3 +285,25 @@ the TFFJ and SPJC movement, read at the batch sweep.
    adds HECA, EIDW and KSFO. Recommended: 3.0.
 3. **Above 10 m (22 insets, e.g. LICP +20 m, ESVL +10 to +13 m): refuse
    and report, or correct anyway?** Recommended: refuse and report.
+
+## A1. Round 2 (amends §6 row 3 and §8; no engine change)
+
+A1.1 Finding. The round-1 field stands (constants and model unchanged, c8f63928a). The P1 step is not controlled by the correction: the raw inset is flat across lot, gap and pad, so the step is the airside standing above its local ground. Apron bodies sit at the mean of the corrected DEM under them (RULINGS 2026-09-09p (3), `emit.toml` `body_datum`), so they move with the correction. At LICJ: apron node 38.184845, 13.101179 10.87 → 11.93 m; pad 10.95 → 12.01 m.
+
+A1.2 §6 row 3 now reads: "corrected; thresholds stay CIFP pins; apron bodies and the pads that follow them move with the corrected DEM mean under them. Intended, and reported by role."
+
+A1.3 §8 "no MOVED" now reads: "PASS. MOVED is expected inside the corrected inset's box only: ground, apron-class bodies and pads. Any MOVED outside that box, or at LICP, is a FAIL."
+
+A1.4 The P1-step bar is replaced by: "P1 step to the adjacent apron (lot at P1 against 38.184845, 13.101179): REPORTED with its four terms, expected 2.25 ± 0.15 m. Over 2.40 m is STOP and report. Landing below the former 1.0 m needs the owner's sign-off with this number quoted."
+
+A1.5 Kept bars: P1 9.0–11.0 m; P2 4.5–6.5 m; P2 transect; coast; LICP refused with its raster unchanged.
+
+A1.6 New reads, quoted first in the report: drawn elevation at RW02, RW07, RW20, RW25 within 0.05 m of the control; `--site shoreW=38.185099,13.097298,60` drawn profile across the inset no-data edge (report only; an upward jump over 0.5 m is stated, not iterated); movers by role (arm vs control), median and max.
+
+A1.7 Closing test. Base carries the #2092 fix (claude/l2092). Control through `build_airport.py --base-arm`. One build: `build_airport.py LICJ --tile 38 13 --pack-copy DIR --tag …`. Then `drawn_gate.py LICJ --tag … --against CONTROL.json --site P1=38.184827,13.101037 --site P2=38.186264,13.099513 --site coast=38.186446,13.099469,60 --site apronP1=38.184845,13.101179 --site padP1=38.184863,13.101236 --site shoreW=38.185099,13.097298,60`.
+
+A1.8 The KEGE byte check is deferred to the batch sweep's body-hash rows (one line in `DEFERRED_VERIFICATION.md`). No `airport_mod_cache` refresh.
+
+A1.9 Before cleanup, register the arm patch and rebake plan: `tools/harness/frames.py register --icao LICJ --kind patch --copy`.
+
+A1.10 Effort low; no fix iterations. Never raise the lane cap; delete scratch builds when reporting.

@@ -1160,6 +1160,7 @@ def authored_rows_lines(dump, plan, ss, sampler, pack_root: str = "") -> list[st
     writer would do to it (nothing).  Module-level so the twin reads the
     lines the report prints."""
     from auto_patch_v2.airport import authored_seat as _as
+    from auto_patch_v2.airport import ground_frame_riders as _gfr
     from auto_patch_v2.airport import placement_write as PW
     from auto_patch_v2.law import Law as _L2
     splits, _kept = PP.to_placement_records(ss)
@@ -1169,7 +1170,8 @@ def authored_rows_lines(dump, plan, ss, sampler, pack_root: str = "") -> list[st
         keep_tol_m=float(_L2.load().tables.structures.placement
                          .authored_keep_tol_m),
         feet_tol_m=float(_L2.load().tables.structures.placement.split_tol_m),
-        elevated_m=float(_L2.load().tables.structures.rebake.elevated_base_m))
+        elevated_m=float(_L2.load().tables.structures.rebake.elevated_base_m),
+        ground_rider_law=_gfr.law_of(_L2.load().tables.structures.placement))
     kept = sorted(_as.kept_rows(getattr(plan, "authored_seats", ()) or ()))
     touched = ({c.index: "CONVERTED to on-ground" for c in conv}
                | {m.index: f"SEATED at OBJECT_MSL {m.elevation:+.3f}" for m in msl}

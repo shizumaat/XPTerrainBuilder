@@ -134,6 +134,7 @@ def own_claim(apt_dat_path: str | None, ref: tuple[float, float], to_xy,
     doubt an object stays with its group, RULINGS 2026-11-13r).  ``None``
     when the pack serves no airport near ``ref``."""
     import dataclasses as _dc
+
     from shapely.ops import unary_union
     apts = list(served)
     if apt_dat_path:

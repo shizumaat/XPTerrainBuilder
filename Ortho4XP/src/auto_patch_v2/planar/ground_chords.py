@@ -28,7 +28,7 @@ import numpy as np
 
 from ..model.frame import XY
 
-__all__ = ["follow_ground", "road_ground_densifier"]
+__all__ = ["road_ground_densifier"]
 
 
 def _split_ts(ts: np.ndarray, zs: np.ndarray, length: float, tol_m: float,

@@ -86,9 +86,9 @@ import typing as _t
 
 from ..model.airport import DsfObject, SceneryPack
 from . import dsf as _dsf
-from .pack import authored_source
 from .obj8 import _to_frame
 from .object_window import own_claim, pack_apt_dat, served_airports
+from .pack import authored_source
 from .pack_local import admitted, ships_objects, tile_candidates
 
 __all__ = ["COMPANION_PLAN", "dump_candidates", "find",
@@ -140,6 +140,7 @@ def find(airport, mod_cache_root: str, lat: int, lon: int,
     contact_band_m``, :func:`_feet`)."""
     from shapely.geometry import Point
     from shapely.prepared import prep
+
     from .backup_state import pristine_dsf_path
     main_root = airport.pack.pack_root
     region = _region(airport) if main_root and mod_cache_root else None

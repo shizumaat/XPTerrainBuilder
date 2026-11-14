@@ -81,9 +81,7 @@ from . import anchor_rule as _ar
 from . import placement_contact as _pcon
 from .placement_motion import lowest_contact_feet
 
-__all__ = ["Share", "REFUSALS", "ISO_PREFIX", "outlines", "clusters",
-           "shares", "seat", "base_spread", "building_files",
-           "welded", "vacate"]
+__all__ = ["REFUSALS", "ISO_PREFIX", "outlines", "shares", "welded", "vacate"]
 
 #: every refusal reason, in the order the witness asks them
 REFUSALS = ("not_isolated", "structure", "span", "building_file", "walled",

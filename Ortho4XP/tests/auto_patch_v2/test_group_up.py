@@ -10,8 +10,13 @@ from __future__ import annotations
 import types
 
 from auto_patch_v2.airport.unit_storey import upper_pads
-from auto_patch_v2.classify.storey_edge import (ARM_PAD_KEY, UPPER_FLOOR_KEY, UPPER_UNIT_KEY,
-                                                UPPER_Y_KEY, arm_storeys)
+from auto_patch_v2.classify.storey_edge import (
+    ARM_PAD_KEY,
+    UPPER_FLOOR_KEY,
+    UPPER_UNIT_KEY,
+    UPPER_Y_KEY,
+    arm_storeys,
+)
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.registries import Registries
 from auto_patch_v2.planar.group_up import GROUP_UP, plan_group_up, upper_pad_reads

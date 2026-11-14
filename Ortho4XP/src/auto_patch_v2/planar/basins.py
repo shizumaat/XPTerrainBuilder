@@ -34,6 +34,9 @@ THE ADMISSION RULE (law ``structures.toml [basin]``; RULINGS 2026-09-04i
    a region whose member plates all keep under ``bank_band_plate_min`` of
    themselves at ``footprint_close_m`` wide and run a wall's length is a
    retaining wall's footing strip (KMCI's border wall), never a pit.
+1c. UNDER THE AUTHOR'S GROUND (#1950, ``planar/basin_author_ground``): the
+   region's deepest member floor stands ``admission_depth_m`` under the
+   pack's own ground plates around its ring, where they read.
 2. REGION — the union of the witnessing components' OUTER PLAN
    FOOTPRINTS (spec §24 (4), owner RULINGS 2026-09-13g: the wall face at
    the TOP of the walls, ``FloorWitness.outer``), closed at
@@ -174,6 +177,7 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.structures import Basin, Tunnel
 from ..model import pulse as _pulse
+from . import basin_author_ground as _author_ground
 from . import basin_datum as _basin_datum
 from . import basin_floor_width as _floor_width
 from . import basin_rim as _basin_rim
@@ -533,6 +537,14 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     new_cells: list[tuple[str, str, Polygon, tuple[tuple[XY, ...], ...]]] = []
     knives: list[Polygon] = []
     wall_len = float(load_rules().service.retaining_wall_min_length_m)   # #1952: a wall's length
+    _ground: list = []
+
+    def ground():
+        """The author's ground (``airport/below_grade_witness``), read once."""
+        if not _ground:
+            from ..airport.below_grade_witness import ground_of
+            _ground.append(ground_of(airport, objects, cache, law))
+        return _ground[0]
     for k, ring in enumerate(_pulse.each(rings, "basin rings (at-grade read)", "rings")):
         bid = f"basin:{k}"
         site = _ll(airport, ring)
@@ -549,6 +561,12 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
              for w in o.witnesses if _outer(w).intersects(ring)])
         if footing is not None:
             stats.refused.append(footing)
+            continue
+        # ...AND STANDS UNDER THE AUTHOR'S GROUND, not only our DEM (#1950)
+        shallow = _author_ground.author_ground_refusal(bid, ring, wits, member_ids,
+                                                       ground(), law, site)
+        if shallow is not None:
+            stats.refused.append(shallow)
             continue
         # §24 (7) (a): a sibling's buried plate inside this admitted region
         # is a floor witness OF THIS PIT — it witnesses depth, it does not

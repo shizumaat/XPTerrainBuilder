@@ -365,11 +365,10 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
     from auto_patch_v2.airport import pack_lock as _lock
 
     from . import pack_copy as _copy
-    guard = _copy.write_guard(pack_root)
-    with _lock.hold(pack_root, allow_live_install=guard):     # #1884 B3
+    with _lock.hold(pack_root, allow_live_install=_copy.write_guard(pack_root)):     # #1884 B3
         _pj.snapshot(pack_root, art.dsf_path)
         _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
-                       allow_live_install=guard,
+                       allow_live_install=_copy.write_guard(pack_root),
                        engine_version=_engine_version(),
                        omit=art.missing if art.omit else ())
     _DSFR.ensure_dsf_text_path(art.dsf_path, _dsf2.mod_cache_dir(
@@ -1235,9 +1234,13 @@ def _plan_icao(plan_path: str) -> str:
 
 
 def _iso_outlines(plan_) -> tuple:
-    """§9a: ``isolated_seat.outlines`` of one plan."""
+    """§9a: ``isolated_seat.outlines`` of one plan; ``()`` for a plan whose
+    parts cannot be read (it blocks nothing, as in ``_sibling_outlines``)."""
     from auto_patch_v2.airport.isolated_seat import outlines
-    return outlines(plan_)
+    try:
+        return outlines(plan_)
+    except Exception:                           # noqa: BLE001
+        return ()
 
 
 def _sibling_outlines(plans: _t.Sequence[str], screens: _t.Mapping) -> dict:

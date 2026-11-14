@@ -47,8 +47,7 @@ def rewrite_dsf(pack_root: str, pack_name: str, dsf: str,
     from . import pack_copy as _copy
     from .object_stage import _engine_version
     backup = dsf + BACKUP_SUFFIX
-    guard = _copy.write_guard(pack_root)
-    with _lock.hold(pack_root, allow_live_install=guard):
+    with _lock.hold(pack_root, allow_live_install=_copy.write_guard(pack_root)):
         omit = (_pa.recorded(_bs.dsf_entry(_bs.read_record(dsf),
                                            os.path.basename(dsf)),
                              sha256_file(backup), pack_root)
@@ -57,7 +56,7 @@ def rewrite_dsf(pack_root: str, pack_name: str, dsf: str,
                              Provenance("", _engine_version(), "", {}))
         _pj.snapshot(pack_root, dsf)      # a no-op outside a build (#598)
         _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
-                       allow_live_install=guard,
+                       allow_live_install=_copy.write_guard(pack_root),
                        engine_version=_engine_version(),
                        omit=omit, **choice)
     _DSFR.ensure_dsf_text_path(dsf, _dsf2.mod_cache_dir(

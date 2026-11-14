@@ -2843,7 +2843,10 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     """
     src = ROOT / "src"
     callers = {p.relative_to(src).as_posix() for p in src.rglob("*.py")
-               if "apply_plan(" in p.read_text(errors="replace", encoding="utf-8")
+               # #1884 round 2 B2: ``apply_routed`` is the same write, routed
+               # over the tile's DSF and its neighbours' guest rows
+               if ("apply_plan(" in p.read_text(errors="replace", encoding="utf-8")
+                   or "apply_routed(" in p.read_text(errors="replace", encoding="utf-8"))
                and "def apply_plan(" not in p.read_text(errors="replace", encoding="utf-8")}
     # #1252: the sibling packs' deck riders are written through the SAME
     # ``apply_plan`` by ``sibling_stage.write``, whose only caller is

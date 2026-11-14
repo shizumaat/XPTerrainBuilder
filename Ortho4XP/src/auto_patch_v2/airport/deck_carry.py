@@ -204,12 +204,14 @@ def _span(line: LineString, region: Polygon) -> "tuple[float, float] | None":
     return (min(ss), max(ss)) if ss else None
 
 
-def bridge_stretches(ways: _t.Sequence, cuts: _t.Mapping[int, _t.Sequence[tuple[str, Polygon]]]
-                     ) -> tuple:
+def bridge_stretches(ways: _t.Sequence, cuts: _t.Mapping[int, _t.Sequence[tuple[str, Polygon]]],
+                     at_grade: bool = False) -> tuple:
     """``ways`` with every carried way's stretch over its deck a mapped
     bridge (module doc).  ``cuts``: way id -> ``(deck id, deck piece
     rectangle)`` per deck carrying it.  A way no deck carries is returned
-    as it is (the same object)."""
+    as it is (the same object).  ``at_grade``: the stretch in each region
+    becomes AT GRADE instead (no ``bridge`` / ``layer``; #2065 A3 rule 7, a
+    bridge way's run-on past a graded end)."""
     out = []
     for w in ways:
         mine = cuts.get(int(w.id))
@@ -232,19 +234,24 @@ def bridge_stretches(ways: _t.Sequence, cuts: _t.Mapping[int, _t.Sequence[tuple[
         for a, b, did in merged:
             if a - cur > 1e-3:
                 out.append(_piece(w, line, cur, a, None))
-            out.append(_piece(w, line, a, b, did))
+            out.append(_piece(w, line, a, b, did, at_grade))
             cur = b
         if line.length - cur > 1e-3:
             out.append(_piece(w, line, cur, line.length, None))
     return tuple(out)
 
 
-def _piece(w, line: LineString, a: float, b: float, deck: "str | None"):
+def _piece(w, line: LineString, a: float, b: float, deck: "str | None",
+           at_grade: bool = False):
     """The stretch ``a..b`` of way ``w`` (same id and kind); a deck's own
-    stretch tagged a mapped bridge of that deck."""
+    stretch tagged a mapped bridge of that deck (``at_grade``: untagged a
+    bridge, at layer 0)."""
     pts = tuple((float(x), float(y)) for x, y in substring(line, a, b).coords)
     tags = dict(w.tags)
-    if deck is not None:
+    if deck is not None and at_grade:
+        for k in ("bridge", "layer", "bridge:structure"):
+            tags.pop(k, None)
+    elif deck is not None:
         if not tags.get("bridge") or tags.get("bridge") == "no":
             tags["bridge"] = "yes"
         tags[DECK_TAG] = deck

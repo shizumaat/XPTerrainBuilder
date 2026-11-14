@@ -35,7 +35,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..model.deck_stack import STACK_PREFIX, DeckStack, StackDeck, floor_level
+from ..model.deck_stack import STACK_PREFIX, TRENCH, DeckStack, StackDeck, floor_level
 from ..model.frame import rotated_rectangle
 from . import obj8 as _obj8
 from .deck_carry import Carry, bridge_stretches, carry_of
@@ -43,7 +43,7 @@ from .deck_ends import ring_polygon
 from .dsf_heights import on_finest_grid
 from .stack_walls import StackWalls, floor_between, read_stack_walls, run_beside, wall_hull
 
-__all__ = ["stack_floors", "attach_stacks", "log_line"]
+__all__ = ["stack_floors", "attach_stacks", "with_bridge_stacks", "log_line"]
 
 XY = tuple[float, float]
 RouteOf = _t.Callable[[_t.Any], LineString]
@@ -530,6 +530,8 @@ def stack_floors(stacks: _t.Sequence[DeckStack], taken: _t.Iterable[str] = ()
     taken = {str(t) for t in taken}
     out, notes = [], []
     for st in stacks:
+        if st.kind != TRENCH:
+            continue                    # #2065 A3: a free / kept stack has no floor
         clash = sorted(pid for pid, _r in st.members if pid in taken)
         if clash:
             notes.append(f"{st.id}: member(s) {', '.join(clash)} already a floor's — not cut")
@@ -574,6 +576,7 @@ def _stack_shade(stacks: _t.Sequence[DeckStack], objects, cache, law):
     """The planar region no pad takes (§3.9: a member's footprint is no
     pad): each stack's floor and run-outs, its walls' whole solid plan, its
     decks' plates and every other member's plan."""
+    stacks = [st for st in stacks if st.kind == TRENCH]
     if not stacks:
         return None
     by_id = {str(o.id): o for o in objects}
@@ -598,16 +601,56 @@ def _stack_shade(stacks: _t.Sequence[DeckStack], objects, cache, law):
     return None if got.is_empty else got
 
 
-def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack]) -> tuple:
+def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack], law=None) -> tuple:
     """``ways`` with every stack deck's carried stretch a mapped bridge
-    (``deck_carry.bridge_stretches``, §3.5)."""
+    (``deck_carry.bridge_stretches``, §3.5).  A trench stack cuts by the
+    deck's rectangle.  A free / kept stack with a GRADED end (#2065 A3 rule
+    7) cuts by the plate's RING, only a stretch not already ``bridge !=
+    no``; and the run-on of a bridge way past a GRADED end (within
+    ``[bridge] free_end_run_on_max_m`` along its path) becomes at grade."""
+    from .bridge_end_state import cut as _cut_path
+    from .deck_signature import is_bridge_way
+    tags = {int(w.id): (w.tags or {}) for w in ways}
     cuts: dict[int, list] = {}
+    level: dict[int, list] = {}
+    run_on = (float(law.tables.structures.bridge.free_end_run_on_max_m)
+              if law is not None else 0.0)
     for st in stacks:
+        if st.kind != TRENCH and not st.graded_ends():
+            continue
         for d in st.decks:
-            rect = rotated_rectangle(Polygon(d.ring))
+            ring = Polygon(d.ring)
+            region = rotated_rectangle(ring) if st.kind == TRENCH else ring
             for wid in d.carried:
-                cuts.setdefault(int(wid), []).append((d.object_id, rect))
-    return bridge_stretches(ways, cuts) if cuts else tuple(ways)
+                if st.kind == TRENCH or not is_bridge_way(tags.get(int(wid), {})):
+                    cuts.setdefault(int(wid), []).append((d.object_id, region))
+        for e in st.graded_ends() if run_on > 0.0 else ():
+            if len(e.path) < 2:
+                continue
+            ring = next((Polygon(d.ring) for d in st.decks if d.object_id == e.object_id), None)
+            past = _cut_path(e.path, run_on).buffer(e.half_width, cap_style="flat")
+            past = past.difference(ring.buffer(0.01)) if ring is not None else past
+            for w in ways:
+                if is_bridge_way(w.tags or {}) and LineString(w.points).intersection(past
+                                                                                  ).length > 0.5:
+                    level.setdefault(int(w.id), []).append((e.object_id, past))
+    out = bridge_stretches(ways, cuts) if cuts else tuple(ways)
+    return bridge_stretches(out, level, at_grade=True) if level else out
+
+
+def with_bridge_stacks(airport, stacks: _t.Sequence[DeckStack], law) -> _t.Any:
+    """``airport`` with the free / kept ``stacks`` (#2065 A3,
+    ``airport/bridge_stack``) after its trench stacks, every carried
+    stretch rewritten from the ways AS MAPPED (rule 7, :func:`_rewrite_ways`);
+    a stale free / kept stack (an earlier read) is replaced."""
+    import dataclasses as _dc
+    trench = tuple(s for s in getattr(airport, "deck_stacks", ()) or () if s.kind == TRENCH)
+    every = trench + tuple(stacks)
+    if len(every) == len(getattr(airport, "deck_stacks", ()) or ()) and not stacks:
+        return airport
+    mapped = getattr(airport, "osm_ways_mapped", None) or airport.osm_ways
+    return _dc.replace(airport, osm_ways=_rewrite_ways(mapped, every, law),
+                       osm_ways_mapped=mapped, deck_stacks=every)
 
 
 def attach_stacks(airport, objects, cache, law, route_of: RouteOf,

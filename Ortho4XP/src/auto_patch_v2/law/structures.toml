@@ -651,6 +651,14 @@ roof_under_max_m       = 12.0
 # secant chord lay 3.9 / 4.1 m INSIDE the plate and read the carried road under
 # the deck (3.54) where the ground outside the ends is 3.65-3.70 / 3.78-3.83.
 free_end_ground_out_m  = 1.5
+# #2065 A3 rule 3 HELD end_at_pack_solid (RULINGS 2026-11-14f (4): "there cannot be
+# a building at the end of a bridge", so such an end is built as today and listed
+# for the owner's read): a non-deck solid of ANOTHER frame on a land end's path,
+# its faces standing at least this high over its zero over at least this plan
+# area.  The bridge-end survey's values (LEMG bridgeDrei a 1 m, KTPA South_Bridge
+# b 19 m); lamps and kerbs stand under them.
+end_solid_min_height_m = 2.0
+end_solid_min_area_m2  = 10.0
 
 [building_pad]
 weld_to_touching_pavement = true   # contact = value (09-01g)

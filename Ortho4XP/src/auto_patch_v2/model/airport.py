@@ -516,6 +516,10 @@ class Airport:
     #: pack stage by ``planar/free_bridge``): the pack decks the positive
     #: witness holds as free-standing road bridges.  Empty = none.
     free_bridges: tuple = ()
+    #: #2065 A3 rule 1 (RULINGS 2026-11-14d): the decks of ALL-DECK frames the
+    #: same witness holds (``model/free_bridge.FreeBridge``): their seat stays
+    #: 22d / 22p's, never ``plate_kind "free"``; R3 grades their ends.
+    kept_bridges: tuple = ()
     #: issue #1633 round 3 THE RETAINING WALLS READ AS TWO LEVELS
     #: (``airport/wall_sides.WallSides``: footprint, upper and lower side
     #: bands, smear, the object's top): a road is never on both sides of

@@ -569,6 +569,10 @@ class Bridge:
     roof_under_max_m: float
     #: #2065 A2 END GROUND: the published end chord lies this far outside the end line
     free_end_ground_out_m: float
+    #: #2065 A3 rule 3: a non-deck solid on a land end's path this high over
+    #: this area HOLDS the end (14f (4))
+    end_solid_min_height_m: float
+    end_solid_min_area_m2: float
 
 
 @_dc.dataclass(frozen=True)

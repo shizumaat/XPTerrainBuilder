@@ -417,7 +417,33 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
     rec = (free_decks or {}).get(o.id)
     if rec is None or law is None:
         return out
+    if rec.get("mode") == "kept":
+        return with_kept(out, rec, counts)
     return with_free(out, rec, law.tables.structures.bridge.abutment_sample_step_m, counts)
+
+
+def with_kept(m: Member, rec: _t.Mapping[str, _t.Any], counts: dict[str, int]) -> Member:
+    """``m`` with ``deck_end_graded`` (#2065 A3 rule 9): a KEPT bridge's deck
+    (``bridge_stack``, an all-deck frame the witness holds) — per RECTANGLE
+    end (``deck_ends``), whether the pack stage graded the terrain up to the
+    route end nearest it (``rec["graded"]``: the graded route ends'
+    midpoints, ``(lat, lon)``).  Its seat is today's reader with those ends
+    left out (``bridge_approach.approach_seat(graded=)``)."""
+    ends = tuple(m.deck_ends or ())
+    graded = [tuple(map(float, q)) for q in rec.get("graded") or ()]
+    route = [tuple(map(float, q)) for q in rec.get("route_mids") or ()]
+    if len(ends) < 2 or not graded or len(route) < 2:
+        return m
+    mids = [((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0) for a, b in ends[:2]]
+    ml, mo = _mpd(mids[0][0])
+
+    def d2(p, q) -> float:
+        return ((p[0] - q[0]) * ml) ** 2 + ((p[1] - q[1]) * mo) ** 2
+    near = [min(range(len(route)), key=lambda j, p=p: d2(p, route[j])) for p in mids]
+    flags = tuple(any(d2(route[j], g) < 1e-6 for g in graded) for j in near)
+    if any(flags):
+        counts["kept_deck_graded_ends"] = counts.get("kept_deck_graded_ends", 0) + sum(flags)
+    return _dc.replace(m, deck_end_graded=flags)
 
 
 def with_free(m: Member, rec: _t.Mapping[str, _t.Any], step_m: float,

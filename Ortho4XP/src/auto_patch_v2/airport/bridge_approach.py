@@ -87,7 +87,8 @@ def end_ground(line: _t.Sequence[tuple[float, float]], surface: Surface,
 def approach_seat(datum: _t.Any, surface: Surface, *,
                   origin: "tuple[float, float] | None" = None,
                   authored_agl_m: "float | None" = None,
-                  tops: "_t.Sequence[float] | None" = None) -> "ApproachSeat | None":
+                  tops: "_t.Sequence[float] | None" = None,
+                  graded: "_t.Sequence[bool] | None" = None) -> "ApproachSeat | None":
     """The seat of a deck carrying two END LINES (``datum.ends``, sampled
     at ``datum.step_m``), or ``None`` where the ends are not armed, an end
     reads no land or an end line touches water (§16e (2)/(6)'s station
@@ -106,7 +107,12 @@ def approach_seat(datum: _t.Any, surface: Surface, *,
     spans", which it is only where the anchor stands under the deck: a
     datum carrying its deck ``ring`` whose anchor lies outside it (OTHH's
     three-bridge frame shares one anchor 40-210 m off every deck) has no
-    road-under reading, and the end lines seat it."""
+    road-under reading, and the end lines seat it.
+
+    ``graded`` (default ``datum.graded``; #2065 A3 rule 9): per end, the
+    terrain is graded up to it — a KEPT bridge's graded end is left out of
+    the embankment test and of the flush end's choice, so the seat is the
+    one the pack stage predicted (the ground there was raised to the deck)."""
     if len(getattr(datum, "ends", ()) or ()) < 2 or datum.step_m <= 0.0:
         return None
     from .rebake_plan import end_line_stations
@@ -137,15 +143,17 @@ def approach_seat(datum: _t.Any, surface: Surface, *,
         g0 = None             # an anchor off the deck reads no road under it
     lift = float(authored_agl_m or 0.0)
     clearance = lift + float(datum.y)
+    gr = tuple(getattr(datum, "graded", ()) or ()) if graded is None else tuple(graded)
+    live = [i for i in range(len(reads)) if not (i < len(gr) and gr[i])]
     if g0 is not None and clearance > 0.0 and not any(
-            z - float(g0) >= EMBANKMENT_SHARE * clearance for z in z_ends):
+            z_ends[i] - float(g0) >= EMBANKMENT_SHARE * clearance for i in live):
         return ApproachSeat(
             float(origin[0]), float(origin[1]), float(g0), float(g0) + lift,
             f"§16e {datum.label}: no embankment at either end line "
             f"({ends_txt}; the road under it {float(g0):.2f}) — the authored "
             f"clearance {clearance:.2f} m kept (RULINGS 2026-10-22p; the end "
             f"gaps are #1138's)", z_ends)
-    k = max(range(len(reads)), key=lambda i: (reads[i][0] - ys[i], -i))
+    k = max(live or range(len(reads)), key=lambda i: (reads[i][0] - ys[i], -i))
     z, _src, (la, lo) = reads[k]
     za = surface(la, lo)
     if za is None:

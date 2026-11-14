@@ -119,6 +119,32 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
 
 #: the plate kind of an EDGE BRIDGE's seat (``anchor_rule.datum_of``)
 EDGE_PLATE = "edge"
+def _kept_published(airport) -> dict[str, dict]:
+    """#2065 A3 rule 9: placement id -> ``{"mode": "kept", "route_mids",
+    "graded"}`` of each KEPT stack's deck: the midpoints ``(lat, lon)`` of its
+    two route end lines and of those the pack stage GRADED
+    (``rebake_plan.with_kept`` matches them to the rectangle's ends)."""
+    from ..model.deck_stack import KEPT
+    stacks = [s for s in getattr(airport, "deck_stacks", ()) or () if s.kind == KEPT]
+    if not stacks:
+        return {}
+    to_ll = airport.frame.transformers()[1]
+
+    def mid(line) -> list:
+        x = sum(p[0] for p in line) / len(line)
+        y = sum(p[1] for p in line) / len(line)
+        return [round(v, 9) for v in to_ll(x, y)]
+    out: dict[str, dict] = {}
+    for st in stacks:
+        for d in st.decks:
+            lines = [ln for ln in (d.end_a, d.end_b) if ln]
+            graded = [mid(e.stations) for e in st.graded_ends() if e.object_id == d.object_id]
+            if len(lines) == 2 and graded:
+                out[d.object_id] = {"mode": "kept", "route_mids": [mid(ln) for ln in lines],
+                                    "graded": graded}
+    return out
+
+
 #: the plate kind of a SPLIT-LEVEL building's lower floor (``planar/split_level_pit``)
 SPLIT_PLATE = "split_level"
 def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
@@ -398,9 +424,10 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
                 + tuple(floor_seats) + tuple(adapted))
     from ..model.free_bridge import published as _free_published
     return {
-        "free_decks": _free_published(getattr(pm, "free_bridges", ()) or (),
-                                      airport.frame.transformers()[1],
-                                      float(law.tables.structures.bridge.free_end_ground_out_m)),
+        "free_decks": {**_free_published(getattr(pm, "free_bridges", ()) or (),
+                                         airport.frame.transformers()[1],
+                                         float(law.tables.structures.bridge.free_end_ground_out_m)),
+                       **_kept_published(airport)},
         "tunnel_objects": _plate_seats(pm, law, seats),
         # one authority per row (``terrain_shaped.row_seats``): a storey
         # shell's row takes its shell's seat alone

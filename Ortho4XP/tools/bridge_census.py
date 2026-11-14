@@ -7,6 +7,7 @@ the witness values (``bridge_witness`` W1-W6) and the first witness it fails.
     venv/bin/python tools/bridge_census.py [--plan P.json ...] [--icao ICAO ...]
         [--frames docs/frames.jsonl] [--patches DATA/Patches] [--jsonl OUT]
         [--only-plans]
+    venv/bin/python tools/bridge_census.py --ends CAPTURE.pkl [...] [--jsonl OUT]
 
 PLANS: the latest (by mtime) rebake plan per airport among every plan the
 frames register (``docs/frames.jsonl`` ``path`` entries: a plan file, or a
@@ -438,6 +439,65 @@ def _print(rows: list[dict], cost: list[float]) -> None:
               f"max {1e3 * max(cost):.0f} ms over {len(cost)} decks")
 
 
+def end_rows(pkl: str, law) -> list[dict]:
+    """``--ends`` (#2065 A3 gate G0): one row per LAND END of every free and
+    kept bridge, read on a ``v2_solve_replay.py --capture`` pickle exactly as
+    the pack stage reads it (``planar/free_bridge.read_bridges`` over the
+    capture's production DEM, after the trench stacks): the bridge, its mode
+    and zero, the end's top, ground G_e, gap, state and why, run, grade, the
+    at-grade crossings and the decks it passes under."""
+    import pickle
+
+    from auto_patch_v2.airport import frame_entry as _fe
+    from auto_patch_v2.airport.obj8 import ResourceCache
+    from auto_patch_v2.planar.basins import read_objects
+    from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
+    from auto_patch_v2.planar.free_bridge import read_bridges
+    with open(pkl, "rb") as fh:
+        cap = pickle.load(fh)
+    icao, airport = cap["icao"], cap["airport"]
+    cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
+    objs, _rep = read_objects(airport, law, cache)
+    airport = attach_deck_stacks(airport, objs, cache, law)
+    airport, every, notes = read_bridges(airport, objs, cache, law)
+    for n in notes:
+        if "bridge" in n or "kept" in n or "free:" in n:
+            print(f"[{icao}]   {n}")
+    to_ll = airport.frame.transformers()[1]
+    by_id = {str(o.id): o for o in objs}
+    minted = {s.id for s in airport.deck_stacks}
+    rows = []
+    for st in every:
+        for e in st.ends:
+            mid = (sum(p[0] for p in e.stations) / len(e.stations),
+                   sum(p[1] for p in e.stations) / len(e.stations))
+            o = by_id.get(e.object_id)
+            rows.append({"icao": icao, "stack": st.id, "mode": st.kind, "minted": st.id in minted,
+                         "zero": round(st.zero_z, 3), "object": e.object_id,
+                         "resource": str(getattr(o, "path", "")).rsplit("/", 1)[-1],
+                         "end": e.side, "ll": [round(v, 6) for v in to_ll(*mid)],
+                         "top": round(e.top, 3), "ground": round(e.ground, 3),
+                         "gap": round(e.gap, 3), "state": e.state, "why": e.why,
+                         "run": round(e.run, 1), "grade": e.grade, "rail": e.rail,
+                         "crossings": list(e.crossings), "under": list(e.under),
+                         "out": [round(v, 6) for v in e.out],
+                         "stations": [[round(v, 8) for v in to_ll(*q)] for q in e.stations],
+                         "path": [[round(v, 8) for v in to_ll(*q)] for q in e.path]})
+    return rows
+
+
+def _print_ends(rows: list[dict]) -> None:
+    for r in rows:
+        print(f"{r['icao']:4} {r['mode']:4} {r['resource'][:28]:28} {r['object']:>14} "
+              f"{r['end']} {r['ll'][0]:.6f},{r['ll'][1]:.6f} zero {r['zero']:9.3f} "
+              f"top {r['top']:7.2f} G {r['ground']:9.2f} gap {r['gap']:+6.2f} "
+              f"{r['state']:9} run {r['run']:6.1f} {r['grade']:.4f}"
+              f"{' x' + str(r['crossings']) if r['crossings'] else ''}"
+              f"{' under ' + str(r['under']) if r['under'] else ''} — {r['why']}")
+    states = collections.Counter((r["mode"], r["state"]) for r in rows)
+    print("states: " + ", ".join(f"{m}/{s} {n}" for (m, s), n in sorted(states.items())))
+
+
 def main(argv=None) -> int:
     from shared_repo_guard import DATA_REPO
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -449,9 +509,21 @@ def main(argv=None) -> int:
     ap.add_argument("--elevation-root", default=str(DATA_REPO / "Elevation_data"))
     ap.add_argument("--jsonl", default="")
     ap.add_argument("--only-plans", action="store_true", help="list the plans and stop")
+    ap.add_argument("--ends", nargs="*", default=None, metavar="CAPTURE.pkl",
+                    help="#2065 A3 G0: one row per land end of every free / kept bridge, "
+                         "read on each capture as the pack stage reads it")
     a = ap.parse_args(argv)
     from auto_patch_v2.law import Law
     law = Law.load()
+    if a.ends is not None:
+        rows = []
+        for pkl in a.ends:
+            rows += end_rows(pkl, law)
+        _print_ends(rows)
+        if a.jsonl:
+            with open(a.jsonl, "w", encoding="utf-8") as fh:
+                fh.writelines(json.dumps(r) + "\n" for r in rows)
+        return 0
     plans = _plan_files(a.frames, a.patches, [os.path.abspath(p) for p in a.plan])
     if a.icao:
         plans = {k: v for k, v in plans.items() if k in set(a.icao)}

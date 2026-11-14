@@ -787,6 +787,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # the cut over its footprint — REPORT ONLY (``tools/drawn_check``
             # claims its objects as CUT sites)
             "object_floors": object_floors(planar, airport, law),
+            "free_bridges": bridge_rows(planar, airport, law),
             # THE JETWAY STRIPS (owner RULINGS 2026-09-18t Q3; jetway-strip
             # spec §2 (6)): per strip its pad, its ONE level, its riders,
             # its vertices by identity and its clamps — LAW INPUT for the
@@ -1494,6 +1495,43 @@ def object_floors(planar: PlanarMap, airport: Airport,
                 law.tables.structures.tunnel.object.wall_face_max_thickness_m)
                 if law is not None else 0.0)
         out.append(rec)
+    return out
+
+
+def bridge_rows(planar: PlanarMap, airport: Airport, law: Law | None = None
+                ) -> list[dict[str, _t.Any]]:
+    """#2065 A3 C2 row 11: per free / kept stack the planar stage kept, its
+    id, mode and zero, and per land end its stations, top, ground G_e, gap,
+    state and why, run, grade and the apron's ring (lat, lon) — what
+    ``tools/drawn_check`` / ``drawn_site --end-lines`` read."""
+    from ..geom.deck_ground import ground_footprint
+    from ..model.deck_stack import TRENCH, admitted_stacks
+    fbs = getattr(planar, "free_bridges", None)
+    stacks = [s for s in admitted_stacks(getattr(airport, "deck_stacks", ()) or (),
+                                         None if fbs is None else {str(f.id) for f in fbs})
+              if s.kind != TRENCH]
+    if not stacks or law is None:
+        return []
+    to_ll = airport.frame.transformers()[1]
+
+    def ll(pts) -> list:
+        return [[round(la, 8), round(lo, 8)] for la, lo in (to_ll(x, y) for x, y in pts)]
+    out = []
+    for st in stacks:
+        aprons = {(d.object_id, side): a for d, side, _t, a, _s in
+                  ground_footprint(st, law)["aprons"]}
+        ends = []
+        for e in st.ends:
+            a = aprons.get((e.object_id, e.side))
+            ring = (ll(list(a.exterior.coords)) if a is not None and not a.is_empty
+                    and a.geom_type == "Polygon" else [])
+            ends.append({"object": e.object_id, "end": e.side, "stations": ll(e.stations),
+                         "top": round(e.top, 3), "ground_m": round(e.ground, 3),
+                         "gap_m": round(e.gap, 3), "state": e.state, "why": e.why,
+                         "run_m": round(e.run, 1), "grade": round(e.grade, 4),
+                         "apron": ring})
+        out.append({"id": st.id, "mode": st.kind, "zero_m": round(st.zero_z, 3),
+                    "decks": [d.object_id for d in st.decks], "ends": ends})
     return out
 
 

@@ -41,7 +41,7 @@ from ..airport import bridge_frame as _bf
 from ..airport import bridge_witness as _bw
 from ..model.free_bridge import FREE_PREFIX, FreeBridge, FreeDeck, FreeEnd
 
-__all__ = ["attach_free_bridges", "bridges_of", "admitted",
+__all__ = ["attach_free_bridges", "read_bridges", "bridges_of", "admitted", "plated",
            "log_line"]
 
 
@@ -167,27 +167,34 @@ class _Frame:
     members: tuple = ()
 
 
-def _read_free_bridges(airport, objects, cache, law) -> tuple[tuple[FreeBridge, ...], list[str]]:
-    """``(every free bridge of the pack, one note per deck read)`` (module
-    doc, pack stage)."""
+def _read_free_bridges(airport, objects, cache, law
+                       ) -> tuple[tuple[FreeBridge, ...], tuple[FreeBridge, ...], list[str]]:
+    """``(every free bridge of the pack, every KEPT bridge — the witness-
+    holding decks of all-deck frames (#2065 A3 rule 1, RULINGS 2026-11-14d),
+    one note per deck read)`` (module doc, pack stage)."""
     from ..airport.bridge_class import DeckFacts, classify
     from ..airport.deck_stack import _Airside
     from ..airport.placement_family import frame_is_bridge
     from .deck_bridge import _frames
     if not objects or cache is None or law is None or getattr(airport, "frame", None) is None:
-        return (), []
+        return (), (), []
+    from ..model.deck_stack import TRENCH
     st = law.tables.structures
     stacked = {str(pid) for s in getattr(airport, "deck_stacks", ()) or ()
-               for pid, _r in s.members}
+               if s.kind == TRENCH for pid, _r in s.members}
     airside = _Airside(airport)
     rd: "_Read | None" = None
     out: list[FreeBridge] = []
+    kept: list[FreeBridge] = []
     notes: list[str] = []
     for decks, frame in _frames(objects, float(st.tunnel.object.cover_placement_tol_m)):
         decks = [d for d in decks if d.deck_top_z is not None and str(d.id) not in stacked
                  and not airside.meets(d.hard_deck)]
-        if not decks or frame_is_bridge(_Frame(tuple(frame))):
-            continue                       # an all-deck frame is 22d / 22p's, unread
+        if not decks:
+            continue
+        # an all-deck frame keeps 22d / 22p's seat; its witness-holding decks
+        # are KEPT bridges, their ends graded (#2065 A3 rule 1)
+        all_deck = frame_is_bridge(_Frame(tuple(frame)))
         rd = rd or _Read(airport, objects, cache, law)
         wit = _frame_witness(decks, frame, rd)
         free = []
@@ -196,22 +203,45 @@ def _read_free_bridges(airport, objects, cache, law) -> tuple[tuple[FreeBridge, 
             if v.cls == "free_bridge":
                 free.append(str(d.id))
             if not wit[str(d.id)].failed.startswith("W1 route"):
-                notes.append(f"{_name(d)}: {v.cls} ({v.reason})")
+                cls = ("kept_bridge (all-deck frame)" if all_deck and v.cls == "free_bridge"
+                       else v.cls)
+                notes.append(f"{_name(d)}: {cls} ({v.reason})")
         if free:
-            out.extend(bridges_of({str(d.id): _ring(d) for d in decks}, wit, free,
-                                  [str(q.id) for q in frame],
-                                  float(st.placement.footprint_touch_m)))
-    return tuple(out), notes
+            (kept if all_deck else out).extend(
+                bridges_of({str(d.id): _ring(d) for d in decks}, wit, free,
+                           [str(q.id) for q in frame], float(st.placement.footprint_touch_m)))
+    return tuple(out), tuple(kept), notes
+
+
+def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]]:
+    """``(airport with free_bridges, kept_bridges and their stacks, every
+    bridge's end read — minted or not, notes)``: :func:`_read_free_bridges`,
+    then each bridge's zero and land-end states (#2065 A3,
+    ``airport/bridge_stack``); a bridge with a GRADED end is minted a stack
+    and the ways rewritten (``airport/deck_stack.with_bridge_stacks``).  A
+    free bridge rule 10 refuses leaves ``free_bridges`` (today's path)."""
+    from ..airport.bridge_stack import bridge_stacks, log_lines
+    from ..airport.deck_stack import with_bridge_stacks
+    got, kept, notes = _read_free_bridges(airport, objects, cache, law)
+    if not (got or kept or getattr(airport, "free_bridges", ())
+            or getattr(airport, "kept_bridges", ())):
+        return with_bridge_stacks(airport, (), law), (), notes
+    airport = _dc.replace(airport, free_bridges=got, kept_bridges=kept)
+    stacks, every, refused, more = bridge_stacks(airport, objects, cache, law)
+    notes += more + [ln.split("] ", 2)[-1] for ln in log_lines("", every)]
+    if refused:
+        airport = _dc.replace(airport, free_bridges=tuple(
+            fb for fb in got if fb.id not in refused))
+    return with_bridge_stacks(airport, stacks, law), every, notes
 
 
 def attach_free_bridges(airport, objects, cache, law, notes_out: "list | None" = None):
-    """``airport`` with ``free_bridges`` read (:func:`_read_free_bridges`)."""
-    got, notes = _read_free_bridges(airport, objects, cache, law)
+    """``airport`` with its free and kept bridges read and their stacks
+    minted (:func:`read_bridges`)."""
+    airport, _every, notes = read_bridges(airport, objects, cache, law)
     if notes_out is not None:
         notes_out.extend(notes)
-    if not got and not getattr(airport, "free_bridges", ()):
-        return airport
-    return _dc.replace(airport, free_bridges=got)
+    return airport
 
 
 def admitted(bridges: _t.Sequence[FreeBridge], objects, classification, airport,
@@ -252,6 +282,28 @@ def admitted(bridges: _t.Sequence[FreeBridge], objects, classification, airport,
         out.append(fb)
         notes.append(f"{fb.id}: a free bridge of {len(fb.decks)} deck(s) "
                      f"{list(fb.deck_ids())}; its zero at its land ends (RULINGS 2026-10-22m)")
+    return tuple(out), notes
+
+
+def plated(bridges: _t.Sequence[FreeBridge], basins=(), objects=()
+           ) -> tuple[tuple[FreeBridge, ...], list[str]]:
+    """``(the free bridges no deck of which carries a split-level or walled
+    plate, notes)`` (#2065 A3 rule 1: A1's ``plated_deck``, OTHH B05 — listed,
+    nothing built, owner Q3 (a); its plate's reader seats it).  A bridge
+    refused here is counted ``free_stack_refused_at_planar`` in its note."""
+    if not bridges:
+        return (), []
+    split = {str(m) for b in basins or () if getattr(b, "kind", "") == "split_level"
+             for m in (*getattr(b, "member_ids", ()), getattr(b, "witness_id", ""))}
+    walled = {str(o.id) for o in objects or () if getattr(o, "walled_plate", None) is not None}
+    out, notes = [], []
+    for fb in bridges:
+        hit = sorted(set(fb.deck_ids()) & (split | walled))
+        if hit:
+            notes.append(f"{fb.id}: plated_deck {hit} (split-level / walled plate) — listed, "
+                         "nothing graded (owner Q3 (a)); free_stack_refused_at_planar")
+            continue
+        out.append(fb)
     return tuple(out), notes
 
 

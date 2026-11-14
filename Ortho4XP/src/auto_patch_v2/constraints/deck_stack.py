@@ -25,6 +25,15 @@ Where two rows cannot both hold the senior one stays: R3 over R1 of
 another deck, R1 over R2, R3 over R2.  The toe (R4) is
 ``constraints/fill_bank``'s; the target (R5) the ground datum.  With no
 stack the generator returns ``[]``.
+
+A FREE or KEPT stack (#2065 A3 rule 5, :func:`_bridge_rows`): no floor, no
+walls.  R1 at its ROWED ends (``DeckStack.rowed_ends``: a free bridge's every
+land end not held or listed, a kept bridge's GRADED ends); R3 under the
+plate for a FREE stack only (inside the deck rings); and R6 THE PROFILE:
+every vertex in a GRADED end's corridor at path distance ``s`` that no road
+ramp owns (no road ribbon, no airside, no structure, no slab) stands in
+``[P(s) - visual_m / 2, P(s)]``, ``P(s) = zero + top - grade (s - step)``,
+dropped where ``P(s) <= DEM + deck_flush_m``.
 """
 from __future__ import annotations
 
@@ -38,6 +47,7 @@ from ..law.tables import snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Band, Row, Source
 from ..model.deck_ends import end_road_vertices
+from ..model.deck_stack import FREE, TRENCH, admitted_stacks
 from ..model.frame import rotated_rectangle
 from ..model.planar import STACK_GROUND_PREFIX, PlanarMap
 from .edge_deck import RIGID
@@ -90,9 +100,13 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     #: band, the groundside stand-off past it, the identity grid
     gap = (0.5 * thick + float(law.tables.zones.adjacent_ground.groundside_cutback_m)
            + snap_margin_m(law) + grid)
+    stacks = admitted_stacks(stacks, _admitted(planar))
     roads = end_road_vertices(planar, law, airport)
     rows: list[Row] = []
     for st in stacks:
+        if st.kind != TRENCH:
+            rows += _bridge_rows(planar, law, st, roads)
+            continue
         floor_vs = _ref_vertices(planar, lambda r, st=st: r.split("#")[0] == st.floor_ref)
         if not floor_vs:
             continue                    # the floor never entered the map
@@ -158,4 +172,98 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     if v not in r1 and not (v in r3 and lo2 > r3[v][0]))
         for v, (c, part) in sorted(r3.items()):
             rows.append(Band(v, None, c, Source(GEN, RIGID, (st.id, part.split("#")[0], part))))
+    return rows
+
+
+def _admitted(planar: PlanarMap) -> "set[str] | None":
+    """The free bridges the planar stage admitted (``PlanarMap.free_bridges``)."""
+    fbs = getattr(planar, "free_bridges", None)
+    return None if fbs is None else {str(fb.id) for fb in fbs}
+
+
+def _road_or_hard(planar: PlanarMap, law: Law, roads: bool = True) -> set[int]:
+    """Vertices R6 never takes: a road ribbon's (the road ramp owns it;
+    ``roads``), an airside face's, a structure's (rule 5: the airside is
+    never altered)."""
+    from ..law.tables import is_structure_role, rolled_on_roles
+    no = set(rolled_on_roles(law)) | ({"service_road", "service_junction"} if roads else set())
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if f.role in no or is_structure_role(law, f.role):
+            out.update(planar.ring_vertices(f.ring))
+            for h in getattr(f, "holes", ()) or ():
+                out.update(planar.ring_vertices(h))
+    return out
+
+
+def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
+    """A FREE / KEPT stack's R1, R3 and R6 (module doc)."""
+    import shapely
+    from shapely.geometry import Point, Polygon
+
+    from ..geom.deck_ground import path_line
+    br = law.tables.structures.bridge
+    flush, step = float(br.deck_flush_m), float(br.abutment_sample_step_m)
+    half_vis = 0.5 * float(law.tables.emit.cockpit.visual_m)
+    grid = float(law.tables.emit.identity.min_distinct_spacing_m)
+    z0 = float(st.zero_z)
+    allv = list(planar.vertices)
+    if not allv:
+        return []
+    axy = _xy(planar, allv)
+    r1: dict[int, tuple[float, float, str, str]] = {}
+    for v, (z, sid, oid, part, _off) in roads.items():
+        if sid == st.id:
+            r1[v] = (z - flush, z, oid, part)
+    refused: set[int] = set()
+    hard = _road_or_hard(planar, law, roads=False)
+    for d, side, top, _apron, slab in ground_footprint(st, law)["aprons"]:
+        if slab.is_empty:
+            continue
+        z = z0 + float(top)
+        on = shapely.contains_xy(slab.buffer(grid, join_style="mitre"), axy[:, 0], axy[:, 1])
+        for k in np.flatnonzero(on).tolist():
+            v = allv[k]
+            if v in hard:
+                continue
+            if v in r1 and abs(r1[v][1] - z) > flush:
+                refused.add(v)
+            r1.setdefault(v, (z - flush, z, d.object_id, f"{d.object_id}#{d.piece} end {side}"))
+    r3: dict[int, tuple[float, str]] = {}
+    if st.kind == FREE:
+        for d in st.decks:
+            ring = Polygon(d.ring)
+            inside = shapely.contains_xy(ring, axy[:, 0], axy[:, 1])
+            ks = [allv[k] for k in np.flatnonzero(inside).tolist()]
+            for v, c in _ceilings(planar, st, d, ks, flush).items():
+                if v not in r3 or c < r3[v][0]:
+                    r3[v] = (c, f"{d.object_id}#{d.piece} under the deck")
+    rows: list[Row] = []
+    for v, (lo, hi, oid, part) in sorted(r1.items()):
+        if v in refused or (v in r3 and lo > r3[v][0]):
+            continue
+        rows.append(Band(v, lo, hi, Source(GEN, RIGID, (st.id, oid, part))))
+    for v, (c, part) in sorted(r3.items()):
+        rows.append(Band(v, None, c, Source(GEN, RIGID, (st.id, part.split("#")[0], part))))
+    skip = _road_or_hard(planar, law) | set(r1) | set(r3)
+    r6: dict[int, tuple[float, str]] = {}
+    for e in st.graded_ends():
+        line = path_line(e, e.run)
+        if line is None:
+            continue
+        corridor = line.buffer(e.half_width, cap_style="flat")
+        inside = shapely.contains_xy(corridor.buffer(grid), axy[:, 0], axy[:, 1])
+        for k in np.flatnonzero(inside).tolist():
+            v = allv[k]
+            vx = planar.vertices[v]
+            if v in skip or vx.dem_z is None:
+                continue
+            p = e.profile(z0, line.project(Point(vx.xy)), step)
+            if p <= float(vx.dem_z) + flush:
+                continue
+            if v not in r6 or p > r6[v][0]:
+                r6[v] = (p, f"{e.object_id} end {e.side} profile")
+    for v, (p, part) in sorted(r6.items()):
+        rows.append(Band(v, p - half_vis, p, Source(GEN, RIGID, (st.id, part.split(" ")[0],
+                                                                  part))))
     return rows

@@ -37,4 +37,57 @@ def deck_end_seeds(pm, law, airport) -> dict[int, tuple[float, float]]:
     while owner question Q1 reads "no" (:data:`DECK_END_RAMP`)."""
     if not DECK_END_RAMP:
         return {}
-    return {v: (z, off) for v, (z, *_r, off) in end_road_vertices(pm, law, airport).items()}
+    out = {v: (z, off) for v, (z, *_r, off) in end_road_vertices(pm, law, airport).items()}
+    for v, z in _crossing_vertices(pm, law, airport).items():
+        out.setdefault(v, (z, 0.0))             # #2065 A3 rule 6: an at-grade crossing
+    return out
+
+
+def _way_of(ref: str) -> "int | None":
+    """The mapped way id a road ribbon face's ref names (``<class>:<way>``)."""
+    tail = str(ref).split("#", 1)[0].rsplit(":", 1)[-1]
+    try:
+        return int(tail)
+    except ValueError:
+        return None
+
+
+def _crossing_vertices(pm, law, airport) -> dict[int, float]:
+    """#2065 A3 rule 6: ``{vertex: P(s)}`` of every road vertex of an AT-GRADE
+    way crossing a GRADED end's corridor (``StackEnd.crossings``) inside it —
+    seeded at the ramp's height there through the deck ends' map
+    (``airport/deck_ends.deck_end_seeds``).  ``{}`` without one."""
+    import shapely
+    from shapely.geometry import Point
+
+    from ..geom.deck_ground import path_line
+    from ..model.deck_stack import admitted_stacks
+    fbs = getattr(pm, "free_bridges", None)
+    stacks = admitted_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()),
+                             None if fbs is None else {str(f.id) for f in fbs})
+    ends = [(st, e) for st in stacks for e in st.graded_ends() if e.crossings]
+    if not ends:
+        return {}
+    from ..model.planar import ROAD_ROLES
+    step = float(law.tables.structures.bridge.abutment_sample_step_m)
+    by_way: dict[int, set[int]] = {}
+    for f in pm.faces.values():
+        if f.role not in ROAD_ROLES:
+            continue
+        w = _way_of(f.ref)
+        if w is not None:
+            by_way.setdefault(w, set()).update(pm.ring_vertices(f.ring))
+    out: dict[int, float] = {}
+    for st, e in ends:
+        line = path_line(e, e.run)
+        if line is None:
+            continue
+        corridor = line.buffer(e.half_width, cap_style="flat")
+        for w in e.crossings:
+            for v in sorted(by_way.get(int(w), ())):
+                xy = pm.vertices[v].xy
+                if not shapely.contains_xy(corridor, xy[0], xy[1]):
+                    continue
+                p = e.profile(st.zero_z, line.project(Point(xy)), step)
+                out[v] = max(out.get(v, -1e9), p)
+    return out

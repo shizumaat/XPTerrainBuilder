@@ -15,11 +15,13 @@ over a placement's zero.
 from __future__ import annotations
 
 import dataclasses as _dc
+import typing as _t
 
 from .frame import XY
 
-__all__ = ["StackDeck", "DeckStack", "XY3", "STACK_PREFIX", "FLOOR_FACE_PREFIX",
-           "FLOOR_WALL_PREFIX", "floor_level"]
+__all__ = ["StackDeck", "DeckStack", "StackEnd", "XY3", "STACK_PREFIX", "FLOOR_FACE_PREFIX",
+           "FLOOR_WALL_PREFIX", "floor_level", "TRENCH", "FREE", "KEPT", "END_STATES",
+           "admitted_stacks"]
 
 XY3 = tuple[float, float, float]
 
@@ -31,6 +33,17 @@ STACK_PREFIX = "stack:"
 #: the stack floor IS an object floor
 FLOOR_FACE_PREFIX = "object_floor:"
 FLOOR_WALL_PREFIX = "object_floor_wall:"
+
+#: ``DeckStack.kind`` (#2065 A3 C2 row 1): a #1971 trench stack, a FREE
+#: bridge's (its zero the land ends', R2) or a KEPT all-deck frame's (its
+#: zero the predicted 22d / 22p seat, RULINGS 2026-11-14d)
+TRENCH, FREE, KEPT = "trench", "free", "kept"
+#: a land end's states (A3 rule 3): ``flush`` (gap within ``deck_flush_m``),
+#: ``graded`` (the terrain grades up to it), ``held`` (built as today, 14f
+#: (4)), ``listed`` (nothing built, question B (a)), ``governing`` (a kept
+#: bridge's seat end: no row, no ground), ``unread`` (no ground read: the
+#: terrain holds it, rule 10)
+END_STATES = ("flush", "graded", "held", "listed", "governing", "unread")
 
 
 def floor_level(zero_z: float, feet_y: float) -> float:
@@ -61,6 +74,48 @@ class StackDeck:
     top_a: float
     top_b: float
     plate: tuple[tuple[XY3, XY3, XY3], ...] = _dc.field(repr=False, default=())
+
+
+@_dc.dataclass(frozen=True)
+class StackEnd:
+    """One LAND END of a free or kept bridge's deck (#2065 A3 rule 3), read
+    once at the pack stage (``airport/bridge_end_state``): the end line's
+    ``stations`` and the driven layer's ``top`` there, the outward tangent,
+    the ground ``ground`` (G_e, ``nan`` unread) and ``gap = zero + top -
+    ground``; its ``state`` (:data:`END_STATES`) and why; the PATH walked
+    outward from the end (the carried way, then the straightest way join; a
+    stub's axis ray), the RUN (``gap / grade + abutment_sample_step_m``) at
+    ``grade`` (road 5 %, rail 1.25 %), the at-grade ways crossing within the
+    run and the decks it passes under (rule 8)."""
+
+    object_id: str
+    side: str
+    stations: tuple[XY, ...]
+    top: float
+    out: XY
+    ground: float
+    gap: float
+    state: str
+    why: str
+    path: tuple[XY, ...] = ()
+    run: float = 0.0
+    grade: float = 0.0
+    rail: bool = False
+    crossings: tuple[int, ...] = ()
+    under: tuple[str, ...] = ()
+
+    @property
+    def half_width(self) -> float:
+        """Half the end line's length (the apron's half width, rule 4)."""
+        if len(self.stations) < 2:
+            return 0.5
+        a, b = self.stations[0], self.stations[-1]
+        return max(0.5, 0.5 * ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5)
+
+    def profile(self, zero: float, s: float, step: float) -> float:
+        """P(s) (rule 5 R6): the ramp's height ``s`` metres along the path,
+        ``zero + top`` over the slab (``step``), then down at ``grade``."""
+        return float(zero) + float(self.top) - float(self.grade) * max(0.0, float(s) - step)
 
 
 @_dc.dataclass(frozen=True)
@@ -97,6 +152,30 @@ class DeckStack:
     #: (``max |crest - DEM| / bank_slope`` along the caps' outer edges,
     #: clamped); 0 = no bank
     ground_margin_m: float = 0.0
+    #: #2065 A3: :data:`TRENCH`, :data:`FREE` or :data:`KEPT`; a free or kept
+    #: stack has no floor, rim, run-outs or caps
+    kind: str = TRENCH
+    #: #2065 A3 rule 3: every land end of a free / kept stack's decks
+    ends: tuple[StackEnd, ...] = ()
+    #: #2065 A3: the free bridge's id (``model/free_bridge.FREE_PREFIX``)
+    bridge: str = ""
+
+    def rowed_ends(self) -> tuple[StackEnd, ...]:
+        """The ends R1 holds (rule 5): a FREE stack's every land end not
+        held or listed, a KEPT stack's GRADED ends."""
+        want = ("graded",) if self.kind == KEPT else ("flush", "graded", "unread")
+        return tuple(e for e in self.ends if e.state in want)
+
+    def graded_ends(self) -> tuple[StackEnd, ...]:
+        """The ends the terrain grades up to (rule 3 GRADED)."""
+        return tuple(e for e in self.ends if e.state == "graded")
+
+    def end_top(self, object_id: str, side: str) -> "float | None":
+        """The deck top of a rowed end (``None`` where the end has no row)."""
+        for e in self.rowed_ends():
+            if e.object_id == object_id and e.side == side:
+                return float(e.top)
+        return None
 
     @property
     def floor_z(self) -> float:
@@ -122,7 +201,7 @@ class DeckStack:
     def ground_m(self, object_id: str, piece: int, side: str) -> "float | None":
         """The ground one sample step outside an end line (G_e), as read
         into the zero; ``None`` where it was not."""
-        for oid, k, s, g, _t in self.end_zeros:
+        for oid, k, s, g, _top in self.end_zeros:
             if oid == object_id and k == piece and s == side:
                 return float(g)
         return None
@@ -160,3 +239,14 @@ class DeckStack:
                                     for e, line, top in (("a", d.end_a, d.top_a),
                                                          ("b", d.end_b, d.top_b)) if line]}
                           for d in self.decks]}
+
+
+def admitted_stacks(stacks: _t.Sequence[DeckStack], free_ids: "_t.Collection[str] | None"
+                    ) -> tuple[DeckStack, ...]:
+    """``stacks`` less the FREE stacks of bridges the planar stage refused
+    (#2065 A3 C2 N2: ``free_ids`` the admitted bridges' ids,
+    ``PlanarMap.free_bridges``; ``None`` = not read yet, every stack)."""
+    if free_ids is None:
+        return tuple(stacks)
+    ok = set(free_ids)
+    return tuple(s for s in stacks if s.kind != FREE or s.bridge in ok)

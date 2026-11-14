@@ -61,7 +61,7 @@ def _pack(tmp_path, run_on: float):
 
 def test_a_plate_on_a_mapped_bridge_ending_at_it_is_a_free_bridge(tmp_path):
     airport, objs, cache = _pack(tmp_path, 0.5)
-    got, notes = FBR._read_free_bridges(airport, objs, cache, LAW)
+    got, _kept, notes = FBR._read_free_bridges(airport, objs, cache, LAW)
     assert len(got) == 1 and got[0].deck_ids() == ("dsf:obj1",), notes
     (d,) = got[0].decks
     assert set(d.ways) >= {2} and len(d.ends) == 2 and all(e.land for e in d.ends)
@@ -72,7 +72,7 @@ def test_a_plate_on_a_mapped_bridge_ending_at_it_is_a_free_bridge(tmp_path):
 def test_a_plate_the_mapped_bridge_runs_on_past_is_no_free_bridge(tmp_path):
     """W7: the structure carries on 60 m past the east end: a joint."""
     airport, objs, cache = _pack(tmp_path, 60.0)
-    got, notes = FBR._read_free_bridges(airport, objs, cache, LAW)
+    got, _kept, notes = FBR._read_free_bridges(airport, objs, cache, LAW)
     assert got == () and any("W7" in n for n in notes)
 
 
@@ -81,12 +81,12 @@ def test_a_plate_with_pavement_on_it_is_left_to_class_a(tmp_path):
     pav = types.SimpleNamespace(outer=((-10.0, -10.0), (10.0, -10.0), (10.0, 10.0),
                                        (-10.0, 10.0)), holes=())
     airport.pavements = (pav,)
-    assert FBR._read_free_bridges(airport, objs, cache, LAW) == ((), [])
+    assert FBR._read_free_bridges(airport, objs, cache, LAW) == ((), (), [])
 
 
 def test_the_planar_stage_takes_cut_and_class_a_frames_first(tmp_path):
     airport, objs, cache = _pack(tmp_path, 0.5)
-    got, _n = FBR._read_free_bridges(airport, objs, cache, LAW)
+    got, _kept, _n = FBR._read_free_bridges(airport, objs, cache, LAW)
     kept, _n = FBR.admitted(got, objs, None, airport)
     assert kept == got
     hard = types.SimpleNamespace(object_id="dsf:obj7", members=("dsf:obj1", "dsf:obj7"))
@@ -104,7 +104,7 @@ def _member(**kw):
 
 def test_the_plan_member_carries_the_route_ends(tmp_path):
     airport, objs, cache = _pack(tmp_path, 0.5)
-    got, _n = FBR._read_free_bridges(airport, objs, cache, LAW)
+    got, _kept, _n = FBR._read_free_bridges(airport, objs, cache, LAW)
     rec = published(got, FRAME.transformers()[1], 1.5)["dsf:obj1"]
     assert rec["bridge"] == got[0].id and rec["land"] == [True, True] and len(rec["ends"]) == 2
     counts: dict = {}
@@ -132,7 +132,7 @@ def test_the_published_end_chord_lies_outside_the_plate(tmp_path):
     """A2 END GROUND: the chord is the end line's first and last stations
     moved ``free_end_ground_out_m`` along the outward tangent."""
     airport, objs, cache = _pack(tmp_path, 0.5)
-    got, _n = FBR._read_free_bridges(airport, objs, cache, LAW)
+    got, _kept, _n = FBR._read_free_bridges(airport, objs, cache, LAW)
     to_ll = FRAME.transformers()[1]
     out = float(LAW.tables.structures.bridge.free_end_ground_out_m)
     rec = published(got, to_ll, out)["dsf:obj1"]

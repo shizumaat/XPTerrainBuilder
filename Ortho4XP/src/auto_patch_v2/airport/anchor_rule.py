@@ -570,6 +570,10 @@ class Datum:
     #: Set only by the class-B reading (``free_bridge_seat``); an all-deck
     #: frame's datum (22d / 22p) leaves it empty
     ring: tuple[tuple[float, float], ...] = ()
+    #: #2065 A3 rule 9: per end of ``ends``, whether the terrain is graded up
+    #: to it (a KEPT bridge's ``Member.deck_end_graded``): the seat leaves a
+    #: graded end out (``bridge_approach.approach_seat``).  Empty = none.
+    graded: tuple[bool, ...] = ()
 
 
 def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
@@ -658,7 +662,9 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
                          ends=ends if len(ends) >= 2 else (),
                          step_m=float(abutment_step_m),
                          walk_max_m=float(abutment_walk_max_m),
-                         level_tol_m=float(level_tol_m))
+                         level_tol_m=float(level_tol_m),
+                         graded=tuple(bool(x) for x in
+                                      (getattr(m, "deck_end_graded", ()) or ())))
     return None
 
 

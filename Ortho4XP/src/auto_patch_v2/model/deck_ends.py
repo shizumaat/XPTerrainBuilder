@@ -42,7 +42,10 @@ def end_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str,
     ``planar/stack_ground.deck_end_road_zone``: a vertex past the slab is
     on the ramp, never held at the plate.)"""
     from ..geom.end_line import near_stations, polyline_distance
-    stacks = tuple(getattr(airport, "deck_stacks", ()) or ())
+    from .deck_stack import TRENCH, admitted_stacks
+    fbs = getattr(pm, "free_bridges", None)
+    stacks = admitted_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()),
+                             None if fbs is None else {str(f.id) for f in fbs})
     if not stacks:
         return {}
     br = law.tables.structures.bridge
@@ -59,6 +62,12 @@ def end_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str,
             for side, line, top in (("a", d.end_a, d.top_a), ("b", d.end_b, d.top_b)):
                 if not line:
                     continue
+                if st.kind != TRENCH:
+                    # #2065 A3 rule 5: a free / kept stack's ROWED ends only
+                    t = st.end_top(d.object_id, side)
+                    if t is None:
+                        continue
+                    top = t
                 off = polyline_distance(rxy, line) if len(line) >= 2 else None
                 for k in (k for k, hit in enumerate(near_stations(rxy, line, 2.0 * H)) if hit):
                     dk = float(off[k]) if off is not None else 0.0
@@ -73,3 +82,4 @@ def end_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str,
         if max(zs) - min(zs) <= flush:
             out[v] = cl[0]
     return out
+

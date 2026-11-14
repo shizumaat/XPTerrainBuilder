@@ -207,6 +207,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "object_cuts",
     # #1903: the trench objects' own floors (REPORT ONLY; tools/drawn_check)
     "object_floors",
+    # #2065 A3: the free / kept bridge stacks' land ends (``publication.bridge_rows``)
+    "free_bridges",
     # §16g (10) (12) (2) (Fable 2026-09-16; RULINGS 2026-09-16b):
     # ``[lat, lon, "minted"|"deleted"]`` per airside node the PAD STAGE
     # added to or removed from the arrangement's airside cells.  The

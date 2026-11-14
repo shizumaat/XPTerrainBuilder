@@ -251,6 +251,26 @@ def test_the_partition_guard_keeps_a_set_built_around_its_origin(tmp_path):
                    "d": (False, 0.0), "e": (True, 0.0)}
 
 
+def test_an_origin_off_the_model_is_a_datum_not_its_footing(tmp_path):
+    """#2071: geometry reaching below its origin is the guard's witness only
+    where the origin stands in the model's plan.  A hangar authored 150 m
+    from a shared-datum origin, its slab 0.31 m under that datum, is read
+    like any converted row (lift +0.31, not ``origin_built``) so the
+    partition finds its feet — the on-ground conversion hung it at the
+    datum's ground.  The same slab around its origin stays guarded."""
+    far = _boxes(tmp_path, "hangar_far.obj", [(150.0, -0.31, 190.0, 7.3)])
+    near = _boxes(tmp_path, "hangar_near.obj", [(-20.0, -0.31, 20.0, 7.3)])
+    objs, _c = _read(tmp_path, [("f", far, (0.0, 0.0), "OBJECT_MSL"),
+                                ("n", near, (400.0, 0.0), "OBJECT_MSL")])
+    got = {o.id: (o.origin_built, o.zero_y) for o in objs}
+    assert got == {"f": (False, 0.0), "n": (True, 0.0)}
+    import numpy as np
+    v = np.array([(150.0, -0.31, 0.0), (190.0, 7.3, 2.0)])
+    assert not MF.built_around_origin(v, 0.3)
+    assert MF.built_around_origin(v - (160.0, 0.0, 1.0), 0.3)
+    assert not MF.built_around_origin(v - (160.0, -0.2, 1.0), 0.3)
+
+
 def test_an_upper_storey_file_is_not_a_foot_of_its_set(tmp_path):
     """#1639: a rigid set's feet are its LOWEST members' — a roof split
     into its own file stands on the walls; reading its underside as a foot

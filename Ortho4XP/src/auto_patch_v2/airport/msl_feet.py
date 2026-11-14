@@ -29,7 +29,12 @@ THE RULE'S LIMITS, each a witness in the geometry, none an airport:
   on-ground conversion, and so does every row of its set: the author
   built that model around its origin (a skirt, a footing, a hillside
   building, a light mast's pole), and raising it onto its lowest vertex
-  would float everything above the buried part.
+  would float everything above the buried part.  The witness holds only
+  where the origin stands IN the model's plan (#2071): an origin authored
+  as a shared datum metres away from the geometry (a hangar 191 m
+  off, on ground 5.5 m higher) says nothing about the ground under the
+  model, and the on-ground conversion would hang it at the datum's
+  ground — such a row is read like any other converted row.
 * A set at a footprint unit's pad (the surface at its origin IS the
   unit's datum) or in a DECK unit is the unit's to seat.
 * No graded face under its feet: the rows stay converted, X-Plane drapes
@@ -49,7 +54,8 @@ import numpy as np
 
 from ..model.placement import KIND_MSL
 
-__all__ = ["static_vertices", "lowest_feet", "origin_set_lifts", "origin_key",
+__all__ = ["static_vertices", "lowest_feet", "origin_set_lifts", "built_around_origin",
+           "origin_key",
            "origin_of_row", "feet_seats", "lifted_feet_seats", "LIFTED_FEET"]
 
 Surface = _t.Callable[[float, float], "float | None"]
@@ -101,13 +107,27 @@ def origin_set_lifts(items: _t.Iterable[tuple[str, tuple, _t.Any]],
     sets: dict[tuple, list] = {}
     for oid, key, g in items:
         v = static_vertices(g) if g is not None else None
-        sets.setdefault(key, []).append((oid, None if v is None else float(v[:, 1].min())))
+        sets.setdefault(key, []).append(
+            (oid, None if v is None else float(v[:, 1].min()),
+             v is not None and built_around_origin(v, tol_m)))
     out: dict[str, "float | None"] = {}
     for members in sets.values():
-        guarded = any(y is None or y < -tol_m for _i, y in members)
-        for oid, y in members:
+        guarded = any(y is None or below for _i, y, below in members)
+        for oid, y, _b in members:
             out[oid] = None if guarded else -_t.cast(float, y)
     return out
+
+
+def built_around_origin(v: np.ndarray, tol_m: float) -> bool:
+    """THE GUARD'S WITNESS (owner Q54; #2071): static vertices ``v`` (OBJ8
+    ``x, y, z``) reach more than ``tol_m`` below the origin AND the origin
+    stands in their plan (their ``x``/``z`` box grown by ``tol_m``).  An
+    origin outside the plan is a datum, not the model's footing."""
+    if float(v[:, 1].min()) >= -tol_m:
+        return False
+    x, z = v[:, 0], v[:, 2]
+    return bool(float(x.min()) - tol_m <= 0.0 <= float(x.max()) + tol_m
+                and float(z.min()) - tol_m <= 0.0 <= float(z.max()) + tol_m)
 
 
 def origin_key(xy: _t.Sequence[float], heading_deg: float) -> tuple:

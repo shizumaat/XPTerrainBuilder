@@ -76,10 +76,6 @@ class _Overpass:
     top_y: float
 
 
-def _key(p) -> XY:
-    return (round(float(p[0]), 3), round(float(p[1]), 3))
-
-
 def _own_route(piece, ways, step: float) -> set[int]:
     """The way ids that are the deck piece's OWN route (#2035): the mapped
     highway chains under ``piece`` (``step`` of slack) that hold a mapped
@@ -89,42 +85,19 @@ def _own_route(piece, ways, step: float) -> set[int]:
     none).  A chain joins ways END TO END: at a bridge's end node (every
     way there stands at the bridge's level), or at a node where exactly two
     ways meet (the way merely split there); a junction of roads at grade
-    ends it.  A road beneath meets no carried way and crosses side to
-    side."""
-    from ..airport.deck_carry import _edges
+    ends it (the join is ``airport/deck_carry.route_chains``).  A road
+    beneath meets no carried way and crosses side to side."""
+    from ..airport.deck_carry import _edges, route_chains
     from .structure_approach import is_bridge
     reach = piece.buffer(step)
     near = [w for w in ways if "highway" in (w.tags or {}) and len(w.points) >= 2
             and LineString(w.points).intersects(reach)]
-    at: dict[XY, set[int]] = {}
-    for k, w in enumerate(near):
-        for p in w.points:
-            at.setdefault(_key(p), set()).add(k)
-    root = list(range(len(near)))
-
-    def find(k: int) -> int:
-        while root[k] != k:
-            root[k] = root[root[k]]
-            k = root[k]
-        return k
-    for k, w in enumerate(near):
-        for p in (w.points[0], w.points[-1]):
-            ks = at[_key(p)]
-            if not reach.contains(Point(p)) or len(ks) < 2:
-                continue
-            ends = [j for j in ks if _key(near[j].points[0]) == _key(p)
-                    or _key(near[j].points[-1]) == _key(p)]
-            if len(ks) == 2 and len(ends) == 2 or any(is_bridge(near[j]) for j in ends):
-                for j in ends:
-                    root[find(j)] = find(k)
-    chains: dict[int, list[int]] = {}
-    for k in range(len(near)):
-        chains.setdefault(find(k), []).append(k)
+    chains = route_chains(near, reach)
     got = _edges(piece)
     ends_ab = None if got is None or got[4] - got[5] <= 2.0 * step else \
         (LineString(got[0]), LineString(got[1]))
     own: set[int] = set()
-    for ks in chains.values():
+    for ks in chains:
         lines = [LineString(near[k].points) for k in ks]
         if any(is_bridge(near[k]) for k in ks) and len(ks) > 1 \
                 or ends_ab is not None and all(any(ln.intersects(e) for ln in lines)

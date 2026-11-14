@@ -36,7 +36,7 @@ from shapely.ops import substring
 from ..geom.lowest_face import floor_z_at
 from ..model.frame import rotated_rectangle
 
-__all__ = ["Carry", "carry_of", "bridge_stretches", "DECK_TAG"]
+__all__ = ["Carry", "carry_of", "bridge_stretches", "route_chains", "DECK_TAG"]
 
 XY = tuple[float, float]
 
@@ -149,6 +149,48 @@ def carry_of(piece: Polygon, plate: np.ndarray, routes: _t.Sequence[tuple[_t.Any
             notes.append(f"way {w.id} runs through one end and one side: unclassified")
     return Carry(ea, eb, sa, sb, out_a, out_b, top_a, top_b,
                  tuple(sorted(set(carried))), tuple(sorted(set(across))), tuple(notes))
+
+
+def _node(p) -> XY:
+    """A way node's join key (millimetres)."""
+    return (round(float(p[0]), 3), round(float(p[1]), 3))
+
+
+def route_chains(ways: _t.Sequence, reach: Polygon) -> list[tuple[int, ...]]:
+    """THE CHAIN JOIN (#2035; ``planar/overpass_deck._own_route`` and
+    ``airport/bridge_witness`` read it): ``ways`` (each with ``points`` and
+    ``tags``) joined END TO END into chains, as index tuples into ``ways``.
+    Two ways join at an end node inside ``reach`` — at a mapped bridge's
+    end node (every way ending there stands at the bridge's level), or
+    where exactly two ways meet and both end (the way merely split there);
+    a junction of roads at grade ends a chain."""
+    from .deck_signature import is_bridge_way
+    at: dict[XY, set[int]] = {}
+    for k, w in enumerate(ways):
+        for p in w.points:
+            at.setdefault(_node(p), set()).add(k)
+    root = list(range(len(ways)))
+
+    def find(k: int) -> int:
+        while root[k] != k:
+            root[k] = root[root[k]]
+            k = root[k]
+        return k
+    for k, w in enumerate(ways):
+        for p in (w.points[0], w.points[-1]):
+            ks = at[_node(p)]
+            if not reach.contains(Point(p)) or len(ks) < 2:
+                continue
+            ends = [j for j in ks if _node(ways[j].points[0]) == _node(p)
+                    or _node(ways[j].points[-1]) == _node(p)]
+            if len(ks) == 2 and len(ends) == 2 or any(is_bridge_way(ways[j].tags or {})
+                                                      for j in ends):
+                for j in ends:
+                    root[find(j)] = find(k)
+    chains: dict[int, list[int]] = {}
+    for k in range(len(ways)):
+        chains.setdefault(find(k), []).append(k)
+    return [tuple(ks) for ks in chains.values()]
 
 
 def _span(line: LineString, region: Polygon) -> "tuple[float, float] | None":

@@ -16,7 +16,10 @@ S1 / S2 / S4): the thin ``planar`` caller of the positive witness
   holding a pack object cut (10-26d), a frame of a hard-deck bridge
   (``PlanarMap.decks``, class A) — and a frame with a body beside a
   building is refused (22n, ``deck_bridge._beside_a_building``, W6's
-  building half, which reads the classification).  ``planar/overpass_deck``
+  building half, which reads the classification): ONE test per bridge
+  against the UNION of the rings of every free deck of its frame (A2).
+  R3 mints free stacks from ``PlanarMap.free_bridges`` (admitted), never
+  ``Airport.free_bridges``.  ``planar/overpass_deck``
   then takes the kept decks as ``taken`` (S4).
 * PUBLICATION (``model/free_bridge.published``): each kept deck's route
   ends in ``(lat, lon)`` for the rebake plan (``pipeline/rebake_inputs``).
@@ -32,6 +35,7 @@ import typing as _t
 
 import numpy as np
 from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 from ..airport import bridge_frame as _bf
 from ..airport import bridge_witness as _bw
@@ -223,6 +227,12 @@ def admitted(bridges: _t.Sequence[FreeBridge], objects, classification, airport,
     hard = {str(m) for db in decks or () for m in (*db.members, db.object_id)}
     cut = {str(o) for o in cut_objects or ()}
     by_id = {str(o.id): o for o in objects or ()}
+    # 22n reads the UNION of every free deck's ring of a frame (A2): in a
+    # bridge of several decks each deck's bodies stand "outside" the others
+    frame_rings: dict[frozenset, list] = {}
+    for fb in bridges:
+        frame_rings.setdefault(frozenset(fb.members), []).extend(
+            Polygon(d.ring) for d in fb.decks)
     out, notes = [], []
     for fb in bridges:
         mem = set(fb.members)
@@ -233,7 +243,8 @@ def admitted(bridges: _t.Sequence[FreeBridge], objects, classification, airport,
             why = "its frame is a hard-deck bridge's (class A): airside_hard_deck"
         elif roles is not None:
             frame = [by_id[m] for m in fb.members if m in by_id]
-            if any(_beside_a_building(frame, Polygon(d.ring), roles) for d in fb.decks):
+            if _beside_a_building(frame, unary_union(frame_rings[frozenset(fb.members)]),
+                                  roles):
                 why = "W6 free frame: a body stands beside a building (22n): attached_bridge"
         if why:
             notes.append(f"{fb.id}: not a free bridge -- {why}")

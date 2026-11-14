@@ -22,9 +22,13 @@ one metric frame (x, y, authored y); the DEM only in W5:
 * W4 OPEN SKY: no frame solid within ``clearance_minimum_m`` over that layer
   (above its own plane, ``deck_plane_bin_m``) on more than
   :data:`ROOF_SHARE` of the stations — a roof, a canopy, a hall, a floor.
-* W5 SPAN: between the ends the plate stands over a crossing way of another
-  chain, over water, or over ground ``deck_min_clearance_under_m`` under the
-  chord between the end grounds.
+* W5 SPAN (A2): an OR of positive witnesses — between the ends the plate
+  stands over a crossing way of another chain, over water, over a HUMP (an
+  interior station of the driven layer ``deck_min_clearance_under_m`` above
+  BOTH end tops: a road that climbs over something and comes down again), or
+  over ground that much under the chord between the end grounds (the
+  caller's DEM — the production one in a build).  Level ground refuses
+  nothing by itself and witnesses nothing.
 * W6 FREE FRAME (:func:`_free_frame`, A1): every other body of the frame is
   the bridge's OWN — :data:`_INSIDE_SHARE` of its plan vertices within REACH
   (``[bridge] free_frame_reach_min_m``, ``free_frame_reach_share`` x the
@@ -92,6 +96,8 @@ _MAX_PATHS = 64
 _RUN_ON_CAP = 120.0
 #: W7: a plate end lies on a feed way within this
 _ON_WAY = 0.5
+#: A2 END LINE: the lateral spacing of its stations (m)
+_LINE_STEP = 0.5
 
 
 @_dc.dataclass(frozen=True)
@@ -116,7 +122,8 @@ class Route:
 @_dc.dataclass(frozen=True)
 class End:
     """One end of a deck (A1 W7): the point, the outward unit tangent, the
-    END LINE (the plate outline within half the deck's width of the point),
+    END LINE (A2, :func:`_end_line`: the plate outline outermost along the
+    tangent across the deck's width),
     the top (the W3 layer there), the run-on (``nan`` = not read) and
     whether it is a LAND end (else a joint)."""
 
@@ -409,10 +416,23 @@ def open_sky(frame_faces: np.ndarray, stations: _t.Sequence[XY],
 
 # ── W5: the span ────────────────────────────────────────────────────────
 
+def _hump(layer: _t.Sequence[float]) -> float:
+    """W5 (c) HUMP (A2): how far the highest interior station of the driven
+    ``layer`` stands above the HIGHER of its two end tops (``nan`` when
+    unread) — pack geometry only."""
+    z = np.asarray(layer, float)
+    if len(z) < 3 or not (np.isfinite(z[0]) and np.isfinite(z[-1])):
+        return math.nan
+    mid = z[1:-1][np.isfinite(z[1:-1])]
+    return float(mid.max() - max(z[0], z[-1])) if mid.size else math.nan
+
+
 def span_of(route: Route, stations: _t.Sequence[XY], ways: _t.Sequence, law,
-            ground: "_t.Callable | None" = None, water=()) -> str:
-    """W5: what the plate spans between its ends — ``way <id>``, ``water``,
-    ``ground <m>`` — or ``""``.  ``ground(xs, ys)`` is the pre-solve DEM."""
+            ground: "_t.Callable | None" = None, water=(),
+            layer: _t.Sequence[float] = ()) -> str:
+    """W5 (A2): what the plate spans between its ends — ``way <id>``,
+    ``water``, ``hump <m>`` (the driven ``layer``), ``ground <m>`` — or
+    ``""``.  ``ground(xs, ys)`` is the pre-solve DEM."""
     mid = substring(route.path, route.s_a + _HAIR, route.s_b - _HAIR)
     mine = set(route.ways)
     for w in ways:
@@ -425,6 +445,10 @@ def span_of(route: Route, stations: _t.Sequence[XY], ways: _t.Sequence, law,
     for wp in water or ():
         if wp.intersects(mid):
             return "water"
+    bar = float(law.tables.structures.bridge.deck_min_clearance_under_m)
+    hump = _hump(layer)
+    if math.isfinite(hump) and hump + 1e-9 >= bar:
+        return f"hump {hump:.1f} m"
     if ground is None or len(stations) < 3:
         return ""
     g = np.asarray(ground(np.array([p[0] for p in stations]),
@@ -433,7 +457,6 @@ def span_of(route: Route, stations: _t.Sequence[XY], ways: _t.Sequence, law,
         return ""
     under = g[0] + (g[-1] - g[0]) * np.linspace(0.0, 1.0, len(g)) - g
     depth = float(np.nanmax(under[1:-1]))
-    bar = float(law.tables.structures.bridge.deck_min_clearance_under_m)
     return f"ground {depth:.1f} m" if depth >= bar else ""
 
 
@@ -464,10 +487,10 @@ def deck_witness(ring: Polygon, plate_up: np.ndarray, frame_faces: np.ndarray,
         return Witness(r, st, layer, share, roof, width_m=width,
                        failed=f"W4 open sky: a solid within "
                        f"{float(br.clearance_minimum_m):.1f} m over {roof:.0%} of the stations")
-    sp = span_of(r, st, ways, law, ground, water)
+    sp = span_of(r, st, ways, law, ground, water, layer)
     if not sp:
         return Witness(r, st, layer, share, roof, width_m=width,
-                       failed="W5 span: no crossing way, water or ground "
+                       failed="W5 span: no crossing way, water, hump or ground "
                        f"{float(br.deck_min_clearance_under_m):.1f} m under the end chord")
     return Witness(r, st, layer, share, roof, sp, width_m=width)
 
@@ -541,19 +564,54 @@ def beneath(faces: np.ndarray, stations: _t.Sequence[XY], layer: _t.Sequence[flo
     return hit / max(len(stations), 1)
 
 
-def _end_line(ring: Polygon, p: XY, half: float) -> tuple[XY, ...]:
-    """The plate outline within ``half`` of ``p`` (A1's END LINE)."""
-    cut = ring.exterior.intersection(Point(p).buffer(max(half, _HAIR)))
-    return tuple((float(x), float(y)) for g in getattr(cut, "geoms", [cut])
-                 if not g.is_empty for x, y in g.coords)
+def _outer_s(ring: Polygon, q: XY, out: XY, half: float) -> "float | None":
+    """Along the line through ``q`` parallel to ``out``, within ``half`` of
+    ``q``: the outer end (``s`` along ``out``) of the piece of the plate
+    nearest ``q`` — the outline OUTERMOST along ``out`` of the deck the line
+    is on, never a further piece (a curled ramp's far arm); ``None`` where
+    the line misses the plate."""
+    seg = LineString([(q[0] - half * out[0], q[1] - half * out[1]),
+                      (q[0] + half * out[0], q[1] + half * out[1])])
+    cut = seg.intersection(ring)
+    best: "tuple[float, float] | None" = None
+    for g in getattr(cut, "geoms", [cut]):
+        if g.is_empty:
+            continue
+        ss = [(x - q[0]) * out[0] + (y - q[1]) * out[1] for x, y in g.coords]
+        lo, hi = min(ss), max(ss)
+        gap = max(lo, 0.0, -hi)
+        if best is None or gap < best[0]:
+            best = (gap, hi)
+    return None if best is None else best[1]
+
+
+def _end_line(ring: Polygon, p: XY, out: XY, width: float) -> tuple[XY, ...]:
+    """A2 END LINE at the route end ``p`` (outward unit tangent ``out``, deck
+    width ``width``): inside the square of side ``width`` centred on ``p``
+    and aligned with the route, for each lateral offset (every
+    :data:`_LINE_STEP`, both edges included) the point of the plate outline
+    outermost along ``out`` (:func:`_outer_s`).  It follows a skew end edge,
+    never turns down a side and never catches a curved ramp's far arm.
+    Stations run in lateral order; ``(p,)`` when no offset reads the plate."""
+    half = 0.5 * max(width, 2.0 * _HAIR)
+    nx, ny = -out[1], out[0]
+    n = max(2, int(math.ceil(2.0 * half / _LINE_STEP)))
+    pts: list[XY] = []
+    for k in range(n + 1):
+        t = -half + 2.0 * half * k / n
+        q = (p[0] + t * nx, p[1] + t * ny)
+        s = _outer_s(ring, q, out, half)
+        if s is not None:
+            pts.append((float(q[0] + s * out[0]), float(q[1] + s * out[1])))
+    return tuple(pts) or ((float(p[0]), float(p[1])),)
 
 
 def _deck_ends(ring: Polygon, w: Witness) -> tuple[End, End]:
     """A W-deck's two route ends (run-on not yet read)."""
-    r, half = w.route, 0.5 * w.width_m
+    r, width = w.route, w.width_m
     tops = (w.layer[0], w.layer[-1]) if w.layer else (math.nan, math.nan)
-    return (End(r.end_a, r.out_a, _end_line(ring, r.end_a, half), float(tops[0])),
-            End(r.end_b, r.out_b, _end_line(ring, r.end_b, half), float(tops[1])))
+    return (End(r.end_a, r.out_a, _end_line(ring, r.end_a, r.out_a, width), float(tops[0])),
+            End(r.end_b, r.out_b, _end_line(ring, r.end_b, r.out_b, width), float(tops[1])))
 
 
 def _stub_ends(ring: Polygon, w: Witness, group: Polygon) -> tuple[End, ...]:
@@ -563,13 +621,13 @@ def _stub_ends(ring: Polygon, w: Witness, group: Polygon) -> tuple[End, ...]:
     if line is None or line.length <= 0.0:
         return ()
     a, b = line.coords[0], line.coords[-1]
-    half = 0.5 * ring.area / line.length
+    width = ring.area / line.length
     ta = _tangent(line, 0.0, -1.0)
     tb = _tangent(line, line.length, 1.0)
     za, zb = (w.layer[0], w.layer[-1]) if w.layer else (math.nan, math.nan)
     a_joint = Point(a).distance(group) <= Point(b).distance(group)
-    return (End(a, ta, _end_line(ring, a, half), float(za), land=not a_joint),
-            End(b, tb, _end_line(ring, b, half), float(zb), land=a_joint))
+    return (End(a, ta, _end_line(ring, a, ta, width), float(za), land=not a_joint),
+            End(b, tb, _end_line(ring, b, tb, width), float(zb), land=a_joint))
 
 
 def _ends_hold(oid: str, decks, w: Witness, group: list[str], ways, law

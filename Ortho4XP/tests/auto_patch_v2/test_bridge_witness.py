@@ -334,3 +334,74 @@ def test_w4b_reads_an_object_by_its_faces_not_its_origin():
     assert len(got) == 1 and np.allclose(got[0, :, 2], 5.0)
     assert U.unshifted == {"unit:0"}
     assert len(U.for_unit("unit:0")((0.0, 0.0, 5.0, 5.0))) == 0
+
+
+# ── A2: W5 HUMP and the END LINE ───────────────────────────────────────
+
+def _level(xs, ys):
+    """Level ground (a flat-site substitution reads like this)."""
+    return np.zeros(len(np.asarray(xs)))
+
+
+def _profile(z):
+    return _strip(LineString([(-30.0, 0.0), (30.0, 0.0)]), 6.0, z)
+
+
+def test_w5_a_humped_ramp_on_level_ground_holds_with_and_without_ground():
+    up = _profile(lambda s: 2.0 + 2.5 * (1.0 - abs(s - 30.0) / 30.0))
+    for ground in (_level, None):
+        w = BW.deck_witness(DECK, up, up, WAYS, LAW, ground=ground)
+        assert w.failed == "" and w.span.startswith("hump"), (w.failed, w.span)
+
+
+def test_w5_a_level_deck_and_a_monotonic_ramp_on_level_ground_fail():
+    for up in (_slab(DECK, 6.0), _profile(lambda s: 1.0 + 0.1 * s)):
+        w = BW.deck_witness(DECK, up, up, WAYS, LAW, ground=_level)
+        assert w.failed.startswith("W5"), (w.failed, w.span)
+
+
+def test_w5_no_deck_that_held_loses_it():
+    """The hump is one more OR: a way, water or ground still hold first."""
+    up = _slab(DECK, 6.0)
+    assert BW.deck_witness(DECK, up, up, WAYS, LAW, ground=_ground).span.startswith("ground")
+    ways = WAYS + [_way(9, [(0.0, -40.0), (0.0, 40.0)], highway="service")]
+    assert BW.deck_witness(DECK, up, up, ways, LAW, ground=_level).span == "way 9"
+    water = [_box(-5.0, -20.0, 5.0, 20.0)]
+    assert BW.deck_witness(DECK, up, up, WAYS, LAW, ground=_level, water=water).span == "water"
+
+
+def _skew_plate(deg: float) -> Polygon:
+    """A 60 x 12 m deck along x whose east end edge is skewed ``deg``."""
+    t = math.tan(math.radians(deg))
+    return Polygon([(-30.0, -6.0), (30.0 - 6.0 * t, -6.0), (30.0 + 6.0 * t, 6.0),
+                    (-30.0, 6.0)])
+
+
+def test_end_line_follows_a_skew_end_edge_off_centre():
+    """A2: a 20 deg skew end, the route crossing 3 m off centre: every
+    end-line station on the end edge, every chord sample outside the ring."""
+    from auto_patch_v2.model.free_bridge import FreeEnd
+    from auto_patch_v2.model.free_bridge import _end_ground as end_ground
+    plate = _skew_plate(20.0)
+    t = math.tan(math.radians(20.0))
+    p = (30.0 + 3.0 * t, 3.0)
+    line = BW._end_line(plate, p, (1.0, 0.0), 12.0)
+    edge = LineString([(30.0 - 6.0 * t, -6.0), (30.0 + 6.0 * t, 6.0)])
+    assert len(line) >= 10
+    assert all(edge.distance(Point(q)) <= 0.05 for q in line), line
+    a, b = end_ground(FreeEnd(line, 6.0, (1.0, 0.0), True), 1.5)
+    chord = LineString([a, b])
+    for k in range(11):
+        q = chord.interpolate(chord.length * k / 10)
+        assert not plate.contains(q) and plate.exterior.distance(q) > 0.5, (q, k)
+
+
+def test_end_line_of_a_ring_that_curls_back_has_no_far_arm_station():
+    """A ramp whose ring curls back past its end: the far arm, 2 m beyond
+    the end edge inside the square, contributes nothing."""
+    near = _box(-30.0, -6.0, 30.0, 6.0)
+    arm = _box(32.0, -40.0, 44.0, 6.0)
+    link = _box(-30.0, -40.0, 44.0, -28.0)
+    plate = near.union(arm).union(link)
+    line = BW._end_line(plate, (30.0, 0.0), (1.0, 0.0), 12.0)
+    assert line and all(abs(q[0] - 30.0) <= 0.05 for q in line), line

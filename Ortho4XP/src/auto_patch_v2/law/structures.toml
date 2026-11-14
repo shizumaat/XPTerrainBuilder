@@ -644,6 +644,12 @@ free_end_run_on_max_m  = 20.0
 # OTHH TerminalRoads_01 1.00; every other W-deck <= 0.33 (KTUL 0.33, CZNL 0.31).
 roof_under_min_m       = 2.5
 roof_under_max_m       = 12.0
+# #2065 A2 END GROUND (S3): a free deck's published end chord lies this far
+# OUTSIDE its END LINE along the route's outward tangent, where the drawn bar
+# reads (``tools/drawn_site.OUTSIDE_M``), inside R3's slab.  F4 (B04): the old
+# secant chord lay 3.9 / 4.1 m INSIDE the plate and read the carried road under
+# the deck (3.54) where the ground outside the ends is 3.65-3.70 / 3.78-3.83.
+free_end_ground_out_m  = 1.5
 
 [building_pad]
 weld_to_touching_pavement = true   # contact = value (09-01g)

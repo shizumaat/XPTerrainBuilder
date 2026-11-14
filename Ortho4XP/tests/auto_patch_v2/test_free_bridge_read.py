@@ -12,6 +12,7 @@ from auto_patch_v2.airport.rebake_plan import with_free
 from auto_patch_v2.model.free_bridge import FREE_PLATE, published
 from auto_patch_v2.model.rebake import PLAN_VERSION, Member, RebakePlan, Unit
 from auto_patch_v2.planar import free_bridge as FBR
+from shapely.geometry import Polygon
 from shapely.geometry import box as _box
 from tests.auto_patch_v2.test_overpass_deck1692 import FRAME, LAW, THICK
 
@@ -104,21 +105,69 @@ def _member(**kw):
 def test_the_plan_member_carries_the_route_ends(tmp_path):
     airport, objs, cache = _pack(tmp_path, 0.5)
     got, _n = FBR._read_free_bridges(airport, objs, cache, LAW)
-    rec = published(got, FRAME.transformers()[1])["dsf:obj1"]
+    rec = published(got, FRAME.transformers()[1], 1.5)["dsf:obj1"]
     assert rec["bridge"] == got[0].id and rec["land"] == [True, True] and len(rec["ends"]) == 2
     counts: dict = {}
     m = with_free(_member(), rec, 5.0, counts)
     assert m.plate_kind == FREE_PLATE and m.free_bridge == got[0].id
     assert m.deck_end_tops == (6.0, 6.0) and m.deck_end_land == (True, True)
     assert len(m.deck_ends) == 2 and len(m.deck_end_stations) >= 6
-    # a plated deck keeps its plate's reader; a deck over a graded face is held
+    # a plated deck keeps its plate's reader; a free member over a graded
+    # face is published, its datum cleared and noted (A2)
     assert with_free(_member(plate_kind="split_level"), rec, 5.0, counts).plate_kind \
         == "split_level"
-    assert with_free(_member(deck_datum_z=12.0), rec, 5.0, counts).plate_kind == ""
-    assert counts == {"free_deck_members": 1, "free_deck_plated": 1,
-                      "free_deck_held_datum": 1}
+    g = with_free(_member(deck_datum_z=12.0), rec, 5.0, counts)
+    assert g.plate_kind == FREE_PLATE and g.deck_datum_z is None
+    assert any("12.00" in e for e in g.deck_evidence)
+    assert counts == {"free_deck_members": 2, "free_deck_plated": 1,
+                      "free_deck_over_graded_face": 1}
     # the plan round-trips the fields at its version
     plan = RebakePlan("ZZZZ", "pack", "/p", (Unit("unit:0", (36.0, -86.0), 0.0, (m,)),),
                       (), {})
     back = RebakePlan.from_json(plan.to_json())
     assert back.units[0].members[0] == m and PLAN_VERSION == 14
+
+
+def test_the_published_end_chord_lies_outside_the_plate(tmp_path):
+    """A2 END GROUND: the chord is the end line's first and last stations
+    moved ``free_end_ground_out_m`` along the outward tangent."""
+    airport, objs, cache = _pack(tmp_path, 0.5)
+    got, _n = FBR._read_free_bridges(airport, objs, cache, LAW)
+    to_ll = FRAME.transformers()[1]
+    out = float(LAW.tables.structures.bridge.free_end_ground_out_m)
+    rec = published(got, to_ll, out)["dsf:obj1"]
+    for e, chord in zip(got[0].decks[0].ends, rec["ends"], strict=True):
+        assert {round(abs(p[0]), 2) for p in (e.stations[0], e.stations[-1])} == {30.0}
+        assert {round(abs(p[1]), 2) for p in (e.stations[0], e.stations[-1])} == {6.0}
+        x = 30.0 + out if e.out[0] > 0 else -30.0 - out
+        want = sorted(round(v, 7) for q in ((x, -6.0), (x, 6.0)) for v in to_ll(*q))
+        assert sorted(round(v, 7) for q in chord for v in q) == want
+
+
+def _two_deck_bridge(tmp_path):
+    """Two free decks of ONE frame (one bridge) and a lamp standing on deck
+    B; deck A's own ring does not hold the lamp."""
+    from auto_patch_v2.model.free_bridge import FreeBridge, FreeDeck
+    a = FreeDeck("dsf:a", ((-30.0, -6.0), (0.0, -6.0), (0.0, 6.0), (-30.0, 6.0)), (2,), ())
+    b = FreeDeck("dsf:b", ((0.0, -6.0), (30.0, -6.0), (30.0, 6.0), (0.0, 6.0)), (2,), ())
+    fb = FreeBridge("free:dsf:a", ("dsf:a", "dsf:b", "dsf:lamp"), (a, b))
+    lamp = types.SimpleNamespace(id="dsf:lamp", plan_bbox=_box(10.0, 1.0, 11.0, 2.0))
+    deck = [types.SimpleNamespace(id=d.object_id, plan_bbox=_box(*Polygon(d.ring).bounds))
+            for d in (a, b)]
+    return fb, deck + [lamp]
+
+
+class _Roles:
+    """Every cell under the lamp reads ``building`` (22n's witness)."""
+
+    def at_xy(self, xy):
+        return "building" if 9.0 < xy[0] < 12.0 else "apron"
+
+
+def test_22n_reads_the_union_of_the_frames_free_decks(tmp_path, monkeypatch):
+    """A2: a lamp on deck B of a two-deck bridge is inside the bridge."""
+    from auto_patch_v2.planar import deck_bridge as DB
+    fb, objs = _two_deck_bridge(tmp_path)
+    monkeypatch.setattr(DB, "CellRoles", lambda _c, _a: _Roles())
+    kept, notes = FBR.admitted((fb,), objs, object(), None)
+    assert kept == (fb,), notes

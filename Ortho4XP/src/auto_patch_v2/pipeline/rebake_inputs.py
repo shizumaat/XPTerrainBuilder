@@ -359,7 +359,8 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     from ..model.free_bridge import published as _free_published
     return {
         "free_decks": _free_published(getattr(pm, "free_bridges", ()) or (),
-                                      airport.frame.transformers()[1]),
+                                      airport.frame.transformers()[1],
+                                      float(law.tables.structures.bridge.free_end_ground_out_m)),
         "tunnel_objects": _plate_seats(pm, law, seats),
         "authored_seats": (tuple(seats[k] for k in sorted(seats))
                            + tuple(_ts.seat_records(airport))

@@ -610,7 +610,8 @@ def _bridge_witness(plan_path: str, plan_, law):
         free = [o for o, c in k["class"].items() if c == "free_bridge"]
         if free:
             recs.update(published(bridges_of(k["rings"], k["witness"], free, k["members"],
-                                             touch), k["to_ll"]))
+                                             touch), k["to_ll"],
+                                   float(law.tables.structures.bridge.free_end_ground_out_m)))
     counts: dict = {}
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     units = []

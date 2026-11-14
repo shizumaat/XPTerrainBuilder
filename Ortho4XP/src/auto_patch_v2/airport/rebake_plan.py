@@ -423,21 +423,32 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
 def with_free(m: Member, rec: _t.Mapping[str, _t.Any], step_m: float,
               counts: dict[str, int]) -> Member:
     """``m`` published as its FREE BRIDGE's deck (:func:`_free_fields`) — or
-    unchanged, counted: a deck carrying an edge / walled / split-level plate
-    is its plate reader's (A1 class order, ``plated_deck``), and a deck over
-    a graded face (``deck_datum_z``) is HELD on today's path (A1-E1 E1: its
-    ``deck_datum_z`` readers — ``airside_deck_seat``, ``footprint_unit``,
-    ``placement_family``, ``anchor_rule`` — are not ruled for a free deck)."""
+    unchanged, counted, when it carries an edge / walled / split-level plate
+    (its plate reader's: A1 class order, ``plated_deck``).
+
+    ``plate_kind == "free"`` IS the class decision (#2065 A2): a free deck
+    is published whatever its datum, and THIS is the one site that clears
+    its ``deck_datum_z`` (RULINGS 2026-08-30l) — a graded face's median
+    under the ring is one approach-road vertex, not a free deck's seat.  A
+    cleared value is counted ``free_deck_over_graded_face`` and kept in the
+    member's ``deck_evidence``.  Its readers, ruled: ``anchor_rule.datum_of``
+    reads None; ``airside_deck_seat`` takes no class-A frame and keeps the
+    deck its own datum; ``placement_family.member_is_bridge_deck`` holds it
+    out of the wall chain."""
     if m.deck_ring is None:
         return m
     if m.plate_kind:
         counts["free_deck_plated"] = counts.get("free_deck_plated", 0) + 1
         return m
-    if m.deck_datum_z is not None:
-        counts["free_deck_held_datum"] = counts.get("free_deck_held_datum", 0) + 1
-        return m
     counts["free_deck_members"] = counts.get("free_deck_members", 0) + 1
-    return _dc.replace(m, **_free_fields(rec, step_m))
+    extra: dict[str, _t.Any] = {}
+    if m.deck_datum_z is not None:
+        counts["free_deck_over_graded_face"] = counts.get("free_deck_over_graded_face", 0) + 1
+        extra = {"deck_datum_z": None,
+                 "deck_evidence": (*m.deck_evidence,
+                                   f"free deck over a graded face {float(m.deck_datum_z):.2f} "
+                                   "(datum cleared, #2065 A2)")}
+    return _dc.replace(m, **_free_fields(rec, step_m), **extra)
 
 
 def _free_fields(rec: _t.Mapping[str, _t.Any], step_m: float) -> dict[str, _t.Any]:

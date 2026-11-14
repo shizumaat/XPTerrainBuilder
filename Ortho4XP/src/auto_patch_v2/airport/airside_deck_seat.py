@@ -33,6 +33,7 @@ import math
 import os
 import typing as _t
 
+from ..model.free_bridge import FREE_PLATE
 from . import anchor_rule as _ar
 from .bridge_approach import _median
 
@@ -42,10 +43,17 @@ __all__ = ["deck_owns_its_datum", "airside_zero", "airside_frame",
 
 
 def deck_owns_its_datum(m: _t.Any) -> bool:
-    """A FLAG deck (``ATTR_hard_deck``) or one over an emitted deck face
-    (``deck_datum_z``): its seat is §16e's / §49's, never a unit's."""
+    """A FLAG deck (``ATTR_hard_deck``), one over an emitted deck face
+    (``deck_datum_z``) or a FREE bridge's deck (#2065 A2: a signature free
+    deck never rides a unit): its seat is its own, never a unit's."""
     return (str(getattr(m, "deck_kind", "") or "") == "flag"
-            or getattr(m, "deck_datum_z", None) is not None)
+            or getattr(m, "deck_datum_z", None) is not None or _free(m))
+
+
+def _free(m: _t.Any) -> bool:
+    """A deck the rebake plan published as a FREE bridge's (#2065 A2): the
+    planar stage took class A's frames (``_Airside.meets``, ``admitted``)."""
+    return str(getattr(m, "plate_kind", "") or "") == FREE_PLATE
 
 
 _SIDE: dict[str, bool] = {}
@@ -337,7 +345,10 @@ def _airside_witness(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface
     """22n's witness that a pack deck stands over AIRSIDE: ``(ring, top,
     face, z_face)`` — a flag / signature deck whose ring stands on an
     emitted deck face, or over an airside role with the plan's solved
-    ``deck_datum_z`` — else ``None``."""
+    ``deck_datum_z`` — else ``None``.  A FREE bridge's deck is never class
+    A (#2065 A2)."""
+    if _free(m):
+        return None
     top = getattr(m, "deck_top_y", None)
     ring = tuple(getattr(m, "deck_ring", None) or ())
     if (top is None or len(ring) < 3

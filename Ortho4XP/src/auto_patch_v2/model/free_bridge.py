@@ -18,7 +18,6 @@ placement's zero.
 from __future__ import annotations
 
 import dataclasses as _dc
-import math
 import typing as _t
 
 from .frame import XY
@@ -33,8 +32,9 @@ FREE_PREFIX = "free:"
 
 @_dc.dataclass(frozen=True)
 class FreeEnd:
-    """One route end of a free deck: its END LINE (the plate outline within
-    half the deck's width of the crossing) as stations, the driven layer's
+    """One route end of a free deck: its END LINE (A2: across the deck's
+    width, the plate outline outermost along the route's outward tangent) as
+    stations, the driven layer's
     top there, the route's outward tangent, and whether it meets LAND (W7:
     the mapped bridge stops within ``free_end_run_on_max_m``) or is a JOINT
     (the structure carries on, or a stub's end abutting its group)."""
@@ -72,19 +72,21 @@ class FreeBridge:
         return tuple(d.object_id for d in self.decks)
 
 
-def _chord(stations: _t.Sequence[tuple[float, float]]) -> tuple:
-    """An end line's two extreme stations (the chord the seat samples)."""
-    if len(stations) < 2:
-        return (stations[0], stations[0])
-    return max(((a, b) for i, a in enumerate(stations) for b in stations[i + 1:]),
-               key=lambda ab: math.hypot(ab[0][0] - ab[1][0], ab[0][1] - ab[1][1]))
+def _end_ground(e: FreeEnd, out_m: float) -> tuple[XY, XY]:
+    """A2 END GROUND (S3): the chord the seat reads at end ``e`` — the first
+    and last stations of its END LINE, moved ``out_m`` along its outward
+    tangent (``[bridge] free_end_ground_out_m``: outside the plate, on the
+    ground the deck meets, never the carried road under it)."""
+    a, b = e.stations[0], e.stations[-1]
+    dx, dy = out_m * e.out[0], out_m * e.out[1]
+    return ((a[0] + dx, a[1] + dy), (b[0] + dx, b[1] + dy))
 
 
-def published(bridges: _t.Sequence[FreeBridge], to_ll) -> dict[str, dict]:
+def published(bridges: _t.Sequence[FreeBridge], to_ll, out_m: float) -> dict[str, dict]:
     """Placement id -> the rebake plan's record of each free deck (S2):
-    ``bridge`` its bridge's id, ``ends`` its two route end lines as chords
-    ``[[lat, lon], [lat, lon]]``, ``tops`` the driven layer's top at each,
-    ``land`` whether each meets land."""
+    ``bridge`` its bridge's id, ``ends`` its two END GROUND chords
+    (:func:`_end_ground`) ``[[lat, lon], [lat, lon]]``, ``tops`` the driven
+    layer's top at each, ``land`` whether each meets land."""
     out: dict[str, dict] = {}
     for fb in bridges:
         for d in fb.decks:
@@ -92,7 +94,7 @@ def published(bridges: _t.Sequence[FreeBridge], to_ll) -> dict[str, dict]:
                 continue
             out[d.object_id] = {
                 "bridge": fb.id,
-                "ends": [[[round(float(v), 9) for v in to_ll(*p)] for p in _chord(e.stations)]
+                "ends": [[[round(float(v), 9) for v in to_ll(*p)] for p in _end_ground(e, out_m)]
                          for e in d.ends],
                 "tops": [round(float(e.top), 4) for e in d.ends],
                 "land": [bool(e.land) for e in d.ends]}

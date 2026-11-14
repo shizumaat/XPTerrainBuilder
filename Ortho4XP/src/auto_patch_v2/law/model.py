@@ -563,6 +563,8 @@ class Bridge:
     #: #2065 A1 W4b: the depth window under the driven layer a pack face reads in
     roof_under_min_m: float
     roof_under_max_m: float
+    #: #2065 A2 END GROUND: the published end chord lies this far outside the end line
+    free_end_ground_out_m: float
 
 
 @_dc.dataclass(frozen=True)

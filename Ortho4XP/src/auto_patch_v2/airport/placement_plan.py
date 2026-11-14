@@ -133,7 +133,8 @@ from .open_frame_seat import (  # noqa: E402
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
     rigid_open as _rigid_open, root_zeros as _root_zeros)
 from .free_bridge_seat import (  # noqa: E402
-    free_bridge_seat as _free_bridge_seat, free_bridge_zeros as _free_bridge_zeros)
+    free_bridge_seat as _free_bridge_seat, free_bridge_zeros as _free_bridge_zeros,
+    free_member as _free_member)
 from .pad_level_group import pad_level_links as _pad_level_links  # noqa: E402
 from .adapted_riders import member_zeros as _adapted_member_zeros  # noqa: E402
 from .placement_file import (  # noqa: E402,F401
@@ -1019,12 +1020,17 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # owner RULINGS 2026-10-22c/f (#1214): an OPEN STRUCTURE's frame
         # (every member a deck or a deck candidate: a bridge, a canopy)
         # moves as ONE rigid group
-        airside = _airside_frame(staged, decks, surface, counts,
-                                 abutment_step_m, tuple(u.anchor), _cut_ids)
+        # #2065 A2: plate_kind "free" IS the class decision -- a frame
+        # holding a free deck asks neither class A nor the refused bridge;
+        # ``free_bridge_seat`` is the last writer of its bodies
+        _has_free = any(_free_member(st.m) for st in staged)
+        airside = None if _has_free else _airside_frame(
+            staged, decks, surface, counts, abutment_step_m, tuple(u.anchor), _cut_ids)
         # owner RULINGS 2026-10-27c with 10-22c/d (#1471): a BRIDGE frame
         # class A refuses (no taxiway or apron pavement across its deck)
         # still moves as one, at its deck's own zero, the deck cut first
-        bridge = None if airside is not None else _refused_bridge(staged, decks, surface)
+        bridge = (None if airside is not None or _has_free
+                  else _refused_bridge(staged, decks, surface))
         # owner RULINGS 2026-10-22m (class B): a frame that IS a free-standing
         # bridge — its deck plus the piers and rails no building shares —
         # seats each deck flush at the end nearer its ground, its bodies

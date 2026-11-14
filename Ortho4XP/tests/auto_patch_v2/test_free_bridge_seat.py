@@ -261,3 +261,49 @@ def test_an_overpass_reads_its_clearance_at_the_crossing(tmp_path):
     assert low == () and "no road overpass" in notes[0]
     (kept,), _n = _crossing(tmp_path, [_quad(-8.0, -25.0, 8.0, 25.0, 7.5)])
     assert abs(kept.top_y - 7.5) < 1e-6
+
+
+# ── A2: plate_kind "free" IS the class decision ─────────────────────────
+
+class _Airside:
+    """Every face role under the ring is an apron (airside)."""
+
+    def roles_many(self, la, lo):
+        return ["apron"] * len(la)
+
+
+def test_a_frame_with_a_second_flag_deck_carrying_a_datum_takes_the_bridge_zero():
+    """A2 (placement_plan): the free deck's zero is the frame's; a second
+    flag deck over a graded face and its bodies ride it, never their own
+    datum."""
+    pier = _member(resource="objects/piers.obj", deck_kind="", deck_top_y=None, deck_ring=None)
+    other = _member(resource="objects/ramp.obj", id="dsf:obj3", plate_kind="",
+                    deck_datum_z=3.96, free_bridge="", deck_end_land=())
+    zs = FB.free_bridge_zeros(_staged(_member(), other, pier), _canal,
+                              origin=(40.00035, -2.9999), agl_m=-0.65, step_m=5.0,
+                              walk_max_m=60.0, level_tol_m=0.3)
+    assert set(zs) == {DECK}
+    a = AR.Anchor(AR.OTHER, 40.0, -3.0, 5.0, "own", 3.96, offset=(0.0, 5.0, 0.0))
+    rec = Split(0, "dsf:obj3", "objects/ramp.obj", "/x/objects/ramp.obj", 40.0, -3.0, 0.0,
+                (Body(0, AR.OTHER, (0,), a, "objects/ramp__b0.obj"),))
+    out = FB.free_bridge_seat(rec, other, zs)
+    assert {round(b.anchor.surface_z - b.anchor.y_zero, 3) for b in out.bodies} \
+        == {round(zs[DECK][0], 3)}
+
+
+def test_a_free_member_is_never_class_a_and_owns_its_datum():
+    from auto_patch_v2.airport import airside_deck_seat as AD
+    from auto_patch_v2.airport.placement_family import member_is_bridge_deck
+    surf = lambda la, lo: 3.9                                   # noqa: E731
+    surf.roles = _Airside()
+    held = _member(plate_kind="", deck_datum_z=3.96)
+    assert AD._airside_witness(held, (), surf) is not None      # today's class A reading
+    free = _member(deck_datum_z=None)
+    assert AD._airside_witness(free, (), surf) is None
+    assert AD.airside_zero(free, (), surf, 5.0) is None
+    # a SIGNATURE free deck (datum cleared at the plan) never rides a unit
+    sig = _member(deck_kind="signature", deck_datum_z=None)
+    assert AD.deck_owns_its_datum(sig)
+    assert not AD.deck_owns_its_datum(_member(deck_kind="signature", plate_kind=""))
+    unit = types.SimpleNamespace(members=(sig, _member(deck_kind="", deck_top_y=None)))
+    assert member_is_bridge_deck(unit, sig)

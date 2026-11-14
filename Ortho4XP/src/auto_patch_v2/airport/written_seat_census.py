@@ -140,7 +140,10 @@ def deck_rows(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str,
                 continue
             row = {"resource": m.resource, "unit": u.id, "kind": kind,
                    "deck_top": z0 + float(top), "class": "", "ends": (), "note": ""}
-            if (m.deck_datum_z is not None and ring
+            # #2065 A2: a free member is tested first ("B free-standing")
+            free = free_member(m)
+            all_deck = bridge and not free
+            if (not free and m.deck_datum_z is not None and ring
                     and pavement_runs_across(ring, surface, step_m)):
                 got = airside_end_ground(ring, surface, step_m)
                 row["class"] = "A airside"
@@ -150,16 +153,16 @@ def deck_rows(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str,
                     continue
                 tops = end_tops(m, got[1], tuple(u.anchor), step_m)
                 row["ends"] = tuple(z0 + t - g for t, g in zip(tops, got[0], strict=True))
-            elif m.deck_ends and (bridge or free_member(m)):
+            elif m.deck_ends and (all_deck or free):
                 # one reading for seat, census and bar (spec S5): the ends
                 # the seat reads (``deck_end_read``: the ground each end
                 # meets, the plate's own top on it)
                 r = deck_end_reads(m, surface, origin=tuple(u.anchor),
                                    agl_m=float(u.agl_m or 0.0), step_m=step_m,
-                                   all_deck=bridge)
+                                   all_deck=all_deck)
                 if r is None:
                     continue
-                row["class"] = "B overpass" if bridge else "B free-standing"
+                row["class"] = "B overpass" if all_deck else "B free-standing"
                 if r.clearance is not None:
                     g0 = surface(*u.anchor)
                     row["note"] = ("authored clearance (22p): deck "

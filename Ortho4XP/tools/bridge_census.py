@@ -32,7 +32,9 @@ box (other frames too, shifted by their unit's DEM + ``agl_m``; with no DEM by
 with no OSM feed prints "no OSM feed" and its decks read ``no OSM feed``.
 Columns ``reach_m`` (W6), ``run_on_a`` / ``run_on_b`` (W7), ``beneath``
 (W4b) and ``witness_holds`` (W1-W7 + W4b) per spec ``2065-bridge-class-A1.md``
-§A4 S0.
+§A4 S0; ``w5_by`` (A2): which W5 witness held — way / water / hump / ground,
+a ``ground`` row marked DEM-dependent (this census reads the authored DEM; a
+build reads the production one, so a ``ground`` row is never a build bar).
 
 Prints the free bridges by airport first, then every class count and the
 per-deck witness cost; ``--jsonl`` writes every row.
@@ -334,6 +336,14 @@ def _num(v: float) -> "float | None":
     return None if math.isnan(v) else round(float(v), 2)
 
 
+def _w5_by(span: str) -> str:
+    """Which W5 witness held (A2): ``way`` / ``water`` / ``hump`` /
+    ``ground (DEM-dependent)`` — the census reads the AUTHORED DEM, a build
+    the production one — or ``""``."""
+    kind = span.split(" ", 1)[0] if span else ""
+    return "ground (DEM-dependent)" if kind == "ground" else kind
+
+
 def _row(icao: str, u: dict, m: dict, v, w) -> dict:
     r = w.route
     alld = all(x.get("deck_kind") in _DECK for x in u["members"])
@@ -347,7 +357,7 @@ def _row(icao: str, u: dict, m: dict, v, w) -> dict:
             "length_m": round(r.s_b - r.s_a, 1) if r else None,
             "ways": list(r.ways)[:8] if r else [],
             "surface_share": round(w.surface_share, 2), "roof_share": round(w.roof_share, 2),
-            "span": w.span, "width_m": round(w.width_m, 1),
+            "span": w.span, "w5_by": _w5_by(w.span), "width_m": round(w.width_m, 1),
             "layer_ends": ([round(w.layer[0], 2), round(w.layer[-1], 2)] if w.layer else []),
             "end_failed": w.end_failed, "reach_m": round(w.reach_m, 2),
             "run_on_a": _num(w.ends[0].run_on) if w.ends else None,

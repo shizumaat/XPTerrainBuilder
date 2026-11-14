@@ -295,6 +295,12 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
     if column is not None:
         clat, clon, y0, z, why = column
         counts["free_columns"] = counts.get("free_columns", 0) + 1
+    elif tseat is not None and not any(_tb.is_walled(p, m, terrain.wall_min_m)
+                                       for p in parts):
+        clat, clon, y0, z, _margin = tseat
+        why = (f"{OWN_GROUND}: {_tb.TERRAIN_CARRIED}: rests on the body it "
+               f"overlaps and takes its seat, base y {y0:+.2f} (#2077, "
+               f"RULINGS 2026-11-13y (4))")
     elif tseat is not None:
         clat, clon, y0, z, margin = tseat
         why = (f"{OWN_GROUND}: {_tb.TERRAIN_CARRIED}: frame zero + b stands "

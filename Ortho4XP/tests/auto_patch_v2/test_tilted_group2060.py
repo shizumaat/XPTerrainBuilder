@@ -192,8 +192,8 @@ def test_a_rider_left_level_on_a_tilted_carrier_is_counted():
 def _frame_with_rider(rider_heading: float):
     """One post-feet member whose body frame carries a footless piece of
     ANOTHER member placed at ``rider_heading``."""
-    from test_seat_tilt_shared708 import _frame_staged
     from test_objtilt162 import _feet
+    from test_seat_tilt_shared708 import _frame_staged
     sts = _frame_staged([_feet(), _feet()])[:1]
     rider_m = types.SimpleNamespace(heading_deg=rider_heading, resource="objects/r.obj",
                                     base_profile={})
@@ -204,7 +204,7 @@ def _frame_with_rider(rider_heading: float):
 
 
 def _frame_seats(sts):
-    from test_objtilt162 import BAND_M, CAP_DEG, TOL_M, _U, _surface
+    from test_objtilt162 import _U, BAND_M, CAP_DEG, TOL_M, _surface
     counts: dict = {}
     seats = PST.frame_tilts(sts, _U(), _surface(0.0136), max_total_deg=CAP_DEG,
                             frame_max_deg=1.0, foot_tol_m=TOL_M, band_m=BAND_M,
@@ -285,8 +285,8 @@ def test_a_tilted_body_in_a_two_member_share_takes_the_group_zero_counted():
 
 
 def test_a_cut_deck_seat_clears_the_seat_it_no_longer_bakes(tmp_path):
-    from test_cut_deck_seat1331 import _cut, _deck_obj, _member, _record, _surface
     from auto_patch_v2.airport import cut_deck_seat as CDS
+    from test_cut_deck_seat1331 import _cut, _deck_obj, _member, _record, _surface
     rec = _record()
     rec = dc.replace(rec, bodies=(dc.replace(rec.bodies[0], seat=_seat(_walls())),))
     out = CDS.seat_cut_decks(rec, _member(_deck_obj(tmp_path)), (40.0, -3.0), _surface(),

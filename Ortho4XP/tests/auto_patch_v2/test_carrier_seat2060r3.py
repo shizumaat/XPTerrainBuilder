@@ -18,13 +18,12 @@ import os
 import re
 import types
 
+import test_tilted_group2060 as TG
 from auto_patch_v2.airport import anchor_rule as AR
 from auto_patch_v2.airport import obj8_grade as OG
 from auto_patch_v2.airport import open_frame_seat as OFS
 from auto_patch_v2.airport import placement_plan as PP
 from auto_patch_v2.airport import placement_seat_tilt as PST
-
-import test_tilted_group2060 as TG
 
 LAT, LON = 40.0, -3.0
 ML, MO = AR._m_per_deg(LAT)

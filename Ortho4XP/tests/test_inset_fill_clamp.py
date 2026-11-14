@@ -12,10 +12,9 @@ Hermetic: synthetic rasters only, no network, no airport builds.
 """
 
 import numpy
+import O4_Airport_Elevation_Insets as INSETS
 import pytest
 from shapely import geometry as shapely_geometry
-
-import O4_Airport_Elevation_Insets as INSETS
 
 try:
     from osgeo import gdal

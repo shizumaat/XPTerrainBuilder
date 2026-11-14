@@ -82,7 +82,7 @@ def _clip_runs(pts, lat0, lon0, radius_m, step):
     kx = _M_PER_DEG * math.cos(math.radians(lat0))
     xy = [((lo - lon0) * kx, (la - lat0) * _M_PER_DEG) for la, lo in pts]
     runs, cur = [], []
-    for (x0, y0), (x1, y1) in zip(xy, xy[1:]):
+    for (x0, y0), (x1, y1) in zip(xy, xy[1:], strict=False):
         n = max(1, int(math.ceil(math.hypot(x1 - x0, y1 - y0) / step)))
         for k in range(n):
             t = k / n

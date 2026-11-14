@@ -13,22 +13,22 @@ import types
 from pathlib import Path
 
 import pytest
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Polygon
 from shapely.geometry import box as _sbox
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import test_m4b as M4B                                         # noqa: E402
+import test_m4b as M4B  # noqa: E402
 from auto_patch_v2.classify.roles import Cell, Classification  # noqa: E402
-from auto_patch_v2.constraints import generate                 # noqa: E402
-from auto_patch_v2.constraints.edge_floor import DECK_FLOOR     # noqa: E402
-from auto_patch_v2.law import Law                              # noqa: E402
-from auto_patch_v2.model.airport import OsmWay                 # noqa: E402
-from auto_patch_v2.model.constraints import Pin                # noqa: E402
+from auto_patch_v2.constraints import generate  # noqa: E402
+from auto_patch_v2.constraints.edge_floor import DECK_FLOOR  # noqa: E402
+from auto_patch_v2.law import Law  # noqa: E402
+from auto_patch_v2.model.airport import OsmWay  # noqa: E402
+from auto_patch_v2.model.constraints import Pin  # noqa: E402
 from auto_patch_v2.model.structures import DECK_GROUND_REF, DeckBridge, deck_floor_z  # noqa: E402
-from auto_patch_v2.planar import deck_bores as DBO             # noqa: E402
-from auto_patch_v2.planar import deck_bridge as DB             # noqa: E402
-from auto_patch_v2.planar.structures import build_structures   # noqa: E402
+from auto_patch_v2.planar import deck_bores as DBO  # noqa: E402
+from auto_patch_v2.planar import deck_bridge as DB  # noqa: E402
+from auto_patch_v2.planar.structures import build_structures  # noqa: E402
 
 LAW = Law.for_airport("ZZZZ")
 TN = LAW.tables.structures.tunnel
@@ -263,7 +263,7 @@ def test_the_census_names_a_tear_on_the_decks_ground_and_never_adjudicates_it():
     out of scope; a tear between two other strips is not."""
     tools = Path(__file__).resolve().parents[2] / "tools"
     sys.path.insert(0, str(tools))
-    import check_grade as CG                                   # noqa: E402
+    import check_grade as CG  # noqa: E402
     mk = types.SimpleNamespace
     on = mk(way_a=mk(ref="deck_ground:dsf:obj1#2"), way_b=mk(ref="tunnel_ramp"),
             out_of_scope=None)

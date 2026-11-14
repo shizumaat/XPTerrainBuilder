@@ -85,7 +85,8 @@ from .deck_walls import inner_faces, wall_faces, wall_strip
 
 __all__ = ["DeckBridge", "deck_polygon", "from_full", "full_map", "with_cuts",
            "deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
-           "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "deck_ground", "DECK_GROUND_REF", "across_dir",
+           "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "deck_ground",
+           "DECK_GROUND_REF", "across_dir",
            "mid_line", "project_span"]
 
 XY = tuple[float, float]

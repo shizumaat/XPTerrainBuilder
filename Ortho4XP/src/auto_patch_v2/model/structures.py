@@ -26,7 +26,8 @@ import typing as _t
 from .frame import XY
 
 __all__ = ["Deck", "Tunnel", "DeckAnchor", "DeckBridge", "Basin", "Channel", "ChannelWall",
-           "profile_z", "deck_z_on_faces", "deck_reach", "deck_floor_z", "DECK_GROUND_REF", "CHANNEL_FLOOR_ROLE",
+           "profile_z", "deck_z_on_faces", "deck_reach", "deck_floor_z", "DECK_GROUND_REF",
+           "CHANNEL_FLOOR_ROLE",
            "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM", "SKIRT_ROLE", "OBJECT_FLOOR_REF",
            "OBJECT_FLOOR_WALL_REF"]
 

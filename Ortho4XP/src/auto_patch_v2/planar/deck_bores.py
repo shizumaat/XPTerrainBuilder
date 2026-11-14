@@ -155,8 +155,8 @@ def deck_lanes(mouths: _t.Sequence, deck_of: _t.Mapping[int, "DeckBridge | None"
     their own roads' ground beyond the deck (``level_of``, keyed by mouth
     id: :func:`road_level`) differs by more than ``level_tol``: one corridor
     has one flat level per station, so two roads at two levels topping out
-    on one ramp step (MEASURED KIAH, the ramp-top step of #1902).  Keyed by ``id()`` of the mouth and
-    by ``(id(deck), side)``.  The mouths of one road on the deck's two
+    on one ramp step (MEASURED KIAH, the ramp-top step of #1902).  Keyed
+    by ``id()`` of the mouth and by ``(id(deck), side)``.  The mouths of one road on the deck's two
     sides are the two halves of one cut, never two lanes: MEASURED (LFPG,
     the A1 under 09R/27L, deck redesign PR B) a road crossing the deck
     obliquely stood its two mouths 21 m apart across the road, the halves

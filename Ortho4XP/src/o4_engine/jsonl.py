@@ -55,12 +55,13 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import queue
 import signal
 import sys
 import threading
 import time
 from enum import Enum
-from typing import Any, Callable, Dict, TextIO
+from typing import Any, Callable, Dict, Optional, TextIO
 
 import O4_Console_Encoding
 import O4_Edit_Cache as EDITCACHE
@@ -74,6 +75,7 @@ from . import library as _LIBRARY
 from .events import EngineHello, Error, ScanBatch
 from .secret_broker import SecretBroker
 from .session import EngineSession
+from .view_lane import ViewLane
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +291,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # §2): read / write one airport's patch in a tile's Patches
         # folder.  Synchronous file work, no session state.
         "patch_list": patch_commands.patch_list,
+        "patch_staleness": patch_commands.patch_staleness,
         "patch_load": patch_commands.patch_load,
         "patch_save": patch_commands.patch_save,
         "patch_revert": patch_commands.patch_revert,
@@ -706,7 +709,10 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
     """Run the JSON-lines transport until ``stdin`` closes or ``shutdown``.
 
     Reads one command object per input line and writes events and replies to
-    ``stdout``.  Returns when the input stream reaches end-of-file or a
+    ``stdout``.  Commands are answered one at a time in arrival order, except
+    the view lane's (``o4_engine.view_lane``, #2061): the map's patch reads
+    are answered beside the loop, never behind a slow command.  Returns when
+    the input stream reaches end-of-file or a
     ``{"cmd": "shutdown"}`` command is received (its reply is written first).
 
     ``stdout`` is captured privately for protocol writes and ``sys.stdout`` is
@@ -793,38 +799,18 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver
-        for raw_line in stdin:
-            line = raw_line.strip()
-            if not line:
-                continue
-            try:
-                message = json.loads(line)
-            except (ValueError, TypeError) as exc:
-                # Malformed line: report and keep reading (non-fatal).
-                write_obj(serialize_event(
-                    Error(fatal=False, text="malformed JSON line: %s" % exc)))
-                continue
-            if not isinstance(message, dict):
-                write_obj(serialize_event(
-                    Error(fatal=False,
-                          text="command must be a JSON object")))
-                continue
+        lane = ViewLane()
+        inbox: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
 
+        def answer(message: Dict[str, Any]) -> None:
+            """Run one command and write its reply."""
             command = message.get("cmd")
             call_id = message.get("id")
-            if command == "shutdown":
-                write_obj({"reply": call_id, "ok": True})
-                if owns_process:
-                    _stop_session_and_exit_process(
-                        session, "shutdown command")
-                return
-
             handler = handlers.get(command)
             if handler is None:
                 write_obj({"reply": call_id, "ok": False,
                            "error": "unknown command: %r" % (command,)})
-                continue
-
+                return
             arguments = {
                 k: v for k, v in message.items() if k not in ("cmd", "id")
             }
@@ -842,10 +828,61 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             except Exception as exc:  # a bad command must not end the session
                 write_obj({"reply": call_id, "ok": False,
                            "error": str(exc)})
-                continue
+                return
             write_obj({"reply": call_id, "ok": True,
                        "result": _json_safe(result)})
-        if owns_process:
+
+        def read_input() -> None:
+            """Read commands as they arrive (#2061): the view lane's go to
+            it at once; the rest queue for the serial loop below."""
+            try:
+                for raw_line in stdin:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        message = json.loads(line)
+                    except (ValueError, TypeError) as exc:
+                        # Malformed line: report and keep reading (non-fatal).
+                        write_obj(serialize_event(
+                            Error(fatal=False,
+                                  text="malformed JSON line: %s" % exc)))
+                        continue
+                    if not isinstance(message, dict):
+                        write_obj(serialize_event(
+                            Error(fatal=False,
+                                  text="command must be a JSON object")))
+                        continue
+                    command = message.get("cmd")
+                    if lane.takes(command) and command in handlers:
+                        lane.submit(command, lambda m=message: answer(m))
+                        continue
+                    inbox.put(message)
+                    if command == "shutdown":
+                        return
+            finally:
+                inbox.put(None)
+
+        threading.Thread(target=read_input, daemon=True,
+                         name="o4-engine-read").start()
+        while True:
+            try:
+                message = inbox.get(timeout=1.0)
+            except queue.Empty:
+                continue
+            if message is None:
+                break
+            if message.get("cmd") == "shutdown":
+                write_obj({"reply": message.get("id"), "ok": True})
+                if owns_process:
+                    _stop_session_and_exit_process(
+                        session, "shutdown command")
+                lane.drain()
+                return
+            answer(message)
+        if not owns_process:
+            lane.drain()   # every reply written before serve returns
+        else:
             # End-of-file: the front end exited, crashed, or retired this
             # worker.  A build command returns immediately (the session
             # runs it on a worker thread), so a build may well be in

@@ -31,6 +31,7 @@ from ..law.tables import family
 from ..model.airport import Airport
 from .airside_edge import airside_edge_flip
 from .evidence import Evidence, _osm_roads, polygon_parts
+from .fence_division import fence_band, fence_lines
 from .rules import Rules
 
 __all__ = ["Verdict", "judge", "close_rim", "fill_to_taxi"]
@@ -67,7 +68,8 @@ def judge(parts: _t.Sequence[Polygon], airport: Airport, ev: Evidence,
                  if i < len(parts)}
     final = [[role, str(i), p, None, {}, kind] for i, p in enumerate(parts)]
     airside_edge_flip(final, cells, law, rules,
-                      [c.line for c in ev.truck_chains], road_class=evidenced)
+                      [c.line for c in ev.truck_chains], road_class=evidenced,
+                      fences=fence_band(fence_lines(airport, rules), rules))
     out = []
     for i, f in enumerate(final):
         flipped = f[0] == "apron"

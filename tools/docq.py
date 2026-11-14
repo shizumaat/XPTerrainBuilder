@@ -122,13 +122,15 @@ def spec_section_any(key: str, paths: tuple = SPEC_FILES) -> tuple[str, str]:
 
 def ruling_entry(ids: list[str]) -> str:
     lines = _read(RULINGS)
-    heads = [(i, ln) for i, ln in enumerate(lines) if ln.startswith("## ")]
+    # some entries were written as `###` headings (2026-10-20aq, 10-22o)
+    heads = [(i, ln.lstrip("#").lstrip()) for i, ln in enumerate(lines)
+             if re.match(r"#{2,3} ", ln)]
     out = []
     for raw in ids:
         rid = raw.strip()
         if re.fullmatch(r"\d{1,2}[a-z]{1,2}", rid):          # 13am -> 2026-09-13am
             rid = f"2026-09-{int(rid[:-len(rid.lstrip('0123456789'))]):02d}{rid.lstrip('0123456789')}"
-        hits = [k for k, (i, ln) in enumerate(heads) if ln.startswith(f"## {rid} ")]
+        hits = [k for k, (i, ln) in enumerate(heads) if ln.startswith(f"{rid} ")]
         if not hits:
             raise SystemExit(f"docq: no RULINGS entry {rid!r}")
         k = hits[-1]
@@ -182,16 +184,23 @@ def index_rows() -> list[tuple[str, str]]:
     return rows
 
 
+SHORT_INDEX_BUDGET = 19_000   # characters; tests/test_docq.py gates < 20k
+
+
 def index_short() -> str:
+    """One line per tool: path + the description's first sentence, cut to
+    a width derived from the row count so the whole index stays under
+    SHORT_INDEX_BUDGET (~3k tokens) as rows are added; the full row is
+    one `docq index NAME` away."""
+    rows = index_rows()
+    firsts = [re.sub(r"\*\*", "", re.split(r"(?<=[.;—])\s", d, maxsplit=1)[0])
+              for _, d in rows]
+    fixed = sum(len(p) + 6 for p, _ in rows)          # "  —  " + newline
+    width = min(120, max(40, (SHORT_INDEX_BUDGET - fixed) // max(1, len(rows))))
     out = []
-    for path, desc in index_rows():
-        first = re.split(r"(?<=[.;—])\s", desc, maxsplit=1)[0]
-        first = re.sub(r"\*\*", "", first)
-        # 120, not 140, since 159 rows (2026-11-12): the short index must
-        # stay under 20k characters (tests/test_docq.py); the full row is
-        # one `docq index NAME` away.
-        if len(first) > 120:
-            first = first[:117].rstrip() + "…"
+    for (path, _), first in zip(rows, firsts, strict=True):
+        if len(first) > width:
+            first = first[:width - 3].rstrip() + "…"
         out.append(f"{path}  —  {first}")
     return "\n".join(out)
 

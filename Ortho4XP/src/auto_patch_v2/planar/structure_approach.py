@@ -591,19 +591,24 @@ def cover_polygons(classification) -> list[Polygon]:
     road -22826 by Terminal 4 was admitted on one and sank the road 5.2 m
     into a 12 m ramp (33.43602, -111.99307); bore -7353+-10192's portal
     was refused at another (#971) and bore -13436+-23951's ramp was
-    clipped at a third and moved 110 m.  A PAD ROAD of the reach stands
-    (:func:`standing_cover`: it stops a mouth and clips a ramp, as every
-    pad road does) but is no field either — MEASURED KPHX: pad road
-    ``small_roads:-9405``, 259 m from bore -26323+-41006's end, admitted
-    the bore within its 603 m ramp reach."""
-    return [Polygon(c.ring, c.holes) for c in classification.cells
-            if not is_gap_ref(c.ref) and not is_road_reach(c)]
+    clipped at a third and moved 110 m.  Nor is a PAD ROAD (:func:`_late`):
+    MEASURED KPHX, pad road ``small_roads:-9405``, 259 m from bore
+    -26323+-41006's end, admitted the bore within its 603 m ramp reach."""
+    return [Polygon(c.ring, c.holes) for c in classification.cells if not _late(c)]
 
 
 def _late(c) -> bool:
-    """A cell that FOLLOWS the structures: a gap piece, or a road-reach
-    ribbon that is not a pad road."""
-    return is_gap_ref(c.ref) or (is_road_reach(c) and not c.evidence.get("pad_road"))
+    """A cell that FOLLOWS the structures: a gap piece, a road-reach ribbon
+    or a PAD ROAD.  A pad road is a LAST-STAGE cell (issue #609,
+    ``pipeline/stage_one_map.gap_free``): the base map is built without it,
+    so the structures are decided there, and the last stage's map must make
+    the same decision (issue #1849).  Standing there, a pad road re-decided
+    it -- MEASURED KPHX T4: pad road ``big_roads:-22828#2`` stopped bore
+    -22827's mouth 4 m out, off ``building15`` (which refused the bore on
+    the base map); the bore was built and R6 run ``viaduct-road:0`` was not,
+    so the run's middle emitted at 340.85-342.9 m instead of 336.37."""
+    ev = getattr(c, "evidence", None) or {}
+    return is_gap_ref(c.ref) or is_road_reach(c) or bool(ev.get("pad_road"))
 
 
 def standing_cover(classification) -> tuple[list, list, list[Polygon]]:
@@ -629,14 +634,15 @@ def cut_gap_cells(gap_cells, knife, law: Law, cut) -> None:
     mint's stand-off as the blade.  LAST, so every standing and structure
     cell keeps the base map's place.  A ROAD-REACH ribbon (RULINGS
     2026-10-22g) is cut by the footprints themselves, as every standing
-    ribbon is (30e (3): no ribbon inside a structure face, no stand-off)."""
+    ribbon is (30e (3): no ribbon inside a structure face, no stand-off);
+    so is a PAD ROAD, a mapped-road ribbon set aside as one (#1849)."""
     if not gap_cells:
         return
     from ..classify.gap_mint import standoff_m
     blade = None if knife.is_empty else knife.buffer(
         standoff_m(law), join_style="mitre", mitre_limit=2.0)
     for c in gap_cells:
-        cut(c, Polygon(c.ring, c.holes), knife if is_road_reach(c) else blade)
+        cut(c, Polygon(c.ring, c.holes), blade if is_gap_ref(c.ref) else knife)
 
 
 def wall_field(classification, law: Law) -> WallField:

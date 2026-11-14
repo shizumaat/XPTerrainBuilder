@@ -25,6 +25,11 @@ enum AboutPanel {
     static let thirdPartyCredit =
         "Imagery fetcher based on OrthoStudio XP by radioharris (GPL v3)."
 
+    /// Elevation data whose licence asks for credit in the product (#1942,
+    /// CC BY-NC-SA 4.0); the same line is in the Qt app's About.
+    static let dataCredit =
+        "Elevation: FABDEM, Hawker et al. (2022), University of Bristol, CC BY-NC-SA 4.0."
+
     /// The credits body, as an attributed string in the panel's own font —
     /// `orderFrontStandardAboutPanel` renders `.credits` at 12 pt Times
     /// otherwise, which reads as a bug.
@@ -33,7 +38,7 @@ enum AboutPanel {
         style.alignment = .center
         style.paragraphSpacing = 2
         return NSAttributedString(
-            string: (triple.displayLines + ["", thirdPartyCredit]).joined(separator: "\n"),
+            string: (triple.displayLines + ["", thirdPartyCredit, dataCredit]).joined(separator: "\n"),
             attributes: [
                 .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
                 .foregroundColor: NSColor.secondaryLabelColor,

@@ -656,6 +656,12 @@ def initialize_elevation_providers_dict(providers_directory=None):
         definition[SURFACE_MODEL_BUILDING_MASKING] = _parse_boolean(
             definition.get(SURFACE_MODEL_BUILDING_MASKING, "False")
         )
+        # A global model of fallback quality that needs no masking (the
+        # bare-earth FABDEM, made from a radar DSM by machine learning):
+        # ranked like one, it never vetoes a genuine terrain model.
+        definition[FALLBACK_QUALITY] = _parse_boolean(
+            definition.get(FALLBACK_QUALITY, "False")
+        )
         # Residual structure masking rides the same pass.  DEFAULT OFF
         # (2026-07-18 late: live SPJC regression — the airfield itself
         # fits the estimator's bite profile, a flat plateau with lower
@@ -2887,6 +2893,9 @@ def _polygon_mapping(geometry):
 # =====================================================================
 # Definition flag naming the pass; parsed to bool at registry load.
 SURFACE_MODEL_BUILDING_MASKING = "surface_model_building_masking"
+# Definition flag: a global model of FALLBACK quality whatever its grid
+# (FABDEM, #1942); parsed to bool at registry load.
+FALLBACK_QUALITY = "fallback_quality"
 
 # One buffered pixel of a 30 m grid plus a margin for radar layover: the
 # X-band return of a building smears roughly one resolution cell beyond
@@ -10502,8 +10511,10 @@ def _finest_automatic_resolution_m(lat, lon):
         # size says, they never make a genuine terrain model "not
         # better", so they must not veto the affordance (the global
         # 30 m GLO-30 would otherwise suppress the ~30.9 m lidar-derived
-        # Sonny drop folder over all of Europe).
-        if definition.get(SURFACE_MODEL_BUILDING_MASKING):
+        # Sonny drop folder over all of Europe).  A bare-earth model made
+        # from one (``fallback_quality``, FABDEM) is the same class.
+        if (definition.get(SURFACE_MODEL_BUILDING_MASKING)
+                or definition.get(FALLBACK_QUALITY)):
             continue
         strategy_factory = ACCESS_STRATEGIES.get(
             definition.get("access_strategy")

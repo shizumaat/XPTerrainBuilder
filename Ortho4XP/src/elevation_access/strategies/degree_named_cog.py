@@ -8,6 +8,7 @@ shares with other strategies is imported from ``elevation_access``.
 
 import datetime
 import os
+import re
 
 from elevation_access.base import ProviderUnavailable, TransientFetchError
 from elevation_access.definitions import _coverage_bbox_intersects
@@ -111,13 +112,19 @@ class DegreeNamedCogStrategy:
             )
         ]
 
-    def _cell_url(self, definition, cell_latitude, cell_longitude):
+    def _cell_name(self, definition, template_key, cell_latitude,
+                   cell_longitude):
+        """``definition[template_key]`` filled with the cell's tokens."""
         latitude_token, longitude_token = self.degree_cell_tokens(
             cell_latitude, cell_longitude
         )
-        return str(definition.get("url_template", "")).format(
+        return str(definition.get(template_key, "")).format(
             latitude_token=latitude_token, longitude_token=longitude_token
         )
+
+    def _cell_url(self, definition, cell_latitude, cell_longitude):
+        return self._cell_name(
+            definition, "url_template", cell_latitude, cell_longitude)
 
     def _url_exists(self, url):
         """Is this cell's object in the bucket?
@@ -172,20 +179,33 @@ class DegreeNamedCogStrategy:
             "recorded as no-coverage" % (url, response.status_code)
         )
 
+    def cell_source(self, definition, cell_latitude, cell_longitude):
+        """The GDAL path of one cell's raster, or ``None`` when the
+        publisher has no raster for it (a durable absent).
+
+        THE ONE CELL READER: discovery here and the base-tile cut
+        (``degree_cog_base_tile``) both ask it, so a strategy that keeps
+        its cells elsewhere (inside archives: ``degree_zipped_cog``)
+        overrides this method alone.  Raises what :meth:`_url_exists`
+        raises.
+        """
+        url = self._cell_url(definition, cell_latitude, cell_longitude)
+        return "/vsicurl/" + url if self._url_exists(url) else None
+
     def discover(self, definition, bounding_box_wgs84):
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
         if not str(definition.get("url_template", "")).strip():
             return None
         sources = [
-            {"source": "/vsicurl/" + url, "cell": [cell_latitude, cell_longitude]}
+            {"source": source, "cell": [cell_latitude, cell_longitude]}
             for (cell_latitude, cell_longitude) in (
                 self.degree_cells_of_bounding_box(bounding_box_wgs84)
             )
-            for url in [
-                self._cell_url(definition, cell_latitude, cell_longitude)
+            for source in [
+                self.cell_source(definition, cell_latitude, cell_longitude)
             ]
-            if self._url_exists(url)
+            if source
         ]
         return sources or None
 
@@ -222,7 +242,7 @@ class DegreeNamedCogStrategy:
             "provider": definition.get("code"),
             "access_strategy": definition.get("access_strategy"),
             "source_urls": [
-                entry["source"].replace("/vsicurl/", "", 1)
+                re.sub(r"^(/vsizip/)?/vsicurl/", "", entry["source"])
                 for entry in sources
             ],
             "native_resolution_m": definition.get("native_resolution_m"),

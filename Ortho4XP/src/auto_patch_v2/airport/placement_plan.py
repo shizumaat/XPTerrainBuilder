@@ -384,6 +384,28 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
     # #1883 r3 B1: a pack cut's frame at the zero its floor was read at
     _floor_zero = _tsh.frame_zeros(getattr(plan, "authored_seats", ()) or ())
+    _fseats: list = []
+
+    def _frame_seats() -> list:
+        """#1883: every frame deck piece seated over the pack's cut, read once
+        (``cut_deck_seat.cut_seats``): what the frame's riders stand on."""
+        if not _fseats:
+            _fseats.append([sb for uu in plan.units for x in uu.members
+                            if getattr(x, "id", "") in _floor_zero
+                            for sb in _cds.cut_seats(
+                                x, getattr(x, "origin", None) or tuple(uu.anchor), surface,
+                                _cuts, abutment_step_m, deck_on_fraction)])
+        return _fseats[0]
+
+    def _rides_frame_decks(r, mm, seats):
+        """#1883: each body of a frame rider standing on a seated deck piece
+        takes that piece's zero (``cut_deck_seat.seat_under``)."""
+        for zero in sorted({z for b in r.bodies
+                            if (z := _cds.seat_under(b, seats, deck_on_fraction)) is not None}):
+            r = _at_zero(r, mm, zero,
+                         lambda b, _q=zero: _cds.seat_under(b, seats, deck_on_fraction) == _q,
+                         f"on its frame's deck seated over the pack's cut at {zero:.2f} (#1883)")
+        return r
     # ...whose deck pieces stand OVER the cut: never draped onto it as a base
     # slab (LGAV Trench_00's road decks were draped 12 m down to the floor)
     drape = {k: v for k, v in (drape or {}).items() if k not in _floor_zero}
@@ -1177,6 +1199,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             if fz is not None:
                 r = _at_zero(r, mm, fz, _unseated,
                              f"the pack cut's frame zero {fz:.2f} (#1883 r3 B1)")
+                if _cuts and str(getattr(mm, "deck_kind", "") or "") != "flag":
+                    r = _rides_frame_decks(r, mm, _frame_seats())
             if (_air is not None and fz is None) or not _cuts:
                 return r
             return _cds.seat_cut_decks(r, mm, getattr(mm, "origin", None) or tuple(_u.anchor),

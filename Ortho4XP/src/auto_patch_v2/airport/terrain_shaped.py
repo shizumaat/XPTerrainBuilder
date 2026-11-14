@@ -84,7 +84,12 @@ HIDDEN_SEAT = "hidden shell"
 #: #1883 r3 B1/B2: a DECK placement of a pack cut's frame
 #: (``airport/object_floor.seat_records``): the plan seats its bodies at the
 #: record's ``elevation`` (the frame's zero) and its deck pieces flush with
-#: what they carry (``placement_plan``, :func:`frame_zeros`)
+#: what they carry (``placement_plan``, :func:`frame_zeros`).  A deck the plan
+#: does NOT split (every body at the frame's zero lands on its authored row,
+#: 14g (3)) is written WHOLE as ``OBJECT_MSL`` at that zero (:func:`row_seats`):
+#: its authored ``OBJECT`` row would follow the drawn mesh under an anchor
+#: 1.3 km away, while its mates and the rails riding it stand at the frame's
+#: zero (#1883: LGAV's rails 0.43 m under their deck on the owner's install)
 FRAME_SEAT = "object floor frame"
 #: a lifted row the terrain adapted to, at the zero its cut was read for
 #: (``airport/adapted_riders.seat_records``; owner sim read KMCI 1.0.480)
@@ -99,7 +104,8 @@ MODEL_SEAT = "terrain model"
 STOREY_SEAT = "storey shell"
 _WHY = {SEAT: "terrain_fit", MODEL_SEAT: "terrain_model", STOREY_SEAT: "storey_shell",
         PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
-        OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden", ADAPTED_SEAT: ADAPTED_WHY}
+        OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden", ADAPTED_SEAT: ADAPTED_WHY,
+        FRAME_SEAT: "object_floor_frame"}
 
 
 def _deck_grid(g: _t.Any) -> "DeckGrid | None":

@@ -111,10 +111,50 @@ def floor_decks(floors: _t.Sequence[ObjectFloor], objects, cache, classification
                              f"by its end lines (#1883 r3 B2)")
         if got:
             decked = {g.object_id for g in got}
-            f = _dc.replace(f, decks=tuple(got),
+            riders = _deck_riders(f, got, decked | floor_ids, by_id, cache, airport, on)
+            notes.extend(f"{f.id}: {pid} stands on a deck piece of its frame: it rides "
+                         f"that piece (#1883)" for pid in riders)
+            f = _dc.replace(f, decks=tuple(got), riders=riders,
                             seats=tuple(s for s in f.seats if s[0] not in decked))
         out.append(f)
     return out, notes
+
+
+#: how near a deck piece's plan a rider's part stands (m): a rail on its edge
+RIDER_REACH_M = 1.0
+
+
+def _deck_riders(f: ObjectFloor, decks, skip, by_id, cache, airport, on: float
+                 ) -> tuple[str, ...]:
+    """#1883: the placements of ``f``'s frame (``f.seats``, never a deck or a
+    floor) with a solid part STANDING ON one of its deck pieces -- at least
+    ``on`` of the part's vertices within :data:`RIDER_REACH_M` of the
+    piece's plan and its top reaching the piece's deck top (a rail on the
+    deck, the bridge's walls under its edge; a carriageway on the trench
+    floor 12 m down is no rider).  The object stage seats those parts on
+    the piece's own zero (``cut_deck_seat.seat_under``) -- a frame object
+    written whole at the frame's zero stood 2.5-9 m off the deck it rides."""
+    from ..airport.obj8 import _to_frame, solid_components
+    from ..model.frame import xplane_metre_scale
+    se, sn = xplane_metre_scale(airport.frame.origin[0])
+    pieces = [(shapely.Polygon(d.ring).buffer(RIDER_REACH_M), min(d.top_a, d.top_b))
+              for d in decks]
+    out = []
+    for pid, _res, _z in f.seats:
+        d = by_id.get(pid)
+        g = cache.geometry(d.resolved) if d is not None and d.resolved else None
+        if pid in skip or g is None:
+            continue
+        for comp in solid_components(g):
+            vs = g.vertices[sorted({int(i) for t in comp.tris for i in t})]
+            pts = [_to_frame(d.xy, d.heading_deg, float(v[0]), float(v[2])) for v in vs]
+            pts = [(d.xy[0] + (x - d.xy[0]) * se, d.xy[1] + (y - d.xy[1]) * sn) for x, y in pts]
+            top = float(vs[:, 1].max())
+            if any(top >= t - 0.5 and sum(1 for q in pts if poly.contains(shapely.Point(q)))
+                   >= on * len(pts) for poly, t in pieces):
+                out.append(pid)
+                break
+    return tuple(out)
 
 
 def _spans(f: ObjectFloor, piece, plate, zero: float, law) -> bool:

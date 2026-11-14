@@ -167,10 +167,12 @@ cfg_app_vars = {
         "type": str,
         "default": "",
         "hint": (
-            "Other drives that may keep sharp imagery, as JSON "
-            "{\"/Volumes/Drive\": GB}. A texture the disk budget makes "
-            "low-res again moves there while the drive is connected and "
-            "lands back from it; without the drive it is downloaded again. "
+            "Other drives that may keep sharp imagery and the data that "
+            "rebuilds tiles, as JSON {\"/Volumes/Drive\": GB}. A texture "
+            "the disk budget makes low-res again, and the map, elevation, "
+            "orthophoto and rebuild data it clears (#2087), move there while "
+            "the drive is connected and land back from it; without the "
+            "drive they are downloaded again. Nothing X-Plane loads moves. "
             "Set in Settings > Storage > Storage tiers."
         ),
     },
@@ -180,11 +182,17 @@ cfg_app_vars = {
         "hint": (
             "The one disk budget for everything XPTerrainBuilder stores "
             "(RULINGS 2026-11-10d): caches, sharp imagery, rebuild data and "
-            "built tiles, in GB. Over it, what is cheapest to rebuild goes "
-            "first, oldest first: temporary files, logs and previews; "
-            "orthophotos already converted; scenery dumps and masks; "
-            "elevation and map extracts; then sharp imagery (favorites "
-            "last). Placeholders, scenery files, patches and your own "
+            "built tiles, in GB. Over it, data tied to no one tile goes "
+            "first (temporary files, logs, previews, the texture cache, "
+            "scenery dumps, regional map extracts), then tile by tile "
+            "(#2087): the tiles used longest ago first, favorites last, "
+            "each tile's data quickest to rebuild first (orthophotos, "
+            "masks, elevation and map data -- an airport tile becomes a "
+            "package -- sharp imagery, rebuild data). Tiles used in the "
+            "last 7 days or built or queued this session, and their "
+            "builds' inputs, are kept; with a storage tier set, cleared "
+            "data moves there first. Placeholders, scenery files, patches "
+            "and your own "
             "elevation files are never cleared. 0: not confirmed -- the "
             "default applies, the larger of 200 GB, the recommended minimum "
             "and what is installed now (RULINGS 2026-11-11a, 11h), so "

@@ -58,8 +58,11 @@ BUDGET_HELP = ("More space keeps downloads and rebuild data, so tiles rebuild "
                "in minutes instead of re-downloading. Never cleared: your built tiles' scenery files and low-res "
                "imagery, your airport patches and your own elevation files. "
                "The recommended minimum adds room to work: half of that, at "
-               "least 50 GB. Over the budget, what is cheapest to rebuild "
-               "goes first, oldest first; favorites go last.")
+               "least 50 GB. Over the budget, shared caches go first, then "
+               "tile by tile: the tiles used longest ago first, favorites "
+               "last, each tile's quickest-to-rebuild data first. Tiles used "
+               "this week or being built are kept. With a storage tier, "
+               "cleared data moves there instead.")
 BUDGET_FIELD = "Budget (GB)"
 BUDGET_USE_DEFAULT = "Use Default"
 #: Unconfirmed (RULINGS 2026-11-11h (1)): the default is sized to the
@@ -71,9 +74,9 @@ BUDGET_CONFIRM = "Confirm"
 #: A budget lowered below what is in use (owner 2026-11-11): asked first.
 DOWNGRADE_TITLE = "Downgrade scenery to low res to fit the new budget?"
 DOWNGRADE_TEXT = ("{used} is in use and the budget is {budget}: about {free} "
-                  "is cleared to fit. Caches go first, then the oldest sharp "
-                  "imagery is made low res (favorites last). Your tiles and "
-                  "patches stay.")
+                  "is cleared to fit. Caches go first, then the data of the "
+                  "tiles used longest ago (favorites last). Your tiles' "
+                  "scenery and patches stay.")
 DOWNGRADE_FLOOR = (" Even at low res your tiles need {floor}, more than this "
                    "budget.")
 DOWNGRADE_OK = "Downgrade"
@@ -92,10 +95,12 @@ FOLDER_TITLE = "Data folder"
 #: Settings ▸ Storage ▸ Storage tiers (RULINGS 2026-11-12g,
 #: ``o4_engine.storage_tiers``): one row per other drive.
 TIERS_TITLE = "Storage tiers"
-TIERS_HELP = ("Sharp imagery the disk budget makes low res again moves to a "
-              "drive with a size here, and comes back from it while the drive "
-              "is connected. Without the drive it is downloaded again. 0 GB: "
-              "not used.")
+TIERS_HELP = ("Sharp imagery and what rebuilds a tile (map and elevation "
+              "data, orthophotos, rebuild data) that the disk budget clears "
+              "move to a drive with a size here, oldest out first when it is "
+              "full, and come back from it while the drive is connected. "
+              "Flying never needs the drive: without it they are downloaded "
+              "again. 0 GB: not used.")
 TIERS_NONE = "No other drive is connected."
 TIERS_ABSENT = "Not connected: its imagery is downloaded again."
 TIERS_USED = "{used} used, {free} free"

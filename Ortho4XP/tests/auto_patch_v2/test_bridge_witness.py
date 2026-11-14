@@ -294,7 +294,9 @@ def test_the_a1_class_order():
     assert CLASSES.index("all_deck_frame") < CLASSES.index("plated_deck") \
         < CLASSES.index("free_bridge") < CLASSES.index("attached_bridge")
     assert classify(DeckFacts(all_deck_frame=True, witness=held)).cls == "all_deck_frame"
-    assert classify(DeckFacts(graded=True, plated=True, witness=held)).cls == "graded_deck"
+    # A1-E1 E1: deck_datum_z is not read once the witness holds
+    assert classify(DeckFacts(graded=True, plated=True, witness=held)).cls == "plated_deck"
+    assert classify(DeckFacts(graded=True, witness=held)).cls == "free_bridge"
     assert classify(DeckFacts(plated=True, witness=held)).cls == "plated_deck"
     assert classify(DeckFacts(witness=held)).cls == "free_bridge"
     w6 = _dc_replace(held, frame_failed="W6 free frame: x", end_failed="")
@@ -308,3 +310,27 @@ def test_the_a1_class_order():
 def _dc_replace(w, **kw):
     import dataclasses
     return dataclasses.replace(w, **kw)
+
+
+def test_w4b_reads_an_object_by_its_faces_not_its_origin():
+    """A1-E1 E2: an object whose origin stands 1 km from its geometry is
+    still read under the deck; another unit's faces shift by the agl_m
+    difference when there is no DEM (``unshifted``)."""
+    import importlib.util
+    import os
+    import types
+    p = os.path.join(os.path.dirname(__file__), "..", "..", "tools", "bridge_census.py")
+    spec = importlib.util.spec_from_file_location("_bridge_census_twin", p)
+    BC = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(BC)
+    verts = np.array([[1000.0, 2.0, 0.0], [1010.0, 2.0, 0.0], [1000.0, 2.0, -10.0]])
+    g = types.SimpleNamespace(vertices=verts, solid=np.array([[0, 1, 2]]))
+    geoms = types.SimpleNamespace(of=lambda m: g)
+    m = {"id": "far", "origin": [0.0, 0.0], "heading_deg": 0.0}
+    own = {"id": "unit:0", "agl_m": 0.0, "members": []}
+    other = {"id": "unit:1", "agl_m": 3.0, "members": [m]}
+    U = BC._Under([own, other], geoms, lambda lon, lat: (lon, lat), 0.9, None)
+    got = U.for_unit(own)((1002.0, 2.0, 1004.0, 4.0))
+    assert len(got) == 1 and np.allclose(got[0, :, 2], 5.0)
+    assert U.unshifted == {"unit:0"}
+    assert len(U.for_unit(own)((0.0, 0.0, 5.0, 5.0))) == 0

@@ -16,7 +16,6 @@ class               witness                                      reader
 ``airside_hard_deck`` pavement runs across (A; 22n / 30a)         ``planar/deck_bridge``
 ``road_overpass``   a road beneath, not its own route (30f (5))   ``planar/overpass_deck``
 ``all_deck_frame``  every member of its frame a deck (22d/22p)    ``placement_family``
-``graded_deck``     W1-W7 + W4b hold, ``deck_datum_z`` set (§49)  unchanged
 ``plated_deck``     W1-W7 + W4b hold, an edge / walled /          its plate's reader
                     split_level plate
 ``free_bridge``     W1-W7 + W4b (``airport/bridge_witness``)      ``free_bridge_seat``
@@ -90,8 +89,6 @@ def classify(f: DeckFacts) -> Verdict:
         return Verdict("all_deck_frame", "every member of its frame is a deck")
     w = f.witness
     if witness_holds(w):
-        if f.graded:
-            return Verdict("graded_deck", "deck_datum_z set; the witness holds")
         if f.plated:
             return Verdict("plated_deck", "carries an edge / walled / split_level plate")
         return Verdict("free_bridge", f"joins {w.joined}" if w.joined else w.span)

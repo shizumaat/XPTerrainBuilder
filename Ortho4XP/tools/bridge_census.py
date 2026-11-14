@@ -26,8 +26,10 @@ deck stack (the graded sidecar's ``object_floors[].stack``), pack cut
 all-deck frame (``placement_family.frame_is_bridge``), graded
 (``deck_datum_z``) — are read off the plan, never re-derived.  Object pads
 are not read offline, nor the 22n building roles (W6 checks the reach only).
-W4b reads every pack object of the plan near the deck (other frames too),
-placed once and cached.  Columns ``reach_m`` (W6), ``run_on_a`` / ``run_on_b``
+W4b reads every pack object whose placed faces' plan bounds meet the station
+box (other frames too, shifted by their unit's DEM + ``agl_m``; with no DEM by
+``agl_m`` only, column ``beneath_unshifted``), placed once and cached.  A tile
+with no OSM feed prints "no OSM feed" and its decks read ``no OSM feed``.  Columns ``reach_m`` (W6), ``run_on_a`` / ``run_on_b``
 (W7), ``beneath`` (W4b) and ``witness_holds`` (W1-W7 + W4b) per spec
 ``2065-bridge-class-A1.md`` §A4 S0.
 
@@ -51,6 +53,7 @@ _o4console.configure_console_streams()
 
 import argparse  # noqa: E402
 import collections  # noqa: E402
+import dataclasses as _dc  # noqa: E402
 import glob  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
@@ -70,8 +73,6 @@ _PLAN_ICAO = re.compile(r"(?:o4_v2_rebake_)?([A-Z0-9]{3,4})(?:~\d+)?(?:\.rebake)
 _DECK = ("flag", "signature")
 #: the plate kinds that make a held deck a ``plated_deck`` (A1)
 _PLATE_OWNED = ("edge", "walled", "split_level")
-#: W4b reads the pack objects whose origin stands within this of the deck
-_UNDER_REACH_M = 600.0
 #: the round-2 class-B reading's plated kinds (``free_bridge_seat.PLATED_KINDS``
 #: on lothhdeck2): a deck carrying one was never a round-2 mover
 _PLATED = {"deck", "overpass", "edge", "walled", "split_level"}
@@ -155,6 +156,19 @@ def _ways(osm_root: str, decks, to_xy) -> list:
             pts = tuple(to_xy(lo, la) for la, lo in w.points)
             out.append(types.SimpleNamespace(id=_osm_id(w.id), points=pts, tags=w.tags))
     return out
+
+
+def _no_feed(osm_root: str, decks, icao: str) -> bool:
+    """No road / airport feed on the decks' tile (A1-E1 E3): printed, never
+    read as "W1 no mapped route"."""
+    from auto_patch_v2.airport import osm as _osm
+    la, lo = decks[0][1]["deck_ring"][0]
+    tl, tn = math.floor(la), math.floor(lo)
+    if any(os.path.isfile(_osm.feed_path(osm_root, tl, tn, f))
+           for f in ("airports", "airport_small_roads", "big_roads")):
+        return False
+    print(f"  {icao}: no OSM feed for tile {tl:+03d}{tn:+04d}; W1 not read")
+    return True
 
 
 _WATER_TAGS = frozenset(("natural", "water", "waterway", "landuse"))
@@ -258,30 +272,56 @@ def _frame_faces(members, geoms: _Geoms, to_xy, box) -> np.ndarray:
 
 class _Under:
     """Every pack object of a plan, its near-horizontal faces placed once
-    on demand: ``under(bounds)`` -> those of the objects near ``bounds``
-    (W4b)."""
+    on demand (W4b, A1-E1 E2): ``for_unit(u)(bounds)`` -> the faces of every
+    object whose placed solid faces' plan bounds meet ``bounds`` (never by
+    origin distance), another unit's faces brought into ``u``'s frame by
+    ``(G + agl_m)`` at its anchor minus ``u``'s (``agl_m`` only with no DEM:
+    ``unshifted`` names those units)."""
 
-    def __init__(self, members, geoms: _Geoms, to_xy, normal: float) -> None:
-        self._m = [(to_xy(float(m["origin"][1]), float(m["origin"][0])), m)
-                   for m in members if m.get("origin")]
+    def __init__(self, units, geoms: _Geoms, to_xy, normal: float, ground) -> None:
+        self._m = [(u, m) for u in units for m in u.get("members") or () if m.get("origin")]
         self._geoms, self._to_xy, self._normal = geoms, to_xy, normal
-        self._faces: dict[int, np.ndarray] = {}
+        self._ground, self._faces, self._datum = ground, {}, {}
+        self.unshifted: set[str] = set()
 
-    def _of(self, k: int) -> np.ndarray:
+    def _of(self, k: int) -> tuple[np.ndarray, tuple]:
         if k not in self._faces:
             m = self._m[k][1]
             g = self._geoms.of(m)
-            self._faces[k] = (BW.up_faces(_placed(g, m, self._to_xy), self._normal)
-                              if g is not None and len(g.solid) else np.zeros((0, 3, 3)))
+            f = _placed(g, m, self._to_xy) if g is not None and len(g.solid) else None
+            if f is None or not len(f):
+                self._faces[k] = (np.zeros((0, 3, 3)), (math.inf,) * 2 + (-math.inf,) * 2)
+            else:
+                lo, hi = f[:, :, :2].min(axis=(0, 1)), f[:, :, :2].max(axis=(0, 1))
+                self._faces[k] = (BW.up_faces(f, self._normal), (*lo, *hi))
         return self._faces[k]
 
-    def __call__(self, b) -> np.ndarray:
-        cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
-        r = _UNDER_REACH_M + 0.5 * math.hypot(b[2] - b[0], b[3] - b[1])
-        parts = [self._of(k) for k, (xy, _m) in enumerate(self._m)
-                 if math.hypot(xy[0] - cx, xy[1] - cy) <= r]
-        parts = [f for f in parts if len(f)]
-        return np.concatenate(parts) if parts else np.zeros((0, 3, 3))
+    def _z(self, u: dict) -> float:
+        """``G`` at the unit's anchor plus its ``agl_m`` (``G`` = 0, no DEM)."""
+        uid = str(u.get("id"))
+        if uid not in self._datum:
+            g = 0.0
+            if self._ground is not None and u.get("anchor"):
+                xy = self._to_xy(float(u["anchor"][1]), float(u["anchor"][0]))
+                g = float(self._ground([xy[0]], [xy[1]])[0])
+            self._datum[uid] = g + float(u.get("agl_m") or 0.0)
+        return self._datum[uid]
+
+    def for_unit(self, own: dict):
+        def under(b) -> np.ndarray:
+            parts = []
+            for k, (u, _m) in enumerate(self._m):
+                f, fb = self._of(k)
+                if not len(f) or fb[2] < b[0] or fb[0] > b[2] or fb[3] < b[1] or fb[1] > b[3]:
+                    continue
+                if u is not own:
+                    f = f.copy()
+                    f[:, :, 2] += self._z(u) - self._z(own)
+                    if self._ground is None:
+                        self.unshifted.add(str(own.get("id")))
+                parts.append(f)
+            return np.concatenate(parts) if parts else np.zeros((0, 3, 3))
+        return under
 
 
 def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
@@ -303,13 +343,15 @@ def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
     near = [p for p in ctx["water"] if p.bounds[0] <= box[2] and p.bounds[2] >= box[0]
             and p.bounds[1] <= box[3] and p.bounds[3] >= box[1]]
     wit = BW.frame_witness(plates, faces, bodies, ctx["ways"], law, ctx["ground"], near,
-                           under=ctx["under"])
+                           under=ctx["under"].for_unit(u))
     dt = time.perf_counter() - t0
     unit = types.SimpleNamespace(members=[types.SimpleNamespace(**x) for x in u["members"]])
     ids = {str(x["id"]) for x in u["members"]}
     rows = []
     for m in decks:
         w = wit[str(m["id"])]
+        if ctx["no_feed"] and w.failed.startswith("W1 route"):
+            w = _dc.replace(w, failed="no OSM feed")
         f = DeckFacts(in_stack=str(m["id"]) in ctx["stacks"], frame_cut=bool(ids & ctx["cuts"]),
                       airside=m.get("plate_kind") == "deck",
                       overpass=m.get("plate_kind") == "overpass",
@@ -317,6 +359,7 @@ def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
                       graded=m.get("deck_datum_z") is not None,
                       plated=(m.get("plate_kind") or "") in _PLATE_OWNED, witness=w)
         rows.append(_row(ctx["icao"], u, m, classify(f), w))
+        rows[-1]["beneath_unshifted"] = str(u.get("id")) in ctx["under"].unshifted
     return rows, dt
 
 
@@ -371,11 +414,12 @@ def census_plan(path: str, icao: str, law, osm_root: str, elev_root: str
     water, streams = _water(osm_root, decks, to_xy)
     ctx = {"icao": icao, "law": law, "to_xy": to_xy, "geoms": _Geoms(),
            "ways": _ways(osm_root, decks, to_xy) + streams, "water": water,
+           "no_feed": _no_feed(osm_root, decks, icao),
            "ground": _ground(frame, elev_root, icao),
            "stacks": _stack_ids(path, icao), "cuts": _cut_ids(plan)}
-    ctx["under"] = _Under([m for u in plan.get("units") or () for m in u.get("members") or ()],
-                          ctx["geoms"], to_xy,
-                          float(law.tables.structures.bridge.deck_plate_normal_y_min))
+    ctx["under"] = _Under(plan.get("units") or (), ctx["geoms"], to_xy,
+                          float(law.tables.structures.bridge.deck_plate_normal_y_min),
+                          ctx["ground"])
     rows, cost = [], []
     for u, ds in units:
         got, dt = _unit_rows(u, ds, ctx)

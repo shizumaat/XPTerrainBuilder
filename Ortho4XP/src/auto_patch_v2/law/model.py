@@ -718,6 +718,12 @@ class Chords:
     pavement_max_chord_m: float
     apron_interior_spacing_m: float
     station_spacing_m: float
+    #: #2070 (``planar/ground_chords``): a road-family ring chord is split
+    #: where its ground departs from it by more than ``[cockpit] visual_m``,
+    #: the ground read every ``road_ground_sample_m``, no piece shorter
+    #: than ``road_ground_min_chord_m``
+    road_ground_sample_m: float
+    road_ground_min_chord_m: float
 
 
 @_dc.dataclass(frozen=True)

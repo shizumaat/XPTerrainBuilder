@@ -631,6 +631,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.fill_road",
         "auto_patch_v2.planar.floor_decks",
         "auto_patch_v2.planar.foot_kerb",
+        "auto_patch_v2.planar.ground_chords",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
@@ -2190,7 +2191,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.deck_lines
     constraints.taxi_route_yield
     airport.foot_lot
-    planar.foot_kerb
+    planar.foot_kerb planar.ground_chords
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
@@ -2359,7 +2360,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.deck_anchor
     constraints.taxi_route_yield
     airport.foot_lot
-    planar.foot_kerb
+    planar.foot_kerb planar.ground_chords
 """)
 CODE_MODULES["emit"] = _mods("""
     airport.facade airport.line_solidity classify.edge_line_mint

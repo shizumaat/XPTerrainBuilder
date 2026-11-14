@@ -361,7 +361,11 @@ def cmd_plan(args: argparse.Namespace) -> int:
         from auto_patch.mesh_sampler import (MeshElevationSampler,
                                              OutsideMeshError)
         started = time.perf_counter()
-        sampler = MeshElevationSampler(args.mesh, plan_.bounds())
+        # #1883: a tile ``.dsf`` read as X-Plane draws it, where the build
+        # kept no ``.mesh`` (a harness tile build's Rebuild_cache holds none)
+        sampler = (_also_sampler(args.mesh, plan_.bounds())
+                   if args.mesh.lower().endswith(".dsf")
+                   else MeshElevationSampler(args.mesh, plan_.bounds()))
         construct = time.perf_counter() - started
         print("  MeshElevationSampler: %d retained triangles, construct %.2fs"
               % (len(sampler._triangles), construct))
@@ -813,7 +817,7 @@ def _main(argv: list[str] | None = None) -> int:
     pl = sub.add_parser("plan", help="THE PLACEMENT STAGE, replayed and TIMED "
                                      "over the sampler the app calls (12g)")
     pl.add_argument("plan", help="the tile build's o4_v2_rebake_<ICAO>.json")
-    pl.add_argument("mesh", help="the built Data+XX+YYY.mesh")
+    pl.add_argument("mesh", help="the built Data+XX+YYY.mesh, or the tile .dsf (read as drawn)")
     pl.add_argument("--mesh-also", default="",
                     help="a NEIGHBOUR tile's drawn mesh (.mesh, or its installed "
                          ".dsf), read where the plan's bodies stand off the first "

@@ -180,3 +180,39 @@ def test_a_hidden_shell_yields_no_cells_or_pins_a_drawn_one_does(tmp_path):
     recs = {r["id"]: r for r in OF.seat_records([hidden])}
     assert recs["dsf:obj1"]["seat"] == TS.HIDDEN_SEAT
     assert recs["dsf:obj3"]["seat"] == TS.OBJECT_FLOOR_SEAT
+
+
+def test_a_rider_of_a_frame_deck_is_planned_with_it(tmp_path):
+    """#1883: a frame placement standing on a deck piece (LGAV's rails,
+    ``Bridge_Fences-Fence2``) is planned like the deck (``FRAME_SEAT``) so
+    its parts ride the piece's own seat; the frame's other rows stay whole
+    at the frame's zero."""
+    cache = O.ResourceCache(THICK)
+    floors, _notes = OF.read_object_floors(
+        [_placed(_shell(tmp_path), "dsf:obj1"),
+         _placed(_write(tmp_path / "deck.obj", [_section([-17.0, 17.0], [0.1, 0.1], 20.0)]),
+                 "dsf:obj4")], cache, LAW, {}, shells={"dsf:obj1": ("dsf:obj4", None)},
+        ground=lambda xs, ys: np.full(len(xs), 100.0))
+    deck = OF.FloorDeck("dsf:obj4#0", "dsf:obj4", "objects/dsf:obj4.obj", (), (), (), 0.1, 0.1)
+    seats = tuple(s for s in floors[0].seats if s[0] != "dsf:obj4") + (
+        ("dsf:obj5", "objects/rail.obj", 100.0), ("dsf:obj6", "objects/veg.obj", 100.0))
+    f = dataclasses.replace(floors[0], decks=(deck,), seats=seats, riders=("dsf:obj5",))
+    recs = {r["id"]: r for r in OF.seat_records([f])}
+    assert recs["dsf:obj5"]["seat"] == TS.FRAME_SEAT
+    assert recs["dsf:obj6"]["seat"] == TS.OBJECT_FLOOR_SEAT
+    assert TS.frame_zeros(recs.values()) == {"dsf:obj4": 100.0, "dsf:obj5": 100.0}
+
+
+def test_a_model_seat_keeps_the_cut_ring_of_the_floor_it_replaces():
+    """#1883: a hidden shell's row seated by its terrain model (2026-11-13i)
+    keeps the cut ring its floor record carried -- the witness the object
+    stage seats the frame's decks over the cut by."""
+    from auto_patch_v2.airport.cut_deck_seat import CUT_RING
+    from auto_patch_v2.pipeline.rebake_inputs import _keep_cut_rings
+    ring = [[37.93, 23.93], [37.94, 23.93], [37.94, 23.94]]
+    floor = [{"id": "dsf:obj1", "seat": TS.HIDDEN_SEAT, CUT_RING: ring},
+             {"id": "dsf:obj2", "seat": TS.OBJECT_FLOOR_SEAT}]
+    model = [{"id": "dsf:obj1", "seat": TS.HIDDEN_SEAT, "datum": "terrain"},
+             {"id": "dsf:obj3", "seat": "terrain model"}]
+    got = _keep_cut_rings(model, floor)
+    assert got[0][CUT_RING] == ring and CUT_RING not in got[1]

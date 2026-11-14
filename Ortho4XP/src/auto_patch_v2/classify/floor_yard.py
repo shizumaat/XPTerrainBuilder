@@ -116,10 +116,10 @@ def mint_floor_yards(airport, cells: list, law: Law, rules: Rules, add, lines: l
             n = mint_yard(cells, k, got, rules, add, stats, n,
                           (*_yard_keys(), FLOOR_YARD_KEY))
             info = got[2]
-            stats[f"floor_yard:{ref}"] = (f"tilt {info['yard_tilt']:.4f} rms {info['yard_rms']:.3f} "
-                                          f"witness {info['yard_upper']}/{info['yard_stations']} "
-                                          f"fences {info['yard_fences']} "
-                                          f"off {info['yard_g6_ratio']:+.2f} m")
+            stats[f"floor_yard:{ref}"] = (
+                f"tilt {info['yard_tilt']:.4f} rms {info['yard_rms']:.3f} "
+                f"witness {info['yard_upper']}/{info['yard_stations']} "
+                f"fences {info['yard_fences']} off {info['yard_g6_ratio']:+.2f} m")
     return n
 
 

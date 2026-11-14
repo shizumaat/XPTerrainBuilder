@@ -125,7 +125,7 @@ def _install(scenery, name, polys, overlay="1", marker=False):
     dsf.write_bytes(_dsf(polys, overlay))
     if marker:
         import O4_Overlay_Pack as OP
-        (root / OP.MARKER).write_text("{}", encoding="utf-8")
+        (root / OP.MARKER).write_text("{}", encoding="utf-8", newline="\n")
     return root
 
 

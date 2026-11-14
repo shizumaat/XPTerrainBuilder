@@ -2017,7 +2017,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders airport.bridge_witness airport.deck_surface geom.centreline
+    airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders
+    airport.bridge_witness airport.deck_surface geom.centreline
     airport.free_bridge_seat
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
@@ -2125,7 +2126,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders airport.bridge_witness airport.deck_surface geom.centreline
+    airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders
+    airport.bridge_witness airport.deck_surface geom.centreline
     airport.free_bridge_seat
     geom.lowest_face airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
@@ -2217,7 +2219,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.deck_end_read airport.deck_riders airport.deck_surface airport.free_bridge_seat
+    airport.bridge_approach airport.deck_end_read airport.deck_riders
+    airport.deck_surface airport.free_bridge_seat
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
@@ -2381,7 +2384,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.deck_end_read airport.deck_riders airport.deck_surface airport.free_bridge_seat
+    airport.bridge_approach airport.deck_end_read airport.deck_riders
+    airport.deck_surface airport.free_bridge_seat
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.plate_frame
@@ -2557,7 +2561,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders airport.bridge_witness airport.deck_surface geom.centreline
+    airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders
+    airport.bridge_witness airport.deck_surface geom.centreline
     airport.free_bridge_seat
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
@@ -2674,7 +2679,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.placement_plan
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
-    airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders airport.bridge_witness airport.deck_surface geom.centreline
+    airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders
+    airport.bridge_witness airport.deck_surface geom.centreline
     airport.free_bridge_seat
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record

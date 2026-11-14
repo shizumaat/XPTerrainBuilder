@@ -444,6 +444,12 @@ def build_arrangement(airport: Airport, classification: Classification,
                                                 seeds=level_seeds, shells=shells,
                                                 upper=upper_pad_reads(cells))
             _pad_clip.update(_plat)
+            # #2068: a floor yard stands on its floor pad's held block
+            from ..classify.floor_yard import floor_yard_reads
+            from ..model.registries import FLOOR_YARD
+            for _ref, _rec in floor_yard_reads(cells).items():
+                if _ref in reg.held and not reg.held[_ref].get("conforming"):
+                    reg.held[_ref][FLOOR_YARD] = _rec
         # #1333: a covered cutting no lower level took leaves every pad
         # (``planar/covered_cut``; #1179: a pad never fills a cut)
         from .covered_cut import trim_uncut

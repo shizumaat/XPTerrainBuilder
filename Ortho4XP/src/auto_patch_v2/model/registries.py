@@ -32,6 +32,11 @@ __all__ = ["Registries", "FIELDS", "GROUP_UP"]
 #: (the level a road arm climbs to) and ``constraints/riser``
 GROUP_UP = "group_up"
 
+#: the key of a FLOOR YARD's record on its floor pad's ``held`` record
+#: (``classify/floor_yard``, #2068): ``yard_plane``, ``yard_hull``, ``y_p``
+#: (the unit floor) -- read through ``constraints/yard_edge.yard_records``
+FLOOR_YARD = "floor_yard"
+
 
 @_dc.dataclass
 class Registries:

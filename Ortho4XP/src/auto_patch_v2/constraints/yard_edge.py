@@ -42,7 +42,7 @@ from ..law import Law
 from ..model.constraints import Row, row_vertices
 from ..model.planar import PlanarMap, face_vertex_set, fence_yard_pad
 
-__all__ = ["YardRun", "projected_vertices", "yard_exempt", "yard_runs"]
+__all__ = ["YardRun", "projected_vertices", "yard_exempt", "yard_records", "yard_runs"]
 
 
 @_dc.dataclass(frozen=True)
@@ -58,11 +58,27 @@ class YardRun:
     level_vertices: frozenset[int]
 
 
+def yard_records(planar: PlanarMap) -> dict[str, dict[str, _t.Any]]:
+    """``{level ref: its yard record}``: an upper level's landing record
+    carrying a ``yard_plane`` (spec 2068 A2 F3), and a floor pad's held
+    block record's floor yard (``classify/floor_yard``; the level is the
+    block itself, ``pad`` its own ref)."""
+    from ..model.registries import FLOOR_YARD
+    reg = planar.registries
+    out = {lv: rec for lv, rec in (getattr(reg, "landings", None) or {}).items()
+           if rec.get("yard_plane")}
+    for ref, h in (getattr(reg, "held", None) or {}).items():
+        if h.get(FLOOR_YARD):
+            out[ref] = dict(h[FLOOR_YARD], pad=ref)
+    return out
+
+
 def yard_runs(planar: PlanarMap, law: Law) -> list[YardRun]:
-    """The yard road run of every level whose landing record carries a
-    ``yard_hull`` (module doc); ``[]`` with none."""
-    lands = getattr(planar.registries, "landings", None) or {}
-    hulls = {lv: rec["yard_hull"] for lv, rec in lands.items() if rec.get("yard_hull")}
+    """The yard road run of every level whose yard record
+    (:func:`yard_records`) carries a ``yard_hull`` (module doc); ``[]``
+    with none."""
+    hulls = {lv: rec["yard_hull"] for lv, rec in yard_records(planar).items()
+             if rec.get("yard_hull")}
     if not hulls:
         return []
     import shapely

@@ -47,8 +47,8 @@ def project_fence_yards(planar: PlanarMap, law: Law, z: _t.Sequence[float]
     yards = [f for f in planar.faces.values() if fence_yard_pad(f.ref) is not None]
     if not yards:
         return tuple(z), None
-    lands = getattr(planar.registries, "landings", None) or {}
-    by_pad = {str(r.get("pad")): (lv, r) for lv, r in lands.items() if r.get("yard_plane")}
+    from ..constraints.yard_edge import yard_records
+    by_pad = {str(r.get("pad")): (lv, r) for lv, r in yard_records(planar).items()}
     out = [float(v) for v in z]
     users: set[int] = set()
     airside: set[int] = set()

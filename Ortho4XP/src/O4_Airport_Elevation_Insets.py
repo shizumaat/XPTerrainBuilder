@@ -3150,6 +3150,30 @@ def _fill_masked_by_distance_transform(
     return filled
 
 
+# THE SURFACE IS AN UPPER BOUND (#2064 round 2 C1, #2066).  A surface
+# model carries ground PLUS whatever stands on it, so the ground under a
+# masked pixel is never above the surface that was measured there.  The
+# nearest-ground fill copies a rim value across the whole masked component;
+# on a slope or a hill (LOWS Festungsberg: the raw surface falls 519 -> 435
+# m across the old town) that copy is a plateau which stands up to 70 m
+# ABOVE the measured surface on the low side.  The sidecar records the
+# clamp as ``fill_clamp`` (no key = a cell filled before it).
+FILL_CLAMP = "fill_clamp"
+
+
+def _clamp_fill_to_surface(filled_values, surface_values, pixels_to_fill):
+    """Lower every filled pixel that stands above the fetched surface to it.
+
+    In place on ``filled_values``; only ``pixels_to_fill`` are touched, so
+    every trusted-ground pixel stays byte-identical, and a flat apron (whose
+    fill sits below its roofs) is unchanged.
+    """
+    surface = numpy.asarray(surface_values, dtype=filled_values.dtype)
+    filled_values[pixels_to_fill] = numpy.minimum(
+        filled_values[pixels_to_fill], surface[pixels_to_fill]
+    )
+
+
 _BUILDING_QUERY_STATEMENTS = ['way["building"]', 'rel["building"]']
 
 
@@ -3720,8 +3744,10 @@ def mask_building_footprints_in_surface_model(
     OpenStreetMap building footprint is masked and re-interpolated from
     the surrounding ground with ``gdal.FillNodata``.  Under an airport
     terminal the true ground is nearly planar, which makes the fill an
-    excellent estimate.  Genuine nodata cells are excluded from the
-    interpolation sources and restored verbatim afterwards.
+    excellent estimate.  The fill is never above the fetched surface
+    (:func:`_clamp_fill_to_surface`): on a slope the nearest-ground copy
+    would stand above the low side.  Genuine nodata cells are excluded from
+    the interpolation sources and restored verbatim afterwards.
 
     Returns a summary dictionary for the provenance sidecar; on any
     failure the summary carries a ``skipped`` reason and the raster is
@@ -3813,6 +3839,7 @@ def mask_building_footprints_in_surface_model(
                 interpolation_sources,
                 smoothing_iterations=DEFAULT_FILL_SMOOTHING_ITERATIONS,
             )
+            _clamp_fill_to_surface(filled_values, values, pixels_to_fill)
             filled_values[genuine_nodata] = nodata_value
             band.WriteArray(filled_values)
             band.FlushCache()
@@ -3838,6 +3865,7 @@ def mask_building_footprints_in_surface_model(
                 smoothingIterations=DEFAULT_FILL_SMOOTHING_ITERATIONS,
             )
             filled_values = band.ReadAsArray()
+            _clamp_fill_to_surface(filled_values, values, pixels_to_fill)
             filled_values[genuine_nodata] = nodata_value
             band.WriteArray(filled_values)
             band.FlushCache()
@@ -3865,6 +3893,7 @@ def mask_building_footprints_in_surface_model(
             DEFAULT_RESIDUAL_MASK_OPENING_WINDOW_M,
         "footprint_mask_buffer_m": buffer_m,
         "fill_method": fill_method,
+        FILL_CLAMP: 1,
     }
 
 

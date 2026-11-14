@@ -1241,7 +1241,8 @@ def _build_dsf_body(tile, download_queue):
             if node_hash in textured_nodes:
                 (idx_dsfpool, pos_in_pool) = textured_nodes[node_hash]
             else:
-                (idx_dsfpool, pos_in_pool) = point_pools.slot(idx_node_to_idx_pool[n] + 2 * pool_nbr)
+                (idx_dsfpool, pos_in_pool) = point_pools.slot(
+                    idx_node_to_idx_pool[n] + 2 * pool_nbr)
                 len_textured_nodes += 1
                 textured_nodes[node_hash] = [idx_dsfpool, pos_in_pool]
                 dsf_pools[idx_dsfpool].extend(node_icoords[5 * n : 5 * n + 3])
@@ -1596,7 +1597,8 @@ def _build_dsf_body(tile, download_queue):
                 if node_hash in textured_nodes:
                     (idx_dsfpool, pos_in_pool) = textured_nodes[node_hash]
                 else:
-                    (idx_dsfpool, pos_in_pool) = point_pools.slot(idx_node_to_idx_pool[n] + 2 * pool_nbr)
+                    (idx_dsfpool, pos_in_pool) = point_pools.slot(
+                        idx_node_to_idx_pool[n] + 2 * pool_nbr)
                     len_textured_nodes += 1
                     textured_nodes[node_hash] = [idx_dsfpool, pos_in_pool]
                     # in some cases we might prefer to use normal shading for
@@ -1828,7 +1830,8 @@ def _build_dsf_body(tile, download_queue):
                 if node_hash in textured_nodes:
                     (idx_dsfpool, pos_in_pool) = textured_nodes[node_hash]
                 else:
-                    (idx_dsfpool, pos_in_pool) = point_pools.slot(idx_node_to_idx_pool[n] + 2 * pool_nbr)
+                    (idx_dsfpool, pos_in_pool) = point_pools.slot(
+                        idx_node_to_idx_pool[n] + 2 * pool_nbr)
                     len_textured_nodes += 1
                     textured_nodes[node_hash] = [idx_dsfpool, pos_in_pool]
                     # in some cases we might prefer to use normal shading for
@@ -1914,6 +1917,9 @@ def _build_dsf_body(tile, download_queue):
     size_of_head_atom = 16 + len(bPROP)
     size_of_prop_atom = 8 + len(bPROP)
     # Overflow pools opened during the passes count from here on.
+    if len(point_pools) > dsf_pool_nbr:
+        UI.vprint(1, "     Point pools past 65,536 points rolled over into",
+                  len(point_pools) - dsf_pool_nbr, "overflow pool(s).")
     dsf_pool_nbr = len(point_pools)
     size_of_defn_atom = (
         48 + len(bTERT) + len(bOBJT) + len(bPOLY) + len(bNETW) + len(bDEMN)

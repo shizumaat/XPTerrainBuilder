@@ -10,23 +10,22 @@ slots there.
 """
 import queue
 
-import pytest
-
 import O4_Default_Terrain_Map as DTM
 import O4_DSF_Pools as POOLS
 import O4_DSF_Utils as DSF
-from test_dsf_texture_modes import (
-    _DSFTOOL, DECODE, _emitted_dsf, _make_tile, _prepare_build_dir,
-    _write_mesh, stub_elevation)  # noqa: F401  (stub_elevation: fixture)
+import test_dsf_texture_modes as MODES
+
+# The synthetic-mesh fixtures of the texture-mode suite, reused.
+stub_elevation = MODES.stub_elevation
 
 
 def test_slot_rolls_over_at_sixteen_bits():
     pools = POOLS.DsfPointPools(2, [7, 7, 5, 5])
-    slots = [pools.slot(3) for _ in range(POOLS.POOL_MAX_POINTS + 10)]
-    assert slots[POOLS.POOL_MAX_POINTS - 1] == (3, POOLS.POOL_MAX_POINTS - 1)
-    assert slots[POOLS.POOL_MAX_POINTS] == (4, 0)
+    slots = [pools.slot(3) for _ in range(POOLS.DsfPointPools.MAX_POINTS + 10)]
+    assert slots[POOLS.DsfPointPools.MAX_POINTS - 1] == (3, POOLS.DsfPointPools.MAX_POINTS - 1)
+    assert slots[POOLS.DsfPointPools.MAX_POINTS] == (4, 0)
     assert slots[-1] == (4, 9)
-    assert pools.length == [0, 0, 0, POOLS.POOL_MAX_POINTS, 10]
+    assert pools.length == [0, 0, 0, POOLS.DsfPointPools.MAX_POINTS, 10]
     # The overflow pool keeps its parent's planes and geometric pool.
     assert pools.plane[4] == 5 and pools.geometric[4] == 1
     # Other bases are untouched and still write into their own pool.
@@ -60,7 +59,7 @@ class _CheckerTerrainMap:
         return True
 
 
-@_DSFTOOL
+@MODES._DSFTOOL
 def test_default_land_pool_over_sixteen_bits_builds(
         tmp_path, monkeypatch, stub_elevation):
     # 190 x 190 nodes inside one level-3 quadtree cell (< 50,000 nodes: one
@@ -76,8 +75,8 @@ def test_default_land_pool_over_sixteen_bits_builds(
             b, c, d = a + 1, a + side + 1, a + side
             tris.append((a, b, c, 0))
             tris.append((a, c, d, 0))
-    build_dir = _prepare_build_dir(tmp_path)
-    _write_mesh(build_dir, verts, tris)
+    build_dir = MODES._prepare_build_dir(tmp_path)
+    MODES._write_mesh(build_dir, verts, tris)
     terrain_map = _CheckerTerrainMap(lon0, lat0, step)
     monkeypatch.setattr(
         DTM.DefaultTerrainMap, "from_tile",
@@ -88,11 +87,11 @@ def test_default_land_pool_over_sixteen_bits_builds(
         POOLS.DsfPointPools, "_open_overflow",
         lambda self, full: opened.append(full) or real_open(self, full))
 
-    assert DSF.build_dsf(_make_tile(build_dir, "default_xplane"),
+    assert DSF.build_dsf(MODES._make_tile(build_dir, "default_xplane"),
                          queue.Queue()) == 1
 
     assert opened, "no band pool reached 65,536 points: the fixture is too small"
-    dump = DECODE.decode_dsf(_emitted_dsf(build_dir))
+    dump = MODES.DECODE.decode_dsf(MODES._emitted_dsf(build_dir))
     land = [p for p in dump.patches if p.terrain_path.startswith("lib/g10/")]
     assert {p.plane_count for p in land} == {5}
     assert sum(p.triangle_count for p in land) == len(tris)

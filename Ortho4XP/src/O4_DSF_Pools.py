@@ -12,10 +12,7 @@ A tile that never fills a pool gets exactly the pools it always had.
 """
 import array
 
-__all__ = ["POOL_MAX_POINTS", "DsfPointPools"]
-
-# A point index is an unsigned 16-bit word in every DSF triangle command.
-POOL_MAX_POINTS = 1 << 16
+__all__ = ["DsfPointPools"]
 
 
 class DsfPointPools:
@@ -27,8 +24,12 @@ class DsfPointPools:
     pools, appended in the order they were opened.
     """
 
+    # A point index (and a pool index) is an unsigned 16-bit word in every
+    # DSF triangle command.
+    MAX_POINTS = 1 << 16
+
     def __init__(self, geometric_nbr, planes, max_points=None):
-        self.max_points = POOL_MAX_POINTS if max_points is None else max_points
+        self.max_points = self.MAX_POINTS if max_points is None else max_points
         self.points = [array.array("H") for _ in planes]
         self.length = [0] * len(planes)
         self.plane = [int(p) for p in planes]
@@ -53,7 +54,7 @@ class DsfPointPools:
         return (pool, position)
 
     def _open_overflow(self, full):
-        if len(self.points) >= POOL_MAX_POINTS:
+        if len(self.points) >= self.MAX_POINTS:
             raise OverflowError("DSF needs more than 65,536 point pools")
         self.points.append(array.array("H"))
         self.length.append(0)

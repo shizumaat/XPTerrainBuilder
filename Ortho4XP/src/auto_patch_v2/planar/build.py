@@ -425,12 +425,12 @@ def build(airport: Airport, classification: Classification, law: Law,
     # #2065 A3 C2 N2: a free bridge the planar stage refused, or one whose
     # deck carries a split-level / walled plate (A1 ``plated_deck``, listed:
     # owner Q3), mints no ground; the stacks the arrangement reads are the
-    # admitted ones, a graded end entering a lot held (``planar/free_bridge.
-    # planar_stacks``; ``PlanarMap.bridge_stacks``)
+    # admitted ones (``planar/free_bridge.planar_stacks``;
+    # ``PlanarMap.bridge_stacks``)
     free, plated_notes = free_plated(free, basins, objects)
     sstats.hard_decks.extend(plated_notes)
     bridge_stacks, bs_notes = free_planar_stacks(getattr(airport, "deck_stacks", ()) or (),
-                                                 free, classification)
+                                                 free)
     sstats.hard_decks.extend(bs_notes)
     airport = _dc.replace(airport, deck_stacks=live_stacks(
         getattr(airport, "deck_stacks", ()) or (),

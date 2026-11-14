@@ -496,7 +496,7 @@ class PlanarMap:
     free_bridges: tuple = ()
     #: #2065 A3: the FREE / KEPT bridge stacks the planar stage kept
     #: (``planar/free_bridge.planar_stacks``: admitted, no plated deck, a
-    #: graded end entering a lot held) — what every stack reader after the
+    #: graded end) — what every stack reader after the
     #: planar stage reads beside the trench stacks
     #: (``model/deck_stack.live_stacks``); ``None`` = not refined (a map
     #: built before them: every stack of the airport stands).

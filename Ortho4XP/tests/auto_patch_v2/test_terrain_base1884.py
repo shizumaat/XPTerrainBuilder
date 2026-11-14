@@ -97,14 +97,17 @@ def test_a_house_on_its_authors_hill_stands_on_ours(tmp_path):
     assert not ss.counts.get("terrain_carried_over_ground")
 
 
-def test_a_house_whose_rigid_base_clears_our_ground_stands_on_it_too(tmp_path):
-    """RULINGS 2026-11-13y (2): no walled building with nothing under it
-    stays in the air — the case is counted for the owner's read."""
+def test_a_house_whose_rigid_base_clears_our_ground_keeps_its_authored_height(tmp_path):
+    """RULINGS 2026-11-14a (1) (``terrain_base_over_ground = false``): only
+    a base at or under our ground is put on our terrain; one whose rigid
+    base clears it keeps §16 (3)'s own ground with its authored y — the
+    case counted for the owner's read (docs/findings/1884-in-air-pieces.md)."""
     ss = PP.build_splits(_plan(_obj(tmp_path, [HOUSE])), _hill(12.0), write=False, **ARGS)
     b = _house(ss)
-    assert TB.TERRAIN_CARRIED in b.anchor.reason and "over this ground" in b.anchor.reason
-    assert b.anchor.y_zero == pytest.approx(20.0, abs=1e-6)
-    assert ss.counts.get("terrain_carried_over_ground") == 1
+    assert TB.TERRAIN_CARRIED not in b.anchor.reason
+    assert b.anchor.y_zero == pytest.approx(0.0, abs=1e-9)
+    assert ss.counts.get("terrain_carried_refused_over_ground") == 1
+    assert not ss.counts.get("terrain_carried_over_ground")
 
 
 def test_the_over_ground_switch_refuses_and_counts():

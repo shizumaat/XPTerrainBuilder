@@ -341,9 +341,22 @@ def cmd_plan(args: argparse.Namespace) -> int:
                      len(sampler._grid_triangles)
                      / max(1, len(sampler._triangles))))
 
-        def sample(la, lo, _s=sampler):
+        # #1884: a plan whose bodies stand on the NEIGHBOUR tile (guest
+        # rows) reads that tile's drawn mesh there (``--mesh-also``)
+        also = (MeshElevationSampler(args.mesh_also, plan_.bounds())
+                if getattr(args, "mesh_also", "") else None)
+
+        def _at(la, lo, _s=sampler):
             try:
-                s = _s.sample_at(la, lo)
+                return _s.sample_at(la, lo)
+            except OutsideMeshError:
+                if also is None:
+                    raise
+                return also.sample_at(la, lo)
+
+        def sample(la, lo):
+            try:
+                s = _at(la, lo)
             except OutsideMeshError:
                 if capture[0]:
                     oracle[(la, lo)] = None
@@ -357,7 +370,13 @@ def cmd_plan(args: argparse.Namespace) -> int:
         if hasattr(sampler, "sample_many") and not args.no_batch:
             def sample_many(las, los, _s=sampler):
                 out = []
-                for s in _s.sample_many(las, los):
+                for la, lo, s in zip(las, los, _s.sample_many(las, los),
+                                     strict=True):
+                    if s is None and also is not None:
+                        try:
+                            s = also.sample_at(la, lo)
+                        except OutsideMeshError:
+                            s = None
                     if s is None:
                         out.append(None)
                         continue
@@ -756,6 +775,9 @@ def _main(argv: list[str] | None = None) -> int:
                                      "over the sampler the app calls (12g)")
     pl.add_argument("plan", help="the tile build's o4_v2_rebake_<ICAO>.json")
     pl.add_argument("mesh", help="the built Data+XX+YYY.mesh")
+    pl.add_argument("--mesh-also", default="",
+                    help="a NEIGHBOUR tile's drawn mesh, read where the plan's "
+                         "bodies stand off the first (#1884 guest rows)")
     pl.add_argument("--graded", required=True,
                     help="the emitted design surface <ICAO>.graded.json "
                          "(the pads and rims §6's class rule reads)")

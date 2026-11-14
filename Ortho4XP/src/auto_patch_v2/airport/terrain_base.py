@@ -31,10 +31,15 @@ the author placed them"):
    (§3 A) refused a base that clears our ground by more than
    ``elevated_base_m``; the owner REJECTED that (RULINGS 2026-11-13y (2):
    "A building can't be completely in the air, there must either be some
-   structure or terrain supporting it") — such a building stands on our
-   terrain too, and is counted (``terrain_carried_over_ground``) and
-   named in its reason for the owner's read; ``[placement]
-   terrain_base_over_ground = false`` restores the spec's refusal;
+   structure or terrain supporting it"), then AMENDED it (RULINGS
+   2026-11-14a (1)): 13y's reading would have dropped 166 pieces at 14
+   airports that stand on structure the reader cannot see (CYYZ Terminal
+   1, EDDF street lights on elevated roads, ...), so a base that clears our
+   ground keeps §16 (3)'s own ground with its authored y and is counted
+   (``terrain_carried_refused_over_ground``; ``[placement]
+   terrain_base_over_ground = false``, the list in
+   ``docs/findings/1884-in-air-pieces.md``); ``true`` is 13y's reading
+   (``terrain_carried_over_ground``);
 4. nothing carries it: the caller asks only where the carrier search
    found nothing (``placement_file._own_ground_file``) or the unit has no
    foot at all (``footprint_unit._wall_base``'s footless branch) — and NO
@@ -82,8 +87,8 @@ class TerrainLaw:
     split_tol_m: float = 0.0       # ``[placement] split_tol_m``
     #: every part of the plan: ``(pid, frame, base_y, top_y, box)``
     parts: tuple = ()
-    #: ``[placement] terrain_base_over_ground`` (witness 3, 13y (2))
-    over_ground: bool = True
+    #: ``[placement] terrain_base_over_ground`` (witness 3; 13y (2), 14a (1))
+    over_ground: bool = False
 
 
 @_dc.dataclass(frozen=True)

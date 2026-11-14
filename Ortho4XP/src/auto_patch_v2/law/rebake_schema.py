@@ -533,7 +533,8 @@ class Placement:
     #: carries whose RIGID base would clear our ground by more than
     #: ``[rebake] elevated_base_m`` stands on our terrain too (owner RULINGS
     #: 2026-11-13y (2)); ``false`` keeps it on §16 (3)'s own ground with its
-    #: authored y (the spec's witness 3).  The case is counted either way
+    #: authored y (the spec's witness 3) — the owner's reading since RULINGS
+    #: 2026-11-14a (1).  The case is counted either way
     #: (``terrain_carried_over_ground`` / ``..._refused_over_ground``).
     terrain_base_over_ground: bool = False
 

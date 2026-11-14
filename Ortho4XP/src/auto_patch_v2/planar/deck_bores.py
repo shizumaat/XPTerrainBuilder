@@ -37,6 +37,17 @@ itself, never from the aeroway way drawn over it:
   own LANE: its own corridor, the deck's bank split between neighbouring
   lanes halfway across the median (:func:`lane_band`).
 
+* A TRENCH NEVER ENDS ON AIRSIDE PAVEMENT (#2072 rule A; RULINGS
+  2026-10-30a (2), 2026-11-03b (2)).  Where airside pavement no deck ring
+  carries stops a deck trench's run-out before any ramp up to the cap can
+  top out, the open stretch stays level at the floor up to it and that
+  pavement is the cut's RIM (:func:`airside_stop`, read by
+  ``deck_bridge.deck_cut``'s ``uncut``): the void between the floor and the
+  pavement edge is the vertical step, and the trench is never refused "the
+  mouth stands against pavement".  MEASURED KIAH obj24551 (29.987353,
+  -95.330258): the run-out clipped one station short of the apron and ended
+  free, the ground between drawn as a slope up to the apron.
+
 Nothing here names a pack, a resource or an airport.
 """
 from __future__ import annotations
@@ -44,6 +55,7 @@ from __future__ import annotations
 import typing as _t
 
 from shapely.geometry import LineString, Point
+from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
@@ -51,7 +63,7 @@ from ..model.airport import OsmWay
 from .deck_bridge import DeckBridge, across_dir, deck_polygon, deck_side, mid_line, project_span
 from .structure_approach import carriageway_width_m
 
-__all__ = ["deck_bores", "deck_lanes", "lane_band"]
+__all__ = ["deck_bores", "deck_lanes", "lane_band", "airside_stop", "road_level"]
 
 XY = tuple[float, float]
 
@@ -134,11 +146,16 @@ def _already_bored(c: Point, half: float, clip, lines, tree, min_span: float) ->
 
 
 def deck_lanes(mouths: _t.Sequence, deck_of: _t.Mapping[int, "DeckBridge | None"],
-               sep_m: float) -> tuple[dict[int, int], dict[int, list[float]]]:
+               sep_m: float, level_of: "_t.Mapping[int, float] | None" = None,
+               level_tol: float = 0.0) -> tuple[dict[int, int], dict[int, list[float]]]:
     """``(lane index per mouth id, every lane's centre per deck side)``: the
     mouths on ONE SIDE of one deck (``deck_side``), ordered across the road
     (``across_dir``), split into lanes wherever two neighbours stand more
-    than ``sep_m`` apart (module doc).  Keyed by ``id()`` of the mouth and
+    than ``sep_m`` apart (module doc) -- or, LANES BY LEVEL (#2072 B2), where
+    their own roads' ground beyond the deck (``level_of``, keyed by mouth
+    id: :func:`road_level`) differs by more than ``level_tol``: one corridor
+    has one flat level per station, so two roads at two levels topping out
+    on one ramp step (MEASURED KIAH, the ramp-top step of #1902).  Keyed by ``id()`` of the mouth and
     by ``(id(deck), side)``.  The mouths of one road on the deck's two
     sides are the two halves of one cut, never two lanes: MEASURED (LFPG,
     the A1 under 09R/27L, deck redesign PR B) a road crossing the deck
@@ -160,13 +177,50 @@ def deck_lanes(mouths: _t.Sequence, deck_of: _t.Mapping[int, "DeckBridge | None"
         us.sort()
         lanes: list[list[float]] = [[us[0][0]]]
         lane_of[us[0][1]] = 0
-        for (u0, _a), (u1, mid) in zip(us, us[1:], strict=False):
-            if u1 - u0 > sep_m:
+        for (u0, m0), (u1, mid) in zip(us, us[1:], strict=False):
+            if u1 - u0 > sep_m or _levels_differ(level_of, m0, mid, level_tol):
                 lanes.append([])
             lanes[-1].append(u1)
             lane_of[mid] = len(lanes) - 1
         centres[key] = [0.5 * (min(ln) + max(ln)) for ln in lanes]
     return lane_of, centres
+
+
+def _levels_differ(level_of, a: int, b: int, tol: float) -> bool:
+    """Whether mouths ``a`` and ``b``'s own roads stand more than ``tol``
+    apart beyond the deck (an unread level never splits)."""
+    if not level_of:
+        return False
+    za, zb = level_of.get(a), level_of.get(b)
+    return za is not None and zb is not None and abs(za - zb) > tol
+
+
+def road_level(approach: _t.Sequence[XY], db: DeckBridge, dem_z: _t.Callable[[float, float], float],
+               gap: float, run: float, step: float) -> "float | None":
+    """THE GROUND OF A MOUTH'S OWN ROAD BEYOND ITS DECK (#2072 B2): the
+    median DEM along the mouth's ``approach`` (its mapped road walking out
+    of the bore), from where it leaves the deck ring ``gap`` behind, over
+    ``run`` metres (one design ramp length), each ``step``; ``None`` where
+    the road reads no ground there."""
+    import math
+    import statistics
+    if len(approach) < 2 or step <= 0.0:
+        return None
+    ln = LineString(approach)
+    clear = deck_polygon(db).buffer(gap)
+    s, zs, start = 0.0, [], None
+    while s <= ln.length + 1e-9:
+        p = ln.interpolate(s)
+        if start is None and not clear.contains(p):
+            start = s
+        if start is not None:
+            if s - start > run + 1e-9:
+                break
+            z = dem_z(p.x, p.y)
+            if not math.isnan(z):
+                zs.append(z)
+        s += step
+    return statistics.median(zs) if zs else None
 
 
 def lane_band(db: DeckBridge, centres: _t.Sequence[float], lane: int
@@ -179,3 +233,18 @@ def lane_band(db: DeckBridge, centres: _t.Sequence[float], lane: int
     lo = -float("inf") if lane == 0 else 0.5 * (centres[lane - 1] + centres[lane])
     hi = float("inf") if lane == len(centres) - 1 else 0.5 * (centres[lane] + centres[lane + 1])
     return lo, hi
+
+
+def airside_stop(stops: _t.Sequence[tuple[_t.Any, str]], ref: str,
+                 decks: _t.Sequence[DeckBridge]):
+    """THE PAVEMENT A DEAD-END DECK TRENCH ENDS ON (module doc, rule A2):
+    the stop polygons named ``ref`` (``structure_mouth.mouth_at_pavement``'s
+    ``stops``), less every deck ring (a deck carries what stands on it);
+    ``None`` for nothing left."""
+    got = [p for p, r in stops if r == ref and not p.is_empty]
+    if not got:
+        return None
+    out = unary_union(got)
+    if decks:
+        out = out.difference(unary_union([deck_polygon(db) for db in decks]))
+    return None if out.is_empty else out

@@ -152,6 +152,8 @@ def test_the_mouth_stands_at_the_deck_midline_and_the_cut_banks_to_its_edge(tmp_
     outer = ramp.buffer(1.6, join_style="mitre")
     r2, o2 = DB.deck_cut(db, moved, ramp, outer, 0.6)
     assert abs(r2.bounds[1]) < 1e-6 and abs(o2.bounds[1]) < 1e-6      # the midline
+    # #2072 C: the bank is cleared and left to the deck's ground, never void
+    o2 = o2.union(DB.deck_banks(db, moved, 0.6))
     assert abs(o2.bounds[0] + 19.4) < 1e-6 and abs(o2.bounds[2] - 19.4) < 1e-6
     climb, level, stretch, seats, other = DB.deck_seats(db, moved, None, 0.6)
     assert abs(climb - 20.6) < 1e-6 and level is None and stretch == () and other is None
@@ -452,9 +454,10 @@ def test_the_survey_is_never_read_under_a_deck(tmp_path):
 def test_a_ladder_floor_never_lifts_its_deck(tmp_path):
     """#1903 (owner 2026-11-05: airside never moves by the cut; KIAH_Bridge1
     lifted 0.85 / 1.40 m with its taxiway): a deck whose frame stops short
-    of the road takes the ladder's floor (``floor_min_m``), and its floor row is
-    ONE-SIDED — at least ``[tunnel] clearance_m`` under the deck seat,
-    free to sink; a frame whose own bottom states the floor keeps the pair."""
+    of the road takes the ladder's floor (``floor_min_m``); a frame whose own
+    bottom states the floor keeps the pair.  Since #2072 B1 the ladder floor
+    is a PINNED level (``test_deck_trench2072``) -- the one-sided rows below
+    are ``edge_floor``'s helpers, no longer minted for a ladder floor."""
     (db,), _n = _slab_read(tmp_path, AIRPORT)
     assert db.floor_min_m == LAW.tables.structures.tunnel.clearance_m
     (tmp_path / "w").mkdir()

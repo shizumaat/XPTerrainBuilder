@@ -262,3 +262,48 @@ def test_a_near_vertical_step_is_read_with_horizontal_slack():
     rep = DG.mesh_follows_patch(nodes, cliff, (45, 10), set())
     assert rep["over_bar"] == 1 and rep["sites"][0]["node"] == "-2"
     assert rep["sites"][0]["delta"] == pytest.approx(-(70.0 * (0.5 - DG.XY_TOL_M)), abs=0.05)
+
+
+def test_the_road_layer_fails_a_step_along_a_mapped_road(monkeypatch):
+    """#2072 step 5: a mapped road sampled on the drawn mesh each metre
+    inside a site's radius; a step over ``--road-step`` between two
+    consecutive samples FAILs the site, a smooth road PASSes, a site with
+    no road is NOT MEASURED, and ``--against`` flags a worse step."""
+    import drawn_roads as DR
+    lat0, lon0 = 45.5, 10.5
+    kx = DR._M_PER_DEG * math.cos(math.radians(lat0))
+    road = [(lat0 - 100.0 / DR._M_PER_DEG, lon0), (lat0 + 100.0 / DR._M_PER_DEG, lon0)]
+    monkeypatch.setattr(DR, "road_lines", lambda root, la, lo, r, b=None: [] if la != lat0 else
+                        [(-1, "primary", road)])
+
+    def stepped(lon, lat):                  # a 2 m lip 20 m north of the site
+        return 100.0 + (2.0 if (lat - lat0) * DR._M_PER_DEG > 20.0 else 0.0)
+
+    def smooth(lon, lat):                   # a 5 % ramp
+        return 100.0 + 0.05 * (lat - lat0) * DR._M_PER_DEG
+    rep = DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5)
+    row = rep["sites"][0]
+    assert rep["verdict"] == "FAIL" and row["max_step_m"] == pytest.approx(2.0)
+    assert abs((row["lat"] - lat0) * DR._M_PER_DEG - 20.0) <= 1.5 and row["roads"] == 1
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], smooth, "/nowhere")["verdict"] == "PASS"
+    assert DR.road_layer([("x", lat0 + 1.0, lon0, 50.0)], smooth,
+                         "/nowhere")["verdict"] == "NOT MEASURED"
+    # the clip: a road wholly outside the radius is no run
+    assert DR._clip_runs([(lat0, lon0 + 500.0 / kx), (lat0, lon0 + 600.0 / kx)],
+                         lat0, lon0, 50.0, 1.0) == []
+    # a mapped bridge over the road at the lip: the mesh there is the
+    # bridge's ground, never the road under it -- not read
+    over = [(lat0 + 20.0 / DR._M_PER_DEG, lon0 - 30.0 / kx),
+            (lat0 + 20.0 / DR._M_PER_DEG, lon0 + 30.0 / kx)]
+
+    def with_bridge(root, la, lo, r, b=None):
+        if b is not None:
+            b.append((3.5, over))
+        return [(-1, "primary", road)]
+    monkeypatch.setattr(DR, "road_lines", with_bridge)
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere")["verdict"] == "PASS"
+    rep2 = {"mesh": {"verdict": "PASS"}, "patch_to_drawn": {"verdict": "PASS", "sites": []},
+            "objects": {"verdict": "PASS", "sites": []}, "incomplete": [], "roads": rep}
+    base = {"roads": {"sites": [dict(row, max_step_m=0.9)]}}
+    judged = DG.judge(rep2, (), base)
+    assert judged["verdict"] == "FAIL" and judged["moved"]

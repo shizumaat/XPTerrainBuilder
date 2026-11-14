@@ -31,6 +31,11 @@ means all three passed:
    a harness build without a copy stood its pack writes down, so the pack
    on disk is the owner's old one and the layer is NOT MEASURED.
 
+4. ROADS (#2072) -- with ``--site``: every mapped vehicle road within a
+   site's radius sampled on the drawn mesh each metre; a step between two
+   consecutive samples over ``--road-step`` (default 0.5 m, the ground bar)
+   FAILs the site (``tools/harness/drawn_roads.py``).
+
 Verdict: FAIL when any layer fails; INCOMPLETE when nothing failed but a
 layer was not measured (a patch-only build has no drawn product; a tile
 build without ``--pack-copy`` has no written objects); PASS otherwise.
@@ -263,6 +268,13 @@ def gate(args):
         patch_nodes(patch), lambda x, y: DC.mesh_z(sampler, x, y),
         (int(tile[:3]), int(tile[3:])), set(pavement_roles(Law.for_airport(args.icao))))
     rep["objects"] = _objects(args, sampler, dsfs)
+    sites = [parse_site(t) for t in getattr(args, "site", None) or ()]
+    if sites:
+        import O4_File_Names as FNAMES
+        from drawn_roads import ROAD_STEP_M, road_layer
+        step = getattr(args, "road_step", None)
+        rep["roads"] = road_layer(sites, lambda x, y: DC.mesh_z(sampler, x, y),
+                                  FNAMES.OSM_dir, ROAD_STEP_M if step is None else step)
     return _verdict(rep, t0)
 
 
@@ -324,6 +336,13 @@ def _moved(rep, base):
         if b is None or abs(s["delta"]) > abs(b["delta"]) + MOVED_M:
             out.append(f"patch->drawn node {s['node']} @{s['lat']},{s['lon']}: "
                        f"{'new' if b is None else b['delta']} -> {s['delta']:+.2f}")
+    was = {r["site"]: r for r in base.get("roads", {}).get("sites", [])}
+    for r in rep.get("roads", {}).get("sites", []):
+        b = was.get(r["site"])
+        if r.get("verdict") == "FAIL" and (b is None or b.get("max_step_m") is None or
+                                           r["max_step_m"] > b["max_step_m"] + MOVED_M):
+            out.append(f"roads {r['site']}: {'new' if b is None else b.get('max_step_m')} "
+                       f"-> {r['max_step_m']:.2f} m step")
     was = {r["site"]: r for r in base.get("objects", {}).get("sites", [])}
     for r in rep.get("objects", {}).get("sites", []):
         if r.get("verdict") != "FAIL":
@@ -359,7 +378,7 @@ def judge(rep, sites=(), base=None):
     if base is not None:
         rep["moved"] = _moved(rep, base)
     layers = [rep["mesh"]["verdict"], rep["patch_to_drawn"]["verdict"],
-              rep["objects"]["verdict"]]
+              rep["objects"]["verdict"]] + ([rep["roads"]["verdict"]] if "roads" in rep else [])
     rep["verdict"] = ("FAIL" if "FAIL" in layers or rep.get("moved") else
                       "INCOMPLETE" if "NOT MEASURED" in layers or rep["incomplete"]
                       else "PASS")
@@ -388,7 +407,8 @@ def summary_line(rep):
             f"{rep['mesh']['verdict']}; patch->drawn {p2d.get('verdict')} "
             f"({p2d.get('over_bar', '-')} of {p2d.get('nodes', '-')} nodes over the "
             f"bars, {len(p2d.get('sites', []))} sites); objects {obj.get('verdict')}"
-            + tail)
+            + tail + (f"; roads {rep['roads']['verdict']} ({rep['roads']['failed']} "
+                      f"site(s) over {rep['roads']['bar_m']} m)" if rep.get("roads") else ""))
 
 
 def print_gate(rep, top=20):
@@ -411,6 +431,15 @@ def print_gate(rep, top=20):
           f"{obj['failed']} of {obj['claimed']} claimed sites FAIL"))
     for s in [s for s in obj.get("sites", []) if s.get("verdict") == "FAIL"][:top]:
         print(f"     FAIL {s['site']} @{s['lat']},{s['lon']}: {'; '.join(s['fails'])}")
+    roads = rep.get("roads")
+    if roads:
+        print(f"  roads {roads['verdict']}: {roads['failed']} site(s) over a "
+              f"{roads['bar_m']} m step between {roads['step_m']} m samples")
+        for r in roads["sites"]:
+            print(f"     {r['verdict']} {r['site']}: {r['roads']} road run(s), max step "
+                  f"{r.get('max_step_m', '-')} m" + (f" @{r['lat']},{r['lon']} way {r['way']} "
+                                                    f"({r['highway']}) drawn {r['drawn']}"
+                                                    if r.get("lat") is not None else ""))
     if rep.get("judged_sites"):
         where = ", ".join(f"{n} {r:.0f} m" for n, _a, _o, r in rep["judged_sites"])
         print(f"  judged within {where}"
@@ -458,6 +487,9 @@ def main(argv=None):
                     help="X-Plane Custom Scenery (default: the cfg's custom_scenery_dir)")
     ap.add_argument("--site", action="append", default=[], metavar="NAME=LAT,LON[,R]",
                     help=f"judge only within R (default {SITE_RADIUS_M:.0f} m) of it; repeat")
+    ap.add_argument("--road-step", type=float, default=None, metavar="M",
+                    help="the roads layer's bar: FAIL a --site whose mapped roads step "
+                         "more than M between 1 m drawn samples (default 0.5)")
     ap.add_argument("--against", default=None, metavar="BASE.json",
                     help="the control's --json: fail any site new or worse")
     ap.add_argument("--json", default=None, help="write the full report here")

@@ -198,10 +198,12 @@ def _floor_yard(airport, cells, law, rules, P, own, t: float, air):
     witness = unary_union([LineString(own[i].points) for i in sorted(tied)])
     region, gross, cut_m2 = _trim_to_fill(airport.dem, region, gross, plane,
                                           _st.median(zp) - t, witness, BAND_M)  # F7
+    if region.is_empty:
+        return "no fill at the witness fence"
     region = _min_pieces(region, float(cfg.yard_piece_min_m2),
                          float(cfg.yard_piece_min_width_m))                # F8
     if region.is_empty:
-        return "no fill at the witness fence" if cut_m2 else "no yard piece wide enough"
+        return "no yard piece wide enough"
     off = _st.median(_line_dem(airport, st, floor, tied)) - _st.median(zp)
     info = dict(zip(_yard_keys()[:5], (round(v, 6) for v in plane), strict=True))
     info.update(yard_rms=round(rms, 3), yard_stations=len(st), yard_upper=len(U),

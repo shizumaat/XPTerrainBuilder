@@ -89,3 +89,26 @@ def test_no_upper_pad_no_arm_sets():
     pm = _pm()
     pm.registries.landings["b/p1"]["witness"] = None
     assert riser.upper_arm_sets(pm) == (frozenset(), frozenset())
+
+
+def test_the_upper_pad_road_climbs_at_its_own_cap_only_on_that_run():
+    """Owner RULINGS 2026-11-14b: the run to an upper pad's level climbs at
+    up to ``[road_contact] upper_pad_road_grade`` (20 %); a run with no
+    level keeps the road cap."""
+    from auto_patch_v2.law import load_default
+    g = float(load_default().tables.emit.road_contact.upper_pad_road_grade)
+    assert g == pytest.approx(0.20)
+    st = _route(10)
+    foot = {v: (1000 + v, 1000 + v, 0.0, "apron") for v in (0, 1)}
+    lv = {1000: 100.0, 1001: 100.0}
+    terr = {"foot": foot, "pad": {2: "b1", 3: "b1"}, "station": st,
+            "level": {8: "b1/p1", 9: "b1/p1"}}
+    floor = {v: 106.0 for v in st}
+    out, rep = terrace_profile(terr, lv, floor, CAP, upper={8: 104.7, 9: 104.7},
+                               upper_cap=g)
+    for v in range(4, 10):
+        assert out[v] == pytest.approx(min(104.7, 100.0 + g * (v - 3) * 5.0))
+    assert rep["upper_gap_m"] == pytest.approx(0.0)       # arrives at the level
+    plain = {k: v for k, v in terr.items() if k != "level"}
+    assert terrace_profile(plain, lv, floor, CAP, upper_cap=g) == \
+        terrace_profile(plain, lv, floor, CAP)

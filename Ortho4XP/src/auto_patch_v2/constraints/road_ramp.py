@@ -663,7 +663,8 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                     anchors: _t.Mapping[int, float] | None = None, *,
                     design: float | None = None, lane: float = 0.0,
                     ceil: _t.Mapping[int, float] | None = None,
-                    upper: _t.Mapping[int, float] | None = None
+                    upper: _t.Mapping[int, float] | None = None,
+                    upper_cap: float | None = None
                     ) -> tuple[dict[int, float], dict[str, _t.Any]]:
     """OWNER RULINGS 2026-10-03b: THE RIBBON'S PROFILE, per route, from
     ``PlanarMap.road_terrace`` (``airport/road_ramp.road_terrace``) and
@@ -727,13 +728,16 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       level: ``min(L, z_e + cap·d)``, from both ends of a linked run (no
       straight link), a 1206 / DSF road's own vertices included on that
       run only (:func:`_upper_run`).  A ``rim`` vertex (on the level) takes
-      no target: the level's landing rows hold it.
+      no target: the level's landing rows hold it.  That linked run alone
+      climbs at ``upper_cap`` (owner RULINGS 2026-11-14b: up to 20 %,
+      ``[road_contact] upper_pad_road_grade``) when given, else ``cap``.
 
     Returns ``{v: target}`` for every vertex it governs and the report."""
     foot = terrace.get("foot") or {}
     rim = terrace.get("rim") or {}
     upper = upper or {}
     gaps: list[float] = []
+    ucap = cap if upper_cap is None else float(upper_cap)
     pad = terrace.get("pad") or {}
     own = terrace.get("own") or {}
     station = terrace.get("station") or {}
@@ -795,7 +799,7 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                 continue
             if v in rim:
                 continue        # A1 (2) (b): on the level, its landing rows hold it
-            z_up = _upper_run(s_, ks, known, lo_s, hi_s, ups, cap) if ups else None
+            z_up = _upper_run(s_, ks, known, lo_s, hi_s, ups, ucap) if ups else None
             if z_up is not None:
                 out[v] = z_up
                 rep["upper_run"] = rep.get("upper_run", 0) + 1
@@ -936,7 +940,8 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         terr, levels, floor, cap, joins,
         design=float(law.tables.emit.road_contact.ramp_grade),
         lane=float(law.tables.emit.road_profile.lane_width_m), ceil=ceil,
-        upper=_upper_levels(planar, law, terr.get("level") or {}, levels))
+        upper=_upper_levels(planar, law, terr.get("level") or {}, levels),
+        upper_cap=float(law.tables.emit.road_contact.upper_pad_road_grade))
     # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
     # row.  Inside a RUNWAY's band it gets NO terrace target: a road there
     # beats the band at or below the band's grade (owner 2026-10-19, #951 —

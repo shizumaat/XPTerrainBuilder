@@ -8,6 +8,7 @@ take nothing.
 The floor pad's held record carries the yard (``yard_edge.yard_records``)."""
 from __future__ import annotations
 
+import sys
 import types
 
 import pytest
@@ -20,7 +21,7 @@ from auto_patch_v2.constraints.yard_edge import yard_records
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import EdgeLine
 from auto_patch_v2.model.registries import FLOOR_YARD, Registries
-from shapely.geometry import Point, box
+from shapely.geometry import LineString, Point, box
 from shapely.ops import unary_union
 
 LAW = Law.for_airport("SYNT")
@@ -104,3 +105,38 @@ def test_the_held_block_carries_the_floor_yard_to_the_solve():
     got = yard_records(types.SimpleNamespace(registries=reg))
     assert sorted(got) == ["building2", "building2/p1"]
     assert got["building2"]["pad"] == "building2" and got["building2"]["y_p"] == 0.0
+
+
+def test_the_yard_is_its_fill_a_cut_on_the_far_side_is_trimmed(monkeypatch):
+    """F7 (KMCI building43: the plane cut a 1.5 m bank): where the natural
+    ground rises more than a band over the yard plane, the yard leaves it."""
+    rise = _Dem(lambda x, y: 5.0 if y <= 52.0 else (9.0 if x < 20.0 else 2.5))
+    monkeypatch.setattr(sys.modules[__name__], "_ground", lambda fall: rise)
+    out, st, _cells = _mint(monkeypatch)
+    yard = unary_union([p for _r, _f, p, _e in out])
+    assert yard.contains(Point(30.0, 86.0))          # the fill at the fence stays
+    assert not yard.intersects(Point(10.0, 86.0))    # the cut leaves
+    assert all(e["yard_cut_m2"] > 0.0 for _r, _f, _p, e in out)
+
+
+def test_a_fill_pocket_cut_off_from_the_witness_fence_is_dropped():
+    """F7: what the trim severs from the witness fence goes with the cut."""
+    region = unary_union([box(0.0, 0.0, 40.0, 10.0), box(0.0, 20.0, 40.0, 30.0)])
+    dem = _Dem(lambda x, y: 9.0 if 10.0 < x < 14.0 and y < 10.0 else 0.0)
+    left, gross, cut = fl._trim_to_fill(dem, region, region, (0.0, 0.0, 0.0, 0.0, 0.0), 0.0,
+                                        LineString([(0.0, 0.0), (0.0, 10.0)]), 1.0)
+    assert left.contains(Point(5.0, 5.0)) and not left.intersects(Point(30.0, 5.0))
+    assert not gross.intersects(Point(30.0, 5.0)) and cut == pytest.approx(30.0 * 10.0, rel=0.1)
+    # a piece the trim leaves whole stays, witness or not (a road between)
+    assert left.contains(Point(30.0, 25.0))
+
+
+def test_slivers_do_not_mint():
+    """F8 (HECA building155: three slivers of 30 m2; LOWS building17: 67 of
+    1-13 m2 along the fence)."""
+    rules = load_rules().edge_lines
+    pieces = unary_union([box(0, 0, 20, 1),            # 20 m2
+                          box(0, 10, 100, 11),         # 100 m2, 1 m wide
+                          box(0, 20, 12, 32)])         # 144 m2, 12 m wide
+    got = fl._min_pieces(pieces, rules.yard_piece_min_m2, rules.yard_piece_min_width_m)
+    assert got.area == pytest.approx(144.0)

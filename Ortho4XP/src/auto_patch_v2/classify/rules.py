@@ -199,6 +199,8 @@ class EdgeLines:
     step_probe_m: float = 3.0
     step_min_m: float = 0.5
     min_run_m: float = 6.0
+    yard_piece_min_m2: float = 50.0
+    yard_piece_min_width_m: float = 3.0
 
 
 @_dc.dataclass(frozen=True)

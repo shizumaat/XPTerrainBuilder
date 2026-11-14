@@ -166,3 +166,5 @@ station_m               = 2.0  # stations along the line
 step_probe_m            = 3.0  # the ground beyond the line's base read this far out
 step_min_m              = 0.5  # the ground DEPARTS beyond the line - water there, or the DEM this much under OR over the host edge's (KSFO falls to the bay; KCRW 38.363304, -81.588474 rises past the boundary fence, owner 16:04Z)
 min_run_m               = 6.0  # a run of falling stations shorter than this marks nothing
+yard_piece_min_m2       = 50.0 # #2068 F8: a floor-yard piece smaller than this (about two parking bays) terraces nothing a pilot reads; measured slivers HECA building155 3 pieces / 30 m2, LOWS building17 67 pieces of 1-13 m2; real pieces LOWS 583/177 m2, KMCI 4617, LPPI building2 forecourt
+yard_piece_min_width_m  = 3.0  # #2068 F8: a floor-yard piece nowhere this wide (one lane; under two DEM samples) is a sliver along the fence, not a terrace

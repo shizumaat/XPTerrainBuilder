@@ -38,6 +38,20 @@ Gates (doubt -> nothing, RULINGS 2026-11-13r):
   (a non-building airside cell) is the fence's airside and keeps its
   ground.  The yard is a late cell, projected after the solve
   (``solve/project_yard``), never a row.
+* F7 THE YARD IS ITS FILL (#2068 follow-up, measured KMCI building43: the
+  plane cut a 1.5 m bank on 233/630 of its edge samples): the fence
+  witnesses a terrace only where the terrace is a fill, so the part of the
+  yard (and of its gross) where the DEM stands more than ``BAND_M`` OVER
+  the yard plane -- read in the DEM frame as the pad's DEM median plus the
+  plane over the floor ``t``, the level ``project_yard`` lands on -- is
+  trimmed out; what the trim severs from the witness fences (farther than
+  one DEM sample from them) is dropped with it, and no fill left at the
+  fence is no yard.
+* F8 NO SLIVERS (measured HECA building155 three slivers of 30 m2; LOWS
+  building17 67 of 1-13 m2 along ~1 km of fence): a yard piece under
+  ``[edge_lines] yard_piece_min_m2`` or nowhere ``yard_piece_min_width_m``
+  wide (its inward buffer by half that is empty) terraces nothing a pilot
+  could read and leaves its ground.
 
 THE REGION is ``fence_yard``'s (flood ∪ pockets ∪ band, cut to the
 witness Voronoi, less the stand-off) round the floor pad, with the
@@ -52,6 +66,7 @@ import statistics as _st
 import typing as _t
 
 import numpy as np
+import shapely
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
@@ -180,6 +195,13 @@ def _floor_yard(airport, cells, law, rules, P, own, t: float, air):
                                 max(float(rules.cells.snap_grid_m), 0.01))   # F6
     if region.is_empty:
         return "no free groundside ground"
+    witness = unary_union([LineString(own[i].points) for i in sorted(tied)])
+    region, gross, cut_m2 = _trim_to_fill(airport.dem, region, gross, plane,
+                                          _st.median(zp) - t, witness, BAND_M)  # F7
+    region = _min_pieces(region, float(cfg.yard_piece_min_m2),
+                         float(cfg.yard_piece_min_width_m))                # F8
+    if region.is_empty:
+        return "no fill at the witness fence" if cut_m2 else "no yard piece wide enough"
     off = _st.median(_line_dem(airport, st, floor, tied)) - _st.median(zp)
     info = dict(zip(_yard_keys()[:5], (round(v, 6) for v in plane), strict=True))
     info.update(yard_rms=round(rms, 3), yard_stations=len(st), yard_upper=len(U),
@@ -187,8 +209,52 @@ def _floor_yard(airport, cells, law, rules, P, own, t: float, air):
                 yard_dem_m=round(_dem_median(airport, region), 2),
                 yard_tilt=round(math.hypot(plane[1], plane[2]), 4),
                 yard_resid=f"{res.max():+.2f}/{res.min():+.2f}",
-                yard_fences=",".join(sorted(own[i].id for i in tied)))
+                yard_fences=",".join(sorted(own[i].id for i in tied)),
+                yard_cut_m2=round(cut_m2, 1))
     return region, gross, info
+
+
+#: the trim's DEM read: at least this fine, at most ~this many samples
+_TRIM_STEP_M, _TRIM_MAX_SAMPLES = 2.0, 40000
+
+
+def _trim_to_fill(dem, region, gross, plane, lift: float, witness, band: float):
+    """F7: ``(region, gross, m2 trimmed off region)`` less the ground where
+    the DEM stands more than ``band`` over the yard plane (``plane`` +
+    ``lift`` in the DEM frame), read on a square grid; a region piece left
+    farther than one grid step from ``witness`` goes too, and the gross
+    keeps only what meets the region left."""
+    from ..airport.dem import dem_z_many
+    x0, y0, x1, y1 = gross.union(region).bounds
+    h = max(_TRIM_STEP_M, math.sqrt(max((x1 - x0) * (y1 - y0), 1.0) / _TRIM_MAX_SAMPLES))
+    xs, ys = np.meshgrid(np.arange(x0 + 0.5 * h, x1, h), np.arange(y0 + 0.5 * h, y1, h))
+    xs, ys = xs.ravel(), ys.ravel()
+    with np.errstate(invalid="ignore"):
+        over = dem_z_many(dem, xs, ys) - (plane_at(plane, xs, ys) + lift) > band
+    if not over.any():
+        return region, gross, 0.0
+    cut = shapely.union_all(shapely.box(xs[over] - 0.5 * h, ys[over] - 0.5 * h,
+                                        xs[over] + 0.5 * h, ys[over] + 0.5 * h))
+    keep = []
+    for g in polygon_parts(region):
+        if not g.intersects(cut):
+            keep.append(g)                     # a piece the trim leaves whole stays whole
+            continue
+        keep += [r for r in polygon_parts(g.difference(cut)) if r.distance(witness) <= h]
+    if not any(g.distance(witness) <= h for g in keep):
+        keep = []                              # no fill left at the witness fence
+    left = unary_union(keep) if keep else Polygon()
+    gross = unary_union([g for g in polygon_parts(gross.difference(cut))
+                         if g.distance(left) <= h]) if keep else Polygon()
+    return left, gross, float(region.area - left.area)
+
+
+def _min_pieces(region, min_m2: float, min_width_m: float):
+    """F8: ``region`` less every piece under ``min_m2`` or nowhere
+    ``min_width_m`` wide."""
+    keep = [g for g in polygon_parts(region)
+            if g.area >= min_m2 and not g.buffer(-0.5 * min_width_m).is_empty]
+    return unary_union(keep) if keep else Polygon()
 
 
 def _line_dem(airport, st, floor, lines) -> list[float]:

@@ -111,6 +111,32 @@ def test_a_dead_end_trench_is_level_to_the_apron_and_walled_at_its_edge(site):
     assert any(w.distance(apron) < 1e-6 and w.bounds[3] == pytest.approx(APRON_Y) for w in walls)
 
 
+def test_a_dead_end_trench_stopped_by_a_building_pad_is_walled_like_the_apron(tmp_path):
+    """Rule A for a BUILDING PAD (ltrenchpad, LFPG Building53): a pad 12 m
+    beyond the deck stops the run-out as the apron does -- level to the
+    stop, never refused, the pad never cut, the floor ``rim_off`` short of
+    it and the wall on its edge (no pad vertex on the floor)."""
+    d = tmp_path / "objects"
+    d.mkdir()
+    road = OsmWay(-1, "big_roads", ((0.0, -400.0), (0.0, 400.0)), False,
+                  {"highway": "primary", "lanes": "2"})
+    airport = M4B._airport({"dir": d}, LAW, [], (road,))
+    cells = _cells()[:2] + [Cell(2, "building", "pad1", M4B._rect(-100, APRON_Y, 100, 120), (),
+                                 None, None, "airside", "building", {})]
+    cl, tunnels, st = build_structures(airport, Classification(tuple(cells), (), {}, ()),
+                                       LAW, deck_bridges=(_deck(),))
+    assert not st.refused
+    tn = _north(tunnels)
+    assert tn.climb_from_s == pytest.approx(tn.top_s) and not tn.top_pinned
+    assert any("#2072 A: building pad pad1" in n for n in tn.notes)
+    pad = next(Polygon(c.ring) for c in cl.cells if c.ref == "pad1")
+    assert pad.area == pytest.approx(200.0 * 93.0)                # never cut
+    ramps = [p for p in _polys(cl, "tunnel_ramp") if p.centroid.y > 0.0]
+    walls = [p for p in _polys(cl, "retaining_wall") if p.bounds[3] > 15.0]
+    assert min(p.distance(pad) for p in ramps) >= RIM - 1e-6
+    assert any(w.distance(pad) < 1e-6 and w.bounds[3] == pytest.approx(APRON_Y) for w in walls)
+
+
 def test_no_floor_vertex_stands_in_an_airside_column(site):
     """The floor never shares a column with the airside: every floor
     vertex is pinned (a constant) and no row joins one to an airside
@@ -265,10 +291,15 @@ def test_the_census_names_a_tear_on_the_decks_ground_and_never_adjudicates_it():
     sys.path.insert(0, str(tools))
     import check_grade as CG  # noqa: E402
     mk = types.SimpleNamespace
-    on = mk(way_a=mk(ref="deck_ground:dsf:obj1#2"), way_b=mk(ref="tunnel_ramp"),
-            out_of_scope=None)
-    off = mk(way_a=mk(ref="zone:1"), way_b=mk(ref="zone:2"), out_of_scope=None)
-    assert CG.stamp_deck_ground_tears([on, off]) == 1
+    on = mk(way_a=mk(ref="deck_ground:dsf:obj1#2", role="graded_strip"),
+            way_b=mk(ref="tunnel:3", role="tunnel_ramp"), out_of_scope=None)
+    off = mk(way_a=mk(ref="zone:1", role="zone"), way_b=mk(ref="zone:2", role="zone"),
+             out_of_scope=None)
+    # narrowed (ltrenchpad): a deck-ground row against a PAD is priced
+    pad = mk(way_a=mk(ref="deck_ground:dsf:obj1#3", role="graded_strip"),
+             way_b=mk(ref="building53", role="building"), out_of_scope=None)
+    assert CG.stamp_deck_ground_tears([on, off, pad]) == 1
     assert on.out_of_scope == CG.DECK_GROUND_TEAR_OUT_OF_SCOPE and off.out_of_scope is None
+    assert pad.out_of_scope is None
     assert CG.DECK_GROUND_TEAR_OUT_OF_SCOPE in CG.OUT_OF_SCOPE_CLASSES
     assert CG.DECK_GROUND_REF_PREFIX == DECK_GROUND_REF + ":"

@@ -7919,19 +7919,27 @@ def stamp_sea_wall_tears(rows, shore_edges_ll, nodes, ll_to_m) -> int:
     return n
 
 
+def _deck_ground_way(w) -> bool:
+    return str(getattr(w, "ref", None) or "").startswith(DECK_GROUND_REF_PREFIX)
+
+
 def stamp_deck_ground_tears(rows) -> int:
-    """#2072: stamp ``out_of_scope`` on every adjacent-ground row one of whose
-    ways is a hard deck's own ground (:data:`DECK_GROUND_TEAR_OUT_OF_SCOPE`)
-    -- measured and named, never adjudicated.  Returns how many."""
+    """#2072: stamp ``out_of_scope`` on every adjacent-ground row that lies
+    WHOLLY in a hard deck's cut -- one of its ways is the deck's own ground
+    and every other is deck ground or a structure (trench, wall, ramp:
+    :data:`_CHANNEL_STRUCTURE_ROLES`).  A row against a pad, a pavement or a
+    zone is never stamped (the cut never excuses its neighbours).  Measured
+    and named (:data:`DECK_GROUND_TEAR_OUT_OF_SCOPE`), never adjudicated.
+    Returns how many."""
     n = 0
     for r in rows:
         if getattr(r, "out_of_scope", None) is not None:
             continue
-        refs = (getattr(getattr(r, "way_a", None), "ref", None),
-                getattr(getattr(r, "way_b", None), "ref", None),
-                getattr(getattr(r, "way_v", None), "ref", None),
-                getattr(getattr(r, "way_e", None), "ref", None))
-        if any(str(x or "").startswith(DECK_GROUND_REF_PREFIX) for x in refs):
+        ways = [w for w in (getattr(r, k, None) for k in ("way_a", "way_b", "way_v", "way_e"))
+                if w is not None]
+        if any(_deck_ground_way(w) for w in ways) and all(
+                _deck_ground_way(w) or getattr(w, "role", None) in _CHANNEL_STRUCTURE_ROLES
+                for w in ways):
             r.out_of_scope = DECK_GROUND_TEAR_OUT_OF_SCOPE
             n += 1
     return n
@@ -13384,7 +13392,10 @@ def run_checks(
     stamp_sea_wall_tears(list(ag_steps) + list(strip_seam_tears),
                          shore_edges_ll, nodes, ll_to_m)
     # #2072: the hard deck's own ground is the cut's step (its bank, its edge)
-    stamp_deck_ground_tears(list(ag_steps) + list(strip_seam_tears))
+    n_deck = stamp_deck_ground_tears(list(ag_steps) + list(strip_seam_tears))
+    if not quiet:
+        print(f"deck ground tears stamped out of scope (#2072, {DECK_GROUND_TEAR_OUT_OF_SCOPE}): "
+              f"{n_deck}")
 
     within = within + strip_seam_tears
 

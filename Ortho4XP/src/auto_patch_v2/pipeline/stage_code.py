@@ -302,6 +302,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.cluster_outline",
+        "auto_patch_v2.geom.deck_ground",
         "auto_patch_v2.geom.diameter",
         "auto_patch_v2.geom.fixed_overlay",
         "auto_patch_v2.geom.foot_planes",
@@ -372,9 +373,11 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_class",
+        "auto_patch_v2.airport.bridge_end_state",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bridge_frame",
         "auto_patch_v2.airport.bridge_ground",
+        "auto_patch_v2.airport.bridge_stack",
         "auto_patch_v2.airport.bridge_witness",
         "auto_patch_v2.airport.bridged_ground",
         "auto_patch_v2.airport.bulk_geos",
@@ -1157,6 +1160,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
+        "auto_patch_v2.model.deck_stack",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.islands",
@@ -1455,6 +1459,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
+        "auto_patch_v2.model.deck_stack",
         "auto_patch_v2.model.end_area",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.free_bridge",
@@ -1597,6 +1602,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.object_floor geom.lowest_face model.airport
     """),
     "deck_stack": _mods(_GENERATOR_CORE + """
+    model.deck_stack
         geom.deck_ground geom.end_line model.deck_ends
         geom.exact geom.lowest_face
         constraints.contiguity constraints.deck_stack constraints.edge_deck
@@ -1628,6 +1634,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.stage_one
 """),
     "fill_bank": _mods(_GENERATOR_CORE + """
+    model.deck_stack
         geom.deck_ground
         constraints.fill_bank model.airport
     """),
@@ -1955,6 +1962,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    model.deck_stack
     airport.hanging_objects airport.object_cut airport.split_level airport.wall_geometry
     geom.vector
     airport.facade airport.line_solidity classify.edge_line_mint
@@ -2148,6 +2156,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    airport.bridge_end_state airport.bridge_stack
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
@@ -2309,6 +2318,7 @@ CODE_MODULES["solve"] = _mods("""
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    airport.bridge_end_state airport.bridge_stack
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
@@ -2489,6 +2499,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["emit"] = _mods("""
+    model.deck_stack
     airport.facade airport.line_solidity classify.edge_line_mint
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends
     airport.walled_pit airport.pit_frame constraints.airside_top
@@ -2611,6 +2622,7 @@ CODE_MODULES["emit"] = _mods("""
     model.free_bridge
 """)
 CODE_MODULES["verify"] = _mods("""
+    geom.deck_ground model.deck_stack
     airport.split_level
     airport.facade airport.line_solidity classify.edge_line_mint
     airport.below_grade_witness airport.floor_rim airport.hanging_objects airport.object_cut

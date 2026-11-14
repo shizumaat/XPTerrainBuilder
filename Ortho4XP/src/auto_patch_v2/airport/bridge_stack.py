@@ -256,19 +256,27 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
     22p seat)."""
     from .anchor_rule import datum_of
     from .bridge_approach import approach_seat
+    from .deck_riders import frame_datum, objects_ride
     out, every, notes = [], [], []
+    frame = [cx.by_id[m] for m in fb.members if m in cx.by_id]
+    # a deck and the structure riding it (#2086): the object stage reads the
+    # deck top AT each end (``deck_riders.FrameDatums``), and so does this
+    rides = objects_ride(frame, [str(getattr(q, "deck_kind", "") or "") for q in frame],
+                         cx.cache)
     for d in fb.decks:
         o = cx.by_id.get(d.object_id)
         if o is None or len(d.ends) != 2:
             continue
-        view = _view(o, cx.to_ll)
+        view = _view(o, cx.to_ll, authored_path=str(o.resolved or "") if rides else "")
         view.deck_ends = _rect_ends(o, view, cx.to_ll)
-        datum = datum_of(view, abutment_step_m=cx.step, abutment_walk_max_m=cx.walk,
-                         level_tol_m=cx.tol, free_standing=True)
-        surface = cx.surface([d.ring])
+        kw = {"abutment_step_m": cx.step, "abutment_walk_max_m": cx.walk,
+              "level_tol_m": cx.tol, "free_standing": True}
         origin = cx.to_ll(*o.xy)
+        datum = frame_datum(view, origin, **kw) if rides else datum_of(view, **kw)
+        surface = cx.surface([d.ring])
         seat = None if datum is None else approach_seat(datum, surface, origin=origin,
-                                                        authored_agl_m=float(o.agl_m))
+                                                        authored_agl_m=float(o.agl_m),
+                                                        tops=datum.tops or None)
         tag = f"{d.object_id} {str(o.path).rsplit('/', 1)[-1]}"
         if seat is None:
             notes.append(f"{tag}: kept, no predicted seat on the DEM (an end on water or "
@@ -276,7 +284,9 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
             continue
         gov: set[str] = set()
         if "authored clearance" not in seat.reason:
-            k = max(range(len(seat.ends)), key=lambda i: (seat.ends[i], -i))
+            ys = tuple(datum.tops) if len(datum.tops or ()) == len(seat.ends) \
+                else (float(datum.y),) * len(seat.ends)
+            k = max(range(len(seat.ends)), key=lambda i: (seat.ends[i] - ys[i], -i))
             a, b = datum.ends[k]
             mid = cx.to_xy((a[1] + b[1]) / 2.0, (a[0] + b[0]) / 2.0)
             near = min(range(2), key=lambda j: math.dist(mid, _mid(d.ends[j].stations)))

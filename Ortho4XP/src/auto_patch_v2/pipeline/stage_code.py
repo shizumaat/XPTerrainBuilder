@@ -668,8 +668,8 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.fill_road",
         "auto_patch_v2.planar.floor_decks",
         "auto_patch_v2.planar.foot_kerb",
-        "auto_patch_v2.planar.ground_chords",
         "auto_patch_v2.planar.free_bridge",
+        "auto_patch_v2.planar.ground_chords",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.group_up",
         "auto_patch_v2.planar.landing",
@@ -2298,7 +2298,6 @@ CODE_MODULES["solve"] = _mods("""
     airport.isolated_seat airport.terrain_base geom.diameter
     model.storey_shell planar.cell_knife planar.storey_pad
     airport.shell_ground planar.basin_author_ground
-    planar.foot_kerb
     airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
     model.free_bridge planar.free_bridge
 """)
@@ -2479,7 +2478,6 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.isolated_seat airport.terrain_base geom.diameter
     model.storey_shell planar.cell_knife planar.storey_pad
     airport.shell_ground planar.basin_author_ground
-    planar.foot_kerb
     airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
     model.free_bridge planar.free_bridge
 """)
@@ -2644,7 +2642,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.deck_carry airport.deck_end_read airport.free_bridge_seat
-    geom.lowest_face airport.open_frame_seat airport.pad_level_group
+    airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.pool_memory airport.rebake_plan airport.riders

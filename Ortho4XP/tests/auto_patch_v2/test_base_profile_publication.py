@@ -163,9 +163,9 @@ def test_the_plan_version_is_bumped_and_the_old_one_still_reads():
     plus ``authored_seats`` (object-placement spec §18).  An older plan — an
     owner's plan from an earlier build — must still replay, reading as the
     PRE-BASE law (§1 (3)), never raising."""
-    assert PLAN_VERSION == 13
+    assert PLAN_VERSION == 14
     d = json.loads(_plan(_member("m0", _stepped())).to_json())
-    assert d["version"] == 13
+    assert d["version"] == 14
     assert d["units"][0]["members"][0]["base_profile"]["verdict"] == "stepped"
     # the v10 plan: neither key is there
     d["version"] = 10

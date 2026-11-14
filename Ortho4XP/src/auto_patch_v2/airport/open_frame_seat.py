@@ -327,12 +327,15 @@ TOUCH_M = 1.0
 def frame_root_boxes(u: _t.Any, plan_wide: _t.Mapping[int, tuple]
                      ) -> dict[str, list[tuple]]:
     """``root -> the plan boxes of its parts`` in ONE frame (plan unit
-    ``u``) — what an unchained body of the frame is measured against."""
+    ``u``) — what an unchained body of the frame is measured against.  A
+    LINE part's box is no root's (RULINGS 2026-11-14a (2)): a fence never
+    merges two roots nor takes a body into its unit."""
     out: dict[str, list[tuple]] = {}
     for m in getattr(u, "members", ()) or ():
         for p in getattr(m, "parts", ()) or ():
             seat = plan_wide.get(p.pid)
-            if seat and seat[0] and getattr(p, "box", None):
+            if (seat and seat[0] and getattr(p, "box", None)
+                    and not getattr(p, "line", False)):
                 out.setdefault(unit_root(seat[0]), []).append(tuple(p.box))
     return out
 
@@ -392,7 +395,13 @@ def unchained_links(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
     ``unchained_airside_joined``): LFPG T2 (1.0.424) kept its halls and its
     trench block apart as six roots, the group floating where the trench
     block's floor won.  ``merged`` (``merge_frame_roots``' answer) is
-    composed in."""
+    composed in.
+
+    A LINE part (a fence, wall or barrier: ``Part.line``) is no node of the
+    graph: it forms no body with what it touches and never joins two units
+    into one group (owner RULINGS 2026-11-14a (2), restating 23e for lines;
+    LOWS: the perimeter fence touching Terminal_42 and Terminal_35 glued a
+    1.1 km group into one height)."""
     import math
 
     from shapely.geometry import Polygon
@@ -410,6 +419,8 @@ def unchained_links(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
             if r is not None:
                 r = base.get(r, r)
                 size[r] = size.get(r, 0) + 1
+            if getattr(p, "line", False):
+                continue           # 14a (2): a line joins nothing
             for rg in getattr(p, "rings", ()) or ():
                 if len(rg) < 3:
                     continue

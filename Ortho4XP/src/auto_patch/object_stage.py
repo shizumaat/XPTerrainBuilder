@@ -362,12 +362,16 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
                          Provenance("", _engine_version(), "", {}))
     # #598: a no-op outside a build's object stage (the user's command)
     from auto_patch_v2.airport import pack_journal as _pj
-    _pj.snapshot(pack_root, art.dsf_path)
+    from auto_patch_v2.airport import pack_lock as _lock
+
     from . import pack_copy as _copy
-    _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
-                   allow_live_install=_copy.write_guard(pack_root),
-                   engine_version=_engine_version(),
-                   omit=art.missing if art.omit else ())
+    guard = _copy.write_guard(pack_root)
+    with _lock.hold(pack_root, allow_live_install=guard):     # #1884 B3
+        _pj.snapshot(pack_root, art.dsf_path)
+        _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
+                       allow_live_install=guard,
+                       engine_version=_engine_version(),
+                       omit=art.missing if art.omit else ())
     _DSFR.ensure_dsf_text_path(art.dsf_path, _dsf2.mod_cache_dir(
         FNAMES.airport_mod_cache_root(), art.pack_name))
 
@@ -492,7 +496,14 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         return {}
     dump = _dsf2.read_dump(dump_path)
 
-    _surface = _placement_surface(mesh_sample)
+    # #1884: past this tile's edge the split reads the airport's own DEM
+    # (``tile_route``: the bodies there are written in that tile's DSF)
+    from auto_patch_v2.airport import tile_route as _route
+    _here = (tile.lat, tile.lon)
+    _surface = _placement_surface(_route.with_neighbour_ground(
+        mesh_sample, _here, _route.airport_ground(
+            plan_.icao, _here, FNAMES.Elevation_dir,
+            float(getattr(tile, "airport_elevation_inset_feather_m", 60.0) or 60.0))))
 
     # §6's CLASS RULE reads the emitted surface (lane v2planfix): without
     # the pads and rims ``classify_body`` can never answer ``building`` or
@@ -686,14 +697,20 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                                                     _BS_SUPERSEDED,
                                                     UNRECOGNISED_INFIX as
                                                     _BS_UNRECOGNISED)
+    # #1884: a body standing on a neighbour tile is written in that tile's
+    # DSF of the pack (``tile_route``), in the SAME write as this one's
     try:
-        res = _pw.apply_plan(
-            plan, files, _DSFR._dsftool_path() or "DSFTool", patch_dir=patch_dir,
+        res = _pw.apply_routed(
+            plan, files, _DSFR._dsftool_path() or "DSFTool",
+            here=(tile.lat, tile.lon),
+            say=lambda t, _i=plan_.icao: UI.vprint(1, f"  [v2 placement] {_i}: {t}"),
+            patch_dir=patch_dir,
             allow_live_install=_copy.write_guard(target_root),
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
             plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key))
-    except BackupUnproven as exc:
+    except (BackupUnproven, TimeoutError) as exc:
+        # TimeoutError: another write of the pack held its lock (``pack_lock``)
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
         # touched — not the DSF, not an object, not a cut file: a pack
         # half-written against a DSF we may not touch is torn geometry.
@@ -704,6 +721,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # NOTHING on the normal path (D3 / D4, O1 / O2).
     _adopted = list(res.restore.adopted)
     _unproven = list(res.restore.unproven)
+    for _guest in res.guests:              # #1884: a neighbour DSF's write
+        for note in _guest.notes:
+            UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — {note}')
     if res.dsf is not None:
         for note in res.dsf.notes:
             UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — {note}')
@@ -1281,6 +1301,20 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                                      f"for this airport ("
                                      f"{len(out.bodies_removed)} split "
                                      f"bod(ies) removed{kept})")
+                    # #1884 round 2 B1: this tile's guest rows of the
+                    # airport in the pack's other DSFs went with it
+                    for n in out.neighbours:
+                        where = os.path.basename(n.dsf_path)
+                        if n.state == _up.UNPROVEN:
+                            UI.loud_warning(
+                                f"   {icao}: the objects of pack "
+                                f"{pack['pack_name']} this tile wrote in "
+                                f"{where} could not be taken out: {n.reason}")
+                        elif n.state != _up.NONE:
+                            UI.vprint(0, f"  [v2 rebake] {icao}: pack "
+                                         f"{pack['pack_name']} {where} no "
+                                         f"longer carries this tile's "
+                                         f"objects of the airport")
     except Exception as exc:
         UI.vprint(1, f"  [v2 rebake] unpatched-airport pack restore failed: {exc}")
         UI.vprint(2, traceback.format_exc())

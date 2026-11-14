@@ -26,6 +26,11 @@ asks first (:func:`on_tile`): a body off the tile whose zero the plan
 KNOWS is anchored on the tile and written ``OBJECT_MSL`` at that zero, so
 the split stands and every body keeps its seat.  Only a split with an
 off-tile body of UNKNOWN zero is left for the undo above.
+
+THE NEIGHBOUR TILE FIRST (#1884).  Before the write, a body standing on
+ANOTHER tile the pack has a DSF for is taken out of the split and written
+in that DSF as a guest row (``tile_route``), seated on that tile's ground;
+the undo here is left for a body no DSF of the pack can carry.
 """
 from __future__ import annotations
 
@@ -93,7 +98,9 @@ def _inside(box: _t.Sequence[float], lat: float, lon: float) -> bool:
 
 
 def on_tile(record: _t.Any, box: _t.Sequence[float] | None,
-            zero_of: _t.Callable[[_t.Any], float | None]) -> _t.Any:
+            zero_of: _t.Callable[[_t.Any], float | None],
+            routable: _t.Callable[[float, float], bool] | None = None
+            ) -> _t.Any:
     """``record`` (a ``placement_record.Split``) with each body anchored
     off ``box`` moved onto it and seated by its ROW (module doc, #1903).
 
@@ -106,7 +113,12 @@ def on_tile(record: _t.Any, box: _t.Sequence[float] | None,
     reader of ``surface_z - y_zero`` reads the seat the row draws.  When any off-tile body has no
     known zero, when one carries a baked seat tilt, or when the frame's own
     origin is off the tile, the record is returned UNCHANGED and the
-    writer undoes the split as before (:func:`off_tile_splits`)."""
+    writer undoes the split as before (:func:`off_tile_splits`).
+
+    ``routable(lat, lon)`` (#1884, ``tile_route``): a body standing where
+    another DSF of the pack can carry it is LEFT where it stands — it is
+    written there, on that tile's ground — unless ``zero_of`` gives it the
+    exact seat of a cut (an entrance face, #1903)."""
     if box is None or not _inside(box, record.lat, record.lon):
         return record
     zeros: dict[int, float] = {}
@@ -115,6 +127,8 @@ def on_tile(record: _t.Any, box: _t.Sequence[float] | None,
         if _inside(box, a.lat, a.lon):
             continue
         z = zero_of(b)
+        if z is None and routable is not None and routable(a.lat, a.lon):
+            continue                       # #1884: its own tile writes it
         if z is None and a.surface_z is not None:
             z = float(a.surface_z) - float(a.y_zero)
         seat = getattr(b, "seat", None)

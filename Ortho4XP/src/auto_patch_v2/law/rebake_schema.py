@@ -529,6 +529,14 @@ class Placement:
     #: share of them (a lone post of a building stays with its group)
     free_column_min_count: int = 0
     free_column_min_share: float = 0.0
+    #: #1884 round 2 (A, ``airport/terrain_base``): a walled body nothing
+    #: carries whose RIGID base would clear our ground by more than
+    #: ``[rebake] elevated_base_m`` stands on our terrain too (owner RULINGS
+    #: 2026-11-13y (2)); ``false`` keeps it on §16 (3)'s own ground with its
+    #: authored y (the spec's witness 3) — the owner's reading since RULINGS
+    #: 2026-11-14a (1).  The case is counted either way
+    #: (``terrain_carried_over_ground`` / ``..._refused_over_ground``).
+    terrain_base_over_ground: bool = False
 
 
 @_dc.dataclass(frozen=True)

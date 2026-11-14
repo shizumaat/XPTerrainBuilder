@@ -1411,6 +1411,17 @@ free_column_min_share = 0.5   # ... and at least this share of the placement's e
                               # canopy columns (LPHR), two 15 m roof poles (LIMC) moved 4-15 m
                               # without it; ENTC ALS 33/35, SBGL ALS-2, ENAT approach lights pass
 
+# A WALLED BUILDING ON ITS AUTHOR'S TERRAIN STANDS ON OURS (#1884 r2 A;
+# airport/terrain_base.py).  true: one whose rigid base would CLEAR our ground
+# stands on our terrain as well (owner RULINGS 2026-11-13y (2): "A building
+# can't be completely in the air").  false (owner RULINGS 2026-11-14a (1)):
+# only a base at or under our ground is put on our terrain; a carrier-less
+# piece whose base stands above it keeps its authored height (13y (3)).  The
+# 166 pieces at 14 airports the true setting moved (CYYZ Terminal 1, EDDF
+# street lights on elevated roads, KBWI windows, pier interiors, ...) are
+# listed in docs/findings/1884-in-air-pieces.md.
+terrain_base_over_ground = false
+
 # ─────────────────────────────────────────────────────────────────────────
 # §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec
 # design-surface-spec.md §49).  The emitted `bridge_deck:*` face is a datum

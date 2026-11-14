@@ -584,6 +584,17 @@ def _airport_solve_times_are_per_test(monkeypatch, tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _tile_build_times_are_per_test(monkeypatch, tmp_path_factory):
+    """No test reads the user's ``~/.ortho4xp/tile_build_times`` (the
+    scheduler projects each step's memory from its recorded peaks, #2083)
+    or writes a step record or peak into it."""
+    from o4_engine import tile_time_model as TTM
+    monkeypatch.setattr(TTM, "STORE_DIRECTORY",
+                        str(tmp_path_factory.mktemp("tile_build_times")))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _provider_refusal_rest_is_per_test(monkeypatch):
     """No test inherits another's 24-hour provider rest
     (``elevation_access.refusal_rest``): a refusal one test provokes would

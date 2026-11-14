@@ -266,9 +266,9 @@ def test_an_origin_off_the_model_is_a_datum_not_its_footing(tmp_path):
     assert got == {"f": (False, 0.0), "n": (True, 0.0)}
     import numpy as np
     v = np.array([(150.0, -0.31, 0.0), (190.0, 7.3, 2.0)])
-    assert not MF.built_around_origin(v, 0.3)
-    assert MF.built_around_origin(v - (160.0, 0.0, 1.0), 0.3)
-    assert not MF.built_around_origin(v - (160.0, -0.2, 1.0), 0.3)
+    assert not MF._built_around_origin(v, 0.3)
+    assert MF._built_around_origin(v - (160.0, 0.0, 1.0), 0.3)
+    assert not MF._built_around_origin(v - (160.0, -0.2, 1.0), 0.3)
 
 
 def test_an_upper_storey_file_is_not_a_foot_of_its_set(tmp_path):

@@ -54,8 +54,7 @@ import numpy as np
 
 from ..model.placement import KIND_MSL
 
-__all__ = ["static_vertices", "lowest_feet", "origin_set_lifts", "built_around_origin",
-           "origin_key",
+__all__ = ["static_vertices", "lowest_feet", "origin_set_lifts", "origin_key",
            "origin_of_row", "feet_seats", "lifted_feet_seats", "LIFTED_FEET"]
 
 Surface = _t.Callable[[float, float], "float | None"]
@@ -109,7 +108,7 @@ def origin_set_lifts(items: _t.Iterable[tuple[str, tuple, _t.Any]],
         v = static_vertices(g) if g is not None else None
         sets.setdefault(key, []).append(
             (oid, None if v is None else float(v[:, 1].min()),
-             v is not None and built_around_origin(v, tol_m)))
+             v is not None and _built_around_origin(v, tol_m)))
     out: dict[str, "float | None"] = {}
     for members in sets.values():
         guarded = any(y is None or below for _i, y, below in members)
@@ -118,7 +117,7 @@ def origin_set_lifts(items: _t.Iterable[tuple[str, tuple, _t.Any]],
     return out
 
 
-def built_around_origin(v: np.ndarray, tol_m: float) -> bool:
+def _built_around_origin(v: np.ndarray, tol_m: float) -> bool:
     """THE GUARD'S WITNESS (owner Q54; #2071): static vertices ``v`` (OBJ8
     ``x, y, z``) reach more than ``tol_m`` below the origin AND the origin
     stands in their plan (their ``x``/``z`` box grown by ``tol_m``).  An

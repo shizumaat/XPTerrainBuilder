@@ -411,3 +411,22 @@ def test_a_graded_corridor_cuts_the_faces_it_crosses_but_never_the_airside():
     cut = bridge_corridor_lines(a, LAW, [box(20, -9, 30, 9)])
     assert not any(g.intersects(box(20, -9, 30, 9).buffer(0.4)) for g in cut)
     assert bridge_corridor_lines(types.SimpleNamespace(deck_stacks=()), LAW) == []
+
+
+def test_an_end_slab_under_a_neighbouring_deck_still_holds_its_end():
+    """#2091 (OTHH Bridge_03 west end): another deck's ring cuts the
+    footprint's slab beyond an end — the ground there is still held at the
+    plate's top (R1), under that deck's ceiling (R3), corner to corner."""
+    ring = ((0.0, -6.0), (10.0, -6.0), (10.0, 6.0), (0.0, 6.0))
+    plate = (((0.0, -6.0, 0.0), (10.0, -6.0, 0.0), (10.0, 6.0, 0.0)),
+             ((0.0, -6.0, 0.0), (10.0, 6.0, 0.0), (0.0, 6.0, 0.0)))
+    over = StackDeck("E", "e.obj", 0, ring, 1, (), (), ((0.0, -6.0), (10.0, -6.0)),
+                     ((0.0, 6.0), (10.0, 6.0)), 0.0, 0.0, plate)
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "flush", "")
+    st = dc.replace(_stack([end]), decks=(_deck(), over))
+    assert all(sl.is_empty for _d, _s, _t, _a, sl in ground_footprint(st, LAW)["aprons"])
+    rows = deck_stack_rows(_map(st), LAW, types.SimpleNamespace(deck_stacks=(st,)))
+    flush = float(BR.deck_flush_m)
+    held = [r for r in rows if r.source.inputs[2] == "D end b"]
+    assert len(held) == 3 and all(abs(r.hi - 10.0) < 1e-9 and abs(r.lo - (10.0 - flush)) < 1e-9
+                                  for r in held), rows

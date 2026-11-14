@@ -223,6 +223,25 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
             if v in r1 and abs(r1[v][1] - z) > flush:
                 refused.add(v)
             r1.setdefault(v, (z - flush, z, d.object_id, f"{d.object_id}#{d.piece} end {side}"))
+    # #2091: each rowed end's SLAB less its OWN deck alone — the footprint's
+    # slab is cut by every deck ring of the stack, and where a neighbouring
+    # deck's ring took it (OTHH Bridge_03's west end, under Bridge_06's
+    # ring) the ground at one corner of the end stood 0.75 m under the
+    # plate, the other flush.  Under another deck R3's ceiling still wins.
+    from ..geom.deck_ground import end_slab
+    own = {d.object_id: Polygon(d.ring) for d in st.decks if len(d.ring) >= 3}
+    for e in st.rowed_ends():
+        slab = end_slab(e, step)
+        if e.object_id in own:
+            slab = slab.difference(own[e.object_id])
+        if slab.is_empty:
+            continue
+        z = z0 + float(e.top)
+        on = shapely.contains_xy(slab.buffer(grid, join_style="mitre"), axy[:, 0], axy[:, 1])
+        for k in np.flatnonzero(on).tolist():
+            v = allv[k]
+            if v not in hard:
+                r1.setdefault(v, (z - flush, z, e.object_id, f"{e.object_id} end {e.side}"))
     r3: dict[int, tuple[float, str]] = {}
     if st.kind == FREE:
         for d in st.decks:

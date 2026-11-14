@@ -20,7 +20,8 @@ from shapely.ops import unary_union
 
 from .rotated_rect import rotated_rectangle
 
-__all__ = ["end_aprons", "ground_footprint", "ring_polygon", "path_line", "GROUND_TO_WALL_TOP"]
+__all__ = ["end_aprons", "end_slab", "ground_footprint", "ring_polygon", "path_line",
+           "GROUND_TO_WALL_TOP"]
 
 #: OWNER QUESTION Q2 (spec ``interchange-levels-v2-20261113.md`` §10),
 #: the spec's DEFAULT (yes): the ground is graded to the walls' top along the trench (the caps) with a bank to the
@@ -103,7 +104,7 @@ def path_line(e, length: float):
     return line if line.length <= length else substring(line, 0.0, length)
 
 
-def _slab(e, depth: float) -> Polygon:
+def end_slab(e, depth: float) -> Polygon:
     """The end line swept ``depth`` metres along its outward tangent (an
     end's SLAB, rule 4: its first step)."""
     (ax, ay), (bx, by) = e.stations[0], e.stations[-1]
@@ -150,7 +151,7 @@ def _free_footprint(st, law) -> dict:
         d = deck_of.get(e.object_id)
         if d is None:
             continue
-        slab = _slab(e, H).difference(rings)
+        slab = end_slab(e, H).difference(rings)
         apron = slab
         line = path_line(e, e.run) if e.state == "graded" else None
         w = 0.0

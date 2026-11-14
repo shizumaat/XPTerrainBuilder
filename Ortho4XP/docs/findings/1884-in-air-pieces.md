@@ -5,6 +5,42 @@ carrier is put on our terrain only when its authored base is at or under our gro
 whose base stands above our ground keeps its authored height (13y (3), §16 (3): own ground + authored y).
 This is the list of the pieces the TRUE setting (13y (2) read literally) would have dropped, for the owner's read.
 
+**Amended by owner RULINGS 2026-11-14c (1)** (`[placement] terrain_base_within_m = 2.0`): a carrier-less walled
+building whose rigid base stands **within 2.0 m** above our ground is seated on our terrain like one at or under it
+(counted `terrain_carried_within_ground`); above 2.0 m 14a (1) stands. See "After 14c" below for which listed pieces
+now go on our terrain; every other listed piece keeps its authored height.
+
+## After 14c (lane lows4)
+
+Measured with the same method (`tools/obj8_split_report.py PLAN --graded G --json`, two arms on lane lows4's code:
+`terrain_base_within_m` = 0, the 14a reading, and = 2.0) on every airport whose listed pieces include one whose witness
+margin is 2.0 m or less (CYYZ, LPSJ, VQPR; KDEN's units re-read: margins 4.27 / 4.30 / 4.75 m), and at LOWS by
+`tools/v2_rebake_replay.py plan` on the lows4a closing build (+47+012 mesh, `--mesh-also` the installed +47+013 DSF)
+judged by `tools/drawn_site.py --plan` on the installed +47+012 / +47+013 meshes. Every other listed piece's margin
+(the "Base over our ground" column for bodies) is over 2.0 m, so it keeps its authored height.
+
+**5 of the listed pieces now go on our terrain (3 drawn lower, 2 seated the same by a later pass); every other
+listed piece keeps its authored height. The nearest miss is LPSJ body 6 (margin 2.35 m).**
+
+| Airport | Piece | Witness margin (m) | Now | Drawn change |
+|---|---|---|---|---|
+| LOWS | `domiki_lows_13` row 217 b629 (47.74951, 13.00814) | 1.38 (installed mesh; 1.50 on lows3's) | on our terrain | **was 35.1-36.2 m in the air, now base 0.42-1.54 m into the hill** (drawn_site --plan; the low-side foot on a slope, nothing floats). The only body of the 5,533 in the +47+012 plan that changed. |
+| VQPR | `airplanes/wreck_plane.obj` dsf:obj941 b0 | 0.96 | on our terrain | lowered 0.97 m |
+| LPSJ | `lpsj2019_tps_13.obj` dsf:obj143 body 5 (unit fu:0:148) | 1.96 | on our terrain | lowered 2.91 m (the unit's walls' base y) |
+| CYYZ | Terminal1_Parte55 b40 | 1.35 | on our terrain (witness) | 0.00: the 22o connected group seats it the same |
+| CYYZ | Terminal1_Parte55 b63 | 1.40 | on our terrain (witness) | 0.00: the 22o connected group seats it the same |
+| LPSJ | `lpsj2019_tps_13.obj` dsf:obj143 body 6 (unit fu:0:153) | 2.35 | keeps authored height | none |
+
+Note: for the two LPSJ unit rows the "Base over our ground" column below is the unit's walls' base y (what TRUE lowers
+it by), not the witness margin; the margins are 1.96 (body 5) and 2.35 (body 6).
+
+LOWS bars (drawn_site --plan, both arms on the same replay): footed within 0.5 m 3,602 of 3,741 in both arms;
+own-ground floats over 0.5 m 97 -> 96 (b629); the hilltop house `domiki_lows_14` b337 and the east hangars' bodies
+unchanged (one body changed in all). Still in the air at that site, unchanged by this round and listed for the
+owner: `domiki_lows_37` b21 (47.7495, 13.0081 area), own ground with authored y, drawn about 40 m up — the terrain witness never reads it
+(no walled part, a structure under it, or a lifted frame), so it is not one of the pieces this list counts; it
+needs its own reading.
+
 ## How it was counted
 
 `tools/obj8_split_report.py PLAN --graded G --json` (the dry-run object split; the census lane lows2a used) on every
@@ -49,7 +85,7 @@ margin); for a unit, the height the TRUE setting would lower it. Moved = what th
 down; 0 = a later pass seats it the same either way). With the ruling in force a moved piece keeps §16 (3)'s seat:
 its base drawn about `base y` above the ground under its own footprint.
 
-**Read first — LOWS `domiki_lows_13` b629**: its rigid base would stand 1.50 m over our ground, so the ruling refuses
+**Read first — LOWS `domiki_lows_13` b629 (14a reading; RESOLVED by 14c, see above)**: its rigid base would stand 1.50 m over our ground, so the ruling refuses
 the terrain seat; §16 (3) then writes it on its own ground with its authored y +35.68 kept — the house is drawn
 **35.1 m in the air** (drawn_site --plan, owner meshes). The author raised it on HIS terrain (the domiki pack's 48
 houses share one datum 435.51 m). Under the TRUE setting it sits on the hill (0.42 m). 'Keeps its authored height'

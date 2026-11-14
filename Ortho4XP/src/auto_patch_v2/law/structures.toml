@@ -1433,6 +1433,11 @@ free_column_min_share = 0.5   # ... and at least this share of the placement's e
 # street lights on elevated roads, KBWI windows, pier interiors, ...) are
 # listed in docs/findings/1884-in-air-pieces.md.
 terrain_base_over_ground = false
+# ... but an unsupported building whose rigid base stands within this many
+# metres above our ground is seated on our terrain like one at or under it
+# (owner RULINGS 2026-11-14c (1): LOWS domiki_lows_13 stood 35.1 m in the air
+# on a base 1.50 m over our ground).  Above it 14a (1) stands.
+terrain_base_within_m = 2.0
 
 # ─────────────────────────────────────────────────────────────────────────
 # §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec

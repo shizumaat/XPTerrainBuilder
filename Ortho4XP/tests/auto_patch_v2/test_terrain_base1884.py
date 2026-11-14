@@ -220,3 +220,51 @@ def test_site1_a_footless_unit_stands_on_its_walls_base():
     # a lifted frame keeps R5's reading
     lifted = {1: ((LAT, LON), 5.0), 2: ((LAT, LON), 5.0)}
     assert FU._wall_base(un, [un], walls, 2.5, {}, lifted, (law, {}, {})) == 0.0
+
+
+def _margin(ss):
+    return ss.counts.get("terrain_carried_within_ground"), ss.counts.get(
+        "terrain_carried_refused_over_ground")
+
+
+def test_a_house_within_2m_over_our_ground_stands_on_it(tmp_path):
+    """RULINGS 2026-11-14c (1) (``terrain_base_within_m = 2.0``): LOWS
+    ``domiki_lows_13`` stood 35.1 m in the air on a rigid base 1.50 m over
+    our ground.  Rigid base 10 + 20 = 30 over a hill near 28.5: seated on our
+    terrain at the low side, counted ``terrain_carried_within_ground``."""
+    ss = PP.build_splits(_plan(_obj(tmp_path, [HOUSE])), _hill(28.1), write=False, **ARGS)
+    b = _house(ss)
+    assert TB.TERRAIN_CARRIED in b.anchor.reason
+    assert b.anchor.y_zero == pytest.approx(20.0, abs=1e-6)
+    assert b.anchor.surface_z == pytest.approx(28.1, abs=0.05)
+    assert _margin(ss) == (1, None)
+    assert ss.counts.get("terrain_carried_bodies") == 1
+
+
+def test_a_house_2_5m_over_our_ground_keeps_its_authored_height(tmp_path):
+    """Above ``terrain_base_within_m`` 14a (1) stands: authored y, counted."""
+    ss = PP.build_splits(_plan(_obj(tmp_path, [HOUSE])), _hill(27.1), write=False, **ARGS)
+    b = _house(ss)
+    assert TB.TERRAIN_CARRIED not in b.anchor.reason
+    assert b.anchor.y_zero == pytest.approx(0.0, abs=1e-9)
+    assert _margin(ss) == (None, 1)
+
+
+def test_the_within_reach_is_the_law_key():
+    """1.5 m over → terrain; 2.5 m over → refused; at/under → terrain, not
+    counted as within (the margin is frame zero + b − G)."""
+    import dataclasses as dc
+    walls = [_p(1, 20.0, 6.0, BOX)]
+    law = _law(walls, _hill(0.0))
+    assert law.within_m == pytest.approx(2.0)
+    for top, seated, key in ((28.1, True, "terrain_carried_within_ground"),
+                             (27.1, False, "terrain_carried_refused_over_ground"),
+                             (40.0, True, None)):
+        counts: dict = {}
+        got = TB.seat(walls, None, FR[0], 0.0, dc.replace(law, surface=_hill(top)), counts)
+        assert (got is not None) is seated, top
+        assert counts.get(key, 0) == (1 if key else 0)
+        assert "terrain_carried_within_ground" not in counts or key
+    # 0 = no reach: 14a (1) alone
+    assert TB.seat(walls, None, FR[0], 0.0,
+                   dc.replace(law, surface=_hill(28.1), within_m=0.0), {}) is None

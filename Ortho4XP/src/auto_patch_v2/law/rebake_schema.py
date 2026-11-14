@@ -545,6 +545,10 @@ class Placement:
     #: 2026-11-14a (1).  The case is counted either way
     #: (``terrain_carried_over_ground`` / ``..._refused_over_ground``).
     terrain_base_over_ground: bool = False
+    #: ... except a base within this over our ground, which is seated on our
+    #: terrain like one at or under it (owner RULINGS 2026-11-14c (1));
+    #: counted ``terrain_carried_within_ground``.  0 = no reach.
+    terrain_base_within_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

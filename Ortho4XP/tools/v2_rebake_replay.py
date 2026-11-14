@@ -226,6 +226,20 @@ def _foreign_outlines(paths: "list[str] | None") -> tuple:
     return tuple(out)
 
 
+def _also_sampler(path: str, bounds):
+    """``--mesh-also``: a built ``.mesh``, or a tile ``.dsf`` read as X-Plane
+    draws it (``drawn_site.tile_triangles``; #1884 lows4: the installed
+    neighbour, where no build of it is on disk)."""
+    if not path:
+        return None
+    from auto_patch.mesh_sampler import MeshElevationSampler
+    if not path.lower().endswith(".dsf"):
+        return MeshElevationSampler(path, bounds)
+    import drawn_site as _DS
+    return MeshElevationSampler.from_triangles(
+        _DS.tile_triangles(path, bounds, _DS.dsftool(), None), bounds)
+
+
 def cmd_plan(args: argparse.Namespace) -> int:
     """THE PLACEMENT STAGE, REPLAYED AND TIMED (RULINGS 2026-09-12g).
 
@@ -361,8 +375,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
         # #1884: a plan whose bodies stand on the NEIGHBOUR tile (guest
         # rows) reads that tile's drawn mesh there (``--mesh-also``)
-        also = (MeshElevationSampler(args.mesh_also, plan_.bounds())
-                if getattr(args, "mesh_also", "") else None)
+        also = _also_sampler(getattr(args, "mesh_also", ""), plan_.bounds())
 
         def _at(la, lo, _s=sampler):
             try:
@@ -802,8 +815,9 @@ def _main(argv: list[str] | None = None) -> int:
     pl.add_argument("plan", help="the tile build's o4_v2_rebake_<ICAO>.json")
     pl.add_argument("mesh", help="the built Data+XX+YYY.mesh")
     pl.add_argument("--mesh-also", default="",
-                    help="a NEIGHBOUR tile's drawn mesh, read where the plan's "
-                         "bodies stand off the first (#1884 guest rows)")
+                    help="a NEIGHBOUR tile's drawn mesh (.mesh, or its installed "
+                         ".dsf), read where the plan's bodies stand off the first "
+                         "(#1884 guest rows)")
     pl.add_argument("--graded", required=True,
                     help="the emitted design surface <ICAO>.graded.json "
                          "(the pads and rims §6's class rule reads)")

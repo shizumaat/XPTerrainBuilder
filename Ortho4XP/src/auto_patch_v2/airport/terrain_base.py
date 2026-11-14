@@ -39,7 +39,11 @@ the author placed them"):
    (``terrain_carried_refused_over_ground``; ``[placement]
    terrain_base_over_ground = false``, the list in
    ``docs/findings/1884-in-air-pieces.md``); ``true`` is 13y's reading
-   (``terrain_carried_over_ground``);
+   (``terrain_carried_over_ground``).  AMENDED again (RULINGS 2026-11-14c
+   (1), LOWS ``domiki_lows_13`` 35.1 m in the air on a base 1.50 m over our
+   ground): a base within ``[placement] terrain_base_within_m`` over our
+   ground is seated on our terrain like one at or under it
+   (``terrain_carried_within_ground``); above it 14a (1) stands;
 4. nothing carries it: the caller asks only where the carrier search
    found nothing (``placement_file._own_ground_file``) or the unit has no
    foot at all (``footprint_unit._wall_base``'s footless branch) — and NO
@@ -56,7 +60,7 @@ the author placed them"):
    floats, a DC-3's over its wheels — seated by the fuselage they sank).
 
 A piece with no walled part (a roof, a canopy) and no carrier keeps
-§16 (3)'s own ground with its authored y (13y (3)).  NO LAW CONSTANT LIVES HERE: the three keys are
+§16 (3)'s own ground with its authored y (13y (3)).  NO LAW CONSTANT LIVES HERE: the keys are
 ``[placement]``'s and ``[rebake]``'s, the plane constants
 ``footprint_unit``'s.
 """
@@ -89,6 +93,8 @@ class TerrainLaw:
     parts: tuple = ()
     #: ``[placement] terrain_base_over_ground`` (witness 3; 13y (2), 14a (1))
     over_ground: bool = False
+    #: ``[placement] terrain_base_within_m`` (witness 3; 14c (1))
+    within_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -117,12 +123,13 @@ def law_of(surface: _ar.Surface, plan: _t.Any, wall_min_m: float,
                   for u in getattr(plan, "units", ()) for m in u.members
                   for p in m.parts if getattr(p, "box", None))
     from ..law import Law
-    over = bool(getattr(Law.load().tables.structures.placement,
-                        "terrain_base_over_ground", False))
+    placement = Law.load().tables.structures.placement
+    over = bool(getattr(placement, "terrain_base_over_ground", False))
+    within = float(getattr(placement, "terrain_base_within_m", 0.0) or 0.0)
     return TerrainLaw(surface, authored_zeros(getattr(plan, "authored_seats", ())
                                               or ()),
                       float(wall_min_m), float(elevated_base_m), float(split_tol_m),
-                      parts, over)
+                      parts, over, within)
 
 
 def _frame(u: _t.Any) -> tuple:
@@ -266,8 +273,12 @@ def seat(parts: _t.Sequence[_t.Any], m: _t.Any, anchor: _t.Sequence[float],
 
 def _over_refused(w: _Witness, law: TerrainLaw, counts: "dict | None") -> bool:
     """Witness (3): a base whose rigid row clears our ground is COUNTED and,
-    with ``[placement] terrain_base_over_ground`` off, refused."""
+    with ``[placement] terrain_base_over_ground`` off, refused — unless it
+    clears it by no more than ``terrain_base_within_m`` (14c (1))."""
     if not w.over_ground(law):
+        return False
+    if w.margin <= law.within_m:
+        _count(counts, "terrain_carried_within_ground")
         return False
     _count(counts, "terrain_carried_over_ground" if law.over_ground
            else "terrain_carried_refused_over_ground")

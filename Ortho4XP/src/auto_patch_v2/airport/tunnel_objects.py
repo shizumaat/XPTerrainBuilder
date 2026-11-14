@@ -1058,6 +1058,7 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     out.sort(key=lambda c: c.id)
     # #1343: the roofed PORTALS over the bore ends no corridor took
     from .below_grade_witness import ground_of
+    from .footed_portal import roads_of
     from .portal_objects import read_portals
     grade: list = []
     portals, p_refused = read_portals(_object_cut.placement_order(objects), cache, law,
@@ -1067,7 +1068,9 @@ def read_corridors(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                                       ground=(ground_of(airport, objects, cache, law)
                                               if getattr(airport, "dem", None) is not None
                                               else None),
-                                      at_grade=grade)
+                                      at_grade=grade, roads=roads_of(
+                                          airport.osm_ways,
+                                          law.tables.structures.tunnel.admitted_values))
     stats.portals = tuple(portals)
     stats.grade_ends = tuple(grade)
     stats.refused.extend(p_refused)

@@ -125,7 +125,7 @@ from .lidar_road import (NO_SIGN, is_rail_group, kept_face_shift, survey_design_
 from .dual_width import compose_half_fn, dual_half_fn
 from .covered_bores import covered_bore_ways
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
-                              portal_mouth, portal_note, strip_keepout)
+                              portal_mouth, portal_note, roof_back_mouth, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
 from .deck_bridge import (deck_cut, deck_mouth, deck_pin, deck_polygon, deck_seats, deck_side,
                           deck_under)
@@ -533,12 +533,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               if edge is not None else
                               face_front_mouth(axis_ln, inward, pin.face_plan, span or half)
                               if is_entrance_face(pin) else
+                              roof_back_mouth(axis_ln, inward, pin.face_plan)
+                              if getattr(pin, "footed", False) else
                               portal_mouth(axis_ln, inward, pin.anchor_xy,
                                            pin.plan_xy if pin.hanging else ()))
             mouth = tuple(axis_ln.coords[0])
             stats.portal_mouths.append(f"{tid}: {pin.object_id} depth {pin.depth_m:.2f}"
                                        + ((f", mouth {moved:.1f} m along the bore to the "
                                            "bridge's back" if edge is not None else
+                                           f", mouth {-moved:.1f} m out along the road to "
+                                           "the back of its roof" if moved < 0.0 else
                                            f", mouth {moved:.1f} m into the bore to the "
                                            "portal's anchor") if moved else ""))
         # RULINGS 2026-10-28k R1 (``lidar_road``): on a credible survey the
@@ -1285,8 +1289,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     # (its wall gap, the ramp's width), and taken for a
                     # roofed portal its whole row was seated with its ZERO
                     # on the floor (LOWS 1.0.472: both faces 4-6 m buried)
+                    # (#2069: a footed portal's body stands at its roof, up
+                    # the road from the end -- an entrance's anchor IS its end)
                     extra["portal_seat"] = (pin.resource, float(mouth_z) - float(pin.bottom_y),
-                                            tuple(pin.end_xy),
+                                            tuple(pin.anchor_xy),
                                             2.0 * float(tn.object.bore_end_tolerance_m))
                     if skirt is not None:
                         extra["entrance_skirt"] = (skirt[2], *skirt_refs(tid))

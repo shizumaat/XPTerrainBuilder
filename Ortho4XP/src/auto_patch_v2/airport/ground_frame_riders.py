@@ -15,11 +15,11 @@ and the rows, never a name:
 
 * A row STANDS on a surface ``y`` at a trial zero ``Z`` when its height
   over the zero, ``h = E - Z``, is on it (``y <= h <= y + contact_m``,
-  ``CONTACT_UNDER_M`` of slack below) and no other surface of the frame is
+  ``ground_rider_under_m`` of slack below) and no other surface of the frame is
   in ``(y, h + contact_m]`` -- a row inside a slab stands on its top.
 * The frame's AUTHORED ZERO ``Z_F`` is the trial zero (one ``E - y`` of a
-  row over it) that the most of its rows stand at (within ``FIT_M``), among those within
-  ``GROUND_TOL_M`` of the zero the build reads for it (``adapted_riders.
+  row over it) that the most of its rows stand at (within ``ground_rider_fit_m``), among
+  those within ``ground_rider_tol_m`` of the zero the build reads for it (``adapted_riders.
   frame_zero``: the zero its terrain was adapted for, else the surface at
   its origin plus its lift); ties go to the nearest.  One zero per ANCHOR
   FAMILY (origin and lift): the files of one model share it.
@@ -30,10 +30,8 @@ and the rows, never a name:
 * A family whose rows stand at no zero near the build's moves nobody, and
   a row over nothing converts as before.
 
-``GROUND_TOL_M`` is the author's-terrain allowance: under the least
-storey (a 2.1 m vehicle clearance plus its slab), so a row on a frame's
-upper floor never reads as standing on its lower one, and over the 0.2 to
-1.6 m the author's terrain stood off ours under KMCI's frames.
+The three numbers are ``structures.toml [placement] ground_rider_*``,
+with their reasons.
 """
 from __future__ import annotations
 
@@ -45,18 +43,27 @@ import numpy as np
 
 from .frame_riders import _M_PER_DEG, MOVE_MIN_M, _Deck, _FrameMove, _local
 
-__all__ = ["ground_rider_seats", "GROUND_RIDER", "GROUND_TOL_M"]
+__all__ = ["ground_rider_seats", "GROUND_RIDER", "Law", "law_of"]
 
 #: the ``MslSeat.why`` this rule writes
 GROUND_RIDER = "ground_frame_rider"
-#: how far the author's frame zero may stand off the build's (module doc)
-GROUND_TOL_M = 2.0
-#: a row may sit this far into the surface it stands on (DSF rounding)
-CONTACT_UNDER_M = 0.05
-#: the zero is the one the most rows stand EXACTLY at: an author's stock
-#: row is placed on its deck (KMCI: 0.00-0.01 m), so a vote counts a row
-#: within this of its surface; membership then takes ``contact_m``
-FIT_M = 0.1
+
+class Law(_t.NamedTuple):
+    """``structures.toml [placement] ground_rider_*`` (their reasons are
+    there): ``tol_m`` the witnessed zero's allowance off the build's (0
+    disarms), ``fit_m`` the vote's exact-contact band, ``under_m`` how far
+    a row may sit into its surface."""
+
+    tol_m: float = 0.0
+    fit_m: float = 0.0
+    under_m: float = 0.0
+
+
+def law_of(placement: _t.Any) -> Law:
+    """The rule's :class:`Law` from a ``[placement]`` table."""
+    return Law(float(placement.ground_rider_tol_m),
+               float(placement.ground_rider_fit_m),
+               float(placement.ground_rider_under_m))
 _FRAME_KINDS = ("OBJECT", "OBJECT_AGL")
 
 
@@ -124,11 +131,11 @@ def _surfaces(frames: _t.Sequence[_FrameMove], lat: float, lon: float
 
 
 def _stands(hits: _t.Sequence[tuple], h: float, contact_m: float,
-            headroom_m: float) -> "tuple | None":
+            headroom_m: float, under_m: float) -> "tuple | None":
     """The surface a row at height ``h`` over the zero stands on within
     ``contact_m`` with no other surface up to ``headroom_m`` over it (a
     row inside a slab stands on its top; module doc), or ``None``."""
-    under = [s for s in hits if s[0] - CONTACT_UNDER_M <= h]
+    under = [s for s in hits if s[0] - under_m <= h]
     if not under:
         return None
     top = under[-1]
@@ -147,14 +154,14 @@ def _enclosed(hits: _t.Sequence[tuple], h: float) -> "tuple | None":
 
 
 def _family_zero(ref: float, rows_hits: _t.Sequence[tuple[float, list]],
-                 contact_m: float) -> "float | None":
+                 contact_m: float, law: Law) -> "float | None":
     """THE AUTHORED ZERO ``Z_F`` (module doc), or ``None``."""
     best: "tuple[int, float, float] | None" = None
     trials = sorted({round(e - s[0], 3) for e, hits in rows_hits for s in hits
-                     if abs(e - s[0] - ref) <= GROUND_TOL_M})
+                     if abs(e - s[0] - ref) <= law.tol_m})
     for z in trials:
         n = sum(1 for e, hits in rows_hits
-                if _stands(hits, e - z, FIT_M, contact_m))
+                if _stands(hits, e - z, law.fit_m, contact_m, law.under_m))
         key = (n, -abs(z - ref), z)
         if n and (best is None or key > best):
             best = key
@@ -163,7 +170,7 @@ def _family_zero(ref: float, rows_hits: _t.Sequence[tuple[float, list]],
 
 def ground_rider_seats(rows: _t.Sequence[_t.Any], candidates: _t.Iterable[int],
                        pack_root: str, zeros: _t.Mapping[int, tuple[float, dict]],
-                       surface: _t.Callable, contact_m: float,
+                       surface: _t.Callable, contact_m: float, law: Law,
                        authored: _t.Sequence[tuple] = (),
                        counts: "dict | None" = None) -> tuple:
     """The ``MslSeat`` of every ``OBJECT_MSL`` row of ``candidates`` that
@@ -173,7 +180,7 @@ def ground_rider_seats(rows: _t.Sequence[_t.Any], candidates: _t.Iterable[int],
     from ..model.placement import KIND_MSL, MslSeat
     cand = [i for i in candidates if 0 <= i < len(rows)
             and rows[i].kind == KIND_MSL and rows[i].elevation is not None]
-    if not cand or not pack_root or contact_m <= 0.0:
+    if not cand or not pack_root or contact_m <= 0.0 or law.tol_m <= 0.0:
         return ()
     fams = _family_frames(rows, pack_root, zeros, surface, authored)
     keys = list(fams)
@@ -194,12 +201,12 @@ def ground_rider_seats(rows: _t.Sequence[_t.Any], candidates: _t.Iterable[int],
     n_fams = 0
     for key, members in over.items():
         ref = fams[key][0]
-        zf = _family_zero(ref, [(e, h) for _i, e, h in members], contact_m)
+        zf = _family_zero(ref, [(e, h) for _i, e, h in members], contact_m, law)
         if zf is None:
             continue
         n_fams += 1
         for i, e, hits in members:
-            s = (_stands(hits, e - zf, contact_m, contact_m)
+            s = (_stands(hits, e - zf, contact_m, contact_m, law.under_m)
                  or _enclosed(hits, e - zf))
             if s is None:
                 continue

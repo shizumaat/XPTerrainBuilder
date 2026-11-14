@@ -226,6 +226,16 @@ def _foreign_outlines(paths: "list[str] | None") -> tuple:
     return tuple(out)
 
 
+def _ground_rider_law(law):
+    """#1837: ``[placement] ground_rider_*`` as the rule's law, ``None``
+    under a law that predates the keys (the rule then stays disarmed)."""
+    from auto_patch_v2.airport import ground_frame_riders as _gfr
+    try:
+        return _gfr.law_of(law.tables.structures.placement)
+    except AttributeError:
+        return None
+
+
 def _also_sampler(path: str, bounds):
     """``--mesh-also``: a built ``.mesh``, or a tile ``.dsf`` read as X-Plane
     draws it (``drawn_site.tile_triangles``; #1884 lows4: the installed
@@ -545,7 +555,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
         isolated_base_min_fraction=getattr(law.tables.structures.placement,
                                            "isolated_base_min_fraction", None),
         isolated_sheet_max_aspect=getattr(law.tables.structures.placement,
-                                          "isolated_sheet_max_aspect", None))
+                                          "isolated_sheet_max_aspect", None),
+        ground_rider_law=_ground_rider_law(law))
     if args.write_pack:
         # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut
         # and written into a pack COPY by ``placement_write.apply_plan``

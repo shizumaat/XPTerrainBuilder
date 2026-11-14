@@ -13,6 +13,7 @@ LAT, LON = 32.9, -97.04
 Z = 172.0                  # the build's surface everywhere
 ZA = Z - 1.2               # the terrain the author saw under the frame
 M = 1.0 / 111_320.0        # one metre north, in degrees
+LAW = GR.Law(tol_m=2.0, fit_m=0.1, under_m=0.05)
 
 
 def _obj(tmp_path, name, slabs):
@@ -39,7 +40,7 @@ def _row(path, elevation, *, north=0.0, kind="OBJECT_MSL"):
 
 def _seats(tmp_path, rows, counts=None, zeros=None):
     return GR.ground_rider_seats(rows, range(1, len(rows)), str(tmp_path),
-                                 zeros or {}, lambda la, lo: Z, 0.5, (), counts)
+                                 zeros or {}, lambda la, lo: Z, 0.5, LAW, (), counts)
 
 
 def test_cars_on_an_on_ground_garage_ride_it(tmp_path):
@@ -102,8 +103,20 @@ def test_dump_rows_seats_the_pack_s_stock_row_on_its_garage(tmp_path):
     plan = types.SimpleNamespace(units=(), contacts=(), flat=None, authored_seats=())
     ss = types.SimpleNamespace(unit_seats=())
     conv, msl, _r, counts = PW.dump_rows(dump, plan, ss, (), lambda la, lo: Z,
-                                         str(tmp_path), tol_m=0.02, elevated_m=0.5)
+                                         str(tmp_path), tol_m=0.02, elevated_m=0.5,
+                                         ground_rider_law=LAW)
     (car,) = [m for m in msl if m.index == 1]
     assert car.why == GR.GROUND_RIDER and abs(car.elevation - (Z + 3.5)) < 1e-6
     assert 2 in {c.index for c in conv} and 1 not in {c.index for c in conv}
     assert counts["ground_riders_moved"] == 1
+
+
+def test_the_law_reads_the_placement_table_and_zero_disarms(tmp_path):
+    """``[placement] ground_rider_*`` is the rule's law; tol 0 disarms."""
+    from auto_patch_v2.law import Law
+    law = GR.law_of(Law.load().tables.structures.placement)
+    assert law.tol_m > 0.0 and law.fit_m > 0.0 and law.under_m > 0.0
+    g = _obj(tmp_path, "garage.obj", (0.0, 3.5))
+    rows = [_row(g, None, kind="OBJECT"), _row("lib/car.obj", ZA + 3.5, north=2)]
+    assert GR.ground_rider_seats(rows, (1,), str(tmp_path), {}, lambda la, lo: Z,
+                                 0.5, GR.Law(), ()) == ()

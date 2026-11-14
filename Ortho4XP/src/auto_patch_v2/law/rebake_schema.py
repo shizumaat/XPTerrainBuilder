@@ -344,6 +344,15 @@ class Placement:
     #: <= 0.047, the lowest object 0.060.  0 disarms.
     isolated_sheet_max_aspect: float = 0.05
 
+    #: #1837: A STOCK ``OBJECT_MSL`` ROW ON AN ``OBJECT`` / ``OBJECT_AGL``
+    #: FRAME RIDES IT at the zero its riders witness
+    #: (``airport/ground_frame_riders``): the witnessed zero's allowance off
+    #: the build's (0 disarms), the vote's exact-contact band, and how far a
+    #: row may sit into its surface.
+    ground_rider_tol_m: float = 2.0
+    ground_rider_fit_m: float = 0.1
+    ground_rider_under_m: float = 0.05
+
     #: THE FLAT PLANE AT THE BASE OF OBJECTS (owner RULINGS 2026-10-10o
     #: (B); issue #229; ``geom/base_slab``): the base-slab witness —
     #: maximum solid height, maximum |lowest authored y|, minimum open

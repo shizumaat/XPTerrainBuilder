@@ -86,7 +86,7 @@ class _LineCutter:
     def __init__(self, m: Member, segment_m: float, stations_max: int,
                  foot_band_m: float, ratio: float, max_h: float,
                  lat: float, lon: float, contact_eps_m: float = 0.0,
-                 line_ribbon: _t.Any = None,
+                 line_ribbon: "_lo.RibbonLaw | None" = None,
                  contact_pairs: _t.Sequence[tuple[int, int]] = (),
                  rigid_reach_m: float = 0.0,
                  rigid_span_max_m: float = 0.0) -> None:

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import typing as _t
 
+from ..constraints.yard_edge import YardRun
 from ..geom.capped_plane import plane_at
 from ..law import Law
 from ..law.tables import role_side
@@ -91,7 +92,7 @@ def project_fence_yards(planar: PlanarMap, law: Law, z: _t.Sequence[float]
     return tuple(out), rep
 
 
-def run_bounds(planar: PlanarMap, law: Law, run, z: _t.Sequence[float]
+def run_bounds(planar: PlanarMap, law: Law, run: YardRun, z: _t.Sequence[float]
                ) -> "dict[int, tuple[float, float]]":
     """``{free vertex: (lo, hi)}`` of one yard road ``run``
     (``constraints/yard_edge.YardRun``) off its sources' ``z``."""

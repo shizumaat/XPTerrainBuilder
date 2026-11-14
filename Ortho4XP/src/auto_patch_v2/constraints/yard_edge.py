@@ -114,10 +114,10 @@ def projected_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
 def yard_exempt(rows: list[Row], planar: PlanarMap, law: Law,
                 counts: dict[str, _t.Any]) -> list[Row]:
     """``rows`` less every row R3 withdraws (module doc); the count goes
-    into ``counts['yard_rows_withdrawn']``."""
+    into ``counts['yard_rows_withdrawn']`` where a yard stands (none is
+    written without one, as ``riser.riser_exempt``)."""
     from .road_ramp import GEN as _ROAD_RAMP
     held = projected_vertices(planar, law)
-    counts["yard_rows_withdrawn"] = 0
     if not held:
         return rows
     out: list[Row] = []

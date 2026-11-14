@@ -54,4 +54,4 @@ def test_no_yard_withdraws_nothing():
     pm.faces = {k: f for k, f in pm.faces.items() if k != 0}
     rows = [Diff(1, 10, 0.05, 1.8, _src("groundside_ramp"))]
     counts: dict = {}
-    assert yard_exempt(rows, pm, LAW, counts) is rows and counts["yard_rows_withdrawn"] == 0
+    assert yard_exempt(rows, pm, LAW, counts) is rows and "yard_rows_withdrawn" not in counts

@@ -79,11 +79,11 @@ def test_a_fence_round_an_upper_pad_reads_one_plane_and_its_yard():
     assert all(r == "groundside_pavement" and f.startswith("fenceyard:")
                and f.endswith(":building2")
                for r, f, _p, _e in out)
-    pl = fy.yard_plane_of(out[0][3])
+    pl = fy._yard_plane_of(out[0][3])
     assert pl[1] == pytest.approx(GX, abs=1e-6) and pl[2] == pytest.approx(GY, abs=1e-6)
     assert out[0][3]["yard_rms"] == pytest.approx(0.0, abs=1e-6)
     # the pad carries its plane too (the planar front reads no late cell)
-    assert fy.yard_plane_of(cells[0].evidence) == pl
+    assert fy._yard_plane_of(cells[0].evidence) == pl
     # the yard reaches the fence and nothing stands outside it
     assert yard.buffer(1.0).contains(Point(50.0, 21.0)) and yard.contains(Point(30.0, 30.0))
     assert not yard.intersects(Point(10.0, 50.0)) and not yard.intersects(Point(50.0, 90.0))
@@ -124,7 +124,7 @@ def test_doubt_takes_nothing(case):
     out, st, cells = _mint([line], dem=0.0 if case == "level_ground" else 5.0,
                            upper=case != "no_upper_pad")
     assert out == [] and st["fence_yards"] == 0
-    assert fy.yard_plane_of(cells[0].evidence) is None
+    assert fy._yard_plane_of(cells[0].evidence) is None
 
 
 def test_no_unit_line_reads_nothing():
@@ -241,7 +241,7 @@ def test_the_plane_never_exceeds_the_pavement_ceiling():
     out, st, _c = _mint([_fence("unit:0:a#0", RING, closed=True, base=steep)],
                         dem=lambda x, y: steep(x, y) + 1.0)
     if out:
-        pl = fy.yard_plane_of(out[0][3])
+        pl = fy._yard_plane_of(out[0][3])
         assert math.hypot(pl[1], pl[2]) == pytest.approx(cap, abs=1e-9)
     else:
         assert "rms" in st["fence_yard_refused:building2"]

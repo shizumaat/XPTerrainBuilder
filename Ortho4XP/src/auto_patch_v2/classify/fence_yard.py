@@ -65,7 +65,7 @@ from .edge_line_mint import STRIP_ROLE, standing_keep_off
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["mint_fence_yards", "yard_plane_of", "yard_record_of", "YARD_HULL_KEY"]
+__all__ = ["mint_fence_yards", "yard_record_of", "YARD_HULL_KEY"]
 
 #: the share of a pocket's outline its fence must stand on (spec F2 (3))
 _POCKET_FENCED = 0.75
@@ -89,7 +89,7 @@ class _Station(_t.NamedTuple):
     s: float
 
 
-def yard_plane_of(evidence) -> "tuple[float, float, float, float, float] | None":
+def _yard_plane_of(evidence) -> "tuple[float, float, float, float, float] | None":
     """The fence-foot plane a yard cell's (or its upper pad's) ``evidence``
     carries, or ``None``."""
     ev = evidence or {}
@@ -102,7 +102,7 @@ def yard_record_of(evidence) -> "dict[str, _t.Any] | None":
     """What an upper pad's ``evidence`` hands its level's landing record
     (``planar/group_up``): ``yard_plane``, ``yard_hull`` and
     ``yard_g6_ratio``, or ``None`` without a yard."""
-    pl = yard_plane_of(evidence)
+    pl = _yard_plane_of(evidence)
     if pl is None:
         return None
     ev = evidence or {}

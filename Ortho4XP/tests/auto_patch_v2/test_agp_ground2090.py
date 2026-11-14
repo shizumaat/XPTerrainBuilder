@@ -20,8 +20,7 @@ sys.path.insert(0, str(HERE / "tools"))
 from auto_patch_v2.airport import agp_ground as AG  # noqa: E402
 from auto_patch_v2.airport import agp_pieces as AP  # noqa: E402
 from auto_patch_v2.airport import dsf_write as W  # noqa: E402
-from auto_patch_v2.model.placement import (CUT_MARK, AgpSeat, PlacementPlan,  # noqa: E402
-                                           Provenance)
+from auto_patch_v2.model.placement import CUT_MARK, AgpSeat, PlacementPlan, Provenance  # noqa: E402
 
 LAT, LON = 39.0, -104.0
 #: b's row stands 100 m north of a's

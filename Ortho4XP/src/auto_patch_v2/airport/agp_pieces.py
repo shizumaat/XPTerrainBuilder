@@ -24,9 +24,8 @@ from __future__ import annotations
 import dataclasses as _dc
 import math
 import os
-import typing as _t
 
-__all__ = ["AgpFile", "Piece", "read_agp", "placed_pieces", "ground_point",
+__all__ = ["AgpFile", "read_agp", "placed_pieces", "ground_point",
            "lifted_text", "MOVABLE", "FIXED_ON_GROUND"]
 
 #: the placement keyword a datum lift moves (its 4th field is the height)
@@ -58,7 +57,7 @@ class AgpFile:
 
 
 @_dc.dataclass(frozen=True)
-class Piece:
+class _Piece:
     """One placed piece: the OBJ8 ``obj`` (absolute path), its origin
     ``(lon, lat)``, heading (degrees clockwise) and ``height`` over the
     group's datum."""
@@ -141,7 +140,7 @@ def _local(agp: AgpFile, st: tuple[float, float]) -> tuple[float, float]:
 
 
 def placed_pieces(agp: AgpFile, lon: float, lat: float, heading_deg: float
-                  ) -> tuple[Piece, ...]:
+                  ) -> tuple[_Piece, ...]:
     """Every ``OBJ_DELTA`` piece of ``agp`` placed by a row at ``(lon,
     lat)`` heading ``heading_deg`` (an index past the ``OBJECT`` list
     places nothing)."""
@@ -152,7 +151,7 @@ def placed_pieces(agp: AgpFile, lon: float, lat: float, heading_deg: float
             continue
         e, n = _local(agp, (s, t))
         plon, plat = _to_ll(lon, lat, hdg, e, n)
-        out.append(Piece(agp.objects[i], plon, plat, hdg + rot, h))
+        out.append(_Piece(agp.objects[i], plon, plat, hdg + rot, h))
     return tuple(out)
 
 

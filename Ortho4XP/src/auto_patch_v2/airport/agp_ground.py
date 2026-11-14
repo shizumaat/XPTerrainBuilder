@@ -63,7 +63,7 @@ import numpy as np
 from ..model.placement import CUT_MARK, AgpSeat
 from . import agp_pieces as _ap
 
-__all__ = ["CONNECTOR_FLOOR_M", "CONTACT_M", "LIFT_TOL_M", "Join", "candidates",
+__all__ = ["CONNECTOR_FLOOR_M", "CONTACT_M", "LIFT_TOL_M", "candidates",
            "joins", "plan_lifts", "ground_box"]
 
 #: a floor this high over its group's ground line is a connector floor
@@ -92,7 +92,7 @@ class _Member:
 
 
 @_dc.dataclass(frozen=True)
-class Join:
+class _Join:
     """Two members whose connector floors meet: ``step`` is the datum of
     the second minus the first's that makes them meet; ``(lon, lat)`` the
     middle of the floors' contact."""
@@ -281,13 +281,13 @@ def _step(fa: np.ndarray, fb: np.ndarray) -> tuple[float, np.ndarray] | None:
 
 def joins(members: _t.Sequence[_Member],
           pairs: _t.Callable[[int, int], bool] | None = None
-          ) -> dict[tuple[int, int], Join]:
-    """``{(i, j): Join}`` — member list positions ``i < j`` that JOIN, the
+          ) -> dict[tuple[int, int], _Join]:
+    """``{(i, j): _Join}`` — member list positions ``i < j`` that JOIN, the
     datum step ``datum_j - datum_i`` that makes their floors meet and
     where they meet.
     Only members with ``OBJ_DELTA`` pieces whose tiles come within
     :data:`CONTACT_M` of each other are read (a piece file is parsed only
-    for such a pair), and only the pairs ``pairs(i, j)`` admits.""" 
+    for such a pair), and only the pairs ``pairs(i, j)`` admits."""
     from .anchor_rule import _m_per_deg
     from .riders import agp_footprint_xy
     if len(members) < 2:
@@ -302,7 +302,7 @@ def joins(members: _t.Sequence[_Member],
                                             max(p[0] for p in ring), max(p[1] for p in ring)))
     memo: dict = {}
     floors: dict[int, np.ndarray] = {}
-    out: dict[tuple[int, int], Join] = {}
+    out: dict[tuple[int, int], _Join] = {}
     for i in range(len(members)):
         for j in range(i + 1, len(members)):
             a, b = boxes[i], boxes[j]
@@ -317,7 +317,7 @@ def joins(members: _t.Sequence[_Member],
             got = _step(floors[i], floors[j])
             if got is not None:
                 lon, lat = lon0 + got[1][0] / mo, lat0 + got[1][1] / ml
-                out[(i, j)] = Join(got[0], float(lon), float(lat))
+                out[(i, j)] = _Join(got[0], float(lon), float(lat))
     return out
 
 
@@ -349,7 +349,7 @@ def _graded(members: _t.Sequence[_Member], surface: _t.Any) -> list[bool]:
     return [bool(r) for r in roles.roles_many([p[1] for p in gps], [p[0] for p in gps])]
 
 
-def _groups(n: int, steps: _t.Mapping[tuple[int, int], Join]) -> list[list[int]]:
+def _groups(n: int, steps: _t.Mapping[tuple[int, int], _Join]) -> list[list[int]]:
     adj: dict[int, list[int]] = {}
     for i, j in steps:
         adj.setdefault(i, []).append(j)
@@ -372,7 +372,7 @@ def _groups(n: int, steps: _t.Mapping[tuple[int, int], Join]) -> list[list[int]]
     return out
 
 
-def _needs(gov: int, steps: _t.Mapping[tuple[int, int], Join], datum0: float
+def _needs(gov: int, steps: _t.Mapping[tuple[int, int], _Join], datum0: float
            ) -> dict[int, float]:
     """Each group member's datum, breadth first from the governor."""
     need = {gov: datum0}

@@ -169,3 +169,25 @@ def test_a_roofed_portal_is_seated_at_its_pinned_floor():
     assert len(rec) == 1 and rec[0]["seat"] == TS.PORTAL_SEAT
     seats = TS.row_seats(dump, rec)
     assert [(m.index, m.elevation, m.why) for m in seats] == [(0, -4.48, "portal_floor")]
+
+
+def test_an_unsplit_frame_deck_is_written_at_the_frame_zero():
+    """#1883 (LGAV ``Trench_00``): a deck placement of a pack cut's frame
+    that the plan does NOT split (kept: every body lands) is written WHOLE
+    as ``OBJECT_MSL`` at the frame's zero, the zero its mates and the rails
+    riding it are written at -- its authored ``OBJECT`` row follows the
+    drawn mesh under an anchor 1.3 km away (rails 0.43 m under the deck on
+    the owner's install).  A deck the plan splits is seated by its bodies."""
+    rows = [types.SimpleNamespace(def_path="Trench/Trench_00.obj", lat=37.93, lon=23.94,
+                                  heading_deg=0.0, kind="OBJECT", elevation=None),
+            types.SimpleNamespace(def_path="Trench/Fence.obj", lat=37.93, lon=23.94,
+                                  heading_deg=0.0, kind="OBJECT", elevation=None)]
+    dump = types.SimpleNamespace(placements=rows)
+    rec = [{"id": "dsf:obj0", "resource": "Trench/Trench_00.obj", "datum": "object_floor",
+            "seat": TS.FRAME_SEAT, "elevation": 77.352},
+           {"id": "dsf:obj1", "resource": "Trench/Fence.obj", "datum": "object_floor",
+            "seat": TS.OBJECT_FLOOR_SEAT, "elevation": 77.352}]
+    seats = TS.row_seats(dump, rec, frozenset())
+    assert [(m.index, m.elevation, m.why) for m in seats] == [
+        (0, 77.352, "object_floor_frame"), (1, 77.352, "object_floor")]
+    assert [m.index for m in TS.row_seats(dump, rec, frozenset({0}))] == [1]

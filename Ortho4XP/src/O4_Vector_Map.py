@@ -2262,15 +2262,29 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
 ################################################################################
 def _airport_imagery(tile, dico_airports):
     """``{airport: (orthophoto path, ...)}`` from the session's fetch hook
-    (#1359, RULINGS 2026-10-26y), ``{}`` without one or on any failure."""
+    (#1359, RULINGS 2026-10-26y), ``{}`` without one or on any failure.
+    Only the airports this build patches are fetched (#2082)."""
     fetch = getattr(tile, "airport_imagery_fetch", None)
     if not callable(fetch):
         return {}
     try:
-        return dict(fetch(dico_airports) or {})
+        return dict(fetch(_patched_airports(tile, dico_airports)) or {})
     except Exception as error:
         UI.vprint(1, "    Airport imagery skipped:", error)
         return {}
+
+
+def _patched_airports(tile, dico_airports):
+    """The entries of ``dico_airports`` whose airport is in the tile's
+    patch set (``tile.auto_patch_selection``, disposition ``"patch"``:
+    built or reused this build); all of them when the selection was not
+    derived (the driver recomputes it then)."""
+    selection = getattr(tile, "auto_patch_selection", None)
+    if selection is None:
+        return dico_airports
+    patched = {str(icao).upper() for icao in _SELECTION.patch_set(selection)}
+    return {name: entry for name, entry in (dico_airports or {}).items()
+            if str(name).upper() in patched}
 
 
 ################################################################################

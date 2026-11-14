@@ -177,7 +177,7 @@ LIFTED_CAP_TAG = "o4_grade_law_cap_lifted"
 RAMP_ROLES = ("tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp")
 
 
-def lifted_caps(planar: PlanarMap) -> dict[int, float]:
+def lifted_caps(planar: PlanarMap, law: "Law | None" = None) -> dict[int, float]:
     """§34 (9): face id -> the DESIGNED grade of the pinched run, for every
     RAMP face of a corridor whose ``Tunnel.pinched`` record the structures
     pass wrote.  An empty map where nothing pinched.
@@ -187,7 +187,12 @@ def lifted_caps(planar: PlanarMap) -> dict[int, float]:
     the face's centroid — so the face judged at the lifted cap is exactly
     the face built at the lifted grade.  A ramp face of an unpinched
     corridor, and every neighbour of a pinched one, is absent: the lift
-    never leaves the faces the ruling named."""
+    never leaves the faces the ruling named.
+
+    With ``law``, a fence yard's road run (spec 2068 A3 R5,
+    ``constraints/yard_edge.yard_runs``): every face holding a free run
+    vertex is judged at ``[road_contact] upper_pad_road_grade``, the grade
+    ``solve/project_yard`` built it at."""
     # 13e (issue #609): a pad road released above the road cap is the same
     # thing to a reader — "whatever grade the span requires is lawful" on
     # the faces the last stage named, and on no neighbour
@@ -201,6 +206,9 @@ def lifted_caps(planar: PlanarMap) -> dict[int, float]:
     for fid, g in (getattr(planar, "public_road_lifted", None) or {}).items():
         if fid in planar.faces:
             out[int(fid)] = max(out.get(int(fid), 0.0), float(g))
+    if law is not None:
+        for fid, g in yard_run_lifts(planar, law).items():
+            out[fid] = max(out.get(fid, 0.0), g)
     pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
     if not pin:
         return out
@@ -225,7 +233,17 @@ def lifted_caps(planar: PlanarMap) -> dict[int, float]:
     return out
 
 
-def _lifted_records(planar: PlanarMap) -> list[list[_t.Any]]:
+def yard_run_lifts(planar: PlanarMap, law: Law) -> dict[int, float]:
+    """Spec 2068 A3 R5: face id -> ``upper_pad_road_grade`` for every face
+    holding a free vertex of a fence yard's road run (empty without one)."""
+    from ..constraints.yard_edge import yard_runs
+    from ..model.planar import face_vertex_set
+    g = float(law.tables.emit.road_contact.upper_pad_road_grade)
+    return {int(fid): g for run in yard_runs(planar, law) for fid in run.faces
+            if face_vertex_set(planar, planar.faces[fid]) & run.free}
+
+
+def _lifted_records(planar: PlanarMap, law: "Law | None" = None) -> list[list[_t.Any]]:
     """§34 (9) (3)'s report record per LIFTED ramp face: ``[shapeID,
     corridor id, road ref, span m, designed grade]``, off the SAME
     ``Tunnel.pinched`` record and the SAME face join :func:`lifted_caps`
@@ -244,6 +262,11 @@ def _lifted_records(planar: PlanarMap) -> list[list[_t.Any]]:
              round(float(g), 6)]
             for fid, g in sorted(public.items())
             if fid in planar.faces and fid not in released]
+    # spec 2068 A3 R5: a fence yard's road names its YARD
+    yard = yard_run_lifts(planar, law) if law is not None else {}
+    out += [[int(fid), "fence_yard", str(planar.faces[fid].ref), 0.0, round(g, 6)]
+            for fid, g in sorted(yard.items())
+            if fid not in released and fid not in public]
     pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
     if not pin:
         return out
@@ -251,7 +274,7 @@ def _lifted_records(planar: PlanarMap) -> list[list[_t.Any]]:
     from shapely.geometry import LineString, Point
     axes = {tn.id: LineString(tn.axis) for tn in planar.structures
             if len(tn.axis) >= 2}
-    for fid in sorted(set(caps) - set(released) - set(public)):
+    for fid in sorted(set(caps) - set(released) - set(public) - set(yard)):
         vs = planar.ring_vertices(planar.faces[fid].ring)
         cx = sum(planar.vertices[v].xy[0] for v in vs) / len(vs)
         cy = sum(planar.vertices[v].xy[1] for v in vs) / len(vs)
@@ -283,7 +306,7 @@ def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
     # lifted for.  The v1 census reads THIS tag (``check_grade.
     # _lifted_cap_tag``); v2 verify reads the same map through
     # ``Patch.of(lifted_caps=…)`` — one derivation, two readers.
-    for fid, g in lifted_caps(planar).items():
+    for fid, g in lifted_caps(planar, law).items():
         out.setdefault(fid, {})[LIFTED_CAP_TAG] = f"{g:g}"
     # 30ah (1): the taxi face's yielded cap and its runway — the SAME
     # record the solve priced (``PlanarMap.taxi_caps``); v2 verify reads
@@ -675,7 +698,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # law input: the census reads the LIFT off the way tag
             # (``check_grade.LIFTED_CAP_TAG``) and prices nothing from this
             # list.
-            "lifted_caps": _lifted_records(planar),
+            "lifted_caps": _lifted_records(planar, law),
             # §37 (7) THE ROAD'S ROUTE FRAME (owner RULINGS 2026-09-13av;
             # ``airport/road_ramp.road_route_frame``, published through
             # ``PlanarMap.road_route_frame``): ``[lat, lon, route id,
@@ -1109,8 +1132,8 @@ def wall_terrace_joints(planar: PlanarMap, law: Law,
     its nearest lower partner) and ``agreement_m`` the emitted minus the
     wall — the reading that says the terrace sits where the pack put it."""
     # #2068 A1 (2) (c): an upper pad's rim step is declared on this channel
-    from .upper_pad_publication import upper_rim_joints
-    rims = upper_rim_joints(planar, law, z)
+    from .upper_pad_publication import upper_rim_joints, yard_edge_joints
+    rims = upper_rim_joints(planar, law, z) + yard_edge_joints(planar, law, z)
     walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
     if not walls:
         return rims

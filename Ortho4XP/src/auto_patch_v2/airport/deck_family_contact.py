@@ -71,7 +71,7 @@ def ungoverned_members(objs: _t.Sequence[_obj8.PlacedObject],
                        cache: _obj8.ResourceCache, touch_m: float,
                        on_fraction: float, rb: _t.Any) -> frozenset[str]:
     """The ids in ``deck_family`` that are not decks, are LINE OBJECTS
-    (``rb``: the ``[rebake]`` line law — the one verdict being governed
+    (``rb``: the line law, ``line_object.line_law`` — the one verdict being governed
     changes; a deck-family member is never a scatter body either way) and
     do not stand on a deck of their family (module doc).  ``family_of`` is ``id -> family key``.  A
     member whose geometry cannot be read stays governed (no evidence)."""

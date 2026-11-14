@@ -22,6 +22,10 @@ the question opens; ``flatten`` listed as automatic):
   elevation models the same ground (``drape_stage.TERRAIN``, owner RULINGS
   2026-11-13i, #2036 (c)): UNCHECKED when the question opens, offered only
   when a build found one (its witness needs the build's DEM);
+* ``generic`` — hide X-Plane's stock land-class ground (grass, sand,
+  scrub) the pack drapes over the tile, with the hectares it covers
+  (``drape_stage.GENERIC``, owner 2026-11-14T15:20Z, #2085): asked of
+  EVERY overlay pack on the tile, airport or not; ticked when it opens;
 * ``flatten`` — the apt.dat's ``1302 flatten 1`` rows, removed on every
   write with no question (RULINGS 2026-10-20ac;
   ``auto_patch_v2.airport.apt_flatten``), undone by Restore originals.
@@ -49,7 +53,7 @@ __all__ = ["CHOICES", "ACTIONS", "adjust_stage", "tile_stage",
            "adjust_choice"]
 
 #: the rows the user chooses, in the question's order
-CHOICES = ("trees", "drapes", "ground", "terrain")
+CHOICES = ("trees", "drapes", "ground", "terrain", "generic")
 #: the rows left unticked when the question opens
 UNCHECKED = ("ground", "terrain")
 #: the actions of the ``pack_adjust`` command
@@ -70,6 +74,7 @@ def _drapes_row(pd, key: str = "drapes") -> dict:
     return {"key": key, "count": int(s["definitions"]),
             "uses": int(s["count"]), "automatic": False,
             "checked": key not in UNCHECKED,
+            "hectares": int(round(getattr(pd, "hectares", 0.0))),
             "first_paths": list(s["first_paths"])}
 
 
@@ -210,8 +215,8 @@ def tile_stage(tile, *, writes: bool, asked: set[str] | None = None,
     """THE TILE'S SCAN, once per tile build after the placements
     (RULINGS 2026-11-09a (9)): the drape rows of every pack on the tile
     not in ``asked`` (``drape_stage.scanned`` — an airport pack this build
-    did not place, a companion overlay), each asked as that pack's own
-    question.  ``scenery_dirs``: the Custom Scenery folders to scan
+    did not place, a companion overlay, an overlay draping generic ground),
+    each asked as that pack's own question.  ``scenery_dirs``: the Custom Scenery folders to scan
     (default: the configured one and those of the packs in ``asked``).
     Never raises."""
     import types

@@ -211,8 +211,11 @@ def sweep(conn, cap: "int | BUDGET.Budget", *, camera=None,
 def downgrade_all(conn, *, tile: "str | None" = None, camera=None,
                   not_near_since: "float | None" = None,
                   dry_run: bool = False, reason: str = "made low-res by hand",
-                  abort: "_t.Callable[[], bool] | None" = None) -> dict:
-    """Every upgraded row but the favorites (of ``tile`` when given; not flown near
+                  abort: "_t.Callable[[], bool] | None" = None,
+                  favorites: bool = False) -> dict:
+    """Every upgraded row but the favorites (with ``favorites``, those
+    too: the disk budget's last tiles, ``storage_priority``) (of ``tile``
+    when given; not flown near
     since ``not_near_since`` when given) back to its placeholder, except
     the squares :func:`_near_camera`.  ``dry_run`` changes nothing and
     answers what would be freed.
@@ -224,7 +227,7 @@ def downgrade_all(conn, *, tile: "str | None" = None, camera=None,
     out = {"downgraded": 0, "freed_bytes": 0, "skipped_near": 0,
            "dry_run": bool(dry_run), "stopped": False}
     users = None if dry_run else DDSC.key_users()
-    for row in INDEX.lru_order(conn):
+    for row in INDEX.lru_order(conn, favorites=favorites):
         if abort():
             out["stopped"] = True
             break
@@ -241,7 +244,8 @@ def downgrade_all(conn, *, tile: "str | None" = None, camera=None,
             out["freed_bytes"] += int(row.get("full_bytes") or 0)
             continue
         with contextlib.suppress(OSError):
-            freed = _downgrade(conn, row, users=users, reason=reason)
+            freed = _downgrade(conn, row, users=users, reason=reason,
+                               favorites=favorites)
             if freed is not None:
                 out["downgraded"] += 1
                 out["freed_bytes"] += freed

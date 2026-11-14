@@ -59,7 +59,7 @@ from ..model.planar import EDGE_STRIP_PREFIX
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["mint_edge_strips", "grow_feet_to_walls", "STRIP_ROLE"]
+__all__ = ["mint_edge_strips", "grow_feet_to_walls", "standing_keep_off", "STRIP_ROLE"]
 
 STRIP_ROLE = "groundside_pavement"
 
@@ -183,12 +183,25 @@ def _strip(run: list[_Station], line: LineString, hw: float) -> Polygon:
     return unary_union(quads) if quads else Polygon()
 
 
+def standing_keep_off(cells: list, law: Law):
+    """Every cell standing, grown by the §52 stand-off (the pad cut-back,
+    the identity snap's margin and one lattice step): the ground a late
+    strip never takes, so the cells standing are what they were BY
+    CONSTRUCTION (``classify/fence_yard`` shares it)."""
+    standing = unary_union([Polygon(c.ring, c.holes).buffer(0.0) for c in cells])
+    standoff = float(law.tables.structures.building_pad.groundside_cutback_m) \
+        + snap_margin_m(law) + float(law.tables.emit.identity.min_distinct_spacing_m)
+    return standing.buffer(standoff, join_style="mitre", mitre_limit=2.0)
+
+
 def mint_edge_strips(airport, cells: list, law: Law, rules: Rules, add) -> dict[str, _t.Any]:
     """Mint the edge strips onto ``cells`` through ``add`` (the
     classifier's own cell constructor); returns the counts."""
     stats: dict[str, _t.Any] = {"edge_lines": 0, "edge_lines_on_top": 0,
                                 "edge_strips": 0, "edge_strip_m2": 0.0}
-    lines = tuple(getattr(airport, "edge_lines", ()) or ())
+    # a unit's own fence is read by ``classify/fence_yard`` only (#2068 Q4)
+    lines = tuple(el for el in (getattr(airport, "edge_lines", ()) or ())
+                  if getattr(el, "unit", None) is None)
     stats["edge_lines"] = len(lines)
     cfg = rules.edge_lines
     roles = set(pavement_roles(law))
@@ -197,10 +210,7 @@ def mint_edge_strips(airport, cells: list, law: Law, rules: Rules, add) -> dict[
     if not lines or not paved:
         return stats
     tree = STRtree([g for _c, g in paved])
-    standing = unary_union([Polygon(c.ring, c.holes).buffer(0.0) for c in cells])
-    standoff = float(law.tables.structures.building_pad.groundside_cutback_m) \
-        + snap_margin_m(law) + float(law.tables.emit.identity.min_distinct_spacing_m)
-    keep_off = standing.buffer(standoff, join_style="mitre", mitre_limit=2.0)
+    keep_off = standing_keep_off(cells, law)
     dem = getattr(airport, "dem", None)
     wg = getattr(dem, "water_geometry", None)
     n, grid = 0, rules.cells.snap_grid_m

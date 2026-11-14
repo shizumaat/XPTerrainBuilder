@@ -487,3 +487,109 @@ def test_the_session_hands_the_token_holder_the_downloading_fetch(spied):
     session._run_step(lambda t: seen.append(t.airport_imagery_fetch) or 1, "vector",
                       SimpleNamespace(lat=LAT, lon=LON), _plan("vector", "imagery"))
     assert getattr(seen[0], "__func__", None) is PREFETCH.Prefetch.fetch_airports
+
+
+# -- #2082: the airport-first set downloads in parallel, patched airports only
+def _touching_fetch(tile, IMG, hold=None, peak=None):
+    """A fake fetcher that writes the orthophoto; with ``peak`` it records
+    the most fetches seen in flight at once (holding each on ``hold``)."""
+    state = {"now": 0}
+    guard = threading.Lock()
+
+    def fetch(_tile, texture):
+        with guard:
+            state["now"] += 1
+            if peak is not None:
+                peak[0] = max(peak[0], state["now"])
+        try:
+            if hold is not None:
+                hold.wait(5)
+            path = PREFETCH._orthophoto_path(tile, texture, IMG)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            open(path, "wb").close()
+            return 1
+        finally:
+            with guard:
+                state["now"] -= 1
+    return fetch
+
+
+def test_the_airport_photos_download_in_parallel(tile, monkeypatch):
+    """#2082: ``slots`` orthophotos are in flight at once, and every one
+    is in the cache when the fetch returns (26y)."""
+    import O4_Imagery_Utils as IMG
+    monkeypatch.setattr(IMG, "providers_dict", _imagery("NEW").providers_dict)
+    textures = [(x, y, 18, "NEW") for (x, y) in _grid(18, 6)]
+    peak = [0]
+    barrier = threading.Barrier(3, timeout=5)
+    hold = SimpleNamespace(wait=lambda _s: barrier.wait())
+    got = PREFETCH.fetch_airport_imagery(
+        tile, {"ZZZZ": {}}, fetch=_touching_fetch(tile, IMG, hold, peak),
+        find=lambda _t, _d: {"ZZZZ": textures}, slots=3)
+    assert peak[0] == 3
+    assert len(got["ZZZZ"]) == 6
+
+
+def test_the_airport_fetch_uses_the_imagery_steps_slots(monkeypatch):
+    """#2082: the default is the imagery step's own ``max_download_slots``
+    (``effective_download_slots``), never a second limit."""
+    import O4_Tile_Utils as TILE
+    from O4_Parallel_Utils import effective_download_slots
+    monkeypatch.setattr(TILE, "max_download_slots", 4)
+    assert PREFETCH.airport_download_slots() == 4
+    monkeypatch.setattr(TILE, "max_download_slots", 0)
+    assert PREFETCH.airport_download_slots() == effective_download_slots(0)
+
+
+def test_the_background_never_blocks_the_airport_fetch(tile, monkeypatch):
+    """#2082: a background orthophoto in flight does not hold the airport
+    fetch, and the background starts no new one while it runs."""
+    import O4_Imagery_Utils as IMG
+    monkeypatch.setattr(IMG, "providers_dict", _imagery("NEW").providers_dict)
+    background = [(x, y, 16, "NEW") for (x, y) in _grid(16, 2)]
+    airport = [(x, y, 18, "NEW") for (x, y) in _grid(18, 2)]
+    released, started = threading.Event(), []
+    plain = _touching_fetch(tile, IMG)
+
+    def fetch(t, texture):
+        if texture in background:
+            started.append(texture)
+            released.wait(5)
+        return plain(t, texture)
+
+    prefetch = PREFETCH.Prefetch(tile, background, fetch=fetch).start()
+    deadline = threading.Event()
+    for _ in range(100):                        # the first background photo is in flight
+        if started:
+            break
+        deadline.wait(0.02)
+    got = prefetch.fetch_airports(
+        {"ZZZZ": {}}, find=lambda _t, _d: {"ZZZZ": airport})
+    assert len(got["ZZZZ"]) == 2 and len(started) == 1
+    released.set()
+    for thread in prefetch._threads:            # the background resumes and drains
+        thread.join(5)
+    assert prefetch.downloaded == 4 and len(started) == 2
+    prefetch.stop()
+
+
+def test_only_patched_airports_are_fetched():
+    """#2082: the vector step hands the fetch the patch set only."""
+    import O4_Vector_Map as VMAP
+    from auto_patch.selection import PatchCandidate
+    dico = {"KAAA": {}, "kbbb": {}, "KCCC": {}, "KDDD": {}}
+    selection = [PatchCandidate("KAAA", ""), PatchCandidate("KBBB", ""),
+                 PatchCandidate("KCCC", "", disposition="manual"),
+                 PatchCandidate("KDDD", "", disposition="boundary_skipped")]
+    asked = []
+    tile = SimpleNamespace(auto_patch_selection=selection,
+                           airport_imagery_fetch=lambda d: asked.append(set(d)) or {})
+    VMAP._airport_imagery(tile, dico)
+    assert asked == [{"KAAA", "kbbb"}]
+    # no selection derived: every airport (the driver recomputes it)
+    tile.auto_patch_selection = None
+    VMAP._airport_imagery(tile, dico)
+    assert asked[-1] == set(dico)
+    tile.auto_patch_selection = []              # nothing patched, nothing fetched
+    VMAP._airport_imagery(tile, dico)
+    assert asked[-1] == set()

@@ -340,23 +340,12 @@ def _pad_plane(st: _t.Any, levels: _t.Mapping[int, float],
     a steeper fit keeps its direction at the ceiling and re-centres).  A
     pad with fewer than three non-collinear contacts reads the strip's own
     stage-1 values instead.  ``(z0, gx, gy, x0, y0)``."""
+    from ..geom.capped_plane import capped_plane
     pts = [v for v in st.pad_vertices if v in levels]
     if len(pts) < 3:
         pts = vs
-    P = np.array([xy[v] for v in pts], dtype=float)
-    z = np.array([levels[v] for v in pts], dtype=float)
-    x0, y0 = float(P[:, 0].mean()), float(P[:, 1].mean())
-    A = np.column_stack([np.ones(len(P)), P[:, 0] - x0, P[:, 1] - y0])
-    if len(P) >= 3 and np.linalg.matrix_rank(A) == 3:
-        c, *_ = np.linalg.lstsq(A, z, rcond=None)
-        z0, gx, gy = float(c[0]), float(c[1]), float(c[2])
-    else:
-        z0, gx, gy = float(np.median(z)), 0.0, 0.0
-    g = float(np.hypot(gx, gy))
-    if g > tilt_max > 0.0:
-        gx, gy = gx * tilt_max / g, gy * tilt_max / g
-        z0 = float(np.mean(z - gx * (P[:, 0] - x0) - gy * (P[:, 1] - y0)))
-    return (z0, gx, gy, x0, y0)
+    return capped_plane(np.array([xy[v] for v in pts], dtype=float),
+                        np.array([levels[v] for v in pts], dtype=float), tilt_max)
 
 
 def _frontage_residual(st: _t.Any, levels: _t.Mapping[int, float],
@@ -375,6 +364,19 @@ def _frontage_residual(st: _t.Any, levels: _t.Mapping[int, float],
 
 def project_facade_strips(planar: PlanarMap, law: Law,
                           z: _t.Sequence[float]) -> tuple[tuple[float, ...], dict]:
+    """:func:`_project_facade_strips`, then the fence yards on their
+    fence-foot plane (spec 2068 A2 F3, ``solve/project_yard``; the report
+    gains ``yards`` only where the map holds one)."""
+    from .project_yard import project_fence_yards
+    out, rep = _project_facade_strips(planar, law, z)
+    out, yards = project_fence_yards(planar, law, out)
+    if yards is not None:
+        rep["yards"] = yards
+    return out, rep
+
+
+def _project_facade_strips(planar: PlanarMap, law: Law,
+                           z: _t.Sequence[float]) -> tuple[tuple[float, ...], dict]:
     """THE FACADE STRIP STANDS AT ITS HOST PAD'S LEVEL (spec §52; owner
     RULINGS 2026-10-04d (3) (a) "at the pad's level ... the pad footprint,
     frontage and weld do not move", 2026-10-04f "it should stay with the

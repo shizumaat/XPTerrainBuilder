@@ -87,6 +87,7 @@ from ..classify.roles import Classification
 from ..law import Law
 from ..law.tables import family, is_rigid_role, snap_margin_m
 from ..model.airport import Airport
+from ..model.constraints import row_vertices
 from ..model.frame import XY
 from ..model.planar import (NO_SHAPE, PlanarMap, RoadRamp, ShapeJoint, bears_shape,
                             is_gap_ref, is_osm_ribbon_ref, shares_gap_part)
@@ -583,17 +584,6 @@ def straddles(pm: PlanarMap, ids: _t.Iterable[int]) -> bool:
 def straddles_pairs(pm: PlanarMap, pairs: _t.Iterable[tuple[int, int]]) -> bool:
     """Whether any of the vertex ``pairs`` carries two shapes."""
     return any(straddles(pm, p) for p in pairs)
-
-
-def row_vertices(row) -> tuple[int, ...]:
-    """The vertex ids a constraint row touches (duck-typed on the record)."""
-    if hasattr(row, "terms"):
-        return tuple(v for v, _c in row.terms)
-    if hasattr(row, "group"):
-        return tuple(row.group)
-    if hasattr(row, "a"):
-        return (row.a, row.b)
-    return (row.v,)
 
 
 def row_test_pairs(row) -> list[tuple[int, int]] | None:

@@ -77,6 +77,8 @@ class _UpperPad:
     delta: float
     relief: float
     fence: bool
+    #: T4's airside ground: the DEM median over the airside the floor meets
+    air_z: float = float("nan")
 
     @property
     def rise(self) -> float:
@@ -253,7 +255,7 @@ def _upper_pad(ref, P, ur: _UnitRead, near, air, dem, law, to_xy,
                 and (g := part_footprint(p, to_xy)) is not None and g.intersects(reach)
                 for m in ur.unit.members for p in m.parts)
     return _UpperPad(str(ref), P, ur.ui, t, float(y_p), round(cover, 3), walled,
-                    round(delta, 2), round(relief, 2), fence)
+                    round(delta, 2), round(relief, 2), fence, round(_st.median(za), 2))
 
 
 def _near_m(law) -> float:

@@ -89,7 +89,7 @@ else:
     import fcntl as _oslock
 
 __all__ = ["BUDGET", "CLASS_WAIT_S", "DEMAND_TTL_S", "ENV_DIR", "ENV_CAPACITY",
-           "ENV_UNGATED", "Held", "capacity", "carry_net_priority",
+           "ENV_UNGATED", "Held", "capacity", "headroom_gigabytes", "carry_net_priority",
            "ensure_session", "has_net_priority", "hold_class", "lend",
            "background_priority", "lower_priority", "memory_admits", "net_class",
            "net_priority", "session_capacity",
@@ -150,16 +150,25 @@ def _headroom(total_gb: float, budget: dict = BUDGET) -> float:
     return max(budget["headroom_fraction"] * total_gb, budget["headroom_min_gb"])
 
 
-def memory_admits(budget: dict = BUDGET) -> bool:
+def headroom_gigabytes(budget: dict = BUDGET) -> float:
+    """Gigabytes every gate keeps free for the operating system, the app
+    and the user's other work: the larger of ``headroom_fraction`` of this
+    machine's physical memory and ``headroom_min_gb`` (owner, #1225)."""
+    return _headroom(_PU.machine_memory_gigabytes(), budget)
+
+
+def memory_admits(budget: dict = BUDGET, need_gb: "float | None" = None) -> bool:
     """THE LIVE GATE: may one more heavy process start now?  Free memory
     is read afresh (``O4_Parallel_Utils`` caches it two seconds) and must
-    keep the headroom after one more worker's estimate (always yes in a
-    session that set :data:`ENV_UNGATED`)."""
+    keep the headroom after one more process of ``need_gb`` (default: one
+    worker's estimate) — always yes in a session that set
+    :data:`ENV_UNGATED`.  The tile scheduler asks it with a step's own
+    projected peak before it starts a heavy step (#2083)."""
     if os.environ.get(ENV_UNGATED):
         return True
-    total = _PU.machine_memory_gigabytes()
-    return (_PU.machine_available_memory_gigabytes() - budget["worker_gb"]
-            >= _headroom(total, budget))
+    need = budget["worker_gb"] if need_gb is None else float(need_gb)
+    return (_PU.machine_available_memory_gigabytes() - need
+            >= headroom_gigabytes(budget))
 
 
 def _measured_capacity() -> int:

@@ -22,8 +22,8 @@ import lzma
 import struct
 from typing import Optional
 
-__all__ = ["HEAD_BYTES", "dsf_bytes", "dsf_property_pairs", "dsf_properties",
-           "dsf_is_overlay"]
+__all__ = ["HEAD_BYTES", "DEFN_BYTES", "dsf_bytes", "dsf_property_pairs",
+           "dsf_properties", "dsf_is_overlay", "dsf_polygon_definitions"]
 
 #: How much of the DSF a check decodes: HEAD comes first in every DSF.
 HEAD_BYTES = 1 << 16
@@ -33,6 +33,9 @@ _SEVEN_ZIP = b"7z\xbc\xaf\x27\x1c"
 _SIGNATURE_HEADER = 32
 _HEAD_IDS = (b"DAEH", b"HEAD")      # atom ids are stored byte-reversed
 _PROP_IDS = (b"PORP", b"PROP")
+#: How much a definitions check decodes: ``DEFN`` follows ``HEAD``, and an
+#: overlay's tables are far smaller than this.
+DEFN_BYTES = 4 << 20
 #: Most packed bytes read: the head of the DSF is far smaller than this.
 _PACKED_CAP = 4 << 20
 _RAW_FILTERS = (
@@ -94,12 +97,12 @@ def _whole(buf: bytes) -> bytes:
     return buf[:off + 16] if off > 12 and off + 16 <= len(buf) else buf
 
 
-def _head(path: str) -> bytes:
+def _head(path: str, max_length: int = HEAD_BYTES) -> bytes:
     """The DSF's first bytes, decompressed when the file is a 7z."""
     with open(path, "rb") as handle:
-        start = handle.read(HEAD_BYTES)
+        start = handle.read(max_length)
         if start.startswith(_SEVEN_ZIP):
-            return _seven_zip_head(handle)
+            return _seven_zip_head(handle, max_length)
         return start if start.startswith(_DSF_COOKIE) else b""
 
 
@@ -155,3 +158,25 @@ def dsf_is_overlay(path: str) -> Optional[bool]:
     if props is None:
         return None
     return props.get("sim/overlay", "0") == "1"
+
+
+def dsf_polygon_definitions(path: str) -> Optional[list]:
+    """The DSF's ``POLYGON_DEF`` paths in definition order, read from its
+    first :data:`DEFN_BYTES` (no DSFTool dump), or ``None`` when the file
+    cannot be read or decoded as a DSF (#2085: the tile scan's cheap look
+    for generic ground)."""
+    try:
+        buf = _head(path, DEFN_BYTES)
+    except OSError:
+        return None
+    if not buf:
+        return None
+    for atom_id, body, end in _atoms(buf, 12, len(buf)):
+        if atom_id not in (b"NFED", b"DEFN"):
+            continue
+        for kid, kbody, kend in _atoms(buf, body, end):
+            if kid in (b"YLOP", b"POLY"):
+                return [w.decode("utf-8", "replace")
+                        for w in buf[kbody:kend].split(b"\0") if w]
+        return []
+    return []

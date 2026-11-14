@@ -44,6 +44,7 @@ import shapely
 from shapely.ops import substring
 
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
+from ..geom.parts import densified_parts
 from ..model.wall_reach import FILL_SLOT_M, WALL_FILL_MARK, WALL_SLOPE_REF_PREFIX, is_wall_slope_ref
 
 __all__ = ["wall_slopes", "slope_sides", "SLOPE_VERTEX_M"]
@@ -109,9 +110,9 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
             if part.geom_type != "Polygon" or part.area < 1.0 \
                     or is_hairline(part, hairline_m):
                 continue
-            out.append((f"{WALL_SLOPE_REF_PREFIX}{w.resource}{mark}{k}",
-                        shapely.segmentize(part, SLOPE_VERTEX_M)))
-            k += 1
+            for d in densified_parts(part, SLOPE_VERTEX_M):
+                out.append((f"{WALL_SLOPE_REF_PREFIX}{w.resource}{mark}{k}", d))
+                k += 1
     return out
 
 

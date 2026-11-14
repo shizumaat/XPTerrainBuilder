@@ -14,7 +14,8 @@ import os
 import typing as _t
 
 __all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES",
-           "GATEWAY_CHOICES", "GROUND_CHOICES", "TERRAIN_CHOICES", "TERRAIN_FOUND",
+           "GATEWAY_CHOICES", "GROUND_CHOICES", "GENERIC_CHOICES", "TERRAIN_CHOICES",
+           "TERRAIN_FOUND",
            "Store", "store_path", "read",
            "write", "relative", "step_list"]
 
@@ -29,6 +30,8 @@ DRAPE_CHOICES = "pack_drape_choices.json"
 GATEWAY_CHOICES = "gateway_airport_choices.json"
 #: the "Hide large ground textures" answers file (#1962; ``drape_stage``)
 GROUND_CHOICES = "pack_ground_choices.json"
+#: the "Hide generic X-Plane ground" answers file (#2085; ``drape_stage``)
+GENERIC_CHOICES = "pack_generic_choices.json"
 #: the "Hide terrain objects" answers file (RULINGS 2026-11-13i; ``drape_stage``)
 TERRAIN_CHOICES = "pack_terrain_choices.json"
 #: the terrain objects a build offered for hiding, per pack

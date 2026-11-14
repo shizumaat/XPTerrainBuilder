@@ -1,7 +1,7 @@
 """Twins for older airport tiles shrunk to their package when the disk
 budget is full (owner 2026-11-11T15:32Z, RULINGS 2026-11-11l item 5,
-``o4_engine.storage_packages`` as the rebuild tier's ``TIER_HOOKS`` entry
-of ``storage_budget``), on a synthetic data folder in ``tmp_path``
+``o4_engine.storage_packages``, reached in the disk budget's tile priority
+order, ``storage_priority``), on a synthetic data folder in ``tmp_path``
 (``test_storage_settings.root``; ``test_tile_package``'s stand-ins for
 the pack key and schemas).  No pipeline; the suite's network guard
 refuses any download.
@@ -11,8 +11,8 @@ refuses any download.
 * its package is written in the local store, then its rebuild data, its
   own downloaded inputs and its sharp imagery go; its DSF, its patches
   and the neighbours' shared rasters stay;
-* the earlier elevation / map tier leaves those inputs for the package,
-  and a built tile whose inputs it does clear is packaged first;
+* the budget reaches a tile's map and elevation data only in its turn:
+  an airport tile is packaged then, any built tile before its inputs go;
 * restoring before a build lays every input back, byte and time
   identical: the rebuild downloads nothing but imagery.
 """
@@ -98,6 +98,14 @@ def _sweep():
     return ST._Sweep(False, "budget", None)
 
 
+def _package_first_candidate(sweep):
+    """Shrink the first package candidate (oldest non-favorite)."""
+    first = PACKAGES._candidates()[0]
+    before = sum(sweep.freed.values())
+    PACKAGES._package_tile(first, sweep, time.time())
+    return sum(sweep.freed.values()) - before
+
+
 def test_the_oldest_non_favorite_airport_tile_goes_first(data):
     order = [(c["lat"], c["lon"]) for c in PACKAGES._candidates()]
     assert order == [OLD, NEW, FAV]          # no airport: never; favorite: last
@@ -110,7 +118,7 @@ def test_a_tile_shrinks_to_its_package_and_keeps_its_floor(data):
                           FNAMES.hem_latlon(30, 30) + ".hgt")
     _write(shared, 100, 90)                  # a neighbour's raster: shared
     sweep = _sweep()
-    freed = PACKAGES.evict(1, sweep, time.time())
+    freed = _package_first_candidate(sweep)
     record = PACKAGES.packaged()
     assert list(record) == [FNAMES.short_latlon(*OLD)]
     package = record[FNAMES.short_latlon(*OLD)]["path"]
@@ -131,7 +139,7 @@ def test_a_tile_shrinks_to_its_package_and_keeps_its_floor(data):
 def test_a_restore_lays_every_input_back_with_nothing_to_download(data, monkeypatch):
     before = {p: (Path(p).read_bytes(), os.stat(p).st_mtime_ns)
               for p in INPUTS.own_files(*OLD)}
-    PACKAGES.evict(1, _sweep(), time.time())
+    _package_first_candidate(_sweep())
     assert not any(os.path.exists(p) for p in before)
     left = []
     monkeypatch.setattr(INSTALL, "_downloads_left", lambda tile: left)
@@ -144,22 +152,27 @@ def test_a_restore_lays_every_input_back_with_nothing_to_download(data, monkeypa
     assert PACKAGES.restore(*NEW) is None    # never packaged
 
 
-def test_the_budget_packages_at_the_rebuild_tier_and_keeps_its_inputs(data, monkeypatch):
-    """Over a SET budget by more than the caches hold: the elevation/map
-    tier leaves the airport tiles' inputs; the rebuild tier packages the
-    oldest; the built tile with no airport is packaged before its
-    downloads go (package first, owner 2026-11-11T16:45Z)."""
-    assert TOTAL.TIER_HOOKS[TOTAL.REBUILD_DATA] is TOTAL._package_rebuild
+def test_the_budget_packages_old_tiles_in_their_turn(data, monkeypatch):
+    """Over a SET budget by more than the caches hold (#2087 order): the
+    oldest tile first -- the built tile with no airport is packaged
+    before its downloads go (package first, owner 2026-11-11T16:45Z) --
+    then the next oldest airport tile shrinks to its package; the tile
+    used this week keeps everything."""
     used = TOTAL.status(ST.storage_scan()["stores"])["used_bytes"]
     monkeypatch.setattr(TOTAL, "_budget_bytes",
                         lambda raw=None: int((used - 450_000) / 0.9) + 1)
     TOTAL.hold(_sweep(), time.time())
-    assert not os.path.exists(data[BARE]["hgt"])          # in its package
     assert sorted(PACKAGES.packaged()) == ["+30+031", "+32+031"]
     assert os.path.isfile(PACKAGES.packaged()["+32+031"]["path"])
-    assert not os.path.exists(data[OLD]["hgt"])           # in its package
-    assert os.path.exists(data[NEW]["hgt"])               # kept for its package
+    assert not os.path.isdir(data[BARE]["osm"])            # in its package
+    assert not os.path.isdir(data[OLD]["osm"])             # in its package
+    assert not os.path.isdir(data[OLD]["cache"]) or not os.listdir(data[OLD]["cache"])
+    # Both are neighbours of the tile used this week: their base rasters
+    # are its build's inputs, kept (#2087).
+    assert os.path.exists(data[BARE]["hgt"]) and os.path.exists(data[OLD]["hgt"])
+    assert os.path.exists(data[NEW]["hgt"])               # used this week
     assert os.path.exists(data[NEW]["cache"] + "/Data+31+031.mesh")
+    assert os.listdir(data[FAV]["osm"])                   # the favorite: last
 
 
 def test_the_world_job_installs_a_package_before_a_full_build(monkeypatch):

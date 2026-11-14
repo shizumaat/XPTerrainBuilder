@@ -1262,12 +1262,20 @@ def provider_max_threads(provider):
         return 16
 
 
+#: how many lone tiles' worth of requests the whole build session may send
+#: one server (#1236 shared ONE tile's worth; owner 2026-11-14T14:51Z raised
+#: it 4x: 14 tiles building at once left each ~8 orthophotos/min).  The
+#: fetcher's AIMD window still backs off when the server pushes back.
+HOST_BUDGET_TILES = 4
+
+
 def host_request_limit(provider):
     """Requests the whole build session may have in flight on this
-    provider's server (#1236): what ONE tile process sends today —
-    ``max_threads`` per orthophoto times the orthophotos it builds at
-    once — so a lone tile downloads as before and ten tiles share it."""
-    return provider_max_threads(provider) * max(1, int(textures_in_parallel or 1))
+    provider's server (#1236): :data:`HOST_BUDGET_TILES` times what ONE
+    tile process sends — ``max_threads`` per orthophoto times the
+    orthophotos it builds at once — shared by every tile building."""
+    return (HOST_BUDGET_TILES * provider_max_threads(provider)
+            * max(1, int(textures_in_parallel or 1)))
 
 
 @contextlib.contextmanager

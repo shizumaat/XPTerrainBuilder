@@ -307,10 +307,26 @@ class _GradeEnd(_t.NamedTuple):
     why: str
 
 
+def _roof_over(roof, points: _t.Sequence[XY], tol: float):
+    """The parts of ``roof`` standing within ``tol`` of a bore end in
+    ``points``: the roof the ground must stand on for a portal there (#2086
+    LEMG ``LEMGterminalMagenta-LEMG62.obj``: 17 roofs over 400 m of
+    terminal front: the author's ground round all of them read the
+    terminal's plates 5.16 m over its bottom, round the one over the bore
+    end 0.31 m — a building over the road at grade)."""
+    parts = list(getattr(roof, "geoms", [roof]))
+    near = [q for q in parts if any(q.distance(Point(p)) <= tol for p in points)]
+    if not near or len(near) == len(parts):
+        return roof
+    from shapely.ops import unary_union
+    return unary_union(near)
+
+
 def _at_grade(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, roof, law,
               ground) -> str:
     """Why a roofed portal candidate ``o`` stands ON the author's ground —
-    its lowest genuine solid under the author's ground around its roof by
+    its lowest genuine solid under the author's ground around its roof
+    over the bore end (:func:`_roof_over`) by
     less than ``floor_sunken_min_m`` (``airport/below_grade_witness``, owner RULINGS
     2026-11-07b (1)) — or ``""``.  A portal says the road at its zero runs
     under the ground that stands on its roof; where the ground around it
@@ -424,7 +440,8 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                            f"not a portal")
             continue
         cover: dict[int, float] = {}
-        grade = "" if depth > tn.mouth_depth_m else _at_grade(o, cache, roof, law, ground)
+        grade = "" if depth > tn.mouth_depth_m else _at_grade(
+            o, cache, _roof_over(roof, [ends[j][0] for j in near], tol), law, ground)
         if grade:
             refused.append(f"{o.id} {name}: {grade}")
             if at_grade is not None:

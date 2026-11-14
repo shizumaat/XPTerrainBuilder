@@ -5,7 +5,8 @@ import Foundation
 /// `drapes` (hide the package's draped photos over the airport), `ground`
 /// (hide its large ground textures, #1962), `terrain` (hide its objects
 /// that model terrain where detailed elevation covers them, RULINGS
-/// 2026-11-13i) — each a checkbox, ticked when the sheet opens as
+/// 2026-11-13i), `generic` (hide the stock X-Plane ground any overlay
+/// pack drapes over the tile, with the `hectares` it covers, #2085) — each a checkbox, ticked when the sheet opens as
 /// `checked` says (`ground` and `terrain` are not: RULINGS 2026-11-09a (3),
 /// 2026-11-13i) — or `flatten` (the apt.dat's `1302 flatten 1`, removed with no
 /// question: `automatic`).
@@ -18,15 +19,18 @@ public struct O4PackAdjustItem: Sendable, Equatable, Identifiable {
     public let automatic: Bool
     /// Ticked when the question opens.
     public let checked: Bool
+    /// Hectares the row's polygons cover (`generic`; 0 otherwise).
+    public let hectares: Int
     public var id: String { key }
 
     public init(key: String, count: Int, uses: Int, automatic: Bool,
-                checked: Bool = true) {
+                checked: Bool = true, hectares: Int = 0) {
         self.key = key
         self.count = count
         self.uses = uses
         self.automatic = automatic
         self.checked = checked
+        self.hectares = hectares
     }
 
     /// The row's title.
@@ -36,6 +40,8 @@ public struct O4PackAdjustItem: Sendable, Equatable, Identifiable {
         (O4PackAdjustCopy.itemDetails[key] ?? "")
             .replacingOccurrences(of: "{n}", with: "\(count)")
             .replacingOccurrences(of: "{uses}", with: "\(uses)")
+            .replacingOccurrences(of: "{ha}", with: hectares.formatted(
+                .number.locale(Locale(identifier: "en_US"))))
     }
 }
 
@@ -98,6 +104,7 @@ public enum O4PackAdjustCopy {
         "drapes": "Hide draped orthophotos included with the package",
         "ground": "Hide large ground textures included with the package",
         "terrain": "Hide terrain objects included with the package",
+        "generic": "Hide generic X-Plane ground textures the package drapes",
         "flatten": "Remove the airport’s flatten flag (always)",
     ]
 
@@ -112,6 +119,8 @@ public enum O4PackAdjustCopy {
             + "imagery.",
         "terrain": "{n} objects ({uses} placements) model hills or shoreline "
             + "that the tile’s detailed elevation data already describes.",
+        "generic": "{n} stock X-Plane grass, sand or scrub textures ({uses} "
+            + "polygons, about {ha} ha) cover the tile’s imagery.",
         "flatten": "The apt.dat asks X-Plane to flatten the airport, which "
             + "does not work with this app’s terrain mesh.",
     ]

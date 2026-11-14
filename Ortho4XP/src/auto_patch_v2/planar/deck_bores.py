@@ -235,6 +235,21 @@ def lane_band(db: DeckBridge, centres: _t.Sequence[float], lane: int
     return lo, hi
 
 
+def pad_rims(pads: _t.Sequence[tuple[_t.Any, str]], tree: "STRtree | None", db: DeckBridge,
+             outer, rim_off: float):
+    """THE BUILDING PADS A DECK CUT STOPS AT (#2072 A2 for a pad): every pad
+    within ``rim_off`` of the corridor's ``outer`` or of the deck ring (the
+    floor under the deck is the cut's too, ``deck_cut``), whole -- a deck
+    carries no pad, so no deck ring is taken out of it.  A pad is a rim:
+    the cut stops at its edge and the floor ``rim_off`` short, never a
+    floor vertex on the pad (LFPG Building53).  ``None`` for none."""
+    if tree is None or not pads:
+        return None
+    reach = unary_union([outer, deck_polygon(db)]).buffer(rim_off, join_style="mitre")
+    got = [pads[int(j)][0] for j in tree.query(reach, predicate="intersects")]
+    return unary_union(got) if got else None
+
+
 def airside_stop(stops: _t.Sequence[tuple[_t.Any, str]], ref: str,
                  decks: _t.Sequence[DeckBridge]):
     """THE PAVEMENT A DEAD-END DECK TRENCH ENDS ON (module doc, rule A2):

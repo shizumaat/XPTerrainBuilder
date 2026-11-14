@@ -282,6 +282,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.fence_division",
+        "auto_patch_v2.classify.fence_yard",
         "auto_patch_v2.classify.frontage_road",
         "auto_patch_v2.classify.gap_apron",
         "auto_patch_v2.classify.gap_mint",
@@ -304,6 +305,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
+        "auto_patch_v2.geom.capped_plane",
         "auto_patch_v2.geom.centreline",
         "auto_patch_v2.geom.cluster_outline",
         "auto_patch_v2.geom.deck_ground",
@@ -537,6 +539,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.fence_division",
+        "auto_patch_v2.classify.fence_yard",
         "auto_patch_v2.classify.frontage_road",
         "auto_patch_v2.classify.gap_apron",
         "auto_patch_v2.classify.gap_mint",
@@ -560,6 +563,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
+        "auto_patch_v2.geom.capped_plane",
         "auto_patch_v2.geom.centreline",
         "auto_patch_v2.geom.cluster_outline",
         "auto_patch_v2.geom.collapsed_spike",
@@ -618,6 +622,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
+        "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
         "auto_patch_v2.model.deck_stack",
         "auto_patch_v2.model.end_area",
@@ -1328,6 +1333,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.fence_division",
+        "auto_patch_v2.classify.fence_yard",
         "auto_patch_v2.classify.frontage_road",
         "auto_patch_v2.classify.gap_apron",
         "auto_patch_v2.classify.gap_mint",
@@ -1417,10 +1423,12 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.walled_plate",
         "auto_patch_v2.constraints.water",
         "auto_patch_v2.constraints.weld_floor",
+        "auto_patch_v2.constraints.yard_edge",
         "auto_patch_v2.constraints.zones",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
+        "auto_patch_v2.geom.capped_plane",
         "auto_patch_v2.geom.centreline",
         "auto_patch_v2.geom.cluster_outline",
         "auto_patch_v2.geom.containment",
@@ -1984,6 +1992,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.hanging_objects airport.object_cut airport.split_level airport.wall_geometry
     geom.vector
     airport.facade airport.line_solidity classify.edge_line_mint
+    constraints.yard_edge
+    classify.fence_yard geom.capped_plane
     constraints.deck_stack geom.deck_ground geom.end_line model.deck_ends
     airport.pit_frame
     constraints.airside_top
@@ -2178,6 +2188,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
 CODE_MODULES["solve"] = _mods("""
     airport.bridge_end_state airport.bridge_stack
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
+    constraints.yard_edge geom.slope_bound
+    classify.fence_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
     airport.walled_pit airport.portal_floor airport.pit_frame
@@ -2342,6 +2354,8 @@ CODE_MODULES["solve"] = _mods("""
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.bridge_end_state airport.bridge_stack
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
+    constraints.yard_edge geom.slope_bound
+    classify.fence_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
     constraints.deck_stack
@@ -2525,6 +2539,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
 CODE_MODULES["emit"] = _mods("""
     model.deck_stack
     airport.facade airport.line_solidity classify.edge_line_mint
+    constraints.yard_edge geom.slope_bound
+    classify.fence_yard geom.capped_plane solve.project_yard
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends
     airport.walled_pit airport.pit_frame constraints.airside_top
     geom.runway_contact airport.centreline_seat
@@ -2650,6 +2666,9 @@ CODE_MODULES["verify"] = _mods("""
     geom.deck_ground model.deck_stack
     airport.split_level
     airport.facade airport.line_solidity classify.edge_line_mint
+    constraints.apron_shelf constraints.road_ramp constraints.wall_zone constraints.yard_edge
+    geom.ramp_grade geom.slope_bound solve.project_yard
+    classify.fence_yard geom.capped_plane
     airport.below_grade_witness airport.floor_rim airport.hanging_objects airport.object_cut
     airport.object_floor airport.wall_geometry airport.walled_pit
     geom.author_ground geom.lowest_face geom.shape_class geom.vector

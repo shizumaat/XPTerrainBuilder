@@ -892,22 +892,28 @@ def select(rows, sites, objects, frames, res: Resources, search_m: float,
     """Placements whose solids reach a site (its radius), whose resource
     path contains one of ``objects``, or whose ``(tile, row)`` is one of
     ``row_ids``."""
+    from drawn_site_agp import pieces
     picked = []
-    for row, p, root, tile in rows:
-        hit = [s for s in sites if abs(p.lat - s.lat) * K_LAT < search_m
-               and abs(p.lon - s.lon) * frames[s].kx < search_m]
-        named = (any(o.lower() in p.def_path.lower() for o in objects)
+    for row, p0, root0, tile in rows:
+        hit = [s for s in sites if abs(p0.lat - s.lat) * K_LAT < search_m
+               and abs(p0.lon - s.lon) * frames[s].kx < search_m]
+        named = (any(o.lower() in p0.def_path.lower() for o in objects)
                  or (tile, row) in row_ids)
         if not hit and not named:
             continue
-        got = res.get(p.def_path, root)
-        if got is None:
-            continue
-        near = [s for s in hit if math.hypot(*frames[s].enter(p.lat, p.lon)) <= got[3] + s.radius_m]
-        if near or named:
-            picked.append({"key": (root, tile, row), "row": row, "p": p, "root": root,
-                           "tile": tile, "phys": got[0], "g": got[1], "comps": got[2],
-                           "reach": got[3], "sites": near, "named": named})
+        # #2090: an .agp row is its pieces, seated at its ground point
+        parts = pieces(p0, root0, res.index) or [(p0, root0)]
+        for k, (p, root) in enumerate(parts):
+            got = res.get(p.def_path, root)
+            if got is None:
+                continue
+            near = [s for s in hit
+                    if math.hypot(*frames[s].enter(p.lat, p.lon)) <= got[3] + s.radius_m]
+            if near or named:
+                picked.append({"key": (root, tile, row, k), "row": row, "p": p,
+                               "root": root, "tile": tile, "phys": got[0], "g": got[1],
+                               "comps": got[2], "reach": got[3], "sites": near,
+                               "named": named})
     return picked
 
 
@@ -929,7 +935,9 @@ def measure_site(s: Site, items: list[dict], mesh: DrawnMesh,
     placed = []
     for q in items:
         p = q["p"]
-        g0 = float(mesh.z([p.lat], [p.lon])[0])
+        # an .agp piece's datum is read at its group's ground point (#2090)
+        g0 = float(mesh.z([getattr(p, "ground_lat", p.lat)],
+                          [getattr(p, "ground_lon", p.lon)])[0])
         base = row_base(p, g0)
         e0, n0 = fr.enter(p.lat, p.lon)
         placed.append(dict(q, V=placed_vertices(q["g"], float(e0), float(n0), p.heading_deg, base),
@@ -1278,6 +1286,8 @@ def main(argv=None) -> int:
         return plan_mode(args)
     if not args.pack:
         ap.error("--pack is required (or --plan for the compare mode)")
+    from drawn_site_agp import pack_dir
+    args.pack = [pack_dir(p, args.custom_scenery) for p in args.pack]
     rep = run(args)
     if args.clearance_only:
         print_clearances(rep, GROUND_BAR_M, args.top)

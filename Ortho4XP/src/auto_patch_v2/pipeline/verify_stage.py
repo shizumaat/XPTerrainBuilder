@@ -75,7 +75,7 @@ def judge(icao: str, *, surf, pub, pm, law: Law, airport, pool_out: list,
     # the apron chords' work pool says its line through this log
     # and hands its account to the report (``report["pool"]``)
     _vpatch, vrows = census_frame(surf, law, pub, _caps,
-                                  _lifted_caps(pm),
+                                  _lifted_caps(pm, law),
                                   say=lambda m: out("  " + m),
                                   on_pool=_vpool.append)
     # RULINGS 2026-09-08t: every row is counted LAW-TRUE — there is

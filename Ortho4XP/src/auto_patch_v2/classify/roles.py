@@ -231,6 +231,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     def add(role: str, ref: str, poly: Polygon, kind: str,
             code_number: int | None = None, code_letter: str | None = None,
             evidence: _t.Mapping[str, float | str] | None = None) -> None:
+        if not isinstance(poly, Polygon):
+            # a face a cut left in pieces (KAPA, 2026-11-14: a MultiPolygon
+            # reached here and failed the tile) is one cell per piece
+            for part in polygon_parts(poly):
+                add(role, ref, part, kind, code_number, code_letter, evidence)
+            return
         ring = tuple(poly.exterior.coords)[:-1]
         holes = tuple(tuple(h.coords)[:-1] for h in poly.interiors)
         cells.append(Cell(len(cells), role, ref, ring, holes, code_number,
@@ -926,6 +932,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # a late strip at the host's level (``classify/edge_line_mint``)
     from .edge_line_mint import mint_edge_strips
     stats.update(mint_edge_strips(airport, cells, law, rules, add))
+    # spec 2068 A2 F2: a unit's fence round its upper pad encloses the
+    # fence-foot plane's ground — late cells beside the edge strips
+    from .fence_yard import mint_fence_yards
+    stats.update(mint_fence_yards(airport, cells, law, rules, add))
     # #1697 THE HAND-SET ROLES, LAST: a pavement the user classified in the
     # patch editor is that role in every pavement cell of it — a user edit
     # no verdict above overrides (RULINGS 2026-10-15d; ``airport/user_roles``)

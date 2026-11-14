@@ -39,8 +39,9 @@ FLOOR_WALL_PREFIX = "object_floor_wall:"
 #: zero the predicted 22d / 22p seat, RULINGS 2026-11-14d)
 TRENCH, FREE, KEPT = "trench", "free", "kept"
 #: a land end's states (A3 rule 3): ``flush`` (gap within ``deck_flush_m``),
-#: ``graded`` (the terrain grades up to it), ``held`` (built as today, 14f
-#: (4)), ``listed`` (nothing built, question B (a)), ``governing`` (a kept
+#: ``graded`` (the terrain grades up to it), ``held`` (built as today: a
+#: standing solid of another frame on its path, the pack stage's face
+#: read), ``listed`` (nothing built, question B (a)), ``governing`` (a kept
 #: bridge's seat end: no row, no ground), ``unread`` (no ground read: the
 #: terrain holds it, rule 10)
 END_STATES = ("flush", "graded", "held", "listed", "governing", "unread")

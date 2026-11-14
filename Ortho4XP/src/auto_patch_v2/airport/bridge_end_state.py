@@ -6,23 +6,27 @@ and published on its stack (``model/deck_stack.StackEnd``).
 * GAP = zero + top - G (the ground 1.5 m out, ``[bridge]
   free_end_ground_out_m``).
 * PATH: the carried way outward from the end, then on through the feed's
-  way joins by the straightest continuation (road or rail); a stub's path
-  is its axis ray (:func:`_walk_path`).
+  way joins by the straightest continuation (road or rail); where the mapped
+  route stops short of RUN the path runs on straight along its last heading
+  (:func:`_run_on`); a stub's path is its axis ray (:func:`_walk_path`).
 * GRADE: ``[emit.road_contact] ramp_grade`` (5 %) for a road or a stub,
   ``[tunnel] rail_ramp_grade`` (1.25 %, 10-28k) for a rail.  RUN = gap /
   grade + ``abutment_sample_step_m``; no length cap where a road or rail is
   followed (14e).
 * The NEAREST obstruction within max(RUN, the end line's length) decides
-  (:func:`end_state`): FLUSH (gap within ``deck_flush_m``); HELD (14f (4),
-  built as today): ``end_at_pack_solid`` (a non-deck solid of another frame
-  standing ``end_solid_min_height_m`` over ``end_solid_min_area_m2``),
-  ``end_route_stops`` (a routed deck whose path ends before RUN); LISTED
+  (:func:`end_state`): FLUSH (gap within ``deck_flush_m``); HELD (built as
+  today) only by the engine's own face read, ``end_at_pack_solid``: a
+  non-deck object of another frame whose STANDING faces (walls: within 30
+  degrees of vertical, each rising ``end_solid_min_height_m``, together
+  ``end_solid_min_area_m2`` of wall) cross the path (:meth:`Obstacles.
+  standing`; a ground sheet authored over its zero is no wall); LISTED
   (question B (a): nothing built): ``end_on_airside``, ``end_under_low_deck``
   (rule 8: another deck over the path less than ``[bridge] clearance_m``
   over the ramp; at or over it the ramp passes under, 14f (2)),
   ``end_on_water``, ``end_beyond_reach`` (a stub over ``[building_pad]
-  fill_road_reach_m``), ``end_off_dem``; else GRADED.  ``end_on_lot`` is the
-  planar stage's (``planar/free_bridge``).
+  fill_road_reach_m``), ``end_off_dem``; else GRADED.  Owner
+  2026-11-14T18:12Z dropped RULINGS 2026-11-14f (4)'s other holds (a route
+  that stops, a lot piece): such an end is graded like every other.
 
 No distance test anywhere (14f (1)).  Nothing here names a pack, a
 resource or an airport.
@@ -37,7 +41,7 @@ from shapely.geometry import LineString, Point
 
 from ..model.deck_stack import StackEnd
 
-__all__ = ["Obstacles", "end_state", "cut"]
+__all__ = ["Obstacles", "end_state", "cut", "standing_plan"]
 
 XY = tuple[float, float]
 #: the walk's node join tolerance (m): way nodes shared in the feed project
@@ -49,6 +53,11 @@ _COS_MIN = 0.5
 _SAMPLE_M = 1.0
 #: an end point this far off its carried way has no routed path
 _ON_WAY_M = 2.0
+#: a STANDING face's normal is at most this far off level (|n_z| <= cos 60
+#: deg: within 30 degrees of vertical) — a wall, never a ground sheet or roof
+_WALL_NZ = 0.5
+#: a wall's plan is its plan segment grown this far each side (m)
+_WALL_HALF_M = 0.25
 _DECK_KINDS = ("flag", "signature")
 
 
@@ -231,25 +240,19 @@ class Obstacles:
         return decks, solids
 
     def standing(self, o):
-        """The plan of placement ``o``'s solid faces standing at least
-        ``end_solid_min_height_m`` over its zero, when it covers at least
-        ``end_solid_min_area_m2``; else ``None``."""
+        """The plan of placement ``o``'s STANDING faces (module doc): its
+        wall triangles (normal within 30 degrees of level) each rising at
+        least ``end_solid_min_height_m``, their plan segments grown
+        ``_WALL_HALF_M``, when the walls cover at least
+        ``end_solid_min_area_m2``; else ``None``.  A face's height over the
+        object's zero is no witness: a ground sheet authored metres over
+        its zero stands nowhere."""
         oid = str(o.id)
         if oid not in self._solid:
-            import shapely
-
             from . import bridge_frame as _bf
             g = self.cache.geometry(o.resolved) if self.cache is not None else None
-            f = _bf.solid_faces(g, o.xy, float(o.heading_deg or 0.0))
-            got = None
-            tri = f[f[:, :, 2].min(axis=1) >= self.min_h] if len(f) else f
-            if len(tri):
-                polys = [p for p in shapely.polygons(tri[:, :, :2])
-                         if p.is_valid and p.area > 1e-3]
-                if polys:
-                    fp = shapely.union_all(polys, grid_size=0.01)
-                    got = fp if fp.area >= self.min_a else None
-            self._solid[oid] = got
+            self._solid[oid] = standing_plan(
+                _bf.solid_faces(g, o.xy, float(o.heading_deg or 0.0)), self.min_h, self.min_a)
         return self._solid[oid]
 
     def underside(self, o, x: float, y: float) -> float:
@@ -270,6 +273,37 @@ class Obstacles:
             base = float(self.z([o.xy[0]], [o.xy[1]])[0]) + float(o.agl_m or 0.0)
         y_at = float(floor_z_at(plate, [x], [y], edge_m=0.5)[0])
         return base + y_at if math.isfinite(y_at) else math.nan
+
+
+def standing_plan(faces: np.ndarray, min_h: float, min_a: float):
+    """:meth:`Obstacles.standing` on placed faces ``(n, 3, 3)`` (frame x, y,
+    authored y)."""
+    if not len(faces):
+        return None
+    f = np.asarray(faces, float)
+    n = np.cross(f[:, 1] - f[:, 0], f[:, 2] - f[:, 0])
+    norm = np.linalg.norm(n, axis=1)
+    span = f[:, :, 2].max(axis=1) - f[:, :, 2].min(axis=1)
+    wall = (norm > 1e-9) & (np.abs(n[:, 2]) <= _WALL_NZ * np.maximum(norm, 1e-12)) \
+        & (span >= min_h)
+    if not wall.any() or float(0.5 * norm[wall].sum()) < min_a:
+        return None
+    import shapely
+    from shapely.geometry import MultiPoint
+    segs = [MultiPoint([tuple(p) for p in t[:, :2]]).convex_hull for t in f[wall]]
+    return shapely.union_all([g.buffer(_WALL_HALF_M) for g in segs], grid_size=0.01)
+
+
+def _run_on(path: _t.Sequence[XY], out: XY, length: float) -> tuple[XY, ...]:
+    """``path`` run on straight along its last heading (``out`` for a
+    single point) to ``length`` metres."""
+    run = LineString(path).length if len(path) > 1 else 0.0
+    if run >= length:
+        return tuple(path)
+    h = (_unit(path[-1][0] - path[-2][0], path[-1][1] - path[-2][1])
+         if len(path) > 1 else None) or out
+    more = length - run
+    return (*path, (path[-1][0] + h[0] * more, path[-1][1] + h[1] * more))
 
 
 def _hits_on_path(line: LineString, run: float, corridor, own, mid: XY, top_at,
@@ -350,6 +384,7 @@ def end_state(*, oid: str, side: str, stations: _t.Sequence[XY], top: float, out
     else:
         path, routed, used = _walk_path(mid, out, carried, obs.graph, reach,
                                        reach_m=_ON_WAY_M + 0.5 * line_len)
+        path = _run_on(path, out, reach)
     line = cut(path, reach)
     end = StackEnd(**base, gap=gap, state="graded", why="", run=run, grade=g, rail=rail,
                    path=tuple((float(x), float(y)) for x, y in line.coords))
@@ -357,9 +392,6 @@ def end_state(*, oid: str, side: str, stations: _t.Sequence[XY], top: float, out
     if stub and run > float(law.tables.structures.building_pad.fill_road_reach_m):
         hits.append((0.0, "listed", f"end_beyond_reach: a stub's run {run:.0f} m > "
                                     "fill_road_reach_m"))
-    if not stub and routed + 1e-6 < run:
-        hits.append((routed, "held", f"end_route_stops: the mapped route stops "
-                                     f"{routed:.0f} m out, run {run:.0f} m"))
     corridor = (line.buffer(0.5 * max(line_len, 1.0), cap_style="flat")
                 if line.length > 0 else Point(mid).buffer(1.0))
     more, under = _hits_on_path(line, run, corridor, own, mid,
@@ -378,6 +410,8 @@ def end_state(*, oid: str, side: str, stations: _t.Sequence[XY], top: float, out
         s, state, why = min(hits, key=lambda h: h[0])
         return _dc.replace(end, state=state, why=f"{why} (at {s:.0f} m)",
                            crossings=tuple(crossing), under=tuple(under))
-    return _dc.replace(end, why=f"graded: gap {gap:.2f} m over {run:.0f} m at {g:.2%}",
+    on = (f"; straight on past the mapped route at {routed:.0f} m"
+          if not stub and routed + 1e-6 < run else "")
+    return _dc.replace(end, why=f"graded: gap {gap:.2f} m over {run:.0f} m at {g:.2%}{on}",
                        crossings=tuple(crossing), under=tuple(under))
 

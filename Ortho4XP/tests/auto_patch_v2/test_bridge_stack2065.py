@@ -112,9 +112,14 @@ def test_flush_and_unread_ends():
 
 def test_the_held_and_listed_witnesses():
     road = [_way(-1, [(-20, 0), (0, 0), (500, 0)], highway="primary")]
-    # end_route_stops: the mapped route stops before RUN
+    # a mapped route stopping before RUN is no hold (owner 2026-11-14T18:12Z):
+    # the path runs on straight along its last heading and the end grades
     short = _Obs([_way(-1, [(-20, 0), (0, 0), (40, 0)], highway="primary")])
-    assert _end(short, zero=5.0).state == "held" and "end_route_stops" in _end(short, 5.0).why
+    e = _end(short, zero=5.0)
+    assert e.state == "graded" and "past the mapped route at 40 m" in e.why
+    assert abs(LineString(e.path).length - e.run) < 1e-6 and e.path[-1][1] == 0.0
+    # an end on no carried way runs its outward ray
+    assert _end(_Obs([]), zero=5.0, carried=(-9,)).state == "graded"
     # end_at_pack_solid: the standing plan of another frame's object on the path
     solid = types.SimpleNamespace(id="S", path="hall.obj", plan_bbox=box(30, -5, 50, 5),
                                   fp=box(30, -5, 50, 5))
@@ -349,22 +354,48 @@ def test_rule_10_an_unread_land_end_is_counted_never_dropped():
     assert _bridge_zero([one, None], [[False, False], [False, True]])[2] == 2
 
 
-def test_the_planar_stage_holds_a_graded_end_entering_a_lot_and_drops_the_refused():
+def test_the_planar_stage_keeps_a_graded_end_and_drops_the_refused():
+    # a graded end whose path enters a lot piece is graded like any other
+    # (owner 2026-11-14T18:12Z drops 14f (4)'s end_on_lot hold)
     from auto_patch_v2.planar.free_bridge import planar_stacks
     end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "graded", "",
                    ((0.0, 0.0), (60.0, 0.0)), 45.0, 0.05)
     st = _stack([end])
     fb = types.SimpleNamespace(id=st.bridge)
-
-    def cl(ref):
-        c = types.SimpleNamespace(ref=ref, ring=((20, -9), (40, -9), (40, 9), (20, 9)), holes=())
-        return types.SimpleNamespace(cells=[c])
-    kept, _n = planar_stacks((st,), (fb,), cl("gap:0/s0"))
-    assert kept == (st,)
-    held, notes = planar_stacks((st,), (fb,), cl("gap:0/s0/lot"))
-    assert held == () and any("end_on_lot" in n for n in notes)
-    gone, notes = planar_stacks((st,), (), cl("gap:0/s0"))
+    kept, notes = planar_stacks((st,), (fb,))
+    assert kept == (st,) and notes == []
+    gone, notes = planar_stacks((st,), ())
     assert gone == () and "free_stack_refused_at_planar" in notes[0]
+    flat = _stack([dc.replace(end, state="flush")])
+    assert planar_stacks((flat,), (fb,))[0] == ()
+
+
+def _box_faces(x0, y0, x1, y1, z0, z1):
+    """A closed box's 12 triangles ``(n, 3, 3)``: 4 walls, a floor, a roof."""
+    c = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    tris = []
+    for i in range(4):
+        (ax, ay), (bx, by) = c[i], c[(i + 1) % 4]
+        tris += [[(ax, ay, z0), (bx, by, z0), (bx, by, z1)],
+                 [(ax, ay, z0), (bx, by, z1), (ax, ay, z1)]]
+    for z in (z0, z1):
+        tris += [[(x0, y0, z), (x1, y0, z), (x1, y1, z)], [(x0, y0, z), (x1, y1, z), (x0, y1, z)]]
+    return np.array(tris, float)
+
+
+def test_standing_reads_walls_never_a_ground_sheet_over_its_zero():
+    h, a = float(BR.end_solid_min_height_m), float(BR.end_solid_min_area_m2)
+    # a building: walls 0 -> 6 m stand; its plan is the wall ring, not the hull
+    fp = BES.standing_plan(_box_faces(30, -5, 50, 5, 0.0, 6.0), h, a)
+    assert fp is not None and fp.intersects(LineString([(0, 0), (40, 0)]))
+    assert not fp.contains(Point(40, 0))
+    # a ground sheet authored 6-10 m over its zero (sloped, no walls): none
+    sheet = np.array([[(0, 0, 6.0), (100, 0, 8.0), (100, 100, 10.0)],
+                      [(0, 0, 6.0), (100, 100, 10.0), (0, 100, 8.0)]], float)
+    assert BES.standing_plan(sheet, h, a) is None
+    # a kerb or a lamp under the height or the wall area: none
+    assert BES.standing_plan(_box_faces(0, 0, 20, 0.3, 0.0, 0.15), h, a) is None
+    assert BES.standing_plan(_box_faces(0, 0, 0.3, 0.3, 0.0, 8.0), h, a) is None
 
 
 def test_a_graded_corridor_cuts_the_faces_it_crosses_but_never_the_airside():

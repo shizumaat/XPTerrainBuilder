@@ -29,10 +29,14 @@ _HASH = re.compile(r"_[0-9a-f]{8}\.obj$")
 
 
 def _rows(rep: dict) -> dict[tuple, dict]:
+    """one reading per row: a row two sites list keeps the one that READ a
+    clearance (a site lists the rows it searched, not only those it read)"""
     out: dict[tuple, dict] = {}
     for s in rep.get("sites", ()):
         for r in s.get("placements", ()):
-            out[(r.get("tile"), r["row"], _HASH.sub("", r["def"]))] = r
+            k = (r.get("tile"), r["row"], _HASH.sub("", r["def"]))
+            if k not in out or out[k].get("clearance_m") is None:
+                out[k] = r
     return out
 
 

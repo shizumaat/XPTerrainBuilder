@@ -48,3 +48,15 @@ def test_split_bodies_are_matched_by_row_and_stem_not_hash():
     res = DA.compare(_rep((5247, "A/building__b44_10e43c36.obj", 0.89, 81.68)), new)
     assert res["only_ctl"] == res["only_new"] == 0
     assert [c["status"] for c in res["changed"]] == ["MOVED"]
+
+
+def test_a_row_two_sites_list_keeps_the_reading_with_a_clearance():
+    """CYLW's H9 row 4820 lies in H8's 105 m search too, unread there."""
+    def two(c):
+        rep = _rep((4820, "A/Hangar_9__b0_2a6929cd.obj", c, 418.35))
+        rep["sites"].append({"placements": [dict(tile="+30+031", row=4820,
+                             **{"def": "A/Hangar_9__b0_2a6929cd.obj"}, clearance_m=None,
+                             lowest_z=None, on_object=None)]})
+        return rep
+    res = DA.compare(two(1.13), two(0.13))
+    assert [(c["clearance_ctl"], c["clearance_new"]) for c in res["changed"]] == [(1.13, 0.13)]

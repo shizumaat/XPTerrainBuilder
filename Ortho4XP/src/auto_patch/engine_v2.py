@@ -245,7 +245,7 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
             fresh_object_footprints(dsf_path, cache_dir, xplane_root)
         if getattr(sel, "pages_from", ""):   # #1630: the pages' pack (Global Airports)
             _fresh_dumps([sel.pages_root], lat, lon)
-        _fresh_companion_dumps(sel.root, lat, lon)
+        _fresh_companion_dumps(sel.root, lat, lon, icao)
         _fresh_mesh_dumps(sel.root, lat, lon)
         return dump
     except DsfToolError as exc:
@@ -260,13 +260,13 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         return None
 
 
-def _fresh_companion_dumps(main_root: str, lat: int, lon: int) -> None:
+def _fresh_companion_dumps(main_root: str, lat: int, lon: int, icao: str = "") -> None:
     """The text dumps of the airport's candidate COMPANION packs (owner
     RULINGS 2026-10-28p (5); ``airport/companion``), made where the serving
     pack's is.  A failure is logged and only leaves that pack unread."""
     try:
         from auto_patch_v2.airport import companion as _companion
-        roots = _companion.dump_candidates(main_root, lat, lon)
+        roots = _companion.dump_candidates(main_root, lat, lon, icao)
     except Exception as exc:                # noqa: BLE001 — never fails a build
         import logging
         logging.getLogger(__name__).warning("companion dumps skipped: %s", exc)

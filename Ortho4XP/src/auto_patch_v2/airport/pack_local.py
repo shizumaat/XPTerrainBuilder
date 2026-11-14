@@ -36,11 +36,13 @@ def ships_objects(root: str) -> bool:
     return False
 
 
-def admitted(dump, root: str, inside: _t.Callable[[float, float], bool]
+def admitted(dump, root: str, inside: _t.Callable[[float, float], bool],
+             also: _t.Callable[[str, _t.Any], bool] | None = None
              ) -> list[tuple[int, _t.Any]]:
     """The rows of ``dump`` a pack owns at an airport: ``.obj`` placements whose
     resource is a file ``root`` ships and whose anchor ``(lon, lat)`` is
-    ``inside`` the airport."""
+    ``inside`` the airport — or, failing that, for which ``also(path, row)``
+    holds (#2063: a body authored far from its anchor)."""
     rows = []
     for i, pl in enumerate(dump.placements):
         if not pl.def_path.lower().endswith(".obj"):
@@ -48,18 +50,27 @@ def admitted(dump, root: str, inside: _t.Callable[[float, float], bool]
         path = os.path.join(root, pl.def_path)
         if not (os.path.isfile(path) and _inside(path, root)):
             continue
-        if inside(pl.lon, pl.lat):
+        if inside(pl.lon, pl.lat) or (also is not None and also(path, pl)):
             rows.append((i, pl))
     return rows
 
 
-def tile_candidates(main_root: str, lat: int, lon: int) -> list[str]:
+def tile_candidates(main_root: str, lat: int, lon: int,
+                    icao: str = "") -> list[str]:
     """The Custom Scenery packs beside ``main_root`` that could carry the
-    airport's objects: enabled, not the serving pack, no apt.dat (a pack
-    with one is an airport of its own), a DSF for the tile.  In
-    folder-name order."""
+    airport's objects: enabled, not the serving pack, a DSF for the tile,
+    and no apt.dat (a pack with one is an airport of its own).  In
+    folder-name order.
+
+    ``icao`` (#2063): a pack whose apt.dat defines OTHER airports only is
+    a candidate too — the Seattle pack (apt.dat: KSEA) places parked aircraft
+    of its own on KRNT's aprons, which KRNT's own pack serves; a pack
+    whose apt.dat defines ``icao`` itself is a rival pack of the same
+    airport and never is.  Which of its rows are this airport's, and not
+    its own airports', is ``object_window.own_claim``'s question."""
     import O4_Scenery_Packs as _SP
 
+    from .apt_dat import file_has_airport
     from .dsf import dsf_path_in_pack
     scenery = os.path.dirname(os.path.normpath(main_root))
     if os.path.basename(scenery) != "Custom Scenery" or not os.path.isdir(scenery):
@@ -70,7 +81,8 @@ def tile_candidates(main_root: str, lat: int, lon: int) -> list[str]:
         root = os.path.join(scenery, name)
         if not os.path.isdir(root) or os.path.realpath(root) == main:
             continue
-        if os.path.isfile(os.path.join(root, "Earth nav data", "apt.dat")):
+        apt = os.path.join(root, "Earth nav data", "apt.dat")
+        if os.path.isfile(apt) and (not icao or file_has_airport(apt, icao)):
             continue
         if not os.path.isfile(dsf_path_in_pack(root, lat, lon)):
             continue

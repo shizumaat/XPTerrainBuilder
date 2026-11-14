@@ -29,8 +29,8 @@ import O4_DSF_Header as DSFH
 import O4_Scenery_Packs as SP
 import O4_World_Pack as WP
 
-__all__ = ["PACK_NAME", "MARKER", "dsf_path", "covering_pack", "has_row",
-           "ini_install", "install"]
+__all__ = ["PACK_NAME", "MARKER", "dsf_path", "covering_pack", "exclusion_boxes",
+           "has_row", "ini_install", "install"]
 
 PACK_NAME = "yXPTerrainBuilder Overlays"
 #: Written into the pack's root by :func:`install`: the app manages it.
@@ -45,6 +45,23 @@ def dsf_path(scenery_dir: str, lat: int, lon: int) -> str:
     return os.path.join(scenery_dir, PACK_NAME, WP.dsf_relpath(lat, lon))
 
 
+def exclusion_boxes(pairs, name: str) -> list:
+    """The ``(west, south, east, north)`` boxes of every ``name``
+    exclusion (``sim/exclude_net``, ``sim/exclude_obj``, ...) among DSF
+    header ``pairs``, in file order; a value that does not parse as four
+    numbers is skipped."""
+    boxes = []
+    for key, value in pairs or ():
+        if key != name:
+            continue
+        try:
+            west, south, east, north = (float(v) for v in value.split("/"))
+        except ValueError:
+            continue
+        boxes.append((west, south, east, north))
+    return boxes
+
+
 def _network_excluded(pairs, lat: int, lon: int) -> bool:
     """Does a ``sim/exclude_net`` among DSF header ``pairs`` cover the
     whole tile (box ``west/south/east/north``)?
@@ -55,13 +72,7 @@ def _network_excluded(pairs, lat: int, lon: int) -> bool:
     landmark excludes a few small boxes; one that replaces only the
     forests excludes forests (``sim/exclude_for``), and the tile still
     needs its roads and buildings."""
-    for name, value in pairs:
-        if name != "sim/exclude_net":
-            continue
-        try:
-            west, south, east, north = (float(v) for v in value.split("/"))
-        except ValueError:
-            continue
+    for west, south, east, north in exclusion_boxes(pairs, "sim/exclude_net"):
         if (west <= lon + _EDGE_TOLERANCE_DEG
                 and south <= lat + _EDGE_TOLERANCE_DEG
                 and east >= lon + 1 - _EDGE_TOLERANCE_DEG

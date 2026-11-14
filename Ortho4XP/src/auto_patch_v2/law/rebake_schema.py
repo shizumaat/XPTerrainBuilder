@@ -329,6 +329,14 @@ class Placement:
     #: rule and every body chains, as it did before 14ah.
     chain_min_height_m: float = 2.5
 
+    #: §9a A1 (#2063 round 3): THE WALLED BASE an isolated object may not
+    #: have — a cluster ``chain_min_height_m`` tall whose feet spread over
+    #: at least this fraction of its plan diagonal stands on a wall line and
+    #: keeps today's seat (I8 ``walled``), and so does every share of a file
+    #: one of whose own clusters reads so (I7 ``building_file``).  Aircraft
+    #: read <= 0.43, the lowest walled thing 0.52.  0 disarms both.
+    isolated_base_min_fraction: float = 0.45
+
     #: THE FLAT PLANE AT THE BASE OF OBJECTS (owner RULINGS 2026-10-10o
     #: (B); issue #229; ``geom/base_slab``): the base-slab witness —
     #: maximum solid height, maximum |lowest authored y|, minimum open

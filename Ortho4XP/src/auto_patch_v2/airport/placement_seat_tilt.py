@@ -307,7 +307,9 @@ def shared_frames(staged: _t.Iterable[_t.Any]) -> frozenset[tuple[int, int]]:
 def _excluded(body_class: str, a: _t.Any, merged: bool, elevated: bool) -> bool:
     """The bodies 10-01k Q1 never rotates (module doc)."""
     return bool(body_class in _NEVER or merged or elevated or a.datum
-                or a.family or a.connector_of or a.unit_seat)
+                or a.family or a.connector_of or a.unit_seat
+                # §9a: an isolated share stays level (I6, #2063 round 3)
+                or getattr(a, "isolated", ""))
 
 
 def _verdict(m: _t.Any) -> str:

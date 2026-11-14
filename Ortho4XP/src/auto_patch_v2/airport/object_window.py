@@ -33,7 +33,8 @@ from . import apt_dat as _apt
 from .apt_dat import airports_in
 from .object_pack import region_in
 
-__all__ = ["Window", "box_xy", "pack_apt_dat", "rivals"]
+__all__ = ["Window", "box_xy", "own_claim", "pack_apt_dat", "rivals",
+           "served_airports"]
 
 #: neighbours whose reference point is farther than this (deg) cannot reach
 #: this airport's extent and are not projected (a pre-filter only)
@@ -118,6 +119,96 @@ def rivals(apt_dat_path: str | None, icao: str, ref: tuple[float, float],
         if region is not None and region.distance(extent) == 0.0:
             out.append((other, region))
     return tuple(sorted(out, key=lambda r: r[0]))
+
+
+def own_claim(apt_dat_path: str | None, ref: tuple[float, float], to_xy,
+              margin_m: float, radius_deg: float, served: _t.Sequence = ()):
+    """#2063: where the airports this pack SERVES read its placements, in
+    the caller's ``to_xy`` frame — the union, over each of them near
+    ``ref``, of what ``load`` admits for it: its runways, pavements and
+    boundary grown by ``margin_m``, and the ``radius_deg`` box about its
+    reference point.  The airports are those of the pack's OWN apt.dat
+    and ``served`` (parsed blocks of airports it serves without defining
+    them, :func:`served_airports` — #1630's object pack).  A row inside
+    it may be one of those airports' and is never adopted by another (in
+    doubt an object stays with its group, RULINGS 2026-11-13r).  ``None``
+    when the pack serves no airport near ``ref``."""
+    import dataclasses as _dc
+    from shapely.ops import unary_union
+    apts = list(served)
+    if apt_dat_path:
+        try:
+            st = os.stat(apt_dat_path)
+            apts += [apt for _i, apt in _parsed(apt_dat_path, st.st_mtime_ns,
+                                                st.st_size)]
+        except OSError:
+            pass
+    lat0, lon0 = ref
+    parts = []
+    for apt in apts:
+        try:
+            la, lo = apt.reference_point()
+        except ValueError:          # placed by nothing the reader reads
+            continue
+        if abs(la - lat0) > _RIVAL_PREFILTER_DEG or abs(lo - lon0) > _RIVAL_PREFILTER_DEG:
+            continue
+        parts.append(box_xy(to_xy, la, lo, radius_deg))
+        for a in (apt, _dc.replace(apt, boundaries=())):
+            region = region_in(a, to_xy)
+            if region is not None:
+                parts.append(region.buffer(float(margin_m)))
+    return unary_union(parts) if parts else None
+
+
+def served_airports(root: str, icao: str, lat: int, lon: int,
+                    ref: tuple[float, float],
+                    say: _t.Callable[[str], None] = lambda _m: None) -> tuple:
+    """#2063 round 2: the parsed apt.dat blocks of every OTHER airport of
+    the tile whose pack (``pack.select_pack(...).root``) is ``root``
+    without ``root``'s apt.dat defining it — #1630's object pack (the
+    Seattle pack serves KBFI and KPAE that way).  Candidates are the tile's
+    airports in the offline apt.dat index
+    (``O4_Airport_Apt_Identity.tile_apt_dat_airports``) within
+    :data:`_RIVAL_PREFILTER_DEG` of ``ref``; ``select_pack`` decides, and
+    its #1630 witness is a pack-local row of this pack inside that
+    airport.  ``()`` with no index (said once) or no X-Plane install
+    above ``root``."""
+    import O4_Airport_Apt_Identity as _ident
+
+    from .pack import select_pack
+    scenery = os.path.dirname(os.path.normpath(root))
+    xplane_root = os.path.dirname(scenery)
+    if os.path.basename(scenery) != "Custom Scenery":
+        return ()
+    entries = _ident.tile_apt_dat_airports(lat, lon, xplane_root=xplane_root)
+    if not entries:
+        say("  [companion] no offline apt.dat index: the airports a pack "
+            "serves without defining them are not read")
+        return ()
+    own = pack_apt_dat(root)
+    lat0, lon0 = ref
+    me = os.path.realpath(root)
+    out = []
+    for e in sorted(entries, key=lambda q: q.code):
+        code = str(e.code).upper()
+        if (code == icao.upper() or abs(e.lat - lat0) > _RIVAL_PREFILTER_DEG
+                or abs(e.lon - lon0) > _RIVAL_PREFILTER_DEG
+                or (own and _apt.file_has_airport(own, code))):
+            continue
+        try:
+            sel = select_pack(xplane_root, code)
+        except Exception:           # an airport no reader can select
+            continue
+        if sel is None or os.path.realpath(sel.root) != me:
+            continue
+        block = _apt.read_airport_block(sel.apt_dat_path, code)
+        if not block:
+            continue
+        try:
+            out.append(_apt.parse_airport_block(block))
+        except Exception:           # an unparsable neighbour claims nothing
+            continue
+    return tuple(out)
 
 
 @functools.lru_cache(maxsize=8)

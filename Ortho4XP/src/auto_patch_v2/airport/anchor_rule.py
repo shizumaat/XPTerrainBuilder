@@ -299,6 +299,12 @@ class Anchor:
     #: its own ground.  A piece it carries rides IT, never the unit it left
     #: (``footprint_carry.contents_seat``).  Set only by ``footprint_unit``.
     left_unit: str = ""
+    #: §9a (#2063 round 3, RULINGS 2026-11-13y (5)): this anchor is an
+    #: ISOLATED share's — its lowest contact feet, one frame for every body
+    #: of the share (``isolated_seat``); ``""`` for every other anchor.  No
+    #: group seat, bind or carrier search moves it.  Set only by
+    #: ``isolated_seat``.
+    isolated: str = ""
 
 
 # ── geometry helpers (plan, in degrees scaled to metres) ─────────────────

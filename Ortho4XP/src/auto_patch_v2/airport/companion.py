@@ -14,7 +14,9 @@ THE WITNESS IS THE PACK'S OWN CONTENT, never its name.  A companion is a
 Custom Scenery pack that
 
 * is not the serving pack and is enabled in ``scenery_packs.ini``;
-* ships NO apt.dat (a pack with one is an airport of its own);
+* ships NO apt.dat (a pack with one is an airport of its own) -- or one
+  that defines only OTHER airports, and then only its rows outside where
+  those airports read placements (#2063, below);
 * has a DSF for the airport's tile whose ``OBJECT`` rows place at least
   one PACK-LOCAL object -- a file the pack itself ships, resolved inside
   its own folder -- INSIDE the airport's boundary (apt.dat row 130, else
@@ -38,6 +40,42 @@ its ``.anchor_bak``.  The patch mints no pads for the companion's objects
 (their ground is what the main layout grades there), and the main pack's
 planar facts (basins, plates, below-grade regions) are not carried over:
 their ids name the main pack's rows.
+
+AN AIRPORT PACK'S OBJECTS AT ANOTHER AIRPORT (#2063, KRNT, the owner's
+sim read 2026-11-13 "some floating airplanes").  The Seattle pack's
+apt.dat defines KSEA only, yet its ``+47-123`` DSF places dozens of parked
+aircraft of its own on KRNT's aprons, each file one aircraft authored up
+to 300 m from a shared anchor.  KSEA's window never reads them (they lie
+outside its extent), KRNT is served by its own pack, and the rule above
+refused the Seattle pack for having an apt.dat -- so nothing re-seated
+them, and on KRNT's graded aprons a Cub and a C152 drew +1.6 m over the
+ground and other Cubs 1 m under it.  Such a pack is a companion for the
+rows inside this airport that NONE of the airports it SERVES reads
+(``object_window.own_claim``: their extents grown by the pavement
+admission margin, and the load box about each reference point); a row in
+doubt stays where its author put it (RULINGS 2026-11-13r).  A pack whose
+apt.dat defines this airport is a rival pack of the same airport and is
+never a companion.
+
+WHERE THE AIRPORTS THIS PACK SERVES READ IT (#2063 round 2).  The pack's
+own apt.dat airports, and every other airport of the tile whose pack
+``pack.select_pack`` chooses as this one (#1630's object pack: the Seattle
+pack serves KBFI and KPAE without defining them;
+``object_window.served_airports``).
+
+A ROW AUTHORED AWAY FROM ITS ANCHOR (``also``): an anchor outside the
+airport but within the admission margin is admitted when EVERY
+ground-contact foot of its file (the solid vertices within ``[basin]
+contact_band_m`` of its lowest, :func:`_feet`) stands inside the airport
+-- KRNT's Cub and C152 rows are anchored 300 m off in such atlases.
+
+A ROW X-PLANE NEVER DRAWS IS LEFT ALONE (#2063 round 2).  A pack drawn
+ABOVE this one in ``scenery_packs.ini`` whose tile DSF declares a
+``sim/exclude_obj`` box removes this pack's objects inside it
+(``airport/exclusion``): at KRNT the Renton pack excludes 53 of the
+Seattle pack's rows and 3 of Orbx's.  Such a row is never adopted --
+rewriting it measures a model the sim does not show (round 1's +7.93 m
+"float" was one).  An unreadable header reads as no exclusion.
 """
 from __future__ import annotations
 
@@ -49,6 +87,8 @@ import typing as _t
 from ..model.airport import DsfObject, SceneryPack
 from . import dsf as _dsf
 from .pack import authored_source
+from .obj8 import _to_frame
+from .object_window import own_claim, pack_apt_dat, served_airports
 from .pack_local import admitted, ships_objects, tile_candidates
 
 __all__ = ["COMPANION_PLAN", "dump_candidates", "find",
@@ -70,11 +110,12 @@ class Companion:
     rows: tuple[tuple[int, _t.Any], ...]
 
 
-def dump_candidates(main_root: str, lat: int, lon: int) -> list[str]:
+def dump_candidates(main_root: str, lat: int, lon: int, icao: str = "") -> list[str]:
     """The candidate packs (``pack_local.tile_candidates``) that ship objects of their
     own: the packs whose tile DSF the pre-build refresh dumps
-    (``engine_v2.fresh_pack_dump``) so :func:`find` can read them."""
-    return [r for r in tile_candidates(main_root, lat, lon) if ships_objects(r)]
+    (``engine_v2.fresh_pack_dump``) so :func:`find` can read them.  With
+    ``icao``, packs of other airports too (#2063)."""
+    return [r for r in tile_candidates(main_root, lat, lon, icao) if ships_objects(r)]
 
 
 def _region(airport):
@@ -87,10 +128,16 @@ def _region(airport):
 
 
 def find(airport, mod_cache_root: str, lat: int, lon: int,
-         say: _t.Callable[[str], None] = lambda _m: None) -> list[Companion]:
+         say: _t.Callable[[str], None] = lambda _m: None, *,
+         margin_m: float = 1000.0, radius_deg: float = 0.05,
+         band_m: float = 0.0) -> list[Companion]:
     """The airport's companion packs (module doc), each with its admitted
     rows.  A candidate whose pristine dump is not in the mod cache is
-    named and skipped (the dump is made before the build, never here)."""
+    named and skipped (the dump is made before the build, never here).
+    ``margin_m`` / ``radius_deg``: how far a pack's OWN airports read its
+    placements (``identity.dsf_pavement_admission_m``, the load box);
+    ``band_m`` the ground-contact band of a file's feet (``[basin]
+    contact_band_m``, :func:`_feet`)."""
     from shapely.geometry import Point
     from shapely.prepared import prep
     from .backup_state import pristine_dsf_path
@@ -99,13 +146,41 @@ def find(airport, mod_cache_root: str, lat: int, lon: int,
     if region is None:
         return []
     region_p = prep(region)
+    near_p = prep(region.buffer(float(margin_m)))
     to_xy = airport.frame.transformers()[0]
+    ref = airport.frame.origin
+    feet_of: dict[str, _t.Any] = {}
 
-    def inside(lo: float, la: float) -> bool:
-        return region_p.contains(Point(*to_xy(lo, la)))
+    def witnesses(claim, root):
+        """``(inside, also)`` for ``pack_local.admitted``: the anchor inside
+        the airport, else (#2063) EVERY ground-contact foot of the file
+        inside it with the anchor within ``margin_m`` — and never an anchor
+        the airports the pack serves read (``claim``)."""
+        claim_p = prep(claim) if claim is not None else None
+
+        def own(p) -> bool:
+            return bool(claim_p and claim_p.intersects(p))
+
+        def inside(lo: float, la: float) -> bool:
+            p = Point(*to_xy(lo, la))
+            return region_p.contains(p) and not own(p)
+
+        def also(path: str, pl) -> bool:
+            p = Point(*to_xy(pl.lon, pl.lat))
+            if own(p) or not near_p.contains(p):
+                return False
+            fs = feet_of[path] if path in feet_of else feet_of.setdefault(
+                path, _feet(authored_source(path, root)[0], band_m))
+            if not fs:
+                return False
+            import shapely
+            xy = [_to_frame(p.coords[0], pl.heading_deg, x, z) for x, z in fs]
+            return bool(shapely.contains_xy(region, [q[0] for q in xy],
+                                            [q[1] for q in xy]).all())
+        return inside, also
 
     out = []
-    for root in dump_candidates(main_root, lat, lon):
+    for root in dump_candidates(main_root, lat, lon, airport.icao):
         name = os.path.basename(root)
         dsf_path = pristine_dsf_path(_dsf.dsf_path_in_pack(root, lat, lon))
         dump_path = _dsf.find_text_dump(mod_cache_root, name, lat, lon, dsf_path=dsf_path)
@@ -113,10 +188,57 @@ def find(airport, mod_cache_root: str, lat: int, lon: int,
             say(f"  [companion] {name}: no text dump of {os.path.basename(dsf_path)} "
                 "in the mod cache -- not read")
             continue
-        rows = admitted(_dsf.read_dump(dump_path, lambda _p: False), root, inside)
+        claim = own_claim(pack_apt_dat(root), ref, to_xy, margin_m, radius_deg,
+                          served=served_airports(root, airport.icao, lat, lon,
+                                                 ref, say))
+        rows = _drawn(admitted(_dsf.read_dump(dump_path, lambda _p: False), root,
+                               *witnesses(claim, root)), root, lat, lon, name, say)
         if rows:
             out.append(Companion(name, root, dump_path, tuple(rows)))
     return out
+
+
+def _drawn(rows: list, root: str, lat: int, lon: int, name: str,
+           say: _t.Callable[[str], None]) -> list:
+    """``rows`` less those X-Plane never draws: a row inside a
+    ``sim/exclude_obj`` box of a pack drawn ABOVE this one
+    (``exclusion.boxes_above``) is left alone, one line per excluding
+    pack (#2063 round 2)."""
+    from .exclusion import boxes_above, excluder_of
+    boxes = boxes_above(root, lat, lon) if rows else []
+    if not boxes:
+        return rows
+    kept, under = [], {}
+    for i, pl in rows:
+        by = excluder_of(boxes, pl.lon, pl.lat)
+        if by is None:
+            kept.append((i, pl))
+        else:
+            under[by] = under.get(by, 0) + 1
+    for by, n in sorted(under.items()):
+        say(f"  [companion] {name}: {n} row(s) under {by}'s exclusion — "
+            "not drawn, left alone")
+    return kept
+
+
+def _feet(path: "str | None", band_m: float) -> "tuple[tuple[float, float], ...]":
+    """The authored plan ``(x, z)`` of the file's GROUND-CONTACT FEET: its
+    solid vertices within ``band_m`` of its lowest solid vertex (``()``
+    when it has none or cannot be read).  Round 2 (#2063) read the file's
+    box centre: a 288 m atlas of parked aircraft centred on the airport
+    then adopted the aircraft standing outside it."""
+    from .obj8 import parse_obj8
+    if not path:
+        return ()
+    try:
+        g = parse_obj8(path)
+    except (OSError, ValueError):
+        return ()
+    if g is None or not g.solid.shape[0]:
+        return ()
+    v = g.vertices[g.solid.reshape(-1)]
+    low = v[v[:, 1] <= float(v[:, 1].min()) + float(band_m)]
+    return tuple({(round(float(x), 2), round(float(z), 2)) for x, z in low[:, (0, 2)]})
 
 
 def _objects(c: Companion, to_xy) -> tuple[DsfObject, ...]:

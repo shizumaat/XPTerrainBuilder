@@ -690,9 +690,9 @@ def _storeys(fam, cache, cs, cov, aff, probe: float, cover: float, grid: float, 
     cw = not Polygon([frame(p) for p in ring]).exterior.is_ccw
     runs = tuple((LineString([frame(p0), frame(p1)] if cw else [frame(p1), frame(p0)]), f)
                  for (p0, p1), f in zip(runs_a, feet, strict=True))
-    from shapely import affinity
+    from .frame_entry import transform as _place
     m = [aff[0], aff[1], aff[2], aff[3], aff[4], aff[5]]
-    plans = tuple(affinity.affine_transform(g, m) for g in _level_plans(
+    plans = tuple(_place(g, m) for g in _level_plans(
         outline, levels, runs_a, normals, run_level, probe, frontage))
     air = None
     if airside is not None and len(levels) >= 2:

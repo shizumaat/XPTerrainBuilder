@@ -29,8 +29,8 @@ from ..model.airport import Airport
 from ..model.constraints import Offset, Pin, Row, Source
 from ..model.planar import PlanarMap
 from ..model.structures import CHANNEL_FLOOR_ROLE, CHANNEL_WALL_ROLE, CREST_DESIGN
-from .precedence import view
 from .geometry import nearest_vertex_of_containing_cell
+from .precedence import view
 
 __all__ = ["channels", "GEN", "FLOOR_RULING", "CREST_RULING", "LEDGE_RULING",
            "floor_faces_of", "wall_faces_of", "ledge_pin_vertices"]
@@ -178,9 +178,11 @@ def ledge_pin_vertices(planar: PlanarMap, law: Law, c, vw=None, walls=None,
     if not crest:
         return out
     import numpy as np
+
+    from ..geom import exact as _exact
     xy = np.array([planar.vertices[v].xy for v in crest], float)
     for k, (px, py, pz) in enumerate(pins):
-        d = np.hypot(xy[:, 0] - px, xy[:, 1] - py)
+        d = _exact.hypot_array(xy[:, 0] - px, xy[:, 1] - py)
         j = int(np.argmin(d))
         v = crest[j]
         if d[j] > tol or v in out or _shared_with_ground(planar, vw, v, STRUCTURE_ROLES):

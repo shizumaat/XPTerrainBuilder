@@ -54,8 +54,7 @@ def _rigid_rows(shell: _t.Any, objects: _t.Sequence[_t.Any], touch_m: float,
 def _solid_plan(fam: _t.Sequence[_t.Any], cache: _t.Any, close_m: float):
     """The frame's solids' covered plan in the airport frame (every part:
     ``split_level._covered_parts``), or ``None``."""
-    from shapely import affinity
-
+    from . import frame_entry as _fe
     from . import obj8 as _obj8
     from .split_level import _covered_parts, _solids
     got = _solids(fam, cache)
@@ -63,7 +62,7 @@ def _solid_plan(fam: _t.Sequence[_t.Any], cache: _t.Any, close_m: float):
         return None
     a = _obj8.placement_affine(fam[0].xy, fam[0].heading_deg)
     parts = _covered_parts(*got, float(close_m), 1.0)
-    return unary_union([affinity.affine_transform(p, list(a[:6])) for p in parts]) \
+    return unary_union([_fe.transform(p, list(a[:6])) for p in parts]) \
         if parts else None
 
 

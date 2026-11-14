@@ -433,7 +433,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # #1939 R2: a class-K mouth's floor IS the survey -- every ramp
             # vertex pinned (``constraints/survey_floor``), no station rows
             survey_floor_pins(planar, airport, tn, [f for _s, f in pieces], shared_with_ground,
-                              pin, inputs, grid, GEN)
+                              pin, inputs, grid, GEN, vw)
             pieces = []
         if tn.pinched and tn.source in ("door", WALL_CORRIDOR_SOURCE):
             # A RAMP ITS OBJECTS FRAME (2026-10-07e) IS ONE PLANE, pinned

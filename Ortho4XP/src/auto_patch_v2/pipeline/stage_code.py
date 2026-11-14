@@ -1558,7 +1558,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.foot_rows
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
-        constraints.edge_floor constraints.structures constraints.survey_floor constraints.entrance_skirt
+        constraints.edge_floor constraints.structures constraints.survey_floor
+        constraints.entrance_skirt
     constraints.viaduct_floor geom.base_slab geom.cluster_outline
         geom.containment
         geom.feet_graph geom.feet_mst geom.pad_evidence geom.triangulate geom.union_find
@@ -1816,7 +1817,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
-        constraints.platform constraints.precedence constraints.edge_floor constraints.structures constraints.survey_floor
+        constraints.platform constraints.precedence constraints.edge_floor constraints.structures
+        constraints.survey_floor
         constraints.entrance_skirt
     constraints.viaduct_floor
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
@@ -1940,7 +1942,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.threshold_seam
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
-    constraints.strips constraints.edge_floor constraints.structures constraints.survey_floor constraints.entrance_skirt
+    constraints.strips constraints.edge_floor constraints.structures constraints.survey_floor
+    constraints.entrance_skirt
     constraints.viaduct_floor constraints.taxi
     constraints.deck_lines
     constraints.taxi_trend
@@ -2171,7 +2174,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_approach planar.structure_deck planar.structure_fence
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
-    planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service planar.structure_stats
+    planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service
+    planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
@@ -2296,7 +2300,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.runway_yield constraints.runway_junctions constraints.seams
     constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips
-    constraints.edge_floor constraints.structures constraints.survey_floor constraints.entrance_skirt
+    constraints.edge_floor constraints.structures constraints.survey_floor
+    constraints.entrance_skirt
     constraints.viaduct_floor constraints.taxi constraints.taxi_trend
     constraints.deck_lines
     constraints.taxi_trend_cap constraints.transverse geom.trend
@@ -2341,7 +2346,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_approach planar.structure_deck planar.structure_fence
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
-    planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service planar.structure_stats
+    planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service
+    planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road

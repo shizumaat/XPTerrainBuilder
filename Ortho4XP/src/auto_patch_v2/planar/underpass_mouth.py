@@ -221,10 +221,10 @@ def _shear_geometry(g: RampGeometry, sk: Skew, rim_off: float, grid: float
     def sh(p: XY, base: XY) -> XY:
         return snap_out(sk.at(p, o), sk.at(base, o), grid)
     axis = [sk.at(p, o) for p in g.axis]
-    left = [sh(p, a) for p, a in zip(g.left, g.axis)]
-    right = [sh(p, a) for p, a in zip(g.right, g.axis)]
-    left_rim = [sh(p, a) for p, a in zip(g.left_rim, g.left)]
-    right_rim = [sh(p, a) for p, a in zip(g.right_rim, g.right)]
+    left = [sh(p, a) for p, a in zip(g.left, g.axis, strict=False)]
+    right = [sh(p, a) for p, a in zip(g.right, g.axis, strict=False)]
+    left_rim = [sh(p, a) for p, a in zip(g.left_rim, g.left, strict=False)]
+    right_rim = [sh(p, a) for p, a in zip(g.right_rim, g.right, strict=False)]
     edge = LineString([left[0], right[0]])
     inward = (-sk.u[0], -sk.u[1])
 
@@ -380,6 +380,7 @@ def under_deck_blade(c, p: Polygon, law: Law, bands: _t.Sequence[tuple[Polygon, 
     building or a structure, meeting both B and that ramp; ``None`` when
     none does."""
     from shapely.ops import unary_union
+
     from ..law.tables import is_structure_role, is_value_role, role_side
     if not bands or c.role == "building" or role_side(law, c.role) == "airside" \
             or not is_value_role(law, c.role) or is_structure_role(law, c.role):

@@ -23,18 +23,22 @@ import dataclasses
 import math
 
 import pytest
-from shapely.geometry import LineString, Polygon
-
 from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar import structure_underpass as _su
 from auto_patch_v2.planar.dual_width import compose_half_fn
-from auto_patch_v2.planar.lidar_road import (KEPT, SurveyMouth, mouth_verdict,
-                                             survey_design_grade, surveyed_road)
+from auto_patch_v2.planar.lidar_road import (
+    KEPT,
+    SurveyMouth,
+    mouth_verdict,
+    survey_design_grade,
+    surveyed_road,
+)
 from auto_patch_v2.planar.structure_mouth import member_lanes, mouth_stops
 from auto_patch_v2.planar.structure_service import airside_cut_roles
 from auto_patch_v2.planar.survey_cut import Cutting, cutting_of
 from auto_patch_v2.planar.underpass_mouth import member_roads, place_mouth, sheared_ring
+from shapely.geometry import LineString, Polygon
 
 
 @pytest.fixture(scope="module")
@@ -330,19 +334,82 @@ class _Tn:
         self.mouth_dem_z, self.notes = cover, notes
 
 
-def test_a_survey_floor_ramp_is_pinned_not_planned():
-    """#1939 R2: the mouth-edge vertices at z0 + k.tau, a bare top vertex at
-    the DEM, a top vertex the ground shares left to the ground -- and no
-    other row kind is written (the writer only pins)."""
-    from auto_patch_v2.constraints.survey_floor import survey_floor_pins
+class _Face:
+    def __init__(self, role):
+        self.role = role
+
+
+class _Vw:
+    """The precedence view's surface ``ground_carries`` reads."""
+
+    def __init__(self, vertex_faces, roles):
+        self.vertex_faces, self.caps = vertex_faces, {f: (0.02, 0.02) for f in roles}
+
+    def side(self, role):
+        return "airside" if role in ("apron", "primary_parallel") else "groundside"
+
+
+def _k_ramp(top_roles, **targets):
+    """A K ramp 0-1 (mouth edge) / 2-3 (top), the top vertices shared with
+    faces 10 / 11 of ``top_roles``; ``targets`` are the map's channels."""
     pm = _Map([(-10.0, 0.0), (10.0, 0.0), (10.0, 12.0), (-10.0, 12.0)])
+    pm.faces = {10: _Face(top_roles[0]), 11: _Face(top_roles[1])}
+    for ch, d in targets.items():
+        setattr(pm, ch, d)
+    vw = _Vw({0: (1,), 1: (1,), 2: (1, 10), 3: (1, 11)},
+             {10: top_roles[0], 11: top_roles[1]})
+    return pm, vw
+
+
+def _pin_k(pm, vw, shared):
+    from auto_patch_v2.constraints.survey_floor import survey_floor_pins
     tn = _Tn((24.0, 0.05, (-10.0, 0.0), (10.0, 0.0)), ((0.0, 0.0), (0.0, 12.0)))
     pins = {}
     survey_floor_pins(pm, _Airport(lambda x, y: 30.0 + 0.0 * x), tn, [_F((0, 1, 2, 3))],
-                      lambda v: v == 2, lambda v, z, src, senior=False: pins.__setitem__(v, z),
-                      ("t",), 0.5, "structures")
+                      lambda v: v in shared, lambda v, z, src, senior=False: pins.__setitem__(v, z),
+                      ("t",), 0.5, "structures", vw)
+    return pins
+
+
+def test_a_survey_floor_ramp_is_pinned_not_planned():
+    """#1939 R2 / A1: the mouth-edge vertices at z0 + k.tau, a bare top
+    vertex at the DEM, a top vertex an APRON shares left to the ground (A1
+    (b): stage 1 owns it) -- and no other row kind is written."""
+    pm, vw = _k_ramp(("apron", "service_road"))
+    pins = _pin_k(pm, vw, {2})
     assert pins[0] == pytest.approx(24.0 - 0.5) and pins[1] == pytest.approx(24.5)
     assert pins[3] == pytest.approx(30.0) and 2 not in pins
+
+
+def test_a_k_top_on_a_road_with_no_target_is_pinned_at_the_dem():
+    """A1 (c): a top vertex only a groundside road shares, publishing no
+    target there, is pinned at the DEM -- never left to the objective."""
+    pm, vw = _k_ramp(("service_road", "parking_lot"))
+    pins = _pin_k(pm, vw, {2, 3})
+    assert pins[2] == pytest.approx(30.0) and pins[3] == pytest.approx(30.0)
+
+
+def test_a_k_top_with_a_published_target_keeps_the_ground():
+    """A1 (b): a road top with ``road_ramp_z`` (or ``preferred_z``) gets no
+    row; one touching a taxiway gets none either."""
+    pm, vw = _k_ramp(("service_road", "service_road"), road_ramp_z={2: 29.0},
+                     preferred_z={3: 29.5})
+    pins = _pin_k(pm, vw, {2, 3})
+    assert 2 not in pins and 3 not in pins
+    pm, vw = _k_ramp(("primary_parallel", "service_road"))
+    pins = _pin_k(pm, vw, {2, 3})
+    assert 2 not in pins and pins[3] == pytest.approx(30.0)
+
+
+def test_no_k_ramp_vertex_is_ungoverned():
+    """A1 coverage: after ``survey_floor_pins`` every K ramp vertex is
+    pinned or carried by a target / an airside face."""
+    from auto_patch_v2.constraints.survey_floor import ground_carries
+    for roles, tg in ((("service_road", "parking_lot"), {}),
+                      (("apron", "service_road"), {"taxi_trend_z": {3: 28.0}})):
+        pm, vw = _k_ramp(roles, **tg)
+        pins = _pin_k(pm, vw, {2, 3})
+        assert all(v in pins or ground_carries(pm, vw, v) for v in range(4))
 
 
 def test_a_k_cap_stands_at_the_cover():

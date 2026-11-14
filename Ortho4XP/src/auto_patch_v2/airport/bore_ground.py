@@ -49,7 +49,7 @@ class BoreSpan:
     def floor(self, p: Point) -> float:
         """The bore's floor at ``p``: across the deck from one edge to the other."""
         zs, ds = [], []
-        for ln, (z0, k, m0, d) in zip(self.edges, self.floors):
+        for ln, (z0, k, m0, d) in zip(self.edges, self.floors, strict=False):
             q = ln.interpolate(ln.project(p))
             zs.append(z0 + k * ((q.x - m0[0]) * d[0] + (q.y - m0[1]) * d[1]))
             ds.append(ln.distance(p))

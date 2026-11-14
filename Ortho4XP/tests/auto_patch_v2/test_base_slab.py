@@ -247,3 +247,24 @@ def test_an_elevated_deck_is_pavement_under_it_but_marked_elevated():
     assert s.elevated is False
     (s,) = bs.base_slabs(part, to_xy, LW._replace(elevated_share_max=0.0), deck)
     assert s.elevated is False
+
+
+# ── owner RULINGS 2026-11-13aa (2), #2068 (lane lplate2068) ────────────
+
+def test_a_footless_flat_plate_at_the_zero_is_a_slab_and_a_footless_panel_is_not():
+    """Rule 8: a no-solid file's parts have their feet stripped; a part at
+    the objects' zero its faces read as a LEVEL PLATE is at ground (LPPI
+    ``lppi_terminal_09`` comp 3, the terminal's sidewalk); a sloped or
+    kerb-dominated footless part, one raised off the zero (the tower's
+    plinth at y 4.7) or one read without a face reader is not."""
+    wall = _part(0, box(0, 0, 40, 40), h=12.0)
+    walk = _part(1, box(40, 0, 100, 40), h=0.0, base_y=0.18, feet=False)
+    part = _partition(wall, walk)
+    level = _faces({1: bs.FaceFacts(0.0, 0.0)})
+    got = bs.base_slabs(part, to_xy, LW, level)
+    assert len(got) == 1 and got[0].comp == 1 and got[0].touches
+    assert bs.base_slabs(part, to_xy, LW) == ()
+    assert bs.base_slabs(part, to_xy, LW, _faces({1: bs.FaceFacts(0.0, 0.83)})) == ()
+    assert bs.base_slabs(part, to_xy, LW, _faces({1: bs.FaceFacts(0.63, 0.0)})) == ()
+    plinth = _part(1, box(40, 0, 100, 40), h=0.0, base_y=4.7, feet=False)
+    assert bs.base_slabs(_partition(wall, plinth), to_xy, LW, level) == ()

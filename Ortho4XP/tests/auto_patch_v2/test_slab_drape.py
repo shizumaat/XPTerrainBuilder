@@ -210,3 +210,27 @@ def test_an_elevated_deck_on_piers_never_drapes_and_a_ground_sheet_still_does(tm
     d, rows = got["ground.obj"]
     assert d == {"dsf:ground.obj": frozenset({rows[0].comp})}
     assert not rows[0].elevated and rows[0].drape
+
+
+# ── owner RULINGS 2026-11-13aa (2), #2068 (lane lplate2068) ────────────
+
+def test_a_kerbed_plate_file_is_a_flat_plate_and_a_building_or_a_decal_is_not(tmp_path):
+    """``slab_faces.flat_plate_file``: the file the pack partition keeps
+    out of the I-4 drop.  A kerbed plate (LPPI ``Marciapiedi``) is one; a
+    plate with a wall beside it, a plate lifted off the zero and a plate
+    whose plan box is under ``min_m2`` (a painted decal) are not."""
+    from auto_patch_v2.law.tables import base_slab_law
+    lw = base_slab_law(LAW)
+    v, top, bottom, sides = _slab(L=40.0, W=10.0, h=0.2)
+    plate = _write(tmp_path / "plate.obj", v, top + bottom + sides)
+    assert SF.flat_plate_file(plate, lw)
+    wv, wt = _wall(50.0, len(v))
+    both = _write(tmp_path / "both.obj", v + wv, top + bottom + sides + wt)
+    assert not SF.flat_plate_file(both, lw)
+    lifted = _write(tmp_path / "lifted.obj", [(x, y + 3.0, z) for x, y, z in v],
+                    top + bottom + sides)
+    assert not SF.flat_plate_file(lifted, lw)
+    sv, st, sb, ss = _slab(L=10.0, W=5.0, h=0.05)
+    decal = _write(tmp_path / "decal.obj", sv, st + sb + ss)
+    assert not SF.flat_plate_file(decal, lw)
+    assert not SF.flat_plate_file(str(tmp_path / "missing.obj"), lw)

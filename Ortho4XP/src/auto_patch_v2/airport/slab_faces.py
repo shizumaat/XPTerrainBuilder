@@ -10,7 +10,12 @@ the pristine ``.anchor_bak`` where one exists):
   and the share of their area that stands CLEAR of the component's own
   foot (``geom.base_slab.FaceFacts``, the witness's rules 5, 6 and 7);
 * :func:`tri_normals_y` — each triangle's ``n_y``, which the draped
-  writer reads for the faces it re-emits (``airport/obj8_drape.up_keys``).
+  writer reads for the faces it re-emits (``airport/obj8_drape.up_keys``);
+* :func:`flat_plate_file` — whether a WHOLE file is one flat pack plate
+  (a sidewalk, a kerb slab, a paving plate; owner RULINGS 2026-11-13aa
+  (2)): the pack partition keeps such a file when it is placed at several
+  anchors (its I-4 drop), so each placement is seated as a plate on our
+  graded ground instead of on X-Plane's one-anchor seat.
 
 ONE winding convention for both: X-Plane OBJ8 triangles face the viewer
 CLOCKWISE, so the outward normal of ``(a, b, c)`` is ``(c − a) × (b − a)``
@@ -33,7 +38,8 @@ import numpy as np
 from ..geom.base_slab import FaceFacts, register_face_reader
 from . import obj8 as _obj8
 
-__all__ = ["face_facts", "faces_for", "witness_faces", "tri_normals_y"]
+__all__ = ["face_facts", "faces_for", "flat_plate_file", "witness_faces",
+           "tri_normals_y"]
 
 
 def tri_normals_y(v: np.ndarray, tris: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -88,6 +94,51 @@ def face_facts(path: str, comp: int, ny_min: float,
         cy = v[tris[up]][:, :, 1].mean(axis=1)
         lifted = float(area[up][cy >= foot + elev_m].sum()) / up_m2
     return FaceFacts(side, float(ys.max() - ys.min()), lifted)
+
+
+@functools.lru_cache(maxsize=256)
+def flat_plate_file(path: str, lw: _t.Any) -> bool:
+    """Is the file at ``path`` ONE FLAT PLATE (owner RULINGS 2026-11-13aa
+    (2))?  The base-slab witness's own rules read on the file alone, every
+    solid component of it:
+
+    * AT THE OBJECTS' ZERO — lowest authored ``y`` within ``base_y_max_m``;
+    * THIN — authored ``y`` range at most ``max_height_m`` (kerbs, never a
+      storey);
+    * A PLATE — side faces at most ``max_side_share`` of its face area
+      (rule 5), its up-facing faces LEVEL within ``level_m`` (rule 6);
+
+    and its plan BOX reaches ``min_m2`` — the witness's own candidate
+    prefilter (``geom.base_slab._box_m2``), so a file kept here is one the
+    witness can read as a slab, and a painted decal is never kept (LPPI
+    ``Marciapiedi``: a 70 m kerbed L, 280 m2 of top, a 418 m2 outline).
+    Whether a kept placement DRAPES stays the witness's and the drape
+    plan's call.  False wherever the file cannot be read or the plate
+    witness is disarmed (``plate_ny_min`` 0)."""
+    ny_min = float(getattr(lw, "plate_ny_min", 0.0) or 0.0)
+    got = _components(path) if path and ny_min > 0.0 and lw.armed else None
+    if got is None or not got[1]:
+        return False
+    v, comps = got
+    xs: list[np.ndarray] = []
+    for i in range(len(comps)):
+        tris = np.asarray(comps[i].tris, dtype=np.int64).reshape(-1, 3)
+        if not tris.shape[0]:
+            continue
+        ys = v[tris.reshape(-1), 1]
+        if abs(float(ys.min())) > lw.base_y_max_m or \
+                float(ys.max() - ys.min()) > lw.max_height_m:
+            return False
+        ff = face_facts(path, i, ny_min)
+        if ff is None or ff.side_share > lw.max_side_share \
+                or ff.top_relief_m > lw.level_m:
+            return False
+        xs.append(v[tris.reshape(-1)][:, (0, 2)])
+    if not xs:
+        return False
+    xz = np.concatenate(xs)
+    span = xz.max(axis=0) - xz.min(axis=0)
+    return float(span[0] * span[1]) >= lw.min_m2
 
 
 @functools.lru_cache(maxsize=8)

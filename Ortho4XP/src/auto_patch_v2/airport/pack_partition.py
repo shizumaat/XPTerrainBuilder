@@ -408,6 +408,33 @@ def _still_parts(comps: list, counts: dict[str, int]) -> list:
     return still
 
 
+def _flat_plates(paths: _t.Collection[str], keyed, cache: _obj8.ResourceCache,
+                 law: Law) -> set[str]:
+    """Which of the multi-anchor resources ``paths`` are ONE FLAT PLATE
+    (``slab_faces.flat_plate_file``).  The load's own memoised vertex
+    range (``ResourceCache.y_range``) screens first — thin, at the zero, a
+    plan box of ``min_m2`` — so only a plate-shaped file has its faces
+    read: a lamp, a car or a sign never does."""
+    if not paths:
+        return set()
+    from ..law.tables import base_slab_law
+    from .slab_faces import flat_plate_file
+    lw = base_slab_law(law)
+    if not lw.armed:
+        return set()
+    file_of: dict[str, str] = {}
+    for _key, o in keyed:
+        if o.path in paths:
+            file_of.setdefault(o.path, str(o.resolved))
+    out: set[str] = set()
+    for r, f in file_of.items():
+        y0, y1, x0, x1, z0, z1 = cache.y_range(f)
+        if (abs(y0) <= lw.base_y_max_m and y1 - y0 <= lw.max_height_m
+                and (x1 - x0) * (z1 - z0) >= lw.min_m2 and flat_plate_file(f, lw)):
+            out.add(r)
+    return out
+
+
 @_names_its_object
 def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                   sc: Screen, deck_family_ids: _t.Collection[str], pack_root: str,
@@ -726,7 +753,15 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     # mesh (H7 +12 m over the airside).
     deck_paths = {o.path for o in objects if o.id in deck_family_ids}
     counts["multi_anchor_decks_kept"] = len(multi & deck_paths)
-    drop_now = multi - set(sc.plate_paths) - deck_paths
+    # owner RULINGS 2026-11-13aa (2), #2068: ...nor a FLAT PLATE's (a
+    # sidewalk, a kerb slab, a paving plate — ``slab_faces.flat_plate_file``):
+    # left to X-Plane's one-anchor seat, LPPI's 70 m ``Marciapiedi`` stood
+    # +0.44/+0.71 m over a regraded lot.  Kept, each placement is a member
+    # seated on the graded ground (the base-slab drape, 10-14d).
+    flat_paths = _flat_plates(multi - deck_paths - set(sc.plate_paths),
+                              keyed, cache, law)
+    counts["multi_anchor_plates_kept"] = len(flat_paths)
+    drop_now = multi - set(sc.plate_paths) - deck_paths - flat_paths
     counts["multi_anchor"] = len(drop_now)
     for r in sorted(drop_now):
         skipped[r] = (f"placed at {len(anchors_by_resource[r])} anchors — one "

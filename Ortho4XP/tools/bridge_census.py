@@ -25,7 +25,11 @@ deck stack (the graded sidecar's ``object_floors[].stack``), pack cut
 (``plate_kind == "deck"``), road overpass (``plate_kind == "overpass"``),
 all-deck frame (``placement_family.frame_is_bridge``), graded
 (``deck_datum_z``) — are read off the plan, never re-derived.  Object pads
-are not read offline (W6 checks containment only).
+are not read offline, nor the 22n building roles (W6 checks the reach only).
+W4b reads every pack object of the plan near the deck (other frames too),
+placed once and cached.  Columns ``reach_m`` (W6), ``run_on_a`` / ``run_on_b``
+(W7), ``beneath`` (W4b) and ``witness_holds`` (W1-W7 + W4b) per spec
+``2065-bridge-class-A1.md`` §A4 S0.
 
 Prints the free bridges by airport first, then every class count and the
 per-deck witness cost; ``--jsonl`` writes every row.
@@ -58,12 +62,16 @@ import types  # noqa: E402
 
 import numpy as np  # noqa: E402
 from auto_patch_v2.airport import bridge_witness as BW  # noqa: E402
-from auto_patch_v2.airport.bridge_class import DeckFacts, classify  # noqa: E402
+from auto_patch_v2.airport.bridge_class import DeckFacts, classify, witness_holds  # noqa: E402
 from shapely.geometry import Polygon  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _PLAN_ICAO = re.compile(r"(?:o4_v2_rebake_)?([A-Z0-9]{3,4})(?:~\d+)?(?:\.rebake)?\.json$")
 _DECK = ("flag", "signature")
+#: the plate kinds that make a held deck a ``plated_deck`` (A1)
+_PLATE_OWNED = ("edge", "walled", "split_level")
+#: W4b reads the pack objects whose origin stands within this of the deck
+_UNDER_REACH_M = 600.0
 #: the round-2 class-B reading's plated kinds (``free_bridge_seat.PLATED_KINDS``
 #: on lothhdeck2): a deck carrying one was never a round-2 mover
 _PLATED = {"deck", "overpass", "edge", "walled", "split_level"}
@@ -248,6 +256,34 @@ def _frame_faces(members, geoms: _Geoms, to_xy, box) -> np.ndarray:
     return np.concatenate(parts) if parts else np.zeros((0, 3, 3))
 
 
+class _Under:
+    """Every pack object of a plan, its near-horizontal faces placed once
+    on demand: ``under(bounds)`` -> those of the objects near ``bounds``
+    (W4b)."""
+
+    def __init__(self, members, geoms: _Geoms, to_xy, normal: float) -> None:
+        self._m = [(to_xy(float(m["origin"][1]), float(m["origin"][0])), m)
+                   for m in members if m.get("origin")]
+        self._geoms, self._to_xy, self._normal = geoms, to_xy, normal
+        self._faces: dict[int, np.ndarray] = {}
+
+    def _of(self, k: int) -> np.ndarray:
+        if k not in self._faces:
+            m = self._m[k][1]
+            g = self._geoms.of(m)
+            self._faces[k] = (BW.up_faces(_placed(g, m, self._to_xy), self._normal)
+                              if g is not None and len(g.solid) else np.zeros((0, 3, 3)))
+        return self._faces[k]
+
+    def __call__(self, b) -> np.ndarray:
+        cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
+        r = _UNDER_REACH_M + 0.5 * math.hypot(b[2] - b[0], b[3] - b[1])
+        parts = [self._of(k) for k, (xy, _m) in enumerate(self._m)
+                 if math.hypot(xy[0] - cx, xy[1] - cy) <= r]
+        parts = [f for f in parts if len(f)]
+        return np.concatenate(parts) if parts else np.zeros((0, 3, 3))
+
+
 def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
     """Every deck row of one frame, and the witness seconds it took."""
     from auto_patch_v2.airport.placement_family import frame_is_bridge
@@ -266,7 +302,8 @@ def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
     t0 = time.perf_counter()
     near = [p for p in ctx["water"] if p.bounds[0] <= box[2] and p.bounds[2] >= box[0]
             and p.bounds[1] <= box[3] and p.bounds[3] >= box[1]]
-    wit = BW.frame_witness(plates, faces, bodies, ctx["ways"], law, ctx["ground"], near)
+    wit = BW.frame_witness(plates, faces, bodies, ctx["ways"], law, ctx["ground"], near,
+                           under=ctx["under"])
     dt = time.perf_counter() - t0
     unit = types.SimpleNamespace(members=[types.SimpleNamespace(**x) for x in u["members"]])
     ids = {str(x["id"]) for x in u["members"]}
@@ -277,7 +314,8 @@ def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
                       airside=m.get("plate_kind") == "deck",
                       overpass=m.get("plate_kind") == "overpass",
                       all_deck_frame=frame_is_bridge(unit),
-                      graded=m.get("deck_datum_z") is not None, witness=w)
+                      graded=m.get("deck_datum_z") is not None,
+                      plated=(m.get("plate_kind") or "") in _PLATE_OWNED, witness=w)
         rows.append(_row(ctx["icao"], u, m, classify(f), w))
     return rows, dt
 
@@ -285,6 +323,10 @@ def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
 def _bounds(rings: dict) -> tuple:
     b = np.array([r.bounds for r in rings.values()])
     return (b[:, 0].min(), b[:, 1].min(), b[:, 2].max(), b[:, 3].max())
+
+
+def _num(v: float) -> "float | None":
+    return None if math.isnan(v) else round(float(v), 2)
 
 
 def _row(icao: str, u: dict, m: dict, v, w) -> dict:
@@ -302,6 +344,10 @@ def _row(icao: str, u: dict, m: dict, v, w) -> dict:
             "surface_share": round(w.surface_share, 2), "roof_share": round(w.roof_share, 2),
             "span": w.span, "width_m": round(w.width_m, 1),
             "layer_ends": ([round(w.layer[0], 2), round(w.layer[-1], 2)] if w.layer else []),
+            "end_failed": w.end_failed, "reach_m": round(w.reach_m, 2),
+            "run_on_a": _num(w.ends[0].run_on) if w.ends else None,
+            "run_on_b": _num(w.ends[1].run_on) if len(w.ends) > 1 else None,
+            "beneath": _num(w.beneath), "witness_holds": witness_holds(w),
             "r2_candidate": (not alld and m.get("deck_datum_z") is None
                              and (m.get("plate_kind") or "") not in _PLATED)}
 
@@ -327,6 +373,9 @@ def census_plan(path: str, icao: str, law, osm_root: str, elev_root: str
            "ways": _ways(osm_root, decks, to_xy) + streams, "water": water,
            "ground": _ground(frame, elev_root, icao),
            "stacks": _stack_ids(path, icao), "cuts": _cut_ids(plan)}
+    ctx["under"] = _Under([m for u in plan.get("units") or () for m in u.get("members") or ()],
+                          ctx["geoms"], to_xy,
+                          float(law.tables.structures.bridge.deck_plate_normal_y_min))
     rows, cost = [], []
     for u, ds in units:
         got, dt = _unit_rows(u, ds, ctx)
@@ -345,6 +394,13 @@ def _print(rows: list[dict], cost: list[float]) -> None:
         print(f"  {r['icao']} {r['unit']:10} {r['resource'][:40]:40} {r['deck_kind'][:4]} "
               f"bridge {r['bridge_m']} m cover {r['cover']} len {r['length_m']} "
               f"surf {r['surface_share']} roof {r['roof_share']} {r['reason']}")
+    for cls in ("plated_deck", "all_deck_frame"):
+        sub = [r for r in rows if r["class"] == cls and (r["witness_holds"] or r["end_failed"])]
+        print(f"\n== {cls.upper()} with the witness read to W7 / W4b: {len(sub)}")
+        for r in sorted(sub, key=lambda r: (r["icao"], r["unit"])):
+            print(f"  {r['icao']} {r['unit']:10} {r['resource'][:40]:40} "
+                  f"run-on {r['run_on_a']}/{r['run_on_b']} beneath {r['beneath']} "
+                  f"{'HOLDS' if r['witness_holds'] else r['end_failed']}")
     att = [r for r in rows if r["class"] == "attached_bridge"]
     print(f"\n== ATTACHED BRIDGES (W1-W5 hold, W6 fails): {len(att)}")
     for r in sorted(att, key=lambda r: (r["icao"], r["unit"])):

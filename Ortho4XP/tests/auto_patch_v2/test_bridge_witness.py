@@ -200,3 +200,111 @@ def test_ribbon_centreline_follows_a_curve():
     mid = [line.interpolate(f, normalized=True) for f in np.linspace(0.1, 0.9, 30)]
     assert max(arc.distance(p) for p in mid) < 1.0
     assert max(arc.distance(Point(p)) for p in line.coords) <= 5.0
+
+
+# ── A1 (``2065-bridge-class-A1.md`` §A1, §A4 S0): W6 reach, W7 ends, W4b ──
+
+STUB = _box(30.0, -6.0, 45.0, 6.0)
+STUB_WAYS = WAYS[:2] + [_way(3, [(30.5, 0.0), (32.0, 30.0)], highway="primary")]
+
+
+def _line_body(x0, x1, y):
+    return np.array([(x, y) for x in np.linspace(x0, x1, 20)])
+
+
+def _stub_frame(bodies):
+    up, sup = _slab(DECK, 6.0), _slab(STUB, 6.0)
+    decks = {"d": (DECK, up, "flag"), "s": (STUB, sup, "flag")}
+    return BW.frame_witness(decks, np.concatenate([up, sup]), bodies, STUB_WAYS, LAW, _ground)
+
+
+def test_w6_lamps_off_a_stub_and_a_wing_wall_are_the_bridges_own():
+    got = _stub_frame({"lamps": _line_body(32.0, 44.0, 6.8),
+                       "wing": _line_body(-30.0, 30.0, -6.0 - 0.2 * 12.0)})
+    assert got["s"].joined == "d"
+    assert got["d"].frame_failed == "" and got["d"].reach_m == 6.0
+    assert classify(DeckFacts(witness=got["s"])).cls == "free_bridge"
+    # the stub's ends are its axis's: the one at the deck a joint, the other land
+    ends = got["s"].ends
+    assert len(ends) == 2 and sorted(e.land for e in ends) == [False, True]
+    joint = next(e for e in ends if not e.land)
+    assert abs(joint.point[0] - 30.0) < 2.0 and got["s"].axis is not None
+
+
+def test_w6_a_hall_seven_widths_out_attaches():
+    got = _stub_frame({"hall": _line_body(-20.0, 20.0, 6.0 + 7.0 * 12.0)})
+    assert got["d"].frame_failed.startswith("W6") and "hall" in got["d"].frame_failed
+    assert classify(DeckFacts(witness=got["d"])).cls == "attached_bridge"
+    # W7 / W4b are not read for an attached frame; its ends are still kept
+    assert got["d"].end_failed == "" and len(got["d"].ends) == 2
+    assert all(math.isnan(e.run_on) for e in got["d"].ends)
+
+
+def _carried(x_end):
+    return [_way(1, [(-80.0, 0.0), (-30.5, 0.0)], highway="primary"),
+            _way(2, [(-30.5, 0.0), (x_end, 0.0)], highway="primary", bridge="yes"),
+            _way(3, [(x_end, 0.0), (x_end + 60.0, 0.0)], highway="primary")]
+
+
+def test_w7_a_bridge_running_on_past_an_end_is_a_joint():
+    up = _slab(DECK, 6.0)
+    far = BW.frame_witness({"d": (DECK, up, "flag")}, up, {}, _carried(60.0), LAW, _ground)
+    w = far["d"]
+    assert w.end_failed.startswith("W7") and "end b" in w.end_failed, w.end_failed
+    assert abs(w.ends[1].run_on - 30.0) < 0.6 and not w.ends[1].land and w.ends[0].land
+    v = classify(DeckFacts(witness=w))
+    assert v.cls == "not_a_bridge" and v.reason.startswith("W7")
+    near = BW.frame_witness({"d": (DECK, up, "flag")}, up, {}, _carried(40.0), LAW, _ground)
+    assert near["d"].end_failed == "" and abs(near["d"].ends[1].run_on - 10.0) < 0.6
+    assert all(e.land for e in near["d"].ends)
+    assert classify(DeckFacts(witness=near["d"])).cls == "free_bridge"
+
+
+def test_w7_an_end_abutting_a_deck_of_its_group_is_exempt():
+    d2 = _box(30.0, -6.0, 90.0, 6.0)
+    up1, up2 = _slab(DECK, 6.0), _slab(d2, 6.0)
+    ways = [_way(1, [(-80.0, 0.0), (-30.5, 0.0)], highway="primary"),
+            _way(2, [(-30.5, 0.0), (90.5, 0.0)], highway="primary", bridge="yes"),
+            _way(3, [(90.5, 0.0), (150.0, 0.0)], highway="primary"),
+            _way(9, [(60.0, -40.0), (60.0, 40.0)], highway="service")]
+    got = BW.frame_witness({"d1": (DECK, up1, "flag"), "d2": (d2, up2, "flag")},
+                           np.concatenate([up1, up2]), {}, ways, LAW, _ground)
+    for k in ("d1", "d2"):
+        assert got[k].failed == "" and got[k].end_failed == "", (k, got[k])
+        assert classify(DeckFacts(witness=got[k])).cls == "free_bridge"
+    assert got["d1"].ends[1].run_on > 20.0 and not got["d1"].ends[1].land
+
+
+def test_w4b_a_roof_over_another_objects_deck_fails_and_a_crossing_deck_passes():
+    up = _slab(DECK, 14.0)
+    other = _slab(_box(-30.0, -6.0, 30.0, 6.0), 6.0)
+    got = BW.frame_witness({"d": (DECK, up, "flag")}, up, {}, WAYS, LAW, _ground,
+                           under=lambda _b: other)
+    assert got["d"].end_failed.startswith("W4b") and got["d"].beneath == 1.0
+    assert classify(DeckFacts(witness=got["d"])).cls == "not_a_bridge"
+    cross = _slab(_box(-5.0, -20.0, 5.0, 20.0), 8.0)
+    got = BW.frame_witness({"d": (DECK, up, "flag")}, up, {}, WAYS, LAW, _ground,
+                           under=lambda _b: cross)
+    assert got["d"].end_failed == "" and 0.0 < got["d"].beneath <= BW.ROOF_UNDER_SHARE
+
+
+def test_the_a1_class_order():
+    held = BW.Witness(None, span="ground 4.0 m")
+    assert BW.Witness(None).end_failed == ""
+    assert CLASSES.index("all_deck_frame") < CLASSES.index("plated_deck") \
+        < CLASSES.index("free_bridge") < CLASSES.index("attached_bridge")
+    assert classify(DeckFacts(all_deck_frame=True, witness=held)).cls == "all_deck_frame"
+    assert classify(DeckFacts(graded=True, plated=True, witness=held)).cls == "graded_deck"
+    assert classify(DeckFacts(plated=True, witness=held)).cls == "plated_deck"
+    assert classify(DeckFacts(witness=held)).cls == "free_bridge"
+    w6 = _dc_replace(held, frame_failed="W6 free frame: x", end_failed="")
+    assert classify(DeckFacts(plated=True, witness=w6)).cls == "attached_bridge"
+    w7 = _dc_replace(held, end_failed="W7 ends: end a is a joint")
+    assert classify(DeckFacts(graded=True, witness=w7)).cls == "graded_deck"
+    v = classify(DeckFacts(plated=True, witness=w7))
+    assert v.cls == "not_a_bridge" and v.reason.startswith("W7")
+
+
+def _dc_replace(w, **kw):
+    import dataclasses
+    return dataclasses.replace(w, **kw)

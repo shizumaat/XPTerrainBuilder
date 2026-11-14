@@ -25,10 +25,23 @@ one metric frame (x, y, authored y); the DEM only in W5:
 * W5 SPAN: between the ends the plate stands over a crossing way of another
   chain, over water, or over ground ``deck_min_clearance_under_m`` under the
   chord between the end grounds.
-* W6 FREE FRAME (:func:`_free_frame`): every other body of the frame inside
-  the bridge's decks and route corridors (the plate's width, extended
-  ``[building_pad] fill_road_reach_m`` beyond each end) and on no emitted
-  object pad.
+* W6 FREE FRAME (:func:`_free_frame`, A1): every other body of the frame is
+  the bridge's OWN — :data:`_INSIDE_SHARE` of its plan vertices within REACH
+  (``[bridge] free_frame_reach_min_m``, ``free_frame_reach_share`` x the
+  widest W-deck's width) of the bridge's decks and route corridors (half the
+  plate's width about the route, ``[building_pad] fill_road_reach_m`` beyond
+  each end) — and none stands beside a building (22n, the caller's
+  ``planar/deck_bridge._beside_a_building``).
+* W7 ENDS (:func:`run_on`, A1): a route end whose mapped ``bridge != no``
+  carries on past the plate more than ``free_end_run_on_max_m`` (along the
+  route, then through every way join of the feed) is a JOINT; a deck with a
+  joint that abuts no deck of its own group fails.  Every other end is a LAND
+  end.  A stub's ends are its axis's: the one abutting the group a joint.
+* W4b NOTHING DRIVEN BENEATH (:func:`beneath`, A1): an up-facing pack face
+  ``roof_under_min_m`` .. ``roof_under_max_m`` under the driven layer on more
+  than :data:`ROOF_UNDER_SHARE` of the stations — a roof or an upper floor.
+  W7 and W4b are read only for decks whose frame holds W6; W4b never for a
+  stub.
 
 THE BRIDGE GROUP (:func:`frame_witness`): W-decks of one frame (W1-W5 hold)
 whose rings touch within ``[placement] footprint_touch_m``; a ``flag`` deck
@@ -55,8 +68,9 @@ from ..geom.lowest_face import every_z_at
 from .deck_carry import route_chains
 from .deck_signature import is_bridge_way
 
-__all__ = ["Route", "Witness", "route_of", "deck_witness", "frame_witness",
-           "placed_faces", "up_faces", "SURFACE_SHARE", "ROOF_SHARE", "STUB_WIDTH_RATIO"]
+__all__ = ["Witness", "route_of", "frame_witness",
+           "placed_faces", "up_faces", "SURFACE_SHARE", "ROOF_SHARE", "ROOF_UNDER_SHARE",
+           "STUB_WIDTH_RATIO"]
 
 XY = tuple[float, float]
 
@@ -64,6 +78,8 @@ XY = tuple[float, float]
 SURFACE_SHARE = 0.8
 #: W4: a solid over the surface on more than this share of the stations is a roof
 ROOF_SHARE = 0.2
+#: W4b: a pack face a storey under the surface on more than this share is a roof
+ROOF_UNDER_SHARE = 0.5
 #: the bridge group: a routeless stub is at most this times the widest W-deck
 STUB_WIDTH_RATIO = 1.5
 #: a hair inside the plate along the route, where an end station reads it
@@ -72,6 +88,10 @@ _HAIR = 0.05
 _INSIDE_SHARE = 0.95
 #: the most paths one chain is read along (a chain is a handful of ways)
 _MAX_PATHS = 64
+#: W7: the run-on walk stops here (A0 F3's probe cap; the bar is far below)
+_RUN_ON_CAP = 120.0
+#: W7: a plate end lies on a feed way within this
+_ON_WAY = 0.5
 
 
 @_dc.dataclass(frozen=True)
@@ -94,6 +114,21 @@ class Route:
 
 
 @_dc.dataclass(frozen=True)
+class End:
+    """One end of a deck (A1 W7): the point, the outward unit tangent, the
+    END LINE (the plate outline within half the deck's width of the point),
+    the top (the W3 layer there), the run-on (``nan`` = not read) and
+    whether it is a LAND end (else a joint)."""
+
+    point: XY
+    out: XY
+    line: tuple[XY, ...]
+    top: float
+    run_on: float = math.nan
+    land: bool = True
+
+
+@_dc.dataclass(frozen=True)
 class Witness:
     """One deck's W1-W5 values and the first witness it fails (``""`` when
     W1-W5 hold).  ``layer`` is the deck surface's z per station (``nan``
@@ -112,6 +147,18 @@ class Witness:
     joined: str = ""
     #: set by :func:`frame_witness`: W6's failure for the group, ``""`` = free
     frame_failed: str = ""
+    #: set by :func:`frame_witness`: W7's or W4b's failure (a stub: its
+    #: host's), ``""`` = both hold or were not read
+    end_failed: str = ""
+    #: set by :func:`frame_witness`: the deck's two ends (a W-deck: the
+    #: route's; a joined stub: its axis's)
+    ends: tuple[End, ...] = ()
+    #: set by :func:`frame_witness`: W6's reach for the group (metres)
+    reach_m: float = 0.0
+    #: set by :func:`frame_witness`: W4b's share (``nan`` = not read)
+    beneath: float = math.nan
+    #: a joined stub's own axis (its stations and layer are on it)
+    axis: "LineString | None" = None
 
 
 # ── faces ───────────────────────────────────────────────────────────────
@@ -425,28 +472,148 @@ def deck_witness(ring: Polygon, plate_up: np.ndarray, frame_faces: np.ndarray,
     return Witness(r, st, layer, share, roof, sp, width_m=width)
 
 
+# ── W7 / W4b: the ends and what lies beneath ───────────────────────────
+
+def _bridge_graph(ways: _t.Sequence) -> dict:
+    """node -> ``[(node, a, b)]`` over every segment of the feed's
+    ``bridge != no`` route ways (nodes joined by their coordinates)."""
+    key = lambda p: (round(float(p[0]), 3), round(float(p[1]), 3))  # noqa: E731
+    adj: dict = {}
+    for w in ways:
+        if not (_route_way(w) and _bridge(w.tags or {})):
+            continue
+        for a, b in zip(w.points, w.points[1:], strict=False):
+            if key(a) != key(b):
+                adj.setdefault(key(a), []).append((key(b), a, b))
+                adj.setdefault(key(b), []).append((key(a), b, a))
+    return adj
+
+
+def run_on(end: XY, out: XY, ring: Polygon, ways: _t.Sequence,
+           cap: float = _RUN_ON_CAP) -> float:
+    """W7: the metres of mapped ``bridge != no`` route way carrying on past
+    the plate end ``end`` (outward tangent ``out``) — along the way the end
+    lies on, outward, then on through every join of the feed's bridge ways,
+    the longest walk, counting only what lies outside the plate; at most
+    ``cap``.  ``0`` when no bridge way runs on from the end."""
+    adj = _bridge_graph(ways)
+    plate = ring.buffer(_HAIR)
+    p0 = Point(end)
+
+    def outside(a, b) -> float:
+        return LineString([a, b]).difference(plate).length
+
+    best, budget = 0.0, [4000]
+
+    def walk(node, acc: float, used: frozenset) -> None:
+        nonlocal best
+        best = max(best, acc)
+        budget[0] -= 1
+        if acc >= cap or budget[0] <= 0:
+            return
+        for nxt, a, b in adj.get(node, ()):
+            e = frozenset((node, nxt))
+            if e not in used:
+                walk(nxt, acc + outside(a, b), used | {e})
+
+    for node, edges in list(adj.items()):
+        for nxt, a, b in edges:
+            if LineString([a, b]).distance(p0) > _ON_WAY:
+                continue
+            if (b[0] - a[0]) * out[0] + (b[1] - a[1]) * out[1] <= 0.0:
+                continue
+            walk(nxt, outside(end, b), frozenset({frozenset((node, nxt))}))
+    return min(best, cap)
+
+
+def beneath(faces: np.ndarray, stations: _t.Sequence[XY], layer: _t.Sequence[float],
+            law) -> float:
+    """W4b: the share of ``stations`` with an up-facing face of ``faces``
+    (every pack object near, in its own authored y) ``roof_under_min_m`` ..
+    ``roof_under_max_m`` under the driven ``layer``."""
+    br = law.tables.structures.bridge
+    lo, hi = float(br.roof_under_min_m), float(br.roof_under_max_m)
+    z = _filled(layer)
+    zs = every_z_at(up_faces(faces, float(br.deck_plate_normal_y_min)),
+                    [p[0] for p in stations], [p[1] for p in stations])
+    hit = sum(1 for k, v in enumerate(zs)
+              if v.size and bool(((v >= z[k] - hi) & (v <= z[k] - lo)).any()))
+    return hit / max(len(stations), 1)
+
+
+def _end_line(ring: Polygon, p: XY, half: float) -> tuple[XY, ...]:
+    """The plate outline within ``half`` of ``p`` (A1's END LINE)."""
+    cut = ring.exterior.intersection(Point(p).buffer(max(half, _HAIR)))
+    return tuple((float(x), float(y)) for g in getattr(cut, "geoms", [cut])
+                 if not g.is_empty for x, y in g.coords)
+
+
+def _deck_ends(ring: Polygon, w: Witness) -> tuple[End, End]:
+    """A W-deck's two route ends (run-on not yet read)."""
+    r, half = w.route, 0.5 * w.width_m
+    tops = (w.layer[0], w.layer[-1]) if w.layer else (math.nan, math.nan)
+    return (End(r.end_a, r.out_a, _end_line(ring, r.end_a, half), float(tops[0])),
+            End(r.end_b, r.out_b, _end_line(ring, r.end_b, half), float(tops[1])))
+
+
+def _stub_ends(ring: Polygon, w: Witness, group: Polygon) -> tuple[End, ...]:
+    """A joined stub's ends: its axis's, the one nearer the group's other
+    decks a joint, the other its land end."""
+    line = w.axis
+    if line is None or line.length <= 0.0:
+        return ()
+    a, b = line.coords[0], line.coords[-1]
+    half = 0.5 * ring.area / line.length
+    ta = _tangent(line, 0.0, -1.0)
+    tb = _tangent(line, line.length, 1.0)
+    za, zb = (w.layer[0], w.layer[-1]) if w.layer else (math.nan, math.nan)
+    a_joint = Point(a).distance(group) <= Point(b).distance(group)
+    return (End(a, ta, _end_line(ring, a, half), float(za), land=not a_joint),
+            End(b, tb, _end_line(ring, b, half), float(zb), land=a_joint))
+
+
+def _ends_hold(oid: str, decks, w: Witness, group: list[str], ways, law
+               ) -> tuple[tuple[End, ...], str]:
+    """W7 for one W-deck: its ends with their run-on, and why it fails."""
+    br = law.tables.structures.bridge
+    touch = float(law.tables.structures.placement.footprint_touch_m)
+    ring = decks[oid][0]
+    others = [decks[o][0] for o in group if o != oid]
+    ends, why = [], ""
+    for tag, e in zip("ab", _deck_ends(ring, w), strict=True):
+        ro = run_on(e.point, e.out, ring, ways)
+        land = ro <= float(br.free_end_run_on_max_m) + 1e-9
+        ends.append(_dc.replace(e, run_on=ro, land=land))
+        if not land and not why and not any(Point(e.point).distance(o) <= touch
+                                            for o in others):
+            why = (f"W7 ends: end {tag} is a joint (run-on {ro:.0f} m > "
+                   f"{float(br.free_end_run_on_max_m):.0f} m)")
+    return tuple(ends), why
+
+
 # ── the frame: groups and W6 ───────────────────────────────────────────
 
 def _stub_joins(ring: Polygon, plate_up: np.ndarray, frame_faces: np.ndarray,
-                widest: float, law) -> str:
-    """Why a routeless stub does not join a touching W-deck's group, or
-    ``""`` when it does: its width (plan area over its own long axis, the
-    ribbon's centreline — a curved ramp's rectangle does not follow it) at
-    most :data:`STUB_WIDTH_RATIO` x the widest W-deck's, and W3 and W4
-    along that axis."""
+                widest: float, law) -> tuple[str, "LineString | None", tuple, tuple]:
+    """``(why a routeless stub does not join a touching W-deck's group, or
+    "" when it does; its axis, stations and layer)``: its width (plan area
+    over its own long axis, the ribbon's centreline — a curved ramp's
+    rectangle does not follow it) at most :data:`STUB_WIDTH_RATIO` x the
+    widest W-deck's, and W3 and W4 along that axis."""
     line = ribbon_centreline(ring)
     if line is None or line.length <= 0.0:
-        return "no axis"
+        return "no axis", None, (), ()
     width = ring.area / line.length
     if width > STUB_WIDTH_RATIO * widest + 1e-6:
-        return f"width {width:.0f} m > {STUB_WIDTH_RATIO} x {widest:.0f} m"
+        return f"width {width:.0f} m > {STUB_WIDTH_RATIO} x {widest:.0f} m", line, (), ()
     st = _stations(line, 0.0, line.length,
                    float(law.tables.structures.bridge.abutment_sample_step_m))
     layer, share = driven_surface(plate_up, st, law)
     if not layer:
-        return f"W3 surface on its own axis (best {share:.2f})"
+        return f"W3 surface on its own axis (best {share:.2f})", line, st, ()
     roof = open_sky(frame_faces, st, layer, law)
-    return f"W4 open sky on its own axis ({roof:.0%})" if roof > ROOF_SHARE else ""
+    why = f"W4 open sky on its own axis ({roof:.0%})" if roof > ROOF_SHARE else ""
+    return why, line, st, layer
 
 
 def _extended(path: LineString, a: float, b: float) -> LineString:
@@ -472,20 +639,30 @@ def _corridor(w: Witness, law) -> Polygon:
     return _extended(r.path, r.s_a - reach, r.s_b + reach).buffer(max(0.5 * w.width_m, 0.5))
 
 
-def _free_frame(bodies: _t.Mapping[str, np.ndarray], region, law, pads=()) -> str:
-    """W6: the first other body of the frame not inside ``region`` (the
-    bridge's decks and route corridors, grown ``[placement]
-    footprint_touch_m``) or standing on an emitted object pad, named; ``""``
-    when the frame is free.  ``bodies``: id -> its plan vertices ``(n, 2)``."""
-    grown = region.buffer(float(law.tables.structures.placement.footprint_touch_m))
+def _reach(widest: float, law) -> float:
+    """W6's REACH for a group whose widest W-deck is ``widest`` m (A1)."""
+    br = law.tables.structures.bridge
+    return max(float(br.free_frame_reach_min_m), float(br.free_frame_reach_share) * widest)
+
+
+def _free_frame(bodies: _t.Mapping[str, np.ndarray], region, reach: float,
+                beside=()) -> str:
+    """W6 (A1): the first other body of the frame that is not the bridge's
+    own — less than :data:`_INSIDE_SHARE` of its plan vertices within
+    ``reach`` of ``region`` (the bridge's decks and route corridors) — or
+    that stands beside a building (``beside``: ids the caller's 22n witness
+    named), named; ``""`` when the frame is free.  ``bodies``: id -> its plan
+    vertices ``(n, 2)``."""
+    grown = region.buffer(reach)
     for oid, pts in sorted(bodies.items()):
         if not len(pts):
             continue
         share = float(contains_xy(grown, pts[:, 0], pts[:, 1]).mean())
         if share + 1e-9 < _INSIDE_SHARE:
-            return f"W6 free frame: {oid} stands {1.0 - share:.0%} outside the bridge"
-        if any(contains_xy(pad, pts[:, 0], pts[:, 1]).any() for pad in pads or ()):
-            return f"W6 free frame: {oid} stands on an object pad"
+            return (f"W6 free frame: {oid} stands {1.0 - share:.0%} beyond "
+                    f"{reach:.1f} m of the bridge")
+        if oid in beside:
+            return f"W6 free frame: {oid} stands beside a building"
     return ""
 
 
@@ -502,22 +679,52 @@ def _join_stubs(decks, out: dict, frame_faces: np.ndarray, law) -> dict:
         host = next((o for o in wd if ring.distance(decks[o][0]) <= touch), None)
         if host is None:
             continue
-        why = _stub_joins(ring, _near(up, ring.buffer(1.0)),
-                          _near(frame_faces, ring.buffer(1.0)), widest, law)
-        out[oid] = _dc.replace(w, joined="" if why else host,
-                               failed=f"{w.failed}; stub of {host} refused: {why}"
+        why, axis, st, layer = _stub_joins(ring, _near(up, ring.buffer(1.0)),
+                                           _near(frame_faces, ring.buffer(1.0)), widest, law)
+        out[oid] = _dc.replace(w, joined="" if why else host, axis=axis, stations=st,
+                               layer=layer, failed=f"{w.failed}; stub of {host} refused: {why}"
                                if why else w.failed)
+    return out
+
+
+def _read_ends(decks, out: dict, group: list[str], wd: list[str], ways, law,
+               under) -> dict:
+    """W7 then W4b for each W-deck of a free frame; each joined stub takes
+    its axis ends and its host's verdict."""
+    for oid in wd:
+        w = out[oid]
+        ends, why = _ends_hold(oid, decks, w, group, ways, law)
+        share = math.nan
+        if not why:
+            box = LineString(w.stations).buffer(1.0)
+            share = beneath(_near(under(box.bounds), box), w.stations, w.layer, law)
+            if share > ROOF_UNDER_SHARE:
+                br = law.tables.structures.bridge
+                why = (f"W4b beneath: a pack face {float(br.roof_under_min_m):.1f}-"
+                       f"{float(br.roof_under_max_m):.0f} m under the surface on "
+                       f"{share:.0%} of the stations")
+        out[oid] = _dc.replace(w, ends=ends, end_failed=why, beneath=share)
+    for oid in group:
+        w = out[oid]
+        if w.joined:
+            rest = unary_union([decks[o][0] for o in group if o != oid])
+            host = out[w.joined].end_failed
+            out[oid] = _dc.replace(w, ends=_stub_ends(decks[oid][0], w, rest),
+                                   end_failed=f"host {w.joined}: {host}" if host else "")
     return out
 
 
 def frame_witness(decks: _t.Mapping[str, tuple[Polygon, np.ndarray, str]],
                   frame_faces: np.ndarray, bodies: _t.Mapping[str, np.ndarray],
-                  ways: _t.Sequence, law, ground=None, water=(), pads=()
-                  ) -> dict[str, Witness]:
+                  ways: _t.Sequence, law, ground=None, water=(), beside=(),
+                  under: "_t.Callable | None" = None) -> dict[str, Witness]:
     """Every deck of ONE frame read (module doc): ``decks`` id -> ``(ring,
     near-horizontal plate faces, deck_kind)``; ``bodies`` id -> the plan
-    vertices of every member of the frame.  The W-decks and the stubs that
-    joined them carry W6's verdict for the frame in ``frame_failed``."""
+    vertices of every member of the frame; ``beside`` the body ids 22n found
+    beside a building; ``under(bounds)`` every pack object's faces near
+    ``bounds`` for W4b (default: the frame's own).  The W-decks and the stubs
+    that joined them carry W6's verdict in ``frame_failed`` and its reach;
+    when W6 holds, W7's and W4b's in ``end_failed``, and their ends."""
     out = {oid: deck_witness(ring, up, frame_faces, ways, law, ground, water)
            for oid, (ring, up, _k) in decks.items()}
     wd = [oid for oid, w in out.items() if not w.failed]
@@ -525,7 +732,14 @@ def frame_witness(decks: _t.Mapping[str, tuple[Polygon, np.ndarray, str]],
         return out
     out = _join_stubs(decks, out, frame_faces, law)
     group = [o for o, w in out.items() if not w.failed or w.joined]
+    reach = _reach(max(out[o].width_m for o in wd), law)
     region = unary_union([decks[o][0] for o in group] + [_corridor(out[o], law) for o in wd])
-    why = _free_frame({b: p for b, p in bodies.items() if b not in group}, region, law, pads)
-    return {o: (_dc.replace(w, frame_failed=why) if o in group else w)
-            for o, w in out.items()}
+    why = _free_frame({b: p for b, p in bodies.items() if b not in group}, region, reach,
+                      beside)
+    out = {o: (_dc.replace(w, frame_failed=why, reach_m=reach) if o in group else w)
+           for o, w in out.items()}
+    if why:
+        return {o: (_dc.replace(w, ends=_deck_ends(decks[o][0], w)) if o in wd else w)
+                for o, w in out.items()}
+    return _read_ends(decks, out, group, wd, ways, law,
+                      under or (lambda _b: frame_faces))

@@ -151,7 +151,7 @@ from .structure_underpass import (aeroway_decks, underpass_bores as _underpass_b
 from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
                                  pad_hit as _pad_hit, pad_knife,
                                  ramp_targets, reseat_expect as _reseat_expect,
-                                 authored_crest as _authored_crest, ring_for, seed_wall_stations)
+                                 authored_crest as _authored_crest, seed_wall_stations)
 
 __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 

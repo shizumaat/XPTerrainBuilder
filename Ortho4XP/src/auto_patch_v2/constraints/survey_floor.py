@@ -33,6 +33,7 @@ import typing as _t
 
 from shapely.geometry import LineString, Point
 
+from ..geom import exact
 from ..model.constraints import Source
 
 __all__ = ["SURVEY_FLOOR_RULING", "survey_floor_pins", "cap_line"]
@@ -59,7 +60,7 @@ def survey_floor_pins(planar, airport, tn, ramp_faces, shared_with_ground: _t.Ca
     """Pin every ramp vertex of ``tn`` (module doc); returns the count."""
     z0, k, a, b = tn.survey_floor
     edge = LineString([a, b])
-    L = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
+    L = exact.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
     d = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
     m0 = tn.axis[0]
     src_floor = Source(gen, f"{SURVEY_FLOOR_RULING} (#1939 R2; RULINGS 2026-11-13h N1): the "

@@ -73,7 +73,7 @@ def yard_records(planar: PlanarMap) -> dict[str, dict[str, _t.Any]]:
     block record's floor yard (``classify/floor_yard``; the level is the
     block itself, ``pad`` its own ref)."""
     from ..model.registries import FLOOR_YARD
-    reg = planar.registries
+    reg = getattr(planar, "registries", None)
     out = {lv: rec for lv, rec in (getattr(reg, "landings", None) or {}).items()
            if rec.get("yard_plane")}
     for ref, h in (getattr(reg, "held", None) or {}).items():

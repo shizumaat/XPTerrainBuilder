@@ -240,9 +240,12 @@ def yard_run_lifts(planar: PlanarMap, law: Law) -> dict[int, float]:
     own grade (``constraints/yard_edge.run_grade``; empty without one)."""
     from ..constraints.yard_edge import lot_vertices, run_grade, yard_runs
     from ..model.planar import face_vertex_set
+    runs = yard_runs(planar, law)      # reads no law where no yard stands
+    if not runs:
+        return {}
     g = float(law.tables.emit.road_contact.upper_pad_road_grade)
     out: dict[int, float] = {}
-    for run in yard_runs(planar, law):
+    for run in runs:
         road = run.free - lot_vertices(planar, law, run)
         for fid in run.faces:
             vs = face_vertex_set(planar, planar.faces[fid])

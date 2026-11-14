@@ -13,7 +13,9 @@ because the failure is a segfault.
   interpreter) plus explicit young/full ``gc.collect`` pressure from the
   workers: every run exits clean, and the guard's own GUI-thread
   collector has run (a collector freed at install would leave the app
-  with no collection at all);
+  with no collection at all) -- checked after the stress, in a bounded
+  quiet window, so a timer starved by load or by the inert path on an
+  unaffected interpreter (forced install) is not read as a dead collector;
 * base (affected interpreters only): the same run without the guard
   crashes -- the proof the stress reaches the defect (6/6 runs crashed
   within 1.5 s on 3.14.3 when it was written);
@@ -83,7 +85,22 @@ def _stress(seconds, guarded):
     for thread in threads:
         thread.join()
     painter.end()
-    ticked = all(c.collections > 0 for c in GUARD._INSTALLED) if guarded else True
+    ticked = True
+    if guarded:
+        # The stress loop may starve the timer (one long paint() under GIL
+        # contention, CI load) or catch counts just reset by a worker's
+        # collect: give the collector a quiet, bounded window with garbage
+        # over its threshold, so "never ran" means it really cannot run.
+        deadline = time.monotonic() + 10.0
+        while (not all(c.collections > 0 for c in GUARD._INSTALLED)
+               and time.monotonic() < deadline):
+            junk = [[] for _ in range(200)]
+            for cycle in junk:
+                cycle.append(cycle)
+            del junk
+            app.processEvents()
+            time.sleep(0.01)
+        ticked = all(c.collections > 0 for c in GUARD._INSTALLED)
     print("CLEAN" if ticked else "COLLECTOR NEVER RAN")
 
 

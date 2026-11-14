@@ -116,6 +116,21 @@ def _slab(e, depth: float) -> Polygon:
     return p if p.is_valid else p.buffer(0.0)
 
 
+def _end_band(e, depth: float, half: float) -> Polygon:
+    """The band ``-0.5 .. depth + 0.5`` m along an end's outward tangent,
+    ``half`` metres each side of its end line's middle (rule 4: no toe
+    there)."""
+    mx = sum(p[0] for p in e.stations) / len(e.stations)
+    my = sum(p[1] for p in e.stations) / len(e.stations)
+    ox, oy = e.out
+    nx, ny = -oy, ox
+    a0, a1 = -0.5, depth + 0.5
+    return Polygon([(mx + ox * a0 + nx * half, my + oy * a0 + ny * half),
+                    (mx + ox * a1 + nx * half, my + oy * a1 + ny * half),
+                    (mx + ox * a1 - nx * half, my + oy * a1 - ny * half),
+                    (mx + ox * a0 - nx * half, my + oy * a0 - ny * half)])
+
+
 def _free_footprint(st, law) -> dict:
     """A FREE / KEPT stack's ground (#2065 A3 rule 4): per rowed end the
     SLAB (its first ``abutment_sample_step_m``) and, at a GRADED end, the
@@ -138,12 +153,16 @@ def _free_footprint(st, law) -> dict:
         slab = _slab(e, H).difference(rings)
         apron = slab
         line = path_line(e, e.run) if e.state == "graded" else None
+        w = 0.0
         if line is not None:
             hw = e.half_width
             apron = unary_union([slab, line.buffer(hw, cap_style="flat")]).difference(rings)
             w = max(float(de.bank_min_width_m), float(e.gap) / float(de.bank_slope))
             banks.append(line.buffer(hw + w, cap_style="flat"))
         apron = apron.difference(taken)
+        # the ground off the end line's own ends (the bank's edge along the
+        # end line, beside the deck) is no TOE: it meets the deck end there
+        slabs.append(_end_band(e, H, e.half_width + w + 1.0))
         slabs.append(slab)
         aprons.append((d, e.side, float(e.top), apron, slab))
         taken = taken.union(apron)

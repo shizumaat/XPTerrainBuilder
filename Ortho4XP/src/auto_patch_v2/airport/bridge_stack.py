@@ -234,6 +234,12 @@ def _own_decks(fb, cx: _Ctx) -> list[StackDeck]:
     return out
 
 
+def _mid(stations) -> tuple[float, float]:
+    """The mean of an end line's stations."""
+    return (sum(p[0] for p in stations) / len(stations),
+            sum(p[1] for p in stations) / len(stations))
+
+
 def _rect_ends(o, view, to_ll) -> "tuple | None":
     """The kept deck's RECTANGLE end lines as the plan stamps them
     (``rebake_plan._with_deck``: a signature plate's ends, else the ring's)."""
@@ -273,8 +279,7 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
             k = max(range(len(seat.ends)), key=lambda i: (seat.ends[i], -i))
             a, b = datum.ends[k]
             mid = cx.to_xy((a[1] + b[1]) / 2.0, (a[0] + b[0]) / 2.0)
-            near = min(range(2), key=lambda j: math.dist(
-                mid, tuple(sum(c) / len(d.ends[j].stations) for c in zip(*d.ends[j].stations))))
+            near = min(range(2), key=lambda j: math.dist(mid, _mid(d.ends[j].stations)))
             gov.add("ab"[near])
         pub = published([_dc.replace(fb, decks=(d,))], cx.to_ll, cx.out_m)[d.object_id]
         ends = cx.ends(fb, d, o, seat.zero, surface, pub["ends"], frozenset(gov))

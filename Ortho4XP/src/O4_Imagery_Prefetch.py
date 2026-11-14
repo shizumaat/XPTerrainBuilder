@@ -39,8 +39,11 @@ custom zones, the airport cover zoom) over the airport's boundary plus
 missing ones SYNCHRONOUSLY before the patches build, so the terrain
 witness reads the same pixels on every build of the same inputs.  These
 are textures the imagery step downloads anyway: the work is moved earlier,
-never added.  The background prefetch puts the highest zoom (the airport
-cover) first and shares one download lock with it.
+never added.  It downloads :func:`airport_download_slots` orthophotos at
+once — the imagery step's own ``max_download_slots`` (#2082) — and the
+background prefetch starts no new orthophoto while it runs, so the patch
+never waits behind a non-airport photo.  The vector step hands it only the
+airports this build patches (#2082).
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ import contextlib
 import os
 import threading
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
@@ -56,7 +60,8 @@ import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 
 __all__ = ["candidates", "Prefetch", "alongside", "TEXTURES_IN_FLIGHT",
-           "fetch_airport_imagery", "cached_airport_imagery", "AIRPORT_MARGIN_M"]
+           "fetch_airport_imagery", "cached_airport_imagery", "AIRPORT_MARGIN_M",
+           "airport_download_slots"]
 
 #: Orthophotos downloaded at once by a prefetch (each is one texture's
 #: part requests, at the provider's own ``max_threads``).
@@ -252,11 +257,26 @@ def airport_textures(tile, dico_airports, imagery=None, ortho_dico=None):
     return out
 
 
+def airport_download_slots():
+    """Orthophotos the airport fetch downloads at once: the imagery step's
+    own count (``O4_Tile_Utils.max_download_slots`` through
+    ``effective_download_slots``, #2082) — each still at the provider's
+    ``max_threads`` and under the server's session budget (#1236)."""
+    from O4_Parallel_Utils import effective_download_slots
+    try:
+        import O4_Tile_Utils as TILE
+        configured = getattr(TILE, "max_download_slots", 0)
+    except Exception:
+        configured = 0
+    return effective_download_slots(configured)
+
+
 def fetch_airport_imagery(tile, dico_airports, fetch=None, find=airport_textures,
-                          download=True):
+                          download=True, slots=None):
     """THE PATCH WAITS FOR THE AIRPORT'S OWN PHOTOS (26y): download every
-    missing texture of :func:`airport_textures` now, one at a time, and
-    return ``{airport: (orthophoto path, ...)}`` of those in the cache
+    missing texture of :func:`airport_textures` now, ``slots`` at a time
+    (default :func:`airport_download_slots`), and return
+    ``{airport: (orthophoto path, ...)}`` of those in the cache
     afterwards.  A texture whose download fails is left out (the witness
     abstains there, and the patch's ``o4_imagery`` stamp says so).  Stop
     (``UI.red_flag``) ends it; never raises.
@@ -281,13 +301,17 @@ def fetch_airport_imagery(tile, dico_airports, fetch=None, find=airport_textures
     if missing:
         UI.vprint(1, "    * Downloading", len(missing), "orthophotos of the "
                   "airports first: the patches are fitted to them.")
-    for texture in missing:
+    def one(texture):
         if UI.red_flag:
-            break
+            return
         try:
             fetch(tile, texture)
         except Exception as error:
             UI.vprint(1, "    Airport orthophoto", texture, "failed:", error)
+    if missing:
+        workers = max(1, min(int(slots or airport_download_slots()), len(missing)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(one, missing))   # all done before the patch builds
     out = {}
     for name, ts in wanted.items():
         paths = tuple(p for p in (_orthophoto_path(tile, t, IMG) for t in ts)
@@ -317,9 +341,10 @@ class Prefetch:
         # drain AND for the airport fetch, or for the step's end (stop)
         self._drained = False
         self._airports_pending = True
-        # one orthophoto in flight under the token, the airport fetch's
-        # included (:data:`TEXTURES_IN_FLIGHT`)
-        self._in_flight = threading.Lock()
+        # the background starts no orthophoto while the airport fetch runs
+        # (#2082): the patch never waits behind a non-airport photo
+        self._airport_fetches = 0
+        self._airports_idle = threading.Condition(self._lock)
 
     def start(self):
         """Begin the downloads; with nothing to fetch, the queue is drained
@@ -341,6 +366,8 @@ class Prefetch:
 
     def _next(self):
         with self._lock:
+            while self._airport_fetches and not self._stop.is_set():
+                self._airports_idle.wait(1.0)
             if self._stop.is_set() or UI.red_flag or not self._pending:
                 return None
             return self._pending.pop()
@@ -352,8 +379,7 @@ class Prefetch:
                 if texture is None:
                     break
                 try:
-                    with self._in_flight:
-                        ok = self._fetch(self.tile, texture)
+                    ok = self._fetch(self.tile, texture)
                 except Exception as error:
                     UI.vprint(1, "    Prefetch of", texture, "failed:", error)
                     ok = 0
@@ -386,18 +412,21 @@ class Prefetch:
         TOKEN: :func:`fetch_airport_imagery` with this prefetch's fetcher,
         its downloads counted in the report; then the report may go."""
         def counted(tile, texture):
-            with self._in_flight:
-                ok = self._fetch(tile, texture)
+            ok = self._fetch(tile, texture)
             with self._lock:
                 if ok:
                     self.downloaded += 1
                 else:
                     self.failed += 1
             return ok
+        with self._lock:
+            self._airport_fetches += 1
         try:
             return fetch_airport_imagery(self.tile, dico_airports, fetch=counted, find=find)
         finally:
             with self._lock:
+                self._airport_fetches -= 1
+                self._airports_idle.notify_all()
                 self._airports_pending = False
             self._maybe_finish()
 
@@ -416,6 +445,7 @@ class Prefetch:
         self._stop.set()
         with self._lock:
             self._airports_pending = False       # the step ended: no fetch comes
+            self._airports_idle.notify_all()
         for thread in self._threads:
             thread.join(wait_seconds)
         if any(thread.is_alive() for thread in self._threads):

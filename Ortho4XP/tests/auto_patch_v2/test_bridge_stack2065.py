@@ -18,7 +18,7 @@ from auto_patch_v2.geom.deck_ground import ground_footprint
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import OsmWay
 from auto_patch_v2.model.deck_stack import (FREE, KEPT, DeckStack, StackDeck, StackEnd,
-                                            admitted_stacks)
+                                            live_stacks)
 from shapely.geometry import LineString, Point, Polygon, box
 
 LAW = Law.for_airport("")
@@ -221,7 +221,7 @@ def _map(st):
     face("graded_strip", "ground", [(-20.0, -1.0), (-20.0, 1.0), (-19.0, 0.0)])
     face("service_road", "big_roads:-1", [(14.0, 3.0), (14.5, 3.0), (14.2, 3.5)])
     return types.SimpleNamespace(faces=faces, vertices=verts, ring_vertices=lambda r: list(r),
-                                 free_bridges=(types.SimpleNamespace(id=st.bridge),))
+                                 bridge_stacks=(st,))
 
 
 def test_the_rows_slab_profile_and_ceiling():
@@ -245,9 +245,10 @@ def test_the_rows_slab_profile_and_ceiling():
     rk = deck_stack_rows(_map(kept), LAW, types.SimpleNamespace(deck_stacks=(kept,)))
     assert rk and not [r for r in rk if "under the deck" in r.source.inputs[2]]
     pm = _map(st)
-    pm.free_bridges = ()
+    pm.bridge_stacks = ()
     assert deck_stack_rows(pm, LAW, types.SimpleNamespace(deck_stacks=(st,))) == []
-    assert admitted_stacks((st, kept), set()) == (kept,)
+    assert live_stacks((st, kept), types.SimpleNamespace(bridge_stacks=(kept,))) == (kept,)
+    assert live_stacks((st, kept), None) == (st, kept)
 
 
 def test_the_way_rewrite_untagged_tagged_and_run_on():
@@ -280,7 +281,7 @@ def test_an_at_grade_crossing_is_seeded_at_the_profile():
     verts = {0: types.SimpleNamespace(xy=(25.0, 1.0)), 1: types.SimpleNamespace(xy=(25.0, 30.0))}
     faces = {0: types.SimpleNamespace(role="service_road", ref="big_roads:-7#0", ring=(0, 1))}
     pm = types.SimpleNamespace(faces=faces, vertices=verts, ring_vertices=lambda r: list(r),
-                               free_bridges=(types.SimpleNamespace(id=st.bridge),))
+                               bridge_stacks=(st,))
     got = DE._crossing_vertices(pm, LAW, types.SimpleNamespace(deck_stacks=(st,)))
     assert set(got) == {0} and abs(got[0] - (10.0 - 0.05 * 20.0)) < 1e-9
 
@@ -346,3 +347,21 @@ def test_rule_10_an_unread_land_end_is_counted_never_dropped():
     assert _bridge_zero([one], [[False, True]])[2] == 0
     # a deck read nowhere counts both its land ends
     assert _bridge_zero([one, None], [[False, False], [False, True]])[2] == 2
+
+
+def test_the_planar_stage_holds_a_graded_end_entering_a_lot_and_drops_the_refused():
+    from auto_patch_v2.planar.free_bridge import planar_stacks
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "graded", "",
+                   ((0.0, 0.0), (60.0, 0.0)), 45.0, 0.05)
+    st = _stack([end])
+    fb = types.SimpleNamespace(id=st.bridge)
+
+    def cl(ref):
+        c = types.SimpleNamespace(ref=ref, ring=((20, -9), (40, -9), (40, 9), (20, 9)), holes=())
+        return types.SimpleNamespace(cells=[c])
+    kept, _n = planar_stacks((st,), (fb,), cl("gap:0/s0"))
+    assert kept == (st,)
+    held, notes = planar_stacks((st,), (fb,), cl("gap:0/s0/lot"))
+    assert held == () and any("end_on_lot" in n for n in notes)
+    gone, notes = planar_stacks((st,), (), cl("gap:0/s0"))
+    assert gone == () and "free_stack_refused_at_planar" in notes[0]

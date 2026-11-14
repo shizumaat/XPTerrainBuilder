@@ -125,7 +125,7 @@ def test_the_plan_member_carries_the_route_ends(tmp_path):
     plan = RebakePlan("ZZZZ", "pack", "/p", (Unit("unit:0", (36.0, -86.0), 0.0, (m,)),),
                       (), {})
     back = RebakePlan.from_json(plan.to_json())
-    assert back.units[0].members[0] == m and PLAN_VERSION == 14
+    assert back.units[0].members[0] == m and PLAN_VERSION == 15
 
 
 def test_the_published_end_chord_lies_outside_the_plate(tmp_path):

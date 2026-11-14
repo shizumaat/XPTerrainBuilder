@@ -494,6 +494,13 @@ class PlanarMap:
     #: reader took (``planar/free_bridge.admitted``); the rebake plan
     #: publishes their decks' route ends (``pipeline/rebake_inputs``).
     free_bridges: tuple = ()
+    #: #2065 A3: the FREE / KEPT bridge stacks the planar stage kept
+    #: (``planar/free_bridge.planar_stacks``: admitted, no plated deck, a
+    #: graded end entering a lot held) — what every stack reader after the
+    #: planar stage reads beside the trench stacks
+    #: (``model/deck_stack.live_stacks``); ``None`` = not refined (a map
+    #: built before them: every stack of the airport stands).
+    bridge_stacks: tuple | None = None
     #: THE DECK END-LINE ANCHORS (spec ``deck-end-anchors-20261103``;
     #: owner RULINGS 2026-11-03c, additive): one ``structures.DeckAnchor``
     #: per end line of every pack hard deck the airport's pavement drives

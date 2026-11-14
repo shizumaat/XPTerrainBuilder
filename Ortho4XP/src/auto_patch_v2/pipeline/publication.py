@@ -1505,10 +1505,8 @@ def bridge_rows(planar: PlanarMap, airport: Airport, law: Law | None = None
     state and why, run, grade and the apron's ring (lat, lon) — what
     ``tools/drawn_check`` / ``drawn_site --end-lines`` read."""
     from ..geom.deck_ground import ground_footprint
-    from ..model.deck_stack import TRENCH, admitted_stacks
-    fbs = getattr(planar, "free_bridges", None)
-    stacks = [s for s in admitted_stacks(getattr(airport, "deck_stacks", ()) or (),
-                                         None if fbs is None else {str(f.id) for f in fbs})
+    from ..model.deck_stack import TRENCH, live_stacks
+    stacks = [s for s in live_stacks(getattr(airport, "deck_stacks", ()) or (), planar)
               if s.kind != TRENCH]
     if not stacks or law is None:
         return []

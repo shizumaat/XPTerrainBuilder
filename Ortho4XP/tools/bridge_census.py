@@ -459,7 +459,9 @@ def end_rows(pkl: str, law) -> list[dict]:
     cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
     objs, _rep = read_objects(airport, law, cache)
     airport = attach_deck_stacks(airport, objs, cache, law)
+    t0 = time.perf_counter()
     airport, every, notes = read_bridges(airport, objs, cache, law)
+    print(f"[{icao}] the pack stage's bridge read: {time.perf_counter() - t0:.2f} s")
     for n in notes:
         if "bridge" in n or "kept" in n or "free:" in n:
             print(f"[{icao}]   {n}")

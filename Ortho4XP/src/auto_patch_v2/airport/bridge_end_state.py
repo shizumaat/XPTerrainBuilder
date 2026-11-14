@@ -186,7 +186,10 @@ class Obstacles:
         self.min_h = float(br.end_solid_min_height_m)
         self.min_a = float(br.end_solid_min_area_m2)
         self.graph = _Graph(getattr(airport, "osm_ways_mapped", None) or airport.osm_ways)
-        self._objs = [o for o in objects or () if getattr(o, "resolved", None)]
+        self._objs = [o for o in objects or () if getattr(o, "resolved", None)
+                      and getattr(o, "plan_bbox", None) is not None]
+        from shapely.strtree import STRtree
+        self._tree = STRtree([o.plan_bbox for o in self._objs]) if self._objs else None
         self._stack_zero = dict(stack_zero)
         self._solid: dict[str, _t.Any] = {}
         self._plate: dict[str, np.ndarray] = {}
@@ -214,9 +217,10 @@ class Obstacles:
         and the other placements whose plan meets ``corridor``, none of the
         frame ``own``."""
         decks, solids = [], []
-        for o in self._objs:
-            box = getattr(o, "plan_bbox", None)
-            if str(o.id) in own or box is None or not box.intersects(corridor):
+        hits = (sorted(int(i) for i in self._tree.query(corridor, predicate="intersects"))
+                if self._tree is not None else [])
+        for o in (self._objs[i] for i in hits):
+            if str(o.id) in own:
                 continue
             hd = getattr(o, "hard_deck", None)
             if str(getattr(o, "deck_kind", "") or "") in _DECK_KINDS and hd is not None \

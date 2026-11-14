@@ -42,7 +42,8 @@ def _stack_toe(planar: PlanarMap, law: Law, airport: Airport):
     import shapely
 
     from ..geom.deck_ground import ground_footprint
-    stacks = tuple(getattr(airport, "deck_stacks", ()) or ())
+    from ..model.deck_stack import live_stacks
+    stacks = live_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()), planar)
     if not stacks:
         return lambda _xy: False
     grid = float(law.tables.emit.identity.min_distinct_spacing_m)

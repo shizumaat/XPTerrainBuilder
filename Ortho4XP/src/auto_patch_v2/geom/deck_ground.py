@@ -147,11 +147,20 @@ def _free_footprint(st, law) -> dict:
         slabs.append(slab)
         aprons.append((d, e.side, float(e.top), apron, slab))
         taken = taken.union(apron)
-    bank = unary_union(banks).difference(taken).difference(rings) if banks else Polygon()
-    outline = unary_union([taken, bank])
-    keep = unary_union([rings, *slabs])
-    return {"caps": Polygon(), "shadows": [], "aprons": aprons, "bank": bank,
-            "outline": outline, "keep": keep}
+    bank = _areal(unary_union(banks).difference(taken).difference(rings)) if banks \
+        else Polygon()
+    outline = _areal(unary_union([taken, bank]))
+    keep = _areal(unary_union([rings, *slabs]))
+    return {"caps": Polygon(), "shadows": [], "bank": bank, "outline": outline, "keep": keep,
+            "aprons": [(d, sd, t, _areal(a), _areal(sl)) for d, sd, t, a, sl in aprons]}
+
+
+def _areal(g):
+    """``g``'s polygons alone (an overlay on shared edges leaves lines, whose
+    collection has no boundary)."""
+    import shapely
+    parts = [q for q in shapely.get_parts(g) if q.geom_type == "Polygon" and not q.is_empty]
+    return unary_union(parts) if parts else Polygon()
 
 
 def _deck_zone(st, d, rect: Polygon, law) -> Polygon:

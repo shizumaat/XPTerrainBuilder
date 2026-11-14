@@ -42,7 +42,7 @@ from ..airport import bridge_witness as _bw
 from ..model.free_bridge import FREE_PREFIX, FreeBridge, FreeDeck, FreeEnd
 
 __all__ = ["attach_free_bridges", "read_bridges", "bridges_of", "admitted", "plated",
-           "log_line"]
+           "planar_stacks", "log_line"]
 
 
 def _ring(o) -> Polygon:
@@ -304,6 +304,52 @@ def plated(bridges: _t.Sequence[FreeBridge], basins=(), objects=()
                          "nothing graded (owner Q3 (a)); free_stack_refused_at_planar")
             continue
         out.append(fb)
+    return tuple(out), notes
+
+
+def planar_stacks(stacks, free: _t.Sequence[FreeBridge], classification
+                  ) -> tuple[tuple, list[str]]:
+    """``(the free / kept stacks the planar stage keeps, notes)`` (#2065 A3
+    C2 N2, rule 3): a FREE stack only of a bridge in ``free`` (admitted, no
+    plated deck); a GRADED end whose path enters a gap-mint LOT piece within
+    its run is HELD, ``end_on_lot`` (``model/planar.gap_part_kind``; built as
+    today, 14f (4)); a stack left with no graded end is dropped.  A free
+    bridge whose stack is dropped here is noted
+    ``free_stack_refused_at_planar``."""
+    from shapely.geometry import Point, Polygon
+
+    from ..geom.deck_ground import path_line
+    from ..model.deck_stack import FREE, TRENCH
+    from ..model.planar import gap_part_kind
+    ok = {str(fb.id) for fb in free}
+    lots = [Polygon(c.ring, c.holes) for c in getattr(classification, "cells", ()) or ()
+            if gap_part_kind(getattr(c, "ref", "")) == "lot" and len(c.ring) >= 3]
+    out, notes = [], []
+    for st in stacks:
+        if st.kind == TRENCH:
+            continue
+        if st.kind == FREE and st.bridge not in ok:
+            notes.append(f"{st.id}: free_stack_refused_at_planar (its bridge was not admitted "
+                         "or carries a plate)")
+            continue
+        ends = []
+        for e in st.ends:
+            line = path_line(e, e.run) if e.state == "graded" else None
+            hit = None if line is None else next((p for p in lots if p.intersects(line)), None)
+            if hit is not None:
+                meet = hit.intersection(line)
+                s = min((line.project(Point(c)) for g in getattr(meet, "geoms", [meet])
+                         for c in getattr(g, "coords", [])), default=0.0)
+                e = _dc.replace(e, state="held",
+                                why=f"end_on_lot: the path enters a lot piece at {s:.0f} m")
+                notes.append(f"{st.id}: {e.object_id} end {e.side} {e.why}")
+            ends.append(e)
+        st = _dc.replace(st, ends=tuple(ends))
+        if not st.graded_ends():
+            notes.append(f"{st.id}: no GRADED end left at the planar stage — no stack"
+                         + ("; free_stack_refused_at_planar" if st.kind == FREE else ""))
+            continue
+        out.append(st)
     return tuple(out), notes
 
 

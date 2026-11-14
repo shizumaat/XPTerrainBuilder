@@ -42,10 +42,8 @@ def end_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str,
     ``planar/stack_ground.deck_end_road_zone``: a vertex past the slab is
     on the ramp, never held at the plate.)"""
     from ..geom.end_line import near_stations, polyline_distance
-    from .deck_stack import TRENCH, admitted_stacks
-    fbs = getattr(pm, "free_bridges", None)
-    stacks = admitted_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()),
-                             None if fbs is None else {str(f.id) for f in fbs})
+    from .deck_stack import TRENCH, live_stacks
+    stacks = live_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()), pm)
     if not stacks:
         return {}
     br = law.tables.structures.bridge

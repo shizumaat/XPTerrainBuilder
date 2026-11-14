@@ -47,7 +47,7 @@ from ..law.tables import snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Band, Row, Source
 from ..model.deck_ends import end_road_vertices
-from ..model.deck_stack import FREE, TRENCH, admitted_stacks
+from ..model.deck_stack import FREE, TRENCH, live_stacks
 from ..model.frame import rotated_rectangle
 from ..model.planar import STACK_GROUND_PREFIX, PlanarMap
 from .edge_deck import RIGID
@@ -100,7 +100,7 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     #: band, the groundside stand-off past it, the identity grid
     gap = (0.5 * thick + float(law.tables.zones.adjacent_ground.groundside_cutback_m)
            + snap_margin_m(law) + grid)
-    stacks = admitted_stacks(stacks, _admitted(planar))
+    stacks = live_stacks(stacks, planar)
     roads = end_road_vertices(planar, law, airport)
     rows: list[Row] = []
     for st in stacks:
@@ -173,12 +173,6 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         for v, (c, part) in sorted(r3.items()):
             rows.append(Band(v, None, c, Source(GEN, RIGID, (st.id, part.split("#")[0], part))))
     return rows
-
-
-def _admitted(planar: PlanarMap) -> "set[str] | None":
-    """The free bridges the planar stage admitted (``PlanarMap.free_bridges``)."""
-    fbs = getattr(planar, "free_bridges", None)
-    return None if fbs is None else {str(fb.id) for fb in fbs}
 
 
 def _road_or_hard(planar: PlanarMap, law: Law, roads: bool = True) -> set[int]:

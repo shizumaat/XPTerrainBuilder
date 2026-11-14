@@ -61,10 +61,8 @@ def _crossing_vertices(pm, law, airport) -> dict[int, float]:
     from shapely.geometry import Point
 
     from ..geom.deck_ground import path_line
-    from ..model.deck_stack import admitted_stacks
-    fbs = getattr(pm, "free_bridges", None)
-    stacks = admitted_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()),
-                             None if fbs is None else {str(f.id) for f in fbs})
+    from ..model.deck_stack import live_stacks
+    stacks = live_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()), pm)
     ends = [(st, e) for st in stacks for e in st.graded_ends() if e.crossings]
     if not ends:
         return {}

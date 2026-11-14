@@ -119,13 +119,14 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
 
 #: the plate kind of an EDGE BRIDGE's seat (``anchor_rule.datum_of``)
 EDGE_PLATE = "edge"
-def _kept_published(airport) -> dict[str, dict]:
+def _kept_published(airport, pm=None) -> dict[str, dict]:
     """#2065 A3 rule 9: placement id -> ``{"mode": "kept", "route_mids",
     "graded"}`` of each KEPT stack's deck: the midpoints ``(lat, lon)`` of its
     two route end lines and of those the pack stage GRADED
     (``rebake_plan.with_kept`` matches them to the rectangle's ends)."""
-    from ..model.deck_stack import KEPT
-    stacks = [s for s in getattr(airport, "deck_stacks", ()) or () if s.kind == KEPT]
+    from ..model.deck_stack import KEPT, live_stacks
+    stacks = [s for s in live_stacks(getattr(airport, "deck_stacks", ()) or (), pm)
+              if s.kind == KEPT]
     if not stacks:
         return {}
     to_ll = airport.frame.transformers()[1]
@@ -427,7 +428,7 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
         "free_decks": {**_free_published(getattr(pm, "free_bridges", ()) or (),
                                          airport.frame.transformers()[1],
                                          float(law.tables.structures.bridge.free_end_ground_out_m)),
-                       **_kept_published(airport)},
+                       **_kept_published(airport, pm)},
         "tunnel_objects": _plate_seats(pm, law, seats),
         # one authority per row (``terrain_shaped.row_seats``): a storey
         # shell's row takes its shell's seat alone

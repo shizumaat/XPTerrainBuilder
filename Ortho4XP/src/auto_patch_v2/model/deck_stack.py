@@ -21,7 +21,7 @@ from .frame import XY
 
 __all__ = ["StackDeck", "DeckStack", "StackEnd", "XY3", "STACK_PREFIX", "FLOOR_FACE_PREFIX",
            "FLOOR_WALL_PREFIX", "floor_level", "TRENCH", "FREE", "KEPT", "END_STATES",
-           "admitted_stacks"]
+           "live_stacks"]
 
 XY3 = tuple[float, float, float]
 
@@ -241,12 +241,12 @@ class DeckStack:
                           for d in self.decks]}
 
 
-def admitted_stacks(stacks: _t.Sequence[DeckStack], free_ids: "_t.Collection[str] | None"
-                    ) -> tuple[DeckStack, ...]:
-    """``stacks`` less the FREE stacks of bridges the planar stage refused
-    (#2065 A3 C2 N2: ``free_ids`` the admitted bridges' ids,
-    ``PlanarMap.free_bridges``; ``None`` = not read yet, every stack)."""
-    if free_ids is None:
+def live_stacks(stacks: _t.Sequence[DeckStack], planar=None) -> tuple[DeckStack, ...]:
+    """The stacks a reader after the planar stage reads (#2065 A3 C2 N2):
+    the airport's TRENCH stacks and the free / kept stacks the planar stage
+    kept (``PlanarMap.bridge_stacks``); every stack of ``stacks`` where the
+    map refined none (``None``, or no map)."""
+    kept = getattr(planar, "bridge_stacks", None)
+    if kept is None:
         return tuple(stacks)
-    ok = set(free_ids)
-    return tuple(s for s in stacks if s.kind != FREE or s.bridge in ok)
+    return tuple(s for s in stacks if s.kind == TRENCH) + tuple(kept)

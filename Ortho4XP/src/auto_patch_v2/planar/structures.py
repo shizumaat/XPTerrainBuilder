@@ -280,8 +280,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # corridor runs BEYOND each threshold and never BESIDE the runway),
     # one derivation the harness's cockpit block reads through the same
     # classes.
-    # the FIELD is the airport's cover (``cover_polygons``): a pad road of
-    # the road reach stands (stops a mouth, clips a ramp) but admits none (22g)
+    # the FIELD is the airport's cover (``cover_polygons``): a pad road, a
+    # last-stage cell, follows the structures and admits none (22g, #1849)
     on_field = field_region_for(airport, law, cover_polygons(classification)
                                 + [c.footprint for c in corridors],
                                 corridors, deck_bridges,  # 27a (3): never a pack building

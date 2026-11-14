@@ -124,7 +124,7 @@ def test_a_reach_ribbon_is_marked_and_never_leads_a_structure(law):
 def test_a_road_reaching_a_pad_inside_the_reach_stays_a_pad_road(law):
     """A pad road is not taken into the reach: the stretch from the bands'
     envelope to a pad is minted as the pad road it was (at the pad's
-    footprint, ``pad_road``, standing), and only the way beyond it is a
+    footprint, ``pad_road``), and only the way beyond it is a
     reach ribbon (MEASURED KPHX way -21842: as a reach ribbon it was held
     off the terminal's pad and fell 2.9 m below it)."""
     import types
@@ -153,10 +153,11 @@ def test_a_road_reaching_a_pad_inside_the_reach_stays_a_pad_road(law):
     mint_reach_ribbons(*args, first)
     mint_pad_roads(*args, first)
     pad_roads = [(r, p, ev) for r, p, ev in out if ev.get("pad_road")]
-    # a pad road of the reach: standing for the structures, but no field
+    # a pad road of the reach: a last-stage cell, it follows the structures
+    # and is no field (#1849: the base map is built without it)
     from auto_patch_v2.planar import structure_approach as sa
     assert pad_roads and all(ev.get("road_reach") for _r, _p, ev in pad_roads)
-    assert not any(sa._late(Cell(9, "service_road", r, tuple(p.exterior.coords)[:-1], (),
+    assert all(sa._late(Cell(9, "service_road", r, tuple(p.exterior.coords)[:-1], (),
                                  None, None, "groundside", "service_road", ev))
                    for r, p, ev in pad_roads)
     assert min(p.distance(box(*pad)) for _r, p, _e in pad_roads) < 1e-6   # meets the rim

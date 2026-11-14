@@ -105,7 +105,9 @@ def test_qt_about_body_shows_the_triple(qapp, tmp_path, monkeypatch, capsys):
     try:
         body = window.about_text()
         for expected in ("1.0.347", "1.50.1793", "5883949f",
-                         "OrthoStudio XP by radioharris"):
+                         "OrthoStudio XP by radioharris",
+                         "FABDEM, Hawker et al. (2022), University of "
+                         "Bristol, CC BY-NC-SA 4.0"):
             assert expected in body, body
     finally:
         window.close()  # stops its probe thread and timers (#1794)

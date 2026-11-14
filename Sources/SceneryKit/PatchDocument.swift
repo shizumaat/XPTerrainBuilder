@@ -132,8 +132,10 @@ public struct PatchDocument: Equatable, Sendable {
     /// The file this document was opened from: a save moves `path` (an
     /// auto patch saves as the editor's manual file), never this.
     public let openedPath: String
-    public let stale: Bool
-    public let staleInputs: [String]
+    /// Filled after the load when the engine answers the check on its own
+    /// (`applyStaleness`, #2061).
+    public private(set) var stale: Bool
+    public private(set) var staleInputs: [String]
     /// The law's own snap distance (§3.3) — served, never hard-coded.
     public let minDistinctSpacingM: Double
     public let identityDp: Int
@@ -211,6 +213,18 @@ public struct PatchDocument: Equatable, Sendable {
     /// never re-requests them (owner 1.0.398: a save re-fetched the pack's
     /// tens-of-MB `pack_objects` answer).
     public var openKey: String { "\(tile)|\(icao)|\(openedPath)" }
+
+    /// A `patch_staleness` answer (#2061): applied when it is about the
+    /// file this document was opened from; returns whether it was.
+    @discardableResult
+    public mutating func applyStaleness(_ answer: O4PatchStaleness) -> Bool {
+        guard PatchViewLoad.stalenessApplies(openedPath: openedPath, answerPath: answer.path) else {
+            return false
+        }
+        stale = answer.stale
+        staleInputs = answer.staleInputs
+        return true
+    }
 
     /// After `patch_save` wrote the document to `path`: it is now that
     /// manual patch, carrying the editor's header mark.

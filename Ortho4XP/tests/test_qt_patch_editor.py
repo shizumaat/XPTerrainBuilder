@@ -1004,3 +1004,35 @@ def test_alt_drag_on_a_node_rotates_its_shape_in_one_undo_step(editor, patches):
     assert abs(ed.gestures.angle) == 0.0                     # reset after release
     ed.model.undo_stack.undo()
     assert dict(ed.model.doc.nodes) == before
+
+
+def test_the_patch_draws_before_its_staleness_check(qapp, patches, tmp_path, monkeypatch):
+    """#2061: the map's load leaves the staleness check out (11-24 s in a
+    fresh engine on a large install); ``patch_staleness`` answers it after
+    and the panel's note follows."""
+    loads = []
+    real_load = PC.patch_load
+    monkeypatch.setattr(PC, "patch_load", lambda *a, **kw: loads.append(kw) or real_load(*a, **kw))
+    checks = []
+    monkeypatch.setattr(PC, "_staleness", lambda tile, icao, doc, source:
+                        checks.append(doc.path) or (True, ["o4_dem"]))
+    monkeypatch.setattr(QTMAP, "livemap_cache_dir", lambda: str(tmp_path / "livemap"))
+    view = QTMAP.MapView()
+    view.resize(900, 700)
+    view._start_workers = lambda: None
+    view._update_timer.stop()
+    built = {(30, 31): {"provider": "BI"}}
+    ed = PatchEditor(view, view, mock.Mock(), lambda: built, run_async=False)
+    ed.outlines.set_enabled(False)
+    x, y = scene_xy(30.1006, 31.4006, QTMAP.SCENE_ZL)
+    view._zoom = 18.0
+    view._apply_zoom()
+    view.centerOn(QPointF(float(x), float(y)))
+    view._update_timer.stop()
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    assert loads == [{"tile": "+30+031", "icao": "ZZZZ", "staleness": False}]
+    assert checks == [os.path.join(patches, "ZZZZ_auto.patch.osm")]
+    assert ed.model.patch.stale is True and ed.model.patch.stale_inputs == ["o4_dem"]
+    assert not ed.panel.stale_note.isHidden()
+    view.deleteLater()

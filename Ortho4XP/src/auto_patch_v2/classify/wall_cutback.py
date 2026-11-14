@@ -37,16 +37,22 @@ _MIN_LINE_M = 1.0
 
 
 def cut_roads_at_walls(cells: _t.Sequence, roles: _t.Collection[str],
-                       walls: _t.Sequence[WallSides], min_area_m2: float, grow_m: float = 0.0
-                       ) -> tuple[list, dict[str, float]]:
+                       walls: _t.Sequence[WallSides], min_area_m2: float, grow_m: float = 0.0,
+                       body=None) -> tuple[list, dict[str, float]]:
     """``cells`` with every cell of ``roles`` cut back at ``walls``
     (``Airport.retaining_walls``; the footprints grown by ``grow_m``, the
-    identity snap's margin); parts under ``min_area_m2`` dropped, the ids
-    re-numbered (they are positional).  Returns the cells and
-    ``{wall_cut_cells, wall_cut_m2}``."""
+    identity snap's margin) and out of ``body`` grown the same (the
+    runway-end walled plates' plan, ``airport/walled_plate.body_plan``:
+    no road under a runway-end body, #2054 round 2 R3 — the remainder ends
+    at the body's edge on its own profile); parts under ``min_area_m2``
+    dropped, the ids re-numbered (they are positional).  Returns the cells
+    and ``{wall_cut_cells, wall_cut_m2, plate_cut_cells, plate_cut_m2}``."""
     from ..airport.wall_sides import far_side_cut
     stats = {"wall_cut_cells": 0, "wall_cut_m2": 0.0}
-    if not walls:
+    if body is not None:
+        stats.update(plate_cut_cells=0, plate_cut_m2=0.0)
+        body = body.buffer(grow_m, join_style="mitre") if grow_m > 0.0 else body
+    if not walls and body is None:
         return list(cells), stats
     reach = [w.poly.buffer(w.smear) for w in walls]
     out = []
@@ -56,16 +62,24 @@ def cut_roads_at_walls(cells: _t.Sequence, roles: _t.Collection[str],
             continue
         poly = Polygon(c.ring, c.holes)
         poly = poly if poly.is_valid else poly.buffer(0.0)
-        if not any(poly.intersects(r) for r in reach):
+        under = body is not None and poly.intersects(body)
+        if not under and not any(poly.intersects(r) for r in reach):
             out.append(c)
             continue
         kept = far_side_cut(poly, walls, grow_m=grow_m)
+        walled = poly.area - kept.area
+        if under:
+            kept = kept.difference(body)
         lost = poly.area - kept.area
         if lost <= 1e-6:
             out.append(c)
             continue
-        stats["wall_cut_cells"] += 1
-        stats["wall_cut_m2"] += lost
+        if walled > 1e-6:
+            stats["wall_cut_cells"] += 1
+            stats["wall_cut_m2"] += walled
+        if lost - walled > 1e-6:
+            stats["plate_cut_cells"] += 1
+            stats["plate_cut_m2"] += lost - walled
         k = 0
         for part in polygon_parts(kept):
             if part.area < min_area_m2:
@@ -75,7 +89,9 @@ def cut_roads_at_walls(cells: _t.Sequence, roles: _t.Collection[str],
                 ring=tuple(part.exterior.coords)[:-1],
                 holes=tuple(tuple(h.coords)[:-1] for h in part.interiors)))
             k += 1
-    stats["wall_cut_m2"] = round(stats["wall_cut_m2"], 1)
+    for k in ("wall_cut_m2", "plate_cut_m2"):
+        if k in stats:
+            stats[k] = round(stats[k], 1)
     return [_dc.replace(c, id=i) for i, c in enumerate(out)], stats
 
 

@@ -107,7 +107,9 @@ class SourceRecord:
             "source": self.id, "source_class": self.cls,
             "source_reason": self.reason, "source_width_m": self.width_m,
             "source_road_m": self.road_m, "source_taxi_m": self.taxi_m,
-            "source_road_reach": float(self.road_reach)}
+            "source_road_reach": float(self.road_reach),
+            # RULINGS 2026-11-13s (1): §27 reads a mapped car park by it
+            "source_parking_cover": float(self.parking_cover)}
         if self.taxi_name:
             out["source_taxi_name"] = self.taxi_name
         return out

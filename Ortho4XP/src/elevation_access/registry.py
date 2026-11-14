@@ -33,6 +33,7 @@ EXPECTED_STRATEGIES: Dict[str, str] = {
     "cwcb_lidar_api": "CwcbLidarApiStrategy",
     "degree_cog_base_tile": "DegreeCogBaseTileStrategy",
     "degree_named_cog": "DegreeNamedCogStrategy",
+    "degree_zipped_cog": "DegreeZippedCogStrategy",
     "direct_cog": "DirectCogStrategy",
     "geojson_tile_index": "GeojsonTileIndexStrategy",
     "hgt_archive_drop": "HgtArchiveDropStrategy",

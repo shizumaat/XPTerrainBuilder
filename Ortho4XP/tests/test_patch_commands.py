@@ -11,12 +11,11 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Vector_Map as VMAP  # noqa: E402
-from auto_patch import selection as SELECTION  # noqa: E402
+import pytest  # noqa: E402
 from auto_patch import build_support as BS  # noqa: E402
+from auto_patch import selection as SELECTION  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 from o4_engine import jsonl  # noqa: E402
 from o4_engine import patch_commands as PC  # noqa: E402
@@ -227,7 +226,61 @@ def test_the_four_commands_round_trip_through_the_jsonl_transport(patches):
     assert replies[2]["ok"] and replies[2]["result"]["nodes"] == [list(n) for n in load["nodes"]]
     assert set(replies[2]["result"]) == {
         "icao", "source", "path", "stale", "stale_inputs", "min_distinct_spacing_m",
-        "identity_dp", "header", "nodes", "ways"}
+        "identity_dp", "header", "nodes", "ways", "stale_pending"}
+    assert replies[2]["result"]["stale_pending"] is False
     assert replies[3]["ok"] and replies[3]["result"] == {"path": path, "nodes": 3, "ways": 1}
     # a hand-made file is not the editor's to revert: ok=false, a sentence
     assert replies[4]["ok"] is False and "renamed by hand" in replies[4]["error"]
+
+
+def test_a_load_without_staleness_leaves_the_check_to_patch_staleness(patches, monkeypatch):
+    """#2061: ``staleness=False`` draws the patch without the §1.4 check
+    (11-24 s in a fresh engine on a large install); ``patch_staleness``
+    answers it on its own, for the same file."""
+    path = os.path.join(patches, "LXYZ.patch.osm")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(_JOSM)
+    calls = []
+    monkeypatch.setattr(PC, "_staleness", lambda tile, icao, doc, source:
+                        calls.append(doc.path) or (True, ["o4_dem"]))
+    fast = PC.patch_load(TILE, "lxyz", staleness=False)
+    assert calls == [] and fast["stale"] is False and fast["stale_inputs"] == []
+    assert fast["stale_pending"] is True and len(fast["nodes"]) == 3
+    assert PC.patch_staleness(TILE, "lxyz") == {
+        "path": path, "stale": True, "stale_inputs": ["o4_dem"]}
+    assert calls == [path]
+    full = PC.patch_load(TILE, "LXYZ")
+    assert full["stale"] is True and full["stale_pending"] is False
+
+
+def test_a_view_command_is_answered_while_the_loop_is_busy(patches, monkeypatch):
+    """#2061: ``patch_list`` is answered beside the serial loop — here
+    while a loop command waits for it (without the view lane the loop
+    command times out first and the listing replies after it)."""
+    import threading
+
+    from o4_engine import view_lane
+    path = os.path.join(patches, "LXYZ.patch.osm")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(_JOSM)
+    listed = threading.Event()
+    real_build = jsonl._build_handlers
+
+    def build(session):
+        handlers = real_build(session)
+        real_list = handlers["patch_list"]
+        handlers["patch_list"] = lambda **kw: (listed.set(), real_list(**kw))[1]
+        handlers["zz_slow"] = lambda: {"listed_first": listed.wait(5.0)}
+        return handlers
+
+    monkeypatch.setattr(jsonl, "_build_handlers", build)
+    assert "patch_list" in view_lane.VIEW_COMMANDS
+    commands = [{"cmd": "zz_slow", "id": 1},
+                {"cmd": "patch_list", "id": 2, "tile": TILE},
+                {"cmd": "shutdown", "id": 3}]
+    capture = _Capture()
+    jsonl.serve(io.StringIO("\n".join(json.dumps(c) for c in commands) + "\n"), capture)
+    replies = {o["reply"]: o for o in capture.objects() if "reply" in o}
+    assert replies[1]["result"] == {"listed_first": True}
+    assert set(replies) == {1, 2, 3}
+    assert replies[2]["result"]["airports"][0]["icao"] == "LXYZ"

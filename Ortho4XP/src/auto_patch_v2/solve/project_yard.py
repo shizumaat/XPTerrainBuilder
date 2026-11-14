@@ -25,7 +25,9 @@ yard's ground"), right after: every FREE vertex of a yard road run
 ``hi`` / ``lo`` the run's slope bounds (``geom/slope_bound``) off its
 SOURCES — the fixed vertices of its faces less the level's own — at
 ``[road_contact] upper_pad_road_grade`` along the shortest path inside the
-run's faces.  ``lo > hi`` takes their mean and is counted ``infeasible``
+run's faces; then its LOT vertices the same way off every other vertex of
+its lot faces at the lot's own grade (owner 2026-11-14T21:42Z "Lots 5%",
+``constraints/yard_edge.run_grade``).  ``lo > hi`` takes their mean and is counted ``infeasible``
 (expected 0).  The level's rim keeps A1 (2) (c)'s declared step."""
 from __future__ import annotations
 
@@ -92,25 +94,46 @@ def project_fence_yards(planar: PlanarMap, law: Law, z: _t.Sequence[float]
     return tuple(out), rep
 
 
-def run_bounds(planar: PlanarMap, law: Law, run: YardRun, z: _t.Sequence[float]
-               ) -> "dict[int, tuple[float, float]]":
+def run_bounds(planar: PlanarMap, law: Law, run: YardRun, z: _t.Sequence[float],
+               part: "str | None" = None) -> "dict[int, tuple[float, float]]":
     """``{free vertex: (lo, hi)}`` of one yard road ``run``
-    (``constraints/yard_edge.YardRun``) off its sources' ``z``."""
+    (``constraints/yard_edge.YardRun``) off ``z``: its road vertices off its
+    sources at the road grade (``part="road"``), its lot vertices off every
+    other vertex of its lot faces at the lot's grade (``part="lot"``;
+    ``yard_edge.run_grade``); both with ``part`` ``None``."""
+    from ..constraints.yard_edge import lot_vertices, run_grade
+    lots = lot_vertices(planar, law, run)
+    road = float(law.tables.emit.road_contact.upper_pad_road_grade)
+    out: dict[int, tuple[float, float]] = {}
+    if part in (None, "road"):
+        out.update(_bounds(planar, run.faces, run.sources, run.free - lots, road, z))
+    if part in (None, "lot") and lots:
+        grades = {f: run_grade(law, planar.faces[f].role) for f in run.faces}
+        lot_faces = tuple(f for f in run.faces if grades[f] < road)
+        vs = set().union(*(face_vertex_set(planar, planar.faces[f]) for f in lot_faces))
+        out.update(_bounds(planar, lot_faces, vs - lots - run.level_vertices, lots,
+                           min(grades[f] for f in lot_faces), z))
+    return out
+
+
+def _bounds(planar: PlanarMap, faces, sources, targets, grade: float, z
+            ) -> "dict[int, tuple[float, float]]":
+    """``{target: (lo, hi)}``: ``geom/slope_bound`` at ``grade`` off the
+    ``sources``' ``z`` along the shortest path inside ``faces``."""
     import numpy as np
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
 
     from ..geom.slope_bound import slope_bounds
-    vs = sorted(set().union(*(face_vertex_set(planar, planar.faces[f]) for f in run.faces)))
+    vs = sorted(set().union(*(face_vertex_set(planar, planar.faces[f]) for f in faces)))
     def ring(r):
         return [planar.vertices[v].xy for v in planar.ring_vertices(r)]
     region = unary_union([Polygon(ring(f.ring), [ring(h) for h in f.holes]).buffer(0.0)
-                          for f in (planar.faces[fid] for fid in run.faces)])
+                          for f in (planar.faces[fid] for fid in faces)])
     xy = np.array([planar.vertices[v].xy for v in vs], dtype=float)
     ix = {v: i for i, v in enumerate(vs)}
-    g = float(law.tables.emit.road_contact.upper_pad_road_grade)
-    lo, hi = slope_bounds(xy, region, {ix[v]: float(z[v]) for v in run.sources}, g)
-    return {v: (float(lo[ix[v]]), float(hi[ix[v]])) for v in sorted(run.free)}
+    lo, hi = slope_bounds(xy, region, {ix[v]: float(z[v]) for v in sources if v in ix}, grade)
+    return {v: (float(lo[ix[v]]), float(hi[ix[v]])) for v in sorted(targets) if v in ix}
 
 
 def _project_runs(planar: PlanarMap, law: Law, by_pad, levels, out: list) -> list[dict]:
@@ -127,15 +150,15 @@ def _project_runs(planar: PlanarMap, law: Law, by_pad, levels, out: list) -> lis
         L = sum(out[v] for v in lv_vs) / len(lv_vs)
         pl = tuple(float(c) for c in rec["yard_plane"])
         y_p = float(rec.get("y_p", 0.0))
-        bounds = run_bounds(planar, law, run, out)
         bad = 0
-        for v, (lo, hi) in bounds.items():
-            target = L + float(plane_at(pl, *planar.vertices[v].xy)) - y_p
-            if lo > hi:
-                bad += 1
-                out[v] = 0.5 * (lo + hi)
-            else:
-                out[v] = min(max(target, lo), hi)
+        for part in ("road", "lot"):          # the lot blends off the graded road
+            for v, (lo, hi) in run_bounds(planar, law, run, out, part).items():
+                target = L + float(plane_at(pl, *planar.vertices[v].xy)) - y_p
+                if lo > hi:
+                    bad += 1
+                    out[v] = 0.5 * (lo + hi)
+                else:
+                    out[v] = min(max(target, lo), hi)
         reps.append({"level": run.level, "faces": [str(planar.faces[f].ref) for f in run.faces],
                      "free": len(run.free), "sources": len(run.sources), "infeasible": bad})
     return reps

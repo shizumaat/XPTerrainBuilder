@@ -247,7 +247,7 @@ def test_the_plane_never_exceeds_the_pavement_ceiling():
         assert "rms" in st["fence_yard_refused:building2"]
 
 
-def _road_map(fixed=None, level_z=None):
+def _road_map(fixed=None, level_z=None, role="service_road"):
     """A 6 m road climbing from an apron edge (x = 0, airside, fixed) to a
     level (x = 60, ``building1/p1``) through a gross yard (x 5..100), and a
     yard face aside; ``fixed`` = ``(z)`` adds a lot corner at (30, 6), a
@@ -261,7 +261,7 @@ def _road_map(fixed=None, level_z=None):
     xy.update({30: (-10.0, 0.0), 31: (-10.0, 6.0)})                  # the apron
     xy.update({40: (70.0, 0.0), 41: (70.0, 6.0)})                    # the level
     xy.update({50: (10.0, 30.0), 51: (20.0, 30.0), 52: (20.0, 40.0), 53: (10.0, 40.0)})
-    faces = [("service_road", "road1", road),
+    faces = [(role, "road1", road),
              ("apron", "pol1", (30, 0, 10, 31)),
              ("building", "building1/p1", (6, 40, 41, 16)),
              ("groundside_pavement", "fenceyard:0:building2", (50, 51, 52, 53))]
@@ -313,6 +313,26 @@ def test_a_road_through_the_yard_climbs_at_the_road_grade_then_lies_on_the_plane
     # the level's own vertices (z 46) are no source: else lo > hi at x 50
     assert rep["yards"]["runs"][0]["infeasible"] == 0
     assert out[6] == 46.0 and out[0] == 30.0
+
+
+def test_a_lot_through_the_yard_blends_at_the_lot_grade():
+    """Owner 2026-11-14T21:42Z "Lots 5%": the same run as a parking lot
+    climbs at the lot's own cap (5 %), not the road's 20 %, so its blend
+    off the fixed apron edge spreads wider; the census judges it there."""
+    from auto_patch_v2.constraints.yard_edge import lot_vertices, run_grade, yard_runs
+    from auto_patch_v2.pipeline.publication import yard_run_lifts
+    from auto_patch_v2.solve.project_strip import project_facade_strips
+    g = run_grade(LAW, "parking_lot")
+    assert g == pytest.approx(0.05) and run_grade(LAW, "service_road") == pytest.approx(
+        float(LAW.tables.emit.road_contact.upper_pad_road_grade))
+    pm, z = _road_map(level_z=46.0, role="parking_lot")
+    (run,) = yard_runs(pm, LAW)
+    assert lot_vertices(pm, LAW, run) == run.free
+    out, rep = project_facade_strips(pm, LAW, z)
+    for k, x in enumerate([10.0, 20.0, 30.0, 40.0, 50.0], start=1):
+        assert out[k] == pytest.approx(min(30.0 + g * x, 45.0))
+    assert rep["yards"]["runs"][0]["infeasible"] == 0
+    assert yard_run_lifts(pm, LAW) == {0: pytest.approx(g)}
 
 
 @pytest.mark.parametrize("fz, level_z, want", [(30.0, 40.0, 31.2), (36.0, 34.0, 34.8)])

@@ -37,6 +37,7 @@ STYLES = {
     "runway": (_hex(0x8A8F99, 0.28), _hex(0xD6DAE2), 2.4, None),
     "taxiway": (_hex(0xD2B14A, 0.22), _hex(0xE6C95C), 2.1, None),
     "apron": (_hex(0x5AA0E0, 0.22), _hex(0x7DB8EF), 2.4, None),
+    "groundside": (_hex(0xA8A8A8, 0.30), _hex(0xBEBEBE), 2.1, None),
     "building": (_hex(0xB07AD0, 0.25), _hex(0xC497E0), 1.95, None),
     "road": (_hex(0x9FD18B, 0.18), _hex(0x9FD18B), 1.8, _hex(0x9FD18B, 0.35)),
     "ground": (None, _hex(0x9AA4B5, 0.55), 1.2, None),
@@ -47,6 +48,7 @@ NODE_FILL = _hex(0x0B0D12)
 NODE_STROKE = _hex(0xE7EBF2)
 SELECTION = QColor("#FFD60A")
 _LEGEND = (("runway", "runway"), ("taxiway", "taxiway"), ("apron", "apron"),
+           ("groundside", "groundside pavement"),
            ("building", "building"), ("road", "road"), ("ground", "graded ground"))
 #: The legend row for the hatch (the Mac's ``PatchLegend``, same words).
 BELOW_GRADE_LABEL = "below grade"

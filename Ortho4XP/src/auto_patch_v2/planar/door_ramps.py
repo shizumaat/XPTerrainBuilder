@@ -203,7 +203,8 @@ def sunken_groups(roads: _t.Sequence, law: Law, refused: list[str] | None = None
         out.append(Group([], axis[0], (-u0[0], -u0[1]), r.width_m, axis, c, r.id, L, True, True,
                          False, half_fn, rim_fn, standoff, None,
                          min(tn.ramp_max_grade, r.depth_m / max(L, 1e-9)), kind="sunken_road",
-                         spacing_m=sr.station_m, profile=tuple(r.profile)))
+                         spacing_m=sr.station_m, profile=tuple(r.profile),
+                         level_floor=bool(getattr(r, "level", False))))
     return out
 
 

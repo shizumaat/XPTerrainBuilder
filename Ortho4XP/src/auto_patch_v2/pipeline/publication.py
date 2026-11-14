@@ -91,6 +91,7 @@ import typing as _t
 
 from ..airport import dsf as _dsf
 from ..constraints import runway_end_report as _end_report
+from .storey_publication import storey_shell_records
 from ..constraints.contiguity import road_station_caps
 from ..constraints.eat import eat_rects as _eat_rects
 from ..constraints.eat import eat_report_rects as _eat_report_rects
@@ -737,6 +738,9 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                                     (getattr(planar, "road_join_yield", None)
                                      or {}).items())],
             "basin_facilities": basin_facilities(planar, law, z),
+            # #2062 THE STOREY SHELLS (``pipeline/storey_publication``): a
+            # REPORT key the drawn check reads; no census family prices it
+            "storey_shells": storey_shell_records(planar, airport, z),
             # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; spec
             # §11a (2)/(4)): ``[[lat, lon, metres above the pad's level],
             # ...``.  Published because the pad's flatness READER
@@ -773,7 +777,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # the emitted surface against exactly what the generator
             # stated.  Empty at every airport with no channel, which is
             # every airport but the three the class was measured over.
-            "channel_facilities": channel_facilities(planar, law, z),
+            "channel_facilities": channel_facilities(planar, law, z, airport),
             "object_cuts": object_cuts(planar, airport),
             # #1903 (owner 2026-11-06): each trench object whose own floor is
             # the cut over its footprint — REPORT ONLY (``tools/drawn_check``
@@ -1291,7 +1295,7 @@ def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any
         # ``kind`` (RULINGS 2026-09-08b/c): a tunnel wall object, a door ramp
         # (Law A) or a sunken road (Law B) — the same record, the mouth-law
         # readers exempt every kind alike (the mouth is the object's)
-        out.append({
+        rec = {
             "id": tn.id, "kind": "wall" if tn.source == "object" else tn.source,
             "resource": tn.resource, "objects": list(tn.objects),
             "floor_m": round(tn.mouth_z, 3), "crest_m": round(float(tn.crest_z or 0.0), 3),
@@ -1310,12 +1314,17 @@ def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any
             "profile": [[round(s, 2), round(z, 3)] for s, z in tn.profile],
             "top_ground_m": None if tn.top_ground_z is None else round(tn.top_ground_z, 3),
             "ramp_length_m": round(max(0.0, tn.top_s - tn.climb_from_s), 1),
-        })
+        }
+        if getattr(tn, "level_floor", False):
+            # spec object-gate-member-floors §5: the drawn gate's FLOOR bar
+            rec["level_floor"] = True
+        out.append(rec)
     return out
 
 
 def channel_facilities(planar: PlanarMap, law: Law,
-                       z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
+                       z: _t.Sequence[float] | None = None,
+                       airport: Airport | None = None) -> list[dict[str, _t.Any]]:
     """THE OPEN CHANNEL RECORDS (spec §45; owner RULINGS 2026-09-15i).
 
     ``floor_profile`` is ``[[lat, lon, the DECLARED floor], ...]`` — the
@@ -1326,7 +1335,11 @@ def channel_facilities(planar: PlanarMap, law: Law,
     and ``crest_parts_m`` are what the solve actually produced.
     ``datum_source`` names which of §45 (3)'s three the floor came from,
     so a ``--refresh-data dem`` moving a site from (iii) to (ii) shows up
-    in the sidecar with no law change."""
+    in the sidecar with no law change.  A visible cut's channel adds
+    ``ledge_pins`` ``[[lat, lon, z], ...]`` and ``member_feet`` ``[[lat, lon,
+    authored y, placement id, kind], ...]`` (spec object-gate-member-floors
+    §4.6; a ledge foot whose crest vertex a governed cell shares is
+    ``unmet``) — the drawn gate's FEET row."""
     out: list[dict[str, _t.Any]] = []
     chans = getattr(planar, "channels", ())
     if not chans:
@@ -1365,7 +1378,28 @@ def channel_facilities(planar: PlanarMap, law: Law,
             "crest_parts_m": sorted({round(v, 2) for v in c_zs}),
             "crest_count": len(wvs),
             "notes": list(c.notes)})
+        if airport is not None and getattr(c, "member_feet", ()):
+            out[-1].update(_member_feet(planar, law, c, airport.frame.transformers()[1]))
     return out
+
+
+def _member_feet(planar: PlanarMap, law: Law, c, to_ll) -> dict[str, list]:
+    """A visible cut's ``ledge_pins`` and ``member_feet`` in lat / lon
+    (:func:`channel_facilities`): a ledge foot whose nearest pin took no row
+    (``constraints/channel.ledge_pin_vertices``) is published ``unmet``."""
+    from ..constraints.channel import ledge_pin_vertices
+    met = {k for k, _z in ledge_pin_vertices(planar, law, c).values()}
+    pins = list(c.ledge_pins)
+    feet = []
+    for x, y, yy, pid, kind in c.member_feet:
+        if kind == "ledge" and pins:
+            k = min(range(len(pins)), key=lambda i: math.hypot(pins[i][0] - x, pins[i][1] - y))
+            kind = kind if k in met else "unmet"
+        la, lo = to_ll(x, y)
+        feet.append([round(la, 8), round(lo, 8), round(float(yy), 3), pid, kind])
+    return {"ledge_pins": [[*(round(v, 8) for v in to_ll(x, y)), round(float(zz), 3)]
+                           for x, y, zz in pins],
+            "member_feet": feet}
 
 
 def object_cuts(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
@@ -1408,6 +1442,7 @@ def object_floors(planar: PlanarMap, airport: Airport,
     2026-11-06d (4)) — what ``tools/drawn_check`` claims as CUT sites.  A
     deck stack's floor (#1971) adds ``"stack"`` (``model/deck_stack.
     DeckStack.sidecar``): its decks take the DECK bar."""
+    from ..airport.object_floor import owns_ground
     clear = (float(law.tables.structures.tunnel.object.floor_clearance_m)
              if law is not None else 0.0)
     stacks = {st.floor_ref: st for st in getattr(airport, "deck_stacks", ()) or ()}
@@ -1417,7 +1452,16 @@ def object_floors(planar: PlanarMap, airport: Airport,
         rec = {"id": f.id, "resource": f.resource, "objects": [f.object_id, *f.covers],
                "floor_m": round(float(f.floor_z), 3), "zero_m": round(float(f.zero_z), 3),
                "area_m2": round(float(f.footprint.area), 1),
-               "clearance_m": f.cut_clearance(clear)}
+               "clearance_m": f.cut_clearance(clear),
+               # spec object-gate-member-floors §3.1: only the floor object
+               # that OWNS ground carries the clearance; the rest of its
+               # frame are members, read by their feet
+               "object": f.object_id, "owns_ground": bool(owns_ground(f)),
+               "hidden": bool(getattr(f, "hidden", False))}
+        misfit = getattr(f, "rim_misfit", None)
+        if misfit:
+            # §6 (P3): the shell's rim against the ground, measured only
+            rec["rim_misfit_m"], rec["rim_off_share"] = misfit[0], misfit[1]
         if f.id in stacks:
             rec["stack"] = stacks[f.id].sidecar(to_ll, band_m=0.5 * float(
                 law.tables.structures.tunnel.object.wall_face_max_thickness_m)

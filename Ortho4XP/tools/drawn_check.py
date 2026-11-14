@@ -89,6 +89,7 @@ from auto_patch.obj8_reader import load_object_file  # noqa: E402
 from auto_patch_v2.airport import dsf as dsf_text  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import drawn_members  # noqa: E402
 
 M_PER_DEG = 111320.0
 DECK_ANCHOR = "deck_anchor"
@@ -254,7 +255,7 @@ def read_claims(sidecar, tile, plans, pristine):
     for r in sidecar.get("object_floors", []):
         # a deck stack's decks (#1971) stand OVER its floor: the DECK bar
         decks = {d["object"] for d in (r.get("stack") or {}).get("decks", [])}
-        raw += [(DECK_ANCHOR if o in decks else "object_floor", r["id"], o)
+        raw += [(DECK_ANCHOR if o in decks else _floor_kind(r, o), r["id"], o)
                 for o in r["objects"]]
         clear[r["id"]] = float(r.get("clearance_m", 0.0) or 0.0)
     for r in sidecar.get("deck_anchors", []):
@@ -272,6 +273,23 @@ def read_claims(sidecar, tile, plans, pristine):
         claims.append(Claim(kind, cid, res, fate,
                             clear.get(cid, 0.0) if kind == "object_floor" else 0.0))
     return claims
+
+
+def _floor_kind(rec, obj):
+    """An object floor record's claim on ``obj`` (spec object-gate-member-
+    floors §3.2): ``object_floor`` (the clearance bar) only for the record's
+    own object where it OWNS ground; every other member of its frame is a
+    ``frame_member`` (the FOOT bar).  A sidecar without the keys reads as
+    before (every listed object an ``object_floor``)."""
+    if "object" not in rec:
+        return "object_floor"
+    return ("object_floor" if obj == rec["object"] and rec.get("owns_ground")
+            else drawn_members.FRAME_MEMBER)
+
+
+def level_floors(sidecar):
+    """``{id: tunnel_objects record}`` of the LEVEL FLOORS (spec §5)."""
+    return {r["id"]: r for r in sidecar.get("tunnel_objects", []) if r.get("level_floor")}
 
 
 def stem(def_path):
@@ -334,11 +352,41 @@ class Drawn:
         return out
 
 
+    def feet_near(self, lon, lat, radius_m, rows=None, reach_m=6000.0):
+        """``{row: (bottom, gap)}`` of ``rows`` (default: every row) with
+        vertices within ``radius_m``: ``gap`` the median of (z - the mesh at
+        the vertex's own position) over its vertices there standing within
+        ``drawn_members.FOOT_BAND_M`` of its lowest one -- its FOOT."""
+        kx = M_PER_DEG * math.cos(math.radians(lat))
+        out = {}
+        for i in (rows if rows is not None else range(len(self.rows))):
+            p = self.rows[i]
+            if math.hypot((p.lon - lon) * kx, (p.lat - lat) * M_PER_DEG) > reach_m:
+                continue
+            v = self.vertices(int(i))
+            if v is None:
+                continue
+            near = numpy.hypot((v[0] - lon) * kx, (v[1] - lat) * M_PER_DEG) <= radius_m
+            if not near.any() or numpy.isnan(v[2][near]).all():
+                continue
+            low = float(numpy.nanmin(v[2][near]))
+            foot = near & (v[2] <= low + drawn_members.FOOT_BAND_M)
+            gaps = [z - mesh_z(self.mesh, x, y)
+                    for x, y, z in zip(v[0][foot], v[1][foot], v[2][foot], strict=True)]
+            gaps = [g for g in gaps if not math.isnan(g)]
+            out[int(i)] = (low, float(numpy.median(gaps)) if gaps else float("nan"))
+        return out
+
+
 # ── the verdict ─────────────────────────────────────────────────────────
 
-def check_site(site, drawn, claims, radius_m, tol):
+def check_site(site, drawn, claims, radius_m, tol, levels=None, zero=None):
     """One site's row: drawn bottom of the claimed object(s), floor, relief,
-    split status and the failed bars."""
+    split status and the failed bars.  A frame member (``frame_member``)
+    takes the FOOT bar (``drawn_members.foot_verdict``); a claim on a LEVEL
+    FLOOR (``levels``: :func:`level_floors`; ``zero(pid)`` its written
+    row's zero) takes the FLOOR bar and no relief or bottom-floor bar."""
+    levels = levels or {}
     zm = mesh_z(drawn.mesh, site.lon, site.lat)
     floor = site.floor if not math.isnan(site.floor) else zm
     by_stem = {}
@@ -360,22 +408,40 @@ def check_site(site, drawn, claims, radius_m, tol):
         j = min(bottoms, key=bottoms.get)
         row["lowest_any"] = {"resource": drawn.rows[j].def_path,
                              "delta": round(bottoms[j] - floor, 2)}
-    cut, deck = [], []
+    cut, deck, feet, lv = [], [], [], {}
     for i, z in sorted(bottoms.items(), key=lambda kv: kv[1]):
         cs = by_stem.get(stem(drawn.rows[i].def_path))
         if not cs:
             continue
         is_deck = any(c.kind == DECK_ANCHOR for c in cs)
+        level = next((c.claim_id for c in cs if c.claim_id in levels), None)
+        member = not is_deck and level is None and all(
+            c.kind == drawn_members.FRAME_MEMBER for c in cs)
         fate = next((c.fate for c in cs if c.kind != DECK_ANCHOR), cs[0].fate)
         clear = max((c.clearance for c in cs), default=0.0)
         rec = {"row": i, "resource": drawn.rows[i].def_path,
                "kind": drawn.rows[i].kind, "bottom": round(z, 2),
-               "delta": round(z - floor, 2), "role": "DECK" if is_deck else "CUT",
-               "fate": fate, "clearance": clear}
+               "delta": round(z - floor, 2),
+               "role": ("DECK" if is_deck else "LEVEL" if level else "FOOT" if member
+                        else "CUT"), "fate": fate, "clearance": clear}
         row["objects"].append(rec)
-        (deck if is_deck else cut).append(rec)
+        if level:
+            lv.setdefault(level, rec)
+        else:
+            (deck if is_deck else feet if member else cut).append(rec)
         if "split undone" in fate:
             row["fails"].append(f"split undone: {rec['resource']}")
+    if feet:
+        got = drawn.feet_near(site.lon, site.lat, radius_m, rows=[r["row"] for r in feet])
+        for r in feet:
+            r["gap"] = round(got.get(r["row"], (0.0, float("nan")))[1], 2)
+            r["foot"], fail = drawn_members.foot_verdict(r["gap"], tol)
+            if fail:
+                row["fails"].append(f"{os.path.basename(r['resource'])}: {fail}")
+    for lid in lv:
+        bar = drawn_members.check_level_floor(levels[lid], drawn, zero, tol)
+        row.setdefault("level", {})[lid] = bar
+        row["fails"].extend(bar["fails"])
     if cut:
         row["role"] = "CUT"
         best = min(cut, key=lambda r: abs(r["delta"] - r["clearance"]))
@@ -387,6 +453,16 @@ def check_site(site, drawn, claims, radius_m, tol):
                                    if best["clearance"] else "") + f" > {tol}")
         if row["relief"] is not None and not row["relief"] > 0.0:
             row["fails"].append(f"ramp relief {row['relief']:+.2f}")
+    elif feet:
+        row["role"] = "CUT"
+        gaps = [r["gap"] for r in feet if not math.isnan(r["gap"])]
+        row["delta"] = max(gaps) if gaps else float("nan")
+        if deck and not min(r["delta"] for r in deck) >= -tol:
+            row["fails"].append(f"deck under the floor {min(r['delta'] for r in deck):+.2f}")
+    elif lv:
+        row["role"] = "LEVEL"
+        row["delta"] = max((b.get("over_max", float("nan")) for b in row["level"].values()),
+                           default=float("nan"))
     elif deck:
         row["role"] = "DECK"
         row["delta"] = min(r["delta"] for r in deck)
@@ -969,8 +1045,7 @@ def run(args):
     mesh, tile_dsfs = _sampler(args, tile_dsfs, bbox)
     claims = read_claims(sidecar, tile, plans, pristine)
     drawn = Drawn(written, pack_root, mesh)
-    rows = [check_site(s, drawn, claims, args.radius, args.tol)
-            for s in read_sites(patch, sidecar, args.radius)]
+    rows = member_rows(args, patch, sidecar, drawn, claims, pristine, tile)
     lifts = body_offsets_y(plans.values())
     roads = road_nodes(patch, args.icao)
     global ROAD_AT_BASE_M
@@ -979,6 +1054,8 @@ def run(args):
                                    "split_level_road_reach_m", 0.0) or ROAD_AT_BASE_M)
     rows += [check_split(r, drawn, args.tol, lifts, roads)
              for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
+    # #2062: every storey shell's runs on the drawn ground
+    rows += [_storey(r, drawn, lifts) for r in sidecar.get("storey_shells", [])]
     # #2042: every graded facade's feet on the drawn ground
     import drawn_facade
     with tempfile.TemporaryDirectory() as tmp:
@@ -991,6 +1068,39 @@ def run(args):
             "pack_is_build_product": pack_is_build_product(args, pack_root),
             "tile_dsfs": tile_dsfs, "tol_m": args.tol, "radius_m": args.radius,
             "claims": [dataclasses.asdict(c) for c in claims], "sites": rows}
+
+
+def member_rows(args, patch, sidecar, drawn, claims, pristine, tile):
+    """The site rows (:func:`check_site`), the FEET rows and the FRAME rows
+    (``drawn_members``) over ``drawn`` -- the drawn tile or the predicted
+    patch alike; ``args.sites`` (``drawn_gate.parse_site`` tuples) limits
+    the site rows."""
+    zero = drawn_members.written_zeros(drawn, pristine, tile, stem)
+    levels = level_floors(sidecar)
+    sites = read_sites(patch, sidecar, args.radius)
+    want = getattr(args, "sites", None)
+    if want:
+        def near(s):
+            kx = M_PER_DEG * math.cos(math.radians(s.lat))
+            return any(math.hypot((s.lon - lo) * kx, (s.lat - la) * M_PER_DEG) <= r
+                       for _n, la, lo, r in want)
+        # each named site is also read AT its position (a PROBE: the floor
+        # the mesh there): way ids and their lowest nodes move per build
+        sites = [s for s in sites if near(s)] + [
+            Site(f"probe {n}", lo, la, float("nan"), float("nan"), "probe")
+            for n, la, lo, _r in want]
+    rows = [check_site(s, drawn, claims, args.radius, args.tol, levels, zero) for s in sites]
+    rows += [drawn_members.check_feet(r, drawn, zero, args.tol)
+             for r in sidecar.get("channel_facilities", []) if r.get("member_feet")]
+    rows += [drawn_members.level_row(r, drawn, zero, args.tol) for r in levels.values()]
+
+    def anchor_of(pid):
+        try:
+            p = pristine[tile].placements[int(pid.split("obj", 1)[1].split("@")[0])]
+            return p.lat, p.lon
+        except (IndexError, KeyError, ValueError):
+            return None
+    return rows + drawn_members.frame_rows(sidecar, anchor_of)
 
 
 def _sampler(args, tile_dsfs, bbox):
@@ -1017,6 +1127,28 @@ def _stack_faces(patch, rec, dem=None, standoff=0.0):
     return PatchFaces(patch, fl[len(fl) // 2], 400.0, dem=dem, standoff=standoff)
 
 
+def PatchFaces_at(patch, rec):
+    """The patch's faces about one storey shell (``patch_faces.PatchFaces``)."""
+    from patch_faces import PatchFaces
+    lon, lat = rec["anchor_longitude_latitude"]
+    return PatchFaces(patch, (lat, lon), 400.0)
+
+
+def _storey(rec, drawn, lifts):
+    """One storey shell's row (``drawn_storey``): its written rows' drawn
+    zero (each row's own lift off) where they are read, else the record's."""
+    import drawn_storey
+    stems = {stem(r) for r in rec.get("resources", [])}
+    lon, lat = rec["anchor_longitude_latitude"]
+    kx = M_PER_DEG * math.cos(math.radians(lat))
+    rows = [i for i, p in enumerate(drawn.rows) if stem(p.def_path) in stems
+            and math.hypot((p.lon - lon) * kx, (p.lat - lat) * M_PER_DEG) <= 300.0]
+    zeros = [_base(drawn, i) - lifts.get(drawn.rows[i].def_path, 0.0) for i in rows]
+    zeros = [z for z in zeros if not math.isnan(z)]
+    return drawn_storey.check(rec, drawn.mesh,
+                              float(numpy.median(zeros)) if zeros else None, zeros)
+
+
 def run_predict(args):
     """``--predict PATCH`` (spec interchange-levels v2 §8.2): the STACK rows
     of :func:`check_stack` over the emitted patch itself -- a point reads
@@ -1031,13 +1163,31 @@ def run_predict(args):
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     standoff = (float(law.tables.zones.adjacent_ground.groundside_cutback_m)
                 + snap_margin_m(law))
-    written, pack_root = [], None
+    written, pack_root, pristine, tile = [], None, {}, ""
     if getattr(args, "plan", None):
+        from auto_patch_v2.airport.dsf_write import pristine_dsf_path
         plan = json.load(open(args.plan, encoding="utf-8"))
         pack_root = plan["pack_root"]
+        tile = os.path.splitext(os.path.basename(plan["dsf_path"]))[0]
         with tempfile.TemporaryDirectory() as tmp:
             written = dump_dsf(plan["dsf_path"], tmp).placements
+            pristine[tile] = dump_dsf(pristine_dsf_path(plan["dsf_path"]), tmp)
     rows = []
+    if written:
+        # spec object-gate-member-floors §3.2: the site, FEET and FRAME rows
+        # on the patch itself (``PatchAtlas``: a row's anchor may stand far
+        # from its site)
+        from patch_faces import PatchAtlas, _Dem
+        atlas = PatchAtlas(patch, standoff=standoff,
+                           dem=_Dem(args.dem) if getattr(args, "dem", None) else None)
+        drawn = Drawn(written, pack_root, atlas)
+        claims = read_claims(sidecar, tile, {tile: plan}, pristine)
+        rows += member_rows(args, patch, sidecar, drawn, claims, pristine, tile)
+    for r in sidecar.get("storey_shells", []):
+        import drawn_storey
+        faces = PatchFaces_at(patch, r)
+        rows.append(_storey(r, Drawn(written, pack_root, faces), {}) if written
+                    else drawn_storey.check(r, faces))
     for r in sidecar.get("object_floors", []):
         if not r.get("stack"):
             continue
@@ -1075,6 +1225,33 @@ def print_report(rep):
             for f in r["fails"]:
                 print(f"       FAIL {f}")
             continue
+        if r.get("role") == "FEET":
+            print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} kinds {r['counts']} "
+                  f"worst floor/ledge foot {r['delta']}; {len(r['floating'])} float > tol, "
+                  f"{r['buried']} buried > ground bar, {r['no_row']} with no written row")
+            for k, g in r["groups"].items():
+                print(f"       {k}: {g['n']} feet, {g['float']} float, p95 {g['p95']:+.2f}, "
+                      f"worst {g['worst']:+.2f}")
+            for f in r["fails"]:
+                print(f"       FAIL {f}")
+            continue
+        if r.get("role") == "LEVEL" and not r.get("floor_from"):
+            for lid, b in r["level"].items():
+                print(f"{r['verdict']:4s} {r['site']} @{r['lat']},{r['lon']} plate "
+                      f"{b.get('plate')}, "
+                      f"mesh over it max {b.get('over_max')} at {b.get('over_at')}, plate over "
+                      f"mesh median {b.get('float_median')} ({b.get('samples')} samples)")
+            for f in r["fails"]:
+                print(f"       FAIL {f}")
+            continue
+        if r.get("role") == "FRAME":
+            print(f"   - {r['site']} rim - ground {r['misfit']} off share {r['off_share']} "
+                  f"(hidden {r['hidden']}; measured only)")
+            continue
+        if r.get("role") == "STOREY":
+            import drawn_storey
+            drawn_storey.print_row(r)
+            continue
         if r.get("role") == "STACK":
             print(f"{r['verdict']:4s} {r['site']} [{r.get('mode', 'DRAWN')}] @{r['lat']},"
                   f"{r['lon']} D1 spread {r.get('d1_spread')} walls bottom "
@@ -1104,7 +1281,12 @@ def print_report(rep):
                  if low else ""))
         for o in r["objects"]:
             print(f"       {o['role']:4s} {o['kind']} {o['resource']} bottom "
-                  f"{o['bottom']:.2f} ({o['delta']:+.2f}) fate {o['fate']}")
+                  f"{o['bottom']:.2f} ({o['delta']:+.2f}) fate {o['fate']}"
+                  + (f" foot {o['gap']:+.2f} {o['foot']}" if "gap" in o else ""))
+        for lid, b in (r.get("level") or {}).items():
+            print(f"       LEVEL {lid}: plate {b.get('plate')}, mesh over it max "
+                  f"{b.get('over_max')} at {b.get('over_at')}, plate over mesh median "
+                  f"{b.get('float_median')}")
         for f in r["fails"]:
             print(f"       FAIL {f}")
     n = sum(r["verdict"] in ("FAIL", "INCOMPLETE") for r in rep["sites"])
@@ -1134,11 +1316,18 @@ def main(argv=None):
     ap.add_argument("--predict", metavar="PATCH",
                     help="PREDICTED stack rows on an emitted patch (replay --emit): faces "
                          "else the DEM, coverage bar; --plan for the written rows")
+    ap.add_argument("--dem", metavar="TIF",
+                    help="with --predict: the DEM an uncovered point reads (default: the "
+                         "inset the patch header names; a replay's patch names none)")
+    ap.add_argument("--site", action="append", default=[], metavar="NAME=LAT,LON[,R]",
+                    help="with --predict: limit the site rows to these (repeatable)")
     ap.add_argument("--json", help="write the report here")
     ap.add_argument("--against", help="baseline --json: list moved sites")
     args = ap.parse_args(argv)
     if not (args.tile or args.tag or args.predict):
         ap.error("--tile, --tag or --predict is required")
+    from harness.drawn_gate import parse_site
+    args.sites = [parse_site(s) for s in args.site]
     if args.patches is None:
         import O4_File_Names as FNAMES
         args.patches = FNAMES.Patch_dir

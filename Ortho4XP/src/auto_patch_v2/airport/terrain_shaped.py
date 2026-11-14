@@ -94,7 +94,10 @@ ADAPTED_WHY = "adapted_row"
 #: owner RULINGS 2026-11-13i: a terrain model's origin-set row at its
 #: no-float zero (``airport/terrain_model.seat_records``)
 MODEL_SEAT = "terrain model"
-_WHY = {SEAT: "terrain_fit", MODEL_SEAT: "terrain_model",
+#: #2062: a storey shell's rigid-set row at the building's zero plus its
+#: own lift (``airport/storey_seat.seat_records``)
+STOREY_SEAT = "storey shell"
+_WHY = {SEAT: "terrain_fit", MODEL_SEAT: "terrain_model", STOREY_SEAT: "storey_shell",
         PORTAL_SEAT: "portal_floor", ENTRANCE_SEAT: "entrance_face",
         OBJECT_FLOOR_SEAT: "object_floor", HIDDEN_SEAT: "hidden", ADAPTED_SEAT: ADAPTED_WHY}
 

@@ -88,8 +88,9 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
     # a covered cut's level is the cut's, no storey of the group: it extends
     # along nothing (``planar/covered_cut``, #1333)
     from .covered_cut import WITNESS as _COVERED
+    # a storey shell's levels are never extended (#2062, spec §2)
     lows = {r: v for r, v in reg.landings.items() if v.get("kind") == LOW_KIND
-            and v.get("witness") != _COVERED}
+            and v.get("witness") != _COVERED and not v.get("shell")}
     if not lows or getattr(airport, "partition", None) is None or not air_all:
         return regs
     to_xy = airport.frame.entry()

@@ -501,6 +501,10 @@ class Channel:
     lidar_floor_window_m: float
     toe_rise_m: float
     toe_confirm_m: float
+    #: spec object-gate-member-floors §4.2: a visible cut's floor runs this
+    #: far past the farthest member foot standing on it, so the foot stands
+    #: on the floor and not over the void band beyond it
+    foot_margin_m: float = 1.0
 
 
 @_dc.dataclass(frozen=True)

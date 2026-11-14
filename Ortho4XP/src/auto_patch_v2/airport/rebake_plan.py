@@ -38,6 +38,7 @@ from .pack_partition import (PackPartition, Screen, extend_partition,
 from ..model.frame import m_per_deg_exact
 
 __all__ = ["plan", "screen_of", "DeckDatum", "ring_ends", "end_line_stations",
+           "with_free",
            "datum_rings"]
 
 #: ``deck_datum(ring_xy) -> z | None``: the SOLVED surface's value at a
@@ -239,7 +240,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
          tunnel_objects: _t.Mapping[str, tuple] | None = None,
          partition: PackPartition | None = None,
          keep_extension: bool = False,
-         authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = ()) -> RebakePlan:
+         authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
+         free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None) -> RebakePlan:
     """The units and witnesses for ``airport``'s pack (see module doc).
 
     ``objects`` are the planar pass's placed objects (read from the
@@ -263,6 +265,8 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     of object-placement spec §18 (``pipeline/authored_seats``): PUBLISHED
     on the plan as they are — the decision is already in ``tunnel_objects``
     (a kept member has no entry) and ``exclude`` (it is never re-seated).
+    ``free_decks`` each free bridge deck's published route ends
+    (``planar/free_bridge.published``; #2065 S2, :func:`_free_fields`).
 
     ``partition`` is the LOAD-time reading of the pack
     (``pack_partition.partition_pack``, spec §11a (3)); when it is given
@@ -309,7 +313,7 @@ def plan(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             o = by_id.get(oid)
             members.append(m if o is None
                            else _with_deck(m, o, to_ll, deck_datum, plates, counts,
-                                           law))
+                                           law, free_decks))
         units.append(_dc.replace(u, id=f"unit:{ui}", members=tuple(members)))
     flat = _flat_datum(airport, to_ll)
     if flat is not None:
@@ -335,7 +339,8 @@ def _origin_tile(airport) -> tuple[int, int] | None:
 
 
 def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
-               counts: dict[str, int], law: Law | None = None) -> Member:
+               counts: dict[str, int], law: Law | None = None,
+               free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None) -> Member:
     """``m`` with the PLANAR and SOLVED fields attached: the hard-deck
     ring and its datum (or the signature plate's ends / profile /
     stations) and the tunnel-wall plate's height and band stations.
@@ -400,7 +405,7 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
         plate_clearance = 0.0
         plate_stations = tuple(to_ll(x, y) for x, y in wp.stations)
         counts["walled_plate_members"] = counts.get("walled_plate_members", 0) + 1
-    return _dc.replace(m, deck_ring=deck_ring, deck_top_y=deck_top_y,
+    out = _dc.replace(m, deck_ring=deck_ring, deck_top_y=deck_top_y,
                        deck_datum_z=deck_datum_z, deck_kind=o.deck_kind,
                        deck_ends=deck_ends, deck_profile=deck_profile,
                        deck_evidence=tuple(o.deck_evidence),
@@ -409,6 +414,56 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
                        plate_stations=plate_stations,
                        plate_clearance_m=plate_clearance, plate_kind=plate_kind,
                        anchor_zero=anchor_zero)
+    rec = (free_decks or {}).get(o.id)
+    if rec is None or law is None:
+        return out
+    return with_free(out, rec, law.tables.structures.bridge.abutment_sample_step_m, counts)
+
+
+def with_free(m: Member, rec: _t.Mapping[str, _t.Any], step_m: float,
+              counts: dict[str, int]) -> Member:
+    """``m`` published as its FREE BRIDGE's deck (:func:`_free_fields`) — or
+    unchanged, counted, when it carries an edge / walled / split-level plate
+    (its plate reader's: A1 class order, ``plated_deck``).
+
+    ``plate_kind == "free"`` IS the class decision (#2065 A2): a free deck
+    is published whatever its datum, and THIS is the one site that clears
+    its ``deck_datum_z`` (RULINGS 2026-08-30l) — a graded face's median
+    under the ring is one approach-road vertex, not a free deck's seat.  A
+    cleared value is counted ``free_deck_over_graded_face`` and kept in the
+    member's ``deck_evidence``.  Its readers, ruled: ``anchor_rule.datum_of``
+    reads None; ``airside_deck_seat`` takes no class-A frame and keeps the
+    deck its own datum; ``placement_family.member_is_bridge_deck`` holds it
+    out of the wall chain."""
+    if m.deck_ring is None:
+        return m
+    if m.plate_kind:
+        counts["free_deck_plated"] = counts.get("free_deck_plated", 0) + 1
+        return m
+    counts["free_deck_members"] = counts.get("free_deck_members", 0) + 1
+    extra: dict[str, _t.Any] = {}
+    if m.deck_datum_z is not None:
+        counts["free_deck_over_graded_face"] = counts.get("free_deck_over_graded_face", 0) + 1
+        extra = {"deck_datum_z": None,
+                 "deck_evidence": (*m.deck_evidence,
+                                   f"free deck over a graded face {float(m.deck_datum_z):.2f} "
+                                   "(datum cleared, #2065 A2)")}
+    return _dc.replace(m, **_free_fields(rec, step_m), **extra)
+
+
+def _free_fields(rec: _t.Mapping[str, _t.Any], step_m: float) -> dict[str, _t.Any]:
+    """The member fields of a FREE BRIDGE's deck (#2065 S2) from its
+    published record (``planar/free_bridge.published``): ``plate_kind
+    "free"``, its bridge, ``deck_ends`` = its two ROUTE end lines (never the
+    rectangle's), their stations at ``step_m``, the top at each and whether
+    each meets land.  The offline replay stamps an older plan through this
+    too (``tools/v2_rebake_replay.py plan --bridge-witness``)."""
+    from ..model.free_bridge import FREE_PLATE
+    ends = tuple(tuple((float(q[0]), float(q[1])) for q in e) for e in rec["ends"])
+    return {"plate_kind": FREE_PLATE, "free_bridge": str(rec["bridge"]),
+            "deck_ends": ends, "deck_end_stations": end_line_stations(ends, float(step_m)),
+            "deck_end_tops": tuple(float(t) for t in rec["tops"]),
+            "deck_end_land": tuple(bool(x) for x in rec["land"])}
 
 
 def _flat_datum(airport: Airport, to_ll) -> FlatDatum | None:

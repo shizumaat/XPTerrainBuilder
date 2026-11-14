@@ -33,6 +33,7 @@ import math
 import os
 import typing as _t
 
+from ..model.free_bridge import FREE_PLATE
 from . import anchor_rule as _ar
 from .bridge_approach import _median
 
@@ -42,10 +43,17 @@ __all__ = ["deck_owns_its_datum", "airside_zero", "airside_frame",
 
 
 def deck_owns_its_datum(m: _t.Any) -> bool:
-    """A FLAG deck (``ATTR_hard_deck``) or one over an emitted deck face
-    (``deck_datum_z``): its seat is §16e's / §49's, never a unit's."""
+    """A FLAG deck (``ATTR_hard_deck``), one over an emitted deck face
+    (``deck_datum_z``) or a FREE bridge's deck (#2065 A2: a signature free
+    deck never rides a unit): its seat is its own, never a unit's."""
     return (str(getattr(m, "deck_kind", "") or "") == "flag"
-            or getattr(m, "deck_datum_z", None) is not None)
+            or getattr(m, "deck_datum_z", None) is not None or _free(m))
+
+
+def _free(m: _t.Any) -> bool:
+    """A deck the rebake plan published as a FREE bridge's (#2065 A2): the
+    planar stage took class A's frames (``_Airside.meets``, ``admitted``)."""
+    return str(getattr(m, "plate_kind", "") or "") == FREE_PLATE
 
 
 _SIDE: dict[str, bool] = {}
@@ -337,7 +345,10 @@ def _airside_witness(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface
     """22n's witness that a pack deck stands over AIRSIDE: ``(ring, top,
     face, z_face)`` — a flag / signature deck whose ring stands on an
     emitted deck face, or over an airside role with the plan's solved
-    ``deck_datum_z`` — else ``None``."""
+    ``deck_datum_z`` — else ``None``.  A FREE bridge's deck is never class
+    A (#2065 A2)."""
+    if _free(m):
+        return None
     top = getattr(m, "deck_top_y", None)
     ring = tuple(getattr(m, "deck_ring", None) or ())
     if (top is None or len(ring) < 3
@@ -378,7 +389,7 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
     (#1903): the deck is a pack cut's OWN roof, the trench under its edge,
     so its end lines are read one step outside it — as the planar frame
     reads them (``cut_deck_seat.end_ground``, ``planar/cut_frame``)."""
-    plated = _plate_zero(m, surface)
+    plated = _plate_zero(m, surface, origin)
     if plated is not None:
         return plated
     w = _airside_witness(m, decks, surface)
@@ -410,11 +421,15 @@ _PLATED = {"deck": "the hard-deck bridge's end lines {lo:.2f}..{hi:.2f} over {n}
                        "(its zero on the road, y {y:+.2f}; RULINGS 2026-10-30f (5))"}
 
 
-def _plate_zero(m: _t.Any, surface: _ar.Surface) -> "tuple[float, str, tuple] | None":
+def _plate_zero(m: _t.Any, surface: _ar.Surface,
+                origin: "tuple[float, float] | None" = None
+                ) -> "tuple[float, str, tuple] | None":
     """``(zero, where, seat)`` off a hard-deck bridge's or a road
     overpass's plate, or ``None``; ``seat`` is the station ``(lat, lon,
     z)`` nearest the stations' middle — where a body of the frame whose own
-    anchor reads no surface is anchored (:func:`airside_deck`)."""
+    anchor reads no surface is anchored (:func:`airside_deck`).  An
+    OVERPASS plate whose frame anchor ``origin`` reads water is noted in
+    ``where`` (a deck over water is no road overpass: 22p, 2026-09-13v)."""
     st = tuple(getattr(m, "plate_stations", ()) or ())
     y = getattr(m, "plate_y", None)
     kind = getattr(m, "plate_kind", "")
@@ -429,7 +444,13 @@ def _plate_zero(m: _t.Any, surface: _ar.Surface) -> "tuple[float, str, tuple] | 
     cla = sum(r[0] for r in read) / len(read)
     clo = sum(r[1] for r in read) / len(read)
     seat = min(read, key=lambda r: (r[0] - cla) ** 2 + (r[1] - clo) ** 2)
-    return zero, _PLATED[kind].format(lo=min(zs), hi=max(zs), n=len(zs), y=float(y)), seat
+    where = _PLATED[kind].format(lo=min(zs), hi=max(zs), n=len(zs), y=float(y))
+    water = getattr(surface, "water", None)
+    if kind == "overpass" and origin is not None and water is not None \
+            and water(float(origin[0]), float(origin[1])):
+        where += ("; NOTE its frame anchor stands on water -- a deck over water is "
+                  "no road overpass (RULINGS 2026-10-22p, 2026-09-13v)")
+    return zero, where, seat
 
 
 def _maybe_a_building(st: _t.Any, i: int, surface: _ar.Surface) -> bool:

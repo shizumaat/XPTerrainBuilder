@@ -283,3 +283,17 @@ def test_tile_dirs_and_rows_are_read(tmp_path):
     assert DC.tile_dsf(None, "+47+013", [str(tmp_path / "zOrtho4XP_+47+012")]) is None
     assert DC.parse_row("+47+012:obj247") == ("+47+012", 247)
     assert DC.parse_datarefs(["sam/jetway/wheels=0.5"]) == {"sam/jetway/wheels": 0.5}
+
+
+def test_end_edge_mode_reads_a_decks_end_at_the_plans_end_lines():
+    """Spec othh-deck-round2 S5: a ramp's long open sides (334 m) are no
+    deck END; the run at each of the plan's end lines is, the rest edges."""
+    import drawn_site_bars as DB
+    side = {"at": [25.2521, 51.6176], "step": 8.46, "length_m": 334.2, "joins": "top",
+            "verdict": "FAIL"}
+    end = {"at": [25.25057, 51.6162], "step": -0.42, "length_m": 8.9, "joins": "top",
+           "verdict": "FAIL"}
+    line = ((25.25055, 51.61615), (25.25060, 51.61625))
+    ends, rest = DB._true_ends([side, end], [line])
+    assert [e["step"] for e in ends] == [-0.42] and rest == [side]
+    assert DB._stem("objects/OTHH_Bridge_06_LOD0_000__b0_7273f3aa.obj") == "othh_bridge_06_lod0_000"

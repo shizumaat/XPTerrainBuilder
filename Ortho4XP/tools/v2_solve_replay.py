@@ -696,6 +696,10 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
     airport = attach_deck_stacks(airport, pack_objects, ocache, law)     # #1971
     print(_ds_line(icao, airport.deck_stacks))
+    from auto_patch_v2.planar.free_bridge import attach_free_bridges
+    from auto_patch_v2.planar.free_bridge import log_line as _fb_line
+    airport = attach_free_bridges(airport, pack_objects, ocache, law)     # #2065
+    print(_fb_line(icao, airport.free_bridges))
     from auto_patch_v2.airport import flat_pack as _flat_pack     # flat-pack spec §1
     airport = _dc.replace(airport, flat_pack=_flat_pack.detect(airport, law))
     print(f"[{icao}] " + _flat_pack.log_line(icao, airport.flat_pack))
@@ -2258,6 +2262,14 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         for _n in _ds_notes:
             if "no floor (" not in _n:
                 print(f"[{icao}]   [deck-stack] {_n}")
+        # #2065 S1: the free bridges, re-read every replay likewise
+        from auto_patch_v2.planar.free_bridge import attach_free_bridges
+        from auto_patch_v2.planar.free_bridge import log_line as _fb_line
+        _fb_t, _fb_notes = time.perf_counter(), []
+        airport = attach_free_bridges(airport, _objs, _ocache, law, _fb_notes)
+        print(_fb_line(icao, airport.free_bridges, time.perf_counter() - _fb_t))
+        for _n in _fb_notes:
+            print(f"[{icao}]   [free-bridge] {_n}")
     if resume == "classify":
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster

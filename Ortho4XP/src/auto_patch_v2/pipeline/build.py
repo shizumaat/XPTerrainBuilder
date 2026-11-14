@@ -404,6 +404,14 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     for _n in _ds_notes:
         if "no floor (" not in _n:              # walls with no route in them: silent
             _say(f"  [deck-stack] {_n}", out)
+    # #2065 S1: the free-standing bridges, read by their positive witness
+    from ..planar.free_bridge import attach_free_bridges
+    from ..planar.free_bridge import log_line as _fb_line
+    _t_fb, _fb_notes = time.perf_counter(), []
+    airport = attach_free_bridges(airport, pack_objects, ocache, law, _fb_notes)
+    _say("  " + _fb_line(icao, airport.free_bridges, time.perf_counter() - _t_fb), out)
+    for _n in _fb_notes:
+        _say(f"  [free-bridge] {_n}", out)
     # THE FLAT-PACK WITNESS (owner direction 2026-10-20, answers 59-66; spec
     # ``flat-pack-terracing-spec.md`` §1): read once the partition is, a
     # REPORT in phase 1 (``law/flat_pack.toml`` ``terrace = false``).

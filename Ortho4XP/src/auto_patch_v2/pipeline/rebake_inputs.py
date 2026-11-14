@@ -396,7 +396,11 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
                     pm.structures, airport.frame.transformers()[1],
                     zeros=solved_entrance_zeros(pm, law, surf, _to_xy)))
                 + tuple(floor_seats) + tuple(adapted))
+    from ..model.free_bridge import published as _free_published
     return {
+        "free_decks": _free_published(getattr(pm, "free_bridges", ()) or (),
+                                      airport.frame.transformers()[1],
+                                      float(law.tables.structures.bridge.free_end_ground_out_m)),
         "tunnel_objects": _plate_seats(pm, law, seats),
         # one authority per row (``terrain_shaped.row_seats``): a storey
         # shell's row takes its shell's seat alone

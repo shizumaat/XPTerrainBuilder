@@ -386,8 +386,12 @@ def member_is_bridge_deck(u: _t.Any, m: _t.Any) -> bool:
     any frame — §48 (1) (c) stands for it."""
     if not member_is_deck(m):
         return False
+    from ..model.free_bridge import FREE_PLATE
+    # #2065 A2: a FREE bridge's deck (its datum cleared at the plan) is a
+    # bridge deck: out of the wall chain and the contents
     return (frame_is_bridge(u) or str(getattr(m, "deck_kind", "") or "") == "flag"
-            or getattr(m, "deck_datum_z", None) is not None)
+            or getattr(m, "deck_datum_z", None) is not None
+            or str(getattr(m, "plate_kind", "") or "") == FREE_PLATE)
 
 
 #: §16g (10) (2) AMENDED (issue #73, spec-author ruling to lane

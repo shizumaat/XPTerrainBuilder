@@ -32,7 +32,11 @@ _frames``) that
   bridge covers the bridge's approaches too, and KDEN's upper deck (18.0 m
   and 20.8 m past its bridge's ends) read them as the road beneath; and
 * the pack authored the deck at least ``[bridge] clearance_minimum_m`` over
-  its zero: the zero is the road the deck spans.
+  its zero: the zero is the road the deck spans — read AT THE CROSSING, the
+  plate's own height over the road's stations (:func:`_crossing_top`), never
+  the frame's highest plate vertex (OTHH ``Bridge_01``: an abutment top at
+  y 3.53 over the road, an upper surface of 11.56 elsewhere in the frame;
+  a deck over water is no road overpass, 22p / 2026-09-13v).
 
 THE SEAT: the deck's zero sits on the road beneath — the SOLVED surface at
 the road's centreline under the deck, its stations every ``[bridge]
@@ -72,10 +76,6 @@ class _Overpass:
     top_y: float
 
 
-def _key(p) -> XY:
-    return (round(float(p[0]), 3), round(float(p[1]), 3))
-
-
 def _own_route(piece, ways, step: float) -> set[int]:
     """The way ids that are the deck piece's OWN route (#2035): the mapped
     highway chains under ``piece`` (``step`` of slack) that hold a mapped
@@ -85,42 +85,19 @@ def _own_route(piece, ways, step: float) -> set[int]:
     none).  A chain joins ways END TO END: at a bridge's end node (every
     way there stands at the bridge's level), or at a node where exactly two
     ways meet (the way merely split there); a junction of roads at grade
-    ends it.  A road beneath meets no carried way and crosses side to
-    side."""
-    from ..airport.deck_carry import _edges
+    ends it (the join is ``airport/deck_carry.route_chains``).  A road
+    beneath meets no carried way and crosses side to side."""
+    from ..airport.deck_carry import _edges, route_chains
     from .structure_approach import is_bridge
     reach = piece.buffer(step)
     near = [w for w in ways if "highway" in (w.tags or {}) and len(w.points) >= 2
             and LineString(w.points).intersects(reach)]
-    at: dict[XY, set[int]] = {}
-    for k, w in enumerate(near):
-        for p in w.points:
-            at.setdefault(_key(p), set()).add(k)
-    root = list(range(len(near)))
-
-    def find(k: int) -> int:
-        while root[k] != k:
-            root[k] = root[root[k]]
-            k = root[k]
-        return k
-    for k, w in enumerate(near):
-        for p in (w.points[0], w.points[-1]):
-            ks = at[_key(p)]
-            if not reach.contains(Point(p)) or len(ks) < 2:
-                continue
-            ends = [j for j in ks if _key(near[j].points[0]) == _key(p)
-                    or _key(near[j].points[-1]) == _key(p)]
-            if len(ks) == 2 and len(ends) == 2 or any(is_bridge(near[j]) for j in ends):
-                for j in ends:
-                    root[find(j)] = find(k)
-    chains: dict[int, list[int]] = {}
-    for k in range(len(near)):
-        chains.setdefault(find(k), []).append(k)
+    chains = route_chains(near, reach)
     got = _edges(piece)
     ends_ab = None if got is None or got[4] - got[5] <= 2.0 * step else \
         (LineString(got[0]), LineString(got[1]))
     own: set[int] = set()
-    for ks in chains.values():
+    for ks in chains:
         lines = [LineString(near[k].points) for k in ks]
         if any(is_bridge(near[k]) for k in ks) and len(ks) > 1 \
                 or ends_ab is not None and all(any(ln.intersects(e) for ln in lines)
@@ -154,18 +131,43 @@ def _road_under(piece, ways, step: float) -> tuple[tuple[XY, ...], tuple[int, ..
     return tuple(st), tuple(ids)
 
 
+def _crossing_top(dks, cache, piece, stations) -> "float | None":
+    """The deck plate's own height (authored y) where the road beneath
+    crosses ``piece``: over the under-road ``stations``, the highest of the
+    LOWEST plate triangle standing over each (``geom/lowest_face``, read
+    only under a triangle: an edge-on face's plane runs away off it) — the
+    clearance the road passes under where the plate stands highest over
+    it, never the frame's highest plate vertex anywhere: an abutment top
+    under a pylon's upper surfaces is no clearance (spec
+    ``othh-deck-round2-spec.md`` S4; OTHH ``Bridge_01`` reads -2.34 / 3.17 /
+    3.58 over its roads, LGAV ``Bridges1_00``'s ramps 7.15 where they cross).
+    ``None`` where no plate triangle stands over any station."""
+    import numpy as np
+
+    from ..airport.deck_stack import _plate_tris
+    from ..geom.lowest_face import floor_z_at
+    tris = [t for d in dks for t in _plate_tris(d, cache, piece)]
+    if not tris:
+        return None
+    zs = floor_z_at(np.asarray(tris, float).reshape(-1, 3, 3),
+                    [p[0] for p in stations], [p[1] for p in stations])
+    zs = zs[np.isfinite(zs)]
+    return float(zs.max()) if zs.size else None
+
+
 def road_overpasses(objects, cache, classification, airport, law, decks=(),
-                    cut_objects=()) -> tuple[tuple[_Overpass, ...], list[str]]:
+                    cut_objects=(), free=()) -> tuple[tuple[_Overpass, ...], list[str]]:
     """``(every road overpass deck piece, one note per piece read)``
     (module doc).  ``decks`` are the hard-deck bridges already read,
-    ``cut_objects`` the placement ids of every pack object cut."""
+    ``cut_objects`` the placement ids of every pack object cut, ``free`` the
+    free bridges' deck ids (``planar/free_bridge``, #2065 S4): all taken."""
     from .deck_bridge import CellRoles, _beside_a_building, _frames, _plate
     if not objects or cache is None or classification is None:
         return (), []
     br = law.tables.structures.bridge
     step = float(br.abutment_sample_step_m)
     tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
-    taken = {str(d.object_id) for d in decks or ()}
+    taken = {str(d.object_id) for d in decks or ()} | {str(o) for o in free or ()}
     cut = {str(o) for o in cut_objects or ()}
     roles = CellRoles(classification, airport)
     ways = [w for w in airport.osm_ways or () if len(w.points) >= 2]
@@ -191,6 +193,12 @@ def road_overpasses(objects, cache, classification, airport, law, decks=(),
                 continue
             st, ids = _road_under(piece, ways, step)
             if not st:
+                continue
+            at = _crossing_top(dks, cache, piece, st)
+            if at is not None and at < float(br.clearance_minimum_m):
+                notes.append(f"{name}: no road overpass -- its plate stands y {at:+.2f} over "
+                             f"way(s) {list(ids)} (< {float(br.clearance_minimum_m):.2f} m "
+                             f"clearance; the frame's top y {top:+.2f} is not over the road)")
                 continue
             if _beside_a_building(frame, piece, roles):
                 notes.append(f"{name}: a building stands beside it in its frame (22n)")

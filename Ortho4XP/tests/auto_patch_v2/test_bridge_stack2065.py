@@ -411,3 +411,23 @@ def test_a_graded_corridor_cuts_the_faces_it_crosses_but_never_the_airside():
     cut = bridge_corridor_lines(a, LAW, [box(20, -9, 30, 9)])
     assert not any(g.intersects(box(20, -9, 30, 9).buffer(0.4)) for g in cut)
     assert bridge_corridor_lines(types.SimpleNamespace(deck_stacks=()), LAW) == []
+
+
+def test_graded_end_stretch_is_no_bridge_ground_run():
+    """#2065 A3 rule 7 / #1935: a stretch the plate ring of a GRADED end made
+    a bridge carries END_TAG, and bridge_runs reads no run on it (KMCI
+    road-bridge-5 end b: way -5398 lowered 0.57 m under the plate)."""
+    from auto_patch_v2.airport import bridge_ground as BG
+    from auto_patch_v2.airport import deck_carry as DC
+    w = _way(-5, [(0.0, 0.0), (100.0, 0.0)], highway="tertiary")
+    out = DC.bridge_stretches([w], {-5: [("D", box(40, -5, 60, 5))]}, graded_end=True)
+    mid = [p for p in out if p.tags.get("bridge") == "yes"]
+    assert len(mid) == 1 and mid[0].tags.get(DC.END_TAG) == "D"
+    plain = DC.bridge_stretches([w], {-5: [("D", box(40, -5, 60, 5))]})
+    assert not any(p.tags.get(DC.END_TAG) for p in plain)
+
+    class _Dem:  # any read of it fails: a skipped way never samples
+        def __getattr__(self, k):
+            raise AssertionError(f"sampled {k}")
+    ap = types.SimpleNamespace(dem=_Dem(), osm_ways=tuple(mid))
+    assert not len(BG.bridge_runs(ap, LAW))

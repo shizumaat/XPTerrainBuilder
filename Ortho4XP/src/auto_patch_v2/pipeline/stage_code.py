@@ -611,6 +611,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
+        "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
         "auto_patch_v2.model.deck_stack",
         "auto_patch_v2.model.end_area",
@@ -1396,6 +1397,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.walled_plate",
         "auto_patch_v2.constraints.water",
         "auto_patch_v2.constraints.weld_floor",
+        "auto_patch_v2.constraints.yard_edge",
         "auto_patch_v2.constraints.zones",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.author_ground",
@@ -1958,7 +1960,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
 CODE_MODULES["constraints.assembly"] = _mods("""
     airport.hanging_objects airport.object_cut airport.split_level airport.wall_geometry
     geom.vector
-    airport.facade airport.line_solidity classify.edge_line_mint
+    airport.facade airport.line_solidity classify.edge_line_mint constraints.yard_edge
     classify.fence_yard geom.capped_plane
     constraints.deck_stack geom.deck_ground geom.end_line model.deck_ends
     airport.pit_frame
@@ -2310,7 +2312,7 @@ CODE_MODULES["solve"] = _mods("""
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
-    airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
+    airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint constraints.yard_edge
     classify.fence_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground

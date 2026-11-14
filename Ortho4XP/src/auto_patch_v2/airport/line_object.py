@@ -33,21 +33,45 @@ import numpy as np
 
 from . import obj8 as _obj8
 
-__all__ = ["component_shape", "is_line_shaped", "is_line_object", "LineLaw", "Segment", "farthest_point_stations", "segment_by_station"]
+__all__ = ["component_shape", "is_line_shaped", "is_line_object", "LineLaw", "RibbonLaw",
+           "line_law", "ribbon_law", "Segment", "farthest_point_stations", "segment_by_station"]
 
 
-def component_shape(geom: _obj8.ObjGeometry, comp: _obj8.Component
+@_dc.dataclass(frozen=True)
+class RibbonLaw:
+    """The three numbers the GROUND RIBBON reading takes (spec 2068 A3
+    R4), each read where it lives (:func:`ribbon_law`): the shortest
+    panel (``[rebake] line_ribbon_min_panel_m``), the steepest foot or
+    head between two joined columns (``emit.design.bank_slope``) and the
+    highest lowest foot over the file's zero (``[rebake]
+    elevated_base_m``)."""
+
+    min_panel_m: float
+    slope_max: float
+    foot_max_m: float
+
+
+def ribbon_law(law) -> RibbonLaw:
+    """The bound law's :class:`RibbonLaw`."""
+    rb = law.tables.structures.rebake
+    return RibbonLaw(float(rb.line_ribbon_min_panel_m),
+                     float(law.tables.emit.design.bank_slope), float(rb.elevated_base_m))
+
+
+def component_shape(geom: _obj8.ObjGeometry, comp: _obj8.Component,
+                    ribbon: "RibbonLaw | None" = None, max_h: float = math.inf
                     ) -> tuple[float, float, float]:
     """``(length, width, height)`` of one component in the AUTHORED frame:
     the plan-box diagonal, the plan-projected triangle area over it, and
     the height.  ``width`` is 0.0 for a purely vertical sheet (a fence
     panel), which is the strongest line reading there is.
 
-    The height is the y extent, except for a zero-width sheet, whose
-    height is its tallest COLUMN (spec 2068 A2 F0): the extent of the
-    vertices standing at one plan position.  A fence climbing a slope on
-    3.5 m panels is 3.5 m high, not the panel plus the climb; two sheets
-    stacked at one position still read their full height."""
+    The height is the y extent, except for a zero-width sheet that is a
+    GROUND RIBBON (spec 2068 A3 R4, :func:`_ground_ribbon` under
+    ``ribbon`` and the line height ``max_h``), whose height is its
+    tallest COLUMN: a fence climbing a slope on 3.5 m panels is 3.5 m
+    high, not the panel plus the climb.  With no ``ribbon`` law the
+    height is the y extent (the pre-A3 reading)."""
     t = np.asarray(comp.tris)
     v = geom.vertices
     a, b, c = v[t[:, 0]], v[t[:, 1]], v[t[:, 2]]
@@ -57,8 +81,10 @@ def component_shape(geom: _obj8.ObjGeometry, comp: _obj8.Component
     length = math.hypot(float(pts[:, 0].max() - pts[:, 0].min()),
                         float(pts[:, 2].max() - pts[:, 2].min()))
     width = (plan_area / length) if length > 0.0 else 0.0
-    if width <= 0.0:
-        return length, width, _column_height(pts)
+    if width <= 0.0 and ribbon is not None:
+        tallest = _ground_ribbon(v, t, ribbon, max_h)
+        if tallest is not None:
+            return length, width, tallest
     return length, width, float(comp.max_y - comp.min_y)
 
 
@@ -67,28 +93,56 @@ def component_shape(geom: _obj8.ObjGeometry, comp: _obj8.Component
 _COLUMN_GRID_M = 0.01
 
 
-def _column_height(pts: np.ndarray) -> float:
-    """The tallest y extent over the vertices ``pts`` ``(n, 3)`` that share
-    one plan position (x, z on a ``_COLUMN_GRID_M`` grid)."""
-    if pts.shape[0] == 0:
-        return 0.0
-    keys = np.round(pts[:, [0, 2]] / _COLUMN_GRID_M).astype(np.int64)
-    _u, inv = np.unique(keys, axis=0, return_inverse=True)
+def _ground_ribbon(v: np.ndarray, t: np.ndarray, law: RibbonLaw,
+                   max_h: float) -> "float | None":
+    """The tallest column of the vertical sheet ``t`` (triangles into
+    ``v``) when it is a GROUND RIBBON, else ``None``.  All five (spec 2068
+    A3 R4): (1) every column (the vertices at one plan position) carries
+    a foot and a head; (2) the tallest column is under ``max_h``; (3) the
+    shortest is over ``law.min_panel_m``; (4) between two columns a
+    triangle joins, neither foot nor head climbs steeper than
+    ``law.slope_max``; (5) the lowest foot is at or under
+    ``law.foot_max_m`` over the file's zero."""
+    idx = np.unique(t.reshape(-1))
+    if idx.size == 0:
+        return None
+    keys = np.round(v[idx][:, [0, 2]] / _COLUMN_GRID_M).astype(np.int64)
+    u, inv = np.unique(keys, axis=0, return_inverse=True)
     inv = inv.reshape(-1)
-    n = int(inv.max()) + 1
-    lo = np.full(n, np.inf)
-    hi = np.full(n, -np.inf)
-    np.minimum.at(lo, inv, pts[:, 1])
-    np.maximum.at(hi, inv, pts[:, 1])
-    return float((hi - lo).max())
+    lo = np.full(len(u), np.inf)
+    hi = np.full(len(u), -np.inf)
+    np.minimum.at(lo, inv, v[idx][:, 1])
+    np.maximum.at(hi, inv, v[idx][:, 1])
+    panel = hi - lo
+    if not (float(panel.min()) > law.min_panel_m and float(panel.max()) < max_h   # (1)-(3)
+            and float(lo.min()) <= law.foot_max_m):                                # (5)
+        return None
+    col = np.zeros(int(idx.max()) + 1, dtype=np.int64)
+    col[idx] = inv
+    c = col[t]
+    pairs = np.vstack([c[:, [0, 1]], c[:, [1, 2]], c[:, [0, 2]]])
+    pairs = pairs[pairs[:, 0] != pairs[:, 1]]
+    if pairs.size:                                                              # (4)
+        xy = u.astype(float) * _COLUMN_GRID_M
+        d = np.hypot(*(xy[pairs[:, 0]] - xy[pairs[:, 1]]).T)
+        rise = np.maximum(np.abs(lo[pairs[:, 0]] - lo[pairs[:, 1]]),
+                          np.abs(hi[pairs[:, 0]] - hi[pairs[:, 1]]))
+        if bool((rise > law.slope_max * d).any()):
+            return None
+    return float(panel.max())
 
 
-def is_line_shaped(geom: _obj8.ObjGeometry, comp: _obj8.Component, rb) -> bool:
+def is_line_shaped(geom: _obj8.ObjGeometry, comp: _obj8.Component, rb,
+                   ribbon: "RibbonLaw | None" = None) -> bool:
     """One component's verdict (module doc).  A zero-width sheet is a
-    line at any length; a degenerate component (no plan extent) is not."""
+    line at any length; a degenerate component (no plan extent) is not.
+    ``ribbon`` arms the ground-ribbon height (:func:`component_shape`);
+    without it, a :class:`LineLaw` ``rb`` carries its own."""
     if rb.line_object_ratio <= 0.0:
         return False
-    length, width, height = component_shape(geom, comp)
+    if ribbon is None:
+        ribbon = getattr(rb, "ribbon", None)
+    length, width, height = component_shape(geom, comp, ribbon, rb.line_object_max_h)
     if length <= 0.0 or height >= rb.line_object_max_h:
         return False
     if width <= 0.0:
@@ -96,7 +150,8 @@ def is_line_shaped(geom: _obj8.ObjGeometry, comp: _obj8.Component, rb) -> bool:
     return length / width > rb.line_object_ratio
 
 
-def is_line_object(cache: _obj8.ResourceCache, resolved: str, rb) -> bool:
+def is_line_object(cache: _obj8.ResourceCache, resolved: str, rb,
+                   ribbon: "RibbonLaw | None" = None) -> bool:
     """THE RESOURCE's verdict: every genuine component line-shaped, and
     at least one of them (an empty file is not a line object).  The
     caller excludes the structure-seated members (a deck, a plate, a deck
@@ -107,7 +162,7 @@ def is_line_object(cache: _obj8.ResourceCache, resolved: str, rb) -> bool:
     comps = cache.genuine(resolved)
     if geom is None or not comps:
         return False
-    return all(is_line_shaped(geom, c, rb) for c in comps)
+    return all(is_line_shaped(geom, c, rb, ribbon) for c in comps)
 
 
 # ── THE SEGMENT CUT (owner RULINGS 2026-09-11f (2); spec §10) ────────────
@@ -121,6 +176,15 @@ class LineLaw:
 
     line_object_ratio: float
     line_object_max_h: float
+    #: spec 2068 A3 R4: the ground-ribbon law (``None``: the y extent)
+    ribbon: "RibbonLaw | None" = None
+
+
+def line_law(law) -> LineLaw:
+    """The bound law's whole line reading — 10bb's two ``[rebake]`` keys
+    and the ground-ribbon law (:func:`ribbon_law`)."""
+    rb = law.tables.structures.rebake
+    return LineLaw(float(rb.line_object_ratio), float(rb.line_object_max_h), ribbon_law(law))
 
 
 @_dc.dataclass(frozen=True)

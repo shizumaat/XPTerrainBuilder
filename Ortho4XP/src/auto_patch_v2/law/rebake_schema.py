@@ -47,6 +47,11 @@ class Rebake:
     #: disables the class (the pre-10bb reading).
     line_object_ratio: float
     line_object_max_h: float
+    #: spec 2068 A3 R4: the GROUND RIBBON's shortest panel — a vertical
+    #: sheet whose every column stands taller than this (and passes the
+    #: other four clauses, ``line_object.RibbonLaw``) reads its tallest
+    #: column as its height, not its y extent
+    line_ribbon_min_panel_m: float
     line_object_stations_max: int
     #: owner RULINGS 2026-09-10ay (spec §17): the minimum plan EXTENT
     #: along which two parts of ONE anchor plane must meet to ABUT —

@@ -710,6 +710,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.constraints.walled_plate",
     "auto_patch_v2.constraints.water",
     "auto_patch_v2.constraints.weld_floor",
+    "auto_patch_v2.constraints.yard_edge",
     "auto_patch_v2.constraints.zones",
     "auto_patch_v2.emit",
     "auto_patch_v2.emit.graded",

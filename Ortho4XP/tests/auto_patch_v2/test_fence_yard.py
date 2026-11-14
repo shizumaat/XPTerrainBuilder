@@ -43,24 +43,26 @@ APRON = box(0.0, 100.0, 100.0, 130.0)
 
 
 class _Dem:
+    """A constant ground, or ``z(x, y)`` when given a callable."""
+
     def __init__(self, z):
         self.zv = z
 
     def z(self, x, y):
-        return self.zv
+        return self.zv(x, y) if callable(self.zv) else self.zv
 
 
-def _cells(upper=True):
+def _cells(upper=True, za=0.0):
     ev = {UPPER_Y_KEY: 4.5, UPPER_FLOOR_KEY: 0.0, UPPER_UNIT_KEY: 0.0,
-          UPPER_AIR_Z_KEY: 0.0} if upper else {}
+          UPPER_AIR_Z_KEY: za} if upper else {}
     return [Cell(0, "building", "building2", tuple(PAD.exterior.coords)[:-1], (), None, None,
                  "groundside", "building", ev),
             Cell(1, "apron", "pol1", tuple(APRON.exterior.coords)[:-1], (), None, None,
                  "airside", "apron", {})]
 
 
-def _mint(lines, dem=5.0, upper=True):
-    cells = _cells(upper)
+def _mint(lines, dem=5.0, upper=True, za=0.0):
+    cells = _cells(upper, za)
     out = []
 
     def add(r, rf, poly, kind, cn=None, cl=None, evidence=None):
@@ -96,7 +98,8 @@ def test_low_stations_take_no_ground():
         return 0.5 if x <= 20.0 else _base(x, y)
     west = _fence("unit:0:w#0", [(20.0, 80.0), (20.0, 20.0)], base=base)
     rest = _fence("unit:0:r#0", [(20.0, 20.0), (80.0, 20.0), (80.0, 80.0), (20.0, 80.0)])
-    out, st, _c = _mint([west, rest])
+    # the ground follows the fence: low by the west leg, up by the rest
+    out, st, _c = _mint([west, rest], dem=lambda x, y: 0.5 if x <= 21.0 else 5.0)
     yard = unary_union([p for _r, _f, p, _e in out])
     assert out and not yard.intersects(Point(22.0, 50.0))
     assert yard.contains(Point(70.0, 50.0))
@@ -187,3 +190,58 @@ def test_the_yard_edge_stepping_across_its_stand_off_is_a_declared_joint():
     assert joints[0]["height_m"] == pytest.approx(3.0) and joints[0]["pairs"] == 2
     (rec,) = upper_pad_records(pm, LAW, z)
     assert rec["yard"]["faces"] == ["fenceyard:0:building2"] and rec["yard"]["z"] == [37.0, 37.0]
+
+
+def _ratio_case(dem, za=0.0, floor_run=True):
+    """A fence whose west leg stands at the floor (base 0.0) and the rest a
+    storey up: G6' reads the DEM at the floor stations (or T4's ``za``)."""
+    def base(x, y):
+        return 0.0 if x <= 20.0 else _base(x, y)
+    lines = [_fence("unit:0:r#0", [(20.0, 20.0), (80.0, 20.0), (80.0, 80.0), (20.0, 80.0)])]
+    if floor_run:
+        lines.append(_fence("unit:0:w#0", [(20.0, 80.0), (20.0, 20.0)], base=base))
+    return _mint(lines, dem=dem, za=za)
+
+
+@pytest.mark.parametrize("rise, ok", [(4.5, True), (1.35, False), (9.0, False)])
+def test_g6_prime_reads_the_ground_at_the_fences_own_stations(rise, ok):
+    """Spec 2068 A3 R1: the DEM's rise from the floor stations to the upper
+    ones over the fence's own rise is between 0.5 and 1.5 — here 1.0 passes,
+    0.3 and 2.0 refuse; the ratio rides the evidence."""
+    out, st, _c = _ratio_case(lambda x, y: 10.0 + (0.0 if x <= 21.0 else rise))
+    assert bool(out) is ok
+    if ok:
+        assert out[0][3]["yard_g6_ratio"] == pytest.approx(1.0, abs=0.05)
+        assert "yard_dem_m" in out[0][3]
+    else:
+        assert "ground ratio" in st["fence_yard_refused:building2"]
+
+
+def test_g6_prime_falls_back_on_the_airside_ground_with_no_floor_run():
+    """No floor run: T4's ``za`` and the floor ``t`` stand in for F."""
+    out, _st, _c = _ratio_case(14.5, za=10.0, floor_run=False)
+    assert out and out[0][3]["yard_g6_ratio"] == pytest.approx(1.0, abs=0.05)
+    out, st, _c = _ratio_case(14.5, za=13.0, floor_run=False)
+    assert not out and "ground ratio" in st["fence_yard_refused:building2"]
+
+
+def test_g6_prime_refuses_on_nan():
+    out, st, _c = _ratio_case(float("nan"))
+    assert not out and st["fence_yards"] == 0
+
+
+def test_the_plane_never_exceeds_the_pavement_ceiling():
+    """Spec 2068 A3 R2: a fence profile falling 12 % gives a plane capped
+    at ``[common] pavement_max_grade`` (5 %), or refuses on G5's rms read
+    on the capped plane."""
+    cap = float(LAW.tables.common.pavement_max_grade)
+
+    def steep(x, y):
+        return 4.5 - 0.12 * (y - 50.0)
+    out, st, _c = _mint([_fence("unit:0:a#0", RING, closed=True, base=steep)],
+                        dem=lambda x, y: steep(x, y) + 1.0)
+    if out:
+        pl = fy.yard_plane_of(out[0][3])
+        assert math.hypot(pl[1], pl[2]) == pytest.approx(cap, abs=1e-9)
+    else:
+        assert "rms" in st["fence_yard_refused:building2"]

@@ -131,26 +131,50 @@ def _climbing(x_rise, panel, z=0.0):
 
 
 def test_a_fence_climbing_a_slope_is_as_tall_as_its_panel(tmp_path, law):
-    """Spec 2068 A2 F0: a zero-width sheet's height is its tallest COLUMN.
-    The LPPI wire fence climbs 4.15 m on 3.5 m panels — 7.9 m of y extent,
-    3.5 m of fence.  Two 5 m sheets stacked at one position still read 10 m;
-    a boxed wall (plan width) keeps its y extent."""
+    """Spec 2068 A3 R4 (replaces A2 F0): a zero-width sheet's height is its
+    tallest COLUMN only when it is a GROUND RIBBON — every column a foot and
+    a head, the tallest under ``line_object_max_h``, the shortest over
+    ``line_ribbon_min_panel_m``, no foot or head between joined columns
+    steeper than ``emit.design.bank_slope``, the lowest foot at or under
+    ``elevated_base_m``.  Anything else reads its y extent, as on main."""
     rb = law.tables.structures.rebake
+    rib = LO.ribbon_law(law)
     cache = O.ResourceCache(0.05)
-    fence = _obj(tmp_path / "climb.obj",
-                 _climbing([(0.0, 0.0), (10.0, 0.5), (20.0, 1.5), (30.0, 3.0), (40.0, 4.0)], 3.5))
+
+    def reads(path, ribbon=rib):
+        comp = cache.components(path)[0]
+        return (LO.component_shape(cache.geometry(path), comp, ribbon, rb.line_object_max_h)[2],
+                LO.is_line_object(cache, path, rb, ribbon))
+
+    # a 3.5 m sheet climbing 4 m at 20 %: a line, 3.5 m tall
+    fence = _obj(tmp_path / "climb.obj", _climbing([(0.0, 0.0), (10.0, 2.0), (20.0, 4.0)], 3.5))
     comp = cache.components(fence)[0]
     assert comp.max_y - comp.min_y == pytest.approx(7.5)
-    assert LO.component_shape(cache.geometry(fence), comp)[2] == pytest.approx(3.5)
-    assert LO.is_line_object(cache, fence, rb)
+    assert reads(fence) == (pytest.approx(3.5), True)
+    # without the ribbon law (a caller holding none): the y extent, as on main
+    assert reads(fence, None) == (pytest.approx(7.5), False)
+    # the same climb at 50 %: not a ground ribbon
+    steep = _obj(tmp_path / "steep.obj", _climbing([(0.0, 0.0), (4.0, 2.0), (8.0, 4.0)], 3.5))
+    assert reads(steep) == (pytest.approx(7.5), False)
+    # a 1.0 m rail climbing 6 m (at 20 %): its panel is under the minimum
+    rail = _obj(tmp_path / "rail.obj", _climbing([(0.0, 0.0), (15.0, 3.0), (30.0, 6.0)], 1.0))
+    assert reads(rail) == (pytest.approx(7.0), False)
+    # a ribbon whose foot starts 12 m up: elevated, not on the ground
+    high = _obj(tmp_path / "high.obj", _climbing([(0.0, 12.0), (10.0, 14.0), (20.0, 16.0)], 3.5))
+    assert reads(high) == (pytest.approx(7.5), False)
+    # a sheet whose columns carry one level only (a gable): its y extent
+    gable = _obj(tmp_path / "gable.obj", [((0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (5.0, 7.0, 0.0))])
+    assert reads(gable)[0] == pytest.approx(7.0)
+    # two 5 m sheets stacked at one position: 10 m, not a line
     stacked = _obj(tmp_path / "stacked.obj", _sheet(0.0, 40.0, 0.0, 0.0, 5.0)
                    + _sheet(0.0, 40.0, 0.0, 5.0, 10.0))
-    assert LO.component_shape(cache.geometry(stacked),
-                              cache.components(stacked)[0])[2] == pytest.approx(10.0)
-    assert not LO.is_line_object(cache, stacked, rb)
+    assert reads(stacked) == (pytest.approx(10.0), False)
+    # a boxed wall (plan width) keeps its y extent
     wall = _obj(tmp_path / "boxed.obj", _slab(-15.0, 15.0, -1.5, 1.5, 0.0, 2.0))
-    assert LO.component_shape(cache.geometry(wall), cache.components(wall)[0])[2] \
-        == pytest.approx(2.0)
+    assert LO.component_shape(cache.geometry(wall), cache.components(wall)[0], rib,
+                              rb.line_object_max_h)[2] == pytest.approx(2.0)
+    # the LineLaw carries its own ribbon (the placement half's reader)
+    assert LO.is_line_object(cache, fence, LO.line_law(law))
 
 
 # ── the plan (the seat that read it is RETIRED, 2026-09-12s) ─────────────────────────────────────────────────────────────

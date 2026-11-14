@@ -987,6 +987,8 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
     for v, k, terms, bound, val, row in rows[:limit]:
         out(f"--- row {k}  violation {v:.4f} m  gen={row.source.generator}")
         out(f"    ruling: {row.source.ruling[:160]}")
+        if row.source.inputs:
+            out(f"    inputs: {', '.join(map(str, row.source.inputs))[:240]}")
         out(f"    demanded {val:.4f} vs allowed {bound:.4f} (raw {val - bound:+.4f})")
         vs = []
         for vid, c in terms:
@@ -999,6 +1001,7 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
                        "roles": roles})
         recs.append({"row": k, "violation_m": round(v, 6),
                      "generator": row.source.generator, "ruling": row.source.ruling,
+                     "inputs": [str(i) for i in row.source.inputs],
                      "demanded": round(val, 6), "allowed": round(bound, 6),
                      "vertices": vs})
     return {"icao": icao, "stage": stage,
@@ -2305,6 +2308,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         cl = _classify(airport, law, _crules, cache=_ocache)
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
+        # spec 2068 A3: the fence yard's own read (plane, G6' ratio, region)
+        for _k, _v in sorted((getattr(cl, "stats", None) or {}).items()):
+            if str(_k).startswith("fence_yard"):
+                print(f"[{icao}]   [fence-yard] {_k} {_v}")
         # RULINGS 2026-10-30e (#1686): the build's missed-pavement reading
         from auto_patch_v2.classify.centreline_gaps import centreline_pavement_gaps
         for _ln in centreline_pavement_gaps(airport, cl.cells).lines(icao):

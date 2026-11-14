@@ -147,6 +147,10 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     # landing rows and the declared joint carry, never a grade to cap
     from .riser import upper_arm_sets
     r_low, r_high = upper_arm_sets(planar)
+    # a pair holding a fence yard's PROJECTED vertex (spec 2068 A3 R3,
+    # ``constraints/yard_edge``): that vertex is no unknown of the solve
+    from .yard_edge import projected_vertices
+    yard_v = projected_vertices(planar)
     seen: set[tuple[int, int]] = set()
     out: list[Row] = []
 
@@ -165,6 +169,8 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         if a in collar_v or b in collar_v or (a in pinned and b in pinned):
             return
         if (a in r_low and b in r_high) or (a in r_high and b in r_low):
+            return
+        if a in yard_v or b in yard_v:
             return
         (xa, ya), (xb, yb) = xy[a], xy[b]
         d = exact.hypot(xa - xb, ya - yb)

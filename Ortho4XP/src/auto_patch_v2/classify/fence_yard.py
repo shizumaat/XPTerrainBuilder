@@ -20,9 +20,17 @@ Gates (doubt -> nothing, RULINGS 2026-11-13r):
 * G4 a station every ``[edge_lines] station_m`` is UPPER when its base
   stands at or over ``t + (y_p - t) / 2``; upper runs at least
   ``min_run_m`` long carry the plane, which needs rank 3.
-* G5 the plane's rms over the upper stations is at most ``step_min_m``.
-* G6 the yard's DEM median stands at least half the rise over T4's airside
-  ground (``storey_edge.UPPER_AIR_Z_KEY``).
+* G5 the plane's rms over the upper stations is at most ``step_min_m``;
+  the plane's tilt is capped at ``[common] pavement_max_grade`` (spec 2068
+  A3 R2) and the rms read on the capped plane.
+* G6' (spec 2068 A3 R1, replacing A2's G6) the ground confirms the fence's
+  foot AT THE FENCE'S OWN STATIONS: with U the upper stations and F the
+  stations of the unit's fences whose base is within
+  ``split_level.BAND_M`` of the floor ``t``, the DEM's rise
+  ``median DEM(U) - median DEM(F)`` is between half and one and a half
+  times the fence's ``median base(U) - median base(F)``.  F short of
+  ``min_run_m / station_m`` stations reads T4's airside ground
+  (``storey_edge.UPPER_AIR_Z_KEY``) and ``t`` instead; NaN refuses.
 * G7 airside is king: a yard is a LATE cell (``model.planar.is_late_ref``),
   projected after the solve (``solve/project_strip``), never a row.
 
@@ -51,7 +59,7 @@ from shapely.ops import polygonize, unary_union
 
 from ..geom.capped_plane import capped_plane, plane_at
 from ..law import Law
-from ..law.tables import road_family_roles, role_cap
+from ..law.tables import road_family_roles
 from ..model.planar import FENCE_YARD_PREFIX
 from .edge_line_mint import STRIP_ROLE, standing_keep_off
 from .evidence import polygon_parts
@@ -117,7 +125,9 @@ def mint_fence_yards(airport, cells: list, law: Law, rules: Rules, add) -> dict[
             stats["fence_yards"] += 1
             stats["fence_yard_m2"] += round(part.area, 1)
         stats[f"fence_yard:{ref}"] = (f"tilt {info['yard_tilt']:.4f} rms {info['yard_rms']:.3f} "
-                                      f"upper {info['yard_upper']}/{info['yard_stations']}")
+                                      f"upper {info['yard_upper']}/{info['yard_stations']} "
+                                      f"ground ratio {info['yard_g6_ratio']:.3f} "
+                                      f"yard dem {info['yard_dem_m']:.2f}")
     return stats
 
 
@@ -132,25 +142,49 @@ def _yard(airport, cells, law, rules, P, own, y_p, t, za):
     xy = np.array([(s.x, s.y) for s in U], dtype=float).reshape(-1, 2)
     if len(U) < 3 or np.linalg.matrix_rank(np.column_stack([np.ones(len(U)), xy])) < 3:
         return "no rank-3 upper run"
-    cap = role_cap(law, STRIP_ROLE)
     plane = capped_plane(xy, np.array([s.base for s in U]),
-                         float(cap.longitudinal) if cap is not None else 0.0)
+                         float(law.tables.common.pavement_max_grade))       # R2
     res = np.array([s.base for s in U]) - plane_at(plane, xy[:, 0], xy[:, 1])
     rms = float(np.sqrt(np.mean(res ** 2)))
     if rms > float(cfg.step_min_m):
         return f"plane rms {rms:.2f} > {cfg.step_min_m}"         # G5
+    ratio = _ground_ratio(airport, st, up, t, za, float(cfg.min_run_m) / float(cfg.station_m))
+    if not 0.5 <= ratio <= 1.5:                                  # G6' (NaN refuses)
+        return f"ground ratio {ratio:.2f} outside 0.5-1.5"
     region = _region(cells, law, rules, P, own, st, up, U)
     if region.is_empty:
         return "no free ground"
-    zs = _dem_median(airport, region)
-    if not (zs - za >= 0.5 * (y_p - t)):
-        return f"yard ground {zs:.2f} not half the rise over the airside {za:.2f}"   # G6
     info = dict(zip(_YARD_KEYS, (round(v, 6) for v in plane), strict=True))
     info.update(yard_rms=round(rms, 3), yard_stations=len(st), yard_upper=len(U),
+                yard_g6_ratio=round(ratio, 3),
+                yard_dem_m=round(_dem_median(airport, region), 2),
                 yard_tilt=round(math.hypot(plane[1], plane[2]), 4),
                 yard_resid=f"{res.max():+.2f}/{res.min():+.2f}",
                 yard_fences=",".join(sorted({el.id for el in own})))
     return region, info
+
+
+def _ground_ratio(airport, st: list[_Station], up: list[bool], t: float, za: float,
+                  f_min: float) -> float:
+    """G6' (spec 2068 A3 R1): the DEM's rise from the fence's floor
+    stations to its upper ones over the fence's own (module doc)."""
+    from ..airport.dem import dem_z_many
+    from ..airport.split_level import BAND_M
+    dem = getattr(airport, "dem", None)
+    if dem is None or not st:
+        return math.nan
+    base = np.array([s.base for s in st], dtype=float)
+    z = dem_z_many(dem, np.array([s.x for s in st]), np.array([s.y for s in st]))
+    u = np.asarray(up, dtype=bool) & np.isfinite(z)
+    f = (np.abs(base - t) <= BAND_M) & np.isfinite(z)
+    if not u.any():
+        return math.nan
+    if f.sum() >= f_min:
+        dz, db = float(np.median(z[f])), float(np.median(base[f]))
+    else:
+        dz, db = za, t
+    rise = float(np.median(base[u])) - db
+    return (float(np.median(z[u])) - dz) / rise if rise > 0.0 else math.nan
 
 
 def _stations(lines, step: float) -> list[_Station]:

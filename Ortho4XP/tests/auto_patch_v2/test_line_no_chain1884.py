@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import types
 
-from auto_patch_v2.airport.open_frame_seat import (frame_root_boxes,
-                                                   merge_frame_roots,
-                                                   unchained_links)
+from auto_patch_v2.airport.open_frame_seat import (
+    frame_root_boxes,
+    merge_frame_roots,
+    unchained_links,
+)
 
 
 def _sq(x0, y0, s=10.0):

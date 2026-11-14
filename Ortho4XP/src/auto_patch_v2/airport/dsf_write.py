@@ -153,8 +153,7 @@ from .body_files import _body_paths, remove_cut_files, written_body_files
 from .dsf_dump import dump
 from .dsf_rows import duplicate_rows, placement_rows
 from .file_hash import sha256_file
-# #1884 round 2 B3: one definition, beside the pack lock that checks it first
-from .pack_lock import live_install_roots
+from .pack_lock import live_install_roots  # #1884 r2 B3: one definition, beside the pack lock
 
 # ``pristine_dsf_path``, ``dump``, ``placement_rows``, ``duplicate_rows``
 # and the body-file names are the READ side, re-exported under the names
@@ -1239,7 +1238,7 @@ def _guests_home(pack_root: str, result: WriteResult, tool: str,
     missing), said at verbosity 0."""
     if not result.stale_guests:
         return result
-    from . import unpatched_pack as _up        # lazy: it reads this module
+    from . import unpatched_pack as _up  # lazy: it reads this module
     _up.restore_stale_guests(
         pack_root, result.stale_guests, tool,
         allow_live_install=bool(kw.get("allow_live_install", False)),

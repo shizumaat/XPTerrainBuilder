@@ -11,7 +11,6 @@ bodies on ``+47+013`` are GUEST rows of ``+47+013.dsf``, recorded under
 from __future__ import annotations
 
 import pytest
-
 from auto_patch_v2.airport import backup_state as B
 from auto_patch_v2.airport import dsf as D
 from auto_patch_v2.airport import pack_lock as PL
@@ -19,8 +18,7 @@ from auto_patch_v2.airport import placement_write as PW
 from auto_patch_v2.airport import tile_route as TR
 from auto_patch_v2.airport import unpatched_pack as UP
 from auto_patch_v2.model import placement as PM
-from tests.auto_patch_v2.test_backup_state import (
-    _Cut, _objs, _record_doc, _stand_in_dsftool)
+from tests.auto_patch_v2.test_backup_state import _Cut, _objs, _record_doc, _stand_in_dsftool
 
 A, B_ = (47, 12), (47, 13)
 DUMP_A = ("PROPERTY sim/west 12\n"

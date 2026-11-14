@@ -363,6 +363,7 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
     # #598: a no-op outside a build's object stage (the user's command)
     from auto_patch_v2.airport import pack_journal as _pj
     from auto_patch_v2.airport import pack_lock as _lock
+
     from . import pack_copy as _copy
     guard = _copy.write_guard(pack_root)
     with _lock.hold(pack_root, allow_live_install=guard):     # #1884 B3

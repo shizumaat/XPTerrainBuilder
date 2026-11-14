@@ -40,24 +40,30 @@ from shapely.ops import unary_union
 
 from ..geom.parts import nonempty_polygon_parts
 from ..model.planar import STRIP_SUFFIX
+from ..model.registries import GROUP_UP
 
 __all__ = ["GROUP_UP", "plan_group_up", "upper_pad_reads"]
 
-#: the ``witness`` word of an upper pad's level record
-GROUP_UP = "group_up"
 
 
-def upper_pad_reads(cells) -> dict[str, tuple[float, float, int]]:
-    """``{pad ref: (storey base y_p, unit floor t, unit)}`` of the pads the
-    classifier read under an upper storey (``classify/storey_edge``)."""
-    from ..classify.storey_edge import UPPER_FLOOR_KEY, UPPER_UNIT_KEY, UPPER_Y_KEY
+def upper_pad_reads(cells) -> dict[str, tuple[float, float, int, tuple[str, ...]]]:
+    """``{pad ref: (storey base y_p, unit floor t, unit, its arms' refs)}``
+    of the pads the classifier read under an upper storey
+    (``classify/storey_edge``; an arm is a road cut back to climb to its
+    pad, ``ARM_PAD_KEY``)."""
+    from ..classify.storey_edge import ARM_PAD_KEY, UPPER_FLOOR_KEY, UPPER_UNIT_KEY, UPPER_Y_KEY
+    arms: dict[str, list[str]] = {}
+    for c in cells:
+        if ARM_PAD_KEY in (c.evidence or {}):
+            arms.setdefault(str(c.evidence[ARM_PAD_KEY]), []).append(str(c.ref))
     return {c.ref: (float(c.evidence[UPPER_Y_KEY]), float(c.evidence[UPPER_FLOOR_KEY]),
-                    int(c.evidence[UPPER_UNIT_KEY]))
+                    int(c.evidence[UPPER_UNIT_KEY]), tuple(sorted(arms.get(c.ref, ()))))
             for c in cells if c.role == "building" and UPPER_Y_KEY in (c.evidence or {})}
 
 
 def _refuse(counts: dict, ref: str, why: str) -> None:
-    counts.setdefault("upper_pad_refused_list", []).append(f"{ref}: {why}")
+    got = counts.get("upper_pads_refused")
+    counts["upper_pads_refused"] = f"{got}; {ref}: {why}" if got else f"{ref}: {why}"
 
 
 def plan_group_up(out: list, upper: _t.Mapping[str, tuple], air_polys, tree, airport,
@@ -87,7 +93,7 @@ def plan_group_up(out: list, upper: _t.Mapping[str, tuple], air_polys, tree, air
     block_union = {k: unary_union(v) for k, v in blocks.items()}
     done: dict[str, list] = {}
     for ref, regs in sorted(pads.items()):
-        y_p, t, ui = upper[ref]
+        y_p, t, ui = upper[ref][:3]
         P = unary_union([r.polygon for r in regs])
         cand = [k for k, B in block_union.items() if unit_share(B, airport, to_xy)[0] == ui]
         if not cand:
@@ -117,7 +123,8 @@ def plan_group_up(out: list, upper: _t.Mapping[str, tuple], air_polys, tree, air
         reg.landings[lv] = {"block": block, "y": round(y_p - top, 3), "deck": None,
                             "kind": UP_KIND, "pad": ref, "witness": GROUP_UP,
                             "y_p": round(y_p, 3), "top_y": round(top, 3),
-                            "area_m2": round(L.area, 1)}
+                            "area_m2": round(L.area, 1),
+                            "arms": tuple(upper[ref][3:4][0]) if len(upper[ref]) > 3 else ()}
         if H.is_empty:
             held.pop(ref, None)
     counts["upper_pads"] = "; ".join(

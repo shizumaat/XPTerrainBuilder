@@ -23,12 +23,13 @@ lot's contact with the apron ALONG them as a contact across the storey —
 no apron contact (§27 amended).
 
 THE UPPER PAD (RULINGS 2026-11-13aa (1), #2068; spec
-``docs/specs/2068-upper-pad-spec.md`` §1): a pad whose every part of the
-unit stands a storey over its floor, with a walled part at the lowest of
-those bases covering a share of it, over ground that stands that storey
-over the airside the floor meets (:func:`upper_pads`) — the pad under a
-unit's upper storey (a tower on a hill behind its terminal).  Doubt
-refuses (13r).
+``docs/specs/2068-upper-pad-spec.md`` §1, witness T1-T4 of amendment A1
+(3)): a pad no born-airside pavement comes near, only a road §27 flipped
+round it, whose every part of the unit stands a storey over its floor, its
+plinth covering half of it, while another pad of the unit stands at the
+floor and fronts airside pavement, over ground that stands that storey
+over the airside the floor meets (:func:`upper_pads`) — the pad under a unit's upper storey (a tower
+on a hill behind its terminal).  Doubt refuses (13r).
 
 It lives in ``airport`` because ``classify`` reads it before any pad
 exists and ``planar`` reads the same floor rule inside a pad."""
@@ -41,8 +42,8 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-__all__ = ["Storey", "dem_samples", "part_footprint", "unit_floor", "upper_pads",
-           "upper_storeys"]
+__all__ = ["PLINTH_COVER", "Storey", "dem_samples", "part_footprint", "unit_floor",
+           "upper_pads", "upper_storeys"]
 
 
 @_dc.dataclass(frozen=True)
@@ -194,33 +195,58 @@ def _unit_reads(part, near, to_xy) -> list:
     return out
 
 
-def _upper_pad(ref, P, ur: _UnitRead, near, air, dem, law, to_xy) -> "_UpperPad | None":
+#: the share of an upper pad its plinth plane covers (spec 2068 A1 (3) T2)
+PLINTH_COVER = 0.5
+
+
+def _on(ur: _UnitRead, P) -> list:
+    """The unit's solid parts with half their plan or more on ``P``."""
+    return [(p, g) for p, g in ur.parts if g.intersects(P)
+            and g.intersection(P).area >= 0.5 * g.area]
+
+
+def _floor_pad(ref, ur: _UnitRead, pads, air, near_m: float) -> bool:
+    """T3: another pad of the unit whose lowest solid base stands within
+    ``split_level.BAND_M`` of the unit's floor and fronts airside pavement
+    ``air`` (the block the upper pad's level is tied to)."""
+    from .split_level import BAND_M
+    for r, Q in pads:
+        if r == ref or Q is None or Q.is_empty or Q.distance(air) > near_m:
+            continue
+        on = _on(ur, Q)
+        if on and abs(min(p.base_y for p, _g in on) - ur.t) <= BAND_M:
+            return True
+    return False
+
+
+def _upper_pad(ref, P, ur: _UnitRead, near, air, dem, law, to_xy,
+               born, pads) -> "_UpperPad | None":
     """:func:`upper_pads` for one pad ``P`` and one unit, or ``None``."""
-    from ..geom.foot_planes import PLANE_SHARE
     from .split_level import BAND_M
     t = ur.t
     step = float(law.tables.structures.building_pad.low_level_min_step_m)
     wall = float(law.tables.structures.placement.chain_min_height_m)
-    on = [(p, g) for p, g in ur.parts if g.intersects(P)
-          and g.intersection(P).area >= 0.5 * g.area]
+    on = _on(ur, P)
     if not on or any(p.base_y < t + step for p, _g in on):
-        return None                                       # (1)-(2)
+        return None                                       # every part a storey up
     y_p = min(p.base_y for p, _g in on)
     plane = [(p, g) for p, g in on if p.base_y <= y_p + BAND_M]
     cover = unary_union([g for _p, g in plane]).intersection(P).area / P.area
     walled = sum(1 for p, _g in plane if float(getattr(p, "height_m", 0.0) or 0.0) >= wall)
-    if cover < PLANE_SHARE or walled < 1:
-        return None                                       # (3)
+    if cover < PLINTH_COVER or walled < 1:
+        return None                                       # T2, T4 (walled on the plane)
+    if not _floor_pad(ref, ur, pads, air, _near_m(law)):
+        return None                                       # T3
     rise = y_p - t
     floor = [g for p, g in ur.parts if getattr(p, "feet", ()) and round(p.base_y) == t
              and g.intersects(near)]
     zp = dem_samples(dem, P)
     za = dem_samples(dem, air.intersection(unary_union(floor).buffer(_near_m(law))))
     if not zp or not za:
-        return None                                       # (4): no ground
+        return None                                       # T4: no ground
     delta, relief = _st.median(zp) - _st.median(za), max(zp) - min(zp)
     if not (0.5 * rise <= delta <= 1.5 * rise) or relief >= rise:
-        return None
+        return None                                       # T4
     reach = P.buffer(_near_m(law))
     fence = any(getattr(p, "line", False) and p.base_y <= y_p - 0.5 * rise
                 and p.base_y + float(getattr(p, "height_m", 0.0) or 0.0) >= y_p - BAND_M
@@ -236,37 +262,53 @@ def _near_m(law) -> float:
     return float(design_law(law).pad_frontage_m)
 
 
-def upper_pads(airport, law, air, pads) -> list[_UpperPad]:
+def upper_pads(airport, law, air, pads, *, born=None, flipped=None) -> list[_UpperPad]:
     """THE UPPER PADS (module docstring; spec 2068 §1 (1)-(5)) among
     ``pads`` (``(ref, polygon)``, the engine's frame), read against the
     airside pavement ``air``: a pad is under unit ``u``'s upper storey when
     ``u`` has a floor ``t``; every solid part of ``u`` with half its plan
     on the pad stands at least ``low_level_min_step_m`` over ``t``; the
     parts within ``split_level.BAND_M`` of the lowest of those bases
-    ``y_p`` cover ``PLANE_SHARE`` of the pad and one is walled; and the
+    ``y_p`` cover :data:`PLINTH_COVER` of the pad and one is walled; and the
     ground confirms both sides — the pad's DEM median stands half to one
     and a half rises over the median of the airside within
     ``pad_frontage_m`` of the floor's parts, and the pad's own relief is
-    under the rise.  No DEM refuses."""
+    under the rise.  No DEM refuses.
+
+    T1 (spec 2068 A1 (3)): ``born`` is the airside pavement BORN airside
+    (``air`` less the road faces §27 flipped, ``flipped``): no born pavement
+    within ``pad_frontage_m`` of the pad, and the airside there is a
+    flipped road -- the road §27 pulled down round the pad is the case this
+    reader exists for (``classify/storey_edge.arm_storeys``).  MEASURED
+    (U8 census, 76 captures + LPPI): KBWI ``building18/23/33`` and LOWS
+    ``building8`` pass T2-T4 with no flipped road within 400 m of them;
+    LPPI ``building2`` touches ``dsf:pol96``.  T3 (another pad of the unit
+    at its floor fronts airside) reads ``air`` whole: the LPPI terminal's
+    only frontage is that same flipped road (born airside 8.5 m off).
+    Without ``born`` / ``flipped`` T1 reads ``air`` and requires nothing
+    flipped."""
     part = getattr(airport, "partition", None)
     frame = getattr(airport, "frame", None)
     dem = getattr(airport, "dem", None)
     if part is None or frame is None or dem is None or air is None or air.is_empty:
         return []
-    near = air.buffer(_near_m(law))
+    born = air if born is None else born
+    near_m = _near_m(law)
+    near = air.buffer(near_m)
     to_xy = frame.entry()
     units = None
     out: list[_UpperPad] = []
     for ref, P in pads:
-        if P is None or P.is_empty or P.area <= 0.0:
-            continue
+        if P is None or P.is_empty or P.area <= 0.0 or P.distance(born) <= near_m \
+                or (flipped is not None and P.distance(flipped) > near_m):
+            continue                                      # T1
         units = _unit_reads(part, near, to_xy) if units is None else units
         x0, y0, x1, y1 = P.bounds
         for ur in units:
             b = ur.bounds
             if b[0] > x1 or b[2] < x0 or b[1] > y1 or b[3] < y0:
                 continue
-            got = _upper_pad(ref, P, ur, near, air, dem, law, to_xy)
+            got = _upper_pad(ref, P, ur, near, air, dem, law, to_xy, born, pads)
             if got is not None:
                 out.append(got)
                 break

@@ -25,7 +25,12 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["Registries", "FIELDS"]
+__all__ = ["Registries", "FIELDS", "GROUP_UP"]
+
+#: the ``witness`` word of an UPPER PAD's level record in ``landings``
+#: (``planar/group_up``, #2068) — read by ``airport/road_ramp.road_terrace``
+#: (the level a road arm climbs to) and ``constraints/riser``
+GROUP_UP = "group_up"
 
 
 @_dc.dataclass

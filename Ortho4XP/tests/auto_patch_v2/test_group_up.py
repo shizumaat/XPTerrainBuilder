@@ -48,6 +48,8 @@ TERMINAL = _part(0.0, -40.0, 60.0, 0.0, 0.0, height=10.0, feet=24)
 PAD = box(100.0, 0.0, 120.0, 20.0)
 PLINTH = _part(100.0, 0.0, 120.0, 20.0, 4.7)
 BODY = _part(105.0, 5.0, 115.0, 15.0, 4.7, height=12.0)
+TERM_PAD = box(0.0, -40.0, 60.0, 0.0)
+PADS = [("building1", TERM_PAD), ("building2", PAD)]
 
 
 def _airport(parts, dem=None):
@@ -58,7 +60,7 @@ def _airport(parts, dem=None):
 
 
 def _read(parts, dem=None):
-    return upper_pads(_airport(parts, dem), LAW, APRON, [("building2", PAD)])
+    return upper_pads(_airport(parts, dem), LAW, APRON, PADS)
 
 
 def test_a_plinth_and_a_body_on_a_hill_is_an_upper_pad():
@@ -83,7 +85,32 @@ def test_doubt_refuses():
     # no DEM
     ap = _airport([TERMINAL, PLINTH, BODY])
     ap.dem = None
-    assert upper_pads(ap, LAW, APRON, [("building2", PAD)]) == []
+    assert upper_pads(ap, LAW, APRON, PADS) == []
+
+
+def test_witness_t1_t3_refuse():
+    """Spec 2068 A1 (3): T1 born airside within ``pad_frontage_m`` of the
+    pad refuses, and so does a pad no flipped road reaches (KBWI / LOWS);
+    T2 a plinth plane under half the pad; T3 no floor pad of the unit
+    fronting airside."""
+    ap = _airport([TERMINAL, PLINTH, BODY])
+    ring = box(94.0, -6.0, 126.0, 26.0).difference(PAD)          # the flipped road
+    air = unary_union([APRON, ring])
+    got = upper_pads(ap, LAW, air, PADS, born=APRON, flipped=ring)
+    assert [u.ref for u in got] == ["building2"]
+    # T1: born apron beside the pad
+    born = unary_union([APRON, box(120.0, 0.0, 130.0, 20.0)])
+    assert upper_pads(ap, LAW, unary_union([born, ring]), PADS, born=born, flipped=ring) == []
+    # T1: no flipped road at the pad
+    far = box(200.0, 0.0, 210.0, 10.0)
+    assert upper_pads(ap, LAW, unary_union([APRON, far]), PADS, born=APRON, flipped=far) == []
+    # T2: a plinth over 40 % of the pad
+    half = _part(100.0, 0.0, 120.0, 8.0, 4.7)
+    body = _part(105.0, 1.0, 115.0, 7.0, 4.7, height=12.0)
+    assert upper_pads(_airport([TERMINAL, half, body]), LAW, air, PADS, born=APRON,
+                      flipped=ring) == []
+    # T3: no floor pad among the pads
+    assert upper_pads(ap, LAW, air, [("building2", PAD)], born=APRON, flipped=ring) == []
 
 
 def _face():
@@ -106,7 +133,7 @@ def _final():
 
 def test_the_road_round_an_upper_pad_is_cut_back_to_its_arm():
     final = _final()
-    got = arm_storeys(final, _cells(), [("building2", PAD)],
+    got = arm_storeys(final, _cells(), PADS,
                       _airport([TERMINAL, PLINTH, BODY]), LAW, 1.0)
     assert got == {"building2": {UPPER_Y_KEY: 4.7, UPPER_FLOOR_KEY: 0.0, UPPER_UNIT_KEY: 0.0}}
     rest = [f for f in final if f[0] == "apron"]
@@ -117,12 +144,14 @@ def test_the_road_round_an_upper_pad_is_cut_back_to_its_arm():
     assert arm and all(f[4][ARM_PAD_KEY] == "building2" and f[1].startswith("pol1#")
                        and "airside_edge_was" not in f[4] for f in arm)
     assert unary_union([f[2] for f in arm]).distance(PAD) == 0.0
+    # A1 (1): the arm starts beyond the floor pad (the terminal keeps its frontage)
+    assert unary_union([f[2] for f in arm]).distance(TERM_PAD) > 0.0
     assert abs(sum(f[2].area for f in final) - _face().area) < 1e-6
 
 
 def test_no_upper_pad_no_change():
     final = _final()
-    assert arm_storeys(final, _cells(), [("building2", PAD)],
+    assert arm_storeys(final, _cells(), PADS,
                        _airport([TERMINAL, PLINTH]), LAW, 1.0) == {}
     assert len(final) == 1 and final[0][2].equals(_face())
 
@@ -152,7 +181,7 @@ def test_the_upper_pad_is_its_unit_blocks_upper_level():
     counts2: dict = {}
     assert plan_group_up(_regions(), upper, air, STRtree(air),
                          _airport([TERMINAL, PLINTH, BODY]), LAW, 0.5, counts2, reg2) == {}
-    assert counts2["upper_pad_refused_list"] and not reg2.landings
+    assert counts2["upper_pads_refused"] and not reg2.landings
 
 
 def test_the_pad_reading_rides_the_cell():
@@ -160,4 +189,6 @@ def test_the_pad_reading_rides_the_cell():
                               evidence={UPPER_Y_KEY: 4.7, UPPER_FLOOR_KEY: 0.0,
                                         UPPER_UNIT_KEY: 0.0})
     other = types.SimpleNamespace(ref="building1", role="building", evidence={})
-    assert upper_pad_reads([c, other]) == {"building2": (4.7, 0.0, 0)}
+    arm = types.SimpleNamespace(ref="pol1#1", role="service_road",
+                                evidence={ARM_PAD_KEY: "building2"})
+    assert upper_pad_reads([c, other, arm]) == {"building2": (4.7, 0.0, 0, ("pol1#1",))}

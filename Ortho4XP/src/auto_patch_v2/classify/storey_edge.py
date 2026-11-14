@@ -166,12 +166,21 @@ def knife_storeys(final: list[list], cuts: _t.Mapping[int, _t.Any], law: Law,
     return n
 
 
-def _arm(face, pad, others, weld: float, opening: float):
-    """The ARM of ``face`` (spec 2068 §1 Classify): the face less every
-    other airside within its mean width ``2A/P``, opened by ``opening``,
-    the parts within ``weld`` of ``pad``."""
+def _arm(face, pad, others, floors, weld: float, opening: float):
+    """The ARM of ``face`` (spec 2068 §1 Classify, A1 (1)): the face less
+    every other airside pavement ``others`` and every floor pad ``floors``
+    within its mean width ``R = 2A/P`` — so the arm starts beyond every
+    floor pad and the terminal keeps its frontage — opened by ``opening``,
+    the parts within ``weld`` of ``pad``.  Within ``R`` of the upper pad
+    itself a floor pad cuts nothing: a terminal standing beside its tower
+    would otherwise sever the arm from the pad it climbs to (MEASURED LPPI:
+    ``building1`` 1.6 m off ``building2``; cut there, the collar's 604 m2
+    stayed apron against the tower and the arm kept 230 of 834 m2)."""
     R = 2.0 * face.area / face.length
-    far = face.difference(others.buffer(R)) if not others.is_empty else face
+    cut = others.buffer(R) if not others.is_empty else Polygon()
+    if not floors.is_empty:
+        cut = cut.union(floors.buffer(R).difference(pad.buffer(R)))
+    far = face.difference(cut) if not cut.is_empty else face
     far = far.buffer(-opening, join_style="mitre").buffer(opening, join_style="mitre")
     arm = [p for p in polygon_parts(far.intersection(face)) if p.distance(pad) <= weld]
     return unary_union(arm) if arm else None
@@ -189,13 +198,21 @@ def arm_storeys(final: list[list], cells, pads, airport, law: Law,
     from .airside_edge import _ROAD_ROLES
     if airport is None or not pads:
         return {}
-    air_g = [Polygon(c.ring, c.holes) for c in cells
-             if c.role != "building" and c.side == "airside"]
-    ups = upper_pads(airport, law, unary_union(
-        air_g + [f[2] for f in final
-                 if f[0] != "building" and role_side(law, f[0]) == "airside"]), pads)
+    air_c = [(Polygon(c.ring, c.holes),
+              (getattr(c, "evidence", None) or {}).get("airside_edge_was"))
+             for c in cells if c.role != "building" and c.side == "airside"]
+    air_g = [g for g, _w in air_c]
+    air_f = [f for f in final if f[0] != "building" and role_side(law, f[0]) == "airside"]
+    # A1 (3): BORN airside -- every airside face but a road §27 flipped
+    faces = air_c + [(f[2], f[4].get("airside_edge_was")) for f in air_f]
+    born = unary_union([g for g, w in faces if w not in _ROAD_ROLES])
+    flipped = unary_union([g for g, w in faces if w in _ROAD_ROLES])
+    ups = upper_pads(airport, law, unary_union([born, flipped]), pads, born=born,
+                     flipped=flipped)
     if not ups:
         return {}
+    up_refs = {up.ref for up in ups}
+    floors = unary_union([g for r, g in pads if r not in up_refs and g is not None])
     from ..law.tables import design as design_law
     weld = float(law.tables.emit.identity.weld_spacing_m)
     opening = 0.5 * float(design_law(law).pad_frontage_m)
@@ -208,7 +225,7 @@ def arm_storeys(final: list[list], cells, pads, airport, law: Law,
             others = unary_union(air_g + [g[2] for j, g in enumerate(final) if j != i
                                           and g[0] != "building"
                                           and role_side(law, g[0]) == "airside"])
-            arm = _arm(f[2], up.polygon, others, weld, opening)
+            arm = _arm(f[2], up.polygon, others, floors, weld, opening)
             if arm is None:
                 continue
             born = str(f[4]["airside_edge_was"])

@@ -92,6 +92,7 @@ import typing as _t
 from ..airport import dsf as _dsf
 from ..constraints import runway_end_report as _end_report
 from .storey_publication import storey_shell_records
+from .upper_pad_publication import upper_pad_records
 from ..constraints.contiguity import road_station_caps
 from ..constraints.eat import eat_rects as _eat_rects
 from ..constraints.eat import eat_report_rects as _eat_report_rects
@@ -741,6 +742,9 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # #2062 THE STOREY SHELLS (``pipeline/storey_publication``): a
             # REPORT key the drawn check reads; no census family prices it
             "storey_shells": storey_shell_records(planar, airport, z),
+            # #2068 THE UPPER PADS' LEVELS and their rim steps
+            # (``pipeline/upper_pad_publication``): a REPORT key
+            "upper_pads": upper_pad_records(planar, law, z),
             # THE PAD'S RELIEF TARGET (owner RULINGS 2026-09-11j; spec
             # §11a (2)/(4)): ``[[lat, lon, metres above the pad's level],
             # ...``.  Published because the pad's flatness READER
@@ -1103,9 +1107,12 @@ def wall_terrace_joints(planar: PlanarMap, law: Law,
     reports the largest step the solve put across it (each upper vertex with
     its nearest lower partner) and ``agreement_m`` the emitted minus the
     wall — the reading that says the terrace sits where the pack put it."""
+    # #2068 A1 (2) (c): an upper pad's rim step is declared on this channel
+    from .upper_pad_publication import upper_rim_joints
+    rims = upper_rim_joints(planar, law, z)
     walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
     if not walls:
-        return []
+        return rims
     from .ribbon_steps import _to_ll
     to_ll = _to_ll(planar)
     out: list[dict[str, _t.Any]] = []
@@ -1148,7 +1155,7 @@ def wall_terrace_joints(planar: PlanarMap, law: Law,
             r["emitted_step_m"] = round(step_e, 3)
             r["agreement_m"] = round(step_e - h, 3)
         out.append(r)
-    return out
+    return out + rims
 
 
 #: the patch writes elevations to the centimetre: a step read back from

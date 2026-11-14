@@ -1267,6 +1267,12 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
       the pad's ring, so a pad-bordered run is held at the level of the
       stage-1 run it continues (interpolated between two, held flat beyond
       the last) — it never climbs away from the pad it runs beside.
+    * ``level`` — a vertex bordered by an UPPER PAD's level (``planar/
+      group_up``, #2068) rather than a floor pad: ``v -> level ref``; the
+      road climbs to it at the cap (spec 2068 A1 (2) (a),
+      ``constraints/road_ramp.terrace_profile``).  ``rim`` — a road vertex
+      ON that level: ``v -> level ref``, held by the level's landing rows
+      alone (A1 (2) (b)).
     * ``station`` — ``v -> (route, s)`` for every ribbon-owned vertex the
       route frame answers (bordered or bare), and every ribbon vertex the
       ribbon shares with a zone band (``kerb``, see below).
@@ -1293,7 +1299,7 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     (:func:`_across_retaining`)."""
     from ..law.tables import airside_stage_roles
     out: dict[str, dict] = {"foot": {}, "pad": {}, "station": {}, "kerb": {},
-                            "meet": {}, "runway": {}}
+                            "meet": {}, "runway": {}, "level": {}, "rim": {}}
     runway_fam = frozenset(law.tables.precedence.runway_family.members)
     decks = deck_refs(pm)
     roads = _road_roles(law)
@@ -1311,6 +1317,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     # reaches it — and it stood 4.0 m over the runway edge 24 m away
     # (v367 8.54 m, runway 4.52 m) on a strip whose outer edge is at 4.0 m.
     kerb = pm.band_kerb_vertices(stage1)
+    # A1 (2) (a): a road bordered by an UPPER PAD's level climbs to it
+    ups = _upper_levels(pm)
     pads = frozenset(r for r in contact_roles(law)
                      if role_side(law, r) == "airside" and r not in stage1)
     feet = _feet_index(pm, law, stage1 | pads)
@@ -1431,7 +1439,30 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
         pad = sorted((d, ref) for ref, (d, *_x) in fs.items()
                      if feet.role_of.get(ref) in pads)
         if pad:
-            out["pad"][v] = pad[0][1]
+            out["level" if pad[0][1] in ups else "pad"][v] = pad[0][1]
+    out["rim"] = _upper_rims(pm, ups, ribbon_v)
+    return out
+
+
+def _upper_levels(pm: PlanarMap) -> frozenset[str]:
+    """The refs of the UPPER PADS' levels (``planar/group_up``, #2068)."""
+    from ..model.registries import GROUP_UP
+    lands = getattr(getattr(pm, "registries", None), "landings", None) or {}
+    return frozenset(r for r, rec in lands.items() if rec.get("witness") == GROUP_UP)
+
+
+def _upper_rims(pm: PlanarMap, ups: _t.AbstractSet[str],
+                road_v: _t.AbstractSet[int]) -> dict[int, str]:
+    """``{road vertex on an upper pad's level: the level's ref}`` — the
+    level's RIM, held by the level's landing rows alone (spec 2068 A1
+    (2) (b))."""
+    out: dict[int, str] = {}
+    for f in pm.faces.values():
+        if str(f.ref) in ups:
+            for cyc in (f.ring, *f.holes):
+                for v in pm.ring_vertices(cyc):
+                    if v in road_v:
+                        out.setdefault(v, str(f.ref))
     return out
 
 

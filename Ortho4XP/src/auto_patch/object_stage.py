@@ -108,7 +108,21 @@ def _facade_surface(mesh_sample, dump, pack_root: str, surface):
     when its box already holds them, else a reading of the same mesh
     widened to them (a 6 km shoreline facade outruns the objects' box)."""
     from auto_patch_v2.airport import facade_seat as _fs
-    box = _fs.candidates_box(_fs.candidates(dump, pack_root))
+    return _widened(mesh_sample, _fs.candidates_box(_fs.candidates(dump, pack_root)),
+                    surface)
+
+
+def _agp_surface(mesh_sample, dump, pack_root: str, surface):
+    """#2090: the built mesh over the pack's on-ground ``.agp`` ground
+    points, carrying ``surface``'s graded roles (the group governor)."""
+    from auto_patch_v2.airport import agp_ground as _ag
+    return _widened(mesh_sample, _ag.ground_box(_ag.candidates(dump, pack_root)),
+                    surface)
+
+
+def _widened(mesh_sample, box, surface):
+    """``surface`` when its box already holds ``box``, else a reading of
+    the same mesh widened to it (the roles ``surface`` carries kept)."""
     have = getattr(mesh_sample, "bounds", None)
     path = getattr(mesh_sample, "mesh_path", None)
     if box is None or have is None or path is None or (
@@ -117,7 +131,11 @@ def _facade_surface(mesh_sample, dump, pack_root: str, surface):
         return surface
     wide = (min(have[0], box[0]), min(have[1], box[1]),
             max(have[2], box[2]), max(have[3], box[3]))
-    return _placement_surface(mesh_placement_sampler(path, wide))
+    out = _placement_surface(mesh_placement_sampler(path, wide))
+    for k in ("roles", "rolled_on"):
+        if hasattr(surface, k):
+            setattr(out, k, getattr(surface, k))
+    return out
 
 
 def _sampler_bounds(plan_, patch_dir: str) -> tuple[float, float, float, float]:
@@ -675,6 +693,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             approach_reach_m=float(law.tables.runway_ends.approach_reach_m),
             approach_heading_deg=float(law.tables.runway_ends.peer_parallel_deg),
             facade_surface=_facade_surface(mesh_sample, dump, target_root, _surface),
+            agp_surface=_agp_surface(mesh_sample, dump, target_root, _surface),
             engine_version=_engine_version(), law_digest=digest,
             write_cuts=bool(write_enabled and not measure_only),
             # §9a (#2063 round 3, RULINGS 2026-11-13y (5)): an object 2 m
@@ -774,6 +793,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                  f"round trip {'ok' if res.dsf.report.ok else 'FAILED'}), dump cache "
                  f"{'refreshed' if res.dump_refreshed else 'not refreshed'} -> "
                  f"{os.path.basename(res.plan_path)}")
+    for _a in getattr(plan, "agp_seats", ()):                       # #2090
+        UI.vprint(1, f"  [v2 placement] {plan_.icao}: .agp row {_a.index} "
+                     f"{_a.resource} lifted {_a.lift_m:+.2f} m (ground "
+                     f"{_a.ground_z:.2f} -> datum {_a.need_z:.2f}) to meet row "
+                     f"{_a.governor} at its connector floor")
     if plan.facade_seats:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: {len(plan.facade_seats)} "
                      f"graded facade(s) lowered onto their drawn ground "
@@ -781,7 +805,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     out = dict(res.counts)
     out.update({k: v for k, v in c.items() if k.startswith("class_")})
     out.update({k: v for k, v in dict(plan.provenance.counts).items()
-                if k.startswith("graded_facade")})
+                if k.startswith(("graded_facade", "agp_"))})
     out["packs_written"] = 1
     if siblings:
         out["sibling_packs_written"] = _sib.write(

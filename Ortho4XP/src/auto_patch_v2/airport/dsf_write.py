@@ -318,6 +318,38 @@ def _facade_rows(lines: _t.Sequence[str], plan: PlacementPlan
     return out, [f"POLYGON_DEF {r}{_eol(lines)}" for r in new_res], after
 
 
+def _agp_defs(plan: PlacementPlan, by_ordinal: _t.Mapping[int, tuple],
+              defs: _t.Sequence[str], edited: _t.AbstractSet[int], first: int,
+              pack_root: str | None) -> dict[int, str]:
+    """#2090: ``{placement ordinal: new OBJECT_DEF index}`` for the plan's
+    lifted ``.agp`` rows (the copies are appended from index ``first``).
+    Raises ``ValueError`` when a seat does not describe this dump, or
+    names a row that is split, row-seated or dropped."""
+    from .obj8 import same_resource
+    seats = getattr(plan, "agp_seats", ())
+    if not seats:
+        return {}
+    order = plan.new_agps()
+    out: dict[int, str] = {}
+    for a in seats:
+        if a.index not in by_ordinal:
+            raise ValueError(f"plan names an .agp row this dump does not have: "
+                             f"{a.index}")
+        if a.index in edited:
+            raise ValueError(f".agp row {a.index} is also split, row-seated "
+                             f"or dropped")
+        toks = by_ordinal[a.index][1]
+        if toks[0] not in (KIND_ON_GROUND, KIND_MSL):
+            raise ValueError(f".agp row {a.index}: a {toks[0]} row is never "
+                             f"lifted (Q-31: on the ground only)")
+        res = defs[int(toks[1])]
+        if not same_resource(res, a.resource, pack_root):
+            raise ValueError(f".agp row {a.index}: dump resource {res!r}, plan "
+                             f"says {a.resource!r}")
+        out[a.index] = str(first + order.index(a.new_resource))
+    return out
+
+
 def _eol(lines: _t.Sequence[str]) -> str:
     for raw in lines:
         if raw.endswith("\r\n"):
@@ -467,6 +499,10 @@ def edit_dump(text: str, plan: PlacementPlan,
     eol = _eol(lines)
     new_res = plan.new_resources()
     new_index = {r: len(defs) + k for k, r in enumerate(new_res)}
+    # #2090: an .agp row re-pointed at its lifted copy, kept on the ground
+    agp_def = _agp_defs(plan, by_ordinal, defs, set(spl) | set(msl) | drop,
+                        len(defs) + len(new_res), pack_root)
+    new_res = new_res + getattr(plan, "new_agps", tuple)()
 
     edits: dict[int, list[str]] = {}
     for o, i, toks in rows:
@@ -476,7 +512,8 @@ def edit_dump(text: str, plan: PlacementPlan,
             # OBJECT_MSL/AGL idx lon lat z hdg -> OBJECT idx lon lat hdg
             # (tokens copied verbatim: no coordinate is re-formatted)
             hdg = toks[5] if len(toks) > 5 else "0.000000"
-            edits[i] = [" ".join((KIND_ON_GROUND, toks[1], toks[2], toks[3], hdg)) + eol]
+            edits[i] = [" ".join((KIND_ON_GROUND, agp_def.get(o, toks[1]), toks[2],
+                                  toks[3], hdg)) + eol]
         elif o in msl and msl[o].why == HIDDEN:
             edits[i] = []                       # #1914 A7: a hidden cut shell
         elif o in msl:
@@ -490,6 +527,8 @@ def edit_dump(text: str, plan: PlacementPlan,
         elif o in spl:
             edits[i] = [_body_row(toks, b, new_index[b.new_resource]) + eol
                         for b in spl[o].bodies]
+        elif o in agp_def:
+            edits[i] = [" ".join([toks[0], agp_def[o]] + list(toks[2:])) + eol]
 
     poly_rows, poly_defs, poly_at = _facade_rows(lines, plan)
     edits.update(poly_rows)
@@ -1198,6 +1237,7 @@ def missing_body_files(pack_root: str, plan: _t.Any) -> list[str]:
     not a file in the pack — the DSF would reference art nothing wrote
     (#1214 round 3, R1: the owner's 1.0.417 LFPG and KMCI DSFs named 21)."""
     facades = getattr(plan, "new_facades", tuple)()           # #2042
+    facades = tuple(facades) + tuple(getattr(plan, "new_agps", tuple)())  # #2090
     return [r for r in tuple(plan.new_resources()) + tuple(facades)
             if not os.path.isfile(os.path.join(pack_root, *r.replace("\\", "/").split("/")))]
 
@@ -1481,7 +1521,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         for f in body_files)
     # #1703: a split a hand-set seat stands over keeps its bodies — the
     # record still names them, and clearing the seat writes them again
-    live_res = set(composed.new_resources()) | set(composed.new_facades())
+    live_res = set(composed.new_resources()) | set(composed.new_facades()) \
+        | set(composed.new_agps())
     undone_res = asked - set(plan.new_resources())       # #1246
     orphaned: list[str] = [b for b in own_bodies if b in undone_res]
     own_bodies = [b for b in own_bodies if b not in undone_res]

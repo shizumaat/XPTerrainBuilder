@@ -268,6 +268,8 @@ def gate(args):
         patch_nodes(patch), lambda x, y: DC.mesh_z(sampler, x, y),
         (int(tile[:3]), int(tile[3:])), set(pavement_roles(Law.for_airport(args.icao))))
     rep["objects"] = _objects(args, sampler, dsfs)
+    _agp_joins(rep, tile, sampler,
+               [parse_site(t) for t in getattr(args, "site", None) or ()])
     sites = [parse_site(t) for t in getattr(args, "site", None) or ()]
     if sites:
         import O4_File_Names as FNAMES
@@ -310,6 +312,37 @@ def _objects(args, sampler, dsfs):
                          f"row here (a tile this build did not write?)"
                          if elsewhere else ""))
     return out
+
+
+def _agp_joins(rep, tile, sampler, sites=()):
+    """#2090: the joined .agp groups of the written pack, judged at their
+    floor joints (``tools/drawn_agp.py``) -- part of the objects layer."""
+    obj = rep["objects"]
+    root = obj.get("pack_root")
+    if not root or "no --pack-copy" in obj.get("why", ""):
+        return
+    from drawn_agp import join_rows, lifted_or_near, written_rows
+    from drawn_site import dsftool
+    try:
+        dump = written_rows(root, tile, dsftool())
+    except (OSError, RuntimeError, SystemExit) as exc:
+        obj["agp_joins_why"] = str(exc)
+        return
+    if dump is None:
+        return
+    rows = join_rows(dump, root, lambda lon, lat: DC.mesh_z(sampler, lon, lat),
+                     lifted_or_near(sites))
+    if not rows:
+        return
+    obj.setdefault("sites", []).extend(rows)
+    obj["failed"] = obj.get("failed", 0) + sum(r["verdict"] == "FAIL" for r in rows)
+    obj["claimed"] = obj.get("claimed", 0) + sum(r["verdict"] in ("PASS", "FAIL")
+                                                 for r in rows)
+    if obj["failed"]:
+        obj["verdict"] = "FAIL"
+    elif obj["verdict"] == "NOT MEASURED" and obj["claimed"]:
+        obj["verdict"] = "PASS"
+        obj.pop("why", None)
 
 
 def _verdict(rep, t0):
@@ -431,6 +464,12 @@ def print_gate(rep, top=20):
           f"{obj['failed']} of {obj['claimed']} claimed sites FAIL"))
     for s in [s for s in obj.get("sites", []) if s.get("verdict") == "FAIL"][:top]:
         print(f"     FAIL {s['site']} @{s['lat']},{s['lon']}: {'; '.join(s['fails'])}")
+    for s in [s for s in obj.get("sites", []) if str(s.get("site", "")).startswith("join ")
+              and s.get("verdict") != "FAIL"][:top]:
+        apart = "unread" if s["delta"] is None else f"{s['delta']:+.2f} m apart"
+        print(f"     {s['verdict']} {s['site']} @{s['lat']},{s['lon']}: joined floors "
+              f"{apart} (datums {s['datums'][0]:.2f} / "
+              f"{s['datums'][1]:.2f}, step {s['step']:+.2f}; .agp, #2090)")
     roads = rep.get("roads")
     if roads:
         print(f"  roads {roads['verdict']}: {roads['failed']} site(s) over a "

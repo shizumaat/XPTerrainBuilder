@@ -5,23 +5,17 @@ full (owner 2026-11-11T15:32Z, RULINGS 2026-11-11l item 5):
     when the disk budget is full and drop their imagery so they can be
     quickly rebuilt on demand"
 
-The per-tile rebuild data tier of the one disk budget (RULINGS 2026-11-10d
-(3), the last tier: ``storage_budget.TIERS``) runs :func:`evict` as its
-``TIER_HOOKS`` entry.  Within it, oldest first and favorites last (10d,
-10c), a BUILT tile that grades an airport is shrunk to its ``.xptb``
-package (``tile_bundle.package.save_package``: its downloaded inputs, no
-imagery) in the local package store (:func:`store_dir`) instead of
-simply losing its rebuild data: the package is written, then the tile's
-rebuild data, its own downloaded inputs (now in the package) and its
-sharp imagery go.  The tile's DSF and its patches stay (the floor,
-10d (2)).  A tile that cannot be packaged (its inputs are gone) loses
-its rebuild data as before, and the rest of the tier is the rebuild
-store's oldest-first eviction.
-
-So that the inputs are still there when the rebuild tier comes, the
-elevation and map extract tier (earlier in 10d's order) keeps the own
-inputs of those tiles (:func:`guarded_inputs`): they leave compressed,
-in the package, rather than one by one.
+When the disk budget reaches a tile in its priority order (RULINGS
+2026-11-10d, refined by #2087: ``storage_priority``, oldest tile first,
+favorites last) and that tile is a BUILT tile that grades an airport
+(:func:`_candidates`), it is shrunk to its ``.xptb`` package
+(``tile_bundle.package.save_package``: its downloaded inputs, no
+imagery) in the local package store (:func:`store_dir`) by
+:func:`_package_tile` instead of simply losing its rebuild data: the
+package is written, then the tile's rebuild data, its own downloaded
+inputs (now in the package) and its sharp imagery go.  The tile's DSF
+and its patches stay (the floor, 10d (2)).  A tile that cannot be
+packaged (its inputs are gone) loses its rebuild data as before.
 
 :func:`packaged` is the record of which tiles are packaged
 (``<store>/packaged.json``); :func:`restore` installs a tile's package
@@ -42,7 +36,7 @@ import typing as _t
 import O4_File_Names as FNAMES
 
 __all__ = ["KIND", "STORE_DIR", "store_dir", "packaged", "remember",
-           "guarded_inputs", "evict", "restore"]
+           "restore"]
 
 #: The store row of the packages (``storage.STORES``).
 KIND = "tile_packages"
@@ -141,18 +135,6 @@ def _candidates() -> list:
     return out
 
 
-def guarded_inputs() -> set:
-    """The own downloaded inputs of every :func:`_candidates` tile, as
-    ``os.path.normcase`` absolute paths: the elevation and map extract
-    tier leaves them for the package."""
-    from tile_bundle import inputs as INPUTS
-    keep = set()
-    for c in _candidates():
-        keep |= {os.path.normcase(os.path.abspath(p))
-                 for p in INPUTS.own_files(c["lat"], c["lon"])}
-    return keep
-
-
 def _store_of(path: str):
     """The ``storage`` store a cache file lies in (``None`` outside)."""
     from . import storage as STORAGE
@@ -169,13 +151,17 @@ def _store_of(path: str):
     return best[1] if best else None
 
 
-def _drop(paths, sweep, now: float) -> int:
+def _drop(paths, sweep, now: float, keep: "set | None" = None) -> int:
     """Delete ``paths`` through ``sweep``, each booked on its store and
     under its store's rules (``storage._deletable``: no config, lock or
-    patch, nothing written in the last hour)."""
+    patch, nothing written in the last hour), except those of ``keep``
+    (normalised: another tile's build reads them)."""
     from . import storage as STORAGE
     freed = 0
+    keep = keep or set()
     for path in paths:
+        if os.path.normcase(os.path.abspath(path)) in keep:
+            continue
         store = _store_of(path)
         try:
             st = os.lstat(path)
@@ -209,10 +195,12 @@ def _drop_sharp(lat: int, lon: int, sweep, now: float) -> int:
     return int(result.get("freed_bytes") or 0)
 
 
-def _package_tile(candidate: dict, sweep, now: float) -> "dict | None":
+def _package_tile(candidate: dict, sweep, now: float,
+                  keep: "set | None" = None) -> "dict | None":
     """Shrink one :func:`_candidates` tile to its package (module doc);
     ``{"freed_bytes", "package_bytes", "path"}``, or ``None`` when it
-    cannot be packaged (nothing is dropped then).  The package is written
+    cannot be packaged (nothing is dropped then); ``keep``: inputs a
+    protected tile's build reads (``storage_priority``) stay.  The package is written
     through the sweep's package-first pass (``o4_engine.package_first``),
     so the drops below do not package the tile again."""
     from tile_bundle import inputs as INPUTS
@@ -229,7 +217,7 @@ def _package_tile(candidate: dict, sweep, now: float) -> "dict | None":
     elif done["action"] == "kept":
         size = int((packaged().get(key) or {}).get("package_bytes") or 0)
     freed = _drop(_rebuild_files(candidate["cache"]), sweep, now)
-    freed += _drop(INPUTS.own_files(lat, lon), sweep, now)
+    freed += _drop(INPUTS.own_files(lat, lon), sweep, now, keep)
     freed += _drop_sharp(lat, lon, sweep, now)
     if not sweep.dry_run:
         remember(key, path=path, package_bytes=size, freed_bytes=freed,
@@ -239,27 +227,6 @@ def _package_tile(candidate: dict, sweep, now: float) -> "dict | None":
                           % (key, freed, size))
     return {"freed_bytes": freed - (size if done["action"] == "packaged" else 0),
             "package_bytes": size, "path": path}
-
-
-def evict(over_by: int, sweep, now: float) -> int:
-    """The rebuild data tier (``storage_budget.TIER_HOOKS``): package
-    candidates until ``over_by`` bytes are freed, then the rebuild
-    store's own oldest-first eviction for the rest; the bytes freed."""
-    from . import storage as STORAGE
-    freed = 0
-    for candidate in _candidates():
-        if freed >= over_by:
-            break
-        if sweep.abort():
-            sweep.stopped = True
-            return freed
-        done = _package_tile(candidate, sweep, now)
-        if done is not None:
-            freed += done["freed_bytes"]
-    if freed < over_by:
-        freed += STORAGE._evict_oldest([STORAGE._BY_KIND[STORAGE.REBUILD]],
-                                       over_by - freed, sweep, now)
-    return freed
 
 
 def restore(lat: int, lon: int,

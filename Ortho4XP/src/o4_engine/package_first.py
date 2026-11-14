@@ -12,9 +12,9 @@ paths:
 
 * every storage sweep (``storage._Sweep.delete``): Free space by hand
   (``storage_clear``), the automatic cleanup and the cache caps, and
-  the disk budget's tiers — the elevation and map tier and the rebuild
-  data tier (whose older airport tiles ``storage_packages`` shrinks to
-  their package, through the same :class:`Pass`).  A file of the
+  the disk budget's tile-priority clearing (``storage_priority``, whose
+  older airport tiles ``storage_packages`` shrinks to their package,
+  through the same :class:`Pass`).  A file of the
   rebuild, elevation or per-tile map store names the tiles it belongs to
   (:func:`_tiles_of`);
 * Library ▸ Delete (``library.library_delete``) and Library ▸ Free

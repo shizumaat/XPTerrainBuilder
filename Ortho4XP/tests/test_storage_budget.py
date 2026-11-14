@@ -16,6 +16,7 @@ import O4_File_Names as FNAMES  # noqa: E402
 import pytest  # noqa: E402
 from o4_engine import storage as ST  # noqa: E402
 from o4_engine import storage_budget as TOTAL  # noqa: E402
+from o4_engine import storage_priority as PRIORITY  # noqa: E402
 from o4_engine import storage_range as RANGE  # noqa: E402
 from test_storage_settings import _write, root  # noqa: E402,F401
 
@@ -91,7 +92,8 @@ def test_tiers_go_cheapest_first_and_the_floor_stays(monkeypatch):
     assert figures["recommended_bytes"] == floor + TOTAL.ROOM_MIN_BYTES
     used = figures["used_bytes"]
     # 2.5 cache files over 90 % of the budget: tmp (old first) and then
-    # the masks go; elevation (a later tier) stays.
+    # the masks go; elevation (a later tier) stays.  All three are shared
+    # data (in no tile folder: ``storage_priority``), cleared first.
     _budget(monkeypatch, int((used - 2.5 * BLOCK) / 0.9) + 1)
     out = TOTAL.hold(ST._Sweep(False, "budget", None), time.time())
     assert out["over_budget"]
@@ -174,13 +176,15 @@ def test_the_minimum_counts_world_placeholders_pack_tiles_and_airport_packages(
 def test_the_recommended_minimum_is_half_again_above_50_gb():
     assert TOTAL._recommended_bytes(10**9) == 10**9 + TOTAL.ROOM_MIN_BYTES
     assert TOTAL._recommended_bytes(400 * 10**9) == 600 * 10**9
-    assert [t[0] for t in TOTAL.TIERS] == ["tmp", "imagery", "dsf_dumps",
-                                           "elevation", ST.ONDEMAND,
-                                           TOTAL.REBUILD_DATA]
+    # #2087: shared data cheapest first, then each tile cheapest first.
+    assert [t[0] for t in PRIORITY.SHARED_TIERS] == ["tmp", "imagery", "dsf_dumps",
+                                                     "elevation", ST.REBUILD]
+    assert [t[0] for t in PRIORITY.TILE_STEPS] == ["imagery", "masks", "elevation",
+                                                   ST.ONDEMAND, ST.REBUILD]
 
 
 def test_the_rebuild_store_is_the_last_tier_and_clears_its_cfg_backups():
-    assert TOTAL.TIERS[-1] == (ST.REBUILD,)
+    assert PRIORITY.TILE_STEPS[-1] == (ST.REBUILD,)
     store = ST._BY_KIND[ST.REBUILD]
     old = os.stat(__file__)
     later = old.st_mtime + 10 * ST.IN_FLIGHT_SECONDS

@@ -56,8 +56,8 @@ from .structure_geometry import RampGeometry, ring_for, snap_out
 from .structure_underpass import UNDERPASS_TAG
 
 __all__ = ["Skew", "k_deck_ref", "place_mouth", "ring_stations", "sheared_ring",
-           "shear_geometry", "skewed_box", "member_roads", "survey_floor", "under_deck_band",
-           "under_deck_blade", "station_axis"]
+           "skewed_box", "member_roads", "survey_floor", "under_deck_band",
+           "under_deck_blade"]
 
 #: Plan step (m) a member's line is walked to find where it crosses L.
 _WALK_M = 0.5
@@ -173,7 +173,7 @@ def place_mouth(deck_pts: _t.Sequence[XY], deck_ref: str, members: _t.Sequence,
     # L ∩ axis: m + t u with (m + t u - anchor) . n_out = 0
     t = ((anchor[0] - m[0]) * n_out[0] + (anchor[1] - m[1]) * n_out[1]) / (
         u[0] * n_out[0] + u[1] * n_out[1])
-    new = station_axis(axis, inward, t)
+    new = _station_axis(axis, inward, t)
     m0 = tuple(new.coords[0])
     return Skew((m0[0], m0[1]), u, n, e, sigma, t, deck_ref, (anchor[0], anchor[1])), new, (
         f"#1939 R1: mouth on the covered-extent edge along deck {deck_ref} "
@@ -181,7 +181,7 @@ def place_mouth(deck_pts: _t.Sequence[XY], deck_ref: str, members: _t.Sequence,
         f"{'out' if t >= 0.0 else 'in'} {abs(t):.1f} m along the axis")
 
 
-def station_axis(axis: LineString, inward: XY, t: float) -> LineString:
+def _station_axis(axis: LineString, inward: XY, t: float) -> LineString:
     """``axis`` starting ``t`` m out along itself (``t < 0``: into the bore,
     along ``inward``)."""
     if t >= 0.0:
@@ -208,7 +208,7 @@ def _perp(edge: LineString, p: XY) -> float:
     return abs((p[0] - x0) * (y1 - y0) - (p[1] - y0) * (x1 - x0)) / L
 
 
-def shear_geometry(g: RampGeometry, sk: Skew, rim_off: float, grid: float
+def _shear_geometry(g: RampGeometry, sk: Skew, rim_off: float, grid: float
                    ) -> RampGeometry | None:
     """``g`` sheared onto the mouth edge (every field), snapped to the grid
     away from the axis, its cap pushed until it stands ``rim_off``
@@ -267,13 +267,13 @@ def sheared_ring(sk: Skew | None, c, axis_fn, ss: list[float], half: float, rim_
                  inward: XY, grid: float, g, half_fn=None) -> RampGeometry | None:
     """``structure_geometry.ring_for`` with R1's shear: the square ring is
     built with its cap ``Skew.back(rim_off)`` behind the mouth line, then
-    sheared (:func:`shear_geometry`).  ``sk`` ``None`` (or no shear): the
+    sheared (:func:`_shear_geometry`).  ``sk`` ``None`` (or no shear): the
     square ring, unchanged."""
     if sk is None or sk.sigma == 0.0:
         return ring_for(c, axis_fn, ss, half, rim_off, inward, grid, g, half_fn)
     gm = ring_for(c, axis_fn, ss, half, rim_off, inward, grid,
                   _dc.replace(g, cap_off=sk.back(rim_off)), half_fn)
-    return None if gm is None else shear_geometry(gm, sk, rim_off, grid)
+    return None if gm is None else _shear_geometry(gm, sk, rim_off, grid)
 
 
 def skewed_box(seg: LineString, s_pt: XY, half: float, rim_off: float, sk: Skew) -> Polygon:

@@ -286,17 +286,19 @@ def _ring_ends(interior: Polygon, wall, probe_m: float) -> tuple[list[list[int]]
     return runs, ring
 
 
-def _graded_share(v: np.ndarray, plates: np.ndarray, interior: Polygon, ob) -> float:
+def _graded_share(v: np.ndarray, plates: np.ndarray, interior: Polygon, ob,
+                  level_y: float = 0.0) -> float:
     """The share of the trench outline ``interior`` that plates standing AT
-    OR ABOVE the object's zero (lowest vertex no deeper than
-    ``cover_flush_m``) cover.  A shell's plan is its floor and its ramps,
+    OR ABOVE ``level_y`` — the object's zero, or the author's ground in its
+    frame once placed (``airport/shell_ground``) — (lowest vertex no deeper
+    than ``cover_flush_m`` under it) cover.  A shell's plan is its floor and its ramps,
     all below grade (VHHH ``tunnel1..5_done``: 2-6 %); a building's is its
     floors and roofs (#1726, KBWI ``BWI_New_Interior``: 100 %, its 4,140
     m2 of sub-grade plates under 89,751 m2 of floors)."""
     if not len(plates):
         return 0.0
     ymin = v[plates, 1].min(axis=1)
-    sel = plates[ymin >= -ob.cover_flush_m]
+    sel = plates[ymin >= level_y - ob.cover_flush_m]
     if not len(sel):
         return 0.0
     at = _fe.union(_bulk_polys(v, sel), "object_cut._graded_share")
@@ -306,7 +308,8 @@ def _graded_share(v: np.ndarray, plates: np.ndarray, interior: Polygon, ob) -> f
 def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
                   law, floor_y: "float | None" = None,
                   walls_to_floor: bool = False,
-                  interior_from: "np.ndarray | None" = None) -> "ShellReading | str":
+                  interior_from: "np.ndarray | None" = None,
+                  at_zero: bool = True) -> "ShellReading | str":
     """The SHELL reading of a resource in its own authored frame, or the
     REASON it is not one (a string; every refusal names its numbers).
     ``floor_y`` given: the object states NO floor and the depth is that
@@ -317,7 +320,10 @@ def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component]
     (EGLL ``3.obj``, ``8.obj``) stands on the ring but closes no end.
     ``interior_from`` (a mask over the genuine triangles): the trench outline
     is THOSE faces' plan — a split shell's FLOOR object, never its cover's
-    deck, which reaches over the walls (owner RULINGS 2026-10-26p Q166)."""
+    deck, which reaches over the walls (owner RULINGS 2026-10-26p Q166).
+    ``at_zero`` False: the building test (``shell_at_zero_max_fraction``) is
+    left to the PLACED reading, against the author's ground
+    (``airport/shell_ground``, #1950)."""
     ob = law.tables.structures.tunnel.object
     if not genuine:
         return "no genuine solid component"
@@ -368,7 +374,7 @@ def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component]
                                        "object_cut.shell_reading"))
     if interior is None or interior.area < ob.plate_min_area_m2:
         return "the shell's non-vertical faces have no plan area"
-    if deep is not None:
+    if deep is not None and at_zero:
         graded = _graded_share(v, tris[horiz if interior_from is None
                                        else (horiz & interior_from)], interior, ob)
         if graded > ob.shell_at_zero_max_fraction:
@@ -537,6 +543,15 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
     # under the object's zero cannot be a shell (never READ, never a verdict)
     out: list[ObjectCut] = []
     k_by_res: dict[str, int] = {}
+    _ground: list = []
+
+    def ground_of():
+        """The author's ground (``airport/below_grade_witness``), read on
+        the first shell that asks."""
+        if not _ground:
+            from .below_grade_witness import ground_of as _g
+            _ground.append(_g(airport, objects, cache, law))
+        return _ground[0]
     for o in placed:
         if o.path in taken:
             continue
@@ -546,7 +561,8 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
         if o.path not in readings:
             stats.screened += 1
             g = cache.geometry(o.resolved)
-            readings[o.path] = (shell_reading(g, cache.genuine(o.resolved), law)
+            readings[o.path] = (shell_reading(g, cache.genuine(o.resolved), law,
+                                              at_zero=False)
                                 if g is not None else "unreadable OBJ8")
         r = readings[o.path]
         if isinstance(r, str):
@@ -584,7 +600,8 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
                 f"cover at the same placement (§33 (6) B) — not a signature-B cut")
             continue
         k = k_by_res.get(o.path, 0)
-        rec = shell_cut(o, r, cov_obj, cover, cov_area, k, cache, law, msl)
+        rec = shell_cut(o, r, cov_obj, cover, cov_area, k, cache, law, msl,
+                        ground=ground_of())
         if isinstance(rec, str):
             stats.refused.append(rec)
             continue
@@ -598,7 +615,8 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
     from .hanging_objects import read_hanging_covers
     hung, h_refused = read_hanging_covers(
         [p for p in placed if p.path not in taken], cache, law,
-        {i for c in out for i in (c.object_id, c.cover_object_id)}, msl, k_by_res)
+        {i for c in out for i in (c.object_id, c.cover_object_id)}, msl, k_by_res,
+        ground_of)
     out.extend(hung)
     stats.shells += len(hung)
     stats.refused.extend(h_refused)
@@ -617,11 +635,13 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
 
 def shell_cut(o: _obj8.PlacedObject, r: ShellReading, cov_obj: _obj8.PlacedObject, cover,
               cov_area: float, k: int, cache: _obj8.ResourceCache, law,
-              msl: _t.Mapping[str, float], extra_notes: _t.Sequence[str] = ()
-              ) -> "ObjectCut | str":
+              msl: _t.Mapping[str, float], extra_notes: _t.Sequence[str] = (),
+              ground=None) -> "ObjectCut | str":
     """THE ONE RECORD of a shell reading placed in the airport frame — the
     signature-B shell, a split floor/cover pair or a hanging cover
-    (``airport/hanging_objects``) alike — or the refusal (a string)."""
+    (``airport/hanging_objects``) alike — or the refusal (a string).
+    ``ground`` (``below_grade_witness.ground_of``): the placed reading is
+    judged against the author's ground (``airport/shell_ground``, #1950)."""
     ob = law.tables.structures.tunnel.object
     mat = _obj8.placement_affine(o.xy, o.heading_deg)
     # §51 (4): the census table stops at row 19, but G1 ("no
@@ -638,6 +658,11 @@ def shell_cut(o: _obj8.PlacedObject, r: ShellReading, cov_obj: _obj8.PlacedObjec
     chain_b = tuple(_apply(mat, p) for p in r.inner_b)
     ends = (_apply(mat, r.ends[0]), _apply(mat, r.ends[1]))
     zero = float(msl[o.id]) if o.kind == "OBJECT_MSL" else float(o.anchor_z + o.agl_m)
+    if ground is not None:
+        from .shell_ground import placed_refusal
+        why = placed_refusal(o, r, cov_obj, outline, zero, ground, law)
+        if why is not None:
+            return f"{o.id} {_base(o.path)}: a shell, but {why}"
     axis = LineString([((p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0)
                        for p, q in zip(_resample(chain_a, 32), _resample(chain_b, 32))])
     line = floor_line(r.floor_faces, axis, mat, zero, ob.wall_sample_m)

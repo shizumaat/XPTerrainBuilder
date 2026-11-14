@@ -18,7 +18,7 @@ import math
 import typing as _t
 
 __all__ = [
-    "pinned_vertices","Source", "Pin", "Diff", "Flat", "Band", "Offset", "Linear",
+    "pinned_vertices", "row_vertices", "Source", "Pin", "Diff", "Flat", "Band", "Offset", "Linear",
            "Row", "ConstraintSet", "REACH_GENERATOR"]
 
 #: The generator name of the ROUTE-REACH bands (RULINGS 2026-09-04o: the
@@ -293,6 +293,17 @@ class ConstraintSet:
         model never imports); this method only names it."""
         raise NotImplementedError(
             "use auto_patch_v2.solve.assemble.to_sparse(constraints, n)")
+
+
+def row_vertices(row) -> tuple[int, ...]:
+    """The vertex ids a constraint row touches (duck-typed on the record)."""
+    if hasattr(row, "terms"):
+        return tuple(v for v, _c in row.terms)
+    if hasattr(row, "group"):
+        return tuple(row.group)
+    if hasattr(row, "a"):
+        return (row.a, row.b)
+    return (row.v,)
 
 
 def pinned_vertices(rows, generator: str) -> set[int]:

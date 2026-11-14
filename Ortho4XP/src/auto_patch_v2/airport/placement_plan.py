@@ -212,7 +212,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  *, write: bool = True, split_tol_m: float = 0.0,
                  elevated_base_m: float = 0.0, line_segment_m: float = 0.0,
                  line_stations_max: int = 0, line_ratio: float = 0.0,
-                 line_max_h: float = 0.0, foot_band_m: float = 0.0,
+                 line_max_h: float = 0.0, line_ribbon: _t.Any = None,
+                 foot_band_m: float = 0.0,
                  coarsen_reach_m: float = 0.0,
                  contact_eps_m: float = 0.0, rigid_reach_m: float = 0.0,
                  bind_ground_m: float = 0.0,
@@ -309,7 +310,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     triangle station (11f (2), :class:`_LineCutter`) — the segments are
     bodies like any other and go on to coarsen and be cut with them, so a
     fence over flat ground still lands in one file.  ``line_ratio`` /
-    ``line_max_h`` are 10bb's own ``[rebake]`` shape keys and
+    ``line_max_h`` are 10bb's own ``[rebake]`` shape keys (``line_ribbon``
+    the ground-ribbon law, ``line_object.RibbonLaw``, spec 2068 A3 R4) and
     ``foot_band_m`` the plan's ``[basin] contact_band_m``; with any of
     them zero the segment cut is not armed and the pre-11f reading
     stands.
@@ -468,6 +470,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         hit = _LineCutter(m, line_segment_m, line_stations_max,
                           foot_band_m, line_ratio, line_max_h,
                           plan.units[ui].anchor[0], plan.units[ui].anchor[1],
+                          line_ribbon=line_ribbon,
                           contact_eps_m=contact_eps_m,
                           contact_pairs=_pairs,
                           rigid_reach_m=rigid_reach_m,
@@ -592,6 +595,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                               line_segment_m=line_segment_m,
                               line_stations_max=line_stations_max,
                               line_ratio=line_ratio, line_max_h=line_max_h,
+                              line_ribbon=line_ribbon,
                               foot_band_m=foot_band_m,
                               coarsen_reach_m=coarsen_reach_m,
                               abutment_step_m=abutment_step_m,

@@ -65,7 +65,7 @@ import numpy as np
 from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
 
-__all__ = ["sunken_ramp_shades", "attach_sunken_ramps", "SUNKEN"]
+__all__ = ["sunken_ramp_shades", "attach_sunken_ramps", "member_vertices", "SUNKEN"]
 
 #: the last derivation's report (per cluster: member, cells, area)
 SUNKEN: dict[str, _t.Any] = {}
@@ -126,6 +126,15 @@ def _member_tris(m, origin, to_xy, cache=None):
     ``(x, y, authored y)``, or None when its file cannot be read.  With the
     build's ``ResourceCache`` the file is parsed ONCE for the run — the
     pack read, this pass, ``ramp_feet`` and the object stage share it."""
+    got = member_vertices(m, origin, to_xy, cache)
+    return None if got is None else got[0][got[1].solid]
+
+
+def member_vertices(m, origin, to_xy, cache=None):
+    """``(P, geometry)``: every authored vertex of the member's file in the
+    planar frame, ``P`` ``(n, 3)`` of ``(x, y, authored y)`` indexed as
+    ``geometry.vertices`` (a component's ``tris`` index it), or None when
+    the file cannot be read or holds no solid triangle."""
     from . import obj8 as _obj8
     from .placement_cut import pristine_path
     try:
@@ -143,8 +152,7 @@ def _member_tris(m, origin, to_xy, cache=None):
     x0, y0, J = _local_frame(to_xy, float(origin[0]), float(origin[1]))
     xy = np.column_stack([x0 + J[0, 0] * e + J[0, 1] * n,
                           y0 + J[1, 0] * e + J[1, 1] * n])
-    P = np.column_stack([xy, v[:, 1]])
-    return P[g.solid]
+    return np.column_stack([xy, v[:, 1]]), g
 
 
 def _top_surface(tris, xs, ys, mask) -> np.ndarray:

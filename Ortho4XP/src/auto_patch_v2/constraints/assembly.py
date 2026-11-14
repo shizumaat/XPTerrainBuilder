@@ -26,6 +26,7 @@ from . import (
     seams,
     structures,
     water,
+    yard_edge,
 )
 
 __all__ = ["assemble", "seam_exempt", "water_exempt"]
@@ -55,6 +56,11 @@ def assemble(rows: list[Row], counts: dict[str, int], walls: dict[str, float],
     # strip, a road ribbon crossing it (a #1138 site)
     rows = riser.riser_exempt(rows, planar, counts)
     walls["riser_rows_withdrawn"] = 0.0
+    # A PROJECTED YARD VERTEX IS NOT AN UNKNOWN (spec 2068 A3 R3): the
+    # fence yard stands on its fence-foot plane after the solve; no row
+    # across it, and none of the road ramp's, reaches the ceiling below
+    rows = yard_edge.yard_exempt(rows, planar, law, counts)
+    walls["yard_rows_withdrawn"] = 0.0
     # THE SENIOR STRUCTURE'S DATUM (precedence.toml [structures]): a
     # vertex two structures pin keeps one pin (lane v2hecalemd, LEMD)
     rows, n_junior = structures.reconcile_datums(rows, law)

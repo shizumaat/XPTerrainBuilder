@@ -460,6 +460,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         sample.many = sample_many
         return sample, construct, None
 
+    from auto_patch_v2.airport.line_object import ribbon_law as _ribbon_law
     keywords = dict(
         icao=plan_.icao, pack_name=pack_name, pack_root=plan_.pack_root,
         dsf_path=dsf_path,
@@ -469,6 +470,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         line_stations_max=law.tables.structures.rebake.line_object_stations_max,
         line_ratio=law.tables.structures.rebake.line_object_ratio,
         line_max_h=law.tables.structures.rebake.line_object_max_h,
+        line_ribbon=_ribbon_law(law),
         foot_band_m=law.tables.structures.basin.contact_band_m,
         # every §16c key through ``getattr``: the dropper below removes
         # what THIS src's ``build_plan`` does not take, but reading a key

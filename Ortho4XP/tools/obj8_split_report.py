@@ -975,7 +975,7 @@ def admit_skipped(plan, pack_root: str, dsftool: str | None,
     from auto_patch_v2.airport import placement_carrier as PC
     from auto_patch_v2.law import Law as _Law
     from auto_patch_v2.model.rebake import Member, Part, Unit
-    _rb = _Law.load().tables.structures.rebake
+    _rb = _lo.line_law(_Law.load())
 
     want = {res for res, why in plan.skipped if why.startswith(PC.THICKNESS_SKIP)}
     if not want:

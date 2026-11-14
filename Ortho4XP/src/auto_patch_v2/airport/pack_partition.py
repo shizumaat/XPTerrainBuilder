@@ -501,7 +501,7 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
     # STRUCTURE-SEAT exemptions of 14.1 rule 4 are a screen fact and
     # are applied by :meth:`PackPartition.filtered`.
     is_line = (o.id not in sc.structure_seated
-               and _line.is_line_object(cache, o.resolved, rb))
+               and _line.is_line_object(cache, o.resolved, rb, _line.ribbon_law(law)))
     if is_line:
         counts["line_objects"] += 1
     # THE SCATTER CLASS (spec ``pack-read-once-fast-spec.md`` §B.2 (2),

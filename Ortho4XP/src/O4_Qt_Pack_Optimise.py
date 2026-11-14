@@ -61,6 +61,7 @@ STEP_TITLES = {
     "dedupe": "Remove repeated placements",
     "swap": "Use X-Plane’s library vehicles",
     "objects": "Draw small props only nearby",
+    "interior": "Lighten what stands under the airport’s roofs",
     "textures": "Compress large textures",
 }
 STEP_DETAILS = {
@@ -70,6 +71,9 @@ STEP_DETAILS = {
              "models (−{tris} million triangles up close)."),
     "objects": ("{n} props get a draw distance of up to 1.5 km and can be "
                 "drawn in batches (−{tris} million triangles past 1.5 km)."),
+    "interior": ("{n} props and interior pieces under the airport’s own roofs "
+                 "are drawn only within 150 m and cast no shadows (−{tris} "
+                 "million triangles past 150 m)."),
     "textures": ("{n} textures are compressed or halved (about −{mb} MB of "
                  "video memory)."),
 }

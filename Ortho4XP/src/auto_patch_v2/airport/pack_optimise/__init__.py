@@ -29,6 +29,10 @@ The operations, one module each (spec
   lights kept beyond it; the DSF names the copy (D3).
 * O4 ``textures`` — its textures compressed, halved for small props and
   read once when byte-identical; the copies name them.
+* ``interior`` (owner 2026-11-14) — under the pack's own roof (``roof``)
+  small props drawn only within 150 m and nothing casting a shadow, in
+  an interior copy of each object placed there (rows outside keep the
+  vendor file).
 * ``weight`` — the triangles the pack's own objects draw, before and
   after: what the offer is made on.
 
@@ -45,6 +49,7 @@ import os
 import typing as _t
 
 from . import dedupe as _dd
+from . import interior as _in
 from . import objcopy as _oc
 from . import swap as _sw
 from . import textures as _tx
@@ -59,8 +64,8 @@ __all__ = ["RECORD_KEY", "RECIPE_VERSION", "STEPS", "chosen_steps",
 RECORD_KEY = "pack_optimise"
 #: the recipe's shape; recorded with it so a later phase can read an
 #: older row (1: dedupe only; 2: + library swaps; 3: + object copies
-#: and textures)
-RECIPE_VERSION = 3
+#: and textures; 4: + interior copies)
+RECIPE_VERSION = 4
 #: every file the recipe writes beside the vendor's carries this in its name
 GENERATED_MARK = ".o4opt"
 
@@ -73,8 +78,8 @@ def default_recipe() -> dict[str, _t.Any]:
 
 #: the steps a recipe may carry, in the order the question lists them:
 #: duplicates (D1), library swaps (D2), lighter object copies (O1/O2),
-#: lighter textures (O4)
-STEPS = ("dedupe", "swap", "objects", "textures")
+#: what stands under the pack's roof (``interior``), lighter textures (O4)
+STEPS = ("dedupe", "swap", "objects", "interior", "textures")
 
 
 def chosen_steps(steps: _t.Iterable[str] | None) -> tuple[str, ...]:
@@ -107,7 +112,8 @@ def build_recipe(pack_root: str, lines: _t.Sequence[str],
         recipe["steps"] = list(chosen)
     defs = declared_definitions(lines)["object"]
     uses: dict[int, int] = {}
-    for _o, _i, toks in placement_rows(lines):
+    rows = placement_rows(lines)
+    for _o, _i, toks in rows:
         uses[int(toks[1])] = uses.get(int(toks[1]), 0) + 1
     swaps = (_sw.plan_swaps(pack_root, defs, uses, exports_of)
              if exports_of is not None and "swap" in chosen else {})
@@ -124,6 +130,10 @@ def build_recipe(pack_root: str, lines: _t.Sequence[str],
             recipe["textures"] = textures
     if copies:
         recipe["objects"] = copies
+    inside = (_in.plan_interior(pack_root, defs, rows, set(swaps))
+              if "interior" in chosen else {})
+    if inside:
+        recipe["interior"] = inside
     return recipe
 
 
@@ -187,12 +197,16 @@ def drop_ordinals(lines: _t.Sequence[str], recipe: _t.Mapping[str, _t.Any],
 def apply_rows(text: str, recipe: _t.Mapping[str, _t.Any]
                ) -> tuple[str, dict[str, int]]:
     """The recipe's row rewrites on an edited dump — D2 ``swap.apply``,
-    then D3 ``objcopy.rename_rows`` — the text and ``{declared path:
-    rows swapped}``."""
+    the rows under the roof (``interior.apply``), then D3
+    ``objcopy.rename_rows`` — the text and ``{declared path: rows
+    swapped}``."""
     swaps = (recipe or {}).get("swap")
     counts: dict[str, int] = {}
     if isinstance(swaps, _t.Mapping) and swaps:
         text, counts = _sw.apply(text, swaps)
+    inside = (recipe or {}).get("interior")
+    if isinstance(inside, _t.Mapping) and inside:
+        text, _n = _in.apply(text, inside)
     copies = (recipe or {}).get("objects")
     if isinstance(copies, _t.Mapping) and copies:
         text, _n = _oc.rename_rows(text, copies)
@@ -223,13 +237,29 @@ def write_generated(pack_root: str, recipe: _t.Mapping[str, _t.Any]
         _tx.write_texture(pack_root, rel, plan)      # before a copy names it
         out.append(str(plan["to"]))
     for path, params in sorted(((recipe or {}).get("objects") or {}).items()):
-        src = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
-        rel = _oc.copy_path(path).replace("\\", "/")
-        dst = os.path.join(pack_root, *rel.split("/"))
-        if not _current_copy(dst, _oc.stamp(src, params)):
-            write_if_changed(dst, _oc.copy_text(src, params), "latin-1")
-        out.append(rel)
+        out.append(_write_copy(pack_root, path, _oc.COPY_SUFFIX, params,
+                               _oc.copy_text))
+    objects = (recipe or {}).get("objects") or {}
+    for path, want in sorted((((recipe or {}).get("interior") or {})
+                              .get("defs") or {}).items()):
+        out.append(_write_copy(pack_root, path, _in.COPY_SUFFIX,
+                               _in.copy_params(path, want, objects),
+                               _in.copy_text))
     return out
+
+
+def _write_copy(pack_root: str, path: str, suffix: str,
+                params: _t.Mapping[str, _t.Any],
+                text_of: _t.Callable[[str, _t.Mapping[str, _t.Any]], str]) -> str:
+    """Write the copy (``suffix``) of the declared ``path`` with
+    ``text_of(vendor file, params)`` unless the one there is current;
+    returns it pack-relative."""
+    src = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
+    rel = _oc.copy_path(path, suffix).replace("\\", "/")
+    dst = os.path.join(pack_root, *rel.split("/"))
+    if not _current_copy(dst, _oc.stamp(src, params)):
+        write_if_changed(dst, text_of(src, params), "latin-1")
+    return rel
 
 
 def _current_copy(path: str, stamp: str) -> bool:

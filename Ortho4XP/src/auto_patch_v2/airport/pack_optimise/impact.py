@@ -12,6 +12,9 @@ they prefer."  Each row is read from the recipe of every step
   ``swap.NEAR_M``;
 * ``objects`` — the lighter copies and the triangles no longer drawn
   past ``objcopy.LOD_MAX_M`` (the farthest draw distance a copy gets);
+* ``interior`` — the placements under the pack's roof drawn from an
+  interior copy and the triangles no longer drawn past
+  ``interior.LOD_M`` (``interior.estimate``);
 * ``textures`` — the textures rewritten and the video memory saved
   (``textures.estimate_vram``).
 
@@ -21,6 +24,7 @@ from __future__ import annotations
 
 import typing as _t
 
+from . import interior as _in
 from . import objcopy as _oc
 from . import textures as _tx
 from . import weight as _w
@@ -53,6 +57,11 @@ def steps(pack_root: str, lines: _t.Sequence[str],
                           far_m=_oc.LOD_MAX_M, copies=copies)
         out.append(_row("objects", len(copies),
                         plain["far_after"] - far["far_after"]))
+    inside = recipe.get("interior") or {}
+    if inside:
+        n, tris = _in.estimate(pack_root, lines, inside)
+        if n:
+            out.append(_row("interior", n, tris))
     textures = recipe.get("textures") or {}
     if textures:
         placed = sorted({p for p in (recipe.get("objects") or {})})

@@ -129,7 +129,7 @@ from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_w
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
 from .deck_bridge import (deck_banks, deck_cut, deck_edge_pavement, deck_mouth, deck_pin,
                           deck_polygon, deck_seats, deck_side, deck_under)
-from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, road_level
+from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, pad_rims, road_level
 from .zones import shore_region
 from .structure_service import (airside_cover, airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -1226,10 +1226,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                                  ()), lane_of.get(id(members[0]), 0))
             d_run = deck.depth_m / float(law.tables.emit.design.bank_slope)
             # the airside the cut does not take: the runway no deck carries,
-            # the pavement a dead end stops at (#2072 A2) and the deck's own
-            # airside edge band (#2072: the trench never touches airside)
+            # the pavement a dead end stops at (#2072 A2), the deck's own
+            # airside edge band (#2072: the trench never touches airside) and
+            # every building pad in the cut's reach (A2 for a pad: a rim)
             d_edge = deck_edge_pavement(deck, gap, deck_paved, outer)
-            parts_u = [q for q in (deck_uncut, dead_cut, d_edge) if q is not None]
+            d_pads = pad_rims(pads, pad_tree, deck, outer, rim_off)
+            parts_u = [q for q in (deck_uncut, dead_cut, d_edge, d_pads) if q is not None]
             d_uncut = unary_union(parts_u) if parts_u else None
             ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next, d_band, d_run,
                                    deck_roads, d_uncut, rim_off)

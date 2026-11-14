@@ -137,6 +137,27 @@ def test_a_dead_end_trench_stopped_by_a_building_pad_is_walled_like_the_apron(tm
     assert any(w.distance(pad) < 1e-6 and w.bounds[3] == pytest.approx(APRON_Y) for w in walls)
 
 
+@pytest.mark.parametrize("box", [(8.0, -12.0, 30.0, 12.0), (20.0, -12.0, 40.0, 12.0)])
+def test_a_building_pad_beside_the_floor_under_the_deck_is_a_rim(tmp_path, box):
+    """A2 for a pad the floor only passes (ltrenchpad, LFPG Building53 under
+    deck obj13039): a pad in the cut's reach is never cut and the floor
+    under the deck stops ``rim_off`` short of it -- before, the floor ran
+    to the pad's edge (0.0 m) and the weld put pad corners on the floor."""
+    d = tmp_path / "objects"
+    d.mkdir()
+    road = OsmWay(-1, "big_roads", ((0.0, -400.0), (0.0, 400.0)), False,
+                  {"highway": "primary", "lanes": "2"})
+    airport = M4B._airport({"dir": d}, LAW, [], (road,))
+    cells = _cells() + [Cell(3, "building", "pad2", M4B._rect(*box), (), None, None,
+                             "airside", "building", {})]
+    cl, _tunnels, st = build_structures(airport, Classification(tuple(cells), (), {}, ()),
+                                        LAW, deck_bridges=(_deck(),))
+    assert not st.refused
+    pad = next(Polygon(c.ring) for c in cl.cells if c.ref == "pad2")
+    assert pad.area == pytest.approx((box[2] - box[0]) * (box[3] - box[1]))   # never cut
+    assert min(p.distance(pad) for p in _polys(cl, "tunnel_ramp")) >= RIM - 1e-6
+
+
 def test_no_floor_vertex_stands_in_an_airside_column(site):
     """The floor never shares a column with the airside: every floor
     vertex is pinned (a constant) and no row joins one to an airside

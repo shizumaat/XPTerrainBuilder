@@ -2074,7 +2074,10 @@ def _isolated_kwargs(law, foreign: "list[str] | None") -> dict:
             "isolated_foreign": tuple(out),
             # A1: the WALLED-BASE witness (I7/I8) beside chain_min_height_m
             "isolated_base_min_fraction": float(
-                law.tables.structures.placement.isolated_base_min_fraction)}
+                law.tables.structures.placement.isolated_base_min_fraction),
+            # #2074 I9: a ground sheet keeps today's seat
+            "isolated_sheet_max_aspect": float(
+                law.tables.structures.placement.isolated_sheet_max_aspect)}
 
 
 def _exclusion_kwargs(plan) -> dict:

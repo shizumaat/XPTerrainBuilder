@@ -1155,6 +1155,18 @@ chain_min_height_m  = 2.5
 # cluster), buildings 0.57-1.00.  0 disarms I7 and I8 both.
 isolated_base_min_fraction = 0.45
 
+# §9a I9 (#2074): THE GROUND SHEET an isolated object may not be.  A share
+# thinner than chain_min_height_m whose lowest contact feet all belong to
+# parts at most this tall over their own plan diagonal lies ON the ground
+# (a kerbed island, a curb, an arrestor bed, a snow bank, a fuel-island
+# slab): the lowest-contact seat would float it over its low side, so it
+# keeps today's seat.  MEASURED over the shared rebake corpus (185 plans
+# with shares): HECA OB-asphalt_3 islands 0.036-0.038, curbs 0.006-0.039,
+# EMAS beds 0.002-0.005, the highest sheet 0.047 (a segmented circle);
+# the lowest object 0.060 (concrete blocks, letters), signs 0.075, cars
+# 0.16 and up.  0 disarms.
+isolated_sheet_max_aspect = 0.05
+
 # THE FLAT PLANE AT THE BASE OF OBJECTS IS PAVEMENT (owner RULINGS
 # 2026-10-10o (B), 2026-10-02v (3b); issue #229; geom/base_slab.py).  A
 # component with ground feet, its lowest y within base_slab_base_y_max_m of

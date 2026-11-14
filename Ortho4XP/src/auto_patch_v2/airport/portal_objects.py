@@ -48,7 +48,7 @@ from .hanging_objects import edge_wall_reading, flush_hanging
 from .obj8_clip import _bulk_polys
 from .object_cut import _face_normals_y, _plan_area
 
-__all__ = ["Portal", "across_bore", "read_portals", "portal_of", "roof_reading"]
+__all__ = ["Portal", "across_bore", "read_portals", "portal_of", "roof_of", "roof_reading"]
 
 
 @_dc.dataclass(frozen=True)
@@ -126,6 +126,12 @@ class Portal:
     #: floor is the cut there (``airport/portal_floor``); ``None`` with no
     #: ground read
     zero_z: "float | None" = None
+    #: #2069: a portal standing on its walls' FEET under its zero
+    #: (``airport/footed_portal``): the mouth stands at the back of its roof
+    #: (``planar/structure_mouth.roof_back_mouth``), its floor is
+    #: :attr:`floor_z`, and its body is seated by its ENTRANCE record at
+    #: :attr:`anchor_xy` (zero = floor - :attr:`bottom_y`)
+    footed: bool = False
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -186,6 +192,11 @@ def _roof_opening(roof, end_xy: XY, into: "XY | None", tol: float) -> tuple[floa
     return opening_span(min(s), max(s), end_xy, into) if s else (0.0, ())
 
 
+#: :func:`roof_reading`'s verdict on walls hanging under the zero: read again
+#: as a FOOTED portal (``airport/footed_portal``, #2069)
+_WALLS_UNDER = "walls under its zero"
+
+
 def roof_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
                  law) -> "tuple[float, float, object] | str":
     """``(roof top y, roof area, roof plan)`` of a resource in its
@@ -210,7 +221,16 @@ def roof_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
     if float(v[tris].reshape(-1, 3)[:, 1].min()) < -ob.shell_floor_min_m:
         # EGLL's ``2.obj``: an ATTR_hard_deck cover whose walls run to -5 m —
         # a cover over a cut (#1298), never a portal standing on the road
-        return "walls under its zero (a cover over a cut, not a portal standing on the road)"
+        return _WALLS_UNDER + " (a cover over a cut, not a portal standing on the road)"
+    return roof_of(v, tris, horiz, area, ymax, ob)
+
+
+def roof_of(v: np.ndarray, tris: np.ndarray, horiz: np.ndarray, area: np.ndarray,
+            ymax: np.ndarray, ob) -> "tuple[float, float, object] | str":
+    """``(roof top y, roof area, roof plan)`` of the near-horizontal faces
+    ``horiz`` of ``tris`` standing above the zero: the HIGHEST
+    ``plate_bin_m`` bin of a plate's worth, or why there is none (a
+    string).  ``area`` / ``ymax`` are the faces' plan areas and tops."""
     up = horiz & (ymax > ob.plate_bin_m)
     if not up.any():
         return "no roof: no near-horizontal solid face above its zero"
@@ -224,7 +244,7 @@ def roof_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
                 f"(< plate_min_area_m2 {ob.plate_min_area_m2:.0f})")
     top = max(roofs)
     sel = binned == top
-    plan = _fe.union(_bulk_polys(v, tris[up][sel]), "portal_objects.roof_reading")
+    plan = _fe.union(_bulk_polys(v, tris[up][sel]), "portal_objects.roof_of")
     return float(ymax[up][sel].max()), float(bins[top]), plan
 
 
@@ -311,8 +331,8 @@ def _at_grade(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, roof, law,
 
 def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                  law, tunnel_ways, taken: _t.AbstractSet[str] = frozenset(), dem_z=None,
-                 ground=None, at_grade: "list[_GradeEnd] | None" = None
-                 ) -> tuple[list[Portal], list[str]]:
+                 ground=None, at_grade: "list[_GradeEnd] | None" = None,
+                 roads: _t.Sequence = ()) -> tuple[list[Portal], list[str]]:
     """Every pack portal standing over a mapped bore end, and one refusal
     line per roofed-looking candidate that is not one.  ``dem_z`` (the
     airport's DEM) reads a TALL portal: a roof over ``mouth_depth_m`` is a
@@ -322,7 +342,10 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
     it does not.  ``ground`` (``airport/below_grade_witness.ground_of``) reads every
     other roofed one: a portal only where it stands under the author's
     ground (:func:`_at_grade`); the bore ends one stands over at grade are
-    appended to ``at_grade``."""
+    appended to ``at_grade``.  An object whose walls hang under its zero
+    is read by ``airport/footed_portal`` (``roads``: the mapped non-tunnel
+    roads a bore end runs on into it)."""
+    from .footed_portal import footed_parts, read_footed_portals
     tn = law.tables.structures.tunnel
     tol = float(tn.object.bore_end_tolerance_m)
     ends = _ends(tunnel_ways)
@@ -369,6 +392,19 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                                 if g is not None else "unreadable OBJ8")
         r = readings[o.path]
         name = os.path.basename(o.path)
+        if isinstance(r, str) and r.startswith(_WALLS_UNDER) and dem_z is not None:
+            parts = footed_parts(g, cache.genuine(o.resolved), law)
+            if isinstance(parts, str):
+                refused.append(f"{o.id} {name}: {parts}")
+                continue
+            got = read_footed_portals(o, parts, ends, roads, law, dem_z,
+                                      zero_of(o, ground.msl) if ground is not None
+                                      else float(o.anchor_z + o.agl_m))
+            if not got:
+                refused.append(f"{o.id} {name}: roofed on walls under its zero, but no part "
+                               f"pins a mapped bore end (#2069)")
+            out.extend(got)
+            continue
         if isinstance(r, str):
             continue
         depth, roof_area, plan = r

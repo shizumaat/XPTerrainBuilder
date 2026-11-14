@@ -383,6 +383,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.floor_rim",
         "auto_patch_v2.airport.foot_lot",
+        "auto_patch_v2.airport.footed_portal",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
         "auto_patch_v2.airport.footprint_seats",
@@ -2119,7 +2120,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.trench_objects
-    airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
+    airport.tunnel_objects airport.portal_objects airport.footed_portal
+    airport.tunnel_walls airport.wall_class
     airport.wall_sheets
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
@@ -2273,7 +2275,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.trench_objects
-    airport.tunnel_objects airport.portal_objects airport.tunnel_walls airport.wall_class
+    airport.tunnel_objects airport.portal_objects airport.footed_portal
+    airport.tunnel_walls airport.wall_class
     airport.wall_sheets
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence

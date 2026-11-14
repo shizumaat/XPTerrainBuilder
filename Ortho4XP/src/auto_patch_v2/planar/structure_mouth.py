@@ -94,7 +94,8 @@ __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
            "road_end_after_slide", "covered_stretch", "own_road_blade", "road_over_mouth",
            "portal_note", "pinned_trench_notes",
            "PORTAL_YIELDS", "strip_keepout",
-           "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth", "edge_wall_mouth", "face_top_z"]
+           "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth", "edge_wall_mouth", "face_top_z",
+           "roof_back_mouth"]
 
 #: Passes of the slide (each re-reads the stops from the new mouth).
 _SLIDE_PASSES = 4
@@ -715,6 +716,11 @@ def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
                 f"2026-10-28d): floor {mouth_z:.2f} = its deck level {mouth_dem:.2f} − its "
                 f"walls' bottom {pin.depth_m:.2f} (20am / 20ar); the span behind the back "
                 f"is covered ground")
+    if getattr(pin, "footed", False):
+        return (f"mouth pinned by the footed pack portal {pin.object_id} "
+                f"{pin.resource.rsplit('/', 1)[-1]} (#2069, Q167): floor {mouth_z:.2f} = "
+                f"its zero {float(pin.zero_z):.2f} + its walls' foot {float(pin.bottom_y):.2f}"
+                f" (ground {mouth_dem:.2f}); the mouth stands at the back of its roof")
     if getattr(pin, "floor_z", None) is not None and pin.roof_area_m2 > 0.0:
         return (f"mouth pinned by the tall pack portal {pin.object_id} "
                 f"{pin.resource.rsplit('/', 1)[-1]} (owner 2026-11-04 ENTC): floor "
@@ -764,6 +770,27 @@ def portal_mouth(axis: LineString, inward, anchor, plan=()) -> "tuple[LineString
     m = axis.coords[0]
     return _moved_in(axis, inward, max((q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1]
                                        for q in (plan or (anchor,))))
+
+
+def roof_back_mouth(axis: LineString, inward, roof) -> "tuple[LineString, float]":
+    """``(axis, metres moved)``: a FOOTED portal's mouth stands at the BACK
+    of its roof (#2069, ``airport/footed_portal``): the cut floor runs under
+    the roof and out of its opening.  Where the roof reaches over the bore
+    the mouth moves in to its furthest point (as :func:`portal_mouth`);
+    where it stands up the open road (NZWN's west portal, 45 m up the road
+    from the mapped end) the axis is cut back to the roof's nearest station
+    along it, the road behind the portal is covered ground (negative)."""
+    m = axis.coords[0]
+    pts = [q for g in getattr(roof, "geoms", [roof]) for q in g.exterior.coords]
+    if not pts:
+        return axis, 0.0
+    into = max((q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1] for q in pts)
+    if into > 0.0:
+        return _moved_in(axis, inward, into)
+    s = min(axis.project(Point(q)) for q in pts)
+    if s <= 1e-6 or s >= axis.length - 1e-6:
+        return axis, 0.0
+    return substring(axis, s, axis.length), -float(s)
 
 
 def edge_wall_mouth(axis: LineString, inward, walls, half: float

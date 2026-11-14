@@ -310,6 +310,11 @@ def census_plan(path: str, icao: str, law, osm_root: str, elev_root: str
                 ) -> tuple[list[dict], list[float]]:
     """Every deck row of one plan, and the witness seconds per deck."""
     plan = json.load(open(path, encoding="utf-8"))
+    for u in plan.get("units") or ():
+        for m in u.get("members") or ():
+            # a plan before version 12 carries no member origin: its unit is
+            # one anchor spelling (``model/rebake``), the placement's
+            m["origin"] = m.get("origin") or u.get("anchor")
     units = [(u, [m for m in u.get("members") or () if _is_deck(m)])
              for u in plan.get("units") or ()]
     units = [(u, ds) for u, ds in units if ds]

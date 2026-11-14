@@ -223,25 +223,37 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
             if v in r1 and abs(r1[v][1] - z) > flush:
                 refused.add(v)
             r1.setdefault(v, (z - flush, z, d.object_id, f"{d.object_id}#{d.piece} end {side}"))
-    # #2091: each rowed end's SLAB less its OWN deck alone — the footprint's
-    # slab is cut by every deck ring of the stack, and where a neighbouring
-    # deck's ring took it (OTHH Bridge_03's west end, under Bridge_06's
-    # ring) the ground at one corner of the end stood 0.75 m under the
-    # plate, the other flush.  Under another deck R3's ceiling still wins.
+    # #2091: each rowed end's SLAB less its OWN deck alone, and the end
+    # edge's own hair inside the plate.  The footprint's slab is cut by every
+    # deck ring of the stack: where a neighbouring deck's ring took it (OTHH
+    # Bridge_03's west end) the ground at one corner of the end stood 0.75 m
+    # under the plate, the other flush.  Each vertex is held at the PLATE'S
+    # OWN HEIGHT there (an end edge with a cross-fall is no one level: that
+    # end's corners stand 8.41 and 8.59), just under it on the plate's own
+    # plan; under another deck R3's ceiling still wins.
     from ..geom.deck_ground import end_slab
-    own = {d.object_id: Polygon(d.ring) for d in st.decks if len(d.ring) >= 3}
+    decks = {d.object_id: d for d in st.decks if len(d.ring) >= 3}
     for e in st.rowed_ends():
+        d = decks.get(e.object_id)
         slab = end_slab(e, step)
-        if e.object_id in own:
-            slab = slab.difference(own[e.object_id])
         if slab.is_empty:
             continue
-        z = z0 + float(e.top)
-        on = shapely.contains_xy(slab.buffer(grid, join_style="mitre"), axy[:, 0], axy[:, 1])
-        for k in np.flatnonzero(on).tolist():
-            v = allv[k]
-            if v not in hard:
-                r1.setdefault(v, (z - flush, z, e.object_id, f"{e.object_id} end {e.side}"))
+        ring = Polygon(d.ring) if d is not None else None
+        if ring is not None:
+            slab = slab.difference(ring)
+        zone = slab.buffer(grid, join_style="mitre")
+        ks = np.flatnonzero(shapely.contains_xy(zone, axy[:, 0], axy[:, 1])).tolist()
+        ks = [k for k in ks if allv[k] not in hard and allv[k] not in r1]
+        if not ks:
+            continue
+        plate = np.asarray(d.plate, float).reshape(-1, 3, 3) if d is not None else ()
+        ys = (floor_z_at(plate, axy[ks, 0], axy[ks, 1], edge_m=step) if len(plate)
+              else np.full(len(ks), np.nan))
+        under = (shapely.contains_xy(ring, axy[ks, 0], axy[ks, 1]) if ring is not None
+                 else np.zeros(len(ks), bool))
+        for k, y, inside in zip(ks, ys.tolist(), under.tolist(), strict=True):
+            hi = z0 + (y if y == y else float(e.top)) - (flush if inside else 0.0)
+            r1[allv[k]] = (hi - flush, hi, e.object_id, f"{e.object_id} end {e.side}")
     r3: dict[int, tuple[float, str]] = {}
     if st.kind == FREE:
         for d in st.decks:

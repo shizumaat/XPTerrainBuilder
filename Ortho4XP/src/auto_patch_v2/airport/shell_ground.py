@@ -12,7 +12,8 @@ datum (TaiModels KMCI, LGAV), so the zero states nothing about the ground
 there.  Once a reading is PLACED (``object_cut.shell_cut``), both are read
 again here against the author's ground around the trench outline
 (``airport/below_grade_witness``), the shell's and its cover's own faces
-left out; where no ground reads, the zero stands as before.
+left out; where the author laid no plates around it, the zero stands as
+before (the DEM is no reading of the pack's intent).
 
 Every number is a ``[tunnel.object]`` law value; nothing here names a pack
 or an airport.
@@ -32,9 +33,11 @@ def floor_under_ground(o, low_y: float, foot, exclude: _t.AbstractSet[str], grou
                        ) -> "str | None":
     """The refusal (a string) when placement ``o``'s solid ``low_y`` metres
     over its zero stands less than ``shell_floor_min_m`` under the author's
-    ground around ``foot``, else ``None`` (no ground read: ``None``)."""
+    ground around ``foot``, else ``None`` — and ``None`` where the author
+    laid no plates around it: the zero is then all the pack states."""
     ob = law.tables.structures.tunnel.object
-    if ground is None or foot is None:
+    if ground is None or foot is None or \
+            _bgw.around(foot, exclude, ground.ag, ground.dem, law).source != "plates":
         return None
     b = _bgw.row_depth_under(o, low_y, foot, exclude, ground, law, "its floor")
     if b.depth != b.depth or b.depth >= ob.shell_floor_min_m:
@@ -61,7 +64,9 @@ def placed_refusal(o, r, cov_obj, outline, zero: float, ground, law) -> "str | N
     if r.floor_faces is None or not len(r.floor_faces):
         return None
     at = _bgw.around(outline, own, ground.ag, ground.dem, law)
-    level_y = (at.z - zero) if at.source != "none" else 0.0
+    if at.source != "plates":
+        return None
+    level_y = at.z - zero
     faces = np.asarray(r.floor_faces, float)
     graded = _graded_share(faces.reshape(-1, 3), np.arange(3 * len(faces)).reshape(-1, 3),
                            r.interior, ob, level_y)

@@ -82,3 +82,15 @@ def test_a_building_is_read_at_the_authors_ground_not_its_zero(law):
     assert on is None
     hung = shell_ground.placed_refusal(_row(100.0), r, cov, FOOT, 100.0, _ground(95.0), law)
     assert hung is not None and "shell_at_zero_max_fraction" in hung
+
+
+def test_no_plates_around_leaves_the_old_reading(law):
+    """Where the author laid no plates around the footprint the readers
+    abstain: rule 1 already read the DEM, and the zero is all a shell
+    states."""
+    g = _ground(100.0)
+    bare = bgw._Ground(AuthorGround(np.zeros((0, 3, 3)), []), g.dem, {})
+    wit = [types.SimpleNamespace(z_min=100.0)]
+    assert author_ground_refusal("basin:0", FOOT, wit, {"pit"}, bare, law, "x") is None
+    assert shell_ground.floor_under_ground(_row(100.0), -2.5, FOOT, {"shell"}, bare,
+                                           law) is None

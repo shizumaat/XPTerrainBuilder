@@ -8,8 +8,8 @@ DEM under its centroid — our terrain, not the pack's.  Once the region is
 built, its deepest member floor is read again against the author's ground
 around the ring (``airport/below_grade_witness``, the members' own faces
 left out): a region whose floor stands less than ``admission_depth_m``
-under that ground is no pit, and is refused with both readings.  Where no
-plate reads around it, the DEM stands (the witness's own fallback).
+under that ground is no pit, and is refused with both readings.  Where the
+author laid no plates around it, rule 1's DEM reading stands alone.
 
 No new law number; nothing here names a pack or an airport.
 """
@@ -25,9 +25,10 @@ def author_ground_refusal(bid: str, ring, wits: _t.Sequence, member_ids: _t.Abst
     """The refusal of region ``bid`` (``ring``, its member witnesses
     ``wits``) when its deepest floor stands less than ``admission_depth_m``
     under the author's ground around it, else ``None``."""
-    from ..airport.below_grade_witness import depth_under
+    from ..airport.below_grade_witness import around, depth_under
     bl = law.tables.structures.basin
-    if ground is None or not wits:
+    if ground is None or not wits or \
+            around(ring, member_ids, ground.ag, ground.dem, law).source != "plates":
         return None
     floor = min(float(w.z_min) for w in wits)
     b = depth_under(floor, ring, member_ids, ground, law, "its floor")

@@ -692,6 +692,11 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
     from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law)   # #1747
+    from auto_patch_v2.airport.deck_routes import attach_deck_routes
+    airport, _dr_notes = attach_deck_routes(airport, pack_objects, inputs.osm_root, law,
+                                            inputs.radius_deg)        # #2090
+    for _n in _dr_notes:
+        print(f"[{icao}]   [deck-routes] {_n}")
     from auto_patch_v2.airport.deck_stack import log_line as _ds_line
     from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
     airport = attach_deck_stacks(airport, pack_objects, ocache, law)     # #1971
@@ -2254,6 +2259,12 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         # #1971: the deck stacks, RE-DERIVED every replay from the ways as
         # mapped (``Airport.osm_ways_mapped``), so ``--from classify``
         # iterates on the derivation without a new capture
+        # #2090: the routes around every pack deck, re-read likewise
+        from auto_patch_v2.airport.deck_routes import attach_deck_routes
+        airport, _dr_notes = attach_deck_routes(airport, _objs, inputs.osm_root, law,
+                                                inputs.radius_deg)
+        for _n in _dr_notes:
+            print(f"[{icao}]   [deck-routes] {_n}")
         from auto_patch_v2.airport.deck_stack import log_line as _ds_line
         from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
         _ds_t, _ds_notes = time.perf_counter(), []

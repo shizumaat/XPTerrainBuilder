@@ -169,23 +169,28 @@ def objects_ride(objects: _t.Sequence[_t.Any], kinds: _t.Sequence[str], cache: _
 _END_BAND_M = 1.0
 
 
-def end_tops(deck: _t.Any, ends: _t.Sequence, origin: tuple[float, float]
-             ) -> "tuple[float, ...] | None":
+def end_tops(deck: _t.Any, ends: _t.Sequence, origin: tuple[float, float],
+             hard_only: bool = False) -> "tuple[float, ...] | None":
     """The deck top AT each end line: the highest of the deck file's own
     vertices nearest the end line's midpoint (within ``_END_BAND_M`` of the
     nearest) — of its HARD DECK's vertices where the file declares one
     (#2090: a parapet 0.85 m over KDEN's Parking_Hill deck is no deck top).
     A deck authored on a grade meets each end at its own height (LEMG's
     viaduct: -0.25 at one end, -1.53 at the other, +1.28 at its crown).
-    None where the file does not parse."""
+    None where the file does not parse — or, ``hard_only``, declares no
+    hard deck (l2090d: a deck with none has no vertex that is its road by
+    declaration; LEMG's bridgeDrei carries a railing at +1.80 over a road at
+    +0.30 that runs on past its ring as its own approach ramps, down to
+    -2.26 / -2.15 — its end lines are no ends of its road)."""
     import math
 
     import numpy as np
 
     from .rebake_plan import _mpd
-    v = _vertices(str(getattr(deck, "authored_path", "") or ""))
-    if v is None:
+    got = _vertices(str(getattr(deck, "authored_path", "") or ""))
+    if got is None or (hard_only and not got[1]):
         return None
+    v = got[0]
     h = math.radians(float(getattr(deck, "heading_deg", 0.0) or 0.0))
     c, sn = math.cos(h), math.sin(h)
     east, north = v[:, 0] * c - v[:, 2] * sn, -(v[:, 0] * sn + v[:, 2] * c)
@@ -201,9 +206,9 @@ def end_tops(deck: _t.Any, ends: _t.Sequence, origin: tuple[float, float]
 
 @_ft.lru_cache(maxsize=256)
 def _vertices(path: str) -> _t.Any:
-    """The OBJ8 file's deck vertices ``(x, y, z)`` (parsed once a process):
-    its hard deck's where it declares one, else all; None where it does not
-    parse."""
+    """``(the OBJ8 file's deck vertices (x, y, z), whether it declares a hard
+    deck)`` (parsed once a process): its hard deck's where it declares one,
+    else all; None where it does not parse."""
     import os
 
     import numpy as np
@@ -217,25 +222,29 @@ def _vertices(path: str) -> _t.Any:
         return None
     v = np.asarray(g.vertices, float)[:, :3]
     hd = getattr(g, "hard_deck", None)
-    if hd is not None and len(hd):
+    hard = hd is not None and len(hd) > 0
+    if hard:
         v = v[np.unique(np.asarray(hd, dtype=np.int64).reshape(-1))]
-    return v if len(v) else None
+    return (v, hard) if len(v) else None
 
 
-def with_end_tops(datum: _t.Any, deck: _t.Any, origin: tuple[float, float]) -> _t.Any:
+def with_end_tops(datum: _t.Any, deck: _t.Any, origin: tuple[float, float],
+                  any_vertex: bool = False) -> _t.Any:
     """``datum`` with the deck top AT each of its end lines (#2090): a FREE
     deck's published tops (``Member.deck_end_tops``), else :func:`end_tops`
-    off the deck's own file; unchanged where it has no two end lines, carries
-    its tops already, or the file does not parse.  A deck authored on a grade
-    meets each end at its own height (KDEN's outer train bridge: 8.0 and 1.0
-    at its ends, 16.0 at its crown — seated by its crown, its high end stood
-    8 m under its ground)."""
+    off the deck's own HARD DECK (any of its vertices where ``any_vertex``:
+    a riding frame's, #2086); unchanged where it has no two end lines,
+    carries its tops already, or the file does not parse or declares no hard
+    deck (``datum.y`` at both ends, as before #2090).  A deck authored on a
+    grade meets each end at its own height (KDEN's outer train bridge: 8.0
+    and 1.0 at its ends, 16.0 at its crown — seated by its crown, its high
+    end stood 8 m under its ground)."""
     import dataclasses as _dc
     if datum is None or len(getattr(datum, "ends", ()) or ()) < 2 or datum.tops:
         return datum
     pub = tuple(getattr(deck, "deck_end_tops", ()) or ())
     tops = (tuple(float(t) for t in pub[:2]) if len(pub) >= 2
-            else end_tops(deck, datum.ends, origin))
+            else end_tops(deck, datum.ends, origin, hard_only=not any_vertex))
     return datum if tops is None else _dc.replace(datum, tops=tops)
 
 
@@ -274,4 +283,4 @@ def frame_datum(deck: _t.Any, origin: tuple[float, float], **kw: _t.Any) -> _t.A
     datum (``anchor_rule.datum_of``, ``kw`` its arguments) with the deck top
     AT each end line (:func:`end_tops`); None where the deck carries none."""
     from . import anchor_rule as _ar
-    return with_end_tops(_ar.datum_of(deck, **kw), deck, origin)
+    return with_end_tops(_ar.datum_of(deck, **kw), deck, origin, any_vertex=True)

@@ -162,6 +162,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.below_grade_witness",
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
+        "auto_patch_v2.airport.bridge_axis",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bridge_witness",
         "auto_patch_v2.airport.bridged_ground",
@@ -375,6 +376,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.bore_ground",
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
+        "auto_patch_v2.airport.bridge_axis",
         "auto_patch_v2.airport.bridge_class",
         "auto_patch_v2.airport.bridge_end_state",
         "auto_patch_v2.airport.bridge_family",
@@ -798,6 +800,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.bore_ground",
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
+        "auto_patch_v2.airport.bridge_axis",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bridge_ground",
         "auto_patch_v2.airport.bridge_witness",
@@ -973,6 +976,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.bore_ground",
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
+        "auto_patch_v2.airport.bridge_axis",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bridge_ground",
         "auto_patch_v2.airport.bridge_witness",
@@ -1204,6 +1208,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.below_grade_witness",
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
+        "auto_patch_v2.airport.bridge_axis",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bridge_witness",
         "auto_patch_v2.airport.bridged_ground",
@@ -2018,7 +2023,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders
-    airport.bridge_witness airport.deck_surface geom.centreline
+    airport.bridge_axis airport.bridge_witness airport.deck_surface geom.centreline
     airport.free_bridge_seat
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
@@ -2127,7 +2132,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders
-    airport.bridge_witness airport.deck_surface geom.centreline
+    airport.bridge_axis airport.bridge_witness airport.deck_surface geom.centreline
     airport.free_bridge_seat
     geom.lowest_face airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record airport.placement_seams
@@ -2330,7 +2335,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.isolated_seat airport.terrain_base geom.diameter
     model.storey_shell planar.cell_knife planar.storey_pad
     airport.shell_ground planar.basin_author_ground
-    airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
+    airport.bridge_axis airport.bridge_class airport.bridge_frame
+    airport.bridge_witness geom.centreline
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
@@ -2512,7 +2518,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.isolated_seat airport.terrain_base geom.diameter
     model.storey_shell planar.cell_knife planar.storey_pad
     airport.shell_ground planar.basin_author_ground
-    airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
+    airport.bridge_axis airport.bridge_class airport.bridge_frame
+    airport.bridge_witness geom.centreline
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["emit"] = _mods("""
@@ -2562,7 +2569,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders
-    airport.bridge_witness airport.deck_surface geom.centreline
+    airport.bridge_axis airport.bridge_witness airport.deck_surface geom.centreline
     airport.free_bridge_seat
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record
@@ -2680,7 +2687,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
      airport.entrance_seat airport.split_guard
     airport.bridge_approach airport.deck_carry airport.deck_end_read airport.deck_riders
-    airport.bridge_witness airport.deck_surface geom.centreline
+    airport.bridge_axis airport.bridge_witness airport.deck_surface geom.centreline
     airport.free_bridge_seat
     airport.open_frame_seat airport.pad_level_group
     airport.placement_read airport.placement_record

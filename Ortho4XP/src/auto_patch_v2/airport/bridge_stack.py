@@ -254,9 +254,16 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
     """``(minted, every read, notes)``: the KEPT stacks of one all-deck
     bridge, one per deck (each deck of an all-deck frame keeps its own 22d /
     22p seat)."""
+    from .anchor_rule import datum_of
     from .bridge_approach import approach_seat
-    from .deck_riders import frame_datum
+    from .deck_riders import frame_datum, objects_ride, with_end_tops
     out, every, notes = [], [], []
+    frame = [cx.by_id[m] for m in fb.members if m in cx.by_id]
+    # a deck and the structure riding it (#2086): the object stage reads the
+    # deck top AT each end off any of its vertices (``deck_riders.
+    # FrameDatums``); every other deck off its hard deck (#2090)
+    rides = objects_ride(frame, [str(getattr(q, "deck_kind", "") or "") for q in frame],
+                         cx.cache)
     for d in fb.decks:
         o = cx.by_id.get(d.object_id)
         if o is None or len(d.ends) != 2:
@@ -268,7 +275,8 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
         kw = {"abutment_step_m": cx.step, "abutment_walk_max_m": cx.walk,
               "level_tol_m": cx.tol, "free_standing": True}
         origin = cx.to_ll(*o.xy)
-        datum = frame_datum(view, origin, **kw)
+        datum = (frame_datum(view, origin, **kw) if rides
+                 else with_end_tops(datum_of(view, **kw), view, origin))
         surface = cx.surface([d.ring])
         seat = None if datum is None else approach_seat(datum, surface, origin=origin,
                                                         authored_agl_m=float(o.agl_m),

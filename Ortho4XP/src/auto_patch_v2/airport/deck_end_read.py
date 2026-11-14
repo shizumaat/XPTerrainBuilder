@@ -168,8 +168,9 @@ def deck_end_reads(m: _t.Any, surface: _ar.Surface, *, origin: tuple[float, floa
     has no free-standing datum with two end lines.  ``all_deck``: the
     member's frame is all decks (``placement_family.frame_is_bridge``), whose
     seat is 22d / 22p's (``anchor_rule._datum_anchor``, spec S1): the deck
-    top ``datum.y`` at both ends and 22p's road-under read wherever the
-    anchor stands."""
+    top at each end line as the seat reads it (``deck_riders.with_end_tops``,
+    #2090; ``datum.y`` at both where it reads none) and 22p's road-under read
+    wherever the anchor stands."""
     from .bridge_approach import approach_seat
     from .rebake_plan import end_line_stations
     datum = _ar.datum_of(m, abutment_step_m=step_m, abutment_walk_max_m=walk_max_m,
@@ -178,7 +179,14 @@ def deck_end_reads(m: _t.Any, surface: _ar.Surface, *, origin: tuple[float, floa
         return None
     lines = tuple(end_line_stations([e], step_m) for e in datum.ends[:2])
     if all_deck:
-        tops: tuple[float, ...] = (float(datum.y),) * len(lines)
+        # the deck top AT each end line, as the seat reads it
+        # (``deck_riders.with_end_tops``: the hard deck's, #2090); else
+        # ``datum.y`` at both
+        from .deck_riders import with_end_tops
+        got = with_end_tops(datum, m, origin).tops
+        tops: tuple[float, ...] = (tuple(float(t) for t in got[:len(lines)])
+                                   if len(got) >= len(lines)
+                                   else (float(datum.y),) * len(lines))
     else:
         # 22p reads the road under the span only with the anchor under it
         datum = _dc.replace(datum, ring=tuple((float(q[0]), float(q[1]))

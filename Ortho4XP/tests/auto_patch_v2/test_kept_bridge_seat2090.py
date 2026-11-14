@@ -93,10 +93,12 @@ def test_a_plated_or_unread_member_keeps_its_face_datum():
     assert m.deck_datum_z == 1630.8 and not counts
 
 
-def _obj(tmp_path, rows):
-    p = tmp_path / "deck.obj"
+def _obj(tmp_path, rows, hard: bool = True):
+    p = tmp_path / ("deck.obj" if hard else "soft.obj")
     vt = "\n".join(f"VT {x} {y} {z} 0 1 0 0 0" for x, y, z in rows)
-    p.write_text(f"I\n800\nOBJ\n\nPOINT_COUNTS {len(rows)} 0 0 3\n{vt}\nIDX10 0 1 2\nTRIS 0 3\n")
+    attr = "ATTR_hard_deck concrete\n" if hard else ""
+    p.write_text(f"I\n800\nOBJ\n\nPOINT_COUNTS {len(rows)} 0 0 3\n{vt}\nIDX10 0 1 2\n"
+                 f"{attr}TRIS 0 3\n")
     return str(p)
 
 
@@ -137,3 +139,23 @@ def test_a_deck_on_a_grade_is_seated_by_its_end_tops_not_its_crown(tmp_path, mon
     # a free deck's published tops win over the file
     free = types.SimpleNamespace(deck_end_tops=(3.0, 2.0), authored_path=path, heading_deg=0.0)
     assert DR.with_end_tops(dc.replace(d, tops=()), free, (LA, LO)).tops == (3.0, 2.0)
+
+
+def test_a_deck_with_no_hard_deck_keeps_its_datum_y_at_both_ends(tmp_path, monkeypatch):
+    # l2090d (LEMG bridgeDrei): no vertex of a deck without a hard deck is its
+    # road by declaration — a railing at +1.80, a road at +0.30 running on
+    # past the ring as the object's own approach ramps.  Seated as before
+    # #2090 (``datum.y`` at both ends); a riding frame reads any vertex.
+    path = _obj(tmp_path, [(-20.0, 8.0, 0.0), (-5.0, 16.0, 0.0), (20.0, 1.0, 0.0)], hard=False)
+    ends = (((LA - 5 * M, LO - 0.00025), (LA + 5 * M, LO - 0.00025)),
+            ((LA - 5 * M, LO + 0.00025), (LA + 5 * M, LO + 0.00025)))
+    m = types.SimpleNamespace(deck_kind="signature", deck_top_y=16.0, deck_datum_z=None,
+                              deck_end_stations=(), deck_ends=ends, parts=(),
+                              plate_y=None, plate_kind="", authored_path=path,
+                              heading_deg=0.0, deck_end_graded=(), anchor_zero=None)
+    u = types.SimpleNamespace(anchor=(LA, LO), members=(m,))
+    monkeypatch.setattr(PB._pf, "frame_is_bridge", lambda _u: True)
+    assert PB._member_datum(m, u, None, STEP, 0.0, 0.3).tops == ()
+    assert DR.end_tops(m, ends, (LA, LO), hard_only=True) is None
+    assert DR.frame_datum(m, (LA, LO), abutment_step_m=STEP, free_standing=True
+                          ).tops == pytest.approx((8.0, 1.0))

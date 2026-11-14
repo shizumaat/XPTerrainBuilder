@@ -291,7 +291,7 @@ def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
     law, to_xy, geoms = ctx["law"], ctx["to_xy"], ctx["geoms"]
     normal = float(law.tables.structures.bridge.deck_plate_normal_y_min)
     rings = {str(m["id"]): _ring(m, to_xy) for m in decks}
-    live = any(not isinstance(BW.route_of(r, ctx["ways"], law), str) for r in rings.values())
+    live = BW.any_route(rings.values(), ctx["ways"], law, ctx["ground"])
     plates = {}
     for m in decks:
         g = geoms.of(m)

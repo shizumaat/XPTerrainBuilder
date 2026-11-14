@@ -395,6 +395,13 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # #1747 (RULINGS 2026-11-06b (6)): the tunnel mouths' walls, which no pad takes
     from ..airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law)
+    # #2090 (RULINGS 2026-11-14f (1)): the routes around every pack deck,
+    # wherever it stands — a deck past the feed box had no mapped route
+    from ..airport.deck_routes import attach_deck_routes
+    airport, _dr_notes = attach_deck_routes(airport, pack_objects, inputs.osm_root, law,
+                                            inputs.radius_deg)
+    for _n in _dr_notes:
+        _say(f"  [deck-routes] {_n}", out)
     # #1971: a trench's floor and the hard decks spanning it, ONE zero
     from ..planar.deck_stack_attach import attach_deck_stacks
     _t_ds, _ds_notes = time.perf_counter(), []

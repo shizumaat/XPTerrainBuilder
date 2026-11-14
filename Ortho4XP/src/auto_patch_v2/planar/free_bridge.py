@@ -107,8 +107,7 @@ def _frame_witness(decks: list, frame: list, rd: _Read) -> dict:
     for d in decks:
         up = _bw.up_faces(_bf.solid_faces(rd.geometry(d), d.xy, d.heading_deg), normal)
         plates[str(d.id)] = (_ring(d), up, d.deck_kind)
-    if not any(not isinstance(_bw.route_of(r, rd.ways, law), str)
-               for r, _u, _k in plates.values()):
+    if not _bw.any_route([r for r, _u, _k in plates.values()], rd.ways, law, rd.ground):
         return {k: _bw.Witness(None, failed="W1 route: no mapped route") for k in plates}
     b = np.array([r.bounds for r, _u, _k in plates.values()])
     box = (b[:, 0].min() - 2.0, b[:, 1].min() - 2.0, b[:, 2].max() + 2.0, b[:, 3].max() + 2.0)

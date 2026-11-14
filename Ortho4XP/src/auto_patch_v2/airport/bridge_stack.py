@@ -100,6 +100,7 @@ def _ground(chord_ll, surface, step: float) -> float:
 
 def _plate(o, cache):
     import shapely
+
     from .deck_stack import _plate_tris
     hd = o.hard_deck
     piece = max(shapely.get_parts(hd), key=lambda g: g.area) if hd.geom_type != "Polygon" else hd

@@ -365,3 +365,18 @@ def test_the_planar_stage_holds_a_graded_end_entering_a_lot_and_drops_the_refuse
     assert held == () and any("end_on_lot" in n for n in notes)
     gone, notes = planar_stacks((st,), (), cl("gap:0/s0"))
     assert gone == () and "free_stack_refused_at_planar" in notes[0]
+
+
+def test_a_graded_corridor_cuts_the_faces_it_crosses_but_never_the_airside():
+    from auto_patch_v2.planar.stack_ground import bridge_corridor_lines
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "graded", "",
+                   ((0.0, 0.0), (60.0, 0.0)), 45.0, 0.05)
+    a = types.SimpleNamespace(deck_stacks=(_stack([end]),))
+    lines = bridge_corridor_lines(a, LAW)
+    cross = [g for g in lines if abs(g.bounds[0] - g.bounds[2]) < 1e-6]
+    assert len(cross) == 8 and all(abs(g.length - 8.0) < 1e-6 for g in cross)
+    sides = [g for g in lines if abs(g.bounds[1] - g.bounds[3]) < 1e-6]
+    assert abs(sum(g.length for g in sides) - 2 * 45.0) < 1e-6
+    cut = bridge_corridor_lines(a, LAW, [box(20, -9, 30, 9)])
+    assert not any(g.intersects(box(20, -9, 30, 9).buffer(0.4)) for g in cut)
+    assert bridge_corridor_lines(types.SimpleNamespace(deck_stacks=()), LAW) == []

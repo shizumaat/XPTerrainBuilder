@@ -179,11 +179,11 @@ def _road_or_hard(planar: PlanarMap, law: Law, roads: bool = True) -> set[int]:
     """Vertices R6 never takes: a road ribbon's (the road ramp owns it;
     ``roads``), an airside face's, a structure's (rule 5: the airside is
     never altered)."""
-    from ..law.tables import is_structure_role, rolled_on_roles
+    from ..law.tables import is_rigid_role, is_structure_role, rolled_on_roles
     no = set(rolled_on_roles(law)) | ({"service_road", "service_junction"} if roads else set())
     out: set[int] = set()
     for f in planar.faces.values():
-        if f.role in no or is_structure_role(law, f.role):
+        if f.role in no or is_structure_role(law, f.role) or is_rigid_role(law, f.role):
             out.update(planar.ring_vertices(f.ring))
             for h in getattr(f, "holes", ()) or ():
                 out.update(planar.ring_vertices(h))

@@ -39,7 +39,7 @@ from ..geom.deck_ground import end_aprons
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..model.planar import STACK_GROUND_PREFIX
 
-__all__ = ["stack_ground_pieces", "deck_end_road_zone"]
+__all__ = ["stack_ground_pieces", "deck_end_road_zone", "bridge_corridor_lines"]
 
 
 def _areal(g):
@@ -109,3 +109,49 @@ def deck_end_road_zone(airport, law) -> tuple[_t.Any, float]:
         return None, step
     zone = shapely.union_all([a for st in stacks for a in end_aprons(st, law)])
     return (None if zone.is_empty else zone), step
+
+
+def bridge_corridor_lines(airport, law, keep_out: _t.Sequence = ()) -> list:
+    """#2065 A3 rule 6: every GRADED end's corridor (the path's first RUN
+    metres, half the end line's length each side) as cut lines — its two
+    sides and a cross line every ``abutment_sample_step_m`` — less
+    ``keep_out`` (the airside and the structures, never cut); ``[]`` with no
+    free / kept stack.  The faces a corridor crosses then carry vertices
+    every step along it, which R6 (``constraints/deck_stack``) holds on the
+    ramp: a groundside lot the ramp runs over follows ``P(s)``."""
+    from shapely.geometry import LineString
+
+    from ..geom.deck_ground import path_line
+    stacks = [s for s in getattr(airport, "deck_stacks", ()) or ()
+              if getattr(s, "kind", "trench") != "trench"]
+    if not stacks or law is None:
+        return []
+    step = float(law.tables.structures.bridge.abutment_sample_step_m)
+    out = []
+    for st in stacks:
+        for e in st.graded_ends():
+            line = path_line(e, e.run)
+            if line is None:
+                continue
+            hw = e.half_width
+            for side in (hw, -hw):
+                off = line.offset_curve(side)
+                if not off.is_empty:
+                    out.append(off)
+            s = step
+            while s < line.length:
+                p = line.interpolate(s)
+                a = line.interpolate(max(0.0, s - 0.5))
+                b = line.interpolate(min(line.length, s + 0.5))
+                dx, dy = b.x - a.x, b.y - a.y
+                n = (dx * dx + dy * dy) ** 0.5 or 1.0
+                nx, ny = -dy / n * hw, dx / n * hw
+                out.append(LineString([(p.x - nx, p.y - ny), (p.x + nx, p.y + ny)]))
+                s += step
+    if not out:
+        return []
+    keep = shapely.union_all([g for g in keep_out if g is not None and not g.is_empty])
+    got = shapely.union_all(out)
+    if not keep.is_empty:
+        got = got.difference(keep.buffer(0.5))
+    return [g for g in shapely.get_parts(got) if g.geom_type == "LineString" and g.length > 0.5]

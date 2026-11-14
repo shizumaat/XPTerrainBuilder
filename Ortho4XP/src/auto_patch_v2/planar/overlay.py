@@ -54,7 +54,7 @@ from .ridge_reach import reach_pavement_edge
 from .shore import pack_shore_walls
 from .zones import shore_declarations, shore_region, shore_wedge_m, zone_regions
 from .fill_bank import fill_bank_pieces
-from .stack_ground import deck_end_road_zone, stack_ground_pieces
+from .stack_ground import bridge_corridor_lines, deck_end_road_zone, stack_ground_pieces
 from .ground_chords import road_ground_densifier
 from ..model.planar import ROAD_ROLES, is_stack_apron_ref, is_stack_ground_ref
 from ..airport.old_dem_fill import fill_model_of
@@ -537,6 +537,14 @@ def build_arrangement(airport: Airport, classification: Classification,
     lines.extend(s.line for s in sources)
     bands = seam_bands(airport, regions, law.tables.emit.seam.half_width_m)
     lines.extend(LineString(b.exterior.coords) for b in bands)
+    # #2065 A3 rule 6: a graded bridge end's corridor CUTS the faces it
+    # crosses (its sides and a cross line every sample step), so a cell it
+    # runs over (a groundside lot with no vertex in the corridor) carries
+    # the vertices R6 holds on the ramp; never through airside or a structure
+    from ..law.tables import is_structure_role
+    lines.extend(bridge_corridor_lines(airport, law, [
+        r.polygon for r in (*base_regions, *pad_regions)
+        if r.side == "airside" or is_structure_role(law, r.role) or is_rigid_role(law, r.role)]))
 
     # PASS A — Node at full precision, snap the ONE result to the grid, then
     # node AGAIN under the grid's precision model: snap-rounding can create

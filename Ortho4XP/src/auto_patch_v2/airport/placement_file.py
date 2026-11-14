@@ -545,19 +545,6 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
         return
     counts["split"] += 1
     counts["files"] += len(files) or len(bodies)
-    # 10-01k Q1 (#162), REPORTED: a CARRIED body takes its carrier's
-    # ANCHOR (§14) but not its seat ROTATION — it is written level on a
-    # tilted carrier, so the pair separates by the tilt over the rider's
-    # own reach.  Counted here, where a member's riders and its tilted
-    # bodies are in hand together; the cross-member case is named in
-    # ``placement_seat_tilt``'s doc and is not decided by this lane.
-    _tilted = {b.new_resource for b in bodies
-               if b.seat is not None and b.seat.applied}
-    if _tilted:
-        _riders = sum(1 for b in bodies if b.merged_into in _tilted)
-        if _riders:
-            counts["seat_tilt_level_rider"] = \
-                counts.get("seat_tilt_level_rider", 0) + _riders
     if files and len(files) < len(bodies):
         # §16d (1): a body the cut left with NO TRIANGLE has no file, so
         # it has no DSF row either — a row on a name nothing wrote is an

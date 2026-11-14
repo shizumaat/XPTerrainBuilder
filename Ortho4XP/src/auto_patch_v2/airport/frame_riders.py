@@ -164,16 +164,18 @@ class _Deck:
     component: np.ndarray
 
     @classmethod
-    def read(cls, path: str) -> "_Deck | None":
+    def read(cls, path: str, components: bool = True) -> "_Deck | None":
         """``None`` when the file has no static solid or cannot be read
-        (an animated part never witnesses, issue #612)."""
+        (an animated part never witnesses, issue #612).  ``components``
+        False leaves every triangle in component -1 (a frame no cut
+        names: the connected-component read is most of the cost)."""
         from . import obj8 as _obj8
         try:
             g = _obj8.parse_obj8(path)
         except (OSError, ValueError):
             return None
         label = np.full(g.solid.shape[0], -1, dtype=np.int64)
-        for k, comp in enumerate(_obj8.solid_components(g)):
+        for k, comp in enumerate(_obj8.solid_components(g) if components else ()):
             label[comp.idx] = k
         keep = (~g.animated if g.animated.shape[0]
                 else np.ones(g.solid.shape[0], dtype=bool))

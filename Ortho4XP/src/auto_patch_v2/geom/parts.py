@@ -12,7 +12,7 @@ from __future__ import annotations
 import shapely
 from shapely.geometry import LineString, Polygon
 
-__all__ = ["areal_part", "line_parts", "polygon_parts_with_area",
+__all__ = ["areal_part", "densified_parts", "line_parts", "polygon_parts_with_area",
            "nonempty_polygon_parts"]
 
 
@@ -35,6 +35,18 @@ def polygon_parts_with_area(geom, min_area_m2: float = 1e-6) -> list[Polygon]:
         return []
     return [g for g in shapely.get_parts(geom)
             if g.geom_type == "Polygon" and g.area > min_area_m2]
+
+
+def densified_parts(poly, step_m: float, min_area_m2: float = 1e-6) -> list[Polygon]:
+    """``poly`` with a vertex at least every ``step_m``, as its Polygons over
+    ``min_area_m2``.  GEOS's densifier REPAIRS a result its rounding made
+    invalid (``buffer(0)``), so ``shapely.segmentize`` of a valid Polygon can
+    hand back a MultiPolygon: a near-collinear spike splits off as
+    zero-area slivers.  MEASURED #2084: an 88 m2 pit-floor face came
+    back as 88 m2 + two 1e-13 m2 parts and ``build_structures`` read its
+    ``exterior``.  Every densified face a cell is made of goes through
+    here."""
+    return polygon_parts_with_area(shapely.segmentize(poly, step_m), min_area_m2)
 
 
 def nonempty_polygon_parts(g) -> list[Polygon]:

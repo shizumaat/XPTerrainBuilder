@@ -29,6 +29,7 @@ import shapely
 
 from ..airport.old_dem_fill import fill_model_of
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
+from ..geom.parts import densified_parts
 from ..model.planar import FILL_BANK_PREFIX
 
 __all__ = ["fill_bank_pieces"]
@@ -55,5 +56,6 @@ def fill_bank_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: flo
     for part in shapely.get_parts(g):
         if part.geom_type != "Polygon" or part.area < 1.0 or is_hairline(part, hairline_m):
             continue
-        out.append((f"{FILL_BANK_PREFIX}{len(out)}", shapely.segmentize(part, vertex_m)))
+        out.extend((f"{FILL_BANK_PREFIX}{len(out) + j}", d)
+                   for j, d in enumerate(densified_parts(part, vertex_m)))
     return out

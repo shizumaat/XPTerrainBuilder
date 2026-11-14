@@ -74,7 +74,8 @@ def test_convert_leaves_no_folder_and_undo_brings_it_back(xp):  # noqa: F811
     assert record["original"] == record["config_dir"] == kept
     assert _index_dirs(xp["index"]) == {kept}
     back = MIGRATE.revert(scenery, [LOCAL], index=xp["index"])
-    assert back == {"reverted": [LOCAL], "gone": [], "failed": []}
+    assert back == {"reverted": [LOCAL], "gone": [], "upgraded": [],
+                    "failed": []}
     assert os.path.isdir(os.path.join(scenery, LOCAL))
     assert not os.path.lexists(kept)
     assert _rows(scenery)[LOCAL] == "SCENERY_PACK"

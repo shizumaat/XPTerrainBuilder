@@ -16,7 +16,10 @@ tool's (#2025, owner 2026-11-12T19:42Z):
   runway data in the tile's folder).
 * :class:`ChoiceBook` -- the pilot's answer per tile (``keep``: fly the
   existing mesh; ``upgrade``: a ``full`` build of ours replaces it in the
-  pack, the adopted package kept for Undo by the Convert journal),
+  pack, built in the tile's own folder when that is where we build it --
+  the old mesh overwritten, its imagery the new build uses kept, the rest
+  discarded, and Undo of Convert given up for the tile
+  (``world_adopt_supersede``; owner 2026-11-14T19:59Z, #2088)),
   remembered in the data folder (:data:`CHOICES_FILE`) and applied to
   later flights without asking; with it, each endpoint airport's
   ``patched`` once read ``yes`` / ``no`` (the source's drive need not
@@ -47,7 +50,8 @@ from .world_state import FULL, MESH_LOWRES, journal_record, read_tile
 __all__ = ["KEEP", "UPGRADE", "CHOICES", "ASK", "PATCHED_YES",
            "PATCHED_NO", "PATCHED_UNKNOWN", "CHOICES_FILE", "endpoint_reader",
            "airport_patched_reader",
-           "ChoiceBook", "choices_path", "parse_tile", "Endpoints"]
+           "ChoiceBook", "choices_path", "parse_tile", "Endpoints",
+           "upgrade_overwrites", "own_folder"]
 
 Tile = Tuple[int, int]
 
@@ -103,9 +107,10 @@ def _built_by(scenery_dir: str, tile: Tile) -> str:
 def endpoint_reader(scenery_dir: str,
                     build_dir_of: Optional[Callable[[int, int], str]] = None
                     ) -> Callable[[Tile], Optional[dict]]:
-    """``info(tile)`` (see the module), with ``upgrade_ok`` False when
-    our build folder for the tile (``build_dir_of``) is the adopted
-    package's own (:func:`upgrade_overwrites`); never raises."""
+    """``info(tile)`` (see the module), with ``in_place`` True when our
+    build folder for the tile (``build_dir_of``) is the adopted package's
+    own (:func:`upgrade_overwrites`: an upgrade builds over it); never
+    raises."""
     def info(tile) -> Optional[dict]:
         tile = (int(tile[0]), int(tile[1]))
         try:
@@ -118,7 +123,7 @@ def endpoint_reader(scenery_dir: str,
             return {"origin": state.origin,
                     "built_by": _built_by(scenery_dir, tile),
                     "patched": _patched(record, *tile),
-                    "upgrade_ok": not upgrade_overwrites(build_dir, record)}
+                    "in_place": upgrade_overwrites(build_dir, record)}
         except Exception:                   # unread: the flight does not ask
             return None
     return info
@@ -127,11 +132,21 @@ def endpoint_reader(scenery_dir: str,
 def upgrade_overwrites(build_dir: str, record: Optional[dict]) -> bool:
     """Would a build of ours in ``build_dir`` write over the adopted
     package (the folder carries the adopted stamp, or is one the journal
-    names as the tile's own)?  Then the upgrade is refused: Undo needs it."""
+    names as the tile's own)?  Then the upgrade builds in place over the
+    old mesh and Undo of Convert is given up for the tile (owner
+    2026-11-14T19:59Z: an upgrade "does not need to be undoable, and
+    should overwrite old mesh"; ``world_adopt_supersede``)."""
     if not build_dir:
         return False
-    if TINFO.adopted_record(build_dir):
-        return True
+    return bool(TINFO.adopted_record(build_dir)) or own_folder(build_dir,
+                                                               record)
+
+
+def own_folder(build_dir: str, record: Optional[dict]) -> bool:
+    """Is ``build_dir`` one of the folders the tile's Convert journal
+    ``record`` names as its own (what Undo of Convert gives back)?"""
+    if not build_dir:
+        return False
     here = os.path.normcase(os.path.realpath(build_dir))
     return any(os.path.normcase(os.path.realpath(p)) == here
                for p in _source_dirs(record))
@@ -251,15 +266,10 @@ class Endpoints:
 
     def choice_of(self, tile) -> Optional[str]:
         """:data:`ASK`, :data:`KEEP` or :data:`UPGRADE` for an adopted
-        mesh, None for any other tile; a remembered upgrade that would
-        write over the adopted package is asked again."""
-        info = self.info(tile)
-        if info is None:
+        mesh, None for any other tile."""
+        if self.info(tile) is None:
             return None
-        choice = self.book.get(tile)
-        if choice == UPGRADE and info.get("upgrade_ok") is False:
-            return ASK
-        return choice or ASK
+        return self.book.get(tile) or ASK
 
     def remember(self, tile, role: str, choice: str) -> None:
         """The pilot's answer for an endpoint (``role``) of the flight;
@@ -269,10 +279,6 @@ class Endpoints:
                              "destination of this flight.")
         if choice not in CHOICES:
             raise ValueError("Choose keep or upgrade.")
-        if choice == UPGRADE and self.info(tile).get("upgrade_ok") is False:
-            raise ValueError("This tile's own folder is where XPTerrainBuilder "
-                             "would build it: an upgrade would write over it. "
-                             "Fly the existing mesh, or Convert it first.")
         self.book.set(tile, choice)
 
     def _estimate(self, tile, role: str, estimate) -> Optional[float]:

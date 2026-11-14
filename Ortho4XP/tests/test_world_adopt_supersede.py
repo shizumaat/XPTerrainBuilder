@@ -153,3 +153,46 @@ def test_the_publish_swap_calls_it():
     import inspect
     assert "_supersede(scenery_dir, build_dir, lat, lon)" in inspect.getsource(
         PUBLISH._after_swap)
+
+
+def test_an_upgrade_in_the_tiles_own_folder_gives_up_undo(world, tmp_path,
+                                                          monkeypatch):
+    """#2088 (owner 2026-11-14T19:59Z): our build over the converted
+    tile's own folder (the journal's ``link_target``) keeps the textures
+    the new terrain names, deletes the old mesh's others, and Undo of
+    Convert leaves the tile as it is and says so."""
+    from o4_engine import world_migrate as MIGRATE
+    own = tmp_path / "Ortho4XP" / "Tiles" / _name(REBUILT)
+    (own / "terrain").mkdir(parents=True)
+    (own / "textures").mkdir()
+    (own / "terrain" / "kept_BI16.ter").write_text("t", "utf-8")
+    (own / "textures" / "kept_BI16.dds").write_bytes(b"DDS new")
+    (own / "textures" / "old_GO2_17.dds").write_bytes(b"DDS old")
+    (own / "textures" / "mask.png").write_bytes(b"png")
+    journal = Journal(str(world["work"]))
+    journal.set(_name(REBUILT), link_target=str(own))
+    out = SUPERSEDE.supersede(world["scenery"], str(own), *REBUILT)
+    assert out["journal"] and out["in_place"]
+    assert sorted(p.name for p in (own / "textures").iterdir()) == [
+        "kept_BI16.dds", "mask.png"]
+    record = Journal(str(world["work"])).get(_name(REBUILT))
+    assert record[SUPERSEDE.UNDO_GIVEN_UP] == record["superseded"]
+    monkeypatch.setattr(MIGRATE, "_xplane_running", lambda: False)
+    monkeypatch.setattr(WORLD, "refuse_foreign", lambda sd: None)
+    got = MIGRATE.revert(world["scenery"], [_name(REBUILT)])
+    assert got["upgraded"] == [_name(REBUILT)] and not got["reverted"]
+    assert Journal(str(world["work"])).get(_name(REBUILT))
+    assert (Path(world["scenery"]) / WP.PACK_NAME
+            / WP.dsf_relpath(*REBUILT)).is_file()       # still ours
+    assert "an upgrade cannot be undone" in MIGRATE.summary("revert", got)
+
+
+def test_a_build_elsewhere_keeps_undo(world):
+    build = world["builds"] / _name(REBUILT)
+    (build / "textures").mkdir()
+    (build / "textures" / "old.dds").write_bytes(b"DDS")
+    out = SUPERSEDE.supersede(world["scenery"], str(build), *REBUILT)
+    assert out["in_place"] is False
+    assert (build / "textures" / "old.dds").is_file()
+    record = Journal(str(world["work"])).get(_name(REBUILT))
+    assert SUPERSEDE.UNDO_GIVEN_UP not in record

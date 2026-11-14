@@ -412,6 +412,22 @@ def annotate_rows(rows: list[dict], sampler, host_m: float = 12.0) -> None:
 
 
 
+def _surface_with_water(sampler):
+    """The census surface ``(lat, lon) -> z | None`` over ``sampler``, with
+    the mesh's water bit riding it as ``.water`` where the sampler reads one
+    (#1896: §16b reads no water as ground; a graded surface has none)."""
+    def surface(la, lo):
+        return sampler.elevation_at_or_none(la, lo)
+
+    at = getattr(sampler, "sample_at_or_none", None)
+    if at is not None:
+        def water(la, lo):
+            q = at(la, lo)
+            return bool(q is not None and q.is_water)
+        surface.water = water
+    return surface
+
+
 class _GradedSampler:
     """A ``--graded`` design surface in the sampler's own shape."""
 
@@ -545,6 +561,12 @@ def _print_elevated(plan: dict, sampler=None) -> None:
     what catches the class: the 218 LEMD bodies of 11s censused PERFECT
     because the writer had put each one's lowest vertex on the ground."""
     base = _elevated_base_m(plan)
+    # #1908: a FREE-STANDING COLUMN's ``y_zero`` is its authored foot,
+    # which the law puts ON the ground — counted apart, like a datum
+    from auto_patch_v2.airport.free_column import FREE_COLUMN
+
+    def _column(b: dict) -> bool:
+        return FREE_COLUMN in str(b.get("anchor_reason", ""))
     # §16e: A DATUM BODY IS NOT THIS CLASS.  Its ``y_zero`` is +5 … +10 m
     # BY CONSTRUCTION — a tunnel wall's crest plate, a bridge's deck top,
     # an authored height the law puts AT the ground — so counting it here
@@ -555,7 +577,9 @@ def _print_elevated(plan: dict, sampler=None) -> None:
            for b in s.get("bodies", ())
            if len(b.get("authored_offset", ())) > 1
            and float(b["authored_offset"][1]) > base
-           and not b.get("datum")]
+           and not b.get("datum") and not _column(b)]
+    columns = sum(1 for s in plan.get("splits", ())
+                  for b in s.get("bodies", ()) if _column(b))
     datums = [(b.get("y_zero", 0.0), b.get("new_resource", "?"))
               for s in plan.get("splits", ())
               for b in s.get("bodies", ()) if b.get("datum")]
@@ -575,6 +599,9 @@ def _print_elevated(plan: dict, sampler=None) -> None:
               f"{len(datums)}")
         for y, res in sorted(datums, reverse=True)[:5]:
             print(f"      y_zero {y:+.2f} m  {res}")
+    if columns:
+        print(f"   #1908 free-standing columns on their own foot (an authored "
+              f"foot AT the ground, counted apart from §13's bar): {columns}")
     print(f"   §13/§16 footless placements with no carrier "
           f"(their own ground): {footless}; "
           f"elevated bodies carried at their authored offset: {carried}")
@@ -600,8 +627,7 @@ def _print_elevated(plan: dict, sampler=None) -> None:
     _v15 = PC.census_v15(plan.get("splits", ()), plan.get("kept", ()),
                          ground_tol_m=_pl.split_tol_m)
     _v16b = (None if sampler is None else PC.census_v16b(
-        plan.get("splits", ()),
-        lambda la, lo: sampler.elevation_at_or_none(la, lo), split_tol_m=tol))
+        plan.get("splits", ()), _surface_with_water(sampler), split_tol_m=tol))
     for line in PC.cockpit_block_lines(PC.cockpit_block(
             splits=plan.get("splits", ()), v15=_v15, v16b=_v16b)):
         print(line)

@@ -292,6 +292,12 @@ def main():
     import locale
 
     locale.setlocale(locale.LC_NUMERIC, "C")
+    # Python 3.14.0-3.14.4: the automatic GC walks the GUI thread's stack
+    # while a PySide6 dealloc has dropped the GIL (#2059).  Before any
+    # worker thread starts.
+    import O4_Qt_GC_Guard
+
+    O4_Qt_GC_Guard.install(app)
     app.setApplicationName("Ortho4XP")
     app.setOrganizationName("Ortho4XP")
 

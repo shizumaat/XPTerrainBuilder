@@ -473,6 +473,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
                                    "frame_tilt_max_deg", None),
         authored_keep_tol_m=getattr(law.tables.structures.placement,
                                     "authored_keep_tol_m", None),
+        # #1908, through the same dropper
+        free_column=(_pp._fcol.law_of(law.tables.structures.placement)
+                     if hasattr(_pp, "_fcol") else None),
         jetway_strips=tuple((_gdoc.get("provenance") or {})
                             .get("jetway_strips") or ()),
         jetway_strip_m=getattr(getattr(law.tables.emit, "design", None),

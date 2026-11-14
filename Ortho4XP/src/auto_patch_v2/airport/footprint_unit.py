@@ -753,6 +753,7 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     # can link two units and the connector index above is the walled one
     contents: dict[int, int] = {}
     singles: list[int] = []
+    freed: list[list[int]] = []
     if contents_min_fraction > 0.0 and leaves and walled_ix:
         from .contents import attach_contents
         ml, mo = m_per_deg_exact(shims[walled_ix[0]].box[0])
@@ -764,7 +765,9 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
             base_y=lambda i: shims[i].base_y, ml=ml, mo=mo,
             deck_verdict=lambda i: member_is_deck(
-                plan.units[shims[i].key[0]].members[shims[i].key[1]]))
+                plan.units[shims[i].key[0]].members[shims[i].key[1]]),
+            stands_free=_rider_witness(plan, shims, ml, mo),     # 13r
+            freed=freed)
     held: dict[int, list[int]] = {}
     for i, k in sorted(contents.items()):
         held.setdefault(k, []).append(i)
@@ -792,7 +795,43 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
             continue
         conns.extend(connectors_of_cluster(cl, uid, shims, touch_m,
                                            connector_span_m, index, pool))
+    out.extend(_rider_units(freed, shims))
     return out, conns
+
+
+def _rider_units(freed: _t.Sequence[_t.Sequence[int]],
+                 shims: _t.Sequence[_PShim]) -> list[PlanUnit]:
+    """owner RULINGS 2026-11-13r (#2053): each rider the witness freed is a
+    unit of its OWN (``fu:<unit>:<body>/rider``, a root of its own), so
+    :func:`plan_unit_datums` seats it on the ground (or pad) under its own
+    parts with no wall base — never on its host's walls, and never on the
+    per-body low-side foot, which reads a figure's hands inside the contact
+    band as feet (SBRJ ``policeman4``: 0.90 m under)."""
+    out = []
+    for body in freed:
+        boxes = [b for i in body for b in shims[i].part_boxes]
+        out.append(PlanUnit(
+            id=f"fu:{shims[body[0]].key[0]}:{body[0]}/rider",
+            bodies=tuple(shims[i].key for i in body),
+            pids=frozenset().union(*(shims[i].pids for i in body)),
+            members=tuple(sorted({shims[i].resource for i in body})),
+            boxes=tuple(boxes), area_m2=union_area_m2(boxes)))
+    return out
+
+
+def _rider_witness(plan: _t.Any, shims: _t.Sequence[_PShim], ml: float,
+                   mo: float) -> _t.Callable:
+    """owner RULINGS 2026-11-13r (#2053): the free-rider witness at the
+    law's ``[basin] contact_band_m`` and ``[placement] split_tol_m``
+    (``airport/rider_floor``)."""
+    from ..law import Law
+    from .contents import _poly
+    from .rider_floor import free_rider_witness
+    st = Law.load().tables.structures
+    return free_rider_witness(
+        plan, shims, lambda i: _poly(shims[i].rings, shims[i].part_boxes,
+                                     ml, mo), ml, mo,
+        float(st.basin.contact_band_m), float(st.placement.split_tol_m))
 
 
 def _top_y(pids: _t.AbstractSet[int], parts_of: _t.Mapping[int, _t.Any]
@@ -1215,6 +1254,7 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     conn: dict[int, tuple[str, str]] = {}
     left: dict[str, dict[int, list]] = {}
     far: list[tuple[int, _t.Any, str, list]] = []
+    wet: set[int] = set()
     for ci, c in enumerate(cands):
         if c.body_class in (_ar.LINE_SEGMENT, _ar.BASIN):
             continue
@@ -1285,6 +1325,15 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             # verdict waits for the unit's other contacts (#1140,
             # :func:`_rests_on_unit`).
             far.append((ci, st, uid, cc))
+        elif _ar.hangs_over_water(cc, surface, z, visual_m, _ar.box_points(
+                c.part_boxes or ((c.box,) if c.box else ()))):
+            # #1896: A MEMBER THE UNIT'S ZERO WOULD HANG OVER WATER is far
+            # from it whatever the datum's source — water is no ground
+            # (R12 amendment 1); the same rest test keeps a deck on the
+            # unit's own piers (PAKT's float-dock piles stood 6.1 m over
+            # the water on the shore unit's median ground)
+            far.append((ci, st, uid, cc))
+            wet.add(ci)
         per_uid.setdefault(uid, {})[ci] = cc
         info[uid] = (z, where, src)
     resting: set[int] = set()
@@ -1302,8 +1351,9 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             counts["unit_members_kept_resting_on_unit"] = \
                 counts.get("unit_members_kept_resting_on_unit", 0) + 1
             continue
-        counts["unit_members_left_far_below"] = \
-            counts.get("unit_members_left_far_below", 0) + 1
+        why = ("unit_members_left_over_water" if ci in wet
+               else "unit_members_left_far_below")
+        counts[why] = counts.get(why, 0) + 1
         _leave(cands, ci, st, uid)
         del per_uid[uid][ci]
         left.setdefault(uid, {})[ci] = cc

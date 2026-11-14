@@ -577,6 +577,20 @@
   }
  },
  "noncommercial": {
+  "FABDEM": {
+   "licence": "Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (CC BY-NC-SA 4.0)",
+   "attribution": "FABDEM V1-2, Hawker et al. (2022), University of Bristol (doi:10.5523/bris.s5hqmjcdj8yo2ibzi9b4ew3sn); contains modified Copernicus DEM data; modified",
+   "terms": "https://data.bris.ac.uk/datasets/s5hqmjcdj8yo2ibzi9b4ew3sn/license.txt",
+   "evidence": "read",
+   "summary": "Non-commercial use with attribution; adaptations shared alike under CC BY-NC-SA 4.0 (owner to confirm the share-alike term against the library's ODbL structure)."
+  },
+  "FABDEMBASE": {
+   "licence": "Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (CC BY-NC-SA 4.0)",
+   "attribution": "FABDEM V1-2, Hawker et al. (2022), University of Bristol (doi:10.5523/bris.s5hqmjcdj8yo2ibzi9b4ew3sn); contains modified Copernicus DEM data; modified",
+   "terms": "https://data.bris.ac.uk/datasets/s5hqmjcdj8yo2ibzi9b4ew3sn/license.txt",
+   "evidence": "read",
+   "summary": "Same terms as FABDEM."
+  },
   "VIEWFINDER1": {
    "licence": "Free for non-commercial use with attribution (viewfinderpanoramas.org)",
    "attribution": "Jonathan de Ferranti, viewfinderpanoramas.org (https://viewfinderpanoramas.org/)",

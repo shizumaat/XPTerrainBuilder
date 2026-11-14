@@ -534,13 +534,24 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                file_root: "_t.Mapping[str, str] | None" = None,
                root_boxes: "_t.Mapping[str, _t.Sequence[tuple]] | None" = None,
                merged: "_t.Mapping[str, str] | None" = None,
-               adapted_zero: "float | None" = None) -> _t.Any:
+               adapted_zero: "float | None" = None,
+               surface: _t.Any = None, gap_m: float = 0.0,
+               afloat: "set[str] | None" = None) -> _t.Any:
     """R5 / 22o: every body of ``record`` (a placement of frame ``frame``,
     the plan unit id) whose parts belong to a connected unit takes the ONE
     zero of that frame's share of it (:func:`root_zeros`), whatever pass
     seated it.  A body carried by one of the unit's files takes it too
     (:func:`body_root`).  A body already within ``tol_m`` of its target is
     left as it is.
+
+    #1896: A BODY THE ZERO WOULD HANG OVER WATER KEEPS ITS SEAT
+    (``anchor_rule.hangs_over_water`` at the target, read on ``surface``
+    with ``gap_m`` = ``[cockpit] visual_m``), and so does a body carried by
+    one: its file joins ``afloat`` (the plan's, filled across placements),
+    which its riders' ``merged_into`` names.  Only a body not yet at its
+    unit's zero reaches this — a member the unit pass bound is already
+    there — and the unit pass applies the same reading with its rest test
+    (``footprint_unit._bind_plan_wide``).
 
     #1726: ``adapted_zero`` (``adapted_riders.member_zeros``) is the zero of
     the terrain-adapted member this placement's file touches; its
@@ -581,8 +592,20 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
         if t is None:
             return False
         z = float(b.anchor.surface_z) - float(b.anchor.y_zero)
-        return abs(z - t) > tol_m
+        return abs(z - t) > tol_m and id(b) not in kept
 
+    kept: set[int] = set()
+    if afloat is not None:
+        for b in record.bodies:
+            r = roots.get(id(b))
+            t = None if r is None or b.anchor.surface_z is None else target(r)
+            if t is not None and off(b) and _hangs(b, r, t, surface, gap_m, afloat,
+                                                   plan_wide, file_root):
+                kept.add(id(b))
+                afloat.add(str(b.new_resource))
+        if kept:
+            counts["group_zero_kept_over_water"] = \
+                counts.get("group_zero_kept_over_water", 0) + len(kept)
     moved = [b for b in record.bodies if off(b)]
     if not moved:
         return record
@@ -594,6 +617,38 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                        lambda b, _r=r: roots.get(id(b)) == _r and off(b),
                        f"{GROUP_REASON} {r} at {t:.2f} (RULINGS 2026-10-22o/q)")
     return out
+
+
+def _hangs(b: _t.Any, root: str, zero: float, surface: _t.Any, gap_m: float,
+           afloat: _t.AbstractSet[str], plan_wide: _t.Mapping[int, tuple],
+           file_root: "_t.Mapping[str, str] | None") -> bool:
+    """#1896 (:func:`group_zero`): does body ``b`` stay off unit ``root``'s
+    ``zero`` over water?  Its carrier was kept off (``afloat``); or ``zero``
+    would hang it over water (``anchor_rule.hangs_over_water``) and its only
+    tie to the unit is one no pass weighed it on — the unit pass LET IT GO
+    over water (``left_unit``, read there with the #1140 rest test), or its
+    root is :func:`body_root`'s last fallback, plan-box proximity, with no
+    part chained, no unit seat and no carrier in the unit.  A body chained
+    into the unit (a bridge's deck piece, a pier's building) is never
+    asked."""
+    if (getattr(b, "merged_into", "") or "") in afloat:
+        return True
+    if surface is None:
+        return False
+    a = b.anchor
+    left = unit_root(str(getattr(a, "left_unit", "") or "")) == root
+    fam = str(getattr(a, "family", "") or "")
+    chained = (fam.startswith("fu:")
+               or any((plan_wide.get(q) or ("",))[0] for q in getattr(b, "pids", ()) or ())
+               or (getattr(b, "merged_into", "") or "") in (file_root or {}))
+    if not left and chained:
+        return False
+    from . import anchor_rule as _ar
+    pts = tuple(getattr(b, "geom_pts", ()) or ()) or _ar.box_points(
+        tuple(getattr(b, "foot_boxes", ()) or ()) or tuple(
+            q for q in (getattr(b, "plan_box", None),) if q))
+    return _ar.hangs_over_water(
+        tuple(getattr(b, "feet", ()) or ()), surface, zero, gap_m, pts)
 
 
 def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,

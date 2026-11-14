@@ -15,8 +15,17 @@ census) and the plan's edge goes into the vector map as a constrained
 line.  The mesh step's refinement re-bake (``tile.iterate``) calls
 :func:`bake` again on the raster it rewrites.
 
+THE HOLD (#2053 round 3, ``auto_patch_v2.airport.terrain_cut`` THE
+HOLD): a record whose ``cut`` names ``erode_m`` (an object carrying
+riders) is also held by the MESH -- :func:`held_boxes` gives the mesh
+step's curvature weight map its plan boxes (``O4_Mesh_Utils.
+build_curv_tol_weight_map``), and :func:`hold` lowers the free vertices
+of the drawn mesh under the object's bound after the altitudes are post
+processed (``O4_Mesh_Utils.post_process_nodes_altitudes``).  A terrain
+model's record (no ``erode_m``) is not held.
+
 Nothing here raises into the build: an unreadable plan or object is one
-log line and that model is not cut.
+log line and that model is not cut (or not held).
 """
 from __future__ import annotations
 
@@ -30,7 +39,7 @@ import numpy as np
 
 from . import pack_choice as _PC
 
-__all__ = ["cut_records", "bake", "apply"]
+__all__ = ["cut_records", "bake", "apply", "held_boxes", "hold"]
 
 #: the raster postings left uncut at the tile's edge (the neighbour's
 #: raster is not cut, and the two must meet)
@@ -71,8 +80,9 @@ def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
 
 def _fit(rec):
     """One record's cut as a ``TerrainFit`` (its file's plan grid at the
-    record's zero and heading, eroded by its ``erode_m`` when it names one),
-    or ``None`` where the file cannot be read."""
+    record's zero and heading, eroded by its ``erode_m`` when it names one,
+    to its floor when it names ``floor_m``), or ``None`` where the
+    file cannot be read."""
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_model as _tm
     c = rec["cut"]
@@ -80,7 +90,7 @@ def _fit(rec):
     if grid is None:
         return None
     return _tc.cut_fit(grid, float(rec["elevation"]), float(c["heading"]),
-                       float(c.get("erode_m", _tc.ERODE_M)))
+                       float(c.get("erode_m", _tc.ERODE_M)), float(c.get("floor_m", 0.0)))
 
 
 def _cut_one(dem, tile, rec) -> int:
@@ -175,3 +185,123 @@ def apply(tile, vector_map, icaos: _t.Iterable[str]) -> int:
         vector_map.encode_MultiLineString(MultiLineString(lines), tile.dem.alt_vec,
                                           "DUMMY", check=True)
     return total
+
+
+def _held(records) -> list:
+    """The records THE HOLD applies to: their ``cut`` names ``erode_m``."""
+    return [r for r in records if "erode_m" in r["cut"]]
+
+
+def _held_records(tile) -> list:
+    import O4_File_Names as FNAMES
+    return _held(cut_records(FNAMES.patch_dir(tile.lat, tile.lon)))
+
+
+def held_boxes(tile) -> list[tuple[float, float, float, float]]:
+    """``(west, south, east, north)`` degrees of every held record's plan
+    in the tile's patch folder (the mesh step's weight boxes)."""
+    from auto_patch_v2.airport import terrain_cut as _tc
+    out = []
+    for rec in _held_records(tile):
+        fit = _fit(rec)
+        if fit is not None:
+            c = rec["cut"]
+            out.append(_tc.plan_box(fit, _tc.projector(float(c["lat"]), float(c["lon"]))[1]))
+    return out
+
+
+def _hold_one(tile, vertices, corners, fixed: np.ndarray, rec,
+              floor: np.ndarray | None = None) -> dict:
+    """THE HOLD of one record on the mesh (``vertices`` flat, six per
+    vertex, changed in place); the counts for its log line."""
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_model as _tm
+    from auto_patch_v2.geom.terrain_deck import UNDER_M
+    c = rec["cut"]
+    fit, tris = _fit(rec), _tm.plan_solid(str(c["file"]))
+    if fit is None or tris is None:
+        raise ValueError("its object cannot be read")
+    to_xy, to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))
+    w, s, e, n = _tc.plan_box(fit, to_ll)
+    lon = tile.lon + vertices[0::6]
+    lat = tile.lat + vertices[1::6]
+    cl, ca = lon[corners], lat[corners]
+    meet = (cl.max(1) >= w) & (cl.min(1) <= e) & (ca.max(1) >= s) & (ca.min(1) <= n)
+    vids, inv = np.unique(corners[meet], return_inverse=True)
+    x0, z0, bound = _tc.hold_bound(tris, float(c["erode_m"]), float(c.get("floor_m", 0.0)))
+    ii, jj = np.nonzero(np.isfinite(bound))
+    rep = {"triangles": int(meet.sum()), "samples": int(len(ii)), "lowered": 0,
+           "worst_m": 0.0, "unresolved": 0}
+    if not len(vids) or not len(ii):
+        return rep
+    lx, lz = fit.local(*to_xy(lon[vids], lat[vids]))
+    z_old = vertices[6 * vids + 2].astype(float)
+    z_new, rep["unresolved"] = _tc.hold_heights(
+        np.c_[lx, lz], z_old, inv.reshape(-1, 3), ~np.isin(vids, fixed),
+        np.c_[x0 + _tc.HOLD_CELL_M * ii, z0 + _tc.HOLD_CELL_M * jj],
+        float(rec["elevation"]) + bound[ii, jj] - UNDER_M,
+        None if floor is None else floor[vids])
+    moved = vids[z_new < z_old]
+    if len(moved):
+        drop = (z_old - z_new)[z_new < z_old]
+        vertices[6 * moved + 2] = z_new[z_new < z_old]
+        vertices[6 * moved + 3] = 0
+        vertices[6 * moved + 4] = 0
+        rep["lowered"], rep["worst_m"] = int(len(moved)), float(drop.max())
+    return rep
+
+
+def water_floor(vertices, corners, water) -> np.ndarray | None:
+    """Per vertex, the highest water datum (the altitude the mesh post-
+    process gave a water-valued vertex) of any water vertex it shares a
+    triangle with; ``-inf`` elsewhere; None when there is no water.  The
+    hold never lowers a land vertex under it (#2053, owner 2026-11-13)."""
+    water = np.fromiter((int(v) for v in water), np.int64)
+    if not len(water):
+        return None
+    z = np.asarray(vertices[2::6], float)
+    is_w = np.zeros(len(z), bool)
+    is_w[water] = True
+    tri_w = np.where(is_w, z, -np.inf)[corners].max(1)
+    floor = np.full(len(z), -np.inf)
+    hit = np.isfinite(tri_w)
+    for k in range(3):
+        np.maximum.at(floor, corners[hit, k], tri_w[hit])
+    return floor
+
+
+def hold(tile, vertices, corners, fixed, water=()) -> dict:
+    """THE HOLD (module doc) on the post-processed mesh: ``vertices`` the
+    flat six-per-vertex node array (tile-relative x, y, altitude, normal
+    x, normal y, carried altitude; changed in place: a lowered vertex's
+    normal is zeroed, the ``O4_Mesh_Pins`` convention), ``corners`` the
+    ``(m, 3)`` triangles, ``fixed`` the vertices it never moves (the
+    INTERP_ALT corners, the water-valued ones, the patch pins), ``water``
+    the water-valued vertices (their altitude floors the land beside them,
+    ``water_floor``).  One log
+    line per held record; ``{id: counts}``.  Never raises."""
+    import O4_UI_Utils as UI
+    try:
+        records = _held_records(tile)
+    except Exception as exc:
+        UI.vprint(1, f"   the hold: no records read ({exc})")
+        return {}
+    if not records:
+        return {}
+    fixed = np.fromiter((int(v) for v in fixed), np.int64)
+    corners = np.asarray(corners, np.int64)
+    floor = water_floor(vertices, corners, water)
+    out = {}
+    for rec in records:
+        try:
+            r = _hold_one(tile, vertices, corners, fixed, rec, floor)
+        except Exception as exc:
+            UI.vprint(1, f"   terrain object {rec.get('resource')} not held ({exc})")
+            UI.vprint(2, traceback.format_exc())
+            continue
+        out[str(rec.get("id"))] = r
+        UI.vprint(1, f"   [{rec.get('icao', '')}] the hold (#2053) {rec.get('resource')} "
+                     f"({rec.get('id')}): {r['lowered']} vertex(es) lowered under the "
+                     f"object, worst {r['worst_m']:.2f} m; {r['unresolved']} of "
+                     f"{r['samples']} sample(s) unresolved")
+    return out

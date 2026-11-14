@@ -165,3 +165,17 @@ def test_a_fence_crossing_an_edge_runs_along_none_of_it():
     division of that edge: the lot still flips on it."""
     cross = [("f", LineString([(80.0, 50), (160.0, 50)]))]
     assert _flip({}, fence_band(cross, RULES)) == (1, "apron")
+
+
+def test_every_cut_piece_is_one_polygon(monkeypatch):
+    """KAPA ``dsf:pol1645`` (#2090): a fold that meets its host at a corner
+    left a MultiPolygon face, and classify could not carry it."""
+    from shapely.geometry import MultiPolygon
+    from auto_patch_v2.classify import fence_division as FD
+    from auto_patch_v2.classify.airside_edge import EDGE_CANDIDATES
+    corner = MultiPolygon([box(0, 0, 50, 100), box(50, 100, 60, 110)])
+    monkeypatch.setattr(FD, "_fold_small", lambda pieces, floor: [corner, box(50, 0, 100, 100)])
+    fence = [("f", LineString([(50.0, -5), (50.0, 105)]))]
+    final = [["parking_lot", "pav2", box(0, 0, 100, 100), None, {"kind": "lot"}, "lot"]]
+    assert FD.split_at_fences(final, fence, EDGE_CANDIDATES, RULES)
+    assert all(f[2].geom_type == "Polygon" for f in final) and len(final) == 3

@@ -175,7 +175,14 @@ def split_at_fences(final: list[list], lines: _t.Sequence[tuple[str, LineString]
         pieces = _fold_small(pieces, floor)
         if len(pieces) < 2:
             continue
-        pieces = sorted((shapely.set_precision(p, grid) for p in pieces), key=lambda p: -p.area)
+        # one POLYGON per face: the snap or a fold that meets its host at a
+        # corner leaves a MultiPolygon, which no cell can carry (KAPA
+        # ``dsf:pol1645``, #2090: the airport built no patch)
+        pieces = sorted((q for p in pieces
+                         for q in polygon_parts(shapely.set_precision(p, grid))),
+                        key=lambda p: -p.area)
+        if len(pieces) < 2:
+            continue
         groups[i] = (f[2], list(range(len(final) + len(extra),
                                       len(final) + len(extra) + len(pieces) - 1)))
         final[i] = [f[0], f[1], pieces[0], *f[3:]]

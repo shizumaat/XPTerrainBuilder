@@ -67,8 +67,8 @@ def plan_interior(pack_root: str, defs: _t.Sequence[str],
     shapes = {p: _sh.read_shape(_path(pack_root, p)) for p in {p for _o, p, _tk in placed}}
     shapes = {p: s for p, s in shapes.items() if s is not None}
     big = [r for r in placed if r[1] in shapes and max(shapes[r[1]].size) >= _oc.SMALL_M]
-    insts = _rf.instances(pack_root, big, shapes, lat0, lon0)
-    roof = _rf.read_roof(insts, lat0, lon0)
+    insts: list[_rf.Instance] = _rf.instances(pack_root, big, shapes, lat0, lon0)
+    roof: _rf.Roof = _rf.read_roof(insts, lat0, lon0)
     cells = _rf.decode(_rf.encode(roof))
     by_def: dict[str, list[bool]] = {}
     small = [(p, t) for _o, p, t in placed

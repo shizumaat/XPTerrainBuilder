@@ -40,7 +40,7 @@ from ..obj8 import parse_obj8
 
 __all__ = ["CELL_M", "ROOF_MIN_Y_M", "NORMAL_Y_MIN", "HEADROOM_M",
            "COVERED_SHARE", "Roof", "Instance", "instances", "read_roof",
-           "covered", "under", "cell_of", "encode", "decode", "row_height"]
+           "covered", "under", "cell_of", "encode", "decode"]
 
 #: the grid's cell
 CELL_M = 5.0
@@ -120,7 +120,7 @@ def _cell(lat0: float, lon0: float, lon: float, lat: float) -> tuple[int, int]:
             int(math.floor((lon - lon0) * _kx(lat0) / CELL_M)))
 
 
-def row_height(toks: _t.Sequence[str]) -> float | None:
+def _row_height(toks: _t.Sequence[str]) -> float | None:
     """A placement row's height above the ground: ``0`` for ``OBJECT``,
     the stated height for ``OBJECT_AGL``, ``None`` (unknown) for any
     other kind."""
@@ -166,7 +166,7 @@ def instances(pack_root: str, rows: _t.Iterable[tuple[int, str, _t.Sequence[str]
     out: list[Instance] = []
     for ordinal, path, toks in rows:
         s = shapes.get(path)
-        h = row_height(toks)
+        h = _row_height(toks)
         if s is None or s.animated or h is None:
             continue
         if s.box[3] + h >= ROOF_MIN_Y_M and path not in faces:
@@ -290,7 +290,7 @@ def under(cells: _t.Mapping[tuple[int, int], float], lat0: float, lon0: float,
           toks: _t.Sequence[str]) -> bool:
     """Whether the placement row ``toks`` stands under the roof
     ``cells`` (``{(i, j): roof height}``, :func:`decode`)."""
-    h = row_height(toks)
+    h = _row_height(toks)
     if h is None:
         return False
     try:

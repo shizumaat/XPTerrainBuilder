@@ -85,7 +85,7 @@ from .deck_walls import inner_faces, wall_faces, wall_strip
 
 __all__ = ["DeckBridge", "deck_polygon", "from_full", "full_map", "with_cuts",
            "deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
-           "deck_cut", "deck_pin", "deck_ground", "DECK_GROUND_REF", "across_dir",
+           "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "deck_ground", "DECK_GROUND_REF", "across_dir",
            "mid_line", "project_span"]
 
 XY = tuple[float, float]
@@ -648,23 +648,19 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
     rim stands at its edge (vertical where it meets the carriageway).
 
     Deck redesign §3 (owner 2026-11-03T21:16Z Q1 "yes"; RULINGS 2026-11-03b
-    Q343 a): under a wall-less hard deck the cut takes the WHOLE ring
-    ``inset`` inside its edge, its floor running at level B to the toe of a
-    ``bank_run`` bank from each end line (:func:`_floor_under`; the road's
-    own width where that is wider); and ``uncut`` — the runway-family
+    Q343 a): under a wall-less hard deck the floor runs at level B over the
+    ring ``inset`` inside its edge to the toe of a ``bank_run`` bank from
+    each end line (:func:`_floor_under`; the road's own width where that is
+    wider).  The cut takes that FLOOR, never the banks (#2072 C): no void
+    wider than a wall band stands inside the deck's reach -- the banks are
+    the deck's own ground (:func:`deck_ground`, RULINGS 2026-10-30b), drawn
+    from the deck down to the floor; and ``uncut`` — the runway-family
     pavement no deck ring carries, which the cut never takes — stands as a
     RIM: the cut stops at its edge and the floor ``rim_off`` short of it,
     so the void between them is the vertical step (never a floor vertex on
     the runway)."""
-    big = 10.0 * (axis.length + 1000.0)
     road = ramp          # the corridor's own carriageway, before the deck trims it
-    ahead = axis.interpolate(min(axis.length, 1.0))
-    keep = _half_plane(mid_line(db), (ahead.x, ahead.y), big)
-    if other is not None:
-        c = deck_polygon(db).centroid
-        keep = keep.intersection(_half_plane(_gap_line(db, other), (c.x, c.y), big))
-    if band is not None:
-        keep = keep.intersection(_lane_strip(db, band, big))
+    keep = _keep(db, axis, other, band)
     walled = _walled_trench(db, inset, other)
     if walled is not None:
         # 30f (3): the floor runs to the walls' inner faces, the rim stands
@@ -673,12 +669,14 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         ramp = unary_union([ramp, floor])
         outer = unary_union([outer, rim, floor])
     else:
-        bank = deck_polygon(db).buffer(-inset, join_style="mitre")
-        if not bank.is_empty:
-            outer = unary_union([outer, bank])
-            floor = _floor_under(db, bank, bank_run)
-            if floor is not None:
-                ramp = unary_union([ramp, floor])
+        floor = _bank_floor(db, inset, bank_run)
+        if floor is not None:
+            # #2072 C: the cut takes the FLOOR only; the banks between it and
+            # the end lines are left unowned, so ``deck_ground`` mints them
+            # as the deck's own ground -- head held at the deck, toe on the
+            # floor -- never a void the mesh fills with the base DEM
+            outer = unary_union([outer, floor])
+            ramp = unary_union([ramp, floor])
 
     if uncut is not None and not uncut.is_empty and outer.intersects(uncut):
         outer = outer.difference(uncut)
@@ -696,6 +694,79 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
         parts = [q for q in getattr(g, "geoms", [g]) if q.geom_type == "Polygon" and q.area > 0]
         return max(parts, key=lambda q: q.area) if parts else fallback
     return one(ramp, ramp), one(outer, outer)
+
+
+def _keep(db: DeckBridge, axis: LineString, other: "DeckBridge | None",
+          band: "tuple[float, float] | None"):
+    """The share of the plane a corridor under ``db`` cuts (:func:`deck_cut`):
+    its own side of the midline, of the gap line toward ``other`` and of its
+    lane ``band``."""
+    big = 10.0 * (axis.length + 1000.0)
+    ahead = axis.interpolate(min(axis.length, 1.0))
+    keep = _half_plane(mid_line(db), (ahead.x, ahead.y), big)
+    if other is not None:
+        c = deck_polygon(db).centroid
+        keep = keep.intersection(_half_plane(_gap_line(db, other), (c.x, c.y), big))
+    if band is not None:
+        keep = keep.intersection(_lane_strip(db, band, big))
+    return keep
+
+
+def deck_banks(db: DeckBridge, axis: LineString, inset: float,
+               other: "DeckBridge | None" = None,
+               band: "tuple[float, float] | None" = None, bank_run: float = 0.0,
+               uncut=None, roads=None, own=None):
+    """THE BANKS UNDER A WALL-LESS DECK (#2072 C): the ring ``inset`` inside
+    its edge less the floor (:func:`_bank_floor`), less ``uncut`` and less
+    the mapped ``roads`` beside the cut (never ``own``, the corridor's own
+    carriageway -- :func:`deck_cut`'s road-edge witness), on the corridor's
+    own share (:func:`_keep`): the ground the cut CLEARS and leaves
+    unowned, so ``deck_ground`` mints it as the deck's own ground (the knife
+    takes it, the void does not).  ``None`` under a walled deck or where
+    nothing is left."""
+    if _walled_trench(db, inset, other) is not None:
+        return None
+    ring = deck_polygon(db).buffer(-inset, join_style="mitre")
+    if ring.is_empty:
+        return None
+    floor = _bank_floor(db, inset, bank_run)
+    banks = ring if floor is None else ring.difference(floor)
+    if uncut is not None and not uncut.is_empty:
+        banks = banks.difference(uncut)
+    if roads is not None and not roads.is_empty:
+        beside = roads if own is None else \
+            roads.difference(own.buffer(0.5, join_style="mitre"))
+        banks = banks.difference(beside)
+    banks = banks.intersection(_keep(db, axis, other, band))
+    return None if banks.is_empty or banks.area <= 0.0 else banks
+
+
+def _bank_floor(db: DeckBridge, inset: float, bank_run: float) -> "Polygon | None":
+    """THE FLOOR A WALL-LESS DECK'S CUT TAKES (#2072 C): :func:`_floor_under`
+    over the ring ``inset`` inside its edge.  The banks round it are the
+    deck's own ground (:func:`deck_banks`)."""
+    bank = deck_polygon(db).buffer(-inset, join_style="mitre")
+    return None if bank.is_empty else _floor_under(db, bank, bank_run)
+
+
+def deck_edge_pavement(db: DeckBridge, inset: float, paved, outer):
+    """THE AIRSIDE PAVEMENT THE DECK CARRIES AT ITS EDGE (#2072): the rolled-on
+    pavement ``paved`` in the band ``inset`` wide inside the ring's edge (the
+    cut stops short of it), less the corridor's own footprint ``outer`` (the
+    road's mouth runs through it).  It joins ``deck_cut``'s ``uncut``, so the
+    floor stands ``rim_off`` short of it as of any airside pavement the cut
+    does not take (rule A2): a hard-deck trench never touches airside
+    pavement.  MEASURED (#2072 replay, KIAH): the floor's edge along the
+    road's crossing shared its vertices with the taxiway's 0.6 m edge strip,
+    a pinned floor 7.4 m under the strip's other edge.  ``None`` for none."""
+    if paved is None or paved.is_empty:
+        return None
+    ring = deck_polygon(db)
+    band = ring.difference(ring.buffer(-inset, join_style="mitre"))
+    edge = band.intersection(paved)
+    if outer is not None:
+        edge = edge.difference(outer)
+    return None if edge.is_empty or edge.area <= 0.0 else edge
 
 
 def _floor_under(db: DeckBridge, bank: Polygon, bank_run: float) -> "Polygon | None":

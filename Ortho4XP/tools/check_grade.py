@@ -7728,6 +7728,15 @@ SEA_WALL_OUT_OF_SCOPE = "sea_wall_is_the_law"
 #: row wears when BOTH its vertices stand on the shore — "the tear IS the
 #: wall".
 SEA_WALL_TEAR_OUT_OF_SCOPE = "sea_wall"
+#: #2072 (spec ``2072-kiah-deck-trench-spec.md``, census row): the stamp a
+#: ``strip_seam_tear`` / ``adjacent_ground_step`` row wears when one of its
+#: ways is a hard deck's own ground (``deck_ground:<object>``,
+#: ``planar/deck_bridge.deck_ground``): the bank from the deck down to the
+#: trench floor and the band at the deck's edge, under the deck object --
+#: the cut's step, not a graded-band defect.
+DECK_GROUND_TEAR_OUT_OF_SCOPE = "deck_ground_is_the_cut"
+#: the ref prefix of that ground (``auto_patch_v2.model.structures.DECK_GROUND_REF``)
+DECK_GROUND_REF_PREFIX = "deck_ground:"
 #: How far from a shore segment a vertex may stand and still BE on it.
 #: The identity quantum, so this is the 11-dp join and not a proximity
 #: match (``SHARED_VERTEX_TOL_M`` is the census's own weld tolerance).
@@ -7906,6 +7915,24 @@ def stamp_sea_wall_tears(rows, shore_edges_ll, nodes, ll_to_m) -> int:
         if _on_shore(ll_to_m(float(lat), float(lon)), segs,
                      SEA_WALL_ON_SHORE_M):
             r.out_of_scope = SEA_WALL_TEAR_OUT_OF_SCOPE
+            n += 1
+    return n
+
+
+def stamp_deck_ground_tears(rows) -> int:
+    """#2072: stamp ``out_of_scope`` on every adjacent-ground row one of whose
+    ways is a hard deck's own ground (:data:`DECK_GROUND_TEAR_OUT_OF_SCOPE`)
+    -- measured and named, never adjudicated.  Returns how many."""
+    n = 0
+    for r in rows:
+        if getattr(r, "out_of_scope", None) is not None:
+            continue
+        refs = (getattr(getattr(r, "way_a", None), "ref", None),
+                getattr(getattr(r, "way_b", None), "ref", None),
+                getattr(getattr(r, "way_v", None), "ref", None),
+                getattr(getattr(r, "way_e", None), "ref", None))
+        if any(str(x or "").startswith(DECK_GROUND_REF_PREFIX) for x in refs):
+            r.out_of_scope = DECK_GROUND_TEAR_OUT_OF_SCOPE
             n += 1
     return n
 
@@ -11324,6 +11351,12 @@ OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
         "level and its length.  A vertical drop from the quay to the "
         "water is what the owner asked for, so the family reports it and "
         "never adjudicates it",
+    DECK_GROUND_TEAR_OUT_OF_SCOPE:
+        "THE DECK'S GROUND IS THE CUT (#2072, spec 2072-kiah-deck-trench "
+        "census row): one way of this adjacent-ground row is a hard deck's "
+        "own ground -- the bank from the deck down to the trench floor or "
+        "the band at the deck's edge, under the deck object.  Counted in its "
+        "family, reported here, never adjudicated",
     SEA_WALL_TEAR_OUT_OF_SCOPE:
         "THE TEAR IS THE WALL (spec 37 (11) (5)): both vertices of this "
         "adjacent-ground row stand ON the declared shore, so the step it "
@@ -13350,6 +13383,8 @@ def run_checks(
     # fixtures share one code path (the census-wrapper precedent).
     stamp_sea_wall_tears(list(ag_steps) + list(strip_seam_tears),
                          shore_edges_ll, nodes, ll_to_m)
+    # #2072: the hard deck's own ground is the cut's step (its bank, its edge)
+    stamp_deck_ground_tears(list(ag_steps) + list(strip_seam_tears))
 
     within = within + strip_seam_tears
 

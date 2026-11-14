@@ -1281,8 +1281,28 @@ def tunnel_mouth_depths(planar: PlanarMap, airport: Airport) -> list[dict[str, _
         if getattr(tn, "deck_bridge", ""):
             # 2026-10-30a: the depth is the hard-deck bridge's own (its bottom)
             rec["deck_bridge"] = tn.deck_bridge
+            rec.update(_deck_clearance(planar, tn))
         out.append(rec)
     return out
+
+
+def _deck_clearance(planar: PlanarMap, tn) -> dict[str, _t.Any]:
+    """#2072 B1: a LADDER floor is pinned before the solve, so no row holds
+    the deck its least depth over it -- the clearance the solve left (the
+    deck's settled anchor level less the floor under it) is REPORTED here,
+    with the shortfall when it stands closer than ``deck_floor_min_m``;
+    ``{}`` for a frame that states its own floor or a deck with no level."""
+    least = float(getattr(tn, "deck_floor_min_m", 0.0) or 0.0)
+    levels = [float(a.z_m) for a in getattr(planar, "deck_anchors", ()) or ()
+              if a.object_id == tn.deck_bridge]
+    if least <= 0.0 or not levels:
+        return {}
+    clear = sum(levels) / len(levels) - float(tn.mouth_z)
+    rec: dict[str, _t.Any] = {"floor_m": round(float(tn.mouth_z), 3),
+                              "clearance_m": round(clear, 3)}
+    if clear < least - 1e-6:
+        rec["clearance_short_m"] = round(least - clear, 3)
+    return rec
 
 
 def tunnel_objects(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:

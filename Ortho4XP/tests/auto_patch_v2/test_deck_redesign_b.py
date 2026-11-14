@@ -40,7 +40,10 @@ def test_a_wall_less_decks_cut_takes_the_whole_ring_to_the_bank_toes():
     axis, ramp, outer = _north_half(db)
     run = db.depth_m / 0.33
     r, o = DB.deck_cut(db, axis, ramp, outer, 0.6, bank_run=run)
-    assert o.bounds[0] == pytest.approx(-39.4) and o.bounds[2] == pytest.approx(39.4)
+    # #2072 C: the cut takes the floor; the banks it clears are the deck's ground
+    cleared = o.union(DB.deck_banks(db, axis, 0.6, bank_run=run))
+    assert cleared.bounds[0] == pytest.approx(-39.4) and cleared.bounds[2] == pytest.approx(39.4)
+    assert o.bounds[0] == pytest.approx(-(40.0 - run), abs=1e-6)
     assert r.bounds[0] == pytest.approx(-(40.0 - run), abs=1e-6)
     assert r.bounds[2] == pytest.approx(40.0 - run, abs=1e-6)
     assert r.contains(Point(0.0, 10.0)) and r.contains(Point(0.0, 60.0))   # the road climbs on

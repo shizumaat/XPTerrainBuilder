@@ -129,7 +129,7 @@ from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_w
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
 from .deck_bridge import (deck_banks, deck_cut, deck_edge_pavement, deck_mouth, deck_pin,
                           deck_polygon, deck_seats, deck_side, deck_under)
-from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, road_level
+from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, pad_rims, road_level
 from .zones import shore_region
 from .structure_service import (airside_cover, airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -424,6 +424,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # ramp STOPS SHORT of these, a pack-stated corridor is never bound
     _cut_roles = set(airside_cut_roles(law))
     # #2072 A: the airside pavement a deck trench's run-out may end on
+    # (and, below, a building pad: ltrenchpad)
     air_refs = {c.ref for c in cells if c.role in _cut_roles}
     # §34 (12) (2): the water a structure may not stand on (one witness)
     sea_cut = shore_region(tuple(cells), getattr(airport, "dem", None))
@@ -1118,7 +1119,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             clipped_by = hit
             top_pinned = False
             if deck is not None:
-                dead_end = (hit, ss[-1]) if hit in air_refs else None
+                # #2072 A: airside pavement or a BUILDING PAD -- the deck
+                # trench's floor is a pinned level (B1), so a pad clipping
+                # it is a rim like the pavement, never a ramp ending free
+                dead_end = (hit, ss[-1]) if hit in air_refs or hit in pad_refs else None
             if walled and len(ss) >= 2 and ss[-2] < walls_s - 1e-6 < ss[-1] - 2e-6:
                 # #1938 round 3: a stop beyond the walls clips the ramp ON the
                 # wall end (as at an object corridor's ``g.hull_s``), never a
@@ -1162,9 +1166,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 clipped_by, top_pinned = "", True
         dead_cut = None
         if dead_end is not None and clipped_by == dead_end[0]:
-            # #2072 A1: no ramp tops out before the airside pavement stopping
-            # the trench -- the stretch is level at the floor up to the stop,
-            # no top pin, and that pavement is a rim (A2, ``deck_cut``)
+            # #2072 A1: no ramp tops out before the airside pavement (or the
+            # building pad) stopping the trench -- the stretch is level at the
+            # floor up to the stop, no top pin, and the stop is a rim (A2, ``deck_cut``)
             ss = [q for q in ss if q < dead_end[1] - 1e-9] + [dead_end[1]]
             geom = _ring(ss)
             if geom is None:
@@ -1174,9 +1178,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             s_top = climb_from = dead_end[1]
             top_pinned, clipped_by = False, ""     # a rim, never a clipped top
             dead_cut = airside_stop(osm_stops, dead_end[0], deck_bridges)
-            steepen_note = (f"#2072 A: airside pavement {dead_end[0]} stops the run-out and no "
+            stop_kind = "building pad" if dead_end[0] in pad_refs else "airside pavement"
+            steepen_note = (f"#2072 A: {stop_kind} {dead_end[0]} stops the run-out and no "
                             f"ramp up to the cap tops out before it -- level at the floor to "
-                            f"{s_top:.1f} m, a wall on the pavement edge")
+                            f"{s_top:.1f} m, a wall on its edge")
         if c is None and g.climbs and road_end is not None and level_to is None \
                 and dead_cut is None \
                 and s_top - spacing_g > road_end + gap:   # ramp_top's one station of slack
@@ -1221,10 +1226,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                                  ()), lane_of.get(id(members[0]), 0))
             d_run = deck.depth_m / float(law.tables.emit.design.bank_slope)
             # the airside the cut does not take: the runway no deck carries,
-            # the pavement a dead end stops at (#2072 A2) and the deck's own
-            # airside edge band (#2072: the trench never touches airside)
+            # the pavement a dead end stops at (#2072 A2), the deck's own
+            # airside edge band (#2072: the trench never touches airside) and
+            # every building pad in the cut's reach (A2 for a pad: a rim)
             d_edge = deck_edge_pavement(deck, gap, deck_paved, outer)
-            parts_u = [q for q in (deck_uncut, dead_cut, d_edge) if q is not None]
+            d_pads = pad_rims(pads, pad_tree, deck, outer, rim_off)
+            parts_u = [q for q in (deck_uncut, dead_cut, d_edge, d_pads) if q is not None]
             d_uncut = unary_union(parts_u) if parts_u else None
             ramp, outer = deck_cut(deck, axis_ln, ramp, outer, gap, deck_next, d_band, d_run,
                                    deck_roads, d_uncut, rim_off)

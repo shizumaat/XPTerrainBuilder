@@ -55,7 +55,7 @@ from .structure_deck import _DECK_MIN_ANGLE_DEG
 from .structure_geometry import RampGeometry, ring_for, snap_out
 from .structure_underpass import UNDERPASS_TAG
 
-__all__ = ["Skew", "k_deck_ref", "place_mouth", "ring_stations", "sheared_ring",
+__all__ = ["k_deck_ref", "place_mouth", "ring_stations", "sheared_ring",
            "skewed_box", "member_roads", "survey_floor", "under_deck_band",
            "under_deck_blade"]
 
@@ -66,7 +66,7 @@ _WALK_MAX_M = 80.0
 
 
 @_dc.dataclass(frozen=True)
-class Skew:
+class _Skew:
     """R1's reading of a class-K mouth: ``m0`` the mouth on the axis (L's
     crossing), ``u`` outward along the axis, ``n`` its left normal, ``e`` the
     deck's direction along the mouth edge (``e . n > 0``), ``sigma`` the
@@ -141,7 +141,7 @@ def _deck_dir(deck_pts: _t.Sequence[XY], mouth: XY, inward: XY) -> XY | None:
 
 def place_mouth(deck_pts: _t.Sequence[XY], deck_ref: str, members: _t.Sequence,
                 axis: LineString, inward: XY, half: float, rim_off: float, law: Law
-                ) -> tuple[Skew | None, LineString, str]:
+                ) -> tuple[_Skew | None, LineString, str]:
     """R1: ``(skew, axis, note)`` -- the axis starting at the mouth on L's
     crossing (unchanged where the square ring stands); ``skew`` ``None``
     where the deck's direction cannot be read."""
@@ -162,7 +162,7 @@ def place_mouth(deck_pts: _t.Sequence[XY], deck_ref: str, members: _t.Sequence,
         why = (f"crossing {ang:.1f} deg < {_DECK_MIN_ANGLE_DEG:.0f}" if ang < _DECK_MIN_ANGLE_DEG
                else f"skew {abs(sigma) * width:.2f} m over the ring <= wall_gap_m "
                     f"{tn.wall_gap_m}")
-        return Skew((m[0], m[1]), u, n, e, 0.0, 0.0, deck_ref, (m[0], m[1])), axis, (
+        return _Skew((m[0], m[1]), u, n, e, 0.0, 0.0, deck_ref, (m[0], m[1])), axis, (
             f"#1939 R1: the square mouth stands under deck {deck_ref} ({why})")
     # n_out: the deck's normal out of the bore
     n_out = (-e[1], e[0])
@@ -175,7 +175,7 @@ def place_mouth(deck_pts: _t.Sequence[XY], deck_ref: str, members: _t.Sequence,
         u[0] * n_out[0] + u[1] * n_out[1])
     new = _station_axis(axis, inward, t)
     m0 = tuple(new.coords[0])
-    return Skew((m0[0], m0[1]), u, n, e, sigma, t, deck_ref, (anchor[0], anchor[1])), new, (
+    return _Skew((m0[0], m0[1]), u, n, e, sigma, t, deck_ref, (anchor[0], anchor[1])), new, (
         f"#1939 R1: mouth on the covered-extent edge along deck {deck_ref} "
         f"({ang:.1f} deg crossing, shear {sigma:+.3f}), through the member end; "
         f"{'out' if t >= 0.0 else 'in'} {abs(t):.1f} m along the axis")
@@ -208,7 +208,7 @@ def _perp(edge: LineString, p: XY) -> float:
     return abs((p[0] - x0) * (y1 - y0) - (p[1] - y0) * (x1 - x0)) / L
 
 
-def _shear_geometry(g: RampGeometry, sk: Skew, rim_off: float, grid: float
+def _shear_geometry(g: RampGeometry, sk: _Skew, rim_off: float, grid: float
                    ) -> RampGeometry | None:
     """``g`` sheared onto the mouth edge (every field), snapped to the grid
     away from the axis, its cap pushed until it stands ``rim_off``
@@ -263,10 +263,10 @@ def _shear_geometry(g: RampGeometry, sk: Skew, rim_off: float, grid: float
                        far_out=far_out, left_rim=left_rim, right_rim=right_rim)
 
 
-def sheared_ring(sk: Skew | None, c, axis_fn, ss: list[float], half: float, rim_off: float,
+def sheared_ring(sk: _Skew | None, c, axis_fn, ss: list[float], half: float, rim_off: float,
                  inward: XY, grid: float, g, half_fn=None) -> RampGeometry | None:
     """``structure_geometry.ring_for`` with R1's shear: the square ring is
-    built with its cap ``Skew.back(rim_off)`` behind the mouth line, then
+    built with its cap ``_Skew.back(rim_off)`` behind the mouth line, then
     sheared (:func:`_shear_geometry`).  ``sk`` ``None`` (or no shear): the
     square ring, unchanged."""
     if sk is None or sk.sigma == 0.0:
@@ -276,10 +276,10 @@ def sheared_ring(sk: Skew | None, c, axis_fn, ss: list[float], half: float, rim_
     return None if gm is None else _shear_geometry(gm, sk, rim_off, grid)
 
 
-def skewed_box(seg: LineString, s_pt: XY, half: float, rim_off: float, sk: Skew) -> Polygon:
+def skewed_box(seg: LineString, s_pt: XY, half: float, rim_off: float, sk: _Skew) -> Polygon:
     """``structure_mouth.clear_mouth``'s necessary-test rectangle for a
     sheared ring: ``seg`` (starting ``rim_off`` behind the mouth point
-    ``s_pt``) pushed back to ``Skew.back(rim_off)`` behind it, buffered and
+    ``s_pt``) pushed back to ``_Skew.back(rim_off)`` behind it, buffered and
     sheared about ``s_pt``."""
     extra = sk.back(rim_off) - rim_off
     if extra > 0.0:
@@ -291,11 +291,11 @@ def skewed_box(seg: LineString, s_pt: XY, half: float, rim_off: float, sk: Skew)
     return Polygon([sk.at(p, s_pt) for p in box.exterior.coords])
 
 
-def member_roads(airport, sk: Skew, members: _t.Sequence) -> list[tuple[float, float]]:
+def member_roads(airport, sk: _Skew, members: _t.Sequence) -> list[tuple[float, float]]:
     """R1 / R2's ALIGNED survey reading: ``(tau, z)`` per member -- its
     surveyed road (``lidar_road.surveyed_road``, the same 12 m reach) read on
     its OWN line outward from L at its own width, ``tau`` where that line
-    crosses L, along ``Skew.e`` from ``Skew.m0``.  The square window from the
+    crosses L, along ``_Skew.e`` from ``_Skew.m0``.  The square window from the
     axis point reads the smeared face on one side of a skewed mouth line
     (ESSA south: 24.27 against the members' 23.95-24.78)."""
     n_out = (-sk.e[1], sk.e[0])

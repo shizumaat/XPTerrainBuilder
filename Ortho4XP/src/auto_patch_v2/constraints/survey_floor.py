@@ -35,13 +35,13 @@ from shapely.geometry import LineString, Point
 
 from ..model.constraints import Source
 
-__all__ = ["SURVEY_FLOOR_RULING", "survey_floor_pins", "cap_line", "ground_carries"]
+__all__ = ["SURVEY_FLOOR_RULING", "survey_floor_pins", "cap_line"]
 
 #: The ruling head (``[design] hard_rulings``, beside ``tunnel.mouth_depth_m``).
 SURVEY_FLOOR_RULING = "tunnel.survey_floor"
 
 
-def ground_carries(planar, vw, v: int) -> bool:
+def _ground_carries(planar, vw, v: int) -> bool:
     """A1 (b): does the ground carry a value at shared vertex ``v`` -- a
     governed AIRSIDE face touches it (``vw.side``; stage 1 owns it), or the
     map publishes a target there?  ``vw`` is the precedence view
@@ -76,7 +76,7 @@ def survey_floor_pins(planar, airport, tn, ramp_faces, shared_with_ground: _t.Ca
             pin(v, z0 + k * tau, src_floor, senior=True)
         else:
             shared = shared_with_ground(v)
-            if shared and ground_carries(planar, vw, v):
+            if shared and _ground_carries(planar, vw, v):
                 continue
             z = float(airport.dem.z(xy[0], xy[1]))
             if math.isnan(z):

@@ -33,11 +33,11 @@ from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from ..law import Law
 from ..model.structures import UNDERPASS_NOTE
 
-__all__ = ["BoreSpan", "bore_spans", "bore_sampler"]
+__all__ = ["bore_spans", "bore_sampler"]
 
 
 @_dc.dataclass(frozen=True)
-class BoreSpan:
+class _BoreSpan:
     """The covered stretch between two K mouths of one deck: its region and
     the two mouth edges with their floors ``(z0, k, m0, unit along)``."""
 
@@ -64,7 +64,7 @@ def _edge(tn) -> tuple[LineString, tuple]:
                                 ((b[0] - a[0]) / L, (b[1] - a[1]) / L))
 
 
-def bore_spans(structures: _t.Sequence, law: Law, dem=None) -> tuple[BoreSpan, ...]:
+def bore_spans(structures: _t.Sequence, law: Law, dem=None) -> tuple[_BoreSpan, ...]:
     """Every pair of class-K tunnels (``Tunnel.survey_floor``) on one deck."""
     by_deck: dict[str, list] = {}
     for tn in structures or ():
@@ -85,13 +85,13 @@ def bore_spans(structures: _t.Sequence, law: Law, dem=None) -> tuple[BoreSpan, .
                 quad = MultiPoint(list(l1.coords) + list(l2.coords)).convex_hull
                 if quad.geom_type != "Polygon":
                     continue
-                out.append(BoreSpan(deck, quad.buffer(grow, join_style="mitre") if grow else quad,
+                out.append(_BoreSpan(deck, quad.buffer(grow, join_style="mitre") if grow else quad,
                                     (l1, l2), (f1, f2)))
     return tuple(out)
 
 
 def bore_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
-                 spans: _t.Sequence[BoreSpan],
+                 spans: _t.Sequence[_BoreSpan],
                  in_band: _t.Callable[[np.ndarray], np.ndarray] | None = None):
     """``sample`` read over the bores: inside a span (and inside the patch's
     band, ``in_band``) the lower of the sample and the bore's floor;

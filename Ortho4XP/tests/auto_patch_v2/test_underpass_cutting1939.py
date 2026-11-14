@@ -340,7 +340,7 @@ class _Face:
 
 
 class _Vw:
-    """The precedence view's surface ``ground_carries`` reads."""
+    """The precedence view's surface ``_ground_carries`` reads."""
 
     def __init__(self, vertex_faces, roles):
         self.vertex_faces, self.caps = vertex_faces, {f: (0.02, 0.02) for f in roles}
@@ -404,12 +404,12 @@ def test_a_k_top_with_a_published_target_keeps_the_ground():
 def test_no_k_ramp_vertex_is_ungoverned():
     """A1 coverage: after ``survey_floor_pins`` every K ramp vertex is
     pinned or carried by a target / an airside face."""
-    from auto_patch_v2.constraints.survey_floor import ground_carries
+    from auto_patch_v2.constraints.survey_floor import _ground_carries
     for roles, tg in ((("service_road", "parking_lot"), {}),
                       (("apron", "service_road"), {"taxi_trend_z": {3: 28.0}})):
         pm, vw = _k_ramp(roles, **tg)
         pins = _pin_k(pm, vw, {2, 3})
-        assert all(v in pins or ground_carries(pm, vw, v) for v in range(4))
+        assert all(v in pins or _ground_carries(pm, vw, v) for v in range(4))
 
 
 def test_a_k_cap_stands_at_the_cover():

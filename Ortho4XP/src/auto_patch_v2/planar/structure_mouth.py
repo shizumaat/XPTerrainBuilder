@@ -324,7 +324,7 @@ def clear_mouth(axis: LineString, stops: list[tuple[Polygon, str]], half: float,
     The rectangle ``half + rim_off`` either side of the axis, ``rim_off``
     behind the mouth line, is a necessary test (the real ring is never
     narrower) and keeps the ring builder off every station it fails.
-    ``skew`` (a class-K mouth, ``underpass_mouth.Skew``, #1939 R1): the
+    ``skew`` (a class-K mouth, ``underpass_mouth._Skew``, #1939 R1): the
     rectangle is sheared onto the deck's line like the ring it tests."""
     if not stops:
         return 0.0, ""
@@ -449,7 +449,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     #1939): pavement on the surveyed cutting floor is no stop, and a slid
     mouth where the survey still reads the cut is built at the surveyed
     road there instead of refused.  ``skew`` (a class-K mouth,
-    ``underpass_mouth.Skew``, #1939 R1): the probe rings are sheared onto
+    ``underpass_mouth._Skew``, #1939 R1): the probe rings are sheared onto
     the deck's line as the built ring is.  ``floor_z`` is a SLID mouth's floor on the road's own
     profile, held under the pavement it slid out of (:func:`road_profile`;
     ``None`` for a mouth that did not slide, or without ``airport``): the

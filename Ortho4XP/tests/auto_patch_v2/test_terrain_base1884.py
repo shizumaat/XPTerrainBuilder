@@ -268,3 +268,62 @@ def test_the_within_reach_is_the_law_key():
     # 0 = no reach: 14a (1) alone
     assert TB.seat(walls, None, FR[0], 0.0,
                    dc.replace(law, surface=_hill(28.1), within_m=0.0), {}) is None
+
+
+# ── #2077: a roof of ANOTHER resource rides its terrain-carried walls ──
+
+ROOF = _prism(-1.0, -69.0, 10.0, 25.5, 25.6)    # overhangs the walls 1 m
+
+
+def _two(tmp_path, top_shape=ROOF):
+    """The house and its roof as two resources of one frame (LOWS
+    ``domiki_lows_13`` walls, ``domiki_lows_37`` roof)."""
+    hp, rp = tmp_path / "walls", tmp_path / "roof"
+    hp.mkdir()
+    rp.mkdir()
+    house = _plan(_obj(hp, [HOUSE])).units[0].members[0]
+    roof = _plan(_obj(rp, [top_shape])).units[0].members[0]
+    import dataclasses as dc
+    roof = dc.replace(roof, id="dsf:obj2", resource="objects/roof.obj",
+                      parts=tuple(dc.replace(p, pid=100 + p.pid) for p in roof.parts))
+    return RebakePlan(icao="TEST", pack_name="pack", pack_root=str(tmp_path),
+                      units=(Unit("u0", (LAT, LON), 0.0, (house, roof)),),
+                      skipped=(), counts={})
+
+
+def _of(ss, res):
+    return next(b for s in ss.all if s.resource == res for b in s.bodies)
+
+
+def test_a_roof_rides_its_terrain_carried_walls(tmp_path):
+    """#2077 (LOWS ``domiki_lows_37`` b21, 40 m in the air): the walls go on
+    the hill (14a/14c); the roof — no walled part, no footed carrier, eaves
+    overhanging — takes the walls' seat, not own ground + authored y."""
+    ss = PP.build_splits(_two(tmp_path), _hill(40.0), write=False, **ARGS)
+    w, r = _of(ss, "objects/house.obj"), _of(ss, "objects/roof.obj")
+    assert TB.TERRAIN_CARRIED in w.anchor.reason
+    assert TB.TERRAIN_CARRIED in r.anchor.reason and "#2077" in r.anchor.reason
+    zero = lambda b: b.anchor.surface_z - b.anchor.y_zero  # noqa: E731
+    assert zero(r) == pytest.approx(zero(w), abs=1e-9)
+    assert (r.anchor.lat, r.anchor.lon) == (w.anchor.lat, w.anchor.lon)
+    assert ss.counts.get("terrain_carried_riders") == 1
+
+
+def test_a_roof_on_walls_left_at_authored_height_stays_with_them(tmp_path):
+    """Walls refused by 14a (1) keep own ground + authored y; so does the
+    roof (it never takes a seat its walls did not)."""
+    ss = PP.build_splits(_two(tmp_path), _hill(12.0), write=False, **ARGS)
+    r = _of(ss, "objects/roof.obj")
+    assert TB.TERRAIN_CARRIED not in r.anchor.reason
+    assert r.anchor.y_zero == pytest.approx(0.0, abs=1e-9)
+    assert not ss.counts.get("terrain_carried_riders")
+
+
+def test_a_plate_above_the_walls_is_no_rider(tmp_path):
+    """Above the walls' span (more than ``split_tol_m`` over their top) a
+    piece rests on nothing of them: §16 (3) as before (13y (3))."""
+    high = _prism(-1.0, -69.0, 10.0, 30.0, 30.1)
+    ss = PP.build_splits(_two(tmp_path, high), _hill(40.0), write=False, **ARGS)
+    r = _of(ss, "objects/roof.obj")
+    assert TB.TERRAIN_CARRIED not in r.anchor.reason
+    assert not ss.counts.get("terrain_carried_riders")

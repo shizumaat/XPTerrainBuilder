@@ -1100,6 +1100,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
         # ── PASS 4: the cut, carriers first ──────────────────────────
         by_mi = {st.mi: st for st in staged}
+        # #2077: a roof resting on a terrain-carried body takes its seat
+        _terrain_u = _tb.with_hosts(_terrain, _own_ground_bodies(staged, u))
         # owner RULINGS 2026-10-22b (#1214): a frame the law seats on our
         # ground by its FEET moves as one and keeps no authored lift
         footed_frame = any(not st.footless for st in staged)
@@ -1266,7 +1268,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 body = _own_ground_file(st.raw, list(range(len(st.raw))), m, u,
                                         surface, 0, counts, by_class,
                                         st.part_boxes, st.bridge,
-                                        st.geom_boxes, terrain=_terrain)
+                                        st.geom_boxes, terrain=_terrain_u)
                 body = _deck.deck_seat(body, u, m, decks,                # §49
                                        on_fraction=deck_on_fraction, edge_m=deck_edge_m,
                     surface=surface, under_m=deck_under_m,
@@ -1320,7 +1322,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                      st.geom_boxes,
                                      column=(_cols.get((ui, st.mi, grp[0]))
                                              if len(grp) == 1 else None),
-                                     terrain=_terrain),
+                                     terrain=_terrain_u),
                     u, m, decks, on_fraction=deck_on_fraction, edge_m=deck_edge_m,
                     surface=surface, under_m=deck_under_m, counts=counts))
             # issue #31: the unit-carried pieces, BEFORE the §15 carries
@@ -1486,6 +1488,22 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     plan_wide=_pw or {}, pit_shifts=_pit_shifts)
 
 
+
+
+def _own_ground_bodies(staged: _t.Sequence[_t.Any], u: _t.Any) -> list[tuple]:
+    """#2077: ``(parts, member, anchor, lift)`` of every body of the unit
+    that pass 4 writes at its own ground (``_own_ground_file``): each
+    member's ``own_ground`` pieces, and the whole of a footless member
+    nothing carries."""
+    out = []
+    for st in staged:
+        grps = list(st.own_ground)
+        if (st.footless and not st.carried and not st.own_ground
+                and not st.unit_carried):
+            grps = [range(len(st.raw))]
+        out.extend(([p for i in g for p in st.raw[i][0]], st.m, u.anchor,
+                    getattr(u, "agl_m", 0.0)) for g in grps)
+    return out
 
 
 def _pit_joiner(plan: RebakePlan, zeros: dict, airside: dict, counts: dict

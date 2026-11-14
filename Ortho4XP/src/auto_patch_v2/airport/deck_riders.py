@@ -37,7 +37,8 @@ import typing as _t
 from .bridge_family import CONTACT_M, DeckPrint
 from .placement_family import DECK_VERDICTS
 
-__all__ = ["FAMILY_KIND", "FrameDatums", "end_tops", "riding_frames"]
+__all__ = ["FAMILY_KIND", "FrameDatums", "end_tops", "riding_frames", "objects_ride",
+           "frame_datum"]
 
 #: ``Member.deck_kind`` of a member of an accepted deck family that has no
 #: plate of its own (``deck_signature._apply``)
@@ -61,6 +62,25 @@ def _deck_ridden(m: _t.Any, prints: _t.Sequence[DeckPrint]) -> "int | None":
     return None
 
 
+def _frame_seats(kinds: _t.Sequence[str], ridden: _t.Callable[[int], "int | None"]
+                 ) -> dict[int, int]:
+    """THE RIDER WITNESS over one frame (module doc): ``member -> the member
+    whose datum it takes`` (a deck its own, a rider its deck's) when the
+    frame holds a deck and a plateless family member and nothing else, and
+    every family member rides one of its decks (``ridden(mi)``: the deck's
+    index, or None); ``{}`` otherwise."""
+    if (FAMILY_KIND not in kinds or not any(k in DECK_VERDICTS for k in kinds)
+            or any(k not in DECK_VERDICTS and k != FAMILY_KIND for k in kinds)):
+        return {}
+    seats: dict[int, int] = {}
+    for mi, k in enumerate(kinds):
+        deck = mi if k in DECK_VERDICTS else ridden(mi)
+        if deck is None:
+            return {}
+        seats[mi] = deck
+    return seats
+
+
 def riding_frames(plan: _t.Any, prints: _t.Sequence[DeckPrint]
                   ) -> dict[tuple[int, int], int]:
     """``(unit, member) -> the member whose datum it takes`` (its own index
@@ -74,23 +94,73 @@ def riding_frames(plan: _t.Any, prints: _t.Sequence[DeckPrint]
     out: dict[tuple[int, int], int] = {}
     for ui, u in enumerate(getattr(plan, "units", ()) or ()):
         ms = tuple(getattr(u, "members", ()) or ())
-        kinds = [_kind(m) for m in ms]
-        if (FAMILY_KIND not in kinds or not any(k in DECK_VERDICTS for k in kinds)
-                or any(k not in DECK_VERDICTS and k != FAMILY_KIND for k in kinds)):
-            continue
         own = by_unit.get(ui, [])
-        seats: dict[int, int] = {}
-        for mi, m in enumerate(ms):
-            if kinds[mi] in DECK_VERDICTS:
-                seats[mi] = mi
-                continue
-            deck = _deck_ridden(m, own)
-            if deck is None:
-                seats = {}
-                break
-            seats[mi] = deck
+        seats = _frame_seats([_kind(m) for m in ms],
+                             lambda mi, ms=ms, own=own: _deck_ridden(ms[mi], own))
         out.update({(ui, mi): d for mi, d in seats.items()})
     return out
+
+
+def _placed(o: _t.Any, tris: _t.Any, cache: _t.Any):
+    """``tris`` of placement ``o``'s geometry as frame faces ``(n, 3, 3)``."""
+    from .bridge_witness import placed_faces
+    g = cache.geometry(o.resolved) if getattr(o, "resolved", None) else None
+    if g is None:
+        return None
+    return placed_faces(g.vertices[:, :3], tris if tris is not None else g.solid,
+                        o.xy, float(o.heading_deg or 0.0))
+
+
+def objects_ride(objects: _t.Sequence[_t.Any], kinds: _t.Sequence[str], cache: _t.Any
+                 ) -> bool:
+    """THE RIDER WITNESS on PACK placements (the pack stage's frames and the
+    deck signature's families, before a plan exists): is this frame — the
+    placements ``objects`` with their deck verdicts ``kinds`` — a deck and
+    the structure riding it (:func:`riding_frames`' rule)?  A part is a
+    genuine component (``ResourceCache.genuine``, the plan's parts) at its
+    area-weighted plan centroid; a deck's footprint is every solid triangle
+    of its model, within :data:`CONTACT_M`."""
+    import numpy as np
+    import shapely
+
+    if FAMILY_KIND not in kinds:
+        return False
+    trees: dict[int, _t.Any] = {}
+
+    def tree(mi: int):
+        if mi not in trees:
+            f = _placed(objects[mi], None, cache)
+            trees[mi] = None if f is None or not len(f) else shapely.STRtree(
+                shapely.polygons(f[:, :, :2]))
+        return trees[mi]
+
+    decks = [mi for mi, k in enumerate(kinds) if k in DECK_VERDICTS]
+
+    def ridden(mi: int) -> "int | None":
+        o = objects[mi]
+        comps = cache.genuine(o.resolved) if getattr(o, "resolved", None) else []
+        pts = []
+        for c in comps:
+            f = _placed(o, c.tris, cache)
+            if f is None or not len(f):
+                continue
+            a = 0.5 * np.abs(np.cross(f[:, 1, :2] - f[:, 0, :2], f[:, 2, :2] - f[:, 0, :2]))
+            cen = f[:, :, :2].mean(axis=1)
+            w = float(a.sum())
+            pts.append((cen * a[:, None]).sum(axis=0) / w if w > 0.0
+                       else f[:, :, :2].reshape(-1, 2).mean(axis=0))
+        if not pts:
+            return None
+        pp = shapely.points(np.asarray(pts))
+        for d in decks:
+            t = tree(d)
+            if t is None:
+                continue
+            hit = t.query(pp, predicate="dwithin", distance=CONTACT_M)
+            if len(np.unique(hit[0])) == len(pts):
+                return d
+        return None
+    return bool(_frame_seats(list(kinds), ridden))
 
 
 #: the deck's own vertices this far beyond the nearest one to an end line
@@ -160,11 +230,19 @@ class FrameDatums:
         return self._memo[key]
 
     def _read(self, u: _t.Any, deck: _t.Any) -> _t.Any:
-        import dataclasses as _dc
+        return frame_datum(deck, (float(u.anchor[0]), float(u.anchor[1])), **self._kw)
 
-        from . import anchor_rule as _ar
-        datum = _ar.datum_of(deck, **self._kw)
-        if datum is None or len(datum.ends) < 2:
-            return datum
-        tops = end_tops(deck, datum.ends, (float(u.anchor[0]), float(u.anchor[1])))
-        return datum if tops is None else _dc.replace(datum, tops=tops)
+
+def frame_datum(deck: _t.Any, origin: tuple[float, float], **kw: _t.Any) -> _t.Any:
+    """THE ONE DATUM of a riding frame's bridge, off its deck (a plan member,
+    or the pack stage's member-shaped view): the free-standing deck-top
+    datum (``anchor_rule.datum_of``, ``kw`` its arguments) with the deck top
+    AT each end line (:func:`end_tops`); None where the deck carries none."""
+    import dataclasses as _dc
+
+    from . import anchor_rule as _ar
+    datum = _ar.datum_of(deck, **kw)
+    if datum is None or len(datum.ends) < 2:
+        return datum
+    tops = end_tops(deck, datum.ends, origin)
+    return datum if tops is None else _dc.replace(datum, tops=tops)

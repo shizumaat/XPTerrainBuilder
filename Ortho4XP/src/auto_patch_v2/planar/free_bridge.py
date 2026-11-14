@@ -7,7 +7,8 @@ S1 / S2 / S4): the thin ``planar`` caller of the positive witness
   ``flag`` / ``signature`` deck is read W1-W7 + W4b; a deck of a deck stack,
   a plate with apt.dat pavement or a runway on it (``deck_stack._Airside``:
   class A's witness) and an all-deck frame (22d / 22p keep it,
-  ``placement_family.frame_is_bridge``) are not read.  W1 reads ``highway`` /
+  ``placement_family.frame_is_bridge``, or a deck and the structure riding
+  it, ``deck_riders``) are read as KEPT bridges.  W1 reads ``highway`` /
   ``railway`` routes only.  The decks the classifier calls ``free_bridge``
   (``airport/bridge_class``) become ``Airport.free_bridges``, one
   :class:`~..model.free_bridge.FreeBridge` per group of touching decks.
@@ -167,6 +168,16 @@ class _Frame:
     members: tuple = ()
 
 
+def _bridge_frame(frame, cache) -> bool:
+    """Does the object stage seat this frame as ONE bridge on its deck's own
+    datum: every member a deck (``placement_family.frame_is_bridge``) or a
+    deck and the structure riding it (``deck_riders.objects_ride``, #2086)?"""
+    from ..airport.deck_riders import objects_ride
+    from ..airport.placement_family import frame_is_bridge
+    return frame_is_bridge(_Frame(tuple(frame))) or objects_ride(
+        frame, [str(getattr(o, "deck_kind", "") or "") for o in frame], cache)
+
+
 def _read_free_bridges(airport, objects, cache, law
                        ) -> tuple[tuple[FreeBridge, ...], tuple[FreeBridge, ...], list[str]]:
     """``(every free bridge of the pack, every KEPT bridge — the witness-
@@ -174,7 +185,6 @@ def _read_free_bridges(airport, objects, cache, law
     one note per deck read)`` (module doc, pack stage)."""
     from ..airport.bridge_class import DeckFacts, classify
     from ..airport.deck_stack import _Airside
-    from ..airport.placement_family import frame_is_bridge
     from .deck_bridge import _frames
     if not objects or cache is None or law is None or getattr(airport, "frame", None) is None:
         return (), (), []
@@ -193,8 +203,9 @@ def _read_free_bridges(airport, objects, cache, law
         if not decks:
             continue
         # an all-deck frame keeps 22d / 22p's seat; its witness-holding decks
-        # are KEPT bridges, their ends graded (#2065 A3 rule 1)
-        all_deck = frame_is_bridge(_Frame(tuple(frame)))
+        # are KEPT bridges, their ends graded (#2065 A3 rule 1) — and so does
+        # a deck with the structure riding it (#2086, ``deck_riders``)
+        all_deck = _bridge_frame(frame, cache)
         rd = rd or _Read(airport, objects, cache, law)
         wit = _frame_witness(decks, frame, rd)
         free = []

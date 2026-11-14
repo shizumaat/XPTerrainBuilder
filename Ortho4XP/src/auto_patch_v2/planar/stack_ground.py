@@ -90,8 +90,12 @@ def stack_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: 
                 if part.geom_type != "Polygon" or part.area < 1.0 \
                         or is_hairline(part, hairline_m):
                     continue
-                out.append((f"{STACK_GROUND_PREFIX}{name}#{k}", shapely.segmentize(part, vertex_m)))
-                k += 1
+                # a piece with a zero-area spike densifies into a polygon AND
+                # a sliver (LEMG's kept bank, #2086): a zone is ONE polygon
+                for q in shapely.get_parts(shapely.segmentize(part, vertex_m)):
+                    if q.geom_type == "Polygon" and q.area >= 1.0:
+                        out.append((f"{STACK_GROUND_PREFIX}{name}#{k}", q))
+                        k += 1
     return out
 
 

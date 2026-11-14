@@ -69,8 +69,13 @@ def test_bodies_with_no_box_stay_one_set():
     assert len(OFS.open_sets(bs)) == 1
 
 
+_PIDS: dict = {}
+
+
 def _member(mid, feet):
-    part = types.SimpleNamespace(pid=hash(mid) % 1000, feet=((0, 0, 0),) if feet else ())
+    # deterministic, distinct per member id (hash() is salted per run)
+    pid = _PIDS.setdefault(mid, len(_PIDS))
+    part = types.SimpleNamespace(pid=pid, feet=((0, 0, 0),) if feet else ())
     return types.SimpleNamespace(id=mid, resource=mid + ".obj", parts=(part,))
 
 

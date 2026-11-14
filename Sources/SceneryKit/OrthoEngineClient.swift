@@ -1344,8 +1344,16 @@ extension OrthoEngineClient {
         try await request("patch_list", ["tile": tile])
     }
 
-    public func patchLoad(tile: String, icao: String) async throws -> O4PatchLoad {
-        try await request("patch_load", ["tile": tile, "icao": icao])
+    /// `staleness: false` (capability `patch_view_lane`, #2061) leaves the
+    /// staleness check to `patchStaleness`.
+    public func patchLoad(tile: String, icao: String, staleness: Bool = true) async throws -> O4PatchLoad {
+        try await request("patch_load", PatchViewLoad.loadArguments(tile: tile, icao: icao,
+                                                                     fast: !staleness))
+    }
+
+    /// The staleness check `patchLoad(staleness: false)` left out (#2061).
+    public func patchStaleness(tile: String, icao: String) async throws -> O4PatchStaleness {
+        try await request("patch_staleness", ["tile": tile, "icao": icao])
     }
 
     /// Nodes and ways are written in the order given; tags unchanged.

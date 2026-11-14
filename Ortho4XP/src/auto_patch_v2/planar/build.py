@@ -477,6 +477,13 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                 _airside_vertices(faces, face_vs),
                                                 _seam_vertices(arr, vertices_xy))
         print(f"  [planar] {stats.bridge_ground.line()}")
+    # #2053 round 3: under a held object (a ground object on its bridges'
+    # ends) the vertices no airside face carries read the cut ground
+    if any(getattr(r[2], "seat_by", "") for r in getattr(airport, "terrain_models", ()) or ()):
+        from ..airport.object_ground import object_ground
+        zs, held = object_ground(airport, xs, ys, zs,
+                                 _airside_vertices(faces, face_vs))
+        print(f"  [planar] {held.line()}")
     dp = frame.identity_dp
     vertices: dict[int, Vertex] = {}
     for v, p in enumerate(vertices_xy):
@@ -520,6 +527,9 @@ def build(airport: Airport, classification: Classification, law: Law,
                    pad_roads=frozenset(
                        c.ref for c in classification.cells
                        if (getattr(c, "evidence", None) or {}).get("pad_road")),
+                   frontage_roads=frozenset(
+                       c.ref for c in classification.cells
+                       if (getattr(c, "evidence", None) or {}).get("frontage_road")),
                    ramp_runouts=_runouts(classification),
                    jetway_ground=tuple(getattr(classification, "jetway_ground", ())),
                    registries=arr.registries)

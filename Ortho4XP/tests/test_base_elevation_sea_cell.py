@@ -152,8 +152,12 @@ def test_the_shipped_copernicus_fallbacks_are_land_complete():
         os.path.join(here, "..", "Providers", "Elevation"))
     try:
         fallbacks = base_fallback.fallback_definitions(shipped)
-        assert fallbacks and all(sea_cell.is_land_complete(d)
-                                 for d in fallbacks)
+        copernicus = [d for d in fallbacks
+                      if d["code"].startswith("COPERNICUS")]
+        assert copernicus and all(sea_cell.is_land_complete(d)
+                                  for d in copernicus)
+        # FABDEM (#1942) stops at 60S-80N, so it is no water witness.
+        assert not sea_cell.is_land_complete(shipped["FABDEMBASE"])
     finally:
         INSETS.initialize_elevation_providers_dict(
             os.path.join(here, "..", "Providers", "Elevation"))

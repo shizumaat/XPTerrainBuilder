@@ -169,6 +169,25 @@ except ImportError:
     sys.exit(1)
 
 
+class XPTBApplication(QApplication):
+    """The application, with the one event the app object itself must
+    see: a file opened on the app icon (``QFileOpenEvent``, macOS; #1979).
+
+    An application-wide event filter did this before, and an application
+    filter written in Python takes the GIL for EVERY event of every widget
+    (paints, timers, mouse moves): with the in-process engine's scan
+    threads holding it, the window stalled at launch (#2055).  ``event``
+    is only called for the events sent to the application object."""
+
+    file_open = None    # the window's ``DropFilter.file_opened``
+
+    def event(self, event):     # noqa: N802 (Qt's name)
+        handler = self.file_open
+        if handler is not None and handler(event):
+            return True
+        return super().event(event)
+
+
 class DataFolderDialog(QDialog):
     """First-launch chooser: where should XPTerrainBuilder keep its
     downloads, caches, settings and built tiles?  (The Mac app's
@@ -265,7 +284,7 @@ def bootstrap_data_root():
 
 
 def main():
-    app = QApplication(sys.argv)
+    app = XPTBApplication(sys.argv)
     # QApplication calls C setlocale(LC_ALL, ""), switching LC_NUMERIC to
     # the user's locale.  In-process tile builds then format numbers for
     # external tools with grouping/decimal characters their C parsers
@@ -273,6 +292,12 @@ def main():
     import locale
 
     locale.setlocale(locale.LC_NUMERIC, "C")
+    # Python 3.14.0-3.14.4: the automatic GC walks the GUI thread's stack
+    # while a PySide6 dealloc has dropped the GIL (#2059).  Before any
+    # worker thread starts.
+    import O4_Qt_GC_Guard
+
+    O4_Qt_GC_Guard.install(app)
     app.setApplicationName("Ortho4XP")
     app.setOrganizationName("Ortho4XP")
 
@@ -346,7 +371,7 @@ def main():
     # Patches opened on the app icon or given as launch arguments (#1979).
     import O4_Qt_Patch_Drop as QTDROP
 
-    app.installEventFilter(window.patch_drop)
+    app.file_open = window.patch_drop.file_opened
     dropped = QTDROP.launch_paths(sys.argv)
     if dropped:
         from PySide6.QtCore import QTimer

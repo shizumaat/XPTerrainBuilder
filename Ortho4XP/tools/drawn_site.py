@@ -60,6 +60,9 @@ Usage::
         [--tile-dsf PATH] [--dataref NAME=V] [--mouth] [--summary] \\
         [--cache DIR] [--json OUT]
 
+``--cover ICAO --tag T --object SUBSTR`` hands over to ``tools/drawn_cover.py``
+(does the drawn ground stay under one object, #2053).
+
 ``--pack`` and ``--tile-dir`` take ANY folder (the owner's install, a
 lane's ``Tiles/zOrtho4XP_*`` product); ``--row TILE:N`` is the ``objN``
 the report prints for a written row.
@@ -1164,6 +1167,11 @@ def print_clearances(rep: dict, bar: float, top_n: int) -> None:
 
 
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if "--cover" in argv:
+        # does the drawn ground stay under one object (``tools/drawn_cover.py``)
+        import drawn_cover
+        return drawn_cover.main([a for a in argv if a != "--cover"])
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pack", action="append", required=True,

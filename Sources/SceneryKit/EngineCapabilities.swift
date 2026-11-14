@@ -66,6 +66,10 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// package first, then the placeholder (completes through
     /// `LibraryReady`); flag only.
     public static let worldTileRemove = "world_tile_remove"
+    /// The view lane (#2061): `patch_list` / `patch_load` / `pack_outlines`
+    /// never wait behind the command loop; `patch_load {staleness: false}`
+    /// + `patch_staleness`.
+    public static let patchViewLane = "patch_view_lane"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

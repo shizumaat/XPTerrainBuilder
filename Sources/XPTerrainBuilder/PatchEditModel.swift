@@ -299,9 +299,10 @@ final class PatchEditModel: ObservableObject {
         loadTask?.cancel()
         loadingKey = key
         setState(.loading(icao: entry.icao))
+        let fast = build?.engineCapabilities.supports(O4EngineCapabilities.patchViewLane) ?? false
         loadTask = Task { [weak self] in
             do {
-                let reply = try await client.patchLoad(tile: tile, icao: entry.icao)
+                let reply = try await client.patchLoad(tile: tile, icao: entry.icao, staleness: !fast)
                 let built = await Task.detached(priority: .userInitiated) {
                     let doc = PatchDocument(tile: tile, load: reply)
                     return (doc, PatchSpatialGrid(document: doc), PatchMapGeometry(document: doc))
@@ -319,11 +320,24 @@ final class PatchEditModel: ObservableObject {
                 self.loadingKey = nil
                 self.setState(.loaded)
                 self.changes.send(.all)
+                if fast { self.checkStaleness(tile: tile, icao: entry.icao, client: client) }
             } catch {
                 guard let self, !Task.isCancelled, self.loadingKey == key else { return }
                 self.loadingKey = nil
                 self.setState(.failed(icao: entry.icao, message: "\(error)"))
             }
+        }
+    }
+
+    /// The staleness check the fast load left out (#2061): the inspector's
+    /// note appears when the engine answers, on the document it was asked
+    /// for only.
+    private func checkStaleness(tile: String, icao: String, client: OrthoEngineClient) {
+        Task { [weak self] in
+            guard let answer = try? await client.patchStaleness(tile: tile, icao: icao),
+                  let self, var doc = self.document, doc.tile == tile, doc.icao == icao,
+                  doc.applyStaleness(answer) else { return }
+            self.document = doc
         }
     }
 

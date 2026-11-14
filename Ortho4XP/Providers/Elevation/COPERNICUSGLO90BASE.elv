@@ -14,7 +14,7 @@ url_template=https://copernicus-dem-90m.s3.amazonaws.com/Copernicus_DSM_COG_30_{
 resolution_arc_seconds=3
 
 # Asked second when the configured base source is down.
-fallback_rank=2
+fallback_rank=3
 
 # It publishes a tile for every cell holding land, so its "no tile" is a
 # water witness: a cell every source has no tile for is built as sea

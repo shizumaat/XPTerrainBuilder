@@ -1,0 +1,24 @@
+{
+  "_doc": "O4_Scan_Stream_Throttle.ScanStreamThrottle / ScanStreamThrottle (#2055): each case feeds one fresh throttle (interval s) a sequence of steps; a step is {\"at\": seconds, \"publish\": expected} or {\"reset\": true}.",
+  "cases": [
+    {"name": "the first batch publishes at once, then once a second",
+     "interval": 1.0,
+     "steps": [
+       {"at": 100.0, "publish": true},
+       {"at": 100.1, "publish": false},
+       {"at": 100.9, "publish": false},
+       {"at": 101.0, "publish": true},
+       {"at": 101.5, "publish": false},
+       {"at": 102.2, "publish": true}
+     ]},
+    {"name": "a new scan's first batch publishes at once",
+     "interval": 1.0,
+     "steps": [
+       {"at": 5.0, "publish": true},
+       {"at": 5.2, "publish": false},
+       {"reset": true},
+       {"at": 5.3, "publish": true},
+       {"at": 5.4, "publish": false}
+     ]}
+  ]
+}

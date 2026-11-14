@@ -55,7 +55,7 @@ from ..geom.terrain_deck import CELL_M, DeckGrid, TerrainFit
 from . import dsf as _dsf
 
 __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
-           "placement_fits", "fit", "grid_of_triangles", "dem_many_of",
+           "placement_fits", "fit", "grid_of_triangles", "bin_triangles", "dem_many_of",
            "grid_of_resource", "seat_records", "log_line", "row_seats",
            "PORTAL_SEAT", "ENTRANCE_SEAT", "OBJECT_FLOOR_SEAT", "HIDDEN_SEAT",
            "FRAME_SEAT", "ADAPTED_SEAT", "ADAPTED_WHY", "frame_zeros", "portal_seat_records"]
@@ -125,33 +125,42 @@ def _extent_m2(p: np.ndarray) -> float:
 def grid_of_triangles(p: np.ndarray) -> DeckGrid:
     """The :class:`DeckGrid` of the authored triangles ``p`` (``(n, 3, 3)``,
     ungated): each covered cell's lowest and highest surface."""
+    return DeckGrid(*bin_triangles(p))
+
+
+def bin_triangles(p: np.ndarray, cell: float = CELL_M
+                  ) -> tuple[float, float, np.ndarray, np.ndarray]:
+    """``(x0, z0, bot, top)``: the authored triangles ``p`` binned on a
+    ``cell``-metre plan grid (centres ``x0 + i * cell`` / ``z0 + j * cell``),
+    each covered cell's lowest and highest surface (``nan`` uncovered)."""
     x0, z0 = float(p[:, :, 0].min()), float(p[:, :, 2].min())
-    ni = int(math.ceil((float(p[:, :, 0].max()) - x0) / CELL_M)) + 1
-    nj = int(math.ceil((float(p[:, :, 2].max()) - z0) / CELL_M)) + 1
+    ni = int(math.ceil((float(p[:, :, 0].max()) - x0) / cell)) + 1
+    nj = int(math.ceil((float(p[:, :, 2].max()) - z0) / cell)) + 1
     bot = np.full((ni, nj), np.inf)
     top = np.full((ni, nj), -np.inf)
     for t in p:
-        _bin(t, x0, z0, bot, top)
+        _bin(t, x0, z0, bot, top, cell)
     bot[~np.isfinite(bot)] = np.nan
     top[~np.isfinite(top)] = np.nan
-    return DeckGrid(x0, z0, bot, top)
+    return x0, z0, bot, top
 
 
-def _bin(t: np.ndarray, x0: float, z0: float, bot: np.ndarray, top: np.ndarray) -> None:
+def _bin(t: np.ndarray, x0: float, z0: float, bot: np.ndarray, top: np.ndarray,
+         cell: float = CELL_M) -> None:
     """Write one triangle's surface height into the cells whose centre it
     covers (barycentric; an edge-on triangle covers none)."""
     xs, zs = t[:, 0], t[:, 2]
     d = (zs[1] - zs[2]) * (xs[0] - xs[2]) + (xs[2] - xs[1]) * (zs[0] - zs[2])
     if abs(d) < 1e-9:
         return
-    i0 = max(0, int(math.ceil((xs.min() - x0) / CELL_M)))
-    i1 = min(bot.shape[0] - 1, int(math.floor((xs.max() - x0) / CELL_M)))
-    j0 = max(0, int(math.ceil((zs.min() - z0) / CELL_M)))
-    j1 = min(bot.shape[1] - 1, int(math.floor((zs.max() - z0) / CELL_M)))
+    i0 = max(0, int(math.ceil((xs.min() - x0) / cell)))
+    i1 = min(bot.shape[0] - 1, int(math.floor((xs.max() - x0) / cell)))
+    j0 = max(0, int(math.ceil((zs.min() - z0) / cell)))
+    j1 = min(bot.shape[1] - 1, int(math.floor((zs.max() - z0) / cell)))
     if i1 < i0 or j1 < j0:
         return
-    gx, gz = np.meshgrid(x0 + CELL_M * np.arange(i0, i1 + 1),
-                         z0 + CELL_M * np.arange(j0, j1 + 1), indexing="ij")
+    gx, gz = np.meshgrid(x0 + cell * np.arange(i0, i1 + 1),
+                         z0 + cell * np.arange(j0, j1 + 1), indexing="ij")
     a = ((zs[1] - zs[2]) * (gx - xs[2]) + (xs[2] - xs[1]) * (gz - zs[2])) / d
     b = ((zs[2] - zs[0]) * (gx - xs[2]) + (xs[0] - xs[2]) * (gz - zs[2])) / d
     c = 1.0 - a - b

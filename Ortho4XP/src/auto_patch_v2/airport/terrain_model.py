@@ -72,9 +72,9 @@ from ..geom.terrain_deck import CELL_M, DeckGrid
 
 __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PEAK_ERR",
            "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
-           "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
+           "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
            "placement_models", "set_members", "seat_records", "log_line",
-           "hideable_paths", "plan_grid"]
+           "hideable_paths", "plan_grid", "plan_solid", "rim_seat"]
 
 MIN_PLAN_M = 500.0
 MIN_RELIEF_M = 50.0
@@ -94,7 +94,7 @@ SEAT = "terrain model"
 
 
 @_dc.dataclass(frozen=True)
-class _Shape:
+class Shape:
     """A candidate's top and bottom on the plan grid (the ``DeckGrid`` of
     its static solid) and its candidate measures."""
 
@@ -132,8 +132,16 @@ class TerrainModel:
     seat_by: str = ""
     #: the cut's erosion radius when not ``terrain_cut.ERODE_M`` (m)
     erode_m: "float | None" = None
+    #: > 0: the cut reads each cell's LOWEST surface where a roof stands at
+    #: least this far over it -- its ground, not its roofs
+    #: (``terrain_cut.cut_fit`` ``floor_m``; #2053 round 2)
+    cut_floor_m: float = 0.0
     #: how far the other seat points sink under their ground at ``z0`` (m)
     spread_m: float = 0.0
+    #: a GROUND SHELL's verdict (``ground_shell``, issue #2056): ``"seated"``
+    #: (it lies on the ground at ``z0``) or ``"hidden"`` (its row is left
+    #: out of the written DSF); ``""`` for a terrain model of this module
+    ground: str = ""
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -176,14 +184,20 @@ def photo_spread(vertices: np.ndarray, vt: np.ndarray, tris: np.ndarray) -> floa
     return float(q90 - q10)
 
 
-def _grid(g: _t.Any) -> "DeckGrid | None":
-    from .terrain_shaped import grid_of_triangles
+def _solid(g: _t.Any) -> "np.ndarray | None":
+    """``(n, 3, 3)`` authored corners of a geometry's static solid."""
     tris = g.solid
     if g.animated.shape[0]:
         tris = tris[~g.animated]
     if not tris.shape[0]:
         return None
-    return grid_of_triangles(g.vertices[tris])
+    return g.vertices[tris]
+
+
+def _grid(g: _t.Any) -> "DeckGrid | None":
+    from .terrain_shaped import grid_of_triangles
+    p = _solid(g)
+    return None if p is None else grid_of_triangles(p)
 
 
 def _plan_m(g: _t.Any) -> float:
@@ -197,7 +211,7 @@ def _plan_m(g: _t.Any) -> float:
     return float(max(np.ptp(v[:, 0]), np.ptp(v[:, 2])))
 
 
-def _shape(path: str) -> "_Shape | None":
+def _shape(path: str) -> "Shape | None":
     from .obj8 import parse_obj8
     g = parse_obj8(path)
     plan = _plan_m(g)
@@ -213,7 +227,7 @@ def _shape(path: str) -> "_Shape | None":
     lo, hi = np.percentile(grid.top[grid.covered], [5.0, 95.0])
     if hi - lo < MIN_RELIEF_M:
         return None
-    return _Shape(grid, plan, float(hi - lo), spread)
+    return Shape(grid, plan, float(hi - lo), spread)
 
 
 def plan_grid(path: str) -> "DeckGrid | None":
@@ -229,15 +243,26 @@ def plan_grid(path: str) -> "DeckGrid | None":
         return None
 
 
+def plan_solid(path: str) -> "np.ndarray | None":
+    """The ``(n, 3, 3)`` authored static solid triangles of an OBJ8 file
+    (what :func:`plan_grid` bins) -- THE HOLD's bound is binned finer from
+    them (``terrain_cut.hold_bound``); ``None`` when unreadable."""
+    from .obj8 import parse_obj8
+    try:
+        return _solid(parse_obj8(path))
+    except (OSError, ValueError):
+        return None
+
+
 @functools.lru_cache(maxsize=256)
-def _file_shape(path: str, mtime_ns: int, size: int) -> "_Shape | None":
+def _file_shape(path: str, mtime_ns: int, size: int) -> "Shape | None":
     try:
         return _shape(path)
     except (OSError, ValueError):
         return None
 
 
-def shape_of(path: str, geometry: _t.Any = None) -> "_Shape | None":
+def shape_of(path: str, geometry: _t.Any = None) -> "Shape | None":
     """THE CANDIDATE TEST on an OBJ8 file (module doc), or ``None``.
     ``geometry``: its parsed ``ObjGeometry`` when the caller holds it --
     the plan and height gates then read it and most files stop there
@@ -270,7 +295,7 @@ def _world(grid: DeckGrid, ii: np.ndarray, jj: np.ndarray, xy: tuple[float, floa
     return xy[0] + x * c - z * s, xy[1] - (x * s + z * c)
 
 
-def match(shape: _Shape, xy: tuple[float, float], heading: float,
+def match(shape: Shape, xy: tuple[float, float], heading: float,
           dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
           fine: "_t.Callable[[np.ndarray, np.ndarray], np.ndarray] | None" = None,
           ) -> "dict[str, float] | None":
@@ -293,15 +318,25 @@ def match(shape: _Shape, xy: tuple[float, float], heading: float,
     peak_err = abs(float(top.max()) + fit - float(d.max())) / shape.relief_m
     if corr < MIN_CORR or peak_err > MAX_PEAK_ERR:
         return None
+    z0 = rim_seat(grid, xy, heading, dem_many)
+    if z0 is None:
+        return None
+    cover = 0.0 if fine is None else float(np.mean(np.asarray(fine(xs, ys), dtype=bool)))
+    return {"z0": z0, "corr": corr, "peak_err": float(peak_err),
+            "fit_m": fit, "quality_cover": cover}
+
+
+def rim_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,
+             dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray]
+             ) -> "float | None":
+    """THE SEAT (module doc): the zero where no visible edge floats --
+    ``min`` over the outer rim of ``(ground - bottom)`` -- or ``None``
+    with no DEM under the rim."""
     ri, rj = np.nonzero(outer_rim(grid.covered))
     rx, ry = _world(grid, ri, rj, xy, heading)
     gap = np.asarray(dem_many(rx, ry), dtype=float) - grid.bot[ri, rj]
     gap = gap[np.isfinite(gap)]
-    if not len(gap):
-        return None
-    cover = 0.0 if fine is None else float(np.mean(np.asarray(fine(xs, ys), dtype=bool)))
-    return {"z0": float(gap.min()), "corr": corr, "peak_err": float(peak_err),
-            "fit_m": fit, "quality_cover": cover}
+    return float(gap.min()) if len(gap) else None
 
 
 def _origin(xy: _t.Any, heading: float, elev: _t.Any) -> tuple:
@@ -321,7 +356,7 @@ def placement_models(placements: _t.Sequence[tuple],
     row only: an ``OBJECT_MSL`` row already states its author's datum."""
     from .obj8 import is_stock_library_resource
     out: dict[str, TerrainModel] = {}
-    shapes: dict[str, "_Shape | None"] = {}
+    shapes: dict[str, "Shape | None"] = {}
     for oid, dpath, xy, heading, _elev, kind in placements:
         if kind == "OBJECT_MSL" or is_stock_library_resource(dpath):
             continue
@@ -379,6 +414,13 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
     to_ll = None
     for oid, dpath, m, lift in sorted(getattr(airport, "terrain_models", ()) or (),
                                       key=lambda r: r[0]):
+        if getattr(m, "ground", "") == "hidden":
+            # issue #2056: a ground shell no seat lays flat on our ground is
+            # left out of the written DSF -- no seat, no cut
+            from .terrain_shaped import HIDDEN_SEAT
+            out.append({"id": oid, "resource": dpath, "datum": "terrain",
+                        "seat": HIDDEN_SEAT, "elevation": round(m.z0, 3)})
+            continue
         rec = {"id": oid, "resource": dpath, "datum": "terrain", "seat": SEAT,
                "elevation": round(m.z0 + float(lift or 0.0), 3),
                "hideable": bool(m.hideable and dpath == m.path),
@@ -393,6 +435,8 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
                           "lon": round(float(lon), 9), "heading": round(m.heading, 6)}
             if getattr(m, "erode_m", None) is not None:
                 rec["cut"]["erode_m"] = float(m.erode_m)
+            if getattr(m, "cut_floor_m", 0.0) > 0.0:
+                rec["cut"]["floor_m"] = float(m.cut_floor_m)
         out.append(rec)
     return out
 
@@ -406,8 +450,10 @@ def hideable_paths(records: _t.Iterable[_t.Any]) -> tuple[str, ...]:
 
 def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:
     """The build log's one line on the terrain models (a ground object
-    seated on its bridges has its own line, ``bridged_ground.log_line``)."""
-    models = sorted({m.id: m for m in models if not getattr(m, "seat_by", "")}.values(),
+    seated on its bridges has its own line, ``bridged_ground.log_line``;
+    a ground shell has its own, ``ground_shell.log_line``)."""
+    models = sorted({m.id: m for m in models
+                     if not getattr(m, "seat_by", "") and not getattr(m, "ground", "")}.values(),
                     key=lambda m: m.id)
     if not models:
         return f"[{icao}] terrain-modelling objects: none"

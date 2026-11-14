@@ -66,6 +66,7 @@ from ..model.placement import TOL_DEG as _TOL_DEG
 __all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
            "anchor_for", "roof_on_posts", "datum_of", "keep_off_row", "rim_of", "ring_of_part", "rim_anchor_point",
            "pad_majority", "fold_pad_ref", "pad_contains",
+           "water_level_under", "hangs_over_water", "box_points",
            "BUILDING", "SKIRTED", "BASIN", "LINE_SEGMENT", "DECK", "PLATE_ONLY", "OTHER"]
 
 BUILDING = "building"
@@ -1043,7 +1044,7 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
         if a is not None:
             return a
 
-    wet = _wet_body_anchor(body_class, geom, surface, authored_agl_m)
+    wet = _wet_body_anchor(body_class, geom, surface, authored_agl_m, tol_m)
     if wet is not None:
         return wet
     # #610: A ROOF ON ITS POSTS IS NO ANCHOR.  The pick below lets a
@@ -1061,8 +1062,102 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     return a
 
 
+def _all_on_water(feet: _t.Sequence[tuple], surface: Surface) -> bool:
+    """Does EVERY foot ``(lat, lon, ...)`` stand on DRAWN WATER (the water
+    bit riding the surface callable as ``surface.water``, R12 amendment 1)?
+    A surface without the bit, no foot, or a foot off every face is no
+    evidence: ``False``.  #972's wet-body seat reads it."""
+    water = getattr(surface, "water", None)
+    if water is None or not feet:
+        return False
+    return all(surface(f[0], f[1]) is not None and water(f[0], f[1])
+               for f in feet)
+
+
+#: the most plan boxes :func:`box_points` reads (strided past it)
+WATER_BOXES_MAX = 64
+
+
+def box_points(boxes: _t.Iterable[_t.Sequence[float]]) -> list[tuple[float, float]]:
+    """The corners and centre of each plan box ``(lat0, lon0, lat1, lon1)``
+    — a body's plan read part by part (its part boxes), never through one
+    hull, which for a rotated slab reaches ground the body does not cover
+    (PAKT's 110 m float-dock deck at 43 deg: its hull takes in the shore)."""
+    bs = list(boxes)
+    step = max(1, len(bs) // WATER_BOXES_MAX)
+    out: list[tuple[float, float]] = []
+    for q in bs[::step]:
+        la0, lo0, la1, lo1 = (float(v) for v in q)
+        out += [(la0, lo0), (la0, lo1), (la1, lo0), (la1, lo1),
+                (0.5 * (la0 + la1), 0.5 * (lo0 + lo1))]
+    return out
+
+
+def _water_samples(pts: _t.Iterable[_t.Sequence[float]], surface: Surface
+                   ) -> list[tuple[float, bool]]:
+    """``(z, on water)`` at each point ``(lat, lon, ...)`` that reads a
+    surface; the surface must carry ``.water``."""
+    water = surface.water
+    out = []
+    for q in pts:
+        z = surface(q[0], q[1])
+        if z is not None:
+            out.append((float(z), bool(water(q[0], q[1]))))
+    return out
+
+
+def water_level_under(pts: _t.Iterable[_t.Sequence[float]], surface: Surface
+                      ) -> "float | None":
+    """#1896: the level of the DRAWN WATER under a body — the median height
+    of its plan points ``(lat, lon, ...)`` that stand on water
+    (``surface.water``); ``None`` where none does or the surface carries no
+    water bit.  The mesh levels water to one datum (sea 0.00, a lake its
+    mean), so the median is it."""
+    if getattr(surface, "water", None) is None:
+        return None
+    zs = sorted(z for z, wet in _water_samples(pts, surface) if wet)
+    return zs[len(zs) // 2] if zs else None
+
+
+def hangs_over_water(feet: _t.Sequence[tuple], surface: Surface, zero: float,
+                     gap_m: float, plan_pts: _t.Sequence[_t.Sequence[float]] = ()
+                     ) -> bool:
+    """#1896: would a body seated at ``zero`` HANG OVER WATER?  True where
+    drawn water lies under it, NOTHING under it — no ground-contact foot
+    ``(lat, lon, authored y)`` and no point of its plan ``plan_pts`` (its
+    written geometry's samples, or :func:`box_points` of its part boxes) —
+    stands more than ``gap_m`` over that water's level (a water triangle,
+    or ground the mesh keeps at the water's level), and at ``zero`` every
+    foot stands more than ``gap_m`` above the surface under it
+    (``zero + y - surface > gap_m``).
+
+    Water is a datum, not ground (R12 amendment 1): such a body has nothing
+    under it but the water.  PAKT's float-dock deck, pulled by box proximity
+    to the shore unit's 5.68, stood 6.0-6.5 m over Tongass Narrows with
+    every point of its plan at the water's level.  A pier's piles, a
+    seawall's footing or anything authored INTO the water reaches the
+    surface at that zero; a body with land under any part of its plan (an
+    island's quay, a bridge reaching its banks) has ground: neither hangs,
+    and both stay with their group where the author placed them (owner
+    RULINGS 2026-11-13r).  The cheap test (every foot clear) runs before the
+    water is read."""
+    if gap_m <= 0.0 or not feet or getattr(surface, "water", None) is None:
+        return False
+    for f in feet:
+        z = surface(f[0], f[1])
+        if z is None or float(zero) + float(f[2]) - float(z) <= gap_m:
+            return False
+    got = _water_samples(list(feet) + list(plan_pts), surface)
+    wet = sorted(z for z, w in got if w)
+    if not wet:
+        return False
+    level = wet[len(wet) // 2]
+    return max(z for z, _w in got) <= level + gap_m
+
+
 def _wet_body_anchor(body_class: BodyClass, geom: BodyGeometry,
-                     surface: Surface, authored_agl_m: float | None) -> Anchor | None:
+                     surface: Surface, authored_agl_m: float | None,
+                     tol_m: float = 0.0) -> Anchor | None:
     """#972 (owner 2026-10-19: the pack's seawall "should be seated so the
     top is < 1 m above the solved terrain"): A BODY STANDING IN WATER KEEPS
     ITS AUTHORED SEAT.
@@ -1084,16 +1179,26 @@ def _wet_body_anchor(body_class: BodyClass, geom: BodyGeometry,
     construction, so it is never read as elevated, tilted or kept.  ``None`` — the
     rule reads as before — when the surface carries no water bit, any
     foot stands on land, the origin reads no surface or is itself water,
-    or no lift is handed in."""
+    or no lift is handed in.
+
+    #1908: ... or the authored seat stands a foot OVER the water it
+    stands in, by more than ``tol_m``.  The seat is the author's only
+    where it is the author's: ENTC's ``ALS.obj`` is an ``OBJECT_MSL`` row
+    the plan reads at agl 0 on its origin, on land 6.5 m over the sea,
+    and that "authored seat" stood its masts in the sea 6.3 m over the
+    water.  A footing in the air over water is never authored; the
+    generic rule then reads the water line, as before #972."""
     water = getattr(surface, "water", None)
     if water is None or authored_agl_m is None:
         return None
     feet = [f for _la, _lo, _by, fs in geom.parts for f in fs or ()]
-    if not feet or any(surface(f[0], f[1]) is None or not water(f[0], f[1])
-                       for f in feet):
+    if not _all_on_water(feet, surface):
         return None
     z = surface(geom.origin_lat, geom.origin_lon)
     if z is None or water(geom.origin_lat, geom.origin_lon):
+        return None
+    zero = float(z) + float(authored_agl_m)
+    if any(zero + float(f[2]) - float(surface(f[0], f[1])) > tol_m for f in feet):
         return None
     return Anchor(body_class, geom.origin_lat, geom.origin_lon,
                   -float(authored_agl_m),

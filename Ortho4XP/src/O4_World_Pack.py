@@ -58,7 +58,7 @@ __all__ = [
     "STAGING_DIR", "tile_name", "parse_tile",
     "dsf_relpath", "placeholder_text", "write_placeholder",
     "write_placeholders", "is_placeholder", "kind_of", "kind_of_agent",
-    "pack_dsfs",
+    "pack_dsfs", "pack_dsf_keys",
     "real_tiles", "holds_tile", "world_tiles", "block_tiles", "rewrite_ter",
     "rewrite_dsf_text", "relayout_tile", "verify_tile",
     "publish", "swap_staged", "swap_in", "swap_out", "nothing_held",
@@ -150,7 +150,7 @@ def write_placeholders(pack: str, tiles) -> dict:
     (:func:`pack_dsfs`), each 10° folder made once.  Returns
     ``{"written", "kept"}``."""
     out = {"written": 0, "kept": 0}
-    have = {key for key, _path, _size in pack_dsfs(pack)}
+    have = pack_dsf_keys(pack)
     folders: set = set()
     for lat, lon in tiles:
         if (lat, lon) in have:
@@ -214,9 +214,9 @@ def _stamp(agent: str, kind: str) -> str:
     return f"{_STAMP_RE.sub('', agent).strip()} [world {kind}]".strip()
 
 
-def pack_dsfs(pack: str) -> Iterator[tuple[tuple[int, int], str, int]]:
-    """``((lat, lon), path, bytes)`` of every tile DSF in ``pack``: two
-    directory levels, one ``stat`` per file (the size)."""
+def _dsf_entries(pack: str) -> Iterator[tuple[tuple[int, int], os.DirEntry]]:
+    """``((lat, lon), entry)`` of every tile DSF in ``pack``: two directory
+    levels, no ``stat``."""
     nav = os.path.join(pack, "Earth nav data")
     try:
         blocks = sorted(os.listdir(nav))
@@ -232,11 +232,27 @@ def pack_dsfs(pack: str) -> Iterator[tuple[tuple[int, int], str, int]]:
             if not name.lower().endswith(".dsf"):
                 continue
             try:
-                key = parse_tile(name[:-4])
-                size = entry.stat().st_size
-            except (ValueError, OSError):
+                yield parse_tile(name[:-4]), entry
+            except ValueError:
                 continue
-            yield key, entry.path, size
+
+
+def pack_dsfs(pack: str) -> Iterator[tuple[tuple[int, int], str, int]]:
+    """``((lat, lon), path, bytes)`` of every tile DSF in ``pack``: two
+    directory levels, one ``stat`` per file (the size)."""
+    for key, entry in _dsf_entries(pack):
+        try:
+            size = entry.stat().st_size
+        except OSError:
+            continue
+        yield key, entry.path, size
+
+
+def pack_dsf_keys(pack: str) -> set:
+    """The ``(lat, lon)`` of every tile DSF in ``pack``: the listing alone,
+    no ``stat`` per file (#2055: the apps' start asks it of X-Plane's Global
+    Scenery and of the World pack, ~18k DSFs each, every launch)."""
+    return {key for key, _entry in _dsf_entries(pack)}
 
 
 def real_tiles(pack: str) -> dict:

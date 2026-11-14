@@ -126,7 +126,7 @@ def upper_pad_records(planar, law, z: "_t.Sequence[float] | None") -> list[dict[
                             for r in runs],
                     "rim_max_step_m": round(max((abs(s) for s, _w in steps.values()),
                                                 default=0.0), 3),
-                    "yard": _yard_record(planar, ref, rec, z)})
+                    "yard": _yard_record(planar, law, ref, rec, z)})
     return out
 
 
@@ -211,9 +211,11 @@ def _ring_runs(planar, f, over_fn) -> list[list[int]]:
     return runs
 
 
-def _yard_record(planar, ref: str, rec, z) -> "dict[str, _t.Any] | None":
+def _yard_record(planar, law, ref: str, rec, z) -> "dict[str, _t.Any] | None":
     """The fence yard beside level ``ref`` (``yard_plane`` on its landing
-    record), or ``None``."""
+    record), or ``None``; with its road run (spec 2068 A3 R5: the free
+    vertices' ``run_vertices`` and the ``infeasible`` count, re-read off
+    the sources' final ``z``) and the G6' ratio."""
     pl = rec.get("yard_plane")
     if not pl:
         return None
@@ -221,7 +223,17 @@ def _yard_record(planar, ref: str, rec, z) -> "dict[str, _t.Any] | None":
     faces = [f for f in _yard_faces(planar) if fence_yard_pad(f.ref) == rec.get("pad")]
     vs = sorted({v for f in faces for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)})
     zs = [float(z[v]) for v in vs] if z is not None else []
+    from ..constraints.yard_edge import yard_runs
+    from ..solve.project_yard import run_bounds
+    runs = [r for r in yard_runs(planar, law) if r.level == ref]
+    bad = sum(1 for r in runs if z is not None
+              for lo, hi in run_bounds(planar, law, r, z).values() if lo > hi)
+    ratio = rec.get("yard_g6_ratio")
     return {"plane": [round(float(c), 6) for c in pl],
             "tilt": round(math.hypot(float(pl[1]), float(pl[2])), 4),
             "faces": [str(f.ref) for f in faces],
-            "z": [round(min(zs), 3), round(max(zs), 3)] if zs else None}
+            "z": [round(min(zs), 3), round(max(zs), 3)] if zs else None,
+            "g6_ratio": None if ratio is None else round(float(ratio), 3),
+            "run_faces": sorted({str(planar.faces[f].ref) for r in runs for f in r.faces}),
+            "run_vertices": sum(len(r.free) for r in runs),
+            "infeasible": bad}

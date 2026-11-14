@@ -65,7 +65,7 @@ from .edge_line_mint import STRIP_ROLE, standing_keep_off
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["mint_fence_yards", "yard_plane_of"]
+__all__ = ["mint_fence_yards", "yard_plane_of", "yard_record_of", "YARD_HULL_KEY"]
 
 #: the share of a pocket's outline its fence must stand on (spec F2 (3))
 _POCKET_FENCED = 0.75
@@ -73,6 +73,12 @@ _POCKET_FENCED = 0.75
 #: the yard's evidence keys of its plane ``(z0, gx, gy, x0, y0)``, in the
 #: unit's authored ``y`` (the fence-foot base at ``(x, y)``)
 _YARD_KEYS = ("yard_z0", "yard_gx", "yard_gy", "yard_x0", "yard_y0")
+
+#: spec 2068 A3 R5: the GROSS yard on the pad's evidence, as rings
+#: ``((exterior, *holes), ...)`` — the ground the yard's roads stand on
+YARD_HULL_KEY = "yard_hull"
+#: spec 2068 A3 R1: the G6' ratio, on the evidence
+_RATIO_KEY = "yard_g6_ratio"
 
 
 class _Station(_t.NamedTuple):
@@ -90,6 +96,18 @@ def yard_plane_of(evidence) -> "tuple[float, float, float, float, float] | None"
     if not all(k in ev for k in _YARD_KEYS):
         return None
     return tuple(float(ev[k]) for k in _YARD_KEYS)  # type: ignore[return-value]
+
+
+def yard_record_of(evidence) -> "dict[str, _t.Any] | None":
+    """What an upper pad's ``evidence`` hands its level's landing record
+    (``planar/group_up``): ``yard_plane``, ``yard_hull`` and
+    ``yard_g6_ratio``, or ``None`` without a yard."""
+    pl = yard_plane_of(evidence)
+    if pl is None:
+        return None
+    ev = evidence or {}
+    return {"yard_plane": pl, "yard_hull": tuple(ev.get(YARD_HULL_KEY, ())),
+            "yard_g6_ratio": float(ev.get(_RATIO_KEY, math.nan))}
 
 
 def mint_fence_yards(airport, cells: list, law: Law, rules: Rules, add) -> dict[str, _t.Any]:
@@ -112,10 +130,12 @@ def mint_fence_yards(airport, cells: list, law: Law, rules: Rules, add) -> dict[
         if isinstance(got, str):
             stats[f"fence_yard_refused:{ref}"] = got
             continue
-        region, info = got
-        # the pad carries its plane too: the planar front reads no late cell
+        region, gross, info = got
+        # the pad carries its plane too: the planar front reads no late
+        # cell; and the gross yard, for its roads (A3 R5)
         cells[k] = _dc.replace(cells[k], evidence=dict(
-            cells[k].evidence, **{key: info[key] for key in _YARD_KEYS}))
+            cells[k].evidence, **{key: info[key] for key in (*_YARD_KEYS, _RATIO_KEY)},
+            **{YARD_HULL_KEY: _rings(gross)}))
         for part in polygon_parts(region):
             if part.area < rules.cells.min_area_m2:
                 continue
@@ -132,7 +152,8 @@ def mint_fence_yards(airport, cells: list, law: Law, rules: Rules, add) -> dict[
 
 
 def _yard(airport, cells, law, rules, P, own, y_p, t, za):
-    """``(region, evidence)`` of one upper pad's yard, or the refusal."""
+    """``(region, gross yard, evidence)`` of one upper pad's yard, or the
+    refusal."""
     cfg = rules.edge_lines
     st = _stations(own, float(cfg.station_m))
     if not st:
@@ -151,7 +172,7 @@ def _yard(airport, cells, law, rules, P, own, y_p, t, za):
     ratio = _ground_ratio(airport, st, up, t, za, float(cfg.min_run_m) / float(cfg.station_m))
     if not 0.5 <= ratio <= 1.5:                                  # G6' (NaN refuses)
         return f"ground ratio {ratio:.2f} outside 0.5-1.5"
-    region = _region(cells, law, rules, P, own, st, up, U)
+    region, gross = _region(cells, law, rules, P, own, st, up, U)
     if region.is_empty:
         return "no free ground"
     info = dict(zip(_YARD_KEYS, (round(v, 6) for v in plane), strict=True))
@@ -161,7 +182,15 @@ def _yard(airport, cells, law, rules, P, own, y_p, t, za):
                 yard_tilt=round(math.hypot(plane[1], plane[2]), 4),
                 yard_resid=f"{res.max():+.2f}/{res.min():+.2f}",
                 yard_fences=",".join(sorted({el.id for el in own})))
-    return region, info
+    return region, gross, info
+
+
+def _rings(g) -> tuple:
+    """``g``'s parts as ``(exterior, *holes)`` rings of rounded points."""
+    def ring(r):
+        return tuple((round(x, 3), round(y, 3)) for x, y in r.coords)
+    return tuple((ring(p.exterior), *(ring(h) for h in p.interiors))
+                 for p in polygon_parts(g))
 
 
 def _ground_ratio(airport, st: list[_Station], up: list[bool], t: float, za: float,
@@ -228,8 +257,11 @@ def _upper_flags(st: list[_Station], cut: float, step: float, min_run: float) ->
     return out
 
 
-def _region(cells, law, rules, P, own, st, up, U) -> Polygon:
-    """(flood ∪ pockets ∪ base band) ∩ upper Voronoi − stand-off."""
+def _region(cells, law, rules, P, own, st, up, U) -> "tuple[Polygon, Polygon]":
+    """``(region, gross)``: (flood ∪ pockets ∪ base band) ∩ upper Voronoi
+    − stand-off, and the GROSS yard (A3 R5): the flood's passable ground
+    with its road cells, the pockets and the band, cut to the upper
+    Voronoi, before the cells and the stand-off are taken out."""
     cfg = rules.edge_lines
     reach = float(cfg.host_reach_m)
     eps = max(float(rules.cells.snap_grid_m), 0.01)
@@ -237,30 +269,35 @@ def _region(cells, law, rules, P, own, st, up, U) -> Polygon:
              for el in own]
     barrier = unary_union([f.buffer(eps) for f in fence])
     hull = unary_union([MultiPoint([(s.x, s.y) for s in U]), P.buffer(reach)]).convex_hull
-    flood = _flood(cells, law, P, hull, barrier, reach)
+    flood, passable = _flood(cells, law, P, hull, barrier, reach)
     upper_fence = _upper_fence(st, up)
     hw = max(max(float(el.half_width_m) for el in own),
              float(law.tables.emit.identity.min_distinct_spacing_m))
     pockets = _pockets(own, fence, flood, upper_fence, float(cfg.min_run_m), hw)
     band = upper_fence.buffer(hw, cap_style="flat") if not upper_fence.is_empty else Polygon()
-    region = unary_union([flood, pockets, band]).intersection(_upper_voronoi(st, up, hull))
+    vor = _upper_voronoi(st, up, hull)
+    gross = unary_union([passable, pockets, band]).intersection(vor)
+    region = unary_union([flood, pockets, band]).intersection(vor)
     region = region.difference(standing_keep_off(cells, law))
-    return shapely.set_precision(region, rules.cells.snap_grid_m)
+    grid = rules.cells.snap_grid_m
+    return shapely.set_precision(region, grid), shapely.set_precision(gross, grid)
 
 
 def _flood(cells, law, P, hull, barrier, reach: float):
-    """The free ground inside ``hull`` connected to within ``reach`` of the
-    pad ``P``: no path crosses ``barrier`` or a standing cell other than a
-    groundside road-family one; the cells themselves are not taken."""
+    """``(flood, passable)``: the free ground inside ``hull`` connected to
+    within ``reach`` of the pad ``P`` — no path crosses ``barrier`` or a
+    standing cell other than a groundside road-family one; the cells
+    themselves are not taken — and the same ground WITH its road cells."""
     roads = set(road_family_roles(law))
     block = [Polygon(c.ring, c.holes).buffer(0.0) for c in cells
              if not (c.side == "groundside" and c.role in roads)]
     passable = hull.difference(unary_union(block + [barrier]))
     near = [g for g in polygon_parts(passable) if g.distance(P) <= reach]
     if not near:
-        return Polygon()
+        return Polygon(), Polygon()
     taken = unary_union([Polygon(c.ring, c.holes).buffer(0.0) for c in cells])
-    return unary_union(near).difference(taken)
+    near_u = unary_union(near)
+    return near_u.difference(taken), near_u
 
 
 def _upper_fence(st: list[_Station], up: list[bool]):

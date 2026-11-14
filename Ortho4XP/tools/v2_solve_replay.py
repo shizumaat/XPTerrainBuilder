@@ -2830,7 +2830,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             # families the app's driver gates on
             from auto_patch_v2.constraints.roads import road_law_caps
             from auto_patch_v2.emit.graded import graded_surface
-            from auto_patch_v2.pipeline.publication import publication
+            from auto_patch_v2.pipeline.publication import lifted_caps, publication
             from auto_patch_v2.verify import census as run_census
             from auto_patch_v2.verify.census import (DEFECT_KEYS, defect_gate,
                                                       under_floor_text)
@@ -2842,7 +2842,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                                       strip_rep=rep.jetway_strip,
                                                       hard_conflict=hard_conflict,
                                                       runway_flex=rep.runway_flex),
-                               road_law_caps(pm, law, airport))
+                               road_law_caps(pm, law, airport),
+                               # the build's own reader passes the lifts
+                               # (``pipeline/verify_stage``; spec 2068 A3 R5)
+                               lifted_caps(pm, law))
             summary = {k: len(v) for k, v in vrows.items() if v}
             # ONE READING OF THE GATE (RULINGS 2026-09-14bx): the same
             # ``defect_gate`` the build and the app driver use — a row under

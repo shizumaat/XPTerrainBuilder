@@ -59,7 +59,7 @@ def assemble(rows: list[Row], counts: dict[str, int], walls: dict[str, float],
     # A PROJECTED YARD VERTEX IS NOT AN UNKNOWN (spec 2068 A3 R3): the
     # fence yard stands on its fence-foot plane after the solve; no row
     # across it, and none of the road ramp's, reaches the ceiling below
-    rows = yard_edge.yard_exempt(rows, planar, counts)
+    rows = yard_edge.yard_exempt(rows, planar, law, counts)
     walls["yard_rows_withdrawn"] = 0.0
     # THE SENIOR STRUCTURE'S DATUM (precedence.toml [structures]): a
     # vertex two structures pin keeps one pin (lane v2hecalemd, LEMD)

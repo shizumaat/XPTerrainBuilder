@@ -202,25 +202,31 @@ def test_the_pad_reading_rides_the_cell():
 
 
 def test_the_fence_foot_plane_rides_the_pad_into_its_landing_record():
-    """Spec 2068 A2 F3: a pad a fence yard was read beside carries the
-    fence-foot plane (``classify/fence_yard.YARD_KEYS``) into its reading
-    and its level's landing record (``yard_plane``); without one the record
-    is what it was."""
+    """Spec 2068 A2 F3 / A3 R5: a pad a fence yard was read beside carries
+    the fence-foot plane (``classify/fence_yard.YARD_KEYS``), the gross yard
+    (``yard_hull``) and the G6' ratio into its reading and its level's
+    landing record; without one the record is what it was."""
     from auto_patch_v2.classify.fence_yard import _YARD_KEYS as YARD_KEYS
+    from auto_patch_v2.classify.fence_yard import YARD_HULL_KEY
     plane = (4.0, 0.013, -0.032, -116.4, -288.9)
+    hull = ((((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 0.0)),),)
     ev = {UPPER_Y_KEY: 4.7, UPPER_FLOOR_KEY: 0.0, UPPER_UNIT_KEY: 0.0,
-          **dict(zip(YARD_KEYS, plane, strict=True))}
+          **dict(zip(YARD_KEYS, plane, strict=True)), YARD_HULL_KEY: hull,
+          "yard_g6_ratio": 1.22}
     c = types.SimpleNamespace(ref="building2", role="building", evidence=ev)
     upper = upper_pad_reads([c])
-    assert upper == {"building2": (4.7, 0.0, 0, (), plane)}
+    assert upper == {"building2": (4.7, 0.0, 0, (), {
+        "yard_plane": plane, "yard_hull": hull, "yard_g6_ratio": 1.22})}
     reg = Registries()
     reg.held["building1"] = {"unit": "building1", "verdict": "one_block"}
     air = [APRON]
     plan_group_up(_regions(), upper, air, STRtree(air), _airport([TERMINAL, PLINTH, BODY]),
                   LAW, 0.5, {}, reg)
     assert reg.landings["building1/p1"]["yard_plane"] == plane
+    assert reg.landings["building1/p1"]["yard_hull"] == hull
     reg0 = Registries()
     reg0.held["building1"] = {"unit": "building1", "verdict": "one_block"}
     plan_group_up(_regions(), {"building2": (4.7, 0.0, 0)}, air, STRtree(air),
                   _airport([TERMINAL, PLINTH, BODY]), LAW, 0.5, {}, reg0)
     assert "yard_plane" not in reg0.landings["building1/p1"]
+    assert "yard_hull" not in reg0.landings["building1/p1"]

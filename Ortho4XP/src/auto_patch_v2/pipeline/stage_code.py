@@ -2150,7 +2150,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
-    airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
+    airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint constraints.yard_edge geom.slope_bound
     classify.fence_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
@@ -2312,7 +2312,7 @@ CODE_MODULES["solve"] = _mods("""
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
-    airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint constraints.yard_edge
+    airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint constraints.yard_edge geom.slope_bound
     classify.fence_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
@@ -2493,7 +2493,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["emit"] = _mods("""
-    airport.facade airport.line_solidity classify.edge_line_mint
+    airport.facade airport.line_solidity classify.edge_line_mint constraints.yard_edge geom.slope_bound
     classify.fence_yard geom.capped_plane solve.project_yard
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends
     airport.walled_pit airport.pit_frame constraints.airside_top
@@ -2616,7 +2616,7 @@ CODE_MODULES["emit"] = _mods("""
 """)
 CODE_MODULES["verify"] = _mods("""
     airport.split_level
-    airport.facade airport.line_solidity classify.edge_line_mint
+    airport.facade airport.line_solidity classify.edge_line_mint constraints.apron_shelf constraints.road_ramp constraints.wall_zone constraints.yard_edge geom.ramp_grade geom.slope_bound solve.project_yard
     classify.fence_yard geom.capped_plane
     airport.below_grade_witness airport.floor_rim airport.hanging_objects airport.object_cut
     airport.object_floor airport.wall_geometry airport.walled_pit

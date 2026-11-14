@@ -9,7 +9,10 @@ from __future__ import annotations
 import types
 
 from auto_patch_v2.constraints.yard_edge import projected_vertices, yard_exempt
+from auto_patch_v2.law import Law
 from auto_patch_v2.model.constraints import Band, Diff, Source
+
+LAW = Law.for_airport("SYNT")
 
 
 def _pm():
@@ -19,7 +22,8 @@ def _pm():
     return types.SimpleNamespace(
         faces={i: types.SimpleNamespace(id=i, role=r, ref=ref, ring=ring, holes=())
                for i, (r, ref, ring) in enumerate(faces)},
-        ring_vertices=lambda ring: tuple(ring))
+        ring_vertices=lambda ring: tuple(ring),
+        registries=types.SimpleNamespace(landings={}))
 
 
 def _src(gen):
@@ -27,9 +31,9 @@ def _src(gen):
 
 
 def test_only_the_yards_own_vertices_are_projected():
-    assert projected_vertices(_pm()) == frozenset({0, 1})
+    assert projected_vertices(_pm(), LAW) == frozenset({0, 1})
     empty = types.SimpleNamespace(faces={}, ring_vertices=lambda r: tuple(r))
-    assert projected_vertices(empty) == frozenset()
+    assert projected_vertices(empty, LAW) == frozenset()
 
 
 def test_rows_across_a_projected_vertex_are_withdrawn():
@@ -40,7 +44,7 @@ def test_rows_across_a_projected_vertex_are_withdrawn():
     shared = Diff(2, 20, 0.08, 3.0, _src("roads"))
     other = Diff(10, 11, 0.05, 5.0, _src("apron_grade"))
     counts: dict = {}
-    out = yard_exempt([cross, twin, ramp, single, shared, other], _pm(), counts)
+    out = yard_exempt([cross, twin, ramp, single, shared, other], _pm(), LAW, counts)
     assert out == [single, shared, other]
     assert counts["yard_rows_withdrawn"] == 3
 
@@ -50,4 +54,4 @@ def test_no_yard_withdraws_nothing():
     pm.faces = {k: f for k, f in pm.faces.items() if k != 0}
     rows = [Diff(1, 10, 0.05, 1.8, _src("groundside_ramp"))]
     counts: dict = {}
-    assert yard_exempt(rows, pm, counts) is rows and counts["yard_rows_withdrawn"] == 0
+    assert yard_exempt(rows, pm, LAW, counts) is rows and counts["yard_rows_withdrawn"] == 0

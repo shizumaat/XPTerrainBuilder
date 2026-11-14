@@ -150,7 +150,7 @@ def pavement_road_cap(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
     # a pair holding a fence yard's PROJECTED vertex (spec 2068 A3 R3,
     # ``constraints/yard_edge``): that vertex is no unknown of the solve
     from .yard_edge import projected_vertices
-    yard_v = projected_vertices(planar)
+    yard_v = projected_vertices(planar, law)
     seen: set[tuple[int, int]] = set()
     out: list[Row] = []
 

@@ -245,3 +245,83 @@ def test_the_plane_never_exceeds_the_pavement_ceiling():
         assert math.hypot(pl[1], pl[2]) == pytest.approx(cap, abs=1e-9)
     else:
         assert "rms" in st["fence_yard_refused:building2"]
+
+
+def _road_map(fixed=None, level_z=None):
+    """A 6 m road climbing from an apron edge (x = 0, airside, fixed) to a
+    level (x = 60, ``building1/p1``) through a gross yard (x 5..100), and a
+    yard face aside; ``fixed`` = ``(z)`` adds a lot corner at (30, 6), a
+    standing face that holds that road vertex."""
+    xs = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+    xy = {}
+    for k, x in enumerate(xs):
+        xy[k] = (x, 0.0)
+        xy[10 + k] = (x, 6.0)
+    road = tuple(range(7)) + tuple(10 + k for k in reversed(range(7)))
+    xy.update({30: (-10.0, 0.0), 31: (-10.0, 6.0)})                  # the apron
+    xy.update({40: (70.0, 0.0), 41: (70.0, 6.0)})                    # the level
+    xy.update({50: (10.0, 30.0), 51: (20.0, 30.0), 52: (20.0, 40.0), 53: (10.0, 40.0)})
+    faces = [("service_road", "road1", road),
+             ("apron", "pol1", (30, 0, 10, 31)),
+             ("building", "building1/p1", (6, 40, 41, 16)),
+             ("groundside_pavement", "fenceyard:0:building2", (50, 51, 52, 53))]
+    if fixed is not None:
+        xy.update({60: (30.0, 12.0), 61: (40.0, 12.0)})
+        faces.append(("parking_lot_x", "lot1", (13, 61, 60)))
+    inc: dict = {}
+    for i, (_r, _f, ring) in enumerate(faces):
+        for v in ring:
+            inc.setdefault(v, []).append(i)
+    V = {k: types.SimpleNamespace(xy=p, incident_faces=tuple(inc.get(k, ())))
+         for k, p in xy.items()}
+    hull = ((((5.0, -10.0), (100.0, -10.0), (100.0, 20.0), (5.0, 20.0), (5.0, -10.0)),),)
+    pm = types.SimpleNamespace(
+        faces={i: types.SimpleNamespace(id=i, role=r if r != "parking_lot_x" else "building",
+                                        ref=ref, ring=ring, holes=())
+               for i, (r, ref, ring) in enumerate(faces)},
+        vertices=V, ring_vertices=lambda ring: tuple(ring),
+        registries=types.SimpleNamespace(landings={"building1/p1": {
+            "pad": "building2", "y_p": 4.7, "yard_plane": (3.7, 0.0, 0.0, 0.0, 0.0),
+            "yard_hull": hull}}))
+    z = [0.0] * 70
+    for k in range(7):
+        z[k] = z[10 + k] = 30.0
+    for v in (6, 16, 40, 41):
+        z[v] = 40.0 if level_z is None else level_z
+    for v in (30, 31):
+        z[v] = 30.0
+    if fixed is not None:
+        z[13] = fixed
+    return pm, z
+
+
+def test_a_road_through_the_yard_climbs_at_the_road_grade_then_lies_on_the_plane():
+    """Spec 2068 A3 R5: the free run vertices take the plane (here L - 1)
+    clamped to the road grade (0.20) off the fixed apron edge: at g inside
+    (plane - entry) / g = 45 m, flush beyond; the level is never a source."""
+    from auto_patch_v2.constraints.yard_edge import projected_vertices, yard_runs
+    from auto_patch_v2.solve.project_strip import project_facade_strips
+    g = float(LAW.tables.emit.road_contact.upper_pad_road_grade)
+    pm, z = _road_map(level_z=46.0)              # target L + plane - y_p = 45
+    (run,) = yard_runs(pm, LAW)
+    assert run.free == frozenset({1, 2, 3, 4, 5, 11, 12, 13, 14, 15})
+    assert run.sources == frozenset({0, 10}) and {6, 16} <= run.level_vertices
+    assert run.free <= projected_vertices(pm, LAW)
+    out, rep = project_facade_strips(pm, LAW, z)
+    for k, x in enumerate([10.0, 20.0, 30.0, 40.0, 50.0], start=1):
+        assert out[k] == pytest.approx(min(30.0 + g * x, 45.0))
+    # the level's own vertices (z 46) are no source: else lo > hi at x 50
+    assert rep["yards"]["runs"][0]["infeasible"] == 0
+    assert out[6] == 46.0 and out[0] == 30.0
+
+
+@pytest.mark.parametrize("fz, level_z, want", [(30.0, 40.0, 31.2), (36.0, 34.0, 34.8)])
+def test_a_fixed_vertex_pulls_the_run_both_ways(fz, level_z, want):
+    """A run vertex another standing face holds is FIXED: a source whose
+    bounds pull its free neighbour 6 m off down (a low corner under a
+    target of L - 1 = 39) or up (a high corner over a target of 33)."""
+    from auto_patch_v2.solve.project_strip import project_facade_strips
+    pm, z = _road_map(fixed=fz, level_z=level_z)
+    out, rep = project_facade_strips(pm, LAW, z)
+    assert out[13] == fz and out[3] == pytest.approx(want)
+    assert rep["yards"]["runs"][0]["infeasible"] == 0

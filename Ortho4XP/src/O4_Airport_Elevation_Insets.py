@@ -3155,22 +3155,38 @@ def _fill_masked_by_distance_transform(
 # masked pixel is never above the surface that was measured there.  The
 # nearest-ground fill copies a rim value across the whole masked component;
 # on a slope or a hill (LOWS Festungsberg: the raw surface falls 519 -> 435
-# m across the old town) that copy is a plateau which stands up to 70 m
-# ABOVE the measured surface on the low side.  The sidecar records the
-# clamp as ``fill_clamp`` (no key = a cell filled before it).
+# m across the old town) that copy is a plateau which stood up to 70 m
+# ABOVE the measured surface on the low side.  The bound is the surface's
+# morphological CLOSING over the structure window
+# (DEFAULT_RESIDUAL_MASK_OPENING_WINDOW_M, the scale the residual mask
+# reads structures at): a radar pit narrower than that is not ground (OTHH
+# 25.283, 51.605: a 3 x 4 pixel pit at -8 m in 4 m ground under the
+# terminal; the plain surface bound dug the fill 12 m into it).  A closing
+# is never below the surface and leaves a plane or a slope unchanged.  The
+# sidecar records the clamp as ``fill_clamp`` (no key = filled before it).
 FILL_CLAMP = "fill_clamp"
 
 
-def _clamp_fill_to_surface(filled_values, surface_values, pixels_to_fill):
-    """Lower every filled pixel that stands above the fetched surface to it.
+def _clamp_fill_to_surface(filled_values, surface_values, pixels_to_fill,
+                           pixel_size_m):
+    """Lower every filled pixel above the closed surface to it.
 
     In place on ``filled_values``; only ``pixels_to_fill`` are touched, so
     every trusted-ground pixel stays byte-identical, and a flat apron (whose
     fill sits below its roofs) is unchanged.
     """
-    surface = numpy.asarray(surface_values, dtype=filled_values.dtype)
+    from scipy import ndimage
+
+    window = int(round(DEFAULT_RESIDUAL_MASK_OPENING_WINDOW_M
+                       / max(float(pixel_size_m), 0.01)))
+    window = max(1, window) | 1
+    surface = numpy.asarray(surface_values, dtype=numpy.float64)
+    if window > 1:
+        surface = ndimage.grey_closing(surface, size=(window, window),
+                                       mode="nearest")
     filled_values[pixels_to_fill] = numpy.minimum(
-        filled_values[pixels_to_fill], surface[pixels_to_fill]
+        filled_values[pixels_to_fill],
+        surface[pixels_to_fill].astype(filled_values.dtype),
     )
 
 
@@ -3730,6 +3746,14 @@ def _rasterize_footprint_mask(footprints, reference_dataset):
     return mask
 
 
+def _raster_pixel_size_m(dataset, centre_latitude):
+    """East-west pixel size in metres of a geographic raster."""
+    import math
+
+    return abs(dataset.GetGeoTransform()[1]) * 111320.0 * math.cos(
+        math.radians(centre_latitude))
+
+
 def mask_building_footprints_in_surface_model(
     inset_path, bounding_box_wgs84, definition, footprint_prefetch=None
 ):
@@ -3801,11 +3825,8 @@ def mask_building_footprints_in_surface_model(
         # and heal it through the SAME source-agnostic fill.
         residual_mask = numpy.zeros(values.shape, dtype=bool)
         residual_masked_pixel_count = 0
+        pixel_size_m = _raster_pixel_size_m(dataset, centre_latitude)
         if residual_masking_on:
-            import math
-            geotransform = dataset.GetGeoTransform()
-            pixel_size_m = abs(geotransform[1]) * 111320.0 * math.cos(
-                math.radians(centre_latitude))
             residual_mask = _residual_structure_mask(
                 values, genuine_nodata, pixel_size_m
             )
@@ -3839,7 +3860,8 @@ def mask_building_footprints_in_surface_model(
                 interpolation_sources,
                 smoothing_iterations=DEFAULT_FILL_SMOOTHING_ITERATIONS,
             )
-            _clamp_fill_to_surface(filled_values, values, pixels_to_fill)
+            _clamp_fill_to_surface(filled_values, values, pixels_to_fill,
+                                   pixel_size_m)
             filled_values[genuine_nodata] = nodata_value
             band.WriteArray(filled_values)
             band.FlushCache()
@@ -3865,7 +3887,8 @@ def mask_building_footprints_in_surface_model(
                 smoothingIterations=DEFAULT_FILL_SMOOTHING_ITERATIONS,
             )
             filled_values = band.ReadAsArray()
-            _clamp_fill_to_surface(filled_values, values, pixels_to_fill)
+            _clamp_fill_to_surface(filled_values, values, pixels_to_fill,
+                                   pixel_size_m)
             filled_values[genuine_nodata] = nodata_value
             band.WriteArray(filled_values)
             band.FlushCache()

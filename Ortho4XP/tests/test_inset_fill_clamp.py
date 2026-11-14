@@ -121,3 +121,17 @@ def test_flat_apron_fill_is_unchanged_by_the_clamp(
                          clamp=False)
     assert numpy.array_equal(filled, unclamped)
     assert float(abs(filled[52:68, 52:68] - 25.0).max()) < 0.5
+
+
+@requires_gdal
+@pytest.mark.parametrize("method", METHODS)
+def test_radar_pit_under_a_footprint_is_not_dug_back_in(
+        tmp_path, monkeypatch, method):
+    """A pit narrower than the structure window is not ground (OTHH
+    25.283, 51.605: -8 m in 4 m ground under the terminal)."""
+    surface = numpy.full((SIZE, SIZE), 4.0)
+    surface[50:70, 50:70] += 12.0          # the roof
+    surface[56:62, 56:63] = -8.0           # the radar pit inside it
+    footprint = _footprint(50, 70, 50, 70)
+    _, filled = _mask(tmp_path, monkeypatch, surface, footprint, method)
+    assert float(abs(filled[50:70, 50:70] - 4.0).max()) < 0.5

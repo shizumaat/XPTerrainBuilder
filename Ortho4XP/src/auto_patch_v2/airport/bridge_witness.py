@@ -25,7 +25,7 @@ one metric frame (x, y, authored y); the DEM only in W5:
 * W5 SPAN: between the ends the plate stands over a crossing way of another
   chain, over water, or over ground ``deck_min_clearance_under_m`` under the
   chord between the end grounds.
-* W6 FREE FRAME (:func:`free_frame`): every other body of the frame inside
+* W6 FREE FRAME (:func:`_free_frame`): every other body of the frame inside
   the bridge's decks and route corridors (the plate's width, extended
   ``[building_pad] fill_road_reach_m`` beyond each end) and on no emitted
   object pad.
@@ -55,7 +55,7 @@ from ..geom.lowest_face import every_z_at
 from .deck_carry import route_chains
 from .deck_signature import is_bridge_way
 
-__all__ = ["Route", "Witness", "route_of", "deck_witness", "frame_witness", "free_frame",
+__all__ = ["Route", "Witness", "route_of", "deck_witness", "frame_witness",
            "placed_faces", "up_faces", "SURFACE_SHARE", "ROOF_SHARE", "STUB_WIDTH_RATIO"]
 
 XY = tuple[float, float]
@@ -294,18 +294,20 @@ def _distinct(z: np.ndarray, flush: float) -> list[float]:
 def _layers(zs: _t.Sequence[np.ndarray], run: _t.Sequence[float], cap: float,
             flush: float) -> list[dict[int, float]]:
     """The faces' z per station linked into LAYERS (W3): a z joins the layer
-    whose last z it continues closest, within ``cap`` x run + ``flush``."""
+    it continues within ``cap`` x run + ``flush`` — the one seen most
+    recently, then the closest (a layer resuming after a gap has a wider
+    reach and must not take the step of one running on)."""
     layers: list[dict[int, float]] = []
     for i, z in enumerate(zs):
         taken: set[int] = set()
         for v in _distinct(z, flush):
-            pick, gap = None, math.inf
+            pick, best = None, (math.inf, math.inf)
             for li, lay in enumerate(layers):
                 last = max(lay)
                 d = abs(v - lay[last])
-                if li not in taken and last < i and d < gap \
+                if li not in taken and last < i and (i - last, d) < best \
                         and d <= cap * (run[i] - run[last]) + flush:
-                    pick, gap = li, d
+                    pick, best = li, (i - last, d)
             if pick is None:
                 layers.append({i: v})
                 pick = len(layers) - 1
@@ -470,7 +472,7 @@ def _corridor(w: Witness, law) -> Polygon:
     return _extended(r.path, r.s_a - reach, r.s_b + reach).buffer(max(0.5 * w.width_m, 0.5))
 
 
-def free_frame(bodies: _t.Mapping[str, np.ndarray], region, law, pads=()) -> str:
+def _free_frame(bodies: _t.Mapping[str, np.ndarray], region, law, pads=()) -> str:
     """W6: the first other body of the frame not inside ``region`` (the
     bridge's decks and route corridors, grown ``[placement]
     footprint_touch_m``) or standing on an emitted object pad, named; ``""``
@@ -524,6 +526,6 @@ def frame_witness(decks: _t.Mapping[str, tuple[Polygon, np.ndarray, str]],
     out = _join_stubs(decks, out, frame_faces, law)
     group = [o for o, w in out.items() if not w.failed or w.joined]
     region = unary_union([decks[o][0] for o in group] + [_corridor(out[o], law) for o in wd])
-    why = free_frame({b: p for b, p in bodies.items() if b not in group}, region, law, pads)
+    why = _free_frame({b: p for b, p in bodies.items() if b not in group}, region, law, pads)
     return {o: (_dc.replace(w, frame_failed=why) if o in group else w)
             for o, w in out.items()}

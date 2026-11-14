@@ -5,8 +5,10 @@ fills 0.12 of its 252 x 129 m rectangle).
 
 The medial axis is read as the Voronoi edges of the outline, sampled every
 ``step``, that lie inside the polygon; its DIAMETER (the longest of the
-shortest paths, two Dijkstra sweeps) is the centreline.  A straight
-rectangle's is its long axis, shortened by about half its width at each end.
+shortest paths, two Dijkstra sweeps) is the centreline.  Along the ribbon it
+holds the middle; at each end it runs into a corner of the outline (within
+half the width) — a straight rectangle's is its long axis with a corner
+branch at each end.
 """
 from __future__ import annotations
 

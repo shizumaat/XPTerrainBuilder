@@ -54,7 +54,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 abutment_step_m: float = 0.0,
                 abutment_walk_max_m: float = 0.0,
                 cutter: "_LineCutter | None" = None,
-                deck_own_ground_m: float = 0.0
+                deck_own_ground_m: float = 0.0,
+                ride: "_ar.Datum | None" = None
                 ) -> list[_Raw]:
     """One member's bodies, classed and anchored — the per-placement half,
     unchanged by §14 except that the basin's rim anchor is now wired
@@ -71,7 +72,12 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
     §9a (#2063 round 3, A1 §3.4): an ISOLATED share changes nothing here —
     the raws are made from the full groups whatever the shares, so every
     pass elects as it would without them; the share's own raw is made
-    beside (:func:`isolated_raws`)."""
+    beside (:func:`isolated_raws`).
+
+    ``ride`` (#2086, ``deck_riders.frame_datum``): the datum of the deck
+    this member rides (or is) in a frame of decks and the plateless family
+    members riding them — one free-standing bridge (RULINGS 2026-10-22d /
+    22m), so every member of it takes the one datum."""
     groups = _bodies_of(m, edges)
     parts_of_member = m.parts
     if cutter is None:
@@ -224,7 +230,7 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
         own_tris = (cutter.all_tris() if len(groups) == 1 else ())
         whole0 = _whole_body(parts, m, u, surface, pads, body_rims, split_tol_m,
                              abutment_step_m, abutment_walk_max_m,
-                             deck_own_ground_m)
+                             deck_own_ground_m, ride=ride)
         if is_elevated(base_min, whole0[1], elevated_base_m) or whole0[3]:
             # §16b (1): THE TERRAIN CUT IS PRIOR AND UNIVERSAL, and it is
             # read on the body's OWN WRITTEN TRIANGLES.  §16a (1) left a
@@ -337,7 +343,7 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                 if whole is None:
                     whole = _whole_body(parts, m, u, surface, pads, body_rims,
                                         split_tol_m, abutment_step_m,
-                                        abutment_walk_max_m, deck_own_ground_m)
+                                        abutment_walk_max_m, deck_own_ground_m, ride=ride)
                 off = _pc.anchor_ground_off(whole[1], whole[2], surface)
             foot_pieces = (cutter.foot_groups(parts, surface, split_tol_m,
                                               line_stations_max)
@@ -408,12 +414,9 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                                         tol_m=split_tol_m,
                                         deck_own_ground_m=deck_own_ground_m,
                                         authored_agl_m=u.agl_m,        # #972
-                                        datum=_ar.datum_of(       # §16e
-                                            m,
-                                            abutment_step_m=abutment_step_m,
-                                            abutment_walk_max_m=abutment_walk_max_m,
-                                            level_tol_m=split_tol_m,
-                                            free_standing=_pf.frame_is_bridge(u)))
+                                        datum=_member_datum(       # §16e
+                                            m, u, ride, abutment_step_m,
+                                            abutment_walk_max_m, split_tol_m))
                     # §16 (1): a triangle group of a body with no ground
                     # contact has none either (the VOR-marker class)
                     tfootless = (not any(p.feet for p in parts)
@@ -428,7 +431,7 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
             if whole is None:
                 whole = _whole_body(parts, m, u, surface, pads, body_rims,
                                     split_tol_m, abutment_step_m,
-                                    abutment_walk_max_m, deck_own_ground_m)
+                                    abutment_walk_max_m, deck_own_ground_m, ride=ride)
             cls, a, feet, footless = whole
             gpts, _gs, gg = _geom_ground(
                 cutter, parts, own_tris if len(pieces_p) == 1 else (), surface)
@@ -533,12 +536,23 @@ def _declared_box(cutter: "_LineCutter", tris, m: Member
             max(q[0] for q in pts), max(q[1] for q in pts))
 
 
+def _member_datum(m: Member, u: Unit, ride: "_ar.Datum | None", step_m: float,
+                  walk_max_m: float, tol_m: float) -> "_ar.Datum | None":
+    """§16e: the datum member ``m`` of unit ``u`` carries — its bridge's
+    when it rides one (#2086, ``deck_riders``), else its own."""
+    if ride is not None:
+        return ride
+    return _ar.datum_of(m, abutment_step_m=step_m, abutment_walk_max_m=walk_max_m,
+                        level_tol_m=tol_m, free_standing=_pf.frame_is_bridge(u))
+
+
 def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
                 surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
                 rims: _t.Sequence[_ar.RimRing], split_tol_m: float,
                 abutment_step_m: float = 0.0,
                 abutment_walk_max_m: float = 0.0,
-                deck_own_ground_m: float = 0.0
+                deck_own_ground_m: float = 0.0,
+                ride: "_ar.Datum | None" = None
                 ) -> tuple[str, _ar.Anchor, tuple, bool]:
     """One set of parts CLASSED and ANCHORED as a body: ``(class, anchor,
     feet, footless)`` — §6's rule, read once.
@@ -578,11 +592,9 @@ def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
     a = _ar.anchor_for(cls, geom, surface, pads, rims, tol_m=split_tol_m,
                        deck_own_ground_m=deck_own_ground_m,       # 30g (3)
                        authored_agl_m=u.agl_m,                    # #972
-                       datum=_ar.datum_of(                       # §16e
-                           m, abutment_step_m=abutment_step_m,
-                           abutment_walk_max_m=abutment_walk_max_m,
-                           level_tol_m=split_tol_m,
-                           free_standing=_pf.frame_is_bridge(u)))
+                       datum=_member_datum(                      # §16e
+                           m, u, ride, abutment_step_m,
+                           abutment_walk_max_m, split_tol_m))
     feet = tuple((f[0], f[1], f[2]) for p in parts for f in p.feet) \
         or tuple((p.lat, p.lon, p.base_y) for p in parts)
     footless = (not any(p.feet for p in parts)

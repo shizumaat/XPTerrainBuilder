@@ -617,6 +617,40 @@ deck_min_clearance_under_m = 1.0   # AFTER the seat: the mesh under SOME station
 # carriageway's half-width + the stand-off on each side, is a deck in the
 # DEM; under it the ground is interpolated from the two sides (lower only).
 ground_probe_dem_cells = 2.0
+# #2065 bridge classifier (spec bridge-classifier-spec.md §1 W2; Fable 2026-11-13,
+# owner-asked design 23:08Z): THE RIBBON — a free bridge's route chain, buffered
+# this far each side of its centreline, covers at least free_route_cover_min of
+# the deck plate's plan (probe: real bridges 0.67-1.00, refused non-bridges
+# 0.14-0.66).  Read by airport/bridge_witness W2 only.
+free_route_half_width_m = 12.0
+free_route_cover_min    = 0.6
+# #2065 A1 (spec 2065-bridge-class-A1.md §A1; Fable review 2026-11-13), read by
+# airport/bridge_witness.  W6 FREE FRAME: a body of a deck's frame is the bridge's
+# OWN when 0.95 of its plan vertices lie within REACH = max(free_frame_reach_min_m,
+# free_frame_reach_share x the widest W-deck's width) of the decks + route
+# corridors.  F1 (worst body per frame, x w): OTHH lamps 0.8 m = 0.05, YSSY road2
+# 0.06, OTHH B01 abutment 4.2 m = 0.20, LEMG 0.34 stay the bridge's; EDDF 0.84,
+# KTUL 1.39-1.48, LFPO 2.85 and every building frame >= 6.98 attach.
+free_frame_reach_share = 0.5
+free_frame_reach_min_m = 1.0
+# W7 ENDS: the metres of bridge != no route way carrying on past a plate end
+# (along the route, then through the feed's way joins); more than this makes the
+# end a JOINT — the structure goes on past the plate.  F3: real bridge ends hold
+# <= 11 m (OTHH 0-9, KDEN <= 10, LEMG bridgeDrei 11); refused pieces and roofs
+# read >= 28 m (KMCI road-bridge-2 28, SCEL 82/85, LSZH 71, PHNL 127+).
+free_end_run_on_max_m  = 20.0
+# W4b NOTHING DRIVEN BENEATH: an up-facing pack face between these depths under
+# the driven layer, on more than half the stations, makes the plate a roof or an
+# upper floor.  F4 shares: LSZH 0.97, PHNL 0.94, LIMC 0.91 / 0.92, KPHL 1.00,
+# OTHH TerminalRoads_01 1.00; every other W-deck <= 0.33 (KTUL 0.33, CZNL 0.31).
+roof_under_min_m       = 2.5
+roof_under_max_m       = 12.0
+# #2065 A2 END GROUND (S3): a free deck's published end chord lies this far
+# OUTSIDE its END LINE along the route's outward tangent, where the drawn bar
+# reads (``tools/drawn_site.OUTSIDE_M``), inside R3's slab.  F4 (B04): the old
+# secant chord lay 3.9 / 4.1 m INSIDE the plate and read the carried road under
+# the deck (3.54) where the ground outside the ends is 3.65-3.70 / 3.78-3.83.
+free_end_ground_out_m  = 1.5
 
 [building_pad]
 weld_to_touching_pavement = true   # contact = value (09-01g)
@@ -1166,6 +1200,25 @@ isolated_base_min_fraction = 0.45
 # the lowest object 0.060 (concrete blocks, letters), signs 0.075, cars
 # 0.16 and up.  0 disarms.
 isolated_sheet_max_aspect = 0.05
+
+# A STOCK OBJECT_MSL ROW ON AN OBJECT / OBJECT_AGL FRAME RIDES IT (#1837;
+# airport/ground_frame_riders.py).  Such a frame has no authored zero; its
+# riders witness it (row elevation minus the surface y it stands on).
+# ground_rider_tol_m: how far that witnessed zero may stand off the zero the
+#   build reads for the frame (adapted record, else surface + lift).  Under
+#   the least storey (2.1 m vehicle clearance plus its slab), so a row on an
+#   upper floor never reads as standing on the floor below; over the
+#   0.2-1.6 m the author's terrain stood off ours under KMCI's frames.
+#   0 disarms the rule.
+# ground_rider_fit_m: the zero is the one the most rows stand EXACTLY at --
+#   an author's stock row is placed on its deck (KMCI 0.00-0.01 m) -- so a
+#   vote counts a row within this of its surface (membership then takes
+#   [rebake] elevated_base_m).
+# ground_rider_under_m: a row may sit this far into the surface it stands
+#   on (DSF elevation rounding).
+ground_rider_tol_m   = 2.0
+ground_rider_fit_m   = 0.1
+ground_rider_under_m = 0.05
 
 # THE FLAT PLANE AT THE BASE OF OBJECTS IS PAVEMENT (owner RULINGS
 # 2026-10-10o (B), 2026-10-02v (3b); issue #229; geom/base_slab.py).  A

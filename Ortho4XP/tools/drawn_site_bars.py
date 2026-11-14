@@ -15,7 +15,10 @@ body may hang in the air because its supports went to another body).
   bottom minus the drawn mesh (``drawn_site._floor_read``): FLOAT / BURY
   against the ground bar; other objects list it, unjudged;
 * DECK END -- a deck's open edges that join at their top: the step to the
-  drawn surface beyond (pavement, or another object's hard surface);
+  drawn surface beyond (pavement, or another object's hard surface); in
+  END-EDGE MODE (``drawn_site --end-lines PLAN``) the run at each of the
+  plan's END LINES instead (a ramp's long sides and its floor openings are
+  edges, spec othh-deck-round2 S5);
 * MOUTH (footed bodies -- a cut shell, a covered or a convex body, never
   a thin part or a plate -- and, with ``--mouth``, one per SITE: the
   opening nearest the named site, within its radius -- the owner names
@@ -51,6 +54,12 @@ CUT_RIM_M = 3.0
 _BODY = re.compile(r"__b\d+_[0-9a-f]+(?=\.obj$)", re.IGNORECASE)
 
 
+def _stem(path: str) -> str:
+    """An OBJ's file stem, a split body's suffix removed (the key a rebake
+    plan's member resource and a written body share)."""
+    return _BODY.sub("", os.path.basename(str(path))).rsplit(".", 1)[0].lower()
+
+
 def _verdict(bad: bool) -> str:
     return "FAIL" if bad else "PASS"
 
@@ -78,12 +87,15 @@ def object_key(rec: dict) -> tuple:
 
 def object_bars(comps: list[dict], tol: float, ground_bar: float,
                 min_run_m: float, placements: list[dict] = (),
-                site: tuple[float, float, float] | None = None) -> list[dict]:
+                site: tuple[float, float, float] | None = None,
+                end_lines: "dict | None" = None) -> list[dict]:
     """The class bars (the module docstring) per object of one site's
     components and placement clearances; seams against ``tol``, the base
     and the clearance against ``ground_bar``; open edges shorter than
     ``min_run_m`` are not read; the mouth nearest ``site`` ``(lat, lon,
-    radius_m)`` is judged."""
+    radius_m)`` is judged.  ``end_lines`` (END-EDGE MODE): ``{OBJ stem:
+    [end line, ...]}`` off the rebake plan's deck members — a deck's END is
+    read at its end lines (:func:`_true_ends`)."""
     gaps: dict = {}
     for p in placements:
         if p.get("clearance_m") is not None:
@@ -107,7 +119,8 @@ def object_bars(comps: list[dict], tol: float, ground_bar: float,
         if footed:
             cut = any(_cut_shell(q, ground_bar) for q, _fp in footed)
             o["base"] = _base(footed, ground_bar, judged=cut)
-        o.update(_seams(recs, {q["component"] for q, _fp in footed}, tol, min_run_m))
+        lines = None if end_lines is None else end_lines.get(_stem(big["def"]), [])
+        o.update(_seams(recs, {q["component"] for q, _fp in footed}, tol, min_run_m, lines))
         out.append(o)
     _judge_mouth(out, site, tol)
     for o in out:
@@ -152,10 +165,44 @@ def _base(footed: list[tuple[dict, dict]], ground_bar: float, judged: bool) -> d
             "verdict": verdict if judged else "not judged", "reading": verdict}
 
 
-def _seams(recs: list[dict], footed_ids: set, tol: float, min_run_m: float) -> dict:
+#: END-EDGE MODE: an open run is a deck's END when its middle lies within
+#: this of one of the plan's end lines (spec othh-deck-round2 S5)
+END_MATCH_M = 15.0
+
+
+def _to_line_m(at, line) -> float:
+    """Metres from ``at`` ``(lat, lon)`` to an end line ``((lat, lon), (lat, lon))``."""
+    k = 111_320.0
+    c = math.cos(math.radians(at[0]))
+    (a0, o0), (a1, o1) = line
+    px, py = (at[1] - o0) * k * c, (at[0] - a0) * k
+    dx, dy = (o1 - o0) * k * c, (a1 - a0) * k
+    t = max(0.0, min(1.0, (px * dx + py * dy) / ((dx * dx + dy * dy) or 1.0)))
+    return math.hypot(px - t * dx, py - t * dy)
+
+
+def _true_ends(rows: list[dict], end_lines) -> tuple[list[dict], list[dict]]:
+    """END-EDGE MODE: ``(deck ends, other runs)`` — per plan end line the
+    open run nearest it within :data:`END_MATCH_M` is the deck's end; the
+    deck's long sides and floor openings are edges."""
+    ends: dict[int, tuple[float, dict]] = {}
+    for k, ln in enumerate(end_lines):
+        for r in rows:
+            d = _to_line_m(r["at"], ln)
+            if d <= END_MATCH_M and (k not in ends or d < ends[k][0]):
+                ends[k] = (d, r)
+    picked = {id(r) for _d, r in ends.values()}
+    return ([dict(r, end_line=k + 0, dist_m=round(d, 1)) for k, (d, r) in sorted(ends.items())],
+            [r for r in rows if id(r) not in picked])
+
+
+def _seams(recs: list[dict], footed_ids: set, tol: float, min_run_m: float,
+           end_lines=None) -> dict:
     """The DECK END readings and the floor openings of the footed
     components (``mouth_candidates``, judged by :func:`_judge_mouth`), and
-    the EDGE readings."""
+    the EDGE readings.  ``end_lines`` (END-EDGE MODE, ``drawn_site
+    --end-lines``): a deck's ends are the runs at the plan's end lines
+    (:func:`_true_ends`), not every open run that joins at its top."""
     decks, mouths, edges = [], [], []
     for q in recs:
         bodied = q["shape"]["class"] in MOUTH_SHAPES
@@ -169,7 +216,13 @@ def _seams(recs: list[dict], footed_ids: set, tol: float, min_run_m: float) -> d
                 continue
             row = {"at": r["at"], "step": r["step_m"], "length_m": r["length_m"],
                    "joins": r["joins"], "verdict": _verdict(abs(r["step_m"]) > tol)}
+            if end_lines is not None:
+                (decks if q["deck"] else edges).append(row)
+                continue
             (decks if q["deck"] and r["joins"] == "top" else edges).append(row)
+    if end_lines is not None:
+        decks, other = _true_ends(decks, end_lines)
+        edges += other
     return {"deck_ends": decks, "mouths": [], "mouth_candidates": mouths,
             "edges": sorted(edges, key=lambda e: -abs(e["step"]))}
 

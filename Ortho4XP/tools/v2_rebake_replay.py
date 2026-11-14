@@ -226,6 +226,16 @@ def _foreign_outlines(paths: "list[str] | None") -> tuple:
     return tuple(out)
 
 
+def _ground_rider_law(law):
+    """#1837: ``[placement] ground_rider_*`` as the rule's law, ``None``
+    under a law that predates the keys (the rule then stays disarmed)."""
+    from auto_patch_v2.airport import ground_frame_riders as _gfr
+    try:
+        return _gfr.law_of(law.tables.structures.placement)
+    except AttributeError:
+        return None
+
+
 def _also_sampler(path: str, bounds):
     """``--mesh-also``: a built ``.mesh``, or a tile ``.dsf`` read as X-Plane
     draws it (``drawn_site.tile_triangles``; #1884 lows4: the installed
@@ -328,6 +338,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
         if _n:
             print("  §16e (2) back-fill: %d deck member(s) given their end "
                   "lines (this plan predates the field)" % _n)
+    if args.bridge_witness:
+        plan_ = _bridge_witness(args.plan, plan_, law)
     lat, lon = args.tile
     dsf_path = _dsf2.dsf_path_in_pack(plan_.pack_root, lat, lon)
     pack_name = os.path.basename(os.path.normpath(plan_.pack_root))
@@ -545,7 +557,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
         isolated_base_min_fraction=getattr(law.tables.structures.placement,
                                            "isolated_base_min_fraction", None),
         isolated_sheet_max_aspect=getattr(law.tables.structures.placement,
-                                          "isolated_sheet_max_aspect", None))
+                                          "isolated_sheet_max_aspect", None),
+        ground_rider_law=_ground_rider_law(law))
     if args.write_pack:
         # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut
         # and written into a pack COPY by ``placement_write.apply_plan``
@@ -649,6 +662,50 @@ def cmd_plan(args: argparse.Namespace) -> int:
     if args.oracle_check:
         return _oracle_check(args, plan_)
     return 0
+
+
+def _bridge_witness(plan_path: str, plan_, law):
+    """``--bridge-witness`` (#2065 S5): each deck's class and route ends by
+    the positive witness (``tools/bridge_census.census_plan``, the census's
+    own read of this plan), printed; the plan's FREE decks published on it
+    as a build publishes them (``planar/free_bridge.published`` ->
+    ``rebake_plan.with_free``) — a plan written before version 14 carries
+    none, and the seat then has nothing to admit."""
+    import dataclasses as _dcw
+
+    import bridge_census as _bc
+    from auto_patch_v2.airport.rebake_plan import with_free
+    from auto_patch_v2.model.free_bridge import published
+    from auto_patch_v2.planar.free_bridge import bridges_of
+    from shared_repo_guard import DATA_REPO
+    keep: list = []
+    rows, _c = _bc.census_plan(plan_path, plan_.icao, law, str(DATA_REPO / "OSM_data"),
+                               str(DATA_REPO / "Elevation_data"), keep)
+    for r in sorted(rows, key=lambda r: (r["unit"], r["resource"])):
+        if r["class"] != "not_a_bridge" or r["witness_holds"]:
+            print(f"  [bridge-witness] {r['unit']:9} {r['resource'][:34]:34} {r['class']:16} "
+                  f"run-on {r['run_on_a']}/{r['run_on_b']} layer {r['layer_ends']} "
+                  f"{r['reason'][:60]}")
+    touch = float(law.tables.structures.placement.footprint_touch_m)
+    recs: dict = {}
+    for k in keep:
+        free = [o for o, c in k["class"].items() if c == "free_bridge"]
+        if free:
+            recs.update(published(bridges_of(k["rings"], k["witness"], free, k["members"],
+                                             touch), k["to_ll"],
+                                   float(law.tables.structures.bridge.free_end_ground_out_m)))
+    counts: dict = {}
+    step = float(law.tables.structures.bridge.abutment_sample_step_m)
+    units = []
+    for u in plan_.units:
+        ms = tuple(with_free(m, recs[m.id], step, counts) if m.id in recs else m
+                   for m in u.members)
+        units.append(_dcw.replace(u, members=ms))
+    for oid, rec in sorted(recs.items()):
+        print(f"  [bridge-witness] free {oid} {rec['bridge']} tops {rec['tops']} "
+              f"land {rec['land']} ends {rec['ends']}")
+    print(f"  [bridge-witness] published {counts}")
+    return _dcw.replace(plan_, units=tuple(units))
 
 
 def _watch_surface(surface, counters):
@@ -851,6 +908,10 @@ def _main(argv: list[str] | None = None) -> int:
                          "companions) whose parts block an isolated share, "
                          "as the app passes them; without it the isolation "
                          "is read within this plan only")
+    pl.add_argument("--bridge-witness", action="store_true",
+                    help="#2065 S5: print each deck's class and route ends (the "
+                         "census's witness) and publish the free decks on the plan "
+                         "before the replay")
     pl.add_argument("--plan-out", default="",
                     help="write the replayed o4_v2_placement_<ICAO>.json here "
                          "(lane-local) to diff against the shipped one")

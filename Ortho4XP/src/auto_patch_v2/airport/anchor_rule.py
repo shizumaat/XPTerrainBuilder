@@ -564,6 +564,12 @@ class Datum:
     step_m: float = 0.0
     walk_max_m: float = 0.0
     level_tol_m: float = 0.0
+    #: the deck's plan ring ``(lat, lon)``: 22p reads the ground at the
+    #: anchor as the road under the span only where the anchor stands
+    #: inside it (``bridge_approach.approach_seat``); empty = not read.
+    #: Set only by the class-B reading (``free_bridge_seat``); an all-deck
+    #: frame's datum (22d / 22p) leaves it empty
+    ring: tuple[tuple[float, float], ...] = ()
 
 
 def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,

@@ -552,6 +552,23 @@ class Bridge:
     #: carries is read this many DEM postings past the carriageway's
     #: half-width + the stand-off, each side
     ground_probe_dem_cells: float
+    #: #2065 (``airport/bridge_witness`` W2): a free bridge's route chain,
+    #: buffered this far each side, covers at least ``free_route_cover_min``
+    #: of the deck plate's plan
+    free_route_half_width_m: float
+    free_route_cover_min: float
+    #: #2065 A1 W6: a frame body is the bridge's own within REACH =
+    #: max(``free_frame_reach_min_m``, ``free_frame_reach_share`` x the widest
+    #: W-deck's width) of the decks and route corridors
+    free_frame_reach_share: float
+    free_frame_reach_min_m: float
+    #: #2065 A1 W7: a route end with more run-on than this is a JOINT
+    free_end_run_on_max_m: float
+    #: #2065 A1 W4b: the depth window under the driven layer a pack face reads in
+    roof_under_min_m: float
+    roof_under_max_m: float
+    #: #2065 A2 END GROUND: the published end chord lies this far outside the end line
+    free_end_ground_out_m: float
 
 
 @_dc.dataclass(frozen=True)

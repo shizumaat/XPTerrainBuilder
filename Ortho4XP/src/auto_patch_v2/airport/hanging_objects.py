@@ -131,9 +131,14 @@ def _co_placed(o, p, tol: float) -> bool:
             and abs(((p.heading_deg - o.heading_deg + 180.0) % 360.0) - 180.0) <= 1.0)
 
 
-def _has_floor(cache, p, law) -> bool:
+def _has_floor(cache, p, law, ground=None, exclude: _t.AbstractSet[str] = frozenset()
+               ) -> bool:
     """A FLOOR part: a plate of a plate's worth ``shell_floor_min_m`` under
-    its zero (EGLL ``Na.obj``: its floor and ramps, no walls)."""
+    its zero (EGLL ``Na.obj``: its floor and ramps, no walls).  With
+    ``ground`` (``below_grade_witness.ground_of``), that plate must stand
+    ``shell_floor_min_m`` under the author's ground around the placement as
+    well — a shared datum's ground plate hangs under its zero too (#1950;
+    the ``exclude``-d placements' own faces left out)."""
     ob = law.tables.structures.tunnel.object
     if p.resolved is None or cache.y_range(p.resolved)[0] > -ob.shell_floor_min_m:
         return False
@@ -144,7 +149,14 @@ def _has_floor(cache, p, law) -> bool:
     deep = (_face_normals_y(v, t) >= ob.plate_normal_y_min) & (
         np.maximum(np.maximum(v[t[:, 0], 1], v[t[:, 1], 1]), v[t[:, 2], 1])
         <= -ob.shell_floor_min_m)
-    return bool(deep.any()) and float(_plan_area(v, t)[deep].sum()) >= ob.plate_min_area_m2
+    if not deep.any() or float(_plan_area(v, t)[deep].sum()) < ob.plate_min_area_m2:
+        return False
+    if ground is None:
+        return True
+    from .shell_ground import floor_under_ground
+    top = float(np.maximum(np.maximum(v[t[deep, 0], 1], v[t[deep, 1], 1]), v[t[deep, 2], 1]).min())
+    return floor_under_ground(p, top, getattr(p, "plan_bbox", None), {p.id, *exclude},
+                              ground, law) is None
 
 
 def _union(members, cache):
@@ -162,11 +174,13 @@ def _union(members, cache):
 
 def read_hanging_covers(placed: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                         law, taken: _t.AbstractSet[str], msl: _t.Mapping[str, float],
-                        k_by_res: dict) -> tuple[list[ObjectCut], list[str]]:
+                        k_by_res: dict, ground: "_t.Callable | None" = None
+                        ) -> tuple[list[ObjectCut], list[str]]:
     """Every HANGING COVER (module doc) as an ``ObjectCut``, and one refusal
     line per cover the shell reading refuses.  ``taken`` are the placement
     ids a shell already took; ``k_by_res`` the per-resource label counter
-    ``object_cut.read_shells`` keeps."""
+    ``object_cut.read_shells`` keeps; ``ground()`` the author's ground every
+    floor and placed reading is judged against (#1950)."""
     ob = law.tables.structures.tunnel.object
     out: list[ObjectCut] = []
     refused: list[str] = []
@@ -190,14 +204,15 @@ def read_hanging_covers(placed: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
         box = getattr(o, "plan_bbox", None)
         floors = [p for p in placed
                   if p.id not in used and _co_placed(o, p, ob.cover_placement_tol_m)
-                  and _has_floor(cache, p, law)
+                  and _has_floor(cache, p, law, ground() if ground else None, {o.id})
                   and (box is None or getattr(p, "plan_bbox", None) is None
                        or box.intersects(p.plan_bbox))]
         if floors:
             geom, comps = _union([o, *floors], cache)
             n_cover = sum(len(c.tris) for c in genuine)
             floor_faces = np.arange(sum(len(c.tris) for c in comps)) >= n_cover
-            r = shell_reading(geom, comps, law, walls_to_floor=True, interior_from=floor_faces)
+            r = shell_reading(geom, comps, law, walls_to_floor=True, interior_from=floor_faces,
+                              at_zero=ground is None)
             shell_o = floors[0]
             note = (f"a SPLIT shell (RULINGS 2026-10-26p Q166): cover {_base(o.path)} "
                     f"(walls to {bottom:+.2f}) + floor "
@@ -211,7 +226,8 @@ def read_hanging_covers(placed: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
             refused.append(f"{o.id} {_base(o.path)}: a hanging cover, but {r}")
             continue
         k = k_by_res.get(shell_o.path, 0)
-        rec = shell_cut(shell_o, r, o, cover, area, k, cache, law, msl, (note,))
+        rec = shell_cut(shell_o, r, o, cover, area, k, cache, law, msl, (note,),
+                        ground() if ground else None)
         if isinstance(rec, str):
             refused.append(rec)
             continue

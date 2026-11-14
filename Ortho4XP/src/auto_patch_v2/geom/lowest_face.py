@@ -8,7 +8,7 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["floor_z_at"]
+__all__ = ["floor_z_at", "every_z_at"]
 
 
 def floor_z_at(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float],
@@ -19,10 +19,33 @@ def floor_z_at(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float]
     face, on that face's plane (a ring vertex the map snapped a hair off
     the footprint, or the void band's floor-side ring)."""
     xs = np.asarray(xs, float)
-    ys = np.asarray(ys, float)
     out = np.full(xs.shape, np.nan)
+    for k, z in enumerate(_z_over(faces, xs, ys, edge_m)):
+        if z.size:
+            out[k] = float(z.min())
+    return out
+
+
+def every_z_at(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float],
+               edge_m: float = 0.0) -> list[np.ndarray]:
+    """EVERY face's z under each ``(x, y)`` (:func:`floor_z_at`'s reading
+    without taking the lowest; #2065 ``airport/bridge_witness`` W3/W4 read
+    the layers of a plate): one array per point, empty where no face is."""
+    return list(_z_over(faces, xs, ys, edge_m))
+
+
+def _z_over(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float],
+            edge_m: float) -> _t.Iterator[np.ndarray]:
+    """Per point, the z of the faces whose plan triangle holds it — or,
+    with none and ``edge_m`` > 0, of the faces it stands within ``edge_m``
+    outside of (:func:`floor_z_at`)."""
+    xs = np.asarray(xs, float)
+    ys = np.asarray(ys, float)
+    none = np.zeros(0)
     if not len(faces) or not len(xs):
-        return out
+        for _k in range(len(xs)):
+            yield none
+        return
     x0, x1, x2 = faces[:, 0, 0], faces[:, 1, 0], faces[:, 2, 0]
     y0, y1, y2 = faces[:, 0, 1], faces[:, 1, 1], faces[:, 2, 1]
     z0, z1, z2 = faces[:, 0, 2], faces[:, 1, 2], faces[:, 2, 2]
@@ -36,6 +59,7 @@ def floor_z_at(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float]
         x, y = xs[k], ys[k]
         c = np.flatnonzero(ok & (lo_x <= x) & (x <= hi_x) & (lo_y <= y) & (y <= hi_y))
         if not len(c):
+            yield none
             continue
         w0 = ((y1[c] - y2[c]) * (x - x2[c]) + (x2[c] - x1[c]) * (y - y2[c])) / den[c]
         w1 = ((y2[c] - y0[c]) * (x - x2[c]) + (x0[c] - x2[c]) * (y - y2[c])) / den[c]
@@ -44,7 +68,7 @@ def floor_z_at(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float]
         least = np.minimum(np.minimum(w0, w1), w2)
         inside = least >= -1e-9
         if inside.any():
-            out[k] = float(z[inside].min())
+            yield z[inside]
         elif edge_m > 0.0:
             # how far outside each candidate the point stands, in metres:
             # the least barycentric weight times the face's height OVER THE
@@ -59,6 +83,6 @@ def floor_z_at(faces: np.ndarray, xs: _t.Sequence[float], ys: _t.Sequence[float]
             i = np.argmin(w, axis=0)
             h = np.abs(den[c]) / np.maximum(edge[i, np.arange(len(c))], 1e-9)
             near = -least * h <= edge_m
-            if near.any():
-                out[k] = float(z[near].min())
-    return out
+            yield z[near]
+        else:
+            yield none

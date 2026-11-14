@@ -231,6 +231,15 @@ class _Airside:
     def contains(self, p: Point) -> bool:
         return self._tree is not None and len(self._tree.query(p, predicate="within")) > 0
 
+    def meets(self, plate) -> bool:
+        """Does airside pavement or a runway lie ON ``plate`` (more than a
+        square metre of it — an edge it merely touches is not; the free
+        bridge's read leaves such a plate to class A, ``planar/free_bridge``)?"""
+        if self._tree is None or plate is None or plate.is_empty:
+            return False
+        return any(self._polys[int(i)].intersection(plate).area > 1.0
+                   for i in self._tree.query(plate, predicate="intersects"))
+
 
 def _end_ground(airport, stations, out: XY, step: float) -> float:
     from .dem import dem_z_many

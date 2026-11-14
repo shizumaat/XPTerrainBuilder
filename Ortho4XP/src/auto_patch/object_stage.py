@@ -476,6 +476,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import dsf as _dsf2
+    from auto_patch_v2.airport import ground_frame_riders as _gfr
     from auto_patch_v2.airport import placement_write as _pw
     from auto_patch_v2.airport import free_column as _fcol
     from . import dsf_reader as _DSFR
@@ -684,7 +685,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                 law.tables.structures.placement.isolated_base_min_fraction),
             # §9a I9 (#2074): a ground sheet keeps today's seat
             isolated_sheet_max_aspect=float(
-                law.tables.structures.placement.isolated_sheet_max_aspect))
+                law.tables.structures.placement.isolated_sheet_max_aspect),
+            # #1837: a stock MSL row on an OBJECT / AGL frame rides it
+            ground_rider_law=_gfr.law_of(law.tables.structures.placement))
     _pulse.clear()
     c = dict(plan.counts())
     # §6's CLASSES ride out with the counts (lane v2planfix): they are the

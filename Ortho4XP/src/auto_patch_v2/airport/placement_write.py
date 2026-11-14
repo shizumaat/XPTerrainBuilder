@@ -185,6 +185,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                isolated_base_min_fraction: float = 0.0,
                # §9a I9 (#2074): ``[placement] isolated_sheet_max_aspect``
                isolated_sheet_max_aspect: float = 0.0,
+               # #1837: ``ground_frame_riders.law_of([placement])``; ``None`` disarms
+               ground_rider_law: _t.Any = None,
                ) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
@@ -248,7 +250,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         keep_tol_m=authored_keep_tol_m, feet_tol_m=split_tol_m,
         elevated_m=elevated_base_m, runway_ends=runway_ends,
         approach_reach_m=approach_reach_m,
-        approach_heading_deg=approach_heading_deg)
+        approach_heading_deg=approach_heading_deg,
+        ground_rider_law=ground_rider_law)
     # #2042: a graded facade's plane comes down onto its drawn ground
     fseats, ffiles, fcounts = _fs.plan_seats(
         dump, pack_root, surface if facade_surface is None else facade_surface)
@@ -290,7 +293,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
               elevated_m: float = 0.0,
               runway_ends: _t.Sequence = (),
               approach_reach_m: float = 0.0,
-              approach_heading_deg: float = 0.0) -> tuple[tuple, tuple, tuple, dict]:
+              approach_heading_deg: float = 0.0,
+              ground_rider_law: _t.Any = None) -> tuple[tuple, tuple, tuple, dict]:
     """THE ROW HALF of the plan — ``(conversions, msl seats, riders,
     counts)``: what becomes of every DSF row the SPLIT did not replace.
     ONE implementation, two callers (:func:`build_plan` and
@@ -394,7 +398,7 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     # OBJECT_MSL frame's deck, moves with that frame instead of converting
     msl, conversions = deck_riders_of_pack(dump, pack_root, splits, msl,
                                            conversions, surface, elevated_m,
-                                           msl_counts)
+                                           msl_counts, _auth, ground_rider_law)
     # #1639: a lifted row whose lift now buries its feet stands on them
     msl = msl + _mf.lifted_feet_seats(
         dump, (_taken | frozenset(m.index for m in msl)
@@ -418,14 +422,22 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
 
 def deck_riders_of_pack(dump: _t.Any, pack_root: str, splits: _t.Sequence,
                         msl: tuple, conversions: tuple, surface: _t.Callable,
-                        contact_m: float, counts: dict) -> tuple[tuple, tuple]:
+                        contact_m: float, counts: dict,
+                        authored: _t.Sequence[tuple] = (),
+                        ground_law: _t.Any = None) -> tuple[tuple, tuple]:
     """``(msl, conversions)`` with the pack's own STOCK ``OBJECT_MSL`` rows
     (a resource that does not resolve inside the pack: the plan never sees
     it) that stand on a re-seated frame's deck moved with that frame
-    (``frame_riders.rider_seats``, #1252) instead of converted to on-ground.  ``contact_m``
-    0 disarms."""
+    instead of converted to on-ground: an ``OBJECT_MSL`` frame's
+    (``frame_riders.rider_seats``, #1252), else an ``OBJECT`` /
+    ``OBJECT_AGL`` frame's at the zero its riders put it
+    (``ground_frame_riders``, #1837; ``authored`` =
+    ``adapted_riders.authored_zeros``; ``ground_law`` its
+    ``ground_frame_riders.Law``, ``None`` disarms it).  ``contact_m`` 0
+    disarms both."""
     from ..model.placement import KIND_MSL
     from . import frame_riders as _dr
+    from .ground_frame_riders import ground_rider_seats
     stock = [c.index for c in conversions if c.kind_before == KIND_MSL
              and not os.path.isfile(os.path.join(pack_root or "", c.resource))]
     if contact_m <= 0.0 or not stock:
@@ -433,6 +445,12 @@ def deck_riders_of_pack(dump: _t.Any, pack_root: str, splits: _t.Sequence,
     frames = _dr.frame_moves(dump, pack_root, splits, msl, conversions, surface)
     rows = list(getattr(dump, "placements", ()) or ())
     riders = _dr.rider_seats(rows, stock, frames, contact_m, counts)
+    done = frozenset(r.index for r in riders)
+    if ground_law is not None:
+        riders += ground_rider_seats(
+            rows, [i for i in stock if i not in done], pack_root,
+            _dr._written_zeros(rows, splits, msl, conversions, surface), surface,
+            contact_m, ground_law, authored, counts)
     moved = frozenset(r.index for r in riders)
     return (tuple(msl) + riders,
             tuple(c for c in conversions if c.index not in moved))

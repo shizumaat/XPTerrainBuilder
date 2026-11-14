@@ -128,6 +128,9 @@ class RebakeScreen:
     plan_version: int = PLAN_VERSION
     #: object-placement spec §18: the seat records the plan publishes
     authored_seats: tuple[_t.Mapping[str, _t.Any], ...] = ()
+    #: #2065 S2: each free deck's published route ends
+    #: (``planar/free_bridge.published``)
+    free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] = _dc.field(default_factory=dict)
 
     def to_json(self) -> str:
         fr = self.frame
@@ -141,6 +144,7 @@ class RebakeScreen:
             "plates": {k: [v[0], [list(p) for p in v[1]], *v[2:]]
                        for k, v in self.plates.items()},
             "authored_seats": [dict(r) for r in self.authored_seats],
+            "free_decks": {k: dict(v) for k, v in self.free_decks.items()},
             "below_grade": [[w, list(ids)] for w, ids in self.below_grade],
             "deck_datum": [[[list(p) for p in ring], z]
                            for ring, z in self.deck_datum],
@@ -191,7 +195,8 @@ class RebakeScreen:
             str(k["partition_path"]), str(k["partition_fp"]),
             k.get("partition_digest"), k.get("law_sha256"), str(k["ruleset"]),
             str(k["code_digest"]), int(k["plan_version"]),
-            tuple(dict(r) for r in d.get("authored_seats", ())))
+            tuple(dict(r) for r in d.get("authored_seats", ())),
+            {str(k): dict(v) for k, v in (d.get("free_decks") or {}).items()})
 
 
 def _plain(v: _t.Any) -> _t.Any:
@@ -223,6 +228,7 @@ def take(airport: _t.Any, objects: _t.Sequence, law: Law, *,
          below_grade: _t.Sequence[tuple[object, _t.Collection[str]]],
          patches: _t.Iterable[str | os.PathLike] = (),
          authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
+         free_decks: _t.Mapping[str, _t.Mapping[str, _t.Any]] | None = None,
          patch_bodies: _t.Iterable[str] | None = None) -> RebakeScreen | None:
     """The record of THIS patch build — its keywords are ``rebake_plan.
     plan``'s own (``pipeline.build._rebake_inputs`` assembles them) — or ``None`` when the run
@@ -251,7 +257,8 @@ def take(airport: _t.Any, objects: _t.Sequence, law: Law, *,
         tuple(sorted(set(patch_bodies) if patch_bodies is not None
                      else {patch_body_sha256(p) for p in patches})),
         kept[0], kept[1], _extcache.base_digest(part), law_sha, ruleset,
-        _pcache.code_digest(), authored_seats=tuple(dict(r) for r in authored_seats))
+        _pcache.code_digest(), authored_seats=tuple(dict(r) for r in authored_seats),
+        free_decks={k: dict(v) for k, v in (free_decks or {}).items()})
 
 
 def read(path: str | os.PathLike) -> RebakeScreen:
@@ -381,7 +388,7 @@ def build_plan(screen: RebakeScreen, law: Law, *,
         tunnel_objects=screen.plates,
         below_grade=[(_from_wkb(w), ids) for w, ids in screen.below_grade],
         partition=part, keep_extension=keep_extension,
-        authored_seats=screen.authored_seats)
+        authored_seats=screen.authored_seats, free_decks=screen.free_decks)
     return _dc.replace(rplan, connectors=screen.connectors)
 
 

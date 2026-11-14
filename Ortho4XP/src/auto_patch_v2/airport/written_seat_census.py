@@ -116,15 +116,14 @@ def deck_rows(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str,
     the mesh there.  Class A (a flag deck over airside, the solve's own
     ``deck_datum_z``, the airport's pavement running across it — RULINGS
     2026-10-27c) reads its end lines by ``airside_deck_seat``; a
-    free-standing deck (``placement_family.frame_is_bridge``) reads its
-    plate's end lines and the 22p classification."""
+    free-standing deck (``placement_family.frame_is_bridge``, or a free deck
+    of a class-B frame, ``free_bridge_seat``) reads its ends as the seat
+    does (``deck_end_read.deck_end_reads``) and the 22p classification."""
     from .airside_deck_seat import airside_end_ground, end_tops, pavement_runs_across
-    from .anchor_rule import Datum
-    from .bridge_approach import approach_seat, end_ground
+    from .deck_end_read import deck_end_reads
+    from .free_bridge_seat import free_member
     from .placement_family import frame_is_bridge
-    from .rebake_plan import end_line_stations
     zeros = _zeros_by_resource(written, surface, pack_root)
-    water = getattr(surface, "water", None)
     out = []
     for u in rebake.units:
         bridge = frame_is_bridge(u)
@@ -141,7 +140,10 @@ def deck_rows(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str,
                 continue
             row = {"resource": m.resource, "unit": u.id, "kind": kind,
                    "deck_top": z0 + float(top), "class": "", "ends": (), "note": ""}
-            if (m.deck_datum_z is not None and ring
+            # #2065 A2: a free member is tested first ("B free-standing")
+            free = free_member(m)
+            all_deck = bridge and not free
+            if (not free and m.deck_datum_z is not None and ring
                     and pavement_runs_across(ring, surface, step_m)):
                 got = airside_end_ground(ring, surface, step_m)
                 row["class"] = "A airside"
@@ -151,23 +153,22 @@ def deck_rows(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str,
                     continue
                 tops = end_tops(m, got[1], tuple(u.anchor), step_m)
                 row["ends"] = tuple(z0 + t - g for t, g in zip(tops, got[0], strict=True))
-            elif bridge and m.deck_ends:
-                ends = tuple(tuple((float(q[0]), float(q[1])) for q in ln)
-                             for ln in m.deck_ends)
-                gs = [end_ground(end_line_stations([e], step_m), surface, water)
-                      for e in ends]
-                if any(g is None for g in gs):
+            elif m.deck_ends and (all_deck or free):
+                # one reading for seat, census and bar (spec S5): the ends
+                # the seat reads (``deck_end_read``: the ground each end
+                # meets, the plate's own top on it)
+                r = deck_end_reads(m, surface, origin=tuple(u.anchor),
+                                   agl_m=float(u.agl_m or 0.0), step_m=step_m,
+                                   all_deck=all_deck)
+                if r is None:
                     continue
-                row["class"] = "B overpass"
-                row["ends"] = tuple(row["deck_top"] - g[0] for g in gs)
-                seat = approach_seat(Datum(float(top), (), "deck top", ends=ends,
-                                           step_m=step_m), surface,
-                                     origin=tuple(u.anchor), authored_agl_m=u.agl_m)
-                if seat is not None and "authored clearance" in seat.reason:
+                row["class"] = "B overpass" if all_deck else "B free-standing"
+                if r.clearance is not None:
                     g0 = surface(*u.anchor)
                     row["note"] = ("authored clearance (22p): deck "
                                    f"{row['deck_top'] - float(g0):+.2f} over the road"
                                    if g0 is not None else "authored clearance (22p)")
+                row["ends"] = tuple(z0 + e.top - e.ground for e in r.ends)
             else:
                 continue
             out.append(row)

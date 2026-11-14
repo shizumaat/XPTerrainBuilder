@@ -86,14 +86,27 @@ def end_ground(line: _t.Sequence[tuple[float, float]], surface: Surface,
 
 def approach_seat(datum: _t.Any, surface: Surface, *,
                   origin: "tuple[float, float] | None" = None,
-                  authored_agl_m: "float | None" = None) -> "ApproachSeat | None":
+                  authored_agl_m: "float | None" = None,
+                  tops: "_t.Sequence[float] | None" = None) -> "ApproachSeat | None":
     """The seat of a deck carrying two END LINES (``datum.ends``, sampled
     at ``datum.step_m``), or ``None`` where the ends are not armed, an end
     reads no land or an end line touches water (§16e (2)/(6)'s station
     reading and its landward walk then stand).
 
     ``origin`` / ``authored_agl_m``: the placement anchor and its
-    ``OBJECT_AGL`` lift — the authored clearance 22p keeps."""
+    ``OBJECT_AGL`` lift — the authored clearance 22p keeps.
+
+    ``tops``: the deck top AT each end, in end order (a ramp or a humped
+    span is authored on a grade: OTHH's flyover ramps run from y -0.1 at
+    their ends to +8.3 at the crown); ``None`` reads ``datum.y`` at both.
+    The end flush is the one whose ``ground - top`` is the highest, so the
+    other end floats over its ground and never buries (22m).
+
+    22p's witness reads the ground at the ANCHOR as "the road the bridge
+    spans", which it is only where the anchor stands under the deck: a
+    datum carrying its deck ``ring`` whose anchor lies outside it (OTHH's
+    three-bridge frame shares one anchor 40-210 m off every deck) has no
+    road-under reading, and the end lines seat it."""
     if len(getattr(datum, "ends", ()) or ()) < 2 or datum.step_m <= 0.0:
         return None
     from .rebake_plan import end_line_stations
@@ -113,9 +126,15 @@ def approach_seat(datum: _t.Any, surface: Surface, *,
         reads.append((g[0], g[1], mid))
     z_ends = tuple(r[0] for r in reads)
     ends_txt = " / ".join(f"{z:.2f} ({s})" for z, s, _m in reads)
+    ys = (tuple(float(t) for t in tops) if tops is not None and len(tops) == len(reads)
+          else (float(datum.y),) * len(reads))
     g0 = None if origin is None else surface(origin[0], origin[1])
     if g0 is not None and water is not None and water(origin[0], origin[1]):
         g0 = None             # a span over water has no road under it
+    ring = tuple(getattr(datum, "ring", ()) or ())
+    from .anchor_rule import _inside
+    if g0 is not None and len(ring) >= 3 and not _inside(ring, origin[0], origin[1]):
+        g0 = None             # an anchor off the deck reads no road under it
     lift = float(authored_agl_m or 0.0)
     clearance = lift + float(datum.y)
     if g0 is not None and clearance > 0.0 and not any(
@@ -126,14 +145,15 @@ def approach_seat(datum: _t.Any, surface: Surface, *,
             f"({ends_txt}; the road under it {float(g0):.2f}) — the authored "
             f"clearance {clearance:.2f} m kept (RULINGS 2026-10-22p; the end "
             f"gaps are #1138's)", z_ends)
-    k = max(range(len(reads)), key=lambda i: (reads[i][0], -i))
+    k = max(range(len(reads)), key=lambda i: (reads[i][0] - ys[i], -i))
     z, _src, (la, lo) = reads[k]
     za = surface(la, lo)
     if za is None:
         za = z
     return ApproachSeat(
-        float(la), float(lo), float(za), float(z) - float(datum.y),
-        f"§16e {datum.label} datum: the authored y {datum.y:+.2f} flush with "
+        float(la), float(lo), float(za), float(z) - ys[k],
+        f"§16e {datum.label} datum: the authored y {ys[k]:+.2f} flush with "
         f"the ground at end line {k + 1} of {ends_txt} (the end nearer its "
         f"ground; the other end's gap graded by the terrain, #1138; "
         f"RULINGS 2026-10-22m)", z_ends)
+

@@ -5,7 +5,7 @@ Owner (2026-11-06): "when a package includes draped ortho images in the
 airport that would obscure our imagery … let the user choose to hide
 draped orthos."  (2026-11-08, RULINGS 2026-11-09a (3)) the ground
 textures that "primarily cover non-pavement areas" are "an option the
-user can choose to hide or not".  Two kinds (:class:`_Kind`), one each:
+user can choose to hide or not".  Four kinds (:class:`_Kind`), one each:
 
 * :data:`PHOTOS` (row ``drapes``) — the machine-named photo grids
   (``auto_patch_v2.airport.pack_drapes``); checked when asked;
@@ -17,9 +17,13 @@ user can choose to hide or not".  Two kinds (:class:`_Kind`), one each:
   same ground (``auto_patch_v2.airport.terrain_model`` /
   ``pack_terrain``); UNCHECKED when asked.  Its witness needs the build's
   DEM: a build remembers the resources it offered (``TERRAIN_FOUND``) and
-  the check outside a build reads them back.
+  the check outside a build reads them back;
+* :data:`GENERIC` (row ``generic``, owner 2026-11-14T15:20Z, #2085) —
+  X-Plane's stock land-class polygons ANY overlay pack drapes over the
+  tile (``auto_patch_v2.airport.pack_generic_ground``), with the hectares
+  they cover; :func:`scanned` names every overlay pack that drapes one.
 
-Both are one omission: ``dsf_write.write_pack(drapes=)`` leaves the
+All are one omission: ``dsf_write.write_pack(drapes=)`` leaves the
 definitions and their polygons out of the rewritten DSF, keeps the
 pristine DSF as its ``.anchor_bak`` and re-applies the recorded set on
 every later write.  The record holds the UNION of what the user chose to
@@ -51,7 +55,8 @@ from . import pack_choice as _PC
 from . import pack_rewrite as _PR
 from .pack_choice import relative as _relative
 
-__all__ = ["ACTIONS", "STORE", "PHOTOS", "GROUND", "TERRAIN", "KINDS", "check_all",
+__all__ = ["ACTIONS", "STORE", "PHOTOS", "GROUND", "TERRAIN", "GENERIC", "KINDS",
+           "check_all",
            "scanned", "drape_stage", "drape_choice"]
 
 #: the actions of a drape row of the ``pack_adjust`` command
@@ -69,7 +74,9 @@ class _Kind(_t.NamedTuple):
 PHOTOS = _Kind("drapes", _PC.Store(_PC.DRAPE_CHOICES), "draped photo")
 GROUND = _Kind("ground", _PC.Store(_PC.GROUND_CHOICES), "draped ground texture")
 TERRAIN = _Kind("terrain", _PC.Store(_PC.TERRAIN_CHOICES), "terrain object")
-KINDS = (PHOTOS, GROUND, TERRAIN)
+GENERIC = _Kind("generic", _PC.Store(_PC.GENERIC_CHOICES),
+                "generic X-Plane ground texture")
+KINDS = (PHOTOS, GROUND, TERRAIN, GENERIC)
 #: the terrain objects a build offered, per pack (any string value)
 _FOUND = _PC.Store(_PC.TERRAIN_FOUND, lambda v: isinstance(v, str) and bool(v))
 #: the photos' answers (the name ``adjust_stage`` and older callers read)
@@ -85,6 +92,7 @@ class PackDrapes(_t.NamedTuple):
     drapes: tuple              # this kind's ``MissingDef`` rows
     hidden: tuple              # the recorded hiding (every kind), () = none
     others: tuple = ()         # the other kinds' rows
+    hectares: float = 0.0      # the ground they cover (``GENERIC`` only)
 
     @property
     def keep(self) -> tuple:
@@ -182,16 +190,36 @@ def _ships_photo_grid(pack_root: str) -> bool:
     return False
 
 
+def _drapes_generic(pack_root: str, lat: int, lon: int) -> bool:
+    """A cheap look before a DSF dump (#2085): the pack's tile DSF is an
+    overlay whose polygon definitions name generic X-Plane ground
+    (``pack_generic_ground.generic_indices``).  The app's own overlay
+    pack (``O4_Overlay_Pack.MARKER``) is never one."""
+    import O4_DSF_Header as _H
+    import O4_Overlay_Pack as _OP
+    from auto_patch_v2.airport import dsf as _dsf2
+    from auto_patch_v2.airport import pack_generic_ground as _gg
+    if os.path.isfile(os.path.join(pack_root, _OP.MARKER)):
+        return False
+    dsf = _dsf2.dsf_path_in_pack(pack_root, lat, lon)
+    if not _H.dsf_is_overlay(dsf):
+        return False
+    return bool(_gg.generic_indices(pack_root,
+                                    _H.dsf_polygon_definitions(dsf) or ()))
+
+
 def scanned(scenery_dir: str, lat: int, lon: int) -> list[str]:
     """THE TILE'S SCAN (RULINGS 2026-11-09a (9)): the enabled packs of
     ``scenery_dir`` with a DSF on the tile, outside the simulator's
-    folders, that are an airport pack (a runway of their own) or a
+    folders, that are an airport pack (a runway of their own), a
     companion that may lay an airport's photos (#1968: no runway, ships a
-    photo grid's files)."""
+    photo grid's files) or any overlay that drapes generic X-Plane ground
+    (#2085, :func:`_drapes_generic`)."""
     from .post_mesh import _is_protected_scenery_root
     return [p for p in _folder_packs(scenery_dir, lat, lon)
             if not _is_protected_scenery_root(p)
-            and (_runway_apt(p) or _ships_photo_grid(p))]
+            and (_runway_apt(p) or _ships_photo_grid(p)
+                 or _drapes_generic(p, lat, lon))]
 
 
 def terrain_paths(pack_root: str, paths: _t.Iterable[str] | None = None
@@ -215,6 +243,7 @@ def check_all(pack_root: str, lat: int, lon: int, *,
     ``None`` reads the last build's)."""
     from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import pack_drapes as _pd
+    from auto_patch_v2.airport import pack_generic_ground as _gg
     from auto_patch_v2.airport import pack_ground_sheets as _pg
     from auto_patch_v2.airport import pack_terrain as _pt
     from auto_patch_v2.airport.file_hash import sha256_file
@@ -231,6 +260,9 @@ def check_all(pack_root: str, lat: int, lon: int, *,
                                            areas),
              TERRAIN.key: _pt.terrain_objects(pd.dump_path,
                                               terrain_paths(pack_root, terrain))}
+    taken = {m for v in found.values() for m in v}
+    generic = _gg.generic_ground(pack_root, pd.dump_path)
+    found[GENERIC.key] = tuple(m for m in generic.defs if m not in taken)
     hidden: tuple = ()
     if os.path.isfile(pd.pristine) and pd.pristine != pd.dsf_path:
         entry = _bs.dsf_entry(_bs.read_record(pd.dsf_path),
@@ -238,7 +270,9 @@ def check_all(pack_root: str, lat: int, lon: int, *,
         hidden = _pd.recorded(entry, sha256_file(pd.pristine))
     return {k.key: PackDrapes(pd.pack_name, pd.dsf_path, found[k.key], hidden,
                               tuple(m for o, v in found.items() if o != k.key
-                                    for m in v))
+                                    for m in v),
+                              generic.hectares(found[k.key])
+                              if k is GENERIC else 0.0)
             for k in KINDS}
 
 

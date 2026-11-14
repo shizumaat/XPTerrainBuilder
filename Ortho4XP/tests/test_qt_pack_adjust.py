@@ -108,6 +108,18 @@ def test_the_terrain_objects_open_unticked(qapp):
         "Hide terrain objects included with the package")
 
 
+def test_the_generic_ground_names_its_hectares(qapp):
+    """#2085: the stock X-Plane ground any overlay pack drapes over the
+    tile is offered, ticked, with the hectares it covers."""
+    row = {"key": "generic", "count": 7, "uses": 61, "automatic": False,
+           "checked": True, "hectares": 4310}
+    box, _buttons = QTADJ.pack_adjust_box(_event(items=[row]))
+    assert box.checked_items() == ["generic"]
+    assert QTADJ._detail(row) == (
+        "7 stock X-Plane grass, sand or scrub textures (61 polygons, about "
+        "4,310 ha) cover the tile’s imagery.")
+
+
 def test_the_copy_matches_the_mac_app():
     swift = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
                          "SceneryKit", "PackAdjust.swift")

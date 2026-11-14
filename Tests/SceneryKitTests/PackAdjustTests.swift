@@ -53,6 +53,24 @@ struct PackAdjustTests {
                 + "mostly over unpaved ground at the airport cover the tile’s imagery.")
     }
 
+    @Test func genericGroundNamesItsHectares() {
+        var event = fullEvent
+        event["items"] = [
+            ["key": "generic", "count": 7, "uses": 61, "automatic": false,
+             "checked": true, "hectares": 4310],
+        ]
+        guard case .packAdjust(let a)? = O4Event.parse(object: event) else {
+            Issue.record("PackAdjust did not decode")
+            return
+        }
+        #expect(a.choices.map(\.key) == ["generic"])
+        #expect(a.choices[0].checked)
+        #expect(a.choices[0].hectares == 4310)
+        #expect(a.choices[0].title == "Hide generic X-Plane ground textures the package drapes")
+        #expect(a.choices[0].detail == "7 stock X-Plane grass, sand or scrub textures "
+                + "(61 polygons, about 4,310 ha) cover the tile’s imagery.")
+    }
+
     @Test func flattenAloneAsksNothing() {
         var event = fullEvent
         event["items"] = [["key": "flatten", "count": 1, "automatic": true]]

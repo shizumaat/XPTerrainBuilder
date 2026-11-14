@@ -74,7 +74,7 @@ def stage(tmp_path, monkeypatch):
 def test_one_question_lists_every_row(stage):
     out = AS.adjust_stage(stage["plan"], TILE, writes=True)
     assert out == {"flatten": "removed", "trees": "found", "drapes": "found",
-                   "ground": "found", "terrain": ""}
+                   "ground": "found", "terrain": "", "generic": ""}
     assert stage["forests"] == [], "the trees no longer ask on their own"
     [ev] = stage["adjust"]
     assert ev["state"] == "found" and (ev["lat"], ev["lon"]) == (25, 51)
@@ -185,7 +185,8 @@ def test_never_and_undo_go_to_every_row(stage, monkeypatch):
     assert stage["answers"] == [("drapes", "never")]
     AS.adjust_choice(root, "undo")
     assert stage["answers"][1:] == [("trees", "undo"), ("drapes", "undo"),
-                                    ("ground", "undo"), ("terrain", "undo")]
+                                    ("ground", "undo"), ("terrain", "undo"),
+                                    ("generic", "undo")]
 
 
 def test_the_terrain_objects_are_offered_unticked(stage, monkeypatch):

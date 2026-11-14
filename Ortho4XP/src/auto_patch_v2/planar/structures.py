@@ -118,8 +118,8 @@ from .structure_mouth import (covered_stretch, face_top_z, own_road_blade, road_
                               road_over_mouth)
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement
 from .structure_mouth import pinned_trench_notes
-from .lidar_road import (KEPT, NO_SIGN, is_rail_group, kept_face_shift, survey_design_grade,
-                         survey_mouth,
+from .lidar_road import (KEPT, NO_SIGN, is_rail_group, kept_face_shift, mouth_verdict,
+                         survey_design_grade, survey_mouth,
                          survey_mouth_note, survey_mouth_refusal, survey_trench,
                          under_airside_pavement)
 from .dual_width import compose_half_fn, dual_half_fn
@@ -143,8 +143,8 @@ from .entrance_skirt import (entrance_skirt, entrance_top, face_front_mouth, is_
                              skirt_refs)
 from .mouth_opening import group_opening, opening_halves
 from .survey_cut import cutting_of
-from .underpass_mouth import (k_deck_ref, place_mouth, ring_stations, sheared_ring,
-                              survey_floor, under_deck_band, under_deck_blade)
+from .underpass_mouth import (k_deck_ref, member_roads, place_mouth, ring_stations,
+                              sheared_ring, survey_floor, under_deck_band, under_deck_blade)
 from .structure_underpass import (aeroway_decks, underpass_bores as _underpass_bores,
                                   approach_along, bore_roads, mouth_parent, UNDERPASS_TAG,
                                   UNDERPASS_NOTE)
@@ -578,23 +578,31 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             k_sk, k_axis, k_note = place_mouth(osm_pts.get(k_ref, ()), k_ref, members, axis_ln,
                                                inward, half, rim_off, law)
             k_notes.append(k_note)
-            if k_sk is not None and k_sk.moved != 0.0:
+            k_reads = member_roads(airport, k_sk, members) if k_sk is not None else []
+            if k_sk is not None and k_sk.sigma != 0.0:
+                # the verdict once more at the moved mouth, the instrument
+                # ALIGNED: the cover as read there, the road the least of the
+                # members' own reads outward from L (``member_roads``)
                 def k_fn(s: float, _ln=k_axis) -> XY:
                     p = _ln.interpolate(min(s, _ln.length))
                     return (p.x, p.y)
                 rd2 = survey_mouth(airport, law, members, k_fn, width, credible, rim_off,
                                    under_airside_pavement(members, cells, cell_tree, law, odecks))
+                rd2 = None if rd2 is None or not k_reads else mouth_verdict(
+                    law, rd2.cover, min(z for _t, z in k_reads), rd2.paved, rd2.rail)
                 if rd2 is None or rd2.verdict != KEPT:
                     k_notes.append(f"#1939 R1: the survey does not read the moved mouth KEPT "
-                                   f"({'nothing' if rd2 is None else rd2.verdict or 'digs'}): "
-                                   f"not class K, the square mouth stands")
+                                   f"({'nothing' if rd2 is None else rd2.verdict or 'digs'}"
+                                   + ("" if rd2 is None else f": cover {rd2.cover:.2f}, members' "
+                                      f"least road {rd2.road:.2f}") + "): not class K, the "
+                                   "square mouth stands")
                     k_sk = None
                 else:
                     road_rd, axis_ln, portal_fn = rd2, k_axis, k_fn
                     mouth = tuple(axis_ln.coords[0])
                     g = _dc.replace(g, mouth=mouth, axis=tuple(axis_ln.coords))
             if k_sk is not None:
-                got = survey_floor(airport, k_sk, members)
+                got = survey_floor(k_reads)
                 if got is None:
                     k_notes.append("#1939 R2: the survey reads no member road at the mouth "
                                    "edge: not class K")

@@ -29,11 +29,12 @@ from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar import structure_underpass as _su
 from auto_patch_v2.planar.dual_width import compose_half_fn
-from auto_patch_v2.planar.lidar_road import KEPT, SurveyMouth, survey_design_grade
+from auto_patch_v2.planar.lidar_road import (KEPT, SurveyMouth, mouth_verdict,
+                                             survey_design_grade, surveyed_road)
 from auto_patch_v2.planar.structure_mouth import member_lanes, mouth_stops
 from auto_patch_v2.planar.structure_service import airside_cut_roles
 from auto_patch_v2.planar.survey_cut import Cutting, cutting_of
-from auto_patch_v2.planar.underpass_mouth import place_mouth, sheared_ring
+from auto_patch_v2.planar.underpass_mouth import member_roads, place_mouth, sheared_ring
 
 
 @pytest.fixture(scope="module")
@@ -196,13 +197,13 @@ def test_a_kept_ramp_keeps_the_design_grade(law):
                                tn.ramp_max_grade) == tn.ramp_grade
 
 
-def _deck_group(angle_deg: float):
-    """Four parallel carriageways (x = -15, -5, 5, 15) running north, their
-    south ends on a deck line at ``angle_deg`` off east-west through the
-    origin; the mouth is the north side (outward +y)."""
+def _deck_group(angle_deg: float, xs=(-15.0, -5.0, 5.0, 15.0)):
+    """Parallel carriageways (at ``xs``) running north, their south ends on
+    a deck line at ``angle_deg`` off east-west through the origin; the mouth
+    is the north side (outward +y)."""
     t = math.tan(math.radians(angle_deg))
     ms = []
-    for x in (-15.0, -5.0, 5.0, 15.0):
+    for x in xs:
         m = _Member(x, 7.0)
         y0 = 10.0 + t * x                  # the covered edge, parallel to the deck
         m.xy, m.inward = (x, y0), (0.0, -1.0)
@@ -258,3 +259,148 @@ def test_a_square_crossing_keeps_the_square_ring(law):
     ms, deck, axis = _deck_group(0.2)
     sk, ax, note = place_mouth(deck, "-74", ms, axis, (0.0, -1.0), 19.0, rim_off, law)
     assert sk is not None and sk.sigma == 0.0 and ax is axis and "square" in note
+
+
+def _cross_fall(cover: float):
+    """A cutting beyond the deck's covered edge (y = 10 + tan 31 . x): its
+    floor 24.5 m west of x = 21 and 23.5 m east (a lower carriageway), the
+    deck and its faces at ``cover`` inside the edge."""
+    t = math.tan(math.radians(31.0))
+
+    def z(x, y):
+        if y < 10.0 + t * x - 1e-6 or abs(x) > 40.0:
+            return cover
+        return 23.5 if x >= 21.0 else 24.5
+    return _Airport(z)
+
+
+def test_the_aligned_read_finds_the_floor_the_square_window_misses(law):
+    """#1939 R1 (spec author's ruling on the R1 gate): under a deck at a 59
+    deg crossing the square window from the axis point never reaches the
+    low east carriageway beyond the skewed edge within 12 m -- it reads 24.5
+    and the mouth digs; the members' own reads outward from L find 23.5 and
+    the one verdict (``lidar_road.mouth_verdict``) keeps it.  A truly shallow
+    cutting is not KEPT under either read."""
+    tn = law.tables.structures.tunnel
+    rim_off = tn.wall_gap_m + tn.wall_band_width_m
+    ms, deck, axis = _deck_group(31.0, (-15.0, -5.0, 8.0, 23.0))
+    sk, ax, _n = place_mouth(deck, "-74", ms, axis, (0.0, -1.0), 25.0, rim_off, law)
+    assert sk is not None and sk.sigma != 0.0
+
+    def fn(s, _ln=ax):
+        q = _ln.interpolate(min(s, _ln.length))
+        return (q.x, q.y)
+    deep = _cross_fall(31.0)
+    square = surveyed_road(deep, fn, 50.0)
+    assert square == pytest.approx(24.5)
+    assert mouth_verdict(law, 31.0, square, True, False).verdict != KEPT
+    reads = member_roads(deep, sk, ms)
+    assert len(reads) == 4 and min(z for _t, z in reads) == pytest.approx(23.5)
+    assert mouth_verdict(law, 31.0, min(z for _t, z in reads), True, False).verdict == KEPT
+    shallow = _cross_fall(30.0)
+    low = min(z for _t, z in member_roads(shallow, sk, ms))
+    assert mouth_verdict(law, 30.0, low, True, False).verdict != KEPT
+
+
+class _V:
+    def __init__(self, xy, dem_z=None):
+        self.xy, self.dem_z = xy, dem_z
+
+
+class _F:
+    def __init__(self, ring):
+        self.ring = ring
+
+
+class _Map:
+    """A planar map's vertex / ring surface, enough for the pin writers."""
+
+    def __init__(self, pts):
+        self.vertices = {i: _V(p) for i, p in enumerate(pts)}
+
+    def ring_vertices(self, ring):
+        return tuple(ring)
+
+
+class _Tn:
+    def __init__(self, sf, axis, cap=None, cover=31.0, notes=()):
+        self.survey_floor, self.axis = sf, axis
+        self.cap_corners = None if cap is None else (cap[0], cap[-1])
+        self.cap_centre = None if cap is None else cap[1]
+        self.mouth_dem_z, self.notes = cover, notes
+
+
+def test_a_survey_floor_ramp_is_pinned_not_planned():
+    """#1939 R2: the mouth-edge vertices at z0 + k.tau, a bare top vertex at
+    the DEM, a top vertex the ground shares left to the ground -- and no
+    other row kind is written (the writer only pins)."""
+    from auto_patch_v2.constraints.survey_floor import survey_floor_pins
+    pm = _Map([(-10.0, 0.0), (10.0, 0.0), (10.0, 12.0), (-10.0, 12.0)])
+    tn = _Tn((24.0, 0.05, (-10.0, 0.0), (10.0, 0.0)), ((0.0, 0.0), (0.0, 12.0)))
+    pins = {}
+    survey_floor_pins(pm, _Airport(lambda x, y: 30.0 + 0.0 * x), tn, [_F((0, 1, 2, 3))],
+                      lambda v: v == 2, lambda v, z, src, senior=False: pins.__setitem__(v, z),
+                      ("t",), 0.5, "structures")
+    assert pins[0] == pytest.approx(24.0 - 0.5) and pins[1] == pytest.approx(24.5)
+    assert pins[3] == pytest.approx(30.0) and 2 not in pins
+
+
+def test_a_k_cap_stands_at_the_cover():
+    """#1939 R3: a bare rim vertex on the cap line is pinned at the cover;
+    one off it at the DEM; one the ground shares keeps the ground's value."""
+    from auto_patch_v2.constraints.structures import _rim_rows
+    from auto_patch_v2.constraints.survey_floor import cap_line
+    pm = _Map([(-12.0, -2.0), (0.0, -2.0), (12.0, -2.0), (-12.0, 10.0)])
+    tn = _Tn((24.0, 0.0, (-10.0, 0.0), (10.0, 0.0)), ((0.0, 0.0), (0.0, 12.0)),
+             cap=[(-12.0, -2.0), (0.0, -2.0), (12.0, -2.0)], cover=31.3)
+    pins = {}
+    path = LineString([(-12.0, 10.0), (-12.0, -2.0), (0.0, -2.0), (12.0, -2.0), (12.0, 10.0)])
+    _rim_rows(pm, _Airport(lambda x, y: 27.0), path, [0, 1, 2, 3], lambda v: v == 2,
+              lambda v, z, src, senior=False: pins.__setitem__(v, z), None,
+              cap=cap_line(tn), grid=0.5)
+    assert pins[0] == pins[1] == pytest.approx(31.3)
+    assert pins[3] == pytest.approx(27.0) and 2 not in pins
+
+
+def test_the_under_deck_band_cuts_the_roads_through_the_mouth(law):
+    """#1939 R4: a groundside road through the mouth (meeting the band and
+    the ramp) is cut by the band; a road along the deck (in the band, never
+    meeting the ramp) and the airside deck are kept."""
+    from auto_patch_v2.planar.underpass_mouth import under_deck_band, under_deck_blade
+
+    class M:
+        bore = _Bore([(0.0, 0.0), (0.0, -40.0)])
+    band = under_deck_band([(-20.0, -2.0), (0.0, -2.0), (20.0, -2.0)], (0.0, -1.0), [M()])
+    ramp = Polygon(_rect(-15, 0, 15, 12))
+    through = _cell(0, "service_road", "r1", _rect(-3, -30, 3, 40), "road", "groundside")
+    along = _cell(1, "service_road", "r2", _rect(-18, -15, 18, -10), "road", "groundside")
+    deck = _cell(2, "primary_parallel", "pav24", _rect(-30, -18, 30, -6))
+    blade = under_deck_blade(through, Polygon(through.ring), law, [(band, ramp)])
+    assert blade is not None and blade.equals(band)
+    assert under_deck_blade(along, Polygon(along.ring), law, [(band, ramp)]) is None
+    assert under_deck_blade(deck, Polygon(deck.ring), law, [(band, ramp)]) is None
+
+
+def test_bore_ground_reads_the_floor_between_two_k_mouths(law):
+    """#1939 R5: between the two K mouths of one deck a road sample reads
+    the floor interpolated across (lower only); outside the span and with
+    no K tunnel the sampler is the identity."""
+    import numpy as np
+    from auto_patch_v2.airport.bore_ground import bore_sampler, bore_spans
+    from auto_patch_v2.model.structures import UNDERPASS_NOTE
+    north = _Tn((24.0, 0.0, (10.0, 20.0), (-10.0, 20.0)), ((0.0, 20.0), (0.0, 32.0)),
+                notes=(UNDERPASS_NOTE + "-74",))
+    south = _Tn((25.0, 0.0, (-10.0, -20.0), (10.0, -20.0)), ((0.0, -20.0), (0.0, -32.0)),
+                notes=(UNDERPASS_NOTE + "-74",))
+    spans = bore_spans([north, south], law)
+    assert len(spans) == 1
+
+    def deck(xs, ys):
+        return np.full(len(np.atleast_1d(xs)), 31.0)
+    f = bore_sampler(deck, spans)
+    got = f(np.array([0.0, 0.0, 0.0, 100.0]), np.array([0.0, 10.0, 20.0, 0.0]))
+    assert got[0] == pytest.approx(24.5) and got[1] == pytest.approx(24.25)
+    assert got[2] == pytest.approx(24.0) and got[3] == pytest.approx(31.0)
+    low = bore_sampler(lambda xs, ys: np.full(len(np.atleast_1d(xs)), 20.0), spans)
+    assert low(np.array([0.0]), np.array([0.0]))[0] == pytest.approx(20.0)
+    assert bore_sampler(deck, bore_spans([], law)) is deck

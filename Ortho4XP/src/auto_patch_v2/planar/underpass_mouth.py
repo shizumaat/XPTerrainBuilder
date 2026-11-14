@@ -56,7 +56,7 @@ from .structure_geometry import RampGeometry, ring_for, snap_out
 from .structure_underpass import UNDERPASS_TAG
 
 __all__ = ["Skew", "k_deck_ref", "place_mouth", "ring_stations", "sheared_ring",
-           "shear_geometry", "skewed_box", "survey_floor", "under_deck_band",
+           "shear_geometry", "skewed_box", "member_roads", "survey_floor", "under_deck_band",
            "under_deck_blade", "station_axis"]
 
 #: Plan step (m) a member's line is walked to find where it crosses L.
@@ -291,11 +291,13 @@ def skewed_box(seg: LineString, s_pt: XY, half: float, rim_off: float, sk: Skew)
     return Polygon([sk.at(p, s_pt) for p in box.exterior.coords])
 
 
-def survey_floor(airport, sk: Skew, members: _t.Sequence) -> tuple[float, float, str] | None:
-    """R2: ``(z0, k, note)`` -- the floor along the mouth edge ``z0 + k .
-    tau`` (``tau`` along ``Skew.e`` from ``Skew.m0``), fitted to each
-    member's surveyed road read on its own line outward from L at its own
-    width; ``None`` where the survey reads no member."""
+def member_roads(airport, sk: Skew, members: _t.Sequence) -> list[tuple[float, float]]:
+    """R1 / R2's ALIGNED survey reading: ``(tau, z)`` per member -- its
+    surveyed road (``lidar_road.surveyed_road``, the same 12 m reach) read on
+    its OWN line outward from L at its own width, ``tau`` where that line
+    crosses L, along ``Skew.e`` from ``Skew.m0``.  The square window from the
+    axis point reads the smeared face on one side of a skewed mouth line
+    (ESSA south: 24.27 against the members' 23.95-24.78)."""
     n_out = (-sk.e[1], sk.e[0])
     if n_out[0] * sk.u[0] + n_out[1] * sk.u[1] < 0.0:
         n_out = (-n_out[0], -n_out[1])
@@ -318,6 +320,13 @@ def survey_floor(airport, sk: Skew, members: _t.Sequence) -> tuple[float, float,
             continue
         q = fn(0.0)
         pts.append(((q[0] - sk.m0[0]) * sk.e[0] + (q[1] - sk.m0[1]) * sk.e[1], z))
+    return pts
+
+
+def survey_floor(pts: _t.Sequence[tuple[float, float]]) -> tuple[float, float, str] | None:
+    """R2: ``(z0, k, note)`` -- the floor along the mouth edge ``z0 + k .
+    tau``, the least-squares fit to :func:`member_roads`' ``(tau, z)``
+    reads; ``None`` where there are none."""
     if not pts:
         return None
     ts = [t for t, _z in pts]

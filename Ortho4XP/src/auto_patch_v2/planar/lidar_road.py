@@ -99,7 +99,7 @@ from .channel_geometry import _lidar_cut, _lidar_floor
 __all__ = ["survey_mouth", "survey_design_grade", "under_airside_pavement",
            "is_rail_group", "survey_mouth_refusal", "survey_mouth_note", "survey_trench",
            "survey_road_trenches", "end_clearance", "kept_face_shift", "surround_level",
-           "surveyed_road"]
+           "surveyed_road", "mouth_verdict"]
 
 #: the station step along the bore (the §45 cut reading's own lateral step)
 _STEP_M = 5.0
@@ -298,15 +298,27 @@ def survey_mouth(airport, law: Law, members: _t.Sequence, axis_fn, width: float,
     ``paved`` :func:`under_airside_pavement`'s verdict."""
     if not credible or not members:
         return None
-    tn = law.tables.structures.tunnel
     over = _cover(airport, law, members, start_m)
     ring = _surround(airport, axis_fn(0.0))
     got = [v for v in (over, ring) if not math.isnan(v)]
     cover = max(got) if got else math.nan
     road = _road(airport, axis_fn, width)
+    return mouth_verdict(law, cover, road, paved, is_rail_group(members))
+
+
+def mouth_verdict(law: Law, cover: float, road: float, paved: bool, rail: bool
+                  ) -> SurveyMouth | None:
+    """THE ONE VERDICT on a mouth's survey readings (:func:`survey_mouth`'s
+    arithmetic, shared with a class-K mouth's ALIGNED reading,
+    ``planar/underpass_mouth``, #1939): the depth ``owed`` (none for rail;
+    ``mouth_depth_m`` under airside pavement, else ``clearance_m``), the floor
+    no higher than ``cover - owed``; ``NO_SIGN`` where the cut is shallower
+    than ``[channel] object_min_depth_m``, ``KEPT`` where the surveyed road
+    already lies within ``split_tol_m`` of that floor.  ``None`` where either
+    reading is missing."""
     if math.isnan(cover) or math.isnan(road):
         return None
-    rail = is_rail_group(members)
+    tn = law.tables.structures.tunnel
     owed = 0.0 if rail else float(tn.mouth_depth_m if paved else tn.clearance_m)
     floor = min(road, cover - owed)
     verdict = ""

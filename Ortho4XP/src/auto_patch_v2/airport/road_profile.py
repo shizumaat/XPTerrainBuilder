@@ -607,6 +607,11 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     from .bridge_ground import bridge_runs, bridge_sampler
     bridges = bridge_runs(airport, law)
     sample = bridge_sampler(smear_sampler(_sample_fn(airport), walls), bridges, band_fn)
+    # #1939 R5: between two surveyed underpass mouths of one deck the road
+    # reads the bore's floor, not the deck the survey carries (in band only)
+    from .bore_ground import bore_sampler, bore_spans
+    bores = bore_spans(getattr(pm, "structures", ()), law, getattr(airport, "dem", None))
+    sample = bore_sampler(sample, bores, band_fn)
     inside = _inside_fn(airport)
     ways: list[Way] = []
     VECT = _core_vector_utils()
@@ -629,6 +634,9 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
         pts = [pm.vertices[v].xy for v in b.vertices(pm)]
         ways.extend(clamp_way(ROUTE, f"{b.ref}#{b.id}", pts, sample, cap_,
                               rp.station_m, inside))
+    if bores:
+        print(f"  [road_profile] bore ground (#1939 R5): {len(bores)} span(s); "
+              f"{getattr(sample, 'lowered', 0)} station(s) lowered")
     if bridges:
         print(f"  [road_profile] bridge ground (#1935): {len(bridges)} run(s); "
               f"{getattr(sample, 'lowered', 0)} station(s) lowered, "

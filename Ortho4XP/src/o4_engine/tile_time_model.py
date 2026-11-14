@@ -344,6 +344,56 @@ def record_build(lat: int, lon: int, features: dict, step_seconds: dict) -> None
         pass
 
 
+def record_step_peak(lat: int, lon: int, step_key: str, gigabytes: float,
+                     since: float) -> None:
+    """Add a step's measured peak resident memory (``gigabytes``, the step
+    process and its workers, sampled by the parallel scheduler) to the
+    record that step wrote — the newest record holding ``step_key`` that
+    finished at or after ``since`` (the step's start).  A step that wrote
+    no record (it failed, or ran outside the store) records nothing.  The
+    scheduler projects the tile's next build of that step from it (#2083).
+    Advisory: failures are swallowed, like :func:`record_build`."""
+    try:
+        gigabytes = float(gigabytes)
+        if step_key not in STEP_KEYS or not (gigabytes > 0.0) \
+                or not math.isfinite(gigabytes):
+            return
+        records = _load_tile_records(lat, lon)
+        for record in reversed(records):
+            if not isinstance(record, dict) \
+                    or step_key not in (record.get("step_seconds") or {}):
+                continue
+            if float(record.get("finished_at") or 0.0) < since:
+                return
+            peaks = dict(record.get("step_peak_gb") or {})
+            peaks[step_key] = round(max(gigabytes,
+                                        float(peaks.get(step_key) or 0.0)), 2)
+            record["step_peak_gb"] = peaks
+            path = _tile_record_path(lat, lon)
+            temporary_path = path + ".tmp"
+            with open(temporary_path, "w", encoding="utf-8",
+                      newline="\n") as record_file:
+                json.dump(records, record_file, indent=1)
+            os.replace(temporary_path, path)
+            return
+    except Exception:
+        pass
+
+
+def step_peaks(lat: int, lon: int) -> dict:
+    """``{step_key: gigabytes}``: the largest peak each step reached over
+    this tile's kept records (``{}`` when none was measured)."""
+    peaks: dict = {}
+    for record in _load_tile_records(lat, lon):
+        if not isinstance(record, dict):
+            continue
+        for step_key, value in (record.get("step_peak_gb") or {}).items():
+            if isinstance(value, (int, float)) and math.isfinite(value) \
+                    and value > 0:
+                peaks[step_key] = max(float(value), peaks.get(step_key, 0.0))
+    return peaks
+
+
 def _median(values):
     """Median of a sequence, or ``None`` when it is empty."""
     numbers = [value for value in values

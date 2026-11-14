@@ -335,8 +335,16 @@ def test_memory_budget_is_eighty_percent_of_available(monkeypatch):
 
     monkeypatch.delenv("O4_CACHE_AWARE_ADMISSION", raising=False)
     monkeypatch.setattr(
+        PARALLEL_UTILS, "machine_memory_gigabytes", lambda: 128.0)
+    monkeypatch.setattr(
+        PARALLEL_UTILS, "machine_available_memory_gigabytes", lambda: 110.0)
+    # An idle machine: 80 % of available binds (88 < 110 - 19.2).
+    assert parallel.step_memory_budget_gigabytes() == pytest.approx(88.0)
+    # #2083: little free at the start — the headroom (15 % of 128 GB)
+    # binds: 40 - 19.2, not 32.
+    monkeypatch.setattr(
         PARALLEL_UTILS, "machine_available_memory_gigabytes", lambda: 40.0)
-    assert parallel.step_memory_budget_gigabytes() == pytest.approx(32.0)
+    assert parallel.step_memory_budget_gigabytes() == pytest.approx(20.8)
     # Floored at one default estimate: a single tile never deadlocks.
     monkeypatch.setattr(
         PARALLEL_UTILS, "machine_available_memory_gigabytes", lambda: 0.5)

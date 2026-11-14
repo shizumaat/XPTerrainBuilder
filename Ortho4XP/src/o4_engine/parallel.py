@@ -13,8 +13,10 @@ two NETWORK classes ("osm" for vector, "imagery") carry concurrency caps
 or imagery servers.  COMPUTE admission is the machine's logical core
 count, bounded by a projection of the admitted steps' peak memory
 against 80 % of the memory the machine could hand out when the run
-started (owner rulings 2026-07-30, docs/specs/
-apron-string-and-scheduling-spec.md §A.2) — within that, processor
+started, less the machine headroom (owner rulings 2026-07-30, docs/specs/
+apron-string-and-scheduling-spec.md §A.2; #2083: each step projected
+from the tile's own recorded peak, and a heavy step also waits while
+LIVE free memory is short) — within that, processor
 arbitration is the operating system's job (2026-07-17 owner ruling).
 
 Two things move a tile OUT of a fetch class.  A step may change class
@@ -73,6 +75,7 @@ import O4_UI_Utils as UI
 from . import boundary_reselect as BOUNDARY
 from . import build_order as ORDER
 from . import events as EVENTS
+from . import step_memory
 from . import tile_time_model
 from .plan_estimate import TIME_SPREAD_KNOWN
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
@@ -408,9 +411,6 @@ MESH_MEMORY_ESTIMATES_GB = {
     "1": 18.0,
 }
 MESH_MEMORY_DEFAULT_GB = 2.0
-# Gigabytes kept free for the operating system, the application, and the
-# non-mesh phases of concurrently building tiles.
-MESH_MEMORY_HEADROOM_GB = 4.0
 
 
 def mesh_memory_estimate_gigabytes(elevation_level_value):
@@ -425,13 +425,15 @@ def mesh_memory_budget_gigabytes():
     """Total gigabytes the run may commit to concurrent mesh steps.
 
     The pre-2026-07-30 budget, still used when the cache-aware admission
-    gate is off (see :func:`step_memory_budget_gigabytes`).
+    gate is off (see :func:`step_memory_budget_gigabytes`): physical
+    memory less the machine headroom (#2083; was a flat 4 GB).
     """
     import O4_Parallel_Utils as PARALLEL_UTILS
 
     return max(
         4.0,
-        PARALLEL_UTILS.machine_memory_gigabytes() - MESH_MEMORY_HEADROOM_GB,
+        PARALLEL_UTILS.machine_memory_gigabytes()
+        - O4_Machine_Slots.headroom_gigabytes(),
     )
 
 
@@ -442,16 +444,18 @@ def mesh_memory_budget_gigabytes():
 # model a step.  A step absent from this table projects nothing and is
 # admitted on the core count alone.
 #
-# Provenance, honestly: only the VECTOR figure is measured — a live
-# auto-patch build (HECA, 2026-07-30) held 2.55-2.56 GB resident at
-# 100 % of one core across a five-sample window, and the vector step
-# runs that solve after its own OSM parse, so it is rounded UP to 3.0.
-# A worker with the whole pipeline imported and nothing running is
-# 0.12 GB, so the others are that baseline plus a deliberately generous
-# working-set allowance, NOT measurements; refine them when a
-# per-step peak-RSS measurement exists.
+# Provenance, honestly: a worker with the whole pipeline imported and
+# nothing running is 0.12 GB, so these are that baseline plus a
+# deliberately generous working-set allowance, NOT measurements.  Since
+# #2083 they are only the NO-RECORD fallback: the scheduler samples every
+# step's process tree and projects a tile's step from its own recorded
+# peak (``step_memory.projected_gigabytes``).  The vector figure is the
+# OSM parse alone; a vector step that may solve airports and has no
+# record projects ``step_memory.VECTOR_AIRPORT_DEFAULT_GB`` (8 GB — the
+# 1.0.519 run measured 6-14 GB per tile; the 3 GB of 2026-07-30 was one
+# HECA reading).
 STEP_MEMORY_ESTIMATES_GB = {
-    "vector": 3.0,     # measured: OSM parse + the auto-patch solve
+    "vector": 3.0,     # the OSM parse alone (no airport to solve)
     "masks": 1.0,      # estimate
     "imagery": 1.5,    # estimate: download buffers + the DDS convert pool
     "overlays": 0.5,   # estimate
@@ -462,7 +466,12 @@ def step_memory_budget_gigabytes():
     """Gigabytes a run may PROJECT onto its concurrently admitted steps.
 
     ``MEMORY_CEILING_FRACTION`` (80 %, owner ruling 2026-07-30) of the
-    memory the machine can hand out.  Sampled ONCE per run, on purpose:
+    memory the machine can hand out, and never more than that memory less
+    the machine headroom (``O4_Machine_Slots.headroom_gigabytes``: the
+    larger of 15 % of physical memory and 8 GB, kept for the operating
+    system, the app and the user's other work — #1225, #2083).  On a
+    machine with little free at the start the headroom binds; on an idle
+    one the 80 % does.  Sampled ONCE per run, on purpose:
     re-sampling it live would make the run's own consumption shrink its
     own budget — a feedback loop that starves admission rather than
     gating it — and would make the gate untestable.  Floored at one
@@ -470,11 +479,25 @@ def step_memory_budget_gigabytes():
     """
     import O4_Parallel_Utils as PARALLEL_UTILS
 
+    available = PARALLEL_UTILS.machine_available_memory_gigabytes()
     return max(
         MESH_MEMORY_DEFAULT_GB,
-        PARALLEL_UTILS.machine_available_memory_gigabytes()
-        * PARALLEL_UTILS.MEMORY_CEILING_FRACTION,
+        min(available * PARALLEL_UTILS.MEMORY_CEILING_FRACTION,
+            available - O4_Machine_Slots.headroom_gigabytes()),
     )
+
+
+# Seconds between two samples of the running steps' resident memory
+# (one ``ps`` for all of them; step_memory.tree_resident_gigabytes).
+STEP_MEMORY_SAMPLE_SECONDS = 2.0
+
+
+def _recorded_step_peaks(tile):
+    """The tile's recorded per-step peaks (``{}`` on any problem)."""
+    try:
+        return tile_time_model.step_peaks(tile[0], tile[1])
+    except Exception:
+        return {}
 
 
 # ---------------------------------------------------------------------
@@ -723,6 +746,9 @@ class _WorkerChild:
         # is harvested here instead of being discarded with the other
         # run-level events.
         self.live_remaining = None
+        # The running step's peak resident memory (its process tree),
+        # sampled by the run's ticker (#2083).
+        self.step_peak_gb = 0.0
         self.step_failed = False       # current tile had a failing step
         self.cancelling = False        # a mid-step cancel is in flight
         # The child's own "stopped" TileState, held until the parent has
@@ -815,6 +841,7 @@ class _WorkerChild:
         """
         self.running_step = step_key
         self.live_remaining = None
+        self.step_peak_gb = 0.0
         return self.send(dict(
             build_arguments,
             cmd="build",
@@ -969,6 +996,12 @@ class ParallelBuildRun:
             else mesh_memory_budget_gigabytes())
         self._memory_in_use = 0.0
         self._memory_holders: dict = {}   # (tile, step) -> gigabytes
+        # #2083: each tile's recorded per-step peaks and the airports its
+        # history plans, read at admission (step_memory.projected_gigabytes)
+        self._recorded_peaks: dict = {}   # tile -> {step: gigabytes}
+        self._airports_planned: dict = {}  # tile -> planned airports / None
+        self._live_memory_waits: set = set()   # (tile, step) logged once
+        self._memory_sampled_at = 0.0
         # Cache-aware fetch admission (spec §A.2): the per-subsystem
         # predicates' verdict per (tile, step), memoised because a tile's
         # first step is re-evaluated on every dispatch sweep and the
@@ -1114,6 +1147,8 @@ class ParallelBuildRun:
             self._mesh_memory_estimates[tile] = (
                 0.0 if "mesh" in (features.get("reused_steps") or ())
                 else self._estimate_mesh_memory(tile, custom_build_dir))
+            self._recorded_peaks[tile] = _recorded_step_peaks(tile)
+            self._airports_planned[tile] = features.get("airports_planned")
             self._percent_high_water.pop(tile, None)
             self._forget_cache_state_locked(tile)
             self._queue_tile_locked(tile, priority)
@@ -1411,32 +1446,54 @@ class ParallelBuildRun:
     def _step_memory_estimate(self, tile, step_key):
         """Projected peak memory (gigabytes) for one step of one tile.
 
-        The mesh step keeps its per-tile elevation-level sizing; the
-        other steps take the flat table, but only while the cache-aware
-        admission gate is on — with it off the projection is the
-        pre-2026-07-30 mesh-only one.
+        The tile's own recorded peak for the step when it has one
+        (#2083), else the mesh step's elevation-level sizing or the flat
+        table (``step_memory.projected_gigabytes``) — the non-mesh steps
+        only while the cache-aware admission gate is on; with it off the
+        projection is the pre-2026-07-30 mesh-only one.
         """
         if step_key == "mesh":
-            return self._mesh_memory_estimates.get(
+            default = self._mesh_memory_estimates.get(
                 tile, MESH_MEMORY_DEFAULT_GB)
-        if not cache_aware_admission_enabled():
+            if default <= 0.0:
+                return 0.0          # a reused mesh reads a record
+        elif not cache_aware_admission_enabled():
             return 0.0
-        return STEP_MEMORY_ESTIMATES_GB.get(step_key, 0.0)
+        else:
+            default = STEP_MEMORY_ESTIMATES_GB.get(step_key, 0.0)
+            if default <= 0.0:
+                return 0.0
+        return step_memory.projected_gigabytes(
+            step_key, self._recorded_peaks.get(tile),
+            default, self._airports_planned.get(tile))
 
     def _memory_admits_locked(self, tile, step_key):
         """True when the step's projected memory fits the budget now.
 
         One step is always admitted (a single tile must never deadlock,
         however big its raster); beyond that, the sum of the admitted
-        steps' projections stays within the budget — 80 % of the memory
-        the machine could hand out when the run started.
+        steps' projections stays within the budget (80 % of the memory
+        the machine could hand out when the run started, less the
+        headroom), and a heavy step (``step_memory.LIVE_CHECKED_STEPS``)
+        also waits until the machine has its projection free above the
+        headroom NOW (#2083).  A running step is never paused or stopped.
         """
         estimate = self._step_memory_estimate(tile, step_key)
         if estimate <= 0.0:
             return True
         if not self._memory_holders:
             return True
-        return self._memory_in_use + estimate <= self._memory_budget
+        if self._memory_in_use + estimate > self._memory_budget:
+            return False
+        if (step_key in step_memory.LIVE_CHECKED_STEPS
+                and not O4_Machine_Slots.memory_admits(need_gb=estimate)):
+            if (tile, step_key) not in self._live_memory_waits:
+                self._live_memory_waits.add((tile, step_key))
+                print("Tile %s waits for free memory before its %s step "
+                      "(needs about %.1f GB)."
+                      % (_short_latlon(tile), step_key, estimate))
+            return False
+        return True
 
     def _tile_configuration(self, tile):
         """This tile's configured ``Tile``, built once and reused.
@@ -2093,6 +2150,7 @@ class ParallelBuildRun:
     def _child_step_done(self, child):
         """The child finished (or aborted) one single-step build."""
         respawn = False
+        self._record_step_peak(child)
         with self._lock:
             self._release_step_resources_locked(child)
             stopped = None
@@ -2170,6 +2228,37 @@ class ParallelBuildRun:
                     self._dispatch_locked()
         self._broadcast_sibling_count()
         self._maybe_finish()
+
+    def _record_step_peak(self, child):
+        """Write the finished step's sampled peak into the record the step
+        just wrote (#2083), before the tile's next step is dispatched."""
+        with self._lock:
+            tile, step_key = child.tile, child.running_step
+            peak = getattr(child, "step_peak_gb", 0.0)
+            started = self._step_started_at.get((tile, step_key))
+        if tile is None or step_key is None or started is None \
+                or peak <= 0.0 or getattr(child, "cancelling", False):
+            return
+        tile_time_model.record_step_peak(
+            tile[0], tile[1], step_key, peak, since=started)
+
+    def _sample_step_memory(self):
+        """Sample every running step's process tree and keep each step's
+        peak on its child (#2083); then dispatch again, so a step held by
+        the live free-memory check starts once memory is back."""
+        with self._lock:
+            running = {child.process.pid: (child, child.running_step)
+                       for child in self._children
+                       if child.running_step is not None
+                       and getattr(child, "process", None) is not None}
+        resident = (step_memory.tree_resident_gigabytes(list(running))
+                    if running else {})
+        with self._lock:
+            for pid, gigabytes in resident.items():
+                child, step_key = running[pid]
+                if child.running_step == step_key:
+                    child.step_peak_gb = max(child.step_peak_gb, gigabytes)
+            self._dispatch_locked()
 
     def _report_released_stop(self, tile, attempt, held, last_step):
         """A cancelled child let go of its tile: report it stopped NOW
@@ -2559,4 +2648,10 @@ class ParallelBuildRun:
                     live_step_remaining, first_started, final_elapsed)))
             except Exception:
                 pass
+            if now - self._memory_sampled_at >= STEP_MEMORY_SAMPLE_SECONDS:
+                self._memory_sampled_at = now
+                try:
+                    self._sample_step_memory()
+                except Exception:
+                    pass
             time.sleep(1.0)

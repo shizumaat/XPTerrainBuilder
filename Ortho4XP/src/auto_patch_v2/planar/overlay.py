@@ -55,7 +55,6 @@ from .shore import pack_shore_walls
 from .zones import shore_declarations, shore_region, shore_wedge_m, zone_regions
 from .fill_bank import fill_bank_pieces
 from .stack_ground import deck_end_road_zone, stack_ground_pieces
-from .ground_chords import road_ground_densifier
 from ..model.planar import ROAD_ROLES, is_stack_apron_ref, is_stack_ground_ref
 from ..airport.old_dem_fill import fill_model_of
 
@@ -495,11 +494,6 @@ def build_arrangement(airport: Airport, classification: Classification,
     # #1971 v2 §3.4: a road's ribbon carries a vertex every sample step
     # where it comes off a deck stack's end (``planar/stack_ground``)
     end_zone, end_step = deck_end_road_zone(airport, law)
-    # #2070: a road's ring chord follows its ground (``planar/ground_chords``);
-    # a structure's deck or ramp states its own level, never the ground's
-    ground = road_ground_densifier(airport, law)
-    stated = {c.ref for c in classification.cells if c.kind == "structure"
-              or (c.evidence or {}).get("pavement_deck")}
 
     def _ring_lines_of(rs) -> list[LineString]:
         out: list[LineString] = []
@@ -508,8 +502,6 @@ def build_arrangement(airport: Airport, classification: Classification,
             for ring in ring_lines(tuple(r.polygon.exterior.coords)[:-1],
                                    [tuple(h.coords)[:-1] for h in r.polygon.interiors],
                                    cap):
-                if ground is not None and r.role in ROAD_ROLES and r.ref not in stated:
-                    ring = ground(ring)
                 if end_zone is not None and r.role in ROAD_ROLES:
                     ring = densify_within(ring, end_zone, end_step)
                 if len(ring) >= 2:

@@ -6,8 +6,6 @@
 pavement_max_chord_m    = 60.0   # no airside-pavement ring chord longer than this — ONE decimator, ONE cap (memory two-decimators-mask-each-other)
 apron_interior_spacing_m = 50.0  # apron interior vertex lattice spacing; a void wider than this is a membrane defect (08-24b/c, 08-26)
 station_spacing_m       = 12.0   # runway / spine profile station spacing along breaklines (crown spines 12 m stations, 08-05)
-road_ground_sample_m    = 2.0    # #2070 THE ROAD FOLLOWS ITS GROUND (planar/ground_chords): a road-family ring chord's ground is read every this many metres, and the chord is split where the ground departs from it by more than [cockpit] visual_m.  MEASURED ENTC small_roads:-255: ONE 48 m chord from a car park to the apron edge stood 1.14 m under the apron-level ground for 30 m
-road_ground_min_chord_m = 4.0    # #2070: no piece of a split road chord is shorter than this (the split reads 1 m lidar; the identity spacing is 0.5 m)
 
 [identity]
 coordinate_dp           = 11     # canonical vertex identity = lat/lon rounded to this many decimals (memory canonical-identity-join)

@@ -214,6 +214,14 @@ floor_walled_min_share = 0.5
 # +0.67 off plates, concretetile +0.26 off the DEM: its neighbours cover 9 %
 # of the ring); EGLL's seven floors +3.41..+5.98 m (no plates: the DEM).
 floor_sunken_min_m = 2.0
+# ...and a WALLED PIT (``airport/walled_pit``) is sunken AS A WHOLE: at least
+# this share of the plan area of its faces under the rim stands, as
+# authored, under that ground (#2091, owner 2026-11-14T21:03Z "There's no
+# tunnel here ... this is just flat ground under a bridge object"). Measured:
+# OTHH TerminalRoads_03_002 (a road ramp from 1.8 m under its datum up to a
+# viaduct, its parapets the "walls") 0.13 -> no pit; ENTC
+# Industrial_19 (a walled pit) and OTHH TerminalRoads_02_000 still read.
+pit_sunken_min_share = 0.5
 # THE CUT LIES BENEATH THE FLOOR (owner RULINGS 2026-11-06d (4), #1921 /
 # #1936: "the cut is deep enough that it's completely below the floor so the
 # floor is visible"; 2026-11-10o (1) "fully beneath the tunnel object floor"):

@@ -153,6 +153,8 @@ from .body_files import _body_paths, remove_cut_files, written_body_files
 from .dsf_dump import dump
 from .dsf_rows import duplicate_rows, placement_rows
 from .file_hash import sha256_file
+# #1884 round 2 B3: one definition, beside the pack lock that checks it first
+from .pack_lock import live_install_roots
 
 # ``pristine_dsf_path``, ``dump``, ``placement_rows``, ``duplicate_rows``
 # and the body-file names are the READ side, re-exported under the names
@@ -211,14 +213,6 @@ def pool_tolerances(*texts: str) -> tuple[float, float]:
     k = POOL_QUANTA_ALLOWED / POOL_QUANTA
     return (max(TOL_DEG, k * span_deg), max(TOL_HEADING_DEG, k * span_heading))
 
-#: A DSF under one of these is the user's LIVE scenery: never a lane's.
-_LIVE_HINTS = ("/X-Plane 12/", "/X-Plane 11/", "/X-Plane 12 Demo/")
-
-
-def live_install_roots(path: str) -> bool:
-    """Whether ``path`` lies inside a live X-Plane installation."""
-    p = os.path.abspath(path).replace(os.sep, "/") + "/"
-    return any(h in p for h in _LIVE_HINTS)
 
 
 #: WHERE DSFTool COMES FROM: the CALLER passes it.  ``auto_patch_v2``
@@ -1139,11 +1133,16 @@ class WriteResult:
     plan: PlacementPlan | None = None
     #: #1703: the rows written at a hand-set seat (``user_seats``)
     hand_seated: tuple[int, ...] = ()
+    #: #1884 round 2 B1: the GUEST rows of another tile's build
+    #: (``LOWS@+47+012``) that could not be re-applied (stale or garbled)
+    #: and were dropped; :func:`write_pack` took each one's home DSF back
+    stale_guests: tuple[str, ...] = ()
 
 
 def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
                    backup_sha: str, drop: _t.Collection[str] = (),
-                   notes: list[str] | None = None
+                   notes: list[str] | None = None,
+                   stale: list[str] | None = None
                    ) -> tuple[list[PlacementPlan], dict[str, dict]]:
     """#25: the OTHER airports' recorded edits of this DSF, as plans to
     compose, plus their record rows to carry forward.
@@ -1154,7 +1153,10 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
     from before that key is re-keyed here) and parse; a stale or garbled row is dropped — with a
     note — and its bodies become orphans the write removes.  So is
     every airport named in ``drop`` (RULINGS 2026-10-12d: an airport left
-    without a patch is no longer seated).
+    without a patch is no longer seated).  A GUEST key (``LOWS@+47+012``,
+    #1884) is a row of its own — another tile's build wrote it — and is
+    dropped only by its own name; one that cannot be re-applied is also
+    added to ``stale`` (:func:`write_pack` takes its home DSF back).
     Sorted by ICAO so the composition is deterministic."""
     airports = entry.get("airports")
     if not isinstance(airports, dict):
@@ -1164,9 +1166,9 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
     plans: list[PlacementPlan] = []
     keep: dict[str, dict] = {}
     for icao in sorted(airports):
-        # #1884: a guest key (``LOWS@+47+012``) goes with its airport
-        if icao == plan.icao or icao in drop or _dsf.owner_of(icao) in drop:
+        if icao == plan.icao or icao in drop:
             continue
+        guest = _dsf.owner_of(icao) != icao
         row = airports.get(icao)
         if not isinstance(row, dict) or not _dk.row_is_current(
                 row, entry, key, printed, backup_sha, path_key):
@@ -1174,6 +1176,8 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
                 notes.append(f"{icao}: its recorded edits were built against "
                              f"another version of this DSF and were not "
                              f"re-applied")
+            if guest and stale is not None:
+                stale.append(icao)
             continue
         try:
             sib = PlacementPlan.from_dict({
@@ -1182,6 +1186,8 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, text: str,
                 "pack_root": plan.pack_root, "dsf_path": plan.dsf_path,
                 "dsf_backup_path": plan.dsf_backup_path})
         except (KeyError, ValueError, TypeError):
+            if guest and stale is not None:
+                stale.append(icao)
             continue
         plans.append(sib)
         keep[icao] = {**row, _dk.KEY_FIELD: key}
@@ -1213,12 +1219,32 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     full dumps of the pack per write and was never removed (3,321 of
     them, 10 GB, on the owner's drive on 2026-11-04)."""
     if work_dir:
-        return _write_pack(pack_root, plan, tool, work_dir=work_dir, **kw)
+        return _guests_home(pack_root, _write_pack(
+            pack_root, plan, tool, work_dir=work_dir, **kw), tool, kw)
     work = tempfile.mkdtemp(prefix="o4_dsf_write_")
     try:
-        return _write_pack(pack_root, plan, tool, work_dir=work, **kw)
+        result = _write_pack(pack_root, plan, tool, work_dir=work, **kw)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    return _guests_home(pack_root, result, tool, kw)
+
+
+def _guests_home(pack_root: str, result: WriteResult, tool: str,
+                 kw: _t.Mapping[str, _t.Any]) -> WriteResult:
+    """#1884 round 2 B1: a guest row this write could not re-apply
+    (``WriteResult.stale_guests``) left its placements drawn by NEITHER
+    tile — its home DSF names them routed away.  In the same write that
+    home DSF goes back to its original for that airport
+    (``unpatched_pack.restore_stale_guests``: rigid as authored, never
+    missing), said at verbosity 0."""
+    if not result.stale_guests:
+        return result
+    from . import unpatched_pack as _up        # lazy: it reads this module
+    _up.restore_stale_guests(
+        pack_root, result.stale_guests, tool,
+        allow_live_install=bool(kw.get("allow_live_install", False)),
+        engine_version=str(kw.get("engine_version", "") or ""))
+    return result
 
 
 def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
@@ -1405,8 +1431,10 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     omit_all = tuple(omit) + tuple(m for m in drapes
                                    if (m.kind, m.index) not in gone)
     generated = _po.write_generated(pack_root, optimise) if optimise else []
+    stale_guests: list[str] = []
     siblings, sibling_rows = _sibling_plans(prior_entry, plan, text,
-                                            backup_sha, drop, notes)
+                                            backup_sha, drop, notes,
+                                            stale_guests)
     # #1246: a split DSFTool cannot place (a body off the tile) is undone
     # — the placement is written whole — and never fails the pack.
     undone: dict[int, str] = dict.fromkeys(
@@ -1584,7 +1612,7 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                        report, counts, verdict.state.value,
                        superseded, preserved, tuple(notes),
                        tuple(sorted(sibling_rows)), removed, omitted,
-                       dict(unused), plan, seated)
+                       dict(unused), plan, seated, tuple(stale_guests))
 
 
 def _edited_text(text: str, composed: PlacementPlan, omit: _t.Sequence,

@@ -207,6 +207,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.pack_health.stacked_polygons",
     "auto_patch_v2.airport.pack_journal",
     "auto_patch_v2.airport.pack_local",
+    "auto_patch_v2.airport.pack_lock",
     "auto_patch_v2.airport.pack_optimise",
     "auto_patch_v2.airport.pack_optimise.dedupe",
     "auto_patch_v2.airport.pack_optimise.impact",

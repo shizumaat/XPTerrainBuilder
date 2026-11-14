@@ -29,6 +29,21 @@ A recorded 3D forest upgrade (#1360) or "Optimise pack" recipe (#1707)
 is the user's choice, not the airport's seating: like an omission it
 keeps the DSF from the bare copy, and the write re-applies it.
 
+GUEST ROWS BELONG TO THE TILE THAT WROTE THEM (#1884 round 2 B1).  A
+tile's build writes the bodies of its placements that stand on another
+tile of the pack as rows of THAT tile's DSF, recorded there under
+``LOWS@+47+012`` (``dsf.guest_key``).  That key is another airport row
+of the neighbour's DSF: restoring the neighbour's own ``LOWS`` keeps it
+(the neighbour's build being left without a patch takes nothing the home
+tile placed); restoring ``LOWS`` on the HOME tile takes ``LOWS@<home>``
+out of every other DSF of the pack in the same transaction, so a
+placement is never drawn by both.  A guest row a write cannot re-apply
+(``dsf_write.WriteResult.stale_guests``) takes its home DSF back to the
+original for that airport (:func:`restore_stale_guests`): rigid as
+authored, never missing.
+
+Every entry here holds the pack's write lock (``pack_lock``).
+
 A restore that cannot be proven writes nothing and says why.
 """
 from __future__ import annotations
@@ -36,6 +51,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import os
 import shutil
+import typing as _t
 
 from ..model.placement import BACKUP_SUFFIX, PlacementPlan, Provenance
 from . import backup_state as _bs
@@ -44,12 +60,14 @@ from . import dsf_write as _dw
 from . import pack_art as _pa
 from . import pack_forests as _pf
 from . import pack_journal as _pj
+from . import pack_lock as _lock
+from . import tile_route as _route
 from . import user_seats as _us
 from . import pack_optimise as _po
 from .file_hash import sha256_file
 
 __all__ = ["NONE", "RESTORED", "RECOMPOSED", "UNPROVEN", "Outcome",
-           "seated_airports", "restore_airport"]
+           "seated_airports", "restore_airport", "restore_stale_guests"]
 
 #: the airport never re-seated this DSF (or the file is not ours): no-op
 NONE = "none"
@@ -73,19 +91,22 @@ class Outcome:
     bodies_removed: tuple[str, ...] = ()
     #: :data:`UNPROVEN` only — one sentence for the user
     reason: str = ""
+    #: #1884 round 2 B1: the other DSFs of the pack that carried this
+    #: tile's guest rows of the airport, each taken out (module doc)
+    neighbours: tuple["Outcome", ...] = ()
 
 
 def seated_airports(dsf_path: str) -> tuple[str, ...]:
-    """The airports the record says re-seated this DSF, sorted.  An entry
-    from before the per-airport map names its one airport at the record's
-    top level, and only when that level describes THIS file."""
+    """The record keys that re-seated this DSF, sorted: airports, and
+    another tile's GUEST rows by their own key (``LOWS@+47+012``, module
+    doc — never folded into ``LOWS``).  An entry from before the
+    per-airport map names its one airport at the record's top level, and
+    only when that level describes THIS file."""
     record = _bs.read_record(dsf_path)
     base = os.path.basename(dsf_path)
     airports = _bs.dsf_entry(record, base).get("airports")
     if isinstance(airports, dict):
-        # #1884: a neighbour tile's guest rows (``LOWS@+47+012``) are
-        # that airport's seating too
-        return tuple(sorted({_dsf.owner_of(str(icao)) for icao in airports}))
+        return tuple(sorted(str(icao) for icao in airports))
     if record.get("dsf") == base and record.get("icao"):
         return (str(record["icao"]),)
     return ()
@@ -95,11 +116,85 @@ def restore_airport(pack_root: str, dsf_path: str, icao: str, tool: str, *,
                     allow_live_install: bool = False,
                     engine_version: str = "",
                     work_dir: str | None = None) -> Outcome:
-    """Undo what ``icao``'s earlier build did to this pack DSF.
+    """Undo what ``icao``'s earlier build did to this pack DSF, and take
+    this tile's guest rows of ``icao`` out of every other DSF of the pack
+    (module doc), under the pack's write lock.
 
     ``tool`` (DSFTool) is run only when another airport's seating must be
     kept.  Refuses a pack under a live X-Plane install without
     ``allow_live_install``, exactly as ``write_pack`` does (§3.5)."""
+    with _lock.hold(pack_root, allow_live_install=allow_live_install):
+        return _restore_with_guests(
+            pack_root, dsf_path, icao, tool,
+            allow_live_install=allow_live_install,
+            engine_version=engine_version, work_dir=work_dir)
+
+
+def restore_stale_guests(pack_root: str, keys: _t.Sequence[str], tool: str,
+                         *, allow_live_install: bool = False,
+                         engine_version: str = "") -> list[Outcome]:
+    """Each guest key a write could not re-apply (``LOWS@+47+012``) takes
+    its HOME DSF back to the original for its airport (module doc), said
+    at verbosity 0.  Called by ``dsf_write.write_pack`` inside the write
+    that dropped them, under the lock its caller holds."""
+    out = []
+    for key in keys:
+        icao = _dsf.owner_of(key)
+        home = _route.tile_of_key(key)
+        if home is None or icao == key:
+            continue
+        home_dsf = _dsf.dsf_path_in_pack(pack_root, home[0], home[1])
+        if not os.path.isfile(home_dsf):
+            continue
+        got = _restore_with_guests(pack_root, home_dsf, icao, tool,
+                                   allow_live_install=allow_live_install,
+                                   engine_version=engine_version)
+        out.append(got)
+        _say(f"  [v2 placement] {icao}: its rows written by the "
+             f"{_dsf.on_tile('', home)[1:]} build in a neighbour DSF could "
+             f"not be re-applied; {os.path.basename(home_dsf)} "
+             + (f"could not be put back either ({got.reason})"
+                if got.state == UNPROVEN else
+                "is back to its original for this airport (its objects as "
+                "authored)"))
+    return out
+
+
+def _say(text: str) -> None:
+    """One verbosity-0 line (the engine's log; nothing without it)."""
+    try:
+        import O4_UI_Utils as _ui
+    except ImportError:
+        return
+    _ui.vprint(0, text)
+
+
+def _restore_with_guests(pack_root: str, dsf_path: str, icao: str,
+                         tool: str, **kw: _t.Any) -> Outcome:
+    """:func:`restore_airport`'s work, unlocked: the neighbours' guest
+    rows of ``icao`` from this tile go FIRST (no moment at which both
+    tiles draw a placement), then this DSF, in one transaction."""
+    tile = _route.tile_of_dsf(dsf_path)
+    key = _dsf.guest_key(icao, tile) if tile is not None and \
+        _dsf.owner_of(icao) == icao else ""
+    others = [p for p in (_route.guest_dsfs(pack_root, key) if key else [])
+              if os.path.abspath(p) != os.path.abspath(dsf_path)]
+    if not others:
+        return _restore_one(pack_root, dsf_path, icao, tool, **kw)
+    with _pj.transaction(pack_root, dsf_path):
+        for other in others:
+            _pj.snapshot(pack_root, other)
+        neighbours = tuple(_restore_one(pack_root, other, key, tool, **kw)
+                           for other in others)
+        own = _restore_one(pack_root, dsf_path, icao, tool, **kw)
+    return _dc.replace(own, neighbours=neighbours)
+
+
+def _restore_one(pack_root: str, dsf_path: str, icao: str, tool: str, *,
+                 allow_live_install: bool = False,
+                 engine_version: str = "",
+                 work_dir: str | None = None) -> Outcome:
+    """One DSF without ``icao``'s rows (an airport or a guest key)."""
     seated = seated_airports(dsf_path)
     if icao not in seated:
         return Outcome(NONE, dsf_path, seated)

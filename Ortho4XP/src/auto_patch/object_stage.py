@@ -362,12 +362,15 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
                          Provenance("", _engine_version(), "", {}))
     # #598: a no-op outside a build's object stage (the user's command)
     from auto_patch_v2.airport import pack_journal as _pj
-    _pj.snapshot(pack_root, art.dsf_path)
+    from auto_patch_v2.airport import pack_lock as _lock
     from . import pack_copy as _copy
-    _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
-                   allow_live_install=_copy.write_guard(pack_root),
-                   engine_version=_engine_version(),
-                   omit=art.missing if art.omit else ())
+    guard = _copy.write_guard(pack_root)
+    with _lock.hold(pack_root, allow_live_install=guard):     # #1884 B3
+        _pj.snapshot(pack_root, art.dsf_path)
+        _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
+                       allow_live_install=guard,
+                       engine_version=_engine_version(),
+                       omit=art.missing if art.omit else ())
     _DSFR.ensure_dsf_text_path(art.dsf_path, _dsf2.mod_cache_dir(
         FNAMES.airport_mod_cache_root(), art.pack_name))
 
@@ -694,27 +697,19 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                                                     UNRECOGNISED_INFIX as
                                                     _BS_UNRECOGNISED)
     # #1884: a body standing on a neighbour tile is written in that tile's
-    # DSF of the pack (``tile_route``), BEFORE this one's
-    _tool = _DSFR._dsftool_path() or "DSFTool"
-    _guard = _copy.write_guard(target_root)
-
-    def _write_guest(gp, gfiles):
-        return _pw.apply_plan(
-            gp, gfiles, _tool, allow_live_install=_guard,
-            refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
-            engine_version=_engine_version(), law_digest=digest,
-            omit=_route.recorded_omit(gp.dsf_path, target_root))
-    plan, files, guest_files = _route.write_guests(
-        plan, files, (tile.lat, tile.lon), _write_guest,
-        say=lambda t, _i=plan_.icao: UI.vprint(1, f"  [v2 placement] {_i}: {t}"))
+    # DSF of the pack (``tile_route``), in the SAME write as this one's
     try:
-        res = _pw.apply_plan(
-            plan, files, _tool, patch_dir=patch_dir,
+        res = _pw.apply_routed(
+            plan, files, _DSFR._dsftool_path() or "DSFTool",
+            here=(tile.lat, tile.lon),
+            say=lambda t, _i=plan_.icao: UI.vprint(1, f"  [v2 placement] {_i}: {t}"),
+            patch_dir=patch_dir,
             allow_live_install=_copy.write_guard(target_root),
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
             plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key))
-    except BackupUnproven as exc:
+    except (BackupUnproven, TimeoutError) as exc:
+        # TimeoutError: another write of the pack held its lock (``pack_lock``)
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
         # touched — not the DSF, not an object, not a cut file: a pack
         # half-written against a DSF we may not touch is torn geometry.
@@ -725,6 +720,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # NOTHING on the normal path (D3 / D4, O1 / O2).
     _adopted = list(res.restore.adopted)
     _unproven = list(res.restore.unproven)
+    for _guest in res.guests:              # #1884: a neighbour DSF's write
+        for note in _guest.notes:
+            UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — {note}')
     if res.dsf is not None:
         for note in res.dsf.notes:
             UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — {note}')
@@ -766,11 +764,6 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     out.update({k: v for k, v in dict(plan.provenance.counts).items()
                 if k.startswith("graded_facade")})
     out["packs_written"] = 1
-    if guest_files:
-        # #1884: a guest body this tile's own write may have just removed
-        # as its previous body (``tile_route.write_guests``)
-        _pw.write_files(target_root, guest_files, allow_live_install=_guard)
-        out["guest_bodies_written"] = len(guest_files)
     if siblings:
         out["sibling_packs_written"] = _sib.write(
             siblings, patch_dir, _DSFR._dsftool_path() or "DSFTool",
@@ -1307,6 +1300,20 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                                      f"for this airport ("
                                      f"{len(out.bodies_removed)} split "
                                      f"bod(ies) removed{kept})")
+                    # #1884 round 2 B1: this tile's guest rows of the
+                    # airport in the pack's other DSFs went with it
+                    for n in out.neighbours:
+                        where = os.path.basename(n.dsf_path)
+                        if n.state == _up.UNPROVEN:
+                            UI.loud_warning(
+                                f"   {icao}: the objects of pack "
+                                f"{pack['pack_name']} this tile wrote in "
+                                f"{where} could not be taken out: {n.reason}")
+                        elif n.state != _up.NONE:
+                            UI.vprint(0, f"  [v2 rebake] {icao}: pack "
+                                         f"{pack['pack_name']} {where} no "
+                                         f"longer carries this tile's "
+                                         f"objects of the airport")
     except Exception as exc:
         UI.vprint(1, f"  [v2 rebake] unpatched-airport pack restore failed: {exc}")
         UI.vprint(2, traceback.format_exc())

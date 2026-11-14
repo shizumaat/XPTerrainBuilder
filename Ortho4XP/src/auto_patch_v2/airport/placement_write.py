@@ -58,10 +58,12 @@ from ..model.placement import (CUT_MARK, PLAN_FILENAME, PlacementPlan,
                                Provenance)
 from . import authored_seat as _seat
 from . import backup_state as _bs
+from . import dsf as _dsf
 from . import dsf_write as _dw
 from . import facade_seat as _fs
 from . import footprint_unit as _fu
 from . import pack_journal as _pj
+from . import pack_lock as _lock
 from . import placement_plan as _pp
 from . import split_guard as _sg
 from . import tile_route as _route
@@ -69,7 +71,7 @@ from . import torn_pack as _tp
 from .pit_frame import shifted as _pit_shifted
 
 __all__ = ["PlacementWriteResult", "RestoreResult", "build_plan", "write_files",
-           "restore_pack_objects", "apply_plan"]
+           "restore_pack_objects", "apply_plan", "apply_routed"]
 
 #: v1's seat kept the authored bytes beside the file it baked.
 ANCHOR_BAK = ".anchor_bak"
@@ -110,6 +112,9 @@ class PlacementWriteResult:
     dump_refreshed: str | None
     counts: _t.Mapping[str, int]
     restore: RestoreResult = RestoreResult()
+    #: #1884 round 2 B2: the neighbour DSFs written with this tile's
+    #: guest rows (apply_routed), one dsf_write.WriteResult each
+    guests: tuple = ()
 
 
 # ── step 1: the plan ────────────────────────────────────────────────────
@@ -627,69 +632,169 @@ def restore_pack_objects(pack_root: str, *, allow_live_install: bool = False,
 # ── steps 0-5: the whole write ──────────────────────────────────────────
 
 def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str,
-               **kw: _t.Any) -> "PlacementWriteResult":
-    """:func:`_apply_plan` (every keyword is its) under the pack record's
-    cross-process lock: since #1884 a tile's build also writes the guest
-    rows of a NEIGHBOUR tile's DSF, whose own build may be writing it at
-    the same time, and the record beside the DSFs is read, composed and
-    written back by both (``O4_File_Lock``; a holder that never releases
-    is waited for 15 min, then the write proceeds as before)."""
-    import O4_File_Lock as _lock
-    with _lock.hold_file_lock(_bs.record_path_for(plan.dsf_path)):
-        return _apply_plan(plan, files, tool, **kw)
+               **kw: _t.Any) -> PlacementWriteResult:
+    """ONE pack DSF's write: :func:`apply_routed` with no tile, so nothing
+    is routed (a sibling pack, a tool writing a pack copy)."""
+    return apply_routed(plan, files, tool, here=None, **kw)
 
 
-def _apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
-               patch_dir: str = "", allow_live_install: bool = False,
-               work_dir: str | None = None,
-               refresh_dump: _t.Callable[[str], str | None] | None = None,
-               engine_version: str = "", law_digest: str = "",
-               omit: _t.Sequence = (), plan_key: str = "",
-               seats: _t.Mapping | None = None) -> PlacementWriteResult:
-    """The writes in the one lawful order (module doc, steps 0-5).
+@_dc.dataclass(frozen=True)
+class _Write:
+    """One DSF's part of :func:`apply_routed`: its plan, its body files,
+    its omission and hand-set seats."""
+
+    plan: PlacementPlan
+    files: tuple
+    omit: tuple = ()
+    seats: _t.Mapping | None = None
+
+    def minted(self) -> list[str]:
+        return [os.path.join(self.plan.pack_root,
+                             *f.resource.replace("\\", "/").split("/"))
+                for f in self.files]
+
+
+def apply_routed(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
+                 here: "_route.Tile | None" = None,
+                 say: _t.Callable[[str], None] = lambda _s: None,
+                 patch_dir: str = "", allow_live_install: bool = False,
+                 work_dir: str | None = None,
+                 refresh_dump: _t.Callable[[str], str | None] | None = None,
+                 engine_version: str = "", law_digest: str = "",
+                 omit: _t.Sequence = (), plan_key: str = "",
+                 seats: _t.Mapping | None = None) -> PlacementWriteResult:
+    """THE PLACEMENT WRITE, in the one lawful order (module doc, steps
+    0-5), over this tile's DSF and every neighbour DSF of the pack that
+    takes guest rows (#1884 round 2 B2: ``tile_route``).
     ``plan_key`` names the plan JSON (``o4_v2_placement_<key>.json``;
     default the ICAO — a companion pack's plan is ``ICAO~k``).
     ``seats``: the hand-set object seats (#1703, ``write_pack(seats=)``).
 
-    §12a (3) row 5: THE DSF IS CLASSIFIED FIRST.  When its write half
-    stands down (rows D2 / D8) nothing at all happens — no restore, no
-    cut file, no record — and ``BackupUnproven`` reaches the caller: a
-    pack half-written against a DSF we may not touch is torn geometry."""
+    Under the pack's write lock (``pack_lock``, B3), and ALL OR NOTHING:
+
+    1. every DSF is classified BEFORE anything is written.  When this
+       tile's write stands down (§12a (3) row 5, rows D2 / D8) nothing at
+       all happens and ``BackupUnproven`` reaches the caller; a neighbour
+       DSF that stands down takes no guest — its bodies stay in this
+       tile's plan for ``split_guard``'s undo (written whole), and
+       ``say`` names it;
+    2. ONE ``pack_journal`` transaction over every DSF and body: the
+       previous bodies of every write go, every new body lands, then each
+       DSF is encoded — so a body that moved between this tile and a
+       neighbour is never removed after it was written, and a raise
+       anywhere puts every DSF, record and body back.
+
+    ``here`` ``None`` routes nothing (one DSF, :func:`apply_plan`)."""
+    with _lock.hold(plan.pack_root, allow_live_install=allow_live_install):
+        # a body the pack cannot hold (a read-only folder) is written
+        # whole, decided BEFORE anything is routed or restored
+        plan, files = _writable(plan, files)
+        plan, guests = _routed(plan, here, say)
+        gone = {r for gp in guests for r in gp.new_resources()}
+        by_res = {f.resource.replace("\\", "/"): f for f in files}
+        writes = [_Write(plan, tuple(f for f in files
+                                     if f.resource.replace("\\", "/") not in gone),
+                         tuple(omit), seats)]
+        writes += [_Write(gp, tuple(by_res[r] for r in gp.new_resources()
+                                    if r in by_res),
+                          _route.recorded_omit(gp.dsf_path, plan.pack_root))
+                   for gp in guests]
+        return _write_all(writes, tool, patch_dir=patch_dir,
+                          allow_live_install=allow_live_install,
+                          work_dir=work_dir, refresh_dump=refresh_dump,
+                          engine_version=engine_version,
+                          law_digest=law_digest, plan_key=plan_key)
+
+
+def _writable(plan: PlacementPlan, files: _t.Sequence
+              ) -> tuple[PlacementPlan, list]:
+    """``plan`` without the splits whose bodies the pack cannot hold
+    (``split_guard.unwritable_splits``), and the files still written."""
+    locked = _sg.unwritable_splits(plan, plan.pack_root)
+    if not locked:
+        return plan, list(files)
+    plan = _sg.without_splits(plan, locked,
+                              "split undone: the pack folder is read-only")
+    keep = {r.replace("\\", "/")
+            for r in plan.new_resources() + plan.new_facades()}
+    return plan, [f for f in files if f.resource.replace("\\", "/") in keep]
+
+
+def _routed(plan: PlacementPlan, here: "_route.Tile | None",
+            say: _t.Callable[[str], None]
+            ) -> tuple[PlacementPlan, list[PlacementPlan]]:
+    """``(plan for this DSF, guest plans)`` — ``tile_route.route`` over
+    the neighbour DSFs that may be written (:func:`apply_routed` step 1)."""
+    if here is None:
+        return plan, []
+    here = (int(here[0]), int(here[1]))
+    has = _route._pack_has_dsf(plan.pack_root)
+    routed, guests = _route.route(plan, here, has)
+    refused: dict = {}
+    for there in guests:
+        dsf = _dsf.dsf_path_in_pack(plan.pack_root, there[0], there[1])
+        _tp.repair(plan.pack_root, dsf)
+        v = _bs.classify_dsf(dsf)
+        if not v.may_write:
+            refused[there] = _dw._stand_down_line(v)
+    for there, why in refused.items():
+        n = sum(len(s.bodies) for s in guests[there])
+        say(f"{n} body(ies) standing on {_dsf.on_tile('', there)[1:]} could "
+            f"not be written in its DSF ({why}); their placements are "
+            f"written whole")
+    if refused:
+        routed, guests = _route.route(
+            plan, here, lambda t: t not in refused and has(t))
+    for there, splits in guests.items():
+        say(f"{sum(len(s.bodies) for s in splits)} body(ies) of "
+            f"{len(splits)} placement(s) stand on "
+            f"{_dsf.on_tile('', there)[1:]}: written in its DSF")
+    return routed, [_route.guest_plan(plan, here, t, sp)
+                    for t, sp in guests.items()]
+
+
+def _write_all(writes: _t.Sequence[_Write], tool: str, *, patch_dir: str,
+               allow_live_install: bool, work_dir: str | None,
+               refresh_dump: _t.Callable[[str], str | None] | None,
+               engine_version: str, law_digest: str,
+               plan_key: str) -> PlacementWriteResult:
+    """:func:`apply_routed`'s writes: ``writes[0]`` is this tile's DSF,
+    the rest its guests in neighbour DSFs (none for :func:`apply_plan`)."""
+    own = writes[0]
+    pack_root = own.plan.pack_root
     # a TORN pack (its DSF names bodies that are gone) is put back on its
     # original first, so neither the write nor its rollback keeps it torn
-    mended = _tp.repair(plan.pack_root, plan.dsf_path)
-    v = _bs.classify_dsf(plan.dsf_path)
-    if not v.may_write:
-        raise _dw.BackupUnproven(_dw._stand_down_line(v))
-    # a body the pack cannot hold (a read-only folder) is written whole,
-    # decided BEFORE the restore removes the previous write's bodies
-    locked = _sg.unwritable_splits(plan, plan.pack_root)
-    if locked:
-        plan = _sg.without_splits(plan, locked,
-                                  "split undone: the pack folder is read-only")
-        keep = {r.replace("\\", "/")
-                for r in plan.new_resources() + plan.new_facades()}
-        files = [f for f in files if f.resource.replace("\\", "/") in keep]
-    # #598: the pack as it is NOW, kept until this build completes
-    minted = [os.path.join(plan.pack_root,
-                           *f.resource.replace("\\", "/").split("/"))
-              for f in files]
-    _pj.snapshot(plan.pack_root, plan.dsf_path, new_bodies=minted)
-    # ALL OR NOTHING: the restore removes the previous write's bodies and
-    # the new ones land before the DSF that names them is encoded; a raise
-    # anywhere in the three puts the pack back as it was (PAKT 1.0.465,
-    # KLAX 1.0.464: a failed encode left a DSF naming removed bodies)
-    with _pj.transaction(plan.pack_root, plan.dsf_path, new_bodies=minted):
-        restore = restore_pack_objects(plan.pack_root,
+    mended = _tp.repair(pack_root, own.plan.dsf_path)
+    for w in writes:
+        v = _bs.classify_dsf(w.plan.dsf_path)
+        if not v.may_write:
+            raise _dw.BackupUnproven(_dw._stand_down_line(v))
+    # ALL OR NOTHING: the restores remove the previous writes' bodies and
+    # the new ones land before the DSFs that name them are encoded; a
+    # raise anywhere puts the pack back as it was (PAKT 1.0.465, KLAX
+    # 1.0.464: a failed encode left a DSF naming removed bodies).  Each
+    # DSF is also kept for the build (#598, ``pack_journal.snapshot``).
+    with _pj.transaction(pack_root, own.plan.dsf_path, new_bodies=own.minted()):
+        for w in writes:
+            _pj.snapshot(pack_root, w.plan.dsf_path, new_bodies=w.minted())
+        restore = restore_pack_objects(pack_root,
                                        allow_live_install=allow_live_install,
-                                       dsf_path=plan.dsf_path, icao=plan.icao)
-        written = write_files(plan.pack_root, files,
+                                       dsf_path=own.plan.dsf_path,
+                                       icao=own.plan.icao)
+        for w in writes[1:]:
+            _dw.remove_cut_files(_dw.written_body_files(
+                pack_root, w.plan.dsf_path, w.plan.icao))
+        written = write_files(pack_root, [f for w in writes for f in w.files],
                               allow_live_install=allow_live_install)
-        dsf = _dw.write_pack(plan.pack_root, plan, tool,
-                             allow_live_install=allow_live_install,
-                             work_dir=work_dir, engine_version=engine_version,
-                             law_digest=law_digest, body_files=written,
-                             omit=omit, seats=seats, mend=False)
+        dsfs = [_dw.write_pack(pack_root, w.plan, tool,
+                               allow_live_install=allow_live_install,
+                               work_dir=work_dir, engine_version=engine_version,
+                               law_digest=law_digest,
+                               body_files=_bodies_of(w, written), omit=w.omit,
+                               seats=w.seats, mend=False)
+                for w in writes]
+    dsf = dsfs[0]
+    plan = own.plan
     if mended is not None:
         dsf = _dc.replace(dsf, notes=(mended.line(),) + tuple(dsf.notes))
     if getattr(dsf, "plan", None) is not None:
@@ -700,20 +805,39 @@ def _apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
         # the move above just changed — refresh it HERE, where the write
         # is known to have happened, never as a read-time side effect
         refreshed = refresh_dump(plan.dsf_path)
+        for w in writes[1:]:
+            refresh_dump(w.plan.dsf_path)
     # the restore is PROVENANCE (11f (1)): the plan beside the patch says
     # how many of the pack's objects were put back before it was written
     plan = _dc.replace(plan, provenance=_dc.replace(
         plan.provenance, counts={**dict(plan.provenance.counts), **restore.counts}))
-    plan_path = ""
-    if patch_dir:
-        os.makedirs(patch_dir, exist_ok=True)
-        plan_path = os.path.join(patch_dir, PLAN_FILENAME.format(icao=plan_key or plan.icao))
-        with open(plan_path + ".tmp", "w", encoding="utf-8",
-                  newline="\n") as fh:
-            json.dump(plan.to_dict(), fh, indent=1)
-        os.replace(plan_path + ".tmp", plan_path)
+    plan_path = _write_plan_json(plan, patch_dir, plan_key)
+    own_written = _bodies_of(own, written)
     counts = dict(plan.counts())
-    counts["files_written"] = len(written)
+    counts["files_written"] = len(own_written)
     counts.update(restore.counts)
-    return PlacementWriteResult(plan, plan_path, written, dsf, refreshed, counts,
-                                restore)
+    if len(writes) > 1:
+        counts["guest_dsfs_written"] = len(writes) - 1
+        counts["guest_bodies_written"] = len(written) - len(own_written)
+    return PlacementWriteResult(plan, plan_path, own_written, dsf, refreshed,
+                                counts, restore, tuple(dsfs[1:]))
+
+
+def _bodies_of(w: _Write, written: _t.Sequence[str]) -> tuple[str, ...]:
+    """The files of ``written`` that are ``w``'s bodies."""
+    mine = {os.path.normcase(os.path.abspath(p)) for p in w.minted()}
+    return tuple(p for p in written
+                 if os.path.normcase(os.path.abspath(p)) in mine)
+
+
+def _write_plan_json(plan: PlacementPlan, patch_dir: str, plan_key: str) -> str:
+    """Step 5: ``o4_v2_placement_<key>.json`` beside the patch; ``""``
+    without a patch folder."""
+    if not patch_dir:
+        return ""
+    os.makedirs(patch_dir, exist_ok=True)
+    plan_path = os.path.join(patch_dir, PLAN_FILENAME.format(icao=plan_key or plan.icao))
+    with open(plan_path + ".tmp", "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(plan.to_dict(), fh, indent=1)
+    os.replace(plan_path + ".tmp", plan_path)
+    return plan_path

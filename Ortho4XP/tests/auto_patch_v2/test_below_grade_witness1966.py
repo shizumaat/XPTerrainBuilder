@@ -163,3 +163,31 @@ def test_an_agl_zero_row_states_no_depth_from_its_buried_skirts():
     assert abs(b.depth - 1.7) < 1e-9 and "AGL" not in b.why
     o.agl_m = -0.5     # a SUNK row states its depth: 0.5 + 2.0 under the ground
     assert abs(BG.row_depth_under(o, -2.0, box(-1, -1, 1, 1), set(), g, LAW).depth - 2.5) < 1e-9
+
+
+class _EastRise(_Dem):
+    """Flat ground at the bore end; the ground ``rise`` m higher east of
+    x = 150 (the far end of a long object's plan)."""
+
+    def z_many(self, xs, ys):
+        xs = np.asarray(xs, float)
+        return self.zz + np.where(xs > 150.0, self.rise, 0.0)
+
+
+def test_the_ground_is_read_round_the_roof_over_the_bore_end(tmp_path):
+    """#2086 LEMG ``LEMGterminalMagenta-LEMG62.obj``: a long object roofed in
+    many places — the ground stands on its roof only far from the bore end,
+    where the road runs at grade under it: a building over the road at
+    grade, never a portal read off its farthest roofs."""
+    from shapely.geometry import MultiPolygon, box
+    ground = BG.ground_of(_airport(_EastRise(rise=6.0)), [], O.ResourceCache(THICK), LAW)
+    o = _portal_placed(_portal(tmp_path))
+    o.kind, o.anchor_z, o.agl_m = "OBJECT", 100.0, 0.0
+    near, far = box(-5.0, -5.0, 5.0, 5.0), box(240.0, -60.0, 360.0, 60.0)
+    roof = MultiPolygon([near, far])
+    cache = O.ResourceCache(THICK)
+    assert P._at_grade(o, cache, roof, LAW, ground) == ""     # read round every roof
+    over = P._roof_over(roof, [(0.0, 0.5)], 5.0)
+    assert over.equals(near)
+    assert "a building over the road at grade" in P._at_grade(o, cache, over, LAW, ground)
+    assert P._roof_over(near, [(0.0, 0.5)], 5.0) is near

@@ -612,6 +612,7 @@ def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack], law=None) -
     from .deck_signature import is_bridge_way
     tags = {int(w.id): (w.tags or {}) for w in ways}
     cuts: dict[int, list] = {}
+    ends: dict[int, list] = {}
     level: dict[int, list] = {}
     run_on = (float(law.tables.structures.bridge.free_end_run_on_max_m)
               if law is not None else 0.0)
@@ -621,9 +622,10 @@ def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack], law=None) -
         for d in st.decks:
             ring = Polygon(d.ring)
             region = rotated_rectangle(ring) if st.kind == TRENCH else ring
+            into = cuts if st.kind == TRENCH else ends
             for wid in d.carried:
                 if st.kind == TRENCH or not is_bridge_way(tags.get(int(wid), {})):
-                    cuts.setdefault(int(wid), []).append((d.object_id, region))
+                    into.setdefault(int(wid), []).append((d.object_id, region))
         for e in st.graded_ends() if run_on > 0.0 else ():
             if len(e.path) < 2:
                 continue
@@ -635,6 +637,7 @@ def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack], law=None) -
                                                                                   ).length > 0.5:
                     level.setdefault(int(w.id), []).append((e.object_id, past))
     out = bridge_stretches(ways, cuts) if cuts else tuple(ways)
+    out = bridge_stretches(out, ends, graded_end=True) if ends else out
     return bridge_stretches(out, level, at_grade=True) if level else out
 
 

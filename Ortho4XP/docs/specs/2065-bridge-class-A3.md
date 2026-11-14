@@ -59,10 +59,11 @@ F7 `free_bridge_seat._bridge_zero` (:122-124) and `deck_end_read._walked` (:147-
   (road, stub) or `[tunnel] rail_ramp_grade` 1.25 % (rail, 10-28k; Q2). RUN = gap / g +
   `abutment_sample_step_m`. The nearest obstruction within max(RUN, the end line's length) decides:
   - FLUSH: gap <= `deck_flush_m`.
-  - HELD (14f (4); built as today): `end_at_pack_solid` — a non-deck solid of ANOTHER frame, standing
-    >= `[bridge] end_solid_min_height_m` (new, 2.0) over >= `end_solid_min_area_m2` (new, 10.0; the
-    survey's values); `end_route_stops` — a routed deck whose path ends before RUN; `end_on_lot` — the
-    path enters a gap-mint lot piece (PLANAR stage, beside `admitted`; see C5).
+  - HELD (14f (4) as amended by the owner 2026-11-14T18:12Z; built as today): `end_at_pack_solid`
+    only — a STANDING face of ANOTHER frame, >= `[bridge] end_solid_min_height_m` (2.0) over >=
+    `end_solid_min_area_m2` (10.0); a ground sheet authored >= 2 m over its object's zero is no
+    building (`Obstacles.standing`). A route that stops before RUN (the path runs on straight along
+    its last heading) and a path entering a gap-mint lot piece are GRADED like every other end.
   - LISTED (question B's default: nothing built): `end_on_airside` (`deck_stack._Airside`; never
     altered); `end_under_low_deck` (rule 8); `end_on_water`; `end_beyond_reach` (a STUB over
     `fill_road_reach_m` 100 m: 14e lifts the cap only where a road or rail is followed); `end_off_dem`.
@@ -88,7 +89,10 @@ F7 `free_bridge_seat._bridge_zero` (:122-124) and `deck_end_read._walked` (:147-
   the coverage join (`emit/road_join`) fall beyond the ramp's landing. `_rewrite_ways` (:601), for a
   stack with a GRADED end: a carried stretch inside the plate's RING not already `bridge != no`
   becomes a bridge stretch (B06's way -5650); the run-on of a bridge way past a GRADED end (<=
-  `free_end_run_on_max_m`) becomes at grade, or no ribbon exists to seed.
+  `free_end_run_on_max_m`) becomes at grade, or no ribbon exists to seed. A stretch rule 7 makes a
+  bridge is marked `deck_carry.END_TAG` at that ONE site, and the #1935 bridge-ground pass
+  (`airport/bridge_ground.bridge_runs`) reads no run on it: the road rides the graded plate, no DEM
+  deck stands under it (KMCI road-bridge-5 end b: way -5398 lowered 0.57 m drawn, 2026-11-14).
 8 ANOTHER DECK ON THE PATH (14f (2)). A deck of another bridge whose ring holds a path station
   within RUN: its underside there (its stack zero, else DEM at its anchor + `agl_m`, + its plate) less
   P(s) >= `[bridge] clearance_m` (5.1) -> the ramp runs UNDER it, no weld, no row of that deck; less
@@ -136,9 +140,11 @@ keeps its clearance; a kept 22m bridge with its far end raised keeps its seat; r
 ## C4. Gates — production DEM before the build, drawn mesh after (A2)
 G0 Before any terrain code: `tools/bridge_census.py --ends` on `v2_solve_replay.py --capture` of OTHH,
    KDEN, KLAX, KMCI, KTPA, LEMG, KPWA, RJTT, YSSY (no build): one row per land end (rule 3), kept as
-   frames. Bars: E3's 6 free + 20 kept decks present, B05 listed; each of LEMG bridgeDrei a, KTPA
-   South_Bridge b, YSSY road3_d b, KDEN Garage_Bridge x4 b (obj31305-31308), KMCI road-bridge-5 a
-   (planar stage: G2) is HELD, LISTED or FLUSH — one GRADED is a STOP. Other held ends are reported.
+   frames. Bars: E3's 6 free + 20 kept decks present, B05 listed; a HELD end is a standing face
+   (rule 3 as amended 2026-11-14T18:12Z): KTPA South_Bridge b, YSSY road3_d b, KDEN Garage_Bridge x4
+   b (obj31305-31308) and KMCI road-bridge-5 a are FLUSH, GRADED or LISTED, never held by a stopping
+   route or a lot piece; no rule-7 stretch (`END_TAG`) yields a #1935 bridge-ground run. Other held
+   ends are reported.
 G1 OTHH zeros written down beside R2's drawn zeros (B01 0.385, interchange 6.14, B04 -0.64). Not a
    STOP: the terrain holds the ends. A difference over 0.5 m heads the report (the seat moves by it).
 G2 `v2_solve_replay.py --replay <capture> --from classify --verify --emit`, OTHH and KDEN, the

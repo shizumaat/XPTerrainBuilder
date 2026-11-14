@@ -822,6 +822,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.pipeline.stage_one_map",
     "auto_patch_v2.pipeline.storey_publication",
     "auto_patch_v2.pipeline.terrace_witness",
+    "auto_patch_v2.pipeline.upper_pad_publication",
     "auto_patch_v2.pipeline.verify_stage",
     "auto_patch_v2.pipeline.xplat",
     "auto_patch_v2.planar",

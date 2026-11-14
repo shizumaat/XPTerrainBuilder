@@ -329,8 +329,8 @@ def test_w4b_reads_an_object_by_its_faces_not_its_origin():
     m = {"id": "far", "origin": [0.0, 0.0], "heading_deg": 0.0}
     own = {"id": "unit:0", "agl_m": 0.0, "members": []}
     other = {"id": "unit:1", "agl_m": 3.0, "members": [m]}
-    U = BC._Under([own, other], geoms, lambda lon, lat: (lon, lat), 0.9, None)
-    got = U.for_unit(own)((1002.0, 2.0, 1004.0, 4.0))
+    U = BC._under([own, other], geoms, lambda lon, lat: (lon, lat), 0.9, None)
+    got = U.for_unit("unit:0")((1002.0, 2.0, 1004.0, 4.0))
     assert len(got) == 1 and np.allclose(got[0, :, 2], 5.0)
     assert U.unshifted == {"unit:0"}
-    assert len(U.for_unit(own)((0.0, 0.0, 5.0, 5.0))) == 0
+    assert len(U.for_unit("unit:0")((0.0, 0.0, 5.0, 5.0))) == 0

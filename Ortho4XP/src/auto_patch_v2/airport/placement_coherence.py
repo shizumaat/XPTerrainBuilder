@@ -104,13 +104,16 @@ def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
     the ground at the deck's mid-line.  The ends are read by the seat's own
     function (``deck_end_read.deck_end_reads``: the ground the end meets,
     the plate's own top on it); an end abutting another deck of its bridge
-    is no land end and never barred.  A deck the law holds at its AUTHORED
+    is no land end and never barred.  A FREE BRIDGE's decks (#2065,
+    ``free_bridge_seat.free_member``) are one bridge per published
+    ``free_bridge`` id, their land ends the published ``deck_end_land``.
+    A deck the law holds at its AUTHORED
     CLEARANCE (no embankment at either end, RULINGS 2026-10-22p) is listed
     and never barred."""
     import types
 
     from .deck_end_read import deck_end_reads
-    from .free_bridge_seat import _abuts, _rings_local, bridge_groups
+    from .free_bridge_seat import _abuts, _rings_local, bridge_groups, free_member
     from .placement_family import frame_is_bridge
     zeros: dict[str, list[float]] = collections.defaultdict(list)
     for s in splits:
@@ -137,6 +140,11 @@ def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                                       for m in ms)
         groups = (bridge_groups(staged, origin, touch_m) if ringed
                   else [[i] for i in range(len(ms))])
+        if any(free_member(m) for m in ms):
+            by_id: dict[str, list[int]] = {}
+            for i, m in enumerate(ms):
+                by_id.setdefault(m.free_bridge if free_member(m) else f"#{i}", []).append(i)
+            groups = list(by_id.values())
         rings = _rings_local(staged, origin) if ringed else []
         for group in groups:
             offs_land: list[float] = []
@@ -150,9 +158,13 @@ def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                     continue
                 clearance = r.clearance is not None
                 offs = [zero + e.top - e.ground for e in r.ends]
-                land = [o for e, o in zip(r.ends, offs, strict=True)
-                        if not (rings and _abuts(e.line, [rings[j] for j in group if j != i],
-                                                 origin, touch_m))]
+                if free_member(m):
+                    land = [o for k, o in enumerate(offs)
+                            if k < len(m.deck_end_land) and m.deck_end_land[k]]
+                else:
+                    land = [o for e, o in zip(r.ends, offs, strict=True)
+                            if not (rings and _abuts(e.line, [rings[j] for j in group
+                                                              if j != i], origin, touch_m))]
                 if not clearance:
                     offs_land.extend(land)
                 ends = tuple(tuple((float(q[0]), float(q[1])) for q in ln) for ln in m.deck_ends)

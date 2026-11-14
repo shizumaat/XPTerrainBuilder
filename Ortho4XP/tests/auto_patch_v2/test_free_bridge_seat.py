@@ -4,7 +4,9 @@ frame that IS a free-standing bridge — its deck plus piers and rails on one
 anchor, no building — seats its deck flush at the end nearer its ground,
 every body with it (``airport/free_bridge_seat``); the end reading takes the
 deck top AT each end and reads 22p's road-under only with the anchor under
-the deck (``airport/bridge_approach``)."""
+the deck (``airport/bridge_approach``).  #2065 S3: only a deck the rebake
+plan published FREE (``plate_kind == "free"``) is admitted, one zero per
+published bridge id over its published land ends, at its published tops."""
 from __future__ import annotations
 
 import types
@@ -28,8 +30,9 @@ DECK = "objects/bridge_deck.obj"
 def _member(**kw):
     base = dict(resource=DECK, id="dsf:obj1", deck_kind="flag", deck_top_y=4.65,
                 deck_datum_z=None, deck_ring=RING, deck_ends=ENDS,
-                deck_end_stations=(), plate_kind="", plate_y=None, plate_stations=(),
-                parts=(), authored_path="", heading_deg=0.0)
+                deck_end_stations=(), plate_kind="free", plate_y=None, plate_stations=(),
+                parts=(), authored_path="", heading_deg=0.0, free_bridge="free:dsf:obj1",
+                deck_end_tops=(4.65, 4.65), deck_end_land=(True, True))
     base.update(kw)
     return types.SimpleNamespace(**base)
 
@@ -57,23 +60,14 @@ def test_a_canal_bridge_frame_with_piers_is_seated_flush_at_its_banks():
     assert abs(zero + 4.65 - 3.9) < 1e-6 and "22m" in why
 
 
-def test_a_frame_with_a_building_is_no_free_bridge():
-    class Roles:
-        def roles_many(self, la, lo):
-            return ["building"] * len(la)
-    surf = lambda la, lo: _canal(la, lo)                       # noqa: E731
-    surf.water, surf.roles = _canal.water, Roles()
-    hall = _member(resource="objects/hall.obj", deck_kind="", deck_top_y=None)
-    st = _staged(_member()) + [types.SimpleNamespace(m=hall, bridge=[""],
-                                                     boxes=[(40.0, -3.0, 40.0001, -2.9999)])]
-    assert FB.free_bridge_zeros(st, surf, origin=(40.00035, -2.9999), agl_m=0.0,
-                                step_m=5.0) == {}
-
-
-def test_a_plated_deck_keeps_its_plates_reader():
-    st = _staged(_member(plate_kind="overpass", plate_y=0.0))
-    assert FB.free_bridge_zeros(st, _canal, origin=(40.00035, -2.9999), agl_m=0.0,
-                                step_m=5.0) == {}
+def test_only_a_deck_published_free_is_admitted():
+    """#2065 S3: a deck the witness never published (an all-deck frame's, a
+    plated one, one beside a building) keeps its own reader."""
+    for kw in ({"plate_kind": ""}, {"plate_kind": "overpass", "plate_y": 0.0},
+               {"deck_end_land": ()}):
+        st = _staged(_member(**kw))
+        assert FB.free_bridge_zeros(st, _canal, origin=(40.00035, -2.9999), agl_m=0.0,
+                                    step_m=5.0) == {}
 
 
 def test_a_ramp_is_flush_at_the_end_whose_ground_less_its_top_is_highest():
@@ -142,13 +136,6 @@ def _obj(path, plates):
     return str(path)
 
 
-def test_an_all_deck_frame_keeps_22d_and_22p():
-    """S1: a frame every member of which is a deck is no class B frame."""
-    unit = types.SimpleNamespace(members=(_member(),))
-    assert FB.free_bridge_zeros(_staged(_member()), _canal, origin=(40.00035, -2.9999),
-                                agl_m=0.0, step_m=5.0, unit=unit) == {}
-
-
 def test_a_22p_bridge_with_its_anchor_off_the_ring_keeps_its_clearance_on_the_old_path():
     """S1: the all-deck datum (``anchor_rule.datum_of``) carries no ring, so
     22p reads the road at an anchor 4 m off the deck as before (F7)."""
@@ -160,10 +147,12 @@ def test_a_22p_bridge_with_its_anchor_off_the_ring_keeps_its_clearance_on_the_ol
     assert "22p" in s.reason and abs(s.zero - 7.96) < 1e-6
 
 
-def _deck(res, lat0, lat1, lon0=-3.0, lon1=-2.9998, top=4.65):
+def _deck(res, lat0, lat1, lon0=-3.0, lon1=-2.9998, top=4.65, bridge="free:a",
+          land=(True, True)):
     ring = ((lat0, lon0), (lat0, lon1), (lat1, lon1), (lat1, lon0))
     ends = (((lat0, lon0), (lat0, lon1)), ((lat1, lon0), (lat1, lon1)))
-    return _member(resource=res, deck_ring=ring, deck_ends=ends, deck_top_y=top)
+    return _member(resource=res, deck_ring=ring, deck_ends=ends, deck_top_y=top,
+                   deck_end_tops=(top, top), free_bridge=bridge, deck_end_land=land)
 
 
 class _NoPad:
@@ -185,9 +174,9 @@ def _on(f):
     return f
 
 
-def test_two_touching_decks_take_one_zero_and_two_apart_take_two():
-    """S2: decks whose rings touch at ``touch_m`` are one bridge, one zero
-    (the highest ``ground - top`` over its land ends); 2 m apart, two."""
+def test_one_published_bridge_takes_one_zero_and_two_take_two():
+    """#2065 S3: the decks of one published bridge id take one zero (the
+    highest ``ground - top`` over its land ends); two ids, two zeros."""
     @_on
     def land(la, lo):
         return 5.0 if la < 40.0005 else 3.0
@@ -195,29 +184,28 @@ def test_two_touching_decks_take_one_zero_and_two_apart_take_two():
     a = _deck("objects/a.obj", 40.0, 40.0005)
     b = _deck("objects/b.obj", 40.0005, 40.001)
     st = _bridge_frame(a, b, pier)
-    zs = FB.free_bridge_zeros(st, land, origin=(40.002, -2.9999), agl_m=0.0, step_m=5.0,
-                              touch_m=0.5)
+    zs = FB.free_bridge_zeros(st, land, origin=(40.002, -2.9999), agl_m=0.0, step_m=5.0)
     # one bridge: flush at a's south end (5.0 - 4.65), b's north end floats
     assert abs(zs["objects/a.obj"][0] - 0.35) < 1e-6
     assert zs["objects/b.obj"][0] == zs["objects/a.obj"][0]
     gap = 2.0 / M_LAT
-    b2 = _deck("objects/b.obj", 40.0005 + gap, 40.001)
+    b2 = _deck("objects/b.obj", 40.0005 + gap, 40.001, bridge="free:b")
     zs2 = FB.free_bridge_zeros(_bridge_frame(a, b2, pier), land,
-                               origin=(40.002, -2.9999), agl_m=0.0, step_m=5.0, touch_m=0.5)
+                               origin=(40.002, -2.9999), agl_m=0.0, step_m=5.0)
     assert abs(zs2["objects/a.obj"][0] - 0.35) < 1e-6
     assert abs(zs2["objects/b.obj"][0] - (3.0 - 4.65)) < 1e-6
 
 
-def test_an_end_abutting_another_deck_of_its_bridge_is_no_land_end():
-    """S2: the joint between two decks of one bridge is not a land end —
-    its ground (a hump under the joint) never sets the zero."""
+def test_a_joint_end_is_no_land_end():
+    """#2065 S3 (W7): an end the witness published as a joint is no land
+    end — its ground (a hump under the joint) never sets the zero."""
     @_on
     def hump(la, lo):
         return 9.0 if abs(la - 40.0005) < 1e-5 else 3.0
-    a = _deck("objects/a.obj", 40.0, 40.0005)
-    b = _deck("objects/b.obj", 40.0005, 40.001)
+    a = _deck("objects/a.obj", 40.0, 40.0005, land=(True, False))
+    b = _deck("objects/b.obj", 40.0005, 40.001, land=(False, True))
     zs = FB.free_bridge_zeros(_bridge_frame(a, b), hump,
-                              origin=(40.002, -2.9999), agl_m=0.0, step_m=5.0, touch_m=0.5)
+                              origin=(40.002, -2.9999), agl_m=0.0, step_m=5.0)
     assert abs(zs["objects/a.obj"][0] - (3.0 - 4.65)) < 1e-6
 
 
@@ -237,6 +225,17 @@ def test_a_pylon_top_near_an_end_does_not_set_the_end_top(tmp_path):
     m = _member(authored_path=path, deck_top_y=11.56)
     assert all(abs(t - 3.5) < 1e-6 for t in DE._plate_end_tops(m, lines, origin, 5.0))
     assert abs(end_tops(m, (list(lines[0]), list(lines[1])), origin, 5.0)[0] - 11.56) < 1e-6
+
+
+def test_a_free_decks_ends_read_its_published_tops():
+    """#2065 S3: a free deck's end reading takes the tops the witness
+    published (the driven layer at each route end) — no plate read, no
+    rectangle — and the ground at its published end lines."""
+    land = lambda la, lo: 3.9                                  # noqa: E731
+    r = DE.deck_end_reads(_member(deck_end_tops=(3.58, 2.0)), land,
+                          origin=(40.002, -2.9999), agl_m=0.0, step_m=5.0)
+    assert [round(e.top, 2) for e in r.ends] == [3.58, 2.0]
+    assert all(abs(e.ground - 3.9) < 1e-6 for e in r.ends)
 
 
 def _crossing(tmp_path, plates):

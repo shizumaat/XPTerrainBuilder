@@ -16,29 +16,23 @@ feet: OTHH ``Bridge_04`` (piers in the canal) stood its deck 2.5 m over
 both banks, the flyover ramps ``Bridge_02`` / ``_06`` 1-2 m over the land
 at their ends.
 
-THE FRAME IS THE BRIDGE by the witness class A and the refused class A
-already read (``airside_deck_seat._is_the_bridge``): every body of the
-frame stands inside a deck's model footprint (§16e (3) ``bridge_of``) or,
-outside it, on no emitted object pad — no building shares it (22m (2): a
-bridge attached to a building stays with the building).  A frame class A
-or its refused reading takes is theirs; a deck carrying a plate (an
-overpass's road beneath, a hard-deck bridge's end lines, an edge, a walled
-or split-level plate) keeps that plate's reader.
-
-THE FRAME IS NO ALL-DECK FRAME: a frame every member of which is a deck
-(``placement_family.frame_is_bridge``) keeps 22d / 22p's datum
-(``anchor_rule._datum_anchor``) unchanged (spec S1).
+THE FRAME IS THE BRIDGE by the POSITIVE WITNESS (#2065; spec
+``2065-bridge-class-A1.md`` §A4 S3): the pack stage read it
+(``planar/free_bridge``: W1-W7 + W4b, ``airport/bridge_witness``) and the
+rebake plan published each free deck (``plate_kind == "free"``) with its
+bridge's id, its two ROUTE end lines (``deck_ends``), the driven layer's top
+at each (``deck_end_tops``) and whether each meets LAND (``deck_end_land``,
+W7).  Nothing else is admitted here: a deck the witness did not hold, an
+all-deck frame (22d / 22p), a plated deck and a class-A frame keep their own
+readers.
 
 THE ZERO, per BRIDGE (a frame may hold several: OTHH's interchange puts
-three on one anchor): the free decks of the frame whose rings touch at
-``[placement] touch_m`` are ONE bridge (22o; 13y (4)), and it takes ONE
-zero — over its LAND-MEETING ends, the highest ``ground - top``
-(``deck_end_read.deck_end_reads``: the ground at the end line, the plate's
-own top on it), so that end is flush and every other floats for the
-terrain to grade up to (#1138).  An end abutting another deck of the same
-bridge is no land end.  Every body takes its deck's bridge's zero
-(:func:`_deck_of_body`); in a one-deck frame every body does (the supports
-stay attached, 10-22c).
+three on one anchor): ONE zero per ``free_bridge`` id (22o; 13y (4)) — over
+its LAND ends, the highest ``ground - top`` (``deck_end_read.deck_end_reads``:
+the ground at the end line, the published top on it), so that end is flush
+and every other floats for the terrain to grade up to (#1138).  Every body
+takes its deck's bridge's zero (:func:`_deck_of_body`); in a one-deck frame
+every body does (the supports stay attached, 10-22c).
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -46,10 +40,11 @@ from __future__ import annotations
 
 import typing as _t
 
+from ..model.free_bridge import FREE_PLATE
 from . import anchor_rule as _ar
 
 __all__ = ["PLATED_KINDS", "REASON", "free_bridge_zeros", "free_bridge_seat",
-           "bridge_groups"]
+           "free_member", "bridge_groups"]
 
 #: a member carrying one of these plates is seated by that plate's own
 #: reader (``airside_deck_seat._plate_zero``, ``anchor_rule.datum_of``)
@@ -59,14 +54,14 @@ PLATED_KINDS = frozenset({"deck", "overpass", "edge", "walled", "split_level"})
 REASON = "one free-standing bridge at its deck's end lines"
 
 
-def _free_deck(m: _t.Any) -> bool:
-    """A deck member the class-B reading seats: a flag / signature deck
-    with a top and a ring, over no graded face, carrying no plate."""
-    return (str(getattr(m, "deck_kind", "") or "") in ("flag", "signature")
+def free_member(m: _t.Any) -> bool:
+    """A deck the rebake plan published as a FREE BRIDGE's (#2065 S2): its
+    plate kind ``"free"``, a top, its two route end lines and their land
+    flags."""
+    return (str(getattr(m, "plate_kind", "") or "") == FREE_PLATE
             and getattr(m, "deck_top_y", None) is not None
-            and getattr(m, "deck_datum_z", None) is None
-            and len(getattr(m, "deck_ring", None) or ()) >= 3
-            and str(getattr(m, "plate_kind", "") or "") not in PLATED_KINDS)
+            and len(getattr(m, "deck_ends", None) or ()) >= 2
+            and len(getattr(m, "deck_end_land", ()) or ()) >= 2)
 
 
 def _rings_local(decks: _t.Sequence[_t.Any], origin: tuple[float, float]) -> list:
@@ -84,7 +79,8 @@ def _rings_local(decks: _t.Sequence[_t.Any], origin: tuple[float, float]) -> lis
 def bridge_groups(decks: _t.Sequence[_t.Any], origin: tuple[float, float],
                   touch_m: float) -> list[list[int]]:
     """The indices of ``decks`` grouped into BRIDGES: decks whose rings
-    come within ``touch_m`` of each other, transitively (module doc)."""
+    come within ``touch_m`` of each other, transitively (a census's reading
+    of a frame no witness published)."""
     rings = _rings_local(decks, origin)
     root = list(range(len(decks)))
 
@@ -141,35 +137,29 @@ def _bridge_zero(reads: _t.Sequence[_t.Any], lines_abut: _t.Sequence[_t.Sequence
 def free_bridge_zeros(staged: _t.Sequence[_t.Any], surface: _ar.Surface, *,
                       origin: tuple[float, float], agl_m: float, step_m: float,
                       walk_max_m: float = 0.0, level_tol_m: float = 0.0,
-                      touch_m: float = 0.0, unit: _t.Any = None,
                       counts: "dict | None" = None) -> dict[str, tuple[float, str, tuple]]:
-    """``{deck resource: (zero, why, ring box)}`` of a frame that IS a
-    free-standing bridge (module doc), or ``{}``.  ``staged`` are the
-    frame's staged members (``placement_record.Staged``: ``m``, ``bridge``,
-    ``boxes``); ``unit`` the frame's plan unit (an all-deck frame keeps
-    22d / 22p); the ring box is ``(lat0, lon0, lat1, lon1)``."""
-    from .airside_deck_seat import _is_the_bridge
+    """``{deck resource: (zero, why, ring box)}`` of every free bridge in a
+    frame (module doc), or ``{}``.  ``staged`` are the frame's staged
+    members (``placement_record.Staged``: ``m``); the ring box is
+    ``(lat0, lon0, lat1, lon1)``."""
     from .deck_end_read import deck_end_reads
-    from .placement_family import frame_is_bridge
-    if unit is not None and frame_is_bridge(unit):
-        return {}
-    decks = [st for st in staged if _free_deck(st.m)]
-    if not decks or not all(_is_the_bridge(staged, st, surface) for st in decks):
+    decks = [st for st in staged if free_member(st.m)]
+    if not decks:
         return {}
     reads = [deck_end_reads(st.m, surface, origin=origin, agl_m=agl_m, step_m=step_m,
                             walk_max_m=walk_max_m, level_tol_m=level_tol_m)
              for st in decks]
-    rings = _rings_local(decks, origin)
+    groups: dict[str, list[int]] = {}
+    for i, st in enumerate(decks):
+        groups.setdefault(str(st.m.free_bridge), []).append(i)
     out: dict[str, tuple[float, str, tuple]] = {}
-    for group in bridge_groups(decks, origin, touch_m):
-        abut = [[_abuts(e.line, [rings[j] for j in group if j != i], origin, touch_m)
-                 for e in (reads[i].ends if reads[i] is not None else ())]
-                for i in group]
+    for bid, group in sorted(groups.items()):
+        abut = [[not land for land in decks[i].m.deck_end_land] for i in group]
         got = _bridge_zero([reads[i] for i in group], abut)
         if got is None:
             continue
-        why = got[1] if len(group) == 1 else \
-            f"{got[1]}; one bridge of {len(group)} touching decks (RULINGS 2026-10-22o)"
+        why = f"{got[1]}; {bid}" if len(group) == 1 else \
+            f"{got[1]}; {bid}, one bridge of {len(group)} decks (RULINGS 2026-10-22o)"
         for i in group:
             ring = decks[i].m.deck_ring
             box = (min(q[0] for q in ring), min(q[1] for q in ring),

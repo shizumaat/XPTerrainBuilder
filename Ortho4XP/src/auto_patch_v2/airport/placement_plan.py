@@ -1036,8 +1036,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 _free_bridge_zeros(staged, surface, origin=tuple(u.anchor),
                                    agl_m=float(u.agl_m or 0.0), step_m=abutment_step_m,
                                    walk_max_m=abutment_walk_max_m,
-                                   level_tol_m=split_tol_m, touch_m=touch_m,
-                                   unit=u, counts=counts))
+                                   level_tol_m=split_tol_m, counts=counts))
         _bz: list[float] = []
         # #1883: what stands on a deck seated over the pack's cut rides that
         # seat (``cut_deck_seat.cut_seats``, read before the deck is cut)

@@ -40,7 +40,7 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
 #: anchor plane); 9: ``Member.elevated_deck`` (11a); 10: THE WELDED DECK's
 #: ``Member.deck_shade_ring`` / ``deck_pier_ratio`` (issue #14,
 #: ``welded-deck-spec.md`` §1 (4)).
-PLAN_VERSION = 13
+PLAN_VERSION = 14
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -217,6 +217,14 @@ class Member:
     #: stage reads off the built surface equals it where no anchor yielded.
     #: ``None`` for every other member and in every older plan.
     anchor_zero: float | None = None
+    #: #2065 S2: a FREE BRIDGE's deck (``plate_kind == "free"``,
+    #: ``planar/free_bridge``): its bridge's id, the driven layer's top at
+    #: each route end (``deck_ends`` are then the ROUTE end lines, not the
+    #: rectangle's) and whether each end meets land (W7).  Empty for every
+    #: other member and in every plan before version 14.
+    free_bridge: str = ""
+    deck_end_tops: tuple[float, ...] = ()
+    deck_end_land: tuple[bool, ...] = ()
     #: THE FOUNDATION SKIRT (owner RULINGS 2026-09-10ag; spec §22.3):
     #: this member's resource carries a uniform below-zero extent across
     #: its footprint (``airport/skirt.is_skirt``).  A body EVERY one of
@@ -463,6 +471,9 @@ class RebakePlan:
                     "plate_clearance_m": m.plate_clearance_m,
                     "plate_kind": m.plate_kind,
                     "anchor_zero": m.anchor_zero,
+                    "free_bridge": m.free_bridge,
+                    "deck_end_tops": list(m.deck_end_tops),
+                    "deck_end_land": list(m.deck_end_land),
                     "plate_stations": [[a, b] for a, b in m.plate_stations],
                     "skirted": m.skirted,
                     "elevated_deck": m.elevated_deck,
@@ -483,6 +494,11 @@ class RebakePlan:
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "RebakePlan":
+        # Version 14 is version 13 plus ``Member.free_bridge`` /
+        # ``deck_end_tops`` / ``deck_end_land`` (#2065 S2): a 13 plan reads
+        # with no free bridge — every free deck on today's path.  Purely
+        # additive, so the window widens to six (``PLAN_VERSION - 5``) and
+        # this bump retires nothing.
         # Version 13 is version 12 plus ``authored_seats`` (object-placement
         # spec §18): a 12 plan reads with none — every admitted wall and
         # pit plate-seated, the pre-§18 law exactly.  Purely additive — and
@@ -526,7 +542,7 @@ class RebakePlan:
         # offline (``tools/v2_rebake_replay.py``).  Nothing earlier is
         # accepted: those versions changed fields the seat reads.
         if d.get("version") not in (PLAN_VERSION, PLAN_VERSION - 1, PLAN_VERSION - 2,
-                                    PLAN_VERSION - 3, PLAN_VERSION - 4):
+                                    PLAN_VERSION - 3, PLAN_VERSION - 4, PLAN_VERSION - 5):
             raise ValueError(f"rebake plan version {d.get('version')!r} != {PLAN_VERSION}")
         units = tuple(Unit(
             id=str(u["id"]), anchor=(float(u["anchor"][0]), float(u["anchor"][1])),
@@ -564,6 +580,9 @@ class RebakePlan:
                 plate_clearance_m=float(m.get("plate_clearance_m") or 0.0),
                 plate_kind=str(m.get("plate_kind") or ""),
                 anchor_zero=None if m.get("anchor_zero") is None else float(m["anchor_zero"]),
+                free_bridge=str(m.get("free_bridge") or ""),
+                deck_end_tops=tuple(float(x) for x in m.get("deck_end_tops") or ()),
+                deck_end_land=tuple(bool(x) for x in m.get("deck_end_land") or ()),
                 skirted=bool(m.get("skirted", False)),
                 elevated_deck=bool(m.get("elevated_deck", False)),
                 deck_shade_ring=None if m.get("deck_shade_ring") is None

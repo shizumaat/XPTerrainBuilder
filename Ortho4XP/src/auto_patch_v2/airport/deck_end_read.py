@@ -12,6 +12,9 @@ law did not make.
   mesh); an end line on a bank walks landward (§16e (6),
   ``anchor_rule._walked_stations``; RULINGS 2026-09-13v).  A deck the 22p
   witness holds at its authored clearance reads that one zero instead.
+* A FREE BRIDGE's deck (#2065 S3, ``free_bridge_seat.free_member``): its
+  end lines and tops AS PUBLISHED (the route ends and the driven layer's
+  top there, ``planar/free_bridge``) — no rectangle, no plate read.
 * THE TOP at an end: the PLATE's own height on the end line
   (``deck_carry._plate_top``: the lowest plate triangle under each station,
   a hair inside the deck), never the maximum within a reach — a pylon or an
@@ -31,6 +34,7 @@ import typing as _t
 
 import numpy as np
 
+from ..model.free_bridge import FREE_PLATE
 from . import anchor_rule as _ar
 
 __all__ = ["deck_end_reads"]
@@ -173,7 +177,10 @@ def deck_end_reads(m: _t.Any, surface: _ar.Surface, *, origin: tuple[float, floa
         # 22p reads the road under the span only with the anchor under it
         datum = _dc.replace(datum, ring=tuple((float(q[0]), float(q[1]))
                                               for q in (getattr(m, "deck_ring", None) or ())))
-        tops = _plate_end_tops(m, lines, origin, step_m)
+        pub = tuple(getattr(m, "deck_end_tops", ()) or ())
+        tops = (tuple(float(t) for t in pub[:len(lines)]) if len(pub) >= len(lines)
+                and str(getattr(m, "plate_kind", "") or "") == FREE_PLATE
+                else _plate_end_tops(m, lines, origin, step_m))
     seat = approach_seat(datum, surface, origin=origin, authored_agl_m=agl_m, tops=tops)
     if seat is not None and "authored clearance" in seat.reason:
         return _DeckEnds(clearance=(seat.zero, seat.reason))

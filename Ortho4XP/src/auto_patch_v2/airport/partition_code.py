@@ -180,6 +180,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.model",
     "auto_patch_v2.model.airport",
     "auto_patch_v2.model.frame",
+    "auto_patch_v2.model.free_bridge",
     "auto_patch_v2.model.placement",
     "auto_patch_v2.model.planar",
     "auto_patch_v2.model.pulse",

@@ -50,6 +50,7 @@ from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
+from .free_bridge import admitted as free_admitted
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from ..airport.bridge_ground import BridgeGround, bridge_ground, bridge_runs
@@ -353,10 +354,17 @@ def build(airport: Airport, classification: Classification, law: Law,
     # THE ROAD OVERPASSES, read ONCE before the solve too (owner RULINGS
     # 2026-10-30f (1) / (5), ``planar/overpass_deck``): the object stage
     # seats each deck's zero on the road beneath
+    _cut_objs = ([o for tn in tunnels if tn.source == "object" for o in tn.objects]
+                 + sorted(floor_frame))
+    # #2065 S1 / S4: the free bridges the pack stage read, less a cut's frame,
+    # a hard-deck bridge's and a frame beside a building (22n); the overpass
+    # read takes the kept decks as ``taken``
+    free, free_notes = free_admitted(getattr(airport, "free_bridges", ()) or (), objects,
+                                     classification, airport, decks, _cut_objs)
+    sstats.hard_decks.extend(free_notes)
     overpasses, over_notes = road_overpasses(objects, cache, classification, airport,
-                                             law, decks,
-                                             [o for tn in tunnels if tn.source == "object"
-                                              for o in tn.objects] + sorted(floor_frame))
+                                             law, decks, _cut_objs,
+                                             free=[d for fb in free for d in fb.deck_ids()])
     sstats.hard_decks.extend(over_notes)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
     # 2026-09-15; RULINGS 2026-09-15y): the ONE road-family face the
@@ -497,6 +505,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins,
                    channels=tuple(channels), object_floors=tuple(floors),
                    overpasses=tuple(overpasses),
+                   free_bridges=tuple(free),
                    decks=tuple(decks),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)

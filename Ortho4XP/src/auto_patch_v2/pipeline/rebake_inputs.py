@@ -356,7 +356,10 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     adapted = (_adapted_seats(objects, excluded - _authored_seats.kept_ids(seats)
                               - {str(r["id"]) for r in floor_seats} - modelled,
                               airport.frame.transformers()[1]) if objects else [])
+    from ..model.free_bridge import published as _free_published
     return {
+        "free_decks": _free_published(getattr(pm, "free_bridges", ()) or (),
+                                      airport.frame.transformers()[1]),
         "tunnel_objects": _plate_seats(pm, law, seats),
         "authored_seats": (tuple(seats[k] for k in sorted(seats))
                            + tuple(_ts.seat_records(airport))

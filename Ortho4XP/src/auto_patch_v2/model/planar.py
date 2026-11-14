@@ -489,6 +489,11 @@ class PlanarMap:
     #: pavement crosses (``planar/overpass_deck._Overpass``), read before
     #: the solve; the object stage seats each on the road beneath.
     overpasses: tuple = ()
+    #: #2065 THE FREE BRIDGES (``model/free_bridge.FreeBridge``, additive):
+    #: the pack stage's ``Airport.free_bridges`` that no earlier planar
+    #: reader took (``planar/free_bridge.admitted``); the rebake plan
+    #: publishes their decks' route ends (``pipeline/rebake_inputs``).
+    free_bridges: tuple = ()
     #: THE DECK END-LINE ANCHORS (spec ``deck-end-anchors-20261103``;
     #: owner RULINGS 2026-11-03c, additive): one ``structures.DeckAnchor``
     #: per end line of every pack hard deck the airport's pavement drives

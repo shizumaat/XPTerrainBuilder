@@ -29,9 +29,10 @@ are not read offline, nor the 22n building roles (W6 checks the reach only).
 W4b reads every pack object whose placed faces' plan bounds meet the station
 box (other frames too, shifted by their unit's DEM + ``agl_m``; with no DEM by
 ``agl_m`` only, column ``beneath_unshifted``), placed once and cached.  A tile
-with no OSM feed prints "no OSM feed" and its decks read ``no OSM feed``.  Columns ``reach_m`` (W6), ``run_on_a`` / ``run_on_b``
-(W7), ``beneath`` (W4b) and ``witness_holds`` (W1-W7 + W4b) per spec
-``2065-bridge-class-A1.md`` §A4 S0.
+with no OSM feed prints "no OSM feed" and its decks read ``no OSM feed``.
+Columns ``reach_m`` (W6), ``run_on_a`` / ``run_on_b`` (W7), ``beneath``
+(W4b) and ``witness_holds`` (W1-W7 + W4b) per spec ``2065-bridge-class-A1.md``
+§A4 S0.
 
 Prints the free bridges by airport first, then every class count and the
 per-deck witness cost; ``--jsonl`` writes every row.
@@ -64,6 +65,7 @@ import time  # noqa: E402
 import types  # noqa: E402
 
 import numpy as np  # noqa: E402
+from auto_patch_v2.airport import bridge_frame as BF  # noqa: E402
 from auto_patch_v2.airport import bridge_witness as BW  # noqa: E402
 from auto_patch_v2.airport.bridge_class import DeckFacts, classify, witness_holds  # noqa: E402
 from shapely.geometry import Polygon  # noqa: E402
@@ -232,8 +234,8 @@ class _Geoms:
 
 
 def _placed(g, m: dict, to_xy) -> np.ndarray:
-    xy = to_xy(float(m["origin"][1]), float(m["origin"][0]))
-    return BW.placed_faces(g.vertices[:, :3], g.solid, xy, float(m.get("heading_deg") or 0.0))
+    return BF.solid_faces(g, to_xy(float(m["origin"][1]), float(m["origin"][0])),
+                          float(m.get("heading_deg") or 0.0))
 
 
 def _ring(m: dict, to_xy) -> Polygon:
@@ -245,83 +247,39 @@ def _ring(m: dict, to_xy) -> Polygon:
     return p
 
 
-def _bodies(members, geoms: _Geoms, to_xy, cap: int = 4000) -> dict:
-    """id -> plan vertices of each member's solid faces (strided to ``cap``)."""
+def _bodies(members, geoms: _Geoms, to_xy) -> dict:
+    """id -> plan vertices of each member's solid faces (``bridge_frame``)."""
     out = {}
     for m in members:
         g = geoms.of(m)
-        if g is None or not len(g.solid):
-            continue
-        f = _placed(g, m, to_xy)[:, :, :2].reshape(-1, 2)
-        f = np.unique(np.round(f, 2), axis=0)
-        out[str(m["id"])] = f[:: max(1, len(f) // cap)]
+        if g is not None and len(g.solid):
+            out[str(m["id"])] = BF.body_points(_placed(g, m, to_xy))
     return out
 
 
 def _frame_faces(members, geoms: _Geoms, to_xy, box) -> np.ndarray:
-    parts = []
-    for m in members:
-        g = geoms.of(m)
-        if g is not None and len(g.solid):
-            f = _placed(g, m, to_xy)
-            lo, hi = f[:, :, :2].min(axis=1), f[:, :, :2].max(axis=1)
-            parts.append(f[(hi[:, 0] >= box[0]) & (lo[:, 0] <= box[2])
-                           & (hi[:, 1] >= box[1]) & (lo[:, 1] <= box[3])])
-    return np.concatenate(parts) if parts else np.zeros((0, 3, 3))
+    return BF.faces_in_box((_placed(g, m, to_xy) for m in members
+                            if (g := geoms.of(m)) is not None), box)
 
 
-class _Under:
-    """Every pack object of a plan, its near-horizontal faces placed once
-    on demand (W4b, A1-E1 E2): ``for_unit(u)(bounds)`` -> the faces of every
-    object whose placed solid faces' plan bounds meet ``bounds`` (never by
-    origin distance), another unit's faces brought into ``u``'s frame by
-    ``(G + agl_m)`` at its anchor minus ``u``'s (``agl_m`` only with no DEM:
-    ``unshifted`` names those units)."""
+def _under(units, geoms: _Geoms, to_xy, normal: float, ground) -> BF.Under:
+    """W4b's reader over every pack object of a plan (``bridge_frame.Under``,
+    A1-E1 E2): a unit's datum is ``G`` at its anchor plus its ``agl_m``
+    (``G`` = 0 with no DEM, unshifted)."""
+    by_id = {str(u.get("id")): u for u in units}
+    placed = [(str(u.get("id")), geoms.of(m),
+               to_xy(float(m["origin"][1]), float(m["origin"][0])),
+               float(m.get("heading_deg") or 0.0))
+              for u in units for m in u.get("members") or () if m.get("origin")]
 
-    def __init__(self, units, geoms: _Geoms, to_xy, normal: float, ground) -> None:
-        self._m = [(u, m) for u in units for m in u.get("members") or () if m.get("origin")]
-        self._geoms, self._to_xy, self._normal = geoms, to_xy, normal
-        self._ground, self._faces, self._datum = ground, {}, {}
-        self.unshifted: set[str] = set()
-
-    def _of(self, k: int) -> tuple[np.ndarray, tuple]:
-        if k not in self._faces:
-            m = self._m[k][1]
-            g = self._geoms.of(m)
-            f = _placed(g, m, self._to_xy) if g is not None and len(g.solid) else None
-            if f is None or not len(f):
-                self._faces[k] = (np.zeros((0, 3, 3)), (math.inf,) * 2 + (-math.inf,) * 2)
-            else:
-                lo, hi = f[:, :, :2].min(axis=(0, 1)), f[:, :, :2].max(axis=(0, 1))
-                self._faces[k] = (BW.up_faces(f, self._normal), (*lo, *hi))
-        return self._faces[k]
-
-    def _z(self, u: dict) -> float:
-        """``G`` at the unit's anchor plus its ``agl_m`` (``G`` = 0, no DEM)."""
-        uid = str(u.get("id"))
-        if uid not in self._datum:
-            g = 0.0
-            if self._ground is not None and u.get("anchor"):
-                xy = self._to_xy(float(u["anchor"][1]), float(u["anchor"][0]))
-                g = float(self._ground([xy[0]], [xy[1]])[0])
-            self._datum[uid] = g + float(u.get("agl_m") or 0.0)
-        return self._datum[uid]
-
-    def for_unit(self, own: dict):
-        def under(b) -> np.ndarray:
-            parts = []
-            for k, (u, _m) in enumerate(self._m):
-                f, fb = self._of(k)
-                if not len(f) or fb[2] < b[0] or fb[0] > b[2] or fb[3] < b[1] or fb[1] > b[3]:
-                    continue
-                if u is not own:
-                    f = f.copy()
-                    f[:, :, 2] += self._z(u) - self._z(own)
-                    if self._ground is None:
-                        self.unshifted.add(str(own.get("id")))
-                parts.append(f)
-            return np.concatenate(parts) if parts else np.zeros((0, 3, 3))
-        return under
+    def datum(uid: str) -> tuple[float, bool]:
+        u = by_id[uid]
+        g = 0.0
+        if ground is not None and u.get("anchor"):
+            xy = to_xy(float(u["anchor"][1]), float(u["anchor"][0]))
+            g = float(ground([xy[0]], [xy[1]])[0])
+        return g + float(u.get("agl_m") or 0.0), ground is not None
+    return BF.Under(placed, datum, normal)
 
 
 def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
@@ -343,7 +301,7 @@ def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
     near = [p for p in ctx["water"] if p.bounds[0] <= box[2] and p.bounds[2] >= box[0]
             and p.bounds[1] <= box[3] and p.bounds[3] >= box[1]]
     wit = BW.frame_witness(plates, faces, bodies, ctx["ways"], law, ctx["ground"], near,
-                           under=ctx["under"].for_unit(u))
+                           under=ctx["under"].for_unit(str(u.get("id"))))
     dt = time.perf_counter() - t0
     unit = types.SimpleNamespace(members=[types.SimpleNamespace(**x) for x in u["members"]])
     ids = {str(x["id"]) for x in u["members"]}
@@ -360,6 +318,10 @@ def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
                       plated=(m.get("plate_kind") or "") in _PLATE_OWNED, witness=w)
         rows.append(_row(ctx["icao"], u, m, classify(f), w))
         rows[-1]["beneath_unshifted"] = str(u.get("id")) in ctx["under"].unshifted
+    if ctx.get("keep") is not None:
+        ctx["keep"].append({"unit": str(u.get("id")), "rings": rings, "witness": wit,
+                            "class": {r["id"]: r["class"] for r in rows},
+                            "members": [str(x["id"]) for x in u["members"]]})
     return rows, dt
 
 
@@ -395,9 +357,11 @@ def _row(icao: str, u: dict, m: dict, v, w) -> dict:
                              and (m.get("plate_kind") or "") not in _PLATED)}
 
 
-def census_plan(path: str, icao: str, law, osm_root: str, elev_root: str
-                ) -> tuple[list[dict], list[float]]:
-    """Every deck row of one plan, and the witness seconds per deck."""
+def census_plan(path: str, icao: str, law, osm_root: str, elev_root: str,
+                keep: "list | None" = None) -> tuple[list[dict], list[float]]:
+    """Every deck row of one plan, and the witness seconds per deck.
+    ``keep``: each read frame's ``{unit, rings, witness, class, members,
+    to_ll}`` appended (the replay's ``--bridge-witness``)."""
     plan = json.load(open(path, encoding="utf-8"))
     for u in plan.get("units") or ():
         for m in u.get("members") or ():
@@ -416,15 +380,18 @@ def census_plan(path: str, icao: str, law, osm_root: str, elev_root: str
            "ways": _ways(osm_root, decks, to_xy) + streams, "water": water,
            "no_feed": _no_feed(osm_root, decks, icao),
            "ground": _ground(frame, elev_root, icao),
-           "stacks": _stack_ids(path, icao), "cuts": _cut_ids(plan)}
-    ctx["under"] = _Under(plan.get("units") or (), ctx["geoms"], to_xy,
+           "stacks": _stack_ids(path, icao), "cuts": _cut_ids(plan), "keep": keep}
+    ctx["under"] = _under(plan.get("units") or (), ctx["geoms"], to_xy,
                           float(law.tables.structures.bridge.deck_plate_normal_y_min),
                           ctx["ground"])
     rows, cost = [], []
+    n0 = len(keep) if keep is not None else 0
     for u, ds in units:
         got, dt = _unit_rows(u, ds, ctx)
         rows += got
         cost += [dt / len(ds)] * len(ds)
+    for k in keep[n0:] if keep is not None else ():
+        k["to_ll"] = frame.transformers()[1]
     return rows, cost
 
 

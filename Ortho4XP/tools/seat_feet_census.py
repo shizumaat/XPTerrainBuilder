@@ -505,13 +505,13 @@ def _print_coherence(plan: dict, rebake_path: str, rows_dump: str,
     decks = [(u, m) for u in reb.units if frame_is_bridge(u) for m in u.members]
     # class B (RULINGS 2026-10-22m, ``free_bridge_seat``): the free decks of
     # a frame the plan seated as one free-standing bridge
-    from auto_patch_v2.airport.free_bridge_seat import REASON, _free_deck
+    from auto_patch_v2.airport.free_bridge_seat import REASON, free_member
     free = {str((s.get("placement") or {}).get("resource", ""))
             for s in plan.get("splits", ())
             if any(str(b.get("anchor_reason", "")).startswith(REASON)
                    for b in s.get("bodies", ()))}
     decks += [(u, m) for u in reb.units if not frame_is_bridge(u)
-              for m in u.members if _free_deck(m) and m.resource in free]
+              for m in u.members if free_member(m) and m.resource in free]
     law = Law.load().tables.structures
     br = law.bridge
     g = PCo.census_group_offsets(plan.get("splits", ()), open_res)

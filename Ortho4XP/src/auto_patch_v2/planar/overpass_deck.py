@@ -156,17 +156,18 @@ def _crossing_top(dks, cache, piece, stations) -> "float | None":
 
 
 def road_overpasses(objects, cache, classification, airport, law, decks=(),
-                    cut_objects=()) -> tuple[tuple[_Overpass, ...], list[str]]:
+                    cut_objects=(), free=()) -> tuple[tuple[_Overpass, ...], list[str]]:
     """``(every road overpass deck piece, one note per piece read)``
     (module doc).  ``decks`` are the hard-deck bridges already read,
-    ``cut_objects`` the placement ids of every pack object cut."""
+    ``cut_objects`` the placement ids of every pack object cut, ``free`` the
+    free bridges' deck ids (``planar/free_bridge``, #2065 S4): all taken."""
     from .deck_bridge import CellRoles, _beside_a_building, _frames, _plate
     if not objects or cache is None or classification is None:
         return (), []
     br = law.tables.structures.bridge
     step = float(br.abutment_sample_step_m)
     tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
-    taken = {str(d.object_id) for d in decks or ()}
+    taken = {str(d.object_id) for d in decks or ()} | {str(o) for o in free or ()}
     cut = {str(o) for o in cut_objects or ()}
     roles = CellRoles(classification, airport)
     ways = [w for w in airport.osm_ways or () if len(w.points) >= 2]

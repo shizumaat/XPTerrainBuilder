@@ -121,7 +121,7 @@ def deck_rows(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str,
     does (``deck_end_read.deck_end_reads``) and the 22p classification."""
     from .airside_deck_seat import airside_end_ground, end_tops, pavement_runs_across
     from .deck_end_read import deck_end_reads
-    from .free_bridge_seat import _free_deck
+    from .free_bridge_seat import free_member
     from .placement_family import frame_is_bridge
     zeros = _zeros_by_resource(written, surface, pack_root)
     out = []
@@ -150,7 +150,7 @@ def deck_rows(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str,
                     continue
                 tops = end_tops(m, got[1], tuple(u.anchor), step_m)
                 row["ends"] = tuple(z0 + t - g for t, g in zip(tops, got[0], strict=True))
-            elif m.deck_ends and (bridge or _free_deck(m)):
+            elif m.deck_ends and (bridge or free_member(m)):
                 # one reading for seat, census and bar (spec S5): the ends
                 # the seat reads (``deck_end_read``: the ground each end
                 # meets, the plate's own top on it)

@@ -512,6 +512,10 @@ class Airport:
     #: rewritten a mapped bridge (``airport/deck_carry.bridge_stretches``):
     #: the derivation always starts from them.  ``None`` = no rewrite.
     osm_ways_mapped: tuple | None = None
+    #: #2065 THE FREE BRIDGES (``model/free_bridge.FreeBridge``, read at the
+    #: pack stage by ``planar/free_bridge``): the pack decks the positive
+    #: witness holds as free-standing road bridges.  Empty = none.
+    free_bridges: tuple = ()
     #: issue #1633 round 3 THE RETAINING WALLS READ AS TWO LEVELS
     #: (``airport/wall_sides.WallSides``: footprint, upper and lower side
     #: bands, smear, the object's top): a road is never on both sides of

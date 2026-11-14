@@ -292,8 +292,8 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.cluster_outline",
         "auto_patch_v2.geom.fixed_overlay",
         "auto_patch_v2.geom.foot_planes",
-        "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.lens",
+        "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.proportions",
@@ -328,6 +328,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.frame",
+        "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.placement",
         "auto_patch_v2.model.planar",
         "auto_patch_v2.model.pulse",
@@ -355,8 +356,11 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.below_zero",
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
+        "auto_patch_v2.airport.bridge_class",
         "auto_patch_v2.airport.bridge_family",
+        "auto_patch_v2.airport.bridge_frame",
         "auto_patch_v2.airport.bridge_ground",
+        "auto_patch_v2.airport.bridge_witness",
         "auto_patch_v2.airport.bridged_ground",
         "auto_patch_v2.airport.bulk_geos",
         "auto_patch_v2.airport.cluster_profile",
@@ -524,6 +528,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
+        "auto_patch_v2.geom.centreline",
         "auto_patch_v2.geom.cluster_outline",
         "auto_patch_v2.geom.collapsed_spike",
         "auto_patch_v2.geom.containment",
@@ -584,6 +589,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.deck_stack",
         "auto_patch_v2.model.end_area",
         "auto_patch_v2.model.frame",
+        "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.islands",
         "auto_patch_v2.model.map_memo",
         "auto_patch_v2.model.pad_terrace",
@@ -637,6 +643,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.fill_road",
         "auto_patch_v2.planar.floor_decks",
         "auto_patch_v2.planar.foot_kerb",
+        "auto_patch_v2.planar.free_bridge",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
@@ -890,6 +897,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.frame",
+        "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.placement",
         "auto_patch_v2.model.planar",
         "auto_patch_v2.model.pulse",
@@ -1104,6 +1112,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
         "auto_patch_v2.model.frame",
+        "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.islands",
         "auto_patch_v2.model.map_memo",
         "auto_patch_v2.model.placement",
@@ -1386,6 +1395,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.deck_ends",
         "auto_patch_v2.model.end_area",
         "auto_patch_v2.model.frame",
+        "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.ground_fit",
         "auto_patch_v2.model.hard_plane",
         "auto_patch_v2.model.islands",
@@ -1986,6 +1996,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     law.walled_plate_schema model.walled_plate
     constraints.deck_anchor
     constraints.taxi_route_yield
+    model.free_bridge
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport.pit_frame
@@ -2049,6 +2060,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.pavement_end_plate
     airport.dem airport.walled_plate law.walled_plate_schema model.walled_plate
     constraints.taxi constraints.taxi_route_yield
+    model.free_bridge
 """)
 
 #: THE SOLVE AND THE LAST STAGE (spec §4b.4, §4b.5; #843 step 9b): the solve
@@ -2211,6 +2223,8 @@ CODE_MODULES["solve"] = _mods("""
     constraints.taxi_route_yield
     airport.foot_lot
     planar.foot_kerb
+    airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
+    model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
@@ -2381,6 +2395,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.taxi_route_yield
     airport.foot_lot
     planar.foot_kerb
+    airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
+    model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["emit"] = _mods("""
     airport.facade airport.line_solidity classify.edge_line_mint
@@ -2494,6 +2510,7 @@ CODE_MODULES["emit"] = _mods("""
     model.stage_one
     constraints.taxi_route_yield
     airport.foot_lot
+    model.free_bridge
 """)
 CODE_MODULES["verify"] = _mods("""
     airport.facade airport.line_solidity classify.edge_line_mint
@@ -2590,6 +2607,7 @@ CODE_MODULES["verify"] = _mods("""
     model.stage_one
     verify.deck_flush
     constraints.taxi_route_yield
+    model.free_bridge
 """)
 
 

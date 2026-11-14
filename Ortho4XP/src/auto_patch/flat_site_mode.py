@@ -52,6 +52,8 @@ __all__ = [
     "flat_site_mode_enabled",
     "set_build_xplane_root",
     "build_xplane_root",
+    "resolve_xplane_root",
+    "cifp_runways",
     "flat_site_substitutions",
     "substituting_verdicts",
     "tile_icao_candidates",
@@ -305,6 +307,17 @@ OBJECT_CLUSTER_JOIN_M = 300.0
 #: Clusters smaller than this are ignored — streetlight strays, not a
 #: reclamation (spec R8-1: "clusters with < 5 placements ignored").
 OBJECT_CLUSTER_MIN_PLACEMENTS = 5
+
+
+def resolve_xplane_root() -> str | None:
+    """The public name of :func:`_resolve_xplane_root` (#2089: the inset
+    threshold correction reads the same install)."""
+    return _resolve_xplane_root()
+
+
+def cifp_runways(xplane_root: str, icao: str) -> dict:
+    """The public name of :func:`_cifp_runways` (#2089)."""
+    return _cifp_runways(xplane_root, icao)
 
 
 def _cifp_runways(xplane_root: str, icao: str) -> dict:

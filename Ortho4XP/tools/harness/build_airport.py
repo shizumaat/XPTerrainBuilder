@@ -1101,8 +1101,12 @@ def tile_inset_refetch_rows(state, lat, lon) -> list:
 #: ``threshold_disc_radius_m`` disc) against that threshold's own
 #: elevation; the ARP-vs-field reading is kept in the record and stays the
 #: verdict where CIFP is absent or no threshold disc holds a cell.
-INSET_ARP_SANITY = {"disc_radius_m": 60.0, "warn_abs_delta_m": 3.0,
-                    "threshold_disc_radius_m": 15.0}
+#: The bar and the threshold disc are the engine's (#2089: one reader, one
+#: bar -- ``elevation_access.threshold_correction``).
+from elevation_access import threshold_correction as _TC  # noqa: E402
+
+INSET_ARP_SANITY = {"disc_radius_m": 60.0, "warn_abs_delta_m": _TC.BAR_M,
+                    "threshold_disc_radius_m": _TC.DISC_RADIUS_M}
 
 
 def _apt_dat_arp_and_field_elevation(apt_dat_path, icao):
@@ -1137,53 +1141,8 @@ def _apt_dat_arp_and_field_elevation(apt_dat_path, icao):
             elevation_ft * ea_vertical_units.VERTICAL_UNIT_TO_M["ft"])
 
 
-def _inset_disc_median_m(inset_path, arp_lat, arp_lon, radius_m,
-                         at_least_one_cell=False):
-    """``(median_m, cells)`` of the valid cells of an EPSG:4326 inset
-    whose centres lie within ``radius_m`` of the ARP; ``(None, 0)`` when
-    none does (the ARP is off the raster, or the disc is all nodata).
-    ``at_least_one_cell`` widens the disc to half a cell diagonal, so a
-    small disc on a coarse inset still holds the cell under the point."""
-    import math
-
-    import numpy
-    from osgeo import gdal
-
-    dataset = gdal.Open(str(inset_path))
-    if dataset is None:
-        return (None, 0)
-    (x0, dx, _rx, y0, _ry, dy) = dataset.GetGeoTransform()
-    band = dataset.GetRasterBand(1)
-    nodata = band.GetNoDataValue()
-    metres_per_deg_lat = 111_320.0
-    metres_per_deg_lon = metres_per_deg_lat * math.cos(math.radians(arp_lat))
-    if at_least_one_cell:
-        radius_m = max(radius_m, math.hypot(abs(dx) * metres_per_deg_lon,
-                                            abs(dy) * metres_per_deg_lat) / 2.0)
-    half_cols = int(math.ceil(radius_m / (abs(dx) * metres_per_deg_lon))) + 1
-    half_rows = int(math.ceil(radius_m / (abs(dy) * metres_per_deg_lat))) + 1
-    col = int((arp_lon - x0) / dx)
-    row = int((arp_lat - y0) / dy)
-    c0, c1 = max(col - half_cols, 0), min(col + half_cols + 1,
-                                          dataset.RasterXSize)
-    r0, r1 = max(row - half_rows, 0), min(row + half_rows + 1,
-                                          dataset.RasterYSize)
-    if c0 >= c1 or r0 >= r1:
-        return (None, 0)
-    values = band.ReadAsArray(c0, r0, c1 - c0, r1 - r0).astype(numpy.float64)
-    dataset = None
-    rows, cols = numpy.mgrid[r0:r1, c0:c1]
-    cell_lat = y0 + (rows + 0.5) * dy
-    cell_lon = x0 + (cols + 0.5) * dx
-    distance = numpy.hypot((cell_lat - arp_lat) * metres_per_deg_lat,
-                           (cell_lon - arp_lon) * metres_per_deg_lon)
-    valid = (distance <= radius_m) & numpy.isfinite(values)
-    if nodata is not None:
-        valid &= values != nodata
-    valid &= values != -32768.0
-    if not valid.any():
-        return (None, 0)
-    return (float(numpy.median(values[valid])), int(valid.sum()))
+#: The disc reader is the engine's (#2089, moved from here).
+_inset_disc_median_m = _TC.disc_median_m
 
 
 def _threshold_judgement(path, thresholds, warn, radius):
@@ -1192,16 +1151,12 @@ def _threshold_judgement(path, thresholds, warn, radius):
     cells, delta_m, status}]`` for the thresholds whose disc holds a valid
     cell, in designator order; ``[]`` when none does."""
     out = []
-    for runway in sorted(thresholds):
-        pin = thresholds[runway]
-        (median, cells) = _inset_disc_median_m(path, pin["lat"], pin["lon"],
-                                               radius, at_least_one_cell=True)
-        if median is None:
-            continue
-        delta = median - pin["elevation_m"]
-        out.append({"runway": runway,
-                    "elevation_m": round(pin["elevation_m"], 3),
-                    "inset_median_m": round(median, 3), "cells": cells,
+    for reading in _TC.threshold_readings(path, thresholds, radius):
+        delta = -reading["residual_m"]
+        out.append({"runway": reading["runway"],
+                    "elevation_m": round(reading["elevation_m"], 3),
+                    "inset_median_m": round(reading["inset_m"], 3),
+                    "cells": reading["cells"],
                     "delta_m": round(delta, 3),
                     "status": "warn" if abs(delta) > warn else "ok"})
     return out
@@ -1277,6 +1232,10 @@ def inset_arp_sanity_record(inset_paths, apt_dat_path, icao,
                                          threshold_radius)
                     if thresholds else [])
         if readings:
+            # #2089: what the bake does with this inset -- a WARN within
+            # the correction's range reads as corrected at the bake.
+            entry["threshold_correction"] = _TC.verdict(
+                [{"residual_m": -r["delta_m"]} for r in readings])
             worst = max(readings, key=lambda r: abs(r["delta_m"]))
             entry.update({
                 "witness": "cifp_thresholds", "thresholds": readings,

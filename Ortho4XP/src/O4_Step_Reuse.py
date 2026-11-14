@@ -364,6 +364,18 @@ def _inset_files(tile) -> list:
     return INSETS.list_cached_inset_dems(tile.lat, tile.lon)
 
 
+def _inset_cifp_files(tile) -> list:
+    """The CIFP files the inset threshold correction reads (#2089): a new
+    AIRAC cycle can move a threshold and so the corrected ground."""
+    import O4_Airport_Elevation_Insets as INSETS
+    return INSETS.inset_cifp_files(tile)
+
+
+#: Input keys added after records were cut: a record without one reads as
+#: equal (owner RULINGS 2026-11-13o -- a new key alone reruns no step).
+_KEYS_EQUAL_WHEN_ABSENT = ("inset_cifp",)
+
+
 def _terrain_cut(tile) -> list:
     """The terrain models whose ground the vector step cuts (owner RULINGS
     2026-11-13k): hiding one in "Hide terrain objects", or showing it
@@ -407,6 +419,7 @@ def _inputs(tile, step: str, previous_digest: str, osm_files=None) -> dict:
         inputs["patches"] = _patch_inputs(tile)
         inputs["insets"] = _content(_CONTENT_KEYS["insets"](tile, osm_files))
         inputs["terrain_cut"] = _terrain_cut(tile)
+        inputs["inset_cifp"] = _content(_inset_cifp_files(tile))
     return inputs
 
 
@@ -644,6 +657,8 @@ def stale_reason(tile, step: str) -> str | None:
                     if k not in _RETIRED_KEYS}
         trusted = _trusted(entry)
         for key in sorted(set(live) | set(recorded)):
+            if key in _KEYS_EQUAL_WHEN_ABSENT and key not in recorded:
+                continue
             if key not in trusted and live.get(key) != recorded.get(key) \
                     and not _legacy_equal(tile, key, recorded.get(key),
                                           entry.get("osm_files")):
@@ -683,7 +698,8 @@ def _changed_words(key, live, recorded) -> str:
             "osm": "the OpenStreetMap data changed",
             "scenery_packs": "scenery_packs.ini changed",
             "patches": "an airport's apt.dat, CIFP or pack changed",
-            "insets": "the airport elevation insets changed"}.get(
+            "insets": "the airport elevation insets changed",
+            "inset_cifp": "an inset airport's CIFP changed"}.get(
                 key, key + " changed")
 
 

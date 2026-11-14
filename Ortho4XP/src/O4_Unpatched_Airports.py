@@ -262,6 +262,13 @@ def record_inset_sources(tile, baked) -> list:
         winners[str(entry["icao"])] = {
             "icao": str(entry["icao"]), "provider": str(code or "?"),
             "resolution_m": resolution}
+        correction = entry.get("threshold_correction") or {}
+        if correction.get("status") == "apply" and correction.get(
+                "applied_m"):
+            # #2089: the largest shift the runway-threshold correction
+            # added to this inset, in metres.
+            winners[str(entry["icao"])]["corrected_m"] = max(
+                abs(v) for v in correction["applied_m"])
     rows = [winners[icao] for icao in sorted(winners)]
     try:
         return _publish_rows(tile, "airport_inset_sources",

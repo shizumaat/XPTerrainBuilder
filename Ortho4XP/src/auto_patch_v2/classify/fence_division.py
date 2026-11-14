@@ -60,6 +60,8 @@ def fence_lines(airport, rules: Rules) -> list[tuple[str, LineString]]:
     """``(id, line)`` of every fence of ``airport`` (module doc), in the frame."""
     out: list[tuple[str, LineString]] = []
     for el in tuple(getattr(airport, "edge_lines", ()) or ()):
+        if getattr(el, "unit", None) is not None:
+            continue                        # a unit's own fence: not this round (#2068 Q4)
         if kind_of(el, rules.service) not in ON_TOP or len(el.points) < 2:
             continue
         pts = list(el.points) + ([el.points[0]] if el.closed else [])

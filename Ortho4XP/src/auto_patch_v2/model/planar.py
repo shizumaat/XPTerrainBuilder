@@ -50,6 +50,7 @@ __all__ = ["BEYOND", "NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Fa
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
            "EDGE_STRIP_PREFIX", "is_edge_strip_ref", "edge_strip_host",
+           "FENCE_YARD_PREFIX", "fence_yard_pad",
            "is_late_ref", "GAP_PREFIX", "is_gap_ref", "GAP_APRON_PREFIX",
            "is_gap_apron_ref", "gap_part_kind", "gap_parts_across_knife",
            "gap_step_part", "shares_gap_part",
@@ -1171,12 +1172,23 @@ def is_facade_strip_ref(ref) -> bool:
 #: carries colons and ``#``)
 EDGE_STRIP_PREFIX = "edgestrip"
 
+#: spec 2068 A2 F2: the ref ``classify/fence_yard`` spells —
+#: ``fenceyard:<k>:<pad ref>`` for the ground a unit's fence encloses beside
+#: its upper pad, on the fence-foot plane
+FENCE_YARD_PREFIX = "fenceyard"
+
 
 def is_facade_ref(ref) -> bool:
-    """A face a facade mint made — a §52 strip or lot, or a #2054 edge
-    strip (a pack LINE facade's)."""
-    return str(ref or "").split(":", 1)[0] in (FACADE_STRIP_PREFIX,
-                                               FACADE_LOT_PREFIX, EDGE_STRIP_PREFIX)
+    """A face a facade mint made — a §52 strip or lot, a #2054 edge strip
+    (a pack LINE facade's) or a fence yard (spec 2068 A2)."""
+    return str(ref or "").split(":", 1)[0] in (FACADE_STRIP_PREFIX, FACADE_LOT_PREFIX,
+                                               EDGE_STRIP_PREFIX, FENCE_YARD_PREFIX)
+
+
+def fence_yard_pad(ref) -> "str | None":
+    """The upper pad a fence yard (spec 2068 A2) is read beside, else ``None``."""
+    parts = str(ref or "").split(":", 2)
+    return parts[2] if len(parts) == 3 and parts[0] == FENCE_YARD_PREFIX else None
 
 
 def is_edge_strip_ref(ref) -> bool:

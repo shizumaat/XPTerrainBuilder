@@ -172,6 +172,17 @@ def test_a_groundside_host_takes_the_ground_out_to_the_barriers_base():
     assert road.evidence["edge_kind"] == ls.LOW_BARRIER
 
 
+def test_a_units_own_fence_marks_no_edge_strip_this_round():
+    """Spec 2068 A2 F1 (owner Q4 pending): a unit's own fence (``EdgeLine.
+    unit``) is read by ``classify/fence_yard`` only — the strips and the
+    counts are what they were without it."""
+    unit = EdgeLine("unit:0:dsf:obj1#0", "f.obj", ((0.0, 13.0), (100.0, 13.0)), False,
+                    0.0, 3.5, 0.0, 0.3, 0.0, unit=0, base_ys=(0.0, 0.0), panel_m=3.5)
+    a, sa = _mint((_line(),), role="apron", ref="pol1", side="airside")
+    b, sb = _mint((_line(), unit), role="apron", ref="pol1", side="airside")
+    assert sa == sb and [(r, f, p.wkt) for r, f, p, _e in a] == [(r, f, p.wkt) for r, f, p, _e in b]
+
+
 def test_an_airside_host_gets_a_late_strip_and_never_grows():
     cells = []
     out, st = _mint((_line(),), role="apron", ref="pav2", side="airside", grown=cells)

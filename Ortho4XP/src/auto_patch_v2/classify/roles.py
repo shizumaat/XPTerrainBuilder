@@ -926,6 +926,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # a late strip at the host's level (``classify/edge_line_mint``)
     from .edge_line_mint import mint_edge_strips
     stats.update(mint_edge_strips(airport, cells, law, rules, add))
+    # spec 2068 A2 F2: a unit's fence round its upper pad encloses the
+    # fence-foot plane's ground — late cells beside the edge strips
+    from .fence_yard import mint_fence_yards
+    stats.update(mint_fence_yards(airport, cells, law, rules, add))
     # #1697 THE HAND-SET ROLES, LAST: a pavement the user classified in the
     # patch editor is that role in every pavement cell of it — a user edit
     # no verdict above overrides (RULINGS 2026-10-15d; ``airport/user_roles``)

@@ -105,6 +105,12 @@ def test_the_fences_are_the_packs_on_top_line_objects_only():
     import O4_Vector_Map as VM
     from auto_patch_v2.airport import osm as _osm
     assert "fences" not in VM.TILE_FEEDS and "fences" not in _osm.FEEDS
+    # spec 2068 A2 F1 (owner Q4 pending): a UNIT's own fence divides nothing
+    # this round — the list is what it was without it
+    unit = EdgeLine("unit:0:dsf:obj1#0", "f.obj", ((0.0, 5.0), (50.0, 5.0)), False,
+                    0.0, 3.5, 0.0, 0.3, 0.0, unit=0, base_ys=(0.0, 0.0), panel_m=3.5)
+    ap2 = types.SimpleNamespace(edge_lines=ap.edge_lines + (unit,), osm_ways=ways)
+    assert [i for i, _l in fence_lines(ap2, RULES)] == ids
 
 
 def test_a_barrier_inside_one_apron_page_is_no_division():

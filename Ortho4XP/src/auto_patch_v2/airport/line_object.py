@@ -40,8 +40,14 @@ def component_shape(geom: _obj8.ObjGeometry, comp: _obj8.Component
                     ) -> tuple[float, float, float]:
     """``(length, width, height)`` of one component in the AUTHORED frame:
     the plan-box diagonal, the plan-projected triangle area over it, and
-    the y extent.  ``width`` is 0.0 for a purely vertical sheet (a fence
-    panel), which is the strongest line reading there is."""
+    the height.  ``width`` is 0.0 for a purely vertical sheet (a fence
+    panel), which is the strongest line reading there is.
+
+    The height is the y extent, except for a zero-width sheet, whose
+    height is its tallest COLUMN (spec 2068 A2 F0): the extent of the
+    vertices standing at one plan position.  A fence climbing a slope on
+    3.5 m panels is 3.5 m high, not the panel plus the climb; two sheets
+    stacked at one position still read their full height."""
     t = np.asarray(comp.tris)
     v = geom.vertices
     a, b, c = v[t[:, 0]], v[t[:, 1]], v[t[:, 2]]
@@ -51,7 +57,30 @@ def component_shape(geom: _obj8.ObjGeometry, comp: _obj8.Component
     length = math.hypot(float(pts[:, 0].max() - pts[:, 0].min()),
                         float(pts[:, 2].max() - pts[:, 2].min()))
     width = (plan_area / length) if length > 0.0 else 0.0
+    if width <= 0.0:
+        return length, width, _column_height(pts)
     return length, width, float(comp.max_y - comp.min_y)
+
+
+#: plan positions closer than this are one column (authored sheets share
+#: their vertical edges' x/z exactly; the grid only absorbs float noise)
+_COLUMN_GRID_M = 0.01
+
+
+def _column_height(pts: np.ndarray) -> float:
+    """The tallest y extent over the vertices ``pts`` ``(n, 3)`` that share
+    one plan position (x, z on a ``_COLUMN_GRID_M`` grid)."""
+    if pts.shape[0] == 0:
+        return 0.0
+    keys = np.round(pts[:, [0, 2]] / _COLUMN_GRID_M).astype(np.int64)
+    _u, inv = np.unique(keys, axis=0, return_inverse=True)
+    inv = inv.reshape(-1)
+    n = int(inv.max()) + 1
+    lo = np.full(n, np.inf)
+    hi = np.full(n, -np.inf)
+    np.minimum.at(lo, inv, pts[:, 1])
+    np.maximum.at(hi, inv, pts[:, 1])
+    return float((hi - lo).max())
 
 
 def is_line_shaped(geom: _obj8.ObjGeometry, comp: _obj8.Component, rb) -> bool:

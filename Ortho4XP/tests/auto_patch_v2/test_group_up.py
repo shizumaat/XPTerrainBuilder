@@ -12,6 +12,7 @@ import types
 from auto_patch_v2.airport.unit_storey import upper_pads
 from auto_patch_v2.classify.storey_edge import (
     ARM_PAD_KEY,
+    UPPER_AIR_Z_KEY,
     UPPER_FLOOR_KEY,
     UPPER_UNIT_KEY,
     UPPER_Y_KEY,
@@ -140,7 +141,8 @@ def test_the_road_round_an_upper_pad_is_cut_back_to_its_arm():
     final = _final()
     got = arm_storeys(final, _cells(), PADS,
                       _airport([TERMINAL, PLINTH, BODY]), LAW, 1.0)
-    assert got == {"building2": {UPPER_Y_KEY: 4.7, UPPER_FLOOR_KEY: 0.0, UPPER_UNIT_KEY: 0.0}}
+    assert got == {"building2": {UPPER_Y_KEY: 4.7, UPPER_FLOOR_KEY: 0.0, UPPER_UNIT_KEY: 0.0,
+                                 UPPER_AIR_Z_KEY: 30.0}}
     rest = [f for f in final if f[0] == "apron"]
     arm = [f for f in final if f[0] == "service_road"]
     assert len(rest) == 1 and rest[0][1] == "pol1"
@@ -197,3 +199,28 @@ def test_the_pad_reading_rides_the_cell():
     arm = types.SimpleNamespace(ref="pol1#1", role="service_road",
                                 evidence={ARM_PAD_KEY: "building2"})
     assert upper_pad_reads([c, other, arm]) == {"building2": (4.7, 0.0, 0, ("pol1#1",))}
+
+
+def test_the_fence_foot_plane_rides_the_pad_into_its_landing_record():
+    """Spec 2068 A2 F3: a pad a fence yard was read beside carries the
+    fence-foot plane (``classify/fence_yard.YARD_KEYS``) into its reading
+    and its level's landing record (``yard_plane``); without one the record
+    is what it was."""
+    from auto_patch_v2.classify.fence_yard import _YARD_KEYS as YARD_KEYS
+    plane = (4.0, 0.013, -0.032, -116.4, -288.9)
+    ev = {UPPER_Y_KEY: 4.7, UPPER_FLOOR_KEY: 0.0, UPPER_UNIT_KEY: 0.0,
+          **dict(zip(YARD_KEYS, plane, strict=True))}
+    c = types.SimpleNamespace(ref="building2", role="building", evidence=ev)
+    upper = upper_pad_reads([c])
+    assert upper == {"building2": (4.7, 0.0, 0, (), plane)}
+    reg = Registries()
+    reg.held["building1"] = {"unit": "building1", "verdict": "one_block"}
+    air = [APRON]
+    plan_group_up(_regions(), upper, air, STRtree(air), _airport([TERMINAL, PLINTH, BODY]),
+                  LAW, 0.5, {}, reg)
+    assert reg.landings["building1/p1"]["yard_plane"] == plane
+    reg0 = Registries()
+    reg0.held["building1"] = {"unit": "building1", "verdict": "one_block"}
+    plan_group_up(_regions(), {"building2": (4.7, 0.0, 0)}, air, STRtree(air),
+                  _airport([TERMINAL, PLINTH, BODY]), LAW, 0.5, {}, reg0)
+    assert "yard_plane" not in reg0.landings["building1/p1"]

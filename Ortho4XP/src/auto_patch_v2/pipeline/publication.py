@@ -1108,8 +1108,8 @@ def wall_terrace_joints(planar: PlanarMap, law: Law,
     its nearest lower partner) and ``agreement_m`` the emitted minus the
     wall — the reading that says the terrace sits where the pack put it."""
     # #2068 A1 (2) (c): an upper pad's rim step is declared on this channel
-    from .upper_pad_publication import upper_rim_joints
-    rims = upper_rim_joints(planar, law, z)
+    from .upper_pad_publication import upper_rim_joints, yard_edge_joints
+    rims = upper_rim_joints(planar, law, z) + yard_edge_joints(planar, law, z)
     walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
     if not walls:
         return rims

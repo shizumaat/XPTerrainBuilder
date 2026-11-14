@@ -690,6 +690,8 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     from auto_patch_v2.airport.wall_shade import attach_wall_shade
     from auto_patch_v2.classify import load_rules as _load_rules
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
+    from auto_patch_v2.airport.unit_fence import attach_unit_fences
+    airport = attach_unit_fences(airport, _load_rules(), law)      # spec 2068 A2 F1
     from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law)   # #1747
     from auto_patch_v2.airport.deck_stack import log_line as _ds_line
@@ -2224,6 +2226,11 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         from auto_patch_v2.airport.wall_shade import attach_wall_shade
         from auto_patch_v2.classify import load_rules as _load_rules
         airport = attach_wall_shade(airport, _load_rules().service)
+    if resume in ("classify", "planar"):
+        # spec 2068 A2 F1: the unit fences, read under the current tree
+        from auto_patch_v2.airport.unit_fence import attach_unit_fences
+        from auto_patch_v2.classify import load_rules as _load_rules
+        airport = attach_unit_fences(airport, _load_rules(), law)
     t0 = time.perf_counter()
     _ocache = _objs = _orep = None
     if resume in ("classify", "planar"):

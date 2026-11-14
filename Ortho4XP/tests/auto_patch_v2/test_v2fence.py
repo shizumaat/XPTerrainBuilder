@@ -120,6 +120,39 @@ def test_a_tall_wall_is_not_low_enough(tmp_path, law):
     assert not LO.is_line_object(cache, curtain, rb)
 
 
+def _climbing(x_rise, panel, z=0.0):
+    """Vertical panels ``panel`` m high whose base climbs ``x_rise``
+    ``[(x, base)]`` — a fence authored over a slope."""
+    out = []
+    for (x0, b0), (x1, b1) in zip(x_rise, x_rise[1:], strict=False):
+        out += [((x0, b0, z), (x1, b1, z), (x1, b1 + panel, z)),
+                ((x0, b0, z), (x1, b1 + panel, z), (x0, b0 + panel, z))]
+    return out
+
+
+def test_a_fence_climbing_a_slope_is_as_tall_as_its_panel(tmp_path, law):
+    """Spec 2068 A2 F0: a zero-width sheet's height is its tallest COLUMN.
+    The LPPI wire fence climbs 4.15 m on 3.5 m panels — 7.9 m of y extent,
+    3.5 m of fence.  Two 5 m sheets stacked at one position still read 10 m;
+    a boxed wall (plan width) keeps its y extent."""
+    rb = law.tables.structures.rebake
+    cache = O.ResourceCache(0.05)
+    fence = _obj(tmp_path / "climb.obj",
+                 _climbing([(0.0, 0.0), (10.0, 0.5), (20.0, 1.5), (30.0, 3.0), (40.0, 4.0)], 3.5))
+    comp = cache.components(fence)[0]
+    assert comp.max_y - comp.min_y == pytest.approx(7.5)
+    assert LO.component_shape(cache.geometry(fence), comp)[2] == pytest.approx(3.5)
+    assert LO.is_line_object(cache, fence, rb)
+    stacked = _obj(tmp_path / "stacked.obj", _sheet(0.0, 40.0, 0.0, 0.0, 5.0)
+                   + _sheet(0.0, 40.0, 0.0, 5.0, 10.0))
+    assert LO.component_shape(cache.geometry(stacked),
+                              cache.components(stacked)[0])[2] == pytest.approx(10.0)
+    assert not LO.is_line_object(cache, stacked, rb)
+    wall = _obj(tmp_path / "boxed.obj", _slab(-15.0, 15.0, -1.5, 1.5, 0.0, 2.0))
+    assert LO.component_shape(cache.geometry(wall), cache.components(wall)[0])[2] \
+        == pytest.approx(2.0)
+
+
 # ── the plan (the seat that read it is RETIRED, 2026-09-12s) ─────────────────────────────────────────────────────────────
 
 def _part(pid, comp, lat, lon, base_y, feet, line=False, half=1e-5):

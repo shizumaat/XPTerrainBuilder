@@ -11,14 +11,21 @@ vertices stepping more than ``[cockpit] visual_m`` from the arm beside them
 through the ``wall_terrace`` channel (``publication.wall_terrace_joints``),
 so the census forgives exactly that step.  :func:`upper_pad_records` is the
 REPORT key the drawn check and the master read: one record per level with
-its solved height and those runs (no census family prices it)."""
+its solved height and those runs (no census family prices it), and the
+fence yard beside it (spec 2068 A2 F5: ``classify/fence_yard``).
+
+THE YARD'S EDGE (spec 2068 A2 F5): every run of a yard's boundary vertices
+stepping more than ``visual_m`` to the nearest vertex of another face
+across the stand-off (the census's horizon, ``groundside_cutback_m`` +
+``weld_spacing_m`` + the snap margin) is a declared ``wall_terrace`` joint
+too (:func:`yard_edge_joints`)."""
 from __future__ import annotations
 
 import math
 import statistics as _st
 import typing as _t
 
-__all__ = ["upper_pad_records", "upper_rim_joints"]
+__all__ = ["upper_pad_records", "upper_rim_joints", "yard_edge_joints"]
 
 #: the patch writes elevations to the centimetre (``publication._EMIT_Z_ROUND_M``)
 _ROUND_M = 0.01
@@ -60,21 +67,8 @@ def _rim_runs(planar, ref: str, steps, vis: float) -> list[list[int]]:
     whose step exceeds ``vis``."""
     runs: list[list[int]] = []
     for f in planar.faces.values():
-        if str(f.ref) != ref:
-            continue
-        for cyc in (f.ring, *f.holes):
-            vs = list(planar.ring_vertices(cyc))
-            cur: list[int] = []
-            for v in vs + vs[:1]:
-                if v in steps and abs(steps[v][0]) > vis:
-                    if not cur or cur[-1] != v:
-                        cur.append(v)
-                    continue
-                if cur:
-                    runs.append(cur)
-                cur = []
-            if cur:
-                runs.append(cur)
+        if str(f.ref) == ref:
+            runs.extend(_ring_runs(planar, f, lambda v: v in steps and abs(steps[v][0]) > vis))
     return runs
 
 
@@ -131,5 +125,103 @@ def upper_pad_records(planar, law, z: "_t.Sequence[float] | None") -> list[dict[
                              "height_m": round(max(abs(steps[v][0]) for v in r), 3)}
                             for r in runs],
                     "rim_max_step_m": round(max((abs(s) for s, _w in steps.values()),
-                                                default=0.0), 3)})
+                                                default=0.0), 3),
+                    "yard": _yard_record(planar, ref, rec, z)})
     return out
+
+
+def _yard_faces(planar) -> list:
+    from ..model.planar import fence_yard_pad
+    return [f for f in planar.faces.values() if fence_yard_pad(f.ref) is not None]
+
+
+def _yard_steps(planar, law, yards, z) -> dict[int, float]:
+    """``{yard boundary vertex: its step to the nearest vertex of another
+    face within the stand-off horizon}``."""
+    from ..law.tables import snap_margin_m
+    horizon = float(law.tables.zones.adjacent_ground.groundside_cutback_m) \
+        + float(law.tables.emit.identity.weld_spacing_m) + snap_margin_m(law)
+    yard_ids = {f.id for f in yards}
+    yard_vs = {v for f in yards for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+    other = sorted({v for f in planar.faces.values() if f.id not in yard_ids
+                    for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+                   - yard_vs)
+    if not other:
+        return {}
+    import numpy as np
+    from scipy.spatial import cKDTree
+    tree = cKDTree(np.array([planar.vertices[w].xy for w in other], dtype=float))
+    out: dict[int, float] = {}
+    for v in sorted(yard_vs):
+        d, i = tree.query(planar.vertices[v].xy, distance_upper_bound=horizon)
+        if math.isfinite(d):
+            out[v] = float(z[v]) - float(z[other[int(i)]])
+    return out
+
+
+def yard_edge_joints(planar, law, z: "_t.Sequence[float] | None") -> list[dict[str, _t.Any]]:
+    """One ``wall_terrace`` joint per run of yard edge stepping over
+    ``visual_m`` across its stand-off (module docstring)."""
+    yards = _yard_faces(planar)
+    if not yards or z is None:
+        return []
+    vis = float(law.tables.emit.cockpit.visual_m)
+    steps = _yard_steps(planar, law, yards, z)
+    to_ll = _to_ll(planar)
+    out = []
+    for f in sorted(yards, key=lambda f: f.id):
+        for run in _ring_runs(planar, f, lambda v: v in steps and abs(steps[v]) > vis):
+            h = max(abs(steps[v]) for v in run)
+            pts = [list(to_ll(*planar.vertices[v].xy)) for v in run]
+            if len(pts) == 1:
+                pts = pts * 2
+            out.append({"points": pts, "step_m": round(h + _ROUND_M, 4),
+                        "declared_step_m": round(h + _ROUND_M, 4), "faced": False,
+                        "kind": "wall_terrace", "faces": [], "shapes": [f"fence_yard:{f.ref}"],
+                        "gap": False, "roles": [], "pairs": len(run),
+                        "length_m": round(sum(math.dist(planar.vertices[a].xy,
+                                                        planar.vertices[b].xy)
+                                              for a, b in zip(run, run[1:], strict=False)), 2),
+                        "height_m": round(h, 3), "lots": 0})
+    return out
+
+
+def _ring_runs(planar, f, over_fn) -> list[list[int]]:
+    """The runs of consecutive vertices of face ``f``'s rings that
+    ``over_fn`` holds for, each walked from a vertex off every run (a run
+    crossing the ring's first vertex is ONE run; a ring wholly over is one
+    run, closed)."""
+    runs: list[list[int]] = []
+    for cyc in (f.ring, *f.holes):
+        vs = list(planar.ring_vertices(cyc))
+        over = [bool(over_fn(v)) for v in vs]
+        if all(over):
+            runs.append(vs + vs[:1])
+            continue
+        k = over.index(False)                   # start the walk off a run
+        cur: list[int] = []
+        for v, o in zip(vs[k:] + vs[:k], over[k:] + over[:k], strict=True):
+            if o:
+                cur.append(v)
+            elif cur:
+                runs.append(cur)
+                cur = []
+        if cur:
+            runs.append(cur)
+    return runs
+
+
+def _yard_record(planar, ref: str, rec, z) -> "dict[str, _t.Any] | None":
+    """The fence yard beside level ``ref`` (``yard_plane`` on its landing
+    record), or ``None``."""
+    pl = rec.get("yard_plane")
+    if not pl:
+        return None
+    from ..model.planar import fence_yard_pad
+    faces = [f for f in _yard_faces(planar) if fence_yard_pad(f.ref) == rec.get("pad")]
+    vs = sorted({v for f in faces for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)})
+    zs = [float(z[v]) for v in vs] if z is not None else []
+    return {"plane": [round(float(c), 6) for c in pl],
+            "tilt": round(math.hypot(float(pl[1]), float(pl[2])), 4),
+            "faces": [str(f.ref) for f in faces],
+            "z": [round(min(zs), 3), round(max(zs), 3)] if zs else None}

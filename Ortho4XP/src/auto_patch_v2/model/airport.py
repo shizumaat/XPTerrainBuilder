@@ -289,6 +289,14 @@ class EdgeLine:
     solid_top_y: float
     opaque_share: float
     half_width_m: float
+    #: spec 2068 A2 F1: a fence the pack authored inside a UNIT's frame
+    #: (``airport/unit_fence``) carries the unit's index here, the authored
+    #: base ``y`` of each of ``points`` (the author's ground along its foot,
+    #: unit zero + base) and its panel height; ``None`` / empty for a DSF
+    #: line facade
+    unit: int | None = None
+    base_ys: tuple[float, ...] = ()
+    panel_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

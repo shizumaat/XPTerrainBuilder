@@ -128,3 +128,15 @@ def test_a_road_ramp_between_its_parapets_is_no_pit(tmp_path):
     floors, notes = _read(objs, 102.0)
     assert floors == [], notes
     assert any("a ramp climbing out of the ground" in n for n in notes), notes
+
+
+def test_a_pit_whose_own_floor_is_hard_deck_still_reads(tmp_path):
+    """OTHH TerminalRoads_02_000: the floor object flags its own floor as
+    hard deck.  The hard-deck guard (KBNA taxiway L) counts only OTHER
+    placements' decks, so the pit still reads."""
+    from shapely.geometry import box
+    objs = _pit(tmp_path)
+    objs[1].hard_deck = box(-100.0, -100.0, 100.0, 100.0)
+    objs[1].deck_kind = "flag"
+    floors, notes = _read(objs, 105.0)
+    assert [f.object_id for f in floors] == ["dsf:obj2"], notes

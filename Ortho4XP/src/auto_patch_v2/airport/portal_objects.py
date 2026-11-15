@@ -273,18 +273,40 @@ def hanging_reading(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, law
     return top - bottom, tuple((float(x), float(y)) for x, y in ring)
 
 
-def _ground_covers_roof(roof, end_xy: XY, dem_z, law) -> "float | None":
+def _ground_covers_roof(roof, end_xy: XY, dem_z, law, into: "XY | None" = None
+                       ) -> "float | None":
     """The surveyed ground over a portal's ROOF (the highest DEM sample
     over the roof plan, its vertices and an inner point) when it stands at
     least ``[channel] object_min_depth_m`` — the survey's own reading of a
     cut (RULINGS 2026-10-28k (232 a)) — over the ground at its bore end,
-    else ``None``: no cover stands on the roof."""
+    else ``None``: no cover stands on the roof.
+
+    #1689: the ground a portal holds back stands BEHIND its roof, over the
+    bore (``into``: the unit direction into it from the end).  With
+    ``into``, the bore is sampled inward every ``abutment_sample_step_m`` as
+    far as the roof reaches along it plus ``bore_end_tolerance_m``, and the
+    ground at the end is the lowest of the end and the road
+    ``bore_end_tolerance_m`` out of it (a survey cell straddling a mouth
+    blends the cut's two sides).  MEASURED KBNA Murfreesboro east portal (a
+    headwall over a primary road into a 307 m bore under a runway): the DEM
+    over its roof plan reads 175.4, 1.6 m over the end's 173.8; 5 m into
+    the bore 176.3, 5 m out along the road 170.5 -- a 5.8 m cut."""
     if dem_z is None or roof is None or roof.is_empty:
         return None
     end = float(dem_z(end_xy[0], end_xy[1]))
     pts = [roof.representative_point().coords[0]]
     for g in getattr(roof, "geoms", [roof]):
         pts.extend(g.exterior.coords)
+    if into is not None:
+        tol = float(law.tables.structures.tunnel.object.bore_end_tolerance_m)
+        out = float(dem_z(end_xy[0] - into[0] * tol, end_xy[1] - into[1] * tol))
+        end = end if math.isnan(out) else min(end, out)
+        reach = max(0.0, max((x - end_xy[0]) * into[0] + (y - end_xy[1]) * into[1]
+                             for x, y in pts)) + tol
+        step = float(law.tables.structures.bridge.abutment_sample_step_m)
+        n = max(1, int(math.ceil(reach / step)))
+        pts.extend((end_xy[0] + into[0] * reach * k / n, end_xy[1] + into[1] * reach * k / n)
+                   for k in range(1, n + 1))
     zs = [float(dem_z(x, y)) for x, y in pts]
     zs = [z for z in zs if not math.isnan(z)]
     if math.isnan(end) or not zs:
@@ -361,7 +383,7 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
     appended to ``at_grade``.  An object whose walls hang under its zero
     is read by ``airport/footed_portal`` (``roads``: the mapped non-tunnel
     roads a bore end runs on into it)."""
-    from .footed_portal import footed_parts, read_footed_portals
+    from .footed_portal import _road_under, footed_parts, read_footed_portals
     tn = law.tables.structures.tunnel
     tol = float(tn.object.bore_end_tolerance_m)
     ends = _ends(tunnel_ways)
@@ -429,8 +451,17 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
         # 400 m of scattered cabins, boxed both ends of bore -908)
         roof = _fe.enter([plan], _obj8.placement_affine(o.xy, o.heading_deg),
                          _fe.quantum(law))[0]
+        # #1689: a TALL portal (its roof over ``mouth_depth_m``, held to the
+        # survey's cover below) pins the end too where the mapped road
+        # leaving it runs under its roof within the shortest lawful ramp --
+        # the ``footed_portal`` argument: no ramp comes up to grade and goes
+        # down again in that run (KBNA Murfreesboro west portal: roof 6.8 m
+        # up the primary road from its bore's mapped end)
+        tall = depth > tn.mouth_depth_m
+        run = float(tn.mouth_depth_m) / float(tn.ramp_max_grade)
         near = [j for j in near
-                if roof is not None and roof.distance(Point(ends[j][0])) <= tol]
+                if roof is not None and (roof.distance(Point(ends[j][0])) <= tol or (
+                    tall and _road_under(ends[j][0], roof, roads, run)))]
         if not near:
             continue
         if depth < law.tables.structures.bridge.clearance_minimum_m:
@@ -450,7 +481,8 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
             continue
         if depth > tn.mouth_depth_m:
             cover = {j: z for j in near
-                     if (z := _ground_covers_roof(roof, ends[j][0], dem_z, law)) is not None}
+                     if (z := _ground_covers_roof(roof, ends[j][0], dem_z, law,
+                                                  into.get(ends[j]))) is not None}
             near = sorted(cover)
             if not near:
                 refused.append(f"{o.id} {name}: roofed over a bore end, but its roof top "
@@ -460,7 +492,14 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                 continue
         for j in near:
             xy, wid = ends[j]
-            width, edges = _roof_opening(roof, xy, into.get((xy, wid)), tol)
+            # an end the road pins up the open road (#1689) opens over the
+            # roof within its own reach of the end, never the whole wall top
+            # the roof is (KBNA west: an 86 m diagonal parapet, 19 m within
+            # the reach)
+            off = roof.distance(Point(xy))
+            width, edges = (_roof_opening(roof, xy, into.get((xy, wid)), tol) if off <= tol
+                            else _roof_opening(roof.intersection(Point(xy).buffer(off + tol)),
+                                               xy, into.get((xy, wid)), off + tol))
             # a tall portal's floor is the ground ON ITS ROOF less its roof
             # top: the ground at the cap stands inside the surveyed cut
             out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,

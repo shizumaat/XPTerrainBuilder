@@ -55,6 +55,7 @@ import types as _types
 
 import numpy as np
 import shapely
+import shapely.affinity as _aff
 from shapely import STRtree
 from shapely.ops import unary_union
 
@@ -65,7 +66,7 @@ from .below_grade_witness import placed_all as _placed_all
 from .below_grade_witness import zero_of as _zero
 from .object_cut import _base, _face_normals_y, valid_polygon
 
-__all__ = ["read_walled_pit", "share_lift", "Walls"]
+__all__ = ["read_walled_pit", "share_lift", "Walls", "hard_deck_share"]
 
 def _floor_level(v: np.ndarray, hz: np.ndarray, min_area: float) -> "float | None":
     """The lowest level carrying a plate's worth (``min_area``) of the
@@ -254,6 +255,18 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     floor_foot = valid_polygon(unary_union(ft[shapely.area(ft) > 1e-6]))
     if floor_foot is None:
         return None
+    # only OTHER placements' hard decks: a floor object's own deck is its
+    # floor, not a bridge over it
+    decked = hard_deck_share(floor_foot, mates, scale)
+    if decked >= law.tables.structures.deck.on_fraction:
+        # a floor under a HARD DECK of its own frame is the road under a
+        # hard-deck bridge, read by ``planar/deck_bridge`` (class A, 22n):
+        # read as a pit too, the frame took a second zero (KBNA taxiway L:
+        # the deck seated 0.3 m proud of its taxiway, the trench floors
+        # 1.1-4.5 m off the bridge's own)
+        notes.append(f"{what}: walls round its floor, but {100 * decked:.0f} % of it lies "
+                     f"under a hard deck of its frame: a hard-deck bridge's road, not a pit")
+        return None
     roofed = _covered(floor_foot, frame, cache, law, msl, zero + rim_y, scale)
     if roofed >= law.tables.structures.basin.basement_cover_min:
         notes.append(f"{what}: walls round its floor, but {100 * roofed:.0f} % of it lies "
@@ -324,6 +337,26 @@ def _sunken_share(faces: np.ndarray, ground: float) -> float:
     if tot <= 0.0:
         return 0.0
     return float(a[faces[:, :, 2].mean(axis=1) < ground].sum()) / tot
+
+
+def hard_deck_share(foot, frame, scale=(1.0, 1.0)) -> float:
+    """The share of plan ``foot`` lying under the HARD DECK
+    (``PlacedObject.hard_deck``: its ``ATTR_hard_deck`` plan, read for a
+    ``flag`` / ``signature`` deck) of a placement of ``frame``, laid out at
+    the frame's metre ``scale`` as ``planar/floor_decks`` lays it; 0.0 with
+    no such deck."""
+    if foot is None or foot.is_empty or not foot.area > 0.0:
+        return 0.0
+    decks = []
+    for p in frame:
+        hd = getattr(p, "hard_deck", None)
+        if (hd is None or hd.is_empty
+                or str(getattr(p, "deck_kind", "") or "") not in ("flag", "signature")):
+            continue
+        decks.append(_aff.scale(hd, scale[0], scale[1], origin=tuple(p.xy)))
+    if not decks:
+        return 0.0
+    return float(foot.intersection(unary_union(decks)).area) / float(foot.area)
 
 
 def _in_pit(p, foot, cache, tk: float) -> bool:

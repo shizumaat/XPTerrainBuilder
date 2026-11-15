@@ -90,7 +90,7 @@ from .geometry import nearest_vertex_of_containing_cell
 from .viaduct_floor import is_viaduct_half, viaduct_floor_rows
 
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
-           "in_datum", "datum_group",
+           "datum_group",
            "reconcile_datums", "structure_of", "rim_level", "rim_contacts",
            "GEN", "GEN_RIM_LEVEL", "RIM_LEVEL_RULING", "BASIN_FLOOR_RULING",
            "RAMP_REF", "WALL_REF"]
@@ -219,7 +219,7 @@ def framed_plane(planar: PlanarMap, tn: Tunnel, faces: _t.Sequence[Face]
     return {v: z0 + (zt - z0) * min(1.0, max(0.0, s / run)) for v, s in s_of.items()}, s_max
 
 
-def in_datum(tn: Tunnel, s: float) -> bool:
+def _in_datum(tn: Tunnel, s: float) -> bool:
     """Does the ramp station ``s`` stand in ``tn``'s DATUM GROUP -- the
     mouth, every covered stretch, the level stretch to ``climb_from_s``
     (the one test :func:`structures` and ``constraints/shell_datum`` read)?"""
@@ -227,12 +227,12 @@ def in_datum(tn: Tunnel, s: float) -> bool:
 
 
 def datum_group(planar: PlanarMap, tn: Tunnel) -> list[int]:
-    """The vertices of ``tn``'s ramp DATUM GROUP (:func:`in_datum`): the
+    """The vertices of ``tn``'s ramp DATUM GROUP (:func:`_in_datum`): the
     floor a storey shell's block follows (#2062 R3b A,
     ``constraints/shell_datum``)."""
     out: set[int] = set()
     for f in ramp_faces_of(planar, planar.structures).get(tn.id, ()):
-        out.update(v for s, vs in ramp_groups(planar, tn, f) if in_datum(tn, s) for v in vs)
+        out.update(v for s, vs in ramp_groups(planar, tn, f) if _in_datum(tn, s) for v in vs)
     return sorted(out)
 
 
@@ -575,7 +575,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # group just beyond the last deck (``climb_from_s`` is that
             # deck's far edge + the gap, where the far piece begins)
             for s, vs in groups:
-                if in_datum(tn, s) and src_bottom is None:
+                if _in_datum(tn, s) and src_bottom is None:
                     datum_vs.extend(vs)
                     datum_groups.append((s, vs))
             if tn.decks:
@@ -945,18 +945,7 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         # census joins the two.  0.0 = a basin evidencing no depth at all:
         # it keeps the absolute pin.
         depth = b.floor_below_rim_m(clearance)
-        # A SPLIT-LEVEL BUILDING (``planar/split_level_pit``): the floor
-        # follows the OPEN side's rim -- the upper floor sits at the graded
-        # upper ground -- never the low side's
-        follow = _open_rim(planar, rim_vs, b.open_sides)
-        held = []                       # the open side's BARE rim: graded to the building
-        if follow and depth > 1e-6 and floor_vs:
-            shared = [v for v in follow if shared_with_ground(v)]
-            held = [v for v in follow if not shared_with_ground(v)] if shared else []
-            rows.extend(_split_floor_rows(sorted(floor_vs), shared or follow, held, depth,
-                                          inputs))
-            relative += 1
-        elif rim_vs and depth > 1e-6:
+        if rim_vs and depth > 1e-6:
             src_rel = Source(GEN, BASIN_FLOOR_RULING +
                              " (owner RULINGS 2026-09-10ba: the rim follows the "
                              "pavement, 10an/10ar, and the FLOOR follows the rim "
@@ -1005,60 +994,11 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             fallback += 1
         if len(b.wall_path) >= 3:
             path = LineString(list(b.wall_path) + [b.wall_path[0]])
-            _rim_rows(planar, airport, path, [v for v in rim_vs if v not in set(held)],
-                      shared_with_ground, pin, src_wall)
+            _rim_rows(planar, airport, path, rim_vs, shared_with_ground, pin, src_wall)
     rows.extend(pins.values())
     STATS["basins"] = {"floor_relative": relative, "floor_absolute_fallback": fallback,
                        "floor_ramp_vertices": ramp_vs}
     return rows
-
-
-def _split_floor_rows(floor_vs: _t.Sequence[int], follow: _t.Sequence[int],
-                      held: _t.Sequence[int], depth: float, inputs: tuple) -> list[Row]:
-    """A SPLIT-LEVEL BUILDING'S FLOOR (``planar/split_level_pit``): ONE flat
-    level ``depth`` under the MEAN of its open side's rim ``follow`` (the
-    rim the governed ground shares, else the whole open rim) -- the
-    building's upper floor at the graded upper ground -- each equality
-    following the floor (the rim is never pulled down into the pit); the
-    open side's ``held`` bare rim is graded to that upper floor (the
-    terrain held up to the wall, no gap)."""
-    src = Source(GEN, BASIN_FLOOR_RULING + " (owner 2026-11-05: a split-level building's "
-                 f"lower floor {depth:.2f} m under its open side's rim, one flat level)",
-                 inputs)
-    d, w = int(floor_vs[0]), 1.0 / len(follow)
-    tie = ((d, 1.0), *((int(r), -w) for r in follow))
-    rows: list[Row] = [Linear(tie, -depth, -depth, src, follows=(d,))]
-    rows.extend(Linear(((int(v), 1.0), (d, -1.0)), 0.0, 0.0, src, follows=(int(v),))
-                for v in floor_vs[1:])
-    rows.extend(Linear(((int(v), 1.0), (d, -1.0)), depth, depth, src, follows=(int(v),))
-                for v in held)
-    # FLAT ON AIRSIDE (owner 2026-11-06T02:40Z / 03:24Z option (a): "the
-    # terrain should support it, flat on airside"): every vertex of the open
-    # rim the ground shares is held at the ONE upper floor too -- the floor
-    # is their mean less the step, so the open side's ground is one flat
-    # level the object stage seats the upper floor on (KLAX Terminal_2's
-    # 194 m open side sagged 0.38 m under its flat upper floor).  The rows
-    # tie the shared rim to ITSELF -- airside vertices only -- so the
-    # AIRSIDE stage carries them (a row naming the floor is stage 2's, and
-    # stage 2 holds the airside at stage 1's values: §20b) and the apron
-    # comes to one level, the way a held pad's frontage does
-    src_flat = Source(GEN, BASIN_FLOOR_RULING + " (owner 2026-11-06T03:24Z (a): the open "
-                      "side's ground held flat at the upper floor)", inputs)
-    hs = {int(h) for h in held}
-    flat = [int(v) for v in follow if int(v) not in hs]
-    rows.extend(Linear(((v, 1.0), (flat[0], -1.0)), 0.0, 0.0, src_flat, follows=(v,))
-                for v in flat[1:])
-    return rows
-
-
-def _open_rim(planar: PlanarMap, rim_vs: _t.Sequence[int], sides) -> list[int]:
-    """The rim vertices standing on a split-level pit's open ``sides``
-    (within half a metre of them), ``[]`` where it states none."""
-    if not sides or not rim_vs:
-        return []
-    from shapely.geometry import MultiLineString, Point
-    g = MultiLineString([list(s) for s in sides if len(s) >= 2])
-    return [v for v in rim_vs if g.distance(Point(planar.vertices[v].xy)) <= 0.5]
 
 
 def rim_contacts(planar: PlanarMap, law: Law

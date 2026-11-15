@@ -51,7 +51,7 @@ from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
-from .storey_pad import pit_skip, read_storey_shells, storey_pads
+from .storey_pad import read_storey_shells, storey_pads
 from .free_bridge import admitted as free_admitted, plated as free_plated
 from .free_bridge import planar_stacks as free_planar_stacks
 from ..model.deck_stack import live_stacks
@@ -151,8 +151,7 @@ def level_counts(pad_airside: _t.Mapping[str, _t.Any]) -> dict:
 
 def channels_after_basins(airport, classification, law, objects, corridors, extra,
                          plates, cache, orep, claimed_ways, shell_claimed,
-                         synth_ways=frozenset(), reads=None, cuts=(),
-                         skip_split=frozenset()):
+                         synth_ways=frozenset(), reads=None, cuts=()):
     """§45 (13) (d) AMENDED — A MEMBER OF A *BUILT* BASIN, BASINS BEFORE
     CHANNELS (owner RULINGS 2026-09-15aw).  THE ONE ORDERING SITE; the
     ``--stage structures`` replay calls this same function.
@@ -191,8 +190,7 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
     cl_s, tun0, _s0 = build_structures(airport, classification, law, objects,
                                        corridors, extra, plates, ())
     _cl_b, basins0, _b0 = build_basins(airport, cl_s, law, tun0, objects, cache,
-                                       report=orep, claimed=shell_claimed, reads=reads,
-                                       skip_split=skip_split)
+                                       report=orep, claimed=shell_claimed, reads=reads)
     pit = frozenset(str(i) for b in basins0 for i in (b.member_ids or ()))
     channels, stats = identify_channels(airport, classification, law, objects,
                                         claimed_ways, pit, synth_ways, cuts=cuts)
@@ -208,13 +206,11 @@ def _storey_pads(airport, classification, law, shells, basins, bstats, notes):
     (``planar/storey_pad``) after the pits, their notes in ``bstats``."""
     if not shells:
         return classification, []
-    from .split_level_pit import SPLIT_KIND
     cells = list(classification.cells)
     out, recs, more, refused = storey_pads(
         airport, cells, [Polygon(c.ring, c.holes) for c in cells], law, shells,
-        [Polygon(b.wall_path) for b in basins if len(b.wall_path) >= 3], RUNWAY_FAMILY,
-        frozenset(str(m) for b in basins if b.kind == SPLIT_KIND for m in b.member_ids or ()))
-    bstats.split_levels.extend(f"storey shell: {n}" for n in [*notes, *more])
+        [Polygon(b.wall_path) for b in basins if len(b.wall_path) >= 3], RUNWAY_FAMILY)
+    bstats.storey_notes.extend(f"storey shell: {n}" for n in [*notes, *more])
     bstats.refused.extend(f"storey shell: {r}" for r in refused)
     if not recs:
         return classification, []
@@ -319,17 +315,15 @@ def build(airport: Airport, classification: Classification, law: Law,
     # BASIN PASS FIRST — see :func:`channels_after_basins`.
     hard_claims, synth_claims = crossing_claims(airport, law, corridors, classification)
     # THE STOREY SHELLS, read ONCE (#2062, spec A1 (4), A2 (4)): the
-    # split-level buildings laid on storey pads (``planar/storey_pad``) -- no
-    # basin pass cuts a pit under a scope-(i) one, and their pads are
-    # minted after the pits (scope (ii) once the structures are cut)
+    # split-level and deck-roofed buildings laid on storey pads
+    # (``planar/storey_pad``, #2062 R3b D: the split-level pit is gone),
+    # their pads minted after the basins and the structures
     shells, shell_notes = read_storey_shells(
         airport, classification.cells,
         [Polygon(c.ring, c.holes) for c in classification.cells], law, objects, cache)
-    shell_ids = pit_skip(shells)
     channels, chstats = channels_after_basins(
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
-        hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings, cuts=cuts,
-        skip_split=shell_ids)
+        hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings, cuts=cuts)
     # THE EDGE BRIDGES, read ONCE (owner RULINGS 2026-10-27l / 27r / 28d,
     # ``planar/bridge_span``): their backs pin the trench and their cover is
     # covered ground — the structure pass and the covered ground read one
@@ -369,7 +363,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        level_b=level_b,
                                                        object_floors=floors,
                                                        grade_ends=tstats.grade_ends,
-                                                       level_seeds=seeds)
+                                                       level_seeds=seeds, shells=shells)
     sstats.hard_decks.extend(deck_notes)
     # a pack deck over a pack object cut frames that cut (owner 2026-11-05
     # §0.5, ``planar/cut_frame``): its floor at the deck's seated zero
@@ -413,8 +407,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                   channels=channels,
                                                   claimed=frozenset(tstats.shell_claimed),
                                                   reads=rings,
-                                                  rim_diagnostics=rim_diagnostics,
-                                                  skip_split=shell_ids)
+                                                  rim_diagnostics=rim_diagnostics)
     classification, storeys = _storey_pads(airport, classification, law, shells, basins,
                                            bstats, shell_notes)
     bstats.objects = orep
@@ -423,11 +416,11 @@ def build(airport: Airport, classification: Classification, law: Law,
     # structures step ends here and the arrangement's begins)
     _pulse.mark("structures")
     # #2065 A3 C2 N2: a free bridge the planar stage refused, or one whose
-    # deck carries a split-level / walled plate (A1 ``plated_deck``, listed:
+    # deck is a storey shell's or carries a walled plate (A1 ``plated_deck``, listed:
     # owner Q3), mints no ground; the stacks the arrangement reads are the
     # admitted ones (``planar/free_bridge.planar_stacks``;
     # ``PlanarMap.bridge_stacks``)
-    free, plated_notes = free_plated(free, basins, objects)
+    free, plated_notes = free_plated(free, storeys, objects)
     sstats.hard_decks.extend(plated_notes)
     bridge_stacks, bs_notes = free_planar_stacks(getattr(airport, "deck_stacks", ()) or (),
                                                  free)

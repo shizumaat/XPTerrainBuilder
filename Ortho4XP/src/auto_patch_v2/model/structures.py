@@ -793,16 +793,8 @@ class Basin:
     #: (``pipeline/authored_seats``).  ``None`` for a PLAIN pit (no lift:
     #: the author stated no seat, the floor-plate seat governs as before).
     rim_cut_m: float | None = None
-    #: A SPLIT-LEVEL BUILDING'S PIT (``planar/split_level_pit``): the open
-    #: sides (frame segments) whose rim the floor follows, and the plate
-    #: clearance it states (``None`` = ``[basin] floor_clearance_m``; a
-    #: building's lower floor stands ON its floor: 0)
-    open_sides: tuple[tuple[XY, ...], ...] = ()
-    #: ... the same sides as ``(lat, lon)`` (what the sidecar publishes)
-    open_sides_ll: tuple[tuple[tuple[float, float], ...], ...] = ()
-    #: ... and its TALL sides (walls down to the lower floor), ``(lat,
-    #: lon)``: the terrain outside them is cut down to the lower floor
-    closed_sides_ll: tuple[tuple[tuple[float, float], ...], ...] = ()
+    #: the plate clearance this basin states (``None`` = ``[basin]
+    #: floor_clearance_m``)
     clearance_m: float | None = None
 
     def clearance(self, law_clearance_m: float) -> float:

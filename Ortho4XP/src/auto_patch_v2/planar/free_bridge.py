@@ -9,7 +9,9 @@ S1 / S2 / S4): the thin ``planar`` caller of the positive witness
   class A's witness) and an all-deck frame (22d / 22p keep it,
   ``placement_family.frame_is_bridge``, or a deck and the structure riding
   it, ``deck_riders``) are read as KEPT bridges.  W1 reads ``highway`` /
-  ``railway`` routes only.  The decks the classifier calls ``free_bridge``
+  ``railway`` routes and the airport's own apt.dat ground routes
+  (``airport/ground_route_ways``, #2062 R3b E: over a ``flag`` deck their
+  bridge stretch is the part inside its plate).  The decks the classifier calls ``free_bridge``
   (``airport/bridge_class``) become ``Airport.free_bridges``, one
   :class:`~..model.free_bridge.FreeBridge` per group of touching decks.
 * PLANAR STAGE (:func:`admitted`): the readers ahead of a free bridge in the
@@ -73,6 +75,9 @@ class _Read:
         from ..airport.dem import dem_z_many
         self.law, self.cache = law, cache
         self.ways = _routes(getattr(airport, "osm_ways_mapped", None) or airport.osm_ways)
+        # #2062 R3b E: the airport's own ground routes are W1 routes too
+        from ..airport.ground_route_ways import ground_route_ways
+        self.ground_routes = ground_route_ways(airport)
         dem = getattr(airport, "dem", None)
         self.dem = dem
         self.ground = None if dem is None else (
@@ -107,7 +112,12 @@ def _frame_witness(decks: list, frame: list, rd: _Read) -> dict:
     for d in decks:
         up = _bw.up_faces(_bf.solid_faces(rd.geometry(d), d.xy, d.heading_deg), normal)
         plates[str(d.id)] = (_ring(d), up, d.deck_kind)
-    if not any(not isinstance(_bw.route_of(r, rd.ways, law), str)
+    # #2062 R3b E: over a FLAG deck an apt.dat ground route's bridge stretch
+    # is the part inside its plate (``airport/ground_route_ways``)
+    from ..airport.ground_route_ways import bridged
+    ways = list(rd.ways) + [w for r, _u, k in plates.values() if k == "flag"
+                            for w in bridged(rd.ground_routes, r)]
+    if not any(not isinstance(_bw.route_of(r, ways, law), str)
                for r, _u, _k in plates.values()):
         return {k: _bw.Witness(None, failed="W1 route: no mapped route") for k in plates}
     b = np.array([r.bounds for r, _u, _k in plates.values()])
@@ -116,7 +126,7 @@ def _frame_witness(decks: list, frame: list, rd: _Read) -> dict:
     faces = _bf.faces_in_box(placed.values(), box)
     bodies = {k: _bf.body_points(f) for k, f in placed.items() if len(f)}
     own = str(decks[0].id)
-    return _bw.frame_witness(plates, faces, bodies, rd.ways, law, rd.ground, rd.water(box),
+    return _bw.frame_witness(plates, faces, bodies, ways, law, rd.ground, rd.water(box),
                              under=rd.under.for_unit(own, frozenset(placed)))
 
 
@@ -296,22 +306,23 @@ def admitted(bridges: _t.Sequence[FreeBridge], objects, classification, airport,
     return tuple(out), notes
 
 
-def plated(bridges: _t.Sequence[FreeBridge], basins=(), objects=()
+def plated(bridges: _t.Sequence[FreeBridge], shells=(), objects=()
            ) -> tuple[tuple[FreeBridge, ...], list[str]]:
-    """``(the free bridges no deck of which carries a split-level or walled
-    plate, notes)`` (#2065 A3 rule 1: A1's ``plated_deck``, OTHH B05 — listed,
-    nothing built, owner Q3 (a); its plate's reader seats it).  Its stack,
-    if it had one, is dropped by :func:`planar_stacks`."""
+    """``(the free bridges no deck of which is a storey shell's member or
+    carries a walled plate, notes)`` (#2065 A3 rule 1: A1's ``plated_deck``,
+    OTHH B05 — listed, nothing built, owner Q3 (a); its own reader seats
+    it; ``shells`` the storey shells, ``planar/storey_pad``, #2062 R3b D).
+    Its stack, if it had one, is dropped by :func:`planar_stacks`."""
     if not bridges:
         return (), []
-    split = {str(m) for b in basins or () if getattr(b, "kind", "") == "split_level"
-             for m in (*getattr(b, "member_ids", ()), getattr(b, "witness_id", ""))}
+    split = {str(m) for sh in shells or () for m in (*getattr(sh, "member_ids", ()),
+                                                     getattr(sh, "id", ""))}
     walled = {str(o.id) for o in objects or () if getattr(o, "walled_plate", None) is not None}
     out, notes = [], []
     for fb in bridges:
         hit = sorted(set(fb.deck_ids()) & (split | walled))
         if hit:
-            notes.append(f"{fb.id}: plated_deck {hit} (split-level / walled plate) — listed, "
+            notes.append(f"{fb.id}: plated_deck {hit} (storey shell / walled plate) — listed, "
                          "nothing graded (owner Q3 (a))")
             continue
         out.append(fb)

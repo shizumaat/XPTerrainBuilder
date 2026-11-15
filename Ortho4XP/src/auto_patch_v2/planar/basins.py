@@ -235,9 +235,9 @@ class BasinStats:
     #: is where a missing floor plate is looked for.
     buried_named: list[str] = _dc.field(default_factory=list)
     cells_cut: int = 0
-    #: the split-level buildings read (``planar/split_level_pit``): one
-    #: note per building with an open side, and the pits refused
-    split_levels: list[str] = _dc.field(default_factory=list)
+    #: the storey shells read and laid on their pads (``planar/storey_pad``,
+    #: #2062): one note per shell, pad and refusal
+    storey_notes: list[str] = _dc.field(default_factory=list)
 
 
 #: THE PACK READ ONCE, AND THE BASIN ADMISSION READ FIRST (owner
@@ -374,8 +374,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                  report: obj8.ObjReport | None = None,
                  channels: _t.Sequence = (),
                  claimed: _t.AbstractSet[str] = frozenset(),
-                 reads: dict | None = None, rim_diagnostics: bool = False,
-                 skip_split: _t.AbstractSet[str] = frozenset()
+                 reads: dict | None = None, rim_diagnostics: bool = False
                  ) -> tuple[Classification, tuple[Basin, ...], BasinStats]:
     """The classification with the basins applied (cells cut, floor and
     wall cells added, the footprints as keep-outs), the records, and the
@@ -405,11 +404,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     notes.  A BUILD does not: they are notes and never a refusal, they are
     the only readers of the members' at-grade LINEWORK, and without them
     this pass reads the at-grade POLYGONS alone (the basement test).  The
-    cells, the rings and every refusal are the same either way.
-
-    ``skip_split``: the record ids (``SplitLevel.id``) of the split-level
-    buildings laid on STOREY PADS (``planar/storey_pad``, #2062; read once
-    in ``planar/build``): no pit is cut under them."""
+    cells, the rings and every refusal are the same either way."""
     reads = {} if reads is None else reads
 
     def once(key: tuple, read: _t.Callable[[], object]):
@@ -460,8 +455,7 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     if not witnessed:
         cells = list(classification.cells)
         return _apply_pits(classification, cells, [Polygon(c.ring, c.holes) for c in cells],
-                           *_split_pits(airport, classification, law, objects, cache, [], [],
-                                        [], [], stats, skip_split), law, bl, stats)
+                           [], [], [], law, bl, stats)
     u = uu("regions", [_outer(w) for o in witnessed for w in o.witnesses])
     u = u.buffer(bl.footprint_close_m, **_MITRE).buffer(-bl.footprint_close_m, **_MITRE)
     parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon" and not g.is_empty]
@@ -913,26 +907,8 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
                                   for t in ramp_faces),
                             rim_cut_m=None if rim_cut is None else float(rim_cut)))
     _record_grade(stats, cache, bl)
-    return _apply_pits(classification, cells, polys,
-                       *_split_pits(airport, classification, law, objects, cache, polys,
-                                    basins, new_cells, knives, stats, skip_split), law, bl, stats)
-
-
-def _split_pits(airport, classification, law, objects, cache, polys, basins, new_cells,
-                knives, stats, skip=frozenset()):
-    """``(basins, new cells, knives)`` with the split-level buildings'
-    pits added (``planar/split_level_pit``; none under a placement of
-    ``skip``, a storey shell's), their notes in ``stats``."""
-    from .split_level_pit import split_level_pits
-    cells = list(classification.cells)
-    polys = polys or [Polygon(c.ring, c.holes) for c in cells]
-    sb, sc, sk, notes, refused = split_level_pits(
-        airport, cells, polys, law, objects, cache or obj8.ResourceCache(
-            law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law)),
-        len(basins), knives, FLOOR_ROLE, WALL_ROLE, RUNWAY_FAMILY, skip=skip)
-    stats.split_levels.extend(notes)
-    stats.refused.extend(refused)
-    return list(basins) + sb, list(new_cells) + sc, list(knives) + sk
+    return _apply_pits(classification, cells, polys, basins, new_cells, knives, law, bl,
+                       stats)
 
 
 def _apply_pits(classification, cells, polys, basins, new_cells, knives, law, bl, stats):

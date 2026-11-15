@@ -48,7 +48,7 @@ __all__ = ["PLATED_KINDS", "REASON", "free_bridge_zeros", "free_bridge_seat",
 
 #: a member carrying one of these plates is seated by that plate's own
 #: reader (``airside_deck_seat._plate_zero``, ``anchor_rule.datum_of``)
-PLATED_KINDS = frozenset({"deck", "overpass", "edge", "walled", "split_level"})
+PLATED_KINDS = frozenset({"deck", "overpass", "edge", "walled"})
 
 #: the reason prefix :func:`free_bridge_seat` writes
 REASON = "one free-standing bridge at its deck's end lines"

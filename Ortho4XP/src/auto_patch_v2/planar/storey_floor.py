@@ -102,7 +102,8 @@ def ground_datum(sl: SplitLevel, dem_z, air) -> "float | None":
 
 
 def shell_level_s(shells: _t.Sequence[SplitLevel], tid: str, axis, half: float,
-                  climb_from: float, reach: float) -> tuple["float | None", list[str]]:
+                  climb_from: float, reach: float
+                  ) -> tuple["float | None", list[str], list]:
     """THE FLOOR IS LEVEL ALONG A SHELL THAT STANDS ON IT (#2062 R3b B,
     owner RULINGS 2026-11-13x (2): nothing along a shell's base stands
     above its wall foot): ``(the far station along the corridor's ``axis``
@@ -111,11 +112,16 @@ def shell_level_s(shells: _t.Sequence[SplitLevel], tid: str, axis, half: float,
     level's run length or more has its outside stations within ``half`` +
     ``split_level._GROUND_OUT_M`` of the axis; its far station counts when
     its near one lies within the LEVEL ZONE (``climb_from`` + ``reach``),
-    else the shell is refused by name (the ramp would climb along it)."""
+    else the shell is refused by name (the ramp would climb along it).  The
+    third value: the plans of the shells counted -- each a WALL of the
+    trench (``planar/structures``: never a stop, a pin host or knifed; the
+    cut and the floor stand off it)."""
     from shapely.geometry import Point
+
     from ..airport.split_level import _GROUND_OUT_M, _stations
     far: "float | None" = None
     why: list[str] = []
+    plans: list = []
     band = axis.buffer(half + _GROUND_OUT_M + 0.5)
     for sl in shells:
         if sl.air_level is not None or len(sl.levels) < 2:
@@ -136,4 +142,5 @@ def shell_level_s(shells: _t.Sequence[SplitLevel], tid: str, axis, half: float,
                        "-- refused, the ramp would rise along its wall (R3b B)")
             continue
         far = top if far is None else max(far, top)
-    return far, why
+        plans.append(sl.plan if sl.plan is not None else sl.footprint)
+    return far, why, plans

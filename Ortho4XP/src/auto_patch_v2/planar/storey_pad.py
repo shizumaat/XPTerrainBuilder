@@ -24,28 +24,32 @@ A1 (1) (c), ``split_level.take_remainder``).
 THE BACK CUT AND ITS KERB (spec A2 (3); owner RULINGS 2026-11-13w "all
 their wall bottoms are on terrain", 2026-11-10a (2)).  Outside each
 groundside run standing at the shell's LOWEST level, the band
-``split_level_back_cut_m`` deep (chained as the pit's back cut,
-``split_level_pit.back_band``) is cut down to the block's level: it is part
-of the pad.  It yields -- clipped, never refused -- to the runway family,
-the structures, other pads and pits, the airside pavement and the mapped
-road faces (a road keeps its profile).  Along its outer edge (along the run
-where it clipped to nothing) a band one riser wide inside the pad is the
-KERB ``<pad>#kerb#strip``: the declared wall between the cut and the higher
-lot (``airport/riser_wall`` reads its record from the pad's held record),
-never within the airside pavement's riser width, never over an upper level.
-The lot never shares a vertex with a block-level face on such a run.
+``split_level_back_cut_m`` deep (chained, :func:`back_band`) is cut down to
+the LOWEST level: it is part of the pad.  It yields -- clipped, never
+refused -- to the runway family, the structures, other pads and basins and
+the airside pavement; a mapped road at the wall's foot is cut to it (owner
+RULINGS 2026-11-13x (2): nothing along a shell's base stands above its wall
+foot), its vertices on the cut's edge welds, its own caps ramp it away.
+Along its outer edge (along the run where it clipped to nothing) a band one
+riser wide inside the pad is the KERB ``<pad>#kerb#strip``, as high as the
+shell (its top level over its lowest + ``[cockpit] visual_m``): the
+declared wall between the cut and the higher lot (``airport/riser_wall``
+reads its record from the pad's held record), never within the airside
+pavement's riser width, never over a level but the lowest, never against
+a road face.  The lot never shares a vertex with a lowest-level face on
+such a run.  A building cell standing half or more inside the plan is the
+shell's own, absorbed into the pad.
 
-SCOPE (spec A2 (4), R3b A): a shell with two counted levels or more whose
-block is its LOWEST level -- (i) the airside meets the lowest level
-(``air_level == 0``), or (ii) no run faces the airside and half the lowest
-level's run length faces a ramp-class structure floor (the block FOLLOWS
-that floor's mouth datum, ``constraints/shell_datum``).  Each record
-carries what leads its block (``planar/storey_floor``).  Upper-block and
-ground-led shells stay on the pit (``planar/split_level_pit``) until R3b D,
-and so does a scope-(ii) shell the pit already built.  Refused, by name, as
-the pit refuses: a plan overlapping the runway family or a structure, a
-mapped road running under it, a plan another pit took; a shell with no
-building cell under it; a lowest level on a basin or channel floor.
+SCOPE (#2062 R3b D): EVERY shell with two counted levels or more -- every
+split-level record (every part of ``min_area_m2`` or more) and every
+deck-roofed building -- stands on storey pads; the split-level pit is
+gone.  The block is the airside's level (``air_level``), else the lowest;
+what leads it is the one datum rule (``planar/storey_floor``,
+``constraints/shell_datum``).  Refused, by name -- a refused shell is a
+plain building pad, no other path: a plan overlapping the runway family or
+a structure, a mapped road running under it, a plan another basin or pad
+took; a shell with no building cell under it; a lowest level on a basin or
+channel floor.
 
 Nothing here names a pack, a resource or an airport."""
 from __future__ import annotations
@@ -55,9 +59,10 @@ import math
 import typing as _t
 
 from shapely.geometry import LineString, Polygon
-from shapely.ops import unary_union
+from shapely.ops import linemerge, unary_union
 from shapely.prepared import prep
 
+from ..airport.deck_roof import read_deck_roofs
 from ..airport.split_level import (
     SplitLevel,
     corner_cut,
@@ -65,49 +70,50 @@ from ..airport.split_level import (
     run_faces,
     take_remainder,
 )
-from ..geom.parts import nonempty_polygon_parts
+from ..geom.parts import nonempty_polygon_parts, polygon_parts_with_area
 from ..geom.valid_area import valid_area
-from ..law.tables import frontage_roles
+from ..law.tables import apron_roles, frontage_roles
 from ..model.planar import plane_ref
 from ..model.storey_shell import StoreyRun, StoreyShell
 from .basin_geometry import _rim
 from .cell_knife import knife_cells
 from .fill_riser import _lines, riser_width
-from .split_level_pit import _largest, _road_under, _roads, back_band
 from .storey_floor import FloorCells, floor_scope, ground_datum, lowest_runs
 
-__all__ = ["read_storey_shells", "pit_skip", "storey_pads", "shell_levels"]
+__all__ = ["read_storey_shells", "storey_pads", "shell_levels"]
 
 
 def read_storey_shells(airport, cells, polys, law, objects, cache
                        ) -> tuple[list[SplitLevel], list[str]]:
-    """The split-level buildings of ``objects`` that may stand on storey
-    pads (module docstring, SCOPE: (i) now; (ii) once the structures are
-    cut, :func:`storey_pads`), and one note each."""
+    """EVERY STOREY SHELL of ``objects`` (#2062 R3b D): each split-level
+    record (``airport/split_level``, every part of ``min_area_m2`` or more)
+    and each deck-roofed building (``airport/deck_roof``; a family read
+    both ways is read once) with two counted levels or more, and one note
+    each."""
     fr = frontage_roles(law)
     air = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in fr]).buffer(0)
     dem_z = getattr(getattr(airport, "dem", None), "z", None)
     sls, _notes = read_split_levels(objects, cache, law, dem_z,
                                     None if air.is_empty else prep(air))
-    out = [sl for sl in sls if sl.air_level in (0, None) and len(sl.levels) >= 2]
+    ap = unary_union([p for p, c in zip(polys, cells, strict=True)
+                      if c.role in apron_roles(law)]).buffer(0)
+    roofs, _rn = read_deck_roofs(objects, cache, law, dem_z, None if ap.is_empty else prep(ap))
+    seen = {m for sl in sls for m in sl.member_ids}
+    sls = sls + [r for r in roofs if not seen.intersection(r.member_ids)]
+    out = [sl for sl in sls if len(sl.levels) >= 2]
     return out, [f"{sl.id} {sl.paths[0].rsplit('/', 1)[-1]}: levels "
                  + "/".join(f"{y:+.2f}" for y in sl.levels)
                  + (f", block {sl.air_level}" if sl.air_level is not None else ", no airside")
+                 + (", deck roof" if sl.roof else "")
                  + f", {len(sl.minor)} minor run(s)" for sl in out]
 
 
-def pit_skip(shells: _t.Sequence[SplitLevel]) -> frozenset:
-    """The record ids no pit is cut under: scope (i) (module docstring)."""
-    return frozenset(sl.id for sl in shells if sl.air_level == 0)
-
-
 def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
-                taken: _t.Sequence[Polygon], runway_roles: _t.Collection[str],
-                pitted: _t.AbstractSet[str] = frozenset()
+                taken: _t.Sequence[Polygon], runway_roles: _t.Collection[str]
                 ) -> tuple[list, list[StoreyShell], list[str], list[str]]:
     """``(cells, records, notes, refusals)``: the classification's cells
-    with every shell's pad cut in (module docstring).  ``pitted``: the
-    placement ids a split-level pit was built under."""
+    with every shell's pad cut in (module docstring); ``taken`` the basins
+    already cut."""
     if not shells:
         return list(cells), [], [], []
     bp = law.tables.structures.building_pad
@@ -133,6 +139,8 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
     ground = unary_union([p for p, c in zip(polys, cells, strict=True)
                           if c.role not in runway_roles and c.kind != "structure"
                           and c.role not in fr and c.role != "building"])
+    # ... and never a mapped road's face (the road meets the back cut)
+    ground_nr = ground if road_faces.is_empty else valid_area(ground.difference(road_faces))
     pads: dict[int, Polygon] = {}
     recs: list[StoreyShell] = []
     notes: list[str] = []
@@ -140,8 +148,8 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
     for sl in shells:
         name = sl.paths[0].rsplit("/", 1)[-1]
         plan = sl.pit_plan
-        leader, why = ("airside", "") if sl.air_level == 0 else _leader(sl, floors, pitted)
-        scope = "airside" if leader == "airside" else "floor"
+        leader, why = ("airside", "") if sl.air_level is not None else floor_scope(sl, floors)
+        scope = leader
         why = why or _refusal(plan, blocked, roads, grid)
         under = [(i, p.intersection(plan).area)
                  for i, (p, c) in enumerate(zip(polys, cells, strict=True))
@@ -153,15 +161,21 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
             refused.append(f"{sl.id} {name}: {why}")
             continue
         i0 = max(under, key=lambda q: (q[1], -q[0]))[0]
-        others = [p for j, (p, c) in enumerate(zip(polys, cells, strict=True))
-                  if c.role == "building" and j != i0 and p.intersects(plan.buffer(reach + grid))]
+        near = [p for j, (p, c) in enumerate(zip(polys, cells, strict=True))
+                if c.role == "building" and j != i0 and j not in pads
+                and p.intersects(plan.buffer(reach + grid))]
+        # another building cell standing half or more inside the plan is
+        # the shell's own: absorbed into the pad (R3b D)
+        absorbed = [p for p in near if p.intersection(plan).area >= 0.5 * p.area]
+        others = [p for p in near if not any(p is q for q in absorbed)]
         keep_off = [g for g in (blocked, pits, *pads.values()) if g is not None] + others
+        # the back cut yields to all but a mapped road face: a road at the
+        # wall's foot is cut to it, its own caps ramp it away (13x (2))
         yields = {"structure": blocked, "pit": pits,
                   "pad": unary_union([*pads.values(), *others]) if pads or others else None,
-                  "airside": None if air_g.is_empty else air_g,
-                  "road": None if road_faces.is_empty else road_faces}
+                  "airside": None if air_g.is_empty else air_g}
         T, cuts = _back_cut(sl, plan, reach, yields, air, grid)
-        P = valid_area(unary_union([plan, polys[i0], T]))
+        P = valid_area(unary_union([plan, polys[i0], T, *absorbed]))
         if keep_off:
             P = valid_area(P.difference(unary_union(keep_off)))
         P = _largest(P)
@@ -172,7 +186,7 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
         pads[i0] = P
         rec = _record(sl, str(cells[i0].ref), P, probe, air, valid_area(T.intersection(P)),
                       cuts, scope, leader, floors, dem_z)
-        rec = _with_kerb(rec, P, plan, w, grid, ground, air_g, keep_off, law)
+        rec = _with_kerb(rec, P, plan, w, grid, ground_nr, air_g, keep_off, law)
         recs.append(rec)
         notes.append(f"{sl.id} {name}: pad {rec.pad_ref} {P.area:.0f} m2 (plan "
                      f"{plan.area:.0f} m2, scope {scope}), levels "
@@ -193,21 +207,6 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
                              runway_roles, cut_pads=False, mark="storey_cut", new_cells=new)
     notes.append(f"{len(recs)} storey pad(s), {n_cut} cell(s) cut at them")
     return out, recs, notes, refused
-
-
-def _leader(sl: SplitLevel, floors: FloorCells, pitted: _t.AbstractSet[str]
-            ) -> tuple[str, str]:
-    """``(leader, why refused)`` of a shell with no airside contact
-    (``planar/storey_floor``).  A shell its split-level pit was built under
-    stays on it, and a GROUND-led one waits for the pit's deletion (#2062
-    R3b D, held by the master 2026-11-15 with SBSP's owner question)."""
-    if not pitted.isdisjoint(sl.member_ids) and sl.part == 0:
-        return "", "no airside contact; its split-level pit was built (stays on the pit)"
-    leader, why = floor_scope(sl, floors)
-    if leader == "ground":
-        return "", ("no airside contact and no structure floor under its lowest level: "
-                    "ground-led, on the pit until R3b D")
-    return leader, why
 
 
 def _back_cut(sl: SplitLevel, plan: Polygon, reach: float, yields: dict, air, grid: float
@@ -274,14 +273,14 @@ def _with_kerb(rec: StoreyShell, P: Polygon, plan: Polygon, w: float, grid: floa
         edge = edge.difference(unary_union(off).buffer(w + eps, join_style=2))
     if edge.is_empty:
         return rec
-    upper = unary_union([g for k, g in enumerate(rec.level_regions) if k != rec.block])
+    upper = unary_union([g for k, g in enumerate(rec.level_regions) if k != 0])
     R = valid_area(P.intersection(edge.buffer(w, cap_style="flat", join_style="mitre")))
     if not upper.is_empty:
         R = valid_area(R.difference(upper))
     pieces = [q for q in nonempty_polygon_parts(R) if q.area >= max(grid * grid, 1.0)]
     if not pieces:
         return rec
-    h = (max(rec.levels) - rec.levels[rec.block]
+    h = (max(rec.levels) - min(rec.levels)
          + float(law.tables.emit.cockpit.visual_m))
     kerbs = tuple({"ring": [tuple(c) for c in q.exterior.coords],
                    "upper": [[tuple(c) for c in ln.coords]
@@ -291,7 +290,7 @@ def _with_kerb(rec: StoreyShell, P: Polygon, plan: Polygon, w: float, grid: floa
 
 
 def _refusal(plan: Polygon, blocked, roads, grid: float) -> str:
-    """The pit's refusals (``planar/split_level_pit``), on the plan (which
+    """The refusals of a shell's plan (which
     may TOUCH a structure: a scope-(ii) shell stands on its floor)."""
     if blocked is not None and plan.buffer(-grid).intersects(blocked):
         return "the shell's plan meets the runway family or a structure"
@@ -316,8 +315,9 @@ def _record(sl: SplitLevel, pad_ref: str, P: Polygon, probe: float, air, T: Poly
     regions = [valid_area(g.intersection(P)) for g in sl.level_plans]
     block = int(sl.air_level or 0)
     if not T.is_empty:
+        # the BACK CUT is the LOWEST level's (R3b D): its runs stand there
         regions = [valid_area(g.difference(T)) for g in regions]
-        regions[block] = valid_area(unary_union([regions[block], T]))
+        regions[0] = valid_area(unary_union([regions[0], T]))
     regions = take_remainder(regions, valid_area(P.difference(unary_union(regions))), probe)
     refs, j = [], 0
     for k in range(len(sl.levels)):
@@ -395,3 +395,58 @@ def shell_levels(P, shell: StoreyShell, air, law, grid: float, others=None
         levels.append((shell.level_refs[k], U, S, rec))
     return valid_area(P.difference(taken)), levels
 
+
+#: OSM ``highway`` values no vehicle runs on
+_ON_FOOT = frozenset({"footway", "path", "steps", "pedestrian", "cycleway", "corridor",
+                      "bridleway", "elevator"})
+
+
+def _under(tags: _t.Mapping[str, str]) -> bool:
+    """The way runs UNDER what stands over it: ``tunnel`` (a covered
+    passage through a building's own floor, ``building_passage``, is a
+    level of that building, not a way under it) or a negative ``layer``."""
+    if str(tags.get("tunnel", "no")) not in ("no", "building_passage"):
+        return True
+    try:
+        return float(tags.get("layer", 0) or 0) < 0.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _roads(airport) -> list[LineString]:
+    """The mapped roads that run UNDER a structure: every OSM way a
+    vehicle runs on (``highway``) tagged as passing under (:func:`_under`).
+    The OSM line, not the classified cell: the road under a pack structure
+    is cut out of the cells there (the structure's own ramp,
+    ``planar/structure_service``) but its way runs on.  A road at grade
+    crossing a box is no witness (SBSP's split-level hangar: two service
+    ways cross its plan)."""
+    out = []
+    for w in getattr(airport, "osm_ways", ()) or ():
+        tags = w.tags or {}
+        if tags.get("highway", "") not in ("", *_ON_FOOT) and _under(tags) \
+                and len(w.points) >= 2:
+            out.append(LineString(w.points))
+    return out
+
+
+def _road_under(rim: Polygon, roads: _t.Sequence[LineString], grid: float) -> bool:
+    """A road runs UNDER ``rim``: more than ``grid`` of one of ``roads``
+    (:func:`_roads`) lies inside the box."""
+    return any(ln.intersection(rim).length > grid for ln in roads if ln.intersects(rim))
+
+
+def _largest(geom) -> "Polygon | None":
+    """The largest polygon part of ``geom``, or ``None``."""
+    parts = polygon_parts_with_area(geom)
+    return max(parts, key=lambda g: g.area) if parts else None
+
+
+def back_band(lines: _t.Sequence[LineString], reach: float):
+    """THE BACK CUT's band: ``reach`` either side of ``lines`` chained (two
+    meeting lines take the corner between them), flat at the chain's ends
+    (#2062 A2 (3)); the caller keeps the outside."""
+    sides = unary_union(list(lines))
+    # one line unions to a LineString, which linemerge refuses
+    chain = sides if sides.geom_type == "LineString" else linemerge(sides)
+    return chain.buffer(reach, cap_style="flat", join_style="mitre")

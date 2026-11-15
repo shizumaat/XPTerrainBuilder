@@ -19,6 +19,8 @@ class StructureStats:
     """What the structure pass found, made and refused."""
 
     bores: int = 0
+    #: #2062 R3b B: each ramp held level along a storey shell on its floor
+    shell_levels: list = _dc.field(default_factory=list)
     #: RULINGS 2026-10-28k R2: the survey's open approach trenches made
     #: keepouts (``lidar_road.survey_trench``) — the zones stop at them.
     survey_cuts: int = 0

@@ -40,15 +40,8 @@ one STACK row per stack measures D1-D6 (:func:`check_stack`: one zero, the
 floor under the decks, the end lines, nothing through a deck, the walls'
 top, no pad on their caps).
 
-SPLIT-LEVEL BUILDINGS (the sidecar's ``basin_facilities`` of kind
-``split_level``, ``planar/split_level_pit``): per building, its written
-rows' drawn zero, its lower floor (zero + ``plate_y_m``) against the drawn
-mesh over its floor, and its upper floor (+ ``floor_below_rim_m``) against
-the drawn mesh 1 m outside each open side (on its LEFT: an open side runs
-with its building on its right, #1903).  Bars: |lower floor - drawn
-floor| <= tol; |upper floor - median open-side ground| <= tol; no open-side
-station with the ground more than tol under the upper floor (a gap that
-shows the open wall).
+STOREY SHELLS (the sidecar's ``storey_shells``, ``planar/storey_pad``,
+#2062): per shell, every run's drawn ground against its zero + foot.
 
 A site with no claimed object within R is UNCLAIMED (reported, no bar).
 ``lowest any`` is the lowest drawn vertex of ANY pack row within R -- the
@@ -731,95 +724,6 @@ def _base(drawn, i):
         p.elevation or 0.0 if p.kind == "OBJECT_AGL" else 0.0)
 
 
-def _outside(seg, centre, out_m, n=5):
-    """``n`` (lon, lat) stations ``out_m`` outside the (lat, lon) segment
-    ``seg``, away from ``centre`` (lon, lat); ``centre`` ``None``: on the
-    segment's LEFT -- a split-level OPEN side runs with its building on its
-    right (``airport/split_level.SplitLevel.open_sides``), and a pier's or
-    a notch's edge faces away from the building's anchor only by chance
-    (#1903 KLAX: Terminal_2 / Terminal_8 read their own pit floor 1 m
-    "outside", a 4.00 m gap)."""
-    (la0, lo0), (la1, lo1) = seg[0], seg[-1]
-    kx = M_PER_DEG * math.cos(math.radians(la0))
-    x0, y0, x1, y1 = lo0 * kx, la0 * M_PER_DEG, lo1 * kx, la1 * M_PER_DEG
-    L = math.hypot(x1 - x0, y1 - y0) or 1.0
-    nx, ny = (y1 - y0) / L, -(x1 - x0) / L
-    if centre is None:
-        nx, ny = -nx, -ny
-    elif ((centre[0] * kx - 0.5 * (x0 + x1)) * nx
-          + (centre[1] * M_PER_DEG - 0.5 * (y0 + y1)) * ny > 0.0):
-        nx, ny = -nx, -ny
-    out = []
-    for k in range(n):
-        f = (k + 0.5) / n
-        out.append(((x0 + f * (x1 - x0) + nx * out_m) / kx,
-                    (y0 + f * (y1 - y0) + ny * out_m) / M_PER_DEG))
-    return out
-
-
-def road_nodes(patch_path, icao):
-    """(lon, lat, z) of every node of a GROUNDSIDE road way of the patch
-    (a pavement role whose law side is groundside): the profile the ground
-    behind a split-level building meets the wall at (owner
-    2026-11-06T02:40Z)."""
-    from auto_patch_v2.law import Law
-    from auto_patch_v2.law.tables import pavement_roles, role_side
-    law = Law.for_airport(icao)
-    roads = {r for r in pavement_roles(law) if role_side(law, r) == "groundside"}
-    nodes, keep = {}, set()
-    for _ev, el in ET.iterparse(patch_path):
-        if el.tag == "node":
-            alt = [t.get("v") for t in el.findall("tag") if t.get("k") == "alt_abs"]
-            if alt:
-                nodes[el.get("id")] = (float(el.get("lon")), float(el.get("lat")),
-                                       float(alt[0]))
-        elif el.tag == "way":
-            if {t.get("k"): t.get("v") for t in el.findall("tag")}.get("role") in roads:
-                keep.update(n.get("ref") for n in el.findall("nd"))
-            el.clear()
-    return numpy.array([nodes[r] for r in keep if r in nodes], dtype=float).reshape(-1, 3)
-
-
-#: a road node this near a back station is the road AT the building's base
-#: (``run`` reads ``[building_pad] split_level_road_reach_m`` over it)
-ROAD_AT_BASE_M = 6.0
-
-
-def _road_at(roads, lon, lat):
-    """The z of the groundside road node nearest (lon, lat) within
-    :data:`ROAD_AT_BASE_M`, or ``None``."""
-    if roads is None or not len(roads):
-        return None
-    kx = M_PER_DEG * math.cos(math.radians(lat))
-    d = numpy.hypot((roads[:, 0] - lon) * kx, (roads[:, 1] - lat) * M_PER_DEG)
-    j = int(numpy.argmin(d))
-    return float(roads[j, 2]) if d[j] <= ROAD_AT_BASE_M else None
-
-
-def _behind(closed, opened):
-    """The ``closed`` (lat, lon) box sides ACROSS from an open one -- the
-    sides behind the building, the reader's own ``across``
-    (``airport/split_level``): a closed side with another closed side
-    parallel to it (within 45 degrees) is a side wall running up the
-    slope between the levels, never the back; all of ``closed`` when it
-    has no open side.  (Read off the open boundary instead, a plan's pier
-    and notch edges run in every direction and made every side wall
-    "behind": #1903 KLAX Terminal_8's south wall read +4.00 m.)"""
-    def axis(sd):
-        (la0, lo0), (la1, lo1) = sd[0], sd[-1]
-        kx = math.cos(math.radians(la0))
-        d = ((lo1 - lo0) * kx, la1 - la0)
-        n = math.hypot(*d) or 1.0
-        return d[0] / n, d[1] / n
-    if not opened:
-        return list(closed)
-
-    def parallel(c, d):
-        return abs(axis(c)[0] * axis(d)[0] + axis(c)[1] * axis(d)[1]) >= math.sqrt(0.5)
-    return [c for k, c in enumerate(closed)
-            if not any(parallel(c, d) for j, d in enumerate(closed) if j != k)]
-
-
 def body_offsets_y(plans):
     """{written body resource: its authored y offset} over the plans' split
     bodies: a body row's drawn zero is the AUTHORED point the cut moved to
@@ -828,104 +732,6 @@ def body_offsets_y(plans):
     return {b["new_resource"]: float((b.get("authored_offset") or [0.0, 0.0])[1])
             for plan in plans for s in plan.get("splits", []) for b in s.get("bodies", [])
             if b.get("new_resource")}
-
-
-def check_split(rec, drawn, tol, lifts=None, roads=None):
-    """One split-level building's row (module docstring); ``lifts`` is
-    :func:`body_offsets_y` (a split body's zero is its authored point)."""
-    lifts = lifts or {}
-    stems = {stem(r) for r in rec.get("resources", [])}
-    rows = [i for i, p in enumerate(drawn.rows) if stem(p.def_path) in stems]
-    lon, lat = rec["anchor_longitude_latitude"]
-    kx = M_PER_DEG * math.cos(math.radians(lat))
-    # the building's own placements: a pack places one resource many times,
-    # so only the rows anchored within the building's reach (its open sides'
-    # farthest point from its floor) are its own
-    reach = max([math.hypot((q[1] - lon) * kx, (q[0] - lat) * M_PER_DEG)
-                 for sd in rec.get("open_sides_ll", []) for q in sd] or [300.0])
-    rows = [i for i in rows if math.hypot((drawn.rows[i].lon - lon) * kx,
-                                          (drawn.rows[i].lat - lat) * M_PER_DEG) <= reach]
-    # ... and of those, the ONE frame (anchor) whose vertices centre nearest
-    # its floor: the split-level family is one placement frame
-    if rows:
-        def centre_d(i):
-            v = drawn.vertices(i)
-            if v is None:
-                return math.inf
-            return math.hypot((float(numpy.mean(v[0])) - lon) * kx,
-                              (float(numpy.mean(v[1])) - lat) * M_PER_DEG)
-        best = drawn.rows[min(rows, key=centre_d)]
-        rows = [i for i in rows if abs(drawn.rows[i].lon - best.lon) * kx < 0.05
-                and abs(drawn.rows[i].lat - best.lat) * M_PER_DEG < 0.05]
-    y_lo = float(rec.get("plate_y_m") or 0.0)
-    y_up = y_lo + float(rec.get("floor_below_rim_m") or 0.0)
-    out = {"site": f"split_level {rec.get('floor_ref')}", "lat": round(lat, 6),
-           "lon": round(lon, 6), "resources": sorted(stems), "rows": len(rows),
-           "fails": [], "role": "SPLIT"}
-    if not rows:
-        out["fails"].append("no written row of the building")
-        out["verdict"] = "FAIL"
-        return out
-    zeros = [_base(drawn, i) - lifts.get(drawn.rows[i].def_path, 0.0) for i in rows]
-    z0 = float(numpy.nanmedian(zeros))
-    floor = mesh_z(drawn.mesh, lon, lat)
-    ground = [mesh_z(drawn.mesh, x, y) for sd in rec.get("open_sides_ll", [])
-              for x, y in _outside(sd, None, 1.0)]
-    ground = [g for g in ground if not math.isnan(g)]
-    out.update({"zero": round(z0, 2), "zero_spread": round(max(zeros) - min(zeros), 2),
-                "lower_floor": round(z0 + y_lo, 2), "drawn_floor": round(floor, 2),
-                "patch_floor": rec.get("floor_m"), "upper_floor": round(z0 + y_up, 2),
-                "open_ground_median": round(float(numpy.median(ground)), 2) if ground else None,
-                "open_ground_min": round(min(ground), 2) if ground else None})
-    d_lo = z0 + y_lo - floor
-    out["delta"] = round(d_lo, 2)
-    if math.isnan(d_lo) or abs(d_lo) > tol:
-        out["fails"].append(f"lower floor - drawn floor {d_lo:+.2f} > {tol}")
-    if out["zero_spread"] > tol:
-        out["fails"].append(f"rows seated {out['zero_spread']:.2f} m apart")
-    if ground:
-        d_up = out["open_ground_median"] - (z0 + y_up)
-        out["delta_upper"] = round(d_up, 2)
-        if abs(d_up) > tol:
-            out["fails"].append(f"open-side ground - upper floor {d_up:+.2f} > {tol}")
-        gap = (z0 + y_up) - min(ground)
-        if gap > tol:
-            out["fails"].append(f"open wall shows a {gap:.2f} m gap to the terrain")
-    else:
-        out["fails"].append("no drawn ground outside the open side")
-    # THE BACK IS CUT DOWN (owner sim read 2026-11-05T23:55Z): the drawn
-    # ground 1 m outside the tall side(s) BEHIND the building -- across from
-    # its airside face (parallel to an open side) -- stands at the lower
-    # floor; a tall side running up the slope between them reads both
-    behind = _behind(rec.get("closed_sides_ll", []), rec.get("open_sides_ll", []))
-    # ... or, where a groundside road runs along the base, at the ROAD's
-    # height there (owner 2026-11-06T02:40Z: "at SBSP the road at the base
-    # of the building on the groundside is sloping up")
-    # -- the pit's own reading, per side: a side with a road at its base is
-    # judged at its road stations only (past the road's end it is the
-    # governed ground, no bar); a side with none, at the lower floor
-    back, ref, n_road = [], [], 0
-    for sd in behind:
-        st = _outside(sd, (lon, lat), 1.0)
-        at = [_road_at(roads, x, y) for x, y in st]
-        roaded = any(r is not None for r in at)
-        for (x, y), road in zip(st, at, strict=True):
-            g = mesh_z(drawn.mesh, x, y)
-            if math.isnan(g) or (roaded and road is None):
-                continue
-            back.append(g)
-            ref.append(z0 + y_lo if road is None else road)
-            n_road += road is not None
-    out["back_on_road"] = n_road
-    if back:
-        d_b = [g - r for g, r in zip(back, ref, strict=True)]
-        out["back_ground_median"] = round(float(numpy.median(back)), 2)
-        out["delta_back_max"] = round(max(d_b, key=abs), 2)
-        if abs(out["delta_back_max"]) > tol:
-            out["fails"].append(f"back ground - lower floor / road {out['delta_back_max']:+.2f}"
-                                f" > {tol}")
-    out["verdict"] = "FAIL" if out["fails"] else "PASS"
-    return out
 
 
 def compare(rows, base_rows, tol=0.05):
@@ -1047,13 +853,6 @@ def run(args):
     drawn = Drawn(written, pack_root, mesh)
     rows = member_rows(args, patch, sidecar, drawn, claims, pristine, tile)
     lifts = body_offsets_y(plans.values())
-    roads = road_nodes(patch, args.icao)
-    global ROAD_AT_BASE_M
-    from auto_patch_v2.law import Law
-    ROAD_AT_BASE_M = float(getattr(Law.for_airport(args.icao).tables.structures.building_pad,
-                                   "split_level_road_reach_m", 0.0) or ROAD_AT_BASE_M)
-    rows += [check_split(r, drawn, args.tol, lifts, roads)
-             for r in sidecar.get("basin_facilities", []) if r.get("kind") == "split_level"]
     # #2062: every storey shell's runs on the drawn ground
     rows += [_storey(r, drawn, lifts) for r in sidecar.get("storey_shells", [])]
     # #2042: every graded facade's feet on the drawn ground
@@ -1061,6 +860,7 @@ def run(args):
     with tempfile.TemporaryDirectory() as tmp:
         rows += drawn_facade.check([p["dsf_path"] for _t, p in sorted(plans.items())],
                                    pack_root, mesh, tmp)
+    from auto_patch_v2.law import Law
     step = float(Law.for_airport(args.icao).tables.structures.bridge.abutment_sample_step_m)
     rows += [check_stack(r, drawn, claims, args.tol, step, faces=_stack_faces(patch, r))
              for r in sidecar.get("object_floors", []) if r.get("stack")]

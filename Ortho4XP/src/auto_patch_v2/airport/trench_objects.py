@@ -370,6 +370,7 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     by_id = {o.id: o for o in objects}
     out = []
     for t in trenches:
+        n0 = len(out)
         o = by_id.get(t.object_id)
         g = None if o is None else cache.geometry(o.resolved)
         if g is None or edge_wall_reading(o, g, law) is not None:
@@ -377,6 +378,7 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             # end's distance (``read_portals``; owner RULINGS 2026-10-28d)
             continue
         zero = float(o.anchor_z + o.agl_m)
+        faces: list = []
         for xy, wid in t.ends:
             if int(wid) not in bores:
                 continue
@@ -413,4 +415,22 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
                                   plan, xy, end_into, 2.0 * tol),
                               face_top_z=None if cover is None else float(cover),
                               top_plan=None if cover is None else plan))
+            faces.append((len(out) - 1, xy, end_into, bottom, top))
+        out[n0:] = _with_fronts(out[n0:], faces, o, g, t, 2.0 * tol, law, n0)
+    return out
+
+
+def _with_fronts(pins: list, faces: list, o, g, t, r: float, law, n0: int) -> list:
+    """``pins`` (one trench object's) with each walled face's FRONT
+    (``airport/entrance_front``, #2062 R3b C) wider than its opening: the
+    object's other ends' openings are no front."""
+    from .entrance_front import front_of
+    out = list(pins)
+    for k, xy, into, bottom, top in faces:
+        p = out[k - n0]
+        others = [q.opening_xy for j, q in enumerate(out) if j != k - n0 and q.opening_xy]
+        w, ends = front_of(o, g, xy, into, r, law, p.opening_xy, bottom, top, others, t.outline)
+        grid = float(law.tables.emit.identity.min_distinct_spacing_m)
+        if ends and w > p.opening_m + grid:
+            out[k - n0] = _dc.replace(p, front_xy=ends, front_m=float(w))
     return out

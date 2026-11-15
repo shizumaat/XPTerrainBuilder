@@ -96,10 +96,7 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
         # "plate" members were terminal slabs the basin half claimed at
         # the T4S basin's own −7.048 / +5.206 / … plate y, standing them
         # 12–17 m off their own feet — spec §11.4).
-        # A SPLIT-LEVEL BUILDING (``planar/split_level_pit``) is one frame:
-        # every member seats its lower floor on the floor, as one
-        seated = (b.member_ids if b.kind == "split_level" else (b.witness_id,)) \
-            if b.witness_id else ()
+        seated = (b.witness_id,) if b.witness_id else ()
         for oid in seated:
             if oid in kept:
                 continue
@@ -107,13 +104,8 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
             # trench floor its stations read (11t §24 (2)): the floor row
             # dropped the terrain by that much so the plate renders, and a
             # seat without it would chase the object straight back down.
-            # ... and a split-level building's lower floor is a DATUM: it
-            # meets the floor at its stations at any authored height (a
-            # lower floor authored under the zero, KLAX's terminals at y -4,
-            # otherwise kept its zero on the pit floor and sank a storey)
             clear = b.clearance(law.tables.structures.basin.floor_clearance_m)
-            out.setdefault(oid, (float(b.plate_y_m), pts, clear, SPLIT_PLATE)
-                           if b.kind == "split_level" else (float(b.plate_y_m), pts, clear))
+            out.setdefault(oid, (float(b.plate_y_m), pts, clear))
     return out
 
 
@@ -146,8 +138,6 @@ def _kept_published(airport, pm=None) -> dict[str, dict]:
     return out
 
 
-#: the plate kind of a SPLIT-LEVEL building's lower floor (``planar/split_level_pit``)
-SPLIT_PLATE = "split_level"
 def _edge_seat_plates(pm, kept, law=None) -> dict[str, tuple]:
     """Placement id -> ``(0.0, [seat], 0.0, EDGE_PLATE)`` for every edge
     bridge an edge trench meets (``Tunnel.edge_seats``,

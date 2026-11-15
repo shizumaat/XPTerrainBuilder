@@ -408,6 +408,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.drawn_anchor",
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.dsf_heights",
+        "auto_patch_v2.airport.entrance_front",
         "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.exclusion",
         "auto_patch_v2.airport.extension_cache",
@@ -424,6 +425,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.free_bridge_seat",
         "auto_patch_v2.airport.free_column",
         "auto_patch_v2.airport.grade_ledger",
+        "auto_patch_v2.airport.ground_route_ways",
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.isolated_seat",
@@ -685,6 +687,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.floor_decks",
         "auto_patch_v2.planar.foot_kerb",
         "auto_patch_v2.planar.free_bridge",
+        "auto_patch_v2.planar.front_band",
         "auto_patch_v2.planar.ground_chords",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.group_up",
@@ -724,7 +727,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.shape_parts",
         "auto_patch_v2.planar.shapes",
         "auto_patch_v2.planar.shore",
-        "auto_patch_v2.planar.split_level_pit",
         "auto_patch_v2.planar.stack_ground",
         "auto_patch_v2.planar.station_level",
         "auto_patch_v2.planar.storey_floor",
@@ -2330,7 +2332,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_pad_corner
     planar.shape_parts planar.shapes planar.shore planar.station_level planar.strip_keepout
-    planar.split_level_pit
+
     planar.structure_approach planar.structure_deck planar.structure_fence
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
@@ -2366,7 +2368,8 @@ CODE_MODULES["solve"] = _mods("""
     model.storey_shell planar.cell_knife planar.storey_pad planar.storey_floor
     airport.shell_ground planar.basin_author_ground
     airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
-    model.free_bridge planar.free_bridge
+    model.free_bridge planar.free_bridge planar.front_band airport.entrance_front
+    airport.ground_route_ways
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.bridge_end_state airport.bridge_stack
@@ -2514,7 +2517,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_pad_corner
     planar.shape_parts planar.shapes planar.shore planar.station_level planar.strip_keepout
-    planar.split_level_pit
+
     planar.structure_approach planar.structure_deck planar.structure_fence
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
@@ -2550,7 +2553,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.storey_shell planar.cell_knife planar.storey_pad planar.storey_floor
     airport.shell_ground planar.basin_author_ground
     airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
-    model.free_bridge planar.free_bridge
+    model.free_bridge planar.free_bridge planar.front_band airport.entrance_front
+    airport.ground_route_ways
 """)
 CODE_MODULES["emit"] = _mods("""
     model.deck_stack

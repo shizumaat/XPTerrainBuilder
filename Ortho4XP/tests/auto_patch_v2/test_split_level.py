@@ -1,8 +1,7 @@
-"""SPLIT-LEVEL BUILDINGS (owner 2026-11-05; #1886, #1905): a building closed
-at its upper level with an open lower wall inside the terrain gets its pit
-at the lower floor, its floor following the open side's rim
-(``airport/split_level``, ``planar/split_level_pit``,
-``constraints/structures._split_floor_rows``); an upper FLOOR over lower
+"""SPLIT-LEVEL BUILDINGS (owner 2026-11-05; #1886, #1905, #2062): a building
+closed at its upper level with an open lower wall inside the terrain is a
+STOREY SHELL on its storey pad (``airport/split_level``,
+``planar/storey_pad``); an upper FLOOR over lower
 ground is no level of the lot it overlooks (``classify/storey_edge.
 ground_confirms``).  Synthetic: no pack, no airport."""
 from __future__ import annotations
@@ -10,9 +9,9 @@ from __future__ import annotations
 import types
 
 import numpy as np
+import pytest
 from auto_patch_v2.airport.split_level import _side_feet, read_split_levels, wall_box
 from auto_patch_v2.classify.storey_edge import StoreyBand, ground_confirms
-from auto_patch_v2.constraints.structures import _split_floor_rows
 from auto_patch_v2.law import Law
 from shapely.geometry import LineString, box
 
@@ -75,16 +74,6 @@ def test_a_closed_building_is_no_split_level():
     assert read_split_levels(objs, cache, LAW, lambda x, y: 100.0 - 0.6 * y)[0] == []
 
 
-def test_the_floor_is_one_level_under_the_open_rim_and_grades_its_bare_rim():
-    rows = _split_floor_rows([10, 11, 12], [1, 2], [3], 12.0, ("basin:0",))
-    tie = rows[0]
-    assert tie.lo == tie.hi == -12.0 and dict(tie.terms) == {10: 1.0, 1: -0.5, 2: -0.5}
-    assert all(r.lo == r.hi == 0.0 for r in rows[1:3])
-    assert rows[3].lo == rows[3].hi == 12.0 and dict(rows[3].terms) == {3: 1.0, 10: -1.0}
-    # flat on airside (owner 2026-11-06T03:24Z (a)): the shared open rim at the upper floor
-    assert [(dict(r.terms), r.lo) for r in rows[4:]] == [({2: 1.0, 1: -1.0}, 0.0)]
-
-
 class _Dem:
     def __init__(self, f):
         self.z = f
@@ -104,29 +93,6 @@ def test_an_upper_floor_over_lower_ground_is_no_level_of_the_lot():
     assert ground_confirms(_band(_Dem(lambda x, y: 28.6 + 5.4 * (y > 0))), lot, run,
                            6.0) is True
     assert ground_confirms(_band(None), lot, run, 6.0) is None
-
-
-def test_back_cut_reaches_past_the_tall_sides_only():
-    """THE BACK IS CUT DOWN (owner sim read 2026-11-05T23:55Z): the pit
-    reaches ``split_level_back_cut_m`` outside the three tall sides (the
-    corners between them taken), never past the open (airside) side, and
-    yields to what is blocked."""
-    from auto_patch_v2.airport.split_level import SplitLevel
-    from auto_patch_v2.planar.split_level_pit import _cut_region
-    from shapely.geometry import Point
-    foot = box(0.0, 0.0, 10.0, 10.0)
-    open_ = (LineString([(0.0, 10.0), (10.0, 10.0)]),)
-    tall = (LineString([(10.0, 10.0), (10.0, 0.0)]), LineString([(10.0, 0.0), (0.0, 0.0)]),
-            LineString([(0.0, 0.0), (0.0, 10.0)]))
-    sl = SplitLevel("o", ("o",), ("a.obj",), foot, 0.0, 6.0, open_, tall, 6.0, 0.0,
-                    (5.0, 5.0))
-    region = _cut_region(sl, 5.0, None)
-    assert abs(region.area - 300.0) < 1e-6
-    assert region.contains(Point(-4.0, -4.0)) and region.contains(Point(12.0, 9.0))
-    assert not region.contains(Point(5.0, 11.0))          # the airside: no reach
-    assert _cut_region(sl, 0.0, None).equals(foot)
-    clipped = _cut_region(sl, 5.0, box(-10.0, -10.0, 20.0, -2.0))
-    assert abs(clipped.area - (300.0 - 60.0)) < 1e-6
 
 
 def test_the_map_confirms_a_split_level_the_flat_dem_cannot_see():
@@ -158,27 +124,10 @@ def test_the_map_confirms_a_split_level_the_flat_dem_cannot_see():
     assert read_split_levels(door_objs, door_cache, LAW, flat, south)[0] == []   # a hangar door
 
 
-def test_one_tall_side_and_airside_clip_the_back_cut():
-    """One tall side unions to a LineString (linemerge refused it and
-    crashed KLAX); the back cut never enters what is passed as blocked
-    (the pit passes airside pavement there), and a box clipped by a
-    neighbour's pit is the region's core."""
-    from auto_patch_v2.airport.split_level import SplitLevel
-    from auto_patch_v2.planar.split_level_pit import _cut_region
-    foot = box(0.0, 0.0, 10.0, 10.0)
-    sl = SplitLevel("o", ("o",), ("a.obj",), foot, 0.0, 6.0,
-                    (LineString([(0.0, 10.0), (10.0, 10.0)]),),
-                    (LineString([(10.0, 0.0), (0.0, 0.0)]),), 6.0, 0.0, (5.0, 5.0))
-    assert abs(_cut_region(sl, 5.0, None).area - 150.0) < 1e-6
-    assert abs(_cut_region(sl, 5.0, box(-1.0, -9.0, 4.0, 0.0)).area - 130.0) < 1e-6
-    core = box(0.0, 0.0, 6.0, 10.0)
-    assert abs(_cut_region(sl, 5.0, None, core).area - (60.0 + 50.0)) < 1e-6
-
-
 def test_a_box_a_road_runs_under_is_an_underpass_not_a_split_level():
     # #1903 KBNA 1.0.470: an underpass read as split-level sank its bridge;
     # SBSP's hangar (service ways at grade across its plan) stays a pit
-    from auto_patch_v2.planar.split_level_pit import _road_under, _roads
+    from auto_patch_v2.planar.storey_pad import _road_under, _roads
     rim = box(0.0, 0.0, 40.0, 30.0)
 
     def way(pts, **tags):
@@ -334,3 +283,20 @@ def test_a_remainder_meeting_no_level_by_the_probe_takes_the_most_shared():
     p0, p1 = _level_plans(plan, (0.0, 6.0), runs, [(0, -1), (0, 1)], [0, 1], 3.0, 1.0)
     assert abs(p0.area - 1.0) < 1e-6
     assert abs(p1.area - (40 * 30 - 1.0)) < 1e-6
+
+
+def test_a_deck_roof_is_a_storey_record_its_roof_the_airside_level():
+    """R3b D: a deck-roofed building reads as a storey record -- its open
+    (apron) sides' foot the roof, its tall sides' their wall foot, the roof
+    level a riser-wide strip inside each open side, the airside on it."""
+    from auto_patch_v2.airport.deck_roof import _roof_storeys
+    foot = box(0, 0, 40, 30)
+    segs = [LineString([(0, 0), (40, 0)]), LineString([(40, 0), (40, 30)]),
+            LineString([(40, 30), (0, 30)]), LineString([(0, 30), (0, 0)])]
+    got = _roof_storeys(segs, [1.0, 0.0, 0.0, 0.0], [-17.0, -17.0, -17.0, -17.0], foot,
+                        -17.0, 0.0, LAW)
+    assert got["levels"] == (-17.0, 0.0) and got["air_level"] == 1
+    assert [f for _r, f in got["runs"]] == [0.0, -17.0, -17.0, -17.0]
+    assert got["run_levels"] == (1, 0, 0, 0)
+    roof = got["level_plans"][1]
+    assert roof.area == pytest.approx(40.0 * 1.0) and roof.within(box(0, 0, 40, 1.0 + 1e-6))

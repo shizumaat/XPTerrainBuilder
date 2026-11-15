@@ -52,8 +52,7 @@ spec Amendment A1); ``air_level`` -- the level holding most run length
 that faces airside pavement, else ``None``.
 
 Pure reading: no law constant lives here; nothing names a pack, a resource
-or an airport.  ``planar/split_level_pit`` turns a record into the pit,
-``planar/storey_pad`` into storey pads."""
+or an airport.  ``planar/storey_pad`` turns a record into storey pads."""
 from __future__ import annotations
 
 import dataclasses as _dc
@@ -133,6 +132,9 @@ class SplitLevel:
     #: which part of the covered plan this record reads (#2062 spec A2
     #: (5)): 0 the largest (the pit's), ``k`` the record ``<witness>#<k>``
     part: int = 0
+    #: a DECK-ROOFED building's record (``airport/deck_roof``, #2062 R3b D):
+    #: its upper level is its roof, the apron's
+    roof: bool = False
 
     @property
     def pit_plan(self) -> Polygon:

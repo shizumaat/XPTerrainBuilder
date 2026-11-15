@@ -8,8 +8,9 @@ building's floor around it.
 
 It is a split-level building (``airport/split_level``) whose UPPER FLOOR
 is its roof, and it is read as one: the record is a
-:class:`~.split_level.SplitLevel`, so ``planar/split_level_pit`` cuts its
-pit, holds the open sides flush and cuts the back down.
+:class:`~.split_level.SplitLevel` with its storey fields (the roof the
+level the apron meets, #2062 R3b D), so ``planar/storey_pad`` lays it on
+storey pads.
 
 THE WITNESS IS THE ROOF PLATE AND THE WALLS UNDER IT.  A member of a
 family (one frame) carrying a FLAT plan-bearing hard plate
@@ -138,5 +139,33 @@ def read_deck_roofs(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resou
                                   tuple(sorted({o.path for o in fam})), foot,
                                   round(y_lo, 3), round(y_up, 3), tuple(opened), tuple(closed),
                                   round(_st.median(g_open), 3), round(_st.median(g_closed), 3),
-                                  (float(m.xy[0]), float(m.xy[1]))))
+                                  (float(m.xy[0]), float(m.xy[1])), foot,
+                                  **_roof_storeys(segs, share, feet, foot, y_lo, y_up, law),
+                                  roof=True))
     return out, notes
+
+
+def _roof_storeys(segs, share, feet, foot: Polygon, y_lo: float, y_up: float, law) -> dict:
+    """A deck-roofed building's STOREY fields (#2062 R3b D, the split-level
+    record's, ``split_level._storeys``): its four sides as runs, each with
+    the building on its RIGHT -- an OPEN (apron) side's foot the roof's y,
+    a tall side's its wall foot; levels ``(floor, roof)``; the roof level
+    owns a strip one riser wide inside each open side (``planar/
+    fill_riser.riser_width``), the floor the rest; the airside meets the
+    roof."""
+    from .split_level import _outward_left
+    w = 2.0 * float(law.tables.emit.identity.min_distinct_spacing_m)
+    centre = foot.centroid.coords[0]
+    runs, lv, strips = [], [], []
+    for sg, a, f in zip(segs, share, feet, strict=True):
+        r = _outward_left(sg, centre)
+        up = a >= 0.5
+        runs.append((r, round(y_up if up else float(f), 3)))
+        lv.append(1 if up else 0)
+        if up:
+            strips.append(r.buffer(-w, single_sided=True, cap_style="flat").intersection(foot))
+    from shapely.ops import unary_union
+    roof = unary_union(strips) if strips else Polygon()
+    return {"runs": tuple(runs), "levels": (round(y_lo, 3), round(y_up, 3)),
+            "run_levels": tuple(lv), "minor": (), "level_plans": (foot.difference(roof), roof),
+            "air_level": 1}

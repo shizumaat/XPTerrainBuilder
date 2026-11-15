@@ -174,3 +174,23 @@ def test_a_shell_levels_riser_is_a_declared_step_and_a_plain_upper_level_is_not(
         pm = types.SimpleNamespace(faces=faces, ring_vertices=lambda ring: ring,
                                    registries=types.SimpleNamespace(landings={"b/p1": rec}))
         assert riser.riser_exempt(list(rows), pm, {}) == kept
+
+
+def test_an_upper_block_shells_back_cut_and_kerb_stand_on_its_lowest_level():
+    """R3b D: the airside meets the UPPER level (the block): the back cut
+    joins the LOWEST level's region, and the kerb stands off every level
+    but the lowest, as high as the top level over the lowest + visual."""
+    sl = _dc.replace(_shell_level(), air_level=1)
+    T = box(40, 0, 45, 30)
+    P = box(0, 0, 40, 30).union(T)
+    rec = SP._record(sl, "blk", P, 3.0, None, T, {}, "airside")
+    assert rec.block == 1 and rec.level_regions[0].contains(Point(42.5, 15.0))
+    assert not rec.level_regions[1].intersects(T.buffer(-1e-6))
+    rec = _dc.replace(rec, runs=tuple(_dc.replace(r, back_cut_m=5.0) if k == 3 else r
+                                      for k, r in enumerate(rec.runs)))
+    out = SP._with_kerb(rec, P, box(0, 0, 40, 30), 1.0, 0.5, box(45, -10, 60, 40), None, [],
+                        LAW)
+    assert out.kerb is not None
+    assert not out.kerb.intersects(rec.level_regions[1].buffer(-1e-6))
+    assert all(k["height_m"] == pytest.approx(6.0 + float(LAW.tables.emit.cockpit.visual_m))
+               for k in out.kerbs)

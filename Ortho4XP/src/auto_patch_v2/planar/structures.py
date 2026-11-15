@@ -80,6 +80,7 @@ import typing as _t
 import shapely
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
+from shapely.prepared import prep
 from shapely.strtree import STRtree
 
 from ..classify.roles import Cell, Classification, is_runway_shoulder
@@ -138,6 +139,8 @@ from .structure_service import (airside_cover, airside_cut_roles, deck_witness_f
 from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
                              deck_items, decks_over_climb, emit_decks,
                              object_deck_intervals, pavement_deck_intervals)
+from .front_band import front_halves, stepped, trim
+from .storey_floor import shell_level_s
 from .structure_stats import StructureStats
 from .entrance_skirt import (entrance_skirt, entrance_top, face_front_mouth, is_entrance_face,
                              skirt_refs)
@@ -173,7 +176,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      trenches: _t.Sequence = (), deck_bridges: _t.Sequence = (),
                      runs: _t.Mapping | None = None, level_b: float | None = None,
                      object_floors: _t.Sequence = (), grade_ends: _t.Sequence = (),
-                     level_seeds: _t.Sequence = ()
+                     level_seeds: _t.Sequence = (), shells: _t.Sequence = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -430,6 +433,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     sea_cut = shore_region(tuple(cells), getattr(airport, "dem", None))
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
     pad_refs = {ref for _p, ref in pads}
+    # #2062 R3b C: what a FRONT FLOOR band stops at across the bore (the
+    # airside pavement, the runway family, the structures; pads: per mouth)
+    front_stop = unary_union([p for p, c in zip(polys, cells, strict=False)
+                              if c.role in _cut_roles or c.role in RUNWAY_FAMILY
+                              or c.kind == "structure"])
+    face_front = float(getattr(tn.object, "face_front_m", 0.0) or 0.0)
     pad_poly = {ref: p for p, ref in pads}
     band_m = law.tables.structures.basin.contact_band_m
     pad_tree = STRtree([p for p, _r in pads]) if pads else None
@@ -519,12 +528,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             deck_pin(deck, members[0]) if deck is not None else None if c is not None else next(
             (q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
                          for m in members) if q is not None), None)
+        front_pins: list = []
         if pin is not None and c is None and edge is None and deck is None:
             # #1737: a group of bores one mouth object faces opens across
             # every member's opening (``mouth_opening.group_opening``)
             mates = [q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
                                  for m in members)
                      if q is not None and q.object_id == pin.object_id]
+            front_pins = (mates or [pin]) if is_entrance_face(pin) else []
             g_w, g_xy = group_opening(mates, axis_ln) if len(mates) > 1 else (0.0, ())
             if g_w > float(getattr(pin, "opening_m", 0.0) or 0.0):
                 pin = _dc.replace(pin, opening_m=g_w, opening_xy=g_xy)
@@ -949,6 +960,19 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             level_to = run_stop_s(axis_ln, rt, 0.5 * gap)
             if level_to is not None:
                 climb_from = min(climb_from, level_to)
+        shell_wall = None
+        if shells and c is None:
+            # #2062 R3b B (13x (2)): the floor stays level along a storey
+            # shell standing on it, then climbs (``planar/storey_floor``);
+            # the shell's plan is a WALL of the trench
+            s_lvl, s_why, s_plans = shell_level_s(shells, tid, axis_ln, half, climb_from,
+                                                  walls_s + spacing_g)
+            shell_wall = unary_union(s_plans) if s_plans else None
+            stats.refused.extend(s_why)
+            if s_lvl is not None and s_lvl > climb_from:
+                climb_from = s_lvl
+                stats.shell_levels.append(f"{tid}: level to s {s_lvl:.1f} m along a storey "
+                                          "shell standing on its floor (R3b B)")
         if g.climb_from_s is not None and not fits:
             # a door ramp (09-08b/c): the well floor stays at the sill, the
             # climb starts at the well's outer edge
@@ -1045,6 +1069,29 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         clipped_by = ""
         # §33 (6) C2': the station set keeps the WALL'S OWN vertices
         ss = [s for s in seed_wall_stations(ss, c, grid) if s <= s_top + 1e-9]
+        front_t = None
+        if front_pins and span and face_front > 0.0 and face_front < s_top:
+            # #2062 R3b C: the FRONT FLOOR -- as wide as the face's front wall
+            # for ``face_front_m``, trimmed across the bore (``front_band``)
+            fh = front_halves(axis_ln, front_pins)
+            if fh is not None and (fh[0] > span[0] + grid or fh[1] > span[1] + grid):
+                hosts = set(clear[6]) if clear is not None and len(clear) > 6 else set()
+                # ... at a storey shell standing on the floor (R3b B / C), and
+                # at every stop of the ramp: the band never shortens it
+                b_stops = clear[2] if clear is not None else pads
+                stop = unary_union([front_stop, *(pad_poly[r] for r in pad_refs
+                                                  if r not in hosts),
+                                    *(p_ for p_, r in b_stops if r not in hosts),
+                                    *(() if shell_wall is None else (shell_wall,))])
+                fh = trim(axis_fn, axis_ln, (max(fh[0], span[0]), max(fh[1], span[1])),
+                          span, face_front, None if stop.is_empty else prep(stop), gap)
+                if fh[0] > span[0] + grid or fh[1] > span[1] + grid:
+                    front_t = fh
+                    if all(abs(s - face_front) > 1e-6 for s in ss):
+                        ss = sorted(ss + [face_front])
+                    stats.portal_mouths.append(
+                        f"{tid}: front floor {fh[0] + fh[1]:.1f} m (opening "
+                        f"{span[0] + span[1]:.1f} m) for {face_front:.1f} m (R3b C)")
         beyond = beyond_strip(axis_fn, g.hull_s, reach + width) if c is not None and g.climbs else None
         walled = c is None and pin is not None and walls_s > 0.0 and g.climbs
         if walled:
@@ -1053,6 +1100,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # an object corridor's walls are not (05k-1 / 08-26)
             beyond = beyond_strip(axis_fn, walls_s, reach + width)
         pin_hosts = set(clear[6]) if clear is not None and len(clear) > 6 else set()
+        if shell_wall is not None:
+            # R3b B: a cell under a shell standing on the floor hosts no pin
+            pin_hosts -= {r for p_, r in pads if p_.intersection(shell_wall).area
+                          >= 0.5 * max(p_.area, 1e-9)}
         # a door ramp's HOST cells: the ones its well stands in
         host: set[str] = set()
         if (g.stop_at_pavement or g.kind == WALL_KIND) and stop_tree is not None \
@@ -1069,6 +1120,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                         if ref not in pad_refs or _pad_relief_m(airport, pad_poly[ref]) <= band_m}
         half_fn = (lambda _s, _span=span: _span) if span else \
             None if opening > 0.0 else g.half_fn
+        if front_t is not None:
+            half_fn = stepped(half_fn, front_t, face_front)
         traced: list[str] = []
         # §34 (12) (3) / #971: a MAPPED bore's ramp stops short of airside and
         # of the pavement over it (``structure_mouth``); a pack-stated corridor
@@ -1092,6 +1145,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             return sheared_ring(k_sk, c, axis_fn, ss_try, half, rim_off, inward, grid, g,
                                 half_fn)
         dead_end = None      # #2072 A: (pavement ref, station) stopping a deck trench
+        carried: set[str] = set()
+        if shell_wall is not None:
+            # R3b B: the shell's own cells are its wall, never a stop
+            carried |= {r for p_, r in pads if p_.intersection(shell_wall).area
+                        >= 0.5 * max(p_.area, 1e-9)}
+        deck_u = unary_union([dp for _o, _s0, _s1, dp, _z in obj_ivals]) if obj_ivals else None
         while True:
             geom = _ring(ss)
             if geom is None:
@@ -1113,7 +1172,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             elif g.stop_at_pavement:
                 hit = _pad_hit(probe, stops, stop_tree, gap, host)
             else:
-                hit = _pad_hit(probe, osm_stops, osm_tree, gap)
+                hit = _pad_hit(probe, osm_stops, osm_tree, gap, carried)
+                if hit is not None and deck_u is not None and _carried_by_deck(
+                        hit, probe, osm_stops, deck_u, gap):
+                    # #2062 R3b E: a stop inside the corridor only under an
+                    # OBJECT DECK is carried over the ramp by that deck (the
+                    # object bridge, ``obj_ivals``): the ramp runs on
+                    carried.add(hit)
+                    stats.portal_mouths.append(f"{tid}: {hit} is carried over the ramp by an "
+                                               "object deck (R3b E)")
+                    continue
             if hit is None:
                 break
             clipped_by = hit
@@ -1309,6 +1377,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # between a ramp piece and the deck stays unowned (the portal
             # under the bridge the mesh triangulates), never void
             wall_geom = outer.difference(unary_union([ramp, du]))
+        if shell_wall is not None:
+            # R3b B: the cut stands off a storey shell on the floor (its plan
+            # is the trench's wall), the floor a rim's width off it -- the
+            # void strip between is the pad's at pad level (09-10an)
+            outer = outer.difference(shell_wall)
+            ramp_geom = ramp_geom.difference(shell_wall.buffer(rim_off, **_MITRE))
+            wall_geom = wall_geom.difference(shell_wall)
         # §34 (12) (2): a corridor reaching the water ENDS AT THE SHORE
         # (``zones.shore_region``, the zone trim's own witness)
         if sea_cut is not None:
@@ -1570,7 +1645,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                 edge_bridges=edge_bridges, trenches=trenches,
                                 deck_bridges=deck_bridges, runs=runs, level_b=level_b,
                                 object_floors=object_floors, grade_ends=grade_ends,
-                                level_seeds=level_seeds)
+                                level_seeds=level_seeds, shells=shells)
     if not all(keep):
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]
@@ -1677,6 +1752,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "bores_replaced_by_object": stats.bores_replaced_by_object,
                             "mouths_replaced_by_object": stats.mouths_replaced_by_object})
     return cl, tuple(tunnels), stats
+
+
+def _carried_by_deck(ref: str, probe, stops: _t.Sequence, deck_u, gap: float) -> bool:
+    """Does the stop ``ref``'s part inside the corridor ``probe`` lie within
+    the object decks ``deck_u`` (+ ``gap``)?  (#2062 R3b E)"""
+    near = probe.buffer(gap)
+    part = unary_union([p.intersection(near) for p, r in stops if r == ref])
+    return not part.is_empty and part.difference(deck_u.buffer(gap)).area <= gap * gap
 
 
 def deck_cover_of(tunnels, tid_deck) -> object:

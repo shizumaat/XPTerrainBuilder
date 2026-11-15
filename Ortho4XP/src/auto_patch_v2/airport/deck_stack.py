@@ -232,13 +232,44 @@ class _Airside:
         return self._tree is not None and len(self._tree.query(p, predicate="within")) > 0
 
     def meets(self, plate) -> bool:
-        """Does airside pavement or a runway lie ON ``plate`` (more than a
-        square metre of it — an edge it merely touches is not; the free
-        bridge's read leaves such a plate to class A, ``planar/free_bridge``)?"""
+        """Does airside pavement or a runway run ACROSS ``plate`` (RULINGS
+        2026-10-27c class A; the free bridge's read leaves such a plate to
+        class A, ``planar/free_bridge``)?  Across: the pavement on the plate
+        (more than a square metre of it) stands on both sides of the plate's
+        mid-span, or covers more than half its length -- pavement touching
+        only an END band of the plate (the end line meeting the airside) is
+        no class-A witness (#2062 R3b E, master ruling 2026-11-15: KLAX
+        ``Road_Bridge`` carried 136 m2 of apron on its east end only)."""
         if self._tree is None or plate is None or plate.is_empty:
             return False
-        return any(self._polys[int(i)].intersection(plate).area > 1.0
-                   for i in self._tree.query(plate, predicate="intersects"))
+        on = [self._polys[int(i)].intersection(plate)
+              for i in self._tree.query(plate, predicate="intersects")]
+        on = [g for g in on if g.area > 1.0]
+        if not on:
+            return False
+        return _across(plate, unary_union(on))
+
+
+def _across(plate, pav) -> bool:
+    """Does ``pav`` (on ``plate``) stand both sides of the plate's mid-span,
+    or cover more than half its length (along its long axis)?"""
+    rect = plate.minimum_rotated_rectangle
+    cs = list(rect.exterior.coords)[:4]
+    if len(cs) < 4:
+        return True
+    a = max(((cs[i], cs[(i + 1) % 4]) for i in range(2)),
+            key=lambda e: math.dist(e[0], e[1]))
+    L = math.dist(a[0], a[1])
+    if L <= 0.0:
+        return True
+    ux, uy = (a[1][0] - a[0][0]) / L, (a[1][1] - a[0][1]) / L
+    ss = [(x - a[0][0]) * ux + (y - a[0][1]) * uy
+          for g in getattr(pav, "geoms", [pav]) if g.geom_type == "Polygon"
+          for x, y in g.exterior.coords]
+    if not ss:
+        return False
+    lo, hi = min(ss), max(ss)
+    return (lo < 0.5 * L < hi) or (hi - lo) > 0.5 * L
 
 
 def _end_ground(airport, stations, out: XY, step: float) -> float:

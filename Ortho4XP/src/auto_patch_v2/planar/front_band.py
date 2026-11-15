@@ -11,7 +11,7 @@ openings) for the stations within ``[tunnel.object] face_front_m`` of the
 mouth, the opening's beyond -- one square step, at stations protected at
 ``face_front_m`` and one grid step past it.
 
-THE ONE LATERAL FIT (:func:`fit_halves`, R4): per side and per station the
+THE ONE LATERAL FIT (:func:`lateral_fit`, R4): per side and per station the
 half width is the target cut back to stand clear of whatever stands beside
 the corridor, never below the mapped road's own half width (at the mouth and
 inside the pack's walls never below the opening's).  The fit probes the ring
@@ -32,7 +32,7 @@ from shapely.ops import nearest_points
 
 from .mouth_opening import axis_left_normal, opening_halves
 
-__all__ = ["front_halves", "fit_halves", "halves_fn", "lateral_fit"]
+__all__ = ["front_halves", "halves_fn", "lateral_fit"]
 
 XY = tuple[float, float]
 Halves = tuple[float, float]
@@ -90,7 +90,7 @@ def _side_and_reach(axis_fn, axis, part) -> "tuple[int, float, float, float]":
     return side, float(axis.distance(part)), min(ss), max(ss)
 
 
-def fit_halves(ss: _t.Sequence[float], target: _t.Callable[[float], Halves],
+def _fit_halves(ss: _t.Sequence[float], target: _t.Callable[[float], Halves],
                minimum: _t.Callable[[float], Halves],
                probe_of: _t.Callable[[_t.Callable[[float], Halves]], _t.Any],
                hit_of: _t.Callable[[_t.Any], "str | None"],
@@ -156,7 +156,7 @@ def lateral_fit(ss: _t.Sequence[float], span: Halves, front: "Halves | None",
                 probe_of, pad_hit, stops: _t.Sequence, exclude: set,
                 carry, axis_fn, axis, rim_off: float, gap: float, grid: float,
                 spacing: float) -> tuple[dict[float, Halves], list[str]]:
-    """:func:`fit_halves` for one mapped ramp of ``planar/structures``: the
+    """:func:`_fit_halves` for one mapped ramp of ``planar/structures``: the
     target is ``front`` within ``face_front`` of the mouth, tapering 1:1 to
     the opening's ``span`` over ``taper`` metres (a square step folds the
     rim's stand-off, ``structure_geometry._clear``); the minimum the road's
@@ -185,6 +185,6 @@ def lateral_fit(ss: _t.Sequence[float], span: Halves, front: "Halves | None",
                 return ref
             excl.add(ref)
 
-    return fit_halves(ss, target, minimum, probe_of, hit_of,
+    return _fit_halves(ss, target, minimum, probe_of, hit_of,
                       lambda ref, pr: carried_part(ref, pr, stops, gap), axis_fn, axis,
                       rim_off, gap, grid, spacing, span)

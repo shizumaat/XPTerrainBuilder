@@ -450,6 +450,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     _rk = run_knife(bridge_stacks, law)
     if _rk is not None and not _rk.is_empty:
         from shapely.geometry import Polygon as _Poly
+
         from .basins import RUNWAY_FAMILY as _RWF
         from .cell_knife import knife_cells
         _rc, _n = knife_cells(classification.cells,

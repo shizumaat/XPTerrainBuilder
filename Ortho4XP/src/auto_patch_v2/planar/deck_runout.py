@@ -103,8 +103,13 @@ def run_knife(stacks: _t.Sequence, law):
     """The cut of every airside run-out: each such end's slab and its
     corridor along the path, the bank's width either side; ``None`` with
     none."""
-    from ..geom.deck_ground import (end_corridor, end_inner_strip, end_slab, path_line,
-                                    ring_polygon)
+    from ..geom.deck_ground import (
+        end_corridor,
+        end_inner_strip,
+        end_slab,
+        path_line,
+        ring_polygon,
+    )
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     bank = float(law.tables.structures.bridge.airside_run_bank_m)
     parts = []

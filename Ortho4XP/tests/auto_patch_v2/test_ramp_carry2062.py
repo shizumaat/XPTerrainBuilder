@@ -11,7 +11,8 @@ import numpy as np
 import pytest
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.deck_stack import KEPT, DeckStack, StackDeck, StackEnd
-from auto_patch_v2.planar.front_band import fit_halves, halves_fn
+from auto_patch_v2.planar.front_band import _fit_halves as fit_halves
+from auto_patch_v2.planar.front_band import halves_fn
 from auto_patch_v2.planar.ramp_carry import carry_of
 from shapely.geometry import LineString, Polygon, box
 

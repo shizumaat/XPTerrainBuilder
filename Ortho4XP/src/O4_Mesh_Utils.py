@@ -2770,8 +2770,10 @@ def build_mesh(tile):
                     tile, getattr(tile, "dico_airports", None) or {})
                 INSETS.bake_airport_insets_into_alt_dem(tile)
                 # owner RULINGS 2026-11-13k: and the terrain models' cut
+                # (#2077: and fill, never inside the patch coverage)
                 import auto_patch.terrain_cut_stage as TERRAIN_CUT
-                TERRAIN_CUT.bake(tile)
+                _cover = patch_coverage_polygon(tile)
+                TERRAIN_CUT.bake(tile, patch_area=None if _cover is None else _cover[0])
                 tile.dem.write_to_file(FNAMES.alt_file(tile))
         except Exception as e:
             print(e)

@@ -24,6 +24,16 @@ object past the plan and photo gates but too flat for a terrain model is
 asked the ground shell's own candidate test (a lowest surface departing
 from its plane by >= 5 m) and, per placement, its verdict at the no-float
 seat: SEATED (lies on the ground) or HIDDEN.
+
+TERRAIN COMPOSITES (#2077, spec ``docs/specs/2077-terrain-composites-spec.md``
+5): every OBJ8 is also asked ``relief_skin``'s candidate (gate count
+``skin``; per row ``relief skin`` with its seat, the raster under its
+origin).  A terrain model's row carries both seats -- ``z0_rim`` (the
+2026-11-13i rim minimum) and ``z0`` (#2077's L1 fit, capped over a wet
+rim) -- with ``water_rim`` (the share of its outer rim over the tile's
+cached water layers, ``O4_Vector_Map.cached_tile_water``; ``None`` where
+none is cached) and the hide offer of the new quality test.  An
+``OBJECT_MSL`` row is read like any other (llows), its datum beside it.
 """
 from __future__ import annotations
 
@@ -46,6 +56,7 @@ import O4_Console_Encoding as _o4console  # noqa: E402
 _o4console.configure_console_streams()  # utf-8 console before any print (#92)
 
 from auto_patch_v2.airport import ground_shell as GS  # noqa: E402
+from auto_patch_v2.airport import relief_skin as RS  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
 from auto_patch_v2.airport.obj8 import parse_obj8  # noqa: E402
 
@@ -91,7 +102,7 @@ def sampler(dems: list, lon0: float, lat0: float, *, fine: bool = False):
     mlat = 111_320.0
     mlon = mlat * math.cos(math.radians(lat0))
 
-    def read(xs, ys):
+    def read(xs, ys, pixel_m=TM.QUALITY_PIXEL_M):
         lo = lon0 + np.asarray(xs, dtype=float) / mlon
         la = lat0 + np.asarray(ys, dtype=float) / mlat
         z = np.full(lo.shape, np.nan)
@@ -106,7 +117,7 @@ def sampler(dems: list, lon0: float, lat0: float, *, fine: bool = False):
             v = (a[r0, c0] * (1 - fc) * (1 - fr) + a[r0, c0 + 1] * fc * (1 - fr)
                  + a[r0 + 1, c0] * (1 - fc) * fr + a[r0 + 1, c0 + 1] * fc * fr)
             z[i] = v
-            q[i[np.isfinite(v)]] = px <= TM.QUALITY_PIXEL_M
+            q[i[np.isfinite(v)]] = px <= pixel_m
         return q if fine else z
     return read
 
@@ -114,7 +125,7 @@ def sampler(dems: list, lon0: float, lat0: float, *, fine: bool = False):
 def candidates(pack_root: str) -> tuple[dict, dict]:
     """``(gate counts, {relative path: Shape})`` over the pack's OBJ8s; a
     ground shell's Shape is keyed ``("ground", path)``."""
-    gates = {"objects": 0, "plan": 0, "photo": 0, "candidate": 0, "ground": 0}
+    gates = {"objects": 0, "plan": 0, "photo": 0, "candidate": 0, "ground": 0, "skin": 0}
     shapes = {}
     for path in glob.glob(os.path.join(pack_root, "**", "*.[oO][bB][jJ]"), recursive=True):
         if "__b" in os.path.basename(path):          # the app's own split bodies
@@ -129,6 +140,10 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
         if shell is not None:
             gates["ground"] += 1
             shapes[("ground", rel)] = shell
+        skin = RS.shape_of(path, g)
+        if skin is not None and TM.shape_of(path, g) is None:
+            gates["skin"] += 1
+            shapes[("skin", rel)] = skin
         if TM._plan_m(g) < TM.MIN_PLAN_M:
             continue
         gates["plan"] += 1
@@ -144,8 +159,9 @@ def candidates(pack_root: str) -> tuple[dict, dict]:
 
 
 def placements(dsf: str, dsftool: str) -> tuple[list[str], list[tuple]]:
-    """``(OBJECT_DEF paths, [(def index, lon, lat, heading, kind)])`` of a
-    DSF, dumped in a temporary folder."""
+    """``(OBJECT_DEF paths, [(def index, lon, lat, heading, kind,
+    elevation)])`` of a DSF (``elevation`` the AGL / MSL column, ``None``
+    for a plain row), dumped in a temporary folder."""
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, "in.dsf")
         shutil.copyfile(dsf, src)
@@ -158,8 +174,52 @@ def placements(dsf: str, dsftool: str) -> tuple[list[str], list[tuple]]:
                     defs.append(line[11:].strip())
                 elif line.startswith(("OBJECT ", "OBJECT_AGL ", "OBJECT_MSL ")):
                     t = line.split()
-                    rows.append((int(t[1]), float(t[2]), float(t[3]), float(t[4]), t[0]))
+                    rows.append((int(t[1]), float(t[2]), float(t[3]), float(t[4]), t[0],
+                                 float(t[5]) if len(t) > 5 else None))
     return defs, rows
+
+
+def water_reader(lat: int, lon: int, lon0: float, lat0: float):
+    """``water(xs, ys) -> (wet, level)`` over the tile's CACHED water layers
+    in metres east / north of ``(lon0, lat0)`` (the engine's own
+    ``TileWater``), or ``None`` where none can be read."""
+    try:
+        import O4_Config_Utils as CFG
+        import O4_Vector_Map as VMAP
+        from auto_patch_v2.airport.dem_production import TileWater
+        t = CFG.Tile(lat, lon, "")
+        t.read_from_config()
+        w = TileWater(lat, lon, *VMAP.cached_tile_water(t))
+    except Exception:
+        return None
+    if not w.has_data:
+        return None
+    mlat = 111_320.0
+    mlon = mlat * math.cos(math.radians(lat0))
+
+    def read(xs, ys):
+        la = lat0 + np.asarray(ys, float) / mlat
+        lo = lon0 + np.asarray(xs, float) / mlon
+        wet = w.index_of(la, lo) >= 0
+        return wet, np.where(wet, 0.0, np.nan)
+    return read
+
+
+def _model_row(shape, hdg: float, dem, fine, water) -> dict:
+    """A terrain model row's both seats, its wet-rim share and its offer."""
+    m = TM.match(shape, (0.0, 0.0), hdg, dem, fine, water)
+    if m is None:
+        return {"verdict": "no DEM match"}
+    rec = {"verdict": "terrain model", **{k: (round(v, 3) if isinstance(v, float) else v)
+                                          for k, v in m.items()}}
+    rec["z0_rim"] = round(TM.rim_seat(shape.grid, (0.0, 0.0), hdg, dem) or math.nan, 3)
+    if water is not None:
+        ri, rj = np.nonzero(TM.outer_rim(shape.grid.covered))
+        rx, ry = TM._world(shape.grid, ri, rj, (0.0, 0.0), hdg)
+        rec["water_rim"] = round(float(np.mean(water(rx, ry)[0])), 3) if len(rx) else 0.0
+    else:
+        rec["water_rim"] = None
+    return rec
 
 
 def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
@@ -170,8 +230,19 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
         lat, lon = int(os.path.basename(dsf)[:3]), int(os.path.basename(dsf)[3:7])
         defs, rows = placements(src, dsftool)
         dems = rasters(elevation_root, lat, lon) if shapes else []
-        for i, lo, la, hdg, kind in rows:
+        for i, lo, la, hdg, kind, elev in rows:
             key = defs[i].replace("\\", "/").lower() if i < len(defs) else ""
+            skin = shapes.get(("skin", key))
+            if skin is not None and kind != "OBJECT_MSL":
+                z = sampler(dems, lo, la)(np.array([0.0]), np.array([0.0]))[0]
+                cover, hide = TM.quality(skin, (0.0, 0.0), hdg, sampler(dems, lo, la),
+                                         sampler(dems, lo, la, fine=True))
+                out["rows"].append({
+                    "dsf": os.path.basename(dsf), "resource": defs[i], "lat": la, "lon": lo,
+                    "heading": hdg, "kind": kind, "plan_m": round(skin.plan_m),
+                    "relief_m": round(skin.relief_m, 1), "verdict": "relief skin",
+                    "z0": round(float(z), 3), "quality_cover": round(cover, 3),
+                    "hideable": bool(hide)})
             shell = shapes.get(("ground", key))
             if shell is not None and kind != "OBJECT_MSL":
                 got = GS.verdict(shell.grid, (0.0, 0.0), hdg, sampler(dems, lo, la))
@@ -190,15 +261,10 @@ def census(pack_root: str, elevation_root: str, dsftool: str) -> dict:
                    "relief_m": round(shape.relief_m, 1),
                    "photo_spread": round(shape.photo_spread, 3)}
             if kind == "OBJECT_MSL":
-                rec["verdict"] = "msl row (its author's datum)"
-            else:
-                m = TM.match(shape, (0.0, 0.0), hdg, sampler(dems, lo, la),
-                             sampler(dems, lo, la, fine=True))
-                rec["verdict"] = "terrain model" if m else "no DEM match"
-                if m:
-                    rec.update({k: round(v, 3) for k, v in m.items()})
-                    rec["hideable"] = bool(m["quality_cover"] >= TM.MIN_QUALITY_COVER
-                                           and m["corr"] >= TM.MIN_QUALITY_CORR)
+                rec["datum"] = elev
+            rec.update(_model_row(shape, hdg, sampler(dems, lo, la),
+                                  sampler(dems, lo, la, fine=True),
+                                  water_reader(lat, lon, lo, la)))
             out["rows"].append(rec)
     return out
 
@@ -214,10 +280,16 @@ def main(argv=None) -> int:
     for r in report:
         print(f"== {r['pack']}: gates {r['gates']}")
         for row in r["rows"]:
-            extra = (f" z0 {row['z0']:.2f} m corr {row['corr']:.2f} peak_err {row['peak_err']:.2f}"
-                     f" quality {row['quality_cover']:.0%}{' HIDEABLE' if row['hideable'] else ''}"
+            wet = row.get("water_rim")
+            extra = (f" z0 {row['z0']:.2f} m (rim seat {row['z0_rim']:.2f}, wet rim "
+                     f"{'-' if wet is None else f'{wet:.0%}'}) corr {row['corr']:.2f} "
+                     f"peak_err {row['peak_err']:.2f} quality {row['quality_cover']:.0%}"
+                     f"{' HIDEABLE' if row['hideable'] else ''}"
                      if "corr" in row else
-                     f" z0 {row['z0']:.2f} m follow {row['follow']:.0%}" if "z0" in row else "")
+                     f" z0 {row['z0']:.2f} m follow {row['follow']:.0%}" if "follow" in row else
+                     f" z0 {row['z0']:.2f} m (its origin's ground) quality "
+                     f"{row['quality_cover']:.0%}{' HIDEABLE' if row['hideable'] else ''}"
+                     if "z0" in row else "")
             print(f"   {row['verdict']:<14} {row['resource']} @({row['lat']:.5f},{row['lon']:.5f})"
                   f" plan {row['plan_m']} relief {row['relief_m']}{extra}")
     if a.json:

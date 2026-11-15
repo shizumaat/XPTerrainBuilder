@@ -1365,7 +1365,9 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None,
                         msl_tol_m: float = 0.3,
                         dem_many: "_t.Callable | None" = None,
-                        fine: "_t.Callable | None" = None
+                        fine: "_t.Callable | None" = None,
+                        water: "_t.Callable | None" = None,
+                        hidden: _t.AbstractSet[str] = frozenset()
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -1397,7 +1399,10 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     ``[read_placement(…)]`` in job order, or ``None`` — and the report is
     absorbed in input order either way.  ``fine(xs, ys)`` says where
     quality elevation covers a frame point (``terrain_model``'s hide
-    offer; ``None``: nowhere)."""
+    offer; ``None``: nowhere); ``water`` the water witness
+    (``ProductionDem.water_many``, a terrain model's wet-rim seat);
+    ``hidden`` the def paths the user hid in "Hide terrain objects"
+    (#2077 4.2: their frames dissolve)."""
     cache = cache or ResourceCache(thickness_m)
     law = ReadLaw(admission_depth_m, contact_band_m, shell_reaches_grade,
                   floor_plate_normal_y_min, rim_reaches_grade,
@@ -1428,22 +1433,27 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     # owner RULINGS 2026-11-13i: an object that models the terrain (matched
     # to the DEM) is one rigid frame, seated so no visible edge floats
     from . import terrain_model as _tm
-    found = _tm.placement_models(
-        placements, lambda d: resolve_resource(d, pack_root, index),
-        lambda d: _geometry_of(d, pack_root, index, cache),
-        dem_many or _ts.dem_many_of(dem_z), fine)
+    path_of = lambda d: resolve_resource(d, pack_root, index)   # noqa: E731
+    geom = lambda d: _geometry_of(d, pack_root, index, cache)   # noqa: E731
+    many = dem_many or _ts.dem_many_of(dem_z)
+    found = _tm.placement_models(placements, path_of, geom, many, fine, water, hidden)
     # issue #2056: a ground shell too flat for a terrain model lies on the
     # ground at the no-float seat (a terrain model) or is hidden alone
     from . import ground_shell as _gs
-    shells = _gs.placement_shells(
-        placements, lambda d: resolve_resource(d, pack_root, index),
-        lambda d: _geometry_of(d, pack_root, index, cache),
-        dem_many or _ts.dem_many_of(dem_z), skip=frozenset(found))
+    shells = _gs.placement_shells(placements, path_of, geom, many, skip=frozenset(found))
     found.update((k, m) for k, m in shells.items() if m.ground == _gs.SEATED)
-    models = _tm.set_members(placements, found)
-    hidden = {k: m for k, m in shells.items() if m.ground == _gs.HIDDEN}
-    riders = frozenset(_tm.set_members(placements, hidden)) - frozenset(hidden)
-    models.update(hidden)
+    # #2077 rule A: a relief skin's frame is one rigid terrain composite
+    from . import relief_skin as _rs
+    found.update(_rs.placement_skins(
+        placements, path_of, geom, dem_z,
+        skip=frozenset(found) | frozenset(shells) | features | frozenset(shaped),
+        dem_many=many, fine=fine, hidden=hidden))
+    # a shell the user hid, or no seat lays flat, dissolves (#2056, #2077 4.2)
+    gone = {k: m for k, m in {**shells, **found}.items() if m.ground == _gs.HIDDEN}
+    models = _rs.with_planes(_tm.set_members(
+        placements, {k: m for k, m in found.items() if k not in gone}), placements, geom)
+    riders = frozenset(_tm.set_members(placements, gone)) - frozenset(gone)
+    models.update(gone)
     features = features | frozenset(models)
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0

@@ -24,6 +24,16 @@ of the drawn mesh under the object's bound after the altitudes are post
 processed (``O4_Mesh_Utils.post_process_nodes_altitudes``).  A terrain
 model's record (no ``erode_m``) is not held.
 
+THE FILL (#2077 rule B, ``auto_patch_v2.airport.terrain_fill``): after
+every cut, a relief skin's ZERO PLANE (``cut["plane"]``) conforms the
+ground under its town to its frame zero, then every record whose ``cut``
+carries ``"fill": true`` has the ground raised to its outer rim.  Neither
+touches the tile's edge postings nor an airport patch's boundary
+(``patch_area``: the vector step's ``patches_area``, the mesh step's
+``O4_Mesh_Utils.patch_coverage_polygon``), and a rim fill stays clear of
+another composite's ground.  The footprint's edge is drawn as a DUMMY
+constrained line, like the plan's.
+
 Nothing here raises into the build: an unreadable plan or object is one
 log line and that model is not cut (or not held).
 """
@@ -125,9 +135,12 @@ def _cut_one(dem, tile, rec) -> int:
     return int(cut.sum())
 
 
-def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None) -> int:
+def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
+         patch_area=None) -> int:
     """Cut ``tile.dem``'s raster under every record (:func:`cut_records`
-    of the tile's patch folder when ``None``); the postings cut."""
+    of the tile's patch folder when ``None``), then conform its planes and
+    fill its rims (module doc, THE FILL; ``patch_area`` the tile-relative
+    patch coverage, ``None`` for none); the postings changed."""
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
     dem = getattr(tile, "dem", None)
@@ -146,6 +159,109 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None) -> i
         total += k
         UI.vprint(1, f"   [{rec.get('icao', '')}] terrain model {rec.get('resource')} "
                      f"({rec.get('id')}): the ground under it cut at {k} posting(s)")
+    if any(r["cut"].get("fill") or r["cut"].get("plane") for r in records):
+        try:
+            total += _fill_all(dem, tile, records, patch_area)
+        except Exception as exc:
+            UI.vprint(1, f"   terrain composites not filled ({exc})")
+            UI.vprint(2, traceback.format_exc())
+    return total
+
+
+class _Composite(_t.NamedTuple):
+    """One record's fill inputs: its cut, projector and rim supports."""
+
+    rec: _t.Mapping[str, _t.Any]
+    fit: _t.Any
+    to_xy: _t.Callable
+    to_ll: _t.Callable
+    support_xy: np.ndarray
+    support_z: np.ndarray
+    owned: _t.Any                  # its ground (``terrain_fill.Owned``)
+
+
+def _composite(rec) -> "_Composite | None":
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_fill as _tf
+    from auto_patch_v2.airport import terrain_model as _tm
+    from auto_patch_v2.geom.terrain_deck import UNDER_M
+    fit = _fit(rec)
+    grid = _tm.plan_grid(str(rec["cut"]["file"]))
+    if fit is None or grid is None:
+        return None
+    c = rec["cut"]
+    to_xy, to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))
+    ri, rj = np.nonzero(_tm.outer_rim(grid.covered))
+    sx, sy = _tm._world(grid, ri, rj, (0.0, 0.0), float(c["heading"]))
+    plane = (c.get("plane") or {}).get("rings") or ()
+    rings = tuple(np.asarray(r, float) for r in [*_tc.outline_rings(fit, to_ll), *plane])
+    return _Composite(rec, fit, to_xy, to_ll, np.c_[sx, sy],
+                      float(rec["elevation"]) + grid.bot[ri, rj] - UNDER_M,
+                      _tf.Owned(rings))
+
+
+def _raster(dem, tile, patch_area):
+    """The tile's raster as a ``terrain_fill.Raster``: its edge postings
+    and the airport patches frozen."""
+    from auto_patch_v2.airport import terrain_fill as _tf
+    a = dem.alt_dem
+    ny, nx = a.shape
+    dx, dy = (dem.x1 - dem.x0) / (nx - 1), (dem.y1 - dem.y0) / (ny - 1)
+    if patch_area is not None and getattr(patch_area, "is_empty", True):
+        patch_area = None
+
+    def frozen(rows, cols, lons, lats):
+        out = ((rows < _EDGE_POSTS) | (cols < _EDGE_POSTS)
+               | (rows > ny - 1 - _EDGE_POSTS) | (cols > nx - 1 - _EDGE_POSTS))
+        if patch_area is not None and len(rows):
+            import shapely
+            out |= shapely.contains_xy(patch_area, lons - tile.lon, lats - tile.lat)
+        return out
+    return _tf.Raster(a, tile.lon + dem.x0, tile.lat + dem.y1, dx, dy, frozen)
+
+
+def _fill_all(dem, tile, records, patch_area) -> int:
+    """THE FILL (module doc): every plane, then every rim fill; the
+    postings changed."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_fill as _tf
+    comps = [c for c in (_composite(r) for r in records) if c is not None]
+    raster = _raster(dem, tile, patch_area)
+
+    def cap(lons, lats):
+        out = np.full(len(lons), np.inf)
+        for c in comps:
+            out = np.minimum(out, _tc.cut_heights(c.fit, c.to_xy, lons, lats,
+                                                  np.full(len(lons), np.inf))[0])
+        return out
+    total = 0
+    for c in comps:
+        plane = c.rec["cut"].get("plane")
+        if not plane or not plane.get("rings"):
+            continue
+        ll = np.concatenate([np.asarray(r, float) for r in plane["rings"]])
+        pad = _tf.REACH_M / 111_320.0
+        padx = pad / max(np.cos(np.radians(float(ll[:, 1].mean()))), 1e-6)
+        k = _tf.conform_plane(raster, c.to_xy, plane["rings"], float(plane["z"]), cap,
+                              (ll[:, 0].min() - padx, ll[:, 1].min() - pad,
+                               ll[:, 0].max() + padx, ll[:, 1].max() + pad))
+        total += k
+        UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain composite {c.rec.get('resource')} "
+                     f"({c.rec.get('id')}): the ground of its zero footprint conformed to "
+                     f"{float(plane['z']):.2f} m at {k} posting(s)")
+    for c in comps:
+        if not c.rec["cut"].get("fill"):
+            continue
+        own = lambda lons, lats, c=c: _tc.cut_heights(   # noqa: E731
+            c.fit, c.to_xy, lons, lats, np.full(len(lons), np.inf))[0]
+        rep = _tf.rim_fill(raster, c.to_xy, c.to_ll, c.support_xy, c.support_z, own,
+                           [o.owned for o in comps if o is not c])
+        total += rep["raised"]
+        UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain model {c.rec.get('resource')} "
+                     f"({c.rec.get('id')}): the ground filled to its rim at "
+                     f"{rep['raised']} posting(s) from {rep['supports']} support(s), "
+                     f"{rep['unserved']} unserved")
     return total
 
 
@@ -159,7 +275,7 @@ def _outline(rec) -> list:
     return _tc.outline_rings(fit, _tc.projector(float(c["lat"]), float(c["lon"]))[1])
 
 
-def apply(tile, vector_map, icaos: _t.Iterable[str]) -> int:
+def apply(tile, vector_map, icaos: _t.Iterable[str], patch_area=None) -> int:
     """STEP 1 (module doc): cut the raster under the included airports'
     terrain models, rewrite the ``.alt`` and draw each plan's edge as a
     constrained line.  The postings cut."""
@@ -170,15 +286,16 @@ def apply(tile, vector_map, icaos: _t.Iterable[str]) -> int:
     if not records:
         return 0
     UI.vprint(0, "-> Cutting the ground under the airports' terrain objects")
-    total = bake(tile, records)
+    total = bake(tile, records, patch_area)
     if not total:
         return 0
     tile.dem.write_to_file(FNAMES.alt_file(tile))
     lines = []
     for rec in records:
         try:
-            lines += [LineString(r - np.array([tile.lon, tile.lat])) for r in _outline(rec)
-                      if len(r) >= 2]
+            plane = (rec["cut"].get("plane") or {}).get("rings") or ()
+            lines += [LineString(np.asarray(r, float) - np.array([tile.lon, tile.lat]))
+                      for r in [*_outline(rec), *plane] if len(r) >= 2]
         except Exception as exc:
             UI.vprint(1, f"   terrain model {rec.get('resource')}: no edge line ({exc})")
     if lines:

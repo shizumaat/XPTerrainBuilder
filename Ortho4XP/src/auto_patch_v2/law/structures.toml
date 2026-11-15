@@ -1512,6 +1512,14 @@ terrain_base_over_ground = false
 # (owner RULINGS 2026-11-14c (1): LOWS domiki_lows_13 stood 35.1 m in the air
 # on a base 1.50 m over our ground).  Above it 14a (1) stands.
 terrain_base_within_m = 2.0
+# ... and an unsupported BUILDING -- its walled parts' union plan box at least
+# this many m2 with its shorter side at least _min_side_m -- seats on our
+# terrain at ANY margin (#2077 rule C, owner 2026-11-15T05:46Z: "a building
+# with nothing carrying it but our terrain stands on our terrain however far
+# its base is from it"; airport/terrain_base.py witness (5)).  Street lights,
+# poles, signs, fences and jetway connectors stay with 14a (1).
+terrain_building_min_area_m2 = 25.0
+terrain_building_min_side_m = 4.0
 
 # ─────────────────────────────────────────────────────────────────────────
 # §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec

@@ -379,10 +379,15 @@ _KEYS_EQUAL_WHEN_ABSENT = ("inset_cifp",)
 def _terrain_cut(tile) -> list:
     """The terrain models whose ground the vector step cuts (owner RULINGS
     2026-11-13k): hiding one in "Hide terrain objects", or showing it
-    again, re-runs the cut."""
+    again, re-runs the cut -- and (#2077 2.6) each record's CONTENT, its
+    zero, fill and zero plane, so a re-seated composite re-runs it too."""
     from auto_patch import terrain_cut_stage
-    return sorted(str(r.get("id")) for r in terrain_cut_stage.cut_records(
-        FNAMES.patch_dir(tile.lat, tile.lon)))
+    out = []
+    for r in terrain_cut_stage.cut_records(FNAMES.patch_dir(tile.lat, tile.lon)):
+        body = json.dumps({"elevation": r.get("elevation"), "cut": r.get("cut")},
+                          sort_keys=True, default=str)
+        out.append(f"{r.get('id')}:{hashlib.sha256(body.encode('utf-8')).hexdigest()[:16]}")
+    return sorted(out)
 
 
 # Keys a record written by an older engine may hold that are no longer

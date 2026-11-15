@@ -43,7 +43,9 @@ the author placed them"):
    (1), LOWS ``domiki_lows_13`` 35.1 m in the air on a base 1.50 m over our
    ground): a base within ``[placement] terrain_base_within_m`` over our
    ground is seated on our terrain like one at or under it
-   (``terrain_carried_within_ground``); above it 14a (1) stands;
+   (``terrain_carried_within_ground``); above it 14a (1) stands -- for
+   PIECES: a BUILDING (5) stands on our terrain at any margin (#2077 rule
+   C, ``terrain_carried_building_over_ground``);
 4. nothing carries it: the caller asks only where the carrier search
    found nothing (``placement_file._own_ground_file``) or the unit has no
    foot at all (``footprint_unit._wall_base``'s footless branch) — and NO
@@ -58,6 +60,14 @@ the author placed them"):
    not) has a foot, or reaches more than ``split_tol_m`` under the base
    plane, stands on them (the census: a floatplane's fuselage over its
    floats, a DC-3's over its wheels — seated by the fuselage they sank).
+5. (#2077 rule C, owner 2026-11-15T05:46Z: "a building with nothing
+   carrying it but our terrain stands on our terrain however far its base
+   is from it") it is a BUILDING: its walled parts' union plan box covers
+   at least ``[placement] terrain_building_min_area_m2`` with its shorter
+   side at least ``terrain_building_min_side_m`` -- a house, never a
+   street light, a pole, a sign, a fence or a jetway connector (the 42
+   pieces 13y's reading moved at 9 airports,
+   ``docs/findings/1884-in-air-pieces.md``, are kept by 14a (1)).
 
 A piece with no walled part (a roof, a canopy) and no carrier keeps
 §16 (3)'s own ground with its authored y (13y (3)) — UNLESS IT RESTS ON
@@ -88,12 +98,13 @@ import typing as _t
 from . import anchor_rule as _ar
 from .footprint_unit import AUTHOR_GROUND_M, PLANE_SHARE
 
-__all__ = ["TerrainLaw", "TERRAIN_CARRIED", "law_of", "is_walled", "unit_base", "seat",
-           "with_hosts"]
+__all__ = ["TerrainLaw", "TERRAIN_CARRIED", "law_of", "is_walled", "is_building",
+           "unit_base", "seat", "with_hosts"]
 
 #: the anchor reason's mark (after §16 (3)'s own-ground stem, which every
 #: regrouping pass still reads: a group the law finds is doubt, 13r)
 TERRAIN_CARRIED = "base is the author's terrain"
+_M_PER_DEG = 111_320.0
 
 
 @_dc.dataclass(frozen=True)
@@ -114,6 +125,10 @@ class TerrainLaw:
     #: #2077: the unit's own-ground bodies a rider may rest on —
     #: ``(parts, member, anchor, lift)`` (:func:`with_hosts`)
     hosts: tuple = ()
+    #: ``[placement] terrain_building_min_area_m2`` / ``_min_side_m``
+    #: (witness 5, #2077 rule C); 0 disarms it
+    building_area_m2: float = 0.0
+    building_side_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -148,7 +163,11 @@ def law_of(surface: _ar.Surface, plan: _t.Any, wall_min_m: float,
     return TerrainLaw(surface, authored_zeros(getattr(plan, "authored_seats", ())
                                               or ()),
                       float(wall_min_m), float(elevated_base_m), float(split_tol_m),
-                      parts, over, within)
+                      parts, over, within,
+                      building_area_m2=float(getattr(
+                          placement, "terrain_building_min_area_m2", 0.0) or 0.0),
+                      building_side_m=float(getattr(
+                          placement, "terrain_building_min_side_m", 0.0) or 0.0))
 
 
 def with_hosts(law: "TerrainLaw | None", bodies: _t.Iterable[tuple]
@@ -260,7 +279,7 @@ def unit_base(walled: _t.Sequence[_t.Any], anchor: _t.Sequence[float],
             or _supported(walled, w.b, _frame_of(anchor, lift), {p.pid for p in own}, law)):
         _count(counts, "terrain_carried_refused_structure")
         return None
-    if _over_refused(w, law, counts):
+    if _over_refused(w, law, counts, walled):
         return None
     _count(counts, "terrain_carried_units")
     return w.b
@@ -286,7 +305,7 @@ def seat(parts: _t.Sequence[_t.Any], m: _t.Any, anchor: _t.Sequence[float],
             or _supported(walled, w.b, _frame_of(anchor, lift), {p.pid for p in parts}, law)):
         _count(counts, "terrain_carried_refused_structure")
         return None
-    if _over_refused(w, law, counts):
+    if _over_refused(w, law, counts, walled):
         return None
     cands = []
     for p in walled:
@@ -339,14 +358,34 @@ def _rider(parts: _t.Sequence[_t.Any], anchor: _t.Sequence[float], lift: float,
     return host
 
 
-def _over_refused(w: _Witness, law: TerrainLaw, counts: "dict | None") -> bool:
+def is_building(walled: _t.Sequence[_t.Any], law: TerrainLaw) -> bool:
+    """Witness (5) (module doc): the walled parts' union plan box is a
+    building's -- at least ``building_area_m2`` with its shorter side at
+    least ``building_side_m``; False when disarmed."""
+    boxes = [tuple(p.box) for p in walled if getattr(p, "box", None)]
+    if law.building_area_m2 <= 0.0 or not boxes:
+        return False
+    # the boxes are ``(lat0, lon0, lat1, lon1)`` degrees
+    lat = 0.5 * (min(b[0] for b in boxes) + max(b[2] for b in boxes))
+    ns = (max(b[2] for b in boxes) - min(b[0] for b in boxes)) * _M_PER_DEG
+    ew = ((max(b[3] for b in boxes) - min(b[1] for b in boxes))
+          * _M_PER_DEG * math.cos(math.radians(lat)))
+    return ns * ew >= law.building_area_m2 and min(ns, ew) >= law.building_side_m
+
+
+def _over_refused(w: _Witness, law: TerrainLaw, counts: "dict | None",
+                  walled: _t.Sequence[_t.Any] = ()) -> bool:
     """Witness (3): a base whose rigid row clears our ground is COUNTED and,
     with ``[placement] terrain_base_over_ground`` off, refused — unless it
-    clears it by no more than ``terrain_base_within_m`` (14c (1))."""
+    clears it by no more than ``terrain_base_within_m`` (14c (1)) or it is a
+    BUILDING (witness 5, #2077 rule C: at any margin)."""
     if not w.over_ground(law):
         return False
     if w.margin <= law.within_m:
         _count(counts, "terrain_carried_within_ground")
+        return False
+    if is_building(walled, law):
+        _count(counts, "terrain_carried_building_over_ground")
         return False
     _count(counts, "terrain_carried_over_ground" if law.over_ground
            else "terrain_carried_refused_over_ground")

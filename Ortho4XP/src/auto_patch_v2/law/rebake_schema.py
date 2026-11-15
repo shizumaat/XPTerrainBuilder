@@ -570,6 +570,13 @@ class Placement:
     #: terrain like one at or under it (owner RULINGS 2026-11-14c (1));
     #: counted ``terrain_carried_within_ground``.  0 = no reach.
     terrain_base_within_m: float = 0.0
+    #: #2077 rule C (witness 5, ``airport/terrain_base``): a BUILDING -- its
+    #: walled parts' union plan box at least this area (m2) with its shorter
+    #: side at least ``terrain_building_min_side_m`` -- seats on our terrain
+    #: at any margin; counted ``terrain_carried_building_over_ground``.  0
+    #: disarms it.
+    terrain_building_min_area_m2: float = 0.0
+    terrain_building_min_side_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

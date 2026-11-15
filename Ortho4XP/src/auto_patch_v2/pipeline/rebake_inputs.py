@@ -132,17 +132,25 @@ def _kept_published(airport, pm=None, agp_report=None) -> dict[str, dict]:
     one place its datum is decided (``with_kept`` clears the graded-face
     datum the pack stage's predicted seat never read).
 
+    #1718 B3: a deck KEPT BY ITS CROSSING (``model/free_bridge.
+    OVERPASS_PREFIX``) is not published: the overpass plate seats it.
+
     #2090 B6: a deck whose end JOINS an AGP follower's floor publishes the
     joined ends' midpoints (``"joined"``) and its FINAL zero (the predicted
     zero plus its group's stage-2 delta, ``constraints/agp_level.stack_zero``
     — ``agp_report`` the rewrite's report), graded ends or not."""
     from ..model.deck_stack import KEPT, live_stacks
+    from ..model.free_bridge import OVERPASS_PREFIX
     out: dict[str, dict] = {}
     for fb in getattr(airport, "kept_bridges", ()) or ():
+        if str(getattr(fb, "id", "")).startswith(OVERPASS_PREFIX):
+            continue
         for oid in fb.deck_ids():
             out[str(oid)] = {"mode": "kept", "route_mids": [], "graded": []}
+    # #1718 B3: a deck kept by its crossing is seated by the overpass read
+    # (``OVERPASS_PLATE``), never by a kept record
     stacks = [s for s in live_stacks(getattr(airport, "deck_stacks", ()) or (), pm)
-              if s.kind == KEPT]
+              if s.kind == KEPT and not str(s.bridge).startswith(OVERPASS_PREFIX)]
     if not stacks:
         return out
     to_ll = airport.frame.transformers()[1]

@@ -430,7 +430,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     free, plated_notes = free_plated(free, basins, objects)
     sstats.hard_decks.extend(plated_notes)
     bridge_stacks, bs_notes = free_planar_stacks(getattr(airport, "deck_stacks", ()) or (),
-                                                 free)
+                                                 free, [ov.object_id for ov in overpasses])
     sstats.hard_decks.extend(bs_notes)
     airport = _dc.replace(airport, deck_stacks=live_stacks(
         getattr(airport, "deck_stacks", ()) or (),

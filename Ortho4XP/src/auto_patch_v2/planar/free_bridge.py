@@ -12,6 +12,10 @@ S1 / S2 / S4): the thin ``planar`` caller of the positive witness
   ``railway`` routes only.  The decks the classifier calls ``free_bridge``
   (``airport/bridge_class``) become ``Airport.free_bridges``, one
   :class:`~..model.free_bridge.FreeBridge` per group of touching decks.
+  A deck no mapped way carries is a KEPT candidate by its join (#2090 B2,
+  all-deck frames) or, in any frame, by its CROSSING (#1718 B1,
+  :func:`_overpass_witness`: a road beneath at the overpass clearance and
+  the stub witnesses on its own axis; the planar overpass read seats it).
 * PLANAR STAGE (:func:`admitted`): the readers ahead of a free bridge in the
   class order that only the planar stage holds take theirs first — a frame
   holding a pack object cut (10-26d), a frame of a hard-deck bridge
@@ -41,7 +45,7 @@ from shapely.ops import unary_union
 from ..airport import bridge_frame as _bf
 from ..airport import bridge_witness as _bw
 from ..geom.rotated_rect import rotated_rectangle
-from ..model.free_bridge import FREE_PREFIX, FreeBridge, FreeDeck, FreeEnd
+from ..model.free_bridge import FREE_PREFIX, OVERPASS_PREFIX, FreeBridge, FreeDeck, FreeEnd
 
 __all__ = ["attach_free_bridges", "read_bridges", "bridges_of", "admitted", "plated",
            "planar_stacks", "log_line"]
@@ -74,6 +78,8 @@ class _Read:
         from ..airport.dem import dem_z_many
         self.law, self.cache = law, cache
         self.ways = _routes(getattr(airport, "osm_ways_mapped", None) or airport.osm_ways)
+        #: the road-beneath read's ways, as ``planar/overpass_deck`` reads them
+        self.all_ways = [w for w in airport.osm_ways or () if len(w.points) >= 2]
         dem = getattr(airport, "dem", None)
         self.dem = dem
         self.ground = None if dem is None else (
@@ -197,8 +203,8 @@ def _read_free_bridges(airport, objects, cache, law
     out: list[FreeBridge] = []
     kept: list[FreeBridge] = []
     notes: list[str] = []
-    for decks, frame in _frames(objects, float(st.tunnel.object.cover_placement_tol_m)):
-        decks = [d for d in decks if d.deck_top_z is not None and str(d.id) not in stacked
+    for dks, frame in _frames(objects, float(st.tunnel.object.cover_placement_tol_m)):
+        decks = [d for d in dks if d.deck_top_z is not None and str(d.id) not in stacked
                  and not airside.meets(d.hard_deck)]
         if not decks:
             continue
@@ -221,13 +227,68 @@ def _read_free_bridges(airport, objects, cache, law
             (kept if all_deck else out).extend(
                 bridges_of({str(d.id): _ring(d) for d in decks}, wit, free,
                            [str(q.id) for q in frame], float(st.placement.footprint_touch_m)))
+        routeless = [d for d in decks if str(d.id) not in free
+                     and wit[str(d.id)].failed.startswith("W1 route")]
         if all_deck:
-            more, ns = _join_witness([d for d in decks if str(d.id) not in free
-                                      and wit[str(d.id)].failed.startswith("W1 route")],
-                                     frame, airport, law, rd)
+            more, ns = _join_witness(routeless, frame, airport, law, rd)
             kept.extend(more)
             notes += ns
+            joined = {d.object_id for fb in more for d in fb.decks}
+            routeless = [d for d in routeless if str(d.id) not in joined]
+        more, ns = _overpass_witness(dks, routeless, frame, rd)
+        kept.extend(more)
+        notes += ns
     return tuple(out), tuple(kept), notes
+
+
+def _overpass_witness(dks, routeless, frame, rd: _Read) -> tuple[list[FreeBridge], list[str]]:
+    """#1718 B1 / B2: a deck no mapped way carries (``routeless``: W1
+    fails) is a KEPT candidate by its CROSSING when it holds the pack-stage
+    half of the road-overpass witness (``planar/overpass_deck.
+    road_crossings`` over the frame's decks ``dks``: a mapped non-bridge
+    highway, not its own route, crosses a piece and the plate stands at
+    least ``clearance_minimum_m`` over it there) — it is the frame's first
+    deck, the one the overpass read seats — and the stub witnesses on its
+    own axis (``bridge_witness.axis_witness``: W3, W4, W6, W4b; the crossing
+    is its W5).  Its ends are its axis's (:func:`_axis_ends`, route
+    :data:`AXIS_STUB`), ``under`` the road beneath's stations its zero is
+    read on (``airport/bridge_stack._overpass_one``)."""
+    d = dks[0] if dks else None
+    if d is None or str(d.id) not in {str(q.id) for q in routeless}:
+        return [], []
+    from .overpass_deck import road_crossings
+    clear = float(rd.law.tables.structures.bridge.clearance_minimum_m)
+    _top, pieces = road_crossings(dks, rd.cache, rd.all_ways, rd.law)
+    held = [(st, ids, at) for _p, st, ids, at in pieces if at is not None and at >= clear]
+    if not held:
+        return [], []
+    tag = f"{_name(d)}: no mapped route; a road crosses beneath (ways " \
+          f"{sorted({i for _s, ids, _a in held for i in ids})}, plate y " \
+          f"{max(a for _s, _i, a in held):+.2f})"
+    why = _axis_holds(d, frame, rd)
+    ends = _axis_ends(d) if not why else None
+    if ends is None:
+        return [], [f"{tag} — not a kept candidate: {why or 'no axis'} (#1718 B2)"]
+    oid = str(d.id)
+    under = tuple((float(x), float(y)) for st, _i, _a in held for x, y in st)
+    fd = FreeDeck(oid, tuple((float(x), float(y)) for x, y in _ring(d).exterior.coords[:-1]),
+                  (), ends, AXIS_STUB + oid, under)
+    return ([FreeBridge(OVERPASS_PREFIX + oid, tuple(str(q.id) for q in frame), (fd,))],
+            [f"{tag} — a kept candidate by its crossing (#1718 B1)"])
+
+
+def _axis_holds(d, frame, rd: _Read) -> str:
+    """``bridge_witness.axis_witness`` for deck ``d`` of ``frame`` (its
+    plate, the frame's faces and bodies, W4b's pack objects)."""
+    normal = float(rd.law.tables.structures.bridge.deck_plate_normal_y_min)
+    ring = _ring(d)
+    up = _bw.up_faces(_bf.solid_faces(rd.geometry(d), d.xy, d.heading_deg), normal)
+    placed = {str(q.id): _bf.solid_faces(rd.geometry(q), q.xy, q.heading_deg) for q in frame}
+    x0, y0, x1, y1 = ring.bounds
+    faces = _bf.faces_in_box(placed.values(), (x0 - 2.0, y0 - 2.0, x1 + 2.0, y1 + 2.0))
+    bodies = {k: _bf.body_points(f) for k, f in placed.items() if len(f) and k != str(d.id)}
+    return _bw.axis_witness(ring, up, faces, bodies, rd.law,
+                            under=rd.under.for_unit(str(d.id), frozenset(placed)))
 
 
 #: #2090 B2: a deck read only by its join is a stub along its own axis
@@ -409,19 +470,29 @@ def plated(bridges: _t.Sequence[FreeBridge], basins=(), objects=()
     return tuple(out), notes
 
 
-def planar_stacks(stacks, free: _t.Sequence[FreeBridge]) -> tuple[tuple, list[str]]:
+def planar_stacks(stacks, free: _t.Sequence[FreeBridge], overpasses: _t.Collection[str] = ()
+                  ) -> tuple[tuple, list[str]]:
     """``(the free / kept stacks the planar stage keeps, notes)`` (#2065 A3
     C2 N2, rule 3): a FREE stack only of a bridge in ``free`` (admitted, no
     plated deck); a stack with no graded end is dropped.  A free bridge whose
     stack is dropped here is noted ``free_stack_refused_at_planar``.  A
     graded end's path entering a lot piece is graded like any other (owner
     2026-11-14T18:12Z drops RULINGS 2026-11-14f (4)'s hold: only a standing
-    face read at the pack stage holds an end, ``airport/bridge_end_state``)."""
+    face read at the pack stage holds an end, ``airport/bridge_end_state``).
+    A stack KEPT BY ITS CROSSING (#1718 B3) stands only where the planar
+    overpass read seats its deck (``overpasses``: the road overpasses'
+    placement ids): its zero is that seat."""
     from ..model.deck_stack import FREE, TRENCH
     ok = {str(fb.id) for fb in free}
+    seated = {str(o) for o in overpasses}
     out, notes = [], []
     for st in stacks:
         if st.kind == TRENCH:
+            continue
+        if st.bridge.startswith(OVERPASS_PREFIX) \
+                and st.bridge[len(OVERPASS_PREFIX):] not in seated:
+            notes.append(f"{st.id}: kept by its crossing, but the planar stage reads no road "
+                         "overpass of its deck — no stack (#1718 B3)")
             continue
         if st.kind == FREE and st.bridge not in ok:
             notes.append(f"{st.id}: free_stack_refused_at_planar (its bridge was not admitted "

@@ -39,8 +39,13 @@ every vertex in a GRADED end's corridor (``geom/deck_ground.end_corridor``:
 the path's and the path's from the end line's middle) at path distance
 ``s`` that no road
 ramp owns (no road ribbon, no airside, no structure, no slab) stands in
-``[P(s) - visual_m / 2, P(s)]``, ``P(s) = zero + top - grade (s - step)``,
-dropped where ``P(s) <= DEM + deck_flush_m``.
+``[P(s) - deck_flush_m, P(s)]``, ``P(s) = zero + top - grade (s - step)``,
+dropped where ``P(s) <= DEM + deck_flush_m``: the slab's own R1 band carried
+down the ramp at the design grade (#2065 R6 knee, KBNA XB 2026-11-15: a
+``visual_m / 2`` floor let the solve drop the whole 0.125 m in the first
+metres past the slab -- 7.3-8.5 % over s = 5-10 m against the ruled 5 %,
+RULINGS 2026-10-09c (2b); any floor under ``P`` opening past the slab edge
+steepens the leaving grade by its depth over its distance).
 """
 from __future__ import annotations
 
@@ -209,7 +214,6 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
     from ..geom.deck_ground import end_corridor, path_line
     br = law.tables.structures.bridge
     flush, step = float(br.deck_flush_m), float(br.abutment_sample_step_m)
-    half_vis = 0.5 * float(law.tables.emit.cockpit.visual_m)
     grid = float(law.tables.emit.identity.min_distinct_spacing_m)
     z0 = float(st.zero_z)
     allv = list(planar.vertices)
@@ -304,6 +308,6 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
             if v not in r6 or p > r6[v][0]:
                 r6[v] = (p, f"{e.object_id} end {e.side} profile")
     for v, (p, part) in sorted(r6.items()):
-        rows.append(Band(v, p - half_vis, p, Source(GEN, RIGID, (st.id, part.split(" ")[0],
-                                                                  part))))
+        rows.append(Band(v, p - flush, p, Source(GEN, RIGID, (st.id, part.split(" ")[0],
+                                                              part))))
     return rows

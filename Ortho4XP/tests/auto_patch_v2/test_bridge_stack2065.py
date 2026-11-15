@@ -239,7 +239,7 @@ def test_the_rows_slab_profile_and_ceiling():
                                   for r in slab)
     prof = [r for r in rows if "profile" in r.source.inputs[2]]
     # the vertices at s = 15 / 16: P = 10 - 0.05 (s - 5); the road vertex is the ramp's
-    assert len(prof) == 3 and all(9.4 < r.hi <= 9.5 + 1e-9 and abs(r.hi - r.lo - 0.25) < 1e-9
+    assert len(prof) == 3 and all(9.4 < r.hi <= 9.5 + 1e-9 and abs(r.hi - r.lo - flush) < 1e-9
                                   for r in prof)
     ceil = [r for r in rows if "under the deck" in r.source.inputs[2]]
     assert len(ceil) == 3 and all(r.lo is None and abs(r.hi - (10.0 - flush)) < 1e-9
@@ -253,6 +253,38 @@ def test_the_rows_slab_profile_and_ceiling():
     assert deck_stack_rows(pm, LAW, types.SimpleNamespace(deck_stacks=(st,))) == []
     assert live_stacks((st, kept), types.SimpleNamespace(bridge_stacks=(kept,))) == (kept,)
     assert live_stacks((st, kept), None) == (st, kept)
+
+
+def test_the_profile_leaves_the_slab_at_the_design_grade():
+    """#2065 R6 knee (KBNA XB, 2026-11-15): the R6 band's floor is the slab's
+    R1 floor carried down at the design grade -- no deeper floor opens past
+    the slab edge for the solve to drop into (a ``visual_m / 2`` floor gave
+    7.3-8.5 % over s = 5-10 m against the ruled 5 %)."""
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "graded", "",
+                   ((0.0, 0.0), (60.0, 0.0)), 45.0, 0.05)
+    st = _stack([end])
+    verts, faces = {}, {}
+    ss = (STEP + 0.5, 6.0, 7.5, 10.0, 12.5, 15.0, 30.0)
+    for s_ in ss:
+        for y in (-1.0, 1.0):
+            verts[len(verts)] = types.SimpleNamespace(xy=(s_, y), incident_faces=[0], dem_z=0.0)
+    verts[len(verts)] = types.SimpleNamespace(xy=(STEP, 0.0), incident_faces=[0], dem_z=0.0)
+    faces[0] = types.SimpleNamespace(role="graded_strip", ref="stack_ground:x",
+                                     ring=tuple(verts), holes=())
+    pm = types.SimpleNamespace(faces=faces, vertices=verts, ring_vertices=lambda r: list(r),
+                               bridge_stacks=(st,))
+    rows = deck_stack_rows(pm, LAW, types.SimpleNamespace(deck_stacks=(st,)))
+    flush = float(BR.deck_flush_m)
+    slab_lo = min(r.lo for r in rows if r.source.inputs[2] == "D#0 end b")
+    prof = {pm.vertices[r.v].xy[0]: r for r in rows if "profile" in r.source.inputs[2]}
+    assert sorted(prof) == sorted(ss)
+    for s_, r in prof.items():
+        # one floor line at the design grade from the slab edge's own floor
+        assert abs(r.lo - (slab_lo - 0.05 * (s_ - STEP))) < 1e-9
+        assert abs(r.hi - r.lo - flush) < 1e-9
+        # the steepest leave the rows allow over a 5 m baseline from the slab edge
+        if s_ - STEP >= 5.0:
+            assert (10.0 - r.lo) / (s_ - STEP) <= 0.05 + flush / 5.0 + 1e-9
 
 
 def test_the_way_rewrite_untagged_tagged_and_run_on():

@@ -35,7 +35,7 @@ import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
-__all__ = ["region_texture", "synthesize"]
+__all__ = ["synthesize"]
 
 QUARTER = 4                 # mosaic / mask / search resolution: 1 / QUARTER
 PHOTO_PX = 4096
@@ -150,7 +150,7 @@ def _target(mosaic, foot_mask):
     return lit.mean(0), lab.std(0)
 
 
-def region_texture(mosaic, foot, exemplar, rng=None):
+def _region_texture(mosaic, foot, exemplar, rng=None):
     """The face texture (TILE_PX square, uint8 RGB) of one region: its
     footprint and exemplar candidates are (k, 3, 2) lon/lat triangles."""
     foot_mask = mosaic.raster(foot)
@@ -197,7 +197,7 @@ def synthesize(tile):
     flat = 0
     for region in sorted(plan, key=lambda reg: reg["ortho"]):
         mosaic = _Mosaic(region["photos"], source)
-        rgb = (region_texture(mosaic, region["foot"], region["exemplar"],
+        rgb = (_region_texture(mosaic, region["foot"], region["exemplar"],
                               rng=rng) if mosaic.cells else None)
         if rgb is None:
             flat += 1

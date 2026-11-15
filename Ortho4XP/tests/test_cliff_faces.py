@@ -87,7 +87,7 @@ def test_small_regions_stay_photo():
 def test_lab_round_trip():
     rgb = numpy.random.default_rng(1).integers(0, 256, (50, 3)).astype(
         numpy.uint8)
-    back = TEX.lab_to_srgb(TEX.srgb_to_lab(rgb))
+    back = TEX._lab_to_srgb(TEX.srgb_to_lab(rgb))
     assert numpy.abs(back.astype(int) - rgb).max() <= 1
 
 

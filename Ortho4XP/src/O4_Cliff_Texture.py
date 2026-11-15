@@ -15,14 +15,14 @@ Made only from the tile's own orthophoto, offline, with classical methods
    orthophoto's under and around the region (:func:`match_lab`), so the
    face keeps the colour the photo gives it, without the smear.
 
-``srgb_to_lab`` / ``lab_to_srgb`` are the D65 sRGB <-> CIE L*a*b*
+``srgb_to_lab`` / ``_lab_to_srgb`` are the D65 sRGB <-> CIE L*a*b*
 formulas.
 """
 from __future__ import annotations
 
 import numpy
 
-__all__ = ["lab_to_srgb", "match_lab", "pick_exemplar", "quilt",
+__all__ = ["match_lab", "pick_exemplar", "quilt",
            "srgb_to_lab", "blend_ramp"]
 
 _M = numpy.array([[0.4124564, 0.3575761, 0.1804375],
@@ -42,7 +42,7 @@ def srgb_to_lab(rgb):
                         200 * (f[..., 1] - f[..., 2])), -1)
 
 
-def lab_to_srgb(lab):
+def _lab_to_srgb(lab):
     """float CIE Lab (D65) -> (..., 3) uint8 sRGB."""
     lab = numpy.asarray(lab, dtype=float)
     fy = (lab[..., 0] + 16) / 116
@@ -62,7 +62,7 @@ def match_lab(rgb, mean, std):
     flat = lab.reshape(-1, 3)
     src_mean, src_std = flat.mean(0), flat.std(0) + 1e-6
     out = (lab - src_mean) * (numpy.asarray(std) / src_std) + mean
-    return lab_to_srgb(out)
+    return _lab_to_srgb(out)
 
 
 def _box_means(values, k):

@@ -32,7 +32,7 @@ import O4_Geo_Utils as GEO
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 
-__all__ = ["BLEND_TEXTURE", "UV_RANGE", "CliffPlan", "add_cliff_band",
+__all__ = ["BLEND_TEXTURE", "UV_RANGE", "add_cliff_band",
            "emit_cliff_overlays"]
 
 #: Face coordinates are stored in 0 .. UV_RANGE repeats (65,535 steps: a
@@ -45,14 +45,6 @@ BLEND_TEXTURE = "cliff_blend.png"
 EXEMPLAR_SLOPES = (15.0, 42.0)
 #: ... and within this distance (m) of the region's bounding box.
 EXEMPLAR_REACH_M = 1500.0
-
-
-class CliffPlan(list):
-    """One dict per region: ``texture`` (file name), ``ortho`` (the texture
-    attributes of the photo most of it lies on), ``photos`` (every photo
-    under it and its exemplar candidates, ``ortho`` first), ``foot``
-    ((k, 3, 2) lon, lat of its triangles) and ``exemplar`` (the same for
-    the exemplar candidates)."""
 
 
 def add_cliff_band(planes, pool_nbr):
@@ -118,20 +110,26 @@ def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
                         idx_node_to_idx_pool, pool_param, point_pools,
                         band_base, pool_nbr, dico_customzl, textured_tris,
                         dico_terrains, overlay_terrains):
-    """Add the cliff overlay patches; return ``(bTERT bytes, CliffPlan)``.
+    """Add the cliff overlay patches; return ``(bTERT bytes, plan)``.
 
     ``nodes`` is the (n, 5) node array (lon, lat, elev, nx, ny) the DSF is
-    built from, ``tri_idx`` (m, 3), ``tri_types`` (m,) with 0 = land."""
+    built from, ``tri_idx`` (m, 3), ``tri_types`` (m,) with 0 = land.  The
+    plan has one dict per region: ``texture`` (file name), ``ortho`` (the
+    photo most of it lies on), ``photos`` (every photo under it and its
+    exemplar candidates, ``ortho`` first), ``foot`` ((k, 3, 2) lon, lat of
+    its triangles) and ``exemplar`` (the same for the candidates), which
+    ``O4_Cliff_Synth`` reads once the photos are on disk."""
     params = FACES.CliffParams()
     xyz = FACES.local_metres(nodes[:, 0], nodes[:, 1], nodes[:, 2],
                              tile.lat, tile.lon)
     land = numpy.asarray(tri_types) == 0
-    layout = FACES.find_cliff_layout(xyz, tri_idx, land, params)
+    layout: FACES.CliffLayout = FACES.find_cliff_layout(xyz, tri_idx, land,
+                                                        params)
     UI.vprint(1, "-> Cliff faces: %d region(s), %d overlay triangle(s), "
                  "%d chart(s); %d small region(s) left to the photo."
               % (len(layout.region_area), len(layout.tris),
                  len(layout.chart_axes), layout.dropped_regions))
-    plan = CliffPlan()
+    plan = []
     if not len(layout.tris):
         return b"", plan
     _cliff_pool_params(point_pools, pool_param, band_base, pool_nbr)

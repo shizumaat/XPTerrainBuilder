@@ -20,8 +20,8 @@ from shapely.ops import unary_union
 
 from .rotated_rect import rotated_rectangle
 
-__all__ = ["end_aprons", "end_corridor", "end_slab", "ground_footprint", "ring_polygon",
-           "path_line", "GROUND_TO_WALL_TOP"]
+__all__ = ["end_aprons", "end_corridor", "end_slab", "end_inner_strip", "ground_footprint",
+           "ring_polygon", "path_line", "GROUND_TO_WALL_TOP"]
 
 #: OWNER QUESTION Q2 (spec ``interchange-levels-v2-20261113.md`` §10),
 #: the spec's DEFAULT (yes): the ground is graded to the walls' top along the trench (the caps) with a bank to the
@@ -140,6 +140,23 @@ def end_slab(e, depth: float) -> Polygon:
     return p if p.is_valid else p.buffer(0.0)
 
 
+def end_inner_strip(e, depth: float, ring) -> Polygon:
+    """#2062 R5: the strip ``depth`` metres INSIDE an end line and as far
+    past its two ends, within the deck's ``ring`` grown by ``depth`` -- an
+    airside run-out's: the end line is the stack's ground on every side,
+    never an airside face's edge (R1 holds it)."""
+    mx = sum(p[0] for p in e.stations) / len(e.stations)
+    my = sum(p[1] for p in e.stations) / len(e.stations)
+    ox, oy = -float(e.out[0]), -float(e.out[1])
+    nx, ny = -oy, ox
+    half = e.half_width + depth
+    band = Polygon([(mx + nx * half, my + ny * half), (mx + ox * depth + nx * half,
+                                                       my + oy * depth + ny * half),
+                    (mx + ox * depth - nx * half, my + oy * depth - ny * half),
+                    (mx - nx * half, my - ny * half)])
+    return band if ring is None else band.intersection(ring.buffer(depth, join_style="mitre"))
+
+
 def _end_band(e, depth: float, half: float) -> Polygon:
     """The band ``-0.5 .. depth + 0.5`` m along an end's outward tangent,
     ``half`` metres each side of its end line's middle (rule 4: no toe
@@ -178,12 +195,20 @@ def _free_footprint(st, law) -> dict:
             continue
         slab = end_slab(e, H).difference(rings)
         apron = slab
-        line = path_line(e, e.run) if e.state == "graded" else None
+        run_out = float(getattr(e, "airside_run", 0.0) or 0.0)
+        line = path_line(e, e.run) if e.state == "graded" or run_out > 0.0 else None
         w = 0.0
         if line is not None:
             hw = e.half_width
             apron = unary_union([slab, end_corridor(e, line, hw)]).difference(rings)
-            w = max(float(de.bank_min_width_m), float(e.gap) / float(de.bank_slope))
+            # #2062 R5: an airside run-out's bank is the law's own width (the
+            # airside toe it meets is solved later, never the DEM); its end
+            # line stands on the stack's ground both sides
+            w = float(law.tables.structures.bridge.airside_run_bank_m) if run_out > 0.0 \
+                else max(float(de.bank_min_width_m), float(e.gap) / float(de.bank_slope))
+            if run_out > 0.0:
+                ring = ring_polygon(d.ring)
+                apron = unary_union([apron, end_inner_strip(e, w, ring)])
             banks.append(end_corridor(e, line, hw + w))
         apron = apron.difference(taken)
         # the ground off the end line's own ends (the bank's edge along the

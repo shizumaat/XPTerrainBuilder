@@ -1568,6 +1568,10 @@ def bridge_rows(planar: PlanarMap, airport: Airport, law: Law | None = None,
                          "apron": ring})
         rec = {"id": st.id, "mode": st.kind, "zero_m": round(st.zero_z, 3),
                "decks": [d.object_id for d in st.decks], "ends": ends}
+        if getattr(st, "over_floor", ()):
+            # #2062 R5 E′2: kept over a ramp floor; its rowed ends
+            rec["over_floor"] = list(st.over_floor)
+            rec["rowed"] = [f"{e.object_id} {e.side}" for e in st.rowed_ends()]
         g = next((g for g in getattr(planar, "agp_groups", ()) or ()
                   if g.id == getattr(st, "datum_group", "")), None)
         if g is not None:

@@ -398,6 +398,10 @@ class Tunnel:
     #: that deck's frame models WALLS under it (``DeckBridge.walls``): the
     #: cut is vertical at them; with none it banks (owner 2026-11-03T16:56Z)
     deck_walled: bool = False
+    #: #2062 R5 E′1: ``(stop ref, deck object id)`` per stop an object deck
+    #: with a bridge read carries over this ramp (``planar/ramp_carry``); the
+    #: deck's stack is then kept over the floor (``DeckStack.over_floor``)
+    carried: tuple[tuple[str, str], ...] = ()
     #: that deck's floor is the lower level's LADDER, not its frame's bottom
     #: (``DeckBridge.floor_min_m``): the least depth the floor should keep
     #: under the deck.  Such a floor is PINNED before the solve at

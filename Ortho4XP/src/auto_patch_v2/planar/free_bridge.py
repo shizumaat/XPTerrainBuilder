@@ -393,6 +393,13 @@ def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]
         airport = _dc.replace(airport, free_bridges=tuple(
             fb for fb in got if fb.id not in refused))
     airport = _with_deck_joins(airport, stacks)
+    # #2062 R5 E′2: the kept reads not minted stay candidates -- a ramp the
+    # deck carries a stop over keeps one at the planar stage
+    from ..model.deck_stack import KEPT
+    minted = {s.id for s in stacks}
+    airport = _dc.replace(airport, kept_candidates=tuple(
+        s for s in every if s.kind == KEPT and s.id not in minted
+        and not str(s.bridge).startswith(OVERPASS_PREFIX)))
     return with_bridge_stacks(airport, stacks, law), every, notes
 
 
@@ -480,7 +487,8 @@ def plated(bridges: _t.Sequence[FreeBridge], basins=(), objects=()
     return tuple(out), notes
 
 
-def planar_stacks(stacks, free: _t.Sequence[FreeBridge], overpasses: _t.Collection[str] = ()
+def planar_stacks(stacks, free: _t.Sequence[FreeBridge], overpasses: _t.Collection[str] = (),
+                  candidates=(), carried: "_t.Mapping[str, tuple[str, ...]] | None" = None
                   ) -> tuple[tuple, list[str]]:
     """``(the free / kept stacks the planar stage keeps, notes)`` (#2065 A3
     C2 N2, rule 3): a FREE stack only of a bridge in ``free`` (admitted, no
@@ -491,13 +499,29 @@ def planar_stacks(stacks, free: _t.Sequence[FreeBridge], overpasses: _t.Collecti
     face read at the pack stage holds an end, ``airport/bridge_end_state``).
     A stack KEPT BY ITS CROSSING (#1718 B3) stands only where the planar
     overpass read seats its deck (``overpasses``: the road overpasses'
-    placement ids): its zero is that seat."""
-    from ..model.deck_stack import FREE, TRENCH
+    placement ids): its zero is that seat.
+
+    #2062 R5 E′2: a KEPT stack -- minted, or one of the pack stage's
+    ``candidates`` (``Airport.kept_candidates``) -- whose deck a ramp
+    carries a stop under (``carried``: deck object id -> the tunnel ids,
+    ``Tunnel.carried``) is kept OVER THE FLOOR (``DeckStack.over_floor``),
+    graded end or not."""
+    from ..model.deck_stack import FREE, KEPT, TRENCH
     ok = {str(fb.id) for fb in free}
     seated = {str(o) for o in overpasses}
+    carried = dict(carried or {})
     out, notes = [], []
-    for st in stacks:
+    minted = {st.id for st in stacks}
+    for st in (*stacks, *(c for c in candidates or () if c.id not in minted)):
         if st.kind == TRENCH:
+            continue
+        over = tuple(sorted({t for d in st.decks for t in carried.get(str(d.object_id), ())}))
+        if st.kind == KEPT and over:
+            out.append(_dc.replace(st, over_floor=over))
+            notes.append(f"{st.id}: kept over the floor of {list(over)} (#2062 R5 E′2): "
+                         f"rows its {[e.side + ' ' + e.state for e in st.ends]} ends")
+            continue
+        if st.id not in minted:
             continue
         if st.bridge.startswith(OVERPASS_PREFIX) \
                 and st.bridge[len(OVERPASS_PREFIX):] not in seated:

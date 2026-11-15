@@ -106,3 +106,6 @@ class TunnelObject:
     # #1737: an entrance face's top meets the AIRSIDE (``constraints/airside_top``);
     # airside this near the face's top is the grade it is flush with
     entrance_airside_reach_m: float
+    # #2062 R3b C: the FRONT FLOOR -- the stations this near the mouth stand
+    # as wide as the face's front wall (``planar/front_band``)
+    face_front_m: float

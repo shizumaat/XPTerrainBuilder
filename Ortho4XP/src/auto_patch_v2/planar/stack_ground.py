@@ -66,6 +66,12 @@ def stack_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: 
         return [g for g in gs if g is not None and not g.is_empty and near.intersects(g)]
     knife = canonical_union(_near(taken) + [
         g.buffer(cut_m, join_style="mitre", mitre_limit=2.0) for g in _near(apart)])
+    # #2062 R5: an airside run-out is the stack's own (its keep-out keeps
+    # the zones off it, ``planar/deck_runout``): the knife leaves it whole
+    from .deck_runout import run_knife
+    runs = run_knife(stacks, law)
+    if runs is not None and not runs.is_empty:
+        knife = fixed_difference(knife, runs)
     air = canonical_union(_near(airside))
     out: list[tuple[str, _t.Any]] = []
     for st, fp in fps:
@@ -133,10 +139,21 @@ def bridge_corridor_lines(airport, law, keep_out: _t.Sequence = ()) -> list:
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     out = []
     for st in stacks:
-        for e in st.graded_ends():
+        # #2062 R5: an airside run-out's corridor carries the same lines
+        for e in (*st.graded_ends(), *(q for q in st.ends if getattr(q, "airside_run", 0.0))):
             line = path_line(e, e.run)
             if line is None:
                 continue
+            if getattr(e, "airside_run", 0.0) and len(e.stations) >= 2:
+                # the run-out's end line stands inside its ground (R1's
+                # stations), carried to the ground's edge either side (the
+                # bank's): a line ending inside a face cuts nothing
+                (ax, ay), (bx, by) = e.stations[0], e.stations[-1]
+                n = ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5 or 1.0
+                ux, uy = (bx - ax) / n, (by - ay) / n
+                ext = float(law.tables.structures.bridge.airside_run_bank_m) + 0.5
+                out.append(LineString([(ax - ux * ext, ay - uy * ext), *e.stations,
+                                       (bx + ux * ext, by + uy * ext)]))
             hw = e.half_width
             for side in (hw, -hw):
                 off = line.offset_curve(side)

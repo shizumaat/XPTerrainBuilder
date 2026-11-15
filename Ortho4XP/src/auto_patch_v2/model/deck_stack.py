@@ -108,6 +108,11 @@ class StackEnd:
     #: #2090 B4: the at-grade roads passing this end's line within the slab
     #: (its corridor is then the slab alone: no run-on, no R6)
     access: tuple[int, ...] = ()
+    #: #2062 R5 (master ruling 2026-11-15) THE AIRSIDE RUN-OUT: the length
+    #: of the carried ground route's road minted past this end line over
+    #: airside pavement (``planar/deck_runout``; :attr:`path` is then that
+    #: route, :attr:`grade` the road ramp grade); ``0.0`` = none
+    airside_run: float = 0.0
 
     @property
     def half_width(self) -> float:
@@ -174,6 +179,10 @@ class DeckStack:
     #: #2090 B4b: ``(member, y_floor)`` of the sibling ends whose held access
     #: road this deck RIDES (``airport/access_road``); ``()`` = none
     rides: tuple = ()
+    #: #2062 R5 E′2: the tunnels whose ramp floor this KEPT stack's deck
+    #: stands over, carrying a stop (``Tunnel.carried``): kept graded end or
+    #: not; its flush, graded and unread ends are rowed as a free stack's
+    over_floor: tuple[str, ...] = ()
 
     @property
     def access_key(self) -> "tuple[str, float] | None":
@@ -189,8 +198,11 @@ class DeckStack:
 
     def rowed_ends(self) -> tuple[StackEnd, ...]:
         """The ends R1 holds (rule 5): a FREE stack's every land end not
-        held or listed, a KEPT stack's GRADED ends."""
-        want = ("graded",) if self.kind == KEPT else ("flush", "graded", "unread")
+        held or listed, a KEPT stack's GRADED ends -- a kept stack OVER A
+        FLOOR (#2062 R5 E′2) rows its flush, graded and unread ends as a
+        free stack does."""
+        want = ("graded",) if self.kind == KEPT and not self.over_floor \
+            else ("flush", "graded", "unread")
         return tuple(e for e in self.ends if e.state in want)
 
     def joined_ends(self) -> tuple[StackEnd, ...]:

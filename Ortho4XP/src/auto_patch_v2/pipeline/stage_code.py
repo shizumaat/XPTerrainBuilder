@@ -419,6 +419,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.drawn_anchor",
         "auto_patch_v2.airport.dsf",
         "auto_patch_v2.airport.dsf_heights",
+        "auto_patch_v2.airport.entrance_front",
         "auto_patch_v2.airport.entrance_seat",
         "auto_patch_v2.airport.exclusion",
         "auto_patch_v2.airport.extension_cache",
@@ -692,6 +693,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.deck_bores",
         "auto_patch_v2.planar.deck_bridge",
         "auto_patch_v2.planar.deck_route",
+        "auto_patch_v2.planar.deck_runout",
         "auto_patch_v2.planar.deck_walls",
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.dual_width",
@@ -704,6 +706,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.floor_decks",
         "auto_patch_v2.planar.foot_kerb",
         "auto_patch_v2.planar.free_bridge",
+        "auto_patch_v2.planar.front_band",
         "auto_patch_v2.planar.ground_chords",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.group_up",
@@ -730,6 +733,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.passage_court",
         "auto_patch_v2.planar.plate_bays",
         "auto_patch_v2.planar.platform",
+        "auto_patch_v2.planar.ramp_carry",
         "auto_patch_v2.planar.reach_after_pads",
         "auto_patch_v2.planar.reach_under_covers",
         "auto_patch_v2.planar.ribbon_weld",
@@ -1394,6 +1398,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.contiguity",
         "auto_patch_v2.constraints.deck_anchor",
         "auto_patch_v2.constraints.deck_lines",
+        "auto_patch_v2.constraints.deck_runout",
         "auto_patch_v2.constraints.deck_stack",
         "auto_patch_v2.constraints.door_pad",
         "auto_patch_v2.constraints.eat",
@@ -1668,7 +1673,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.object_floor geom.lowest_face model.airport
     """),
     "deck_stack": _mods(_GENERATOR_CORE + """
-    model.deck_stack
+    model.deck_stack constraints.deck_runout
         geom.deck_ground geom.end_line model.deck_ends
         geom.lowest_face geom.plate_heights
         geom.exact geom.lowest_face
@@ -1852,7 +1857,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.map_memo model.platform model.threshold_datum
     """),
     "ramp_runout": _mods(_GENERATOR_CORE + """
-    constraints.agp_level model.agp_group
+        geom.deck_ground constraints.deck_runout
+    constraints.deck_runout constraints.agp_level model.agp_group
         geom.exact
         constraints.wall_zone model.wall_reach
         constraints.apron constraints.apron_shelf constraints.cluster_pad
@@ -1867,7 +1873,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
-    constraints.agp_level model.agp_group
+    constraints.deck_runout geom.deck_ground constraints.agp_level model.agp_group
         geom.exact
         constraints.wall_zone model.wall_reach
         constraints.apron constraints.apron_shelf constraints.cluster_pad
@@ -2061,7 +2067,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.agp_plate geom.agp_plate model.agp_plate
-    constraints.agp_level law.agp_schema model.agp_group
+    constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     model.deck_stack
     airport.hanging_objects airport.object_cut airport.split_level airport.wall_geometry
     geom.vector
@@ -2266,7 +2272,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.access_road airport.agp_plates geom.agp_plate model.agp_plate planar.agp_ground
     airport.agp_deck_join
     airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
-    constraints.agp_level law.agp_schema model.agp_group
+    constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     airport.bridge_end_state airport.bridge_stack
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
     model.yard_run geom.slope_bound
@@ -2432,13 +2438,14 @@ CODE_MODULES["solve"] = _mods("""
     airport.bridge_axis airport.bridge_class airport.bridge_frame
     airport.bridge_witness geom.centreline
     model.free_bridge planar.free_bridge airport.ground_route_ways
+    planar.front_band airport.entrance_front planar.ramp_carry planar.deck_runout
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.facade_seat
     airport.access_road airport.agp_plates constraints.agp_plate geom.agp_plate model.agp_plate planar.agp_ground
     airport.agp_deck_join
     airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
-    constraints.agp_level law.agp_schema model.agp_group
+    constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     airport.bridge_end_state airport.bridge_stack
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
     constraints.yard_edge model.yard_run geom.slope_bound
@@ -2623,10 +2630,11 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.bridge_axis airport.bridge_class airport.bridge_frame
     airport.bridge_witness geom.centreline
     model.free_bridge planar.free_bridge airport.ground_route_ways
+    planar.front_band airport.entrance_front planar.ramp_carry planar.deck_runout
 """)
 CODE_MODULES["emit"] = _mods("""
     geom.agp_plate model.agp_plate
-    constraints.agp_level law.agp_schema model.agp_group
+    constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     model.deck_stack
     airport.facade airport.line_solidity classify.edge_line_mint
     model.yard_run geom.slope_bound
@@ -2755,7 +2763,8 @@ CODE_MODULES["emit"] = _mods("""
 """)
 CODE_MODULES["verify"] = _mods("""
     geom.agp_plate
-    constraints.agp_level law.agp_schema model.agp_group
+    constraints.apron_shelf constraints.road_ramp constraints.wall_zone geom.ramp_grade
+    constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     geom.deck_ground model.deck_stack
     airport.split_level
     airport.facade airport.line_solidity classify.edge_line_mint

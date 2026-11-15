@@ -256,10 +256,20 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
         if not ks:
             continue
         plate = np.asarray(d.plate, float).reshape(-1, 3, 3) if d is not None else ()
-        ys = (floor_z_at(plate, axy[ks, 0], axy[ks, 1], edge_m=step) if len(plate)
-              else np.full(len(ks), np.nan))
-        under = (shapely.contains_xy(ring, axy[ks, 0], axy[ks, 1]) if ring is not None
-                 else np.zeros(len(ks), bool))
+        if not len(plate):
+            ys = np.full(len(ks), np.nan)
+        elif getattr(st, "over_floor", ()):
+            # #2062 R5: the driven layer, never the plate's underside or piers
+            from ..geom.plate_heights import driven_y_at
+            ys = driven_y_at(plate, axy[ks, 0], axy[ks, 1], float(e.top), step)
+        else:
+            ys = floor_z_at(plate, axy[ks, 0], axy[ks, 1], edge_m=step)
+        inner = ring
+        if ring is not None and getattr(st, "over_floor", ()):
+            # #2062 R5: an end-line vertex is the deck's end, flush with it
+            inner = ring.buffer(-grid, join_style="mitre")
+        under = (shapely.contains_xy(inner, axy[ks, 0], axy[ks, 1])
+                 if inner is not None and not inner.is_empty else np.zeros(len(ks), bool))
         for k, y, inside in zip(ks, ys.tolist(), under.tolist(), strict=True):
             hi = z0 + (y if y == y else float(e.top)) - (flush if inside else 0.0)
             slab_bands.setdefault(allv[k], []).append(
@@ -274,11 +284,18 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
         oid = bands[0][2]
         r1[v] = (lo, hi, oid, " + ".join(b[3] for b in bands))
     r3: dict[int, tuple[float, str]] = {}
-    if st.kind == FREE:
+    over = bool(getattr(st, "over_floor", ()))
+    if st.kind == FREE or over:
         for d in st.decks:
             ring = Polygon(d.ring)
             inside = shapely.contains_xy(ring, axy[:, 0], axy[:, 1])
             ks = [allv[k] for k in np.flatnonzero(inside).tolist()]
+            if over:
+                # #2062 R5 E′4: a kept deck over a ramp floor ceils the ground
+                # under its plate, never a hard vertex (the floor, its walls)
+                # nor a vertex its end line holds (R1: the road meets the
+                # deck's top there, the plate's underside is no ceiling)
+                ks = [v for v in ks if v not in hard and v not in r1]
             for v, c in _ceilings(planar, st, d, ks, flush).items():
                 if v not in r3 or c < r3[v][0]:
                     r3[v] = (c, f"{d.object_id}#{d.piece} under the deck")
@@ -310,4 +327,7 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
     for v, (p, part) in sorted(r6.items()):
         rows.append(Band(v, p - flush, p, Source(GEN, RIGID, (st.id, part.split(" ")[0],
                                                               part))))
+    # #2062 R5: a road run out past an end line over the airside
+    from .deck_runout import runout_rows
+    rows += runout_rows(planar, law, st, GEN, RIGID, skip | set(r6))
     return rows

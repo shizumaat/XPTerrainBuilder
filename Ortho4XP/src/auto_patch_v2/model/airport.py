@@ -528,6 +528,11 @@ class Airport:
     #: same witness holds (``model/free_bridge.FreeBridge``): their seat stays
     #: 22d / 22p's, never ``plate_kind "free"``; R3 grades their ends.
     kept_bridges: tuple = ()
+    #: #2062 R5 E′2: the KEPT reads the pack stage did not mint a stack for
+    #: (``model/deck_stack.DeckStack``, kind kept, no graded end; not kept
+    #: by its crossing): a ramp the deck carries a stop over keeps one at the
+    #: planar stage (``planar/free_bridge.planar_stacks``).  Empty = none.
+    kept_candidates: tuple = ()
     #: #2090 THE AGP GROUPS (``model/agp_group.AgpGroup``, read at the pack
     #: stage by ``airport/agp_group`` before the bridge stacks): the pack's
     #: on-ground ``.agp`` rows an authored connector floor joins, their

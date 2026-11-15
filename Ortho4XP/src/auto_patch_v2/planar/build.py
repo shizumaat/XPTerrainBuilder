@@ -429,9 +429,39 @@ def build(airport: Airport, classification: Classification, law: Law,
     # ``PlanarMap.bridge_stacks``)
     free, plated_notes = free_plated(free, basins, objects)
     sstats.hard_decks.extend(plated_notes)
-    bridge_stacks, bs_notes = free_planar_stacks(getattr(airport, "deck_stacks", ()) or (),
-                                                 free, [ov.object_id for ov in overpasses])
+    # #2062 R5 E′2: a kept deck a ramp carries a stop under stands over its floor
+    carried_decks: dict[str, tuple[str, ...]] = {}
+    for t in tunnels:
+        for _ref, oid in getattr(t, "carried", ()) or ():
+            carried_decks[str(oid)] = (*carried_decks.get(str(oid), ()), t.id)
+    bridge_stacks, bs_notes = free_planar_stacks(
+        getattr(airport, "deck_stacks", ()) or (), free, [ov.object_id for ov in overpasses],
+        getattr(airport, "kept_candidates", ()) or (), carried_decks)
     sstats.hard_decks.extend(bs_notes)
+    # #2062 R5 (master ruling 2026-11-15): a kept deck's road runs on over
+    # the airside past an end line; the airside under it is cut there -- on
+    # the FULL map only: stage 1's map (``model/stage_one.deriving``) keeps
+    # the airside whole, so the run-out moves no airside level
+    from ..model.stage_one import deriving as _stage_one
+    from .deck_runout import run_knife, with_airside_runs
+    if not _stage_one():
+        bridge_stacks = with_airside_runs(bridge_stacks, classification, airport, law,
+                                          sstats.hard_decks)
+    _rk = run_knife(bridge_stacks, law)
+    if _rk is not None and not _rk.is_empty:
+        from shapely.geometry import Polygon as _Poly
+        from .basins import RUNWAY_FAMILY as _RWF
+        from .cell_knife import knife_cells
+        _rc, _n = knife_cells(classification.cells,
+                              [_Poly(c.ring, c.holes) for c in classification.cells], _rk, law,
+                              _RWF, cut_pads=False, mark="deck_runout")
+        # ... and the zones keep off it: the stack's ground fills it
+        # (``planar/stack_ground``)
+        classification = _dc.replace(classification, cells=tuple(_rc), keepouts=(
+            *classification.keepouts, *(tuple(q.exterior.coords)[:-1]
+                                        for q in getattr(_rk, "geoms", (_rk,))
+                                        if q.geom_type == "Polygon")))
+        sstats.hard_decks.append(f"airside run-out: {_n} cell(s) cut ({_rk.area:.0f} m2)")
     airport = _dc.replace(airport, deck_stacks=live_stacks(
         getattr(airport, "deck_stacks", ()) or (),
         types.SimpleNamespace(bridge_stacks=bridge_stacks)))

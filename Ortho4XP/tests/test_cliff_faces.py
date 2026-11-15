@@ -101,18 +101,26 @@ def test_match_lab_moves_the_statistics():
 
 
 def test_quilt_wraps_without_a_seam():
+    """A smooth exemplar: every step between neighbouring pixels is small,
+    so a seam is a step far above the rest.  The wrap edge of the quilt is
+    not one; the wrap edge of the exemplar itself (naive tiling) is."""
     rng = numpy.random.default_rng(3)
-    base = rng.integers(0, 256, (24, 24, 3)).astype(numpy.uint8)
-    ex = numpy.kron(base, numpy.ones((8, 8, 1), numpy.uint8))  # 192 px
+    y, x = numpy.mgrid[0:192, 0:192] / 192.0
+    ex = numpy.stack([127 + 100 * numpy.sin(2 * numpy.pi * (f * x + g * y)
+                                             + rng.uniform(0, 6))
+                      for f, g in ((1.3, 0.4), (0.5, 1.7), (2.1, 1.1))], -1)
+    ex = ex.astype(numpy.uint8)
     tile = TEX.quilt(ex, size=256, rng=rng).astype(int)
     assert tile.shape == (256, 256, 3)
 
     def jump(a, b):
         return numpy.abs(a - b).sum(-1).mean()
-    inner = numpy.mean([jump(tile[:, i], tile[:, i + 1])
-                        for i in range(0, 255, 7)])
-    assert jump(tile[:, -1], tile[:, 0]) < 2.0 * inner
-    assert jump(tile[-1], tile[0]) < 2.0 * inner
+    inner = numpy.percentile([jump(tile[:, i], tile[:, i + 1])
+                              for i in range(255)], 90)
+    naive = jump(ex[:, -1].astype(int), ex[:, 0].astype(int))
+    assert naive > 4 * inner
+    assert jump(tile[:, -1], tile[:, 0]) < 2 * inner
+    assert jump(tile[-1], tile[0]) < 2 * inner
 
 
 def test_pick_exemplar_prefers_the_target_colour():

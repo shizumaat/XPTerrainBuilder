@@ -140,7 +140,7 @@ def _new_mask(patch, old, filled, overlap):
     return keep | ~filled
 
 
-def quilt(exemplar, size=512, patch=80, overlap=16, candidates=200,
+def quilt(exemplar, size=512, patch=80, overlap=16, candidates=80,
           tolerance=0.1, rng=None):
     """A ``size`` x ``size`` texture that tiles without a seam, quilted
     from ``exemplar`` (h, w, 3 uint8, each side at least ``patch``):
@@ -148,7 +148,7 @@ def quilt(exemplar, size=512, patch=80, overlap=16, candidates=200,
     ``candidates`` random exemplar windows within ``tolerance`` of the best
     overlap error, wrapped around the torus."""
     rng = rng or numpy.random.default_rng(0)
-    ex = numpy.asarray(exemplar, dtype=float)
+    ex = numpy.asarray(exemplar, dtype=numpy.float32)
     step = patch - overlap
     n = size // step
     size = n * step
@@ -164,9 +164,11 @@ def quilt(exemplar, size=512, patch=80, overlap=16, candidates=200,
             pr = rng.integers(0, h - patch + 1, candidates)
             pc = rng.integers(0, w - patch + 1, candidates)
             if have.any():
-                errs = numpy.array([
-                    (((ex[r:r + patch, c:c + patch] - old) ** 2).sum(-1)
-                     * have).sum() for r, c in zip(pr, pc, strict=True)])
+                hy, hx = numpy.nonzero(have)
+                hy, hx = hy[::3], hx[::3]   # a third of the overlap scores it
+                # (candidates, overlap pixels, 3): every candidate at once
+                errs = ((ex[pr[:, None] + hy, pc[:, None] + hx]
+                         - old[hy, hx]) ** 2).sum((1, 2))
                 ok = numpy.nonzero(errs <= errs.min() * (1 + tolerance))[0]
                 k = int(rng.choice(ok))
             else:

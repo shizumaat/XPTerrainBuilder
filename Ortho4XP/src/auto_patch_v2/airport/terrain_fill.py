@@ -52,7 +52,11 @@ sea vertices are levelled from the raster as it stood before the planes
 and fills (the raster over the water is still conformed: land, rings and
 roads read it); the footprint's ring keeps :data:`QUAY_M` off mapped water
 (:func:`quay_rings`); another composite's cut bound yields within ``W`` of
-a zero footprint (:func:`conform_plane`).
+a zero footprint (:func:`conform_plane`).  ROUND 3 (master rulings
+R2'/R3', 2026-11-15): the raster Triangle4XP reads keeps the planes and
+fills :data:`DRY_M` off mapped water (the conformed raster stays in memory
+for the roads and comes back to every land vertex through the ``.alt``'s
+sidecar); every quay piece is drawn whatever its area (:func:`quay_rings`).
 """
 from __future__ import annotations
 
@@ -64,7 +68,7 @@ import numpy as np
 
 from ..geom.terrain_deck import UNDER_M
 
-__all__ = ["REACH_M", "SHOULDER_POSTS", "SERVED_M", "QUAY_M", "Raster",
+__all__ = ["REACH_M", "SHOULDER_POSTS", "SERVED_M", "QUAY_M", "DRY_M", "Raster",
            "posting_shoulder_m", "rim_fill", "conform_plane", "quay_rings", "Owned"]
 
 #: the reach of a fill or a plane from its supports (m)
@@ -77,6 +81,11 @@ SERVED_M = 0.5
 #: far off mapped water (twice ``SEAWALL_OFFSET_M``, clear of the 0.5 m
 #: hairline pre-flight)
 QUAY_M = 1.0
+#: THE DRY RASTER (#2077 round 3 R2'): the raster the mesher READS keeps
+#: the planes and fills this far off mapped water (their own reach), so
+#: the water's triangles see the ground the control saw; the vertices
+#: then take the conformed ground back (``terrain_cut_stage.refill_land``)
+DRY_M = REACH_M
 _M_PER_DEG = 111_320.0
 
 
@@ -282,26 +291,73 @@ def rim_fill(raster: Raster, to_xy: _t.Callable, to_ll: _t.Callable,
 
 
 def quay_rings(rings_ll: _t.Sequence, to_xy: _t.Callable, to_ll: _t.Callable,
-               water_xy: _t.Any, min_area_m2: float) -> list[np.ndarray]:
-    """THE QUAY (#2077 round 2 R3): the ``(lon, lat)`` rings of a zero
-    footprint (``rings_ll``, even-odd) less mapped water grown by
+               water_xy: _t.Any, *, degenerate_m: float, spacing_m: float,
+               report: "dict | None" = None) -> list[np.ndarray]:
+    """THE QUAY (#2077 round 2 R3, round 3 R3'): the ``(lon, lat)`` rings of
+    a zero footprint (``rings_ll``, even-odd) less mapped water grown by
     :data:`QUAY_M` -- ``water_xy`` a shapely geometry in the composite's
     frame metres (``to_xy`` / ``to_ll``), ``None`` for none: the rings as
-    given.  Pieces under ``min_area_m2`` are not drawn.  Land then stands
-    at the plane to ``QUAY_M`` from the water, the drop lies in that
-    metre, and no constrained line is drawn in the water."""
+    given.  Land then stands at the plane to ``QUAY_M`` from the water, the
+    drop lies in that metre, and no constrained line is drawn in the water.
+
+    EVERY PIECE IS DRAWN, whatever its area (R3').  A piece whose rings
+    would carry an unmeshable hairline (``shapely.minimum_clearance`` under
+    ``degenerate_m``, the pre-flight's degenerate gap) is MERGED into the
+    pieces within ``spacing_m`` of it (the pre-flight's spacing); with none
+    that near, its rings are cleaned of the degenerate vertices (a
+    ``degenerate_m`` simplification); one still unmeshable is left out.
+    ``report`` (when given) counts ``pieces`` / ``merged`` / ``cleaned`` /
+    ``dropped``."""
+    rep = {"pieces": 0, "merged": 0, "cleaned": 0, "dropped": 0}
     rings = [np.asarray(r, float) for r in rings_ll if len(r) >= 4]
-    if water_xy is None or water_xy.is_empty:
-        return rings
-    region = _polygon([np.c_[to_xy(r[:, 0], r[:, 1])] for r in rings])
+    region = None
+    if water_xy is not None and not water_xy.is_empty:
+        region = _polygon([np.c_[to_xy(r[:, 0], r[:, 1])] for r in rings])
     if region is None or region.is_empty:
+        if report is not None:
+            report.update(rep, pieces=len(rings))
         return rings
     land = region.difference(water_xy.buffer(QUAY_M))
+    pieces = [p for p in getattr(land, "geoms", [land])
+              if p.geom_type == "Polygon" and not p.is_empty]
     out = []
-    for poly in getattr(land, "geoms", [land]):
-        if poly.geom_type != "Polygon" or poly.is_empty or poly.area < min_area_m2:
-            continue
+    for poly in _meshable(pieces, degenerate_m, spacing_m, rep):
         for ring in (poly.exterior, *poly.interiors):
             xy = np.asarray(ring.coords, float)
             out.append(np.c_[to_ll(xy[:, 0], xy[:, 1])])
+    if report is not None:
+        report.update(rep)
     return out
+
+
+def _meshable(pieces: list, degenerate_m: float, spacing_m: float, rep: dict) -> list:
+    """:func:`quay_rings`' pieces with no unmeshable hairline: a degenerate
+    piece merged into its neighbours within ``spacing_m`` (a mitred
+    closing, so no arc vertices), else cleaned, else left out (counted in
+    ``rep``)."""
+    import shapely
+
+    def ok(p):
+        return p.geom_type == "Polygon" and not p.is_empty and \
+            shapely.minimum_clearance(p) >= degenerate_m
+
+    def clean(p):
+        return shapely.simplify(p, degenerate_m, preserve_topology=True)
+    keep = [p for p in pieces if ok(p)]
+    for p in (p for p in pieces if not ok(p)):
+        near = [k for k, q in enumerate(keep) if p.distance(q) <= spacing_m]
+        if near:
+            merged = shapely.union_all([p, *(keep[k] for k in near)]).buffer(
+                spacing_m, join_style="mitre").buffer(-spacing_m, join_style="mitre")
+            merged = merged if ok(merged) else clean(merged)
+            if ok(merged):
+                keep = [q for k, q in enumerate(keep) if k not in near] + [merged]
+                rep["merged"] += 1
+                continue
+        if ok(clean(p)):
+            keep.append(clean(p))
+            rep["cleaned"] += 1
+        else:
+            rep["dropped"] += 1
+    rep["pieces"] = len(keep)
+    return keep

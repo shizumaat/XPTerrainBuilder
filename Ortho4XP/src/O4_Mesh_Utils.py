@@ -576,7 +576,15 @@ def _apply_hold_curv_weights(tile, weight_array):
         if not boxes:
             return 0
         weight = _hold_curv_weight(tile)
+        prior = weight_array.copy()
         raised = sum(_raise_box_curv_weight(tile, weight_array, b, weight) for b in boxes)
+        # #2077 round 3 R2': a fill record's box leaves the water's cells
+        # at their weight (the water's triangles are the control's)
+        rows, cols = TERRAIN_CUT.wet_weight_cells(tile)
+        if len(rows):
+            weight_array[rows, cols] = prior[rows, cols]
+            UI.vprint(1, "-> %d weight cell(s) over mapped water kept at their weight "
+                      "(#2077 R2')." % len(rows))
     except Exception as error:
         UI.vprint(1, "   WARNING: the hold's weight boxes unreadable:", str(error))
         return 0
@@ -2178,9 +2186,11 @@ def post_process_nodes_altitudes(tile):
     water_valued = {v for tri in water_tris for v in tri}
     water_valued |= {v for tri in sea_tris for v in tri}
     # #2077 round 2 R2: the terrain composites' planes and fills never
-    # move water -- its vertices are levelled from the raster without them
+    # move water -- its vertices are levelled from the raster without them;
+    # round 3 R2': the land takes back what the dry .alt kept off it
     import auto_patch.terrain_cut_stage as TERRAIN_CUT
     TERRAIN_CUT.unfill_water(tile, vertices, water_valued)
+    TERRAIN_CUT.refill_land(tile, vertices, water_valued)
     if degenerate_attr_nbr:
         UI.lvprint(
             1,
@@ -2778,8 +2788,7 @@ def build_mesh(tile):
                 import auto_patch.terrain_cut_stage as TERRAIN_CUT
                 _cover = patch_coverage_polygon(tile)
                 TERRAIN_CUT.bake(tile, patch_area=None if _cover is None else _cover[0])
-                tile.dem.write_to_file(FNAMES.alt_file(tile))
-                TERRAIN_CUT.write_unfill(tile)
+                TERRAIN_CUT.write_alt(tile)
         except Exception as e:
             print(e)
             UI.exit_message_and_bottom_line(

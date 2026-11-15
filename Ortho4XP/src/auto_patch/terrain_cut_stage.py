@@ -43,6 +43,15 @@ ring is drawn ``terrain_fill.QUAY_M`` off mapped water (R3); inside the
 footprint grown by ``W`` only the composite's own members' bound holds the
 plane (R4, ``terrain_fill.conform_plane``).
 
+ROUND 3 (#2077, master rulings R2'/R3' 2026-11-15): the ``.alt`` the
+mesher reads keeps the planes and fills ``terrain_fill.DRY_M`` off mapped
+water (:func:`write_alt`; the raster in memory -- the roads' -- keeps
+them), the fill records' weight boxes leave the water's cells at their
+weight (:func:`wet_weight_cells`), and the sidecar gives every land vertex
+the conformed ground back (:func:`refill_land`): the water's triangles are
+the control's, its vertices read the cut raster, the land reads the
+plane.  Every quay piece is drawn (``terrain_fill.quay_rings``).
+
 Nothing here raises into the build: an unreadable plan or object is one
 log line and that model is not cut (or not held).
 """
@@ -58,8 +67,8 @@ import numpy as np
 
 from . import pack_choice as _PC
 
-__all__ = ["cut_records", "bake", "apply", "held_boxes", "hold", "write_unfill",
-           "unfill_water"]
+__all__ = ["cut_records", "bake", "apply", "held_boxes", "wet_weight_cells", "hold",
+           "write_alt", "write_unfill", "unfill_water", "refill_land"]
 
 #: the raster postings left uncut at the tile's edge (the neighbour's
 #: raster is not cut, and the two must meet)
@@ -331,9 +340,50 @@ def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
     if not len(ii):
         return total, None
     ny, nx = dem.alt_dem.shape
+    change = d[ii, jj].astype(np.float32)
+    wet = _wet(tile, dem, ii + r0, jj + c0)
+    if wet.any():
+        UI.vprint(1, f"   terrain composites (#2077 R2'): {int(wet.sum())} of {len(ii)} "
+                     f"planed or filled posting(s) kept off the mesher's raster within "
+                     f"{_tf.DRY_M:.0f} m of mapped water")
     return total, {"rows": (ii + r0).astype(np.int32), "cols": (jj + c0).astype(np.int32),
-                   "delta": d[ii, jj].astype(np.float32), "nx": int(nx), "ny": int(ny),
+                   "delta": np.where(wet, 0.0, change).astype(np.float32),
+                   "held": np.where(wet, change, 0.0).astype(np.float32),
+                   "nx": int(nx), "ny": int(ny),
                    "frame": np.array([dem.x0, dem.y0, dem.x1, dem.y1], float)}
+
+
+def _metric(tile):
+    """``(x, y) -> metres`` of tile-relative degrees (east, north) about the
+    tile's middle latitude: the frame the water's distances are read in."""
+    kx = 111_320.0 * float(np.cos(np.radians(tile.lat + 0.5)))
+    return lambda q: np.c_[q[:, 0] * kx, q[:, 1] * 111_320.0]
+
+
+def _wet(tile, dem, rows, cols) -> np.ndarray:
+    """THE DRY RASTER (R2'): the postings ``(rows, cols)`` within
+    ``terrain_fill.DRY_M`` of the tile's mapped water (none without it)."""
+    import shapely
+    from auto_patch_v2.airport import terrain_fill as _tf
+    from shapely.geometry import box as _box
+    out = np.zeros(len(rows), bool)
+    try:
+        water = _tile_water(tile)
+    except Exception:
+        water = None
+    if water is None or not len(rows):
+        return out
+    ny, nx = dem.alt_dem.shape
+    dx, dy = (dem.x1 - dem.x0) / (nx - 1), (dem.y1 - dem.y0) / (ny - 1)
+    x, y = dem.x0 + cols * dx, dem.y1 - rows * dy
+    pad = 2.0 * _tf.DRY_M / 111_320.0 / max(float(np.cos(np.radians(tile.lat + 1.0))), 1e-6)
+    near = water.intersection(_box(x.min() - pad, y.min() - pad, x.max() + pad, y.max() + pad))
+    if near.is_empty:
+        return out
+    to_m = _metric(tile)
+    near = shapely.transform(near, to_m)
+    shapely.prepare(near)
+    return shapely.dwithin(near, shapely.points(to_m(np.c_[x, y])), _tf.DRY_M)
 
 
 def _outline(rec) -> list:
@@ -356,10 +406,12 @@ def _tile_water(tile):
     return union_all(parts) if parts else None
 
 
-def _quay(tile, rec, rings, water, min_area_m2) -> list:
-    """THE QUAY (R3): one zero footprint's rings less mapped water grown by
-    ``terrain_fill.QUAY_M`` (``terrain_fill.quay_rings``); ``water`` the
-    tile's (:func:`_tile_water`)."""
+def _quay(tile, rec, rings, water, report: dict) -> list:
+    """THE QUAY (R3, R3'): one zero footprint's rings less mapped water
+    grown by ``terrain_fill.QUAY_M`` (``terrain_fill.quay_rings``, every
+    piece drawn; the hairline pre-flight's gaps from ``O4_Mesh_Utils``);
+    ``water`` the tile's (:func:`_tile_water`); ``report`` its counts."""
+    import O4_Mesh_Utils as MESH
     import shapely
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_fill as _tf
@@ -371,7 +423,8 @@ def _quay(tile, rec, rings, water, min_area_m2) -> list:
     near = water.intersection(_box(a[:, 0].min() - tile.lon - pad, a[:, 1].min() - tile.lat - pad,
                                    a[:, 0].max() - tile.lon + pad, a[:, 1].max() - tile.lat + pad))
     near = shapely.transform(near, lambda q: np.c_[to_xy(q[:, 0] + tile.lon, q[:, 1] + tile.lat)])
-    return _tf.quay_rings(rings, to_xy, to_ll, near, min_area_m2)
+    return _tf.quay_rings(rings, to_xy, to_ll, near, degenerate_m=MESH.HAIRLINE_DEGENERATE_M,
+                          spacing_m=MESH.HAIRLINE_SPACING_M, report=report)
 
 
 def _edge_lines(tile, records) -> list:
@@ -385,13 +438,17 @@ def _edge_lines(tile, records) -> list:
             water = _tile_water(tile)
         except Exception as exc:
             UI.vprint(2, f"   the tile's water unread ({exc})")
-    dx, dy = _raster(tile.dem, tile, None).posting_m()
     lines = []
     for rec in records:
         try:
             plane = (rec["cut"].get("plane") or {}).get("rings") or ()
             if plane and water is not None:
-                plane = _quay(tile, rec, plane, water, 4.0 * dx * dy)
+                rep = {}
+                plane = _quay(tile, rec, plane, water, rep)
+                UI.vprint(1, f"   [{rec.get('icao', '')}] terrain composite {rec.get('resource')}: "
+                             f"its quay drawn as {rep.get('pieces', 0)} piece(s) "
+                             f"({rep.get('merged', 0)} merged, {rep.get('cleaned', 0)} cleaned "
+                             f"of a hairline, {rep.get('dropped', 0)} left out)")
             elif plane:
                 untrimmed += 1
             lines += [LineString(np.asarray(r, float) - np.array([tile.lon, tile.lat]))
@@ -403,12 +460,36 @@ def _edge_lines(tile, records) -> list:
     return lines
 
 
+def write_alt(tile) -> None:
+    """Write ``tile.dem`` to the ``.alt`` the mesher reads, and its
+    :func:`write_unfill` sidecar: THE DRY RASTER (R2') -- the postings the
+    last :func:`bake` kept off it (``terrain_fill_delta["held"]``) are
+    written at their cut ground; the raster in memory keeps them."""
+    import O4_File_Names as FNAMES
+    dem = tile.dem
+    d = getattr(dem, "terrain_fill_delta", None)
+    held = None if not d else d.get("held")
+    if held is None or not np.any(held):
+        dem.write_to_file(FNAMES.alt_file(tile))
+    else:
+        r, c = d["rows"], d["cols"]
+        full = dem.alt_dem[r, c].copy()
+        dem.alt_dem[r, c] = full - held
+        try:
+            dem.write_to_file(FNAMES.alt_file(tile))
+        finally:
+            dem.alt_dem[r, c] = full
+    write_unfill(tile)
+
+
 def write_unfill(tile) -> None:
     """THE WATER IS NEVER FILLED (#2077 round 2 R2): write the change the
     last :func:`bake` made with its planes and fills (``tile.dem.
-    terrain_fill_delta``) beside the ``.alt`` -- the mesh step takes it off
-    every water vertex (:func:`unfill_water`) -- or remove a stale one
-    when it made none."""
+    terrain_fill_delta``: ``delta`` in the ``.alt``, ``held`` kept off it
+    by :func:`write_alt`) beside the ``.alt`` -- the mesh step takes
+    ``delta`` off every water vertex (:func:`unfill_water`) and gives
+    ``held`` to every land vertex (:func:`refill_land`) -- or remove a stale
+    one when it made none."""
     import O4_File_Names as FNAMES
     path = FNAMES.alt_unfill_file(tile)
     d = getattr(getattr(tile, "dem", None), "terrain_fill_delta", None)
@@ -420,64 +501,102 @@ def write_unfill(tile) -> None:
         np.savez(fh, **d)
 
 
-def unfill_water(tile, vertices, water_valued) -> dict:
-    """R2 on the mesh (``O4_Mesh_Utils.post_process_nodes_altitudes``,
-    before the water smoothing): every water-valued vertex in the box of
-    :func:`write_unfill`'s change has the bilinear change at its position
-    (Triangle4XP's ``altitude()`` indexing) taken off its altitude, so the
-    water is levelled from the raster as it stood before the planes and
-    fills.  ``vertices`` flat, six per vertex, changed in place.  One log
-    line; never raises."""
+def _sidecar_dz(tile, vertices, v: np.ndarray, key: str) -> tuple[np.ndarray, np.ndarray]:
+    """``(v, dz)``: the vertices of ``v`` inside the box of the sidecar's
+    change and the bilinear ``key`` (``delta`` / ``held``) at their
+    positions (Triangle4XP's ``altitude()`` indexing); empty without one."""
+    import O4_File_Names as FNAMES
+    none = (np.zeros(0, np.int64), np.zeros(0))
+    path = FNAMES.alt_unfill_file(tile)
+    if not len(v) or not os.path.exists(path):
+        return none
+    with np.load(path) as f:
+        if key not in f.files:
+            return none
+        rows, cols, delta = f["rows"], f["cols"], f[key].astype(float)
+        nx, ny, (x0, y0, x1, y1) = int(f["nx"]), int(f["ny"]), f["frame"]
+    if not len(rows) or not np.any(delta):
+        return none
+    px = (vertices[6 * v] - x0) / (x1 - x0) * (nx - 1)
+    py = (y1 - vertices[6 * v + 1]) / (y1 - y0) * (ny - 1)
+    r0, c0 = int(rows.min()), int(cols.min())
+    grid = np.zeros((int(rows.max()) - r0 + 3, int(cols.max()) - c0 + 3))
+    grid[rows - r0 + 1, cols - c0 + 1] = delta
+    i, j = np.floor(px).astype(np.int64), np.floor(py).astype(np.int64)
+    inside = (i >= c0 - 1) & (i <= cols.max() + 1) & (j >= r0 - 1) & (j <= rows.max() + 1)
+    if not inside.any():
+        return none
+    v, px, py, i, j = (a[inside] for a in (v, px, py, i, j))
+    ip, jp = np.minimum(i + 1, nx - 1), np.minimum(j + 1, ny - 1)
+
+    def at(jj, ii):
+        gi, gj = ii - c0 + 1, jj - r0 + 1
+        ok = (gi >= 0) & (gj >= 0) & (gi < grid.shape[1]) & (gj < grid.shape[0])
+        out = np.zeros(len(ii))
+        out[ok] = grid[gj[ok], gi[ok]]
+        return out
+    rx, ry = px - i, py - j
+    dz = (at(j, i) * (1 - rx) * (1 - ry) + at(j, ip) * rx * (1 - ry)
+          + at(jp, i) * (1 - rx) * ry + at(jp, ip) * rx * ry)
+    moved = np.abs(dz) > 1e-9
+    return v[moved], dz[moved]
+
+
+def _level(tile, vertices, v, key: str, sign: float, what: str) -> dict:
+    """:func:`unfill_water` / :func:`refill_land`: ``sign`` times the
+    sidecar's ``key`` added to the vertices ``v``; one log line; never
+    raises."""
     import O4_UI_Utils as UI
     rep = {"vertices": 0, "worst_m": 0.0}
     try:
-        import O4_File_Names as FNAMES
-        path = FNAMES.alt_unfill_file(tile)
-        if not water_valued or not os.path.exists(path):
+        v, dz = _sidecar_dz(tile, vertices, v, key)
+        if not len(v):
             return rep
-        with np.load(path) as f:
-            rows, cols, delta = f["rows"], f["cols"], f["delta"].astype(float)
-            nx, ny, (x0, y0, x1, y1) = int(f["nx"]), int(f["ny"]), f["frame"]
-        if not len(rows):
-            return rep
-        v = np.fromiter((int(k) for k in water_valued), np.int64)
-        px = (vertices[6 * v] - x0) / (x1 - x0) * (nx - 1)
-        py = (y1 - vertices[6 * v + 1]) / (y1 - y0) * (ny - 1)
-        r0, c0 = int(rows.min()), int(cols.min())
-        grid = np.zeros((int(rows.max()) - r0 + 3, int(cols.max()) - c0 + 3))
-        grid[rows - r0 + 1, cols - c0 + 1] = delta
-        i, j = np.floor(px).astype(np.int64), np.floor(py).astype(np.int64)
-        ip, jp = np.minimum(i + 1, nx - 1), np.minimum(j + 1, ny - 1)
-        inside = (i >= c0 - 1) & (i <= cols.max() + 1) & (j >= r0 - 1) & (j <= rows.max() + 1)
-        if not inside.any():
-            return rep
-        v, px, py, i, j, ip, jp = (a[inside] for a in (v, px, py, i, j, ip, jp))
-
-        def at(jj, ii):
-            gi, gj = ii - c0 + 1, jj - r0 + 1
-            ok = (gi >= 0) & (gj >= 0) & (gi < grid.shape[1]) & (gj < grid.shape[0])
-            out = np.zeros(len(ii))
-            out[ok] = grid[gj[ok], gi[ok]]
-            return out
-        rx, ry = px - i, py - j
-        dz = (at(j, i) * (1 - rx) * (1 - ry) + at(j, ip) * rx * (1 - ry)
-              + at(jp, i) * (1 - rx) * ry + at(jp, ip) * rx * ry)
-        moved = np.abs(dz) > 1e-9
-        vertices[6 * v[moved] + 2] -= dz[moved]
-        rep = {"vertices": int(moved.sum()),
-               "worst_m": float(np.abs(dz[moved]).max()) if moved.any() else 0.0}
+        vertices[6 * v + 2] += sign * dz
+        if sign > 0:            # a land vertex on the conformed ground: its
+            vertices[6 * v + 3] = 0     # normal is the plane's, not the dry
+            vertices[6 * v + 4] = 0     # raster's (the O4_Mesh_Pins convention)
+        rep = {"vertices": int(len(v)), "worst_m": float(np.abs(dz).max())}
     except Exception as exc:
-        UI.vprint(1, f"   terrain composites: water not unfilled ({exc})")
+        UI.vprint(1, f"   terrain composites: {what} not levelled ({exc})")
         UI.vprint(2, traceback.format_exc())
         return rep
-    UI.vprint(1, f"   terrain composites (#2077 R2): {rep['vertices']} water vertex(es) "
-                 f"levelled from the unfilled raster, worst {rep['worst_m']:.2f} m")
+    UI.vprint(1, f"   terrain composites (#2077 R2): {rep['vertices']} {what} vertex(es) "
+                 f"levelled from the {'conformed' if sign > 0 else 'unfilled'} raster, "
+                 f"worst {rep['worst_m']:.2f} m")
     return rep
+
+
+def unfill_water(tile, vertices, water_valued) -> dict:
+    """R2 on the mesh (``O4_Mesh_Utils.post_process_nodes_altitudes``,
+    before the water smoothing): every water-valued vertex in the box of
+    :func:`write_unfill`'s change has the bilinear ``delta`` (the planes'
+    and fills' change the ``.alt`` carries) taken off its altitude, so the
+    water is levelled from the raster as it stood before the planes and
+    fills.  ``vertices`` flat, six per vertex, changed in place.  One log
+    line; never raises."""
+    if not water_valued:
+        return {"vertices": 0, "worst_m": 0.0}
+    v = np.fromiter((int(k) for k in water_valued), np.int64)
+    return _level(tile, vertices, v, "delta", -1.0, "water")
+
+
+def refill_land(tile, vertices, water_valued) -> dict:
+    """R2' on the mesh (beside :func:`unfill_water`): every vertex that is
+    not water-valued has the bilinear ``held`` (the change :func:`write_alt`
+    kept off the ``.alt``) added, so the land reads the conformed raster
+    the vector step made; its normal is zeroed.  One log line; never
+    raises."""
+    n = len(vertices) // 6
+    wet = np.zeros(n, bool)
+    if water_valued:
+        wet[np.fromiter((int(k) for k in water_valued), np.int64)] = True
+    return _level(tile, vertices, np.flatnonzero(~wet), "held", 1.0, "land")
 
 
 def apply(tile, vector_map, icaos: _t.Iterable[str], patch_area=None) -> int:
     """STEP 1 (module doc): cut the raster under the included airports'
-    terrain models, rewrite the ``.alt`` (and its :func:`write_unfill`
+    terrain models, rewrite the ``.alt`` (:func:`write_alt`, with its
     sidecar) and draw each plan's edge and each zero footprint's quay as
     a constrained line.  The postings cut."""
     import O4_File_Names as FNAMES
@@ -489,10 +608,10 @@ def apply(tile, vector_map, icaos: _t.Iterable[str], patch_area=None) -> int:
         return 0
     UI.vprint(0, "-> Cutting the ground under the airports' terrain objects")
     total = bake(tile, records, patch_area)
-    write_unfill(tile)
     if not total:
+        write_unfill(tile)
         return 0
-    tile.dem.write_to_file(FNAMES.alt_file(tile))
+    write_alt(tile)
     lines = _edge_lines(tile, records)
     if lines:
         vector_map.encode_MultiLineString(MultiLineString(lines), tile.dem.alt_vec,
@@ -517,10 +636,15 @@ def held_boxes(tile) -> list[tuple[float, float, float, float]]:
     (#2077: the mesh draws the filled and conformed ground at one posting;
     weights only, never the hold)."""
     import O4_File_Names as FNAMES
+    return [b for _, b in _weight_boxes(cut_records(FNAMES.patch_dir(tile.lat, tile.lon)))]
+
+
+def _weight_boxes(records) -> list[tuple[bool, tuple[float, float, float, float]]]:
+    """``(held, box)`` of every record :func:`held_boxes` names: ``held``
+    for THE HOLD's (``erode_m``), else a fill record's box."""
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_fill as _tf
     out = []
-    records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon))
     for rec in records:
         c = rec["cut"]
         if "erode_m" not in c and not c.get("fill"):
@@ -537,8 +661,47 @@ def held_boxes(tile) -> list[tuple[float, float, float, float]]:
             dy = _tf.REACH_M / 111_320.0
             dx = dy / max(np.cos(np.radians(0.5 * (s + n))), 1e-6)
             w, s, e, n = w - dx, s - dy, e + dx, n + dy
-        out.append((w, s, e, n))
+        out.append(("erode_m" in c, (w, s, e, n)))
     return out
+
+
+def _cells(tile, box) -> tuple[int, int, int, int]:
+    """``(rowmin, rowmax, colmin, colmax)`` of a degree box on the mesh
+    step's 1001 x 1001 weight grid (``O4_Mesh_Utils._raise_box_curv_weight``)."""
+    w, s, e, n = box
+    return (max(round((tile.lat + 1 - n) * 1000), 0), min(round((tile.lat + 1 - s) * 1000), 1000),
+            max(round((w - tile.lon) * 1000), 0), min(round((e - tile.lon) * 1000), 1000))
+
+
+def wet_weight_cells(tile, records=None) -> tuple[np.ndarray, np.ndarray]:
+    """THE DRY RASTER's weights (R2'): ``(rows, cols)`` of the weight-grid
+    cells a FILL record's box raises that meet mapped water and lie in no
+    held box -- the mesh step leaves them at the weight they had, so the
+    water's own triangles are refined as the control's.  ``records``
+    :func:`cut_records` of the tile's patch folder when ``None``."""
+    import shapely
+    if records is None:
+        import O4_File_Names as FNAMES
+        records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon))
+    boxes = _weight_boxes(records)
+    empty = (np.zeros(0, np.int64), np.zeros(0, np.int64))
+    fill = [_cells(tile, b) for held, b in boxes if not held]
+    if not fill:
+        return empty
+    water = _tile_water(tile)
+    if water is None:
+        return empty
+    mark = np.zeros((1001, 1001), np.int8)
+    for r0, r1, c0, c1 in fill:
+        mark[r0:r1 + 1, c0:c1 + 1] = 1
+    for r0, r1, c0, c1 in (_cells(tile, b) for held, b in boxes if held):
+        mark[r0:r1 + 1, c0:c1 + 1] = 0
+    ll, kk = np.nonzero(mark)
+    x, y = kk / 1000.0, 1.0 - ll / 1000.0
+    cells = shapely.box(x - 5e-4, y - 5e-4, x + 5e-4, y + 5e-4)
+    shapely.prepare(water)
+    hit = shapely.intersects(water, cells)
+    return ll[hit].astype(np.int64), kk[hit].astype(np.int64)
 
 
 def _hold_one(tile, vertices, corners, fixed: np.ndarray, rec,

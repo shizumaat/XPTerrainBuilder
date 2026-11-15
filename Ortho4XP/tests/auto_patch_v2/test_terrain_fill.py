@@ -132,9 +132,9 @@ def test_the_supports_carry_under_m():
 
 
 def test_t3_the_quay_keeps_the_ring_a_metre_off_the_water():
-    """#2077 round 2 R3 (twin T3): the zero footprint's drawn ring keeps
-    ``QUAY_M`` off mapped water, pieces under the minimum area are not
-    drawn, and without water the rings are as given."""
+    """#2077 round 2 R3 / round 3 R3' (twin T3): the zero footprint's drawn
+    ring keeps ``QUAY_M`` off mapped water, EVERY piece is drawn whatever
+    its area, and without water the rings are as given."""
     import shapely
     from shapely.geometry import box
     to_xy, to_ll = TC.projector(LAT, LON)
@@ -142,15 +142,38 @@ def test_t3_the_quay_keeps_the_ring_a_metre_off_the_water():
     rings = [np.c_[to_ll(sq[:, 0], sq[:, 1])]]
     # a river across the east part leaves a 2 x 100 m strip beyond it
     water = box(20.0, -80.0, 47.0, 80.0)
-    out = TF.quay_rings(rings, to_xy, to_ll, water, 4 * 6.9 * 10.3)
-    assert len(out) == 1
-    xy = np.c_[to_xy(out[0][:, 0], out[0][:, 1])]
-    assert shapely.distance(water, shapely.points(xy)).min() >= TF.QUAY_M - 1e-6
-    assert xy[:, 0].max() == pytest.approx(20.0 - TF.QUAY_M, abs=1e-6)
-    both = TF.quay_rings(rings, to_xy, to_ll, water, 0.0)
-    assert len(both) == 2                       # the far strip is drawn without the floor
-    assert TF.quay_rings(rings, to_xy, to_ll, None, 285.0)[0] is rings[0] or \
-        np.array_equal(TF.quay_rings(rings, to_xy, to_ll, None, 285.0)[0], rings[0])
+    rep = {}
+    out = TF.quay_rings(rings, to_xy, to_ll, water, **_GAPS, report=rep)
+    assert len(out) == 2 and rep == {"pieces": 2, "merged": 0, "cleaned": 0, "dropped": 0}
+    for ring in out:
+        xy = np.c_[to_xy(ring[:, 0], ring[:, 1])]
+        assert shapely.distance(water, shapely.points(xy)).min() >= TF.QUAY_M - 1e-6
+    assert min(np.c_[to_xy(r[:, 0], r[:, 1])][:, 0].max() for r in out) == \
+        pytest.approx(20.0 - TF.QUAY_M, abs=1e-6)
+    none = TF.quay_rings(rings, to_xy, to_ll, None, **_GAPS)
+    assert np.array_equal(none[0], rings[0])
+
+
+_GAPS = {"degenerate_m": 0.010, "spacing_m": 0.5}
+
+
+def test_t3p_a_hairline_piece_is_merged_or_cleaned_never_dropped():
+    """R3': a piece whose ring carries a vertex under the degenerate gap of
+    its neighbour is merged into the pieces within the spacing; alone, its
+    ring is cleaned of the degenerate vertex."""
+    import shapely
+    from shapely.geometry import Polygon
+    to_xy, to_ll = TC.projector(LAT, LON)
+    alone = Polygon([(0, 0), (5, 0), (5.00001, 0.00001), (5, 5), (0, 5)])   # 14 um segment
+    rep = {"pieces": 0, "merged": 0, "cleaned": 0, "dropped": 0}
+    out = TF._meshable([alone, Polygon([(20, 0), (25, 0), (25, 5), (20, 5)])], 0.010, 0.5, rep)
+    assert rep == {"pieces": 2, "merged": 0, "cleaned": 1, "dropped": 0}
+    assert all(shapely.minimum_clearance(p) >= 0.010 for p in out)
+    rep = {"pieces": 0, "merged": 0, "cleaned": 0, "dropped": 0}
+    beside = Polygon([(5.2, 0), (10, 0), (10, 5), (5.2, 5)])
+    out = TF._meshable([alone, beside], 0.010, 0.5, rep)
+    assert rep == {"pieces": 1, "merged": 1, "cleaned": 0, "dropped": 0}
+    assert out[0].area == pytest.approx(50.0, rel=0.01)
 
 
 def test_t4_floors_win_in_the_owned_zone():

@@ -98,7 +98,7 @@ def _obj(tmp_path, rows, hard: bool = True):
     vt = "\n".join(f"VT {x} {y} {z} 0 1 0 0 0" for x, y, z in rows)
     attr = "ATTR_hard_deck concrete\n" if hard else ""
     p.write_text(f"I\n800\nOBJ\n\nPOINT_COUNTS {len(rows)} 0 0 3\n{vt}\nIDX10 0 1 2\n"
-                 f"{attr}TRIS 0 3\n")
+                 f"{attr}TRIS 0 3\n", encoding="utf-8", newline="\n")
     return str(p)
 
 
@@ -110,7 +110,8 @@ def test_end_tops_read_the_hard_deck_not_its_parapet(tmp_path):
             (-20.0, 0.75, -5.2), (-20.0, 0.75, 4.8), (20.0, 0.75, 0.2)]
     vt = "\n".join(f"VT {x} {y} {z} 0 1 0 0 0" for x, y, z in rows)
     p.write_text(f"I\n800\nOBJ\n\nPOINT_COUNTS 6 0 0 6\n{vt}\nIDX10 0 1 2 3 4 5\n"
-                 "ATTR_hard_deck concrete\nTRIS 0 3\nATTR_no_hard\nTRIS 3 3\n")
+                 "ATTR_hard_deck concrete\nTRIS 0 3\nATTR_no_hard\nTRIS 3 3\n",
+                 encoding="utf-8", newline="\n")
     ends = (((LA - 5 * M, LO - 0.00022), (LA + 5 * M, LO - 0.00022)),
             ((LA - 5 * M, LO + 0.00022), (LA + 5 * M, LO + 0.00022)))
     deck = types.SimpleNamespace(authored_path=str(p), heading_deg=0.0)

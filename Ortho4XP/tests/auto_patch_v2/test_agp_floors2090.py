@@ -96,7 +96,7 @@ def test_a_content_change_is_a_miss(tmp_path, monkeypatch):
 def test_an_unwritable_cache_folder_just_computes(tmp_path, monkeypatch):
     AF._forget()
     pack, obj, mc = _pack(tmp_path)
-    (mc / "Some Pack").write_text("not a folder", encoding="utf-8")
+    (mc / "Some Pack").write_text("not a folder", encoding="utf-8", newline="\n")
     a = AF.floors_of(str(obj), 0.9, str(mc))
     assert a.shape == (2, 3, 3)
     assert AF.flush() == 0                         # the write refused: dropped

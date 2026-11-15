@@ -618,11 +618,31 @@ public enum O4Event: Sendable, Equatable {
                         uses: (row["uses"] as? NSNumber)?.intValue ?? 0,
                         automatic: (row["automatic"] as? NSNumber)?.boolValue ?? false,
                         checked: (row["checked"] as? NSNumber)?.boolValue ?? true,
-                        hectares: (row["hectares"] as? NSNumber)?.intValue ?? 0)
+                        hectares: (row["hectares"] as? NSNumber)?.intValue ?? 0,
+                        applied: (row["applied"] as? NSNumber)?.boolValue ?? false,
+                        rebuild: (row["rebuild"] as? NSNumber)?.boolValue ?? false)
                 },
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
-                error: string("error")))
+                error: string("error"),
+                steps: ((object["steps"] as? [[String: Any]]) ?? []).map { row in
+                    O4PackOptimiseStep(
+                        key: row["key"] as? String ?? "",
+                        count: (row["count"] as? NSNumber)?.intValue ?? 0,
+                        tris: (row["tris"] as? NSNumber)?.intValue ?? 0,
+                        mb: (row["mb"] as? NSNumber)?.doubleValue ?? 0)
+                },
+                stepsOn: ((object["steps"] as? [[String: Any]]) ?? []).compactMap { row in
+                    ((row["checked"] as? NSNumber)?.boolValue ?? false) ? row["key"] as? String : nil
+                },
+                rebuild: (object["rebuild"] as? NSNumber)?.boolValue ?? false,
+                pending: ((object["items"] as? [[String: Any]]) ?? []).compactMap { row in
+                    guard let tile = row["tile"] as? String else { return nil }
+                    return O4PackAdjustPending(
+                        id: row["id"] as? String ?? tile, lat: (row["lat"] as? NSNumber)?.intValue ?? 0,
+                        lon: (row["lon"] as? NSNumber)?.intValue ?? 0, tile: tile,
+                        pack: row["pack"] as? String ?? "", change: row["change"] as? String ?? "")
+                }))
         // Another STRING LITERAL match: `class PackPackage` in
         // Ortho4XP/src/o4_engine/events.py.
         case "PackPackage":
@@ -1213,15 +1233,19 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// The user's answer about a pack's adjustments (#1916): action
     /// "update" with `items` the rows left checked and `shown` every row
     /// the question showed (a shown row left out is remembered as never),
-    /// "never" with `shown`, "undo", or "ask" (the report). The engine
-    /// replies `{"status": "started"}` and completes with a `packAdjust`
-    /// event.
+    /// "never" with `shown`, "undo", "ask" (the report), or (capability
+    /// `pack_adjust_edit`) "adjust" (the pack row's Adjust…: the pack as it
+    /// is) and "change" (its Apply, with `steps` the Optimise steps left
+    /// checked). The engine replies `{"status": "started"}` and completes
+    /// with a `packAdjust` event.
     public func packAdjust(packRoot: String, action: String,
                            lat: Int? = nil, lon: Int? = nil,
-                           items: [String]? = nil, shown: [String]? = nil) {
+                           items: [String]? = nil, shown: [String]? = nil,
+                           steps: [String]? = nil) {
         var extra: [String: Any] = [:]
         if let items { extra["items"] = items }
         if let shown { extra["shown"] = shown }
+        if let steps { extra["steps"] = steps }
         sendPackChoice("pack_adjust", packRoot: packRoot, action: action,
                        lat: lat, lon: lon, extra: extra)
     }

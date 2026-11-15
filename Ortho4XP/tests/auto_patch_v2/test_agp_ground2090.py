@@ -66,8 +66,8 @@ def _pack(tmp_path: Path):
     # b (its row 100 m north): two ramps topping out at 20.5 / 25.0 at n = -80
     _obj(d / "b.obj", [_floor(20.5, -81, -79.5), _floor(25.0, -81, -79.5),
                        _floor(1.0, -60, 0)])
-    (d / "a.agp").write_text(AGP.format(obj="a.obj"), encoding="utf-8")
-    (d / "b.agp").write_text(AGP.format(obj="b.obj"), encoding="utf-8")
+    (d / "a.agp").write_text(AGP.format(obj="a.obj"), encoding="utf-8", newline="\n")
+    (d / "b.agp").write_text(AGP.format(obj="b.obj"), encoding="utf-8", newline="\n")
     rows = (types.SimpleNamespace(def_path="Objects/a.agp", lon=LON, lat=LAT,
                                   heading_deg=0.0, kind="OBJECT", elevation=None),
             types.SimpleNamespace(def_path="Objects/b.agp", lon=LON, lat=LAT + DLAT,

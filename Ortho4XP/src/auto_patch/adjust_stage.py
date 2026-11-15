@@ -20,8 +20,10 @@ the question opens; ``flatten`` listed as automatic):
   tick (RULINGS 2026-11-09a (3));
 * ``terrain`` — hide the pack's objects that model terrain where quality
   elevation models the same ground (``drape_stage.TERRAIN``, owner RULINGS
-  2026-11-13i, #2036 (c)): UNCHECKED when the question opens, offered only
-  when a build found one (its witness needs the build's DEM);
+  2026-11-13i, #2036 (c)): ticked when the question opens (owner
+  2026-11-15T13:12Z "Ticked by default"; :data:`UNCHECKED`), offered only
+  when a build found one (its witness needs the build's DEM); the one row
+  whose answer the TILE's mesh reads (:data:`adjust_edit.TILE_ROWS`);
 * ``generic`` — hide X-Plane's stock land-class ground (grass, sand,
   scrub) the pack drapes over the tile, with the hectares it covers
   (``drape_stage.GENERIC``, owner 2026-11-14T15:20Z, #2085): asked of
@@ -40,7 +42,8 @@ and each companion overlay (RULINGS 2026-11-09a (9), #1968,
 ``asked`` set they share), however many of its airports were built;
 :func:`adjust_choice` is the ``pack_adjust`` command: the answer (a row
 ticked is "update", a row shown and left unticked is "never"), Never for
-this pack, Undo, and ``"ask"`` — the report of the rows that apply now.
+this pack, Undo, ``"ask"`` — the report of the rows that apply now — and
+the pack row's Adjust… (``"adjust"`` / ``"change"``, :mod:`adjust_edit`).
 Nothing here raises into the build.
 """
 from __future__ import annotations
@@ -54,10 +57,14 @@ __all__ = ["CHOICES", "ACTIONS", "adjust_stage", "tile_stage",
 
 #: the rows the user chooses, in the question's order
 CHOICES = ("trees", "drapes", "ground", "terrain", "generic")
-#: the rows left unticked when the question opens
-UNCHECKED = ("ground", "terrain")
+#: THE DEFAULT TICKS: the rows left unticked when the question opens
+#: (the large ground textures, RULINGS 2026-11-09a (3)); every other row,
+#: "Hide terrain objects" included (owner 2026-11-15T13:12Z), opens
+#: ticked.  The ``checked`` of each row says so on the wire; both apps
+#: read that, never a list of their own.
+UNCHECKED = ("ground",)
 #: the actions of the ``pack_adjust`` command
-ACTIONS = ("update", "never", "undo", "ask")
+ACTIONS = ("update", "never", "undo", "ask", "adjust", "change")
 
 
 def _trees_row(pf) -> dict:
@@ -288,7 +295,8 @@ def _answer(key: str, pack_root: str, action: str, lat, lon) -> list[str]:
 def adjust_choice(pack_root: str, action: str, lat: int | None = None,
                   lon: int | None = None,
                   items: _t.Iterable[str] | None = None,
-                  shown: _t.Iterable[str] | None = None) -> dict:
+                  shown: _t.Iterable[str] | None = None,
+                  steps: _t.Iterable[str] | None = None) -> dict:
     """THE USER'S ANSWER, outside a build (the ``pack_adjust`` command).
 
     * ``"update"`` — every row in ``items`` (default: every row) is
@@ -299,11 +307,20 @@ def adjust_choice(pack_root: str, action: str, lat: int | None = None,
       undone in every DSF of the pack (only the tile's with ``lat``/
       ``lon``);
     * ``"ask"`` — nothing is written: the report (:func:`rows`), announced
-      as ``state="ask"``.
+      as ``state="ask"``;
+    * ``"adjust"`` — nothing is written: the pack row's Adjust…, every
+      row that applies ticked as the pack is now and the Optimise
+      ``steps`` (``adjust_edit.report``), announced as ``state="adjust"``;
+    * ``"change"`` — the Adjust… answer: only the rows (of ``shown``) and
+      the Optimise ``steps`` whose tick differs are written
+      (``adjust_edit.change``).
+
+    ``rebuild`` says an answer changed what the tile's mesh reads
+    (``adjust_edit.tile_state``: the terrain objects hidden or shown).
 
     Returns the ``PackAdjust`` fields; ``state`` is ``"applied"`` |
-    ``"never"`` | ``"undone"`` | ``"ask"`` | ``"none"`` | ``"failed"``.
-    Never raises."""
+    ``"never"`` | ``"undone"`` | ``"ask"`` | ``"adjust"`` | ``"none"`` |
+    ``"failed"``.  Never raises."""
     import O4_UI_Utils as UI
     out = {"pack": os.path.basename(os.path.normpath(pack_root or "")),
            "pack_root": pack_root, "lat": int(lat or 0), "lon": int(lon or 0),
@@ -316,7 +333,15 @@ def adjust_choice(pack_root: str, action: str, lat: int | None = None,
         picked = [k for k in CHOICES if items is None or k in set(items)]
         seen = [k for k in CHOICES if shown is None or k in set(shown)]
         files: list[str] = []
-        if action == "ask":
+        from . import adjust_edit as _AE
+        mesh = _AE.tile_state(pack_root)
+        if action in ("adjust", "change"):
+            out.update(_AE.report(pack_root, int(lat or 0), int(lon or 0))
+                       if action == "adjust" else
+                       _AE.change(pack_root, int(lat or 0), int(lon or 0),
+                                  items=items, shown=shown, steps=steps))
+            files = list(out["files"])
+        elif action == "ask":
             out["items"] = rows(pack_root, int(lat or 0), int(lon or 0))
             out["state"] = "ask" if out["items"] else "none"
         elif action == "never":
@@ -334,6 +359,7 @@ def adjust_choice(pack_root: str, action: str, lat: int | None = None,
                                  lat, lon)
             out["state"] = "applied"
         out["files"] = sorted(set(files))
+        out["rebuild"] = _AE.tile_state(pack_root) != mesh
     except Exception as exc:
         out["state"], out["error"] = "failed", str(exc)
         UI.vprint(0, f"  [pack] {out['pack']}: package adjustments {action} "

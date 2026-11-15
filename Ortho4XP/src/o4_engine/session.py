@@ -19,6 +19,7 @@ the old ``gui`` attribute when no session exists.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import threading
 import time
@@ -1871,6 +1872,8 @@ class EngineSession:
                         degraded=FAIL.from_degraded(
                             UNPATCHED.read_degraded(tile)
                             + _mesh_order_rows(lat, lon, tile)))
+                    if not self._stepwise_run:      # a child: its parent
+                        built = self.with_paid_rebuilds(built)
                     self._emit(TileState(
                         lat=lat, lon=lon, state="done", percent=100.0,
                         label=(BUILT_WITH_WARNINGS
@@ -1959,6 +1962,7 @@ class EngineSession:
         done, errors = last_outcome_counts(last_ok)
         self._emit(RunDone(done_count=done, error_count=errors,
                            cancelled=cancelled))
+        self._announce_rebuild_pending(cancelled)
 
     # ------------------------------------------------------------------
     # Whole-tile percent/label state machine (moved from the Qt view)
@@ -2348,21 +2352,64 @@ class EngineSession:
         self._emit_known(PackAdjust, fields)
 
     def pack_adjust(self, pack_root="", action="", lat=None, lon=None,
-                    items=None, shown=None):
+                    items=None, shown=None, steps=None):
         """THE USER'S ANSWER (capability ``pack_adjust``, #1916):
         ``action`` is ``"update"`` (the rows of ``items`` applied, the rows
         of ``shown`` left unticked remembered as never), ``"never"``,
-        ``"undo"`` or ``"ask"`` (the report: the rows that apply now).
-        Replies ``{"status": "started"}`` at once and completes with a
-        ``PackAdjust`` event (``adjust_stage.adjust_choice``)."""
+        ``"undo"``, ``"ask"`` (the report: the rows that apply now), or
+        (capability ``pack_adjust_edit``, the pack row's Adjust…)
+        ``"adjust"`` (every row and Optimise step as the pack is now) and
+        ``"change"`` (only the rows of ``shown`` and the ``steps`` whose
+        tick differs are written).  Replies ``{"status": "started"}`` at
+        once and completes with a ``PackAdjust`` event
+        (``adjust_stage.adjust_choice``)."""
         from auto_patch import adjust_stage as _AS
         picked = None if items is None else [str(x) for x in items]
         seen = None if shown is None else [str(x) for x in shown]
-        return self._pack_choice_worker(
-            "o4-pack-adjust",
-            lambda r, a, la, lo: _AS.adjust_choice(r, a, la, lo, items=picked,
-                                                   shown=seen),
-            pack_root, action, lat, lon)
+        chosen = None if steps is None else [str(x) for x in steps]
+
+        def answer(r, a, la, lo):
+            # an answer the tile's mesh reads is a rebuild the tile owes
+            # until a build runs its vector step on it (tile_rebuild_pending)
+            from auto_patch import adjust_edit as _AE
+
+            from . import tile_rebuild_pending as _TRP
+            was = _AE.tile_state(r)
+            out = _AS.adjust_choice(r, a, la, lo, items=picked, shown=seen,
+                                    steps=chosen) or {}
+            if out.get("rebuild") and la is not None and lo is not None:
+                _TRP.mark(la, lo, r, out.get("pack", ""), was,
+                          _AE.tile_state(r))
+            return out
+
+        return self._pack_choice_worker("o4-pack-adjust", answer,
+                                        pack_root, action, lat, lon)
+
+    def with_paid_rebuilds(self, built):
+        """A built tile's ``BuildDone`` with a note per pack answer the
+        build caught the tile up with (``tile_rebuild_pending.resolve``:
+        "Tile X was built to match: terrain objects hidden in …")."""
+        import types
+
+        from . import tile_rebuild_pending as _TRP
+        lat, lon = int(built.lat), int(built.lon)
+        paid = _TRP.resolve(types.SimpleNamespace(
+            lat=lat, lon=lon, build_dir=self.tile_build_dir(lat, lon)))
+        if not paid:
+            return built
+        return dataclasses.replace(
+            built, notes=list(built.notes) + [_TRP.note(r) for r in paid])
+
+    def _announce_rebuild_pending(self, cancelled):
+        """After a run that was not cancelled: the tiles a pack answer
+        still owes a rebuild (``PackAdjust(state="pending")``, one item
+        per tile and pack); both apps rebuild them."""
+        if cancelled:
+            return
+        from . import tile_rebuild_pending as _TRP
+        fields = _TRP.announcement()
+        if fields:
+            self._emit_known(PackAdjust, fields)
 
     def gateway_airports_event(self, **fields):
         """Gateway airports to offer, or an answer's outcome (#1989): the

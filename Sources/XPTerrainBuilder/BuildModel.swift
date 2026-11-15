@@ -2296,15 +2296,20 @@ final class BuildModel: ObservableObject {
     /// Every question already asked this session (one per pack, tile and
     /// row set — each airport of a pack runs the check).
     private var packAdjustSeen: Set<String> = []
+    /// The tile rebuilds a pack answer owed that this window started.
+    private var rebuildPendingIDs: Set<String> = []
 
     /// Parity with the Qt window (`O4_Qt_GUI._on_pack_adjust`): a question
     /// with a choice in it asks once; an applied or undone answer refreshes
-    /// the tile's Modified airports rows.
+    /// the tile's Modified airports rows. "adjust" (the pack row's Adjust…)
+    /// asks every time; an outcome with `rebuild` rebuilds the tile.
     private func packAdjust(_ adjust: O4PackAdjust) {
         if adjust.state == "applied" || adjust.state == "undone" {
             packForestsChanged += 1
         }
-        if adjust.state == "ask" { packAdjustSeen.remove(adjust.id) }
+        if adjust.state == "applied" && adjust.rebuild { rebuildAfterAdjust(adjust) }
+        if adjust.state == "pending" { rebuildPendingTiles(adjust.pending) }
+        if adjust.state == "ask" || adjust.state == "adjust" { packAdjustSeen.remove(adjust.id) }
         guard adjust.asks, !packAdjustSeen.contains(adjust.id) else { return }
         packAdjustSeen.insert(adjust.id)
         if packAdjustPrompt == nil {
@@ -2315,16 +2320,58 @@ final class BuildModel: ObservableObject {
     }
 
     /// The user's answer to the question on screen: "update" (the checked
-    /// rows) or "never" sends `pack_adjust` with every row shown; nil (Not
-    /// now) sends nothing.
-    func answerPackAdjustPrompt(action: String?, items: [String] = []) {
+    /// rows) or "never" sends `pack_adjust` with every row shown; "change"
+    /// (Adjust…'s Apply) the checked rows and Optimise `steps` too; nil
+    /// (Not now, Cancel) sends nothing.
+    func answerPackAdjustPrompt(action: String?, items: [String] = [],
+                                steps: [String]? = nil) {
         if let adjust = packAdjustPrompt, let action {
             client?.packAdjust(packRoot: adjust.packRoot, action: action,
                                lat: adjust.lat, lon: adjust.lon,
-                               items: action == "update" ? items : nil,
-                               shown: adjust.choices.map(\.key))
+                               items: action == "never" ? nil : items,
+                               shown: adjust.choices.map(\.key),
+                               steps: action == "change" ? steps : nil)
         }
         packAdjustPrompt = packAdjustQueue.isEmpty ? nil : packAdjustQueue.removeFirst()
+    }
+
+    /// The pack row's Adjust… (owner 2026-11-15T13:12Z): the engine's report
+    /// of the pack as it is on the tile opens the question (`state` "adjust").
+    func adjustPackFromRow(packPath: String, tile: TileCoord) {
+        connectIfNeeded()
+        client?.packAdjust(packRoot: packPath, action: "adjust",
+                           lat: tile.lat, lon: tile.lon)
+    }
+
+    /// A pack adjustment the tile's mesh reads (the terrain objects'): the
+    /// tile is rebuilt through the Build box's own path, or the console says
+    /// why not and what to do (the Qt window: the same).
+    private func rebuildAfterAdjust(_ adjust: O4PackAdjust) {
+        let coord = TileCoord(lat: adjust.lat, lon: adjust.lon)
+        if isBuilding {
+            // the engine keeps the debt and names it when the run ends
+            console.append(O4PackAdjustCopy.rebuildQueued(tile: coord.key, pack: adjust.pack))
+            return
+        }
+        if let reason = rebuildWithItsImagery(coord) {
+            console.append(O4PackAdjustCopy.rebuildLater(
+                tile: coord.key, pack: adjust.pack, reason: reason))
+        }
+    }
+
+    /// After a run, the tiles a pack answer still owes a rebuild (the
+    /// engine's `tile_rebuild_pending`): each rebuilt once per debt, the
+    /// console saying why (the Qt window: the same).
+    private func rebuildPendingTiles(_ rows: [O4PackAdjustPending]) {
+        for row in rows where !rebuildPendingIDs.contains(row.id) {
+            rebuildPendingIDs.insert(row.id)
+            console.append(O4PackAdjustCopy.rebuilding(tile: row.tile, pack: row.pack,
+                                                       change: row.change))
+            if let reason = rebuildWithItsImagery(TileCoord(lat: row.lat, lon: row.lon)) {
+                console.append(O4PackAdjustCopy.rebuildLater(
+                    tile: row.tile, pack: row.pack, reason: reason))
+            }
+        }
     }
 
     /// The Gateway airports question to present, or nil (#1989).

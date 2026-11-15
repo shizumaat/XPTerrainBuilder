@@ -189,10 +189,11 @@ def test_never_and_undo_go_to_every_row(stage, monkeypatch):
                                     ("generic", "undo")]
 
 
-def test_the_terrain_objects_are_offered_unticked(stage, monkeypatch):
+def test_the_terrain_objects_are_offered_ticked(stage, monkeypatch):
     """RULINGS 2026-11-13i (#2036 (c)): a build whose plan offers a terrain
-    object for hiding asks it as the row ``terrain``, unticked; the offer
-    is remembered so the answer works outside a build."""
+    object for hiding asks it as the row ``terrain`` — ticked (owner
+    2026-11-15T13:12Z "Ticked by default"); the offer is remembered so the
+    answer works outside a build."""
     mountain = PA.MissingDef("object", 7, "Objetos/mountain.obj", 1)
     offered = []
 
@@ -210,7 +211,8 @@ def test_the_terrain_objects_are_offered_unticked(stage, monkeypatch):
     assert out["terrain"] == "found" and offered == [("Objetos/mountain.obj",)]
     [ev] = stage["adjust"]
     row = next(r for r in ev["items"] if r["key"] == "terrain")
-    assert row["checked"] is False and row["count"] == 1
+    assert row["checked"] is True and row["count"] == 1
+    assert AS.UNCHECKED == ("ground",), "one default list, the engine's"
     assert DS.terrain_paths(stage["plan"].pack_root) == ("Objetos/mountain.obj",), \
         "the offer is remembered for the answer outside a build"
 
@@ -233,8 +235,10 @@ def test_the_wire_name_fields_and_flag():
     assert EV.PackAdjust.__name__ == "PackAdjust"
     assert [f.name for f in dataclasses.fields(EV.PackAdjust)
             if f.name not in ("seq", "ts")] == [
-        "pack", "pack_root", "lat", "lon", "items", "files", "state", "error"]
+        "pack", "pack_root", "lat", "lon", "items", "files", "state", "error",
+        "steps", "rebuild"]
     assert "pack_adjust" in EV.CAPABILITIES
+    assert "pack_adjust_edit" in EV.CAPABILITIES
 
 
 def test_it_serialises_and_the_swift_client_matches_it():
@@ -267,7 +271,7 @@ def test_the_command_is_registered_and_never_blocks(monkeypatch):
     got = []
     session.subscribe(got.append)
 
-    def fake(root, action, lat, lon, items=None, shown=None):
+    def fake(root, action, lat, lon, items=None, shown=None, steps=None):
         UI.pack_adjust(pack="P", pack_root=root, state="never",
                        items=[{"key": k} for k in shown or ()])
 

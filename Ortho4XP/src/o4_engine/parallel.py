@@ -2048,6 +2048,9 @@ class ParallelBuildRun:
                 # Intermediate step completion: a scheduling signal, not
                 # a tile terminal — swallowed (spec §3.8).
                 return
+            if event.ok:
+                # a pack answer this build caught the tile up with
+                event = self._session.with_paid_rebuilds(event)
             # #564: the terminal's warnings (the last step's child read
             # them from the tile's unpatched-airports sidecar) close the
             # tile's log below, after "Tile … completed in".
@@ -2595,6 +2598,7 @@ class ParallelBuildRun:
         self._session._run_finished()
         self._session._emit(RunDone(done_count=done, error_count=errors,
                                     cancelled=cancelled))
+        self._session._announce_rebuild_pending(cancelled)
         for child in children:
             child.retire()
         deadline = time.time() + 5.0

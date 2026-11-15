@@ -93,6 +93,7 @@ def runtime_digest() -> "str | None":
 #: ``__init__``.
 CODE_MODULES: tuple[str, ...] = (
     "auto_patch",
+    "auto_patch.adjust_edit",
     "auto_patch.adjust_stage",
     "auto_patch.agp_reader",
     "auto_patch.build_support",

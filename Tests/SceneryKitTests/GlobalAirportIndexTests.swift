@@ -66,6 +66,15 @@ import Foundation
 
     /// v3 is the oldest format the reader accepts, and its rows carry the
     /// same columns 0/4/5.
+    /// #2097: the category column is the map Filter's ICAO / Small kind.
+    @Test func readsTheCategoryColumn() throws {
+        try Self.withCache(Self.v4Cache) { url in
+            let airports = try #require(GlobalAirportIndex.readCache(at: url))
+            #expect(airports.map(\.category) == ["icao_airport", "seaplane_base", "heliport"])
+            #expect(airports[0].category == GlobalAirport.icaoCategory)
+        }
+    }
+
     @Test func readsAV3Cache() throws {
         let v3 = [
             "O4AIRPORTIDX 3 1",

@@ -31,7 +31,6 @@ import O4_Airport_Index as APT  # noqa: E402
 import O4_Custom_Scenery as PACKS  # noqa: E402
 import O4_Flight_Plan as FLIGHTPLAN  # noqa: E402
 import O4_Qt_GUI as GUI  # noqa: E402
-import O4_Qt_Map as QTMAP  # noqa: E402
 import O4_Tile_Info as TINFO  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 
@@ -136,19 +135,25 @@ def test_the_map_picker_offers_only_sources_the_map_can_draw(monkeypatch):
 
 
 # ===========================================================================
-# Scenery layer filter
+# The map's Filter menu (#2097)
 # ===========================================================================
-def test_scenery_filter_reaches_the_map_and_persists(make_window):
+def test_map_filter_reaches_the_map_and_persists(make_window):
     window = make_window()
-    assert window.map.scenery_filter() == QTMAP.SCENERY_FILTER_ALL
-    window._set_scenery_filter(QTMAP.SCENERY_FILTER_OTHERS)
-    assert window.map.scenery_filter() == QTMAP.SCENERY_FILTER_OTHERS
-    assert _prefs(make_window)[GUI.SCENERY_FILTER_KEY] == "others"
-    # The menu ticks follow the map, and a nonsense value falls back.
-    assert window._scenery_filter_actions["others"].isChecked()
-    window._set_scenery_filter("nonsense")
-    assert window.map.scenery_filter() == QTMAP.SCENERY_FILTER_ALL
-    assert window._scenery_filter_actions["all"].isChecked()
+    assert window.map.map_filter() == frozenset()
+    menu = window.map_filter_menu
+    assert all(action.isChecked() for action in menu.items.values())
+    menu.items["drape"].setChecked(False)
+    menu.items["small"].setChecked(False)
+    assert window.map.map_filter() == {"drape", "small"}
+    assert _prefs(make_window)[GUI.MAP_FILTER_KEY] == ["small", "drape"]
+    # The ticks follow the map, and unknown keys are dropped.
+    window._set_map_filter({"full", "nonsense"})
+    assert window.map.map_filter() == {"full"}
+    assert not menu.items["full"].isChecked()
+    assert menu.items["drape"].isChecked()
+    # The headers are not selectable.
+    assert [h.text() for h in menu.headers] == ["Airports", "Ortho Tiles"]
+    assert not any(h.isEnabled() or h.isCheckable() for h in menu.headers)
 
 
 # ===========================================================================

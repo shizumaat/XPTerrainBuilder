@@ -128,22 +128,6 @@ enum LandData {
 /// Everything the map needs, precomputed ONCE per installation scan.
 /// Rebuilding this per frame (or string-parsing tile keys in the draw loop)
 /// is what makes dragging jerky — the draw path only does numeric compares.
-/// Toolbar filter for the map's ortho layers: the app's own built tiles,
-/// other installed ortho/mesh packages (gray outlines), or both.
-enum MapSceneryFilter: String, CaseIterable {
-    case all
-    case builtOnly = "built"
-    case othersOnly = "others"
-
-    var label: String {
-        switch self {
-        case .all: return "All"
-        case .builtOnly: return "Built tiles"
-        case .othersOnly: return "Other ortho"
-        }
-    }
-}
-
 struct MapOverlays: Sendable {
     struct Airport: Identifiable, Sendable {
         var id: String { icao + packName }
@@ -156,6 +140,9 @@ struct MapOverlays: Sendable {
         /// the index by code; one the index lacks stays "small".
         var sizeClass: Int = AirportRank.unknownSizeClass
         var runwayMeters: Int = 0
+        /// The index files it as an ICAO airport (the Filter menu's kind,
+        /// #2097); one the index lacks is Small.
+        var icaoCoded = false
     }
 
     struct TintTile: Sendable {
@@ -419,16 +406,18 @@ struct MapOverlays: Sendable {
     func withDefaultAirports(_ index: [GlobalAirport]) -> MapOverlays {
         let custom = Set(airports.map(\.icao))
         var updated = self
-        var sizes: [String: (Int, Int)] = [:]
+        var sizes: [String: (Int, Int, Bool)] = [:]
         for airport in index where sizes[airport.icao] == nil {
             sizes[airport.icao] = (airport.sizeClass ?? AirportRank.unknownSizeClass,
-                                   airport.runwayMeters ?? 0)
+                                   airport.runwayMeters ?? 0,
+                                   airport.category == GlobalAirport.icaoCategory)
         }
         updated.airports = airports.map { airport in
             var sized = airport
-            if let (sizeClass, runway) = sizes[airport.icao] {
+            if let (sizeClass, runway, icaoCoded) = sizes[airport.icao] {
                 sized.sizeClass = sizeClass
                 sized.runwayMeters = runway
+                sized.icaoCoded = icaoCoded
             }
             return sized
         }
@@ -441,7 +430,8 @@ struct MapOverlays: Sendable {
                            packName: "Global Airports",
                            status: .enabled,
                            sizeClass: airport.sizeClass ?? AirportRank.unknownSizeClass,
-                           runwayMeters: airport.runwayMeters ?? 0)
+                           runwayMeters: airport.runwayMeters ?? 0,
+                           icaoCoded: airport.category == GlobalAirport.icaoCategory)
         }
         .sorted { ($0.sizeClass, -$0.runwayMeters) < ($1.sizeClass, -$1.runwayMeters) }
         return updated

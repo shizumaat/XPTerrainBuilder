@@ -48,7 +48,7 @@ TOOLBAR = (
     # retired).
     ("mode", "ModeSwitch(model:", "mode_switch"),
     ("imagery_preview", 'Picker("Imagery Preview"', "map_provider_combo"),
-    ("scenery_filter", 'Picker("Scenery"', "scenery_filter_combo"),
+    ("map_filter", "MapFilterMenu(stored:", "map_filter_button"),   # #2097
     ("search", "ToolbarSearchField(", "search_edit"),
     ("side_panel", 'Image(systemName: "sidebar.trailing")', "panel_toggle"),
 )
@@ -367,6 +367,20 @@ def test_mac_toolbar_is_the_manifest():
     positions = [block.find(marker) for _key, marker, _attr in TOOLBAR]
     assert -1 not in positions, dict(zip((k for k, _m, _a in TOOLBAR), positions, strict=True))
     assert positions == sorted(positions), "Mac toolbar order differs from TOOLBAR"
+
+
+def test_both_filter_menus_list_the_same_items():
+    """#2097: the map's Filter menu — the same section headers, keys,
+    words and order in ``MapFilter.swift`` and ``O4_Map_Filter``."""
+    import O4_Map_Filter as MAPFILTER
+    swift = (SWIFT / "MapFilter.swift").read_text(encoding="utf-8")
+    labels = dict(re.findall(r'case \.(\w+): return "([^"]+)"', swift))
+    sections = re.findall(r'\("([^"]+)", \[([^\]]+)\]\)', swift)
+    mac = [(header, tuple((key, labels[key]) for key in
+                          re.findall(r"\.(\w+)", items)))
+           for header, items in sections]
+    assert mac == [(header, tuple(items)) for header, items in MAPFILTER.SECTIONS]
+    assert "MapFilterHidden" in swift  # the stored key's twin of MAP_FILTER_KEY
 
 
 def test_mac_build_box_is_the_manifest():

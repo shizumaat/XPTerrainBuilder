@@ -119,9 +119,9 @@ def test_a_wet_rim_caps_the_fit_seat(tmp_path):
     def water(xs, ys):
         wet = np.asarray(xs, float) >= HALF - 1e-6
         return wet, np.where(wet, 0.0, np.nan)
-    z0 = TM.fit_seat(shape.grid, (0.0, 0.0), 0.0, _dem(_hill), water)
+    z0 = TM._fit_seat(shape.grid, (0.0, 0.0), 0.0, _dem(_hill), water)
     assert z0 == pytest.approx(-12.0, abs=0.5)
-    assert TM.fit_seat(shape.grid, (0.0, 0.0), 0.0, _dem(_hill),
+    assert TM._fit_seat(shape.grid, (0.0, 0.0), 0.0, _dem(_hill),
                        lambda xs, ys: (np.zeros(len(xs), bool), np.full(len(xs), np.nan))
                        ) == pytest.approx(0.0, abs=0.5)
 

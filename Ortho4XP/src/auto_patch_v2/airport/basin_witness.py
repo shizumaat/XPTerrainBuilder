@@ -106,7 +106,7 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
                                          dem_many=getattr(airport.dem, "z_many", None),
                                          fine=_fine_of(airport.dem),
                                          water=getattr(airport.dem, "water_many", None),
-                                         hidden=hidden_terrain(airport))
+                                         hidden=_hidden_terrain(airport))
     # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a
     # mapped bridge way are decks; ``ATTR_hard_deck`` stays primary
     objs, drep = deck_signature.classify(objs, cache, law,
@@ -142,7 +142,7 @@ def _fine_of(dem: _t.Any) -> "_t.Callable | None":
     return lambda xs, ys, pixel_m=QUALITY_PIXEL_M: many(xs, ys, pixel_m)
 
 
-def hidden_terrain(airport: _t.Any) -> frozenset[str]:
+def _hidden_terrain(airport: _t.Any) -> frozenset[str]:
     """The terrain objects the user hid (#2077 4.2): the pack's "Hide
     terrain objects" answer ``update`` over the offer a build remembered
     (``auto_patch.pack_choice``); empty without a pack or an answer."""

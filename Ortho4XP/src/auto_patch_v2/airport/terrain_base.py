@@ -98,7 +98,7 @@ import typing as _t
 from . import anchor_rule as _ar
 from .footprint_unit import AUTHOR_GROUND_M, PLANE_SHARE
 
-__all__ = ["TerrainLaw", "TERRAIN_CARRIED", "law_of", "is_walled", "is_building",
+__all__ = ["TerrainLaw", "TERRAIN_CARRIED", "law_of", "is_walled",
            "unit_base", "seat", "with_hosts"]
 
 #: the anchor reason's mark (after §16 (3)'s own-ground stem, which every
@@ -358,19 +358,35 @@ def _rider(parts: _t.Sequence[_t.Any], anchor: _t.Sequence[float], lift: float,
     return host
 
 
-def is_building(walled: _t.Sequence[_t.Any], law: TerrainLaw) -> bool:
+def _is_building(walled: _t.Sequence[_t.Any], law: TerrainLaw) -> bool:
     """Witness (5) (module doc): the walled parts' union plan box is a
     building's -- at least ``building_area_m2`` with its shorter side at
-    least ``building_side_m``; False when disarmed."""
-    boxes = [tuple(p.box) for p in walled if getattr(p, "box", None)]
-    if law.building_area_m2 <= 0.0 or not boxes:
+    least ``building_side_m``; False when disarmed.  The box is the
+    smallest rectangle, at any heading, around the parts' footprint
+    outlines (:func:`_outline`, ``(lat, lon)``): an axis-aligned box of a
+    thin sign at 45 degrees would read as a house."""
+    if law.building_area_m2 <= 0.0 or not walled:
         return False
-    # the boxes are ``(lat0, lon0, lat1, lon1)`` degrees
-    lat = 0.5 * (min(b[0] for b in boxes) + max(b[2] for b in boxes))
-    ns = (max(b[2] for b in boxes) - min(b[0] for b in boxes)) * _M_PER_DEG
-    ew = ((max(b[3] for b in boxes) - min(b[1] for b in boxes))
-          * _M_PER_DEG * math.cos(math.radians(lat)))
-    return ns * ew >= law.building_area_m2 and min(ns, ew) >= law.building_side_m
+    pts = sorted({(round(float(a), 9), round(float(b), 9)) for p in walled
+                  for a, b in _outline(p)})
+    if len(pts) < 3:
+        return False
+    import shapely
+    from shapely.geometry import MultiPoint
+    lat0 = sum(a for a, _b in pts) / len(pts)
+    k = _M_PER_DEG * math.cos(math.radians(lat0))
+    hull = MultiPoint([((b - pts[0][1]) * k, (a - pts[0][0]) * _M_PER_DEG)
+                       for a, b in pts]).convex_hull
+    if hull.geom_type != "Polygon":
+        return False
+    import numpy as np
+    with np.errstate(all="ignore"):         # shapely's envelope on a right angle
+        rect = shapely.minimum_rotated_rectangle(hull)
+    if rect.geom_type != "Polygon":
+        return False
+    c = list(rect.exterior.coords)
+    sides = sorted(math.dist(c[i], c[i + 1]) for i in range(2))
+    return sides[0] * sides[1] >= law.building_area_m2 and sides[0] >= law.building_side_m
 
 
 def _over_refused(w: _Witness, law: TerrainLaw, counts: "dict | None",
@@ -384,7 +400,7 @@ def _over_refused(w: _Witness, law: TerrainLaw, counts: "dict | None",
     if w.margin <= law.within_m:
         _count(counts, "terrain_carried_within_ground")
         return False
-    if is_building(walled, law):
+    if _is_building(walled, law):
         _count(counts, "terrain_carried_building_over_ground")
         return False
     _count(counts, "terrain_carried_over_ground" if law.over_ground

@@ -42,7 +42,7 @@ THE SEAT (2.2): the frame zero is our uncut ground under the set's origin
 DEM fit seats a cliff (its crest cells read 405 m, its foot 428 m).  Every
 member is written ``OBJECT_MSL`` at that zero plus its own lift.
 
-THE ZERO FOOTPRINT (2.5, :func:`zero_footprint`): a zero-level cell is a
+THE ZERO FOOTPRINT (2.5, :func:`_zero_footprint`): a zero-level cell is a
 5 m cell where a member that is not the skin has a near-vertical face
 (``|n_y| <`` :data:`WALL_NY`) whose bottom lies within :data:`SKIRT_M` of the
 frame zero -- a wall standing on the author's ground.  Their
@@ -65,8 +65,8 @@ from ..geom.terrain_deck import CELL_M
 from . import terrain_model as _tm
 
 __all__ = ["MIN_SHARE", "MIN_RELIEF_M", "MIN_SKIN", "SKIN_BAND_M", "MAX_FLOOR_SHARE",
-           "MIN_STEEP", "STEEP_GRADIENT", "WALL_NY", "SKIRT_M", "CLOSE_M", "measures",
-           "shape_of", "placement_skins", "zero_footprint", "with_planes", "log_line"]
+           "MIN_STEEP", "STEEP_GRADIENT", "WALL_NY", "SKIRT_M", "CLOSE_M",
+           "shape_of", "placement_skins", "with_planes", "log_line"]
 
 MIN_SHARE = 0.9
 MIN_RELIEF_M = 30.0
@@ -83,8 +83,8 @@ SKIRT_M = 3.0
 CLOSE_M = 30.0
 
 
-def measures(grid: _t.Any) -> "dict[str, float] | None":
-    """The candidate's measures on a plan grid (module doc): ``share``,
+def _measures(grid: _t.Any) -> "dict[str, float] | None":
+    """The candidate's _measures on a plan grid (module doc): ``share``,
     ``extent_m``, ``relief_m``, ``skin``, ``floor``, ``steep``; ``None``
     with no covered cell."""
     from scipy import ndimage
@@ -133,7 +133,7 @@ def _file_shape(path: str, _mtime_ns: int, _size: int) -> "_tm.Shape | None":
         if not _cheap(g):
             return None
         grid = _tm._grid(g)
-        m = None if grid is None else measures(grid)
+        m = None if grid is None else _measures(grid)
         if m is None or not _passes(m):
             return None
         tris = g.solid[~g.animated] if g.animated.shape[0] else g.solid
@@ -212,7 +212,7 @@ def _wall_feet(tris: np.ndarray, lift: float) -> tuple[np.ndarray, np.ndarray, n
     return v[:, 0], v[:, 2], v[:, 1] + float(lift)
 
 
-def zero_footprint(members: _t.Iterable[tuple[np.ndarray, float]],
+def _zero_footprint(members: _t.Iterable[tuple[np.ndarray, float]],
                    skins: _t.Iterable[_t.Any]) -> list[np.ndarray]:
     """THE ZERO FOOTPRINT (module doc) in the composite's plan frame:
     ``members`` are ``(triangles (n, 3, 3), lift)`` of the members that are
@@ -276,7 +276,7 @@ def _to_frame(xy: tuple[float, float], heading: float, ring: np.ndarray) -> tupl
 def with_planes(models: _t.Mapping[str, _tm.TerrainModel], placements: _t.Sequence[tuple],
                 geometry: _t.Callable[[str], _t.Any]) -> dict[str, _tm.TerrainModel]:
     """``models`` (``terrain_model.set_members``' map) with every seated
-    relief skin's frame carrying its :func:`zero_footprint` in frame metres
+    relief skin's frame carrying its :func:`_zero_footprint` in frame metres
     (:attr:`TerrainModel.plane`); ``geometry(def path)`` the parsed
     geometry or ``None``."""
     seeds = {m.id: m for m in models.values() if m.skin and not m.ground}
@@ -300,7 +300,7 @@ def with_planes(models: _t.Mapping[str, _tm.TerrainModel], placements: _t.Sequen
                 continue
             lift = float(p[4] or 0.0) if p[5] == "OBJECT_AGL" else 0.0
             members.append((_tm._solid(g), lift))
-        rings = zero_footprint(members, skins)
+        rings = _zero_footprint(members, skins)
         planes[sid] = tuple(_to_frame(m.xy, m.heading, r) for r in rings)
     return {oid: (_dc.replace(m, plane=planes[m.id]) if m.id in planes else m)
             for oid, m in models.items()}

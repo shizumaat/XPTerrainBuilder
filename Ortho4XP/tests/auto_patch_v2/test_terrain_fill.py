@@ -41,7 +41,7 @@ def _no_cap(lons, lats):
 
 
 def test_the_shoulder_is_posting_diagonals():
-    assert TF.shoulder_m(6.92, 10.31) == pytest.approx(15.52, abs=0.01)   # LOWS
+    assert TF._shoulder_m(6.92, 10.31) == pytest.approx(15.52, abs=0.01)   # LOWS
     assert TF.posting_shoulder_m(6.92, 47.8) == pytest.approx(15.52, abs=0.05)
     assert TF.posting_shoulder_m(None, 47.8) == 0.0
 

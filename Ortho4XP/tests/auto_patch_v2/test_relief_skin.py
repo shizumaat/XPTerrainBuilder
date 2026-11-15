@@ -50,7 +50,7 @@ def _shape(tmp_path, height, name="skin.obj", **kw):
 def test_a_steep_single_surface_skin_is_a_relief_skin(tmp_path):
     p, s = _shape(tmp_path, _cliff)
     assert s is not None
-    m = RS.measures(s.grid)
+    m = RS._measures(s.grid)
     assert m["share"] >= RS.MIN_SHARE and m["extent_m"] >= TM.MIN_PLAN_M
     assert m["relief_m"] >= RS.MIN_RELIEF_M and m["skin"] >= RS.MIN_SKIN
     assert m["floor"] <= RS.MAX_FLOOR_SHARE and m["steep"] >= RS.MIN_STEEP
@@ -132,7 +132,7 @@ def test_the_zero_footprint_holds_the_walls_on_the_frame_zero(tmp_path):
     skin's own plan; walls authored high are not on the author's ground."""
     p, s = _shape(tmp_path, _cliff)
     w = _walls(tmp_path / "walls.obj", 0.5)
-    rings = RS.zero_footprint([(TM._solid(parse_obj8(w)), 0.0)], [s.grid])
+    rings = RS._zero_footprint([(TM._solid(parse_obj8(w)), 0.0)], [s.grid])
     assert rings
     from shapely.geometry import Point, Polygon
     poly = Polygon(rings[0])
@@ -143,9 +143,9 @@ def test_the_zero_footprint_holds_the_walls_on_the_frame_zero(tmp_path):
     assert not poly.contains(Point(0.0, 50.0))          # the skin's plan
     assert 400.0 < poly.area < 1200.0
     # a lift moves the walls off the zero; walls 10 m up stand on nothing
-    assert not RS.zero_footprint([(TM._solid(parse_obj8(w)), 10.0)], [s.grid])
+    assert not RS._zero_footprint([(TM._solid(parse_obj8(w)), 10.0)], [s.grid])
     hi = _walls(tmp_path / "high.obj", 12.0)
-    assert not RS.zero_footprint([(TM._solid(parse_obj8(hi)), 0.0)], [s.grid])
+    assert not RS._zero_footprint([(TM._solid(parse_obj8(hi)), 0.0)], [s.grid])
 
 
 def test_the_frame_carries_its_plane_and_writes_it(tmp_path):

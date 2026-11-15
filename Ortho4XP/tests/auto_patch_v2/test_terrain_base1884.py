@@ -134,15 +134,26 @@ def test_witness_5_reads_the_walled_union_box():
     assert (law.building_area_m2, law.building_side_m) == (25.0, 4.0)
     ml, mo = AR._m_per_deg(LAT)
     one = lambda e, n: (LAT, LON, LAT + n / ml, LON + e / mo)  # noqa: E731
-    assert TB.is_building([_p(1, 20.0, 6.0, one(6.0, 5.0))], law)
-    assert not TB.is_building([_p(1, 20.0, 6.0, one(12.0, 2.5))], law)   # a fence
-    assert not TB.is_building([_p(1, 20.0, 6.0, one(4.5, 4.5))], law)    # 20 m2
+    assert TB._is_building([_p(1, 20.0, 6.0, one(6.0, 5.0))], law)
+    assert not TB._is_building([_p(1, 20.0, 6.0, one(12.0, 2.5))], law)   # a fence
+    assert not TB._is_building([_p(1, 20.0, 6.0, one(4.5, 4.5))], law)    # 20 m2
     # two walls' union is the box
-    assert TB.is_building([_p(1, 20.0, 6.0, one(6.0, 1.0)),
+    assert TB._is_building([_p(1, 20.0, 6.0, one(6.0, 1.0)),
                            _p(2, 20.0, 6.0, (LAT + 4.0 / ml, LON, LAT + 5.0 / ml,
                                              LON + 6.0 / mo))], law)
-    assert not TB.is_building([_p(1, 20.0, 6.0, one(6.0, 5.0))],
+    assert not TB._is_building([_p(1, 20.0, 6.0, one(6.0, 5.0))],
                               dc.replace(law, building_area_m2=0.0))
+    # a thin sign turned 45 degrees: its lat/lon box reads 70 m2, its plan 12 x 1 m
+    # (KDEN ``HS_30m_Bridge_Directions``, the census's one false building)
+    import math as _m
+    c, s_ = _m.cos(_m.radians(45.0)), _m.sin(_m.radians(45.0))
+    ring = [(LAT + (x * s_ + z * c) / ml, LON + (x * c - z * s_) / mo)
+            for x, z in ((0, 0), (12, 0), (12, 1), (0, 1))]
+    sign = types.SimpleNamespace(pid=1, base_y=20.0, height_m=6.0, rings=(ring,), feet=(),
+                                 line=False, scatter=False,
+                                 box=(min(a for a, _b in ring), min(b for _a, b in ring),
+                                      max(a for a, _b in ring), max(b for _a, b in ring)))
+    assert not TB._is_building([sign], law)
 
 
 def test_the_over_ground_switch_refuses_and_counts():

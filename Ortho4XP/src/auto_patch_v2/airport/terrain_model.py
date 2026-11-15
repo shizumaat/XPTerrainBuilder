@@ -86,8 +86,7 @@ __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PE
            "QUALITY_P90_SHARE", "WATER_RIM_SHARE", "SEAT",
            "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
            "placement_models", "set_members", "member_lift", "seat_records", "log_line",
-           "hideable_paths", "plan_grid", "plan_solid", "rim_seat", "post_m", "quality",
-           "fit_seat"]
+           "hideable_paths", "plan_grid", "plan_solid", "rim_seat", "post_m", "quality"]
 
 MIN_PLAN_M = 500.0
 MIN_RELIEF_M = 50.0
@@ -373,7 +372,7 @@ def match(shape: Shape, xy: tuple[float, float], heading: float,
     peak_err = abs(float(top.max()) + fit - float(d.max())) / shape.relief_m
     if corr < MIN_CORR or peak_err > MAX_PEAK_ERR:
         return None
-    z0 = fit_seat(grid, xy, heading, dem_many, water)
+    z0 = _fit_seat(grid, xy, heading, dem_many, water)
     if z0 is None:
         return None
     cover, hideable = quality(shape, xy, heading, dem_many, fine)
@@ -381,7 +380,7 @@ def match(shape: Shape, xy: tuple[float, float], heading: float,
             "fit_m": fit, "quality_cover": cover, "hideable": hideable}
 
 
-def fit_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,
+def _fit_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,
              dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
              water: "_t.Callable | None" = None) -> "float | None":
     """THE SEAT (module doc, #2077 2.1): the rigid L1 fit of the plan to
@@ -478,7 +477,7 @@ def placement_models(placements: _t.Sequence[tuple],
     heading, elevation, kind)`` rows -- by id.  ``path_of(def path)`` is
     the resolved file or ``None``, ``geometry(def path)`` its parsed
     geometry (the reader's cache) or ``None``.  ``water``: the water
-    witness (:func:`fit_seat`).  ``hidden``: the def paths the user hid
+    witness (:func:`_fit_seat`).  ``hidden``: the def paths the user hid
     (module doc, HIDING) -- such a model comes back with ``ground =
     "hidden"`` (``ground_shell.HIDDEN``): its row is left out and its
     frame dissolves.

@@ -3,7 +3,7 @@
 ground up to it instead of sinking the composite to its lowest rim").
 
 A terrain model is seated at its rigid fit to the ground
-(``terrain_model.fit_seat``) and a relief skin at its origin's ground
+(``terrain_model._fit_seat``) and a relief skin at its origin's ground
 (``relief_skin``); over a coarse DEM parts of their outer rim then stand over
 our ground.  The tile build raises the ground to them, and conforms the
 ground under a relief skin's town to its frame zero.  Pure numpy / scipy /
@@ -19,14 +19,14 @@ Each posting within :data:`REACH_M` of a support is raised to
 
     max over supports of (z_s - max(0, d - W))
 
-``d`` its distance to the support, ``W`` the SHOULDER (:func:`shoulder_m`:
+``d`` its distance to the support, ``W`` the SHOULDER (:func:`_shoulder_m`:
 :data:`SHOULDER_POSTS` posting diagonals, 15.5 m at LOWS): a flat shoulder
 where the mesher's triangles may reach, then a 1:1 talus.  Only raised;
 inside the plan never above the cut's bound (``terrain_cut``: the ground
 stays under the object's surface).
 
 THE PLANE (:func:`conform_plane`, a relief skin's ``cut["plane"]``): the
-zero footprint (``relief_skin.zero_footprint``) is the ground at the frame
+zero footprint (``relief_skin._zero_footprint``) is the ground at the frame
 zero less ``UNDER_M``; every posting within :data:`REACH_M` of it is clipped
 to ``[z - r, z + r]``, ``r = max(0, d - W)`` -- filled and cut, so the
 walls stand on it and no street is pierced.  Inside a terrain member's plan
@@ -59,7 +59,7 @@ import numpy as np
 
 from ..geom.terrain_deck import UNDER_M
 
-__all__ = ["REACH_M", "SHOULDER_POSTS", "SERVED_M", "Raster", "shoulder_m",
+__all__ = ["REACH_M", "SHOULDER_POSTS", "SERVED_M", "Raster",
            "posting_shoulder_m", "rim_fill", "conform_plane", "Owned"]
 
 #: the reach of a fill or a plane from its supports (m)
@@ -86,9 +86,9 @@ class Raster:
     frozen: "_t.Callable | None" = None
 
     def shoulder_m(self) -> float:
-        """:func:`shoulder_m` of this raster's posting."""
+        """:func:`_shoulder_m` of this raster's posting."""
         lat = self.lat0 - 0.5 * self.dlat * (self.alt.shape[0] - 1)
-        return shoulder_m(self.dlon * _M_PER_DEG * math.cos(math.radians(lat)),
+        return _shoulder_m(self.dlon * _M_PER_DEG * math.cos(math.radians(lat)),
                           self.dlat * _M_PER_DEG)
 
     def window(self, w: float, s: float, e: float, n: float
@@ -127,7 +127,7 @@ class Raster:
         return out
 
 
-def shoulder_m(dx_m: float, dy_m: float) -> float:
+def _shoulder_m(dx_m: float, dy_m: float) -> float:
     """THE SHOULDER ``W``: :data:`SHOULDER_POSTS` posting diagonals (m)."""
     return SHOULDER_POSTS * math.hypot(float(dx_m), float(dy_m))
 
@@ -139,7 +139,7 @@ def posting_shoulder_m(posting_m: "float | None", lat: float) -> float:
     if not posting_m:
         return 0.0
     c = max(math.cos(math.radians(lat)), 1e-6)
-    return shoulder_m(posting_m, posting_m / c)
+    return _shoulder_m(posting_m, posting_m / c)
 
 
 @_dc.dataclass(frozen=True)

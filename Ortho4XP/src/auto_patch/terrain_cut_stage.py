@@ -178,6 +178,7 @@ class _Composite(_t.NamedTuple):
     support_xy: np.ndarray
     support_z: np.ndarray
     owned: _t.Any                  # its ground (``terrain_fill.Owned``)
+    floor: _t.Any                  # its zero footprint alone (``Owned``)
 
 
 def _composite(rec) -> "_Composite | None":
@@ -197,7 +198,7 @@ def _composite(rec) -> "_Composite | None":
     rings = tuple(np.asarray(r, float) for r in [*_tc.outline_rings(fit, to_ll), *plane])
     return _Composite(rec, fit, to_xy, to_ll, np.c_[sx, sy],
                       float(rec["elevation"]) + grid.bot[ri, rj] - UNDER_M,
-                      _tf.Owned(rings))
+                      _tf.Owned(rings), _tf.Owned(tuple(np.asarray(r, float) for r in plane)))
 
 
 def _raster(dem, tile, patch_area):
@@ -255,8 +256,10 @@ def _fill_all(dem, tile, records, patch_area) -> int:
             continue
         own = lambda lons, lats, c=c: _tc.cut_heights(   # noqa: E731
             c.fit, c.to_xy, lons, lats, np.full(len(lons), np.inf))[0]
+        # floors win -- its own town's floor too: a cliff's crest never
+        # raises the zero footprint at its foot through the cliff
         rep = _tf.rim_fill(raster, c.to_xy, c.to_ll, c.support_xy, c.support_z, own,
-                           [o.owned for o in comps if o is not c])
+                           [o.owned for o in comps if o is not c] + [c.floor])
         total += rep["raised"]
         UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain model {c.rec.get('resource')} "
                      f"({c.rec.get('id')}): the ground filled to its rim at "
@@ -316,14 +319,32 @@ def _held_records(tile) -> list:
 
 def held_boxes(tile) -> list[tuple[float, float, float, float]]:
     """``(west, south, east, north)`` degrees of every held record's plan
-    in the tile's patch folder (the mesh step's weight boxes)."""
+    in the tile's patch folder (the mesh step's weight boxes) -- and of
+    every FILL record's plan and zero footprint grown by the fill's reach
+    (#2077: the mesh draws the filled and conformed ground at one posting;
+    weights only, never the hold)."""
     from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_fill as _tf
+    import O4_File_Names as FNAMES
     out = []
-    for rec in _held_records(tile):
+    records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon))
+    for rec in records:
+        c = rec["cut"]
+        if "erode_m" not in c and not c.get("fill"):
+            continue
         fit = _fit(rec)
-        if fit is not None:
-            c = rec["cut"]
-            out.append(_tc.plan_box(fit, _tc.projector(float(c["lat"]), float(c["lon"]))[1]))
+        if fit is None:
+            continue
+        w, s, e, n = _tc.plan_box(fit, _tc.projector(float(c["lat"]), float(c["lon"]))[1])
+        if "erode_m" not in c:
+            for r in (c.get("plane") or {}).get("rings") or ():
+                a = np.asarray(r, float)
+                w, s = min(w, float(a[:, 0].min())), min(s, float(a[:, 1].min()))
+                e, n = max(e, float(a[:, 0].max())), max(n, float(a[:, 1].max()))
+            dy = _tf.REACH_M / 111_320.0
+            dx = dy / max(np.cos(np.radians(0.5 * (s + n))), 1e-6)
+            w, s, e, n = w - dx, s - dy, e + dx, n + dy
+        out.append((w, s, e, n))
     return out
 
 

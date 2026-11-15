@@ -49,7 +49,7 @@ from shapely.ops import unary_union
 from ..geom.parts import nonempty_polygon_parts as _parts
 from ..geom.valid_area import valid_area
 
-__all__ = ["cut_runouts", "level_exit_climbs", "road_exits"]
+__all__ = ["cut_runouts", "level_exit_climbs"]
 
 #: a crossing is an END only where its way runs on outside every pad this far
 CLEAR_M = 20.0
@@ -228,7 +228,7 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict,
     out: dict[str, dict[str, _t.Any]] = {}
     for ref, (L, bref, y) in sorted(levels.items()):
         # ``taken`` grows by each run-out minted: read at each route
-        for p, (dx, dy), h, corr, z0 in road_exits(L, (held.get(bref) or {}).get("datum_pred"),
+        for p, (dx, dy), h, corr, z0 in _road_exits(L, (held.get(bref) or {}).get("datum_pred"),
                                                    y, ways, lambda: taken, grid, riser):  # noqa: B023
             stat["ends"] += 1
             if z0 is None:
@@ -273,7 +273,7 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict,
     return out
 
 
-def road_exits(L, datum, y: float, ways, taken, grid: float, riser: float) -> _t.Iterator:
+def _road_exits(L, datum, y: float, ways, taken, grid: float, riser: float) -> _t.Iterator:
     """``(lip, (dx, dy), half-width, corridor, z0)`` for every ROAD EXIT of
     the level ``L`` (:func:`_road_runouts`' reader): each route of ``ways``
     (``[(route, half-width)]``, :func:`_routes`) within a grid of the level,
@@ -295,14 +295,14 @@ def road_exits(L, datum, y: float, ways, taken, grid: float, riser: float) -> _t
 
 def level_exit_climbs(L, datum, y: float, airport, law, taken, grid: float) -> "list | None":
     """``[DEM at the lip - level]`` of every road exit of the level ``L``
-    (:func:`road_exits`, the run-outs' own reader), or ``None`` where no
+    (:func:`_road_exits`, the run-outs' own reader), or ``None`` where no
     road leaves it or the block has no ``datum``."""
     dem = getattr(airport, "dem", None)
     if dem is None or datum is None:
         return None
     ways = _routes(airport, law, [L], grid)
     riser = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
-    ex = list(road_exits(L, datum, y, ways, taken, grid, riser)) if ways else []
+    ex = list(_road_exits(L, datum, y, ways, taken, grid, riser)) if ways else []
     if not ex:
         return None
     return [float(dem.z(p.x, p.y)) - z0 for p, _d, _h, _c, z0 in ex]

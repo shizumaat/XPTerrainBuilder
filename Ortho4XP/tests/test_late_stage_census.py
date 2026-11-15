@@ -140,7 +140,9 @@ def test_a_groundside_tier_relaxation_sides_groundside(cg):
     assert [r.de_m for r in rows] == [1.2, 0.4, 0.3]
 
 
-FRAME = Path("/Users/noah/XPTerrainBuilderData/.harness/frames/gaps7/ARM2")
+from conftest import data_repo  # noqa: E402
+
+FRAME = data_repo() / ".harness/frames/gaps7/ARM2"
 
 
 @pytest.mark.skipif(not (FRAME / "solved.pkl").exists(), reason="frame gaps7/ARM2 not mounted")

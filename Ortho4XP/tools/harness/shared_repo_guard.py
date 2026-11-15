@@ -30,25 +30,31 @@ import time
 from pathlib import Path
 
 
-def _load_flock():
+def _load_sibling(module: str, filename: str):
+    """A stdlib-only sibling module of this directory, loaded by path (this
+    module is itself loaded by path, e.g. from ``tools/harness/frames.py``,
+    with the harness directory not on ``sys.path``)."""
     import importlib.util as _ilu
     import sys as _sys
-    _m = _sys.modules.get("_o4_portable_flock")
+    _m = _sys.modules.get(module)
     if _m is None:
-        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portable_flock.py")
-        _s = _ilu.spec_from_file_location("_o4_portable_flock", _p)
+        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+        _s = _ilu.spec_from_file_location(module, _p)
         _m = _ilu.module_from_spec(_s)
-        _sys.modules["_o4_portable_flock"] = _m
+        _sys.modules[module] = _m
         _s.loader.exec_module(_m)
     return _m
 
 
-_flock = _load_flock()   # fcntl on POSIX, msvcrt on Windows (#92)
+# fcntl on POSIX, msvcrt on Windows (#92)
+_flock = _load_sibling("_o4_portable_flock", "portable_flock.py")
 
-#: THE shared data repo (owner ruling e9daef5).  Every lane mounts it; no
-#: lane redownloads or regenerates a cache into a private corpus.
-DATA_REPO = Path(os.environ.get("O4_DATA_REPO",
-                                "/Users/noah/XPTerrainBuilderData"))
+#: THE shared data repo (owner ruling e9daef5): the DEVELOPMENT corpus,
+#: never the app's data root (owner 2026-11-15T02:42Z, #2093) — one
+#: setting, ``corpus_home.data_repo()`` (``O4_DATA_REPO`` else the
+#: default).  Every lane mounts it; no lane redownloads or regenerates a
+#: cache into a private corpus.
+DATA_REPO = _load_sibling("corpus_home", "corpus_home.py").data_repo()
 HARNESS_STATE = DATA_REPO / ".harness"
 LOCK_DIR = HARNESS_STATE / "locks"
 REFRESH_LEDGER = HARNESS_STATE / "refresh_ledger.jsonl"

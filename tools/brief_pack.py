@@ -45,7 +45,8 @@ STANDING = """\
 - ONE closing build through the harness (v2 is the only engine, RULINGS
   2026-09-13au — there is no `--engine` flag); base arms cut with
   `git archive <sha> src`, never another live checkout.
-- NEVER write `/Users/noah/XPTerrainBuilderData` or `/Users/noah/X-Plane 12/Custom Scenery/`;
+- NEVER write the harness corpus (`/Users/noah/XPTerrainBuilderDevData`),
+  the app data root `/Users/noah/XPTerrainBuilderData` or `/Users/noah/X-Plane 12/Custom Scenery/`;
   no `--refresh-data`; every run prints `[guard] shared repo UNCHANGED`.
   Do NOT set `O4_DSF_CACHE_DIR` / `O4_AIRPORT_MOD_CACHE_DIR`: the harness makes its own
   overlay, and with them set a build refuses ("pack DSF dump MISSING", #342) — they are

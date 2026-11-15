@@ -635,6 +635,17 @@ def xplane_root() -> str:
     return os.environ.get("XPLANE_ROOT", "/Users/noah/X-Plane 12")
 
 
+def data_repo():
+    """THE harness corpus (``tools/harness/corpus_home.py``: ``O4_DATA_REPO``
+    else the development corpus, never the app's data root — #2093).  A
+    test that reads the corpus or a registered frame resolves it here."""
+    harness = os.path.normpath(os.path.join(_HERE, "..", "tools", "harness"))
+    if harness not in sys.path:
+        sys.path.insert(0, harness)
+    import corpus_home
+    return corpus_home.data_repo()
+
+
 # ══════════════════════════════════════════════════════════════════════
 # THE SYNTHETIC EMITTED PATCH — one writer, every law-reader twin
 # ══════════════════════════════════════════════════════════════════════
@@ -898,7 +909,7 @@ def _discover_airports_in_tile(lat: int, lon: int) -> List[str]:
 # ══════════════════════════════════════════════════════════════════════
 # THE SHARED DATA REPO IS NOT A TEST SCRATCH DIR (owner ruling e9daef5)
 # ══════════════════════════════════════════════════════════════════════
-# /Users/noah/XPTerrainBuilderData is THE corpus every lane MOUNTS.  A test
+# The harness corpus (``data_repo()``) is THE corpus every lane MOUNTS.  A test
 # that writes into it changes what every other lane measures, and nothing
 # in a pytest report says so.
 #

@@ -121,7 +121,7 @@ jobs:
   # (-n auto from pytest.ini).  The two halves are disjoint and together
   # they are `tests/`.
   #
-  # The corpus: /Users/noah/XPTerrainBuilderData is on no runner, and the
+  # The corpus: /Users/noah/XPTerrainBuilderDevData is on no runner, and the
   # shared-repo guard in tests/conftest.py is inert when it is absent.
   # tests/auto_patch_v2 carries its own checked-in fixtures (CYXY et al.)
   # and needs no corpus.  Tests that need a tool CI does not install skip

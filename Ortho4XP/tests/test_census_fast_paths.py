@@ -28,7 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tools"))
 
-FRAMES = Path("/Users/noah/XPTerrainBuilderData/.harness/frames")
+from conftest import data_repo  # noqa: E402
+
+FRAMES = data_repo() / ".harness/frames"
 #: registered frames that declare terrace joints (``tools/harness/frames.py``)
 TERRACE_FRAMES = (
     FRAMES / "lvnlk" / "lvnlk6.osm",

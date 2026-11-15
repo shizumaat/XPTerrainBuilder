@@ -312,6 +312,55 @@ def latest(icao: str, kind: str) -> dict | None:
     return rows[-1] if rows else None
 
 
+#: The row keys that name a registered product (``copied_from`` and
+#: ``note`` are history and are never rewritten).
+PATH_KEYS = ("path", "sidecar")
+
+
+def _legacy_frames_root() -> str:
+    """``<the corpus before #2093>/.harness/frames`` (``corpus_home``)."""
+    import corpus_home  # loaded into sys.modules by the guard (_harness_state)
+    return os.path.join(str(corpus_home.LEGACY_CORPUS), ".harness", "frames")
+
+
+def rehome(old_root: str, apply: bool = False) -> dict:
+    """RE-HOME the registry after the corpus moved (#2093): every row whose
+    ``path``/``sidecar`` lies under ``old_root`` is rewritten to the same
+    relative path under :func:`durable_root`, and a product present only
+    under ``old_root`` is cloned there first (``cp -cpR``: APFS clonefile,
+    no disk until rewritten).  ONE way, rewrite — rows never resolve a
+    second root at read time.  Dry run unless ``apply``; idempotent."""
+    old_root = os.path.normpath(old_root)
+    new_root = os.path.normpath(durable_root())
+    rows, moved, cloned, missing = _load(), 0, [], []
+    for rec in rows:
+        for key in PATH_KEYS:
+            val = rec.get(key)
+            if not (isinstance(val, str)
+                    and val.startswith(old_root + os.sep)):
+                continue
+            dest = new_root + val[len(old_root):]
+            if not os.path.exists(dest):
+                if os.path.exists(val):
+                    cloned.append((val, dest))
+                else:
+                    missing.append(val)
+            rec[key] = dest
+            moved += 1
+    if apply:
+        import subprocess
+        for src, dest in cloned:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            subprocess.run(["cp", "-cpR", src, dest], check=True)
+        tmp = REGISTRY + ".rehome"
+        with open(tmp, "w", encoding="utf-8") as f:
+            for rec in rows:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        os.replace(tmp, REGISTRY)
+    return {"rewritten": moved, "cloned": len(cloned),
+            "missing": len(missing), "applied": apply}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -324,7 +373,15 @@ def main(argv=None) -> int:
                         "<data repo>/.harness/frames/<lane>/ and register the copy")
     l = sub.add_parser("list"); l.add_argument("icao", nargs="?"); l.add_argument("--kind")
     t = sub.add_parser("latest"); t.add_argument("icao"); t.add_argument("--kind", required=True)
+    h = sub.add_parser("rehome", help="rewrite rows under an OLD corpus's "
+                       ".harness/frames to the current durable root (#2093)")
+    h.add_argument("--from", dest="old", default=None,
+                   help="old frames root (default: the pre-#2093 corpus's)")
+    h.add_argument("--apply", action="store_true")
     a = ap.parse_args(argv)
+    if a.cmd == "rehome":
+        print(json.dumps(rehome(a.old or _legacy_frames_root(), a.apply)))
+        return 0
     if a.cmd == "register":
         print(_fmt(register(a.icao, a.kind, a.path, a.base, a.lane, a.note, copy=a.copy))); return 0
     if a.cmd == "list":

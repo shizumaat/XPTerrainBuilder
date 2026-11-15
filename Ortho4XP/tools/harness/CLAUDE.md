@@ -23,6 +23,18 @@ Tunnel, deck, level and object-seat bars are measured on what X-Plane DRAWS, nev
 - A build on a PRIVATE data corpus, whose numbers no other lane can be
   compared with: refused; the corpus every data dir resolved to is recorded
   in `frame.json`.
+- A harness corpus inside (or containing) an APP data root, where the app's
+  automatic storage cleanup deletes caches it knows nothing about (14,183
+  corpus elevation files on 2026-11-14, #2093): `build_airport.py` and
+  `lane_worktree.sh up` refuse. The corpus is the development copy
+  `/Users/noah/XPTerrainBuilderDevData` (owner 2026-11-15T02:42Z: "keep a
+  separate copy in the development folder for test use"); its ONE setting
+  is `corpus_home.py` (`O4_DATA_REPO` else that default), and every tool,
+  test (`conftest.data_repo()`) and the ritual resolve it there — a second
+  literal path fails `tests/test_corpus_home.py`. The app is never taught
+  to skip anything. After a corpus move, `tools/harness/frames.py rehome
+  [--apply]` rewrites registry rows under the old `.harness/frames` and
+  clones any product only the old root holds.
 - An implicit download or cache regeneration into the shared repo (the
   KCLT road-feed precedent): refused before the build, naming the artifact
   and the `--refresh-data` scope; and a full before/after snapshot after it

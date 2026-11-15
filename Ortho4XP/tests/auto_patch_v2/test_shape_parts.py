@@ -148,7 +148,9 @@ def test_a_map_with_no_gap_part_is_labelled_exactly_as_before(law, monkeypatch):
     assert pm.shape_joints == ref.shape_joints
 
 
-FRAME = Path("/Users/noah/XPTerrainBuilderData/.harness/frames/gaps7/ARM2/solved.pkl")
+from conftest import data_repo  # noqa: E402
+
+FRAME = data_repo() / ".harness/frames/gaps7/ARM2/solved.pkl"
 
 
 @pytest.mark.skipif(not FRAME.exists(), reason="frame gaps7/ARM2 (a cut map) not mounted")

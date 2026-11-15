@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from corpus_snapshot import SHARED_DATA_REPO_DEFAULT  # noqa: E402
+from corpus_home import data_repo  # noqa: E402
 from cow_audit import private_bytes  # noqa: E402
 
 __all__ = ["candidates", "prune", "frame_paths", "open_paths",
@@ -188,8 +188,7 @@ def main(argv=None) -> int:
     ap.add_argument("engine", help="an Ortho4XP tree (holds tmp/)")
     ap.add_argument("--days", type=float, default=7.0)
     ap.add_argument("--apply", action="store_true")
-    ap.add_argument("--data-repo", default=os.environ.get(
-        "O4_DATA_REPO", str(SHARED_DATA_REPO_DEFAULT)))
+    ap.add_argument("--data-repo", default=str(data_repo()))
     ap.add_argument("--frames", default=str(here / "docs" / "frames.jsonl"))
     args = ap.parse_args(argv)
     held = open_paths(Path(args.engine) / "tmp")

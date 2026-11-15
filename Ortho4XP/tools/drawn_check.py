@@ -56,7 +56,7 @@ rc1903 instrument's own column.  Exit 1 if any bar fails.
 
 Usage (from Ortho4XP/):
     venv/bin/python tools/drawn_check.py ENTC --tile +69+018 \
-        --patches /Users/noah/XPTerrainBuilderData/Patches
+        --patches Patches
     venv/bin/python tools/drawn_check.py LOWS --tile +47+012 --tag T --out DIR
     ... --json OUT.json [--against BASE.json]   (controls: flag moved sites)
 """

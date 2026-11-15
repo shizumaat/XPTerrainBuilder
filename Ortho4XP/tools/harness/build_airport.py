@@ -84,7 +84,7 @@ measurement in this repo, and every one of them exits 0 without the check:
    written by its own emitter, so there is no swallowed contributor to name.
 
 6. **A PRIVATE data corpus.**  Owner ruling e9daef5 makes ONE shared data
-   repo mandatory (``/Users/noah/XPTerrainBuilderData``): every lane mounts
+   repo mandatory (``corpus_home.data_repo()``, #2093): every lane mounts
    it, no lane keeps a private cache.  Two lanes on two corpora do not
    measure the same thing, and nothing in a build log says which corpus
    was used.  Every data dir is resolved and recorded; a private one is
@@ -3260,7 +3260,7 @@ def corpus_base(root) -> Path:
     THE MEASURED BUG (2026-09-15, round 7).  ``reconcilable_artifacts``
     relativised against the LANE ROOT, but a lane's ``OSM_data`` is a
     SYMLINK into the shared repo, so ``Path(cache).resolve()`` lands in
-    ``/Users/noah/XPTerrainBuilderData/...`` and ``relative_to(lane)``
+    the shared repo (``DATA_REPO``) and ``relative_to(lane)``
     raised ValueError for EVERY artefact.  The list came out empty and
     ``--reconcile-ledger`` reported "no artefact of the requested
     scope(s) on tile +33-112" while the very file it exists for
@@ -4966,7 +4966,7 @@ def _prune_lane_cache(root, prog) -> None:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import tmp_prune
         n, freed = tmp_prune.prune_cache_after_run(
-            root, os.environ.get("O4_DATA_REPO", str(CS.SHARED_DATA_REPO_DEFAULT)),
+            root, str(DATA_REPO),
             str(Path(__file__).resolve().parents[3] / "docs" / "frames.jsonl"))
         if n:
             prog.note(f"lane cache: pruned {n} entries unused for 7+ days "
@@ -5360,7 +5360,7 @@ def main(argv=None) -> int:
                                 prog=prog)
         man = json.loads((snap_dir / "snapshot.json").read_text())
         leak_watch = CS.LeakWatch([
-            CS.SHARED_DATA_REPO_DEFAULT,
+            *CS.LEAK_ROOTS,
             (man.get("source_corpus") or {}).get("install_root")]).start()
     trace = CS.ReadTrace().start() if args.trace_reads else None
     if trace is not None:
@@ -5372,6 +5372,9 @@ def main(argv=None) -> int:
                   f"{sorted(cfg_diff)}")
 
     # ── ONE SHARED DATA REPO (ruling e9daef5) ────────────────────────
+    # never an app data root: the app's storage cleanup deletes caches
+    # there and knows nothing of the harness (#2093)
+    CS.corpus_home.require_not_app_root(DATA_REPO)
     mounts = data_mounts(root)
     require_shared_data(mounts, allow_private=args.allow_private_data)
     shared_n = sum(1 for m in mounts.values() if m["shared"])

@@ -339,7 +339,9 @@ def test_pulled_beyond_the_profile_the_iis_names_the_pin(shared_edge, law):
 
 # ── #134 / RULINGS 2026-09-30ak: ONE continuous transverse bound ─────────
 
-KASE_CAPTURE = "/Users/noah/XPTerrainBuilderData/.harness/frames/project133/KASE.pkl"
+from conftest import data_repo  # noqa: E402
+
+KASE_CAPTURE = str(data_repo() / ".harness/frames/project133/KASE.pkl")
 
 
 def test_the_bound_is_continuous_across_the_half_width(law):

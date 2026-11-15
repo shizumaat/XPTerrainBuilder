@@ -234,7 +234,9 @@ def test_family_split_is_the_laws_and_the_runway_is_senior():
 #: The sweep references the recorded result was read on (``frames.py list
 #: SPJC``, lane ``reference``).  They live in the shared data repo, so the
 #: twin skips where no corpus is mounted (every CI runner).
-_REFERENCE = Path("/Users/noah/XPTerrainBuilderData/.harness/frames/reference")
+from conftest import data_repo  # noqa: E402
+
+_REFERENCE = data_repo() / ".harness/frames/reference"
 
 
 @pytest.mark.skipif(not (_REFERENCE / "sw1028_SPJC.osm").is_file(),

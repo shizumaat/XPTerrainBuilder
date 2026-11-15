@@ -41,3 +41,10 @@ Ortho4XP/.corpus_snapshot_mounts.json
 Ortho4XP/DDS_cache
 Ortho4XP/logs
 Ortho4XP/Imagery_on_demand
+# app/world run output, lane-local since the corpus left the app root (#2093)
+Ortho4XP/World_build
+Ortho4XP/World_staging
+Ortho4XP/Flights
+Ortho4XP/Tile_packages
+# two corpus mounts that were once committed as symlinks into the app root
+Ortho4XP/owner_reference

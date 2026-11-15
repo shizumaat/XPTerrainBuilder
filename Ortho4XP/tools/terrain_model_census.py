@@ -49,7 +49,11 @@ from auto_patch_v2.airport import ground_shell as GS  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
 from auto_patch_v2.airport.obj8 import parse_obj8  # noqa: E402
 
-DEFAULT_ELEVATION = "/Users/noah/XPTerrainBuilderData/Elevation_data"
+sys.path.insert(0, os.path.join(HERE, "harness"))
+import corpus_home  # noqa: E402
+
+#: the harness corpus's DEM (the one setting, ``corpus_home``, #2093)
+DEFAULT_ELEVATION = str(corpus_home.data_repo() / "Elevation_data")
 
 
 def _stem(lat: int, lon: int) -> tuple[str, str]:

@@ -33,7 +33,9 @@ from auto_patch_v2.law import Law
 
 LEDGER = Path(os.path.expanduser("~/.ortho4xp/artifact_ledger"))
 TAG = "CYXY_20260901T235159"
-DATA = Path("/Users/noah/XPTerrainBuilderData")
+from conftest import data_repo  # noqa: E402
+
+DATA = data_repo()
 XPLANE = Path("/Users/noah/X-Plane 12")
 
 VALUE_ROLES = frozenset(("runway", "runway_crossing", "primary_parallel",

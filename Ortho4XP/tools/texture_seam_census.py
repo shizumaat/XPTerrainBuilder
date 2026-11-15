@@ -84,8 +84,15 @@ def _default_orthophoto_root() -> Path | None:
             return root
     except Exception:  # pragma: no cover - engine config absent
         pass
-    shared = Path("/Users/noah/XPTerrainBuilderData/Orthophotos")
+    shared = _corpus() / "Orthophotos"
     return shared if shared.is_dir() else None
+
+
+def _corpus() -> Path:
+    """The harness corpus (the one setting, ``corpus_home``, #2093)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "harness"))
+    import corpus_home  # noqa: WPS433
+    return corpus_home.data_repo()
 
 
 TILE_PRODUCT_RE = re.compile(
@@ -163,8 +170,8 @@ def _default_masks_dir(tile_dir: Path) -> Path | None:
             return d
     except Exception:  # pragma: no cover - engine config absent
         pass
-    for cand in (Path("/Users/noah/XPTerrainBuilderData/Masks") / block / short,
-                 Path("/Users/noah/XPTerrainBuilderData/Masks") / short):
+    masks = _corpus() / "Masks"
+    for cand in (masks / block / short, masks / short):
         if cand.is_dir():
             return cand
     return None

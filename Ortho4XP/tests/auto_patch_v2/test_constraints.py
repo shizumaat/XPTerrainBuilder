@@ -471,7 +471,9 @@ def test_osm_writer_contract(synthetic, law, tmp_path):
 
 # ── verify == the v1 census on v2's own CYXY patch (row-set diff) ────────
 
-DATA = Path("/Users/noah/XPTerrainBuilderData")
+from conftest import data_repo  # noqa: E402
+
+DATA = data_repo()
 
 
 @pytest.mark.skipif(not (DATA / "Elevation_data").is_dir(), reason="shared data repo")

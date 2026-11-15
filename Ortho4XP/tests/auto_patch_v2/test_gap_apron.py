@@ -276,11 +276,10 @@ def test_a_sheet_free_airport_never_reaches_the_readers(monkeypatch):
 
 # ── the HECA frame twin: the class table (§59 (5)) ───────────────────────
 
-import pathlib  # noqa: E402
-
 import pytest  # noqa: E402
+from conftest import data_repo  # noqa: E402
 
-FRAME = pathlib.Path("/Users/noah/XPTerrainBuilderData/.harness/frames/gapapron3/HECA.pkl")
+FRAME = data_repo() / ".harness/frames/gapapron3/HECA.pkl"
 
 
 @pytest.mark.skipif(not FRAME.exists(), reason="frames gapapron3 (the capture) not mounted")

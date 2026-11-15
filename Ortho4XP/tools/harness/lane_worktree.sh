@@ -29,9 +29,12 @@
 #
 # ── ONE SHARED DATA REPO (owner ruling e9daef5, MANDATORY) ───────────
 #
-# /Users/noah/XPTerrainBuilderData is THE data repo: DEM + insets, OSM
+# /Users/noah/XPTerrainBuilderDevData is THE data repo: DEM + insets, OSM
 # extracts + road feeds, airport mod cache, geotiffs, masks, DSF cache,
-# orthophotos.  Every lane MOUNTS it — never copies, never creates a
+# orthophotos.  It is the DEVELOPMENT corpus, kept apart from the app's
+# data root (~/XPTerrainBuilderData), whose automatic storage cleanup knows
+# nothing of the harness (owner 2026-11-15T02:42Z, #2093;
+# tools/harness/corpus_home.py is the one setting).  Every lane MOUNTS it — never copies, never creates a
 # private cache.  Two lanes on two corpora do not measure the same thing:
 # warm-vs-cold inset state alone has moved measured terrain by 12 m here,
 # and a private cache is a second corpus that warms on its own schedule.
@@ -138,7 +141,8 @@ set -u
 MAIN_REPO="${O4_MAIN_REPO:-/Users/noah/XPTerrainBuilder}"
 MAIN_ENGINE="$MAIN_REPO/Ortho4XP"
 WT_ROOT="$MAIN_REPO/.claude/worktrees"
-DATA_REPO="${O4_DATA_REPO:-/Users/noah/XPTerrainBuilderData}"
+# THE ONE SETTING: corpus_home.py's DEV_CORPUS_DEFAULT (twin-pinned equal).
+DATA_REPO="${O4_DATA_REPO:-/Users/noah/XPTerrainBuilderDevData}"
 
 # Mounted from the MAIN ENGINE tree (code-adjacent, not data).
 ENGINE_LINKS="venv"
@@ -629,6 +633,12 @@ index_state() {
 case "$ACTION" in
 up)
     [ -d "$MAIN_ENGINE" ] || die "no engine tree at $MAIN_ENGINE"
+    # #2093: never mount an app data root (its cleanup deletes the corpus).
+    _py=$(harness_python)
+    if [ -n "$_py" ]; then
+        "$_py" "$(dirname "$COW_AUDIT")/corpus_home.py" --check "$DATA_REPO" \
+            || exit 2
+    fi
     DATA_LIST=$(data_dirs)
     for d in $REQUIRED_DATA_DIRS; do
         [ -d "$DATA_REPO/$d" ] || die "the shared data repo has no $d.
@@ -648,6 +658,17 @@ up)
     done
     for d in $DATA_LIST; do
         mount_link "$d" "$DATA_REPO/$d"
+    done
+    # #2093: a mount left from an EARLIER data repo (the corpus moved off
+    # the app's data root) is dropped, never left writing into that root.
+    for _l in "$ENGINE"/*; do
+        [ -L "$_l" ] || continue
+        _n=$(basename "$_l"); _t=$(readlink "$_l")
+        [ "$_t" = "$DATA_REPO/$_n" ] || [ "$_t" = "$MAIN_ENGINE/$_n" ] && continue
+        [ "$(basename "$_t")" = "$_n" ] || continue
+        case " $(echo $DATA_LIST) " in *" $_n "*) continue ;; esac
+        rm "$_l"
+        echo "  [ritual] UNMOUNTED $_n (was $_t; not in the data repo $DATA_REPO)"
     done
     for d in $CLONE_DIRS; do
         mkdir -p "$ENGINE/$d"

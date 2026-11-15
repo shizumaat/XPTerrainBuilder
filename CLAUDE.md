@@ -256,10 +256,18 @@ fixtures share one code path; `Ortho4XP/tests/test_harness.py` twin-asserts
 that they do. Adding a check to `run_checks` without registering it in
 `LAW_FAMILIES` fails there.
 
-**One shared data repo (owner ruling, RULINGS `e9daef5`).**
-`/Users/noah/XPTerrainBuilderData` is THE data repo — DEM + insets, OSM
-extracts + road feeds, airport mod cache, geotiffs, masks, DSF cache,
-orthophotos. Every lane MOUNTS it through the ritual; a private cache is a
+**One shared data repo (owner ruling, RULINGS `e9daef5`; moved by owner
+2026-11-15T02:42Z, #2093).** `/Users/noah/XPTerrainBuilderDevData` is THE
+data repo — DEM + insets, OSM extracts + road feeds, airport mod cache,
+geotiffs, masks, DSF cache, orthophotos, and `.harness/` (frames, refresh
+ledger, locks). It is the DEVELOPMENT corpus, a separate copy beside the
+repo, never the app's data root (`~/XPTerrainBuilderData`): "the app
+shouldn't know anything about tests or development, so it can't know to
+skip cache clearing" — the app's automatic storage cleanup deleted 14,183
+corpus elevation files there on 2026-11-14. One setting:
+`Ortho4XP/tools/harness/corpus_home.py` (`O4_DATA_REPO` else that
+default); the harness refuses a corpus that overlaps an app data root, and
+the app carries no knowledge of tests. Every lane MOUNTS it through the ritual; a private cache is a
 second corpus that warms on its own schedule, and two lanes on two corpora
 do not measure the same thing. Downloads and cache regenerations are
 EXPLICIT, locked, hash-stamped events — `build_airport.py --refresh-data

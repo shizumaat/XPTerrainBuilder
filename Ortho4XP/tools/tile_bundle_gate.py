@@ -376,7 +376,7 @@ def gate(args) -> int:
         pristine = {p: pack_hashes(scenery / p) for p in made["packs"]}
         (world / "pristine.json").write_text(json.dumps(pristine))
     import corpus_snapshot as CS
-    leak_roots = [CS.SHARED_DATA_REPO_DEFAULT,
+    leak_roots = [*CS.LEAK_ROOTS,
                   build["result"]["build_dir"], build["result"]["patch_dir"],
                   build["result"]["xplane_paths"]["custom_scenery_dir"],
                   str(ROOT / "OSM_data"), str(ROOT / "Elevation_data"),

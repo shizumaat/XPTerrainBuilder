@@ -181,9 +181,11 @@ def test_intersection_lengths_equal_per_part():
 
 # ── the REAL inputs (registered TNCM capture harvest) ────────────────────
 
+from conftest import data_repo  # noqa: E402
+
 _HARVEST = Path(os.environ.get(
     "O4_PACKBULK_HARVEST",
-    "/Users/noah/XPTerrainBuilderData/.harness/frames/packperf/harvest_TNCM.pkl.gz"))
+    str(data_repo() / ".harness/frames/packperf/harvest_TNCM.pkl.gz")))
 
 
 @pytest.fixture(scope="module")

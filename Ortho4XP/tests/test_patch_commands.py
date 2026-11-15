@@ -23,7 +23,10 @@ from o4_engine import patch_file as PF  # noqa: E402
 
 TILE = "+30+031"
 _REAL_STALENESS = PC._staleness
-HECA = "/Users/noah/XPTerrainBuilderData/Patches/+30+030/+30+031/HECA_auto.patch.osm"
+from conftest import data_repo  # noqa: E402
+
+#: a registered (durable) HECA patch frame carrying the o4_cfg stamp
+HECA = str(data_repo() / ".harness/frames/m7/HECA_auto.patch.osm")
 
 _JOSM = """<?xml version="1.0" encoding="UTF-8"?>
 <osm version="0.6" generator="JOSM">
@@ -50,7 +53,7 @@ def patches(tmp_path, monkeypatch):
 @pytest.fixture
 def heca(patches):
     if not os.path.isfile(HECA):
-        pytest.skip("the data repo's HECA auto patch is not on this machine")
+        pytest.skip("the registered HECA patch frame is not on this machine")
     path = os.path.join(patches, "HECA_auto.patch.osm")
     shutil.copyfile(HECA, path)
     return path

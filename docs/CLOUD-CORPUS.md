@@ -3,7 +3,7 @@
 Owner ruling: RULINGS 2026-09-28a (7), which amends e9daef5 for cloud lanes.
 Tool: `Ortho4XP/tools/harness/corpus_snapshot.py` (see its `tools/INDEX.md` row).
 
-A cloud lane has neither the shared data repo (`/Users/noah/XPTerrainBuilderData`)
+A cloud lane has neither the shared data repo (`/Users/noah/XPTerrainBuilderDevData`)
 nor an X-Plane install. Instead it builds from a **hash-stamped snapshot**: the
 exact subset of both that `build_airport.py ICAO` reads, cut per airport and
 published as release assets in the private repo

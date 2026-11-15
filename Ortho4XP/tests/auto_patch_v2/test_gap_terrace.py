@@ -3,7 +3,6 @@ RULINGS 2026-10-04u, 2026-10-06d): the step cut, the knife, the lot cut, the
 floors, and determinism — on synthetic pieces."""
 from __future__ import annotations
 
-import pathlib
 import pickle
 import random
 
@@ -18,7 +17,9 @@ from auto_patch_v2.law import Law
 LAW, RULES = Law.for_airport("HECA"), load_rules()
 CAP = 0.08
 FLOOR = float(LAW.tables.emit.terrace.pad_terrace_floor_m)
-FRAMES = pathlib.Path("/Users/noah/XPTerrainBuilderData/.harness/frames/gaps3")
+from conftest import data_repo  # noqa: E402
+
+FRAMES = data_repo() / ".harness/frames/gaps3"
 
 
 def _run(x0, x1, y, z, cls, n=9, cap=CAP, knife=0.0):

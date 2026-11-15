@@ -7,7 +7,7 @@ data repo (owner RULINGS 2026-09-28a (7), amending e9daef5 for cloud lanes).
 
 Run from ``Ortho4XP/`` in a lane worktree mounted on the SHARED corpus.
 
-WHAT A SNAPSHOT IS.  A cloud lane has no ``/Users/noah/XPTerrainBuilderData``
+WHAT A SNAPSHOT IS.  A cloud lane has no harness corpus (``corpus_home``)
 and no X-Plane install.  A snapshot is the exact subset of both that
 ``build_airport.py ICAO`` READS, copied into one tree::
 
@@ -75,8 +75,18 @@ HERE = Path(__file__).resolve().parent
 ENGINE_ROOT = HERE.parent.parent
 DEFAULT_ALLOWLIST = HERE / "corpus_snapshot_allowlist.json"
 #: The shared repo's DEFAULT location, independent of ``O4_DATA_REPO`` —
-#: the path a snapshot build must never read (a leak).
-SHARED_DATA_REPO_DEFAULT = Path("/Users/noah/XPTerrainBuilderData")
+#: the path a snapshot build must never read (a leak).  THE one setting is
+#: ``corpus_home`` (#2093); the app's data roots are leaks too
+#: (:data:`LEAK_ROOTS`).
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+import corpus_home  # noqa: E402
+
+SHARED_DATA_REPO_DEFAULT = corpus_home.DEV_CORPUS_DEFAULT
+#: Every corpus a snapshot or isolated child build must never read: the
+#: development corpus and the app's own data roots (the corpus lived there
+#: before #2093).
+LEAK_ROOTS = (SHARED_DATA_REPO_DEFAULT, *corpus_home.app_data_roots())
 #: The corpus dirs (``shared_repo_guard.SHARED_DATA_DIRS``, repeated here so
 #: this module imports without the guard — :func:`mount` runs BEFORE the
 #: guard is imported, because the guard reads ``O4_DATA_REPO`` at import).

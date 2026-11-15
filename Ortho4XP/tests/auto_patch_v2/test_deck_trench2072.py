@@ -173,6 +173,64 @@ def test_no_floor_vertex_stands_in_an_airside_column(site):
             assert not vs & air, r
 
 
+def test_no_tunnel_ramp_vertex_stands_on_the_taxiway_the_deck_carries(site):
+    """#1718 guard: the cut under a deck goes through the deck's uncut
+    band -- no ``tunnel_ramp`` vertex (the mouth datum's floor) shares a
+    vertex with a taxi-family face.  MEASURED KBNA Taxiway L (2026-11-14
+    DEM): a level-split lane's mouth datum landed on the taxiway edge and
+    its ``tunnel.mouth_depth_m`` rows pulled the taxiway 2.3 m down."""
+    from auto_patch_v2.classify.roles import TAXI_FAMILY
+    pm = site.pm
+    taxi, ramp = set(), set()
+    for f in pm.faces.values():
+        vs = set(pm.ring_vertices(f.ring))
+        if f.role in TAXI_FAMILY:
+            taxi |= vs
+        elif f.role == "tunnel_ramp":
+            ramp |= vs
+    assert ramp and taxi
+    assert not ramp & taxi
+
+
+class _TwoLevelDem(M4B._PlaneDem):
+    """The fixture's plane, the ground east of x = 0 north of the deck 2 m
+    up: two roads under one deck side at two levels (B2 splits them)."""
+
+    def z(self, x: float, y: float) -> float:
+        return super().z(x, y) + (2.0 if x > 0.0 and y > 15.0 else 0.0)
+
+
+def test_a_level_split_lane_keeps_its_ramp_off_the_taxiway(tmp_path):
+    """#1718 guard on the B2 path itself: a dead-end deck side whose two
+    roads stand 2 m apart beyond it is two lanes, and neither lane's ramp
+    shares a vertex with the taxiway the deck carries."""
+    import dataclasses
+
+    from auto_patch_v2.classify.roles import TAXI_FAMILY
+    d = tmp_path / "objects"
+    d.mkdir()
+    roads = tuple(OsmWay(-1 - i, "big_roads", ((x, -400.0), (x, 400.0)), False,
+                         {"highway": "primary", "lanes": "1"}) for i, x in enumerate((-6.0, 6.0)))
+    airport = dataclasses.replace(M4B._airport({"dir": d}, LAW, [], roads), dem=_TwoLevelDem())
+    db = _deck()
+    pb = importlib.import_module("auto_patch_v2.planar.build")
+    real = pb.deck_bridges
+    pb.deck_bridges = lambda *a, **k: ((db,), [])
+    try:
+        pm, _stats = pb.build(airport, Classification(tuple(_cells()), (), {}, ()), LAW)
+    finally:
+        pb.deck_bridges = real
+    taxi, ramp = set(), set()
+    for f in pm.faces.values():
+        vs = set(pm.ring_vertices(f.ring))
+        if f.role in TAXI_FAMILY:
+            taxi |= vs
+        elif f.role == "tunnel_ramp":
+            ramp |= vs
+    assert ramp and taxi
+    assert not ramp & taxi
+
+
 # -- B1: the ladder floor is a pinned level ---------------------------------
 
 def test_the_ladder_floor_is_pinned_at_its_target_and_no_seat_row_is_minted(site):
@@ -248,6 +306,34 @@ def test_a_roads_level_is_read_beyond_the_deck_over_one_ramp_length():
                        0.6, 150.0, 12.0)
     assert 20.15 < z < 21.0
     assert DBO.road_level((), db, lambda x, y: 0.0, 0.6, 150.0, 12.0) is None
+
+
+def test_a_road_running_through_to_the_next_deck_reads_no_level():
+    """#1718: a mouth whose road runs on under a second deck over the open
+    stretch tops out on no ramp between them -- its level is unread, so two
+    such mouths 0.567 m apart (MEASURED KBNA Taxiway L) stay one lane; the
+    same mouths with no second deck still split (B2 holds at a dead end)."""
+    db = _deck()
+    ring2 = tuple(_sbox(-50.0, 33.0, 50.0, 63.0).exterior.coords[:-1])
+    db2 = DeckBridge("dsf:obj2", "objects/deck.obj", ("dsf:obj2",), ring2,
+                     tuple((-50.0, y) for y in (38.0, 48.0, 58.0)),
+                     tuple((50.0, y) for y in (38.0, 48.0, 58.0)), 0.0, 0.0,
+                     -7.5, 700.0, floor_min_m=5.0, family="taxi")
+
+    def dem(x, y):
+        return 20.0 + (0.567 if x > 0 else 0.0)
+
+    def mouth(x):
+        return types.SimpleNamespace(xy=(x, 15.0), inward=(0.0, -1.0),
+                                     approach=((x, 15.0), (x, 300.0)))
+    ms = [mouth(-4.0), mouth(4.0)]
+    sep = TN.dual_carriageway_max_separation_m
+    for decks, want in (([db, db2], [0, 0]), ([db], [0, 1])):
+        lv = {id(m): DBO.road_level(m.approach, db, dem, 0.6, 150.0, 12.0, decks)
+              for m in ms}
+        lane_of, _c = DBO.deck_lanes(ms, {id(m): db for m in ms}, sep, lv, 0.5)
+        assert [lane_of[id(m)] for m in ms] == want
+    assert DBO.road_level(ms[0].approach, db, dem, 0.6, 150.0, 12.0, [db, db2]) is None
 
 
 # -- C: no void wider than a wall band inside the deck's reach -------------

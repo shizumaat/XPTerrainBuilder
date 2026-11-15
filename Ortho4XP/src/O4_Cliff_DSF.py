@@ -29,15 +29,19 @@ from collections import Counter
 import numpy
 import O4_Cliff_Faces as FACES
 import O4_Cliff_Library as LIBRARY
+import O4_Default_Terrain_Map as DEFTER
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
+import O4_World_Pack as WP
 
 __all__ = ["ARMS", "BLEND_TEXTURE", "UV_RANGE", "add_cliff_band",
-           "cliff_arm", "emit_cliff_overlays"]
+           "tile_arm", "emit_cliff_overlays"]
 
-#: ``cliff_textures`` values that draw the overlay: ``synth`` (a texture
+#: ``cliff_textures`` values that draw the overlay (``xpface`` is the
+#: default since 2026-11-15, owner: "add it to the app to be used on all
+#: tiles going forward"; ``False`` is off): ``synth`` (a texture
 #: made from the tile's photos), ``xplane`` (X-Plane's own default
 #: landclass terrain, ``O4_Cliff_Library``, projected from above as
 #: X-Plane draws it) and ``xpface`` (that landclass's cliff texture laid
@@ -50,6 +54,9 @@ XP_SLOPES = (58.0, 68.0)
 #: Face coordinates are stored in 0 .. UV_RANGE repeats (65,535 steps: a
 #: 480 m repeat is quantised to 0.47 m).
 UV_RANGE = 64.0
+#: The alpha ramp every cliff terrain's ``BORDER_TEX`` reads: one file per
+#: pack in ``textures/_shared/`` (``O4_World_Pack.SHARED_DIR``), like the
+#: X-Plane textures -- it is the same bytes on every tile.
 BLEND_TEXTURE = "cliff_blend.png"
 #: Exemplar pixels are taken from triangles this sloped (degrees): the
 #: mountain's own flanks, unstretched (1 / cos 42 = 1.35) and not the flat
@@ -59,13 +66,31 @@ EXEMPLAR_SLOPES = (15.0, 42.0)
 EXEMPLAR_REACH_M = 1500.0
 
 
-def cliff_arm(value):
+def _cliff_arm(value):
     """The arm a ``cliff_textures`` value selects, or None (off).  ``True``
     (the option's first, boolean form) is ``synth``."""
     value = str(value).strip().lower()
     if value == "true":
         return "synth"
     return value if value in ARMS else None
+
+
+def tile_arm(tile, texture_mode):
+    """The arm this tile's DSF draws, or None: the option's arm on a
+    ``full_ortho`` tile, except that an X-Plane arm with no default Global
+    Scenery DSF to read (no X-Plane install set, or the tile not in it)
+    is off for the tile -- one line says so, never an error, and the DSF
+    is the bytes the option off writes."""
+    arm = _cliff_arm(getattr(tile, "cliff_textures", False))
+    if arm is None or texture_mode != "full_ortho":
+        return None
+    if arm in ("xplane", "xpface") and DEFTER.default_dsf_path(
+            tile.lat, tile.lon) is None:
+        UI.vprint(1, "-> Cliff faces: off for this tile (0 region(s)): no "
+                     "X-Plane default scenery found for it (Settings: the "
+                     "Global Scenery folder).")
+        return None
+    return arm
 
 
 def add_cliff_band(planes, pool_nbr, arm="synth"):
@@ -96,15 +121,22 @@ def _terrain_file(tile, name, texture=None):
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write("A\n800\nTERRAIN\n\n")
         f.write("BASE_TEX ../textures/" + (texture or name + ".dds") + "\n")
-        f.write("BORDER_TEX ../textures/" + BLEND_TEXTURE + "\n")
+        f.write("BORDER_TEX ../textures/" + _BLEND_REL + "\n")
         f.write("NO_ALPHA\nNO_SHADOW\n")
     return name + ".ter"
 
 
+_BLEND_REL = WP.SHARED_DIR + "/" + BLEND_TEXTURE
+
+
 def _write_blend(tile):
+    """The ramp in the build's ``textures/_shared/``, once."""
+    path = os.path.join(tile.build_dir, "textures", _BLEND_REL)
+    if os.path.isfile(path):
+        return
     import O4_Cliff_Texture as TEX
     from PIL import Image
-    path = os.path.join(tile.build_dir, "textures", BLEND_TEXTURE)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     Image.fromarray(TEX.blend_ramp()).save(path)
 
 
@@ -157,8 +189,13 @@ def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
     xyz = FACES.local_metres(nodes[:, 0], nodes[:, 1], nodes[:, 2],
                              tile.lat, tile.lon)
     land = numpy.asarray(tri_types) == 0
-    layout: FACES.CliffLayout = FACES.find_cliff_layout(xyz, tri_idx, land,
-                                                        params)
+    try:
+        layout: FACES.CliffLayout = FACES.find_cliff_layout(
+            xyz, tri_idx, land, params)
+    except Exception as error:      # nothing added yet: the tile as off
+        UI.vprint(1, "-> Cliff faces: off for this tile (0 region(s)): "
+                     "the face search failed (%s)." % (error,))
+        return b"", []
     UI.vprint(1, "-> Cliff faces: %d region(s), %d overlay triangle(s), "
                  "%d chart(s); %d small region(s) left to the photo."
               % (len(layout.region_area), len(layout.tris),
@@ -212,17 +249,15 @@ def _xplane_face_terrains(tile, layout, lonlat_all, dico_terrains,
                           overlay_terrains, textured_tris):
     """``xpface``: one terrain per X-Plane cliff texture; per region its
     terrain index (None: its landclass has no cliff texture) and repeat."""
-    textures = LIBRARY.region_cliff_textures(tile, lonlat_all,
+    textures, placed = _placed_face_textures(tile, lonlat_all,
                                              layout.region_tris)
-    bTERT, region_terrain, repeats, placed = b"", [], [], {}
+    bTERT, region_terrain, repeats = b"", [], []
     for r in range(len(layout.region_tris)):
-        cliff = textures[r] if r < len(textures) else None
+        cliff = textures[r]
         if cliff is None:
             region_terrain.append(None)
             repeats.append(0.0)
             continue
-        if cliff[0] not in placed:
-            placed[cliff[0]] = LIBRARY.install_texture(tile, cliff)
         texture = placed[cliff[0]][0]
         name = "cliff_" + texture.rsplit("/", 1)[-1][: -len(".dds")]
         if ("cliff", name) not in dico_terrains:
@@ -236,10 +271,36 @@ def _xplane_face_terrains(tile, layout, lonlat_all, dico_terrains,
         repeats.append(cliff[1])
     used = Counter(placed[t[0]][0] for t in textures if t)
     UI.vprint(1, "-> Cliff faces (X-Plane cliff textures): %s; %d region(s)"
-                 " without one; placed as %s." % (
+                 " without one (left to the photo); placed as %s." % (
                      dict(used), sum(t is None for t in textures),
                      sorted({how for _t, how in placed.values()})))
     return bTERT, region_terrain, repeats
+
+
+def _placed_face_textures(tile, lonlat_all, region_tris):
+    """Per region the X-Plane cliff texture ``(dds, repeat_m)`` its
+    terrain is drawn with, or None -- no landclass cliff texture, a DDS
+    the install lacks, or one that could not be placed in
+    ``textures/_shared``: that region is left to the photo, as with the
+    option off.  Also ``{dds: (relative path, how placed)}``.  Never
+    raises: a failure to read the install leaves every region None."""
+    try:
+        textures = LIBRARY.region_cliff_textures(tile, lonlat_all,
+                                                 region_tris)
+    except Exception as error:
+        UI.vprint(1, "-> Cliff faces: X-Plane's cliff textures could not "
+                     "be read (%s); the regions are left to the photo."
+                  % (error,))
+        textures = []
+    textures = list(textures) + [None] * (len(region_tris) - len(textures))
+    placed = {}
+    for cliff in {t[0]: t for t in textures if t}.values():
+        try:
+            placed[cliff[0]] = LIBRARY.install_texture(tile, cliff)
+        except OSError as error:
+            UI.vprint(1, "-> Cliff faces: could not place", cliff[0],
+                      "(%s); its regions are left to the photo." % (error,))
+    return [t if t and t[0] in placed else None for t in textures], placed
 
 
 def _chart_points(layout, chart_id, tris, xyz, tri_idx, repeat_m):

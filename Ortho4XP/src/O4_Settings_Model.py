@@ -319,6 +319,8 @@ _LAYOUT: list = [
          "Only matters when scenery shadows are on in X-Plane."),
         ("use_decal_on_terrain", "Add fine ground detail up close?", "tile", False,
          "Noticeable at very low altitude."),
+        ("cliff_textures", "What should cover steep cliff faces?", "tile", False,
+         "X-Plane's own rock by default, instead of the photo stretched down the face."),
         ("normal_map_strength", "Normal map strength", "tile", True, ""),
         ("ovl_exclude_pol", "Exclude overlay polygon types", "app", True, ""),
         ("ovl_exclude_net", "Exclude overlay road types", "app", True, ""),

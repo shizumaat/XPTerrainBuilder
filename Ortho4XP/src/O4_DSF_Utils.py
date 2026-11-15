@@ -1088,10 +1088,10 @@ def _build_dsf_body(tile, download_queue):
     if default_terrain_band:
         # 5-plane physical default-terrain band (see banding note above).
         dsf_pool_plane[3 * pool_nbr : 4 * pool_nbr] = 5
-    # Cliff faces (#2096, option ``cliff_textures``, full_ortho only): one
-    # more band after the others (9 planes ``synth``, 7 ``xplane``).
-    cliff_arm = (CLIFF.cliff_arm(getattr(tile, "cliff_textures", False))
-                 if texture_mode == "full_ortho" else None)
+    # Cliff faces (#2096, option ``cliff_textures``, default ``xpface``,
+    # full_ortho only): one more band after the others (9 planes ``synth``
+    # / ``xpface``, 7 ``xplane``); none where the arm cannot run.
+    cliff_arm = CLIFF.tile_arm(tile, texture_mode)
     cliff_on = cliff_arm is not None
     tile.cliff_plan = None
     if cliff_on:

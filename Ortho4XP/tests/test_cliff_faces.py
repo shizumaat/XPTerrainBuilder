@@ -173,14 +173,14 @@ def test_dsf_band_points_terrain_and_plan(tmp_path, monkeypatch):
     assert pts[:, 8].max() == 32768       # alpha 1 -> t2 = 0.5
     ter = (tmp_path / "cliff_+38+013_000.ter").read_text(encoding="utf-8")
     assert "BASE_TEX ../textures/cliff_+38+013_000.dds" in ter
-    assert "BORDER_TEX ../textures/cliff_blend.png" in ter
-    assert (tmp_path / "textures" / "cliff_blend.png").is_file()
+    assert "BORDER_TEX ../textures/_shared/cliff_blend.png" in ter
+    assert (tmp_path / "textures" / "_shared" / "cliff_blend.png").is_file()
 
 
 def test_cliff_arm_values():
-    assert CLIFF.cliff_arm(True) == CLIFF.cliff_arm("synth") == "synth"
-    assert CLIFF.cliff_arm("xplane") == "xplane"
-    assert CLIFF.cliff_arm(False) is CLIFF.cliff_arm("False") is None
+    assert CLIFF._cliff_arm(True) == CLIFF._cliff_arm("synth") == "synth"
+    assert CLIFF._cliff_arm("xplane") == "xplane"
+    assert CLIFF._cliff_arm(False) is CLIFF._cliff_arm("False") is None
 
 
 def test_xplane_arm_draws_the_default_terrain(monkeypatch):
@@ -320,3 +320,66 @@ def test_xplane_texture_goes_through_the_world_packs_one_file(tmp_path,
         assert (tmp_path / t / "textures" / ref).resolve() == src.resolve()
     home = world / "textures" / "_shared" / "xp_textures10_soil_c.dds"
     assert home.is_symlink() and home.resolve() == src.resolve()
+
+
+def test_xpface_is_the_default_and_the_old_default_is_raised():
+    """#2096 (owner 2026-11-15: "used on all tiles going forward"): a new
+    cfg reads xpface; an existing global cfg's stored old default False is
+    raised once; False still turns the arm off."""
+    import O4_Cfg_Vars as CFGVARS
+    assert CFGVARS.cfg_vars["cliff_textures"]["default"] == "xpface"
+    assert CFGVARS.CHANGED_DEFAULTS["cliff_textures"] == ("False", "xpface")
+    assert CLIFF._cliff_arm("xpface") == "xpface"
+    assert CLIFF._cliff_arm("False") is None
+
+
+def test_tile_without_default_scenery_builds_as_off(monkeypatch, capsys):
+    """No X-Plane default DSF for the tile: no band, one line, no error."""
+    import O4_Default_Terrain_Map as DEFTER
+    monkeypatch.setattr(DEFTER, "default_dsf_path", lambda lat, lon: None)
+    tile = type("Tile", (), {"lat": 46, "lon": 7, "cliff_textures": "xpface"})
+    assert CLIFF.tile_arm(tile, "full_ortho") is None
+    out = capsys.readouterr().out
+    assert out.count("Cliff faces: off for this tile") == 1
+    assert "ERROR" not in out and "WARNING" not in out
+    assert CLIFF.tile_arm(tile, "airport_ortho") is None
+    monkeypatch.setattr(DEFTER, "default_dsf_path", lambda lat, lon: "x.dsf")
+    assert CLIFF.tile_arm(tile, "full_ortho") == "xpface"
+    tile.cliff_textures = "False"
+    assert CLIFF.tile_arm(tile, "full_ortho") is None
+
+
+def test_unplaceable_or_unreadable_textures_leave_regions_to_the_photo(
+        tmp_path, monkeypatch):
+    """A texture that cannot be placed, or an install that cannot be read,
+    leaves those regions undrawn (the photo, as off) -- never a failure."""
+    import O4_Cliff_Library as LIBRARY
+    tile = type("Tile", (), {"build_dir": str(tmp_path)})
+    regions = [[0], [1], [2]]
+    monkeypatch.setattr(LIBRARY, "region_cliff_textures",
+                        lambda *a: [("a.dds", 1.0), None, ("b.dds", 2.0)])
+
+    def install(tile, cliff):
+        if cliff[0] == "b.dds":
+            raise PermissionError("read-only")
+        return ("_shared/a.dds", "copy")
+    monkeypatch.setattr(LIBRARY, "install_texture", install)
+    textures, placed = CLIFF._placed_face_textures(tile, None, regions)
+    assert textures == [("a.dds", 1.0), None, None]
+    assert list(placed) == ["a.dds"]
+
+    def broken(*a):
+        raise RuntimeError("no library")
+    monkeypatch.setattr(LIBRARY, "region_cliff_textures", broken)
+    assert CLIFF._placed_face_textures(tile, None, regions) == (
+        [None, None, None], {})
+
+
+def test_blend_ramp_is_written_once_in_shared(tmp_path):
+    tile = type("Tile", (), {"build_dir": str(tmp_path)})
+    CLIFF._write_blend(tile)
+    path = tmp_path / "textures" / "_shared" / CLIFF.BLEND_TEXTURE
+    first = path.stat().st_mtime_ns
+    CLIFF._write_blend(tile)
+    assert path.stat().st_mtime_ns == first
+    assert not (tmp_path / "textures" / CLIFF.BLEND_TEXTURE).exists()

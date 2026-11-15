@@ -1065,19 +1065,30 @@ cfg_tile_vars = {
     },
     "cliff_textures": {
         "type": str,
-        "default": "False",
-        "values": ["False", "synth", "xplane", "xpface"],
+        # xpface by default since 2026-11-15 (#2096, owner: "add it to the
+        # app to be used on all tiles going forward"); an existing global
+        # cfg holding the old default "False" is raised once
+        # (CHANGED_DEFAULTS).  "False" still turns it off.
+        "default": "xpface",
+        "values": ["xpface", "False", "synth", "xplane"],
+        "value_labels": {
+            "xpface": "X-Plane rock on steep faces",
+            "False": "Off (the photo stretched down the face)",
+            "synth": "Made from the tile's photos (prototype)",
+            "xplane": "X-Plane terrain from above (prototype)",
+        },
         "hint": (
-            "PROTOTYPE (#2096). Draw near-vertical mesh faces with another "
-            "texture than the photo stretched down the face, fading into "
-            "the photo at the top and bottom. synth: a face-aligned "
-            "texture made from the tile's own photos (colour-matched to "
-            "the photo around each cliff). xplane: the terrain X-Plane's "
-            "default scenery puts there (its regional rock and cliff "
-            "textures, projected from above as X-Plane draws them, so "
-            "they stretch on faces steeper than ~60 degrees). xpface: "
-            "that terrain's cliff texture laid along the face (not "
-            "stretched). True is synth."),
+            "Draw near-vertical mesh faces (cliffs, gorge walls) with a "
+            "rock texture instead of the photo stretched down the face, "
+            "fading into the photo at the top and bottom. xpface (the "
+            "default): X-Plane's own cliff texture for the landclass "
+            "there, laid along the face; it needs the X-Plane install "
+            "(the Global Scenery folder), and a tile without it is built "
+            "as with this off. False: off. synth (prototype): a "
+            "face-aligned texture made from the tile's own photos. "
+            "xplane (prototype): X-Plane's default terrain projected from "
+            "above, which stretches on faces steeper than ~60 degrees. "
+            "True is synth."),
     },
     # Other
     "custom_dem": {
@@ -1482,7 +1493,10 @@ def cleanup_retired_cfg_keys(source, dropped=()):
 
 #: var -> (old default as stored, new default).  Owner 2026-11-04:
 #: masks_width 100 -> 500 to show the improved bathymetry and coastline.
-CHANGED_DEFAULTS = {"masks_width": ("100", "500")}
+#: cliff_textures False -> xpface (#2096, owner 2026-11-15: the cliff
+#: faces "to be used on all tiles going forward").
+CHANGED_DEFAULTS = {"masks_width": ("100", "500"),
+                    "cliff_textures": ("False", "xpface")}
 
 
 def _register_path(cfg_path):

@@ -100,6 +100,37 @@ def is_water_terrain(terrain_path: str) -> bool:
     return any(token in lowered for token in _WATER_TERRAIN_SUBSTRINGS)
 
 
+def _default_dsf_candidates(lat: int, lon: int) -> list[str]:
+    """Where tile ``(lat, lon)``'s default Global Scenery DSF may be, in
+    order: under ``O4_Overlay_Utils.custom_overlay_src``, then
+    ``custom_overlay_src_alternate``, each also one level down.
+
+    RULINGS 2026-09-14bu: the owner had the setting one level HIGH --
+    ``.../X-Plane 12/Global Scenery`` instead of ``.../Global Scenery/
+    X-Plane 12 Global Scenery``.  A configured root that is the PARENT of
+    the scenery pack is accepted by looking one level down for the pack
+    that owns the tile, rather than failing with an opaque "not found"."""
+    relative = os.path.join(
+        "Earth nav data", FNAMES.long_latlon(lat, lon) + ".dsf")
+    candidates = []
+    for root in (OVL.custom_overlay_src, OVL.custom_overlay_src_alternate):
+        if not root:
+            continue
+        candidates.append(os.path.join(root, relative))
+        for sub in _GLOBAL_SCENERY_SUBDIRS:
+            candidates.append(os.path.join(root, sub, relative))
+    return candidates
+
+
+def default_dsf_path(lat: int, lon: int) -> str | None:
+    """The first of :func:`_default_dsf_candidates` on disk, or None --
+    quietly: a caller for which the default scenery is optional (the cliff
+    faces, #2096) asks this before :meth:`DefaultTerrainMap.from_tile`,
+    which reports a missing DSF as an error."""
+    return next((c for c in _default_dsf_candidates(lat, lon)
+                 if os.path.isfile(c)), None)
+
+
 class DefaultTerrainMap:
     """Terrain-type lookup built from a default Global Scenery base-mesh DSF."""
 
@@ -169,22 +200,7 @@ class DefaultTerrainMap:
         fallback to ``custom_overlay_src_alternate``.  Returns ``None`` with
         a clear printed error if no DSF is found.
         """
-        relative = os.path.join(
-            "Earth nav data", FNAMES.long_latlon(lat, lon) + ".dsf")
-        candidates = []
-        for root in (OVL.custom_overlay_src, OVL.custom_overlay_src_alternate):
-            if not root:
-                continue
-            candidates.append(os.path.join(root, relative))
-            # RULINGS 2026-09-14bu: the owner had the setting one level
-            # HIGH — ``…/X-Plane 12/Global Scenery`` instead of
-            # ``…/Global Scenery/X-Plane 12 Global Scenery``.  A
-            # configured root that is the PARENT of the scenery pack is
-            # accepted by looking one level down for the pack that owns
-            # the tile, rather than failing with an opaque "not found".
-            for sub in _GLOBAL_SCENERY_SUBDIRS:
-                candidates.append(os.path.join(root, sub, relative))
-
+        candidates = _default_dsf_candidates(lat, lon)
         dsf_path = next(
             (c for c in candidates if os.path.isfile(c)), None)
         if dsf_path is None:

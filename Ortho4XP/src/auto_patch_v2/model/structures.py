@@ -517,6 +517,13 @@ class DeckBridge:
     #: (``planar/deck_bridge.with_cuts``): ``none`` (no bore runs under it),
     #: ``bank`` or ``walls`` — the sidecar ``deck_anchors[*].cut``
     cut: str = "none"
+    #: #2099 R3 D6: the stations ``(x, y, foot over the floor)`` of the walls
+    #: of the deck's MOUTH GROUP (``planar/wing_cut.group_walled``) -- the
+    #: walls its ramps are planned on (``planar/deck_bridge.deck_pin``)
+    group_feet: tuple = ()
+    #: #2099 R3 E2: the road through the deck (a polyline, frame metres) --
+    #: the line a wall of its mouth group LINES (``planar/wing_cut.mouth_roads``)
+    road: tuple = ()
 
     @property
     def depth_a(self) -> float:

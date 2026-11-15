@@ -1,32 +1,35 @@
-"""THE CUT BESIDE A GROUPED MOUTH'S WINGS (#2099 R2; spec
-``docs/specs/2099-R2-wing-cut.md``; the group: ``airport/mouth_group``,
-spec ``docs/specs/2099-mouth-groups.md``).
+"""THE CUT BESIDE A GROUPED MOUTH'S WALLS (#2099 R2 / R3; specs
+``docs/specs/2099-R2-wing-cut.md``, ``docs/specs/2099-R3.md`` Parts D / E;
+the group: ``airport/mouth_group``, spec ``docs/specs/2099-mouth-groups.md``).
 
 A tunnel mouth's WING WALLS are a ramp witness: the pack authored each one
-standing on the road it lines, so its FOOT -- the lowest solid y of its
-cross-section, station by station, over the mouth's floor -- is the floor
-line along it (never under the mouth's own floor: a wall's footing below
-the road is buried by design).  :func:`wing_cuts` reads, per mouth group
-the load partition forms (the planar readers' mouths; every hard deck's
-members and every piece co-placed with a mouth ``taken``: they are the
-mouth's own frame, which its own record seats):
+standing on the road it lines.  Per mouth group the load partition forms
+(:func:`mouth_wings`: the planar readers' mouths; every hard deck's members
+and every piece co-placed with a mouth ``taken`` -- they are the mouth's own
+frame, which its own record seats; a wall LINING the mouth's road joins too,
+R3 E):
 
-* THE FEET (:func:`_feet`): per wing, every ``[tunnel.object]
-  wall_sample_m`` along its long axis from the end nearest the mouth, the
-  foot and the point of its INNER face (the face nearer the mouth's
-  opening axis);
-* THE REGION (:func:`_ribbon`): from each inner-face point straight across
-  the opening to its far edge (the mouth's plan half-width either side of
-  its axis) -- so a wing lining one side cuts the whole road beside it, and
-  a splayed wing the fan between it and the axis -- less the mouth's plan
-  grown by ``[tunnel] wall_gap_m`` (the deck's own ground and end lines keep
-  their law);
-* THE GROUND (:func:`_cells`): the region's FREE ground (no cell owns it)
-  becomes ``graded_strip`` cells ``wing_cut:<mouth>[#k]`` -- ground, never
-  pavement, like a deck's own ground.
+* THE FEET (``airport/wall_lines.wall_line_feet``, R3 D1, re-exported
+  here): a wing's WALL LINES, each with its foot and top per station;
+* THE REGION (D2): on the ROAD side of each line only -- from the wall's
+  road-side face to the facing wall line of the group (within ``[tunnel]
+  dual_carriageway_max_separation_m``), else across the mouth's road
+  (:func:`mouth_roads`) to its far edge plus the rim stand-off
+  (``wall_gap_m`` + ``wall_band_width_m``); less the deck ring and the
+  mouth's plan grown by ``wall_gap_m``, every stage-1 airside cell grown by
+  ``wall_gap_m``, every structure cell and every building pad;
+* THE GROUND (D3, :func:`_cells`): every other cell the region meets is CUT on
+  its edge (``planar/structures._cut_part_refs``, the structure pass's knife)
+  and the region less the groundside roads becomes ``graded_strip`` cells
+  ``wing_cut:<mouth>[#k]`` -- ground, never pavement; the roads keep their
+  role and are held by the rows;
+* THE BACK (D5): a strip ``entrance_skirt_m`` wide behind each line, free
+  ground only and never where airside pavement stands in it, minted as
+  ``wing_back:<mouth>[#k]``, held at the wall's top.
 
 The level is ``constraints/wing_cut``'s, off the record
-(``model/wing_cut.WingCut``).  Nothing here names a pack, a resource or an
+(``model/wing_cut.WingCut``).  A deck mouth's group walls also plan its ramp
+(:func:`group_walled`, R3 D6).  Nothing here names a pack, a resource or an
 airport; every number is a law value.
 """
 from __future__ import annotations
@@ -36,87 +39,22 @@ import math
 import types
 import typing as _t
 
-import numpy as np
-from shapely.geometry import Point, Polygon
+import shapely
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..airport import mouth_group as _mg
-from ..airport import obj8 as _obj8
+from ..airport.wall_lines import Station, wall_line_feet
 from ..classify.roles import Cell
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
-from ..law.tables import role_side
-from ..model.wing_cut import WING_CUT_REF, WingCut
+from ..law.tables import airside_stage_roles, is_structure_role, role_side
+from ..model.wing_cut import WING_CUT_REF, WallLine, WingCut
 from .deck_bridge import co_placed, deck_polygon
 
-__all__ = ["wing_cuts"]
+__all__ = ["wing_cuts", "wall_line_feet", "mouth_wings", "mouth_roads", "group_walled"]
 
 XY = tuple[float, float]
-
-
-def _feet(o, cache, step: float, mouth_plan, centre: XY, r: XY
-          ) -> list[tuple[float, float, float]]:
-    """``[(x, y, foot y)]`` along wing ``o``'s long axis every ``step`` from
-    its end nearest ``mouth_plan``: the foot is the cross-section's lowest
-    solid y (an exact triangle cut), the point its inner face's -- the face
-    nearer the opening axis through ``centre`` along ``r``."""
-    g = cache.geometry(o.resolved)
-    tris = np.concatenate([c.tris for c in cache.genuine(o.resolved)])
-    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
-    v = g.vertices
-    X, Y = a * v[:, 0] + b * v[:, 2] + xo, d * v[:, 0] + e * v[:, 2] + yo
-    edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
-    ids = np.unique(tris)
-    pts = np.column_stack([X[ids], Y[ids]])
-    u = _long_axis(pts)
-    n = np.array([-u[1], u[0]])
-    T, N = X * u[0] + Y * u[1], X * n[0] + Y * n[1]
-    lo, hi = float(T[ids].min()), float(T[ids].max())
-    nm = float(N[ids].mean())
-    near_lo = mouth_plan.distance(Point(*(u * lo + n * nm))) <= \
-        mouth_plan.distance(Point(*(u * hi + n * nm)))
-    sgn, start = (1.0, lo) if near_lo else (-1.0, hi)
-    ta, tb = T[edges[:, 0]], T[edges[:, 1]]
-    out = []
-    k = 0.0
-    while k <= hi - lo + 1e-9:
-        t = start + sgn * min(k, hi - lo)
-        m = ((ta - t) * (tb - t) <= 0.0) & (ta != tb)
-        if m.any():
-            f = (t - ta[m]) / (tb[m] - ta[m])
-            i0, i1 = edges[m, 0], edges[m, 1]
-            ys = v[i0, 1] + f * (v[i1, 1] - v[i0, 1])
-            ns = N[i0] + f * (N[i1] - N[i0])
-            cands = [u * t + n * float(ns.min()), u * t + n * float(ns.max())]
-            q = min(cands, key=lambda p: abs((p[0] - centre[0]) * -r[1] + (p[1] - centre[1]) * r[0]))
-            out.append((float(q[0]), float(q[1]), float(ys.min())))
-        k += step
-    return out
-
-
-def _long_axis(pts: np.ndarray) -> np.ndarray:
-    """The unit direction of a plan's largest spread (its principal axis)."""
-    c = pts - pts.mean(axis=0)
-    w, vec = np.linalg.eigh(c.T @ c)
-    ax = vec[:, int(np.argmax(w))]
-    return ax / (np.hypot(*ax) or 1.0)
-
-
-def _ribbon(feet: _t.Sequence[tuple[float, float, float]], centre: XY, r: XY, half: float):
-    """The plan from each foot point straight across the opening (the line
-    through ``centre`` along ``r``) to its far edge ``half`` beyond the axis."""
-    if len(feet) < 2:
-        return None
-    nx, ny = -r[1], r[0]
-    pairs = []
-    for x, y, _f in feet:
-        uq = (x - centre[0]) * nx + (y - centre[1]) * ny
-        dist = -(1.0 if uq >= 0.0 else -1.0) * half - uq
-        pairs.append(((x, y), (x + dist * nx, y + dist * ny)))
-    # one quad per pair of stations: a splayed wing's ribbon never folds
-    quads = [Polygon([a0, a1, b1, b0]).buffer(0.0)
-             for (a0, b0), (a1, b1) in zip(pairs, pairs[1:])]
-    return unary_union([q for q in quads if not q.is_empty])
 
 
 def _end_line_dir(db) -> "XY | None":
@@ -138,6 +76,93 @@ def _end_line_dir(db) -> "XY | None":
     return (ax + bx) / L, (ay + by) / L
 
 
+def mouth_roads(airport, law, decks) -> dict[str, tuple[XY, ...]]:
+    """THE ROAD THROUGH EACH DECK (R3 E2 / D2), deck id -> polyline: the
+    mapped way running farthest under its ring, walked out of both ends the
+    way a tunnel's approach is (``structure_approach.approach``: the smallest
+    turn, never over ``[tunnel] approach_turn_max_deg``), ``wing_reach_max_m``
+    + the separation beyond it -- else a straight line through the ring along
+    its end lines.  (A portal's road is its axis, ``mouth_group.mouths_of``.)"""
+    tn = law.tables.structures.tunnel
+    ext = float(tn.object.wing_reach_max_m) + float(tn.dual_carriageway_max_separation_m)
+    out: dict[str, tuple[XY, ...]] = {}
+    for db in decks:
+        ring = deck_polygon(db)
+        line = _deck_road(airport, law, ring, ext)
+        r = _end_line_dir(db)
+        if line is None and r is not None:
+            c = ring.centroid
+            line = ((c.x - r[0] * ext, c.y - r[1] * ext), (c.x + r[0] * ext, c.y + r[1] * ext))
+        if line is not None:
+            out.setdefault(str(db.object_id), line)
+    return out
+
+
+def _deck_road(airport, law, ring, ext: float) -> "tuple[XY, ...] | None":
+    """The mapped way under ``ring`` (the longest stretch inside it), walked
+    out of both its ends ``ext`` (:func:`mouth_roads`), or ``None``."""
+    from .structure_approach import approach, unit
+    ways = [w for w in getattr(airport, "osm_ways", None) or ()
+            if len(w.points) >= 2 and ((w.tags or {}).get("highway") or
+                                       (w.tags or {}).get("railway"))]
+    best = None
+    for w in ways:
+        x = LineString(w.points).intersection(ring).length
+        if x > 1.0 and (best is None or x > best[0]):
+            best = (x, w)
+    if best is None:
+        return None
+    tn = law.tables.structures.tunnel
+    pts = [tuple(p) for p in best[1].points]
+    a, b = (approach(e, unit(e, n), ways, ext, tn.admitted_values, tn.approach_turn_max_deg)
+            for e, n in ((pts[0], pts[1]), (pts[-1], pts[-2])))
+    return tuple(tuple(p) for p in reversed(a)) + tuple(pts[1:-1]) + tuple(tuple(p) for p in b)
+
+
+def mouth_wings(airport, objects, cache, decks, tunnels, law) -> tuple[list, list[str]]:
+    """``(mouth groups, notes)``: the load partition's groups of the mouths
+    ``decks`` and ``tunnels`` state (``airport/mouth_group.mouth_groups``), a
+    mouth's own frame taken, the walls lining its road (``DeckBridge.road``,
+    a portal's axis) joined (R3 E)."""
+    partition = getattr(airport, "partition", None)
+    mouths = _mg.mouths_of(types.SimpleNamespace(decks=decks, structures=tunnels))
+    if partition is None or not mouths:
+        return [], []
+    taken = {str(i) for db in decks for i in db.members}
+    tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
+    heads = [o for o in objects if str(o.id) in {m.object_id for m in mouths}]
+    taken |= {str(o.id) for o in objects for h in heads if o is not h and co_placed(h, o, tol)}
+    return _mg.mouth_groups(partition, objects, mouths, cache, law, taken)
+
+
+def group_walled(decks, airport, objects, cache, law) -> tuple[tuple, list[str]]:
+    """``(decks, notes)``: each hard deck carries the road through it
+    (``DeckBridge.road``, :func:`mouth_roads`) and, where its mouth group has
+    walls, their stations ``(x, y, foot)`` (``DeckBridge.group_feet``, R3 D6)
+    -- the walls its ramps are planned on (``deck_bridge.deck_pin``).  Formed
+    before the structure pass: the decks exist then."""
+    if not decks:
+        return tuple(decks), []
+    roads = mouth_roads(airport, law, decks)
+    decks = tuple(_dc.replace(db, road=roads.get(str(db.object_id), ())) for db in decks)
+    groups, notes = mouth_wings(airport, objects, cache, decks, (), law)
+    by_id = {str(o.id): o for o in objects}
+    feet: dict[str, list] = {}
+    for gr in groups:
+        mo = by_id.get(gr.mouth.object_id)
+        read = None if mo is None else _mg._solids(mo, cache, law)
+        if read is None:
+            continue
+        for wid, _res in gr.wings:
+            for _ln, st in wall_line_feet(by_id[wid], cache, law, read[0]):
+                feet.setdefault(gr.mouth.object_id, []).extend(
+                    (round(s[0], 3), round(s[1], 3), round(s[6], 3)) for s in st)
+    out = tuple(_dc.replace(db, group_feet=tuple(feet[str(db.object_id)]))
+                if str(db.object_id) in feet else db for db in decks)
+    return out, [f"{k}: its group's walls plan its ramps, {len(v)} station(s) (#2099 R3 D6)"
+                 for k, v in sorted(feet.items())] + list(notes)
+
+
 def _mouth_frame(m, decks: _t.Mapping[str, _t.Any], tunnels) -> "tuple | None":
     """``(r, seat kwargs)`` of mouth ``m``: a hard deck's road direction and
     end lines, or a row-seated portal's bore direction and absolute floor."""
@@ -157,70 +182,151 @@ def _mouth_frame(m, decks: _t.Mapping[str, _t.Any], tunnels) -> "tuple | None":
     return None
 
 
+def _road_sense(road: LineString, st: _t.Sequence[Station]) -> float:
+    """``+1`` where the road lies on the stations' ``+n`` side (by majority),
+    else ``-1``."""
+    vote = 0.0
+    for x, y, nx, ny, *_r in st:
+        q = road.interpolate(road.project(Point(x, y)))
+        vote += math.copysign(1.0, (q.x - x) * nx + (q.y - y) * ny)
+    return 1.0 if vote >= 0.0 else -1.0
+
+
+def _wall_line(wid: str, st: _t.Sequence[Station], sense: float) -> WallLine:
+    """The record of one wall line, its face the side ``sense`` names."""
+    face, back = [], []
+    for x, y, nx, ny, lo, hi, _f, _top in st:
+        near, far = (hi, lo) if sense > 0 else (lo, hi)
+        face.append((x + nx * near, y + ny * near))
+        back.append((x + nx * far, y + ny * far))
+    return WallLine(wid, tuple(face), tuple(back), tuple(s[6] for s in st),
+                    tuple(s[7] for s in st))
+
+
+def _reach(p: XY, d: XY, road: LineString, half: float, rim: float, sep: float,
+           others: _t.Sequence) -> "float | None":
+    """How far the region runs from face point ``p`` along ``d`` (R3 D2): to
+    the first facing wall in ``others`` within ``sep``, else across ``road``
+    to its far edge plus ``rim``; ``None`` where the ray never meets the road."""
+    big = sep + half + rim
+    ray = LineString([p, (p[0] + d[0] * big, p[1] + d[1] * big)])
+    hit = ray.intersection(road)
+    if hit.is_empty:
+        return None
+    tc = float(min((x - p[0]) * d[0] + (y - p[1]) * d[1]
+                   for x, y in shapely.get_coordinates(hit)))
+    s = road.project(Point(p[0] + d[0] * tc, p[1] + d[1] * tc))
+    a, b = road.interpolate(max(0.0, s - 0.5)), road.interpolate(min(road.length, s + 0.5))
+    L = math.hypot(b.x - a.x, b.y - a.y) or 1.0
+    cos = abs((b.x - a.x) / L * -d[1] + (b.y - a.y) / L * d[0])
+    end = tc + (half + rim) / max(cos, 0.3)
+    for w in others:
+        x = ray.intersection(w)
+        if x.is_empty:
+            continue
+        th = min((qx - p[0]) * d[0] + (qy - p[1]) * d[1] for qx, qy in shapely.get_coordinates(x))
+        if 1e-3 < th <= sep:
+            end = min(end, float(th))
+    return end
+
+
+def _strip(line: WallLine, ends: _t.Sequence["float | None"], toward: _t.Sequence[XY],
+           width: float = 0.0) -> list:
+    """The quads between consecutive stations: from each face point along
+    ``toward`` by its end (the region), or -- ``width`` given -- from each back
+    point away from the road by ``width`` (the back strip)."""
+    quads = []
+    pts = line.back if width > 0.0 else line.face
+    sg = -1.0 if width > 0.0 else 1.0
+    for i in range(len(pts) - 1):
+        e0, e1 = (width, width) if width > 0.0 else (ends[i], ends[i + 1])
+        if e0 is None or e1 is None:
+            continue
+        (ax, ay), (bx, by) = pts[i], pts[i + 1]
+        (dax, day), (dbx, dby) = toward[i], toward[i + 1]
+        q = Polygon([(ax, ay), (bx, by), (bx + sg * dbx * e1, by + sg * dby * e1),
+                     (ax + sg * dax * e0, ay + sg * day * e0)]).buffer(0.0)
+        if not q.is_empty:
+            quads.append(q)
+    return quads
+
+
+def _section_plan(st: _t.Sequence[Station]) -> Polygon:
+    """A wall line's plan from its stations' section extents."""
+    ring = ([(x + nx * lo, y + ny * lo) for x, y, nx, ny, lo, _h, _f, _top in st]
+            + [(x + nx * hi, y + ny * hi) for x, y, nx, ny, _l, hi, _f, _top in reversed(st)])
+    return Polygon(ring).buffer(0.0) if len(ring) >= 3 else Polygon()
+
+
 def wing_cuts(airport, objects, cache, decks, tunnels, classification, law
               ) -> tuple[_t.Any, tuple[WingCut, ...], list[str]]:
     """``(classification with the wing-cut ground, the cuts, notes)`` (module
     doc)."""
-    partition = getattr(airport, "partition", None)
-    mouths = _mg.mouths_of(types.SimpleNamespace(decks=decks, structures=tunnels))
-    if partition is None or not mouths:
-        return classification, (), []
-    # a mouth's own frame is no wing: a hard deck's members, and every piece
-    # co-placed with a mouth (its frame record seats it -- one authority per row)
-    taken = {str(i) for db in decks for i in db.members}
-    tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
-    heads = [o for o in objects if str(o.id) in {m.object_id for m in mouths}]
-    taken |= {str(o.id) for o in objects for h in heads if o is not h and co_placed(h, o, tol)}
-    groups, _n = _mg.mouth_groups(partition, objects, mouths, cache, law, taken)
+    groups, gnotes = mouth_wings(airport, objects, cache, decks, tunnels, law)
     if not groups:
         return classification, (), []
     tn_law = law.tables.structures.tunnel
-    step = float(tn_law.object.wall_sample_m)
+    gap, rim = float(tn_law.wall_gap_m), float(tn_law.wall_gap_m + tn_law.wall_band_width_m)
+    sep = float(tn_law.dual_carriageway_max_separation_m)
+    skirt = float(tn_law.object.entrance_skirt_m)
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
     by_id = {str(o.id): o for o in objects}
     deck_of = {str(db.object_id): db for db in decks}
+    cells = list(classification.cells)
+    polys = [Polygon(c.ring, c.holes) for c in cells]
+    stage1 = airside_stage_roles(law)
+    air = unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in stage1])
+    solid = unary_union([p for p, c in zip(polys, cells, strict=True)
+                         if c.role == "building" or (c.role in law.tables.precedence.roles
+                                                      and is_structure_role(law, c.role))])
     cuts: list[WingCut] = []
-    notes: list[str] = []
+    notes: list[str] = list(gnotes)
     for gr in groups:
         frame = _mouth_frame(gr.mouth, deck_of, tunnels)
         mo = by_id.get(gr.mouth.object_id)
         read = None if mo is None else _mg._solids(mo, cache, law)
-        if frame is None or read is None:
+        coords = gr.mouth.road
+        if frame is None or read is None or len(coords) < 2:
             continue
-        r, seat = frame
-        mplan = read[0]
-        # the opening: the deck's ring (its own plan) or the portal's solids
+        seat = frame[1]
+        road, mplan = LineString(coords), read[0]
         band = deck_polygon(deck_of[gr.mouth.object_id]) if gr.mouth.object_id in deck_of \
             else mplan
-        c = band.centroid
-        centre = (c.x, c.y)
-        half = max(abs((x - c.x) * -r[1] + (y - c.y) * r[0])
-                   for q in getattr(band, "geoms", [band]) for x, y in q.exterior.coords)
-        feet: list[tuple[float, float, float, str]] = []
-        parts = []
-        for wid, _res in gr.wings:
-            fw = _feet(by_id[wid], cache, step, mplan, centre, r)
-            fw = [(x, y, max(f, 0.0)) for x, y, f in fw]
-            feet.extend((x, y, f, wid) for x, y, f in fw)
-            rib = _ribbon(fw, centre, r, half)
-            if rib is not None and not rib.is_empty:
-                parts.append(rib)
+        half = max((float(t.half_width_m) for t in tunnels
+                    if str(getattr(t, "deck_bridge", "")) == gr.mouth.object_id
+                    or str(getattr(t, "portal", "")) == gr.mouth.object_id), default=0.0)
+        read_lines = [(wid, st) for wid, _res in gr.wings
+                      for _ln, st in wall_line_feet(by_id[wid], cache, law, mplan)]
+        plans = [_section_plan(st) for _w, st in read_lines]
+        lines, parts, backs = [], [], []
+        for k, (wid, st) in enumerate(read_lines):
+            sense = _road_sense(road, st)
+            line = _wall_line(wid, st, sense)
+            toward = [(sense * s[2], sense * s[3]) for s in st]
+            ends = [_reach(p, d, road, half, rim, sep, plans[:k] + plans[k + 1:])
+                    for p, d in zip(line.face, toward, strict=True)]
+            lines.append(line)
+            parts += _strip(line, ends, toward)
+            backs += [q for q in _strip(line, ends, toward, skirt)
+                      if q.intersection(air).area <= 1e-6]
         if not parts:
             continue
-        region = unary_union(parts).difference(
-            unary_union([band, mplan]).buffer(float(tn_law.wall_gap_m) + spacing,
-                                                  join_style="mitre"))
-        rings = tuple(tuple((float(x), float(y)) for x, y in q.exterior.coords[:-1])
-                      for q in polygon_parts_with_area(region) if not is_hairline(q, spacing))
+        keep_out = unary_union([band, mplan]).buffer(gap + spacing, join_style="mitre")
+        region = unary_union(parts).difference(unary_union([
+            keep_out, air.buffer(gap, join_style="mitre"), solid]))
+        rings = _rings(region, spacing)
         if not rings:
             continue
-        ref = f"{WING_CUT_REF}:{gr.mouth.object_id}"
-        cuts.append(WingCut(gr.mouth.object_id, ref, rings, tuple(feet),
+        back = unary_union(backs).difference(unary_union([region, keep_out, *plans])) \
+            if backs else Polygon()
+        cuts.append(WingCut(gr.mouth.object_id, f"{WING_CUT_REF}:{gr.mouth.object_id}", rings,
+                            tuple(lines), _rings(back, spacing),
                             floor_y=float(gr.mouth.floor_y), **seat))
+        feet = [f for ln in lines for f in ln.foot]
         notes.append(f"{gr.mouth.object_id}: wing cut over {len(gr.wings)} wing(s), "
-                     f"{sum(Polygon(q).area for q in rings):.0f} m2, feet "
-                     f"{min(f for *_xy, f, _w in feet):+.2f}..{max(f for *_xy, f, _w in feet):+.2f} "
-                     f"over its floor (#2099 R2)")
+                     f"{len(lines)} wall line(s), {sum(Polygon(q).area for q in rings):.0f} m2 "
+                     f"on the road side, feet {min(feet):+.2f}..{max(feet):+.2f} over its floor "
+                     f"(#2099 R3 D)")
     if not cuts:
         return classification, (), notes
     classification, minted = _cells(classification, cuts, law, spacing)
@@ -228,29 +334,64 @@ def wing_cuts(airport, objects, cache, decks, tunnels, classification, law
     return classification, tuple(cuts), notes
 
 
+def _rings(geom, spacing: float) -> tuple[tuple[XY, ...], ...]:
+    """The polygon parts of ``geom`` (no hairline) as exterior rings."""
+    if geom is None or geom.is_empty:
+        return ()
+    return tuple(tuple((float(x), float(y)) for x, y in q.exterior.coords[:-1])
+                 for q in polygon_parts_with_area(geom) if not is_hairline(q, spacing))
+
+
+def _kept(c: Cell, law, roads: _t.AbstractSet[str]) -> bool:
+    """A cell the wing cut never carves (R3 D3): airside, a structure, a
+    building pad, a groundside road (held in place by the rows)."""
+    if c.role == "building" or c.side == "airside" or c.role in roads:
+        return True
+    return c.role in law.tables.precedence.roles and is_structure_role(law, c.role)
+
+
 def _cells(classification, cuts: _t.Sequence[WingCut], law, spacing: float
            ) -> tuple[_t.Any, list[str]]:
-    """The cuts' FREE ground as ``graded_strip`` cells (module doc)."""
+    """The cuts' ground as cells (module doc, R3 D3 / D5): the region carves
+    every cell it meets but the kept ones and becomes ``wing_cut`` faces; the
+    back strip takes free ground only."""
+    from ..law.tables import family
+    from .structures import _cut_part_refs
+    roads = frozenset(family(law, "road_cross_section").roles)
     cells = list(classification.cells)
-    polys = [Polygon(c.ring, c.holes) for c in cells if len(c.ring) >= 3]
-    taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys])
-    out: list[Cell] = []
     notes: list[str] = []
     for cut in cuts:
-        region = unary_union([Polygon(q) for q in cut.region])
-        free = [q for q in polygon_parts_with_area(fixed_difference(region, taken))
-                if not is_hairline(q, spacing)]
-        for k, part in enumerate(free):
-            out.append(Cell(0, "graded_strip", cut.ref + (f"#{k}" if k else ""),
+        polys = [Polygon(c.ring, c.holes) for c in cells]
+        kept = canonical_union([p if p.is_valid else p.buffer(0.0)
+                                for p, c in zip(polys, cells, strict=True) if _kept(c, law, roads)])
+        region = fixed_difference(unary_union([Polygon(q).buffer(0.0) for q in cut.region]),
+                                  kept)
+        carved: list[Cell] = []
+        n_cut = 0
+        for c, p in zip(cells, polys, strict=True):
+            if _kept(c, law, roads) or p.intersection(region).area <= 0.25:
+                carved.append(c)
+                continue
+            n_cut += 1
+            for ref, part in _cut_part_refs(c.ref, False, polygon_parts_with_area(
+                    fixed_difference(p, region))):
+                carved.append(_dc.replace(c, ref=ref, ring=tuple(part.exterior.coords)[:-1],
+                                          holes=tuple(tuple(h.coords)[:-1]
+                                                      for h in part.interiors)))
+        mine = [q for q in polygon_parts_with_area(region) if not is_hairline(q, spacing)]
+        taken = canonical_union([Polygon(c.ring, c.holes) for c in carved] + mine)
+        back = unary_union([Polygon(q).buffer(0.0) for q in cut.back]) if cut.back else None
+        free = [] if back is None else [q for q in polygon_parts_with_area(
+            fixed_difference(back, taken)) if not is_hairline(q, spacing)]
+        for ref, parts, what in ((cut.ref, mine, "wing_cut"), (cut.back_ref, free, "wing_back")):
+            carved += [Cell(0, "graded_strip", ref + (f"#{k}" if k else ""),
                             tuple(part.exterior.coords)[:-1],
                             tuple(tuple(h.coords)[:-1] for h in part.interiors),
                             None, None, role_side(law, "graded_strip"), "structure",
-                            {"wing_cut": 1.0, "area_m2": part.area}))
-        if free:
-            taken = canonical_union([taken, *free])
-            notes.append(f"{cut.mouth}: {len(free)} wing-cut face(s) "
-                         f"{sum(q.area for q in free):.0f} m2 of free ground")
-    if not out:
-        return classification, notes
-    merged = [_dc.replace(c, id=i) for i, c in enumerate(cells + out)]
+                            {what: 1.0, "area_m2": part.area}) for k, part in enumerate(parts)]
+        cells = carved
+        notes.append(f"{cut.mouth}: {len(mine)} wing-cut face(s) "
+                     f"{sum(q.area for q in mine):.0f} m2 ({n_cut} cell(s) carved), "
+                     f"{len(free)} back face(s) {sum(q.area for q in free):.0f} m2 of free ground")
+    merged = [_dc.replace(c, id=i) for i, c in enumerate(cells)]
     return _dc.replace(classification, cells=tuple(merged)), notes

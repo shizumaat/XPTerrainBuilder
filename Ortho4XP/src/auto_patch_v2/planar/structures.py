@@ -527,7 +527,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             (deck_of[id(m)] for m in members if deck_of.get(id(m)) is not None), None)
         tid_deck[tid] = deck
         pin = bridge_pin(edge, members[0]) if edge is not None else \
-            deck_pin(deck, members[0]) if deck is not None else None if c is not None else next(
+            deck_pin(deck, members[0], law) if deck is not None \
+            else None if c is not None else next(
             (q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
                          for m in members) if q is not None), None)
         front_pins: list = []
@@ -585,7 +586,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if rail:
             grade_g = min(grade_g, cap_g)
         walls_s = 0.0 if pin is None else float(getattr(pin, "wall_reach_m", 0.0))
-        if walls_s > 0.0 and not rail:
+        if walls_s > 0.0 and not rail and deck is not None:
+            # #2099 R3 D6: a deck mouth's GROUP walls -- inside their reach the
+            # grade IS their foot slope, capped, never raised to the design
+            # grade; a slope under group_foot_min_grade witnesses nothing
+            if float(pin.foot_grade) >= float(tn.object.group_foot_min_grade):
+                design_g = min(cap_g, float(pin.foot_grade))
+        elif walls_s > 0.0 and not rail:
             # #1938 S3: under an entrance object's walls the ramp climbs at
             # the walls' foot slope -- the object dictates the grade, within
             # the ramp grades (2026-10-08d (1))

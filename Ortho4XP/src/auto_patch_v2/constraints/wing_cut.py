@@ -1,11 +1,14 @@
-"""THE WING CUT'S ROWS (#2099 R2; spec ``docs/specs/2099-R2-wing-cut.md``):
-the ground beside and between a grouped mouth's wings stands on the wings'
-foot line (``model/wing_cut``; the cells: ``planar/wing_cut``).
+"""THE WING CUT'S ROWS (#2099 R2 / R3; specs ``docs/specs/2099-R2-wing-cut.md``,
+``docs/specs/2099-R3.md`` D4 / D5): the ground on the road side of a grouped
+mouth's walls stands on their feet, the strip behind them meets their tops
+(``model/wing_cut``; the cells: ``planar/wing_cut``).
 
 Every vertex of the cut's own ground (``wing_cut:<mouth>`` faces) and every
 other vertex inside its region -- the ground, a trench's rim, and the road:
 "the road corridor between the wings follows the same floor" -- is held at the mouth's floor plus the
-foot under it (``model/wing_cut.wing_floor_y``), in the mouth's own seat:
+foot under it, read along the wall line it faces (``model/wing_cut.wing_floor_y``);
+every vertex of the strip behind a line (``wing_back:<mouth>`` faces) at the
+wall's top there (``wing_top_y``), in the mouth's own seat:
 
 * a HARD DECK (plate-seated): ``z[v] = ½(mean z[A] + mean z[B]) −
   (½(top_A + top_B) − floor_y − foot)`` -- the end lines' seat set of
@@ -33,7 +36,7 @@ from ..law.tables import is_value_role, role_side
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
-from ..model.wing_cut import WingCut, wing_floor_y
+from ..model.wing_cut import WingCut, wing_floor_y, wing_top_y
 from .edge_floor import _mean_terms, seat_pair
 
 __all__ = ["GEN", "RULING", "wing_cut_rows", "STATS"]
@@ -92,16 +95,21 @@ def wing_cut_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                if f.ref == cut.ref or f.ref.startswith(cut.ref + "#")]
         cand = {v for f in own for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
         cand.update(v for v, vx in planar.vertices.items() if inside.contains(Point(vx.xy)))
+        # R3 D5: the strip behind a wall line meets the wall's top
+        behind = {v for f in planar.faces.values()
+                  if f.ref == cut.back_ref or f.ref.startswith(cut.back_ref + "#")
+                  for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)} - cand
         seat = _seat(planar, law, cut, near) if cut.seats else None
         if cut.seats and seat is None:
             stats["no_seat"] = stats.get("no_seat", 0) + 1
             continue
         src = Source(GEN, RULING, (cut.mouth, cut.ref))
         held = 0
-        for v in sorted(cand - done):
+        for v in sorted((cand | behind) - done):
             if any(planar.faces[fid].role in never for fid in planar.vertices[v].incident_faces):
                 continue
-            foot = wing_floor_y(cut, planar.vertices[v].xy)
+            xy = planar.vertices[v].xy
+            foot = wing_top_y(cut, xy) if v in behind else wing_floor_y(cut, xy)
             if seat is not None:
                 rows.extend(_dc.replace(r, follows=v) for r in
                             seat_pair(v, (seat[0], seat[1] - cut.floor_y - foot), src))

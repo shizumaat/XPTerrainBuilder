@@ -240,6 +240,7 @@ def _solid_lows(cache, q, under) -> list[float]:
     if under is None:
         return [c.min_y for c in comps]
     from shapely.geometry import Point as _Pt
+
     from ..airport.obj8 import _to_frame
     return [c.min_y for c in comps
             if under.contains(_Pt(_to_frame(q.xy, q.heading_deg, c.cx, c.cz)))]
@@ -906,13 +907,49 @@ def _ground_cell(law, oid: str, k: int, part: Polygon) -> Cell:
                 {"deck_ground": 1.0, "area_m2": part.area})
 
 
-def deck_pin(db: DeckBridge, mouth):
+def deck_pin(db: DeckBridge, mouth, law=None):
     """The deck bridge as the ``airport/portal_objects.Portal`` the
-    structure pass pins ``mouth`` with: never slid, its depth the deck's."""
+    structure pass pins ``mouth`` with: never slid, its depth the deck's.
+    #2099 R3 D6: where the deck's MOUTH GROUP has walls on this mouth's
+    approach (``DeckBridge.group_feet``), the pin carries their run along it
+    (``wall_reach_m``) and their feet's least-squares slope (``foot_grade``)
+    -- the walls the ramp is planned on (``planar/structures``' walled path)."""
     from ..airport.portal_objects import Portal
+    reach, grade = (0.0, 0.0) if law is None else _group_reach(db, tuple(mouth.xy), law)
     return Portal(db.object_id, db.resource, tuple(mouth.xy),
                   int(mouth.ways[0]) if mouth.ways else 0, db.depth_m, 0.0,
-                  tuple(mouth.xy), False, db.ring, ())
+                  tuple(mouth.xy), False, db.ring, (), wall_reach_m=reach, foot_grade=grade)
+
+
+def _group_reach(db: DeckBridge, xy, law) -> tuple[float, float]:
+    """``(reach, foot slope)`` of the deck's group walls along the approach
+    out of the mouth at ``xy`` (away from the deck): the stations chained
+    from the mouth, no gap over two ``wall_sample_m``, and the least-squares
+    slope of their feet over that run (never under 0); ``(0, 0)`` with none."""
+    feet = getattr(db, "group_feet", ()) or ()
+    if not feet:
+        return 0.0, 0.0
+    c = deck_polygon(db).centroid
+    L = math.hypot(c.x - xy[0], c.y - xy[1])
+    if L <= 1e-9:
+        return 0.0, 0.0
+    ix, iy = (c.x - xy[0]) / L, (c.y - xy[1]) / L
+    step = 2.0 * float(law.tables.structures.tunnel.object.wall_sample_m)
+    pts = sorted((-((x - xy[0]) * ix + (y - xy[1]) * iy), f) for x, y, f in feet)
+    pts = [p for p in pts if p[0] >= -step]
+    if not pts or pts[0][0] > step:
+        return 0.0, 0.0
+    reach, run = pts[0][0], []
+    for a, f in pts:
+        if a > reach + step:
+            break
+        reach = max(reach, a)
+        run.append((a, f))
+    if reach <= step or len({round(a, 1) for a, _f in run}) < 2:
+        return 0.0, 0.0
+    import numpy as np
+    slope = float(np.polyfit([a for a, _f in run], [f for _a, f in run], 1)[0])
+    return float(reach), max(0.0, slope)
 
 
 def deck_seats(db: DeckBridge, axis: LineString, other: "DeckBridge | None",

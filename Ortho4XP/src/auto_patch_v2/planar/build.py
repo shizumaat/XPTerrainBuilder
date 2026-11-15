@@ -50,7 +50,7 @@ from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
 from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
-from .wing_cut import wing_cuts
+from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
 from .storey_pad import pit_skip, read_storey_shells, storey_pads
@@ -359,8 +359,11 @@ def build(airport: Airport, classification: Classification, law: Law,
                                          cache, classification, airport, law,
                                          tstats.trench_objects, level_b=level_b,
                                          ground=ground_of(airport, objects, cache, law))
+    # #2099 R3 D6: a deck mouth's group walls plan its ramps -- the groups
+    # of the deck mouths are formed here, before the structure pass
+    decks, group_notes = group_walled(decks, airport, objects, cache, law)
     deck_notes = [f"level B: {level_b_note}",
-                  *(f"level seed: {n}" for n in seed_notes), *deck_notes]
+                  *(f"level seed: {n}" for n in seed_notes), *deck_notes, *group_notes]
     cl_read = classification   # the roles before the cuts (``planar/cut_frame``)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,

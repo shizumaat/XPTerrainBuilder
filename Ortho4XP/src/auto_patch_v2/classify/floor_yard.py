@@ -16,20 +16,32 @@ Gates (doubt -> nothing, RULINGS 2026-11-13r):
 
 * F1 the unit has a floor ``t`` (``airport/unit_storey``) and a FLOOR PAD:
   a building cell (no upper pad) whose unit parts stand within
-  ``split_level.BAND_M`` of ``t``.
+  ``split_level.BAND_M`` of ``t``.  The yard is read here; it STANDS only
+  where its level exists (spec 2068 A4 F1'): the planar stage stores the
+  record on a held, non-conforming pad only, drops the yard cells of a
+  pad with no record before pass C (``planar/overlay``,
+  ``fence_yard_no_level``), and ``constraints/yard_edge.yard_records``
+  keeps a record only while a yard face of its pad stands in the map.
 * F2 only the unit's own fences (``EdgeLine.unit``; ``airport/unit_fence``
   admits only a class that stands on its zero).
 * F3 a station is a FLOOR station when its base is within ``BAND_M`` of
   ``t``, in a run of them at least ``[edge_lines] min_run_m`` long
   (``fence_yard.run_flags``).
-* F4 THE TERRACE WITNESS: a fence line is a witness when the DEM median at
-  its floor stations stands more than ``BAND_M`` UNDER the floor pad's own
-  DEM median (the fence stands proud of the natural ground: the author's
-  floor is a platform built out to it); the witnesses chained within
-  ``[edge_lines] host_reach_m`` of one another, one of them within that
-  reach of the pad, are the pad's terrace edge.  A fence at grade marks no
-  terrace; a fence the natural ground stands over (a cut) is not read
-  (13r: the measured class is the fill).
+* F4' THE TERRACE IS WITNESSED AT THE FENCE (spec 2068 A4; measured KMCI
+  building43: a rail ring on the rim of a pad whose ground rises 3.2 m
+  along its 176 m stood level with the pad ground beside it, yet 1.5 m
+  under the whole pad's median): a fence line is a witness when the DEM
+  median at its floor stations stands more than ``BAND_M`` under the DEM
+  median of the pad's FACING GROUND -- the part of the floor pad within
+  d(line, pad) + 2 ``[edge_lines] host_reach_m`` of the line, read with
+  ``unit_storey.dem_samples`` at 1 m (empty, or no finite sample: no
+  witness).  Read along the chain: the lines within ``host_reach_m`` of
+  the pad first, then only lines within that reach of a tied line.  A
+  fence at grade marks no terrace; a fence the natural ground stands over
+  (a cut) is not read (13r: the measured class is the fill).  Where floor
+  lines stand within reach and none is a witness the refusal is named
+  (``no terrace at the fence (local drop <x> m)``).  The stat's "off" is
+  the weakest tied line's fence DEM minus its facing ground's.
 * F5 the plane (``geom/capped_plane``, tilt capped at ``[common]
   pavement_max_grade``) has rms at most ``[edge_lines] step_min_m`` over
   the witness stations.
@@ -43,7 +55,8 @@ Gates (doubt -> nothing, RULINGS 2026-11-13r):
   witnesses a terrace only where the terrace is a fill, so the part of the
   yard (and of its gross) where the DEM stands more than ``BAND_M`` OVER
   the yard plane -- read in the DEM frame as the pad's DEM median plus the
-  plane over the floor ``t``, the level ``project_yard`` lands on -- is
+  plane over the floor ``t``, an ESTIMATE of the level (``project_yard``
+  lands on the solved level, known only after the solve) -- is
   trimmed out; what the trim severs from the witness fences (farther than
   one DEM sample from them) is dropped with it, and no fill left at the
   fence is no yard.
@@ -134,7 +147,8 @@ def mint_floor_yards(airport, cells: list, law: Law, rules: Rules, add, lines: l
             stats[f"floor_yard:{ref}"] = (
                 f"tilt {info['yard_tilt']:.4f} rms {info['yard_rms']:.3f} "
                 f"witness {info['yard_upper']}/{info['yard_stations']} "
-                f"fences {info['yard_fences']} off {info['yard_g6_ratio']:+.2f} m")
+                f"fences {info['yard_fences']} off {info['yard_g6_ratio']:+.2f} m "
+                f"(local drops {info['yard_drops']} m)")
     return n
 
 
@@ -177,10 +191,10 @@ def _floor_yard(airport, cells, law, rules, P, own, t: float, air):
     zp = dem_samples(airport.dem, P)
     if not zp:
         return ""
-    tied = _witnesses(airport, own, st, floor, P, _st.median(zp), BAND_M,
-                      float(cfg.host_reach_m))                               # F4
+    tied, drops = _witnesses(airport, own, st, floor, P, BAND_M,
+                             float(cfg.host_reach_m))                        # F4'
     if not tied:
-        return ""
+        return _no_terrace(drops)
     up = [f and s.line in tied for s, f in zip(st, floor, strict=True)]
     U = [s for s, u in zip(st, up, strict=True) if u]
     xy = np.array([(s.x, s.y) for s in U], dtype=float).reshape(-1, 2)
@@ -204,7 +218,7 @@ def _floor_yard(airport, cells, law, rules, P, own, t: float, air):
                          float(cfg.yard_piece_min_width_m))                # F8
     if region.is_empty:
         return "no yard piece wide enough"
-    off = _st.median(_line_dem(airport, st, floor, tied)) - _st.median(zp)
+    off = -min(drops[i] for i in tied)            # the weakest tied line's fence - facing
     info = dict(zip(_yard_keys()[:5], (round(v, 6) for v in plane), strict=True))
     info.update(yard_rms=round(rms, 3), yard_stations=len(st), yard_upper=len(U),
                 yard_g6_ratio=round(off, 3),
@@ -212,6 +226,8 @@ def _floor_yard(airport, cells, law, rules, P, own, t: float, air):
                 yard_tilt=round(math.hypot(plane[1], plane[2]), 4),
                 yard_resid=f"{res.max():+.2f}/{res.min():+.2f}",
                 yard_fences=",".join(sorted(own[i].id for i in tied)),
+                yard_drops="/".join(f"{drops[i]:+.2f}" for i in
+                                    sorted(tied, key=lambda i: -drops[i])),
                 yard_cut_m2=round(cut_m2, 1))
     return region, gross, info
 
@@ -270,21 +286,57 @@ def _line_dem(airport, st, floor, lines) -> list[float]:
     return [float(v) for v in z if math.isfinite(v)]
 
 
-def _witnesses(airport, own, st, floor, P, zp: float, band: float, reach: float) -> set[int]:
-    """F4: the witness fences (indices into ``own``) chained to ``P``."""
-    wit = set()
-    for i in range(len(own)):
-        z = _line_dem(airport, st, floor, {i})
-        if z and zp - _st.median(z) > band:
-            wit.add(i)
-    geo = {i: LineString(own[i].points) for i in wit}
-    tied = {i for i in wit if geo[i].distance(P) <= reach}
-    grow = True
+def _witnesses(airport, own, st, floor, P, band: float, reach: float
+               ) -> tuple[set[int], dict[int, float]]:
+    """F4': ``(tied, drops)`` -- the witness fences (indices into ``own``)
+    chained to ``P``, and the local drop of every line tested (its facing
+    ground's DEM median minus its floor stations' DEM median).  Evaluated
+    along the chain: the roots within ``reach`` of the pad first, then only
+    lines within ``reach`` of a tied line."""
+    geo = {i: LineString(own[i].points) for i in range(len(own))}
+    drops: dict[int, float] = {}
+    tested: set[int] = set()
+
+    def witness(i: int) -> bool:
+        if i not in tested:
+            tested.add(i)
+            d = _local_drop(airport, st, floor, i, geo[i], P, reach)
+            if d is not None:
+                drops[i] = d
+        return drops.get(i, math.nan) > band
+
+    tied = {i for i in geo if geo[i].distance(P) <= reach and witness(i)}
+    grow = set(tied)
     while grow:
-        more = {i for i in wit - tied if any(geo[i].distance(geo[j]) <= reach for j in tied)}
-        grow = bool(more)
-        tied |= more
-    return tied
+        grow = {i for i in geo if i not in tied and i not in tested
+                and any(geo[i].distance(geo[j]) <= reach for j in tied) and witness(i)}
+        tied |= grow
+    return tied, drops
+
+
+def _local_drop(airport, st, floor, i: int, line, P, reach: float) -> "float | None":
+    """F4': the DEM median of ``P``'s facing ground (the pad within
+    d(line, pad) + 2 ``reach`` of the line, 1 m grid) minus the DEM median
+    at line ``i``'s floor stations; ``None`` where the line has no floor
+    station, NaN where the facing ground is empty or no sample is finite."""
+    from ..airport.unit_storey import dem_samples
+    z = _line_dem(airport, st, floor, {i})
+    if not z:
+        return None
+    facing = P.intersection(line.buffer(line.distance(P) + 2.0 * reach))
+    zf = dem_samples(airport.dem, facing, step=1.0) if not facing.is_empty else []
+    return _st.median(zf) - _st.median(z) if zf else math.nan
+
+
+def _no_terrace(drops: dict[int, float]) -> str:
+    """The F4' refusal where a floor line stands within reach of the pad
+    and none is a witness (``""`` where no line was tested)."""
+    if not drops:
+        return ""
+    got = [d for d in drops.values() if math.isfinite(d)]
+    lo, hi = (min(got), max(got)) if got else (math.nan, math.nan)
+    x = "n/a" if not got else f"{lo:+.2f}" if hi - lo < 0.005 else f"{lo:+.2f}…{hi:+.2f}"
+    return f"no terrace at the fence (local drop {x} m)"
 
 
 def _groundside(region, gross, fences, air, eps: float):

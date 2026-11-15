@@ -71,7 +71,8 @@ def yard_records(planar: PlanarMap) -> dict[str, dict[str, _t.Any]]:
     """``{level ref: its yard record}``: an upper level's landing record
     carrying a ``yard_plane`` (spec 2068 A2 F3), and a floor pad's held
     block record's floor yard (``classify/floor_yard``; the level is the
-    block itself, ``pad`` its own ref)."""
+    block itself, ``pad`` its own ref) -- only while a yard face of its pad
+    stands in the map (spec 2068 A4 F1' b: no face, no record, no run)."""
     from ..model.registries import FLOOR_YARD
     reg = getattr(planar, "registries", None)
     out = {lv: rec for lv, rec in (getattr(reg, "landings", None) or {}).items()
@@ -79,7 +80,9 @@ def yard_records(planar: PlanarMap) -> dict[str, dict[str, _t.Any]]:
     for ref, h in (getattr(reg, "held", None) or {}).items():
         if h.get(FLOOR_YARD):
             out[ref] = dict(h[FLOOR_YARD], pad=ref)
-    return out
+    faced = {str(fence_yard_pad(f.ref)) for f in (getattr(planar, "faces", None) or {}).values()
+             if fence_yard_pad(f.ref) is not None}
+    return {lv: rec for lv, rec in out.items() if str(rec.get("pad")) in faced}
 
 
 def yard_runs(planar: PlanarMap, law: Law) -> list[YardRun]:

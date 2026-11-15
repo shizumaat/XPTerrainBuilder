@@ -8,6 +8,7 @@ take nothing.
 The floor pad's held record carries the yard (``yard_edge.yard_records``)."""
 from __future__ import annotations
 
+import statistics
 import sys
 import types
 
@@ -102,7 +103,9 @@ def test_the_held_block_carries_the_floor_yard_to_the_solve():
                            "building3": {}},
                      landings={"building2/p1": {"pad": "building1", "yard_plane": (1, 0, 0, 0, 0)},
                                "u/landing0": {"pad": "x"}})
-    got = yard_records(types.SimpleNamespace(registries=reg))
+    faces = {0: types.SimpleNamespace(ref="fenceyard:0:building2"),
+             1: types.SimpleNamespace(ref="fenceyard:1:building1")}
+    got = yard_records(types.SimpleNamespace(registries=reg, faces=faces))
     assert sorted(got) == ["building2", "building2/p1"]
     assert got["building2"]["pad"] == "building2" and got["building2"]["y_p"] == 0.0
 
@@ -140,3 +143,83 @@ def test_slivers_do_not_mint():
                           box(0, 20, 12, 32)])         # 144 m2, 12 m wide
     got = fl._min_pieces(pieces, rules.yard_piece_min_m2, rules.yard_piece_min_width_m)
     assert got.area == pytest.approx(144.0)
+
+
+def _ring_case(monkeypatch, dem, fences):
+    """A 176 m pad at the unit's floor, its own fence ``fences`` (each a
+    point list), the apron far east."""
+    pad = box(0.0, 0.0, 176.0, 40.0)
+    part = types.SimpleNamespace(base_y=0.0)
+    ur = unit_storey._UnitRead(0, None, ((part, pad),), 0.0, pad.bounds)
+    monkeypatch.setattr(unit_storey, "_unit_reads", lambda *_a, **_k: [ur])
+    lines = tuple(EdgeLine(f"unit:0:f#{k}", "rail.obj", tuple(pts), False, 0.0, 3.5, 0.0, 0.3,
+                           0.0, unit=0, base_ys=tuple(0.2 for _p in pts), panel_m=3.5)
+                  for k, pts in enumerate(fences))
+    cells = [_cell(0, "building", "building43", pad, "airside"),
+             _cell(1, "apron", "pol1", box(400.0, 0.0, 500.0, 100.0), "airside")]
+    out = []
+
+    def add(r, rf, poly, kind, cn=None, cl=None, evidence=None):
+        out.append((r, rf, poly, dict(evidence or {})))
+    airport = types.SimpleNamespace(edge_lines=lines, dem=dem, partition=object(),
+                                    frame=types.SimpleNamespace(entry=lambda: None))
+    st = fy.mint_fence_yards(airport, cells, LAW, load_rules(), add)
+    return out, st
+
+
+def test_a_rail_ring_on_the_rim_of_a_falling_pad_is_no_terrace(monkeypatch):
+    """F4' (KMCI building43: the rail ring stands level with the pad ground
+    beside it; the whole 176 m pad's median stands 1.5 m over it): the
+    terrace is witnessed at the fence, against the pad ground facing it."""
+    falls = _Dem(lambda x, y: 5.0 - 3.0 * min(max(x, 0.0), 176.0) / 176.0)
+    ring = [(168.0, 41.0), (174.0, 41.0), (174.0, 47.0), (168.0, 47.0), (168.0, 41.0)]
+    zp = statistics.median(unit_storey.dem_samples(falls, box(0.0, 0.0, 176.0, 40.0)))
+    assert zp - falls.z(171.0, 44.0) > 1.0       # the whole-pad reference would witness it
+    out, st = _ring_case(monkeypatch, falls, [ring])
+    assert out == [] and st["fence_yards"] == 0
+    got = st["floor_yard_refused:building43"]
+    assert got.startswith("no terrace at the fence (local drop ") and got.endswith(" m)")
+
+
+def test_a_line_reachable_only_through_a_non_witness_is_not_tied(monkeypatch):
+    """F4' along the chain: a witness line beyond reach of the pad, tied to
+    it only through a line at grade, is not tested and not tied."""
+    near = [(20.0, 42.0), (60.0, 42.0)]                # at grade beside the pad
+    far = [(62.0, 49.0), (110.0, 49.0)]               # within reach of ``near`` only ...
+    dem = _Dem(lambda x, y: 2.0 if y > 48.0 else 5.0)  # ... over ground 3 m under the pad
+    out, st = _ring_case(monkeypatch, dem, [near, far])
+    assert out == [] and st["fence_yards"] == 0
+    assert "local drop +0.00 m" in st["floor_yard_refused:building43"]
+    # through a WITNESS root the same line is tied
+    own = [EdgeLine(f"unit:0:f#{k}", "rail.obj", tuple(pts), False, 0.0, 3.5, 0.0, 0.3, 0.0,
+                    unit=0, base_ys=tuple(0.2 for _p in pts), panel_m=3.5)
+           for k, pts in enumerate([near, far])]
+    st = fy._stations(own, 2.0)
+    falls = types.SimpleNamespace(dem=_Dem(lambda x, y: 2.0 if y > 41.0 else 5.0))
+    tied, drops = fl._witnesses(falls, own, st, [True] * len(st), box(0.0, 0.0, 176.0, 40.0),
+                                1.0, 8.0)
+    assert tied == {0, 1} and drops[0] == pytest.approx(3.0)
+    tied, drops = fl._witnesses(types.SimpleNamespace(dem=dem), own, st, [True] * len(st),
+                                box(0.0, 0.0, 176.0, 40.0), 1.0, 8.0)
+    assert tied == set() and set(drops) == {0}           # the far line is never read
+
+
+@pytest.mark.parametrize("held, kept", [(None, False), ({"conforming": True}, False),
+                                        ({}, True)])
+def test_a_floor_yard_with_no_level_leaves_the_map(held, kept):
+    """Spec 2068 A4 F1' (a): a floor yard's cell stands only where its pad
+    carries the yard record -- a held, non-conforming pad; an unheld or a
+    conforming pad's yard cell is dropped before pass C and counted."""
+    from auto_patch_v2.planar import overlay
+    pad = _cell(0, "building", "building2", PAD, "airside", {fl.FLOOR_YARD_KEY: 0.0})
+    pad.evidence.update({k: 0.0 for k in fy._YARD_KEYS})
+    pad.evidence["yard_hull"] = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0))
+    yard = _cell(1, "groundside_pavement", "fenceyard:0:building2", LOT, "groundside")
+    road = _cell(2, "service_road", "road1", box(0.0, 0.0, 1.0, 1.0), "groundside")
+    reg = Registries(held={} if held is None else {"building2": dict(held)})
+    overlay._store_floor_yards([pad], reg)
+    counts: dict = {}
+    got = overlay._yards_with_a_level((yard, road), reg, counts)
+    assert [c.ref for c in got] == (["fenceyard:0:building2", "road1"] if kept else ["road1"])
+    assert counts["fence_yard_no_level"] == (0 if kept else 1)
+    assert overlay._yards_with_a_level((road,), reg, {}) == (road,)

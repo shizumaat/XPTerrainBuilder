@@ -35,7 +35,16 @@ itself, never from the aeroway way drawn over it:
   half widths jumped 64.5 / 49 m between 12 m stations — refused "the
   approach bends tighter than the corridor".  Each such carriageway is its
   own LANE: its own corridor, the deck's bank split between neighbouring
-  lanes halfway across the median (:func:`lane_band`).
+  lanes halfway across the median (:func:`lane_band`).  Two roads at two
+  levels beyond the deck are two lanes too (#2072 B2, :func:`road_level`)
+  -- but never on a side whose roads RUN THROUGH to the next deck over
+  them: no road tops out in the open stretch between two decks, so its
+  ground there splits nothing (#1718, MEASURED KBNA Taxiway L: a DEM
+  refresh moved 0.475 -> 0.567 m against the 0.5 m tolerance, and the
+  split lane's floor landed on the taxiway the deck carries).  Lanes stay
+  two ramps however close (``structure_approach.merge_duals``' ``apart``):
+  merged, one corridor took one lane's band and left the rest of the
+  deck's share uncut over a floor.
 
 * A TRENCH NEVER ENDS ON AIRSIDE PAVEMENT (#2072 rule A; RULINGS
   2026-10-30a (2), 2026-11-03b (2)).  Where airside pavement no deck ring

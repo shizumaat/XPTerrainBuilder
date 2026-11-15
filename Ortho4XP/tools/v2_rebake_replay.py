@@ -250,6 +250,16 @@ def _also_sampler(path: str, bounds):
         _DS.tile_triangles(path, bounds, _DS.dsftool(), None), bounds)
 
 
+def _agp_published(graded_doc):
+    """#2090 A6: the graded surface's published AGP groups (``None`` when
+    the surface predates the key, or a src without the reader)."""
+    try:
+        from auto_patch_v2.airport.placement_read import agp_groups_from_graded_doc
+    except ImportError:
+        return None
+    return agp_groups_from_graded_doc(graded_doc or {})
+
+
 def cmd_plan(args: argparse.Namespace) -> int:
     """THE PLACEMENT STAGE, REPLAYED AND TIMED (RULINGS 2026-09-12g).
 
@@ -544,6 +554,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
                      if hasattr(_pp, "_fcol") else None),
         jetway_strips=tuple((_gdoc.get("provenance") or {})
                             .get("jetway_strips") or ()),
+        # #2090 A6: the published AGP groups, as the object stage reads them
+        agp_groups=_agp_published(_gdoc),
         jetway_strip_m=getattr(getattr(law.tables.emit, "design", None),
                                "jetway_strip_m", None),
         pads=pads, rims=rims, engine_version="", law_digest="",

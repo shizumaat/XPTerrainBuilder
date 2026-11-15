@@ -123,3 +123,78 @@ G4 Closing, at most two tile builds (a control on the merged base unless one exi
 Q1 The road along the garage wall, under the bridges: (a, default) it stays on today's ground, a bank rises to the garage's floor and each entrance ramps at 5 %; (b) weld it to the garage's ground floor as 13v does for a building pad.
 Q2 The terminal's own pad (`building22`, 1632.66-1633.53) stands 3.2-4.0 m over the lifted terminal's zero, so about 3.5 m of its base stays in the ground: (a) next round, cut it to the group's zero where no airside rule is broken; (b, default this round) leave it.
 Q3 The pack's own patch (F7): (a, default) a printed check only; (b) a witness that sets levels.
+
+---
+
+# #2090 amended spec: parts B′ and C (Fable one-miss review of l2090e part B 9bdd54db6, 2026-11-15)
+
+Base origin/claude/l2090e (a7a4f5950: parts A + D landed there). ONE Opus lane; B′ then C, each with its own commits and replay gate. Owner answers 01:56Z: Q1 (a) the road along the garage wall under the bridges stays on today's ground, a bank rises to the garage floor and each entrance ramps at 5 %; Q2 (a) cut `building22` NEXT round (part E, not this one); Q3 (a) author's patch check only. Lots 5 % (21:42Z).
+
+## Decisions
+1. The hill bridge re-seats to the access-road line; the line does not bend. `dsf:obj31310`'s deck carries the access ways themselves (`FreeDeck.ways = (-18914, -4080, -3633)`); bare slab (`Parking_Hill_Bridge.obj`, y −1.60..+0.75, no piers). Bending would leave a 1.2 m dip in 128 m of elevated road the pack's own patch holds at one level.
+2. East side has the same defect: `dsf:obj31309` (ways −20087, −18913, −3628) ends 3 m from 31302's end line; part-B deck top 1632.065 vs `small_roads:-20087` at its end b 1633.06–1633.24 (1.0–1.2 m step).
+3. The 5.5 % bar is right (RULINGS 2026-10-09c (2b): 5 % design, steeper only where the run requires; 2026-11-14e: no length limit on a ramp following a road to a bridge). The 10 % hops came from `road_descent._run` reading a route end at a junction as "the road's end" (`road_descent.py:184` looks only at that vertex's own neighbours; module docstring excludes "an end another route carries on from").
+4. Part E (`building22`) not in this round.
+
+## Measured (frames: /Users/noah/XPTerrainBuilderData/.harness/frames/l2090e/KDEN.graded.fa01376ad.json = the PART-B replay at 9bdd54db6 despite its name; .../l2090e/KDEN.graded.json = A+D build at fa01376ad; .../l2090d/KDEN.pkl capture; .../l2090d/KDEN.ends.txt)
+- Published group: governor `dsf:obj31194`, z_gov 1638.503, delta −0.2115, Jeppesen datum 1629.503, 7 deck joins at y 3.45 (step 9.0, votes 8 vs rival 5).
+- West access road in B: 1633.05 from lat 39.84734 to 39.85031, except 1631.84–1631.86 at 31310's end a (39.84833–39.84842): rises 1631.88 → 1633.04 in ~4.5 m (26 %). A+D: 1631.0–1631.9.
+- Hold bonus defect: `access_road_vertices` returns `off = 0.0`, so `road_ramp.py:920` adds g × H = 0.25 m to every access seed (bumps 1633.20/1633.31 west, 1633.24/1633.26 east).
+- Ramp mechanism: the two NW ramps steepened to 9.6 % / 10 % with why "the road's end at 24 m / 19 m"; far vertex = route 730's end (way −19028) at its junction with −3662/−18915.
+- With the three fixes emulated (ride, no hold bonus, corrected end test): zero steepened ramps in the west box; targets 1633.16 → 1632.56 at the junction → 1631.93 → 1631.28 at 5 %. SW ramp on −4080 already ≤ 5 %.
+- End-test blast radius at KDEN: pre-B base has 10 ramps steepened by "the road's end", all deck-end seeds at the garage bridges' end b (joined under B, seed nothing); under B + ride only the two NW ramps change.
+- Row 13: ramp targets minted at the pre-delta level (0.21 m high at KDEN); `datum_rewrite` (`agp_level.py:60`) moves only Bands and Pins; the ramp target is a `Linear` row (`constraints/road_ramp.py:128`).
+- Rebase hazard: l2090e-B is an ancestor of l2090e; after the revert (c6d505243), 4f37e6207 deleted `agp_level.stack_zero` and made `final_zero` private; B's `rebake_inputs` and `publication` import both.
+- `building22`: role building, side airside, 255 vertices, ~463 × 290 m, z 1632.66–1633.53; shares vertices with `adjacent_ground:taxi:F:zone2` (1633.15–1633.30) and roads −18149/−3641.
+- Stage/datum: `law/tables.airside_stage_roles` (:206) is airside pavement only → `graded_strip` pieces are stage 2. Stack ground is minted in `planar/overlay.py:379`. `fill_toe_pins` (`constraints/fill_bank.py:59`) loops over ref families. `road_ramp._contacts` (:342) makes every road vertex with any airside-side role a mouth at max(published target, DEM); `graded_strip` is airside-side.
+(Emulation, not a replay: B's state mutated in memory on the l2090d capture; levels pre-delta; east side not emulated.)
+
+## Rebase
+On a branch from origin/claude/l2090e: `git revert c6d505243` (restores B), then restore `constraints/agp_level.stack_zero` and public `final_zero` (undo that part of 4f37e6207). Keep the closing-build fixes 4f37e6207 (sidecar key), 375baed8c (late stage), fa01376ad (emit key). Parts A and D stay.
+
+## Part B′ — B as built at 9bdd54db6, plus
+**B4b — a deck on the held road rides the line.** New `airport/access_road.py`, called from `bridge_stacks` (`bridge_stack.py:372`) after the kept loop, repeated until nothing changes.
+- Sibling group = the joined stacks of one (member, y_floor) with a graded `access` end; W = union of their access ways.
+- Candidate K: a kept stack with no join whose `FreeDeck.ways` meets W.
+- An end of K is on the hold when its middle lies between two consecutive siblings (B4's own test), or within 2 × `abutment_sample_step_m` of an outermost sibling's end-line stations; L_e = the line's level there.
+- With ≥ 1 end on the hold: `zero = mean(L_e − top_e)`, `datum_group = gid`, new field `DeckStack.rides = (member, y_floor)`; on-hold ends take state `joined`; the other land end is read by `cx.ends(..., joined=...)` as a sibling's other end; if graded with access it is the group's new outermost sibling.
+- K is always minted. Spread of `L_e − top_e` over `deck_flush_m` → listed `access_deck_tilt`. A re-seat over `deck_join_reach_m` → refused, listed `access_deck_out_of_reach`: STOP.
+- `access_road_vertices` (`model/deck_ends.py:39`) groups by a new `DeckStack.access_key` (the join's key, else `rides`).
+- KDEN expectation: 31310 and 31309 at zero ≈ 1633.19 published (+1.21 / +1.03), tops 1633.09.
+**B4c — no hold bonus on the level run.** `deck_end_seeds` (`airport/deck_ends.py:32`) gives every access vertex `(z, H)`; end-line vertices keep their own offset.
+**B7 — a deck-end ramp is not ended by a junction (14e).** `descend` (`road_descent.py:241`) takes an optional per-mouth `end_of`; for seeds from `deck_ends`, `road_ramp_targets` passes an end reader that answers `None` when any vertex of the route-end group has a neighbour on another route (the frame's route id). Airside-mouth ramps unchanged. Report the general case (same misread for airside mouths) to the master; do not change it.
+**B8 — census row 13.** `Descent` returns `src`. `with_road_ramp` publishes `PlanarMap.road_ramp_group = {v: (gid, floor_v)}` for each governed vertex on a ramp whose seed belongs to a `datum_group` stack (or a plate, part C). `datum_rewrite` rewrites that vertex's §37 (6) target to `max(floor_v, t + delta)` and its ceiling to that plus `visual_m`. For delta > 0 the foot is short by at most delta; list `agp_ramp_foot_m`.
+**Twins.** `test_deck_stack1971.py`: a deck carrying the access way between siblings rides; one adjacent to the outermost sibling rides and its far end seeds the ramp; one 30 m away does not. `test_road_descent*.py`: a deck-end seed's ramp crosses a route end another route carries on from at the design grade; an airside mouth's ramp unchanged; a true dead end still steepens. `test_agp_level2090.py`: the ramp target and ceiling of a group-seeded vertex move by delta and never under the floor.
+**Gate G2-B′** (`v2_solve_replay.py --replay <l2090d capture> --from classify --verify --emit`, predicted table first). Old G2 part-B bars (stage 1 unchanged; trench stack node-equal; joined deck ends within [−0.09, +0.05]), plus:
+- 31310 and 31309 publish `zero = L − top` within 0.02.
+- Road at each of their end lines within [−0.09, +0.05] of the deck top.
+- Every road vertex of the access ways between the outermost ends (K's included) within [−0.09, +0.10] of the line, east and west.
+- No ramp seeded by a group end steepened by "the road's end" at a carried-on end; any other steepened run printed with its `why`.
+- Solved grade between consecutive route stations (Δs ≥ 2 m) on those ramps ≤ 5.5 %, or ≤ 10.5 % on a run named "the next contact".
+- First ramp vertex's target ≤ line + 0.05.
+- Road under each joined or riding deck within 0.05 of the A+D replay.
+- Extend `bridge_census.py --agp` to print the ramp table (INDEX row).
+
+## Part C — the ground at a follower's ground floor
+- **C1 plate:** floors with |y| ≤ `ground_band_m`, per connected part ≥ `floor_min_area_m2`, `L = datum + y_p − deck_flush_m`, not built past `plate_max_off_m`; derived at the pack stage into `AgpGroup.plates` (read from D's floor cache).
+- **C2 geometry:** new `planar/agp_ground.py`, called in `planar/overlay.py` straight after the stack-ground block (:379), in the form of `stack_ground_pieces`. Regions `graded_strip`, source `zone`, refs `agp_ground:<gid>:<row>:plate#k` and `:bank#k` (new `AGP_GROUND_PREFIX`, `is_agp_ground_ref` in `model/planar.py`). Bank width `max(bank_min_width_m, (L − DEM) / bank_slope)`. Pieces yield to airside cells (cut back `pad_frontage_m`), structures, deck-stack ground and building pads (listed `agp_plate_on_pad`), and stand off road ribbons and other cells. A bank cut short by a ribbon → listed `agp_bank_clipped` with its grade.
+- **C3 rows** (`constraints/agp_level.py`, inputs `agp:<gid>`): P1 every vertex inside a plate that is no airside, structure, rigid or road vertex stands in [L − visual_m/2, L]. P2 every at-grade owned road vertex inside a plate is held at L with R1's band helper and seeds the ramp as `(L, H)` through `deck_end_seeds`; a way at another layer is listed. P3 a `parking_lot` vertex d m outside a plate, d ≤ max|L − DEM| / 0.05, stands in [L − visual_m/2 − 0.05 d, L + 0.05 d]. Bank toe: `fill_toe_pins` gains the bank family as a third loop entry, pinned at DEM. Seniority: R1/R3 over P1, P1 over P3.
+- **C3a:** plate vertices carry no ground datum (`solve/design_ground.py:40`, the `_deck_ground_vertices` precedent at :112); bank vertices carry it.
+- **C3b:** an `agp_ground` piece is never a road contact: `road_ramp._contacts` (:342) skips a vertex whose airside faces are all `agp_ground`.
+- **C3c (Q1 a):** no P row and no plate-seeded ramp label on a road vertex under a joined or riding deck's ring. A plate ramp that would stand ≥ 0.05 over the floor there → listed `agp_ramp_under_deck`: STOP.
+- **C4:** `classify/ribbon_mint.road_extent` (:84) gains plates and banks grown by `boundary_reach_m`.
+- Census corrections: row 16 is `planar/overlay.py`; row 17 is C3a + the toe entry; row 13 is B8; add `road_ramp._contacts` (C3b) and `stage_code` keys for the two new modules; row 15 holds by `airside_stage_roles` (keep its twin).
+- **Twins:** plate P1/P2/P3 bands; bank toe pinned; a plate on a pad is not built; a plate vertex has no datum; a road vertex on a bank is not a mouth; an under-deck vertex keeps its floor target.
+- **Gate G2-C** (same replay; stage 1 unchanged, no new relaxed/infeasible row, trench stack node-equal): plate vertices in band; road at each plate crossing within 0.09 under L; entrance ramps ≤ 5.5 % or printed with `why`; lots ≤ 5.5 %; bank toes at DEM within 0.02; the frontage road under each garage bridge within 0.15 of the B′ replay; every `agp_bank_clipped` / `agp_plate_on_pad` row printed.
+
+## G3 / G4 (closing)
+G3: `v2_rebake_replay.py plan <plan> <mesh or installed dsf> --graded G.json`: Jeppesen seat need_z = published datum; every joined/riding deck seats at its published zero.
+G4: at most two tile builds (control: the l2090e A+D build frames/l2090e may serve; arm last): `build_airport.py KDEN --tile 39 -105 --pack-copy --texture-mode default_xplane`, then `drawn_gate.py KDEN --tag T --against <control>` with `skybridge=39.85209,-104.67382,120 gb_w_a=39.849467,-104.677903,120 gb_w_b=39.849465,-104.677426,60 gb_e_a=39.849256,-104.669750,120 gb_e_b=39.849256,-104.670243,60 hill_w=39.848155,-104.677904,60 hill_e=39.848090,-104.669789,60 garage_entry=<at-grade plate crossing nearest 39.8493,-104.6765>,60 plaza=39.847647,-104.673782,150 stack=39.842347,-104.673859`. Bars (drawn): skybridge misfit ≤ 0.15; each garage bridge's deck top within 0.15 of the floor at end b and the road at end a; each hill deck's top within 0.15 of the road at both ends; ramp grade ≤ 5.5 % between stations (≤ 10.5 % on a "next contact" run); road under each bridge not MOVED; garage_entry: road within 0.15 of L, ground along the plate edge in [L − 0.50, L + 0.05], no object newly FAIL; plaza: Jeppesen drawn datum within 0.05 of published; stack: nothing MOVED; airside: no pavement node MOVED. The 8.24 m step on way −19790 and the 1.95 m step on −18956 are the control's: not worse.
+Protected airports (master rule 11-15): replay or plan-diff KMCI, KTPA, LEMG, KBNA, OTHH for B7 (deck-end ramps) — list movers > 0.1 m.
+Build time: plates from D's cache; report warm stage clocks of two runs (bar 0.6 s).
+
+## Part E — next round
+Cut `building22` to the group zero (owner Q2 a): needs its own consumer census (pad seat, frontage welds, taxiway F zone-2 edge) and a rule for the north edge. C lists the terminal flank plates as `agp_plate_on_pad`.
+
+## Stop rules
+`access_deck_out_of_reach`; `agp_ramp_under_deck`; a gate bar missed → stop that part, report numbers; earlier parts close alone.

@@ -220,7 +220,10 @@ def _products(args) -> dict:
         res = json.load(fh)
     with open(os.path.join(patch_dir, f"o4_v2_rebake_{args.icao}.json"), encoding="utf-8") as fh:
         plan = json.load(fh)
-    pack_root = str(plan.get("pack_root") or "")
+    # the WRITTEN pack (the placement plan's: the build's copy), not the
+    # rebake plan's source pack
+    placement = DC.load_plans(patch_dir, args.icao).get(tile) or {}
+    pack_root = str(placement.get("pack_root") or "")
     if not DC.pack_is_build_product(args, pack_root):
         raise SystemExit("NOT MEASURED: no --pack-copy -- the pack on disk is not this "
                          "build's objects")

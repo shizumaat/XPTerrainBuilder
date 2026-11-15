@@ -721,6 +721,13 @@ def alt_file(tile):
     return _data_file(tile, _iterated(tile, ".alt"))
 
 
+def alt_unfill_file(tile):
+    """The ``.alt``'s sidecar of the terrain composites' planes and fills
+    (#2077 round 2 R2, ``auto_patch.terrain_cut_stage.write_unfill``): the
+    mesh step levels the water from the raster without them."""
+    return alt_file(tile) + ".unfill.npz"
+
+
 def apt_file(tile):
     return _data_file(tile, ".apt")
 

@@ -460,6 +460,7 @@ def _output_files(tile, step: str, pack_dsfs=()) -> list:
         node_file = FNAMES.input_node_file(tile)
         files = [node_file, FNAMES.input_poly_file(tile),
                  FNAMES.apt_file(tile), FNAMES.alt_file(tile),
+                 FNAMES.alt_unfill_file(tile),
                  ZPROV.zprov_file(node_file),
                  FNAMES.levelled_roads_file(tile.build_dir, tile.lat,
                                             tile.lon)]
@@ -537,7 +538,7 @@ def bundle_absent_outputs(tile) -> tuple:
     import O4_ZProv as ZPROV
     node_file = FNAMES.input_node_file(tile)
     return (node_file, FNAMES.input_poly_file(tile), FNAMES.alt_file(tile),
-            ZPROV.zprov_file(node_file),
+            FNAMES.alt_unfill_file(tile), ZPROV.zprov_file(node_file),
             FNAMES.levelled_roads_file(tile.build_dir, tile.lat, tile.lon))
 
 

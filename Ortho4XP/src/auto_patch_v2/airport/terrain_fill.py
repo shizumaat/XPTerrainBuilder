@@ -46,8 +46,13 @@ THE CONSUMER CENSUS (RULINGS 2026-08-30l) is the spec's table
 (``docs/specs/2077-terrain-composites-spec.md`` 2): Triangle4XP reads the
 filled raster; the plan-edge and footprint-edge rings are DUMMY constrained
 lines; ``ProductionDem`` (the seat, the match, ``anchor_z``) reads the
-corpus, never this raster; water vertices keep their datum; the object
-stage reads the built mesh; the refinement re-bake re-applies all three.
+corpus, never this raster; the object stage reads the built mesh; the
+refinement re-bake re-applies all three.  ROUND 2 (spec 9.3): water and
+sea vertices are levelled from the raster as it stood before the planes
+and fills (the raster over the water is still conformed: land, rings and
+roads read it); the footprint's ring keeps :data:`QUAY_M` off mapped water
+(:func:`quay_rings`); another composite's cut bound yields within ``W`` of
+a zero footprint (:func:`conform_plane`).
 """
 from __future__ import annotations
 
@@ -59,8 +64,8 @@ import numpy as np
 
 from ..geom.terrain_deck import UNDER_M
 
-__all__ = ["REACH_M", "SHOULDER_POSTS", "SERVED_M", "Raster",
-           "posting_shoulder_m", "rim_fill", "conform_plane", "Owned"]
+__all__ = ["REACH_M", "SHOULDER_POSTS", "SERVED_M", "QUAY_M", "Raster",
+           "posting_shoulder_m", "rim_fill", "conform_plane", "quay_rings", "Owned"]
 
 #: the reach of a fill or a plane from its supports (m)
 REACH_M = 60.0
@@ -68,6 +73,10 @@ REACH_M = 60.0
 SHOULDER_POSTS = 1.25
 #: a support whose ground stays more than this under its bottom is unserved
 SERVED_M = 0.5
+#: THE QUAY (#2077 round 2 R3): the zero footprint's drawn ring keeps this
+#: far off mapped water (twice ``SEAWALL_OFFSET_M``, clear of the 0.5 m
+#: hairline pre-flight)
+QUAY_M = 1.0
 _M_PER_DEG = 111_320.0
 
 
@@ -85,11 +94,15 @@ class Raster:
     dlat: float
     frozen: "_t.Callable | None" = None
 
+    def posting_m(self) -> tuple[float, float]:
+        """The posting's ``(east, north)`` steps in metres, at mid-raster."""
+        lat = self.lat0 - 0.5 * self.dlat * (self.alt.shape[0] - 1)
+        return (self.dlon * _M_PER_DEG * math.cos(math.radians(lat)),
+                self.dlat * _M_PER_DEG)
+
     def shoulder_m(self) -> float:
         """:func:`_shoulder_m` of this raster's posting."""
-        lat = self.lat0 - 0.5 * self.dlat * (self.alt.shape[0] - 1)
-        return _shoulder_m(self.dlon * _M_PER_DEG * math.cos(math.radians(lat)),
-                          self.dlat * _M_PER_DEG)
+        return _shoulder_m(*self.posting_m())
 
     def window(self, w: float, s: float, e: float, n: float
                ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -187,13 +200,18 @@ def _owned_mask(owned: _t.Iterable[Owned], to_xy: _t.Callable, x: np.ndarray,
 
 
 def conform_plane(raster: Raster, to_xy: _t.Callable, rings_ll: _t.Sequence,
-                  z: float, cap: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
-                  box: tuple[float, float, float, float]) -> int:
+                  z: float, own: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
+                  box: tuple[float, float, float, float],
+                  others: "_t.Callable[[np.ndarray, np.ndarray], np.ndarray] | None" = None
+                  ) -> int:
     """THE PLANE (module doc) on ``raster``: ``rings_ll`` the zero
     footprint's ``(lon, lat)`` rings, ``z`` its height, ``to_xy`` the
-    composite's projector, ``cap(lons, lats)`` the cut bound at postings
-    (``inf`` off every terrain member's plan), ``box`` the footprint's
-    degree box grown by :data:`REACH_M`.  The postings changed."""
+    composite's projector, ``own(lons, lats)`` the cut bound of THIS
+    composite's terrain members at postings (``inf`` off their plans; it
+    holds everywhere), ``others`` the other composites' (it holds only
+    farther than ``W`` from the footprint: inside the OWNED ZONE the plane
+    is the ground, #2077 round 2 R4), ``box`` the footprint's degree box
+    grown by :data:`REACH_M`.  The postings changed."""
     rows, cols, lons, lats = raster.window(*box)
     if not len(rows):
         return 0
@@ -205,9 +223,13 @@ def conform_plane(raster: Raster, to_xy: _t.Callable, rings_ll: _t.Sequence,
     if not near.any():
         return 0
     rows, cols, lons, lats, d = rows[near], cols[near], lons[near], lats[near], d[near]
-    r = np.maximum(0.0, d - raster.shoulder_m())
+    w = raster.shoulder_m()
+    r = np.maximum(0.0, d - w)
+    cap = own(lons, lats)
+    if others is not None:
+        cap = np.where(d > w, np.minimum(cap, others(lons, lats)), cap)
     old = raster.alt[rows, cols].astype(float)
-    new = np.minimum(np.clip(old, z - r, z + r), np.maximum(old, cap(lons, lats)))
+    new = np.minimum(np.clip(old, z - r, z + r), np.maximum(old, cap))
     moved = np.abs(new - old) > 1e-6
     raster.alt[rows[moved], cols[moved]] = new[moved]
     return int(moved.sum())
@@ -257,3 +279,29 @@ def rim_fill(raster: Raster, to_xy: _t.Callable, to_ll: _t.Callable,
     after = raster.sample(*to_ll(sxy[:, 0], sxy[:, 1]))
     rep["unserved"] = int(np.sum(~(after >= sz + UNDER_M - SERVED_M)))
     return rep
+
+
+def quay_rings(rings_ll: _t.Sequence, to_xy: _t.Callable, to_ll: _t.Callable,
+               water_xy: _t.Any, min_area_m2: float) -> list[np.ndarray]:
+    """THE QUAY (#2077 round 2 R3): the ``(lon, lat)`` rings of a zero
+    footprint (``rings_ll``, even-odd) less mapped water grown by
+    :data:`QUAY_M` -- ``water_xy`` a shapely geometry in the composite's
+    frame metres (``to_xy`` / ``to_ll``), ``None`` for none: the rings as
+    given.  Pieces under ``min_area_m2`` are not drawn.  Land then stands
+    at the plane to ``QUAY_M`` from the water, the drop lies in that
+    metre, and no constrained line is drawn in the water."""
+    rings = [np.asarray(r, float) for r in rings_ll if len(r) >= 4]
+    if water_xy is None or water_xy.is_empty:
+        return rings
+    region = _polygon([np.c_[to_xy(r[:, 0], r[:, 1])] for r in rings])
+    if region is None or region.is_empty:
+        return rings
+    land = region.difference(water_xy.buffer(QUAY_M))
+    out = []
+    for poly in getattr(land, "geoms", [land]):
+        if poly.geom_type != "Polygon" or poly.is_empty or poly.area < min_area_m2:
+            continue
+        for ring in (poly.exterior, *poly.interiors):
+            xy = np.asarray(ring.coords, float)
+            out.append(np.c_[to_ll(xy[:, 0], xy[:, 1])])
+    return out

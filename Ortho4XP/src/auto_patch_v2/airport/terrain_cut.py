@@ -119,6 +119,14 @@ THE FLOOR's band, round 3: for a ground object (``floor_m`` > 0) the edge
 band keeps its own top eroded, with no edge-lowest term -- an arm's rim
 underside over low open ground is not the ground's bound there.
 
+A FILL RECORD'S BAND (#2077 round 2 R1): a drawn point is supported by one
+triangle edge plus one posting diagonal, so a terrain composite whose
+ground is filled to its rim (``terrain_fill``) holds the rim's level
+``band_m`` = ``W + s`` inside the plan (the fill's shoulder plus the
+larger posting step, ``terrain_cut_stage._fill_band``) -- never over the
+lowest top within ``clip_m`` = one posting diagonal.  Every other record
+keeps :data:`BAND_M`.
+
 Pure geometry: the tile glue that reads the plans and writes the raster is
 ``auto_patch/terrain_cut_stage``.
 """
@@ -156,7 +164,8 @@ def _floor(bot: np.ndarray, top: np.ndarray, floor_m: float) -> np.ndarray:
 
 
 def _bound(bot: np.ndarray, top: np.ndarray, cell: float, erode_m: float,
-           floor_m: float) -> np.ndarray:
+           floor_m: float, band_m: float = BAND_M, clip_m: float | None = None
+           ) -> np.ndarray:
     """The CUT SURFACE (module doc) of a plan binned on a ``cell``-metre
     grid (``bot`` / ``top`` ``nan`` where uncovered), in metres over the
     model's zero; ``inf`` / undefined off the plan.  ``erode_m``: the
@@ -164,7 +173,13 @@ def _bound(bot: np.ndarray, top: np.ndarray, cell: float, erode_m: float,
     never under the edge's lowest surface.  ``floor_m`` > 0 (a ground
     object, THE FLOOR): the band keeps its own top eroded, beyond it the
     floor eroded -- no edge-lowest term (an arm's rim underside over low
-    open ground is not the ground's bound)."""
+    open ground is not the ground's bound).  ``band_m`` > :data:`BAND_M`
+    (a FILL record, #2077 round 2 R1, ``floor_m`` == 0 only): the cells
+    with ``BAND_M < edge <= band_m`` stand at least at ``min(L, T)`` --
+    ``L`` the edge-lowest term read at the cell's nearest edge cell, ``T``
+    the lowest top within ``clip_m`` of the cell -- so the drop from the
+    rim's level to the eroded top lies a triangle and a posting diagonal
+    behind the rim, never under it."""
     from scipy import ndimage
     cov = np.isfinite(bot)
     k = max(1, int(round(erode_m / cell)))
@@ -185,27 +200,39 @@ def _bound(bot: np.ndarray, top: np.ndarray, cell: float, erode_m: float,
     band = np.hypot(*np.mgrid[-b:b + 1, -b:b + 1]) <= b
     lowest = ndimage.maximum_filter(np.where(rim, bot, -np.inf), footprint=band,
                                     mode="constant", cval=-np.inf)
-    return np.where(edge <= BAND_M, np.maximum(eroded, lowest), eroded)
+    out = np.where(edge <= BAND_M, np.maximum(eroded, lowest), eroded)
+    if band_m <= BAND_M or not rim.any():
+        return out
+    _, (ni, nj) = ndimage.distance_transform_edt(~rim, return_indices=True)
+    k = max(1, int(round(float(clip_m if clip_m is not None else erode_m) / cell)))
+    near_top = ndimage.minimum_filter(np.where(cov, top, np.inf),
+                                      footprint=np.hypot(*np.mgrid[-k:k + 1, -k:k + 1]) <= k,
+                                      mode="constant", cval=np.inf)
+    reach = (edge > BAND_M) & (edge <= band_m)
+    return np.where(reach, np.maximum(out, np.minimum(lowest[ni, nj], near_top)), out)
 
 
-def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M, floor_m: float = 0.0
-              ) -> DeckGrid:
+def _cut_grid(grid: DeckGrid, erode_m: float = ERODE_M, floor_m: float = 0.0,
+              band_m: float = BAND_M, clip_m: float | None = None) -> DeckGrid:
     """The CUT SURFACE of a model's plan grid (module doc) as a
     :class:`DeckGrid` whose ``top`` is the bound (``bot`` the model's own;
     the cut never fills).  ``erode_m``: the erosion radius (a ground object
     carrying riders takes one cell, ``bridged_ground.ERODE_M``).
-    ``floor_m`` > 0: the bound of THE FLOOR (:func:`_bound`)."""
-    bound = _bound(grid.bot, grid.top, CELL_M, erode_m, floor_m)
+    ``floor_m`` > 0: the bound of THE FLOOR; ``band_m`` / ``clip_m``: a fill
+    record's edge band (:func:`_bound`)."""
+    bound = _bound(grid.bot, grid.top, CELL_M, erode_m, floor_m, band_m, clip_m)
     return DeckGrid(grid.x0, grid.z0, grid.bot.copy(),
                     np.where(grid.covered, bound, np.nan))
 
 
 def cut_fit(grid: DeckGrid, zero: float, heading: float,
-            erode_m: float = ERODE_M, floor_m: float = 0.0) -> TerrainFit:
+            erode_m: float = ERODE_M, floor_m: float = 0.0,
+            band_m: float = BAND_M, clip_m: float | None = None) -> TerrainFit:
     """The cut as a :class:`TerrainFit` anchored at the frame origin (the
     model's anchor), seated at ``zero``, filling nothing; ``floor_m`` > 0:
-    cut to the object's floor per cell (module doc, THE FLOOR)."""
-    cut = _cut_grid(grid, erode_m, floor_m)
+    cut to the object's floor per cell (module doc, THE FLOOR); ``band_m``
+    / ``clip_m``: a fill record's edge band (:func:`_bound`, #2077 R1)."""
+    cut = _cut_grid(grid, erode_m, floor_m, band_m, clip_m)
     return TerrainFit("cut", "", (0.0, 0.0), float(heading), float(zero), 1.0,
                       cut.area_m2, 0.0, cut, fill=False)
 

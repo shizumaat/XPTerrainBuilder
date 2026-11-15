@@ -34,6 +34,15 @@ touches the tile's edge postings nor an airport patch's boundary
 another composite's ground.  The footprint's edge is drawn as a DUMMY
 constrained line, like the plan's.
 
+ROUND 2 (#2077 spec 9.2): a fill record's cut holds its rim's level to
+``W + s`` inside the plan (:func:`_fill_band`, R1); the planes' and fills'
+change is recorded beside the ``.alt`` (:func:`write_unfill`) and taken
+off every water vertex by the mesh step (:func:`unfill_water`): the water
+is levelled from the raster as it stood before them (R2); the footprint's
+ring is drawn ``terrain_fill.QUAY_M`` off mapped water (R3); inside the
+footprint grown by ``W`` only the composite's own members' bound holds the
+plane (R4, ``terrain_fill.conform_plane``).
+
 Nothing here raises into the build: an unreadable plan or object is one
 log line and that model is not cut (or not held).
 """
@@ -49,7 +58,8 @@ import numpy as np
 
 from . import pack_choice as _PC
 
-__all__ = ["cut_records", "bake", "apply", "held_boxes", "hold"]
+__all__ = ["cut_records", "bake", "apply", "held_boxes", "hold", "write_unfill",
+           "unfill_water"]
 
 #: the raster postings left uncut at the tile's edge (the neighbour's
 #: raster is not cut, and the two must meet)
@@ -88,25 +98,37 @@ def cut_records(patch_dir: str, icaos: _t.Iterable[str] | None = None
     return out
 
 
-def _fit(rec):
+def _fill_band(raster) -> tuple[float, float]:
+    """``(W + s, d)`` of a ``terrain_fill.Raster`` (#2077 round 2 R1): ``W``
+    the fill's shoulder, ``s`` the larger posting step, ``d`` one posting
+    diagonal (metres) -- a fill record's cut holds its rim's level that far
+    inside the plan (``terrain_cut._bound``)."""
+    dx, dy = raster.posting_m()
+    return raster.shoulder_m() + max(dx, dy), float(np.hypot(dx, dy))
+
+
+def _fit(rec, band: tuple[float, float] | None = None):
     """One record's cut as a ``TerrainFit`` (its file's plan grid at the
     record's zero and heading, eroded by its ``erode_m`` when it names one,
-    to its floor when it names ``floor_m``), or ``None`` where the
-    file cannot be read."""
+    to its floor when it names ``floor_m``; a FILL record's edge band
+    reaching ``band`` = :func:`_fill_band` when given), or ``None`` where
+    the file cannot be read."""
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_model as _tm
     c = rec["cut"]
     grid = _tm.plan_grid(str(c["file"]))
     if grid is None:
         return None
+    reach = band if band is not None and c.get("fill") else (_tc.BAND_M, None)
     return _tc.cut_fit(grid, float(rec["elevation"]), float(c["heading"]),
-                       float(c.get("erode_m", _tc.ERODE_M)), float(c.get("floor_m", 0.0)))
+                       float(c.get("erode_m", _tc.ERODE_M)), float(c.get("floor_m", 0.0)),
+                       float(reach[0]), reach[1])
 
 
 def _cut_one(dem, tile, rec) -> int:
     """Cut ``tile.dem.alt_dem`` under one record's plan; the postings cut."""
     from auto_patch_v2.airport import terrain_cut as _tc
-    fit = _fit(rec)
+    fit = _fit(rec, _fill_band(_raster(dem, tile, None)))
     if fit is None:
         return 0
     c = rec["cut"]
@@ -159,9 +181,11 @@ def bake(tile, records: _t.Sequence[_t.Mapping[str, _t.Any]] | None = None,
         total += k
         UI.vprint(1, f"   [{rec.get('icao', '')}] terrain model {rec.get('resource')} "
                      f"({rec.get('id')}): the ground under it cut at {k} posting(s)")
+    dem.terrain_fill_delta = None
     if any(r["cut"].get("fill") or r["cut"].get("plane") for r in records):
         try:
-            total += _fill_all(dem, tile, records, patch_area)
+            k, dem.terrain_fill_delta = _fill_all(dem, tile, records, patch_area)
+            total += k
         except Exception as exc:
             UI.vprint(1, f"   terrain composites not filled ({exc})")
             UI.vprint(2, traceback.format_exc())
@@ -181,12 +205,12 @@ class _Composite(_t.NamedTuple):
     floor: _t.Any                  # its zero footprint alone (``Owned``)
 
 
-def _composite(rec) -> "_Composite | None":
+def _composite(rec, band: tuple[float, float] | None = None) -> "_Composite | None":
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_fill as _tf
     from auto_patch_v2.airport import terrain_model as _tm
     from auto_patch_v2.geom.terrain_deck import UNDER_M
-    fit = _fit(rec)
+    fit = _fit(rec, band)
     grid = _tm.plan_grid(str(rec["cut"]["file"]))
     if fit is None or grid is None:
         return None
@@ -221,32 +245,71 @@ def _raster(dem, tile, patch_area):
     return _tf.Raster(a, tile.lon + dem.x0, tile.lat + dem.y1, dx, dy, frozen)
 
 
-def _fill_all(dem, tile, records, patch_area) -> int:
+def _fill_window(dem, tile, comps) -> tuple[int, int, int, int] | None:
+    """``(r0, r1, c0, c1)``: the raster window every plane and rim fill of
+    ``comps`` can change (their plan boxes and zero footprints grown by
+    the reach and a posting), ``None`` off the raster."""
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_fill as _tf
+    boxes = []
+    for c in comps:
+        boxes.append(_tc.plan_box(c.fit, c.to_ll))
+        for r in (c.rec["cut"].get("plane") or {}).get("rings") or ():
+            a = np.asarray(r, float)
+            boxes.append((a[:, 0].min(), a[:, 1].min(), a[:, 0].max(), a[:, 1].max()))
+    if not boxes:
+        return None
+    b = np.asarray(boxes, float)
+    ny, nx = dem.alt_dem.shape
+    dx, dy = (dem.x1 - dem.x0) / (nx - 1), (dem.y1 - dem.y0) / (ny - 1)
+    pad = _tf.REACH_M / _tf._M_PER_DEG
+    padx = pad / max(np.cos(np.radians(float(b[:, 1].mean()))), 1e-6) + dx
+    pad += dy
+    c0 = max(0, int(np.floor((b[:, 0].min() - padx - tile.lon - dem.x0) / dx)))
+    c1 = min(nx - 1, int(np.ceil((b[:, 2].max() + padx - tile.lon - dem.x0) / dx)))
+    r0 = max(0, int(np.floor((dem.y1 - (b[:, 3].max() + pad - tile.lat)) / dy)))
+    r1 = min(ny - 1, int(np.ceil((dem.y1 - (b[:, 1].min() - pad - tile.lat)) / dy)))
+    return None if c1 < c0 or r1 < r0 else (r0, r1, c0, c1)
+
+
+def _fill_all(dem, tile, records, patch_area) -> tuple[int, "dict | None"]:
     """THE FILL (module doc): every plane, then every rim fill; the
-    postings changed."""
+    postings changed and the change (:func:`write_unfill`'s record, the
+    planes' and fills' ``alt - before`` at the postings they moved)."""
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_fill as _tf
-    comps = [c for c in (_composite(r) for r in records) if c is not None]
     raster = _raster(dem, tile, patch_area)
+    band = _fill_band(raster)
+    comps = [c for c in (_composite(r, band) for r in records) if c is not None]
+    win = _fill_window(dem, tile, comps)
+    if win is None:
+        return 0, None
+    r0, r1, c0, c1 = win
+    before = dem.alt_dem[r0:r1 + 1, c0:c1 + 1].astype(np.float32, copy=True)
 
-    def cap(lons, lats):
-        out = np.full(len(lons), np.inf)
-        for c in comps:
-            out = np.minimum(out, _tc.cut_heights(c.fit, c.to_xy, lons, lats,
-                                                  np.full(len(lons), np.inf))[0])
-        return out
+    def bound(members):
+        def cap(lons, lats):
+            out = np.full(len(lons), np.inf)
+            for c in members:
+                out = np.minimum(out, _tc.cut_heights(c.fit, c.to_xy, lons, lats,
+                                                      np.full(len(lons), np.inf))[0])
+            return out
+        return cap
     total = 0
     for c in comps:
         plane = c.rec["cut"].get("plane")
         if not plane or not plane.get("rings"):
             continue
         ll = np.concatenate([np.asarray(r, float) for r in plane["rings"]])
-        pad = _tf.REACH_M / 111_320.0
+        pad = _tf.REACH_M / _tf._M_PER_DEG
         padx = pad / max(np.cos(np.radians(float(ll[:, 1].mean()))), 1e-6)
-        k = _tf.conform_plane(raster, c.to_xy, plane["rings"], float(plane["z"]), cap,
+        # floors win in the owned zone (R4): its own members' bound holds
+        # everywhere, another composite's only beyond W of the footprint
+        k = _tf.conform_plane(raster, c.to_xy, plane["rings"], float(plane["z"]), bound([c]),
                               (ll[:, 0].min() - padx, ll[:, 1].min() - pad,
-                               ll[:, 0].max() + padx, ll[:, 1].max() + pad))
+                               ll[:, 0].max() + padx, ll[:, 1].max() + pad),
+                              bound([o for o in comps if o is not c]))
         total += k
         UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain composite {c.rec.get('resource')} "
                      f"({c.rec.get('id')}): the ground of its zero footprint conformed to "
@@ -254,18 +317,23 @@ def _fill_all(dem, tile, records, patch_area) -> int:
     for c in comps:
         if not c.rec["cut"].get("fill"):
             continue
-        own = lambda lons, lats, c=c: _tc.cut_heights(   # noqa: E731
-            c.fit, c.to_xy, lons, lats, np.full(len(lons), np.inf))[0]
         # floors win -- its own town's floor too: a cliff's crest never
         # raises the zero footprint at its foot through the cliff
-        rep = _tf.rim_fill(raster, c.to_xy, c.to_ll, c.support_xy, c.support_z, own,
+        rep = _tf.rim_fill(raster, c.to_xy, c.to_ll, c.support_xy, c.support_z, bound([c]),
                            [o.owned for o in comps if o is not c] + [c.floor])
         total += rep["raised"]
         UI.vprint(1, f"   [{c.rec.get('icao', '')}] terrain model {c.rec.get('resource')} "
                      f"({c.rec.get('id')}): the ground filled to its rim at "
                      f"{rep['raised']} posting(s) from {rep['supports']} support(s), "
                      f"{rep['unserved']} unserved")
-    return total
+    d = dem.alt_dem[r0:r1 + 1, c0:c1 + 1] - before
+    ii, jj = np.nonzero(d != 0)
+    if not len(ii):
+        return total, None
+    ny, nx = dem.alt_dem.shape
+    return total, {"rows": (ii + r0).astype(np.int32), "cols": (jj + c0).astype(np.int32),
+                   "delta": d[ii, jj].astype(np.float32), "nx": int(nx), "ny": int(ny),
+                   "frame": np.array([dem.x0, dem.y0, dem.x1, dem.y1], float)}
 
 
 def _outline(rec) -> list:
@@ -278,29 +346,154 @@ def _outline(rec) -> list:
     return _tc.outline_rings(fit, _tc.projector(float(c["lat"]), float(c["lon"]))[1])
 
 
-def apply(tile, vector_map, icaos: _t.Iterable[str], patch_area=None) -> int:
-    """STEP 1 (module doc): cut the raster under the included airports'
-    terrain models, rewrite the ``.alt`` and draw each plan's edge as a
-    constrained line.  The postings cut."""
-    import O4_File_Names as FNAMES
+def _tile_water(tile):
+    """The tile's mapped water (sea and inland, tile-relative degrees: the
+    mesh's own derivation, ``O4_Vector_Map.cached_tile_water``) or
+    ``None`` when none is cached."""
+    import O4_Vector_Map as VMAP
+    from shapely import union_all
+    parts = [g for g in VMAP.cached_tile_water(tile) if g is not None and not g.is_empty]
+    return union_all(parts) if parts else None
+
+
+def _quay(tile, rec, rings, water, min_area_m2) -> list:
+    """THE QUAY (R3): one zero footprint's rings less mapped water grown by
+    ``terrain_fill.QUAY_M`` (``terrain_fill.quay_rings``); ``water`` the
+    tile's (:func:`_tile_water`)."""
+    import shapely
+    from auto_patch_v2.airport import terrain_cut as _tc
+    from auto_patch_v2.airport import terrain_fill as _tf
+    from shapely.geometry import box as _box
+    c = rec["cut"]
+    to_xy, to_ll = _tc.projector(float(c["lat"]), float(c["lon"]))
+    a = np.concatenate([np.asarray(r, float) for r in rings])
+    pad = 0.002
+    near = water.intersection(_box(a[:, 0].min() - tile.lon - pad, a[:, 1].min() - tile.lat - pad,
+                                   a[:, 0].max() - tile.lon + pad, a[:, 1].max() - tile.lat + pad))
+    near = shapely.transform(near, lambda q: np.c_[to_xy(q[:, 0] + tile.lon, q[:, 1] + tile.lat)])
+    return _tf.quay_rings(rings, to_xy, to_ll, near, min_area_m2)
+
+
+def _edge_lines(tile, records) -> list:
+    """Every record's plan edge and zero-footprint edge (THE QUAY), as
+    tile-relative ``LineString`` s for the DUMMY constrained lines."""
     import O4_UI_Utils as UI
-    from shapely.geometry import LineString, MultiLineString
-    records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon), icaos)
-    if not records:
-        return 0
-    UI.vprint(0, "-> Cutting the ground under the airports' terrain objects")
-    total = bake(tile, records, patch_area)
-    if not total:
-        return 0
-    tile.dem.write_to_file(FNAMES.alt_file(tile))
+    from shapely.geometry import LineString
+    water, untrimmed = None, 0
+    if any((r["cut"].get("plane") or {}).get("rings") for r in records):
+        try:
+            water = _tile_water(tile)
+        except Exception as exc:
+            UI.vprint(2, f"   the tile's water unread ({exc})")
+    dx, dy = _raster(tile.dem, tile, None).posting_m()
     lines = []
     for rec in records:
         try:
             plane = (rec["cut"].get("plane") or {}).get("rings") or ()
+            if plane and water is not None:
+                plane = _quay(tile, rec, plane, water, 4.0 * dx * dy)
+            elif plane:
+                untrimmed += 1
             lines += [LineString(np.asarray(r, float) - np.array([tile.lon, tile.lat]))
                       for r in [*_outline(rec), *plane] if len(r) >= 2]
         except Exception as exc:
             UI.vprint(1, f"   terrain model {rec.get('resource')}: no edge line ({exc})")
+    if untrimmed:
+        UI.vprint(1, f"   {untrimmed} zero footprint(s) drawn untrimmed: no mapped water cached")
+    return lines
+
+
+def write_unfill(tile) -> None:
+    """THE WATER IS NEVER FILLED (#2077 round 2 R2): write the change the
+    last :func:`bake` made with its planes and fills (``tile.dem.
+    terrain_fill_delta``) beside the ``.alt`` -- the mesh step takes it off
+    every water vertex (:func:`unfill_water`) -- or remove a stale one
+    when it made none."""
+    import O4_File_Names as FNAMES
+    path = FNAMES.alt_unfill_file(tile)
+    d = getattr(getattr(tile, "dem", None), "terrain_fill_delta", None)
+    if not d:
+        if os.path.exists(path):
+            os.remove(path)
+        return
+    with open(path, "wb") as fh:
+        np.savez(fh, **d)
+
+
+def unfill_water(tile, vertices, water_valued) -> dict:
+    """R2 on the mesh (``O4_Mesh_Utils.post_process_nodes_altitudes``,
+    before the water smoothing): every water-valued vertex in the box of
+    :func:`write_unfill`'s change has the bilinear change at its position
+    (Triangle4XP's ``altitude()`` indexing) taken off its altitude, so the
+    water is levelled from the raster as it stood before the planes and
+    fills.  ``vertices`` flat, six per vertex, changed in place.  One log
+    line; never raises."""
+    import O4_UI_Utils as UI
+    rep = {"vertices": 0, "worst_m": 0.0}
+    try:
+        import O4_File_Names as FNAMES
+        path = FNAMES.alt_unfill_file(tile)
+        if not water_valued or not os.path.exists(path):
+            return rep
+        with np.load(path) as f:
+            rows, cols, delta = f["rows"], f["cols"], f["delta"].astype(float)
+            nx, ny, (x0, y0, x1, y1) = int(f["nx"]), int(f["ny"]), f["frame"]
+        if not len(rows):
+            return rep
+        v = np.fromiter((int(k) for k in water_valued), np.int64)
+        px = (vertices[6 * v] - x0) / (x1 - x0) * (nx - 1)
+        py = (y1 - vertices[6 * v + 1]) / (y1 - y0) * (ny - 1)
+        r0, c0 = int(rows.min()), int(cols.min())
+        grid = np.zeros((int(rows.max()) - r0 + 3, int(cols.max()) - c0 + 3))
+        grid[rows - r0 + 1, cols - c0 + 1] = delta
+        i, j = np.floor(px).astype(np.int64), np.floor(py).astype(np.int64)
+        ip, jp = np.minimum(i + 1, nx - 1), np.minimum(j + 1, ny - 1)
+        inside = (i >= c0 - 1) & (i <= cols.max() + 1) & (j >= r0 - 1) & (j <= rows.max() + 1)
+        if not inside.any():
+            return rep
+        v, px, py, i, j, ip, jp = (a[inside] for a in (v, px, py, i, j, ip, jp))
+
+        def at(jj, ii):
+            gi, gj = ii - c0 + 1, jj - r0 + 1
+            ok = (gi >= 0) & (gj >= 0) & (gi < grid.shape[1]) & (gj < grid.shape[0])
+            out = np.zeros(len(ii))
+            out[ok] = grid[gj[ok], gi[ok]]
+            return out
+        rx, ry = px - i, py - j
+        dz = (at(j, i) * (1 - rx) * (1 - ry) + at(j, ip) * rx * (1 - ry)
+              + at(jp, i) * (1 - rx) * ry + at(jp, ip) * rx * ry)
+        moved = np.abs(dz) > 1e-9
+        vertices[6 * v[moved] + 2] -= dz[moved]
+        rep = {"vertices": int(moved.sum()),
+               "worst_m": float(np.abs(dz[moved]).max()) if moved.any() else 0.0}
+    except Exception as exc:
+        UI.vprint(1, f"   terrain composites: water not unfilled ({exc})")
+        UI.vprint(2, traceback.format_exc())
+        return rep
+    UI.vprint(1, f"   terrain composites (#2077 R2): {rep['vertices']} water vertex(es) "
+                 f"levelled from the unfilled raster, worst {rep['worst_m']:.2f} m")
+    return rep
+
+
+def apply(tile, vector_map, icaos: _t.Iterable[str], patch_area=None) -> int:
+    """STEP 1 (module doc): cut the raster under the included airports'
+    terrain models, rewrite the ``.alt`` (and its :func:`write_unfill`
+    sidecar) and draw each plan's edge and each zero footprint's quay as
+    a constrained line.  The postings cut."""
+    import O4_File_Names as FNAMES
+    import O4_UI_Utils as UI
+    from shapely.geometry import MultiLineString
+    records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon), icaos)
+    if not records:
+        write_unfill(tile)
+        return 0
+    UI.vprint(0, "-> Cutting the ground under the airports' terrain objects")
+    total = bake(tile, records, patch_area)
+    write_unfill(tile)
+    if not total:
+        return 0
+    tile.dem.write_to_file(FNAMES.alt_file(tile))
+    lines = _edge_lines(tile, records)
     if lines:
         vector_map.encode_MultiLineString(MultiLineString(lines), tile.dem.alt_vec,
                                           "DUMMY", check=True)

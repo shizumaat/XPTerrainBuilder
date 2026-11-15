@@ -144,3 +144,56 @@ def test_the_plan_edge_is_a_closed_ring_per_boundary():
     assert len(rings) == 2                            # the rim and the hole
     for r in rings:
         assert np.allclose(r[0], r[-1])
+
+
+def _climbing_hill(nx=60, nz=30, climb=0.35):
+    """A skin hill (top == bot) whose rim climbs ``climb`` along x."""
+    i, j = np.mgrid[0:nx, 0:nz]
+    x = (i + 0.5) * CELL_M
+    u, v = (i - (nx - 1) / 2) / (nx / 2), (j - (nz - 1) / 2) / (nz / 2)
+    top = climb * x + 25.0 * np.clip(1.0 - u * u - v * v, 0.0, None)
+    return DeckGrid(0.0, -nz * CELL_M / 2, top.copy(), top)
+
+
+def test_t1_a_fill_record_holds_its_rim_level_a_triangle_and_a_diagonal_inside():
+    """#2077 round 2 R1 (twin T1): on a 6.9 x 10.3 m raster a fill
+    record's cut, within ``W + s`` of the rim, never stands more than
+    0.5 m under its nearest rim cell's bottom unless the top within ``d``
+    is lower, never over that top; without ``fill`` the bound is today's."""
+    from auto_patch_v2.airport import terrain_fill as TF
+    from scipy import ndimage
+    g = _climbing_hill()
+    lat = 47.8
+    r = TF.Raster(np.zeros((3, 3)), 13.0, lat, 6.9 / (111_320.0 * np.cos(np.radians(lat))),
+                  10.3 / 111_320.0)
+    band, diag = TCS._fill_band(r)
+    assert band == pytest.approx(TF._shoulder_m(6.9, 10.3) + 10.3, abs=0.02)
+    assert diag == pytest.approx(np.hypot(6.9, 10.3), abs=0.02)
+    cov = g.covered
+    rim = cov & ndimage.binary_dilation(~np.pad(cov, 1), np.ones((3, 3), bool))[1:-1, 1:-1]
+    edge, (ni, nj) = ndimage.distance_transform_edt(~rim, return_indices=True)
+    edge = edge * CELL_M
+    reach = cov & (edge > TC.BAND_M) & (edge <= band)
+    k = int(round(diag / CELL_M))
+    near_top = ndimage.minimum_filter(np.where(cov, g.top, np.inf),
+                                      footprint=np.hypot(*np.mgrid[-k:k + 1, -k:k + 1]) <= k,
+                                      mode="constant", cval=np.inf)
+    want = np.minimum(g.bot[ni, nj], near_top)
+    old = TC._bound(g.bot, g.top, CELL_M, TC.ERODE_M, 0.0)
+    new = TC._bound(g.bot, g.top, CELL_M, TC.ERODE_M, 0.0, band, diag)
+    assert np.any(want[reach] - old[reach] > 0.5)            # today's step behind the rim
+    assert np.all(new[reach] >= want[reach] - 0.5)
+    assert np.all(new[reach] <= near_top[reach] + 1e-9)
+    assert np.array_equal(new[~reach & cov], old[~reach & cov])
+    # the stage: a fill record reaches the band, any other record is today's
+    TM_plan = TM.plan_grid
+    try:
+        TM.plan_grid = lambda p: g
+        rec = {"elevation": 0.0, "cut": {"file": "h.obj", "heading": 0.0}}
+        plain = TCS._fit(rec, (band, diag)).grid.top
+        assert np.array_equal(plain[cov], TCS._fit(rec).grid.top[cov])
+        assert np.array_equal(plain[cov], old[cov])
+        filled = TCS._fit(dict(rec, cut=dict(rec["cut"], fill=True)), (band, diag)).grid.top
+        assert np.array_equal(filled[cov], new[cov])
+    finally:
+        TM.plan_grid = TM_plan

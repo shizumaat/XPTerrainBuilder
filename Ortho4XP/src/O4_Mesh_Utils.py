@@ -2177,6 +2177,10 @@ def post_process_nodes_altitudes(tile):
     # overwritten by the column-5 copy at the end of this function.
     water_valued = {v for tri in water_tris for v in tri}
     water_valued |= {v for tri in sea_tris for v in tri}
+    # #2077 round 2 R2: the terrain composites' planes and fills never
+    # move water -- its vertices are levelled from the raster without them
+    import auto_patch.terrain_cut_stage as TERRAIN_CUT
+    TERRAIN_CUT.unfill_water(tile, vertices, water_valued)
     if degenerate_attr_nbr:
         UI.lvprint(
             1,
@@ -2775,6 +2779,7 @@ def build_mesh(tile):
                 _cover = patch_coverage_polygon(tile)
                 TERRAIN_CUT.bake(tile, patch_area=None if _cover is None else _cover[0])
                 tile.dem.write_to_file(FNAMES.alt_file(tile))
+                TERRAIN_CUT.write_unfill(tile)
         except Exception as e:
             print(e)
             UI.exit_message_and_bottom_line(

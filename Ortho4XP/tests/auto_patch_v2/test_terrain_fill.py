@@ -129,3 +129,48 @@ def test_the_supports_carry_under_m():
     rep = TF.rim_fill(r, to_xy, to_ll, np.array([[0.0, 0.0]]),
                       np.array([420.0 - UNDER_M]), _no_cap)
     assert rep["unserved"] == 0
+
+
+def test_t3_the_quay_keeps_the_ring_a_metre_off_the_water():
+    """#2077 round 2 R3 (twin T3): the zero footprint's drawn ring keeps
+    ``QUAY_M`` off mapped water, pieces under the minimum area are not
+    drawn, and without water the rings are as given."""
+    import shapely
+    from shapely.geometry import box
+    to_xy, to_ll = TC.projector(LAT, LON)
+    sq = np.array([[-50.0, -50.0], [50.0, -50.0], [50.0, 50.0], [-50.0, 50.0], [-50.0, -50.0]])
+    rings = [np.c_[to_ll(sq[:, 0], sq[:, 1])]]
+    # a river across the east part leaves a 2 x 100 m strip beyond it
+    water = box(20.0, -80.0, 47.0, 80.0)
+    out = TF.quay_rings(rings, to_xy, to_ll, water, 4 * 6.9 * 10.3)
+    assert len(out) == 1
+    xy = np.c_[to_xy(out[0][:, 0], out[0][:, 1])]
+    assert shapely.distance(water, shapely.points(xy)).min() >= TF.QUAY_M - 1e-6
+    assert xy[:, 0].max() == pytest.approx(20.0 - TF.QUAY_M, abs=1e-6)
+    both = TF.quay_rings(rings, to_xy, to_ll, water, 0.0)
+    assert len(both) == 2                       # the far strip is drawn without the floor
+    assert TF.quay_rings(rings, to_xy, to_ll, None, 285.0)[0] is rings[0] or \
+        np.array_equal(TF.quay_rings(rings, to_xy, to_ll, None, 285.0)[0], rings[0])
+
+
+def test_t4_floors_win_in_the_owned_zone():
+    """#2077 round 2 R4 (twin T4): another composite's cut bound yields
+    within ``W`` of the zero footprint and holds beyond; the composite's
+    own members' bound holds throughout."""
+    to_xy, to_ll = TC.projector(LAT, LON)
+    sq = np.array([[-40.0, -40.0], [40.0, -40.0], [40.0, 40.0], [-40.0, 40.0], [-40.0, -40.0]])
+    lo, la = to_ll(sq[:, 0], sq[:, 1])
+    rings = [np.c_[lo, la]]
+    pad = 0.002
+    box_ = (lo.min() - pad, la.min() - pad, lo.max() + pad, la.max() + pad)
+    other = lambda lons, lats: np.full(len(lons), 405.0)      # noqa: E731
+    r = _raster(400.0)
+    TF.conform_plane(r, to_xy, rings, 428.4, _no_cap, box_, other)
+    w = r.shoulder_m()
+    assert _at(r, 0.0, 0.0) == pytest.approx(428.4, abs=1e-6)            # inside: the plane
+    assert _at(r, 0.0, -40.0 - 0.5 * w) == pytest.approx(428.4, abs=0.05)  # in the shoulder
+    assert _at(r, 0.0, -40.0 - w - 10.0) == pytest.approx(405.0, abs=1e-6)  # beyond: it holds
+    r = _raster(400.0)
+    TF.conform_plane(r, to_xy, rings, 428.4, other, box_, _no_cap)        # its own: holds
+    assert _at(r, 0.0, 0.0) == pytest.approx(405.0, abs=1e-6)
+    assert _at(r, 0.0, -40.0 - 0.5 * w) == pytest.approx(405.0, abs=1e-6)

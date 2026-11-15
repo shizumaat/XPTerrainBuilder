@@ -7,7 +7,7 @@ thousands of hectares; X-Plane draws them over the tile's orthophotos as
 it draws them over its own mesh, so the imagery is gone where they lie.
 This module is their WITNESS; the hiding is the same omission as the
 pack's draped photos and ground sheets (``dsf_write.write_pack(drapes=)``,
-``auto_patch.drape_stage.GENERIC``), asked in the pack's adjustments.
+the drape stage's ``GENERIC``), asked in the pack's adjustments.
 
 THE WITNESS — a ``POLYGON_DEF`` of the pack's tile DSF is generic ground
 when, read from the paths and files, never from a pack's name:

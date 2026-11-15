@@ -117,14 +117,15 @@ def _edge_neighbours(tri_idx, subset):
     return nbrs
 
 
-def _node_alpha(tri_idx, slope, land, nbr_nodes, params):
+def _node_alpha(tri_idx, slope, land, nbr_nodes, params, extra=None):
     steepest = numpy.zeros(nbr_nodes)
     ids = numpy.nonzero(land)[0]
     for c in range(3):
         numpy.maximum.at(steepest, tri_idx[ids, c], slope[ids])
     x = numpy.clip((steepest - params.slope_lo)
                    / max(1e-6, params.slope_hi - params.slope_lo), 0.0, 1.0)
-    return x * x * (3 - 2 * x)
+    alpha = x * x * (3 - 2 * x)
+    return alpha if extra is None else numpy.maximum(alpha, extra)
 
 
 def _components(tris, nbrs):
@@ -202,16 +203,19 @@ def _layout_region(comp, slope, normal, area, nbrs, params, out):
     out["chart"].extend([plan] * len(rest))
 
 
-def find_cliff_layout(xyz, tri_idx, land, params=None):
+def find_cliff_layout(xyz, tri_idx, land, params=None, extra_alpha=None):
     """The cliff overlay of a mesh: ``xyz`` (n, 3) node metres, ``tri_idx``
     (m, 3) node ids, ``land`` (m,) bool, ``params`` a :class:`CliffParams`
     (its defaults when None).  An empty layout when nothing is steep
-    enough."""
+    enough.  ``extra_alpha`` (n,) raises node alpha (by maximum) where the
+    overlay is carried past the slope ramp (``O4_Cliff_Shade``); it adds no
+    steep area of its own."""
     params = params or CliffParams()
     tri_idx = numpy.asarray(tri_idx).reshape(-1, 3)
     land = numpy.asarray(land, dtype=bool)
     slope, normal, area = triangle_slopes(xyz, tri_idx)
-    alpha = _node_alpha(tri_idx, slope, land, len(xyz), params)
+    alpha = _node_alpha(tri_idx, slope, land, len(xyz), params,
+                        extra_alpha)
     overlay = numpy.nonzero(land & (alpha[tri_idx].max(1) > 0))[0]
     out = {"tris": [], "chart": [], "chart_region": [], "axes": [],
            "region_tris": []}

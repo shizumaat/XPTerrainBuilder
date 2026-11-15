@@ -30,6 +30,8 @@ from collections import Counter
 import numpy
 import O4_Cliff_Faces as FACES
 import O4_Cliff_Library as LIBRARY
+import O4_Cliff_Photos as PHOTOS
+import O4_Cliff_Shade as SHADE
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Overlay_Utils as OVL
@@ -199,6 +201,9 @@ def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
         UI.vprint(1, "-> Cliff faces: off for this tile (0 region(s)): "
                      "the face search failed (%s)." % (error,))
         return b"", []
+    if arm == "xpface" and len(layout.tris):
+        layout = _over_shadow(tile, layout, xyz, nodes, tri_idx, land,
+                              params, dico_customzl)
     UI.vprint(1, "-> Cliff faces: %d region(s), %d overlay triangle(s), "
                  "%d chart(s); %d small region(s) left to the photo."
               % (len(layout.region_area), len(layout.tris),
@@ -246,6 +251,28 @@ def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
                  point_pools, band_base, region_terrain, textured_tris,
                  [params.repeat_m] * len(region_terrain))
     return bTERT, plan
+
+
+def _over_shadow(tile, layout, xyz, nodes, tri_idx, land, params,
+                 dico_customzl):
+    """``layout`` carried over the photo's shadow next to its regions
+    (``O4_Cliff_Shade``), or ``layout`` itself when no region touches dark
+    photo or the read fails (the DSF is then the bytes without it)."""
+    try:
+        extra, stats = SHADE.shadow_alpha(
+            layout, xyz, nodes[:, :2], tri_idx, land,
+            PHOTOS.photo_lookup(dico_customzl, tile.mesh_zl),
+            PHOTOS.photo_reader(tile),
+            PHOTOS.photo_reader(tile, fetch=False))
+        if extra is not None:
+            layout = FACES.find_cliff_layout(xyz, tri_idx, land, params,
+                                             extra_alpha=extra)
+    except Exception as error:
+        UI.vprint(1, "-> Cliff faces over shadow: not read (%s); the "
+                     "overlay ends at the slope ramp." % (error,))
+        return layout
+    UI.vprint(1, "-> Cliff faces over shadow: " + stats.line())
+    return layout
 
 
 def _xplane_face_terrains(tile, layout, lonlat_all, dico_terrains,

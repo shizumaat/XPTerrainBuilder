@@ -29,6 +29,7 @@ import time
 from collections import OrderedDict
 
 import numpy
+import O4_Cliff_Shade as SHADE
 import O4_Cliff_Texture as TEX
 import O4_DDS_Encode as ENC
 import O4_DDS_File as DDS
@@ -44,18 +45,6 @@ EXEMPLAR_PX = 192           # full-resolution exemplar window
 TILE_PX = 512               # the face texture
 LIT_PERCENTILE = 60
 NEUTRAL_ROCK = (150, 140, 125)
-
-
-def _pixel_coords(lonlat, attrs, size):
-    """(..., 2) pixel (col, row) of lon/lat points in a ``size``-pixel
-    rendering of photo ``attrs``; beyond its edges for points beyond."""
-    til_x, til_y, zl = attrs[0], attrs[1], attrs[2]
-    lon, lat = lonlat[..., 0], lonlat[..., 1]
-    mult = 2 ** (zl - 5)
-    s = (lon / 180 + 1) * mult - til_x // 16
-    ratio_y = numpy.log(numpy.tan((90 + lat) * numpy.pi / 360)) / numpy.pi
-    t = 1 - ((1 - ratio_y) * mult - til_y // 16)
-    return numpy.stack((s * size, (1 - t) * size), -1)
 
 
 class _Photos:
@@ -129,7 +118,7 @@ class _Mosaic:
         h, w = self.have.shape
         mask = Image.new("1", (w, h), 0)
         draw = ImageDraw.Draw(mask)
-        for tri in _pixel_coords(tris_lonlat, self.origin, CELL):
+        for tri in SHADE.photo_pixel_coords(tris_lonlat, self.origin, CELL):
             draw.polygon([tuple(p) for p in tri], fill=1)
         return numpy.asarray(mask, dtype=bool) & self.have
 

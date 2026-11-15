@@ -115,8 +115,8 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
 def _agp_plate_vertices(planar: PlanarMap) -> set[int]:
     """#2090 C3a: the vertices of an AGP plate piece (``agp_ground:...:plate#k``)."""
     from ..model.planar import is_agp_bank_ref, is_agp_ground_ref
-    return {v for f in planar.faces.values()
-            if is_agp_ground_ref(f.ref) and not is_agp_bank_ref(f.ref)
+    refs = ((f, str(getattr(f, "ref", "") or "")) for f in planar.faces.values())
+    return {v for f, r in refs if is_agp_ground_ref(r) and not is_agp_bank_ref(r)
             for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
 
 

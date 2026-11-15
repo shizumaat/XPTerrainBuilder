@@ -22,7 +22,7 @@ from . import (apron, cluster_pad, deck_anchor, eat, edge_deck, fill_bank, flat_
                platform,
                proximity, ramp_runout, road_ramp, roads, routes, runway_chord, runway_mean_slope,
                runway_profile, runway_step,
-               seams, steep_apron, strips,
+               seams, shell_datum, steep_apron, strips,
                channel,
                structures,
                taxi, terrain_shaped, transverse, walled_plate, water, zones)
@@ -131,6 +131,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING held at
     # its block's datum + the deck's y — a stage-2 row
     ("landing_level", platform.landing_rows),
+    # #2062 R3b A: a floor- or ground-led storey shell's block datum (the
+    # one datum rule, ``planar/storey_floor``)
+    ("shell_datum", shell_datum.shell_datum_rows),
     # issue #711 (RULINGS 2026-10-14c (5) at a landing): the RUN-OUT off
     # a ramp foot on a landing, at road grade from the landing's level
     ("landing_runout", ramp_runout.landing_runout_rows),

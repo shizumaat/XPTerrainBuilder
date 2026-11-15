@@ -727,6 +727,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.split_level_pit",
         "auto_patch_v2.planar.stack_ground",
         "auto_patch_v2.planar.station_level",
+        "auto_patch_v2.planar.storey_floor",
         "auto_patch_v2.planar.storey_pad",
         "auto_patch_v2.planar.strip_keepout",
         "auto_patch_v2.planar.structure_approach",
@@ -1403,6 +1404,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.runway_step",
         "auto_patch_v2.constraints.runway_yield",
         "auto_patch_v2.constraints.seams",
+        "auto_patch_v2.constraints.shell_datum",
         "auto_patch_v2.constraints.shoulder_crossing",
         "auto_patch_v2.constraints.steep_apron",
         "auto_patch_v2.constraints.stretches",
@@ -1578,6 +1580,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "block_strip": "platform",
     "platform_plane": "platform",
     "landing_level": "platform",
+    "shell_datum": "shell_datum",
     "landing_runout": "ramp_runout",
     "platform_level": "platform",
     "frontage_hold": "platform",
@@ -1943,6 +1946,22 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.group_level constraints.face_index
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
+    "shell_datum": _mods(_GENERATOR_CORE + """
+    constraints.airside_top
+        geom.exact
+        constraints.apron constraints.cluster_pad constraints.geometry
+        constraints.pad_relief constraints.pad_warning constraints.pads
+        constraints.platform constraints.precedence constraints.edge_floor constraints.structures
+        constraints.survey_floor constraints.shell_datum
+        constraints.entrance_skirt
+    constraints.viaduct_floor
+        geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
+        geom.triangulate geom.union_find model.airport model.islands model.map_memo
+        model.platform
+        geom.slope_pad
+        constraints.group_level constraints.face_index
+        constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+    """),
     "taxi": _mods(_GENERATOR_CORE + """
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -2061,7 +2080,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.pad_relief constraints.pad_warning constraints.pads
     constraints.pavement_cap constraints.platform constraints.precedence
     constraints.public_road_release
-    constraints.proximity constraints.ramp_runout
+    constraints.proximity constraints.ramp_runout constraints.shell_datum
     constraints.riser constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
     constraints.runway_mean_slope constraints.runway_profile constraints.runway_step
@@ -2344,7 +2363,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.foot_lot
     planar.foot_kerb planar.ground_chords airport.road_descent
     airport.isolated_seat airport.terrain_base geom.diameter
-    model.storey_shell planar.cell_knife planar.storey_pad
+    model.storey_shell planar.cell_knife planar.storey_pad planar.storey_floor
     airport.shell_ground planar.basin_author_ground
     airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
     model.free_bridge planar.free_bridge
@@ -2445,7 +2464,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.pad_warning constraints.pads constraints.pavement_cap
     constraints.public_road_release
     constraints.platform constraints.precedence constraints.proximity
-    constraints.ramp_runout
+    constraints.ramp_runout constraints.shell_datum
     constraints.riser constraints.road_ramp constraints.roads constraints.routes
     constraints.runway_chord constraints.runway_mean_slope constraints.runway_profile
     constraints.threshold_seam
@@ -2528,7 +2547,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.foot_lot
     planar.foot_kerb planar.ground_chords airport.road_descent
     airport.isolated_seat airport.terrain_base geom.diameter
-    model.storey_shell planar.cell_knife planar.storey_pad
+    model.storey_shell planar.cell_knife planar.storey_pad planar.storey_floor
     airport.shell_ground planar.basin_author_ground
     airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
     model.free_bridge planar.free_bridge

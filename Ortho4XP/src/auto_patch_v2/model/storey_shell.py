@@ -77,6 +77,13 @@ class StoreyShell:
     #: block the airside's level) or ``"floor"`` (its lowest level on a
     #: structure floor)
     scope: str = "airside"
+    #: WHAT LEADS THE BLOCK (#2062 R3b A, ``planar/storey_floor``):
+    #: ``"airside"`` (the stage-1 weld column), ``"floor"`` (the ramp-class
+    #: structure floor its lowest level faces: ``floor_xy``, a point on it)
+    #: or ``"ground"`` (pinned at ``datum_z``)
+    leader: str = "airside"
+    datum_z: "float | None" = None
+    floor_xy: "tuple[float, float] | None" = None
 
     def y_of(self, k: int) -> float:
         """Level ``k``'s height over the block (its landing's ``y``)."""

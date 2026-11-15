@@ -424,6 +424,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.free_bridge_seat",
         "auto_patch_v2.airport.free_column",
         "auto_patch_v2.airport.grade_ledger",
+        "auto_patch_v2.airport.ground_route_ways",
         "auto_patch_v2.airport.ground_shell",
         "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.isolated_seat",
@@ -2366,7 +2367,7 @@ CODE_MODULES["solve"] = _mods("""
     model.storey_shell planar.cell_knife planar.storey_pad planar.storey_floor
     airport.shell_ground planar.basin_author_ground
     airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
-    model.free_bridge planar.free_bridge
+    model.free_bridge planar.free_bridge airport.ground_route_ways
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.bridge_end_state airport.bridge_stack
@@ -2550,7 +2551,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.storey_shell planar.cell_knife planar.storey_pad planar.storey_floor
     airport.shell_ground planar.basin_author_ground
     airport.bridge_class airport.bridge_frame airport.bridge_witness geom.centreline
-    model.free_bridge planar.free_bridge
+    model.free_bridge planar.free_bridge airport.ground_route_ways
 """)
 CODE_MODULES["emit"] = _mods("""
     model.deck_stack

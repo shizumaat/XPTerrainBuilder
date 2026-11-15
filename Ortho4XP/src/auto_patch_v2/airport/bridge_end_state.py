@@ -194,7 +194,11 @@ class Obstacles:
         self.airside = _Airside(airport)
         self.min_h = float(br.end_solid_min_height_m)
         self.min_a = float(br.end_solid_min_area_m2)
-        self.graph = _Graph(getattr(airport, "osm_ways_mapped", None) or airport.osm_ways)
+        from .ground_route_ways import ground_route_ways
+        # #2062 R3b E: a ground route carried over a deck walks on along the
+        # airport's ground routes
+        self.graph = _Graph(list(getattr(airport, "osm_ways_mapped", None) or airport.osm_ways)
+                            + list(ground_route_ways(airport)))
         self._objs = [o for o in objects or () if getattr(o, "resolved", None)
                       and getattr(o, "plan_bbox", None) is not None]
         from shapely.strtree import STRtree

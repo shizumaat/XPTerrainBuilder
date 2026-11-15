@@ -450,6 +450,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.free_bridge_seat",
     "auto_patch_v2.airport.free_column",
     "auto_patch_v2.airport.grade_ledger",
+    "auto_patch_v2.airport.ground_route_ways",
     "auto_patch_v2.airport.ground_shell",
     "auto_patch_v2.airport.hanging_objects",
     "auto_patch_v2.airport.image_edges_classic",

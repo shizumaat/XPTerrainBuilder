@@ -27,7 +27,7 @@ from ..law import Law
 from ..model.constraints import Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["shell_datum_rows", "RULING", "GEN", "STATS"]
+__all__ = ["shell_datum_rows", "RULING"]
 
 GEN = "shell_datum"
 RULING = "structures.building_pad storey shell datum"

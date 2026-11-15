@@ -2353,6 +2353,17 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             # deck redesign: every hard deck read or refused, and why
             for _ln in getattr(getattr(_ps, "structures", None), "hard_decks", ()) or ():
                 print(f"[{icao}] hard deck: {_ln}")
+            # #2062 R3b B: every ramp held level along a storey shell
+            _sl = list(getattr(getattr(_ps, "structures", None), "shell_levels", ()) or ())
+            for _ln in _sl:
+                print(f"[{icao}] shell level: {_ln}")
+            _tids = {str(_ln).split(": ", 1)[0] for _ln in _sl}
+            for _ln in getattr(getattr(_ps, "structures", None), "portal_mouths", ()) or ():
+                if "R3b" in str(_ln):
+                    print(f"[{icao}] front / carried: {_ln}")
+            for _ln in getattr(getattr(_ps, "structures", None), "refused", ()) or ():
+                if "R3b" in str(_ln) or str(_ln).split(": ", 1)[0] in _tids:
+                    print(f"[{icao}] shell level refused: {_ln}")
             # #2062: every split-level / storey-shell read, pad and refusal
             _bs = getattr(_ps, "basins", None)
             for _ln in getattr(_bs, "split_levels", ()) or ():

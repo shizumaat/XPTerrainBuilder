@@ -1440,6 +1440,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints",
         "auto_patch_v2.constraints.agp_level",
         "auto_patch_v2.constraints.agp_plate",
+        "auto_patch_v2.constraints.airside_floor",
         "auto_patch_v2.constraints.airside_top",
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_shelf",
@@ -1793,7 +1794,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.foot_rows
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
-        constraints.edge_floor constraints.structures constraints.survey_floor
+        constraints.edge_floor constraints.structures constraints.airside_floor constraints.survey_floor
         constraints.entrance_skirt
     constraints.viaduct_floor geom.base_slab geom.cluster_outline
         geom.containment
@@ -2055,7 +2056,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
-        constraints.platform constraints.precedence constraints.edge_floor constraints.structures
+        constraints.platform constraints.precedence constraints.edge_floor constraints.structures constraints.airside_floor
         constraints.survey_floor
         constraints.entrance_skirt
     constraints.viaduct_floor
@@ -2071,7 +2072,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.exact
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
-        constraints.platform constraints.precedence constraints.edge_floor constraints.structures
+        constraints.platform constraints.precedence constraints.edge_floor constraints.structures constraints.airside_floor
         constraints.survey_floor constraints.shell_datum
         constraints.entrance_skirt
     constraints.viaduct_floor
@@ -2213,7 +2214,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.threshold_seam
     constraints.runway_yield constraints.runway_junctions
     constraints.seams constraints.shoulder_crossing constraints.stretches
-    constraints.strips constraints.edge_floor constraints.structures constraints.survey_floor
+    constraints.strips constraints.edge_floor constraints.structures constraints.airside_floor constraints.survey_floor
     constraints.entrance_skirt
     constraints.viaduct_floor constraints.taxi
     constraints.deck_lines
@@ -2624,7 +2625,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.runway_yield constraints.runway_junctions constraints.seams
     constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips
-    constraints.edge_floor constraints.structures constraints.survey_floor
+    constraints.edge_floor constraints.structures constraints.airside_floor constraints.survey_floor
     constraints.entrance_skirt
     constraints.viaduct_floor constraints.taxi constraints.taxi_trend
     constraints.deck_lines

@@ -213,18 +213,36 @@ def _top_at(plate, seats, reach: float, top: float) -> float:
     return max(near) if near else top
 
 
-def _bottom_y(cache, frame, trenches, top: float) -> tuple[float, bool]:
+def _bottom_y(cache, frame, trenches, top: float, under=None) -> tuple[float, bool]:
     """``(the frame's bottom y, walled)``: a co-placed trench object's walls'
     bottom (``walled``: the frame is then the trench object's), else the
-    lowest genuine solid of the frame's placements, else ``top``: a frame
-    modelling nothing but its plate states no level under it (round 3 §1
-    twin B, LFPG's plate-only decks: the authored y = 0 plane is no floor)."""
+    lowest genuine solid of the frame's placements UNDER THE DECK, else
+    ``top``: a frame modelling nothing but its plate states no level under
+    it (round 3 §1 twin B, LFPG's plate-only decks: the authored y = 0 plane
+    is no floor).  ``under`` (the deck ring shrunk by ``[tunnel]
+    wall_gap_m``, #2099 R3 A2): a member's solid standing outside it (its
+    plan centroid) is no part of the deck's depth (measured CYYZ FA: a wing
+    wall's footing 9.4 m down outside the ring read as the deck's floor,
+    9.4 m under its zero where the deck's own box stands on -0.04)."""
     ids = {str(q.id) for q in frame}
     tr = [t for t in trenches or () if str(t.object_id) in ids]
     if tr:
         return -max(float(t.depth_m) for t in tr), True
-    ys = [c.min_y for q in frame if q.resolved for c in cache.genuine(q.resolved)]
+    ys = [y for q in frame if q.resolved for y in _solid_lows(cache, q, under)]
     return (min(ys) if ys else top), False
+
+
+def _solid_lows(cache, q, under) -> list[float]:
+    """Per genuine component of placement ``q`` standing UNDER the deck --
+    its plan centroid inside ``under`` -- its ``min_y`` (every component's
+    where ``under`` is ``None``)."""
+    comps = cache.genuine(q.resolved)
+    if under is None:
+        return [c.min_y for c in comps]
+    from shapely.geometry import Point as _Pt
+    from ..airport.obj8 import _to_frame
+    return [c.min_y for c in comps
+            if under.contains(_Pt(_to_frame(q.xy, q.heading_deg, c.cx, c.cz)))]
 
 
 def _beside_a_building(frame, ring: Polygon, roles: CellRoles) -> bool:
@@ -300,7 +318,8 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
         top = max((y for _x, _y, y in plate), default=None)
         if top is None or d.deck_top_z is None:
             continue
-        bottom, walled = _bottom_y(cache, frame, trenches, top)
+        under = u.buffer(-float(law.tables.structures.tunnel.wall_gap_m))
+        bottom, walled = _bottom_y(cache, frame, trenches, top, u if under.is_empty else under)
         if walled:
             # Q-A AS RULED: where the pack models walls the walls define the
             # cut — the co-placed trench object's own reading governs

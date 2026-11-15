@@ -33,6 +33,7 @@ from ..model.airport import Airport
 from ..model.frame import XY, Key
 from ..model import pulse as _pulse
 from ..model.road_yield import is_band_zone_ref
+from ..model.platform import stage_air_of
 from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarMap,
                             Vertex, validate)
 from .edges import EdgeTable
@@ -546,8 +547,11 @@ def build(airport: Airport, classification: Classification, law: Law,
     ys = np.array([p[1] for p in vertices_xy])
     lat, lon = to_ll(xs, ys)
     zs = _sample(airport, xs, ys)
-    # a tunnel ramp's target is its designed profile (``ramp_targets``)
-    targets = ramp_targets(tunnels, law, faces, edge_list, vertices_xy, zs)
+    # a tunnel ramp's target is its designed profile (``ramp_targets``) --
+    # never on a vertex a stage-1 airside face carries (#2099 R3 A1)
+    face_vs = _face_vertices(edge_list)
+    targets = ramp_targets(tunnels, law, faces, edge_list, vertices_xy, zs,
+                           stage_air_of(faces.values(), lambda f: face_vs.get(f.id, ()), law))
     # #714: over a mapped bore under airside pavement the ground is the
     # ground BESIDE the cover, not the road floor a bare-earth DEM carries
     zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs,
@@ -556,7 +560,6 @@ def build(airport: Airport, classification: Classification, law: Law,
         print(f"  [planar] {stats.covered_ground.line()}")
     # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads
     # the DEM past the road's cut, not the cut's slope
-    face_vs = _face_vertices(edge_list)
     through = [y for y in arr.road_yield if y.through]
     if through:
         zs, shadow = road_shadow(getattr(airport, "dem", None), law, through,

@@ -198,3 +198,18 @@ def test_the_overpass_plate_seats_it_never_a_kept_record():
     frame = types.SimpleNamespace(transformers=lambda: (None, TO_LL))
     ap = types.SimpleNamespace(kept_bridges=(fb,), deck_stacks=(st,), frame=frame)
     assert _kept_published(ap, types.SimpleNamespace(bridge_stacks=(st,))) == {}
+
+
+def test_w4b_never_places_a_placement_its_reach_keeps_off_the_box(tmp_path):
+    """``bridge_frame.Under``: a placement with no plan bounds is skipped by
+    its geometry's plan reach (exact) — the faces returned are the same, the
+    far placement is never placed (KBNA: 6,076 placements, 9 s)."""
+    from auto_patch_v2.airport import bridge_frame as BF
+    g = O.ResourceCache(THICK).geometry(_write(tmp_path / "u.obj", 7.5))
+    placed = [("near", g, (0.0, 0.0), 0.0), ("far", g, (5000.0, 0.0), 0.0)]
+    under = BF.Under(placed, lambda u: (0.0, True), float(BR.deck_plate_normal_y_min))
+    got = under.for_unit("near", {"near"})((-10.0, -10.0, 10.0, 10.0))
+    assert len(got) and 1 not in under._faces and 0 in under._faces
+    every = BF.Under(placed, lambda u: (0.0, True), float(BR.deck_plate_normal_y_min))
+    every._misses = lambda k, b: False
+    assert np.array_equal(got, every.for_unit("near", {"near"})((-10.0, -10.0, 10.0, 10.0)))

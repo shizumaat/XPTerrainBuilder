@@ -1,0 +1,170 @@
+"""THE AGP GROUP RECORD (#2090; spec ``2090-agp-group-groundside-spec.md``
+A1-A3): data only.
+
+A GROUP is two or more on-ground ``.agp`` rows of one pack whose authored
+connector floors meet (``airport/agp_ground.joins``, V2's certainty).  The
+pack stage (``airport/agp_group``) derives it ONCE, before the bridge
+stacks: its members, its joins (each with its votes and the runner-up's),
+the PROVISIONAL GOVERNOR (A2: the member nearest the apt.dat airside, when
+near enough and every other member twice as far) and each member's chain
+step from it.  ``zero_pred`` (A3) is the DEM at the governor's ground point
+plus the step: it fixes geometry only; the exact datum is read between the
+stages (``constraints/agp_level``).
+
+Rows a group's geometry minted carry its id ``agp:<lowest row>`` in their
+``Source.inputs`` (the datum rewrite moves them by one delta).
+"""
+from __future__ import annotations
+
+import dataclasses as _dc
+import math
+import typing as _t
+
+__all__ = ["AGP_GROUP_PREFIX", "AgpMember", "AgpJoin", "AgpGroup", "AgpPlate", "DeckJoin",
+           "group_of_input"]
+
+#: a group id, and the ``Source.inputs`` tag of every row its geometry mints
+AGP_GROUP_PREFIX = "agp:"
+
+
+@_dc.dataclass(frozen=True)
+class AgpMember:
+    """One member: its pack-stage object id ``row`` (``dsf:obj<index>``),
+    the DSF placement ``index``, its ``resource``, its ``GROUND_PT`` in the
+    frame and as ``(lat, lon)``, its ground point's plan distance to the
+    apt.dat airside (``inf`` with none) and ``step`` its datum minus the
+    governor's (``None`` in an unpredicted group)."""
+
+    row: str
+    index: int
+    resource: str
+    ground_xy: tuple[float, float]
+    ground_ll: tuple[float, float]
+    airside_m: float
+    step: float | None = None
+
+
+@_dc.dataclass(frozen=True)
+class AgpJoin:
+    """Two members ``a`` / ``b`` (rows) whose floors meet: ``step`` =
+    datum_b - datum_a; ``votes`` the winning step's distinct level pairs,
+    ``rival`` the runner-up's; ``contact_ll`` the middle of the contact;
+    ``stands`` V2's verdict (a refused join is listed only)."""
+
+    a: str
+    b: str
+    step: float
+    votes: int
+    rival: int
+    contact_ll: tuple[float, float]
+    stands: bool = True
+
+
+@_dc.dataclass(frozen=True)
+class AgpGroup:
+    """One joined group (module doc).  ``governor`` is a member row or
+    ``None`` (unpredicted: ``why`` says so, nothing is graded for it);
+    ``dem_gov`` the DEM at the governor's ground point; ``airside`` the
+    members that read as airside (A2's reach).  ``deck_joins`` and
+    ``plates`` are filled by spec 2090 B1 / C1."""
+
+    id: str
+    members: tuple[AgpMember, ...]
+    joins: tuple[AgpJoin, ...]
+    governor: str | None
+    dem_gov: float | None
+    why: str = ""
+    airside: frozenset[str] = frozenset()
+    deck_joins: tuple = ()
+    plates: tuple = ()
+
+    def member(self, row: str) -> AgpMember | None:
+        return next((m for m in self.members if m.row == row), None)
+
+    def zero_pred(self, row: str) -> float | None:
+        """A3: the DEM at the governor's ground point plus ``row``'s chain
+        step; ``None`` unpredicted."""
+        m = self.member(row)
+        if self.governor is None or self.dem_gov is None or m is None or m.step is None \
+                or not math.isfinite(self.dem_gov):
+            return None
+        return float(self.dem_gov) + float(m.step)
+
+    def followers(self) -> tuple[AgpMember, ...]:
+        """The members that follow the governor (never it, never airside)."""
+        if self.governor is None:
+            return ()
+        return tuple(m for m in self.members
+                     if m.row != self.governor and m.row not in self.airside)
+
+
+def group_of_input(tag: _t.Any) -> str | None:
+    """The group id a ``Source.inputs`` entry names, or ``None``."""
+    t = str(tag)
+    return t if t.startswith(AGP_GROUP_PREFIX) else None
+
+
+@_dc.dataclass(frozen=True)
+class DeckJoin:
+    """SPEC 2090 B1: a bridge deck's land end joined to a FOLLOWER's floor.
+    ``stack`` the kept stack's id, ``object_id`` / ``side`` the deck end,
+    ``member`` the follower's row and ``y_floor`` the floor's authored
+    height over its datum; ``top`` the deck's top at the end, ``d`` the
+    offset ``zero_pred + y_floor - (predicted seat + top)`` and ``d_next``
+    the next floor's (``None`` with none); ``mid_xy`` / ``mid_ll`` the end
+    line's middle."""
+
+    group: str
+    stack: str
+    object_id: str
+    side: str
+    member: str
+    y_floor: float
+    top: float
+    d: float
+    d_next: float | None
+    mid_xy: tuple[float, float]
+    mid_ll: tuple[float, float]
+
+    def census(self) -> dict:
+        return {"stack": self.stack, "end": f"{self.object_id} {self.side}",
+                "member": self.member, "y_floor": self.y_floor, "D": round(self.d, 3),
+                "D_next": None if self.d_next is None else round(self.d_next, 3)}
+
+    def published(self, delta: float) -> dict:
+        return {"stack": self.stack, "object": self.object_id, "end": self.side,
+                "member": self.member, "y_floor": self.y_floor, "top": self.top,
+                "mid": [self.mid_ll[0], self.mid_ll[1]], "delta": round(float(delta), 4)}
+
+
+@_dc.dataclass(frozen=True)
+class AgpPlate:
+    """SPEC 2090 C1: one connected part of a FOLLOWER's ground floors (its
+    up-facing static floors within ``[agp] ground_band_m`` of its datum):
+    ``ring`` / ``holes`` its plan in the frame, ``y`` the floors' plan-area
+    median height over the datum, ``level`` ``L = zero_pred + y -
+    deck_flush_m`` (the stage-2 datum moves its rows by the group's delta),
+    ``area_m2``, ``dem_off_m`` the median ``|L - DEM|`` over it and ``built``
+    (False: smaller than ``floor_min_area_m2`` or further than
+    ``plate_max_off_m`` from the DEM — ``why`` says which)."""
+
+    group: str
+    member: str
+    k: int
+    ring: tuple[tuple[float, float], ...]
+    holes: tuple[tuple[tuple[float, float], ...], ...]
+    y: float
+    level: float
+    area_m2: float
+    dem_off_m: float
+    built: bool
+    why: str = ""
+
+    def census(self) -> dict:
+        return {"member": self.member, "k": self.k, "y": round(self.y, 3),
+                "L_pred": round(self.level, 3), "area_m2": round(self.area_m2, 1),
+                "dem_off_m": round(self.dem_off_m, 3), "built": self.built, "why": self.why}
+
+    def published(self, delta: float) -> dict:
+        """The sidecar's record: the census and the final level ``L``."""
+        return {**self.census(), "L": round(float(self.level) + float(delta), 3)}

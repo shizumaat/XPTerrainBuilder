@@ -20,6 +20,11 @@ object (the fields ``rebake_plan`` stamps) and a DEM surface:
 * KEPT: today's reader, ``bridge_approach.approach_seat`` (rectangle ends,
   ``datum.y``, 22p) = the PREDICTED seat; the end it seats flush (the
   GOVERNING end) and a 22p anchor get no row and no ground.
+* KEPT BY ITS CROSSING (#1718 B3, ``model/free_bridge.OVERPASS_PREFIX``): a
+  no-route deck over a road beneath — the planar overpass read seats it on
+  that road (``planar/overpass_deck``), so its zero is that seat read on
+  the DEM through the object stage's own function (``airside_deck_seat.
+  _plate_zero`` over the road's stations, y 0); its ends are its axis's.
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -30,8 +35,9 @@ import math
 import types
 import typing as _t
 
+from ..model.deck_ends import end_mid as _mid
 from ..model.deck_stack import FREE, KEPT, STACK_PREFIX, DeckStack, StackDeck
-from ..model.free_bridge import published
+from ..model.free_bridge import OVERPASS_PREFIX, published
 
 __all__ = ["bridge_stacks", "log_lines"]
 
@@ -142,26 +148,51 @@ class _Ctx:
         zeros = {str(pid): float(s.zero_z) for s in getattr(airport, "deck_stacks", ()) or ()
                  for pid, _r in s.members}
         self.obs = Obstacles(airport, objects, cache, law, zeros)
+        # #2090 B1: the AGP followers' floors a deck end may join
+        from .agp_deck_join import DeckFloors
+        self.floors = DeckFloors(airport, law) if getattr(airport, "agp_groups", ()) else None
+        #: kept stack id -> ``(bridge, deck, object, surface, end chords)``,
+        #: what :meth:`restack` re-reads a riding deck's ends on (B4b)
+        self.kept_reads: dict[str, tuple] = {}
+
+    def restack(self, st: DeckStack, zero: float, joined: _t.Mapping[str, str], key,
+                gid: str, note: str) -> DeckStack:
+        """#2090 B4b (``airport/access_road``): kept stack ``st`` re-read on
+        ``zero`` riding the held access road, the sides of ``joined`` joined;
+        its other land end is read as a sibling's other end."""
+        fb, d, o, surface, chords = self.kept_reads[st.id]
+        ends = self.ends(fb, d, o, zero, surface, chords, frozenset(), joined)
+        new = _stack(st.bridge, KEPT, st.members, st.decks, ends, zero, [*st.notes, note])
+        return _dc.replace(new, datum_group=gid, rides=(str(key[0]), float(key[1])))
 
     def surface(self, rings) -> _DemSurface:
         return _DemSurface(self.airport, _box(rings))
 
-    def ends(self, fb, d, o, zero, surface, chords, governing=frozenset()) -> list:
-        """Every land end of deck ``d`` of bridge ``fb``, its state read."""
-        from .bridge_end_state import end_state
+    def ends(self, fb, d, o, zero, surface, chords, governing=frozenset(),
+             joined: "_t.Mapping[str, str] | None" = None) -> list:
+        """Every land end of deck ``d`` of bridge ``fb``, its state read;
+        ``joined`` (#2090 B3) maps a side to the floor it meets (state
+        ``joined``: no row, no ground)."""
+        from .bridge_end_state import access_ways, end_state
         out = []
         for k, e in enumerate(d.ends):
             if not e.land:
                 continue
             side = "ab"[k]
             g = _ground(chords[k], surface, self.step)
+            # #2090 B4: a joined deck's other end on an access road grades
+            # the slab alone
+            acc = (access_ways(e.stations, e.out, d.ways, self.obs, self.law)
+                   if joined and side not in joined else ())
             st = end_state(oid=d.object_id, side=side, stations=e.stations, top=e.top,
                            out=e.out, ground=g, zero=zero, carried=d.ways,
                            stub=bool(d.stub_of), own=set(fb.members), obs=self.obs,
-                           law=self.law)
+                           law=self.law, access=acc)
             if side in governing:
                 st = _dc.replace(st, state="governing",
                                  why=f"the predicted seat's flush end ({st.why})")
+            if joined and side in joined:
+                st = _dc.replace(st, state="joined", why=joined[side])
             out.append(st)
         return out
 
@@ -235,12 +266,6 @@ def _own_decks(fb, cx: _Ctx) -> list[StackDeck]:
     return out
 
 
-def _mid(stations) -> tuple[float, float]:
-    """The mean of an end line's stations."""
-    return (sum(p[0] for p in stations) / len(stations),
-            sum(p[1] for p in stations) / len(stations))
-
-
 def _rect_ends(o, view, to_ll) -> "tuple | None":
     """The kept deck's RECTANGLE end lines as the plan stamps them
     (``rebake_plan._with_deck``: a signature plate's ends, else the ring's)."""
@@ -257,23 +282,27 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
     22p seat)."""
     from .anchor_rule import datum_of
     from .bridge_approach import approach_seat
-    from .deck_riders import frame_datum, objects_ride
+    from .deck_riders import frame_datum, objects_ride, with_end_tops
     out, every, notes = [], [], []
     frame = [cx.by_id[m] for m in fb.members if m in cx.by_id]
     # a deck and the structure riding it (#2086): the object stage reads the
-    # deck top AT each end (``deck_riders.FrameDatums``), and so does this
+    # deck top AT each end off any of its vertices (``deck_riders.
+    # FrameDatums``); every other deck off its hard deck (#2090)
     rides = objects_ride(frame, [str(getattr(q, "deck_kind", "") or "") for q in frame],
                          cx.cache)
     for d in fb.decks:
         o = cx.by_id.get(d.object_id)
         if o is None or len(d.ends) != 2:
             continue
-        view = _view(o, cx.to_ll, authored_path=str(o.resolved or "") if rides else "")
+        # the deck top AT each end (``deck_riders.with_end_tops``): the object
+        # stage reads it for every deck with end lines (#2086, #2090)
+        view = _view(o, cx.to_ll, authored_path=str(o.resolved or ""))
         view.deck_ends = _rect_ends(o, view, cx.to_ll)
         kw = {"abutment_step_m": cx.step, "abutment_walk_max_m": cx.walk,
               "level_tol_m": cx.tol, "free_standing": True}
         origin = cx.to_ll(*o.xy)
-        datum = frame_datum(view, origin, **kw) if rides else datum_of(view, **kw)
+        datum = (frame_datum(view, origin, **kw) if rides
+                 else with_end_tops(datum_of(view, **kw), view, origin))
         surface = cx.surface([d.ring])
         seat = None if datum is None else approach_seat(datum, surface, origin=origin,
                                                         authored_agl_m=float(o.agl_m),
@@ -293,17 +322,95 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
             near = min(range(2), key=lambda j: math.dist(mid, _mid(d.ends[j].stations)))
             gov.add("ab"[near])
         pub = published([_dc.replace(fb, decks=(d,))], cx.to_ll, cx.out_m)[d.object_id]
-        ends = cx.ends(fb, d, o, seat.zero, surface, pub["ends"], frozenset(gov))
-        note = f"{tag}: kept, predicted seat {seat.zero:.3f} ({seat.reason})"
+        sid = f"kept:{d.object_id}"
+        if str(d.stub_of).startswith("axis:"):
+            d = _axis_tops(d, datum, cx)            # #2090 B2: the top at each end
+        zero, joins, jnotes = _joined_zero(cx, sid, d, seat.zero)
+        notes += [f"{tag}: deck join {n}" for n in jnotes]
+        joined = {j.side: (f"joined: {j.member} floor y {j.y_floor:.2f} (D {j.d:+.2f}; "
+                           f"zero {seat.zero:.3f} -> {zero:.3f}, #2090 B3)") for j in joins}
+        # a joined zero is not the predicted seat: no end governs (B3)
+        ends = cx.ends(fb, d, o, zero, surface, pub["ends"],
+                       frozenset() if joined else frozenset(gov), joined)
+        note = f"{tag}: kept, predicted seat {seat.zero:.3f} ({seat.reason})" + (
+            f"; JOINED to {joins[0].member} floor y {joins[0].y_floor:.2f}: zero "
+            f"{zero:.3f} (#2090 B3)" if joins else "")
         notes.append(note)
-        st = _stack(f"kept:{d.object_id}", KEPT, [(m, str(cx.by_id[m].path)
-                                                   if m in cx.by_id else "")
-                                                  for m in fb.members],
-                    [_stack_deck(o, cx.cache, d)], ends, seat.zero, [note])
+        st = _stack(sid, KEPT,
+                    [(m, str(cx.by_id[m].path) if m in cx.by_id else "") for m in fb.members],
+                    [_stack_deck(o, cx.cache, d)], ends, zero, [note])
+        cx.kept_reads[st.id] = (fb, d, o, surface, pub["ends"])
+        if str(d.stub_of).startswith("axis:") and not joins:
+            notes.append(f"{tag}: no mapped route and no end joins a floor — not kept (#2090 B2)")
+            continue
+        if joins:
+            st = _dc.replace(st, datum_group=joins[0].group, joins=tuple(
+                _dc.replace(j, stack=st.id) for j in joins))
         every.append(st)
-        if any(e.state == "graded" for e in ends):
+        # a joined stack is always minted, graded end or not (B3): its zero
+        # is published
+        if joins or any(e.state == "graded" for e in ends):
             out.append(st)
     return out, every, notes
+
+
+def _overpass_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str]]":
+    """``(minted, every read, notes)`` of a deck KEPT BY ITS CROSSING (#1718
+    B3 / B4, module doc): its zero the overpass seat predicted on the DEM;
+    minted only where an end is GRADED (rule 3; a stub's run over
+    ``fill_road_reach_m`` is LISTED, ``bridge_end_state``)."""
+    from .airside_deck_seat import _plate_zero
+    d = fb.decks[0]
+    o = cx.by_id.get(d.object_id)
+    if o is None or len(d.ends) != 2 or not d.under:
+        return [], [], [f"{fb.id}: the deck is not in the pack read"]
+    tag = f"{d.object_id} {str(o.path).rsplit('/', 1)[-1]}"
+    surface = cx.surface([d.ring])
+    view = types.SimpleNamespace(plate_stations=tuple(cx.to_ll(x, y) for x, y in d.under),
+                                 plate_y=0.0, plate_kind="overpass")
+    got = _plate_zero(view, surface, cx.to_ll(*o.xy))
+    if got is None:
+        return [], [], [f"{tag}: kept by its crossing, no road beneath on the DEM — "
+                        "nothing graded, listed"]
+    zero, where = float(got[0]), got[1]
+    pub = published([fb], cx.to_ll, cx.out_m)[d.object_id]
+    ends = cx.ends(fb, d, o, zero, surface, pub["ends"])
+    note = f"{tag}: kept by its crossing, predicted seat {zero:.3f} ({where}; #1718 B3)"
+    st = _stack(fb.id, KEPT, [(m, str(cx.by_id[m].path) if m in cx.by_id else "")
+                              for m in fb.members], [_stack_deck(o, cx.cache, d)], ends, zero,
+                [note])
+    if not st.graded_ends():
+        return [], [st], [note, f"{tag}: no GRADED end — no stack (#1718 B4)"]
+    return [st], [st], [note]
+
+
+def _axis_tops(d, datum, cx: _Ctx):
+    """#2090 B2: an axis-read deck's ends with the deck top AT each end (the
+    object stage's reading, ``deck_riders.with_end_tops``: ``datum.tops``
+    per ``datum.ends``, matched by the nearer middle)."""
+    tops = tuple(getattr(datum, "tops", None) or ())
+    if len(tops) != len(datum.ends) or not tops:
+        return d
+    mids = [cx.to_xy((a[1] + b[1]) / 2.0, (a[0] + b[0]) / 2.0) for a, b in datum.ends]
+    ends = tuple(_dc.replace(e, top=float(tops[min(range(len(mids)), key=lambda k, e=e:
+                                                   math.dist(mids[k], _mid(e.stations)))]))
+                 for e in d.ends)
+    return _dc.replace(d, ends=ends)
+
+
+def _joined_zero(cx: _Ctx, sid: str, d, seat_zero: float) -> "tuple[float, list, list[str]]":
+    """``(zero, joins, notes)`` (#2090 B1 / B3, ``airport/agp_deck_join``):
+    a land end joined to a follower's floor sets the zero ``zero_pred(m) +
+    y_floor - top``; else the predicted seat stands."""
+    from .agp_deck_join import end_joins
+    ends = [("ab"[k], e.stations, e.top) for k, e in enumerate(d.ends) if e.land]
+    joins, notes = end_joins(cx.floors, stack_id=STACK_PREFIX + sid, object_id=d.object_id,
+                             ends=ends, seat_zero=seat_zero)
+    if not joins:
+        return float(seat_zero), [], notes
+    j = joins[0]
+    g = next(g for g in cx.floors.groups if g.id == j.group)
+    return float(g.zero_pred(j.member)) + j.y_floor - j.top, joins, notes
 
 
 def bridge_stacks(airport, objects, cache, law
@@ -333,10 +440,14 @@ def bridge_stacks(airport, objects, cache, law
             notes.append(f"{fb.id}: REFUSED as free (rule 10: an unread land end and no "
                          "stack) — today's path, listed")
     for fb in kept:
-        st, ev, n = _kept_one(fb, cx)
+        st, ev, n = (_overpass_one if fb.id.startswith(OVERPASS_PREFIX) else _kept_one)(fb, cx)
         out += st
         every += ev
         notes += n
+    # #2090 B4b: a deck on the held access road between sibling ends rides it
+    from .access_road import ride_access_roads
+    out, every, n = ride_access_roads(cx, out, every, cx.restack)
+    notes += n
     return tuple(out), tuple(every), frozenset(refused), notes
 
 

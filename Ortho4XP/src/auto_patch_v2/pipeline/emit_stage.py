@@ -426,6 +426,12 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
     from .publication import jetway_strips_ll
     _strip_records = jetway_strips_ll(pm, airport, strips,
                                       design_rep.jetway_strip)
+    # #2090 A5: the AGP groups' datum as the stage-2 rewrite read it — the
+    # object stage lifts every follower to it (``airport/agp_ground``)
+    from ..constraints.agp_level import REPORT_KEY as _AGP_KEY
+    from ..constraints.agp_level import published_groups as _agp_published
+    _agp_records = _agp_published(getattr(pm, "agp_groups", ()) or (),
+                                  (design_rep.reach_seed or {}).get(_AGP_KEY))
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
                           {"law_ruleset": law.ruleset_key,
                            "pack": airport.pack.name,
@@ -437,16 +443,20 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
                            "jetway_strips": _strip_records,
                            # RULINGS 2026-11-10i (#1977): the object stage
                            # seats approach-light sets at these ends
-                           "runway_ends": runway_ends_ll(airport)})
+                           "runway_ends": runway_ends_ll(airport),
+                           # #2090 A5: the AGP groups' published datum
+                           "agp_groups": _agp_records})
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=design_rep.jetway_strip,
                       hard_conflict=hard_conflict,
-                      runway_flex=design_rep.runway_flex)
+                      runway_flex=design_rep.runway_flex,
+                      agp_report=(design_rep.reach_seed or {}).get(_AGP_KEY))
     # THE DESIGN SURFACE's own publication (RULINGS 2026-09-08t/v): the
     # residual per family (``design``, replacing ``law_tiers``) and the
     # rows the surface missed (``design_target``), which the census
     # counts law-true in their families and reports under one heading
     pub["design"] = design_rep.as_dict()
+    pub["agp_groups"] = _agp_records                    # #2090 A5
     # spec §56 (3) (owner 07c (6) "warn and explain"): the fixed line of
     # every block whose released frontage weld is over the bar — the
     # engine says each ONCE through its warning path (``auto_patch/
@@ -529,7 +539,8 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
     if pm.seam_vertices:
         pieces = tuple(render_tile_pieces(surf_out, law, pub,
                                           face_tags(pm, law, airport)).items())
-    rebake = _rebake(icao, pm, law, surf, airport, objects_out, patch, pieces, wall)
+    rebake = _rebake(icao, pm, law, surf, airport, objects_out, patch, pieces, wall,
+                     agp_report=(design_rep.reach_seed or {}).get(_AGP_KEY))
     published = {k: (len(v) if hasattr(v, "__len__") else v) for k, v in pub.items()}
     return Emitted(patch, pieces, tuple(lines), report, published, rebake,
                    _shas(Emitted.bodies(patch, pieces, rebake)),
@@ -588,7 +599,7 @@ def install(icao: str, rec: Emitted, header: _t.Mapping[str, str], out_dir, repo
 
 
 def _rebake(icao: str, pm, law: Law, surf, airport, objects_out, patch: PatchFiles,
-            pieces, wall: dict) -> Rebaked | None:
+            pieces, wall: dict, agp_report=None) -> Rebaked | None:
     """The rebake SCREEN beside the patch, or the inline plan when no
     partition cache was kept (``None`` without the pack's objects)."""
     # THE RE-BAKE PLAN LEAVES THE PATCH BUILD (owner RULINGS 2026-10-04x
@@ -603,7 +614,8 @@ def _rebake(icao: str, pm, law: Law, surf, airport, objects_out, patch: PatchFil
         return None
     t = time.perf_counter()
     _pulse.tick("the object re-bake screen")
-    _plan_args = _rebake_inputs(pm, law, surf, airport, objects_out[0])
+    _plan_args = _rebake_inputs(pm, law, surf, airport, objects_out[0],
+                                agp_report=agp_report)
     # the patch bodies the screen is keyed on, from the RENDERED bodies
     # (``rebake_screen.patch_body_sha256`` of the files once written)
     bodies = [hashlib.sha256(f.body.encode("utf-8")).hexdigest()

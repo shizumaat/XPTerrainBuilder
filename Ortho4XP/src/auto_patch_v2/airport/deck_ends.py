@@ -16,7 +16,7 @@ and owner question Q1.  Nothing here names an airport.
 from __future__ import annotations
 
 from ..geom.deck_ground import GROUND_TO_WALL_TOP, ground_footprint, ring_polygon
-from ..model.deck_ends import end_road_vertices
+from ..model.deck_ends import access_road_vertices, end_road_vertices, way_of_ref
 
 __all__ = ["ground_footprint", "end_road_vertices", "deck_end_seeds", "ring_polygon",
            "DECK_END_RAMP", "GROUND_TO_WALL_TOP"]
@@ -29,27 +29,36 @@ __all__ = ["ground_footprint", "end_road_vertices", "deck_end_seeds", "ring_poly
 DECK_END_RAMP = True
 
 
-def deck_end_seeds(pm, law, airport) -> dict[int, tuple[float, float]]:
+def deck_end_seeds(pm, law, airport, stacks: "dict[int, str] | None" = None
+                   ) -> dict[int, tuple[float, float]]:
     """``{vertex: (zero + top_e, distance to the end line)}`` (v2 §3.4): the
     end-line road vertices (:func:`end_road_vertices`), where the road ramp
     is seeded as at a foot lot (``airport/road_ramp.road_ramp_targets(
     deck_ends=...)``; the hold is the slab left beyond the vertex).  ``{}``
-    while owner question Q1 reads "no" (:data:`DECK_END_RAMP`)."""
+    while owner question Q1 reads "no" (:data:`DECK_END_RAMP`).  Given
+    ``stacks`` (#2090 B8) it is filled with each end-line or access-road
+    seed's stack id."""
     if not DECK_END_RAMP:
         return {}
-    out = {v: (z, off) for v, (z, *_r, off) in end_road_vertices(pm, law, airport).items()}
+    sid = {} if stacks is None else stacks
+    out = {}
+    for v, (z, s_id, *_r, off) in end_road_vertices(pm, law, airport).items():
+        out[v], sid[v] = (z, off), s_id
+    # #2090 B4: the access road between ends; B4c: the level run itself has
+    # no slab left beyond it, so no hold (offset one full sample step)
+    step = float(law.tables.structures.bridge.abutment_sample_step_m)
+    for v, (z, s_id, *_r) in access_road_vertices(pm, law, airport).items():
+        if v not in out:
+            out[v], sid[v] = (z, step), s_id
+    # #2090 C3 P2: an at-grade road inside an AGP plate, at the plate's level
+    # (no slab beyond: no hold); the seed names its group (B8)
+    from ..model.agp_plate import plate_road_levels
+    for v, (z, gid) in plate_road_levels(pm, law, airport).items():
+        if v not in out:
+            out[v], sid[v] = (z, step), gid
     for v, z in _crossing_vertices(pm, law, airport).items():
         out.setdefault(v, (z, 0.0))             # #2065 A3 rule 6: an at-grade crossing
     return out
-
-
-def _way_of(ref: str) -> "int | None":
-    """The mapped way id a road ribbon face's ref names (``<class>:<way>``)."""
-    tail = str(ref).split("#", 1)[0].rsplit(":", 1)[-1]
-    try:
-        return int(tail)
-    except ValueError:
-        return None
 
 
 def _crossing_vertices(pm, law, airport) -> dict[int, float]:
@@ -60,7 +69,7 @@ def _crossing_vertices(pm, law, airport) -> dict[int, float]:
     import shapely
     from shapely.geometry import Point
 
-    from ..geom.deck_ground import path_line
+    from ..geom.deck_ground import end_corridor, path_line
     from ..model.deck_stack import live_stacks
     stacks = live_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()), pm)
     ends = [(st, e) for st in stacks for e in st.graded_ends() if e.crossings]
@@ -72,7 +81,7 @@ def _crossing_vertices(pm, law, airport) -> dict[int, float]:
     for f in pm.faces.values():
         if f.role not in ROAD_ROLES:
             continue
-        w = _way_of(f.ref)
+        w = way_of_ref(f.ref)
         if w is not None:
             by_way.setdefault(w, set()).update(pm.ring_vertices(f.ring))
     out: dict[int, float] = {}
@@ -80,7 +89,7 @@ def _crossing_vertices(pm, law, airport) -> dict[int, float]:
         line = path_line(e, e.run)
         if line is None:
             continue
-        corridor = line.buffer(e.half_width, cap_style="flat")
+        corridor = end_corridor(e, line, e.half_width)
         for w in e.crossings:
             for v in sorted(by_way.get(int(w), ())):
                 xy = pm.vertices[v].xy

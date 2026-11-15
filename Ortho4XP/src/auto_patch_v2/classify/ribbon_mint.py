@@ -96,7 +96,19 @@ def bridge_reach(stacks, law: Law):
     return unary_union(parts) if parts else Polygon()
 
 
-def road_extent(cells, law: Law, ev: Evidence, rules: Rules, runways=(), stacks=()):
+def agp_reach(groups, law: Law):
+    """#2090 C4: every built AGP plate grown by its bank's narrowest width
+    (``[emit.design] bank_min_width_m``) — where a road at a follower's
+    ground floor is ribboned.  Empty without one."""
+    from ..geom.agp_plate import built_plates
+    w = float(law.tables.emit.design.bank_min_width_m)
+    parts = [poly.buffer(w, join_style="mitre", mitre_limit=2.0)
+             for _g, _p, poly in built_plates(groups)]
+    return unary_union(parts) if parts else Polygon()
+
+
+def road_extent(cells, law: Law, ev: Evidence, rules: Rules, runways=(), stacks=(),
+                groups=()):
     """THE REACH a mapped road is ribboned inside (owner RULINGS 2026-10-22g,
     superseding 30e (2)'s extent; issue #1246): the AERODROME BOUNDARY
     (apt.dat 130, ``Evidence.boundary``) buffered ``osm_roads.
@@ -111,7 +123,8 @@ def road_extent(cells, law: Law, ev: Evidence, rules: Rules, runways=(), stacks=
     reach_m = float(rules.osm_roads.boundary_reach_m)
     # #2065 A3 rule 7: a bridge's ring, aprons and banks, grown as the
     # boundary is (ONE site, 08-30l)
-    br = bridge_reach(stacks, law)
+    br = unary_union([g for g in (bridge_reach(stacks, law), agp_reach(groups, law))
+                      if not g.is_empty]) if groups else bridge_reach(stacks, law)
     if not br.is_empty:
         br = br.buffer(max(reach_m, 0.0), join_style="mitre", mitre_limit=2.0)
     if boundary is None or boundary.is_empty or reach_m < 0.0:
@@ -536,7 +549,8 @@ def _context(airport: Airport, ev: Evidence, cells: list, law: Law, rules: Rules
     if not ways:
         return None
     extent, zone = road_extent(cells, law, ev, rules, getattr(airport, "runways", ()),
-                               getattr(airport, "deck_stacks", ()))
+                               getattr(airport, "deck_stacks", ()),
+                               getattr(airport, "agp_groups", ()))
     if extent.is_empty:
         return None
     # every cell standing, and every pad's set-back (``_cut_back_groundside``'s

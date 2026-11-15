@@ -214,6 +214,15 @@ floor_walled_min_share = 0.5
 # +0.67 off plates, concretetile +0.26 off the DEM: its neighbours cover 9 %
 # of the ring); EGLL's seven floors +3.41..+5.98 m (no plates: the DEM).
 floor_sunken_min_m = 2.0
+# ...and a WALLED PIT (``airport/walled_pit``) is sunken AS A WHOLE: at least
+# this share of the plan area of its faces under the rim stands, as
+# authored, under that ground (#2091, owner 2026-11-14T21:03Z "There's no
+# tunnel here ... this is just flat ground under a bridge object"). Measured:
+# OTHH TerminalRoads_03_002 (a road ramp from 1.8 m under its datum up to a
+# viaduct, its parapets the "walls") 0.13 -> no pit; ENTC Industrial_19 (a
+# walled pit) and OTHH TerminalRoads_02_000 (measured against the author's
+# plates round it, 9.92) still read.
+pit_sunken_min_share = 0.5
 # THE CUT LIES BENEATH THE FLOOR (owner RULINGS 2026-11-06d (4), #1921 /
 # #1936: "the cut is deep enough that it's completely below the floor so the
 # floor is visible"; 2026-11-10o (1) "fully beneath the tunnel object floor"):
@@ -1664,3 +1673,18 @@ step_beyond_m     = 8.0     # witness 4: the lower DEM sample, this far beyond t
 station_m         = 5.0     # station spacing across the axis
 station_inset_m   = 2.0     # the seat's stations stand this far inside the inner edge (off the lidar smear)
 under_clearance_m = 0.05    # §5 (2): the ground under the plate stays this far below its top
+
+[agp]                               # #2090 (spec docs/specs/2090-agp-group-groundside-spec.md C1 V3): an .agp group seats on ONE datum
+connector_floor_m  = 2.5    # a floor this high over its group's ground line is a connector floor
+contact_m          = 1.5    # two connector-floor vertices this close in plan meet
+lift_tol_m         = 0.05   # a lift smaller than this writes nothing (pavement visibility bar)
+flat               = 0.9    # a face is a floor when |n_y| >= this share of its normal
+step_bin_m         = 0.05   # the join's vote bin
+flat_step_tol_m    = 0.10   # V2: a one-pair join stands only within this of a zero step
+airside_reach_m    = 60.0   # A2: the provisional governor stands within this of apt.dat airside, every other member 2x as far
+datum_slack_m      = 1.0    # G2: the stage-2 datum moves the predicted rows by at most this
+deck_join_reach_m  = 3.0    # B1: a deck end joins a floor within this of its predicted top
+deck_join_margin_m = 1.0    # B1: the next floor is at least this further
+ground_band_m      = 0.6    # C1: a plate's floors stand within this of the datum
+floor_min_area_m2  = 100.0  # C1: a smaller plate part is not built
+plate_max_off_m    = 3.0    # C1: a plate whose median level stands further from the DEM is not built

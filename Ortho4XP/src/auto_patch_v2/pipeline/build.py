@@ -398,6 +398,13 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # #1747 (RULINGS 2026-11-06b (6)): the tunnel mouths' walls, which no pad takes
     from ..airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law)
+    # #2090 (RULINGS 2026-11-14f (1)): the routes around every pack deck,
+    # wherever it stands — a deck past the feed box had no mapped route
+    from ..airport.deck_routes import attach_deck_routes
+    airport, _dr_notes = attach_deck_routes(airport, pack_objects, inputs.osm_root, law,
+                                            inputs.radius_deg)
+    for _n in _dr_notes:
+        _say(f"  [deck-routes] {_n}", out)
     # #1971: a trench's floor and the hard decks spanning it, ONE zero
     from ..planar.deck_stack_attach import attach_deck_stacks
     _t_ds, _ds_notes = time.perf_counter(), []
@@ -789,6 +796,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         strips, design_rep = _late["strips"], _late["design"]
         design_rep.stages["base"] = dict(_base_rep.stages)
         _fold_base_rows(design_rep, _base_rep)
+        # #2090 A5: the AGP datum is read ONCE, by the base solve's stage-2
+        # rewrite; a late stage's local solve carries no rewrite of its own
+        _agp = (_base_rep.reach_seed or {}).get("agp_level")
+        if _agp and "agp_level" not in (design_rep.reach_seed or {}):
+            design_rep.reach_seed = {**(design_rep.reach_seed or {}), "agp_level": _agp}
         _pin_yield = [*_late["pin_yield"], *(design_rep.pin_yield or ())]
         wall["late_stage"] = time.perf_counter() - t
         _late_report = {"cut": _late["cut"], "followers": _late["followers"],
@@ -886,7 +898,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             fc, final=_emit_records.final_identity(
                 _solved, None if _late_report is None else _late_records),
             cl=cl, yield_records=_yield_records, lrep=lrep, airport=airport,
-            objects_out=objects_out, common=_fc_in, feather_m=cfg.feather_m)
+            objects_out=objects_out, common=_fc_in, feather_m=cfg.feather_m,
+            agp=(design_rep.reach_seed or {}).get("agp_level"))
         _em = _emit_records.emit(
             fc, _em_in,
             icao=icao, pm=pm, law=law, airport=airport, sol=sol, cs=cs, cl=cl, strips=strips,

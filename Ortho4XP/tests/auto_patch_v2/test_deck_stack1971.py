@@ -646,3 +646,156 @@ def test_t27_the_slab_road_vertices_hold_and_the_ramp_starts_one_step_out(tmp_pa
     ends = DE.end_road_vertices(_stub_map(st), LAW, a)
     H = float(LAW.tables.structures.bridge.abutment_sample_step_m)
     assert ends and all(0.0 <= e[-1] <= H + 0.01 for e in ends.values())
+
+
+# ── #2090 spec B4: the access road between two sibling deck ends ─────────
+
+def _b4_stack(sid, x, member="dsf:obj9", y=3.45, zero=1633.26):
+    from auto_patch_v2.model.agp_group import DeckJoin
+    from auto_patch_v2.model.deck_stack import KEPT, DeckStack, StackEnd
+    e = StackEnd(sid, "a", ((x - 7.0, 0.0), (x + 7.0, 0.0)), 0.05, (0.0, -1.0), 1631.2,
+                 2.1, "graded", "", access=(-18914,))
+    j = DeckJoin("agp:dsf:obj8", sid, sid, "b", member, y, -0.10, 2.0, None, (x, 40.0),
+                 (0.0, 0.0))
+    return DeckStack(sid, "", "", ((sid, "g.obj"),), zero, 0.0, (), 0.0, 0.0, (), (), (), (),
+                     (), kind=KEPT, ends=(e,), datum_group="agp:dsf:obj8", joins=(j,))
+
+
+def _b4_pm(stacks):
+    xs = [-20.0, 0.0, 30.0, 60.0, 90.0, 120.0]
+    verts = {k: types.SimpleNamespace(xy=(x, 0.5)) for k, x in enumerate(xs)}
+    face = types.SimpleNamespace(role="service_road", ref="small_roads:-18914",
+                                 ring=tuple(range(len(xs))))
+    return types.SimpleNamespace(faces={0: face}, vertices=verts, bridge_stacks=tuple(stacks),
+                                 ring_vertices=lambda ring: list(ring))
+
+
+def test_b4_the_road_between_two_ends_of_one_floor_is_held_on_their_line():
+    from auto_patch_v2.model.deck_ends import access_road_vertices
+    s1, s2 = _b4_stack("stack:kept:dsf:obj1", 0.0), _b4_stack("stack:kept:dsf:obj2", 90.0,
+                                                              zero=1633.56)
+    ap = types.SimpleNamespace(deck_stacks=(s1, s2))
+    got = access_road_vertices(_b4_pm((s1, s2)), None, ap)
+    assert sorted(got) == [2, 3]                    # x 30 and 60: between the ends
+    assert got[2][0] == pytest.approx(1633.31 + (30 / 90) * 0.30)
+    assert got[3][1] == "stack:kept:dsf:obj2"       # the nearer end's stack id
+
+
+def test_b4_ends_of_two_floors_are_no_siblings():
+    from auto_patch_v2.model.deck_ends import access_road_vertices
+    s1 = _b4_stack("stack:kept:dsf:obj1", 0.0)
+    s2 = _b4_stack("stack:kept:dsf:obj2", 90.0, y=6.75)
+    ap = types.SimpleNamespace(deck_stacks=(s1, s2))
+    assert access_road_vertices(_b4_pm((s1, s2)), None, ap) == {}
+
+
+# ── #2090 amendment B′ B4b: a deck on the held access road rides the line ──
+
+def _b4b_deck(sid, xa, xb, zero=1631.9, top=0.10):
+    from auto_patch_v2.model.deck_stack import KEPT, DeckStack, StackDeck, StackEnd
+    ends = tuple(StackEnd(sid, s, ((x, -6.0), (x, 6.0)), top, (1.0 if s == "b" else -1.0, 0.0),
+                          1631.5, 0.5, "graded", "") for s, x in (("a", xa), ("b", xb)))
+    deck = StackDeck(sid, "hill.obj", 0, (), 1, (-18914, -4080), (), ends[0].stations,
+                     ends[1].stations, top, top)
+    return DeckStack(sid, "", "", ((sid, "hill.obj"),), zero, 0.0, (), 0.0, 0.0, (), (), (),
+                     (), decks=(deck,), kind=KEPT, ends=ends, bridge=sid[6:])
+
+
+def _b4b_ride(stacks):
+    """``ride_access_roads`` on a stand-in context; ``restack`` re-reads the
+    riding deck's ends as ``_Ctx.restack`` does: the joined sides joined, the
+    far side graded on the access road."""
+    from auto_patch_v2.airport.access_road import ride_access_roads
+    calls = []
+
+    def restack(st, zero, joined, key, gid, note):
+        calls.append((st.id, round(zero, 4), sorted(joined)))
+        ends = tuple(dc.replace(e, state="joined" if e.side in joined else "graded",
+                                access=() if e.side in joined else (-18914,))
+                     for e in st.ends)
+        return dc.replace(st, zero_z=zero, ends=ends, datum_group=gid, rides=key)
+    road = types.SimpleNamespace(id=-18914, points=((-50.0, 0.5), (300.0, 0.5)), tags={})
+    cx = types.SimpleNamespace(step=float(LAW.tables.structures.bridge.abutment_sample_step_m),
+                               law=LAW, obs=types.SimpleNamespace(
+                                   graph=types.SimpleNamespace(ways=[road])))
+    out, every, notes = ride_access_roads(cx, [s for s in stacks if s.joins], stacks, restack)
+    return out, every, notes, calls
+
+
+def test_b4b_a_deck_carrying_the_access_way_between_siblings_rides():
+    s1, s2 = _b4_stack("stack:kept:dsf:obj1", 0.0), _b4_stack("stack:kept:dsf:obj2", 90.0,
+                                                              zero=1633.56)
+    k = _b4b_deck("stack:kept:dsf:obj3", 40.0, 60.0)
+    out, every, _n, calls = _b4b_ride([s1, s2, k])
+    la = 1633.31 + (40 / 90) * 0.30
+    lb = 1633.31 + (60 / 90) * 0.30
+    assert calls == [(k.id, round(0.5 * (la + lb) - 0.10, 4), ["a", "b"])]
+    rode = next(s for s in every if s.id == k.id)
+    assert rode.rides == ("dsf:obj9", 3.45) and rode.datum_group == "agp:dsf:obj8"
+    assert rode.access_key == ("dsf:obj9", 3.45) and rode in out     # always minted
+
+
+def test_b4b_a_deck_by_the_outermost_sibling_rides_and_its_far_end_is_a_sibling():
+    from auto_patch_v2.model.deck_ends import access_road_vertices, sibling_ends
+    s1, s2 = _b4_stack("stack:kept:dsf:obj1", 0.0), _b4_stack("stack:kept:dsf:obj2", 90.0,
+                                                              zero=1633.56)
+    k = _b4b_deck("stack:kept:dsf:obj3", 96.0, 130.0)       # end a 6 m past obj2's line
+    _out, every, _n, calls = _b4b_ride([s1, s2, k])
+    assert calls == [(k.id, round(1633.61 - 0.10, 4), ["a"])]
+    sibs = sibling_ends(every)[("dsf:obj9", 3.45, 0)]
+    assert [(st.id, e.side) for st, e in sibs][-1] == (k.id, "b")   # the new outermost
+    ap = types.SimpleNamespace(deck_stacks=tuple(every))
+    got = access_road_vertices(_b4_pm(every), LAW, ap)
+    assert 4 not in got and 5 in got           # x 90 is obj2's line; x 120 before K's b
+    assert got[5][0] == pytest.approx(1633.61 - 0.10 + 0.10)
+
+
+def test_b4b_a_deck_thirty_metres_off_the_hold_does_not_ride():
+    s1, s2 = _b4_stack("stack:kept:dsf:obj1", 0.0), _b4_stack("stack:kept:dsf:obj2", 90.0,
+                                                              zero=1633.56)
+    k = _b4b_deck("stack:kept:dsf:obj3", 120.0, 140.0)
+    _out, every, _n, calls = _b4b_ride([s1, s2, k])
+    assert calls == [] and next(s for s in every if s.id == k.id).rides == ()
+
+
+def test_b4b_a_reseat_over_the_join_reach_is_refused_and_listed():
+    s1, s2 = _b4_stack("stack:kept:dsf:obj1", 0.0), _b4_stack("stack:kept:dsf:obj2", 90.0,
+                                                              zero=1633.56)
+    k = _b4b_deck("stack:kept:dsf:obj3", 40.0, 60.0, zero=1620.0)
+    _out, _every, notes, calls = _b4b_ride([s1, s2, k])
+    assert calls == [] and any("access_deck_out_of_reach" in n for n in notes)
+
+
+def test_b4c_an_access_vertex_seeds_with_no_hold(monkeypatch):
+    """B4c: an access-road vertex is seeded ``(z, H)`` (no slab beyond it,
+    so ``road_ramp_targets`` adds no hold); an end-line vertex keeps its
+    own offset."""
+    H = float(LAW.tables.structures.bridge.abutment_sample_step_m)
+    monkeypatch.setattr(DE, "end_road_vertices",
+                        lambda *a: {1: (1633.0, "stack:a", "o", "o#0 end a", 1.5)})
+    monkeypatch.setattr(DE, "access_road_vertices",
+                        lambda *a: {1: (1633.5, "stack:a", "o", "x", 0.0),
+                                    2: (1633.2, "stack:b", "o", "x", 0.0)})
+    monkeypatch.setattr(DE, "_crossing_vertices", lambda *a: {})
+    stacks: dict = {}
+    got = DE.deck_end_seeds(None, LAW, None, stacks)
+    assert got == {1: (1633.0, 1.5), 2: (1633.2, H)}
+    assert stacks == {1: "stack:a", 2: "stack:b"}
+
+
+def test_b4_one_floors_ends_on_two_roads_are_two_lines():
+    """The line split of ``sibling_ends``: ends of one floor on two roads
+    (both sides of a building) are two lines, so no road vertex is held on a
+    'line' across the building between them."""
+    from auto_patch_v2.model.deck_ends import access_road_vertices, sibling_ends
+    s1, s2 = _b4_stack("stack:kept:dsf:obj1", 0.0), _b4_stack("stack:kept:dsf:obj2", 90.0)
+    far = [dc.replace(_b4_stack(f"stack:kept:dsf:obj{k}", x), ends=tuple(
+        dc.replace(e, stations=tuple((px, py + 400.0) for px, py in e.stations))
+        for e in _b4_stack(f"stack:kept:dsf:obj{k}", x).ends)) for k, x in ((3, 0.0), (4, 90.0))]
+    every = [s1, s2, *far]
+    pm = _b4_pm(every)
+    lines = sibling_ends(every, __import__("auto_patch_v2.model.deck_ends", fromlist=["x"])
+                         ._road_faces_near(pm), 5.0)
+    assert sorted(len(v) for v in lines.values()) == [1, 1, 2]   # far ends: no road joins them
+    ap = types.SimpleNamespace(deck_stacks=tuple(every))
+    assert sorted(access_road_vertices(pm, LAW, ap)) == [2, 3]

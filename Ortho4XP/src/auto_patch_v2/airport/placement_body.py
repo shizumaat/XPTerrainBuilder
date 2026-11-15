@@ -541,11 +541,18 @@ def _declared_box(cutter: "_LineCutter", tris, m: Member
 def _member_datum(m: Member, u: Unit, ride: "_ar.Datum | None", step_m: float,
                   walk_max_m: float, tol_m: float) -> "_ar.Datum | None":
     """§16e: the datum member ``m`` of unit ``u`` carries — its bridge's
-    when it rides one (#2086, ``deck_riders``), else its own."""
+    when it rides one (#2086, ``deck_riders``), else its own, with the deck
+    top at each end line (``deck_riders.with_end_tops``, #2090)."""
     if ride is not None:
         return ride
-    return _ar.datum_of(m, abutment_step_m=step_m, abutment_walk_max_m=walk_max_m,
-                        level_tol_m=tol_m, free_standing=_pf.frame_is_bridge(u))
+    from .deck_riders import with_end_tops
+    # #2090: the deck top AT each end line, as the pack stage predicted it
+    # (``bridge_stack._kept_one``): a deck authored on a grade
+    d = _ar.datum_of(m, abutment_step_m=step_m, abutment_walk_max_m=walk_max_m,
+                     level_tol_m=tol_m, free_standing=_pf.frame_is_bridge(u))
+    if d is None or len(d.ends) < 2:
+        return d
+    return with_end_tops(d, m, (float(u.anchor[0]), float(u.anchor[1])))
 
 
 def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,

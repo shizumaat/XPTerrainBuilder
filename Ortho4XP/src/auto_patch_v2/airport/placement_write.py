@@ -174,6 +174,13 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                # #2042: the built mesh over the pack's graded facades
                # (``facade_seat.candidates_box``); ``None`` reads ``surface``
                facade_surface: _t.Callable | None = None,
+               # #2090: the built mesh over the pack's .agp ground points
+               # (``agp_ground.ground_box``); ``None`` reads ``surface``
+               agp_surface: _t.Callable | None = None,
+               # #2090 A6: the graded surface's published AGP groups
+               # (``placement_read.agp_groups_from_graded_doc``); ``None``
+               # re-derives them (a surface graded before the key)
+               agp_groups: "_t.Sequence[_t.Mapping] | None" = None,
                # #1908: ``free_column.law_of([placement])``; ``None`` disarms
                free_column: _t.Any = None,
                # §9a (#2063 round 3): the isolated seat's ``[cockpit]
@@ -257,10 +264,18 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     # #2042: a graded facade's plane comes down onto its drawn ground
     fseats, ffiles, fcounts = _fs.plan_seats(
         dump, pack_root, surface if facade_surface is None else facade_surface)
-    files = tuple(f for s in ss.splits for f in s.files) + ffiles
+    # #2090: .agp rows joined by an authored connector seat as one group
+    from . import agp_ground as _ag
+    aseats, afiles, acounts = _ag.plan_lifts(
+        dump, pack_root, surface if agp_surface is None else agp_surface,
+        published=agp_groups,
+        riders=frozenset(r.index for r in riders if getattr(r, "strip_id", "")))
+    files = tuple(f for s in ss.splits for f in s.files) + ffiles + afiles
     counts = dict(ss.counts)
     counts.update(counts_extra)
     counts.update(fcounts)
+    if aseats:
+        counts.update(acounts)
     plan = PlacementPlan(
         icao=icao, pack_name=pack_name, pack_root=pack_root, dsf_path=dsf_path,
         dsf_backup_path=dsf_path + ".anchor_bak",
@@ -268,7 +283,7 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
         conversions=conversions, splits=splits, kept=kept, msl_seats=msl,
         riders=tuple(riders),
         jetway_strips=tuple(dict(j) for j in (jetway_strips or ())),
-        facade_seats=fseats)
+        facade_seats=fseats, agp_seats=aseats)
     return plan, files, ss
 
 
@@ -766,7 +781,7 @@ def _writable(plan: PlacementPlan, files: _t.Sequence
     plan = _sg.without_splits(plan, locked,
                               "split undone: the pack folder is read-only")
     keep = {r.replace("\\", "/")
-            for r in plan.new_resources() + plan.new_facades()}
+            for r in plan.new_resources() + plan.new_facades() + plan.new_agps()}
     return plan, [f for f in files if f.resource.replace("\\", "/") in keep]
 
 

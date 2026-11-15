@@ -21,7 +21,8 @@ tool's (#2025, owner 2026-11-12T19:42Z):
   discarded, and Undo of Convert given up for the tile
   (``world_adopt_supersede``; owner 2026-11-14T19:59Z, #2088)),
   remembered in the data folder (:data:`CHOICES_FILE`) and applied to
-  later flights without asking; with it, each endpoint airport's
+  later flights without asking until the pilot changes it (``ask``
+  clears it: the card's "Change", #2095); with it, each endpoint airport's
   ``patched`` once read ``yes`` / ``no`` (the source's drive need not
   stay mounted).
 * :class:`Endpoints` -- one flight's view of them: each tile read once,
@@ -48,7 +49,7 @@ from .ortho4xp_patched import PATCHED_NO, PATCHED_UNKNOWN, PATCHED_YES
 from .world_state import FULL, MESH_LOWRES, journal_record, read_tile
 
 __all__ = ["KEEP", "UPGRADE", "CHOICES", "ASK", "PATCHED_YES",
-           "PATCHED_NO", "PATCHED_UNKNOWN", "CHOICES_FILE", "endpoint_reader",
+           "PATCHED_NO", "PATCHED_UNKNOWN", "CHOICES_FILE", "UPGRADE_OPEN", "endpoint_reader",
            "airport_patched_reader",
            "ChoiceBook", "choices_path", "parse_tile", "Endpoints",
            "upgrade_overwrites", "own_folder"]
@@ -60,6 +61,10 @@ UPGRADE = "upgrade"
 CHOICES = (KEEP, UPGRADE)
 #: An adopted endpoint with no answer yet: the flight asks.
 ASK = "ask"
+#: Set on an answer given with Upgrade on offer (#2095): a ``keep`` without
+#: it, on a tile whose upgrade builds in place, was given while that upgrade
+#: was refused (before #2088) and is asked again.
+UPGRADE_OPEN = "upgrade_open"
 #: The remembered answers, in the data folder.
 CHOICES_FILE = "adopted_tile_choices.json"
 _MESH_STATES = (FULL, MESH_LOWRES)
@@ -184,8 +189,19 @@ class ChoiceBook:
     def set(self, tile, choice: str) -> None:
         if choice not in CHOICES:
             raise ValueError("Choose %s or %s." % CHOICES)
-        self._update(tile, {"choice": choice, "at": time.strftime(
-            "%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        self._update(tile, {"choice": choice, UPGRADE_OPEN: True,
+                            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                                time.gmtime())})
+
+    def upgrade_was_open(self, tile) -> bool:
+        """Was the tile's answer given with Upgrade on offer
+        (:data:`UPGRADE_OPEN`)?"""
+        return self._row(tile).get(UPGRADE_OPEN) is True
+
+    def clear(self, tile) -> None:
+        """Forget the tile's answer (the next flight asks); its airports'
+        ``patched`` readings stay."""
+        self._update(tile, {}, drop=("choice", UPGRADE_OPEN, "at"))
 
     def patched(self, tile, icao: str) -> Optional[str]:
         """The airport's remembered ``patched`` (``yes`` / ``no``), or None."""
@@ -201,12 +217,17 @@ class ChoiceBook:
         seen[icao.upper()] = value
         self._update(tile, {"patched": seen})
 
-    def _update(self, tile, fields: dict) -> None:
+    def _update(self, tile, fields: dict, drop: Tuple[str, ...] = ()) -> None:
         name = WP.tile_name(int(tile[0]), int(tile[1]))
         with self._lock:
             row = dict(self._rows.get(name) or {})
             row.update(fields)
-            self._rows[name] = row
+            for key in drop:
+                row.pop(key, None)
+            if row:
+                self._rows[name] = row
+            else:
+                self._rows.pop(name, None)
             if self.path:
                 os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
                 partial = self.path + ".partial"
@@ -266,17 +287,28 @@ class Endpoints:
 
     def choice_of(self, tile) -> Optional[str]:
         """:data:`ASK`, :data:`KEEP` or :data:`UPGRADE` for an adopted
-        mesh, None for any other tile."""
-        if self.info(tile) is None:
+        mesh, None for any other tile; a ``keep`` given while the tile's
+        in-place upgrade was refused (no :data:`UPGRADE_OPEN`) is asked
+        again (#2095)."""
+        info = self.info(tile)
+        if info is None:
             return None
-        return self.book.get(tile) or ASK
+        choice = self.book.get(tile)
+        if (choice == KEEP and info.get("in_place")
+                and not self.book.upgrade_was_open(tile)):
+            return ASK
+        return choice or ASK
 
     def remember(self, tile, role: str, choice: str) -> None:
-        """The pilot's answer for an endpoint (``role``) of the flight;
-        raises ValueError with the sentence to show when it cannot be."""
+        """The pilot's answer for an endpoint (``role``) of the flight,
+        or :data:`ASK` to forget it (the card's "Change", #2095); raises
+        ValueError with the sentence to show when it cannot be."""
         if role not in ("departure", "destination") or self.info(tile) is None:
             raise ValueError("That tile is not an adopted departure or "
                              "destination of this flight.")
+        if choice == ASK:
+            self.book.clear(tile)
+            return
         if choice not in CHOICES:
             raise ValueError("Choose keep or upgrade.")
         self.book.set(tile, choice)

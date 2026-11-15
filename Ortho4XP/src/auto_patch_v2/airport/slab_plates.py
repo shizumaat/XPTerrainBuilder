@@ -22,6 +22,12 @@ parsed.  Each comes back in the witness's own part shape (``comp``,
 ``base_y``, ``height_m``, ``area_m2``, a lat/lon ``box``, one foot) with
 its plan outline in the planar frame (``poly_xy``); the witness then judges
 it exactly as it judges a genuine part (rules 1-7).
+
+:func:`deck_floors` (#2091 R3) reads a welded deck's OWN ground slab: the
+base planes of a member carrying a ``deck_shade_ring`` that stand within
+``[bridge] deck_min_elevation_m`` of the objects' zero.  That plan is the
+building's floor, so it stays in the pad outline
+(``geom/cluster_outline.deck_shades(floors=...)``).
 """
 from __future__ import annotations
 
@@ -31,7 +37,7 @@ import typing as _t
 from shapely.geometry import Polygon, shape
 from shapely.ops import unary_union
 
-__all__ = ["PlatePart", "thin_plates"]
+__all__ = ["PlatePart", "thin_plates", "deck_floors"]
 
 
 class PlatePart(_t.NamedTuple):
@@ -127,4 +133,31 @@ def thin_plates(u, m, to_xy, lw, q: float = 0.0) -> list[PlatePart]:
         box = _ll_box(g, (float(org[0]), float(org[1])), (ox, oy))
         out.append(PlatePart(i, y0, h, float(g.area), box,
                              ((0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3]), y0),), g))
+    return out
+
+
+def deck_floors(u, m, to_xy, lw, q: float = 0.0) -> list:
+    """A WELDED DECK'S OWN GROUND SLAB (#2091 R3): for a member carrying a
+    ``deck_shade_ring``, every plane of its own ``base_profile`` standing
+    within ``lw.deck_elev_m`` (``[bridge] deck_min_elevation_m``) of the
+    objects' zero and ``lw.min_m2`` or more, placed in the planar frame;
+    ``[]`` for any other member.  Read by ``geom/base_slab.pad_shades``:
+    the deck's shade leaves every pad outline except there."""
+    if not getattr(m, "deck_shade_ring", None):
+        return []
+    elev = float(getattr(lw, "deck_elev_m", 0.0) or 0.0)
+    org = getattr(m, "origin", None) or getattr(u, "anchor", None)
+    if elev <= 0.0 or org is None:
+        return []
+    origin_xy = to_xy(float(org[1]), float(org[0]))
+    out = []
+    for p in (getattr(m, "base_profile", None) or {}).get("planes", ()) or ():
+        if abs(float(p.get("y", 99.0))) >= elev or float(p.get("area_m2", 0.0)) < lw.min_m2:
+            continue
+        try:
+            g = _placed(shape(p["polygon"]), origin_xy, float(m.heading_deg or 0.0), q)
+        except (KeyError, ValueError, TypeError, AttributeError):
+            continue
+        if g is not None and not g.is_empty:
+            out.append(g)
     return out

@@ -54,7 +54,7 @@ import dataclasses as _dc
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
 
-__all__ = ["road_overpasses"]
+__all__ = ["road_overpasses", "road_crossings"]
 
 XY = tuple[float, float]
 
@@ -155,17 +155,41 @@ def _crossing_top(dks, cache, piece, stations) -> "float | None":
     return float(zs.max()) if zs.size else None
 
 
+def road_crossings(dks, cache, ways, law) -> tuple["float | None", list]:
+    """``(the frame's top y, [(piece, stations, way ids, crossing top)])``:
+    every piece of the deck plates ``dks`` (one frame's, ``deck_bridge.
+    _frames``) a road crosses beneath (:func:`_road_under`) with its
+    :func:`_crossing_top` — the pack-stage half of the witness (module doc),
+    read here for :func:`road_overpasses` and for the pack stage's no-route
+    candidate (#1718 B1, ``planar/free_bridge``).  No piece where the
+    frame's top stands under ``clearance_minimum_m``."""
+    from .deck_bridge import _plate
+    br = law.tables.structures.bridge
+    step = float(br.abutment_sample_step_m)
+    top = max((y for _x, _y, y in _plate(cache, dks)), default=None)
+    if top is None or top < float(br.clearance_minimum_m):
+        return top, []
+    u = unary_union([q.hard_deck for q in dks])
+    out = []
+    for piece in sorted(getattr(u, "geoms", [u]), key=lambda p: -p.area):
+        if piece.geom_type != "Polygon" or piece.area < 1.0:
+            continue
+        st, ids = _road_under(piece, ways, step)
+        if st:
+            out.append((piece, st, ids, _crossing_top(dks, cache, piece, st)))
+    return top, out
+
+
 def road_overpasses(objects, cache, classification, airport, law, decks=(),
                     cut_objects=(), free=()) -> tuple[tuple[_Overpass, ...], list[str]]:
     """``(every road overpass deck piece, one note per piece read)``
     (module doc).  ``decks`` are the hard-deck bridges already read,
     ``cut_objects`` the placement ids of every pack object cut, ``free`` the
     free bridges' deck ids (``planar/free_bridge``, #2065 S4): all taken."""
-    from .deck_bridge import CellRoles, _beside_a_building, _frames, _plate
+    from .deck_bridge import CellRoles, _beside_a_building, _frames
     if not objects or cache is None or classification is None:
         return (), []
     br = law.tables.structures.bridge
-    step = float(br.abutment_sample_step_m)
     tol = float(law.tables.structures.tunnel.object.cover_placement_tol_m)
     taken = {str(d.object_id) for d in decks or ()} | {str(o) for o in free or ()}
     cut = {str(o) for o in cut_objects or ()}
@@ -182,19 +206,9 @@ def road_overpasses(objects, cache, classification, airport, law, decks=(),
                          "pack object cut -- the deck seats over it (RULINGS 2026-10-26d), "
                          "never on the road beneath")
             continue
-        slab = _plate(cache, dks)
-        top = max((y for _x, _y, y in slab), default=None)
-        if top is None or top < float(br.clearance_minimum_m):
-            continue
-        u = unary_union([q.hard_deck for q in dks])
+        top, pieces = road_crossings(dks, cache, ways, law)
         name = f"{d.id} {str(d.path).rsplit('/', 1)[-1]}"
-        for piece in sorted(getattr(u, "geoms", [u]), key=lambda p: -p.area):
-            if piece.geom_type != "Polygon" or piece.area < 1.0:
-                continue
-            st, ids = _road_under(piece, ways, step)
-            if not st:
-                continue
-            at = _crossing_top(dks, cache, piece, st)
+        for piece, st, ids, at in pieces:
             if at is not None and at < float(br.clearance_minimum_m):
                 notes.append(f"{name}: no road overpass -- its plate stands y {at:+.2f} over "
                              f"way(s) {list(ids)} (< {float(br.clearance_minimum_m):.2f} m "

@@ -19,6 +19,10 @@ Ortho4XP/Geotiffs
 Ortho4XP/Masks
 Ortho4XP/Default_DSF_cache
 Ortho4XP/Orthophotos
+Ortho4XP/Flights
+Ortho4XP/Tile_packages
+Ortho4XP/World_build
+Ortho4XP/World_staging
 .progress
 
 **/__pycache__/

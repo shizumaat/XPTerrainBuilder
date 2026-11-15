@@ -127,6 +127,14 @@ def test_the_surface_outside_is_the_higher_of_mesh_and_object():
     assert out.tolist() == [10.0, 11.0, 9.0] and obj.tolist() == [False, True, True]
 
 
+def test_an_object_over_the_edge_is_not_the_surface_outside():
+    """#2090: a deck passing OVER an edge (KDEN's interchange: the upper deck
+    7 m over the lower deck's long sides) is not the ground beside it."""
+    out, obj = DC.drawn_outside(np.array([10.0, 10.0]), np.array([17.0, 11.0]),
+                                np.array([10.0, 10.0]))
+    assert out.tolist() == [10.0, 11.0] and obj.tolist() == [False, True]
+
+
 def test_row_base_follows_the_row_kind():
     class P:
         kind, elevation = "OBJECT_MSL", 42.0

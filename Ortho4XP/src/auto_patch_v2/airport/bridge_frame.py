@@ -76,7 +76,24 @@ class Under:
         self._datum, self._normal = datum, normal
         self._faces: dict[int, tuple] = {}
         self._z: dict = {}
+        self._reach: dict[int, float] = {}
         self.unshifted: set = set()
+
+    def _misses(self, k: int, b: tuple) -> bool:
+        """Can placement ``k`` (no plan bounds known) not meet ``b``?  Its
+        geometry's plan REACH about its ``xy`` (the farthest vertex, any
+        heading) bounds every face it places — exact, never an origin
+        distance — so the many placements nowhere near ``b`` are never
+        placed (#1718: W4b on a deck's own axis placed all 6,076 of KBNA's)."""
+        _u, g, xy, _hd = self._p[k][:4]
+        if g is None or not len(getattr(g, "solid", ())):
+            return True
+        key = id(g)
+        if key not in self._reach:
+            v = np.asarray(g.vertices)[:, :3]
+            self._reach[key] = float(np.hypot(v[:, 0], v[:, 2]).max()) if len(v) else 0.0
+        r = self._reach[key]
+        return xy[0] + r < b[0] or xy[0] - r > b[2] or xy[1] + r < b[1] or xy[1] - r > b[3]
 
     def _of(self, k: int) -> tuple[np.ndarray, tuple]:
         if k not in self._faces:
@@ -100,7 +117,7 @@ class Under:
             for k, p in enumerate(self._p):
                 pb = p[4] if len(p) > 4 else None
                 if pb is not None and (pb[2] < b[0] or pb[0] > b[2] or pb[3] < b[1]
-                                       or pb[1] > b[3]):
+                                       or pb[1] > b[3]) or pb is None and self._misses(k, b):
                     continue
                 f, fb = self._of(k)
                 if not len(f) or fb[2] < b[0] or fb[0] > b[2] or fb[3] < b[1] or fb[1] > b[3]:

@@ -37,6 +37,7 @@ __all__ = [
     "BODY_CLASSES", "Provenance", "Conversion", "Anchor", "PlacementRef",
     "Body", "Split", "Kept", "PlacementPlan", "MslSeat", "Rider",
     "FacadeSeat",
+    "AgpSeat",
     "POOL_QUANTA", "TOL_DEG",
 ]
 
@@ -175,6 +176,45 @@ class FacadeSeat:
         return cls(int(d["index"]), str(d["resource"]), str(d["new_resource"]),
                    _f(d["drop_m"]), _f(d.get("lon", 0.0)), _f(d.get("lat", 0.0)),
                    _f(d.get("anchor_z", 0.0)), _f(d.get("need_z", 0.0)))
+
+
+@_dc.dataclass(frozen=True)
+class AgpSeat:
+    """#2090: one on-ground ``.agp`` row pointed at a LIFTED copy of its
+    file (``airport/agp_ground``): every ``OBJ_DELTA`` height moved by
+    ``lift_m`` so its connector floors meet the ``governor`` row's.
+    ``index`` is the row's placement ordinal, ``resource`` its authored
+    ``OBJECT_DEF``, ``new_resource`` the copy; ``(lon, lat)`` its
+    ``GROUND_PT``, where X-Plane reads ``ground_z``, and ``need_z`` the
+    datum the join asks for (the PUBLISHED group datum, spec 2090 A6).
+    ``gp_relief_m`` (V4) is the drawn relief within 2 m of the ground point:
+    a record only.  The row stays ON THE GROUND (Q-31)."""
+
+    index: int
+    resource: str
+    new_resource: str
+    lift_m: float
+    governor: int
+    lon: float
+    lat: float
+    ground_z: float
+    need_z: float
+    gp_relief_m: float = 0.0
+
+    def to_dict(self) -> dict[str, _t.Any]:
+        return {"index": self.index, "resource": self.resource,
+                "new_resource": self.new_resource, "lift_m": self.lift_m,
+                "governor": self.governor, "lon": self.lon, "lat": self.lat,
+                "ground_z": self.ground_z, "need_z": self.need_z,
+                "gp_relief_m": self.gp_relief_m}
+
+    @classmethod
+    def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "AgpSeat":
+        return cls(int(d["index"]), str(d["resource"]), str(d["new_resource"]),
+                   _f(d["lift_m"]), int(d.get("governor", -1)),
+                   _f(d.get("lon", 0.0)), _f(d.get("lat", 0.0)),
+                   _f(d.get("ground_z", 0.0)), _f(d.get("need_z", 0.0)),
+                   _f(d.get("gp_relief_m", 0.0)))
 
 
 @_dc.dataclass(frozen=True)
@@ -538,6 +578,8 @@ class PlacementPlan:
     jetway_strips: tuple[_t.Mapping[str, _t.Any], ...] = ()
     #: #2042: graded facade polygons pointed at a lowered copy of their file
     facade_seats: tuple[FacadeSeat, ...] = ()
+    #: #2090: on-ground .agp rows pointed at a lifted copy of their file
+    agp_seats: tuple[AgpSeat, ...] = ()
     #: #1884: GUEST BODIES — splits of a placement written in ANOTHER
     #: tile's DSF whose bodies stand on THIS DSF's tile
     #: (``airport/tile_route``).  The placement is no row of this dump:
@@ -567,6 +609,11 @@ class PlacementPlan:
         first-appearance order, de-duplicated (#2042)."""
         return tuple(dict.fromkeys(f.new_resource for f in self.facade_seats))
 
+    def new_agps(self) -> tuple[str, ...]:
+        """Every lifted ``.agp`` copy an ``OBJECT_DEF`` is appended for, in
+        first-appearance order, de-duplicated (#2090)."""
+        return tuple(dict.fromkeys(a.new_resource for a in self.agp_seats))
+
     def counts(self) -> dict[str, int]:
         per_kind: dict[str, int] = {}
         for c in self.conversions:
@@ -581,6 +628,7 @@ class PlacementPlan:
                 # §16g (5): placements seated by their DSF row
                 "msl_seats": len(self.msl_seats),
                 "facade_seats": len(self.facade_seats),
+                **({"agp_seats": len(self.agp_seats)} if self.agp_seats else {}),
                 # #1884: bodies of another tile's placements written here
                 "guest_bodies": sum(len(s.bodies) for s in self.guests)}
 
@@ -603,6 +651,8 @@ class PlacementPlan:
                 "conversions": [c.to_dict() for c in self.conversions],
                 "msl_seats": [m.to_dict() for m in self.msl_seats],
                 "facade_seats": [f.to_dict() for f in self.facade_seats],
+                **({"agp_seats": [a.to_dict() for a in self.agp_seats]}
+                   if self.agp_seats else {}),
                 "splits": [_edit_split(s) for s in self.splits],
                 # #1884: appended rows, re-applied with the sibling's edits
                 **({"guests": [_edit_split(s) for s in self.guests]}
@@ -642,10 +692,18 @@ class PlacementPlan:
                 if f.index not in polys:
                     fac.append(f)
                     polys.add(f.index)
+        agps = list(self.agp_seats)         # #2090: row ordinals
+        taken_a = {a.index for a in agps}
+        for o in others:
+            for a in getattr(o, "agp_seats", ()):
+                if a.index not in taken_a:
+                    agps.append(a)
+                    taken_a.add(a.index)
         # #1884: guest bodies claim no ordinal — every plan's are written
         guests = self.guests + tuple(g for o in others for g in o.guests)
         return _dc.replace(self, conversions=tuple(conv), msl_seats=tuple(msl),
                            splits=tuple(spl), facade_seats=tuple(fac),
+                           agp_seats=tuple(agps),
                            guests=guests)
 
     # ── JSON ────────────────────────────────────────────────────────────
@@ -660,6 +718,8 @@ class PlacementPlan:
                 "kept": [k.to_dict() for k in self.kept],
                 "msl_seats": [m.to_dict() for m in self.msl_seats],
                 "facade_seats": [f.to_dict() for f in self.facade_seats],
+                **({"agp_seats": [a.to_dict() for a in self.agp_seats]}
+                   if self.agp_seats else {}),
                 "riders": [r.to_dict() for r in self.riders],
                 "jetway_strips": [dict(j) for j in self.jetway_strips],
                 **({"guests": [s.to_dict() for s in self.guests]}
@@ -686,6 +746,8 @@ class PlacementPlan:
                                    for m in d.get("msl_seats", ())),
                    facade_seats=tuple(FacadeSeat.from_dict(f)
                                       for f in d.get("facade_seats", ())),
+                   agp_seats=tuple(AgpSeat.from_dict(a)
+                                   for a in d.get("agp_seats", ())),
                    riders=tuple(Rider.from_dict(r) for r in d.get("riders", ())),
                    jetway_strips=tuple(dict(j) for j in d.get("jetway_strips", ())),
                    guests=tuple(Split.from_dict(s) for s in d.get("guests", ())))

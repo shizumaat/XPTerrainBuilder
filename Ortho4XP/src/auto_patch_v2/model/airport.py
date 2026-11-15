@@ -528,6 +528,11 @@ class Airport:
     #: same witness holds (``model/free_bridge.FreeBridge``): their seat stays
     #: 22d / 22p's, never ``plate_kind "free"``; R3 grades their ends.
     kept_bridges: tuple = ()
+    #: #2090 THE AGP GROUPS (``model/agp_group.AgpGroup``, read at the pack
+    #: stage by ``airport/agp_group`` before the bridge stacks): the pack's
+    #: on-ground ``.agp`` rows an authored connector floor joins, their
+    #: provisional governor and predicted datums.  Empty = none.
+    agp_groups: tuple = ()
     #: issue #1633 round 3 THE RETAINING WALLS READ AS TWO LEVELS
     #: (``airport/wall_sides.WallSides``: footprint, upper and lower side
     #: bands, smear, the object's top): a road is never on both sides of

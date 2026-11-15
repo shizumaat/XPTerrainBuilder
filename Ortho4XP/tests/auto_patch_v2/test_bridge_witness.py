@@ -405,3 +405,32 @@ def test_end_line_of_a_ring_that_curls_back_has_no_far_arm_station():
     plate = near.union(arm).union(link)
     line = BW._end_line(plate, (30.0, 0.0), (1.0, 0.0), 12.0)
     assert line and all(abs(q[0] - 30.0) <= 0.05 for q in line), line
+
+
+def test_end_line_of_an_off_centre_route_runs_corner_to_corner():
+    """#2091 (OTHH Bridge_03 west end): the route meets a 12 m end 3 m off
+    its middle — the line reaches BOTH corners, not the square about the
+    route alone (the far corner was left to the ground beside it)."""
+    plate = _skew_plate(20.0)
+    t = math.tan(math.radians(20.0))
+    line = BW._end_line(plate, (30.0 + 3.0 * t, 3.0), (1.0, 0.0), 12.0)
+    ys = [q[1] for q in line]
+    assert min(ys) <= -5.9 and max(ys) >= 5.9, (min(ys), max(ys))
+    edge = LineString([(30.0 - 6.0 * t, -6.0), (30.0 + 6.0 * t, 6.0)])
+    assert all(edge.distance(Point(q)) <= 0.05 for q in line), line
+
+
+def test_an_end_left_across_a_side_reads_the_plates_own_axis():
+    """#2091: a tangent that leaves the plate across its SIDE at the corner
+    (OTHH Bridge_03's stub axis bending north onto its north edge) reads the
+    end along the plate's own axis — the line is the end edge, not the
+    side."""
+    plate = _box(-30.0, -6.0, 30.0, 6.0)
+    corner = (30.0, 6.0)
+    out = BW._plate_out(plate, corner, (0.0, 1.0), 12.0)
+    assert out[0] > 0.99, out
+    line = BW._end_line(plate, corner, out, 12.0)
+    assert all(abs(q[0] - 30.0) <= 0.05 for q in line), line
+    assert min(q[1] for q in line) <= -5.9, line
+    # a tangent along the plate stands
+    assert BW._plate_out(plate, (30.0, 0.0), (1.0, 0.0), 12.0) == (1.0, 0.0)

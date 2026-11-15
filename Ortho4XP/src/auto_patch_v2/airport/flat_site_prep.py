@@ -128,7 +128,8 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
            water: TileWater | None, law: Law,
            out: _t.Callable[[str], None] = print,
            mod_cache_root: str | None = None,
-           xplane_root: str | None = None) -> dict:
+           xplane_root: str | None = None,
+           make_pages_dump: "_t.Callable[[], None] | None" = None) -> dict:
     """The decision record for ``site`` on DEM prep's raster ``tile_dem``:
     :func:`flat_site.record` plus ``origin`` (the frame), ``region`` (the
     dilated, water-cut rings the datum covers), ``gate`` (the margin-0 gate
@@ -140,7 +141,11 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
     graded strip, ``airport.runway_strip.strip_band``; margin 0:
     the ground the plateau keeps at Z0 whatever the DEM says — elsewhere it
     only fills, ``auto_patch/flat_site_relief.py``, RULINGS 2026-10-26r).
-    The bake adds ``plateau``."""
+    ``make_pages_dump()`` makes the pages
+    pack's text dump where the cache has none, BEFORE the pages are read
+    (#2091: the patch build makes it only after DEM prep, so a build on a
+    cleaned cache held none of OTHH's 351 pages at Z0 and kept the ground
+    under the terminal up to 35 m over it).  The bake adds ``plateau``."""
     dem = ProductionDem.over_prep(site.frame, site.icao, tile_dem, tile_lat,
                                   tile_lon, water, out=out)
     site = _dc.replace(site, dem=dem)
@@ -166,6 +171,8 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
     if fv.substitutes:
         # RULINGS 2026-10-27d: pavement stays flat — ALL of it the build
         # grades as pavement, the pack's draped ``.pol`` pages included.
+        if make_pages_dump is not None:
+            make_pages_dump()
         pages = _pack_pavement.pavement_pages(
             site.pack_root, site.pack_name, tile_lat, tile_lon, _to_xy,
             _own_extent(site.runways, site.pavements, site.boundaries,

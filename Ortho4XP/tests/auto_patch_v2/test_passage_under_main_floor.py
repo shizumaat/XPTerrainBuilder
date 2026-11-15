@@ -60,6 +60,10 @@ def _garden():
 def _run(law, tmp_path, garage, main=None, roads=None, extra=(), lots=(), kept=None):
     A = _airport(_terminal() + garage + list(extra), tmp_path)
     A.osm_ways = [_road()] if roads is None else list(roads)
+    # the lot's ground at the garage's floor (datum 30 - 4.6): the roads
+    # leaving the passage reach it (#2091 R2, a passage level is ground a
+    # road reaches)
+    A.dem = types.SimpleNamespace(z=lambda x, y: 25.4)
     A.frame.transformers = lambda: ((lambda lon, lat: (lon, lat)), (lambda x, y: (y, x)))
     H, L, S, rec = LL.plan_low(P, AIR, A, law, 0.5)
     if main is not None:

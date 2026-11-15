@@ -585,6 +585,10 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     free = rep["group_level"].pop("free", None)
     if free:
         rep["stage2_free"] = free
+    # #2090 A4, LAST: the AGP groups' datum read on stage 1's levels; every
+    # row a group's geometry minted moves by its delta (``constraints/agp_level``)
+    from .agp_level import REPORT_KEY, datum_rewrite
+    cs, rep[REPORT_KEY] = datum_rewrite(planar, law, cs, levels)
     return cs, rep
 
 

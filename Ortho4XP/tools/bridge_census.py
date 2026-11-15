@@ -291,7 +291,7 @@ def _unit_rows(u: dict, decks: list, ctx) -> tuple[list[dict], float]:
     law, to_xy, geoms = ctx["law"], ctx["to_xy"], ctx["geoms"]
     normal = float(law.tables.structures.bridge.deck_plate_normal_y_min)
     rings = {str(m["id"]): _ring(m, to_xy) for m in decks}
-    live = any(not isinstance(BW.route_of(r, ctx["ways"], law), str) for r in rings.values())
+    live = BW.any_route(rings.values(), ctx["ways"], law, ctx["ground"])
     plates = {}
     for m in decks:
         g = geoms.of(m)
@@ -514,9 +514,42 @@ def main(argv=None) -> int:
     ap.add_argument("--ends", nargs="*", default=None, metavar="CAPTURE.pkl",
                     help="#2065 A3 G0: one row per land end of every free / kept bridge, "
                          "read on each capture as the pack stage reads it")
+    ap.add_argument("--agp", nargs="*", default=None, metavar="CAPTURE.pkl",
+                    help="#2090 G1: the AGP groups as the pack stage reads them "
+                         "(members, joins with votes, governor, zero_pred; deck "
+                         "joins and plates) on each capture (tools/agp_census.py)")
+    ap.add_argument("--agp-ramps", nargs="*", default=None, metavar="SOLVED.pkl",
+                    help="#2090 B′ G2-B′: the group-seeded ramp table (per route its "
+                         "stations, solved level, target, floor and steepest grade) on "
+                         "each v2_solve_replay.py --solved-out pickle (tools/agp_census.py)")
     a = ap.parse_args(argv)
+    if a.agp_ramps is not None:
+        from agp_census import print_ramps, ramp_rows
+        out = []
+        for pkl in a.agp_ramps:
+            icao, rows = ramp_rows(pkl)
+            print_ramps(icao, rows)
+            out += rows
+        if a.jsonl:
+            with open(a.jsonl, "w", encoding="utf-8") as fh:
+                fh.writelines(json.dumps(r) + "\n" for r in out)
+        return 0
     from auto_patch_v2.law import Law
     law = Law.load()
+    if a.agp is not None:
+        from agp_census import agp_rows, print_agp
+        out = []
+        for pkl in a.agp:
+            icao, rows, rej, notes, took = agp_rows(pkl, law)
+            print_agp(icao, rows, rej, took)
+            for n in notes:
+                if "deck join" in n:
+                    print(f"  {n}")
+            out += rows + rej
+        if a.jsonl:
+            with open(a.jsonl, "w", encoding="utf-8") as fh:
+                fh.writelines(json.dumps(r) + "\n" for r in out)
+        return 0
     if a.ends is not None:
         rows = []
         for pkl in a.ends:

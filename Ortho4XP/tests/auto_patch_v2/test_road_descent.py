@@ -97,7 +97,7 @@ def test_an_end_inside_one_lane_width_is_the_mouth_not_a_run():
 
 def test_a_road_with_no_contact_has_no_ramp():
     adj, floors, _xs, end_of = _road(200.0)
-    assert _descend(adj, {}, floors, end_of) == ({}, {}, [])
+    assert _descend(adj, {}, floors, end_of) == ({}, {}, [], {})
 
 
 def test_the_design_grade_at_the_cap_is_the_envelope_of_old():
@@ -329,3 +329,59 @@ def test_the_log_line_names_the_cuts():
     assert line.startswith("ramps built: ")
     assert ("/ cuts built: 2 (1 steepened, 0 at the cap), 14 vertices on a cut "
             "up to 3.25 m under the DEM") in line
+
+
+# ── #2090 amendment B′ B7 (RULINGS 2026-11-14e): a deck-end ramp is not ended
+# by a junction ─────────────────────────────────────────────────────────
+
+def _two_routes(first: float, then: float):
+    """Route ``r1`` ``first`` metres from vertex 0, carried on by route
+    ``r2`` for ``then`` metres (``then`` 0: a true dead end).  ``(adjacency,
+    floors, frame, by_route, route_end)`` in ``road_ramp_targets``' shapes."""
+    xs = [10.0 * k for k in range(int(first // 10.0) + 1)] + [first]
+    xs += [first + 10.0 * k for k in range(1, int(then // 10.0) + 1)]
+    adj: dict[int, list[tuple[int, float]]] = {}
+    for i in range(len(xs) - 1):
+        adj.setdefault(i, []).append((i + 1, xs[i + 1] - xs[i]))
+        adj.setdefault(i + 1, []).append((i, xs[i + 1] - xs[i]))
+    floors = {i: 0.0 for i in range(1, len(xs))}
+    frame = {i: ("r1", x, 0.0) if x <= first + 1e-9 else ("r2", x - first, 0.0)
+             for i, x in enumerate(xs)}
+    by_route: dict = {}
+    for v, (r, s_, _l) in frame.items():
+        by_route.setdefault(r, []).append((s_, v))
+    for items in by_route.values():
+        items.sort()
+
+    def route_end(v):
+        r, s_, _l = frame[v]
+        items = by_route[r]
+        if s_ - items[0][0] <= LANE:
+            return (r, 0)
+        return (r, 1) if items[-1][0] - s_ <= LANE else None
+    return adj, floors, frame, by_route, route_end
+
+
+def test_b7_a_deck_end_ramp_crosses_a_carried_on_route_end_at_the_design_grade():
+    from auto_patch_v2.airport.road_ramp import _carried_on_end
+    adj, floors, frame, by_route, route_end = _two_routes(DROP / 0.073, 300.0)
+    end = _carried_on_end(adj, frame, route_end, by_route, LANE)
+    lvl = lambda v: {0: DROP}.get(v, floors.get(v))   # noqa: E731
+    deck = descend(adj, {0: DROP}, lvl, floors, DESIGN, CAP, LANE, route_end,
+                   end_of_for={0: end})
+    assert [r["grade"] for r in deck.ramps] == [DESIGN] and deck.ramps[0]["why"] == ""
+    assert all(deck.src[v] == 0 for v in deck.label)
+    # the airside mouth's ramp keeps today's reader: the junction ends its run
+    mouth = descend(adj, {0: DROP}, lvl, floors, DESIGN, CAP, LANE, route_end)
+    assert mouth.ramps[0]["grade"] == pytest.approx(DROP / 130.0)
+    assert mouth.ramps[0]["why"] == "the road's end at 130 m"
+
+
+def test_b7_a_true_dead_end_still_steepens_a_deck_end_ramp():
+    from auto_patch_v2.airport.road_ramp import _carried_on_end
+    adj, floors, frame, by_route, route_end = _two_routes(DROP / 0.073, 0.0)
+    end = _carried_on_end(adj, frame, route_end, by_route, LANE)
+    lvl = lambda v: {0: DROP}.get(v, floors.get(v))   # noqa: E731
+    d = descend(adj, {0: DROP}, lvl, floors, DESIGN, CAP, LANE, route_end,
+                end_of_for={0: end})
+    assert d.ramps[0]["grade"] == pytest.approx(DROP / 130.0)

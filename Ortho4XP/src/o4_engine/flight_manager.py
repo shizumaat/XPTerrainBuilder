@@ -343,9 +343,14 @@ class FlightManager:
         """``flight_choose`` (#2025): the pilot's answer for an adopted
         departure or destination, remembered for the tile; the jobs are
         planned again (``keep``: ready as it is; ``upgrade``: a ``full``
-        build at the job's class)."""
+        build at the job's class; ``ask``: the answer forgotten and asked
+        again, #2095 -- not while its upgrade is building or staged)."""
         tile = (int(tile[0]), int(tile[1]))
         job = self._job(tile)
+        if choice == ADOPTED.ASK and job and job.state in ("building",
+                                                          "staged"):
+            raise ValueError("The upgrade is under way; it cannot be "
+                             "changed until it is done.")
         self.endpoints.remember(tile, job.role if job else "", choice)
         self.record.notes.append({"adopted_choice": choice,
                                   "tile": WP.tile_name(*tile),

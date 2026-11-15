@@ -578,6 +578,10 @@ class Datum:
     #: a deck and the structure riding it, authored on a grade); empty =
     #: ``y`` at both (``bridge_approach.approach_seat``)
     tops: tuple[float, ...] = ()
+    #: #2090: a KEPT bridge's PREDICTED seat (``Member.anchor_zero``, the
+    #: zero the pack stage graded its ends to): the seat where every end is
+    #: ``graded`` (``bridge_approach.approach_seat``); None = not kept.
+    zero: "float | None" = None
 
 
 def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
@@ -668,7 +672,10 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
                          walk_max_m=float(abutment_walk_max_m),
                          level_tol_m=float(level_tol_m),
                          graded=tuple(bool(x) for x in
-                                      (getattr(m, "deck_end_graded", ()) or ())))
+                                      (getattr(m, "deck_end_graded", ()) or ())),
+                         zero=(None if not getattr(m, "deck_end_graded", ())
+                               or getattr(m, "anchor_zero", None) is None
+                               else float(m.anchor_zero)))
     return None
 
 

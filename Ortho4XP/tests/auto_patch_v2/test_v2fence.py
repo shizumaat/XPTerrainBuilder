@@ -244,7 +244,7 @@ def test_the_plan_round_trips_the_line_verdict():
     lane ``walls3``) is additive too and WIDENS the window to five, so it
     retires nothing (a v9 plan still loads) — reported, not decided."""
     from auto_patch_v2.model.rebake import PLAN_VERSION, RebakePlan
-    assert PLAN_VERSION == 15
+    assert PLAN_VERSION == 16
     pl = _fence_plan()
     back = RebakePlan.from_json(pl.to_json())
     assert [p.line for u in back.units for m in u.members for p in m.parts] == \

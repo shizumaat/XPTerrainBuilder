@@ -72,7 +72,7 @@ from ..geom.lowest_face import every_z_at
 from .deck_carry import route_chains
 from .deck_signature import is_bridge_way
 
-__all__ = ["Witness", "route_of", "frame_witness",
+__all__ = ["Witness", "route_of", "frame_witness", "axis_witness", "NO_ROUTE", "any_route",
            "placed_faces", "up_faces", "SURFACE_SHARE", "ROOF_SHARE", "ROOF_UNDER_SHARE",
            "STUB_WIDTH_RATIO"]
 
@@ -98,6 +98,8 @@ _RUN_ON_CAP = 120.0
 _ON_WAY = 0.5
 #: A2 END LINE: the lateral spacing of its stations (m)
 _LINE_STEP = 0.5
+#: W1's failure where no mapped route way comes near the plate at all
+NO_ROUTE = "W1 route: no mapped route over the plate"
 
 
 @_dc.dataclass(frozen=True)
@@ -311,7 +313,7 @@ def route_of(ring: Polygon, ways: _t.Sequence, law) -> "Route | str":
     reach = ring.buffer(float(br.abutment_sample_step_m))
     near = [w for w in ways if _route_way(w) and LineString(w.points).intersects(reach)]
     if not near:
-        return "W1 route: no mapped route over the plate"
+        return NO_ROUTE
     best: "tuple | None" = None
     for chain in route_chains(near, reach):
         cw = [near[k] for k in chain]
@@ -322,6 +324,25 @@ def route_of(ring: Polygon, ways: _t.Sequence, law) -> "Route | str":
             if best is None or got[0] > best[0]:
                 best = got
     return best[1] if best is not None else "W1 route: no chain"
+
+
+def any_route(rings: _t.Iterable[Polygon], ways: _t.Sequence, law, ground=None) -> bool:
+    """Is any of a frame's deck ``rings`` worth a witness read: a mapped
+    route over it (W1), or its own axis spanning a mapped way a lawful
+    clearance under both its ends (#2090, ``bridge_axis.axis_span`` on the
+    ``ground``)?  The cheap gate ahead of :func:`frame_witness`."""
+    from .bridge_axis import axis_route, axis_span
+    for ring in rings:
+        if not isinstance(route_of(ring, ways, law), str):
+            return True
+        ax = axis_route(ring, law) if ground is not None else None
+        if ax is None:
+            continue
+        st = _stations(ax.path, ax.s_a, ax.s_b,
+                       float(law.tables.structures.bridge.abutment_sample_step_m))
+        if axis_span(ax, st, ways, law, ground):
+            return True
+    return False
 
 
 # ── W3 / W4: the driven surface and the open sky ───────────────────────
@@ -469,6 +490,12 @@ def deck_witness(ring: Polygon, plate_up: np.ndarray, frame_faces: np.ndarray,
     frame x, y, authored y)."""
     br = law.tables.structures.bridge
     r = route_of(ring, ways, law)
+    if isinstance(r, str) and r.startswith("W1"):
+        # #2090: a deck no mapped route carries, read along its own axis
+        # (``bridge_axis``: a mapped way a lawful clearance under both ends)
+        from .bridge_axis import axis_witness
+        got = axis_witness(ring, plate_up, frame_faces, ways, law, ground)
+        return got if isinstance(got, Witness) else Witness(None, failed=f"{r} (axis: {got})")
     if isinstance(r, str):
         return Witness(None, failed=r)
     width = ring.area / max(r.s_b - r.s_a, 1e-6)
@@ -592,26 +619,101 @@ def _end_line(ring: Polygon, p: XY, out: XY, width: float) -> tuple[XY, ...]:
     :data:`_LINE_STEP`, both edges included) the point of the plate outline
     outermost along ``out`` (:func:`_outer_s`).  It follows a skew end edge,
     never turns down a side and never catches a curved ramp's far arm.
-    Stations run in lateral order; ``(p,)`` when no offset reads the plate."""
+    Stations run in lateral order; ``(p,)`` when no offset reads the plate.
+
+    #2091 OFF-CENTRE: where the route meets the end off its middle, the
+    square reaches the plate's corner on one side (the read stops inside
+    it) and leaves the edge running on at the other (OTHH Bridge_03's west
+    end: the mapped trunk 3 m from one corner of a 12.5 m end, the far
+    corner left to the ground beside it).  That side carries on, a step at
+    a time and at most ``width`` further, while the outline stays the SAME
+    edge (:func:`_same_edge`): to the plate's corner.  A route on the
+    middle (both sides at the square's edge) reads as before."""
     half = 0.5 * max(width, 2.0 * _HAIR)
     nx, ny = -out[1], out[0]
     n = max(2, int(math.ceil(2.0 * half / _LINE_STEP)))
-    pts: list[XY] = []
+    read: list[tuple[float, float]] = []
     for k in range(n + 1):
         t = -half + 2.0 * half * k / n
-        q = (p[0] + t * nx, p[1] + t * ny)
-        s = _outer_s(ring, q, out, half)
+        s = _outer_s(ring, (p[0] + t * nx, p[1] + t * ny), out, half)
         if s is not None:
-            pts.append((float(q[0] + s * out[0]), float(q[1] + s * out[1])))
+            read.append((t, s))
+    if read:
+        step = 2.0 * half / n
+        at_edge = [abs(abs(t) - half) <= 1e-9 for t in (read[0][0], read[-1][0])]
+        if at_edge[0] != at_edge[1]:
+            sign = -1.0 if at_edge[0] else 1.0
+            t0, s0 = read[0] if sign < 0 else read[-1]
+            more = []
+            for k in range(1, n + 1):
+                t = t0 + sign * k * step
+                # read about the last station: a leaning edge walks out of
+                # the square along the route too
+                ds = _outer_s(ring, (p[0] + t * nx + s0 * out[0],
+                                     p[1] + t * ny + s0 * out[1]), out, half)
+                if ds is None or not _same_edge(s0, s0 + ds, step):
+                    break
+                s0 += ds
+                more.append((t, s0))
+            read = (more[::-1] + read) if sign < 0 else (read + more)
+    pts = [(float(p[0] + t * nx + s * out[0]), float(p[1] + t * ny + s * out[1]))
+           for t, s in read]
     return tuple(pts) or ((float(p[0]), float(p[1])),)
+
+
+#: #2091: an END EDGE leans at most this far off square to the end's
+#: tangent (tan 75 degrees); a steeper step between two stations is a SIDE
+_EDGE_LEAN = math.tan(math.radians(75.0))
+#: #2091: the plate near an end is read over this many deck widths about it
+_AXIS_REACH = 2.0
+#: #2091: a route tangent more than this off the plate's own axis at an end
+#: (degrees) leaves the plate across a SIDE, not the end
+_SIDE_EXIT_DEG = 45.0
+
+
+def _same_edge(s0: float, s1: float, step: float) -> bool:
+    """Do two neighbouring stations ``step`` apart (outermost reads ``s0``,
+    ``s1`` along the tangent) stand on one end edge, not across a corner
+    onto a side?"""
+    return abs(s1 - s0) <= _EDGE_LEAN * step + 1e-9
+
+
+def _plate_out(ring: Polygon, p: XY, out: XY, width: float) -> XY:
+    """The end's outward tangent: the route's (a stub's: its axis's) ``out``,
+    unless it leaves the plate across a SIDE (#2091: OTHH Bridge_03's west
+    stub, its axis bending north onto its north edge at the deck's corner,
+    the trunk turning off there) — then the
+    plate's own axis there, the long side of the minimum rotated rectangle
+    of the plate within :data:`_AXIS_REACH` widths of ``p``, pointing from
+    that piece toward ``p``.  A piece no longer than it is wide states no
+    axis: the route's tangent stands."""
+    from ..geom.rotated_rect import rotated_rectangle
+    piece = ring.intersection(Point(p).buffer(_AXIS_REACH * max(width, 1.0)))
+    if piece.is_empty or piece.area <= 0.0:
+        return out
+    cs = list(rotated_rectangle(piece).exterior.coords)[:4]
+    e = sorted(((cs[k], cs[(k + 1) % 4]) for k in range(4)), key=lambda q: -math.dist(*q))
+    (ax, ay), (bx, by) = e[0]
+    long_, short = math.dist(*e[0]), math.dist(*e[-1])
+    if long_ < 1.5 * short or long_ <= 0.0:
+        return out
+    ux, uy = (bx - ax) / long_, (by - ay) / long_
+    c = piece.centroid
+    if (p[0] - c.x) * ux + (p[1] - c.y) * uy < 0.0:
+        ux, uy = -ux, -uy
+    if out[0] * ux + out[1] * uy >= math.cos(math.radians(_SIDE_EXIT_DEG)):
+        return out
+    return (ux, uy)
 
 
 def _deck_ends(ring: Polygon, w: Witness) -> tuple[End, End]:
     """A W-deck's two route ends (run-on not yet read)."""
     r, width = w.route, w.width_m
     tops = (w.layer[0], w.layer[-1]) if w.layer else (math.nan, math.nan)
-    return (End(r.end_a, r.out_a, _end_line(ring, r.end_a, r.out_a, width), float(tops[0])),
-            End(r.end_b, r.out_b, _end_line(ring, r.end_b, r.out_b, width), float(tops[1])))
+    oa = _plate_out(ring, r.end_a, r.out_a, width)
+    ob = _plate_out(ring, r.end_b, r.out_b, width)
+    return (End(r.end_a, oa, _end_line(ring, r.end_a, oa, width), float(tops[0])),
+            End(r.end_b, ob, _end_line(ring, r.end_b, ob, width), float(tops[1])))
 
 
 def _stub_ends(ring: Polygon, w: Witness, group: Polygon) -> tuple[End, ...]:
@@ -622,8 +724,8 @@ def _stub_ends(ring: Polygon, w: Witness, group: Polygon) -> tuple[End, ...]:
         return ()
     a, b = line.coords[0], line.coords[-1]
     width = ring.area / line.length
-    ta = _tangent(line, 0.0, -1.0)
-    tb = _tangent(line, line.length, 1.0)
+    ta = _plate_out(ring, a, _tangent(line, 0.0, -1.0), width)
+    tb = _plate_out(ring, b, _tangent(line, line.length, 1.0), width)
     za, zb = (w.layer[0], w.layer[-1]) if w.layer else (math.nan, math.nan)
     a_joint = Point(a).distance(group) <= Point(b).distance(group)
     return (End(a, ta, _end_line(ring, a, ta, width), float(za), land=not a_joint),
@@ -672,6 +774,37 @@ def _stub_joins(ring: Polygon, plate_up: np.ndarray, frame_faces: np.ndarray,
     roof = open_sky(frame_faces, st, layer, law)
     why = f"W4 open sky on its own axis ({roof:.0%})" if roof > ROOF_SHARE else ""
     return why, line, st, layer
+
+
+def axis_witness(ring: Polygon, plate_up: np.ndarray, frame_faces: np.ndarray,
+                 bodies: _t.Mapping[str, np.ndarray], law,
+                 under: "_t.Callable | None" = None) -> str:
+    """#1718 B2: why a deck with no route of its own fails the STUB
+    witnesses on its own axis (``""`` when it holds them): W3 and W4 along
+    its ribbon centreline (:func:`_stub_joins`, no host: no width ratio),
+    W6 (:func:`_free_frame`: every other body of the frame, ``bodies``,
+    within REACH of the deck and its axis corridor, ``fill_road_reach_m``
+    past each end) and W4b (:func:`beneath`, ``under(bounds)`` every pack
+    object's faces near the stations; default the frame's own).  The
+    crossing road beneath is the caller's W5 (``planar/overpass_deck``)."""
+    why, line, st, layer = _stub_joins(ring, _near(plate_up, ring.buffer(1.0)),
+                                       _near(frame_faces, ring.buffer(1.0)), math.inf, law)
+    if why:
+        return why
+    width = ring.area / line.length
+    far = float(law.tables.structures.building_pad.fill_road_reach_m)
+    corridor = _extended(line, -far, line.length + far).buffer(max(0.5 * width, 0.5))
+    why = _free_frame(bodies, unary_union([ring, corridor]), _reach(width, law))
+    if why:
+        return why
+    box = LineString(st).buffer(1.0)
+    share = beneath(_near((under or (lambda _b: frame_faces))(box.bounds), box), st, layer, law)
+    if share > ROOF_UNDER_SHARE:
+        br = law.tables.structures.bridge
+        return (f"W4b beneath on its own axis: a pack face {float(br.roof_under_min_m):.1f}-"
+                f"{float(br.roof_under_max_m):.0f} m under the surface on {share:.0%} of "
+                "the stations")
+    return ""
 
 
 def _extended(path: LineString, a: float, b: float) -> LineString:

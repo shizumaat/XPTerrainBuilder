@@ -639,6 +639,7 @@ def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack], law=None) -
     7) cuts by the plate's RING, only a stretch not already ``bridge !=
     no``; and the run-on of a bridge way past a GRADED end (within
     ``[bridge] free_end_run_on_max_m`` along its path) becomes at grade."""
+    from ..geom.deck_ground import end_corridor
     from .bridge_end_state import cut as _cut_path
     from .deck_signature import is_bridge_way
     tags = {int(w.id): (w.tags or {}) for w in ways}
@@ -661,7 +662,7 @@ def _rewrite_ways(ways: _t.Sequence, stacks: _t.Sequence[DeckStack], law=None) -
             if len(e.path) < 2:
                 continue
             ring = next((Polygon(d.ring) for d in st.decks if d.object_id == e.object_id), None)
-            past = _cut_path(e.path, run_on).buffer(e.half_width, cap_style="flat")
+            past = end_corridor(e, _cut_path(e.path, run_on), e.half_width)
             past = past.difference(ring.buffer(0.01)) if ring is not None else past
             for w in ways:
                 if is_bridge_way(w.tags or {}) and LineString(w.points).intersection(past

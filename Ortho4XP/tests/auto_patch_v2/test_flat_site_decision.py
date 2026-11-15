@@ -244,6 +244,23 @@ def test_the_packs_draped_pavement_joins_the_pavement(monkeypatch):
     assert got.covers(apron.buffer(-1.0))
 
 
+def test_the_pages_dump_is_made_before_the_pages_are_read(monkeypatch):
+    """#2091: DEM prep makes the pages pack's dump when the cache has none
+    (OTHH 1.0.528: the storage cleanup had removed it, the patch build made
+    it only after DEM prep, and none of the 351 pages was held at Z0)."""
+    order = []
+
+    def _pages(*a):
+        order.append("read")
+        return []
+    monkeypatch.setattr(PREP._pack_pavement, "pavement_pages", _pages)
+    law = Law.for_airport("ZZZZ")
+    PREP.decide(_site(), _TileDem(1.0), 0, 0, TileWater(0, 0, None, None), law,
+                out=lambda line: None, mod_cache_root="/cache",
+                make_pages_dump=lambda: order.append("dump"))
+    assert order == ["dump", "read"]
+
+
 def test_the_runway_strip_is_held_with_the_pavement():
     """RULINGS 2026-10-27v (2): the runway strips stay graded as the strip
     law requires — the record holds each runway's graded strip

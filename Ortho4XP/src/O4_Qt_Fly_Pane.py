@@ -325,7 +325,8 @@ class FlyPane(QWidget):
     def _show_choices(self):
         """The flight card's choice rows from ``FlightStatus.choices``:
         the question and the two buttons while unanswered, the answer
-        after; rebuilt only when the rows change."""
+        and "Change" (#2095: ask again) after; rebuilt only when the rows
+        change."""
         rows = list((self.status or {}).get("choices") or ())
         key = repr(rows)
         if key == self._choice_key:
@@ -339,6 +340,11 @@ class FlyPane(QWidget):
         for row in rows:
             layout.addWidget(_caption(TEXT.choice_question(row)))
             if row.get("choice"):
+                button = QPushButton(TEXT.CHOICE_CHANGE_BUTTON)
+                button.setToolTip(TEXT.CHOICE_CHANGE_HELP)
+                button.clicked.connect(
+                    lambda _c=False, r=row: self.choose(r, "ask"))
+                layout.addWidget(button)
                 continue
             for title, words, choice in (
                     (TEXT.CHOICE_KEEP_BUTTON, TEXT.choice_keep_label(row), "keep"),
@@ -656,7 +662,8 @@ class FlyPane(QWidget):
 
     def choose(self, row: Dict[str, Any], choice: str):
         """An adopted endpoint's answer (#2025): ``keep`` or ``upgrade``,
-        remembered for the tile.  Swift: ``FlyModel.choose``."""
+        remembered for the tile; ``ask`` forgets it (#2095).  Swift:
+        ``FlyModel.choose``."""
         if self.status:
             self._command("flight_choose", flight=self.status.get("flight"),
                           tile=list(row.get("tile") or ()), choice=choice)

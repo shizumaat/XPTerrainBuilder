@@ -231,6 +231,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     def add(role: str, ref: str, poly: Polygon, kind: str,
             code_number: int | None = None, code_letter: str | None = None,
             evidence: _t.Mapping[str, float | str] | None = None) -> None:
+        if not isinstance(poly, Polygon):
+            # a face a cut left in pieces (KAPA, 2026-11-14: a MultiPolygon
+            # reached here and failed the tile) is one cell per piece
+            for part in polygon_parts(poly):
+                add(role, ref, part, kind, code_number, code_letter, evidence)
+            return
         ring = tuple(poly.exterior.coords)[:-1]
         holes = tuple(tuple(h.coords)[:-1] for h in poly.interiors)
         cells.append(Cell(len(cells), role, ref, ring, holes, code_number,

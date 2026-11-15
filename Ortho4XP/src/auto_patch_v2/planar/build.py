@@ -430,7 +430,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     free, plated_notes = free_plated(free, basins, objects)
     sstats.hard_decks.extend(plated_notes)
     bridge_stacks, bs_notes = free_planar_stacks(getattr(airport, "deck_stacks", ()) or (),
-                                                 free)
+                                                 free, [ov.object_id for ov in overpasses])
     sstats.hard_decks.extend(bs_notes)
     airport = _dc.replace(airport, deck_stacks=live_stacks(
         getattr(airport, "deck_stacks", ()) or (),
@@ -555,6 +555,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                    channels=tuple(channels), object_floors=tuple(floors),
                    overpasses=tuple(overpasses),
                    free_bridges=tuple(free), bridge_stacks=tuple(bridge_stacks),
+                   agp_groups=tuple(getattr(airport, "agp_groups", ()) or ()),
                    decks=tuple(decks),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)

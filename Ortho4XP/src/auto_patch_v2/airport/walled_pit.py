@@ -28,6 +28,10 @@ own RIM:
 5. SUNKEN — the floor, as authored, stands under the ground around it
    (the author's plates near the design ground, else the DEM): a floor
    over that ground is a roof or a deck in a building's frame (#2005).
+   And the pit is sunken AS A WHOLE: ``pit_sunken_min_share`` of the plan
+   under its rim stands under that ground — a road ramp that dips under
+   its datum at one end and climbs to a viaduct between its parapets is
+   no pit (#2091, OTHH TerminalRoads_03_002).
 6. THE SEAT — the rim lands on the ground around the pit (the author's
    plates near the design ground, else the DEM; ``below_grade_witness
    .around``, the frame's own faces left out).  A rim standing 0 ..
@@ -277,6 +281,14 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
                      + ("its plates" if r.source == "plates" else "NO PLATES: the DEM")
                      + f" {r.z:.2f}): a roof or deck in its frame, not a pit")
         return None
+    # ... and AS A WHOLE (#2091)
+    sunk = _sunken_share(F, r.z)
+    if sunk < ob.pit_sunken_min_share:
+        notes.append(f"{what}: walls round its floor, but {100 * sunk:.0f} % of the plan "
+                     f"under its rim stands under the ground around it ({r.z:.2f}; < "
+                     f"{100 * ob.pit_sunken_min_share:.0f} %): a ramp climbing out of the "
+                     f"ground between its parapets, not a pit")
+        return None
     proud = zero + rim_y - r.z
     lift = 0.0 if 0.0 <= proud <= ob.authored_crest_max_m else -proud
     faces = F.copy()
@@ -300,6 +312,18 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
                        seats, rim_z=zero + rim_y + lift, lift=lift,
                        authored=tuple((p.id, _zero(p, msl)) for p in frame),
                        rim_proud_m=proud + lift)
+
+
+def _sunken_share(faces: np.ndarray, ground: float) -> float:
+    """The share of ``faces``' plan area (frame metres, absolute z as
+    authored) whose mean height stands under ``ground`` (#2091: a pit is
+    sunken as a whole; rule 5 tests only its lowest plate)."""
+    a = 0.5 * np.abs((faces[:, 1, 0] - faces[:, 0, 0]) * (faces[:, 2, 1] - faces[:, 0, 1])
+                     - (faces[:, 2, 0] - faces[:, 0, 0]) * (faces[:, 1, 1] - faces[:, 0, 1]))
+    tot = float(a.sum())
+    if tot <= 0.0:
+        return 0.0
+    return float(a[faces[:, :, 2].mean(axis=1) < ground].sum()) / tot
 
 
 def _in_pit(p, foot, cache, tk: float) -> bool:

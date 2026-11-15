@@ -129,3 +129,11 @@
   "photo: …", `XPTerrainBuilder_imagery/<tile>.json` is in the World
   pack, and the owner's sim read of the seam (no new step at a
   same-provider edge; the provider edge softened, not a band).
+- **#2090 AGP group lift at KEWR (spec `Ortho4XP/docs/specs/2090-agp-group-groundside-spec.md`
+  G1, lane l2090e, 2026-11-14).** Not measured: KEWR has no capture and no
+  airport mod cache entry on disk, and the lane's refresh scopes exclude
+  `airport_mod_cache`. V2 (a single-pair non-zero join is refused) is held
+  by the twin `tests/auto_patch_v2/test_agp_ground2090.py` only. OWED: one
+  `v2_solve_replay.py --capture KEWR` and `bridge_census.py --agp` on it
+  (every join with its votes; the +1.60 single-pair join refused) before any
+  KEWR lift is landed; no KEWR lift is landed on a census alone.

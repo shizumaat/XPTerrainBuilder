@@ -5579,9 +5579,8 @@ def main(argv=None) -> int:
             raise SystemExit(_why)
     # LOCK FIRST, then snapshot: a concurrent lane's authorised refresh
     # landing between the two would be attributed to this build.
-    locks = [RefreshLock(sc, lane=str(root),
-                         break_stale=args.break_stale_lock).acquire()
-             for sc in sorted(requested)]
+    locks = _acquire_refresh_locks(sorted(requested), str(root),
+                                   args.break_stale_lock)
     if locks:
         prog.note(f"holding shared-repo refresh lock(s): "
                   f"{[lk.scope for lk in locks]}")
@@ -6065,6 +6064,23 @@ _CLAIMED_TAGS: list = []
 #: environment snapshot and (a ledger refusal's) frame.  A stem holding
 #: only these is a run that never produced; the rest are products.
 TAG_RECORD_SUFFIXES = (".progress", ".env.json", ".frame.json")
+
+
+def _acquire_refresh_locks(scopes, lane, break_stale):
+    """Every scope's refresh lock, or none: a refusal on one releases the
+    ones already taken (they leaked before -- a lane refused on 'rings'
+    kept 'orthophotos' under its dead pid, and refused every later lane,
+    #2096 closing build 2026-11-15)."""
+    locks = []
+    try:
+        for sc in scopes:
+            locks.append(RefreshLock(sc, lane=lane,
+                                     break_stale=break_stale).acquire())
+    except BaseException:
+        for lk in locks:
+            lk.release()
+        raise
+    return locks
 
 
 def release_refused_tag(out_dir, tag: str):

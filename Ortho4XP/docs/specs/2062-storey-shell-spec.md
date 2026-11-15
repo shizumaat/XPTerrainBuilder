@@ -141,3 +141,96 @@ Tests: `test_split_level.py` (wing with foot-0 walls + floor at 6 → interior l
 Risks: (3) and KLAX steps unrun (arm proves (1)(2)); kerb orientation reversed vs `foot_kerb`; KLAX adds reader records everywhere (only scope (i)/(ii) minted); KLAX heights depend on #1934's mouth depth and the object's 5.0 m storey (owner said ~7); 5 m back cut draws a trench up to 6 m deep landside; `small_roads:-298` keeps its profile (upper ~3.5 m of run 64 stays buried, `base_road`); runs 46/47 rely on the off-patch drape; apron movers up to +0.54 m.
 
 Owner questions: Q1 LPHR landside — 5 m trench exposing the wing/forecourt walls to their feet (13w literal), or lot against the walls (back-cut reach 0, same code)? Q2 `small_roads:-298` crossing upper→lower run: keep profile (assumed) or cut per 13x (2)? Q3 KLAX building step is 5.0 m: lower edge at ~25 m → hill side ~30 m not 32 — acceptable?
+
+## Amendment R3b (Fable, 2026-11-15; R3 round spec for lane lshell3)
+
+### SPEC — #1934 / #2062 R3: every shell on storey pads, one datum rule, the face's front floor, a road carried over a ramp (Fable, 2026-11-15)
+
+Design only. Base main b47870d01. Paths relative to `Ortho4XP/src/auto_patch_v2/` unless given. Owner rulings: 13w (one code path), 13x (2) (nothing along a shell's base stands above its wall foot; SBSP base road cut to the wall foot); 2026-11-15T03:05Z "We should not have any airport specific exceptions, or alternate code paths"; 04:05Z: T8's storey step follows the object (5.0 m). Owner questions Q1/Q3/Q4/Q5 (§9) assumed at the recommendation; the master is asking.
+
+#### Findings that changed the brief
+1. The pier model for the KLAX north mouth is refuted: `Misc/Underpass_1.obj` (dsf:obj7230) has ONE opening, jamb to jamb x 1151.0–1181.0 (30.0 m), one 0.8 m centre pier (1165.6–1166.4); "piers" at 1150.9–1151.3 / 1180.9–1181.2 are the jambs' 2.5 m reveals; x 1142.0 and 1187.3 are collinear vertices inside solid full-height (y −6.6…+1.4) headwall wings 1136.6–1151.0 and 1181.0–1199.0. Today's ramp already spans the whole opening via `group_opening`.
+2. The owner asked (#1934, 2026-11-13T20:36Z) for the mouth "at its full depth from" 33.940279765,−118.396457834 "to" 33.940330430,−118.395949179 = frame (1143.5,−315.1)–(1190.5,−309.5), 47.3 m, both ON the wings → expose the headwall (RULINGS 06c (5) applied to the wings: "the bottom of the ramp meets the bottom of the mouth object that faces the ramp"; no law change).
+3. T8 datum from the owner's words: east-run building edge 33.940411615,−118.396398062 (frame (1149.0,−300.5)) "at the bottom of the tunnel mouth, around 25m"; west upper wall (1138.0,−296.5) "at grade more like 32m". Mouth bottom 25.54 + object storey 5.00 → hill side 30.54 (DEM 30.31 there).
+
+#### 0. Verified / not verified
+Verified (captures `frames/lfence/KLAX.pkl`, `frames/splitlvl3/SBSP.pkl`, `frames/splitlvl3/LFSB.pkl`; reader at main):
+- T8 `dsf:obj7223#1`: plan x 1131.2–1149.2, y −310.1…−282.4; lowest-level runs (foot −5.5): E 27.4 m (x 1149.2), S 11.3 m (y −310.1), N 13.2 m (y −282.7); upper runs (−0.5): 13.4, 9.7, 6.5 m on the west; level plans 309 / 93 m².
+- Tunnel `-3485+-1274@1`: mouth 25.54 pinned by obj7230's bottom (−6.6, zero 32.14), design grade 5 %, `top_s` 84, `climb_from_s` 0; note "#1938 S1: the pinned opening's host pad(s) building32 are cut by its footprint". East run stations s ≈ 6–33.5: a 5 % ramp stands 0.3–1.4 m over the building's foot there.
+- DEM at y −310: 31.9 (x 1135), 29.65 (1145), 28.5 (1150), 29.8 (1185), 31.9 (1195).
+- `Misc/Road_Bridge.obj` dsf:obj18210: all 104 solid triangles hard deck; plan x 1138.6–1200.2, y −986.0…−962.0; deck plate y −0.5…−1.0, a pier to −6.0 at x 1160–1180; DEM 32.78 / 26.54 / 32.61 (west end / mid / east end). `route14` is a `service_road` cell, bounds x 1002.6–1191.2. Tunnel `@0`: mouth 25.14, `top_s` 12.0, `clipped_by` route14. Capture: `free_bridges` = [], `decks` = [], obj18210 not in `overpasses`.
+- Datum law: `model/platform.py:291-345` (column = pad's own vertex, never `structure_vertices`); `_fill_datums` `:354-372`; `landing_rows` `constraints/platform.py:599-661`.
+Not verified: any solve/replay of this design; ramp top after the level stretch (DEM estimate ~150 m vs 84); obj18210's bridge class/witnesses at main; Underpass_2's faces (foot clusters suggest the same design); pit zeros in 1.0.512; whether SBSP Hangar3's upper floor (+5.96) is a floor or door lintels; KMCI/KATL/KIAH capture paths. K0 log of the previous lane: frames/lklax/KLAX_k0_2062.log (block 30.48, p1 31.30, no datum column; instrument commit 07c30e4db on origin/claude/lklax — cherry-pick it).
+
+#### 1. Rules
+**A. One datum rule for every shell** (single derivation site `planar/storey_pad._record`; new field `StoreyShell.leader`).
+- `airside`: block = `air_level`; D = the stage-1 weld column (today).
+- `floor`: no airside run, and ≥ half the lowest level's run length faces a ramp-class structure floor (a `Tunnel` record's ramp, front floor or bank). Block = lowest level. D = that floor's mouth datum.
+- `ground`: neither. Block = lowest level. D = `datum_z` = `levels[0]` + the length-weighted median of (DEM `_GROUND_OUT_M` outside the run − run foot) over the shell's judged groundside runs (reader `split_level._ground`).
+- Column: `model/platform._fill_datums` carriers gain every block whose landing record carries `shell`; same choice rule, never a structure vertex — the RAMP-carry law stands unamended (no ramp vertex is a column or enters the flat set).
+- Row: new member `constraints/shell_datum.py`. `floor`: hard two-sided `z_dv − z_f = 0`, `f` a vertex of the floor's datum group (expose it from `constraints/structures.py:556-562`, never re-derive). `ground`: hard pin at `datum_z`. Ruling head "structures.building_pad storey shell datum" in `[design] hard_rulings` and `pad_level_rulings`, pad tier. A basin or channel floor facing a shell is refused by name.
+**B. The floor is level along a shell that stands on it (13x (2)).** Single site `planar/structures.py:906-955`: `climb_from = max(climb_from, shell_level_s)`, `shell_level_s` = far station of the floor-scope shell's lowest-level runs facing the corridor, when their near station lies within the level zone (`climb_from` + wall reach + one spacing); otherwise that shell is refused by name. Helper in new `planar/storey_floor.py` (also takes `_floor_scope`). Shells are read before the structures (`planar/build.py:325` vs `:364`): pass `shells=`. The same site makes the shell's plan a wall of the trench: cells under it are never pin hosts or knifed (`:1527-1532`), `outer` is differenced by the plan and the floor by `plan.buffer(rim_off)` (beside the deck/shore clips `:1304-1315`). The void strip stays between plan and floor; its rim is on the pad at pad level (09-10an).
+**C. The front floor (06c (5) applied to the wings).** Reader in `airport/trench_objects.py` beside `_wall_opening` (`:186`): `Portal.front_xy` = across-bore ends of the face's front wall — near-vertical solid faces crossing the bore (|plan normal · into| ≥ 0.5), full height (lowest vertex within `cover_flush_m` of the face bottom, highest within it of the face top), chained outward from each jamb; `opening_xy` unchanged. Planar: for stations within new `[tunnel.object] face_front_m = 5.0` of the mouth, the ramp's half widths are the front's, beyond it the opening's (one step in `planar/structures.py:1075-1094`, protected station at `face_front_m`). The front band is trimmed ACROSS the bore, per side, at airside pavement, the runway family, other structures and non-host pads (+ `gap`); it never shortens the ramp; at a floor-scope shell it stops by rule B. KLAX north expected: front 1136.6–1199.0 before trims; T8's south run then stands on floor.
+**D. Every shell on storey pads; the pit is deleted.** `read_storey_shells` returns every record with ≥ 2 counted levels, every part ≥ `min_area_m2` (A2 (5)). `read_deck_roofs` fills the storey fields through the same helper (open/apron runs foot = roof y, tall runs their wall feet, `roof = True`; a roof-level run owns a strip one `riser_width` deep). `storey_pads`: scope gate, `pit_skip`, `FLOOR_HELD`, `pitted` go. The back cut T joins the LOWEST level's region (today `regions[block]`, `storey_pad.py:327-329`). Kerb: off every level but the lowest, height `levels[-1] − levels[0] + visual_m`, never against a road face. T no longer yields to a mapped road face (13x (2)): the road's vertices on T's edge are welds, its own caps ramp it away. Another building cell with ≥ half its area inside the plan is absorbed. A refused shell is a plain building pad with its refusal in the log; no fallback path. Before deleting, print the parity table: per shell, pit zero (control) vs storey zero.
+**E. A road carried along a pack hard deck over a ramp (14f, 14m (1)).** K1 first (read-only): print obj18210's class and each witness at main. `planar/free_bridge._routes` (`:63`): W1's routes gain the airport's own ground routes (`Airport.ground_routes`, chained as `deck_carry.route_chains`); over a `flag` deck the bridge stretch is the part inside the plate; W2–W7 and W4b unchanged → the deck is a free bridge and spec 2065's seat and end grading hold the route at the deck top, flush at both end lines. `planar/structures.py:1076, 1110-1119`: a stop whose part inside the corridor lies within an object deck's footprint (`odecks`, + `gap`) is carried, not a stop; the deck is the object bridge over the ramp (`obj_ivals`, existing rows: floor ≤ deck top − `clearance_m`); the ramp runs on at design grade.
+
+#### 2. Population (reader at main)
+| Airport | Witness | Levels | Leader | Today |
+|---|---|---|---|---|
+| KLAX | obj5978 Terminal_2 | −4.0 / 0.0, plan 14,272 m² | airside (702.5 m) | pit, floor 32.24 |
+| KLAX | obj5982 Terminal_8 | −4.0 / 0.0, plan 9,034 m² | airside (263.6 m) | pit, floor 31.56 |
+| KLAX | obj7223#1 T8 Buildings | −5.5 / −0.5, plan 402 m² | floor | refused (structure) |
+| SBSP | obj683 Hangar1 (owner site, cell building69) | −0.09 / 15.91, plan 2,330 m² | airside (123.2 m) | pit, floor 772.59; `small_roads:-8144#2` within 6 m of the 41.3 m base run |
+| SBSP | obj659 Hangar3 | −9.04 / −4.04 / −1.04 / 5.96 | airside | pit −9.04 / +5.96, floor 776.60 |
+| LFSB | obj8798 fireSt | −9 / −3 / 0, plan 6,754 m² | ground | pit −9 / −5, floor 259.66 |
+| LFSB | obj8770 jet_aviation (deck roof 11,545 m²) | floor −17.42, roof +0.03 | airside | pit, floor 250.76 |
+
+#### 3. Consumer census (08-30l)
+| Consumer | file:line | Ruling |
+|---|---|---|
+| `split_level_pits`, `_cut_region`, `SPLIT_KIND` | `planar/split_level_pit.py` | DELETE; `back_band`, `_largest`, `_road_under`, `_roads` move to `storey_pad` |
+| `_split_pits`, `skip_split`, `BasinStats.split_levels` | `planar/basins.py:238-240, 378, 410, 463, 917-933`; `planar/build.py:155, 195, 211-216, 328-332, 417` | DELETE; notes move to a storey stat |
+| basins split branch, `_split_floor_rows`, `_open_rim` | `constraints/structures.py:930-938, 998-1045` | DELETE |
+| `Basin.open_sides*` | `model/structures.py:796-802`; `pipeline/publication.py:1619-1620` | DELETE |
+| `SPLIT_PLATE` seat | `pipeline/rebake_inputs.py:99-116, 149-150` | DELETE; `storey_seat.seat_records` (`:400-412`) seats every shell |
+| plate-kind guards | `airport/anchor_rule.py:636-638`, `placement_file.py:483`, `placement_body.py:214` | DELETE |
+| `PLATED_KINDS`, `plated` | `airport/free_bridge_seat.py:51`, `planar/free_bridge.py:307`, `tools/bridge_census.py:80-83` | read `storey_shells` member ids |
+| verify split branch | `verify/structures.py:197-251` | DELETE |
+| split rows; open-edge census | `tools/drawn_check.py:44, 738-900, 1056`; `tools/harness/census.py:2568-2575, 2689, 2835`; `census_open_edge.py` | DELETE the split branch; `tools/drawn_storey.py` is the reader |
+| `split_level_rim_step_m`, `split_level_road_reach_m` | `law/structures.toml:688-689`, `law/model.py:621` | DELETE |
+| registries | `pipeline/stage_code.py:727, 2314, 2498`; `O4_Step_Code.py:841`; `auto_patch/provenance_code.py:942` | drop `split_level_pit`; add the three new modules |
+| `datum_vertices(fills=True)` readers | `constraints/platform.py:514, 616`; `constraints/road_ramp.py:1015` | read the new column; twin for each |
+| `datum_vertices()` stage split and others | `solve/design_roles.py:83`, `solve/design_stage.py:107`, `constraints/pads.py:996`, `platform.py:125, 795-867, 1137, 1339`, `foot_road.py:46`, `ramp_runout.py:376`, `group_level.py:64`, `viaduct_floor.py:241` | unchanged |
+| `structure_vertices` flat set, pad plates | `constraints/platform.py:690-717`, `constraints/pads.py:205` | unchanged |
+| `riser_sets` / `riser_exempt` | `constraints/riser.py:58, 92` | unchanged; twin with an upper-block shell |
+| `wall_release` | `constraints/road_ramp.py:314` | twin: the floor tie survives it |
+| `climb_from_s` readers | `constraints/structures.py:560`; `planar/structure_geometry.py:384-394`; `structure_approach.ramp_top:1082`; `publication.py:1378`; `planar_report.py:160-170` | unchanged; read the longer level zone |
+| `opening_xy` readers | `planar/mouth_opening.py:39, 55`; `structures.py:524-535`; `entrance_skirt.py`; `airport/portal_floor.py:74`; `tools/drawn_site.py:629-726`, `drawn_site_bars.py:213-274` | unchanged; drawn_site gains `front_m` |
+| pinned hosts, pad knife | `planar/structure_mouth.py:689`, `structure_geometry.py:794` | a cell under a floor-scope shell is never a host |
+| mapped-bore stops | `planar/structures.py:1076, 1110-1119` | a stop on an object deck is carried |
+| W1 routes | `planar/free_bridge.py:63`, `airport/bridge_witness.py:207-324` | + ground routes |
+| `overpass_deck`, `deck_bridge`, `deck_route` | `planar/` | unchanged |
+| UIs, wire protocol | — | none |
+
+#### 4. Order of work (one lane, high)
+K0 (read-only, on a fresh KLAX capture and the SBSP/LFSB captures): the parity table; K1; a corpus census over every capture in `frames.py list` of mouths whose `front_xy` exceeds `opening_xy` by more than the grid, and of hard decks carrying a ground route. REPORT these three lists to the master and WAIT for the go (SendMessage) before code lands — then A → B → C (KLAX replay) → D (SBSP, LFSB replays; delete) → E (KLAX replay).
+
+#### 5. Bars
+KLAX (replay, then drawn): T8 four sides — E and S runs' drawn ground within 0.5 m of z0 − 5.5 and the floor beside them within 0.3 m of D; D within 0.05 m of 25.54; upper runs z0 − 0.5 ± 0.5 (30.54); N run back cut at D; no strip/kerb outside the plan on the hill side; no `hard_conflict` within 100 m on landing, pad, datum or ramp rows. North mouth: floor within 0.3 m of 25.54 along the front between the trims (reported; must contain x 1143.5–1190.5 unless airside trims the east end, then quoted); opening unchanged at 30.0 m. South mouth: same reading, front reported. South ramp: `clipped_by` empty; ramp tops out at the ground; under obj18210 deck top − floor ≥ 5.1 m at every station. Road_Bridge ends: route14 within 0.05 m of the deck top at the end line meeting airside and 0.3 m at the other; no ground vertex inside the deck plan above its underside. Terminal_2/Terminal_8: upper-floor runs on the apron within 0.05 m; apron movers > 0.05 m listed (`--stage1-diff`); zero within 0.3 m of the pit control or listed.
+SBSP (−23.620923, −46.655973): upper-floor runs on the apron within 0.05 m; every groundside lowest-level run within 0.5 m with no base-road exception; the road at T's edge welded, its ramp-out length and worst grade reported; Hangar3 zero vs control.
+LFSB: deck roof: apron within 0.05 m of the roof edge on the open side, tall sides exposed to the floor ± 0.5; fire station zero reported vs control.
+`drawn_gate` PASS at each built site, no MOVED vs the control.
+Replays (planar + solve, `--emit`, patch body hash vs base): LFPG, KMCI, KATL, KIAH, LPHR, ELLX byte-identical; where not, every mover > 0.1 m listed with its cause (only lawful causes: a front band or a carried route named in K0). Also certified LICJ unchanged.
+
+#### 6. Tests
+`test_storey_pad.py`: upper-block shell (T on the lowest level, kerb height, no kerb at a road, road welded); cell absorption. `test_split_level.py`: deck roof as a storey record. New `test_shell_datum.py`: column for a no-airside shell; floor tie survives `wall_release`; ground pin; synthetic solve (shell beside a pinned ramp: block = mouth datum, upper = +y, ramp level along the run). `test_trench_objects`: front wall excludes lintel, back plug, parapet band; one-pier opening unchanged. Structures twin: half-width step, lateral trim at airside, shell plan never knifed, stop on a deck carried. `test_free_bridge_read.py`: ground route as W1. Plus `test_harness`, `test_no_airport_specific_code`, `test_v1_retired`, registry twins, `ratchets.py dupes --near` / `unused` / `layers`.
+
+#### 7. Closing builds, stop rules
+Closing: `build_airport.py KLAX --tile 33 -119 --pack-copy` with `drawn_gate` sites at the owner's four points and the bridge (~33.93433, −118.39617; compute from the capture), and `build_airport.py SBSP --tile -24 -47 --pack-copy` with the owner site. LFSB: replay, emit and `drawn_storey` only. df ≥ 30 GB; ≤ 4 builds machine-wide; never raise the lane cap; delete scratch builds on report (register frames first).
+Stop and report, never iterate: a K0 list that names a certified airport (KEGE, BIKF, LICJ); K1 failing any witness other than W1; the level stretch refusing ramp `@1`, or its top clipped by a pad or airside; a shell refused that is a pit today; a second miss on any bar (floor 0.01 m).
+
+#### 8. Risks
+Front bands appear at every entrance face with full-height wings (K0 names them). Ramp `@1` grows by ~66 m. LFSB fire station zero moves ~−4.3 m (estimate). A roof-level block band is coplanar with the roof plate for one riser width. Hangar3's lower levels stand 7–15 m under its block if +5.96 is a lintel (that error exists in the pit today). Terminal_2's pad covers many cells: apron movers.
+
+#### 9. Owner questions (recommendations assumed; master is asking)
+Q1 KLAX north mouth: expose the whole headwall the object models to the floor (62.4 m, trimmed at airside pavement) for 5 m in front of it — recommended (alt: only as wide as the lidar cut). Q2 (answered 04:05Z): T8 hill side at 30.54 from the object's 5.0 m storey. Q3 the ramp stays level along the building's 27.4 m wall and climbs from its north end (~66 m longer) — recommended. Q4 LFSB fire station and SBSP Hangar3 change zero leaving the pit — accept the storey reading, read in sim. Q5 a pack hard deck carrying an apt.dat service route is a bridge like one carrying a mapped road — recommended yes.

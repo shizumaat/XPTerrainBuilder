@@ -37,10 +37,10 @@ import typing as _t
 from ..geom.end_line import near_stations
 from ..model.deck_ends import between_siblings, sibling_ends
 
-__all__ = ["ride_access_roads", "on_hold_levels"]
+__all__ = ["ride_access_roads"]
 
 
-def on_hold_levels(st, sibs, step: float) -> dict[str, float]:
+def _on_hold_levels(st, sibs, step: float) -> dict[str, float]:
     """``{side: L_e}`` per land end of stack ``st`` on the hold of the sibling
     ends ``sibs`` (``sibling_ends``' order; module doc)."""
     out: dict[str, float] = {}
@@ -92,7 +92,7 @@ def _ride_one(st, key, sibs, step: float, flush: float, reach: float
               ) -> "tuple[float | None, dict[str, float], list[str]]":
     """``(zero or None, {side: L_e}, notes)`` of candidate ``st`` on the hold
     of ``sibs``; ``None`` = not on it, or refused (listed)."""
-    hold = on_hold_levels(st, sibs, step)
+    hold = _on_hold_levels(st, sibs, step)
     if not hold:
         return None, {}, []
     tops = {e.side: float(e.top) for e in st.ends}

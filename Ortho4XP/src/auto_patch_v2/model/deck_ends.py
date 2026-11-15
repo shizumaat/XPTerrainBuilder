@@ -12,7 +12,7 @@ In ``model`` (it reads only ``geom``, ``law`` and ``model``) so both the
 from __future__ import annotations
 
 __all__ = ["end_road_vertices", "access_road_vertices", "way_of_ref", "sibling_ends",
-           "between_siblings", "road_faces_near"]
+           "between_siblings", "end_mid"]
 
 
 def _road_vertices(pm, law) -> list[int]:
@@ -37,7 +37,8 @@ def way_of_ref(ref: str) -> "int | None":
         return None
 
 
-def _mid(stations) -> tuple[float, float]:
+def end_mid(stations) -> tuple[float, float]:
+    """The mean of an end line's stations."""
     return (sum(p[0] for p in stations) / len(stations),
             sum(p[1] for p in stations) / len(stations))
 
@@ -62,7 +63,7 @@ def sibling_ends(stacks, on_road=None, reach: float = 0.0) -> dict[tuple, list]:
                 sib.setdefault(key, []).append((st, e))
     out: dict[tuple, list] = {}
     for key, ends in sib.items():
-        mids = [_mid(e.stations) for _st, e in ends]
+        mids = [end_mid(e.stations) for _st, e in ends]
         ax = (mids[-1][0] - mids[0][0], mids[-1][1] - mids[0][1])
         order = sorted(range(len(ends)), key=lambda k, m=mids: m[k][0] * ax[0] + m[k][1] * ax[1])
         lines = [[ends[order[0]]]]
@@ -79,7 +80,7 @@ def sibling_ends(stacks, on_road=None, reach: float = 0.0) -> dict[tuple, list]:
     return out
 
 
-def road_faces_near(pm):
+def _road_faces_near(pm):
     """``on_road`` of :func:`sibling_ends` over the planar map: the boundary
     of a road face (``ROAD_ROLES``) of one of the ways within ``reach`` of
     ``xy`` (a ribbon is narrower than any reach asked, so a point on it is
@@ -109,7 +110,7 @@ def between_siblings(ends, xy, reach: float):
     level on the line between the two ends' levels; ``None`` elsewhere."""
     x, y = float(xy[0]), float(xy[1])
     for (s0, e0), (s1, e1) in zip(ends, ends[1:], strict=False):
-        a, b = _mid(e0.stations), _mid(e1.stations)
+        a, b = end_mid(e0.stations), end_mid(e1.stations)
         dx, dy = b[0] - a[0], b[1] - a[1]
         ll = dx * dx + dy * dy
         if ll <= 0.0:
@@ -131,7 +132,7 @@ def access_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, s
     the access road those ends hold (``DeckStack.rides``, B4b), and whose
     end is GRADED on an at-grade road passing its line (``StackEnd.access``);
     ends of one ``DeckStack.access_key`` on one access road are siblings
-    (:func:`sibling_ends`, its lines split by :func:`road_faces_near`).
+    (:func:`sibling_ends`, its lines split by :func:`_road_faces_near`).
     Every road vertex of their access ways standing between two consecutive
     siblings (:func:`between_siblings`, reach one ``[bridge]
     abutment_sample_step_m`` — the ribbon's far edge) -> ``(the level on the
@@ -143,7 +144,7 @@ def access_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, s
     from .planar import ROAD_ROLES
     reach = float(law.tables.structures.bridge.abutment_sample_step_m) if law is not None else 0.0
     sib = {k: v for k, v in sibling_ends(live_stacks(
-        tuple(getattr(airport, "deck_stacks", ()) or ()), pm), road_faces_near(pm),
+        tuple(getattr(airport, "deck_stacks", ()) or ()), pm), _road_faces_near(pm),
         reach).items() if len(v) >= 2}
     if not sib:
         return {}

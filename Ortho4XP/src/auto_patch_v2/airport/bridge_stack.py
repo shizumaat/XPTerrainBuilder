@@ -31,6 +31,7 @@ import types
 import typing as _t
 
 from ..model.deck_stack import FREE, KEPT, STACK_PREFIX, DeckStack, StackDeck
+from ..model.deck_ends import end_mid as _mid
 from ..model.free_bridge import published
 
 __all__ = ["bridge_stacks", "log_lines"]
@@ -258,12 +259,6 @@ def _own_decks(fb, cx: _Ctx) -> list[StackDeck]:
                              tuple(tuple(tuple(float(v) for v in p) for p in t)
                                    for t in _plate(o, cx.cache))))
     return out
-
-
-def _mid(stations) -> tuple[float, float]:
-    """The mean of an end line's stations."""
-    return (sum(p[0] for p in stations) / len(stations),
-            sum(p[1] for p in stations) / len(stations))
 
 
 def _rect_ends(o, view, to_ll) -> "tuple | None":

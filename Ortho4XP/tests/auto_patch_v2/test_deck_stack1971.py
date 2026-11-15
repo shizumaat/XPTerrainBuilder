@@ -795,7 +795,7 @@ def test_b4_one_floors_ends_on_two_roads_are_two_lines():
     every = [s1, s2, *far]
     pm = _b4_pm(every)
     lines = sibling_ends(every, __import__("auto_patch_v2.model.deck_ends", fromlist=["x"])
-                         .road_faces_near(pm), 5.0)
+                         ._road_faces_near(pm), 5.0)
     assert sorted(len(v) for v in lines.values()) == [1, 1, 2]   # far ends: no road joins them
     ap = types.SimpleNamespace(deck_stacks=tuple(every))
     assert sorted(access_road_vertices(pm, LAW, ap)) == [2, 3]

@@ -39,8 +39,8 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
 #: ABUTMENTS (10ay, spec §17 — cross-placement grouping inside one
 #: anchor plane); 9: ``Member.elevated_deck`` (11a); 10: THE WELDED DECK's
 #: ``Member.deck_shade_ring`` / ``deck_pier_ratio`` (issue #14,
-#: ``welded-deck-spec.md`` §1 (4)).
-PLAN_VERSION = 15
+#: ``welded-deck-spec.md`` §1 (4)); 16: a kept deck's JOINED ends (#2090 B6).
+PLAN_VERSION = 16
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 
@@ -215,6 +215,9 @@ class Member:
     #: deck-end-anchors spec §3: a hard deck's zero as its end-line ANCHORS
     #: state it (``constraints/deck_anchor``) — the plate zero the object
     #: stage reads off the built surface equals it where no anchor yielded.
+    #: #2090: a KEPT bridge's deck carries here the seat the pack stage
+    #: predicted and graded its ends to (``rebake_plan.with_kept``; the seat
+    #: where every end was graded, ``bridge_approach.approach_seat``).
     #: ``None`` for every other member and in every older plan.
     anchor_zero: float | None = None
     #: #2065 S2: a FREE BRIDGE's deck (``plate_kind == "free"``,

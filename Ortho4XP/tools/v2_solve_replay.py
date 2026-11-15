@@ -694,6 +694,11 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     airport = attach_unit_fences(airport, _load_rules(), law)      # spec 2068 A2 F1
     from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law)   # #1747
+    from auto_patch_v2.airport.deck_routes import attach_deck_routes
+    airport, _dr_notes = attach_deck_routes(airport, pack_objects, inputs.osm_root, law,
+                                            inputs.radius_deg)        # #2090
+    for _n in _dr_notes:
+        print(f"[{icao}]   [deck-routes] {_n}")
     from auto_patch_v2.airport.deck_stack import log_line as _ds_line
     from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
     airport = attach_deck_stacks(airport, pack_objects, ocache, law)     # #1971
@@ -1134,7 +1139,7 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
 def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                strip_rep=None, late_cut: dict | None = None,
                late_stage: dict | None = None, cells=(),
-               hard_conflict=(), runway_flex=()) -> dict:
+               hard_conflict=(), runway_flex=(), agp_report=None) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
@@ -1149,8 +1154,14 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     from auto_patch_v2.emit.terrain_edge import with_terrain_edges
     from auto_patch_v2.pipeline.publication import face_tags, publication
     t = time.perf_counter()
+    # #2090 A5: the AGP groups' published datum, as the build's graded
+    # surface carries it (``pipeline/emit_stage``), so ``v2_rebake_replay``
+    # reads it off a replay arm
+    from auto_patch_v2.constraints.agp_level import published_groups
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
-                          {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
+                          {"law_ruleset": law.ruleset_key, "pack": airport.pack.name,
+                           "agp_groups": published_groups(
+                               getattr(pm, "agp_groups", ()) or (), agp_report)})
     surf_out = with_terrain_edges(surf, pm, law)
     # §39 (1) THE SHORE WELD + §39 (iii) THE SUB-SPACING MERGE — the build's
     # last two passes before ``write_patch`` (``pipeline/build.py``).  They
@@ -2264,6 +2275,12 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         # #1971: the deck stacks, RE-DERIVED every replay from the ways as
         # mapped (``Airport.osm_ways_mapped``), so ``--from classify``
         # iterates on the derivation without a new capture
+        # #2090: the routes around every pack deck, re-read likewise
+        from auto_patch_v2.airport.deck_routes import attach_deck_routes
+        airport, _dr_notes = attach_deck_routes(airport, _objs, inputs.osm_root, law,
+                                                inputs.radius_deg)
+        for _n in _dr_notes:
+            print(f"[{icao}]   [deck-routes] {_n}")
         from auto_patch_v2.airport.deck_stack import log_line as _ds_line
         from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
         _ds_t, _ds_notes = time.perf_counter(), []
@@ -2441,6 +2458,9 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                 from auto_patch_v2.airport.road_descent import descent_line
                 print(f"[{icao}] road {descent_line(ramp_rep)}; steepest "
                       f"{ramp_rep.get('ramps_steepest')}")
+                from auto_patch_v2.airport.road_descent import deck_ramp_lines
+                for _ln in deck_ramp_lines(ramp_rep, airport.frame.transformers()[1]):
+                    print(f"[{icao}]   {_ln}")
             except ImportError:
                 pass
             # §37 (9) the coverage-edge join, after the frame it reads
@@ -2959,7 +2979,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                      late_stage=(prob["late"]["rep"]["stage"]
                                                  if late_from is not None else None),
                                      cells=cl.cells, hard_conflict=hard_conflict,
-                                     runway_flex=rep.runway_flex))
+                                     runway_flex=rep.runway_flex,
+                                     agp_report=(rep.reach_seed or {}).get("agp_level")))
     if emit_dir is not None or verify:
         # object-placement spec §18 (6): the seat per wall / pit placement,
         # as the build's rebake plan publishes it (``authored_seats``)

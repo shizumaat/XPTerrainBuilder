@@ -74,7 +74,8 @@ def test_a_partless_rider_does_not_ride():
 def _obj(tmp_path, rows):
     p = tmp_path / "deck.obj"
     vt = "\n".join(f"VT {x} {y} {z} 0 1 0 0 0" for x, y, z in rows)
-    p.write_text(f"I\n800\nOBJ\n\nPOINT_COUNTS {len(rows)} 0 0 3\n{vt}\nIDX10 0 1 2\nTRIS 0 3\n", encoding="utf-8", newline="\n")
+    p.write_text(f"I\n800\nOBJ\n\nPOINT_COUNTS {len(rows)} 0 0 3\n{vt}\nIDX10 0 1 2\nTRIS 0 3\n",
+                 encoding="utf-8", newline="\n")
     return str(p)
 
 

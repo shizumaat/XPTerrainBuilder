@@ -43,8 +43,9 @@ TRENCH, FREE, KEPT = "trench", "free", "kept"
 #: standing solid of another frame on its path, the pack stage's face
 #: read), ``listed`` (nothing built, question B (a)), ``governing`` (a kept
 #: bridge's seat end: no row, no ground), ``unread`` (no ground read: the
-#: terrain holds it, rule 10)
-END_STATES = ("flush", "graded", "held", "listed", "governing", "unread")
+#: terrain holds it, rule 10), ``joined`` (#2090 B3: the end meets an AGP
+#: follower's floor — a governing end: no row, no ground)
+END_STATES = ("flush", "graded", "held", "listed", "governing", "unread", "joined")
 
 
 def floor_level(zero_z: float, feet_y: float) -> float:
@@ -104,6 +105,9 @@ class StackEnd:
     rail: bool = False
     crossings: tuple[int, ...] = ()
     under: tuple[str, ...] = ()
+    #: #2090 B4: the at-grade roads passing this end's line within the slab
+    #: (its corridor is then the slab alone: no run-on, no R6)
+    access: tuple[int, ...] = ()
 
     @property
     def half_width(self) -> float:
@@ -160,12 +164,38 @@ class DeckStack:
     ends: tuple[StackEnd, ...] = ()
     #: #2065 A3: the free bridge's id (``model/free_bridge.FREE_PREFIX``)
     bridge: str = ""
+    #: #2090 B3: the AGP group whose datum this stack's zero rides (its
+    #: deck end JOINS a follower's floor, ``model/agp_group.DeckJoin``); the
+    #: stage-2 datum moves its rows by the group's delta
+    #: (``constraints/agp_level``).  ``""`` = none
+    datum_group: str = ""
+    #: #2090 B1: the deck joins that set the zero (``model/agp_group.DeckJoin``)
+    joins: tuple = ()
+    #: #2090 B4b: ``(member, y_floor)`` of the sibling ends whose held access
+    #: road this deck RIDES (``airport/access_road``); ``()`` = none
+    rides: tuple = ()
+
+    @property
+    def access_key(self) -> "tuple[str, float] | None":
+        """#2090 B4 / B4b: the sibling group a stack's access ends belong to —
+        its deck join's ``(member, y_floor)``, else the line it rides; ``None``
+        for neither."""
+        if self.joins:
+            j = self.joins[0]
+            return (str(j.member), round(float(j.y_floor), 2))
+        if self.rides:
+            return (str(self.rides[0]), round(float(self.rides[1]), 2))
+        return None
 
     def rowed_ends(self) -> tuple[StackEnd, ...]:
         """The ends R1 holds (rule 5): a FREE stack's every land end not
         held or listed, a KEPT stack's GRADED ends."""
         want = ("graded",) if self.kind == KEPT else ("flush", "graded", "unread")
         return tuple(e for e in self.ends if e.state in want)
+
+    def joined_ends(self) -> tuple[StackEnd, ...]:
+        """#2090 B3: the ends joined to an AGP follower's floor."""
+        return tuple(e for e in self.ends if e.state == "joined")
 
     def graded_ends(self) -> tuple[StackEnd, ...]:
         """The ends the terrain grades up to (rule 3 GRADED)."""

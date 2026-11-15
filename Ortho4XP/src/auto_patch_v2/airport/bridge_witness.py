@@ -72,7 +72,7 @@ from ..geom.lowest_face import every_z_at
 from .deck_carry import route_chains
 from .deck_signature import is_bridge_way
 
-__all__ = ["Witness", "route_of", "frame_witness",
+__all__ = ["Witness", "route_of", "frame_witness", "NO_ROUTE", "any_route",
            "placed_faces", "up_faces", "SURFACE_SHARE", "ROOF_SHARE", "ROOF_UNDER_SHARE",
            "STUB_WIDTH_RATIO"]
 
@@ -98,6 +98,8 @@ _RUN_ON_CAP = 120.0
 _ON_WAY = 0.5
 #: A2 END LINE: the lateral spacing of its stations (m)
 _LINE_STEP = 0.5
+#: W1's failure where no mapped route way comes near the plate at all
+NO_ROUTE = "W1 route: no mapped route over the plate"
 
 
 @_dc.dataclass(frozen=True)
@@ -311,7 +313,7 @@ def route_of(ring: Polygon, ways: _t.Sequence, law) -> "Route | str":
     reach = ring.buffer(float(br.abutment_sample_step_m))
     near = [w for w in ways if _route_way(w) and LineString(w.points).intersects(reach)]
     if not near:
-        return "W1 route: no mapped route over the plate"
+        return NO_ROUTE
     best: "tuple | None" = None
     for chain in route_chains(near, reach):
         cw = [near[k] for k in chain]
@@ -322,6 +324,25 @@ def route_of(ring: Polygon, ways: _t.Sequence, law) -> "Route | str":
             if best is None or got[0] > best[0]:
                 best = got
     return best[1] if best is not None else "W1 route: no chain"
+
+
+def any_route(rings: _t.Iterable[Polygon], ways: _t.Sequence, law, ground=None) -> bool:
+    """Is any of a frame's deck ``rings`` worth a witness read: a mapped
+    route over it (W1), or its own axis spanning a mapped way a lawful
+    clearance under both its ends (#2090, ``bridge_axis.axis_span`` on the
+    ``ground``)?  The cheap gate ahead of :func:`frame_witness`."""
+    from .bridge_axis import axis_route, axis_span
+    for ring in rings:
+        if not isinstance(route_of(ring, ways, law), str):
+            return True
+        ax = axis_route(ring, law) if ground is not None else None
+        if ax is None:
+            continue
+        st = _stations(ax.path, ax.s_a, ax.s_b,
+                       float(law.tables.structures.bridge.abutment_sample_step_m))
+        if axis_span(ax, st, ways, law, ground):
+            return True
+    return False
 
 
 # ── W3 / W4: the driven surface and the open sky ───────────────────────
@@ -469,6 +490,12 @@ def deck_witness(ring: Polygon, plate_up: np.ndarray, frame_faces: np.ndarray,
     frame x, y, authored y)."""
     br = law.tables.structures.bridge
     r = route_of(ring, ways, law)
+    if isinstance(r, str) and r.startswith("W1"):
+        # #2090: a deck no mapped route carries, read along its own axis
+        # (``bridge_axis``: a mapped way a lawful clearance under both ends)
+        from .bridge_axis import axis_witness
+        got = axis_witness(ring, plate_up, frame_faces, ways, law, ground)
+        return got if isinstance(got, Witness) else Witness(None, failed=f"{r} (axis: {got})")
     if isinstance(r, str):
         return Witness(None, failed=r)
     width = ring.area / max(r.s_b - r.s_a, 1e-6)

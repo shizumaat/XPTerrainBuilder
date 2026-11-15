@@ -555,6 +555,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                    channels=tuple(channels), object_floors=tuple(floors),
                    overpasses=tuple(overpasses),
                    free_bridges=tuple(free), bridge_stacks=tuple(bridge_stacks),
+                   agp_groups=tuple(getattr(airport, "agp_groups", ()) or ()),
                    decks=tuple(decks),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)

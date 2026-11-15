@@ -53,9 +53,11 @@ def final_identity(solved: _bc.Got, late: _t.Any = None) -> str | None:
 
 def emit_inputs(fc: _t.Any, *, final: str | None, cl, yield_records, lrep, airport,
                 objects_out, common: _t.Mapping[str, str],
-                feather_m: float) -> dict[str, str | None]:
+                feather_m: float, agp: _t.Any = None) -> dict[str, str | None]:
     """The emit record's digested inputs (module doc); ``final`` is
-    :func:`final_identity`; ``{}`` while the cache is off."""
+    :func:`final_identity`; ``{}`` while the cache is off.  ``agp`` (#2090
+    A5): the base solve's AGP datum record the build carries onto the last
+    late solve's report — the emit publishes it, so it is keyed."""
     if not fc.active:
         return {}
     dig = fc.digest
@@ -74,7 +76,8 @@ def emit_inputs(fc: _t.Any, *, final: str | None, cl, yield_records, lrep, airpo
                             else tuple(p for _t, p in lrep.dsf_dump_paths)),
             "rebake": dig((bool(objects_out), kept,
                            _pcache.code_digest() if kept else None)),
-            "feather_m": repr(float(feather_m))}
+            "feather_m": repr(float(feather_m)),
+            "agp_level": dig(agp)}
 
 
 class Emit(_t.NamedTuple):

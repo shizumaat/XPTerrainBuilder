@@ -15,8 +15,8 @@ from ..law.tables import airside_stage_roles
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import PlanarMap
-from . import (apron, cluster_pad, deck_anchor, eat, edge_deck, fill_bank, flat_site, foot_rows,
-               groundside, hard_plane, door_pad,
+from . import (agp_plate, apron, cluster_pad, deck_anchor, eat, edge_deck, fill_bank,
+               flat_site, foot_rows, groundside, hard_plane, door_pad,
                junction_mesh,
                deck_stack, no_step, object_floor, pad_frontage_gs, pad_fronting, pads,
                platform,
@@ -171,6 +171,8 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # #1971 THE DECK STACK: its end lines, its walls' top, nothing through
     # a deck — under the hard-deck bridge's one ruling (``edge_deck.RIGID``)
     ("deck_stack", deck_stack.deck_stack_rows),
+    # #2090 C3: the ground at an AGP follower's ground floor (its plates)
+    ("agp_plate", agp_plate.agp_plate_rows),
     # THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i): the floor
     # at the record's own profile and the crest at the governed cell's
     # SOLVED surface — after the pavement families whose value the crest

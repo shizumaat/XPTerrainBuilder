@@ -420,19 +420,49 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
     if rec is None or law is None:
         return out
     if rec.get("mode") == "kept":
-        return with_kept(out, rec, counts)
+        return with_kept(out, rec, counts, law.tables.structures.bridge.abutment_sample_step_m)
     return with_free(out, rec, law.tables.structures.bridge.abutment_sample_step_m, counts)
 
 
-def with_kept(m: Member, rec: _t.Mapping[str, _t.Any], counts: dict[str, int]) -> Member:
-    """``m`` with ``deck_end_graded`` (#2065 A3 rule 9): a KEPT bridge's deck
-    (``bridge_stack``, an all-deck frame the witness holds) — per RECTANGLE
-    end (``deck_ends``), whether the pack stage graded the terrain up to the
-    route end nearest it (``rec["graded"]``: the graded route ends'
-    midpoints, ``(lat, lon)``).  Its seat is today's reader with those ends
-    left out (``bridge_approach.approach_seat(graded=)``)."""
+def with_kept(m: Member, rec: _t.Mapping[str, _t.Any], counts: dict[str, int],
+              step_m: float = 0.0) -> Member:
+    """``m`` published as a KEPT bridge's deck (#2065 A3 rule 9; #2090): a
+    deck of an all-deck frame the positive witness holds
+    (``airport/bridge_stack``).
+
+    THE BRIDGE CLASS DECIDES ITS DATUM, here and nowhere else (RULINGS
+    2026-08-30l, as :func:`with_free` does for a free deck): the pack stage
+    PREDICTED its seat on its rectangle end lines (``bridge_stack._kept_one``
+    reads it with no graded-face datum) and graded the terrain up to it, so
+    a ``deck_datum_z`` — the median of the graded face under the ring, the
+    road the bridge spans — is cleared, counted ``kept_deck_over_graded_face``
+    and kept in ``deck_evidence``, and the deck gets the end lines the
+    predicted seat read (:func:`ring_ends`, stations at ``step_m``).  KDEN
+    1.0.528: the Mid bridges' graded-face datum sent them to their own
+    ground, the road 8 m under their ends.
+
+    Then per RECTANGLE end (``deck_ends``), whether the pack stage graded
+    the terrain up to the route end nearest it (``rec["graded"]``: the
+    graded route ends' midpoints, ``(lat, lon)``) and the predicted seat
+    (``rec["zero"]`` -> ``anchor_zero``): the seat is today's reader with
+    the graded ends left out (``bridge_approach.approach_seat(graded=)``),
+    and the predicted seat itself where every end was graded.  #2090 B6: an
+    end JOINED to an AGP follower's floor (``rec["joined"]``) is flagged as
+    a graded one is — its level is the published zero, never 22p's road
+    under the span."""
+    if m.deck_ring is None:
+        return m
+    if m.deck_datum_z is not None and not m.plate_kind:
+        ends = ring_ends(m.deck_ring)
+        st = end_line_stations(ends, step_m) if step_m > 0.0 else ()
+        counts["kept_deck_over_graded_face"] = counts.get("kept_deck_over_graded_face", 0) + 1
+        m = _dc.replace(m, deck_datum_z=None, deck_ends=ends, deck_end_stations=tuple(st),
+                        deck_evidence=(*m.deck_evidence,
+                                       f"kept bridge deck over a graded face "
+                                       f"{float(m.deck_datum_z):.2f} (datum cleared, #2090)"))
     ends = tuple(m.deck_ends or ())
-    graded = [tuple(map(float, q)) for q in rec.get("graded") or ()]
+    graded = [tuple(map(float, q)) for q in (*(rec.get("graded") or ()),
+                                             *(rec.get("joined") or ()))]
     route = [tuple(map(float, q)) for q in rec.get("route_mids") or ()]
     if len(ends) < 2 or not graded or len(route) < 2:
         return m
@@ -445,7 +475,9 @@ def with_kept(m: Member, rec: _t.Mapping[str, _t.Any], counts: dict[str, int]) -
     flags = tuple(any(d2(route[j], g) < 1e-6 for g in graded) for j in near)
     if any(flags):
         counts["kept_deck_graded_ends"] = counts.get("kept_deck_graded_ends", 0) + sum(flags)
-    return _dc.replace(m, deck_end_graded=flags)
+    zero = rec.get("zero")
+    return _dc.replace(m, deck_end_graded=flags,
+                       anchor_zero=float(zero) if zero is not None else m.anchor_zero)
 
 
 def with_free(m: Member, rec: _t.Mapping[str, _t.Any], step_m: float,

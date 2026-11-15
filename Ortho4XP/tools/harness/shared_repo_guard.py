@@ -1581,6 +1581,16 @@ def airports_named_in(relpath):
     return m.group(1) if m else None
 
 
+#: The per-pack derived-cache FAMILIES the engine writes under a pack's
+#: folder (each scoped to its pack by :data:`_MOD_CACHE_PACK_RE`): the
+#: DSFTool dumps and footprint / partition / pad-frame / exclusion caches
+#: name themselves by tile or hash; #2090 (spec Part D) adds the AGP floor
+#: cache ``o4_agp_floors.cache`` (``auto_patch_v2.airport.agp_floors``,
+#: written through a ``.o4_agp_floors.*.tmp`` sibling and ``os.replace``).
+PACK_CACHE_FAMILIES = ("o4_object_footprints_", "o4_v2_partition_", "o4_object_partition_",
+                       "o4_object_pad_frame_", "o4_object_exclusions_",
+                       "o4_dsf_object_positions", "o4_agp_floors.cache")
+
 #: A per-pack derived-cache path: ``Airport_mod_cache/<pack folder name>/…``
 #: (``auto_patch.dsf_reader.airport_mod_cache_dir``).  The pack name is
 #: the X-Plane Custom Scenery folder's basename, spaces and all.

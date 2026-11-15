@@ -145,6 +145,18 @@ def approach_seat(datum: _t.Any, surface: Surface, *,
     clearance = lift + float(datum.y)
     gr = tuple(getattr(datum, "graded", ()) or ()) if graded is None else tuple(graded)
     live = [i for i in range(len(reads)) if not (i < len(gr) and gr[i])]
+    zero = getattr(datum, "zero", None)
+    if not live and zero is not None:
+        # #2090: EVERY end graded up to the seat the pack stage predicted —
+        # that seat, never 22p's road under the span (KDEN's Mid bridges: the
+        # anchor reads the road 8 m under the deck)
+        (_z, _s, (la, lo)) = reads[0]
+        za = surface(la, lo)
+        za = reads[0][0] if za is None else za
+        return ApproachSeat(
+            float(la), float(lo), float(za), float(zero),
+            f"§16e {datum.label} datum: every end line graded up to the predicted "
+            f"seat {float(zero):.2f} ({ends_txt}; #2065 A3 rule 9, #2090)", z_ends)
     if g0 is not None and clearance > 0.0 and not any(
             z_ends[i] - float(g0) >= EMBANKMENT_SHARE * clearance for i in live):
         return ApproachSeat(

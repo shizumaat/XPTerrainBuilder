@@ -492,8 +492,14 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                 continue
         for j in near:
             xy, wid = ends[j]
-            width, edges = _roof_opening(roof, xy, into.get((xy, wid)),
-                                          max(tol, roof.distance(Point(xy)) + tol))
+            # an end the road pins up the open road (#1689) opens over the
+            # roof within its own reach of the end, never the whole wall top
+            # the roof is (KBNA west: an 86 m diagonal parapet, 19 m within
+            # the reach)
+            off = roof.distance(Point(xy))
+            width, edges = (_roof_opening(roof, xy, into.get((xy, wid)), tol) if off <= tol
+                            else _roof_opening(roof.intersection(Point(xy).buffer(off + tol)),
+                                               xy, into.get((xy, wid)), off + tol))
             # a tall portal's floor is the ground ON ITS ROOF less its roof
             # top: the ground at the cap stands inside the surveyed cut
             out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,

@@ -1084,7 +1084,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                     *(p_ for p_, r in b_stops if r not in hosts),
                                     *(() if shell_wall is None else (shell_wall,))])
                 fh = trim(axis_fn, axis_ln, (max(fh[0], span[0]), max(fh[1], span[1])),
-                          span, face_front, None if stop.is_empty else prep(stop), gap)
+                          span, face_front, None if stop.is_empty else prep(stop), gap + rim_off)
                 if fh[0] > span[0] + grid or fh[1] > span[1] + grid:
                     front_t = fh
                     if all(abs(s - face_front) > 1e-6 for s in ss):

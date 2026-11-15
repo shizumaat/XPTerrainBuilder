@@ -337,3 +337,24 @@ def test_a_step_on_a_claimed_mouth_of_its_own_way_is_its_face(monkeypatch):
     far = [(frozenset({-6}), lat0 + 40.0 / DR._M_PER_DEG, lon0)]
     assert DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5,
                          mouths=far)["verdict"] == "FAIL"
+
+
+def test_a_feed_way_id_names_its_mouth_by_its_number(monkeypatch):
+    """#1689 R3: the road feeds name a way ``+LL+LLL:<number>``; the claimed
+    mouth's tunnel id names the bare number -- the face is still its own."""
+    import drawn_roads as DR
+    lat0, lon0 = 45.5, 10.5
+    road = [(lat0 - 100.0 / DR._M_PER_DEG, lon0), (lat0 + 100.0 / DR._M_PER_DEG, lon0)]
+    mouth_lat = lat0 + 20.5 / DR._M_PER_DEG
+
+    def stepped(lon, lat):
+        return 100.0 + (5.0 if (lat - lat0) * DR._M_PER_DEG > 20.0 else 0.0)
+    mouths = [(frozenset({-7}), mouth_lat, lon0)]
+    monkeypatch.setattr(DR, "road_lines",
+                        lambda root, la, lo, r, b=None: [("+45+010:-7", "primary", road)])
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5,
+                         mouths=mouths)["verdict"] == "PASS"
+    monkeypatch.setattr(DR, "road_lines",
+                        lambda root, la, lo, r, b=None: [("+45+010:-6", "primary", road)])
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5,
+                         mouths=mouths)["verdict"] == "FAIL"

@@ -64,14 +64,28 @@ def claimed_mouths(sidecar):
     return out
 
 
+def _way_number(wid) -> "int | None":
+    """The OSM way number of a road feed's way id -- an int, or the feed's
+    tile-qualified string (``+36-087:-1986``); the mouth's tunnel id names
+    the bare number (#1689 R3: the qualified id never matched, so KBNA P1's
+    mouth face was judged as a 4.0 m road step)."""
+    if isinstance(wid, int):
+        return wid
+    try:
+        return int(str(wid).rsplit(":", 1)[-1])
+    except ValueError:
+        return None
+
+
 def _straddles(mouths, lat0):
     """``(way id, a, b) -> bool``: the pair ``a`` -> ``b`` (lat, lon) of road
     ``way id`` stands on the face of a claimed mouth of that way."""
     kx = _M_PER_DEG * math.cos(math.radians(lat0))
 
     def test(wid, a, b):
+        w = _way_number(wid)
         for ways, la, lo in mouths:
-            if wid not in ways:
+            if w not in ways:
                 continue
             ax, ay = (a[1] - lo) * kx, (a[0] - la) * _M_PER_DEG
             dx, dy = (b[1] - a[1]) * kx, (b[0] - a[0]) * _M_PER_DEG

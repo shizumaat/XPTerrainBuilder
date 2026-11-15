@@ -517,3 +517,21 @@ def test_the_rim_strips_outer_vertices_stand_at_the_pads_level(law):
     _h, held = _airside_xy(law, _Dem(north=4.0))
     _w2, weld = _airside_xy(law, _Dem())
     assert weld == held                                   # the knife's node set
+
+
+def test_a_pad_not_standing_in_the_map_has_no_sidecar_row(law, monkeypatch):
+    """#1689 R3 (A6): the witness is read on the classification's cells; a
+    pad no face of which stands in the map (a tall portal's host pad cut to
+    nothing) leaves no ``pad_touch`` row."""
+    import types
+    import auto_patch_v2.constraints.pad_frontage_gs as _gs
+    import auto_patch_v2.constraints.pads as _pads
+    from auto_patch_v2.classify.pad_touch import EVIDENCE_KEY
+    cells = [types.SimpleNamespace(role="parking_lot", ref="lot", evidence={
+        EVIDENCE_KEY: {"padA": 0.0, "gone": 0.0}})]
+    pm = types.SimpleNamespace(faces={1: types.SimpleNamespace(id=1, ref="padA", role="building"),
+                                      2: types.SimpleNamespace(id=2, ref="lot", role="parking_lot")})
+    monkeypatch.setattr(_pads, "_pad_polys", lambda planar, law: [])
+    monkeypatch.setattr(_gs, "_groundside_geoms", lambda planar, law: [])
+    assert [r["pad"] for r in pad_touch(cells, law, pm)] == ["padA"]
+    assert [r["pad"] for r in pad_touch(cells, law)] == ["gone", "padA"]

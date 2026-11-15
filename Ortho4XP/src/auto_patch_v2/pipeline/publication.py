@@ -1050,11 +1050,19 @@ def pad_touch(cells: _t.Iterable[_t.Any], law: Law,
     class.  EVIDENCE: ``tools/pad_edge_read.py --source`` classes a
     pad-edge run TOUCH-OFF (a defect), HELD or GAPPED (accepted) by it.
     An airport with no pad beside groundside pavement carries no such
-    key."""
+    key.
+
+    #1689 R3 (A6): with the map, a pad no face of which stands in it (a
+    tall portal's host pad, cut to nothing by ``planar/structures``) has
+    no row: the witness was read on the classification's cells, before
+    the cut."""
     from ..classify.pad_touch import touch_records
     recs = touch_records(cells, law)
     if planar is None or not recs:
         return recs
+    faces = planar.faces.values() if hasattr(planar.faces, "values") else planar.faces
+    standing = {str(f.ref) for f in faces}
+    recs = [r for r in recs if r["pad"] in standing]
     from shapely.ops import unary_union
     from ..constraints.pad_frontage_gs import _groundside_geoms
     from ..constraints.pads import _pad_polys, frontage_radius_m

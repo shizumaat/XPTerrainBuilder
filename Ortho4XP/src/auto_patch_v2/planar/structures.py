@@ -1335,7 +1335,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # (``entrance_skirt``; merged into the void the mesh ran one slope
         # from the ramp's edge to the bank, and its ring read as a rim)
         skirt = None if edge is not None or deck is not None else entrance_skirt(
-            pin, ramp_geom, cells, polys, law, airport.dem.z, rim_off, pin_hosts)
+            pin, ramp_geom, cells, polys, law, airport.dem.z, rim_off, pin_hosts,
+            outward=(-inward[0], -inward[1]))
         if skirt is not None:
             wall_geom = wall_geom.difference(unary_union([skirt[0], skirt[1]]))
             skirt_of[tid] = [q for q in _parts(unary_union([skirt[0], skirt[1]]))]

@@ -32,7 +32,7 @@ import types
 from auto_patch_v2.airport import portal_objects as P
 from auto_patch_v2.airport.walled_pit import hard_deck_share
 from auto_patch_v2.law import Law
-from shapely.geometry import box
+from shapely.geometry import Point, box
 
 LAW = Law.for_airport("")
 
@@ -303,3 +303,138 @@ def test_a_pad_cut_to_nothing_leaves_no_touch_witness():
     assert out[1].evidence == {}
     assert out[2] is cells[2]
     assert without_pads(cells, set()) == cells
+
+
+# ── #1689 R4: wings and the corridor out of the mouth ──────────────────
+
+class _Geom:
+    """OBJ ``(x, y, z)`` quads as a still solid geometry."""
+
+    def __init__(self):
+        self.v, self.t = [], []
+
+    def quad(self, a, b, c, d):
+        k = len(self.v)
+        self.v.extend([a, b, c, d])
+        self.t.extend([[k, k + 1, k + 2], [k, k + 2, k + 3]])
+
+    def wall_z(self, x, z0, z1, y0, y1):
+        """A wall in the plane x = ``x`` along z ``z0..z1``, y ``y0..y1``."""
+        self.quad((x, y0, z0), (x, y0, z1), (x, y1, z1), (x, y1, z0))
+
+    def plate(self, x0, x1, z0, z1, y):
+        self.quad((x0, y, z0), (x1, y, z0), (x1, y, z1), (x0, y, z1))
+
+    def slab(self, x0, x1, z0, z1, y0, y1):
+        """A closed box: its two plates and four walls."""
+        self.plate(x0, x1, z0, z1, y1)
+        self.plate(x0, x1, z0, z1, y0)
+        self.wall_z(x0, z0, z1, y0, y1)
+        self.wall_z(x1, z0, z1, y0, y1)
+        self.quad((x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0))
+        self.quad((x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1))
+
+    def done(self):
+        return types.SimpleNamespace(vertices=np.array(self.v, dtype=float),
+                                     solid=np.array(self.t), animated=np.zeros(0, bool))
+
+
+def _stub(gm: _Geom, top: float = 7.78):
+    """The stub roof (x -19..19, z -2..4.5) and the headwall under its front
+    edge (z 4.5) to 9.17."""
+    gm.plate(-19.0, 19.0, -2.0, 4.5, top)
+    gm.quad((-19.0, 0.5, 4.5), (19.0, 0.5, 4.5), (19.0, 9.17, 4.5), (-19.0, 9.17, 4.5))
+
+
+#: heading 0: frame (x, -z); the bore runs +y (into) from its end at the origin
+_ROOF = box(-19.0, -4.5, 19.0, 2.0)
+_O = types.SimpleNamespace(xy=(0.0, 0.0), heading_deg=0.0)
+
+
+def _wings(g, top=9.17, into=(0.0, 1.0)):
+    return P._wing_plan(_O, g, _ROOF, _ROOF, top, (0.0, 0.0), into, LAW)
+
+
+def test_a_tall_portal_reads_its_wings():
+    """T1: two wing walls running 16 m out of the bore to 8.8 are the
+    wings; the end steps (to 3.9) and a mast 30 m off are not."""
+    gm = _Geom()
+    _stub(gm)
+    gm.wall_z(-12.6, 4.5, 20.5, 0.5, 8.8)
+    gm.wall_z(13.0, 4.5, 20.5, 0.5, 8.8)
+    gm.plate(-20.0, -14.0, 20.5, 23.0, 3.9)                 # the end steps
+    gm.wall_z(50.0, 0.0, 0.5, 0.0, 15.0)                    # the mast
+    wing = _wings(gm.done())
+    parts = list(getattr(wing, "geoms", [wing]))
+    assert len(parts) == 2
+    for q, x in zip(sorted(parts, key=lambda q: q.bounds[0]), (-12.6, 13.0), strict=True):
+        x0, y0, x1, y1 = q.bounds
+        assert x0 < x < x1 and x1 - x0 < 0.3
+        assert abs(y0 + 20.6) < 0.05 and y1 < -4.5
+    assert wing.intersection(box(-21.0, -24.0, -13.0, -20.7)).area < 1e-9
+    assert wing.distance(box(48.0, -2.0, 52.0, 2.0)) > 20.0
+    assert _wings(gm.done(), into=None) is None
+
+
+def test_a_capped_wing_is_read_by_its_walls():
+    """T2: a wing whose only horizontal face is a 0.26 m cap in its own
+    component is still read (no genuine filter at the top)."""
+    gm = _Geom()
+    _stub(gm)
+    gm.slab(12.8, 13.2, 4.5, 20.5, 8.54, 8.8)
+    wing = _wings(gm.done())
+    assert wing is not None and wing.bounds[1] < -20.0
+
+
+def test_a_roof_flank_is_no_wing():
+    """T3: a crowned slab's flank plates (within 1 m of the top, beside the
+    top bin, at the roof's own stations) run nowhere out of the bore."""
+    gm = _Geom()
+    _stub(gm, top=9.0)
+    gm.plate(19.0, 22.0, -2.0, 4.5, 8.6)
+    gm.plate(-22.0, -19.0, -2.0, 4.5, 8.6)
+    assert _wings(gm.done()) is None
+
+
+def test_a_headwall_return_is_no_wing():
+    """T4: a wall running under entrance_skirt_m (3 m) beyond the roof's
+    front is the headwall's return, not a wing."""
+    gm = _Geom()
+    _stub(gm)
+    gm.wall_z(13.0, 4.5, 6.5, 0.5, 9.17)
+    assert _wings(gm.done()) is None
+
+
+def _r4_skirt(pin, outward):
+    from auto_patch_v2.planar.entrance_skirt import entrance_skirt
+    ramp = box(-10.0, -5.0, 10.0, 0.0)
+    return entrance_skirt(pin, ramp, [], [], LAW, lambda x, y: 176.0, 1.0, outward=outward)
+
+
+def test_the_corridor_out_of_the_mouth_is_never_skirt():
+    """T5: with ``outward`` no part of the level piece or the bank stands in
+    the ramp's prolongation; the level piece runs along a wing's outer side
+    to its end."""
+    pin = _pin(False)
+    pin.face_plan = box(-10.0, 0.0, 10.0, 6.0).union(box(10.0, -16.0, 10.4, 0.0))
+    corridor = box(-10.0, -300.0, 10.0, -5.0)
+    core, bank, _t = _r4_skirt(pin, None)
+    assert core.intersection(corridor).area > 1.0          # R3: it wrapped round
+    core, bank, _t = _r4_skirt(pin, (0.0, -1.0))
+    assert core.intersection(corridor).area < 1e-6
+    assert bank.intersection(corridor).area < 1e-6
+    assert core.contains(Point(12.0, -15.5))
+
+
+def test_the_corridor_rule_leaves_entrance_faces_and_r3_alone():
+    """T6: an entrance pin with ``outward`` equals the same pin without it;
+    a tall pin with ``outward=None`` equals R3."""
+    from auto_patch_v2.planar.entrance_skirt import entrance_skirt
+    ramp = box(-10.0, -5.0, 10.0, 0.0)
+    for pin in (_pin(True), _pin(False)):
+        r3 = entrance_skirt(pin, ramp, [], [], LAW, lambda x, y: 176.0, 1.0)
+        none = _r4_skirt(pin, None)
+        assert all(a.wkb == b.wkb for a, b in zip(r3[:2], none[:2], strict=True))
+    ent = _pin(True)
+    a, b = _r4_skirt(ent, (0.0, -1.0)), _r4_skirt(ent, None)
+    assert all(x.wkb == y.wkb for x, y in zip(a[:2], b[:2], strict=True))

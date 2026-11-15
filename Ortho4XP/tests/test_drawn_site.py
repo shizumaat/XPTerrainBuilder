@@ -305,3 +305,22 @@ def test_end_edge_mode_reads_a_decks_end_at_the_plans_end_lines():
     ends, rest = DB._true_ends([side, end], [line])
     assert [e["step"] for e in ends] == [-0.42] and rest == [side]
     assert DB._stem("objects/OTHH_Bridge_06_LOD0_000__b0_7273f3aa.obj") == "othh_bridge_06_lod0_000"
+
+
+def test_point_reads_the_drawn_height_and_its_difference():
+    """#1689 R4 I1: ``--point NAME=LAT,LON[,Z]``: the drawn height at a bare
+    point, its difference from Z, and a point off every triangle missing."""
+    assert DC.parse_point("S1=36.11,-86.68,177.88") == ("S1", 36.11, -86.68, 177.88)
+    assert DC.parse_point("36.11,-86.68") == ("36.11,-86.68", 36.11, -86.68, None)
+    with pytest.raises(SystemExit):
+        DC.parse_point("S1=36.11")
+
+    class _Mesh:
+        def z(self, lat, lon):
+            return np.array([np.nan if lat > 40.0 else 177.85])
+
+    lines = DC.point_lines([("S1", 36.11, -86.68, 177.88), ("N", 36.11, -86.68, None),
+                            ("off", 41.0, -86.68, 1.0)], _Mesh())
+    assert lines[0].endswith("drawn 177.85 (vs 177.88: -0.03)")
+    assert lines[1].endswith("drawn 177.85")
+    assert "missing" in lines[2]

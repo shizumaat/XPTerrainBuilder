@@ -149,15 +149,39 @@ def _states_top(pin) -> bool:
             and getattr(pin, "face_top_z", None) is not None)
 
 
+def _swept(geom, d: XY):
+    """``geom``'s plan swept along the vector ``d``: the plan, its
+    translate and each ring edge's parallelogram (exact, never a hull)."""
+    from shapely.affinity import translate
+    from shapely.geometry import Polygon
+    out = [geom, translate(geom, d[0], d[1])]
+    for g in getattr(geom, "geoms", [geom]):
+        if g.geom_type != "Polygon":
+            continue
+        for ring in [g.exterior, *g.interiors]:
+            c = list(ring.coords)
+            for a, b in zip(c, c[1:], strict=False):
+                q = Polygon([a, b, (b[0] + d[0], b[1] + d[1]), (a[0] + d[0], a[1] + d[1])])
+                if q.area > 0.0:
+                    out.append(q.buffer(0))
+    return unary_union(out)
+
+
 def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
-                   hosts: _t.AbstractSet[str] = frozenset()):
+                   hosts: _t.AbstractSet[str] = frozenset(), outward: "XY | None" = None):
     """``(core, bank, top z)`` of a top-stating ``pin``'s skirt round the
     tunnel's ``ramp`` (module doc), or ``None``: the AIRSIDE ``cells``
     (``polys`` their plans) are kept out of it.  A roofed portal's skirt
     (#1689 R2 A4: no bottom) keeps off every ROAD cell and every building
     pad but its own ``hosts`` too, each by ``stand_off`` -- the mapped
     road behind the portal and the next pad keep their own law; an
-    entrance face's skirt reads as before."""
+    entrance face's skirt reads as before.
+
+    #1689 R4 W2: given ``outward`` (the unit vector out of the bore), a
+    roofed portal's skirt keeps off the CORRIDOR out of its mouth too --
+    the ramp's plan swept along ``outward`` across the reach, grown by
+    ``stand_off`` -- level piece and bank alike: the road leaving the
+    mouth is never skirt."""
     if not _states_top(pin):
         return None
     ob = law.tables.structures.tunnel.object
@@ -172,6 +196,11 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
         held = [p.buffer(stand_off, **_MITRE) for c, p in zip(cells, polys, strict=False)
                 if (c.role in ROAD_ROLES or (c.role == "building" and c.ref not in hosts))
                 and p.intersects(reach)]
+        if outward is not None and not ramp.is_empty:
+            b = reach.bounds
+            far = math.hypot(b[2] - b[0], b[3] - b[1])
+            held.append(_swept(ramp, (outward[0] * far, outward[1] * far)).buffer(
+                stand_off, **_MITRE))
         if held:
             blocked = unary_union([blocked, *held])
     core, _ = _skirt_cells(plan, ramp, blocked, stand_off, band, 0.0)

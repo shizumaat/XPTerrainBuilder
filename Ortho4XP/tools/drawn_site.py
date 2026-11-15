@@ -60,6 +60,9 @@ Usage::
         [--tile-dsf PATH] [--dataref NAME=V] [--mouth] [--summary] \\
         [--cache DIR] [--json OUT]
 
+``--point NAME=LAT,LON[,Z]`` (repeat) prints the drawn height at bare points
+and, given ``Z``, the drawn height less it -- no pack is read (#1689 R4).
+
 ``--cover ICAO --tag T --object SUBSTR`` hands over to ``tools/drawn_cover.py``
 (does the drawn ground stay under one object, #2053).
 
@@ -1067,6 +1070,49 @@ def _run(args, sites, tool: str, work: str) -> dict:
     return report
 
 
+def parse_point(text: str) -> tuple[str, float, float, float | None]:
+    """``NAME=LAT,LON[,Z]`` (``NAME=`` optional): a point and the height it
+    should read."""
+    name, _, rest = text.rpartition("=")
+    try:
+        parts = [float(p) for p in rest.split(",")]
+    except ValueError:
+        parts = []
+    if len(parts) not in (2, 3):
+        raise SystemExit(f"--point {text!r}: want NAME=LAT,LON[,Z]")
+    return name or rest, parts[0], parts[1], parts[2] if len(parts) == 3 else None
+
+
+def point_lines(points, mesh) -> list[str]:
+    """One line per ``(name, lat, lon, z)`` point: the DRAWN height there
+    (``mesh.z``) and, given ``z``, the drawn height less it."""
+    out = []
+    for name, lat, lon, want in points:
+        z = float(mesh.z(lat, lon)[0])
+        line = f"POINT {name} @{lat:.6f},{lon:.6f}: drawn " + (
+            "missing (off every tile triangle)" if math.isnan(z) else f"{z:.2f}")
+        if want is not None and not math.isnan(z):
+            line += f" (vs {want:.2f}: {z - want:+.2f})"
+        out.append(line)
+    return out
+
+
+def point_mode(args) -> int:
+    """``--point``: the drawn height at bare points (the tile DSF alone, no
+    pack): #1689 R4's wing and headwall reads, promoted on their second use."""
+    pts = [parse_point(t) for t in args.point]
+    lats, lons = [p[1] for p in pts], [p[2] for p in pts]
+    pad = 0.001
+    box = (min(lons) - pad, min(lats) - pad, max(lons) + pad, max(lats) + pad)
+    mesh = DrawnMesh(box, args.custom_scenery, dsftool(), args.tile_dsf, args.cache,
+                     args.tile_dir)
+    for tile, src in sorted(mesh.sources.items()):
+        print(f"mesh {tile}: {src}")
+    for line in point_lines(pts, mesh):
+        print(line)
+    return 0
+
+
 def plan_mode(args) -> int:
     """``--plan``: :mod:`drawn_site_plan`'s compare mode on the drawn mesh."""
     import drawn_site_plan as dsp
@@ -1234,6 +1280,9 @@ def main(argv=None) -> int:
     ap.add_argument("--worse", type=float, default=0.1,
                     help="with --base-plan: a body's figure worse by more than this is listed, m")
     ap.add_argument("--site", action="append", default=[], help="NAME=LAT,LON[,RADIUS_M]")
+    ap.add_argument("--point", action="append", default=[],
+                    help="POINT MODE: NAME=LAT,LON[,Z] -- print the drawn height at the"
+                         " point (and its difference from Z); no pack is read")
     ap.add_argument("--object", action="append", default=[],
                     help="also every placement whose resource path contains this text")
     ap.add_argument("--tiles", nargs="*", default=[],
@@ -1282,6 +1331,8 @@ def main(argv=None) -> int:
         args.mod_cache = args.mod_cache or FNAMES.airport_mod_cache_root()
     if args.against and not args.clearance_only:
         ap.error("--against reads --clearance-only reports")
+    if args.point:
+        return point_mode(args)
     if args.plan:
         return plan_mode(args)
     if not args.pack:

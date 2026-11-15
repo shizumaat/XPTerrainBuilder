@@ -12,11 +12,18 @@ roof, and the road under a hard-deck bridge is the deck's.
   read under it would give the bridge's frame a second zero; a pit whose
   own floor is hard deck still reads (R2 A1).
 * ``terrain_shaped.portal_frame_records``: a roofed portal leads only the
-  co-placed placements standing half in its roof plan grown by
-  ``bore_end_tolerance_m`` (R2 A2).
+  co-placed placements standing half in its OWN FOOTPRINT (its solids'
+  plan, ``portal_objects._solids_plan``) grown by ``bore_end_tolerance_m``
+  (R2 A2, R3).
+* ``portal_objects._front_wall_top``: a TALL portal's top is its front
+  wall's own top over its zero, read on the walls at the end (R3).
 * ``planar/entrance_skirt``: a TALL portal states its top (R2 A3); its skirt
-  keeps off roads and foreign pads (A4); its host pad is cut by its top
-  (``host_blade``, A5); an entrance face's skirt and blade are unchanged.
+  keeps off roads and foreign pads (A4); its host pad is cut by its own
+  footprint grown by ``entrance_skirt_m`` (``host_blade``, A5 / R3); an
+  entrance face's skirt and blade are unchanged.
+* ``planar/structures._cut_part_refs``: the largest surviving part of a cut
+  cell keeps its plain ref; ``pad_touch.without_pads`` drops the touch
+  witness to a pad cut to nothing (R3, A6).
 """
 from __future__ import annotations
 
@@ -193,3 +200,106 @@ def test_a_tall_portal_cuts_its_host_pad_whole():
     assert host.difference(blade).area < 0.25
     assert host_blade(_pin(True), outer, (), LAW) is outer
     assert host.difference(host_blade(_pin(True), outer, (), LAW)).area > 100.0
+
+
+def test_the_lead_reaches_the_portal_footprint_beyond_its_roof():
+    """#1689 R3: KBNA Murfreesboro east -- the wing blocks and road plate
+    stand out along the road past the stub roof, inside the portal
+    object's own footprint: they are led; a placement past the footprint
+    is not."""
+    from auto_patch_v2.airport.terrain_shaped import PORTAL_SEAT, portal_frame_records
+    objs = [_obj(i, hdg=0.0) for i in range(4)]
+    cache = _Cache(boxes={objs[0].path: (-20.0, 20.0, -3.0, 4.0),    # the portal
+                          objs[1].path: (-20.0, -12.0, 5.0, 26.0),   # a wing block
+                          objs[2].path: (-12.0, 12.0, 5.0, 26.0),    # the road plate
+                          objs[3].path: (-12.0, 12.0, 60.0, 80.0)})  # beyond
+    recs = [{"id": "dsf:obj0", "resource": objs[0].path, "seat": PORTAL_SEAT,
+             "elevation": 168.71}]
+    tol = LAW.tables.structures.tunnel.object.bore_end_tolerance_m
+    # heading 0: frame (x, -z)
+    roof = box(-20.0, -4.0, 20.0, 3.0)
+    foot = box(-20.0, -26.0, 20.0, 3.0)
+    got = portal_frame_records(recs, objs, 2.0, {"dsf:obj0": foot}, cache, tol)
+    assert {r["id"] for r in got} == {"dsf:obj1", "dsf:obj2"}
+    assert portal_frame_records(recs, objs, 2.0, {"dsf:obj0": roof}, cache, tol) == []
+
+
+def _tall_portal():
+    """A stub roof (y 7.78, z -2..4.5) with a headwall in front of it
+    (walls x -12.6 / 13 at z 5, to y 9.17) and a mast 30 m off (to y 15),
+    in OBJ ``(x, y, z)``."""
+    v, t = [], []
+
+    def quad(a, b, c, d):
+        k = len(v)
+        v.extend([a, b, c, d])
+        t.extend([[k, k + 1, k + 2], [k, k + 2, k + 3]])
+
+    quad((-19.0, 7.78, -2.0), (19.0, 7.78, -2.0), (19.0, 7.78, 4.5), (-19.0, 7.78, 4.5))
+    quad((-12.6, 0.5, 4.9), (-12.6, 0.5, 5.4), (-12.6, 9.17, 5.4), (-12.6, 9.17, 4.9))
+    quad((13.0, 0.5, 4.9), (13.0, 0.5, 5.4), (13.0, 8.5, 5.4), (13.0, 8.5, 4.9))
+    quad((50.0, 0.0, 0.0), (50.0, 0.0, 0.5), (50.0, 15.0, 0.5), (50.0, 15.0, 0.0))
+    g = types.SimpleNamespace(vertices=np.array(v, dtype=float))
+    comp = types.SimpleNamespace(tris=np.array(t))
+    return g, [comp]
+
+
+def test_a_tall_portal_states_its_front_wall_top():
+    """#1689 R3 (master ruling 2026-11-15): the top is the headwall's own
+    top (9.17 over the zero), not the stub roof (7.78); a wall standing off
+    the roof's reach (the mast) is no front wall; no wall -> ``None``."""
+    g, genuine = _tall_portal()
+    o = types.SimpleNamespace(xy=(0.0, 0.0), heading_deg=0.0)
+    roof = box(-19.0, -4.5, 19.0, 2.0)          # heading 0: frame (x, -z)
+    assert abs(P._front_wall_top(o, g, genuine, roof, LAW) - 9.17) < 1e-9
+    assert P._front_wall_top(o, g, genuine, box(-60.0, 100.0, -50.0, 110.0), LAW) is None
+    flat = types.SimpleNamespace(tris=genuine[0].tris[:2])
+    assert P._front_wall_top(o, g, [flat], roof, LAW) is None
+
+
+def test_the_solids_plan_is_the_portal_footprint():
+    g, genuine = _tall_portal()
+    o = types.SimpleNamespace(xy=(100.0, 50.0), heading_deg=0.0)
+    foot = P._solids_plan(o, g, genuine, LAW)
+    # the roof's plan (walls stand edge-on): x 81..119, y 45.5..52
+    assert abs(foot.area - 38.0 * 6.5) < 1.0
+    assert foot.bounds[0] == 81.0 and foot.bounds[3] == 52.0
+
+
+def test_a_tall_portal_cuts_its_host_pad_to_its_own_footprint():
+    """#1689 R3: the host pad running out past the top plan along the wings
+    is cut whole by the footprint grown by entrance_skirt_m."""
+    from auto_patch_v2.planar.entrance_skirt import host_blade
+    outer = box(-10.0, -40.0, 10.0, 1.0)
+    host = box(-11.0, -1.0, 11.0, 28.0)          # the U ring out along the wings
+    pin = _pin(False)
+    assert host.difference(host_blade(pin, outer, (), LAW)).area > 100.0
+    pin.footprint = box(-10.0, 0.0, 10.0, 26.0)
+    assert host.difference(host_blade(pin, outer, (), LAW)).area < 0.25
+
+
+def test_the_largest_cut_part_keeps_the_plain_ref():
+    from auto_patch_v2.planar.structures import _cut_part_refs
+    parts = [box(0.0, 0.0, 0.4, 0.4), box(0.0, 0.0, 1.0, 1.0), box(0.0, 0.0, 5.0, 5.0)]
+    assert [r for r, _p in _cut_part_refs("building5", False, parts)] == \
+        ["building5#1", "building5"]
+    assert [r for r, _p in _cut_part_refs("rwy", True, parts)] == ["rwy", "rwy"]
+    assert _cut_part_refs("building5", False, [box(0.0, 0.0, 0.4, 0.4)]) == []
+
+
+def test_a_pad_cut_to_nothing_leaves_no_touch_witness():
+    from auto_patch_v2.classify.pad_touch import EVIDENCE_KEY, HELD_KEY, without_pads
+
+    @__import__("dataclasses").dataclass(frozen=True)
+    class C:
+        ref: str
+        evidence: dict
+
+    cells = [C("road1", {EVIDENCE_KEY: {"building5": 0.0, "building9": 3.0},
+                         HELD_KEY: ("building5",)}),
+             C("road2", {EVIDENCE_KEY: {"building5": 0.0}}), C("road3", {})]
+    out = without_pads(cells, {"building5"})
+    assert out[0].evidence == {EVIDENCE_KEY: {"building9": 3.0}, HELD_KEY: ()}
+    assert out[1].evidence == {}
+    assert out[2] is cells[2]
+    assert without_pads(cells, set()) == cells

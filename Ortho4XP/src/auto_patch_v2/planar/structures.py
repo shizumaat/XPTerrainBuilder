@@ -82,6 +82,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..classify.pad_touch import without_pads
 from ..classify.roles import Cell, Classification, is_runway_shoulder
 from ..law import Law
 from ..law.reference_code import ref_status, status_by_ref
@@ -1429,12 +1430,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     # a roofed portal's zero is the road at its mouth: the
                     # object stage seats it at the pinned floor (ENTC)
                     extra["portal_seat"] = (pin.resource, float(mouth_z))
-                    roof = getattr(pin, "top_plan", None)
-                    if roof is not None and not roof.is_empty:
-                        # #1689 R2 A2: the reach its seat leads its frame within
-                        extra["portal_roof"] = tuple(
+                    foot = getattr(pin, "footprint", None)
+                    foot = getattr(pin, "top_plan", None) if foot is None else foot
+                    if foot is not None and not foot.is_empty:
+                        # #1689 R2 A2 / R3: the reach its seat leads its frame
+                        # within -- the portal object's own footprint
+                        extra["portal_footprint"] = tuple(
                             tuple((float(x), float(y)) for x, y in g.exterior.coords)
-                            for g in getattr(roof, "geoms", [roof]))
+                            for g in getattr(foot, "geoms", [foot]))
                     if skirt is not None:
                         # #1689 R2 A4: a TALL portal's top is graded round
                         extra["entrance_skirt"] = (skirt[2], *skirt_refs(tid))
@@ -1624,6 +1627,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # ground under it is the cut; everywhere else the runway is never cut —
     # inside the deck's RING only (deck redesign §3 (b), owner Q1 21:16Z)
     deck_cover = deck_cover_of(tunnels, tid_deck)
+    vanished: set[str] = set()
 
     def _cut(c: Cell, p, blade) -> None:
         if c.role in RUNWAY_FAMILY and blade is not None:
@@ -1637,11 +1641,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         stats.cells_cut += 1
         if c.role in RUNWAY_FAMILY:
             stats.runway_cut_under_deck += 1
-        for k, part in enumerate(_parts(rest)):
-            if part.area < 0.25:
-                continue
-            keep_ref = k == 0 or c.role in RUNWAY_FAMILY   # a runway keeps its own ref
-            out_cells.append(Cell(len(out_cells), c.role, c.ref if keep_ref else f"{c.ref}#{k}",
+        kept = _cut_part_refs(c.ref, c.role in RUNWAY_FAMILY, list(_parts(rest)))
+        if not kept:
+            vanished.add(c.ref)
+        for ref, part in kept:
+            out_cells.append(Cell(len(out_cells), c.role, ref,
                                   tuple(part.exterior.coords)[:-1],
                                   tuple(tuple(h.coords)[:-1] for h in part.interiors),
                                   c.code_number, c.code_letter, c.side, c.kind,
@@ -1680,6 +1684,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               tuple(tuple(h.coords)[:-1] for h in part.interiors),
                               None, None, role_side(law, role), "structure", {}))
     cut_gap_cells(gap_cells, knife, law, _cut)   # §53 (13), LAST: stood off the footprints
+    # #1689 R3 (A6): a pad cut to nothing (a tall portal's host) leaves no
+    # touch witness behind on its neighbours
+    out_cells = without_pads(out_cells, vanished - {c.ref for c in out_cells})
     out_cells = [_dc.replace(c, id=i) for i, c in enumerate(out_cells)]
     cl = _dc.replace(classification, cells=tuple(out_cells),
                      cut_lines=tuple(cut_lines),
@@ -1693,6 +1700,18 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "bores_replaced_by_object": stats.bores_replaced_by_object,
                             "mouths_replaced_by_object": stats.mouths_replaced_by_object})
     return cl, tuple(tunnels), stats
+
+
+def _cut_part_refs(ref: str, keep_all: bool, parts: _t.Sequence) -> list[tuple[str, _t.Any]]:
+    """The parts of a cell a structure cut that survive, with their refs:
+    a part under 0.25 m2 is dropped; the LARGEST keeps the plain ``ref``
+    and every other part is ``ref#k`` (``k`` its index in ``parts``) --
+    with ``keep_all`` (the runway family) every part keeps its own ref.
+    #1689 R3 (A6): a pad's readers find it by its plain ref; the first
+    part was kept, and a sliver of a host pad could carry it."""
+    big = max(range(len(parts)), key=lambda i: parts[i].area, default=-1)
+    return [(ref if keep_all or k == big else f"{ref}#{k}", part)
+            for k, part in enumerate(parts) if part.area >= 0.25]
 
 
 def deck_cover_of(tunnels, tid_deck) -> object:

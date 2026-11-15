@@ -46,7 +46,7 @@ from ..law import Law
 __all__ = ["EVIDENCE_KEY", "HELD_KEY", "WELD_KEY", "STRIP_KEY", "is_rim_strip", "dem_step_m", "gridded",
            "source_weld_partners",
            "is_held_step", "is_touching", "part_evidence", "touch_distances",
-           "touch_limit_m", "touch_records", "weld_partners"]
+           "touch_limit_m", "touch_records", "weld_partners", "without_pads"]
 
 #: the ``Cell.evidence`` key the witness is published under
 EVIDENCE_KEY = "pad_touch"
@@ -264,3 +264,30 @@ def touch_records(cells: _t.Iterable[_t.Any], law: Law
         rec["held"].sort(key=lambda g: g["cell"])
         rec["gapped"].sort(key=lambda g: (g["gap_m"], g["cell"]))
     return [by_pad[k] for k in sorted(by_pad)]
+
+
+def without_pads(cells: _t.Sequence[_t.Any], refs: _t.AbstractSet[str]) -> list[_t.Any]:
+    """``cells`` with every touch witness naming a pad of ``refs`` dropped
+    (:data:`EVIDENCE_KEY`, :data:`HELD_KEY`): pads that no longer stand in
+    the map (#1689 R3: a tall portal's host pad, its own frame's footprint
+    read as a building, is cut to nothing by ``planar/structures``) -- a
+    witness to a pad that is gone is a stale ``pad_touch`` row."""
+    if not refs:
+        return list(cells)
+    import dataclasses as _dc
+    out = []
+    for c in cells:
+        ev = getattr(c, "evidence", None) or {}
+        w, held = ev.get(EVIDENCE_KEY), ev.get(HELD_KEY)
+        if not (w and set(w) & refs) and not (held and set(held) & refs):
+            out.append(c)
+            continue
+        ev = dict(ev)
+        if w:
+            ev[EVIDENCE_KEY] = {k: d for k, d in w.items() if k not in refs}
+            if not ev[EVIDENCE_KEY]:
+                del ev[EVIDENCE_KEY]
+        if held:
+            ev[HELD_KEY] = type(held)(k for k in held if k not in refs)
+        out.append(_dc.replace(c, evidence=ev))
+    return out

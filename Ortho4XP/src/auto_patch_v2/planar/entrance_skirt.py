@@ -185,14 +185,19 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
 def host_blade(pin, outer, skirt_parts, law):
     """The blade a pinned ramp cuts its HOST pads with: its footprint
     ``outer`` -- and for a TALL roofed portal (:func:`_states_top`, no
-    bottom; #1689 R2 A5) its top plan grown by ``entrance_skirt_m`` and
-    its skirt and bank (``skirt_parts``) too: the host pad is the portal
-    frame's own footprint read as a building, and held at the pad's level
-    its remnants stood 1.9-2.6 m over the roof (KBNA P1 ``building5``)."""
+    bottom; #1689 R2 A5 / R3) the portal object's OWN FOOTPRINT (its
+    solids' plan, ``Portal.footprint``; its top plan where it has none)
+    grown by ``entrance_skirt_m``, and its skirt and bank (``skirt_parts``)
+    too: the host pad is the portal frame's own footprint read as a
+    building, and held at the pad's level its remnants stood 1.9-2.6 m
+    over the roof (KBNA P1 ``building5``); cut by the top plan alone, the
+    remnants over the wings held the ramp's top 2.2 m up."""
     if not _states_top(pin) or is_entrance_face(pin):
         return outer
     band = float(law.tables.structures.tunnel.object.entrance_skirt_m)
-    return unary_union([outer, pin.face_plan.buffer(band, **_MITRE), *skirt_parts])
+    foot = getattr(pin, "footprint", None)
+    plan = pin.face_plan if foot is None or foot.is_empty else foot.union(pin.face_plan)
+    return unary_union([outer, plan.buffer(band, **_MITRE), *skirt_parts])
 
 
 def skirt_refs(tid: str) -> tuple[str, str]:

@@ -6,15 +6,19 @@ import SceneryKit
 /// a fill (#1256: a tint colours the imagery being judged) — each the
 /// shared fading band inside the tile's edge (`TileBand`). A full tile is
 /// green (also a built tile the World pack does not list, #2031), a mesh whose imagery streams is teal with its
-/// sharp fraction as a bar along its bottom edge, a drape is pink, and a
-/// placeholder a faint thin gray outline; a tile with nothing is left
-/// unmarked. Another tool's mesh is dotted. Drawn under the built-tile
+/// sharp fraction as a bar along its bottom edge, a drape is pink, a
+/// placeholder a faint thin gray outline, and a tile the user turned off
+/// (#2100) a dashed gray band crossed corner to corner; a tile with nothing
+/// is left unmarked. Another tool's mesh is dotted. Drawn under the built-tile
 /// borders.
 enum MapWorldStates {
     static let full = Color(red: 0.30, green: 0.69, blue: 0.43)        // #4CAF6E
     static let mesh = Color(red: 0.19, green: 0.69, blue: 0.78)        // #30B0C7
     static let drape = Color(red: 1.0, green: 0.39, blue: 0.51)        // #FF6482
     static let placeholder = Color(white: 0.85)
+    /// A tile turned off (#2100; Qt: OFF_COLOR #8E8E93, OFF_DASH).
+    static let off = Color(red: 0.557, green: 0.557, blue: 0.576)    // #8E8E93
+    static let offDash: [CGFloat] = [6, 4]
     /// The placeholder outline's opacity and width (Qt: PLACEHOLDER_ALPHA).
     static let placeholderOpacity = 0.30
     static let placeholderWidth: CGFloat = 1
@@ -27,6 +31,7 @@ enum MapWorldStates {
         case .meshLowRes: return mesh
         case .drape: return drape
         case .placeholder: return placeholder
+        case .off: return off
         case .nothing: return nil
         }
     }
@@ -45,6 +50,16 @@ enum MapWorldStates {
         for (coord, tile) in world where visible(coord) && !skip(coord) {
             guard tile.state != .placeholder, let base = color(tile.state) else { continue }
             let r = rect(coord)
+            if tile.state == .off {
+                TileBandDrawing.draw(in: context, rect: r, color: base, dash: offDash)
+                var cross = Path()
+                cross.move(to: CGPoint(x: r.minX, y: r.minY))
+                cross.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+                cross.move(to: CGPoint(x: r.maxX, y: r.minY))
+                cross.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+                context.stroke(cross, with: .color(off.opacity(0.6)), lineWidth: 1)
+                continue
+            }
             TileBandDrawing.draw(in: context, rect: r, color: base,
                                  dash: tile.otherTool ? otherToolDash : [])
             if tile.state == .meshLowRes, r.width > 24 {

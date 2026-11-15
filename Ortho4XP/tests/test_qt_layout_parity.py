@@ -902,7 +902,7 @@ def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
     kinds = key[key.index("static func buildItems"):key.index("static func flyItems")]
     swift_kinds = re.findall(r'present\.insert\("(\w+)"\)', kinds)
     python_kinds = [QTLEGEND.WORLD_FULL, QTLEGEND.WORLD_MESH, QTLEGEND.WORLD_DRAPE,
-                    QTLEGEND.WORLD_PLACEHOLDER,
+                    QTLEGEND.WORLD_PLACEHOLDER, QTLEGEND.WORLD_OFF,
                     QTLEGEND.WORLD_OTHER_TOOL, QTLEGEND.STALE, QTLEGEND.CUSTOM_PATCH]
     assert swift_kinds == python_kinds
     assert set(python_kinds) <= set(KEYTEXT.SHORT)
@@ -1154,6 +1154,45 @@ def test_the_package_actions_have_one_home_in_each_app(window):
     assert "&File" in [getattr(o, "title", lambda: "")() for o in owners]
     menu = QTTILEMENU.tile_menu(window, 30, 31, "", export_package=lambda: None)
     assert menu.actions()[-1].text() == QTPKG.EXPORT_TITLE
+
+
+#: "Use XPTerrainBuilder here" (#2100, owner 2026-11-15T19:19Z): one home
+#: in each app, the map's tile menu, after "Show in Finder" and before
+#: "Export Package…": (Swift file, the item's marker, the export's marker).
+TILE_USE = ("TileContextMenu.swift", "O4WorldStateText.useHere",
+            "Self.exportPackageTitle")
+
+
+def test_both_tile_menus_offer_use_xpterrainbuilder_here(window):
+    """#2100: the tile menu's checkable "Use XPTerrainBuilder here", the
+    same words (``O4WorldStateText.useHere`` / ``USE_HERE``) and place in
+    both apps, offered by both apps' MapCanvasView / window."""
+    import O4_Qt_Tile_Menu as QTTILEMENU
+    import O4_World_State_Text as WORLD_TEXT
+
+    swift_file, marker, export = TILE_USE
+    mac = (SWIFT / swift_file).read_text(encoding="utf-8")
+    body = mac[mac.index("init(coord:"):]
+    assert body.index(TileRevealMarker) < body.index(marker) < body.index(export)
+    assert "useHere: buildModel.useHereItem(coord)" in (
+        SWIFT / "MapCanvasView.swift").read_text(encoding="utf-8")
+    calls = []
+    menu = QTTILEMENU.tile_menu(window, 30, 31, "", export_package=lambda: None,
+                                use_here=(False, calls.append))
+    texts = [a.text() for a in menu.actions()]
+    use = menu.actions()[texts.index(WORLD_TEXT.USE_HERE)]
+    assert texts.index(WORLD_TEXT.USE_HERE) == len(texts) - 2
+    assert use.isCheckable() and not use.isChecked()
+    use.trigger()
+    assert calls == [True]
+    assert "use_here=" in inspect.getsource(GUI.MainWindow._tile_menu)
+    plain = QTTILEMENU.tile_menu(window, 30, 31, "")
+    assert WORLD_TEXT.USE_HERE not in [a.text() for a in plain.actions()]
+
+
+#: The Mac menu's "Show in Finder" item, which "Use XPTerrainBuilder here"
+#: follows.
+TileRevealMarker = "Self.revealTitle"
 
 
 def test_both_pack_rows_show_the_same_actions_in_order():

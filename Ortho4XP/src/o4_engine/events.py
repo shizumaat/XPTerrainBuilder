@@ -245,6 +245,7 @@ CAPABILITIES: tuple = (
     "imagery_core_rows",            # 2026-11-13, #2039 ImageryCoresProgress + imagery_cores_stop
     "patch_view_lane",              # 2026-11-13, #2061 view lane, patch_staleness
     "pack_adjust_edit",             # 2026-11-15, pack row Adjust… (pack_adjust adjust/change)
+    "world_tile_use",               # 2026-11-15, #2100 tile menu "Use XPTerrainBuilder here"
 )
 
 

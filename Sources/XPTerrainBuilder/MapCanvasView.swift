@@ -109,7 +109,8 @@ struct MapCanvasView: View {
                                                let tiles = buildModel.selected.contains(coord)
                                                    ? Array(buildModel.selected) : [coord]
                                                TilePackageModel.shared.startExport(tiles, build: buildModel)
-                                           })
+                                           },
+                                           useHere: buildModel.useHereItem(coord))
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }

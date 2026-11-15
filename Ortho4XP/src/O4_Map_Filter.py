@@ -15,8 +15,9 @@ pack draws it full, as a mesh whose imagery streams, or as a
 placeholder, when it is one of our built tiles the World pack does not
 list (#2031), and for other installed ortho packages' outlines; Drape
 when the World pack drapes it; Favorites when it is a built tile marked
-Favorite (``TileInfo.pinned``, #2033).  A tile draws when ANY of its
-items is on.
+Favorite (``TileInfo.pinned``, #2033); Turned off when the user turned
+XPTerrainBuilder off on it (#2100, World state ``off``).  A tile draws
+when ANY of its items is on.
 
 Only the items turned OFF are stored, so an item a later version adds
 starts on.
@@ -39,7 +40,7 @@ SECTIONS = (
     ("Airports", (("icao", "ICAO"), ("small", "Small"),
                   ("custom", "Custom Scenery"), ("global", "Global"))),
     ("Ortho Tiles", (("favorites", "Favorites"), ("full", "Full"),
-                     ("drape", "Drape"))),
+                     ("drape", "Drape"), ("off", "Turned off"))),
 )
 KEYS = tuple(key for _header, items in SECTIONS for key, _label in items)
 
@@ -87,6 +88,8 @@ def _tile_item(state: Optional[str]) -> Optional[str]:
         return "full"
     if state == WS.DRAPE:
         return "drape"
+    if state == WS.OFF:
+        return "off"
     return None
 
 

@@ -14,12 +14,13 @@ import SceneryKit
 /// Ortho Tiles — Full (the World pack's full, mesh and placeholder tiles,
 /// a built tile the World pack does not list, #2031, and other installed
 /// ortho packages), Drape (the World pack's drapes), Favorites (a built
-/// tile marked Favorite, #2033). A tile draws when ANY of its items is on.
+/// tile marked Favorite, #2033), Turned off (a tile the user turned
+/// XPTerrainBuilder off on, #2100). A tile draws when ANY of its items is on.
 ///
 /// Only the items turned OFF are stored, so a later item starts on.
 enum MapFilterItem: String, CaseIterable {
     case icao, small, custom, global
-    case favorites, full, drape
+    case favorites, full, drape, off
 
     var label: String {
         switch self {
@@ -30,13 +31,14 @@ enum MapFilterItem: String, CaseIterable {
         case .favorites: return "Favorites"
         case .full: return "Full"
         case .drape: return "Drape"
+        case .off: return "Turned off"
         }
     }
 
     /// The menu's sections, top to bottom; the headers are not selectable.
     static let sections: [(header: String, items: [MapFilterItem])] = [
         ("Airports", [.icao, .small, .custom, .global]),
-        ("Ortho Tiles", [.favorites, .full, .drape]),
+        ("Ortho Tiles", [.favorites, .full, .drape, .off]),
     ]
 }
 
@@ -71,6 +73,7 @@ struct MapFilter: Equatable {
         switch state {
         case nil, .full, .meshLowRes, .placeholder: return !hidden.contains(.full)
         case .drape: return !hidden.contains(.drape)
+        case .off: return !hidden.contains(.off)
         case .nothing: return false
         }
     }
@@ -80,7 +83,7 @@ struct MapFilter: Equatable {
 
     /// Any Ortho item on (the map key's build kinds).
     var showsAnyTile: Bool {
-        !hidden.isSuperset(of: [.favorites, .full, .drape])
+        !hidden.isSuperset(of: [.favorites, .full, .drape, .off])
     }
 }
 

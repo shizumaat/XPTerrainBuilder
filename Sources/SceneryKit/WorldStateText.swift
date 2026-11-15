@@ -11,6 +11,8 @@ public enum O4WorldStateText {
     public static let legendMesh = "Mesh only: imagery sharpens in flight"
     public static let legendDrape = "Photo drape on X-Plane's mesh"
     public static let legendPlaceholder = "Placeholder: built or draped in flight"
+    /// A tile the user turned XPTerrainBuilder off on (#2100): crossed out.
+    public static let legendOff = "Crossed out: XPTerrainBuilder turned off, X-Plane's own scenery"
     public static let legendOtherTool = "Dotted: a tile another tool built"
     /// The orange band (#1229) the owner asked about (2026-11-12, "gold").
     public static let legendCustomPatch = "Orange band: custom airport patch, no auto patch"
@@ -21,6 +23,7 @@ public enum O4WorldStateText {
         "full": "Full",
         "drape": "Drape",
         "placeholder": "Placeholder",
+        "off": "Off",
     ]
     public static let meshWords = "Mesh, {percent}% sharp"
     public static let originWords: [String: String] = [
@@ -48,6 +51,7 @@ public enum O4WorldStateText {
     ]
     public static let paneMesh = "mesh, {percent}% sharp"
     public static let panePlaceholder = "Placeholder in the World pack: not built yet"
+    public static let paneOff = "XPTerrainBuilder is off here: X-Plane shows its own scenery (the built tile is kept)"
     /// The tile title's suffix where the Tiles folder holds no build but
     /// the World pack holds the tile (in place of "(not built)").
     public static let titleInWorld = "(in the World pack)"
@@ -58,6 +62,28 @@ public enum O4WorldStateText {
     public static let removeConfirm = "Remove"
     public static let removed = "Tile {tile} is a placeholder again; its package: {package}"
     public static let removedNoPackage = "Tile {tile} is a placeholder again; no package was written: {why}"
+
+    // The map's tile menu: "Use XPTerrainBuilder here" on or off (#2100,
+    // engine `world_tile_use`; the note after each, by its reply's state).
+    public static let useHere = "Use XPTerrainBuilder here"
+    public static let useNotes: [String: String] = [
+        "on": "XPTerrainBuilder is on again for tile {tile}.",
+        "off": "XPTerrainBuilder is off for tile {tile}: X-Plane shows its own scenery there.",
+        "turning_off": "Tile {tile} turns off once X-Plane lets go of it (fly away or quit X-Plane).",
+        "turning_on": "Tile {tile} turns on once X-Plane lets go of it.",
+    ]
+
+    /// Does the tile menu offer "Use XPTerrainBuilder here" (the World
+    /// pack holds the tile: built, a placeholder or off)? Qt: `use_offered`.
+    public static func useOffered(_ world: O4WorldTile?) -> Bool {
+        guard let world else { return false }
+        return world.state != .nothing
+    }
+
+    /// Is the menu item checked (not turned off)? Qt: `use_on`.
+    public static func useOn(_ world: O4WorldTile?) -> Bool {
+        world?.state != .off
+    }
 
     /// Does the World pack hold a real tile (not a placeholder) here?
     /// (Qt: `O4_World_State_Text.built_in_world`.)
@@ -80,6 +106,8 @@ public enum O4WorldStateText {
                                                   with: paneWhat[world.state.rawValue] ?? "")
         case .placeholder:
             return panePlaceholder
+        case .off:
+            return paneOff
         case .nothing:
             return ""
         }
@@ -138,7 +166,7 @@ public struct O4WorldTile: Sendable, Equatable, Hashable, Decodable {
     public enum State: String, Sendable, CaseIterable, Decodable {
         case full
         case meshLowRes = "mesh_lowres"
-        case drape, placeholder, nothing
+        case drape, placeholder, off, nothing
     }
 
     public let state: State

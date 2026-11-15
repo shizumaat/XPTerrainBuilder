@@ -506,6 +506,9 @@ class _Runner:
                 WORLD.write_log({"world_job_error": repr(error)[:300]})
             if now - status_at >= STATUS_EVERY_S:
                 status_at = now
+                from . import world_tile_use as USE
+                with contextlib.suppress(Exception):    # logged inside
+                    USE.settle(self.scenery_dir)        # #2100
                 with contextlib.suppress(Exception):
                     status = self.job.status(now)
                     status["here"] = describe_here(status["here"],

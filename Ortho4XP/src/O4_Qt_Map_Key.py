@@ -32,7 +32,8 @@ def item_color(item: str) -> QColor | None:
         return color
     color = {
         "full": QTWORLD.FULL_COLOR, "mesh": QTWORLD.MESH_COLOR,
-        "drape": QTWORLD.DRAPE_COLOR, "building": QTLEGEND.BUILDING_COLOR,
+        "drape": QTWORLD.DRAPE_COLOR, "off": QTWORLD.OFF_COLOR,
+        "building": QTLEGEND.BUILDING_COLOR,
         "other_tool": _OTHER_TOOL, "stale": QTLEGEND.STALE_COLOR,
         "custom": QTLEGEND.CUSTOM_PATCH_COLOR,
     }.get(item)
@@ -51,6 +52,8 @@ def _item_pen(item: str) -> QPen | None:
         pen.setDashPattern([2, 1])
     elif item == "other_tool":
         pen.setDashPattern([1, 1.5])
+    elif item == "off":
+        pen.setDashPattern([3, 2])
     return pen
 
 

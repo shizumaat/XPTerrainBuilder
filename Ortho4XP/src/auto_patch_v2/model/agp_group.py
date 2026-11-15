@@ -20,7 +20,8 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-__all__ = ["AGP_GROUP_PREFIX", "AgpMember", "AgpJoin", "AgpGroup", "DeckJoin", "group_of_input"]
+__all__ = ["AGP_GROUP_PREFIX", "AgpMember", "AgpJoin", "AgpGroup", "AgpPlate", "DeckJoin",
+           "group_of_input"]
 
 #: a group id, and the ``Source.inputs`` tag of every row its geometry mints
 AGP_GROUP_PREFIX = "agp:"
@@ -134,3 +135,36 @@ class DeckJoin:
         return {"stack": self.stack, "object": self.object_id, "end": self.side,
                 "member": self.member, "y_floor": self.y_floor, "top": self.top,
                 "mid": [self.mid_ll[0], self.mid_ll[1]], "delta": round(float(delta), 4)}
+
+
+@_dc.dataclass(frozen=True)
+class AgpPlate:
+    """SPEC 2090 C1: one connected part of a FOLLOWER's ground floors (its
+    up-facing static floors within ``[agp] ground_band_m`` of its datum):
+    ``ring`` / ``holes`` its plan in the frame, ``y`` the floors' plan-area
+    median height over the datum, ``level`` ``L = zero_pred + y -
+    deck_flush_m`` (the stage-2 datum moves its rows by the group's delta),
+    ``area_m2``, ``dem_off_m`` the median ``|L - DEM|`` over it and ``built``
+    (False: smaller than ``floor_min_area_m2`` or further than
+    ``plate_max_off_m`` from the DEM — ``why`` says which)."""
+
+    group: str
+    member: str
+    k: int
+    ring: tuple[tuple[float, float], ...]
+    holes: tuple[tuple[tuple[float, float], ...], ...]
+    y: float
+    level: float
+    area_m2: float
+    dem_off_m: float
+    built: bool
+    why: str = ""
+
+    def census(self) -> dict:
+        return {"member": self.member, "k": self.k, "y": round(self.y, 3),
+                "L_pred": round(self.level, 3), "area_m2": round(self.area_m2, 1),
+                "dem_off_m": round(self.dem_off_m, 3), "built": self.built, "why": self.why}
+
+    def published(self, delta: float) -> dict:
+        """The sidecar's record: the census and the final level ``L``."""
+        return {**self.census(), "L": round(float(self.level) + float(delta), 3)}

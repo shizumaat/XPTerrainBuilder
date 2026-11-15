@@ -303,6 +303,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.geom",
+        "auto_patch_v2.geom.agp_plate",
         "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.capped_plane",
@@ -370,6 +371,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.agp_ground",
         "auto_patch_v2.airport.agp_group",
         "auto_patch_v2.airport.agp_pieces",
+        "auto_patch_v2.airport.agp_plates",
         "auto_patch_v2.airport.airside_deck_seat",
         "auto_patch_v2.airport.airside_group_seat",
         "auto_patch_v2.airport.anchor_rule",
@@ -568,6 +570,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.geom",
+        "auto_patch_v2.geom.agp_plate",
         "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.capped_plane",
@@ -630,6 +633,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.agp_group",
+        "auto_patch_v2.model.agp_plate",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
@@ -653,6 +657,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.wall_reach",
         "auto_patch_v2.model.walled_plate",
         "auto_patch_v2.planar",
+        "auto_patch_v2.planar.agp_ground",
         "auto_patch_v2.planar.apron_shelf",
         "auto_patch_v2.planar.arrangement_memo",
         "auto_patch_v2.planar.basin_author_ground",
@@ -1140,6 +1145,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.emit",
         "auto_patch_v2.emit.road_join",
         "auto_patch_v2.geom",
+        "auto_patch_v2.geom.agp_plate",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.centreline",
         "auto_patch_v2.geom.cluster_outline",
@@ -1188,6 +1194,8 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.units",
         "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
+        "auto_patch_v2.model.agp_group",
+        "auto_patch_v2.model.agp_plate",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
@@ -1367,6 +1375,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.constraints",
         "auto_patch_v2.constraints.agp_level",
+        "auto_patch_v2.constraints.agp_plate",
         "auto_patch_v2.constraints.airside_top",
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_shelf",
@@ -1439,6 +1448,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.yard_edge",
         "auto_patch_v2.constraints.zones",
         "auto_patch_v2.geom",
+        "auto_patch_v2.geom.agp_plate",
         "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.capped_plane",
@@ -1497,6 +1507,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.agp_group",
+        "auto_patch_v2.model.agp_plate",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
@@ -1610,6 +1621,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "basins": "structures",
     "object_floor": "object_floor",
     "deck_stack": "deck_stack",
+    "agp_plate": "agp_plate",
     "channels": "channel",
 }
 
@@ -1654,6 +1666,17 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.airport model.end_area model.islands model.map_memo model.platform
         model.threshold_datum
     """),
+    "agp_plate": _mods(_GENERATOR_CORE + """
+    model.deck_stack 
+        geom.agp_plate model.agp_plate model.deck_ends geom.end_line
+        geom.exact  
+        constraints.agp_plate constraints.contiguity constraints.edge_deck
+        constraints.edge_floor constraints.deck_lines
+        constraints.end_lip constraints.geometry
+        constraints.precedence constraints.roads constraints.strips geom.containment
+        model.airport model.end_area model.islands model.map_memo model.platform
+        model.threshold_datum
+    """),
     "eat": _mods(_GENERATOR_CORE + """
         geom.runway_contact
         geom.exact
@@ -1676,6 +1699,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.stage_one
 """),
     "fill_bank": _mods(_GENERATOR_CORE + """
+    geom.agp_plate
     model.deck_stack
         geom.deck_ground
         constraints.fill_bank model.airport
@@ -2006,6 +2030,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    constraints.agp_plate geom.agp_plate model.agp_plate
     constraints.agp_level law.agp_schema model.agp_group
     model.deck_stack
     airport.hanging_objects airport.object_cut airport.split_level airport.wall_geometry
@@ -2206,7 +2231,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
-    airport.access_road
+    airport.access_road airport.agp_plates geom.agp_plate model.agp_plate planar.agp_ground
     airport.agp_deck_join
     airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
     constraints.agp_level law.agp_schema model.agp_group
@@ -2376,7 +2401,7 @@ CODE_MODULES["solve"] = _mods("""
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
-    airport.access_road
+    airport.access_road airport.agp_plates constraints.agp_plate geom.agp_plate model.agp_plate planar.agp_ground
     airport.agp_deck_join
     airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
     constraints.agp_level law.agp_schema model.agp_group
@@ -2565,6 +2590,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["emit"] = _mods("""
+    geom.agp_plate model.agp_plate
     constraints.agp_level law.agp_schema model.agp_group
     model.deck_stack
     airport.facade airport.line_solidity classify.edge_line_mint
@@ -2692,6 +2718,7 @@ CODE_MODULES["emit"] = _mods("""
     model.free_bridge
 """)
 CODE_MODULES["verify"] = _mods("""
+    geom.agp_plate
     constraints.agp_level law.agp_schema model.agp_group
     geom.deck_ground model.deck_stack
     airport.split_level

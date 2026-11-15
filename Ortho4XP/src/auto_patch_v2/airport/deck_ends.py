@@ -50,6 +50,12 @@ def deck_end_seeds(pm, law, airport, stacks: "dict[int, str] | None" = None
     for v, (z, s_id, *_r) in access_road_vertices(pm, law, airport).items():
         if v not in out:
             out[v], sid[v] = (z, step), s_id
+    # #2090 C3 P2: an at-grade road inside an AGP plate, at the plate's level
+    # (no slab beyond: no hold); the seed names its group (B8)
+    from ..model.agp_plate import plate_road_levels
+    for v, (z, gid) in plate_road_levels(pm, law, airport).items():
+        if v not in out:
+            out[v], sid[v] = (z, step), gid
     for v, z in _crossing_vertices(pm, law, airport).items():
         out.setdefault(v, (z, 0.0))             # #2065 A3 rule 6: an at-grade crossing
     return out

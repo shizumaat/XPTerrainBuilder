@@ -94,6 +94,9 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     # tied to the stations by the deck's span, sank KIAH's taxiway bridge
     # obj24551 1.8 m toward the road under it
     decked = _deck_ground_vertices(planar, is_ground)
+    # #2090 C3a: an AGP plate's ground stands at its floor (P1), never pulled
+    # to the DEM; its bank keeps the datum
+    decked |= _agp_plate_vertices(planar)
     out: set[int] = set()
     for fid in outer:
         f = planar.faces[fid]
@@ -107,6 +110,14 @@ def ground_datum_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     out.update(coverage_edge_collar_vertices(planar))
     out.update(riser_outer_vertices(planar))
     return frozenset(out)
+
+
+def _agp_plate_vertices(planar: PlanarMap) -> set[int]:
+    """#2090 C3a: the vertices of an AGP plate piece (``agp_ground:...:plate#k``)."""
+    from ..model.planar import is_agp_bank_ref, is_agp_ground_ref
+    return {v for f in planar.faces.values()
+            if is_agp_ground_ref(f.ref) and not is_agp_bank_ref(f.ref)
+            for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
 
 
 def _deck_ground_vertices(planar: PlanarMap, ground_fids: _t.AbstractSet[int]) -> set[int]:

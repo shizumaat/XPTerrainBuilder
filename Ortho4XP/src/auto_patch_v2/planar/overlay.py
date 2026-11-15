@@ -55,8 +55,10 @@ from .shore import pack_shore_walls
 from .zones import shore_declarations, shore_region, shore_wedge_m, zone_regions
 from .fill_bank import fill_bank_pieces
 from .stack_ground import bridge_corridor_lines, deck_end_road_zone, stack_ground_pieces
+from .agp_ground import agp_ground_pieces
 from .ground_chords import road_ground_densifier
-from ..model.planar import ROAD_ROLES, is_stack_apron_ref, is_stack_ground_ref
+from ..model.planar import (ROAD_ROLES, is_agp_ground_ref, is_stack_apron_ref,
+                            is_stack_ground_ref)
 from ..airport.old_dem_fill import fill_model_of
 
 __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_bands",
@@ -389,6 +391,28 @@ def build_arrangement(airport: Airport, classification: Classification,
             print(f"    [stack-ground] {sum(1 for r in regions if is_stack_ground_ref(r.ref))} "
                   f"piece(s) ({time.perf_counter() - _t_sg:.2f} s)"
                   + "".join(f"; {n}" for n in _sg_notes))
+        # #2090 C2: an AGP follower's ground floor (its plates and their
+        # banks) is graded ground of its own, after the stack's (it yields)
+        if getattr(airport, "agp_groups", ()):
+            _t_ag = time.perf_counter()
+            _ag_notes: list[str] = []
+            for ref, g in agp_ground_pieces(
+                    airport, [r.polygon for r in regions if r.source == "zone"],
+                    [r.polygon for r in regions if r.source != "zone"]
+                    + [Polygon(c.ring, c.holes) for c in ribbon_cells]
+                    + [Polygon(k) for k in classification.keepouts if len(k) >= 3],
+                    law.tables.zones.adjacent_ground.groundside_cutback_m + snap_margin_m(law),
+                    2.0 * input_quantum_m(law), float(law.tables.emit.design.edge_grid_m),
+                    law=law, airside=air_cells,
+                    pads=[(r.ref, r.polygon) for r in regions if is_rigid_role(law, r.role)],
+                    ribbons=[Polygon(c.ring, c.holes) for c in ribbon_cells],
+                    notes=_ag_notes):
+                regions.append(Region("graded_strip", ref, g, None, None,
+                                      role_side(law, "graded_strip"), "zone"))
+            _n_ag = sum(1 for r in regions if is_agp_ground_ref(r.ref))
+            if _n_ag or _ag_notes:
+                print(f"    [agp-ground] {_n_ag} piece(s) ({time.perf_counter() - _t_ag:.2f} s)"
+                      + "".join(f"; {n}" for n in _ag_notes))
 
         # §16g (10) (12) (1) THE AIRSIDE CELLS ARE NODED BEFORE ANY PAD EXISTS
         # (Fable 2026-09-16; RULINGS 2026-09-16b), and this SPLIT of the line

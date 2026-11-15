@@ -339,6 +339,14 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     return out, named
 
 
+def _only_agp_ground(pm: PlanarMap, law: Law, v: int) -> bool:
+    """#2090 C3b: every airside-side face at ``v`` is an AGP plate or bank."""
+    from ..model.planar import is_agp_ground_ref
+    air = [pm.faces[f] for f in pm.vertices[v].incident_faces
+           if f in pm.faces and role_side(law, pm.faces[f].role) == "airside"]
+    return bool(air) and all(is_agp_ground_ref(f.ref) for f in air)
+
+
 def _contacts(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law
               ) -> dict[int, float]:
     """THE MOUTHS: every vertex of a road face whose senior role is an
@@ -358,6 +366,8 @@ def _contacts(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law
                 roles = pm.roles_at(v)
                 if not any(role_side(law, r) == "airside" for r in roles):
                     continue
+                if _only_agp_ground(pm, law, v):
+                    continue                    # #2090 C3b: never a road contact
                 z = _airside_level(pm, v)
                 if z is not None:
                     out[v] = z
@@ -2057,14 +2067,36 @@ def _ramp_groups(pm: PlanarMap, airport: Airport, deck_ramp: _t.Mapping[int, tup
     governed vertex on a ramp whose seed is a deck end of a stack riding an
     AGP group's datum (``DeckStack.datum_group``) — the stage-2 datum
     rewrite moves that vertex's target (``constraints/agp_level``)."""
+    from ..model.agp_group import AGP_GROUP_PREFIX
     from ..model.deck_stack import live_stacks
     gid = {str(st.id): str(st.datum_group) for st in
            live_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()), pm)
            if getattr(st, "datum_group", "")}
+    # a plate's seed (part C) names its group itself
+    gid.update({s: s for s in set(seed_stack.values()) if str(s).startswith(AGP_GROUP_PREFIX)})
     if not gid:
         return {}
     return {int(v): (gid[seed_stack[m]], float(fl)) for v, (m, fl) in deck_ramp.items()
             if seed_stack.get(m) in gid}
+
+
+def _plate_ramp_under_deck(pm: PlanarMap, airport: Airport, deck_ramp, seed_stack,
+                           targets) -> list[tuple[int, float]]:
+    """#2090 C3c, a STOP: ``[(vertex, height over its floor)]`` of every
+    vertex under a joined or riding deck's ring that a PLATE's ramp stands
+    0.05 m or more over its floor at (the road under the bridge keeps its
+    floor, owner Q1 (a))."""
+    from ..geom.agp_plate import under_rings
+    from ..model.agp_group import AGP_GROUP_PREFIX
+    from ..model.agp_plate import riding_rings
+    vs = [(v, pm.vertices[v].xy) for v, (m, _fl) in deck_ramp.items()
+          if str(seed_stack.get(m, "")).startswith(AGP_GROUP_PREFIX)]
+    if not vs:
+        return []
+    under = under_rings(vs, riding_rings(pm, airport))
+    return sorted((int(v), round(float(targets[v]) - float(deck_ramp[v][1]), 3))
+                  for v in under if v in targets
+                  and float(targets[v]) - float(deck_ramp[v][1]) >= 0.05)
 
 
 def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
@@ -2095,6 +2127,9 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                            deck_ends=deck_end_seeds(pm, law, airport, seed_stack))
     deck_ramp = tg.report.pop("_deck_ramp", {})
     ramp_group = _ramp_groups(pm, airport, deck_ramp, seed_stack)
+    under = _plate_ramp_under_deck(pm, airport, deck_ramp, seed_stack, tg.targets)
+    if report is not None:
+        report["agp_ramp_under_deck"] = under
     frame = tg.frame
     frep = tg.report.pop("_frame_report", {})
     frep.pop("_ways", None)            # the Way objects are not a report

@@ -45,7 +45,8 @@ __all__ = ["BEYOND", "NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Fa
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
            "KERB_SUFFIX", "kerb_ref",
            "FILL_BANK_PREFIX", "is_fill_bank_ref", "STACK_GROUND_PREFIX",
-           "is_stack_ground_ref", "is_stack_apron_ref",
+           "is_stack_ground_ref", "is_stack_apron_ref", "AGP_GROUND_PREFIX",
+           "is_agp_ground_ref", "is_agp_bank_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
@@ -155,6 +156,23 @@ STACK_GROUND_PREFIX = "stack_ground:"
 def is_stack_ground_ref(ref: object) -> bool:
     """Is this face a piece of a deck stack's ground?"""
     return str(ref or "").startswith(STACK_GROUND_PREFIX)
+
+
+#: #2090 C2 (spec ``2090-agp-group-groundside-spec.md``): the face ref of an
+#: AGP follower's ground — ``agp_ground:<group>:<row>:plate#k`` at its
+#: ground floor's level and ``:bank#k`` down to the lidar
+#: (``planar/agp_ground``) — graded ground, no zone class
+AGP_GROUND_PREFIX = "agp_ground:"
+
+
+def is_agp_ground_ref(ref: object) -> bool:
+    """Is this face a piece of an AGP follower's ground (plate or bank)?"""
+    return str(ref or "").startswith(AGP_GROUND_PREFIX)
+
+
+def is_agp_bank_ref(ref: object) -> bool:
+    """Is this face an AGP plate's bank (``agp_ground:...:bank#k``)?"""
+    return is_agp_ground_ref(ref) and ":bank#" in str(ref)
 
 
 def is_stack_apron_ref(ref: object) -> bool:

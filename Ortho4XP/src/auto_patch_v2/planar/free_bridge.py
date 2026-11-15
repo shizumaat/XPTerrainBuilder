@@ -291,6 +291,9 @@ def _with_agp_groups(airport, law) -> tuple[_t.Any, list[str]]:
     from ..airport.agp_group import attach_agp_groups, log_line
     t0, notes = time.perf_counter(), []
     airport = attach_agp_groups(airport, law, notes)
+    # #2090 C1: each governed group's plates (its followers' ground floors)
+    from ..airport.agp_plates import with_plates
+    airport = with_plates(airport, law, notes)
     return airport, [log_line("", airport.agp_groups, time.perf_counter() - t0)
                      .split("] ", 1)[-1]] + notes
 

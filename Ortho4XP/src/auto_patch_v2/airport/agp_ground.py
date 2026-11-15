@@ -168,10 +168,11 @@ def _piece_floors(path: str, memo: dict, flat: float = _LAW.flat) -> np.ndarray:
 
 
 def _connector_floors(m: _Member, lat0: float, lon0: float, memo: dict,
-                      law: AgpLaw = _LAW) -> np.ndarray:
+                      law: AgpLaw = _LAW, band: "float | None" = None) -> np.ndarray:
     """``(k, 3, 3)`` — the member's connector-floor triangles, corners
     ``(east, north, y)`` in the frame at ``(lat0, lon0)``, ``y`` over the
-    member's datum."""
+    member's datum.  Given ``band`` (#2090 C1) its GROUND floors instead:
+    every corner within ``band`` of the datum."""
     from .anchor_rule import _m_per_deg
     ml, mo = _m_per_deg(lat0)
     rows = []
@@ -180,7 +181,8 @@ def _connector_floors(m: _Member, lat0: float, lon0: float, memo: dict,
         if not f.shape[0]:
             continue
         y = f[:, :, 1] + pc.height
-        keep = y.min(axis=1) >= float(law.connector_floor_m)
+        keep = (y.min(axis=1) >= float(law.connector_floor_m) if band is None
+                else np.abs(y).max(axis=1) <= float(band))
         if not keep.any():
             continue
         h = math.radians(pc.heading_deg)

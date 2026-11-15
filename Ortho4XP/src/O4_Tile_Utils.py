@@ -7,6 +7,7 @@ from collections import defaultdict
 import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_UI_Utils as UI
 import O4_DDS_Encode as ENC
+import O4_Cliff_Synth as CLIFFSYNTH
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
 import O4_Rebuild_Cache as REBUILD
@@ -620,6 +621,10 @@ def build_tile(tile):
         )
         UI.exit_message_and_bottom_line("", code="imagery_download_failed")
         return 0
+    # Cliff faces (#2096): their textures are made from the converted
+    # photos, so after the conversion and before the missing-texture guard.
+    if getattr(tile, "cliff_plan", None):
+        CLIFFSYNTH.synthesize(tile)
     # #901: X-Plane stops on a terrain file whose texture is missing.  The
     # guard judges a build that was asked to MAKE its textures; with
     # skip_downloads / skip_converts the person (or the release smoke)

@@ -446,7 +446,10 @@ def with_kept(m: Member, rec: _t.Mapping[str, _t.Any], counts: dict[str, int],
     graded route ends' midpoints, ``(lat, lon)``) and the predicted seat
     (``rec["zero"]`` -> ``anchor_zero``): the seat is today's reader with
     the graded ends left out (``bridge_approach.approach_seat(graded=)``),
-    and the predicted seat itself where every end was graded."""
+    and the predicted seat itself where every end was graded.  #2090 B6: an
+    end JOINED to an AGP follower's floor (``rec["joined"]``) is flagged as
+    a graded one is — its level is the published zero, never 22p's road
+    under the span."""
     if m.deck_ring is None:
         return m
     if m.deck_datum_z is not None and not m.plate_kind:
@@ -458,7 +461,8 @@ def with_kept(m: Member, rec: _t.Mapping[str, _t.Any], counts: dict[str, int],
                                        f"kept bridge deck over a graded face "
                                        f"{float(m.deck_datum_z):.2f} (datum cleared, #2090)"))
     ends = tuple(m.deck_ends or ())
-    graded = [tuple(map(float, q)) for q in rec.get("graded") or ()]
+    graded = [tuple(map(float, q)) for q in (*(rec.get("graded") or ()),
+                                             *(rec.get("joined") or ()))]
     route = [tuple(map(float, q)) for q in rec.get("route_mids") or ()]
     if len(ends) < 2 or not graded or len(route) < 2:
         return m

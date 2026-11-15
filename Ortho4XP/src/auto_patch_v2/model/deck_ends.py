@@ -11,7 +11,7 @@ In ``model`` (it reads only ``geom``, ``law`` and ``model``) so both the
 """
 from __future__ import annotations
 
-__all__ = ["end_road_vertices"]
+__all__ = ["end_road_vertices", "access_road_vertices", "way_of_ref"]
 
 
 def _road_vertices(pm, law) -> list[int]:
@@ -24,6 +24,77 @@ def _road_vertices(pm, law) -> list[int]:
         if any(r in ROAD_ROLES for r in roles) and not any(is_structure_role(law, r)
                                                            for r in roles):
             out.append(v)
+    return out
+
+
+def way_of_ref(ref: str) -> "int | None":
+    """The mapped way id a road ribbon face's ref names (``<class>:<way>``)."""
+    tail = str(ref).split("#", 1)[0].rsplit(":", 1)[-1]
+    try:
+        return int(tail)
+    except ValueError:
+        return None
+
+
+def access_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str, float]]:
+    """#2090 B4 THE ACCESS ROAD BETWEEN SIBLING DECK ENDS: the kept stacks
+    whose deck JOINS an AGP follower's floor (``DeckStack.joins``) and whose
+    other end is GRADED on an at-grade road passing its line
+    (``StackEnd.access``); ends whose stacks join the SAME floor (same
+    member, same ``y``) are siblings, taken in order along the line through
+    them.  Every road vertex of their access ways standing between two
+    consecutive siblings (its projection on the segment between their end
+    lines' middles inside it, within the wider end line's half width plus
+    one ``[bridge] abutment_sample_step_m`` of it — the ribbon's far edge)
+    -> ``(the level on the line between the two ends' levels, the nearer
+    end's stack id, deck object id, which end, 0.0)`` — the shape of
+    :func:`end_road_vertices`, so R1 holds them and the road ramp is seeded
+    at them; the road's own ramp then runs from the outermost ends."""
+    from .deck_stack import live_stacks
+    from .planar import ROAD_ROLES
+    stacks = [st for st in live_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()), pm)
+              if getattr(st, "datum_group", "") and getattr(st, "joins", ())]
+    sib: dict[tuple[str, float], list] = {}
+    for st in stacks:
+        j = st.joins[0]
+        for e in st.graded_ends():
+            if e.access:
+                sib.setdefault((j.member, round(float(j.y_floor), 2)), []).append((st, e))
+    sib = {k: v for k, v in sib.items() if len(v) >= 2}
+    if not sib:
+        return {}
+    ways = {int(w) for ends in sib.values() for _st, e in ends for w in e.access}
+    verts: set[int] = set()
+    for f in pm.faces.values():
+        if f.role in ROAD_ROLES and way_of_ref(f.ref) in ways:
+            verts.update(pm.ring_vertices(f.ring))
+    out: dict[int, tuple[float, str, str, str, float]] = {}
+    reach = float(law.tables.structures.bridge.abutment_sample_step_m) if law is not None else 0.0
+    for ends in sib.values():
+        mids = [(sum(p[0] for p in e.stations) / len(e.stations),
+                 sum(p[1] for p in e.stations) / len(e.stations)) for _st, e in ends]
+        ax = (mids[-1][0] - mids[0][0], mids[-1][1] - mids[0][1])
+        order = sorted(range(len(ends)), key=lambda k: mids[k][0] * ax[0] + mids[k][1] * ax[1])
+        for k0, k1 in zip(order, order[1:], strict=False):
+            (s0, e0), (s1, e1) = ends[k0], ends[k1]
+            a, b = mids[k0], mids[k1]
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            ll = dx * dx + dy * dy
+            if ll <= 0.0:
+                continue
+            z0, z1 = float(s0.zero_z) + float(e0.top), float(s1.zero_z) + float(e1.top)
+            half = max(e0.half_width, e1.half_width) + reach
+            for v in sorted(verts):
+                x, y = pm.vertices[v].xy
+                t = ((x - a[0]) * dx + (y - a[1]) * dy) / ll
+                if not 0.0 < t < 1.0:
+                    continue
+                lat = abs((x - a[0]) * dy - (y - a[1]) * dx) / ll ** 0.5
+                if lat > half:
+                    continue
+                st, e = (s0, e0) if t < 0.5 else (s1, e1)
+                out.setdefault(v, (z0 + t * (z1 - z0), st.id, e.object_id,
+                                   f"{e.object_id}#0 end {e.side} access road", 0.0))
     return out
 
 

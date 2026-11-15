@@ -57,8 +57,9 @@ Lane F2 (capability ``flight_notices``):
 
 * ``flight_choose {flight?, tile, choice}`` -- ``tile`` ``[lat, lon]`` or
   ``+53-061``, ``choice`` ``keep`` (fly the existing mesh) or ``upgrade``
-  (a ``full`` build of ours replaces it; the adopted package stays for
-  Undo); remembered for the tile (``flight_adopted.ChoiceBook``).
+  (a ``full`` build of ours replaces it, over the old mesh in the tile's
+  own folder when we build there: not undoable, #2088); remembered for
+  the tile (``flight_adopted.ChoiceBook``).
   ``{"flight", "tile", "choice"}``.
 """
 

@@ -628,22 +628,29 @@ def revert(scenery_dir: str, names=None, *, work_dir: Optional[str] = None,
     tile made dynamic gets its link or its folder back
     (``world_retire.restore_tile``).  The on-demand copies stay (a later
     run reuses them).  Refused while X-Plane runs.  ``{"reverted":
-    [names], "gone": [names], "failed": [{"name", "problems"}]}``
-    (``gone``: dynamic local tiles Free space removed; they stay dynamic;
-    ``failed``: a name Custom Scenery already has, left converted)."""
+    [names], "gone": [names], "upgraded": [names], "failed": [{"name",
+    "problems"}]}`` (``gone``: dynamic local tiles Free space removed;
+    they stay dynamic; ``upgraded``: tiles our build overwrote in their
+    own folder, ``world_adopt_supersede.UNDO_GIVEN_UP`` -- they stay
+    ours, owner 2026-11-14T19:59Z; ``failed``: a name Custom Scenery
+    already has, left converted)."""
     if _xplane_running():
         raise ValueError("Quit X-Plane first: tiles leave the World pack "
                          "only while it is closed.")
+    from . import world_adopt_supersede as SUPERSEDE
     from . import world_commands as WORLD
     WORLD.refuse_foreign(scenery_dir)
     work = work_dir or work_dir_for(scenery_dir)
     journal = Journal(work)
     pack = WORLD.pack_dir(scenery_dir)
     wanted = set(names) if names else None
-    reverted, gone, failed = [], [], []
+    reverted, gone, upgraded, failed = [], [], [], []
     with active_run():
         for name, record in sorted(journal.records.items()):
             if wanted is not None and name not in wanted:
+                continue
+            if record.get(SUPERSEDE.UNDO_GIVEN_UP):
+                upgraded.append(name)
                 continue
             try:
                 back = _revert_one(scenery_dir, pack, name, record, index,
@@ -657,8 +664,9 @@ def revert(scenery_dir: str, names=None, *, work_dir: Optional[str] = None,
             else:
                 gone.append(name)
     WORLD.write_log({"migrate_revert": len(reverted), "gone": len(gone),
-                     "failed": len(failed)})
-    return {"reverted": reverted, "gone": gone, "failed": failed}
+                     "upgraded": len(upgraded), "failed": len(failed)})
+    return {"reverted": reverted, "gone": gone, "upgraded": upgraded,
+            "failed": failed}
 
 
 def _free_space(scenery_dir: str, names=None, *,
@@ -748,6 +756,10 @@ def summary(action: str, result: Dict[str, Any]) -> str:
         if result.get("gone"):
             text += (f" {len(result['gone']):,} dynamic tiles were removed by "
                      "Free space and stay dynamic.")
+        if result.get("upgraded"):
+            text += (f" {len(result['upgraded']):,} tiles upgraded to "
+                     "XPTerrainBuilder mesh stay as they are: an upgrade "
+                     "cannot be undone.")
         return text + _not_done(result, "Not put back")
     if action == "free_space":
         return (f"Removed {len(result['removed']):,} dynamic tiles from this "

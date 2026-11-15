@@ -96,7 +96,9 @@ CONFIRM_TEXT = ("Quit X-Plane first. Each tile folder on this Mac moves "
                 "later.")
 UNDO_TITLE = "Put every converted tile back?"
 UNDO_TEXT = ("Quit X-Plane first. Each tile folder moves back into Custom "
-             "Scenery, turned on, and the World pack gives the tile back.")
+             "Scenery, turned on, and the World pack gives the tile back. "
+             "A tile upgraded to XPTerrainBuilder mesh stays: an upgrade "
+             "cannot be undone.")
 NOTE_STYLE = "color: gray; font-size: 11px;"
 
 

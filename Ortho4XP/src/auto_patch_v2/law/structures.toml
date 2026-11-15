@@ -319,6 +319,13 @@ entrance_bank_max_m  = 15.0
 # arrangement leaves along a face's edge stand within it (ENGM Ham3: 0.0-0.5 m).
 entrance_airside_reach_m = 1.5
 face_front_m = 5.0                 # #2062 R3b C (owner 2026-11-15T04:08Z Q1: "expose the whole headwall the object models (trimmed at airside pavement) for face_front_m in front of it"): within this of an entrance face's mouth the ramp is as wide as the face's FRONT WALL (Portal.front_xy, airport/entrance_front), fitted laterally to stand clear of what stands beside the corridor (planar/front_band.fit_halves, R4 C′ + F); beyond it the opening's width.  MEASURED KLAX Underpass_1: opening 30.0 m, front 62.2 m
+# #2099 (owner 2026-11-15T16:07Z: "tunnel mouths made of multiple touching
+# pieces need to be treated as an object group"; airport/mouth_group): a wall
+# touching a mouth is one of its WINGS only where it runs out of the mouth no
+# farther than this (a wall of a cut, never a site's whole perimeter wall).
+# MEASURED CYYZ (GlobalArt): the seven wings of its three mouths run 14.6 -
+# 195.7 m out of their box; 250 m is the longest with a quarter's margin.
+wing_reach_max_m = 250.0
 
 [cutout]                            # RULINGS 2026-09-06b (1) + 2026-09-08a: every below-grade OBJECT's trench = floor + at-grade rim INSIDE the wall, NO wall band
 # The owner's law: the trench floor slightly OVERLAPS the object's inner

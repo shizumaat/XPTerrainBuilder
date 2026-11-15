@@ -400,6 +400,26 @@ def _portal_footprints(pm) -> dict[str, _t.Any]:
     return out
 
 
+def _mouth_wings(pm, law, airport, objects, plates, authored, excluded) -> tuple[dict, list]:
+    """#2099 (spec ``docs/specs/2099-mouth-groups.md`` §2): ``(wing plates,
+    wing records)`` -- each mouth group's wings (``airport/mouth_group``) seated
+    by the seat the mouth itself has: its plate (a hard-deck bridge's end
+    lines) or its whole-row record (a portal's floor, an entrance's face).
+    A row any other rule seats is no candidate (one authority per row)."""
+    from ..airport import mouth_group as _mg
+    from ..airport import terrain_shaped as _ts
+    taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
+    groups, notes = _mg.mouth_groups(getattr(airport, "partition", None), objects,
+                                     _mg.mouths_of(pm), _solid_cache(law), law, taken)
+    if groups or notes:
+        for line in _mg.log_lines(str(getattr(airport, "icao", "")), groups, notes):
+            print(line)
+    plated = [g for g in groups if g.mouth.object_id in plates]
+    rowed = [g for g in groups if g.mouth.object_id not in plates]
+    return (_mg.wing_plates(plated, plates),
+            _mg.wing_records(rowed, authored, _ts.PORTAL_SEAT))
+
+
 def _solid_cache(law):
     """A resource cache reading a frame's solids (the split-level reader's)."""
     from ..airport import frame_entry as _fe
@@ -488,6 +508,13 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
         authored += tuple(_ts.portal_frame_records(
             authored, objects, float(ob.cover_placement_tol_m), _portal_footprints(pm),
             _solid_cache(law), float(ob.bore_end_tolerance_m)))
+    plates = _plate_seats(pm, law, seats)
+    if objects:
+        # #2099: a mouth's WINGS ride the mouth's own seat at its floor
+        p_wings, r_wings = _mouth_wings(pm, law, airport, objects, plates, authored,
+                                        excluded | shelled | modelled)
+        plates.update(p_wings)
+        authored += tuple(r_wings)
     # ... written WHOLE at it, like a floor's frame: a plan split hands the
     # row to its bodies and drops the seat (``terrain_shaped.row_seats``)
     excluded |= {str(r["id"]) for r in authored if r.get("seat") == _ts.PORTAL_SEAT}
@@ -497,7 +524,7 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
                                          airport.frame.transformers()[1],
                                          float(law.tables.structures.bridge.free_end_ground_out_m)),
                        **_kept_published(airport, pm, agp_report)},
-        "tunnel_objects": _plate_seats(pm, law, seats),
+        "tunnel_objects": plates,
         # one authority per row (``terrain_shaped.row_seats``): a storey
         # shell's row takes its shell's seat alone
         "authored_seats": (tuple(r for r in authored if str(r.get("id")) not in shelled)

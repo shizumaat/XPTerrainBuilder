@@ -128,6 +128,16 @@ Predicted CYYZ: T wings zero 158.97 (8 m down), M wings 155.50 (1.4-2.1 m down),
 * `geom/foot_planes.floor_plane` / `ground_plane`: a NaN candidate emptied the band
   (`IndexError` at :63); NaN candidates are left out, none left -> `None`.
 
+* `airport/deck_signature._raster` (found on the closing tile): every face edge was sampled
+  with the LONGEST edge's sample count, all faces at once -- CYSN's 827k-face
+  `YSN_Fence_1.obj` held 13.2 GB in one pack worker, the #1980 memory guard stopped the
+  airport and with it the whole N43W080 tile. Now a chunk of faces at a time (the same
+  points, the same grid: 39 rasters byte-equal): 0.70 GB.
+* Registry gaps the closure twins named on test-534 (`airport/floor_rim`, `object_floor`,
+  `walled_pit`, `geom/shape_class` missing from the classify / road_profile / channels /
+  shapes / jetway_strip / constraints.assembly stage keys, the partition key and the object
+  stage key), keyed with `airport/mouth_group` (emit).
+
 ## 5. Not this round (listed residuals)
 * The cut along a wing: the ramp beyond the deck stays the road corridor's; the wing's foot
   profile (T: -1.1 at the box rising to +6.2 at 160 m out) is not a ramp witness yet.

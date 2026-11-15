@@ -207,6 +207,7 @@ _SHARED: tuple[str, ...] = (
     "O4_File_Lock",
     "O4_File_Names",
     "O4_Geo_Utils",
+    "O4_Hairline",
     "O4_Held_File",
     "O4_Http_Pushback",
     "O4_Land_Witness",

@@ -409,9 +409,9 @@ def _tile_water(tile):
 def _quay(tile, rec, rings, water, report: dict) -> list:
     """THE QUAY (R3, R3'): one zero footprint's rings less mapped water
     grown by ``terrain_fill.QUAY_M`` (``terrain_fill.quay_rings``, every
-    piece drawn; the hairline pre-flight's gaps from ``O4_Mesh_Utils``);
+    piece drawn; the hairline pre-flight's gaps from ``O4_Hairline``);
     ``water`` the tile's (:func:`_tile_water`); ``report`` its counts."""
-    import O4_Mesh_Utils as MESH
+    import O4_Hairline as MESH
     import shapely
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_fill as _tf

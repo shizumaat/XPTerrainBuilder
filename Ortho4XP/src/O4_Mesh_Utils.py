@@ -113,12 +113,13 @@ HAIRLINE_PARALLEL_DEG = None
 #: ("constrained segments under 10 mm 28 -> 0"), which also catches VMMC's
 #: 0.0124-0.0497 mm triples and leaves the centimetre-scale OSM segments
 #: every real tile carries.  An assumption, named as one.
-HAIRLINE_DEGENERATE_M = 0.010
 #: The identity spacing the law is written against — ``auto_patch_v2``'s
 #: ``emit.identity.min_distinct_spacing_m``, read from the law tables when
 #: they are importable and this constant otherwise (the mesh runs with no
 #: v2 law object in hand).
-HAIRLINE_SPACING_M = 0.5
+#: (both live in ``O4_Hairline`` so light callers skip the mesh.)
+from O4_Hairline import HAIRLINE_DEGENERATE_M, HAIRLINE_SPACING_M  # noqa: E402
+
 #: REFUSE a non-boundary pair whose shorter segment is at least this many
 #: times its own gap: the Steiner cascade Triangle would have to build.
 #: An ASSUMPTION calibrated on the two measured sightings, never a law —

@@ -400,10 +400,10 @@ def test_a_cached_raster_under_a_stale_negative_reads_ok(two_providers):
     INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, definitions, None)
     index_path = FNAMES.airport_inset_index(39, -107)
     import json
-    with open(index_path) as handle:
+    with open(index_path, encoding="utf-8") as handle:
         index = json.load(handle)
     index["KASE"]["LIDAR"] = INSETS.NO_COVERAGE
-    with open(index_path, "w") as handle:
+    with open(index_path, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(index, handle)
     plan["calls"].clear()
     index = INSETS.ensure_airport_insets(39, -107, {"KASE": BOX},

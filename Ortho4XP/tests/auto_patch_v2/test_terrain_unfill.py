@@ -177,7 +177,6 @@ def test_r2p_the_bake_keeps_the_plane_off_the_raster_near_water(monkeypatch):
     from auto_patch_v2.airport import terrain_model as TM
     from auto_patch_v2.geom.terrain_deck import CELL_M, DeckGrid
     from shapely.geometry import box
-    i, j = np.mgrid[0:9, 0:9]
     top = np.full((9, 9), 5.0)
     g = DeckGrid(-4.5 * CELL_M, -4.5 * CELL_M, top - 2.0, top)
     monkeypatch.setattr(TM, "plan_grid", lambda p: g)
@@ -188,7 +187,7 @@ def test_r2p_the_bake_keeps_the_plane_off_the_raster_near_water(monkeypatch):
     rec = {"id": "dsf:obj1", "resource": "s.obj", "elevation": 400.0,
            "cut": {"file": "s.obj", "lat": lat, "lon": lon, "heading": 0.0,
                    "plane": {"z": 420.0, "rings": [ring.tolist()]}}}
-    wx = np.array([300.0, 340.0]); wlo, _ = to_ll(wx, np.zeros(2))
+    wlo, _ = to_ll(np.array([300.0, 340.0]), np.zeros(2))
     water = box(wlo[0] - 13, 0.4, wlo[1] - 13, 0.6)                 # a river 40 m east
     monkeypatch.setattr(TCS, "_tile_water", lambda t: water)
     n = 2001

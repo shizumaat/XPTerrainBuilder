@@ -29,10 +29,18 @@ import O4_Default_Terrain_Map as DEFTER
 import O4_UI_Utils as UI
 
 __all__ = ["PLANES", "emit_library_overlays", "install_texture",
-           "region_cliff_textures"]
+           "region_cliff_textures", "scenery_dir"]
 
 #: Plane count of an overlay point on a projected terrain with a border.
 PLANES = 7
+
+
+def scenery_dir():
+    """The Custom Scenery folder set in the app (``custom_scenery_dir``):
+    with no ``custom_overlay_src``, the default DSF is read from the
+    ``Global Scenery`` beside it, as the overlay step does."""
+    import O4_Config_Utils as CFG
+    return getattr(CFG, "custom_scenery_dir", "") or ""
 
 
 def _triangle_terrains(terrain_map, lonlat):
@@ -60,7 +68,8 @@ def emit_library_overlays(tile, layout, tri_idx, lonlat, node_icoords,
     """Draw ``layout``'s triangles as overlay patches of the default
     landclass terrain; return the ``bTERT`` bytes of the terrains added
     (empty when the default Global Scenery DSF cannot be read)."""
-    terrain_map = DEFTER.DefaultTerrainMap.from_tile(tile.lat, tile.lon)
+    terrain_map = DEFTER.DefaultTerrainMap.from_tile(tile.lat, tile.lon,
+                                                     scenery_dir())
     if terrain_map is None:
         UI.lvprint(1, "WARNING: cliff_textures=xplane needs the default "
                       "Global Scenery DSF of this tile; no cliff overlay.")
@@ -164,7 +173,8 @@ def region_cliff_textures(tile, lonlat, region_tris):
     under most of its triangles (None when it has none); ``lonlat`` is
     every mesh triangle's (3, 2) lon, lat.  An empty list when the default
     DSF or the X-Plane install cannot be read."""
-    terrain_map = DEFTER.DefaultTerrainMap.from_tile(tile.lat, tile.lon)
+    terrain_map = DEFTER.DefaultTerrainMap.from_tile(tile.lat, tile.lon,
+                                                     scenery_dir())
     root = getattr(terrain_map, "_xplane_root", None)
     if terrain_map is None or not root:
         UI.lvprint(1, "WARNING: cliff_textures=xpface needs the default "

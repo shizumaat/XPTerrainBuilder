@@ -208,7 +208,7 @@ def test_xplane_arm_draws_the_default_terrain(monkeypatch):
             return True
 
     monkeypatch.setattr(DEFTER.DefaultTerrainMap, "from_tile",
-                        classmethod(lambda cls, lat, lon: Map()))
+                        classmethod(lambda cls, lat, lon, d="": Map()))
     monkeypatch.setattr(FACES, "CliffParams",
                         lambda **k: dataclasses.replace(LOOSE, **k))
     tile = type("Tile", (), {"lat": 38, "lon": 13, "mesh_zl": 18})
@@ -335,15 +335,15 @@ def test_xpface_is_the_default_and_the_old_default_is_raised():
 
 def test_tile_without_default_scenery_builds_as_off(monkeypatch, capsys):
     """No X-Plane default DSF for the tile: no band, one line, no error."""
-    import O4_Default_Terrain_Map as DEFTER
-    monkeypatch.setattr(DEFTER, "default_dsf_path", lambda lat, lon: None)
+    import O4_Overlay_Utils as OVL
+    monkeypatch.setattr(OVL, "source_dsf", lambda lat, lon, d: None)
     tile = type("Tile", (), {"lat": 46, "lon": 7, "cliff_textures": "xpface"})
     assert CLIFF.tile_arm(tile, "full_ortho") is None
     out = capsys.readouterr().out
     assert out.count("Cliff faces: off for this tile") == 1
     assert "ERROR" not in out and "WARNING" not in out
     assert CLIFF.tile_arm(tile, "airport_ortho") is None
-    monkeypatch.setattr(DEFTER, "default_dsf_path", lambda lat, lon: "x.dsf")
+    monkeypatch.setattr(OVL, "source_dsf", lambda lat, lon, d: "x.dsf")
     assert CLIFF.tile_arm(tile, "full_ortho") == "xpface"
     tile.cliff_textures = "False"
     assert CLIFF.tile_arm(tile, "full_ortho") is None

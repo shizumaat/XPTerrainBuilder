@@ -29,9 +29,9 @@ from collections import Counter
 import numpy
 import O4_Cliff_Faces as FACES
 import O4_Cliff_Library as LIBRARY
-import O4_Default_Terrain_Map as DEFTER
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Overlay_Utils as OVL
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 import O4_World_Pack as WP
@@ -84,8 +84,8 @@ def tile_arm(tile, texture_mode):
     arm = _cliff_arm(getattr(tile, "cliff_textures", False))
     if arm is None or texture_mode != "full_ortho":
         return None
-    if arm in ("xplane", "xpface") and DEFTER.default_dsf_path(
-            tile.lat, tile.lon) is None:
+    if arm in ("xplane", "xpface") and OVL.source_dsf(
+            tile.lat, tile.lon, LIBRARY.scenery_dir()) is None:
         UI.vprint(1, "-> Cliff faces: off for this tile (0 region(s)): no "
                      "X-Plane default scenery found for it (Settings: the "
                      "Global Scenery folder).")

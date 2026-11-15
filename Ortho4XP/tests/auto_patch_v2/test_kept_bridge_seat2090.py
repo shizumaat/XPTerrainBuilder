@@ -243,3 +243,20 @@ def test_b3_a_joined_stack_is_published_with_its_final_zero():
     rec = _kept_published(ap, pm, rep)["dsf:obj1"]
     assert rec["graded"] == [] and len(rec["joined"]) == 1
     assert rec["zero"] == pytest.approx(1633.05)
+
+
+def test_b2_an_unmapped_deck_is_read_along_its_own_axis(monkeypatch):
+    from auto_patch_v2.planar import free_bridge as FB
+    from shapely.geometry import Polygon
+    d = types.SimpleNamespace(id="dsf:obj5", hard_deck=Polygon([(0, 0), (42, 0), (42, 14),
+                                                                (0, 14)]),
+                              deck_top_z=1631.4, anchor_z=1631.3, agl_m=0.0, path="g.obj",
+                              heading_deg=0.0, footprint=None, xy=(21.0, 7.0))
+    monkeypatch.setattr(FB, "_ring", lambda o: o.hard_deck)   # the plan ring
+    a, b = FB._axis_ends(d)
+    assert {round(p[0]) for p in a.stations} | {round(p[0]) for p in b.stations} == {0, 42}
+    assert a.land and b.land and a.top == pytest.approx(0.1)
+    assert sorted((round(a.out[0]), round(b.out[0]))) == [-1, 1]
+    # no governed AGP group: no candidate
+    assert FB._join_witness([d], [d], types.SimpleNamespace(agp_groups=()), None, None) \
+        == ([], [])

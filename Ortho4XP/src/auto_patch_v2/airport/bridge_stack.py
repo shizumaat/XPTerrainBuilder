@@ -310,6 +310,8 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
             gov.add("ab"[near])
         pub = published([_dc.replace(fb, decks=(d,))], cx.to_ll, cx.out_m)[d.object_id]
         sid = f"kept:{d.object_id}"
+        if str(d.stub_of).startswith("axis:"):
+            d = _axis_tops(d, datum, cx)            # #2090 B2: the top at each end
         zero, joins, jnotes = _joined_zero(cx, sid, d, seat.zero)
         notes += [f"{tag}: deck join {n}" for n in jnotes]
         joined = {j.side: (f"joined: {j.member} floor y {j.y_floor:.2f} (D {j.d:+.2f}; "
@@ -324,6 +326,9 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
         st = _stack(sid, KEPT,
                     [(m, str(cx.by_id[m].path) if m in cx.by_id else "") for m in fb.members],
                     [_stack_deck(o, cx.cache, d)], ends, zero, [note])
+        if str(d.stub_of).startswith("axis:") and not joins:
+            notes.append(f"{tag}: no mapped route and no end joins a floor — not kept (#2090 B2)")
+            continue
         if joins:
             st = _dc.replace(st, datum_group=joins[0].group, joins=tuple(
                 _dc.replace(j, stack=st.id) for j in joins))
@@ -333,6 +338,20 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
         if joins or any(e.state == "graded" for e in ends):
             out.append(st)
     return out, every, notes
+
+
+def _axis_tops(d, datum, cx: _Ctx):
+    """#2090 B2: an axis-read deck's ends with the deck top AT each end (the
+    object stage's reading, ``deck_riders.with_end_tops``: ``datum.tops``
+    per ``datum.ends``, matched by the nearer middle)."""
+    tops = tuple(getattr(datum, "tops", None) or ())
+    if len(tops) != len(datum.ends) or not tops:
+        return d
+    mids = [cx.to_xy((a[1] + b[1]) / 2.0, (a[0] + b[0]) / 2.0) for a, b in datum.ends]
+    ends = tuple(_dc.replace(e, top=float(tops[min(range(len(mids)), key=lambda k, e=e:
+                                                   math.dist(mids[k], _mid(e.stations)))]))
+                 for e in d.ends)
+    return _dc.replace(d, ends=ends)
 
 
 def _joined_zero(cx: _Ctx, sid: str, d, seat_zero: float) -> "tuple[float, list, list[str]]":

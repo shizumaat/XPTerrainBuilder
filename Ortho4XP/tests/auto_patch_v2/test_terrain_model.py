@@ -170,10 +170,37 @@ def test_without_quality_elevation_nothing_is_hideable(tmp_path):
     assert not _models(path, rows)["dsf:obj0"].hideable
 
 
-def test_an_msl_row_states_its_own_datum(tmp_path):
+def test_an_msl_row_is_a_model_and_keeps_its_datum(tmp_path):
+    """#2077 (LOWS's Festungsberg shell, OBJECT_MSL 430): the 11d
+    conversion drops every MSL column, so an MSL row is read like any
+    other -- seated by its rim, its authored datum kept on the model."""
     path = _write(tmp_path, "m.obj", _hill)
     rows = [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, 12.0, "OBJECT_MSL")]
-    assert _models(path, rows) == {}
+    m = _models(path, rows)["dsf:obj0"]
+    assert m.datum == 12.0 and m.z0 == pytest.approx(0.0, abs=0.5)
+    assert TM.member_lift(m, "OBJECT_MSL", 12.0) == 0.0
+
+
+def test_msl_rows_over_an_msl_model_ride_it_by_their_authored_height(tmp_path):
+    """The castle the author set at 92 m on a hill shell set at 12 m is the
+    shell's content: it keeps its 80 m over the shell's zero.  An MSL row
+    off the plan, a plain row on it and a stock library row on it do not
+    join (the plain row follows the drawn ground; the stock row is
+    ``frame_riders``')."""
+    path = _write(tmp_path, "m.obj", _hill)
+    rows = [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, 12.0, "OBJECT_MSL"),
+            ("dsf:obj1", "castle.obj", (40.0, 30.0), 329.0, 92.0, "OBJECT_MSL"),
+            ("dsf:obj2", "far.obj", (900.0, 0.0), 0.0, 12.0, "OBJECT_MSL"),
+            ("dsf:obj3", "lamp.obj", (40.0, 30.0), 0.0, None, "OBJECT"),
+            ("dsf:obj4", "lib/street/bench.obj", (40.0, 30.0), 0.0, 90.0, "OBJECT_MSL")]
+    models = _models(path, rows)
+    assert set(models) == {"dsf:obj0"}
+    members = TM.set_members(rows, models)
+    assert set(members) == {"dsf:obj0", "dsf:obj1"}
+    assert TM.member_lift(members["dsf:obj1"], "OBJECT_MSL", 92.0) == 80.0
+    # a plain-row model has no datum: its members lift by their own AGL
+    plain = _models(path, [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, None, "OBJECT")])
+    assert TM.member_lift(plain["dsf:obj0"], "OBJECT_MSL", 92.0) is None
 
 
 def test_the_hidden_definitions_of_a_dump():

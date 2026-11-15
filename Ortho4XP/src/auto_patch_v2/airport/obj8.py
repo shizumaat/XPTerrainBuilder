@@ -438,7 +438,8 @@ def library_exports(lib_txt: str) -> dict[str, tuple[str, ...]]:
                 t = raw.split()
                 if len(t) < 3 or not t[0].startswith("EXPORT"):
                     continue
-                if t[0] == "EXPORT_RATIO":
+                if t[0] in ("EXPORT_RATIO", "EXPORT_SEASON"):
+                    # the ratio / the season list precedes the paths
                     t = t[1:]
                     if len(t) < 3:
                         continue
@@ -1465,6 +1466,10 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             rep.resources_parsed += 1
         seen.add(phys)
         if oid in features or oid in shaped:
+            # #2077: an OBJECT_MSL member of a terrain model's frame lifts
+            # by its authored height over the model's datum
+            lift = None if oid not in models else _tm.member_lift(models[oid], kind, elev)
+            agl = agl if lift is None else lift
             out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
                                     None, None, None, None, None, None,
                                     terrain_feature=oid in features,

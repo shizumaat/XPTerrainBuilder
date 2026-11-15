@@ -73,7 +73,7 @@ from ..geom.terrain_deck import CELL_M, DeckGrid
 __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PEAK_ERR",
            "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
            "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
-           "placement_models", "set_members", "seat_records", "log_line",
+           "placement_models", "set_members", "member_lift", "seat_records", "log_line",
            "hideable_paths", "plan_grid", "plan_solid", "rim_seat"]
 
 MIN_PLAN_M = 500.0
@@ -142,6 +142,9 @@ class TerrainModel:
     #: (it lies on the ground at ``z0``) or ``"hidden"`` (its row is left
     #: out of the written DSF); ``""`` for a terrain model of this module
     ground: str = ""
+    #: the authored zero of a model written ``OBJECT_MSL`` (its elevation
+    #: column, #2077); ``None`` for a plain or ``OBJECT_AGL`` row
+    datum: "float | None" = None
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -352,13 +355,20 @@ def placement_models(placements: _t.Sequence[tuple],
     """The terrain models among ``placements`` -- ``(id, def path, xy,
     heading, elevation, kind)`` rows -- by id.  ``path_of(def path)`` is
     the resolved file or ``None``, ``geometry(def path)`` its parsed
-    geometry (the reader's cache) or ``None``.  A plain ``OBJECT`` or ``OBJECT_AGL``
-    row only: an ``OBJECT_MSL`` row already states its author's datum."""
+    geometry (the reader's cache) or ``None``.
+
+    An ``OBJECT_MSL`` row is read like any other (#2077): its elevation is
+    the author's datum on the AUTHOR's terrain, and the 11d conversion
+    drops it anyway (``dsf_write.conversions_for_dump``) -- LOWS's
+    Festungsberg shell, authored at 430 m, was converted to on-ground at
+    its anchor on the hilltop and drawn 73-106 m over the hill.  Its datum
+    is kept on the model (:attr:`TerrainModel.datum`) so the rows the
+    author stood on it keep their place (:func:`set_members`)."""
     from .obj8 import is_stock_library_resource
     out: dict[str, TerrainModel] = {}
     shapes: dict[str, "Shape | None"] = {}
-    for oid, dpath, xy, heading, _elev, kind in placements:
-        if kind == "OBJECT_MSL" or is_stock_library_resource(dpath):
+    for oid, dpath, xy, heading, elev, kind in placements:
+        if is_stock_library_resource(dpath):
             continue
         if dpath not in shapes:
             phys = path_of(dpath)
@@ -376,15 +386,47 @@ def placement_models(placements: _t.Sequence[tuple],
         out[str(oid)] = TerrainModel(str(oid), str(dpath), xy2, float(heading), m["z0"],
                                      m["corr"], m["peak_err"], m["fit_m"],
                                      shape.grid.area_m2, shape.relief_m,
-                                     m["quality_cover"], hideable, str(path_of(dpath) or ""))
+                                     m["quality_cover"], hideable, str(path_of(dpath) or ""),
+                                     datum=(float(elev) if kind == "OBJECT_MSL" and elev is not None
+                                            else None))
     return out
+
+
+def _in_plan(m: TerrainModel, xy: _t.Any) -> bool:
+    """Does frame point ``xy`` lie over a covered cell of ``m``'s plan?"""
+    shape = shape_of(m.file) if m.file else None
+    if shape is None:
+        return False
+    g = shape.grid
+    h = math.radians(m.heading)
+    s, c = math.sin(h), math.cos(h)
+    e, n = float(xy[0]) - m.xy[0], float(xy[1]) - m.xy[1]
+    # the inverse of :func:`_world`
+    x, z = e * c - n * s, -(e * s + n * c)
+    i, j = int(round((x - g.x0) / CELL_M)), int(round((z - g.z0) / CELL_M))
+    return 0 <= i < g.covered.shape[0] and 0 <= j < g.covered.shape[1] and bool(g.covered[i, j])
+
+
+def member_lift(m: TerrainModel, kind: str, elev: _t.Any) -> "float | None":
+    """An ``OBJECT_MSL`` member's lift over its model's frame zero -- its
+    elevation less the model's authored :attr:`~TerrainModel.datum` --
+    or ``None`` (the row's own ``OBJECT_AGL`` lift is its lift)."""
+    if kind != "OBJECT_MSL" or m.datum is None or elev is None:
+        return None
+    return float(elev) - float(m.datum)
 
 
 def set_members(placements: _t.Sequence[tuple],
                 models: _t.Mapping[str, TerrainModel]) -> dict[str, TerrainModel]:
     """Every placement id sharing an origin (xy, heading, elevation) with
     a terrain model, mapped to that model (the lowest seat where two
-    models share one frame)."""
+    models share one frame) -- and, for a model the author wrote
+    ``OBJECT_MSL``, every other ``OBJECT_MSL`` row whose anchor stands
+    over its plan (#2077): both state heights in the author's ONE
+    absolute frame, so the castle the author set at 510 m on a hill shell
+    set at 430 m is that shell's content and keeps its 80 m
+    (:func:`member_lift`); converted on its own it stood on our hilltop
+    24.7 m over the place its walls were built for."""
     by_id = {str(p[0]): p for p in placements}
     seeds: dict[tuple, TerrainModel] = {}
     for oid, m in models.items():
@@ -396,8 +438,19 @@ def set_members(placements: _t.Sequence[tuple],
             seeds[k] = m
     if not seeds:
         return {}
-    return {str(oid): seeds[k] for oid, _d, xy, h, e, _k in placements
-            if (k := _origin(xy, h, e)) in seeds}
+    out = {str(oid): seeds[k] for oid, _d, xy, h, e, _k in placements
+           if (k := _origin(xy, h, e)) in seeds}
+    from .obj8 import is_stock_library_resource
+    msl = sorted((m for m in seeds.values() if m.datum is not None), key=lambda m: m.z0)
+    for oid, dpath, xy, _h, e, kind in placements if msl else ():
+        if (str(oid) in out or kind != "OBJECT_MSL" or e is None
+                or is_stock_library_resource(dpath)):
+            continue
+        for m in msl:
+            if _in_plan(m, xy):
+                out[str(oid)] = m
+                break
+    return out
 
 
 def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:

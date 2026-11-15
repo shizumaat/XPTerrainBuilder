@@ -595,6 +595,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
+        "auto_patch_v2.geom.plate_heights",
         "auto_patch_v2.geom.proportions",
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.ramp_profile",
@@ -1163,6 +1164,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
+        "auto_patch_v2.geom.plate_heights",
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.geom.runway_contact",
@@ -1472,6 +1474,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.lowest_face",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
+        "auto_patch_v2.geom.plate_heights",
         "auto_patch_v2.geom.proportions",
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.ramp_profile",
@@ -1551,8 +1554,8 @@ def _mods(names: str) -> tuple[str, ...]:
     """``auto_patch_v2``-relative module names, whitespace-separated, as the
     sorted tuple :data:`CODE_MODULES` holds — with ``auto_patch_v2`` itself,
     the package above every one of them (#993)."""
-    return tuple(sorted(["auto_patch_v2",
-                         *(f"auto_patch_v2.{n}" for n in names.split())]))
+    return tuple(sorted({"auto_patch_v2",
+                         *(f"auto_patch_v2.{n}" for n in names.split())}))
 
 
 #: Each constraint generator's module (``constraints.GENERATORS``: name ->
@@ -1662,6 +1665,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     "deck_stack": _mods(_GENERATOR_CORE + """
     model.deck_stack
         geom.deck_ground geom.end_line model.deck_ends
+        geom.lowest_face geom.plate_heights
         geom.exact geom.lowest_face
         constraints.contiguity constraints.deck_stack constraints.edge_deck
         constraints.edge_floor constraints.deck_lines
@@ -1671,8 +1675,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.threshold_datum
     """),
     "agp_plate": _mods(_GENERATOR_CORE + """
-    model.deck_stack 
+    model.deck_stack
         geom.agp_plate model.agp_plate model.deck_ends geom.end_line
+        geom.lowest_face geom.plate_heights
         geom.exact  
         constraints.agp_plate constraints.contiguity constraints.edge_deck
         constraints.edge_floor constraints.deck_lines
@@ -2043,6 +2048,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.yard_edge
     classify.fence_yard classify.floor_yard geom.capped_plane
     constraints.deck_stack geom.deck_ground geom.end_line model.deck_ends
+    geom.lowest_face geom.plate_heights
     airport.pit_frame
     constraints.airside_top
     geom.runway_contact
@@ -2246,6 +2252,7 @@ CODE_MODULES["solve"] = _mods("""
     classify.fence_yard classify.floor_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
+    geom.lowest_face geom.plate_heights
     airport.walled_pit airport.portal_floor airport.pit_frame
     geom.runway_contact geom.collapsed_spike
     airport.old_dem_fill planar.fill_bank
@@ -2417,6 +2424,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.fence_yard classify.floor_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
+    geom.lowest_face geom.plate_heights
     constraints.deck_stack
     airport.walled_pit airport.portal_floor airport.pit_frame constraints.airside_top
     geom.runway_contact geom.collapsed_spike
@@ -2603,6 +2611,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.yard_edge geom.slope_bound
     classify.fence_yard classify.floor_yard geom.capped_plane solve.project_yard
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends
+    geom.lowest_face geom.plate_heights
     airport.walled_pit airport.pit_frame constraints.airside_top
     geom.runway_contact airport.centreline_seat
     geom.station_runs airport.bridge_ground airport.bore_ground airport.object_ground

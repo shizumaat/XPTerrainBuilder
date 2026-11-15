@@ -185,6 +185,7 @@ def end_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str,
     ``planar/stack_ground.deck_end_road_zone``: a vertex past the slab is
     on the ramp, never held at the plate.)"""
     from ..geom.end_line import near_stations, polyline_distance
+    from ..geom.plate_heights import plate_heights
     from .deck_stack import TRENCH, live_stacks
     stacks = live_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()), pm)
     if not stacks:
@@ -212,7 +213,7 @@ def end_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str,
                 off = polyline_distance(rxy, line) if len(line) >= 2 else None
                 ks = [k for k, hit in enumerate(near_stations(rxy, line, 2.0 * H))
                       if hit and (float(off[k]) if off is not None else 0.0) <= slab]
-                zs = (_plate_heights(d, [rxy[k] for k in ks], float(top), flush, H)
+                zs = (plate_heights(d, [rxy[k] for k in ks], float(top), flush, H)
                       if st.kind != TRENCH else [float(top)] * len(ks))
                 for k, z in zip(ks, zs, strict=True):
                     dk = float(off[k]) if off is not None else 0.0
@@ -226,25 +227,4 @@ def end_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str,
             out[v] = cl[0][1]
     return out
 
-
-def _plate_heights(d, xy, top: float, flush: float, edge_m: float) -> list[float]:
-    """#2091 R3: the deck plate's own height (over the stack's zero) at each
-    road vertex ``xy`` -- ``floor_z_at(plate, edge_m=H)``, ``flush`` lower
-    inside the deck's ring; ``top`` (less the same flush) where the plate
-    gives none."""
-    if not xy:
-        return []
-    import numpy as np
-    import shapely
-    from shapely.geometry import Polygon
-
-    from ..geom.lowest_face import floor_z_at
-    pts = np.asarray(xy, float).reshape(-1, 2)
-    plate = np.asarray(d.plate, float).reshape(-1, 3, 3)
-    ys = (floor_z_at(plate, pts[:, 0], pts[:, 1], edge_m=edge_m) if len(plate)
-          else np.full(len(pts), np.nan))
-    inside = (shapely.contains_xy(Polygon(d.ring), pts[:, 0], pts[:, 1])
-              if len(d.ring) >= 3 else np.zeros(len(pts), bool))
-    return [(y if y == y else top) - (flush if ins else 0.0)
-            for y, ins in zip(ys.tolist(), inside.tolist(), strict=True)]
 

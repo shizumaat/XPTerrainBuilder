@@ -664,6 +664,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.geom.pad_evidence",
     "auto_patch_v2.geom.parts",
     "auto_patch_v2.geom.plane_groups",
+    "auto_patch_v2.geom.plate_heights",
     "auto_patch_v2.geom.proportions",
     "auto_patch_v2.geom.ramp_grade",
     "auto_patch_v2.geom.ramp_profile",

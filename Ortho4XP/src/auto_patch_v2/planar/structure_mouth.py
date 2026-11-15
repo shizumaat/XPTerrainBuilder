@@ -89,6 +89,9 @@ from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_family, role_side
 from ..model.frame import rotated_rectangle
 from ..model.planar import OSM_RIBBON_FEEDS, ROAD_ROLES
+from .entrance_skirt import _cover_back
+from .mouth_opening import axis_left_normal
+from .structure_geometry import snap_out
 
 __all__ = ["mouth_stops", "member_lanes", "clear_mouth", "mouth_at_pavement", "road_profile",
            "road_end_after_slide", "covered_stretch", "own_road_blade", "road_over_mouth",
@@ -786,10 +789,14 @@ def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
                 f"walls' bottom {pin.depth_m:.2f} (20am / 20ar); the span behind the back "
                 f"is covered ground")
     if getattr(pin, "footed", False):
+        # (a trench object's floor re-reads a footed pin: ``object_floor.
+        # floor_portals`` clears its foot -- the floor is that floor's)
         return (f"mouth pinned by the footed pack portal {pin.object_id} "
                 f"{pin.resource.rsplit('/', 1)[-1]} (#2069, Q167): floor {mouth_z:.2f} = "
-                f"its zero {float(pin.zero_z):.2f} + its walls' foot {float(pin.bottom_y):.2f}"
-                f" (ground {mouth_dem:.2f}); the mouth stands at the back of its roof")
+                + (f"its zero {float(pin.zero_z):.2f} + its walls' foot "
+                   f"{float(pin.bottom_y):.2f}" if pin.bottom_y is not None and
+                   pin.zero_z is not None else "the trench object's floor under it (#1903)")
+                + f" (ground {mouth_dem:.2f}); the mouth stands at the back of its roof")
     if getattr(pin, "floor_z", None) is not None and pin.roof_area_m2 > 0.0:
         return (f"mouth pinned by the tall pack portal {pin.object_id} "
                 f"{pin.resource.rsplit('/', 1)[-1]} (owner 2026-11-04 ENTC): floor "
@@ -841,15 +848,34 @@ def portal_mouth(axis: LineString, inward, anchor, plan=()) -> "tuple[LineString
                                        for q in (plan or (anchor,))))
 
 
-def roof_back_mouth(axis: LineString, inward, roof) -> "tuple[LineString, float]":
+def roof_back_mouth(axis: LineString, inward, roof, set_back: "float | None" = None,
+                    half=0.0, grid: float = 0.0, notes: "list[str] | None" = None
+                    ) -> "tuple[LineString, float]":
     """``(axis, metres moved)``: a FOOTED portal's mouth stands at the BACK
     of its roof (#2069, ``airport/footed_portal``): the cut floor runs under
     the roof and out of its opening.  Where the roof reaches over the bore
     the mouth moves in to its furthest point (as :func:`portal_mouth`);
     where it stands up the open road (NZWN's west portal, 45 m up the road
     from the mapped end) the axis is cut back to the roof's nearest station
-    along it, the road behind the portal is covered ground (negative)."""
+    along it, the road behind the portal is covered ground (negative).
+
+    #1689 R5 M1 / R5b: with ``set_back`` (the cap's stand-off off the
+    ramp's end, ``rim_off + grid``) ``roof`` is a TALL portal's COVER: the
+    CAP never stands beyond the cover's back.  The back is read from the
+    MIDDLE half of the ramp (``half`` either side of the axis, or its pair:
+    ``entrance_skirt._cover_back``), and nothing moves unless the mouth
+    stands under the cover on every middle line; where the mouth plus the
+    stand-off passes the back, the axis is cut back out of the bore to
+    ``back - set_back`` (negative), and a ``grid`` step more while the
+    cap's centre, snapped as the builder snaps it
+    (``structure_geometry.snap_out``), still stands beyond the back -- at
+    most three (no move over ``set_back + 3 grid``); else the mouth stays.
+    The reading (the back and its range across the whole ramp: the skew)
+    is appended to ``notes``."""
     m = axis.coords[0]
+    if set_back is not None:
+        return _cap_under_cover(axis, inward, roof, half, float(set_back), grid,
+                                [] if notes is None else notes)
     pts = [q for g in getattr(roof, "geoms", [roof]) for q in g.exterior.coords]
     if not pts:
         return axis, 0.0
@@ -860,6 +886,32 @@ def roof_back_mouth(axis: LineString, inward, roof) -> "tuple[LineString, float]
     if s <= 1e-6 or s >= axis.length - 1e-6:
         return axis, 0.0
     return substring(axis, s, axis.length), -float(s)
+
+
+def _cap_under_cover(axis: LineString, inward, cover, half, set_back: float, grid: float,
+                     notes: "list[str]") -> "tuple[LineString, float]":
+    """:func:`roof_back_mouth`'s ``set_back`` arm (#1689 R5b M1)."""
+    m = axis.coords[0]
+    reading = _cover_back(m, inward, cover, half, axis_left_normal(axis),
+                          4.0 * (axis.length + 1000.0))
+    if reading is None:
+        notes.append("the mouth does not stand under the cover across the ramp's middle")
+        return axis, 0.0
+    back, lo, hi = reading
+    notes.append(f"back {back:.2f} ({lo:.2f}-{hi:.2f} across the ramp)")
+    if back >= set_back - 1e-9:
+        return axis, 0.0
+    off = set_back - grid
+    s = back - set_back
+    for _k in range(3):
+        c = (m[0] + inward[0] * s, m[1] + inward[1] * s)
+        q = snap_out((c[0] + inward[0] * off, c[1] + inward[1] * off), c, grid)
+        if (q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1] <= back + 1e-9:
+            break
+        s -= grid
+    if -s >= axis.length - 1e-6:
+        return axis, 0.0
+    return substring(axis, -s, axis.length), float(s)
 
 
 def edge_wall_mouth(axis: LineString, inward, walls, half: float

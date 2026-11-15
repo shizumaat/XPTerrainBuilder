@@ -280,14 +280,30 @@ def holds_tile(scenery_dir: str, lat: int, lon: int) -> bool:
 
 def world_tiles(pack: str) -> dict:
     """``{(lat, lon): kind}`` of every DSF in ``pack`` (:func:`kind_of`;
-    placeholders by size and head only)."""
+    placeholders by size and head only); a tile the user turned off
+    (#2100, ``O4_World_Pack_Off``) reads ``off`` whatever its DSF is."""
     out = {}
     for key, path, size in pack_dsfs(pack):
         if is_placeholder(path, size):
             out[key] = "placeholder"
         else:
             out[key] = kind_of(path) or "full"
+    try:
+        import O4_World_Pack_Off as OFF
+    except ImportError:                     # a kit copy without it
+        return out
+    out.update({key: OFF.OFF for key in OFF.off_tiles(pack) if key in out})
     return out
+
+
+def _kept_home(pack: str, lat: int, lon: int) -> str:
+    """The kept folder a build of a tile turned off goes into (#2100), or
+    ``""`` (also in a kit copy without ``O4_World_Pack_Off``)."""
+    try:
+        import O4_World_Pack_Off as OFF
+    except ImportError:
+        return ""
+    return OFF.kept_home(pack, lat, lon)
 
 
 def block_tiles(lat: int, lon: int, radius: int,
@@ -554,7 +570,14 @@ def swap_in(pack: str, staged: str, lat: int, lon: int,
     The folders are renamed in whole (rule S5 allows that for a tile X-Plane
     has not loaded only); ``merge`` replaces file by file instead and keeps
     every old name (:func:`_merge_in`, for a loaded tile just before a
-    reload)."""
+    reload).
+
+    A tile the user turned off (#2100) goes into its kept folder instead,
+    which X-Plane never reads (``kept`` true in the reply): it is never
+    published behind the user's back, and turning it on shows it."""
+    kept = _kept_home(pack, lat, lon)
+    if kept:
+        return {**swap_in(kept, staged, lat, lon), "kept": True, "stale": []}
     if merge:
         return _merge_in(pack, staged, lat, lon)
     tile = tile_name(lat, lon)
@@ -689,8 +712,10 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
     S1-S4).  Nothing in the pack changes unless the staged tile verifies
     (S1); a tile ``loaded(lat, lon)`` says X-Plane may hold stays staged
     (S3/S4) for :func:`swap_staged` (:func:`held_by_xplane` lets a tile
-    with :func:`nothing_held` through).  Returns ``{"tile", "state"
-    ("swapped" | "staged" | "failed"), "problems", "counts"}``."""
+    with :func:`nothing_held` through).  A tile the user turned off goes
+    into its kept folder (``state`` ``kept``, #2100).  Returns ``{"tile",
+    "state" ("swapped" | "staged" | "kept" | "failed"), "problems",
+    "counts"}``."""
     tile = tile_name(lat, lon)
     try:
         done = _stage_tile(build_dir, staging_root, lat, lon, kind)
@@ -701,6 +726,9 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
     if done["problems"]:
         shutil.rmtree(done["staged"], ignore_errors=True)
         return {**out, "state": "failed"}
+    if _kept_home(pack, lat, lon):
+        _swap_staged_tile(pack, done["staged"], lat, lon)
+        return {**out, "state": "kept"}
     if loaded(lat, lon):
         return {**out, "state": "staged"}
     _swap_staged_tile(pack, done["staged"], lat, lon)
@@ -711,7 +739,8 @@ def swap_staged(pack: str, staging_root: str,
                 loaded: Callable[[int, int], bool] = lambda lat, lon: False,
                 only: "tuple[int, int] | None" = None) -> list:
     """Swap in every staged tile ``loaded`` now allows, or tile ``only``
-    alone; the tile names swapped."""
+    alone; the tile names swapped.  A staged tile the user turned off
+    goes into its kept folder at once and is not named (#2100)."""
     done = []
     try:
         names = sorted(os.listdir(staging_root))
@@ -725,8 +754,11 @@ def swap_staged(pack: str, staging_root: str,
         if only is not None and (lat, lon) != tuple(only):
             continue
         staged = os.path.join(staging_root, name)
-        if (os.path.isfile(os.path.join(staged, dsf_relpath(lat, lon)))
-                and not loaded(lat, lon)):
+        if not os.path.isfile(os.path.join(staged, dsf_relpath(lat, lon))):
+            continue
+        if _kept_home(pack, lat, lon):
+            _swap_staged_tile(pack, staged, lat, lon)
+        elif not loaded(lat, lon):
             _swap_staged_tile(pack, staged, lat, lon)
             done.append(name)
     return done

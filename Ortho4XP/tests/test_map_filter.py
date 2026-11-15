@@ -31,4 +31,8 @@ def test_a_tile_needs_any_of_its_items():
     assert not shows({"drape"}, "drape")
     assert not shows(frozenset(), "nothing")
     assert not MAPFILTER.shows_other_ortho({"full"})
-    assert not MAPFILTER.shows_any_tile({"favorites", "full", "drape"})
+    assert MAPFILTER.shows_any_tile({"favorites", "full", "drape"})
+    assert not MAPFILTER.shows_any_tile({"favorites", "full", "drape", "off"})
+    assert MAPFILTER.shows_tile(frozenset(), "off")          # #2100
+    assert not MAPFILTER.shows_tile({"off"}, "off")
+    assert MAPFILTER.shows_tile({"full"}, "off")

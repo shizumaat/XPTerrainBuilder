@@ -21,7 +21,9 @@ __all__ = ["LEGEND_FULL", "LEGEND_MESH", "LEGEND_DRAPE", "LEGEND_PLACEHOLDER",
            "REMOVE_BUTTON", "REMOVE_TITLE", "REMOVE_MESSAGE",
            "REMOVE_CONFIRM", "REMOVED", "REMOVED_NO_PACKAGE",
            "pane_status", "pane_detail", "built_in_world", "removed_note",
-           "world_dsf", "PHOTO_WORDS", "photo_text"]
+           "world_dsf", "PHOTO_WORDS", "photo_text",
+           "LEGEND_OFF", "PANE_OFF", "USE_HERE", "USE_NOTES", "use_offered",
+           "use_on", "use_note"]
 
 # --- The map key's World-state sentences (``O4_Map_Key_Text``, #2031:
 # the Build and Fly views say the same; another tool's tile is dotted,
@@ -30,6 +32,8 @@ LEGEND_FULL = "Full: mesh and sharp imagery"
 LEGEND_MESH = "Mesh only: imagery sharpens in flight"
 LEGEND_DRAPE = "Photo drape on X-Plane's mesh"
 LEGEND_PLACEHOLDER = "Placeholder: built or draped in flight"
+#: A tile the user turned XPTerrainBuilder off on (#2100): crossed out.
+LEGEND_OFF = "Crossed out: XPTerrainBuilder turned off, X-Plane's own scenery"
 LEGEND_OTHER_TOOL = "Dotted: a tile another tool built"
 #: The orange band (#1229) the owner asked about (2026-11-12, "gold").
 LEGEND_CUSTOM_PATCH = "Orange band: custom airport patch, no auto patch"
@@ -41,6 +45,7 @@ STATE_WORDS = {
     "full": "Full",
     "drape": "Drape",
     "placeholder": "Placeholder",
+    "off": "Off",
 }
 #: A mesh whose imagery streams: ``{percent}`` of its textures sharp.
 MESH_WORDS = "Mesh, {percent}% sharp"
@@ -70,6 +75,8 @@ PANE_WHAT = {
 }
 PANE_MESH = "mesh, {percent}% sharp"
 PANE_PLACEHOLDER = "Placeholder in the World pack: not built yet"
+PANE_OFF = ("XPTerrainBuilder is off here: X-Plane shows its own scenery "
+            "(the built tile is kept)")
 #: The tile title's suffix where the Tiles folder holds no build but the
 #: World pack holds the tile (in place of "(not built)").
 TITLE_IN_WORLD = "(in the World pack)"
@@ -85,6 +92,16 @@ REMOVE_CONFIRM = "Remove"
 REMOVED = "Tile {tile} is a placeholder again; its package: {package}"
 REMOVED_NO_PACKAGE = "Tile {tile} is a placeholder again; no package was written: {why}"
 
+# --- The map's tile menu: "Use XPTerrainBuilder here" on or off (#2100,
+# ``o4_engine.world_tile_use``; the note after each, by its reply's state) ---
+USE_HERE = "Use XPTerrainBuilder here"
+USE_NOTES = {
+    "on": "XPTerrainBuilder is on again for tile {tile}.",
+    "off": "XPTerrainBuilder is off for tile {tile}: X-Plane shows its own scenery there.",
+    "turning_off": "Tile {tile} turns off once X-Plane lets go of it (fly away or quit X-Plane).",
+    "turning_on": "Tile {tile} turns on once X-Plane lets go of it.",
+}
+
 #: The states the pane calls built (a real tile in the World pack).
 _BUILT_STATES = ("full", "mesh_lowres", "drape")
 
@@ -93,6 +110,25 @@ def built_in_world(world) -> bool:
     """Does the World pack hold a real tile (not a placeholder) here?
     ``world``: a ``WorldTile.fields()`` dict or ``None``."""
     return bool(world) and world.get("state") in _BUILT_STATES
+
+
+def use_offered(world) -> bool:
+    """Does the tile menu offer "Use XPTerrainBuilder here" (the World
+    pack holds the tile: built, a placeholder or off)?  ``world``: a
+    ``WorldTile.fields()`` dict or ``None``.  Mac:
+    ``O4WorldStateText.useOffered``."""
+    return bool(world) and world.get("state") not in ("", "nothing", None)
+
+
+def use_on(world) -> bool:
+    """Is the menu item checked (not turned off)?  Mac: ``useOn``."""
+    return (world or {}).get("state") != "off"
+
+
+def use_note(reply) -> str:
+    """The note after ``world_tile_use`` (Mac: ``O4WorldTileUse.note``)."""
+    words = USE_NOTES.get(reply.get("state", ""), "")
+    return words.format(tile=reply.get("tile", ""))
 
 
 def world_dsf(info, world) -> str:
@@ -118,6 +154,8 @@ def pane_status(world) -> str:
         return PANE_BUILT.format(what=what)
     if state in PANE_WHAT:
         return PANE_BUILT.format(what=PANE_WHAT[state])
+    if state == "off":
+        return PANE_OFF
     return PANE_PLACEHOLDER if state == "placeholder" else ""
 
 

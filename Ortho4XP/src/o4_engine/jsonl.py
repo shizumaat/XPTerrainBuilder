@@ -209,6 +209,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .world_measure import world_measure_state
     from .world_migrate import start_world_migrate
     from .world_rechoose import start_world_rechoose
+    from .world_tile_use import world_tile_use
     return {
         "scan": session.scan,
         "build": session.build,
@@ -428,6 +429,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "world_regions_set": lambda **kw: WORLD.start_world_regions_set(
             session._emit, **kw),
         "world_tile_set": WORLD.world_tile_set,
+        # The tile menu's "Use XPTerrainBuilder here" (#2100, capability
+        # world_tile_use): sync; {"tile", "use", "state"}.
+        "world_tile_use": world_tile_use,
         # Phase M (capability world_migrate): the per-tile packs moved
         # into the World pack -- dry run, run, revert or stop; completes
         # through WorldReady carrying this command's id.

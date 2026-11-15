@@ -3555,13 +3555,28 @@ class MainWindow(QMainWindow):
         Edit mode it starts with "Slice" (#1318)."""
         pos = self.map.viewport().mapFromGlobal(global_pos)
         at = self.patch_editor.lat_lon_at(pos.x(), pos.y())
+        world = self.map.world().get((lat, lon))
+        fields = world.fields() if world is not None else None
         menu = QTTILEMENU.tile_menu(
             self, lat, lon, self._tile_reveal_path((lat, lon)),
             self.patch_editor.context_actions(at),
-            export_package=lambda: self._export_package_at((lat, lon)))
+            export_package=lambda: self._export_package_at((lat, lon)),
+            use_here=((WORLD_TEXT.use_on(fields),
+                       lambda use: self._set_use_here((lat, lon), use))
+                      if WORLD_TEXT.use_offered(fields) else None))
         self.patch_editor.add_copy_actions(menu, pos.x(), pos.y())
         self.patch_editor.add_to_menu(menu)
         menu.exec(global_pos)
+
+    def _set_use_here(self, tile, use: bool):
+        """The tile menu's "Use XPTerrainBuilder here" (#2100): the
+        engine's ``world_tile_use`` in process (a few renames); its note
+        in the status bar, then the map rescans."""
+        import O4_Config_Utils as CFG
+        import O4_Qt_Tile_Use as QTUSE
+
+        self._status(QTUSE.set_use(tile, use, CFG.custom_scenery_dir or ""))
+        self.refresh_tiles()
 
     def _export_package_at(self, tile):
         """The tile menu's Export Package… (#2014): the selection when the

@@ -145,9 +145,12 @@ def _sharpen(scenery_dir: str, build_dir: str, lat: int, lon: int
 def _after_swap(scenery_dir: str, build_dir: str, lat: int, lon: int) -> None:
     import O4_Scenery_Links as LINKS
     import O4_World_Drape as DRAPE
+    import O4_World_Pack_Off as OFF
 
     from . import imagery_ondemand as ONDEMAND
     pack = WORLD.pack_dir(scenery_dir)
+    if OFF.is_off(pack, lat, lon):
+        return          # kept aside (#2100): nothing of it is in the pack
     from . import imagery_follow_drape as DRAPE_ROWS
     if DRAPE.is_drape(os.path.join(pack, WP.dsf_relpath(lat, lon))):
         try:
@@ -206,12 +209,17 @@ def _publish_built(scenery_dir: str, build_dir: str, lat: int, lon: int,
 
 def _swap_waiting(scenery_dir: str, build_dir_of: Callable[[int, int], str],
                  loaded: Optional[Callable[[int, int], bool]] = None) -> list:
-    """Swap in every staged tile X-Plane can no longer hold; the tiles."""
+    """Swap in every staged tile X-Plane can no longer hold, and complete
+    the tiles turning off or on (#2100, ``world_tile_use.settle``); the
+    tiles swapped."""
+    from . import world_tile_use as USE
     if not WORLD.managed(scenery_dir):
         return []
     pack = WORLD.pack_dir(scenery_dir)
-    done = WP.swap_staged(pack, WORLD.staging_root(), WP.held_by_xplane(
-        pack, loaded or WORLD.tile_loaded(scenery_dir)))
+    loaded = loaded or WORLD.tile_loaded(scenery_dir)
+    done = WP.swap_staged(pack, WORLD.staging_root(),
+                          WP.held_by_xplane(pack, loaded))
+    USE.settle(scenery_dir, loaded)
     for name in done:
         lat, lon = WP.parse_tile(name)
         _after_swap(scenery_dir, build_dir_of(lat, lon), lat, lon)

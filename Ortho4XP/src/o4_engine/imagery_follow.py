@@ -498,12 +498,18 @@ class FollowJob:
 
     def _held(self):
         """``True`` when every tile is held, else the names of the tiles
-        held now (``busy()`` and :func:`held_tiles`)."""
+        held now (``busy()``, :func:`held_tiles` and the World pack's
+        tiles turned off, #2100 ``world_tile_use.off_names``)."""
+        from .world_tile_use import off_names
         busy = self.busy()
         if busy is True or (busy and not isinstance(
                 busy, (set, frozenset, list, tuple))):
             return True
-        return set(busy or ()) | held_tiles()
+        try:
+            off = off_names()
+        except Exception:                   # an unreadable pack: none off
+            off = frozenset()
+        return set(busy or ()) | held_tiles() | off
 
     # ------------------------------------------------- spawn and jump
 

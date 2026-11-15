@@ -29,6 +29,9 @@
     {"world": {"state": "placeholder", "origin": "", "sharp": 0.0, "source": "", "volume": ""},
      "status": "Placeholder in the World pack: not built yet",
      "detail": "", "built": false},
+    {"world": {"state": "off", "origin": "", "sharp": 0.0, "source": "", "volume": ""},
+     "status": "XPTerrainBuilder is off here: X-Plane shows its own scenery (the built tile is kept)",
+     "detail": "", "built": false},
     {"world": {"state": "nothing", "origin": "", "sharp": 0.0, "source": "", "volume": ""},
      "status": "", "detail": "", "built": false},
     {"world": null, "status": "", "detail": "", "built": false}

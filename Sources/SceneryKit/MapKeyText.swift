@@ -4,7 +4,7 @@ import Foundation
 /// 2026-11-12T22:05Z, #2031): a pill at the map's bottom-right, under the
 /// ZL pill, its items in a row — a swatch and a short word each, truncated
 /// with "…" when the row runs out of room, the full sentence on hover. The
-/// Build view and the Fly view say the same eight items in the same words
+/// Build view and the Fly view say the same nine items in the same words
 /// and colours, in this one order; each lists only the items it shows
 /// now. `items` is the ONE place the key is defined. A built tile is drawn
 /// by its World state; the route is the magenta line, with no item; the
@@ -17,6 +17,7 @@ public enum MapKeyText {
         ("mesh", "Mesh only", O4WorldStateText.legendMesh),
         ("drape", "Drape", O4WorldStateText.legendDrape),
         ("placeholder", "Placeholder", O4WorldStateText.legendPlaceholder),
+        ("off", "Turned off", O4WorldStateText.legendOff),
         ("building", "Building", "Building: a mesh or a drape under way (pulsing)"),
         ("other_tool", "Other tool", O4WorldStateText.legendOtherTool),
         ("stale", "Pack changed", "Airport pack changed since the build (dashed)"),

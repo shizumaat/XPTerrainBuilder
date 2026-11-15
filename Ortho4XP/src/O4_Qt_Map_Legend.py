@@ -13,13 +13,14 @@ import O4_Map_Key_Text as KEYTEXT
 import O4_Tile_Info as TINFO
 from PySide6.QtGui import QColor
 
-__all__ = ["WORLD_FULL", "WORLD_MESH", "WORLD_DRAPE", "WORLD_PLACEHOLDER",
+__all__ = ["WORLD_FULL", "WORLD_MESH", "WORLD_DRAPE", "WORLD_PLACEHOLDER", "WORLD_OFF",
            "WORLD_OTHER_TOOL", "BUILDING", "STALE", "CUSTOM_PATCH",
            "STALE_COLOR", "CUSTOM_PATCH_COLOR", "BUILDING_COLOR",
            "built_elsewhere", "built_look", "legend_kinds", "stale_label"]
 
 WORLD_FULL, WORLD_MESH, WORLD_DRAPE = "full", "mesh", "drape"
 WORLD_PLACEHOLDER = "placeholder"
+WORLD_OFF = "off"
 WORLD_OTHER_TOOL = "other_tool"
 BUILDING, STALE, CUSTOM_PATCH = "building", "stale", "custom"
 
@@ -31,7 +32,8 @@ CUSTOM_PATCH_COLOR = "#FF9F0A"
 #: ``FlyMapOverlay.building``): a colour no other item uses.
 BUILDING_COLOR = QColor(94, 92, 230)                    # #5E5CE6
 _WORLD_KINDS = ((WORLD_FULL, "full"), (WORLD_MESH, "mesh_lowres"),
-                (WORLD_DRAPE, "drape"), (WORLD_PLACEHOLDER, "placeholder"))
+                (WORLD_DRAPE, "drape"), (WORLD_PLACEHOLDER, "placeholder"),
+                (WORLD_OFF, "off"))
 _DRAWN_STATES = frozenset(state for _kind, state in _WORLD_KINDS)
 
 

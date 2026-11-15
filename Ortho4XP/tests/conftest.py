@@ -2180,5 +2180,7 @@ def _inset_fetch_retries_are_off(monkeypatch):
     strategy that raises is given up at once, as before the retry; the
     retry's own twins set the delays they test."""
     from elevation_access import fetch_retry as FETCH_RETRY
+    from elevation_access.strategies import wcs as WCS
     monkeypatch.setattr(FETCH_RETRY, "RETRY_DELAYS_S", ())
+    monkeypatch.setattr(WCS, "WCS_BAND_RETRY_DELAYS_S", ())
     yield

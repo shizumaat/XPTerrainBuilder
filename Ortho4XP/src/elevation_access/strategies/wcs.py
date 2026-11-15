@@ -13,6 +13,7 @@ import os
 import O4_Geo_Utils as GEO
 import O4_UI_Utils as UI
 
+from elevation_access import fetch_retry as FETCH_RETRY
 from elevation_access.base import TransientFetchError
 from elevation_access.definitions import (
     _coverage_bbox_intersects,
@@ -37,6 +38,8 @@ from elevation_access.warp import (
 
 __all__ = [
     "FOOTPRINT_PROBE_RESOLUTION_M",
+    "WCS_BAND_RETRY_DELAYS_S",
+    "WCS_BAND_ROWS",
     "WCS_REQUEST_TIMEOUT_SECONDS",
     "WcsStrategy",
 ]
@@ -55,6 +58,24 @@ __all__ = [
 # ONLY override -- the driver always passes its own TIMEOUT to curl, so
 # the GDAL_HTTP_TIMEOUT configuration option never applies to WCS reads.
 WCS_REQUEST_TIMEOUT_SECONDS = 600
+
+
+#: Rows per band of a band-wise window read (:meth:`WcsStrategy.
+#: _read_in_bands`): four of GDAL's 256-row GetCoverage strips.
+WCS_BAND_ROWS = 1024
+
+#: Seconds before each further asking of one band that failed on
+#: transport (a stall or a 429); short, because a band is small and the
+#: whole fetch's own retry (``fetch_retry.RETRY_DELAYS_S``) stands behind it.
+WCS_BAND_RETRY_DELAYS_S = (15.0, 45.0, 90.0, 180.0)
+
+
+def _row_bands(height, rows):
+    """``[(row0, row1), ...]`` cutting ``height`` rows into bands of at
+    most ``rows``; one band when it fits."""
+    rows = max(1, int(rows))
+    return [(row0, min(height, row0 + rows))
+            for row0 in range(0, max(1, height), rows)]
 
 
 #: The posting of a footprint probe's one coarse read (#1466): a 0.1
@@ -182,11 +203,66 @@ class WcsStrategy:
         like every other fetch path, so an outage never becomes a durable
         no-coverage negative.
         """
-        (west, south, east, north) = bounding_box_wgs84
         (width, height) = self._window_size(
             definition, bounding_box_wgs84, target_resolution_m
         )
         os.makedirs(os.path.dirname(scratch_path) or ".", exist_ok=True)
+        bands = _row_bands(height, WCS_BAND_ROWS)
+        if len(bands) == 1:
+            return self._read_band(definition, dataset, bounding_box_wgs84,
+                                   width, height, scratch_path)
+        return self._read_in_bands(definition, dataset, bounding_box_wgs84,
+                                   width, height, bands, scratch_path)
+
+    def _read_in_bands(self, definition, dataset, bounding_box_wgs84,
+                       width, height, bands, scratch_path):
+        """THE BAND-WISE READ (#2098): the window as row bands, each read
+        and RETRIED on its own (:data:`WCS_BAND_RETRY_DELAYS_S`, the
+        provider paused meanwhile), then mosaicked into ``scratch_path``.
+
+        One request of a whole window is a chain of 256-row GetCoverage
+        strips, and the Environment Agency service stalls about one strip
+        in eight and answers HTTP 429 after a burst (measured 2026-11-15):
+        EGLL's 14-strip 1 m window never came back whole, and every retry
+        of the WHOLE window began again at strip one.  Band by band, a
+        stall costs one band."""
+        (west, south, east, north) = bounding_box_wgs84
+        code = definition.get("code")
+        label = os.path.basename(scratch_path).split("_", 1)[0]
+        paths = []
+        try:
+            for (number, (row0, row1)) in enumerate(bands):
+                band_box = (west, north - (north - south) * row1 / height,
+                            east, north - (north - south) * row0 / height)
+                band_path = "%s.band%03d.tif" % (scratch_path, number)
+                read = FETCH_RETRY.retry_transient(
+                    lambda box=band_box, rows=row1 - row0, path=band_path:
+                        self._read_band(definition, dataset, box, width,
+                                        rows, path),
+                    code, "%s band %d/%d" % (label, number + 1, len(bands)),
+                    delays=WCS_BAND_RETRY_DELAYS_S)
+                if not read:
+                    return False
+                paths.append(band_path)
+            mosaic = gdal.BuildVRT(scratch_path + ".vrt", paths)
+            result = gdal.Translate(
+                scratch_path, mosaic, format="GTiff",
+                creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3",
+                                 "TILED=YES"])
+            mosaic = result = None  # flush to disk
+            return os.path.isfile(scratch_path)
+        finally:
+            for path in paths + [scratch_path + ".vrt"]:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+    def _read_band(self, definition, dataset, bounding_box_wgs84, width,
+                   height, scratch_path):
+        """One explicit-size read of ``bounding_box_wgs84`` (see
+        :meth:`_materialize_window`)."""
+        (west, south, east, north) = bounding_box_wgs84
         # A size that happens to equal the source window is a 1:1 read
         # again -- the one shape the request cannot carry a size in.  One
         # extra cell per axis can never be 1:1 and never asks the server

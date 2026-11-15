@@ -342,3 +342,51 @@ def test_every_wcs_read_of_one_server_holds_its_own_slot(monkeypatch):
     for thread in threads:
         thread.join(timeout=30)
     assert peak[0] == 2
+
+
+# ------------------------------------------------------ the band-wise read
+def test_row_bands_cut_the_window():
+    assert WCS._row_bands(3500, 1024) == [
+        (0, 1024), (1024, 2048), (2048, 3072), (3072, 3500)]
+    assert WCS._row_bands(200, 1024) == [(0, 200)]
+
+
+@requires_gdal
+def test_a_stalled_band_is_retried_alone_and_the_bands_mosaic(
+        monkeypatch, tmp_path):
+    """A tall window is read band by band; the band that stalls is asked
+    again on its own (the others are read once) and the mosaic carries
+    the whole window."""
+    from osgeo import gdal
+
+    monkeypatch.setattr(WCS, "WCS_BAND_ROWS", 10)
+    monkeypatch.setattr(WCS, "WCS_BAND_RETRY_DELAYS_S", (0.0,))
+    asked = []
+    real_translate = gdal.Translate
+    source = str(tmp_path / "source.tif")
+    driver = gdal.GetDriverByName("GTiff")
+    data = driver.Create(source, 40, 40, 1, gdal.GDT_Float32)
+    data.SetGeoTransform((0.0, 0.025, 0, 1.0, 0, -0.025))
+    data.GetRasterBand(1).Fill(7.0)
+    data = None
+
+    def _translate(path, dataset, **kwargs):
+        if "projWin" in kwargs:
+            asked.append(round(kwargs["projWin"][1], 6))
+            if len(asked) == 2:                       # band 2 stalls once
+                raise RuntimeError(STALL)
+            return real_translate(path, source, **kwargs)
+        return real_translate(path, dataset, **kwargs)
+
+    monkeypatch.setattr(WCS.gdal, "Translate", _translate)
+    monkeypatch.setattr(WCS.WcsStrategy, "_window_size",
+                        lambda self, d, box, r: (40, 40))
+    out = str(tmp_path / "KASE_x.tif.getcoverage.tif")
+    assert WCS.WcsStrategy()._materialize_window(
+        {"code": "BANDTWIN"}, None, (0.0, 0.0, 1.0, 1.0), 1.0, out)
+    assert asked == [1.0, 0.75, 0.75, 0.5, 0.25]   # band 2 twice
+    mosaic = gdal.Open(out)
+    assert (mosaic.RasterXSize, mosaic.RasterYSize) == (40, 40)
+    assert float(mosaic.GetRasterBand(1).ReadAsArray().min()) == 7.0
+    assert sorted(os.listdir(tmp_path)) == sorted(
+        ["source.tif", "KASE_x.tif.getcoverage.tif"])

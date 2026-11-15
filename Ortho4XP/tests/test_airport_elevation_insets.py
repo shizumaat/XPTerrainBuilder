@@ -2448,6 +2448,9 @@ def test_wcs_window_is_read_with_an_explicit_size(tmp_path, monkeypatch):
     # the answer when it differs by one row.  The strategy must state the
     # size it wants and warp the materialised window.
     patch_inset_code(monkeypatch, "has_gdal", True)
+    # one band: the band-wise read (#2098) has its own twin
+    from elevation_access.strategies import wcs as _wcs
+    monkeypatch.setattr(_wcs, "WCS_BAND_ROWS", 10 ** 6)
     _stub_wcs_open(monkeypatch)
     translate_calls = []
     _stub_wcs_translate(monkeypatch, translate_calls)
@@ -2488,6 +2491,9 @@ def test_wcs_window_read_retries_once_with_one_extra_cell(
     # again -- the one shape that carries no size.  One extra cell per
     # axis can never be 1:1 and never asks the server to downsample.
     patch_inset_code(monkeypatch, "has_gdal", True)
+    # one band: the band-wise read (#2098) has its own twin
+    from elevation_access.strategies import wcs as _wcs
+    monkeypatch.setattr(_wcs, "WCS_BAND_ROWS", 10 ** 6)
     _stub_wcs_open(monkeypatch)
     translate_calls = []
     _stub_wcs_translate(monkeypatch, translate_calls, grid_error_on_call=1)

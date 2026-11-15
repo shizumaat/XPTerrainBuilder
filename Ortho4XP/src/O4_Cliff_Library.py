@@ -210,8 +210,8 @@ def install_texture(tile, cliff_texture):
     world = FNAMES.world_home()
     if world:
         home = os.path.join(world, "textures", WP.SHARED_DIR, name)
-        WP.share_file(source, home)
+        WP.share_file(source, home, symlink=True)
         source = home
     how = WP.share_file(source, os.path.join(
-        tile.build_dir, "textures", WP.SHARED_DIR, name))
+        tile.build_dir, "textures", WP.SHARED_DIR, name), symlink=True)
     return WP.SHARED_DIR + "/" + name, how

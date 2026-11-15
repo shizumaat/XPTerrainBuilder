@@ -95,7 +95,8 @@ def test_shared_texture_is_one_link_per_pack(tmp_path):
         build = _build_dir(tmp_path / f"b{lon}",
                            os.path.join(FIXTURES, "full_ortho.dsf"), lat, lon)
         assert WP.share_file(str(src), os.path.join(
-            build, "textures", WP.SHARED_DIR, "xp_cliff.dds")) == "symlink"
+            build, "textures", WP.SHARED_DIR, "xp_cliff.dds"),
+            symlink=True) == "symlink"
         name = sorted(os.listdir(os.path.join(build, "terrain")))[0]
         with open(os.path.join(build, "terrain", name), "a",
                   encoding="utf-8", newline="\n") as h:
@@ -124,11 +125,16 @@ def test_share_file_falls_back_to_a_hard_link_then_a_copy(tmp_path,
     def refuse(*_a, **_k):
         raise OSError("no privilege")
     monkeypatch.setattr(os, "symlink", refuse)
-    assert WP.share_file(str(src), str(tmp_path / "s" / "b.dds")) == "hardlink"
+    assert WP.share_file(str(src), str(tmp_path / "s" / "b.dds"),
+                         symlink=True) == "hardlink"
     assert WP.share_file(str(src), str(tmp_path / "s" / "b.dds")) == "present"
     monkeypatch.setattr(os, "link", refuse)
     assert WP.share_file(str(src), str(tmp_path / "s" / "c.dds")) == "copy"
     assert (tmp_path / "s" / "c.dds").read_bytes() == b"DDS"
+    monkeypatch.undo()
+    # a file of a build folder (no link) is never symlinked from the pack
+    assert WP.share_file(str(src), str(tmp_path / "p" / "d.dds")) == \
+        "hardlink"
 
 
 def test_dsf_rewrite_leaves_library_and_builtin_terrain():

@@ -313,24 +313,27 @@ def rewrite_ter(text: str, tile: str) -> tuple[str, int]:
     return text, n + m
 
 
-def share_file(src: str, dest: str) -> str:
+def share_file(src: str, dest: str, symlink: bool = False) -> str:
     """Put the texture ``src`` at ``dest`` (a pack's ``textures/_shared/``)
     unless a file is already there, without duplicating its bytes where
-    the system allows: a symbolic link to it (a ``src`` that is itself a
-    link is linked to the same target), else a hard link (Windows without
-    Developer Mode, which needs no privilege on one volume), else one
-    copy.  Returns ``present``, ``symlink``, ``hardlink`` or ``copy``."""
+    the system allows: a symbolic link to the file ``src`` resolves to
+    when ``symlink`` is asked or ``src`` is itself a link (a source outside
+    the pack: the user's X-Plane install), else a hard link (Windows
+    without Developer Mode, which needs no privilege on one volume), else
+    one copy.  Returns ``present``, ``symlink``, ``hardlink`` or
+    ``copy``."""
     if os.path.isfile(dest):
         return "present"
     if os.path.islink(dest):        # dangling: its source has gone
         os.remove(dest)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     target = os.path.realpath(src)
-    try:
-        os.symlink(target, dest)
-        return "symlink"
-    except (OSError, NotImplementedError):
-        pass
+    if symlink or os.path.islink(src):
+        try:
+            os.symlink(target, dest)
+            return "symlink"
+        except (OSError, NotImplementedError):
+            pass
     try:
         os.link(target, dest)
         return "hardlink"

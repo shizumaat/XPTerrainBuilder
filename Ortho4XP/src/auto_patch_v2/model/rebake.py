@@ -557,7 +557,7 @@ class RebakePlan:
         # accepted: those versions changed fields the seat reads.
         if d.get("version") not in (PLAN_VERSION, PLAN_VERSION - 1, PLAN_VERSION - 2,
                                     PLAN_VERSION - 3, PLAN_VERSION - 4, PLAN_VERSION - 5,
-                                    PLAN_VERSION - 6):
+                                    PLAN_VERSION - 6, PLAN_VERSION - 7):
             raise ValueError(f"rebake plan version {d.get('version')!r} != {PLAN_VERSION}")
         units = tuple(Unit(
             id=str(u["id"]), anchor=(float(u["anchor"][0]), float(u["anchor"][1])),

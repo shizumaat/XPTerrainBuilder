@@ -23,9 +23,9 @@ outside every plate).  Nothing here names an airport.
 from __future__ import annotations
 
 from ..geom.agp_plate import built_plates, inside_plates, near_plates, under_rings
-from ..model.agp_plate import plate_groups, plate_road_levels, riding_rings
 from ..law import Law
 from ..law.tables import airside_stage_roles, is_rigid_role, is_structure_role
+from ..model.agp_plate import plate_groups, plate_road_levels, riding_rings
 from ..model.airport import Airport
 from ..model.constraints import Band, Row, Source
 from ..model.planar import ROAD_ROLES, PlanarMap, is_agp_ground_ref, is_stack_ground_ref

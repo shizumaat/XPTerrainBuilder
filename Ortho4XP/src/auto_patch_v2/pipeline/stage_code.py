@@ -423,6 +423,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.exclusion",
         "auto_patch_v2.airport.extension_cache",
         "auto_patch_v2.airport.facade",
+        "auto_patch_v2.airport.facade_seat",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.floor_rim",
         "auto_patch_v2.airport.foot_lot",
@@ -2234,6 +2235,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    airport.facade_seat
     airport.access_road airport.agp_plates geom.agp_plate model.agp_plate planar.agp_ground
     airport.agp_deck_join
     airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
@@ -2404,6 +2406,7 @@ CODE_MODULES["solve"] = _mods("""
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    airport.facade_seat
     airport.access_road airport.agp_plates constraints.agp_plate geom.agp_plate model.agp_plate planar.agp_ground
     airport.agp_deck_join
     airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces

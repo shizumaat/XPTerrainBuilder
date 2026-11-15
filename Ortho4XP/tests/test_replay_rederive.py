@@ -15,8 +15,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "src"))
-import replay_rederive as R  # noqa: E402
 import replay_arms as A  # noqa: E402
+import replay_rederive as R  # noqa: E402
 
 
 @_dc.dataclass(frozen=True)

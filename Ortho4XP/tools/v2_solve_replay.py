@@ -992,7 +992,7 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
     for v, k, terms, bound, val, row in rows[:limit]:
         out(f"--- row {k}  violation {v:.4f} m  gen={row.source.generator}")
         out(f"    ruling: {row.source.ruling[:160]}")
-        if row.source.inputs:
+        if getattr(row.source, "inputs", None):
             out(f"    inputs: {', '.join(map(str, row.source.inputs))[:240]}")
         out(f"    demanded {val:.4f} vs allowed {bound:.4f} (raw {val - bound:+.4f})")
         vs = []
@@ -1006,7 +1006,7 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
                        "roles": roles})
         recs.append({"row": k, "violation_m": round(v, 6),
                      "generator": row.source.generator, "ruling": row.source.ruling,
-                     "inputs": [str(i) for i in row.source.inputs],
+                     "inputs": [str(i) for i in getattr(row.source, "inputs", ())],
                      "demanded": round(val, 6), "allowed": round(bound, 6),
                      "vertices": vs})
     return {"icao": icao, "stage": stage,

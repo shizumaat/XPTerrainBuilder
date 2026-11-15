@@ -30,8 +30,8 @@ import math
 import types
 import typing as _t
 
-from ..model.deck_stack import FREE, KEPT, STACK_PREFIX, DeckStack, StackDeck
 from ..model.deck_ends import end_mid as _mid
+from ..model.deck_stack import FREE, KEPT, STACK_PREFIX, DeckStack, StackDeck
 from ..model.free_bridge import published
 
 __all__ = ["bridge_stacks", "log_lines"]

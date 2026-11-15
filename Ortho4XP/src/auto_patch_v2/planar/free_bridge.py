@@ -40,6 +40,7 @@ from shapely.ops import unary_union
 
 from ..airport import bridge_frame as _bf
 from ..airport import bridge_witness as _bw
+from ..geom.rotated_rect import rotated_rectangle
 from ..model.free_bridge import FREE_PREFIX, FreeBridge, FreeDeck, FreeEnd
 
 __all__ = ["attach_free_bridges", "read_bridges", "bridges_of", "admitted", "plated",
@@ -238,7 +239,7 @@ def _axis_ends(d, n: int = 5) -> "tuple[FreeEnd, FreeEnd] | None":
     plan's minimum rectangle, ``n`` stations each, the outward tangent from
     the rectangle's middle; the top the deck's (``deck_top_y``; the kept
     read replaces it by the top at each end)."""
-    r = _ring(d).minimum_rotated_rectangle
+    r = rotated_rectangle(_ring(d))
     if r.geom_type != "Polygon":
         return None
     c = list(r.exterior.coords)[:4]

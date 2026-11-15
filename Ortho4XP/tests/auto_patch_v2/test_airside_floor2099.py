@@ -15,8 +15,15 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from auto_patch_v2.constraints.airside_floor import lead, off_airside  # noqa: E402
-from auto_patch_v2.model.constraints import (Band, Diff, Flat, Linear, Offset, Pin,  # noqa: E402
-                                             Source)
+from auto_patch_v2.model.constraints import (  # noqa: E402
+    Band,
+    Diff,
+    Flat,
+    Linear,
+    Offset,
+    Pin,
+    Source,
+)
 
 SRC = Source("structures", "tunnel.mouth_depth_m (2026-09-03b)", ())
 
@@ -100,9 +107,8 @@ def test_a_datum_vertex_airside_carries_leaves_the_floor_and_the_floor_keeps_its
 def test_a_wall_footing_outside_the_deck_is_no_part_of_its_depth():
     """T2: a frame whose box stands on -0.04 under the deck and whose wing
     wall's footing drops 9.4 m outside the ring: the bottom is the box's."""
-    from shapely.geometry import box
-
     from auto_patch_v2.planar.deck_bridge import _bottom_y
+    from shapely.geometry import box
     comps = {"box.obj": [types.SimpleNamespace(min_y=-0.04, cx=0.0, cz=0.0)],
              "wing.obj": [types.SimpleNamespace(min_y=-9.4, cx=0.0, cz=0.0)]}
     cache = types.SimpleNamespace(genuine=lambda path: comps[path])

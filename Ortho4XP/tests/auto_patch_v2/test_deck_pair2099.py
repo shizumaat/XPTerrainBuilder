@@ -4,10 +4,9 @@ them is clear of the airside cut roles (``planar/structure_overlap.
 deck_partner`` with its corridor width)."""
 from __future__ import annotations
 
-from shapely.geometry import LineString, box
-
 from auto_patch_v2.model.structures import DeckBridge
 from auto_patch_v2.planar.structure_overlap import deck_partner
+from shapely.geometry import LineString, box
 
 
 def _deck(oid: str, y0: float) -> DeckBridge:

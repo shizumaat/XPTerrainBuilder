@@ -50,6 +50,13 @@ class Mouth:
     object_id: str
     floor_y: float
     reader: str
+    #: a hard deck's end lines: ``(the end's middle, its top over the zero)``
+    #: each -- the mouth's top where a lining wall meets it (#2099 R3 E3)
+    ends: tuple = ()
+    #: the road through the mouth (a polyline, frame metres): a hard deck's
+    #: (``DeckBridge.road``), a portal's bore line (its axis) -- the line a
+    #: wall LINES (#2099 R3 E2); ``()`` where none is read
+    road: tuple = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -152,7 +159,10 @@ def mouth_groups(partition, objects: _t.Sequence[_obj8.PlacedObject],
     authority per row).  It is a WING when :func:`_wing_refusal` passes it and
     its plan comes within ``[rebake] contact_epsilon_m`` of the mouth's plan or
     of a wing already joined (ONE HOP: a chain runs only through wings).  A
-    wing joins one mouth, the first by id."""
+    wing joins one mouth, the first by id.
+
+    A WALL LINING THE MOUTH'S ROAD (``Mouth.road``) joins too (#2099 R3 E,
+    :func:`_lining`)."""
     if partition is None or not mouths:
         return [], []
     eps = float(law.tables.structures.rebake.contact_epsilon_m)
@@ -162,13 +172,17 @@ def mouth_groups(partition, objects: _t.Sequence[_obj8.PlacedObject],
     for oid, r in root.items():
         comp[r].append(oid)
     mouth_ids = {m.object_id for m in mouths}
-    out: list[MouthGroup] = []
     notes: list[str] = []
     used: set[str] = set()
+    found: list[tuple[Mouth, tuple, list[str]]] = []
     for m in sorted(mouths, key=lambda q: q.object_id):
         mo = by_id.get(m.object_id)
-        mread = None if mo is None or m.object_id not in root else _solids(mo, cache, law)
+        mread = None if mo is None else _solids(mo, cache, law)
         if mread is None:
+            continue
+        wings: list[str] = []
+        found.append((m, mread, wings))
+        if m.object_id not in root:
             continue
         cand: dict[str, _t.Any] = {}
         for oid in sorted(comp[root[m.object_id]]):
@@ -180,7 +194,7 @@ def mouth_groups(partition, objects: _t.Sequence[_obj8.PlacedObject],
                 cand[oid] = read[0]
             else:
                 notes.append(f"{oid} {path[oid]}: touches mouth {m.object_id}, no wing ({why})")
-        reach, wings = [mread[0]], []
+        reach = [mread[0]]
         grew = True
         while grew:
             grew = False
@@ -192,9 +206,112 @@ def mouth_groups(partition, objects: _t.Sequence[_obj8.PlacedObject],
         notes.extend(f"{oid} {path[oid]}: a wall of mouth {m.object_id}'s group that "
                      f"reaches it through no wing" for oid in sorted(set(cand) - set(wings)))
         used.update(wings)
-        if wings:
-            out.append(MouthGroup(m, tuple((w, path[w]) for w in sorted(wings))))
+    notes.extend(_lining(found, objects, by_id, cache, law, mouth_ids | set(taken) | used))
+    path.update({str(o.id): str(o.path) for o in objects if str(o.id) not in path})
+    out = [MouthGroup(m, tuple((w, path[w]) for w in sorted(wings)))
+           for m, _r, wings in found if wings]
     return out, notes
+
+
+def _lining(found, objects, by_id, cache, law, closed: _t.AbstractSet[str]) -> list[str]:
+    """THE WALLS LINING A MOUTH'S ROAD (#2099 R3 E): a piece that passes
+    :func:`_wing_refusal` against a mouth, is in no group (``closed``) and
+    within ``[tunnel] dual_carriageway_max_separation_m`` of its plan (E1)
+    joins the NEAREST such mouth's wings (``found``, in place) when it lines
+    the road through it (E2, :func:`_lines_road`) and stands at the mouth's
+    seat (E3, :func:`_seat_refusal`).  One hop: never through a lining wall.
+    One note per join and per refusal."""
+    from .wall_lines import wall_line_feet
+    sep = float(law.tables.structures.tunnel.dual_carriageway_max_separation_m)
+    reads = [(m, mr, wings, shapely.LineString(m.road)) for m, mr, wings in found
+             if len(m.road) >= 2]
+    if not reads:
+        return []
+    boxes = [(str(o.id), o.plan_bbox) for o in objects
+             if str(o.id) not in closed and getattr(o, "plan_bbox", None) is not None
+             and not o.plan_bbox.is_empty]
+    tree = shapely.STRtree([b for _i, b in boxes]) if boxes else None
+    near = set()
+    for _m, mr, _w, _r in reads:
+        if tree is not None:
+            near.update(boxes[int(k)][0] for k in tree.query(mr[0], predicate="dwithin",
+                                                             distance=sep))
+    joined_tops = {m.object_id: [_solids(by_id[w], cache, law)[1] for w in wings]
+                   for m, _mr, wings, _r in reads}
+
+    def top_there(m: Mouth, mr, lines) -> float:
+        """The mouth's top over its floor where the wall meets it: a hard
+        deck's nearer end line's top, else its solids' top."""
+        if not m.ends or not lines or not lines[0][1]:
+            return mr[1] - m.floor_y
+        x, y = lines[0][1][0][:2]
+        return min(m.ends, key=lambda e: (e[0][0] - x) ** 2 + (e[0][1] - y) ** 2)[1] - m.floor_y
+    notes: list[str] = []
+    for oid in sorted(near):
+        o = by_id[oid]
+        read = _solids(o, cache, law)
+        best = None
+        for m, mr, wings, road in reads:
+            if read is None or read[0].distance(mr[0]) > sep:
+                continue
+            why = _wing_refusal(read, mr[1] - m.floor_y, mr[0], law)
+            lines = wall_line_feet(o, cache, law, mr[0]) if why is None else []
+            why = why or _lines_road(lines, read[0], road, sep) \
+                or _seat_refusal(lines, top_there(m, mr, lines), joined_tops[m.object_id], law)
+            if why is not None:
+                notes.append(f"{oid} {o.path}: within {sep:g} m of mouth {m.object_id}, "
+                             f"no lining wall ({why})")
+                continue
+            d = read[0].distance(mr[0])
+            if best is None or d < best[0]:
+                best = (d, m, wings)
+        if best is not None:
+            best[2].append(oid)
+            notes.append(f"{oid} {o.path}: lines mouth {best[1].object_id}'s road "
+                         f"{best[0]:.1f} m from it -- a wall of its group (#2099 R3 E)")
+    return notes
+
+
+def _side(road, p) -> float:
+    """The signed side of point ``p`` against the polyline ``road``."""
+    s = road.project(p)
+    a, b = road.interpolate(max(0.0, s - 0.5)), road.interpolate(min(road.length, s + 0.5))
+    return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+
+
+def _lines_road(lines, plan, road, sep: float) -> "str | None":
+    """E2: why the wall lines ``lines`` (plan ``plan``) do NOT line ``road``
+    -- at least half their length within ``sep`` of it and all of the plan on
+    one side of it -- or ``None``."""
+    pts = [shapely.Point(x, y) for _ln, st in lines for x, y, *_r in st]
+    if not pts:
+        return "no wall line"
+    share = sum(road.distance(p) <= sep for p in pts) / len(pts)
+    if share < 0.5:
+        return f"{100.0 * share:.0f} % of its length within {sep:g} m of the mouth's road"
+    sides = [_side(road, shapely.Point(c)) for q in getattr(plan, "geoms", [plan])
+             for c in q.exterior.coords]
+    if min(sides) < -1e-6 and max(sides) > 1e-6:
+        return "it stands on both sides of the mouth's road"
+    return None
+
+
+def _seat_refusal(lines, mouth_top: float, wing_tops: _t.Sequence[float], law
+                  ) -> "str | None":
+    """E3: at its end nearest the mouth (the first station of its nearest
+    line) a lining wall's foot stands no more than ``plate_bin_m`` over its
+    zero and its top within ``plate_bin_m`` of the mouth's top over its
+    floor or of a joined wing's top -- or why not."""
+    bin_m = float(law.tables.structures.tunnel.object.plate_bin_m)
+    if not lines or not lines[0][1]:
+        return "no wall line"
+    *_xy, foot, top = lines[0][1][0]
+    if foot > bin_m:
+        return f"its foot {foot:+.2f} over its zero at the mouth's end"
+    if not any(abs(top - t) <= bin_m for t in (mouth_top, *wing_tops)):
+        return (f"its top {top:+.2f} at the mouth's end, neither the mouth's "
+                f"{mouth_top:.2f} nor a wing's")
+    return None
 
 
 def wing_plates(groups: _t.Sequence[MouthGroup], plates: _t.Mapping[str, tuple]
@@ -253,6 +370,10 @@ def log_lines(icao: str, groups: _t.Sequence[MouthGroup], notes: _t.Sequence[str
     return out
 
 
+def _middle(pts) -> tuple[float, float]:
+    return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+
+
 def mouths_of(pm) -> list[Mouth]:
     """THE MOUTHS the planar readers took (spec §1 M1-M3): every hard-deck
     bridge (``PlanarMap.decks``; its floor the frame's bottom, the road the
@@ -261,13 +382,19 @@ def mouths_of(pm) -> list[Mouth]:
     floor, ``Tunnel.mouth_z``, under the zero its seat states)."""
     out: dict[str, Mouth] = {}
     for db in getattr(pm, "decks", ()) or ():
+        ends = tuple((_middle(st), float(top)) for st, top in
+                     ((getattr(db, "seats_a", ()), getattr(db, "top_a", 0.0)),
+                      (getattr(db, "seats_b", ()), getattr(db, "top_b", 0.0))) if st)
         out.setdefault(str(db.object_id), Mouth(str(db.object_id), float(db.bottom_y),
-                                                "hard-deck bridge"))
+                                                "hard-deck bridge", ends,
+                                                tuple(getattr(db, "road", ()) or ())))
     for tn in getattr(pm, "structures", ()) or ():
         ps = getattr(tn, "portal_seat", ()) or ()
         if not ps or not getattr(tn, "portal", ""):
             continue
         floor_y = float(tn.mouth_z) - float(ps[1])
         out.setdefault(str(tn.portal), Mouth(str(tn.portal), floor_y,
-                                             "entrance face" if len(ps) > 2 else "roofed portal"))
+                                             "entrance face" if len(ps) > 2 else "roofed portal",
+                                             road=tuple(tuple(p) for p in
+                                                        getattr(tn, "axis", ()) or ())))
     return [out[k] for k in sorted(out)]

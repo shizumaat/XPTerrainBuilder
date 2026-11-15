@@ -151,8 +151,11 @@ def test_the_refreshable_verdicts_are_the_preflights_own(build_mod):
 
 
 # (2) ---------------------------------------------------------------------
-def _stamp_world(build_mod, tmp_path, monkeypatch, answers):
+def _stamp_world(build_mod, tmp_path, monkeypatch, answers, selected=("A",)):
     import O4_Config_Utils as CFG
+    import auto_patch.selection as SEL
+    monkeypatch.setattr(SEL, "resolved_inset_mode", lambda tile: "ICAO")
+    monkeypatch.setattr(SEL, "inset_keys", lambda dico, mode: list(selected))
     layer = tmp_path / "airports.osm"
     layer.write_text("", encoding="utf-8", newline="\n")
     monkeypatch.setattr(FNAMES, "osm_cached", lambda *a: str(layer))
@@ -186,6 +189,17 @@ def test_a_stamp_still_stale_after_the_pass_refuses(
     _stamp_world(build_mod, tmp_path, monkeypatch, [False, False])
     with pytest.raises(SystemExit, match="STILL does not settle"):
         build_mod._resettle_inset_stamp(LAT, LON, _Notes())
+
+
+def test_a_tile_with_no_selected_aerodrome_has_no_stamp_to_settle(
+        build_mod, tmp_path, monkeypatch):
+    """#2096 (Yosemite +37-120): none of the tile's aerodromes is in the
+    inset selection, so no pass writes a stamp; that is settled, not a
+    refusal."""
+    passes = _stamp_world(build_mod, tmp_path, monkeypatch, [False],
+                          selected=())
+    assert build_mod._resettle_inset_stamp(LAT, LON, _Notes()) == []
+    assert passes == []
 
 
 # (3) ---------------------------------------------------------------------

@@ -101,7 +101,7 @@ GLOBAL_SCENERY_SUBDIRS = (
 )
 
 
-def _source_candidates(lat, lon, scenery_dir=""):
+def source_candidates(lat, lon, scenery_dir=""):
     """Where X-Plane's own DSF of the tile may be, in the order they are
     tried: :data:`custom_overlay_src`, then its alternate, each also one
     level down (:data:`GLOBAL_SCENERY_SUBDIRS`).  With neither set, the
@@ -122,9 +122,9 @@ def _source_candidates(lat, lon, scenery_dir=""):
     return out
 
 
-def _source_dsf(lat, lon, scenery_dir=""):
-    """X-Plane's own DSF of the tile (:func:`_source_candidates`), or None."""
-    return next((path for path in _source_candidates(lat, lon, scenery_dir)
+def source_dsf(lat, lon, scenery_dir=""):
+    """X-Plane's own DSF of the tile (:func:`source_candidates`), or None."""
+    return next((path for path in source_candidates(lat, lon, scenery_dir)
                  if os.path.isfile(path)), None)
 
 
@@ -340,7 +340,7 @@ def _extract_overlay(lat, lon, source, workdir, say=None):
 ################################################################################
 def _build_overlay(lat, lon, dest_root=None, scenery_dir=""):
     """The overlay step: the tile's overlay DSF from X-Plane's own DSF
-    (:func:`_source_dsf`) into ``dest_root`` (``FNAMES.Overlay_dir`` by
+    (:func:`source_dsf`) into ``dest_root`` (``FNAMES.Overlay_dir`` by
     default) ``/Earth nav data/<block>/<tile>.dsf``.  1 when it is there,
     0 with the tile's failure named."""
     if UI.is_working:
@@ -354,9 +354,9 @@ def _build_overlay(lat, lon, dest_root=None, scenery_dir=""):
         + FNAMES.short_latlon(lat, lon)
         + " : \n--------\n",
     )
-    source = _source_dsf(lat, lon, scenery_dir)
+    source = source_dsf(lat, lon, scenery_dir)
     if source is None:
-        tried = _source_candidates(lat, lon, scenery_dir)
+        tried = source_candidates(lat, lon, scenery_dir)
         UI.exit_message_and_bottom_line(
             "   ERROR: file ",
             tried[0] if tried else FNAMES.long_latlon(lat, lon) + ".dsf",
@@ -401,7 +401,7 @@ def overlay_decision(lat, lon, scenery_dir):
 
     * ``no_scenery`` -- no Custom Scenery folder: nothing is installed;
     * ``no_source`` -- X-Plane's own DSF of the tile is not found
-      (:func:`_source_dsf`): there is nothing to copy (the tile is water,
+      (:func:`source_dsf`): there is nothing to copy (the tile is water,
       or Global Scenery is not installed there);
     * ``covered`` (``pack``, ``why``) -- an enabled pack already supplies
       the tile's roads, forests and buildings (``covering_pack``);
@@ -411,7 +411,7 @@ def overlay_decision(lat, lon, scenery_dir):
     import O4_Overlay_Pack as OPACK
     if not scenery_dir or not os.path.isdir(scenery_dir):
         return {"state": "no_scenery"}
-    source = _source_dsf(lat, lon, scenery_dir)
+    source = source_dsf(lat, lon, scenery_dir)
     if source is None:
         return {"state": "no_source"}
     agent = (DSFH.dsf_properties(source) or {}).get("sim/creation_agent")

@@ -2748,6 +2748,7 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
                 info_only=False)
         derived.append(f"Elevation_data/**/{state['tile_stem']}.hgt")
 
+    no_inset_selected = False
     if not state["airport_insets"]:
         airports_cache = FNAMES.osm_cached(lat, lon, "airports")
         if not os.path.isfile(airports_cache):
@@ -2772,9 +2773,14 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
         INSETS.ensure_insets_for_tile(tile, dico, refresh=True)
         derived.append(
             f"Elevation_data/**/{state['tile_stem']}_airport_insets/")
+        # A tile none of whose aerodromes the inset mode selects (a
+        # mountain tile of small strips) has no inset to derive: that is
+        # settled, not cold (#2096, Yosemite +37-120).
+        no_inset_selected = not _selected
 
     after = dem_cache_state(root, lat, lon)
-    still = [k for k in ("base_raster", "airport_insets") if not after[k]]
+    still = [k for k in ("base_raster", "airport_insets") if not after[k]
+             and not (k == "airport_insets" and no_inset_selected)]
     if still:
         raise SystemExit(
             f"REFUSING: --refresh-data dem derived NOTHING for "
@@ -2825,12 +2831,15 @@ def _resettle_inset_stamp(lat, lon, prog) -> list:
         return []
     if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):
         return []           # refused for the layer, by name, elsewhere
+    from auto_patch.selection import inset_keys, resolved_inset_mode
+    dico = _tile_airports_dico(tile, lat, lon)
+    if not inset_keys(dico, resolved_inset_mode(tile)):
+        return []           # no aerodrome selected: no stamp to settle
     stamp = INSETS.inset_completion_stamp_path(lat, lon)
     prog.note(f"REFRESH dem (authorised, locked, ledgered): the inset "
               f"completion stamp of {lat:+d}{lon:+d} no longer settles the "
               f"tile — re-running the tile's inset pass as a build would")
-    INSETS.ensure_insets_for_tile(tile, _tile_airports_dico(tile, lat, lon),
-                                  refresh=False)
+    INSETS.ensure_insets_for_tile(tile, dico, refresh=False)
     if not INSETS.is_cached(tile):
         raise SystemExit(
             f"REFUSING: --refresh-data dem re-ran the inset pass of tile "
@@ -5570,9 +5579,8 @@ def main(argv=None) -> int:
             raise SystemExit(_why)
     # LOCK FIRST, then snapshot: a concurrent lane's authorised refresh
     # landing between the two would be attributed to this build.
-    locks = [RefreshLock(sc, lane=str(root),
-                         break_stale=args.break_stale_lock).acquire()
-             for sc in sorted(requested)]
+    locks = _acquire_refresh_locks(sorted(requested), str(root),
+                                   args.break_stale_lock)
     if locks:
         prog.note(f"holding shared-repo refresh lock(s): "
                   f"{[lk.scope for lk in locks]}")
@@ -6056,6 +6064,23 @@ _CLAIMED_TAGS: list = []
 #: environment snapshot and (a ledger refusal's) frame.  A stem holding
 #: only these is a run that never produced; the rest are products.
 TAG_RECORD_SUFFIXES = (".progress", ".env.json", ".frame.json")
+
+
+def _acquire_refresh_locks(scopes, lane, break_stale):
+    """Every scope's refresh lock, or none: a refusal on one releases the
+    ones already taken (they leaked before -- a lane refused on 'rings'
+    kept 'orthophotos' under its dead pid, and refused every later lane,
+    #2096 closing build 2026-11-15)."""
+    locks = []
+    try:
+        for sc in scopes:
+            locks.append(RefreshLock(sc, lane=lane,
+                                     break_stale=break_stale).acquire())
+    except BaseException:
+        for lk in locks:
+            lk.release()
+        raise
+    return locks
 
 
 def release_refused_tag(out_dir, tag: str):

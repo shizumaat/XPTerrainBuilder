@@ -211,6 +211,7 @@ enum SettingsLayout {
             SettingItem("overlay_lod", "How far away should photos over water be drawn (m)?", .tile, summary: "A shorter distance helps frame rate and video memory."),
             SettingItem("terrain_casts_shadows", "Should the ground cast shadows?", .tile, summary: "Only matters when scenery shadows are on in X-Plane."),
             SettingItem("use_decal_on_terrain", "Add fine ground detail up close?", .tile, summary: "Noticeable at very low altitude."),
+            SettingItem("cliff_textures", "What should cover steep cliff faces?", .tile, summary: "X-Plane's own rock by default, instead of the photo stretched down the face."),
             SettingItem("normal_map_strength", "Normal map strength", .tile, expert: true),
             SettingItem("ovl_exclude_pol", "Exclude overlay polygon types", .app, expert: true),
             SettingItem("ovl_exclude_net", "Exclude overlay road types", .app, expert: true),

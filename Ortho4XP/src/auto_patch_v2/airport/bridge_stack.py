@@ -20,6 +20,11 @@ object (the fields ``rebake_plan`` stamps) and a DEM surface:
 * KEPT: today's reader, ``bridge_approach.approach_seat`` (rectangle ends,
   ``datum.y``, 22p) = the PREDICTED seat; the end it seats flush (the
   GOVERNING end) and a 22p anchor get no row and no ground.
+* KEPT BY ITS CROSSING (#1718 B3, ``model/free_bridge.OVERPASS_PREFIX``): a
+  no-route deck over a road beneath — the planar overpass read seats it on
+  that road (``planar/overpass_deck``), so its zero is that seat read on
+  the DEM through the object stage's own function (``airside_deck_seat.
+  _plate_zero`` over the road's stations, y 0); its ends are its axis's.
 
 Nothing here names a pack, a resource or an airport.
 """
@@ -32,7 +37,7 @@ import typing as _t
 
 from ..model.deck_ends import end_mid as _mid
 from ..model.deck_stack import FREE, KEPT, STACK_PREFIX, DeckStack, StackDeck
-from ..model.free_bridge import published
+from ..model.free_bridge import OVERPASS_PREFIX, published
 
 __all__ = ["bridge_stacks", "log_lines"]
 
@@ -349,6 +354,36 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
     return out, every, notes
 
 
+def _overpass_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str]]":
+    """``(minted, every read, notes)`` of a deck KEPT BY ITS CROSSING (#1718
+    B3 / B4, module doc): its zero the overpass seat predicted on the DEM;
+    minted only where an end is GRADED (rule 3; a stub's run over
+    ``fill_road_reach_m`` is LISTED, ``bridge_end_state``)."""
+    from .airside_deck_seat import _plate_zero
+    d = fb.decks[0]
+    o = cx.by_id.get(d.object_id)
+    if o is None or len(d.ends) != 2 or not d.under:
+        return [], [], [f"{fb.id}: the deck is not in the pack read"]
+    tag = f"{d.object_id} {str(o.path).rsplit('/', 1)[-1]}"
+    surface = cx.surface([d.ring])
+    view = types.SimpleNamespace(plate_stations=tuple(cx.to_ll(x, y) for x, y in d.under),
+                                 plate_y=0.0, plate_kind="overpass")
+    got = _plate_zero(view, surface, cx.to_ll(*o.xy))
+    if got is None:
+        return [], [], [f"{tag}: kept by its crossing, no road beneath on the DEM — "
+                        "nothing graded, listed"]
+    zero, where = float(got[0]), got[1]
+    pub = published([fb], cx.to_ll, cx.out_m)[d.object_id]
+    ends = cx.ends(fb, d, o, zero, surface, pub["ends"])
+    note = f"{tag}: kept by its crossing, predicted seat {zero:.3f} ({where}; #1718 B3)"
+    st = _stack(fb.id, KEPT, [(m, str(cx.by_id[m].path) if m in cx.by_id else "")
+                              for m in fb.members], [_stack_deck(o, cx.cache, d)], ends, zero,
+                [note])
+    if not st.graded_ends():
+        return [], [st], [note, f"{tag}: no GRADED end — no stack (#1718 B4)"]
+    return [st], [st], [note]
+
+
 def _axis_tops(d, datum, cx: _Ctx):
     """#2090 B2: an axis-read deck's ends with the deck top AT each end (the
     object stage's reading, ``deck_riders.with_end_tops``: ``datum.tops``
@@ -405,7 +440,7 @@ def bridge_stacks(airport, objects, cache, law
             notes.append(f"{fb.id}: REFUSED as free (rule 10: an unread land end and no "
                          "stack) — today's path, listed")
     for fb in kept:
-        st, ev, n = _kept_one(fb, cx)
+        st, ev, n = (_overpass_one if fb.id.startswith(OVERPASS_PREFIX) else _kept_one)(fb, cx)
         out += st
         every += ev
         notes += n

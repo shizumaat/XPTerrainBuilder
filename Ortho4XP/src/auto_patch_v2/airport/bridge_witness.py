@@ -72,7 +72,7 @@ from ..geom.lowest_face import every_z_at
 from .deck_carry import route_chains
 from .deck_signature import is_bridge_way
 
-__all__ = ["Witness", "route_of", "frame_witness", "NO_ROUTE", "any_route",
+__all__ = ["Witness", "route_of", "frame_witness", "axis_witness", "NO_ROUTE", "any_route",
            "placed_faces", "up_faces", "SURFACE_SHARE", "ROOF_SHARE", "ROOF_UNDER_SHARE",
            "STUB_WIDTH_RATIO"]
 
@@ -774,6 +774,37 @@ def _stub_joins(ring: Polygon, plate_up: np.ndarray, frame_faces: np.ndarray,
     roof = open_sky(frame_faces, st, layer, law)
     why = f"W4 open sky on its own axis ({roof:.0%})" if roof > ROOF_SHARE else ""
     return why, line, st, layer
+
+
+def axis_witness(ring: Polygon, plate_up: np.ndarray, frame_faces: np.ndarray,
+                 bodies: _t.Mapping[str, np.ndarray], law,
+                 under: "_t.Callable | None" = None) -> str:
+    """#1718 B2: why a deck with no route of its own fails the STUB
+    witnesses on its own axis (``""`` when it holds them): W3 and W4 along
+    its ribbon centreline (:func:`_stub_joins`, no host: no width ratio),
+    W6 (:func:`_free_frame`: every other body of the frame, ``bodies``,
+    within REACH of the deck and its axis corridor, ``fill_road_reach_m``
+    past each end) and W4b (:func:`beneath`, ``under(bounds)`` every pack
+    object's faces near the stations; default the frame's own).  The
+    crossing road beneath is the caller's W5 (``planar/overpass_deck``)."""
+    why, line, st, layer = _stub_joins(ring, _near(plate_up, ring.buffer(1.0)),
+                                       _near(frame_faces, ring.buffer(1.0)), math.inf, law)
+    if why:
+        return why
+    width = ring.area / line.length
+    far = float(law.tables.structures.building_pad.fill_road_reach_m)
+    corridor = _extended(line, -far, line.length + far).buffer(max(0.5 * width, 0.5))
+    why = _free_frame(bodies, unary_union([ring, corridor]), _reach(width, law))
+    if why:
+        return why
+    box = LineString(st).buffer(1.0)
+    share = beneath(_near((under or (lambda _b: frame_faces))(box.bounds), box), st, layer, law)
+    if share > ROOF_UNDER_SHARE:
+        br = law.tables.structures.bridge
+        return (f"W4b beneath on its own axis: a pack face {float(br.roof_under_min_m):.1f}-"
+                f"{float(br.roof_under_max_m):.0f} m under the surface on {share:.0%} of "
+                "the stations")
+    return ""
 
 
 def _extended(path: LineString, a: float, b: float) -> LineString:

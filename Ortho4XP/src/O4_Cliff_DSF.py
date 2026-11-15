@@ -89,11 +89,13 @@ def _cliff_pool_params(point_pools, pool_param, base, pool_nbr):
         point_pools.geometric[base + i] = key
 
 
-def _terrain_file(tile, name):
+def _terrain_file(tile, name, texture=None):
+    """Write ``terrain/<name>.ter``; ``texture`` is its ``BASE_TEX`` path
+    under ``textures/`` (default ``<name>.dds``)."""
     path = os.path.join(STAGING.terrain_dir(tile), name + ".ter")
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write("A\n800\nTERRAIN\n\n")
-        f.write("BASE_TEX ../textures/" + name + ".dds\n")
+        f.write("BASE_TEX ../textures/" + (texture or name + ".dds") + "\n")
         f.write("BORDER_TEX ../textures/" + BLEND_TEXTURE + "\n")
         f.write("NO_ALPHA\nNO_SHADOW\n")
     return name + ".ter"
@@ -212,27 +214,31 @@ def _xplane_face_terrains(tile, layout, lonlat_all, dico_terrains,
     terrain index (None: its landclass has no cliff texture) and repeat."""
     textures = LIBRARY.region_cliff_textures(tile, lonlat_all,
                                              layout.region_tris)
-    bTERT, region_terrain, repeats = b"", [], []
+    bTERT, region_terrain, repeats, placed = b"", [], [], {}
     for r in range(len(layout.region_tris)):
         cliff = textures[r] if r < len(textures) else None
         if cliff is None:
             region_terrain.append(None)
             repeats.append(0.0)
             continue
-        name = LIBRARY.install_texture(tile, cliff)[: -len(".dds")]
+        if cliff[0] not in placed:
+            placed[cliff[0]] = LIBRARY.install_texture(tile, cliff)
+        texture = placed[cliff[0]][0]
+        name = "cliff_" + texture.rsplit("/", 1)[-1][: -len(".dds")]
         if ("cliff", name) not in dico_terrains:
             terrain_idx = len(dico_terrains)
             dico_terrains[("cliff", name)] = terrain_idx
             overlay_terrains.add(terrain_idx)
             textured_tris[terrain_idx] = {}
-            bTERT += bytes("terrain/" + _terrain_file(tile, name) + "\0",
-                           "ascii")
+            bTERT += bytes("terrain/" + _terrain_file(tile, name, texture)
+                           + "\0", "ascii")
         region_terrain.append(dico_terrains[("cliff", name)])
         repeats.append(cliff[1])
-    used = Counter(os.path.basename(t[0]) for t in textures if t)
+    used = Counter(placed[t[0]][0] for t in textures if t)
     UI.vprint(1, "-> Cliff faces (X-Plane cliff textures): %s; %d region(s)"
-                 " without one." % (dict(used), sum(t is None
-                                                    for t in textures)))
+                 " without one; placed as %s." % (
+                     dict(used), sum(t is None for t in textures),
+                     sorted({how for _t, how in placed.values()})))
     return bTERT, region_terrain, repeats
 
 

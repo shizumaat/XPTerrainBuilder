@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import array
 import os
-import shutil
 from collections import Counter
 
 import numpy
@@ -185,12 +184,34 @@ def region_cliff_textures(tile, lonlat, region_tris):
     return out
 
 
+def _shared_name(dds_path):
+    """``xp_textures10_soil_cliff_wrm_dry.dds``: the texture's path under
+    the world-terrain pack, flattened (two seasons share base names)."""
+    path = dds_path.replace("\\", "/")
+    marker = _WORLD_TERRAIN.replace("\\", "/").rsplit("/", 1)[-1] + "/"
+    rest = path.split(marker, 1)[1] if marker in path else (
+        path.rsplit("/", 1)[-1])
+    return "xp_" + rest.replace("/", "_")
+
+
 def install_texture(tile, cliff_texture):
-    """Copy X-Plane's texture into the tile's ``textures`` (from the
-    user's own install, at build time); its file name there."""
-    name = "cliff_xp_" + os.path.basename(cliff_texture[0])
-    dest = os.path.join(tile.build_dir, "textures", name)
-    if not os.path.isfile(dest):
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.copyfile(cliff_texture[0], dest)
-    return name
+    """Place X-Plane's texture ONCE per pack, never copied per tile (owner
+    2026-11-15): in the build's ``textures/_shared/`` as a link to the
+    user's own install (``O4_World_Pack.share_file``: symbolic link, else
+    hard link, else a copy).  When the tiles' home is the World pack, the
+    pack's own ``textures/_shared/`` file is placed first and the build's
+    is linked to it, so even a copy is made once.  Returns the texture's
+    path relative to ``textures/`` (what the ``.ter`` names) and how the
+    build's file was placed."""
+    import O4_File_Names as FNAMES
+    import O4_World_Pack as WP
+    name = _shared_name(cliff_texture[0])
+    source = cliff_texture[0]
+    world = FNAMES.world_home()
+    if world:
+        home = os.path.join(world, "textures", WP.SHARED_DIR, name)
+        WP.share_file(source, home)
+        source = home
+    how = WP.share_file(source, os.path.join(
+        tile.build_dir, "textures", WP.SHARED_DIR, name))
+    return WP.SHARED_DIR + "/" + name, how

@@ -171,7 +171,7 @@ def test_dsf_band_points_terrain_and_plan(tmp_path, monkeypatch):
     pts = numpy.frombuffer(pools.points[base], numpy.uint16).reshape(-1, 9)
     assert (pts[:, 7] == 32768).all()
     assert pts[:, 8].max() == 32768       # alpha 1 -> t2 = 0.5
-    ter = (tmp_path / "cliff_+38+013_000.ter").read_text()
+    ter = (tmp_path / "cliff_+38+013_000.ter").read_text(encoding="utf-8")
     assert "BASE_TEX ../textures/cliff_+38+013_000.dds" in ter
     assert "BORDER_TEX ../textures/cliff_blend.png" in ter
     assert (tmp_path / "textures" / "cliff_blend.png").is_file()
@@ -227,7 +227,8 @@ def test_xplane_arm_draws_the_default_terrain(monkeypatch):
 
 def test_xpface_arm_lays_the_cliff_texture_in_face_charts(tmp_path,
                                                           monkeypatch):
-    """``xpface``: the landclass's AUTO_SLOPE_CLIFF texture is copied in
+    """``xpface``: the landclass's AUTO_SLOPE_CLIFF texture is LINKED once
+    into ``textures/_shared/`` (never copied per tile, owner 2026-11-15)
     and drawn in 9-plane face charts at its own repeat."""
     import O4_Cliff_Library as LIBRARY
     xyz, tris = _wall_mesh()
@@ -235,7 +236,10 @@ def test_xpface_arm_lays_the_cliff_texture_in_face_charts(tmp_path,
     nodes = numpy.stack((13.0 + xyz[:, 0] / (k * numpy.cos(numpy.radians(
         38.5))), 38.0 + xyz[:, 1] / k, xyz[:, 2], numpy.zeros(len(xyz)),
         numpy.zeros(len(xyz))), 1)
-    dds = tmp_path / "cliff_cld_wet.dds"
+    soil = (tmp_path / "Resources" / "default scenery" / "1000 world terrain"
+            / "textures10" / "soil")
+    soil.mkdir(parents=True)
+    dds = soil / "cliff_cld_wet.dds"
     dds.write_bytes(b"DDS ")
     monkeypatch.setattr(LIBRARY, "region_cliff_textures",
                         lambda tile, lonlat, regions: [
@@ -259,11 +263,14 @@ def test_xpface_arm_lays_the_cliff_texture_in_face_charts(tmp_path,
         array.array("H", [0] * (5 * len(nodes))),
         {i: 0 for i in range(len(nodes))}, pool_param, pools, base, 1,
         None, textured, dico, overlays, "xpface")
-    assert tert == b"terrain/cliff_xp_cliff_cld_wet.ter\0" and plan == []
+    name = "xp_textures10_soil_cliff_cld_wet"
+    assert tert == b"terrain/cliff_%s.ter\0" % name.encode() and plan == []
     assert overlays == {1} and textured[1]
-    assert (tmp_path / "textures" / "cliff_xp_cliff_cld_wet.dds").is_file()
-    ter = (tmp_path / "cliff_xp_cliff_cld_wet.ter").read_text()
-    assert "BASE_TEX ../textures/cliff_xp_cliff_cld_wet.dds" in ter
+    shared = tmp_path / "textures" / "_shared" / (name + ".dds")
+    assert shared.is_symlink() and shared.resolve() == dds.resolve()
+    assert not list((tmp_path / "textures").glob("*.dds"))  # no copy
+    ter = (tmp_path / ("cliff_%s.ter" % name)).read_text(encoding="utf-8")
+    assert "BASE_TEX ../textures/_shared/%s.dds" % name in ter
     pts = numpy.frombuffer(pools.points[base], numpy.uint16).reshape(-1, 9)
     # a 200 m wall at a 2160 m repeat stays well inside one repeat
     assert pts[:, 6].max() < 65535 * 1.0 / CLIFF.UV_RANGE
@@ -279,13 +286,37 @@ def test_world_library_reads_generic_summer_rows(tmp_path):
         "EXPORT_EXCLUDE\tlib/g10/terrain10/r.ter\tterrain10_VLC/r.ter\n"
         "REGION all\n"
         "EXPORT_EXCLUDE_SEASON fal,win\tlib/g10/terrain10/r.ter\tterrain10/fal/r.ter\n"
-        "EXPORT_EXCLUDE_SEASON spr,sum\tlib/g10/terrain10/r.ter\tterrain10/r.ter\n")
+        "EXPORT_EXCLUDE_SEASON spr,sum\tlib/g10/terrain10/r.ter\tterrain10/r.ter\n",
+        encoding="utf-8", newline="\n")
     lib = LIBRARY._world_library(str(tmp_path))
     assert lib["lib/g10/terrain10/r.ter"] == str(root / "terrain10" / "r.ter")
     (root / "textures10").mkdir()
     (root / "textures10" / "c.dds").write_bytes(b"x")
     (root / "terrain10" / "r.ter").write_text(
         "A\n800\nTERRAIN\nPROJECTED 10 10\n"
-        "AUTO_SLOPE_CLIFF 2160 1080 57 62 ../textures10/c.dds\n")
+        "AUTO_SLOPE_CLIFF 2160 1080 57 62 ../textures10/c.dds\n",
+        encoding="utf-8", newline="\n")
     tex = LIBRARY._cliff_texture(lib["lib/g10/terrain10/r.ter"])
     assert tex[1] == 2160.0 and tex[0].endswith("c.dds")
+
+
+def test_xplane_texture_goes_through_the_world_packs_one_file(tmp_path,
+                                                             monkeypatch):
+    """With the World pack as the tiles' home, the pack's own
+    ``textures/_shared/`` file is placed first and every build links to the
+    same source: one file per pack, whatever the number of tiles."""
+    import O4_Cliff_Library as LIBRARY
+    import O4_File_Names as FNAMES
+    src = (tmp_path / "X" / "Resources" / "default scenery"
+           / "1000 world terrain" / "textures10" / "soil" / "c.dds")
+    src.parent.mkdir(parents=True)
+    src.write_bytes(b"DDS ")
+    world = tmp_path / "World"
+    monkeypatch.setattr(FNAMES, "world_home", lambda: str(world))
+    for t in ("a", "b"):
+        tile = type("Tile", (), {"build_dir": str(tmp_path / t)})
+        ref, how = LIBRARY.install_texture(tile, (str(src), 2160.0))
+        assert ref == "_shared/xp_textures10_soil_c.dds" and how == "symlink"
+        assert (tmp_path / t / "textures" / ref).resolve() == src.resolve()
+    home = world / "textures" / "_shared" / "xp_textures10_soil_c.dds"
+    assert home.is_symlink() and home.resolve() == src.resolve()

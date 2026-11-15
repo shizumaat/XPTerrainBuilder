@@ -76,6 +76,60 @@ def test_ter_rewrite_moves_every_texture_reference():
     assert "BORDER_TEX ../../textures/+53-063/21040_21648_ZL16.png" in text
     assert WP.rewrite_ter(text, "+53-063")[1] == 0      # idempotent
 
+    shared = WP.rewrite_ter("BASE_TEX ../textures/_shared/xp_c.dds\n",
+                            "+53-063")
+    assert shared == ("BASE_TEX ../../textures/_shared/xp_c.dds\n", 1)
+    assert WP.rewrite_ter(shared[0], "+53-063")[1] == 0
+
+
+def test_shared_texture_is_one_link_per_pack(tmp_path):
+    """#2096 (owner 2026-11-15): a texture every tile names (X-Plane's own
+    cliff texture) is ONE file in the pack's ``textures/_shared/``, a link
+    to its source, never a copy per tile; publishing a second tile adds
+    nothing and both verify."""
+    src = tmp_path / "xp" / "cliff.dds"
+    src.parent.mkdir()
+    src.write_bytes(b"DDS cliff")
+    pack, stage = str(tmp_path / "pack"), str(tmp_path / "stage")
+    for lat, lon in ((45, 7), (45, 8)):
+        build = _build_dir(tmp_path / f"b{lon}",
+                           os.path.join(FIXTURES, "full_ortho.dsf"), lat, lon)
+        assert WP.share_file(str(src), os.path.join(
+            build, "textures", WP.SHARED_DIR, "xp_cliff.dds")) == "symlink"
+        name = sorted(os.listdir(os.path.join(build, "terrain")))[0]
+        with open(os.path.join(build, "terrain", name), "a",
+                  encoding="utf-8", newline="\n") as h:
+            h.write("BASE_TEX ../textures/_shared/xp_cliff.dds\n")
+        res = WP.publish(pack, build, lat, lon, staging_root=stage)
+        assert res["state"] == "swapped" and not res["problems"], res
+        assert res["counts"]["shared"] == 1
+    shared = os.path.join(pack, "textures", WP.SHARED_DIR)
+    assert os.listdir(shared) == ["xp_cliff.dds"]
+    assert os.path.realpath(os.path.join(shared, "xp_cliff.dds")) == \
+        os.path.realpath(str(src))
+    assert not os.path.exists(os.path.join(pack, "textures", "+45+007",
+                                           WP.SHARED_DIR))
+    for lon in (7, 8):
+        check = WP.verify_tile(pack, 45, lon)
+        assert not check["problems"] and check["tex_refs"] == 5
+
+
+def test_share_file_falls_back_to_a_hard_link_then_a_copy(tmp_path,
+                                                         monkeypatch):
+    """Windows without Developer Mode refuses a symbolic link: a hard link
+    (no privilege on one volume), else one copy."""
+    src = tmp_path / "a.dds"
+    src.write_bytes(b"DDS")
+
+    def refuse(*_a, **_k):
+        raise OSError("no privilege")
+    monkeypatch.setattr(os, "symlink", refuse)
+    assert WP.share_file(str(src), str(tmp_path / "s" / "b.dds")) == "hardlink"
+    assert WP.share_file(str(src), str(tmp_path / "s" / "b.dds")) == "present"
+    monkeypatch.setattr(os, "link", refuse)
+    assert WP.share_file(str(src), str(tmp_path / "s" / "c.dds")) == "copy"
+    assert (tmp_path / "s" / "c.dds").read_bytes() == b"DDS"
+
 
 def test_dsf_rewrite_leaves_library_and_builtin_terrain():
     src = ("TERRAIN_DEF terrain_Water\nTERRAIN_DEF terrain/a_BI16.ter\n"

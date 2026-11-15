@@ -58,6 +58,16 @@ _TRANSIENT_NETWORK_ERROR_FRAGMENTS = (
     # milliseconds with 20607784 bytes received") and connect timeouts.
     "timed out",
     "timeout was reached",
+    # THE LOW-SPEED GUARD'S OWN WORDS (#2098): libcurl aborts a transfer
+    # under GDAL_HTTP_LOW_SPEED_LIMIT for GDAL_HTTP_LOW_SPEED_TIME with
+    # "Operation too slow. Less than 1024 bytes/sec transferred the last
+    # 60 seconds".  The guard exists to turn a stall into a RETRY; unmatched
+    # here, the WCS window read returned False, the fetch answered None,
+    # and EGLL's 1 m ENGLAND1M inset became a durable no-coverage
+    # (measured live 2026-11-15 against environment.data.gov.uk).
+    "operation too slow",
+    "http error code : 408",
+    "http error code: 408",
     # Connection-level failures.
     "connection reset",
     "connection was reset",

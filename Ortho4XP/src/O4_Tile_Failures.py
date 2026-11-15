@@ -273,6 +273,13 @@ CATALOGUE = {
         "the detailed elevation for {airports} could not be downloaded.",
         "{inset_source} did not answer, so the ground there was shaped from "
         "the standard elevation data.", "network", severity="degraded"),
+    # a pass whose best inset ranks below the one the airport had before
+    # (#2098, ``O4_Airport_Elevation_Insets._report_inset_downgrades``)
+    "inset_downgraded": Entry(
+        "the elevation for {airports} is less detailed than in its last "
+        "build.",
+        "{source} could not be used this time, so the ground there was "
+        "shaped from {fallback}.", "network", severity="degraded"),
     # the user's "Use coarser data" on a slow approach-ring download
     # (#1351, ``O4_Vector_Map._record_coarsened_rings``)
     "elevation_coarsened": Entry(

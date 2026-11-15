@@ -23,6 +23,10 @@ from elevation_access.failures import (
     error_message_indicates_grid_configuration_failure,
     error_message_indicates_transient_network_failure,
 )
+from elevation_access.fetch_slots import (
+    _held_provider_fetch_slot,
+    provider_fetch_slots,
+)
 from elevation_access.gdal_support import gdal, has_gdal
 from elevation_access.registry import register_access_strategy
 from elevation_access.vertical_units import _raster_vertical_unit
@@ -271,12 +275,28 @@ class WcsStrategy:
         some servers paint beyond their data.  ``None`` (unknown) when the
         coverage needs a key or the server refused the read; a network
         failure raises :class:`TransientFetchError`."""
-        import tempfile
-
         if not has_gdal or not cell_boxes:
             return None
         if "{api_key}" in str(definition.get("wcs_service_url", "")):
             return None
+        with self._server_slot(definition):
+            return self._probe_cells(definition, cell_boxes)
+
+    @staticmethod
+    def _server_slot(definition):
+        """THE ONE CAP ON THE SERVER (#2098): every read of the coverage --
+        an airport inset, an approach-ring cell, a footprint probe -- holds
+        one of the provider's own fetch slots (``fetch_slots``, default 2,
+        session-wide).  The inset and ring pools each held their OWN slots,
+        so +51-001 put six streams on the Environment Agency service and
+        it answered HTTP 429.  Nothing holds the provider's own key around
+        a ``wcs`` fetch, so the nesting cannot wait on itself."""
+        return _held_provider_fetch_slot(
+            definition.get("code"), provider_fetch_slots(definition))
+
+    def _probe_cells(self, definition, cell_boxes):
+        import tempfile
+
         hull = (min(box[0] for box in cell_boxes),
                 min(box[1] for box in cell_boxes),
                 max(box[2] for box in cell_boxes),
@@ -308,10 +328,21 @@ class WcsStrategy:
         target_resolution_m,
         destination_path,
     ):
-        import O4_Authenticated_Sessions as SESSIONS
-
         if not has_gdal:
             return None
+        with self._server_slot(definition):
+            return self._fetch_window(definition, bounding_box_wgs84,
+                                      target_resolution_m, destination_path)
+
+    def _fetch_window(
+        self,
+        definition,
+        bounding_box_wgs84,
+        target_resolution_m,
+        destination_path,
+    ):
+        import O4_Authenticated_Sessions as SESSIONS
+
         api_key = None
         if "{api_key}" in str(definition.get("wcs_service_url", "")):
             try:

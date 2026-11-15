@@ -65,8 +65,10 @@ def test_every_tagged_band_moves_by_delta_and_no_other(monkeypatch):
     assert b[6].hi == pytest.approx(1631.79) and b[6].lo is None   # the joined stack's
     assert cs.pins[0].z == pytest.approx(1628.79)
     assert r["moved"] == 3
-    fz = AL._final_zero(_planar().agp_groups[0], rep)
+    fz = AL.final_zero(_planar().agp_groups[0], rep)
     assert fz["datum"]["dsf:obj1"] == pytest.approx(1638.71 - 9.02 - 0.21)
+    assert AL.stack_zero(types.SimpleNamespace(zero_z=1631.0, datum_group=GID),
+                         _planar().agp_groups, rep) == pytest.approx(1630.79)
 
 
 def test_an_unread_governor_leaves_delta_zero(monkeypatch):

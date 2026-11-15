@@ -14,8 +14,7 @@ id ``agp:<row>``, or the id of a deck stack whose ``datum_group`` is the
 group — has its bounds moved by ``delta``.  Where the triangle is not all
 stage 1's, ``delta = 0`` (noted ``agp_datum_unread``).  No second solve.
 
-AFTER THE SOLVE :func:`_final_zero` (through :func:`published_groups`) is
-the only reader of a group's datum or
+AFTER THE SOLVE :func:`final_zero` is the only reader of a group's datum or
 a joined stack's zero (the graded surface's ``agp_groups``, the bridge
 rows, the rebake plan's kept decks).
 """
@@ -29,7 +28,8 @@ from ..law import Law
 from ..model.agp_group import AgpGroup, group_of_input
 from ..model.planar import PlanarMap
 
-__all__ = ["REPORT_KEY", "datum_rewrite", "published_groups"]
+__all__ = ["REPORT_KEY", "datum_rewrite", "final_zero", "published_groups",
+           "stack_zero"]
 
 #: the stage-2 report's key (``DesignReport.reach_seed[REPORT_KEY]``)
 REPORT_KEY = "agp_level"
@@ -106,7 +106,7 @@ def datum_rewrite(planar: PlanarMap, law: Law, cs: _t.Any,
     return _dc.replace(cs, bands=bands, pins=pins), {"groups": rep}
 
 
-def _final_zero(group: AgpGroup, report: "_t.Mapping | None") -> dict[str, _t.Any]:
+def final_zero(group: AgpGroup, report: "_t.Mapping | None") -> dict[str, _t.Any]:
     """AFTER THE SOLVE, the one reader of a group's datum (A5): ``{"z_gov",
     "delta", "unread", "datum": {row: z}}`` — each member's datum is its
     predicted zero plus the group's delta.  An unpredicted group (no
@@ -124,6 +124,17 @@ def _final_zero(group: AgpGroup, report: "_t.Mapping | None") -> dict[str, _t.An
             "datum": datum, "stage1": list(r.get("stage1") or ())}
 
 
+def stack_zero(st: _t.Any, groups: _t.Sequence[AgpGroup], report: "_t.Mapping | None"
+               ) -> float:
+    """A joined deck stack's final zero (its predicted zero plus its
+    group's delta, A5); any other stack's own zero."""
+    gid = getattr(st, "datum_group", None)
+    g = next((g for g in groups if g.id == gid), None) if gid else None
+    if g is None:
+        return float(st.zero_z)
+    return float(st.zero_z) + float(final_zero(g, report)["delta"])
+
+
 def published_groups(groups: _t.Sequence[AgpGroup], report: "_t.Mapping | None"
                      ) -> list[dict[str, _t.Any]]:
     """The graded surface's ``agp_groups`` (A5): per group its id, governor,
@@ -133,7 +144,7 @@ def published_groups(groups: _t.Sequence[AgpGroup], report: "_t.Mapping | None"
     plates."""
     out = []
     for g in groups:
-        fz = _final_zero(g, report)
+        fz = final_zero(g, report)
         out.append({
             "id": g.id, "governor": g.governor, "why": g.why,
             "z_gov": fz["z_gov"], "delta": fz["delta"], "unread": fz["unread"],

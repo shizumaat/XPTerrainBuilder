@@ -898,7 +898,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             fc, final=_emit_records.final_identity(
                 _solved, None if _late_report is None else _late_records),
             cl=cl, yield_records=_yield_records, lrep=lrep, airport=airport,
-            objects_out=objects_out, common=_fc_in, feather_m=cfg.feather_m)
+            objects_out=objects_out, common=_fc_in, feather_m=cfg.feather_m,
+            agp=(design_rep.reach_seed or {}).get("agp_level"))
         _em = _emit_records.emit(
             fc, _em_in,
             icao=icao, pm=pm, law=law, airport=airport, sol=sol, cs=cs, cl=cl, strips=strips,

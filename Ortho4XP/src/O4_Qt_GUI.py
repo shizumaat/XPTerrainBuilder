@@ -510,11 +510,17 @@ def resolve_tile_state(incoming, current):
     return incoming
 
 
-def row_detail(state, label, detail):
+def row_detail(state, label, detail, memory_wait=""):
     """The second line of a tile's Activity row: the engine's sentence
     for a STOPPED tile (``TileState.detail``, #598 — what the tile is
-    left with), shown only while the row reads stopped."""
-    return detail if (state == "stopped" or label == "stopped") else ""
+    left with), shown only while the row reads stopped; else, while the
+    tile is still in the run, the engine's sentence for a step held for
+    memory (``MemoryWait``, #2101)."""
+    if state == "stopped" or label == "stopped":
+        return detail
+    if state in ("queued", "active", "indeterminate"):
+        return memory_wait
+    return ""
 
 
 def is_stopped_attempt(attempt, stale_through, stop_pending):
@@ -973,6 +979,7 @@ class MainWindow(QMainWindow):
             EV.ImagerySourceStatus: self._on_imagery_source_status,
             EV.PackOldForests: self._on_pack_old_forests,
             EV.SlowStep: self._on_slow_step,
+            EV.MemoryWait: self._on_memory_wait,
             EV.PackOptimise: self._on_pack_optimise,
             EV.PackAdjust: self._on_pack_adjust,
             EV.GatewayAirports: self._on_gateway_airports,
@@ -1708,6 +1715,8 @@ class MainWindow(QMainWindow):
         self._tile_rows = {}
         # TileState.detail of a stopped tile (#598), by tile.
         self._tile_details = {}
+        # MemoryWait.message of a step held for memory (#2101), by tile.
+        self._memory_waits = {}
         # Each row's step strip (#825, O4_Step_Strip), by tile.
         self._step_strips = {}
         # #1341: the rows outlive their run.  Each row's place in the list
@@ -4875,6 +4884,7 @@ class MainWindow(QMainWindow):
                 QTSTRIP.show(_row.findChild(QLabel, "tile_steps"),
                              self._step_strips[tile])
                 self._tile_details.pop(tile, None)
+                self._memory_waits.pop(tile, None)
                 self._row_issues.pop(tile, None)
                 stale = _row.findChild(QLabel, "tile_detail")
                 if stale is not None:
@@ -5075,6 +5085,7 @@ class MainWindow(QMainWindow):
         if resolved is None:
             return  # stale news from a run this row has already left
         self._tile_started_at.setdefault(tile, time.time())
+        self._memory_waits.pop(tile, None)    # its step started (#2101)
         self._progress_states[tile] = resolved
         self.map.set_progress(self._map_progress())
         self._render_row_state(tile)
@@ -5082,6 +5093,18 @@ class MainWindow(QMainWindow):
             "XPTerrainBuilder — building %s · %s · %d%%"
             % (FNAMES.short_latlon(*tile), label, event.percent)
         )
+
+    def _on_memory_wait(self, event):
+        """A tile's step is held for memory, or no longer (#2101): the
+        row keeps its state and shows the engine's sentence under it."""
+        tile = (event.lat, event.lon)
+        if self._is_stopped_attempt(tile, event):
+            return
+        if event.resolved or not event.message:
+            self._memory_waits.pop(tile, None)
+        else:
+            self._memory_waits[tile] = event.message
+        self._render_row_state(tile)
 
     def _is_stopped_attempt(self, tile, event):
         return is_stopped_attempt(
@@ -5210,7 +5233,8 @@ class MainWindow(QMainWindow):
             tile, ("queued", "queued", 0))
         detail = row_widget.findChild(QLabel, "tile_detail")
         if detail is not None:
-            text = row_detail(state, label, self._tile_details.get(tile, ""))
+            text = row_detail(state, label, self._tile_details.get(tile, ""),
+                              self._memory_waits.get(tile, ""))
             detail.setText(text)
             detail.setVisible(bool(text))
         finished = ACTORDER.is_finished(state, label)

@@ -246,6 +246,7 @@ CAPABILITIES: tuple = (
     "patch_view_lane",              # 2026-11-13, #2061 view lane, patch_staleness
     "pack_adjust_edit",             # 2026-11-15, pack row Adjust… (pack_adjust adjust/change)
     "world_tile_use",               # 2026-11-15, #2100 tile menu "Use XPTerrainBuilder here"
+    "memory_wait",                  # 2026-11-15, #2101 MemoryWait on the tile's row
 )
 
 
@@ -396,6 +397,31 @@ class SlowStep(EngineEvent):
     elapsed_seconds: float = 0.0
     expected_seconds: Optional[float] = None
     eta_seconds: Optional[float] = None
+    resolved: bool = False
+    attempt: int = 0
+
+
+@dataclass(frozen=True)
+class MemoryWait(EngineEvent):
+    """One step of one tile is HELD for memory (#2101).
+
+    The scheduler admits a heavy step only while its projected peak
+    (``needed_gb``) fits; ``free_gb`` is what the machine has free now and
+    ``reason`` whose memory it waits for — ``"machine"`` (another
+    application holds it) or ``"run"`` (this build's running steps).  The
+    ENGINE writes ``message`` (``o4_engine.memory_waits.wait_message``); a
+    front end shows it verbatim on the tile's row and removes it on
+    ``resolved`` (the step started, or the tile left the run) or when the
+    tile's next step starts.  ``attempt``: as on ``TileState``.
+    """
+
+    lat: int = 0
+    lon: int = 0
+    step_key: str = ""
+    needed_gb: float = 0.0
+    free_gb: float = 0.0
+    reason: str = ""
+    message: str = ""
     resolved: bool = False
     attempt: int = 0
 

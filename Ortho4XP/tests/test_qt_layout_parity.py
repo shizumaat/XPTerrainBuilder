@@ -1219,3 +1219,15 @@ def test_both_maps_show_the_map_controls_in_order(window):
     layout = controls.layout()
     order = [layout.indexOf(b) for b in buttons]
     assert -1 not in order and order == sorted(order)
+
+
+def test_both_activity_rows_show_a_memory_wait():
+    """#2101: a step held for memory shows the engine's sentence on the
+    tile's Activity row in both apps."""
+    row = (SWIFT / "ActivityRow.swift").read_text(encoding="utf-8")
+    model = (SWIFT / "BuildModel.swift").read_text(encoding="utf-8")
+    assert "Text(progress.memoryWait)" in row
+    assert "case .memoryWait(let wait)" in model
+    source = inspect.getsource(GUI.MainWindow._paint_row_state)
+    assert "self._memory_waits.get(tile" in source
+    assert GUI.MainWindow._on_memory_wait

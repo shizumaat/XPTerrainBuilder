@@ -717,6 +717,14 @@ def test_row_detail_shows_only_on_a_stopped_row():
     assert GUI.row_detail("done", "", "x") == ""
 
 
+def test_row_detail_shows_a_memory_wait_while_the_tile_is_in_the_run():
+    # #2101: the engine's sentence for a step held for memory.
+    assert GUI.row_detail("queued", "queued", "", "wait") == "wait"
+    assert GUI.row_detail("active", "mesh", "", "wait") == "wait"
+    assert GUI.row_detail("stopped", "stopped", "x", "wait") == "x"
+    assert GUI.row_detail("done", "", "", "wait") == ""
+
+
 def test_the_engines_late_notice_gives_a_stopped_row_its_second_line(window):
     import O4_Stopped_Build as STOPPED
     window._start_run([TILE], dict(SETTINGS))

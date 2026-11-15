@@ -57,7 +57,7 @@ from .obj8_clip import _plan_admitted
 if _t.TYPE_CHECKING:                                   # pragma: no cover
     from ..law import Law
 
-__all__ = ["read_objects", "basin_member_ids", "ramp_decks", "hidden_terrain"]
+__all__ = ["read_objects", "basin_member_ids", "ramp_decks"]
 
 
 def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,

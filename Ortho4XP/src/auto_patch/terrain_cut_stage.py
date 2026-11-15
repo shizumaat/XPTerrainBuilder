@@ -323,9 +323,9 @@ def held_boxes(tile) -> list[tuple[float, float, float, float]]:
     every FILL record's plan and zero footprint grown by the fill's reach
     (#2077: the mesh draws the filled and conformed ground at one posting;
     weights only, never the hold)."""
+    import O4_File_Names as FNAMES
     from auto_patch_v2.airport import terrain_cut as _tc
     from auto_patch_v2.airport import terrain_fill as _tf
-    import O4_File_Names as FNAMES
     out = []
     records = cut_records(FNAMES.patch_dir(tile.lat, tile.lon))
     for rec in records:

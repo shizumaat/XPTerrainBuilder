@@ -392,9 +392,9 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     # at its no-float zero -- no other seat moves a row of it
     from ..airport import ground_shell as _gs
     from ..airport import terrain_model as _tm
-    # issue #2056: airside is king -- a seated ground shell never stands
-    # over the solved airside surface
     from ..airport.terrain_fill import posting_shoulder_m
+    # issue #2056: airside is king -- a seated ground shell never stands
+    # over the solved airside surface (#2077: nor a fill model's rim)
     _posting = getattr(airport.dem, "posting_m", None)
     airport = _dc.replace(airport, terrain_models=_gs.airside_capped(
         getattr(airport, "terrain_models", ()) or (), surf, _to_xy,

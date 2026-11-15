@@ -38,7 +38,7 @@ from shapely.ops import unary_union
 
 from .pack_trees import EARTH_R
 
-__all__ = ["clear_areas", "clear_trees"]
+__all__ = ["clear_areas", "clear_trees", "metre_frame", "polygon_blocks"]
 
 #: a forest polygon parameter at or above this draws trees along its edges
 LINE_FOREST = 256
@@ -49,7 +49,7 @@ POINT_FOREST = 512
 _MARKING_STATUS = {2: 1, 4: 1, 3: 2, 5: 2}
 
 
-def _frame(lat0: float):
+def metre_frame(lat0: float):
     """(lon, lat) -> metres and back, about latitude ``lat0``."""
     k = math.pi * EARTH_R / 180.0
     c = max(math.cos(math.radians(lat0)), 1e-6)
@@ -117,7 +117,7 @@ def clear_areas(pack_root: str) -> list[Polygon]:
             continue
         ap = _apt.parse_airport_block(block)
         try:
-            to_m, to_deg = _frame(ap.reference_point()[0])
+            to_m, to_deg = metre_frame(ap.reference_point()[0])
         except ValueError:
             continue
         for r in _airport_rects(ap, Law.for_airport(icao), to_m):
@@ -125,7 +125,7 @@ def clear_areas(pack_root: str) -> list[Polygon]:
     return out
 
 
-def _polygon_blocks(lines: _t.Sequence[str]):
+def polygon_blocks(lines: _t.Sequence[str]):
     """``(start, end, def index, param, tail, windings)`` of each
     ``BEGIN_POLYGON`` block; a winding is ``[(lon, lat, rest), ...]``."""
     i = 0
@@ -217,7 +217,7 @@ def clear_trees(text: str, tree_defs: _t.Collection[int],
     lines = text.splitlines(keepends=True)
     out: list[str] = []
     at = changed = 0
-    for start, end, idx, param, tail, windings in _polygon_blocks(lines):
+    for start, end, idx, param, tail, windings in polygon_blocks(lines):
         pts = [(x, y) for w in windings for x, y, _ in w]
         if idx not in tree_defs or not pts or not env.intersects(
                 box(*_bounds(pts))):

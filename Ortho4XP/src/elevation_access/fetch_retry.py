@@ -26,7 +26,6 @@ from elevation_access.failures import (
 
 __all__ = [
     "RETRY_DELAYS_S",
-    "is_transient_fetch_error",
     "provider_pause_key",
     "retry_transient",
 ]
@@ -40,7 +39,7 @@ __all__ = [
 RETRY_DELAYS_S = (60.0, 180.0, 300.0)
 
 
-def is_transient_fetch_error(error) -> bool:
+def _is_transient_fetch_error(error) -> bool:
     """Is ``error`` a failure worth asking again (never a capability)?"""
     if isinstance(error, ProviderUnavailable):
         return False
@@ -70,7 +69,7 @@ def retry_transient(attempt, code, label, delays=None):
             return attempt()
         except Exception as error:
             if (number >= len(delays) or UI.red_flag
-                    or not is_transient_fetch_error(error)):
+                    or not _is_transient_fetch_error(error)):
                 raise
             wait = float(delays[number]) * random.uniform(0.75, 1.25)
             PUSHBACK.pause_host(key, wait)

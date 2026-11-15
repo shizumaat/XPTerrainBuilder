@@ -35,7 +35,16 @@ itself, never from the aeroway way drawn over it:
   half widths jumped 64.5 / 49 m between 12 m stations — refused "the
   approach bends tighter than the corridor".  Each such carriageway is its
   own LANE: its own corridor, the deck's bank split between neighbouring
-  lanes halfway across the median (:func:`lane_band`).
+  lanes halfway across the median (:func:`lane_band`).  Two roads at two
+  levels beyond the deck are two lanes too (#2072 B2, :func:`road_level`)
+  -- but never on a side whose roads RUN THROUGH to the next deck over
+  them: no road tops out in the open stretch between two decks, so its
+  ground there splits nothing (#1718, MEASURED KBNA Taxiway L: a DEM
+  refresh moved 0.475 -> 0.567 m against the 0.5 m tolerance, and the
+  split lane's floor landed on the taxiway the deck carries).  Lanes stay
+  two ramps however close (``structure_approach.merge_duals``' ``apart``):
+  merged, one corridor took one lane's band and left the rest of the
+  deck's share uncut over a floor.
 
 * A TRENCH NEVER ENDS ON AIRSIDE PAVEMENT (#2072 rule A; RULINGS
   2026-10-30a (2), 2026-11-03b (2)).  Where airside pavement no deck ring
@@ -196,12 +205,21 @@ def _levels_differ(level_of, a: int, b: int, tol: float) -> bool:
 
 
 def road_level(approach: _t.Sequence[XY], db: DeckBridge, dem_z: _t.Callable[[float, float], float],
-               gap: float, run: float, step: float) -> "float | None":
+               gap: float, run: float, step: float, decks: _t.Sequence[DeckBridge] = (),
+               paved=None) -> "float | None":
     """THE GROUND OF A MOUTH'S OWN ROAD BEYOND ITS DECK (#2072 B2): the
     median DEM along the mouth's ``approach`` (its mapped road walking out
     of the bore), from where it leaves the deck ring ``gap`` behind, over
     ``run`` metres (one design ramp length), each ``step``; ``None`` where
-    the road reads no ground there."""
+    the road reads no ground there -- or where it RUNS THROUGH to the next
+    deck over it (``structure_overlap.deck_partner`` over ``decks``, the
+    open stretch clear of airside ``paved``): no road tops out between two
+    decks, the floor stays level to the next one (``deck_bridge.deck_seats``),
+    so a level read there is ground the cut never meets and must not split
+    a lane (#1718; MEASURED KBNA Taxiway L, 2026-11-14 DEM refresh: two
+    roads' ground in the 18 m stretch between the decks read 0.567 m apart
+    against the 0.5 m tolerance, the split lane's mouth datum landed on the
+    taxiway edge and pulled the deck 2.3 m down)."""
     import math
     import statistics
     if len(approach) < 2 or step <= 0.0:
@@ -220,7 +238,20 @@ def road_level(approach: _t.Sequence[XY], db: DeckBridge, dem_z: _t.Callable[[fl
             if not math.isnan(z):
                 zs.append(z)
         s += step
+    if zs and decks and _runs_through(ln, min(ln.length, start + run), db, decks, paved):
+        return None
     return statistics.median(zs) if zs else None
+
+
+def _runs_through(ln: LineString, s_end: float, db: DeckBridge,
+                  decks: _t.Sequence[DeckBridge], paved) -> bool:
+    """Whether the road ``ln`` walking out of ``db`` runs under the next
+    deck (``structure_overlap.deck_partner``) before ``s_end``: the stretch
+    its level is read over (:func:`road_level`)."""
+    from shapely.ops import substring
+
+    from .structure_overlap import deck_partner
+    return s_end > 0.0 and deck_partner(db, substring(ln, 0.0, s_end), decks, paved) is not None
 
 
 def lane_band(db: DeckBridge, centres: _t.Sequence[float], lane: int

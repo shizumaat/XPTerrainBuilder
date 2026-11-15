@@ -398,7 +398,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             id(m): road_level(getattr(m, "approach", ()) or (), deck_of[id(m)],
                               lambda x, y: dem_z_at(airport, (x, y)), tn.wall_gap_m,
                               deck_of[id(m)].depth_m / tn.ramp_grade,
-                              law.tables.emit.chords.station_spacing_m)
+                              law.tables.emit.chords.station_spacing_m, deck_bridges,
+                              deck_paved)
             for m in mouth_list if deck_of.get(id(m)) is not None},
         float(law.tables.emit.cockpit.visual_m))
 
@@ -407,8 +408,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         db = deck_of.get(id(m))
         return br.object_id if br is not None else None if db is None else \
             f"deck:{deck_bridges.index(db)}:{deck_side(db, m.inward)}:{lane_of.get(id(m), 0)}"
+    def _lanes_apart(a, b) -> bool:
+        # two lanes of one deck side are two ramps (``merge_duals``, #1718)
+        da, db_ = deck_of.get(id(a)), deck_of.get(id(b))
+        return da is not None and da is db_ and deck_side(da, a.inward) == \
+            deck_side(db_, b.inward) and lane_of.get(id(a), 0) != lane_of.get(id(b), 0)
     groups = [Group(list(m), xy, inw, w, list(ax))
-              for m, xy, inw, w, ax in (merge_duals(mouth_list, law, stats, _edge_key)
+              for m, xy, inw, w, ax in (merge_duals(mouth_list, law, stats, _edge_key,
+                                                    _lanes_apart)
                                         if mouth_list else [])]
     groups += object_groups(corridors, list(airport.osm_ways), law, reach)
     groups += extra_groups

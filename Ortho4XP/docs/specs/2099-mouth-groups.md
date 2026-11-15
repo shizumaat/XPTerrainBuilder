@@ -68,7 +68,7 @@ contacts between placements; a LINE part -- a fence, a kerb, `Part.line` -- join
 not a mouth, and seated by no other rule (`taken`: a plate entry, a whole-row record, the
 excluded / storey-shell / terrain-model rows: one authority per row).
 
-W1-W3 THE WING WITNESS (`wing_refusal`, every number a law value):
+W1-W3 THE WING WITNESS (`_wing_refusal`, every number a law value):
 * W1 A WALL: no `ATTR_hard_deck`, and no part of its genuine solids' plan as thick as
   `[tunnel.object] wall_face_max_thickness_m` (2.0; `plan.buffer(-1.0)` is empty). Measured
   0.42-0.91 for the seven wings, 7.6-13.2 for the three boxes.

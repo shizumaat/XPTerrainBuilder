@@ -22,6 +22,7 @@ import typing as _t
 
 import numpy as np
 
+from ..geom import exact as _exact
 from ..model.constraints import Band, Row, Source
 
 __all__ = ["RUN_TAG", "REPORT_KEY", "runout_rows", "runout_rewrite"]
@@ -80,7 +81,7 @@ def runout_rewrite(planar, law, cs, levels: _t.Mapping[int, float]
     """``(cs with every run-out row held at max(P, A), report)`` (module
     doc).  The report lists per end the rows moved onto the airside and the
     station where the road meets it."""
-    runs = [r for r in cs.bands if _is_run(r)]
+    runs = [(i, r) for i, r in enumerate(cs.bands) if _is_run(r)]
     if not runs or not levels:
         return cs, {}
     flush = float(law.tables.structures.bridge.deck_flush_m)
@@ -89,9 +90,9 @@ def runout_rewrite(planar, law, cs, levels: _t.Mapping[int, float]
     lz = np.array([float(levels[int(v)]) for v in ids], float)
     rep: dict[str, dict] = {}
     new: dict[int, Band] = {}
-    for r in runs:
+    for i, r in runs:
         xy = np.asarray(planar.vertices[r.v].xy, float)
-        d = np.hypot(lxy[:, 0] - xy[0], lxy[:, 1] - xy[1])
+        d = _exact.hypot_array(lxy[:, 0] - xy[0], lxy[:, 1] - xy[1])
         near = np.argsort(d)[:_NEAR]
         w = 1.0 / np.maximum(d[near], 0.5)
         a = float((w * lz[near]).sum() / w.sum())
@@ -102,8 +103,8 @@ def runout_rewrite(planar, law, cs, levels: _t.Mapping[int, float]
         rec["max_over_airside_m"] = round(max(rec["max_over_airside_m"], p - a), 3)
         if a > p:
             rec["on_airside"] += 1
-            new[id(r)] = _dc.replace(r, lo=a - flush, hi=a)
+            new[i] = _dc.replace(r, lo=a - flush, hi=a)
     if not new:
         return cs, {"ends": rep}
-    return (_dc.replace(cs, bands=tuple(new.get(id(r), r) for r in cs.bands)),
+    return (_dc.replace(cs, bands=tuple(new.get(i, r) for i, r in enumerate(cs.bands))),
             {"ends": rep})

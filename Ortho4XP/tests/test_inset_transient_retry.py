@@ -137,7 +137,7 @@ def test_a_retry_pauses_the_provider_for_every_airport(monkeypatch):
 
     FETCH_RETRY.retry_transient(_attempt, "RETRYD", "EGLL", delays=(0.0,))
     assert [key for (key, _w) in paused] == [
-        FETCH_RETRY.provider_pause_key("RETRYD")]
+        FETCH_RETRY._provider_pause_key("RETRYD")]
 
 
 # ------------------------------------------------------ the fetch loop twins

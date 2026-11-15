@@ -253,7 +253,8 @@ class _Airside:
 def _across(plate, pav) -> bool:
     """Does ``pav`` (on ``plate``) stand both sides of the plate's mid-span,
     or cover more than half its length (along its long axis)?"""
-    rect = plate.minimum_rotated_rectangle
+    from ..geom.rotated_rect import rotated_rectangle
+    rect = rotated_rectangle(plate)
     cs = list(rect.exterior.coords)[:4]
     if len(cs) < 4:
         return True

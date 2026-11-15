@@ -371,7 +371,6 @@ def _is_building(walled: _t.Sequence[_t.Any], law: TerrainLaw) -> bool:
                   for a, b in _outline(p)})
     if len(pts) < 3:
         return False
-    import shapely
     from shapely.geometry import MultiPoint
     lat0 = sum(a for a, _b in pts) / len(pts)
     k = _M_PER_DEG * math.cos(math.radians(lat0))
@@ -379,9 +378,8 @@ def _is_building(walled: _t.Sequence[_t.Any], law: TerrainLaw) -> bool:
                        for a, b in pts]).convex_hull
     if hull.geom_type != "Polygon":
         return False
-    import numpy as np
-    with np.errstate(all="ignore"):         # shapely's envelope on a right angle
-        rect = shapely.minimum_rotated_rectangle(hull)
+    from ..geom.rotated_rect import rotated_rectangle
+    rect = rotated_rectangle(hull)
     if rect.geom_type != "Polygon":
         return False
     c = list(rect.exterior.coords)

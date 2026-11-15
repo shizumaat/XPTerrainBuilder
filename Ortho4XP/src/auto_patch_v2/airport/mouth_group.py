@@ -11,7 +11,7 @@ pack: three mouths, seven wings, 2.4-94 m from their box's anchor).
 
 THE GROUP is the load partition's ε-contact graph (``PackPartition.contacts``,
 the grouping every other seat reads) across anchor families
-(:func:`mouth_groups`); :func:`wing_refusal` is the witness that a touching
+(:func:`mouth_groups`); :func:`_wing_refusal` is the witness that a touching
 piece is a wing, not a fence, a lamp or a building.  THE SEAT is the mouth's:
 a wing's zero is the mouth's zero plus the mouth's FLOOR y (``Mouth.floor_y``,
 the road under the mouth in the mouth's own frame), carried by whichever seat
@@ -34,7 +34,7 @@ from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .obj8_clip import _bulk_polys
 
-__all__ = ["Mouth", "MouthGroup", "mouths_of", "mouth_groups", "wing_refusal", "wing_plates",
+__all__ = ["Mouth", "MouthGroup", "mouths_of", "mouth_groups", "wing_plates",
            "wing_records", "log_lines", "MOUTH_DATUM"]
 
 #: the ``datum`` of a wing's whole-row seat record (:func:`wing_records`)
@@ -81,7 +81,7 @@ def _farthest(plan, other) -> float:
                for q in getattr(plan, "geoms", [plan]) for c in q.exterior.coords)
 
 
-def wing_refusal(read, mouth_top_over_floor: float, mouth_plan, law) -> "str | None":
+def _wing_refusal(read, mouth_top_over_floor: float, mouth_plan, law) -> "str | None":
     """Why the piece read ``read`` (:func:`_solids`) is NO wing of a mouth
     whose top stands ``mouth_top_over_floor`` over its floor, plan
     ``mouth_plan`` -- or ``None`` (spec §1 W1-W3):
@@ -149,7 +149,7 @@ def mouth_groups(partition, objects: _t.Sequence[_obj8.PlacedObject],
 
     A candidate stands in its mouth's ε-contact component of the load
     partition, is no mouth and is not ``taken`` (seated by another rule: one
-    authority per row).  It is a WING when :func:`wing_refusal` passes it and
+    authority per row).  It is a WING when :func:`_wing_refusal` passes it and
     its plan comes within ``[rebake] contact_epsilon_m`` of the mouth's plan or
     of a wing already joined (ONE HOP: a chain runs only through wings).  A
     wing joins one mouth, the first by id."""
@@ -175,7 +175,7 @@ def mouth_groups(partition, objects: _t.Sequence[_obj8.PlacedObject],
             if oid in mouth_ids or oid in taken or oid in used or oid not in by_id:
                 continue
             read = _solids(by_id[oid], cache, law)
-            why = wing_refusal(read, mread[1] - m.floor_y, mread[0], law)
+            why = _wing_refusal(read, mread[1] - m.floor_y, mread[0], law)
             if why is None:
                 cand[oid] = read[0]
             else:

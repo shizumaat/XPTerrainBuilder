@@ -26,7 +26,6 @@ from elevation_access.failures import (
 
 __all__ = [
     "RETRY_DELAYS_S",
-    "provider_pause_key",
     "retry_transient",
 ]
 
@@ -47,7 +46,7 @@ def _is_transient_fetch_error(error) -> bool:
         error_message_indicates_transient_network_failure(error))
 
 
-def provider_pause_key(code) -> str:
+def _provider_pause_key(code) -> str:
     """The ``O4_Http_Pushback`` host key of one elevation provider."""
     return "https://elevation-provider-%s/" % str(code).lower()
 
@@ -60,7 +59,7 @@ def retry_transient(attempt, code, label, delays=None):
     ``label`` names the airport in the retry line.
     """
     delays = RETRY_DELAYS_S if delays is None else tuple(delays)
-    key = provider_pause_key(code)
+    key = _provider_pause_key(code)
     for number in range(len(delays) + 1):
         if not PUSHBACK.wait_for_host(key):
             raise TransientFetchError(

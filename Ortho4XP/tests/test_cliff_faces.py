@@ -239,7 +239,7 @@ def test_xpface_arm_lays_the_cliff_texture_in_face_charts(tmp_path,
     dds.write_bytes(b"DDS ")
     monkeypatch.setattr(LIBRARY, "region_cliff_textures",
                         lambda tile, lonlat, regions: [
-                            LIBRARY.CliffTexture((str(dds), 2160.0))
+                            (str(dds), 2160.0)
                         ] * len(regions))
     monkeypatch.setattr(FACES, "CliffParams",
                         lambda **k: dataclasses.replace(LOOSE, **{

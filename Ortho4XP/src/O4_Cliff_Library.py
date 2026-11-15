@@ -29,7 +29,7 @@ import numpy
 import O4_Default_Terrain_Map as DEFTER
 import O4_UI_Utils as UI
 
-__all__ = ["PLANES", "CliffTexture", "emit_library_overlays",
+__all__ = ["PLANES", "emit_library_overlays", "install_texture",
            "region_cliff_textures"]
 
 #: Plane count of an overlay point on a projected terrain with a border.
@@ -113,13 +113,6 @@ _WORLD_TERRAIN = os.path.join("Resources", "default scenery",
                               "1000 world terrain")
 
 
-class CliffTexture(tuple):
-    """``(dds_path, repeat_m)``: a landclass's ``AUTO_SLOPE_CLIFF``
-    texture and the metres of face one repeat covers (its contour width;
-    X-Plane's sizes are square on the face at the slope they are drawn
-    for, e.g. 2160 x 1080 m projected = 2160 m on a 60 degree face)."""
-
-
 def _world_library(xplane_root):
     """``{virtual path: physical .ter}`` of the generic (``REGION all``),
     summer entries of the world-terrain library.  The shared resolver
@@ -147,7 +140,11 @@ def _world_library(xplane_root):
 
 
 def _cliff_texture(ter_path):
-    """The ``AUTO_SLOPE_CLIFF`` texture of a ``.ter`` file, or None."""
+    """``(dds_path, repeat_m)``: the ``AUTO_SLOPE_CLIFF`` texture of a
+    ``.ter`` file and the metres of face one repeat covers (its contour
+    width: X-Plane's sizes are square on the face at the slope they are
+    drawn for, 2160 x 1080 m projected = 2160 m on a 60 degree face), or
+    None."""
     try:
         lines = open(ter_path, encoding="utf-8", errors="replace").read(
         ).splitlines()
@@ -159,7 +156,7 @@ def _cliff_texture(ter_path):
             dds = os.path.normpath(os.path.join(os.path.dirname(ter_path),
                                                 f[5]))
             if os.path.isfile(dds):
-                return CliffTexture((dds, float(f[1])))
+                return (dds, float(f[1]))
     return None
 
 

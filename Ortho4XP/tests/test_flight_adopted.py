@@ -383,3 +383,51 @@ def test_an_upgrade_never_counts_down_past_the_widest_estimate():
     assert countdown <= (SCHEDULE.RESCALE_RANGE[1] * planned_hi
                          + 4 * SCHEDULE.PROFILE_SECONDS["drape"] * 2.5
                          + SCHEDULE.DEPARTURE_MARGIN_S)
+
+
+def test_change_forgets_the_answer_and_asks_again(tmp_path):
+    """#2095 (owner 2026-11-15T02:46Z): an answered row's "Change" sends
+    ``ask``; the remembered answer is forgotten (the airport's ``patched``
+    reading stays) and the card asks again, this flight and the next."""
+    book = ADOPTED.ChoiceBook(str(tmp_path / ADOPTED.CHOICES_FILE))
+    book.set_patched(DEP_TILE, "CYYR", "yes")
+    manager, _b, _p = _manager(book)
+    manager.choose(DEP_TILE, "keep")
+    assert _job(manager, DEP_TILE).state == "swapped"
+    manager.choose(DEP_TILE, "ask")
+    assert _job(manager, DEP_TILE).state == CHOICE_STATE
+    assert manager.status(0.0)["choices"][0]["choice"] == ""
+    saved = json.loads((tmp_path / ADOPTED.CHOICES_FILE).read_text("utf-8"))
+    assert saved["+53-061"] == {"patched": {"CYYR": "yes"}}
+    again, _b, _p = _manager(ADOPTED.ChoiceBook(book.path))
+    assert _job(again, DEP_TILE).state == CHOICE_STATE
+    again.choose(DEP_TILE, "upgrade")
+    assert _job(again, DEP_TILE).state == "queued"
+
+
+def test_change_waits_while_the_upgrade_is_under_way():
+    manager, _b, _p = _manager()
+    manager.choose(DEP_TILE, "upgrade")
+    manager.tick(0.0, None)
+    assert _job(manager, DEP_TILE).state == "building"
+    with pytest.raises(ValueError, match="under way"):
+        manager.choose(DEP_TILE, "ask")
+    assert manager.endpoints.choice_of(DEP_TILE) == ADOPTED.UPGRADE
+
+
+def test_a_keep_given_while_the_upgrade_was_refused_is_asked_again(tmp_path):
+    """#2095: before #2088 an in-place upgrade was refused, so a ``keep``
+    remembered then (no ``upgrade_open``) does not bind an in-place tile;
+    one given with Upgrade on offer does, and so does an old ``keep`` on a
+    tile whose upgrade was never refused."""
+    path = tmp_path / ADOPTED.CHOICES_FILE
+    path.write_text(json.dumps({"+53-061": {
+        "choice": "keep", "at": "2026-11-14T20:01:00Z"}}), "utf-8")
+    in_place = dict(INFO, in_place=True)
+    manager, _b, _p = _manager(ADOPTED.ChoiceBook(str(path)), info=in_place)
+    assert _job(manager, DEP_TILE).state == CHOICE_STATE
+    elsewhere, _b, _p = _manager(ADOPTED.ChoiceBook(str(path)))
+    assert _job(elsewhere, DEP_TILE).state == "swapped"
+    manager.choose(DEP_TILE, "keep")
+    again, _b, _p = _manager(ADOPTED.ChoiceBook(str(path)), info=in_place)
+    assert _job(again, DEP_TILE).state == "swapped"

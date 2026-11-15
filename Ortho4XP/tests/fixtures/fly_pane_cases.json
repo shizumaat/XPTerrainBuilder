@@ -2250,6 +2250,12 @@
     "Or click a square on the map: From takes its largest custom airport (else its largest airport); Cmd-click (Ctrl-click on Windows and Linux) a second square for To."
    ]
   ],
+  "choice_change": [
+   [
+    "Change",
+    "Forget this answer and ask again"
+   ]
+  ],
   "refusal": [
    [
     "",

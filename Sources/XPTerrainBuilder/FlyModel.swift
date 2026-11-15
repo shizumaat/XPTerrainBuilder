@@ -346,7 +346,7 @@ final class FlyModel: ObservableObject {
 
     /// An adopted departure or destination (#2025): "Fly the existing
     /// mesh" (`keep`) or "Upgrade with XPTerrainBuilder grading"
-    /// (`upgrade`), remembered for the tile. Python:
+    /// (`upgrade`), remembered for the tile; `ask` forgets it (#2095). Python:
     /// `O4_Qt_Fly_Pane.choose`.
     func choose(_ row: O4FlightStatus.Choice, _ choice: String) {
         guard let flight = status?.flight else { return }

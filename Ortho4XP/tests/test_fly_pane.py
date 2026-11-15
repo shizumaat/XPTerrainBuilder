@@ -173,6 +173,7 @@ def _text_cases():
                             for f, t in (("", ""), (" ", ""), ("CYYR", ""),
                                          ("CYYR", "CYYT"), ("", "CYYT"))],
         "quick_map_hint": [[TEXT.QUICK_MAP_HINT]],
+        "choice_change": [[TEXT.CHOICE_CHANGE_BUTTON, TEXT.CHOICE_CHANGE_HELP]],
         "refusal": [[e, TEXT.refusal(e)] for e in (
             "", "unknown command: 'flight_create'", "No plan to build")],
         "divert_airports": AIRPORTS,

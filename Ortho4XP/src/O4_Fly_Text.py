@@ -42,7 +42,7 @@ __all__ = [
     "legend_key", "preparing_line", "here_lines",
     "added_destination", "CHOICE_KEEP", "CHOICE_UPGRADE", "choice_question",
     "choice_keep_label", "choice_upgrade_label", "CHOICE_KEEP_BUTTON",
-    "CHOICE_UPGRADE_BUTTON",
+    "CHOICE_UPGRADE_BUTTON", "CHOICE_CHANGE_BUTTON", "CHOICE_CHANGE_HELP",
 ]
 
 PLAN_SOURCE_LABEL = "Flight plan"
@@ -458,6 +458,9 @@ CHOICE_UPGRADE = "Upgrade with XPTerrainBuilder grading"
 #: to 'Fly as-is' and 'Upgrade'"); the long labels are their hover text.
 CHOICE_KEEP_BUTTON = "Fly as-is"
 CHOICE_UPGRADE_BUTTON = "Upgrade"
+#: On an answered row (#2095): forget the remembered answer and ask again.
+CHOICE_CHANGE_BUTTON = "Change"
+CHOICE_CHANGE_HELP = "Forget this answer and ask again"
 _CHOICE_ROLES = {"departure": "Departure", "destination": "Destination"}
 
 

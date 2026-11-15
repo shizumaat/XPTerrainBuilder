@@ -2176,7 +2176,7 @@ def _no_background_storage_scan(monkeypatch):
 @pytest.fixture(autouse=True)
 def _inset_fetch_retries_are_off(monkeypatch):
     """No test waits out the inset fetch's transient retries
-    (``elevation_access.fetch_retry``, #2098: 30 s then 90 s): a fake
+    (``elevation_access.fetch_retry``, #2098: 1, 3 then 5 minutes): a fake
     strategy that raises is given up at once, as before the retry; the
     retry's own twins set the delays they test."""
     from elevation_access import fetch_retry as FETCH_RETRY

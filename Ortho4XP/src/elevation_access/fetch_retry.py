@@ -31,9 +31,13 @@ __all__ = [
     "retry_transient",
 ]
 
-#: Seconds to wait before the second and the third asking of a provider
-#: whose fetch raised a transient failure; then the run gives it up.
-RETRY_DELAYS_S = (30.0, 90.0)
+#: Seconds to wait before each further asking of a provider whose fetch
+#: raised a transient failure; then the run gives it up.  Minutes, not
+#: seconds: the Environment Agency WCS answers a burst by STALLING every
+#: connection from the address for minutes (measured 2026-11-15: a
+#: GetCapabilities hung past 120 s right after a 429), so a 30 s retry
+#: only stalls again.
+RETRY_DELAYS_S = (60.0, 180.0, 300.0)
 
 
 def is_transient_fetch_error(error) -> bool:

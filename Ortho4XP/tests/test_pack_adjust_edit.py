@@ -22,7 +22,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
 
 import O4_UI_Utils as UI  # noqa: E402
-from auto_patch import adjust_edit as AE  # noqa: E402
 from auto_patch import adjust_stage as AS  # noqa: E402
 from auto_patch import drape_stage as DS  # noqa: E402
 from auto_patch import forest_stage as FS  # noqa: E402

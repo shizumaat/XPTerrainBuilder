@@ -25,7 +25,9 @@ rows, ticked as the pack is now, and the "Optimise pack" steps
 (``rebuild``: the terrain objects) says so (:data:`REBUILD_NOTE`), and
 while its tick differs from how the pack is, Apply reads
 :data:`APPLY_REBUILD_BUTTON` — the window rebuilds the tile when the
-engine's outcome says ``rebuild``.
+engine's outcome says ``rebuild`` (during a run: :data:`REBUILD_QUEUED`,
+and the engine's ``state="pending"`` after the run names every tile still
+owed a rebuild, :data:`REBUILDING`).
 
 The COPY is identical to the macOS sheet
 (``Sources/SceneryKit/PackAdjust.swift``); the twin
@@ -91,6 +93,11 @@ ADJUST_HELP = ("Adjust: change what is hidden or optimised in this package. "
                "to its terrain objects also rebuilds the tile.")
 REBUILD_LATER = ("Rebuild tile {tile} to finish the change to "
                  "{pack}’s terrain objects: {reason}")
+# a terrain answer given during a run: the engine keeps the tile's debt
+# (``o4_engine.tile_rebuild_pending``) and names it when the run ends
+REBUILD_QUEUED = ("Tile {tile} will be rebuilt when this run finishes, to "
+                  "match the change to {pack}’s terrain objects.")
+REBUILDING = "Rebuilding tile {tile} to match: terrain objects {change} in “{pack}”."
 
 
 def _rows(event) -> list[dict]:

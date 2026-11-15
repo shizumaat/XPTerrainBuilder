@@ -635,7 +635,14 @@ public enum O4Event: Sendable, Equatable {
                 stepsOn: ((object["steps"] as? [[String: Any]]) ?? []).compactMap { row in
                     ((row["checked"] as? NSNumber)?.boolValue ?? false) ? row["key"] as? String : nil
                 },
-                rebuild: (object["rebuild"] as? NSNumber)?.boolValue ?? false))
+                rebuild: (object["rebuild"] as? NSNumber)?.boolValue ?? false,
+                pending: ((object["items"] as? [[String: Any]]) ?? []).compactMap { row in
+                    guard let tile = row["tile"] as? String else { return nil }
+                    return O4PackAdjustPending(
+                        id: row["id"] as? String ?? tile, lat: (row["lat"] as? NSNumber)?.intValue ?? 0,
+                        lon: (row["lon"] as? NSNumber)?.intValue ?? 0, tile: tile,
+                        pack: row["pack"] as? String ?? "", change: row["change"] as? String ?? "")
+                }))
         // Another STRING LITERAL match: `class PackPackage` in
         // Ortho4XP/src/o4_engine/events.py.
         case "PackPackage":

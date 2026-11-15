@@ -2296,6 +2296,8 @@ final class BuildModel: ObservableObject {
     /// Every question already asked this session (one per pack, tile and
     /// row set — each airport of a pack runs the check).
     private var packAdjustSeen: Set<String> = []
+    /// The tile rebuilds a pack answer owed that this window started.
+    private var rebuildPendingIDs: Set<String> = []
 
     /// Parity with the Qt window (`O4_Qt_GUI._on_pack_adjust`): a question
     /// with a choice in it asks once; an applied or undone answer refreshes
@@ -2306,6 +2308,7 @@ final class BuildModel: ObservableObject {
             packForestsChanged += 1
         }
         if adjust.state == "applied" && adjust.rebuild { rebuildAfterAdjust(adjust) }
+        if adjust.state == "pending" { rebuildPendingTiles(adjust.pending) }
         if adjust.state == "ask" || adjust.state == "adjust" { packAdjustSeen.remove(adjust.id) }
         guard adjust.asks, !packAdjustSeen.contains(adjust.id) else { return }
         packAdjustSeen.insert(adjust.id)
@@ -2345,9 +2348,29 @@ final class BuildModel: ObservableObject {
     /// why not and what to do (the Qt window: the same).
     private func rebuildAfterAdjust(_ adjust: O4PackAdjust) {
         let coord = TileCoord(lat: adjust.lat, lon: adjust.lon)
+        if isBuilding {
+            // the engine keeps the debt and names it when the run ends
+            console.append(O4PackAdjustCopy.rebuildQueued(tile: coord.key, pack: adjust.pack))
+            return
+        }
         if let reason = rebuildWithItsImagery(coord) {
             console.append(O4PackAdjustCopy.rebuildLater(
                 tile: coord.key, pack: adjust.pack, reason: reason))
+        }
+    }
+
+    /// After a run, the tiles a pack answer still owes a rebuild (the
+    /// engine's `tile_rebuild_pending`): each rebuilt once per debt, the
+    /// console saying why (the Qt window: the same).
+    private func rebuildPendingTiles(_ rows: [O4PackAdjustPending]) {
+        for row in rows where !rebuildPendingIDs.contains(row.id) {
+            rebuildPendingIDs.insert(row.id)
+            console.append(O4PackAdjustCopy.rebuilding(tile: row.tile, pack: row.pack,
+                                                       change: row.change))
+            if let reason = rebuildWithItsImagery(TileCoord(lat: row.lat, lon: row.lon)) {
+                console.append(O4PackAdjustCopy.rebuildLater(
+                    tile: row.tile, pack: row.pack, reason: reason))
+            }
         }
     }
 

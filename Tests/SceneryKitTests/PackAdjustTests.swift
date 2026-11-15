@@ -127,6 +127,25 @@ struct PackAdjustTests {
         #expect(o.rebuild && !o.asks)
     }
 
+    /// The tiles a terrain answer still owes a rebuild, after a run
+    /// (engine `tile_rebuild_pending`).
+    @Test func pendingNamesTheTilesToRebuild() {
+        let event: [String: Any] = [
+            "event": "PackAdjust", "state": "pending", "rebuild": true,
+            "items": [["tile": "+29-096", "lat": 29, "lon": -96, "pack": "Some Pack",
+                       "change": "hidden", "id": "+29-096@1"]]]
+        guard case .packAdjust(let a)? = O4Event.parse(object: event) else {
+            Issue.record("PackAdjust did not decode")
+            return
+        }
+        #expect(!a.asks)
+        #expect(a.pending == [O4PackAdjustPending(id: "+29-096@1", lat: 29, lon: -96,
+                                                  tile: "+29-096", pack: "Some Pack",
+                                                  change: "hidden")])
+        #expect(O4PackAdjustCopy.rebuilding(tile: "+29-096", pack: "Some Pack", change: "hidden")
+                == "Rebuilding tile +29-096 to match: terrain objects hidden in “Some Pack”.")
+    }
+
     @Test func adjustWithOnlyOptimiseStepsAsks() {
         let event: [String: Any] = ["event": "PackAdjust", "state": "adjust", "items": [],
                                     "steps": [["key": "swap", "count": 2]]]

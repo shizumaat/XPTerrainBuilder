@@ -1006,6 +1006,8 @@ class MainWindow(QMainWindow):
         self._pack_optimise_seen = set()
         # #1916: the same for the package adjustments questions
         self._pack_adjust_seen = set()
+        # the tile rebuilds a pack answer owed that this window started
+        self._rebuild_pending_ids = set()
         # #1989: the same for the Gateway airports questions
         self._gateway_seen = set()
         # #562: the run's BuildDone events that carry a failure or warning.
@@ -5536,6 +5538,9 @@ class MainWindow(QMainWindow):
             self._pack_adjust_seen.discard(QTADJ.question_key(event))
         elif state == "applied" and getattr(event, "rebuild", False):
             self._rebuild_after_adjust(event)
+        elif state == "pending":
+            self._rebuild_pending_tiles(event)
+            return
         self._pack_choice_event(
             event, ("applied", "undone"), QTADJ.has_choice(event),
             QTADJ.question_key, QTADJ.pack_adjust_box, self._pack_adjust_seen,
@@ -5546,10 +5551,31 @@ class MainWindow(QMainWindow):
         the tile is rebuilt through the patch box's own path, or the
         console says why not and what to do."""
         tile = FNAMES.short_latlon(int(event.lat), int(event.lon))
+        if self._building:
+            # the engine keeps the debt and names it when the run ends
+            print(QTADJ.REBUILD_QUEUED.format(tile=tile, pack=event.pack))
+            return
         reason = self.rebuild_patch_tile(tile)
         if reason:
             print(QTADJ.REBUILD_LATER.format(tile=tile, pack=event.pack,
                                              reason=reason))
+
+    def _rebuild_pending_tiles(self, event):
+        """After a run, the tiles a pack answer still owes a rebuild (the
+        engine's ``tile_rebuild_pending``): each rebuilt once per debt, the
+        console saying why."""
+        for row in getattr(event, "items", None) or ():
+            if row.get("id") in self._rebuild_pending_ids:
+                continue
+            self._rebuild_pending_ids.add(row.get("id"))
+            tile = row.get("tile") or FNAMES.short_latlon(
+                int(row.get("lat", 0)), int(row.get("lon", 0)))
+            print(QTADJ.REBUILDING.format(tile=tile, pack=row.get("pack", ""),
+                                          change=row.get("change", "")))
+            reason = self.rebuild_patch_tile(tile)
+            if reason:
+                print(QTADJ.REBUILD_LATER.format(
+                    tile=tile, pack=row.get("pack", ""), reason=reason))
 
     def _adjust_pack_from_row(self, pack):
         """The pack row's Adjust… (owner 2026-11-15T13:12Z): the engine's

@@ -142,8 +142,11 @@ def test_the_copy_matches_the_mac_app():
         assert '"%s"' % s in text
     assert '"Adjust “\\(pack)”?"' in text
     assert '"Adjust “\\(pack)”"' in text
-    assert ('"%s"' % QTADJ.REBUILD_LATER.replace("{tile}", "\\(tile)")
-            .replace("{pack}", "\\(pack)").replace("{reason}", "\\(reason)")) in text
+    for qt in (QTADJ.REBUILD_LATER, QTADJ.REBUILD_QUEUED, QTADJ.REBUILDING):
+        swift_form = qt
+        for name in ("tile", "pack", "reason", "change"):
+            swift_form = swift_form.replace("{%s}" % name, "\\(%s)" % name)
+        assert '"%s"' % swift_form in text, qt
 
     def joined(start, end):
         i = text.index(start)
@@ -295,3 +298,35 @@ def test_the_pack_row_adjust_asks_the_engine(window, monkeypatch):
     window._building = True
     window._adjust_pack_from_row({"pack_path": "/X/Custom Scenery/Some Pack"})
     assert len(sent) == 1, "never during a run"
+
+
+def test_a_terrain_answer_during_a_run_waits_for_its_end(window, monkeypatch,
+                                                         capsys):
+    asked = []
+    monkeypatch.setattr(window, "_refresh_modified_airports", lambda: None)
+    monkeypatch.setattr(window, "rebuild_patch_tile",
+                        lambda tile: asked.append(tile) or None)
+    window._building = True
+    window._on_engine_event(_event(state="applied", rebuild=True))
+    assert asked == []
+    assert "will be rebuilt when this run finishes" in capsys.readouterr().out
+
+
+def test_the_tiles_still_owed_are_rebuilt_once_after_the_run(window,
+                                                             monkeypatch,
+                                                             capsys):
+    asked = []
+    monkeypatch.setattr(window, "rebuild_patch_tile",
+                        lambda tile: asked.append(tile) or None)
+    rows = [{"tile": "+29-096", "lat": 29, "lon": -96, "pack": "Some Pack",
+             "change": "hidden", "id": "+29-096@1"},
+            {"tile": "+30-096", "lat": 30, "lon": -96, "pack": "Other",
+             "change": "shown", "id": "+30-096@1"}]
+    window._on_engine_event(_event(state="pending", items=rows, rebuild=True))
+    assert asked == ["+29-096", "+30-096"]
+    out = capsys.readouterr().out
+    assert ("Rebuilding tile +29-096 to match: terrain objects hidden in "
+            "“Some Pack”.") in out
+    assert window._pack_art_boxes == [], "no question"
+    window._on_engine_event(_event(state="pending", items=rows, rebuild=True))
+    assert len(asked) == 2, "a debt the window already rebuilt is not looped"

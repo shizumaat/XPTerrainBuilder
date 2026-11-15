@@ -870,8 +870,16 @@ class PackAdjust(EngineEvent):
       differs is written (``auto_patch.adjust_edit``).
     * ``"applied"`` / ``"never"`` / ``"undone"`` / ``"none"`` /
       ``"failed"`` (``error`` says why) — a command's outcome; ``files``
-      lists what was rewritten; ``rebuild`` (a ``"change"``'s) says a
-      changed row is one the tile's mesh reads — the app rebuilds the tile.
+      lists what was rewritten; ``rebuild`` says the answer changed what
+      the tile's mesh reads (the terrain objects) — the app rebuilds the
+      tile, or, during a run, the engine keeps the debt
+      (``o4_engine.tile_rebuild_pending``).
+    * ``"pending"`` — after a run that was not cancelled: ``items`` the
+      tiles a pack answer still owes a rebuild, one ``{"tile", "lat",
+      "lon", "pack", "change", "id"}`` each; both apps rebuild them once
+      per ``id``.  The rebuild's ``BuildDone.notes`` carries
+      ``rebuilt_to_match`` ("Tile X was built to match: terrain objects
+      hidden in …").
 
     Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
     matches this class name as a STRING LITERAL (renaming it breaks the

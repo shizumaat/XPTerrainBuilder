@@ -60,6 +60,28 @@ public struct O4PackAdjustItem: Sendable, Equatable, Identifiable {
     public func baseline(editing: Bool) -> Bool { editing ? checked : false }
 }
 
+/// A tile a pack answer still owes a rebuild (engine
+/// `o4_engine.tile_rebuild_pending`, `PackAdjust` `state` "pending" after a
+/// run): the terrain objects were hidden or shown after its vector step.
+public struct O4PackAdjustPending: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let lat: Int
+    public let lon: Int
+    public let tile: String
+    public let pack: String
+    /// "hidden" or "shown".
+    public let change: String
+
+    public init(id: String, lat: Int, lon: Int, tile: String, pack: String, change: String) {
+        self.id = id
+        self.lat = lat
+        self.lon = lon
+        self.tile = tile
+        self.pack = pack
+        self.change = change
+    }
+}
+
 /// An airport pack's adjustments as ONE question (engine `PackAdjust`,
 /// capability `pack_adjust`, issue #1916). `state` "found" (a build) or
 /// "ask" (the report): Apply sends `pack_adjust` "update" with the checked
@@ -85,6 +107,8 @@ public struct O4PackAdjust: Sendable, Equatable, Identifiable {
     public let stepsOn: [String]
     /// An outcome: the change needs the tile rebuilt.
     public let rebuild: Bool
+    /// `state` "pending": the tiles still owed a rebuild.
+    public let pending: [O4PackAdjustPending]
 
     /// One question per pack, tile and row set.
     public var id: String {
@@ -94,7 +118,8 @@ public struct O4PackAdjust: Sendable, Equatable, Identifiable {
     public init(pack: String, packRoot: String, lat: Int, lon: Int,
                 items: [O4PackAdjustItem], files: [String], state: String,
                 error: String, steps: [O4PackOptimiseStep] = [],
-                stepsOn: [String] = [], rebuild: Bool = false) {
+                stepsOn: [String] = [], rebuild: Bool = false,
+                pending: [O4PackAdjustPending] = []) {
         self.pack = pack
         self.packRoot = packRoot
         self.lat = lat
@@ -106,6 +131,7 @@ public struct O4PackAdjust: Sendable, Equatable, Identifiable {
         self.steps = steps
         self.stepsOn = stepsOn
         self.rebuild = rebuild
+        self.pending = pending
     }
 
     /// The rows the user chooses (each checked when the question opens).
@@ -189,5 +215,13 @@ public enum O4PackAdjustCopy {
 
     public static func rebuildLater(tile: String, pack: String, reason: String) -> String {
         "Rebuild tile \(tile) to finish the change to \(pack)’s terrain objects: \(reason)"
+    }
+
+    public static func rebuildQueued(tile: String, pack: String) -> String {
+        "Tile \(tile) will be rebuilt when this run finishes, to match the change to \(pack)’s terrain objects."
+    }
+
+    public static func rebuilding(tile: String, pack: String, change: String) -> String {
+        "Rebuilding tile \(tile) to match: terrain objects \(change) in “\(pack)”."
     }
 }

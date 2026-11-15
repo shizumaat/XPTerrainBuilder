@@ -159,3 +159,28 @@ Predicted CYYZ: T wings zero 158.97 (8 m down), M wings 155.50 (1.4-2.1 m down),
   objects no new FAIL, mesh no MOVED.
 * Stop rules: a group forming at KBNA / ENTC / a protected capture -> STOP and list; a bar
   missed after one fix iteration -> STOP and report (ONE-MISS).
+
+## 7. Result (lane lmouth2099, closing tile builds lmouth_c3 control at a2952b1d3 / lmouth_a2 arm at 2f2b35f4f)
+
+Drawn (`tools/drawn_site.py` on the pack copy and the tile DSF; a placement's drawn zero =
+its highest drawn top less its authored top y):
+
+| mouth | box drawn zero / floor | wing | control: zero - floor | arm: zero - floor |
+|---|---|---|---|---|
+| T | 165.77 / 158.26 | `_T_b` | +5.36 | -0.01 |
+| T | | `_T_c` | +2.46 | -0.01 |
+| T | | `_T` | +2.18 | -0.02 |
+| M | 151.46 / 151.41 | `_M_b` | +9.42 | -0.01 |
+| M | | `_M_d` | +8.04 | -0.01 |
+| FA | 159.76 / 159.76 | `Bridge_Infield_b` | -0.00 | -0.00 (co-placed, unchanged) |
+| FA | | `Bridge_Infield` | +0.01 | +0.01 (unchanged) |
+
+Boxes unchanged (zeros equal in both builds); the patch is byte-identical (replay arm =
+base: patch, graded surface and authored seats). `drawn_gate.py --site T/M/FA --against`
+the control: `moved []`; the site verdict FAIL is the control's own, row for row (the deck
+mouths' "deck under the floor" and the T / FA road steps 6.58 / 7.84 m: the cut, §5).
+Residual (§5): beside the wings the drawn ground is not the authored ramp -- T's walls are
+buried 2-6.5 m at their foot within 20 m of the box (tops 1.6 m under the cover's parapet,
+2-6 m over the ground), farther out up to 2 m of foot shows (p50 per body +1.5 / +2.0);
+M's wings, at the box's own zero, stand 1-2.4 m into the road beside the box exactly as the
+box does (its floor 2 m under the drawn road).

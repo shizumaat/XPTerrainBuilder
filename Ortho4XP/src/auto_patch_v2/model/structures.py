@@ -345,6 +345,10 @@ class Tunnel:
     #: standing within reach of that end is seated with its bottom on the floor
     #: (``airport/entrance_seat``); ``()`` otherwise
     portal_seat: tuple = ()
+    #: #1689 R2 A2: a ROOFED portal seated at its pinned floor -- its ROOF
+    #: plan's exterior rings (frame metres): the frame its seat leads stands
+    #: in it (``terrain_shaped.portal_frame_records``); ``()`` otherwise
+    portal_roof: tuple = ()
     #: RULINGS 2026-11-06c (3): an ENTRANCE face's skirt -- ``(top z, the
     #: level piece's ref, the bank's ref)`` (``planar/entrance_skirt``): the
     #: level piece is held at the face's top, the bank falls to the DEM

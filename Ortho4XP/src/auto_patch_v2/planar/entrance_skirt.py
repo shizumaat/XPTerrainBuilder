@@ -41,7 +41,8 @@ from shapely.ops import substring, unary_union
 from ..model.frame import XY
 from .mouth_opening import axis_left_normal
 
-__all__ = ["face_front_mouth", "is_entrance_face", "entrance_skirt", "entrance_top", "skirt_refs"]
+__all__ = ["face_front_mouth", "is_entrance_face", "entrance_skirt", "entrance_top",
+           "host_blade", "skirt_refs"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 #: plan samples along the skirt's ring for the bank width (metres)
@@ -140,11 +141,24 @@ def is_entrance_face(pin) -> bool:
             and getattr(pin, "face_top_z", None) is not None)
 
 
-def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float):
-    """``(core, bank, top z)`` of an entrance ``pin``'s skirt round the
+def _states_top(pin) -> bool:
+    """``pin`` states a TOP plan and level its skirt is graded to: an
+    ENTRANCE face (:func:`is_entrance_face`) or a TALL roofed portal (its
+    roof at the cover on it, no bottom; #1689 R2 A3)."""
+    return (pin is not None and getattr(pin, "face_plan", None) is not None
+            and getattr(pin, "face_top_z", None) is not None)
+
+
+def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
+                   hosts: _t.AbstractSet[str] = frozenset()):
+    """``(core, bank, top z)`` of a top-stating ``pin``'s skirt round the
     tunnel's ``ramp`` (module doc), or ``None``: the AIRSIDE ``cells``
-    (``polys`` their plans) are kept out of it."""
-    if not is_entrance_face(pin):
+    (``polys`` their plans) are kept out of it.  A roofed portal's skirt
+    (#1689 R2 A4: no bottom) keeps off every ROAD cell and every building
+    pad but its own ``hosts`` too, each by ``stand_off`` -- the mapped
+    road behind the portal and the next pad keep their own law; an
+    entrance face's skirt reads as before."""
+    if not _states_top(pin):
         return None
     ob = law.tables.structures.tunnel.object
     band, cap = float(ob.entrance_skirt_m), float(ob.entrance_bank_max_m)
@@ -153,12 +167,32 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float):
     reach = plan.buffer(band + cap)
     blocked = unary_union([p for c, p in zip(cells, polys, strict=False)
                            if c.side == "airside" and p.intersects(reach)])
+    if not is_entrance_face(pin):
+        from ..model.planar import ROAD_ROLES
+        held = [p.buffer(stand_off, **_MITRE) for c, p in zip(cells, polys, strict=False)
+                if (c.role in ROAD_ROLES or (c.role == "building" and c.ref not in hosts))
+                and p.intersects(reach)]
+        if held:
+            blocked = unary_union([blocked, *held])
     core, _ = _skirt_cells(plan, ramp, blocked, stand_off, band, 0.0)
     if core.is_empty:
         return None
     width = _bank_width(core, top, dem_z, slope, cap)
     core, bank = _skirt_cells(plan, ramp, blocked, stand_off, band, width)
     return core, bank, top
+
+
+def host_blade(pin, outer, skirt_parts, law):
+    """The blade a pinned ramp cuts its HOST pads with: its footprint
+    ``outer`` -- and for a TALL roofed portal (:func:`_states_top`, no
+    bottom; #1689 R2 A5) its top plan grown by ``entrance_skirt_m`` and
+    its skirt and bank (``skirt_parts``) too: the host pad is the portal
+    frame's own footprint read as a building, and held at the pad's level
+    its remnants stood 1.9-2.6 m over the roof (KBNA P1 ``building5``)."""
+    if not _states_top(pin) or is_entrance_face(pin):
+        return outer
+    band = float(law.tables.structures.tunnel.object.entrance_skirt_m)
+    return unary_union([outer, pin.face_plan.buffer(band, **_MITRE), *skirt_parts])
 
 
 def skirt_refs(tid: str) -> tuple[str, str]:

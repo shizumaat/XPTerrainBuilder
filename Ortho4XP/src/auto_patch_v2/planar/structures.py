@@ -140,6 +140,7 @@ from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
                              object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
 from .entrance_skirt import (entrance_skirt, entrance_top, face_front_mouth, is_entrance_face,
+                             host_blade,
                              skirt_refs)
 from .mouth_opening import group_opening, opening_halves
 from .survey_cut import cutting_of
@@ -1333,7 +1334,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # (``entrance_skirt``; merged into the void the mesh ran one slope
         # from the ramp's edge to the bank, and its ring read as a rim)
         skirt = None if edge is not None or deck is not None else entrance_skirt(
-            pin, ramp_geom, cells, polys, law, airport.dem.z, rim_off)
+            pin, ramp_geom, cells, polys, law, airport.dem.z, rim_off, pin_hosts)
         if skirt is not None:
             wall_geom = wall_geom.difference(unary_union([skirt[0], skirt[1]]))
             skirt_of[tid] = [q for q in _parts(unary_union([skirt[0], skirt[1]]))]
@@ -1428,6 +1429,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     # a roofed portal's zero is the road at its mouth: the
                     # object stage seats it at the pinned floor (ENTC)
                     extra["portal_seat"] = (pin.resource, float(mouth_z))
+                    roof = getattr(pin, "top_plan", None)
+                    if roof is not None and not roof.is_empty:
+                        # #1689 R2 A2: the reach its seat leads its frame within
+                        extra["portal_roof"] = tuple(
+                            tuple((float(x), float(y)) for x, y in g.exterior.coords)
+                            for g in getattr(roof, "geoms", [roof]))
+                    if skirt is not None:
+                        # #1689 R2 A4: a TALL portal's top is graded round
+                        extra["entrance_skirt"] = (skirt[2], *skirt_refs(tid))
             if edge is not None:
                 extra["edge_back"] = tuple(edge.back)
                 extra["edge_seats"] = edge_seats
@@ -1527,8 +1537,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # #1938 S1 / S2 (RULINGS 2026-11-13h round 2): a PINNED ramp cuts
             # the pads its opening stands in (its HOSTS, dropped as stops by
             # ``structure_mouth._pinned``) and, inside an entrance object's
-            # wall reach, every pad it crosses; a pad beyond still stopped it
-            pin_knives[tid] = pad_knife(outer, beyond, pin_hosts, pads, pad_tree)
+            # wall reach, every pad it crosses; a pad beyond still stopped it.
+            # #1689 R2 A5: a TALL portal's HOST pads (its own frame's
+            # footprint read as a building) are cut by its top too -- the
+            # roof grown by ``entrance_skirt_m``, its skirt and bank -- a pad
+            # wholly inside to nothing; held, its remnants stood 1.9-2.6 m
+            # over the roof (KBNA P1 ``building5``)
+            pin_knives[tid] = pad_knife(host_blade(pin, outer, skirt_of.get(tid, ()), law),
+                                        beyond, pin_hosts, pads, pad_tree)
     # TWO STRUCTURES MAY NOT OVERLAP: parallel mouths beyond 31h's test
     # (a diverging separation profile, a crossing approach) would be
     # polygonised into crumbs; the narrower one is refused loudly

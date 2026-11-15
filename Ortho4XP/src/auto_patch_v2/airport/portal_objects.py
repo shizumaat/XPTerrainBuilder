@@ -105,13 +105,16 @@ class Portal:
     #: RULINGS 2026-11-06c (3): an ENTRANCE face's TOP — its plan (frame
     #: metres, ``trench_objects._face_at``) and its level once seated (the
     #: ground over it): the ramp ends at its front and the ground round it
-    #: is graded up to it (``planar/entrance_skirt``); ``None`` otherwise
+    #: is graded up to it (``planar/entrance_skirt``); a TALL roofed portal's
+    #: roof and the cover on it (#1689 R2 A3, no :attr:`bottom_y`); ``None``
+    #: otherwise
     face_plan: object = None
     face_top_z: "float | None" = None
     #: #1737: the top plan the face's cover was read over (``trench_objects.
     #: _face_at``) -- a lid's as well as a headwall's: where AIRSIDE pavement
     #: abuts it, the face's top is that pavement's level
-    #: (``constraints/airside_top``); ``None`` otherwise
+    #: (``constraints/airside_top``); a ROOFED portal's roof plan (#1689 R2
+    #: A2: the reach its seat leads its frame within); ``None`` otherwise
     top_plan: object = None
     #: #1938 (RULINGS 2026-11-13h, round 2 S2/S3): an ENTRANCE object's
     #: WALL REACH -- how far its solids hanging ``shell_floor_min_m`` or more
@@ -502,10 +505,17 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                                                xy, into.get((xy, wid)), off + tol))
             # a tall portal's floor is the ground ON ITS ROOF less its roof
             # top: the ground at the cap stands inside the surveyed cut
+            # #1689 R2 A3: a TALL portal STATES ITS TOP -- its roof at the
+            # cover the survey read on it: the ground round the roof is graded
+            # to it (``planar/entrance_skirt``; no bottom: its zero stays on
+            # the floor, the mouth rule is a roofed portal's)
             out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,
                               (float(o.xy[0]), float(o.xy[1])),
                               floor_z=(cover[j] - depth) if j in cover else None,
                               opening_m=width, opening_xy=edges,
+                              face_plan=roof if j in cover else None,
+                              face_top_z=float(cover[j]) if j in cover else None,
+                              top_plan=roof,
                               zero_z=None if ground is None else zero_of(o, ground.msl)))
     out.sort(key=lambda p: (p.end_xy, p.object_id))
     return out, refused

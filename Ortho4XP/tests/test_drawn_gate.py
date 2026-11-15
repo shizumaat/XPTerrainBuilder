@@ -307,3 +307,33 @@ def test_the_road_layer_fails_a_step_along_a_mapped_road(monkeypatch):
     base = {"roads": {"sites": [dict(row, max_step_m=0.9)]}}
     judged = DG.judge(rep2, (), base)
     assert judged["verdict"] == "FAIL" and judged["moved"]
+
+
+def test_a_step_on_a_claimed_mouth_of_its_own_way_is_its_face(monkeypatch):
+    """#1689 A7: the tunnel way's own step pair at its claimed mouth is the
+    mouth's face, reported, never judged; another road's step there and a
+    step away from the mouth are judged."""
+    import drawn_roads as DR
+    lat0, lon0 = 45.5, 10.5
+    road = [(lat0 - 100.0 / DR._M_PER_DEG, lon0), (lat0 + 100.0 / DR._M_PER_DEG, lon0)]
+    mouth_lat = lat0 + 20.5 / DR._M_PER_DEG
+
+    def stepped(lon, lat):                  # the cut face 20 m north of the site
+        return 100.0 + (5.0 if (lat - lat0) * DR._M_PER_DEG > 20.0 else 0.0)
+    side = {"portal_cuts": [{"id": "tunnel:-7+-8@1", "portal": "dsf:obj1"}],
+            "tunnel_mouth_depths": [{"id": "tunnel:-7+-8@1", "mouth_ll": [mouth_lat, lon0 + 3e-5],
+                                     "depth_m": 6.0},
+                                    {"id": "tunnel:-5@0", "mouth_ll": [lat0, lon0],
+                                     "depth_m": 6.0}]}
+    mouths = DR.claimed_mouths(side)
+    assert mouths == [(frozenset({-7, -8}), mouth_lat, lon0 + 3e-5)]
+    monkeypatch.setattr(DR, "road_lines", lambda root, la, lo, r, b=None: [(-7, "primary", road)])
+    rep = DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5, mouths=mouths)
+    row = rep["sites"][0]
+    assert rep["verdict"] == "PASS" and row["mouth_faces"][0]["step_m"] == pytest.approx(5.0)
+    monkeypatch.setattr(DR, "road_lines", lambda root, la, lo, r, b=None: [(-6, "primary", road)])
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5,
+                         mouths=mouths)["verdict"] == "FAIL"
+    far = [(frozenset({-6}), lat0 + 40.0 / DR._M_PER_DEG, lon0)]
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5,
+                         mouths=far)["verdict"] == "FAIL"

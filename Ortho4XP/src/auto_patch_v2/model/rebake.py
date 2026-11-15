@@ -39,8 +39,8 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
 #: ABUTMENTS (10ay, spec §17 — cross-placement grouping inside one
 #: anchor plane); 9: ``Member.elevated_deck`` (11a); 10: THE WELDED DECK's
 #: ``Member.deck_shade_ring`` / ``deck_pier_ratio`` (issue #14,
-#: ``welded-deck-spec.md`` §1 (4)); 16: a kept deck's JOINED ends (#2090 B6).
-PLAN_VERSION = 16
+#: ``welded-deck-spec.md`` §1 (4)).
+PLAN_VERSION = 15
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 

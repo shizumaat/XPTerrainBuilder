@@ -220,66 +220,7 @@ def _read_free_bridges(airport, objects, cache, law
             (kept if all_deck else out).extend(
                 bridges_of({str(d.id): _ring(d) for d in decks}, wit, free,
                            [str(q.id) for q in frame], float(st.placement.footprint_touch_m)))
-        if all_deck:
-            more, ns = _join_witness([d for d in decks if str(d.id) not in free
-                                      and wit[str(d.id)].failed.startswith("W1 route")],
-                                     frame, airport, law, rd)
-            kept.extend(more)
-            notes += ns
     return tuple(out), tuple(kept), notes
-
-
-#: #2090 B2: a deck read only by its join is a stub along its own axis
-AXIS_STUB = "axis:"
-
-
-def _axis_ends(d, n: int = 5) -> "tuple[FreeEnd, FreeEnd] | None":
-    """The deck's two END LINES along its own axis: the short sides of its
-    plan's minimum rectangle, ``n`` stations each, the outward tangent from
-    the rectangle's middle; the top the deck's (``deck_top_y``; the kept
-    read replaces it by the top at each end)."""
-    r = _ring(d).minimum_rotated_rectangle
-    if r.geom_type != "Polygon":
-        return None
-    c = list(r.exterior.coords)[:4]
-    sides = sorted(range(4), key=lambda k: math.dist(c[k], c[(k + 1) % 4]))[:2]
-    mid = (sum(p[0] for p in c) / 4.0, sum(p[1] for p in c) / 4.0)
-    top = float(d.deck_top_z - getattr(d, "anchor_z", 0.0) - float(d.agl_m or 0.0)) \
-        if getattr(d, "anchor_z", None) is not None else 0.0
-    out = []
-    for k in sorted(sides):
-        a, b = c[k], c[(k + 1) % 4]
-        st = tuple((a[0] + (b[0] - a[0]) * t / (n - 1), a[1] + (b[1] - a[1]) * t / (n - 1))
-                   for t in range(n))
-        m = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
-        L = math.dist(m, mid) or 1.0
-        out.append(FreeEnd(st, top, ((m[0] - mid[0]) / L, (m[1] - mid[1]) / L), True))
-    return out[0], out[1]
-
-
-def _join_witness(decks, frame, airport, law, rd) -> tuple[list[FreeBridge], list[str]]:
-    """#2090 B2: an all-deck hard-deck frame's deck no mapped way carries is
-    a KEPT bridge when an end of it reaches an AGP follower's floor
-    (``airport/agp_deck_join``) — a candidate here, kept by
-    ``bridge_stack._kept_one`` only where the end JOINS; its other end is
-    read as a stub's (the axis ray)."""
-    groups = [g for g in getattr(airport, "agp_groups", ()) or () if g.governor]
-    if not decks or not groups:
-        return [], []
-    from ..airport.agp_deck_join import DeckFloors
-    floors = DeckFloors(airport, law)
-    out, notes = [], []
-    for d in decks:
-        ends = _axis_ends(d)
-        if ends is None or not any(floors.near(e.stations) for e in ends):
-            continue
-        oid = str(d.id)
-        fd = FreeDeck(oid, tuple((float(x), float(y)) for x, y in _ring(d).exterior.coords[:-1]),
-                      (), ends, AXIS_STUB + oid)
-        out.append(FreeBridge(FREE_PREFIX + oid, tuple(str(q.id) for q in frame), (fd,)))
-        notes.append(f"{_name(d)}: no mapped route; an end reaches an AGP follower's floor — "
-                     "a kept candidate by its join (#2090 B2)")
-    return out, notes
 
 
 def _with_agp_groups(airport, law) -> tuple[_t.Any, list[str]]:
@@ -317,20 +258,7 @@ def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]
     if refused:
         airport = _dc.replace(airport, free_bridges=tuple(
             fb for fb in got if fb.id not in refused))
-    airport = _with_deck_joins(airport, stacks)
     return with_bridge_stacks(airport, stacks, law), every, notes
-
-
-def _with_deck_joins(airport, stacks) -> _t.Any:
-    """#2090 B1: each AGP group's ``deck_joins`` — the joins of the stacks
-    whose zero rides its datum."""
-    groups = getattr(airport, "agp_groups", ()) or ()
-    joins = [j for st in stacks for j in getattr(st, "joins", ()) or ()]
-    if not groups or not joins:
-        return airport
-    return _dc.replace(airport, agp_groups=tuple(
-        _dc.replace(g, deck_joins=tuple(j for j in joins if j.group == g.id))
-        for g in groups))
 
 
 def attach_free_bridges(airport, objects, cache, law, notes_out: "list | None" = None):
@@ -423,7 +351,7 @@ def planar_stacks(stacks, free: _t.Sequence[FreeBridge]) -> tuple[tuple, list[st
             notes.append(f"{st.id}: free_stack_refused_at_planar (its bridge was not admitted "
                          "or carries a plate)")
             continue
-        if not st.graded_ends() and not getattr(st, "datum_group", ""):
+        if not st.graded_ends():
             notes.append(f"{st.id}: no GRADED end at the planar stage — no stack"
                          + ("; free_stack_refused_at_planar" if st.kind == FREE else ""))
             continue

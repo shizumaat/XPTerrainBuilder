@@ -16,7 +16,7 @@ and owner question Q1.  Nothing here names an airport.
 from __future__ import annotations
 
 from ..geom.deck_ground import GROUND_TO_WALL_TOP, ground_footprint, ring_polygon
-from ..model.deck_ends import access_road_vertices, end_road_vertices, way_of_ref
+from ..model.deck_ends import end_road_vertices
 
 __all__ = ["ground_footprint", "end_road_vertices", "deck_end_seeds", "ring_polygon",
            "DECK_END_RAMP", "GROUND_TO_WALL_TOP"]
@@ -38,11 +38,18 @@ def deck_end_seeds(pm, law, airport) -> dict[int, tuple[float, float]]:
     if not DECK_END_RAMP:
         return {}
     out = {v: (z, off) for v, (z, *_r, off) in end_road_vertices(pm, law, airport).items()}
-    for v, (z, *_r, off) in access_road_vertices(pm, law, airport).items():
-        out.setdefault(v, (z, off))             # #2090 B4: the access road between ends
     for v, z in _crossing_vertices(pm, law, airport).items():
         out.setdefault(v, (z, 0.0))             # #2065 A3 rule 6: an at-grade crossing
     return out
+
+
+def _way_of(ref: str) -> "int | None":
+    """The mapped way id a road ribbon face's ref names (``<class>:<way>``)."""
+    tail = str(ref).split("#", 1)[0].rsplit(":", 1)[-1]
+    try:
+        return int(tail)
+    except ValueError:
+        return None
 
 
 def _crossing_vertices(pm, law, airport) -> dict[int, float]:
@@ -65,7 +72,7 @@ def _crossing_vertices(pm, law, airport) -> dict[int, float]:
     for f in pm.faces.values():
         if f.role not in ROAD_ROLES:
             continue
-        w = way_of_ref(f.ref)
+        w = _way_of(f.ref)
         if w is not None:
             by_way.setdefault(w, set()).update(pm.ring_vertices(f.ring))
     out: dict[int, float] = {}

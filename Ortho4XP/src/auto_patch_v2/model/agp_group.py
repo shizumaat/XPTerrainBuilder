@@ -20,7 +20,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-__all__ = ["AGP_GROUP_PREFIX", "AgpMember", "AgpJoin", "AgpGroup", "DeckJoin", "group_of_input"]
+__all__ = ["AGP_GROUP_PREFIX", "AgpMember", "AgpJoin", "AgpGroup", "group_of_input"]
 
 #: a group id, and the ``Source.inputs`` tag of every row its geometry mints
 AGP_GROUP_PREFIX = "agp:"
@@ -102,35 +102,3 @@ def group_of_input(tag: _t.Any) -> str | None:
     t = str(tag)
     return t if t.startswith(AGP_GROUP_PREFIX) else None
 
-
-@_dc.dataclass(frozen=True)
-class DeckJoin:
-    """SPEC 2090 B1: a bridge deck's land end joined to a FOLLOWER's floor.
-    ``stack`` the kept stack's id, ``object_id`` / ``side`` the deck end,
-    ``member`` the follower's row and ``y_floor`` the floor's authored
-    height over its datum; ``top`` the deck's top at the end, ``d`` the
-    offset ``zero_pred + y_floor - (predicted seat + top)`` and ``d_next``
-    the next floor's (``None`` with none); ``mid_xy`` / ``mid_ll`` the end
-    line's middle."""
-
-    group: str
-    stack: str
-    object_id: str
-    side: str
-    member: str
-    y_floor: float
-    top: float
-    d: float
-    d_next: float | None
-    mid_xy: tuple[float, float]
-    mid_ll: tuple[float, float]
-
-    def census(self) -> dict:
-        return {"stack": self.stack, "end": f"{self.object_id} {self.side}",
-                "member": self.member, "y_floor": self.y_floor, "D": round(self.d, 3),
-                "D_next": None if self.d_next is None else round(self.d_next, 3)}
-
-    def published(self, delta: float) -> dict:
-        return {"stack": self.stack, "object": self.object_id, "end": self.side,
-                "member": self.member, "y_floor": self.y_floor, "top": self.top,
-                "mid": [self.mid_ll[0], self.mid_ll[1]], "delta": round(float(delta), 4)}

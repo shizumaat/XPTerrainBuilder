@@ -447,8 +447,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                 cs: _t.Any = None, strips: _t.Any = None,
                 strip_rep: _t.Any = None, *,
                 hard_conflict: _t.Iterable[dict] = (),
-                runway_flex: _t.Iterable[dict] = (),
-                agp_report: _t.Any = None) -> dict[str, _t.Any]:
+                runway_flex: _t.Iterable[dict] = ()) -> dict[str, _t.Any]:
     """The sidecar keys the solve's own pricing publishes; with ``z`` the
     crown drops are the BUILT ones.  ``hard_conflict`` / ``runway_flex``
     are the solve's records (``DesignReport`` fields, the late stage's
@@ -811,7 +810,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # the cut over its footprint — REPORT ONLY (``tools/drawn_check``
             # claims its objects as CUT sites)
             "object_floors": object_floors(planar, airport, law),
-            "free_bridges": bridge_rows(planar, airport, law, agp_report),
+            "free_bridges": bridge_rows(planar, airport, law),
             # THE JETWAY STRIPS (owner RULINGS 2026-09-18t Q3; jetway-strip
             # spec §2 (6)): per strip its pad, its ONE level, its riders,
             # its vertices by identity and its clamps — LAW INPUT for the
@@ -1522,15 +1521,12 @@ def object_floors(planar: PlanarMap, airport: Airport,
     return out
 
 
-def bridge_rows(planar: PlanarMap, airport: Airport, law: Law | None = None,
-                agp_report: _t.Any = None) -> list[dict[str, _t.Any]]:
+def bridge_rows(planar: PlanarMap, airport: Airport, law: Law | None = None
+                ) -> list[dict[str, _t.Any]]:
     """#2065 A3 C2 row 11: per free / kept stack the planar stage kept, its
     id, mode and zero, and per land end its stations, top, ground G_e, gap,
     state and why, run, grade and the apron's ring (lat, lon) — what
-    ``tools/drawn_check`` / ``drawn_site --end-lines`` read.  #2090 A5: a
-    stack joined to an AGP floor publishes its FINAL zero
-    (``constraints/agp_level.stack_zero``) and its group."""
-    from ..constraints.agp_level import final_zero
+    ``tools/drawn_check`` / ``drawn_site --end-lines`` read."""
     from ..geom.deck_ground import ground_footprint
     from ..model.deck_stack import TRENCH, live_stacks
     stacks = [s for s in live_stacks(getattr(airport, "deck_stacks", ()) or (), planar)
@@ -1555,14 +1551,8 @@ def bridge_rows(planar: PlanarMap, airport: Airport, law: Law | None = None,
                          "gap_m": round(e.gap, 3), "state": e.state, "why": e.why,
                          "run_m": round(e.run, 1), "grade": round(e.grade, 4),
                          "apron": ring})
-        rec = {"id": st.id, "mode": st.kind, "zero_m": round(st.zero_z, 3),
-               "decks": [d.object_id for d in st.decks], "ends": ends}
-        g = next((g for g in getattr(planar, "agp_groups", ()) or ()
-                  if g.id == getattr(st, "datum_group", "")), None)
-        if g is not None:
-            rec["datum_group"], rec["zero_pred_m"] = g.id, round(st.zero_z, 3)
-            rec["zero_m"] = round(st.zero_z + float(final_zero(g, agp_report)["delta"]), 3)
-        out.append(rec)
+        out.append({"id": st.id, "mode": st.kind, "zero_m": round(st.zero_z, 3),
+                    "decks": [d.object_id for d in st.decks], "ends": ends})
     return out
 
 

@@ -525,11 +525,8 @@ def main(argv=None) -> int:
         from agp_census import agp_rows, print_agp
         out = []
         for pkl in a.agp:
-            icao, rows, rej, notes, took = agp_rows(pkl, law)
+            icao, rows, rej, _notes, took = agp_rows(pkl, law)
             print_agp(icao, rows, rej, took)
-            for n in notes:
-                if "deck join" in n:
-                    print(f"  {n}")
             out += rows + rej
         if a.jsonl:
             with open(a.jsonl, "w", encoding="utf-8") as fh:

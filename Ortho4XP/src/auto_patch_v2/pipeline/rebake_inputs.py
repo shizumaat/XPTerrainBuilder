@@ -119,7 +119,7 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
 
 #: the plate kind of an EDGE BRIDGE's seat (``anchor_rule.datum_of``)
 EDGE_PLATE = "edge"
-def _kept_published(airport, pm=None, agp_report=None) -> dict[str, dict]:
+def _kept_published(airport, pm=None) -> dict[str, dict]:
     """#2065 A3 rule 9: placement id -> ``{"mode": "kept", "route_mids",
     "graded", "zero"}`` of each KEPT bridge's deck: the midpoints ``(lat,
     lon)`` of its two route end lines and of those the pack stage GRADED
@@ -130,12 +130,7 @@ def _kept_published(airport, pm=None, agp_report=None) -> dict[str, dict]:
     stack was not minted (no GRADED end) or not kept by the planar stage
     with no route ends, no graded end and no zero: the bridge class is the
     one place its datum is decided (``with_kept`` clears the graded-face
-    datum the pack stage's predicted seat never read).
-
-    #2090 B6: a deck whose end JOINS an AGP follower's floor publishes the
-    joined ends' midpoints (``"joined"``) and its FINAL zero (the predicted
-    zero plus its group's stage-2 delta, ``constraints/agp_level.stack_zero``
-    — ``agp_report`` the rewrite's report), graded ends or not."""
+    datum the pack stage's predicted seat never read)."""
     from ..model.deck_stack import KEPT, live_stacks
     out: dict[str, dict] = {}
     for fb in getattr(airport, "kept_bridges", ()) or ():
@@ -151,19 +146,13 @@ def _kept_published(airport, pm=None, agp_report=None) -> dict[str, dict]:
         x = sum(p[0] for p in line) / len(line)
         y = sum(p[1] for p in line) / len(line)
         return [round(v, 9) for v in to_ll(x, y)]
-    from ..constraints.agp_level import stack_zero
-    groups = tuple(getattr(pm, "agp_groups", ()) or getattr(airport, "agp_groups", ()) or ())
     for st in stacks:
         for d in st.decks:
             lines = [ln for ln in (d.end_a, d.end_b) if ln]
             graded = [mid(e.stations) for e in st.graded_ends() if e.object_id == d.object_id]
-            joined = [mid(e.stations) for e in st.joined_ends() if e.object_id == d.object_id]
-            if len(lines) == 2 and (graded or joined):
+            if len(lines) == 2 and graded:
                 out[d.object_id] = {"mode": "kept", "route_mids": [mid(ln) for ln in lines],
-                                    "graded": graded,
-                                    "zero": round(stack_zero(st, groups, agp_report), 4)}
-                if joined:
-                    out[d.object_id]["joined"] = joined
+                                    "graded": graded, "zero": round(float(st.zero_z), 4)}
     return out
 
 
@@ -373,7 +362,7 @@ def _solid_cache(law):
     return ResourceCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
 
 
-def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[str, _t.Any]:
+def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     """THE PLANAR AND SOLVED FACTS the rebake plan reads beyond the pack
     partition — ``tunnel_objects`` (the plate seats) / ``exclude`` /
     ``below_grade`` / ``deck_datum``, the keywords ``rebake_screen.take``
@@ -449,7 +438,7 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
         "free_decks": {**_free_published(getattr(pm, "free_bridges", ()) or (),
                                          airport.frame.transformers()[1],
                                          float(law.tables.structures.bridge.free_end_ground_out_m)),
-                       **_kept_published(airport, pm, agp_report)},
+                       **_kept_published(airport, pm)},
         "tunnel_objects": _plate_seats(pm, law, seats),
         # one authority per row (``terrain_shaped.row_seats``): a storey
         # shell's row takes its shell's seat alone

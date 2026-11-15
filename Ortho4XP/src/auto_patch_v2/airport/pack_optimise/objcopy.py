@@ -38,7 +38,7 @@ from ..pack_health import light_records as _lr
 from . import shape as _sh
 
 __all__ = ["COPY_SUFFIX", "SMALL_M", "LOD_PER_M", "LOD_MIN_M", "LOD_MAX_M",
-           "MIN_WEIGHT", "placed_objects", "plan_objects", "copy_path",
+           "MIN_WEIGHT", "scan", "placed_objects", "plan_objects", "copy_path",
            "copy_text", "rename_rows"]
 
 #: the copy of ``<stem>.obj``
@@ -70,7 +70,7 @@ def _lod_distance(size_m: float) -> int:
     return int(round(min(LOD_MAX_M, max(LOD_MIN_M, LOD_PER_M * size_m))))
 
 
-def _scan(phys: str) -> tuple[list[float], list[float], bool, bool]:
+def scan(phys: str) -> tuple[list[float], list[float], bool, bool]:
     """``(ATTR_shiny_rat values, GLOBAL_specular values, has an ATTR_LOD,
     has a light inside an ANIM)``."""
     shiny: list[float] = []
@@ -128,7 +128,7 @@ def plan_objects(pack_root: str, placed: _t.Mapping[str, tuple[_sh.Shape, int]]
     out: dict[str, dict[str, _t.Any]] = {}
     for path, (s, n) in sorted(placed.items()):
         phys = os.path.join(pack_root, *path.replace("\\", "/").split("/"))
-        shiny, glob, has_lod, anim_light = _scan(phys)
+        shiny, glob, has_lod, anim_light = scan(phys)
         spec = round(max(shiny + glob), 4) if shiny and n >= 2 else None
         size = max(s.size)
         lod = (_lod_distance(size) if size < SMALL_M and not has_lod

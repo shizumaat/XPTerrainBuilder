@@ -5,7 +5,7 @@ under the floor's, is the edge of a terrace: the ground it encloses on its
 groundside stands on the fence-foot plane, its airside keeps its ground;
 a fence at grade, one in a cut, one off the floor and no floor pad
 take nothing.
-The floor pad's held record carries the yard (``yard_edge.yard_records``)."""
+The floor pad's held record carries the yard (``model/yard_run.yard_records``)."""
 from __future__ import annotations
 
 import statistics
@@ -18,10 +18,10 @@ from auto_patch_v2.classify import fence_yard as fy
 from auto_patch_v2.classify import floor_yard as fl
 from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.classify.rules import load_rules
-from auto_patch_v2.constraints.yard_edge import yard_records
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import EdgeLine
 from auto_patch_v2.model.registries import FLOOR_YARD, Registries
+from auto_patch_v2.model.yard_run import yard_records
 from shapely.geometry import LineString, Point, box
 from shapely.ops import unary_union
 

@@ -8,15 +8,11 @@ from __future__ import annotations
 
 import types
 
-from auto_patch_v2.constraints.yard_edge import (
-    projected_vertices,
-    yard_exempt,
-    yard_records,
-    yard_runs,
-)
+from auto_patch_v2.constraints.yard_edge import projected_vertices, yard_exempt
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.constraints import Band, Diff, Source
 from auto_patch_v2.model.registries import FLOOR_YARD, Registries
+from auto_patch_v2.model.yard_run import yard_records, yard_runs
 
 LAW = Law.for_airport("SYNT")
 

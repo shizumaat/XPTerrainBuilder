@@ -820,6 +820,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.model.threshold_datum",
     "auto_patch_v2.model.wall_reach",
     "auto_patch_v2.model.walled_plate",
+    "auto_patch_v2.model.yard_run",
     "auto_patch_v2.pipeline",
     "auto_patch_v2.pipeline.authored_seats",
     "auto_patch_v2.pipeline.back_cache",

@@ -1502,6 +1502,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.threshold_datum",
         "auto_patch_v2.model.wall_reach",
         "auto_patch_v2.model.walled_plate",
+        "auto_patch_v2.model.yard_run",
         "auto_patch_v2.pipeline",
         "auto_patch_v2.pipeline.shapes",
         "auto_patch_v2.planar",
@@ -1990,7 +1991,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.hanging_objects airport.object_cut airport.split_level airport.wall_geometry
     geom.vector
     airport.facade airport.line_solidity classify.edge_line_mint
-    constraints.yard_edge
+    constraints.yard_edge model.yard_run
     classify.fence_yard classify.floor_yard geom.capped_plane
     constraints.deck_stack geom.deck_ground geom.end_line model.deck_ends
     airport.pit_frame
@@ -2186,7 +2187,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 CODE_MODULES["solve"] = _mods("""
     airport.bridge_end_state airport.bridge_stack
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
-    constraints.yard_edge geom.slope_bound
+    model.yard_run geom.slope_bound
     classify.fence_yard classify.floor_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
@@ -2351,7 +2352,7 @@ CODE_MODULES["solve"] = _mods("""
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.bridge_end_state airport.bridge_stack
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
-    constraints.yard_edge geom.slope_bound
+    constraints.yard_edge model.yard_run geom.slope_bound
     classify.fence_yard classify.floor_yard geom.capped_plane solve.project_yard
     airport.deck_carry airport.deck_stack airport.stack_walls model.deck_stack
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends planar.stack_ground
@@ -2535,7 +2536,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
 CODE_MODULES["emit"] = _mods("""
     model.deck_stack
     airport.facade airport.line_solidity classify.edge_line_mint
-    constraints.yard_edge geom.slope_bound
+    model.yard_run geom.slope_bound
     classify.fence_yard classify.floor_yard geom.capped_plane solve.project_yard
     airport.deck_ends geom.deck_ground geom.end_line model.deck_ends
     airport.walled_pit airport.pit_frame constraints.airside_top
@@ -2662,8 +2663,7 @@ CODE_MODULES["verify"] = _mods("""
     geom.deck_ground model.deck_stack
     airport.split_level
     airport.facade airport.line_solidity classify.edge_line_mint
-    constraints.apron_shelf constraints.road_ramp constraints.wall_zone constraints.yard_edge
-    geom.ramp_grade geom.slope_bound solve.project_yard
+    model.yard_run geom.slope_bound solve.project_yard
     classify.fence_yard classify.floor_yard geom.capped_plane
     airport.below_grade_witness airport.floor_rim airport.hanging_objects airport.object_cut
     airport.object_floor airport.wall_geometry airport.walled_pit

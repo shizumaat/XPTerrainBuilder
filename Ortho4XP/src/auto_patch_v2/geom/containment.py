@@ -1,12 +1,13 @@
-"""Which point sets stand whole inside one of a set of rings (leaf geometry;
-issue #84).  Shared so ``model/islands`` (the courtyard derivation) stays
-free of shapely — the model layer carries no geometry library
-(``tests/auto_patch_v2/test_model.py``)."""
+"""Which point sets stand whole inside one of a set of rings, and which
+points lie within a margin of a set of polygons (leaf geometry; issue #84).
+Shared so ``model/islands`` (the courtyard derivation) and
+``model/yard_run`` (a fence yard's road run) stay free of shapely — the
+model layer carries no geometry library (``tests/auto_patch_v2/test_model.py``)."""
 from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["sets_inside_one_ring"]
+__all__ = ["points_near_polygons", "sets_inside_one_ring"]
 
 XY = tuple[float, float]
 
@@ -44,3 +45,18 @@ def sets_inside_one_ring(rings: _t.Sequence[_t.Sequence[XY]],
                 out[i] = True
                 break
     return out
+
+
+def points_near_polygons(polygons: _t.Sequence[_t.Sequence[_t.Sequence[XY]]],
+                         points: _t.Sequence[XY], tol_m: float) -> list[bool]:
+    """For each point, True when it lies in the union of ``polygons``
+    buffered by ``tol_m``; each polygon is its rings, the exterior first and
+    its holes after."""
+    import shapely
+    from shapely.geometry import Polygon
+
+    if not polygons or not points:
+        return [False] * len(points)
+    gross = shapely.union_all([Polygon(r[0], r[1:]) for r in polygons]).buffer(tol_m)
+    shapely.prepare(gross)
+    return [bool(shapely.intersects_xy(gross, *p)) for p in points]

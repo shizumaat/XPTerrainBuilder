@@ -223,7 +223,7 @@ def _yard_record(planar, law, ref: str, rec, z) -> "dict[str, _t.Any] | None":
     faces = [f for f in _yard_faces(planar) if fence_yard_pad(f.ref) == rec.get("pad")]
     vs = sorted({v for f in faces for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)})
     zs = [float(z[v]) for v in vs] if z is not None else []
-    from ..constraints.yard_edge import yard_runs
+    from ..model.yard_run import yard_runs
     from ..solve.project_yard import run_bounds
     runs = [r for r in yard_runs(planar, law) if r.level == ref]
     bad = sum(1 for r in runs if z is not None

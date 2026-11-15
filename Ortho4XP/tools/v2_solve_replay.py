@@ -2340,7 +2340,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                   f"(work-pool budget {pool_budget()})")
             # spec 2068 A4 F1': the yard faces standing, the records they
             # stand on, the yard cells dropped for want of a level
-            from auto_patch_v2.constraints.yard_edge import yard_records as _yrec
+            from auto_patch_v2.model.yard_run import yard_records as _yrec
             from auto_patch_v2.model.planar import fence_yard_pad as _fyp
             _yf: dict = {}
             for _f in pm.faces.values():

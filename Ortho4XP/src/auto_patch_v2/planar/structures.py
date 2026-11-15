@@ -215,6 +215,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     overlap_refused = dict(overlap_refused or {})
     runs = dict(runs or {})
     deck_paved = None     # the rolled-on pavement over a deck's open stretch, read once
+    deck_air = None       # the airside cut roles a deck's run-through clears (#2099 R3 B1)
     tid_deck: dict[str, _t.Any] = {}
     stats = StructureStats()
     odecks = object_decks(objects)
@@ -933,9 +934,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                           if c.role in rolled_on_roles(law)])
             # the deck this one runs through to (``structure_overlap``: the
             # one place two cuts on one road are paired)
+            # #2099 R3 B1: two decks are one trench only where the corridor
+            # AS BUILT between them is clear of the airside cut roles -- the
+            # set the clip loop below stops on (``air_refs``), one definition
+            if deck_air is None:
+                deck_air = unary_union([p for p, c in zip(polys, cells, strict=False)
+                                        if c.ref in air_refs])
             flat_to, level_to, edge_floor, edge_seats, deck_next = deck_seats(
                 deck, axis_ln, rt.partner_deck if rt is not None and rt.partner_deck is not None
-                else deck_partner(deck, axis_ln, deck_bridges, deck_paved), gap)
+                else deck_partner(deck, axis_ln, deck_bridges, deck_air,
+                                  half + rim_off + gap), gap)
             climb_from = max(climb_from, flat_to)
         if edge is not None:
             # 27r / 28d Q213: the floor stays at the objects' bottom under the

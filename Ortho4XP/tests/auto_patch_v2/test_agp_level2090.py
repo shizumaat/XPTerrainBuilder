@@ -102,3 +102,34 @@ def test_no_governed_group_returns_the_set_unchanged():
 def test_the_sidecar_registers_the_published_groups():
     from auto_patch_v2.emit import osm_adapter as OA
     assert "agp_groups" in OA.SIDECAR_KEYS
+
+
+def test_b8_a_group_seeded_ramp_target_and_ceiling_move_by_delta_never_under_floor(
+        monkeypatch):
+    """#2090 amendment B′ B8 (census row 13): a governed vertex on a ramp a
+    datum-group stack's deck end seeds (``PlanarMap.road_ramp_group``) has
+    its §37 (6) target moved to ``max(floor, t + delta)`` and its ceiling to
+    that plus ``visual_m``; another vertex's rows are untouched."""
+    from auto_patch_v2.constraints.road_ramp import GEN, RULING, RULING_CEILING
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.constraints import Linear
+    monkeypatch.setattr("auto_patch_v2.constraints.face_index.FaceIndex", _FI)
+    law = Law.load()
+    vis = float(law.tables.emit.cockpit.visual_m)
+
+    def rows(v, t):
+        return (Linear(((v, 1.0),), t, t, Source(GEN, RULING, (f"vertex:{v}", "r"))),
+                Band(v, None, t + vis, Source(GEN, RULING_CEILING, (f"vertex:{v}", "r"))))
+    (l7, c7), (l8, c8), (l9, c9) = rows(7, 1630.0), rows(8, 1631.6), rows(9, 1633.0)
+    cs0 = ConstraintSet(linears=(l7, l8, l9), bands=(c7, c8, c9))
+    pm = types.SimpleNamespace(agp_groups=(_group(),), bridge_stacks=(),
+                               road_ramp_group={7: (GID, 1629.0), 8: (GID, 1631.5)})
+    cs, rep = AL.datum_rewrite(pm, law, cs0, {0: 1638.5, 1: 1638.5, 2: 1638.5})
+    lin = {r.terms[0][0]: r for r in cs.linears}
+    cap = {r.v: r for r in cs.bands}
+    assert lin[7].lo == lin[7].hi == pytest.approx(1629.79)
+    assert cap[7].hi == pytest.approx(1629.79 + vis)
+    assert lin[8].lo == pytest.approx(1631.5) and cap[8].hi == pytest.approx(1631.5 + vis)
+    assert lin[9] is l9 and cap[9] is c9                       # not group-seeded
+    assert rep["groups"][GID]["ramp_moved"] == 2
+    assert "agp_ramp_foot_m" not in rep["groups"][GID]          # delta < 0

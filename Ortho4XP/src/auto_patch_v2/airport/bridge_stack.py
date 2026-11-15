@@ -145,6 +145,19 @@ class _Ctx:
         # #2090 B1: the AGP followers' floors a deck end may join
         from .agp_deck_join import DeckFloors
         self.floors = DeckFloors(airport, law) if getattr(airport, "agp_groups", ()) else None
+        #: kept stack id -> ``(bridge, deck, object, surface, end chords)``,
+        #: what :meth:`restack` re-reads a riding deck's ends on (B4b)
+        self.kept_reads: dict[str, tuple] = {}
+
+    def restack(self, st: DeckStack, zero: float, joined: _t.Mapping[str, str], key,
+                gid: str, note: str) -> DeckStack:
+        """#2090 B4b (``airport/access_road``): kept stack ``st`` re-read on
+        ``zero`` riding the held access road, the sides of ``joined`` joined;
+        its other land end is read as a sibling's other end."""
+        fb, d, o, surface, chords = self.kept_reads[st.id]
+        ends = self.ends(fb, d, o, zero, surface, chords, frozenset(), joined)
+        new = _stack(st.bridge, KEPT, st.members, st.decks, ends, zero, [*st.notes, note])
+        return _dc.replace(new, datum_group=gid, rides=(str(key[0]), float(key[1])))
 
     def surface(self, rings) -> _DemSurface:
         return _DemSurface(self.airport, _box(rings))
@@ -326,6 +339,7 @@ def _kept_one(fb, cx: _Ctx) -> "tuple[list[DeckStack], list[DeckStack], list[str
         st = _stack(sid, KEPT,
                     [(m, str(cx.by_id[m].path) if m in cx.by_id else "") for m in fb.members],
                     [_stack_deck(o, cx.cache, d)], ends, zero, [note])
+        cx.kept_reads[st.id] = (fb, d, o, surface, pub["ends"])
         if str(d.stub_of).startswith("axis:") and not joins:
             notes.append(f"{tag}: no mapped route and no end joins a floor — not kept (#2090 B2)")
             continue
@@ -400,6 +414,10 @@ def bridge_stacks(airport, objects, cache, law
         out += st
         every += ev
         notes += n
+    # #2090 B4b: a deck on the held access road between sibling ends rides it
+    from .access_road import ride_access_roads
+    out, every, n = ride_access_roads(cx, out, every, cx.restack)
+    notes += n
     return tuple(out), tuple(every), frozenset(refused), notes
 
 

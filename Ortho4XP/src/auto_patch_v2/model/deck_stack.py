@@ -171,6 +171,21 @@ class DeckStack:
     datum_group: str = ""
     #: #2090 B1: the deck joins that set the zero (``model/agp_group.DeckJoin``)
     joins: tuple = ()
+    #: #2090 B4b: ``(member, y_floor)`` of the sibling ends whose held access
+    #: road this deck RIDES (``airport/access_road``); ``()`` = none
+    rides: tuple = ()
+
+    @property
+    def access_key(self) -> "tuple[str, float] | None":
+        """#2090 B4 / B4b: the sibling group a stack's access ends belong to —
+        its deck join's ``(member, y_floor)``, else the line it rides; ``None``
+        for neither."""
+        if self.joins:
+            j = self.joins[0]
+            return (str(j.member), round(float(j.y_floor), 2))
+        if self.rides:
+            return (str(self.rides[0]), round(float(self.rides[1]), 2))
+        return None
 
     def rowed_ends(self) -> tuple[StackEnd, ...]:
         """The ends R1 holds (rule 5): a FREE stack's every land end not

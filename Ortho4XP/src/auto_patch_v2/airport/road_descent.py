@@ -61,7 +61,7 @@ import typing as _t
 
 from ..geom.ramp_grade import built_grade, least_grade
 
-__all__ = ["Descent", "climb", "descend", "descent_line", "envelope"]
+__all__ = ["Descent", "climb", "descend", "descent_line", "deck_ramp_lines", "envelope"]
 
 Adjacency = _t.Mapping[int, _t.Sequence[tuple[int, float]]]
 Level = _t.Callable[[int], "float | None"]
@@ -86,6 +86,8 @@ class Descent(_t.NamedTuple):
     #: ``_Run.fits``: False where ANY of its runs needs more than the cap
     #: and so ends in the air, whatever its other runs are built at)
     ramps: list[dict[str, _t.Any]]
+    #: vertex -> the mouth whose ramp ``label`` is (#2090 B8)
+    src: dict[int, int] = {}
 
 
 def envelope(adj: Adjacency, seeds: _t.Mapping[int, float], grade: float,
@@ -240,16 +242,19 @@ def _run(adj: Adjacency, m: int, z_m: float, design: float, cap: float,
 
 def descend(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
             floors: _t.Mapping[int, float], design: float, cap: float,
-            lane: float, end_of: EndOf, stand: float = STAND_M) -> Descent:
+            lane: float, end_of: EndOf, stand: float = STAND_M,
+            end_of_for: "_t.Mapping[int, EndOf] | None" = None) -> Descent:
     """THE HIGHER ENVELOPE OF THE MOUTHS, each ramp at the grade it is
     built at.  ``level(v)`` is what stands at a vertex — a contact's own
     level, a road vertex's floor (``floors``), ``None`` where nothing is
     known.  A contact the road can leave on its floor inside its cap
     builds NO ramp (:func:`_forced`); a ramp ENDS at its first meet with
     the floor; ``stand`` is the height over its floor from which a
-    vertex counts as standing on a ramp."""
+    vertex counts as standing on a ramp.  ``end_of_for`` (#2090 B7) gives
+    a mouth its own reader of the road's end in place of ``end_of``."""
     if not mouths:
         return Descent({}, {}, [])
+    end_of_for = end_of_for or {}
     meets = _meets(mouths, floors, adj)
     lab: dict[int, float] = {m: float(z) for m, z in mouths.items()}
     walked: dict[int, float] = dict.fromkeys(mouths, 0.0)
@@ -261,7 +266,7 @@ def descend(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
         if not _forced(adj, m, z_m, cap, meets, floors, stand):
             continue
         run = runs[m] = _run(adj, m, z_m, design, cap, level, floors, lane, mouths,
-                             meets, end_of)
+                             meets, end_of_for.get(m, end_of))
         own: dict[int, float] = {m: z_m}
         for u in run.order[1:]:
             p = run.pred[u]
@@ -285,7 +290,7 @@ def descend(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
               "why": runs[m].why if most[m] > design + 1e-12 else "",
               "fits": runs[m].fits}
              for m in sorted(length) if length[m] >= lane]
-    return Descent(lab, walked, ramps)
+    return Descent(lab, walked, ramps, src)
 
 
 def climb(adj: Adjacency, mouths: _t.Mapping[int, float], level: Level,
@@ -333,3 +338,18 @@ def descent_line(rep: _t.Mapping[str, _t.Any]) -> str:
             f"{rep.get('cuts_at_cap', 0)} at the cap), {rep.get('on_cut', 0)} "
             f"vertices on a cut up to {rep.get('max_below_dem_m', 0.0):.2f} m "
             f"under the DEM")
+
+
+def deck_ramp_lines(rep: _t.Mapping[str, _t.Any], to_ll) -> list[str]:
+    """#2090 G2-B′: one build-log line per deck-end / plate ramp record
+    (``road_ramp_targets``' ``deck_end_ramps``: grade, steepest, why) and the
+    C3c stop list (``agp_ramp_under_deck``)."""
+    out = []
+    for r in rep.get("deck_end_ramps") or ():
+        la, lo = to_ll(*r["xy"])
+        out.append(f"[deck-end ramp] v{r['mouth']} ({la:.6f},{lo:.6f}) grade {r['grade']:.4f} "
+                   f"steepest {r['steepest']:.4f} {r['length_m']:.1f} m"
+                   + (f" — {r['why']}" if r["why"] else ""))
+    if rep.get("agp_ramp_under_deck"):
+        out.append(f"agp_ramp_under_deck (STOP): {list(rep['agp_ramp_under_deck'])}")
+    return out

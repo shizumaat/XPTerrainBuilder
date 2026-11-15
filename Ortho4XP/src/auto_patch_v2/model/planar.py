@@ -611,6 +611,12 @@ class PlanarMap:
     #: threshold above it, and it SUPERSEDES ``preferred_z`` for the
     #: vertices it governs (which are therefore absent from that mapping).
     road_ramp_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: #2090 B8: vertex -> ``(AGP group id, floor)`` of a governed vertex
+    #: whose ramp a datum-group stack's deck end seeds (``airport/
+    #: road_ramp.with_road_ramp``); the stage-2 datum rewrite moves its
+    #: target by the group's delta, never under the floor
+    #: (``constraints/agp_level.datum_rewrite``)
+    road_ramp_group: _t.Mapping[int, tuple[str, float]] = _dc.field(default_factory=dict)
     #: #1201 (owner RULINGS 2026-10-27t): the vertices UNDER a runway-end
     #: walled plate (``airport/walled_plate.under_plate_vertices``): hidden
     #: ground, capped under the plate's top (``constraints/walled_plate``);

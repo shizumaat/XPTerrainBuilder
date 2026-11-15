@@ -29,17 +29,27 @@ __all__ = ["ground_footprint", "end_road_vertices", "deck_end_seeds", "ring_poly
 DECK_END_RAMP = True
 
 
-def deck_end_seeds(pm, law, airport) -> dict[int, tuple[float, float]]:
+def deck_end_seeds(pm, law, airport, stacks: "dict[int, str] | None" = None
+                   ) -> dict[int, tuple[float, float]]:
     """``{vertex: (zero + top_e, distance to the end line)}`` (v2 §3.4): the
     end-line road vertices (:func:`end_road_vertices`), where the road ramp
     is seeded as at a foot lot (``airport/road_ramp.road_ramp_targets(
     deck_ends=...)``; the hold is the slab left beyond the vertex).  ``{}``
-    while owner question Q1 reads "no" (:data:`DECK_END_RAMP`)."""
+    while owner question Q1 reads "no" (:data:`DECK_END_RAMP`).  Given
+    ``stacks`` (#2090 B8) it is filled with each end-line or access-road
+    seed's stack id."""
     if not DECK_END_RAMP:
         return {}
-    out = {v: (z, off) for v, (z, *_r, off) in end_road_vertices(pm, law, airport).items()}
-    for v, (z, *_r, off) in access_road_vertices(pm, law, airport).items():
-        out.setdefault(v, (z, off))             # #2090 B4: the access road between ends
+    sid = {} if stacks is None else stacks
+    out = {}
+    for v, (z, s_id, *_r, off) in end_road_vertices(pm, law, airport).items():
+        out[v], sid[v] = (z, off), s_id
+    # #2090 B4: the access road between ends; B4c: the level run itself has
+    # no slab left beyond it, so no hold (offset one full sample step)
+    step = float(law.tables.structures.bridge.abutment_sample_step_m)
+    for v, (z, s_id, *_r) in access_road_vertices(pm, law, airport).items():
+        if v not in out:
+            out[v], sid[v] = (z, step), s_id
     for v, z in _crossing_vertices(pm, law, airport).items():
         out.setdefault(v, (z, 0.0))             # #2065 A3 rule 6: an at-grade crossing
     return out

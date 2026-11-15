@@ -11,7 +11,8 @@ In ``model`` (it reads only ``geom``, ``law`` and ``model``) so both the
 """
 from __future__ import annotations
 
-__all__ = ["end_road_vertices", "access_road_vertices", "way_of_ref"]
+__all__ = ["end_road_vertices", "access_road_vertices", "way_of_ref", "sibling_ends",
+           "between_siblings", "road_faces_near"]
 
 
 def _road_vertices(pm, law) -> list[int]:
@@ -36,31 +37,114 @@ def way_of_ref(ref: str) -> "int | None":
         return None
 
 
-def access_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str, float]]:
-    """#2090 B4 THE ACCESS ROAD BETWEEN SIBLING DECK ENDS: the kept stacks
-    whose deck JOINS an AGP follower's floor (``DeckStack.joins``) and whose
-    other end is GRADED on an at-grade road passing its line
-    (``StackEnd.access``); ends whose stacks join the SAME floor (same
-    member, same ``y``) are siblings, taken in order along the line through
-    them.  Every road vertex of their access ways standing between two
-    consecutive siblings (its projection on the segment between their end
-    lines' middles inside it, within the wider end line's half width plus
-    one ``[bridge] abutment_sample_step_m`` of it — the ribbon's far edge)
-    -> ``(the level on the line between the two ends' levels, the nearer
-    end's stack id, deck object id, which end, 0.0)`` — the shape of
-    :func:`end_road_vertices`, so R1 holds them and the road ramp is seeded
-    at them; the road's own ramp then runs from the outermost ends."""
-    from .deck_stack import live_stacks
-    from .planar import ROAD_ROLES
-    stacks = [st for st in live_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()), pm)
-              if getattr(st, "datum_group", "") and getattr(st, "joins", ())]
+def _mid(stations) -> tuple[float, float]:
+    return (sum(p[0] for p in stations) / len(stations),
+            sum(p[1] for p in stations) / len(stations))
+
+
+def sibling_ends(stacks, on_road=None, reach: float = 0.0) -> dict[tuple, list]:
+    """#2090 B4 THE SIBLING ENDS: per ``DeckStack.access_key`` (a deck join's
+    floor, or the line a riding deck rides), the GRADED land ends carrying an
+    access road (``StackEnd.access``) as ``[(stack, end)]``, ordered along
+    the line through their end lines' middles, keyed ``(member, y_floor,
+    k)``.  ``on_road(xy, ways, reach) -> bool`` (given) splits them into
+    LINES (``k``): two consecutive ends are on one line only where the access
+    road runs between them — an access way of either within the wider end
+    line's half width plus ``reach`` of the middle between them (one floor's
+    ends on two roads, e.g. both sides of a building, are two lines)."""
     sib: dict[tuple[str, float], list] = {}
     for st in stacks:
-        j = st.joins[0]
+        key = getattr(st, "access_key", None)
+        if key is None:
+            continue
         for e in st.graded_ends():
             if e.access:
-                sib.setdefault((j.member, round(float(j.y_floor), 2)), []).append((st, e))
-    sib = {k: v for k, v in sib.items() if len(v) >= 2}
+                sib.setdefault(key, []).append((st, e))
+    out: dict[tuple, list] = {}
+    for key, ends in sib.items():
+        mids = [_mid(e.stations) for _st, e in ends]
+        ax = (mids[-1][0] - mids[0][0], mids[-1][1] - mids[0][1])
+        order = sorted(range(len(ends)), key=lambda k, m=mids: m[k][0] * ax[0] + m[k][1] * ax[1])
+        lines = [[ends[order[0]]]]
+        for i0, i1 in zip(order, order[1:], strict=False):
+            (_s0, e0), (_s1, e1) = ends[i0], ends[i1]
+            mid = ((mids[i0][0] + mids[i1][0]) / 2.0, (mids[i0][1] + mids[i1][1]) / 2.0)
+            if on_road is not None and not on_road(
+                    mid, {int(w) for w in (*e0.access, *e1.access)},
+                    max(e0.half_width, e1.half_width) + float(reach)):
+                lines.append([])
+            lines[-1].append(ends[i1])
+        for k, line in enumerate(lines):
+            out[(key[0], key[1], k)] = line
+    return out
+
+
+def road_faces_near(pm):
+    """``on_road`` of :func:`sibling_ends` over the planar map: the boundary
+    of a road face (``ROAD_ROLES``) of one of the ways within ``reach`` of
+    ``xy`` (a ribbon is narrower than any reach asked, so a point on it is
+    near its boundary)."""
+    from ..geom.end_line import polyline_distance
+    from .planar import ROAD_ROLES
+    by_way: dict[int, list] = {}
+    for f in pm.faces.values():
+        w = way_of_ref(f.ref) if f.role in ROAD_ROLES else None
+        if w is not None:
+            ring = [pm.vertices[v].xy for v in pm.ring_vertices(f.ring)]
+            if len(ring) >= 3:
+                by_way.setdefault(w, []).append([*ring, ring[0]])
+
+    def on_road(xy, ways, reach: float) -> bool:
+        p = [(float(xy[0]), float(xy[1]))]
+        return any(float(polyline_distance(p, ring)[0]) <= reach
+                   for w in ways for ring in by_way.get(w, ()))
+    return on_road
+
+
+def between_siblings(ends, xy, reach: float):
+    """``(level, nearer (stack, end))`` of plan point ``xy`` standing between
+    two consecutive sibling ends of ``ends`` (:func:`sibling_ends`' order):
+    its projection on the segment between their end lines' middles inside
+    it and within the wider end line's half width plus ``reach`` of it — the
+    level on the line between the two ends' levels; ``None`` elsewhere."""
+    x, y = float(xy[0]), float(xy[1])
+    for (s0, e0), (s1, e1) in zip(ends, ends[1:], strict=False):
+        a, b = _mid(e0.stations), _mid(e1.stations)
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        ll = dx * dx + dy * dy
+        if ll <= 0.0:
+            continue
+        t = ((x - a[0]) * dx + (y - a[1]) * dy) / ll
+        if not 0.0 < t < 1.0:
+            continue
+        if abs((x - a[0]) * dy - (y - a[1]) * dx) / ll ** 0.5 > max(e0.half_width,
+                                                                     e1.half_width) + reach:
+            continue
+        z0, z1 = float(s0.zero_z) + float(e0.top), float(s1.zero_z) + float(e1.top)
+        return z0 + t * (z1 - z0), ((s0, e0) if t < 0.5 else (s1, e1))
+    return None
+
+
+def access_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str, float]]:
+    """#2090 B4 THE ACCESS ROAD BETWEEN SIBLING DECK ENDS: the kept stacks
+    whose deck JOINS an AGP follower's floor (``DeckStack.joins``) or rides
+    the access road those ends hold (``DeckStack.rides``, B4b), and whose
+    end is GRADED on an at-grade road passing its line (``StackEnd.access``);
+    ends of one ``DeckStack.access_key`` on one access road are siblings
+    (:func:`sibling_ends`, its lines split by :func:`road_faces_near`).
+    Every road vertex of their access ways standing between two consecutive
+    siblings (:func:`between_siblings`, reach one ``[bridge]
+    abutment_sample_step_m`` — the ribbon's far edge) -> ``(the level on the
+    line between the two ends' levels, the nearer end's stack id, deck
+    object id, which end, 0.0)`` — the shape of :func:`end_road_vertices`,
+    so R1 holds them and the road ramp is seeded at them; the road's own
+    ramp then runs from the outermost ends."""
+    from .deck_stack import live_stacks
+    from .planar import ROAD_ROLES
+    reach = float(law.tables.structures.bridge.abutment_sample_step_m) if law is not None else 0.0
+    sib = {k: v for k, v in sibling_ends(live_stacks(
+        tuple(getattr(airport, "deck_stacks", ()) or ()), pm), road_faces_near(pm),
+        reach).items() if len(v) >= 2}
     if not sib:
         return {}
     ways = {int(w) for ends in sib.values() for _st, e in ends for w in e.access}
@@ -69,32 +153,14 @@ def access_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, s
         if f.role in ROAD_ROLES and way_of_ref(f.ref) in ways:
             verts.update(pm.ring_vertices(f.ring))
     out: dict[int, tuple[float, str, str, str, float]] = {}
-    reach = float(law.tables.structures.bridge.abutment_sample_step_m) if law is not None else 0.0
     for ends in sib.values():
-        mids = [(sum(p[0] for p in e.stations) / len(e.stations),
-                 sum(p[1] for p in e.stations) / len(e.stations)) for _st, e in ends]
-        ax = (mids[-1][0] - mids[0][0], mids[-1][1] - mids[0][1])
-        order = sorted(range(len(ends)), key=lambda k: mids[k][0] * ax[0] + mids[k][1] * ax[1])
-        for k0, k1 in zip(order, order[1:], strict=False):
-            (s0, e0), (s1, e1) = ends[k0], ends[k1]
-            a, b = mids[k0], mids[k1]
-            dx, dy = b[0] - a[0], b[1] - a[1]
-            ll = dx * dx + dy * dy
-            if ll <= 0.0:
+        for v in sorted(verts):
+            got = between_siblings(ends, pm.vertices[v].xy, reach)
+            if got is None:
                 continue
-            z0, z1 = float(s0.zero_z) + float(e0.top), float(s1.zero_z) + float(e1.top)
-            half = max(e0.half_width, e1.half_width) + reach
-            for v in sorted(verts):
-                x, y = pm.vertices[v].xy
-                t = ((x - a[0]) * dx + (y - a[1]) * dy) / ll
-                if not 0.0 < t < 1.0:
-                    continue
-                lat = abs((x - a[0]) * dy - (y - a[1]) * dx) / ll ** 0.5
-                if lat > half:
-                    continue
-                st, e = (s0, e0) if t < 0.5 else (s1, e1)
-                out.setdefault(v, (z0 + t * (z1 - z0), st.id, e.object_id,
-                                   f"{e.object_id}#0 end {e.side} access road", 0.0))
+            z, (st, e) = got
+            out.setdefault(v, (z, st.id, e.object_id,
+                               f"{e.object_id}#0 end {e.side} access road", 0.0))
     return out
 
 

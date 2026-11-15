@@ -2437,6 +2437,9 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                 from auto_patch_v2.airport.road_descent import descent_line
                 print(f"[{icao}] road {descent_line(ramp_rep)}; steepest "
                       f"{ramp_rep.get('ramps_steepest')}")
+                from auto_patch_v2.airport.road_descent import deck_ramp_lines
+                for _ln in deck_ramp_lines(ramp_rep, airport.frame.transformers()[1]):
+                    print(f"[{icao}]   {_ln}")
             except ImportError:
                 pass
             # §37 (9) the coverage-edge join, after the frame it reads

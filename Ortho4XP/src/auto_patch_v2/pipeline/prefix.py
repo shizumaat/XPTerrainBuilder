@@ -20,7 +20,7 @@ import typing as _t
 
 from ..airport import flat_site as _flat
 from ..airport.flat_site_read import verdict_for_build as _flat_verdict
-from ..airport.road_descent import descent_line
+from ..airport.road_descent import deck_ramp_lines, descent_line
 from ..airport.road_profile import preferred_road_z
 from ..airport.road_ramp import with_road_ramp
 from ..classify import load_rules
@@ -264,6 +264,8 @@ def _channels(icao: str, pm, law, law_c, airport, road_profiles, road_rep, road_
          f"pinned vertices; fill risers (10-20d, 27i) {ramp_rep.get('fill_riser_walls', 0)} "
          f"declared, {ramp_rep.get('fill_riser_unmapped', 0)} not on the map")
     out(f"[{icao}] road {descent_line(ramp_rep)}")
+    for _ln in deck_ramp_lines(ramp_rep, airport.frame.transformers()[1]):
+        out(f"[{icao}]   {_ln}")
     return pm, _yield_records
 
 

@@ -101,9 +101,46 @@ def datum_rewrite(planar: PlanarMap, law: Law, cs: _t.Any,
     bands = _move(cs.bands, lambda r, d: _dc.replace(
         r, lo=None if r.lo is None else r.lo + d, hi=None if r.hi is None else r.hi + d))
     pins = _move(cs.pins, lambda r, d: _dc.replace(r, z=r.z + d))
-    if not any(v["moved"] for v in rep.values()):
+    linears, bands = _ramp_rewrite(planar, law, cs.linears, bands, delta, rep)
+    if not any(v["moved"] or v.get("ramp_moved") for v in rep.values()):
         return cs, {"groups": rep}
-    return _dc.replace(cs, bands=bands, pins=pins), {"groups": rep}
+    return _dc.replace(cs, bands=bands, pins=pins, linears=linears), {"groups": rep}
+
+
+def _ramp_rewrite(planar, law, linears, bands, delta: _t.Mapping[str, float], rep: dict):
+    """#2090 B8 (census row 13): ``(linears, bands)`` with the §37 (6)
+    target of every vertex of ``PlanarMap.road_ramp_group`` moved to
+    ``max(floor, t + delta)`` and its hard ceiling to that plus ``[cockpit]
+    visual_m``.  For ``delta > 0`` the ramp's foot is short by at most
+    ``delta`` (listed ``agp_ramp_foot_m``)."""
+    from .road_ramp import GEN, RULING, RULING_CEILING
+    grp = getattr(planar, "road_ramp_group", None) or {}
+    if not grp:
+        return linears, bands
+    vis = float(law.tables.emit.cockpit.visual_m)
+
+    def _vertex(r, ruling: str) -> "int | None":
+        if r.source.generator != GEN or r.source.ruling != ruling or not r.source.inputs:
+            return None
+        tag = str(r.source.inputs[0])
+        return int(tag[7:]) if tag.startswith("vertex:") and int(tag[7:]) in grp else None
+    new_t: dict[int, float] = {}
+    out_l = []
+    for r in linears:
+        v = _vertex(r, RULING)
+        g = grp[v][0] if v is not None else None
+        if g is None or not delta.get(g) or r.lo is None:
+            out_l.append(r)
+            continue
+        t = max(float(grp[v][1]), float(r.lo) + float(delta[g]))
+        new_t[v] = t
+        out_l.append(_dc.replace(r, lo=t, hi=t))
+        rep[g]["ramp_moved"] = rep[g].get("ramp_moved", 0) + 1
+        if delta[g] > 0.0:
+            rep[g]["agp_ramp_foot_m"] = round(float(delta[g]), 4)
+    out_b = [(_dc.replace(r, hi=new_t[v] + vis) if (v := _vertex(r, RULING_CEILING)) in new_t
+              else r) for r in bands]
+    return tuple(out_l), tuple(out_b)
 
 
 def final_zero(group: AgpGroup, report: "_t.Mapping | None") -> dict[str, _t.Any]:

@@ -719,6 +719,33 @@ def _ramp_figures(ramps: _t.Sequence[_t.Mapping[str, _t.Any]], design: float,
                                 r["why"]) for r in worst[:8]]}
 
 
+def _carried_on_end(adj, frame, route_end, by_route, lane: float):
+    """#2090 B7: the road's-end reader of a DECK END's ramp — ``route_end``,
+    but ``None`` (no end) where any vertex of that route end's group (the
+    route's vertices within ``lane`` of that end) has a neighbour on
+    ANOTHER route (the frame's route id): the road carries on there
+    (``airport/road_descent``'s module doc)."""
+    memo: dict = {}
+
+    def end_of(v: int):
+        e = route_end(v)
+        if e is None:
+            return None
+        if e not in memo:
+            r, k = e
+            items = by_route.get(r) if r != "" else None
+            if not items:
+                group = [v]
+            elif k == 0:
+                group = [w for s_, w in items if s_ - items[0][0] <= lane]
+            else:
+                group = [w for s_, w in items if items[-1][0] - s_ <= lane]
+            memo[e] = not any(frame.get(u) is not None and frame[u][0] != r
+                              for w in group for u, _d in adj.get(w, ()))
+        return e if memo[e] else None
+    return end_of
+
+
 def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                       profiles=None, retaining: _t.Sequence = (),
                       foot: _t.Mapping[int, float] | None = None, *,
@@ -941,7 +968,16 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
         return (f_[0], 1) if items[-1][0] - f_[1] <= lane else None
 
     design = float(rc.ramp_grade)
-    g, reach, ramps = descend(adj, seeds, _level, floor_of, design, cap, lane, _route_end)
+    # #2090 B7 (RULINGS 2026-11-14e): a deck end's ramp follows its road to
+    # the bridge whatever its length — a route end another route carries on
+    # from is no end of that road
+    carried_end = _carried_on_end(adj, frame, _route_end, by_route, lane)
+    dsc = descend(adj, seeds, _level, floor_of, design, cap, lane, _route_end,
+                  end_of_for={v: carried_end for v in ends if v in seeds and v not in mouths})
+    g, reach, ramps = dsc.label, dsc.walked, dsc.ramps
+    # #2090 G2-B′: every deck-end ramp's record (grade, steepest, why)
+    rep["deck_end_ramps"] = [{**r, "xy": tuple(round(float(c), 2) for c in pm.vertices[
+        r["mouth"]].xy)} for r in ramps if r["mouth"] in ends and r["mouth"] in pm.vertices]
     rep.update(_ramp_figures(ramps, design, cap))
     # THE MIRROR (#1531): a contact cut INTO the hill stands under the
     # road's floor, and the road climbs out of it on a cut ramp — the SAME
@@ -949,7 +985,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # envelope a ceiling on the target.  The mouths' own seeds carry no
     # cone of their own (a contact the road can follow its floor from
     # builds none), so only the vertices a cut reached are lifted.
-    cut_lab, _cw, cut_ramps = climb(adj, cut_from,
+    cut_lab, _cw, cut_ramps, _cs = climb(adj, cut_from,
                                     lambda v: cut_from[v] if v in cut_from else floor_of.get(v),
                                     floor_of, design, cap, lane)
     cut_fig = _ramp_figures(cut_ramps, design, cap)
@@ -971,6 +1007,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
         env_c[r] = grade_envelope(ss, [cut_lab.get(v, math.inf) if v not in mouths else math.inf
                               for _s, v in items], cap, lower=True)
     targets: dict[int, float] = {}
+    rep["_deck_ramp"] = {}
     for v in sorted(owned):
         vx = pm.vertices[v]
         f_ = frame.get(v)
@@ -1002,6 +1039,8 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                 rep["max_below_dem_m"], rep["_deepest_cut"] = dem_route - t, v
         elif ramp >= floor + STAND_M:
             rep["on_ramp"] += 1
+            if dsc.src.get(v) in ends:          # #2090 B8: a deck end's ramp
+                rep["_deck_ramp"][v] = (int(dsc.src[v]), float(floor))
             rep["max_above_dem_m"] = max(rep["max_above_dem_m"], t - dem_route)
             rep["max_reach_m"] = max(rep["max_reach_m"], reach.get(v, 0.0))
         else:
@@ -2012,6 +2051,22 @@ def _road_leads(meet: _t.Mapping[int, _t.Any],
     return {v: x for v, x in meet.items() if v not in own}
 
 
+def _ramp_groups(pm: PlanarMap, airport: Airport, deck_ramp: _t.Mapping[int, tuple],
+                 seed_stack: _t.Mapping[int, str]) -> dict[int, tuple[str, float]]:
+    """#2090 B8 (census row 13): ``{vertex: (AGP group id, floor)}`` of every
+    governed vertex on a ramp whose seed is a deck end of a stack riding an
+    AGP group's datum (``DeckStack.datum_group``) — the stage-2 datum
+    rewrite moves that vertex's target (``constraints/agp_level``)."""
+    from ..model.deck_stack import live_stacks
+    gid = {str(st.id): str(st.datum_group) for st in
+           live_stacks(tuple(getattr(airport, "deck_stacks", ()) or ()), pm)
+           if getattr(st, "datum_group", "")}
+    if not gid:
+        return {}
+    return {int(v): (gid[seed_stack[m]], float(fl)) for v, (m, fl) in deck_ramp.items()
+            if seed_stack.get(m) in gid}
+
+
 def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                    report: dict[str, _t.Any] | None = None,
                    profiles=None, *, service=None) -> PlanarMap:
@@ -2034,9 +2089,12 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     from .riser_wall import shell_kerbs
     retaining = tuple(w.poly for w in walls if w.retains) + shell_kerbs(pm)
     from .deck_ends import deck_end_seeds
+    seed_stack: dict[int, str] = {}
     tg = road_ramp_targets(pm, law, airport, profiles, retaining,
                            _foot_vertices(pm, law, walls) if walls else None,
-                           deck_ends=deck_end_seeds(pm, law, airport))
+                           deck_ends=deck_end_seeds(pm, law, airport, seed_stack))
+    deck_ramp = tg.report.pop("_deck_ramp", {})
+    ramp_group = _ramp_groups(pm, airport, deck_ramp, seed_stack)
     frame = tg.frame
     frep = tg.report.pop("_frame_report", {})
     frep.pop("_ways", None)            # the Way objects are not a report
@@ -2177,6 +2235,7 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     # the last bits PROJ's inverse leaves in a sample never reach a row
     targets = {v: exact.on_read_grid(z) for v, z in targets.items()}
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,
+                       road_ramp_group={v: g for v, g in ramp_group.items() if v in targets},
                        plate_under=under,
                        rsa_at_grade=at_grade_rsa_vertices(airport, pm, law),
                        road_contact_edge=contact, road_route_merged=merged,

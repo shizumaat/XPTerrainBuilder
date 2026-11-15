@@ -192,11 +192,14 @@ def test_msl_rows_over_an_msl_model_ride_it_by_their_authored_height(tmp_path):
             ("dsf:obj1", "castle.obj", (40.0, 30.0), 329.0, 92.0, "OBJECT_MSL"),
             ("dsf:obj2", "far.obj", (900.0, 0.0), 0.0, 12.0, "OBJECT_MSL"),
             ("dsf:obj3", "lamp.obj", (40.0, 30.0), 0.0, None, "OBJECT"),
-            ("dsf:obj4", "lib/street/bench.obj", (40.0, 30.0), 0.0, 90.0, "OBJECT_MSL")]
+            ("dsf:obj4", "lib/street/bench.obj", (40.0, 30.0), 0.0, 90.0, "OBJECT_MSL"),
+            ("dsf:obj5", "station.obj", (0.0, 0.0), 0.0, 20.0, "OBJECT_MSL")]
     models = _models(path, rows)
     assert set(models) == {"dsf:obj0"}
     members = TM.set_members(rows, models)
-    assert set(members) == {"dsf:obj0", "dsf:obj1"}
+    assert set(members) == {"dsf:obj0", "dsf:obj1", "dsf:obj5"}
+    # a row at the model's own origin is of its set whatever its MSL column
+    assert TM.member_lift(members["dsf:obj5"], "OBJECT_MSL", 20.0) == 8.0
     assert TM.member_lift(members["dsf:obj1"], "OBJECT_MSL", 92.0) == 80.0
     # a plain-row model has no datum: its members lift by their own AGL
     plain = _models(path, [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, None, "OBJECT")])

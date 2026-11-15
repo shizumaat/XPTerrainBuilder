@@ -342,9 +342,12 @@ def rim_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,
     return float(gap.min()) if len(gap) else None
 
 
-def _origin(xy: _t.Any, heading: float, elev: _t.Any) -> tuple:
+def _origin(xy: _t.Any, heading: float, elev: _t.Any, kind: str = "") -> tuple:
+    """The origin-set key; an ``OBJECT_MSL`` row's column is an absolute
+    height, not a lift, and is left out (its lift is :func:`member_lift`)."""
     from .msl_feet import origin_key
-    return origin_key(xy, heading) + (round(float(elev or 0.0), 3),)
+    e = 0.0 if kind == "OBJECT_MSL" else float(elev or 0.0)
+    return origin_key(xy, heading) + (round(e, 3),)
 
 
 def placement_models(placements: _t.Sequence[tuple],
@@ -433,13 +436,13 @@ def set_members(placements: _t.Sequence[tuple],
         p = by_id.get(oid)
         if p is None:
             continue
-        k = _origin(p[2], p[3], p[4])
+        k = _origin(p[2], p[3], p[4], p[5])
         if k not in seeds or m.z0 < seeds[k].z0:
             seeds[k] = m
     if not seeds:
         return {}
-    out = {str(oid): seeds[k] for oid, _d, xy, h, e, _k in placements
-           if (k := _origin(xy, h, e)) in seeds}
+    out = {str(oid): seeds[k] for oid, _d, xy, h, e, kd in placements
+           if (k := _origin(xy, h, e, kd)) in seeds}
     from .obj8 import is_stock_library_resource
     msl = sorted((m for m in seeds.values() if m.datum is not None), key=lambda m: m.z0)
     for oid, dpath, xy, _h, e, kind in placements if msl else ():

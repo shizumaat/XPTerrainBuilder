@@ -78,8 +78,12 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
     for o in airport.dsf_objects:
         if not o.path.lower().endswith(".obj"):
             continue
+        # the elevation column as ``obj8.read_placed_objects`` documents it:
+        # the AGL offset, the MSL elevation (a terrain model's datum, #2077),
+        # ``None`` for a plain row
         rows.append((o.id, o.path, o.xy, o.heading_deg,
-                     o.y_offset_m if o.kind == "OBJECT_AGL" else None, o.kind))
+                     o.y_offset_m if o.kind in ("OBJECT_AGL", "OBJECT_MSL") else None,
+                     o.kind))
     # the loader already resolved: hand the resolved path through the
     # index mapping so obj8 never walks the pack a second time
     index = {o.path: o.resolved_path for o in airport.dsf_objects if o.resolved_path}

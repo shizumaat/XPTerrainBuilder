@@ -421,10 +421,14 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
     # at its no-float zero -- no other seat moves a row of it
     from ..airport import ground_shell as _gs
     from ..airport import terrain_model as _tm
+    from ..airport.terrain_fill import posting_shoulder_m
     # issue #2056: airside is king -- a seated ground shell never stands
-    # over the solved airside surface
+    # over the solved airside surface (#2077: nor a fill model's rim)
+    _posting = getattr(airport.dem, "posting_m", None)
     airport = _dc.replace(airport, terrain_models=_gs.airside_capped(
-        getattr(airport, "terrain_models", ()) or (), surf, _to_xy))
+        getattr(airport, "terrain_models", ()) or (), surf, _to_xy,
+        posting_shoulder_m(_posting() if callable(_posting) else None,
+                           float(airport.frame.origin[0]))))
     model_seats = _tm.seat_records(airport)
     # #2062 R2: a storey shell's rigid set is written whole at the
     # building's zero plus each row's lift -- no other seat moves a row of it

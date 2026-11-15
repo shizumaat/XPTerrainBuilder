@@ -66,8 +66,10 @@ ITEM_DETAILS = {
     "ground": ("{n} painted ground or grass images ({uses} polygons) laid "
                "mostly over unpaved ground at the airport cover the tile’s "
                "imagery."),
-    "terrain": ("{n} objects ({uses} placements) model hills or shoreline "
-                "that the tile’s detailed elevation data already describes."),
+    "terrain": ("{n} objects ({uses} placements) model hills or cliffs "
+                "that the tile’s detailed elevation data already describes. "
+                "The package’s other objects are then placed on that "
+                "terrain."),
     "generic": ("{n} stock X-Plane grass, sand or scrub textures ({uses} "
                 "polygons, about {ha} ha) cover the tile’s imagery."),
     "flatten": ("The apt.dat asks X-Plane to flatten the airport, which "

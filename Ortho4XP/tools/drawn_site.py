@@ -289,13 +289,27 @@ class Resources:
         self.index = obj8.read_library_index(obj8.library_index_path(mod_cache_root, xplane_root))
         self._memo: dict = {}
 
+    def resolve(self, def_path: str, pack_root: str) -> str | None:
+        """The file X-Plane draws for ``def_path``: pack-relative, the
+        library index, then the pack's OWN ``library.txt`` (a ``PRIVATE``
+        or seasonal export the merged index does not carry -- X-Plane's
+        Landmarks packs export ``objects/X.obj`` as ``X_su.obj``)."""
+        phys = self._obj8.resolve_resource(def_path, pack_root, self.index)
+        if phys is None and pack_root:
+            lib = self._obj8._pack_library_txt(pack_root)
+            key = def_path.replace("\\", "/").lstrip("/").lower()
+            for cand in (self._obj8.library_exports(lib).get(key, ()) if lib else ()):
+                if os.path.isfile(cand):
+                    return cand
+        return phys
+
     def unresolved(self, def_path: str, pack_root: str) -> bool:
         """A ``.obj`` row whose file X-Plane cannot find (it draws nothing)."""
         return (def_path.lower().endswith(".obj")
-                and self._obj8.resolve_resource(def_path, pack_root, self.index) is None)
+                and self.resolve(def_path, pack_root) is None)
 
     def get(self, def_path: str, pack_root: str):
-        phys = self._obj8.resolve_resource(def_path, pack_root, self.index)
+        phys = self.resolve(def_path, pack_root)
         if not phys or not phys.lower().endswith(".obj"):
             return None
         if phys not in self._memo:

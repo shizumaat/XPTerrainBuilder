@@ -94,14 +94,36 @@ def test_the_match_follows_the_dem_and_no_edge_floats(tmp_path):
     assert m["z0"] == pytest.approx(0.0, abs=0.5)
 
 
-def test_a_rim_standing_proud_of_the_ground_lowers_the_seat(tmp_path):
-    """KHAF / KOAK: one stretch of the rim stands 12 m over the ground
-    (a coarse DEM, a bluff's inland edge) -- the whole frame goes down
-    until that edge meets the ground; never seated on the high side."""
+def test_a_rim_standing_proud_of_the_ground_is_filled_not_sunk(tmp_path):
+    """#2077 rule B (owner 2026-11-15): one stretch of the rim stands 12 m
+    over the ground -- the frame keeps its L1 fit to the ground (the hill
+    where the hill is) and the tile build fills up to that edge; the
+    2026-11-13i seat (the whole frame down until that edge meets the
+    ground) is ``rim_seat``, the ground shell's bound."""
     path = _write(tmp_path, "r.obj", _hill,
                   rim_y=lambda x, z: 12.0 if x >= HALF - 1e-6 else 0.0)
-    m = TM.match(TM.shape_of(path), (0.0, 0.0), 0.0, _dem(_hill))
-    assert m is not None and m["z0"] == pytest.approx(-12.0, abs=0.5)
+    shape = TM.shape_of(path)
+    m = TM.match(shape, (0.0, 0.0), 0.0, _dem(_hill))
+    assert m is not None and m["z0"] == pytest.approx(0.0, abs=0.5)
+    assert TM.rim_seat(shape.grid, (0.0, 0.0), 0.0, _dem(_hill)) == pytest.approx(-12.0, abs=0.5)
+
+
+def test_a_wet_rim_caps_the_fit_seat(tmp_path):
+    """#2077 2.1: the ground under water cannot be filled -- with a tenth
+    of the rim over water the zero stands no higher than those wet rim
+    cells' ``ground - bottom`` (the skirt stays under the water)."""
+    path = _write(tmp_path, "w.obj", _hill,
+                  rim_y=lambda x, z: 12.0 if x >= HALF - 1e-6 else 0.0)
+    shape = TM.shape_of(path)
+
+    def water(xs, ys):
+        wet = np.asarray(xs, float) >= HALF - 1e-6
+        return wet, np.where(wet, 0.0, np.nan)
+    z0 = TM._fit_seat(shape.grid, (0.0, 0.0), 0.0, _dem(_hill), water)
+    assert z0 == pytest.approx(-12.0, abs=0.5)
+    assert TM._fit_seat(shape.grid, (0.0, 0.0), 0.0, _dem(_hill),
+                       lambda xs, ys: (np.zeros(len(xs), bool), np.full(len(xs), np.nan))
+                       ) == pytest.approx(0.0, abs=0.5)
 
 
 def test_a_mismatched_ground_is_not_a_model(tmp_path):
@@ -144,7 +166,8 @@ def test_the_origin_set_rides_the_model_and_the_seat_records(tmp_path):
     assert all(r["seat"] == TS.MODEL_SEAT for r in recs)
     # owner RULINGS 2026-11-13k: the model's own row names what the tile
     # build cuts the ground to -- its file, anchor and heading
-    assert recs[0]["cut"] == {"file": path, "lat": -22.95, "lon": -43.15, "heading": 0.0}
+    assert recs[0]["cut"] == {"file": path, "lat": -22.95, "lon": -43.15, "heading": 0.0,
+                              "fill": True}
     assert "cut" not in recs[1]
 
 
@@ -170,10 +193,40 @@ def test_without_quality_elevation_nothing_is_hideable(tmp_path):
     assert not _models(path, rows)["dsf:obj0"].hideable
 
 
-def test_an_msl_row_states_its_own_datum(tmp_path):
+def test_an_msl_row_is_a_model_and_keeps_its_datum(tmp_path):
+    """#2077 (LOWS's Festungsberg shell, OBJECT_MSL 430): the 11d
+    conversion drops every MSL column, so an MSL row is read like any
+    other -- seated by its rim, its authored datum kept on the model."""
     path = _write(tmp_path, "m.obj", _hill)
     rows = [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, 12.0, "OBJECT_MSL")]
-    assert _models(path, rows) == {}
+    m = _models(path, rows)["dsf:obj0"]
+    assert m.datum == 12.0 and m.z0 == pytest.approx(0.0, abs=0.5)
+    assert TM.member_lift(m, "OBJECT_MSL", 12.0) == 0.0
+
+
+def test_msl_rows_over_an_msl_model_ride_it_by_their_authored_height(tmp_path):
+    """The castle the author set at 92 m on a hill shell set at 12 m is the
+    shell's content: it keeps its 80 m over the shell's zero.  An MSL row
+    off the plan, a plain row on it and a stock library row on it do not
+    join (the plain row follows the drawn ground; the stock row is
+    ``frame_riders``')."""
+    path = _write(tmp_path, "m.obj", _hill)
+    rows = [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, 12.0, "OBJECT_MSL"),
+            ("dsf:obj1", "castle.obj", (40.0, 30.0), 329.0, 92.0, "OBJECT_MSL"),
+            ("dsf:obj2", "far.obj", (900.0, 0.0), 0.0, 12.0, "OBJECT_MSL"),
+            ("dsf:obj3", "lamp.obj", (40.0, 30.0), 0.0, None, "OBJECT"),
+            ("dsf:obj4", "lib/street/bench.obj", (40.0, 30.0), 0.0, 90.0, "OBJECT_MSL"),
+            ("dsf:obj5", "station.obj", (0.0, 0.0), 0.0, 20.0, "OBJECT_MSL")]
+    models = _models(path, rows)
+    assert set(models) == {"dsf:obj0"}
+    members = TM.set_members(rows, models)
+    assert set(members) == {"dsf:obj0", "dsf:obj1", "dsf:obj5"}
+    # a row at the model's own origin is of its set whatever its MSL column
+    assert TM.member_lift(members["dsf:obj5"], "OBJECT_MSL", 20.0) == 8.0
+    assert TM.member_lift(members["dsf:obj1"], "OBJECT_MSL", 92.0) == 80.0
+    # a plain-row model has no datum: its members lift by their own AGL
+    plain = _models(path, [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, None, "OBJECT")])
+    assert TM.member_lift(plain["dsf:obj0"], "OBJECT_MSL", 92.0) is None
 
 
 def test_the_hidden_definitions_of_a_dump():
@@ -184,3 +237,43 @@ def test_the_hidden_definitions_of_a_dump():
         ("object", 1, "Objetos/mountain.obj", 2)]
     assert PT.terrain_objects(dump, []) == ()
     assert PT.decode(PT.encode(["b.obj", "a.obj", ""])) == ("a.obj", "b.obj")
+
+
+def test_the_hide_offer_needs_a_source_no_coarser_than_the_shells_post(tmp_path):
+    """#2077 4.1: quality elevation must cover the plan at a pixel no
+    coarser than the shell's own post (here 20 m, so the 10 m ceiling
+    rules) and model it at the L1 fit."""
+    path = _write(tmp_path, "m.obj", _hill)
+    shape = TM.shape_of(path)
+    assert shape.post_m == pytest.approx(STEP, abs=1e-6)
+    asked = []
+
+    def fine(xs, ys, pixel_m=TM.QUALITY_PIXEL_M):
+        asked.append(pixel_m)
+        return np.full(len(xs), pixel_m >= 10.0)
+    cover, ok = TM.quality(shape, (0.0, 0.0), 0.0, _dem(_hill), fine)
+    assert asked == [10.0] and cover == 1.0 and ok
+    # the ground disagrees with the shell (a 30 m bump): no offer
+    bump = lambda x, z: _hill(x, z) + (30.0 if x > 0 else 0.0)  # noqa: E731
+    assert not TM.quality(shape, (0.0, 0.0), 0.0, _dem(bump), fine)[1]
+    assert TM.quality(shape, (0.0, 0.0), 0.0, _dem(_hill), None) == (0.0, False)
+
+
+def test_a_model_the_user_hid_dissolves_and_keeps_its_offer(tmp_path):
+    """#2077 4.2: a hidden model is ``ground = "hidden"`` -- its own row a
+    hidden seat, the offer kept for Undo -- and its frame is not read as
+    its content."""
+    path = _write(tmp_path, "m.obj", _hill)
+    rows = [("dsf:obj0", "m.obj", (0.0, 0.0), 0.0, None, "OBJECT")]
+    models = TM.placement_models(rows, lambda d: path, lambda d: parse_obj8(path),
+                                 _dem(_hill), None, hidden=frozenset({"m.obj"}))
+    m = models["dsf:obj0"]
+    assert m.ground == "hidden" and m.hideable and m.fill
+
+    class _A:
+        terrain_models = (("dsf:obj0", "m.obj", m, 0.0),)
+        frame = Frame("TEST", (-22.95, -43.15), 11)
+    recs = TM.seat_records(_A())
+    assert recs[0]["seat"] == TS.HIDDEN_SEAT and "cut" not in recs[0]
+    assert TM.hideable_paths(recs) == ("m.obj",)
+    assert "HIDDEN" in TM.log_line("TEST", [m])

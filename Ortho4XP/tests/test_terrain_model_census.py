@@ -22,8 +22,12 @@ def test_the_gates_count_the_pack(tmp_path):
     TTM._write(pack / "o", "mountain.obj", TTM._hill)
     TTM._write(pack / "o", "block.obj", TTM._hill, uv="atlas")
     gates, shapes = TMC.candidates(str(pack))
-    assert gates == {"objects": 2, "plan": 2, "photo": 1, "candidate": 1, "ground": 0}
-    assert list(shapes) == ["o/mountain.obj"]
+    # #2077: the atlas-textured twin is no terrain model, but a single steep
+    # surface with no floor is a RELIEF SKIN (``relief_skin``: no photo gate)
+    assert gates == {"objects": 2, "plan": 2, "photo": 1, "candidate": 1, "ground": 0,
+                     "skin": 1}
+    assert sorted(shapes, key=str) == sorted(["o/mountain.obj", ("skin", "o/block.obj")],
+                                             key=str)
 
 
 def test_the_sampler_reads_the_finest_raster_and_says_where_it_is_quality():

@@ -430,6 +430,8 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
         "o4_imagery": _prov.imagery_identity(imagery_paths),
         # THE USER'S HAND-SET PAVEMENT ROLES (#1697): set or cleared, regrade
         "o4_user_roles": _prov.user_roles_identity(tile, icao),
+        # #2077 4.2: the terrain objects the user hid (their frames dissolve)
+        "o4_terrain_hidden": _prov.terrain_hidden_identity(apt_dat_path),
     }
 
 

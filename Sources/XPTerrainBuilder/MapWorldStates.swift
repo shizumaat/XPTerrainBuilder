@@ -37,7 +37,7 @@ enum MapWorldStates {
                      skip: (BuildModel.TileCoord) -> Bool) {
         // Every placeholder in one stroke: ~18,000 tiles on a converted world.
         var outlines = Path()
-        for (coord, tile) in world where tile.state == .placeholder && visible(coord) {
+        for (coord, tile) in world where tile.state == .placeholder && visible(coord) && !skip(coord) {
             outlines.addRect(rect(coord).insetBy(dx: 1, dy: 1))
         }
         context.stroke(outlines, with: .color(placeholder.opacity(placeholderOpacity)),

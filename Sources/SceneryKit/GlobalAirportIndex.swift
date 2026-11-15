@@ -21,11 +21,20 @@ public struct GlobalAirport: Codable, Sendable {
     /// The engine's size class, 0 = largest (`O4_Airport_Rank.size_class`:
     /// runway length, surface and type); nil from a pre-v6 cache.
     public let sizeClass: Int?
+    /// The index's category (`O4_Airport_Index.AIRPORT_CATEGORIES`:
+    /// "icao_airport", "airport", "seaplane_base", "heliport"); nil when
+    /// the row has none.
+    public let category: String?
+
+    /// The category of an airport with an ICAO code (#2097's ICAO kind).
+    public static let icaoCategory = "icao_airport"
 
     public init(icao: String, latitude: Double, longitude: Double,
                 extent: AirportExtent? = nil,
                 runwayMeters: Int? = nil, sizeClass: Int? = nil,
-                name: String = "", city: String = "", country: String = "") {
+                name: String = "", city: String = "", country: String = "",
+                category: String? = nil) {
+        self.category = category
         self.icao = icao
         self.name = name
         self.city = city
@@ -117,7 +126,8 @@ public enum GlobalAirportIndex {
                                           sizeClass: intField(fields, 12),
                                           name: String(fields[1]),
                                           city: String(fields[2]),
-                                          country: String(fields[3])))
+                                          country: String(fields[3]),
+                                          category: fields.count > 6 ? String(fields[6]) : nil))
         }
         return airports
     }

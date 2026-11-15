@@ -1,6 +1,6 @@
 """Main window of the Ortho4XP Qt UI (map-first shell).
 
-Layout: toolbar (refresh, imagery preview, scenery filter, search, side
+Layout: toolbar (refresh, imagery preview, map Filter menu, search, side
 panel switch) / live map / context panel on the right / collapsible
 console drawer below / status bar.
 
@@ -94,7 +94,9 @@ import O4_Scan_Stream_Throttle as QTSCANRATE
 import O4_Tile_Info as TINFO
 import O4_Settings_Selection as SEL
 import O4_Qt_Imagery_Menu as QTIMENU
+import O4_Map_Filter as MAPFILTER
 import O4_Qt_Map as QTMAP
+import O4_Qt_Map_Filter as QTMAPFILTER
 import O4_Qt_Imagery_Freshness as QTFRESH
 import O4_Qt_Imagery_OnDemand as QTONDEMAND
 import O4_Qt_Core_Rows as QTCORES
@@ -186,9 +188,9 @@ DEFAULT_MAP_PROVIDER = "OSM"
 # ``OrthoLinkTiles`` (BuildModel.linkTiles), default ON.
 AUTO_INSTALL_KEY = "auto_install"
 
-# Prefs key for the map's scenery-layer filter — the mac app's
-# ``MapSceneryFilter`` (MapMainView.swift).
-SCENERY_FILTER_KEY = "scenery_filter"
+# Prefs key for the map's Filter menu (#2097): the items turned off —
+# the mac app's ``MapFilterHidden`` (MapFilter.swift).
+MAP_FILTER_KEY = "map_filter_hidden"
 # Prefs key: whether the side panel shows (the toolbar's switch).
 SIDE_PANEL_KEY = "side_panel_visible"
 
@@ -1196,19 +1198,16 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(spacer.sizePolicy().horizontalPolicy().Expanding,
                              spacer.sizePolicy().verticalPolicy().Preferred)
         toolbar.addWidget(spacer)
-        # Scenery layer filter (MapSceneryFilter); View ▸ Scenery too.
-        self.scenery_filter_combo = QComboBox()
-        for (mode, label) in QTMAP.SCENERY_FILTER_LABELS:
-            self.scenery_filter_combo.addItem(label, mode)
-        self.scenery_filter_combo.setToolTip(
-            "Show the tiles you built, other installed ortho/mesh "
-            "packages, or both"
-        )
-        self.scenery_filter_combo.activated.connect(
-            lambda index: self._set_scenery_filter(
-                self.scenery_filter_combo.itemData(index))
-        )
-        toolbar.addWidget(self.scenery_filter_combo)
+        # The map's Filter menu (#2097; Mac: MapFilterMenu); View ▸
+        # Filter is the same menu.
+        self.map_filter_menu = QTMAPFILTER.FilterMenu(self)
+        self.map_filter_menu.changed.connect(self._set_map_filter)
+        self.map_filter_button = QToolButton()
+        self.map_filter_button.setText("Filter")
+        self.map_filter_button.setToolTip(self.map_filter_menu.toolTip())
+        self.map_filter_button.setMenu(self.map_filter_menu)
+        self.map_filter_button.setPopupMode(QToolButton.InstantPopup)
+        toolbar.addWidget(self.map_filter_button)
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(
@@ -1842,24 +1841,8 @@ class MainWindow(QMainWindow):
         for key in ("bigger", "smaller", "actual"):
             view_menu.addAction(self._text_scale_actions[key])
         view_menu.addSeparator()
-        # Scenery layer filter (mac-app parity: MapSceneryFilter) — our
-        # built tiles, other installed ortho/mesh packages, or both.
-        scenery_menu = view_menu.addMenu("Scenery")
-        scenery_menu.setToolTip(
-            "Show the tiles you built, other installed ortho/mesh "
-            "packages, or both"
-        )
-        self._scenery_filter_actions = {}
-        current = self.map.scenery_filter()
-        for (mode, label) in QTMAP.SCENERY_FILTER_LABELS:
-            action = QAction(label, self)
-            action.setCheckable(True)
-            action.setChecked(mode == current)
-            action.triggered.connect(
-                lambda _checked=False, m=mode: self._set_scenery_filter(m)
-            )
-            scenery_menu.addAction(action)
-            self._scenery_filter_actions[mode] = action
+        # The toolbar's Filter menu (#2097), the same QMenu.
+        view_menu.addMenu(self.map_filter_menu)
 
         tools_menu = self.menuBar().addMenu("&Tools")
         overlay_action = QAction("Link overlays folder in X-Plane", self)
@@ -1940,8 +1923,8 @@ class MainWindow(QMainWindow):
             # first apply must paint the map either way.
             self.map_provider_combo.setCurrentText(map_code)
             self.map.set_provider(map_code)
-        self._set_scenery_filter(
-            str(self.prefs.get(SCENERY_FILTER_KEY, QTMAP.SCENERY_FILTER_ALL)),
+        self._set_map_filter(
+            MAPFILTER.parse_hidden(self.prefs.get(MAP_FILTER_KEY, [])),
             persist=False,
         )
 
@@ -2386,6 +2369,9 @@ class MainWindow(QMainWindow):
             self.map.set_airport_sizes({
                 entry.code: (entry.size_class, entry.runway_m)
                 for entry in self._airports})
+            self.map.set_airport_icao_codes(
+                entry.code for entry in self._airports
+                if entry.category == MAPFILTER.ICAO_CATEGORY)
         self.map.set_custom_airports(custom)
         self.map.set_default_airports(
             (entry.code, entry.lat, entry.lon)
@@ -2706,19 +2692,17 @@ class MainWindow(QMainWindow):
             self.prefs[SIDE_PANEL_KEY] = shown
             save_prefs(self.prefs)
 
-    def _set_scenery_filter(self, mode, persist=True):
-        """Point the map at one scenery-layer filter and tick its menu
-        and the toolbar's combo."""
-        self.map.set_scenery_filter(mode)
-        mode = self.map.scenery_filter()
-        for (key, action) in getattr(
-                self, "_scenery_filter_actions", {}).items():
-            action.setChecked(key == mode)
-        combo = getattr(self, "scenery_filter_combo", None)
-        if combo is not None:
-            combo.setCurrentIndex(max(combo.findData(mode), 0))
-        if persist and self.prefs.get(SCENERY_FILTER_KEY) != mode:
-            self.prefs[SCENERY_FILTER_KEY] = mode
+    def _set_map_filter(self, hidden, persist=True):
+        """Point the map at the Filter menu's items turned off (#2097),
+        tick the menu to match and keep the choice per user."""
+        self.map.set_map_filter(hidden)
+        hidden = self.map.map_filter()
+        self.map_filter_menu.set_hidden(hidden)
+        self.map_filter_button.setText(
+            "Filter ●" if MAPFILTER.is_filtering(hidden) else "Filter")
+        stored = MAPFILTER.dump_hidden(hidden)
+        if persist and self.prefs.get(MAP_FILTER_KEY) != stored:
+            self.prefs[MAP_FILTER_KEY] = stored
             save_prefs(self.prefs)
 
     # ------------------------------------------------------------------

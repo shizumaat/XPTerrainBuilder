@@ -75,6 +75,7 @@ KEEP = frozenset({
     "auto_patch.object_frame",
     "auto_patch.object_rebake",
     # ... and its 3D trees offer beside the missing-art check (#1360)
+    "auto_patch.adjust_edit",
     "auto_patch.adjust_stage",
     "auto_patch.drape_stage",
     # #1989: the Gateway airports offer (the build's check, the install)

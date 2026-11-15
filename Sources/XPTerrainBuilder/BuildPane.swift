@@ -405,6 +405,22 @@ struct BuildPane: View {
                                       : (row.optimisedCount > 0
                                          ? O4PackOptimiseCopy.undoHelp
                                          : O4PackOptimiseCopy.optimiseHelp))
+                                // owner 2026-11-15T13:12Z: Adjust… — change
+                                // what is hidden or optimised, beside Revert
+                                // (the Qt row's twin button)
+                                if buildModel.engineCapabilities.supports(O4EngineCapabilities.packAdjustEdit) {
+                                    Button {
+                                        buildModel.adjustPackFromRow(packPath: row.packPath, tile: active)
+                                    } label: {
+                                        Image(systemName: "slider.horizontal.3")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .controlSize(.small)
+                                    .disabled(buildModel.isBuilding)
+                                    .help(buildModel.isBuilding
+                                          ? "Wait for the current run — the engine may be rewriting these files"
+                                          : O4PackAdjustCopy.adjustHelp)
+                                }
                                 Button {
                                     revertModifiedAirports(row)
                                 } label: {

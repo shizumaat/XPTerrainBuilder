@@ -246,6 +246,16 @@ TILE_PACKAGE = (
      "package", "on_pack_package"),
 )
 
+#: The tile pane's Modified airports row, its actions left to right (owner
+#: 2026-11-15T13:12Z: Adjust… beside Revert): (key, Swift marker in
+#: BuildPane.swift, Qt marker in ``MainWindow._on_reanchor_ready``).
+PACK_ROW_ACTIONS = (
+    ("trees", "buildModel.undoPackForests(packPath:", "self._undo_pack_forests(p)"),
+    ("optimise", "buildModel.packOptimiseFromRow(", "self._pack_optimise_from_row(p, u)"),
+    ("adjust", "buildModel.adjustPackFromRow(", "self._adjust_pack_from_row(p)"),
+    ("revert", "revertModifiedAirports(row)", "self._revert_modified_pack(p)"),
+)
+
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
 #: Swift file, Swift marker, Qt owner, Qt attribute).  The follow line
 #: is in the Fly pane (RULINGS 2026-11-10j); the Favorite is a star beside
@@ -1130,6 +1140,17 @@ def test_the_package_actions_have_one_home_in_each_app(window):
     assert "&File" in [getattr(o, "title", lambda: "")() for o in owners]
     menu = QTTILEMENU.tile_menu(window, 30, 31, "", export_package=lambda: None)
     assert menu.actions()[-1].text() == QTPKG.EXPORT_TITLE
+
+
+def test_both_pack_rows_show_the_same_actions_in_order():
+    """The Modified airports row: 3D trees, Optimise, Adjust…, Revert —
+    the same actions in the same order in both apps."""
+    mac = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    start = mac.index('Text("Modified airports:")')
+    qt = inspect.getsource(GUI.MainWindow._on_reanchor_ready)
+    for text, column, offset in ((mac, 1, start), (qt, 2, 0)):
+        marks = [text.find(row[column], offset) for row in PACK_ROW_ACTIONS]
+        assert -1 not in marks and marks == sorted(marks), (column, marks)
 
 
 def test_both_maps_show_the_map_controls_in_order(window):

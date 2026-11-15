@@ -2348,20 +2348,25 @@ class EngineSession:
         self._emit_known(PackAdjust, fields)
 
     def pack_adjust(self, pack_root="", action="", lat=None, lon=None,
-                    items=None, shown=None):
+                    items=None, shown=None, steps=None):
         """THE USER'S ANSWER (capability ``pack_adjust``, #1916):
         ``action`` is ``"update"`` (the rows of ``items`` applied, the rows
         of ``shown`` left unticked remembered as never), ``"never"``,
-        ``"undo"`` or ``"ask"`` (the report: the rows that apply now).
-        Replies ``{"status": "started"}`` at once and completes with a
-        ``PackAdjust`` event (``adjust_stage.adjust_choice``)."""
+        ``"undo"``, ``"ask"`` (the report: the rows that apply now), or
+        (capability ``pack_adjust_edit``, the pack row's Adjust…)
+        ``"adjust"`` (every row and Optimise step as the pack is now) and
+        ``"change"`` (only the rows of ``shown`` and the ``steps`` whose
+        tick differs are written).  Replies ``{"status": "started"}`` at
+        once and completes with a ``PackAdjust`` event
+        (``adjust_stage.adjust_choice``)."""
         from auto_patch import adjust_stage as _AS
         picked = None if items is None else [str(x) for x in items]
         seen = None if shown is None else [str(x) for x in shown]
+        chosen = None if steps is None else [str(x) for x in steps]
         return self._pack_choice_worker(
             "o4-pack-adjust",
             lambda r, a, la, lo: _AS.adjust_choice(r, a, la, lo, items=picked,
-                                                   shown=seen),
+                                                   shown=seen, steps=chosen),
             pack_root, action, lat, lon)
 
     def gateway_airports_event(self, **fields):

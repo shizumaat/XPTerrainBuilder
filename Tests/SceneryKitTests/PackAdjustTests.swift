@@ -87,5 +87,53 @@ struct PackAdjustTests {
             return
         }
         #expect(a.items.isEmpty && !a.asks && a.state == "found")
+        #expect(a.steps.isEmpty && a.stepsOn.isEmpty && !a.rebuild && !a.editing)
+    }
+
+    /// The pack row's Adjust… (owner 2026-11-15T13:12Z, capability
+    /// `pack_adjust_edit`): the rows as the pack is, the Optimise steps, and
+    /// the terrain row that rebuilds the tile.
+    @Test func adjustDecodesTheRowsStepsAndRebuild() {
+        var event = fullEvent
+        event["state"] = "adjust"
+        event["items"] = [
+            ["key": "drapes", "count": 12, "uses": 40, "automatic": false,
+             "checked": true, "applied": true, "rebuild": false],
+            ["key": "terrain", "count": 1, "uses": 1, "automatic": false,
+             "checked": false, "applied": false, "rebuild": true],
+        ]
+        event["steps"] = [
+            ["key": "dedupe", "count": 4, "tris": 1_000_000, "mb": 0, "checked": true],
+            ["key": "textures", "count": 3, "tris": 0, "mb": 12, "checked": false],
+        ]
+        guard case .packAdjust(let a)? = O4Event.parse(object: event) else {
+            Issue.record("PackAdjust did not decode")
+            return
+        }
+        #expect(a.editing && a.asks)
+        #expect(a.titleText == "Adjust “Some Pack”")
+        #expect(a.choices[0].applied && !a.choices[0].rebuild)
+        #expect(a.choices[1].rebuild && !a.choices[1].baseline(editing: true))
+        #expect(a.choices[1].detail.hasSuffix(O4PackAdjustCopy.rebuildNote))
+        #expect(a.steps.map(\.key) == ["dedupe", "textures"])
+        #expect(a.stepsOn == ["dedupe"])
+        var outcome = fullEvent
+        outcome["state"] = "applied"
+        outcome["rebuild"] = true
+        guard case .packAdjust(let o)? = O4Event.parse(object: outcome) else {
+            Issue.record("PackAdjust did not decode")
+            return
+        }
+        #expect(o.rebuild && !o.asks)
+    }
+
+    @Test func adjustWithOnlyOptimiseStepsAsks() {
+        let event: [String: Any] = ["event": "PackAdjust", "state": "adjust", "items": [],
+                                    "steps": [["key": "swap", "count": 2]]]
+        guard case .packAdjust(let a)? = O4Event.parse(object: event) else {
+            Issue.record("PackAdjust did not decode")
+            return
+        }
+        #expect(a.asks)
     }
 }

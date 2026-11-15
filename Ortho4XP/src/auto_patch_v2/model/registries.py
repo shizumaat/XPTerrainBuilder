@@ -32,6 +32,11 @@ __all__ = ["Registries", "FIELDS", "GROUP_UP"]
 #: (the level a road arm climbs to) and ``constraints/riser``
 GROUP_UP = "group_up"
 
+#: the key of a FLOOR YARD's record on its floor pad's ``held`` record
+#: (``classify/floor_yard``, #2068): ``yard_plane``, ``yard_hull``, ``y_p``
+#: (the unit floor) -- read through ``constraints/yard_edge.yard_records``
+FLOOR_YARD = "floor_yard"
+
 
 @_dc.dataclass
 class Registries:
@@ -56,6 +61,14 @@ class Registries:
     terraces: list = _dc.field(default_factory=list)
     #: the arrangement's pad/airside publication (RULINGS 2026-09-14ax)
     pad_airside: dict[str, object] = _dc.field(default_factory=dict)
+
+    def yard_pads(self) -> frozenset[str]:
+        """The pads a yard has a LEVEL on (spec 2068 A4 F1'): an upper
+        level's ``landings`` record carrying a ``yard_plane`` names its
+        ``pad``; a held floor pad carrying :data:`FLOOR_YARD` is its own."""
+        return frozenset({str(r["pad"]) for r in self.landings.values()
+                          if r.get("yard_plane") and r.get("pad") is not None}
+                         | {str(k) for k, h in self.held.items() if h.get(FLOOR_YARD)})
 
 
 #: The record's field names, in declaration (= the planar stage's fill) order.

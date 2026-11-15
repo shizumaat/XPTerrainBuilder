@@ -2310,8 +2310,17 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
         # spec 2068 A3: the fence yard's own read (plane, G6' ratio, region)
         for _k, _v in sorted((getattr(cl, "stats", None) or {}).items()):
-            if str(_k).startswith("fence_yard"):
+            if str(_k).startswith(("fence_yard", "floor_yard")):
                 print(f"[{icao}]   [fence-yard] {_k} {_v}")
+        from auto_patch_v2.model.planar import fence_yard_pad as _fyp
+        from shapely.geometry import Polygon as _Poly
+        _ya: dict = {}
+        for _c in cl.cells:
+            if _fyp(_c.ref) is not None:
+                _ya.setdefault(str(_fyp(_c.ref)), []).append(_Poly(_c.ring, _c.holes).area)
+        for _pad, _as in sorted(_ya.items()):
+            print(f"[{icao}]   [fence-yard] cells {_pad}: "
+                  f"{' / '.join(f'{x:,.0f}' for x in sorted(_as, reverse=True))} m2")
         # RULINGS 2026-10-30e (#1686): the build's missed-pavement reading
         from auto_patch_v2.classify.centreline_gaps import centreline_pavement_gaps
         for _ln in centreline_pavement_gaps(airport, cl.cells).lines(icao):
@@ -2329,6 +2338,18 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                                    object_report=_orep, rim_diagnostics=rim_diagnostics)
             print(f"[{icao}] planar stage {time.perf_counter() - _pt:.1f} s "
                   f"(work-pool budget {pool_budget()})")
+            # spec 2068 A4 F1': the yard faces standing, the records they
+            # stand on, the yard cells dropped for want of a level
+            from auto_patch_v2.constraints.yard_edge import yard_records as _yrec
+            from auto_patch_v2.model.planar import fence_yard_pad as _fyp
+            _yf: dict = {}
+            for _f in pm.faces.values():
+                if _fyp(_f.ref) is not None:
+                    _yf[str(_fyp(_f.ref))] = _yf.get(str(_fyp(_f.ref)), 0) + 1
+            _pa = pm.registries.pad_airside
+            print(f"[{icao}]   [fence-yard] planar faces {sorted(_yf.items())} records "
+                  f"{sorted(str(r.get('pad')) for r in _yrec(pm).values())} no_level "
+                  f"{_pa.get('fence_yard_no_level', 0)} {_pa.get('fence_yard_no_level_refs', '')}")
             # deck redesign: every hard deck read or refused, and why
             for _ln in getattr(getattr(_ps, "structures", None), "hard_decks", ()) or ():
                 print(f"[{icao}] hard deck: {_ln}")

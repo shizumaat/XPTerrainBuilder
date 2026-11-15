@@ -112,14 +112,16 @@ def yard_record_of(evidence) -> "dict[str, _t.Any] | None":
 
 def mint_fence_yards(airport, cells: list, law: Law, rules: Rules, add) -> dict[str, _t.Any]:
     """Mint the fence yards onto ``cells`` through ``add`` (the
-    classifier's cell constructor); returns the counts."""
+    classifier's cell constructor) -- an upper pad's (this module) and a
+    floor's (``classify/floor_yard``); returns the counts."""
+    from .floor_yard import mint_floor_yards
     from .storey_edge import UPPER_AIR_Z_KEY, UPPER_FLOOR_KEY, UPPER_UNIT_KEY, UPPER_Y_KEY
     stats: dict[str, _t.Any] = {"fence_yards": 0, "fence_yard_m2": 0.0}
     pads = [(k, c.ref, Polygon(c.ring, c.holes), c.evidence) for k, c in enumerate(cells)
             if c.role == "building" and UPPER_Y_KEY in (c.evidence or {})]
     lines = [el for el in (getattr(airport, "edge_lines", ()) or ())
              if getattr(el, "unit", None) is not None and len(el.points) >= 2]
-    if not pads or not lines:
+    if not lines:
         return stats                                             # G1
     n = 0
     for k, ref, P, ev in sorted(pads, key=lambda r: r[1]):
@@ -130,25 +132,36 @@ def mint_fence_yards(airport, cells: list, law: Law, rules: Rules, add) -> dict[
         if isinstance(got, str):
             stats[f"fence_yard_refused:{ref}"] = got
             continue
-        region, gross, info = got
-        # the pad carries its plane too: the planar front reads no late
-        # cell; and the gross yard, for its roads (A3 R5)
-        cells[k] = _dc.replace(cells[k], evidence=dict(
-            cells[k].evidence, **{key: info[key] for key in (*_YARD_KEYS, _RATIO_KEY)},
-            **{YARD_HULL_KEY: _rings(gross)}))
-        for part in polygon_parts(region):
-            if part.area < rules.cells.min_area_m2:
-                continue
-            add(STRIP_ROLE, f"{FENCE_YARD_PREFIX}:{n}:{ref}", part, "fence_yard", None, None,
-                dict(info, yard_pad=ref))
-            n += 1
-            stats["fence_yards"] += 1
-            stats["fence_yard_m2"] += round(part.area, 1)
+        n = mint_yard(cells, k, got, rules, add, stats, n, (*_YARD_KEYS, _RATIO_KEY))
+        info = got[2]
         stats[f"fence_yard:{ref}"] = (f"tilt {info['yard_tilt']:.4f} rms {info['yard_rms']:.3f} "
                                       f"upper {info['yard_upper']}/{info['yard_stations']} "
                                       f"ground ratio {info['yard_g6_ratio']:.3f} "
                                       f"yard dem {info['yard_dem_m']:.2f}")
+    mint_floor_yards(airport, cells, law, rules, add, lines, stats, n)
     return stats
+
+
+def mint_yard(cells: list, k: int, got, rules: Rules, add, stats: dict, n: int,
+              pad_keys: tuple) -> int:
+    """Mint one pad's yard ``got`` (``(region, gross, evidence)``) beside
+    ``cells[k]``; the pad carries ``pad_keys`` of the evidence and the
+    gross yard (A3 R5) -- the planar front reads no late cell.  Returns
+    the next yard number."""
+    region, gross, info = got
+    ref = cells[k].ref
+    cells[k] = _dc.replace(cells[k], evidence=dict(
+        cells[k].evidence, **{key: info[key] for key in pad_keys},
+        **{YARD_HULL_KEY: _rings(gross)}))
+    for part in polygon_parts(region):
+        if part.area < rules.cells.min_area_m2:
+            continue
+        add(STRIP_ROLE, f"{FENCE_YARD_PREFIX}:{n}:{ref}", part, "fence_yard", None, None,
+            dict(info, yard_pad=ref))
+        n += 1
+        stats["fence_yards"] += 1
+        stats["fence_yard_m2"] += round(part.area, 1)
+    return n
 
 
 def _yard(airport, cells, law, rules, P, own, y_p, t, za):
@@ -158,7 +171,8 @@ def _yard(airport, cells, law, rules, P, own, y_p, t, za):
     st = _stations(own, float(cfg.station_m))
     if not st:
         return "no unit fence"
-    up = _upper_flags(st, t + 0.5 * (y_p - t), float(cfg.station_m), float(cfg.min_run_m))
+    cut = t + 0.5 * (y_p - t)
+    up = run_flags(st, [s.base >= cut for s in st], float(cfg.station_m), float(cfg.min_run_m))
     U = [s for s, u in zip(st, up, strict=True) if u]                 # G4
     xy = np.array([(s.x, s.y) for s in U], dtype=float).reshape(-1, 2)
     if len(U) < 3 or np.linalg.matrix_rank(np.column_stack([np.ones(len(U)), xy])) < 3:
@@ -236,11 +250,11 @@ def _stations(lines, step: float) -> list[_Station]:
     return out
 
 
-def _upper_flags(st: list[_Station], cut: float, step: float, min_run: float) -> list[bool]:
-    """G4: a station is upper when its base is at or over ``cut`` and it
-    lies in a run of consecutive upper stations of one line at least
-    ``min_run`` long."""
-    flags = [s.base >= cut for s in st]
+def run_flags(st: list[_Station], flags: list[bool], step: float, min_run: float
+              ) -> list[bool]:
+    """G4: a station keeps its ``flags`` (upper: its base at or over the
+    cut; a floor yard's: at the floor) when it lies in a run of
+    consecutive flagged stations of one line at least ``min_run`` long."""
     out = [False] * len(st)
     i = 0
     while i < len(st):

@@ -614,6 +614,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.classify.facade_mint",
     "auto_patch_v2.classify.fence_division",
     "auto_patch_v2.classify.fence_yard",
+    "auto_patch_v2.classify.floor_yard",
     "auto_patch_v2.classify.frontage_road",
     "auto_patch_v2.classify.gap_apron",
     "auto_patch_v2.classify.gap_mint",

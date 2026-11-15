@@ -8,9 +8,15 @@ from __future__ import annotations
 
 import types
 
-from auto_patch_v2.constraints.yard_edge import projected_vertices, yard_exempt
+from auto_patch_v2.constraints.yard_edge import (
+    projected_vertices,
+    yard_exempt,
+    yard_records,
+    yard_runs,
+)
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.constraints import Band, Diff, Source
+from auto_patch_v2.model.registries import FLOOR_YARD, Registries
 
 LAW = Law.for_airport("SYNT")
 
@@ -55,3 +61,17 @@ def test_no_yard_withdraws_nothing():
     rows = [Diff(1, 10, 0.05, 1.8, _src("groundside_ramp"))]
     counts: dict = {}
     assert yard_exempt(rows, pm, LAW, counts) is rows and "yard_rows_withdrawn" not in counts
+
+
+def test_a_record_with_no_yard_face_is_no_record_and_no_run():
+    """Spec 2068 A4 F1' (b): a yard record stands only while a yard face of
+    its pad stands in the map (KMCI building43: a held floor pad's record
+    drove a road run with no yard face)."""
+    rec = {"yard_plane": (0.2, 0.0, 0.0, 0.0, 0.0), "yard_hull": ((0, 0), (9, 0), (9, 9)),
+           "y_p": 0.0}
+    pm = _pm()
+    pm.registries = Registries(held={"building2": {FLOOR_YARD: dict(rec)}},
+                               landings={"u/p1": dict(rec, pad="building1")})
+    assert sorted(yard_records(pm)) == ["u/p1"]           # building1 has its yard face
+    pm.faces = {k: f for k, f in pm.faces.items() if k != 0}
+    assert yard_records(pm) == {} and yard_runs(pm, LAW) == []

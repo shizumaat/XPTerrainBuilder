@@ -191,8 +191,8 @@ def lifted_caps(planar: PlanarMap, law: "Law | None" = None) -> dict[int, float]
 
     With ``law``, a fence yard's road run (spec 2068 A3 R5,
     ``constraints/yard_edge.yard_runs``): every face holding a free run
-    vertex is judged at ``[road_contact] upper_pad_road_grade``, the grade
-    ``solve/project_yard`` built it at."""
+    vertex is judged at the grade ``solve/project_yard`` built it at
+    (:func:`yard_run_lifts`)."""
     # 13e (issue #609): a pad road released above the road cap is the same
     # thing to a reader — "whatever grade the span requires is lawful" on
     # the faces the last stage named, and on no neighbour
@@ -234,13 +234,24 @@ def lifted_caps(planar: PlanarMap, law: "Law | None" = None) -> dict[int, float]
 
 
 def yard_run_lifts(planar: PlanarMap, law: Law) -> dict[int, float]:
-    """Spec 2068 A3 R5: face id -> ``upper_pad_road_grade`` for every face
-    holding a free vertex of a fence yard's road run (empty without one)."""
-    from ..constraints.yard_edge import yard_runs
+    """Spec 2068 A3 R5: face id -> the grade ``solve/project_yard`` built
+    it at, for every face holding a free vertex of a fence yard's road run:
+    ``upper_pad_road_grade`` where it holds a road vertex, else its lot's
+    own grade (``constraints/yard_edge.run_grade``; empty without one)."""
+    from ..constraints.yard_edge import lot_vertices, run_grade, yard_runs
     from ..model.planar import face_vertex_set
+    runs = yard_runs(planar, law)      # reads no law where no yard stands
+    if not runs:
+        return {}
     g = float(law.tables.emit.road_contact.upper_pad_road_grade)
-    return {int(fid): g for run in yard_runs(planar, law) for fid in run.faces
-            if face_vertex_set(planar, planar.faces[fid]) & run.free}
+    out: dict[int, float] = {}
+    for run in runs:
+        road = run.free - lot_vertices(planar, law, run)
+        for fid in run.faces:
+            vs = face_vertex_set(planar, planar.faces[fid])
+            if vs & run.free:
+                out[int(fid)] = g if vs & road else run_grade(law, planar.faces[fid].role)
+    return out
 
 
 def _lifted_records(planar: PlanarMap, law: "Law | None" = None) -> list[list[_t.Any]]:

@@ -201,9 +201,17 @@ class _FakeChild:
         return True
 
 
+def _fake_session(emit=lambda e: None):
+    """The slice of ``EngineSession`` a ``ParallelBuildRun`` calls."""
+    return SimpleNamespace(
+        _emit=emit, _run_finished=lambda: None,
+        with_paid_rebuilds=lambda built: built,
+        _announce_rebuild_pending=lambda cancelled: None)
+
+
 def _bare_run(tiles, slots):
     return parallel.ParallelBuildRun(
-        SimpleNamespace(_emit=lambda e: None, _run_finished=lambda: None),
+        _fake_session(),
         tiles, "P", 16, "", (True, False, False), slots,
     )
 
@@ -257,7 +265,7 @@ def test_osm_and_imagery_budgets_are_independent():
     """A full imagery class must not block a tile's vector step — the
     two classes exhaust SEPARATE servers (spec §3.8, makespan goal)."""
     run = parallel.ParallelBuildRun(
-        SimpleNamespace(_emit=lambda e: None, _run_finished=lambda: None),
+        _fake_session(),
         [(10, 10), (11, 11), (12, 12)], "P", 16, "",
         (True, True, False), 4,
     )
@@ -565,7 +573,7 @@ def test_solve_class_constant_restores_the_old_behaviour(monkeypatch):
 def _imagery_run(tiles, slots):
     """A run with every child started on its tile's IMAGERY step."""
     run = parallel.ParallelBuildRun(
-        SimpleNamespace(_emit=lambda e: None, _run_finished=lambda: None),
+        _fake_session(),
         tiles, "P", 16, "", (True, True, False), slots,
     )
     run._queue.clear()
@@ -1346,7 +1354,7 @@ def test_step_progress_never_slides_backward():
     only ever advances — the 2026-07-16 "bars jump around" report."""
     emitted = []
     run = parallel.ParallelBuildRun(
-        SimpleNamespace(_emit=emitted.append, _run_finished=lambda: None),
+        _fake_session(emitted.append),
         [(10, 10)], "P", 16, "", (True, True, False), 2,
     )
     child = _FakeChild()

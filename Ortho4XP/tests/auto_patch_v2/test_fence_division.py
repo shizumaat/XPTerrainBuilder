@@ -176,9 +176,9 @@ def test_a_fence_crossing_an_edge_runs_along_none_of_it():
 def test_every_cut_piece_is_one_polygon(monkeypatch):
     """KAPA ``dsf:pol1645`` (#2090): a fold that meets its host at a corner
     left a MultiPolygon face, and classify could not carry it."""
-    from shapely.geometry import MultiPolygon
     from auto_patch_v2.classify import fence_division as FD
     from auto_patch_v2.classify.airside_edge import EDGE_CANDIDATES
+    from shapely.geometry import MultiPolygon
     corner = MultiPolygon([box(0, 0, 50, 100), box(50, 100, 60, 110)])
     monkeypatch.setattr(FD, "_fold_small", lambda pieces, floor: [corner, box(50, 0, 100, 100)])
     fence = [("f", LineString([(50.0, -5), (50.0, 105)]))]

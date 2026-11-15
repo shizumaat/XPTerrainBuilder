@@ -495,6 +495,11 @@ class PlanarMap:
     #: reader took (``planar/free_bridge.admitted``); the rebake plan
     #: publishes their decks' route ends (``pipeline/rebake_inputs``).
     free_bridges: tuple = ()
+    #: #2090 THE AGP GROUPS (``model/agp_group.AgpGroup``): the pack stage's
+    #: ``Airport.agp_groups``, read between the stages by
+    #: ``constraints/agp_level.datum_rewrite`` and published by
+    #: ``pipeline/emit_stage``.  Empty = none.
+    agp_groups: tuple = ()
     #: #2065 A3: the FREE / KEPT bridge stacks the planar stage kept
     #: (``planar/free_bridge.planar_stacks``: admitted, no plated deck, a
     #: graded end) — what every stack reader after the

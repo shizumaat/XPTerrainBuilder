@@ -13,7 +13,6 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest
-
 from o4_engine import parallel, step_memory, tile_time_model
 
 TILES = [(10, 10), (11, 11), (12, 12)]

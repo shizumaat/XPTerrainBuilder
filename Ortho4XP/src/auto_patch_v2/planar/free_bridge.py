@@ -223,6 +223,19 @@ def _read_free_bridges(airport, objects, cache, law
     return tuple(out), tuple(kept), notes
 
 
+def _with_agp_groups(airport, law) -> tuple[_t.Any, list[str]]:
+    """``(airport with agp_groups, notes)`` (#2090 A1, ``airport/agp_group``);
+    a record already read is kept."""
+    import time
+    if getattr(airport, "agp_groups", ()) or law is None:
+        return airport, []
+    from ..airport.agp_group import attach_agp_groups, log_line
+    t0, notes = time.perf_counter(), []
+    airport = attach_agp_groups(airport, law, notes)
+    return airport, [log_line("", airport.agp_groups, time.perf_counter() - t0)
+                     .split("] ", 1)[-1]] + notes
+
+
 def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]]:
     """``(airport with free_bridges, kept_bridges and their stacks, every
     bridge's end read — minted or not, notes)``: :func:`_read_free_bridges`,
@@ -232,7 +245,10 @@ def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]
     free bridge rule 10 refuses leaves ``free_bridges`` (today's path)."""
     from ..airport.bridge_stack import bridge_stacks, log_lines
     from ..airport.deck_stack import with_bridge_stacks
-    got, kept, notes = _read_free_bridges(airport, objects, cache, law)
+    # #2090 A1: the AGP groups FIRST — the deck joins read them
+    airport, notes = _with_agp_groups(airport, law)
+    got, kept, more = _read_free_bridges(airport, objects, cache, law)
+    notes += more
     if not (got or kept or getattr(airport, "free_bridges", ())
             or getattr(airport, "kept_bridges", ())):
         return with_bridge_stacks(airport, (), law), (), notes

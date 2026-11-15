@@ -112,6 +112,13 @@ def _facade_surface(mesh_sample, dump, pack_root: str, surface):
                     surface)
 
 
+def _agp_published(graded_doc):
+    """#2090 A6: the graded surface's published AGP groups (``None`` when
+    it predates the key)."""
+    from auto_patch_v2.airport.placement_read import agp_groups_from_graded_doc
+    return agp_groups_from_graded_doc(graded_doc)
+
+
 def _agp_surface(mesh_sample, dump, pack_root: str, surface):
     """#2090: the built mesh over the pack's on-ground ``.agp`` ground
     points, carrying ``surface``'s graded roles (the group governor)."""
@@ -597,8 +604,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             UI.vprint(1, f"  [v2 placement] {plan_.icao}: base-slab drape read "
                          f"failed ({exc}) — no slab drapes")
 
-    from auto_patch_v2.law.tables import law_tables_digest
     from auto_patch_v2.airport.line_object import ribbon_law as _ribbon_law
+    from auto_patch_v2.law.tables import law_tables_digest
     digest = str(law_tables_digest().get("sha256") or "")
     # issue #1213: the plan below ran 25+ min at KMCI with no line at all —
     # the ONE time-gated heartbeat reads the stages' pulse (``units 12/41``)
@@ -694,6 +701,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             approach_heading_deg=float(law.tables.runway_ends.peer_parallel_deg),
             facade_surface=_facade_surface(mesh_sample, dump, target_root, _surface),
             agp_surface=_agp_surface(mesh_sample, dump, target_root, _surface),
+            # #2090 A6: every follower lifted to its published datum
+            agp_groups=(None if _gd is None else _agp_published(_gd)),
             engine_version=_engine_version(), law_digest=digest,
             write_cuts=bool(write_enabled and not measure_only),
             # §9a (#2063 round 3, RULINGS 2026-11-13y (5)): an object 2 m

@@ -1664,3 +1664,18 @@ step_beyond_m     = 8.0     # witness 4: the lower DEM sample, this far beyond t
 station_m         = 5.0     # station spacing across the axis
 station_inset_m   = 2.0     # the seat's stations stand this far inside the inner edge (off the lidar smear)
 under_clearance_m = 0.05    # §5 (2): the ground under the plate stays this far below its top
+
+[agp]                               # #2090 (spec docs/specs/2090-agp-group-groundside-spec.md C1 V3): an .agp group seats on ONE datum
+connector_floor_m  = 2.5    # a floor this high over its group's ground line is a connector floor
+contact_m          = 1.5    # two connector-floor vertices this close in plan meet
+lift_tol_m         = 0.05   # a lift smaller than this writes nothing (pavement visibility bar)
+flat               = 0.9    # a face is a floor when |n_y| >= this share of its normal
+step_bin_m         = 0.05   # the join's vote bin
+flat_step_tol_m    = 0.10   # V2: a one-pair join stands only within this of a zero step
+airside_reach_m    = 60.0   # A2: the provisional governor stands within this of apt.dat airside, every other member 2x as far
+datum_slack_m      = 1.0    # G2: the stage-2 datum moves the predicted rows by at most this
+deck_join_reach_m  = 3.0    # B1: a deck end joins a floor within this of its predicted top
+deck_join_margin_m = 1.0    # B1: the next floor is at least this further
+ground_band_m      = 0.6    # C1: a plate's floors stand within this of the datum
+floor_min_area_m2  = 100.0  # C1: a smaller plate part is not built
+plate_max_off_m    = 3.0    # C1: a plate whose median level stands further from the DEM is not built

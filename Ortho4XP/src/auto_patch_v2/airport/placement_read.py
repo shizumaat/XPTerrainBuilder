@@ -94,6 +94,18 @@ def decks_from_graded_doc(d: _t.Mapping[str, _t.Any]
                  and len(f["ring"]) >= 3)
 
 
+def agp_groups_from_graded_doc(d: _t.Mapping[str, _t.Any]
+                               ) -> "tuple[dict, ...] | None":
+    """#2090 A6: the AGP groups a parsed ``<ICAO>.graded.json`` publishes
+    (``provenance.agp_groups``, ``constraints/agp_level.published_groups``)
+    — ``None`` when the surface was graded before the key (the object
+    stage then re-derives the groups by its fallback rule)."""
+    prov = (d or {}).get("provenance") or {}
+    if "agp_groups" not in prov:
+        return None
+    return tuple(dict(g) for g in prov.get("agp_groups") or ())
+
+
 def decks_from_graded(path: str) -> tuple[_ar.DeckFace, ...]:
     """:func:`decks_from_graded_doc` of the file at ``path``."""
     with open(path, encoding="utf-8") as fh:

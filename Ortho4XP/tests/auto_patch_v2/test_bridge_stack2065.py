@@ -17,8 +17,7 @@ from auto_patch_v2.constraints.deck_stack import deck_stack_rows
 from auto_patch_v2.geom.deck_ground import ground_footprint
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import OsmWay
-from auto_patch_v2.model.deck_stack import (FREE, KEPT, DeckStack, StackDeck, StackEnd,
-                                            live_stacks)
+from auto_patch_v2.model.deck_stack import FREE, KEPT, DeckStack, StackDeck, StackEnd, live_stacks
 from shapely.geometry import LineString, Point, Polygon, box
 
 LAW = Law.for_airport("")

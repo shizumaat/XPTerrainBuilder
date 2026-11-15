@@ -186,7 +186,9 @@ class AgpSeat:
     ``index`` is the row's placement ordinal, ``resource`` its authored
     ``OBJECT_DEF``, ``new_resource`` the copy; ``(lon, lat)`` its
     ``GROUND_PT``, where X-Plane reads ``ground_z``, and ``need_z`` the
-    datum the join asks for.  The row stays ON THE GROUND (Q-31)."""
+    datum the join asks for (the PUBLISHED group datum, spec 2090 A6).
+    ``gp_relief_m`` (V4) is the drawn relief within 2 m of the ground point:
+    a record only.  The row stays ON THE GROUND (Q-31)."""
 
     index: int
     resource: str
@@ -197,19 +199,22 @@ class AgpSeat:
     lat: float
     ground_z: float
     need_z: float
+    gp_relief_m: float = 0.0
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"index": self.index, "resource": self.resource,
                 "new_resource": self.new_resource, "lift_m": self.lift_m,
                 "governor": self.governor, "lon": self.lon, "lat": self.lat,
-                "ground_z": self.ground_z, "need_z": self.need_z}
+                "ground_z": self.ground_z, "need_z": self.need_z,
+                "gp_relief_m": self.gp_relief_m}
 
     @classmethod
     def from_dict(cls, d: _t.Mapping[str, _t.Any]) -> "AgpSeat":
         return cls(int(d["index"]), str(d["resource"]), str(d["new_resource"]),
                    _f(d["lift_m"]), int(d.get("governor", -1)),
                    _f(d.get("lon", 0.0)), _f(d.get("lat", 0.0)),
-                   _f(d.get("ground_z", 0.0)), _f(d.get("need_z", 0.0)))
+                   _f(d.get("ground_z", 0.0)), _f(d.get("need_z", 0.0)),
+                   _f(d.get("gp_relief_m", 0.0)))
 
 
 @_dc.dataclass(frozen=True)

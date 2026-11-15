@@ -52,7 +52,7 @@ class GenericGround(_t.NamedTuple):
     def hectares(self, defs: _t.Iterable[MissingDef] | None = None) -> float:
         """The hectares ``defs`` (default: all) cover."""
         keep = set(self.defs if defs is None else defs)
-        return sum(a for m, a in zip(self.defs, self.areas) if m in keep)
+        return sum(a for m, a in zip(self.defs, self.areas, strict=True) if m in keep)
 
 
 def _norm(path: str) -> str:

@@ -210,3 +210,72 @@ def test_drawn_site_reads_an_agp_row_as_its_pieces(tmp_path):
     assert pieces(types.SimpleNamespace(def_path="x.obj", kind="OBJECT"), root, None) == []
     assert pack_dir("Objects", root) == os.path.join(root, "Objects")
     assert pack_dir(root, "/nowhere") == root
+
+
+# ── spec 2090 C1 V2 / A6 ──────────────────────────────────────────────────
+
+def test_v2_two_pairs_join_one_nonzero_pair_does_not_one_flat_pair_does():
+    law = AG._LAW
+    # KDEN's shape: two distinct level pairs vote one step
+    assert AG._vote({(11.48, 20.50), (15.98, 25.00)}, law)[3] is True
+    # one pair at +1.60 (KEWR's refused join): no join
+    step, n, rival, stands = AG._vote({(3.10, 1.50)}, law)
+    assert (round(step, 2), n, rival, stands) == (1.6, 1, 0, False)
+    # one pair at 0.00 is enough
+    assert AG._vote({(4.00, 4.00)}, law)[3] is True
+    # a tie is no join
+    assert AG._vote({(1.0, 0.0), (5.0, 2.0)}, law)[3] is False
+
+
+def test_a_refused_join_is_listed_never_lifted(tmp_path):
+    root, dump = _pack(tmp_path)
+    # one deck meets one ramp: a single non-zero pair
+    _obj(Path(root) / "Objects" / "a.obj", [_floor(11.5, 0, 20), _floor(0.0, -30, 0)])
+    _obj(Path(root) / "Objects" / "b.obj", [_floor(20.5, -81, -79.5), _floor(1.0, -60, 0)])
+    refused: dict = {}
+    assert AG.joins(AG.candidates(dump, root), refused=refused) == {}
+    ((_k, jn),) = refused.items()
+    assert jn.step == pytest.approx(-9.0) and (jn.votes, jn.stands) == (1, False)
+
+
+def _published(datum_b: float, **member_b):
+    return ({"id": "agp:dsf:obj0", "governor": "dsf:obj0", "z_gov": 100.0, "delta": 0.2,
+             "members": [{"row": "dsf:obj0", "index": 0, "resource": "Objects/a.agp",
+                          "datum": 100.0, "airside": True},
+                         {"row": "dsf:obj1", "index": 1, "resource": "Objects/b.agp",
+                          "datum": datum_b, **member_b}],
+             "joins": [{"a": "dsf:obj0", "b": "dsf:obj1", "step": -9.0}]},)
+
+
+def test_the_published_datum_overrides_the_drawn_derivation(tmp_path):
+    root, dump = _pack(tmp_path)
+    # the drawn derivation would ask 91 (governor 100 - 9); the published 90.8
+    seats, _files, counts = AG.plan_lifts(dump, root, _surface(87.0),
+                                          published=_published(90.8))
+    (s,) = seats
+    assert s.need_z == pytest.approx(90.8) and s.lift_m == pytest.approx(3.8)
+    assert counts["agp_governor_drawn_off_m"] == pytest.approx(0.0)
+    assert s.gp_relief_m == pytest.approx(0.0)
+
+
+def test_a_follower_on_a_graded_plate_is_still_lifted(tmp_path):
+    root, dump = _pack(tmp_path)
+
+    def z(lat, lon):
+        return 100.0 if lat < LAT + DLAT / 2 else 89.0
+    # both ground points stand on graded faces (the follower on its plate)
+    z.roles = types.SimpleNamespace(roles_many=lambda lats, lons: ["building"] * len(lats))
+    z.rolled_on = frozenset({"apron"})
+    assert AG.plan_lifts(dump, root, z)[0] == ()               # fallback: never moved
+    (s,) = AG.plan_lifts(dump, root, z, published=_published(90.8))[0]
+    assert s.lift_m == pytest.approx(1.8)
+
+
+def test_a7_stage1_airside_and_strip_riders_never_move(tmp_path):
+    root, dump = _pack(tmp_path)
+    surf = _surface(87.0)
+    assert AG.plan_lifts(dump, root, surf, published=_published(90.8, stage1=True))[0] == ()
+    assert AG.plan_lifts(dump, root, surf, published=_published(90.8, airside=True))[0] == ()
+    assert AG.plan_lifts(dump, root, surf, published=_published(90.8), riders={1})[0] == ()
+    # a published empty key lifts nothing and reads no floor
+    assert AG.plan_lifts(dump, root, surf, published=())[0] == ()

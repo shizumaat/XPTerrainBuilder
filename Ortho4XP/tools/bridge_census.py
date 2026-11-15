@@ -514,9 +514,24 @@ def main(argv=None) -> int:
     ap.add_argument("--ends", nargs="*", default=None, metavar="CAPTURE.pkl",
                     help="#2065 A3 G0: one row per land end of every free / kept bridge, "
                          "read on each capture as the pack stage reads it")
+    ap.add_argument("--agp", nargs="*", default=None, metavar="CAPTURE.pkl",
+                    help="#2090 G1: the AGP groups as the pack stage reads them "
+                         "(members, joins with votes, governor, zero_pred; deck "
+                         "joins and plates) on each capture (tools/agp_census.py)")
     a = ap.parse_args(argv)
     from auto_patch_v2.law import Law
     law = Law.load()
+    if a.agp is not None:
+        from agp_census import agp_rows, print_agp
+        out = []
+        for pkl in a.agp:
+            icao, rows, rej, _notes, took = agp_rows(pkl, law)
+            print_agp(icao, rows, rej, took)
+            out += rows + rej
+        if a.jsonl:
+            with open(a.jsonl, "w", encoding="utf-8") as fh:
+                fh.writelines(json.dumps(r) + "\n" for r in out)
+        return 0
     if a.ends is not None:
         rows = []
         for pkl in a.ends:

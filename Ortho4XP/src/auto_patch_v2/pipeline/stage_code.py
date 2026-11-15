@@ -325,6 +325,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.valid_area",
         "auto_patch_v2.geom.vector",
         "auto_patch_v2.law",
+        "auto_patch_v2.law.agp_schema",
         "auto_patch_v2.law.airports_schema",
         "auto_patch_v2.law.base_profile_schema",
         "auto_patch_v2.law.basin_schema",
@@ -363,6 +364,10 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2",
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.adapted_riders",
+        "auto_patch_v2.airport.agp_floors",
+        "auto_patch_v2.airport.agp_ground",
+        "auto_patch_v2.airport.agp_group",
+        "auto_patch_v2.airport.agp_pieces",
         "auto_patch_v2.airport.airside_deck_seat",
         "auto_patch_v2.airport.airside_group_seat",
         "auto_patch_v2.airport.anchor_rule",
@@ -597,6 +602,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.vector",
         "auto_patch_v2.geom.water_level",
         "auto_patch_v2.law",
+        "auto_patch_v2.law.agp_schema",
         "auto_patch_v2.law.airports_schema",
         "auto_patch_v2.law.approach_corridor",
         "auto_patch_v2.law.base_profile_schema",
@@ -621,6 +627,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.units",
         "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
+        "auto_patch_v2.model.agp_group",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
@@ -762,6 +769,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.law",
+        "auto_patch_v2.law.agp_schema",
         "auto_patch_v2.law.airports_schema",
         "auto_patch_v2.law.base_profile_schema",
         "auto_patch_v2.law.basin_schema",
@@ -930,6 +938,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.terrain_deck",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.law",
+        "auto_patch_v2.law.agp_schema",
         "auto_patch_v2.law.airports_schema",
         "auto_patch_v2.law.base_profile_schema",
         "auto_patch_v2.law.basin_schema",
@@ -1153,6 +1162,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.law",
+        "auto_patch_v2.law.agp_schema",
         "auto_patch_v2.law.airports_schema",
         "auto_patch_v2.law.base_profile_schema",
         "auto_patch_v2.law.basin_schema",
@@ -1354,6 +1364,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.wall_clip",
         "auto_patch_v2.classify.wall_cutback",
         "auto_patch_v2.constraints",
+        "auto_patch_v2.constraints.agp_level",
         "auto_patch_v2.constraints.airside_top",
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_shelf",
@@ -1459,6 +1470,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.vector",
         "auto_patch_v2.geom.water_level",
         "auto_patch_v2.law",
+        "auto_patch_v2.law.agp_schema",
         "auto_patch_v2.law.airports_schema",
         "auto_patch_v2.law.base_profile_schema",
         "auto_patch_v2.law.basin_schema",
@@ -1482,6 +1494,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.units",
         "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
+        "auto_patch_v2.model.agp_group",
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
@@ -1605,7 +1618,8 @@ _GENERATOR_CORE = """
     law.eat_schema law.flat_pack_schema law.flat_site_schema law.model law.model_types
     law.rebake_schema law.reference_code law.role_cap_schema law.runway_ends_schema
     law.tables law.terrace_schema law.terrain_witness_schema law.tunnel_object_schema
-    law.units law.walled_plate_schema model model.constraints model.frame model.planar
+    law.units law.walled_plate_schema law.agp_schema model model.constraints model.frame
+    model.planar
     model.registries model.structures
 """
 
@@ -1798,6 +1812,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.map_memo model.platform model.threshold_datum
     """),
     "ramp_runout": _mods(_GENERATOR_CORE + """
+    constraints.agp_level model.agp_group
         geom.exact
         constraints.wall_zone model.wall_reach
         constraints.apron constraints.apron_shelf constraints.cluster_pad
@@ -1812,6 +1827,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
+    constraints.agp_level model.agp_group
         geom.exact
         constraints.wall_zone model.wall_reach
         constraints.apron constraints.apron_shelf constraints.cluster_pad
@@ -1988,6 +2004,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    constraints.agp_level law.agp_schema model.agp_group
     model.deck_stack
     airport.hanging_objects airport.object_cut airport.split_level airport.wall_geometry
     geom.vector
@@ -2108,6 +2125,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     model.free_bridge
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
+    law.agp_schema
     airport.pit_frame
     geom.runway_contact
     geom.exact
@@ -2186,6 +2204,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
+    constraints.agp_level law.agp_schema model.agp_group
     airport.bridge_end_state airport.bridge_stack
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
     constraints.yard_edge geom.slope_bound
@@ -2352,6 +2372,8 @@ CODE_MODULES["solve"] = _mods("""
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
+    constraints.agp_level law.agp_schema model.agp_group
     airport.bridge_end_state airport.bridge_stack
     airport.dsf_heights airport.facade airport.line_solidity classify.edge_line_mint
     constraints.yard_edge geom.slope_bound
@@ -2537,6 +2559,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.free_bridge planar.free_bridge
 """)
 CODE_MODULES["emit"] = _mods("""
+    constraints.agp_level law.agp_schema model.agp_group
     model.deck_stack
     airport.facade airport.line_solidity classify.edge_line_mint
     constraints.yard_edge geom.slope_bound
@@ -2663,6 +2686,7 @@ CODE_MODULES["emit"] = _mods("""
     model.free_bridge
 """)
 CODE_MODULES["verify"] = _mods("""
+    constraints.agp_level law.agp_schema model.agp_group
     geom.deck_ground model.deck_stack
     airport.split_level
     airport.facade airport.line_solidity classify.edge_line_mint

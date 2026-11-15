@@ -9,9 +9,8 @@ the three planar sites that densify cell faces must return Polygons only.
 from __future__ import annotations
 
 import shapely
-from shapely.geometry import Polygon
-
 from auto_patch_v2.geom.parts import densified_parts
+from shapely.geometry import Polygon
 
 _SPIKE = ("01030000000100000005000000AA965C1E034998C06BD649B5B2409EC0FDC5D9472A4998C0"
           "FB669BE77AB79EC06B043ED8DC6098C0E998A05CB55C9EC0DB3D094D867698C076EAC10626"
@@ -49,7 +48,6 @@ def test_object_floor_faces_take_densified_parts():
     import types
 
     import numpy as np
-
     from auto_patch_v2.planar import object_floor_cells as ofc
 
     face = _face()

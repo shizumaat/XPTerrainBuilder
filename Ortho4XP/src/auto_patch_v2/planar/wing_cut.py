@@ -4,7 +4,7 @@ the group: ``airport/mouth_group``, spec ``docs/specs/2099-mouth-groups.md``).
 
 A tunnel mouth's WING WALLS are a ramp witness: the pack authored each one
 standing on the road it lines.  Per mouth group the load partition forms
-(:func:`mouth_wings`: the planar readers' mouths; every hard deck's members
+(:func:`_mouth_wings`: the planar readers' mouths; every hard deck's members
 and every piece co-placed with a mouth ``taken`` -- they are the mouth's own
 frame, which its own record seats; a wall LINING the mouth's road joins too,
 R3 E):
@@ -14,7 +14,7 @@ R3 E):
 * THE REGION (D2): on the ROAD side of each line only -- from the wall's
   road-side face to the facing wall line of the group (within ``[tunnel]
   dual_carriageway_max_separation_m``), else across the mouth's road
-  (:func:`mouth_roads`) to its far edge plus the rim stand-off
+  (:func:`_mouth_roads`) to its far edge plus the rim stand-off
   (``wall_gap_m`` + ``wall_band_width_m``); less the deck ring and the
   mouth's plan grown by ``wall_gap_m``, every stage-1 airside cell grown by
   ``wall_gap_m``, every structure cell and every building pad;
@@ -48,11 +48,11 @@ from ..airport.wall_lines import Station, wall_line_feet
 from ..classify.roles import Cell
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
-from ..law.tables import airside_stage_roles, is_structure_role, role_side
+from ..law.tables import airside_stage_roles, is_structure_role, is_value_role, role_side
 from ..model.wing_cut import WING_CUT_REF, WallLine, WingCut
 from .deck_bridge import co_placed, deck_polygon
 
-__all__ = ["wing_cuts", "wall_line_feet", "mouth_wings", "mouth_roads", "group_walled"]
+__all__ = ["wing_cuts", "wall_line_feet", "group_walled"]
 
 XY = tuple[float, float]
 
@@ -76,7 +76,7 @@ def _end_line_dir(db) -> "XY | None":
     return (ax + bx) / L, (ay + by) / L
 
 
-def mouth_roads(airport, law, decks) -> dict[str, tuple[XY, ...]]:
+def _mouth_roads(airport, law, decks) -> dict[str, tuple[XY, ...]]:
     """THE ROAD THROUGH EACH DECK (R3 E2 / D2), deck id -> polyline: the
     mapped way running farthest under its ring, walked out of both ends the
     way a tunnel's approach is (``structure_approach.approach``: the smallest
@@ -100,7 +100,7 @@ def mouth_roads(airport, law, decks) -> dict[str, tuple[XY, ...]]:
 
 def _deck_road(airport, law, ring, ext: float) -> "tuple[XY, ...] | None":
     """The mapped way under ``ring`` (the longest stretch inside it), walked
-    out of both its ends ``ext`` (:func:`mouth_roads`), or ``None``."""
+    out of both its ends ``ext`` (:func:`_mouth_roads`), or ``None``."""
     from .structure_approach import approach, unit
     ways = [w for w in getattr(airport, "osm_ways", None) or ()
             if len(w.points) >= 2 and ((w.tags or {}).get("highway") or
@@ -119,7 +119,7 @@ def _deck_road(airport, law, ring, ext: float) -> "tuple[XY, ...] | None":
     return tuple(tuple(p) for p in reversed(a)) + tuple(pts[1:-1]) + tuple(tuple(p) for p in b)
 
 
-def mouth_wings(airport, objects, cache, decks, tunnels, law) -> tuple[list, list[str]]:
+def _mouth_wings(airport, objects, cache, decks, tunnels, law) -> tuple[list, list[str]]:
     """``(mouth groups, notes)``: the load partition's groups of the mouths
     ``decks`` and ``tunnels`` state (``airport/mouth_group.mouth_groups``), a
     mouth's own frame taken, the walls lining its road (``DeckBridge.road``,
@@ -137,15 +137,15 @@ def mouth_wings(airport, objects, cache, decks, tunnels, law) -> tuple[list, lis
 
 def group_walled(decks, airport, objects, cache, law) -> tuple[tuple, list[str]]:
     """``(decks, notes)``: each hard deck carries the road through it
-    (``DeckBridge.road``, :func:`mouth_roads`) and, where its mouth group has
+    (``DeckBridge.road``, :func:`_mouth_roads`) and, where its mouth group has
     walls, their stations ``(x, y, foot)`` (``DeckBridge.group_feet``, R3 D6)
     -- the walls its ramps are planned on (``deck_bridge.deck_pin``).  Formed
     before the structure pass: the decks exist then."""
     if not decks:
         return tuple(decks), []
-    roads = mouth_roads(airport, law, decks)
+    roads = _mouth_roads(airport, law, decks)
     decks = tuple(_dc.replace(db, road=roads.get(str(db.object_id), ())) for db in decks)
-    groups, notes = mouth_wings(airport, objects, cache, decks, (), law)
+    groups, notes = _mouth_wings(airport, objects, cache, decks, (), law)
     by_id = {str(o.id): o for o in objects}
     feet: dict[str, list] = {}
     for gr in groups:
@@ -262,7 +262,7 @@ def wing_cuts(airport, objects, cache, decks, tunnels, classification, law
               ) -> tuple[_t.Any, tuple[WingCut, ...], list[str]]:
     """``(classification with the wing-cut ground, the cuts, notes)`` (module
     doc)."""
-    groups, gnotes = mouth_wings(airport, objects, cache, decks, tunnels, law)
+    groups, gnotes = _mouth_wings(airport, objects, cache, decks, tunnels, law)
     if not groups:
         return classification, (), []
     tn_law = law.tables.structures.tunnel
@@ -343,11 +343,16 @@ def _rings(geom, spacing: float) -> tuple[tuple[XY, ...], ...]:
 
 
 def _kept(c: Cell, law, roads: _t.AbstractSet[str]) -> bool:
-    """A cell the wing cut never carves (R3 D3): airside, a structure, a
-    building pad, a groundside road (held in place by the rows)."""
-    if c.role == "building" or c.side == "airside" or c.role in roads:
+    """A cell the wing cut never carves (R3 D3): airside PAVEMENT (a value
+    role on the airside), a structure, a building pad, a groundside road
+    (held in place by the rows).  Ground -- a zone strip, a deck's ground, a
+    lot -- is carved."""
+    if c.role == "building" or c.role in roads:
         return True
-    return c.role in law.tables.precedence.roles and is_structure_role(law, c.role)
+    if c.role not in law.tables.precedence.roles:
+        return False
+    return is_structure_role(law, c.role) or (is_value_role(law, c.role)
+                                              and role_side(law, c.role) == "airside")
 
 
 def _cells(classification, cuts: _t.Sequence[WingCut], law, spacing: float

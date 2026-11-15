@@ -116,7 +116,7 @@ def test_the_region_is_the_road_side_carved_out_of_the_ground_and_off_pavement(t
     def cell(i, role, ref, ring, side="groundside"):
         return Cell(i, role, ref, ring, (), None, None, side, "x", {})
     strip = cell(0, "graded_strip", "zone", ((-4.0, -70.0), (30.0, -70.0), (30.0, -12.0),
-                                             (-4.0, -12.0)))
+                                             (-4.0, -12.0)), "airside")    # ground, airside side
     apron = cell(1, "apron", "pav", ((-40.0, -70.0), (-6.0, -70.0), (-6.0, -12.0),
                                      (-40.0, -12.0)), "airside")
     tun = types.SimpleNamespace(deck_bridge="box", portal="", half_width_m=3.5, axis=())

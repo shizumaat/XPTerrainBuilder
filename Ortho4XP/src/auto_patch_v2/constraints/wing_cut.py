@@ -5,8 +5,9 @@ mouth's walls stands on their feet, the strip behind them meets their tops
 
 Every vertex of the cut's own ground (``wing_cut:<mouth>`` faces) and every
 other vertex inside its region -- the ground, a trench's rim, and the road:
-"the road corridor between the wings follows the same floor" -- is held at the mouth's floor plus the
-foot under it, read along the wall line it faces (``model/wing_cut.wing_floor_y``);
+"the road corridor between the wings follows the same floor" -- is held at the
+mouth's floor plus the foot under it, read along the wall line it faces
+(``model/wing_cut.wing_floor_y``);
 every vertex of the strip behind a line (``wing_back:<mouth>`` faces) at the
 wall's top there (``wing_top_y``), in the mouth's own seat:
 
@@ -32,7 +33,7 @@ from __future__ import annotations
 import dataclasses as _dc
 
 from ..law import Law
-from ..law.tables import is_value_role, role_side
+from ..law.tables import is_structure_role, is_value_role, role_side
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -47,16 +48,12 @@ RULING = "structures.wing_cut floor (#2099 R2: a grouped mouth's wings state the
 STATS: dict[str, dict[str, int]] = {}
 
 
-def _structure(law: Law, role: str) -> bool:
-    return bool(getattr(law.tables.precedence.roles[role], "structure", False))
-
-
 def _never_roles(planar: PlanarMap, law: Law) -> set[str]:
     """The roles whose vertex is never held: airside pavement (a value role
     on the airside) and a ramp floor (a value structure role)."""
     return {role for role in {f.role for f in planar.faces.values()}
             if role in law.tables.precedence.roles and is_value_role(law, role)
-            and (role_side(law, role) == "airside" or _structure(law, role))}
+            and (role_side(law, role) == "airside" or is_structure_role(law, role))}
 
 
 def _seat(planar: PlanarMap, law: Law, cut: WingCut, near) -> "tuple | None":
@@ -84,7 +81,14 @@ def wing_cut_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     from ..model.platform import stage_air_vertices
     from .geometry import nearest_vertex_fn
     never = _never_roles(planar, law)
-    near = nearest_vertex_fn(planar, stage_air_vertices(planar, law)) \
+    # the SEAT is the end lines' airside -- never a vertex a ramp FLOOR
+    # carries too (#2099 R3: a taxiway corner on M's ramp ring is the trench
+    # floor's, so a row through it crosses the trench outline and
+    # ``walled_plate.release_across`` withdrew every hold of that cut)
+    floors = {r for r in never if is_structure_role(law, r)}
+    near = nearest_vertex_fn(planar, {
+        v for v in stage_air_vertices(planar, law)
+        if not any(planar.faces[f].role in floors for f in planar.vertices[v].incident_faces)}) \
         if any(c.seats for c in cuts) else None
     rows: list[Row] = []
     done: set[int] = set()

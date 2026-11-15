@@ -30,6 +30,7 @@ import typing as _t
 import numpy as np
 import shapely
 
+from ..model.deck_ends import end_mid
 from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .obj8_clip import _bulk_polys
@@ -370,10 +371,6 @@ def log_lines(icao: str, groups: _t.Sequence[MouthGroup], notes: _t.Sequence[str
     return out
 
 
-def _middle(pts) -> tuple[float, float]:
-    return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-
-
 def mouths_of(pm) -> list[Mouth]:
     """THE MOUTHS the planar readers took (spec §1 M1-M3): every hard-deck
     bridge (``PlanarMap.decks``; its floor the frame's bottom, the road the
@@ -382,7 +379,7 @@ def mouths_of(pm) -> list[Mouth]:
     floor, ``Tunnel.mouth_z``, under the zero its seat states)."""
     out: dict[str, Mouth] = {}
     for db in getattr(pm, "decks", ()) or ():
-        ends = tuple((_middle(st), float(top)) for st, top in
+        ends = tuple((end_mid(st), float(top)) for st, top in
                      ((getattr(db, "seats_a", ()), getattr(db, "top_a", 0.0)),
                       (getattr(db, "seats_b", ()), getattr(db, "top_b", 0.0))) if st)
         out.setdefault(str(db.object_id), Mouth(str(db.object_id), float(db.bottom_y),

@@ -46,11 +46,15 @@ __all__ = ["GROUP_UP", "plan_group_up", "upper_pad_reads"]
 
 
 
-def upper_pad_reads(cells) -> dict[str, tuple[float, float, int, tuple[str, ...]]]:
+def upper_pad_reads(cells) -> dict[str, tuple]:
     """``{pad ref: (storey base y_p, unit floor t, unit, its arms' refs)}``
     of the pads the classifier read under an upper storey
     (``classify/storey_edge``; an arm is a road cut back to climb to its
-    pad, ``ARM_PAD_KEY``)."""
+    pad, ``ARM_PAD_KEY``), and a fifth member, the fence yard's landing
+    keys (its plane, gross yard and G6' ratio,
+    ``classify/fence_yard.yard_record_of``), for a pad a fence yard was
+    read beside (spec 2068 A2 F3, A3 R5)."""
+    from ..classify.fence_yard import yard_record_of
     from ..classify.storey_edge import ARM_PAD_KEY, UPPER_FLOOR_KEY, UPPER_UNIT_KEY, UPPER_Y_KEY
     arms: dict[str, list[str]] = {}
     for c in cells:
@@ -58,6 +62,7 @@ def upper_pad_reads(cells) -> dict[str, tuple[float, float, int, tuple[str, ...]
             arms.setdefault(str(c.evidence[ARM_PAD_KEY]), []).append(str(c.ref))
     return {c.ref: (float(c.evidence[UPPER_Y_KEY]), float(c.evidence[UPPER_FLOOR_KEY]),
                     int(c.evidence[UPPER_UNIT_KEY]), tuple(sorted(arms.get(c.ref, ()))))
+            + ((yd,) if (yd := yard_record_of(c.evidence)) is not None else ())
             for c in cells if c.role == "building" and UPPER_Y_KEY in (c.evidence or {})}
 
 
@@ -125,6 +130,10 @@ def plan_group_up(out: list, upper: _t.Mapping[str, tuple], air_polys, tree, air
                             "y_p": round(y_p, 3), "top_y": round(top, 3),
                             "area_m2": round(L.area, 1),
                             "arms": tuple(upper[ref][3:4][0]) if len(upper[ref]) > 3 else ()}
+        if len(upper[ref]) > 4:
+            # spec 2068 A2 F3 / A3 R5: the fence-foot plane the yard stands
+            # on, the gross yard its roads stand in, the G6' ratio
+            reg.landings[lv].update(upper[ref][4])
         if H.is_empty:
             held.pop(ref, None)
     counts["upper_pads"] = "; ".join(

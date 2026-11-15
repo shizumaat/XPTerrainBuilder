@@ -36,13 +36,17 @@ from shapely.ops import substring
 from ..geom.lowest_face import floor_z_at
 from ..model.frame import rotated_rectangle
 
-__all__ = ["Carry", "carry_of", "bridge_stretches", "route_chains", "DECK_TAG"]
+__all__ = ["Carry", "carry_of", "bridge_stretches", "route_chains", "DECK_TAG", "END_TAG"]
 
 XY = tuple[float, float]
 
 #: the synthesized tag naming the deck that carries a stretch
 #: (``structure_underpass.UNDERPASS_TAG`` is the precedent)
 DECK_TAG = "o4_deck"
+#: a stretch the plate ring of a GRADED end made a bridge (#2065 A3 rule 7,
+#: ``graded_end``): the road rides the plate, so no DEM deck stands under
+#: it and ``bridge_ground`` (#1935) reads no run there
+END_TAG = "o4_graded_end"
 
 
 @_dc.dataclass(frozen=True)
@@ -204,12 +208,15 @@ def _span(line: LineString, region: Polygon) -> "tuple[float, float] | None":
     return (min(ss), max(ss)) if ss else None
 
 
-def bridge_stretches(ways: _t.Sequence, cuts: _t.Mapping[int, _t.Sequence[tuple[str, Polygon]]]
-                     ) -> tuple:
+def bridge_stretches(ways: _t.Sequence, cuts: _t.Mapping[int, _t.Sequence[tuple[str, Polygon]]],
+                     at_grade: bool = False, graded_end: bool = False) -> tuple:
     """``ways`` with every carried way's stretch over its deck a mapped
     bridge (module doc).  ``cuts``: way id -> ``(deck id, deck piece
     rectangle)`` per deck carrying it.  A way no deck carries is returned
-    as it is (the same object)."""
+    as it is (the same object).  ``at_grade``: the stretch in each region
+    becomes AT GRADE instead (no ``bridge`` / ``layer``; #2065 A3 rule 7, a
+    bridge way's run-on past a graded end).  ``graded_end``: a stretch made
+    a bridge here is marked :data:`END_TAG` (rule 7's plate-ring cut)."""
     out = []
     for w in ways:
         mine = cuts.get(int(w.id))
@@ -232,20 +239,27 @@ def bridge_stretches(ways: _t.Sequence, cuts: _t.Mapping[int, _t.Sequence[tuple[
         for a, b, did in merged:
             if a - cur > 1e-3:
                 out.append(_piece(w, line, cur, a, None))
-            out.append(_piece(w, line, a, b, did))
+            out.append(_piece(w, line, a, b, did, at_grade, graded_end))
             cur = b
         if line.length - cur > 1e-3:
             out.append(_piece(w, line, cur, line.length, None))
     return tuple(out)
 
 
-def _piece(w, line: LineString, a: float, b: float, deck: "str | None"):
+def _piece(w, line: LineString, a: float, b: float, deck: "str | None",
+           at_grade: bool = False, graded_end: bool = False):
     """The stretch ``a..b`` of way ``w`` (same id and kind); a deck's own
-    stretch tagged a mapped bridge of that deck."""
+    stretch tagged a mapped bridge of that deck (``at_grade``: untagged a
+    bridge, at layer 0)."""
     pts = tuple((float(x), float(y)) for x, y in substring(line, a, b).coords)
     tags = dict(w.tags)
-    if deck is not None:
+    if deck is not None and at_grade:
+        for k in ("bridge", "layer", "bridge:structure"):
+            tags.pop(k, None)
+    elif deck is not None:
         if not tags.get("bridge") or tags.get("bridge") == "no":
             tags["bridge"] = "yes"
+            if graded_end:
+                tags[END_TAG] = deck
         tags[DECK_TAG] = deck
     return _dc.replace(w, points=pts, closed=False, tags=tags)

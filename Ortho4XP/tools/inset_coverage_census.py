@@ -47,6 +47,13 @@ Sections (``--section``, default ``all``):
             shortfall magnitude, and the proposed pair:
             RE-CUT iff required not inside requested-at-cut-time,
             WARN   iff required(+margin) not inside delivered.
+  thresholds  (#2089) Every cached inset read at its airport's CIFP runway
+            thresholds with the engine's reader: residuals, the bake's
+            verdict (none / apply / refused), the model it is eligible
+            for (base_witness inside its tile; thresholds for a tile-edge
+            straddler), and every straddler whose tile copies disagree.
+            Needs no OSM layer.  The applied and refused list is the batch
+            sweep's expectation.
 
 Run from ``Ortho4XP/``:
 
@@ -542,6 +549,77 @@ def section_shipped(records, warn_margin_m, out=print):
 
 
 # =====================================================================
+def _cached_insets(elevation_directory):
+    """``[(tile_lat, tile_lon, path)]`` of every cached inset raster."""
+    import glob
+    out = []
+    for path in sorted(glob.glob(os.path.join(
+            elevation_directory, "*", "*_airport_insets", "*.tif"))):
+        folder = os.path.basename(os.path.dirname(path))
+        try:
+            (lat, lon) = tile_of_stem(folder.split("_", 1)[0])
+        except (ValueError, IndexError):
+            continue
+        out.append((lat, lon, path))
+    return out
+
+
+def _inside_tile(path, lat, lon):
+    """True when the raster's extent lies wholly inside its tile."""
+    from osgeo import gdal
+    dataset = gdal.Open(path)
+    (x0, dx, _rx, y0, _ry, dy) = dataset.GetGeoTransform()
+    (columns, rows) = (dataset.RasterXSize, dataset.RasterYSize)
+    (west, east) = sorted((x0, x0 + dx * columns))
+    (south, north) = sorted((y0, y0 + dy * rows))
+    return (west >= lon - 1e-9 and east <= lon + 1 + 1e-9
+            and south >= lat - 1e-9 and north <= lat + 1 + 1e-9)
+
+
+def section_thresholds(elevation_directory, out=print):
+    """The #2089 census: each cached inset judged at its CIFP thresholds
+    by ``elevation_access.threshold_correction`` (the bake's reader and
+    verdict)."""
+    from auto_patch import flat_site_mode as FLAT_SITE_MODE
+    from elevation_access import threshold_correction as TC
+
+    root = FLAT_SITE_MODE.resolve_xplane_root()
+    out("\n== thresholds (#2089): bar %.1f m, cap %.1f m, X-Plane %s =="
+        % (TC.BAR_M, TC.CAP_M, root))
+    if not root:
+        out("  no X-Plane root resolved: nothing judged")
+        return {}
+    by_name, counts, cifp = {}, {}, {}
+    for (lat, lon, path) in _cached_insets(elevation_directory):
+        name = os.path.basename(path)
+        icao = INSETS._inset_icao(path)
+        if icao not in cifp:
+            cifp[icao] = FLAT_SITE_MODE.cifp_runways(root, icao)
+        try:
+            readings = TC.threshold_readings(path, cifp[icao])
+            inside = _inside_tile(path, lat, lon)
+        except Exception as error:                 # an unreadable raster
+            out("  %-28s unreadable: %s" % (name, error))
+            continue
+        verdict = TC.verdict(readings)
+        counts[verdict["status"]] = counts.get(verdict["status"], 0) + 1
+        by_name.setdefault(name, []).append((lat, lon, verdict["status"]))
+        if verdict["status"] == "none":
+            continue
+        out("  %-8s %-28s %+04d%+05d  model=%-12s %s" % (
+            verdict["status"].upper(), name, lat, lon,
+            "base_witness" if inside else "thresholds",
+            " ".join("%s %+.2f" % (r["runway"], r["residual_m"])
+                     for r in readings)))
+    out("  verdicts: " + ", ".join("%s %d" % item
+                                   for item in sorted(counts.items())))
+    for (name, copies) in sorted(by_name.items()):
+        if len({status for (_a, _b, status) in copies}) > 1:
+            out("  STRADDLER DISAGREES %s: %s" % (name, ", ".join(
+                "%+03d%+04d %s" % copy for copy in copies)))
+    return counts
+
+
 def parse_margins(text):
     try:
         return [float(part) for part in text.split(",") if part.strip()]
@@ -557,7 +635,7 @@ def main(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--section", default="all",
                         choices=("all", "sweep", "battery", "delivery",
-                                 "shipped"))
+                                 "shipped", "thresholds"))
     parser.add_argument("--margins", type=parse_margins,
                         default=list(DEFAULT_MARGINS_M),
                         help="functional margins to sweep, metres")
@@ -586,6 +664,9 @@ def main(argv=None):
 
     elevation_directory = args.elevation_dir or FNAMES.Elevation_dir
     print("inset coverage census — %s" % elevation_directory)
+    if args.section == "thresholds":
+        section_thresholds(elevation_directory)
+        return 0
     (records, _skipped) = collect_records(elevation_directory)
     mode = args.mode
     if mode is None:
@@ -611,6 +692,8 @@ def main(argv=None):
         section_delivery(records)
     if args.section in ("all", "shipped"):
         section_shipped(records, args.warn_margin_m)
+    if args.section == "all":
+        section_thresholds(elevation_directory)
     return 0
 
 

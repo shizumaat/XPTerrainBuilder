@@ -34,7 +34,7 @@ WHEN = datetime(2026, 11, 12, tzinfo=timezone.utc)
 FACTS = {"world_installed": True, "budget_fits": True, "network_ok": True,
          "all_on_disk": True, "prefetch_done": True}
 INFO = {"origin": TINFO.ORIGIN_ADOPTED, "built_by": "Ortho4XP",
-        "patched": "yes", "upgrade_ok": True}
+        "patched": "yes", "in_place": False}
 
 
 def _estimate(tile, kind, role):
@@ -136,14 +136,17 @@ def test_upgrade_builds_full_and_replaces_the_mesh():
         manager.choose(DEST_TILE, "keep")
 
 
-def test_an_upgrade_that_would_write_over_the_package_is_refused():
-    manager, _b, _p = _manager(info=dict(INFO, upgrade_ok=False))
-    with pytest.raises(ValueError, match="write over it"):
-        manager.choose(DEP_TILE, "upgrade")
+def test_an_upgrade_over_the_converted_folder_is_allowed():
+    """#2088 (owner 2026-11-14T19:59Z): a converted tile whose own folder
+    is where we build it upgrades in place -- never refused, never "Convert
+    it first"; a remembered upgrade is not asked again."""
+    manager, _b, _p = _manager(info=dict(INFO, in_place=True))
+    manager.choose(DEP_TILE, "upgrade")
+    assert manager.endpoints.choice_of(DEP_TILE) == ADOPTED.UPGRADE
     book = ADOPTED.ChoiceBook()
-    book.set(DEP_TILE, "upgrade")           # remembered before: asked again
-    again, _b, _p = _manager(book, info=dict(INFO, upgrade_ok=False))
-    assert _job(again, DEP_TILE).state == CHOICE_STATE
+    book.set(DEP_TILE, "upgrade")
+    again, _b, _p = _manager(book, info=dict(INFO, in_place=True))
+    assert _job(again, DEP_TILE).state != CHOICE_STATE
 
 
 def test_an_endpoint_of_ours_never_asks():
@@ -305,6 +308,8 @@ def test_upgrade_overwrites_the_package_folder(tmp_path):
     folder.mkdir()
     assert not ADOPTED.upgrade_overwrites(str(folder), {})
     assert ADOPTED.upgrade_overwrites(str(folder), {"source": str(folder)})
+    assert ADOPTED.own_folder(str(folder), {"link_target": str(folder)})
+    assert not ADOPTED.own_folder(str(folder), {})
     (folder / TINFO.ADOPTED_STAMP).write_text("{}", "utf-8")
     assert not ADOPTED.upgrade_overwrites(str(tmp_path / "other"), {})
     (folder / TINFO.ADOPTED_STAMP).write_text('{"from": "x"}', "utf-8")
@@ -339,7 +344,7 @@ def test_the_reader_asks_for_adopted_and_other_meshes_only(tmp_path,
                                    lambda la, lo: str(tmp_path / "build"))
     first = info((53, -61))
     assert first == {"origin": TINFO.ORIGIN_ADOPTED, "built_by": "Ortho4XP",
-                     "patched": "yes", "upgrade_ok": True}
+                     "patched": "yes", "in_place": False}
     for ours in ((53, -64), (53, -62), (53, -63), (50, 0)):
         assert info(ours) is None, ours
 

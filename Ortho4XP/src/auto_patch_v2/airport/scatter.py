@@ -122,12 +122,13 @@ def component_diag_m(geom: _obj8.ObjGeometry, comp: _obj8.Component) -> float:
 
 
 def _laws(law: _t.Any) -> tuple[_t.Any, _t.Any]:
-    """``(scatter law, rebake law)`` from either a bound
-    :class:`~auto_patch_v2.law.model.Law` or the two tables handed in
-    directly (a twin)."""
+    """``(scatter law, line law)`` from either a bound
+    :class:`~auto_patch_v2.law.model.Law` (the line law then
+    ``line_object.line_law``, the ground ribbon armed) or the two tables
+    handed in directly (a twin)."""
     tables = getattr(law, "tables", None)
     if tables is not None:
-        return tables.structures.scatter, tables.structures.rebake
+        return tables.structures.scatter, _line.line_law(law)
     return law, getattr(law, "rebake", law)
 
 

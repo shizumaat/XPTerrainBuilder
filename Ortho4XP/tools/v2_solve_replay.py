@@ -690,6 +690,8 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     from auto_patch_v2.airport.wall_shade import attach_wall_shade
     from auto_patch_v2.classify import load_rules as _load_rules
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
+    from auto_patch_v2.airport.unit_fence import attach_unit_fences
+    airport = attach_unit_fences(airport, _load_rules(), law)      # spec 2068 A2 F1
     from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law)   # #1747
     from auto_patch_v2.airport.deck_stack import log_line as _ds_line
@@ -985,6 +987,8 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
     for v, k, terms, bound, val, row in rows[:limit]:
         out(f"--- row {k}  violation {v:.4f} m  gen={row.source.generator}")
         out(f"    ruling: {row.source.ruling[:160]}")
+        if row.source.inputs:
+            out(f"    inputs: {', '.join(map(str, row.source.inputs))[:240]}")
         out(f"    demanded {val:.4f} vs allowed {bound:.4f} (raw {val - bound:+.4f})")
         vs = []
         for vid, c in terms:
@@ -997,6 +1001,7 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
                        "roles": roles})
         recs.append({"row": k, "violation_m": round(v, 6),
                      "generator": row.source.generator, "ruling": row.source.ruling,
+                     "inputs": [str(i) for i in row.source.inputs],
                      "demanded": round(val, 6), "allowed": round(bound, 6),
                      "vertices": vs})
     return {"icao": icao, "stage": stage,
@@ -2224,6 +2229,11 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         from auto_patch_v2.airport.wall_shade import attach_wall_shade
         from auto_patch_v2.classify import load_rules as _load_rules
         airport = attach_wall_shade(airport, _load_rules().service)
+    if resume in ("classify", "planar"):
+        # spec 2068 A2 F1: the unit fences, read under the current tree
+        from auto_patch_v2.airport.unit_fence import attach_unit_fences
+        from auto_patch_v2.classify import load_rules as _load_rules
+        airport = attach_unit_fences(airport, _load_rules(), law)
     t0 = time.perf_counter()
     _ocache = _objs = _orep = None
     if resume in ("classify", "planar"):
@@ -2298,6 +2308,19 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         cl = _classify(airport, law, _crules, cache=_ocache)
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
+        # spec 2068 A3: the fence yard's own read (plane, G6' ratio, region)
+        for _k, _v in sorted((getattr(cl, "stats", None) or {}).items()):
+            if str(_k).startswith(("fence_yard", "floor_yard")):
+                print(f"[{icao}]   [fence-yard] {_k} {_v}")
+        from auto_patch_v2.model.planar import fence_yard_pad as _fyp
+        from shapely.geometry import Polygon as _Poly
+        _ya: dict = {}
+        for _c in cl.cells:
+            if _fyp(_c.ref) is not None:
+                _ya.setdefault(str(_fyp(_c.ref)), []).append(_Poly(_c.ring, _c.holes).area)
+        for _pad, _as in sorted(_ya.items()):
+            print(f"[{icao}]   [fence-yard] cells {_pad}: "
+                  f"{' / '.join(f'{x:,.0f}' for x in sorted(_as, reverse=True))} m2")
         # RULINGS 2026-10-30e (#1686): the build's missed-pavement reading
         from auto_patch_v2.classify.centreline_gaps import centreline_pavement_gaps
         for _ln in centreline_pavement_gaps(airport, cl.cells).lines(icao):
@@ -2315,6 +2338,18 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                                    object_report=_orep, rim_diagnostics=rim_diagnostics)
             print(f"[{icao}] planar stage {time.perf_counter() - _pt:.1f} s "
                   f"(work-pool budget {pool_budget()})")
+            # spec 2068 A4 F1': the yard faces standing, the records they
+            # stand on, the yard cells dropped for want of a level
+            from auto_patch_v2.model.yard_run import yard_records as _yrec
+            from auto_patch_v2.model.planar import fence_yard_pad as _fyp
+            _yf: dict = {}
+            for _f in pm.faces.values():
+                if _fyp(_f.ref) is not None:
+                    _yf[str(_fyp(_f.ref))] = _yf.get(str(_fyp(_f.ref)), 0) + 1
+            _pa = pm.registries.pad_airside
+            print(f"[{icao}]   [fence-yard] planar faces {sorted(_yf.items())} records "
+                  f"{sorted(str(r.get('pad')) for r in _yrec(pm).values())} no_level "
+                  f"{_pa.get('fence_yard_no_level', 0)} {_pa.get('fence_yard_no_level_refs', '')}")
             # deck redesign: every hard deck read or refused, and why
             for _ln in getattr(getattr(_ps, "structures", None), "hard_decks", ()) or ():
                 print(f"[{icao}] hard deck: {_ln}")
@@ -2816,7 +2851,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             # families the app's driver gates on
             from auto_patch_v2.constraints.roads import road_law_caps
             from auto_patch_v2.emit.graded import graded_surface
-            from auto_patch_v2.pipeline.publication import publication
+            from auto_patch_v2.pipeline.publication import lifted_caps, publication
             from auto_patch_v2.verify import census as run_census
             from auto_patch_v2.verify.census import (DEFECT_KEYS, defect_gate,
                                                       under_floor_text)
@@ -2828,7 +2863,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                                       strip_rep=rep.jetway_strip,
                                                       hard_conflict=hard_conflict,
                                                       runway_flex=rep.runway_flex),
-                               road_law_caps(pm, law, airport))
+                               road_law_caps(pm, law, airport),
+                               # the build's own reader passes the lifts
+                               # (``pipeline/verify_stage``; spec 2068 A3 R5)
+                               lifted_caps(pm, law))
             summary = {k: len(v) for k, v in vrows.items() if v}
             # ONE READING OF THE GATE (RULINGS 2026-09-14bx): the same
             # ``defect_gate`` the build and the app driver use — a row under

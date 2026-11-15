@@ -570,6 +570,14 @@ class Datum:
     #: Set only by the class-B reading (``free_bridge_seat``); an all-deck
     #: frame's datum (22d / 22p) leaves it empty
     ring: tuple[tuple[float, float], ...] = ()
+    #: #2065 A3 rule 9: per end of ``ends``, whether the terrain is graded up
+    #: to it (a KEPT bridge's ``Member.deck_end_graded``): the seat leaves a
+    #: graded end out (``bridge_approach.approach_seat``).  Empty = none.
+    graded: tuple[bool, ...] = ()
+    #: the deck top AT each of ``ends`` (#2086, ``deck_riders``: a bridge of
+    #: a deck and the structure riding it, authored on a grade); empty =
+    #: ``y`` at both (``bridge_approach.approach_seat``)
+    tops: tuple[float, ...] = ()
 
 
 def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
@@ -658,7 +666,9 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
                          ends=ends if len(ends) >= 2 else (),
                          step_m=float(abutment_step_m),
                          walk_max_m=float(abutment_walk_max_m),
-                         level_tol_m=float(level_tol_m))
+                         level_tol_m=float(level_tol_m),
+                         graded=tuple(bool(x) for x in
+                                      (getattr(m, "deck_end_graded", ()) or ())))
     return None
 
 
@@ -721,7 +731,7 @@ def _datum_anchor(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     # embankment (``airport/bridge_approach``)
     from .bridge_approach import approach_seat
     seat = approach_seat(datum, surface, origin=(geom.origin_lat, geom.origin_lon),
-                         authored_agl_m=authored_agl_m)
+                         authored_agl_m=authored_agl_m, tops=datum.tops or None)
     if seat is not None:
         return Anchor(body_class, seat.lat, seat.lon, seat.surface_z - seat.zero,
                       seat.reason, seat.surface_z, datum=True)

@@ -1282,6 +1282,14 @@ class ProductionDem:
                     for entry in rings["layers"]))
             self._out(f"  [dem] approach rings {stem}: "
                       f"{self.provenance[f'rings:{stem}']}")
+        # #2089: an inset shifted onto its runway thresholds (or refused
+        # one) is named on the provenance, never silent.
+        for b in baked:
+            correction = b.get("threshold_correction") or {}
+            if correction.get("status"):
+                self.provenance[f"correction:{stem}:{b.get('icao')}"] = (
+                    f"{correction['status']} {correction.get('model') or ''} "
+                    f"applied_m={correction.get('applied_m')}").replace("  ", " ")
         self._record_inset_boxes(lat, lon, baked)
         if tile is not None:
             for k in ("apt_smoothing_pix", "apt_smoothing_auto", "working_grid_arc_seconds",

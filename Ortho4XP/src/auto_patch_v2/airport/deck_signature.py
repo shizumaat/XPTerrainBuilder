@@ -75,6 +75,7 @@ from shapely.ops import unary_union
 from ..model.frame import XY, rotated_rectangle
 from . import frame_entry as _fe
 from . import obj8 as _obj8
+from .deck_surface import grown_plate
 
 __all__ = ["DeckPlate", "DeckFamily", "DeckReport", "classify", "promote", "is_tunnel_way", "DEFAULT_TUNNEL_VALUES",
            "is_bridge_way", "is_enclosure_way", "bridge_lines", "family_key", "PierReading",
@@ -112,6 +113,12 @@ class DeckPlate:
     #: run out over the canal; a kerb road's stand over the ground it is
     #: built on).
     stations: tuple[tuple[XY, float], ...] = ()
+    #: #2086: the plate read on the deck's connected surface
+    #: (``deck_surface.grown_plate``) where that differs from the plane's
+    #: faces — a deck authored on a grade; ``None`` otherwise.  A family
+    #: that is a bridge of a deck and the structure riding it
+    #: (``deck_riders.objects_ride``) takes it as its plate (:func:`classify`)
+    surface: "DeckPlate | None" = None
 
 
 @_dc.dataclass(frozen=True)
@@ -252,6 +259,8 @@ class _Faces:
         self.xz = np.stack([np.stack([p0[:, 0], p0[:, 2]], axis=1),
                             np.stack([p1[:, 0], p1[:, 2]], axis=1),
                             np.stack([p2[:, 0], p2[:, 2]], axis=1)], axis=1)
+        #: every face's authored corners ``(n, 3, 3)`` (``deck_surface``)
+        self.corners = np.stack([p0[:, :3], p1[:, :3], p2[:, :3]], axis=1)
         self.n = int(t.shape[0])
 
 
@@ -379,11 +388,29 @@ def classify(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCach
         rep.records.append(rec)
         if accepted:
             rep.accepted += 1
+            plates = _rider_surfaces(members, plates, cache)
         else:
             rep.candidates += 1
         for i, o in zip(idx, members):
             out[i] = _apply(o, plates.get(o.id), rec)
     return out, rep
+
+
+def _rider_surfaces(members, plates: dict, cache) -> dict:
+    """``plates`` with each plate read on its connected surface
+    (``DeckPlate.surface``) when the family is a deck and the structure
+    riding it (``deck_riders.objects_ride``, #2086): that bridge's seat
+    reads the deck top AT each end (``deck_riders.frame_datum``), so its
+    ends are the deck's own, not the plane's.  Any other family keeps the
+    plane's plate (the R12 reading)."""
+    if not any(p.surface is not None for p in plates.values()):
+        return plates
+    from .deck_riders import FAMILY_KIND, objects_ride
+    kinds = ["signature" if o.id in plates else FAMILY_KIND for o in members]
+    if not objects_ride(members, kinds, cache):
+        return plates
+    return {k: (p if p.surface is None else _dc.replace(p.surface, plane_y=p.plane_y))
+            for k, p in plates.items()}
 
 
 def _read_family(members, cache, faces_of, br, key):
@@ -431,10 +458,11 @@ def _read_family(members, cache, faces_of, br, key):
             continue
         wsum += float((f.cy[inplane] * f.area[inplane]).sum())
         asum += float(f.area[inplane].sum())
-        pl = _plate(o, f, inplane, floor, br, cache.components(o.resolved),
-                    cache.input_quantum_m)
+        comps = cache.components(o.resolved)
+        pl = _plate(o, f, inplane, floor, br, comps, cache.input_quantum_m)
         if pl is not None:
-            plates[o.id] = pl
+            sf = _plate(o, f, inplane, floor, br, comps, cache.input_quantum_m, grow=True)
+            plates[o.id] = pl if sf is None else _dc.replace(pl, surface=sf)
     if not plates:
         return None, {}
     plane_y = wsum / asum if asum > 0 else float(dom) * br.deck_plane_bin_m - members[0].agl_m
@@ -443,8 +471,23 @@ def _read_family(members, cache, faces_of, br, key):
 
 
 def _plate(o, f: _Faces, inplane: np.ndarray, floor: float, br, comps,
-           q: float = 0.0) -> DeckPlate | None:
-    idx = np.nonzero(inplane)[0]
+           q: float = 0.0, grow: bool = False) -> DeckPlate | None:
+    """The member's plate on its plane faces ``inplane``; with ``grow``,
+    on its connected surface (``deck_surface``), or None where that is the
+    plane's faces."""
+    own = np.zeros(f.n, dtype=bool)
+    for c in comps:
+        if c.idx is not None and inplane[c.idx].any():
+            own[c.idx] = True
+    if not own.any():
+        own = inplane
+    near = own & (f.ny >= br.deck_plate_normal_y_min)
+    face = inplane
+    if grow:
+        face = grown_plate(f.corners, near, inplane, f.cy >= floor + br.deck_min_elevation_m)
+        if int(face.sum()) == int(inplane.sum()):
+            return None
+    idx = np.nonzero(face)[0]
     u = _obj8._union_rings(_rings(f, idx))
     if u is None:
         return None
@@ -456,13 +499,6 @@ def _plate(o, f: _Faces, inplane: np.ndarray, floor: float, br, comps,
         return None
     origin, unit, length, width, ends_a = ax
     top = float(f.ymax[inplane].max())
-    own = np.zeros(f.n, dtype=bool)
-    for c in comps:
-        if c.idx is not None and inplane[c.idx].any():
-            own[c.idx] = True
-    if not own.any():
-        own = inplane
-    near = own & (f.ny >= br.deck_plate_normal_y_min)
     prof = _profile(f, near, origin, unit, length, width, br.deck_profile_bin_m)
     stations: list[tuple[tuple[float, float], float]] = []
     if near.any():
@@ -504,7 +540,8 @@ def _plate(o, f: _Faces, inplane: np.ndarray, floor: float, br, comps,
           f"(normal_y >= {br.deck_plate_normal_y_min}) in the family's deck plane",
           f"deck top y {top:.3f} authored, {top - floor:.2f} m above the family's lowest "
           f"feet (>= {br.deck_min_elevation_m})",
-          f"axis {length:.1f} m x {width:.1f} m"
+          ("on its connected surface (#2086): " if grow else "")
+          + f"axis {length:.1f} m x {width:.1f} m"
           + ("" if ends is not None else f" (< {br.deck_min_span_m} m: no abutment end lines)"))
     st_f = []
     for (sx, sz), sy in stations:

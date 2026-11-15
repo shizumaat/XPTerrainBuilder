@@ -81,7 +81,22 @@ def ribbon_extent(cells, law: Law, pavement_union, runways=()):
     return unary_union(parts) if parts else Polygon()
 
 
-def road_extent(cells, law: Law, ev: Evidence, rules: Rules, runways=()):
+def bridge_reach(stacks, law: Law):
+    """#2065 A3 rule 7 (14f (1)): every free / kept stack's ring, aprons and
+    banks (``geom/deck_ground.ground_footprint``'s outline) — where a bridge's
+    carried ways are ribboned however far from the aerodrome it stands.
+    Empty without one."""
+    from ..geom.deck_ground import ground_footprint, ring_polygon
+    parts = []
+    for st in stacks or ():
+        if getattr(st, "kind", "trench") == "trench":
+            continue
+        parts += [p for p in (ring_polygon(d.ring) for d in st.decks) if p is not None]
+        parts.append(ground_footprint(st, law)["outline"])
+    return unary_union(parts) if parts else Polygon()
+
+
+def road_extent(cells, law: Law, ev: Evidence, rules: Rules, runways=(), stacks=()):
     """THE REACH a mapped road is ribboned inside (owner RULINGS 2026-10-22g,
     superseding 30e (2)'s extent; issue #1246): the AERODROME BOUNDARY
     (apt.dat 130, ``Evidence.boundary``) buffered ``osm_roads.
@@ -94,11 +109,16 @@ def road_extent(cells, law: Law, ev: Evidence, rules: Rules, runways=()):
     zone = ribbon_extent(cells, law, ev.pavement_union, runways)
     boundary = getattr(ev, "boundary", None)
     reach_m = float(rules.osm_roads.boundary_reach_m)
+    # #2065 A3 rule 7: a bridge's ring, aprons and banks, grown as the
+    # boundary is (ONE site, 08-30l)
+    br = bridge_reach(stacks, law)
+    if not br.is_empty:
+        br = br.buffer(max(reach_m, 0.0), join_style="mitre", mitre_limit=2.0)
     if boundary is None or boundary.is_empty or reach_m < 0.0:
-        return zone, zone
+        return (unary_union([zone, br]) if not br.is_empty else zone), zone
     grown = boundary.buffer(reach_m, join_style="mitre", mitre_limit=2.0) \
         if reach_m > 0.0 else boundary
-    return (unary_union([zone, grown]) if not zone.is_empty else grown), zone
+    return unary_union([g for g in (zone, grown, br) if not g.is_empty]), zone
 
 
 def _way_intervals(line: LineString, inside) -> list[tuple[float, float]]:
@@ -515,7 +535,8 @@ def _context(airport: Airport, ev: Evidence, cells: list, law: Law, rules: Rules
     ways = _ribbon_ways(airport, rules)
     if not ways:
         return None
-    extent, zone = road_extent(cells, law, ev, rules, getattr(airport, "runways", ()))
+    extent, zone = road_extent(cells, law, ev, rules, getattr(airport, "runways", ()),
+                               getattr(airport, "deck_stacks", ()))
     if extent.is_empty:
         return None
     # every cell standing, and every pad's set-back (``_cut_back_groundside``'s

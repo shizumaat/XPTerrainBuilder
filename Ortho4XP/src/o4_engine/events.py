@@ -843,7 +843,9 @@ class PackAdjust(EngineEvent):
     old flat forest definitions with an X-Plane 12 3D equivalent),
     ``"drapes"`` (``count`` draped photo definitions over the airport,
     ``uses`` their polygons), ``"ground"`` (#1962: large draped ground
-    textures over the airport) — each a checkbox, ticked when the
+    textures over the airport), ``"generic"`` (#2085: stock X-Plane
+    land-class ground ANY overlay pack drapes over the tile; the row adds
+    ``hectares``) — each a checkbox, ticked when the
     question opens as ``checked`` says (``ground`` is not) — and
     ``"flatten"`` (``automatic``: the apt.dat's ``1302 flatten 1`` is
     removed on every write; listed, never a choice).  ``state``:

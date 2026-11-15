@@ -76,7 +76,8 @@ function (docstrings excluded).
 | O4_Airport_Elevation_Insets.py | parse_airport_elevation_level | 1 | config | | an unrecognised level reads as auto |
 | O4_Airport_Elevation_Insets.py | ensure_insets_for_tile | 2 | degraded | inset_fetch_failed | the same, published by the home tile's pass |
 | O4_Airport_Elevation_Insets.py | _warn_if_provider_offsets_systematic | 1 | diagnostic | | a provider's datum looks offset |
-| O4_Airport_Elevation_Insets.py | bake_airport_insets_into_alt_dem | 1 | uncoded | | an inset could not be baked |
+| O4_Airport_Elevation_Insets.py | bake_airport_insets_into_alt_dem | 2 | uncoded | | an inset could not be baked; or the inset query reads the raw inset while the baked raster is corrected to the runway thresholds (#2089, baked query off) |
+| O4_Airport_Elevation_Insets.py | _plan_threshold_corrections | 1 | uncoded | | an inset could not be read at its runway thresholds and is baked uncorrected (#2089) |
 | O4_Airport_Elevation_Insets.py | _bake_one_inset | 1 | diagnostic | | an inset differs from the base by a median offset |
 | O4_Airport_Elevation_Insets.py | overlay_flat_site_insets | 1 | uncoded | | flat-site mode and the DEM query path disagree |
 | O4_Airport_Elevation_Insets.py | warn_if_inset_does_not_cover_airport | 1 | uncoded | | the airport ground outside the inset is graded on the base source |

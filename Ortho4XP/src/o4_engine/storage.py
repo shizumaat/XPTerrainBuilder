@@ -389,18 +389,29 @@ class _Sweep:
             self._first = FIRST.Pass(self.dry_run)
         return self._first
 
-    def delete(self, store: Store, path: str, st: os.stat_result) -> int:
+    def delete(self, store: Store, path: str, st: os.stat_result,
+               tier: bool = True) -> int:
+        """Delete (or, with ``tier``, move to a storage tier) one file;
+        the bytes freed here."""
         size = DISK.freeable_bytes(path, st)
         written = self.first.before_delete(store.kind, path)
         if written:
             self.freed[_PACKAGES.KIND] = self.freed.get(_PACKAGES.KIND, 0) - written
         if not self.dry_run:
-            try:
-                os.remove(path)
-            except OSError:
-                return 0
-            self._write("deleted %d bytes %s (%s, %s)"
-                        % (size, path, store.kind, self.reason))
+            # Moved to a mounted storage tier with room rather than
+            # deleted (#2087, ``storage_tier_data``); else deleted.
+            from .storage_tier_data import keep
+            moved = keep(store.kind, store.path(), path, st) if tier else ""
+            if moved:
+                self._write("moved %d bytes %s to %s (%s, %s)"
+                            % (size, path, moved, store.kind, self.reason))
+            else:
+                try:
+                    os.remove(path)
+                except OSError:
+                    return 0
+                self._write("deleted %d bytes %s (%s, %s)"
+                            % (size, path, store.kind, self.reason))
         self.freed[store.kind] = self.freed.get(store.kind, 0) + size
         self.files += 1
         return size
@@ -515,18 +526,25 @@ def _evict_oldest(stores, over_by: int, sweep: _Sweep, now: float,
     rows = [(store, path, st) for store in stores if store.kind != ONDEMAND
             for path, st, deletable in _files(store, now) if deletable
             and os.path.normcase(os.path.abspath(path)) not in keep]
-    rows.sort(key=lambda row: _last_used(row[2]))
+    freed = _evict_rows(rows, over_by, sweep)
+    if not sweep.dry_run:
+        for store in stores:
+            _prune_empty_dirs(store.path())
+    return freed
+
+
+def _evict_rows(rows, over_by: int, sweep: _Sweep) -> int:
+    """Delete the ``(store, path, stat)`` ``rows`` (deletable files),
+    least recently used first, until ``over_by`` bytes are freed; the
+    bytes freed (the caller prunes the emptied folders)."""
     freed = 0
-    for store, path, st in rows:
+    for store, path, st in sorted(rows, key=lambda row: _last_used(row[2])):
         if freed >= over_by:
             break
         if sweep.abort():
             sweep.stopped = True
             break
         freed += sweep.delete(store, path, st)
-    if not sweep.dry_run:
-        for store in stores:
-            _prune_empty_dirs(store.path())
     return freed
 
 
@@ -564,7 +582,7 @@ def _remove_redundant(sweep: _Sweep, now: float) -> None:
                 continue
             if (stat.S_ISREG(st.st_mode) and not held
                     and _deletable(store, name, st, now)):
-                sweep.delete(store, path, st)
+                sweep.delete(store, path, st, tier=False)   # a copy: no tier
         if not sweep.dry_run:
             _prune_empty_dirs(store.path())
     if not sweep.dry_run:

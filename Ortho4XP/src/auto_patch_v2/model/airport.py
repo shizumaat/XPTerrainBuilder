@@ -289,6 +289,14 @@ class EdgeLine:
     solid_top_y: float
     opaque_share: float
     half_width_m: float
+    #: spec 2068 A2 F1: a fence the pack authored inside a UNIT's frame
+    #: (``airport/unit_fence``) carries the unit's index here, the authored
+    #: base ``y`` of each of ``points`` (the author's ground along its foot,
+    #: unit zero + base) and its panel height; ``None`` / empty for a DSF
+    #: line facade
+    unit: int | None = None
+    base_ys: tuple[float, ...] = ()
+    panel_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -516,6 +524,10 @@ class Airport:
     #: pack stage by ``planar/free_bridge``): the pack decks the positive
     #: witness holds as free-standing road bridges.  Empty = none.
     free_bridges: tuple = ()
+    #: #2065 A3 rule 1 (RULINGS 2026-11-14d): the decks of ALL-DECK frames the
+    #: same witness holds (``model/free_bridge.FreeBridge``): their seat stays
+    #: 22d / 22p's, never ``plate_kind "free"``; R3 grades their ends.
+    kept_bridges: tuple = ()
     #: issue #1633 round 3 THE RETAINING WALLS READ AS TWO LEVELS
     #: (``airport/wall_sides.WallSides``: footprint, upper and lower side
     #: bands, smear, the object's top): a road is never on both sides of

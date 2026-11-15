@@ -112,26 +112,32 @@ def _abuts(line: _t.Sequence[tuple[float, float]], others: _t.Sequence[_t.Any],
 
 
 def _bridge_zero(reads: _t.Sequence[_t.Any], lines_abut: _t.Sequence[_t.Sequence[bool]]
-                ) -> "tuple[float, str] | None":
-    """``(zero, why)`` of one bridge from its decks' end reads
+                ) -> "tuple[float, str, int] | None":
+    """``(zero, why, unread)`` of one bridge from its decks' end reads
     (``deck_end_read._DeckEnds``, ``None`` for a deck read nowhere):
     the highest ``ground - top`` over its land ends (``lines_abut[d][k]``
-    false), else over every end; a 22p clearance stands as one candidate."""
+    false), else over every end; a 22p clearance stands as one candidate.
+    ``unread`` counts the LAND ends read nowhere (#2065 A3 rule 10: never
+    dropped silently — the caller notes them)."""
     cands: list[tuple[float, str]] = []
     every: list[tuple[float, str]] = []
+    unread = 0
     for d, r in enumerate(reads):
+        land = [not (k < len(lines_abut[d]) and lines_abut[d][k]) for k in range(2)]
         if r is None:
+            unread += sum(land)
             continue
         if r.clearance is not None:
             cands.append(r.clearance)
             continue
+        unread += sum(1 for k in getattr(r, "unread", ()) if k < 2 and land[k])
         for k, e in enumerate(r.ends):
             c = (e.ground - e.top, e.why)
             every.append(c)
             if not (k < len(lines_abut[d]) and lines_abut[d][k]):
                 cands.append(c)
     got = cands or every
-    return max(got, key=lambda c: c[0]) if got else None
+    return (*max(got, key=lambda c: c[0]), unread) if got else None
 
 
 def free_bridge_zeros(staged: _t.Sequence[_t.Any], surface: _ar.Surface, *,
@@ -160,6 +166,11 @@ def free_bridge_zeros(staged: _t.Sequence[_t.Any], surface: _ar.Surface, *,
             continue
         why = f"{got[1]}; {bid}" if len(group) == 1 else \
             f"{got[1]}; {bid}, one bridge of {len(group)} decks (RULINGS 2026-10-22o)"
+        if got[2]:
+            # #2065 A3 rule 10: an unread land end is counted and noted
+            why += f"; free_end_unread {got[2]} (the terrain holds its ends)"
+            if counts is not None:
+                counts["free_end_unread"] = counts.get("free_end_unread", 0) + int(got[2])
         for i in group:
             ring = decks[i].m.deck_ring
             box = (min(q[0] for q in ring), min(q[1] for q in ring),

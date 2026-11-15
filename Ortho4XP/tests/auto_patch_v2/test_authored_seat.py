@@ -132,7 +132,7 @@ def test_a_wall_seated_two_metres_over_the_cut_keeps_its_seat(walls, law):
     assert pub["id"] == oid and pub["seat"] == AS.SEAT_AUTHORED
     assert pub["h_cut_m"] == pytest.approx(2.0, abs=0.01)
     d = pl.to_dict()
-    assert d["version"] == PLAN_VERSION == 14
+    assert d["version"] == PLAN_VERSION == 15
     assert RebakePlan.from_json(pl.to_json()).authored_seats == pl.authored_seats
     # a version-12 plan reads with no record: the pre-§18 law
     d12 = {k: v for k, v in d.items() if k != "authored_seats"} | {"version": 12}

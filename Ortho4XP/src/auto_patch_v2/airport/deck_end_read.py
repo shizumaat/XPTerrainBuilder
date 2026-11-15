@@ -62,6 +62,8 @@ class _DeckEnds:
 
     ends: tuple[_EndRead, ...] = ()
     clearance: "tuple[float, str] | None" = None
+    #: #2065 A3 rule 10: the end indices read nowhere (never dropped silently)
+    unread: tuple[int, ...] = ()
 
 
 def _plate_faces(m: _t.Any, origin: "tuple[float, float] | None") -> np.ndarray:
@@ -129,15 +131,18 @@ def _plate_end_tops(m: _t.Any, lines: _t.Sequence[_t.Sequence[tuple[float, float
 
 
 def _walked(datum: _t.Any, surface: _ar.Surface, tops: _t.Sequence[float],
-            lines: _t.Sequence[_t.Sequence[tuple[float, float]]]) -> tuple[_EndRead, ...]:
+            lines: _t.Sequence[_t.Sequence[tuple[float, float]]]
+            ) -> tuple[tuple[_EndRead, ...], tuple[int, ...]]:
     """§16e (6)'s LANDWARD WALK read PER END (RULINGS 2026-09-13v): the
-    median walked ground of each end, with that end's own top."""
+    median walked ground of each end, with that end's own top; and the
+    indices of the ends read nowhere (#2065 A3 rule 10)."""
     water = getattr(surface, "water", None)
     stations, note = _ar._walked_stations(datum, surface, water)
     sizes = [len(ln) for ln in lines]
     if sum(sizes) != len(stations):
         sizes, tops = [len(stations)], [max(tops)]
     out: list[_EndRead] = []
+    unread: list[int] = []
     k0 = 0
     for k, n in enumerate(sizes):
         walked = tuple(stations[k0:k0 + n])
@@ -145,6 +150,7 @@ def _walked(datum: _t.Any, surface: _ar.Surface, tops: _t.Sequence[float],
         line = tuple(lines[k]) if len(sizes) == len(lines) else walked
         k0 += n
         if not kept:
+            unread.append(k)
             continue
         zs = sorted(q[0] for q in kept)
         g = zs[len(zs) // 2]
@@ -152,7 +158,7 @@ def _walked(datum: _t.Any, surface: _ar.Surface, tops: _t.Sequence[float],
                            f"§16e {datum.label} datum: the authored y {tops[k]:+.2f} flush "
                            f"with the walked ground {g:.2f} at end line {k + 1}{note} "
                            f"(RULINGS 2026-10-22m, 2026-09-13v)"))
-    return tuple(out)
+    return tuple(out), tuple(unread)
 
 
 def deck_end_reads(m: _t.Any, surface: _ar.Surface, *, origin: tuple[float, float],
@@ -185,7 +191,8 @@ def deck_end_reads(m: _t.Any, surface: _ar.Surface, *, origin: tuple[float, floa
     if seat is not None and "authored clearance" in seat.reason:
         return _DeckEnds(clearance=(seat.zero, seat.reason))
     if seat is None:
-        return _DeckEnds(ends=_walked(datum, surface, tops, lines))
+        ends, unread = _walked(datum, surface, tops, lines)
+        return _DeckEnds(ends=ends, unread=unread)
     return _DeckEnds(ends=tuple(
         _EndRead(float(g), float(tops[k]), lines[k],
                 f"§16e {datum.label} datum: the authored y {tops[k]:+.2f} flush with the "

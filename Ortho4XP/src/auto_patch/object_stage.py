@@ -579,6 +579,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             UI.vprint(1, f"  [v2 placement] {plan_.icao}: base-slab drape read "
                          f"failed ({exc}) — no slab drapes")
 
+    from auto_patch_v2.airport.line_object import ribbon_law as _ribbon_law
     from auto_patch_v2.law.tables import law_tables_digest
     digest = str(law_tables_digest().get("sha256") or "")
     # issue #1213: the plan below ran 25+ min at KMCI with no line at all —
@@ -599,6 +600,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             line_stations_max=law.tables.structures.rebake.line_object_stations_max,
             line_ratio=law.tables.structures.rebake.line_object_ratio,
             line_max_h=law.tables.structures.rebake.line_object_max_h,
+            line_ribbon=_ribbon_law(law),
             foot_band_m=law.tables.structures.basin.contact_band_m,
             coarsen_reach_m=law.tables.structures.placement.coarsen_reach_m,
             contact_eps_m=law.tables.structures.placement.contact_eps_m,

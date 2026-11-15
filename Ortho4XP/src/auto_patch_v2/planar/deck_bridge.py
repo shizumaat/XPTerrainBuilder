@@ -679,7 +679,10 @@ def deck_cut(db: DeckBridge, axis: LineString, ramp, outer, inset: float,
             outer = unary_union([outer, floor])
             ramp = unary_union([ramp, floor])
 
-    if uncut is not None and not uncut.is_empty and outer.intersects(uncut):
+    if uncut is not None and not uncut.is_empty and \
+            unary_union([outer, ramp]).buffer(rim_off, join_style="mitre").intersects(uncut):
+        # a rim the floor merely comes NEAR is a rim too: the floor stops
+        # ``rim_off`` short of it (LFPG Building53: 0.6 m off, welded on)
         outer = outer.difference(uncut)
         ramp = ramp.difference(uncut.buffer(rim_off, join_style="mitre"))
     if roads is not None and not roads.is_empty:

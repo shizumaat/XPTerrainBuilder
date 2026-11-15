@@ -11894,6 +11894,28 @@ def test_inset_sanity_thresholds_still_catch_a_feet_inset(build_mod, tmp_path):
     assert alone["status"] == "warn" and "arp" not in alone
 
 
+def test_inset_sanity_reads_thresholds_with_the_engine_reader(
+        build_mod, tmp_path):
+    """#2089: one reader, one bar -- the harness's threshold readings are
+    the engine correction's numbers, and its WARN carries the verdict the
+    bake reaches (a 4.5 m miss is corrected at the bake)."""
+    pytest.importorskip("osgeo.gdal")
+    from elevation_access import threshold_correction as TC
+
+    inset, apt = _arp_fixture(tmp_path, 128.0)
+    thresholds = _krdu_thresholds(132.5)
+    rec = build_mod.inset_arp_sanity_record(
+        [inset], apt, "KRDU", thresholds=thresholds)
+    engine = TC.threshold_readings(inset, thresholds)
+    (entry,) = rec["insets"]
+    assert [(t["runway"], t["inset_median_m"], t["cells"])
+            for t in entry["thresholds"]] == [
+        (r["runway"], round(r["inset_m"], 3), r["cells"]) for r in engine]
+    assert build_mod.INSET_ARP_SANITY["warn_abs_delta_m"] == TC.BAR_M
+    assert build_mod._inset_disc_median_m is TC.disc_median_m
+    assert entry["threshold_correction"]["status"] == "apply"
+
+
 def test_inset_sanity_falls_back_to_the_arp_without_cifp(build_mod, tmp_path):
     """No CIFP, or no threshold on the inset: the 09-30bm reading,
     unchanged."""

@@ -168,7 +168,7 @@ public enum O4WorldMigrateText {
     public static let confirmTitle = "Move these tiles into the World pack?"
     public static let confirmText = "Quit X-Plane first. Each tile folder on this Mac moves out of Custom Scenery into the World pack's keeping (XPTerrainBuilder_world_migrate, beside Custom Scenery) and the World pack draws it (a copy of scenery_packs.ini is kept). You can stop at any time and convert again later."
     public static let undoTitle = "Put every converted tile back?"
-    public static let undoText = "Quit X-Plane first. Each tile folder moves back into Custom Scenery, turned on, and the World pack gives the tile back."
+    public static let undoText = "Quit X-Plane first. Each tile folder moves back into Custom Scenery, turned on, and the World pack gives the tile back. A tile upgraded to XPTerrainBuilder mesh stays: an upgrade cannot be undone."
 
     /// The words of a phase (`WorldMigrateProgress.phase`).
     public static func phaseVerb(_ phase: String) -> String {

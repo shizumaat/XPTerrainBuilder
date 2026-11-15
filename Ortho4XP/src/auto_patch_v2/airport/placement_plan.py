@@ -72,6 +72,7 @@ from .placement_record import Body, Kept, Split, SplitSet
 from .placement_record import Staged as _Staged   # noqa: F401
 # §16e (3): THE BRIDGE FAMILY (the deck's own model footprint), next door
 from . import bridge_family as _bf
+from . import deck_riders as _riders                              # #2086
 # issue #127: a body the carrier search left bare rides what it is welded
 # to.  (The carrier question and its cut — ``_footless_targets``,
 # ``_carrier_pieces`` — are ``placement_body``'s, re-exported below.)
@@ -211,7 +212,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  *, write: bool = True, split_tol_m: float = 0.0,
                  elevated_base_m: float = 0.0, line_segment_m: float = 0.0,
                  line_stations_max: int = 0, line_ratio: float = 0.0,
-                 line_max_h: float = 0.0, foot_band_m: float = 0.0,
+                 line_max_h: float = 0.0, line_ribbon: _t.Any = None,
+                 foot_band_m: float = 0.0,
                  coarsen_reach_m: float = 0.0,
                  contact_eps_m: float = 0.0, rigid_reach_m: float = 0.0,
                  bind_ground_m: float = 0.0,
@@ -308,7 +310,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     triangle station (11f (2), :class:`_LineCutter`) — the segments are
     bodies like any other and go on to coarsen and be cut with them, so a
     fence over flat ground still lands in one file.  ``line_ratio`` /
-    ``line_max_h`` are 10bb's own ``[rebake]`` shape keys and
+    ``line_max_h`` are 10bb's own ``[rebake]`` shape keys (``line_ribbon``
+    the ground-ribbon law, ``line_object.RibbonLaw``, spec 2068 A3 R4) and
     ``foot_band_m`` the plan's ``[basin] contact_band_m``; with any of
     them zero the segment cut is not armed and the pre-11f reading
     stands.
@@ -467,6 +470,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         hit = _LineCutter(m, line_segment_m, line_stations_max,
                           foot_band_m, line_ratio, line_max_h,
                           plan.units[ui].anchor[0], plan.units[ui].anchor[1],
+                          line_ribbon=line_ribbon,
                           contact_eps_m=contact_eps_m,
                           contact_pairs=_pairs,
                           rigid_reach_m=rigid_reach_m,
@@ -481,6 +485,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # issue #290: the deck footprint of a (unit, member), for the
     # deck-rider test ``footprint_unit.contents_seat`` asks
     _deck_of = {(p.unit, p.member): p for p in prints}
+    # #2086: a bridge authored as a deck and the structure riding it seats
+    # as ONE free-standing bridge (``deck_riders``)
+    _rides = _riders.riding_frames(plan, prints)
+    counts["bridge_frame_riders"] = sum(1 for (ui, mi), d in _rides.items() if d != mi)
+    _ride_datum = _riders.FrameDatums(plan, _rides, abutment_step_m,
+                                      abutment_walk_max_m, split_tol_m)
 
     # §9a (#2063 round 3): the ISOLATED shares, read once per plan.  A1
     # §3.4: the election below is held WITH them present — every pass runs
@@ -585,11 +595,13 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                               line_segment_m=line_segment_m,
                               line_stations_max=line_stations_max,
                               line_ratio=line_ratio, line_max_h=line_max_h,
+                              line_ribbon=line_ribbon,
                               foot_band_m=foot_band_m,
                               coarsen_reach_m=coarsen_reach_m,
                               abutment_step_m=abutment_step_m,
                               abutment_walk_max_m=abutment_walk_max_m,
-                              deck_own_ground_m=bind_ground_m)  # 30g (3)
+                              deck_own_ground_m=bind_ground_m,  # 30g (3)
+                              ride=_ride_datum.of(ui, mi))
             counts["bodies_uncoarsened"] = \
                 counts.get("bodies_uncoarsened", 0) + len(raw)
             elevated = frozenset(i for i, r in enumerate(raw) if r[4])

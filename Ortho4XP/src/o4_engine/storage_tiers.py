@@ -22,6 +22,8 @@
 * :func:`find` -- where a mounted tier holds a texture key; the full
   texture lookup (``imagery_ondemand._full_entry``) copies it back into
   the texture cache and lands it as before.
+* the disk budget moves what rebuilds a tile to a tier too, in the same
+  folder (``storage_tier_data``, #2087); the tier's size holds both.
 
 A tier is never linked into Custom Scenery or the World pack (RULINGS
 2026-11-12a (1)): it is a store the app reads while it is mounted.  An
@@ -159,12 +161,14 @@ def _mounted(mount: str) -> bool:
 
 
 def _used(mount: str) -> int:
-    """Bytes the tier holds (walked once a process, then kept current)."""
+    """Bytes the tier holds -- its textures and the rebuild data the disk
+    budget moved there (``storage_tier_data``) -- walked once a process,
+    then kept current."""
     with _LOCK:
         if mount in _USED:
             return _USED[mount]
     total = 0
-    for root, _dirs, names in os.walk(_store(mount)):
+    for root, _dirs, names in os.walk(os.path.join(mount, TIER_DIR)):
         for name in names:
             with contextlib.suppress(OSError):
                 total += os.lstat(os.path.join(root, name)).st_size

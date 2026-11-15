@@ -7342,6 +7342,10 @@ def bake_airport_insets_into_alt_dem(tile):
             )
         entry = _inset_bake_provenance_entry(inset_path)
         entry["nodata_fraction"] = round(1.0 - valid_fraction, 6)
+        correction = (getattr(tile.dem, "inset_threshold_corrections", None)
+                      or {}).get(inset_path)
+        if correction:
+            entry["threshold_correction"] = correction
         baked_provenance.append(entry)
     UNPATCHED.record_inset_sources(tile, baked_provenance)
     _warn_if_provider_offsets_systematic(provider_ring_offsets)
@@ -7357,6 +7361,15 @@ def bake_airport_insets_into_alt_dem(tile):
     enable_baked_query = getattr(tile.dem, "enable_baked_query", None)
     if enable_baked_query is not None:
         enable_baked_query([entry["path"] for entry in baked_provenance])
+    corrected = [entry["icao"] for entry in baked_provenance
+                 if (entry.get("threshold_correction") or {}).get("status")
+                 == "apply"]
+    if corrected and not getattr(tile.dem, "baked_query_active", False):
+        # Census row 2: the composite query then reads the RAW inset.
+        UI.vprint(0, "   WARNING: the inset query path reads the RAW inset "
+                     "of %s while the baked raster is corrected to the "
+                     "runway thresholds (baked query is off)."
+                  % ", ".join(sorted(set(corrected))))
 
 
 def _inset_bake_provenance_entry(inset_path):
@@ -7444,48 +7457,22 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
     base_dem = tile.dem
     label = os.path.basename(inset_path) if inset_path else (
         getattr(inset, "label", None) or "synthetic inset")
+    # #2089: only a FETCHED inset is corrected to its runway thresholds; a
+    # synthetic flat-site surface is the thresholds already.
+    from_file = inset is None
     if inset is None:
-        # The composite load already decoded every cached inset into
-        # ``base_dem.subdems`` (same file, same ``fill_nodata=False``
-        # constructor) for the query-time composite: reuse that array
-        # instead of decoding the GeoTIFF a second time.  Fresh read only
-        # when the bake runs on a DEM without a matching subdem (tests,
-        # partial loads).
-        for subdem in getattr(base_dem, "subdems", ()) or ():
-            if (
-                getattr(subdem, "source_path", None) == inset_path
-                and getattr(subdem, "alt_dem", None) is not None
-            ):
-                inset = subdem
-                break
-    if inset is None:
-        inset = DEM.DEM(
-            tile.lat, tile.lon, inset_path, fill_nodata=False, info_only=False
-        )
+        inset = _bake_inset_raster(tile, inset_path)
     if inset.alt_dem is None:
         return
-
-    number_of_columns = base_dem.nxdem
-    number_of_rows = base_dem.nydem
+    bake_window = _bake_window(base_dem, inset)
+    if bake_window is None:
+        return
+    (row_min, row_max, column_min, column_max) = bake_window
     x0 = base_dem.x0
-    x1 = base_dem.x1
     y0 = base_dem.y0
     y1 = base_dem.y1
-    # Cell-centre coordinates (tile-relative degrees), matching the sampling
-    # convention in O4_DEM_Utils.DEM.alt_nostrict.
-    x_step = (x1 - x0) / (number_of_columns - 1)
-    y_step = (y1 - y0) / (number_of_rows - 1)
-
-    # Working-grid column/row window that overlaps the inset extent.
-    column_min = max(int(numpy.floor((inset.x0 - x0) / x_step)), 0)
-    column_max = min(
-        int(numpy.ceil((inset.x1 - x0) / x_step)), number_of_columns - 1
-    )
-    # Row 0 is the northern edge (y == y1): row grows as y decreases.
-    row_min = max(int(numpy.floor((y1 - inset.y1) / y_step)), 0)
-    row_max = min(int(numpy.ceil((y1 - inset.y0) / y_step)), number_of_rows - 1)
-    if column_min > column_max or row_min > row_max:
-        return
+    x_step = (base_dem.x1 - x0) / (base_dem.nxdem - 1)
+    y_step = (y1 - y0) / (base_dem.nydem - 1)
 
     columns = numpy.arange(column_min, column_max + 1)
     rows = numpy.arange(row_min, row_max + 1)
@@ -7566,6 +7553,15 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
                 "m over the feather ring (>%d m; check vertical datum)."
                 % int(INSET_DATUM_WARNING_THRESHOLD_M),
             )
+    if from_file:
+        # #2089: measured above on the RAW inset (census row 7); added on
+        # VALID cells only -- a corrected sentinel would bake as ground.
+        inset_values = _threshold_corrected(
+            tile, inset_path, bake_window, inset_values, valid,
+            (mesh_x, mesh_y), distance_to_edge,
+            (y_step * metres_per_degree_latitude,
+             x_step * metres_per_degree_longitude),
+            (metres_per_degree_longitude, metres_per_degree_latitude))
     blended = weight * inset_values + (1.0 - weight) * window
     # Where the base holds its nodata sentinel (possible on the step-2
     # iterative-refinement path, which loads with fill_nodata=False),
@@ -7582,6 +7578,192 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
         row_min : row_max + 1, column_min : column_max + 1
     ] = blended.astype(base_dem.alt_dem.dtype)
     return ring_offset_m
+
+
+def _bake_inset_raster(tile, inset_path):
+    """The decoded inset the bake blends for ``inset_path``.  The composite
+    load already decoded every cached inset into ``tile.dem.subdems``
+    (same file, same ``fill_nodata=False`` constructor) for the
+    query-time composite: that array is reused.  Fresh read only when the
+    DEM holds no matching subdem (tests, partial loads, the step-2
+    re-bake)."""
+    for subdem in getattr(tile.dem, "subdems", ()) or ():
+        if (getattr(subdem, "source_path", None) == inset_path
+                and getattr(subdem, "alt_dem", None) is not None):
+            return subdem
+    return DEM.DEM(tile.lat, tile.lon, inset_path, fill_nodata=False,
+                   info_only=False)
+
+
+def _bake_window(base_dem, inset):
+    """``(row_min, row_max, column_min, column_max)`` of the working grid
+    overlapping ``inset``'s extent (row 0 is the northern edge), or None
+    when they do not overlap.  Cell-centre, tile-relative degrees, the
+    sampling convention of ``O4_DEM_Utils.DEM.alt_nostrict``."""
+    x0, x1, y0, y1 = base_dem.x0, base_dem.x1, base_dem.y0, base_dem.y1
+    x_step = (x1 - x0) / (base_dem.nxdem - 1)
+    y_step = (y1 - y0) / (base_dem.nydem - 1)
+    column_min = max(int(numpy.floor((inset.x0 - x0) / x_step)), 0)
+    column_max = min(int(numpy.ceil((inset.x1 - x0) / x_step)),
+                     base_dem.nxdem - 1)
+    row_min = max(int(numpy.floor((y1 - inset.y1) / y_step)), 0)
+    row_max = min(int(numpy.ceil((y1 - inset.y0) / y_step)),
+                  base_dem.nydem - 1)
+    if column_min > column_max or row_min > row_max:
+        return None
+    return (row_min, row_max, column_min, column_max)
+
+
+# =====================================================================
+# #2089 -- inset threshold correction (plan, then apply in the bake)
+# (docs/specs/2089-inset-threshold-correction-spec.md)
+# =====================================================================
+# The plan runs where every composition path passes with the working
+# grid final and ``alt_dem`` still the pure base (the end of
+# :func:`densify_tile_dem_for_insets`): it reads each candidate inset at
+# its airport's CIFP thresholds and, for an inset to correct, keeps a copy
+# of the base under it -- the shape witness of model B.  The bake adds the
+# field (:func:`_threshold_corrected`).  Nothing is written to disk.
+
+
+def _inset_icao(inset_path):
+    """The airport code an inset cache file is named for."""
+    stem = os.path.basename(str(inset_path))
+    stem = stem[:-4] if stem.endswith(".tif") else stem
+    return stem.rsplit("_", 1)[0] if "_" in stem else stem
+
+
+def _threshold_xplane_root(tile):
+    """The X-Plane install whose CIFP witnesses the insets."""
+    from auto_patch import flat_site_mode as FLAT_SITE_MODE
+    return (getattr(tile, "auto_patch_xplane_root", None)
+            or FLAT_SITE_MODE.resolve_xplane_root())
+
+
+def inset_cifp_files(tile):
+    """The CIFP file of every airport with a bake-candidate inset on
+    ``tile`` -- the inputs of the threshold correction, for the vector
+    step's reuse key (``O4_Step_Reuse``)."""
+    from auto_patch.build_support import _find_cifp_path
+    root = _threshold_xplane_root(tile)
+    if not root:
+        return []
+    files = set()
+    for icao in {_inset_icao(p) for p in bake_candidate_inset_paths(tile)}:
+        try:
+            found = _find_cifp_path(root, icao)
+        except Exception:
+            found = None
+        if found:
+            files.add(found)
+    return sorted(files)
+
+
+def _plan_threshold_corrections(tile):
+    """Plan the #2089 correction of every bake-candidate inset of
+    ``tile``: ``tile.dem.inset_threshold_plans = {inset_path: plan}`` for
+    the insets whose verdict is ``apply`` or ``refused`` (spec §2, §3).
+    A no-op on a header-only DEM."""
+    from auto_patch import flat_site_mode as FLAT_SITE_MODE
+    from elevation_access import threshold_correction as TC
+
+    dem = getattr(tile, "dem", None)
+    if dem is None or getattr(dem, "alt_dem", None) is None:
+        return {}
+    plans = {}
+    dem.inset_threshold_plans = plans
+    dem.inset_threshold_corrections = {}
+    paths = bake_candidate_inset_paths(tile)
+    root = _threshold_xplane_root(tile) if paths else None
+    if not root:
+        return plans
+    thresholds = {}
+    for inset_path in paths:
+        icao = _inset_icao(inset_path)
+        if icao not in thresholds:
+            thresholds[icao] = FLAT_SITE_MODE.cifp_runways(root, icao)
+        try:
+            readings = TC.threshold_readings(inset_path, thresholds[icao])
+        except Exception as error:
+            UI.vprint(1, "   WARNING: could not read", os.path.basename(
+                inset_path), "at its runway thresholds:", str(error))
+            continue
+        plan = dict(TC.verdict(readings), readings=readings, window=None,
+                    base=None, inside_tile=False)
+        if plan["status"] == "none":
+            continue
+        if plan["status"] == "apply":
+            _stash_base_window(tile, inset_path, plan)
+        plans[inset_path] = plan
+    return plans
+
+
+def _stash_base_window(tile, inset_path, plan):
+    """Model B's witness: a copy of the pure base under an inset that lies
+    wholly inside the tile (a straddler's two copies have no one base)."""
+    inset = _bake_inset_raster(tile, inset_path)
+    if inset.alt_dem is None:
+        return
+    plan["inside_tile"] = (inset.x0 >= 0.0 and inset.x1 <= 1.0
+                           and inset.y0 >= 0.0 and inset.y1 <= 1.0)
+    window = _bake_window(tile.dem, inset)
+    if not plan["inside_tile"] or window is None:
+        return
+    (row_min, row_max, column_min, column_max) = window
+    plan["window"] = window
+    plan["base"] = tile.dem.alt_dem[row_min:row_max + 1,
+                                    column_min:column_max + 1].copy()
+
+
+def _threshold_corrected(tile, inset_path, bake_window, inset_values, valid,
+                         mesh, distance_to_edge, pixel_m, metres_per_degree):
+    """``inset_values`` with the planned #2089 correction added on its
+    valid cells (unchanged when no plan applies), recording the
+    provenance on ``tile.dem.inset_threshold_corrections``."""
+    from elevation_access import threshold_correction as TC
+
+    plan = (getattr(tile.dem, "inset_threshold_plans", None)
+            or {}).get(inset_path)
+    if not plan:
+        return inset_values
+    records = getattr(tile.dem, "inset_threshold_corrections", None)
+    if records is None:
+        records = tile.dem.inset_threshold_corrections = {}
+    label = os.path.basename(inset_path)
+    if plan["status"] == "refused":
+        records[inset_path] = TC.provenance_record(plan)
+        UI.vprint(0, "   [inset] %s NOT corrected to its runway thresholds: "
+                     "%s. The raster is baked as fetched." % (label,
+                                                              plan["why"]))
+        return inset_values
+    (m_lon, m_lat) = metres_per_degree
+    readings = plan["readings"]
+    points = [((r["lon"] - tile.lon) * m_lon, (r["lat"] - tile.lat) * m_lat)
+              for r in readings]
+    base = plan.get("base")
+    if (plan.get("window") != bake_window or base is None
+            or base.shape != inset_values.shape):
+        base = None
+    (field, model, base_fit) = TC.correction_field(
+        [r["residual_m"] for r in readings], points, mesh[0] * m_lon,
+        mesh[1] * m_lat, inset_values, valid, distance_to_edge, pixel_m,
+        base=base, base_valid=(None if base is None
+                               else base != tile.dem.nodata))
+    applied = field[valid]
+    if not applied.size or numpy.abs(applied).max() < TC.MATERIALITY_M:
+        return inset_values
+    record = TC.provenance_record(plan, model, applied, base_fit)
+    if model == "thresholds":
+        record["why"] += "; thresholds only: " + (
+            "the inset straddles the tile edge" if not plan["inside_tile"]
+            else "no base witness" if base_fit is None
+            else "the base does not reproduce the thresholds")
+    records[inset_path] = record
+    UI.vprint(0, "   [inset] %s corrected to its runway thresholds (%s, "
+                 "%s): %+.2f..%+.2f m." % (label, model, plan["why"],
+                                          record["applied_m"][0],
+                                          record["applied_m"][1]))
+    return numpy.where(valid, inset_values + field, inset_values)
 
 
 # =====================================================================
@@ -10210,7 +10392,20 @@ def densify_tile_dem_for_insets(tile):
     ``.alt`` write then land at that finer posting, and the info-only step
     2 load sees matching dimensions for its raster-size check.  Returns the
     factor applied.
+
+    Then, on a full load, plans the #2089 threshold correction
+    (:func:`_plan_threshold_corrections`): this is the one moment every
+    composition path passes with the working grid final and ``alt_dem``
+    still the pure base.
     """
+    factor = _densify_tile_dem_for_insets(tile)
+    if tile.dem is not None:
+        _plan_threshold_corrections(tile)
+    return factor
+
+
+def _densify_tile_dem_for_insets(tile):
+    """The densification of :func:`densify_tile_dem_for_insets`."""
     if tile.dem is None:
         return 1
     factor = resolve_working_grid_factor(tile, tile.dem)

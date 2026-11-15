@@ -55,6 +55,7 @@ from shapely.strtree import STRtree
 from ..geom.station_runs import section_runs
 from ..law import Law
 from ..law.tables import snap_margin_m
+from .deck_carry import END_TAG
 from .deck_signature import is_bridge_way
 from .dem import dem_z_many
 from .road_ways import mapped_width_m
@@ -187,6 +188,8 @@ def bridge_runs(airport, law: Law) -> BridgeRuns:
         t = w.tags or {}
         if not t.get("highway") or not is_bridge_way(t) or len(w.points) < 2:
             continue
+        if t.get(END_TAG):
+            continue  # rule 7's graded-end stretch rides the plate (#2065 A3)
         ln = LineString(w.points)
         if ln.length <= 0.0:
             continue

@@ -763,6 +763,30 @@ def stopped_tile_state(lat, lon, custom_build_dir="", attempt=0):
                      detail=detail, attempt=attempt)
 
 
+def _note_storage_session(tiles) -> None:
+    """The disk budget never clears a tile built or queued in this
+    session (#2087, ``storage_priority.note_session``)."""
+    try:
+        from . import storage_priority
+        storage_priority.note_session(tiles)
+    except Exception as error:                       # pragma: no cover
+        print("storage session note failed: %r" % (error,))
+
+
+def _recall_from_tier(tile) -> None:
+    """Lay back what a mounted storage tier holds of the tile's inputs
+    and rebuild data before its step (#2087, ``storage_tier_data``); a
+    failure only means the step downloads as before."""
+    lat, lon = getattr(tile, "lat", None), getattr(tile, "lon", None)
+    if lat is None or lon is None:
+        return
+    try:
+        from . import storage_tier_data
+        storage_tier_data.recall_tile(lat, lon)
+    except Exception as error:                       # pragma: no cover
+        print("storage tier recall failed: %r" % (error,))
+
+
 class EngineSession:
     """One engine, many views: commands in, typed events out."""
 
@@ -1116,6 +1140,7 @@ class EngineSession:
         except Exception:                                # pragma: no cover
             pass
         self._building = True
+        _note_storage_session(tiles)
         self._tile_overrides = {}
         self._tile_priority = {}
         self._note_overrides(tiles, overrides)
@@ -1213,6 +1238,7 @@ class EngineSession:
         Where it does not (a worker child its parent lent no token, or a run
         that builds no imagery), the fetch downloads nothing and reads the
         airport photos already cached."""
+        _recall_from_tier(tile)
         if key != "vector":
             return function(tile)
         self._apply_pack_packages(tile)
@@ -1313,6 +1339,7 @@ class EngineSession:
         the active run).
         """
         tiles = [tuple(tile) for tile in tiles]
+        _note_storage_session(tiles)
         do_overlays = with_auto_overlays(do_vector, do_imagery, do_overlays)
         priority = (_ORDER.rank(klass, deadline)
                     if klass is not None or deadline is not None else None)

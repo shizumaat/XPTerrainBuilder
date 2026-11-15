@@ -35,6 +35,7 @@ from auto_patch_v2.constraints.pads import (CEILING_RULING, pad_flats,
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import design as design_law
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
+from auto_patch_v2.model.constraints import Source
 from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.solve import Status, solve_design
@@ -449,9 +450,11 @@ class _WhyPM:
 
 
 class _WhyRow:
-    source = type("s", (), {"generator": "pads",
-                            "ruling": "structures.building_pad pad_slope_max "
-                                      "ceiling (owner 2026-09-09c)"})()
+    # the model's own Source, so a field the reader prints (``inputs``,
+    # lane l2068's why-hard line) is never missing from a hand stub
+    source = Source(generator="pads",
+                    ruling="structures.building_pad pad_slope_max ceiling (owner 2026-09-09c)",
+                    inputs=("pad:1",))
 
 
 def _why_hard(monkeypatch, law, one, hard, pm, z, limit=10):
@@ -492,6 +495,7 @@ def test_why_hard_lists_every_violated_row_in_metres_of_surface(law, monkeypatch
     assert row["vertices"][0]["lat"] == pytest.approx(40.48527108321)
     text = "\n".join(calls)
     assert "1 / 2 hard rows violated" in text and "40.48527108321" in text
+    assert row["inputs"] == ["pad:1"] and "inputs: pad:1" in text
 
 
 def test_why_hard_says_SETTLED_rather_than_printing_nothing(law, monkeypatch):

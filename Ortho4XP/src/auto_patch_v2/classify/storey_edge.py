@@ -44,7 +44,8 @@ from ..law.tables import role_side, snap_margin_m
 from .evidence import polygon_parts
 
 __all__ = ["ARM_PAD_KEY", "STOREY_M_KEY", "STOREY_Y_KEY", "STOREY_UNCONFIRMED_KEY",
-           "StoreyBand", "UPPER_FLOOR_KEY", "UPPER_UNIT_KEY", "UPPER_Y_KEY", "arm_storeys",
+           "StoreyBand", "UPPER_AIR_Z_KEY", "UPPER_FLOOR_KEY", "UPPER_UNIT_KEY", "UPPER_Y_KEY",
+           "arm_storeys",
            "ground_confirms", "knife_storeys", "storey_band", "storey_height"]
 
 #: evidence: metres of a lot's apron contact §27 read as across a storey
@@ -60,6 +61,8 @@ ARM_PAD_KEY = "storey_arm_pad"
 UPPER_Y_KEY = "upper_storey_y"
 UPPER_FLOOR_KEY = "upper_storey_floor"
 UPPER_UNIT_KEY = "upper_storey_unit"
+#: spec 2068 A2 G6: T4's airside ground under the pad's floor (DEM median)
+UPPER_AIR_Z_KEY = "upper_storey_air_z"
 #: what §27's flip wrote on a face (dropped from an arm cut back)
 _FLIP_KEYS = ("airside_edge_m", "airside_edge_flip", "airside_edge_round",
               "airside_edge_was")
@@ -243,4 +246,4 @@ def arm_storeys(final: list[list], cells, pads, airport, law: Law,
             extra.extend([born, next(names), p, f[3], ev, ev["kind"]] for p in arms)
     final.extend(extra)
     return {up.ref: {UPPER_Y_KEY: up.y, UPPER_FLOOR_KEY: up.floor_y,
-                     UPPER_UNIT_KEY: float(up.unit)} for up in ups}
+                     UPPER_UNIT_KEY: float(up.unit), UPPER_AIR_Z_KEY: up.air_z} for up in ups}

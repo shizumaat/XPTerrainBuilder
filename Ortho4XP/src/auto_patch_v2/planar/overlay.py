@@ -54,7 +54,7 @@ from .ridge_reach import reach_pavement_edge
 from .shore import pack_shore_walls
 from .zones import shore_declarations, shore_region, shore_wedge_m, zone_regions
 from .fill_bank import fill_bank_pieces
-from .stack_ground import deck_end_road_zone, stack_ground_pieces
+from .stack_ground import bridge_corridor_lines, deck_end_road_zone, stack_ground_pieces
 from .ground_chords import road_ground_densifier
 from ..model.planar import ROAD_ROLES, is_stack_apron_ref, is_stack_ground_ref
 from ..airport.old_dem_fill import fill_model_of
@@ -264,6 +264,33 @@ def _storey_lots(cells) -> dict[str, float]:
             if STOREY_Y_KEY in (c.evidence or {})}
 
 
+def _store_floor_yards(cells, reg: Registries) -> None:
+    """#2068: a floor yard stands on its floor pad's held block -- the
+    record goes on a held, non-conforming pad's ``held`` record only."""
+    from ..classify.floor_yard import floor_yard_reads
+    from ..model.registries import FLOOR_YARD
+    for ref, rec in floor_yard_reads(cells).items():
+        if ref in reg.held and not reg.held[ref].get("conforming"):
+            reg.held[ref][FLOOR_YARD] = rec
+
+
+def _yards_with_a_level(cells: tuple, reg: Registries, counts: dict) -> tuple:
+    """Spec 2068 A4 F1': a yard stands only where its level exists -- the
+    late ``cells`` less every fence-yard cell whose pad has no yard record
+    in ``reg`` (:meth:`Registries.yard_pads`), counted (and named) into
+    ``counts`` where any fence-yard cell stands."""
+    from ..model.planar import fence_yard_pad
+    yards = [c for c in cells if fence_yard_pad(c.ref) is not None]
+    if not yards:
+        return cells
+    lv = reg.yard_pads()
+    gone = {str(c.ref) for c in yards if fence_yard_pad(c.ref) not in lv}
+    counts["fence_yard_no_level"] = len(gone)
+    if gone:
+        counts["fence_yard_no_level_refs"] = "; ".join(sorted(gone))
+    return tuple(c for c in cells if str(c.ref) not in gone)
+
+
 def build_arrangement(airport: Airport, classification: Classification,
                       law: Law, grid_m: float | None = None, *,
                       level_b: float | None = None,
@@ -444,6 +471,7 @@ def build_arrangement(airport: Airport, classification: Classification,
                                                 seeds=level_seeds, shells=shells,
                                                 upper=upper_pad_reads(cells))
             _pad_clip.update(_plat)
+            _store_floor_yards(cells, reg)
         # #1333: a covered cutting no lower level took leaves every pad
         # (``planar/covered_cut``; #1179: a pad never fills a cut)
         from .covered_cut import trim_uncut
@@ -537,6 +565,14 @@ def build_arrangement(airport: Airport, classification: Classification,
     lines.extend(s.line for s in sources)
     bands = seam_bands(airport, regions, law.tables.emit.seam.half_width_m)
     lines.extend(LineString(b.exterior.coords) for b in bands)
+    # #2065 A3 rule 6: a graded bridge end's corridor CUTS the faces it
+    # crosses (its sides and a cross line every sample step), so a cell it
+    # runs over (a groundside lot with no vertex in the corridor) carries
+    # the vertices R6 holds on the ramp; never through airside or a structure
+    from ..law.tables import is_structure_role
+    lines.extend(bridge_corridor_lines(airport, law, [
+        r.polygon for r in (*base_regions, *pad_regions)
+        if r.side == "airside" or is_structure_role(law, r.role) or is_rigid_role(law, r.role)]))
 
     # PASS A — Node at full precision, snap the ONE result to the grid, then
     # node AGAIN under the grid's precision model: snap-rounding can create
@@ -600,6 +636,7 @@ def build_arrangement(airport: Airport, classification: Classification,
                                      _ring_lines_of)
     _pad_clip.update(_zone_counts)
     regions = base_regions + zone_regs + pad_regions
+    ribbon_cells = _yards_with_a_level(ribbon_cells, reg, _pad_clip)
     frozen = None
     if ribbon_cells:
         from .ribbons import _ribbons_pass_c   # lazy: ribbons imports this module

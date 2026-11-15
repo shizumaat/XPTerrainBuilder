@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import math
+import types
 import typing as _t
 
 import numpy as np
@@ -51,7 +52,9 @@ from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
 from .storey_pad import pit_skip, read_storey_shells, storey_pads
-from .free_bridge import admitted as free_admitted
+from .free_bridge import admitted as free_admitted, plated as free_plated
+from .free_bridge import planar_stacks as free_planar_stacks
+from ..model.deck_stack import live_stacks
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from ..airport.bridge_ground import BridgeGround, bridge_ground, bridge_runs
@@ -419,6 +422,19 @@ def build(airport: Airport, classification: Classification, law: Law,
     # the structure reads are DONE (issue #136: the progress window's
     # structures step ends here and the arrangement's begins)
     _pulse.mark("structures")
+    # #2065 A3 C2 N2: a free bridge the planar stage refused, or one whose
+    # deck carries a split-level / walled plate (A1 ``plated_deck``, listed:
+    # owner Q3), mints no ground; the stacks the arrangement reads are the
+    # admitted ones (``planar/free_bridge.planar_stacks``;
+    # ``PlanarMap.bridge_stacks``)
+    free, plated_notes = free_plated(free, basins, objects)
+    sstats.hard_decks.extend(plated_notes)
+    bridge_stacks, bs_notes = free_planar_stacks(getattr(airport, "deck_stacks", ()) or (),
+                                                 free)
+    sstats.hard_decks.extend(bs_notes)
+    airport = _dc.replace(airport, deck_stacks=live_stacks(
+        getattr(airport, "deck_stacks", ()) or (),
+        types.SimpleNamespace(bridge_stacks=bridge_stacks)))
     _pulse.tick("building the planar arrangement")
     arr = build_arrangement(airport, classification, law, grid_m, level_b=level_b,
                             level_seeds=seeds, shells=storeys)
@@ -538,7 +554,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                    faces, {b.id: b for b in breaklines}, seam, tunnels, basins,
                    channels=tuple(channels), object_floors=tuple(floors),
                    overpasses=tuple(overpasses),
-                   free_bridges=tuple(free),
+                   free_bridges=tuple(free), bridge_stacks=tuple(bridge_stacks),
                    decks=tuple(decks),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)

@@ -968,6 +968,7 @@ _SHARED: tuple[str, ...] = (
     "elevation_access.strategies.wfs_tile_index",
     "elevation_access.strategies.xyz_archive_drop",
     "elevation_access.strategies.xyz_text_tiles",
+    "elevation_access.threshold_correction",
     "elevation_access.tls_trust",
     "elevation_access.vertical_units",
     "elevation_access.warp",

@@ -513,7 +513,11 @@ def _airport_elevation_text(build_dir: str) -> str:
             head = " ".join(part for part in (
                 str(row.get("provider") or "?"),
                 _resolution(row.get("resolution_m"))) if part)
-            groups.setdefault(head, []).append(str(row["icao"]))
+            # #2089: an inset shifted onto its surveyed runway thresholds.
+            name = str(row["icao"]) + (
+                ", corrected to runway thresholds"
+                if row.get("corrected_m") else "")
+            groups.setdefault(head, []).append(name)
     return "; ".join("%s: %s" % (head, ", ".join(sorted(names)))
                      for head, names in groups.items())
 

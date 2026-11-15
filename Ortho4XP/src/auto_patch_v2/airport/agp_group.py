@@ -34,10 +34,10 @@ from ..model.agp_group import AGP_GROUP_PREFIX, AgpGroup, AgpJoin, AgpMember
 from . import agp_ground as _ag
 from . import agp_pieces as _ap
 
-__all__ = ["members_of", "read_groups", "attach_agp_groups", "log_line"]
+__all__ = ["read_groups", "attach_agp_groups", "log_line"]
 
 
-def members_of(airport) -> list:
+def _members_of(airport) -> list:
     """``agp_ground._Member`` per on-ground pack-local ``.agp`` row of the
     airport's DSF objects (lon / lat through the frame), in row order."""
     import os
@@ -106,7 +106,7 @@ def read_groups(airport, law) -> tuple[tuple[AgpGroup, ...], tuple[AgpJoin, ...]
     """``(groups, refused joins, notes)`` — module doc."""
     from .dem import dem_z_many
     agp = law.tables.structures.agp
-    members = members_of(airport)
+    members = _members_of(airport)
     if len(members) < 2:
         return (), (), []
     to_xy = airport.frame.transformers()[0]

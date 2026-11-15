@@ -18,8 +18,9 @@ loads instead:
   the reader claims, and the object plan for each claim's fate.
 
 Sites: the lowest node of every ``tunnel_ramp`` / ``tunnel_trench`` way and
-every tunnel mouth of the sidecar (its floor = the lowest cut node within R,
-else the drawn mesh there).  Per site, the claimed placements (written rows
+every tunnel mouth of the sidecar (its floor = the patch z at the nearest
+point of a ``tunnel_ramp`` ring edge within R, else the drawn mesh there).
+Per site, the claimed placements (written rows
 whose resource -- split bodies ``<stem>__b<N>_<hash>`` folded to their
 stem -- a reader claimed) with OBJ vertices within R, and their lowest
 drawn vertex.  Bars (#1903 brief):
@@ -115,6 +116,9 @@ class Claim:
     fate: str             # split / KEPT: <reason> / whole
     #: an object floor's cut stands this far beneath its floor (2026-11-06d (4))
     clearance: float = 0.0
+    #: the claimed placement (``dsf:objN``); a PORTAL SEAT's own portal for
+    #: its led frame members (#1689 A7)
+    obj: str = ""
 
 
 # ── the drawn mesh ──────────────────────────────────────────────────────
@@ -198,28 +202,43 @@ def read_sites(patch_path, sidecar, radius_m):
                 ways.append((el.get("id"), role,
                              [n.get("ref") for n in el.findall("nd")]))
             el.clear()
-    sites, cut_nodes = [], []
+    sites = []
     for wid, role, refs in ways:
         pts = [nodes[r] for r in refs if r in nodes and not math.isnan(nodes[r][2])]
         if not pts:
             continue
-        cut_nodes.extend(pts)
         lo = min(pts, key=lambda p: p[2])
         sites.append(Site(f"{role} {wid}", lo[0], lo[1], lo[2],
                           max(p[2] for p in pts), role))
-    cut = numpy.array(cut_nodes, dtype=float).reshape(-1, 3)
+    ramps = [[nodes[r] for r in refs if r in nodes and not math.isnan(nodes[r][2])]
+             for _w, role, refs in ways if role == "tunnel_ramp"]
     for r in sidecar.get("tunnel_mouth_depths", []):
         lat, lon = r["mouth_ll"]
-        floor = float("nan")
-        if len(cut):
-            kx = M_PER_DEG * math.cos(math.radians(lat))
-            d = numpy.hypot((cut[:, 0] - lon) * kx, (cut[:, 1] - lat) * M_PER_DEG)
-            near = d <= radius_m
-            if near.any():
-                floor = float(cut[near, 2].min())
-        sites.append(Site(f"mouth {r['id']}", lon, lat, floor, float("nan"),
-                          "mouth"))
+        sites.append(Site(f"mouth {r['id']}", lon, lat, ramp_edge_z(ramps, lon, lat, radius_m),
+                          float("nan"), "mouth"))
     return sites
+
+
+def ramp_edge_z(ramps, lon, lat, radius_m):
+    """The patch z at the NEAREST POINT of a tunnel ramp's ring edges to
+    ``(lon, lat)`` (linear along the edge), or nan with none within
+    ``radius_m``.  #1689 A7: a mouth stands ON its ramp's edge -- read
+    off the nearest NODE, a 40 m wide ramp's nodes stood 19 m away and the
+    floor fell back to the mesh on the cut face (KBNA P1: 169.69 for 168.71)."""
+    kx = M_PER_DEG * math.cos(math.radians(lat))
+    best = (radius_m, float("nan"))
+    for pts in ramps:
+        xyz = [((x - lon) * kx, (y - lat) * M_PER_DEG, z) for x, y, z in pts]
+        for (x0, y0, z0), (x1, y1, z1) in zip(xyz, xyz[1:], strict=False):
+            dx, dy = x1 - x0, y1 - y0
+            L2 = dx * dx + dy * dy
+            t = 0.0 if L2 <= 0.0 else min(1.0, max(0.0, -(x0 * dx + y0 * dy) / L2))
+            d = math.hypot(x0 + t * dx, y0 + t * dy)
+            if d <= best[0]:
+                best = (d, z0 + t * (z1 - z0))
+        if len(xyz) == 1 and math.hypot(xyz[0][0], xyz[0][1]) <= best[0]:
+            best = (math.hypot(xyz[0][0], xyz[0][1]), xyz[0][2])
+    return float(best[1])
 
 
 def patch_bbox(patch_path, margin_deg):
@@ -242,11 +261,40 @@ def plan_fates(plan):
     return fates
 
 
-def read_claims(sidecar, tile, plans, pristine):
+#: a roofed portal seated with its zero on the pinned floor (the rebake
+#: plan's ``authored_seats`` seat ``terrain_shaped.PORTAL_SEAT``) and every
+#: placement it leads (``led_by``): judged as ONE seat (#1689 A7)
+PORTAL_SEAT = "portal_seat"
+_PORTAL_SEAT_NAME = "portal floor"
+
+
+def portal_seats(rebake_plan):
+    """``{portal id: (its led members' ids)}`` of every PORTAL-SEAT record of
+    a rebake plan (``authored_seats``); ``{}`` for a plan without them."""
+    out: dict = {}
+    for r in (rebake_plan or {}).get("authored_seats", []) or ():
+        if r.get("seat") != _PORTAL_SEAT_NAME:
+            continue
+        if r.get("led_by"):
+            out.setdefault(str(r["led_by"]), []).append(str(r["id"]))
+        else:
+            out.setdefault(str(r["id"]), [])
+    return {k: tuple(v) for k, v in out.items()}
+
+
+def read_claims(sidecar, tile, plans, pristine, seats=None):
     """Every object a structure reader claimed, resolved to its pristine
     resource and its plan fate.  ``plans`` / ``pristine``: tile -> plan
-    dict / pristine ``DsfDump``."""
-    raw = [("portal", r["id"], r["portal"]) for r in sidecar.get("portal_cuts", [])]
+    dict / pristine ``DsfDump``; ``seats`` (:func:`portal_seats`): a portal
+    seated on its floor claims its led frame with it (#1689 A7)."""
+    seats = seats or {}
+    raw = []
+    for r in sidecar.get("portal_cuts", []):
+        if r["portal"] in seats:
+            raw += [(PORTAL_SEAT, r["id"], o, r["portal"])
+                    for o in (r["portal"], *seats[r["portal"]])]
+        else:
+            raw.append(("portal", r["id"], r["portal"]))
     for r in sidecar.get("tunnel_objects", []):
         raw += [("tunnel_object:" + r["kind"], r["id"], o) for o in r["objects"]]
     for r in sidecar.get("object_cuts", []):
@@ -261,7 +309,7 @@ def read_claims(sidecar, tile, plans, pristine):
     for r in sidecar.get("deck_anchors", []):
         raw.append((DECK_ANCHOR, f"{r.get('end', '')}", str(r.get("object", ""))))
     claims = []
-    for kind, cid, obj in raw:
+    for kind, cid, obj, *seat in raw:
         m = _CLAIM.match(obj)
         if not m:
             continue
@@ -271,7 +319,8 @@ def read_claims(sidecar, tile, plans, pristine):
         if not res and dump is not None and i < len(dump.placements):
             res = dump.placements[i].def_path
         claims.append(Claim(kind, cid, res, fate,
-                            clear.get(cid, 0.0) if kind == "object_floor" else 0.0))
+                            clear.get(cid, 0.0) if kind == "object_floor" else 0.0,
+                            seat[0] if seat else obj))
     return claims
 
 
@@ -408,12 +457,21 @@ def check_site(site, drawn, claims, radius_m, tol, levels=None, zero=None):
         j = min(bottoms, key=bottoms.get)
         row["lowest_any"] = {"resource": drawn.rows[j].def_path,
                              "delta": round(bottoms[j] - floor, 2)}
-    cut, deck, feet, lv = [], [], [], {}
+    cut, deck, feet, lv, seat = [], [], [], {}, []
     for i, z in sorted(bottoms.items(), key=lambda kv: kv[1]):
         cs = by_stem.get(stem(drawn.rows[i].def_path))
         if not cs:
             continue
         is_deck = any(c.kind == DECK_ANCHOR for c in cs)
+        if not is_deck and all(c.kind == PORTAL_SEAT for c in cs):
+            rec = {"row": i, "resource": drawn.rows[i].def_path, "kind": drawn.rows[i].kind,
+                   "bottom": round(z, 2), "delta": round(z - floor, 2), "role": "SEAT",
+                   "fate": cs[0].fate, "clearance": 0.0}
+            row["objects"].append(rec)
+            seat.append((rec, cs))
+            if "split undone" in rec["fate"]:
+                row["fails"].append(f"split undone: {rec['resource']}")
+            continue
         level = next((c.claim_id for c in cs if c.claim_id in levels), None)
         member = not is_deck and level is None and all(
             c.kind == drawn_members.FRAME_MEMBER for c in cs)
@@ -438,6 +496,8 @@ def check_site(site, drawn, claims, radius_m, tol, levels=None, zero=None):
             r["foot"], fail = drawn_members.foot_verdict(r["gap"], tol)
             if fail:
                 row["fails"].append(f"{os.path.basename(r['resource'])}: {fail}")
+    if seat:
+        _seat_bar(row, seat, floor, zero, tol)
     for lid in lv:
         bar = drawn_members.check_level_floor(levels[lid], drawn, zero, tol)
         row.setdefault("level", {})[lid] = bar
@@ -468,9 +528,36 @@ def check_site(site, drawn, claims, radius_m, tol, levels=None, zero=None):
         row["delta"] = min(r["delta"] for r in deck)
         if not row["delta"] >= -tol:
             row["fails"].append(f"deck under the floor {row['delta']:+.2f}")
+    elif seat:
+        row["role"] = "SEAT"
     row["verdict"] = ("FAIL" if row["fails"] else
                       "PASS" if row["role"] != "UNCLAIMED" else "-")
     return row
+
+
+def _seat_bar(row, seat, floor, zero, tol):
+    """THE PORTAL SEAT (#1689 A7): a roofed portal seated with its zero on
+    the floor, and the frame it leads, judged as ONE seat -- each portal's
+    drawn zero within ``tol`` of the floor, and the frame NOT FLOATING (its
+    lowest drawn vertex near the site at most ``tol`` over the floor).  Never
+    by one row's own bottom: a lintel over the opening has no solid under
+    it, the frame's feet stand in its mates (KBNA P2: ``Oeste_p2``'s lowest
+    vertex 5.8 m over the road, its feet in ``Oeste_p1`` / ``p3``)."""
+    portals = sorted({c.obj for _r, cs in seat for c in cs if c.obj})
+    zs = {}
+    for pid in portals:
+        z = zero(pid) if zero is not None else None
+        zs[pid] = None if z is None else round(z - floor, 2)
+        if z is None:
+            row["fails"].append(f"portal seat {pid}: no written row")
+        elif abs(z - floor) > tol:
+            row["fails"].append(f"portal seat {pid}: zero {z - floor:+.2f} off the floor > {tol}")
+    low = min(r["delta"] for r, _cs in seat)
+    row["seat"] = {"zeros": zs, "frame_low": low}
+    if not low <= tol:
+        row["fails"].append(f"portal seat frame floats {low:+.2f} > {tol}")
+    if row["role"] == "UNCLAIMED":
+        row["delta"] = low
 
 
 # ── a deck stack (#1971) ────────────────────────────────────────────────
@@ -999,6 +1086,16 @@ def load_plans(patch_dir, icao):
     return plans
 
 
+def _rebake_plan(patch_dir, icao):
+    """The build's rebake plan beside its patch (``o4_v2_rebake_<ICAO>.json``),
+    or ``{}``."""
+    try:
+        return json.load(open(os.path.join(patch_dir, f"o4_v2_rebake_{icao}.json"),
+                              encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def dump_dsf(path, tmp):
     from auto_patch.dsf_reader import _dsftool_path
     from auto_patch_v2.airport.dsf_write import dump
@@ -1043,7 +1140,8 @@ def run(args):
             written += dump_dsf(plan["dsf_path"], tmp).placements
             pristine[t] = dump_dsf(pristine_dsf_path(plan["dsf_path"]), tmp)
     mesh, tile_dsfs = _sampler(args, tile_dsfs, bbox)
-    claims = read_claims(sidecar, tile, plans, pristine)
+    claims = read_claims(sidecar, tile, plans, pristine, portal_seats(_rebake_plan(patch_dir,
+                                                                                args.icao)))
     drawn = Drawn(written, pack_root, mesh)
     rows = member_rows(args, patch, sidecar, drawn, claims, pristine, tile)
     lifts = body_offsets_y(plans.values())
@@ -1181,7 +1279,8 @@ def run_predict(args):
         atlas = PatchAtlas(patch, standoff=standoff,
                            dem=_Dem(args.dem) if getattr(args, "dem", None) else None)
         drawn = Drawn(written, pack_root, atlas)
-        claims = read_claims(sidecar, tile, {tile: plan}, pristine)
+        claims = read_claims(sidecar, tile, {tile: plan}, pristine,
+                             portal_seats(_rebake_plan(os.path.dirname(patch), args.icao)))
         rows += member_rows(args, patch, sidecar, drawn, claims, pristine, tile)
     for r in sidecar.get("storey_shells", []):
         import drawn_storey

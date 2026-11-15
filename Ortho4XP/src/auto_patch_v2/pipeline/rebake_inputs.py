@@ -374,6 +374,22 @@ def _keep_cut_rings(model_seats: list, floor_seats: _t.Sequence) -> list:
              if str(m["id"]) in rings and not m.get(CUT_RING) else m) for m in model_seats]
 
 
+def _portal_footprints(pm) -> dict[str, _t.Any]:
+    """Portal id -> its OWN FOOTPRINT (frame metres) of every roofed portal
+    seated at its pinned floor (``Tunnel.portal_footprint``, #1689 R2 A2 /
+    R3)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    out: dict[str, _t.Any] = {}
+    for tn in getattr(pm, "structures", ()) or ():
+        rings = getattr(tn, "portal_footprint", ()) or ()
+        polys = [Polygon(r) for r in rings if len(r) >= 3]
+        if tn.portal and polys:
+            out[str(tn.portal)] = unary_union([out[str(tn.portal)], *polys]) \
+                if str(tn.portal) in out else unary_union(polys)
+    return out
+
+
 def _solid_cache(law):
     """A resource cache reading a frame's solids (the split-level reader's)."""
     from ..airport import frame_entry as _fe
@@ -458,8 +474,10 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
                 + tuple(floor_seats) + tuple(adapted))
     if objects:
         # #1689: a roofed portal's frame rides its floor seat
+        ob = law.tables.structures.tunnel.object
         authored += tuple(_ts.portal_frame_records(
-            authored, objects, float(law.tables.structures.tunnel.object.cover_placement_tol_m)))
+            authored, objects, float(ob.cover_placement_tol_m), _portal_footprints(pm),
+            _solid_cache(law), float(ob.bore_end_tolerance_m)))
     # ... written WHOLE at it, like a floor's frame: a plan split hands the
     # row to its bodies and drops the seat (``terrain_shaped.row_seats``)
     excluded |= {str(r["id"]) for r in authored if r.get("seat") == _ts.PORTAL_SEAT}

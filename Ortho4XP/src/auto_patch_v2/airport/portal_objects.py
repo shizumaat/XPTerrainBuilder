@@ -48,7 +48,8 @@ from .hanging_objects import edge_wall_reading, flush_hanging
 from .obj8_clip import _bulk_polys
 from .object_cut import _face_normals_y, _plan_area
 
-__all__ = ["Portal", "across_bore", "read_portals", "portal_of", "roof_of", "roof_reading"]
+__all__ = ["Portal", "across_bore", "read_portals", "portal_of", "roof_of",
+           "roof_reading"]
 
 
 @_dc.dataclass(frozen=True)
@@ -105,14 +106,23 @@ class Portal:
     #: RULINGS 2026-11-06c (3): an ENTRANCE face's TOP — its plan (frame
     #: metres, ``trench_objects._face_at``) and its level once seated (the
     #: ground over it): the ramp ends at its front and the ground round it
-    #: is graded up to it (``planar/entrance_skirt``); ``None`` otherwise
+    #: is graded up to it (``planar/entrance_skirt``); a TALL roofed portal's
+    #: roof and its WINGS standing at its top (``_wing_plan``, #1689 R4) and
+    #: the cover on it (#1689 R2 A3, no :attr:`bottom_y`); ``None`` otherwise
     face_plan: object = None
     face_top_z: "float | None" = None
     #: #1737: the top plan the face's cover was read over (``trench_objects.
     #: _face_at``) -- a lid's as well as a headwall's: where AIRSIDE pavement
     #: abuts it, the face's top is that pavement's level
-    #: (``constraints/airside_top``); ``None`` otherwise
+    #: (``constraints/airside_top``); a ROOFED portal's roof plan (#1689 R2
+    #: A2: the reach its seat leads its frame within); ``None`` otherwise
     top_plan: object = None
+    #: #1689 R3: a ROOFED portal's OWN FOOTPRINT -- the plan of its genuine
+    #: solids, roof, walls and wings (frame metres): the frame its seat
+    #: leads stands in it (``terrain_shaped.portal_frame_records``) and a
+    #: tall portal's host pads are cut to it (``planar/entrance_skirt.
+    #: host_blade``); ``None`` otherwise
+    footprint: object = None
     #: #1938 (RULINGS 2026-11-13h, round 2 S2/S3): an ENTRANCE object's
     #: WALL REACH -- how far its solids hanging ``shell_floor_min_m`` or more
     #: under its zero run along the approach from the end (metres; inside it
@@ -271,6 +281,111 @@ def hanging_reading(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, law
     hull = MultiPoint(pts).convex_hull
     ring = list(hull.exterior.coords) if hull.geom_type == "Polygon" else list(hull.coords)
     return top - bottom, tuple((float(x), float(y)) for x, y in ring)
+
+
+def _solids_plan(o: _obj8.PlacedObject, g: _obj8.ObjGeometry,
+                genuine: _t.Sequence[_obj8.Component], law):
+    """The placed plan (frame metres) of ``o``'s genuine solids -- every
+    plan-bearing triangle's plan, unioned (``frame_entry``) -- or ``None``.
+    A wall stands edge-on in plan: a reader grows the plan by its own
+    reach to take it in."""
+    if not genuine:
+        return None
+    tris = np.concatenate([c.tris for c in genuine])
+    plan = _fe.union(_bulk_polys(g.vertices, tris), "portal_objects._solids_plan")
+    return _fe.enter([plan], _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
+
+
+#: a wall's half thickness in plan: it stands edge-on, so its outline is
+#: read as a line grown by this much (#1689 R4 W1)
+_WALL_HALF_M = 0.1
+
+
+def _station(c, end_xy: XY, into: XY) -> float:
+    """``c``'s station along ``into`` from ``end_xy`` (into the bore)."""
+    return (c[0] - end_xy[0]) * into[0] + (c[1] - end_xy[1]) * into[1]
+
+
+def _wing_plan(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, roof, local, top_y: float,
+               end_xy: XY, into: "XY | None", law):
+    """The plan (frame metres) of a TALL portal's WINGS at one bore end, or
+    ``None``: the solids of its OWN object standing AT its stated top
+    ``top_y`` (highest vertex within ``[tunnel.object] cover_flush_m`` of
+    it; every still solid read, a thin cap included -- at the top it is no
+    ground decal), taken in plan (plates as polygons, every outline as a
+    line grown by :data:`_WALL_HALF_M`), less the whole ``roof`` grown by
+    twice that; a part is a wing where it stands within ``plate_bin_m`` of
+    ``local`` (the roof over this end) and runs at least
+    ``entrance_skirt_m`` OUT of the bore beyond that roof's front.
+
+    #1689 R4: the wings are part of the top the portal states, so the
+    level piece of its skirt runs along them.  MEASURED KBNA Murfreesboro
+    east: two wing walls run 15.2 and 15.6 m out of the bore at the
+    headwall's level (to 8.8 over the zero); held at the stub roof alone,
+    the ground behind them fell to the DEM."""
+    if into is None or local is None or local.is_empty:
+        return None
+    import shapely
+    ob = law.tables.structures.tunnel.object
+    v, t = g.vertices, g.solid
+    if len(t) and g.animated.shape[0]:
+        t = t[~g.animated]
+    t = t[v[t][:, :, 1].max(axis=1) >= float(top_y) - float(ob.cover_flush_m)] \
+        if len(t) else t
+    if not len(t):
+        return None
+    pts = v[t][:, :, [0, 2]]
+    lines = shapely.linestrings(np.concatenate([pts, pts[:, :1]], axis=1))
+    plan = _fe.union([*_bulk_polys(v, t), *shapely.buffer(lines, _WALL_HALF_M).tolist()],
+                     "portal_objects._wing_plan")
+    plan = _fe.enter([plan], _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
+    if plan is None or plan.is_empty:
+        return None
+    rings = [c for q in getattr(local, "geoms", [local]) if q.geom_type == "Polygon"
+             for c in q.exterior.coords]
+    if not rings:
+        return None
+    front = min(_station(c, end_xy, into) for c in rings)
+    beyond = plan.difference(roof.buffer(2.0 * _WALL_HALF_M))
+    parts = [q for q in getattr(beyond, "geoms", [beyond])
+             if q.geom_type == "Polygon" and not q.is_empty
+             and q.distance(local) <= float(ob.plate_bin_m)
+             and front - min(_station(c, end_xy, into) for c in q.exterior.coords)
+             >= float(ob.entrance_skirt_m)]
+    return _fe.union(parts, "portal_objects._wing_plan") if parts else None
+
+
+def _front_wall_top(o: _obj8.PlacedObject, g: _obj8.ObjGeometry,
+                   genuine: _t.Sequence[_obj8.Component], at, law) -> "float | None":
+    """The TOP y (over the object's zero) of a tall portal's FRONT WALL at
+    a bore end: the highest of its genuine solids' WALL faces (``|normal
+    y|`` under ``plate_normal_y_min``) standing in ``at`` -- the roof
+    within that end's reach, frame metres -- grown by
+    ``bore_end_tolerance_m``: the headwall over the mouth, read at its full
+    height.  ``None`` where no wall stands there.
+
+    #1689 R3 (master ruling 2026-11-15): the top a tall portal states is
+    its headwall's own top, not the cover the survey read on its roof.
+    MEASURED KBNA Murfreesboro east portal: a hollow stub roof at 7.78
+    over the zero, the headwall in front of it to 9.17 (the survey's cover
+    176.50, the headwall top 177.88 with the zero on the 168.71 floor);
+    the west portal's headwall top is its roof top, 8.89."""
+    if not genuine or at is None or at.is_empty:
+        return None
+    import shapely
+    ob = law.tables.structures.tunnel.object
+    v = g.vertices
+    tris = np.concatenate([c.tris for c in genuine])
+    walls = tris[_face_normals_y(v, tris) < ob.plate_normal_y_min]
+    if not len(walls):
+        return None
+    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
+    p = v[walls]
+    px, py = a * p[:, :, 0] + b * p[:, :, 2] + xo, d * p[:, :, 0] + e * p[:, :, 2] + yo
+    ring = np.stack([px, py], axis=2)
+    lines = shapely.linestrings(np.concatenate([ring, ring[:, :1]], axis=1))
+    hit = shapely.intersects(lines, at.buffer(float(ob.bore_end_tolerance_m)))
+    return float(p[hit][:, :, 1].max()) if hit.any() else None
 
 
 def _ground_covers_roof(roof, end_xy: XY, dem_z, law, into: "XY | None" = None
@@ -490,6 +605,7 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                                f"{tn.mouth_depth_m} and no surveyed ground stands on its "
                                f"roof: a building on the bore, not a portal")
                 continue
+        foot = _solids_plan(o, g, cache.genuine(o.resolved), law)
         for j in near:
             xy, wid = ends[j]
             # an end the road pins up the open road (#1689) opens over the
@@ -497,15 +613,30 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
             # the roof is (KBNA west: an 86 m diagonal parapet, 19 m within
             # the reach)
             off = roof.distance(Point(xy))
-            width, edges = (_roof_opening(roof, xy, into.get((xy, wid)), tol) if off <= tol
-                            else _roof_opening(roof.intersection(Point(xy).buffer(off + tol)),
-                                               xy, into.get((xy, wid)), off + tol))
+            local = roof if off <= tol else roof.intersection(Point(xy).buffer(off + tol))
+            width, edges = _roof_opening(local, xy, into.get((xy, wid)),
+                                         tol if off <= tol else off + tol)
             # a tall portal's floor is the ground ON ITS ROOF less its roof
             # top: the ground at the cap stands inside the surveyed cut
+            floor = (cover[j] - depth) if j in cover else None
+            # #1689 R2 A3 / R3: a TALL portal STATES ITS TOP -- its roof plan
+            # at its zero (the floor) plus its FRONT WALL's top (the cover
+            # the survey read on the roof where no wall stands at the end):
+            # the ground round it is graded to it (``planar/entrance_skirt``;
+            # no bottom: the mouth rule is a roofed portal's)
+            front = None if floor is None else _front_wall_top(
+                o, g, cache.genuine(o.resolved), local, law)
+            # #1689 R4: its WINGS standing at that top are part of the top
+            wing = None if front is None else _wing_plan(
+                o, g, roof, local, front, xy, into.get((xy, wid)), law)
             out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,
                               (float(o.xy[0]), float(o.xy[1])),
-                              floor_z=(cover[j] - depth) if j in cover else None,
-                              opening_m=width, opening_xy=edges,
+                              floor_z=floor, opening_m=width, opening_xy=edges,
+                              face_plan=(roof if wing is None else roof.union(wing))
+                              if j in cover else None,
+                              face_top_z=None if floor is None else float(
+                                  cover[j] if front is None else floor + front),
+                              top_plan=roof, footprint=foot,
                               zero_z=None if ground is None else zero_of(o, ground.msl)))
     out.sort(key=lambda p: (p.end_xy, p.object_id))
     return out, refused

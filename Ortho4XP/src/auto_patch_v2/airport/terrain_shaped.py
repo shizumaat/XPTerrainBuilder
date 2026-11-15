@@ -326,7 +326,8 @@ def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None,
 
 
 def portal_frame_records(records: _t.Sequence[_t.Mapping[str, _t.Any]], objects: _t.Sequence,
-                         tol_m: float) -> list[dict[str, _t.Any]]:
+                         tol_m: float, footprints: "_t.Mapping[str, _t.Any] | None" = None,
+                         cache=None, reach_m: float = 0.0) -> list[dict[str, _t.Any]]:
     """#1689 (owner 2026-10-30T16:22Z): A ROOFED PORTAL LEADS ITS GROUP.
     Every placement co-placed with a roofed portal seated at its pinned
     floor (a :data:`PORTAL_SEAT` record; one anchor and heading within
@@ -335,8 +336,19 @@ def portal_frame_records(records: _t.Sequence[_t.Mapping[str, _t.Any]], objects:
     zero, so the group stands on the road as one.  MEASURED (#1684): the
     22o connected-group median seated a portal's frame 14.3 m over its
     floor.  An ENTRANCE face's record is seated face by face and leads
-    nothing here."""
+    nothing here.
+
+    #1689 R2 A2 / R3: the lead stops at the PORTAL'S OWN FOOTPRINT -- a
+    co-placed placement is led only where half its plan box stands in the
+    plan of the portal object's solids, roof, walls and wings
+    (``footprints``: portal id -> frame polygon, ``Portal.footprint``)
+    grown by ``reach_m`` (``walled_pit._in_pit``, ``cache`` the plan
+    boxes'); a portal with no footprint leads nothing.  MEASURED LFMN:
+    ``LFMN_Bld10_08.obj``, a roofed pin on a shared datum, led 82
+    co-placed mates airport-wide; KBNA Murfreesboro east: led by the roof
+    alone its wing blocks and road plate kept their own seats."""
     from .hanging_objects import _co_placed
+    from .walled_pit import _in_pit
     by_id = {str(o.id): o for o in objects or ()}
     seated = {str(r.get("id")) for r in records}
     out: list[dict[str, _t.Any]] = []
@@ -344,10 +356,12 @@ def portal_frame_records(records: _t.Sequence[_t.Mapping[str, _t.Any]], objects:
         if r.get("seat") != PORTAL_SEAT:
             continue
         o = by_id.get(str(r.get("id")))
-        if o is None:
+        foot = (footprints or {}).get(str(r.get("id")))
+        if o is None or foot is None or foot.is_empty or cache is None:
             continue
         for q in objects:
-            if str(q.id) in seated or not _co_placed(o, q, tol_m):
+            if str(q.id) in seated or not _co_placed(o, q, tol_m) \
+                    or not q.resolved or not _in_pit(q, foot, cache, reach_m):
                 continue
             seated.add(str(q.id))
             out.append({"id": str(q.id), "resource": q.path, "datum": "portal",

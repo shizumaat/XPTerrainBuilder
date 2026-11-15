@@ -1139,13 +1139,16 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
 def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                strip_rep=None, late_cut: dict | None = None,
                late_stage: dict | None = None, cells=(),
-               hard_conflict=(), runway_flex=(), agp_report=None) -> dict:
+               hard_conflict=(), runway_flex=(), agp_report=None, objects=None) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
     (``tools/patch_proximity_diff.py``, ``tools/osm_site.py``) can be read
     off a replay instead of a 6-minute build.  No rebake plan, no tile
-    pieces.
+    pieces; with the pack's ``objects``, the plan's AUTHORED SEATS as the
+    build's rebake inputs publish them (``pipeline/rebake_inputs``, the
+    ``authored_seats`` a portal's led frame shows in, ``led_by``) beside the
+    patch as ``<ICAO>.authored_seats.json`` (#1689).
 
     The patch-boundary bank pass that once ran here is deleted (owner
     RULINGS 2026-10-04c (3))."""
@@ -1224,6 +1227,12 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     paths = write_patch(surf_out, law, emit_dir, pub, header, face_tags(pm, law, airport))
     print(f"    emitted {paths.patch} ({paths.ways} ways, {paths.nodes} nodes) in "
           f"{time.perf_counter() - t:.1f} s")
+    if objects:
+        from auto_patch_v2.pipeline.rebake_inputs import _rebake_inputs
+        got = _rebake_inputs(pm, law, surf, airport, objects, agp_report=agp_report)
+        (emit_dir / f"{icao}.authored_seats.json").write_text(json.dumps(
+            sorted(got.get("authored_seats", ()), key=lambda r: str(r.get("id"))),
+            indent=0, default=str), encoding="utf-8")
     return {"patch": str(paths.patch), "surface": surf_out}
 
 
@@ -2543,7 +2552,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                       f"({time.perf_counter() - _t1:.0f} s)")
         return {"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
                 "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0,
-                "stage1": s1, CAPTURE_OVERLAY_KEY: _overlay}
+                "stage1": s1, CAPTURE_OVERLAY_KEY: _overlay, "objects": _objs}
 
     if gap_free:
         # THE BUILD'S OWN BASE (``pipeline/build``: ``gap_free(cl)``, spec §55
@@ -2989,7 +2998,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                                  if late_from is not None else None),
                                      cells=cl.cells, hard_conflict=hard_conflict,
                                      runway_flex=rep.runway_flex,
-                                     agp_report=(rep.reach_seed or {}).get("agp_level")))
+                                     agp_report=(rep.reach_seed or {}).get("agp_level"),
+                                     objects=prob.get("objects")))
     if emit_dir is not None or verify:
         # object-placement spec §18 (6): the seat per wall / pit placement,
         # as the build's rebake plan publishes it (``authored_seats``)

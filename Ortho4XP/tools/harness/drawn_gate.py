@@ -273,10 +273,15 @@ def gate(args):
     sites = [parse_site(t) for t in getattr(args, "site", None) or ()]
     if sites:
         import O4_File_Names as FNAMES
-        from drawn_roads import ROAD_STEP_M, road_layer
+        from drawn_roads import ROAD_STEP_M, claimed_mouths, road_layer
         step = getattr(args, "road_step", None)
+        try:
+            side = json.load(open(patch + ".axes.json", encoding="utf-8"))
+        except (OSError, ValueError):
+            side = {}
         rep["roads"] = road_layer(sites, lambda x, y: DC.mesh_z(sampler, x, y),
-                                  FNAMES.OSM_dir, ROAD_STEP_M if step is None else step)
+                                  FNAMES.OSM_dir, ROAD_STEP_M if step is None else step,
+                                  mouths=claimed_mouths(side))
     return _verdict(rep, t0)
 
 
@@ -479,6 +484,9 @@ def print_gate(rep, top=20):
                   f"{r.get('max_step_m', '-')} m" + (f" @{r['lat']},{r['lon']} way {r['way']} "
                                                     f"({r['highway']}) drawn {r['drawn']}"
                                                     if r.get("lat") is not None else ""))
+            for f in r.get("mouth_faces", [])[:3]:
+                print(f"       mouth face (not judged) way {f['way']} {f['step_m']} m "
+                      f"@{f['lat']},{f['lon']}")
     if rep.get("judged_sites"):
         where = ", ".join(f"{n} {r:.0f} m" for n, _a, _o, r in rep["judged_sites"])
         print(f"  judged within {where}"

@@ -45,7 +45,7 @@ EXPECT = {
     "--allow-degraded-dem": {"capture"},
     # #1359: the terrain witness's photos off (the load stage)
     "--no-imagery": {"capture"},
-    "--design-weight": REPLAY | DUMP | {"stage1-dump/why-from"},
+    "--design-weight": REPLAY | DUMP | {"stage1-dump/why-from", "rederive"},
     "--drop-generator": REPLAY | DUMP | {"stage1-dump/why-from"},
     "--chord-fill": REPLAY,
     "--method": REPLAY,
@@ -64,6 +64,8 @@ NOT_ARMS = {
     "--why-hard-stage", "--why-relax", "--why-hump", "--bank-from",
     "--probe-site", "--probe-drop", "--stage1-dump", "--stage1-diff",
     "--movers",
+    # #1899: the route / trend derivations alone off a --solved-out pickle
+    "--rederive-from",
     # spec §61 (6): a READ of the --replay arm's own solve (a second solve
     # beside it); the arm's product is unchanged, and it refuses elsewhere
     "--null-change",
@@ -79,7 +81,7 @@ CELLS = [(f, c) for f in A.ARM_FLAGS for c in A.CONTEXTS]
 
 def test_the_table_covers_every_flag_and_every_run():
     assert set(A.ARM_FLAGS) == set(EXPECT)
-    assert len(A.CONTEXTS) == len(set(A.CONTEXTS)) == 19
+    assert len(A.CONTEXTS) == len(set(A.CONTEXTS)) == 20
     for flag, where in EXPECT.items():
         assert where <= set(A.CONTEXTS), flag
 

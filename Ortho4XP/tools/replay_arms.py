@@ -32,7 +32,7 @@ __all__ = ["ARM_FLAGS", "CONTEXTS", "EFFECT", "PSEUDO_GENERATORS", "arm_gate",
 #: (the first that matches wins): ``mode`` or ``mode/<--from stage>``
 STAGES = ("classify", "planar", "shapes", "constraints")
 CONTEXTS: tuple[str, ...] = (
-    "stage1-diff",
+    "stage1-diff", "rederive",
     *(f"stage1-dump/{s}" for s in STAGES), "stage1-dump/why-from",
     "probe-site", "bank-from", "capture", "reclassify", "why-from",
     *(f"pad-read/{s}" for s in STAGES),
@@ -72,7 +72,7 @@ EFFECT: dict[str, tuple[tuple[str, ...], str]] = {
     "--mod-cache-root": (("capture",), "the airport mod cache is read by "
                                        "the LOAD stage, which only --capture "
                                        "runs"),
-    "--design-weight": ((*_REPLAY, *_DUMP, "stage1-dump/why-from"),
+    "--design-weight": ((*_REPLAY, *_DUMP, "stage1-dump/why-from", "rederive"),
                         "a [design] override is applied where the design "
                         "problem is assembled: --replay and --stage1-dump "
                         "(--probe-site takes --probe-arm)"),
@@ -109,6 +109,8 @@ def context_of(a) -> str:
     dispatch order, first match wins."""
     if a.stage1_diff:
         return "stage1-diff"
+    if getattr(a, "rederive_from", None):
+        return "rederive"
     if a.stage1_dump:
         return ("stage1-dump/why-from" if a.why_from
                 else f"stage1-dump/{a.resume}")

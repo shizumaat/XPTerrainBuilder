@@ -2659,6 +2659,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     except ImportError:
         pass
     _tt2: dict = {}
+    _stage1_seen: dict = {}
     try:
         # owner RULINGS 2026-10-15i (3): the build's taxi-trend second pass
         from auto_patch_v2.constraints.taxi_trend import stage_one_retarget
@@ -2672,7 +2673,12 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         _kw["follow_rewrite"] = lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z)
         # issue #517: the build's ceiling between two junctions held low
         from auto_patch_v2.constraints.taxi_trend import low_hold_retarget
-        _kw["hold_rewrite"] = (lambda pm_x, lv: low_hold_retarget(pm_x, law, lv, _tt2))
+        def _hold_rw(pm_x, lv):
+            # issue #1899: the stage-1 levels pass 1b held and the trend
+            # targets they were held against, kept for ``--rederive-from``
+            _stage1_seen.update(levels=dict(lv), taxi_trend_z=dict(pm_x.taxi_trend_z))
+            return low_hold_retarget(pm_x, law, lv, _tt2)
+        _kw["hold_rewrite"] = _hold_rw
     except ImportError:
         pass
     try:
@@ -2944,6 +2950,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                              # pads' airside give), for tools/door_line_read.py
                              "stage2_bands": list(getattr(_stage2.get("cs"), "bands", ())),
                              "hold_report": _hold_report_now(pm_w),
+                             # issue #1899: read by --rederive-from
+                             "stage1_levels": _stage1_seen.get("levels"),
+                             "stage1_taxi_trend_z": _stage1_seen.get("taxi_trend_z"),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
                                  "late_stage": _lrep["stage"],
@@ -3243,6 +3252,11 @@ def main() -> int:
                          "row, column, sheet face and triangle keyed canonically "
                          "(11-dp lat/lon), written gzipped.  Solves nothing; "
                          "--drop-generator and --design-weight apply")
+    ap.add_argument("--rederive-from", type=Path, metavar="PKL",
+                    help="issue #1899: re-run low_hold_retarget and "
+                         "taxi_route_yield.derive alone off a --solved-out "
+                         "pickle's stage-1 levels (seconds, no solve); "
+                         "--design-weight applies (tools/replay_rederive.py)")
     ap.add_argument("--stage1-diff", nargs=2, type=Path, metavar=("A.json.gz", "B.json.gz"),
                     help="§20b (3) (4) THE DECOMPOSITION: diff two --stage1-dump "
                          "arms by identity — rows removed / added, columns, sheet "
@@ -3299,6 +3313,11 @@ def main() -> int:
         ap.error("--null-change [N >= 1] twins a full --replay PKL solve: not with "
                  "--late-from (the last stage alone), a dry read (--pad-read, "
                  "--rim-diagnostics, --stage1-dump) or any other mode")
+    if a.rederive_from:
+        from replay_rederive import rederive
+        return rederive(a.rederive_from, {k.strip(): _design_value(v) for k, v in
+                                          (it.split("=") for it in a.design_weight)},
+                        a.json, install=install_capture_state)
     if a.stage1_diff:
         return stage1_diff(a.stage1_diff[0], a.stage1_diff[1], a.movers, a.json)
     if a.stage1_dump:

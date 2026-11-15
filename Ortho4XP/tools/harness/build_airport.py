@@ -3099,8 +3099,12 @@ def refresh_airport_mod_cache(root, lat, lon, prog, icao=None) -> dict:
 def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
                             named_icao=None,
                             refresh_only: bool = False,
-                            allow_degraded: bool = False) -> None:
+                            allow_degraded: bool = False) -> list:
     """THE RE-JUDGE, after this run's authorised refreshes.
+
+    Returns the artifacts still MISSING in a requested scope (owed to the
+    build itself); their scopes keep their lock through the build
+    (``prep_release``, llocks 2026-11-14).
 
     A refresh that did not warm what it was asked to warm must still
     refuse — just later, and with the reason known.  So the frame is
@@ -3125,7 +3129,7 @@ def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
                           inset_dir_expected=insets_expected(
                               state, lat, lon, icao))
         require_no_implicit_refresh(missing, requested)
-        return
+        return list(missing)
     requested = set(requested or ())
     mine = [m for m in missing if m[0] in requested]
     others = [m for m in missing if m[0] not in requested]
@@ -3166,6 +3170,7 @@ def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
             + "\nWhatever this run DID derive is already recorded in "
               f"{REFRESH_LEDGER} (the audit runs on every exit path).  "
               f"Check provider/Overpass reachability and re-run.")
+    return []
 
 
 def reconcile_refresh_ledger(root, lat, lon, requested, prog,
@@ -4760,7 +4765,7 @@ TILE_STEP_REUSE_KEYS = {"1 vector": "vector", "2 mesh": "mesh",
 
 def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
                skip_steps=None, requested=None, boundary="skip",
-               texture_mode=None) -> dict:
+               texture_mode=None, on_prep_done=None) -> dict:
     """One whole tile through the four release steps, with the owner's
     X-Plane install paths applied (absorbs ``run_release_tile.py``).
     The tile's patches build with the ONE auto-patch engine, v2 (owner
@@ -4858,6 +4863,10 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress,
     band_missing = bathymetry_band_admission(
         tile, ROOT, dsf_step_runs="4 tile" not in (skip_steps or {}))
     require_no_implicit_refresh(band_missing, set(requested or ()))
+    # THE END OF THE DATA PREP (llocks): the prep-scope locks are released
+    # here, before step 1, except a scope the band still owes the build.
+    if on_prep_done is not None:
+        on_prep_done({sc for sc, _a, _w in band_missing})
     prog.note(f"bathymetry band admission: "
               f"{'SETTLED (no fetch, no write)' if not band_missing else 'AUTHORISED refresh'}")
 
@@ -5077,6 +5086,11 @@ def main(argv=None) -> int:
                          "ledgered with its sha256 (spec las-tile-lidar-"
                          "provider §11 (5)); anything else in DIR is "
                          "refused by name")
+    ap.add_argument("--wait-lock", type=float, default=0.0, metavar="MIN",
+                    help="wait up to MIN minutes for a shared-repo refresh "
+                         "lock another lane holds (polled, printed, refused "
+                         "TIMED_OUT at the deadline); default 0: refuse at "
+                         "once, naming the holder")
     ap.add_argument("--break-stale-lock", action="store_true",
                     help="break a refresh lock whose holder process is gone "
                          "— a dead pid does NOT mean the write completed, "
@@ -5570,8 +5584,9 @@ def main(argv=None) -> int:
             raise SystemExit(_why)
     # LOCK FIRST, then snapshot: a concurrent lane's authorised refresh
     # landing between the two would be attributed to this build.
-    locks = [RefreshLock(sc, lane=str(root),
-                         break_stale=args.break_stale_lock).acquire()
+    locks = [RefreshLock(sc, lane=str(root), tag=tag,
+                         break_stale=args.break_stale_lock,
+                         wait_minutes=args.wait_lock).acquire()
              for sc in sorted(requested)]
     if locks:
         prog.note(f"holding shared-repo refresh lock(s): "
@@ -5590,8 +5605,11 @@ def main(argv=None) -> int:
         pk for inst in xplane_install_roots() + owner_install_roots()
         for pk in pack_roots_for_tile(lat, lon, inst)}))
         if lat is not None else ())
-    before = shared_repo_snapshot()
-    before.update(install_snapshot(pack_roots))
+    def _full_snapshot():
+        snap = shared_repo_snapshot()
+        snap.update(install_snapshot(pack_roots))
+        return snap
+    before = _full_snapshot()
     prog.note(f"shared-repo snapshot: {len(before)} file(s) across "
               f"{len(SHARED_DATA_DIRS)} data dir(s) and "
               f"{len(pack_roots)} X-Plane pack(s) carrying this tile")
@@ -5620,6 +5638,11 @@ def main(argv=None) -> int:
     else:
         prog.note("shared-repo write guard DISARMED by flag — writes are "
                   "detected after the fact only (the pre-fix behaviour)")
+    # THE PREP-LOCK RELEASE (llocks, 2026-11-14): the data-prep scopes'
+    # locks go the moment the prep ends, never at the end of the build.
+    import prep_release as PR
+    prep = PR.PrepRelease(locks, guard, _full_snapshot, prog)
+    owed = None
 
     warm_summary = None
     seed_summary = None
@@ -5739,13 +5762,17 @@ def main(argv=None) -> int:
         # RE-JUDGED with NOTHING authorised: a refresh that did not warm
         # the frame still refuses, just later and with the reason known.
         if requested and lat is not None and args.dem is None:
-            require_refreshed_frame(
+            owed = require_refreshed_frame(
                 root, lat, lon, requested,
                 icao=None if args.tile else args.icao,
                 # THE NAMED AIRPORT, whatever ``--tile`` says (#206)
                 named_icao=args.icao,
                 refresh_only=args.refresh_only,
                 allow_degraded=args.allow_degraded_dem)
+        # Released only after a re-judge ran: without one nothing proves
+        # the prep left its scopes complete, so they stay held.
+        owed_scopes = ({m[0] for m in owed} if owed is not None
+                       else set(PR.PREP_SCOPES))
 
         if args.refresh_only:
             # THE WARM-ONLY RUN (2026-09-15).  The v2 loader reads road
@@ -5788,6 +5815,8 @@ def main(argv=None) -> int:
                     args.build_dir or str(out_dir / f"tile_{tag}"), prog,
                     skip_steps=steps_skip or None,
                     requested=requested, boundary=args.boundary,
+                    on_prep_done=lambda band: prep.release(
+                        owed_scopes | set(band)),
                     texture_mode=args.texture_mode)
             result["steps_selected"] = (
                 [n for n in TILE_STEP_NAMES if n not in steps_skip]
@@ -5799,6 +5828,7 @@ def main(argv=None) -> int:
             # THE ONE AIRPORT PATH (v1 retired, RULINGS 2026-09-13au):
             # ``build_patch`` — the v1 twin — is unreachable from here
             # until the stage-B deletion.
+            prep.release(owed_scopes)
             result = build_patch_v2(args.icao, root, out_dir, tag, prog,
                                     allow_no_sidecar=args.allow_no_sidecar,
                                     write_guard=guard,
@@ -5809,20 +5839,22 @@ def main(argv=None) -> int:
         # The audit runs even when the build raised: a build that died
         # half-way through a download has still mutated the shared repo,
         # and that is precisely when nobody would think to look.
-        after = shared_repo_snapshot()
-        after.update(install_snapshot(pack_roots))
+        after = _full_snapshot()
         changes = snapshot_diff(before, after)
+        # Split at the prep release (llocks): the released scopes' writes
+        # are this run's only inside the prep window; the build window is
+        # audited under the scopes still held.
+        audit, audit_scopes = prep.audit_changes(before, after, requested)
         # ``redirected=None``: the audit asks the ENGINE's own accessors
         # now, in the process that did the building, which scopes this run
         # pointed outside the repo — a delta in one of those has no
         # possible author here (2026-09-15, the VHHH mis-attribution).
-        offenders = report_unauthorised_writes(changes, requested, prog,
+        offenders = report_unauthorised_writes(audit, audit_scopes, prog,
                                                blocked=guard.blocked,
                                                input_scope=input_scope)
         unchanged = refetched_unchanged()
         for sc in sorted(requested):
-            in_scope = {k: [r for r in v if scope_of(r) == sc]
-                        for k, v in changes.items()}
+            in_scope = prep.scope_changes(sc, before, after)
             kept = [r for r in unchanged if scope_of(r) == sc]
             if any(in_scope.values()) or kept:
                 rec = record_refresh(sc, in_scope,
@@ -5856,6 +5888,7 @@ def main(argv=None) -> int:
             lk.release()
 
     frame["shared_repo_writes"] = changes
+    frame["refresh_locks"] = prep.record(after)
     # EVERY delta is still named here; the CONTAMINATED verdict reads only
     # the ones this build's input set could not exclude (2026-09-01, H6
     # item 6 — the window is not the author).  ``build_input_scope`` rides

@@ -681,3 +681,29 @@ def test_a_colon_in_a_physical_path_is_a_directory(tmp_path):
         os.path.join("Lib", "fence", "fence.fac"))
     assert A.resolve_library_path("lib/a/b.obj", str(root)).endswith(
         os.path.join("Lib", "objs", "b.obj"))
+
+
+def test_resolve_reads_exclude_and_season_exports(tmp_path):
+    """lcliff2: every stock X-Plane 12 landclass ``.ter`` is exported ONLY
+    as ``EXPORT_EXCLUDE`` / ``EXPORT_EXCLUDE_SEASON``; an index-only
+    lookup resolved none of them, so ``DefaultTerrainMap.is_projected``
+    answered None for every landclass."""
+    root = _make_xplane_root(tmp_path)
+    lib = root / "Resources" / "default scenery" / "world terrain"
+    (lib / "t" / "fal").mkdir(parents=True)
+    for rel in ("t/hill.ter", "t/fal/hill.ter", "t/flat.ter"):
+        (lib / rel).write_text("A\n800\nTERRAIN\n", encoding="utf-8",
+                               newline="")
+    (lib / "library.txt").write_text(
+        "A\n800\nLIBRARY\n"
+        "EXPORT_EXCLUDE_SEASON spr,sum\tlib/g10/hill.ter\tt/hill.ter\n"
+        "EXPORT_EXCLUDE_SEASON fal,win\tlib/g10/hill.ter\tt/fal/hill.ter\n"
+        "EXPORT_EXCLUDE\tlib/g10/flat.ter\tt/flat.ter\n",
+        encoding="utf-8", newline="")
+    hill = A.resolve_library_path("lib/g10/hill.ter", str(root))
+    assert hill is not None and _fwd(hill).endswith("t/hill.ter")
+    flat = A.resolve_library_path("lib/g10/flat.ter", str(root))
+    assert flat is not None and _fwd(flat).endswith("t/flat.ter")
+    # the merged index (geometry) is unchanged: it still holds neither
+    assert "lib/g10/hill.ter" not in A.get_library_index(str(root))
+    assert A.resolve_library_path("lib/g10/none.ter", str(root)) is None

@@ -240,8 +240,17 @@ data_dirs() {
 # clear; else prints the evidence (stdout), sets _refusal and returns 1.
 # ONE predicate for `down` and recycle_lane: a tree is reused only when it
 # could have been removed.
+# A path as an extended regex matching it literally.
+path_regex() {
+    printf '%s' "$1" | sed 's/[][\\.*^$+?(){}|]/\\&/g'
+}
+
 teardown_refusal() {
     _t="$1"; _refusal=""
+    # WHOLE PATH COMPONENTS (llocks 2026-11-14): `down l2090` refused on
+    # l2090d's processes and locks, because "$_t" was a bare substring.
+    # The tree's path is a regex here, escaped, and must END a component.
+    _re="$(path_regex "$_t")"
     # The self-exclusion must match how EACH pgrep prints.  macOS `pgrep
     # -fl` prints the full argv ("… lane_worktree.sh down NAME"); procps
     # `pgrep -l` prints the COMM, truncated to 15 chars
@@ -250,7 +259,7 @@ teardown_refusal() {
     # Linux and `down` refused itself — measured on ubuntu-22.04 in CI
     # 2026-09-17 (beta plan §1 B4).  Drop the extension: a process whose
     # name carries "lane_worktree" IS the ritual.
-    _h=$(pgrep -fl "$_t" 2>/dev/null | grep -v "lane_worktree")
+    _h=$(pgrep -fl "${_re}(/|[[:space:]]|\$)" 2>/dev/null | grep -v "lane_worktree")
     if [ -n "$_h" ]; then
         echo "$_h" | sed 's/^/    /'
         _refusal="process(es) above still hold $_t.  Wait for them (a build
@@ -267,7 +276,7 @@ teardown_refusal() {
     fi
     # A lock this lane still holds in the SHARED repo would strand every
     # other lane behind a worktree that no longer exists.
-    _h=$(grep -l "$_t" "$DATA_REPO/.harness/locks"/*.lock 2>/dev/null)
+    _h=$(grep -l -E "${_re}(/|\"|\$)" "$DATA_REPO/.harness/locks"/*.lock 2>/dev/null)
     if [ -n "$_h" ]; then
         echo "$_h" | sed 's/^/    /'
         _refusal="this lane still holds shared-repo refresh lock(s) above.

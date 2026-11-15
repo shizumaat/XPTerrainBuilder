@@ -41,7 +41,13 @@ Tunnel, deck, level and object-seat bars are measured on what X-Plane DRAWS, nev
   (`build_airport.py --tile --pack-copy DIR`); the only write into the
   install is `tools/v2_rebake_replay.py plan --write-pack`.
 - Two lanes racing a cache regeneration: per-scope lock in the shared repo,
-  refuse-and-report, never a silent block.
+  refuse-and-report, never a silent block.  A build holds a data-prep scope's lock
+  (dem, osm_layers, shore, parking, rings, runway_refs, las_tiles) only
+  through its prep and releases it before the compute steps
+  (`prep_release.py`, llocks 2026-11-14); a corpus change under the build
+  after that is audited (CONTAMINATED in scope, never stored). The refusal
+  names the holder's pid, lane, tag, start, phase and expected release;
+  `--wait-lock MIN` is the explicit, bounded wait.
 - A guard-blocked write inside DEM prep silently DEGRADING the frame
   (the engine's fallback was WARN + rc 0, `dem_inset_provenance` null,
   an 18.5k-vs-36k layout): refused before any patch is written, each

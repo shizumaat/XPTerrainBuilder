@@ -494,25 +494,47 @@ mirror_tree_as_symlinks = mirror_tree_as_overlay
 class RefreshLock:
     """A shared-repo write lock, one per scope.
 
-    REFUSE-AND-REPORT, never block (ruling e9daef5 §3).  A lane that waits
-    silently on another lane's download looks like a hung build, and a lane
-    that ignores the lock races a half-written cache into every other lane's
-    next measurement.  A dead holder is reported with its lane and pid and
-    needs ``--break-stale-lock`` — never broken automatically, because
-    "the pid is gone" and "the write finished" are different facts.
+    REFUSE-AND-REPORT, never block silently (ruling e9daef5 §3).  A lane
+    that waits silently on another lane's download looks like a hung
+    build, and a lane that ignores the lock races a half-written cache
+    into every other lane's next measurement.  A dead holder is reported
+    with its lane and pid and needs ``--break-stale-lock`` — never broken
+    automatically, because "the pid is gone" and "the write finished" are
+    different facts.
+
+    THE REFUSAL NAMES THE HOLDER (llocks, 2026-11-14): pid, lane, tag,
+    start time, how long it has held, the PHASE it is in and when it
+    expects to release (:meth:`set_phase`) — a build releases its
+    data-prep scopes when the prep ends (``prep_release.PrepRelease``)
+    and holds only the scopes the build itself writes.  ``wait_minutes``
+    is the explicit, BOUNDED wait (``--wait-lock N``): polled, printed,
+    and refused ``TIMED_OUT`` at its deadline.
     """
 
-    def __init__(self, scope: str, lane: str, break_stale: bool = False):
+    #: seconds between two looks at a held lock while waiting
+    POLL_S = 15.0
+
+    def __init__(self, scope: str, lane: str, break_stale: bool = False,
+                 *, tag: str = "", wait_minutes: float = 0.0):
         self.scope = scope
         self.lane = lane
+        self.tag = tag
         self.break_stale = break_stale
+        self.wait_minutes = max(0.0, float(wait_minutes or 0.0))
         self.path = LOCK_DIR / f"{scope}.lock"
         self.held = False
+        self.phase = "refresh"
+        self.expected_release = ("when this run's data-prep (refresh) "
+                                 "passes end")
+        self.started = time.strftime("%Y-%m-%dT%H:%M:%S")
+        self._epoch = None
 
     def _payload(self) -> dict:
-        return {"scope": self.scope, "lane": self.lane, "pid": os.getpid(),
-                "host": os.uname().nodename,
-                "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        return {"scope": self.scope, "lane": self.lane, "tag": self.tag,
+                "pid": os.getpid(), "host": os.uname().nodename,
+                "started": self.started, "started_epoch": self._epoch,
+                "phase": self.phase,
+                "expected_release": self.expected_release}
 
     @staticmethod
     def _alive(pid: int) -> bool:
@@ -522,44 +544,94 @@ class RefreshLock:
         except OSError:
             return False
 
+    def holder(self) -> dict:
+        """The current holder's record (``{}`` when unreadable/absent)."""
+        try:
+            return json.loads(self.path.read_text())
+        except Exception:
+            return {}
+
+    def refusal(self, holder: dict, alive: bool, *, waited_s: float = 0.0
+                ) -> str:
+        """The refusal text, naming the holder and its expected release."""
+        pid = int(holder.get("pid") or -1)
+        held_for = ""
+        if holder.get("started_epoch"):
+            mins = (time.time() - float(holder["started_epoch"])) / 60
+            held_for = f", held {mins:.0f} min"
+        head = ("TIMED_OUT waiting %.0f min: " % (waited_s / 60)
+                if waited_s else "")
+        return (
+            f"{head}REFUSING: another lane holds the '{self.scope}' "
+            f"refresh lock on the shared repo.\n"
+            f"  holder: lane={holder.get('lane')!r} tag={holder.get('tag')!r} "
+            f"pid={pid} host={holder.get('host')!r} since "
+            f"{holder.get('started')}{held_for} "
+            f"({'ALIVE' if alive else 'DEAD — stale lock'})\n"
+            f"  phase:  {holder.get('phase', 'refresh')} — expected release "
+            f"{holder.get('expected_release') or 'when its run ends'}\n"
+            f"  lock:   {self.path}\n"
+            + ("  Re-run when it releases, or wait for it explicitly with "
+               "--wait-lock MINUTES.  The harness never blocks silently on "
+               "a shared-repo write: a lane waiting on another lane's "
+               "download is indistinguishable from a hung build."
+               if alive else
+               "  The holder is gone, but a dead pid does not mean "
+               "the write COMPLETED — the cache may be half-written. "
+               "Inspect it, then re-run with --break-stale-lock."))
+
+    def _try_create(self):
+        try:
+            return os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                           0o644)
+        except FileExistsError:
+            return None
+
     def acquire(self) -> "RefreshLock":
         LOCK_DIR.mkdir(parents=True, exist_ok=True)
-        try:
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                         0o644)
-        except FileExistsError:
-            try:
-                holder = json.loads(self.path.read_text())
-            except Exception:
-                holder = {}
+        t0 = time.time()
+        deadline = t0 + 60.0 * self.wait_minutes
+        announced = False
+        while True:
+            fd = self._try_create()
+            if fd is not None:
+                break
+            holder = self.holder()
             pid = int(holder.get("pid") or -1)
             alive = self._alive(pid) if pid > 0 else False
-            if alive or not self.break_stale:
-                raise SystemExit(
-                    f"REFUSING: another lane holds the '{self.scope}' "
-                    f"refresh lock on the shared repo.\n"
-                    f"  holder: lane={holder.get('lane')!r} pid={pid} "
-                    f"host={holder.get('host')!r} since "
-                    f"{holder.get('started')} "
-                    f"({'ALIVE' if alive else 'DEAD — stale lock'})\n"
-                    f"  lock:   {self.path}\n"
-                    + ("  Wait for it and re-run.  The harness never blocks "
-                       "silently on a shared-repo write: a lane waiting on "
-                       "another lane's download is indistinguishable from a "
-                       "hung build."
-                       if alive else
-                       "  The holder is gone, but a dead pid does not mean "
-                       "the write COMPLETED — the cache may be half-written. "
-                       "Inspect it, then re-run with --break-stale-lock."))
-            self.path.unlink()
-            print(f"  [harness] broke STALE '{self.scope}' lock (holder pid "
-                  f"{pid} is gone, --break-stale-lock given)")
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                         0o644)
+            if not alive and self.break_stale:
+                self.path.unlink()
+                print(f"  [harness] broke STALE '{self.scope}' lock (holder "
+                      f"pid {pid} is gone, --break-stale-lock given)")
+                continue
+            if not alive or time.time() >= deadline:
+                raise SystemExit(self.refusal(
+                    holder, alive,
+                    waited_s=(time.time() - t0) if self.wait_minutes else 0))
+            if not announced:
+                print(f"  [harness] WAITING up to {self.wait_minutes:g} min "
+                      f"for the '{self.scope}' lock (holder lane="
+                      f"{holder.get('lane')!r} tag={holder.get('tag')!r} "
+                      f"pid={pid}, phase {holder.get('phase', 'refresh')})",
+                      flush=True)
+                announced = True
+            time.sleep(min(self.POLL_S, max(0.0, deadline - time.time())))
+        self._epoch = time.time()
+        self.started = time.strftime("%Y-%m-%dT%H:%M:%S")
         with os.fdopen(fd, "w") as fh:
             json.dump(self._payload(), fh)
         self.held = True
         return self
+
+    def set_phase(self, phase: str, expected_release: str) -> None:
+        """Rewrite the holder record in place: the phase this run is in
+        and when it expects to release, for the next lane's refusal."""
+        self.phase, self.expected_release = phase, expected_release
+        if not self.held:
+            return
+        tmp = self.path.with_name(self.path.name + f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(self._payload()))
+        os.replace(tmp, self.path)
 
     def release(self) -> None:
         if self.held:

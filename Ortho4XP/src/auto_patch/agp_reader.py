@@ -554,9 +554,31 @@ def weighted_files_at(rows: _t.Sequence[ExportRow], lat: int, lon: int
 def resolve_library_path(virtual_path: str,
                          xplane_root: str) -> str | None:
     """Resolve a virtual library path to an absolute physical file, or
-    None if no ``EXPORT`` provides it / the file is missing."""
+    None if no ``EXPORT*`` row provides it / the file is missing.
+
+    The merged index first (it decides geometry and is unchanged here);
+    then every other export form (:func:`export_files`) — every stock
+    X-Plane 12 landclass ``.ter`` is exported ONLY as ``EXPORT_EXCLUDE`` /
+    ``EXPORT_EXCLUDE_SEASON``, so an index-only lookup resolved none of
+    them and ``DefaultTerrainMap.is_projected`` answered None (lane
+    lcliff2)."""
     index = get_library_index(xplane_root)
     phys = index.get(virtual_path) or index.get(virtual_path.lower())
     if phys and os.path.isfile(phys):
         return phys
-    return None
+    return _any_export_file(export_files(xplane_root).get(
+        virtual_path.lower(), ()))
+
+
+def _any_export_file(rows: _t.Sequence[ExportRow]) -> str | None:
+    """The file one name's ``rows`` resolve to with no tile to judge
+    regions by: the FIRST existing row of the highest-priority library
+    (rows run lowest priority first), an ``EXPORT_BACKUP`` row only when
+    no real row exists (X-Plane's rule).  Every season's variant of a
+    name shares its header, which is all a no-tile reader asks."""
+    present = [r for r in rows if os.path.isfile(r[1])]
+    real = [r for r in present if r[0] != "EXPORT_BACKUP"] or present
+    if not real:
+        return None
+    top = real[-1][4]
+    return next(r[1] for r in real if r[4] == top)

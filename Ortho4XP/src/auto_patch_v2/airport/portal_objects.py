@@ -438,7 +438,8 @@ def _covers(frame, end_xy: XY, o: _obj8.PlacedObject, law) -> "tuple[float, obje
     survives ``wall_face_max_thickness_m / 2`` inward: #2099 W1's witness)
     and within ``bore_end_tolerance_m`` of the end once placed.  The cover
     is the HIGHEST cover bin, the soffit the LOWEST (``None`` with one bin:
-    no ceiling under the cover, R5 T2).
+    no ceiling under the cover, R5 T2); ``None`` where the bins are not
+    :func:`_one_roof` (R5b: floors of a building, read as R4).
 
     MEASURED KBNA Murfreesboro west: the parapet's 0.9 m top at 8.89 read
     as the roof by its two-sided triangle area (#1689 R4); the deck at
@@ -462,11 +463,25 @@ def _covers(frame, end_xy: XY, o: _obj8.PlacedObject, law) -> "tuple[float, obje
         if placed is not None and not placed.is_empty \
                 and placed.distance(end) <= float(ob.bore_end_tolerance_m):
             found[k] = (float(yu[bins == k].max()), placed)
-    if not found:
+    if not found or not _one_roof([top for top, _p in found.values()], law):
         return None
     # one cover bin: no soffit under the cover, the opening is read as R4's
     return (found[max(found)][0], found[max(found)][1],
             found[min(found)][1] if len(found) > 1 else None)
+
+
+def _one_roof(plate_tops: _t.Sequence[float], law) -> bool:
+    """A frame's cover plates (their tops over the zero) state ONE ROOF
+    over its road (#1689 R5b R2, the scope witness): the highest stands at
+    most ``tunnel.roof_m + tunnel.cover_m`` over the lowest -- a roof slab
+    and its cover, the deck and its ceiling.  More is FLOORS of a building
+    (its storeys' plates), never a mouth's cover; a hard-deck box passes.
+
+    MEASURED: ENGM's terminal frames span 4.07 / 19.17 / 6.77 m; the
+    tunnel mouths ENTC 1.08 / 0.50 and KBNA 1.48 / 1.67 against 2.2."""
+    tn = law.tables.structures.tunnel
+    return not plate_tops or \
+        max(plate_tops) - min(plate_tops) <= float(tn.roof_m) + float(tn.cover_m)
 
 
 def _parapet(o: _obj8.PlacedObject, frame, top_y: float, law):

@@ -86,7 +86,8 @@ def _line_stations(m: XY, inward: XY, plan, half, nv: XY, reach: float):
     """``(least, greatest)`` station from ``m`` of ``plan`` on each line
     along ``inward`` across the corridor (``half`` either side of ``m``, or
     ``(left, right)`` along ``nv``; inset ``_EDGE_INSET_M``, every
-    ``_FRONT_STEP_M``) that meets it."""
+    ``_FRONT_STEP_M``); ``None`` for a line that meets nothing (a MISS,
+    #1689 R5b M1)."""
     left, right = (half, half) if isinstance(half, (int, float)) else half
     lo, hi = -float(right) + _EDGE_INSET_M, float(left) - _EDGE_INSET_M
     n = max(1, int(math.ceil((hi - lo) / _FRONT_STEP_M))) if hi > lo else 0
@@ -96,6 +97,7 @@ def _line_stations(m: XY, inward: XY, plan, half, nv: XY, reach: float):
         got = plan.intersection(LineString([(c[0] - inward[0] * reach, c[1] - inward[1] * reach),
                                             (c[0] + inward[0] * reach, c[1] + inward[1] * reach)]))
         if got.is_empty:
+            yield None
             continue
         s = [(q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1]
              for g in getattr(got, "geoms", [got]) for q in g.coords]
@@ -107,17 +109,32 @@ def _deepest_front(m: XY, inward: XY, plan, half, nv: XY, reach: float) -> "floa
     (``half`` either side of ``m``, or ``(left, right)`` along ``nv``), of
     the least station from ``m`` of ``plan`` on each line; ``None`` where
     no line meets it."""
-    fronts = [lo for lo, _hi in _line_stations(m, inward, plan, half, nv, reach)]
+    fronts = [q[0] for q in _line_stations(m, inward, plan, half, nv, reach) if q is not None]
     return max(fronts) if fronts else None
 
 
-def _cover_back(m: XY, inward: XY, plan, half, nv: XY, reach: float) -> "float | None":
-    """A cover's BACK across the ramp (#1689 R5 M1): the least, over the
-    lines :func:`_deepest_front` samples, of the GREATEST station from
-    ``m`` of ``plan`` on each -- the cap standing within it stands under
-    the cover on every line; ``None`` where no line meets it."""
-    backs = [hi for _lo, hi in _line_stations(m, inward, plan, half, nv, reach)]
-    return min(backs) if backs else None
+def _cover_back(m: XY, inward: XY, plan, half, nv: XY, reach: float
+                ) -> "tuple[float, float, float] | None":
+    """``(back, least, greatest)``: a cover's BACK read from the MIDDLE of
+    the ramp (#1689 R5b M1, owner RULINGS 2026-11-15l) -- the least, over
+    :func:`_line_stations`'s lines across the middle half of the corridor
+    (``half`` or its ``(left, right)`` pair; the halves ``((3 left -
+    right) / 4, (3 right - left) / 4)``), of the GREATEST station from
+    ``m`` of ``plan`` on each -- and the range of those greatest stations
+    across the whole corridor (the skew, for the note).  ``None`` (no
+    action) where a middle line meets no cover, or on one the cover stands
+    wholly ahead of ``m`` or wholly behind it: the mouth is not under it.
+
+    MEASURED: the least over every line, corners included, read ENTC's
+    edge lines (1.90 against 4.62-7.90 across) and KBNA's ~1 degree skew."""
+    left, right = (half, half) if isinstance(half, (int, float)) else half
+    left, right = float(left), float(right)
+    mid = ((3.0 * left - right) / 4.0, (3.0 * right - left) / 4.0)
+    lines = list(_line_stations(m, inward, plan, mid, nv, reach))
+    if not lines or any(q is None or q[0] > 1e-9 or q[1] < -1e-9 for q in lines):
+        return None
+    whole = [q[1] for q in _line_stations(m, inward, plan, half, nv, reach) if q is not None]
+    return min(q[1] for q in lines), min(whole), max(whole)
 
 
 def _bank_width(core, top_z: float, dem_z: _t.Callable[[float, float], float],
@@ -229,8 +246,12 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
     slope = float(law.tables.emit.design.bank_slope)
     plan, top = pin.face_plan, float(pin.face_top_z)
     reach = plan.buffer(band + cap)
+    # #1689 R5b S4: a covered mouth's piece stands on its own host pad
+    # (``building`` is an airside role; R2 A4's host exemption holds)
+    own = hosts if getattr(pin, "cover_plan", None) is not None else frozenset()
     blocked = unary_union([p for c, p in zip(cells, polys, strict=False)
-                           if c.side == "airside" and p.intersects(reach)])
+                           if c.side == "airside" and p.intersects(reach)
+                           and not (c.role == "building" and c.ref in own)])
     if not is_entrance_face(pin):
         from ..model.planar import ROAD_ROLES
         held = [p.buffer(stand_off, **_MITRE) for c, p in zip(cells, polys, strict=False)

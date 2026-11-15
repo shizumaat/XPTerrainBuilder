@@ -849,7 +849,8 @@ def portal_mouth(axis: LineString, inward, anchor, plan=()) -> "tuple[LineString
 
 
 def roof_back_mouth(axis: LineString, inward, roof, set_back: "float | None" = None,
-                    half=0.0, grid: float = 0.0) -> "tuple[LineString, float]":
+                    half=0.0, grid: float = 0.0, notes: "list[str] | None" = None
+                    ) -> "tuple[LineString, float]":
     """``(axis, metres moved)``: a FOOTED portal's mouth stands at the BACK
     of its roof (#2069, ``airport/footed_portal``): the cut floor runs under
     the roof and out of its opening.  Where the roof reaches over the bore
@@ -858,18 +859,23 @@ def roof_back_mouth(axis: LineString, inward, roof, set_back: "float | None" = N
     from the mapped end) the axis is cut back to the roof's nearest station
     along it, the road behind the portal is covered ground (negative).
 
-    #1689 R5 M1: with ``set_back`` (the cap's stand-off off the ramp's end,
-    ``rim_off + grid``) ``roof`` is a TALL portal's COVER and the mouth
-    already stands under it: the CAP never stands beyond the cover's back.
-    The back is read across the ramp (``half`` either side of the axis, or
-    its pair: ``entrance_skirt._cover_back``); where the mouth plus the
-    stand-off passes it, the axis is cut back out of the bore to ``back -
-    set_back`` (negative), and a ``grid`` step more while the cap, snapped
-    as the builder snaps it (``structure_geometry.snap_out``), still
-    stands beyond the back -- at most three; else the mouth stays."""
+    #1689 R5 M1 / R5b: with ``set_back`` (the cap's stand-off off the
+    ramp's end, ``rim_off + grid``) ``roof`` is a TALL portal's COVER: the
+    CAP never stands beyond the cover's back.  The back is read from the
+    MIDDLE half of the ramp (``half`` either side of the axis, or its pair:
+    ``entrance_skirt._cover_back``), and nothing moves unless the mouth
+    stands under the cover on every middle line; where the mouth plus the
+    stand-off passes the back, the axis is cut back out of the bore to
+    ``back - set_back`` (negative), and a ``grid`` step more while the
+    cap's centre, snapped as the builder snaps it
+    (``structure_geometry.snap_out``), still stands beyond the back -- at
+    most three (no move over ``set_back + 3 grid``); else the mouth stays.
+    The reading (the back and its range across the whole ramp: the skew)
+    is appended to ``notes``."""
     m = axis.coords[0]
     if set_back is not None:
-        return _cap_under_cover(axis, inward, roof, half, float(set_back), grid)
+        return _cap_under_cover(axis, inward, roof, half, float(set_back), grid,
+                                [] if notes is None else notes)
     pts = [q for g in getattr(roof, "geoms", [roof]) for q in g.exterior.coords]
     if not pts:
         return axis, 0.0
@@ -882,25 +888,25 @@ def roof_back_mouth(axis: LineString, inward, roof, set_back: "float | None" = N
     return substring(axis, s, axis.length), -float(s)
 
 
-def _cap_under_cover(axis: LineString, inward, cover, half, set_back: float, grid: float
-                     ) -> "tuple[LineString, float]":
-    """:func:`roof_back_mouth`'s ``set_back`` arm (#1689 R5 M1)."""
+def _cap_under_cover(axis: LineString, inward, cover, half, set_back: float, grid: float,
+                     notes: "list[str]") -> "tuple[LineString, float]":
+    """:func:`roof_back_mouth`'s ``set_back`` arm (#1689 R5b M1)."""
     m = axis.coords[0]
-    nv = axis_left_normal(axis)
-    back = _cover_back(m, inward, cover, half, nv, 4.0 * (axis.length + 1000.0))
-    if back is None or back >= set_back - 1e-9:
+    reading = _cover_back(m, inward, cover, half, axis_left_normal(axis),
+                          4.0 * (axis.length + 1000.0))
+    if reading is None:
+        notes.append("the mouth does not stand under the cover across the ramp's middle")
         return axis, 0.0
-    left, right = (half, half) if isinstance(half, (int, float)) else half
+    back, lo, hi = reading
+    notes.append(f"back {back:.2f} ({lo:.2f}-{hi:.2f} across the ramp)")
+    if back >= set_back - 1e-9:
+        return axis, 0.0
     off = set_back - grid
     s = back - set_back
-    for _k in range(4):
+    for _k in range(3):
         c = (m[0] + inward[0] * s, m[1] + inward[1] * s)
-        cap = [snap_out((c[0] + inward[0] * off, c[1] + inward[1] * off), c, grid)]
-        for o in (float(left), -float(right)):
-            e = snap_out((c[0] + nv[0] * o, c[1] + nv[1] * o), c, grid)
-            cap.append(snap_out((e[0] + inward[0] * off, e[1] + inward[1] * off), e, grid))
-        if max((q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1] for q in cap) \
-                <= back + 1e-9:
+        q = snap_out((c[0] + inward[0] * off, c[1] + inward[1] * off), c, grid)
+        if (q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1] <= back + 1e-9:
             break
         s -= grid
     if -s >= axis.length - 1e-6:

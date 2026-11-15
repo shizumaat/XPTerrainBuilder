@@ -509,23 +509,65 @@ def test_r5_t3_a_stub_roof_reads_its_own_roof_as_the_cover():
     assert top == y and cover.equals(roof) and soffit is None
 
 
-def _m1(cover):
+def _m1(cover, notes=None):
     from auto_patch_v2.planar.structure_mouth import roof_back_mouth
     from shapely.geometry import LineString
     axis = LineString([(0.0, 0.0), (0.0, -100.0)])            # the mouth outward (-y)
-    return roof_back_mouth(axis, (0.0, 1.0), cover, 2.1, 10.0, 0.5)
+    return roof_back_mouth(axis, (0.0, 1.0), cover, 2.1, 10.0, 0.5, notes)
 
 
 def test_r5_t4_the_cap_never_stands_beyond_the_covers_back():
-    """T4 (M1): a cover whose back stands 0.6 m into the bore: the mouth
-    moves out until the cap (rim_off 1.6 beyond it, snapped) stands on the
-    back within one grid step; a cover running 5 m past the mouth: kept."""
-    axis, moved = _m1(box(-12.0, -15.0, 12.0, 0.6))
-    assert moved < 0.0 and abs(axis.coords[0][1] - moved) < 1e-9
-    cap = axis.coords[0][1] + 1.6
-    assert 0.6 - 0.5 - 1e-9 <= cap <= 0.6 + 0.5
-    axis, moved = _m1(box(-12.0, -15.0, 12.0, 5.0))
+    """T4 (M1, R5b): the back is read from the ramp's MIDDLE half (lines
+    |x| <= 4.75 of a 10 m half), and nothing moves unless the mouth stands
+    under the cover on every middle line.  A back of 0.1 on the edge lines
+    and 5.0 across the middle: kept; a back falling 0.8 -> 0.2 across the
+    ramp: the cap's centre (rim_off 1.6 beyond the mouth, snapped) stands
+    at or short of the middle-half least within two grid steps, no move
+    over 3.6; a cover wholly ahead of or behind the mouth, or leaving a
+    middle line bare: kept."""
+    from auto_patch_v2.planar.structure_geometry import snap_out
+    from shapely.geometry import Polygon
+    notched = box(-12.0, -15.0, 12.0, 0.1).union(box(-6.0, -15.0, 6.0, 5.0))
+    axis, moved = _m1(notched)
     assert moved == 0.0 and axis.coords[0] == (0.0, 0.0)
+    notes: list = []
+    axis, moved = _m1(Polygon([(-12.0, -15.0), (12.0, -15.0), (12.0, 0.2), (-12.0, 0.8)]),
+                      notes)
+    back = 0.5 - 0.025 * 4.75
+    assert moved < 0.0 and -moved <= 3.6 and abs(axis.coords[0][1] - moved) < 1e-9
+    c = axis.coords[0]
+    cap = snap_out((c[0], c[1] + 1.6), c, 0.5)[1]
+    assert back - 1.0 - 1e-9 <= cap <= back + 1e-9
+    assert notes == ["back 0.38 (0.26-0.74 across the ramp)"]
+    for kept in (box(-12.0, 0.05, 12.0, 0.6), box(-12.0, -15.0, 12.0, -0.2),
+                 box(-12.0, -15.0, -2.0, 0.6).union(box(2.0, -15.0, 12.0, 0.6))):
+        notes = []
+        axis, moved = _m1(kept, notes)
+        assert moved == 0.0 and axis.coords[0] == (0.0, 0.0), kept
+        assert notes == ["the mouth does not stand under the cover across the ramp's middle"]
+
+
+def test_r5_t4_m1_stands_down_where_portal_mouth_moved_the_mouth():
+    """T4 (call site): a covered pin whose mouth ``portal_mouth`` moved
+    (its anchor 3 m into the bore) gets no M1 reading; one whose anchor is
+    on the end does."""
+    from auto_patch_v2.classify.roles import Classification
+    from auto_patch_v2.planar.structures import build_structures
+    from test_mouth_at_pavement971 import _airport, _base_cells
+
+    def pin(i, x, anchor_x):
+        into = -1.0 if x > 0 else 1.0
+        cover = box(min(x - into * 1.0, x + into * 8.0), -12.0,
+                    max(x - into * 1.0, x + into * 8.0), 12.0)
+        return P.Portal(f"dsf:obj{i}", "objects/mouth.obj", (x, 0.0), -101, 8.0, 0.0,
+                        (anchor_x, 0.0), floor_z=692.0, opening_m=12.0,
+                        face_plan=cover, face_top_z=700.0, cover_plan=cover,
+                        cover_top_z=700.0)
+    airport = _airport(LAW)
+    _cl, _tn, st = build_structures(airport, Classification(tuple(_base_cells()), (), {}, ()),
+                                    LAW, portals=[pin(1, -60.0, -60.0), pin(2, 60.0, 57.0)])
+    m1 = [ln for ln in st.portal_mouths if "R5 M1" in ln]
+    assert len(m1) == 1 and "dsf:obj1" in m1[0], st.portal_mouths
 
 
 def _r5_pin(wings: bool, parapet=None):
@@ -612,3 +654,70 @@ def test_r5_t7_a_pin_with_no_cover_reads_as_r4(monkeypatch):
         assert all(a.wkb == b.wkb for a, b in zip(r4[:2], again[:2], strict=True))
     axis = LineString([(0.0, 0.0), (0.0, -100.0)])
     assert roof_back_mouth(axis, (0.0, 1.0), box(-5.0, -3.0, 5.0, 4.0))[1] == 4.0
+
+
+# ── #1689 R5b: one roof, the frame's own shell, the host pad, one keepout ──
+
+def _two_plates(lo: float, hi: "float | None"):
+    gm = _Geom()
+    gm.plate(-20.0, 20.0, -21.0, 4.0, lo)
+    if hi is not None:
+        gm.plate(-20.0, 20.0, -21.0, 4.0, hi)
+    g = gm.done()
+    return g.vertices, g.solid
+
+
+def test_r5b_t8_one_roof_or_floors_of_a_building():
+    """T8 (ONE ROOF): plates 4.3 and 8.4 apart by more than roof_m +
+    cover_m (2.2) are floors: no cover (the pin reads as R4); 5.95 and 7.43
+    are a deck and its ceiling; one plate is a cover with no soffit."""
+    assert P._covers(_two_plates(4.3, 8.4), _END5, _O5, LAW) is None
+    assert not P._one_roof([4.3, 8.4], LAW) and P._one_roof([5.95, 7.43], LAW)
+    top, cover, soffit = P._covers(_two_plates(5.95, 7.43), _END5, _O5, LAW)
+    assert abs(top - 7.43) < 1e-9 and soffit is not None and cover is not None
+    top, cover, soffit = P._covers(_two_plates(5.95, None), _END5, _O5, LAW)
+    assert abs(top - 5.95) < 1e-9 and soffit is None
+
+
+def test_r5b_t9_the_frame_is_never_a_shell_on_its_own_floor():
+    """T9 (R6): a shell whose members hold a covered pin's own object is
+    not handed to ``shell_level_s``; a foreign one is; a pin with no cover
+    reads every shell."""
+    from auto_patch_v2.planar.structures import _foreign_shells
+    own = types.SimpleNamespace(id="dsf:obj3", member_ids=("dsf:obj3", "dsf:obj6"))
+    other = types.SimpleNamespace(id="dsf:obj9", member_ids=("dsf:obj9",))
+    covered = types.SimpleNamespace(object_id="dsf:obj6", cover_plan=box(0, 0, 1, 1))
+    assert _foreign_shells([own, other], covered) == [other]
+    bare = types.SimpleNamespace(object_id="dsf:obj6", cover_plan=None)
+    assert _foreign_shells([own, other], bare) == [own, other]
+
+
+def test_r5b_t10_the_covers_piece_stands_on_its_own_host_pad():
+    """T10 (S4): an AIRSIDE host building pad behind the cover no longer
+    blocks the cover's piece (it reaches the ramp's stand-off line); with
+    no cover the pad blocks it as today."""
+    from auto_patch_v2.planar.entrance_skirt import entrance_skirt
+    pad = box(-25.0, 0.0, 25.0, 12.0)
+    cells, ramp = [_cell("building", "building5", "airside")], box(-10.0, -60.0, 10.0, 0.25)
+
+    def skirt(pin):
+        return entrance_skirt(pin, ramp, cells, [pad], LAW, lambda x, y: 174.0, 1.0,
+                              {"building5"}, outward=(0.0, -1.0))
+    core = skirt(_r5_pin(False))[0]
+    assert core.contains(Point(-15.0, 4.5)) and core.contains(Point(0.0, 1.3))
+    assert core.intersection(ramp.buffer(1.0 - 1e-6)).area < 1e-6
+    today = _r5_pin(False)
+    today.cover_plan = None
+    assert skirt(today)[0].intersection(pad).area < 1e-6
+
+
+def test_r5b_t11_one_keepout_per_tunnel():
+    """T11 (B1): a shell wall leaving a zero-area second part of the
+    footprint keeps one polygon (``structures``' idiom)."""
+    from auto_patch_v2.airport.object_cut import largest_polygon
+    from shapely.geometry import Polygon
+    outer = Polygon([(0, 0), (10, 0), (10, 10), (5, 10), (5, 12), (5, 10), (0, 10)])
+    d = box(0, 0, 10, 12).difference(box(-1, 9.0, 11, 11.0))
+    assert d.geom_type != "Polygon"
+    one = d if d.geom_type == "Polygon" else (largest_polygon(d) or outer)
+    assert one.geom_type == "Polygon" and one.exterior is not None

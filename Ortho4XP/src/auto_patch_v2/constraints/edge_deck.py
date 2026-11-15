@@ -413,14 +413,16 @@ def _run_on(line, d: float) -> list:
 _RELEASED = frozenset({"structures", "road_ramp"})
 
 
-def release_governed(rows: list[Row], counts: dict[str, int] | None = None) -> list[Row]:
-    """THE PAIR IS THE LEVEL (#1632, module doc): every vertex this module
-    holds to the airside abeam (the first term of its pairs) sheds the
-    one-vertex rows of :data:`_RELEASED` — a ``Pin``, a ``Band`` or a
-    one-term ``Linear`` — that held it at the DEM or at a road's ramp.
+def release_governed(rows: list[Row], counts: dict[str, int] | None = None,
+                     gen: str = GEN) -> list[Row]:
+    """THE PAIR IS THE LEVEL (#1632, module doc): every vertex generator
+    ``gen`` holds by a pair (the first term of its rows: this module's to the
+    airside abeam; ``constraints/wing_cut``'s to its wings' feet, #2099 R2)
+    sheds the one-vertex rows of :data:`_RELEASED` — a ``Pin``, a ``Band`` or
+    a one-term ``Linear`` — that held it at the DEM or at a road's ramp.
     Pair rows (grades, steps) are kept: they bind it to its neighbours."""
     gov = {r.terms[0][0] for r in rows
-           if isinstance(r, Linear) and r.source.generator == GEN and r.terms[0][1] > 0.0
+           if isinstance(r, Linear) and r.source.generator == gen and r.terms[0][1] > 0.0
            and r.source.ruling != RIGID}
     if not gov:
         return rows
@@ -434,7 +436,7 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None) -> l
             continue
         out.append(r)
     if counts is not None:
-        counts["edge_deck.released"] = n
+        counts[f"{gen}.released"] = n
     return out
 
 

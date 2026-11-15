@@ -49,6 +49,7 @@ from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
 from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
+from .wing_cut import wing_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
 from .storey_pad import pit_skip, read_storey_shells, storey_pads
@@ -384,6 +385,11 @@ def build(airport: Airport, classification: Classification, law: Law,
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
     classification, ground_notes = deck_ground(classification, tunnels, law)
     sstats.hard_decks.extend(ground_notes)
+    # #2099 R2: the ground beside a grouped mouth's wings stands on their
+    # feet (``planar/wing_cut``), once the corridors and the deck's ground own theirs
+    classification, wcuts, wing_notes = wing_cuts(airport, objects, cache, decks, tunnels,
+                                                  classification, law)
+    sstats.hard_decks.extend(wing_notes)
     # THE ROAD OVERPASSES, read ONCE before the solve too (owner RULINGS
     # 2026-10-30f (1) / (5), ``planar/overpass_deck``): the object stage
     # seats each deck's zero on the road beneath
@@ -588,6 +594,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                    free_bridges=tuple(free), bridge_stacks=tuple(bridge_stacks),
                    agp_groups=tuple(getattr(airport, "agp_groups", ()) or ()),
                    decks=tuple(decks),
+                   wing_cuts=tuple(wcuts),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)
                                          for b in arr.seam_bands),

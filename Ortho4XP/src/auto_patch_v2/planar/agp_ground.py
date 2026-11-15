@@ -33,6 +33,7 @@ import shapely.prepared
 from ..geom.agp_plate import built_plates
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..model.planar import AGP_GROUND_PREFIX
+from .stack_ground import _areal
 
 __all__ = ["agp_ground_pieces"]
 
@@ -48,10 +49,6 @@ def _bank_width(airport, poly, level: float, law) -> tuple[float, float]:
     fin = np.isfinite(dz)
     rise = float(np.max(np.abs(level - dz[fin]))) if fin.any() else 0.0
     return max(float(d.bank_min_width_m), rise / float(d.bank_slope)), rise
-
-
-def _areal(g):
-    return shapely.union_all([q for q in shapely.get_parts(g) if q.geom_type == "Polygon"])
 
 
 def agp_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: float,

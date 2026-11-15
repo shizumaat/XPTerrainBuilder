@@ -20,8 +20,8 @@ from shapely.ops import unary_union
 
 from .rotated_rect import rotated_rectangle
 
-__all__ = ["end_aprons", "end_slab", "ground_footprint", "ring_polygon", "path_line",
-           "GROUND_TO_WALL_TOP"]
+__all__ = ["end_aprons", "end_corridor", "end_slab", "ground_footprint", "ring_polygon",
+           "path_line", "GROUND_TO_WALL_TOP"]
 
 #: OWNER QUESTION Q2 (spec ``interchange-levels-v2-20261113.md`` §10),
 #: the spec's DEFAULT (yes): the ground is graded to the walls' top along the trench (the caps) with a bank to the
@@ -104,6 +104,29 @@ def path_line(e, length: float):
     return line if line.length <= length else substring(line, 0.0, length)
 
 
+def end_corridor(e, line, half: float):
+    """The corridor ``half`` metres either side of an end's PATH ``line``
+    (flat caps) united with the same path translated along the end line so
+    it leaves the end line's MIDDLE (#2091 R2: the grade-up meets the whole
+    end edge, corner to corner -- a route meeting the end off its middle
+    left the apron over one corner and short of the other; MEASURED OTHH
+    Bridge_03 west end, the route ~3 m from one corner).  A path starting
+    within 0.5 m of the middle: the path's own corridor alone."""
+    from shapely.affinity import translate
+    own = line.buffer(half, cap_style="flat")
+    if len(e.stations) < 2:
+        return own
+    (ax, ay), (bx, by) = e.stations[0], e.stations[-1]
+    n = math.hypot(bx - ax, by - ay)
+    x0, y0 = line.coords[0][:2]
+    mx, my = 0.5 * (ax + bx), 0.5 * (ay + by)
+    if n < 1e-6 or math.hypot(mx - x0, my - y0) <= 0.5:
+        return own
+    ux, uy = (bx - ax) / n, (by - ay) / n
+    t = (mx - x0) * ux + (my - y0) * uy
+    return unary_union([own, translate(line, t * ux, t * uy).buffer(half, cap_style="flat")])
+
+
 def end_slab(e, depth: float) -> Polygon:
     """The end line swept ``depth`` metres along its outward tangent (an
     end's SLAB, rule 4: its first step)."""
@@ -136,7 +159,9 @@ def _free_footprint(st, law) -> dict:
     """A FREE / KEPT stack's ground (#2065 A3 rule 4): per rowed end the
     SLAB (its first ``abutment_sample_step_m``) and, at a GRADED end, the
     APRON — the path's first RUN metres buffered half the end line's length,
-    flat caps (it follows the road; no length cap, 14e) — and the BANK, the
+    flat caps, and that path laid from the end line's middle
+    (:func:`end_corridor`: corner to corner; it follows the road; no length
+    cap, 14e) — and the BANK, the
     apron grown by ``max(bank_min_width_m, gap / bank_slope)``.  No bank
     beside the deck's sides, no caps, no floor; the decks' rings are no
     ground.  ``keep``: the rings and the slabs, whose edges are no toe."""
@@ -157,9 +182,9 @@ def _free_footprint(st, law) -> dict:
         w = 0.0
         if line is not None:
             hw = e.half_width
-            apron = unary_union([slab, line.buffer(hw, cap_style="flat")]).difference(rings)
+            apron = unary_union([slab, end_corridor(e, line, hw)]).difference(rings)
             w = max(float(de.bank_min_width_m), float(e.gap) / float(de.bank_slope))
-            banks.append(line.buffer(hw + w, cap_style="flat"))
+            banks.append(end_corridor(e, line, hw + w))
         apron = apron.difference(taken)
         # the ground off the end line's own ends (the bank's edge along the
         # end line, beside the deck) is no TOE: it meets the deck end there

@@ -28,9 +28,13 @@ stack the generator returns ``[]``.
 
 A FREE or KEPT stack (#2065 A3 rule 5, :func:`_bridge_rows`): no floor, no
 walls.  R1 at its ROWED ends (``DeckStack.rowed_ends``: a free bridge's every
-land end not held or listed, a kept bridge's GRADED ends); R3 under the
+land end not held or listed, a kept bridge's GRADED ends: each end's slab
+less its own deck at the plate's own height, one band per vertex and end,
+two ends on one vertex intersected or refused); R3 under the
 plate for a FREE stack only (inside the deck rings); and R6 THE PROFILE:
-every vertex in a GRADED end's corridor at path distance ``s`` that no road
+every vertex in a GRADED end's corridor (``geom/deck_ground.end_corridor``:
+the path's and the path's from the end line's middle) at path distance
+``s`` that no road
 ramp owns (no road ribbon, no airside, no structure, no slab) stands in
 ``[P(s) - visual_m / 2, P(s)]``, ``P(s) = zero + top - grade (s - step)``,
 dropped where ``P(s) <= DEM + deck_flush_m``.
@@ -195,7 +199,7 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
     import shapely
     from shapely.geometry import Point, Polygon
 
-    from ..geom.deck_ground import path_line
+    from ..geom.deck_ground import end_corridor, path_line
     br = law.tables.structures.bridge
     flush, step = float(br.deck_flush_m), float(br.abutment_sample_step_m)
     half_vis = 0.5 * float(law.tables.emit.cockpit.visual_m)
@@ -209,20 +213,7 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
     for v, (z, sid, oid, part, _off) in roads.items():
         if sid == st.id:
             r1[v] = (z - flush, z, oid, part)
-    refused: set[int] = set()
     hard = _road_or_hard(planar, law, roads=False)
-    for d, side, top, _apron, slab in ground_footprint(st, law)["aprons"]:
-        if slab.is_empty:
-            continue
-        z = z0 + float(top)
-        on = shapely.contains_xy(slab.buffer(grid, join_style="mitre"), axy[:, 0], axy[:, 1])
-        for k in np.flatnonzero(on).tolist():
-            v = allv[k]
-            if v in hard:
-                continue
-            if v in r1 and abs(r1[v][1] - z) > flush:
-                refused.add(v)
-            r1.setdefault(v, (z - flush, z, d.object_id, f"{d.object_id}#{d.piece} end {side}"))
     # #2091: each rowed end's SLAB less its OWN deck alone, and the end
     # edge's own hair inside the plate.  The footprint's slab is cut by every
     # deck ring of the stack: where a neighbouring deck's ring took it (OTHH
@@ -232,10 +223,14 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
     # one top: an end edge with a cross-fall is no one level (that end's
     # corners stand 8.41 and 8.59, and the uniform top put the low corner's
     # row over R3's ceiling, which dropped it); just under the plate on its
-    # own plan; under another deck R3's ceiling still wins.
+    # own plan; under another deck R3's ceiling still wins.  This block is
+    # the ONE R1 source for a slab vertex (#2091 R2): one band per (vertex,
+    # end); two ends on one vertex hold their bands' intersection, or
+    # neither where they do not meet (refused).
     from ..geom.deck_ground import end_slab
     decks = {d.object_id: d for d in st.decks if len(d.ring) >= 3}
     road_ids = {v for v, (_z, sid, _o, _p, _f) in roads.items() if sid == st.id}
+    slab_bands: dict[int, list] = {}
     for e in st.rowed_ends():
         d = decks.get(e.object_id)
         slab = end_slab(e, step)
@@ -256,9 +251,17 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
                  else np.zeros(len(ks), bool))
         for k, y, inside in zip(ks, ys.tolist(), under.tolist(), strict=True):
             hi = z0 + (y if y == y else float(e.top)) - (flush if inside else 0.0)
-            v = allv[k]
-            part = r1[v][3] if v in r1 else f"{e.object_id} end {e.side}"
-            r1[v] = (hi - flush, hi, e.object_id, part)
+            slab_bands.setdefault(allv[k], []).append(
+                (hi - flush, hi, e.object_id, f"{e.object_id}#{d.piece} end {e.side}"
+                 if d is not None else f"{e.object_id} end {e.side}"))
+    refused: set[int] = set()
+    for v, bands in slab_bands.items():
+        lo, hi = max(b[0] for b in bands), min(b[1] for b in bands)
+        if lo > hi:
+            refused.add(v)
+            continue
+        oid = bands[0][2]
+        r1[v] = (lo, hi, oid, " + ".join(b[3] for b in bands))
     r3: dict[int, tuple[float, str]] = {}
     if st.kind == FREE:
         for d in st.decks:
@@ -281,7 +284,7 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
         line = path_line(e, e.run)
         if line is None:
             continue
-        corridor = line.buffer(e.half_width, cap_style="flat")
+        corridor = end_corridor(e, line, e.half_width)
         inside = shapely.contains_xy(corridor.buffer(grid), axy[:, 0], axy[:, 1])
         for k in np.flatnonzero(inside).tolist():
             v = allv[k]

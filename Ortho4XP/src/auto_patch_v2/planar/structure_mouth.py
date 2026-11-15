@@ -786,10 +786,14 @@ def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
                 f"walls' bottom {pin.depth_m:.2f} (20am / 20ar); the span behind the back "
                 f"is covered ground")
     if getattr(pin, "footed", False):
+        # (a trench object's floor re-reads a footed pin: ``object_floor.
+        # floor_portals`` clears its foot -- the floor is that floor's)
         return (f"mouth pinned by the footed pack portal {pin.object_id} "
                 f"{pin.resource.rsplit('/', 1)[-1]} (#2069, Q167): floor {mouth_z:.2f} = "
-                f"its zero {float(pin.zero_z):.2f} + its walls' foot {float(pin.bottom_y):.2f}"
-                f" (ground {mouth_dem:.2f}); the mouth stands at the back of its roof")
+                + (f"its zero {float(pin.zero_z):.2f} + its walls' foot "
+                   f"{float(pin.bottom_y):.2f}" if pin.bottom_y is not None and
+                   pin.zero_z is not None else "the trench object's floor under it (#1903)")
+                + f" (ground {mouth_dem:.2f}); the mouth stands at the back of its roof")
     if getattr(pin, "floor_z", None) is not None and pin.roof_area_m2 > 0.0:
         return (f"mouth pinned by the tall pack portal {pin.object_id} "
                 f"{pin.resource.rsplit('/', 1)[-1]} (owner 2026-11-04 ENTC): floor "

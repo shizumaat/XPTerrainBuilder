@@ -2384,6 +2384,12 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             for _ln in _sl:
                 print(f"[{icao}] shell level: {_ln}")
             _tids = {str(_ln).split(": ", 1)[0] for _ln in _sl}
+            # #1689 R5 G0: every mouth pin, unpinned portal and refusal --
+            # the no-change read two arms diff
+            _st = getattr(_ps, "structures", None)
+            for _key in ("portal_mouths", "portals_unpinned", "refused"):
+                for _ln in getattr(_st, _key, ()) or ():
+                    print(f"[{icao}] structure {_key}: {_ln}")
             for _ln in getattr(getattr(_ps, "structures", None), "portal_mouths", ()) or ():
                 if "R3b" in str(_ln):
                     print(f"[{icao}] front / carried: {_ln}")

@@ -11,8 +11,11 @@ both end lines — RULINGS 2026-10-30a):
   end_road_vertices``, the ONE selection the road ramp is seeded from) and
   every stack-ground vertex on a deck's end line or on its approach slab
   (``airport/deck_ends.ground_footprint``'s apron slab, one sample
-  step beyond it) stand in ``[zero + top - deck_flush_m, zero + top]`` — the
-  ground and the road never stand over the plate's end;
+  step beyond it) stand in ``[P - deck_flush_m, P]``, ``P`` the PLATE'S OWN
+  height at the vertex (zero + the plate's floor there, ``deck_flush_m``
+  lower inside the deck's ring; the end's one top where the plate gives
+  none; a trench end's top) — the ground and the road never stand over the
+  plate's end, and an end edge with a cross-fall is met along it (#2091 R3);
 * R2 the WALLS' TOP and the CAPS: every cap vertex, every vertex of the
   floor's void band's outer ring along a wall line and every stack-ground
   vertex across the stand-off gap from it stand in ``[crest - visual_m /

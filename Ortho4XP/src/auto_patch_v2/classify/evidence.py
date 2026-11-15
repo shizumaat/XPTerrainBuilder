@@ -647,6 +647,11 @@ def _cluster_pads(airport: Airport, law, airside=None,
     # footprint's length/width, which issue #229 reads)
     CLUSTER_PADS["refused"] = _refused
     CLUSTER_PADS["deck_shade_m2"] = round(shades.area, 1) if shades is not None else 0.0
+    # #2091 R3: the welded decks' own ground slabs left IN the outlines
+    from ..geom.cluster_outline import deck_shades as _deck_shades
+    _raw = _deck_shades(getattr(airport, "partition", None), to_xy)
+    CLUSTER_PADS["deck_floor_m2"] = (0.0 if _raw is None else round(
+        _raw.area if shades is None else _raw.difference(shades).area, 1))
     CLUSTER_PADS["base_slab_m2"] = round(sum(
         g.area for g in slab_polygons(getattr(airport, "partition", None),
                                       to_xy, _lw, witness_faces(_lw))), 1)

@@ -525,3 +525,48 @@ def test_two_ends_on_one_vertex_hold_the_intersection_or_refuse():
                        for r in r1), rows
         else:
             assert r1 == [], rows
+
+
+def _road_map(st, pts):
+    """A planar stub: one road face (a service road on no structure)."""
+    verts = {i: types.SimpleNamespace(xy=tuple(p), incident_faces=[0], dem_z=0.0)
+             for i, p in enumerate(pts)}
+    faces = {0: types.SimpleNamespace(role="service_road", ref="big_roads:-1",
+                                      ring=tuple(verts), holes=())}
+    return types.SimpleNamespace(faces=faces, vertices=verts, ring_vertices=lambda r: list(r),
+                                 bridge_stacks=(st,))
+
+
+_END_PTS = [(1.0, -3.5), (1.0, 3.5), (-0.3, -3.5), (-0.3, 3.5)]
+
+
+def test_a_road_meets_a_cross_fall_end_at_the_plate_there():
+    """#2091 R3 (OTHH Bridge_03 end a, plate 8.38 at one corner, 8.60 at
+    the other): every end-road vertex carries R1 at the PLATE'S OWN height
+    there (flush lower inside the ring), none dropped under R3, and the road
+    ramp is seeded at the same heights."""
+    tilt = tuple(tuple((x, y, 0.05 * y) for x, y, _z in tri) for tri in _deck().plate)
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "flush", "")
+    st = dc.replace(_stack([end]), decks=(dc.replace(_deck(), plate=tilt),))
+    pm, air = _road_map(st, _END_PTS), types.SimpleNamespace(deck_stacks=(st,))
+    flush = float(BR.deck_flush_m)
+    want = {0: 10.0 - 0.175, 1: 10.0 + 0.175, 2: 10.0 - 0.175 - flush, 3: 10.0 + 0.175 - flush}
+    sel = DE.end_road_vertices(pm, LAW, air)
+    assert set(sel) == set(want) and all(abs(sel[v][0] - z) < 1e-6 for v, z in want.items()), sel
+    rows = deck_stack_rows(pm, LAW, air)
+    r1 = {r.v: r for r in rows if r.source.inputs[2] == "D#0 end b"}
+    assert set(r1) == set(want), rows
+    assert all(abs(r1[v].hi - z) < 1e-6 and abs(r1[v].lo - (z - flush)) < 1e-6
+               for v, z in want.items())
+    seeds = DE.deck_end_seeds(pm, LAW, air)
+    assert all(abs(seeds[v][0] - z) < 1e-6 for v, z in want.items()), seeds
+
+
+def test_a_road_meets_a_level_end_at_its_top_and_one_flush_lower_inside():
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "flush", "")
+    st = _stack([end])
+    sel = DE.end_road_vertices(_road_map(st, _END_PTS), LAW, types.SimpleNamespace(
+        deck_stacks=(st,)))
+    flush = float(BR.deck_flush_m)
+    assert {v: round(z[0], 6) for v, z in sel.items()} == {
+        0: 10.0, 1: 10.0, 2: round(10.0 - flush, 6), 3: round(10.0 - flush, 6)}

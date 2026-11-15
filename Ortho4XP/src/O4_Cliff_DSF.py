@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import array
 import os
+from collections import Counter
 
 import numpy
 import O4_Cliff_Faces as FACES
@@ -37,10 +38,15 @@ __all__ = ["ARMS", "BLEND_TEXTURE", "UV_RANGE", "add_cliff_band",
            "cliff_arm", "emit_cliff_overlays"]
 
 #: ``cliff_textures`` values that draw the overlay: ``synth`` (a texture
-#: made from the tile's photos) and ``xplane`` (X-Plane's own default
-#: landclass terrain, ``O4_Cliff_Library``).
-ARMS = ("synth", "xplane")
+#: made from the tile's photos), ``xplane`` (X-Plane's own default
+#: landclass terrain, ``O4_Cliff_Library``, projected from above as
+#: X-Plane draws it) and ``xpface`` (that landclass's cliff texture laid
+#: in this module's face charts, so it is not stretched).
+ARMS = ("synth", "xplane", "xpface")
 
+#: The X-Plane arms' alpha ramp (degrees): the overlay only where X-Plane's
+#: landclasses switch to their cliff texture (``AUTO_SLOPE_CLIFF .. 57 62``).
+XP_SLOPES = (58.0, 68.0)
 #: Face coordinates are stored in 0 .. UV_RANGE repeats (65,535 steps: a
 #: 480 m repeat is quantised to 0.47 m).
 UV_RANGE = 64.0
@@ -141,8 +147,11 @@ def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
     its triangles) and ``exemplar`` (the same for the candidates), which
     ``O4_Cliff_Synth`` reads once the photos are on disk."""
     params = FACES.CliffParams()
-    if arm == "xplane":
-        params = FACES.CliffParams(max_regions=10 ** 9)
+    if arm in ("xplane", "xpface"):
+        # No texture to make, so no region cap; and only the faces X-Plane
+        # itself draws with its cliff texture (AUTO_SLOPE_CLIFF 57-62).
+        params = FACES.CliffParams(max_regions=10 ** 9, slope_lo=XP_SLOPES[0],
+                                   slope_hi=XP_SLOPES[1])
     xyz = FACES.local_metres(nodes[:, 0], nodes[:, 1], nodes[:, 2],
                              tile.lat, tile.lon)
     land = numpy.asarray(tri_types) == 0
@@ -164,6 +173,14 @@ def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
     _write_blend(tile)
     slope = FACES.triangle_slopes(xyz, tri_idx)[0]
     lonlat_all = nodes[:, :2][tri_idx]
+    if arm == "xpface":
+        bTERT, region_terrain, repeats = _xplane_face_terrains(
+            tile, layout, lonlat_all, dico_terrains, overlay_terrains,
+            textured_tris)
+        _emit_charts(layout, xyz, tri_idx, node_icoords,
+                     idx_node_to_idx_pool, point_pools, band_base,
+                     region_terrain, textured_tris, repeats)
+        return bTERT, plan
     tag = FNAMES.short_latlon(tile.lat, tile.lon)
     bTERT = b""
     region_terrain = []
@@ -185,8 +202,38 @@ def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
                      "photos": photos, "foot": foot, "exemplar": exemplar})
     _emit_charts(layout, xyz, tri_idx, node_icoords, idx_node_to_idx_pool,
                  point_pools, band_base, region_terrain, textured_tris,
-                 params.repeat_m)
+                 [params.repeat_m] * len(region_terrain))
     return bTERT, plan
+
+
+def _xplane_face_terrains(tile, layout, lonlat_all, dico_terrains,
+                          overlay_terrains, textured_tris):
+    """``xpface``: one terrain per X-Plane cliff texture; per region its
+    terrain index (None: its landclass has no cliff texture) and repeat."""
+    textures = LIBRARY.region_cliff_textures(tile, lonlat_all,
+                                             layout.region_tris)
+    bTERT, region_terrain, repeats = b"", [], []
+    for r in range(len(layout.region_tris)):
+        cliff = textures[r] if r < len(textures) else None
+        if cliff is None:
+            region_terrain.append(None)
+            repeats.append(0.0)
+            continue
+        name = LIBRARY.install_texture(tile, cliff)[: -len(".dds")]
+        if ("cliff", name) not in dico_terrains:
+            terrain_idx = len(dico_terrains)
+            dico_terrains[("cliff", name)] = terrain_idx
+            overlay_terrains.add(terrain_idx)
+            textured_tris[terrain_idx] = {}
+            bTERT += bytes("terrain/" + _terrain_file(tile, name) + "\0",
+                           "ascii")
+        region_terrain.append(dico_terrains[("cliff", name)])
+        repeats.append(cliff[1])
+    used = Counter(os.path.basename(t[0]) for t in textures if t)
+    UI.vprint(1, "-> Cliff faces (X-Plane cliff textures): %s; %d region(s)"
+                 " without one." % (dict(used), sum(t is None
+                                                    for t in textures)))
+    return bTERT, region_terrain, repeats
 
 
 def _chart_points(layout, chart_id, tris, xyz, tri_idx, repeat_m):
@@ -203,13 +250,19 @@ def _chart_points(layout, chart_id, tris, xyz, tri_idx, repeat_m):
 
 def _emit_charts(layout, xyz, tri_idx, node_icoords, idx_node_to_idx_pool,
                  point_pools, band_base, region_terrain, textured_tris,
-                 repeat_m):
+                 repeats):
+    """``repeats[r]``: metres of face per texture repeat in region r; a
+    region whose terrain is None is not drawn."""
     by_chart = {}
     for t, c in zip(layout.tris.tolist(), layout.chart.tolist(), strict=True):
         by_chart.setdefault(c, []).append(t)
     for chart_id, tris in by_chart.items():
-        terrain = textured_tris[region_terrain[layout.chart_region[chart_id]]]
-        st = _chart_points(layout, chart_id, tris, xyz, tri_idx, repeat_m)
+        region = layout.chart_region[chart_id]
+        if region_terrain[region] is None:
+            continue
+        terrain = textured_tris[region_terrain[region]]
+        st = _chart_points(layout, chart_id, tris, xyz, tri_idx,
+                           repeats[region])
         slots = {}
         for t in tris:
             n1, n2, n3 = tri_idx[t].tolist()

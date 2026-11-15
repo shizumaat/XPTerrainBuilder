@@ -1066,7 +1066,7 @@ cfg_tile_vars = {
     "cliff_textures": {
         "type": str,
         "default": "False",
-        "values": ["False", "synth", "xplane"],
+        "values": ["False", "synth", "xplane", "xpface"],
         "hint": (
             "PROTOTYPE (#2096). Draw near-vertical mesh faces with another "
             "texture than the photo stretched down the face, fading into "
@@ -1074,7 +1074,10 @@ cfg_tile_vars = {
             "texture made from the tile's own photos (colour-matched to "
             "the photo around each cliff). xplane: the terrain X-Plane's "
             "default scenery puts there (its regional rock and cliff "
-            "textures). True is synth."),
+            "textures, projected from above as X-Plane draws them, so "
+            "they stretch on faces steeper than ~60 degrees). xpface: "
+            "that terrain's cliff texture laid along the face (not "
+            "stretched). True is synth."),
     },
     # Other
     "custom_dem": {

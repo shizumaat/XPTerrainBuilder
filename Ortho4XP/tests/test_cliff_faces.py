@@ -223,3 +223,69 @@ def test_xplane_arm_draws_the_default_terrain(monkeypatch):
     pts = numpy.frombuffer(pools.points[base], numpy.uint16).reshape(-1, 7)
     assert pts[:, 5].max() == 65535 and pts[:, 5].min() < 65535
     assert (pts[:, 6] == 0).all()
+
+
+def test_xpface_arm_lays_the_cliff_texture_in_face_charts(tmp_path,
+                                                          monkeypatch):
+    """``xpface``: the landclass's AUTO_SLOPE_CLIFF texture is copied in
+    and drawn in 9-plane face charts at its own repeat."""
+    import O4_Cliff_Library as LIBRARY
+    xyz, tris = _wall_mesh()
+    k = 111319.49
+    nodes = numpy.stack((13.0 + xyz[:, 0] / (k * numpy.cos(numpy.radians(
+        38.5))), 38.0 + xyz[:, 1] / k, xyz[:, 2], numpy.zeros(len(xyz)),
+        numpy.zeros(len(xyz))), 1)
+    dds = tmp_path / "cliff_cld_wet.dds"
+    dds.write_bytes(b"DDS ")
+    monkeypatch.setattr(LIBRARY, "region_cliff_textures",
+                        lambda tile, lonlat, regions: [
+                            LIBRARY.CliffTexture((str(dds), 2160.0))
+                        ] * len(regions))
+    monkeypatch.setattr(FACES, "CliffParams",
+                        lambda **k: dataclasses.replace(LOOSE, **{
+                            n: v for n, v in k.items() if n == "max_regions"}))
+    planes, base = CLIFF.add_cliff_band(7 * numpy.ones(3, "int"), 1,
+                                        "xpface")
+    pools = POOLS.DsfPointPools(1, planes)
+    pool_param = {0: (1, 13, 1, 38, 771, 0, 2, -1, 2, -1, 1, 0, 1, 0,
+                      1, 0, 1, 0)}
+    (tmp_path / "textures").mkdir()
+    tile = type("Tile", (), {"lat": 38, "lon": 13, "mesh_zl": 18,
+                             "build_dir": str(tmp_path),
+                             "terrain_staging": str(tmp_path)})
+    dico, textured, overlays = {"terrain_Water": 0}, {0: {}}, set()
+    tert, plan = CLIFF.emit_cliff_overlays(
+        tile, nodes, tris, numpy.zeros(len(tris), int),
+        array.array("H", [0] * (5 * len(nodes))),
+        {i: 0 for i in range(len(nodes))}, pool_param, pools, base, 1,
+        None, textured, dico, overlays, "xpface")
+    assert tert == b"terrain/cliff_xp_cliff_cld_wet.ter\0" and plan == []
+    assert overlays == {1} and textured[1]
+    assert (tmp_path / "textures" / "cliff_xp_cliff_cld_wet.dds").is_file()
+    ter = (tmp_path / "cliff_xp_cliff_cld_wet.ter").read_text()
+    assert "BASE_TEX ../textures/cliff_xp_cliff_cld_wet.dds" in ter
+    pts = numpy.frombuffer(pools.points[base], numpy.uint16).reshape(-1, 9)
+    # a 200 m wall at a 2160 m repeat stays well inside one repeat
+    assert pts[:, 6].max() < 65535 * 1.0 / CLIFF.UV_RANGE
+
+
+def test_world_library_reads_generic_summer_rows(tmp_path):
+    import O4_Cliff_Library as LIBRARY
+    root = tmp_path / "Resources" / "default scenery" / "1000 world terrain"
+    (root / "terrain10").mkdir(parents=True)
+    (root / "library.txt").write_text(
+        "A\n800\nLIBRARY\n"
+        "REGION terrain10_VLC/\n"
+        "EXPORT_EXCLUDE\tlib/g10/terrain10/r.ter\tterrain10_VLC/r.ter\n"
+        "REGION all\n"
+        "EXPORT_EXCLUDE_SEASON fal,win\tlib/g10/terrain10/r.ter\tterrain10/fal/r.ter\n"
+        "EXPORT_EXCLUDE_SEASON spr,sum\tlib/g10/terrain10/r.ter\tterrain10/r.ter\n")
+    lib = LIBRARY._world_library(str(tmp_path))
+    assert lib["lib/g10/terrain10/r.ter"] == str(root / "terrain10" / "r.ter")
+    (root / "textures10").mkdir()
+    (root / "textures10" / "c.dds").write_bytes(b"x")
+    (root / "terrain10" / "r.ter").write_text(
+        "A\n800\nTERRAIN\nPROJECTED 10 10\n"
+        "AUTO_SLOPE_CLIFF 2160 1080 57 62 ../textures10/c.dds\n")
+    tex = LIBRARY._cliff_texture(lib["lib/g10/terrain10/r.ter"])
+    assert tex[1] == 2160.0 and tex[0].endswith("c.dds")

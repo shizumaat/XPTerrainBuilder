@@ -438,3 +438,177 @@ def test_the_corridor_rule_leaves_entrance_faces_and_r3_alone():
     ent = _pin(True)
     a, b = _r4_skirt(ent, (0.0, -1.0)), _r4_skirt(ent, None)
     assert all(x.wkb == y.wkb for x, y in zip(a[:2], b[:2], strict=True))
+
+
+# ── #1689 R5: the frame's cover and soffit, its back, the parapet, two levels ──
+
+def _r5_frame(ceiling: bool = True):
+    """T1's frame, three co-placed pieces read as one (heading 0: frame
+    ``(x, -z)``; the bore runs INTO frame -y): a deck sheet ONE side thick
+    at 7.4 (frame y -4..21), a 0.9 m parapet top at 8.9 across it at y
+    12..12.9 (two sided: 155 m2 of triangles, 77 m2 of plan), a ceiling at
+    6.0 (y -4..19) between jamb walls at x +-16.5, a median wall at x 0."""
+    gm = _Geom()
+    gm.plate(-40.0, 40.0, -21.0, 4.0, 7.4)
+    gm.plate(-43.0, 43.0, -12.9, -12.0, 8.9)
+    gm.plate(-43.0, 43.0, -12.9, -12.0, 8.9)            # its underside: two sided
+    gm.quad((-43.0, 7.4, -12.0), (43.0, 7.4, -12.0), (43.0, 8.9, -12.0), (-43.0, 8.9, -12.0))
+    if ceiling:
+        gm.plate(-16.5, 16.5, -19.0, 4.0, 6.0)
+    for x in (-16.5, 0.0, 16.5):
+        gm.wall_z(x, -19.0, 4.0, 0.0, 6.0)
+    g = gm.done()
+    return g.vertices, g.solid
+
+
+_O5 = types.SimpleNamespace(xy=(0.0, 0.0), heading_deg=0.0)
+#: the mapped end 6.7 m up the road (frame +y) from the parapet
+_END5 = (0.0, 12.9 + 6.7)
+_INTO5 = (0.0, -1.0)
+
+
+def test_r5_t1_the_cover_is_the_deck_and_the_soffit_the_ceiling():
+    """T1: the cover is the deck at 7.4 (its one sided plan), never the
+    parapet's top (a wall top, however much triangle area); the soffit is
+    the ceiling; the parapet stands over the cover."""
+    top, cover, soffit = P._covers(_r5_frame(), _END5, _O5, LAW)
+    assert abs(top - 7.4) < 1e-9
+    assert abs(cover.area - 80.0 * 25.0) < 1.0
+    assert soffit.bounds == (-16.5, -4.0, 16.5, 19.0)
+    para = P._parapet(_O5, _r5_frame(), top, LAW)
+    assert para is not None and 11.8 < para.bounds[1] and para.bounds[3] < 13.1
+
+
+def test_r5_t2_the_opening_up_the_road_is_the_soffit_jamb_to_jamb():
+    """T2: the end up the road opens over the ceiling's span, jamb to jamb
+    (the median wall is no jamb); without the ceiling there is no soffit
+    and the reading is R4's (the circle round the end)."""
+    tol = LAW.tables.structures.tunnel.object.bore_end_tolerance_m
+    _t, _c, soffit = P._covers(_r5_frame(), _END5, _O5, LAW)
+    width, edges = P._roof_opening(soffit, _END5, _INTO5, tol)
+    assert abs(width - 33.0) < 1e-6
+    assert sorted(round(e[0], 6) for e in edges) == [-16.5, 16.5]
+    assert P._covers(_r5_frame(ceiling=False), _END5, _O5, LAW)[2] is None
+
+
+def test_r5_t3_a_stub_roof_reads_its_own_roof_as_the_cover():
+    """T3: a stub roof over the end: the cover is the roof R4 read (the
+    same plan, the same top), so the opening, face_plan and face_top_z it
+    states are R4's; one bin, no soffit."""
+    gm = _Geom()
+    _stub(gm)
+    g = gm.done()
+    horiz = P._face_normals_y(g.vertices, g.solid) >= \
+        LAW.tables.structures.tunnel.object.plate_normal_y_min
+    ymax = g.vertices[g.solid][:, :, 1].max(axis=1)
+    y, _a, plan = P.roof_of(g.vertices, g.solid, horiz, P._plan_area(g.vertices, g.solid),
+                            ymax, LAW.tables.structures.tunnel.object)
+    top, cover, soffit = P._covers((g.vertices, g.solid), (0.0, 0.0), _O, LAW)
+    roof = P._fe.enter([plan], P._obj8.placement_affine(_O.xy, _O.heading_deg),
+                       P._fe.quantum(LAW))[0]
+    assert top == y and cover.equals(roof) and soffit is None
+
+
+def _m1(cover):
+    from auto_patch_v2.planar.structure_mouth import roof_back_mouth
+    from shapely.geometry import LineString
+    axis = LineString([(0.0, 0.0), (0.0, -100.0)])            # the mouth outward (-y)
+    return roof_back_mouth(axis, (0.0, 1.0), cover, 2.1, 10.0, 0.5)
+
+
+def test_r5_t4_the_cap_never_stands_beyond_the_covers_back():
+    """T4 (M1): a cover whose back stands 0.6 m into the bore: the mouth
+    moves out until the cap (rim_off 1.6 beyond it, snapped) stands on the
+    back within one grid step; a cover running 5 m past the mouth: kept."""
+    axis, moved = _m1(box(-12.0, -15.0, 12.0, 0.6))
+    assert moved < 0.0 and abs(axis.coords[0][1] - moved) < 1e-9
+    cap = axis.coords[0][1] + 1.6
+    assert 0.6 - 0.5 - 1e-9 <= cap <= 0.6 + 0.5
+    axis, moved = _m1(box(-12.0, -15.0, 12.0, 5.0))
+    assert moved == 0.0 and axis.coords[0] == (0.0, 0.0)
+
+
+def _r5_pin(wings: bool, parapet=None):
+    """A tall pin over a cover (frame: the bore runs into +y from its end
+    at the origin): the cover y -6..2.35, two wing walls running 16 m out
+    of the bore beyond its front when ``wings``."""
+    cover = box(-19.0, -6.0, 19.0, 2.35)
+    wing = box(-13.0, -22.0, -12.8, -6.0).union(box(12.8, -22.0, 13.0, -6.0))
+    return types.SimpleNamespace(
+        face_plan=cover.union(wing) if wings else cover, face_top_z=177.88, bottom_y=None,
+        cover_plan=cover, cover_top_z=176.49, parapet_plan=parapet, end_xy=(0.0, 0.0))
+
+
+def _r5_skirt(pin, outward=(0.0, -1.0)):
+    from auto_patch_v2.planar.entrance_skirt import entrance_skirt
+    ramp = box(-10.0, -60.0, 10.0, 0.25)
+    return entrance_skirt(pin, ramp, [], [], LAW, lambda x, y: 174.0, 1.0, outward=outward)
+
+
+def test_r5_t5_no_skirt_in_front_of_a_parapet():
+    """T5 (S1): no part of the level piece or the bank stands in the
+    parapet's prolongation out of the bore; the piece behind it stands."""
+    para = box(-19.0, -4.0, -11.0, -3.5)
+    core, bank, top = _r5_skirt(_r5_pin(False, para))
+    ahead = box(-19.0, -60.0, -11.0, -4.0)
+    assert top == 176.49
+    assert core.intersection(ahead).area < 1e-6 and bank.intersection(ahead).area < 1e-6
+    assert core.contains(Point(-15.0, 0.0)) and core.contains(Point(15.0, -5.0))
+
+
+def test_r5_t6_two_levels_with_wings_one_without():
+    """T6 (S2 / S3): with wings, the cover's piece and the wings' piece, a
+    grid strip between them and no shared vertex, each pinned at its own
+    level; without wings, one piece under the old ref at the cover's top."""
+    from auto_patch_v2.constraints.entrance_skirt import skirt_pins
+    from auto_patch_v2.planar.entrance_skirt import skirt_refs
+    got = _r5_skirt(_r5_pin(True))
+    assert len(got) == 5
+    inner, bank, level, outer, wing_top = got
+    assert (level, wing_top) == (176.49, 177.88)
+    assert inner.distance(outer) >= 0.5 - 1e-9
+    assert outer.contains(Point(-13.9, -15.0)) and inner.contains(Point(-15.0, 0.0))
+    vi = {c for g in getattr(inner, "geoms", [inner]) for c in g.exterior.coords}
+    vo = {c for g in getattr(outer, "geoms", [outer]) for c in g.exterior.coords}
+    assert not vi & vo
+    one = _r5_skirt(_r5_pin(False))
+    assert len(one) == 3 and one[2] == 176.49
+    # S3: each piece's ring held at its own level
+    core_ref, bank_ref, wing_ref = skirt_refs("tunnel:t@0")
+    tn = types.SimpleNamespace(entrance_skirt=(176.49, core_ref, bank_ref),
+                               entrance_wing=(177.88, wing_ref))
+    F = types.SimpleNamespace
+    pm = types.SimpleNamespace(ring_vertices=lambda ring: list(ring),
+                               vertices={k: F(xy=(float(k), 0.0)) for k in range(5)},
+                               faces={0: F(role="object_pad"), 1: F(role="object_pad"),
+                                      2: F(role="object_pad")})
+    faces = {core_ref: [F(ring=(0, 1))], wing_ref: [F(ring=(2, 3))], bank_ref: [F(ring=(1, 4))]}
+    vf = {0: [0], 1: [0, 2], 2: [1], 3: [1], 4: [2]}
+    airport = types.SimpleNamespace(dem=types.SimpleNamespace(z=lambda x, y: 170.0))
+    pins: dict = {}
+    skirt_pins(pm, airport, LAW, tn, faces, vf, ("object_pad",), lambda v: False,
+               lambda v, z, src, senior=False: pins.__setitem__(v, z), ())
+    assert pins == {0: 176.49, 1: 176.49, 2: 177.88, 3: 177.88, 4: 170.0}
+
+
+def test_r5_t7_a_pin_with_no_cover_reads_as_r4(monkeypatch):
+    """T7: the new statements are reached only through a pin with a cover:
+    with ``_frame`` patched to raise, an entrance face's skirt, a pin with
+    no cover and the mouth rules without ``set_back`` read as before."""
+    from auto_patch_v2.planar.entrance_skirt import entrance_skirt
+    from auto_patch_v2.planar.structure_mouth import roof_back_mouth
+    from shapely.geometry import LineString
+
+    def boom(*_a, **_k):
+        raise AssertionError("_frame read for a pin with no cover")
+    monkeypatch.setattr(P, "_frame", boom)
+    ramp = box(-10.0, -5.0, 10.0, 0.0)
+    for pin in (_pin(True), _pin(False)):
+        r4 = entrance_skirt(pin, ramp, [], [], LAW, lambda x, y: 176.0, 1.0, outward=(0.0, -1.0))
+        pin.cover_plan, pin.cover_top_z, pin.parapet_plan = None, None, None
+        again = entrance_skirt(pin, ramp, [], [], LAW, lambda x, y: 176.0, 1.0,
+                               outward=(0.0, -1.0))
+        assert len(again) == 3 and again[2] == r4[2] == 177.88
+        assert all(a.wkb == b.wkb for a, b in zip(r4[:2], again[:2], strict=True))
+    axis = LineString([(0.0, 0.0), (0.0, -100.0)])
+    assert roof_back_mouth(axis, (0.0, 1.0), box(-5.0, -3.0, 5.0, 4.0))[1] == 4.0

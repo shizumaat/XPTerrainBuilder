@@ -89,6 +89,9 @@ from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_family, role_side
 from ..model.frame import rotated_rectangle
 from ..model.planar import OSM_RIBBON_FEEDS, ROAD_ROLES
+from .entrance_skirt import _cover_back
+from .mouth_opening import axis_left_normal
+from .structure_geometry import snap_out
 
 __all__ = ["mouth_stops", "member_lanes", "clear_mouth", "mouth_at_pavement", "road_profile",
            "road_end_after_slide", "covered_stretch", "own_road_blade", "road_over_mouth",
@@ -845,15 +848,28 @@ def portal_mouth(axis: LineString, inward, anchor, plan=()) -> "tuple[LineString
                                        for q in (plan or (anchor,))))
 
 
-def roof_back_mouth(axis: LineString, inward, roof) -> "tuple[LineString, float]":
+def roof_back_mouth(axis: LineString, inward, roof, set_back: "float | None" = None,
+                    half=0.0, grid: float = 0.0) -> "tuple[LineString, float]":
     """``(axis, metres moved)``: a FOOTED portal's mouth stands at the BACK
     of its roof (#2069, ``airport/footed_portal``): the cut floor runs under
     the roof and out of its opening.  Where the roof reaches over the bore
     the mouth moves in to its furthest point (as :func:`portal_mouth`);
     where it stands up the open road (NZWN's west portal, 45 m up the road
     from the mapped end) the axis is cut back to the roof's nearest station
-    along it, the road behind the portal is covered ground (negative)."""
+    along it, the road behind the portal is covered ground (negative).
+
+    #1689 R5 M1: with ``set_back`` (the cap's stand-off off the ramp's end,
+    ``rim_off + grid``) ``roof`` is a TALL portal's COVER and the mouth
+    already stands under it: the CAP never stands beyond the cover's back.
+    The back is read across the ramp (``half`` either side of the axis, or
+    its pair: ``entrance_skirt._cover_back``); where the mouth plus the
+    stand-off passes it, the axis is cut back out of the bore to ``back -
+    set_back`` (negative), and a ``grid`` step more while the cap, snapped
+    as the builder snaps it (``structure_geometry.snap_out``), still
+    stands beyond the back -- at most three; else the mouth stays."""
     m = axis.coords[0]
+    if set_back is not None:
+        return _cap_under_cover(axis, inward, roof, half, float(set_back), grid)
     pts = [q for g in getattr(roof, "geoms", [roof]) for q in g.exterior.coords]
     if not pts:
         return axis, 0.0
@@ -864,6 +880,32 @@ def roof_back_mouth(axis: LineString, inward, roof) -> "tuple[LineString, float]
     if s <= 1e-6 or s >= axis.length - 1e-6:
         return axis, 0.0
     return substring(axis, s, axis.length), -float(s)
+
+
+def _cap_under_cover(axis: LineString, inward, cover, half, set_back: float, grid: float
+                     ) -> "tuple[LineString, float]":
+    """:func:`roof_back_mouth`'s ``set_back`` arm (#1689 R5 M1)."""
+    m = axis.coords[0]
+    nv = axis_left_normal(axis)
+    back = _cover_back(m, inward, cover, half, nv, 4.0 * (axis.length + 1000.0))
+    if back is None or back >= set_back - 1e-9:
+        return axis, 0.0
+    left, right = (half, half) if isinstance(half, (int, float)) else half
+    off = set_back - grid
+    s = back - set_back
+    for _k in range(4):
+        c = (m[0] + inward[0] * s, m[1] + inward[1] * s)
+        cap = [snap_out((c[0] + inward[0] * off, c[1] + inward[1] * off), c, grid)]
+        for o in (float(left), -float(right)):
+            e = snap_out((c[0] + nv[0] * o, c[1] + nv[1] * o), c, grid)
+            cap.append(snap_out((e[0] + inward[0] * off, e[1] + inward[1] * off), e, grid))
+        if max((q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1] for q in cap) \
+                <= back + 1e-9:
+            break
+        s -= grid
+    if -s >= axis.length - 1e-6:
+        return axis, 0.0
+    return substring(axis, -s, axis.length), float(s)
 
 
 def edge_wall_mouth(axis: LineString, inward, walls, half: float

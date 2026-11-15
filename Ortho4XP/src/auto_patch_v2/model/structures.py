@@ -355,6 +355,10 @@ class Tunnel:
     #: level piece is held at the face's top, the bank falls to the DEM
     #: (``constraints/entrance_skirt``); ``()`` otherwise
     entrance_skirt: tuple = ()
+    #: #1689 R5 S2: a TALL portal's WINGS' level piece -- ``(the portal's
+    #: top z, its ref)``: held at that top as the level piece is at the
+    #: cover's (``constraints/entrance_skirt``); ``()`` otherwise
+    entrance_wing: tuple = ()
     #: #1737: an ENTRANCE face's TOP -- ``(its top plan's rings, top y, top
     #: y - bottom y)`` (``Portal.top_plan``): where airside pavement abuts the
     #: plan, the top is flush with that pavement's SOLVED level, the floor that

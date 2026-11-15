@@ -567,6 +567,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               if getattr(pin, "footed", False) else
                               portal_mouth(axis_ln, inward, pin.anchor_xy,
                                            pin.plan_xy if pin.hanging else ()))
+            if getattr(pin, "cover_plan", None) is not None and edge is None \
+                    and not is_entrance_face(pin) and not pin.footed and not pin.hanging:
+                # #1689 R5 M1: the cap never stands beyond the cover's back
+                axis_ln, back = roof_back_mouth(axis_ln, inward, pin.cover_plan, rim_off + grid,
+                                                span or half, grid)
+                moved += back
+                stats.portal_mouths.append(
+                    f"{tid}: {pin.object_id} cover top {float(pin.cover_top_z):.2f}: mouth "
+                    f"{back:.2f} m to stand its cap under the cover's back (#1689 R5 M1)")
             mouth = tuple(axis_ln.coords[0])
             stats.portal_mouths.append(f"{tid}: {pin.object_id} depth {pin.depth_m:.2f}"
                                        + ((f", mouth {moved:.1f} m along the bore to the "
@@ -1435,9 +1444,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             pin, ramp_geom, cells, polys, law, airport.dem.z, rim_off, pin_hosts,
             outward=(-inward[0], -inward[1]))
         if skirt is not None:
-            wall_geom = wall_geom.difference(unary_union([skirt[0], skirt[1]]))
-            skirt_of[tid] = [q for q in _parts(unary_union([skirt[0], skirt[1]]))]
-            for ref, geom_s in zip(skirt_refs(tid), skirt[:2], strict=True):
+            # (#1689 R5 S2: and the wings' piece, at their own level)
+            s_parts = list(zip(skirt_refs(tid), (skirt[0], skirt[1], *skirt[3:4]), strict=False))
+            s_all = unary_union([geom_s for _r, geom_s in s_parts])
+            wall_geom = wall_geom.difference(s_all)
+            skirt_of[tid] = [q for q in _parts(s_all)]
+            for ref, geom_s in s_parts:
                 for part in _parts(geom_s):
                     new_cells.append((SKIRT_ROLE, ref, part, tid))
         for part in _parts(wall_geom):
@@ -1522,7 +1534,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                             tuple(pin.anchor_xy),
                                             2.0 * float(tn.object.bore_end_tolerance_m))
                     if skirt is not None:
-                        extra["entrance_skirt"] = (skirt[2], *skirt_refs(tid))
+                        extra["entrance_skirt"] = (skirt[2], *skirt_refs(tid)[:2])
                     top = entrance_top(pin)
                     if top:
                         extra["entrance_top"] = top
@@ -1540,7 +1552,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             for g in getattr(foot, "geoms", [foot]))
                     if skirt is not None:
                         # #1689 R2 A4: a TALL portal's top is graded round
-                        extra["entrance_skirt"] = (skirt[2], *skirt_refs(tid))
+                        extra["entrance_skirt"] = (skirt[2], *skirt_refs(tid)[:2])
+                        if len(skirt) > 3:
+                            # #1689 R5 S2: its wings' piece at the portal's top
+                            extra["entrance_wing"] = (skirt[4], skirt_refs(tid)[2])
             if edge is not None:
                 extra["edge_back"] = tuple(edge.back)
                 extra["edge_seats"] = edge_seats

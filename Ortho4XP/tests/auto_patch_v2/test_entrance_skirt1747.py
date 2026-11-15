@@ -117,7 +117,7 @@ def test_the_skirt_pins_its_level_piece_at_the_top_and_its_bank_at_the_dem(law):
     vertex other governed ground carries."""
     from auto_patch_v2.model.structures import SKIRT_ROLE
     from auto_patch_v2.planar.entrance_skirt import skirt_refs
-    core_ref, bank_ref = skirt_refs("tunnel:t@0")
+    core_ref, bank_ref, _wing_ref = skirt_refs("tunnel:t@0")
     tn = type("T", (), {"entrance_skirt": (703.5, core_ref, bank_ref)})()
     pm = type("P", (), {"ring_vertices": staticmethod(lambda ring: list(ring))})()
     pm.vertices = {0: _V((10.0, 5.0)), 1: _V((15.0, 5.0)), 2: _V((5.0, 10.0)),

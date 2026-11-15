@@ -60,15 +60,18 @@ def skirt_pins(planar, airport, law, tn, faces_by_ref: _t.Mapping[str, _t.Sequen
                    and role_side(law, planar.faces[f].role) == "airside"
                    for f in vertex_faces[v])
     core = ring_vs(core_ref)
+    # #1689 R5 S3: a tall portal's wings' piece is held at its own level
+    wing = getattr(tn, "entrance_wing", ())
+    wings = ring_vs(wing[1]) - core if wing else set()
     n = 0
-    for v in sorted(core):
+    for v, z in [(v, top) for v in sorted(core)] + [(v, float(wing[0])) for v in sorted(wings)]:
         if not airside(v):
             if held is not None:
                 held.append(v)
             else:
-                pin(v, top, src_top, senior=True)
+                pin(v, z, src_top, senior=True)
             n += 1
-    for v in sorted(ring_vs(bank_ref) - core):
+    for v in sorted(ring_vs(bank_ref) - core - wings):
         if airside(v) or shared(v):
             continue
         xy = planar.vertices[v].xy

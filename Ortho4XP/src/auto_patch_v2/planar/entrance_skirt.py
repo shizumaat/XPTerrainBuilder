@@ -38,6 +38,7 @@ import typing as _t
 from shapely.geometry import LineString
 from shapely.ops import substring, unary_union
 
+from ..airport.portal_objects import _station
 from ..model.frame import XY
 from .mouth_opening import axis_left_normal
 
@@ -81,15 +82,14 @@ def face_front_mouth(axis: LineString, inward: XY, plan, half
     return substring(axis, -d, axis.length), float(d)
 
 
-def _deepest_front(m: XY, inward: XY, plan, half, nv: XY, reach: float) -> "float | None":
-    """The greatest, over lines along ``inward`` across the corridor
-    (``half`` either side of ``m``, or ``(left, right)`` along ``nv``), of
-    the least station from ``m`` of ``plan`` on each line; ``None`` where
-    no line meets it."""
+def _line_stations(m: XY, inward: XY, plan, half, nv: XY, reach: float):
+    """``(least, greatest)`` station from ``m`` of ``plan`` on each line
+    along ``inward`` across the corridor (``half`` either side of ``m``, or
+    ``(left, right)`` along ``nv``; inset ``_EDGE_INSET_M``, every
+    ``_FRONT_STEP_M``) that meets it."""
     left, right = (half, half) if isinstance(half, (int, float)) else half
     lo, hi = -float(right) + _EDGE_INSET_M, float(left) - _EDGE_INSET_M
     n = max(1, int(math.ceil((hi - lo) / _FRONT_STEP_M))) if hi > lo else 0
-    best = None
     for k in range(n + 1):
         o = lo + (hi - lo) * k / n if n else 0.0
         c = (m[0] + nv[0] * o, m[1] + nv[1] * o)
@@ -97,10 +97,27 @@ def _deepest_front(m: XY, inward: XY, plan, half, nv: XY, reach: float) -> "floa
                                             (c[0] + inward[0] * reach, c[1] + inward[1] * reach)]))
         if got.is_empty:
             continue
-        front = min((q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1]
-                    for g in getattr(got, "geoms", [got]) for q in g.coords)
-        best = front if best is None else max(best, front)
-    return best
+        s = [(q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1]
+             for g in getattr(got, "geoms", [got]) for q in g.coords]
+        yield min(s), max(s)
+
+
+def _deepest_front(m: XY, inward: XY, plan, half, nv: XY, reach: float) -> "float | None":
+    """The greatest, over lines along ``inward`` across the corridor
+    (``half`` either side of ``m``, or ``(left, right)`` along ``nv``), of
+    the least station from ``m`` of ``plan`` on each line; ``None`` where
+    no line meets it."""
+    fronts = [lo for lo, _hi in _line_stations(m, inward, plan, half, nv, reach)]
+    return max(fronts) if fronts else None
+
+
+def _cover_back(m: XY, inward: XY, plan, half, nv: XY, reach: float) -> "float | None":
+    """A cover's BACK across the ramp (#1689 R5 M1): the least, over the
+    lines :func:`_deepest_front` samples, of the GREATEST station from
+    ``m`` of ``plan`` on each -- the cap standing within it stands under
+    the cover on every line; ``None`` where no line meets it."""
+    backs = [hi for _lo, hi in _line_stations(m, inward, plan, half, nv, reach)]
+    return min(backs) if backs else None
 
 
 def _bank_width(core, top_z: float, dem_z: _t.Callable[[float, float], float],
@@ -167,6 +184,20 @@ def _swept(geom, d: XY):
     return unary_union(out)
 
 
+def _half_plane(geom, end_xy: XY, into: XY, front: float, off: float):
+    """The half plane (a box over ``geom``'s reach) into the bore from the
+    line across it at station ``front + off`` (``off > 0``), or out of it
+    from ``front + off`` (``off < 0``)."""
+    from shapely.geometry import Polygon
+    b = geom.bounds
+    big = 2.0 * (math.hypot(b[2] - b[0], b[3] - b[1]) + abs(front) + abs(off)
+                 + math.hypot(end_xy[0] - b[0], end_xy[1] - b[1])) + 1.0
+    s0, s1 = (front + off, front + off + big) if off > 0.0 else (front + off - big, front + off)
+    nx, ny = -into[1], into[0]
+    return Polygon([(end_xy[0] + into[0] * s + nx * o, end_xy[1] + into[1] * s + ny * o)
+                    for s, o in ((s0, -big), (s1, -big), (s1, big), (s0, big))])
+
+
 def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
                    hosts: _t.AbstractSet[str] = frozenset(), outward: "XY | None" = None):
     """``(core, bank, top z)`` of a top-stating ``pin``'s skirt round the
@@ -181,7 +212,16 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
     roofed portal's skirt keeps off the CORRIDOR out of its mouth too --
     the ramp's plan swept along ``outward`` across the reach, grown by
     ``stand_off`` -- level piece and bank alike: the road leaving the
-    mouth is never skirt."""
+    mouth is never skirt.
+
+    #1689 R5 S1 / S2: a pin with a COVER (``Portal.cover_plan``) keeps
+    off the ground in front of its parapet too (swept along ``outward``,
+    not grown), and its level piece stands at the cover's top; where
+    wings run out beyond the cover's front, the piece out of the bore from
+    the line across it there is theirs, at the portal's top, a strip
+    ``min_distinct_spacing_m`` wide astride the line in neither (it goes
+    with the bank): ``(cover's piece, bank, cover top, wings' piece,
+    wings' top)``."""
     if not _states_top(pin):
         return None
     ob = law.tables.structures.tunnel.object
@@ -196,11 +236,15 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
         held = [p.buffer(stand_off, **_MITRE) for c, p in zip(cells, polys, strict=False)
                 if (c.role in ROAD_ROLES or (c.role == "building" and c.ref not in hosts))
                 and p.intersects(reach)]
+        b = reach.bounds
+        far = math.hypot(b[2] - b[0], b[3] - b[1])
         if outward is not None and not ramp.is_empty:
-            b = reach.bounds
-            far = math.hypot(b[2] - b[0], b[3] - b[1])
             held.append(_swept(ramp, (outward[0] * far, outward[1] * far)).buffer(
                 stand_off, **_MITRE))
+        para = getattr(pin, "parapet_plan", None)
+        if outward is not None and para is not None and not para.is_empty:
+            # #1689 R5 S1: nor the ground in front of a wall rising over the cover
+            held.append(_swept(para, (outward[0] * far, outward[1] * far)))
         if held:
             blocked = unary_union([blocked, *held])
     core, _ = _skirt_cells(plan, ramp, blocked, stand_off, band, 0.0)
@@ -208,7 +252,24 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
         return None
     width = _bank_width(core, top, dem_z, slope, cap)
     core, bank = _skirt_cells(plan, ramp, blocked, stand_off, band, width)
-    return core, bank, top
+    cover = getattr(pin, "cover_plan", None)
+    if cover is None or cover.is_empty:
+        return core, bank, top
+    # #1689 R5 S2: the ground round the COVER is the cover's top; where
+    # wings stand at the portal's top beyond its front, theirs is that top
+    level = float(pin.cover_top_z)
+    if not plan.difference(cover).area > 1e-6:
+        return core, bank, level
+    if outward is None:
+        return core, bank, top
+    into = (-outward[0], -outward[1])
+    front = min(_station(q, pin.end_xy, into) for g in getattr(cover, "geoms", [cover])
+                for q in g.exterior.coords)
+    gap = float(law.tables.emit.identity.min_distinct_spacing_m)
+    inner, outer = (core.intersection(_half_plane(core, pin.end_xy, into, front, k * 0.5 * gap))
+                    for k in (1.0, -1.0))
+    strip = core.difference(unary_union([inner, outer]))
+    return inner, unary_union([bank, strip]), level, outer, top
 
 
 def host_blade(pin, outer, skirt_parts, law):
@@ -229,9 +290,10 @@ def host_blade(pin, outer, skirt_parts, law):
     return unary_union([outer, plan.buffer(band, **_MITRE), *skirt_parts])
 
 
-def skirt_refs(tid: str) -> tuple[str, str]:
-    """The refs of a tunnel's skirt faces: its level piece and its bank."""
-    return f"entrance_skirt:{tid}", f"entrance_bank:{tid}"
+def skirt_refs(tid: str) -> tuple[str, str, str]:
+    """The refs of a tunnel's skirt faces: its level piece, its bank and
+    its wings' level piece (#1689 R5 S2)."""
+    return f"entrance_skirt:{tid}", f"entrance_bank:{tid}", f"entrance_wing:{tid}"
 
 
 def entrance_top(pin) -> tuple:

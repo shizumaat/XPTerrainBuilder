@@ -430,3 +430,16 @@ def test_an_end_slab_under_a_neighbouring_deck_still_holds_its_end():
     held = [r for r in rows if r.source.inputs[2] == "D end b"]
     assert len(held) == 3 and all(abs(r.hi - 10.0) < 1e-9 and abs(r.lo - (10.0 - flush)) < 1e-9
                                   for r in held), rows
+
+
+def test_an_end_with_a_cross_fall_holds_its_ground_at_the_plate_there():
+    """#2091 (OTHH Bridge_03 west end, corners 8.41 and 8.59): the ground
+    beyond an end edge follows the PLATE'S height across it, not one top."""
+    tilt = tuple(tuple((x, y, 0.05 * y) for x, y, _z in tri) for tri in _deck().plate)
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "flush", "")
+    st = dc.replace(_stack([end]), decks=(dc.replace(_deck(), plate=tilt),))
+    rows = deck_stack_rows(_map(st), LAW, types.SimpleNamespace(deck_stacks=(st,)))
+    pm = _map(st)
+    his = {pm.vertices[r.v].xy: r.hi for r in rows if r.source.inputs[2] == "D#0 end b"}
+    assert abs(his[(1.0, -2.0)] - 9.9) < 1e-6 and abs(his[(1.0, 2.0)] - 10.1) < 1e-6, his
+    assert abs(his[(3.0, 0.0)] - 10.0) < 1e-6, his

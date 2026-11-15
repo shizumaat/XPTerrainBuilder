@@ -227,12 +227,15 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
     # edge's own hair inside the plate.  The footprint's slab is cut by every
     # deck ring of the stack: where a neighbouring deck's ring took it (OTHH
     # Bridge_03's west end) the ground at one corner of the end stood 0.75 m
-    # under the plate, the other flush.  Each vertex is held at the PLATE'S
-    # OWN HEIGHT there (an end edge with a cross-fall is no one level: that
-    # end's corners stand 8.41 and 8.59), just under it on the plate's own
-    # plan; under another deck R3's ceiling still wins.
+    # under the plate, the other flush.  Each vertex (the road's own end
+    # vertices aside) is held at the PLATE'S OWN HEIGHT there, not the end's
+    # one top: an end edge with a cross-fall is no one level (that end's
+    # corners stand 8.41 and 8.59, and the uniform top put the low corner's
+    # row over R3's ceiling, which dropped it); just under the plate on its
+    # own plan; under another deck R3's ceiling still wins.
     from ..geom.deck_ground import end_slab
     decks = {d.object_id: d for d in st.decks if len(d.ring) >= 3}
+    road_ids = {v for v, (_z, sid, _o, _p, _f) in roads.items() if sid == st.id}
     for e in st.rowed_ends():
         d = decks.get(e.object_id)
         slab = end_slab(e, step)
@@ -243,7 +246,7 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
             slab = slab.difference(ring)
         zone = slab.buffer(grid, join_style="mitre")
         ks = np.flatnonzero(shapely.contains_xy(zone, axy[:, 0], axy[:, 1])).tolist()
-        ks = [k for k in ks if allv[k] not in hard and allv[k] not in r1]
+        ks = [k for k in ks if allv[k] not in hard and allv[k] not in road_ids]
         if not ks:
             continue
         plate = np.asarray(d.plate, float).reshape(-1, 3, 3) if d is not None else ()
@@ -253,7 +256,9 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
                  else np.zeros(len(ks), bool))
         for k, y, inside in zip(ks, ys.tolist(), under.tolist(), strict=True):
             hi = z0 + (y if y == y else float(e.top)) - (flush if inside else 0.0)
-            r1[allv[k]] = (hi - flush, hi, e.object_id, f"{e.object_id} end {e.side}")
+            v = allv[k]
+            part = r1[v][3] if v in r1 else f"{e.object_id} end {e.side}"
+            r1[v] = (hi - flush, hi, e.object_id, part)
     r3: dict[int, tuple[float, str]] = {}
     if st.kind == FREE:
         for d in st.decks:

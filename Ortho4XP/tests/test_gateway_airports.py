@@ -108,7 +108,7 @@ def xp(tmp_path, monkeypatch):
         "SCENERY_PACK Custom Scenery/Other Airport/\n"
         "SCENERY_PACK *GLOBAL_AIRPORTS*\n"
         "SCENERY_PACK Custom Scenery/zzMesh/\n", encoding="utf-8", newline="")
-    from auto_patch import pack_choice as PC
+    from auto_patch_v2.airport import pack_choice as PC
     monkeypatch.setattr(PC, "store_path",
                         lambda name: str(tmp_path / "prefs" / name))
     seen: list = []

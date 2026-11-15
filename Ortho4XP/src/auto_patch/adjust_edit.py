@@ -138,9 +138,9 @@ def _set_steps(pack_root: str, lat: int, lon: int,
     """The Optimise steps changed to ``steps`` when they differ from the
     live recipe's: the files written, or ``None`` when they do not."""
     from auto_patch_v2.airport import pack_optimise as _po
+    from auto_patch_v2.airport.pack_choice import relative
 
     from . import optimise_stage as _OS
-    from .pack_choice import relative
     pw, on = _optimise(pack_root, lat, lon)
     if pw is None:
         return None

@@ -140,6 +140,6 @@ def hidden_terrain(pack_root: str) -> frozenset[str]:
         return frozenset()
     if Store(TERRAIN_CHOICES).choice(pack_root) != "update":
         return frozenset()
-    from auto_patch_v2.airport.pack_terrain import decode
+    from .pack_terrain import decode
     found = Store(TERRAIN_FOUND, lambda v: isinstance(v, str) and bool(v)).choice(pack_root)
     return frozenset(decode(found))

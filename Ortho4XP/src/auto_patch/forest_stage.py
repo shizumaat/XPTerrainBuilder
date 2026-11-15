@@ -32,9 +32,10 @@ import os
 import traceback
 import typing as _t
 
-from . import pack_choice as _PC
+from auto_patch_v2.airport import pack_choice as _PC
+from auto_patch_v2.airport.pack_choice import relative as _relative
+
 from . import pack_rewrite as _PR
-from .pack_choice import relative as _relative
 
 __all__ = ["ACTIONS", "CHOICES_NAME", "forest_choice", "forest_stage"]
 

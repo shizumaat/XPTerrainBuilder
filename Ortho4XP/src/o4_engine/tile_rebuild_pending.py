@@ -23,7 +23,7 @@ state:
   match: terrain objects hidden in …").
 
 One JSON file beside the remembered data-root choice
-(``auto_patch.pack_choice.store_path``), keyed by tile and pack.  Never
+(``auto_patch_v2.airport.pack_choice.store_path``), keyed by tile and pack.  Never
 raises.
 """
 from __future__ import annotations
@@ -40,7 +40,7 @@ FILE = "tile_rebuild_pending.json"
 
 
 def _path() -> str:
-    from auto_patch import pack_choice as _PC
+    from auto_patch_v2.airport import pack_choice as _PC
     return _PC.store_path(FILE)
 
 

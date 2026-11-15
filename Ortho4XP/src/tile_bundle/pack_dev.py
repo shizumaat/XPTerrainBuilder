@@ -13,7 +13,7 @@ part of their actual airport package they ship".  Per pack, objects are:
   was done (:mod:`.pack_apply`): the splits and seats ARE the pack's own
   now, so the stage leaves them as final ones.
 
-WHY IN THE PACK, not in the app's preferences (``auto_patch.pack_choice``
+WHY IN THE PACK, not in the app's preferences (``auto_patch_v2.airport.pack_choice``
 keeps the user's answers there): this is the AUTHOR'S statement about
 their pack, and it ships with it.  A recipient who installs the pack gets
 the same file and their object stage leaves the pack alone without being

@@ -706,7 +706,7 @@ def terrain_hidden_identity(apt_dat_path: str | None) -> str:
     patch.  ``"none"`` for none."""
     if not apt_dat_path:
         return "none"
-    from .pack_choice import hidden_terrain
+    from auto_patch_v2.airport.pack_choice import hidden_terrain
     paths = sorted(hidden_terrain(os.path.dirname(os.path.dirname(str(apt_dat_path)))))
     if not paths:
         return "none"

@@ -40,16 +40,16 @@ classify time costs the planar pass nothing.
 """
 from __future__ import annotations
 
-import typing as _t
-
 import math
+import typing as _t
 
 import numpy as np
 import shapely
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
-from . import deck_signature, frame_entry as _fe, obj8
+from . import deck_signature, obj8
+from . import frame_entry as _fe
 from . import pack_work as _work
 from .obj8 import is_stock_library_resource, placement_affine
 from .obj8_clip import _plan_admitted
@@ -145,9 +145,9 @@ def _fine_of(dem: _t.Any) -> "_t.Callable | None":
 def _hidden_terrain(airport: _t.Any) -> frozenset[str]:
     """The terrain objects the user hid (#2077 4.2): the pack's "Hide
     terrain objects" answer ``update`` over the offer a build remembered
-    (``auto_patch.pack_choice``); empty without a pack or an answer."""
+    (``pack_choice``); empty without a pack or an answer."""
     try:
-        from auto_patch.pack_choice import hidden_terrain as _hidden
+        from .pack_choice import hidden_terrain as _hidden
         return _hidden(str(airport.pack.pack_root or ""))
     except Exception:
         return frozenset()

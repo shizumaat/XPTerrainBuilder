@@ -214,11 +214,14 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.one_building",
         "auto_patch_v2.airport.open_frame_seat",
         "auto_patch_v2.airport.pack",
+        "auto_patch_v2.airport.pack_art",
+        "auto_patch_v2.airport.pack_choice",
         "auto_patch_v2.airport.pack_ground",
         "auto_patch_v2.airport.pack_health",
         "auto_patch_v2.airport.pack_health.light_records",
         "auto_patch_v2.airport.pack_local",
         "auto_patch_v2.airport.pack_partition",
+        "auto_patch_v2.airport.pack_terrain",
         "auto_patch_v2.airport.pack_work",
         "auto_patch_v2.airport.pad_block_seat",
         "auto_patch_v2.airport.pad_level_group",
@@ -465,11 +468,14 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.one_building",
         "auto_patch_v2.airport.open_frame_seat",
         "auto_patch_v2.airport.pack",
+        "auto_patch_v2.airport.pack_art",
+        "auto_patch_v2.airport.pack_choice",
         "auto_patch_v2.airport.pack_ground",
         "auto_patch_v2.airport.pack_health",
         "auto_patch_v2.airport.pack_health.light_records",
         "auto_patch_v2.airport.pack_local",
         "auto_patch_v2.airport.pack_partition",
+        "auto_patch_v2.airport.pack_terrain",
         "auto_patch_v2.airport.pack_work",
         "auto_patch_v2.airport.pad_block_seat",
         "auto_patch_v2.airport.pad_level_group",
@@ -890,11 +896,14 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.one_building",
         "auto_patch_v2.airport.open_frame_seat",
         "auto_patch_v2.airport.pack",
+        "auto_patch_v2.airport.pack_art",
+        "auto_patch_v2.airport.pack_choice",
         "auto_patch_v2.airport.pack_ground",
         "auto_patch_v2.airport.pack_health",
         "auto_patch_v2.airport.pack_health.light_records",
         "auto_patch_v2.airport.pack_local",
         "auto_patch_v2.airport.pack_partition",
+        "auto_patch_v2.airport.pack_terrain",
         "auto_patch_v2.airport.pack_work",
         "auto_patch_v2.airport.pad_block_seat",
         "auto_patch_v2.airport.pad_level_group",
@@ -1082,11 +1091,14 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.one_building",
         "auto_patch_v2.airport.open_frame_seat",
         "auto_patch_v2.airport.pack",
+        "auto_patch_v2.airport.pack_art",
+        "auto_patch_v2.airport.pack_choice",
         "auto_patch_v2.airport.pack_ground",
         "auto_patch_v2.airport.pack_health",
         "auto_patch_v2.airport.pack_health.light_records",
         "auto_patch_v2.airport.pack_local",
         "auto_patch_v2.airport.pack_partition",
+        "auto_patch_v2.airport.pack_terrain",
         "auto_patch_v2.airport.pack_work",
         "auto_patch_v2.airport.pad_block_seat",
         "auto_patch_v2.airport.pad_level_group",
@@ -1326,11 +1338,14 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.one_building",
         "auto_patch_v2.airport.open_frame_seat",
         "auto_patch_v2.airport.pack",
+        "auto_patch_v2.airport.pack_art",
+        "auto_patch_v2.airport.pack_choice",
         "auto_patch_v2.airport.pack_ground",
         "auto_patch_v2.airport.pack_health",
         "auto_patch_v2.airport.pack_health.light_records",
         "auto_patch_v2.airport.pack_local",
         "auto_patch_v2.airport.pack_partition",
+        "auto_patch_v2.airport.pack_terrain",
         "auto_patch_v2.airport.pack_work",
         "auto_patch_v2.airport.pad_block_seat",
         "auto_patch_v2.airport.pad_level_group",
@@ -2139,6 +2154,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
+    airport.pack_art airport.pack_choice airport.pack_terrain
     airport.pad_block_seat airport.partition_cache airport.partition_code
     airport.placement_atom
     airport.drawn_anchor airport.exclusion
@@ -2254,6 +2270,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
     airport.pack
     airport.object_pack airport.pack_local
+    airport.pack_art airport.pack_choice airport.pack_terrain
     airport.pack_partition airport.adapted_riders airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
     airport.drawn_anchor airport.exclusion
@@ -2357,6 +2374,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.adapted_riders
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.object_pack airport.pack_local
+    airport.pack_art airport.pack_choice airport.pack_terrain
     airport.partition_cache airport.partition_code airport.placement_atom
     airport.drawn_anchor airport.exclusion
     airport.placement_body airport.placement_boxes airport.placement_carrier
@@ -2533,6 +2551,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.adapted_riders
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.object_pack airport.pack_local
+    airport.pack_art airport.pack_choice airport.pack_terrain
     airport.partition_cache airport.partition_code airport.placement_atom
     airport.drawn_anchor airport.exclusion
     airport.placement_body airport.placement_boxes airport.placement_carrier
@@ -2717,6 +2736,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
+    airport.pack_art airport.pack_choice airport.pack_terrain
     airport.pad_block_seat airport.partition_cache airport.partition_code
     airport.placement_atom
     airport.drawn_anchor airport.exclusion
@@ -2842,6 +2862,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
+    airport.pack_art airport.pack_choice airport.pack_terrain
     airport.pad_block_seat airport.partition_cache airport.partition_code
     airport.placement_atom
     airport.drawn_anchor airport.exclusion

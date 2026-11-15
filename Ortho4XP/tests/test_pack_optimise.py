@@ -30,7 +30,7 @@ import pack_optimise_fixture as FX  # noqa: E402
 from auto_patch import forest_stage as FS  # noqa: E402
 from auto_patch import object_rebake as OR  # noqa: E402
 from auto_patch import optimise_stage as OS  # noqa: E402
-from auto_patch import pack_choice as PC  # noqa: E402
+from auto_patch_v2.airport import pack_choice as PC  # noqa: E402
 from auto_patch_v2.airport import pack_forests as PF  # noqa: E402
 from auto_patch_v2.airport import pack_optimise as PO  # noqa: E402
 from o4_engine import events as EV  # noqa: E402

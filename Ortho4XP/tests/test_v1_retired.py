@@ -87,7 +87,6 @@ KEEP = frozenset({
     # ... "Optimise pack" (#1707), and the per-pack answer store and
     # rewrite the two choices share
     "auto_patch.optimise_stage",
-    "auto_patch.pack_choice",
     "auto_patch.pack_copy",
     "auto_patch.pack_rewrite",
     # ... and the hand-set object seats the patch editor stores (#1703)

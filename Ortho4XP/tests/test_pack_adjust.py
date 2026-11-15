@@ -53,7 +53,7 @@ def stage(tmp_path, monkeypatch):
             "scanned": [], "answers": []}
     monkeypatch.setattr(FS, "choices_path",
                         lambda: str(tmp_path / "prefs" / "forests.json"))
-    from auto_patch import pack_choice as PC
+    from auto_patch_v2.airport import pack_choice as PC
     monkeypatch.setattr(PC, "store_path",
                         lambda name: str(tmp_path / "prefs" / name))
     monkeypatch.setattr(FS, "check", lambda *a, **k: seen["pf"])

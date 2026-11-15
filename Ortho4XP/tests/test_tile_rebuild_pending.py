@@ -22,8 +22,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 import O4_Step_Reuse as SR  # noqa: E402
 from auto_patch import adjust_edit as AE  # noqa: E402
 from auto_patch import adjust_stage as AS  # noqa: E402
-from auto_patch import pack_choice as PC  # noqa: E402
 from auto_patch import terrain_cut_stage as TC  # noqa: E402
+from auto_patch_v2.airport import pack_choice as PC  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 from o4_engine import tile_rebuild_pending as TRP  # noqa: E402
 

@@ -64,8 +64,7 @@ import traceback
 import typing as _t
 
 import numpy as np
-
-from . import pack_choice as _PC
+from auto_patch_v2.airport import pack_choice as _PC
 
 __all__ = ["cut_records", "bake", "apply", "held_boxes", "wet_weight_cells", "hold",
            "write_alt", "write_unfill", "unfill_water", "refill_land"]

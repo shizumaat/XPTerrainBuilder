@@ -2063,7 +2063,7 @@ def restore_detail(pack_root: str) -> dict:
     bodies_removed = _restore_v2_writes(pack_root, v2_records)
     # #1707: the originals are back, and so is the question — a remembered
     # "Optimise pack" would otherwise re-optimise the next build
-    from . import pack_choice as _PC
+    from auto_patch_v2.airport import pack_choice as _PC
     _PC.Store(_PC.OPTIMISE_CHOICES).remember(pack_root, "")
     _PC.Store(_PC.OPTIMISE_STEPS, _PC.step_list).remember(pack_root, "")
     _PC.Store(_PC.DRAPE_CHOICES).remember(pack_root, "")     # #1916

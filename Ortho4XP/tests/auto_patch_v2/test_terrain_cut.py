@@ -14,8 +14,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from auto_patch import pack_choice as PC  # noqa: E402
 from auto_patch import terrain_cut_stage as TCS  # noqa: E402
+from auto_patch_v2.airport import pack_choice as PC  # noqa: E402
 from auto_patch_v2.airport import terrain_cut as TC  # noqa: E402
 from auto_patch_v2.airport import terrain_model as TM  # noqa: E402
 from auto_patch_v2.geom.terrain_deck import (  # noqa: E402

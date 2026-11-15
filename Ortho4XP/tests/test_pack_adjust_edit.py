@@ -47,7 +47,7 @@ def pack(tmp_path, monkeypatch):
     change; every DSF write and optimise answer is recorded."""
     root = tmp_path / "Custom Scenery" / "Some Pack"
     root.mkdir(parents=True)
-    from auto_patch import pack_choice as PC
+    from auto_patch_v2.airport import pack_choice as PC
     monkeypatch.setattr(PC, "store_path",
                         lambda name: str(tmp_path / "prefs" / name))
     monkeypatch.setattr(FS, "choices_path",

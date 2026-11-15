@@ -390,3 +390,23 @@ def test_a_stalled_band_is_retried_alone_and_the_bands_mosaic(
     assert float(mosaic.GetRasterBand(1).ReadAsArray().min()) == 7.0
     assert sorted(os.listdir(tmp_path)) == sorted(
         ["source.tif", "KASE_x.tif.getcoverage.tif"])
+
+
+@requires_gdal
+def test_a_cached_raster_under_a_stale_negative_reads_ok(two_providers):
+    """A raster that landed while its index was not written keeps no stale
+    ``no-coverage`` beside it: the warm pass that reuses it records ``ok``."""
+    plan, definitions = two_providers
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, definitions, None)
+    index_path = FNAMES.airport_inset_index(39, -107)
+    import json
+    with open(index_path) as handle:
+        index = json.load(handle)
+    index["KASE"]["LIDAR"] = INSETS.NO_COVERAGE
+    with open(index_path, "w") as handle:
+        json.dump(index, handle)
+    plan["calls"].clear()
+    index = INSETS.ensure_airport_insets(39, -107, {"KASE": BOX},
+                                         definitions, None)
+    assert index["KASE"]["LIDAR"] == "ok"
+    assert plan["calls"] == []                       # reused, not fetched

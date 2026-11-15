@@ -5214,7 +5214,13 @@ def ensure_airport_insets(
                                   "cached raster to the box this build "
                                   "reads (%.0f MB freed)."
                                   % (icao, code, freed / 1e6))
-                    airport_record[code] = airport_record.get(code) or "ok"
+                    # A SOUND CACHED RASTER IS AN "ok" (#2098): a raster
+                    # that landed while its index was not written (a pass
+                    # stopped mid-tile) kept a stale "no-coverage" beside
+                    # it for good, and the stale negative refused every
+                    # build of the airport.
+                    if airport_record.get(code) in (None, NO_COVERAGE):
+                        airport_record[code] = "ok"
                     _store_acceptance_probes_in_record(
                         airport_record, destination
                     )

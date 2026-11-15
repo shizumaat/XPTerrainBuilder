@@ -192,39 +192,61 @@ def _connector_floors(m: _Member, lat0: float, lon0: float, memo: dict,
     return np.concatenate(rows) if rows else np.zeros((0, 3, 3))
 
 
+#: a floor triangle this small (circumradius about its centroid, m) is
+#: found through the centroid tree; a larger one is read against every point
+_SMALL_M = 4.0
+
+
 def _over(pts: np.ndarray, tris: np.ndarray, contact_m: float = _LAW.contact_m
           ) -> list[tuple[float, float, float, float]]:
     """``(y of the point, y of the floor under it, east, north)`` for every point of
     ``pts`` ``(n, 3)`` standing over (or within ``contact_m`` in plan
-    of) a triangle of ``tris`` ``(k, 3, 3)``."""
+    of) a triangle of ``tris`` ``(k, 3, 3)``.  Vectorised over (point,
+    triangle) candidate pairs: the small triangles through a centroid tree
+    at their own largest radius, the few large ones against every point
+    (D: one huge triangle no longer widens every point's query)."""
     if not pts.shape[0] or not tris.shape[0]:
         return []
     from scipy.spatial import cKDTree
-    cen = tris[:, :, :2].mean(axis=1)
-    reach = float(np.linalg.norm(tris[:, :, :2] - cen[:, None, :], axis=2).max())
-    tree = cKDTree(cen)
-    out: list[tuple[float, float, float, float]] = []
-    for p, cand in zip(pts, tree.query_ball_point(pts[:, :2], reach + contact_m),
-                       strict=True):
-        if not cand:
-            continue
-        t = tris[cand]
-        a, b, c = t[:, 0, :2], t[:, 1, :2], t[:, 2, :2]
-        v0, v1, v2 = b - a, c - a, p[:2] - a
-        den = v0[:, 0] * v1[:, 1] - v1[:, 0] * v0[:, 1]
-        ok = np.abs(den) > 1e-9
-        if not ok.any():
-            continue
-        t, a, v0, v1, v2, den = t[ok], a[ok], v0[ok], v1[ok], v2[ok], den[ok]
-        u = (v2[:, 0] * v1[:, 1] - v1[:, 0] * v2[:, 1]) / den
-        w = (v0[:, 0] * v2[:, 1] - v2[:, 0] * v0[:, 1]) / den
-        bc = np.clip(np.stack([1.0 - u - w, u, w], axis=1), 0.0, None)
-        bc /= bc.sum(axis=1, keepdims=True)
-        q = (bc[:, :, None] * t[:, :, :2]).sum(axis=1)
-        near = np.hypot(*(q - p[:2]).T) <= contact_m
-        out.extend((float(p[2]), float(yf), float(p[0]), float(p[1])) for yf in
-                   (bc[near] * t[near][:, :, 2]).sum(axis=1))
-    return out
+    xy = tris[:, :, :2]
+    cen = xy.mean(axis=1)
+    rad = np.linalg.norm(xy - cen[:, None, :], axis=2).max(axis=1)
+    small = rad <= _SMALL_M
+    pi: list[np.ndarray] = []
+    ti: list[np.ndarray] = []
+    if small.any():
+        idx = np.flatnonzero(small)
+        lists = cKDTree(cen[idx]).query_ball_point(pts[:, :2], float(rad[idx].max()) + contact_m)
+        lens = np.fromiter((len(c) for c in lists), int, len(lists))
+        if lens.sum():
+            pi.append(np.repeat(np.arange(len(lists)), lens))
+            ti.append(idx[np.fromiter((k for c in lists for k in c), int, int(lens.sum()))])
+    for t in np.flatnonzero(~small).tolist():
+        near = np.flatnonzero(np.hypot(*(pts[:, :2] - cen[t]).T) <= rad[t] + contact_m)
+        pi.append(near)
+        ti.append(np.full(near.size, t))
+    if not pi:
+        return []
+    P, T = np.concatenate(pi), np.concatenate(ti)
+    if not P.size:
+        return []
+    t3 = tris[T]
+    a, b, c = t3[:, 0, :2], t3[:, 1, :2], t3[:, 2, :2]
+    p2 = pts[P, :2]
+    v0, v1, v2 = b - a, c - a, p2 - a
+    den = v0[:, 0] * v1[:, 1] - v1[:, 0] * v0[:, 1]
+    ok = np.abs(den) > 1e-9
+    P, t3, v0, v1, v2, den, p2 = P[ok], t3[ok], v0[ok], v1[ok], v2[ok], den[ok], p2[ok]
+    u = (v2[:, 0] * v1[:, 1] - v1[:, 0] * v2[:, 1]) / den
+    w = (v0[:, 0] * v2[:, 1] - v2[:, 0] * v0[:, 1]) / den
+    bc = np.clip(np.stack([1.0 - u - w, u, w], axis=1), 0.0, None)
+    bc /= bc.sum(axis=1, keepdims=True)
+    q = (bc[:, :, None] * t3[:, :, :2]).sum(axis=1)
+    near = np.hypot(*(q - p2).T) <= contact_m
+    yf = (bc[near] * t3[near][:, :, 2]).sum(axis=1)
+    pp = pts[P[near]]
+    return list(zip(pp[:, 2].tolist(), yf.tolist(), pp[:, 0].tolist(), pp[:, 1].tolist(),
+                    strict=True))
 
 
 def _region(fa: np.ndarray, fb: np.ndarray, contact_m: float = _LAW.contact_m

@@ -529,8 +529,9 @@ def test_a_pad_not_standing_in_the_map_has_no_sidecar_row(law, monkeypatch):
     from auto_patch_v2.classify.pad_touch import EVIDENCE_KEY
     cells = [types.SimpleNamespace(role="parking_lot", ref="lot", evidence={
         EVIDENCE_KEY: {"padA": 0.0, "gone": 0.0}})]
-    pm = types.SimpleNamespace(faces={1: types.SimpleNamespace(id=1, ref="padA", role="building"),
-                                      2: types.SimpleNamespace(id=2, ref="lot", role="parking_lot")})
+    face = types.SimpleNamespace
+    pm = types.SimpleNamespace(faces={1: face(id=1, ref="padA", role="building"),
+                                      2: face(id=2, ref="lot", role="parking_lot")})
     monkeypatch.setattr(_pads, "_pad_polys", lambda planar, law: [])
     monkeypatch.setattr(_gs, "_groundside_geoms", lambda planar, law: [])
     assert [r["pad"] for r in pad_touch(cells, law, pm)] == ["padA"]

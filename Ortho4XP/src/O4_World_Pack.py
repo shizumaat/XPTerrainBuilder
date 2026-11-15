@@ -288,26 +288,22 @@ def world_tiles(pack: str) -> dict:
             out[key] = "placeholder"
         else:
             out[key] = kind_of(path) or "full"
-    off = _off_module()
-    if off is not None:
-        out.update({key: off.OFF for key in off.off_tiles(pack) if key in out})
-    return out
-
-
-def _off_module():
-    """``O4_World_Pack_Off`` (#2100), or None in a kit copy without it."""
     try:
         import O4_World_Pack_Off as OFF
-    except ImportError:
-        return None
-    return OFF
+    except ImportError:                     # a kit copy without it
+        return out
+    out.update({key: OFF.OFF for key in OFF.off_tiles(pack) if key in out})
+    return out
 
 
 def _kept_home(pack: str, lat: int, lon: int) -> str:
     """The kept folder a build of a tile turned off goes into (#2100), or
-    ``""``."""
-    off = _off_module()
-    return off.kept_home(pack, lat, lon) if off is not None else ""
+    ``""`` (also in a kit copy without ``O4_World_Pack_Off``)."""
+    try:
+        import O4_World_Pack_Off as OFF
+    except ImportError:
+        return ""
+    return OFF.kept_home(pack, lat, lon)
 
 
 def block_tiles(lat: int, lon: int, radius: int,

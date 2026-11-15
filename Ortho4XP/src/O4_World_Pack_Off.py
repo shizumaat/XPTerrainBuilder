@@ -166,7 +166,7 @@ def _park(pack: str, lat: int, lon: int) -> None:
         WP._link_or_copy(dsf, kept_dsf + ".partial")
         os.replace(kept_dsf + ".partial", kept_dsf)
     WP.write_placeholder(pack, lat, lon)
-    for src, dest in zip(folders, kept_folders):
+    for src, dest in zip(folders, kept_folders, strict=True):
         if newer:
             _remove(src)
         else:
@@ -181,7 +181,7 @@ def _restore(pack: str, lat: int, lon: int) -> None:
     if os.path.isfile(kept_dsf):
         WP._share_folder(kept, pack)
         dsf, *folders = _own_files(pack, lat, lon)
-        for src, dest in zip(kept_folders, folders):
+        for src, dest in zip(kept_folders, folders, strict=True):
             _move(src, dest)
         os.makedirs(os.path.dirname(dsf), exist_ok=True)
         os.replace(kept_dsf, dsf)

@@ -28,3 +28,18 @@ def test_a_cold_dem_partition_is_refused_and_a_partial_one_is_said():
     with pytest.raises(ValueError, match="cold"):
         _refuse_groundless({"placements": 10, "unresolved": 2, "no_ground": 8}, "XXXX")
     _refuse_groundless({"placements": 10, "unresolved": 2, "no_ground": 3}, "XXXX")
+
+
+def test_the_deck_raster_is_the_same_grid_a_chunk_at_a_time(monkeypatch):
+    """#2099 (found on the closing tile, CYSN's 827k-face fence): the plan
+    trace is sampled a chunk of faces at a time -- the same grid, bounded
+    memory."""
+    import numpy as np
+
+    from auto_patch_v2.airport import deck_signature as D
+    rng = np.random.default_rng(7)
+    xz = rng.uniform(0.0, 60.0, size=(500, 3, 2))
+    whole = D._raster(xz, 0.5)
+    monkeypatch.setattr(D, "_RASTER_POINTS", 37)
+    chunked = D._raster(xz, 0.5)
+    assert np.array_equal(whole[0], chunked[0]) and whole[2] == chunked[2]

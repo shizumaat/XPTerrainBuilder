@@ -5,6 +5,7 @@ near-vertical wall."""
 import array
 import collections
 import dataclasses
+import struct
 
 import numpy
 import O4_Cliff_DSF as CLIFF
@@ -229,7 +230,8 @@ def test_xpface_arm_lays_the_cliff_texture_in_face_charts(tmp_path,
                                                           monkeypatch):
     """``xpface``: the landclass's AUTO_SLOPE_CLIFF texture is LINKED once
     into ``textures/_shared/`` (never copied per tile, owner 2026-11-15)
-    and drawn in 9-plane face charts at its own repeat."""
+    and drawn in 9-plane face charts W m along the contour and H m down
+    the fall line, with the landclass's decal and roughness."""
     import O4_Cliff_Library as LIBRARY
     xyz, tris = _wall_mesh()
     k = 111319.49
@@ -241,9 +243,12 @@ def test_xpface_arm_lays_the_cliff_texture_in_face_charts(tmp_path,
     soil.mkdir(parents=True)
     dds = soil / "cliff_cld_wet.dds"
     dds.write_bytes(b"DDS ")
+    material = ("SUPER_ROUGHNESS 0.5",
+                "DECAL_LIB lib/g10/decals/maquify_1_alpha_key.dcl")
     monkeypatch.setattr(LIBRARY, "region_cliff_textures",
                         lambda tile, lonlat, regions: [
-                            (str(dds), 2160.0)
+                            LIBRARY._CliffTexture(str(dds), 2160.0, 1080.0,
+                                                 material)
                         ] * len(regions))
     monkeypatch.setattr(FACES, "CliffParams",
                         lambda **k: dataclasses.replace(LOOSE, **{
@@ -264,16 +269,40 @@ def test_xpface_arm_lays_the_cliff_texture_in_face_charts(tmp_path,
         {i: 0 for i in range(len(nodes))}, pool_param, pools, base, 1,
         None, textured, dico, overlays, "xpface")
     name = "xp_textures10_soil_cliff_cld_wet"
-    assert tert == b"terrain/cliff_%s.ter\0" % name.encode() and plan == []
+    terrain = CLIFF._face_terrain_name("_shared/%s.dds" % name, material)
+    assert terrain.startswith("cliff_" + name + "_")
+    assert terrain != CLIFF._face_terrain_name("_shared/%s.dds" % name, ())
+    assert tert == b"terrain/%s.ter\0" % terrain.encode() and plan == []
     assert overlays == {1} and textured[1]
     shared = tmp_path / "textures" / "_shared" / (name + ".dds")
     assert shared.is_symlink() and shared.resolve() == dds.resolve()
     assert not list((tmp_path / "textures").glob("*.dds"))  # no copy
-    ter = (tmp_path / ("cliff_%s.ter" % name)).read_text(encoding="utf-8")
+    ter = (tmp_path / ("%s.ter" % terrain)).read_text(encoding="utf-8")
     assert "BASE_TEX ../textures/_shared/%s.dds" % name in ter
-    pts = numpy.frombuffer(pools.points[base], numpy.uint16).reshape(-1, 9)
-    # a 200 m wall at a 2160 m repeat stays well inside one repeat
-    assert pts[:, 6].max() < 65535 * 1.0 / CLIFF.UV_RANGE
+    assert ter.splitlines()[-2:] == list(material)
+    assert len(pools.points[base])
+
+
+def test_xpface_charts_are_unstretched_per_axis():
+    """W m of face per repeat along the contour (s), H m down the fall
+    line (t): the 2048 x 1024 px art of 2160 x 1080 m has square pixels
+    on the face, where one W on both axes stretched t x 2."""
+    xyz, tris = _wall_mesh()
+    layout = FACES.find_cliff_layout(xyz, tris, numpy.ones(len(tris), bool),
+                                     LOOSE)
+    chart = int(numpy.argmax([v[2] for _u, v in layout.chart_axes]))
+    sub = layout.tris[layout.chart == chart]
+
+    def span(repeat):
+        st = numpy.array(list(CLIFF._chart_points(
+            layout, chart, sub, xyz, tris, repeat).values()), float)
+        return (st.max(0) - st.min(0)) / 65535 * CLIFF.UV_RANGE
+
+    one, both = span(2160.0), span((2160.0, 1080.0))
+    assert both[0] == pytest.approx(one[0], abs=1e-4)
+    assert both[1] == pytest.approx(2 * one[1], abs=1e-3)
+    # the 202 m face (30 m run, 200 m rise) in repeats of 1080 m
+    assert both[1] == pytest.approx(numpy.hypot(30, 200) / 1080, abs=0.01)
 
 
 def test_world_library_reads_generic_summer_rows(tmp_path):
@@ -291,13 +320,23 @@ def test_world_library_reads_generic_summer_rows(tmp_path):
     lib = LIBRARY._world_library(str(tmp_path))
     assert lib["lib/g10/terrain10/r.ter"] == str(root / "terrain10" / "r.ter")
     (root / "textures10").mkdir()
-    (root / "textures10" / "c.dds").write_bytes(b"x")
+    (root / "textures10" / "c.dds").write_bytes(b"x")  # no header: H
     (root / "terrain10" / "r.ter").write_text(
-        "A\n800\nTERRAIN\nPROJECTED 10 10\n"
-        "AUTO_SLOPE_CLIFF 2160 1080 57 62 ../textures10/c.dds\n",
+        "A\n800\nTERRAIN\nPROJECTED 10 10\nSUPER_ROUGHNESS 0.5\n"
+        "NORMAL_TEX 20 ../textures10/n.png\n"
+        "AUTO_SLOPE_CLIFF 2160 1080 57 62 ../textures10/c.dds\n"
+        "DECAL_LIB lib/g10/decals/stony_dirt_1.dcl\n",
         encoding="utf-8", newline="\n")
     tex = LIBRARY._cliff_texture(lib["lib/g10/terrain10/r.ter"])
-    assert tex[1] == 2160.0 and tex[0].endswith("c.dds")
+    assert (tex.width_m, tex.height_m) == (2160.0, 1080.0)
+    assert tex.dds.endswith("c.dds")
+    assert tex.material == ("SUPER_ROUGHNESS 0.5",
+                            "DECAL_LIB lib/g10/decals/stony_dirt_1.dcl")
+    # a readable header decides: 2048 x 512 px -> square pixels on the face
+    (root / "textures10" / "c.dds").write_bytes(
+        b"DDS " + struct.pack("<IIII", 124, 0, 512, 2048))
+    tex = LIBRARY._cliff_texture(lib["lib/g10/terrain10/r.ter"])
+    assert (tex.width_m, tex.height_m) == (2160.0, 540.0)
 
 
 def test_xplane_texture_goes_through_the_world_packs_one_file(tmp_path,
@@ -315,7 +354,8 @@ def test_xplane_texture_goes_through_the_world_packs_one_file(tmp_path,
     monkeypatch.setattr(FNAMES, "world_home", lambda: str(world))
     for t in ("a", "b"):
         tile = type("Tile", (), {"build_dir": str(tmp_path / t)})
-        ref, how = LIBRARY.install_texture(tile, (str(src), 2160.0))
+        ref, how = LIBRARY.install_texture(
+            tile, LIBRARY._CliffTexture(str(src), 2160.0, 1080.0))
         assert ref == "_shared/xp_textures10_soil_c.dds" and how == "symlink"
         assert (tmp_path / t / "textures" / ref).resolve() == src.resolve()
     home = world / "textures" / "_shared" / "xp_textures10_soil_c.dds"
@@ -357,7 +397,9 @@ def test_unplaceable_or_unreadable_textures_leave_regions_to_the_photo(
     tile = type("Tile", (), {"build_dir": str(tmp_path)})
     regions = [[0], [1], [2]]
     monkeypatch.setattr(LIBRARY, "region_cliff_textures",
-                        lambda *a: [("a.dds", 1.0), None, ("b.dds", 2.0)])
+                        lambda *a: [LIBRARY._CliffTexture("a.dds", 1.0, 1.0),
+                                    None,
+                                    LIBRARY._CliffTexture("b.dds", 2.0, 1.0)])
 
     def install(tile, cliff):
         if cliff[0] == "b.dds":
@@ -365,7 +407,7 @@ def test_unplaceable_or_unreadable_textures_leave_regions_to_the_photo(
         return ("_shared/a.dds", "copy")
     monkeypatch.setattr(LIBRARY, "install_texture", install)
     textures, placed = CLIFF._placed_face_textures(tile, None, regions)
-    assert textures == [("a.dds", 1.0), None, None]
+    assert textures == [("a.dds", 1.0, 1.0, ()), None, None]
     assert list(placed) == ["a.dds"]
 
     def broken(*a):

@@ -71,7 +71,9 @@ class CliffLayout:
     dropped_regions: int = 0
 
     def chart_uv(self, chart_id, xyz, repeat_m):
-        """Texture coordinates (in repeats) of points ``xyz`` (n, 3)."""
+        """Texture coordinates (in repeats) of points ``xyz`` (n, 3):
+        column 0 (``s``) along the contour, column 1 (``t``) up the face;
+        ``repeat_m`` is metres per repeat, one number or one per column."""
         u, v = self.chart_axes[chart_id]
         return numpy.stack((xyz @ u, xyz @ v), 1) / repeat_m
 

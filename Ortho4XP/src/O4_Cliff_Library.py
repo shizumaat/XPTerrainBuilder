@@ -8,9 +8,10 @@ its library path, so the simulator picks the regional variant and its own
 slope textures.  Those terrains are ``PROJECTED`` (top-down, like the photo)
 but carry ``AUTO_SLOPE_HILL`` / ``AUTO_SLOPE_CLIFF`` directives: past
 ~57-62 degrees X-Plane swaps in a rock-cliff texture aligned with the slope
-heading (``AUTO_SLOPE_HEADING``) whose metre size is pre-squashed along the
-fall line (e.g. 2160 x 1080 m), so it is unstretched near 60 degrees and
-stretches again on steeper faces.
+heading (``AUTO_SLOPE_HEADING``), W x H projected metres (e.g. 2160 x
+1080 m) of a face-on rock photo, so X-Plane itself stretches it down the
+fall line by ``H / (W cos a)``; the ``xpface`` arm lays it W x H on the
+face instead (:class:`_CliffTexture`).
 
 The overlay is X-Plane's own overlay form: a flag-2 patch whose points have
 7 planes ``(lon, lat, elev, nx, ny, s, t)``, ``(s, t)`` reading the
@@ -22,14 +23,16 @@ from __future__ import annotations
 
 import array
 import os
+import struct
 from collections import Counter
+from typing import NamedTuple
 
 import numpy
 import O4_Default_Terrain_Map as DEFTER
 import O4_UI_Utils as UI
 
-__all__ = ["PLANES", "emit_library_overlays", "install_texture",
-           "region_cliff_textures", "scenery_dir"]
+__all__ = ["MATERIAL_KEYS", "PLANES", "emit_library_overlays",
+           "install_texture", "region_cliff_textures", "scenery_dir"]
 
 #: Plane count of an overlay point on a projected terrain with a border.
 PLANES = 7
@@ -147,25 +150,67 @@ def _world_library(xplane_root):
     return out
 
 
+#: ``.ter`` lines of the landclass that are carried into the cliff terrain:
+#: its detail decals (``DECAL_LIB``, X-Plane's fine detail layer; projected
+#: or keyed on the texture, so they need no extra point planes) and its
+#: material roughness.  ``NORMAL_TEX`` is left out: in the landclasses it
+#: is a turf normal map scaled on the BASE texture, not on the rock.
+MATERIAL_KEYS = ("DECAL_LIB", "SUPER_ROUGHNESS")
+
+
+class _CliffTexture(NamedTuple):
+    """A landclass's ``AUTO_SLOPE_CLIFF`` texture: the DDS, the metres of
+    face one repeat covers along the contour (``width_m``) and down the
+    fall line (``height_m``), and the landclass's :data:`MATERIAL_KEYS`
+    lines."""
+    dds: str
+    width_m: float
+    height_m: float
+    material: tuple = ()
+
+
 def _cliff_texture(ter_path):
-    """``(dds_path, repeat_m)``: the ``AUTO_SLOPE_CLIFF`` texture of a
-    ``.ter`` file and the metres of face one repeat covers (its contour
-    width: X-Plane's sizes are square on the face at the slope they are
-    drawn for, 2160 x 1080 m projected = 2160 m on a 60 degree face), or
-    None."""
+    """The :class:`_CliffTexture` of a ``.ter`` file, or None.
+
+    ``AUTO_SLOPE_CLIFF W H lo hi dds``: the art is a face-on photo of
+    rock, so it is unstretched on the face when its pixels are square
+    there: W m along the contour and ``W * rows / columns`` m down the fall
+    line (2048 x 512 px -> 2840 x 710 m).  That is the ``.ter``'s own H on
+    most rows, but not all (``cliff_tmp_wet``, 2048 x 512 px, is also
+    listed at 2160 x 1080 m), so the pixels decide; H only when the DDS
+    header cannot be read.  (#2096 follow-up: one W on both axes
+    stretched the fall line x4 here, the owner's vertical streaks.)"""
     try:
         lines = open(ter_path, encoding="utf-8", errors="replace").read(
         ).splitlines()
     except OSError:
         return None
+    material = tuple(" ".join(f) for f in map(str.split, lines)
+                     if f[:1] and f[0] in MATERIAL_KEYS)
     for line in lines:
         f = line.split()
         if f[:1] == ["AUTO_SLOPE_CLIFF"] and len(f) >= 6:
             dds = os.path.normpath(os.path.join(os.path.dirname(ter_path),
                                                 f[5]))
             if os.path.isfile(dds):
-                return (dds, float(f[1]))
+                width = float(f[1])
+                size = _dds_size(dds)
+                height = width * size[1] / size[0] if size else float(f[2])
+                return _CliffTexture(dds, width, height, material)
     return None
+
+
+def _dds_size(path):
+    """``(columns, rows)`` of a DDS file from its header, or None."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(20)
+    except OSError:
+        return None
+    if len(head) < 20 or head[:4] != b"DDS ":
+        return None
+    rows, columns = struct.unpack("<II", head[12:20])
+    return (columns, rows) if rows and columns else None
 
 
 def region_cliff_textures(tile, lonlat, region_tris):

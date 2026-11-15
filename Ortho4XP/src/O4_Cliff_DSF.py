@@ -23,6 +23,7 @@ bytes as without this module.
 from __future__ import annotations
 
 import array
+import hashlib
 import os
 from collections import Counter
 
@@ -114,15 +115,17 @@ def _cliff_pool_params(point_pools, pool_param, base, pool_nbr):
         point_pools.geometric[base + i] = key
 
 
-def _terrain_file(tile, name, texture=None):
+def _terrain_file(tile, name, texture=None, material=()):
     """Write ``terrain/<name>.ter``; ``texture`` is its ``BASE_TEX`` path
-    under ``textures/`` (default ``<name>.dds``)."""
+    under ``textures/`` (default ``<name>.dds``), ``material`` the source
+    landclass's lines it carries (``O4_Cliff_Library.MATERIAL_KEYS``)."""
     path = os.path.join(STAGING.terrain_dir(tile), name + ".ter")
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write("A\n800\nTERRAIN\n\n")
         f.write("BASE_TEX ../textures/" + (texture or name + ".dds") + "\n")
         f.write("BORDER_TEX ../textures/" + _BLEND_REL + "\n")
         f.write("NO_ALPHA\nNO_SHADOW\n")
+        f.writelines(line + "\n" for line in material)
     return name + ".ter"
 
 
@@ -247,8 +250,9 @@ def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
 
 def _xplane_face_terrains(tile, layout, lonlat_all, dico_terrains,
                           overlay_terrains, textured_tris):
-    """``xpface``: one terrain per X-Plane cliff texture; per region its
-    terrain index (None: its landclass has no cliff texture) and repeat."""
+    """``xpface``: one terrain per X-Plane cliff texture and landclass
+    material; per region its terrain index (None: its landclass has no
+    cliff texture) and ``(contour, fall line)`` metres per repeat."""
     textures, placed = _placed_face_textures(tile, lonlat_all,
                                              layout.region_tris)
     bTERT, region_terrain, repeats = b"", [], []
@@ -258,18 +262,21 @@ def _xplane_face_terrains(tile, layout, lonlat_all, dico_terrains,
             region_terrain.append(None)
             repeats.append(0.0)
             continue
-        texture = placed[cliff[0]][0]
-        name = "cliff_" + texture.rsplit("/", 1)[-1][: -len(".dds")]
+        texture = placed[cliff.dds][0]
+        name = _face_terrain_name(texture, cliff.material)
         if ("cliff", name) not in dico_terrains:
             terrain_idx = len(dico_terrains)
             dico_terrains[("cliff", name)] = terrain_idx
             overlay_terrains.add(terrain_idx)
             textured_tris[terrain_idx] = {}
-            bTERT += bytes("terrain/" + _terrain_file(tile, name, texture)
-                           + "\0", "ascii")
+            bTERT += bytes("terrain/" + _terrain_file(
+                tile, name, texture, cliff.material) + "\0", "ascii")
         region_terrain.append(dico_terrains[("cliff", name)])
-        repeats.append(cliff[1])
-    used = Counter(placed[t[0]][0] for t in textures if t)
+        repeats.append((cliff.width_m, cliff.height_m))
+    used = Counter("%s %gx%g m%s" % (
+        placed[t.dds][0], t.width_m, t.height_m,
+        " + " + "; ".join(t.material) if t.material else "")
+        for t in textures if t)
     UI.vprint(1, "-> Cliff faces (X-Plane cliff textures): %s; %d region(s)"
                  " without one (left to the photo); placed as %s." % (
                      dict(used), sum(t is None for t in textures),
@@ -277,8 +284,19 @@ def _xplane_face_terrains(tile, layout, lonlat_all, dico_terrains,
     return bTERT, region_terrain, repeats
 
 
+def _face_terrain_name(texture, material):
+    """``cliff_<texture>[_<material hash>]``: one terrain per (texture,
+    landclass material), so two landclasses sharing a rock texture but not
+    a decal never share a ``.ter``."""
+    name = "cliff_" + texture.rsplit("/", 1)[-1][: -len(".dds")]
+    if material:
+        name += "_" + hashlib.sha1("\n".join(material).encode(
+            "utf-8")).hexdigest()[:8]
+    return name
+
+
 def _placed_face_textures(tile, lonlat_all, region_tris):
-    """Per region the X-Plane cliff texture ``(dds, repeat_m)`` its
+    """Per region the X-Plane cliff texture (``_CliffTexture``) its
     terrain is drawn with, or None -- no landclass cliff texture, a DDS
     the install lacks, or one that could not be placed in
     ``textures/_shared``: that region is left to the photo, as with the
@@ -304,9 +322,12 @@ def _placed_face_textures(tile, lonlat_all, region_tris):
 
 
 def _chart_points(layout, chart_id, tris, xyz, tri_idx, repeat_m):
-    """``{node: (s, t)}`` quantised face coordinates of one chart."""
+    """``{node: (s, t)}`` quantised face coordinates of one chart;
+    ``repeat_m`` is metres of face per repeat, one number or ``(along the
+    contour, down the fall line)``."""
     nodes = numpy.unique(tri_idx[tris])
-    uv = layout.chart_uv(chart_id, xyz[nodes], repeat_m)
+    uv = layout.chart_uv(chart_id, xyz[nodes], numpy.asarray(repeat_m,
+                                                             float))
     uv -= numpy.floor(uv.min(0))
     if uv.max() > UV_RANGE:
         UI.vprint(2, "     cliff chart", chart_id, "wider than the UV range;"
@@ -318,7 +339,8 @@ def _chart_points(layout, chart_id, tris, xyz, tri_idx, repeat_m):
 def _emit_charts(layout, xyz, tri_idx, node_icoords, idx_node_to_idx_pool,
                  point_pools, band_base, region_terrain, textured_tris,
                  repeats):
-    """``repeats[r]``: metres of face per texture repeat in region r; a
+    """``repeats[r]``: metres of face per texture repeat in region r (one
+    number, or per axis as :func:`_chart_points` takes it); a
     region whose terrain is None is not drawn."""
     by_chart = {}
     for t, c in zip(layout.tris.tolist(), layout.chart.tolist(), strict=True):

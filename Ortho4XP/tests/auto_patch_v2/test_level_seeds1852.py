@@ -127,3 +127,33 @@ def test_a_support_founds_no_seed(law, tmp_path):
     assert seeds == ()
 
 
+
+
+def _passages(reg):
+    return [k for k, v in reg.landings.items() if v.get("witness") == "passage"]
+
+
+def test_no_level_where_every_road_leaving_climbs_a_storey(law, tmp_path):
+    # #2091 R2 (OTHH unit 28): the walls 4 m under the zero, every road
+    # leaving the station meets its ground at the zero (30) -- a storey up
+    # from the level (26): the walls' feet are buried, the roads run at the
+    # zero; no level is minted and the pad stays whole
+    roads = [_road(), types.SimpleNamespace(id=-2, points=[(520.0, -30.0), (520.0, 90.0)],
+                                            tags={"highway": "service"})]
+    seeds, out, reg, counts = _run(law, _station(), tmp_path, roads=roads,
+                                   ground=lambda x, y: 30.0)
+    assert seeds and seeds[0].passage is not None
+    assert not _passages(reg) and not reg.landing_runouts
+    assert {r.ref for r in out} == {"term", "stn"}
+    assert "no road reaches its level -4.00" in counts["level_seed_list"]
+
+
+def test_one_road_leaving_at_grade_keeps_the_level(law, tmp_path):
+    # the same station, one road leaving north to a storey up and south at
+    # the level's ground: a road reaches the level, so it is minted
+    road = types.SimpleNamespace(id=-2, points=[(520.0, -30.0), (520.0, 90.0)],
+                                 tags={"highway": "service"})
+    _s, out, reg, counts = _run(law, _station(), tmp_path, roads=[road],
+                                ground=lambda x, y: 30.0 if y > 35.0 else 26.0)
+    assert _passages(reg) == ["stn/p1"]
+    assert "no road reaches" not in counts.get("level_seed_list", "")

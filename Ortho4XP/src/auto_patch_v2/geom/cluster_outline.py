@@ -116,7 +116,8 @@ def _parts(g) -> list[Polygon]:
 
 
 def deck_shades(partition: _t.Any,
-                to_xy: _t.Callable[[float, float], tuple[float, float]]):
+                to_xy: _t.Callable[[float, float], tuple[float, float]],
+                floors: "_t.Callable | None" = None, touch_m: float = 0.0):
     """THE WELDED DECKS' SHADES (issue #14; ``welded-deck-spec.md`` §2 (1))
     — the ONE reading both pad readers pass to :func:`cluster_outlines`
     (``classify/evidence._cluster_pads`` MINTS, ``constraints/cluster_pad
@@ -129,12 +130,18 @@ def deck_shades(partition: _t.Any,
     .welded_deck`` stamped them), or ``None`` where there is none — a
     partition written before plan version 10 carries none and every
     outline stands as it did.  Duck-typed on the partition: ``geom``
-    imports nothing of v2.  A handful of deck rings per airport: no memo."""
+    imports nothing of v2.  A handful of deck rings per airport: no memo.
+
+    ``floors`` (#2091 R3, ``(unit, member) -> polygons``): each member's
+    shade loses its OWN ground slab (``airport/slab_plates.deck_floors``) —
+    the building's floor stays in the outline; the remainder is opened at
+    ``touch_m`` and pieces under 1 m2 dropped.  ``None`` reads as before."""
     if partition is None:
         return None
     ps: list[Polygon] = []
     for u in (getattr(partition, "units", ()) or ()):
         for m in u.members:
+            own: list[Polygon] = []
             for poly in (getattr(m, "deck_shade_ring", None) or ()):
                 if not poly or len(poly[0]) < 3:
                     continue
@@ -143,9 +150,22 @@ def deck_shades(partition: _t.Any,
                              if len(h) >= 3])
                 if not g.is_valid:
                     g = g.buffer(0.0)
-                ps.extend(_parts(g))
+                own.extend(_parts(g))
+            fl = floors(u, m) if (floors is not None and own) else None
+            if fl:
+                own = _less_floors(own, fl, touch_m)
+            ps.extend(own)
     got = unary_union(ps) if ps else None
     return None if got is None or got.is_empty else got
+
+
+def _less_floors(shade: list[Polygon], floors, touch_m: float) -> list[Polygon]:
+    """``shade`` less ``floors``, opened at ``touch_m``, pieces under 1 m2
+    dropped (:func:`deck_shades`)."""
+    g = unary_union(shade).difference(unary_union(list(floors)))
+    if touch_m > 0.0 and not g.is_empty:
+        g = g.buffer(-touch_m, join_style=2).buffer(touch_m, join_style=2)
+    return [q for q in _parts(g) if q.area >= 1.0]
 
 
 def with_shade(shades, extra):

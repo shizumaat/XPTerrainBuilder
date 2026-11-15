@@ -430,3 +430,160 @@ def test_graded_end_stretch_is_no_bridge_ground_run():
             raise AssertionError(f"sampled {k}")
     ap = types.SimpleNamespace(dem=_Dem(), osm_ways=tuple(mid))
     assert not len(BG.bridge_runs(ap, LAW))
+def test_an_end_slab_under_a_neighbouring_deck_still_holds_its_end():
+    """#2091 (OTHH Bridge_03 west end): another deck's ring cuts the
+    footprint's slab beyond an end — the ground there is still held at the
+    plate's top (R1), under that deck's ceiling (R3), corner to corner."""
+    ring = ((0.0, -6.0), (10.0, -6.0), (10.0, 6.0), (0.0, 6.0))
+    plate = (((0.0, -6.0, 0.0), (10.0, -6.0, 0.0), (10.0, 6.0, 0.0)),
+             ((0.0, -6.0, 0.0), (10.0, 6.0, 0.0), (0.0, 6.0, 0.0)))
+    over = StackDeck("E", "e.obj", 0, ring, 1, (), (), ((0.0, -6.0), (10.0, -6.0)),
+                     ((0.0, 6.0), (10.0, 6.0)), 0.0, 0.0, plate)
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "flush", "")
+    st = dc.replace(_stack([end]), decks=(_deck(), over))
+    assert all(sl.is_empty for _d, _s, _t, _a, sl in ground_footprint(st, LAW)["aprons"])
+    rows = deck_stack_rows(_map(st), LAW, types.SimpleNamespace(deck_stacks=(st,)))
+    flush = float(BR.deck_flush_m)
+    held = [r for r in rows if r.source.inputs[2] == "D#0 end b"]
+    assert len(held) == 3 and all(abs(r.hi - 10.0) < 1e-9 and abs(r.lo - (10.0 - flush)) < 1e-9
+                                  for r in held), rows
+
+
+def test_an_end_with_a_cross_fall_holds_its_ground_at_the_plate_there():
+    """#2091 (OTHH Bridge_03 west end, corners 8.41 and 8.59): the ground
+    beyond an end edge follows the PLATE'S height across it, not one top."""
+    tilt = tuple(tuple((x, y, 0.05 * y) for x, y, _z in tri) for tri in _deck().plate)
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "flush", "")
+    st = dc.replace(_stack([end]), decks=(dc.replace(_deck(), plate=tilt),))
+    rows = deck_stack_rows(_map(st), LAW, types.SimpleNamespace(deck_stacks=(st,)))
+    pm = _map(st)
+    his = {pm.vertices[r.v].xy: r.hi for r in rows if r.source.inputs[2] == "D#0 end b"}
+    assert abs(his[(1.0, -2.0)] - 9.9) < 1e-6 and abs(his[(1.0, 2.0)] - 10.1) < 1e-6, his
+    assert abs(his[(3.0, 0.0)] - 10.0) < 1e-6, his
+
+
+def _off_centre_end(y0):
+    return StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "graded", "",
+                    ((0.0, y0), (60.0, y0)), 45.0, 0.05)
+
+
+def test_an_off_centre_route_grades_up_to_both_corners():
+    """#2091 R2 (OTHH Bridge_03 west end, the route ~3 m from one corner):
+    the apron and R6's corridor span the end edge corner to corner, not
+    the road's half width either side of the road."""
+    st = _stack([_off_centre_end(3.0)])
+    (_d, _s, _t, apron, _sl), = ground_footprint(st, LAW)["aprons"]
+    for y in (-3.5, 3.5):
+        assert apron.contains(Point(STEP + 3.0, y)), y
+    # the plain road corridor stops 1 m inside the far corner
+    assert not LineString([(0.0, 3.0), (60.0, 3.0)]).buffer(4.0, cap_style="flat").contains(
+        Point(STEP + 3.0, -3.5))
+    verts, faces = {}, {}
+    ids = []
+    for p in [(STEP + 3.0, -3.5), (STEP + 3.0, 3.5), (STEP + 4.0, 0.0)]:
+        verts[len(verts)] = types.SimpleNamespace(xy=p, incident_faces=[0], dem_z=0.0)
+        ids.append(len(verts) - 1)
+    faces[0] = types.SimpleNamespace(role="graded_strip", ref="stack_ground:x", ring=tuple(ids),
+                                     holes=())
+    pm = types.SimpleNamespace(faces=faces, vertices=verts, ring_vertices=lambda r: list(r),
+                               bridge_stacks=(st,))
+    rows = deck_stack_rows(pm, LAW, types.SimpleNamespace(deck_stacks=(st,)))
+    prof = {pm.vertices[r.v].xy for r in rows if "profile" in r.source.inputs[2]}
+    assert {(STEP + 3.0, -3.5), (STEP + 3.0, 3.5)} <= prof, prof
+
+
+def test_a_centred_end_keeps_its_footprint():
+    """A route leaving within 0.5 m of the end line's middle: the corridor
+    is the path's own, exactly."""
+    from auto_patch_v2.geom.deck_ground import end_corridor
+    for y0 in (0.0, 0.4):
+        e = _off_centre_end(y0)
+        line = LineString(e.path)
+        got = end_corridor(e, line, e.half_width)
+        assert got.equals_exact(line.buffer(e.half_width, cap_style="flat"), 0.0)
+    from auto_patch_v2.geom.deck_ground import end_slab
+    from shapely.ops import unary_union
+    e = _off_centre_end(0.0)
+    (_d, _s, _t, apron, _sl), = ground_footprint(_stack([e]), LAW)["aprons"]
+    ring = Polygon(_deck().ring)
+    plain = unary_union([end_slab(e, STEP).difference(ring),
+                         LineString([(0.0, 0.0), (45.0, 0.0)]).buffer(4.0, cap_style="flat")]
+                        ).difference(ring)
+    assert apron.symmetric_difference(plain).area < 1e-9
+
+
+def test_two_ends_on_one_vertex_hold_the_intersection_or_refuse():
+    """#2091 R2: R1's slab rows come from one source, one band per vertex and
+    end; two ends on a vertex hold their bands' intersection, or refuse."""
+    ring2 = ((3.0, -4.0), (43.0, -4.0), (43.0, 4.0), (3.0, 4.0))
+    plate2 = tuple(tuple((x, y, dz) for x, y in tri) for tri, dz in
+                   ((((3.0, -4.0), (43.0, -4.0), (43.0, 4.0)), 0.0),
+                    (((3.0, -4.0), (43.0, 4.0), (3.0, 4.0)), 0.0)))
+    for top2, held in ((0.02, True), (1.0, False)):
+        p2 = tuple(tuple((x, y, top2) for x, y, _z in tri) for tri in plate2)
+        d2 = StackDeck("F", "f.obj", 0, ring2, 1, (), (), ((3.0, -4.0), (3.0, 4.0)),
+                       ((43.0, -4.0), (43.0, 4.0)), top2, top2, p2)
+        e1 = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "flush", "")
+        e2 = StackEnd("F", "a", ((3.0, -4.0), (3.0, 4.0)), top2, (-1.0, 0.0), 8.0, 2.0, "flush",
+                      "")
+        st = dc.replace(_stack([e1, e2]), decks=(_deck(), d2))
+        verts = {0: types.SimpleNamespace(xy=(1.5, 0.0), incident_faces=[0], dem_z=0.0),
+                 1: types.SimpleNamespace(xy=(1.5, 1.0), incident_faces=[0], dem_z=0.0),
+                 2: types.SimpleNamespace(xy=(2.0, 0.5), incident_faces=[0], dem_z=0.0)}
+        pm = types.SimpleNamespace(
+            faces={0: types.SimpleNamespace(role="graded_strip", ref="stack_ground:x",
+                                            ring=(0, 1, 2), holes=())},
+            vertices=verts, ring_vertices=lambda r: list(r), bridge_stacks=(st,))
+        rows = deck_stack_rows(pm, LAW, types.SimpleNamespace(deck_stacks=(st,)))
+        r1 = [r for r in rows if " end " in r.source.inputs[2] and r.lo is not None]
+        if held:
+            assert len(r1) == 3 and all(r.lo <= r.hi for r in r1), rows
+            assert all(abs(r.hi - 10.0) < 1e-9 and abs(r.lo - (10.02 - BR.deck_flush_m)) < 1e-9
+                       for r in r1), rows
+        else:
+            assert r1 == [], rows
+
+
+def _road_map(st, pts):
+    """A planar stub: one road face (a service road on no structure)."""
+    verts = {i: types.SimpleNamespace(xy=tuple(p), incident_faces=[0], dem_z=0.0)
+             for i, p in enumerate(pts)}
+    faces = {0: types.SimpleNamespace(role="service_road", ref="big_roads:-1",
+                                      ring=tuple(verts), holes=())}
+    return types.SimpleNamespace(faces=faces, vertices=verts, ring_vertices=lambda r: list(r),
+                                 bridge_stacks=(st,))
+
+
+_END_PTS = [(1.0, -3.5), (1.0, 3.5), (-0.3, -3.5), (-0.3, 3.5)]
+
+
+def test_a_road_meets_a_cross_fall_end_at_the_plate_there():
+    """#2091 R3 (OTHH Bridge_03 end a, plate 8.38 at one corner, 8.60 at
+    the other): every end-road vertex carries R1 at the PLATE'S OWN height
+    there (flush lower inside the ring), none dropped under R3, and the road
+    ramp is seeded at the same heights."""
+    tilt = tuple(tuple((x, y, 0.05 * y) for x, y, _z in tri) for tri in _deck().plate)
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "flush", "")
+    st = dc.replace(_stack([end]), decks=(dc.replace(_deck(), plate=tilt),))
+    pm, air = _road_map(st, _END_PTS), types.SimpleNamespace(deck_stacks=(st,))
+    flush = float(BR.deck_flush_m)
+    want = {0: 10.0 - 0.175, 1: 10.0 + 0.175, 2: 10.0 - 0.175 - flush, 3: 10.0 + 0.175 - flush}
+    sel = DE.end_road_vertices(pm, LAW, air)
+    assert set(sel) == set(want) and all(abs(sel[v][0] - z) < 1e-6 for v, z in want.items()), sel
+    rows = deck_stack_rows(pm, LAW, air)
+    r1 = {r.v: r for r in rows if r.source.inputs[2] == "D#0 end b"}
+    assert set(r1) == set(want), rows
+    assert all(abs(r1[v].hi - z) < 1e-6 and abs(r1[v].lo - (z - flush)) < 1e-6
+               for v, z in want.items())
+    seeds = DE.deck_end_seeds(pm, LAW, air)
+    assert all(abs(seeds[v][0] - z) < 1e-6 for v, z in want.items()), seeds
+
+
+def test_a_road_meets_a_level_end_at_its_top_and_one_flush_lower_inside():
+    end = StackEnd("D", "b", ((0.0, -4.0), (0.0, 4.0)), 0.0, (1.0, 0.0), 8.0, 2.0, "flush", "")
+    st = _stack([end])
+    sel = DE.end_road_vertices(_road_map(st, _END_PTS), LAW, types.SimpleNamespace(
+        deck_stacks=(st,)))
+    flush = float(BR.deck_flush_m)
+    assert {v: round(z[0], 6) for v, z in sel.items()} == {
+        0: 10.0, 1: 10.0, 2: round(10.0 - flush, 6), 3: round(10.0 - flush, 6)}

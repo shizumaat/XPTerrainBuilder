@@ -151,8 +151,9 @@ def faces_for(ny_min: float, elev_m: float = 0.0) -> _t.Callable:
                           int(comp), float(ny_min), float(elev_m))
     # the thin plates the partition dropped (#712), read by the same owner
     # of the OBJ8 reader: ``geom/base_slab`` asks ``faces.plates``
-    from .slab_plates import thin_plates
+    from .slab_plates import deck_floors, thin_plates
     faces.plates = thin_plates
+    faces.deck_floors = deck_floors           # #2091 R3: a deck's own ground slab
     return faces
 
 

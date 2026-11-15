@@ -375,3 +375,74 @@ def test_the_gate_and_H_are_the_existing_bridge_keys_and_the_dead_key_is_gone():
     assert not hasattr(LAW.tables.structures.rebake, "abutment_deck_share_min")
     assert "abutment_deck_share_min" not in {f.name for f in _dc.fields(
         type(LAW.tables.structures.rebake))}
+
+
+# ── #2091 R3: a deck's own ground slab stays pad ────────────────────────
+
+def _floored(y=1.1, area=None, profile=True):
+    """A welded deck whose own base profile carries a plane at ``y`` under
+    its whole shade (its plan in the planar frame), and the slab law."""
+    from auto_patch_v2.airport.slab_plates import _placed
+    from auto_patch_v2.law.tables import base_slab_law
+    from shapely.geometry import mapping
+    local = Polygon.from_bounds(0.0, 0.0, 30.0, 20.0)
+    plan = _placed(local, (0.0, 0.0), 0.0, 0.0)
+    planes = [{"y": y, "area_m2": local.area if area is None else area,
+               "polygon": mapping(local)}]
+    m = _dc.replace(_shaded_member(plan), origin=(0.0, 0.0),
+                    base_profile={"planes": planes} if profile else {})
+    return _Part([Unit("unit:0", (0.0, 0.0), 0.0, (m,))]), m, plan, base_slab_law(LAW)
+
+
+def _reader():
+    from auto_patch_v2.airport.slab_plates import deck_floors
+
+    def faces(member, comp):
+        return None
+    faces.deck_floors = deck_floors
+    return faces
+
+
+def test_a_deck_over_its_own_ground_slab_leaves_no_pad_shade():
+    """#2091 R3 (OTHH front garage, ``Terminal_Parking_003``: base planes at
+    y 4.09 and 1.14): the plan of a welded deck's own base plane within
+    ``deck_min_elevation_m`` of the zero is the building's floor — no shade
+    there; the STAMP (``deck_shade_ring``) is unchanged."""
+    from auto_patch_v2.geom.base_slab import pad_shades
+    part, m, plan, lw = _floored()
+    stamp = m.deck_shade_ring
+    assert deck_shades(part, _ident).area == pytest.approx(plan.area)
+    sh = pad_shades(part, _ident, lw, None, _reader())
+    assert sh is None or sh.intersection(plan).area < 1.0
+    assert part.units[0].members[0].deck_shade_ring == stamp
+    assert pad_shades(part, _ident, lw, None, None).area == pytest.approx(plan.area)
+
+
+@pytest.mark.parametrize("kw", [{"y": 2.5}, {"area": 1.0}, {"profile": False}])
+def test_a_deck_without_a_ground_slab_keeps_its_shade(kw):
+    from auto_patch_v2.geom.base_slab import pad_shades
+    part, _m, plan, lw = _floored(**kw)
+    assert pad_shades(part, _ident, lw, None, _reader()).area == pytest.approx(plan.area)
+
+
+def test_a_deck_over_its_own_ground_slab_still_lends_no_datum():
+    """#2091 R3: the floor leaves the pad outline only; the welded deck's
+    stamp still refuses it as a datum lender (``footprint_unit._deck_lending``)."""
+    from auto_patch_v2.airport import footprint_unit as fu
+    from test_v2connector import _lat, _PMember, _PPlan, _PUnit
+    lo0, lo1 = -3.0, -2.9996
+    ring = ((_lat(0), lo0), (_lat(0), lo1), (_lat(30), lo1), (_lat(30), lo0))
+    deck = _PMember("deck", (), deck_datum_z=9.0)
+    deck.deck_kind, deck.deck_ring, deck.deck_shade_ring = "flag", ring, ((ring,),)
+    deck.base_profile = {"planes": [{"y": 1.1, "area_m2": 1000.0}]}
+    bldg_ring = ((_lat(-60), lo0), (_lat(-60), lo1), (_lat(0.2), lo1), (_lat(0.2), lo0))
+    plan = _PPlan([_PUnit("unit:0", [deck, _PMember("bldg", ())])])
+
+    def _shim(seq, mi, r):
+        la, lo = [p[0] for p in r], [p[1] for p in r]
+        return fu._PShim(seq, (0, mi, 0), [(min(la), min(lo), max(la), max(lo))],
+                         frozenset({seq}), f"m{mi}", (r,), True)
+    counts: dict = {}
+    pids, got = fu._deck_lending([0, 1], [_shim(0, 0, ring), _shim(1, 1, bldg_ring)], plan,
+                                 0.5, 0.0, counts)
+    assert got is None and counts["deck_lender_refused_welded"] == 1

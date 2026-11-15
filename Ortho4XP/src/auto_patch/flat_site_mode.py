@@ -700,10 +700,16 @@ def _decide_airport(icao, xplane_root, dem, tile_lat, tile_lon, water):
 
     # #1208: the pack's draped pavement pages are pavement too (read from
     # the pack's cached DSF text dump, only at a substituting site).
+    # #2091: the dump is made HERE when the cache has none (the patch build
+    # makes it only after DEM prep; the storage cleanup removes it).
+    def _pages_dump() -> None:
+        if site.pack_root:
+            from .engine_v2 import fresh_dumps
+            fresh_dumps([site.pack_root], tile_lat, tile_lon)
     record = _prep.decide(site, dem, tile_lat, tile_lon, water, law,
                           out=lambda line: UI.vprint(1, line),
                           mod_cache_root=FNAMES.airport_mod_cache_root(),
-                          xplane_root=xplane_root)
+                          xplane_root=xplane_root, make_pages_dump=_pages_dump)
     UI.vprint(1, _v2flat.log_line(icao, _v2flat.from_record(record)))
     return record, site
 

@@ -56,6 +56,10 @@ class TunnelObject:
     # …and whose floor stands at least this far under the author's ground
     # around it (kmcifloor 2026-11-07: an at-grade plate is pavement)
     floor_sunken_min_m: float
+    # #2091: a WALLED PIT's floor is sunken AS A WHOLE — at least this share
+    # of the plan area under its rim stands, as authored, under the ground
+    # around it (a road ramp walled by its parapets climbs out of it)
+    pit_sunken_min_share: float
     # 2026-11-06d (4): the cut stands this far under the floor face over it
     floor_clearance_m: float
     # …measured against THE AUTHOR'S GROUND (``geom/author_ground``): the

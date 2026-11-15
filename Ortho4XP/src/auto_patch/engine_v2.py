@@ -244,7 +244,7 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         if dump:
             fresh_object_footprints(dsf_path, cache_dir, xplane_root)
         if getattr(sel, "pages_from", ""):   # #1630: the pages' pack (Global Airports)
-            _fresh_dumps([sel.pages_root], lat, lon)
+            fresh_dumps([sel.pages_root], lat, lon)
         _fresh_companion_dumps(sel.root, lat, lon, icao)
         _fresh_mesh_dumps(sel.root, lat, lon)
         return dump
@@ -271,7 +271,7 @@ def _fresh_companion_dumps(main_root: str, lat: int, lon: int, icao: str = "") -
         import logging
         logging.getLogger(__name__).warning("companion dumps skipped: %s", exc)
         return
-    _fresh_dumps(roots, lat, lon)
+    fresh_dumps(roots, lat, lon)
 
 
 def _fresh_mesh_dumps(main_root: str, lat: int, lon: int) -> None:
@@ -286,7 +286,7 @@ def _fresh_mesh_dumps(main_root: str, lat: int, lon: int) -> None:
         import logging
         logging.getLogger(__name__).warning("terrain mesh dumps skipped: %s", exc)
         return
-    _fresh_dumps(roots, lat, lon)
+    fresh_dumps(roots, lat, lon)
 
 
 def _fresh_object_pack_dumps(xplane_root: str, icao: str, lat: int, lon: int) -> None:
@@ -305,12 +305,13 @@ def _fresh_object_pack_dumps(xplane_root: str, icao: str, lat: int, lon: int) ->
         import logging
         logging.getLogger(__name__).warning("object pack dumps skipped: %s", exc)
         return
-    _fresh_dumps(roots, lat, lon)
+    fresh_dumps(roots, lat, lon)
 
 
-def _fresh_dumps(roots, lat: int, lon: int) -> None:
+def fresh_dumps(roots, lat: int, lon: int) -> None:
     """The mod-cache text dump of each pack's PRISTINE tile DSF; a failure is
-    logged and only leaves that pack unread."""
+    logged and only leaves that pack unread.  DEM prep calls it for the
+    pages pack before it reads the draped pavement (#2091)."""
     import logging
     try:
         import O4_File_Names as FNAMES

@@ -346,9 +346,17 @@ def pad_shades(partition: _t.Any, to_xy, lw: _t.Any, extra: _t.Any = None,
     #516's sunken ramps (``Airport.sunken_ramps``), added through
     :func:`cluster_outline.with_shade`.  The ONE shade path the pad mint
     (``classify/evidence``), the pad census (``constraints/cluster_pad``)
-    and the fallback trim all take, so they cannot disagree.  ``None``
-    where there is nothing."""
-    deck = deck_shades(partition, to_xy)
+    and the fallback trim all take, so they cannot disagree.  A welded
+    deck's OWN ground slab (the face reader's ``deck_floors``, #2091 R3)
+    stays in the outline: the building's floor.  ``None`` where there is
+    nothing."""
+    df = getattr(faces, "deck_floors", None) if faces is not None else None
+    floors = None
+    if df is not None and lw is not None and float(getattr(lw, "deck_elev_m", 0.0) or 0.0) > 0.0:
+        def floors(u, m):                     # #2091 R3: a deck's own ground slab stays pad
+            return df(u, m, to_xy, lw)
+    deck = deck_shades(partition, to_xy, floors,
+                       float(getattr(lw, "touch_m", 0.0) or 0.0) if floors is not None else 0.0)
     slabs = (slab_polygons(partition, to_xy, lw, faces)
              if lw is not None and lw.leaves_pads else [])
     if slabs:

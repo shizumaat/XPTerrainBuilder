@@ -90,6 +90,7 @@ from .geometry import nearest_vertex_of_containing_cell
 from .viaduct_floor import is_viaduct_half, viaduct_floor_rows
 
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
+           "datum_group",
            "reconcile_datums", "structure_of", "rim_level", "rim_contacts",
            "GEN", "GEN_RIM_LEVEL", "RIM_LEVEL_RULING", "BASIN_FLOOR_RULING",
            "RAMP_REF", "WALL_REF"]
@@ -216,6 +217,23 @@ def framed_plane(planar: PlanarMap, tn: Tunnel, faces: _t.Sequence[Face]
     run = s_max if abs(s_max - tn.top_s) <= _STATION_CLUSTER_M else tn.top_s
     run = max(run, 1e-9)
     return {v: z0 + (zt - z0) * min(1.0, max(0.0, s / run)) for v, s in s_of.items()}, s_max
+
+
+def _in_datum(tn: Tunnel, s: float) -> bool:
+    """Does the ramp station ``s`` stand in ``tn``'s DATUM GROUP -- the
+    mouth, every covered stretch, the level stretch to ``climb_from_s``
+    (the one test :func:`structures` and ``constraints/shell_datum`` read)?"""
+    return s <= tn.climb_from_s + _STATION_CLUSTER_M
+
+
+def datum_group(planar: PlanarMap, tn: Tunnel) -> list[int]:
+    """The vertices of ``tn``'s ramp DATUM GROUP (:func:`_in_datum`): the
+    floor a storey shell's block follows (#2062 R3b A,
+    ``constraints/shell_datum``)."""
+    out: set[int] = set()
+    for f in ramp_faces_of(planar, planar.structures).get(tn.id, ()):
+        out.update(v for s, vs in ramp_groups(planar, tn, f) if _in_datum(tn, s) for v in vs)
+    return sorted(out)
 
 
 def _dem_at(airport: Airport, x: float, y: float) -> float:
@@ -557,7 +575,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # group just beyond the last deck (``climb_from_s`` is that
             # deck's far edge + the gap, where the far piece begins)
             for s, vs in groups:
-                if s <= tn.climb_from_s + _STATION_CLUSTER_M and src_bottom is None:
+                if _in_datum(tn, s) and src_bottom is None:
                     datum_vs.extend(vs)
                     datum_groups.append((s, vs))
             if tn.decks:

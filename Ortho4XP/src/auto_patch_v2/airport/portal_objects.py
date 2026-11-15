@@ -98,6 +98,11 @@ class Portal:
     #: (MEASURED LOWS west mouth: the carriageways' midline 1.5 m off it, the
     #: cut wall over 1.5 m of the opening).  Empty with no opening.
     opening_xy: tuple = ()
+    #: #2062 R3b C: an ENTRANCE face's FRONT WALL ends across the bore
+    #: (``airport/entrance_front``; ``opening_xy`` inside it) and its width;
+    #: ``()`` / ``0.0`` with none wider than the opening
+    front_xy: tuple = ()
+    front_m: float = 0.0
     #: #1747 (Q-A 2026-11-05): an ENTRANCE object's face bottom under its
     #: zero at this end (``trench_objects.mouth_portals``) — the object stage
     #: seats that face with its bottom on :attr:`floor_z`

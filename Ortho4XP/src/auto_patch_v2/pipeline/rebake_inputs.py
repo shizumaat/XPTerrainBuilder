@@ -135,6 +135,10 @@ def _kept_published(airport, pm=None, agp_report=None) -> dict[str, dict]:
     #1718 B3: a deck KEPT BY ITS CROSSING (``model/free_bridge.
     OVERPASS_PREFIX``) is not published: the overpass plate seats it.
 
+    #2062 R5 E′5: a kept stack OVER A RAMP FLOOR (``DeckStack.over_floor``)
+    publishes both route mids, its rowed ends as ``graded`` and every other
+    land end as ``joined``, and its zero.
+
     #2090 B6: a deck whose end JOINS an AGP follower's floor publishes the
     joined ends' midpoints (``"joined"``) and its FINAL zero (the predicted
     zero plus its group's stage-2 delta, ``constraints/agp_level.stack_zero``
@@ -162,10 +166,16 @@ def _kept_published(airport, pm=None, agp_report=None) -> dict[str, dict]:
     from ..constraints.agp_level import stack_zero
     groups = tuple(getattr(pm, "agp_groups", ()) or getattr(airport, "agp_groups", ()) or ())
     for st in stacks:
+        # #2062 R5 E′5: a stack OVER A FLOOR publishes its rowed ends as
+        # graded and every other land end as joined: both ends flagged, the
+        # object stage takes the published zero on any mesh
+        over = bool(getattr(st, "over_floor", ()))
+        rowed = st.rowed_ends() if over else st.graded_ends()
         for d in st.decks:
             lines = [ln for ln in (d.end_a, d.end_b) if ln]
-            graded = [mid(e.stations) for e in st.graded_ends() if e.object_id == d.object_id]
-            joined = [mid(e.stations) for e in st.joined_ends() if e.object_id == d.object_id]
+            graded = [mid(e.stations) for e in rowed if e.object_id == d.object_id]
+            joined = [mid(e.stations) for e in (st.ends if over else st.joined_ends())
+                      if e.object_id == d.object_id and (not over or e not in rowed)]
             if len(lines) == 2 and (graded or joined):
                 out[d.object_id] = {"mode": "kept", "route_mids": [mid(ln) for ln in lines],
                                     "graded": graded,

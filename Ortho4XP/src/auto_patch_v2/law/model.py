@@ -574,6 +574,12 @@ class Bridge:
     #: this area HOLDS the end (14f (4))
     end_solid_min_height_m: float
     end_solid_min_area_m2: float
+    #: #2062 R5 (master ruling 2026-11-15, owner 13:50Z / 13:52Z): a kept deck
+    #: end whose carried ground route runs on over airside pavement mints
+    #: the route's road past the end line, at most this long
+    airside_run_max_m: float
+    #: ... and a bank this wide either side of it down to the airside
+    airside_run_bank_m: float
 
 
 @_dc.dataclass(frozen=True)

@@ -318,6 +318,7 @@ entrance_bank_max_m  = 15.0
 # drawn_site "ground outside an edge" figure above: the apron vertices the
 # arrangement leaves along a face's edge stand within it (ENGM Ham3: 0.0-0.5 m).
 entrance_airside_reach_m = 1.5
+face_front_m = 5.0                 # #2062 R3b C (owner 2026-11-15T04:08Z Q1: "expose the whole headwall the object models (trimmed at airside pavement) for face_front_m in front of it"): within this of an entrance face's mouth the ramp is as wide as the face's FRONT WALL (Portal.front_xy, airport/entrance_front), fitted laterally to stand clear of what stands beside the corridor (planar/front_band.fit_halves, R4 C′ + F); beyond it the opening's width.  MEASURED KLAX Underpass_1: opening 30.0 m, front 62.2 m
 
 [cutout]                            # RULINGS 2026-09-06b (1) + 2026-09-08a: every below-grade OBJECT's trench = floor + at-grade rim INSIDE the wall, NO wall band
 # The owner's law: the trench floor slightly OVERLAPS the object's inner
@@ -668,6 +669,19 @@ free_end_ground_out_m  = 1.5
 # wall (l2086's latent risk).  Lamps and kerbs stand under these values.
 end_solid_min_height_m = 2.0
 end_solid_min_area_m2  = 10.0
+# #2062 R5 THE AIRSIDE RUN-OUT (master ruling 2026-11-15 on owner 13:50Z "it should
+# be road on both ends, not apron, and we don't want a step" / 13:52Z "the road
+# appears elevated above the apron at the east end of the bridge and descends
+# down meeting at the taxiway into the apron"): a KEPT deck's rowed end whose
+# carried apt.dat ground route runs on over airside pavement mints that route's
+# road past the end line (``planar/deck_runout``): flush with the deck's end top
+# there, down at the road ramp grade until it meets the airside stage 1 solved
+# (``constraints/deck_runout``), never longer than this; the airside does not move.
+airside_run_max_m      = 40.0
+# ... with a bank this wide either side of it, the apron's edge its toe.
+# MEASURED KLAX Road_Bridge east end: the deck end top 32.83 over the apron
+# 32.10 (0.73 m), 1:2 gives 1.5 m
+airside_run_bank_m     = 2.0
 
 [building_pad]
 weld_to_touching_pavement = true   # contact = value (09-01g)

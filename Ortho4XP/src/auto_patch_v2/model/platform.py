@@ -321,7 +321,8 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
     two readers that pass it).  The stage split never reads it: the block
     welds nothing, so its level is stage 2's.  MEASURED HECA (lane l1088c):
     ``building6`` carried two fills with no column and tilted 0.62 % under
-    a road's ramp ceiling at its north corner."""
+    a road's ramp ceiling at its north corner.  A STOREY SHELL's block
+    (a landing carrying ``shell``) is such a carrier too (#2062 R3b A)."""
     held = planar.registries.held
     if not held:
         return {}
@@ -357,8 +358,11 @@ def _fill_datums(planar: _t.Any, own: _t.Mapping[str, set[int]],
                  struct: _t.AbstractSet[int], have: _t.Mapping[str, int]) -> dict[str, int]:
     """The STAGE-2 datum column of every held block that carries a pad fill
     and has none (:func:`datum_vertices` ``fills``)."""
+    # ... and every STOREY SHELL's block (#2062 R3b A): a block led by its
+    # structure floor or its ground welds no frontage, and its levels stand
+    # at its column + their ``y`` (``constraints/shell_datum`` holds it)
     carriers = {rec["block"] for rec in planar.registries.landings.values()
-                if rec.get("kind", "deck") in FILL_KINDS}
+                if rec.get("kind", "deck") in FILL_KINDS or rec.get("shell")}
     out: dict[str, int] = {}
     for ref in sorted(carriers - set(have)):
         vs = sorted(own.get(ref, set()) - set(struct))

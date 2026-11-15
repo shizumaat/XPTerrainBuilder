@@ -213,7 +213,8 @@ def end_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, str,
                 off = polyline_distance(rxy, line) if len(line) >= 2 else None
                 ks = [k for k, hit in enumerate(near_stations(rxy, line, 2.0 * H))
                       if hit and (float(off[k]) if off is not None else 0.0) <= slab]
-                zs = (plate_heights(d, [rxy[k] for k in ks], float(top), flush, H)
+                zs = (plate_heights(d, [rxy[k] for k in ks], float(top), flush, H,
+                                    driven=bool(getattr(st, "over_floor", ())))
                       if st.kind != TRENCH else [float(top)] * len(ks))
                 for k, z in zip(ks, zs, strict=True):
                     dk = float(off[k]) if off is not None else 0.0

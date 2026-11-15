@@ -589,6 +589,10 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # row a group's geometry minted moves by its delta (``constraints/agp_level``)
     from .agp_level import REPORT_KEY, datum_rewrite
     cs, rep[REPORT_KEY] = datum_rewrite(planar, law, cs, levels)
+    # #2062 R5: a deck's road run out over the airside lies on the airside
+    # once it meets it (``constraints/deck_runout``)
+    from . import deck_runout as _dr
+    cs, rep[_dr.REPORT_KEY] = _dr.runout_rewrite(planar, law, cs, levels)
     return cs, rep
 
 

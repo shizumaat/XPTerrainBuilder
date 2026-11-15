@@ -27,13 +27,19 @@ import os
 
 import numpy
 import O4_Cliff_Faces as FACES
+import O4_Cliff_Library as LIBRARY
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 
-__all__ = ["BLEND_TEXTURE", "UV_RANGE", "add_cliff_band",
-           "emit_cliff_overlays"]
+__all__ = ["ARMS", "BLEND_TEXTURE", "UV_RANGE", "add_cliff_band",
+           "cliff_arm", "emit_cliff_overlays"]
+
+#: ``cliff_textures`` values that draw the overlay: ``synth`` (a texture
+#: made from the tile's photos) and ``xplane`` (X-Plane's own default
+#: landclass terrain, ``O4_Cliff_Library``).
+ARMS = ("synth", "xplane")
 
 #: Face coordinates are stored in 0 .. UV_RANGE repeats (65,535 steps: a
 #: 480 m repeat is quantised to 0.47 m).
@@ -47,11 +53,22 @@ EXEMPLAR_SLOPES = (15.0, 42.0)
 EXEMPLAR_REACH_M = 1500.0
 
 
-def add_cliff_band(planes, pool_nbr):
+def cliff_arm(value):
+    """The arm a ``cliff_textures`` value selects, or None (off).  ``True``
+    (the option's first, boolean form) is ``synth``."""
+    value = str(value).strip().lower()
+    if value == "true":
+        return "synth"
+    return value if value in ARMS else None
+
+
+def add_cliff_band(planes, pool_nbr, arm="synth"):
     """``planes`` with the cliff band appended (9 planes per geometric
-    pool) and the band's first dsf-pool index."""
+    pool for ``synth``, 7 for ``xplane``) and the band's first dsf-pool
+    index."""
     base = len(planes)
-    return numpy.concatenate((planes, 9 * numpy.ones(pool_nbr, "int"))), base
+    n = LIBRARY.PLANES if arm == "xplane" else 9
+    return numpy.concatenate((planes, n * numpy.ones(pool_nbr, "int"))), base
 
 
 def _cliff_pool_params(point_pools, pool_param, base, pool_nbr):
@@ -109,8 +126,12 @@ def _exemplar_tris(lonlat_all, slope, land, foot, lat0):
 def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
                         idx_node_to_idx_pool, pool_param, point_pools,
                         band_base, pool_nbr, dico_customzl, textured_tris,
-                        dico_terrains, overlay_terrains):
+                        dico_terrains, overlay_terrains, arm="synth"):
     """Add the cliff overlay patches; return ``(bTERT bytes, plan)``.
+
+    ``arm`` ``xplane`` draws them with the default landclass terrain
+    (``O4_Cliff_Library``; no texture to make, so no region cap and an
+    empty plan).
 
     ``nodes`` is the (n, 5) node array (lon, lat, elev, nx, ny) the DSF is
     built from, ``tri_idx`` (m, 3), ``tri_types`` (m,) with 0 = land.  The
@@ -120,6 +141,8 @@ def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
     its triangles) and ``exemplar`` (the same for the candidates), which
     ``O4_Cliff_Synth`` reads once the photos are on disk."""
     params = FACES.CliffParams()
+    if arm == "xplane":
+        params = FACES.CliffParams(max_regions=10 ** 9)
     xyz = FACES.local_metres(nodes[:, 0], nodes[:, 1], nodes[:, 2],
                              tile.lat, tile.lon)
     land = numpy.asarray(tri_types) == 0
@@ -132,6 +155,11 @@ def emit_cliff_overlays(tile, nodes, tri_idx, tri_types, node_icoords,
     plan = []
     if not len(layout.tris):
         return b"", plan
+    if arm == "xplane":
+        return LIBRARY.emit_library_overlays(
+            tile, layout, tri_idx, nodes[:, :2][tri_idx], node_icoords,
+            idx_node_to_idx_pool, point_pools, band_base, textured_tris,
+            dico_terrains, overlay_terrains), plan
     _cliff_pool_params(point_pools, pool_param, band_base, pool_nbr)
     _write_blend(tile)
     slope = FACES.triangle_slopes(xyz, tri_idx)[0]

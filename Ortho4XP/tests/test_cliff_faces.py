@@ -175,3 +175,51 @@ def test_dsf_band_points_terrain_and_plan(tmp_path, monkeypatch):
     assert "BASE_TEX ../textures/cliff_+38+013_000.dds" in ter
     assert "BORDER_TEX ../textures/cliff_blend.png" in ter
     assert (tmp_path / "textures" / "cliff_blend.png").is_file()
+
+
+def test_cliff_arm_values():
+    assert CLIFF.cliff_arm(True) == CLIFF.cliff_arm("synth") == "synth"
+    assert CLIFF.cliff_arm("xplane") == "xplane"
+    assert CLIFF.cliff_arm(False) is CLIFF.cliff_arm("False") is None
+
+
+def test_xplane_arm_draws_the_default_terrain(monkeypatch):
+    """The ``xplane`` arm: 7-plane overlay points (s = alpha, t = 0) on the
+    library terrain the default DSF has there; water takes the majority."""
+    import O4_Default_Terrain_Map as DEFTER
+    xyz, tris = _wall_mesh()
+    k = 111319.49
+    nodes = numpy.stack((13.0 + xyz[:, 0] / (k * numpy.cos(numpy.radians(
+        38.5))), 38.0 + xyz[:, 1] / k, xyz[:, 2], numpy.zeros(len(xyz)),
+        numpy.zeros(len(xyz))), 1)
+    planes, base = CLIFF.add_cliff_band(7 * numpy.ones(3, "int"), 1,
+                                        "xplane")
+    assert base == 3 and planes[3] == 7
+    pools = POOLS.DsfPointPools(1, planes)
+
+    class Map:
+        terrain_paths = ["lib/g10/terrain10/rock_cld_wet_steep.ter",
+                         "lib/g10/terrain10/water_lake.ter"]
+
+        def terrain_index_at(self, lon, lat):
+            return 1 if lat > 38.0 + 300 / k else 0
+
+        def is_projected(self, i):
+            return True
+
+    monkeypatch.setattr(DEFTER.DefaultTerrainMap, "from_tile",
+                        classmethod(lambda cls, lat, lon: Map()))
+    monkeypatch.setattr(FACES, "CliffParams",
+                        lambda **k: dataclasses.replace(LOOSE, **k))
+    tile = type("Tile", (), {"lat": 38, "lon": 13, "mesh_zl": 18})
+    dico, textured, overlays = {"terrain_Water": 0}, {0: {}}, set()
+    tert, plan = CLIFF.emit_cliff_overlays(
+        tile, nodes, tris, numpy.zeros(len(tris), int),
+        array.array("H", [0] * (5 * len(nodes))),
+        {i: 0 for i in range(len(nodes))}, {}, pools, base, 1,
+        None, textured, dico, overlays, "xplane")
+    assert tert == b"lib/g10/terrain10/rock_cld_wet_steep.ter\0"
+    assert plan == [] and overlays == {1} and textured[1]
+    pts = numpy.frombuffer(pools.points[base], numpy.uint16).reshape(-1, 7)
+    assert pts[:, 5].max() == 65535 and pts[:, 5].min() < 65535
+    assert (pts[:, 6] == 0).all()

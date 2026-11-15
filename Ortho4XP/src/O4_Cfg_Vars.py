@@ -1064,14 +1064,17 @@ cfg_tile_vars = {
         "hint": "Terrain files for all but water triangles will contain the maquify_1_green_key.dcl decal directive. The effect is noticeable at very low altitude and helps to overcome the orthophoto blur at such levels. Can be slightly distracting at higher altitude.",
     },
     "cliff_textures": {
-        "type": bool,
-        "default": False,
+        "type": str,
+        "default": "False",
+        "values": ["False", "synth", "xplane"],
         "hint": (
-            "PROTOTYPE (#2096). Draw near-vertical mesh faces with a "
-            "face-aligned texture made from the tile's own photos "
-            "(seamless, colour-matched to the photo around each cliff, "
-            "fading into it at the top and bottom) instead of the photo "
-            "stretched down the face."),
+            "PROTOTYPE (#2096). Draw near-vertical mesh faces with another "
+            "texture than the photo stretched down the face, fading into "
+            "the photo at the top and bottom. synth: a face-aligned "
+            "texture made from the tile's own photos (colour-matched to "
+            "the photo around each cliff). xplane: the terrain X-Plane's "
+            "default scenery puts there (its regional rock and cliff "
+            "textures). True is synth."),
     },
     # Other
     "custom_dem": {

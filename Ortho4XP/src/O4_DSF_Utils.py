@@ -1089,13 +1089,14 @@ def _build_dsf_body(tile, download_queue):
         # 5-plane physical default-terrain band (see banding note above).
         dsf_pool_plane[3 * pool_nbr : 4 * pool_nbr] = 5
     # Cliff faces (#2096, option ``cliff_textures``, full_ortho only): one
-    # more 9-plane band after the others, for the face-space overlay.
-    cliff_on = (getattr(tile, "cliff_textures", False)
-                and texture_mode == "full_ortho")
+    # more band after the others (9 planes ``synth``, 7 ``xplane``).
+    cliff_arm = (CLIFF.cliff_arm(getattr(tile, "cliff_textures", False))
+                 if texture_mode == "full_ortho" else None)
+    cliff_on = cliff_arm is not None
     tile.cliff_plan = None
     if cliff_on:
         dsf_pool_plane, cliff_band = CLIFF.add_cliff_band(
-            dsf_pool_plane, pool_nbr)
+            dsf_pool_plane, pool_nbr, cliff_arm)
         dsf_pool_nbr = len(dsf_pool_plane)
     # Every new point takes its slot through ``point_pools.slot``, which rolls
     # a full band pool (65,536 points: a 16-bit index) over to an overflow
@@ -1886,7 +1887,7 @@ def _build_dsf_body(tile, download_queue):
             numpy.asarray(tri_types)[:nbr_tris],
             node_icoords, idx_node_to_idx_pool, pool_param, point_pools,
             cliff_band, pool_nbr, dico_customzl, textured_tris,
-            dico_terrains, overlay_terrains)
+            dico_terrains, overlay_terrains, cliff_arm)
         bTERT += cliff_tert
 
     # Cold/warm telemetry for the tile time model (read by the engine

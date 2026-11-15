@@ -59,7 +59,8 @@ Lane F2 (capability ``flight_notices``):
   ``+53-061``, ``choice`` ``keep`` (fly the existing mesh) or ``upgrade``
   (a ``full`` build of ours replaces it, over the old mesh in the tile's
   own folder when we build there: not undoable, #2088); remembered for
-  the tile (``flight_adopted.ChoiceBook``).
+  the tile (``flight_adopted.ChoiceBook``); ``ask`` forgets it and the
+  card asks again (its "Change", #2095).
   ``{"flight", "tile", "choice"}``.
 """
 

@@ -414,6 +414,9 @@ extension FlyText {
     /// The buttons' short titles; the long labels are their hover text.
     public static let choiceKeepButton = "Fly as-is"
     public static let choiceUpgradeButton = "Upgrade"
+    /// On an answered row (#2095): forget the remembered answer and ask again.
+    public static let choiceChangeButton = "Change"
+    public static let choiceChangeHelp = "Forget this answer and ask again"
 
     static func choicePlace(_ row: O4FlightStatus.Choice) -> String {
         let role = ["departure": "Departure", "destination": "Destination"][row.role] ?? "Airport"

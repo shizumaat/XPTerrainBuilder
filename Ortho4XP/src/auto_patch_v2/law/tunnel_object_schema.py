@@ -109,3 +109,5 @@ class TunnelObject:
     # #2062 R3b C: the FRONT FLOOR -- the stations this near the mouth stand
     # as wide as the face's front wall (``planar/front_band``)
     face_front_m: float
+    # #2099: a mouth group's WING runs out of its mouth no farther than this
+    wing_reach_max_m: float

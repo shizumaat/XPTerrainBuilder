@@ -676,6 +676,11 @@ class PierReading:
     note: str
 
 
+#: :func:`_raster`'s edge samples held at once (a memory bound, no law: the
+#: grid is the same however the faces are chunked)
+_RASTER_POINTS = 2_000_000
+
+
 def _raster(xz: np.ndarray, cell_m: float):
     """``(filled grid, origin, cell)`` of a set of face
     rings — the plan trace of the faces, HOLE-FILLED.
@@ -706,11 +711,17 @@ def _raster(xz: np.ndarray, cell_m: float):
         n = int(np.ceil(float(d.max()) / (0.5 * cell))) + 1 if d.size else 1
         n = max(1, min(n, 4096))
         ts = np.linspace(0.0, 1.0, n).reshape(1, n, 1)
-        pts = p0[:, None, :] + ts * (p1 - p0)[:, None, :]
-        ij = ((pts.reshape(-1, 2) - o) / cell).astype(np.int64)
-        np.clip(ij[:, 0], 0, nx - 1, out=ij[:, 0])
-        np.clip(ij[:, 1], 0, nz - 1, out=ij[:, 1])
-        grid[ij[:, 0], ij[:, 1]] = True
+        # #2099: the samples are written a CHUNK of faces at a time -- the
+        # same points, so the same grid; all at once, CYSN's 827k-face
+        # fence (``YSN_Fence_1``) held 13 GB and the pack worker was stopped
+        step = max(1, _RASTER_POINTS // n)
+        for k in range(0, p0.shape[0], step):
+            q0, q1 = p0[k:k + step], p1[k:k + step]
+            pts = q0[:, None, :] + ts * (q1 - q0)[:, None, :]
+            ij = ((pts.reshape(-1, 2) - o) / cell).astype(np.int64)
+            np.clip(ij[:, 0], 0, nx - 1, out=ij[:, 0])
+            np.clip(ij[:, 1], 0, nz - 1, out=ij[:, 1])
+            grid[ij[:, 0], ij[:, 1]] = True
     return _ndimage.binary_fill_holes(grid), o, cell
 
 

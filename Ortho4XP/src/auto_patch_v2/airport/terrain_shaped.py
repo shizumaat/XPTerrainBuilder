@@ -58,7 +58,8 @@ __all__ = ["MIN_AREA_M2", "MIN_RELIEF_M", "MIN_FOLLOW", "FOLLOW_BAND_M", "SEAT",
            "placement_fits", "fit", "grid_of_triangles", "bin_triangles", "dem_many_of",
            "grid_of_resource", "seat_records", "log_line", "row_seats",
            "PORTAL_SEAT", "ENTRANCE_SEAT", "OBJECT_FLOOR_SEAT", "HIDDEN_SEAT",
-           "FRAME_SEAT", "ADAPTED_SEAT", "ADAPTED_WHY", "frame_zeros", "portal_seat_records"]
+           "FRAME_SEAT", "ADAPTED_SEAT", "ADAPTED_WHY", "frame_zeros", "portal_seat_records",
+           "portal_frame_records"]
 
 MIN_AREA_M2 = 20_000.0
 MIN_RELIEF_M = 5.0
@@ -321,6 +322,37 @@ def portal_seat_records(structures: _t.Iterable[_t.Any], to_ll=None,
             rec.update(seat=ENTRANCE_SEAT, end=[round(float(lat), 9), round(float(lon), 9)],
                        reach_m=float(ps[3]) if len(ps) > 3 else 0.0)
         out.append(rec)
+    return out
+
+
+def portal_frame_records(records: _t.Sequence[_t.Mapping[str, _t.Any]], objects: _t.Sequence,
+                         tol_m: float) -> list[dict[str, _t.Any]]:
+    """#1689 (owner 2026-10-30T16:22Z): A ROOFED PORTAL LEADS ITS GROUP.
+    Every placement co-placed with a roofed portal seated at its pinned
+    floor (a :data:`PORTAL_SEAT` record; one anchor and heading within
+    ``tol_m``, ``hanging_objects._co_placed``: the portal's wing walls,
+    parapet and lights) and seated by no other record takes the portal's
+    zero, so the group stands on the road as one.  MEASURED (#1684): the
+    22o connected-group median seated a portal's frame 14.3 m over its
+    floor.  An ENTRANCE face's record is seated face by face and leads
+    nothing here."""
+    from .hanging_objects import _co_placed
+    by_id = {str(o.id): o for o in objects or ()}
+    seated = {str(r.get("id")) for r in records}
+    out: list[dict[str, _t.Any]] = []
+    for r in records:
+        if r.get("seat") != PORTAL_SEAT:
+            continue
+        o = by_id.get(str(r.get("id")))
+        if o is None:
+            continue
+        for q in objects:
+            if str(q.id) in seated or not _co_placed(o, q, tol_m):
+                continue
+            seated.add(str(q.id))
+            out.append({"id": str(q.id), "resource": q.path, "datum": "portal",
+                        "seat": PORTAL_SEAT, "elevation": r["elevation"],
+                        "led_by": str(o.id)})
     return out
 
 

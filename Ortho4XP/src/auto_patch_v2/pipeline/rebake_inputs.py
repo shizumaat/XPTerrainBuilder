@@ -423,6 +423,13 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
                     pm.structures, airport.frame.transformers()[1],
                     zeros=solved_entrance_zeros(pm, law, surf, _to_xy)))
                 + tuple(floor_seats) + tuple(adapted))
+    if objects:
+        # #1689: a roofed portal's frame rides its floor seat
+        authored += tuple(_ts.portal_frame_records(
+            authored, objects, float(law.tables.structures.tunnel.object.cover_placement_tol_m)))
+    # ... written WHOLE at it, like a floor's frame: a plan split hands the
+    # row to its bodies and drops the seat (``terrain_shaped.row_seats``)
+    excluded |= {str(r["id"]) for r in authored if r.get("seat") == _ts.PORTAL_SEAT}
     from ..model.free_bridge import published as _free_published
     return {
         "free_decks": {**_free_published(getattr(pm, "free_bridges", ()) or (),

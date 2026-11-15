@@ -646,3 +646,44 @@ def test_t27_the_slab_road_vertices_hold_and_the_ramp_starts_one_step_out(tmp_pa
     ends = DE.end_road_vertices(_stub_map(st), LAW, a)
     H = float(LAW.tables.structures.bridge.abutment_sample_step_m)
     assert ends and all(0.0 <= e[-1] <= H + 0.01 for e in ends.values())
+
+
+# ── #2090 spec B4: the access road between two sibling deck ends ─────────
+
+def _b4_stack(sid, x, member="dsf:obj9", y=3.45, zero=1633.26):
+    from auto_patch_v2.model.agp_group import DeckJoin
+    from auto_patch_v2.model.deck_stack import KEPT, DeckStack, StackEnd
+    e = StackEnd(sid, "a", ((x - 7.0, 0.0), (x + 7.0, 0.0)), 0.05, (0.0, -1.0), 1631.2,
+                 2.1, "graded", "", access=(-18914,))
+    j = DeckJoin("agp:dsf:obj8", sid, sid, "b", member, y, -0.10, 2.0, None, (x, 40.0),
+                 (0.0, 0.0))
+    return DeckStack(sid, "", "", ((sid, "g.obj"),), zero, 0.0, (), 0.0, 0.0, (), (), (), (),
+                     (), kind=KEPT, ends=(e,), datum_group="agp:dsf:obj8", joins=(j,))
+
+
+def _b4_pm(stacks):
+    xs = [-20.0, 0.0, 30.0, 60.0, 90.0, 120.0]
+    verts = {k: types.SimpleNamespace(xy=(x, 0.5)) for k, x in enumerate(xs)}
+    face = types.SimpleNamespace(role="service_road", ref="small_roads:-18914",
+                                 ring=tuple(range(len(xs))))
+    return types.SimpleNamespace(faces={0: face}, vertices=verts, bridge_stacks=tuple(stacks),
+                                 ring_vertices=lambda ring: list(ring))
+
+
+def test_b4_the_road_between_two_ends_of_one_floor_is_held_on_their_line():
+    from auto_patch_v2.model.deck_ends import access_road_vertices
+    s1, s2 = _b4_stack("stack:kept:dsf:obj1", 0.0), _b4_stack("stack:kept:dsf:obj2", 90.0,
+                                                              zero=1633.56)
+    ap = types.SimpleNamespace(deck_stacks=(s1, s2))
+    got = access_road_vertices(_b4_pm((s1, s2)), None, ap)
+    assert sorted(got) == [2, 3]                    # x 30 and 60: between the ends
+    assert got[2][0] == pytest.approx(1633.31 + (30 / 90) * 0.30)
+    assert got[3][1] == "stack:kept:dsf:obj2"       # the nearer end's stack id
+
+
+def test_b4_ends_of_two_floors_are_no_siblings():
+    from auto_patch_v2.model.deck_ends import access_road_vertices
+    s1 = _b4_stack("stack:kept:dsf:obj1", 0.0)
+    s2 = _b4_stack("stack:kept:dsf:obj2", 90.0, y=6.75)
+    ap = types.SimpleNamespace(deck_stacks=(s1, s2))
+    assert access_road_vertices(_b4_pm((s1, s2)), None, ap) == {}

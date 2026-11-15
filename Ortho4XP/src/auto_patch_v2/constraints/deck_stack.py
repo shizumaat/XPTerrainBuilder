@@ -46,7 +46,7 @@ from ..law import Law
 from ..law.tables import snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Band, Row, Source
-from ..model.deck_ends import end_road_vertices
+from ..model.deck_ends import access_road_vertices, end_road_vertices
 from ..model.deck_stack import FREE, TRENCH, live_stacks
 from ..model.frame import rotated_rectangle
 from ..model.planar import STACK_GROUND_PREFIX, PlanarMap
@@ -102,6 +102,10 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
            + snap_margin_m(law) + grid)
     stacks = live_stacks(stacks, planar)
     roads = end_road_vertices(planar, law, airport)
+    # #2090 B4: the access road between sibling ends, held as R1 holds an
+    # end-line vertex (its rows carry the nearer end's stack id)
+    for v, rec in access_road_vertices(planar, law, airport).items():
+        roads.setdefault(v, rec)
     rows: list[Row] = []
     for st in stacks:
         if st.kind != TRENCH:

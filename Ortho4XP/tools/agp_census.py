@@ -70,13 +70,27 @@ def _census(x) -> dict:
 def agp_rows(pkl: str, law) -> tuple[str, list[dict], list[dict], list[str], float]:
     """``(icao, group rows, refused joins, notes, seconds)`` of the pack
     stage's AGP read on the capture ``pkl``."""
+    from auto_patch_v2.airport import frame_entry as _fe
     from auto_patch_v2.airport.agp_group import read_groups
+    from auto_patch_v2.airport.obj8 import ResourceCache
+    from auto_patch_v2.planar.basins import read_objects
+    from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
+    from auto_patch_v2.planar.free_bridge import read_bridges
     with open(pkl, "rb") as fh:
         cap = pickle.load(fh)
     icao, airport = cap["icao"], cap["airport"]
     t0 = time.perf_counter()
     groups, refused, notes = read_groups(airport, law)
     took = time.perf_counter() - t0
+    # the deck joins (spec B1) are read with the bridges, as the pack stage
+    # reads them (``planar/free_bridge.read_bridges``)
+    import dataclasses as _dc
+    cache = ResourceCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
+    objs, _rep = read_objects(airport, law, cache)
+    airport = attach_deck_stacks(_dc.replace(airport, agp_groups=groups), objs, cache, law)
+    airport, _every, more = read_bridges(airport, objs, cache, law)
+    groups = airport.agp_groups
+    notes += [n for n in more if "deck join" in n]
     ways = author_altitudes(getattr(airport.pack, "pack_root", "") or "")
     rows = []
     for g in groups:

@@ -258,7 +258,20 @@ def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]
     if refused:
         airport = _dc.replace(airport, free_bridges=tuple(
             fb for fb in got if fb.id not in refused))
+    airport = _with_deck_joins(airport, stacks)
     return with_bridge_stacks(airport, stacks, law), every, notes
+
+
+def _with_deck_joins(airport, stacks) -> _t.Any:
+    """#2090 B1: each AGP group's ``deck_joins`` — the joins of the stacks
+    whose zero rides its datum."""
+    groups = getattr(airport, "agp_groups", ()) or ()
+    joins = [j for st in stacks for j in getattr(st, "joins", ()) or ()]
+    if not groups or not joins:
+        return airport
+    return _dc.replace(airport, agp_groups=tuple(
+        _dc.replace(g, deck_joins=tuple(j for j in joins if j.group == g.id))
+        for g in groups))
 
 
 def attach_free_bridges(airport, objects, cache, law, notes_out: "list | None" = None):
@@ -351,7 +364,7 @@ def planar_stacks(stacks, free: _t.Sequence[FreeBridge]) -> tuple[tuple, list[st
             notes.append(f"{st.id}: free_stack_refused_at_planar (its bridge was not admitted "
                          "or carries a plate)")
             continue
-        if not st.graded_ends():
+        if not st.graded_ends() and not getattr(st, "datum_group", ""):
             notes.append(f"{st.id}: no GRADED end at the planar stage — no stack"
                          + ("; free_stack_refused_at_planar" if st.kind == FREE else ""))
             continue

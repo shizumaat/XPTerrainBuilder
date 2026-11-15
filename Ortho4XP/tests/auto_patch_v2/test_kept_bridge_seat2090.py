@@ -159,3 +159,87 @@ def test_a_deck_with_no_hard_deck_keeps_its_datum_y_at_both_ends(tmp_path, monke
     assert DR.end_tops(m, ends, (LA, LO), hard_only=True) is None
     assert DR.frame_datum(m, (LA, LO), abutment_step_m=STEP, free_standing=True
                           ).tops == pytest.approx((8.0, 1.0))
+
+
+# ── #2090 spec B1 / B3 / B6: a deck end joined to an AGP follower's floor ──
+
+class _Floors:
+    """A ``DeckFloors`` stand-in: one follower with floors at ``ys``."""
+
+    def __init__(self, ys, zp=1629.71):
+        from auto_patch_v2.law import Law
+        from auto_patch_v2.model.agp_group import AgpGroup, AgpMember
+        self.agp = Law.load().tables.structures.agp
+        fol = AgpMember("dsf:obj9", 9, "J.agp", (0.0, 0.0), (LA, LO), 466.0, -9.0)
+        gov = AgpMember("dsf:obj8", 8, "A.agp", (0.0, 600.0), (LA, LO), 0.0, 0.0)
+        self.groups = (AgpGroup("agp:dsf:obj8", (gov, fol), (), "dsf:obj8", zp + 9.0, "",
+                                frozenset({"dsf:obj8"})),)
+        self._ys = list(ys)
+        self.to_ll = lambda x, y: (LA, LO)
+
+    def near(self, stations):
+        return [(self.groups[0], "dsf:obj9")]
+
+    def levels_under(self, row, stations):
+        return list(self._ys)
+
+
+def _joins(ys, seat=1631.25, top=-0.10):
+    from auto_patch_v2.airport.agp_deck_join import end_joins
+    return end_joins(_Floors(ys), stack_id="stack:kept:dsf:obj1", object_id="dsf:obj1",
+                     ends=[("b", ((0.0, 0.0), (10.0, 0.0)), top)], seat_zero=seat)
+
+
+def test_b1_a_deck_end_over_three_floors_joins_the_nearest():
+    (j,), notes = _joins([0.15, 3.45, 6.75])
+    assert j.y_floor == 3.45 and j.d == pytest.approx(1629.71 + 3.45 - 1631.15)
+    # the ground slab 0.15 is no connector floor: the next floor is 6.75
+    assert j.d_next == pytest.approx(1629.71 + 6.75 - 1631.15)
+    assert "JOINED" in notes[-1]
+
+
+def test_b1_a_margin_under_one_metre_refuses():
+    # floors 3.45 and 4.05 under the end: their |D| differ by 0.6 m
+    joins, notes = _joins([3.45, 4.05], seat=1632.0)
+    assert joins == [] and "deck_join_margin_m" in notes[-1]
+    # beyond reach: no join
+    joins, notes = _joins([13.85], seat=1631.25)
+    assert joins == [] and "deck_join_reach_m" in notes[-1]
+
+
+def test_b6_with_kept_returns_the_zero_for_graded_and_joined_ends():
+    counts: dict = {}
+    m = with_kept(_member(), {"mode": "kept", "route_mids": [], "graded": []}, counts, STEP)
+    rec = _route(m, graded_sides=(0,))
+    rec["joined"] = [rec["route_mids"][1]]
+    m = with_kept(m, rec, counts, STEP)
+    assert m.deck_end_graded == (True, True) and m.anchor_zero == pytest.approx(1639.14)
+    d = AR.datum_of(m, abutment_step_m=STEP, free_standing=True)
+    assert d.zero == pytest.approx(1639.14)
+
+
+def test_b3_a_joined_stack_is_published_with_its_final_zero():
+    from auto_patch_v2.constraints.agp_level import stack_zero
+    from auto_patch_v2.model.deck_stack import KEPT, DeckStack, StackEnd
+    from auto_patch_v2.pipeline.rebake_inputs import _kept_published
+    ends = (StackEnd("dsf:obj1", "a", ((0.0, 0.0), (0.0, 10.0)), 0.05, (-1.0, 0.0), 1631.3,
+                     0.03, "flush", ""),
+            StackEnd("dsf:obj1", "b", ((40.0, 0.0), (40.0, 10.0)), -0.10, (1.0, 0.0), 1627.6,
+                     5.6, "joined", "joined"))
+    from auto_patch_v2.model.deck_stack import StackDeck
+    deck = StackDeck("dsf:obj1", "b.obj", 0, ((0, 0), (40, 0), (40, 10), (0, 10)), 1, (), (),
+                     ends[0].stations, ends[1].stations, 0.05, -0.10)
+    st = DeckStack("stack:kept:dsf:obj1", "", "", (("dsf:obj1", "b.obj"),), 1633.26, 0.0, (),
+                   0.0, 0.0, (), (), (), (), (deck,), kind=KEPT, ends=ends,
+                   datum_group="agp:dsf:obj8")
+    groups = _Floors([3.45]).groups
+    rep = {"groups": {"agp:dsf:obj8": {"delta": -0.21, "z_gov": 1638.5, "unread": False}}}
+    assert stack_zero(st, groups, rep) == pytest.approx(1633.05)
+    fb = types.SimpleNamespace(deck_ids=lambda: ("dsf:obj1",))
+    frame = types.SimpleNamespace(transformers=lambda: (None, lambda x, y: (LA + y * M, LO)))
+    ap = types.SimpleNamespace(kept_bridges=(fb,), deck_stacks=(st,), frame=frame,
+                               agp_groups=groups)
+    pm = types.SimpleNamespace(bridge_stacks=(st,), agp_groups=groups)
+    rec = _kept_published(ap, pm, rep)["dsf:obj1"]
+    assert rec["graded"] == [] and len(rec["joined"]) == 1
+    assert rec["zero"] == pytest.approx(1633.05)

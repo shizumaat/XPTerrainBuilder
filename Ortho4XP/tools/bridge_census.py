@@ -518,7 +518,22 @@ def main(argv=None) -> int:
                     help="#2090 G1: the AGP groups as the pack stage reads them "
                          "(members, joins with votes, governor, zero_pred; deck "
                          "joins and plates) on each capture (tools/agp_census.py)")
+    ap.add_argument("--agp-ramps", nargs="*", default=None, metavar="SOLVED.pkl",
+                    help="#2090 B′ G2-B′: the group-seeded ramp table (per route its "
+                         "stations, solved level, target, floor and steepest grade) on "
+                         "each v2_solve_replay.py --solved-out pickle (tools/agp_census.py)")
     a = ap.parse_args(argv)
+    if a.agp_ramps is not None:
+        from agp_census import print_ramps, ramp_rows
+        out = []
+        for pkl in a.agp_ramps:
+            icao, rows = ramp_rows(pkl)
+            print_ramps(icao, rows)
+            out += rows
+        if a.jsonl:
+            with open(a.jsonl, "w", encoding="utf-8") as fh:
+                fh.writelines(json.dumps(r) + "\n" for r in out)
+        return 0
     from auto_patch_v2.law import Law
     law = Law.load()
     if a.agp is not None:

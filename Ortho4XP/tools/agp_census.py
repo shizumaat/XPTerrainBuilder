@@ -19,7 +19,7 @@ import pickle
 import time
 import xml.etree.ElementTree as ET
 
-__all__ = ["agp_rows", "author_altitudes", "print_agp"]
+__all__ = ["agp_rows", "author_altitudes", "print_agp", "ramp_rows", "print_ramps"]
 
 
 def author_altitudes(pack_root: str) -> list[tuple[list, dict]]:
@@ -136,3 +136,57 @@ def print_agp(icao: str, rows: list[dict], rej: list[dict], took: float) -> None
     for j in rej:
         print(f"  REFUSED (V2) {j['a']} + {j['b']}: step {j['step']:+.3f} on {j['votes']} "
               f"pair(s) against {j['rival']}")
+
+
+def ramp_rows(solved_pkl: str) -> tuple[str, list[dict]]:
+    """``(icao, rows)`` THE GROUP-SEEDED RAMPS (#2090 amendment B′ G2-B′) on a
+    ``v2_solve_replay.py --solved-out`` pickle: per route carrying a vertex
+    of ``PlanarMap.road_ramp_group`` (a ramp a datum-group deck end or a
+    plate seeds), its stations with the solved level, the published §37 (6)
+    target and the floor, and the steepest solved grade between stations at
+    least 2 m apart."""
+    import numpy as np
+    with open(solved_pkl, "rb") as fh:
+        d = pickle.load(fh)
+    pm, z, ap = d["pm"], np.asarray(d["z"], float), d["airport"]
+    to_ll = ap.frame.transformers()[1]
+    grp = getattr(pm, "road_ramp_group", None) or {}
+    fr = getattr(pm, "road_route_frame", None) or {}
+    tz = getattr(pm, "road_ramp_z", None) or {}
+    by: dict = {}
+    for v in grp:
+        if v in fr:
+            by.setdefault(fr[v][0], {}).setdefault(round(float(fr[v][1]), 1), []).append(v)
+    rows = []
+    for r, st in sorted(by.items()):
+        ss = sorted(st)
+        zs = [float(np.mean([z[v] for v in st[s_]])) for s_ in ss]
+        worst, last = (0.0, ss[0], ss[0]), 0
+        for i in range(1, len(ss)):
+            if ss[i] - ss[last] >= 2.0:
+                g = abs(zs[i] - zs[last]) / (ss[i] - ss[last])
+                worst = max(worst, (g, ss[last], ss[i]))
+                last = i
+        v0 = st[ss[0]][0]
+        la, lo = to_ll(*pm.vertices[v0].xy)
+        rows.append({"route": int(r), "group": grp[v0][0], "at": [round(la, 7), round(lo, 7)],
+                     "stations": [{"s": s_, "z": round(zz, 3),
+                                   "target": round(float(tz.get(st[s_][0], float("nan"))), 3),
+                                   "floor": round(float(grp[st[s_][0]][1]), 3)}
+                                  for s_, zz in zip(ss, zs, strict=True)],
+                     "steepest": round(worst[0], 4), "steepest_s": [worst[1], worst[2]]})
+    return str(d.get("icao", "")), rows
+
+
+def print_ramps(icao: str, rows: list[dict], bar: float = 0.055) -> None:
+    """One line per group-seeded ramp route; its stations when over ``bar``."""
+    print(f"[{icao}] group-seeded ramps: {len(rows)} route(s)")
+    for r in rows:
+        flag = " OVER" if r["steepest"] > bar else ""
+        print(f"  route {r['route']} at {r['at'][0]:.6f},{r['at'][1]:.6f} {r['group']}: "
+              f"{len(r['stations'])} stations, steepest {100 * r['steepest']:.2f} % at s "
+              f"{r['steepest_s'][0]:.0f}-{r['steepest_s'][1]:.0f}{flag}")
+        if flag:
+            for s_ in r["stations"]:
+                print(f"      s {s_['s']:7.1f} z {s_['z']:.3f} target {s_['target']:.3f} "
+                      f"floor {s_['floor']:.3f}")

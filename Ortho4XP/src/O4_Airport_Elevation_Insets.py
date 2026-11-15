@@ -172,6 +172,7 @@ from elevation_access.definitions import (
 from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access.geoid_shift import apply_geoid_shift
 from elevation_access import fetch_scratch as FETCH_SCRATCH
+from elevation_access import fetch_retry as FETCH_RETRY
 from elevation_access import raster_same as ea_raster_same
 from elevation_access import inset_trim as INSET_TRIM
 from elevation_access.fetch_slots import held_inset_fetch_slot
@@ -215,7 +216,12 @@ NO_COVERAGE = "no-coverage"
 #: other 4xx raises ``ProviderQueryError`` and records ``unavailable:``.
 #: A ``no-coverage`` stamped under an older law is NOT durable on read:
 #: it is re-probed once (:func:`negative_predates_query_law`).
-NEGATIVE_LAW = 2
+#: Law 3 (#2098): a transfer the low-speed guard aborted ("Operation too
+#: slow") is transient, never an answer.  Before it, a stalled 1 m WCS
+#: window read became ``None`` and a durable no-coverage -- EGLL, EGKK,
+#: EGGW and seven more airports of +51-001 lost ENGLAND1M lidar to FABDEM
+#: that way -- so every negative written under law 2 is asked once more.
+NEGATIVE_LAW = 3
 
 # =====================================================================
 # THE STATUS CLASSES OF THE INSET INDEX (owner RULINGS 2026-09-13b)
@@ -4908,6 +4914,35 @@ def _set_aside_foreign_inset(inset_path, icao, code, country):
         )
 
 
+def _best_cached_inset(lat, lon, icao, airport_record, provider_definitions):
+    """``(rank, code)`` of the highest-ranked provider whose inset this
+    airport HAS -- an ``ok`` status with its raster on disk -- or ``None``.
+    ``rank`` is the position in ``provider_definitions`` (0 = best)."""
+    if not isinstance(airport_record, dict):
+        return None
+    for (rank, definition) in enumerate(provider_definitions):
+        code = definition.get("code")
+        if airport_record.get(code) == "ok" and os.path.isfile(
+                FNAMES.airport_inset_dem(lat, lon, icao, code)):
+            return (rank, code)
+    return None
+
+
+def _inset_downgrade_row(icao, before, after, errors_by_code=None):
+    """THE DOWNGRADE REPORT (#2098): a row when ``after`` (the pass's best
+    inset, :func:`_best_cached_inset`) ranks below ``before`` (the best one
+    the airport had going in), else ``None``.  ``reason`` is the failure
+    text of the provider lost, when it raised."""
+    if before is None or (after is not None and after[0] <= before[0]):
+        return None
+    lost = before[1]
+    reason = (errors_by_code or {}).get(lost)
+    return {"airport": icao, "lost": lost,
+            "used": after[1] if after is not None else None,
+            "reason": (str(reason).splitlines()[0][:300] if reason
+                       else "it answered no raster")}
+
+
 def ensure_airport_insets(
     lat,
     lon,
@@ -4920,8 +4955,14 @@ def ensure_airport_insets(
     fetch_failures=None,
     airport_polygons=None,
     airport_countries=None,
+    inset_downgrades=None,
 ):
     """Ensure a cached inset exists for each airport, per provider ranking.
+
+    ``inset_downgrades`` (optional list) receives one row per airport whose
+    best inset after this pass comes from a LOWER-ranked provider than the
+    one it had before it (:func:`_inset_downgrade_row`, #2098) -- the caller
+    says so loudly; a downgrade is never silent.
 
     ``airport_countries`` (optional ``{airport: ISO alpha-3}``, from
     apt.dat) applies THE COUNTRY RULE (owner RULINGS 2026-10-20bc): a
@@ -5026,6 +5067,9 @@ def ensure_airport_insets(
             and _bounding_box_extends_beyond(bounding_box, recorded_box)
         )
         country = (airport_countries or {}).get(icao)
+        best_before = _best_cached_inset(lat, lon, icao, airport_record,
+                                        provider_definitions)
+        errors_by_code = {}
         for definition in provider_definitions:
             code = definition["code"]
             destination = FNAMES.airport_inset_dem(lat, lon, icao, code)
@@ -5051,6 +5095,7 @@ def ensure_airport_insets(
             # judged by the fetch's own mask, so a fill cached before the
             # rule existed stops poisoning the build.
             mask_fetched_provider_fill(destination, definition, label=icao)
+            previous_status = airport_record.get(code)
             void_reason = _void_inset_record_reason(destination,
                                                     definition)
             if void_reason is not None:
@@ -5169,7 +5214,13 @@ def ensure_airport_insets(
                                   "cached raster to the box this build "
                                   "reads (%.0f MB freed)."
                                   % (icao, code, freed / 1e6))
-                    airport_record[code] = airport_record.get(code) or "ok"
+                    # A SOUND CACHED RASTER IS AN "ok" (#2098): a raster
+                    # that landed while its index was not written (a pass
+                    # stopped mid-tile) kept a stale "no-coverage" beside
+                    # it for good, and the stale negative refused every
+                    # build of the airport.
+                    if airport_record.get(code) in (None, NO_COVERAGE):
+                        airport_record[code] = "ok"
                     _store_acceptance_probes_in_record(
                         airport_record, destination
                     )
@@ -5274,41 +5325,45 @@ def ensure_airport_insets(
             fetch_raised = False
             fetch_error = None
             provider_unavailable = None
-            # One-shot heartbeat so a long transfer is visibly alive:
-            # stalls are aborted by the GDAL low-speed guard and retried
-            # next run, so "still fetching" genuinely means still moving.
-            # Armed only once the provider slot is HELD: with several
-            # tiles fetching, airports queue behind the per-provider
-            # concurrency cap, and a heartbeat that counts queue time
-            # reads as a fleet of stalled transfers (field report
-            # 2026-07-23: eight "still fetching 2+ minutes" lines that
-            # were six airports politely waiting their turn).
-            slow_note = threading.Timer(
-                120.0, UI.vprint,
-                (1, "    ...still fetching", icao, "from", code,
-                 "(2+ minutes; a stalled transfer aborts automatically"
-                 " and is retried on the next run)"))
-            slow_note.daemon = True
-            try:
-                # A FETCH IS A WRITE DECLARATION (#583): GDAL cuts the
-                # raster in C, which no Python-level write guard sees, so
-                # the cache path is declared before a byte is asked for.
-                # Under an armed guard that refuses it nothing is fetched
-                # and the refusal is on the guard's record.
-                EXTWRITE.declare_external_write(
-                    destination, writer="the airport inset fetch")
-                # THE FIRST ASKING GOES ALONE (owner 2026-11-04): until the
-                # provider has answered once in this process the other
-                # airports wait, so a refusal is heard once, not once per
-                # worker; it yields the rest that landed meanwhile.
-                with ea_refusal_rest.first_answer_gate(code, icao) as resting, \
-                        held_inset_fetch_slot(code):
-                    if resting is None:
+            resting = None
+
+            def _ask_once(code=code, definition=definition,
+                          fetch_destination=fetch_destination):
+                """One asking of the provider (the slot held, a heartbeat
+                armed); returns ``(rest record, provenance)``.  Each
+                asking starts from an EMPTY scratch folder: a warp onto a
+                raster a failed asking left behind would update it."""
+                FETCH_SCRATCH.discard(fetch_destination)
+                os.makedirs(os.path.dirname(fetch_destination), exist_ok=True)
+                # One-shot heartbeat so a long transfer is visibly alive:
+                # stalls are aborted by the GDAL low-speed guard and
+                # retried.  Armed only once the provider slot is HELD:
+                # with several tiles fetching, airports queue behind the
+                # per-provider concurrency cap, and a heartbeat that counts
+                # queue time reads as a fleet of stalled transfers (field
+                # report 2026-07-23: eight "still fetching 2+ minutes"
+                # lines that were six airports politely waiting their turn).
+                slow_note = threading.Timer(
+                    120.0, UI.vprint,
+                    (1, "    ...still fetching", icao, "from", code,
+                     "(2+ minutes; a stalled transfer aborts automatically"
+                     " and is asked again)"))
+                slow_note.daemon = True
+                try:
+                    # THE FIRST ASKING GOES ALONE (owner 2026-11-04): until
+                    # the provider has answered once in this process the
+                    # other airports wait, so a refusal is heard once, not
+                    # once per worker; it yields the rest that landed
+                    # meanwhile.
+                    with ea_refusal_rest.first_answer_gate(code, icao) as \
+                            rest_record, held_inset_fetch_slot(code):
+                        if rest_record is not None:
+                            return (rest_record, None)
                         UI.vprint(1, "    Fetching elevation inset for",
                                   icao, "from", code)
                         _count_fetch_attempt()
                         slow_note.start()
-                        provenance = fetch_inset(
+                        return (None, fetch_inset(
                             definition,
                             bounding_box,
                             _inset_target_resolution_m(
@@ -5320,7 +5375,24 @@ def ensure_airport_insets(
                             **_footprint_kwargs(
                                 (airport_polygons or {}).get(icao),
                                 "footprint_polygon"),
-                        )
+                        ))
+                finally:
+                    slow_note.cancel()
+
+            try:
+                # A FETCH IS A WRITE DECLARATION (#583): GDAL cuts the
+                # raster in C, which no Python-level write guard sees, so
+                # the cache path is declared before a byte is asked for.
+                # Under an armed guard that refuses it nothing is fetched
+                # and the refusal is on the guard's record.
+                EXTWRITE.declare_external_write(
+                    destination, writer="the airport inset fetch")
+                # A TRANSIENT FAILURE IS ASKED AGAIN (#2098): a 429, a 5xx
+                # or a stalled transfer is retried with backoff (the
+                # provider paused for every airport meanwhile) before this
+                # run gives the provider up and a coarser one is used.
+                (resting, provenance) = FETCH_RETRY.retry_transient(
+                    _ask_once, code, icao)
             except ProviderUnavailable as error:
                 # A MISSING CAPABILITY (owner RULINGS 2026-09-13b (1)):
                 # the engine could not ask, so the answer is
@@ -5347,8 +5419,7 @@ def ensure_airport_insets(
                 provenance = None
                 fetch_raised = True
                 fetch_error = str(error)
-            finally:
-                slow_note.cancel()
+                errors_by_code[code] = fetch_error
             if resting is not None:
                 FETCH_SCRATCH.discard(fetch_destination)
                 if _rest_keeps_cached(code, resting, cached_inset_is_stale,
@@ -5386,10 +5457,25 @@ def ensure_airport_insets(
                 FETCH_SCRATCH.discard(fetch_destination)
                 # A refresh that failed leaves a sound cached raster on
                 # disk just as a stale-box refetch does.
-                refresh_kept = (refresh and fetch_error is not None
+                # So does a refresh the provider answered with NOTHING
+                # where it delivered this sound raster before (#2098): a
+                # refresh that deleted EGLL's 1 m lidar on a "no raster"
+                # answer handed the airport to FABDEM 30 m.
+                refresh_kept = (refresh
+                                and (fetch_error is not None
+                                     or previous_status == "ok")
                                 and os.path.isfile(destination)
                                 and void_reason is None
                                 and empty_reason is None)
+                if refresh_kept and fetch_error is None and (
+                        provider_unavailable is None):
+                    UI.vprint(
+                        0,
+                        "   [insets] %s: %s "
+                        "answered NO raster this time where it delivered "
+                        "one before - keeping the cached %s inset; it is "
+                        "never replaced by a coarser source on such an "
+                        "answer." % (icao, code, code))
                 if cached_inset_is_stale or refresh_kept:
                     # THE CACHED INSET IS KEPT AND USED (#924): a failed
                     # REFETCH is not a missing inset -- a note naming the
@@ -5496,6 +5582,13 @@ def ensure_airport_insets(
             float(value) for value in bounding_box
         ]
         index[icao] = airport_record
+        row = _inset_downgrade_row(
+            icao, best_before,
+            _best_cached_inset(lat, lon, icao, airport_record,
+                              provider_definitions),
+            errors_by_code)
+        if row is not None and inset_downgrades is not None:
+            inset_downgrades.append(row)
 
     # key=str: callers pass string airport codes, but a mixed-type dict must
     # never abort the whole tile's fetches with an unorderable-keys
@@ -6427,6 +6520,37 @@ def _airport_countries(dico_airports):
             and record.get("country")}
 
 
+def _report_inset_downgrades(rows, provider_definitions):
+    """Say every downgrade LOUDLY (#2098) and return its degraded rows.
+
+    One loud line per airport -- the app's log pane and ``Ortho4XP.log``,
+    not only the console drawer -- naming the source lost, the one used
+    and why; the ``inset_downgraded`` rows reach both apps' build summary
+    through ``O4_Tile_Failures`` (the engine's words, never the app's)."""
+    resolutions = {d.get("code"): d.get("native_resolution_m")
+                   for d in provider_definitions or ()}
+
+    def _named(code):
+        if not code:
+            return "the standard elevation data"
+        metres = _parse_float(resolutions.get(code), 0.0)
+        return "%s %g m" % (code, metres) if metres else str(code)
+
+    degraded = []
+    for row in rows or ():
+        lost, used = _named(row["lost"]), _named(row.get("used"))
+        UI.loud_warning(
+            "   WARNING: INSET DOWNGRADE at %s: its last build used %s, "
+            "this one uses %s (%s: %s) - rebuild to ask %s again."
+            % (row["airport"], lost, used, row["lost"], row["reason"],
+               row["lost"]))
+        degraded.append({
+            "code": "inset_downgraded", "airport": row["airport"],
+            "source": lost, "fallback": used,
+            "detail": "%s: %s" % (row["lost"], row["reason"])})
+    return degraded
+
+
 def ensure_insets_for_tile(tile, dico_airports, refresh=False,
                            meter_key="airport-insets"):
     """Fetch/refresh every airport inset on the tile (step-1 download hook).
@@ -6477,6 +6601,7 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
     )
     fetch_counter = [0]
     fetch_failures = []
+    inset_downgrades = []
     # Only a NEIGHBOUR pass names its own meter key; the home pass keeps
     # the historic call shape.
     extra = {} if meter_key == "airport-insets" else {"meter_key": meter_key}
@@ -6491,6 +6616,7 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
             fetch_counter=fetch_counter,
             fetch_failures=fetch_failures,
             airport_countries=_airport_countries(dico_airports),
+            inset_downgrades=inset_downgrades,
             **extra,
             **_footprint_kwargs(airport_boundary_polygons(
                 tile, dico_airports, only=selected), "airport_polygons"),
@@ -6510,6 +6636,10 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
                 "code": "inset_fetch_failed",
                 "detail": "%s: %s" % (type(error).__name__, error)}])
     else:
+        downgraded = _report_inset_downgrades(inset_downgrades,
+                                              provider_definitions)
+        if downgraded and home and not fetch_failures:
+            UNPATCHED.record_degraded(tile, "airport-insets", downgraded)
         if fetch_failures:
             # THE FETCH FAILED ON TRANSPORT (or crashed) for these
             # providers: nothing durable was recorded for them, so the
@@ -6542,7 +6672,7 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
                 UNPATCHED.record_degraded(tile, "airport-insets", [
                     {"code": "inset_fetch_failed", "airport": icao,
                      "source": code, "detail": "%s: %s" % (code, text)}
-                    for (icao, code, text) in missing])
+                    for (icao, code, text) in missing] + downgraded)
             return
         # The pass settled every airport against every provider without
         # raising: nothing is left to fetch for THIS configuration, so

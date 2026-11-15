@@ -789,10 +789,17 @@ _REAL = [
 
 
 def _real_dsf() -> str | None:
+    """A DSF exactly as its pack SHIPPED it.  The install is the owner's
+    and the app writes it: once a build has rewritten a pack, its live DSF
+    carries our ownership mark and is no shipped file any more (the twins
+    then failed on the install's state, not on the code).  The pack's own
+    ``.anchor_bak`` is the shipped bytes; a candidate whose only copy
+    carries the mark is skipped, never used."""
     for rel in _REAL:
         p = os.path.join(_XP, rel)
-        if os.path.isfile(p):
-            return p
+        for cand in (p + ".anchor_bak", p):
+            if os.path.isfile(cand) and not B.carries_our_mark(cand):
+                return cand
     return None
 
 
@@ -802,7 +809,7 @@ def _tool() -> str | None:
 
 
 @pytest.mark.skipif(_real_dsf() is None or _tool() is None,
-                    reason="no shipped pack / no DSFTool on this machine")
+                    reason="no shipped (unmarked) pack DSF / no DSFTool on this machine")
 def test_the_ownership_mark_round_trips_through_dsftool(tmp_path):
     """THE FIRST TWIN.  READ-ONLY on the owner's install: the DSF is
     ``copy2``'d into ``tmp_path`` and every write lands there."""
@@ -839,7 +846,7 @@ def test_the_ownership_mark_round_trips_through_dsftool(tmp_path):
 # ── THE CLOSING TWIN: a real pack folder, written twice ─────────────────
 
 @pytest.mark.skipif(_real_dsf() is None or _tool() is None,
-                    reason="no shipped pack / no DSFTool on this machine")
+                    reason="no shipped (unmarked) pack DSF / no DSFTool on this machine")
 def test_a_real_pack_updated_in_place_between_two_builds(tmp_path):
     """END TO END on a COPY of a real pack folder (the harness stands
     every pack write down, so this IS the closing evidence).

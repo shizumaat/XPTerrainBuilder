@@ -20,7 +20,7 @@ Gates (doubt -> nothing, RULINGS 2026-11-13r):
   where its level exists (spec 2068 A4 F1'): the planar stage stores the
   record on a held, non-conforming pad only, drops the yard cells of a
   pad with no record before pass C (``planar/overlay``,
-  ``fence_yard_no_level``), and ``constraints/yard_edge.yard_records``
+  ``fence_yard_no_level``), and ``model/yard_run.yard_records``
   keeps a record only while a yard face of its pad stands in the map.
 * F2 only the unit's own fences (``EdgeLine.unit``; ``airport/unit_fence``
   admits only a class that stands on its zero).

@@ -18,7 +18,7 @@ cell standing with the §52 stand-off).
 
 THE YARD'S ROADS (spec 2068 A3 R5, "a road inside the yard stands on the
 yard's ground"), right after: every FREE vertex of a yard road run
-(``constraints/yard_edge.yard_runs``) takes
+(``model/yard_run.yard_runs``) takes
 
     z = clamp(L + plane(x, y) - y_p, lo, hi)
 
@@ -27,17 +27,17 @@ SOURCES — the fixed vertices of its faces less the level's own — at
 ``[road_contact] upper_pad_road_grade`` along the shortest path inside the
 run's faces; then its LOT vertices the same way off every other vertex of
 its lot faces at the lot's own grade (owner 2026-11-14T21:42Z "Lots 5%",
-``constraints/yard_edge.run_grade``).  ``lo > hi`` takes their mean and is counted ``infeasible``
+``model/yard_run.run_grade``).  ``lo > hi`` takes their mean and is counted ``infeasible``
 (expected 0).  The level's rim keeps A1 (2) (c)'s declared step."""
 from __future__ import annotations
 
 import typing as _t
 
-from ..constraints.yard_edge import YardRun
 from ..geom.capped_plane import plane_at
 from ..law import Law
 from ..law.tables import role_side
 from ..model.planar import PlanarMap, face_vertex_set, fence_yard_pad
+from ..model.yard_run import YardRun
 
 __all__ = ["project_fence_yards", "run_bounds"]
 
@@ -49,7 +49,7 @@ def project_fence_yards(planar: PlanarMap, law: Law, z: _t.Sequence[float]
     yards = [f for f in planar.faces.values() if fence_yard_pad(f.ref) is not None]
     if not yards:
         return tuple(z), None
-    from ..constraints.yard_edge import yard_records
+    from ..model.yard_run import yard_records
     by_pad = {str(r.get("pad")): (lv, r) for lv, r in yard_records(planar).items()}
     out = [float(v) for v in z]
     users: set[int] = set()
@@ -97,11 +97,11 @@ def project_fence_yards(planar: PlanarMap, law: Law, z: _t.Sequence[float]
 def run_bounds(planar: PlanarMap, law: Law, run: YardRun, z: _t.Sequence[float],
                part: "str | None" = None) -> "dict[int, tuple[float, float]]":
     """``{free vertex: (lo, hi)}`` of one yard road ``run``
-    (``constraints/yard_edge.YardRun``) off ``z``: its road vertices off its
+    (``model/yard_run.YardRun``) off ``z``: its road vertices off its
     sources at the road grade (``part="road"``), its lot vertices off every
     other vertex of its lot faces at the lot's grade (``part="lot"``;
-    ``yard_edge.run_grade``); both with ``part`` ``None``."""
-    from ..constraints.yard_edge import lot_vertices, run_grade
+    ``model/yard_run.run_grade``); both with ``part`` ``None``."""
+    from ..model.yard_run import lot_vertices, run_grade
     lots = lot_vertices(planar, law, run)
     road = float(law.tables.emit.road_contact.upper_pad_road_grade)
     out: dict[int, tuple[float, float]] = {}
@@ -139,7 +139,7 @@ def _bounds(planar: PlanarMap, faces, sources, targets, grade: float, z
 def _project_runs(planar: PlanarMap, law: Law, by_pad, levels, out: list) -> list[dict]:
     """Stand every yard road run's free vertices on the plane within the
     road grade of its sources (module doc), in place on ``out``."""
-    from ..constraints.yard_edge import yard_runs
+    from ..model.yard_run import yard_runs
     recs = {lv: rec for lv, rec in by_pad.values()}
     reps: list[dict] = []
     for run in yard_runs(planar, law):

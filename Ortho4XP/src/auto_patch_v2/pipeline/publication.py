@@ -190,7 +190,7 @@ def lifted_caps(planar: PlanarMap, law: "Law | None" = None) -> dict[int, float]
     never leaves the faces the ruling named.
 
     With ``law``, a fence yard's road run (spec 2068 A3 R5,
-    ``constraints/yard_edge.yard_runs``): every face holding a free run
+    ``model/yard_run.yard_runs``): every face holding a free run
     vertex is judged at the grade ``solve/project_yard`` built it at
     (:func:`yard_run_lifts`)."""
     # 13e (issue #609): a pad road released above the road cap is the same
@@ -237,9 +237,9 @@ def yard_run_lifts(planar: PlanarMap, law: Law) -> dict[int, float]:
     """Spec 2068 A3 R5: face id -> the grade ``solve/project_yard`` built
     it at, for every face holding a free vertex of a fence yard's road run:
     ``upper_pad_road_grade`` where it holds a road vertex, else its lot's
-    own grade (``constraints/yard_edge.run_grade``; empty without one)."""
-    from ..constraints.yard_edge import lot_vertices, run_grade, yard_runs
+    own grade (``model/yard_run.run_grade``; empty without one)."""
     from ..model.planar import face_vertex_set
+    from ..model.yard_run import lot_vertices, run_grade, yard_runs
     runs = yard_runs(planar, law)      # reads no law where no yard stands
     if not runs:
         return {}

@@ -472,9 +472,19 @@ def test_osm_writer_contract(synthetic, law, tmp_path):
 # ── verify == the v1 census on v2's own CYXY patch (row-set diff) ────────
 
 DATA = Path("/Users/noah/XPTerrainBuilderData")
+#: The airport's base raster in the shared corpus.  The two real-corpus
+#: twins below build CYXY on it; with the data repo present but the tile's
+#: base DEM absent the build refuses ``PlanarError: no DEM sample``, which
+#: is corpus state, not the lockstep.  Same skip convention as the data
+#: repo's own (``reason="shared data repo"``), one tile finer; the remedy
+#: is ``build_airport.py CYXY --refresh-data dem``.
+_CYXY_DEM = DATA / "Elevation_data" / "+60-140" / "N60W136.hgt"
+_NO_CYXY_CORPUS = pytest.mark.skipif(
+    not _CYXY_DEM.is_file(),
+    reason=f"shared data repo: no CYXY base DEM {_CYXY_DEM} (refresh-data dem)")
 
 
-@pytest.mark.skipif(not (DATA / "Elevation_data").is_dir(), reason="shared data repo")
+@_NO_CYXY_CORPUS
 def test_cyxy_verify_matches_v1_census(tmp_path):
     from auto_patch_v2.pipeline.build import Config, build as build_v2
     from auto_patch_v2.planar.__main__ import default_inputs
@@ -488,8 +498,22 @@ def test_cyxy_verify_matches_v1_census(tmp_path):
     # line can drop the flag.  (``dem_frame="authored"`` is the other
     # exemption and is NOT usable here: it would change the geometry the
     # lockstep is measured on.)
-    res = build_v2("CYXY", default_inputs(allow_degraded_dem=True), tmp_path,
-                   Config())
+    # THE PACK DUMP IS MADE HERE, as both build entries make it (the app's
+    # driver and ``build_airport.py``: ``engine_v2.fresh_pack_dumps``, one
+    # implementation).  The twin used to read whatever dump the shared mod
+    # cache happened to hold, and the shared corpus holds no CYXY dump, so
+    # it refused ``PackDumpStale`` on corpus state rather than on the
+    # lockstep.  The dump lands in the suite's lane-local mod-cache overlay
+    # (``conftest._airport_mod_cache_is_a_lane_local_overlay``).
+    import dataclasses as _dc
+
+    from auto_patch.engine_v2 import airport_tiles, fresh_pack_dumps
+    inputs = default_inputs(allow_degraded_dem=True)
+    dumps = fresh_pack_dumps(inputs.xplane_root, "CYXY",
+                             airport_tiles(inputs.xplane_root, "CYXY", 60, -136))
+    if dumps:
+        inputs = _dc.replace(inputs, dsf_dump_path=dumps)
+    res = build_v2("CYXY", inputs, tmp_path, Config())
     assert res.solution.status in (Status.OPTIMAL, Status.FEASIBLE)
     # The pipeline's wall clock is read by ``test_cyxy_pipeline_wall``
     # (marked ``timing``, deselected by default), never here.
@@ -542,7 +566,7 @@ def test_cyxy_verify_matches_v1_census(tmp_path):
 
 
 @pytest.mark.timing
-@pytest.mark.skipif(not (DATA / "Elevation_data").is_dir(), reason="shared data repo")
+@_NO_CYXY_CORPUS
 def test_cyxy_pipeline_wall(tmp_path, timing_runs):
     """PERF guard on the real CYXY through the pipeline API (owner RULINGS
     2026-09-09r (4), lane v2cyxy; the harness build is faster) — OUTSIDE

@@ -75,6 +75,7 @@ function (docstrings excluded).
 | O4_Airport_Elevation_Insets.py | _load_inset_raster | 1 | uncoded | | an unreadable inset is skipped |
 | O4_Airport_Elevation_Insets.py | parse_airport_elevation_level | 1 | config | | an unrecognised level reads as auto |
 | O4_Airport_Elevation_Insets.py | ensure_insets_for_tile | 2 | degraded | inset_fetch_failed | the same, published by the home tile's pass |
+| O4_Airport_Elevation_Insets.py | _report_inset_downgrades | 1 | degraded | inset_downgraded | an airport's best inset comes from a lower-ranked (coarser) provider than in the pass before (#2098) |
 | O4_Airport_Elevation_Insets.py | _warn_if_provider_offsets_systematic | 1 | diagnostic | | a provider's datum looks offset |
 | O4_Airport_Elevation_Insets.py | bake_airport_insets_into_alt_dem | 2 | uncoded | | an inset could not be baked; or the inset query reads the raw inset while the baked raster is corrected to the runway thresholds (#2089, baked query off) |
 | O4_Airport_Elevation_Insets.py | _plan_threshold_corrections | 1 | uncoded | | an inset could not be read at its runway thresholds and is baked uncorrected (#2089) |

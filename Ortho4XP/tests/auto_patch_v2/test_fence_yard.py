@@ -299,7 +299,8 @@ def test_a_road_through_the_yard_climbs_at_the_road_grade_then_lies_on_the_plane
     """Spec 2068 A3 R5: the free run vertices take the plane (here L - 1)
     clamped to the road grade (0.20) off the fixed apron edge: at g inside
     (plane - entry) / g = 45 m, flush beyond; the level is never a source."""
-    from auto_patch_v2.constraints.yard_edge import projected_vertices, yard_runs
+    from auto_patch_v2.constraints.yard_edge import projected_vertices
+    from auto_patch_v2.model.yard_run import yard_runs
     from auto_patch_v2.solve.project_strip import project_facade_strips
     g = float(LAW.tables.emit.road_contact.upper_pad_road_grade)
     pm, z = _road_map(level_z=46.0)              # target L + plane - y_p = 45
@@ -319,7 +320,7 @@ def test_a_lot_through_the_yard_blends_at_the_lot_grade():
     """Owner 2026-11-14T21:42Z "Lots 5%": the same run as a parking lot
     climbs at the lot's own cap (5 %), not the road's 20 %, so its blend
     off the fixed apron edge spreads wider; the census judges it there."""
-    from auto_patch_v2.constraints.yard_edge import lot_vertices, run_grade, yard_runs
+    from auto_patch_v2.model.yard_run import lot_vertices, run_grade, yard_runs
     from auto_patch_v2.pipeline.publication import yard_run_lifts
     from auto_patch_v2.solve.project_strip import project_facade_strips
     g = run_grade(LAW, "parking_lot")

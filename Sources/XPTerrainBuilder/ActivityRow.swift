@@ -70,6 +70,16 @@ struct ActivityRow: View {
                     }
                 }
             }
+            // Held for memory (#2101): the engine's sentence, while the
+            // tile is still in the run.
+            if !progress.memoryWait.isEmpty, progress.label != "stopped",
+               progress.state == .queued || progress.state == .active
+                || progress.state == .indeterminate {
+                Text(progress.memoryWait)
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             // A stopped tile: what the engine left it with (#598).
             if !progress.detail.isEmpty,
                progress.state == .stopped || progress.label == "stopped" {

@@ -76,6 +76,8 @@ from . import boundary_reselect as BOUNDARY
 from . import build_order as ORDER
 from . import events as EVENTS
 from . import step_memory
+from .memory_waits import (REASON_MACHINE, REASON_RUN, MemoryWaits,
+                           wait_message)
 from . import tile_time_model
 from .plan_estimate import TIME_SPREAD_KNOWN
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
@@ -1000,7 +1002,10 @@ class ParallelBuildRun:
         # history plans, read at admission (step_memory.projected_gigabytes)
         self._recorded_peaks: dict = {}   # tile -> {step: gigabytes}
         self._airports_planned: dict = {}  # tile -> planned airports / None
-        self._live_memory_waits: set = set()   # (tile, step) logged once
+        # #2101: steps held for memory, oldest first — the oldest is a
+        # reservation later steps may not take (memory_waits module doc)
+        self._memory_waits = MemoryWaits()
+        self._memory_wait_sent: dict = {}   # key -> what the rows show
         self._memory_sampled_at = 0.0
         # Cache-aware fetch admission (spec §A.2): the per-subsystem
         # predicates' verdict per (tile, step), memoised because a tile's
@@ -1477,23 +1482,125 @@ class ParallelBuildRun:
         headroom), and a heavy step (``step_memory.LIVE_CHECKED_STEPS``)
         also waits until the machine has its projection free above the
         headroom NOW (#2083).  A running step is never paused or stopped.
+
+        #2101: a heavy step that is refused is held in FIFO order, and
+        the oldest held step RESERVES its projection — no other step that
+        projects memory starts unless the room left still holds it.  The
+        run's committed memory therefore drains until the waiter fits (at
+        the latest when nothing else holds memory).  When the waiter is
+        the only work the run could start, the live check gives way to
+        the budget sum: its vector step's airport builds take machine
+        slots against live memory one worker at a time
+        (``O4_Machine_Slots.try_take``), so starting it shares the machine
+        instead of waiting on another application without bound.
         """
         estimate = self._step_memory_estimate(tile, step_key)
         if estimate <= 0.0:
             return True
+        key = (tile, step_key)
+        reserved = self._memory_waits.oldest(self._memory_wait_pending_locked)
+        if (reserved is not None and reserved[0] != key
+                and self._memory_wait_startable_locked(reserved[0])):
+            need = reserved[1].needed_gb
+            if not self._memory_fits_locked(estimate + need, live=True):
+                return False
         if not self._memory_holders:
             return True
+        live = step_key in step_memory.LIVE_CHECKED_STEPS
         if self._memory_in_use + estimate > self._memory_budget:
+            reason = REASON_RUN
+        elif live and not O4_Machine_Slots.memory_admits(need_gb=estimate):
+            reason = REASON_MACHINE
+            if (reserved is not None and reserved[0] == key
+                    and self._only_waiting_work_locked(key)):
+                return True
+        else:
+            return True
+        if live:
+            self._hold_for_memory_locked(key, estimate, reason)
+        return False
+
+    def _memory_fits_locked(self, gigabytes, live):
+        """Would ``gigabytes`` more fit the budget sum (and, ``live``, the
+        machine's free memory above the headroom) now?"""
+        if self._memory_in_use + gigabytes > self._memory_budget:
             return False
-        if (step_key in step_memory.LIVE_CHECKED_STEPS
-                and not O4_Machine_Slots.memory_admits(need_gb=estimate)):
-            if (tile, step_key) not in self._live_memory_waits:
-                self._live_memory_waits.add((tile, step_key))
-                print("Tile %s waits for free memory before its %s step "
-                      "(needs about %.1f GB)."
-                      % (_short_latlon(tile), step_key, estimate))
+        return not live or O4_Machine_Slots.memory_admits(need_gb=gigabytes)
+
+    def _hold_for_memory_locked(self, key, estimate, reason):
+        """Record a refused heavy step (FIFO) and log its first refusal."""
+        import O4_Parallel_Utils as PARALLEL_UTILS
+
+        free = PARALLEL_UTILS.machine_available_memory_gigabytes()
+        if self._memory_waits.note(key, estimate, free, reason):
+            print("Tile %s waits for free memory before its %s step "
+                  "(needs about %.1f GB, %.1f GB free)."
+                  % (_short_latlon(key[0]), key[1], estimate, free))
+
+    def _memory_wait_pending_locked(self, key):
+        """Is the held step still this run's next work for its tile?"""
+        tile, step_key = key
+        program = self._programs.get(tile)
+        if not program:
             return False
-        return True
+        if tile in self._queue:
+            return program[0] == step_key
+        for child in self._children:
+            if (child.tile == tile and child.running_step is None
+                    and not child.retired and not child.cancelling):
+                index = self._next_step_index.get(tile, 0)
+                return index < len(program) and program[index] == step_key
+        return False
+
+    def _memory_wait_startable_locked(self, key):
+        """Could the held step start if memory allowed — is it on a child,
+        or is a child idle to take it from the queue?  A queued waiter
+        with every child busy reserves nothing: holding the busy children's
+        steps would keep any of them from ever freeing (a deadlock)."""
+        tile = key[0]
+        return any(
+            not child.retired and not child.cancelling
+            and (child.tile == tile or child.tile is None)
+            for child in self._children)
+
+    def _only_waiting_work_locked(self, key):
+        """True when no other tile of the run waits to start a step: the
+        queue holds no other tile and no other child is between steps."""
+        tile = key[0]
+        if any(queued != tile for queued in self._queue):
+            return False
+        return not any(
+            child.tile is not None and child.tile != tile
+            and child.running_step is None and not child.retired
+            and not child.cancelling
+            for child in self._children)
+
+    def _announce_memory_waits(self):
+        """Emit a ``MemoryWait`` for each held step whose row text changed,
+        and a resolved one for each step no longer held (outside the
+        lock; the ticker calls it)."""
+        with self._lock:
+            now = self._memory_waits.snapshot()
+            sent = self._memory_wait_sent
+            changes = []
+            for key, wait in now.items():
+                shown = (round(wait.needed_gb), round(wait.free_gb),
+                         wait.reason)
+                if sent.get(key) != shown:
+                    sent[key] = shown
+                    changes.append((key, wait, False))
+            for key in [k for k in sent if k not in now]:
+                del sent[key]
+                changes.append((key, None, True))
+        for (tile, step_key), wait, resolved in changes:
+            self._session._emit(EVENTS.MemoryWait(
+                lat=tile[0], lon=tile[1], step_key=step_key,
+                needed_gb=0.0 if wait is None else round(wait.needed_gb, 1),
+                free_gb=0.0 if wait is None else round(wait.free_gb, 1),
+                reason="" if wait is None else wait.reason,
+                message="" if wait is None else wait_message(
+                    wait.needed_gb, wait.free_gb, wait.reason),
+                resolved=resolved))
 
     def _tile_configuration(self, tile):
         """This tile's configured ``Tile``, built once and reused.
@@ -1604,6 +1711,9 @@ class ParallelBuildRun:
             self._class_active[step_class] += 1
             child.step_class = step_class
             child.autopatch_pending = None
+            # Started: held no longer (the gate is asked twice per start,
+            # so the hold ends here, not when the gate first says yes).
+            self._memory_waits.clear((child.tile, step_key))
             estimate = self._step_memory_estimate(child.tile, step_key)
             if estimate > 0.0:
                 self._memory_holders[(child.tile, step_key)] = estimate
@@ -2658,4 +2768,8 @@ class ParallelBuildRun:
                     self._sample_step_memory()
                 except Exception:
                     pass
+            try:
+                self._announce_memory_waits()
+            except Exception:
+                pass
             time.sleep(1.0)

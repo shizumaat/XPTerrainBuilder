@@ -45,6 +45,7 @@ from .events import (
     EngineEvent, EngineHello,
     ImageryDownloadsDone,
     Log,
+    MemoryWait,
     PackMissingArt,
     PackOldForests,
     PackOptimise,
@@ -892,7 +893,8 @@ class EngineSession:
             self._seq += 1
             object.__setattr__(event, "seq", self._seq)
             object.__setattr__(event, "ts", time.time())
-            if (isinstance(event, (TileState, StepProgress, SlowStep))
+            if (isinstance(event, (TileState, StepProgress, SlowStep,
+                                   MemoryWait))
                     and not event.attempt):
                 object.__setattr__(event, "attempt", self._tile_attempts.get(
                     (int(event.lat), int(event.lon)), 0))

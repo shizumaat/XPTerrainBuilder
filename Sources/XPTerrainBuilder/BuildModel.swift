@@ -21,6 +21,9 @@ struct TileProgress: Equatable {
     /// The engine's sentence for a stopped tile — what it is left with
     /// (TileState.detail, #598). Shown under the row, verbatim.
     var detail: String = ""
+    /// The engine's sentence while the tile's next step is held for
+    /// memory (MemoryWait, #2101). Any newer progress event clears it.
+    var memoryWait: String = ""
 }
 
 /// The build settings a tile's run was STARTED with, snapshotted per tile so
@@ -1301,6 +1304,8 @@ final class BuildModel: ObservableObject {
             packOldForests(forests)
         case .slowStep(let step):
             slowStep(step)
+        case .memoryWait(let wait):
+            memoryWait(wait)
         case .packOptimise(let optimise):
             packOptimise(optimise)
         case .packAdjust(let adjust):
@@ -3032,6 +3037,20 @@ final class BuildModel: ObservableObject {
     func rebuildDecision(for coord: TileCoord) -> RebuildDecision {
         Self.rebuildDecision(isBuilding: isBuilding, row: activity.tiles[coord]?.state,
                              held: heldForStop[coord] != nil)
+    }
+
+    /// A tile's step is held for memory, or no longer (#2101): the row
+    /// keeps its state and shows the engine's sentence under it.
+    private func memoryWait(_ wait: O4MemoryWait) {
+        let coord = TileCoord(lat: wait.lat, lon: wait.lon)
+        guard var row = activity.tiles[coord],
+              !Self.isStoppedAttempt(wait.attempt, staleThrough: staleThrough[coord],
+                                     stopPending: stopPending.contains(coord))
+        else { return }
+        let text = wait.resolved ? "" : wait.message
+        guard row.memoryWait != text else { return }
+        row.memoryWait = text
+        activity.tiles[coord] = row
     }
 
     private func applyTileEvent(_ incoming: TileProgress, attempt: Int, to coord: TileCoord) {

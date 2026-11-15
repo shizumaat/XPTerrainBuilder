@@ -335,6 +335,7 @@ public enum O4Event: Sendable, Equatable {
     /// One step of one tile is slow (protocol 1.26, #1351): what, why, an
     /// ETA and the answers it supports. See `O4SlowStep`.
     case slowStep(O4SlowStep)
+    case memoryWait(O4MemoryWait)
     /// An airport pack "Optimise pack" can lighten (protocol 1.31, #1707):
     /// found by the object stage, or the outcome of a build or a
     /// `pack_optimise` command. See `O4PackOptimise`.
@@ -582,6 +583,9 @@ public enum O4Event: Sendable, Equatable {
         // `class SlowStep` in Ortho4XP/src/o4_engine/events.py.
         case "SlowStep":
             return .slowStep(O4SlowStep.parse(object))
+        // `class MemoryWait` in Ortho4XP/src/o4_engine/events.py (#2101).
+        case "MemoryWait":
+            return .memoryWait(O4MemoryWait.parse(object))
         // Another STRING LITERAL match: `class PackOptimise` in
         // Ortho4XP/src/o4_engine/events.py.
         case "PackOptimise":

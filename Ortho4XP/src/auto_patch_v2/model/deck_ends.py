@@ -44,7 +44,8 @@ def access_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, s
     member, same ``y``) are siblings, taken in order along the line through
     them.  Every road vertex of their access ways standing between two
     consecutive siblings (its projection on the segment between their end
-    lines' middles inside it, within the wider end line's half width of it)
+    lines' middles inside it, within the wider end line's half width plus
+    one ``[bridge] abutment_sample_step_m`` of it — the ribbon's far edge)
     -> ``(the level on the line between the two ends' levels, the nearer
     end's stack id, deck object id, which end, 0.0)`` — the shape of
     :func:`end_road_vertices`, so R1 holds them and the road ramp is seeded
@@ -68,6 +69,7 @@ def access_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, s
         if f.role in ROAD_ROLES and way_of_ref(f.ref) in ways:
             verts.update(pm.ring_vertices(f.ring))
     out: dict[int, tuple[float, str, str, str, float]] = {}
+    reach = float(law.tables.structures.bridge.abutment_sample_step_m) if law is not None else 0.0
     for ends in sib.values():
         mids = [(sum(p[0] for p in e.stations) / len(e.stations),
                  sum(p[1] for p in e.stations) / len(e.stations)) for _st, e in ends]
@@ -81,7 +83,7 @@ def access_road_vertices(pm, law, airport) -> dict[int, tuple[float, str, str, s
             if ll <= 0.0:
                 continue
             z0, z1 = float(s0.zero_z) + float(e0.top), float(s1.zero_z) + float(e1.top)
-            half = max(e0.half_width, e1.half_width)
+            half = max(e0.half_width, e1.half_width) + reach
             for v in sorted(verts):
                 x, y = pm.vertices[v].xy
                 t = ((x - a[0]) * dx + (y - a[1]) * dy) / ll

@@ -926,6 +926,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.planar.door_ramps",
     "auto_patch_v2.planar.dual_width",
     "auto_patch_v2.planar.edges",
+    "auto_patch_v2.planar.end_barriers",
     "auto_patch_v2.planar.end_witness",
     "auto_patch_v2.planar.entrance_skirt",
     "auto_patch_v2.planar.fill_bank",

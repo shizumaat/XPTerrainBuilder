@@ -2763,10 +2763,16 @@ def iter_shape_grade_constraints(
         sc = _GG.plane_constraints(gs, _law_ctx, grade_cap)
         idx = {pnids[k]: k for k in range(n)}
         _is_runway = role0 in ("runway", "runway_crossing")
+        # #2099 G4 C: a LOT's chord that leaves its face is not a pair --
+        # the generator's own predicate (``constraints/roads.lot_chords_outside``)
+        _outside = _lot_chords_outside(
+            role0, gs.ring, (face_holes_m or {}).get(str(w.tags.get("shapeID"))) or [])
         for (ka, kb, capp) in sc.edges:
             ia = idx.get(ka)
             ib = idx.get(kb)
             if ia is None or ib is None:
+                continue
+            if _outside and (min(ia, ib), max(ia, ib)) in _outside:
                 continue
             # CROWN CENTERLINE skip (Phase 0 hotfix): a runway pair touching a
             # crown-centerline node lies on the ridge — its longitudinal grade
@@ -3334,6 +3340,18 @@ def groundside_cutback_frame() -> Tuple[float, float]:
                + law.tables.emit.identity.weld_spacing_m
                + _T.snap_margin_m(law))
     return horizon, _T.groundside_ramp_max(law)
+
+
+def _lot_chords_outside(role: str, ring, holes) -> set:
+    """``constraints/roads.lot_chords_outside`` under the default law (the
+    identity spacing and snap margin it reads are the same in every
+    ruleset); empty with no engine (the bare-patch CLI)."""
+    try:
+        from auto_patch_v2.constraints.roads import lot_chords_outside
+        from auto_patch_v2.law import tables as _T
+    except ImportError:                                 # pragma: no cover
+        return set()
+    return lot_chords_outside(role, list(ring), [list(h) for h in holes], _T.load_default())
 
 
 def _check_groundside_cutback(ways: List[Way],

@@ -24,10 +24,10 @@ from ..law.tables import family, role_cap, role_side
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
-from .geometry import long_axis, pair_is_transverse
+from .geometry import chords_outside, long_axis, pair_is_transverse
 from .precedence import view
 
-__all__ = ["road_within_shape", "road_family_roles", "road_law_caps",
+__all__ = ["road_within_shape", "road_family_roles", "road_law_caps", "lot_chords_outside",
            "hole_pairs",
            "road_pair_reading", "one_ribbon_m", "RIBBON_RULING",
            "NOT_A_PAIR", "NO_FRAME", "road_pair_side", "stage_one_vertices",
@@ -299,7 +299,7 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                               "ring_edge": 0, "ribbon_follower": 0,
                               "ribbon_airside_pair": 0,
                               "airside_pair": 0, "weld_follower": 0,
-                              "hole_pair": 0})
+                              "hole_pair": 0, "outside_face": 0})
     for k in stats:
         stats[k] = 0
     min_deg = law.tables.common.road_transverse_axis_min_deg
@@ -342,6 +342,9 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
         src_t = Source(GEN, "road_cross_section (2026-08-25g)",
                        (f"face:{f.id}", f.ref))
         src_ribbon = Source(GEN, RIBBON_RULING, (f"face:{f.id}", f.ref))
+        # #2099 G4 C: a LOT's chord that leaves its face is not a pair
+        outside = lot_chords_outside(f.role, [vw.xy[v] for v in ring],
+                                     [[vw.xy[v] for v in h] for h in vw.holes[f.id]], law)
         for cyc in [ring, *vw.holes[f.id]]:
             n = len(cyc)
             for i in range(n):
@@ -350,6 +353,9 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                     b = cyc[j]
                     d = vw.dist(a, b)
                     if d < min_d:
+                        continue
+                    if cyc is ring and (i, j) in outside:
+                        stats["outside_face"] += 1
                         continue
                     # §37 (7): the ROUTE reading where the map carries the
                     # road's own frame; the chord law where it does not
@@ -420,6 +426,25 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
                 _mint(a, b, cap_l, d, Source(
                     GEN, src_l.ruling, (*src_l.inputs, "hole")))
     return rows
+
+
+def lot_chords_outside(role: str, xy: _t.Sequence[tuple[float, float]],
+                       holes: _t.Sequence[_t.Sequence[tuple[float, float]]], law: Law
+                       ) -> set[tuple[int, int]]:
+    """THE LOT'S CHORDS THAT LEAVE ITS FACE (#2099 G4 C; RULINGS 2026-09-05ae
+    (1), the apron's rule, applied to lots): the index pairs ``(i, j)`` of
+    the outer ring ``xy`` of a lot (``classify/lot_roads.LOT_ROLES``) whose
+    straight chord crosses a hole or the exterior -- not pairs; the ring
+    edges and the inside chords carry the lot law around the notch.  Empty
+    for any other role.  ONE predicate (``geometry.chords_outside``): the
+    generator here, the verify stage's ``within_shape`` and the census's
+    plane branch ask it.  MEASURED CYYZ pol88: all 23 within_shape rows were
+    chords from the frontage across the lot's notch to its back strip."""
+    from ..law.tables import LOT_ROLES, snap_margin_m
+    if role not in LOT_ROLES:
+        return set()
+    return set(chords_outside(xy, holes, snap_margin_m(law),
+                              float(law.tables.emit.identity.min_distinct_spacing_m)))
 
 
 def hole_pairs(xy: _t.Mapping[int, tuple[float, float]],

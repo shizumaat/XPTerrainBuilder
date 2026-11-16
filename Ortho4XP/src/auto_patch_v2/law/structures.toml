@@ -330,6 +330,18 @@ wing_reach_max_m = 250.0
 # ramp at their feet's least-squares slope (capped at ramp_max_grade, never
 # under 0); a foot slope under this is no witness and the design grade stands.
 group_foot_min_grade = 0.005
+# #2099 G4 D5' (owner RULINGS 2026-11-16l, 19:11:54Z: "retaining walls should
+# pretty much never be perfectly flush at the top, because people or vehicles
+# could fall off the edge, typically we should plan for about a 1m of wall to
+# rise above the high side ground"): the strip behind a grouped mouth's wall
+# line is held this far under the wall's top (planar/wing_cut back strips,
+# constraints/wing_cut), and is minted only where that level stands within
+# [design] frontage_step_max_m of the ground behind the wall -- a wall seated
+# higher stands proud as a taller parapet over ground that follows its own
+# law.  MEASURED CYYZ (HRDEM lidar 1.5 m behind each line): the T and M wings
+# stand +0.9..+1.5 m (median) over the ground behind them; OTHH's tunnel
+# walls are seated with their crest 1.02 m (the pack's median proud) over it.
+retaining_parapet_m = 1.0
 
 [cutout]                            # RULINGS 2026-09-06b (1) + 2026-09-08a: every below-grade OBJECT's trench = floor + at-grade rim INSIDE the wall, NO wall band
 # The owner's law: the trench floor slightly OVERLAPS the object's inner

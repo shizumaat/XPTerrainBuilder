@@ -1237,6 +1237,12 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
         (emit_dir / f"{icao}.authored_seats.json").write_text(json.dumps(
             sorted(got.get("authored_seats", ()), key=lambda r: str(r.get("id"))),
             indent=0, default=str), encoding="utf-8")
+        # #2099 G4: the PLATE seats (a mouth's and its wings', ``tunnel_objects``):
+        # plate y, kind and anchor zero per id -- a wing's seat is read here
+        (emit_dir / f"{icao}.plate_seats.json").write_text(json.dumps(
+            {k: {"y": v[0], "stations": len(v[1]), "rest": list(v[2:])}
+             for k, v in sorted((got.get("tunnel_objects") or {}).items())},
+            indent=0, default=str), encoding="utf-8")
     return {"patch": str(paths.patch), "surface": surf_out}
 
 

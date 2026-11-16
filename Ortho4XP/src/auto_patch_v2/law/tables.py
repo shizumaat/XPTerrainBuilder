@@ -19,7 +19,7 @@ from .model import (Cockpit, Declared, Family, FlatPack, FlatSite, Law, RunwayEn
 from .reference_code import INSTRUMENT, PRECISION
 
 __all__ = [
-    "footprint_touch_m",
+    "footprint_touch_m", "LOT_ROLES",
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
     "role_family", "role_side", "contact_roles", "is_value_role", "is_rigid_role",
     "is_structure_role",
@@ -964,6 +964,12 @@ def runway_end_zone_length_m(law: Law, runway_length_m: float) -> float:
 def family(law: Law, key: str) -> Family:
     """One registered law family."""
     return law.tables.families[key]
+
+
+#: THE LOTS: the groundside pavement classes graded under lot law (a lane
+#: inside one is the lot, RULINGS 2026-10-14a (2)); ``classify/lot_roads``
+#: re-exports it, the lot chord rule reads it (#2099 G4 C)
+LOT_ROLES = ("parking_lot", "groundside_pavement")
 
 
 def road_family_roles(law: Law) -> tuple[str, ...]:

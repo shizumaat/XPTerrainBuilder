@@ -113,3 +113,6 @@ class TunnelObject:
     wing_reach_max_m: float
     # #2099 R3 D6: a group wall foot slope under this witnesses no ramp grade
     group_foot_min_grade: float
+    # #2099 G4 D5' (RULINGS 2026-11-16l): the ground behind a retaining wall
+    # stands this far under its top -- a parapet, never flush
+    retaining_parapet_m: float

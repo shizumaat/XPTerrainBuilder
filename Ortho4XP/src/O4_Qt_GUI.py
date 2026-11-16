@@ -6147,6 +6147,7 @@ class MainWindow(QMainWindow):
         self._stale_probe.close()
         self._customized_probe.close()
         self.imagery_freshness_row.close_probe()
+        self.fly_pane.end_on_quit()             # quitting ends the flight (#2105)
         self._stop_imagery_follow()
         # The 3D preview's building reader runs in a worker process (#753).
         self.patch_editor.engine.close()

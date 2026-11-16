@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import uuid
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -31,10 +32,15 @@ from .patch_file import write_atomic
 __all__ = [
     "FlightRecord", "TileRow", "STATES", "SOURCE_KINDS", "PROFILE_BASES",
     "flight_id", "from_plan", "flights_dir", "save", "load", "list_flights",
-    "active_flight", "DEFAULT_CORRIDOR_KM", "plan_of",
+    "active_flight", "close_orphans", "ENGINE_SESSION",
+    "DEFAULT_CORRIDOR_KM", "plan_of",
 ]
 
 FOLDER = "Flights"
+#: This engine process's session (#2105): :func:`save` stamps it on every
+#: record.  A flight is one app session's: an active record another
+#: process saved belongs to an app that has quit, and never resumes.
+ENGINE_SESSION = uuid.uuid4().hex
 #: §5.5 ``fly_corridor_km`` default.
 DEFAULT_CORRIDOR_KM = 20.0
 
@@ -83,6 +89,8 @@ class FlightRecord:
     tiles: List[TileRow] = field(default_factory=list)
     skipped_questions: List[Any] = field(default_factory=list)
     notes: List[Any] = field(default_factory=list)
+    #: The :data:`ENGINE_SESSION` that last saved the record.
+    engine_session: str = ""
     #: Keys this engine does not know, kept as read (a newer engine's).
     extra: Dict[str, Any] = field(default_factory=dict)
 
@@ -205,7 +213,9 @@ def flights_dir(data_root: Optional[str] = None) -> str:
 
 
 def save(record: FlightRecord, folder: str) -> str:
-    """Write the record atomically; returns its path.  Raises OSError."""
+    """Write the record atomically, stamped with this process's
+    :data:`ENGINE_SESSION`; returns its path.  Raises OSError."""
+    record.engine_session = ENGINE_SESSION
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, record.id + ".json")
     write_atomic(path, json.dumps(record.to_dict(), indent=1, sort_keys=True) + "\n")
@@ -239,6 +249,30 @@ def list_flights(folder: str) -> List[FlightRecord]:
     return records
 
 
+def _orphan(record: FlightRecord) -> bool:
+    return (record.state in ACTIVE_STATES
+            and record.engine_session != ENGINE_SESSION)
+
+
 def active_flight(folder: str) -> Optional[FlightRecord]:
-    """The newest record still preparing, ready or flying."""
-    return next((r for r in list_flights(folder) if r.state in ACTIVE_STATES), None)
+    """The newest record still preparing, ready or flying that this engine
+    session saved; one left active by an app that quit is not (#2105:
+    "if XPTerrainBuilder is quit, it should end the current flight")."""
+    return next((r for r in list_flights(folder)
+                 if r.state in ACTIVE_STATES and not _orphan(r)), None)
+
+
+def close_orphans(folder: str) -> List[str]:
+    """Close every record left active by an earlier engine session (the
+    app quit without ending it); returns their ids.  Never raises."""
+    closed = []
+    for record in list_flights(folder):
+        if _orphan(record):
+            record.state = "closed"
+            record.notes.append({"closed": "app_quit"})
+            try:
+                save(record, folder)
+            except OSError:
+                continue
+            closed.append(record.id)
+    return closed

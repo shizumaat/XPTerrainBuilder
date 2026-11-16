@@ -681,6 +681,14 @@ class FlyPane(QWidget):
         if (reply or {}).get("flight"):
             self.show_status(None)
 
+    def end_on_quit(self):
+        """The window closes (#2105): the active flight ends; nothing is
+        said (the pane is going away).  Swift: ``FlyModel.endOnQuit``."""
+        try:
+            self._run("flight_end")
+        except Exception:               # noqa: BLE001 -- none active
+            pass
+
     def _end_flight(self):
         if self.status and self._command(
                 "flight_end", flight=self.status.get("flight")) is not None:

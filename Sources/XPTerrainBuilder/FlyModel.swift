@@ -19,6 +19,8 @@ final class FlyModel: ObservableObject {
     static let sharpPhotoKey = "FlySharpPhoto"
 
     weak var build: BuildModel?
+    /// The model the app delegate ends the flight through on quit (#2105).
+    static weak var current: FlyModel?
 
     /// X-Plane's saved FMS plans (`flight_plans_list`), newest first.
     @Published private(set) var plans: [O4FlightPlanFile] = []
@@ -122,6 +124,7 @@ final class FlyModel: ObservableObject {
                   let context = build.libraryContext() else { return nil }
             return (context.client, context.sceneryDir)
         }
+        Self.current = self
     }
 
     // MARK: - The map's layers
@@ -372,6 +375,17 @@ final class FlyModel: ObservableObject {
     func endFlight() {
         guard let flight = status?.flight else { return }
         command("flight_end", ["flight": flight]) { [weak self] _ in self?.status = nil }
+    }
+
+    /// The app quits (#2105, owner: "if XPTerrainBuilder is quit, it
+    /// should end the current flight"): `flight_end` for the active one is
+    /// written before the engine's stdin closes, so the engine ends it
+    /// first; an engine that never reads it closes the record at its next
+    /// start (`flight_record.close_orphans`). Python:
+    /// `O4_Qt_Fly_Pane.end_on_quit`.
+    func endOnQuit() {
+        guard let context = build?.libraryContext() else { return }
+        context.client.flightCommand("flight_end", arguments: [:]) { _ in }
     }
 
     private func command(_ name: String, _ arguments: [String: Any],

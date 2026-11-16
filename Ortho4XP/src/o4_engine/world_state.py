@@ -194,8 +194,9 @@ def _tile(pack: str, key, path: str, size: int, record: Optional[dict],
     if WP.is_placeholder(path, size):
         return WorldTile(PLACEHOLDER, "", 0.0, source, volume, path)
     agent = (DSFH.dsf_properties(path) or {}).get("sim/creation_agent", "")
-    provider = str(IREC.read(pack, *key).get("provider") or "")
-    if WP.kind_of_agent(agent) == DRAPE:
+    kind = WP.kind_of_agent(agent)
+    provider = str(IREC.read(pack, *key, kind=kind).get("provider") or "")
+    if kind == DRAPE:
         return WorldTile(DRAPE, TINFO.ORIGIN_HERE, 0.0, source, volume, path,
                          provider)
     state, sharp = _mesh_state(pack, key, sharpness)

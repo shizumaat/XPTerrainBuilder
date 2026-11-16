@@ -183,6 +183,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    /// Quitting ends the current flight (#2105).
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { FlyModel.current?.endOnQuit() }
+    }
+
     /// Unsaved patch edits (#46) ask in the map before the app quits.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         MainActor.assumeIsolated { PatchEditModel.current?.shouldTerminate() ?? .terminateNow }

@@ -23,7 +23,7 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["FollowerPlan", "follower_plans", "follower_cover"]
+__all__ = ["follower_plans", "follower_cover"]
 
 #: floor triangles smaller than this (m²) are left out of the plan (the
 #: roofs and slabs carry the plan; trims and railings only cost the read)
@@ -33,7 +33,7 @@ _GRID_M = 2.0
 
 
 @_dc.dataclass(frozen=True)
-class FollowerPlan:
+class _FollowerPlan:
     """One follower's plan: ``group`` / ``row``, its floor triangles in the
     frame (``(k, 3, 2)``) and their tree, and the plan's bounds."""
 
@@ -44,7 +44,7 @@ class FollowerPlan:
     bounds: tuple[float, float, float, float]
 
 
-def follower_plans(airport, law) -> list[FollowerPlan]:
+def follower_plans(airport, law) -> list[_FollowerPlan]:
     """Every governed group's followers' plans (module doc); ``[]`` with
     no governed group."""
     groups = [g for g in getattr(airport, "agp_groups", ()) or () if g.governor is not None]
@@ -73,12 +73,12 @@ def follower_plans(airport, law) -> list[FollowerPlan]:
                 continue
             tris, polys = tris[keep], polys[keep]
             lo, hi = tris.reshape(-1, 2).min(axis=0), tris.reshape(-1, 2).max(axis=0)
-            out.append(FollowerPlan(g.id, fm.row, tris, shapely.STRtree(polys),
+            out.append(_FollowerPlan(g.id, fm.row, tris, shapely.STRtree(polys),
                                     (float(lo[0]), float(lo[1]), float(hi[0]), float(hi[1]))))
     return out
 
 
-def follower_cover(plans: _t.Sequence[FollowerPlan], poly) -> tuple[FollowerPlan, float] | None:
+def follower_cover(plans: _t.Sequence[_FollowerPlan], poly) -> tuple[_FollowerPlan, float] | None:
     """``(plan, share)`` of the follower plan covering most of ``poly``
     (frame metres), or ``None`` when none touches it."""
     import shapely

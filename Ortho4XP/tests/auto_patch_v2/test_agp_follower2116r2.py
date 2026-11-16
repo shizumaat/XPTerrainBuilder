@@ -27,7 +27,7 @@ def _tris(x0, y0, x1, y1):
 def _plan(*boxes):
     tris = np.concatenate([_tris(*b) for b in boxes])
     lo, hi = tris.reshape(-1, 2).min(axis=0), tris.reshape(-1, 2).max(axis=0)
-    return AP.FollowerPlan("agp:g", "dsf:obj1", tris, shapely.STRtree(shapely.polygons(tris)),
+    return AP._FollowerPlan("agp:g", "dsf:obj1", tris, shapely.STRtree(shapely.polygons(tris)),
                            (*lo.tolist(), *hi.tolist()))
 
 

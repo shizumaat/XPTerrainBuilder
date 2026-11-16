@@ -174,7 +174,7 @@ def _bank_road_rows(planar: PlanarMap, law: Law, airport: Airport, pinned: set[i
         for fid, ref in ribbons.items():
             ring = list(planar.ring_vertices(planar.faces[fid].ring))
             ring.append(ring[0])
-            for a, b in zip(ring, ring[1:]):
+            for a, b in zip(ring, ring[1:], strict=False):
                 pa, pb = np.array(planar.vertices[a].xy), np.array(planar.vertices[b].xy)
                 ab = pb - pa
                 ll = float(ab @ ab)

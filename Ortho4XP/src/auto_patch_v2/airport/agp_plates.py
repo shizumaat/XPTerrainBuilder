@@ -12,7 +12,8 @@ zero_pred + y - deck_flush_m``, ``y`` the floors' plan-area median height;
 a part under ``floor_min_area_m2`` or whose median ``|L - DEM|`` exceeds
 ``plate_max_off_m`` is listed, not built — the DEM gate reads only an inset
 that is credible lidar (#2116 R2 G2, ``law/inset_class``); on a coarse DEM
-the plate is built on the pack's evidence and listed ``agp_plate_unchecked``.  ``AgpGroup.plates`` carries them;
+the plate is built on the pack's evidence and listed ``agp_plate_unchecked``.
+``AgpGroup.plates`` carries them;
 the planar stage grades them (``planar/agp_ground``) and the rows hold the
 ground at the floor (``constraints/agp_level``).
 

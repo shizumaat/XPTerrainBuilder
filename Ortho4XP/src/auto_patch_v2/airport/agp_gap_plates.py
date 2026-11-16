@@ -132,7 +132,8 @@ def with_gap_plates(plates: _t.Sequence[AgpPlate], feet: np.ndarray,
                                                                                     np.nan)
         fin = np.isfinite(dz)
         off = float(np.median(np.abs(L - dz[fin]))) if fin.any() else math.inf
-        why = f"agp_gap_plate: {w:.1f} m, y {'/'.join(f'{v:+.2f}' for v in lows)}, |L - DEM| {off:.2f}"
+        ys = "/".join(f"{v:+.2f}" for v in lows)
+        why = f"agp_gap_plate: {w:.1f} m, y {ys}, |L - DEM| {off:.2f}"
         out.append(_dc.replace(
             built[0], k=k_next,
             ring=tuple((float(a), float(b)) for a, b in open_.exterior.coords[:-1]),

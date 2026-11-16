@@ -195,7 +195,13 @@ def test_in_process_build_tags_lines_and_writes_records(monkeypatch,
     assert "vector of 10" in text and "vector of 11" not in text
     assert "*** Tile +11+021 failed" in TILELOG.read_log(
         str(tmp_path), failed["log"])
-    # The streams are handed back when the run ends.
+    # The streams are handed back when the run ends: the worker's
+    # ``finally`` undoes the tag just after it emits RunDone (and the
+    # pack-answer announcement), so wait for the thread, not the event.
+    deadline = time.monotonic() + 10.0
+    while (isinstance(sys.stdout, TILELOG.TileStreamTag)
+           and time.monotonic() < deadline):
+        time.sleep(0.01)
     assert not isinstance(sys.stdout, TILELOG.TileStreamTag)
     # The scan reads the record.
     dsf = TINFO.FNAMES.dsf_file(str(tmp_path), 10, 20)

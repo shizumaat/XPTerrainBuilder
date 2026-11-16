@@ -147,7 +147,8 @@ def _world_library(xplane_root):
                     continue
                 f = f[1:]
             if len(f) >= 3:
-                out.setdefault(f[1], os.path.join(root, f[2]))
+                out.setdefault(f[1], os.path.normpath(
+                    os.path.join(root, f[2])))
     return out
 
 

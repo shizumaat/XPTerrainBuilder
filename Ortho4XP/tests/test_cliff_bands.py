@@ -4,6 +4,7 @@ Synthetic ramp: columns of cells at 5, 48 and 75 degrees.  Over the
 carried (shadow) opacity the overlay must read base -> hill -> cliff, the
 way X-Plane's landclass does, and never put rock on the gentle ground."""
 import array
+import os
 
 import numpy
 import O4_Cliff_Bands as BANDS
@@ -83,7 +84,8 @@ def test_slope_bands_read_from_the_landclass(tmp_path):
         "PROJECTED 2992 2992\nSUPER_ROUGHNESS 0.5\n"
         "AUTO_SLOPE_HILL 2328 1164 35 40 ../textures10/hill.dds\n"
         "AUTO_SLOPE_CLIFF 2832 708 57 62 ../textures10/cliff.dds\n"
-        "DECAL_LIB lib/g10/decals/x.dcl\n", encoding="utf-8")
+        "DECAL_LIB lib/g10/decals/x.dcl\n", encoding="utf-8",
+        newline="\n")
     bands = LIBRARY._slope_bands(str(ter))
     assert bands.hill_band == (35.0, 40.0)
     assert bands.cliff_band == (57.0, 62.0)
@@ -121,7 +123,7 @@ def test_dsf_draws_base_and_hill_under_the_cliff(tmp_path, monkeypatch):
     monkeypatch.setattr(LIBRARY, "region_slope_bands",
                         lambda t, ll, regions: [bands] * len(regions))
     monkeypatch.setattr(LIBRARY, "install_texture", lambda tile, t: (
-        "_shared/" + t.dds.rsplit("/", 1)[-1], "link"))
+        "_shared/" + os.path.basename(t.dds), "link"))
 
     def over_shadow(tile, layout, xyz, nodes, tri_idx, land, params, dico):
         extra = numpy.ones(len(xyz))

@@ -46,6 +46,8 @@ import shutil
 import tarfile
 import time
 
+import O4_Imagery_Ter_Alias as TER_ALIAS
+
 from . import PACKAGE_FORMAT, READ_ERRORS, BundleRefused
 from . import kinds as _kinds
 
@@ -78,7 +80,7 @@ def texture_names(folder: str) -> list:
                 parts = line.split()
                 if len(parts) == 2 and parts[0].startswith("BASE_TEX") \
                         and parts[1].lower().endswith(".dds"):
-                    names.add(os.path.basename(parts[1]))
+                    names.add(TER_ALIAS.canonical(parts[1]))
     return sorted(names)
 
 

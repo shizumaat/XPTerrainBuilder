@@ -61,6 +61,7 @@ import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
 import O4_DSF_Compress as DSFC
 import O4_Imagery_OnDemand_Budget as BUDGET
+import O4_Imagery_Ter_Alias as TER_ALIAS
 
 __all__ = ["DEFAULT_PX", "STAMP", "convert_tile", "is_converted",
            "plan_tile", "backfill"]
@@ -114,7 +115,8 @@ def _tree_bytes(path: str) -> int:
     if not os.path.isdir(path) or os.path.islink(path):
         return _size(path)
     total = 0
-    for root, _dirs, files in os.walk(path):
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if d != TER_ALIAS.ALIAS_DIR]
         total += sum(_size(os.path.join(root, f)) for f in files)
     return total
 
@@ -130,8 +132,7 @@ def _ter_textures(terrain_dir: str) -> set:
                 for line in fh:
                     for word in line.split():
                         if "textures/" in word.replace("\\", "/"):
-                            named.add(os.path.basename(
-                                word.replace("\\", "/")))
+                            named.add(TER_ALIAS.canonical(word))
     return named
 
 
@@ -160,7 +161,8 @@ def _plan_textures(plan: _TilePlan, folder: str, named: set) -> None:
 
 
 def _plan_tree(plan: _TilePlan, folder: str, rel_root: str) -> None:
-    for root, _dirs, files in os.walk(folder):
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if d != TER_ALIAS.ALIAS_DIR]   # #2106
         for name in sorted(files):
             path = os.path.join(root, name)
             rel = os.path.relpath(path, plan.source).replace(os.sep, "/")

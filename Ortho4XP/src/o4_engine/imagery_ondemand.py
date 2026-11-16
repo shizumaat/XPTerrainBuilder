@@ -40,6 +40,7 @@ import O4_Imagery_OnDemand_Budget as BUDGET
 import O4_Imagery_OnDemand_Cores as CORES
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Placeholder as PLACEHOLDER
+import O4_Imagery_Ter_Alias as TER_ALIAS
 
 from . import imagery_downgrade as DOWNGRADE
 
@@ -227,6 +228,7 @@ def _serve_full(conn, row: dict, keys) -> bool:
     path = INDEX.texture_path(row)
     if found is None or not path or not DDSC.serve(found[0], path):
         return False
+    TER_ALIAS.renew(path, INDEX.terrain_folder(row))   # #2106: at a reload
     INDEX.set_state(conn, row["tile"], row["name"], "upgraded",
                     tier_px=TIERS.FULL_WIDTH,
                     full_bytes=DISK.counted_once_bytes(path),

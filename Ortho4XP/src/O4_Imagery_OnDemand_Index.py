@@ -101,6 +101,7 @@ import O4_DDS_Tiers as TIERS
 import O4_Disk_Usage as DISK
 import O4_File_Names as FNAMES
 import O4_Imagery_Placeholder as PLACEHOLDER
+import O4_Imagery_Ter_Alias as TER_ALIAS
 
 __all__ = [
     "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
@@ -110,7 +111,8 @@ __all__ = [
     "mark_late", "mark_near", "open_index", "pinned_bytes",
     "placeholder_width", "protected_cache_keys", "protected_jpegs",
     "rebuild", "reset_upgrading", "rows", "set_core",
-    "set_pinned", "set_state", "texture_path", "tier_distance_m",
+    "set_pinned", "set_state", "terrain_folder", "texture_path",
+    "tier_distance_m",
     "transaction", "upsert", "LAYOUT_KEY",
 ]
 
@@ -438,6 +440,11 @@ def texture_path(row: dict) -> "str | None":
     return os.path.join(folder, row["name"]) if folder else None
 
 
+def terrain_folder(row: dict) -> "str | None":
+    """The folder of the row's ``.ter`` files, or ``None`` without one."""
+    return _tile_dir(row, "terrain")
+
+
 def placeholder_width(row: dict) -> int:
     """Width of the row's placeholder: its kept file's header, else the
     default placeholder tier (512 px)."""
@@ -567,7 +574,7 @@ def _read_ter(path: str) -> "tuple[str, float, float, float] | None":
                 elif len(words) >= 2 and words[0] in (
                         "BASE_TEX_NOWRAP", "BASE_TEX",
                         "TEXTURE_NOWRAP", "TEXTURE"):   # a drape's .pol
-                    texture = os.path.basename(words[1].replace("\\", "/"))
+                    texture = TER_ALIAS.canonical(words[1])
     except (OSError, ValueError):
         return None
     if centre is None or not texture or not texture.endswith(".dds"):

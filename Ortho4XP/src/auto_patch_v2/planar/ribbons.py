@@ -16,6 +16,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..model.planar import is_osm_ribbon_ref
+from ..model.wall_reach import wall_slot
 from ..law.tables import rolled_on_roles
 from .pad_cut import _drop_rim_midpoints, airside_clip, build_rim
 from . import overlay as _ov
@@ -28,7 +29,7 @@ __all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts", "airside_vertex_set"]
 
 def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law: Law,
                     keeps: bool, grid: float, ring_lines_of, counts: dict, reg,
-                    air_nodes=None, cut=None):
+                    air_nodes=None, cut=None, walls=None):
     """RULINGS 2026-09-30aa rules 2, 9-10 (#100) — THE MAPPED-ROAD RIBBONS
     JOIN THE FINISHED AIRSIDE.  The arrangement WITHOUT them (pass A and
     the pads, ``noded``) is finished first — claimed, merged, absorbed and
@@ -41,13 +42,17 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
     deck, never ground in the cut (#1333).  Finishing first is
     what makes the airside the same with and without the ribbons: a zone
     sliver the airside absorbs (HECA 05L/23R's zone1#9, 110.9 m²) is
-    airside to the ribbon too, so the ribbon never re-cuts it.  Returns the
+    airside to the ribbon too, so the ribbon never re-cuts it.  ``walls``:
+    the retaining walls' footprints (``Airport.wall_shade``) -- a ribbon is
+    never grown across one to the rim on its upper side (#1934 R3, RULINGS
+    2026-11-16d: pavement drawn past a wall's lower face is cut back to that
+    face; ``model/wall_reach.wall_slot``).  Returns the
     ribbon ring lines, the regions with the ribbons, the finished node set
     (a later sliver dissolve treats it as frozen) and that airside union."""
     from ..law.tables import rolled_on_roles
     hosts_seen: dict = {}
     got = _faces_of(noded, regions, bands, law, keeps, None, hosts_seen=hosts_seen,
-                    reg=reg, air_nodes=air_nodes)
+                    reg=reg, air_nodes=air_nodes, walls=walls)
     base_faces = got[0]
     base_order = ({shapely.normalize(g).wkb: k for k, g in enumerate(got[-1])},
                   hosts_seen, airside_vertex_set(base_faces, law))
@@ -66,7 +71,8 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
     rim_f = build_rim(clip_f, law, nodes_b)
     keep_out = unary_union([shapely.set_precision(r.polygon, 0.0) for r in regions
                             if r.source == "cell" and r.role not in rolled
-                            and not is_rigid_role(law, r.role)])
+                            and not is_rigid_role(law, r.role)]
+                           + [g for g in (wall_slot(walls, grid),) if g is not None])
     cells = _cut_out([cell_region(c) for c in ribbon_cells], cut, grid)
     ribs, rc = airside_clip(
         cells,
@@ -136,7 +142,8 @@ _RIM_GUARD_PASSES = 4
 
 
 def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
-              air_f=None, order=None, hosts_seen=None, *, reg, air_nodes=None):
+              air_f=None, order=None, hosts_seen=None, *, reg, air_nodes=None,
+              walls=None):
     """Polygonise ``noded`` and give every face its region, then the
     derivation-site merges (§41 (1)/(4), 08d (4a), 10h (1)).  ``air_f``
     (30aa, the ribbons' pass): the FINISHED airside — a face outside it is
@@ -144,7 +151,9 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
     raw apron cell overlaps is not apron).  ``reg``: the arrangement's
     registries (``platforms`` read, ``pad_airside`` written).  ``air_nodes``:
     the airside's own node set (pass A0, #770) — see
-    ``overlay.dissolve_sliver_zones``."""
+    ``overlay.dissolve_sliver_zones``.  ``walls``: the retaining walls'
+    footprints (``Airport.wall_shade``): a zone sliver in a wall's slot is
+    never dissolved into a groundside host (#1934 R3)."""
     if air_f is not None:
         from ..law.tables import rolled_on_roles
         rolled = rolled_on_roles(law)
@@ -202,7 +211,8 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
         tuple(law.tables.emit.terrace.shape_roles),
         tuple(r for r, spec in law.tables.precedence.roles.items()
               if spec.rigid),
-        frozen=frozen, hosts_seen=hosts_seen, air_nodes=air_nodes)
+        frozen=frozen, hosts_seen=hosts_seen, air_nodes=air_nodes,
+        slot=wall_slot(walls, ident))
     faces, holes_gone = dissolve_degenerate_holes(
         faces, law.tables.emit.terrace.separation_m, ident ** 2)
     # spec §56 (10) R-F: a surplus pad scrap its own plateau surrounds is

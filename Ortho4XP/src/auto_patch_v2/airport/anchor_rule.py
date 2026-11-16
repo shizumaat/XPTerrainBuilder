@@ -650,6 +650,12 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
             and getattr(m, "plate_stations", ())):
         return Datum(float(plate_y), tuple(m.plate_stations),
                      "edge bridge (RULINGS 2026-10-27r)")
+    # a RETAINING WALL's retained face reaches its upper ground (#1934 R3,
+    # RULINGS 2026-11-16d; ``airport/retaining_seat``): never its footing
+    if (plate_y is not None and getattr(m, "plate_kind", "") == "retaining"
+            and getattr(m, "plate_stations", ())):
+        return Datum(float(plate_y), tuple(m.plate_stations),
+                     "retaining wall (RULINGS 2026-11-16d)")
     if plate_y is not None and float(plate_y) > 0.0:
         st = tuple(getattr(m, "plate_stations", ()) or ())
         if st:

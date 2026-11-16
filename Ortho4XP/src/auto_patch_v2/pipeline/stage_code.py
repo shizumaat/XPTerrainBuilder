@@ -735,6 +735,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.low_extent",
         "auto_patch_v2.planar.low_fill",
         "auto_patch_v2.planar.low_level",
+        "auto_patch_v2.planar.mouth_behind",
         "auto_patch_v2.planar.mouth_opening",
         "auto_patch_v2.planar.object_corridor",
         "auto_patch_v2.planar.object_floor_cells",
@@ -2486,6 +2487,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service
     planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
+    planar.mouth_behind
     planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
@@ -2682,6 +2684,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service
     planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
+    planar.mouth_behind
     planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
@@ -2750,7 +2753,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
-    airport.relief_skin
+    airport.relief_skin airport.retaining_seat
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
     airport.terrain_shaped airport.pack_ground geom.terrain_deck

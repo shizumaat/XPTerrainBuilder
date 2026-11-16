@@ -87,6 +87,7 @@ from ..law.tables import (
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
+from ..model.wall_reach import wall_slot
 from .end_lip import natural_bank_vertices
 from .precedence import View, view
 from .roads import road_family_roles
@@ -122,6 +123,7 @@ def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | Non
         fam_of[r] = "runway"
     for r in p.taxi_family.members:
         fam_of[r] = "taxi"
+    floor = _structure_floor_vertices(vw)
     out: dict[tuple[int, int], tuple[int, int, str, int | None, str | None, str]] = {}
     for f in vw.faces_of_role(tuple(fam_of)):
         fam = fam_of[f.role]
@@ -129,6 +131,8 @@ def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | Non
             n = len(ring)
             for k in range(n):
                 a, b = ring[k], ring[(k + 1) % n]
+                if a in floor or b in floor:
+                    continue         # #1934 R3: a structure floor is no lip
                 key = (a, b) if a < b else (b, a)
                 cur = out.get(key)
                 # a shared edge keeps the senior family (runway, taxi, apron)
@@ -136,6 +140,49 @@ def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | Non
                     out[key] = (key[0], key[1], fam, f.code_number, f.code_letter,
                                 str(f.ref))
     return [out[k] for k in sorted(out)]
+
+
+def _structure_floor_vertices(vw: View) -> frozenset[int]:
+    """THE STRUCTURE FLOOR IS NO LIP REFERENCE (#1934 R3; spec
+    ``docs/specs/1934-R3.md`` §4): every vertex of a structure's own VALUE
+    surface -- a tunnel / door / corridor / garage ramp (precedence
+    ``structure = true``, ``value = true``).  A pavement or pad edge ending
+    on one reads the floor's level, which the ground beside the pavement
+    never meets: the ramp's own walls and banks carry that drop.  MEASURED
+    KLAX: the split-level building's lower-storey corner on the north
+    tunnel ramp (25.54) was taxi F zone 2's blend partner 8 m off and held
+    the strip on the taxiway bridge at 29.1 over a DEM of 32.8 -- the
+    owner's hole (2026-11-16 14:32Z)."""
+    p = vw.law.tables.precedence
+    roles = tuple(r for r, spec in p.roles.items()
+                  if getattr(spec, "structure", False) and getattr(spec, "value", False))
+    return frozenset(v for f in vw.faces_of_role(roles)
+                     for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring)
+
+
+def _slot_vertices(vw: View, airport: Airport) -> set[int]:
+    """THE ZONES STOP AT A PACK RETAINING WALL TOO (#1934 R3; RULINGS
+    2026-11-16d): every vertex in a retaining wall's slot
+    (``model/wall_reach.wall_slot``: its footprint and one identity-grid
+    step past it, plus the snap's half-diagonal: a vertex is read where the
+    lattice put it) -- the step between its two levels is drawn there, and a
+    band toward a pavement lip on the upper side would hold the lower
+    side's ground at the upper level (KLAX taxi F zone 1 held
+    ``big_roads:-1143``'s kerb 34.3 m beside 33.3 m along
+    ``Fence_Terminal_1.obj``)."""
+    from shapely import contains_xy
+    from ..law.tables import snap_margin_m
+    slot = wall_slot(getattr(airport, "wall_shade", None),
+                     float(vw.law.tables.emit.identity.min_distinct_spacing_m)
+                     + snap_margin_m(vw.law))
+    if slot is None:
+        return set()
+    x0, y0, x1, y1 = slot.bounds
+    near = [v for v, (x, y) in vw.xy.items() if x0 <= x <= x1 and y0 <= y <= y1]
+    if not near:
+        return set()
+    hit = contains_xy(slot, [vw.xy[v][0] for v in near], [vw.xy[v][1] for v in near])
+    return {v for v, h in zip(near, hit) if h}
 
 
 def _nearest_edge(vw: View, v: int, edges: list, grid: dict, cell: float,
@@ -371,7 +418,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     # (the DEM) and no band toward a pavement lip binds it — measured
     # OTHH: an IIS of two crest pins and one mandatory-down band row
     wall_vertices = {v for f in vw.faces_of_role(("retaining_wall",))
-                     for v in vw.rings[f.id]}
+                     for v in vw.rings[f.id]} | _slot_vertices(vw, airport)
     # THE BAND BINDS REGARDLESS OF SHAPE OWNERSHIP (owner 2026-08-30,
     # "taxiway adjacent-ground band cuts groundside": zones 1-2 grade FROM
     # THE TAXIWAY and a groundside shape boundary is not an exemption).

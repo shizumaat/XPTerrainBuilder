@@ -8,11 +8,11 @@ import random
 import types
 
 import numpy as np
-
+import scipy.sparse as sp
 from auto_patch_v2.geom.union_find import find_root
 from auto_patch_v2.solve.design_roles import HeadTest, ruling_head
-from auto_patch_v2.solve.rows import (_level_free_columns, _one_matrix,
-                                      _Reduction, _Rows)
+from auto_patch_v2.solve.linear import RowBlocks, _objective
+from auto_patch_v2.solve.rows import _level_free_columns, _one_matrix, _Reduction, _Rows
 
 
 def _reference_level_free(rows, red, one, tol=1e-9):
@@ -107,9 +107,6 @@ def test_head_test_is_ruling_head_in_heads():
 
 
 def test_row_blocks_is_the_plain_product_bit_for_bit():
-    import scipy.sparse as sp
-
-    from auto_patch_v2.solve.linear import RowBlocks
     rng = np.random.default_rng(7)
     n, m = 5000, 300
     rows = np.repeat(np.arange(n), 2)
@@ -127,9 +124,6 @@ def test_row_blocks_is_the_plain_product_bit_for_bit():
 
 
 def test_row_blocks_penalty_and_active_set_are_the_plain_reading():
-    import scipy.sparse as sp
-
-    from auto_patch_v2.solve.linear import RowBlocks, _objective
     rng = np.random.default_rng(11)
     n, m = 6000, 200
     rows = np.repeat(np.arange(n), 2)

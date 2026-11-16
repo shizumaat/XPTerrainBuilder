@@ -62,6 +62,9 @@ import re
 import shutil
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import frames_prune  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 REGISTRY = os.path.join(ROOT, "docs", "frames.jsonl")
 KINDS = ("capture", "rebake", "patch", "graded", "mesh", "inset")
@@ -312,6 +315,19 @@ def latest(icao: str, kind: str) -> dict | None:
     return rows[-1] if rows else None
 
 
+def prune(days: float, tier: str, do_apply: bool) -> int:
+    """Delete uncited lane dirs older than ``days``; move cited ones to ``tier``."""
+    keep = (frames_prune.cited_lanes(ROOT, REGISTRY, os.path.join(ROOT, ".claude", "worktrees"))
+            | frames_prune.latest_lanes(_load()))
+    items = frames_prune.plan(frames_prune.frames_roots(DURABLE_ROOT), days, keep)
+    print(frames_prune.report(items))
+    if do_apply:
+        print("\n".join(frames_prune.apply(items, tier)))
+    else:
+        print("(dry run; --apply to act)")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -324,7 +340,13 @@ def main(argv=None) -> int:
                         "<data repo>/.harness/frames/<lane>/ and register the copy")
     l = sub.add_parser("list"); l.add_argument("icao", nargs="?"); l.add_argument("--kind")
     t = sub.add_parser("latest"); t.add_argument("icao"); t.add_argument("--kind", required=True)
+    pr = sub.add_parser("prune", help="age out old lane dirs (see frames_prune.py)")
+    pr.add_argument("--days", type=float, default=7)
+    pr.add_argument("--tier", default=os.environ.get("O4_FRAMES_TIER", frames_prune.DEFAULT_TIER))
+    pr.add_argument("--apply", action="store_true", help="act; default is a dry run")
     a = ap.parse_args(argv)
+    if a.cmd == "prune":
+        return prune(a.days, a.tier, a.apply)
     if a.cmd == "register":
         print(_fmt(register(a.icao, a.kind, a.path, a.base, a.lane, a.note, copy=a.copy))); return 0
     if a.cmd == "list":

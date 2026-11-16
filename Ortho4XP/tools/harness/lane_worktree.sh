@@ -842,6 +842,11 @@ down)
     done
     git -C "$MAIN_REPO" worktree remove "$WT" || die "worktree remove failed"
     echo "  [ritual] $WT removed."
+    # Age out the durable frames store on every lane completion (owner
+    # 2026-11-16): uncited lane dirs > 7 days deleted, cited ones moved to
+    # the storage tier.  Best effort: a prune failure never fails teardown.
+    "${O4_HARNESS_PYTHON:-$MAIN_ENGINE/venv/bin/python}" \
+        "$MAIN_REPO/tools/harness/frames.py" prune --apply 2>&1 | sed 's/^/  [prune] /' || true
     ;;
 
 *)

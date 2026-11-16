@@ -358,3 +358,40 @@ def test_a_feed_way_id_names_its_mouth_by_its_number(monkeypatch):
                         lambda root, la, lo, r, b=None: [("+45+010:-6", "primary", road)])
     assert DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5,
                          mouths=mouths)["verdict"] == "FAIL"
+
+
+def test_a_road_ending_at_a_mouth_and_a_tunnel_at_a_floor_ring_are_faces(monkeypatch):
+    """T8 (#2099 F2 P3): a road whose END stands at a claimed mouth is that
+    mouth's road -- its pair at the mouth line is the face, whatever its way;
+    a TUNNEL way's pair straddling the ring of a ground-owning object floor
+    is that floor's bore face; an untagged road crossing the ring is judged."""
+    import drawn_roads as DR
+    lat0, lon0 = 45.5, 10.5
+    kx = DR._M_PER_DEG * math.cos(math.radians(lat0))
+    mouth_lat = lat0 + 20.5 / DR._M_PER_DEG
+    ends_at = [(lat0 - 100.0 / DR._M_PER_DEG, lon0), (mouth_lat + 1.0 / DR._M_PER_DEG, lon0)]
+
+    def stepped(lon, lat):                  # the cut face 20 m north of the site
+        return 100.0 + (5.0 if (lat - lat0) * DR._M_PER_DEG > 20.0 else 0.0)
+    mouths = [(frozenset({-7}), mouth_lat, lon0)]
+    monkeypatch.setattr(DR, "road_lines",
+                        lambda root, la, lo, r, b=None: [(-9, "service", ends_at, False)])
+    rep = DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5, mouths=mouths)
+    assert rep["verdict"] == "PASS" and rep["sites"][0]["mouth_faces"]
+    # the floor ring: a box from 20.2 m north to 60 m north, 10 m wide
+    d = 1.0 / DR._M_PER_DEG
+    ring = [(lat0 + 20.2 * d, lon0 - 5.0 / kx), (lat0 + 20.2 * d, lon0 + 5.0 / kx),
+            (lat0 + 60.0 * d, lon0 + 5.0 / kx), (lat0 + 60.0 * d, lon0 - 5.0 / kx)]
+    side = {"object_floors": [{"owns_ground": True, "outline_ll": [ring]},
+                              {"owns_ground": False, "outline_ll": [ring]}]}
+    floors = DR.floor_rings(side)
+    assert len(floors) == 1
+    through = [(lat0 - 100.0 * d, lon0), (lat0 + 100.0 * d, lon0)]
+    monkeypatch.setattr(DR, "road_lines",
+                        lambda root, la, lo, r, b=None: [(-3, "primary", through, True)])
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5,
+                         floors=floors)["verdict"] == "PASS"
+    monkeypatch.setattr(DR, "road_lines",
+                        lambda root, la, lo, r, b=None: [(-3, "primary", through, False)])
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5,
+                         floors=floors)["verdict"] == "FAIL"

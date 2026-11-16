@@ -32,7 +32,7 @@ from ..law.tables import role_side
 from ..model.frame import rectangle_axes
 from .rules import Rules
 
-__all__ = ["airside_edge_flip", "mapped_car_park", "flank_car_park", "EDGE_CANDIDATES"]
+__all__ = ["airside_edge_flip", "mapped_car_park", "EDGE_CANDIDATES"]
 
 
 #: §27 (owner RULINGS 2026-09-12c, Fable 12e): a face this thin — area
@@ -90,7 +90,7 @@ def mapped_car_park(evid: dict, rules: Rules) -> bool:
         float(evid.get("source_parking_cover", 0.0)) >= float(rules.lot.parking_cover_fraction)
 
 
-def flank_car_park(evid: dict, rules: Rules) -> bool:
+def _flank_car_park(evid: dict, rules: Rules) -> bool:
     """Owner 2026-11-16T14:18Z (#2099 G2, CYYZ ``dsf:pol88`` /
     ``dsf:pol89``: "a parking lot for vehicles ... even though a taxiway
     runs along two sides"): a face whose verdict is LOT (a mapped road
@@ -451,7 +451,7 @@ def airside_edge_flip(final: list[list], cells, law: Law,
         rounds += 1
         live = [(f[2], was_road[i], f[0] in taxi) for i, f in enumerate(final)
                 if f[0] != "building" and role_side(law, f[0]) == "airside"]
-        live += [(t[0], t[1], k) for t, k in zip(fixed, fixed_taxi)]
+        live += [(t[0], t[1], k) for t, k in zip(fixed, fixed_taxi, strict=True)]
         live = [t for t in live if not t[0].is_empty]
         air = [(t[0], t[1]) for t in live]
         #: #2099 G2: the same airside less the taxi family (a flank car park)
@@ -498,7 +498,7 @@ def airside_edge_flip(final: list[list], cells, law: Law,
             # owner 2026-11-16T14:18Z (#2099 G2): a mapped car park beside a TAXIWAY is a
             # car park; it flips only on an edge of airside that is not the
             # taxi family (an apron, a runway), measured the same way
-            if flank_car_park(evid, rules) and (apron_tree is None or _lateral_airside_m(
+            if _flank_car_park(evid, rules) and (apron_tree is None or _lateral_airside_m(
                     face, was_road[i], apron_tree, apron_air, weld_m, factor, cache,
                     road_ctx, None if storey is None else storey.geom, None,
                     fences) < min_m):

@@ -1,11 +1,11 @@
 """#2099 G2 (owner 2026-11-16T14:18Z): A MAPPED CAR PARK BESIDE A TAXIWAY IS A CAR
 PARK.  Owner 14:18Z, CYYZ ``dsf:pol89``: "only for service vehicles and
 connects to the road so it's a parking lot as well, even though a taxiway
-runs along two sides".  Twin of ``classify/airside_edge.flank_car_park`` and
+runs along two sides".  Twin of ``classify/airside_edge._flank_car_park`` and
 the §27 flip's taxi-family read."""
 from __future__ import annotations
 
-from auto_patch_v2.classify.airside_edge import airside_edge_flip, flank_car_park
+from auto_patch_v2.classify.airside_edge import airside_edge_flip
 from auto_patch_v2.classify.rules import load_rules
 from auto_patch_v2.law import Law
 from shapely.geometry import box
@@ -25,7 +25,6 @@ def _flip(neighbour_role, lot_evid):
 
 def test_a_mapped_car_park_beside_a_taxiway_stays_a_lot():
     park = {"source_class": "lot", "source_parking_cover": COVER}
-    assert flank_car_park(park, RULES)
     assert _flip("junction", park) == (0, "parking_lot")
     assert _flip("primary_parallel", park) == (0, "parking_lot")
 

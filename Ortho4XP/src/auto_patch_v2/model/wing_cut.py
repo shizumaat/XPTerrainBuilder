@@ -45,6 +45,9 @@ class WallLine:
     back: tuple[XY, ...]
     foot: tuple[float, ...]
     top: tuple[float, ...]
+    #: per station, how far under ``top`` the strip behind the line stands
+    #: (#2099 G4 D5', RULINGS 2026-11-16l: a parapet; ``()`` = flush)
+    drop: tuple[float, ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -152,8 +155,16 @@ def wing_floor_y(cut: WingCut, xy: XY) -> float:
 
 
 def wing_top_y(cut: WingCut, xy: XY) -> float:
-    """The wall top over the mouth's floor behind which ``xy`` stands (R3
-    D5): the nearest line's top, read along its far face."""
-    near = [(_along(ln.back, xy)[1], _at(ln.top, _along(ln.back, xy)[0]))
+    """The level over the mouth's floor of the strip behind which ``xy``
+    stands (R3 D5): the nearest line's top less its drop (D5', a parapet),
+    read along its far face."""
+    near = [(_along(ln.back, xy)[1], _at(_back_level(ln), _along(ln.back, xy)[0]))
             for ln in cut.lines if ln.back]
     return min(near)[1] if near else 0.0
+
+
+def _back_level(line: WallLine) -> tuple[float, ...]:
+    """A line's tops less their drop (D5'), or its tops with none."""
+    if len(line.drop) != len(line.top):
+        return line.top
+    return tuple(t - d for t, d in zip(line.top, line.drop, strict=True))

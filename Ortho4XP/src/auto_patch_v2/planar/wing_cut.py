@@ -283,20 +283,36 @@ def _floor_level(env, floor_y: float, seat) -> "float | None":
     return 0.5 * sum(means) - 0.5 * sum(float(t) for t in tops) + floor_y
 
 
+def _parapet_drop(line: WallLine, env) -> tuple[float, ...]:
+    """D5' (#2099 G4, RULINGS 2026-11-16l): per station, how far under the
+    wall's top its back strip stands -- ``retaining_parapet_m``, but none
+    where the ground behind the wall is the AIRSIDE's (an airside cell or the
+    zone-1 lip round its pavement within ``entrance_skirt_m`` of the back
+    face): that ground keeps the level it meets the airside at (airside is
+    king; the pack's wall top is flush with it there -- MEASURED CYYZ: the
+    M wings' tops at the de-ice deck, 163.46 against its 163.51)."""
+    near = env.airground.buffer(env.skirt + env.spacing) \
+        if getattr(env, "airground", None) is not None and not env.airground.is_empty else None
+    return tuple(0.0 if near is not None and near.contains(Point(b)) else env.parapet
+                 for b in line.back)
+
+
 def _parapet_ok(line: WallLine, env, floor_y: float, seat) -> "list[bool] | None":
     """D5' (#2099 G4, RULINGS 2026-11-16l): per station, whether the level
-    a back strip would take there -- the wall's top less ``retaining_parapet_m``
-    -- stands within ``frontage_step_max_m`` of the DEM 1.5 m behind the
-    wall's back face; ``None`` (every station) with no DEM to read."""
+    a back strip would take there -- the wall's top less its drop
+    (:func:`_parapet_drop`) -- stands within ``frontage_step_max_m`` of the
+    DEM 1.5 m behind the wall's back face; ``None`` (every station) with no
+    DEM to read."""
     floor = _floor_level(env, floor_y, seat)
     if floor is None:
         return None
     out = []
-    for (fx, fy), (bx, by), top in zip(line.face, line.back, line.top, strict=True):
+    drop = line.drop or (env.parapet,) * len(line.top)
+    for (fx, fy), (bx, by), top, d in zip(line.face, line.back, line.top, drop, strict=True):
         dx, dy = bx - fx, by - fy
         L = math.hypot(dx, dy) or 1.0
         g = env.dem.z(bx + dx / L * 1.5, by + dy / L * 1.5)
-        out.append(math.isfinite(g) and abs(floor + top - env.parapet - g) <= env.step_max)
+        out.append(math.isfinite(g) and abs(floor + top - d - g) <= env.step_max)
     return out
 
 
@@ -328,6 +344,14 @@ def wing_cuts(airport, objects, cache, decks, tunnels, classification, law
         dem=getattr(airport, "dem", None),
         spacing=float(law.tables.emit.identity.min_distinct_spacing_m),
         air=unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in stage1]),
+        # the airside's own ground: its cells and the zone-1 LIP round its
+        # pavement (zones.adjacent_ground.lip_width_m; the zone strips are cut
+        # after this pass, so the lip is read off the pavement it rings)
+        airground=unary_union([p for p, c in zip(polys, cells, strict=True)
+                               if c.side == "airside"]
+                              + [unary_union([p for p, c in zip(polys, cells, strict=True)
+                                              if c.role in stage1]).buffer(
+                                  float(law.tables.zones.adjacent_ground.lip_width_m))]),
         solid=unary_union([p for p, c in zip(polys, cells, strict=True)
                            if c.role == "building" or (c.role in law.tables.precedence.roles
                                                         and is_structure_role(law, c.role))]))
@@ -415,6 +439,8 @@ def _cut(mouth: str, read_lines, road: LineString, half: float, env, floor_y: fl
         toward = [(sense * s[2], sense * s[3]) for s in st]
         ends = [_reach(p, d, road, half, env.rim, env.sep, plans[:k] + plans[k + 1:], facing)
                 for p, d in zip(line.face, toward, strict=True)]
+        drop = _parapet_drop(line, env)
+        line = _dc.replace(line, drop=drop)
         lines.append(line)
         parts += _strip(line, ends, toward)
         ok = _parapet_ok(line, env, floor_y, seat)

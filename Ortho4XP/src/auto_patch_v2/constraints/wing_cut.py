@@ -8,9 +8,10 @@ other vertex inside its region -- the ground, a trench's rim, and the road:
 "the road corridor between the wings follows the same floor" -- is held at the
 mouth's floor plus the foot under it, read along the wall line it faces
 (``model/wing_cut.wing_floor_y``);
-every vertex of the strip behind a line (``wing_back:<mouth>`` faces)
-``[tunnel.object] retaining_parapet_m`` under the wall's top there
-(``wing_top_y``; #2099 G4 D5', RULINGS 2026-11-16l: a parapet, never flush)
+every vertex of the strip behind a line (``wing_back:<mouth>`` faces) at the
+wall's top less its drop there (``wing_top_y``; #2099 G4 D5', RULINGS
+2026-11-16l: ``[tunnel.object] retaining_parapet_m`` under it, flush only
+where the ground behind is the airside's)
 -- a vertex both carry at that level (R3b D5b: the wall's plan hides the
 step) -- in the mouth's own seat:
 
@@ -101,7 +102,6 @@ def wing_cut_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if any(c.seats for c in cuts) else None
     rows: list[Row] = []
     done: set[int] = set()
-    parapet = float(law.tables.structures.tunnel.object.retaining_parapet_m)
     for cut in cuts:
         region = unary_union([Polygon(q).buffer(0.0) for q in cut.region])
         inside = prep(region.buffer(1e-6))
@@ -122,7 +122,7 @@ def wing_cut_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             if any(planar.faces[fid].role in never for fid in planar.vertices[v].incident_faces):
                 continue
             xy = planar.vertices[v].xy
-            foot = wing_top_y(cut, xy) - parapet if v in behind else wing_floor_y(cut, xy)
+            foot = wing_top_y(cut, xy) if v in behind else wing_floor_y(cut, xy)
             if seat is not None:
                 rows.extend(_dc.replace(r, follows=v) for r in
                             seat_pair(v, (seat[0], seat[1] - cut.floor_y - foot), src))

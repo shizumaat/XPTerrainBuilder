@@ -173,3 +173,15 @@ def test_a_back_strip_stands_a_parapet_under_the_top_only_near_the_ground():
                                 step_max=float(LAW.tables.emit.design.frontage_step_max_m),
                                 dem=types.SimpleNamespace(z=lambda x, y: ground[round(x, 1)]))
     assert _parapet_ok(line, env, 0.0, {"floor_z": 100.0}) == [True, True, False]
+
+
+def test_the_back_rows_hold_the_top_less_its_drop():
+    """D5': the strip behind a line is held at its top less the drop the
+    planar stage read (a parapet; none where the airside's ground is behind)."""
+    from auto_patch_v2.model.wing_cut import WallLine, WingCut, wing_top_y
+    line = WallLine("w", ((0.0, 0.0), (0.0, 20.0)), ((-0.6, 0.0), (-0.6, 20.0)), (1.0, 1.0),
+                    (6.0, 6.0), (1.0, 0.0))
+    cut = WingCut("p", "wing_cut:p", (), (line,), floor_z=100.0)
+    assert wing_top_y(cut, (-2.0, 0.0)) == pytest.approx(5.0)
+    assert wing_top_y(cut, (-2.0, 20.0)) == pytest.approx(6.0)
+    assert wing_top_y(cut, (-2.0, 10.0)) == pytest.approx(5.5)

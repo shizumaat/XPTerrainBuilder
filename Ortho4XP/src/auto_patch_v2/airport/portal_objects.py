@@ -103,6 +103,12 @@ class Portal:
     #: ``()`` / ``0.0`` with none wider than the opening
     front_xy: tuple = ()
     front_m: float = 0.0
+    #: owner RULINGS 2026-11-16a: the entrance reader's own opening read
+    #: under one road lane (``[tunnel] lane_width_m``) -- a misread; the
+    #: opening above is the face's jamb-to-jamb read
+    #: (``entrance_front.jamb_to_jamb``), and the object's walls are the cut's
+    #: witness (``airport/walled_trench``)
+    opening_misread: bool = False
     #: #1747 (Q-A 2026-11-05): an ENTRANCE object's face bottom under its
     #: zero at this end (``trench_objects.mouth_portals``) — the object stage
     #: seats that face with its bottom on :attr:`floor_z`

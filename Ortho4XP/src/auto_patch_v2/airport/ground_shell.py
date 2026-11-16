@@ -83,7 +83,7 @@ from . import terrain_model as _tm
 from . import terrain_shaped as _ts
 
 __all__ = ["SEATED", "HIDDEN", "shape_of", "verdict", "placement_shells",
-           "off_the_shell", "airside_capped", "log_line"]
+           "off_the_shell", "hidden_by_pack", "airside_capped", "log_line"]
 
 SEATED = "seated"
 HIDDEN = "hidden"
@@ -213,6 +213,17 @@ def placement_shells(placements: _t.Sequence[tuple],
             shape.grid.area_m2, shape.relief_m, file=str(path_of(dpath) or ""),
             ground=ground)
     return out
+
+
+def hidden_by_pack(o: _t.Any) -> bool:
+    """Is the placement ``o``'s own row left out of the written DSF by the
+    terrain reading -- a ground shell no seat lays flat, or a terrain object
+    the user hid (#2077 4.2, ticked by default since RULINGS 2026-11-15h)?
+    Such an object leaves the terrain solve (#1918, 2026-11-06d (1)): it
+    owns no ground and pins nothing."""
+    m = getattr(o, "terrain_model", None)
+    return m is not None and getattr(m, "ground", "") == HIDDEN \
+        and str(getattr(m, "id", "")) == str(getattr(o, "id", ""))
 
 
 def off_the_shell(o: _t.Any) -> _t.Any:

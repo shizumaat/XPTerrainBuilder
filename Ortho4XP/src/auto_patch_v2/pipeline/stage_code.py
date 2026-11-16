@@ -2683,7 +2683,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service
     planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
-    planar.mouth_behind planar.mouth_opening
+    planar.mouth_behind planar.mouth_opening pipeline.neck_release
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground

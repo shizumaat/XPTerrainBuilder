@@ -1007,6 +1007,13 @@ def is_late_cell(cell_or_region) -> bool:
     return is_late_ref(getattr(cell_or_region, "ref", ""))
 
 
+def is_pad_road_cell(cell) -> bool:
+    """A PAD ROAD's cell (issue #609): a mapped-road ribbon admitted for a
+    pad, evidence ``pad_road`` — a last-stage cell, solved after the gap
+    pieces against their levels."""
+    return bool((getattr(cell, "evidence", None) or {}).get("pad_road"))
+
+
 def _mouth_ll(mouth, to_ll) -> str:
     """One §43 mouth CUT LINE as ``lat,lon -> lat,lon`` (the owner's own
     notation for the two cut lines he drew at HECA shape 344)."""

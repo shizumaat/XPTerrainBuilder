@@ -377,6 +377,12 @@ def face_vertex_set(pm, face) -> set[int]:
     return out
 
 
+def face_cycles(pm, face) -> list[list[int]]:
+    """A face's outer ring and its holes, each as its vertex ids in walking
+    order (``PlanarMap.ring_vertices``)."""
+    return [list(pm.ring_vertices(c)) for c in (face.ring, *face.holes)]
+
+
 def face_vertex_ids(ring: _t.Sequence[int],
                     holes: _t.Iterable[_t.Sequence[int]]) -> list[int]:
     """THE VERTEX SET OF A FACE — its outer ring's vertices, then each hole

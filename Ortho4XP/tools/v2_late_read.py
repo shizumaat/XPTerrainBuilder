@@ -83,8 +83,14 @@ class Late:
         self.free, self.frep = late_followers(self.pa)
         ident = float(self.law.tables.emit.identity.min_distinct_spacing_m)
         self.fixed, self.jrep = late_fixed(self.pb, self.zb, self.pa, self.free, ident)
+        joined, rim_edges = frozenset(self.fixed), {}
         self.jrep["rim"] = late_rim_levels(self.pb, self.zb, self.pa, self.fixed,
-                                           self.free, ident * 0.02)
+                                           self.free, ident * 0.02, edge_of=rim_edges)
+        # #1918 R4-2: the stage's own neck release (a no-op without pad roads)
+        from auto_patch_v2.pipeline.neck_release import late_neck_release
+        self.jrep["rim"]["necks"], _ = late_neck_release(
+            self.pb, self.pa, self.fixed, self.cs, self.law,
+            rim_edges, joined, to_ll=self.to_ll)
         from auto_patch_v2.pipeline.late_stage import BEHIND_STEP
         rows, self.grep = gap_follow_rows(self.pa, self.law, self.fixed,
                                           behind_step=BEHIND_STEP)

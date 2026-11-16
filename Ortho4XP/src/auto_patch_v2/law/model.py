@@ -940,6 +940,11 @@ class RoadContact:
     #: destination) climbs at up to this instead of the road cap; nothing
     #: else changes the road cap (``constraints/road_ramp.terrace_profile``)
     upper_pad_road_grade: float
+    #: THE NECK BAR (#1918 R4, owner RULINGS 2026-11-16e): a standing road
+    #: kerb station abeam a pad road's standing vertex across a level
+    #: difference over this is a NECK, released in the pad roads' stage
+    #: where its own law lets it (``pipeline/neck_release``)
+    neck_step_m: float
     #: contact roles BESIDE the airside value roles (apron, pad, the taxi
     #: family, the runway family with §40's shoulder): §37 (10)'s LOT,
     #: which precedence.toml partitions groundside but which is hard

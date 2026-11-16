@@ -19,11 +19,10 @@ from __future__ import annotations
 
 import types
 
-from shapely.geometry import Polygon
-
 from auto_patch_v2.constraints import stretches as S
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar import floor_decks as FD
+from shapely.geometry import Polygon
 
 LAW = Law.for_airport("ZZZZ")
 
@@ -59,4 +58,4 @@ def test_a_shell_stating_no_cut_may_ride_and_a_cut_or_hidden_shell_never():
     hidden = types.SimpleNamespace(object_id="hidden", hidden=True, footprint=Polygon())
     owner = types.SimpleNamespace(object_id="owner", hidden=False, footprint=cut)
     liner = types.SimpleNamespace(object_id="liner", hidden=False, footprint=Polygon())
-    assert FD.stating_cut([liner, hidden, owner]) == {"hidden", "owner"}
+    assert FD._stating_cut([liner, hidden, owner]) == {"hidden", "owner"}

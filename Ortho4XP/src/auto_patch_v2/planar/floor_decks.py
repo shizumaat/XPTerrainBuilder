@@ -39,7 +39,7 @@ from ..geom.parts import polygon_parts_with_area
 from ..model.frame import xplane_metre_scale
 from ..model.planar import ROAD_ROLES
 
-__all__ = ["floor_decks", "stating_cut"]
+__all__ = ["floor_decks"]
 
 
 def floor_decks(floors: _t.Sequence[ObjectFloor], objects, cache, classification, airport,
@@ -111,7 +111,7 @@ def floor_decks(floors: _t.Sequence[ObjectFloor], objects, cache, classification
                              f"by its end lines (#1883 r3 B2)")
         if got:
             decked = {g.object_id for g in got}
-            riders = _deck_riders(f, got, decked | stating_cut(floors), by_id, cache,
+            riders = _deck_riders(f, got, decked | _stating_cut(floors), by_id, cache,
                                   airport, on)
             notes.extend(f"{f.id}: {pid} stands on a deck piece of its frame: it rides "
                          f"that piece (#1883)" for pid in riders)
@@ -121,7 +121,7 @@ def floor_decks(floors: _t.Sequence[ObjectFloor], objects, cache, classification
     return out, notes
 
 
-def stating_cut(floors: _t.Sequence[ObjectFloor]) -> set[str]:
+def _stating_cut(floors: _t.Sequence[ObjectFloor]) -> set[str]:
     """The floors that state a cut -- a footprint, or hidden -- and so never
     ride a deck piece.  A frame shell stating none (A4's shallower shell:
     LGAV ``Trench_01``'s bridges under the deck pieces) rides like any part

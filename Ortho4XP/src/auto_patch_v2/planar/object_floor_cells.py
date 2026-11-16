@@ -192,6 +192,10 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats,
     floors = floors + more
     notes.extend(s_notes)
     floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}
+    # #1918: an object cut stated by a placement the terrain reading hides
+    # owns no ground either (``ground_shell.hidden_by_pack``)
+    from ..airport.ground_shell import hidden_by_pack
+    floor_ids |= {o.id for o in objects or () if hidden_by_pack(o)}
     if floor_ids:
         corridors = [c for c in corridors if not (set(c.objects) & floor_ids)]
         tstats.shell_claimed = tuple(sorted(set(tstats.shell_claimed) | floor_ids))

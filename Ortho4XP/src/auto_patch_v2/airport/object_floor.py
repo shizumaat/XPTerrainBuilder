@@ -55,7 +55,9 @@ no ground and pins nothing (:func:`owns_ground`), the cut it stood for is
 graded by the map's own laws (channel, road profiles, banks); its footprint
 stays a witness of the cut's extent (:func:`has_footprint`: the deck pieces
 over it, the cut ring they are seated by; A4's withdrawal of the shallower
-shells inside it).
+shells inside it).  A floor or shell whose own row the terrain reading hides
+(``ground_shell.hidden_by_pack``: a ground shell no seat lays flat, or a
+terrain object the user hid) is hidden the same way (#1918).
 
 THE FRAME'S ONE ZERO (B1).  Every placement of a floor's frame is written
 whole at the zero the floor was read at — the pack's shared datum — except
@@ -597,6 +599,12 @@ def read_object_floors(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Re
                                tuple(p.id for p in covers), zero, fz, foot, faces, (note,),
                                seats, rim_tops=tops))
     out = _deepest(_share_lift(out, notes), law, notes)
+    # #1918: a floor whose own row the terrain reading leaves out of the
+    # DSF is hidden like A7's shell -- it owns no ground (:func:`owns_ground`)
+    from .ground_shell import hidden_by_pack
+    gone = {o.id for o in placed if hidden_by_pack(o)}
+    out = [_dc.replace(f, hidden=True) if f.object_id in gone and not f.hidden else f
+           for f in out]
     return out, notes
 
 

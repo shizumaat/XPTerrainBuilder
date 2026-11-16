@@ -85,8 +85,8 @@ from .deck_walls import inner_faces, wall_faces, wall_strip
 
 __all__ = ["DeckBridge", "deck_polygon", "from_full", "full_map", "with_cuts",
            "deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
-           "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "deck_ground",
-           "DECK_GROUND_REF", "across_dir",
+           "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "group_reach",
+           "deck_ground", "DECK_GROUND_REF", "across_dir",
            "mid_line", "project_span"]
 
 XY = tuple[float, float]
@@ -919,13 +919,13 @@ def deck_pin(db: DeckBridge, mouth, law=None):
     (``wall_reach_m``) and their feet's least-squares slope (``foot_grade``)
     -- the walls the ramp is planned on (``planar/structures``' walled path)."""
     from ..airport.portal_objects import Portal
-    reach, grade = (0.0, 0.0) if law is None else _group_reach(db, tuple(mouth.xy), law)
+    reach, grade = (0.0, 0.0) if law is None else group_reach(db, tuple(mouth.xy), law)
     return Portal(db.object_id, db.resource, tuple(mouth.xy),
                   int(mouth.ways[0]) if mouth.ways else 0, db.depth_m, 0.0,
                   tuple(mouth.xy), False, db.ring, (), wall_reach_m=reach, foot_grade=grade)
 
 
-def _group_reach(db: DeckBridge, xy, law) -> tuple[float, float]:
+def group_reach(db: DeckBridge, xy, law) -> tuple[float, float]:
     """``(reach, foot slope)`` of the deck's group walls along the approach
     out of the mouth at ``xy`` (away from the deck): the stations chained
     from the mouth, no gap over two ``wall_sample_m``, and the least-squares

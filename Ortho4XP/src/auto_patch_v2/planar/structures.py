@@ -114,7 +114,8 @@ from .structure_approach import (FieldRegion, apply_plates, cover_polygons, stan
 from .unframed_ramp import (BEND_CAP, MAX_OVERLAP_PASSES, bend_note as _bend_note,
                             cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
-from .structure_overlap import deck_partner, resolve_overlaps, run_group, run_side, run_stop_s
+from .structure_overlap import (deck_partner, resolve_overlaps, run_group, run_side, run_stop_s,
+                                walled_ramp)
 from ..airport.portal_objects import portal_of
 from .structure_mouth import (covered_stretch, face_top_z, own_road_blade, road_end_after_slide,
                               road_over_mouth)
@@ -416,7 +417,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               lambda x, y: dem_z_at(airport, (x, y)), tn.wall_gap_m,
                               deck_of[id(m)].depth_m / tn.ramp_grade,
                               law.tables.emit.chords.station_spacing_m, deck_bridges,
-                              deck_paved)
+                              deck_paved, law)
             for m in mouth_list if deck_of.get(id(m)) is not None},
         float(law.tables.emit.cockpit.visual_m))
 
@@ -976,6 +977,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         edge_covers: tuple = ()
         edge_floor: tuple = ()
         level_to = None       # the open stretch between two bridges: level to here
+        ramp_walled = deck is not None and walled_ramp(deck, members[0].xy, law)
         if deck is not None:
             # 2026-10-30a (2): the floor is level under the whole deck at its
             # bottom and climbs beyond its edge — or stays at the floors to
@@ -991,10 +993,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if deck_air is None:
                 deck_air = unary_union([p for p, c in zip(polys, cells, strict=False)
                                         if c.ref in air_refs])
+            # #2099 G3 A: a corridor its group's walls line and climb along
+            # is a ramp to their end, never run through to a further deck
+            partner = None if ramp_walled else \
+                rt.partner_deck if rt is not None and rt.partner_deck is not None \
+                else deck_partner(deck, axis_ln, deck_bridges, deck_air, half + rim_off + gap)
             flat_to, level_to, edge_floor, edge_seats, deck_next = deck_seats(
-                deck, axis_ln, rt.partner_deck if rt is not None and rt.partner_deck is not None
-                else deck_partner(deck, axis_ln, deck_bridges, deck_air,
-                                  half + rim_off + gap), gap)
+                deck, axis_ln, partner, gap)
             climb_from = max(climb_from, flat_to)
         if edge is not None:
             # 27r / 28d Q213: the floor stays at the objects' bottom under the
@@ -1015,7 +1020,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             edge_covers = tuple(tuple(p.exterior.coords) for b in met
                                 for p in getattr(b.cover, "geoms", [b.cover])
                                 if p.geom_type == "Polygon")
-        if rt is not None and c is None and level_to is None:
+        if rt is not None and c is None and level_to is None \
+                and not (ramp_walled and rt.partner_deck is not None):
             # 2026-11-03b Q340 a: the road stays down to its run line
             level_to = run_stop_s(axis_ln, rt, 0.5 * gap)
             if level_to is not None:

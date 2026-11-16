@@ -35,7 +35,7 @@ import contextlib
 import os
 import time
 
-__all__ = ["ALIAS_DIR", "KEEP", "SEP", "canonical", "naming_ters", "renew"]
+__all__ = ["ALIAS_DIR", "KEEP", "SEP", "canonical", "renew"]
 
 #: The folder of the symlinks, beside the textures (hidden: no texture
 #: listing sees it).

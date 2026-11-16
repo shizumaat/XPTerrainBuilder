@@ -67,7 +67,7 @@ import numpy as np
 from auto_patch_v2.airport import pack_choice as _PC
 
 __all__ = ["cut_records", "bake", "apply", "held_boxes", "wet_weight_cells", "hold",
-           "write_alt", "write_unfill", "unfill_water", "refill_land"]
+           "write_alt", "unfill_water", "refill_land"]
 
 #: the raster postings left uncut at the tile's edge (the neighbour's
 #: raster is not cut, and the two must meet)

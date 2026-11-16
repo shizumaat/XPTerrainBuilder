@@ -323,7 +323,7 @@ def _ground_max(dem_z, xy: XY, r: float) -> float:
 
 
 def _misread_face(o, g, xy: XY, into, r: float, law, bottom: float, outline, dem_z,
-                  walled: bool, floor: float) -> tuple[float, tuple, bool, float]:
+                  walled: bool, floor: float) -> tuple[float, tuple, bool, float, object]:
     """``(opening width, edges, walled, floor)`` of an entrance face whose
     opening read under one road lane (owner RULINGS 2026-11-16a: a misread;
     "the reader falls back to the object's walls"): the opening JAMB TO JAMB
@@ -331,19 +331,45 @@ def _misread_face(o, g, xy: XY, into, r: float, law, bottom: float, outline, dem
     is under a lane), and where the face stands a wall's height at the bore
     line, a WALLED face whose zero stands on the ground its walls retain --
     the highest ground within ``r`` of the end (:func:`_ground_max`, the
-    reach a face is read in) -- its floor that zero plus its bottom.
-    MEASURED CYYZ ``Tx_E``: the anchor stands on the wall, the DEM there is
-    the slope's middle (167.89) 4 m under the taxiway it retains; its floor
-    read 160.93 against the junction in front of it at 164.8."""
+    reach a face is read in) -- its floor that zero plus its bottom, and its
+    TOP PLAN the plates of its solids within ``r`` of the end standing at
+    its top there (the last element; ``None`` for no walled face): the
+    ground behind it is graded to its zero (``planar/entrance_skirt``,
+    ``constraints/airside_top``; owner item 6 "terrain on the back side does
+    not grade to the back of the mouth").  MEASURED CYYZ ``Tx_E``: the
+    anchor stands on the wall, the DEM there is the slope's middle (167.89)
+    4 m under the taxiway it retains; its floor read 160.93 against the
+    junction in front of it at 164.8."""
     from .entrance_front import jamb_to_jamb
+    ob = law.tables.structures.tunnel.object
     lane = float(law.tables.structures.tunnel.lane_width_m)
     width, edges, top = jamb_to_jamb(o, g, xy, into, r, law, bottom, outline)
     if width < lane:
         width, edges = 0.0, ()
-    if top - bottom < float(law.tables.structures.tunnel.object.shell_floor_min_m):
-        return width, edges, walled, floor
     ground = _ground_max(dem_z, xy, r)
-    return width, edges, True, (floor if not math.isfinite(ground) else ground + bottom)
+    if top - bottom < float(ob.shell_floor_min_m) or not math.isfinite(ground):
+        return width, edges, walled, floor, None
+    return width, edges, True, ground + bottom, _top_plates(o, g, xy, r, top, law)
+
+
+def _top_plates(o, g, xy: XY, r: float, top: float, law):
+    """The plan of ``o``'s near-horizontal solid faces within ``r`` of ``xy``
+    whose top stands within ``plate_bin_m`` of ``top`` (frame), or ``None``."""
+    from shapely.geometry import Polygon
+    ob = law.tables.structures.tunnel.object
+    got = _near_solids(o, g, xy, r)
+    if got is None:
+        return None
+    px, py, ks = got
+    v, t = g.vertices, g.solid
+    tk = t[ks]
+    sel = (_face_normals_y(v, tk) >= ob.plate_normal_y_min) \
+        & (v[tk, 1].max(axis=1) >= top - float(ob.plate_bin_m))
+    if not sel.any():
+        return None
+    u = shapely.union_all(np.array([Polygon(np.c_[px[q], py[q]]).buffer(1e-3)
+                                    for q in tk[sel]], dtype=object))
+    return None if u.is_empty else u
 
 
 def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj8.PlacedObject],
@@ -442,9 +468,12 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             # the face is re-read off its walls (:func:`_misread_face`)
             misread = 0.0 < width < lane
             if misread:
-                width, edges, walled, floor = _misread_face(
+                width, edges, walled, floor, plan = _misread_face(
                     o, g, xy, end_into, 2.0 * tol, law, bottom, t.outline, dem_z, walled, floor)
-                cover = None
+                # its top at grade is its zero (the walls' top; a parapet
+                # over the opening stands proud of the ground)
+                if plan is not None:
+                    cover, top = floor - bottom, 0.0
             reach, foot = _wall_feet(o, g, xy, end_into, law)
             out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
                               ground - floor, 0.0, (float(xy[0]), float(xy[1])),

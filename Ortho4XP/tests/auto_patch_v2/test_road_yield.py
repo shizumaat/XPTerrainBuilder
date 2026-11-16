@@ -93,3 +93,16 @@ def test_the_rim_road_barrier_reads_the_mapped_width(law):
     cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
     halves = [h for _l, h in road_edges((_road(0.0, lanes="7"), _road(0.0)), law)]
     assert halves == pytest.approx([12.25 + cut, road_half_width_m(law)])
+
+
+def test_an_invalid_envelope_never_aborts_the_road_cut():
+    # #2079: RJTT's band/airside union came back invalid (a self-touching
+    # ring) and ``difference`` raised a GEOS side-location conflict that
+    # lost the whole airport's patch; the cut reads the envelope's valid
+    # area instead (``geom.valid_area.minus``)
+    from auto_patch_v2.planar.road_yield import road_cut_pieces
+    from shapely.geometry import Polygon
+    bow = Polygon([(0, 0), (10, 10), (10, 0), (0, 10)])
+    assert not bow.is_valid
+    pieces = road_cut_pieces([(LineString([(-5, 5), (15, 5)]), 3.0)], bow, 1.0)
+    assert pieces and all(not g.is_empty for _a, _h, g in pieces)

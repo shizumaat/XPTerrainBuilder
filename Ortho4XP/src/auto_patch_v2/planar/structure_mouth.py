@@ -90,6 +90,7 @@ from ..law.tables import is_structure_role, is_value_role, role_family, role_sid
 from ..model.frame import rotated_rectangle
 from ..model.planar import OSM_RIBBON_FEEDS, ROAD_ROLES
 from .entrance_skirt import _cover_back
+from .mouth_behind import behind_faces, cap_bound
 from .mouth_opening import axis_left_normal
 from .structure_geometry import snap_out
 
@@ -443,7 +444,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       pinned: bool = False, road_floor: float | None = None,
                       road_extra: float = 0.0, slide: bool = True, own_lines=(), own_area=None,
                       keep_out: _t.Sequence[tuple[Polygon, str]] = (), own_cut=None,
-                      cutting=None, skew=None):
+                      cutting=None, skew=None, entrance: bool = False):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
     axis starting at the mouth that stands clear of the pavement (the
@@ -486,6 +487,11 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     ``own_cut`` (a HARD-DECK BRIDGE's ring, ``planar/deck_bridge``; owner
     RULINGS 2026-10-30a, Q296/Q297): the pavement inside it is the deck's —
     the cut takes it, and only what stands beyond it stops the ramp.
+    ``entrance`` (the pin is an ENTRANCE face): a taxiway its ring meets
+    only behind the mouth line is no clause-1 hit (``mouth_behind``); the
+    pinned result then carries an eighth element ``(cap_off, faces)`` --
+    the ring's cap stand-off and the faces its void and knife never take
+    (#2099 F2 P1b / P1c).
 
     ``keep_out`` — ground a corridor's wall may never stand in (the runway
     strip keep-out, ``retaining_wall.in_runway_strip = false``; issue
@@ -526,7 +532,12 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         got = _pinned(group, axis, cells, polys, pads, law, cut_roles, half, rim_off,
                       decked, grid, crossing, ring_of(0.0), taxi_yields=slide,
                       own_lines=own_lines, own_area=own_area, own_cut=own_cut,
-                      airport=airport)
+                      airport=airport, entrance=entrance)
+        if isinstance(got, tuple) and len(got) > 7:
+            # #2099 F2 P1b: the cap held short of the taxiway behind the
+            # mouth line -- or, where it cannot stand wall_gap_m, the yield
+            cap = cap_bound(got[7], law, gap)
+            got = got[:7] + ((cap, got[7].faces),) if cap is not None else got[7].refs[0]
         if isinstance(got, tuple):
             return got
         # clause 1 stands over the portal: a taxiway face at its opening
@@ -691,7 +702,7 @@ PORTAL_YIELDS = "the pack portal yields to taxiway"
 
 def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, half: float,
             rim_off: float, decked, grid: float, crossing, mouth_ring, taxi_yields: bool = True,
-            own_lines=(), own_area=None, own_cut=None, airport=None):
+            own_lines=(), own_area=None, own_cut=None, airport=None, entrance: bool = False):
     """:func:`mouth_at_pavement` for a mouth a pack PORTAL pins: never
     slid.  The stops are read at the mapped mouth; those the mouth's own
     end (its cap and first spacing of ramp, ``mouth_ring``) stands in are
@@ -702,7 +713,11 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     uncut, the pad kept the ground over the ramp).  A
     TAXIWAY face at the opening is never dropped (clause 1): its ref is
     returned instead (a string), and the caller slides the mouth — unless
-    ``taxi_yields`` is false (an edge bridge's pin is never slid)."""
+    ``taxi_yields`` is false (an edge bridge's pin is never slid).  An
+    ``entrance`` face's ring meeting taxiway faces only BEHIND its mouth
+    line keeps them as stops and returns them as an eighth element
+    (``mouth_behind.Behind``; #2099 F2 P1b)."""
+    behind = None
     mouth = tuple(axis.coords[0])            # the portal's own mouth (``portal_mouth``)
     stops = mouth_stops(cells, polys, law, cut_roles, axis, mouth, half, rim_off,
                         decked, grid, _routes(group)) + list(crossing)
@@ -712,10 +727,15 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
         mouth_ring = None
     if mouth_ring is not None:
         taxi = {c.ref for c in cells if role_family(law, c.role) == "taxi"}
-        hit = [r for p, r in stops if r in taxi and p.intersects(mouth_ring)]
-        if hit and taxi_yields:
-            return hit[0]
-        stops = [(p, r) for p, r in stops if not p.intersects(mouth_ring)]
+        hit = [(p, r) for p, r in stops if r in taxi and p.intersects(mouth_ring)]
+        # #2099 F2 P1b: a taxiway an ENTRANCE face's ring meets only behind
+        # its mouth line is not at the opening -- it stays a stop
+        behind = behind_faces(mouth, group.inward, mouth_ring, hit) \
+            if entrance and taxi_yields else None
+        if hit and taxi_yields and behind is None:
+            return hit[0][1]
+        kept = set() if behind is None else set(behind.refs)
+        stops = [(p, r) for p, r in stops if r in kept or not p.intersects(mouth_ring)]
         # #1747 / owner 2026-11-04 (LOWS 15): a building PAD the opening
         # stands in is the portal object's own footprint (an entrance's
         # walls read as a building): the ramp grades into it to the
@@ -739,7 +759,8 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     stops = [(p, r) for p, r in stops if str(r).split("#", 1)[0] not in joins]
     stops = list(pads) + stops
     tree = STRtree([p for p, _r in stops]) if stops else None
-    return axis, mouth, stops, tree, "", None, hosts if mouth_ring is not None else ()
+    return (axis, mouth, stops, tree, "", None, hosts if mouth_ring is not None else ()) + (
+        (behind,) if behind is not None else ())
 
 
 def _junction_refs(airport, own: _t.Sequence[LineString], tol: float) -> set[str]:

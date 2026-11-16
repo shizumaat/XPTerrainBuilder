@@ -118,6 +118,7 @@ from .structure_overlap import deck_partner, resolve_overlaps, run_group, run_si
 from ..airport.portal_objects import portal_of
 from .structure_mouth import (covered_stretch, face_top_z, own_road_blade, road_end_after_slide,
                               road_over_mouth)
+from .mouth_behind import clear_of
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement
 from .structure_mouth import pinned_trench_notes
 from .lidar_road import (KEPT, NO_SIGN, is_rail_group, kept_face_shift, mouth_verdict,
@@ -720,7 +721,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             pinned=pin is not None, road_floor=road_f,
             road_extra=0.0 if road_rd is None else road_rd.extra,
             cutting=cutting_of(airport, law, road_rd, width),      # #1939
-            skew=k_sk,
+            skew=k_sk, entrance=pin is not None and is_entrance_face(pin),
             slide=edge is None and deck is None,
             own_lines=() if edge is None and deck is None else [
                 LineString(m.approach) for m in members
@@ -747,6 +748,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if clear is not None and clear[0] is None:
             stats.refused.append(f"{tid}: {clear[4]}")
             continue
+        behind = clear[7] if clear is not None and len(clear) > 7 else None
+        if behind is not None:
+            # #2099 F2 P1b: a taxiway behind an entrance mouth's line bounds
+            # its cap (``mouth_behind``); the mouth stays at the face
+            g = _dc.replace(g, cap_off=behind[0] if g.cap_off is None
+                            else min(g.cap_off, behind[0]))
+            stats.portal_mouths.append(f"{tid}: {pin.object_id} cap {behind[0]:.2f} m behind "
+                                       f"the mouth line, short of the taxiway behind it "
+                                       f"(#2099 F2 P1b)")
         portal_axis = axis_ln
         axis_ln, mouth = (clear[0], clear[1]) if clear is not None else (axis_ln, mouth)
         stretch = None if clear is None else covered_stretch(
@@ -1466,6 +1476,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             ramp_geom = ramp_geom.difference(sea_cut)
             wall_geom = wall_geom.difference(sea_cut)
             deck_polys = [dp.difference(sea_cut) for dp in deck_polys]
+        if behind is not None:
+            # #2099 F2 P1c: the void and the knife never take the taxiway
+            wall_geom = clear_of(wall_geom, behind[1])
+            o_ = clear_of(outer, behind[1])
+            outer = o_ if o_.geom_type == "Polygon" else (largest_polygon(o_) or outer)
         ramp_parts = _parts(ramp_geom)
         if sea_cut is not None and not ramp_parts:
             stats.refused.append(f"{tid}: the whole ramp stands on the WATER — "

@@ -358,8 +358,14 @@ def _with_agp_groups(airport, law) -> tuple[_t.Any, list[str]]:
     """``(airport with agp_groups, notes)`` (#2090 A1, ``airport/agp_group``);
     a record already read is kept."""
     import time
-    if getattr(airport, "agp_groups", ()) or law is None:
+    if law is None:
         return airport, []
+    if getattr(airport, "agp_groups", ()):
+        # a capture's record keeps its groups; its plates are re-read under
+        # the current tree (#2116 R2: a replay iterates on the plate rules)
+        from ..airport.agp_plates import with_plates
+        notes: list[str] = []
+        return with_plates(airport, law, notes), notes
     from ..airport.agp_group import attach_agp_groups, log_line
     t0, notes = time.perf_counter(), []
     airport = attach_agp_groups(airport, law, notes)

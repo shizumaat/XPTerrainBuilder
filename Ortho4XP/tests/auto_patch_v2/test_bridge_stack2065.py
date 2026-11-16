@@ -122,7 +122,9 @@ def test_the_held_and_listed_witnesses():
     # end_at_pack_solid: the standing plan of another frame's object on the path
     solid = types.SimpleNamespace(id="S", path="hall.obj", plan_bbox=box(30, -5, 50, 5),
                                   fp=box(30, -5, 50, 5))
-    e = _end(_Obs(road, solids=[solid]), zero=5.0)
+    # ... on the straight ray of an end on no carried way (#2116 R2 H: a
+    # solid the carried ROUTE crosses is part of the route, never a hold)
+    e = _end(_Obs(road, solids=[solid]), zero=5.0, carried=(-9,))
     assert e.state == "held" and "end_at_pack_solid" in e.why and "(at 30 m)" in e.why
     # ... never one of its own frame
     assert _end(_Obs(road, solids=[]), zero=5.0, own={"S"}).state == "graded"
@@ -132,7 +134,7 @@ def test_the_held_and_listed_witnesses():
     assert "end_off_dem" in _end(_Obs(road, off=60.0), zero=5.0).why
     # the NEAREST decides
     both = _Obs(road, airside=[box(80, -9, 90, 9)], solids=[solid])
-    assert _end(both, zero=5.0).state == "held"
+    assert _end(both, zero=5.0, carried=(-9,)).state == "held"
     # a stub's ray over fill_road_reach_m is listed; under it graded
     reach = float(LAW.tables.structures.building_pad.fill_road_reach_m)
     g_far = (reach + 1.0 - STEP) * 0.05
@@ -619,3 +621,15 @@ def test_a_road_meets_a_level_end_at_its_top_and_one_flush_lower_inside():
     flush = float(BR.deck_flush_m)
     assert {v: round(z[0], 6) for v, z in sel.items()} == {
         0: 10.0, 1: 10.0, 2: round(10.0 - flush, 6), 3: round(10.0 - flush, 6)}
+
+
+def test_a_solid_the_carried_route_crosses_is_part_of_the_route_whatever_its_width():
+    """#2116 R2 H (owner RULINGS 2026-11-16q): a hider on the route never
+    holds the end; a solid met only past the mapped route still does."""
+    road = [_way(-1, [(-20, 0), (0, 0), (500, 0)], railway="rail")]
+    hider = types.SimpleNamespace(id="H", path="Train_Hider.obj", plan_bbox=box(30, -21, 50, 21),
+                                  fp=box(30, -21, 50, 21))
+    e = _end(_Obs(road, solids=[hider]), zero=5.0)
+    assert e.state == "graded" and "end_through_route_solid: H" in e.why
+    short = [_way(-1, [(-20, 0), (0, 0), (20, 0)], railway="rail")]
+    assert _end(_Obs(short, solids=[hider]), zero=5.0).state == "held"

@@ -1720,4 +1720,6 @@ deck_join_reach_m  = 3.0    # B1: a deck end joins a floor within this of its pr
 deck_join_margin_m = 1.0    # B1: the next floor is at least this further
 ground_band_m      = 0.6    # C1: a plate's floors stand within this of the datum
 floor_min_area_m2  = 100.0  # C1: a smaller plate part is not built
-plate_max_off_m    = 3.0    # C1: a plate whose median level stands further from the DEM is not built
+plate_max_off_m    = 3.0    # C1: a plate whose median level stands further from the DEM is not built (read only on credible lidar, #2116 R2 G2)
+pad_cover_min      = 0.5    # #2116 R2 G1: a footprint this share inside a governed group's follower plan mints no pad
+plate_gap_max_m    = 30.0   # #2116 R2 C1b: an open strip this wide or less between two ground-floor parts of one follower is a plate part

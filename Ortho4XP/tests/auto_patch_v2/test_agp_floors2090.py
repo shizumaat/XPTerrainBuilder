@@ -40,12 +40,12 @@ def _pack(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 def _count_parses(monkeypatch) -> list:
     calls: list = []
-    real = AF._parse_floors
+    real = AF._parse
 
     def spy(path, flat):
         calls.append(path)
         return real(path, flat)
-    monkeypatch.setattr(AF, "_parse_floors", spy)
+    monkeypatch.setattr(AF, "_parse", spy)
     return calls
 
 

@@ -663,6 +663,38 @@ def _cluster_pads(airport: Airport, law, airside=None,
 
 
 
+def _note_follower(b, p, group: str) -> None:
+    line = f"agp_follower_no_pad: {b.source} {b.id} {p.area:.0f} m2 {group}"
+    PAD_REFUSED.setdefault("agp_follower_notes", []).append(line)
+    print(f"  [pads] {line}")
+
+
+def _agp_followed(airport: Airport, law, admitted: tuple) -> dict[int, str]:
+    """#2116 R2 G1: building index -> group id for every admitted footprint
+    lying ``[agp] pad_cover_min`` inside a governed group's follower plan
+    (``airport/agp_plan``); the governor keeps its pad."""
+    PAD_REFUSED["agp_follower_notes"] = []
+    if law is None or not getattr(airport, "agp_groups", ()):
+        return {}
+    from ..airport.agp_plan import follower_cover, follower_plans
+    plans = follower_plans(airport, law)
+    if not plans:
+        return {}
+    cover_min = float(law.tables.structures.agp.pad_cover_min)
+    out: dict[int, str] = {}
+    for k, b in enumerate(airport.buildings):
+        if not b.source.startswith(admitted):
+            continue
+        p = polygon_from(b.outer, b.holes)
+        if p is None or p.area <= 0:
+            continue
+        hit = follower_cover(plans, p)
+        if hit is not None and hit[1] >= cover_min:
+            out[k] = hit[0].group
+            _note_follower(b, p, f"{hit[0].group} {hit[0].row} cover {hit[1]:.2f}")
+    return out
+
+
 def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
           pavement_union, runway_union, law=None, cache=None, slope: bool = True,
           gained=None
@@ -724,8 +756,19 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     _st = law.tables.structures.placement if law is not None else None
     _fallback_gate = bool(_st is not None
                           and getattr(_st, "building_evidence", False))
+    # #2116 R2 G1 (owner RULINGS 2026-11-16r/s/t): A FOLLOWER OF A GOVERNED
+    # AGP GROUP MINTS NO PAD.  X-Plane seats it at its GROUND_PT on the
+    # group's datum; a footprint lying ``[agp] pad_cover_min`` inside its
+    # plan (``airport/agp_plan``) would mint a pad on the per-body DEM
+    # datum fronting nothing.  Dropped here, before ``pad_union``, like the
+    # skirted pad: zones / lots / roads cover the footprint.  A footprint
+    # admitted only on the evidence of a refused one is refused with it.
+    _followed = _agp_followed(airport, law, admitted)
     _osm_ev = osm_building_evidence(airport.buildings) if _fallback_gate else None
-    _n_unvouched = _n_osm = _n_mouth = 0
+    _osm_kept = (osm_building_evidence([b for k, b in enumerate(airport.buildings)
+                                        if k not in _followed])
+                 if _fallback_gate and _followed else _osm_ev)
+    _n_unvouched = _n_osm = _n_mouth = _n_follow_ev = 0
     # #1747 (owner RULINGS 2026-11-06b (6)): a footprint-cache ring the
     # tunnel mouths' walls reach into (deeper than the touch tolerance the
     # footprints chain at) was WELDED from those walls, and a weld's members
@@ -735,8 +778,8 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     _mouths = _with_shade(getattr(airport, "entrance_shade", None),
                           getattr(airport, "stack_shade", None))
     _touch = float(law.tables.structures.placement.footprint_touch_m) if law is not None else 0.0
-    for b in airport.buildings:
-        if not b.source.startswith(admitted):
+    for k_b, b in enumerate(airport.buildings):
+        if not b.source.startswith(admitted) or k_b in _followed:
             continue
         p = polygon_from(b.outer, b.holes)
         if p is None or p.area <= 0:
@@ -746,6 +789,10 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
             if _osm_ev is None or not _osm_ev(p):
                 _n_unvouched += 1
                 continue
+            if _followed and (_osm_kept is None or not _osm_kept(p)):
+                _n_follow_ev += 1
+                _note_follower(b, p, "evidence of a refused footprint")
+                continue
             _n_osm += 1
         if (_mouths is not None and b.source.startswith("dsf:object")
                 and p.buffer(-_touch).intersects(_mouths)):
@@ -753,6 +800,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
             continue
         polys.append(p)
     PAD_REFUSED["fallback_no_building_evidence"] = _n_unvouched
+    PAD_REFUSED["agp_follower"] = len(_followed) + _n_follow_ev
     PAD_REFUSED["fallback_tunnel_mouth"] = _n_mouth
     # lane ``padgates101b``: the OSM half's own count on this half — the
     # sweep read ``osm_vouched`` 0 everywhere because that counter is the

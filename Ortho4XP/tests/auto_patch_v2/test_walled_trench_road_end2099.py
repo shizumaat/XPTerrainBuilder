@@ -4,9 +4,8 @@ floor, within a wall's plan thickness) is on the floor; one past the wall,
 or already inside, leaves the floor as it was."""
 from __future__ import annotations
 
-from shapely.geometry import Point, box
-
 from auto_patch_v2.airport.walled_trench import _reach_road_ends
+from shapely.geometry import Point, box
 
 FLOOR = box(0.0, 0.0, 20.0, 40.0)
 TK = 2.0

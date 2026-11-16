@@ -8,10 +8,9 @@ import types
 
 import pytest
 import shapely
-from shapely.geometry import box
-
 from auto_patch_v2.airport import hung_wall_seat as H
 from auto_patch_v2.airport import wall_class, wall_sheets, wall_top
+from shapely.geometry import box
 
 # frame: the wall is a 40 m x 0.8 m strip along x at y in [0, 0.8]
 WALL = box(0.0, 0.0, 40.0, 0.8)
@@ -48,7 +47,8 @@ def wedge(monkeypatch):
     monkeypatch.setattr(wall_sheets, "hung_wall", lambda *a, **k: True)
     monkeypatch.setattr(wall_class, "_seat_z", lambda *a, **k: 170.0)
     monkeypatch.setattr(wall_top, "top_profile",
-                        lambda comp, g, f, to_xy, cache=None: ((0.0, 0.08), (20.0, 0.1), (40.0, 0.03)))
+                        lambda comp, g, f, to_xy, cache=None:
+                        ((0.0, 0.08), (20.0, 0.1), (40.0, 0.03)))
     monkeypatch.setattr(wall_top, "foot_profile",
                         lambda comp, g, f, to_xy, cache=None: ((0.0, state["foot"][0]),
                                                                (40.0, state["foot"][1])))

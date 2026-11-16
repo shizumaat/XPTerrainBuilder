@@ -25,6 +25,7 @@ from ..law.tables import family, role_cap
 from ..model.airport import Airport
 from ..model.constraints import Band, ConstraintSet, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
+from .edge_floor import seat_pair
 
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
@@ -464,13 +465,54 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
     rep["beyond_wall_ground"] = len(bands) - len(cs.bands)
     # #1661 (Q299 (a)) / #1662: the wall slope's face vertices at the wall's
     # top (upper face) or its foot (lower face)
+    seated = _reseat_seats(planar, law, held)
     for v, (tz, ruling) in sorted(tops.items()):
-        if v not in beyond:
-            bands.append(Band(v, tz, tz, Source("wall_terrace", ruling,
-                                                (f"vertex:{v}",))))
+        if v in beyond:
+            continue
+        src = Source("wall_terrace", ruling, (f"vertex:{v}",))
+        got = _seated_top(held, seated, xy[v]) if ruling == WALL_TOP_RULING else None
+        if got is None:
+            bands.append(Band(v, tz, tz, src))
+            continue
+        # #2099 F2 P4b: the top of a re-seated wall is level with its
+        # entrance's airside seat, as its skirt is (``constraints/structures``)
+        terms, zero = got
+        linears.extend(seat_pair(v, (terms, zero - tz), src))
+        rep["wall_top_seated"] = rep.get("wall_top_seated", 0) + 1
     rep["wall_top_ground"] = len(bands) - len(cs.bands) - rep["beyond_wall_ground"]
     return _dc.replace(cs, diffs=tuple(diffs), linears=tuple(linears),
                        bands=tuple(bands)), rep
+
+
+def _reseat_seats(planar: PlanarMap, law: Law, held: _t.Sequence) -> dict[str, tuple]:
+    """#2099 F2 P4b: placement id -> its entrance face's airside seat terms
+    (``constraints/airside_top.top_seats``) for every re-seated wall in
+    ``held`` whose tunnel has one."""
+    want = {w.placement for w in held if getattr(w, "reseat_z", None) is not None}
+    if not want:
+        return {}
+    from .airside_top import top_seat, top_seats
+    seats = top_seats(planar, law)
+    out: dict[str, tuple] = {}
+    for tn in getattr(planar, "structures", ()) or ():
+        got = top_seat(seats, tn) if getattr(tn, "portal", "") in want else None
+        if got is not None:
+            out.setdefault(tn.portal, got[0])
+    return out
+
+
+def _seated_top(held: _t.Sequence, seated: _t.Mapping[str, tuple], p: tuple
+                ) -> "tuple[tuple, float] | None":
+    """``(seat terms, zero)`` of the re-seated wall in ``held`` whose upper
+    face or fill holds ``p`` (``wall_zone.face_top`` / ``fill_top``), when
+    its entrance has an airside seat (``seated``); else ``None``."""
+    from .wall_zone import face_top, fill_top
+    for w in held:
+        if w.reseat_z is None or w.placement not in seated:
+            continue
+        if face_top([w], p) is not None or fill_top([w], p) is not None:
+            return seated[w.placement], float(w.reseat_z)
+    return None
 
 
 def _wall_levels(planar: PlanarMap, held: _t.Sequence, xy: _t.Mapping[int, tuple]

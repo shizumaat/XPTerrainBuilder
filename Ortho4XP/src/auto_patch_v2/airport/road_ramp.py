@@ -1646,6 +1646,10 @@ class WallPiece(_t.NamedTuple):
     #: #1952): a lot touching that band of a ``"sheets"`` wall takes its foot
     lower_band: _t.Any = None
     low_side: str = ""
+    #: #2099 F2 P4b: the placement id and, for a wall the entrance re-read
+    #: seats, that zero (``WallComponent.reseated``; ``None`` otherwise)
+    placement: str = ""
+    reseat_z: float | None = None
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1680,7 +1684,9 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
                                      getattr(side, "lower_face", None),
                                      getattr(side, "foot_profile", None),
                                      getattr(side, "lower", None),
-                                     str(getattr(c, "low_side_source", "") or "")))
+                                     str(getattr(c, "low_side_source", "") or ""),
+                                     str(getattr(c.member, "id", "") or ""),
+                                     c.seat_z if getattr(c, "reseated", False) else None))
     return tuple(out)
 
 
@@ -1953,6 +1959,8 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                                    else [tuple(t) for t in w.foot_profile]),
                   "upper": upper, "lower": lower,
                   "low_side": str(getattr(w, "low_side", "") or ""),
+                  "placement": str(getattr(w, "placement", "") or ""),
+                  "reseat_z": getattr(w, "reseat_z", None),
                   "lower_band": [[tuple(c) for c in part.exterior.coords]
                                  for part in nonempty_polygon_parts(w.lower_band)]
                   if getattr(w, "lower_band", None) is not None else None,

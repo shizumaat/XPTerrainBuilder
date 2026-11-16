@@ -322,6 +322,54 @@ def _ground_max(dem_z, xy: XY, r: float) -> float:
     return max(zs) if zs else math.inf
 
 
+def _misread_face(o, g, xy: XY, into, r: float, law, bottom: float, outline, dem_z,
+                  walled: bool, floor: float) -> tuple[float, tuple, bool, float, object]:
+    """``(opening width, edges, walled, floor)`` of an entrance face whose
+    opening read under one road lane (owner RULINGS 2026-11-16a: a misread;
+    "the reader falls back to the object's walls"): the opening JAMB TO JAMB
+    from the bore line (``entrance_front.jamb_to_jamb``; none where that too
+    is under a lane), and where the face stands a wall's height at the bore
+    line, a WALLED face whose zero stands on the ground its walls retain --
+    the highest ground within ``r`` of the end (:func:`_ground_max`, the
+    reach a face is read in) -- its floor that zero plus its bottom, and its
+    PLAN its solids within ``r`` of the end (:func:`_wall_plan`, #2099 F2
+    P1a: the plan is the wall, so the mouth stands at its front; the last
+    element, ``None`` for no walled face): the
+    ground behind it is graded to its zero (``planar/entrance_skirt``,
+    ``constraints/airside_top``; owner item 6 "terrain on the back side does
+    not grade to the back of the mouth").  MEASURED CYYZ ``Tx_E``: the
+    anchor stands on the wall, the DEM there is the slope's middle (167.89)
+    4 m under the taxiway it retains; its floor read 160.93 against the
+    junction in front of it at 164.8."""
+    from .entrance_front import jamb_to_jamb
+    ob = law.tables.structures.tunnel.object
+    lane = float(law.tables.structures.tunnel.lane_width_m)
+    width, edges, top = jamb_to_jamb(o, g, xy, into, r, law, bottom, outline)
+    if width < lane:
+        width, edges = 0.0, ()
+    ground = _ground_max(dem_z, xy, r)
+    if top - bottom < float(ob.shell_floor_min_m) or not math.isfinite(ground):
+        return width, edges, walled, floor, None
+    return width, edges, True, ground + bottom, _wall_plan(o, g, xy, r)
+
+
+def _wall_plan(o, g, xy: XY, r: float):
+    """#2099 F2 P1a: THE PLAN OF A FACE THE RE-READ WALLS IS ITS WALL -- the
+    union of ``o``'s solids within ``r`` of ``xy`` (``_near_solids``),
+    clipped to that reach, or ``None``.  Its top plates alone left the
+    mouth 0.79 m behind the wall's front (MEASURED CYYZ ``Tx_E``: the
+    parapet plates span -2.28..+1.99 m across a 1.01 m wall)."""
+    from shapely.geometry import Polygon
+    got = _near_solids(o, g, xy, r)
+    if got is None:
+        return None
+    px, py, ks = got
+    u = shapely.union_all(np.array([Polygon(np.c_[px[q], py[q]]).buffer(1e-3)
+                                    for q in g.solid[ks]], dtype=object))
+    u = u.intersection(Point(xy).buffer(r))
+    return None if u.is_empty or u.area <= 0.0 else u
+
+
 def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj8.PlacedObject],
                   cache: _obj8.ResourceCache, law, tunnel_ways, dem_z) -> list:
     """#1747 (owner ruling 2026-11-03 "yes"; RULINGS 2026-11-03e (15), Q-A
@@ -355,6 +403,17 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     giving a 0.5 m "ramp" 12-24 m long (a pit), while the object stage set
     the face's bottom on the apron, 5 m proud: neither seated the mouth.
 
+    An opening read under one road lane (``[tunnel] lane_width_m``), and
+    not none at all, is a MISREAD (owner RULINGS 2026-11-16a: "The narrowest
+    tunnel should be one lane road width, anything under that is probably an
+    incorrect read"): the face is re-read off its walls
+    (:func:`_misread_face`): its opening jamb to jamb from the bore line, none
+    where that too is under a lane, and a face standing a wall's height there
+    walled, its zero on the ground its walls retain; the pin says so
+    (``Portal.opening_misread``).  MEASURED CYYZ ``Tx_A`` / ``Tx_E``: a
+    full-height headwall across the bore, no break in its foot, read 0.39 m;
+    jamb to jamb 24.0 / 49.5 m.
+
     An end with no solid within that reach is no entrance, nor is one
     whose solids there stand more than ``[placement] split_tol_m`` over the
     highest ground in that reach at the pack's zero (a building on the
@@ -366,6 +425,7 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
     tol = float(ob.bore_end_tolerance_m)
     flush, floor_min = float(ob.cover_flush_m), float(ob.shell_floor_min_m)
     split_tol = float(law.tables.structures.placement.split_tol_m)
+    lane = float(law.tables.structures.tunnel.lane_width_m)
     bores = {int(w.id) for w in tunnel_ways}
     by_id = {o.id: o for o in objects}
     out = []
@@ -398,10 +458,27 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             # floor plate deep under the zero (LFLL ``TGV_LY_13``: top -10.01,
             # bottom -10.06) or a shallow sheet is no face: its bottom stays
             # where the pack's zero puts it
+            width, edges = _wall_opening(o, g, xy, end_into, 2.0 * tol, law)
             walled = top - bottom >= floor_min
             cover = _cover_over(plan, dem_z) if walled and abs(top) <= flush else None
             floor = (zero + bottom) if cover is None else cover - (top - bottom)
-            width, edges = _wall_opening(o, g, xy, end_into, 2.0 * tol, law)
+            # RULINGS 2026-11-16a: an opening under one road lane is a misread;
+            # the face is re-read off its walls (:func:`_misread_face`)
+            misread = 0.0 < width < lane
+            reseat = False
+            if misread:
+                width, edges, re_walled, re_floor, re_plan = _misread_face(
+                    o, g, xy, end_into, 2.0 * tol, law, bottom, t.outline, dem_z, walled, floor)
+                # #2099 F2 P0: the re-read SEATS only a face its own read did
+                # not wall; a face its own read walls keeps its floor, cover,
+                # top and plan (only its opening is re-read jamb to jamb).
+                # Its top at grade is then its zero (the walls' top; a
+                # parapet over the opening stands proud of the ground)
+                if not walled:
+                    reseat = re_walled
+                    walled, floor, plan = re_walled, re_floor, re_plan
+                    if plan is not None:
+                        cover, top = floor - bottom, 0.0
             reach, foot = _wall_feet(o, g, xy, end_into, law)
             out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
                               ground - floor, 0.0, (float(xy[0]), float(xy[1])),
@@ -411,6 +488,7 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
                               # (zero = floor - bottom), never a roofed portal's
                               bottom_y=float(bottom) if walled else None,
                               wall_reach_m=reach, foot_grade=foot,
+                              opening_misread=misread, wall_reseat=reseat,
                               face_plan=None if cover is None else _face_top(
                                   plan, xy, end_into, 2.0 * tol),
                               face_top_z=None if cover is None else float(cover),

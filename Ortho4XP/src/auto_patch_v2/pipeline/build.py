@@ -391,6 +391,12 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # issue #516: the sunken ramps' ground, beside the clusters it trims
     from ..airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law, ocache)
+    # #2099 F2 P4a: the entrance pins, read once -- a wall the entrance
+    # re-read seats has that one seat in the wall class below
+    from ..airport.entrance_shade import entrance_pins
+    from ..airport.wall_reseat import attach_wall_reseats
+    _pins = entrance_pins(airport, pack_objects, ocache, law)
+    airport = attach_wall_reseats(airport, _pins)
     # issue #1633: the retaining walls' footprints, which no pad takes
     from ..airport.wall_shade import attach_wall_shade
     airport = attach_wall_shade(airport, load_rules().service, ocache)
@@ -399,7 +405,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     airport = attach_unit_fences(airport, load_rules(), law, ocache)
     # #1747 (RULINGS 2026-11-06b (6)): the tunnel mouths' walls, which no pad takes
     from ..airport.entrance_shade import attach_entrance_shade
-    airport = attach_entrance_shade(airport, pack_objects, ocache, law)
+    airport = attach_entrance_shade(airport, pack_objects, ocache, law, _pins)
     # #2090 (RULINGS 2026-11-14f (1)): the routes around every pack deck,
     # wherever it stands — a deck past the feed box had no mapped route
     from ..airport.deck_routes import attach_deck_routes

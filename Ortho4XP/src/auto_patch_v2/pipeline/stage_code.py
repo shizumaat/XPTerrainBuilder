@@ -558,6 +558,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_pit",
         "auto_patch_v2.airport.walled_plate",
+        "auto_patch_v2.airport.walled_trench",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -1923,7 +1924,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.deck_ground constraints.deck_runout
     constraints.deck_runout constraints.agp_level model.agp_group
         geom.exact
-        constraints.wall_zone model.wall_reach
+        constraints.wall_zone model.wall_reach constraints.airside_top constraints.edge_floor
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_ramp constraints.pad_relief
         constraints.pad_warning constraints.pads constraints.platform
@@ -1938,7 +1939,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     "road_ramp": _mods(_GENERATOR_CORE + """
     constraints.deck_runout geom.deck_ground constraints.agp_level model.agp_group
         geom.exact
-        constraints.wall_zone model.wall_reach
+        constraints.wall_zone model.wall_reach constraints.airside_top constraints.edge_floor
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
@@ -2343,6 +2344,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    constraints.airside_top
     airport.facade_seat
     airport.access_road airport.agp_plates geom.agp_plate model.agp_plate planar.agp_ground
     airport.agp_deck_join
@@ -2360,7 +2362,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor airport.floor_rim geom.author_ground geom.lowest_face
-    planar.object_floor_cells
+    planar.object_floor_cells airport.walled_trench
     airport.visible_cut planar.channel_depth
     pipeline.lot_follow solve.follow_stage
     geom.exact
@@ -2537,7 +2539,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor airport.floor_rim constraints.object_floor
-    planar.object_floor_cells
+    planar.object_floor_cells airport.walled_trench
     geom.author_ground geom.lowest_face
     airport.visible_cut planar.channel_depth
     solve.follow_stage
@@ -2716,6 +2718,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.wall_lines
 """)
 CODE_MODULES["emit"] = _mods("""
+    model.wing_cut
     airport.mouth_group airport.wall_lines
     geom.agp_plate model.agp_plate
     constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
@@ -2848,6 +2851,7 @@ CODE_MODULES["emit"] = _mods("""
     model.free_bridge
 """)
 CODE_MODULES["verify"] = _mods("""
+    constraints.airside_top
     constraints.apron_shelf constraints.road_ramp constraints.wall_zone geom.ramp_grade
     geom.agp_plate
     constraints.apron_shelf constraints.road_ramp constraints.wall_zone geom.ramp_grade

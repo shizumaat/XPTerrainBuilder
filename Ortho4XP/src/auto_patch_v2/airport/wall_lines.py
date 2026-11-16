@@ -4,7 +4,8 @@ connected components of its genuine solids' plan (``airport/mouth_group.
 _solids``), each read along its own centre line (``geom/centreline.
 ribbon_centreline``) every ``[tunnel.object] wall_sample_m`` from the end
 nearest the mouth: the cross-section NORMAL to the line there, its lowest
-solid y (never under 0) the FOOT, its highest the TOP.  A section holding
+solid y (never under ``floor_y``, 0 by default; #2099 F2 P2: a walled
+trench's walls pass no clamp) the FOOT, its highest the TOP.  A section holding
 only a coping (its foot within ``plate_bin_m`` of its top) is dropped.
 AN END STATION IS NO SECTION (R3b D1b): the first and the last station
 take the extent ``(lo, hi)`` and the foot of their nearest interior
@@ -12,8 +13,10 @@ station, their top standing -- a section at a line's end cuts the wall's
 end cap (measured: 0.17-0.56 m thick against 1.0-1.5 m inside; one end
 foot 5.19 over an interior foot 0.00).
 
-Read by the mouth group (a wall lining the mouth's road, R3 E) and the cut
-beside it (``planar/wing_cut``, R3 D).  Nothing here names a pack, a
+Read by the mouth group (a wall lining the mouth's road, R3 E), the cut
+beside it (``planar/wing_cut``, R3 D) and a walled trench's floor
+(``airport/walled_trench``, #2099 F2 P2); :func:`wall_line` is the one
+builder of a line's record (``model/wing_cut.WallLine``).  Nothing here names a pack, a
 resource or an airport.
 """
 from __future__ import annotations
@@ -26,9 +29,10 @@ from shapely.geometry import LineString, Point
 
 from ..geom.centreline import ribbon_centreline
 from ..geom.parts import polygon_parts_with_area
+from ..model.wing_cut import WallLine
 from . import obj8 as _obj8
 
-__all__ = ["Station", "wall_line_feet"]
+__all__ = ["Station", "wall_line", "wall_line_feet"]
 
 XY = tuple[float, float]
 #: one station of a wall line: centre ``(x, y)``, unit normal ``(nx, ny)``,
@@ -36,10 +40,11 @@ XY = tuple[float, float]
 Station = tuple[float, float, float, float, float, float, float, float]
 
 
-def wall_line_feet(o, cache, law, mouth_plan) -> list[tuple[tuple[XY, ...], list[Station]]]:
+def wall_line_feet(o, cache, law, mouth_plan, floor_y: "float | None" = 0.0
+                   ) -> list[tuple[tuple[XY, ...], list[Station]]]:
     """``[(centre line, stations)]`` per WALL LINE of placement ``o`` (module
     doc, R3 D1), the line nearest the mouth's plan first; ``[]`` with no
-    solid."""
+    solid.  A foot is never under ``floor_y`` (``None``: no clamp)."""
     from .mouth_group import _solids
     read = _solids(o, cache, law)
     if read is None:
@@ -63,7 +68,8 @@ def wall_line_feet(o, cache, law, mouth_plan) -> list[tuple[tuple[XY, ...], list
         inside = part.buffer(0.05)
         ss = [*np.arange(0.0, ln.length, step), ln.length]
         st = [q for s in ss
-              if (q := _section(ln, float(s), X, Y, v[:, 1], edges, inside, coping)) is not None]
+              if (q := _section(ln, float(s), X, Y, v[:, 1], edges, inside, coping,
+                                floor_y)) is not None]
         if st:
             out.append((tuple(ln.coords), _ends_from_inside(st)))
     return out
@@ -78,8 +84,8 @@ def _ends_from_inside(st: list[Station]) -> list[Station]:
     return [a[:4] + st[1][4:7] + (a[7],), *st[1:-1], b[:4] + st[-2][4:7] + (b[7],)]
 
 
-def _section(ln: LineString, s: float, X, Y, Yv, edges, inside, coping: float
-             ) -> "Station | None":
+def _section(ln: LineString, s: float, X, Y, Yv, edges, inside, coping: float,
+             floor_y: "float | None" = 0.0) -> "Station | None":
     """The cross-section of the solids NORMAL to ``ln`` at ``s`` within
     ``inside`` (its own wall line), or ``None`` (no solid, or a coping)."""
     p = ln.interpolate(s)
@@ -103,7 +109,21 @@ def _section(ln: LineString, s: float, X, Y, Yv, edges, inside, coping: float
         return None
     ys = (Yv[i0] + f * (Yv[i1] - Yv[i0]))[keep]
     ns = ((cx - p.x) * nx + (cy - p.y) * ny)[keep]
-    foot, top = max(float(ys.min()), 0.0), float(ys.max())
+    foot, top = float(ys.min()), float(ys.max())
+    if floor_y is not None:
+        foot = max(foot, float(floor_y))
     if top - foot <= coping:
         return None
     return (p.x, p.y, nx, ny, float(ns.min()), float(ns.max()), foot, top)
+
+
+def wall_line(wid: str, st: "list[Station] | tuple", sense: float) -> WallLine:
+    """The record of one wall line (``model/wing_cut.WallLine``), its face
+    the side ``sense`` names (``+1`` the stations' ``+n`` side)."""
+    face, back = [], []
+    for x, y, nx, ny, lo, hi, _f, _top in st:
+        near, far = (hi, lo) if sense > 0 else (lo, hi)
+        face.append((x + nx * near, y + ny * near))
+        back.append((x + nx * far, y + ny * far))
+    return WallLine(wid, tuple(face), tuple(back), tuple(s[6] for s in st),
+                    tuple(s[7] for s in st))

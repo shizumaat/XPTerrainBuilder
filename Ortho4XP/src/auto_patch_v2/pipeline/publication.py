@@ -1517,9 +1517,10 @@ def object_floors(planar: PlanarMap, airport: Airport,
     clear = (float(law.tables.structures.tunnel.object.floor_clearance_m)
              if law is not None else 0.0)
     stacks = {st.floor_ref: st for st in getattr(airport, "deck_stacks", ()) or ()}
-    to_ll = airport.frame.transformers()[1] if stacks else None
+    floors = tuple(getattr(planar, "object_floors", ()) or ())
+    to_ll = airport.frame.transformers()[1] if stacks or floors else None
     out = []
-    for f in getattr(planar, "object_floors", ()) or ():
+    for f in floors:
         rec = {"id": f.id, "resource": f.resource, "objects": [f.object_id, *f.covers],
                "floor_m": round(float(f.floor_z), 3), "zero_m": round(float(f.zero_z), 3),
                "area_m2": round(float(f.footprint.area), 1),
@@ -1528,7 +1529,9 @@ def object_floors(planar: PlanarMap, airport: Airport,
                # that OWNS ground carries the clearance; the rest of its
                # frame are members, read by their feet
                "object": f.object_id, "owns_ground": bool(owns_ground(f)),
-               "hidden": bool(getattr(f, "hidden", False))}
+               "hidden": bool(getattr(f, "hidden", False)),
+               # #2099 F2 P3b: its outline, for the drawn gate's bore faces
+               "outline_ll": _outline_ll(f.footprint, to_ll)}
         misfit = getattr(f, "rim_misfit", None)
         if misfit:
             # §6 (P3): the shell's rim against the ground, measured only
@@ -1538,6 +1541,22 @@ def object_floors(planar: PlanarMap, airport: Airport,
                 law.tables.structures.tunnel.object.wall_face_max_thickness_m)
                 if law is not None else 0.0)
         out.append(rec)
+    return out
+
+
+def _outline_ll(footprint, to_ll) -> list:
+    """``[[[lat, lon], ...]]``: the exterior ring of each part of an object
+    floor's footprint (``tools/harness/drawn_roads.floor_rings``)."""
+    from ..geom.parts import polygon_parts_with_area
+    if footprint is None or footprint.is_empty or to_ll is None:
+        return []
+    out = []
+    for part in polygon_parts_with_area(footprint):
+        ring = []
+        for x, y in part.exterior.coords:
+            lat, lon = to_ll(float(x), float(y))[:2]
+            ring.append([round(float(lat), 8), round(float(lon), 8)])
+        out.append(ring)
     return out
 
 

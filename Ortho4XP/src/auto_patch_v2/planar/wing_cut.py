@@ -44,7 +44,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..airport import mouth_group as _mg
-from ..airport.wall_lines import Station, wall_line_feet
+from ..airport.wall_lines import Station, wall_line, wall_line_feet
 from ..classify.roles import Cell
 from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.parts import polygon_parts_with_area
@@ -204,17 +204,6 @@ def _side_vote(wid: str, road: LineString, st: _t.Sequence[Station], sense: floa
     return f"{wid} {n}/{len(st)} over {length:.0f} m{mixed}"
 
 
-def _wall_line(wid: str, st: _t.Sequence[Station], sense: float) -> WallLine:
-    """The record of one wall line, its face the side ``sense`` names."""
-    face, back = [], []
-    for x, y, nx, ny, lo, hi, _f, _top in st:
-        near, far = (hi, lo) if sense > 0 else (lo, hi)
-        face.append((x + nx * near, y + ny * near))
-        back.append((x + nx * far, y + ny * far))
-    return WallLine(wid, tuple(face), tuple(back), tuple(s[6] for s in st),
-                    tuple(s[7] for s in st))
-
-
 def _reach(p: XY, d: XY, road: LineString, half: float, rim: float, sep: float,
            others: _t.Sequence) -> "float | None":
     """How far the region runs from face point ``p`` along ``d`` (R3 D2): to
@@ -314,7 +303,7 @@ def wing_cuts(airport, objects, cache, decks, tunnels, classification, law
         for k, (wid, st) in enumerate(read_lines):
             sense = _road_sense(road, st)
             votes.append(_side_vote(wid, road, st, sense))
-            line = _wall_line(wid, st, sense)
+            line = wall_line(wid, st, sense)
             toward = [(sense * s[2], sense * s[3]) for s in st]
             ends = [_reach(p, d, road, half, rim, sep, plans[:k] + plans[k + 1:])
                     for p, d in zip(line.face, toward, strict=True)]

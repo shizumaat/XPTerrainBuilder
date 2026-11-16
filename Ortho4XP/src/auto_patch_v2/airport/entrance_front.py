@@ -35,7 +35,7 @@ from . import obj8 as _obj8
 from .portal_objects import across_bore, opening_span
 from .split_level import _VERTICAL_NY
 
-__all__ = ["front_of"]
+__all__ = ["front_of", "jamb_to_jamb"]
 
 #: the across-bore station spacing of the front read
 STEP_M = 0.5
@@ -77,20 +77,12 @@ def _full(acr, z, s: float, bottom: float, top: float, flush: float) -> bool:
     return reach is not None and reach >= top - flush
 
 
-def front_of(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy, into, r: float, law,
-             edges: tuple, bottom: float, top: float, others: _t.Sequence[tuple] = (),
-             outline=None) -> tuple[float, tuple]:
-    """``(width, (end, end))`` of the FRONT of the entrance face at the
-    bore end ``xy`` (module docstring) -- ``edges`` its opening's jambs,
-    ``others`` the openings of the object's other ends, ``outline`` its
-    plan -- or ``(0.0, ())``."""
-    if into is None or not edges or g.solid is None or not len(g.solid):
-        return 0.0, ()
-    ob = law.tables.structures.tunnel.object
-    flush = float(ob.cover_flush_m)
-    if top - bottom < float(ob.shell_floor_min_m):
-        return 0.0, ()
-    grid = float(law.tables.emit.identity.min_distinct_spacing_m)
+def _cross_faces(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy, into, r: float):
+    """``(across, z, plan angle, mean along)`` of ``o``'s near-vertical faces
+    crossing the bore (``|plan normal . into| >= 0.5``) within ``r`` of the
+    end ``xy`` along it -- per face, its corners' across offsets and heights,
+    its plan direction folded to one sense, its mean station along the
+    bore -- or ``None``."""
     v, t = g.vertices, g.solid
     a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
     px, py = a * v[:, 0] + b * v[:, 2] + xo, d * v[:, 0] + e * v[:, 2] + yo
@@ -105,20 +97,61 @@ def front_of(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy, into, r: float, la
     along = (P[:, :, 0] - xy[0]) * into[0] + (P[:, :, 1] - xy[1]) * into[1]
     sel = wall & (np.abs(dot) >= 0.5) & (np.abs(along).min(axis=1) <= r)
     if not sel.any():
-        return 0.0, ()
+        return None
     nx, ny = -into[1], into[0]
     acr = (P[sel, :, 0] - xy[0]) * nx + (P[sel, :, 1] - xy[1]) * ny
-    z = P[sel, :, 2]
-    # the plan direction of each face, folded to one sense across the bore
     ang = np.degrees(np.arctan2(n[sel, 1], n[sel, 0]))
     ang = np.where(dot[sel] < 0.0, ang + 180.0, ang) % 360.0
+    return acr, P[sel, :, 2], ang, along.mean(axis=1)[sel]
+
+
+def jamb_to_jamb(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy, into, r: float, law,
+                 bottom: float, outline=None) -> tuple[float, tuple, float]:
+    """``(width, (jamb, jamb), top)``: the face read JAMB TO JAMB from the
+    bore line (owner RULINGS 2026-11-16a: an opening narrower than one road
+    lane is a misread) -- ``top`` the face's top where the bore crosses it
+    (the highest of its crossing faces there), the span the :func:`front_of`
+    chain from the bore line out while the face stands ``bottom`` .. that
+    top.  ``(0.0, (), top)`` where it stands no wall's height there."""
+    if into is None or g.solid is None or not len(g.solid):
+        return 0.0, (), bottom
+    got = _cross_faces(o, g, xy, into, r)
+    if got is None:
+        return 0.0, (), bottom
+    acr, z = got[0], got[1]
+    _lo, hi = _zspan(acr, z, 0.0)
+    hi = hi[np.isfinite(hi)]
+    top = float(hi.max()) if len(hi) else bottom
+    p = (float(xy[0]), float(xy[1]))
+    w, ends = front_of(o, g, xy, into, r, law, (p, p), bottom, top, (), outline)
+    return w, ends, top
+
+
+def front_of(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, xy, into, r: float, law,
+             edges: tuple, bottom: float, top: float, others: _t.Sequence[tuple] = (),
+             outline=None) -> tuple[float, tuple]:
+    """``(width, (end, end))`` of the FRONT of the entrance face at the
+    bore end ``xy`` (module docstring) -- ``edges`` its opening's jambs,
+    ``others`` the openings of the object's other ends, ``outline`` its
+    plan -- or ``(0.0, ())``."""
+    if into is None or not edges or g.solid is None or not len(g.solid):
+        return 0.0, ()
+    ob = law.tables.structures.tunnel.object
+    flush = float(ob.cover_flush_m)
+    if top - bottom < float(ob.shell_floor_min_m):
+        return 0.0, ()
+    grid = float(law.tables.emit.identity.min_distinct_spacing_m)
+    got = _cross_faces(o, g, xy, into, r)
+    if got is None:
+        return 0.0, ()
+    acr, z, ang, amid = got
+    nx, ny = -into[1], into[0]
     spans = [sorted(across_bore(q, xy, into)) for q in (edges, *others) if q]
     e_l, e_r = sorted(across_bore(edges, xy, into))
     inside = None
     if outline is not None:
         from shapely.prepared import prep
         inside = prep(outline.buffer(grid))
-    amid = along.mean(axis=1)[sel]
 
     def chain(s0: float, sign: float) -> float:
         from shapely.geometry import Point

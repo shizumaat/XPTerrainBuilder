@@ -18,7 +18,16 @@ A step pair STRADDLING a claimed tunnel mouth of the road's OWN tunnel way
 (``mouths``: :func:`claimed_mouths` of the sidecar) is that mouth's FACE --
 the drawn cut face from the ramp floor up to the cover over the bore --
 reported as ``mouth_faces``, never judged (#1689 A7: KBNA P1's "4.9 m road
-step" was the tunnel way's own sample 1.17 m behind its mouth line).
+step" was the tunnel way's own sample 1.17 m behind its mouth line).  So is
+(#2099 F2 P3) the pair at the mouth line of a road whose END stands within
+:data:`MOUTH_FACE_M` of a claimed mouth -- that mouth's road, whatever its
+way (measured CYYZ road ``-8679`` ending at ``Tx_E``'s face, judged a
+4.26 m step) -- and a TUNNEL way's pair straddling the ring of an object
+floor that owns ground (the sidecar ``object_floors[].outline_ll``,
+:func:`floor_rings`), or standing at the way's END within
+:data:`MOUTH_FACE_M` of that ring: that floor's bore face (CYYZ tunnel
+``-1335`` at ``Tx_A``'s headwall, 7.77 m).  An untagged road crossing a floor ring stays
+judged.
 
 The layer reads the road feeds the build read (``OSM_data``), never a
 capture, so it measures an owner install (``--tile``) and a harness build
@@ -29,7 +38,7 @@ from __future__ import annotations
 import math
 
 __all__ = ["ROAD_STEP_M", "STEP_M", "UNDER_BRIDGE_M", "MOUTH_FACE_M", "road_lines",
-           "road_profile_step", "road_layer", "claimed_mouths"]
+           "road_profile_step", "road_layer", "claimed_mouths", "floor_rings"]
 
 #: the default FAIL bar between consecutive samples (owner ground bar)
 ROAD_STEP_M = 0.5
@@ -64,6 +73,16 @@ def claimed_mouths(sidecar):
     return out
 
 
+def floor_rings(sidecar):
+    """``[[(lat, lon), ...]]``: the outline rings of every sidecar object
+    floor that owns ground (``object_floors``, ``owns_ground`` and
+    ``outline_ll``)."""
+    return [[(float(la), float(lo)) for la, lo in ring]
+            for r in (sidecar or {}).get("object_floors", []) or ()
+            if r.get("owns_ground") for ring in r.get("outline_ll", ()) or ()
+            if len(ring) >= 3]
+
+
 def _way_number(wid) -> "int | None":
     """The OSM way number of a road feed's way id -- an int, or the feed's
     tile-qualified string (``+36-087:-1986``); the mouth's tunnel id names
@@ -77,15 +96,26 @@ def _way_number(wid) -> "int | None":
         return None
 
 
-def _straddles(mouths, lat0):
-    """``(way id, a, b) -> bool``: the pair ``a`` -> ``b`` (lat, lon) of road
-    ``way id`` stands on the face of a claimed mouth of that way."""
+def _straddles(mouths, lat0, floors=()):
+    """``(way id, a, b, ends=(), tunnel=False) -> bool``: the pair ``a`` ->
+    ``b`` (lat, lon) of road ``way id`` stands on the face of a claimed mouth
+    of that way, or of a road with an end (``ends``) within
+    :data:`MOUTH_FACE_M` of it; or, a ``tunnel`` way's, straddles one of
+    ``floors`` (:func:`floor_rings`)."""
     kx = _M_PER_DEG * math.cos(math.radians(lat0))
+    rings = _floor_polys(floors, lat0, kx)
 
-    def test(wid, a, b):
+    def own(w, ends, la, lo, ways):
+        return w in ways or any(math.hypot((e[1] - lo) * kx, (e[0] - la) * _M_PER_DEG)
+                                <= MOUTH_FACE_M for e in ends)
+
+    def test(wid, a, b, ends=(), tunnel=False):
         w = _way_number(wid)
+        if tunnel and rings is not None and (_crosses_ring(rings, a, b, lat0, kx)
+                                             or _ends_at_ring(rings, a, b, ends, lat0, kx)):
+            return True
         for ways, la, lo in mouths:
-            if w not in ways:
+            if not own(w, ends, la, lo, ways):
                 continue
             ax, ay = (a[1] - lo) * kx, (a[0] - la) * _M_PER_DEG
             dx, dy = (b[1] - a[1]) * kx, (b[0] - a[0]) * _M_PER_DEG
@@ -100,8 +130,43 @@ def _straddles(mouths, lat0):
     return test
 
 
+def _floor_polys(floors, lat0, kx):
+    """The union of ``floors`` (lat, lon rings) in the site's metres
+    (x east, y north of ``lat0`` / lon 0), or ``None``."""
+    if not floors:
+        return None
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    polys = [Polygon([(lo * kx, (la - lat0) * _M_PER_DEG) for la, lo in r]) for r in floors]
+    u = unary_union([p if p.is_valid else p.buffer(0.0) for p in polys])
+    return None if u.is_empty else u
+
+
+def _ends_at_ring(rings, a, b, ends, lat0, kx) -> bool:
+    """The pair ``a`` -> ``b`` stands within :data:`MOUTH_FACE_M` of a road
+    END (``ends``) that stands within :data:`MOUTH_FACE_M` of ``rings``: the
+    bore's end at the floor (MEASURED CYYZ tunnel ``-1335``: its end 0.24 m
+    outside ``Tx_A``'s floor ring, its last pair 1.1 / 0.24 m out)."""
+    from shapely.geometry import LineString, Point
+
+    def at(q):
+        return Point(q[1] * kx, (q[0] - lat0) * _M_PER_DEG)
+    seg = LineString([at(a), at(b)])
+    return any(rings.distance(at(e)) <= MOUTH_FACE_M and seg.distance(at(e)) <= MOUTH_FACE_M
+               for e in ends)
+
+
+def _crosses_ring(rings, a, b, lat0, kx) -> bool:
+    """One of ``a``, ``b`` (lat, lon) inside ``rings``, the other outside."""
+    from shapely.geometry import Point
+    ia = rings.contains(Point(a[1] * kx, (a[0] - lat0) * _M_PER_DEG))
+    ib = rings.contains(Point(b[1] * kx, (b[0] - lat0) * _M_PER_DEG))
+    return ia != ib
+
+
 def road_lines(osm_root, lat, lon, radius_m, bridges_out=None):
-    """``[(way id, highway, [(lat, lon), ...])]``: the mapped vehicle roads
+    """``[(way id, highway, [(lat, lon), ...], tunnel)]``: the mapped vehicle
+    roads (``tunnel`` true for a way tagged one)
     with a vertex within ``radius_m`` (plus a margin) of ``(lat, lon)``;
     ``bridges_out`` (a list) receives ``(half width m, [(lat, lon), ...])``
     of every mapped highway / railway bridge there."""
@@ -124,7 +189,8 @@ def road_lines(osm_root, lat, lon, radius_m, bridges_out=None):
                                         [tuple(p) for p in w.points]))
                 continue
             if tags.get("highway") in kinds:
-                out.append((w.id, tags.get("highway"), [tuple(p) for p in w.points]))
+                out.append((w.id, tags.get("highway"), [tuple(p) for p in w.points],
+                            tags.get("tunnel", "no") not in ("no", "")))
     return out
 
 
@@ -190,26 +256,29 @@ def road_profile_step(samples, sample, face=None, faces=None):
     return worst
 
 
-def road_layer(sites, sample, osm_root, bar=ROAD_STEP_M, step=STEP_M, mouths=()):
+def road_layer(sites, sample, osm_root, bar=ROAD_STEP_M, step=STEP_M, mouths=(), floors=()):
     """The layer over ``sites`` (``(name, lat, lon, r)``); ``sample(lon,
     lat)`` is the drawn mesh height (nan off it); ``mouths``
-    (:func:`claimed_mouths`) the faces never judged."""
+    (:func:`claimed_mouths`) and ``floors`` (:func:`floor_rings`) the faces
+    never judged."""
     rows, failed = [], 0
     for name, lat, lon, r in sites:
         worst, n, bridges, faces = None, 0, [], []
         roads = road_lines(osm_root, lat, lon, r, bridges)
         under = _under_bridge(bridges, lat, lon)
-        straddles = _straddles(mouths, lat) if mouths else None
+        straddles = _straddles(mouths, lat, floors) if mouths or floors else None
 
         def drawn(lo, la, _u=under):
             return float("nan") if _u(la, lo) else sample(lo, la)
-        for wid, hw, pts in roads:
+        for wid, hw, pts, *tun in roads:
+            ends = (tuple(pts[0]), tuple(pts[-1])) if pts else ()
             for run in _clip_runs(pts, lat, lon, r, step):
                 if len(run) < 2:
                     continue
                 n += 1
                 face = None if straddles is None else (
-                    lambda a, b, _w=wid, _s=straddles: _s(_w, a, b))
+                    lambda a, b, _w=wid, _s=straddles, _e=ends, _t=bool(tun and tun[0]):
+                    _s(_w, a, b, _e, _t))
                 got: list = []
                 d, at, za, zb = road_profile_step(run, drawn, face, got)
                 faces.extend(dict(way=wid, step_m=g[0], lat=g[1][0], lon=g[1][1])

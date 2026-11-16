@@ -95,6 +95,10 @@ class RetainingLine(_t.NamedTuple):
     #: the wall's LOWER band (``WallSides.lower``), ``None`` when the record
     #: carries none
     lower_band: _t.Any = None
+    #: #2099 F2 P4b: the placement id, and the zero the entrance re-read
+    #: seats it at (``None`` for every other wall)
+    placement: str = ""
+    reseat_z: float | None = None
 
 
 def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
@@ -119,7 +123,10 @@ def retaining_lines(walls: _t.Mapping[int, _t.Mapping]) -> list[RetainingLine]:
                                  None if not r.get("foot_profile")
                                  else tuple(map(tuple, r["foot_profile"])),
                                  str(r.get("low_side") or ""),
-                                 _band(r.get("lower_band"))))
+                                 _band(r.get("lower_band")),
+                                 str(r.get("placement") or ""),
+                                 None if r.get("reseat_z") is None
+                                 else float(r["reseat_z"])))
     return out
 
 

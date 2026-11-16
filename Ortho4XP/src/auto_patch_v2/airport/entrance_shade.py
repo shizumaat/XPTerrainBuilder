@@ -35,7 +35,7 @@ from shapely.ops import unary_union
 from . import frame_entry as _fe
 from . import obj8 as _obj8
 
-__all__ = ["entrance_shade", "attach_entrance_shade"]
+__all__ = ["entrance_pins", "entrance_shade", "attach_entrance_shade"]
 
 
 def _mouth_components(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, ends, law) -> list:
@@ -69,22 +69,34 @@ def _mouth_components(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, ends, l
     return [plans[k] for k in sorted(keep)]
 
 
-def entrance_shade(airport, objects: _t.Sequence[_obj8.PlacedObject],
-                   cache: _obj8.ResourceCache, law):
-    """The planar-frame union of every entrance object's mouth components
-    (module doc), or ``None``."""
+def entrance_pins(airport, objects: _t.Sequence[_obj8.PlacedObject],
+                  cache: _obj8.ResourceCache, law) -> list:
+    """The entrance pins (``trench_objects.mouth_portals``) of the pack's
+    trench objects at the mapped tunnels' ends -- read ONCE where the pack's
+    objects are read, for the shade and the wall re-seats
+    (``airport/wall_reseat``); ``[]`` with none."""
     from .deck_signature import is_tunnel_way
     from .trench_objects import mouth_portals, read_trench_objects
     dem = getattr(airport, "dem", None)
     if law is None or cache is None or not objects or dem is None:
-        return None
+        return []
     tunnel_ways = [w for w in airport.osm_ways
                    if is_tunnel_way(w.tags, law.tables.structures.tunnel.admitted_values)
                    and len(w.points) >= 2]
     if not tunnel_ways:
-        return None
+        return []
     trenches, _notes = read_trench_objects(objects, cache, law, tunnel_ways)
-    pins = mouth_portals(trenches, objects, cache, law, tunnel_ways, dem.z)
+    return mouth_portals(trenches, objects, cache, law, tunnel_ways, dem.z)
+
+
+def entrance_shade(airport, objects: _t.Sequence[_obj8.PlacedObject],
+                   cache: _obj8.ResourceCache, law, pins=None):
+    """The planar-frame union of every entrance object's mouth components
+    (module doc), or ``None``; ``pins`` the :func:`entrance_pins` when the
+    caller has read them."""
+    if law is None or cache is None or not objects:
+        return None
+    pins = entrance_pins(airport, objects, cache, law) if pins is None else pins
     ends: dict[str, list] = {}
     for p in pins:
         ends.setdefault(p.object_id, []).append(p.end_xy)
@@ -99,10 +111,11 @@ def entrance_shade(airport, objects: _t.Sequence[_obj8.PlacedObject],
     return None if got.is_empty else got
 
 
-def attach_entrance_shade(airport, objects, cache, law):
+def attach_entrance_shade(airport, objects, cache, law, pins=None):
     """``airport`` with :attr:`Airport.entrance_shade` derived — called once
     beside :func:`airport.wall_shade.attach_wall_shade` (``pipeline/build``,
-    the replay)."""
+    the replay); ``pins`` as :func:`entrance_shade`."""
     if getattr(airport, "frame", None) is None:
         return airport
-    return _dc.replace(airport, entrance_shade=entrance_shade(airport, objects, cache, law))
+    return _dc.replace(airport, entrance_shade=entrance_shade(airport, objects, cache, law,
+                                                              pins))

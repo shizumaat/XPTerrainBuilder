@@ -60,7 +60,8 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
                 cut_m: float, hairline_m: float, weld: _t.Sequence = ()
                 ) -> list[tuple[str, _t.Any]]:
     """``(ref, polygon)`` per wall-slope piece: every retaining wall's upper
-    band (``WallSides.upper``) whose top is read (``top_profile``) and its
+    band (``WallSides.upper``; a re-seated wall's ``retained`` band, #2099
+    F2 P4c) whose top is read (``top_profile``) and its
     lower band (``WallSides.lower``) whose foot is read (``foot_profile``,
     #1662), less
     its footprint, and the fill of its footprint (#1600, :func:`_fill`);
@@ -79,7 +80,7 @@ def wall_slopes(walls: _t.Sequence, taken: _t.Sequence, apart: _t.Sequence,
     (``planar/zone_pass``) — stood off, a fill between two airside rims lost
     both its edges and no face (measured KATL replay, ``muro_concreto5``)."""
     live = [(w, band) for w in walls for band, read in
-            ((w.upper, getattr(w, "top_profile", None)),
+            ((getattr(w, "retained", None) or w.upper, getattr(w, "top_profile", None)),
              (getattr(w, "lower", None), getattr(w, "foot_profile", None)))
             if read and band is not None and not band.is_empty]
     fills = [(w, f) for w in walls for f in (_fill(w),) if f is not None and not f.is_empty]

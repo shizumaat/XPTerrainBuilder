@@ -86,6 +86,9 @@ class WallComponent:
     #: face (``wall_sides._wall_faces``) with airside pavement beside it —
     #: the UPPER face — or ``None`` (``wall_sheets.paved_faces``)
     paved_face: tuple = ()
+    #: #2099 F2 P4a: its seat is the entrance re-read's
+    #: (``Airport.wall_reseats``): its retained face reaches its zero
+    reseated: bool = False
 
 
 #: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
@@ -191,11 +194,17 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                     retains, source = True, "sheets"
                 if wide > float(cfg.retaining_wall_max_width_m) and not retains:
                     continue
+                # #2099 F2 P4a: a wall the entrance re-read seats retains its
+                # depth under that zero, its face reaching the zero
+                reseated = retains and _reseat(airport, m) is not None \
+                    and _depth_under_zero(p) is not None
+                if reseated:
+                    retained, kept_top = float(_depth_under_zero(p)), 0.0
                 got.append(WallComponent(tuple(polys), float(p.height_m),
                                          m.resource, int(p.comp), retains,
                                          float(retained), top_y, seat,
                                          _origin(u, m), m, kept_top, source,
-                                         *(sheet or ())))
+                                         *(sheet or ()), reseated=reseated))
         out.extend(_one_wall_per_composite(got, u, to_xy, cfg))
     return out
 
@@ -283,10 +292,22 @@ def _one_wall_per_composite(comps: list[WallComponent], unit, to_xy, cfg
     return [c for c in comps if (getattr(c.member, "id", None), c.comp) not in taken]
 
 
+def _reseat(airport: Airport, member) -> float | None:
+    """The zero the entrance re-read seats ``member`` at
+    (``Airport.wall_reseats``, #2099 F2 P4a), or ``None``."""
+    got = (getattr(airport, "wall_reseats", None) or {}).get(str(getattr(member, "id", "")))
+    return None if got is None else float(got)
+
+
 def _seat_z(airport: Airport, unit, member, to_xy) -> float | None:
     """The absolute elevation of ``member``'s zero as it sits
     (:attr:`WallComponent.seat_z`): the DEM at its origin plus the unit's
-    authored ``agl``; ``None`` for a member on a converted MSL zero."""
+    authored ``agl``; ``None`` for a member on a converted MSL zero.  A
+    member the entrance re-read seats sits at that zero (:func:`_reseat`,
+    #2099 F2 P4a: one seat for one wall)."""
+    re = _reseat(airport, member)
+    if re is not None:
+        return re
     dem = getattr(airport, "dem", None)
     org = _origin(unit, member)
     if dem is None or org is None or float(getattr(member, "zero_y", 0.0) or 0.0) != 0.0:

@@ -622,6 +622,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.wall_shade",
     "auto_patch_v2.airport.wall_sheets",
     "auto_patch_v2.airport.wall_sides",
+    "auto_patch_v2.airport.wall_reseat",
     "auto_patch_v2.airport.wall_top",
     "auto_patch_v2.airport.walled_pit",
     "auto_patch_v2.airport.walled_plate",

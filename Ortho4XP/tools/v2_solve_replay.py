@@ -687,13 +687,17 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     airport = _dc.replace(airport, clusters=_derive_clusters(airport, law))
     from auto_patch_v2.airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law)       # issue #516
+    from auto_patch_v2.airport.entrance_shade import entrance_pins
+    from auto_patch_v2.airport.wall_reseat import attach_wall_reseats
+    _epins = entrance_pins(airport, pack_objects, ocache, law)
+    airport = attach_wall_reseats(airport, _epins)                # #2099 F2 P4a
     from auto_patch_v2.airport.wall_shade import attach_wall_shade
     from auto_patch_v2.classify import load_rules as _load_rules
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
     from auto_patch_v2.airport.unit_fence import attach_unit_fences
     airport = attach_unit_fences(airport, _load_rules(), law)      # spec 2068 A2 F1
     from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
-    airport = attach_entrance_shade(airport, pack_objects, ocache, law)   # #1747
+    airport = attach_entrance_shade(airport, pack_objects, ocache, law, _epins)   # #1747
     from auto_patch_v2.airport.deck_routes import attach_deck_routes
     airport, _dr_notes = attach_deck_routes(airport, pack_objects, inputs.osm_root, law,
                                             inputs.radius_deg)        # #2090
@@ -2240,20 +2244,17 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     # derived off the capture's own partition and DEM -- and ALWAYS on an
     # early resume (#1952): classify and planar re-read the wall class under
     # the current tree, so the captured walls would be a second reading
-    if resume in ("classify", "planar") or \
-            getattr(airport, "wall_shade", None) is None or \
-            not getattr(airport, "retaining_walls", ()) or \
+    # (an early resume reads them after the pack's objects below: #2099 F2
+    # P4a's wall re-seats come off the entrance pins)
+    if resume not in ("classify", "planar") and (
+            getattr(airport, "wall_shade", None) is None or
+            not getattr(airport, "retaining_walls", ()) or
             any(getattr(w, "top_profile", None) is None
                 or getattr(w, "foot_profile", None) is None
-                for w in airport.retaining_walls):
+                for w in airport.retaining_walls)):
         from auto_patch_v2.airport.wall_shade import attach_wall_shade
         from auto_patch_v2.classify import load_rules as _load_rules
         airport = attach_wall_shade(airport, _load_rules().service)
-    if resume in ("classify", "planar"):
-        # spec 2068 A2 F1: the unit fences, read under the current tree
-        from auto_patch_v2.airport.unit_fence import attach_unit_fences
-        from auto_patch_v2.classify import load_rules as _load_rules
-        airport = attach_unit_fences(airport, _load_rules(), law)
     t0 = time.perf_counter()
     _ocache = _objs = _orep = None
     if resume in ("classify", "planar"):
@@ -2276,11 +2277,23 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
                           _fe.quantum(law))
         _objs, _orep = _read_objects(airport, law, _ocache)
+        # #2099 F2 P4a: the entrance pins, then the wall re-seats, the wall
+        # class (issue #1633) and the unit fences (spec 2068 A2 F1), under the
+        # current tree, in the build's order
+        from auto_patch_v2.airport.entrance_shade import entrance_pins
+        from auto_patch_v2.airport.unit_fence import attach_unit_fences
+        from auto_patch_v2.airport.wall_reseat import attach_wall_reseats
+        from auto_patch_v2.airport.wall_shade import attach_wall_shade
+        from auto_patch_v2.classify import load_rules as _load_rules
+        _epins = entrance_pins(airport, _objs, _ocache, law)
+        airport = attach_wall_reseats(airport, _epins)
+        airport = attach_wall_shade(airport, _load_rules().service)
+        airport = attach_unit_fences(airport, _load_rules(), law)
         # #1747: a capture written before ``Airport.entrance_shade`` derives
         # it here, off the pack read the classify / planar stages take
         if getattr(airport, "entrance_shade", None) is None:
             from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
-            airport = attach_entrance_shade(airport, _objs, _ocache, law)
+            airport = attach_entrance_shade(airport, _objs, _ocache, law, _epins)
         # #1971: the deck stacks, RE-DERIVED every replay from the ways as
         # mapped (``Airport.osm_ways_mapped``), so ``--from classify``
         # iterates on the derivation without a new capture

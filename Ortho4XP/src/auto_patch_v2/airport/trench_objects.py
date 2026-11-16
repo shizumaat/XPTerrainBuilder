@@ -467,13 +467,20 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
             # RULINGS 2026-11-16a: an opening under one road lane is a misread;
             # the face is re-read off its walls (:func:`_misread_face`)
             misread = 0.0 < width < lane
+            reseat = False
             if misread:
-                width, edges, walled, floor, plan = _misread_face(
+                width, edges, re_walled, re_floor, re_plan = _misread_face(
                     o, g, xy, end_into, 2.0 * tol, law, bottom, t.outline, dem_z, walled, floor)
-                # its top at grade is its zero (the walls' top; a parapet
-                # over the opening stands proud of the ground)
-                if plan is not None:
-                    cover, top = floor - bottom, 0.0
+                # #2099 F2 P0: the re-read SEATS only a face its own read did
+                # not wall; a face its own read walls keeps its floor, cover,
+                # top and plan (only its opening is re-read jamb to jamb).
+                # Its top at grade is then its zero (the walls' top; a
+                # parapet over the opening stands proud of the ground)
+                if not walled:
+                    reseat = re_walled
+                    walled, floor, plan = re_walled, re_floor, re_plan
+                    if plan is not None:
+                        cover, top = floor - bottom, 0.0
             reach, foot = _wall_feet(o, g, xy, end_into, law)
             out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
                               ground - floor, 0.0, (float(xy[0]), float(xy[1])),
@@ -483,7 +490,7 @@ def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj
                               # (zero = floor - bottom), never a roofed portal's
                               bottom_y=float(bottom) if walled else None,
                               wall_reach_m=reach, foot_grade=foot,
-                              opening_misread=misread,
+                              opening_misread=misread, wall_reseat=reseat,
                               face_plan=None if cover is None else _face_top(
                                   plan, xy, end_into, 2.0 * tol),
                               face_top_z=None if cover is None else float(cover),

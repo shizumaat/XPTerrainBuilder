@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 from auto_patch_v2.airport import obj8
-from auto_patch_v2.airport.trench_objects import _ground_max, mouth_portals, read_trench_objects
+from auto_patch_v2.airport.trench_objects import (_cover_over, _ground_max, mouth_portals,
+                                                  read_trench_objects)
 from auto_patch_v2.airport.walled_trench import walled_trench_floors
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import OsmWay
@@ -19,12 +20,12 @@ from test_tunnel_objects import _airport, _slab, _write
 _T = {"highway": "primary", "lanes": "2", "tunnel": "yes", "layer": "-1"}
 
 
-def _headwall(vt, tris, half: float) -> None:
-    """A full-height face across the bore at z = 0 (y -6 .. +1), authored in
-    three pieces whose seams stand 0.2 m either side of the bore line: its
-    foot breaks there, so the gap reader reads 0.4 m."""
-    for x0, x1 in ((-half, -0.2), (-0.2, 0.2), (0.2, half)):
-        _slab(vt, tris, x0, x1, -0.5, 0.5, -6.0, 1.0)
+def _headwall(vt, tris, half: float, top: float = 1.0, seam: float = 0.2) -> None:
+    """A full-height face across the bore at z = 0 (y -6 .. ``top``), authored
+    in three pieces whose seams stand ``seam`` either side of the bore line:
+    its foot breaks there, so the gap reader reads ``2 * seam``."""
+    for x0, x1 in ((-half, -seam), (-seam, seam), (seam, half)):
+        _slab(vt, tris, x0, x1, -0.5, 0.5, -6.0, top)
 
 
 @pytest.fixture(scope="module")
@@ -58,6 +59,17 @@ def objs(tmp_path_factory):
     _headwall(vt, tris, 8.0)
     _slab(vt, tris, 8.0, 9.0, 0.5, 60.0, -6.0, -0.1)
     out["bent"] = _write(d / "bent.obj", vt, tris)
+    # #2099 F2 P0: a lid face (+0.4) its own read walls, a 1.2 m slot
+    vt, tris = [], []
+    _headwall(vt, tris, 15.0, top=0.4, seam=0.6)
+    out["lid"] = _write(d / "lid.obj", vt, tris)
+    # a face its own read does NOT wall: a floor plate in the bore (y -6.2 ..
+    # -6.0, seams at the bore line) outweighs the headwall's top
+    vt, tris = [], []
+    _headwall(vt, tris, 15.0)
+    for x0, x1 in ((-15.0, -0.2), (-0.2, 0.2), (0.2, 15.0)):
+        _slab(vt, tris, x0, x1, 0.5, 9.0, -6.2, -6.0)
+    out["floored"] = _write(d / "floored.obj", vt, tris)
     return out
 
 
@@ -72,7 +84,7 @@ def _pins(objs, law, name):
 
 
 def test_a_sub_lane_opening_is_read_jamb_to_jamb(objs, law):
-    airport, _c, _o, _t, pins = _pins(objs, law, "face")
+    airport, _c, objects, _t, pins = _pins(objs, law, "face")
     assert len(pins) == 1
     p = pins[0]
     lane = float(law.tables.structures.tunnel.lane_width_m)
@@ -80,11 +92,37 @@ def test_a_sub_lane_opening_is_read_jamb_to_jamb(objs, law):
     # the face stands full height from -15 to +15: jamb to jamb, never 0.4 m
     assert p.opening_m >= lane
     assert p.opening_m == pytest.approx(30.0, abs=1.0)
-    # walled, its zero on the ground its walls retain, its floor that less 6
+    # #2099 F2 P0: its own read walls it (top +1 over bottom -6): it keeps
+    # that read's seat -- floor on its top's cover, never the re-read's
+    assert not p.wall_reseat
+    assert p.bottom_y == pytest.approx(-6.0, abs=0.01)
+    cover = _cover_over(p.top_plan, airport.dem.z)
+    assert p.floor_z == pytest.approx(cover - 7.0, abs=0.01)
+
+
+def test_a_face_its_own_read_walls_keeps_its_seat(objs, law):
+    """T1 (#2099 F2 P0): a lid face (+0.4) with a 1.2 m slot: the opening
+    is re-read jamb to jamb, its floor, top and plan stay its own read's."""
+    airport, _c, _o, _t, pins = _pins(objs, law, "lid")
+    p = pins[0]
+    assert p.opening_misread and not p.wall_reseat
+    assert p.opening_m == pytest.approx(30.0, abs=1.0)
+    cover = _cover_over(p.top_plan, airport.dem.z)
+    assert p.face_top_z == pytest.approx(cover)
+    assert p.floor_z == pytest.approx(cover - 6.4, abs=0.01)
+    assert p.top_plan.area == pytest.approx(30.0, abs=1.0)
+
+
+def test_a_face_its_own_read_does_not_wall_is_reseated(objs, law):
+    """T1 (#2099 F2 P0): a face whose own read is a floor plate (no wall's
+    height) is walled by the re-read, its zero on the ground its walls
+    retain, and says so (``wall_reseat``)."""
+    airport, _c, _o, _t, pins = _pins(objs, law, "floored")
+    p = pins[0]
+    assert p.opening_misread and p.wall_reseat
     tol = float(law.tables.structures.tunnel.object.bore_end_tolerance_m)
     ground = _ground_max(airport.dem.z, p.end_xy, 2.0 * tol)
-    assert p.bottom_y == pytest.approx(-6.0, abs=0.01)
-    assert p.floor_z == pytest.approx(ground - 6.0, abs=0.01)
+    assert p.floor_z - p.bottom_y == pytest.approx(ground, abs=0.01)
 
 
 def test_no_sub_lane_slot_ever(objs, law):

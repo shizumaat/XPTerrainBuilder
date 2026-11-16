@@ -38,6 +38,9 @@ re-authors body files.  So:
    baked into the written ``.obj`` vertices AND normals by
    ``obj8_split.split_obj8`` (rule 5), which is the only place a rotation
    can live;
+2a. sink the body's zero until the tilt floats no foot further than the
+   level seat did (:func:`_no_float_drop`, #2060 round 4) -- the rotation
+   turns about the origin, not through the plane's intercept;
 3. re-check every foot's residual against the EXISTING foot tolerance
    (``[placement] split_tol_m``, the 0.3 m the feet census already judges
    a body at) — nothing new is invented to judge it with;
@@ -180,6 +183,9 @@ class SeatTilt:
     #: (``obj8_split.BodyCut.tilt``); :data:`obj8_split.NO_TILT` when the
     #: tilt was not applied
     grad: tuple[float, float] = _split.NO_TILT
+    #: #2060 round 4: how far the tilted body's ZERO is sunk so the tilt
+    #: floats no foot further than the level seat did (:func:`_no_float_drop`)
+    drop_m: float = 0.0
 
     def to_dict(self) -> dict[str, _t.Any]:
         return {"tilt_deg": round(self.tilt_deg, 4),
@@ -192,6 +198,7 @@ class SeatTilt:
                 "applied": bool(self.applied),
                 "over_tolerance": bool(self.over_tolerance),
                 "grad": [self.grad[0], self.grad[1]],
+                "drop_m": round(self.drop_m, 4),
                 "reason": self.reason}
 
 
@@ -260,16 +267,51 @@ def fit(pts: _t.Sequence[_t.Tuple[float, float, float]],
     rot = _split.tilt_matrix((gx, gz))
     after = p @ np.asarray(rot).T                    # the seated feet
     res = d + p[:, 1] - after[:, 1]
+    drop = _no_float_drop(d, res)
+    res = res + drop
     worst = float(np.max(np.abs(res)))
     over = worst > float(foot_tol_m)
     return _dc.replace(
         tilt, residual_max_m=worst, applied=True, over_tolerance=over,
-        grad=(gx, gz),
+        grad=(gx, gz), drop_m=drop,
         reason=(f"{SEAT_REASON} {total:.3f} deg (pitch {tilt.tilt_deg:+.3f}, "
                 f"roll {tilt.roll_deg:+.3f}) seats {n} feet: worst "
                 f"{before:+.2f} -> {worst:+.2f} m"
+                + (f", zero sunk {drop:.2f} m so no foot floats (#2060)"
+                   if drop else "")
                 + (f", STILL over the {float(foot_tol_m):g} m foot "
                    f"tolerance (REPORTED, no block cut)" if over else "")))
+
+
+def _no_float_drop(level: np.ndarray, tilted: np.ndarray) -> float:
+    """#2060 round 4: THE TILT FLOATS NO FOOT (owner 2026-10-20f #1086,
+    "so nothing floats"; 2026-10-22c, no support floats).  The rotation
+    turns about the body's ORIGIN, pinned to the surface under its
+    anchor, and the least-squares plane's intercept is dropped
+    (:func:`fit`), so the fitted gradient lifts feet off their ground
+    wherever the origin is not on that plane (CYLW ``Hangar_9`` b0: the
+    level seat floats one foot 0.06 m, the full tilt one 0.45 m).
+    ``level`` / ``tilted`` are each foot's rise owed (``foot_float``'s
+    sign: ``-`` floats) before and after the tilt; returns how far the
+    zero sinks so the tilted body floats no foot further than the level
+    one did -- ``0.0`` when it already does not."""
+    def floats(r: np.ndarray) -> float:
+        return float(max(0.0, -float(np.min(r)))) if len(r) else 0.0
+    return max(0.0, floats(tilted) - floats(level))
+
+
+def _sunk(body: _t.Any, seat: "SeatTilt | None") -> _t.Any:
+    """``body`` with its zero sunk by ``seat.drop_m`` (its anchor's
+    ``y_zero`` and the offset's ``y`` raised by it): every body written in
+    a frame -- the tilted one, its frame mates and its riders -- sinks by
+    its frame's one drop, so they stay one rigid frame."""
+    drop = float(getattr(seat, "drop_m", 0.0) or 0.0) if seat is not None else 0.0
+    if drop <= 0.0 or not getattr(seat, "applied", False):
+        return body
+    a = body.anchor
+    o = tuple(a.offset)
+    return _dc.replace(body, anchor=_dc.replace(
+        a, y_zero=float(a.y_zero) + drop, offset=(o[0], o[1] + drop, o[2])))
 
 
 def frame_key(a: _t.Any) -> "tuple | None":
@@ -434,7 +476,7 @@ def with_frame_seat(body: _t.Any, m: _t.Any, seat: "SeatTilt | None") -> _t.Any:
     if seat is None or not seat.applied:
         return body
     from .placement_file import named_body  # R1: the one file-name rule
-    return named_body(m, body, seat=seat)
+    return named_body(m, _sunk(body, seat), seat=seat)
 
 
 def rider_boxes(st: _t.Any, grp: _t.Iterable[int]) -> list:
@@ -475,7 +517,9 @@ def rider_seat(body: _t.Any, m: _t.Any,
         if counts is not None:
             counts["seat_tilt_rider_unattached"] = \
                 counts.get("seat_tilt_rider_unattached", 0) + 1
-        return body
+        # #2060 r4: level, but on the carrier's zero -- sunk with it
+        from .placement_file import named_body  # R1: the one file-name rule
+        return named_body(m, _sunk(body, seat)) if seat.drop_m else body
     return with_frame_seat(body, m, seat)
 
 
@@ -588,4 +632,4 @@ def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
     # §4.5 / 14at: the FILE IS KEYED ON WHAT IT BAKES, so a tilted body's
     # resource name must carry the tilt as it carries the offset
     from .placement_file import named_body  # R1: the one file-name rule
-    return named_body(m, body, seat=seat)
+    return named_body(m, _sunk(body, seat), seat=seat)

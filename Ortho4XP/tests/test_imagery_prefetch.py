@@ -297,7 +297,9 @@ class _Child:
 
 def _vector_run(tiles, flags=(True, True, False), imagery_busy=0):
     run = parallel.ParallelBuildRun(
-        SimpleNamespace(_emit=lambda e: None, _run_finished=lambda: None),
+        SimpleNamespace(_emit=lambda e: None, _run_finished=lambda: None,
+                        with_paid_rebuilds=lambda built: built,
+                        _announce_rebuild_pending=lambda cancelled: None),
         tiles, "P", 16, "", flags, len(tiles))
     run._class_active["imagery"] = imagery_busy
     children = [_Child() for _ in tiles]

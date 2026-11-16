@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-__all__ = ["REASON_MACHINE", "REASON_RUN", "Wait", "MemoryWaits",
+__all__ = ["REASON_MACHINE", "REASON_RUN", "MemoryWaits",
            "wait_message"]
 
 #: the step waits for memory the MACHINE does not have free (live check)
@@ -37,7 +37,7 @@ REASON_RUN = "run"
 
 
 @dataclass(frozen=True)
-class Wait:
+class _Wait:
     """One held step: its projection, the memory free when last checked
     (gigabytes) and the reason code."""
 
@@ -65,7 +65,7 @@ class MemoryWaits:
     def note(self, key, needed_gb, free_gb, reason) -> bool:
         """Record (or refresh) a refusal; True when the step is new here."""
         new = key not in self._waits
-        self._waits[key] = Wait(float(needed_gb), float(free_gb), reason)
+        self._waits[key] = _Wait(float(needed_gb), float(free_gb), reason)
         return new
 
     def clear(self, key) -> bool:
@@ -73,7 +73,7 @@ class MemoryWaits:
         return self._waits.pop(key, None) is not None
 
     def oldest(self, is_pending):
-        """``(key, Wait)`` of the oldest step still pending — ``is_pending
+        """``(key, _Wait)`` of the oldest step still pending — ``is_pending
         (key)`` says so — or ``None``.  Steps no longer pending (their tile
         was stopped or re-planned) are dropped on the way."""
         for key in list(self._waits):
@@ -83,7 +83,7 @@ class MemoryWaits:
         return None
 
     def snapshot(self) -> dict:
-        """``{key: Wait}`` now, for the announcer outside the lock."""
+        """``{key: _Wait}`` now, for the announcer outside the lock."""
         return dict(self._waits)
 
     def __contains__(self, key) -> bool:

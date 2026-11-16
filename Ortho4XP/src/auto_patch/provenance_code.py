@@ -337,6 +337,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "O4_Version",
     "O4_World_Imagery_Record",
     "O4_World_Pack",
+    "O4_World_Pack_Off",
     "O4_ZProv",
     "auto_patch",
     "auto_patch.agp_reader",

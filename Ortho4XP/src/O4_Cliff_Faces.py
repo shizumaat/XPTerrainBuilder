@@ -33,7 +33,7 @@ from math import cos, radians
 import numpy
 
 __all__ = ["CliffParams", "CliffLayout", "find_cliff_layout",
-           "local_metres", "triangle_slopes"]
+           "local_metres", "node_steepest", "slope_ramp", "triangle_slopes"]
 
 EARTH_RADIUS_M = 6378137.0
 
@@ -69,6 +69,13 @@ class CliffLayout:
     region_area: list
     region_tris: list
     dropped_regions: int = 0
+
+    def plan_charts(self):
+        """Per region its plan (top-down) chart: the first of its charts."""
+        first = {}
+        for c, r in enumerate(self.chart_region):
+            first.setdefault(r, c)
+        return [first[r] for r in range(len(self.region_tris))]
 
     def chart_uv(self, chart_id, xyz, repeat_m):
         """Texture coordinates (in repeats) of points ``xyz`` (n, 3):
@@ -117,14 +124,26 @@ def _edge_neighbours(tri_idx, subset):
     return nbrs
 
 
-def _node_alpha(tri_idx, slope, land, nbr_nodes, params, extra=None):
+def node_steepest(tri_idx, slope, land, nbr_nodes):
+    """(n,) slope (degrees) of the steepest land triangle at each node."""
     steepest = numpy.zeros(nbr_nodes)
     ids = numpy.nonzero(land)[0]
     for c in range(3):
         numpy.maximum.at(steepest, tri_idx[ids, c], slope[ids])
-    x = numpy.clip((steepest - params.slope_lo)
-                   / max(1e-6, params.slope_hi - params.slope_lo), 0.0, 1.0)
-    alpha = x * x * (3 - 2 * x)
+    return steepest
+
+
+def slope_ramp(slope, lo, hi):
+    """Smoothstep of ``slope`` (degrees): 0 at or below ``lo``, 1 at or
+    above ``hi``."""
+    x = numpy.clip((slope - lo) / numpy.maximum(1e-6, numpy.subtract(hi, lo)),
+                   0.0, 1.0)
+    return x * x * (3 - 2 * x)
+
+
+def _node_alpha(tri_idx, slope, land, nbr_nodes, params, extra=None):
+    alpha = slope_ramp(node_steepest(tri_idx, slope, land, nbr_nodes),
+                       params.slope_lo, params.slope_hi)
     return alpha if extra is None else numpy.maximum(alpha, extra)
 
 

@@ -215,6 +215,38 @@ def _half_plane(geom, end_xy: XY, into: XY, front: float, off: float):
                     for s, o in ((s0, -big), (s1, -big), (s1, big), (s0, big))])
 
 
+def _behind_cover(pin, ramp, outward: "XY | None", reach):
+    """#1689 R5c: the ground BEHIND a covered portal -- the half plane into
+    the bore from the ramp's end (its deepest station), over ``reach`` --
+    or ``None`` (no cover, no outward, no ramp)."""
+    cover = getattr(pin, "cover_plan", None)
+    if cover is None or cover.is_empty or outward is None or ramp.is_empty:
+        return None
+    into = (-outward[0], -outward[1])
+    end = max(_station(q, pin.end_xy, into) for g in getattr(ramp, "geoms", [ramp])
+              if g.geom_type == "Polygon" for q in g.exterior.coords)
+    return _half_plane(reach, pin.end_xy, into, end - 1.0, 1.0)
+
+
+def _road_keep_off(road, stand_off: float, behind, band: float):
+    """A road cell's keep-off from a skirt: ``stand_off`` (a wall's rim
+    width); for a road that runs BEHIND a covered portal (:func:`_behind_cover`;
+    a road ending short of the ramp's end -- the road out of the mouth --
+    keeps its stand-off everywhere), there the road over the bore and the
+    cover's piece are both ground at the cover's level with no wall
+    between, so there it is ``band`` (the tunnel's ``wall_band_width_m``,
+    the rim's stand-off less its wall gap; at ``min_distinct_spacing_m``
+    the road's edge was welded to the piece and dragged 0.84 m).  #1689
+    R5c, KBNA P2: held off by the ramp's and the road's stand-offs the
+    piece never reached the ground behind the skewed back, and the mesh ran
+    one slope from the ramp's end to the road -- drawn 1.2 m under the
+    cover's top 0.5 m behind it."""
+    off = road.buffer(stand_off, **_MITRE)
+    if behind is None or not road.intersection(behind).area > 0.0:
+        return off                  # the road out of the mouth ends short of it
+    return unary_union([off.difference(behind), road.buffer(band, **_MITRE)])
+
+
 def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
                    hosts: _t.AbstractSet[str] = frozenset(), outward: "XY | None" = None):
     """``(core, bank, top z)`` of a top-stating ``pin``'s skirt round the
@@ -254,7 +286,10 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
                            and not (c.role == "building" and c.ref in own)])
     if not is_entrance_face(pin):
         from ..model.planar import ROAD_ROLES
-        held = [p.buffer(stand_off, **_MITRE) for c, p in zip(cells, polys, strict=False)
+        behind = _behind_cover(pin, ramp, outward, reach)
+        band_off = float(law.tables.structures.tunnel.wall_band_width_m)
+        held = [_road_keep_off(p, stand_off, behind, band_off) if c.role in ROAD_ROLES
+                else p.buffer(stand_off, **_MITRE) for c, p in zip(cells, polys, strict=False)
                 if (c.role in ROAD_ROLES or (c.role == "building" and c.ref not in hosts))
                 and p.intersects(reach)]
         b = reach.bounds

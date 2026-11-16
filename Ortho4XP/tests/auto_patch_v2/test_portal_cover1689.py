@@ -721,3 +721,28 @@ def test_r5b_t11_one_keepout_per_tunnel():
     assert d.geom_type != "Polygon"
     one = d if d.geom_type == "Polygon" else (largest_polygon(d) or outer)
     assert one.geom_type == "Polygon" and one.exterior is not None
+
+
+def test_r5c_t12_the_covers_piece_meets_the_road_behind_it():
+    """T12 (#1689 R5c): a road behind a covered portal (into the bore from
+    the ramp's end) keeps off the cover's piece by the wall band
+    (``wall_band_width_m``), not the rim's stand-off -- the piece reaches
+    the ground behind a back the road nearly touches; a road in front of
+    the ramp's end, and with no cover, keeps its stand-off as today."""
+    from auto_patch_v2.planar.entrance_skirt import entrance_skirt
+    band = float(LAW.tables.structures.tunnel.wall_band_width_m)
+    road = box(-25.0, 3.5, 25.0, 12.0)            # 1.15 m behind the cover's back
+    side = box(-30.0, -40.0, -24.0, -2.0)         # beside the ramp, in front of its end
+    cells, ramp = [_cell("service_road", "route1"), _cell("service_road", "side")], \
+        box(-10.0, -60.0, 10.0, 0.25)
+
+    def skirt(pin):
+        return entrance_skirt(pin, ramp, cells, [road, side], LAW, lambda x, y: 174.0, 1.6,
+                              outward=(0.0, -1.0))
+    core = skirt(_r5_pin(False))[0]
+    assert core.contains(Point(0.0, 2.3)) and core.contains(Point(-15.0, 2.4))
+    assert core.intersection(road.buffer(band - 1e-6)).area < 1e-6
+    assert core.intersection(side.buffer(1.6 - 1e-6)).area < 1e-6
+    today = _r5_pin(False)
+    today.cover_plan = None
+    assert skirt(today)[0].intersection(road.buffer(1.6 - 1e-6)).area < 1e-6

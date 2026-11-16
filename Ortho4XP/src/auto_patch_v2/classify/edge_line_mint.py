@@ -17,6 +17,10 @@ zero (``airport/line_solidity.kind_of``) — is read every
   not paved, and DEPARTS from the graded level: water there, or the DEM
   ``step_min_m`` under OR over the DEM at the host's edge (a fall to the
   bay, a rise past a boundary fence).
+* the line STANDS ON the host's level (#2111 R1): the DEM at its base on
+  the host side (the station moved its base half-width toward the host)
+  lies within ``step_min_m`` of the DEM at the host's edge — a fence on a
+  bank top above the host marks nothing.
 
 Consecutive marking stations of one host and side, at least ``min_run_m``
 long, mark THE EDGE GROUND: from the host's edge out to the line plus its
@@ -135,16 +139,26 @@ def _marking(hw: float, line: LineString, paved, tree: STRtree, dem, cfg) -> lis
         f = (p[0] - side * n[0] * out, p[1] - side * n[1] * out)
         if any(paved[int(j)][1].contains(Point(f)) for j in tree.query(Point(f))):
             continue                        # paved beyond as well: no edge
-        rows.append((s, p, q, _host_ref(c), side, f, c.id))
+        b = (p[0] + side * n[0] * hw, p[1] + side * n[1] * hw)
+        rows.append((s, p, q, _host_ref(c), side, f, c.id, b))
     if not rows:
         return []
     q = np.array([r[2] for r in rows], dtype=float)
     f = np.array([r[5] for r in rows], dtype=float)
+    b = np.array([r[7] for r in rows], dtype=float)
     zq, zf = dem_z_many(dem, q[:, 0], q[:, 1]), dem_z_many(dem, f[:, 0], f[:, 1])
+    zb = dem_z_many(dem, b[:, 0], b[:, 1])
+    step = float(cfg.step_min_m)
     wet = _water(dem, f[:, 0], f[:, 1])
-    departs = wet | (np.isfinite(zq) & np.isfinite(zf)
-                     & (np.abs(zq - zf) >= float(cfg.step_min_m)))
-    return [_Station(*r[:5], r[6]) for r, ok in zip(rows, departs, strict=True) if ok]
+    departs = wet | (np.isfinite(zq) & np.isfinite(zf) & (np.abs(zq - zf) >= step))
+    # #2111 R1: the line marks the host's edge only where it STANDS ON the
+    # host's level — the ground at its base, on the host side, within
+    # ``step_min_m`` of the host edge's.  A fence on a bank top above the
+    # road (KBNA perimeter wire 7-8 m off the carriageway, 2-2.7 m over it)
+    # marks nothing: the bank between is nobody's, it keeps its own ground
+    stands = ~(np.isfinite(zq) & np.isfinite(zb)) | (np.abs(zq - zb) < step)
+    return [_Station(*r[:5], r[6]) for r, ok in zip(rows, departs & stands, strict=True)
+            if ok]
 
 
 def _runs(st: list[_Station], step: float, min_run: float) -> list[list[_Station]]:

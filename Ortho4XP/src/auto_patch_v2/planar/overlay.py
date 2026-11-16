@@ -43,6 +43,7 @@ from ..model.registries import Registries
 from ..model.wall_reach import is_wall_fill_ref
 from .chords import densify, densify_within, ring_lines, stations
 from .lidar_road import survey_road_trenches
+from .end_barriers import end_barriers
 from .road_yield import road_carriageways, rsa_carriageways
 from .terrain_edge import EdgeReport, road_edges
 from .pad_cut import (_drop_rim_midpoints, _renode_counts, _SHARED_TIE_DP,
@@ -364,7 +365,8 @@ def build_arrangement(airport: Airport, classification: Classification,
                               lambda region: survey_road_trenches(
                                   airport, law, carriageways, region),
                               band_setbacks(tuple(getattr(airport, "retaining_walls", ())
-                                                  or ()))):
+                                                  or ())),
+                              _end_barriers(airport)):
             regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                                   z.code_letter, role_side(law, "graded_strip"),
                                   "zone", z.zone, z.edge_kind, z.quay,
@@ -1255,6 +1257,15 @@ def seam_bands(airport: Airport, regions: list[Region], half_width_m: float
         out.append(_band([(float(L), lat_lo + (lat_hi - lat_lo) * k / (n - 1))
                           for k in range(n)], False))
     return [b for b in out if not b.is_empty and b.geom_type == "Polygon"]
+
+
+def _end_barriers(airport):
+    """#2111 R2: the airport's barriers (``planar/end_barriers``), read with
+    the classifier's line thresholds."""
+    from ..classify.rules import load_rules
+    rules = load_rules()
+    return end_barriers(getattr(airport, "edge_lines", ()) or (), rules.service,
+                        float(rules.edge_lines.min_run_m))
 
 
 def _runway_records(airport, law) -> tuple:

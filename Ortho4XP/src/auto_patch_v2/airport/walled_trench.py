@@ -181,6 +181,33 @@ def _faces(poly, lines: list, zero: float, step: float) -> np.ndarray:
     return np.asarray(out, float)
 
 
+def _reach_road_ends(floor, ends, tk: float):
+    """THE FLOOR MEETS A ROAD ENTERING IT AT ITS RING (#2099 F2, lcyyzP5):
+    ``floor`` grown to every mapped road end of the trench (``ends``,
+    ``TrenchObject.ends``: ``(xy, way id)``) standing outside it within
+    ``tk`` (a wall's plan thickness: the end stands in the wall's opening,
+    never past the wall) -- a strip from the ring's nearest point to the end
+    ``0.25 * tk`` either side (the margin :func:`_between` keeps off the
+    walls), so the road's last vertex stands on the floor and not on the
+    wall face falling to it.  MEASURED CYYZ ``Tx_A``: the bore end of
+    the tunnel and of the road continuing it stood 0.1 m outside the
+    floor's ring, in the headwall's face -- the drawn road stepped 162.47 to
+    the floor's 161.45 in its first metre."""
+    from shapely.geometry import LineString, Point
+    from shapely.ops import nearest_points
+    grow = []
+    for xy, _wid in ends or ():
+        e = Point(xy)
+        d = floor.distance(e)
+        if 0.0 < d <= tk:
+            q = nearest_points(floor.exterior, e)[0]
+            grow.append(LineString([(q.x, q.y), (e.x, e.y)]).buffer(0.25 * tk))
+    if not grow:
+        return floor
+    got = unary_union([floor, *grow])
+    return got if got.geom_type == "Polygon" else floor
+
+
 def _longest_open(walled: np.ndarray, step: float) -> float:
     """The longest run of ring samples no wall lines (metres, cyclic)."""
     if walled.all():
@@ -232,6 +259,7 @@ def walled_trench_floors(trenches: _t.Sequence, objects: _t.Sequence[_obj8.Place
             continue
         # the walls' top along the ring seats the zero; their feet are read
         # as sections (:func:`_wall_lines`)
+        floor = _reach_road_ends(floor, t.ends, tk)
         feet, _t = _foot_top(samples, xy, y, tk)
         _f, tops = _foot_top(samples, *_all_solids(o, g), tk)
         ok = np.isfinite(feet) & np.isfinite(tops)

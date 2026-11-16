@@ -18,7 +18,12 @@ name:
    and pavement — is never one);
 2. its header is ``DRAPED_POLYGON`` with ONE NON-WRAPPING IMAGE
    (``TEXTURE_NOWRAP``): a picture laid over its own shape, where
-   painted markings and pavement tile a wrapping ``TEXTURE``;
+   painted markings and pavement tile a wrapping ``TEXTURE`` — or a
+   wrapping ``TEXTURE`` in a ``.pol`` that carries WED's orthophoto
+   ``LOAD_CENTER`` (issue #2115: one pack lays its 96 photo tiles as
+   ``TEXTURE`` + ``LOAD_CENTER`` + detail decals + ``SURFACE dirt``;
+   (4)-(6) and the grid rule then judge it as any photo,
+   :func:`image_name`);
 3. it carries NO PAVED ``SURFACE`` (:data:`PAVED_SURFACES`: pavement the
    aircraft rolls on, drawn on purpose — a photo may carry ``SURFACE
    grass``, the bumps of the ground it shows: issue #1943, 151 such tiles
@@ -50,6 +55,12 @@ installed packs' cached tile-DSF dumps): of 7,427 definitions passing
 of 247 dirt/skid/tyre/shadow decals do; 529 photo tiles fail — 344 the
 see-through "detail" layer one pack lays over its own photo, 178 the
 photos of packs that did not lay them north-up, 7 see-through.
+Re-measured 2026-11-16 for the wrapping photo of (2) (issue #2115,
+``tools/pack_drape_census.py``, 842 pack tiles of 603 cached packs):
+(1)-(6) 4,326 -> 4,422 definitions (+90 the #2115 pack's photo tiles;
++6 wrapping gravel, grass and water overlays at three packs, none in
+an offered grid); offered 8,630 -> 8,724 (+94, all at the #2115 pack);
+no pack's offer shrank; weathering-named decals passing (1)-(6) 3 -> 3.
 
 THE GRID RULE (owner RULINGS 2026-11-07a (3)) is a further REQUIRED
 condition: a definition passing (1)-(6) is hidden only with the whole
@@ -70,7 +81,7 @@ import typing as _t
 from .pack_art import MissingDef, _lines, decision_key
 
 __all__ = ["RECORD_KEY", "MIN_SPAN_M", "NORTH_UP_DEG", "MIN_OPAQUE",
-           "PAVED_SURFACES", "airport_boxes", "photo_layers",
+           "PAVED_SURFACES", "image_name", "airport_boxes", "photo_layers",
            "draped_orthos", "recorded", "summary"]
 
 #: the record key of the hiding the user accepted
@@ -111,10 +122,24 @@ def paved_header(header: _t.Mapping[str, str]) -> bool:
     return (header.get("SURFACE", "").split() or [""])[0].lower() in PAVED_SURFACES
 
 
+def image_name(header: _t.Mapping[str, str]) -> str:
+    """The photo image of a ``.pol`` (witness (2)): its ``TEXTURE_NOWRAP``,
+    else a wrapping ``TEXTURE`` when the ``.pol`` carries WED's
+    orthophoto ``LOAD_CENTER``; ``""`` when it names neither."""
+    for key in ("TEXTURE_NOWRAP", "TEXTURE"):
+        if key == "TEXTURE" and "LOAD_CENTER" not in header:
+            break
+        name = (header.get(key, "").split() or [""])[0]
+        if name:
+            return name
+    return ""
+
+
 def is_ortho_header(header: _t.Mapping[str, str]) -> bool:
-    """Witness (2) and (3): a draped polygon with one non-wrapping image,
-    no paved surface, and not a weather-transparent overlay."""
-    return ("DRAPED_POLYGON" in header and "TEXTURE_NOWRAP" in header
+    """Witness (2) and (3): a draped polygon with one photo image
+    (:func:`image_name`), no paved surface, and not a weather-transparent
+    overlay."""
+    return ("DRAPED_POLYGON" in header and bool(image_name(header))
             and not paved_header(header)
             and "WEATHER_TRANSPARENT" not in header)
 
@@ -235,7 +260,7 @@ def _image_opaque(pol_path: str, header: _t.Mapping[str, str]) -> bool:
     """Witness (6): the ``.pol``'s image is not (nearly) all see-through;
     an image that cannot be read is not held against it."""
     from .image_opacity import image_file, opaque_fraction
-    name = (header.get("TEXTURE_NOWRAP", "").split() or [""])[0]
+    name = image_name(header)
     img = image_file(os.path.dirname(pol_path), name) if name else ""
     frac = opaque_fraction(img) if img else None
     return frac is None or frac >= MIN_OPAQUE
@@ -295,7 +320,7 @@ def photo_layers(pack_root: str, source: str | _t.Sequence[str],
                 ground += [u.box for u in uses[i]]
             continue                                    # (2), (3)
         turns = sorted(u.turn_deg for u in uses[i] if u.mapped)
-        texture = (header.get("TEXTURE_NOWRAP", "").split() or [""])[0]
+        texture = image_name(header)
         if not turns or turns[len(turns) // 2] > NORTH_UP_DEG:
             ground += [u.box for u in uses[i]]
             kin.append(Layer(i, path, texture, (), False, _layer(header)))

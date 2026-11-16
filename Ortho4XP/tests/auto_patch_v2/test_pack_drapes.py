@@ -344,3 +344,94 @@ def test_the_write_hides_them_and_undo_puts_them_back(written):
     assert "ground/skid.pol" in live and "BEGIN_POLYGON 0 65535 4" in live
     assert DS.undo(str(rp.pack)) == ["Earth nav data/+20+050/+25+051.dsf"]
     assert rp.dsf.read_bytes() == original
+
+
+# ── a photo laid with a WRAPPING texture (#2115) ────────────────────────
+
+#: WED's orthophoto laid as cells of four quarters, a wrapping TEXTURE,
+#: LOAD_CENTER, detail decals and SURFACE dirt (the #2115 pack's header)
+_WRAP_POL = ("A\n850\nDRAPED_POLYGON\n\nLOAD_CENTER 25.0 51.0 812.4 0\n\n"
+             "TEXTURE_NORMAL 1.0 Dummy_NML.png\nTEXTURE {name}.dds\n"
+             "SCALE 25.000000 25.000000\n#LOAD_CENTER 25.0 51.0 1141 2048\n"
+             "LAYER_GROUP terrain +1\nDECAL_PARAMS_PROJ\t5 5\t0.5\t\t0.5\t18"
+             "\t-20\t0\t0.0\t0.0\t\t0.0\t-17.5\t20\t-0.0\t0.0\t1.0 "
+             "Ortho_Detail.png\nSURFACE dirt\nNO_SHADOW\n")
+
+
+def _wrap_grid(pack, cells: int = 3, *, load_center: bool = True) -> list:
+    """``cells`` x 1 cells of four quarter tiles (``n1e2<c>_BL`` …) east of
+    the runway: two rows of ``2 * cells`` tiles, the first crossing it."""
+    d = 0.004
+    out = []
+    (pack / "Orthophotos").mkdir(exist_ok=True)
+    for c in range(cells):
+        for q, (dx, dy) in (("BL", (0, 0)), ("BR", (1, 0)),
+                            ("UL", (0, 1)), ("UR", (1, 1))):
+            name = f"n1e2{c + 10}_{q}"
+            text = _WRAP_POL.format(name=name)
+            if not load_center:
+                text = text.replace("\nLOAD_CENTER", "\n")
+            (pack / f"Orthophotos/{name}.pol").write_text(
+                text, encoding="utf-8", newline="")
+            (pack / f"Orthophotos/{name}.dds").write_bytes(_dds(True))
+            out.append((f"Orthophotos/{name}.pol", 0.0,
+                        (51.004 + d * (2 * c + dx), 25.000 + d * dy, d)))
+    return out
+
+
+def test_a_wrapping_photo_grid_with_load_center_is_hidden_whole(pack):
+    grid = _wrap_grid(pack)
+    head = PD.pol_header(str(pack / "Orthophotos/n1e210_BR.pol"))
+    assert PD.image_name(head) == "n1e210_BR.dds" and PD.is_ortho_header(head)
+    found = {m.path for m in _found(pack, _dump(DEFS[:9] + grid))}
+    assert found == {p for p, _t, _w in grid}, \
+        "TEXTURE + WED's LOAD_CENTER, quarter-named cells: one photo grid (#2115)"
+
+
+def test_a_wrapping_texture_without_load_center_is_no_photo(pack):
+    grid = _wrap_grid(pack, load_center=False)
+    head = PD.pol_header(str(pack / "Orthophotos/n1e210_BR.pol"))
+    assert PD.image_name(head) == "" and not PD.is_ortho_header(head)
+    assert _found(pack, _dump(DEFS[:9] + grid)) == (), \
+        "a tiled marking or pavement wraps its texture: never a photo"
+
+
+def test_a_wrapping_decal_turned_to_its_runway_is_no_photo(pack):
+    grid = _wrap_grid(pack)
+    turned = [(p, 30.0, w) for p, _t, w in grid]
+    assert _found(pack, _dump(DEFS[:9] + turned)) == (), \
+        "LOAD_CENTER is not enough: the image must lie north-up (4)"
+
+
+def test_the_image_name_prefers_the_non_wrapping_image():
+    assert PD.image_name({"TEXTURE_NOWRAP": "a.dds", "TEXTURE": "b.dds",
+                          "LOAD_CENTER": "1 2 3 4"}) == "a.dds"
+    assert PD.image_name({"TEXTURE": "b.dds", "LOAD_CENTER": "1"}) == "b.dds"
+    assert PD.image_name({"TEXTURE": "b.dds"}) == ""
+
+
+def test_quarter_tiles_of_numbered_cells_are_one_family():
+    from auto_patch_v2.airport import pack_drape_grid as G
+    assert (G._family_keys("O/n1e215_BR.pol", "n1e215_BR.dds", 101.0)
+            & G._family_keys("O/n1e216_UL.pol", "n1e216_UL.dds", 101.0))
+    assert not (G._family_keys("o/Apron_A.pol", "", 101.0)
+                & G._family_keys("o/Apron_B.pol", "", 101.0)), \
+        "a hand-named letter suffix is no quarter of a numbered cell"
+    assert not (G._family_keys("O/KEYW_3_06_sw.pol", "", 101.0)
+                & G._family_keys("O/KEYW_3_05.pol", "", 99.0)), \
+        "a suffixed layer drawn over its cell is its detail, not a quarter"
+
+
+def test_the_write_hides_a_wrapping_photo_grid(written):
+    rp = written
+    grid = _wrap_grid(rp.pack)
+    rp.dsf.write_bytes(_dump(DEFS[:9] + grid).encode("utf-8"))
+    found = _found(rp.pack, _dump(DEFS[:9] + grid))
+    assert len(found) == len(grid)
+    plan = PM.PlacementPlan("", rp.pack.name, str(rp.pack), str(rp.dsf),
+                            str(rp.dsf) + PM.BACKUP_SUFFIX,
+                            PM.Provenance("", "1.0.test", "", {}))
+    W.write_pack(str(rp.pack), plan, rp.tool, allow_live_install=True,
+                 drapes=found)
+    live = rp.dsf.read_text(encoding="utf-8")
+    assert "Orthophotos/" not in live and live.count("POLYGON_DEF ") == 9

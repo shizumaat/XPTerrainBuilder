@@ -62,9 +62,11 @@ import math
 import typing as _t
 
 from ..model.placement import TOL_DEG as _TOL_DEG
+from .hung_wall_seat import WALL_TOP_PLATE
 
 __all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
            "anchor_for", "roof_on_posts", "datum_of", "keep_off_row", "rim_of", "ring_of_part", "rim_anchor_point",
+           "rim_point",
            "pad_majority", "fold_pad_ref", "pad_contains",
            "water_level_under", "hangs_over_water", "box_points",
            "BUILDING", "SKIRTED", "BASIN", "LINE_SEGMENT", "DECK", "PLATE_ONLY", "OTHER"]
@@ -645,11 +647,13 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
                      "split-level lower floor (#1909)")
     # an EDGE BRIDGE's top is flush with the airside it edges (owner RULINGS
     # 2026-10-27r; ``pipeline/rebake_inputs._edge_seat_plates``): its zero at
-    # its seat, ahead of the basin rim its trench draws
-    if (plate_y is not None and getattr(m, "plate_kind", "") == "edge"
+    # its seat, ahead of the basin rim its trench draws.  A HUNG WEDGE
+    # WALL's top is flush the same way, at any sign of its top y (#2099 P5b)
+    if (plate_y is not None and getattr(m, "plate_kind", "") in ("edge", WALL_TOP_PLATE)
             and getattr(m, "plate_stations", ())):
         return Datum(float(plate_y), tuple(m.plate_stations),
-                     "edge bridge (RULINGS 2026-10-27r)")
+                     "edge bridge (RULINGS 2026-10-27r)"
+                     if m.plate_kind == "edge" else "wall-top plate (#2099 P5b)")
     # a RETAINING WALL's retained face reaches its upper ground (#1934 R3,
     # RULINGS 2026-11-16d; ``airport/retaining_seat``): never its footing
     if (plate_y is not None and getattr(m, "plate_kind", "") == "retaining"
@@ -1386,16 +1390,24 @@ def _basin_rim_anchor(geom: BodyGeometry, surface: Surface,
     # `T4STower-SWbaume`, and the emitted ring is not level (597.14 to
     # 597.86), so a per-body nearest vertex gave the three files three
     # zeros 0.49 m apart.  One row, one rim vertex, one zero.
-    clat, clon = geom.origin_lat, geom.origin_lon
-    ml, mo = _m_per_deg(clat)
-    i = min(range(len(ring.ring)),
-            key=lambda j: (round(((ring.ring[j][0] - clat) * ml) ** 2
-                                 + ((ring.ring[j][1] - clon) * mo) ** 2, 6),
-                           ring.ring[j][0], ring.ring[j][1]))
-    la, lo = rim_anchor_point(ring.ring, i)
+    la, lo = rim_point(ring, geom.origin_lat, geom.origin_lon)
     return Anchor(BASIN, la, lo, 0.0,
                   f"basin rim ({ring.ref}): the object's zero is the rim",
                   surface(la, lo))
+
+
+def rim_point(ring: RimRing, lat: float, lon: float) -> tuple[float, float]:
+    """The point a basin object's zero is read at (§14 (2)): the ring
+    vertex nearest the placement's ORIGIN ``(lat, lon)`` (the row point,
+    so the resources of one row take one zero), stood off the wall band
+    by :func:`rim_anchor_point`.  The one reading the body's rim anchor
+    and its unit's datum (``zero_level_seat.rim_unit_zero``) share."""
+    ml, mo = _m_per_deg(lat)
+    i = min(range(len(ring.ring)),
+            key=lambda j: (round(((ring.ring[j][0] - lat) * ml) ** 2
+                                 + ((ring.ring[j][1] - lon) * mo) ** 2, 6),
+                           ring.ring[j][0], ring.ring[j][1]))
+    return rim_anchor_point(ring.ring, i)
 
 
 def rim_anchor_point(ring: _t.Sequence[tuple[float, float]], i: int,

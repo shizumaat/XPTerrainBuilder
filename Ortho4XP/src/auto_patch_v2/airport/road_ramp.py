@@ -2264,6 +2264,9 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     if report is not None:
         report["public_road_lifted"] = len(lifted)
         report["public_road_steepest"] = max(lifted.values(), default=0.0)
+    # #2073: the page a deckless mapped bridge carries is not graded over
+    # the span (``constraints/bridge_span_release``)
+    from .bridge_span import bridge_span_faces
     from .plate_ground import under_plate_vertices
     under = under_plate_vertices(pm, getattr(airport, "walled_plates", ()))
     from .road_profile import at_grade_rsa_vertices
@@ -2284,4 +2287,5 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                        road_contact_edge=contact, road_route_merged=merged,
                        road_reach_seed=seed, preferred_z=keep,
                        road_between_levels=bl, road_terrace=terr,
-                       public_road_lifted=lifted, road_junction_road=junction_road)
+                       public_road_lifted=lifted, road_junction_road=junction_road,
+                       bridge_span=bridge_span_faces(pm, law, airport))

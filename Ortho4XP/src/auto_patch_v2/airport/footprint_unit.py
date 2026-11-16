@@ -44,6 +44,7 @@ from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
                                _clusters, _contacts_of, _median,
                                bodies_of_plan, cluster_plane, pad_plurality,
                                union_area_m2)
+from .hung_wall_seat import WALL_TOP_PLATE
 from .open_frame_seat import WALLED_SRC, plate_leads_unit, walled_unit_zero
 # §16g (3)/(11) THE UNIT CARRY AND THE UNIT'S CONTENTS live in
 # ``footprint_carry`` (issue #303: this file passed the 1,500-line split
@@ -681,6 +682,13 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     shims: list[_PShim] = []
     for key, pids in sorted(bodies.items()):
         ui, mi, _gi = key
+        # #2099 P5b: a WALL-TOP PLATE keeps its §16e datum and is no unit
+        # member -- a pad it touches would lend it the pad's zero
+        if getattr(plan.units[ui].members[mi], "plate_kind", "") == WALL_TOP_PLATE:
+            if counts is not None:
+                counts["unit_members_left_wall_top"] = \
+                    counts.get("unit_members_left_wall_top", 0) + 1
+            continue
         live = [parts_of[q] for q in pids
                 if q in parts_of and not parts_of[q].line]
         bx = [q.box for q in live]
@@ -856,7 +864,9 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                      surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
                      cluster_min_m2: float, piece_reach_m: float = 0.0,
                      wall_min_m: float = 0.0, span_max_m: float = 0.0,
-                     counts: "dict | None" = None
+                     counts: "dict | None" = None,
+                     rims: _t.Sequence[_ar.RimRing] = (),
+                     column: _t.Any = None
                      ) -> dict[str, tuple[float, str, str]]:
     """§16g (2)'s PRIORITY DATUM, read PLAN-WIDE: ``unit id -> (zero,
     where, source)``.
@@ -879,7 +889,12 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     The ground is sampled at the PART CENTRES rather than at the feet: the
     feet belong to a staged body and this pass runs before any staging.  A
     unit whose every centre falls off the surface takes no datum and its
-    bodies keep whatever the per-unit passes give them."""
+    bodies keep whatever the per-unit passes give them.
+
+    #2118 (``zero_level_seat``): a unit whose walls all stand a storey under
+    its zero takes the RIM of the basin ring it stands in (``rims``), or,
+    on PILES (every wall a ``column``, ``free_column.law_of``), its
+    zero-level contacts — before the pad and the ground."""
     by_key: dict[tuple[int, int], _t.Any] = {}
     for ui, u in enumerate(plan.units):
         for mi, m in enumerate(u.members):
@@ -908,6 +923,7 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     terrain = _tb.law_of(surface, plan, wall_min_m, float(
         Law.load().tables.structures.rebake.elevated_base_m))
     terrain_of = (terrain, member_of, counts) if terrain is not None else None
+    all_pids = frozenset(q for v in units for q in v.pids)
     for un in units:
         zero: float | None = None
         where = src = ""
@@ -928,6 +944,11 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                 from .adapted_riders import ADAPTED_SRC
                 out[un.id] = (az, "", ADAPTED_SRC)
                 continue
+        zl = _zero_level(un, parts, frame_of, rims, surface, all_pids,
+                         member_of, wall_min_m, storey, column)
+        if zl is not None:
+            out[un.id] = zl
+            continue
         # §16g (7): THE DECK IS NO LONGER THE UNIT'S DATUM.  It is lent,
         # per body, to the bodies whose footprint polygons touch it
         # (``PlanUnit.deck_pids``, overlaid by :func:`plan_wide_seats`);
@@ -986,6 +1007,19 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         out[un.id] = (zero, where, src)
     from .one_building import one_building_groups
     return one_building_groups(units, out, pav, piece_reach_m, span_max_m)
+
+
+def _zero_level(un: _t.Any, parts: _t.Mapping[int, _t.Any],
+                frame_of: _t.Mapping[int, tuple], rims: _t.Sequence[_t.Any],
+                surface: _t.Any, all_pids: _t.AbstractSet[int],
+                member_of: _t.Mapping[int, _t.Any], wall_min_m: float,
+                storey: float, column: _t.Any) -> "tuple[float, str, str] | None":
+    """#2118 (``zero_level_seat.unit_zero``): the unit's datum where its
+    walls are not its ground; ``None`` otherwise."""
+    from . import zero_level_seat as _zl
+    return _zl.unit_zero(un, all_pids, parts, member_of,
+                         {q: f[0] for q, f in frame_of.items()}, rims, surface,
+                         wall_min_m, storey, AUTHOR_GROUND_M, column)
 
 
 def _adapted_zero(un: _t.Any, units: _t.Sequence[_t.Any],

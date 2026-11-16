@@ -1,8 +1,8 @@
 """THE ASSEMBLY POST-PASSES (stage-cache spec §4b.1): everything that reads
 ALL of the generators' rows, run once after them — the water and seam
 exemptions, the senior structure datum, the EAT pin's withdrawal, the road
-ramp on a landing run-out, the 5 % ceiling, the universal pavement cap and
-the public road's release to its terrain.
+ramp on a landing run-out, the 5 % ceiling, the universal pavement cap, the
+public road's release to its terrain and the bridge span's (#2073).
 
 ``constraints.generate`` runs the generators and hands their concatenated
 rows here; no generator reads another's rows, so these passes are the only
@@ -17,6 +17,7 @@ from ..law import Law
 from ..model.constraints import Diff, Linear, Offset, Pin, Row, pinned_vertices
 from ..model.planar import PlanarMap
 from . import (
+    bridge_span_release,
     ceiling,
     eat,
     pavement_cap,
@@ -103,6 +104,12 @@ def assemble(rows: list[Row], counts: dict[str, int], walls: dict[str, float],
     rows, n_pub = public_road_release.terrain_release(rows, planar, law)
     walls[public_road_release.GEN] = time.perf_counter() - t0
     counts[public_road_release.GEN] = n_pub
+    # THE PAGE A MAPPED BRIDGE CARRIES IS NOT GRADED OVER THE SPAN (#2073;
+    # owner 2026-11-13T22:48Z): with the public road's, after every cap
+    t0 = time.perf_counter()
+    rows, n_span = bridge_span_release.span_release(rows, planar, law)
+    walls[bridge_span_release.GEN] = time.perf_counter() - t0
+    counts[bridge_span_release.GEN] = n_span
     return rows
 
 

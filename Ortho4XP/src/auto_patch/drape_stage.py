@@ -174,8 +174,8 @@ _SCAN_ENTRIES = 50_000
 
 def _ships_photo_grid(pack_root: str) -> bool:
     """A cheap look before a DSF dump: the pack ships at least
-    ``pack_drape_grid.MIN_TILES`` of its own draped non-wrapping image
-    ``.pol`` files (witness (1)-(3))."""
+    ``pack_drape_grid.MIN_TILES`` of its own draped photo ``.pol`` files
+    (witness (1)-(3), ``pack_drapes.is_ortho_header``)."""
     from auto_patch_v2.airport import pack_drape_grid as _pg
     from auto_patch_v2.airport import pack_drapes as _pd
     found = seen = 0

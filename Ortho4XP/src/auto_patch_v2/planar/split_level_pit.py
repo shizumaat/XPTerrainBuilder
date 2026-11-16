@@ -28,7 +28,14 @@ wall, under the building's own wall), and
   airside: no airside trench; and a groundside road along the base, whose
   own profile the ground meets the wall at -- owner 2026-11-06T02:40Z,
   SBSP: the back cut follows the sloping road, not one flat pit per
-  building); it is clipped, never refused;
+  building); it is clipped, never refused.  A TALL SIDE IS THE
+  BUILDING'S OWN WALL (#1934 R4, owner sim read 2026-11-16T19:41Z item 3):
+  the plan's runs standing at its lowest level (``SplitLevel.runs`` /
+  ``run_levels``, the storey reading the storey pad's back cut reads too),
+  never the rotated box's side -- KLAX ``Terminal_8``'s box side stood
+  12-20 m out in the lot beside walls whose feet are the upper floor, and
+  its 10 m band sank the lot 1.2 m under the lidar; a record with no runs
+  keeps its box sides;
 * every member of the building is seated with its lower floor ON the
   floor (``pipeline/rebake_inputs``, ``Basin.kind`` ``split_level``: one
   frame, one seat), with no plate clearance (a floor, not a plate:
@@ -149,7 +156,7 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
                             if g is not None])
         # a tall side with a groundside road at its base is not cut: the
         # ground meets the wall at the road's own (sloping) height
-        cut_sides = tuple(c for c in sl.closed_sides
+        cut_sides = tuple(c for c in _tall_lines(sl)
                           if road_reach <= 0.0 or roads_g.is_empty
                           or c.distance(roads_g) > road_reach)
         rim = _rim(_cut_region(_dc.replace(sl, closed_sides=cut_sides), reach, keep, own),
@@ -233,11 +240,22 @@ def back_band(lines: _t.Sequence[LineString], reach: float):
     return chain.buffer(reach, cap_style="flat", join_style="mitre")
 
 
+def _tall_lines(sl: SplitLevel) -> tuple:
+    """The lines the back is cut outside (module docstring): the plan's
+    runs at the lowest of two or more levels, each with a foot; a record
+    without that reading, its box's closed sides."""
+    if sl.plan is None or len(sl.levels) < 2 or not sl.runs:
+        return tuple(sl.closed_sides)
+    return tuple(r for (r, f), k in zip(sl.runs, sl.run_levels, strict=True)
+                 if k == 0 and f is not None)
+
+
 def _cut_region(sl: SplitLevel, reach: float, blocked, footprint=None) -> Polygon:
     """The pit's plan (module docstring): the building's box (``footprint``,
     default ``sl.footprint``) and, ``reach`` outside its TALL sides
-    (``SplitLevel.closed_sides``, chained so two meeting sides take the
-    corner between them), the strip the back is cut down in, less
+    (``SplitLevel.closed_sides`` as the caller set them from
+    :func:`_tall_lines`, chained so two meeting sides take the corner
+    between them), the strip the back is cut down in, less
     ``blocked``; the part holding the box."""
     foot = sl.footprint if footprint is None else footprint
     if reach <= 0.0 or not sl.closed_sides:

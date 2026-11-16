@@ -338,18 +338,51 @@ public struct O4MeshCrop: Decodable, Equatable, Sendable {
 
 /// `cursor_elevation` (protocol 1.14, #1308): the built mesh's elevation
 /// at a point, else the DEM's; `pending` while the engine loads a source.
+/// From #2119 the reply also carries the BASE elevation the build reads
+/// (`baseM`: the built tile's production DEM, else the tile DEM with the
+/// airport inset), `baseLabel` naming its source ("lidar 1 m", "DEM 90 m"),
+/// `meshM` (the built mesh there) and `basePending`; an older engine
+/// sends none of them.
 public struct O4CursorElevation: Decodable, Equatable, Sendable {
     public let elevationM: Double?
     /// "mesh" or "dem"; nil when there is no value.
     public let source: String?
     public let pending: Bool
+    public let baseM: Double?
+    public let baseLabel: String?
+    public let meshM: Double?
+    public let basePending: Bool
 
     private enum CodingKeys: String, CodingKey {
         case elevationM = "elevation_m", source, pending
+        case baseM = "base_m", baseLabel = "base_label", meshM = "mesh_m"
+        case basePending = "base_pending"
     }
 
-    /// The readout's suffix: `123.4 m`, `(DEM)` appended on the fallback.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        elevationM = try c.decodeIfPresent(Double.self, forKey: .elevationM)
+        source = try c.decodeIfPresent(String.self, forKey: .source)
+        pending = try c.decode(Bool.self, forKey: .pending)
+        baseM = try c.decodeIfPresent(Double.self, forKey: .baseM)
+        baseLabel = try c.decodeIfPresent(String.self, forKey: .baseLabel)
+        meshM = try c.decodeIfPresent(Double.self, forKey: .meshM)
+        basePending = try c.decodeIfPresent(Bool.self, forKey: .basePending) ?? false
+    }
+
+    /// Ask again while either the mesh/DEM or the base source loads.
+    public var isPending: Bool { pending || basePending }
+
+    /// The readout's suffix (Qt's `O4_Qt_Cursor_Readout.elevation_text`):
+    /// `160.1 m (lidar 1 m), mesh 163.0 m`; from an older engine
+    /// `123.4 m`, `(DEM)` appended on the fallback.
     public var readout: String? {
+        if let baseM {
+            var text = String(format: "%.1f m", baseM)
+            if let baseLabel { text += " (\(baseLabel))" }
+            if let meshM { text += String(format: ", mesh %.1f m", meshM) }
+            return text
+        }
         guard let elevationM else { return nil }
         let metres = String(format: "%.1f m", elevationM)
         return source == "dem" ? metres + " (DEM)" : metres

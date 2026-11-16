@@ -513,7 +513,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       contents_min_fraction,  # S6
                                       sheet_chain_min_fraction,  # 27a
                                       level_tol_m=split_tol_m,  # 10n (3)
-                                      piece_reach_m=piece_reach_m)  # 19u
+                                      piece_reach_m=piece_reach_m,  # 19u
+                                      rims=rims, column=free_column)  # #2118
     # #1214 round 3, R5 (owner RULINGS 2026-10-22o): one zero per CONNECTED
     # unit — the pieces the pad-level and block passes cut put back together
     _gz_air: dict[str, tuple[float, int]] = {}           # 23e: airside wins
@@ -926,11 +927,28 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 # must be written alone.
                 cz = (None if c.anchor.surface_z is None
                       else float(c.anchor.surface_z) - float(c.anchor.y_zero))
+                # #2110: and only a group CONTIGUOUS IN PLAN with the body
+                # (§16b (1)'s coarsen reach, ``group_at_zero``) that MOVES
+                # WITH THE CARRIER — one holding a part of the carrier's
+                # connected unit (§16g root): the unit seat and 22o's group
+                # zero move each unit on its own later, and a group of
+                # another unit carried the body with it (LOWS 1.0.539:
+                # Terminal_LOWS_77's terminal pieces 1.38 m under their walls)
                 same = _pc.group_at_zero(
                     st.groups, st.raw, cz, split_tol_m, _pc.senior_of,
                     next((st.raw[i][7] for i in bi
                           if st.raw[i][7] is not None), None),
-                    memo=_gz_memo)
+                    memo=_gz_memo, near=[st.boxes[i] for i in bi if st.boxes[i]],
+                    boxes=st.boxes, reach_m=coarsen_reach_m,
+                    allowed=(_with_carrier(st.groups, st.raw, c.pids, _pw, _gz_memo)
+                             if _pw else None))
+                if same < 0 and coarsen_reach_m > 0.0 and _pc.group_at_zero(
+                        st.groups, st.raw, cz, split_tol_m, _pc.senior_of,
+                        next((st.raw[i][7] for i in bi
+                              if st.raw[i][7] is not None), None),
+                        memo=_gz_memo) >= 0:
+                    counts["elevated_same_zero_apart"] = \
+                        counts.get("elevated_same_zero_apart", 0) + 1
                 if same >= 0:
                     counts["elevated_ride_own_file_same_zero"] = \
                         counts.get("elevated_ride_own_file_same_zero", 0) + 1
@@ -1561,6 +1579,33 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     plan_wide=_pw or {}, pit_shifts=_pit_shifts)
 
 
+
+
+def _with_carrier(groups: _t.Sequence[_t.Sequence[int]], raw: _t.Sequence[_t.Any],
+                  carrier_pids: _t.Iterable[int], plan_wide: _t.Mapping[int, tuple],
+                  memo: "dict | None" = None) -> set[int]:
+    """#2110: the indices of a member's own ``groups`` holding a part of a
+    connected unit (§16g root) the carrier's parts hold — the groups the
+    unit seat and the group zero move WITH the carrier.  ``memo`` keeps
+    each group's roots by its length (a group only grows)."""
+    roots = _unit_roots(carrier_pids, plan_wide)
+    if not roots:
+        return set()
+    memo = {} if memo is None else memo
+    out = set()
+    for gi, g in enumerate(groups):
+        key = ("roots", gi, len(g))
+        if key not in memo:
+            memo[key] = _unit_roots((p.pid for i in g for p in raw[i][0]), plan_wide)
+        if roots & memo[key]:
+            out.add(gi)
+    return out
+
+
+def _unit_roots(pids: _t.Iterable[int], plan_wide: _t.Mapping[int, tuple]) -> set[str]:
+    """The connected units (§16g roots) the parts ``pids`` are seated in."""
+    return {_ofs_unit_root(plan_wide[q][0]) for q in pids
+            if plan_wide.get(q) and plan_wide[q][0]}
 
 
 def _own_ground_bodies(staged: _t.Sequence[_t.Any], u: _t.Any) -> list[tuple]:

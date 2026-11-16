@@ -250,6 +250,32 @@ def _also_sampler(path: str, bounds):
         _DS.tile_triangles(path, bounds, _DS.dsftool(), None), bounds)
 
 
+#: ``--mesh-also airport``: off the tile, the airport's own DEM — what
+#: the APP reads there (``object_stage``: ``tile_route.with_neighbour_ground``
+#: over ``tile_route.airport_ground``), not a neighbour mesh.  #2110: the
+#: installed neighbour .dsf did not reproduce LOWS 1.0.539's plan (5,393
+#: files against the app's 5,864); the airport ground did, file for file.
+AIRPORT_GROUND = "airport"
+
+
+def _airport_ground_sampler(icao: str, tile):
+    """``--mesh-also airport`` as a sampler: ``sample_at`` answers the
+    airport DEM's height (never water; NaN where nothing covers)."""
+    import numpy as np
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import tile_route
+    # the tile cfg's ``airport_elevation_inset_feather_m`` default, as
+    # ``object_stage`` falls back to it
+    ground = tile_route.airport_ground(icao, (int(tile[0]), int(tile[1])),
+                                       FNAMES.Elevation_dir, 60.0)
+    point = collections.namedtuple("point", "elevation_metres terrain_type is_water")
+
+    class _Ground:
+        def sample_at(self, la, lo):
+            return point(float(ground(np.asarray([la]), np.asarray([lo]))[0]), 0, False)
+    return _Ground()
+
+
 def _agp_published(graded_doc):
     """#2090 A6: the graded surface's published AGP groups (``None`` when
     the surface predates the key, or a src without the reader)."""
@@ -399,7 +425,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
         # #1884: a plan whose bodies stand on the NEIGHBOUR tile (guest
         # rows) reads that tile's drawn mesh there (``--mesh-also``)
-        also = _also_sampler(getattr(args, "mesh_also", ""), plan_.bounds())
+        also = (_airport_ground_sampler(plan_.icao, args.tile)
+                if getattr(args, "mesh_also", "") == AIRPORT_GROUND
+                else _also_sampler(getattr(args, "mesh_also", ""), plan_.bounds()))
 
         def _at(la, lo, _s=sampler):
             try:
@@ -915,7 +943,8 @@ def _main(argv: list[str] | None = None) -> int:
     pl.add_argument("--mesh-also", default="",
                     help="a NEIGHBOUR tile's drawn mesh (.mesh, or its installed "
                          ".dsf), read where the plan's bodies stand off the first "
-                         "(#1884 guest rows)")
+                         "(#1884 guest rows); 'airport' = the airport's own DEM "
+                         "there, what the app reads (#2110)")
     pl.add_argument("--graded", required=True,
                     help="the emitted design surface <ICAO>.graded.json "
                          "(the pads and rims §6's class rule reads)")

@@ -9,8 +9,11 @@ other vertex inside its region -- the ground, a trench's rim, and the road:
 mouth's floor plus the foot under it, read along the wall line it faces
 (``model/wing_cut.wing_floor_y``);
 every vertex of the strip behind a line (``wing_back:<mouth>`` faces) at the
-wall's top there (``wing_top_y``) -- a vertex both carry at the top (R3b
-D5b: the wall's plan hides the step) -- in the mouth's own seat:
+wall's top less its drop there (``wing_top_y``; #2099 G4 D5', RULINGS
+2026-11-16l: ``[tunnel.object] retaining_parapet_m`` under it, flush only
+where the ground behind is the airside's)
+-- a vertex both carry at that level (R3b D5b: the wall's plan hides the
+step) -- in the mouth's own seat:
 
 * a HARD DECK (plate-seated): ``z[v] = ½(mean z[A] + mean z[B]) −
   (½(top_A + top_B) − floor_y − foot)`` -- the end lines' seat set of

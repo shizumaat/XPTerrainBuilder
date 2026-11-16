@@ -209,6 +209,11 @@ def lifted_caps(planar: PlanarMap, law: "Law | None" = None) -> dict[int, float]
     if law is not None:
         for fid, g in yard_run_lifts(planar, law).items():
             out[fid] = max(out.get(fid, 0.0), g)
+        # #2073: the page a deckless bridge carries, over its span
+        # (``constraints/bridge_span_release``) -- its own faces only
+        from ..constraints.bridge_span_release import span_lifts
+        for fid, g in span_lifts(planar, law).items():
+            out[fid] = max(out.get(fid, 0.0), g)
     pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
     if not pin:
         return out
@@ -1130,6 +1135,9 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
     from .ribbon_steps import ribbon_contact_steps
     out.extend(ribbon_contact_steps(planar, law, z))
     out.extend(wall_terrace_joints(planar, law, z))
+    # #2099 G4 W: a ramp wing's walls are its step
+    from .wing_wall_joints import wing_wall_joints
+    out.extend(wing_wall_joints(planar, law, z))
     # 19i (#951): the band's riser against a road below it
     from .band_road_wall import band_road_wall_joints
     out.extend(band_road_wall_joints(planar, law, z))

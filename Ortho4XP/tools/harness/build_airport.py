@@ -2353,7 +2353,11 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
     absent = (absent_osm_layers(lat, lon,
                                 VMAP.osm_layer_warm_specifications(own_tile))
               if cold_airports else [])
-    if not stale and not cold_airports:
+    # #2073: the tile's own ``airport_small_roads`` feed, never derived (a
+    # cold tile whose airports layer another refresh already warmed)
+    cold_small = not os.path.isfile(
+        FNAMES.osm_cached(int(lat), int(lon), "airport_small_roads"))
+    if not stale and not cold_airports and not cold_small:
         prog.note("refresh osm_layers: no schema-stale and no absent "
                   f"cached layer on tile {lat:+d}{lon:+d} or its 3x3 "
                   f"neighbourhood — nothing to re-derive")
@@ -2437,8 +2441,14 @@ def refresh_stale_osm_layers(root, lat, lon, prog) -> dict:
             # inside the same authorisation, lock, snapshot and ledger.
             # Only for a tile whose own feed was moved aside above: this
             # refresh re-derives what it NAMED, never more.
-            if (tlat, tlon) in small_roads_tiles:
-                prog.note(f"refresh osm_layers: re-deriving the "
+            # A COLD tile (#2073): the build tile's feed was never derived
+            # at all — nothing was moved aside, so without this the frame
+            # judged CURRENT and every capture read no small roads
+            # (ESSA 2026-11-16: 173 highway ways, service road -2811 absent)
+            cold = (tlat, tlon) == (int(lat), int(lon)) and cold_small
+            if (tlat, tlon) in small_roads_tiles or cold:
+                verb = "deriving the ABSENT" if cold else "re-deriving the"
+                prog.note(f"refresh osm_layers: {verb} "
                           f"airport_small_roads cache of tile "
                           f"{tlat:+03d}{tlon:+04d} (not a tile-wide "
                           f"layer, so the prefetch never touches it)")

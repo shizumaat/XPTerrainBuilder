@@ -105,6 +105,7 @@ from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbo
 from .airside_edge import airside_edge_flip
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
 from .blast_pad import blast_pad_end
+from .gap_stands import holds_stand as _holds_startup   # the one 1300-containment read
 from .storey_edge import ARM_PAD_KEY, STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import cover_arms, necks_of, road_arms, split_at_necks
@@ -814,11 +815,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     fence_cut = split_at_fences(final, fences, EDGE_CANDIDATES, rules,
                                 born_airside_pages(final, law))
     band, storey_cuts = storey_band(airport, law, cells, final), {}
+    # #2113: the gates' stands on the gap sheets are airside contact
+    from .gap_stands import stand_ground
+    stands = stand_ground(airport, [f[2] for f in final] + [p for _r, p in ev.pads],
+                          start_tree, rules.cells.min_area_m2)
+    stats["gap_stand_parts"] = len(stands)
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules, [c.line for c in ev.truck_chains],
                           storey=band, storey_cuts=storey_cuts,
                           to_xy=None if airport.frame is None else airport.frame.entry(),
-                          fences=fence_band(fences, rules))
+                          fences=fence_band(fences, rules), stands=stands)
     stats["storey_lots"] = knife_storeys(final, storey_cuts, law,
                                          rules.cells.min_area_m2, band)
     # RULINGS 2026-11-13aa (1): a pad under an upper storey keeps its road
@@ -1589,10 +1595,6 @@ def _touching(face: Polygon, tree: STRtree | None, parts, rules: Rules
                             ).length >= rules.cells.min_shared_m:
             seen[chain.id] = chain
     return list(seen.values())
-
-
-def _holds_startup(face: Polygon, tree: STRtree | None) -> bool:
-    return tree is not None and len(tree.query(face, predicate="contains")) > 0
 
 
 def _apron_named(src: SourceRecord | None, rules: Rules) -> bool:

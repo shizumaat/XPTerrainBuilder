@@ -119,3 +119,17 @@ def test_a_wall_footing_outside_the_deck_is_no_part_of_its_depth():
     assert _bottom_y(cache, frame, (), 6.5, under) == (-0.04, False)
     assert _bottom_y(cache, frame, (), 6.5) == (-9.4, False)
     assert _bottom_y(cache, frame[1:], (), 6.5, under) == (6.5, False)
+
+
+def test_a_member_standing_under_the_deck_counts_whole():
+    """T2' (R3b A2'): ONE member with a pier under the plate and a slab 2 m
+    outside it 0.2 m lower: the bottom is the slab's -- the member stands
+    under the deck, so every solid of it counts."""
+    from auto_patch_v2.planar.deck_bridge import _bottom_y
+    from shapely.geometry import box
+    comps = {"frame.obj": [types.SimpleNamespace(min_y=-6.0, cx=0.0, cz=0.0),
+                           types.SimpleNamespace(min_y=-6.2, cx=11.4, cz=0.0)]}
+    cache = types.SimpleNamespace(genuine=lambda path: comps[path])
+    frame = [types.SimpleNamespace(id="f", resolved="frame.obj", xy=(0.0, 0.0), heading_deg=0.0)]
+    under = box(-10.0, -10.0, 10.0, 10.0).buffer(-0.6)
+    assert _bottom_y(cache, frame, (), 6.5, under) == (-6.2, False)

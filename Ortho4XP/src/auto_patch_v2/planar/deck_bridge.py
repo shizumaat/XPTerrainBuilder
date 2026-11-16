@@ -216,14 +216,17 @@ def _top_at(plate, seats, reach: float, top: float) -> float:
 def _bottom_y(cache, frame, trenches, top: float, under=None) -> tuple[float, bool]:
     """``(the frame's bottom y, walled)``: a co-placed trench object's walls'
     bottom (``walled``: the frame is then the trench object's), else the
-    lowest genuine solid of the frame's placements UNDER THE DECK, else
-    ``top``: a frame modelling nothing but its plate states no level under
-    it (round 3 §1 twin B, LFPG's plate-only decks: the authored y = 0 plane
-    is no floor).  ``under`` (the deck ring shrunk by ``[tunnel]
-    wall_gap_m``, #2099 R3 A2): a member's solid standing outside it (its
-    plan centroid) is no part of the deck's depth (measured CYYZ FA: a wing
-    wall's footing 9.4 m down outside the ring read as the deck's floor,
-    9.4 m under its zero where the deck's own box stands on -0.04)."""
+    lowest genuine solid of the frame's member placements that STAND UNDER
+    THE DECK, else ``top``: a frame modelling nothing but its plate states
+    no level under it (round 3 §1 twin B, LFPG's plate-only decks: the
+    authored y = 0 plane is no floor).  ``under`` (the deck ring shrunk by
+    ``[tunnel] wall_gap_m``, #2099 R3b A2'): a member stands under the deck
+    when one of its genuine solids has its plan centroid inside ``under``,
+    and then counts WHOLE; a member with no solid under the deck (a wing or
+    approach wall) is no part of the deck's depth (measured: CYYZ FA's wing
+    walls 32-82 m outside it, down to y -9.39; KBNA Taxiway L's lowest
+    solid, -0.17, 4.5 m outside the plate in a member whose piers stand
+    under it -- depth 6.16 kept)."""
     ids = {str(q.id) for q in frame}
     tr = [t for t in trenches or () if str(t.object_id) in ids]
     if tr:
@@ -233,17 +236,18 @@ def _bottom_y(cache, frame, trenches, top: float, under=None) -> tuple[float, bo
 
 
 def _solid_lows(cache, q, under) -> list[float]:
-    """Per genuine component of placement ``q`` standing UNDER the deck --
-    its plan centroid inside ``under`` -- its ``min_y`` (every component's
-    where ``under`` is ``None``)."""
+    """Every genuine component's ``min_y`` of placement ``q`` when ``q``
+    stands UNDER the deck -- one component's plan centroid inside ``under``
+    (always where ``under`` is ``None``) -- else none (#2099 R3b A2')."""
     comps = cache.genuine(q.resolved)
     if under is None:
         return [c.min_y for c in comps]
     from shapely.geometry import Point as _Pt
 
     from ..airport.obj8 import _to_frame
-    return [c.min_y for c in comps
-            if under.contains(_Pt(_to_frame(q.xy, q.heading_deg, c.cx, c.cz)))]
+    if any(under.contains(_Pt(_to_frame(q.xy, q.heading_deg, c.cx, c.cz))) for c in comps):
+        return [c.min_y for c in comps]
+    return []
 
 
 def _beside_a_building(frame, ring: Polygon, roles: CellRoles) -> bool:

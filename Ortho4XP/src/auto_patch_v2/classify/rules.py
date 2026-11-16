@@ -129,6 +129,7 @@ class Lot:
     through_min_fraction: float
     parking_cover_fraction: float
     apron_cover_fraction: float
+    flank_car_park_cover: float
     airside_edge_min_m: float
     mouth_width_factor: float
     road_airside_edge_frac: float

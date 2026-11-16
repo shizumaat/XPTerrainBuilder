@@ -90,6 +90,21 @@ def mapped_car_park(evid: dict, rules: Rules) -> bool:
         float(evid.get("source_parking_cover", 0.0)) >= float(rules.lot.parking_cover_fraction)
 
 
+def _flank_car_park(evid: dict, rules: Rules) -> bool:
+    """Owner 2026-11-16T14:18Z (#2099 G2, CYYZ ``dsf:pol88`` /
+    ``dsf:pol89``: "a parking lot for vehicles ... even though a taxiway
+    runs along two sides"): a face whose verdict is LOT (a mapped road
+    inside or reaching it, no taxi centreline, no startup, no mapped apron)
+    and that carries MAPPED car-park cover at the noise floor
+    (``[lot] flank_car_park_cover``, the same floor ``apron_cover_fraction``
+    is for apron: OSM never draws ``amenity=parking`` over an apron) is a
+    car park.  A TAXIWAY'S FLANK does not make it apron — only an apron
+    edge does (12c's own words: "shares a long edge with an apron");
+    ``airside_edge_flip`` reads its contact with the taxi family apart."""
+    return evid.get("source_class") == "lot" and \
+        float(evid.get("source_parking_cover", 0.0)) >= float(rules.lot.flank_car_park_cover)
+
+
 def _strip_axis_width(poly: Polygon,
                       cache: dict | None = None) -> tuple[tuple[float, float], float]:
     """``(unit axis, width)`` of ``poly`` read as a STRIP: the long side
@@ -425,14 +440,23 @@ def airside_edge_flip(final: list[list], cells, law: Law,
                 else [i in road_class for i in range(len(final))])
     fixed = [(Polygon(c.ring, c.holes), False) for c in cells
              if c.role != "building" and c.side == "airside"]
+    #: #2099 G2: the taxi family's faces, read apart for a flank car park
+    taxi = frozenset(law.tables.precedence.taxi_family.members)
+    fixed_taxi = [c.role in taxi for c in cells
+                  if c.role != "building" and c.side == "airside"]
     flipped = 0
     rounds = 0
     cache: dict = {}
     while True:
         rounds += 1
-        air = [(f[2], was_road[i]) for i, f in enumerate(final)
-               if f[0] != "building" and role_side(law, f[0]) == "airside"]
-        air = [t for t in air + fixed if not t[0].is_empty]
+        live = [(f[2], was_road[i], f[0] in taxi) for i, f in enumerate(final)
+                if f[0] != "building" and role_side(law, f[0]) == "airside"]
+        live += [(t[0], t[1], k) for t, k in zip(fixed, fixed_taxi, strict=True)]
+        live = [t for t in live if not t[0].is_empty]
+        air = [(t[0], t[1]) for t in live]
+        #: #2099 G2: the same airside less the taxi family (a flank car park)
+        apron_air = [(t[0], t[1]) for t in live if not t[2]]
+        apron_tree = STRtree([t[0] for t in apron_air]) if apron_air else None
         if not air:
             return flipped, rounds
         tree = STRtree([t[0] for t in air])
@@ -470,6 +494,15 @@ def airside_edge_flip(final: list[list], cells, law: Law,
             # LEMD's 61 apron-side lanes run ALONGSIDE their apron (edges
             # to 828 m) and keep their flip.  A LOT is unchanged.
             if was_road[i] and shared < frac * per:
+                continue
+            # owner 2026-11-16T14:18Z (#2099 G2): a mapped car park beside a TAXIWAY is a
+            # car park; it flips only on an edge of airside that is not the
+            # taxi family (an apron, a runway), measured the same way
+            if _flank_car_park(evid, rules) and (apron_tree is None or _lateral_airside_m(
+                    face, was_road[i], apron_tree, apron_air, weld_m, factor, cache,
+                    road_ctx, None if storey is None else storey.geom, None,
+                    fences) < min_m):
+                final[i][4] = dict(evid, taxiway_flank_m=round(float(shared), 1))
                 continue
             final[i] = ["apron", ref, face, None,
                         dict(evid, kind="apron", airside_edge_m=shared,

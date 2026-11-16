@@ -28,7 +28,8 @@ def _patch(tmp: Path, name: str, pts, ref="small_roads:-2") -> Path:
     way = ("<way id='-1'>%s<tag k='role' v='service_road'/><tag k='ref' v='%s'/></way>"
            % (nds, ref))
     p = tmp / name
-    p.write_text("<?xml version='1.0'?>\n<osm version='0.6'>\n%s%s\n</osm>\n" % (nodes, way))
+    p.write_text("<?xml version='1.0'?>\n<osm version='0.6'>\n%s%s\n</osm>\n" % (nodes, way),
+        encoding="utf-8", newline="\n")
     return p
 
 

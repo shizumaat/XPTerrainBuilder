@@ -120,9 +120,12 @@ def apply(items, tier: str) -> list[str]:
     log = []
     for action, path, _n in items:
         if action == "delete":
-            _rmtree(path); log.append(f"deleted {path}"); continue
+            _rmtree(path)
+            log.append(f"deleted {path}")
+            continue
         if not mounted:
-            log.append(f"kept {path} (tier {tier} not mounted)"); continue
+            log.append(f"kept {path} (tier {tier} not mounted)")
+            continue
         dest = os.path.join(tier, os.path.basename(path))
         os.makedirs(tier, exist_ok=True)
         if os.path.exists(dest):   # the other root already moved it

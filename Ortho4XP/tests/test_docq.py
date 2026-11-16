@@ -481,8 +481,10 @@ def test_frames_prune_deletes_moves_and_keeps(tmp_path):
             os.utime(r / lane, (1_000_000.0, 1_000_000.0))
     repo = tmp_path / "repo"
     (repo / "docs").mkdir(parents=True)
-    (repo / "docs" / "spec.md").write_text("see /x/.harness/frames/old_cited/x.pkl")
-    (repo / "docs" / "frames.jsonl").write_text('{"path": "/x/.harness/frames/old_dead/x"}')
+    (repo / "docs" / "spec.md").write_text("see /x/.harness/frames/old_cited/x.pkl",
+        encoding="utf-8", newline="\n")
+    (repo / "docs" / "frames.jsonl").write_text('{"path": "/x/.harness/frames/old_dead/x"}',
+        encoding="utf-8", newline="\n")
     keep = frames_prune.cited_lanes(str(repo), str(repo / "docs" / "frames.jsonl"),
                                     str(tmp_path / "none"))
     assert keep == {"old_cited"}

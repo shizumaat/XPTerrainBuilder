@@ -438,6 +438,26 @@ def _retaining_plates(pm, law, airport, plates, authored, excluded) -> dict:
     return {w.oid: (w.top_y, list(w.stations), 0.0, RETAINING_PLATE) for w in got}
 
 
+def _hung_wedges(pm, law, airport, plates, authored, excluded) -> dict:
+    """#2099 F2 P5 (``airport/hung_wall_seat``): placement id -> ``(top y,
+    airside stations, 0.0, WALL_TOP_PLATE)`` for each hung wedge wall no
+    other rule seats (P5b: the kind keeps its plate datum at any sign of top
+    y and out of every §16g unit)."""
+    from ..airport.hung_wall_seat import WALL_TOP_PLATE, hung_wedge_plates
+    from ..classify.rules import load_rules
+    from ..law.tables import airside_stage_roles
+    from ..planar.index import face_polygon
+    roles = airside_stage_roles(law)
+    airside = [face_polygon(pm, fid) for fid, f in pm.faces.items() if f.role in roles]
+    taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
+    got = hung_wedge_plates(airport, airside, law, load_rules().service, _solid_cache(law), taken)
+    for w in got:
+        print(f"[{getattr(airport, 'icao', '')}] hung wedge wall {w.oid}: top y {w.top_y:+.2f}, "
+              f"foot range {w.foot_range:.2f} m, airside {100 * w.share:.0f} % upper / "
+              f"{100 * w.other:.0f} % other, {len(w.stations)} stations")
+    return {w.oid: (w.top_y, list(w.stations), 0.0, WALL_TOP_PLATE) for w in got}
+
+
 def _solid_cache(law):
     """A resource cache reading a frame's solids (the split-level reader's)."""
     from ..airport import frame_entry as _fe
@@ -533,6 +553,9 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
                                         excluded | shelled | modelled)
         plates.update(p_wings)
         authored += tuple(r_wings)
+        # #2099 F2 P5: a hung wedge wall's top is flush with the airside
+        plates.update(_hung_wedges(pm, law, airport, plates, authored,
+                                   excluded | shelled | modelled))
     # #1934 R3 (RULINGS 2026-11-16d): a retaining wall's zero on its upper ground
     plates.update(_retaining_plates(pm, law, airport, plates, authored,
                                     excluded | shelled | modelled))

@@ -684,7 +684,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.agp_ground",
         "auto_patch_v2.planar.apron_shelf",
         "auto_patch_v2.planar.arrangement_memo",
-        "auto_patch_v2.planar.band_walls",
         "auto_patch_v2.planar.basin_author_ground",
         "auto_patch_v2.planar.basin_datum",
         "auto_patch_v2.planar.basin_floor_width",
@@ -2495,8 +2494,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_behind planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
-    planar.wall_corridor_ramps planar.wall_slope planar.weld planar.band_walls
-    planar.zones solve.api
+    planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
@@ -2693,8 +2691,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_behind planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
-    planar.wall_corridor_ramps planar.wall_slope planar.weld planar.band_walls
-    planar.zones solve.api
+    planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield

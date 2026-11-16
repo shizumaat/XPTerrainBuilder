@@ -38,11 +38,9 @@ from ..law.reference_code import runway_status
 from ..law.tables import (authority_rank, chord_cap_m, input_quantum_m, is_rigid_role,
                           role_side, snap_margin_m)
 from ..airport.wall_sides import band_setbacks
-from ..classify import load_rules
 from ..model.airport import Airport
 from ..model.registries import Registries
 from ..model.wall_reach import is_wall_fill_ref
-from .band_walls import band_wall_lines
 from .chords import densify, densify_within, ring_lines, stations
 from .lidar_road import survey_road_trenches
 from .road_yield import road_carriageways, rsa_carriageways
@@ -366,8 +364,7 @@ def build_arrangement(airport: Airport, classification: Classification,
                               lambda region: survey_road_trenches(
                                   airport, law, carriageways, region),
                               band_setbacks(tuple(getattr(airport, "retaining_walls", ())
-                                                  or ())),
-                              band_wall_lines(airport, load_rules())):
+                                                  or ()))):
             regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                                   z.code_letter, role_side(law, "graded_strip"),
                                   "zone", z.zone, z.edge_kind, z.quay,

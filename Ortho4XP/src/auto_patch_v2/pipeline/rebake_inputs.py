@@ -422,8 +422,10 @@ def _mouth_wings(pm, law, airport, objects, plates, authored, excluded) -> tuple
 
 def _hung_wedges(pm, law, airport, plates, authored, excluded) -> dict:
     """#2099 F2 P5 (``airport/hung_wall_seat``): placement id -> ``(top y,
-    airside stations, 0.0)`` for each hung wedge wall no other rule seats."""
-    from ..airport.hung_wall_seat import hung_wedge_plates
+    airside stations, 0.0, WALL_TOP_PLATE)`` for each hung wedge wall no
+    other rule seats (P5b: the kind keeps its plate datum at any sign of top
+    y and out of every §16g unit)."""
+    from ..airport.hung_wall_seat import WALL_TOP_PLATE, hung_wedge_plates
     from ..classify.rules import load_rules
     from ..law.tables import airside_stage_roles
     from ..planar.index import face_polygon
@@ -435,7 +437,7 @@ def _hung_wedges(pm, law, airport, plates, authored, excluded) -> dict:
         print(f"[{getattr(airport, 'icao', '')}] hung wedge wall {w.oid}: top y {w.top_y:+.2f}, "
               f"foot range {w.foot_range:.2f} m, airside {100 * w.share:.0f} % upper / "
               f"{100 * w.other:.0f} % other, {len(w.stations)} stations")
-    return {w.oid: (w.top_y, list(w.stations), 0.0) for w in got}
+    return {w.oid: (w.top_y, list(w.stations), 0.0, WALL_TOP_PLATE) for w in got}
 
 
 def _solid_cache(law):

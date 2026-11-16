@@ -33,7 +33,13 @@ import numpy as np
 import shapely
 from shapely.geometry import Polygon
 
-__all__ = ["HungWedge", "hung_wedge_plates"]
+__all__ = ["HungWedge", "WALL_TOP_PLATE", "hung_wedge_plates"]
+
+#: the plate kind of a hung wedge wall's TOP (#2099 P5b): its §16e datum
+#: (``anchor_rule.datum_of``) stands at any sign of top y, and the wall is
+#: never a §16g unit member (``footprint_unit``): a unit's datum, read off a
+#: pad the wall merely touches, would float the wall's top off its airside
+WALL_TOP_PLATE = "wall_top"
 
 
 class HungWedge(_t.NamedTuple):

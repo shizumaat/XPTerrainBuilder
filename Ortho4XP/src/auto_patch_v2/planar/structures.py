@@ -523,6 +523,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
 
     seen_ids: dict[str, int] = {}
     group_of: dict[str, Group] = {}      # 2026-11-16h: each built tunnel's group
+    pad_ends: dict[tuple[int, int], str] = {}   # 2026-11-16h: bore ends refused at a pad
     osm_pts: dict[str, list] | None = None       # #1939 R1: the deck ways, by id
     under_decks: dict[str, tuple[Polygon, Polygon]] = {}   # #1939 R4: (band B, the K ramp)
     for g in groups:
@@ -1286,6 +1287,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 stats.refused.append(
                     f"{tid}: the mouth stands against "
                     f"{'building pad' if hit in pad_refs else 'pavement'} {hit}")
+                if hit in pad_refs:
+                    pad_ends.update({bore_end(m): str(hit) for m in members})
                 geom = None
                 break
             ss = ss[:-1]
@@ -1756,7 +1759,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # at the cap, and the road leaves that end at grade
         short = short_bore_refusal(t, group_of.get(t.id), law, airport.osm_ways, opened_ends,
                                    dropped, getattr(on_field, "no_portal", ()), stats.refused,
-                                   getattr(on_field, "under_ends", ()))
+                                   getattr(on_field, "under_ends", ()), pad_ends)
         if short:
             keep[i] = False
             stats.refused.append(short)

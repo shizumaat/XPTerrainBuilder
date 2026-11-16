@@ -85,7 +85,8 @@ def _why_unopened(end: XY, ids: str, own_id: str, dropped, no_portal, refused) -
 
 def short_bore_refusal(tunnel, group, law: Law, osm_ways: _t.Sequence,
                        opened: _t.Collection[tuple[int, int]], dropped=(),
-                       no_portal=(), refused=(), under_ends=()) -> str | None:
+                       no_portal=(), refused=(), under_ends=(),
+                       pad_ends: _t.Mapping[tuple[int, int], str] | None = None) -> str | None:
     """The refusal text for ``tunnel`` (built from ``group``) under RULINGS
     2026-11-16h, or ``None`` when it stands.  ``opened`` are the bore ends
     (:func:`bore_end`) a built structure opens or a pack object took;
@@ -93,7 +94,14 @@ def short_bore_refusal(tunnel, group, law: Law, osm_ways: _t.Sequence,
     (``structure_approach.mouths``) and ``refused`` the build's, naming
     why an end opened none; ``under_ends`` the bore ends whose road goes
     on underground within the shortest lawful ramp (``bore_continuation``,
-    recorded by ``mouths``): the road there is in its cut, not at grade."""
+    recorded by ``mouths``): the road there is in its cut, not at grade.
+    ``pad_ends`` maps the bore ends whose own mouth was refused standing
+    against a BUILDING PAD to that pad's ref: only such an end is the
+    owner's "flat road passing under the building" (master narrowing of
+    16h, 2026-11-16: an off-field end, an end with no portal witness or no
+    mouth, or a far mouth refused for any other reason — ramp cannot top
+    out, slid past the road's end, bend, overlap — keeps today's
+    behaviour)."""
     if group is None or group.corridor is not None or not group.members:
         return None
     if getattr(tunnel, "portal_seat", None):
@@ -116,6 +124,9 @@ def short_bore_refusal(tunnel, group, law: Law, osm_ways: _t.Sequence,
         road, under = _ways_at(far, osm_ways, own, tn.admitted_values)
         if road is None or under:
             return None      # nothing leaves the far end at grade, or the bore goes on
+        pad = (pad_ends or {}).get((id(b), far_i))
+        if pad is None:
+            return None      # the far mouth did not stand under a building: not 16h
         cap = tn.rail_ramp_max_grade if any("railway" in (w.tags or {}) for w in b.ways) \
             else tn.ramp_max_grade
         length = float(b.line.length)
@@ -126,8 +137,7 @@ def short_bore_refusal(tunnel, group, law: Law, osm_ways: _t.Sequence,
                      f"(cap {100.0 * cap:.0f} %) to climb from its {depth:.2f} m mouth floor "
                      f"to its unopened end at {far[0]:.0f},{far[1]:.0f} "
                      f"({_why_unopened(far, ids, tunnel.id, dropped, no_portal, refused)}), "
-                     f"where road "
-                     f"{road} leaves at grade")
+                     f"under building pad {pad}, where road {road} leaves at grade")
     return (f"{tunnel.id}: ONE-MOUTHED SHORT BORE — " + "; ".join(parts)
             + " — not built: no cut, no ramp, the road stays at grade under the "
               "building (owner RULINGS 2026-11-16h, #2079)")

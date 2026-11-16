@@ -95,6 +95,10 @@ class WallSides:
     #: lower band: what ``planar/wall_slope`` grades to its top; ``None``
     #: for every other wall (the slope reads :attr:`upper`)
     retained: _t.Any = None
+    #: #2120 R2 (master ruling): a ROAD BLOCK (``WallComponent.road_block``)
+    #: -- its plan is the UPPER side's ground, its low face its outer edge
+    #: on the low side: :func:`far_side_cut` leaves a road on it alone
+    road_block: bool = False
 
     def side_of(self, xy) -> str | None:
         """``"upper"`` / ``"lower"`` for a point in one of the bands, else
@@ -226,7 +230,8 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
                                  None if core.is_empty else core,
                                  uf, top, lf, foot,
                                  str(getattr(w, "low_side_source", "") or ""),
-                                 None if kept is None or kept.is_empty else kept))
+                                 None if kept is None or kept.is_empty else kept,
+                                 bool(getattr(w, "road_block", False))))
     return tuple(out)
 
 
@@ -348,7 +353,8 @@ def far_side_cut(geom, walls: _t.Sequence[WallSides], judge=None, grow_m: float 
     """``geom`` cut back at every wall it reaches: the footprint (grown by
     ``grow_m``, the identity snap's margin, so no snapped vertex lands in
     it) out and the band of the face ``judge`` (default ``geom`` itself)
-    holds LESS of out — the road is on one side of a wall.  ``geom``
+    holds LESS of out — the road is on one side of a wall.  A ROAD BLOCK's
+    footprint is its upper side (:attr:`WallSides.road_block`).  ``geom``
     itself when no wall reaches it."""
     if geom is None or geom.is_empty or not walls:
         return geom
@@ -358,10 +364,18 @@ def far_side_cut(geom, walls: _t.Sequence[WallSides], judge=None, grow_m: float 
             continue
         up = judge.intersection(w.upper).area if w.upper is not None else 0.0
         lo = judge.intersection(w.lower).area if w.lower is not None else 0.0
-        cut = [w.poly.buffer(grow_m, join_style="mitre") if grow_m > 0.0 else w.poly]
-        if up > 0.0 or lo > 0.0:
-            cut.append(w.upper if up < lo else w.lower)
-        geom = geom.difference(unary_union(cut))
+        foot = w.poly.buffer(grow_m, join_style="mitre") if grow_m > 0.0 else w.poly
+        if getattr(w, "road_block", False):
+            # #2120 R2 (master ruling): a ROAD BLOCK's plan is upper ground --
+            # a road on it is the upper side's, cut back only beyond the low
+            # face; a road of the low side never climbs into the block
+            up += judge.intersection(w.poly).area
+            cut = [w.lower] if up >= lo else [foot, w.upper]
+        else:
+            cut = [foot]
+            if up > 0.0 or lo > 0.0:
+                cut.append(w.upper if up < lo else w.lower)
+        geom = geom.difference(unary_union([g for g in cut if g is not None]))
     return geom
 
 

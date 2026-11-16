@@ -99,6 +99,9 @@ class WallComponent:
     #: (``airport/sunk_frame``: ``"upper"`` R2, ``"plate"`` R3), ``""``
     #: for a wall another witness admitted
     sunk_rule: str = ""
+    #: #2120 R2: a ROAD BLOCK -- a mapped road runs on a plate capping it
+    #: (``sunk_frame.SunkReading.road_plate``): its plan is upper ground
+    road_block: bool = False
 
 
 #: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
@@ -222,7 +225,8 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                                          None if sunk is not None else seat,
                                          _origin(u, m), m, kept_top, source,
                                          *(sheet or ()), reseated=reseated,
-                                         sunk_rule="" if sunk is None else sunk.rule))
+                                         sunk_rule="" if sunk is None else sunk.rule,
+                                         road_block=sunk is not None and sunk.road_plate))
         out.extend(_one_wall_per_composite(got, u, to_xy, cfg))
     return out
 

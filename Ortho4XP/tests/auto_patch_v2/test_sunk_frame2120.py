@@ -195,3 +195,40 @@ def test_the_sunk_census_lists_what_the_witness_admits():
     assert row["unit"] == "unit:1" and row["lift"] == -4.57
     assert abs(row["lat"] - LAT0) < 0.001 and abs(row["lon"] - LON0) < 0.002
     assert mod.sunk_rows(_airport(-19.81, 20.0, 0.0), CFG) == []
+
+
+def test_a_road_block_is_flagged_for_r3_and_for_an_r2_block_whose_plate_carries_a_road():
+    (c,) = _retaining(_airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"}))
+    assert c.road_block and c.sunk_rule == "plate"
+    (c,) = _retaining(_airport(-19.81, 20.0, 10.0, plate=True, road={"highway": "service"}))
+    assert c.road_block and c.sunk_rule == "upper"
+    (c,) = _retaining(_airport(-19.81, 20.0, 10.0))
+    assert not c.road_block
+
+
+def test_the_cut_back_keeps_the_road_on_a_road_block_and_cuts_beyond_its_low_face():
+    """master ruling on 2120-R2 (2): a road block's plan is upper ground --
+    the road on it stays; the cut-back applies only past the low face; a
+    road of the low side still never climbs into the block"""
+    import dataclasses as dc
+    from auto_patch_v2.airport.wall_sides import WallSides, far_side_cut
+    from auto_patch_v2.classify.wall_cutback import cut_lines_at_walls
+    from shapely.geometry import box
+    block = box(0, 0, 100, 20)                          # upper side north (y > 20)
+    w = WallSides(block, 10.0, 10.0, box(0, 20, 100, 30), box(0, -10, 100, 0),
+                  road_block=True)
+    on = box(10, 5, 90, 15)                             # the road on the plate
+    up_road = box(10, 5, 90, 25)                        # ... running on to the upper ground
+    assert far_side_cut(on, [w]).area == pytest.approx(on.area)
+    assert far_side_cut(up_road, [w]).area == pytest.approx(up_road.area)
+    spill = box(10, -5, 90, 15)                         # past the low face: cut there
+    assert far_side_cut(spill, [w]).area == pytest.approx(box(10, 0, 90, 15).area)
+    low = box(10, -10, 90, 2)                           # the low road: never on the block
+    assert far_side_cut(low, [w]).area == pytest.approx(box(10, -10, 90, 0).area)
+    # an ordinary wall still loses its footprint
+    plain = dc.replace(w, road_block=False)
+    assert far_side_cut(on, [plain]).is_empty
+    line = NS(kind="road_centerline", points=((10.0, 10.0), (90.0, 10.0)))
+    kept, _st = cut_lines_at_walls([line], [w])
+    assert kept == [line]
+    assert cut_lines_at_walls([line], [plain])[0] == []

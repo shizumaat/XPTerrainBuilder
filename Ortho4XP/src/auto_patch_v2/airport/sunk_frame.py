@@ -69,6 +69,11 @@ class SunkReading:
     retained_m: float
     y_up: float
     rule: str
+    #: a mapped road runs on a near-horizontal plate capping it (R3's
+    #: witness, read for an R2 block too): its plan is UPPER ground, its
+    #: road the upper side's (master ruling on 2120-R2, ``wall_sides.
+    #: far_side_cut``)
+    road_plate: bool = False
 
 
 def _numbers(law) -> tuple[float, float]:
@@ -98,9 +103,10 @@ def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None
     y_g = -lift
     if abs(base) > rim_tol:
         return None                     # it does not stand on its zero
+    road = _road_plate(airport, unit, part, whole, top, cfg, law, rim_tol)
     if _upper(base, top, y_g, sunk_min, rim_tol):
         y_up, rule = y_g, "upper"       # R2
-    elif _road_plate(airport, unit, part, whole, top, cfg, law, rim_tol):
+    elif road:
         y_up, rule = top, "plate"       # R3
     else:
         return None
@@ -109,7 +115,7 @@ def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None
                        max(float(cfg.retaining_wall_step_ring_m), float(part.height_m)), cfg)
     if step is None:
         return None                     # R4: a flat sunk frame is no wall
-    return SunkReading(min(step, y_up - base), float(y_up), rule)
+    return SunkReading(min(step, y_up - base), float(y_up), rule, road)
 
 
 def _upper(base: float, top: float, y_g: float, sunk_min: float, rim_tol: float) -> bool:

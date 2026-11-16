@@ -332,8 +332,9 @@ def _misread_face(o, g, xy: XY, into, r: float, law, bottom: float, outline, dem
     line, a WALLED face whose zero stands on the ground its walls retain --
     the highest ground within ``r`` of the end (:func:`_ground_max`, the
     reach a face is read in) -- its floor that zero plus its bottom, and its
-    TOP PLAN the plates of its solids within ``r`` of the end standing at
-    its top there (the last element; ``None`` for no walled face): the
+    PLAN its solids within ``r`` of the end (:func:`_wall_plan`, #2099 F2
+    P1a: the plan is the wall, so the mouth stands at its front; the last
+    element, ``None`` for no walled face): the
     ground behind it is graded to its zero (``planar/entrance_skirt``,
     ``constraints/airside_top``; owner item 6 "terrain on the back side does
     not grade to the back of the mouth").  MEASURED CYYZ ``Tx_E``: the
@@ -349,27 +350,24 @@ def _misread_face(o, g, xy: XY, into, r: float, law, bottom: float, outline, dem
     ground = _ground_max(dem_z, xy, r)
     if top - bottom < float(ob.shell_floor_min_m) or not math.isfinite(ground):
         return width, edges, walled, floor, None
-    return width, edges, True, ground + bottom, _top_plates(o, g, xy, r, top, law)
+    return width, edges, True, ground + bottom, _wall_plan(o, g, xy, r)
 
 
-def _top_plates(o, g, xy: XY, r: float, top: float, law):
-    """The plan of ``o``'s near-horizontal solid faces within ``r`` of ``xy``
-    whose top stands within ``plate_bin_m`` of ``top`` (frame), or ``None``."""
+def _wall_plan(o, g, xy: XY, r: float):
+    """#2099 F2 P1a: THE PLAN OF A FACE THE RE-READ WALLS IS ITS WALL -- the
+    union of ``o``'s solids within ``r`` of ``xy`` (``_near_solids``),
+    clipped to that reach, or ``None``.  Its top plates alone left the
+    mouth 0.79 m behind the wall's front (MEASURED CYYZ ``Tx_E``: the
+    parapet plates span -2.28..+1.99 m across a 1.01 m wall)."""
     from shapely.geometry import Polygon
-    ob = law.tables.structures.tunnel.object
     got = _near_solids(o, g, xy, r)
     if got is None:
         return None
     px, py, ks = got
-    v, t = g.vertices, g.solid
-    tk = t[ks]
-    sel = (_face_normals_y(v, tk) >= ob.plate_normal_y_min) \
-        & (v[tk, 1].max(axis=1) >= top - float(ob.plate_bin_m))
-    if not sel.any():
-        return None
     u = shapely.union_all(np.array([Polygon(np.c_[px[q], py[q]]).buffer(1e-3)
-                                    for q in tk[sel]], dtype=object))
-    return None if u.is_empty else u
+                                    for q in g.solid[ks]], dtype=object))
+    u = u.intersection(Point(xy).buffer(r))
+    return None if u.is_empty or u.area <= 0.0 else u
 
 
 def mouth_portals(trenches: _t.Sequence[TrenchObject], objects: _t.Sequence[_obj8.PlacedObject],

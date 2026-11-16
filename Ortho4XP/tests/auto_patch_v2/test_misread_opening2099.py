@@ -70,6 +70,10 @@ def objs(tmp_path_factory):
     for x0, x1 in ((-15.0, -0.2), (-0.2, 0.2), (0.2, 15.0)):
         _slab(vt, tris, x0, x1, 0.5, 9.0, -6.2, -6.0)
     out["floored"] = _write(d / "floored.obj", vt, tris)
+    # T2 (#2099 F2 P1a): the same face with a parapet plate offset to its back
+    for x0, x1 in ((-15.0, -0.2), (-0.2, 0.2), (0.2, 15.0)):
+        _slab(vt, tris, x0, x1, -2.5, -0.5, 2.0, 2.2)
+    out["parapet"] = _write(d / "parapet.obj", vt, tris)
     return out
 
 
@@ -152,3 +156,17 @@ def test_a_single_retaining_wall_is_no_trench(objs, law):
     misread = {p.object_id for p in pins if p.opening_misread}
     floors, _notes = walled_trench_floors(trenches, objects, cache, law, misread, airport.dem.z)
     assert floors == []
+
+
+def test_the_plan_of_a_reseated_face_is_its_wall(objs, law):
+    """T2 (#2099 F2 P1a): a face walled by the re-read publishes its WALL as
+    its plan (its solids within the face reach), never only the plates at
+    its top: a parapet plate offset to its back leaves the wall's front in
+    the plan, so the mouth stands at the wall's front."""
+    from shapely.geometry import Point
+    _a, _c, _o, _t, pins = _pins(objs, law, "parapet")
+    p = pins[0]
+    assert p.wall_reseat and p.face_plan is not None
+    # both faces of the 1 m headwall (authored z -0.5 .. +0.5) are in it
+    for y in (-0.45, 0.0, 0.45):
+        assert p.face_plan.buffer(0.01).contains(Point(5.0, y))

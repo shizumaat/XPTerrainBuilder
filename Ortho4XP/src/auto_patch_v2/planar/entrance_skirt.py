@@ -236,11 +236,11 @@ def _road_keep_off(road, stand_off: float, behind, band: float):
     cover's piece are both ground at the cover's level with no wall
     between, so there it is ``band`` (the tunnel's ``wall_band_width_m``,
     the rim's stand-off less its wall gap; at ``min_distinct_spacing_m``
-    the road's edge was welded to the piece and dragged 0.84 m).  #1689 R5c,
-    KBNA P2: held off by the ramp's
-    and the road's stand-offs the piece never reached the ground behind
-    the skewed back, and the mesh ran one slope from the ramp's end to the
-    road -- drawn 1.2 m under the cover's top 0.5 m behind it."""
+    the road's edge was welded to the piece and dragged 0.84 m).  #1689
+    R5c, KBNA P2: held off by the ramp's and the road's stand-offs the
+    piece never reached the ground behind the skewed back, and the mesh ran
+    one slope from the ramp's end to the road -- drawn 1.2 m under the
+    cover's top 0.5 m behind it."""
     off = road.buffer(stand_off, **_MITRE)
     if behind is None or not road.intersection(behind).area > 0.0:
         return off                  # the road out of the mouth ends short of it

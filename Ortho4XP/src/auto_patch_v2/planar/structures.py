@@ -145,6 +145,7 @@ from .front_band import front_halves, halves_fn, lateral_fit
 from .ramp_carry import DeckReads, carry_of
 from .storey_floor import shell_level_s
 from .structure_stats import StructureStats
+from .short_bore import bore_end, short_bore_refusal
 from .entrance_skirt import (entrance_skirt, entrance_top, face_front_mouth, is_entrance_face,
                              host_blade,
                              skirt_refs)
@@ -329,6 +330,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     mouth_list, stats.plate_mouths = apply_plates(mouth_list, plates,
                                                   list(airport.osm_ways), law, reach)
     stats.mouths_off_field = len(dropped)
+    admitted_ends = {bore_end(m) for m in mouth_list}     # 2026-11-16h
     (stats.mouths_off_field_nearest, stats.mouths_on_approach,
      stats.mouths_on_approach_named) = mouth_reports(on_field, mouth_list,
                                                      dropped)
@@ -382,6 +384,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                              f"stand")
         mouth_list = kept
     stats.mouths = len(mouth_list)
+    # 2026-11-16h: the bore ends a pack object took open the bore there
+    taken_ends = admitted_ends - {bore_end(m) for m in mouth_list}
     # an EDGE BRIDGE pins the mouths whose line crosses its back, and the
     # carriageways one back stops are ONE cut (owner RULINGS 2026-10-28d
     # Q214; ``planar/bridge_span``)
@@ -518,6 +522,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     skirt_of: dict[str, list] = {}       # 2026-11-06c (3): an entrance face's skirt pieces
 
     seen_ids: dict[str, int] = {}
+    group_of: dict[str, Group] = {}      # 2026-11-16h: each built tunnel's group
     osm_pts: dict[str, list] | None = None       # #1939 R1: the deck ways, by id
     under_decks: dict[str, tuple[Polygon, Polygon]] = {}   # #1939 R4: (band B, the K ramp)
     for g in groups:
@@ -1678,6 +1683,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                               (cap_mid[0], cap_mid[2]) if cap_mid else None,
                               cap_mid[1] if cap_mid else None, design_grade=design_grade,
                               pinched=pinched, **extra))
+        group_of[tid] = g
         if clipped_by:
             # THE PORTAL FACE AT THE PAD EDGE (08-07 ruling 3): the clipped
             # ramp's top edge stands off the ground beyond it by the gap
@@ -1731,6 +1737,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # sibling was refused would stand open against the ground there (the
     # measured OTHH tile: a 12.2 m demotion at Qatar_DutyFree_003@1/b)
     built_ids = {t.id for t in tunnels}
+    opened_ends = taken_ends | {bore_end(m) for tid in built_ids
+                                if tid not in overlap_refused
+                                for m in getattr(group_of.get(tid), "members", ())}
     for i, t in enumerate(tunnels):
         if t.id in overlap_refused:
             keep[i] = False
@@ -1741,6 +1750,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             keep[i] = False
             stats.refused.append(f"{t.id}: its sibling half {sib} was refused — a level corridor "
                                  f"is built whole or not at all (Law C)")
+            continue
+        # A ONE-MOUTHED SHORT BORE IS NOT BUILT (owner RULINGS 2026-11-16h,
+        # #2079): it cannot climb from its mouth floor to its unopened end
+        # at the cap, and the road leaves that end at grade
+        short = short_bore_refusal(t, group_of.get(t.id), law, airport.osm_ways, opened_ends,
+                                   dropped, getattr(on_field, "no_portal", ()), stats.refused)
+        if short:
+            keep[i] = False
+            stats.refused.append(short)
     runs_before = dict(runs)
     new_limits, new_cap, released = resolve_overlaps(
         tunnels, footprints, keep, siblings, run_limits, at_cap, overlap_refused, law, gap,

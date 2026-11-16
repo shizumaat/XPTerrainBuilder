@@ -342,10 +342,11 @@ def test_back_cut_follows_the_buildings_own_tall_walls_not_its_box():
     walls whose feet are the upper floor, and its band sank the lot.  With
     a plan and its run reading, the back is cut outside the runs at the
     lowest level only; a record without runs keeps its box sides."""
+    import dataclasses as dc
+
     from auto_patch_v2.airport.split_level import SplitLevel
     from auto_patch_v2.planar.split_level_pit import _cut_region, _tall_lines
     from shapely.geometry import Point
-    import dataclasses as dc
     foot = box(0.0, 0.0, 40.0, 10.0)                 # the box reaches x 40
     plan = box(0.0, 0.0, 20.0, 10.0)                 # the building stops at x 20
     open_ = (LineString([(0.0, 10.0), (20.0, 10.0)]),)

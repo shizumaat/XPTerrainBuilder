@@ -224,9 +224,10 @@ def test_a_band_at_a_retaining_wall_ends_at_its_upper_face(law):
     the wall's upper face ends there; across the wall is the low side's
     (the road, the mesh).  A band whose pavement lies on the LOW side is
     not cut."""
+    import dataclasses as dc
+
     from auto_patch_v2.classify.roles import Cell
     from auto_patch_v2.planar.zones import zone_regions
-    import dataclasses as dc
     pav = ((-40.0, -500.0), (0.0, -500.0), (0.0, 500.0), (-40.0, 500.0))
     cells = (Cell(0, "runway", "09/27", pav, (), 4, None, "airside", "runway", {}),)
     probe = box(0.0, -90.0, 39.9, 90.0)

@@ -428,14 +428,30 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
 
 def band_setbacks(walls: _t.Sequence[WallSides]) -> tuple[tuple, ...]:
     """THE BAND STOPS SHORT OF THE WALL (#1633 round 3, spec §3 (2)):
-    ``(cut, footprint, near_m)`` per wall — a graded band (runway zones,
-    the end box, a taxi zone) whose pavement stands farther than ``near_m``
-    (``BEHIND_SHARE x reach``) from the footprint loses ``cut``, the
-    footprint and its upper band (``smear`` wide): the hill between the
+    ``(cut, footprint, near_m, beyond)`` per wall — a graded band (runway
+    zones, the end box, a taxi zone) whose pavement stands farther than
+    ``near_m`` (``BEHIND_SHARE x reach``) from the footprint loses ``cut``,
+    the footprint and its upper band (``smear`` wide): the hill between the
     band's new edge and the wall's back is the wall slope
     (``planar/wall_slope``, #1661) and grades to the wall's top.  A wall
     AT the pavement edge keeps #1139's plane (``constraints/wall_zone.
-    split``)."""
+    split``) on its upper side -- and THE BAND ENDS AT THE WALL (owner
+    RULINGS 2026-11-16n (2), #1934 R4: no pavement or adjacent ground of the
+    high side crosses a retaining wall): ``beyond`` is the footprint and
+    the strip :func:`_beyond_wall` across it, which a band whose pavement
+    lies on the upper side loses (``None`` without a lower face)."""
     return tuple((unary_union([w.poly, w.upper]), w.poly,
-                  BEHIND_SHARE * wall_reach_m(w.height_m)) for w in walls
+                  BEHIND_SHARE * wall_reach_m(w.height_m), _beyond_wall(w)) for w in walls
                  if w.upper is not None and not w.upper.is_empty)
+
+
+def _beyond_wall(w: WallSides):
+    """The wall's footprint and the ground across it from its upper side:
+    ``wall_reach_m`` out of its LOWER face (outward on that face's right),
+    flat at the wall's ends; ``None`` when the lower face is not read."""
+    face = w.lower_face
+    if face is None or face.is_empty or face.length <= 0.0:
+        return None
+    strip = face.buffer(-wall_reach_m(w.height_m), single_sided=True, cap_style="flat",
+                        join_style="mitre", mitre_limit=2.0)
+    return unary_union([w.poly, strip]).buffer(0)

@@ -140,7 +140,8 @@ def _rebuild_rows(conn, tiles, cache_keys=None) -> None:
     for build_dir, lat, lon in tiles:
         tile = FNAMES.short_latlon(lat, lon)
         INDEX.set_core(conn, tile, CORES.core_names(
-            INDEX.rows(conn, tile=tile), CORES.airport_points(lat, lon),
+            INDEX.rows(conn, tile=tile), CORES.airport_points(
+                lat, lon, neighbours=True),
             CORES.base_zoom(build_dir, lat, lon)),
             CORES.boundary_names(build_dir, lat, lon))
 

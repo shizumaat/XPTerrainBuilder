@@ -105,7 +105,7 @@ def core_wants(conn, build_dir: str, lat: int, lon: int,
     ``extra``: more ``(icao, lat, lon)`` airports (a flight's departure
     when its tile graded none), each one the graded and custom points do
     not already name."""
-    points = CORES.airport_points(lat, lon)
+    points = CORES.airport_points(lat, lon, neighbours=True)
     named = {p[0] for p in points}
     points += [tuple(p) for p in extra if p[0] not in named]
     base_zl = CORES.base_zoom(build_dir, lat, lon)

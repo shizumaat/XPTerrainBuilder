@@ -28,6 +28,15 @@ The rules it keeps (spec §4.7, §8):
 * at most ``lands_per_s`` landings start per second (R6);
 * at start, partials are swept and ``upgrading`` rows reset (R7);
 * a tier landed after its crossing is counted ``late`` (R5, U5);
+* PAGE AHEAD (#2109, ``imagery_follow_ahead``): X-Plane opens a tile's
+  textures when the tile enters its DSF window, 75-150 km ahead; the
+  squares of the tiles that enter along the route or the track are
+  landed at the tier the path wants there BEFORE they enter (``crossing``
+  0 in the log), so a departure from a built tile flies into sharp
+  imagery with no reload;
+* every :data:`POS_LOG_EVERY_S` while following, the camera and the
+  window it implies go to the log (``pos``): a flight can be replayed
+  (``tools/imagery_page_ahead_replay.py``);
 * PAUSE: no new fetch starts while a Library command that changes tiles
   holds :func:`paused` — the converter would race on ``textures/``;
   fetches in flight finish.  A build or a World-pack swap holds only ITS
@@ -89,6 +98,8 @@ import O4_Machine_Slots as MACHINE_SLOTS
 import O4_XPlane_WebAPI as WEBAPI
 from O4_Imagery_Follow_Motion import MotionTracker
 
+from .imagery_follow_ahead import PageAhead
+from .imagery_follow_ahead import merge as merge_ahead
 from .imagery_follow_house import ROWS_EVERY_S, SWEEP_EVERY_S, FollowHouse
 
 __all__ = ["MAX_FAILURES", "OFFLINE_AFTER", "OFFLINE_PAUSE_S", "FollowJob",
@@ -112,6 +123,8 @@ STATUS_EVERY_S = 2.0
 #: Seconds between ``last_near_at`` writes (the index throttles per row).
 #: (``ROWS_EVERY_S`` and ``SWEEP_EVERY_S``: ``imagery_follow_house``.)
 NEAR_EVERY_S = 10.0
+#: Seconds between two ``pos`` lines in the log.
+POS_LOG_EVERY_S = 10.0
 #: The finest tier (a "sharp" row of the status).
 _FINEST = len(PLAN.TIER_WIDTH) - 1
 #: Default seconds one landing takes per tier before any is measured
@@ -201,7 +214,9 @@ class FollowJob:
     receives each ``ImageryFollowStatus``; ``reloader()`` asks X-Plane to
     reload its scenery and says whether it took the request (``None``:
     the job never reloads); ``renamer(texture, terrain_dir)`` gives a
-    landed texture a path X-Plane does not hold (#2106)."""
+    landed texture a path X-Plane does not hold (#2106); ``page_ahead``
+    an ``imagery_follow_ahead.PageAhead`` (default: one that follows the
+    active flight's route, else the track)."""
 
     def __init__(self, emit, *, reader, lander, index_path=None,
                  busy=lambda: False, lead_s: float = PLAN.DEFAULT_LEAD_S,
@@ -210,12 +225,14 @@ class FollowJob:
                  slots: SLOTS.FetchSlots | None = None, rebuild_tiles=(),
                  cap_bytes: int | None = None, reloader=None,
                  rescan_dir: str | None = None,
-                 renamer=TER_ALIAS.renew):
+                 renamer=TER_ALIAS.renew, page_ahead=None):
         self.emit = emit
         self.reader, self.lander = reader, lander
         self.reloader = reloader
         self.renamer = renamer
         self.spawn = SPAWN.SpawnWatch()
+        self.ahead = page_ahead if page_ahead is not None else PageAhead()
+        self._pos_at = -math.inf                # the last ``pos`` line
         self._read_at: float | None = None      # the last good position
         self._resets = 0                        # reader.resets seen
         self.index_path = index_path
@@ -434,6 +451,7 @@ class FollowJob:
         lat, lon = WEBAPI.camera_position(rec)
         self._locate(now, lat, lon, float(rec.get("elev_m") or 0.0),
                      WEBAPI.camera_agl_m(rec))
+        self._log_position(now)
         fetches = self._plan(now)
         if not rec.get("paused"):
             self._mark_near(now)
@@ -539,6 +557,7 @@ class FollowJob:
         self.motion = self.tracker.add(now, lat, lon, alt_m, agl_m)
         if self.tracker.jumped:
             kind, moved = "jump", math.inf
+        self.ahead.locate(kind, lat, lon)
         if not kind:
             return
         if kind == "spawn" and getattr(self.spawn.episode, "witness",
@@ -635,10 +654,26 @@ class FollowJob:
             on_disk[key] = PLAN.tier_of_width(row["tier_px"])
         planned = PLAN.plan(m, squares, on_disk,
                             lead_s=self.lead_s, fetch_s=self._fetch_s)
+        planned = merge_ahead(planned, self.ahead.fetches(
+            now, m, self._rows, self._tiles,
+            lambda key: (key in in_core or key in self._failed
+                         or self._rows[key].get("state") == "failed"),
+            fetch_s=self._fetch_s, lead_s=self.lead_s))
         if episode is None or now < episode.window_end:
             return core + planned
         ahead = [f for f in planned if not f.late and f.deadline_s > 0.0]
         return ahead + core + [f for f in planned if f not in ahead]
+
+    def _log_position(self, now: float) -> None:
+        """Every :data:`POS_LOG_EVERY_S`: the camera, its motion and the
+        DSF window it implies, to the log (a flight's replay, #2109)."""
+        m = self.motion
+        if m is None or now - self._pos_at < POS_LOG_EVERY_S:
+            return
+        self._pos_at = now
+        self._log({"pos": f"{m.lat:.5f},{m.lon:.5f}", "t": round(now, 1),
+                   "agl_m": round(m.agl_m), "gs_ms": round(m.groundspeed_ms, 1),
+                   "trk": round(m.track_deg), "window": self.ahead.describe()})
 
     def _local(self):
         """Does a square need no download?  The open episode's local

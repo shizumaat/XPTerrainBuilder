@@ -1,9 +1,12 @@
 """The map's bottom-left cursor readout (issue #1308): ``lat, lon`` in the
 node format (``O4_Qt_Patch_Panel.node_lat_lon``) and, once the cursor
-rests 150 ms, the elevation under it from ``cursor_elevation`` —
-``123.4 m``, ``(DEM)`` appended when the tile has no built mesh there —
-the photo provider of the World tile under it (``photo: BI``, #2018)
-and, over a pack outline, its label (``pack: terminal.obj``, #1316).
+rests 150 ms, the elevation under it from ``cursor_elevation`` — the
+BASE elevation the build reads, named by its source, and the built mesh
+there when the tile is built (``160.1 m (lidar 1 m), mesh 163.0 m``,
+#2119; an engine without the base answers ``123.4 m``, ``(DEM)`` appended
+when the tile has no built mesh there) — the photo provider of the
+World tile under it (``photo: BI``, #2018) and, over a pack outline,
+its label (``pack: terminal.obj``, #1316).
 The Mac app's twin is ``MapCanvasView.cursorReadout``."""
 from __future__ import annotations
 
@@ -20,6 +23,13 @@ PENDING_MS = 400
 
 def elevation_text(reply) -> str | None:
     """The readout's suffix for a ``cursor_elevation`` reply, or None."""
+    if reply and reply.get("base_m") is not None:
+        text = "%.1f m" % reply["base_m"]
+        if reply.get("base_label"):
+            text += " (%s)" % reply["base_label"]
+        if reply.get("mesh_m") is not None:
+            text += ", mesh %.1f m" % reply["mesh_m"]
+        return text
     if not reply or reply.get("elevation_m") is None:
         return None
     text = "%.1f m" % reply["elevation_m"]
@@ -80,7 +90,8 @@ class CursorReadout(QObject):
             self._label.setText(readout_text(lat, lon, elevation_text(reply),
                                              self._pack, self._photo))
             self._tries += 1
-            if reply.get("pending") and self._tries < 20:
+            if (reply.get("pending") or reply.get("base_pending")) \
+                    and self._tries < 20:
                 self._timer.start(PENDING_MS)
 
         self._engine.call("cursor_elevation", answered, lat=lat, lon=lon,

@@ -773,7 +773,7 @@ struct MapCanvasView: View {
                 guard let reply = try? await client.cursorElevation(lat: lat, lon: lon, buildDir: buildDir),
                       !Task.isCancelled else { return }
                 cursorElevation = reply.readout
-                if !reply.pending { return }
+                if !reply.isPending { return }
                 delay = 400_000_000
             }
         }

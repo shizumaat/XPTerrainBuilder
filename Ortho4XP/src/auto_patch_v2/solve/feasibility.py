@@ -47,7 +47,7 @@ from ..law import Law
 from ..law.tables import design as design_law
 from ..model.planar import PlanarMap
 from .design_report import row_metre_scale
-from .design_roles import ruling_head
+from .design_roles import HeadTest, ruling_head
 
 __all__ = ["ConflictReport", "tier_of", "row_tiers", "cap_seniority",
            "SIDE_RANKED_HEADS",
@@ -522,8 +522,11 @@ def promote_missed(one: list, hard_i: np.ndarray, A: sp.csr_matrix, b: np.ndarra
     if not heads or x is None:
         return none
     hard = set(int(k) for k in hard_i)
+    # #1951: the head test per RULING STRING, read once (the generator ran
+    # ``ruling_head`` on every one-sided side — 18 M at KMCI — per stage)
+    is_head = HeadTest(heads)
     cand = np.fromiter((k for k, (_t_, _h, row) in enumerate(one)
-                        if k not in hard and ruling_head(row) in heads), dtype=np.int64)
+                        if is_head[row.source.ruling] and k not in hard), dtype=np.int64)
     if not cand.size:
         return none
     raw = np.asarray(A[cand] @ x).ravel() - b[cand]

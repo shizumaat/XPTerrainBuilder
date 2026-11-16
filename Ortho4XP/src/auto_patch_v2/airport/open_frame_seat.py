@@ -790,18 +790,23 @@ def unit_plate_zero(pids: _t.Iterable[int], member_of: _t.Mapping[int, _t.Any],
     """:func:`walled_unit_zero` for the §16g unit of part ids ``pids`` -- where
     the plate's datum IS the unit's zero.  A runway-end WALLED plate leads its
     unit whatever frames it chains (#1977); any other leading plate (a
-    retaining wall's, #2120) only a unit standing wholly in the frame of its
-    plated members: its datum is that frame's ``y = 0``, and a frame chained
-    to it (KATL's terminal F touching ``katl126_wall``, lift -19.81) stands
-    by its own lift -- the plated members still ride it (:func:`walled_lead`).
-    ``frame_of``: part id -> its frame (anchor, authored lift)."""
+    retaining wall's, #2120) only a unit whose DOMINANT frame (most parts,
+    :func:`root_zeros`' reading) is its plated members' own: its datum is that
+    frame's ``y = 0``.  A terminal chained to a sunk wall (KATL's terminal F
+    touching ``katl126_wall``, lift -19.81) keeps its own seat -- the closing
+    build sank it 19.4 m riding the wall's datum -- and the plated members
+    still ride their plate (:func:`walled_lead`).  ``frame_of``: part id ->
+    its frame (anchor, authored lift)."""
     pids = [q for q in pids if q in member_of]
     plated = [q for q in pids if getattr(member_of[q], "plate_kind", "") in LEAD_PLATES]
     if not plated:
         return None
     if not any(member_of[q].plate_kind == "walled" for q in plated):
-        frames = {frame_of.get(q) for q in plated}
-        if any(frame_of.get(q) not in frames for q in pids):
+        size: dict = {}
+        for q in pids:
+            size[frame_of.get(q)] = size.get(frame_of.get(q), 0) + 1
+        top = max(size.values())
+        if not any(size.get(frame_of.get(q), 0) == top for q in plated):
             return None
     return walled_unit_zero({id(member_of[q]): member_of[q] for q in pids}.values(), surface)
 

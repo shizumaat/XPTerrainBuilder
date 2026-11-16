@@ -14,13 +14,13 @@ of #1902 (a ramp top 2.3-2.7 m over the floor, a road ending on a 1 m lip)
 are exactly the class the patch->drawn layer cannot see: the patch and the
 mesh agree, and the road still jumps.
 
-A step pair STRADDLING a claimed tunnel mouth of the road's OWN tunnel way
-(``mouths``: :func:`claimed_mouths` of the sidecar) is that mouth's FACE --
+A step pair STRADDLING a cut tunnel mouth of the road's OWN tunnel way
+(``mouths``: :func:`bore_mouths` of the sidecar, a portal over it or not) is that mouth's FACE --
 the drawn cut face from the ramp floor up to the cover over the bore --
 reported as ``mouth_faces``, never judged (#1689 A7: KBNA P1's "4.9 m road
 step" was the tunnel way's own sample 1.17 m behind its mouth line).  So is
 (#2099 F2 P3) the pair at the mouth line of a road whose END stands within
-:data:`MOUTH_FACE_M` of a claimed mouth -- that mouth's road, whatever its
+:data:`MOUTH_FACE_M` of a cut mouth -- that mouth's road, whatever its
 way (measured CYYZ road ``-8679`` ending at ``Tx_E``'s face, judged a
 4.26 m step) -- and a TUNNEL way's pair straddling the ring of an object
 floor that owns ground (the sidecar ``object_floors[].outline_ll``,
@@ -38,7 +38,7 @@ from __future__ import annotations
 import math
 
 __all__ = ["ROAD_STEP_M", "STEP_M", "UNDER_BRIDGE_M", "MOUTH_FACE_M", "road_lines",
-           "road_profile_step", "road_layer", "claimed_mouths", "floor_rings"]
+           "road_profile_step", "road_layer", "bore_mouths", "floor_rings"]
 
 #: the default FAIL bar between consecutive samples (owner ground bar)
 ROAD_STEP_M = 0.5
@@ -46,7 +46,7 @@ ROAD_STEP_M = 0.5
 UNDER_BRIDGE_M = 2.0
 #: the sampling interval along a road (m)
 STEP_M = 1.0
-#: a step pair within this of a claimed mouth's line (along the road) is
+#: a step pair within this of a cut mouth's line (along the road) is
 #: its face: the drawn cut face runs 1.8-2.3 m from floor to cover (KBNA P1)
 MOUTH_FACE_M = 2.5
 #: ... and within this across the road of the mouth point (half the widest
@@ -55,15 +55,17 @@ MOUTH_ACROSS_M = 25.0
 _M_PER_DEG = 111320.0
 
 
-def claimed_mouths(sidecar):
-    """``[(tunnel way ids, lat, lon)]``: every sidecar tunnel mouth
-    (``tunnel_mouth_depths``) a pack portal claims (``portal_cuts``); the
-    way ids read off the tunnel id (``tunnel:<w>[+<w>...]@<k>``)."""
-    claimed = {r["id"] for r in (sidecar or {}).get("portal_cuts", []) or ()}
+def bore_mouths(sidecar):
+    """``[(tunnel way ids, lat, lon)]``: every mouth the build CUT
+    (``tunnel_mouth_depths``: a mapped bore with a depth), a pack portal over
+    it (``portal_cuts``) or not; the way ids read off the tunnel id
+    (``tunnel:<w>[+<w>...]@<k>``).  The bore's own samples past its mouth
+    read the cover, never the road, whatever draws the opening (lrjtt2:
+    RJTT tunnel ``-6785+-6784``'s unclaimed mouth at 35.547744, 139.767432
+    was judged a 4.14 m road step -- the ramp floor -3.25 under the cover
+    rim 4.25-4.42 of its own bore)."""
     out = []
     for r in (sidecar or {}).get("tunnel_mouth_depths", []) or ():
-        if r["id"] not in claimed:
-            continue
         ids = r["id"].split(":", 1)[-1].split("@", 1)[0]
         try:
             ways = frozenset(int(w) for w in ids.split("+") if w)
@@ -98,7 +100,7 @@ def _way_number(wid) -> "int | None":
 
 def _straddles(mouths, lat0, floors=()):
     """``(way id, a, b, ends=(), tunnel=False) -> bool``: the pair ``a`` ->
-    ``b`` (lat, lon) of road ``way id`` stands on the face of a claimed mouth
+    ``b`` (lat, lon) of road ``way id`` stands on the face of a cut mouth
     of that way, or of a road with an end (``ends``) within
     :data:`MOUTH_FACE_M` of it; or, a ``tunnel`` way's, straddles one of
     ``floors`` (:func:`floor_rings`)."""
@@ -259,7 +261,7 @@ def road_profile_step(samples, sample, face=None, faces=None):
 def road_layer(sites, sample, osm_root, bar=ROAD_STEP_M, step=STEP_M, mouths=(), floors=()):
     """The layer over ``sites`` (``(name, lat, lon, r)``); ``sample(lon,
     lat)`` is the drawn mesh height (nan off it); ``mouths``
-    (:func:`claimed_mouths`) and ``floors`` (:func:`floor_rings`) the faces
+    (:func:`bore_mouths`) and ``floors`` (:func:`floor_rings`) the faces
     never judged."""
     rows, failed = [], 0
     for name, lat, lon, r in sites:

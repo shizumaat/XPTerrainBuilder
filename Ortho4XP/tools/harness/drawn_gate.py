@@ -273,7 +273,7 @@ def gate(args):
     sites = [parse_site(t) for t in getattr(args, "site", None) or ()]
     if sites:
         import O4_File_Names as FNAMES
-        from drawn_roads import ROAD_STEP_M, claimed_mouths, floor_rings, road_layer
+        from drawn_roads import ROAD_STEP_M, bore_mouths, floor_rings, road_layer
         step = getattr(args, "road_step", None)
         try:
             side = json.load(open(patch + ".axes.json", encoding="utf-8"))
@@ -281,7 +281,7 @@ def gate(args):
             side = {}
         rep["roads"] = road_layer(sites, lambda x, y: DC.mesh_z(sampler, x, y),
                                   FNAMES.OSM_dir, ROAD_STEP_M if step is None else step,
-                                  mouths=claimed_mouths(side), floors=floor_rings(side))
+                                  mouths=bore_mouths(side), floors=floor_rings(side))
     return _verdict(rep, t0)
 
 

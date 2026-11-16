@@ -309,8 +309,9 @@ def test_the_road_layer_fails_a_step_along_a_mapped_road(monkeypatch):
     assert judged["verdict"] == "FAIL" and judged["moved"]
 
 
-def test_a_step_on_a_claimed_mouth_of_its_own_way_is_its_face(monkeypatch):
-    """#1689 A7: the tunnel way's own step pair at its claimed mouth is the
+def test_a_step_on_a_cut_mouth_of_its_own_way_is_its_face(monkeypatch):
+    """#1689 A7 / lrjtt2: the tunnel way's own step pair at its cut mouth (a
+    portal over it or not) is the
     mouth's face, reported, never judged; another road's step there and a
     step away from the mouth are judged."""
     import drawn_roads as DR
@@ -325,8 +326,10 @@ def test_a_step_on_a_claimed_mouth_of_its_own_way_is_its_face(monkeypatch):
                                      "depth_m": 6.0},
                                     {"id": "tunnel:-5@0", "mouth_ll": [lat0, lon0],
                                      "depth_m": 6.0}]}
-    mouths = DR.claimed_mouths(side)
-    assert mouths == [(frozenset({-7, -8}), mouth_lat, lon0 + 3e-5)]
+    mouths = DR.bore_mouths(side)
+    assert mouths == [(frozenset({-7, -8}), mouth_lat, lon0 + 3e-5), (frozenset({-5}), lat0, lon0)]
+    # lrjtt2: an UNCLAIMED cut mouth (no portal_cuts row) is a face all the same
+    assert DR.bore_mouths({"tunnel_mouth_depths": side["tunnel_mouth_depths"]}) == mouths
     monkeypatch.setattr(DR, "road_lines", lambda root, la, lo, r, b=None: [(-7, "primary", road)])
     rep = DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5, mouths=mouths)
     row = rep["sites"][0]

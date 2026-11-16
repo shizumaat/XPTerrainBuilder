@@ -80,3 +80,23 @@ def test_object_stage_reads_the_plate_as_the_datum():
     a = AR.anchor_for(AR.PLATE_ONLY, geom, surface, datum=d)
     assert a.y_zero == 0.0 and a.lat == 2.0
     assert a.surface_z == pytest.approx(35.2)
+
+
+def test_the_retaining_plate_leads_its_unit_and_group():
+    """the §16g unit and the connected group ride the wall's plate datum
+    (``open_frame_seat.LEAD_PLATES``), as a walled plate's: the median of
+    the surface at its stations less its y -- not its footing's ground"""
+    from auto_patch_v2.airport import open_frame_seat as OF
+    m = types.SimpleNamespace(plate_y=0.0, plate_kind=R.RETAINING_PLATE,
+                              plate_stations=((1.0, 0.0), (2.0, 0.0), (3.0, 0.0)))
+
+    def surface(la, lo):
+        return 35.0 + 0.1 * la
+    assert OF.walled_unit_zero([m], surface) == pytest.approx(35.2)
+    body = types.SimpleNamespace(anchor=types.SimpleNamespace(surface_z=34.5, y_zero=-4.2,
+                                                              datum=False))
+    rec = types.SimpleNamespace(bodies=[body])
+    assert OF.walled_lead(rec, m, surface) == pytest.approx(35.2)
+    assert OF.walled_lead(rec, m) is None
+    other = types.SimpleNamespace(plate_y=0.0, plate_kind="edge", plate_stations=m.plate_stations)
+    assert OF.walled_lead(rec, other, surface) is None

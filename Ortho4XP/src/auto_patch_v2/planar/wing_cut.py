@@ -23,9 +23,13 @@ R3 E):
   and the region less the groundside roads becomes ``graded_strip`` cells
   ``wing_cut:<mouth>[#k]`` -- ground, never pavement; the roads keep their
   role and are held by the rows;
-* THE BACK (D5): a strip ``entrance_skirt_m`` wide behind each line, free
-  ground only and never where airside pavement stands in it, minted as
-  ``wing_back:<mouth>[#k]``, held at the wall's top.
+* THE BACK (D5, D5' #2099 G4 / RULINGS 2026-11-16l): a strip
+  ``entrance_skirt_m`` wide behind each line, free ground only and never
+  where airside pavement stands in it, minted as ``wing_back:<mouth>[#k]``,
+  held ``retaining_parapet_m`` under the wall's top -- and only between
+  stations where that level stands within ``[design] frontage_step_max_m``
+  of the DEM behind the wall (:func:`_parapet_ok`); a wall seated higher
+  stands proud over ground that follows its own law.
 
 The level is ``constraints/wing_cut``'s, off the record
 (``model/wing_cut.WingCut``).  A deck mouth's group walls also plan its ramp
@@ -241,14 +245,17 @@ def _reach(p: XY, d: XY, road: LineString, half: float, rim: float, sep: float,
 
 
 def _strip(line: WallLine, ends: _t.Sequence["float | None"], toward: _t.Sequence[XY],
-           width: float = 0.0) -> list:
+           width: float = 0.0, keep: "_t.Sequence[bool] | None" = None) -> list:
     """The quads between consecutive stations: from each face point along
     ``toward`` by its end (the region), or -- ``width`` given -- from each back
-    point away from the road by ``width`` (the back strip)."""
+    point away from the road by ``width`` (the back strip), between stations
+    both ``keep`` (all, when ``None``)."""
     quads = []
     pts = line.back if width > 0.0 else line.face
     sg = -1.0 if width > 0.0 else 1.0
     for i in range(len(pts) - 1):
+        if keep is not None and not (keep[i] and keep[i + 1]):
+            continue
         e0, e1 = (width, width) if width > 0.0 else (ends[i], ends[i + 1])
         if e0 is None or e1 is None:
             continue
@@ -259,6 +266,38 @@ def _strip(line: WallLine, ends: _t.Sequence["float | None"], toward: _t.Sequenc
         if not q.is_empty:
             quads.append(q)
     return quads
+
+
+def _floor_level(env, floor_y: float, seat) -> "float | None":
+    """The cut's floor (the mouth's zero plus ``floor_y``) as the DEM reads
+    it before the solve: a deck's end lines' ground less their authored
+    tops, or a portal's absolute ``floor_z``; ``None`` with no DEM."""
+    if seat.get("floor_z") is not None:
+        return float(seat["floor_z"])
+    seats, tops = seat.get("seats") or (), seat.get("tops") or ()
+    if env.dem is None or len(seats) != 2 or not all(seats):
+        return None
+    means = [sum(env.dem.z(x, y) for x, y in st) / len(st) for st in seats]
+    if not all(math.isfinite(m) for m in means):
+        return None
+    return 0.5 * sum(means) - 0.5 * sum(float(t) for t in tops) + floor_y
+
+
+def _parapet_ok(line: WallLine, env, floor_y: float, seat) -> "list[bool] | None":
+    """D5' (#2099 G4, RULINGS 2026-11-16l): per station, whether the level
+    a back strip would take there -- the wall's top less ``retaining_parapet_m``
+    -- stands within ``frontage_step_max_m`` of the DEM 1.5 m behind the
+    wall's back face; ``None`` (every station) with no DEM to read."""
+    floor = _floor_level(env, floor_y, seat)
+    if floor is None:
+        return None
+    out = []
+    for (fx, fy), (bx, by), top in zip(line.face, line.back, line.top, strict=True):
+        dx, dy = bx - fx, by - fy
+        L = math.hypot(dx, dy) or 1.0
+        g = env.dem.z(bx + dx / L * 1.5, by + dy / L * 1.5)
+        out.append(math.isfinite(g) and abs(floor + top - env.parapet - g) <= env.step_max)
+    return out
 
 
 def _section_plan(st: _t.Sequence[Station]) -> Polygon:
@@ -284,6 +323,9 @@ def wing_cuts(airport, objects, cache, decks, tunnels, classification, law
         gap=float(tn_law.wall_gap_m), rim=float(tn_law.wall_gap_m + tn_law.wall_band_width_m),
         sep=float(tn_law.dual_carriageway_max_separation_m),
         skirt=float(tn_law.object.entrance_skirt_m),
+        parapet=float(tn_law.object.retaining_parapet_m),
+        step_max=float(law.tables.emit.design.frontage_step_max_m),
+        dem=getattr(airport, "dem", None),
         spacing=float(law.tables.emit.identity.min_distinct_spacing_m),
         air=unary_union([p for p, c in zip(polys, cells, strict=True) if c.role in stage1]),
         solid=unary_union([p for p, c in zip(polys, cells, strict=True)
@@ -375,7 +417,8 @@ def _cut(mouth: str, read_lines, road: LineString, half: float, env, floor_y: fl
                 for p, d in zip(line.face, toward, strict=True)]
         lines.append(line)
         parts += _strip(line, ends, toward)
-        backs += [q for q in _strip(line, ends, toward, env.skirt)
+        ok = _parapet_ok(line, env, floor_y, seat)
+        backs += [q for q in _strip(line, ends, toward, env.skirt, ok)
                   if q.intersection(env.air).area <= 1e-6]
     if not parts:
         return None

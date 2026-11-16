@@ -197,7 +197,8 @@ def test_the_rows_hold_ground_road_and_back_never_airside_or_floor():
     rows = W.wing_cut_rows(_planar(cut, faces, xy), LAW, None)
     held = {r.terms[0][0]: r.hi for r in rows if r.terms[0][1] > 0}
     assert sorted(held) == [1, 3, 4, 10, 11, 12]   # 2 the apron's, 5, 8, 9 the ramp floor's
-    assert {held[v] for v in (1, 3, 4)} == {101.0} and {held[v] for v in (10, 11, 12)} == {106.0}
+    # the back: the top less the parapet (#2099 G4 D5', RULINGS 2026-11-16l)
+    assert {held[v] for v in (1, 3, 4)} == {101.0} and {held[v] for v in (10, 11, 12)} == {105.0}
     assert all(isinstance(r, Linear) and r.source.generator == W.GEN for r in rows)
     head = W.RULING.split("(")[0].strip()          # hard, and one-way: it follows the deck
     assert head in LAW.tables.emit.design.hard_rulings
@@ -206,7 +207,8 @@ def test_the_rows_hold_ground_road_and_back_never_airside_or_floor():
 
 def test_a_vertex_on_the_cut_and_the_back_is_held_at_the_top():
     """T11 (R3b D5b): a vertex a wing_cut face and a wing_back face of one
-    cut both carry: one pair, at the wall's top."""
+    cut both carry: one pair, at the back strip's level (the top less the
+    parapet, #2099 G4 D5')."""
     from auto_patch_v2.constraints import wing_cut as W
     from auto_patch_v2.model.wing_cut import WallLine, WingCut
     line = WallLine("w", ((0.0, 0.0), (0.0, 20.0)), ((-0.6, 0.0), (-0.6, 20.0)), (1.0, 1.0),
@@ -220,7 +222,7 @@ def test_a_vertex_on_the_cut_and_the_back_is_held_at_the_top():
     rows = W.wing_cut_rows(_planar(cut, faces, xy), LAW, None)
     mine = [r for r in rows if r.terms[0][0] == 3]
     assert len(mine) == 2
-    assert {r.hi for r in mine if r.terms[0][1] > 0} == {106.0}
+    assert {r.hi for r in mine if r.terms[0][1] > 0} == {105.0}       # top less the parapet (D5')
 
 
 def test_a_held_vertex_sheds_its_dem_pin():

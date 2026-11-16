@@ -157,3 +157,19 @@ def test_a_ramp_walls_plan_declares_its_step():
     assert j["height_m"] == pytest.approx(5.5) and j["declared_step_m"] == pytest.approx(4.51)
     (k,) = wing_wall_joints(planar, LAW, [150.0, 161.0, 164.5, 164.5, 0.0])
     assert k["declared_step_m"] == pytest.approx(5.51)                 # never over the wall
+
+
+def test_a_back_strip_stands_a_parapet_under_the_top_only_near_the_ground():
+    """D5' (RULINGS 2026-11-16l): the back strip's level is the top less the
+    parapet; a station whose level stands over frontage_step_max_m off the
+    ground behind the wall gets none (the wall stands proud there)."""
+    from auto_patch_v2.model.wing_cut import WallLine
+    from auto_patch_v2.planar.wing_cut import _parapet_ok
+    line = WallLine("w", ((0.0, 0.0), (10.0, 0.0), (20.0, 0.0)),
+                    ((0.0, -1.0), (10.0, -1.0), (20.0, -1.0)), (1.0, 1.0, 1.0), (6.0, 6.0, 6.0))
+    ground = {0.0: 104.6, 10.0: 103.0, 20.0: 101.0}          # behind each station
+    env = types.SimpleNamespace(parapet=float(LAW.tables.structures.tunnel.object
+                                              .retaining_parapet_m),
+                                step_max=float(LAW.tables.emit.design.frontage_step_max_m),
+                                dem=types.SimpleNamespace(z=lambda x, y: ground[round(x, 1)]))
+    assert _parapet_ok(line, env, 0.0, {"floor_z": 100.0}) == [True, True, False]

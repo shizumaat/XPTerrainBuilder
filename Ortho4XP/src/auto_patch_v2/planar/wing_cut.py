@@ -321,7 +321,7 @@ def wing_cuts(airport, objects, cache, decks, tunnels, classification, law
             if backs else Polygon()
         cuts.append(WingCut(gr.mouth.object_id, f"{WING_CUT_REF}:{gr.mouth.object_id}", rings,
                             tuple(lines), _rings(back, spacing),
-                            floor_y=float(gr.mouth.floor_y), **seat))
+                            floor_y=float(gr.mouth.floor_y), reach=sep, **seat))
         feet = [f for ln in lines for f in ln.foot]
         notes.append(f"{gr.mouth.object_id}: wing cut over {len(gr.wings)} wing(s), "
                      f"{len(lines)} wall line(s), {sum(Polygon(q).area for q in rings):.0f} m2 "

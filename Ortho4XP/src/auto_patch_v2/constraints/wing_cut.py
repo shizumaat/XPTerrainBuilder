@@ -9,7 +9,8 @@ other vertex inside its region -- the ground, a trench's rim, and the road:
 mouth's floor plus the foot under it, read along the wall line it faces
 (``model/wing_cut.wing_floor_y``);
 every vertex of the strip behind a line (``wing_back:<mouth>`` faces) at the
-wall's top there (``wing_top_y``), in the mouth's own seat:
+wall's top there (``wing_top_y``) -- a vertex both carry at the top (R3b
+D5b: the wall's plan hides the step) -- in the mouth's own seat:
 
 * a HARD DECK (plate-seated): ``z[v] = ½(mean z[A] + mean z[B]) −
   (½(top_A + top_B) − floor_y − foot)`` -- the end lines' seat set of
@@ -67,6 +68,12 @@ def _seat(planar: PlanarMap, law: Law, cut: WingCut, near) -> "tuple | None":
     return _mean_terms([], ((ends[0], 0.5), (ends[1], 0.5))), 0.5 * sum(cut.tops)
 
 
+def _ref_vertices(planar: PlanarMap, ref: str) -> set[int]:
+    """Every vertex of the faces of ``ref`` (``ref`` or ``ref#k``)."""
+    return {v for f in planar.faces.values() if f.ref == ref or f.ref.startswith(ref + "#")
+            for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
+
+
 def wing_cut_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """The module doc's pairs, one per held vertex."""
     stats = STATS.setdefault("wing_cut_rows", {})
@@ -95,14 +102,13 @@ def wing_cut_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     for cut in cuts:
         region = unary_union([Polygon(q).buffer(0.0) for q in cut.region])
         inside = prep(region.buffer(1e-6))
-        own = [f for f in planar.faces.values()
-               if f.ref == cut.ref or f.ref.startswith(cut.ref + "#")]
-        cand = {v for f in own for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
-        cand.update(v for v, vx in planar.vertices.items() if inside.contains(Point(vx.xy)))
-        # R3 D5: the strip behind a wall line meets the wall's top
-        behind = {v for f in planar.faces.values()
-                  if f.ref == cut.back_ref or f.ref.startswith(cut.back_ref + "#")
-                  for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)} - cand
+        own = _ref_vertices(planar, cut.ref)
+        cand = own | {v for v, vx in planar.vertices.items() if inside.contains(Point(vx.xy))}
+        # R3 D5: the strip behind a wall line meets the wall's top; R3b D5b:
+        # a vertex a wing_cut face and a wing_back face both carry stands on
+        # the wall's own plan, which hides the step -- it is held at the TOP
+        back = _ref_vertices(planar, cut.back_ref)
+        behind = (back - cand) | (back & own)
         seat = _seat(planar, law, cut, near) if cut.seats else None
         if cut.seats and seat is None:
             stats["no_seat"] = stats.get("no_seat", 0) + 1

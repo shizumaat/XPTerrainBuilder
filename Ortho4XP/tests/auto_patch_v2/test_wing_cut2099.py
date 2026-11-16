@@ -62,13 +62,27 @@ def test_two_splayed_walls_are_two_lines_and_a_coping_station_is_dropped(tmp_pat
     assert len(lines) == 2
     for _ln, st in lines:
         feet = [s[6] for s in st]
-        assert feet[0] == pytest.approx(0.0, abs=0.3)          # from the end nearest the mouth
+        assert feet[0] == pytest.approx(0.0, abs=0.5)          # from the end nearest the mouth
+        assert feet[0] == feet[1]                              # R3b D1b: an end is no section
         assert all(b >= a - 1e-6 for a, b in zip(feet, feet[1:], strict=False))
     a, b = sorted(lines, key=lambda ln: ln[1][-1][6])
     assert a[1][-1][6] == pytest.approx(4.0, abs=0.35)
     assert max(s[7] - s[6] for s in b[1][-2:]) > float(LAW.tables.structures.tunnel.object
                                                        .plate_bin_m)   # the coping end dropped
     assert len(b[1]) < len(a[1])
+
+
+def test_an_end_station_takes_its_neighbours_section():
+    """T9 (R3b D1b): end sections 0.3 m thick with foot 5 over an interior
+    1.4 m thick with foot 0: the end stations read 1.4 m and 0, their own
+    tops standing."""
+    from auto_patch_v2.airport.wall_lines import _ends_from_inside
+    end = lambda y, top: (0.0, y, 1.0, 0.0, -0.15, 0.15, 5.0, top)      # noqa: E731
+    mid = lambda y: (0.0, y, 1.0, 0.0, -0.7, 0.7, 0.0, 7.0)              # noqa: E731
+    st = _ends_from_inside([end(0.0, 7.1), mid(2.0), mid(4.0), end(6.0, 7.3)])
+    for s, top in ((st[0], 7.1), (st[-1], 7.3)):
+        assert s[5] - s[4] == pytest.approx(1.4) and s[6] == 0.0 and s[7] == top
+    assert _ends_from_inside([end(0.0, 7.1), end(2.0, 7.2)])[0][6] == 5.0   # too short: as read
 
 
 def test_the_foot_is_read_along_the_facing_line_and_linear_across():
@@ -84,6 +98,24 @@ def test_the_foot_is_read_along_the_facing_line_and_linear_across():
     assert wing_floor_y(both, (2.5, 10.0)) == pytest.approx(2.5)     # nearer the east line
     assert wing_top_y(both, (-7.0, 10.0)) == pytest.approx(8.0)      # behind the west line
     assert wing_floor_y(WingCut("m", "r", ()), (0.0, 0.0)) == 0.0
+
+
+def test_a_vertex_behind_its_face_reads_its_own_wall_within_reach():
+    """T10 (R3b D4b): a vertex 0.2 m behind its wall's face, a second wall of
+    foot 0 turned toward it 60 m away: it reads its own wall's foot.  The
+    same second wall 30 m away, facing it across a road: linear across."""
+    from auto_patch_v2.model.wing_cut import WallLine, WingCut, wing_floor_y
+    own = WallLine("a", ((0.0, 0.0), (0.0, 10.0)), ((-0.6, 0.0), (-0.6, 10.0)), (2.0, 2.0),
+                   (7.0, 7.0))
+
+    def far(x):
+        return WallLine("b", ((x, 0.0), (x, 10.0)), ((x + 0.6, 0.0), (x + 0.6, 10.0)),
+                        (0.0, 0.0), (7.0, 7.0))
+    xy = (-0.2, 5.0)
+    assert wing_floor_y(WingCut("m", "r", (), (own, far(60.0)), reach=40.0), xy) == \
+        pytest.approx(2.0)
+    assert wing_floor_y(WingCut("m", "r", (), (own, far(30.0)), reach=40.0), xy) == \
+        pytest.approx(2.0 * 30.2 / 30.4)
 
 
 def _deck(oid="box"):
@@ -170,6 +202,25 @@ def test_the_rows_hold_ground_road_and_back_never_airside_or_floor():
     head = W.RULING.split("(")[0].strip()          # hard, and one-way: it follows the deck
     assert head in LAW.tables.emit.design.hard_rulings
     assert head in LAW.tables.emit.design.one_way_rulings
+
+
+def test_a_vertex_on_the_cut_and_the_back_is_held_at_the_top():
+    """T11 (R3b D5b): a vertex a wing_cut face and a wing_back face of one
+    cut both carry: one pair, at the wall's top."""
+    from auto_patch_v2.constraints import wing_cut as W
+    from auto_patch_v2.model.wing_cut import WallLine, WingCut
+    line = WallLine("w", ((0.0, 0.0), (0.0, 20.0)), ((-0.6, 0.0), (-0.6, 20.0)), (1.0, 1.0),
+                    (6.0, 6.0))
+    cut = WingCut("p", "wing_cut:p", (((0, 0), (20, 0), (20, 20), (0, 20)),), (line,),
+                  floor_z=100.0)
+    F = types.SimpleNamespace
+    faces = {1: F(role="graded_strip", ref="wing_cut:p", ring=(1, 2, 3), holes=()),
+             2: F(role="graded_strip", ref="wing_back:p#1", ring=(3, 4, 5), holes=())}
+    xy = {1: (1, 1), 2: (2, 2), 3: (-0.3, 3), 4: (-2, 4), 5: (-2, 6)}
+    rows = W.wing_cut_rows(_planar(cut, faces, xy), LAW, None)
+    mine = [r for r in rows if r.terms[0][0] == 3]
+    assert len(mine) == 2
+    assert {r.hi for r in mine if r.terms[0][1] > 0} == {106.0}
 
 
 def test_a_held_vertex_sheds_its_dem_pin():

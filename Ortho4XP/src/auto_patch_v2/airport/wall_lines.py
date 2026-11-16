@@ -6,6 +6,11 @@ ribbon_centreline``) every ``[tunnel.object] wall_sample_m`` from the end
 nearest the mouth: the cross-section NORMAL to the line there, its lowest
 solid y (never under 0) the FOOT, its highest the TOP.  A section holding
 only a coping (its foot within ``plate_bin_m`` of its top) is dropped.
+AN END STATION IS NO SECTION (R3b D1b): the first and the last station
+take the extent ``(lo, hi)`` and the foot of their nearest interior
+station, their top standing -- a section at a line's end cuts the wall's
+end cap (measured: 0.17-0.56 m thick against 1.0-1.5 m inside; one end
+foot 5.19 over an interior foot 0.00).
 
 Read by the mouth group (a wall lining the mouth's road, R3 E) and the cut
 beside it (``planar/wing_cut``, R3 D).  Nothing here names a pack, a
@@ -60,8 +65,17 @@ def wall_line_feet(o, cache, law, mouth_plan) -> list[tuple[tuple[XY, ...], list
         st = [q for s in ss
               if (q := _section(ln, float(s), X, Y, v[:, 1], edges, inside, coping)) is not None]
         if st:
-            out.append((tuple(ln.coords), st))
+            out.append((tuple(ln.coords), _ends_from_inside(st)))
     return out
+
+
+def _ends_from_inside(st: list[Station]) -> list[Station]:
+    """R3b D1b: the first / last station takes its nearest interior
+    station's extent and foot; its own top stands (3 stations or more)."""
+    if len(st) < 3:
+        return st
+    a, b = st[0], st[-1]
+    return [a[:4] + st[1][4:7] + (a[7],), *st[1:-1], b[:4] + st[-2][4:7] + (b[7],)]
 
 
 def _section(ln: LineString, s: float, X, Y, Yv, edges, inside, coping: float

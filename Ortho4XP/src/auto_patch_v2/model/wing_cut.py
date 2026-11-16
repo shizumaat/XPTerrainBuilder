@@ -63,6 +63,9 @@ class WingCut:
     seats: tuple[tuple[XY, ...], ...] = ()
     tops: tuple[float, ...] = ()
     floor_z: "float | None" = None
+    #: how far from a wall line's face a vertex may stand and still read
+    #: that line (R3b D4b; ``[tunnel] dual_carriageway_max_separation_m``)
+    reach: float = math.inf
 
     @property
     def back_ref(self) -> str:
@@ -93,16 +96,19 @@ def _at(vals: _t.Sequence[float], t: float) -> float:
     return vals[i] if f <= 0.0 or i + 1 >= len(vals) else vals[i] + f * (vals[i + 1] - vals[i])
 
 
-def _facing(line: WallLine, xy: XY) -> "tuple[float, float] | None":
+def _facing(line: WallLine, xy: XY, reach: float = math.inf
+            ) -> "tuple[float, float] | None":
     """``(foot along the line under xy, distance)`` where ``xy`` stands on
-    the line's ROAD side abeam its stations, else ``None``."""
+    the road side of the line's BACK face (a vertex on the wall's own plan
+    reads its own wall), abeam its stations and no farther than ``reach``
+    from its face (R3b D4b), else ``None``."""
     if not line.face:
         return None
     t, d, i = _along(line.face, xy)
     j = min(i, len(line.face) - 1)
     fx, fy = line.face[j]
     bx, by = line.back[j]
-    if (xy[0] - fx) * (fx - bx) + (xy[1] - fy) * (fy - by) < -1e-6:
+    if (xy[0] - bx) * (fx - bx) + (xy[1] - by) * (fy - by) < -1e-6 or d > reach:
         return None
     if len(line.face) > 1:
         a, b = line.face[i], line.face[min(i + 1, len(line.face) - 1)]
@@ -118,8 +124,12 @@ def wing_floor_y(cut: WingCut, xy: XY) -> float:
     """The foot over the mouth's floor under ``xy`` (R3 D4): read along the
     wall line it faces, linear between stations; between two facing lines,
     linear across (each weighted by the other's distance); where it faces
-    none, the nearest line's foot."""
-    got = sorted((r[1], r[0]) for ln in cut.lines if (r := _facing(ln, xy)) is not None)
+    none, the nearest line's foot.  A line faces only a vertex within
+    ``cut.reach`` of its face, on the road side of its back face (R3b D4b:
+    measured, five vertices 0.1-0.2 m behind _T's face read a wall 80 m
+    away and stood at the floor)."""
+    got = sorted((r[1], r[0]) for ln in cut.lines
+                 if (r := _facing(ln, xy, cut.reach)) is not None)
     if len(got) >= 2:
         (d0, f0), (d1, f1) = got[0], got[1]
         return f0 if d0 + d1 <= 1e-9 else (f0 * d1 + f1 * d0) / (d0 + d1)

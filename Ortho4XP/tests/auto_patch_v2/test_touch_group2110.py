@@ -76,14 +76,20 @@ def test_airside_share_leads_the_group():
     assert touch_links(u, [], pw, airside=air) == {"fu:1:2": "fu:1:1"}
 
 
-def test_a_body_takes_its_parts_unit_before_a_carrier_s():
+def test_a_body_takes_its_parts_unit_before_a_fallback_carrier_s():
     """22o (1): a body whose parts belong to a unit takes that unit, not the
-    unit its (no-evidence) carrier names (LOWS Terminal_LOWS_41 b7)."""
-    b = types.SimpleNamespace(anchor=types.SimpleNamespace(family="fu:1:9@one_building"),
-                              pids=(1, 2, 3), merged_into="x.obj")
+    unit a NO-EVIDENCE carrier names (LOWS Terminal_LOWS_41 b7)."""
+    fallback = types.SimpleNamespace(
+        family="fu:1:9@one_building",
+        reason="carried by x.obj (nearest footed body of the unit (29 m))")
+    b = types.SimpleNamespace(anchor=fallback, pids=(1, 2, 3), merged_into="x.obj")
     pw = {1: ("fu:1:1/host", 0.0), 2: ("fu:1:1/host", 0.0), 3: ("fu:1:2", 0.0)}
     assert body_root(b, pw) == "fu:1:1"
-    assert body_root(types.SimpleNamespace(anchor=b.anchor, pids=(7,)), pw) == "fu:1:9"
+    assert body_root(types.SimpleNamespace(anchor=fallback, pids=(7,)), pw) == "fu:1:9"
+    # a carrier it RESTS on keeps it: the rider stays with its carrier
+    rests = types.SimpleNamespace(family="fu:1:9@one_building",
+                                  reason="carried by x.obj (rests on it)")
+    assert body_root(types.SimpleNamespace(anchor=rests, pids=(1, 2)), pw) == "fu:1:9"
 
 
 def test_census_lists_the_step_between_touching_bodies():

@@ -1281,7 +1281,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # 2026-11-16k (#2110): touching buildings stay grouped — units
             # whose parts touch, or that one body holds, take one zero
             _rmerge = _touch_links(u, staged, _pw or {}, _rmerge, _gz_air, counts,
-                                   touch_m=touch_m, touched=_rtouch)
+                                   touch_m=touch_m, touched=_rtouch,
+                                   ground_m=bind_ground_m)
             # 28p (2) (#1572): a unit drawn higher than its pad's largest
             # unit sinks to that group's level; never floats off the pad
             _rmerge = _pad_level_links(u, _pw or {}, _rmerge, _gz, _gz_air,
@@ -1289,7 +1290,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         elif _rboxes:
             # 16k: one unit in the frame — a body of no unit touching it
             _touch_links(u, staged, _pw or {}, _rmerge, _gz_air, counts,
-                         touch_m=touch_m, touched=_rtouch)
+                         touch_m=touch_m, touched=_rtouch, ground_m=bind_ground_m)
         if _pit_join is not None and _pw:
             _pit_join(u, _pw, _rmerge, _pit_shifts)
         written_of: dict[int, bool] = {}

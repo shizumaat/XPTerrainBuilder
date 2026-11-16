@@ -114,6 +114,32 @@ def _part_roots(u: _t.Any, staged: _t.Sequence[_t.Any],
     return out
 
 
+def _ground_spans(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
+                  size: dict[str, int]) -> dict[str, tuple[float, float]]:
+    """``root -> (zero, zero)`` of every connected unit of frame ``u``
+    holding a FOOTED part (a ground contact): the median of its parts'
+    plan-wide zeros — the unit's own seat.  ``size`` is filled with the
+    parts per root."""
+    zs: dict[str, list[float]] = {}
+    footed: set[str] = set()
+    for m in getattr(u, "members", ()) or ():
+        for p in getattr(m, "parts", ()) or ():
+            seat = plan_wide.get(p.pid)
+            if not seat or not seat[0]:
+                continue
+            r = unit_root(seat[0])
+            size[r] = size.get(r, 0) + 1
+            if len(seat) > 1 and seat[1] is not None:
+                zs.setdefault(r, []).append(float(seat[1]))
+            if getattr(p, "feet", ()):
+                footed.add(r)
+    out = {}
+    for r in footed & set(zs):
+        v = sorted(zs[r])
+        out[r] = (v[len(v) // 2], v[len(v) // 2])
+    return out
+
+
 def _footprints(u: _t.Any, roots: _t.Mapping[int, str]
                 ) -> tuple[list, list[tuple["str | None", int]]]:
     """``(polygons in local metres, (root or None, pid) of each)`` over
@@ -145,13 +171,18 @@ def touch_links(u: _t.Any, staged: _t.Sequence[_t.Any], plan_wide: _t.Mapping[in
                 merged: "_t.Mapping[str, str] | None" = None,
                 airside: "_t.Mapping[str, tuple] | _t.AbstractSet[str]" = frozenset(),
                 counts: "dict | None" = None, touch_m: float = 0.5,
-                touched: "dict[int, str] | None" = None) -> dict[str, str]:
+                touched: "dict[int, str] | None" = None,
+                ground_m: float = 0.5) -> dict[str, str]:
     """``root -> the root it moves with`` inside frame ``u``: ``merged``
     (the joins before this one) with the touching joins of the module doc.
     ``staged``: the frame's staged members (:func:`_part_roots`).
     ``touched``, when given, is filled with ``pid -> unit`` for every part
-    of no unit that touches a unit's part (the least such unit by name):
-    a body of no unit takes the group it touches."""
+    of no unit and no feet that touches a unit's part (the least such unit
+    by name): a footless body of no unit takes the group it touches.
+    ``ground_m`` (``[cockpit] visual_m``): a join that would put FOOTED
+    units whose own seats lie more than this apart into one group is
+    refused and counted (``touch_joins_refused_ground``) — one zero would
+    float or bury a building standing on its own ground."""
     base = dict(merged or {})
     up: dict[str, str] = {}
 
@@ -162,21 +193,28 @@ def touch_links(u: _t.Any, staged: _t.Sequence[_t.Any], plan_wide: _t.Mapping[in
             r = up[r]
         return r
 
-    def join(a: str, b: str) -> bool:
+    size: dict[str, int] = {}
+    ground = _ground_spans(u, plan_wide, size)
+    refused = 0
+
+    def join(a: str, b: str, guard: bool = True) -> bool:
+        nonlocal refused
         ra, rb = find(a), find(b)
         if ra == rb:
             return False
+        ga, gb = ground.get(ra), ground.get(rb)
+        if ga and gb:
+            lo, hi = min(ga[0], gb[0]), max(ga[1], gb[1])
+            if guard and hi - lo > ground_m:
+                refused += 1
+                return False
+            ground[rb] = (lo, hi)
+        elif ga:
+            ground[rb] = ga
         up[ra] = rb
         return True
-    size: dict[str, int] = {}
-    for m in getattr(u, "members", ()) or ():
-        for p in getattr(m, "parts", ()) or ():
-            seat = plan_wide.get(p.pid)
-            if seat and seat[0]:
-                r = unit_root(seat[0])
-                size[r] = size.get(r, 0) + 1
     for r, t in base.items():
-        join(r, t)
+        join(r, t, guard=False)
     n_join = 0
     spans: list[set[str]] = []
     roots = _part_roots(u, staged, plan_wide, spans)
@@ -185,6 +223,8 @@ def touch_links(u: _t.Any, staged: _t.Sequence[_t.Any], plan_wide: _t.Mapping[in
         for r in rs[1:]:
             n_join += join(rs[0], r)
     geoms, owner = _footprints(u, roots)
+    footed = {p.pid for m in getattr(u, "members", ()) or ()
+              for p in getattr(m, "parts", ()) or () if getattr(p, "feet", ())}
     if geoms and (touched is not None
                   or len({o[0] for o in owner if o[0] is not None}) > 1):
         from shapely.strtree import STRtree
@@ -195,12 +235,15 @@ def touch_links(u: _t.Any, staged: _t.Sequence[_t.Any], plan_wide: _t.Mapping[in
                 continue
             if ri is not None and rj is not None:
                 n_join += join(ri, rj)
-            elif touched is not None:
+            elif touched is not None and pi not in footed and pj not in footed:
                 # a part of no unit touching a unit's part joins that unit
                 # (``open_frame_seat.body_root``'s ``touched``)
                 q, r = (pi, rj) if ri is None else (pj, ri)
                 if r < touched.get(q, "\uffff"):
                     touched[q] = r
+    if counts is not None and refused:
+        counts["touch_joins_refused_ground"] = \
+            counts.get("touch_joins_refused_ground", 0) + refused
     if not n_join:
         return base
     comp: dict[str, set[str]] = {}

@@ -522,23 +522,31 @@ def body_root(b: _t.Any, plan_wide: _t.Mapping[int, tuple],
               root_boxes: "_t.Mapping[str, _t.Sequence[tuple]] | None" = None,
               touched: "_t.Mapping[int, str] | None" = None
               ) -> "str | None":
-    """The connected unit the body's own PARTS belong to (the one most of
-    them do; owner RULINGS 2026-10-22o (1): a body whose parts belong to a
-    connected unit takes that unit's zero, whatever pass seated it), else
-    the one its seat names (its anchor's ``family``, a §16g unit — its
-    carrier's); for a body none of whose parts is chained and no unit
-    seated, its CARRIER's (``merged_into``, through ``file_root``: the
+    """The connected unit the body's seat names (its anchor's ``family``,
+    a §16g unit — its own, or the carrier it rests on), else the one most
+    of its own PARTS belong to (22o (1)) — the parts first where the seat
+    came from a NO-EVIDENCE carrier fallback (``free_column._FALLBACKS``:
+    no contact, so not the body's group); for a body none of whose parts
+    is chained and no unit seated, its CARRIER's (``merged_into``, through ``file_root``: the
     written file -> its unit, filled as the carriers are written), else the
     unit of its own frame whose parts its plan box touches or comes within
     :data:`TOUCH_M` of (``root_boxes``, :func:`frame_root_boxes`; the
     nearest) — before that, the unit its parts TOUCH (``touched``:
     ``touch_group.touch_links``' pid -> unit, 2026-11-16k).
 
-    Parts before the seat (#2110, RULINGS 2026-11-16k): LOWS's
+    Parts before a fallback's seat (#2110, RULINGS 2026-11-16k): LOWS's
     Terminal_LOWS_41 b7, its parts all in the units Terminal_LOWS_46 b1
     stands in (431.95), took the unit of a carrier the no-evidence
     fallback found 29 m off (``fu:2:12243``, 431.21) — 0.74 m under the
     body it touches."""
+    from .free_column import _FALLBACKS
+    a = getattr(b, "anchor", None)
+    fam = str(getattr(a, "family", "") or "")
+    if fam.startswith("fu:") and not any(f in str(getattr(a, "reason", ""))
+                                         for f in _FALLBACKS):
+        # seated by a unit already (its own, or the carrier it rests on):
+        # that unit
+        return unit_root(fam)
     n: dict[str, int] = {}
     for pid in getattr(b, "pids", ()) or ():
         seat = plan_wide.get(pid)
@@ -547,9 +555,7 @@ def body_root(b: _t.Any, plan_wide: _t.Mapping[int, tuple],
             n[r] = n.get(r, 0) + 1
     if n:
         return max(sorted(n), key=lambda r: n[r])
-    fam = str(getattr(getattr(b, "anchor", None), "family", "") or "")
     if fam.startswith("fu:"):
-        # seated by a unit already (its carrier's): that unit
         return unit_root(fam)
     carrier = getattr(b, "merged_into", "") or ""
     if carrier and file_root and carrier in file_root:

@@ -103,13 +103,40 @@ def test_recorded_peaks_admit_fewer():
     # No record: three 8 GB vector projections fit 30 GB.
     assert len(_admit_all(_run(30.0))) == 3
     # The same tiles after builds that peaked at 12 GB each: 13.8 GB
-    # projected, two fit, the third waits.
+    # projected, but a vector step's airport builds gate themselves on
+    # live memory, so it is CHARGED the 8 GB default and all three fit.
     for tile in TILES:
         _record_vector_peak(tile, 12.0)
     run = _run(30.0)
     assert run._step_memory_estimate((10, 10), "vector") == pytest.approx(
         12.0 * step_memory.RECORDED_PEAK_MARGIN)
-    assert len(_admit_all(run)) == 2
+    assert run._step_memory_charge((10, 10), "vector") == pytest.approx(
+        step_memory.VECTOR_AIRPORT_DEFAULT_GB)
+    assert len(_admit_all(run)) == 3
+    # A step that does not gate itself is charged its whole projection.
+    run._recorded_peaks[(10, 10)] = {"mesh": 12.0}
+    assert run._step_memory_charge((10, 10), "mesh") == pytest.approx(
+        12.0 * step_memory.RECORDED_PEAK_MARGIN)
+
+
+def test_big_vector_step_does_not_starve_small_ones(machine):
+    """The owner's 1.0.539 run: +43-080's vector step (recorded tree peak
+    54.7 GB, 62.9 projected) runs at ~10 GB; small tiles queued behind it
+    with 73 GB free must start, not wait on the projection."""
+    machine["gb"] = 83.8
+    big, small = (10, 10), (11, 11)
+    run, _ = _events_run(65.0, [big, small, (12, 12)])
+    run._recorded_peaks[big] = {"vector": 54.7}
+    first, second, third = _give_children(run, 3)
+    with run._lock:
+        assert run._start_new_tile_locked(first) is True
+        assert first.tile == big
+        assert run._memory_in_use == pytest.approx(
+            step_memory.VECTOR_AIRPORT_DEFAULT_GB)
+        machine["gb"] = 73.0
+        assert run._start_new_tile_locked(second) is True
+        assert run._start_new_tile_locked(third) is True
+        assert not run._memory_waits
 
 
 def test_recorded_mesh_peak_never_undercuts_the_elevation_level():
@@ -188,13 +215,20 @@ def _give_children(run, count):
     return children
 
 
+def _heavy(run, tile):
+    """``tile`` leads with a 57.5 GB mesh step (a 1 m raster's record): a
+    heavy step that does not gate its own inner work."""
+    run._programs[tile] = ["mesh"]
+    run._recorded_peaks[tile] = {"mesh": 50.0}
+
+
 def test_held_heavy_step_reserves_its_memory_fifo(machine):
     """The owner's case: a 57 GB vector step waits on live memory; a tile
     queued after it may not start a step that takes the memory it needs,
     however well that step alone fits."""
     big, later = (10, 10), (11, 11)
     run, _ = _events_run(1024.0, [(12, 12), big, later])
-    run._recorded_peaks[big] = {"vector": 50.0}       # 57.5 GB projected
+    _heavy(run, big)                                  # 57.5 GB projected
     first, second = _give_children(run, 2)
     with run._lock:
         assert run._start_new_tile_locked(first) is True    # (12,12) runs
@@ -202,10 +236,10 @@ def test_held_heavy_step_reserves_its_memory_fifo(machine):
         # The scan reaches big first: refused and held; `later` (8 GB,
         # which fits the machine alone) may not take big's memory.
         assert run._start_new_tile_locked(second) is False
-        assert (big, "vector") in run._memory_waits
+        assert (big, "mesh") in run._memory_waits
         assert later in run._queue and second.tile is None
         # Without the hold, `later` would have started (pre-#2101).
-        run._memory_waits.clear((big, "vector"))
+        run._memory_waits.clear((big, "mesh"))
         run._queue.remove(big)
         assert run._start_new_tile_locked(second) is True
         assert second.tile == later
@@ -216,7 +250,7 @@ def test_held_step_starts_when_the_run_drains(machine):
     holds memory, the held step is admitted — the wait is bounded."""
     big, later = (10, 10), (11, 11)
     run, _ = _events_run(1024.0, [(12, 12), big, later])
-    run._recorded_peaks[big] = {"vector": 50.0}
+    _heavy(run, big)
     first, second = _give_children(run, 2)
     with run._lock:
         assert run._start_new_tile_locked(first) is True
@@ -230,7 +264,9 @@ def test_held_step_starts_when_the_run_drains(machine):
         first.tile = None
         assert run._start_new_tile_locked(second) is True
         assert second.tile == big
-        assert not run._memory_waits
+        assert (big, "mesh") not in run._memory_waits
+        # `later`, refused behind big's reservation, is shown waiting too.
+        assert (later, "vector") in run._memory_waits
 
 
 def test_only_waiting_work_starts_on_the_budget_sum(machine):
@@ -240,7 +276,7 @@ def test_only_waiting_work_starts_on_the_budget_sum(machine):
     slots against live memory one worker at a time)."""
     big = (10, 10)
     run, _ = _events_run(1024.0, [(12, 12), big])
-    run._recorded_peaks[big] = {"vector": 50.0}
+    _heavy(run, big)
     first, second = _give_children(run, 2)
     with run._lock:
         assert run._start_new_tile_locked(first) is True
@@ -257,14 +293,14 @@ def test_reservation_does_not_block_while_the_waiter_has_no_child(machine):
     children's next steps go on, so one of them frees a child."""
     big, other = (10, 10), (11, 11)
     run, _ = _events_run(1024.0, [other, big])
-    run._recorded_peaks[big] = {"vector": 50.0}
+    _heavy(run, big)
     (only,) = _give_children(run, 1)
     machine["gb"] = 50.0
     with run._lock:
         run._queue.remove(other)
         only.tile = other                     # between its vector and mesh
         run._next_step_index[other] = 1
-        run._memory_waits.note((big, "vector"), 57.5, 50.0, "machine")
+        run._memory_waits.note((big, "mesh"), 57.5, 50.0, "machine")
         run._memory_holders[((9, 9), "mesh")] = 2.0     # someone running
         run._memory_in_use = 2.0
         assert run._try_start_step_locked(only) is True
@@ -282,7 +318,7 @@ def test_reservation_does_not_block_while_the_waiter_has_no_child(machine):
 
 def test_single_tile_never_deadlocks(machine):
     run, _ = _events_run(4.0, [(10, 10)])
-    run._recorded_peaks[(10, 10)] = {"vector": 50.0}
+    _heavy(run, (10, 10))
     (child,) = _give_children(run, 1)
     machine["gb"] = 2.0
     with run._lock:
@@ -292,7 +328,7 @@ def test_single_tile_never_deadlocks(machine):
 def test_memory_wait_event_reaches_the_row_and_resolves(machine):
     big = (10, 10)
     run, events = _events_run(1024.0, [(12, 12), big, (11, 11)])
-    run._recorded_peaks[big] = {"vector": 50.0}
+    _heavy(run, big)
     first, second = _give_children(run, 2)
     with run._lock:
         assert run._start_new_tile_locked(first) is True
@@ -301,9 +337,11 @@ def test_memory_wait_event_reaches_the_row_and_resolves(machine):
     run._announce_memory_waits()
     run._announce_memory_waits()            # unchanged: nothing re-sent
     waits = [e for e in events if type(e).__name__ == "MemoryWait"]
-    assert len(waits) == 1
+    # Both refused tiles are shown waiting (#2101 follow-up); big first.
+    assert [(e.lat, e.step_key) for e in waits] == [(10, "mesh"),
+                                                    (11, "vector")]
     wait = waits[0]
-    assert (wait.lat, wait.lon, wait.step_key) == (10, 10, "vector")
+    assert (wait.lat, wait.lon, wait.step_key) == (10, 10, "mesh")
     assert wait.needed_gb == pytest.approx(57.5)
     assert wait.free_gb == pytest.approx(50.0)
     assert wait.reason == "machine" and not wait.resolved
@@ -314,7 +352,8 @@ def test_memory_wait_event_reaches_the_row_and_resolves(machine):
     with run._lock:
         assert run._start_new_tile_locked(second) is True
     run._announce_memory_waits()
-    done = [e for e in events if type(e).__name__ == "MemoryWait"][-1]
+    done = [e for e in events if type(e).__name__ == "MemoryWait"
+            and (e.lat, e.lon) == (10, 10)][-1]
     assert done.resolved and (done.lat, done.lon) == (10, 10)
     assert done.message == ""
 

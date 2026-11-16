@@ -31,7 +31,8 @@ import sys
 
 __all__ = ["RECORDED_PEAK_MARGIN", "VECTOR_AIRPORT_DEFAULT_GB",
            "VECTOR_NO_AIRPORT_GB", "LIVE_CHECKED_STEPS",
-           "projected_gigabytes", "tree_resident_gigabytes"]
+           "charged_gigabytes", "projected_gigabytes",
+           "tree_resident_gigabytes"]
 
 #: a recorded peak is the maximum of 2-second samples, not the true peak:
 #: a spike between two samples is missed, so the projection carries a margin
@@ -46,6 +47,15 @@ VECTOR_NO_AIRPORT_GB = 3.0
 #: the heavy steps the scheduler also checks against LIVE free memory
 #: before it starts one (``O4_Machine_Slots.memory_admits``)
 LIVE_CHECKED_STEPS = frozenset({"vector", "mesh"})
+#: steps whose heavy inner work takes machine memory ITSELF, one worker at a
+#: time against live free memory: the vector step's airport builds and
+#: their pools (``slot_gated_pool.run`` -> ``O4_Machine_Slots.try_take``).
+#: The scheduler charges such a step at most :data:`VECTOR_AIRPORT_DEFAULT_GB`
+#: — its recorded peak is the whole process tree with up to seven airports
+#: at once, shared library pages counted once per process (+43-080 in
+#: 1.0.539: 62.9 GB charged while the machine stayed 86 % free), and
+#: charging it in full held every other tile's step (#2101 follow-up).
+_SELF_GATED_STEPS = frozenset({"vector"})
 
 _KIB_PER_GIB = 1024.0 * 1024.0
 
@@ -69,6 +79,15 @@ def projected_gigabytes(step_key, recorded, default, airports_planned=None):
             return VECTOR_NO_AIRPORT_GB
         return max(VECTOR_AIRPORT_DEFAULT_GB, float(default))
     return float(default)
+
+
+def charged_gigabytes(step_key, projected):
+    """What a step holds against the run's memory budget (and needs free
+    to start): its projection, capped for a self-gated step, whose inner
+    work is admitted worker by worker against live memory instead."""
+    if step_key in _SELF_GATED_STEPS:
+        return min(float(projected), VECTOR_AIRPORT_DEFAULT_GB)
+    return float(projected)
 
 
 def _process_table():

@@ -83,6 +83,7 @@ from .plan_estimate import TIME_SPREAD_KNOWN
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
+    ETA_EMIT_SECONDS,
     _offer_gateway_airports, _predict_step_seconds, build_done, last_outcome_counts,
     plan_steps, prediction_features, reweight_plan_by_seconds, stopped_tile_state,
 )
@@ -121,7 +122,7 @@ def estimate_remaining_wall_seconds(estimates, programs, queued_tiles,
     ``{(tile, step): (seconds, received_at)}``.
     """
     live_step_remaining = live_step_remaining or {}
-    # A child reports at ~1 Hz; a report much older than that belongs
+    # A child reports at ~2 Hz; a report much older than that belongs
     # to a wedged or dying child and the model estimate is honester.
     live_report_max_age = 10.0
 
@@ -1472,8 +1473,16 @@ class ParallelBuildRun:
             step_key, self._recorded_peaks.get(tile),
             default, self._airports_planned.get(tile))
 
+    def _step_memory_charge(self, tile, step_key):
+        """What the step holds against the budget once started (and what a
+        held one reserves): its projection, capped for a step whose inner
+        work gates itself on live memory (``step_memory.charged_gigabytes``).
+        """
+        return step_memory.charged_gigabytes(
+            step_key, self._step_memory_estimate(tile, step_key))
+
     def _memory_admits_locked(self, tile, step_key):
-        """True when the step's projected memory fits the budget now.
+        """True when the step's charged memory fits the budget now.
 
         One step is always admitted (a single tile must never deadlock,
         however big its raster); beyond that, the sum of the admitted
@@ -1483,7 +1492,7 @@ class ParallelBuildRun:
         also waits until the machine has its projection free above the
         headroom NOW (#2083).  A running step is never paused or stopped.
 
-        #2101: a heavy step that is refused is held in FIFO order, and
+        #2101: every step that is refused is held in FIFO order, and
         the oldest held step RESERVES its projection — no other step that
         projects memory starts unless the room left still holds it.  The
         run's committed memory therefore drains until the waiter fits (at
@@ -1494,7 +1503,7 @@ class ParallelBuildRun:
         (``O4_Machine_Slots.try_take``), so starting it shares the machine
         instead of waiting on another application without bound.
         """
-        estimate = self._step_memory_estimate(tile, step_key)
+        estimate = self._step_memory_charge(tile, step_key)
         if estimate <= 0.0:
             return True
         key = (tile, step_key)
@@ -1503,6 +1512,7 @@ class ParallelBuildRun:
                 and self._memory_wait_startable_locked(reserved[0])):
             need = reserved[1].needed_gb
             if not self._memory_fits_locked(estimate + need, live=True):
+                self._hold_for_memory_locked(key, estimate, REASON_RUN)
                 return False
         if not self._memory_holders:
             return True
@@ -1516,8 +1526,9 @@ class ParallelBuildRun:
                 return True
         else:
             return True
-        if live:
-            self._hold_for_memory_locked(key, estimate, reason)
+        # Every refused step is held and shown (a tile must never look
+        # stalled): the first refusal prints, the row gets a MemoryWait.
+        self._hold_for_memory_locked(key, estimate, reason)
         return False
 
     def _memory_fits_locked(self, gigabytes, live):
@@ -1580,7 +1591,12 @@ class ParallelBuildRun:
         and a resolved one for each step no longer held (outside the
         lock; the ticker calls it)."""
         with self._lock:
-            now = self._memory_waits.snapshot()
+            # A held step with no child free to take it waits for a worker,
+            # not memory: its row shows the queue, not a memory wait.
+            now = {key: wait
+                   for key, wait in self._memory_waits.snapshot().items()
+                   if self._memory_wait_pending_locked(key)
+                   and self._memory_wait_startable_locked(key)}
             sent = self._memory_wait_sent
             changes = []
             for key, wait in now.items():
@@ -1713,8 +1729,10 @@ class ParallelBuildRun:
             child.autopatch_pending = None
             # Started: held no longer (the gate is asked twice per start,
             # so the hold ends here, not when the gate first says yes).
-            self._memory_waits.clear((child.tile, step_key))
-            estimate = self._step_memory_estimate(child.tile, step_key)
+            if self._memory_waits.clear((child.tile, step_key)):
+                print("Tile %s has the memory it waited for; its %s step "
+                      "starts." % (_short_latlon(child.tile), step_key))
+            estimate = self._step_memory_charge(child.tile, step_key)
             if estimate > 0.0:
                 self._memory_holders[(child.tile, step_key)] = estimate
                 self._memory_in_use += estimate
@@ -2772,4 +2790,4 @@ class ParallelBuildRun:
                 self._announce_memory_waits()
             except Exception:
                 pass
-            time.sleep(1.0)
+            time.sleep(ETA_EMIT_SECONDS)

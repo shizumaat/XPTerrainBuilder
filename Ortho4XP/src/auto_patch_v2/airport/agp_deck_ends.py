@@ -55,8 +55,11 @@ _STEP = 0.5
 _PAIR = 0.3
 #: the end line is sought this far either side of the way (m)
 _ACROSS_M = 30.0
-#: the plate kept for an end: floor triangles within this of the end (m)
-_PLATE_M = 30.0
+#: the plate kept for an end: floor triangles within this of the end (m) ...
+_PLATE_M = 15.0
+#: ... rising or falling from the end's top at most this grade (a deck ramp,
+#: ``[tunnel] ramp_max_grade``'s 10 %)
+_PLATE_GRADE = 0.1
 #: a route outside the floor must run on at least this far to its end (m) ...
 _OUT_MIN_M = 3.0
 #: ... or this far before it comes back under the member's floors (m): a short
@@ -220,7 +223,8 @@ def _deck_ends(line, own, fl: _Floors, storey: float
             # the one followed (a copy drawn over the road is not it), its
             # upper face
             low = min(q for q in levels[i] if y - 0.5 * storey <= q <= y + _PAIR)
-            out.append(((pts[i].x, pts[i].y), u, max(q for q in levels[i] if abs(q - low) <= _PAIR)))
+            top = max(q for q in levels[i] if abs(q - low) <= _PAIR)
+            out.append(((pts[i].x, pts[i].y), u, top))
     return out, ""
 
 
@@ -243,24 +247,33 @@ def _end_line(p: XY, out: XY, fl: _Floors, level: float) -> tuple[XY, ...]:
                   q[1] + (a + (b - a) * i / (k - 1)) * nrm[1]) for i in range(k))
 
 
-def _plate(p: XY, fl: _Floors, top: float, mid: XY):
-    """``(ring, triangles)`` of the deck piece at the end: ``top``'s floor
-    triangles within :data:`_PLATE_M`, the connected part holding ``mid``."""
+def _plate(stations: _t.Sequence[XY], out: XY, fl: _Floors, top: float):
+    """``(ring, triangles)`` of the deck piece at the end: the floor
+    triangles of the END'S OWN LANE -- centroids within :data:`_PLATE_M`
+    inside the end line and across it no wider than the line (plus one
+    metre) -- standing on the deck's own surface (within :data:`_PAIR` of
+    ``top`` plus a ramp's :data:`_PLATE_GRADE` over their distance in): a
+    neighbouring deck beside it, a copy drawn over it, is not this end's.
+    ``None`` with none."""
     import shapely
-    from shapely.geometry import Point
+    mid = (sum(q[0] for q in stations) / len(stations),
+           sum(q[1] for q in stations) / len(stations))
+    half = 0.5 * math.dist(stations[0], stations[-1]) + 1.0
     c = fl.tris[:, :, :2].mean(axis=1)
-    near = (np.hypot(c[:, 0] - p[0], c[:, 1] - p[1]) <= _PLATE_M) \
-        & (np.abs(fl.y - top) <= 0.5 + 0.1 * _PLATE_M)
-    if not near.any():
+    rel = c - np.array(mid)
+    inward = -(rel[:, 0] * out[0] + rel[:, 1] * out[1])
+    across = np.abs(-rel[:, 0] * out[1] + rel[:, 1] * out[0])
+    keep = (inward >= -1.0) & (inward <= _PLATE_M) & (across <= half) \
+        & (np.abs(fl.y - top) <= _PAIR + _PLATE_GRADE * np.maximum(inward, 0.0))
+    if not keep.any():
         return None
-    u = shapely.union_all(fl.polys[near], grid_size=0.01)
+    u = shapely.union_all(fl.polys[keep], grid_size=0.01)
     parts = [g for g in shapely.get_parts(u) if g.geom_type == "Polygon"]
-    part = min(parts, key=lambda g: g.distance(Point(mid)), default=None)
-    if part is None or part.distance(Point(mid)) > 1.0:
+    part = max(parts, key=lambda g: g.area, default=None)
+    if part is None:
         return None
     ring = tuple((float(x), float(y)) for x, y in part.simplify(0.05).exterior.coords[:-1])
-    inside = shapely.contains_xy(part.buffer(0.02), c[:, 0], c[:, 1]) & near
-    return ring, fl.tris[inside]
+    return ring, fl.tris[keep]
 
 
 def _ground(stations: _t.Sequence[XY], out: XY, dem, out_m: float) -> float:
@@ -339,7 +352,7 @@ def _ends_of(cx, g, fm, fl: _Floors, ways, at, notes: list) -> list[DeckStack]:
                 notes.append(f"{tag}: the road goes on over a pack deck — that deck's end "
                              "(its own read), not graded here")
                 continue
-            pl = _plate(p, fl, lvl, mid)
+            pl = _plate(stations, u, fl, lvl)
             if pl is None:
                 continue
             ring, tris = pl

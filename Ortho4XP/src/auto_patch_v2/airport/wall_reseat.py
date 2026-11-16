@@ -21,10 +21,10 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["wall_reseats", "attach_wall_reseats"]
+__all__ = ["attach_wall_reseats"]
 
 
-def wall_reseats(pins: _t.Sequence) -> dict[str, float]:
+def _reseats(pins: _t.Sequence) -> dict[str, float]:
     """``placement id -> zero`` for every pin walled by the re-read (module
     doc); the lowest zero where one placement has two such ends."""
     out: dict[str, float] = {}
@@ -39,4 +39,4 @@ def attach_wall_reseats(airport, pins: _t.Sequence):
     """``airport`` with :attr:`Airport.wall_reseats` from ``pins``
     (``entrance_shade.entrance_pins``) -- called once, before the wall
     class is read (``attach_wall_shade``)."""
-    return _dc.replace(airport, wall_reseats=wall_reseats(pins))
+    return _dc.replace(airport, wall_reseats=_reseats(pins))

@@ -24,8 +24,8 @@ from ..law import Law
 from ..law.tables import family, role_cap
 from ..model.airport import Airport
 from ..model.constraints import Band, ConstraintSet, Linear, Pin, Row, Source
-from .edge_floor import seat_pair
 from ..model.planar import PlanarMap
+from .edge_floor import seat_pair
 
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",

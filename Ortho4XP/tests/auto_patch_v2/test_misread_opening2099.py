@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import pytest
 from auto_patch_v2.airport import obj8
-from auto_patch_v2.airport.trench_objects import (_cover_over, _ground_max, mouth_portals,
-                                                  read_trench_objects)
+from auto_patch_v2.airport.trench_objects import (
+    _cover_over,
+    _ground_max,
+    mouth_portals,
+    read_trench_objects,
+)
 from auto_patch_v2.airport.walled_trench import walled_trench_floors
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import OsmWay

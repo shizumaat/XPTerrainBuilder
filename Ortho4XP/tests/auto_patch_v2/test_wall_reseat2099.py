@@ -10,7 +10,8 @@ import types
 
 import pytest
 from auto_patch_v2.airport import wall_class
-from auto_patch_v2.airport.wall_reseat import attach_wall_reseats, wall_reseats
+from auto_patch_v2.airport.wall_reseat import _reseats as wall_reseats
+from auto_patch_v2.airport.wall_reseat import attach_wall_reseats
 from auto_patch_v2.constraints import road_ramp as rr
 from auto_patch_v2.constraints.edge_floor import seat_pair
 from auto_patch_v2.constraints.wall_zone import RetainingLine

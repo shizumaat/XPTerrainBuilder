@@ -41,7 +41,7 @@ from ..airport.wall_sides import band_setbacks
 from ..model.airport import Airport
 from ..model.registries import Registries
 from ..model.wall_reach import is_wall_fill_ref
-from .chords import densify, densify_within, ring_lines, stations
+from .chords import abeam_stations, densify, densify_within, ring_lines, stations
 from .lidar_road import survey_road_trenches
 from .road_yield import road_carriageways, rsa_carriageways
 from .terrain_edge import EdgeReport, road_edges
@@ -56,7 +56,7 @@ from .zones import shore_declarations, shore_region, shore_wedge_m, zone_regions
 from .fill_bank import fill_bank_pieces
 from .stack_ground import bridge_corridor_lines, deck_end_road_zone, stack_ground_pieces
 from .agp_ground import agp_ground_pieces
-from .ground_chords import road_ground_densifier
+from .ground_chords import near_any, road_ground_densifier
 from ..model.planar import (ROAD_ROLES, is_agp_ground_ref, is_stack_apron_ref,
                             is_stack_ground_ref)
 from ..airport.old_dem_fill import fill_model_of
@@ -556,6 +556,14 @@ def build_arrangement(airport: Airport, classification: Classification,
         r.polygon for r in (*base_regions, *pad_regions) if r.role in _contact])
     stated = {c.ref for c in classification.cells if c.kind == "structure"
               or (c.evidence or {}).get("pavement_deck")}
+    # #1918 R3: a road kerb vertex gains its OPPOSITE — a station at its
+    # foot on the facing chord (``chords.abeam_stations``), never on or by
+    # a contact or rigid rim
+    _keep_off = near_any([r.polygon for r in (*base_regions, *pad_regions)
+                          if r.role in _contact or is_rigid_role(law, r.role)],
+                         float(snap_margin_m(law)))
+    _abeam = (float(law.tables.emit.road_contact.pair_lateral_m),
+              float(law.tables.emit.identity.min_distinct_spacing_m))
 
     def _ring_lines_of(rs) -> list[LineString]:
         out: list[LineString] = []
@@ -568,6 +576,9 @@ def build_arrangement(airport: Airport, classification: Classification,
                     ring = ground(ring)
                 if end_zone is not None and r.role in ROAD_ROLES:
                     ring = densify_within(ring, end_zone, end_step)
+                if r.role in ROAD_ROLES and r.ref not in stated:
+                    ring = abeam_stations(ring, *_abeam, face=r.polygon,
+                                          keep_off=_keep_off)
                 if len(ring) >= 2:
                     out.append(LineString(ring))
         return out

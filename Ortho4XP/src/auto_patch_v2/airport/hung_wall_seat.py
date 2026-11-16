@@ -47,17 +47,10 @@ class HungWedge(_t.NamedTuple):
     foot_range: float
 
 
-def _airside_tree(pm, law):
-    """``(STRtree, polygons)`` of every stage-1 airside face; ``None``
-    without one."""
-    from ..law.tables import airside_stage_roles
-    from ..planar.index import face_polygon
-    roles = airside_stage_roles(law)
-    polys = []
-    for fid, f in pm.faces.items():
-        if f.role in roles:
-            g = face_polygon(pm, fid)
-            polys.append(g if g.is_valid else g.buffer(0.0))
+def _airside_tree(airside):
+    """``(STRtree, polygons)`` of the stage-1 airside face polygons
+    ``airside``; ``None`` without one."""
+    polys = [g if g.is_valid else g.buffer(0.0) for g in airside or ()]
     return (shapely.STRtree(polys), polys) if polys else None
 
 
@@ -154,15 +147,15 @@ def _witness(airport, unit, member, tree, walls, law, cfg, cache, to_xy) -> Hung
     return HungWedge(str(member.id), top_y, pts, share, other, max(feet) - min(feet))
 
 
-def hung_wedge_plates(airport, pm, law, cache, taken) -> list[HungWedge]:
+def hung_wedge_plates(airport, airside, law, cfg, cache, taken) -> list[HungWedge]:
     """Every hung wedge wall of ``airport``'s pack partition no other rule
-    seats (``taken``: placement ids already seated or excluded)."""
+    seats (``taken``: placement ids already seated or excluded);
+    ``airside`` the stage-1 airside face polygons (frame metres), ``cfg``
+    the classifier's ``[service]`` rules."""
     part = getattr(airport, "partition", None)
-    tree = _airside_tree(pm, law) if part is not None else None
+    tree = _airside_tree(airside) if part is not None else None
     if tree is None:
         return []
-    from ..classify.rules import load_rules
-    cfg = load_rules().service
     to_xy = airport.frame.entry()
     walls = [w.poly for w in (getattr(airport, "retaining_walls", ()) or ())
              if getattr(w, "poly", None) is not None]

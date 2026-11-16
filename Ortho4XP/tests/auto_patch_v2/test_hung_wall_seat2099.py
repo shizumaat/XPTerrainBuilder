@@ -7,7 +7,6 @@ from __future__ import annotations
 import types
 
 import pytest
-import shapely
 from auto_patch_v2.airport import hung_wall_seat as H
 from auto_patch_v2.airport import wall_class, wall_sheets, wall_top
 from shapely.geometry import box
@@ -38,6 +37,9 @@ LAW = types.SimpleNamespace(tables=types.SimpleNamespace(structures=types.Simple
         plate_bin_m=0.5, shell_floor_min_m=2.0)))))
 
 
+CFG = types.SimpleNamespace(retaining_wall_min_height_m=2.0, retaining_wall_min_length_m=10.0)
+
+
 @pytest.fixture
 def wedge(monkeypatch):
     """Stubs: gate G passes; the top level at +0.03..+0.1; the foot
@@ -53,15 +55,15 @@ def wedge(monkeypatch):
                         lambda comp, g, f, to_xy, cache=None: ((0.0, state["foot"][0]),
                                                                (40.0, state["foot"][1])))
 
-    def tree(pm, law):
-        polys = [state["airside"]]
-        return (shapely.STRtree(polys), polys)
-    monkeypatch.setattr(H, "_airside_tree", tree)
     return state
 
 
+def _run(state, ap=None, taken=frozenset()):
+    return H.hung_wedge_plates(ap or _airport(), [state["airside"]], LAW, CFG, None, set(taken))
+
+
 def test_wedge_with_airside_behind_upper_face_gets_one_plate(wedge):
-    got = H.hung_wedge_plates(_airport(), None, LAW, None, set())
+    got = _run(wedge)
     assert len(got) == 1
     w = got[0]
     assert w.oid == "w" and w.top_y == pytest.approx(0.1)
@@ -74,19 +76,19 @@ def test_wedge_with_airside_behind_upper_face_gets_one_plate(wedge):
 
 def test_level_foot_hung_wall_gets_none(wedge):
     wedge["foot"] = (-7.4, -7.0)
-    assert H.hung_wedge_plates(_airport(), None, LAW, None, set()) == []
+    assert _run(wedge) == []
 
 
 def test_airside_on_both_faces_gets_none(wedge):
     wedge["airside"] = box(0.0, -30.0, 40.0, 30.0)
-    assert H.hung_wedge_plates(_airport(), None, LAW, None, set()) == []
+    assert _run(wedge) == []
 
 
 def test_row_seated_elsewhere_gets_none(wedge):
-    assert H.hung_wedge_plates(_airport(), None, LAW, None, {"w"}) == []
+    assert _run(wedge, taken={"w"}) == []
 
 
 def test_retaining_wall_of_record_gets_none(wedge):
     ap = _airport()
     ap.retaining_walls = (types.SimpleNamespace(poly=WALL),)
-    assert H.hung_wedge_plates(ap, None, LAW, None, set()) == []
+    assert _run(wedge, ap) == []

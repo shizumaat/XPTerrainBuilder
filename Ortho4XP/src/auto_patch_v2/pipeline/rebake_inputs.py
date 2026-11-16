@@ -424,8 +424,13 @@ def _hung_wedges(pm, law, airport, plates, authored, excluded) -> dict:
     """#2099 F2 P5 (``airport/hung_wall_seat``): placement id -> ``(top y,
     airside stations, 0.0)`` for each hung wedge wall no other rule seats."""
     from ..airport.hung_wall_seat import hung_wedge_plates
+    from ..classify.rules import load_rules
+    from ..law.tables import airside_stage_roles
+    from ..planar.index import face_polygon
+    roles = airside_stage_roles(law)
+    airside = [face_polygon(pm, fid) for fid, f in pm.faces.items() if f.role in roles]
     taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
-    got = hung_wedge_plates(airport, pm, law, _solid_cache(law), taken)
+    got = hung_wedge_plates(airport, airside, law, load_rules().service, _solid_cache(law), taken)
     for w in got:
         print(f"[{getattr(airport, 'icao', '')}] hung wedge wall {w.oid}: top y {w.top_y:+.2f}, "
               f"foot range {w.foot_range:.2f} m, airside {100 * w.share:.0f} % upper / "

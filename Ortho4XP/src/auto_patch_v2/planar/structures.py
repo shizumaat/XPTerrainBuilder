@@ -1755,7 +1755,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # #2079): it cannot climb from its mouth floor to its unopened end
         # at the cap, and the road leaves that end at grade
         short = short_bore_refusal(t, group_of.get(t.id), law, airport.osm_ways, opened_ends,
-                                   dropped, getattr(on_field, "no_portal", ()), stats.refused)
+                                   dropped, getattr(on_field, "no_portal", ()), stats.refused,
+                                   getattr(on_field, "under_ends", ()))
         if short:
             keep[i] = False
             stats.refused.append(short)

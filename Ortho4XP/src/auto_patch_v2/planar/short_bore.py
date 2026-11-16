@@ -5,8 +5,9 @@ mouth is never right").
 A MAPPED bore (every way a ``tunnel`` way, none synthesised) whose built
 mouth's floor stands deeper than the bore can climb back out of at the
 ramp cap — ``length × ramp_max_grade < mouth depth`` — to an UNOPENED far
-end (no structure built there opens it, no pack object took it, and no
-other tunnel way goes on underground from it) where a mapped road LEAVES
+end (no structure built there opens it, no pack object took it, and the
+road does not go on underground from it or within the shortest lawful
+ramp beyond it) where a mapped road LEAVES
 AT GRADE is not built: no cut, no ramp; the road stays at grade under
 the building.  Measured at RJTT bores -6785 / -6784
 (53 / 58 m under building69): the SW mouth cut 7.50 m deep, the NE
@@ -84,13 +85,15 @@ def _why_unopened(end: XY, ids: str, own_id: str, dropped, no_portal, refused) -
 
 def short_bore_refusal(tunnel, group, law: Law, osm_ways: _t.Sequence,
                        opened: _t.Collection[tuple[int, int]], dropped=(),
-                       no_portal=(), refused=()) -> str | None:
+                       no_portal=(), refused=(), under_ends=()) -> str | None:
     """The refusal text for ``tunnel`` (built from ``group``) under RULINGS
     2026-11-16h, or ``None`` when it stands.  ``opened`` are the bore ends
     (:func:`bore_end`) a built structure opens or a pack object took;
     ``dropped`` / ``no_portal`` are the admission's own reports
     (``structure_approach.mouths``) and ``refused`` the build's, naming
-    why an end opened none."""
+    why an end opened none; ``under_ends`` the bore ends whose road goes
+    on underground within the shortest lawful ramp (``bore_continuation``,
+    recorded by ``mouths``): the road there is in its cut, not at grade."""
     if group is None or group.corridor is not None or not group.members:
         return None
     if getattr(tunnel, "portal_seat", None):
@@ -107,8 +110,8 @@ def short_bore_refusal(tunnel, group, law: Law, osm_ways: _t.Sequence,
         _bid, near_i = bore_end(m)
         far_i = 1 - near_i
         far = b.points[-1] if far_i else b.points[0]
-        if (id(b), far_i) in opened:
-            return None      # two-mouthed: the far end is open
+        if (id(b), far_i) in opened or (id(b), far_i) in under_ends:
+            return None      # two-mouthed, or the road stays below beyond the far end
         own = {w.id for w in b.ways}
         road, under = _ways_at(far, osm_ways, own, tn.admitted_values)
         if road is None or under:

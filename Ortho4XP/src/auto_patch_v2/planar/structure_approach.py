@@ -849,8 +849,10 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
     from .bore_continuation import continues_underground, tunnel_ends
     t_ends = tunnel_ends(osm, law.tables.structures.tunnel.admitted_values)
     no_portal: list[str] = []
+    under_ends: set[tuple[int, int]] = set()      # 2026-11-16h: (id(bore), end) going on below
     if on_field is not None:
         on_field.no_portal = no_portal     # #1028: named by the structures line
+        on_field.under_ends = under_ends
     # RULINGS 2026-11-03b (6): rail, deep and fenced service ends need a
     # portal witness AT THE END (``planar/end_witness``)
     fence = witness = None
@@ -863,7 +865,8 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
         wids = tuple(w.id for w in b.ways)
         cand: list[tuple[Mouth, bool, float]] = []
         unseen: dict[int, str | None] = {}
-        for end, nxt in ((b.points[0], b.points[1]), (b.points[-1], b.points[-2])):
+        for k, (end, nxt) in enumerate(((b.points[0], b.points[1]),
+                                        (b.points[-1], b.points[-2]))):
             inward = unit(end, nxt)
             path = approach(end, inward, osm, reach_m,
                             law.tables.structures.tunnel.admitted_values,
@@ -873,6 +876,7 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
                 continues_underground(b, inward, path, t_ends, law, reach_m)
             if why is not None:
                 no_portal.append(why)
+                under_ends.add((id(b), k))
                 continue
             # asked AFTER the bore is admitted (below): (a)/(e)/the fence
             # name a bore that is no tunnel first

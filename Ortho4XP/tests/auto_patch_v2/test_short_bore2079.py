@@ -100,3 +100,11 @@ def test_the_refused_far_mouth_is_named(law):
     why = short_bore_refusal(t, g, law, ways, opened, refused=[
         "tunnel:-6785@1: the mouth stands against building pad building69"])
     assert why and "building69" in why
+
+
+def test_a_road_that_goes_back_under_stands(law):
+    """A far end whose road goes underground again within the shortest
+    lawful ramp (``mouths``' ``under_ends``) is in its cut, not at grade."""
+    t, g, ways, opened = _case(law, 30.0, 7.5)
+    b = g.members[0].bore
+    assert short_bore_refusal(t, g, law, ways, opened, under_ends={(id(b), 1)}) is None

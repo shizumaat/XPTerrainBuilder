@@ -558,6 +558,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_pit",
         "auto_patch_v2.airport.walled_plate",
+        "auto_patch_v2.airport.walled_trench",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -2360,7 +2361,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.old_dem_fill planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor airport.floor_rim geom.author_ground geom.lowest_face
-    planar.object_floor_cells
+    planar.object_floor_cells airport.walled_trench
     airport.visible_cut planar.channel_depth
     pipeline.lot_follow solve.follow_stage
     geom.exact
@@ -2537,7 +2538,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.old_dem_fill constraints.fill_bank planar.fill_bank
     geom.plane_groups geom.shape_class planar.floor_decks
     airport.object_floor airport.floor_rim constraints.object_floor
-    planar.object_floor_cells
+    planar.object_floor_cells airport.walled_trench
     geom.author_ground geom.lowest_face
     airport.visible_cut planar.channel_depth
     solve.follow_stage

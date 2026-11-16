@@ -814,11 +814,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     fence_cut = split_at_fences(final, fences, EDGE_CANDIDATES, rules,
                                 born_airside_pages(final, law))
     band, storey_cuts = storey_band(airport, law, cells, final), {}
+    # #2113: the gates' stands on the gap sheets are airside contact
+    from .gap_stands import stand_ground
+    stands = stand_ground(airport, [f[2] for f in final] + [p for _r, p in ev.pads],
+                          start_tree, rules.cells.min_area_m2)
+    stats["gap_stand_parts"] = len(stands)
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules, [c.line for c in ev.truck_chains],
                           storey=band, storey_cuts=storey_cuts,
                           to_xy=None if airport.frame is None else airport.frame.entry(),
-                          fences=fence_band(fences, rules))
+                          fences=fence_band(fences, rules), stands=stands)
     stats["storey_lots"] = knife_storeys(final, storey_cuts, law,
                                          rules.cells.min_area_m2, band)
     # RULINGS 2026-11-13aa (1): a pad under an upper storey keeps its road

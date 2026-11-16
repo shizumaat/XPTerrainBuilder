@@ -365,7 +365,8 @@ def airside_edge_flip(final: list[list], cells, law: Law,
                        rules: Rules, roads=(),
                        road_class: _t.AbstractSet[int] | None = None,
                        storey=None, storey_cuts: dict | None = None,
-                       to_xy=None, fences=None) -> tuple[int, int]:
+                       to_xy=None, fences=None,
+                       stands: _t.Sequence[Polygon] = ()) -> tuple[int, int]:
     """§27 AN AIRSIDE EDGE MAKES A LOT AIRSIDE (owner RULINGS 2026-09-12c:
     "shapeID 81 ... cannot be groundside because it shares a long edge
     with an apron. Something can only be groundside if it has no
@@ -420,6 +421,10 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     flips, and ``fences`` (``fence_division._FenceBand``), when given, are
     the fences: a contact's run a fence runs along is no apron contact, so
     airside never crosses a fence.
+
+    ``stands`` (``classify/gap_stands.stand_ground``, #2113) are the aircraft
+    stands' ground on the gap sheets, minted only later: airside contact
+    for this pass, never cells.
     """
     min_m = float(rules.lot.airside_edge_min_m)
     frac = float(rules.lot.road_airside_edge_frac)
@@ -444,6 +449,8 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     taxi = frozenset(law.tables.precedence.taxi_family.members)
     fixed_taxi = [c.role in taxi for c in cells
                   if c.role != "building" and c.side == "airside"]
+    fixed += [(g, False) for g in stands]
+    fixed_taxi += [False] * len(stands)  # a stand's ground is no taxi face
     flipped = 0
     rounds = 0
     cache: dict = {}

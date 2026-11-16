@@ -284,6 +284,7 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
     blocked = unary_union([p for c, p in zip(cells, polys, strict=False)
                            if c.side == "airside" and p.intersects(reach)
                            and not (c.role == "building" and c.ref in own)])
+    rims = []           # the road rims the cover's piece (never its bank) stands in
     if not is_entrance_face(pin):
         from ..model.planar import ROAD_ROLES
         behind = _behind_cover(pin, ramp, outward, reach)
@@ -292,6 +293,9 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
                 else p.buffer(stand_off, **_MITRE) for c, p in zip(cells, polys, strict=False)
                 if (c.role in ROAD_ROLES or (c.role == "building" and c.ref not in hosts))
                 and p.intersects(reach)]
+        if behind is not None:
+            rims = [p.buffer(stand_off, **_MITRE) for c, p in zip(cells, polys, strict=False)
+                    if c.role in ROAD_ROLES and p.intersects(reach)]
         b = reach.bounds
         far = math.hypot(b[2] - b[0], b[3] - b[1])
         if outward is not None and not ramp.is_empty:
@@ -308,6 +312,10 @@ def entrance_skirt(pin, ramp, cells, polys, law, dem_z, stand_off: float,
         return None
     width = _bank_width(core, top, dem_z, slope, cap)
     core, bank = _skirt_cells(plan, ramp, blocked, stand_off, band, width)
+    if rims:
+        # R5c: the bank keeps the road's whole rim (relieved, it rose 1.1 m
+        # within 1 m of route1's edge behind KBNA P2: a 0.72 m drawn step)
+        bank = bank.difference(unary_union(rims))
     cover = getattr(pin, "cover_plan", None)
     if cover is None or cover.is_empty:
         return core, bank, top

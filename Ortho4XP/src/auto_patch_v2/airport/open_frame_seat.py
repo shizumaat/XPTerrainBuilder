@@ -466,22 +466,42 @@ def unchained_links(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
     for rs in comp.values():
         if len(rs) < 2:
             continue
-        air = sorted(r for r in rs if group_key(r, fid) in airside)
-        n_joined += len(air) > 1
-        keep = (max(air, key=lambda r: _feet_read(airside, group_key(r, fid))) if air
-                else max(sorted(rs), key=lambda r: size.get(r, 0)))
+        n_joined += sum(1 for r in rs if group_key(r, fid) in airside) > 1
+        keep = _group_keep(rs, fid, airside, size)
         for r in rs:
             if r != keep:
                 out[r] = keep
+    out = _resolved(out)
+    if counts is not None and n_joined:
+        k = "unchained_airside_joined"
+        counts[k] = counts.get(k, 0) + n_joined
+    return out
+
+
+def _group_keep(rs: _t.Iterable[str], fid: str, airside: _t.Any,
+               size: _t.Mapping[str, int]) -> str:
+    """The root a group of connected units ``rs`` (one frame ``fid``)
+    moves with — the ONE rule every within-frame join reads (23e): its
+    AIRSIDE-SEATED unit (``airside``: ``group_key`` -> ``(zero, feet
+    read)``) whose floor the most stand-side feet read; with none, its
+    largest unit (``size``: parts per root), ties by name."""
+    rs = sorted(rs)
+    air = [r for r in rs if group_key(r, fid) in airside]
+    if air:
+        return max(air, key=lambda r: _feet_read(airside, group_key(r, fid)))
+    return max(rs, key=lambda r: size.get(r, 0))
+
+
+def _resolved(links: _t.Mapping[str, str]) -> dict[str, str]:
+    """``links`` (root -> the root it moves with) followed to the end of
+    each chain, so every root names its group's final root."""
+    out = dict(links)
     for r in list(out):
         t, seen = out[r], {r}
         while t in out and t not in seen:
             seen.add(t)
             t = out[t]
         out[r] = t
-    if counts is not None and n_joined:
-        k = "unchained_airside_joined"
-        counts[k] = counts.get(k, 0) + n_joined
     return out
 
 

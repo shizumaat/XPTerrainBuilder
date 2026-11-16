@@ -33,7 +33,7 @@ from . import terrain_base as _tb
 from .placement_cut import GEOM_PTS_MAX, _Raw, pristine_path, thin_points
 from .placement_record import Body, Kept, Split
 
-__all__ = ["OWN_GROUND", "authored_offset", "baked_name", "named_body"]
+__all__ = ["OWN_GROUND", "authored_offset", "baked_name", "named_body", "recut"]
 
 
 # ── THE FILE NAME IS WHAT THE FILE BAKES (#1214 round 3, R1) ─────────────
@@ -457,7 +457,8 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
                   tilted_whole: list[tuple[int, str, tuple[str, ...]]],
                   landed: "bool | None" = None,
                   drape_comps: "frozenset[int]" = frozenset(),
-                  drape_law: _t.Any = None) -> None:
+                  drape_law: _t.Any = None,
+                  cut_log: "dict[int, tuple] | None" = None) -> None:
     """The OBJ8 cut for one member's bodies, and where the record lands.
 
     ``always_write`` is §14 (1)'s change: a CARRIED footless placement is
@@ -471,7 +472,9 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
     ``drape_comps`` (owner RULINGS 2026-10-14d (1)): the member's base-slab
     components that DRAPE — a placement carrying one is WRITTEN even as
     one body, its slab's up faces re-emitted as draped geometry
-    (``obj8_split``'s drape cut, ``drape_law``)."""
+    (``obj8_split``'s drape cut, ``drape_law``).  ``cut_log``, when given,
+    keeps each WRITTEN record's cut args by its index in ``splits`` — what
+    :func:`recut` reads (#2110 R3 §1.1)."""
     bodies = record.bodies
     drape_comps = frozenset(drape_comps) if drape_law is not None else frozenset()
     if drape_comps or m.zero_y:
@@ -518,31 +521,18 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
     files: tuple[_split.SplitFile, ...] = ()
     err = ""
     if write:
-        # the pristine frame restored (#1102): the offset was read against
-        # the member's own zero
-        cuts = [_split.BodyCut(b.body_id, b.cut_components,
-                               _pristine_offset(b.anchor.offset, m.zero_y),
-                               b.tris,
-                               # 10-01k Q1: the seat tilt the writer bakes
-                               (b.seat.grad if b.seat is not None
-                                else _split.NO_TILT))
-                for b in bodies]
-        try:
-            res = _split.split_obj8(pristine_path(m), cuts, m.resource,
-                                    allow_single=always_write,
-                                    drape_comps=drape_comps, drape_law=drape_law)
-        except (OSError, ValueError, IndexError) as exc:
+        files, err, whole_why = _cut_files(record, m, always_write=always_write,
+                                          drape_comps=drape_comps,
+                                          drape_law=drape_law)
+        if whole_why:
+            counts["kept"] += 1
+            counts[whole_why] = counts.get(whole_why, 0) + 1
+            kept.append(Kept(index, m.id, m.resource, whole_why))
+            _note_tilted_kept_whole(m, counts, tilted_whole, index)
+            whole.append(record)
+            return
+        if err:
             counts["write_error"] += 1
-            err = f"{type(exc).__name__}: {exc}"
-        else:
-            if res.kept_whole:
-                counts["kept"] += 1
-                counts[res.kept_whole] = counts.get(res.kept_whole, 0) + 1
-                kept.append(Kept(index, m.id, m.resource, res.kept_whole))
-                _note_tilted_kept_whole(m, counts, tilted_whole, index)
-                whole.append(record)
-                return
-            files = res.files
     if err:
         kept.append(Kept(index, m.id, m.resource, err))
         counts["kept"] += 1
@@ -551,6 +541,42 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
         return
     counts["split"] += 1
     counts["files"] += len(files) or len(bodies)
+    if cut_log is not None:
+        # #2110 R3 §1.1: the args this record was cut with, for a re-cut
+        cut_log[len(splits)] = (m, always_write, drape_comps, drape_law)
+    splits.append(_filed(record, files, counts))
+
+
+def _cut_files(record: Split, m: Member, *, always_write: bool,
+              drape_comps: "frozenset[int]" = frozenset(),
+              drape_law: _t.Any = None
+              ) -> "tuple[tuple[_split.SplitFile, ...], str, str]":
+    """THE OBJ8 CUT of ``record``'s bodies out of ``m``'s pristine file:
+    ``(files, error, kept-whole reason)``, the last two "" when the cut
+    was made.  The one cut :func:`_cut_and_file` and :func:`recut` share."""
+    # the pristine frame restored (#1102): the offset was read against
+    # the member's own zero
+    cuts = [_split.BodyCut(b.body_id, b.cut_components,
+                           _pristine_offset(b.anchor.offset, m.zero_y),
+                           b.tris,
+                           # 10-01k Q1: the seat tilt the writer bakes
+                           (b.seat.grad if b.seat is not None
+                            else _split.NO_TILT))
+            for b in record.bodies]
+    try:
+        res = _split.split_obj8(pristine_path(m), cuts, m.resource,
+                                allow_single=always_write,
+                                drape_comps=drape_comps, drape_law=drape_law)
+    except (OSError, ValueError, IndexError) as exc:
+        return (), f"{type(exc).__name__}: {exc}", ""
+    return res.files, "", str(res.kept_whole or "")
+
+
+def _filed(record: Split, files: _t.Sequence[_split.SplitFile],
+           counts: dict[str, int]) -> Split:
+    """``record`` carrying the ``files`` its cut wrote: a body the cut left
+    no file dropped, every body named for the file it was written as."""
+    bodies = record.bodies
     if files and len(files) < len(bodies):
         # §16d (1): a body the cut left with NO TRIANGLE has no file, so
         # it has no DSF row either — a row on a name nothing wrote is an
@@ -577,8 +603,26 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
             counts["body_name_from_written_file"] = \
                 counts.get("body_name_from_written_file", 0) + n
             record = _dc.replace(record, bodies=fixed)
-    splits.append(_dc.replace(record, files=files))
+    return _dc.replace(record, files=tuple(files))
 
+
+def recut(record: Split, args: tuple, write: bool, counts: dict[str, int]
+          ) -> "Split | None":
+    """#2110 R3 §1.1: ``record`` — written before with ``args`` (its
+    ``cut_log`` entry: member, always_write, drape comps, drape law) —
+    cut again after a later pass moved some of its bodies; every body
+    named for what its file now bakes.  ``None`` where the cut no longer
+    writes it (an error, or a kept-whole answer): the caller keeps the
+    record as it was."""
+    m, always_write, drape_comps, drape_law = args
+    record = _dc.replace(record, bodies=tuple(named_body(m, b) for b in record.bodies))
+    if not write:
+        return record
+    files, err, whole_why = _cut_files(record, m, always_write=always_write,
+                                      drape_comps=drape_comps, drape_law=drape_law)
+    if err or whole_why:
+        return None
+    return _filed(record, files, counts)
 
 
 def _deck_rider(deck: "_bf.DeckPrint | None", parts: _t.Sequence[_t.Any],

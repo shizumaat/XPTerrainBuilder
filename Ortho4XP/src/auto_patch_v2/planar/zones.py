@@ -41,6 +41,7 @@ from ..law.tables import (
     zone_edge_offset_m,
 )
 from ..model.planar import is_gap_apron_ref, is_late_ref
+from .band_walls import wall_cuts
 from .road_yield import BandYield, road_cut_pieces
 from .shore import SHORE_WALL_TAGS, ShoreVerdict, shore_contact, shore_declarations, shore_verdict
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
@@ -287,7 +288,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                  rsa_carriageways: tuple | None = None,
                  plates: tuple = (),
                  trenches=None,
-                 wall_setbacks: tuple = ()) -> list[ZoneRegion]:
+                 wall_setbacks: tuple = (),
+                 band_walls: tuple = ()) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -322,7 +324,11 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
 
     ``wall_setbacks`` (``airport/wall_sides.band_setbacks``, #1633 round
     3): a band whose pavement stands back from a retaining wall stops
-    ``smear`` short of the wall's upper face."""
+    ``smear`` short of the wall's upper face.
+
+    ``band_walls`` (``planar/band_walls.band_wall_lines``, #2111): a solid
+    wall standing in a RUNWAY band ends it — the ground behind the wall
+    leaves the band (RULINGS 2026-11-16d, 16i (3))."""
     ag = law.tables.zones.adjacent_ground
     # groundside pavement (roads, lots) buffered by the stand-off: a zone
     # band never shares a vertex with it — the gap terraces (groundside
@@ -548,6 +554,11 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         for wcut, foot, near_m in wall_setbacks:
             # spec §3 (2): only a band whose pavement stands back from it
             if u.distance(foot) > near_m:
+                z1 = fixed_difference(z1, wcut)
+                z2 = fixed_difference(z2, wcut)
+        if band_walls and fam == "runway":
+            # #2111: a wall in the band is its end (``planar/band_walls``)
+            for wcut in wall_cuts(band_walls, u, unary_union([z1, z2])):
                 z1 = fixed_difference(z1, wcut)
                 z2 = fixed_difference(z2, wcut)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"

@@ -41,7 +41,8 @@ from ..law.tables import base_slab_law, gap_standoff_m, snap_margin_m, zone_edge
 from ..model.airport import Airport
 from ..model.planar import GAP_APRON_PREFIX, GAP_PREFIX, is_osm_ribbon_ref
 from .evidence import Evidence, polygon_parts
-from .gap_apron import close_rim, fill_to_taxi, judge
+from .gap_apron import Verdict, close_rim, fill_to_taxi, judge
+from .gap_stands import holds_stand, startup_tree
 from .rules import Rules
 
 __all__ = ["mint_gap_pieces", "standoff_m", "slab_role", "ROLE", "LOT_ROLE",
@@ -252,6 +253,15 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     verdict = dict(zip(judged, judge(
         [kept[i][0] for i in judged], airport, ev, cells, sheet, stand + weld_m,
         law, rules, ROLE, KIND))) if judged else {}
+    # #2113: a piece holding an aircraft stand IS apron, road evidence or
+    # none (RULINGS 2026-09-11ac item 7; ``classify/gap_stands``)
+    starts = startup_tree(airport)
+    for i, (q, _m, _t) in enumerate(kept):
+        if i not in slabby and holds_stand(q, starts):
+            v = verdict.get(i)
+            verdict[i] = Verdict(True, bool(v and v.road_evidence),
+                                 None if v is None else v.airside_edge_m)
+            stats["gap_pieces_stand"] = stats.get("gap_pieces_stand", 0) + 1
     taxi_fill = _taxi_fill(cells, polys, airport, law, sheet, flush, off,
                            stand) if judged else None
     j = 0

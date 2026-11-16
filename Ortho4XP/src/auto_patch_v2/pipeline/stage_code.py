@@ -294,6 +294,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.frontage_road",
         "auto_patch_v2.classify.gap_apron",
         "auto_patch_v2.classify.gap_mint",
+        "auto_patch_v2.classify.gap_stands",
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
@@ -572,6 +573,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.frontage_road",
         "auto_patch_v2.classify.gap_apron",
         "auto_patch_v2.classify.gap_mint",
+        "auto_patch_v2.classify.gap_stands",
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
@@ -682,6 +684,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.agp_ground",
         "auto_patch_v2.planar.apron_shelf",
         "auto_patch_v2.planar.arrangement_memo",
+        "auto_patch_v2.planar.band_walls",
         "auto_patch_v2.planar.basin_author_ground",
         "auto_patch_v2.planar.basin_datum",
         "auto_patch_v2.planar.basin_floor_width",
@@ -1424,6 +1427,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.frontage_road",
         "auto_patch_v2.classify.gap_apron",
         "auto_patch_v2.classify.gap_mint",
+        "auto_patch_v2.classify.gap_stands",
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
@@ -2197,7 +2201,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens
-    classify.gap_apron classify.fence_division classify.gap_mint classify.lot_roads
+    classify.gap_apron classify.fence_division classify.gap_mint classify.gap_stands
+    classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
@@ -2427,7 +2432,8 @@ CODE_MODULES["solve"] = _mods("""
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens
-    classify.gap_apron classify.fence_division classify.gap_mint classify.lot_roads
+    classify.gap_apron classify.fence_division classify.gap_mint classify.gap_stands
+    classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
     classify.retaining_wall
@@ -2489,7 +2495,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_behind planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
-    planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
+    planar.wall_corridor_ramps planar.wall_slope planar.weld planar.band_walls
+    planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
@@ -2605,7 +2612,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens
-    classify.gap_apron classify.fence_division classify.gap_mint classify.gap_terrace
+    classify.gap_apron classify.fence_division classify.gap_mint classify.gap_stands
+    classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
     classify.pad_cut_corridor classify.pad_touch
     classify.ramp_runout classify.retaining_wall
@@ -2685,7 +2693,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_behind planar.mouth_opening
     planar.unframed_ramp planar.viaduct_road
-    planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
+    planar.wall_corridor_ramps planar.wall_slope planar.weld planar.band_walls
+    planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
@@ -2791,7 +2800,7 @@ CODE_MODULES["emit"] = _mods("""
     classify.gap_apron classify.fence_division
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
-    classify.gap_mint classify.lot_roads classify.neck classify.open_default
+    classify.gap_mint classify.gap_stands classify.lot_roads classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch
     classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach classify.ribbon_mint classify.roles
@@ -2914,7 +2923,8 @@ CODE_MODULES["verify"] = _mods("""
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
     classify.facade_mint classify.frontage_road geom.lens
-    classify.gap_apron classify.fence_division classify.gap_mint classify.lot_roads
+    classify.gap_apron classify.fence_division classify.gap_mint classify.gap_stands
+    classify.lot_roads
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     airport.wall_sides classify.wall_cutback model.wall_reach
@@ -2999,7 +3009,8 @@ ENTRY_MODULES["solve"] = ("auto_patch_v2.solve.design", "auto_patch_v2.solve.api
 ENTRY_MODULES["late_cut"] = ("auto_patch_v2.pipeline.late_stage",
                              "auto_patch_v2.classify.gap_terrace",
                              "auto_patch_v2.pipeline.late_records",
-                             "auto_patch_v2.classify.gap_mint")
+                             "auto_patch_v2.classify.gap_mint",
+                             "auto_patch_v2.classify.gap_stands")
 ENTRY_MODULES["late_solve"] = ("auto_patch_v2.pipeline.late_stage",
                                "auto_patch_v2.constraints.face_index",
                                "auto_patch_v2.constraints.gap_follow",

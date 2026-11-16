@@ -17,8 +17,9 @@ AN END: a mapped bridge way (``deck_signature.is_bridge_way``, no tunnel)
 over a follower's connector floors (``agp_ground._connector_floors``, the
 floors ``[agp] connector_floor_m`` or more over the datum) runs on a DECK
 LEVEL -- the floor level under the most of its stations (the road surface,
-never a kerb beside it; a deck drawn twice a level apart reads its lower
-copy; stacked storeys tied under it are no one deck and are listed).  That
+never a kerb beside it; a slab's two faces a hair apart are one level, its
+upper face the top; a deck drawn twice a metre apart reads its lower copy;
+stacked storeys tied under it are no one deck and are listed).  That
 level is FOLLOWED along the route (the way, run on one hop each way along
 its straightest continuation) station to station, a ramp's slope kept, to
 where it stops; there the route must run on in the open (off every floor
@@ -50,10 +51,8 @@ __all__ = ["AGP_END_PREFIX", "agp_end_stacks"]
 AGP_END_PREFIX = "agp_end:"
 #: the way is sampled this often (m) for the floor under it
 _STEP = 0.5
-#: stations read inside the end for the deck's level (m)
-_INSIDE_M = 8.0
-#: two floor heights closer than this are one level (m)
-_LEVEL_BIN = 0.25
+#: two floor heights closer than this are one level (m): a slab's two faces
+_PAIR = 0.3
 #: the end line is sought this far either side of the way (m)
 _ACROSS_M = 30.0
 #: the plate kept for an end: floor triangles within this of the end (m)
@@ -65,9 +64,12 @@ _OUT_MIN_M = 3.0
 _OPEN_MIN_M = 15.0
 #: a continuation turning more than this off the heading is no continuation
 _COS_MIN = 0.5
+#: the way's deck is the lowest level held on this share of the most-held
+#: level's stations (``bridge_witness.SURFACE_SHARE``'s 80 %)
+_SHARE = 0.8
 #: a deck level is followed station to station within this (m): a 10 % ramp
 #: over one station and the floors' own seams
-_TRACK_TOL = 0.25 + 0.1 * _STEP
+_TRACK_TOL = _PAIR + 0.1 * _STEP
 
 
 def _unit(dx: float, dy: float) -> "XY | None":
@@ -144,19 +146,22 @@ def _route_line(w, at: _t.Mapping, key) -> tuple[list[XY], tuple[int, ...]]:
 
 def _vote(levels: _t.Sequence[_t.Sequence[float]], storey: float
           ) -> "tuple[float | None, str]":
-    """``(the bin the most stations hold, why not)``, ties to the lower;
-    levels tied with it a ``storey`` or more away (stacked floors, a
-    garage's) leave it unread."""
-    votes: dict[float, int] = {}
-    for ys in levels:
-        for b in {round(y / _LEVEL_BIN) * _LEVEL_BIN for y in ys}:
-            votes[b] = votes.get(b, 0) + 1
-    if not votes:
+    """``(the way's deck level, why not)``: a reading counts at every
+    station holding a level within :data:`_PAIR` of it (a slab drawn as two
+    faces a hair apart is one level); the LOWEST level held on
+    :data:`_SHARE` of the most-held count is the road surface (a copy drawn
+    over it, a canopy, is not); two more so held, storeys apart (stacked
+    floors, a parking structure's), leave it unread."""
+    cands = sorted({round(y, 2) for ys in levels for y in ys})
+    if not cands:
         return None, ""
-    best = min(votes, key=lambda y: (-votes[y], y))
-    tied = [b for b in votes if votes[b] == votes[best] and abs(b - best) >= storey]
-    if tied:
-        return None, (f"floors {sorted([best, *tied])} tied under the way (stacked "
+    votes = {c: sum(1 for ys in levels if any(abs(y - c) <= _PAIR for y in ys)) for c in cands}
+    top = max(votes.values())
+    best = min(c for c in cands if votes[c] >= _SHARE * top)
+    held = [c for c in cands if votes[c] >= _SHARE * top]
+    tied = [c for c in held if abs(c - best) >= storey]
+    if len({round(c / storey) for c in tied}) >= 2:
+        return None, (f"floors {sorted({best, *tied})} tied under the way (stacked "
                       "storeys): no one deck, listed")
     return best, ""
 
@@ -200,7 +205,7 @@ def _deck_ends(line, own, fl: _Floors, storey: float
     best, why = _vote([levels[i] for i in mine], storey)
     if best is None:
         return [], why
-    start = next((i for i in mine if any(abs(q - best) <= _LEVEL_BIN for q in levels[i])), None)
+    start = next((i for i in mine if any(abs(q - best) <= _PAIR for q in levels[i])), None)
     if start is None:
         return [], ""
     y0 = min((q for q in levels[start]), key=lambda q: abs(q - best))
@@ -211,7 +216,11 @@ def _deck_ends(line, own, fl: _Floors, storey: float
             continue
         u = _unit(pts[i + step].x - pts[i].x, pts[i + step].y - pts[i].y)
         if u is not None:
-            out.append(((pts[i].x, pts[i].y), u, y))
+            # the deck's TOP there: the lowest level within half a storey under
+            # the one followed (a copy drawn over the road is not it), its
+            # upper face
+            low = min(q for q in levels[i] if y - 0.5 * storey <= q <= y + _PAIR)
+            out.append(((pts[i].x, pts[i].y), u, max(q for q in levels[i] if abs(q - low) <= _PAIR)))
     return out, ""
 
 
@@ -314,7 +323,7 @@ def _ends_of(cx, g, fm, fl: _Floors, ways, at, notes: list) -> list[DeckStack]:
         if why:
             notes.append(f"{g.id} {fm.row} way {w.id}: {why}")
         for k, (p, u, lvl) in enumerate(got):
-            if any(math.dist(p, q) <= _LEVEL_BIN * 8 for q in seen):
+            if any(math.dist(p, q) <= 2.0 for q in seen):
                 continue                        # another way of the route read it
             seen.append(p)
             tag = f"{g.id} {fm.row} way {w.id} end {k}"

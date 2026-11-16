@@ -65,3 +65,13 @@ def test_an_open_stretch_under_the_building_is_no_end():
     own = LineString([(5.0, 0.0), (80.0, 0.0)])
     got, _why = _deck_ends(own, own, fl, STOREY)
     assert got == []
+
+
+def test_a_slab_drawn_as_two_faces_is_one_level_its_top_the_upper():
+    """A slab's two up faces 0.25 m apart, and a far copy 1 m over: the
+    near pair is the deck (tie to the lower level), its top the upper face."""
+    fl = _floors(_slab(0.0, 40.0, -6.0, 6.0, 9.0), _slab(0.0, 40.0, -6.0, 6.0, 9.25),
+                 _slab(0.0, 40.0, -6.0, 6.0, 10.25))
+    own = LineString([(5.0, 0.0), (60.0, 0.0)])
+    (_p, _u, top), = _deck_ends(own, own, fl, STOREY)[0]
+    assert top == pytest.approx(9.25, abs=0.01)

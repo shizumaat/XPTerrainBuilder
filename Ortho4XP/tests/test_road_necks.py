@@ -40,11 +40,12 @@ ROAD = [(0.0, 0.0, 70.0), (30.0, 0.0, 70.0), (30.0, 7.0, 71.0), (16.0, 7.0, 71.0
 def test_a_station_at_the_foot_rereads_the_neck(tmp_path):
     ctl = _patch(tmp_path, "ctl.osm", ROAD)
     arm = _patch(tmp_path, "arm.osm", [ROAD[0], (15.0, 0.0, 70.95), *ROAD[1:]])
-    n0, w0 = rn.load(ctl)
+    n0, w0, origin = rn.load(ctl)
     rows = rn.neck_rows(n0, w0)
     tip = [r for r in rows if abs(r["dz"]) > 0.5]
     assert len(tip) == 1 and abs(tip[0]["dz"] - 1.0) < 1e-3 and abs(tip[0]["d"] - 1.3) < 1e-3
-    read = rn.reread(rows, *rn.load(arm))
+    n1, w1, _o = rn.load(arm, origin)
+    read = rn.reread(rows, n1, w1)
     s = rn.summary(read, {"small_roads:-2"})
     assert s["pad_roads"]["control>0.5"] == 1 and s["pad_roads"]["arm>0.5"] == 0
     assert s["other_roads"]["rows"] == 0
@@ -54,7 +55,8 @@ def test_a_station_at_the_foot_rereads_the_neck(tmp_path):
 
 def test_an_unchanged_arm_reads_the_same_neck(tmp_path):
     ctl = _patch(tmp_path, "ctl.osm", ROAD)
-    read = rn.reread(rn.neck_rows(*rn.load(ctl)), *rn.load(ctl))
+    n0, w0, _o = rn.load(ctl)
+    read = rn.reread(rn.neck_rows(n0, w0), n0, w0)
     s = rn.summary(read, set())
     assert s["other_roads"]["control>0.5"] == s["other_roads"]["arm>0.5"] == 1
     assert s["other_roads"]["changed_0.05"] == 0 and s["pad_roads"]["rows"] == 0

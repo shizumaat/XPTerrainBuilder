@@ -47,13 +47,14 @@ FOOT_M = 0.6
 BARS = (0.2, 0.5)
 
 
-def load(path: Path):
-    """``({nid: (x, y, z, lat, lon)}, ways)`` of a patch in a local metric
-    frame about the patch's own mean (no airport constant)."""
+def load(path: Path, origin: tuple[float, float] | None = None):
+    """``({nid: (x, y, z, lat, lon)}, ways, origin)`` of a patch in a local
+    metric frame about ``origin`` (default: the patch's own mean — no
+    airport constant; read an ARM in its CONTROL's origin)."""
     from check_grade import _parse_osm
     ll, ways = _parse_osm(Path(path))
-    lat0 = sum(v[0] for v in ll.values()) / max(len(ll), 1)
-    lon0 = sum(v[1] for v in ll.values()) / max(len(ll), 1)
+    lat0, lon0 = origin or (sum(v[0] for v in ll.values()) / max(len(ll), 1),
+                            sum(v[1] for v in ll.values()) / max(len(ll), 1))
     k = 111120.0 * math.cos(math.radians(lat0))
     z: dict = {}
     for w in ways:
@@ -62,7 +63,7 @@ def load(path: Path):
                 z[n] = float(e)
     nodes = {n: ((lo - lon0) * k, (la - lat0) * 111120.0, z.get(n), la, lo)
              for n, (la, lo) in ll.items()}
-    return nodes, ways
+    return nodes, ways, (lat0, lon0)
 
 
 def neck_rows(nodes, ways) -> list[dict]:
@@ -216,8 +217,8 @@ def main(argv=None) -> int:
     ap.add_argument("--json", type=Path)
     a = ap.parse_args(argv)
     pads = pad_roads_of(a.pad_roads)
-    n0, w0 = load(a.control)
-    n1, w1 = load(a.arm)
+    n0, w0, origin = load(a.control)
+    n1, w1, _o = load(a.arm, origin)
     read = reread(neck_rows(n0, w0), n1, w1)
     summ, cls = summary(read, pads), classes(read, w0, pads)
     for name, c in summ.items():

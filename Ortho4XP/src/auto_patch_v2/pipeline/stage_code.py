@@ -375,6 +375,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.access_road",
         "auto_patch_v2.airport.adapted_riders",
+        "auto_patch_v2.airport.agp_deck_ends",
         "auto_patch_v2.airport.agp_deck_join",
         "auto_patch_v2.airport.agp_floors",
         "auto_patch_v2.airport.agp_ground",
@@ -2348,7 +2349,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.airside_top
     airport.facade_seat
     airport.access_road airport.agp_plates geom.agp_plate model.agp_plate planar.agp_ground
-    airport.agp_deck_join
+    airport.agp_deck_ends airport.agp_deck_join
     airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
     constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     airport.bridge_end_state airport.bridge_stack
@@ -2524,7 +2525,7 @@ CODE_MODULES["solve"] = _mods("""
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.facade_seat
     airport.access_road airport.agp_plates constraints.agp_plate geom.agp_plate model.agp_plate planar.agp_ground
-    airport.agp_deck_join
+    airport.agp_deck_ends airport.agp_deck_join
     airport.agp_floors airport.agp_ground airport.agp_group airport.agp_pieces
     constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     airport.bridge_end_state airport.bridge_stack

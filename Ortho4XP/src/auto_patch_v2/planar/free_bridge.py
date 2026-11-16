@@ -384,7 +384,7 @@ def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]
     got, kept, more = _read_free_bridges(airport, objects, cache, law)
     notes += more
     if not (got or kept or getattr(airport, "free_bridges", ())
-            or getattr(airport, "kept_bridges", ())):
+            or getattr(airport, "kept_bridges", ()) or getattr(airport, "agp_groups", ())):
         return with_bridge_stacks(airport, (), law), (), notes
     airport = _dc.replace(airport, free_bridges=got, kept_bridges=kept)
     stacks, every, refused, more = bridge_stacks(airport, objects, cache, law)

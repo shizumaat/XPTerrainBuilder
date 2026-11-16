@@ -24,8 +24,9 @@ step" was the tunnel way's own sample 1.17 m behind its mouth line).  So is
 way (measured CYYZ road ``-8679`` ending at ``Tx_E``'s face, judged a
 4.26 m step) -- and a TUNNEL way's pair straddling the ring of an object
 floor that owns ground (the sidecar ``object_floors[].outline_ll``,
-:func:`floor_rings`): that floor's bore face (CYYZ tunnel ``-1335`` at
-``Tx_A``'s headwall, 7.77 m).  An untagged road crossing a floor ring stays
+:func:`floor_rings`), or standing at the way's END within
+:data:`MOUTH_FACE_M` of that ring: that floor's bore face (CYYZ tunnel
+``-1335`` at ``Tx_A``'s headwall, 7.77 m).  An untagged road crossing a floor ring stays
 judged.
 
 The layer reads the road feeds the build read (``OSM_data``), never a
@@ -110,7 +111,8 @@ def _straddles(mouths, lat0, floors=()):
 
     def test(wid, a, b, ends=(), tunnel=False):
         w = _way_number(wid)
-        if tunnel and rings is not None and _crosses_ring(rings, a, b, lat0, kx):
+        if tunnel and rings is not None and (_crosses_ring(rings, a, b, lat0, kx)
+                                             or _ends_at_ring(rings, a, b, ends, lat0, kx)):
             return True
         for ways, la, lo in mouths:
             if not own(w, ends, la, lo, ways):
@@ -138,6 +140,20 @@ def _floor_polys(floors, lat0, kx):
     polys = [Polygon([(lo * kx, (la - lat0) * _M_PER_DEG) for la, lo in r]) for r in floors]
     u = unary_union([p if p.is_valid else p.buffer(0.0) for p in polys])
     return None if u.is_empty else u
+
+
+def _ends_at_ring(rings, a, b, ends, lat0, kx) -> bool:
+    """The pair ``a`` -> ``b`` stands within :data:`MOUTH_FACE_M` of a road
+    END (``ends``) that stands within :data:`MOUTH_FACE_M` of ``rings``: the
+    bore's end at the floor (MEASURED CYYZ tunnel ``-1335``: its end 0.24 m
+    outside ``Tx_A``'s floor ring, its last pair 1.1 / 0.24 m out)."""
+    from shapely.geometry import LineString, Point
+
+    def at(q):
+        return Point(q[1] * kx, (q[0] - lat0) * _M_PER_DEG)
+    seg = LineString([at(a), at(b)])
+    return any(rings.distance(at(e)) <= MOUTH_FACE_M and seg.distance(at(e)) <= MOUTH_FACE_M
+               for e in ends)
 
 
 def _crosses_ring(rings, a, b, lat0, kx) -> bool:

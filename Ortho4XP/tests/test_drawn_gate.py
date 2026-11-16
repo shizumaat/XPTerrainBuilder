@@ -395,3 +395,16 @@ def test_a_road_ending_at_a_mouth_and_a_tunnel_at_a_floor_ring_are_faces(monkeyp
                         lambda root, la, lo, r, b=None: [(-3, "primary", through, False)])
     assert DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5,
                          floors=floors)["verdict"] == "FAIL"
+    # a tunnel way ENDING just short of the ring (0.3 m): its end pair is the face
+    short = [(lat0 - 100.0 * d, lon0), (lat0 + 19.9 * d, lon0)]
+
+    def cut(lon, lat):                      # the cut from 19 m north
+        return 100.0 + (5.0 if (lat - lat0) * DR._M_PER_DEG > 19.0 else 0.0)
+    monkeypatch.setattr(DR, "road_lines",
+                        lambda root, la, lo, r, b=None: [(-3, "primary", short, True)])
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], cut, "/nowhere", 0.5,
+                         floors=floors)["verdict"] == "PASS"
+    monkeypatch.setattr(DR, "road_lines",
+                        lambda root, la, lo, r, b=None: [(-3, "primary", short, False)])
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], cut, "/nowhere", 0.5,
+                         floors=floors)["verdict"] == "FAIL"

@@ -51,9 +51,8 @@ from . import storage as STORAGE
 from . import storage_priority as PRIORITY
 
 __all__ = ["SETTING", "DEFAULT_FLOOR_GB", "MARGIN_BYTES", "REASON_DISK",
-           "ENV_UNGATED", "CORPUS_MARKER", "CORPUS_DIRS", "floor_bytes", "free_bytes",
-           "admits", "corpus_roots", "relieve", "relieve_async",
-           "wait_message"]
+           "ENV_UNGATED", "CORPUS_MARKER", "CORPUS_DIRS", "admits",
+           "corpus_roots", "relieve_async", "wait_message"]
 
 SETTING = "storage_free_floor_gb"
 DEFAULT_FLOOR_GB = 60.0

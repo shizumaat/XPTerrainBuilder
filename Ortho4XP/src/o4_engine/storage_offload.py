@@ -33,7 +33,7 @@ from . import storage as STORAGE
 from . import storage_floor as FLOOR
 from . import storage_priority as PRIORITY
 
-__all__ = ["offload_now", "watch"]
+__all__ = ["watch"]
 
 #: An offload with no byte limit: everything movable, until the tier is
 #: full (its own size is its budget).

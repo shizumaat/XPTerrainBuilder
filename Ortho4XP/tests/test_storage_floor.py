@@ -20,14 +20,13 @@ from o4_engine import storage_floor as FLOOR  # noqa: E402
 from o4_engine import storage_priority as PRIORITY  # noqa: E402
 from o4_engine import storage_tier_data as TIER_DATA  # noqa: E402
 from o4_engine import storage_tiers as TIERS  # noqa: E402
-from test_storage_priority import (BLOCK, _left, _log, _tier,  # noqa: E402,F401
-                                   _tile, data, drive)
-from test_storage_settings import _write, root  # noqa: E402,F401
 from test_step_memory_admission import _Child  # noqa: E402
+from test_storage_priority import BLOCK, _left, _log, _tier, _tile, data, drive  # noqa: E402,F401
+from test_storage_settings import _write, root  # noqa: E402,F401
 
 
 @pytest.fixture
-def disk(data, monkeypatch):
+def disk(data, monkeypatch):  # noqa: F811
     """A disk whose free space is ``base`` plus whatever left the data
     folder; the floor gated, with no margin (whole blocks are exact)."""
     monkeypatch.delenv(FLOOR.ENV_UNGATED, raising=False)
@@ -36,7 +35,7 @@ def disk(data, monkeypatch):
                                           "last_freed": -1})
     state = {"base": 0, "files": []}
 
-    def free(root=None):
+    def free(folder=None):
         gone = sum(BLOCK for path in state["files"] if not os.path.exists(path))
         return state["base"] + gone
     monkeypatch.setattr(FLOOR, "free_bytes", free)
@@ -59,7 +58,7 @@ def test_floor_setting_defaults_to_60_gb_and_zero_is_off():
 
 
 def test_floor_trip_offloads_to_the_tier_before_anything_is_deleted(
-        data, drive, disk, monkeypatch):
+        data, drive, disk, monkeypatch):  # noqa: F811
     _tier(monkeypatch, drive, 100 * BLOCK)
     old = _tile(45, 7, 90)
     _track(disk, old)
@@ -72,8 +71,8 @@ def test_floor_trip_offloads_to_the_tier_before_anything_is_deleted(
     assert "deleted" not in _log() and "free-space floor, offload" in _log()
 
 
-def test_trim_follows_only_when_the_tier_is_full(data, drive, disk,
-                                                 monkeypatch):
+def test_trim_follows_only_when_the_tier_is_full(
+        data, drive, disk, monkeypatch):  # noqa: F811
     _tier(monkeypatch, drive, 100 * BLOCK)
     taken = []                                      # room for one file
     monkeypatch.setattr(TIER_DATA, "_make_room",
@@ -89,7 +88,7 @@ def test_trim_follows_only_when_the_tier_is_full(data, drive, disk,
     assert "imagery" not in _left(old)
 
 
-def test_relief_honours_tile_priority(data, drive, disk, monkeypatch):
+def test_relief_honours_tile_priority(data, drive, disk, monkeypatch):  # noqa: F811
     _tier(monkeypatch, drive, 100 * BLOCK)
     old, recent, building = _tile(45, 7, 90), _tile(46, 7, 20), _tile(47, 7, 90)
     PRIORITY.note_session([(47, 7)])
@@ -100,7 +99,7 @@ def test_relief_honours_tile_priority(data, drive, disk, monkeypatch):
     assert _left(building) == set(building)         # this session's: kept
 
 
-def test_relief_never_moves_a_flyable_file(data, drive, disk, monkeypatch):
+def test_relief_never_moves_a_flyable_file(data, drive, disk, monkeypatch):  # noqa: F811
     _tier(monkeypatch, drive, 100 * BLOCK)
     dsf = _write(os.path.join(FNAMES.Tile_dir, "zOrtho4XP_+45+007",
                               "Earth nav data", "+40+000", "+45+007.dsf"),
@@ -112,7 +111,7 @@ def test_relief_never_moves_a_flyable_file(data, drive, disk, monkeypatch):
     assert "still under the floor" in _log()
 
 
-def test_relief_never_touches_the_dev_corpus(data, drive, disk, monkeypatch):
+def test_relief_never_touches_the_dev_corpus(data, drive, disk, monkeypatch):  # noqa: F811
     os.makedirs(os.path.join(str(data), FLOOR.CORPUS_MARKER))
     _tier(monkeypatch, drive, 100 * BLOCK)
     old = _tile(45, 7, 90)
@@ -142,7 +141,7 @@ def test_a_mounted_corpus_folder_is_spared_through_its_link(tmp_path):
 def test_held_step_waits_visibly_and_resumes_after_offload(monkeypatch):
     monkeypatch.delenv(FLOOR.ENV_UNGATED, raising=False)
     disk = {"free": 10 * 10**9}
-    monkeypatch.setattr(FLOOR, "free_bytes", lambda root=None: disk["free"])
+    monkeypatch.setattr(FLOOR, "free_bytes", lambda folder=None: disk["free"])
     monkeypatch.setattr(FLOOR, "floor_bytes", lambda raw=None: 60 * 10**9)
     reliefs = []
     monkeypatch.setattr(FLOOR, "relieve_async",
@@ -178,7 +177,7 @@ def test_corpus_dirs_twin_the_harness_mounts():
 
 
 def test_protected_tiles_are_moved_to_the_tier_never_deleted(
-        data, drive, disk, monkeypatch):
+        data, drive, disk, monkeypatch):  # noqa: F811
     """Recent and this session's tiles are most of what grows: under the
     floor their data MOVES to the tier (kept), the session's build inputs
     stay, and the trim pass still deletes none of it."""
@@ -191,17 +190,17 @@ def test_protected_tiles_are_moved_to_the_tier_never_deleted(
     # session's build reads (an input).
     assert _left(recent) == {"elevation"}
     for kind in set(recent) - {"elevation"}:
-        root = {"imagery": FNAMES.Imagery_dir, "masks": FNAMES.masks_root(),
+        store = {"imagery": FNAMES.Imagery_dir, "masks": FNAMES.masks_root(),
                 "osm": FNAMES.OSM_dir, "elevation": FNAMES.Elevation_dir,
                 "rebuild": FNAMES.rebuild_root()}[kind]
-        assert os.path.isfile(TIER_DATA._target(drive, root, recent[kind]))
+        assert os.path.isfile(TIER_DATA._target(drive, store, recent[kind]))
     assert {"elevation", "osm"} <= _left(building)  # its build's inputs
     assert "rebuild" not in _left(building)         # moved after `recent`
     assert "deleted" not in _log()                  # nothing protected deleted
     assert len(out["passes"]) == 2
 
 
-def test_without_a_tier_protected_tiles_lose_nothing(data, disk):
+def test_without_a_tier_protected_tiles_lose_nothing(data, disk):  # noqa: F811
     recent = _tile(46, 7, 3)
     _track(disk, recent)
     FLOOR.relieve(raw=_raw(100 * BLOCK))
@@ -210,7 +209,7 @@ def test_without_a_tier_protected_tiles_lose_nothing(data, disk):
 
 # ------------------------------------------- RULINGS 2026-11-16c offload
 def test_after_a_build_everything_movable_lives_on_the_tier(
-        data, drive, disk, monkeypatch):
+        data, drive, disk, monkeypatch):  # noqa: F811
     """Not only under pressure: every cache file X-Plane does not read
     moves, the recent and favourite tiles' too; flyable files stay."""
     from o4_engine import storage_offload as OFFLOAD
@@ -227,7 +226,7 @@ def test_after_a_build_everything_movable_lives_on_the_tier(
 
 
 def test_offload_keeps_the_running_builds_inputs_and_the_corpus(
-        data, drive, disk, monkeypatch):
+        data, drive, disk, monkeypatch):  # noqa: F811
     from o4_engine import storage as ST
     _tier(monkeypatch, drive, 100 * BLOCK)
     tile = _tile(45, 7, 90)
@@ -245,7 +244,7 @@ def test_offload_keeps_the_running_builds_inputs_and_the_corpus(
 
 
 def test_no_offload_without_a_mounted_tier_or_in_a_harness_session(
-        data, disk, monkeypatch):
+        data, disk, monkeypatch):  # noqa: F811
     from o4_engine import storage_offload as OFFLOAD
     tile = _tile(45, 7, 90)
     assert not OFFLOAD.offload_now()["ran"]

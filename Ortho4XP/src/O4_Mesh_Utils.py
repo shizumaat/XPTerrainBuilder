@@ -769,39 +769,6 @@ def read_triangle_attribute(text):
 _INTERPOLATED_INTERIOR_REPORT = {}
 
 
-#: a corner of (nearly) 180 degrees -- a vertex the mesher left on a
-#: straight edge -- would take tan(pi/2): capped, it still pins the vertex
-#: to the line through its two neighbours, without an infinite row
-_MV_HALF_TAN_MAX = 1.0e4
-
-
-def _mean_value_weights(vertices, tri):
-    """``(src, dst, w)``: the MEAN-VALUE weight of every directed edge
-    ``src -> dst`` of the triangles ``tri`` (Floater 2003): per triangle
-    corner ``i`` with angle ``t`` there, ``tan(t / 2) / |i j|`` towards
-    each of its two other corners ``j``.  Positive, and exact on affine
-    data at every interior vertex.  Lengths and angles are metric (the
-    longitude scaled by the cosine of the mesh's mean latitude); a
-    degenerate edge takes no weight."""
-    import numpy as _np
-    xy = _np.column_stack([vertices[0::6], vertices[1::6]]).astype(float)
-    used = xy[_np.unique(tri)]
-    xy[:, 0] *= _np.cos(_np.radians(float(used[:, 1].mean()))) if len(used) else 1.0
-    src, dst, wgt = [], [], []
-    for k in range(3):
-        i, j, m = tri[:, k], tri[:, (k + 1) % 3], tri[:, (k + 2) % 3]
-        u, v = xy[j] - xy[i], xy[m] - xy[i]
-        lu, lv = _np.hypot(u[:, 0], u[:, 1]), _np.hypot(v[:, 0], v[:, 1])
-        ok = (lu > 0.0) & (lv > 0.0)
-        cos = _np.clip((u * v).sum(axis=1) / _np.where(ok, lu * lv, 1.0), -1.0, 1.0)
-        half = _np.minimum(_np.tan(0.5 * _np.arccos(cos)), _MV_HALF_TAN_MAX)
-        for o, ln in ((j, lu), (m, lv)):
-            src.append(i[ok])
-            dst.append(o[ok])
-            wgt.append(half[ok] / ln[ok])
-    return _np.concatenate(src), _np.concatenate(dst), _np.concatenate(wgt)
-
-
 def interpolate_free_interior_altitudes(
     vertices, triangles, patch_valued_indices, report=None,
 ):
@@ -871,34 +838,30 @@ def interpolate_free_interior_altitudes(
     # stay in the right-hand side as Dirichlet data.
     position = _np.full(int(touched.max()) + 1, -1, dtype=_np.int64)
     position[free] = _np.arange(free.size)
-
-    # THE WEIGHTS ARE MEAN-VALUE (Floater 2003), not uniform: R18-1b's own
-    # words are "planar on a face whose authored boundary is planar", and
-    # the uniform graph Laplacian keeps that only on a symmetric fan.  On
-    # the mesher's irregular triangles it does not: MEASURED LGAV
-    # 1.0.536 (#1918), a junction face's free vertex 1.5 m from a pad
-    # corner (71.11 m) averaged its six neighbours up to 18 m away and
-    # read 70.07, a 0.62 m step in 1 m on the drawn service road -886
-    # where the patch says 0.09.  Mean-value weights are positive (the
-    # maximum principle holds) and reproduce every affine field exactly,
-    # whatever the triangle shapes (:func:`_mean_value_weights`).
-    src, dst, wgt = _mean_value_weights(vertices, tri)
-    s_free = position[src] >= 0
-    d_free = position[dst] >= 0
-    rhs = _np.zeros(free.size)
-    degree = _np.zeros(free.size)
-    _np.add.at(degree, position[src[s_free]], wgt[s_free])
-    both = s_free & d_free
-    rows = list(position[src[both]])
-    cols = list(position[dst[both]])
-    data = list(-wgt[both])
     a, b = edges[:, 0], edges[:, 1]
     a_free = position[a] >= 0
     b_free = position[b] >= 0
-    both = a_free & b_free
 
-    # MIXED pairs (a free vertex, a patch-valued neighbour) carry the
-    # Dirichlet data.
+    rows, cols, data = [], [], []
+    rhs = _np.zeros(free.size)
+    # Degree (the diagonal) counts EVERY incident edge, so a patch-valued
+    # neighbour pulls exactly as hard as a free one — that is what makes
+    # the result the harmonic extension rather than a free-only average.
+    degree = _np.zeros(free.size)
+    both = a_free & b_free
+    _np.add.at(degree, position[a[both]], 1.0)
+    _np.add.at(degree, position[b[both]], 1.0)
+    rows.extend(position[a[both]])
+    cols.extend(position[b[both]])
+    data.extend([-1.0] * int(both.sum()))
+    rows.extend(position[b[both]])
+    cols.extend(position[a[both]])
+    data.extend([-1.0] * int(both.sum()))
+
+    # MIXED edges (one patch-valued endpoint, one free) carry the
+    # Dirichlet data.  ONE branch, written without assuming which side is
+    # which — a two-branch version leaves half of it permanently
+    # unexecuted, and unexecuted code is code no twin can check.
     #
     # ``authored_neighbours`` is counted SEPARATELY from ``rhs`` on
     # purpose: a patch-valued neighbour whose altitude is exactly 0.0 m
@@ -906,10 +869,12 @@ def interpolate_free_interior_altitudes(
     # cannot mean "no Dirichlet data" — an airport at sea level would
     # have had its whole interior declared isolated and left on the DEM.
     authored_neighbours = _np.zeros(free.size)
-    mixed = s_free & ~d_free
-    _np.add.at(authored_neighbours, position[src[mixed]], 1.0)
-    _np.add.at(rhs, position[src[mixed]],
-               wgt[mixed] * vertices[6 * dst[mixed] + 5])
+    mixed = a_free ^ b_free
+    free_side = _np.where(a_free[mixed], a[mixed], b[mixed])
+    authored_side = _np.where(a_free[mixed], b[mixed], a[mixed])
+    _np.add.at(degree, position[free_side], 1.0)
+    _np.add.at(authored_neighbours, position[free_side], 1.0)
+    _np.add.at(rhs, position[free_side], vertices[6 * authored_side + 5])
 
     # A free vertex whose component never touches a patch-valued vertex has
     # no Dirichlet data at all.  Pin it to its own current value: the

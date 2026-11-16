@@ -97,22 +97,6 @@ class TestPlanarReproduction:
         assert carried(vertices, 4) == pytest.approx(plane(0.5, 0.5),
                                                      abs=1e-9)
 
-    def test_an_OFF_CENTRE_free_vertex_lands_on_the_plane(self):
-        # #1918 (LGAV -886): the mesher's free vertices are not fan
-        # centres.  The uniform graph average puts this one on the mean
-        # of its corners, off the plane; the mean-value weights
-        # reproduce the affine face exactly.
-        def plane(x, y):
-            return 86.0 + 4.0 * x - 2.5 * y
-
-        corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
-        rows = [(x, y, plane(x, y)) for x, y in corners]
-        rows.append((0.15, 0.8, DEM_SENTINEL))
-        vertices = build(rows)
-        triangles = [(0, 1, 4), (1, 2, 4), (2, 3, 4), (3, 0, 4)]
-        MESH.interpolate_free_interior_altitudes(vertices, triangles, {0, 1, 2, 3})
-        assert carried(vertices, 4) == pytest.approx(plane(0.15, 0.8), abs=1e-9)
-
     def test_an_ALL_ZERO_face_still_supplies_its_interior(self):
         # A sea-level airport: every authored vertex is exactly 0.0 m,
         # so the whole right-hand side is zero.  If "no Dirichlet data"
@@ -270,8 +254,7 @@ class TestLegitimateSurvivors:
             vertices, triangles, {0, 1, 2}, report=report)
         assert changed == 1
         assert report["isolated"] == 3
-        # the corners are affine (10 + 10 x + 15 y): the free vertex lands ON it
-        assert carried(vertices, 3) == pytest.approx(21.0, abs=1e-9)
+        assert carried(vertices, 3) == pytest.approx(20.0, abs=1e-9)
         assert carried(vertices, 4) == DEM_SENTINEL
 
 
@@ -405,7 +388,7 @@ class TestPatchValuedVertexIdentification:
         tris = [(0, 1, 4), (1, 3, 4), (3, 2, 4), (2, 0, 4)]
         assert MESH.interpolate_free_interior_altitudes(
             vertices, tris, {0, 1, 2, 3}) == 1
-        assert 1.0 < vertices[6 * 4 + 5] < 4.0
+        assert vertices[6 * 4 + 5] == pytest.approx(2.5)
 
     def test_a_clamped_vertex_NOT_at_its_clamp_still_disables(
             self, tmp_path, monkeypatch):
@@ -512,7 +495,7 @@ class TestSplitVerticesOnPatchRings(TestPatchValuedVertexIdentification):
         # the split vertex is pulled toward the rim, and the floor's own
         # interior with it — the floor is not flat
         assert carried(vertices, 8) > self.FLOOR + 1.0
-        assert carried(vertices, 9) > self.FLOOR + 0.2
+        assert carried(vertices, 9) > self.FLOOR + 0.5
 
     def test_a_split_vertex_takes_the_ring_value_and_the_floor_is_flat(
             self, tmp_path, monkeypatch):

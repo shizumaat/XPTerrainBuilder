@@ -25,8 +25,10 @@ COLUMNS (:data:`COLUMNS`, spec §5.1):
   ``upgrading`` (a fetch in flight), ``upgraded`` (a finer tier landed),
   ``failed`` (three failed fetches; retried next session);
 * ``tier_px`` -- width of the file on disk (512, 1024, 2048, 4096);
-* ``core`` -- in an airport core (spec §6.1); ``pinned`` -- in a pinned
-  tile (never downgraded, outside the cap);
+* ``core`` -- in an airport core (spec §6.1): 1, or :data:`BOUNDARY_CORE`
+  for a square inside an airport boundary (#2107: made low-res last,
+  with the favorites); ``pinned`` -- in a pinned tile (never downgraded,
+  outside the cap);
 * ``placeholder_path`` -- the kept placeholder DDS (the store of
   ``O4_Imagery_Placeholder``);
 * ``full_bytes`` -- bytes a downgrade of the upgraded file frees
@@ -77,8 +79,9 @@ API (stable: the follow job, P3b, reads and writes through it):
 * :func:`capped_bytes` / :func:`pinned_bytes` -- the sharp bytes in the
   ortho budget (every upgraded row, favorites included) and the
   favorites line.
-* :func:`lru_order` -- the downgrade order of spec §6.2 (cores last, then
-  oldest ``last_near_at``).
+* :func:`lru_order` -- the downgrade order of spec §6.2 (cores last,
+  boundary squares and favorites after them, then oldest
+  ``last_near_at``).
 * :func:`protected_cache_keys` / :func:`protected_jpegs` -- what the
   ``imagery`` / ``dds`` cache caps must skip (upgraded or pinned rows).
 * :func:`rebuild` -- replace the rows of the tiles given by what their
@@ -104,7 +107,7 @@ import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Imagery_Ter_Alias as TER_ALIAS
 
 __all__ = [
-    "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
+    "BOUNDARY_CORE", "COLUMNS", "INDEX_FILE", "NEAR_WRITE_EVERY_S", "SCHEMA_VERSION",
     "STATES", "all_rows", "capped_bytes", "distance_m", "forget_tile", "get",
     "repoint_folder",
     "has_rows", "index_path", "lru_order", "tile_sharpness",
@@ -123,6 +126,9 @@ LAYOUT_KEY = "world_layout"
 #: Under ``<data>/Imagery_on_demand/`` (``O4_Imagery_Placeholder.STORE_DIR``).
 INDEX_FILE = "index.sqlite"
 STATES = ("low", "upgrading", "upgraded", "failed")
+#: ``core`` of a square inside an airport boundary (#2107): made low-res
+#: after every other core, with the favorites.
+BOUNDARY_CORE = 2
 #: ``mark_near`` writes a row's ``last_near_at`` at most this often (§5.3).
 NEAR_WRITE_EVERY_S = 60.0
 
@@ -298,8 +304,10 @@ def rows(conn: sqlite3.Connection, *, tile: "str | None" = None,
          core: "bool | None" = None) -> "list[dict]":
     """The rows matching every filter given, ordered by tile and name."""
     where, args = [], []
+    if core is not None:
+        where.append("core != 0" if core else "core = 0")
     for column, value in (("tile", tile), ("state", state),
-                          ("pinned", pinned), ("core", core)):
+                          ("pinned", pinned)):
         if value is not None:
             where.append(f"{column} = ?")
             args.append(int(value) if isinstance(value, bool) else value)
@@ -402,16 +410,19 @@ def set_pinned(conn: sqlite3.Connection, tile: str, pinned: bool) -> int:
                         (int(bool(pinned)), tile)).rowcount
 
 
-def set_core(conn: sqlite3.Connection, tile: str, names) -> int:
-    """``tile``'s airport core is exactly ``names``: those rows get
-    ``core = 1``, the tile's others ``core = 0``.  Returns the core rows."""
-    wanted = set(names)
+def set_core(conn: sqlite3.Connection, tile: str, names,
+             boundary=()) -> int:
+    """``tile``'s airport core is exactly ``names`` and ``boundary``: those
+    rows get ``core = 1`` (``boundary``'s :data:`BOUNDARY_CORE`), the
+    tile's others ``core = 0``.  Returns the core rows."""
+    wanted, inside = set(names), set(boundary)
     count = 0
     with transaction(conn):
         for row in conn.execute("SELECT name, core FROM textures "
                                 "WHERE tile = ?", (tile,)).fetchall():
-            flag = int(row["name"] in wanted)
-            count += flag
+            flag = (BOUNDARY_CORE if row["name"] in inside
+                    else int(row["name"] in wanted))
+            count += int(flag != 0)
             if flag != row["core"]:
                 conn.execute("UPDATE textures SET core = ? WHERE tile = ? "
                              "AND name = ?", (flag, tile, row["name"]))
@@ -531,14 +542,17 @@ def pinned_bytes(conn: sqlite3.Connection) -> int:
 def lru_order(conn: sqlite3.Connection, *,
               favorites: bool = False) -> "list[dict]":
     """Upgraded rows in downgrade order (``O4_Imagery_OnDemand_Budget``
-    tiers): non-core first, then cores, then -- with ``favorites`` -- the
-    favorite (pinned) rows; oldest ``last_near_at`` first within each
-    (never-near first).  Without ``favorites`` the favorites are left
-    out (the hand-made "Make all low-res again" keeps them)."""
+    tiers): non-core first, then cores, then the squares inside an
+    airport boundary (:data:`BOUNDARY_CORE`, #2107) and -- with
+    ``favorites`` -- the favorite (pinned) rows; oldest ``last_near_at``
+    first within each (never-near first).  Without ``favorites`` the
+    favorites are left out (the hand-made "Make all low-res again" keeps
+    them)."""
     where = "" if favorites else " AND pinned = 0"
     return [dict(r) for r in conn.execute(
         "SELECT * FROM textures WHERE state = 'upgraded'" + where +
-        " ORDER BY pinned, core, COALESCE(last_near_at, 0), tile, name")]
+        " ORDER BY (pinned = 1 OR core = ?), pinned, core,"
+        " COALESCE(last_near_at, 0), tile, name", (BOUNDARY_CORE,))]
 
 
 def protected_cache_keys(conn: sqlite3.Connection) -> "set[str]":

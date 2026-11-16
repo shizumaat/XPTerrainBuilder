@@ -8,7 +8,8 @@ free, and an ordered list of tiers of what to clear first -- so the sweep
 a setting or a store of its own.
 
 * :data:`CLEAR_TIERS` -- what is made low-res first: ordinary sharp
-  imagery, then airport cores (spec §6.1), then favorites.
+  imagery, then airport cores (spec §6.1), then favorites and the
+  squares inside an airport boundary (#2107).
 * :func:`_tier_of` -- an index row's tier (its position in
   :data:`CLEAR_TIERS`).
 * :func:`placeholder_bytes` / :func:`build_dirs` / :func:`dsf_bytes` --
@@ -30,6 +31,8 @@ import glob
 import os
 from dataclasses import dataclass
 
+import O4_Imagery_OnDemand_Index as INDEX
+
 __all__ = ["CLEAR_TIERS", "Budget", "build_dirs", "dsf_bytes", "file_size",
            "measure", "placeholder_bytes"]
 
@@ -39,8 +42,8 @@ CLEAR_TIERS = ("sharp", "airport", "favorite")
 
 def _tier_of(row: dict) -> int:
     """The row's position in :data:`CLEAR_TIERS`."""
-    if row.get("pinned"):
-        return CLEAR_TIERS.index("favorite")
+    if row.get("pinned") or row.get("core") == INDEX.BOUNDARY_CORE:
+        return CLEAR_TIERS.index("favorite")  # #2107: boundary squares too
     return CLEAR_TIERS.index("airport" if row.get("core") else "sharp")
 
 

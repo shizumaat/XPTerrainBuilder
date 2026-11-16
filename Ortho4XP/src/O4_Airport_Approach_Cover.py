@@ -30,7 +30,8 @@ from shapely import affinity, ops
 from shapely.geometry import Polygon, box
 from shapely.prepared import prep
 
-__all__ = ["GLIDE_PATH_DEG", "CORRIDOR_FAR_WIDTH_M", "square_bounds", "tile_cover_squares"]
+__all__ = ["GLIDE_PATH_DEG", "CORRIDOR_FAR_WIDTH_M", "region_squares", "square_bounds",
+           "tile_cover_squares"]
 
 #: The glide path the corridor length is read on (owner: "3° glide path").
 GLIDE_PATH_DEG = 3.0
@@ -113,7 +114,7 @@ def square_bounds(til_x: int, til_y: int, zl: int, tile_lat: int,
             lon_right - tile_lon, lat_top - tile_lat)
 
 
-def _cover_squares(region, tile_lat: int, tile_lon: int, zl: int) -> set:
+def region_squares(region, tile_lat: int, tile_lon: int, zl: int) -> set:
     """The ``zl`` texture squares (top-left gtile ``(til_x, til_y)``) of
     the tile that meet ``region`` (tile-local degrees)."""
     if region is None or region.is_empty:
@@ -167,5 +168,5 @@ def tile_cover_squares(tile, dico_airports: dict, airports: Iterable,
         region = _cover_region(dico_airports[airport].get("boundary"),
                               runways, tile.lat, tile.lon, extent_km,
                               approach_ft)
-        squares |= _cover_squares(region, tile.lat, tile.lon, tile.cover_zl)
+        squares |= region_squares(region, tile.lat, tile.lon, tile.cover_zl)
     return squares

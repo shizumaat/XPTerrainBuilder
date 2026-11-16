@@ -11,6 +11,7 @@ from math import ceil, floor
 
 import numpy
 import O4_Airport_Approach_Cover as COVER
+import O4_Airport_Boundary_Zoom as BOUNDARY_ZL
 import O4_Airport_Fade_Masks as FADE
 import O4_Bathymetry as BATHY
 import O4_Cliff_DSF as CLIFF
@@ -226,7 +227,13 @@ def zone_list_to_ortho_dico(tile):
             rowmax = round((1 - ymin) * 4095)
             rowmin = round((1 - ymax) * 4095)
             airport_array[rowmin : rowmax + 1, colmin : colmax + 1] = 1
+        # #2107: inside each boundary, the finest level the provider has
+        boundary_zl = BOUNDARY_ZL.boundary_blocks(
+            tile, dico_airports, airports_list)
+    else:
+        boundary_zl = {}
     dico_customzl = {}
+    boundary_textures = set()
     dico_tmp = {}
     til_x_min, til_y_min = GEO.wgs84_to_orthogrid(
         tile.lat + 1, tile.lon, tile.mesh_zl
@@ -271,6 +278,10 @@ def zone_list_to_ortho_dico(tile):
             (zoomlevel, provider_code) = dico_tmp[masks_im.getpixel((x, y))]
             if airport_array[y, x]:
                 zoomlevel = max(zoomlevel, tile.cover_zl)
+            inside = (provider_code == tile.default_website
+                      and boundary_zl.get((til_x, til_y), 0) > zoomlevel)
+            if inside:
+                zoomlevel = boundary_zl[(til_x, til_y)]
             til_x_text = 16 * (
                 int(til_x / 2 ** (tile.mesh_zl - zoomlevel)) // 16
             )
@@ -283,6 +294,11 @@ def zone_list_to_ortho_dico(tile):
                 zoomlevel,
                 provider_code,
             )
+            if inside:
+                boundary_textures.add(FNAMES.dds_file_name_from_attributes(
+                    til_x_text, til_y_text, zoomlevel, provider_code))
+    # the imagery record carries them: on demand, made low-res last
+    tile.airport_boundary_textures = sorted(boundary_textures)
     if tile.cover_airports_with_highres == "Existing":
         # what we find in the texture folder of the existing tile
         for f in os.listdir(os.path.join(tile.build_dir, "textures")):

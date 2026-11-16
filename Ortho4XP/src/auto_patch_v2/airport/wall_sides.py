@@ -48,7 +48,7 @@ from shapely.ops import nearest_points, unary_union
 from ..model.wall_reach import BEHIND_SHARE, wall_reach_m, wall_smear_m
 
 __all__ = ["WallSides", "wall_sides", "far_side_cut", "crosses_wall",
-           "smear_sampler", "band_setbacks", "beyond_wall"]
+           "smear_sampler", "band_setbacks"]
 
 
 @_dc.dataclass(frozen=True)
@@ -438,14 +438,14 @@ def band_setbacks(walls: _t.Sequence[WallSides]) -> tuple[tuple, ...]:
     split``) on its upper side -- and THE BAND ENDS AT THE WALL (owner
     RULINGS 2026-11-16n (2), #1934 R4: no pavement or adjacent ground of the
     high side crosses a retaining wall): ``beyond`` is the footprint and
-    the strip :func:`beyond_wall` across it, which a band whose pavement
+    the strip :func:`_beyond_wall` across it, which a band whose pavement
     lies on the upper side loses (``None`` without a lower face)."""
     return tuple((unary_union([w.poly, w.upper]), w.poly,
-                  BEHIND_SHARE * wall_reach_m(w.height_m), beyond_wall(w)) for w in walls
+                  BEHIND_SHARE * wall_reach_m(w.height_m), _beyond_wall(w)) for w in walls
                  if w.upper is not None and not w.upper.is_empty)
 
 
-def beyond_wall(w: WallSides):
+def _beyond_wall(w: WallSides):
     """The wall's footprint and the ground across it from its upper side:
     ``wall_reach_m`` out of its LOWER face (outward on that face's right),
     flat at the wall's ends; ``None`` when the lower face is not read."""

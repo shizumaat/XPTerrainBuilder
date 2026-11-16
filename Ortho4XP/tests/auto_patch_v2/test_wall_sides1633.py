@@ -241,8 +241,8 @@ def test_a_band_at_a_retaining_wall_ends_at_its_upper_face(law):
     near = WS.WallSides(box(3.0, -100, 8.0, 100), 20.0, 20.0, box(0.0, -100, 3.0, 100),
                         box(8.0, -100, 28.0, 100), 6.8, "near", None,
                         lower_face=LineString([(8.0, -100.0), (8.0, 100.0)]))
-    assert WS.beyond_wall(near).contains(Point(20.0, 0.0))
-    assert not WS.beyond_wall(near).contains(Point(1.0, 0.0))
+    assert WS._beyond_wall(near).contains(Point(20.0, 0.0))
+    assert not WS._beyond_wall(near).contains(Point(1.0, 0.0))
     assert reach((near,)) == pytest.approx(3.0)        # ends at the upper face
     # the wall's ends: the band runs on past them
     regs = zone_regions(cells, law, (), None, (), None, wall_setbacks=WS.band_setbacks((near,)))

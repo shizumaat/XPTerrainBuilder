@@ -47,3 +47,14 @@ def test_no_reach_is_the_old_reading() -> None:
     assert group_at_zero([[0]], raw, 432.03, 0.05, _senior, near=near,
                          boxes=boxes, reach_m=0.0) == 0
     assert group_at_zero([[0]], raw, 432.03, 0.05, _senior) == 0
+
+
+def test_a_group_that_does_not_move_with_the_carrier_never_takes_the_body() -> None:
+    raw = [_raw(432.03), _raw(432.03)]
+    boxes = [_box(0.0), _box(5.0)]
+    near = [_box(2.0)]
+    # both contiguous and at the zero; only the carrier's unit's group joins
+    assert group_at_zero([[0], [1]], raw, 432.03, 0.05, _senior, near=near,
+                         boxes=boxes, reach_m=100.0, allowed={1}) == 1
+    assert group_at_zero([[0], [1]], raw, 432.03, 0.05, _senior, near=near,
+                         boxes=boxes, reach_m=100.0, allowed=set()) == -1

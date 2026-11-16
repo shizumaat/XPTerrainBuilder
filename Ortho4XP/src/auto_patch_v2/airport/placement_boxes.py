@@ -529,7 +529,8 @@ def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
                   memo: dict | None = None,
                   near: _t.Sequence[tuple[float, float, float, float]] = (),
                   boxes: _t.Sequence[tuple[float, float, float, float] | None] = (),
-                  reach_m: float = 0.0) -> int:
+                  reach_m: float = 0.0,
+                  allowed: "_t.Collection[int] | None" = None) -> int:
     """The index of the member's own group standing at ``zero`` (within
     ``tol_m``), or ``-1``.
 
@@ -548,11 +549,15 @@ def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
     unit seat and the group zero later: LOWS 1.0.539's Terminal_LOWS_77
     put 245 terminal pieces in the file of a 2-part foot 290 m east,
     which then sank them 1.38 m under the walls they rest on.  No
-    ``near`` / ``boxes`` or ``reach_m <= 0`` is the pre-#2110 reading."""
+    ``near`` / ``boxes`` or ``reach_m <= 0`` is the pre-#2110 reading.
+    ``allowed``: only these group indices (the caller's: the groups that
+    move with the carrier)."""
     if zero is None or tol_m <= 0.0:
         return -1
     best, best_d = -1, tol_m
     for gi, g in enumerate(groups):
+        if allowed is not None and gi not in allowed:
+            continue
         if reach_m > 0.0 and near and boxes and not any(
                 box_gap_m(a, boxes[i]) <= reach_m
                 for i in g if i < len(boxes) and boxes[i] for a in near):

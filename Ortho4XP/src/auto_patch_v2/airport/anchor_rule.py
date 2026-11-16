@@ -62,6 +62,7 @@ import math
 import typing as _t
 
 from ..model.placement import TOL_DEG as _TOL_DEG
+from .hung_wall_seat import WALL_TOP_PLATE
 
 __all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
            "anchor_for", "roof_on_posts", "datum_of", "keep_off_row", "rim_of", "ring_of_part", "rim_anchor_point",
@@ -645,11 +646,13 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
                      "split-level lower floor (#1909)")
     # an EDGE BRIDGE's top is flush with the airside it edges (owner RULINGS
     # 2026-10-27r; ``pipeline/rebake_inputs._edge_seat_plates``): its zero at
-    # its seat, ahead of the basin rim its trench draws
-    if (plate_y is not None and getattr(m, "plate_kind", "") == "edge"
+    # its seat, ahead of the basin rim its trench draws.  A HUNG WEDGE
+    # WALL's top is flush the same way, at any sign of its top y (#2099 P5b)
+    if (plate_y is not None and getattr(m, "plate_kind", "") in ("edge", WALL_TOP_PLATE)
             and getattr(m, "plate_stations", ())):
         return Datum(float(plate_y), tuple(m.plate_stations),
-                     "edge bridge (RULINGS 2026-10-27r)")
+                     "edge bridge (RULINGS 2026-10-27r)"
+                     if m.plate_kind == "edge" else "wall-top plate (#2099 P5b)")
     # a RETAINING WALL's retained face reaches its upper ground (#1934 R3,
     # RULINGS 2026-11-16d; ``airport/retaining_seat``): never its footing
     if (plate_y is not None and getattr(m, "plate_kind", "") == "retaining"

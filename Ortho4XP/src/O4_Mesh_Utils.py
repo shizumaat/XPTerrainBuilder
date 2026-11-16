@@ -769,6 +769,12 @@ def read_triangle_attribute(text):
 _INTERPOLATED_INTERIOR_REPORT = {}
 
 
+#: a corner of (nearly) 180 degrees -- a vertex the mesher left on a
+#: straight edge -- would take tan(pi/2): capped, it still pins the vertex
+#: to the line through its two neighbours, without an infinite row
+_MV_HALF_TAN_MAX = 1.0e4
+
+
 def _mean_value_weights(vertices, tri):
     """``(src, dst, w)``: the MEAN-VALUE weight of every directed edge
     ``src -> dst`` of the triangles ``tri`` (Floater 2003): per triangle
@@ -788,7 +794,7 @@ def _mean_value_weights(vertices, tri):
         lu, lv = _np.hypot(u[:, 0], u[:, 1]), _np.hypot(v[:, 0], v[:, 1])
         ok = (lu > 0.0) & (lv > 0.0)
         cos = _np.clip((u * v).sum(axis=1) / _np.where(ok, lu * lv, 1.0), -1.0, 1.0)
-        half = _np.tan(0.5 * _np.arccos(cos))
+        half = _np.minimum(_np.tan(0.5 * _np.arccos(cos)), _MV_HALF_TAN_MAX)
         for o, ln in ((j, lu), (m, lv)):
             src.append(i[ok])
             dst.append(o[ok])

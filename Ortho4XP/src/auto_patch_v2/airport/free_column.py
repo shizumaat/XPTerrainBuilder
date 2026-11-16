@@ -56,6 +56,15 @@ Such a body is seated with the column's foot on the design surface under
 the column (``y_zero`` = the column's authored base), anchored at the
 column itself; everything else in the body rides it at its authored
 offset.  NO LAW CONSTANT LIVES HERE: the four keys are ``[placement]``'s.
+
+A LAMP HEAD OF THE FIELD (#1908 round 2, owner's 1.0.529 ENTC build:
+``ALS__b26`` / ``b27``, two 0.9 m light heads nearest the runway end with
+no mast, stood 10.82 m over the ground).  In a placement read as a field
+of masts the authored y is the author's terrain profile, so an elevated
+body no wider than a column (``free_column_max_w_m``) that nothing can
+host — the same host test — is the same reading: its lowest vertex is its
+foot, on the ground under it (:func:`_lamp_heads`).  A head over a mast is
+hosted by it and stays.
 """
 from __future__ import annotations
 
@@ -70,7 +79,7 @@ from .placement_body import _plan_box_span_m
 from .placement_file import OWN_GROUND as _OWN_GROUND
 
 __all__ = ["law_of", "PartIndex", "free_columns",
-           "fallback_only", "FREE_COLUMN"]
+           "fallback_only", "FREE_COLUMN", "FREE_HEAD"]
 
 #: the anchor reason's mark, read by the census instruments.  The reason
 #: KEEPS §16 (3)'s own-ground stem: every pass that regroups an own-ground
@@ -78,6 +87,9 @@ __all__ = ["law_of", "PartIndex", "free_columns",
 #: adapted frame) still takes the column back into its group — any group
 #: the law finds is doubt, and the column stays with it (13r)
 FREE_COLUMN = "free-standing column"
+
+#: the anchor reason's mark of a lamp head of the field (module doc)
+FREE_HEAD = "free-standing lamp head"
 
 #: a base this far under the column's own counts as reaching below it
 _BELOW_TOL_M = 0.05
@@ -176,14 +188,40 @@ def free_columns(st: _t.Any, ui: int, index: PartIndex, law: _ColumnLaw,
     if len(cols) < law.min_count or len(cols) < law.min_share * len(st.elevated):
         return {}
     out: dict[int, tuple] = {}
-    for i, col in cols:
+    heads = _lamp_heads(st, ui, index, law, elevated_base_m, {i for i, _c in cols})
+    for i, col, what in ([(i, c, FREE_COLUMN) for i, c in cols]
+                         + [(i, c, FREE_HEAD) for i, c in heads]):
         z = _pb.ground_under(surface, (tuple(col.box),), tuple(col.box))
         if z is None:
             continue
         lat, lon = 0.5 * (col.box[0] + col.box[2]), 0.5 * (col.box[1] + col.box[3])
         out[i] = (lat, lon, float(col.base_y), float(z),
-                  f"{_OWN_GROUND}: {FREE_COLUMN} (#1908), its foot (authored y "
+                  f"{_OWN_GROUND}: {what} (#1908), its foot (authored y "
                   f"{float(col.base_y):+.2f}) on the ground under it")
+    return out
+
+
+def _lamp_heads(st: _t.Any, ui: int, index: PartIndex, law: _ColumnLaw,
+               elevated_base_m: float, columns: _t.AbstractSet[int]
+               ) -> list[tuple[int, _t.Any]]:
+    """The elevated raw bodies of a FIELD OF MASTS (``columns`` already
+    read) that are no wider than a column and that nothing hosts, each
+    with its lowest part (module doc, the lamp head)."""
+    out = []
+    for i in sorted(st.elevated):
+        r = st.raw[i]
+        if i in columns or r[5] or not r[0]:
+            continue
+        low = min(r[0], key=lambda p: (p.base_y, p.pid))
+        boxes = [p.box for p in r[0] if getattr(p, "box", None)]
+        if len(boxes) != len(r[0]) or low.base_y <= elevated_base_m:
+            continue
+        box = (min(b[0] for b in boxes), min(b[1] for b in boxes),
+               max(b[2] for b in boxes), max(b[3] for b in boxes))
+        if _plan_box_span_m(box) > law.max_w_m:
+            continue
+        if not index.hosts(low, ui, {p.pid for p in r[0]}, law.clear_m):
+            out.append((i, low))
     return out
 
 #: the carrier search's NO-EVIDENCE answers (``placement_carrier.carriers_for``

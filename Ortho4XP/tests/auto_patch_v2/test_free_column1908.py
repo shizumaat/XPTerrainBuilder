@@ -193,3 +193,52 @@ def test_a_lone_mast_is_no_field_of_masts(tmp_path):
     law = dataclasses.replace(LAW, min_count=3, min_share=0.5)
     ss = PP.build_splits(plan, _slope, write=False, free_column=law, **ARGS)
     assert ss.counts.get("free_columns", 0) == 0
+
+
+# ── round 2: a lamp head of the field stands on its own ground ───────────
+
+def _field_with_head(tmp_path, *, head_on_mast=False):
+    """The footed box, the mast 60 m north, and a 0.9 m light head with no
+    mast authored 10.82 m up — 90 m north, or over the mast's top."""
+    z_head = -60.0 if head_on_mast else -90.0
+    shapes = [_prism(0.0, 0.0, 4.0, 0.0, 3.0),
+              _prism(0.0, -60.0, 1.0, 4.44, 11.27),
+              _prism(0.05, z_head, 0.9, 11.27 if head_on_mast else 10.82,
+                     12.17 if head_on_mast else 11.72)]
+    verts, tris = [], []
+    for v, t in shapes:
+        tris += [(a + len(verts), b + len(verts), c + len(verts)) for a, b, c in t]
+        verts += v
+    return _write_obj(tmp_path / "als.obj", verts, [("", tris)])
+
+
+def _head(ss, north_m):
+    for s in ss.all:
+        for b in s.bodies:
+            if b.plan_box and b.plan_box[0] > LAT + north_m / 111000:
+                return b
+    raise AssertionError("no head body")
+
+
+def test_a_lamp_head_of_the_field_stands_on_its_ground(tmp_path):
+    """ENTC ``ALS__b26``: a light head nearest the runway end, no mast,
+    authored 10.82 m over the zero, stood 10.82 m over our ground."""
+    plan = _plan(_field_with_head(tmp_path))
+    head = _head(PP.build_splits(plan, _slope, write=False, free_column=LAW, **ARGS), 85)
+    assert FC.FREE_HEAD in head.anchor.reason
+    assert head.anchor.y_zero == pytest.approx(10.82, abs=1e-6)
+    assert head.anchor.surface_z == pytest.approx(
+        _slope(head.anchor.lat, head.anchor.lon), abs=0.05)
+
+
+def test_a_head_on_its_mast_is_not_free(tmp_path):
+    """A head the mast's top touches is hosted by it: never a lamp head."""
+    plan = _plan(_field_with_head(tmp_path, head_on_mast=True))
+    ss = PP.build_splits(plan, _slope, write=False, free_column=LAW, **ARGS)
+    assert not any(FC.FREE_HEAD in b.anchor.reason for s in ss.all for b in s.bodies)
+
+
+def test_disarmed_the_head_keeps_its_authored_lift(tmp_path):
+    plan = _plan(_field_with_head(tmp_path))
+    ss = PP.build_splits(plan, _slope, write=False, **ARGS)
+    assert not any(FC.FREE_HEAD in b.anchor.reason for s in ss.all for b in s.bodies)

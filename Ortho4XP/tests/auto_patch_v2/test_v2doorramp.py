@@ -45,6 +45,7 @@ from auto_patch_v2.law import Law
 from auto_patch_v2.law.cutout_schema import SEAT_NONE
 from auto_patch_v2.law.tables import is_structure_role, role_cap, role_side
 from auto_patch_v2.model.constraints import Pin
+from auto_patch_v2.model.platform import stage_air_vertices
 from auto_patch_v2.model.structures import profile_z
 from auto_patch_v2.pipeline.build import _plate_seats
 from auto_patch_v2.planar.basins import read_objects
@@ -390,8 +391,18 @@ def test_door_ramp_rows_solve_and_verify(objs, law, tmp_path):
     # the DESIGN is the DEM exactly here (mouth_z + grade x top_s = 700.00)
     # and so is the SOLVE: the plane ends at the outermost emitted vertex,
     # so the 0.055 m the station tie used to leave on this 2.35 m well (it
-    # would be 0.27 m at this grade) is gone
-    assert top and max(top) == pytest.approx(airport.dem.z(x, y), abs=0.01)
+    # would be 0.27 m at this grade) is gone.  #2099 R3 A1 (a4b3a5a0a): the
+    # top chord's vertices a stage-1 airside face carries are no longer the
+    # ramp's -- the airside solve sets them (here +/-0.010 m off the DEM),
+    # so they are held to the pavement visibility bar, 0.05 m (owner
+    # 2026-10-15), not to the ramp's own 0.01 m.
+    assert top and max(top) == pytest.approx(airport.dem.z(x, y), abs=0.05)
+    air = stage_air_vertices(pm, law)
+    own_top = [sol.z[v] for f in faces for v in pm.ring_vertices(f.ring)
+               if v not in air
+               and ln.project(Point(pm.vertices[v].xy)) >= t[0].top_s - 1e-6]
+    assert all(z == pytest.approx(airport.dem.z(x, y), abs=0.01)
+               for z in own_top)
     assert t[0].mouth_z + t[0].design_grade * t[0].top_s == pytest.approx(
         airport.dem.z(x, y), abs=1e-6)
     # RULINGS 2026-10-07e: the exemption record reaches the publication —

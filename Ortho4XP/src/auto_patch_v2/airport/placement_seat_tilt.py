@@ -297,7 +297,14 @@ def _no_float_drop(level: np.ndarray, tilted: np.ndarray) -> float:
     one did -- ``0.0`` when it already does not."""
     def floats(r: np.ndarray) -> float:
         return float(max(0.0, -float(np.min(r)))) if len(r) else 0.0
-    return max(0.0, floats(tilted) - floats(level))
+    drop = floats(tilted) - floats(level)
+    # the rotation's rounding is no float: a sub-micron drop (6e-17 m on
+    # Linux/Windows, 0 on macOS) renamed an unmoved rider's file per platform
+    return drop if drop > _DROP_NOISE_M else 0.0
+
+
+#: a :func:`_no_float_drop` under this is the rotation's float rounding
+_DROP_NOISE_M = 1.0e-6
 
 
 def _sunk(body: _t.Any, seat: "SeatTilt | None") -> _t.Any:

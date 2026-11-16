@@ -33,6 +33,7 @@ from ..model.airport import Airport
 from ..model.frame import XY, Key
 from ..model import pulse as _pulse
 from ..model.road_yield import is_band_zone_ref
+from ..model.platform import stage_air_of
 from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarMap,
                             Vertex, validate)
 from .edges import EdgeTable
@@ -49,6 +50,7 @@ from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
 from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
+from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
 from .storey_pad import pit_skip, read_storey_shells, storey_pads
@@ -357,8 +359,11 @@ def build(airport: Airport, classification: Classification, law: Law,
                                          cache, classification, airport, law,
                                          tstats.trench_objects, level_b=level_b,
                                          ground=ground_of(airport, objects, cache, law))
+    # #2099 R3 D6: a deck mouth's group walls plan its ramps -- the groups
+    # of the deck mouths are formed here, before the structure pass
+    decks, group_notes = group_walled(decks, airport, objects, cache, law)
     deck_notes = [f"level B: {level_b_note}",
-                  *(f"level seed: {n}" for n in seed_notes), *deck_notes]
+                  *(f"level seed: {n}" for n in seed_notes), *deck_notes, *group_notes]
     cl_read = classification   # the roles before the cuts (``planar/cut_frame``)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
                                                        corridors, extra, plates, channels,
@@ -384,6 +389,11 @@ def build(airport: Airport, classification: Classification, law: Law,
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
     classification, ground_notes = deck_ground(classification, tunnels, law)
     sstats.hard_decks.extend(ground_notes)
+    # #2099 R2: the ground beside a grouped mouth's wings stands on their
+    # feet (``planar/wing_cut``), once the corridors and the deck's ground own theirs
+    classification, wcuts, wing_notes = wing_cuts(airport, objects, cache, decks, tunnels,
+                                                  classification, law)
+    sstats.hard_decks.extend(wing_notes)
     # THE ROAD OVERPASSES, read ONCE before the solve too (owner RULINGS
     # 2026-10-30f (1) / (5), ``planar/overpass_deck``): the object stage
     # seats each deck's zero on the road beneath
@@ -540,8 +550,11 @@ def build(airport: Airport, classification: Classification, law: Law,
     ys = np.array([p[1] for p in vertices_xy])
     lat, lon = to_ll(xs, ys)
     zs = _sample(airport, xs, ys)
-    # a tunnel ramp's target is its designed profile (``ramp_targets``)
-    targets = ramp_targets(tunnels, law, faces, edge_list, vertices_xy, zs)
+    # a tunnel ramp's target is its designed profile (``ramp_targets``) --
+    # never on a vertex a stage-1 airside face carries (#2099 R3 A1)
+    face_vs = _face_vertices(edge_list)
+    targets = ramp_targets(tunnels, law, faces, edge_list, vertices_xy, zs,
+                           stage_air_of(faces.values(), lambda f: face_vs.get(f.id, ()), law))
     # #714: over a mapped bore under airside pavement the ground is the
     # ground BESIDE the cover, not the road floor a bare-earth DEM carries
     zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs,
@@ -550,7 +563,6 @@ def build(airport: Airport, classification: Classification, law: Law,
         print(f"  [planar] {stats.covered_ground.line()}")
     # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads
     # the DEM past the road's cut, not the cut's slope
-    face_vs = _face_vertices(edge_list)
     through = [y for y in arr.road_yield if y.through]
     if through:
         zs, shadow = road_shadow(getattr(airport, "dem", None), law, through,
@@ -588,6 +600,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                    free_bridges=tuple(free), bridge_stacks=tuple(bridge_stacks),
                    agp_groups=tuple(getattr(airport, "agp_groups", ()) or ()),
                    decks=tuple(decks),
+                   wing_cuts=tuple(wcuts),
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)
                                          for b in arr.seam_bands),

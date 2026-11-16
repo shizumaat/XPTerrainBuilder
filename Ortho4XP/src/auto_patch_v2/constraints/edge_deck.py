@@ -413,14 +413,16 @@ def _run_on(line, d: float) -> list:
 _RELEASED = frozenset({"structures", "road_ramp"})
 
 
-def release_governed(rows: list[Row], counts: dict[str, int] | None = None) -> list[Row]:
-    """THE PAIR IS THE LEVEL (#1632, module doc): every vertex this module
-    holds to the airside abeam (the first term of its pairs) sheds the
-    one-vertex rows of :data:`_RELEASED` — a ``Pin``, a ``Band`` or a
-    one-term ``Linear`` — that held it at the DEM or at a road's ramp.
+def release_governed(rows: list[Row], counts: dict[str, int] | None = None,
+                     gen: str = GEN) -> list[Row]:
+    """THE PAIR IS THE LEVEL (#1632, module doc): every vertex generator
+    ``gen`` holds by a pair (the first term of its rows: this module's to the
+    airside abeam; ``constraints/wing_cut``'s to its wings' feet, #2099 R2)
+    sheds the one-vertex rows of :data:`_RELEASED` — a ``Pin``, a ``Band`` or
+    a one-term ``Linear`` — that held it at the DEM or at a road's ramp.
     Pair rows (grades, steps) are kept: they bind it to its neighbours."""
     gov = {r.terms[0][0] for r in rows
-           if isinstance(r, Linear) and r.source.generator == GEN and r.terms[0][1] > 0.0
+           if isinstance(r, Linear) and r.source.generator == gen and r.terms[0][1] > 0.0
            and r.source.ruling != RIGID}
     if not gov:
         return rows
@@ -434,12 +436,12 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None) -> l
             continue
         out.append(r)
     if counts is not None:
-        counts["edge_deck.released"] = n
+        counts[f"{gen}.released"] = n
     return out
 
 
-def deck_floor(planar: PlanarMap, air_roles: "_t.AbstractSet[str]" = frozenset()
-               ) -> tuple[frozenset, frozenset]:
+def deck_floor(planar: PlanarMap, air_roles: "_t.AbstractSet[str]" = frozenset(),
+               air: "_t.AbstractSet[int]" = frozenset()) -> tuple[frozenset, frozenset]:
     """``(floor, trench)``: the vertices of a HARD-DECK BRIDGE's trench
     floor under its deck, and every vertex of a trench (its ramps and its
     void) — ``walled_plate.release_across``'s sets (owner RULINGS
@@ -461,7 +463,15 @@ def deck_floor(planar: PlanarMap, air_roles: "_t.AbstractSet[str]" = frozenset()
     floor were kept; at obj24551 a floor ceiling pulled the taxi deck 2.89 m
     under its route level (the airside bumps at both ends of #2072), and at
     the other decks the deck lifted every floor to its 5 m bound, 2.3-2.7 m
-    over the ramp's own floor (the steps along the roads of #1902)."""
+    over the ramp's own floor (the steps along the roads of #1902).
+
+    A VERTEX A STAGE-1 AIRSIDE FACE CARRIES (``air``,
+    ``model/platform.stage_air_vertices``) IS NEVER FLOOR (#2099 R3b A4):
+    it is ``trench`` only by the clause above (no airside role), so the
+    release keeps its airside rows and withdraws the rows joining it to the
+    floor.  MEASURED (lcyyz3, KBNA): R3 A1 took such a vertex out of every
+    floor row while this still called it floor; the release withdrew its
+    taxiway rows, nothing held it, and it fell 3.29 m to the floor."""
     rings = [db.ring for db in getattr(planar, "decks", ()) or ()
              if db.cut != "none" and len(db.ring) >= 3]
     if not rings:
@@ -475,7 +485,7 @@ def deck_floor(planar: PlanarMap, air_roles: "_t.AbstractSet[str]" = frozenset()
         roles = set(planar.roles_at(v))
         if roles & (_FLOOR_ROLES | {"retaining_wall"}):
             is_floor = bool(roles & _FLOOR_ROLES) and not roles & _RUNWAY_FAMILY \
-                and inside.contains(Point(vx.xy))
+                and v not in air and inside.contains(Point(vx.xy))
             if is_floor:
                 floor.add(v)
             if is_floor or not roles & (set(air_roles) - _RUNWAY_FAMILY):

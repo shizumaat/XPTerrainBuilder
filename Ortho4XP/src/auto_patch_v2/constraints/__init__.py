@@ -25,7 +25,7 @@ from . import (agp_plate, apron, cluster_pad, deck_anchor, eat, edge_deck, fill_
                seams, shell_datum, steep_apron, strips,
                channel,
                structures,
-               taxi, terrain_shaped, transverse, walled_plate, water, zones)
+               taxi, terrain_shaped, transverse, walled_plate, water, wing_cut, zones)
 from .assembly import assemble, seam_exempt, water_exempt
 
 __all__ = ["GENERATORS", "generate", "run_generator", "post_passes", "stack", "seam_exempt",
@@ -171,6 +171,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # THE TRENCH OBJECT'S OWN FLOOR (#1903, owner 2026-11-06): every vertex
     # of its footprint face at the object's floor under it
     ("object_floor", object_floor.object_floor_pins),
+    # #2099 R2: the ground beside a grouped mouth's wings stands on their
+    # feet, in the mouth's own seat (``constraints/wing_cut``)
+    ("wing_cut", wing_cut.wing_cut_rows),
     # #1971 THE DECK STACK: its end lines, its walls' top, nothing through
     # a deck — under the hard-deck bridge's one ruling (``edge_deck.RIGID``)
     ("deck_stack", deck_stack.deck_stack_rows),
@@ -246,8 +249,11 @@ def post_passes(rows: list[Row], counts: dict[str, int], walls: dict[str, float]
     rows = walled_plate.release_across(rows, planar, airport, counts)
     # 2026-10-30a: a hard-deck bridge's floor is pulled by nothing outside
     # its trench, save the trench's own law (``edge_deck.deck_floor``) --
-    # the airside on its walls stands outside it (#2072 / #1902)
-    floor, trench = edge_deck.deck_floor(planar, airside_stage_roles(law))
+    # the airside on its walls stands outside it (#2072 / #1902), and a
+    # vertex a stage-1 airside face carries is never floor (#2099 R3b A4)
+    from ..model.platform import stage_air_vertices
+    floor, trench = edge_deck.deck_floor(planar, airside_stage_roles(law),
+                                         stage_air_vertices(planar, law))
     if floor:
         rows = walled_plate.release_across(
             rows, planar, airport, counts, under=floor, inside=trench,
@@ -255,4 +261,6 @@ def post_passes(rows: list[Row], counts: dict[str, int], walls: dict[str, float]
     # #1632: a vertex held level with the airside abeam over an edge bridge
     # sheds its DEM pin and road ramp (``edge_deck.release_governed``)
     rows = edge_deck.release_governed(rows, counts)
+    # #2099 R2: likewise a vertex the wing cut holds on its wings' feet
+    rows = edge_deck.release_governed(rows, counts, gen=wing_cut.GEN)
     return assemble(rows, counts, walls, planar, law, only, yielded_out)

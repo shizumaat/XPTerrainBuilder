@@ -19,7 +19,7 @@ __all__ = ["structure_vertices", "Platform", "LANDING_SEP",
            "is_landing_ref", "plateau_vertices",
            "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
-           "datum_vertices", "stage_air_vertices",
+           "datum_vertices", "stage_air_vertices", "stage_air_of",
            "HOLD_RULING", "HOLD_DATUM_RULING", "FILL_KINDS", "fill_levels", "held_levels",
            "widest_reach"]
 
@@ -233,13 +233,23 @@ def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
     ``model.islands``) — the body of ``solve/design_roles.
     airside_stage_vertices`` before the datum columns join it (one
     derivation, read here so the constraints may ask it too)."""
-    from ..law.tables import airside_stage_roles
     from .islands import courtyard_faces
+    return stage_air_of(planar.faces.values(),
+                        lambda f: (v for ring in (f.ring, *f.holes)
+                                   for v in planar.ring_vertices(ring)),
+                        law, courtyard_faces(planar, law))
+
+
+def stage_air_of(faces: _t.Iterable[_t.Any], vertices_of: _t.Callable[[_t.Any], _t.Iterable[int]],
+                 law: _t.Any, court: _t.Collection[int] = ()) -> set[int]:
+    """:func:`stage_air_vertices` over any face collection: ``vertices_of(f)``
+    gives a face's ring and hole vertices, ``court`` the courtyard face ids
+    (the planar stage asks it before its map exists, #2099 R3 A1)."""
+    from ..law.tables import airside_stage_roles
     from .planar import plane_origin_ref, platform_ref_of
     roles = airside_stage_roles(law)
-    court = courtyard_faces(planar, law)
     out: set[int] = set()
-    for f in planar.faces.values():
+    for f in faces:
         if f.role not in roles or f.id in court:
             continue
         r = platform_ref_of(f.ref)
@@ -250,8 +260,7 @@ def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
             # MEASURED KATL: in stage 1 its own-ground row was a conforming
             # row stage 1 refuses, and bending alone set it 2 m over its ground
             continue
-        for ring in (f.ring, *f.holes):
-            out.update(planar.ring_vertices(ring))
+        out.update(vertices_of(f))
     return out
 
 

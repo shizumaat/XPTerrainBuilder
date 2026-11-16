@@ -348,7 +348,8 @@ def authored_crest(c, mouth_z: float, grade: float, s_top: float
 
 
 def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: list,
-                 vxy: list[XY], dem_z: _t.Sequence[float]) -> dict[int, float]:
+                 vxy: list[XY], dem_z: _t.Sequence[float],
+                 airside: _t.Collection[int] = ()) -> dict[int, float]:
     """THE RAMP'S OBJECTIVE TARGET IS ITS OWN DESIGN, not the DEM: vertex
     id -> the designed profile value ``clamp(DEM, mouth_z − g·Δs, mouth_z
     + g·Δs)`` (``Δs`` from where the climb starts; ``g`` the tunnel's
@@ -359,7 +360,9 @@ def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: lis
     (measured on the M4 twin) — groundside pulling airside; at its
     design the ramp has nothing to pull with.  Under a hard deck the design
     is the deck's floor (``model/structures.deck_floor_z``), linear along
-    the open stretch to a second deck (#2072 B1)."""
+    the open stretch to a second deck (#2072 B1).  A vertex in ``airside``
+    (a stage-1 airside face carries it) takes no target: no floor stands on
+    it (#2099 R3 A1, ``constraints/airside_floor``)."""
     if not tunnels:
         return {}
     from ..model.structures import deck_floor_z, profile_z
@@ -375,7 +378,7 @@ def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: lis
         tid = min(axes, key=lambda k: axes[k].distance(Point(cx, cy)))
         tn = tunnels[[t.id for t in tunnels].index(tid)]
         gt = tn.design_grade if tn.design_grade > 0.0 else g
-        for v in ids:
+        for v in ids - set(airside):
             s = axes[tid].project(Point(vxy[v]))
             if tn.profile:
                 # a sunken road (09-08b/c Law B): the plate's own floor

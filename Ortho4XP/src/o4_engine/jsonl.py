@@ -794,6 +794,10 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         # refreshed after each run (#2029).
         from .storage_shared import watch as _watch_storage
         _watch_storage(session)
+        # ... and what X-Plane does not read moved to a mounted storage
+        # tier after each run (RULINGS 2026-11-16c, #2103).
+        from .storage_offload import watch as _watch_offload
+        _watch_offload(session)
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.
         # ``capabilities`` defaults to ``events.CAPABILITIES`` — ONE list

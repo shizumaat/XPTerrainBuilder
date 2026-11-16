@@ -4165,6 +4165,10 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=(),
     # still returns 0 and ``run_tile_steps`` still stops.  The app sets
     # nothing.  An env variable for the same reason as the line above.
     os.environ["O4_AUTO_PATCH_STRICT"] = "1"
+    # #2103: the app's free-space floor never holds or clears in a
+    # harness build — the harness keeps its own (``disk_floor_gate``) and
+    # the corpus is never cleared (#2093).
+    os.environ["O4_DISK_FLOOR_UNGATED"] = "1"
 
     # THE BELT.  ``build_patch``'s direct callers (oracle.py, who_wrote.py)
     # may already have imported the engine, and ``Default_dsf_cache_dir``

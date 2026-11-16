@@ -1534,6 +1534,9 @@ def pytest_configure(config):
     # rule as above: never at import.
     import O4_Machine_Slots as _slots
     os.environ[_slots.ENV_UNGATED] = "1"
+    # #2103: nor is the disk's free-space floor (this machine's free
+    # space must not hold a scheduling test); its twins unset it.
+    os.environ["O4_DISK_FLOOR_UNGATED"] = "1"
     if not os.environ.get(_slots.ENV_DIR):
         os.environ.setdefault(_slots.ENV_CAPACITY, "16")
     if os.environ.get("O4_SUITE_WRITE_AUDIT", "0") != "1":

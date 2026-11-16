@@ -200,6 +200,21 @@ cfg_app_vars = {
             "budget, its only home)."
         ),
     },
+    # #2103: the free-space floor of the disk holding the data folder.
+    "storage_free_floor_gb": {
+        "type": float,
+        "default": 60.0,
+        "hint": (
+            "Keep at least this much free space, in GB, on the disk that "
+            "holds the data folder (#2103). When a build finds less, it "
+            "first moves rebuild data and imagery to a storage tier (tiles "
+            "used longest ago first), then clears caches in the same order "
+            "as the disk budget, and a step that would start below it waits "
+            "on the tile's row until there is room. Built tiles, patches "
+            "and anything X-Plane loads are never moved or cleared. "
+            "0: off."
+        ),
+    },
     "imagery_on_demand_cap_gb": {
         "type": float,
         "default": 100.0,
@@ -1156,6 +1171,7 @@ list_app_vars = [
     "storage_auto_clean_days",
     "storage_cache_caps_gb",
     "storage_budget_gb",
+    "storage_free_floor_gb",
     "storage_tiers",
     "imagery_on_demand_cap_gb",
     "ondemand_lead_s",

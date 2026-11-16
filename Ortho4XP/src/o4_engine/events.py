@@ -408,7 +408,10 @@ class MemoryWait(EngineEvent):
     The scheduler admits a heavy step only while its projected peak
     (``needed_gb``) fits; ``free_gb`` is what the machine has free now and
     ``reason`` whose memory it waits for — ``"machine"`` (another
-    application holds it) or ``"run"`` (this build's running steps).  The
+    application holds it) or ``"run"`` (this build's running steps); or
+    ``"disk"`` (#2103): the step waits for the data folder's disk to have
+    its free-space floor (``free_gb`` the disk's free space, ``needed_gb``
+    the floor; ``o4_engine.storage_floor``).  The
     ENGINE writes ``message`` (``o4_engine.memory_waits.wait_message``); a
     front end shows it verbatim on the tile's row and removes it on
     ``resolved`` (the step started, or the tile left the run) or when the

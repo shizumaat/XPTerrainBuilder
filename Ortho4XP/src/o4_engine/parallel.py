@@ -76,8 +76,9 @@ from . import boundary_reselect as BOUNDARY
 from . import build_order as ORDER
 from . import events as EVENTS
 from . import step_memory
+from . import storage_floor as FLOOR
 from .memory_waits import (REASON_MACHINE, REASON_RUN, MemoryWaits,
-                           wait_message)
+                           _Wait, wait_message)
 from . import tile_time_model
 from .plan_estimate import TIME_SPREAD_KNOWN
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
@@ -1007,6 +1008,10 @@ class ParallelBuildRun:
         # reservation later steps may not take (memory_waits module doc)
         self._memory_waits = MemoryWaits()
         self._memory_wait_sent: dict = {}   # key -> what the rows show
+        # #2103: steps held for the disk's free-space floor, key ->
+        # (free, floor) bytes, and the last floor reading (time, result).
+        self._disk_waits: dict = {}
+        self._disk_checked = (0.0, (True, 0, 0))
         self._memory_sampled_at = 0.0
         # Cache-aware fetch admission (spec §A.2): the per-subsystem
         # predicates' verdict per (tile, step), memoised because a tile's
@@ -1531,6 +1536,31 @@ class ParallelBuildRun:
         self._hold_for_memory_locked(key, estimate, reason)
         return False
 
+    #: how long one reading of the disk's free space serves the gate
+    DISK_CHECK_SECONDS = 2.0
+
+    def _disk_admits_locked(self, tile, step_key):
+        """#2103: True when the data folder's disk has its free-space
+        floor (``storage_floor``).  Under it, a relief starts in the
+        background (offload to a tier, then trim) and the step is held,
+        its row saying why; the ticker's dispatch starts it once the floor
+        is met.  Running steps are never paused."""
+        now = time.time()
+        if now - self._disk_checked[0] >= self.DISK_CHECK_SECONDS:
+            self._disk_checked = (now, FLOOR.admits())
+        ok, free, floor = self._disk_checked[1]
+        key = (tile, step_key)
+        if ok:
+            self._disk_waits.pop(key, None)
+            return True
+        FLOOR.relieve_async()
+        if key not in self._disk_waits:
+            print("Tile %s waits for disk space before its %s step "
+                  "(%.0f GB free, keeping %.0f GB free)."
+                  % (_short_latlon(tile), step_key, free / 1e9, floor / 1e9))
+        self._disk_waits[key] = (free, floor)
+        return False
+
     def _memory_fits_locked(self, gigabytes, live):
         """Would ``gigabytes`` more fit the budget sum (and, ``live``, the
         machine's free memory above the headroom) now?"""
@@ -1597,6 +1627,12 @@ class ParallelBuildRun:
                    for key, wait in self._memory_waits.snapshot().items()
                    if self._memory_wait_pending_locked(key)
                    and self._memory_wait_startable_locked(key)}
+            # #2103: a step held for the disk floor shows that instead.
+            for key, (free, floor) in list(self._disk_waits.items()):
+                if not self._memory_wait_pending_locked(key):
+                    del self._disk_waits[key]
+                    continue
+                now[key] = _Wait(floor / 1e9, free / 1e9, FLOOR.REASON_DISK)
             sent = self._memory_wait_sent
             changes = []
             for key, wait in now.items():
@@ -1614,8 +1650,10 @@ class ParallelBuildRun:
                 needed_gb=0.0 if wait is None else round(wait.needed_gb, 1),
                 free_gb=0.0 if wait is None else round(wait.free_gb, 1),
                 reason="" if wait is None else wait.reason,
-                message="" if wait is None else wait_message(
-                    wait.needed_gb, wait.free_gb, wait.reason),
+                message="" if wait is None else (
+                    FLOOR.wait_message(wait.free_gb, wait.needed_gb)
+                    if wait.reason == FLOOR.REASON_DISK else wait_message(
+                        wait.needed_gb, wait.free_gb, wait.reason)),
                 resolved=resolved))
 
     def _tile_configuration(self, tile):
@@ -1706,6 +1744,8 @@ class ParallelBuildRun:
         step_key = self._programs[child.tile][step_index]
         step_class = self._effective_step_class_locked(child.tile, step_key)
         if self._class_active[step_class] >= self._class_limits[step_class]:
+            return False
+        if not self._disk_admits_locked(child.tile, step_key):
             return False
         if not self._memory_admits_locked(child.tile, step_key):
             return False

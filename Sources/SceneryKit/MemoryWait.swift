@@ -11,7 +11,9 @@ public struct O4MemoryWait: Sendable, Equatable {
     public let stepKey: String
     public let neededGB: Double
     public let freeGB: Double
-    /// "machine" (another application holds the memory) or "run".
+    /// "machine" (another application holds the memory), "run", or
+    /// "disk" (#2103: held for the disk's free-space floor; `freeGB` is the
+    /// disk's free space and `neededGB` the floor).
     public let reason: String
     public let message: String
     public let resolved: Bool

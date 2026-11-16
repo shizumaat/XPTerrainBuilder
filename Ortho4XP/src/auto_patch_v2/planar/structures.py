@@ -230,6 +230,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     overlap_refused = dict(overlap_refused or {})
     runs = dict(runs or {})
     deck_paved = None     # the rolled-on pavement over a deck's open stretch, read once
+    deck_air = None       # the airside cut roles a deck's run-through clears (#2099 R3 B1)
     tid_deck: dict[str, _t.Any] = {}
     stats = StructureStats()
     odecks = object_decks(objects)
@@ -548,7 +549,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             (deck_of[id(m)] for m in members if deck_of.get(id(m)) is not None), None)
         tid_deck[tid] = deck
         pin = bridge_pin(edge, members[0]) if edge is not None else \
-            deck_pin(deck, members[0]) if deck is not None else None if c is not None else next(
+            deck_pin(deck, members[0], law) if deck is not None \
+            else None if c is not None else next(
             (q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
                          for m in members) if q is not None), None)
         front_pins: list = []
@@ -618,7 +620,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if rail:
             grade_g = min(grade_g, cap_g)
         walls_s = 0.0 if pin is None else float(getattr(pin, "wall_reach_m", 0.0))
-        if walls_s > 0.0 and not rail:
+        if walls_s > 0.0 and not rail and deck is not None:
+            # #2099 R3 D6: a deck mouth's GROUP walls -- inside their reach the
+            # grade IS their foot slope, capped, never raised to the design
+            # grade; a slope under group_foot_min_grade witnesses nothing
+            if float(pin.foot_grade) >= float(tn.object.group_foot_min_grade):
+                design_g = min(cap_g, float(pin.foot_grade))
+        elif walls_s > 0.0 and not rail:
             # #1938 S3: under an entrance object's walls the ramp climbs at
             # the walls' foot slope -- the object dictates the grade, within
             # the ramp grades (2026-10-08d (1))
@@ -967,9 +975,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                           if c.role in rolled_on_roles(law)])
             # the deck this one runs through to (``structure_overlap``: the
             # one place two cuts on one road are paired)
+            # #2099 R3 B1: two decks are one trench only where the corridor
+            # AS BUILT between them is clear of the airside cut roles -- the
+            # set the clip loop below stops on (``air_refs``), one definition
+            if deck_air is None:
+                deck_air = unary_union([p for p, c in zip(polys, cells, strict=False)
+                                        if c.ref in air_refs])
             flat_to, level_to, edge_floor, edge_seats, deck_next = deck_seats(
                 deck, axis_ln, rt.partner_deck if rt is not None and rt.partner_deck is not None
-                else deck_partner(deck, axis_ln, deck_bridges, deck_paved), gap)
+                else deck_partner(deck, axis_ln, deck_bridges, deck_air,
+                                  half + rim_off + gap), gap)
             climb_from = max(climb_from, flat_to)
         if edge is not None:
             # 27r / 28d Q213: the floor stays at the objects' bottom under the

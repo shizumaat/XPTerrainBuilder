@@ -111,3 +111,5 @@ class TunnelObject:
     face_front_m: float
     # #2099: a mouth group's WING runs out of its mouth no farther than this
     wing_reach_max_m: float
+    # #2099 R3 D6: a group wall foot slope under this witnesses no ramp grade
+    group_foot_min_grade: float

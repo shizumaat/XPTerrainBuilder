@@ -541,6 +541,10 @@ class PlanarMap:
     #: read by the anchors, the deck rows and the object stage's plate —
     #: whether or not a corridor runs under it.
     decks: tuple = ()
+    #: #2099 R2 THE WING CUTS (``planar/wing_cut``; ``model/wing_cut.WingCut``):
+    #: the ground beside a grouped mouth's wings, held on their feet by
+    #: ``constraints/wing_cut``
+    wing_cuts: tuple = ()
     #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,
     #: additive): vertex id -> the elevation the objective pulls it to.
     #: A road-family vertex prefers the CORE's clamped, laterally-levelled

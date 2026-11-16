@@ -44,6 +44,7 @@ import numpy as np
 
 from ..model.deck_stack import KEPT, DeckStack, StackDeck
 from ..model.frame import XY
+from .bridge_end_state import _unit
 
 __all__ = ["AGP_END_PREFIX", "agp_end_stacks"]
 
@@ -73,11 +74,6 @@ _SHARE = 0.8
 #: a deck level is followed station to station within this (m): a 10 % ramp
 #: over one station and the floors' own seams
 _TRACK_TOL = _PAIR + 0.1 * _STEP
-
-
-def _unit(dx: float, dy: float) -> "XY | None":
-    n = math.hypot(dx, dy)
-    return None if n < 1e-9 else (dx / n, dy / n)
 
 
 class _Floors:

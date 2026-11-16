@@ -687,13 +687,22 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     airport = _dc.replace(airport, clusters=_derive_clusters(airport, law))
     from auto_patch_v2.airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law)       # issue #516
+    from auto_patch_v2.airport.entrance_shade import entrance_pins
+    from auto_patch_v2.airport.wall_reseat import attach_wall_reseats
+    _epins = entrance_pins(airport, pack_objects, ocache, law)
+    airport = attach_wall_reseats(airport, _epins)                # #2099 F2 P4a
     from auto_patch_v2.airport.wall_shade import attach_wall_shade
     from auto_patch_v2.classify import load_rules as _load_rules
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
     from auto_patch_v2.airport.unit_fence import attach_unit_fences
     airport = attach_unit_fences(airport, _load_rules(), law)      # spec 2068 A2 F1
     from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
-    airport = attach_entrance_shade(airport, pack_objects, ocache, law)   # #1747
+    airport = attach_entrance_shade(airport, pack_objects, ocache, law, _epins)   # #1747
+    from auto_patch_v2.airport.deck_routes import attach_deck_routes
+    airport, _dr_notes = attach_deck_routes(airport, pack_objects, inputs.osm_root, law,
+                                            inputs.radius_deg)        # #2090
+    for _n in _dr_notes:
+        print(f"[{icao}]   [deck-routes] {_n}")
     from auto_patch_v2.airport.deck_stack import log_line as _ds_line
     from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
     airport = attach_deck_stacks(airport, pack_objects, ocache, law)     # #1971
@@ -987,7 +996,7 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
     for v, k, terms, bound, val, row in rows[:limit]:
         out(f"--- row {k}  violation {v:.4f} m  gen={row.source.generator}")
         out(f"    ruling: {row.source.ruling[:160]}")
-        if row.source.inputs:
+        if getattr(row.source, "inputs", None):
             out(f"    inputs: {', '.join(map(str, row.source.inputs))[:240]}")
         out(f"    demanded {val:.4f} vs allowed {bound:.4f} (raw {val - bound:+.4f})")
         vs = []
@@ -1001,7 +1010,7 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
                        "roles": roles})
         recs.append({"row": k, "violation_m": round(v, 6),
                      "generator": row.source.generator, "ruling": row.source.ruling,
-                     "inputs": [str(i) for i in row.source.inputs],
+                     "inputs": [str(i) for i in getattr(row.source, "inputs", ())],
                      "demanded": round(val, 6), "allowed": round(bound, 6),
                      "vertices": vs})
     return {"icao": icao, "stage": stage,
@@ -1134,13 +1143,16 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
 def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                strip_rep=None, late_cut: dict | None = None,
                late_stage: dict | None = None, cells=(),
-               hard_conflict=(), runway_flex=()) -> dict:
+               hard_conflict=(), runway_flex=(), agp_report=None, objects=None) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
     (``tools/patch_proximity_diff.py``, ``tools/osm_site.py``) can be read
     off a replay instead of a 6-minute build.  No rebake plan, no tile
-    pieces.
+    pieces; with the pack's ``objects``, the plan's AUTHORED SEATS as the
+    build's rebake inputs publish them (``pipeline/rebake_inputs``, the
+    ``authored_seats`` a portal's led frame shows in, ``led_by``) beside the
+    patch as ``<ICAO>.authored_seats.json`` (#1689).
 
     The patch-boundary bank pass that once ran here is deleted (owner
     RULINGS 2026-10-04c (3))."""
@@ -1149,8 +1161,14 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     from auto_patch_v2.emit.terrain_edge import with_terrain_edges
     from auto_patch_v2.pipeline.publication import face_tags, publication
     t = time.perf_counter()
+    # #2090 A5: the AGP groups' published datum, as the build's graded
+    # surface carries it (``pipeline/emit_stage``), so ``v2_rebake_replay``
+    # reads it off a replay arm
+    from auto_patch_v2.constraints.agp_level import published_groups
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
-                          {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
+                          {"law_ruleset": law.ruleset_key, "pack": airport.pack.name,
+                           "agp_groups": published_groups(
+                               getattr(pm, "agp_groups", ()) or (), agp_report)})
     surf_out = with_terrain_edges(surf, pm, law)
     # §39 (1) THE SHORE WELD + §39 (iii) THE SUB-SPACING MERGE — the build's
     # last two passes before ``write_patch`` (``pipeline/build.py``).  They
@@ -1213,6 +1231,12 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     paths = write_patch(surf_out, law, emit_dir, pub, header, face_tags(pm, law, airport))
     print(f"    emitted {paths.patch} ({paths.ways} ways, {paths.nodes} nodes) in "
           f"{time.perf_counter() - t:.1f} s")
+    if objects:
+        from auto_patch_v2.pipeline.rebake_inputs import _rebake_inputs
+        got = _rebake_inputs(pm, law, surf, airport, objects, agp_report=agp_report)
+        (emit_dir / f"{icao}.authored_seats.json").write_text(json.dumps(
+            sorted(got.get("authored_seats", ()), key=lambda r: str(r.get("id"))),
+            indent=0, default=str), encoding="utf-8")
     return {"patch": str(paths.patch), "surface": surf_out}
 
 
@@ -2220,20 +2244,17 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     # derived off the capture's own partition and DEM -- and ALWAYS on an
     # early resume (#1952): classify and planar re-read the wall class under
     # the current tree, so the captured walls would be a second reading
-    if resume in ("classify", "planar") or \
-            getattr(airport, "wall_shade", None) is None or \
-            not getattr(airport, "retaining_walls", ()) or \
+    # (an early resume reads them after the pack's objects below: #2099 F2
+    # P4a's wall re-seats come off the entrance pins)
+    if resume not in ("classify", "planar") and (
+            getattr(airport, "wall_shade", None) is None or
+            not getattr(airport, "retaining_walls", ()) or
             any(getattr(w, "top_profile", None) is None
                 or getattr(w, "foot_profile", None) is None
-                for w in airport.retaining_walls):
+                for w in airport.retaining_walls)):
         from auto_patch_v2.airport.wall_shade import attach_wall_shade
         from auto_patch_v2.classify import load_rules as _load_rules
         airport = attach_wall_shade(airport, _load_rules().service)
-    if resume in ("classify", "planar"):
-        # spec 2068 A2 F1: the unit fences, read under the current tree
-        from auto_patch_v2.airport.unit_fence import attach_unit_fences
-        from auto_patch_v2.classify import load_rules as _load_rules
-        airport = attach_unit_fences(airport, _load_rules(), law)
     t0 = time.perf_counter()
     _ocache = _objs = _orep = None
     if resume in ("classify", "planar"):
@@ -2256,14 +2277,32 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
                           _fe.quantum(law))
         _objs, _orep = _read_objects(airport, law, _ocache)
+        # #2099 F2 P4a: the entrance pins, then the wall re-seats, the wall
+        # class (issue #1633) and the unit fences (spec 2068 A2 F1), under the
+        # current tree, in the build's order
+        from auto_patch_v2.airport.entrance_shade import entrance_pins
+        from auto_patch_v2.airport.unit_fence import attach_unit_fences
+        from auto_patch_v2.airport.wall_reseat import attach_wall_reseats
+        from auto_patch_v2.airport.wall_shade import attach_wall_shade
+        from auto_patch_v2.classify import load_rules as _load_rules
+        _epins = entrance_pins(airport, _objs, _ocache, law)
+        airport = attach_wall_reseats(airport, _epins)
+        airport = attach_wall_shade(airport, _load_rules().service)
+        airport = attach_unit_fences(airport, _load_rules(), law)
         # #1747: a capture written before ``Airport.entrance_shade`` derives
         # it here, off the pack read the classify / planar stages take
         if getattr(airport, "entrance_shade", None) is None:
             from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
-            airport = attach_entrance_shade(airport, _objs, _ocache, law)
+            airport = attach_entrance_shade(airport, _objs, _ocache, law, _epins)
         # #1971: the deck stacks, RE-DERIVED every replay from the ways as
         # mapped (``Airport.osm_ways_mapped``), so ``--from classify``
         # iterates on the derivation without a new capture
+        # #2090: the routes around every pack deck, re-read likewise
+        from auto_patch_v2.airport.deck_routes import attach_deck_routes
+        airport, _dr_notes = attach_deck_routes(airport, _objs, inputs.osm_root, law,
+                                                inputs.radius_deg)
+        for _n in _dr_notes:
+            print(f"[{icao}]   [deck-routes] {_n}")
         from auto_patch_v2.airport.deck_stack import log_line as _ds_line
         from auto_patch_v2.planar.deck_stack_attach import attach_deck_stacks
         _ds_t, _ds_notes = time.perf_counter(), []
@@ -2353,6 +2392,30 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
             # deck redesign: every hard deck read or refused, and why
             for _ln in getattr(getattr(_ps, "structures", None), "hard_decks", ()) or ():
                 print(f"[{icao}] hard deck: {_ln}")
+            # #2062 R3b B: every ramp held level along a storey shell
+            _sl = list(getattr(getattr(_ps, "structures", None), "shell_levels", ()) or ())
+            for _ln in _sl:
+                print(f"[{icao}] shell level: {_ln}")
+            _tids = {str(_ln).split(": ", 1)[0] for _ln in _sl}
+            # #1689 R5 G0: every mouth pin, unpinned portal and refusal --
+            # the no-change read two arms diff
+            _st = getattr(_ps, "structures", None)
+            for _key in ("portal_mouths", "portals_unpinned", "refused"):
+                for _ln in getattr(_st, _key, ()) or ():
+                    print(f"[{icao}] structure {_key}: {_ln}")
+            for _ln in getattr(getattr(_ps, "structures", None), "portal_mouths", ()) or ():
+                if "R3b" in str(_ln):
+                    print(f"[{icao}] front / carried: {_ln}")
+            for _ln in getattr(getattr(_ps, "structures", None), "refused", ()) or ():
+                if "R3b" in str(_ln) or str(_ln).split(": ", 1)[0] in _tids:
+                    print(f"[{icao}] shell level refused: {_ln}")
+            # #2062: every split-level / storey-shell read, pad and refusal
+            _bs = getattr(_ps, "basins", None)
+            for _ln in getattr(_bs, "split_levels", ()) or ():
+                print(f"[{icao}] split level: {_ln}")
+            for _ln in getattr(_bs, "refused", ()) or ():
+                if "storey shell" in str(_ln) or "split" in str(_ln):
+                    print(f"[{icao}] split level refused: {_ln}")
             if rim_diagnostics:
                 for _ln in rim_diagnostic_lines(pm):
                     print(f"[{icao}] {_ln}")
@@ -2441,6 +2504,9 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                 from auto_patch_v2.airport.road_descent import descent_line
                 print(f"[{icao}] road {descent_line(ramp_rep)}; steepest "
                       f"{ramp_rep.get('ramps_steepest')}")
+                from auto_patch_v2.airport.road_descent import deck_ramp_lines
+                for _ln in deck_ramp_lines(ramp_rep, airport.frame.transformers()[1]):
+                    print(f"[{icao}]   {_ln}")
             except ImportError:
                 pass
             # §37 (9) the coverage-edge join, after the frame it reads
@@ -2523,7 +2589,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                       f"({time.perf_counter() - _t1:.0f} s)")
         return {"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
                 "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0,
-                "stage1": s1, CAPTURE_OVERLAY_KEY: _overlay}
+                "stage1": s1, CAPTURE_OVERLAY_KEY: _overlay, "objects": _objs}
 
     if gap_free:
         # THE BUILD'S OWN BASE (``pipeline/build``: ``gap_free(cl)``, spec §55
@@ -2639,6 +2705,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     except ImportError:
         pass
     _tt2: dict = {}
+    _stage1_seen: dict = {}
     try:
         # owner RULINGS 2026-10-15i (3): the build's taxi-trend second pass
         from auto_patch_v2.constraints.taxi_trend import stage_one_retarget
@@ -2652,7 +2719,12 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         _kw["follow_rewrite"] = lambda cs_x, z: lot_follow_rewrite(pm, cs_x, z)
         # issue #517: the build's ceiling between two junctions held low
         from auto_patch_v2.constraints.taxi_trend import low_hold_retarget
-        _kw["hold_rewrite"] = (lambda pm_x, lv: low_hold_retarget(pm_x, law, lv, _tt2))
+        def _hold_rw(pm_x, lv):
+            # issue #1899: the stage-1 levels pass 1b held and the trend
+            # targets they were held against, kept for ``--rederive-from``
+            _stage1_seen.update(levels=dict(lv), taxi_trend_z=dict(pm_x.taxi_trend_z))
+            return low_hold_retarget(pm_x, law, lv, _tt2)
+        _kw["hold_rewrite"] = _hold_rw
     except ImportError:
         pass
     try:
@@ -2924,6 +2996,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                              # pads' airside give), for tools/door_line_read.py
                              "stage2_bands": list(getattr(_stage2.get("cs"), "bands", ())),
                              "hold_report": _hold_report_now(pm_w),
+                             # issue #1899: read by --rederive-from
+                             "stage1_levels": _stage1_seen.get("levels"),
+                             "stage1_taxi_trend_z": _stage1_seen.get("taxi_trend_z"),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
                                  "late_stage": _lrep["stage"],
@@ -2959,7 +3034,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                      late_stage=(prob["late"]["rep"]["stage"]
                                                  if late_from is not None else None),
                                      cells=cl.cells, hard_conflict=hard_conflict,
-                                     runway_flex=rep.runway_flex))
+                                     runway_flex=rep.runway_flex,
+                                     agp_report=(rep.reach_seed or {}).get("agp_level"),
+                                     objects=prob.get("objects")))
     if emit_dir is not None or verify:
         # object-placement spec §18 (6): the seat per wall / pit placement,
         # as the build's rebake plan publishes it (``authored_seats``)
@@ -3222,6 +3299,11 @@ def main() -> int:
                          "row, column, sheet face and triangle keyed canonically "
                          "(11-dp lat/lon), written gzipped.  Solves nothing; "
                          "--drop-generator and --design-weight apply")
+    ap.add_argument("--rederive-from", type=Path, metavar="PKL",
+                    help="issue #1899: re-run low_hold_retarget and "
+                         "taxi_route_yield.derive alone off a --solved-out "
+                         "pickle's stage-1 levels (seconds, no solve); "
+                         "--design-weight applies (tools/replay_rederive.py)")
     ap.add_argument("--stage1-diff", nargs=2, type=Path, metavar=("A.json.gz", "B.json.gz"),
                     help="§20b (3) (4) THE DECOMPOSITION: diff two --stage1-dump "
                          "arms by identity — rows removed / added, columns, sheet "
@@ -3278,6 +3360,11 @@ def main() -> int:
         ap.error("--null-change [N >= 1] twins a full --replay PKL solve: not with "
                  "--late-from (the last stage alone), a dry read (--pad-read, "
                  "--rim-diagnostics, --stage1-dump) or any other mode")
+    if a.rederive_from:
+        from replay_rederive import rederive
+        return rederive(a.rederive_from, {k.strip(): _design_value(v) for k, v in
+                                          (it.split("=") for it in a.design_weight)},
+                        a.json, install=install_capture_state)
     if a.stage1_diff:
         return stage1_diff(a.stage1_diff[0], a.stage1_diff[1], a.movers, a.json)
     if a.stage1_dump:

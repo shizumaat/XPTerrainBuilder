@@ -19,7 +19,8 @@ extension MapCanvasView {
     static func makeAirportPlan(overlays: MapOverlays, cam: MapCamera, size: CGSize,
                                 bounds: (minLon: Double, maxLon: Double,
                                          minLat: Double, maxLat: Double),
-                                textScale: Double = TextScale.defaultValue) -> AirportPlan {
+                                textScale: Double = TextScale.defaultValue,
+                                filter: MapFilter = MapFilter(stored: "")) -> AirportPlan {
         var plan = AirportPlan()
         plan.radius = CGFloat(MapLabelLayout.markRadius(scale: cam.scale))
         func inView(_ info: AirportInfo) -> Bool {
@@ -35,13 +36,15 @@ extension MapCanvasView {
         for airport in overlays.defaultAirports {
             guard MapLabelLayout.markVisible(sizeClass: airport.sizeClass, custom: false,
                                              scale: cam.scale) else { break }
-            guard inView(airport.info) else { continue }
+            guard inView(airport.info),
+                  filter.showsAirport(icaoCoded: airport.icaoCoded, custom: false) else { continue }
             let p = cam.point(lon: airport.info.longitude, lat: airport.info.latitude, in: size)
             candidates.append(.init(code: airport.icao, x: p.x, y: p.y,
                                     sizeClass: airport.sizeClass,
                                     runwayMeters: airport.runwayMeters, custom: false))
         }
-        for airport in overlays.airports where inView(airport.info) {
+        for airport in overlays.airports
+        where inView(airport.info) && filter.showsAirport(icaoCoded: airport.icaoCoded, custom: true) {
             let p = cam.point(lon: airport.info.longitude, lat: airport.info.latitude, in: size)
             candidates.append(.init(code: airport.icao, x: p.x, y: p.y,
                                     sizeClass: airport.sizeClass,
@@ -174,6 +177,8 @@ final class AirportPlanCache: ObservableObject {
         let defaults: Int
         let customs: Int
         let textScale: Double
+        /// The Filter menu (#2097): a toggle re-plans the marks.
+        var filter = MapFilter(stored: "")
     }
 
     private var key: Key?

@@ -66,6 +66,9 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_MACHINE_SLOTS_UNGATED":
         "a slot session that proves mechanics (the pool self-check) skips "
         "the live memory gate — scheduling only",
+    "O4_DISK_FLOOR_UNGATED":
+        "a harness or suite session skips the app's free-space floor gate "
+        "and offload (#2103) — scheduling and storage only",
     "O4_ENGINE_PRIORITY_LOWERED":
         "the engine's process tree already runs at lowered CPU priority "
         "(O4_Machine_Slots.lower_priority, #1225) — scheduling only",

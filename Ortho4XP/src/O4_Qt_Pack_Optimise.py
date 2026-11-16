@@ -103,7 +103,7 @@ def _body_text(event) -> str:
         after=_millions(getattr(event, "est_tris_after", 0))) + "\n\n" + DETAIL
 
 
-def _step_detail(row) -> str:
+def step_detail(row) -> str:
     """One step's explanation and estimate (``PackOptimise.steps`` row)."""
     return STEP_DETAILS[row["key"]].format(
         n=int(row.get("count", 0)), tris=_millions(row.get("tris", 0)),
@@ -141,7 +141,7 @@ class _PackOptimiseBox(ChoiceDialog):
                 continue
             box = QCheckBox(STEP_TITLES[row["key"]])
             box.setChecked(not chosen or row["key"] in chosen)
-            detail = QLabel(_step_detail(row))
+            detail = QLabel(step_detail(row))
             detail.setWordWrap(True)
             detail.setContentsMargins(24, 0, 0, 6)
             lay.addWidget(box)

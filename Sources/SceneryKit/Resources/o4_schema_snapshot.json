@@ -26,6 +26,7 @@
    "storage_auto_clean_days",
    "storage_cache_caps_gb",
    "storage_budget_gb",
+   "storage_free_floor_gb",
    "storage_tiers",
    "imagery_on_demand_cap_gb",
    "ondemand_lead_s",
@@ -68,7 +69,8 @@
    "color_harmonization",
    "normal_map_strength",
    "terrain_casts_shadows",
-   "use_decal_on_terrain"
+   "use_decal_on_terrain",
+   "cliff_textures"
   ],
   "mask": [
    "mask_zl",
@@ -351,6 +353,24 @@
     "1",
     "2",
     "3"
+   ]
+  },
+  "cliff_textures": {
+   "default": "xpface",
+   "hint": "Draw near-vertical mesh faces (cliffs, gorge walls) with a rock texture instead of the photo stretched down the face, fading into the photo at the top and bottom. xpface (the default): X-Plane's own cliff texture for the landclass there, laid along the face; it needs the X-Plane install (the Global Scenery folder), and a tile without it is built as with this off. False: off. synth (prototype): a face-aligned texture made from the tile's own photos. xplane (prototype): X-Plane's default terrain projected from above, which stretches on faces steeper than ~60 degrees. True is synth.",
+   "name": "cliff_textures",
+   "type": "str",
+   "valueLabels": {
+    "False": "Off (the photo stretched down the face)",
+    "synth": "Made from the tile's photos (prototype)",
+    "xpface": "X-Plane rock on steep faces",
+    "xplane": "X-Plane terrain from above (prototype)"
+   },
+   "values": [
+    "xpface",
+    "False",
+    "synth",
+    "xplane"
    ]
   },
   "coast_curv_ext": {
@@ -743,6 +763,24 @@
    "hint": "When set, all OSM geometries are checked for self-intersection and merged between themselves in case of overlapping, allowing (hopefully!) to go around most OSM errors. This is computationally expensive, especially in places where OSM road/water data is detailed, and this is the reason for this switch, but if you are not in a hurry it is probably wise leaving it always activated.",
    "name": "global_clean_bad_geometries",
    "type": "bool"
+  },
+  "global_cliff_textures": {
+   "default": "xpface",
+   "hint": "Draw near-vertical mesh faces (cliffs, gorge walls) with a rock texture instead of the photo stretched down the face, fading into the photo at the top and bottom. xpface (the default): X-Plane's own cliff texture for the landclass there, laid along the face; it needs the X-Plane install (the Global Scenery folder), and a tile without it is built as with this off. False: off. synth (prototype): a face-aligned texture made from the tile's own photos. xplane (prototype): X-Plane's default terrain projected from above, which stretches on faces steeper than ~60 degrees. True is synth.",
+   "name": "global_cliff_textures",
+   "type": "str",
+   "valueLabels": {
+    "False": "Off (the photo stretched down the face)",
+    "synth": "Made from the tile's photos (prototype)",
+    "xpface": "X-Plane rock on steep faces",
+    "xplane": "X-Plane terrain from above (prototype)"
+   },
+   "values": [
+    "xpface",
+    "False",
+    "synth",
+    "xplane"
+   ]
   },
   "global_coast_curv_ext": {
    "default": 0.5,
@@ -1749,6 +1787,12 @@
    "hint": "Optional size limits, in GB, for single caches, as kind=GB pairs separated by commas, for example imagery=100, osm_extracts=20, dds=20. The kinds are imagery, dds, elevation, osm_extracts, osm, airport_mod, dsf_dumps, masks, previews, tmp, logs and rebuild. A cache over its limit loses its least recently used files first, when the app starts and after a build. The texture cache (dds) is held to 20 GB unless named here. Empty: no other limits.",
    "name": "storage_cache_caps_gb",
    "type": "str"
+  },
+  "storage_free_floor_gb": {
+   "default": 60.0,
+   "hint": "Keep at least this much free space, in GB, on the disk that holds the data folder (#2103). When a build finds less, it first moves rebuild data and imagery to a storage tier (tiles used longest ago first), then clears caches in the same order as the disk budget, and a step that would start below it waits on the tile's row until there is room. Built tiles, patches and anything X-Plane loads are never moved or cleared. 0: off.",
+   "name": "storage_free_floor_gb",
+   "type": "float"
   },
   "storage_tiers": {
    "default": "",

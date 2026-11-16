@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 
 import pack_optimise_fixture as FX  # noqa: E402
 from auto_patch import optimise_stage as OS  # noqa: E402
-from auto_patch import pack_choice as PC  # noqa: E402
+from auto_patch_v2.airport import pack_choice as PC  # noqa: E402
 from auto_patch_v2.airport import pack_optimise as PO  # noqa: E402
 from auto_patch_v2.airport.pack_optimise import impact as IM  # noqa: E402
 from auto_patch_v2.airport.pack_optimise import swap as SW  # noqa: E402

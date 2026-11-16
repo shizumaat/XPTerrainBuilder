@@ -11,8 +11,10 @@ from math import ceil, floor
 
 import numpy
 import O4_Airport_Approach_Cover as COVER
+import O4_Airport_Boundary_Zoom as BOUNDARY_ZL
 import O4_Airport_Fade_Masks as FADE
 import O4_Bathymetry as BATHY
+import O4_Cliff_DSF as CLIFF
 import O4_DDS_File as DDS
 import O4_DDS_Tiers as TIERS
 import O4_Default_Terrain_Map as DEFTER
@@ -225,7 +227,13 @@ def zone_list_to_ortho_dico(tile):
             rowmax = round((1 - ymin) * 4095)
             rowmin = round((1 - ymax) * 4095)
             airport_array[rowmin : rowmax + 1, colmin : colmax + 1] = 1
+        # #2107: inside each boundary, the finest level the provider has
+        boundary_zl = BOUNDARY_ZL.boundary_blocks(
+            tile, dico_airports, airports_list)
+    else:
+        boundary_zl = {}
     dico_customzl = {}
+    boundary_textures = set()
     dico_tmp = {}
     til_x_min, til_y_min = GEO.wgs84_to_orthogrid(
         tile.lat + 1, tile.lon, tile.mesh_zl
@@ -270,6 +278,10 @@ def zone_list_to_ortho_dico(tile):
             (zoomlevel, provider_code) = dico_tmp[masks_im.getpixel((x, y))]
             if airport_array[y, x]:
                 zoomlevel = max(zoomlevel, tile.cover_zl)
+            inside = (provider_code == tile.default_website
+                      and boundary_zl.get((til_x, til_y), 0) > zoomlevel)
+            if inside:
+                zoomlevel = boundary_zl[(til_x, til_y)]
             til_x_text = 16 * (
                 int(til_x / 2 ** (tile.mesh_zl - zoomlevel)) // 16
             )
@@ -282,6 +294,11 @@ def zone_list_to_ortho_dico(tile):
                 zoomlevel,
                 provider_code,
             )
+            if inside:
+                boundary_textures.add(FNAMES.dds_file_name_from_attributes(
+                    til_x_text, til_y_text, zoomlevel, provider_code))
+    # the imagery record carries them: on demand, made low-res last
+    tile.airport_boundary_textures = sorted(boundary_textures)
     if tile.cover_airports_with_highres == "Existing":
         # what we find in the texture folder of the existing tile
         for f in os.listdir(os.path.join(tile.build_dir, "textures")):
@@ -1087,6 +1104,16 @@ def _build_dsf_body(tile, download_queue):
     if default_terrain_band:
         # 5-plane physical default-terrain band (see banding note above).
         dsf_pool_plane[3 * pool_nbr : 4 * pool_nbr] = 5
+    # Cliff faces (#2096, option ``cliff_textures``, default ``xpface``,
+    # full_ortho only): one more band after the others (9 planes ``synth``
+    # / ``xpface``, 7 ``xplane``); none where the arm cannot run.
+    cliff_arm = CLIFF.tile_arm(tile, texture_mode)
+    cliff_on = cliff_arm is not None
+    tile.cliff_plan = None
+    if cliff_on:
+        dsf_pool_plane, cliff_band = CLIFF.add_cliff_band(
+            dsf_pool_plane, pool_nbr, cliff_arm)
+        dsf_pool_nbr = len(dsf_pool_plane)
     # Every new point takes its slot through ``point_pools.slot``, which rolls
     # a full band pool (65,536 points: a 16-bit index) over to an overflow
     # pool with the same planes and scale (#2092).  The three names below
@@ -1867,6 +1894,17 @@ def _build_dsf_body(tile, download_queue):
         for (n1, n2, n3) in deferred_water_painted:
             emit_physical_default_land(n1, n2, n3, force_path=fallback)
         deferred_water_painted.clear()
+
+    if cliff_on:
+        (cliff_tert, tile.cliff_plan) = CLIFF.emit_cliff_overlays(
+            tile,
+            numpy.asarray(node_coords, dtype=float).reshape(-1, 5)[:nbr_nodes],
+            numpy.asarray(tri_idx).reshape(-1, 3)[:nbr_tris],
+            numpy.asarray(tri_types)[:nbr_tris],
+            node_icoords, idx_node_to_idx_pool, pool_param, point_pools,
+            cliff_band, pool_nbr, dico_customzl, textured_tris,
+            dico_terrains, overlay_terrains, cliff_arm)
+        bTERT += cliff_tert
 
     # Cold/warm telemetry for the tile time model (read by the engine
     # session when it records this build's step timings).

@@ -52,7 +52,9 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import functools
+import math
 import os
+import sys
 import typing as _t
 
 import numpy as np
@@ -694,6 +696,14 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         if o.resolved is None:
             counts["unresolved"] += 1
             continue
+        if not math.isfinite(float(o.anchor_z)):
+            # #2099: no ground under the anchor (a cold DEM) places the
+            # member nowhere -- every ε-test against it is false, and the
+            # partition came back with 0 contacts and no word said
+            counts["no_ground"] = counts.get("no_ground", 0) + 1
+            skipped.setdefault(o.path, "no ground under its anchor (DEM NaN): "
+                                       "not placed, not partitioned")
+            continue
         if o.terrain_fit is not None and not o.terrain_feature:
             counts["terrain_shaped"] = counts.get("terrain_shaped", 0) + 1
             skipped.setdefault(o.path, "terrain-shaped hard deck (#1730, "
@@ -738,6 +748,7 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         anchors_by_resource.setdefault(o.path, set()).add(key)
         keyed.append((key, o))
 
+    _refuse_groundless(counts, airport.icao)
     multi = {r for r, ks in anchors_by_resource.items() if len(ks) > 1}
     # THE MULTI-ANCHOR DROP RUNS AT LOAD (owner RULINGS 2026-09-11l (1)).
     # Round 2 deferred it to ``filtered`` because a PLATE-seated resource
@@ -868,6 +879,23 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
                          frozenset(),
                          {r: len(ks) for r, ks in anchors_by_resource.items()},
                          deferred, geom)
+
+
+def _refuse_groundless(counts: _t.Mapping[str, int], icao: str) -> None:
+    """#2099: say it LOUDLY when placements had no ground under their
+    anchor (``counts["no_ground"]``), and REFUSE when no resolved placement
+    had any -- a cold DEM, whose partition would be read with no contact
+    at all and pass for a pack of loose objects."""
+    n = int(counts.get("no_ground", 0))
+    if not n:
+        return
+    resolved = int(counts["placements"]) - int(counts["unresolved"])
+    msg = (f"[{icao}] pack partition: {n} of {resolved} resolved placements have "
+           f"no ground under their anchor (DEM NaN)")
+    if n >= resolved:
+        raise ValueError(msg + ": the DEM is cold; refusing a partition with no "
+                               "placed member (every contact would read false)")
+    print(msg + ": left out of the partition, their contacts unread", file=sys.stderr)
 
 
 def _parts_by_member(part: _contact.Partition, to_ll_batch) -> dict[int, list[Part]]:

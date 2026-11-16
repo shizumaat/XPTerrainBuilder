@@ -2619,7 +2619,7 @@ def test_the_audit_and_the_lock_release_are_on_EVERY_exit_path(build_mod):
     hold is an ORDERING inside ``main``.
     """
     src = inspect.getsource(build_mod.main)
-    i_lock = src.index("locks = [RefreshLock(")
+    i_lock = src.index("locks = _acquire_refresh_locks(")
     i_try = src.index("\n    try:\n", i_lock)
     for call in ("warm_airport_insets(", "refresh_stale_osm_layers(",
                  "refresh_tile_dem(", "reconcile_refresh_ledger(",
@@ -3327,6 +3327,22 @@ def test_the_refresh_lock_refuses_and_reports_never_blocks(build_mod,
         other.release()
     finally:
         first.release()
+
+
+def test_a_refused_lock_releases_the_ones_already_taken(build_mod, guard_mod,
+                                                       tmp_path, monkeypatch):
+    """Locks are taken all or none: refused on the second scope, the first
+    is released, never left under a pid that exits (#2096, 2026-11-15)."""
+    monkeypatch.setattr(guard_mod, "LOCK_DIR", tmp_path / "locks")
+    held = build_mod.RefreshLock("rings", lane="lane-A").acquire()
+    try:
+        with pytest.raises(SystemExit):
+            build_mod._acquire_refresh_locks(["orthophotos", "rings"],
+                                             "lane-B", False)
+        free = build_mod.RefreshLock("orthophotos", lane="lane-C").acquire()
+        free.release()
+    finally:
+        held.release()
     # Released: the next lane gets it.
     build_mod.RefreshLock("dem", lane="lane-C").acquire().release()
 
@@ -3387,7 +3403,7 @@ def test_the_audit_runs_even_when_the_build_raises(build_mod):
     """A build that died half-way through a download has still mutated the
     shared repo — and that is exactly when nobody thinks to look."""
     src = inspect.getsource(build_mod.main)
-    body = src[src.index("locks = ["):]
+    body = src[src.index("locks = _acquire_refresh_locks("):]
     assert "finally:" in body, (
         "the shared-repo write audit must run in a finally: block")
     assert body.index("finally:") < body.index(

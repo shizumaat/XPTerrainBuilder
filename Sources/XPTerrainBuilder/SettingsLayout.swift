@@ -211,6 +211,7 @@ enum SettingsLayout {
             SettingItem("overlay_lod", "How far away should photos over water be drawn (m)?", .tile, summary: "A shorter distance helps frame rate and video memory."),
             SettingItem("terrain_casts_shadows", "Should the ground cast shadows?", .tile, summary: "Only matters when scenery shadows are on in X-Plane."),
             SettingItem("use_decal_on_terrain", "Add fine ground detail up close?", .tile, summary: "Noticeable at very low altitude."),
+            SettingItem("cliff_textures", "What should cover steep cliff faces?", .tile, summary: "X-Plane's own rock by default, instead of the photo stretched down the face."),
             SettingItem("normal_map_strength", "Normal map strength", .tile, expert: true),
             SettingItem("ovl_exclude_pol", "Exclude overlay polygon types", .app, expert: true),
             SettingItem("ovl_exclude_net", "Exclude overlay road types", .app, expert: true),
@@ -219,6 +220,7 @@ enum SettingsLayout {
         // and the Clear buttons (StorageSection) above these rows.
         SettingCategory(key: "storage", title: "Storage", icon: "internaldrive", items: [
             SettingItem("storage_auto_clean_days", "Delete cache files no build has used for how long?", .app, summary: "Never keeps them. Built tiles and patches are never deleted."),
+            SettingItem("storage_free_floor_gb", "Keep how much free space on the disk (GB)?", .app, summary: "Builds move or clear older data first, then wait."),
             SettingItem("imagery_on_demand_cap_gb", "How much space may sharp imagery use (GB)?", .app, expert: true),
             SettingItem("storage_cache_caps_gb", "Cache size limits (GB)", .app, expert: true),
         ]),

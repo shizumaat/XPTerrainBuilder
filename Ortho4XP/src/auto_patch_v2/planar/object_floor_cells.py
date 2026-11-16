@@ -191,7 +191,22 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats,
                                  taken={pid for f in floors for pid, _r, _z in f.seats})
     floors = floors + more
     notes.extend(s_notes)
+    # #2099 F2 (RULINGS 2026-11-15j / 19p / 16a): a trench object whose mapped
+    # mouth the entrance reader misread, walled on both sides of an open
+    # floor, is cut to its walls (``airport/walled_trench``)
+    from ..airport.walled_trench import walled_trench_floors
+    misread = {p.object_id for p in getattr(tstats, "portals", ()) or ()
+               if getattr(p, "opening_misread", False)}
+    more, w_notes = walled_trench_floors(getattr(tstats, "trench_objects", ()) or (), objects,
+                                         cache, law, misread, airport.dem.z,
+                                         taken={pid for f in floors for pid, _r, _z in f.seats})
+    floors = floors + more
+    notes.extend(w_notes)
     floor_ids = {i for f in floors for i in (f.object_id, *f.covers)}
+    # #1918: an object cut stated by a placement the terrain reading hides
+    # owns no ground either (``ground_shell.hidden_by_pack``)
+    from ..airport.ground_shell import hidden_by_pack
+    floor_ids |= {o.id for o in objects or () if hidden_by_pack(o)}
     if floor_ids:
         corridors = [c for c in corridors if not (set(c.objects) & floor_ids)]
         tstats.shell_claimed = tuple(sorted(set(tstats.shell_claimed) | floor_ids))

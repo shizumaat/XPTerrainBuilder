@@ -55,7 +55,7 @@ from . import package_first as FIRST
 from . import storage as STORAGE
 
 __all__ = ["RECENT_DAYS", "SHARED_TIERS", "TILE_STEPS", "note_session",
-           "session_tiles", "clear"]
+           "session_tiles", "clear", "offload"]
 
 #: A tile used this recently is never cleared: a week covers the tiles
 #: being built, flown and fixed now (the owner's 2026-11-14 evidence:
@@ -234,10 +234,14 @@ def _clear_tile(tile: _Tile, need: int, sweep, now: float, keep: set,
         if freed >= need or sweep.stopped:
             break
         if step == (STORAGE.ONDEMAND,):
-            if tile.rows.get(STORAGE.ONDEMAND):
+            # #2103: an offload-only pass makes nothing low-res.
+            if tile.rows.get(STORAGE.ONDEMAND) and not sweep.tier_only:
                 freed += _downgrade(tile, sweep)
             continue
-        if step == ("elevation", "osm") and candidate is not None:
+        # #2103: no package where nothing may go (offload only, or the
+        # dev corpus spared: the package would free nothing).
+        if (step == ("elevation", "osm") and candidate is not None
+                and not sweep.tier_only and not sweep.spare):
             done = PACKAGES._package_tile(candidate, sweep, now, keep=keep)
             freed += int((done or {}).get("freed_bytes") or 0)
         rows = [r for kind in step for r in tile.rows.get(kind, ())]
@@ -269,13 +273,57 @@ def clear(over_by: int, sweep, now: float) -> int:
             candidates = {(c["lat"], c["lon"]): c for c in PACKAGES._candidates()}
         freed += _clear_tile(tile, over_by - freed, sweep, now, keep,
                              candidates.get(tile.pair))
-    if not sweep.dry_run:
-        for store in STORAGE.STORES:
-            if store.policy == STORAGE.CACHE and store.kind != STORAGE.ONDEMAND:
-                STORAGE._prune_empty_dirs(store.path())
+    _prune(sweep)
     if freed < over_by and not sweep.stopped and not sweep.dry_run:
         STORAGE.write_log(
             "disk budget still over by %d bytes: the rest belongs to the %d "
             "tile(s) used in the last %d days or this session"
             % (over_by - freed, len(protected), RECENT_DAYS))
     return freed
+
+
+
+def offload(over_by: int, sweep, now: float, keep_tiles=()) -> int:
+    """MOVE up to ``over_by`` bytes to a storage tier (#2103, RULINGS
+    2026-11-16c: data X-Plane does not read lives on the tier); the bytes
+    moved.  ``sweep`` must be ``tier_only``: nothing is deleted, made
+    low-res or packaged, so a protected tile's data may move too (moving
+    keeps it; the tile's next build lays it back,
+    ``storage_tier_data.recall_tile``).  Order: shared data, then the
+    tiles as :func:`clear` ranks them, then the protected tiles (used in
+    the last week, then this session's), favorites and the most recently
+    used last.  The inputs of ``keep_tiles`` (the builds running or
+    queued) stay, and so does any file written in the last hour or under
+    a held lock (``storage._files``)."""
+    if not sweep.tier_only:
+        raise ValueError("offload moves only: a tier_only sweep")
+    shared, tiles = _survey(now)
+    session = session_tiles()
+    keep = _protected_inputs(keep_tiles)
+    protected = _protected(tiles, now)
+    freed = 0
+    for tier in SHARED_TIERS:
+        if freed >= over_by or sweep.stopped:
+            break
+        rows = [r for kind in tier for r in shared.get(kind, ())]
+        freed += STORAGE._evict_rows(_rows(rows, keep), over_by - freed, sweep)
+    order = _ranked(tiles, protected) + sorted(
+        (t for p, t in tiles.items() if p in protected),
+        key=lambda t: (t.pair in session, t.favorite, t.last_used, t.pair))
+    for tile in order:
+        if freed >= over_by or sweep.stopped:
+            break
+        if sweep.abort():
+            sweep.stopped = True
+            break
+        freed += _clear_tile(tile, over_by - freed, sweep, now, keep, None)
+    _prune(sweep)
+    return freed
+
+
+def _prune(sweep) -> None:
+    """The cache folders a pass emptied, removed."""
+    if not sweep.dry_run:
+        for store in STORAGE.STORES:
+            if store.policy == STORAGE.CACHE and store.kind != STORAGE.ONDEMAND:
+                STORAGE._prune_empty_dirs(store.path())

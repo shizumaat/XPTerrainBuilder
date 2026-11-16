@@ -244,6 +244,9 @@ CAPABILITIES: tuple = (
     "storage_tiers",                # 2026-11-12, RULINGS 12g storage_tiers / storage_tier_set
     "imagery_core_rows",            # 2026-11-13, #2039 ImageryCoresProgress + imagery_cores_stop
     "patch_view_lane",              # 2026-11-13, #2061 view lane, patch_staleness
+    "pack_adjust_edit",             # 2026-11-15, pack row Adjust… (pack_adjust adjust/change)
+    "world_tile_use",               # 2026-11-15, #2100 tile menu "Use XPTerrainBuilder here"
+    "memory_wait",                  # 2026-11-15, #2101 MemoryWait on the tile's row
 )
 
 
@@ -394,6 +397,34 @@ class SlowStep(EngineEvent):
     elapsed_seconds: float = 0.0
     expected_seconds: Optional[float] = None
     eta_seconds: Optional[float] = None
+    resolved: bool = False
+    attempt: int = 0
+
+
+@dataclass(frozen=True)
+class MemoryWait(EngineEvent):
+    """One step of one tile is HELD for memory (#2101).
+
+    The scheduler admits a heavy step only while its projected peak
+    (``needed_gb``) fits; ``free_gb`` is what the machine has free now and
+    ``reason`` whose memory it waits for — ``"machine"`` (another
+    application holds it) or ``"run"`` (this build's running steps); or
+    ``"disk"`` (#2103): the step waits for the data folder's disk to have
+    its free-space floor (``free_gb`` the disk's free space, ``needed_gb``
+    the floor; ``o4_engine.storage_floor``).  The
+    ENGINE writes ``message`` (``o4_engine.memory_waits.wait_message``); a
+    front end shows it verbatim on the tile's row and removes it on
+    ``resolved`` (the step started, or the tile left the run) or when the
+    tile's next step starts.  ``attempt``: as on ``TileState``.
+    """
+
+    lat: int = 0
+    lon: int = 0
+    step_key: str = ""
+    needed_gb: float = 0.0
+    free_gb: float = 0.0
+    reason: str = ""
+    message: str = ""
     resolved: bool = False
     attempt: int = 0
 
@@ -848,16 +879,37 @@ class PackAdjust(EngineEvent):
     ``hectares``) — each a checkbox, ticked when the
     question opens as ``checked`` says (``ground`` is not) — and
     ``"flatten"`` (``automatic``: the apt.dat's ``1302 flatten 1`` is
-    removed on every write; listed, never a choice).  ``state``:
+    removed on every write; listed, never a choice).  ``"terrain"``
+    (RULINGS 2026-11-13i) opens ticked since owner 2026-11-15T13:12Z.
+    ``state``:
 
     * ``"found"`` — (build) ask, once per pack and tile: **Apply** sends
       ``pack_adjust`` with ``action="update"``, ``items`` the rows left
       checked and ``shown`` every row shown; **Never for this pack**
       ``action="never"`` with ``shown``; **Not now** sends nothing.
     * ``"ask"`` — (command ``action="ask"``) the report: the same rows.
+    * ``"adjust"`` — (command ``action="adjust"``, capability
+      ``pack_adjust_edit``: the pack row's Adjust…) every row that applies,
+      answered or not, ``checked`` as the pack is now, each with
+      ``applied`` (the live file carries it) and ``rebuild`` (the tile's
+      mesh reads it: ``terrain``); ``steps`` the "Optimise pack" steps
+      with work (``PackOptimise.steps`` rows plus ``checked``: the live
+      recipe carries it).  **Apply** sends ``pack_adjust`` with
+      ``action="change"``, ``items`` the rows left checked, ``shown``
+      every row shown and ``steps`` the steps left checked; only what
+      differs is written (``auto_patch.adjust_edit``).
     * ``"applied"`` / ``"never"`` / ``"undone"`` / ``"none"`` /
       ``"failed"`` (``error`` says why) — a command's outcome; ``files``
-      lists what was rewritten.
+      lists what was rewritten; ``rebuild`` says the answer changed what
+      the tile's mesh reads (the terrain objects) — the app rebuilds the
+      tile, or, during a run, the engine keeps the debt
+      (``o4_engine.tile_rebuild_pending``).
+    * ``"pending"`` — after a run that was not cancelled: ``items`` the
+      tiles a pack answer still owes a rebuild, one ``{"tile", "lat",
+      "lon", "pack", "change", "id"}`` each; both apps rebuild them once
+      per ``id``.  The rebuild's ``BuildDone.notes`` carries
+      ``rebuilt_to_match`` ("Tile X was built to match: terrain objects
+      hidden in …").
 
     Additive to the protocol; ``Sources/SceneryKit/OrthoEngineClient.swift``
     matches this class name as a STRING LITERAL (renaming it breaks the
@@ -872,6 +924,8 @@ class PackAdjust(EngineEvent):
     files: list = field(default_factory=list)
     state: str = "found"
     error: str = ""
+    steps: list = field(default_factory=list)
+    rebuild: bool = False
 
 
 @dataclass(frozen=True)

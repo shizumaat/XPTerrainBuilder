@@ -35,18 +35,17 @@ lot (``airport/riser_wall`` reads its record from the pad's held record),
 never within the airside pavement's riser width, never over an upper level.
 The lot never shares a vertex with a block-level face on such a run.
 
-SCOPE (spec A2 (4)): a shell with two counted levels or more whose block is
-its LOWEST level -- (i) the airside meets the lowest level
+SCOPE (spec A2 (4), R3b A): a shell with two counted levels or more whose
+block is its LOWEST level -- (i) the airside meets the lowest level
 (``air_level == 0``), or (ii) no run faces the airside and half the lowest
-level's run length faces a structure floor (a tunnel ramp, an entrance
-bank, a channel or basin floor: the block follows that floor).  Scope (ii)
-is read and NAMED but HELD (:data:`FLOOR_HELD`): the follower is a new row
-family.  Upper-block
-shells stay on the pit (``planar/split_level_pit``) until R3, and so does a
-scope-(ii) shell the pit already built.  Refused, by name, as the pit
-refuses: a plan overlapping the runway family or a structure, a mapped
-road running under it, a plan another pit took; and a shell with no
-building cell under it.
+level's run length faces a ramp-class structure floor (the block FOLLOWS
+that floor's mouth datum, ``constraints/shell_datum``).  Each record
+carries what leads its block (``planar/storey_floor``).  Upper-block and
+ground-led shells stay on the pit (``planar/split_level_pit``) until R3b D,
+and so does a scope-(ii) shell the pit already built.  Refused, by name, as
+the pit refuses: a plan overlapping the runway family or a structure, a
+mapped road running under it, a plan another pit took; a shell with no
+building cell under it; a lowest level on a basin or channel floor.
 
 Nothing here names a pack, a resource or an airport."""
 from __future__ import annotations
@@ -75,6 +74,7 @@ from .basin_geometry import _rim
 from .cell_knife import knife_cells
 from .fill_riser import _lines, riser_width
 from .split_level_pit import _largest, _road_under, _roads, back_band
+from .storey_floor import FloorCells, floor_scope, ground_datum, lowest_runs
 
 __all__ = ["read_storey_shells", "pit_skip", "storey_pads", "shell_levels"]
 
@@ -118,9 +118,8 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
     hard = [p for p, c in zip(polys, cells, strict=True)
             if c.role in runway_roles or c.kind == "structure"]
     blocked = unary_union(hard) if hard else None
-    floors = unary_union([p for p, c in zip(polys, cells, strict=True)
-                          if c.kind == "structure" and "wall" not in str(c.role)])
-    floors = None if floors.is_empty else prep(floors)
+    floors = FloorCells(cells, polys)
+    dem_z = getattr(getattr(airport, "dem", None), "z", None)
     pits = unary_union(list(taken)) if taken else None
     roads = _roads(airport)
     road_faces = unary_union([p for p, c in zip(polys, cells, strict=True)
@@ -140,9 +139,9 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
     refused: list[str] = []
     for sl in shells:
         name = sl.paths[0].rsplit("/", 1)[-1]
-        scope = "airside" if sl.air_level == 0 else "floor"
         plan = sl.pit_plan
-        why = "" if scope == "airside" else (_floor_scope(sl, floors, pitted) or FLOOR_HELD)
+        leader, why = ("airside", "") if sl.air_level == 0 else _leader(sl, floors, pitted)
+        scope = "airside" if leader == "airside" else "floor"
         why = why or _refusal(plan, blocked, roads, grid)
         under = [(i, p.intersection(plan).area)
                  for i, (p, c) in enumerate(zip(polys, cells, strict=True))
@@ -172,7 +171,7 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
             continue
         pads[i0] = P
         rec = _record(sl, str(cells[i0].ref), P, probe, air, valid_area(T.intersection(P)),
-                      cuts, scope)
+                      cuts, scope, leader, floors, dem_z)
         rec = _with_kerb(rec, P, plan, w, grid, ground, air_g, keep_off, law)
         recs.append(rec)
         notes.append(f"{sl.id} {name}: pad {rec.pad_ref} {P.area:.0f} m2 (plan "
@@ -196,30 +195,19 @@ def storey_pads(airport, cells, polys, law, shells: _t.Sequence[SplitLevel],
     return out, recs, notes, refused
 
 
-#: SCOPE (ii) IS HELD (#2062 A2 (6), K0 measured on the KLAX capture): a
-#: block with no airside contact has no stage-1 datum column
-#: (``model.platform.datum_vertices``), so its upper level's landing rows
-#: hold nothing, and no row makes the block follow the structure floor one
-#: way -- a new row family, an owner decision; such a shell keeps today's
-#: path until one exists
-FLOOR_HELD = ("scope (ii): its lowest level stands on a structure floor, but no row "
-              "makes the block follow that floor (no floor-led datum; #2062 A2 (6)) -- "
-              "held, today's path")
-
-
-def _floor_scope(sl: SplitLevel, floors, pitted: _t.AbstractSet[str]) -> str:
-    """Why a shell with no airside contact is NOT laid on a storey pad
-    (scope (ii), module docstring), or ``""``."""
+def _leader(sl: SplitLevel, floors: FloorCells, pitted: _t.AbstractSet[str]
+            ) -> tuple[str, str]:
+    """``(leader, why refused)`` of a shell with no airside contact
+    (``planar/storey_floor``).  A shell its split-level pit was built under
+    stays on it, and a GROUND-led one waits for the pit's deletion (#2062
+    R3b D, held by the master 2026-11-15 with SBSP's owner question)."""
     if not pitted.isdisjoint(sl.member_ids) and sl.part == 0:
-        return "no airside contact; its split-level pit was built (stays on the pit)"
-    low = [r for (r, _f), k, i in zip(sl.runs, sl.run_levels, range(len(sl.runs)), strict=True)
-           if k == 0 and i not in sl.minor]
-    total = sum(r.length for r in low)
-    on = sum(r.length for r in low if floors is not None and run_faces(floors, r))
-    if total <= 0.0 or on < 0.5 * total:
-        return (f"no airside contact and {on:.1f} of {total:.1f} m of its lowest level on a "
-                "structure floor (an upper-block shell: the pit until R3)")
-    return ""
+        return "", "no airside contact; its split-level pit was built (stays on the pit)"
+    leader, why = floor_scope(sl, floors)
+    if leader == "ground":
+        return "", ("no airside contact and no structure floor under its lowest level: "
+                    "ground-led, on the pit until R3b D")
+    return leader, why
 
 
 def _back_cut(sl: SplitLevel, plan: Polygon, reach: float, yields: dict, air, grid: float
@@ -318,10 +306,13 @@ def _area(g) -> float:
 
 
 def _record(sl: SplitLevel, pad_ref: str, P: Polygon, probe: float, air, T: Polygon,
-            cuts: _t.Mapping[int, tuple], scope: str) -> StoreyShell:
+            cuts: _t.Mapping[int, tuple], scope: str, leader: str = "airside",
+            floors: "FloorCells | None" = None, dem_z=None) -> StoreyShell:
     """The shell's record on its pad ``P``: each level's region of the pad
     (its plan there, the back cut ``T`` the block's; the rest of the pad
-    by :func:`take_remainder`)."""
+    by :func:`take_remainder`), and WHAT LEADS ITS BLOCK -- the one datum
+    rule (``planar/storey_floor``, #2062 R3b A): ``leader``, the ground
+    leader's ``datum_z``, the floor leader's ``floor_xy``."""
     regions = [valid_area(g.intersection(P)) for g in sl.level_plans]
     block = int(sl.air_level or 0)
     if not T.is_empty:
@@ -346,7 +337,24 @@ def _record(sl: SplitLevel, pad_ref: str, P: Polygon, probe: float, air, T: Poly
                        tuple(sl.levels), block, tuple(refs), tuple(regions), runs,
                        tuple(tuple(map(float, q)) for q in plan.exterior.coords)[:-1],
                        tuple(tuple(map(float, q)) for q in P.exterior.coords)[:-1],
-                       tuple(map(float, sl.anchor_xy)), back_cut=T, scope=scope)
+                       tuple(map(float, sl.anchor_xy)), back_cut=T, scope=scope,
+                       leader=leader,
+                       datum_z=ground_datum(sl, dem_z, air) if leader == "ground" else None,
+                       floor_xy=_floor_xy(sl, floors) if leader == "floor" else None)
+
+
+def _floor_xy(sl: SplitLevel, floors: "FloorCells | None") -> "tuple[float, float] | None":
+    """A point on the ramp-class floor the shell's lowest level faces: the
+    middle station outside its longest run facing it."""
+    from ..airport.split_level import _stations
+    if floors is None or floors.ramp is None:
+        return None
+    centre = (sl.plan if sl.plan is not None else sl.footprint).centroid.coords[0]
+    on = [r for r in lowest_runs(sl) if run_faces(floors.ramp, r)]
+    if not on:
+        return None
+    st = _stations(max(on, key=lambda r: r.length), centre)
+    return (float(st[len(st) // 2][0]), float(st[len(st) // 2][1])) if st else None
 
 
 def shell_levels(P, shell: StoreyShell, air, law, grid: float, others=None

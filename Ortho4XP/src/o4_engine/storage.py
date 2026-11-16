@@ -376,6 +376,10 @@ class _Sweep:
         self.freed: dict = {}
         self.files = 0
         self.stopped = False
+        #: #2103, ``storage_floor``: move to a tier only, never delete
+        self.tier_only = False
+        #: #2103: folders whose files this pass never touches (the corpus)
+        self.spare: tuple = ()
         self._log = None
         self._first = None
 
@@ -392,8 +396,14 @@ class _Sweep:
     def delete(self, store: Store, path: str, st: os.stat_result,
                tier: bool = True) -> int:
         """Delete (or, with ``tier``, move to a storage tier) one file;
-        the bytes freed here."""
+        the bytes freed here.  A ``spare`` file is left alone; a
+        ``tier_only`` pass only moves (nothing is deleted or packaged:
+        a moved file lays back with its tile's next build)."""
+        if self.spare and _spared(path, self.spare):
+            return 0
         size = DISK.freeable_bytes(path, st)
+        if self.tier_only:
+            return self._offload(store, path, st, size)
         written = self.first.before_delete(store.kind, path)
         if written:
             self.freed[_PACKAGES.KIND] = self.freed.get(_PACKAGES.KIND, 0) - written
@@ -412,6 +422,19 @@ class _Sweep:
                     return 0
                 self._write("deleted %d bytes %s (%s, %s)"
                             % (size, path, store.kind, self.reason))
+        self.freed[store.kind] = self.freed.get(store.kind, 0) + size
+        self.files += 1
+        return size
+
+    def _offload(self, store: Store, path: str, st: os.stat_result,
+                 size: int) -> int:
+        """:meth:`delete` of a ``tier_only`` pass: moved, or kept."""
+        from .storage_tier_data import keep
+        moved = "" if self.dry_run else keep(store.kind, store.path(), path, st)
+        if not moved:
+            return 0
+        self._write("moved %d bytes %s to %s (%s, %s)"
+                    % (size, path, moved, store.kind, self.reason))
         self.freed[store.kind] = self.freed.get(store.kind, 0) + size
         self.files += 1
         return size
@@ -441,6 +464,12 @@ class _Sweep:
         return {"freed_bytes": sum(self.freed.values()), "files": self.files,
                 "kinds": dict(self.freed), "dry_run": self.dry_run,
                 "stopped": self.stopped}
+
+
+def _spared(path: str, roots: tuple) -> bool:
+    path = os.path.normcase(os.path.abspath(path))
+    return any(path.startswith(os.path.join(os.path.normcase(
+        os.path.abspath(root)), "")) for root in roots)
 
 
 def write_log(line: str) -> None:

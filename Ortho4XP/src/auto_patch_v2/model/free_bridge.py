@@ -22,12 +22,17 @@ import typing as _t
 
 from .frame import XY
 
-__all__ = ["FreeEnd", "FreeDeck", "FreeBridge", "FREE_PLATE", "FREE_PREFIX", "published"]
+__all__ = ["FreeEnd", "FreeDeck", "FreeBridge", "FREE_PLATE", "FREE_PREFIX", "OVERPASS_PREFIX",
+           "published"]
 
 #: the plan member's ``plate_kind`` of a free deck (``pipeline/rebake_inputs``)
 FREE_PLATE = "free"
 #: ``FreeBridge.id`` is this + its first deck's placement id
 FREE_PREFIX = "free:"
+#: #1718 B1: a KEPT candidate read by its crossing (a no-route deck over a
+#: road beneath, ``planar/free_bridge._overpass_witness``) is this + its
+#: placement id, as is its stack's ``bridge``
+OVERPASS_PREFIX = "overpass:"
 
 
 @_dc.dataclass(frozen=True)
@@ -50,13 +55,16 @@ class FreeEnd:
 class FreeDeck:
     """One deck of a free bridge: its placement, plan ring, the mapped ways
     it carries between its ends, its two ends; ``stub_of`` the W-deck a
-    routeless stub joined (``""`` for a deck with its own route)."""
+    routeless stub joined (``""`` for a deck with its own route); ``under``
+    (#1718 B1) the stations of the road beneath a deck read by its crossing,
+    where its zero is read (``()`` for any other)."""
 
     object_id: str
     ring: tuple[XY, ...]
     ways: tuple[int, ...]
     ends: tuple[FreeEnd, ...]
     stub_of: str = ""
+    under: tuple[XY, ...] = ()
 
 
 @_dc.dataclass(frozen=True)

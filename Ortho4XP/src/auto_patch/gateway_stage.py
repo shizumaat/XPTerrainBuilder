@@ -44,8 +44,9 @@ import time
 import traceback
 import typing as _t
 
+from auto_patch_v2.airport import pack_choice as _PC
+
 from . import gateway_api as _api
-from . import pack_choice as _PC
 
 __all__ = ["ACTIONS", "SIDECAR", "gateway_stage", "gateway_choice"]
 

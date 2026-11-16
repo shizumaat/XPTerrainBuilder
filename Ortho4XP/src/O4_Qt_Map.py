@@ -24,6 +24,7 @@ import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Imagery_Sources as SOURCES
 import O4_Imagery_Utils as IMG
+import O4_Map_Filter as MAPFILTER
 import O4_Map_Labels as LABELS
 import O4_Map_Overzoom as OVERZOOM
 import O4_Qt_Map_Controls as QTMAPCONTROLS
@@ -121,17 +122,6 @@ CUSTOM_AIRPORT_COLOR = QColor(199, 64, 120)
 # hidden — the mac app's uninstalled-pack opacity.
 DIM_ALPHA = 90
 REGION_OUTLINE_COLOR = QColor(158, 158, 158, 217)
-
-# Map scenery filter: our built tiles, other installed ortho/mesh
-# packages, or both (mac-app parity: MapSceneryFilter).
-SCENERY_FILTER_ALL = "all"
-SCENERY_FILTER_BUILT = "built"
-SCENERY_FILTER_OTHERS = "others"
-SCENERY_FILTER_LABELS = (
-    (SCENERY_FILTER_ALL, "All"),
-    (SCENERY_FILTER_BUILT, "Built tiles"),
-    (SCENERY_FILTER_OTHERS, "Other ortho"),
-)
 
 # Canonical tile key ("+48-006"): the spelling built-tile folders and the
 # console already use.  One spelling, one parser (``FNAMES.parse_tile_key``)
@@ -421,7 +411,10 @@ class MapView(QGraphicsView):
         self._ortho_tiles = set()
         # (lat, lon) -> (provider, zl) the covering ortho pack's files say.
         self._ortho_imagery = {}
-        self._scenery_filter = SCENERY_FILTER_ALL
+        # The Filter menu's items turned off (#2097, O4_Map_Filter) and
+        # the codes the airport index calls ICAO (its kind).
+        self._filter_hidden = frozenset()
+        self._icao_codes = frozenset()
         #: The one key's items while the Fly view shows (a callable,
         #: ``O4_Qt_Fly_Layer.FlyLayer.set_shown``); None: the Build view's.
         self.fly_key = None
@@ -620,11 +613,27 @@ class MapView(QGraphicsView):
             (str(code), float(lat), float(lon))
             for (code, lat, lon) in airports
         ]
-        # Binned by size class and 10-degree cell ONCE, here, so a pan
-        # frame walks only the classes its zoom marks and the cells it
-        # can see instead of all 35 000 rows (the bare cull alone cost
-        # ~2 ms a frame).  Call set_airport_sizes first.
-        self._airport_layer.set_default(self._default_airports)
+        self._refresh_airport_layer()
+
+    def set_airport_icao_codes(self, codes):
+        """The codes the engine's airport index files as ICAO airports
+        (``O4_Map_Filter.ICAO_CATEGORY``): the Filter menu's kind."""
+        self._icao_codes = frozenset(str(code) for code in codes)
+        self._refresh_airport_layer()
+
+    def _refresh_airport_layer(self):
+        """Hand the layer the marks the Filter menu leaves on (#2097).
+        Binned by size class and 10-degree cell ONCE, here, so a pan
+        frame walks only the classes its zoom marks and the cells it can
+        see instead of all 35 000 rows (the bare cull alone cost ~2 ms a
+        frame).  Call set_airport_sizes first."""
+        hidden, icao = self._filter_hidden, self._icao_codes
+        self._airport_layer.set_default(
+            [row for row in self._default_airports
+             if MAPFILTER.shows_airport(hidden, row[0] in icao, False)])
+        self._airport_layer.set_custom(
+            [row for row in self._custom_airports
+             if MAPFILTER.shows_airport(hidden, row[0] in icao, True)])
         self.viewport().update()
 
     def set_airport_sizes(self, sizes):
@@ -632,8 +641,7 @@ class MapView(QGraphicsView):
         index (O4_Airport_Rank): what ranks the marks and labels (#817).
         Hand these in before :meth:`set_default_airports`."""
         self._airport_layer.set_sizes(sizes)
-        self._airport_layer.set_default(self._default_airports)
-        self.viewport().update()
+        self._refresh_airport_layer()
 
     def airport_marks(self):
         """Every airport mark as ``(code, lat, lon)`` (Global Airports and
@@ -664,8 +672,7 @@ class MapView(QGraphicsView):
             (str(code), float(lat), float(lon), bool(dim))
             for (code, lat, lon, dim) in airports
         ]
-        self._airport_layer.set_custom(self._custom_airports)
-        self.viewport().update()
+        self._refresh_airport_layer()
 
     def set_scenery_regions(self, regions):
         """Other installed ortho/mesh packages: ``(name, tiles, dim)``
@@ -689,16 +696,30 @@ class MapView(QGraphicsView):
                         self._ortho_imagery.setdefault(tile, imagery)
         self.viewport().update()
 
-    def scenery_filter(self):
-        return self._scenery_filter
+    def map_filter(self):
+        """The Filter menu's items turned off (#2097)."""
+        return self._filter_hidden
 
-    def set_scenery_filter(self, mode):
-        """Which ortho layers draw: ours, the others', or both."""
-        if mode not in (SCENERY_FILTER_ALL, SCENERY_FILTER_BUILT,
-                        SCENERY_FILTER_OTHERS):
-            mode = SCENERY_FILTER_ALL
-        self._scenery_filter = mode
-        self.viewport().update()
+    def set_map_filter(self, hidden):
+        """Which airport marks and tiles draw (``O4_Map_Filter``)."""
+        self._filter_hidden = MAPFILTER.parse_hidden(list(hidden))
+        self._refresh_airport_layer()
+
+    def _shows_tile(self, tile):
+        """The Filter menu leaves this tile's World state (or built tile)
+        on."""
+        row = self._world.get(tile)
+        built = self._built.get(tile)
+        state = row.state if row is not None else None
+        if built is not None and state == "nothing":
+            state = None
+        return MAPFILTER.shows_tile(self._filter_hidden, state,
+                                    bool(getattr(built, "pinned", False)))
+
+    def _shown_built(self):
+        """The built tiles the Filter menu leaves on."""
+        return {tile: info for tile, info in self._built.items()
+                if self._shows_tile(tile)}
 
     def selection(self):
         return set(self._selection)
@@ -956,7 +977,8 @@ class MapView(QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         lat, lon = GEO.pix_to_wgs84(scene_pos.x(), scene_pos.y(), SCENE_ZL)
         tile = (math.floor(lat), math.floor(lon))
-        built = None if self.is_building(tile) else self._built.get(tile)
+        built = (None if self.is_building(tile) or not self._shows_tile(tile)
+                 else self._built.get(tile))
         if built is None:
             return False
         r = self._tile_rect(*tile)
@@ -1310,9 +1332,9 @@ class MapView(QGraphicsView):
         """The key's items: the Fly view's, or the kinds on the map now."""
         if self.fly_key is not None:
             return self.fly_key()
-        if self._scenery_filter == SCENERY_FILTER_OTHERS:
+        if not MAPFILTER.shows_any_tile(self._filter_hidden):
             return []
-        return QTLEGEND.legend_kinds(self._built, self._stale, self._world,
+        return QTLEGEND.legend_kinds(self._shown_built(), self._stale, self._world,
                                      bool(self._custom_patched))
 
     def viewportEvent(self, event):
@@ -1382,15 +1404,15 @@ class MapView(QGraphicsView):
         painter.setFont(font)
 
         if (lat_hi - lat_lo) * (lon_hi - lon_lo) < 3000:
-            if self._scenery_filter != SCENERY_FILTER_OTHERS:
-                visible = list(visible)
-                QTWORLD.paint_world(
-                    painter, self._world, visible, self._tile_rect, scale,
-                    lambda t: self.is_building(t) or (t in self._stale
-                                                      and t in self._built))
-                for tile in visible:
-                    self._draw_tile_overlay(painter, tile, scale)
-            if self._scenery_filter != SCENERY_FILTER_BUILT:
+            visible = list(visible)
+            QTWORLD.paint_world(
+                painter, self._world, visible, self._tile_rect, scale,
+                lambda t: self.is_building(t) or (t in self._stale
+                                                  and t in self._built)
+                or not self._shows_tile(t))
+            for tile in visible:
+                self._draw_tile_overlay(painter, tile, scale)
+            if MAPFILTER.shows_other_ortho(self._filter_hidden):
                 self._draw_scenery_regions(
                     painter, lat_lo, lat_hi, lon_lo, lon_hi
                 )
@@ -1410,7 +1432,8 @@ class MapView(QGraphicsView):
                                                            progress[1])
 
     def _draw_tile_overlay(self, painter, tile, scale):
-        built = None if self.is_building(tile) else self._built.get(tile)
+        built = (None if self.is_building(tile) or not self._shows_tile(tile)
+                 else self._built.get(tile))
         selected = tile in self._selection
         active = tile == self._active
         progress = self._progress.get(tile)
@@ -1530,15 +1553,14 @@ class MapView(QGraphicsView):
     def _draw_tile_labels(self, painter):
         """Coordinate top-left and installed imagery bottom-left on every
         tile big enough to carry them (#817, mac-app parity), honouring
-        the scenery filter."""
+        the Filter menu (#2097)."""
         QTLABELS.paint_tile_labels(
             painter, self._viewport_point,
             LABELS.scale_for_slippy_zoom(self._zoom), self.visible_bounds(),
             tile_key,
-            self._built if self._scenery_filter != SCENERY_FILTER_OTHERS
-            else None,
-            self._ortho_tiles if self._scenery_filter != SCENERY_FILTER_BUILT
-            else None,
+            self._shown_built(),
+            self._ortho_tiles
+            if MAPFILTER.shows_other_ortho(self._filter_hidden) else None,
             QTTEXT.current_scale(), self._ortho_imagery, self._conflicts,
             self._stale)
 

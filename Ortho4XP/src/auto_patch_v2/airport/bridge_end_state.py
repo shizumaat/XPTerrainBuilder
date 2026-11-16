@@ -41,7 +41,7 @@ from shapely.geometry import LineString, Point
 
 from ..model.deck_stack import StackEnd
 
-__all__ = ["Obstacles", "end_state", "cut", "standing_plan"]
+__all__ = ["Obstacles", "end_state", "cut", "standing_plan", "access_ways"]
 
 XY = tuple[float, float]
 #: the walk's node join tolerance (m): way nodes shared in the feed project
@@ -194,7 +194,11 @@ class Obstacles:
         self.airside = _Airside(airport)
         self.min_h = float(br.end_solid_min_height_m)
         self.min_a = float(br.end_solid_min_area_m2)
-        self.graph = _Graph(getattr(airport, "osm_ways_mapped", None) or airport.osm_ways)
+        from .ground_route_ways import ground_route_ways
+        # #2062 R3b E: a ground route carried over a deck walks on along the
+        # airport's ground routes
+        self.graph = _Graph(list(getattr(airport, "osm_ways_mapped", None) or airport.osm_ways)
+                            + list(ground_route_ways(airport)))
         self._objs = [o for o in objects or () if getattr(o, "resolved", None)
                       and getattr(o, "plan_bbox", None) is not None]
         from shapely.strtree import STRtree
@@ -355,10 +359,30 @@ def _hits_on_path(line: LineString, run: float, corridor, own, mid: XY, top_at,
     return hits, sorted(set(under))
 
 
+def access_ways(stations: _t.Sequence[XY], out: XY, carried: _t.Sequence[int],
+                obs: Obstacles, law) -> tuple[int, ...]:
+    """#2090 B4: the AT-GRADE mapped roads passing an end line within its
+    slab — a centreline within ``abutment_sample_step_m`` of the end line,
+    either side (``model/deck_ends.end_road_vertices``' reach), the carried
+    ways left out."""
+    if len(stations) < 2:
+        return ()
+    h = float(law.tables.structures.bridge.abutment_sample_step_m)
+    slab = LineString(stations).buffer(h)
+    skip = {int(i) for i in carried}
+    return tuple(sorted(int(w.id) for w in obs.graph.ways
+                        if int(w.id) not in skip and "highway" in (w.tags or {})
+                        and _at_grade(w.tags) and LineString(w.points).intersects(slab)))
+
+
 def end_state(*, oid: str, side: str, stations: _t.Sequence[XY], top: float, out: XY,
               ground: float, zero: float, carried: _t.Sequence[int], stub: bool,
-              own: _t.Collection[str], obs: Obstacles, law) -> StackEnd:
-    """One land end's :class:`~..model.deck_stack.StackEnd` (module doc)."""
+              own: _t.Collection[str], obs: Obstacles, law,
+              access: _t.Sequence[int] = ()) -> StackEnd:
+    """One land end's :class:`~..model.deck_stack.StackEnd` (module doc).
+    ``access`` (#2090 B4): the at-grade roads passing the end line within
+    the slab (:func:`access_ways`) — the end's corridor is then the slab
+    alone (no run-on; the road's own ramp leaves the end)."""
     br = law.tables.structures.bridge
     flush, step = float(br.deck_flush_m), float(br.abutment_sample_step_m)
     stations = tuple((float(x), float(y)) for x, y in stations)
@@ -377,8 +401,8 @@ def end_state(*, oid: str, side: str, stations: _t.Sequence[XY], top: float, out
     rail = not stub and _is_rail([by_id[int(i)] for i in carried if int(i) in by_id])
     g = (float(law.tables.structures.tunnel.rail_ramp_grade) if rail
          else float(law.tables.emit.road_contact.ramp_grade))
-    run = gap / g + step
-    reach = max(run, line_len)
+    run = step if access else gap / g + step
+    reach = step if access else max(run, line_len)
     if stub:
         path, routed, used = (mid, (mid[0] + out[0] * reach, mid[1] + out[1] * reach)), reach, ()
     else:
@@ -387,7 +411,8 @@ def end_state(*, oid: str, side: str, stations: _t.Sequence[XY], top: float, out
         path = _run_on(path, out, reach)
     line = cut(path, reach)
     end = StackEnd(**base, gap=gap, state="graded", why="", run=run, grade=g, rail=rail,
-                   path=tuple((float(x), float(y)) for x, y in line.coords))
+                   path=tuple((float(x), float(y)) for x, y in line.coords),
+                   access=tuple(int(i) for i in access))
     hits: list[tuple[float, str, str]] = []
     if stub and run > float(law.tables.structures.building_pad.fill_road_reach_m):
         hits.append((0.0, "listed", f"end_beyond_reach: a stub's run {run:.0f} m > "
@@ -412,6 +437,8 @@ def end_state(*, oid: str, side: str, stations: _t.Sequence[XY], top: float, out
                            crossings=tuple(crossing), under=tuple(under))
     on = (f"; straight on past the mapped route at {routed:.0f} m"
           if not stub and routed + 1e-6 < run else "")
+    if access:
+        on = f"; the access road {list(access)} passes the end line: the slab alone (#2090 B4)"
     return _dc.replace(end, why=f"graded: gap {gap:.2f} m over {run:.0f} m at {g:.2%}{on}",
                        crossings=tuple(crossing), under=tuple(under))
 

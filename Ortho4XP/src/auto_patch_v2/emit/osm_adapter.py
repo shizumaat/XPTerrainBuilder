@@ -209,6 +209,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "object_floors",
     # #2065 A3: the free / kept bridge stacks' land ends (``publication.bridge_rows``)
     "free_bridges",
+    # #2090 A5: the AGP groups' published datum (``constraints/agp_level.
+    # published_groups``; the graded surface's provenance carries the same)
+    "agp_groups",
     # §16g (10) (12) (2) (Fable 2026-09-16; RULINGS 2026-09-16b):
     # ``[lat, lon, "minted"|"deleted"]`` per airside node the PAD STAGE
     # added to or removed from the arrangement's airside cells.  The

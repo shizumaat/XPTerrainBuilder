@@ -73,6 +73,8 @@ def _hill(top):
 
 
 HOUSE = _prism(0.0, -68.0, 8.0, 20.0, 26.0)          # walled, 20 m up, 60-68 m north
+#: #2077 rule C: a PIECE -- walled, but no building (witness 5: 1 x 1 m)
+POLE = _prism(0.0, -68.0, 1.0, 20.0, 26.0)
 
 
 def _house(ss):
@@ -97,12 +99,12 @@ def test_a_house_on_its_authors_hill_stands_on_ours(tmp_path):
     assert not ss.counts.get("terrain_carried_over_ground")
 
 
-def test_a_house_whose_rigid_base_clears_our_ground_keeps_its_authored_height(tmp_path):
+def test_a_piece_whose_rigid_base_clears_our_ground_keeps_its_authored_height(tmp_path):
     """RULINGS 2026-11-14a (1) (``terrain_base_over_ground = false``): only
-    a base at or under our ground is put on our terrain; one whose rigid
+    a base at or under our ground is put on our terrain; a PIECE whose rigid
     base clears it keeps §16 (3)'s own ground with its authored y — the
     case counted for the owner's read (docs/findings/1884-in-air-pieces.md)."""
-    ss = PP.build_splits(_plan(_obj(tmp_path, [HOUSE])), _hill(12.0), write=False, **ARGS)
+    ss = PP.build_splits(_plan(_obj(tmp_path, [POLE])), _hill(12.0), write=False, **ARGS)
     b = _house(ss)
     assert TB.TERRAIN_CARRIED not in b.anchor.reason
     assert b.anchor.y_zero == pytest.approx(0.0, abs=1e-9)
@@ -110,11 +112,55 @@ def test_a_house_whose_rigid_base_clears_our_ground_keeps_its_authored_height(tm
     assert not ss.counts.get("terrain_carried_over_ground")
 
 
+def test_a_building_whose_rigid_base_clears_our_ground_stands_on_it(tmp_path):
+    """#2077 rule C (witness 5): a BUILDING nothing carries stands on our
+    terrain however far its base is from it -- the 64 m2 house 8 m over a
+    12 m hill takes its base plane (y 20) on the ground, counted
+    ``terrain_carried_building_over_ground``; the pole beside it does not."""
+    ss = PP.build_splits(_plan(_obj(tmp_path, [HOUSE])), _hill(12.0), write=False, **ARGS)
+    b = _house(ss)
+    assert TB.TERRAIN_CARRIED in b.anchor.reason
+    assert b.anchor.y_zero == pytest.approx(20.0, abs=1e-6)
+    assert b.anchor.surface_z == pytest.approx(12.0, abs=0.05)
+    assert ss.counts.get("terrain_carried_building_over_ground") == 1
+    assert not ss.counts.get("terrain_carried_refused_over_ground")
+
+
+def test_witness_5_reads_the_walled_union_box():
+    """At least 25 m2 with a shorter side of at least 4 m (``[placement]
+    terrain_building_min_area_m2`` / ``_min_side_m``); 0 disarms it."""
+    import dataclasses as dc
+    law = _law([_p(1, 20.0, 6.0, BOX)], _hill(0.0))
+    assert (law.building_area_m2, law.building_side_m) == (25.0, 4.0)
+    ml, mo = AR._m_per_deg(LAT)
+    one = lambda e, n: (LAT, LON, LAT + n / ml, LON + e / mo)  # noqa: E731
+    assert TB._is_building([_p(1, 20.0, 6.0, one(6.0, 5.0))], law)
+    assert not TB._is_building([_p(1, 20.0, 6.0, one(12.0, 2.5))], law)   # a fence
+    assert not TB._is_building([_p(1, 20.0, 6.0, one(4.5, 4.5))], law)    # 20 m2
+    # two walls' union is the box
+    assert TB._is_building([_p(1, 20.0, 6.0, one(6.0, 1.0)),
+                           _p(2, 20.0, 6.0, (LAT + 4.0 / ml, LON, LAT + 5.0 / ml,
+                                             LON + 6.0 / mo))], law)
+    assert not TB._is_building([_p(1, 20.0, 6.0, one(6.0, 5.0))],
+                              dc.replace(law, building_area_m2=0.0))
+    # a thin sign turned 45 degrees: its lat/lon box reads 70 m2, its plan 12 x 1 m
+    # (KDEN ``HS_30m_Bridge_Directions``, the census's one false building)
+    import math as _m
+    c, s_ = _m.cos(_m.radians(45.0)), _m.sin(_m.radians(45.0))
+    ring = [(LAT + (x * s_ + z * c) / ml, LON + (x * c - z * s_) / mo)
+            for x, z in ((0, 0), (12, 0), (12, 1), (0, 1))]
+    sign = types.SimpleNamespace(pid=1, base_y=20.0, height_m=6.0, rings=(ring,), feet=(),
+                                 line=False, scatter=False,
+                                 box=(min(a for a, _b in ring), min(b for _a, b in ring),
+                                      max(a for a, _b in ring), max(b for _a, b in ring)))
+    assert not TB._is_building([sign], law)
+
+
 def test_the_over_ground_switch_refuses_and_counts():
     """``[placement] terrain_base_over_ground = false``: the spec's witness
     3 — a base clearing our ground stays on its own ground, counted."""
     import dataclasses as dc
-    walls = [_p(1, 20.0, 6.0, BOX)]
+    walls = [_p(1, 20.0, 6.0, BOX_POLE)]
     law = dc.replace(_law(walls, _hill(12.0)), over_ground=False)
     counts: dict = {}
     assert TB.seat(walls, None, FR[0], 0.0, law, counts) is None
@@ -153,6 +199,8 @@ def _p(pid, base, h, box, feet=(), line=False):
 
 
 BOX = (LAT + 0.0006, LON, LAT + 0.0007, LON + 0.0001)
+#: a pole's box, about 1 x 1 m (no building, witness 5)
+BOX_POLE = (LAT + 0.0006, LON, LAT + 0.000609, LON + 0.0000133)
 FR = ((LAT, LON), 0.0)
 
 
@@ -241,9 +289,10 @@ def test_a_house_within_2m_over_our_ground_stands_on_it(tmp_path):
     assert ss.counts.get("terrain_carried_bodies") == 1
 
 
-def test_a_house_2_5m_over_our_ground_keeps_its_authored_height(tmp_path):
-    """Above ``terrain_base_within_m`` 14a (1) stands: authored y, counted."""
-    ss = PP.build_splits(_plan(_obj(tmp_path, [HOUSE])), _hill(27.1), write=False, **ARGS)
+def test_a_piece_2_5m_over_our_ground_keeps_its_authored_height(tmp_path):
+    """Above ``terrain_base_within_m`` 14a (1) stands for a piece: authored
+    y, counted (a building stands on our terrain, #2077 rule C)."""
+    ss = PP.build_splits(_plan(_obj(tmp_path, [POLE])), _hill(27.1), write=False, **ARGS)
     b = _house(ss)
     assert TB.TERRAIN_CARRIED not in b.anchor.reason
     assert b.anchor.y_zero == pytest.approx(0.0, abs=1e-9)
@@ -254,7 +303,7 @@ def test_the_within_reach_is_the_law_key():
     """1.5 m over → terrain; 2.5 m over → refused; at/under → terrain, not
     counted as within (the margin is frame zero + b − G)."""
     import dataclasses as dc
-    walls = [_p(1, 20.0, 6.0, BOX)]
+    walls = [_p(1, 20.0, 6.0, BOX_POLE)]
     law = _law(walls, _hill(0.0))
     assert law.within_m == pytest.approx(2.0)
     for top, seated, key in ((28.1, True, "terrain_carried_within_ground"),
@@ -275,13 +324,13 @@ def test_the_within_reach_is_the_law_key():
 ROOF = _prism(-1.0, -69.0, 10.0, 25.5, 25.6)    # overhangs the walls 1 m
 
 
-def _two(tmp_path, top_shape=ROOF):
+def _two(tmp_path, top_shape=ROOF, walls=HOUSE):
     """The house and its roof as two resources of one frame (LOWS
     ``domiki_lows_13`` walls, ``domiki_lows_37`` roof)."""
     hp, rp = tmp_path / "walls", tmp_path / "roof"
     hp.mkdir()
     rp.mkdir()
-    house = _plan(_obj(hp, [HOUSE])).units[0].members[0]
+    house = _plan(_obj(hp, [walls])).units[0].members[0]
     roof = _plan(_obj(rp, [top_shape])).units[0].members[0]
     import dataclasses as dc
     roof = dc.replace(roof, id="dsf:obj2", resource="objects/roof.obj",
@@ -309,10 +358,22 @@ def test_a_roof_rides_its_terrain_carried_walls(tmp_path):
     assert ss.counts.get("terrain_carried_riders") == 1
 
 
+def test_a_building_far_over_our_ground_seats_with_its_roof(tmp_path):
+    """#2077 rule C: walls 20 m over a 10 m ground with a roof rider -- the
+    building stands on our terrain at its base plane and the roof rides it."""
+    ss = PP.build_splits(_two(tmp_path), _hill(10.0), write=False, **ARGS)
+    w, r = _of(ss, "objects/house.obj"), _of(ss, "objects/roof.obj")
+    assert TB.TERRAIN_CARRIED in w.anchor.reason and TB.TERRAIN_CARRIED in r.anchor.reason
+    zero = lambda b: b.anchor.surface_z - b.anchor.y_zero  # noqa: E731
+    assert zero(r) == pytest.approx(zero(w), abs=1e-9)
+    assert ss.counts.get("terrain_carried_building_over_ground") == 1
+    assert ss.counts.get("terrain_carried_riders") == 1
+
+
 def test_a_roof_on_walls_left_at_authored_height_stays_with_them(tmp_path):
-    """Walls refused by 14a (1) keep own ground + authored y; so does the
-    roof (it never takes a seat its walls did not)."""
-    ss = PP.build_splits(_two(tmp_path), _hill(12.0), write=False, **ARGS)
+    """Walls refused by 14a (1) (a piece, not a building) keep own ground +
+    authored y; so does the roof (it never takes a seat its walls did not)."""
+    ss = PP.build_splits(_two(tmp_path, walls=POLE), _hill(12.0), write=False, **ARGS)
     r = _of(ss, "objects/roof.obj")
     assert TB.TERRAIN_CARRIED not in r.anchor.reason
     assert r.anchor.y_zero == pytest.approx(0.0, abs=1e-9)

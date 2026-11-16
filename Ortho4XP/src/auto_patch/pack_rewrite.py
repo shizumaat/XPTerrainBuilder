@@ -23,7 +23,7 @@ import os
 import shutil
 import typing as _t
 
-from .pack_choice import relative
+from auto_patch_v2.airport.pack_choice import relative
 
 __all__ = ["rewrite_dsf", "undo_recorded"]
 

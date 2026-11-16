@@ -56,6 +56,10 @@ class TunnelObject:
     # …and whose floor stands at least this far under the author's ground
     # around it (kmcifloor 2026-11-07: an at-grade plate is pavement)
     floor_sunken_min_m: float
+    # #2091: a WALLED PIT's floor is sunken AS A WHOLE — at least this share
+    # of the plan area under its rim stands, as authored, under the ground
+    # around it (a road ramp walled by its parapets climbs out of it)
+    pit_sunken_min_share: float
     # 2026-11-06d (4): the cut stands this far under the floor face over it
     floor_clearance_m: float
     # …measured against THE AUTHOR'S GROUND (``geom/author_ground``): the
@@ -102,3 +106,10 @@ class TunnelObject:
     # #1737: an entrance face's top meets the AIRSIDE (``constraints/airside_top``);
     # airside this near the face's top is the grade it is flush with
     entrance_airside_reach_m: float
+    # #2062 R3b C: the FRONT FLOOR -- the stations this near the mouth stand
+    # as wide as the face's front wall (``planar/front_band``)
+    face_front_m: float
+    # #2099: a mouth group's WING runs out of its mouth no farther than this
+    wing_reach_max_m: float
+    # #2099 R3 D6: a group wall foot slope under this witnesses no ramp grade
+    group_foot_min_grade: float

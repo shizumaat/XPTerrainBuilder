@@ -213,18 +213,41 @@ def _top_at(plate, seats, reach: float, top: float) -> float:
     return max(near) if near else top
 
 
-def _bottom_y(cache, frame, trenches, top: float) -> tuple[float, bool]:
+def _bottom_y(cache, frame, trenches, top: float, under=None) -> tuple[float, bool]:
     """``(the frame's bottom y, walled)``: a co-placed trench object's walls'
     bottom (``walled``: the frame is then the trench object's), else the
-    lowest genuine solid of the frame's placements, else ``top``: a frame
-    modelling nothing but its plate states no level under it (round 3 §1
-    twin B, LFPG's plate-only decks: the authored y = 0 plane is no floor)."""
+    lowest genuine solid of the frame's member placements that STAND UNDER
+    THE DECK, else ``top``: a frame modelling nothing but its plate states
+    no level under it (round 3 §1 twin B, LFPG's plate-only decks: the
+    authored y = 0 plane is no floor).  ``under`` (the deck ring shrunk by
+    ``[tunnel] wall_gap_m``, #2099 R3b A2'): a member stands under the deck
+    when one of its genuine solids has its plan centroid inside ``under``,
+    and then counts WHOLE; a member with no solid under the deck (a wing or
+    approach wall) is no part of the deck's depth (measured: CYYZ FA's wing
+    walls 32-82 m outside it, down to y -9.39; KBNA Taxiway L's lowest
+    solid, -0.17, 4.5 m outside the plate in a member whose piers stand
+    under it -- depth 6.16 kept)."""
     ids = {str(q.id) for q in frame}
     tr = [t for t in trenches or () if str(t.object_id) in ids]
     if tr:
         return -max(float(t.depth_m) for t in tr), True
-    ys = [c.min_y for q in frame if q.resolved for c in cache.genuine(q.resolved)]
+    ys = [y for q in frame if q.resolved for y in _solid_lows(cache, q, under)]
     return (min(ys) if ys else top), False
+
+
+def _solid_lows(cache, q, under) -> list[float]:
+    """Every genuine component's ``min_y`` of placement ``q`` when ``q``
+    stands UNDER the deck -- one component's plan centroid inside ``under``
+    (always where ``under`` is ``None``) -- else none (#2099 R3b A2')."""
+    comps = cache.genuine(q.resolved)
+    if under is None:
+        return [c.min_y for c in comps]
+    from shapely.geometry import Point as _Pt
+
+    from ..airport.obj8 import _to_frame
+    if any(under.contains(_Pt(_to_frame(q.xy, q.heading_deg, c.cx, c.cz))) for c in comps):
+        return [c.min_y for c in comps]
+    return []
 
 
 def _beside_a_building(frame, ring: Polygon, roles: CellRoles) -> bool:
@@ -300,7 +323,8 @@ def deck_bridges(objects, cache, classification, airport, law, trenches=(),
         top = max((y for _x, _y, y in plate), default=None)
         if top is None or d.deck_top_z is None:
             continue
-        bottom, walled = _bottom_y(cache, frame, trenches, top)
+        under = u.buffer(-float(law.tables.structures.tunnel.wall_gap_m))
+        bottom, walled = _bottom_y(cache, frame, trenches, top, u if under.is_empty else under)
         if walled:
             # Q-A AS RULED: where the pack models walls the walls define the
             # cut — the co-placed trench object's own reading governs
@@ -887,13 +911,49 @@ def _ground_cell(law, oid: str, k: int, part: Polygon) -> Cell:
                 {"deck_ground": 1.0, "area_m2": part.area})
 
 
-def deck_pin(db: DeckBridge, mouth):
+def deck_pin(db: DeckBridge, mouth, law=None):
     """The deck bridge as the ``airport/portal_objects.Portal`` the
-    structure pass pins ``mouth`` with: never slid, its depth the deck's."""
+    structure pass pins ``mouth`` with: never slid, its depth the deck's.
+    #2099 R3 D6: where the deck's MOUTH GROUP has walls on this mouth's
+    approach (``DeckBridge.group_feet``), the pin carries their run along it
+    (``wall_reach_m``) and their feet's least-squares slope (``foot_grade``)
+    -- the walls the ramp is planned on (``planar/structures``' walled path)."""
     from ..airport.portal_objects import Portal
+    reach, grade = (0.0, 0.0) if law is None else _group_reach(db, tuple(mouth.xy), law)
     return Portal(db.object_id, db.resource, tuple(mouth.xy),
                   int(mouth.ways[0]) if mouth.ways else 0, db.depth_m, 0.0,
-                  tuple(mouth.xy), False, db.ring, ())
+                  tuple(mouth.xy), False, db.ring, (), wall_reach_m=reach, foot_grade=grade)
+
+
+def _group_reach(db: DeckBridge, xy, law) -> tuple[float, float]:
+    """``(reach, foot slope)`` of the deck's group walls along the approach
+    out of the mouth at ``xy`` (away from the deck): the stations chained
+    from the mouth, no gap over two ``wall_sample_m``, and the least-squares
+    slope of their feet over that run (never under 0); ``(0, 0)`` with none."""
+    feet = getattr(db, "group_feet", ()) or ()
+    if not feet:
+        return 0.0, 0.0
+    c = deck_polygon(db).centroid
+    L = math.hypot(c.x - xy[0], c.y - xy[1])
+    if L <= 1e-9:
+        return 0.0, 0.0
+    ix, iy = (c.x - xy[0]) / L, (c.y - xy[1]) / L
+    step = 2.0 * float(law.tables.structures.tunnel.object.wall_sample_m)
+    pts = sorted((-((x - xy[0]) * ix + (y - xy[1]) * iy), f) for x, y, f in feet)
+    pts = [p for p in pts if p[0] >= -step]
+    if not pts or pts[0][0] > step:
+        return 0.0, 0.0
+    reach, run = pts[0][0], []
+    for a, f in pts:
+        if a > reach + step:
+            break
+        reach = max(reach, a)
+        run.append((a, f))
+    if reach <= step or len({round(a, 1) for a, _f in run}) < 2:
+        return 0.0, 0.0
+    import numpy as np
+    slope = float(np.polyfit([a for a, _f in run], [f for _a, f in run], 1)[0])
+    return float(reach), max(0.0, slope)
 
 
 def deck_seats(db: DeckBridge, axis: LineString, other: "DeckBridge | None",

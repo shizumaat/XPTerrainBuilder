@@ -119,6 +119,9 @@ def feature_ids(placements: _t.Sequence[tuple], geometry: _t.Callable[[str], _t.
         if d not in verdict:
             verdict[d] = (not is_stock_library_resource(d)
                           and is_terrain_feature(geometry(d)))
-    seeds = {key(xy, h, e) for _i, d, xy, h, e, _k in placements if verdict[d]}
-    return frozenset(i for i, _d, xy, h, e, _k in placements
-                     if seeds and key(xy, h, e) in seeds)
+    # an OBJECT_MSL row's column is an absolute height, not a lift: the
+    # origin set is read without it, as it always was
+    rows = [(i, d, xy, h, None if k == "OBJECT_MSL" else e)
+            for i, d, xy, h, e, k in placements]
+    seeds = {key(xy, h, e) for _i, d, xy, h, e in rows if verdict[d]}
+    return frozenset(i for i, _d, xy, h, e in rows if seeds and key(xy, h, e) in seeds)

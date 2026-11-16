@@ -124,6 +124,8 @@ def test_an_intermediate_step_done_pair_is_never_forwarded():
     session = type("Session", (), {})()
     session._emit = emitted.append
     session._run_finished = lambda: None
+    session.with_paid_rebuilds = lambda built: built
+    session._announce_rebuild_pending = lambda cancelled: None
     run = parallel.ParallelBuildRun(
         session, [FIRST], "P", 16, "", (True, True, True), 2)
 

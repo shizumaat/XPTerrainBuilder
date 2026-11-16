@@ -59,11 +59,9 @@ _Triangle = "tuple[tuple[float, float], tuple[float, float], tuple[float, float]
 # decorative border blend, not the exactly-once base coverage this map needs.
 _PHYSICAL_FLAG_BIT = 1
 
-#: Scenery-pack folders to look for ONE LEVEL DOWN from a configured
-#: ``custom_overlay_src`` that does not itself hold ``Earth nav data``
-#: (RULINGS 2026-09-14bu: the owner had ``…/X-Plane 12/Global Scenery``
-#: configured — the parent of the pack).  X-Plane's own installer names.
-_GLOBAL_SCENERY_SUBDIRS = OVL.GLOBAL_SCENERY_SUBDIRS
+# Where the default DSF is looked for (custom_overlay_src, one level down
+# per RULINGS 2026-09-14bu, then the install beside Custom Scenery) is
+# ``O4_Overlay_Utils.source_candidates``, shared with the overlay step.
 
 
 def _dump_cache_dir() -> str:
@@ -158,9 +156,12 @@ class DefaultTerrainMap:
         return cls._from_text_path(text_path, dsf_path=dsf_path)
 
     @classmethod
-    def from_tile(cls, lat: int, lon: int) -> "DefaultTerrainMap | None":
+    def from_tile(cls, lat: int, lon: int,
+                  scenery_dir: str = "") -> "DefaultTerrainMap | None":
         """Locate the default DSF for tile ``(lat, lon)`` under
-        ``O4_Overlay_Utils.custom_overlay_src`` and parse it.
+        ``O4_Overlay_Utils.custom_overlay_src`` and parse it; with
+        ``scenery_dir`` (a Custom Scenery folder) and no source set, the
+        ``Global Scenery`` beside it (``O4_Overlay_Utils.source_candidates``).
 
         Resolution mirrors
         ``O4_DSF_Utils.extract_elevation_and_bathymetry_data``
@@ -169,22 +170,7 @@ class DefaultTerrainMap:
         fallback to ``custom_overlay_src_alternate``.  Returns ``None`` with
         a clear printed error if no DSF is found.
         """
-        relative = os.path.join(
-            "Earth nav data", FNAMES.long_latlon(lat, lon) + ".dsf")
-        candidates = []
-        for root in (OVL.custom_overlay_src, OVL.custom_overlay_src_alternate):
-            if not root:
-                continue
-            candidates.append(os.path.join(root, relative))
-            # RULINGS 2026-09-14bu: the owner had the setting one level
-            # HIGH — ``…/X-Plane 12/Global Scenery`` instead of
-            # ``…/Global Scenery/X-Plane 12 Global Scenery``.  A
-            # configured root that is the PARENT of the scenery pack is
-            # accepted by looking one level down for the pack that owns
-            # the tile, rather than failing with an opaque "not found".
-            for sub in _GLOBAL_SCENERY_SUBDIRS:
-                candidates.append(os.path.join(root, sub, relative))
-
+        candidates = OVL.source_candidates(lat, lon, scenery_dir)
         dsf_path = next(
             (c for c in candidates if os.path.isfile(c)), None)
         if dsf_path is None:

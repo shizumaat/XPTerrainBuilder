@@ -15,7 +15,10 @@ journal knows a :class:`WorldTile`:
   whose imagery streams in flight (``sharp`` = the fraction of its
   textures at full width); :data:`DRAPE`: our photo over X-Plane's own
   mesh; :data:`PLACEHOLDER`: the World pack holds the tile but nothing is
-  built (X-Plane's default scenery for now); :data:`NOTHING`: no DSF (a
+  built (X-Plane's default scenery for now); :data:`OFF`: the user turned
+  XPTerrainBuilder off on the tile (#2100, ``O4_World_Pack_Off``: X-Plane's
+  own scenery, the tile's files kept aside -- ``dsf`` names the kept DSF
+  when there is one, ``provider`` its photo); :data:`NOTHING`: no DSF (a
   journal record only).  A tile neither holds is not listed: nothing;
 * ``origin`` -- ``O4_Tile_Info.ORIGIN_HERE`` / ``ORIGIN_ADOPTED`` /
   ``ORIGIN_OTHER`` for a mesh (``ORIGIN_HERE`` when the DSF's
@@ -56,8 +59,9 @@ import O4_Tile_Info as TINFO
 import O4_Tile_Volume as TVOL
 import O4_World_Imagery_Record as IREC
 import O4_World_Pack as WP
+import O4_World_Pack_Off as WOFF
 
-__all__ = ["FULL", "MESH_LOWRES", "DRAPE", "PLACEHOLDER", "NOTHING", "STATES",
+__all__ = ["FULL", "MESH_LOWRES", "DRAPE", "PLACEHOLDER", "OFF", "NOTHING", "STATES",
            "SOURCE_ORIGINALS", "SOURCE_LEAN", "SOURCE_DRIVE", "SOURCES",
            "WorldTile", "iter_world", "read_world", "read_tile",
            "journal_record"]
@@ -66,9 +70,10 @@ FULL = "full"
 MESH_LOWRES = "mesh_lowres"
 DRAPE = "drape"
 PLACEHOLDER = "placeholder"
+OFF = WOFF.OFF
 NOTHING = "nothing"
 #: In the legend's order.
-STATES = (FULL, MESH_LOWRES, DRAPE, PLACEHOLDER, NOTHING)
+STATES = (FULL, MESH_LOWRES, DRAPE, PLACEHOLDER, OFF, NOTHING)
 
 SOURCE_ORIGINALS = "originals"
 SOURCE_LEAN = "lean"
@@ -170,14 +175,28 @@ def _mesh_state(pack: str, key, sharpness: dict) -> Tuple[str, float]:
     return (FULL, 1.0) if _has_textures(pack, key) else (MESH_LOWRES, 0.0)
 
 
+def _off_tile(pack: str, key, path: str, source: str, volume: str) -> WorldTile:
+    """A tile the user turned off: its kept DSF and photo, if any."""
+    kept = WOFF.kept_root(pack, *key)
+    kept_dsf = os.path.join(kept, WP.dsf_relpath(*key))
+    if not os.path.isfile(kept_dsf):
+        kept = pack                         # turning off: still in the pack
+        kept_dsf = path
+    provider = str(IREC.read(kept, *key).get("provider") or "")
+    return WorldTile(OFF, "", 0.0, source, volume, kept_dsf, provider)
+
+
 def _tile(pack: str, key, path: str, size: int, record: Optional[dict],
-          sharpness: dict, home_volume: str) -> WorldTile:
+          sharpness: dict, home_volume: str, off: bool = False) -> WorldTile:
     source, volume = _source(record, home_volume)
+    if off:
+        return _off_tile(pack, key, path, source, volume)
     if WP.is_placeholder(path, size):
         return WorldTile(PLACEHOLDER, "", 0.0, source, volume, path)
     agent = (DSFH.dsf_properties(path) or {}).get("sim/creation_agent", "")
-    provider = str(IREC.read(pack, *key).get("provider") or "")
-    if WP.kind_of_agent(agent) == DRAPE:
+    kind = WP.kind_of_agent(agent)
+    provider = str(IREC.read(pack, *key, kind=kind).get("provider") or "")
+    if kind == DRAPE:
         return WorldTile(DRAPE, TINFO.ORIGIN_HERE, 0.0, source, volume, path,
                          provider)
     state, sharp = _mesh_state(pack, key, sharpness)
@@ -200,6 +219,7 @@ def iter_world(scenery_dir: str, *, index_path: Optional[str] = None
     sharpness = INDEX.tile_sharpness(index_path)
     home_volume = TVOL.volume_name(scenery_dir)
     dsfs = list(WP.pack_dsfs(pack))
+    off = WOFF.off_tiles(pack)
     held = {key for key, _path, _size in dsfs}
     left = sorted(key for key in journal if key not in held)
     total = len(dsfs) + len(left)
@@ -207,7 +227,7 @@ def iter_world(scenery_dir: str, *, index_path: Optional[str] = None
     for key, path, size in dsfs:
         done += 1
         yield done, total, key, _tile(pack, key, path, size, journal.get(key),
-                                      sharpness, home_volume)
+                                      sharpness, home_volume, key in off)
     for key in left:
         done += 1
         source, volume = _source(journal[key], home_volume)
@@ -236,7 +256,7 @@ def read_tile(scenery_dir: str, key: Tuple[int, int]) -> Optional[WorldTile]:
     except OSError:
         return None
     return _tile(pack, key, path, size, journal_record(scenery_dir, key), {},
-                 TVOL.volume_name(scenery_dir))
+                 TVOL.volume_name(scenery_dir), WOFF.is_off(pack, *key))
 
 
 def read_world(scenery_dir: str, *, index_path: Optional[str] = None) -> dict:

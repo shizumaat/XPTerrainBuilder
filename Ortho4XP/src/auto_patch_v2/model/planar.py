@@ -45,7 +45,8 @@ __all__ = ["BEYOND", "NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Fa
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
            "KERB_SUFFIX", "kerb_ref",
            "FILL_BANK_PREFIX", "is_fill_bank_ref", "STACK_GROUND_PREFIX",
-           "is_stack_ground_ref", "is_stack_apron_ref",
+           "is_stack_ground_ref", "is_stack_apron_ref", "AGP_GROUND_PREFIX",
+           "is_agp_ground_ref", "is_agp_bank_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
@@ -155,6 +156,23 @@ STACK_GROUND_PREFIX = "stack_ground:"
 def is_stack_ground_ref(ref: object) -> bool:
     """Is this face a piece of a deck stack's ground?"""
     return str(ref or "").startswith(STACK_GROUND_PREFIX)
+
+
+#: #2090 C2 (spec ``2090-agp-group-groundside-spec.md``): the face ref of an
+#: AGP follower's ground — ``agp_ground:<group>:<row>:plate#k`` at its
+#: ground floor's level and ``:bank#k`` down to the lidar
+#: (``planar/agp_ground``) — graded ground, no zone class
+AGP_GROUND_PREFIX = "agp_ground:"
+
+
+def is_agp_ground_ref(ref: object) -> bool:
+    """Is this face a piece of an AGP follower's ground (plate or bank)?"""
+    return str(ref or "").startswith(AGP_GROUND_PREFIX)
+
+
+def is_agp_bank_ref(ref: object) -> bool:
+    """Is this face an AGP plate's bank (``agp_ground:...:bank#k``)?"""
+    return is_agp_ground_ref(ref) and ":bank#" in str(ref)
 
 
 def is_stack_apron_ref(ref: object) -> bool:
@@ -495,6 +513,11 @@ class PlanarMap:
     #: reader took (``planar/free_bridge.admitted``); the rebake plan
     #: publishes their decks' route ends (``pipeline/rebake_inputs``).
     free_bridges: tuple = ()
+    #: #2090 THE AGP GROUPS (``model/agp_group.AgpGroup``): the pack stage's
+    #: ``Airport.agp_groups``, read between the stages by
+    #: ``constraints/agp_level.datum_rewrite`` and published by
+    #: ``pipeline/emit_stage``.  Empty = none.
+    agp_groups: tuple = ()
     #: #2065 A3: the FREE / KEPT bridge stacks the planar stage kept
     #: (``planar/free_bridge.planar_stacks``: admitted, no plated deck, a
     #: graded end) — what every stack reader after the
@@ -518,6 +541,10 @@ class PlanarMap:
     #: read by the anchors, the deck rows and the object stage's plate —
     #: whether or not a corridor runs under it.
     decks: tuple = ()
+    #: #2099 R2 THE WING CUTS (``planar/wing_cut``; ``model/wing_cut.WingCut``):
+    #: the ground beside a grouped mouth's wings, held on their feet by
+    #: ``constraints/wing_cut``
+    wing_cuts: tuple = ()
     #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,
     #: additive): vertex id -> the elevation the objective pulls it to.
     #: A road-family vertex prefers the CORE's clamped, laterally-levelled
@@ -606,6 +633,12 @@ class PlanarMap:
     #: threshold above it, and it SUPERSEDES ``preferred_z`` for the
     #: vertices it governs (which are therefore absent from that mapping).
     road_ramp_z: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: #2090 B8: vertex -> ``(AGP group id, floor)`` of a governed vertex
+    #: whose ramp a datum-group stack's deck end seeds (``airport/
+    #: road_ramp.with_road_ramp``); the stage-2 datum rewrite moves its
+    #: target by the group's delta, never under the floor
+    #: (``constraints/agp_level.datum_rewrite``)
+    road_ramp_group: _t.Mapping[int, tuple[str, float]] = _dc.field(default_factory=dict)
     #: #1201 (owner RULINGS 2026-10-27t): the vertices UNDER a runway-end
     #: walled plate (``airport/walled_plate.under_plate_vertices``): hidden
     #: ground, capped under the plate's top (``constraints/walled_plate``);

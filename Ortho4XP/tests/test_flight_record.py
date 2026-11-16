@@ -90,3 +90,23 @@ def test_list_and_the_active_flight(tmp_path):
     assert [r.id for r in FR.list_flights(folder)] == [new.id, old.id]
     assert FR.active_flight(folder).id == old.id
     assert FR.list_flights(str(tmp_path / "none")) == []
+
+
+def test_a_flight_left_open_by_a_quit_app_never_resumes(tmp_path, monkeypatch):
+    """#2105: a record an earlier engine session left active is not the
+    active flight, and :func:`close_orphans` closes it; this session's
+    own active record stays."""
+    folder = str(tmp_path)
+    fms = _plan("short_hop_v11.fms")
+    stale = FR.from_plan(fms, "fms", NOW)
+    stale.state = "flying"
+    monkeypatch.setattr(FR, "ENGINE_SESSION", "an-earlier-app-launch")
+    FR.save(stale, folder)
+    monkeypatch.undo()
+    assert FR.active_flight(folder) is None
+    own = FR.from_plan(fms, "fms", NOW.replace(hour=18))
+    FR.save(own, folder)
+    assert FR.close_orphans(folder) == [stale.id]
+    assert FR.load(os.path.join(folder, stale.id + ".json")).state == "closed"
+    assert FR.active_flight(folder).id == own.id
+    assert FR.close_orphans(folder) == []

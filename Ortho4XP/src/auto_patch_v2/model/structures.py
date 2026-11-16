@@ -345,11 +345,20 @@ class Tunnel:
     #: standing within reach of that end is seated with its bottom on the floor
     #: (``airport/entrance_seat``); ``()`` otherwise
     portal_seat: tuple = ()
+    #: #1689 R2 A2 / R3: a ROOFED portal seated at its pinned floor -- its
+    #: OWN FOOTPRINT's exterior rings (``Portal.footprint``: its solids'
+    #: plan, frame metres): the frame its seat leads stands in it
+    #: (``terrain_shaped.portal_frame_records``); ``()`` otherwise
+    portal_footprint: tuple = ()
     #: RULINGS 2026-11-06c (3): an ENTRANCE face's skirt -- ``(top z, the
     #: level piece's ref, the bank's ref)`` (``planar/entrance_skirt``): the
     #: level piece is held at the face's top, the bank falls to the DEM
     #: (``constraints/entrance_skirt``); ``()`` otherwise
     entrance_skirt: tuple = ()
+    #: #1689 R5 S2: a TALL portal's WINGS' level piece -- ``(the portal's
+    #: top z, its ref)``: held at that top as the level piece is at the
+    #: cover's (``constraints/entrance_skirt``); ``()`` otherwise
+    entrance_wing: tuple = ()
     #: #1737: an ENTRANCE face's TOP -- ``(its top plan's rings, top y, top
     #: y - bottom y)`` (``Portal.top_plan``): where airside pavement abuts the
     #: plan, the top is flush with that pavement's SOLVED level, the floor that
@@ -398,6 +407,10 @@ class Tunnel:
     #: that deck's frame models WALLS under it (``DeckBridge.walls``): the
     #: cut is vertical at them; with none it banks (owner 2026-11-03T16:56Z)
     deck_walled: bool = False
+    #: #2062 R5 E′1: ``(stop ref, deck object id)`` per stop an object deck
+    #: with a bridge read carries over this ramp (``planar/ramp_carry``); the
+    #: deck's stack is then kept over the floor (``DeckStack.over_floor``)
+    carried: tuple[tuple[str, str], ...] = ()
     #: that deck's floor is the lower level's LADDER, not its frame's bottom
     #: (``DeckBridge.floor_min_m``): the least depth the floor should keep
     #: under the deck.  Such a floor is PINNED before the solve at
@@ -508,6 +521,13 @@ class DeckBridge:
     #: (``planar/deck_bridge.with_cuts``): ``none`` (no bore runs under it),
     #: ``bank`` or ``walls`` — the sidecar ``deck_anchors[*].cut``
     cut: str = "none"
+    #: #2099 R3 D6: the stations ``(x, y, foot over the floor)`` of the walls
+    #: of the deck's MOUTH GROUP (``planar/wing_cut.group_walled``) -- the
+    #: walls its ramps are planned on (``planar/deck_bridge.deck_pin``)
+    group_feet: tuple = ()
+    #: #2099 R3 E2: the road through the deck (a polyline, frame metres) --
+    #: the line a wall of its mouth group LINES (``planar/wing_cut.mouth_roads``)
+    road: tuple = ()
 
     @property
     def depth_a(self) -> float:

@@ -35,6 +35,7 @@ from ..geom.lowest_face import floor_z_at
 from .below_grade_witness import placed_all
 from .hanging_objects import _co_placed
 from .object_cut import _base, _face_normals_y, valid_polygon
+from .walled_pit import hard_deck_share
 
 __all__ = ["read_portal_floors"]
 
@@ -99,6 +100,17 @@ def read_portal_floors(portals: _t.Sequence, objects: _t.Sequence, cache, law, g
             continue
         frame = [q for q in objects if q.id not in seen
                  and _co_placed(o, q, float(ob.cover_placement_tol_m))]
+        decked = hard_deck_share(foot, (o, *frame), cache, law, lambda _q, _z=zero: _z,
+                                 float(faces[:, :, 2].min()), scale)
+        if decked >= law.tables.structures.deck.on_fraction:
+            # the road under a HARD-DECK bridge of its frame (``planar/
+            # deck_bridge``, class A, 22n) is that bridge's: its seat is the
+            # deck's, never a second zero off this roof (KBNA taxiway L; the
+            # frame placed at the road zero this roof states)
+            notes.append(f"{o.id} {_base(o.path)}: a portal off the road its roof states, but "
+                         f"{100 * decked:.0f} % of its floor lies under a hard deck of its "
+                         f"frame: a hard-deck bridge's road, read by the deck")
+            continue
         seen.update(q.id for q in frame)
         fz = float(faces[:, :, 2].min())
         note = (f"object floor portal {_base(o.path)}: its row reads its zero "

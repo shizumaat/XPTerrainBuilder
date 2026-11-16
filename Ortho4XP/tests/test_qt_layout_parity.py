@@ -48,7 +48,7 @@ TOOLBAR = (
     # retired).
     ("mode", "ModeSwitch(model:", "mode_switch"),
     ("imagery_preview", 'Picker("Imagery Preview"', "map_provider_combo"),
-    ("scenery_filter", 'Picker("Scenery"', "scenery_filter_combo"),
+    ("map_filter", "MapFilterMenu(stored:", "map_filter_button"),   # #2097
     ("search", "ToolbarSearchField(", "search_edit"),
     ("side_panel", 'Image(systemName: "sidebar.trailing")', "panel_toggle"),
 )
@@ -246,6 +246,16 @@ TILE_PACKAGE = (
      "package", "on_pack_package"),
 )
 
+#: The tile pane's Modified airports row, its actions left to right (owner
+#: 2026-11-15T13:12Z: Adjust… beside Revert): (key, Swift marker in
+#: BuildPane.swift, Qt marker in ``MainWindow._on_reanchor_ready``).
+PACK_ROW_ACTIONS = (
+    ("trees", "buildModel.undoPackForests(packPath:", "self._undo_pack_forests(p)"),
+    ("optimise", "buildModel.packOptimiseFromRow(", "self._pack_optimise_from_row(p, u)"),
+    ("adjust", "buildModel.adjustPackFromRow(", "self._adjust_pack_from_row(p)"),
+    ("revert", "revertModifiedAirports(row)", "self._revert_modified_pack(p)"),
+)
+
 #: Imagery on demand's homes (#1992 §7, P4), each in both apps: (key,
 #: Swift file, Swift marker, Qt owner, Qt attribute).  The follow line
 #: is in the Fly pane (RULINGS 2026-11-10j); the Favorite is a star beside
@@ -357,6 +367,20 @@ def test_mac_toolbar_is_the_manifest():
     positions = [block.find(marker) for _key, marker, _attr in TOOLBAR]
     assert -1 not in positions, dict(zip((k for k, _m, _a in TOOLBAR), positions, strict=True))
     assert positions == sorted(positions), "Mac toolbar order differs from TOOLBAR"
+
+
+def test_both_filter_menus_list_the_same_items():
+    """#2097: the map's Filter menu — the same section headers, keys,
+    words and order in ``MapFilter.swift`` and ``O4_Map_Filter``."""
+    import O4_Map_Filter as MAPFILTER
+    swift = (SWIFT / "MapFilter.swift").read_text(encoding="utf-8")
+    labels = dict(re.findall(r'case \.(\w+): return "([^"]+)"', swift))
+    sections = re.findall(r'\("([^"]+)", \[([^\]]+)\]\)', swift)
+    mac = [(header, tuple((key, labels[key]) for key in
+                          re.findall(r"\.(\w+)", items)))
+           for header, items in sections]
+    assert mac == [(header, tuple(items)) for header, items in MAPFILTER.SECTIONS]
+    assert "MapFilterHidden" in swift  # the stored key's twin of MAP_FILTER_KEY
 
 
 def test_mac_build_box_is_the_manifest():
@@ -878,7 +902,7 @@ def test_both_maps_share_the_tile_legend_and_the_stale_row(window):
     kinds = key[key.index("static func buildItems"):key.index("static func flyItems")]
     swift_kinds = re.findall(r'present\.insert\("(\w+)"\)', kinds)
     python_kinds = [QTLEGEND.WORLD_FULL, QTLEGEND.WORLD_MESH, QTLEGEND.WORLD_DRAPE,
-                    QTLEGEND.WORLD_PLACEHOLDER,
+                    QTLEGEND.WORLD_PLACEHOLDER, QTLEGEND.WORLD_OFF,
                     QTLEGEND.WORLD_OTHER_TOOL, QTLEGEND.STALE, QTLEGEND.CUSTOM_PATCH]
     assert swift_kinds == python_kinds
     assert set(python_kinds) <= set(KEYTEXT.SHORT)
@@ -1132,6 +1156,56 @@ def test_the_package_actions_have_one_home_in_each_app(window):
     assert menu.actions()[-1].text() == QTPKG.EXPORT_TITLE
 
 
+#: "Use XPTerrainBuilder here" (#2100, owner 2026-11-15T19:19Z): one home
+#: in each app, the map's tile menu, after "Show in Finder" and before
+#: "Export Package…": (Swift file, the item's marker, the export's marker).
+TILE_USE = ("TileContextMenu.swift", "O4WorldStateText.useHere",
+            "Self.exportPackageTitle")
+
+
+def test_both_tile_menus_offer_use_xpterrainbuilder_here(window):
+    """#2100: the tile menu's checkable "Use XPTerrainBuilder here", the
+    same words (``O4WorldStateText.useHere`` / ``USE_HERE``) and place in
+    both apps, offered by both apps' MapCanvasView / window."""
+    import O4_Qt_Tile_Menu as QTTILEMENU
+    import O4_World_State_Text as WORLD_TEXT
+
+    swift_file, marker, export = TILE_USE
+    mac = (SWIFT / swift_file).read_text(encoding="utf-8")
+    body = mac[mac.index("init(coord:"):]
+    assert body.index(TileRevealMarker) < body.index(marker) < body.index(export)
+    assert "useHere: buildModel.useHereItem(coord)" in (
+        SWIFT / "MapCanvasView.swift").read_text(encoding="utf-8")
+    calls = []
+    menu = QTTILEMENU.tile_menu(window, 30, 31, "", export_package=lambda: None,
+                                use_here=(False, calls.append))
+    texts = [a.text() for a in menu.actions()]
+    use = menu.actions()[texts.index(WORLD_TEXT.USE_HERE)]
+    assert texts.index(WORLD_TEXT.USE_HERE) == len(texts) - 2
+    assert use.isCheckable() and not use.isChecked()
+    use.trigger()
+    assert calls == [True]
+    assert "use_here=" in inspect.getsource(GUI.MainWindow._tile_menu)
+    plain = QTTILEMENU.tile_menu(window, 30, 31, "")
+    assert WORLD_TEXT.USE_HERE not in [a.text() for a in plain.actions()]
+
+
+#: The Mac menu's "Show in Finder" item, which "Use XPTerrainBuilder here"
+#: follows.
+TileRevealMarker = "Self.revealTitle"
+
+
+def test_both_pack_rows_show_the_same_actions_in_order():
+    """The Modified airports row: 3D trees, Optimise, Adjust…, Revert —
+    the same actions in the same order in both apps."""
+    mac = (SWIFT / "BuildPane.swift").read_text(encoding="utf-8")
+    start = mac.index('Text("Modified airports:")')
+    qt = inspect.getsource(GUI.MainWindow._on_reanchor_ready)
+    for text, column, offset in ((mac, 1, start), (qt, 2, 0)):
+        marks = [text.find(row[column], offset) for row in PACK_ROW_ACTIONS]
+        assert -1 not in marks and marks == sorted(marks), (column, marks)
+
+
 def test_both_maps_show_the_map_controls_in_order(window):
     """#2016: zoom out, zoom in, then "Center on aircraft", top-right, in
     both maps."""
@@ -1145,3 +1219,15 @@ def test_both_maps_show_the_map_controls_in_order(window):
     layout = controls.layout()
     order = [layout.indexOf(b) for b in buttons]
     assert -1 not in order and order == sorted(order)
+
+
+def test_both_activity_rows_show_a_memory_wait():
+    """#2101: a step held for memory shows the engine's sentence on the
+    tile's Activity row in both apps."""
+    row = (SWIFT / "ActivityRow.swift").read_text(encoding="utf-8")
+    model = (SWIFT / "BuildModel.swift").read_text(encoding="utf-8")
+    assert "Text(progress.memoryWait)" in row
+    assert "case .memoryWait(let wait)" in model
+    source = inspect.getsource(GUI.MainWindow._paint_row_state)
+    assert "self._memory_waits.get(tile" in source
+    assert GUI.MainWindow._on_memory_wait

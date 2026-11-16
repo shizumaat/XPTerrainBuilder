@@ -506,6 +506,9 @@ class _Runner:
                 WORLD.write_log({"world_job_error": repr(error)[:300]})
             if now - status_at >= STATUS_EVERY_S:
                 status_at = now
+                from . import world_tile_use as USE
+                with contextlib.suppress(Exception):    # logged inside
+                    USE.settle(self.scenery_dir)        # #2100
                 with contextlib.suppress(Exception):
                     status = self.job.status(now)
                     status["here"] = describe_here(status["here"],
@@ -581,7 +584,8 @@ def world_job_stop(**_ignored) -> dict:
 def autostart(session, port=None, **_ignored) -> Optional[dict]:
     """Start track mode beside the follow job when it may run (see
     :func:`world_job_start`, ``if_enabled``) and the active flight beside
-    it; never raises.  The reply is track mode's, with the flight's
+    it -- never one an earlier app session left open (#2105, closed
+    here); never raises.  The reply is track mode's, with the flight's
     ``mode`` and ``flight`` when one started."""
     reply: Optional[dict] = None
     try:
@@ -590,6 +594,9 @@ def autostart(session, port=None, **_ignored) -> Optional[dict]:
         WORLD.write_log({"world_job_autostart": repr(error)[:300]})
     try:
         from . import flight_record as RECORD
+        orphans = RECORD.close_orphans(RECORD.flights_dir())
+        if orphans:
+            WORLD.write_log({"flight": "closed_after_quit", "ids": orphans})
         active = RECORD.active_flight(RECORD.flights_dir())
         if active is not None and WORLD.managed(WORLD.scenery_dir_or_default()):
             flight = world_job_start(session, mode="flight", flight=active.id,

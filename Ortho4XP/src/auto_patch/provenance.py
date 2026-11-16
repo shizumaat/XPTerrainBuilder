@@ -675,6 +675,7 @@ FRESHNESS_COMPARED_KEYS = (
     "o4_dsf",
     "o4_imagery",
     "o4_user_roles",
+    "o4_terrain_hidden",
 )
 
 # Every stamp key written, in the order they appear on the root element.
@@ -696,6 +697,20 @@ def user_roles_identity(tile, icao: str) -> str:
     import O4_File_Names as FNAMES
     from auto_patch_v2.airport import user_roles as _ur
     return _ur.digest(FNAMES.patch_dir(lat, lon), icao)
+
+
+def terrain_hidden_identity(apt_dat_path: str | None) -> str:
+    """``o4_terrain_hidden``: the terrain objects the user hid in the pack
+    of ``apt_dat_path`` (#2077 4.2, ``pack_choice.hidden_terrain``) -- a
+    hidden hill's frame dissolves, so hiding or showing one rebuilds the
+    patch.  ``"none"`` for none."""
+    if not apt_dat_path:
+        return "none"
+    from auto_patch_v2.airport.pack_choice import hidden_terrain
+    paths = sorted(hidden_terrain(os.path.dirname(os.path.dirname(str(apt_dat_path)))))
+    if not paths:
+        return "none"
+    return hashlib.sha256("\n".join(paths).encode("utf-8")).hexdigest()[:16]
 
 
 def imagery_identity(paths) -> str:

@@ -112,3 +112,33 @@ def test_a_pit_floor_is_no_author_ground_for_the_floors_read_after_it():
     rest = ag.without({"pit"})
     assert abs(rest.at([1.0], [1.0])[0] - 6.0) < 1e-9 and list(rest.owners) == ["plate"]
     assert ag.without(set()) is ag
+
+
+def test_a_road_ramp_between_its_parapets_is_no_pit(tmp_path):
+    """#2091 (OTHH TerminalRoads_03_002): a road that dips under its datum at
+    one end and climbs to a viaduct between parapet walls has a floor under
+    the ground and walls round it, but most of it stands OVER the ground —
+    no pit, no frame lift, no cut under the bridge beside it."""
+    steps = [_box(10.0 * k, 0.0, 10.0, 40.0, 0.2, y0=2.0 * k) for k in range(6)]
+    floor = _write(tmp_path / "ramp.obj", steps)
+    walls = [_box(-0.5, 0.0, 0.5, 40.0, 12.0), _box(60.0, 0.0, 0.5, 40.0, 12.0),
+             _box(0.0, -0.5, 60.0, 0.5, 12.0), _box(0.0, 40.0, 60.0, 0.5, 12.0)]
+    objs = [_at(_write(tmp_path / "parapets.obj", walls), "dsf:obj1"),
+            _at(floor, "dsf:obj2")]
+    floors, notes = _read(objs, 102.0)
+    assert floors == [], notes
+    assert any("a ramp climbing out of the ground" in n for n in notes), notes
+
+
+def test_a_pit_whose_own_floor_is_hard_deck_still_reads(tmp_path):
+    """OTHH TerminalRoads_02_000: the floor object flags its own floor
+    ``ATTR_hard_deck``.  The hard-deck guard (KBNA taxiway L) reads only a
+    deck standing ``bridge.clearance_minimum_m`` over the floor -- a deck AT
+    the floor is the floor, no road under a bridge -- so the pit still
+    reads (#1689 R2 F8)."""
+    objs = _pit(tmp_path)
+    objs[1].resolved = _write(tmp_path / "floor_deck.obj",
+                              [_box(0.0, 0.0, 60.0, 40.0, 0.2)], hard=(0,))
+    objs[1].deck_kind = "flag"
+    floors, notes = _read(objs, 105.0)
+    assert [f.object_id for f in floors] == ["dsf:obj2"], notes

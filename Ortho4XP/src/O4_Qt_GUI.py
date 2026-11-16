@@ -1,6 +1,6 @@
 """Main window of the Ortho4XP Qt UI (map-first shell).
 
-Layout: toolbar (refresh, imagery preview, scenery filter, search, side
+Layout: toolbar (refresh, imagery preview, map Filter menu, search, side
 panel switch) / live map / context panel on the right / collapsible
 console drawer below / status bar.
 
@@ -94,13 +94,15 @@ import O4_Scan_Stream_Throttle as QTSCANRATE
 import O4_Tile_Info as TINFO
 import O4_Settings_Selection as SEL
 import O4_Qt_Imagery_Menu as QTIMENU
+import O4_Map_Filter as MAPFILTER
 import O4_Qt_Map as QTMAP
+import O4_Qt_Map_Filter as QTMAPFILTER
 import O4_Qt_Imagery_Freshness as QTFRESH
 import O4_Qt_Imagery_OnDemand as QTONDEMAND
 import O4_Qt_Core_Rows as QTCORES
 import O4_Qt_Mesh_Order as QTMESHORDER
 import O4_Qt_Missing_Textures as QTMISSING
-from o4_engine.session import EngineSession
+from o4_engine.session import ETA_EMIT_SECONDS, EngineSession
 from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
 import O4_Qt_Build_OnDemand as QTONDEMAND_BUILD
@@ -186,9 +188,9 @@ DEFAULT_MAP_PROVIDER = "OSM"
 # ``OrthoLinkTiles`` (BuildModel.linkTiles), default ON.
 AUTO_INSTALL_KEY = "auto_install"
 
-# Prefs key for the map's scenery-layer filter — the mac app's
-# ``MapSceneryFilter`` (MapMainView.swift).
-SCENERY_FILTER_KEY = "scenery_filter"
+# Prefs key for the map's Filter menu (#2097): the items turned off —
+# the mac app's ``MapFilterHidden`` (MapFilter.swift).
+MAP_FILTER_KEY = "map_filter_hidden"
 # Prefs key: whether the side panel shows (the toolbar's switch).
 SIDE_PANEL_KEY = "side_panel_visible"
 
@@ -508,11 +510,17 @@ def resolve_tile_state(incoming, current):
     return incoming
 
 
-def row_detail(state, label, detail):
+def row_detail(state, label, detail, memory_wait=""):
     """The second line of a tile's Activity row: the engine's sentence
     for a STOPPED tile (``TileState.detail``, #598 — what the tile is
-    left with), shown only while the row reads stopped."""
-    return detail if (state == "stopped" or label == "stopped") else ""
+    left with), shown only while the row reads stopped; else, while the
+    tile is still in the run, the engine's sentence for a step held for
+    memory (``MemoryWait``, #2101)."""
+    if state == "stopped" or label == "stopped":
+        return detail
+    if state in ("queued", "active", "indeterminate"):
+        return memory_wait
+    return ""
 
 
 def is_stopped_attempt(attempt, stale_through, stop_pending):
@@ -971,6 +979,7 @@ class MainWindow(QMainWindow):
             EV.ImagerySourceStatus: self._on_imagery_source_status,
             EV.PackOldForests: self._on_pack_old_forests,
             EV.SlowStep: self._on_slow_step,
+            EV.MemoryWait: self._on_memory_wait,
             EV.PackOptimise: self._on_pack_optimise,
             EV.PackAdjust: self._on_pack_adjust,
             EV.GatewayAirports: self._on_gateway_airports,
@@ -1006,6 +1015,8 @@ class MainWindow(QMainWindow):
         self._pack_optimise_seen = set()
         # #1916: the same for the package adjustments questions
         self._pack_adjust_seen = set()
+        # the tile rebuilds a pack answer owed that this window started
+        self._rebuild_pending_ids = set()
         # #1989: the same for the Gateway airports questions
         self._gateway_seen = set()
         # #562: the run's BuildDone events that carry a failure or warning.
@@ -1196,19 +1207,16 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(spacer.sizePolicy().horizontalPolicy().Expanding,
                              spacer.sizePolicy().verticalPolicy().Preferred)
         toolbar.addWidget(spacer)
-        # Scenery layer filter (MapSceneryFilter); View ▸ Scenery too.
-        self.scenery_filter_combo = QComboBox()
-        for (mode, label) in QTMAP.SCENERY_FILTER_LABELS:
-            self.scenery_filter_combo.addItem(label, mode)
-        self.scenery_filter_combo.setToolTip(
-            "Show the tiles you built, other installed ortho/mesh "
-            "packages, or both"
-        )
-        self.scenery_filter_combo.activated.connect(
-            lambda index: self._set_scenery_filter(
-                self.scenery_filter_combo.itemData(index))
-        )
-        toolbar.addWidget(self.scenery_filter_combo)
+        # The map's Filter menu (#2097; Mac: MapFilterMenu); View ▸
+        # Filter is the same menu.
+        self.map_filter_menu = QTMAPFILTER.FilterMenu(self)
+        self.map_filter_menu.changed.connect(self._set_map_filter)
+        self.map_filter_button = QToolButton()
+        self.map_filter_button.setText("Filter")
+        self.map_filter_button.setToolTip(self.map_filter_menu.toolTip())
+        self.map_filter_button.setMenu(self.map_filter_menu)
+        self.map_filter_button.setPopupMode(QToolButton.InstantPopup)
+        toolbar.addWidget(self.map_filter_button)
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(
@@ -1707,6 +1715,8 @@ class MainWindow(QMainWindow):
         self._tile_rows = {}
         # TileState.detail of a stopped tile (#598), by tile.
         self._tile_details = {}
+        # MemoryWait.message of a step held for memory (#2101), by tile.
+        self._memory_waits = {}
         # Each row's step strip (#825, O4_Step_Strip), by tile.
         self._step_strips = {}
         # #1341: the rows outlive their run.  Each row's place in the list
@@ -1721,7 +1731,9 @@ class MainWindow(QMainWindow):
         # "Build failed tiles again" describe.
         self._run_tiles = set()
         self._elapsed_timer = QTimer(self)
-        self._elapsed_timer.setInterval(1000)
+        # The engine's clock cadence (2 Hz): elapsed and remaining move
+        # between step events, as in the Mac app.
+        self._elapsed_timer.setInterval(int(ETA_EMIT_SECONDS * 1000))
         self._elapsed_timer.timeout.connect(self._update_build_clock)
 
         # The panel scrolls vertically instead of imposing its full
@@ -1842,24 +1854,8 @@ class MainWindow(QMainWindow):
         for key in ("bigger", "smaller", "actual"):
             view_menu.addAction(self._text_scale_actions[key])
         view_menu.addSeparator()
-        # Scenery layer filter (mac-app parity: MapSceneryFilter) — our
-        # built tiles, other installed ortho/mesh packages, or both.
-        scenery_menu = view_menu.addMenu("Scenery")
-        scenery_menu.setToolTip(
-            "Show the tiles you built, other installed ortho/mesh "
-            "packages, or both"
-        )
-        self._scenery_filter_actions = {}
-        current = self.map.scenery_filter()
-        for (mode, label) in QTMAP.SCENERY_FILTER_LABELS:
-            action = QAction(label, self)
-            action.setCheckable(True)
-            action.setChecked(mode == current)
-            action.triggered.connect(
-                lambda _checked=False, m=mode: self._set_scenery_filter(m)
-            )
-            scenery_menu.addAction(action)
-            self._scenery_filter_actions[mode] = action
+        # The toolbar's Filter menu (#2097), the same QMenu.
+        view_menu.addMenu(self.map_filter_menu)
 
         tools_menu = self.menuBar().addMenu("&Tools")
         overlay_action = QAction("Link overlays folder in X-Plane", self)
@@ -1940,8 +1936,8 @@ class MainWindow(QMainWindow):
             # first apply must paint the map either way.
             self.map_provider_combo.setCurrentText(map_code)
             self.map.set_provider(map_code)
-        self._set_scenery_filter(
-            str(self.prefs.get(SCENERY_FILTER_KEY, QTMAP.SCENERY_FILTER_ALL)),
+        self._set_map_filter(
+            MAPFILTER.parse_hidden(self.prefs.get(MAP_FILTER_KEY, [])),
             persist=False,
         )
 
@@ -2386,6 +2382,9 @@ class MainWindow(QMainWindow):
             self.map.set_airport_sizes({
                 entry.code: (entry.size_class, entry.runway_m)
                 for entry in self._airports})
+            self.map.set_airport_icao_codes(
+                entry.code for entry in self._airports
+                if entry.category == MAPFILTER.ICAO_CATEGORY)
         self.map.set_custom_airports(custom)
         self.map.set_default_airports(
             (entry.code, entry.lat, entry.lon)
@@ -2706,19 +2705,17 @@ class MainWindow(QMainWindow):
             self.prefs[SIDE_PANEL_KEY] = shown
             save_prefs(self.prefs)
 
-    def _set_scenery_filter(self, mode, persist=True):
-        """Point the map at one scenery-layer filter and tick its menu
-        and the toolbar's combo."""
-        self.map.set_scenery_filter(mode)
-        mode = self.map.scenery_filter()
-        for (key, action) in getattr(
-                self, "_scenery_filter_actions", {}).items():
-            action.setChecked(key == mode)
-        combo = getattr(self, "scenery_filter_combo", None)
-        if combo is not None:
-            combo.setCurrentIndex(max(combo.findData(mode), 0))
-        if persist and self.prefs.get(SCENERY_FILTER_KEY) != mode:
-            self.prefs[SCENERY_FILTER_KEY] = mode
+    def _set_map_filter(self, hidden, persist=True):
+        """Point the map at the Filter menu's items turned off (#2097),
+        tick the menu to match and keep the choice per user."""
+        self.map.set_map_filter(hidden)
+        hidden = self.map.map_filter()
+        self.map_filter_menu.set_hidden(hidden)
+        self.map_filter_button.setText(
+            "Filter ●" if MAPFILTER.is_filtering(hidden) else "Filter")
+        stored = MAPFILTER.dump_hidden(hidden)
+        if persist and self.prefs.get(MAP_FILTER_KEY) != stored:
+            self.prefs[MAP_FILTER_KEY] = stored
             save_prefs(self.prefs)
 
     # ------------------------------------------------------------------
@@ -3569,13 +3566,28 @@ class MainWindow(QMainWindow):
         Edit mode it starts with "Slice" (#1318)."""
         pos = self.map.viewport().mapFromGlobal(global_pos)
         at = self.patch_editor.lat_lon_at(pos.x(), pos.y())
+        world = self.map.world().get((lat, lon))
+        fields = world.fields() if world is not None else None
         menu = QTTILEMENU.tile_menu(
             self, lat, lon, self._tile_reveal_path((lat, lon)),
             self.patch_editor.context_actions(at),
-            export_package=lambda: self._export_package_at((lat, lon)))
+            export_package=lambda: self._export_package_at((lat, lon)),
+            use_here=((WORLD_TEXT.use_on(fields),
+                       lambda use: self._set_use_here((lat, lon), use))
+                      if WORLD_TEXT.use_offered(fields) else None))
         self.patch_editor.add_copy_actions(menu, pos.x(), pos.y())
         self.patch_editor.add_to_menu(menu)
         menu.exec(global_pos)
+
+    def _set_use_here(self, tile, use: bool):
+        """The tile menu's "Use XPTerrainBuilder here" (#2100): the
+        engine's ``world_tile_use`` in process (a few renames); its note
+        in the status bar, then the map rescans."""
+        import O4_Config_Utils as CFG
+        import O4_Qt_Tile_Use as QTUSE
+
+        self._status(QTUSE.set_use(tile, use, CFG.custom_scenery_dir or ""))
+        self.refresh_tiles()
 
     def _export_package_at(self, tile):
         """The tile menu's Export Package… (#2014): the selection when the
@@ -3839,6 +3851,20 @@ class MainWindow(QMainWindow):
                 lambda _checked=False, p=pack, u=optimised:
                 self._pack_optimise_from_row(p, u))
             rl.addWidget(opt, 0, Qt.AlignRight)
+            # owner 2026-11-15T13:12Z: Adjust… — change what is hidden or
+            # optimised, beside Revert (the mac row's twin button)
+            adjust = QToolButton()
+            adjust.setAutoRaise(True)
+            adjust.setText(QTADJ.ADJUST_BUTTON)
+            adjust.setFixedHeight(18)
+            adjust.setEnabled(not self._building)
+            adjust.setToolTip(
+                "Wait for the current run — the engine may be "
+                "rewriting these files." if self._building
+                else QTADJ.ADJUST_HELP)
+            adjust.clicked.connect(
+                lambda _checked=False, p=pack: self._adjust_pack_from_row(p))
+            rl.addWidget(adjust, 0, Qt.AlignRight)
             undo = QToolButton()
             undo.setAutoRaise(True)
             undo.setIcon(self.style().standardIcon(
@@ -4860,6 +4886,7 @@ class MainWindow(QMainWindow):
                 QTSTRIP.show(_row.findChild(QLabel, "tile_steps"),
                              self._step_strips[tile])
                 self._tile_details.pop(tile, None)
+                self._memory_waits.pop(tile, None)
                 self._row_issues.pop(tile, None)
                 stale = _row.findChild(QLabel, "tile_detail")
                 if stale is not None:
@@ -5060,6 +5087,7 @@ class MainWindow(QMainWindow):
         if resolved is None:
             return  # stale news from a run this row has already left
         self._tile_started_at.setdefault(tile, time.time())
+        self._memory_waits.pop(tile, None)    # its step started (#2101)
         self._progress_states[tile] = resolved
         self.map.set_progress(self._map_progress())
         self._render_row_state(tile)
@@ -5067,6 +5095,18 @@ class MainWindow(QMainWindow):
             "XPTerrainBuilder — building %s · %s · %d%%"
             % (FNAMES.short_latlon(*tile), label, event.percent)
         )
+
+    def _on_memory_wait(self, event):
+        """A tile's step is held for memory, or no longer (#2101): the
+        row keeps its state and shows the engine's sentence under it."""
+        tile = (event.lat, event.lon)
+        if self._is_stopped_attempt(tile, event):
+            return
+        if event.resolved or not event.message:
+            self._memory_waits.pop(tile, None)
+        else:
+            self._memory_waits[tile] = event.message
+        self._render_row_state(tile)
 
     def _is_stopped_attempt(self, tile, event):
         return is_stopped_attempt(
@@ -5195,7 +5235,8 @@ class MainWindow(QMainWindow):
             tile, ("queued", "queued", 0))
         detail = row_widget.findChild(QLabel, "tile_detail")
         if detail is not None:
-            text = row_detail(state, label, self._tile_details.get(tile, ""))
+            text = row_detail(state, label, self._tile_details.get(tile, ""),
+                              self._memory_waits.get(tile, ""))
             detail.setText(text)
             detail.setVisible(bool(text))
         finished = ACTORDER.is_finished(state, label)
@@ -5510,15 +5551,66 @@ class MainWindow(QMainWindow):
         row checked; Apply (the rows kept checked) / Never for this pack
         send ``pack_adjust`` with every row shown, Not now sends nothing.
         An applied answer or an undo re-reads the Modified airports rows.
+        ``"adjust"`` is the pack row's Adjust… (asked every time it is
+        pressed); an outcome with ``rebuild`` rebuilds the tile.
         """
-        if getattr(event, "state", "") == "ask":
+        state = getattr(event, "state", "")
+        if state == "ask":
             import dataclasses
             event = dataclasses.replace(event, state="found")
             self._pack_adjust_seen.discard(QTADJ.question_key(event))
+        elif state == "adjust":
+            self._pack_adjust_seen.discard(QTADJ.question_key(event))
+        elif state == "applied" and getattr(event, "rebuild", False):
+            self._rebuild_after_adjust(event)
+        elif state == "pending":
+            self._rebuild_pending_tiles(event)
+            return
         self._pack_choice_event(
             event, ("applied", "undone"), QTADJ.has_choice(event),
             QTADJ.question_key, QTADJ.pack_adjust_box, self._pack_adjust_seen,
             "pack_adjust")
+
+    def _rebuild_after_adjust(self, event):
+        """A pack adjustment the tile's mesh reads (the terrain objects'):
+        the tile is rebuilt through the patch box's own path, or the
+        console says why not and what to do."""
+        tile = FNAMES.short_latlon(int(event.lat), int(event.lon))
+        if self._building:
+            # the engine keeps the debt and names it when the run ends
+            print(QTADJ.REBUILD_QUEUED.format(tile=tile, pack=event.pack))
+            return
+        reason = self.rebuild_patch_tile(tile)
+        if reason:
+            print(QTADJ.REBUILD_LATER.format(tile=tile, pack=event.pack,
+                                             reason=reason))
+
+    def _rebuild_pending_tiles(self, event):
+        """After a run, the tiles a pack answer still owes a rebuild (the
+        engine's ``tile_rebuild_pending``): each rebuilt once per debt, the
+        console saying why."""
+        for row in getattr(event, "items", None) or ():
+            if row.get("id") in self._rebuild_pending_ids:
+                continue
+            self._rebuild_pending_ids.add(row.get("id"))
+            tile = row.get("tile") or FNAMES.short_latlon(
+                int(row.get("lat", 0)), int(row.get("lon", 0)))
+            print(QTADJ.REBUILDING.format(tile=tile, pack=row.get("pack", ""),
+                                          change=row.get("change", "")))
+            reason = self.rebuild_patch_tile(tile)
+            if reason:
+                print(QTADJ.REBUILD_LATER.format(
+                    tile=tile, pack=row.get("pack", ""), reason=reason))
+
+    def _adjust_pack_from_row(self, pack):
+        """The pack row's Adjust… (owner 2026-11-15T13:12Z): the engine's
+        report of the pack as it is on the active tile, which opens the
+        question (``PackAdjust(state="adjust")``)."""
+        tile = self.map.active_tile()
+        if self._building or tile is None:
+            return
+        self._session.pack_adjust(pack_root=pack["pack_path"], action="adjust",
+                                  lat=int(tile[0]), lon=int(tile[1]))
 
     def _on_gateway_airports(self, event):
         """#1989: graded airports X-Plane flattens, as one question.
@@ -5564,7 +5656,7 @@ class MainWindow(QMainWindow):
         if state in done_states:
             self._refresh_modified_airports()
             return
-        if state != "found" or not can_answer:
+        if state not in ("found", "adjust") or not can_answer:
             return
         key = question_key(event)
         if key in seen:
@@ -6055,6 +6147,7 @@ class MainWindow(QMainWindow):
         self._stale_probe.close()
         self._customized_probe.close()
         self.imagery_freshness_row.close_probe()
+        self.fly_pane.end_on_quit()             # quitting ends the flight (#2105)
         self._stop_imagery_follow()
         # The 3D preview's building reader runs in a worker process (#753).
         self.patch_editor.engine.close()

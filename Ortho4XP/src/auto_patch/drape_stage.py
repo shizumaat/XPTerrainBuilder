@@ -15,7 +15,9 @@ user can choose to hide or not".  Four kinds (:class:`_Kind`), one each:
 * :data:`TERRAIN` (row ``terrain``, owner RULINGS 2026-11-13i, #2036 (c))
   — the objects that model terrain where quality elevation models the
   same ground (``auto_patch_v2.airport.terrain_model`` /
-  ``pack_terrain``); UNCHECKED when asked.  Its witness needs the build's
+  ``pack_terrain``); TICKED when asked since owner 2026-11-15T13:12Z
+  (``adjust_stage.UNCHECKED``), and the one kind whose answer the tile's
+  mesh reads (``adjust_edit.TILE_ROWS``).  Its witness needs the build's
   DEM: a build remembers the resources it offered (``TERRAIN_FOUND``) and
   the check outside a build reads them back;
 * :data:`GENERIC` (row ``generic``, owner 2026-11-14T15:20Z, #2085) —
@@ -51,9 +53,10 @@ import re
 import traceback
 import typing as _t
 
-from . import pack_choice as _PC
+from auto_patch_v2.airport import pack_choice as _PC
+from auto_patch_v2.airport.pack_choice import relative as _relative
+
 from . import pack_rewrite as _PR
-from .pack_choice import relative as _relative
 
 __all__ = ["ACTIONS", "STORE", "PHOTOS", "GROUND", "TERRAIN", "GENERIC", "KINDS",
            "check_all",

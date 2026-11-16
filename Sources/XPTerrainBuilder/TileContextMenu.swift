@@ -11,8 +11,10 @@ import SceneryKit
 /// `PatchInsertShape.swift`). In patch Edit mode the menu
 /// starts with Slice (#1318; Qt `PatchEditor.add_to_menu`), enabled only
 /// for two nodes of one shape that are not neighbours, then "Duplicate
-/// shape" (#1963), enabled with a shape selected. "Export Package…" ends
-/// it (#2014): the File menu's action for the selection, or the clicked
+/// shape" (#1963), enabled with a shape selected. "Use XPTerrainBuilder
+/// here" (#2100; Qt `O4_Qt_Tile_Menu` `use_here`), checked while the tile is
+/// on, follows "Show in Finder" for a tile the World pack holds. "Export
+/// Package…" ends it (#2014): the File menu's action for the selection, or the clicked
 /// tile when it is not selected. The menu's items
 /// target this object, so the caller keeps it alive while the menu is open.
 @MainActor
@@ -35,14 +37,17 @@ final class TileContextMenu: NSObject {
     private weak var patch: PatchEditModel?
     private let extra: [(title: String, run: () -> Void)]
     private let exportPackage: (() -> Void)?
+    private let useHere: (on: Bool, set: (Bool) -> Void)?
 
     init(coord: BuildModel.TileCoord, folder: URL?, copies: [PatchCopyItem] = [],
          patch: PatchEditModel? = nil, extra: [(title: String, run: () -> Void)] = [],
-         exportPackage: (() -> Void)? = nil) {
+         exportPackage: (() -> Void)? = nil,
+         useHere: (on: Bool, set: (Bool) -> Void)? = nil) {
         self.folder = folder
         self.copies = copies
         self.extra = extra
         self.exportPackage = exportPackage
+        self.useHere = useHere
         super.init()
         menu.autoenablesItems = false
         if let patch, patch.mode == .edit, patch.document != nil {
@@ -87,12 +92,24 @@ final class TileContextMenu: NSObject {
         item.toolTip = folder == nil
             ? "Tile \(coord.key) has no folder yet: build it first." : folder?.path
         menu.addItem(item)
+        if let useHere {
+            let use = NSMenuItem(title: O4WorldStateText.useHere, action: #selector(toggleUse),
+                                 keyEquivalent: "")
+            use.target = self
+            use.state = useHere.on ? .on : .off
+            menu.addItem(use)
+        }
         if exportPackage != nil {
             let export = NSMenuItem(title: Self.exportPackageTitle, action: #selector(runExport),
                                     keyEquivalent: "")
             export.target = self
             menu.addItem(export)
         }
+    }
+
+    @objc private func toggleUse() {
+        guard let useHere else { return }
+        useHere.set(!useHere.on)
     }
 
     @objc private func runExport() {

@@ -31,9 +31,10 @@ import os
 import traceback
 import typing as _t
 
-from . import pack_choice as _PC
+from auto_patch_v2.airport import pack_choice as _PC
+from auto_patch_v2.airport.pack_choice import relative as _relative
+
 from . import pack_rewrite as _PR
-from .pack_choice import relative as _relative
 
 __all__ = ["ACTIONS", "CHOICES_NAME", "STORE", "STEPS_STORE", "optimise_choice",
            "optimise_stage", "recorded_key"]
@@ -246,9 +247,14 @@ def _write(pw: PackWeight, pack_root: str, recipe: dict) -> None:
 
 
 def _optimise(pw: PackWeight, pack_root: str, lat: int, lon: int) -> str:
-    """Write the recipe and say so; returns the state announced."""
+    """Write the recipe and say so; returns the state announced.  A copy
+    the recipe wrote before that no optimised DSF names now (a step the
+    user turned off: Adjust…, ``adjust_edit``) is removed, as Undo does."""
+    from auto_patch_v2.airport import pack_optimise as _po
     try:
+        before = _generated(pack_root)
         _write(pw, pack_root, pw.wanted)
+        _po.remove_generated(pack_root, before - _generated(pack_root))
     except Exception as exc:
         import O4_UI_Utils as UI
         UI.vprint(0, f"  [pack] {pw.pack_name}: the pack could not be "

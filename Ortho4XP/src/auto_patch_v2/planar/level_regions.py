@@ -317,6 +317,18 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
         if block is None:
             notes.append(f"unit {s.unit}: {pref} fronts no held block")
             continue
+        # A PASSAGE LEVEL IS GROUND A ROAD REACHES (#2091 R2): where every
+        # road leaving the level climbs a storey or more to its ground, the
+        # walls' feet are buried and the roads run at the unit's zero
+        # (MEASURED OTHH unit 28: 8 of 8 exits climb 3.92-5.56 m)
+        rise = _exit_climbs(L, reg.held.get(block) or {}, -s.depth, regs, host, air,
+                            airport, law, grid)
+        if rise and min(rise) >= step:
+            notes.append(f"unit {s.unit}: no road reaches its level {-s.depth:+.2f}: all "
+                         f"{len(rise)} roads leaving climb {min(rise):.2f}..{max(rise):.2f} m "
+                         f"to their ground (>= {step:g} m step): its walls' feet are buried, "
+                         f"the roads run at its zero")
+            continue
         under = s.underside or {}
         soffit = under.get("soffit_y")
         short = soffit is not None and soffit - s.y_feet < clear - 1e-6
@@ -385,6 +397,17 @@ def seed_levels(regs: list, reg: Registries, seeds: _t.Sequence[LevelSeed], air_
     counts["level_seed_levels"] = sum(1 for v in reg.landings.values()
                                       if v.get("witness") == PASSAGE_WITNESS)
     return regs
+
+
+def _exit_climbs(L, held: dict, y: float, regs: list, host: set, air, airport, law,
+                 grid: float) -> "list | None":
+    """``[DEM - level]`` at every road exit of the candidate level ``L`` at
+    ``y`` under its block ``held`` (``cut_runout.level_exit_climbs``, the
+    run-outs' reader, off the other pads and the airside), or ``None``."""
+    from .cut_runout import level_exit_climbs
+    pads = [r.polygon for r in regs if r.polygon is not None and str(r.ref) not in host]
+    taken = valid_area(unary_union([*pads, air]))
+    return level_exit_climbs(L, held.get("datum_pred"), y, airport, law, taken, grid)
 
 
 def _pieces(regs: list, reg: Registries, L, beyond, block: str, host: str, s, air,

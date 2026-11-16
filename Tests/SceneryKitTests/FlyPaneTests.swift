@@ -172,6 +172,9 @@ import Foundation
             #expect(got?.rawValue == c[3].stringValue, "\(c)")
         }
         #expect(Self.cases("quick_map_hint").first?.first?.stringValue == FlyText.quickMapHint)
+        let change = Self.cases("choice_change").first ?? []
+        #expect(change.first?.stringValue == FlyText.choiceChangeButton)
+        #expect(change.last?.stringValue == FlyText.choiceChangeHelp)
         for c in Self.cases("unknown_airport") {
             #expect(FlyText.unknownAirport(c[0].stringValue!) == c[1].stringValue)
         }

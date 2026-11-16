@@ -26,7 +26,9 @@ def test_retried_tile_that_builds_is_not_counted_failed():
 def test_parallel_run_done_reports_last_outcomes():
     emitted = []
     session = SimpleNamespace(_emit=emitted.append,
-                              _run_finished=lambda: None)
+                              _run_finished=lambda: None,
+                              with_paid_rebuilds=lambda built: built,
+                              _announce_rebuild_pending=lambda cancelled: None)
     run = parallel.ParallelBuildRun.__new__(parallel.ParallelBuildRun)
     run._judging = 0   # #1749: boundary re-checks in flight
     run._lock = parallel.threading.Lock()

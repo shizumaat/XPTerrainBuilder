@@ -38,6 +38,7 @@ struct MapKey: View {
         if states.contains(.meshLowRes) { present.insert("mesh") }
         if states.contains(.drape) { present.insert("drape") }
         if states.contains(.placeholder) { present.insert("placeholder") }
+        if states.contains(.off) { present.insert("off") }
         if rows.contains(where: \.otherTool) || looks.contains(where: \.dotted) { present.insert("other_tool") }
         if looks.contains(where: { $0.item == "stale" }) { present.insert("stale") }
         if customPatch { present.insert("custom") }
@@ -69,6 +70,7 @@ struct MapKey: View {
         case "mesh": return MapWorldStates.mesh
         case "drape": return MapWorldStates.drape
         case "placeholder": return MapWorldStates.placeholder.opacity(MapWorldStates.placeholderOpacity)
+        case "off": return MapWorldStates.off
         case "building": return FlyMapOverlay.building
         // another tool's tile: a white swatch, its dots the item (the map
         // draws the tile in its state's colour, dotted)
@@ -84,7 +86,8 @@ struct MapKey: View {
     static func style(_ item: String) -> StrokeStyle {
         let width: CGFloat = item == "custom" ? 3 : item == "placeholder" ? 1 : 2
         let dash: [CGFloat] = item == "stale" ? [4, 2]
-            : item == "other_tool" ? MapWorldStates.otherToolDash : []
+            : item == "other_tool" ? MapWorldStates.otherToolDash
+            : item == "off" ? [3, 2] : []
         return StrokeStyle(lineWidth: width, dash: dash)
     }
 

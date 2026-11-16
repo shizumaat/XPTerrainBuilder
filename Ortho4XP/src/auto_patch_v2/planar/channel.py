@@ -60,7 +60,7 @@ from .channel_floor import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
                             channel_floor as _floor)
 from .channel_stretch import witnessed_stretch
 from .channel_strip import strip_refusal, strips_crossed
-from .channel_depth import VisibleFloor, extend_axis
+from .channel_depth import VisibleFloor, crest_through_feet, extend_axis
 from .structure_underpass import aeroway_decks
 from ..airport.dem import dem_z_at
 
@@ -764,11 +764,11 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # 2026-11-06d (6): the visible cut's members state the floor's edge and
     # the crest at every station (``planar/channel_depth.VisibleFloor.sides``)
     halves = crests = None
-    pins = feet = ()
+    pins = feet = rings = ()
     if vis.feet is not None and witness_name == "visible cut":
-        halves, crests, pins, feet = vis.sides(profile, axis_fn, half_base, cap, tn.wall_gap_m
-                                               + tn.wall_band_width_m,
-                                               ch.corridor_min_length_m, ch.foot_margin_m)
+        halves, crests, pins, feet, rings = vis.sides(
+            profile, axis_fn, half_base, cap, tn.wall_gap_m + tn.wall_band_width_m,
+            ch.corridor_min_length_m, ch.foot_margin_m)
         widths = tuple((float(s), max(a, b)) for s, a, b in zip(ss, *halves, strict=True))
         half_at, width_src = max(h for _s, h in widths), "the visible cut (2026-11-06d (6))"
     # ── (5) THE WALLS: crest = the DESIGN surface, shape witness-first ──
@@ -805,6 +805,8 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
                toe_top - half_at if wall_shape == "lidar" else 0.0,
                tn.wall_gap_m + tn.wall_band_width_m)
     lo, ro = _sides(axis_fn, ss, *(crests or (half_at + bank,)))
+    if rings:   # the crest runs through each pinned ledge foot (#1918)
+        lo, ro = crest_through_feet(lo, rings[0]), crest_through_feet(ro, rings[1])
     crest_ring = tuple(lo) + tuple(reversed(ro))
     wits = sorted(_wits(grp))
     notes = [f"{cid}: {len(grp)} way(s) within [channel] merge_m {ch.merge_m:.0f} m share the "

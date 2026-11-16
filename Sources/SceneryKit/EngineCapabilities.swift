@@ -70,6 +70,12 @@ public struct O4EngineCapabilities: Equatable, Sendable {
     /// never wait behind the command loop; `patch_load {staleness: false}`
     /// + `patch_staleness`.
     public static let patchViewLane = "patch_view_lane"
+    /// The pack row's Adjust… (owner 2026-11-15T13:12Z): `pack_adjust`
+    /// "adjust" / "change" + `PackAdjust.steps` / `rebuild`.
+    public static let packAdjustEdit = "pack_adjust_edit"
+    /// The map's tile menu "Use XPTerrainBuilder here" (#2100):
+    /// `world_tile_use` (sync); flag only.
+    public static let worldTileUse = "world_tile_use"
 
     /// The protocol number each pre-freeze flag arrived in.
     static let since: [String: (Int, Int)] = [

@@ -224,10 +224,10 @@ def test_one_checkbox_per_step_all_on(qapp):
     assert [b.text() for b in box.step_boxes.values()] == [
         "Remove repeated placements", "Use X-Plane’s library vehicles",
         "Compress large textures"]
-    assert QTOPT._step_detail(STEPS[1]) == (
+    assert QTOPT.step_detail(STEPS[1]) == (
         "11021 heavy cars and ground equipment become X-Plane’s lighter "
         "models (−161.3 million triangles up close).")
-    assert QTOPT._step_detail(STEPS[2]).endswith("(about −1184 MB of video memory).")
+    assert QTOPT.step_detail(STEPS[2]).endswith("(about −1184 MB of video memory).")
     assert box.informativeText() == (
         "This airport’s objects draw 275.5 million triangles on this tile, "
         "enough to cost frame rate. Choose what Optimise does:")

@@ -80,16 +80,19 @@ from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Sour
 from ..model.frame import XY
 from .survey_floor import cap_line, survey_floor_pins
 from ..model.planar import Face, PlanarMap
+from ..model.platform import stage_air_vertices
 from ..model.structures import (SKIRT_ROLE, UNDERPASS_NOTE, Basin, Tunnel, deck_floor_z,
                                 profile_z)
 from .airside_top import TOP_FLUSH, top_seat, top_seats
 from .entrance_skirt import skirt_pins
 from .edge_floor import DECK_FLOOR, edge_seats_of, seat_pair, sloped_floor_rows
+from .airside_floor import lead, off_airside
 from .precedence import view
 from .geometry import nearest_vertex_of_containing_cell
 from .viaduct_floor import is_viaduct_half, viaduct_floor_rows
 
 __all__ = ["structures", "basins", "ramp_groups", "wall_faces_of", "ramp_faces_of",
+           "datum_group",
            "reconcile_datums", "structure_of", "rim_level", "rim_contacts",
            "GEN", "GEN_RIM_LEVEL", "RIM_LEVEL_RULING", "BASIN_FLOOR_RULING",
            "RAMP_REF", "WALL_REF"]
@@ -218,6 +221,23 @@ def framed_plane(planar: PlanarMap, tn: Tunnel, faces: _t.Sequence[Face]
     return {v: z0 + (zt - z0) * min(1.0, max(0.0, s / run)) for v, s in s_of.items()}, s_max
 
 
+def _in_datum(tn: Tunnel, s: float) -> bool:
+    """Does the ramp station ``s`` stand in ``tn``'s DATUM GROUP -- the
+    mouth, every covered stretch, the level stretch to ``climb_from_s``
+    (the one test :func:`structures` and ``constraints/shell_datum`` read)?"""
+    return s <= tn.climb_from_s + _STATION_CLUSTER_M
+
+
+def datum_group(planar: PlanarMap, tn: Tunnel) -> list[int]:
+    """The vertices of ``tn``'s ramp DATUM GROUP (:func:`_in_datum`): the
+    floor a storey shell's block follows (#2062 R3b A,
+    ``constraints/shell_datum``)."""
+    out: set[int] = set()
+    for f in ramp_faces_of(planar, planar.structures).get(tn.id, ()):
+        out.update(v for s, vs in ramp_groups(planar, tn, f) if _in_datum(tn, s) for v in vs)
+    return sorted(out)
+
+
 def _dem_at(airport: Airport, x: float, y: float) -> float:
     return float(airport.dem.z(x, y))
 
@@ -275,6 +295,10 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 
     vw = view(planar, law)
     structure_roles = ("tunnel_ramp", DOOR_RAMP_REF, *WALL_CORRIDOR_ROLES, "retaining_wall")
+    # #2099 R3 A1: no floor stands on a vertex a stage-1 airside face
+    # carries (``constraints/airside_floor``) -- every row lead below is
+    # the group's first non-airside vertex, and the rows are filtered once
+    air = stage_air_vertices(planar, law)
 
     def shared_with_ground(v: int) -> bool:
         """A governed face other than the structure's own touches ``v``
@@ -542,7 +566,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # mouth on a ridge of the smoothed DEM tops BELOW its datum
             # (``ramp_top``'s descend-to case) and is monotone downward, so
             # the row never contradicts the pins the generator already set.
-            st = [(s, vs[0]) for s, vs in groups_climb if vs]
+            st = [(s, lead(vs, air)) for s, vs in groups_climb if lead(vs, air) is not None]
             if len(st) > 1:
                 za = _dem_at(airport, *tn.axis[-1])
                 down = not math.isnan(za) and za < tn.mouth_z - 1e-9
@@ -557,9 +581,10 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # group just beyond the last deck (``climb_from_s`` is that
             # deck's far edge + the gap, where the far piece begins)
             for s, vs in groups:
-                if s <= tn.climb_from_s + _STATION_CLUSTER_M and src_bottom is None:
-                    datum_vs.extend(vs)
-                    datum_groups.append((s, vs))
+                own = [v for v in vs if v not in air]
+                if _in_datum(tn, s) and src_bottom is None and own:
+                    datum_vs.extend(own)
+                    datum_groups.append((s, own))
             if tn.decks:
                 abut.extend(groups)
             # the top: the ground it climbs to (its value where shared,
@@ -700,9 +725,10 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # is a road face solved under its own cap, so its low side is
             # not its first vertex — measured LEMD: 4.81 m at one edge)
             for s, vs in abut:
-                if any(dpoly.distance(Point(planar.vertices[v].xy)) <= reach for v in vs):
+                if lead(vs, air) is not None and \
+                        any(dpoly.distance(Point(planar.vertices[v].xy)) <= reach for v in vs):
                     for dv in sorted(set(deck_vs)):
-                        rows.append(Offset(dv, vs[0], br_law.clearance_m, src_clear))
+                        rows.append(Offset(dv, lead(vs, air), br_law.clearance_m, src_clear))
             # A TERRAIN DECK IS TIED TO ITS ENDS (spec §33 (4); owner
             # RULINGS 2026-09-13d item 9 "the bridge is too low as it needs
             # to smoothly connect the road on either end").  ITS DATUM is
@@ -796,7 +822,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                             rows.append(Band(dv, lo, hi, src_ends))
     rows.extend(pins.values())
     rows.extend(viaduct_floor_rows(planar, law, tunnels, via_stations))
-    return rows
+    return off_airside(rows, air)[0]
 
 
 def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:

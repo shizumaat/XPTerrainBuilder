@@ -209,6 +209,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .world_measure import world_measure_state
     from .world_migrate import start_world_migrate
     from .world_rechoose import start_world_rechoose
+    from .world_tile_use import world_tile_use
     return {
         "scan": session.scan,
         "build": session.build,
@@ -428,6 +429,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "world_regions_set": lambda **kw: WORLD.start_world_regions_set(
             session._emit, **kw),
         "world_tile_set": WORLD.world_tile_set,
+        # The tile menu's "Use XPTerrainBuilder here" (#2100, capability
+        # world_tile_use): sync; {"tile", "use", "state"}.
+        "world_tile_use": world_tile_use,
         # Phase M (capability world_migrate): the per-tile packs moved
         # into the World pack -- dry run, run, revert or stop; completes
         # through WorldReady carrying this command's id.
@@ -790,6 +794,10 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         # refreshed after each run (#2029).
         from .storage_shared import watch as _watch_storage
         _watch_storage(session)
+        # ... and what X-Plane does not read moved to a mounted storage
+        # tier after each run (RULINGS 2026-11-16c, #2103).
+        from .storage_offload import watch as _watch_offload
+        _watch_offload(session)
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.
         # ``capabilities`` defaults to ``events.CAPABILITIES`` — ONE list

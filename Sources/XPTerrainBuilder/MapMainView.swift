@@ -7,7 +7,7 @@ import SceneryKit
 /// results in the bottom third.
 struct MapMainView: View {
     @EnvironmentObject var controller: AnalysisController
-    @AppStorage("MapSceneryFilter") private var sceneryFilterRaw = MapSceneryFilter.all.rawValue
+    @AppStorage(MapFilter.storageKey) private var mapFilterStored = ""
     @EnvironmentObject var buildModel: BuildModel
     @StateObject private var searchText = ViewState("")
     /// The point a coordinate search went to (#1317); nil = no reticle.
@@ -220,22 +220,10 @@ struct MapMainView: View {
             .help("Choose which imagery source the map previews — independent of the provider used for building")
         }
         // Trailing edge, per the HIG (Finder/Mail put search last). The
-        // scenery-layer filter sits just left of search, standard filter
-        // icon (filled while a filter is active).
+        // map's Filter menu (#2097) sits just left of search, standard
+        // filter icon (filled while an item is off).
         ToolbarItem(placement: .automatic) {
-            Menu {
-                Picker("Scenery", selection: $sceneryFilterRaw) {
-                    ForEach(MapSceneryFilter.allCases, id: \.rawValue) { filter in
-                        Text(filter.label).tag(filter.rawValue)
-                    }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                Image(systemName: sceneryFilterRaw == MapSceneryFilter.all.rawValue
-                      ? "line.3.horizontal.decrease.circle"
-                      : "line.3.horizontal.decrease.circle.fill")
-            }
-            .help("Show the tiles you built, other installed ortho/mesh packages, or both")
+            MapFilterMenu(stored: $mapFilterStored)
         }
         ToolbarItem(placement: .automatic) {
             ToolbarSearchField(text: searchText,

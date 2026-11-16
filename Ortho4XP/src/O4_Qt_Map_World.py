@@ -5,7 +5,8 @@ Borders only, never a fill (#1256) -- each drawn as the shared fading
 band inside the tile's edge (``O4_Tile_Band``): a full tile is green,
 a mesh whose imagery streams is teal with its sharp fraction as a bar
 along its bottom edge, a drape is pink, a placeholder a faint thin gray
-outline; a tile with nothing is left unmarked.  Another tool's mesh is
+outline, a tile the user turned off (#2100) a dashed gray band crossed
+corner to corner; a tile with nothing is left unmarked.  Another tool's mesh is
 dotted.  A built tile is drawn by its World state (#2031,
 ``O4_Qt_Map_Legend.built_look``).  Painted in scene space.
 """
@@ -18,7 +19,8 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPen
 
 __all__ = ["FULL_COLOR", "MESH_COLOR", "DRAPE_COLOR", "PLACEHOLDER_COLOR",
-           "PLACEHOLDER_ALPHA", "OTHER_TOOL_DASH", "STATE_COLORS", "from_wire",
+           "PLACEHOLDER_ALPHA", "OTHER_TOOL_DASH", "OFF_COLOR", "OFF_DASH",
+           "STATE_COLORS", "from_wire",
            "paint_world"]
 
 #: The World pack's "Full" green (MapWorldStates.full), also a built tile
@@ -32,8 +34,12 @@ PLACEHOLDER_ALPHA = 0.30
 #: Another tool's mesh: the border's dash in points, dotted
 #: (MapWorldStates.otherToolDash).
 OTHER_TOOL_DASH = (2, 3)
+#: A tile turned off (#2100, MapWorldStates.off): gray, dashed, crossed.
+OFF_COLOR = "#8E8E93"
+OFF_DASH = (6, 4)
 STATE_COLORS = {WS.FULL: FULL_COLOR, WS.MESH_LOWRES: MESH_COLOR,
-                WS.DRAPE: DRAPE_COLOR, WS.PLACEHOLDER: PLACEHOLDER_COLOR}
+                WS.DRAPE: DRAPE_COLOR, WS.PLACEHOLDER: PLACEHOLDER_COLOR,
+                WS.OFF: OFF_COLOR}
 
 
 def from_wire(rows) -> dict:
@@ -68,7 +74,7 @@ def paint_world(painter, world: dict, tiles, tile_rect, scale: float,
     painter.save()
     painter.setBrush(Qt.NoBrush)
     placeholder = _pen(PLACEHOLDER_COLOR, PLACEHOLDER_ALPHA, 1)
-    bands, bars = [], []
+    bands, bars, crosses = [], [], []
     for tile in tiles:
         row = world.get(tile)
         if row is None or skip(tile):
@@ -82,6 +88,10 @@ def paint_world(painter, world: dict, tiles, tile_rect, scale: float,
             inset = 1.0 / max(scale, 1e-12)
             painter.drawRect(r.adjusted(inset, inset, -inset, -inset))
             continue
+        if row.state == WS.OFF:
+            bands.append((r, color, 1.0, OFF_DASH))
+            crosses.append(r)
+            continue
         bands.append((r, color, 1.0, OTHER_TOOL_DASH
                       if row.origin == TINFO.ORIGIN_OTHER else None))
         if row.state == WS.MESH_LOWRES and r.width() * scale > 24:
@@ -89,6 +99,10 @@ def paint_world(painter, world: dict, tiles, tile_rect, scale: float,
     QTBAND.paint_bands(painter, bands, scale)
     for r, sharp in bars:
         _sharp_bar(painter, r, scale, sharp)
+    painter.setPen(_pen(OFF_COLOR, 0.6, 1))
+    for r in crosses:
+        painter.drawLine(r.topLeft(), r.bottomRight())
+        painter.drawLine(r.topRight(), r.bottomLeft())
     painter.restore()
 
 

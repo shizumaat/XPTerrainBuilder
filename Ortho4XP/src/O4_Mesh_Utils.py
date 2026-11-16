@@ -113,12 +113,13 @@ HAIRLINE_PARALLEL_DEG = None
 #: ("constrained segments under 10 mm 28 -> 0"), which also catches VMMC's
 #: 0.0124-0.0497 mm triples and leaves the centimetre-scale OSM segments
 #: every real tile carries.  An assumption, named as one.
-HAIRLINE_DEGENERATE_M = 0.010
 #: The identity spacing the law is written against — ``auto_patch_v2``'s
 #: ``emit.identity.min_distinct_spacing_m``, read from the law tables when
 #: they are importable and this constant otherwise (the mesh runs with no
 #: v2 law object in hand).
-HAIRLINE_SPACING_M = 0.5
+#: (both live in ``O4_Hairline`` so light callers skip the mesh.)
+from O4_Hairline import HAIRLINE_DEGENERATE_M, HAIRLINE_SPACING_M  # noqa: E402
+
 #: REFUSE a non-boundary pair whose shorter segment is at least this many
 #: times its own gap: the Steiner cascade Triangle would have to build.
 #: An ASSUMPTION calibrated on the two measured sightings, never a law —
@@ -576,7 +577,15 @@ def _apply_hold_curv_weights(tile, weight_array):
         if not boxes:
             return 0
         weight = _hold_curv_weight(tile)
+        prior = weight_array.copy()
         raised = sum(_raise_box_curv_weight(tile, weight_array, b, weight) for b in boxes)
+        # #2077 round 3 R2': a fill record's box leaves the water's cells
+        # at their weight (the water's triangles are the control's)
+        rows, cols = TERRAIN_CUT.wet_weight_cells(tile)
+        if len(rows):
+            weight_array[rows, cols] = prior[rows, cols]
+            UI.vprint(1, "-> %d weight cell(s) over mapped water kept at their weight "
+                      "(#2077 R2')." % len(rows))
     except Exception as error:
         UI.vprint(1, "   WARNING: the hold's weight boxes unreadable:", str(error))
         return 0
@@ -2177,6 +2186,12 @@ def post_process_nodes_altitudes(tile):
     # overwritten by the column-5 copy at the end of this function.
     water_valued = {v for tri in water_tris for v in tri}
     water_valued |= {v for tri in sea_tris for v in tri}
+    # #2077 round 2 R2: the terrain composites' planes and fills never
+    # move water -- its vertices are levelled from the raster without them;
+    # round 3 R2': the land takes back what the dry .alt kept off it
+    import auto_patch.terrain_cut_stage as TERRAIN_CUT
+    TERRAIN_CUT.unfill_water(tile, vertices, water_valued)
+    TERRAIN_CUT.refill_land(tile, vertices, water_valued)
     if degenerate_attr_nbr:
         UI.lvprint(
             1,
@@ -2770,9 +2785,11 @@ def build_mesh(tile):
                     tile, getattr(tile, "dico_airports", None) or {})
                 INSETS.bake_airport_insets_into_alt_dem(tile)
                 # owner RULINGS 2026-11-13k: and the terrain models' cut
+                # (#2077: and fill, never inside the patch coverage)
                 import auto_patch.terrain_cut_stage as TERRAIN_CUT
-                TERRAIN_CUT.bake(tile)
-                tile.dem.write_to_file(FNAMES.alt_file(tile))
+                _cover = patch_coverage_polygon(tile)
+                TERRAIN_CUT.bake(tile, patch_area=None if _cover is None else _cover[0])
+                TERRAIN_CUT.write_alt(tile)
         except Exception as e:
             print(e)
             UI.exit_message_and_bottom_line(

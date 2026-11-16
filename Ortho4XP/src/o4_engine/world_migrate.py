@@ -562,9 +562,12 @@ def missing_from_pack(scenery_dir: str, kinds: Optional[dict] = None, *,
 def _give_back(pack: str, lat: int, lon: int, prior: Optional[str]) -> None:
     """The World pack as it was before the tile came: its placeholder
     (or no DSF), and its folders removed (X-Plane is closed).  A pack
-    whose folder is gone is not made again by a placeholder."""
+    whose folder is gone is not made again by a placeholder; a tile the
+    user turned off there (#2100) leaves the set, its kept files with it."""
+    import O4_World_Pack_Off as OFF
     if not os.path.isdir(pack):
         return
+    OFF.forget(pack, lat, lon)
     if prior == "placeholder":
         WP.swap_out(pack, lat, lon)
     else:

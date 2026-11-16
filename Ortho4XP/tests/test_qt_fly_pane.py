@@ -114,6 +114,17 @@ def test_no_plan_closes_a_prepared_flight_only(qapp):
         assert (pane.status is None) is cleared
 
 
+def test_quitting_ends_the_flight(qapp):
+    """#2105: the window closing ends the active flight; an engine with
+    none (a refusal) says nothing.  Swift: ``FlyModel.endOnQuit``."""
+    engine = _Engine({"flight_end": {"flight": "f", "state": "closed"}})
+    pane, _ = _pane(engine)
+    pane.end_on_quit()
+    assert engine.calls[-1] == ("flight_end", {})
+    pane, _ = _pane(_Engine({}))
+    pane.end_on_quit()
+
+
 def test_quick_entry_and_a_refusing_engine(qapp):
     engine = _Engine({})
     pane, _ = _pane(engine)

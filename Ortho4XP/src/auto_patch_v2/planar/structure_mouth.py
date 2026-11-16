@@ -89,6 +89,10 @@ from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_family, role_side
 from ..model.frame import rotated_rectangle
 from ..model.planar import OSM_RIBBON_FEEDS, ROAD_ROLES
+from .entrance_skirt import _cover_back
+from .mouth_behind import behind_faces, cap_bound
+from .mouth_opening import axis_left_normal
+from .structure_geometry import snap_out
 
 __all__ = ["mouth_stops", "member_lanes", "clear_mouth", "mouth_at_pavement", "road_profile",
            "road_end_after_slide", "covered_stretch", "own_road_blade", "road_over_mouth",
@@ -440,7 +444,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       pinned: bool = False, road_floor: float | None = None,
                       road_extra: float = 0.0, slide: bool = True, own_lines=(), own_area=None,
                       keep_out: _t.Sequence[tuple[Polygon, str]] = (), own_cut=None,
-                      cutting=None, skew=None):
+                      cutting=None, skew=None, entrance: bool = False):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
     axis starting at the mouth that stands clear of the pavement (the
@@ -483,6 +487,11 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     ``own_cut`` (a HARD-DECK BRIDGE's ring, ``planar/deck_bridge``; owner
     RULINGS 2026-10-30a, Q296/Q297): the pavement inside it is the deck's —
     the cut takes it, and only what stands beyond it stops the ramp.
+    ``entrance`` (the pin is an ENTRANCE face): a taxiway its ring meets
+    only behind the mouth line is no clause-1 hit (``mouth_behind``); the
+    pinned result then carries an eighth element ``(cap_off, faces)`` --
+    the ring's cap stand-off and the faces its void and knife never take
+    (#2099 F2 P1b / P1c).
 
     ``keep_out`` — ground a corridor's wall may never stand in (the runway
     strip keep-out, ``retaining_wall.in_runway_strip = false``; issue
@@ -523,7 +532,12 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         got = _pinned(group, axis, cells, polys, pads, law, cut_roles, half, rim_off,
                       decked, grid, crossing, ring_of(0.0), taxi_yields=slide,
                       own_lines=own_lines, own_area=own_area, own_cut=own_cut,
-                      airport=airport)
+                      airport=airport, entrance=entrance)
+        if isinstance(got, tuple) and len(got) > 7:
+            # #2099 F2 P1b: the cap held short of the taxiway behind the
+            # mouth line -- or, where it cannot stand wall_gap_m, the yield
+            cap = cap_bound(got[7], law, gap)
+            got = got[:7] + ((cap, got[7].faces),) if cap is not None else got[7].refs[0]
         if isinstance(got, tuple):
             return got
         # clause 1 stands over the portal: a taxiway face at its opening
@@ -688,7 +702,7 @@ PORTAL_YIELDS = "the pack portal yields to taxiway"
 
 def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, half: float,
             rim_off: float, decked, grid: float, crossing, mouth_ring, taxi_yields: bool = True,
-            own_lines=(), own_area=None, own_cut=None, airport=None):
+            own_lines=(), own_area=None, own_cut=None, airport=None, entrance: bool = False):
     """:func:`mouth_at_pavement` for a mouth a pack PORTAL pins: never
     slid.  The stops are read at the mapped mouth; those the mouth's own
     end (its cap and first spacing of ramp, ``mouth_ring``) stands in are
@@ -699,7 +713,11 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     uncut, the pad kept the ground over the ramp).  A
     TAXIWAY face at the opening is never dropped (clause 1): its ref is
     returned instead (a string), and the caller slides the mouth — unless
-    ``taxi_yields`` is false (an edge bridge's pin is never slid)."""
+    ``taxi_yields`` is false (an edge bridge's pin is never slid).  An
+    ``entrance`` face's ring meeting taxiway faces only BEHIND its mouth
+    line keeps them as stops and returns them as an eighth element
+    (``mouth_behind.Behind``; #2099 F2 P1b)."""
+    behind = None
     mouth = tuple(axis.coords[0])            # the portal's own mouth (``portal_mouth``)
     stops = mouth_stops(cells, polys, law, cut_roles, axis, mouth, half, rim_off,
                         decked, grid, _routes(group)) + list(crossing)
@@ -709,10 +727,15 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
         mouth_ring = None
     if mouth_ring is not None:
         taxi = {c.ref for c in cells if role_family(law, c.role) == "taxi"}
-        hit = [r for p, r in stops if r in taxi and p.intersects(mouth_ring)]
-        if hit and taxi_yields:
-            return hit[0]
-        stops = [(p, r) for p, r in stops if not p.intersects(mouth_ring)]
+        hit = [(p, r) for p, r in stops if r in taxi and p.intersects(mouth_ring)]
+        # #2099 F2 P1b: a taxiway an ENTRANCE face's ring meets only behind
+        # its mouth line is not at the opening -- it stays a stop
+        behind = behind_faces(mouth, group.inward, mouth_ring, hit) \
+            if entrance and taxi_yields else None
+        if hit and taxi_yields and behind is None:
+            return hit[0][1]
+        kept = set() if behind is None else set(behind.refs)
+        stops = [(p, r) for p, r in stops if r in kept or not p.intersects(mouth_ring)]
         # #1747 / owner 2026-11-04 (LOWS 15): a building PAD the opening
         # stands in is the portal object's own footprint (an entrance's
         # walls read as a building): the ramp grades into it to the
@@ -736,7 +759,8 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     stops = [(p, r) for p, r in stops if str(r).split("#", 1)[0] not in joins]
     stops = list(pads) + stops
     tree = STRtree([p for p, _r in stops]) if stops else None
-    return axis, mouth, stops, tree, "", None, hosts if mouth_ring is not None else ()
+    return (axis, mouth, stops, tree, "", None, hosts if mouth_ring is not None else ()) + (
+        (behind,) if behind is not None else ())
 
 
 def _junction_refs(airport, own: _t.Sequence[LineString], tol: float) -> set[str]:
@@ -786,10 +810,14 @@ def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
                 f"walls' bottom {pin.depth_m:.2f} (20am / 20ar); the span behind the back "
                 f"is covered ground")
     if getattr(pin, "footed", False):
+        # (a trench object's floor re-reads a footed pin: ``object_floor.
+        # floor_portals`` clears its foot -- the floor is that floor's)
         return (f"mouth pinned by the footed pack portal {pin.object_id} "
                 f"{pin.resource.rsplit('/', 1)[-1]} (#2069, Q167): floor {mouth_z:.2f} = "
-                f"its zero {float(pin.zero_z):.2f} + its walls' foot {float(pin.bottom_y):.2f}"
-                f" (ground {mouth_dem:.2f}); the mouth stands at the back of its roof")
+                + (f"its zero {float(pin.zero_z):.2f} + its walls' foot "
+                   f"{float(pin.bottom_y):.2f}" if pin.bottom_y is not None and
+                   pin.zero_z is not None else "the trench object's floor under it (#1903)")
+                + f" (ground {mouth_dem:.2f}); the mouth stands at the back of its roof")
     if getattr(pin, "floor_z", None) is not None and pin.roof_area_m2 > 0.0:
         return (f"mouth pinned by the tall pack portal {pin.object_id} "
                 f"{pin.resource.rsplit('/', 1)[-1]} (owner 2026-11-04 ENTC): floor "
@@ -841,15 +869,34 @@ def portal_mouth(axis: LineString, inward, anchor, plan=()) -> "tuple[LineString
                                        for q in (plan or (anchor,))))
 
 
-def roof_back_mouth(axis: LineString, inward, roof) -> "tuple[LineString, float]":
+def roof_back_mouth(axis: LineString, inward, roof, set_back: "float | None" = None,
+                    half=0.0, grid: float = 0.0, notes: "list[str] | None" = None
+                    ) -> "tuple[LineString, float]":
     """``(axis, metres moved)``: a FOOTED portal's mouth stands at the BACK
     of its roof (#2069, ``airport/footed_portal``): the cut floor runs under
     the roof and out of its opening.  Where the roof reaches over the bore
     the mouth moves in to its furthest point (as :func:`portal_mouth`);
     where it stands up the open road (NZWN's west portal, 45 m up the road
     from the mapped end) the axis is cut back to the roof's nearest station
-    along it, the road behind the portal is covered ground (negative)."""
+    along it, the road behind the portal is covered ground (negative).
+
+    #1689 R5 M1 / R5b: with ``set_back`` (the cap's stand-off off the
+    ramp's end, ``rim_off + grid``) ``roof`` is a TALL portal's COVER: the
+    CAP never stands beyond the cover's back.  The back is read from the
+    MIDDLE half of the ramp (``half`` either side of the axis, or its pair:
+    ``entrance_skirt._cover_back``), and nothing moves unless the mouth
+    stands under the cover on every middle line; where the mouth plus the
+    stand-off passes the back, the axis is cut back out of the bore to
+    ``back - set_back`` (negative), and a ``grid`` step more while the
+    cap's centre, snapped as the builder snaps it
+    (``structure_geometry.snap_out``), still stands beyond the back -- at
+    most three (no move over ``set_back + 3 grid``); else the mouth stays.
+    The reading (the back and its range across the whole ramp: the skew)
+    is appended to ``notes``."""
     m = axis.coords[0]
+    if set_back is not None:
+        return _cap_under_cover(axis, inward, roof, half, float(set_back), grid,
+                                [] if notes is None else notes)
     pts = [q for g in getattr(roof, "geoms", [roof]) for q in g.exterior.coords]
     if not pts:
         return axis, 0.0
@@ -860,6 +907,32 @@ def roof_back_mouth(axis: LineString, inward, roof) -> "tuple[LineString, float]
     if s <= 1e-6 or s >= axis.length - 1e-6:
         return axis, 0.0
     return substring(axis, s, axis.length), -float(s)
+
+
+def _cap_under_cover(axis: LineString, inward, cover, half, set_back: float, grid: float,
+                     notes: "list[str]") -> "tuple[LineString, float]":
+    """:func:`roof_back_mouth`'s ``set_back`` arm (#1689 R5b M1)."""
+    m = axis.coords[0]
+    reading = _cover_back(m, inward, cover, half, axis_left_normal(axis),
+                          4.0 * (axis.length + 1000.0))
+    if reading is None:
+        notes.append("the mouth does not stand under the cover across the ramp's middle")
+        return axis, 0.0
+    back, lo, hi = reading
+    notes.append(f"back {back:.2f} ({lo:.2f}-{hi:.2f} across the ramp)")
+    if back >= set_back - 1e-9:
+        return axis, 0.0
+    off = set_back - grid
+    s = back - set_back
+    for _k in range(3):
+        c = (m[0] + inward[0] * s, m[1] + inward[1] * s)
+        q = snap_out((c[0] + inward[0] * off, c[1] + inward[1] * off), c, grid)
+        if (q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1] <= back + 1e-9:
+            break
+        s -= grid
+    if -s >= axis.length - 1e-6:
+        return axis, 0.0
+    return substring(axis, -s, axis.length), float(s)
 
 
 def edge_wall_mouth(axis: LineString, inward, walls, half: float

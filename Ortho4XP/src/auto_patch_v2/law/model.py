@@ -38,6 +38,7 @@ from .basin_schema import Basin  # noqa: F401
 # §1) likewise lives beside the other per-table schemas
 from .base_profile_schema import BaseProfileLaw  # noqa: F401
 from .walled_plate_schema import WalledPlateLaw  # noqa: F401
+from .agp_schema import AgpLaw  # noqa: F401
 # the [tunnel.object] schema (05k-1/05n/06c/06f/09w; the THIN-PLATE wall
 # class of spec §33 (2)) likewise — the 1,000-line file law
 from .tunnel_object_schema import TunnelObject  # noqa: F401
@@ -573,6 +574,12 @@ class Bridge:
     #: this area HOLDS the end (14f (4))
     end_solid_min_height_m: float
     end_solid_min_area_m2: float
+    #: #2062 R5 (master ruling 2026-11-15, owner 13:50Z / 13:52Z): a kept deck
+    #: end whose carried ground route runs on over airside pavement mints
+    #: the route's road past the end line, at most this long
+    airside_run_max_m: float
+    #: ... and a bank this wide either side of it down to the airside
+    airside_run_bank_m: float
 
 
 @_dc.dataclass(frozen=True)
@@ -732,6 +739,10 @@ class Structures:
     #: RULINGS 2026-10-27t/u, #1201): the recognition's numbers.  Defaulted
     #: like ``base_profile``.
     walled_plate: WalledPlateLaw = _dc.field(default_factory=WalledPlateLaw)
+    #: AN ``.agp`` GROUP SEATS ON ONE DATUM (``[agp]``, #2090): the join,
+    #: the governor, the datum and the plates' numbers.  Defaulted like
+    #: ``walled_plate``.
+    agp: AgpLaw = _dc.field(default_factory=AgpLaw)
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────

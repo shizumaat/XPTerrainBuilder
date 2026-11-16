@@ -96,16 +96,26 @@ def test_the_ground_textures_open_unticked(qapp):
         "unpaved ground at the airport cover the tile’s imagery.")
 
 
-def test_the_terrain_objects_open_unticked(qapp):
+def test_the_terrain_objects_open_as_the_engine_ticks_them(qapp):
     """RULINGS 2026-11-13i: "Hide terrain objects" is offered beside the
-    drapes and the ground, off by default."""
+    drapes and the ground — ticked by default since owner
+    2026-11-15T13:12Z; the box reads the engine's ``checked``
+    (``adjust_stage.UNCHECKED``), never a default of its own."""
+    from auto_patch import adjust_stage as AS
     rows = ITEMS[:2] + [{"key": "terrain", "count": 1, "uses": 1,
-                         "automatic": False, "checked": False}] + ITEMS[2:]
+                         "automatic": False,
+                         "checked": "terrain" not in AS.UNCHECKED,
+                         "rebuild": True}] + ITEMS[2:]
     box, _buttons = QTADJ.pack_adjust_box(_event(items=rows))
     assert list(box.item_boxes) == ["trees", "drapes", "terrain"]
-    assert box.checked_items() == ["trees", "drapes"]
+    assert box.checked_items() == ["trees", "drapes", "terrain"]
     assert QTADJ.ITEM_TITLES["terrain"] == (
         "Hide terrain objects included with the package")
+    assert box.apply.text() == QTADJ.APPLY_REBUILD_BUTTON, \
+        "hiding the terrain objects reshapes the tile's ground"
+    box.item_boxes["terrain"].setChecked(False)
+    assert box.apply.text() == QTADJ.APPLY_BUTTON
+    assert QTADJ._detail(rows[2]).endswith(QTADJ.REBUILD_NOTE)
 
 
 def test_the_generic_ground_names_its_hectares(qapp):
@@ -126,9 +136,17 @@ def test_the_copy_matches_the_mac_app():
     if not os.path.exists(swift):
         pytest.skip("Swift sources not present in this tree")
     text = open(swift, encoding="utf-8").read()
-    for s in (QTADJ.APPLY_BUTTON, QTADJ.NOT_NOW_BUTTON, QTADJ.NEVER_BUTTON):
+    for s in (QTADJ.APPLY_BUTTON, QTADJ.NOT_NOW_BUTTON, QTADJ.NEVER_BUTTON,
+              QTADJ.OPTIMISE_HEADING, QTADJ.APPLY_REBUILD_BUTTON,
+              QTADJ.CANCEL_BUTTON, QTADJ.ADJUST_BUTTON):
         assert '"%s"' % s in text
     assert '"Adjust “\\(pack)”?"' in text
+    assert '"Adjust “\\(pack)”"' in text
+    for qt in (QTADJ.REBUILD_LATER, QTADJ.REBUILD_QUEUED, QTADJ.REBUILDING):
+        swift_form = qt
+        for name in ("tile", "pack", "reason", "change"):
+            swift_form = swift_form.replace("{%s}" % name, "\\(%s)" % name)
+        assert '"%s"' % swift_form in text, qt
 
     def joined(start, end):
         i = text.index(start)
@@ -136,6 +154,11 @@ def test_the_copy_matches_the_mac_app():
 
     assert joined("static let body", "static let itemTitles") == QTADJ.BODY
     assert joined("static let detail", "static let applyButton") == QTADJ.DETAIL
+    assert joined("static let editBody", "static let optimiseHeading") == QTADJ.EDIT_BODY
+    assert joined("static let rebuildNote", "static let applyRebuildButton") \
+        == QTADJ.REBUILD_NOTE
+    assert joined("static let adjustHelp", "public static func rebuildLater") \
+        == QTADJ.ADJUST_HELP
     for key in QTADJ.ITEM_TITLES:
         assert '"%s": "%s"' % (key, QTADJ.ITEM_TITLES[key]) in text
     got: dict = {}
@@ -195,3 +218,115 @@ def test_an_applied_answer_refreshes_the_pack_rows(window, monkeypatch):
                         lambda: calls.append(1))
     window._on_engine_event(_event(state="applied"))
     assert calls == [1] and window._pack_art_boxes == []
+
+
+# ── the pack row's Adjust… (owner 2026-11-15T13:12Z) ──────────────────────
+
+EDIT_ITEMS = [{"key": "drapes", "count": 12, "uses": 40, "automatic": False,
+               "checked": True, "applied": True, "rebuild": False},
+              {"key": "terrain", "count": 1, "uses": 1, "automatic": False,
+               "checked": False, "applied": False, "rebuild": True},
+              {"key": "flatten", "count": 1, "uses": 0, "automatic": True}]
+EDIT_STEPS = [{"key": "dedupe", "count": 4, "tris": 1000000, "mb": 0.0,
+               "checked": True},
+              {"key": "textures", "count": 3, "tris": 0, "mb": 12.0,
+               "checked": False}]
+
+
+def _edit(**kw):
+    return _event(state="adjust", items=EDIT_ITEMS, steps=EDIT_STEPS, **kw)
+
+
+def test_adjust_opens_as_the_pack_is_with_its_optimise_steps(qapp):
+    box, buttons = QTADJ.pack_adjust_box(_edit())
+    assert box.text() == "Adjust “Some Pack”"
+    assert set(buttons) == {"change"} and box.never is None
+    assert box.not_now.text() == QTADJ.CANCEL_BUTTON
+    assert box.checked_items() == ["drapes"]
+    assert {k: b.isChecked() for k, b in box.step_boxes.items()} == {
+        "dedupe": True, "textures": False}
+    assert box.apply.text() == QTADJ.APPLY_BUTTON, "nothing changed yet"
+    box.item_boxes["terrain"].setChecked(True)
+    assert box.apply.text() == QTADJ.APPLY_REBUILD_BUTTON
+    box.item_boxes["drapes"].setChecked(False)
+    box.step_boxes["textures"].setChecked(True)
+    assert box.answer_extra("change") == {
+        "shown": ["drapes", "terrain"], "items": ["terrain"],
+        "steps": ["dedupe", "textures"]}
+
+
+def test_adjust_asks_every_time_and_apply_sends_change(window, monkeypatch):
+    sent = []
+    monkeypatch.setattr(window._session, "pack_adjust",
+                        lambda **kw: sent.append(kw) or {"status": "started"})
+    window._on_engine_event(_edit())
+    [box] = window._pack_art_boxes
+    _button(box, "Cancel").click()
+    assert sent == []
+    window._on_engine_event(_edit())
+    [box] = window._pack_art_boxes
+    _button(box, "Apply").click()
+    assert sent == [{"pack_root": "/X/Custom Scenery/Some Pack",
+                     "action": "change", "lat": 29, "lon": -96,
+                     "shown": ["drapes", "terrain"], "items": ["drapes"],
+                     "steps": ["dedupe"]}]
+
+
+def test_a_rebuild_outcome_rebuilds_the_tile(window, monkeypatch, capsys):
+    asked = []
+    monkeypatch.setattr(window, "_refresh_modified_airports", lambda: None)
+    monkeypatch.setattr(window, "rebuild_patch_tile",
+                        lambda tile: asked.append(tile) or None)
+    window._on_engine_event(_event(state="applied"))
+    assert asked == []
+    window._on_engine_event(_event(state="applied", rebuild=True))
+    assert asked == ["+29-096"]
+    monkeypatch.setattr(window, "rebuild_patch_tile",
+                        lambda tile: "This tile is already in this run.")
+    window._on_engine_event(_event(state="applied", rebuild=True))
+    assert "Rebuild tile +29-096 to finish the change" in capsys.readouterr().out
+
+
+def test_the_pack_row_adjust_asks_the_engine(window, monkeypatch):
+    sent = []
+    monkeypatch.setattr(window._session, "pack_adjust",
+                        lambda **kw: sent.append(kw))
+    monkeypatch.setattr(window.map, "active_tile", lambda: (29, -96))
+    window._adjust_pack_from_row({"pack_path": "/X/Custom Scenery/Some Pack"})
+    assert sent == [{"pack_root": "/X/Custom Scenery/Some Pack",
+                     "action": "adjust", "lat": 29, "lon": -96}]
+    window._building = True
+    window._adjust_pack_from_row({"pack_path": "/X/Custom Scenery/Some Pack"})
+    assert len(sent) == 1, "never during a run"
+
+
+def test_a_terrain_answer_during_a_run_waits_for_its_end(window, monkeypatch,
+                                                         capsys):
+    asked = []
+    monkeypatch.setattr(window, "_refresh_modified_airports", lambda: None)
+    monkeypatch.setattr(window, "rebuild_patch_tile",
+                        lambda tile: asked.append(tile) or None)
+    window._building = True
+    window._on_engine_event(_event(state="applied", rebuild=True))
+    assert asked == []
+    assert "will be rebuilt when this run finishes" in capsys.readouterr().out
+
+
+def test_the_tiles_still_owed_are_rebuilt_once_after_the_run(window,
+                                                             monkeypatch,
+                                                             capsys):
+    asked = []
+    monkeypatch.setattr(window, "rebuild_patch_tile",
+                        lambda tile: asked.append(tile) or None)
+    rows = [{"tile": "+29-096", "lat": 29, "lon": -96, "pack": "Some Pack",
+             "change": "hidden", "id": "+29-096@1"},
+            {"tile": "+30-096", "lat": 30, "lon": -96, "pack": "Other",
+             "change": "shown", "id": "+30-096@1"}]
+    window._on_engine_event(_event(state="pending", items=rows, rebuild=True))
+    assert asked == ["+29-096", "+30-096"]
+    out = capsys.readouterr().out
+    assert ("Rebuilding tile +29-096 to match: terrain objects hidden in "
+            "“Some Pack”.") in out
+    assert window._pack_art_boxes == [], "no question"
+    window._on_engine_event(_event(state="pending", items=rows, rebuild=True))
+    assert len(asked) == 2, "a debt the window already rebuilt is not looped"

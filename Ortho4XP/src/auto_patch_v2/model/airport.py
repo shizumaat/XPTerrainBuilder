@@ -509,6 +509,11 @@ class Airport:
     #: shade.  Same reader rule as ``wall_shade``; ``None`` = none, or not
     #: derived (a capture written before it).
     entrance_shade: _t.Any = None
+    #: #2099 F2 P4a: placement id -> the zero its entrance re-read seats it
+    #: at (``airport/wall_reseat``): the retaining-wall law's seat for that
+    #: member (``wall_class._seat_z``).  ``None`` = not derived (a class
+    #: default, so a capture pickled before it reads it too); empty = none.
+    wall_reseats: _t.Any = None
     #: #1971 THE DECK STACKS (``model.deck_stack.DeckStack``, derived at the
     #: pack stage by ``airport/deck_stack``): a trench's floor and the hard
     #: decks spanning it, one zero.  Empty = none (or a capture before them).
@@ -528,6 +533,16 @@ class Airport:
     #: same witness holds (``model/free_bridge.FreeBridge``): their seat stays
     #: 22d / 22p's, never ``plate_kind "free"``; R3 grades their ends.
     kept_bridges: tuple = ()
+    #: #2062 R5 E′2: the KEPT reads the pack stage did not mint a stack for
+    #: (``model/deck_stack.DeckStack``, kind kept, no graded end; not kept
+    #: by its crossing): a ramp the deck carries a stop over keeps one at the
+    #: planar stage (``planar/free_bridge.planar_stacks``).  Empty = none.
+    kept_candidates: tuple = ()
+    #: #2090 THE AGP GROUPS (``model/agp_group.AgpGroup``, read at the pack
+    #: stage by ``airport/agp_group`` before the bridge stacks): the pack's
+    #: on-ground ``.agp`` rows an authored connector floor joins, their
+    #: provisional governor and predicted datums.  Empty = none.
+    agp_groups: tuple = ()
     #: issue #1633 round 3 THE RETAINING WALLS READ AS TWO LEVELS
     #: (``airport/wall_sides.WallSides``: footprint, upper and lower side
     #: bands, smear, the object's top): a road is never on both sides of

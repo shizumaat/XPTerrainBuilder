@@ -60,6 +60,9 @@ Usage::
         [--tile-dsf PATH] [--dataref NAME=V] [--mouth] [--summary] \\
         [--cache DIR] [--json OUT]
 
+``--point NAME=LAT,LON[,Z]`` (repeat) prints the drawn height at bare points
+and, given ``Z``, the drawn height less it -- no pack is read (#1689 R4).
+
 ``--cover ICAO --tag T --object SUBSTR`` hands over to ``tools/drawn_cover.py``
 (does the drawn ground stay under one object, #2053).
 
@@ -102,6 +105,11 @@ WALL_REACH_M = 0.75
 OUTSIDE_M = 1.5
 #: two surfaces this far apart at one plan point are a roof over a floor
 STACKED_M = 1.5
+#: another object's surface this far over an edge's top stands OVER it (a
+#: deck a vehicle passes under: KDEN's Mix_Master_Upper over the lower
+#: deck's long sides), never beside it -- the drawn surface outside is the
+#: mesh there (#2090)
+OVERHEAD_M = 4.0
 #: a component with less plan than this is a pole, a light, a sign
 MIN_PLAN_M2 = 4.0
 #: a hollow: the top surface this far under the component's own rim
@@ -284,13 +292,27 @@ class Resources:
         self.index = obj8.read_library_index(obj8.library_index_path(mod_cache_root, xplane_root))
         self._memo: dict = {}
 
+    def resolve(self, def_path: str, pack_root: str) -> str | None:
+        """The file X-Plane draws for ``def_path``: pack-relative, the
+        library index, then the pack's OWN ``library.txt`` (a ``PRIVATE``
+        or seasonal export the merged index does not carry -- X-Plane's
+        Landmarks packs export ``objects/X.obj`` as ``X_su.obj``)."""
+        phys = self._obj8.resolve_resource(def_path, pack_root, self.index)
+        if phys is None and pack_root:
+            lib = self._obj8._pack_library_txt(pack_root)
+            key = def_path.replace("\\", "/").lstrip("/").lower()
+            for cand in (self._obj8.library_exports(lib).get(key, ()) if lib else ()):
+                if os.path.isfile(cand):
+                    return cand
+        return phys
+
     def unresolved(self, def_path: str, pack_root: str) -> bool:
         """A ``.obj`` row whose file X-Plane cannot find (it draws nothing)."""
         return (def_path.lower().endswith(".obj")
-                and self._obj8.resolve_resource(def_path, pack_root, self.index) is None)
+                and self.resolve(def_path, pack_root) is None)
 
     def get(self, def_path: str, pack_root: str):
-        phys = self._obj8.resolve_resource(def_path, pack_root, self.index)
+        phys = self.resolve(def_path, pack_root)
         if not phys or not phys.lower().endswith(".obj"):
             return None
         if phys not in self._memo:
@@ -474,7 +496,7 @@ def measure(V: np.ndarray, comp, frame: Frame, mesh: DrawnMesh, others,
     off = OUTSIDE_M + r.step / 2
     oe, on = be + bdir[:, 0] * off, bn + bdir[:, 1] * off
     out_mesh = mesh.z(*frame.leave(oe, on))
-    outside, from_obj = drawn_outside(out_mesh, others(oe, on))
+    outside, from_obj = drawn_outside(out_mesh, others(oe, on), btop)
     rim_ground = float(np.nanmedian(out_mesh)) if np.isfinite(out_mesh).any() else float("nan")
     runs = []
     open_idx = np.flatnonzero(~walled)
@@ -550,10 +572,15 @@ def outline_sides(d: np.ndarray, side: np.ndarray, bdir, be, bn, frame: Frame) -
     return out
 
 
-def drawn_outside(out_mesh, out_obj):
+def drawn_outside(out_mesh, out_obj, edge_top=None):
     """The surface drawn outside each edge cell: the higher of the mesh and
-    another object's hard surface there (the lower one is hidden)."""
+    another object's hard surface there (the lower one is hidden) -- an
+    object surface :data:`OVERHEAD_M` or more over the edge's top
+    (``edge_top``) excepted: it passes over the edge, and the ground beside
+    the edge is the mesh (#2090)."""
     from_obj = np.isfinite(out_obj) & ~(out_obj <= out_mesh)
+    if edge_top is not None:
+        from_obj &= ~(out_obj - edge_top >= OVERHEAD_M)
     return np.where(from_obj, out_obj, out_mesh), from_obj
 
 
@@ -882,22 +909,28 @@ def select(rows, sites, objects, frames, res: Resources, search_m: float,
     """Placements whose solids reach a site (its radius), whose resource
     path contains one of ``objects``, or whose ``(tile, row)`` is one of
     ``row_ids``."""
+    from drawn_site_agp import pieces
     picked = []
-    for row, p, root, tile in rows:
-        hit = [s for s in sites if abs(p.lat - s.lat) * K_LAT < search_m
-               and abs(p.lon - s.lon) * frames[s].kx < search_m]
-        named = (any(o.lower() in p.def_path.lower() for o in objects)
+    for row, p0, root0, tile in rows:
+        hit = [s for s in sites if abs(p0.lat - s.lat) * K_LAT < search_m
+               and abs(p0.lon - s.lon) * frames[s].kx < search_m]
+        named = (any(o.lower() in p0.def_path.lower() for o in objects)
                  or (tile, row) in row_ids)
         if not hit and not named:
             continue
-        got = res.get(p.def_path, root)
-        if got is None:
-            continue
-        near = [s for s in hit if math.hypot(*frames[s].enter(p.lat, p.lon)) <= got[3] + s.radius_m]
-        if near or named:
-            picked.append({"key": (root, tile, row), "row": row, "p": p, "root": root,
-                           "tile": tile, "phys": got[0], "g": got[1], "comps": got[2],
-                           "reach": got[3], "sites": near, "named": named})
+        # #2090: an .agp row is its pieces, seated at its ground point
+        parts = pieces(p0, root0, res.index) or [(p0, root0)]
+        for k, (p, root) in enumerate(parts):
+            got = res.get(p.def_path, root)
+            if got is None:
+                continue
+            near = [s for s in hit
+                    if math.hypot(*frames[s].enter(p.lat, p.lon)) <= got[3] + s.radius_m]
+            if near or named:
+                picked.append({"key": (root, tile, row, k), "row": row, "p": p,
+                               "root": root, "tile": tile, "phys": got[0], "g": got[1],
+                               "comps": got[2], "reach": got[3], "sites": near,
+                               "named": named})
     return picked
 
 
@@ -919,7 +952,9 @@ def measure_site(s: Site, items: list[dict], mesh: DrawnMesh,
     placed = []
     for q in items:
         p = q["p"]
-        g0 = float(mesh.z([p.lat], [p.lon])[0])
+        # an .agp piece's datum is read at its group's ground point (#2090)
+        g0 = float(mesh.z([getattr(p, "ground_lat", p.lat)],
+                          [getattr(p, "ground_lon", p.lon)])[0])
         base = row_base(p, g0)
         e0, n0 = fr.enter(p.lat, p.lon)
         placed.append(dict(q, V=placed_vertices(q["g"], float(e0), float(n0), p.heading_deg, base),
@@ -1047,6 +1082,49 @@ def _run(args, sites, tool: str, work: str) -> dict:
                                    (s["lat"], s["lon"], s["radius_m"])
                                    if args.mouth and s["radius_m"] else None, ends)
     return report
+
+
+def parse_point(text: str) -> tuple[str, float, float, float | None]:
+    """``NAME=LAT,LON[,Z]`` (``NAME=`` optional): a point and the height it
+    should read."""
+    name, _, rest = text.rpartition("=")
+    try:
+        parts = [float(p) for p in rest.split(",")]
+    except ValueError:
+        parts = []
+    if len(parts) not in (2, 3):
+        raise SystemExit(f"--point {text!r}: want NAME=LAT,LON[,Z]")
+    return name or rest, parts[0], parts[1], parts[2] if len(parts) == 3 else None
+
+
+def point_lines(points, mesh) -> list[str]:
+    """One line per ``(name, lat, lon, z)`` point: the DRAWN height there
+    (``mesh.z``) and, given ``z``, the drawn height less it."""
+    out = []
+    for name, lat, lon, want in points:
+        z = float(mesh.z(lat, lon)[0])
+        line = f"POINT {name} @{lat:.6f},{lon:.6f}: drawn " + (
+            "missing (off every tile triangle)" if math.isnan(z) else f"{z:.2f}")
+        if want is not None and not math.isnan(z):
+            line += f" (vs {want:.2f}: {z - want:+.2f})"
+        out.append(line)
+    return out
+
+
+def point_mode(args) -> int:
+    """``--point``: the drawn height at bare points (the tile DSF alone, no
+    pack): #1689 R4's wing and headwall reads, promoted on their second use."""
+    pts = [parse_point(t) for t in args.point]
+    lats, lons = [p[1] for p in pts], [p[2] for p in pts]
+    pad = 0.001
+    box = (min(lons) - pad, min(lats) - pad, max(lons) + pad, max(lats) + pad)
+    mesh = DrawnMesh(box, args.custom_scenery, dsftool(), args.tile_dsf, args.cache,
+                     args.tile_dir)
+    for tile, src in sorted(mesh.sources.items()):
+        print(f"mesh {tile}: {src}")
+    for line in point_lines(pts, mesh):
+        print(line)
+    return 0
 
 
 def plan_mode(args) -> int:
@@ -1216,6 +1294,9 @@ def main(argv=None) -> int:
     ap.add_argument("--worse", type=float, default=0.1,
                     help="with --base-plan: a body's figure worse by more than this is listed, m")
     ap.add_argument("--site", action="append", default=[], help="NAME=LAT,LON[,RADIUS_M]")
+    ap.add_argument("--point", action="append", default=[],
+                    help="POINT MODE: NAME=LAT,LON[,Z] -- print the drawn height at the"
+                         " point (and its difference from Z); no pack is read")
     ap.add_argument("--object", action="append", default=[],
                     help="also every placement whose resource path contains this text")
     ap.add_argument("--tiles", nargs="*", default=[],
@@ -1264,10 +1345,14 @@ def main(argv=None) -> int:
         args.mod_cache = args.mod_cache or FNAMES.airport_mod_cache_root()
     if args.against and not args.clearance_only:
         ap.error("--against reads --clearance-only reports")
+    if args.point:
+        return point_mode(args)
     if args.plan:
         return plan_mode(args)
     if not args.pack:
         ap.error("--pack is required (or --plan for the compare mode)")
+    from drawn_site_agp import pack_dir
+    args.pack = [pack_dir(p, args.custom_scenery) for p in args.pack]
     rep = run(args)
     if args.clearance_only:
         print_clearances(rep, GROUND_BAR_M, args.top)

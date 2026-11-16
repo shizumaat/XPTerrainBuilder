@@ -15,7 +15,7 @@ import typing as _t
 
 __all__ = ["OPTIMISE_CHOICES", "OPTIMISE_STEPS", "DRAPE_CHOICES",
            "GATEWAY_CHOICES", "GROUND_CHOICES", "GENERIC_CHOICES", "TERRAIN_CHOICES",
-           "TERRAIN_FOUND",
+           "TERRAIN_FOUND", "hidden_terrain",
            "Store", "store_path", "read",
            "write", "relative", "step_list"]
 
@@ -127,3 +127,19 @@ def relative(pack_root: str, path: str) -> str:
         return os.path.relpath(path, pack_root).replace(os.sep, "/")
     except ValueError:      # Windows: a path on another drive has no relpath
         return path.replace(os.sep, "/")
+
+
+def hidden_terrain(pack_root: str) -> frozenset[str]:
+    """The terrain objects the user HID (#2077 4.2): the pack's
+    :data:`TERRAIN_CHOICES` answer ``update`` over the offer the last build
+    remembered (:data:`TERRAIN_FOUND`, ``drape_stage.terrain_paths``); empty
+    otherwise.  The build reads it (their frames dissolve,
+    ``auto_patch_v2.airport.terrain_model``) and the patch stamps it
+    (``provenance.terrain_hidden_identity``)."""
+    if not pack_root:
+        return frozenset()
+    if Store(TERRAIN_CHOICES).choice(pack_root) != "update":
+        return frozenset()
+    from .pack_terrain import decode
+    found = Store(TERRAIN_FOUND, lambda v: isinstance(v, str) and bool(v)).choice(pack_root)
+    return frozenset(decode(found))

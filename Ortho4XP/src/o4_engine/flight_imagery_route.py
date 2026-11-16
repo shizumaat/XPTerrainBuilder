@@ -106,7 +106,9 @@ def endpoint_provider(scenery_dir: str, tile: Tile,
     from . import world_commands as WORLD
     lat, lon = int(tile[0]), int(tile[1])
     if scenery_dir and WP.holds_tile(scenery_dir, lat, lon):
-        found = IREC.read(WORLD.pack_dir(scenery_dir), lat, lon).get("provider")
+        pack = WORLD.pack_dir(scenery_dir)
+        kind = WP.kind_of(os.path.join(pack, WP.dsf_relpath(lat, lon)))
+        found = IREC.read(pack, lat, lon, kind=kind).get("provider")
         if found:
             return str(found)
     folder = drawn_dir(tile) if drawn_dir is not None else None

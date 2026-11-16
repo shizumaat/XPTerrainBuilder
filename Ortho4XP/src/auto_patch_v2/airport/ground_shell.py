@@ -63,7 +63,10 @@ ground on its feet like any object.
 
 AIRSIDE IS KING (:func:`airside_capped`): a seated shell never stands over
 the solved airside surface -- its zero is lowered until its top lies at or
-under every airside vertex in its plan.
+under every airside vertex in its plan.  A terrain model the tile build
+FILLS to (#2077 rule B, ``TerrainModel.fill``) is lowered until no outer-rim
+bottom stands over an airside vertex within ``shoulder_m`` of it (the fill
+never raises the patch, so the rim there would float).
 """
 from __future__ import annotations
 
@@ -80,7 +83,7 @@ from . import terrain_model as _tm
 from . import terrain_shaped as _ts
 
 __all__ = ["SEATED", "HIDDEN", "shape_of", "verdict", "placement_shells",
-           "off_the_shell", "airside_capped", "log_line"]
+           "off_the_shell", "hidden_by_pack", "airside_capped", "log_line"]
 
 SEATED = "seated"
 HIDDEN = "hidden"
@@ -212,6 +215,17 @@ def placement_shells(placements: _t.Sequence[tuple],
     return out
 
 
+def hidden_by_pack(o: _t.Any) -> bool:
+    """Is the placement ``o``'s own row left out of the written DSF by the
+    terrain reading -- a ground shell no seat lays flat, or a terrain object
+    the user hid (#2077 4.2, ticked by default since RULINGS 2026-11-15h)?
+    Such an object leaves the terrain solve (#1918, 2026-11-06d (1)): it
+    owns no ground and pins nothing."""
+    m = getattr(o, "terrain_model", None)
+    return m is not None and getattr(m, "ground", "") == HIDDEN \
+        and str(getattr(m, "id", "")) == str(getattr(o, "id", ""))
+
+
 def off_the_shell(o: _t.Any) -> _t.Any:
     """A rider of a HIDDEN ground shell (module doc) with its below-grade
     reading dropped -- it stood on the shell, in no pit."""
@@ -219,14 +233,17 @@ def off_the_shell(o: _t.Any) -> _t.Any:
                        witnesses=(), below_grade_comps=(), buried=())
 
 
-def airside_capped(models: _t.Sequence[tuple], surface: _t.Any, to_xy
-                   ) -> tuple:
+def airside_capped(models: _t.Sequence[tuple], surface: _t.Any, to_xy,
+                   shoulder_m: float = 0.0) -> tuple:
     """AIRSIDE IS KING: ``Airport.terrain_models`` rows ``(id, def path,
     TerrainModel, lift)`` with every SEATED ground shell's zero lowered so
     its top stands at or under each solved AIRSIDE vertex of ``surface``
-    (``emit.surface.GradedSurface``) inside its plan.  Every other row,
-    and a shell with no airside under it, unchanged."""
-    shells = {m.id: m for _o, _d, m, _l in models if getattr(m, "ground", "") == SEATED}
+    (``emit.surface.GradedSurface``) inside its plan, and every FILL model's
+    so no outer-rim bottom stands over one within ``shoulder_m`` (module
+    doc).  Every other row, and a model with no airside near it,
+    unchanged."""
+    shells = {m.id: m for _o, _d, m, _l in models
+              if getattr(m, "ground", "") == SEATED or getattr(m, "fill", False)}
     if not shells or surface is None:
         return tuple(models)
     air = set()
@@ -243,6 +260,11 @@ def airside_capped(models: _t.Sequence[tuple], surface: _t.Any, to_xy
     pz = np.array([p[1] for p in pts], dtype=float)
     capped: dict[str, float] = {}
     for oid, m in shells.items():
+        if getattr(m, "fill", False):
+            got = _rim_cap(m, px, py, pz, float(shoulder_m))
+            if got is not None:
+                capped[oid] = got
+            continue
         shape = shape_of(m.file) if m.file else None
         if shape is None:
             continue
@@ -262,9 +284,34 @@ def airside_capped(models: _t.Sequence[tuple], surface: _t.Any, to_xy
                   lift) for oid, dpath, m, lift in models)
 
 
+def _rim_cap(m: _tm.TerrainModel, px: np.ndarray, py: np.ndarray, pz: np.ndarray,
+             shoulder_m: float) -> "float | None":
+    """A FILL model's zero lowered so no outer-rim bottom stands over an
+    airside vertex ``(px, py, pz)`` within ``shoulder_m`` + half a cell
+    of it, or ``None`` where none does."""
+    from scipy.spatial import cKDTree
+
+    from ..geom.terrain_deck import CELL_M
+    grid = _tm.plan_grid(m.file) if m.file else None
+    if grid is None:
+        return None
+    ri, rj = np.nonzero(_tm.outer_rim(grid.covered))
+    rx, ry = _tm._world(grid, ri, rj, m.xy, m.heading)
+    if not len(rx):
+        return None
+    near = cKDTree(np.c_[rx, ry]).query_ball_point(
+        np.c_[px, py], shoulder_m + 0.5 * CELL_M)
+    caps = [pz[k] - grid.bot[ri[r], rj[r]].max() for k, r in enumerate(near) if r]
+    if not caps:
+        return None
+    cap = float(min(caps))
+    return cap if cap < m.z0 else None
+
+
 def log_line(icao: str, models: _t.Iterable[_tm.TerrainModel]) -> str:
     """The build log's one line on the ground shells."""
-    shells = sorted({m.id: m for m in models if getattr(m, "ground", "")}.values(),
+    shells = sorted({m.id: m for m in models if getattr(m, "ground", "")
+                     and not getattr(m, "fill", False)}.values(),
                     key=lambda m: m.id)
     if not shells:
         return f"[{icao}] ground shells: none"

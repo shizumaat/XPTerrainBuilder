@@ -568,3 +568,32 @@ def test_the_real_lander_knows_what_needs_no_download(tmp_path, monkeypatch):
     assert not lander.local(dict(row, name="not a texture"), 2)
     assert not lander.local(dict(row, provider="COMBINED",
                                  dds_cache_key=None), 3)
+
+
+def test_a_relocation_drops_the_old_area_and_fetches_the_new_one(xplane,
+                                                                 tmp_path):
+    """#2106 (c): the user moves the aircraft in X-Plane while the field's
+    downloads queue; from the next tick no fetch for the old area is
+    planned or started -- the new place's core goes first -- and only the
+    fetches already in flight there finish."""
+    import O4_Imagery_OnDemand_Index as INDEX
+    flight = Flight(xplane, tmp_path, download_s=60.0)
+    flight.fly(0, 8, at=FIELD)                     # downloads queue here
+    job = flight.job
+    assert job.queued > 0 and job._inflight
+    old_flight = set(job._inflight)
+
+    def nearer_the_old_place(key) -> bool:
+        row = job._rows[key]
+        return INDEX.distance_m(row, *FIELD) < INDEX.distance_m(row, *FAR)
+    started = []
+    for t in range(8, 20):                         # the relocation, and on
+        flight.tick(float(t), FAR)
+        assert not [f for f in job.last_plan if nearer_the_old_place(f.square)]
+        started += [f.square for f in job.last_dispatched]
+    assert job.tracker.jumps == 1 and job.spawn.episode is not None
+    assert started and not [k for k in started if nearer_the_old_place(k)]
+    there = {f"{TILE}/{name}" for name in _core(FAR)}
+    assert started[0] in there                     # the new core first
+    assert set(job._inflight) - there <= old_flight
+    flight.close()

@@ -214,6 +214,12 @@ def _inside_world_pack(build_dir: str, scenery_dir: str) -> bool:
         return False
 
 
+def _off_in_world(scenery_dir: str, lat: int, lon: int) -> bool:
+    import O4_World_Pack as WP
+    import O4_World_Pack_Off as OFF
+    return OFF.is_off(os.path.join(scenery_dir, WP.PACK_NAME), lat, lon)
+
+
 def install(
     lat: int,
     lon: int,
@@ -223,7 +229,8 @@ def install(
 ) -> None:
     """Install the tile (or group) link into ``scenery_dir``.
 
-    No-op if already INSTALLED, or when the World pack holds the tile.
+    No-op if already INSTALLED, or when the World pack holds the tile or
+    the user turned it off there.
     A BROKEN link with the expected name is
     silently replaced.  Raises ``ValueError`` on UNAVAILABLE or CONFLICT (a
     CONFLICT name is never overwritten).  Link-creation failures propagate as
@@ -234,6 +241,10 @@ def install(
     # The World pack draws a tile it holds (flight manager / World spec
     # §4.1): a second pack for the same tile would fight it.
     if not grouped and WP.holds_tile(scenery_dir, lat, lon):
+        return
+    # A tile the user turned off in the World pack (#2100) stays off: no
+    # link of ours puts it back.
+    if not grouped and scenery_dir and _off_in_world(scenery_dir, lat, lon):
         return
     # A build folder inside the World pack (RULINGS 2026-11-12g: every
     # build writes into the World folder) is published, never linked: a

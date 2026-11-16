@@ -250,6 +250,16 @@ def _also_sampler(path: str, bounds):
         _DS.tile_triangles(path, bounds, _DS.dsftool(), None), bounds)
 
 
+def _agp_published(graded_doc):
+    """#2090 A6: the graded surface's published AGP groups (``None`` when
+    the surface predates the key, or a src without the reader)."""
+    try:
+        from auto_patch_v2.airport.placement_read import agp_groups_from_graded_doc
+    except ImportError:
+        return None
+    return agp_groups_from_graded_doc(graded_doc or {})
+
+
 def cmd_plan(args: argparse.Namespace) -> int:
     """THE PLACEMENT STAGE, REPLAYED AND TIMED (RULINGS 2026-09-12g).
 
@@ -340,6 +350,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
                   "lines (this plan predates the field)" % _n)
     if args.bridge_witness:
         plan_ = _bridge_witness(args.plan, plan_, law)
+    if args.kept_from:
+        plan_ = _kept_from(args.kept_from, plan_, law)
     lat, lon = args.tile
     dsf_path = _dsf2.dsf_path_in_pack(plan_.pack_root, lat, lon)
     pack_name = os.path.basename(os.path.normpath(plan_.pack_root))
@@ -542,6 +554,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
                      if hasattr(_pp, "_fcol") else None),
         jetway_strips=tuple((_gdoc.get("provenance") or {})
                             .get("jetway_strips") or ()),
+        # #2090 A6: the published AGP groups, as the object stage reads them
+        agp_groups=_agp_published(_gdoc),
         jetway_strip_m=getattr(getattr(law.tables.emit, "design", None),
                                "jetway_strip_m", None),
         pads=pads, rims=rims, engine_version="", law_digest="",
@@ -664,6 +678,28 @@ def cmd_plan(args: argparse.Namespace) -> int:
     if args.oracle_check:
         return _oracle_check(args, plan_)
     return 0
+
+
+def _kept_from(screen_path: str, plan_, law):
+    """``--kept-from SCREEN`` (#2090): the KEPT bridge decks a build's screen
+    publishes (``o4_v2_rebake_<ICAO>.screen.json`` ``free_decks``, mode
+    ``kept``) stamped on the plan through ``rebake_plan.with_kept`` — the
+    patch half's own function — so a plan written before the stamp replays
+    the seat the bridge class now decides."""
+    import dataclasses as _dck
+    import json as _json
+
+    from auto_patch_v2.airport.rebake_plan import with_kept
+    with open(screen_path) as fh:
+        recs = {k: v for k, v in (_json.load(fh).get("free_decks") or {}).items()
+                if v.get("mode") == "kept"}
+    counts: dict = {}
+    step = float(law.tables.structures.bridge.abutment_sample_step_m)
+    units = [_dck.replace(u, members=tuple(with_kept(m, recs[m.id], counts, step)
+                                           if m.id in recs else m for m in u.members))
+             for u in plan_.units]
+    print(f"  [kept-from] {len(recs)} kept deck(s) on the screen: {counts}")
+    return _dck.replace(plan_, units=tuple(units))
 
 
 def _bridge_witness(plan_path: str, plan_, law):
@@ -914,6 +950,9 @@ def _main(argv: list[str] | None = None) -> int:
                     help="#2065 S5: print each deck's class and route ends (the "
                          "census's witness) and publish the free decks on the plan "
                          "before the replay")
+    pl.add_argument("--kept-from", default="", metavar="SCREEN.json",
+                    help="#2090: stamp the screen's KEPT bridge decks on the plan "
+                         "(rebake_plan.with_kept) before the replay")
     pl.add_argument("--plan-out", default="",
                     help="write the replayed o4_v2_placement_<ICAO>.json here "
                          "(lane-local) to diff against the shipped one")

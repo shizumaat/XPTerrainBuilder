@@ -37,15 +37,19 @@ sampled over its covered cells follows the ground --
 * PEAK -- the top shifted by its median offset from the DEM peaks within
   :data:`MAX_PEAK_ERR` of its relief of the DEM's peak ("similar height").
 
-THE SEAT -- no visible edge floats: the object's ``y = 0`` plane is set at
-
-    z0 = min over its OUTER RIM cells of (ground - bottom)
-
-the outer rim being every covered cell touching the uncovered exterior (a
-hole inside the plan is not an edge one sees from outside) and ``bottom``
-the lowest solid there: every lower edge then meets or lies under the
-ground, and no lower seat is taken than that.  The seat is one rigid
-frame: every row sharing the model's origin (the buildings a shell
+THE SEAT (#2077, owner 2026-11-15: "where our ground stands below such a
+composite, fill the ground up to it instead of sinking the composite to
+its lowest rim"): the object's ``y = 0`` plane is set at its RIGID L1 FIT
+to the ground (``terrain_shaped.fit``) -- the hill where the ground is --
+and the tile build FILLS the ground up to every outer-rim edge that then
+stands over it (``cut["fill"]``, ``airport/terrain_fill``), so no visible
+edge floats.  Over water the ground cannot be filled: where at least
+:data:`WATER_RIM_SHARE` of the outer rim (every covered cell touching the
+uncovered exterior) lies over water the zero is never above ``min`` over
+those wet rim cells of (ground - bottom), the skirt under the water.  (The
+2026-11-13i seat, ``min`` over the whole outer rim, is :func:`rim_seat`:
+it sank LOWS's Festungsberg 20 m into a crater of its own.)  The seat is
+one rigid frame: every row sharing the model's origin (the buildings a shell
 carries, the cable-car stations on Sugarloaf) is written as an
 ``OBJECT_MSL`` row at ``z0`` plus its own authored lift, so each keeps its
 place on the shell.  A terrain model's origin set is never split, never
@@ -53,10 +57,17 @@ re-anchored, never read as a pit, a pad or a deck (``obj8``'s
 ``terrain_feature`` path, RULINGS 2026-10-20aq).
 
 HIDING (the pack adjustment "Hide terrain objects", off by default) is
-offered only where QUALITY ELEVATION models the same ground: at least
-:data:`MIN_QUALITY_COVER` of the model's cells lie inside an inset whose
-source pixel is :data:`QUALITY_PIXEL_M` or finer, and the match there is
-close (correlation at least :data:`MIN_QUALITY_CORR`).
+offered only where QUALITY ELEVATION models the same ground
+(:func:`quality`, #2077 section 4.1): at least :data:`MIN_QUALITY_COVER` of
+the model's cells lie inside an inset whose source pixel is
+:data:`QUALITY_PIXEL_M` or finer AND no coarser than the shell's own post
+(the median plan edge of its upward triangles, at least 1 m), and at the
+L1 fit to that ground the top correlates with it (at least
+:data:`MIN_QUALITY_CORR`) and its 90th-percentile departure is at most
+``max(QUALITY_P90_M, QUALITY_P90_SHARE x relief)``.  A model the user hid
+(``hidden``, the pack's answer) dissolves: its own row is left out
+(``ground_shell``'s HIDDEN path) and the rows of its frame are read like
+any object.
 """
 from __future__ import annotations
 
@@ -71,10 +82,11 @@ import numpy as np
 from ..geom.terrain_deck import CELL_M, DeckGrid
 
 __all__ = ["MIN_PLAN_M", "MIN_RELIEF_M", "MAX_PHOTO_SPREAD", "MIN_CORR", "MAX_PEAK_ERR",
-           "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "SEAT",
+           "QUALITY_PIXEL_M", "MIN_QUALITY_COVER", "MIN_QUALITY_CORR", "QUALITY_P90_M",
+           "QUALITY_P90_SHARE", "WATER_RIM_SHARE", "SEAT",
            "Shape", "TerrainModel", "shape_of", "photo_spread", "match", "outer_rim",
-           "placement_models", "set_members", "seat_records", "log_line",
-           "hideable_paths", "plan_grid", "plan_solid", "rim_seat"]
+           "placement_models", "set_members", "member_lift", "seat_records", "log_line",
+           "hideable_paths", "plan_grid", "plan_solid", "rim_seat", "post_m", "quality"]
 
 MIN_PLAN_M = 500.0
 MIN_RELIEF_M = 50.0
@@ -84,6 +96,14 @@ MAX_PEAK_ERR = 0.25
 QUALITY_PIXEL_M = 10.0
 MIN_QUALITY_COVER = 0.9
 MIN_QUALITY_CORR = 0.9
+#: the hide offer's agreement (#2077 4.1, provisional): the 90th
+#: percentile of |ground - top| at the L1 fit at most the larger of these
+QUALITY_P90_M = 3.0
+QUALITY_P90_SHARE = 0.1
+#: the shell's own post is never read finer than this (m)
+_MIN_POST_M = 1.0
+#: the least share of the outer rim over water that caps the seat (module doc)
+WATER_RIM_SHARE = 0.05
 #: an upward-facing triangle (unit normal ``y`` at least this) is the top
 _UP_NY = 0.5
 #: the least plan area (m2) of a triangle the density reads
@@ -102,6 +122,9 @@ class Shape:
     plan_m: float
     relief_m: float
     photo_spread: float
+    #: the shell's own post: the median plan edge of its upward triangles
+    #: (m, at least ``_MIN_POST_M``; the hide offer's resolution test)
+    post_m: float = _MIN_POST_M
 
 
 @_dc.dataclass(frozen=True)
@@ -142,6 +165,19 @@ class TerrainModel:
     #: (it lies on the ground at ``z0``) or ``"hidden"`` (its row is left
     #: out of the written DSF); ``""`` for a terrain model of this module
     ground: str = ""
+    #: the authored zero of a model written ``OBJECT_MSL`` (its elevation
+    #: column, #2077); ``None`` for a plain or ``OBJECT_AGL`` row
+    datum: "float | None" = None
+    #: #2077 rule B: the tile build FILLS the ground up to the outer-rim
+    #: edges that stand over it (``cut["fill"]``, ``airport/terrain_fill``)
+    fill: bool = False
+    #: #2077 2.5: a relief skin's ZERO FOOTPRINT -- rings of frame
+    #: ``(east, north)`` metres where the ground is conformed to the frame
+    #: zero (``relief_skin``); ``()`` for none
+    plane: tuple = ()
+    #: #2077 rule A: a RELIEF SKIN (``airport/relief_skin``): a cliff or
+    #: slope modelled with the town on it, seated at its origin's ground
+    skin: bool = False
 
 
 def _vt_rows(path: str) -> np.ndarray:
@@ -182,6 +218,22 @@ def photo_spread(vertices: np.ndarray, vt: np.ndarray, tris: np.ndarray) -> floa
     cw = np.cumsum(plan[k][o]) / float(plan[k].sum())
     q10, q90 = (r[o][min(int(np.searchsorted(cw, f)), len(o) - 1)] for f in (0.1, 0.9))
     return float(q90 - q10)
+
+
+def post_m(vertices: np.ndarray, tris: np.ndarray) -> float:
+    """THE SHELL'S OWN POST (module doc): the median plan edge of the
+    upward-facing triangles ``tris`` of ``vertices``, at least
+    ``_MIN_POST_M``."""
+    if not len(tris):
+        return _MIN_POST_M
+    p = vertices[tris]
+    n = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+    up = np.abs(n[:, 1]) >= _UP_NY * np.maximum(np.linalg.norm(n, axis=1), 1e-12)
+    if not up.any():
+        return _MIN_POST_M
+    q = p[up][:, :, [0, 2]]
+    e = np.linalg.norm(q - np.roll(q, 1, axis=1), axis=2).ravel()
+    return max(_MIN_POST_M, float(np.median(e)))
 
 
 def _solid(g: _t.Any) -> "np.ndarray | None":
@@ -227,7 +279,7 @@ def _shape(path: str) -> "Shape | None":
     lo, hi = np.percentile(grid.top[grid.covered], [5.0, 95.0])
     if hi - lo < MIN_RELIEF_M:
         return None
-    return Shape(grid, plan, float(hi - lo), spread)
+    return Shape(grid, plan, float(hi - lo), spread, post_m(g.vertices, tris))
 
 
 def plan_grid(path: str) -> "DeckGrid | None":
@@ -297,12 +349,14 @@ def _world(grid: DeckGrid, ii: np.ndarray, jj: np.ndarray, xy: tuple[float, floa
 
 def match(shape: Shape, xy: tuple[float, float], heading: float,
           dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
-          fine: "_t.Callable[[np.ndarray, np.ndarray], np.ndarray] | None" = None,
+          fine: "_t.Callable | None" = None, water: "_t.Callable | None" = None,
           ) -> "dict[str, float] | None":
     """THE MATCH and THE SEAT of one placement of ``shape`` (module doc):
-    ``{"z0", "corr", "peak_err", "fit_m", "quality_cover"}`` when the top
-    follows the DEM, else ``None``.  ``fine(xs, ys)`` is True where
-    quality elevation covers a point (``None``: nowhere)."""
+    ``{"z0", "corr", "peak_err", "fit_m", "quality_cover", "hideable"}``
+    when the top follows the DEM, else ``None``.  ``fine(xs, ys[,
+    pixel_m])`` is True where quality elevation of that pixel or finer
+    covers a point (``None``: nowhere); ``water(xs, ys)`` is
+    ``ProductionDem.water_many`` (``None``: no water)."""
     grid = shape.grid
     ii, jj = np.nonzero(grid.covered)
     xs, ys = _world(grid, ii, jj, xy, heading)
@@ -318,12 +372,78 @@ def match(shape: Shape, xy: tuple[float, float], heading: float,
     peak_err = abs(float(top.max()) + fit - float(d.max())) / shape.relief_m
     if corr < MIN_CORR or peak_err > MAX_PEAK_ERR:
         return None
-    z0 = rim_seat(grid, xy, heading, dem_many)
+    z0 = _fit_seat(grid, xy, heading, dem_many, water)
     if z0 is None:
         return None
-    cover = 0.0 if fine is None else float(np.mean(np.asarray(fine(xs, ys), dtype=bool)))
+    cover, hideable = quality(shape, xy, heading, dem_many, fine)
     return {"z0": z0, "corr": corr, "peak_err": float(peak_err),
-            "fit_m": fit, "quality_cover": cover}
+            "fit_m": fit, "quality_cover": cover, "hideable": hideable}
+
+
+def _fit_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,
+             dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
+             water: "_t.Callable | None" = None) -> "float | None":
+    """THE SEAT (module doc, #2077 2.1): the rigid L1 fit of the plan to
+    the ground, capped by the wet outer rim's ``min(ground - bottom)``
+    where :data:`WATER_RIM_SHARE` or more of the rim lies over water;
+    ``None`` with no DEM under the plan."""
+    from .terrain_shaped import fit
+    got = fit(grid, xy, heading, dem_many)
+    if got is None:
+        return None
+    z0 = float(got[0])
+    if water is None:
+        return z0
+    ri, rj = np.nonzero(outer_rim(grid.covered))
+    rx, ry = _world(grid, ri, rj, xy, heading)
+    wet = np.asarray(water(rx, ry)[0], dtype=bool)
+    if not len(wet) or float(wet.mean()) < WATER_RIM_SHARE:
+        return z0
+    gap = np.asarray(dem_many(rx[wet], ry[wet]), dtype=float) - grid.bot[ri[wet], rj[wet]]
+    gap = gap[np.isfinite(gap)]
+    return min(z0, float(gap.min())) if len(gap) else z0
+
+
+def _fine_at(fine: _t.Callable, xs: np.ndarray, ys: np.ndarray, pixel_m: float
+             ) -> np.ndarray:
+    """``fine`` asked at ``pixel_m`` (a two-argument ``fine`` answers at
+    :data:`QUALITY_PIXEL_M`)."""
+    try:
+        got = fine(xs, ys, pixel_m)
+    except TypeError:
+        got = fine(xs, ys)
+    return np.asarray(got, dtype=bool)
+
+
+def quality(shape: Shape, xy: tuple[float, float], heading: float,
+            dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
+            fine: "_t.Callable | None") -> tuple[float, bool]:
+    """``(cover, hideable)``: THE HIDE OFFER's quality test (module doc,
+    #2077 4.1) against the baked frame ``dem_many`` -- the share of the
+    plan under quality elevation no coarser than the shell's own post,
+    and whether that ground models the shell."""
+    if fine is None:
+        return 0.0, False
+    grid = shape.grid
+    ii, jj = np.nonzero(grid.covered)
+    xs, ys = _world(grid, ii, jj, xy, heading)
+    pixel = min(QUALITY_PIXEL_M, max(float(shape.post_m), _MIN_POST_M))
+    cover = float(np.mean(_fine_at(fine, xs, ys, pixel))) if len(xs) else 0.0
+    if cover < MIN_QUALITY_COVER:
+        return cover, False
+    from .terrain_shaped import fit
+    got = fit(grid, xy, heading, dem_many)
+    d = np.asarray(dem_many(xs, ys), dtype=float)
+    ok = np.isfinite(d)
+    if got is None or ok.sum() < 3:
+        return cover, False
+    top = grid.top[ii, jj][ok]
+    if float(np.std(top)) <= 0.0 or float(np.std(d[ok])) <= 0.0:
+        return cover, False
+    corr = float(np.corrcoef(top, d[ok])[0, 1])
+    p90 = float(np.percentile(np.abs(d[ok] - (got[0] + top)), 90.0))
+    return cover, (corr >= MIN_QUALITY_CORR
+                   and p90 <= max(QUALITY_P90_M, QUALITY_P90_SHARE * shape.relief_m))
 
 
 def rim_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,
@@ -339,26 +459,41 @@ def rim_seat(grid: DeckGrid, xy: tuple[float, float], heading: float,
     return float(gap.min()) if len(gap) else None
 
 
-def _origin(xy: _t.Any, heading: float, elev: _t.Any) -> tuple:
+def _origin(xy: _t.Any, heading: float, elev: _t.Any, kind: str = "") -> tuple:
+    """The origin-set key; an ``OBJECT_MSL`` row's column is an absolute
+    height, not a lift, and is left out (its lift is :func:`member_lift`)."""
     from .msl_feet import origin_key
-    return origin_key(xy, heading) + (round(float(elev or 0.0), 3),)
+    e = 0.0 if kind == "OBJECT_MSL" else float(elev or 0.0)
+    return origin_key(xy, heading) + (round(e, 3),)
 
 
 def placement_models(placements: _t.Sequence[tuple],
                      path_of: _t.Callable[[str], "str | None"],
                      geometry: _t.Callable[[str], _t.Any],
                      dem_many: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
-                     fine: "_t.Callable | None" = None) -> dict[str, TerrainModel]:
+                     fine: "_t.Callable | None" = None, water: "_t.Callable | None" = None,
+                     hidden: _t.AbstractSet[str] = frozenset()) -> dict[str, TerrainModel]:
     """The terrain models among ``placements`` -- ``(id, def path, xy,
     heading, elevation, kind)`` rows -- by id.  ``path_of(def path)`` is
     the resolved file or ``None``, ``geometry(def path)`` its parsed
-    geometry (the reader's cache) or ``None``.  A plain ``OBJECT`` or ``OBJECT_AGL``
-    row only: an ``OBJECT_MSL`` row already states its author's datum."""
+    geometry (the reader's cache) or ``None``.  ``water``: the water
+    witness (:func:`_fit_seat`).  ``hidden``: the def paths the user hid
+    (module doc, HIDING) -- such a model comes back with ``ground =
+    "hidden"`` (``ground_shell.HIDDEN``): its row is left out and its
+    frame dissolves.
+
+    An ``OBJECT_MSL`` row is read like any other (#2077): its elevation is
+    the author's datum on the AUTHOR's terrain, and the 11d conversion
+    drops it anyway (``dsf_write.conversions_for_dump``) -- LOWS's
+    Festungsberg shell, authored at 430 m, was converted to on-ground at
+    its anchor on the hilltop and drawn 73-106 m over the hill.  Its datum
+    is kept on the model (:attr:`TerrainModel.datum`) so the rows the
+    author stood on it keep their place (:func:`set_members`)."""
     from .obj8 import is_stock_library_resource
     out: dict[str, TerrainModel] = {}
     shapes: dict[str, "Shape | None"] = {}
-    for oid, dpath, xy, heading, _elev, kind in placements:
-        if kind == "OBJECT_MSL" or is_stock_library_resource(dpath):
+    for oid, dpath, xy, heading, elev, kind in placements:
+        if is_stock_library_resource(dpath):
             continue
         if dpath not in shapes:
             phys = path_of(dpath)
@@ -368,36 +503,81 @@ def placement_models(placements: _t.Sequence[tuple],
         if shape is None:
             continue
         xy2 = (float(xy[0]), float(xy[1]))
-        m = match(shape, xy2, float(heading), dem_many, fine)
+        m = match(shape, xy2, float(heading), dem_many, fine, water)
         if m is None:
             continue
-        hideable = (m["quality_cover"] >= MIN_QUALITY_COVER
-                    and m["corr"] >= MIN_QUALITY_CORR)
         out[str(oid)] = TerrainModel(str(oid), str(dpath), xy2, float(heading), m["z0"],
                                      m["corr"], m["peak_err"], m["fit_m"],
                                      shape.grid.area_m2, shape.relief_m,
-                                     m["quality_cover"], hideable, str(path_of(dpath) or ""))
+                                     m["quality_cover"],
+                                     m["hideable"] or str(dpath) in hidden,
+                                     str(path_of(dpath) or ""),
+                                     datum=(float(elev) if kind == "OBJECT_MSL" and elev is not None
+                                            else None),
+                                     fill=True,
+                                     ground="hidden" if str(dpath) in hidden else "")
     return out
+
+
+def _in_plan(m: TerrainModel, xy: _t.Any) -> bool:
+    """Does frame point ``xy`` lie over a covered cell of ``m``'s plan?"""
+    shape = shape_of(m.file) if m.file else None
+    if shape is None:
+        return False
+    g = shape.grid
+    h = math.radians(m.heading)
+    s, c = math.sin(h), math.cos(h)
+    e, n = float(xy[0]) - m.xy[0], float(xy[1]) - m.xy[1]
+    # the inverse of :func:`_world`
+    x, z = e * c - n * s, -(e * s + n * c)
+    i, j = int(round((x - g.x0) / CELL_M)), int(round((z - g.z0) / CELL_M))
+    return 0 <= i < g.covered.shape[0] and 0 <= j < g.covered.shape[1] and bool(g.covered[i, j])
+
+
+def member_lift(m: TerrainModel, kind: str, elev: _t.Any) -> "float | None":
+    """An ``OBJECT_MSL`` member's lift over its model's frame zero -- its
+    elevation less the model's authored :attr:`~TerrainModel.datum` --
+    or ``None`` (the row's own ``OBJECT_AGL`` lift is its lift)."""
+    if kind != "OBJECT_MSL" or m.datum is None or elev is None:
+        return None
+    return float(elev) - float(m.datum)
 
 
 def set_members(placements: _t.Sequence[tuple],
                 models: _t.Mapping[str, TerrainModel]) -> dict[str, TerrainModel]:
     """Every placement id sharing an origin (xy, heading, elevation) with
     a terrain model, mapped to that model (the lowest seat where two
-    models share one frame)."""
+    models share one frame) -- and, for a model the author wrote
+    ``OBJECT_MSL``, every other ``OBJECT_MSL`` row whose anchor stands
+    over its plan (#2077): both state heights in the author's ONE
+    absolute frame, so the castle the author set at 510 m on a hill shell
+    set at 430 m is that shell's content and keeps its 80 m
+    (:func:`member_lift`); converted on its own it stood on our hilltop
+    24.7 m over the place its walls were built for."""
     by_id = {str(p[0]): p for p in placements}
     seeds: dict[tuple, TerrainModel] = {}
     for oid, m in models.items():
         p = by_id.get(oid)
         if p is None:
             continue
-        k = _origin(p[2], p[3], p[4])
+        k = _origin(p[2], p[3], p[4], p[5])
         if k not in seeds or m.z0 < seeds[k].z0:
             seeds[k] = m
     if not seeds:
         return {}
-    return {str(oid): seeds[k] for oid, _d, xy, h, e, _k in placements
-            if (k := _origin(xy, h, e)) in seeds}
+    out = {str(oid): seeds[k] for oid, _d, xy, h, e, kd in placements
+           if (k := _origin(xy, h, e, kd)) in seeds}
+    from .obj8 import is_stock_library_resource
+    msl = sorted((m for m in seeds.values() if m.datum is not None), key=lambda m: m.z0)
+    for oid, dpath, xy, _h, e, kind in placements if msl else ():
+        if (str(oid) in out or kind != "OBJECT_MSL" or e is None
+                or is_stock_library_resource(dpath)):
+            continue
+        for m in msl:
+            if _in_plan(m, xy):
+                out[str(oid)] = m
+                break
+    return out
 
 
 def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
@@ -418,8 +598,12 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
             # issue #2056: a ground shell no seat lays flat on our ground is
             # left out of the written DSF -- no seat, no cut
             from .terrain_shaped import HIDDEN_SEAT
-            out.append({"id": oid, "resource": dpath, "datum": "terrain",
-                        "seat": HIDDEN_SEAT, "elevation": round(m.z0, 3)})
+            rec = {"id": oid, "resource": dpath, "datum": "terrain",
+                   "seat": HIDDEN_SEAT, "elevation": round(m.z0, 3)}
+            if m.hideable and dpath == m.path:
+                # #2077 4.2: the user hid it -- the offer stands, for Undo
+                rec["hideable"] = True
+            out.append(rec)
             continue
         rec = {"id": oid, "resource": dpath, "datum": "terrain", "seat": SEAT,
                "elevation": round(m.z0 + float(lift or 0.0), 3),
@@ -437,14 +621,24 @@ def seat_records(airport: _t.Any) -> list[dict[str, _t.Any]]:
                 rec["cut"]["erode_m"] = float(m.erode_m)
             if getattr(m, "cut_floor_m", 0.0) > 0.0:
                 rec["cut"]["floor_m"] = float(m.cut_floor_m)
+            if getattr(m, "fill", False):
+                rec["cut"]["fill"] = True
+            if getattr(m, "plane", ()):
+                from ..geom.terrain_deck import UNDER_M
+                # ``to_ll`` is the frame's: one point, ``(lat, lon)``
+                rec["cut"]["plane"] = {
+                    "z": round(m.z0 - UNDER_M, 3),
+                    "rings": [[[round(float(q[1]), 9), round(float(q[0]), 9)]
+                               for q in (to_ll(x, y) for x, y in r)] for r in m.plane]}
         out.append(rec)
     return out
 
 
 def hideable_paths(records: _t.Iterable[_t.Any]) -> tuple[str, ...]:
     """The resources a build's seat records offer for hiding (sorted)."""
+    from .terrain_shaped import HIDDEN_SEAT
     return tuple(sorted({str(r.get("resource")) for r in records or ()
-                         if hasattr(r, "get") and r.get("seat") == SEAT
+                         if hasattr(r, "get") and r.get("seat") in (SEAT, HIDDEN_SEAT)
                          and r.get("hideable")}))
 
 
@@ -453,12 +647,15 @@ def log_line(icao: str, models: _t.Iterable[TerrainModel]) -> str:
     seated on its bridges has its own line, ``bridged_ground.log_line``;
     a ground shell has its own, ``ground_shell.log_line``)."""
     models = sorted({m.id: m for m in models
-                     if not getattr(m, "seat_by", "") and not getattr(m, "ground", "")}.values(),
+                     if not getattr(m, "seat_by", "") and not getattr(m, "skin", False)
+                     and (not getattr(m, "ground", "") or getattr(m, "fill", False))}.values(),
                     key=lambda m: m.id)
     if not models:
         return f"[{icao}] terrain-modelling objects: none"
     return f"[{icao}] terrain-modelling objects: " + "; ".join(
-        f"{m.path} ({m.id}) seated at {m.z0:.2f} m (no edge floats), top follows "
+        f"{m.path} ({m.id}) " + ("HIDDEN (the user's answer; its frame read as objects), "
+                                 if m.ground else "")
+        + f"seated at {m.z0:.2f} m (its L1 fit, the rim filled), top follows "
         f"the DEM r={m.corr:.2f}, peak off {m.peak_err:.0%} of {m.relief_m:.0f} m, "
         f"{m.area_m2:,.0f} m2" + (f", hideable ({m.quality_cover:.0%} under quality "
                                   f"elevation)" if m.hideable else "")

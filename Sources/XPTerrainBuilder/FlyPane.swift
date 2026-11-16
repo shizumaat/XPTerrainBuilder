@@ -137,7 +137,8 @@ struct FlightCard: View {
 
 /// Inside the flight card (#2025): a departure or destination on a mesh
 /// this app did not build asks "fly it as it is, or upgrade it first";
-/// once answered, the answer. Qt: `O4_Qt_Fly_Pane.choice_box`.
+/// once answered, the answer and "Change" (#2095: forget it, ask again).
+/// Qt: `O4_Qt_Fly_Pane.choice_box`.
 struct AdoptedChoiceRows: View {
     @ObservedObject var model: FlyModel
 
@@ -153,6 +154,9 @@ struct AdoptedChoiceRows: View {
                         Button(FlyText.choiceUpgradeButton) { model.choose(row, "upgrade") }
                             .help(FlyText.choiceUpgradeLabel(row))
                     }
+                } else {
+                    Button(FlyText.choiceChangeButton) { model.choose(row, "ask") }
+                        .help(FlyText.choiceChangeHelp)
                 }
             }
         }

@@ -102,6 +102,18 @@ answered both (§2.3); B was not needed.
   shorter than the visible distance, and the kit held full textures only
   within ~15 km.
 
+- **Reload keeps held textures (#2106, 2026-11-16, X-Plane 12.4.4-r2,
+  installed 2026-11-11 01:25Z, after the tests above).** Sharp 4096 px
+  files landed 13:57-13:58Z around the aircraft (Yosemite); two
+  Developer > Reload Scenery runs (~13:58-14:00Z, ~14:05-14:06:40Z)
+  re-read the DSFs, yet the owner saw the area still low-res. X-Plane's
+  log resets its texture paging ("Pre-warming paging cache", "Target
+  scale moved to 1") at every FLIGHT load and at neither reload: a
+  scenery reload keeps the textures X-Plane holds, by path. Hence
+  `O4_Imagery_Ter_Alias`: each landing points the `.ter` at a fresh
+  symlink to the texture, a path X-Plane does not hold. Open: whether
+  12.4 re-reads a rewritten `.ter` at a reload (the sim read of the fix).
+
 ### 2.4 Recorder flights: what X-Plane opens, and when [measured] **[rev 2]**
 
 `record_reads.py` (kit; to be promoted, §14 P1b) watches X-Plane's file
@@ -611,6 +623,11 @@ looks the same as its never-upgraded neighbours.
   crashes X-Plane (§4.6 b).
 - **R4 Never touch `.ter`, DSF or masks while X-Plane runs.** They are read
   only at scenery loads (flight 1); a change there needs a reload.
+  **One exception (#2106, owner brief 2026-11-16):** after a landing the
+  `.ter` base-texture line is pointed at a fresh symlink to the texture
+  (`O4_Imagery_Ter_Alias.renew`, the whole file renamed into place), so
+  that the next reload opens a path X-Plane does not hold (§2.3); the
+  path X-Plane holds meanwhile still resolves to the texture.
 - **R5 Land before the crossing** (§4.3); late landings are logged and
   counted ("late") so §11 U5 is measured on every flight.
 - **R6 Rate.** At most `ondemand_lands_per_s` (default 4) landings a

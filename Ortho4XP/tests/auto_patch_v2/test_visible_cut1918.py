@@ -122,14 +122,18 @@ def test_a_ledge_states_no_floor_and_the_floor_stops_short_of_it():
     assert kinds == {0: CD.LEDGE, 1: CD.FLOOR, 2: CD.FLOOR, 3: CD.BELOW}
     assert abs(prof[100.0] - 69.7) < 1e-6                 # max(69.5, 69.7)
     assert abs(prof[500.0] - 69.7) < 1e-6                 # the ledge-only station
-    (hl, hr), (cl, cr), pins, feet = vis.sides(tuple(sorted(prof.items())), _axis_fn,
-                                               6.0, 120.0, 1.6, 50.0, 1.0)
+    (hl, hr), (cl, cr), pins, feet, rings = vis.sides(tuple(sorted(prof.items())), _axis_fn,
+                                              6.0, 120.0, 1.6, 50.0, 1.0)
     i = ss.index(300.0)
     assert 29.9 <= hl[i] <= 33.5 - 1.6 + 1e-9             # the shell's floor edge
     assert abs(hr[i] - 36.0) < 1e-6                       # the wall's foot + 1.0
     assert abs(cl[i] - 33.5) < 1e-6 and cr[i] >= hr[i] + 1.6
-    on = [p for p in pins if abs(p[0] - 300.0) < 1e-6]
-    assert on == [(300.0, 33.5, 72.5)]
+    # #1918: the pin stands ON the ledge foot (the member's own point,
+    # within half a station of 300), and the crest ring runs through it
+    x, y = rings[0][i]
+    assert abs(x - 300.0) <= 5.0 and abs(y - 33.5) < 1e-6 and (x, y, 72.5) in pins
+    line = [_axis_fn(s) for s in ss]
+    assert CD.crest_through_feet(line, rings[0])[i] == (x, y)
     got = {(pid, kind) for _x, _y, _yy, pid, kind in feet}
     assert ("dsf:obj10", CD.LEDGE) in got and ("dsf:obj11", CD.FLOOR) in got
     assert ("dsf:obj13", CD.UNMET) in got                 # buried: states nothing
@@ -187,3 +191,28 @@ def test_a_bench_wider_than_the_floor_never_sets_the_floor_level():
                    + [(0.0, 40.0, 72.5, 0.01)] * 200)
     lv = CD._shell_floor(ext, [0.0], 10.0, 1.0)
     assert abs(lv[0] - 69.71) < 1e-9
+
+
+def test_a_crest_foot_is_taken_only_in_station_order():
+    """#1918: a ledge foot replaces its station's crest vertex only while
+    the ring stays in station order (no fold between two feet)."""
+    side = CD._Side(np.zeros(4), np.zeros(4), [], np.zeros(4),
+                    {0: (-2.0, -2.0, 30.0), 1: (14.0, 14.0, 31.0), 2: (13.0, 13.0, 32.0),
+                     3: (34.0, 34.0, 33.0)})
+    got = CD._ring_feet(side, [0.0, 10.0, 20.0, 30.0])
+    assert got == {0: (-2.0, 30.0), 1: (14.0, 31.0), 3: (34.0, 33.0)}
+
+
+def test_a_floor_foot_off_its_station_never_floats_over_the_floor_line():
+    """#1918: a foot stands within half a station of its station; past it,
+    towards a lower neighbour, the linear floor would run under it.  Each
+    station takes at least its neighbour stations' level (owner Q2)."""
+    axis = LineString([(0.0, 0.0), (100.0, 0.0)])
+    pts = np.array([[14.0, 20.0, 70.0, 0], [20.0, 20.0, 69.0, 1], [30.0, 20.0, 69.0, 1]])
+    cut = types.SimpleNamespace(points=pts, bound=None)
+    p = CD._cut_points([cut], axis, 120.0)
+    ss = [10.0, 20.0, 30.0]
+    prof = CD._cut_profile(CD._cut_feet(p, ss, 10.0), ss)
+    z = float(np.interp(14.0, [s for s, _ in prof], [v for _, v in prof]))
+    assert z >= 70.0 - 1e-9
+    assert abs(dict(prof)[30.0] - 69.0) < 1e-9        # two stations away: unchanged

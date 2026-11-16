@@ -458,7 +458,8 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                 cs: _t.Any = None, strips: _t.Any = None,
                 strip_rep: _t.Any = None, *,
                 hard_conflict: _t.Iterable[dict] = (),
-                runway_flex: _t.Iterable[dict] = ()) -> dict[str, _t.Any]:
+                runway_flex: _t.Iterable[dict] = (),
+                agp_report: _t.Any = None) -> dict[str, _t.Any]:
     """The sidecar keys the solve's own pricing publishes; with ``z`` the
     crown drops are the BUILT ones.  ``hard_conflict`` / ``runway_flex``
     are the solve's records (``DesignReport`` fields, the late stage's
@@ -821,7 +822,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # the cut over its footprint — REPORT ONLY (``tools/drawn_check``
             # claims its objects as CUT sites)
             "object_floors": object_floors(planar, airport, law),
-            "free_bridges": bridge_rows(planar, airport, law),
+            "free_bridges": bridge_rows(planar, airport, law, agp_report),
             # THE JETWAY STRIPS (owner RULINGS 2026-09-18t Q3; jetway-strip
             # spec §2 (6)): per strip its pad, its ONE level, its riders,
             # its vertices by identity and its clamps — LAW INPUT for the
@@ -1049,11 +1050,19 @@ def pad_touch(cells: _t.Iterable[_t.Any], law: Law,
     class.  EVIDENCE: ``tools/pad_edge_read.py --source`` classes a
     pad-edge run TOUCH-OFF (a defect), HELD or GAPPED (accepted) by it.
     An airport with no pad beside groundside pavement carries no such
-    key."""
+    key.
+
+    #1689 R3 (A6): with the map, a pad no face of which stands in it (a
+    tall portal's host pad, cut to nothing by ``planar/structures``) has
+    no row: the witness was read on the classification's cells, before
+    the cut."""
     from ..classify.pad_touch import touch_records
     recs = touch_records(cells, law)
     if planar is None or not recs:
         return recs
+    faces = planar.faces.values() if hasattr(planar.faces, "values") else planar.faces
+    standing = {str(f.ref) for f in faces}
+    recs = [r for r in recs if r["pad"] in standing]
     from shapely.ops import unary_union
     from ..constraints.pad_frontage_gs import _groundside_geoms
     from ..constraints.pads import _pad_polys, frontage_radius_m
@@ -1508,9 +1517,10 @@ def object_floors(planar: PlanarMap, airport: Airport,
     clear = (float(law.tables.structures.tunnel.object.floor_clearance_m)
              if law is not None else 0.0)
     stacks = {st.floor_ref: st for st in getattr(airport, "deck_stacks", ()) or ()}
-    to_ll = airport.frame.transformers()[1] if stacks else None
+    floors = tuple(getattr(planar, "object_floors", ()) or ())
+    to_ll = airport.frame.transformers()[1] if stacks or floors else None
     out = []
-    for f in getattr(planar, "object_floors", ()) or ():
+    for f in floors:
         rec = {"id": f.id, "resource": f.resource, "objects": [f.object_id, *f.covers],
                "floor_m": round(float(f.floor_z), 3), "zero_m": round(float(f.zero_z), 3),
                "area_m2": round(float(f.footprint.area), 1),
@@ -1519,7 +1529,9 @@ def object_floors(planar: PlanarMap, airport: Airport,
                # that OWNS ground carries the clearance; the rest of its
                # frame are members, read by their feet
                "object": f.object_id, "owns_ground": bool(owns_ground(f)),
-               "hidden": bool(getattr(f, "hidden", False))}
+               "hidden": bool(getattr(f, "hidden", False)),
+               # #2099 F2 P3b: its outline, for the drawn gate's bore faces
+               "outline_ll": _outline_ll(f.footprint, to_ll)}
         misfit = getattr(f, "rim_misfit", None)
         if misfit:
             # §6 (P3): the shell's rim against the ground, measured only
@@ -1532,12 +1544,31 @@ def object_floors(planar: PlanarMap, airport: Airport,
     return out
 
 
-def bridge_rows(planar: PlanarMap, airport: Airport, law: Law | None = None
-                ) -> list[dict[str, _t.Any]]:
+def _outline_ll(footprint, to_ll) -> list:
+    """``[[[lat, lon], ...]]``: the exterior ring of each part of an object
+    floor's footprint (``tools/harness/drawn_roads.floor_rings``)."""
+    from ..geom.parts import polygon_parts_with_area
+    if footprint is None or footprint.is_empty or to_ll is None:
+        return []
+    out = []
+    for part in polygon_parts_with_area(footprint):
+        ring = []
+        for x, y in part.exterior.coords:
+            lat, lon = to_ll(float(x), float(y))[:2]
+            ring.append([round(float(lat), 8), round(float(lon), 8)])
+        out.append(ring)
+    return out
+
+
+def bridge_rows(planar: PlanarMap, airport: Airport, law: Law | None = None,
+                agp_report: _t.Any = None) -> list[dict[str, _t.Any]]:
     """#2065 A3 C2 row 11: per free / kept stack the planar stage kept, its
     id, mode and zero, and per land end its stations, top, ground G_e, gap,
     state and why, run, grade and the apron's ring (lat, lon) — what
-    ``tools/drawn_check`` / ``drawn_site --end-lines`` read."""
+    ``tools/drawn_check`` / ``drawn_site --end-lines`` read.  #2090 A5: a
+    stack joined to an AGP floor publishes its FINAL zero
+    (``constraints/agp_level.stack_zero``) and its group."""
+    from ..constraints.agp_level import final_zero
     from ..geom.deck_ground import ground_footprint
     from ..model.deck_stack import TRENCH, live_stacks
     stacks = [s for s in live_stacks(getattr(airport, "deck_stacks", ()) or (), planar)
@@ -1562,8 +1593,18 @@ def bridge_rows(planar: PlanarMap, airport: Airport, law: Law | None = None
                          "gap_m": round(e.gap, 3), "state": e.state, "why": e.why,
                          "run_m": round(e.run, 1), "grade": round(e.grade, 4),
                          "apron": ring})
-        out.append({"id": st.id, "mode": st.kind, "zero_m": round(st.zero_z, 3),
-                    "decks": [d.object_id for d in st.decks], "ends": ends})
+        rec = {"id": st.id, "mode": st.kind, "zero_m": round(st.zero_z, 3),
+               "decks": [d.object_id for d in st.decks], "ends": ends}
+        if getattr(st, "over_floor", ()):
+            # #2062 R5 E′2: kept over a ramp floor; its rowed ends
+            rec["over_floor"] = list(st.over_floor)
+            rec["rowed"] = [f"{e.object_id} {e.side}" for e in st.rowed_ends()]
+        g = next((g for g in getattr(planar, "agp_groups", ()) or ()
+                  if g.id == getattr(st, "datum_group", "")), None)
+        if g is not None:
+            rec["datum_group"], rec["zero_pred_m"] = g.id, round(st.zero_z, 3)
+            rec["zero_m"] = round(st.zero_z + float(final_zero(g, agp_report)["delta"]), 3)
+        out.append(rec)
     return out
 
 

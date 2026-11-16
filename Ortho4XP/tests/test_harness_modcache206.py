@@ -388,7 +388,7 @@ def test_main_runs_the_pass_and_carries_the_named_airport(build_mod):
     the re-judge is handed the airport named on the command line
     regardless of ``--tile`` (RULINGS 2026-10-02b/2026-10-02e)."""
     src = inspect.getsource(build_mod.main)
-    i_try = src.index("\n    try:\n", src.index("locks = [RefreshLock("))
+    i_try = src.index("\n    try:\n", src.index("locks = _acquire_refresh_locks("))
     i_pass = src.index("refresh_airport_mod_cache(", i_try)
     i_judge = src.index("require_refreshed_frame(", i_try)
     assert i_pass > i_try and i_pass < i_judge

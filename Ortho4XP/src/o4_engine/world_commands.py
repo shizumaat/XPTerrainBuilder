@@ -431,6 +431,8 @@ def world_onboard(scenery_dir: str = "", legacy_build_dir: str = "",
         out["restart_needed"] = world_install(scenery_dir)["restart_needed"]
     elif managed(scenery_dir):
         ensure_coverage(scenery_dir)    # world_install already did it
+        from .world_tile_use import settle
+        settle(scenery_dir)             # tiles turning off or on (#2100)
     try:
         out["home"] = HOME.migrate(scenery_dir, legacy_build_dir, busy=busy,
                                    dry_run=not move_home)

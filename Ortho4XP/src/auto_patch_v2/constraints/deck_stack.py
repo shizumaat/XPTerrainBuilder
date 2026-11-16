@@ -11,8 +11,11 @@ both end lines — RULINGS 2026-10-30a):
   end_road_vertices``, the ONE selection the road ramp is seeded from) and
   every stack-ground vertex on a deck's end line or on its approach slab
   (``airport/deck_ends.ground_footprint``'s apron slab, one sample
-  step beyond it) stand in ``[zero + top - deck_flush_m, zero + top]`` — the
-  ground and the road never stand over the plate's end;
+  step beyond it) stand in ``[P - deck_flush_m, P]``, ``P`` the PLATE'S OWN
+  height at the vertex (zero + the plate's floor there, ``deck_flush_m``
+  lower inside the deck's ring; the end's one top where the plate gives
+  none; a trench end's top) — the ground and the road never stand over the
+  plate's end, and an end edge with a cross-fall is met along it (#2091 R3);
 * R2 the WALLS' TOP and the CAPS: every cap vertex, every vertex of the
   floor's void band's outer ring along a wall line and every stack-ground
   vertex across the stand-off gap from it stand in ``[crest - visual_m /
@@ -28,12 +31,21 @@ stack the generator returns ``[]``.
 
 A FREE or KEPT stack (#2065 A3 rule 5, :func:`_bridge_rows`): no floor, no
 walls.  R1 at its ROWED ends (``DeckStack.rowed_ends``: a free bridge's every
-land end not held or listed, a kept bridge's GRADED ends); R3 under the
+land end not held or listed, a kept bridge's GRADED ends: each end's slab
+less its own deck at the plate's own height, one band per vertex and end,
+two ends on one vertex intersected or refused); R3 under the
 plate for a FREE stack only (inside the deck rings); and R6 THE PROFILE:
-every vertex in a GRADED end's corridor at path distance ``s`` that no road
+every vertex in a GRADED end's corridor (``geom/deck_ground.end_corridor``:
+the path's and the path's from the end line's middle) at path distance
+``s`` that no road
 ramp owns (no road ribbon, no airside, no structure, no slab) stands in
-``[P(s) - visual_m / 2, P(s)]``, ``P(s) = zero + top - grade (s - step)``,
-dropped where ``P(s) <= DEM + deck_flush_m``.
+``[P(s) - deck_flush_m, P(s)]``, ``P(s) = zero + top - grade (s - step)``,
+dropped where ``P(s) <= DEM + deck_flush_m``: the slab's own R1 band carried
+down the ramp at the design grade (#2065 R6 knee, KBNA XB 2026-11-15: a
+``visual_m / 2`` floor let the solve drop the whole 0.125 m in the first
+metres past the slab -- 7.3-8.5 % over s = 5-10 m against the ruled 5 %,
+RULINGS 2026-10-09c (2b); any floor under ``P`` opening past the slab edge
+steepens the leaving grade by its depth over its distance).
 """
 from __future__ import annotations
 
@@ -46,7 +58,7 @@ from ..law import Law
 from ..law.tables import snap_margin_m
 from ..model.airport import Airport
 from ..model.constraints import Band, Row, Source
-from ..model.deck_ends import end_road_vertices
+from ..model.deck_ends import access_road_vertices, end_road_vertices
 from ..model.deck_stack import FREE, TRENCH, live_stacks
 from ..model.frame import rotated_rectangle
 from ..model.planar import STACK_GROUND_PREFIX, PlanarMap
@@ -102,6 +114,10 @@ def deck_stack_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
            + snap_margin_m(law) + grid)
     stacks = live_stacks(stacks, planar)
     roads = end_road_vertices(planar, law, airport)
+    # #2090 B4: the access road between sibling ends, held as R1 holds an
+    # end-line vertex (its rows carry the nearer end's stack id)
+    for v, rec in access_road_vertices(planar, law, airport).items():
+        roads.setdefault(v, rec)
     rows: list[Row] = []
     for st in stacks:
         if st.kind != TRENCH:
@@ -195,10 +211,9 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
     import shapely
     from shapely.geometry import Point, Polygon
 
-    from ..geom.deck_ground import path_line
+    from ..geom.deck_ground import end_corridor, path_line
     br = law.tables.structures.bridge
     flush, step = float(br.deck_flush_m), float(br.abutment_sample_step_m)
-    half_vis = 0.5 * float(law.tables.emit.cockpit.visual_m)
     grid = float(law.tables.emit.identity.min_distinct_spacing_m)
     z0 = float(st.zero_z)
     allv = list(planar.vertices)
@@ -209,26 +224,78 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
     for v, (z, sid, oid, part, _off) in roads.items():
         if sid == st.id:
             r1[v] = (z - flush, z, oid, part)
-    refused: set[int] = set()
     hard = _road_or_hard(planar, law, roads=False)
-    for d, side, top, _apron, slab in ground_footprint(st, law)["aprons"]:
+    # #2091: each rowed end's SLAB less its OWN deck alone, and the end
+    # edge's own hair inside the plate.  The footprint's slab is cut by every
+    # deck ring of the stack: where a neighbouring deck's ring took it (OTHH
+    # Bridge_03's west end) the ground at one corner of the end stood 0.75 m
+    # under the plate, the other flush.  Each vertex (the road's own end
+    # vertices aside) is held at the PLATE'S OWN HEIGHT there, not the end's
+    # one top: an end edge with a cross-fall is no one level (that end's
+    # corners stand 8.41 and 8.59, and the uniform top put the low corner's
+    # row over R3's ceiling, which dropped it); just under the plate on its
+    # own plan; under another deck R3's ceiling still wins.  This block is
+    # the ONE R1 source for a slab vertex (#2091 R2): one band per (vertex,
+    # end); two ends on one vertex hold their bands' intersection, or
+    # neither where they do not meet (refused).
+    from ..geom.deck_ground import end_slab
+    decks = {d.object_id: d for d in st.decks if len(d.ring) >= 3}
+    road_ids = {v for v, (_z, sid, _o, _p, _f) in roads.items() if sid == st.id}
+    slab_bands: dict[int, list] = {}
+    for e in st.rowed_ends():
+        d = decks.get(e.object_id)
+        slab = end_slab(e, step)
         if slab.is_empty:
             continue
-        z = z0 + float(top)
-        on = shapely.contains_xy(slab.buffer(grid, join_style="mitre"), axy[:, 0], axy[:, 1])
-        for k in np.flatnonzero(on).tolist():
-            v = allv[k]
-            if v in hard:
-                continue
-            if v in r1 and abs(r1[v][1] - z) > flush:
-                refused.add(v)
-            r1.setdefault(v, (z - flush, z, d.object_id, f"{d.object_id}#{d.piece} end {side}"))
+        ring = Polygon(d.ring) if d is not None else None
+        if ring is not None:
+            slab = slab.difference(ring)
+        zone = slab.buffer(grid, join_style="mitre")
+        ks = np.flatnonzero(shapely.contains_xy(zone, axy[:, 0], axy[:, 1])).tolist()
+        ks = [k for k in ks if allv[k] not in hard and allv[k] not in road_ids]
+        if not ks:
+            continue
+        plate = np.asarray(d.plate, float).reshape(-1, 3, 3) if d is not None else ()
+        if not len(plate):
+            ys = np.full(len(ks), np.nan)
+        elif getattr(st, "over_floor", ()):
+            # #2062 R5: the driven layer, never the plate's underside or piers
+            from ..geom.plate_heights import driven_y_at
+            ys = driven_y_at(plate, axy[ks, 0], axy[ks, 1], float(e.top), step)
+        else:
+            ys = floor_z_at(plate, axy[ks, 0], axy[ks, 1], edge_m=step)
+        inner = ring
+        if ring is not None and getattr(st, "over_floor", ()):
+            # #2062 R5: an end-line vertex is the deck's end, flush with it
+            inner = ring.buffer(-grid, join_style="mitre")
+        under = (shapely.contains_xy(inner, axy[ks, 0], axy[ks, 1])
+                 if inner is not None and not inner.is_empty else np.zeros(len(ks), bool))
+        for k, y, inside in zip(ks, ys.tolist(), under.tolist(), strict=True):
+            hi = z0 + (y if y == y else float(e.top)) - (flush if inside else 0.0)
+            slab_bands.setdefault(allv[k], []).append(
+                (hi - flush, hi, e.object_id, f"{e.object_id}#{d.piece} end {e.side}"
+                 if d is not None else f"{e.object_id} end {e.side}"))
+    refused: set[int] = set()
+    for v, bands in slab_bands.items():
+        lo, hi = max(b[0] for b in bands), min(b[1] for b in bands)
+        if lo > hi:
+            refused.add(v)
+            continue
+        oid = bands[0][2]
+        r1[v] = (lo, hi, oid, " + ".join(b[3] for b in bands))
     r3: dict[int, tuple[float, str]] = {}
-    if st.kind == FREE:
+    over = bool(getattr(st, "over_floor", ()))
+    if st.kind == FREE or over:
         for d in st.decks:
             ring = Polygon(d.ring)
             inside = shapely.contains_xy(ring, axy[:, 0], axy[:, 1])
             ks = [allv[k] for k in np.flatnonzero(inside).tolist()]
+            if over:
+                # #2062 R5 E′4: a kept deck over a ramp floor ceils the ground
+                # under its plate, never a hard vertex (the floor, its walls)
+                # nor a vertex its end line holds (R1: the road meets the
+                # deck's top there, the plate's underside is no ceiling)
+                ks = [v for v in ks if v not in hard and v not in r1]
             for v, c in _ceilings(planar, st, d, ks, flush).items():
                 if v not in r3 or c < r3[v][0]:
                     r3[v] = (c, f"{d.object_id}#{d.piece} under the deck")
@@ -245,7 +312,7 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
         line = path_line(e, e.run)
         if line is None:
             continue
-        corridor = line.buffer(e.half_width, cap_style="flat")
+        corridor = end_corridor(e, line, e.half_width)
         inside = shapely.contains_xy(corridor.buffer(grid), axy[:, 0], axy[:, 1])
         for k in np.flatnonzero(inside).tolist():
             v = allv[k]
@@ -258,6 +325,9 @@ def _bridge_rows(planar: PlanarMap, law: Law, st, roads) -> list[Row]:
             if v not in r6 or p > r6[v][0]:
                 r6[v] = (p, f"{e.object_id} end {e.side} profile")
     for v, (p, part) in sorted(r6.items()):
-        rows.append(Band(v, p - half_vis, p, Source(GEN, RIGID, (st.id, part.split(" ")[0],
-                                                                  part))))
+        rows.append(Band(v, p - flush, p, Source(GEN, RIGID, (st.id, part.split(" ")[0],
+                                                              part))))
+    # #2062 R5: a road run out past an end line over the airside
+    from .deck_runout import runout_rows
+    rows += runout_rows(planar, law, st, GEN, RIGID, skip | set(r6))
     return rows

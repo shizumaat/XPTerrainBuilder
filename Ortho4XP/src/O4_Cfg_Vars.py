@@ -200,6 +200,21 @@ cfg_app_vars = {
             "budget, its only home)."
         ),
     },
+    # #2103: the free-space floor of the disk holding the data folder.
+    "storage_free_floor_gb": {
+        "type": float,
+        "default": 60.0,
+        "hint": (
+            "Keep at least this much free space, in GB, on the disk that "
+            "holds the data folder (#2103). When a build finds less, it "
+            "first moves rebuild data and imagery to a storage tier (tiles "
+            "used longest ago first), then clears caches in the same order "
+            "as the disk budget, and a step that would start below it waits "
+            "on the tile's row until there is room. Built tiles, patches "
+            "and anything X-Plane loads are never moved or cleared. "
+            "0: off."
+        ),
+    },
     "imagery_on_demand_cap_gb": {
         "type": float,
         "default": 100.0,
@@ -1063,6 +1078,33 @@ cfg_tile_vars = {
         "default": False,
         "hint": "Terrain files for all but water triangles will contain the maquify_1_green_key.dcl decal directive. The effect is noticeable at very low altitude and helps to overcome the orthophoto blur at such levels. Can be slightly distracting at higher altitude.",
     },
+    "cliff_textures": {
+        "type": str,
+        # xpface by default since 2026-11-15 (#2096, owner: "add it to the
+        # app to be used on all tiles going forward"); an existing global
+        # cfg holding the old default "False" is raised once
+        # (CHANGED_DEFAULTS).  "False" still turns it off.
+        "default": "xpface",
+        "values": ["xpface", "False", "synth", "xplane"],
+        "value_labels": {
+            "xpface": "X-Plane rock on steep faces",
+            "False": "Off (the photo stretched down the face)",
+            "synth": "Made from the tile's photos (prototype)",
+            "xplane": "X-Plane terrain from above (prototype)",
+        },
+        "hint": (
+            "Draw near-vertical mesh faces (cliffs, gorge walls) with a "
+            "rock texture instead of the photo stretched down the face, "
+            "fading into the photo at the top and bottom. xpface (the "
+            "default): X-Plane's own cliff texture for the landclass "
+            "there, laid along the face; it needs the X-Plane install "
+            "(the Global Scenery folder), and a tile without it is built "
+            "as with this off. False: off. synth (prototype): a "
+            "face-aligned texture made from the tile's own photos. "
+            "xplane (prototype): X-Plane's default terrain projected from "
+            "above, which stretches on faces steeper than ~60 degrees. "
+            "True is synth."),
+    },
     # Other
     "custom_dem": {
         "type": str,
@@ -1129,6 +1171,7 @@ list_app_vars = [
     "storage_auto_clean_days",
     "storage_cache_caps_gb",
     "storage_budget_gb",
+    "storage_free_floor_gb",
     "storage_tiers",
     "imagery_on_demand_cap_gb",
     "ondemand_lead_s",
@@ -1237,6 +1280,7 @@ list_dsf_vars = [
     "normal_map_strength",
     "terrain_casts_shadows",
     "use_decal_on_terrain",
+    "cliff_textures",
 ]
 
 list_other_vars = ["custom_dem", "fill_nodata"]
@@ -1465,7 +1509,10 @@ def cleanup_retired_cfg_keys(source, dropped=()):
 
 #: var -> (old default as stored, new default).  Owner 2026-11-04:
 #: masks_width 100 -> 500 to show the improved bathymetry and coastline.
-CHANGED_DEFAULTS = {"masks_width": ("100", "500")}
+#: cliff_textures False -> xpface (#2096, owner 2026-11-15: the cliff
+#: faces "to be used on all tiles going forward").
+CHANGED_DEFAULTS = {"masks_width": ("100", "500"),
+                    "cliff_textures": ("False", "xpface")}
 
 
 def _register_path(cfg_path):

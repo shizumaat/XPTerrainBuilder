@@ -822,6 +822,12 @@ class DesignReport:
                     f"the road-to-pavement plane, "
                     f"{bl.get('strip_low_dropped', 0)} high-side floors "
                     f"dropped on the low side; ")
+        for gid, g in sorted(((rs.get("agp_level") or {}).get("groups") or {}).items()):
+            out += (f"agp datum (#2090 A4) {gid}: z_gov "
+                    + ("unread" if g.get("z_gov") is None else f"{g['z_gov']:.3f}")
+                    + f" against DEM {g.get('dem_gov')}, delta {g.get('delta', 0.0):+.3f} m, "
+                    f"{g.get('moved', 0)} row(s) moved"
+                    + (f", {g['why']}" if g.get("why") else "") + "; ")
         if self.pin_yield:
             worst = max(self.pin_yield, key=lambda r: abs(r["excess_m"]))
             heads = collections.Counter(str(r.get("ruling") or "roads.coverage_edge join")

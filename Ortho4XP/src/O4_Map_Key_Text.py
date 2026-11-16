@@ -2,7 +2,7 @@
 #2031): a pill at the map's bottom-right, under the ZL pill, its items
 laid out in a row — a swatch and a short word each, truncated with "…"
 when the row runs out of room, the full sentence on hover.  The Build
-view and the Fly view say the same eight items in the same words and
+view and the Fly view say the same nine items in the same words and
 colours, in this one order; each lists only the items it shows now.
 
 :data:`ITEMS` is the ONE place the key is defined (the owner may revise
@@ -31,6 +31,7 @@ ITEMS = (
     ("mesh", "Mesh only", WORLD_TEXT.LEGEND_MESH),
     ("drape", "Drape", WORLD_TEXT.LEGEND_DRAPE),
     ("placeholder", "Placeholder", WORLD_TEXT.LEGEND_PLACEHOLDER),
+    ("off", "Turned off", WORLD_TEXT.LEGEND_OFF),
     ("building", "Building", "Building: a mesh or a drape under way (pulsing)"),
     ("other_tool", "Other tool", WORLD_TEXT.LEGEND_OTHER_TOOL),
     ("stale", "Pack changed", "Airport pack changed since the build (dashed)"),

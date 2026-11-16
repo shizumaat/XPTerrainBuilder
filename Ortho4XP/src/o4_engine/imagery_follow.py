@@ -19,7 +19,12 @@ The rules it keeps (spec §4.7, §8):
 
 * every landing is a whole file under the texture's own name (the
   lander's ``O4_DDS_File.land``); the job never deletes or truncates a
-  texture name, never touches ``.ter``, DSF or masks;
+  texture name, never touches DSF or masks;
+* RELOAD NAME (#2106): X-Plane keeps a texture it holds across a
+  scenery reload, so after each landing the tile's ``.ter`` files that
+  name the texture are pointed at a fresh symlink to it
+  (``O4_Imagery_Ter_Alias.renew``, ``renamer``): the next reload opens
+  the sharp file; the path X-Plane holds meanwhile still resolves to it;
 * at most ``lands_per_s`` landings start per second (R6);
 * at start, partials are swept and ``upgrading`` rows reset (R7);
 * a tier landed after its crossing is counted ``late`` (R5, U5);
@@ -78,6 +83,7 @@ import O4_Imagery_Fetch_Slots as SLOTS
 import O4_Imagery_Follow_Reach as REACH
 import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Spawn as SPAWN
+import O4_Imagery_Ter_Alias as TER_ALIAS
 import O4_Imagery_Tier_Plan as PLAN
 import O4_Machine_Slots as MACHINE_SLOTS
 import O4_XPlane_WebAPI as WEBAPI
@@ -194,7 +200,8 @@ class FollowJob:
     every tile is held, see the module); ``emit``
     receives each ``ImageryFollowStatus``; ``reloader()`` asks X-Plane to
     reload its scenery and says whether it took the request (``None``:
-    the job never reloads)."""
+    the job never reloads); ``renamer(texture, terrain_dir)`` gives a
+    landed texture a path X-Plane does not hold (#2106)."""
 
     def __init__(self, emit, *, reader, lander, index_path=None,
                  busy=lambda: False, lead_s: float = PLAN.DEFAULT_LEAD_S,
@@ -202,10 +209,12 @@ class FollowJob:
                  lands_per_s: float = 4.0, clock=time.time, log_path=None,
                  slots: SLOTS.FetchSlots | None = None, rebuild_tiles=(),
                  cap_bytes: int | None = None, reloader=None,
-                 rescan_dir: str | None = None):
+                 rescan_dir: str | None = None,
+                 renamer=TER_ALIAS.renew):
         self.emit = emit
         self.reader, self.lander = reader, lander
         self.reloader = reloader
+        self.renamer = renamer
         self.spawn = SPAWN.SpawnWatch()
         self._read_at: float | None = None      # the last good position
         self._resets = 0                        # reader.resets seen
@@ -498,12 +507,18 @@ class FollowJob:
 
     def _held(self):
         """``True`` when every tile is held, else the names of the tiles
-        held now (``busy()`` and :func:`held_tiles`)."""
+        held now (``busy()``, :func:`held_tiles` and the World pack's
+        tiles turned off, #2100 ``world_tile_use.off_names``)."""
+        from .world_tile_use import off_names
         busy = self.busy()
         if busy is True or (busy and not isinstance(
                 busy, (set, frozenset, list, tuple))):
             return True
-        return set(busy or ()) | held_tiles()
+        try:
+            off = off_names()
+        except Exception:                   # an unreadable pack: none off
+            off = frozenset()
+        return set(busy or ()) | held_tiles() | off
 
     # ------------------------------------------------- spawn and jump
 
@@ -705,10 +720,13 @@ class FollowJob:
             self.last_dispatched.append(f)
 
     def _land(self, row: dict, tier: int):
-        """On a worker: the lander's facts and when they landed.  Its
-        requests go first in the server's budget (#2037)."""
+        """On a worker: the lander's facts and when they landed, the
+        texture renamed for X-Plane's next reload (#2106).  Its requests
+        go first in the server's budget (#2037)."""
         with MACHINE_SLOTS.net_priority():
             facts = self.lander(row, tier)
+        if self.renamer is not None:        # shown at the next reload
+            self.renamer(INDEX.texture_path(row), INDEX.terrain_folder(row))
         return facts, self.clock()
 
     def _harvest(self, now: float) -> None:

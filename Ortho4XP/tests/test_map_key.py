@@ -41,12 +41,13 @@ def test_the_items_words_and_order_are_the_macs():
     assert ("buildingLowAlpha: Double = %s" % KEYTEXT.BUILDING_LOW_ALPHA) in text
 
 
-def test_the_owners_eight_items():
+def test_the_owners_items():
     """#2031 (owner 2026-11-13T00:31Z): one key, in this order; "Built
     here", "Other ortho", "Other drive", "Full detail", "Meshing",
-    "Draping" and the route are not items."""
+    "Draping" and the route are not items.  #2100 adds "Turned off" (a
+    tile the user turned XPTerrainBuilder off on) after Placeholder."""
     assert [short for _i, short, _f in KEYTEXT.ITEMS] == [
-        "Full", "Mesh only", "Drape", "Placeholder", "Building",
+        "Full", "Mesh only", "Drape", "Placeholder", "Turned off", "Building",
         "Other tool", "Pack changed", "Patch"]
     assert KEYTEXT.FLY_KEY_ITEMS["draping"] == KEYTEXT.FLY_KEY_ITEMS["meshing"] == "building"
     assert "own" not in KEYTEXT.FLY_KEY_ITEMS

@@ -56,11 +56,16 @@ def write_staged(staged: str, record: dict) -> str:
 
 
 def carry(staged: str, pack: str, lat: int, lon: int) -> bool:
-    """Move the staged record (if any) to the pack's; True when moved."""
+    """Move the staged record to the pack's; True when moved.  A staged
+    tile with none (a full build) removes the pack's old record, which
+    was the tile it replaces (a drape's provider read as the new mesh's,
+    #2105)."""
     src = os.path.join(staged, STAGED_NAME)
-    if not os.path.isfile(src):
-        return False
     dest = record_path(pack, lat, lon)
+    if not os.path.isfile(src):
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(dest)
+        return False
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     partial = dest + ".partial"
     with contextlib.suppress(FileNotFoundError):
@@ -92,12 +97,16 @@ def from_textures(pack: str, lat: int, lon: int) -> dict:
     return from_folder(os.path.join(pack, "textures", _tile_name(lat, lon)))
 
 
-def read(pack: str, lat: int, lon: int) -> dict:
-    """Tile (``lat``, ``lon``)'s record, else :func:`from_textures`."""
+def read(pack: str, lat: int, lon: int, kind: str | None = None) -> dict:
+    """Tile (``lat``, ``lon``)'s record, else :func:`from_textures`.
+    ``kind``: the tile's DSF kind (``O4_World_Pack.kind_of``) when known;
+    a record of another kind is a replaced tile's and is not read (a drape
+    record left beside a full mesh, #2105)."""
     try:
         with open(record_path(pack, lat, lon), encoding="utf-8") as handle:
             record = json.load(handle)
-        if isinstance(record, dict) and record.get("provider"):
+        if (isinstance(record, dict) and record.get("provider")
+                and (not kind or record.get("kind", kind) == kind)):
             return record
     except (OSError, ValueError):
         pass

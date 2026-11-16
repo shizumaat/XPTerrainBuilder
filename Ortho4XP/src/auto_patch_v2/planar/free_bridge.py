@@ -9,9 +9,15 @@ S1 / S2 / S4): the thin ``planar`` caller of the positive witness
   class A's witness) and an all-deck frame (22d / 22p keep it,
   ``placement_family.frame_is_bridge``, or a deck and the structure riding
   it, ``deck_riders``) are read as KEPT bridges.  W1 reads ``highway`` /
-  ``railway`` routes only.  The decks the classifier calls ``free_bridge``
+  ``railway`` routes and the airport's own apt.dat ground routes
+  (``airport/ground_route_ways``, #2062 R3b E: over a ``flag`` deck their
+  bridge stretch is the part inside its plate).  The decks the classifier calls ``free_bridge``
   (``airport/bridge_class``) become ``Airport.free_bridges``, one
   :class:`~..model.free_bridge.FreeBridge` per group of touching decks.
+  A deck no mapped way carries is a KEPT candidate by its join (#2090 B2,
+  all-deck frames) or, in any frame, by its CROSSING (#1718 B1,
+  :func:`_overpass_witness`: a road beneath at the overpass clearance and
+  the stub witnesses on its own axis; the planar overpass read seats it).
 * PLANAR STAGE (:func:`admitted`): the readers ahead of a free bridge in the
   class order that only the planar stage holds take theirs first — a frame
   holding a pack object cut (10-26d), a frame of a hard-deck bridge
@@ -40,7 +46,8 @@ from shapely.ops import unary_union
 
 from ..airport import bridge_frame as _bf
 from ..airport import bridge_witness as _bw
-from ..model.free_bridge import FREE_PREFIX, FreeBridge, FreeDeck, FreeEnd
+from ..geom.rotated_rect import rotated_rectangle
+from ..model.free_bridge import FREE_PREFIX, OVERPASS_PREFIX, FreeBridge, FreeDeck, FreeEnd
 
 __all__ = ["attach_free_bridges", "read_bridges", "bridges_of", "admitted", "plated",
            "planar_stacks", "log_line"]
@@ -73,6 +80,11 @@ class _Read:
         from ..airport.dem import dem_z_many
         self.law, self.cache = law, cache
         self.ways = _routes(getattr(airport, "osm_ways_mapped", None) or airport.osm_ways)
+        # #2062 R3b E: the airport's own ground routes are W1 routes too
+        from ..airport.ground_route_ways import ground_route_ways
+        self.ground_routes = ground_route_ways(airport)
+        #: the road-beneath read's ways, as ``planar/overpass_deck`` reads them
+        self.all_ways = [w for w in airport.osm_ways or () if len(w.points) >= 2]
         dem = getattr(airport, "dem", None)
         self.dem = dem
         self.ground = None if dem is None else (
@@ -107,8 +119,12 @@ def _frame_witness(decks: list, frame: list, rd: _Read) -> dict:
     for d in decks:
         up = _bw.up_faces(_bf.solid_faces(rd.geometry(d), d.xy, d.heading_deg), normal)
         plates[str(d.id)] = (_ring(d), up, d.deck_kind)
-    if not any(not isinstance(_bw.route_of(r, rd.ways, law), str)
-               for r, _u, _k in plates.values()):
+    # #2062 R3b E: over a FLAG deck an apt.dat ground route's bridge stretch
+    # is the part inside its plate (``airport/ground_route_ways``)
+    from ..airport.ground_route_ways import bridged
+    ways = list(rd.ways) + [w for r, _u, k in plates.values() if k == "flag"
+                            for w in bridged(rd.ground_routes, r)]
+    if not _bw.any_route([r for r, _u, _k in plates.values()], ways, law, rd.ground):
         return {k: _bw.Witness(None, failed="W1 route: no mapped route") for k in plates}
     b = np.array([r.bounds for r, _u, _k in plates.values()])
     box = (b[:, 0].min() - 2.0, b[:, 1].min() - 2.0, b[:, 2].max() + 2.0, b[:, 3].max() + 2.0)
@@ -116,7 +132,7 @@ def _frame_witness(decks: list, frame: list, rd: _Read) -> dict:
     faces = _bf.faces_in_box(placed.values(), box)
     bodies = {k: _bf.body_points(f) for k, f in placed.items() if len(f)}
     own = str(decks[0].id)
-    return _bw.frame_witness(plates, faces, bodies, rd.ways, law, rd.ground, rd.water(box),
+    return _bw.frame_witness(plates, faces, bodies, ways, law, rd.ground, rd.water(box),
                              under=rd.under.for_unit(own, frozenset(placed)))
 
 
@@ -197,8 +213,8 @@ def _read_free_bridges(airport, objects, cache, law
     out: list[FreeBridge] = []
     kept: list[FreeBridge] = []
     notes: list[str] = []
-    for decks, frame in _frames(objects, float(st.tunnel.object.cover_placement_tol_m)):
-        decks = [d for d in decks if d.deck_top_z is not None and str(d.id) not in stacked
+    for dks, frame in _frames(objects, float(st.tunnel.object.cover_placement_tol_m)):
+        decks = [d for d in dks if d.deck_top_z is not None and str(d.id) not in stacked
                  and not airside.meets(d.hard_deck)]
         if not decks:
             continue
@@ -221,7 +237,137 @@ def _read_free_bridges(airport, objects, cache, law
             (kept if all_deck else out).extend(
                 bridges_of({str(d.id): _ring(d) for d in decks}, wit, free,
                            [str(q.id) for q in frame], float(st.placement.footprint_touch_m)))
+        routeless = [d for d in decks if str(d.id) not in free
+                     and wit[str(d.id)].failed.startswith("W1 route")]
+        if all_deck:
+            more, ns = _join_witness(routeless, frame, airport, law, rd)
+            kept.extend(more)
+            notes += ns
+            joined = {d.object_id for fb in more for d in fb.decks}
+            routeless = [d for d in routeless if str(d.id) not in joined]
+        more, ns = _overpass_witness(dks, routeless, frame, rd)
+        kept.extend(more)
+        notes += ns
     return tuple(out), tuple(kept), notes
+
+
+def _overpass_witness(dks, routeless, frame, rd: _Read) -> tuple[list[FreeBridge], list[str]]:
+    """#1718 B1 / B2: a deck no mapped way carries (``routeless``: W1
+    fails) is a KEPT candidate by its CROSSING when it holds the pack-stage
+    half of the road-overpass witness (``planar/overpass_deck.
+    road_crossings`` over the frame's decks ``dks``: a mapped non-bridge
+    highway, not its own route, crosses a piece and the plate stands at
+    least ``clearance_minimum_m`` over it there) — it is the frame's first
+    deck, the one the overpass read seats — and the stub witnesses on its
+    own axis (``bridge_witness.axis_witness``: W3, W4, W6, W4b; the crossing
+    is its W5).  Its ends are its axis's (:func:`_axis_ends`, route
+    :data:`AXIS_STUB`), ``under`` the road beneath's stations its zero is
+    read on (``airport/bridge_stack._overpass_one``)."""
+    d = dks[0] if dks else None
+    if d is None or str(d.id) not in {str(q.id) for q in routeless}:
+        return [], []
+    from .overpass_deck import road_crossings
+    clear = float(rd.law.tables.structures.bridge.clearance_minimum_m)
+    _top, pieces = road_crossings(dks, rd.cache, rd.all_ways, rd.law)
+    held = [(st, ids, at) for _p, st, ids, at in pieces if at is not None and at >= clear]
+    if not held:
+        return [], []
+    tag = f"{_name(d)}: no mapped route; a road crosses beneath (ways " \
+          f"{sorted({i for _s, ids, _a in held for i in ids})}, plate y " \
+          f"{max(a for _s, _i, a in held):+.2f})"
+    why = _axis_holds(d, frame, rd)
+    ends = _axis_ends(d) if not why else None
+    if ends is None:
+        return [], [f"{tag} — not a kept candidate: {why or 'no axis'} (#1718 B2)"]
+    oid = str(d.id)
+    under = tuple((float(x), float(y)) for st, _i, _a in held for x, y in st)
+    fd = FreeDeck(oid, tuple((float(x), float(y)) for x, y in _ring(d).exterior.coords[:-1]),
+                  (), ends, AXIS_STUB + oid, under)
+    return ([FreeBridge(OVERPASS_PREFIX + oid, tuple(str(q.id) for q in frame), (fd,))],
+            [f"{tag} — a kept candidate by its crossing (#1718 B1)"])
+
+
+def _axis_holds(d, frame, rd: _Read) -> str:
+    """``bridge_witness.axis_witness`` for deck ``d`` of ``frame`` (its
+    plate, the frame's faces and bodies, W4b's pack objects)."""
+    normal = float(rd.law.tables.structures.bridge.deck_plate_normal_y_min)
+    ring = _ring(d)
+    up = _bw.up_faces(_bf.solid_faces(rd.geometry(d), d.xy, d.heading_deg), normal)
+    placed = {str(q.id): _bf.solid_faces(rd.geometry(q), q.xy, q.heading_deg) for q in frame}
+    x0, y0, x1, y1 = ring.bounds
+    faces = _bf.faces_in_box(placed.values(), (x0 - 2.0, y0 - 2.0, x1 + 2.0, y1 + 2.0))
+    bodies = {k: _bf.body_points(f) for k, f in placed.items() if len(f) and k != str(d.id)}
+    return _bw.axis_witness(ring, up, faces, bodies, rd.law,
+                            under=rd.under.for_unit(str(d.id), frozenset(placed)))
+
+
+#: #2090 B2: a deck read only by its join is a stub along its own axis
+AXIS_STUB = "axis:"
+
+
+def _axis_ends(d, n: int = 5) -> "tuple[FreeEnd, FreeEnd] | None":
+    """The deck's two END LINES along its own axis: the short sides of its
+    plan's minimum rectangle, ``n`` stations each, the outward tangent from
+    the rectangle's middle; the top the deck's (``deck_top_y``; the kept
+    read replaces it by the top at each end)."""
+    r = rotated_rectangle(_ring(d))
+    if r.geom_type != "Polygon":
+        return None
+    c = list(r.exterior.coords)[:4]
+    sides = sorted(range(4), key=lambda k: math.dist(c[k], c[(k + 1) % 4]))[:2]
+    mid = (sum(p[0] for p in c) / 4.0, sum(p[1] for p in c) / 4.0)
+    top = float(d.deck_top_z - getattr(d, "anchor_z", 0.0) - float(d.agl_m or 0.0)) \
+        if getattr(d, "anchor_z", None) is not None else 0.0
+    out = []
+    for k in sorted(sides):
+        a, b = c[k], c[(k + 1) % 4]
+        st = tuple((a[0] + (b[0] - a[0]) * t / (n - 1), a[1] + (b[1] - a[1]) * t / (n - 1))
+                   for t in range(n))
+        m = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        L = math.dist(m, mid) or 1.0
+        out.append(FreeEnd(st, top, ((m[0] - mid[0]) / L, (m[1] - mid[1]) / L), True))
+    return out[0], out[1]
+
+
+def _join_witness(decks, frame, airport, law, rd) -> tuple[list[FreeBridge], list[str]]:
+    """#2090 B2: an all-deck hard-deck frame's deck no mapped way carries is
+    a KEPT bridge when an end of it reaches an AGP follower's floor
+    (``airport/agp_deck_join``) — a candidate here, kept by
+    ``bridge_stack._kept_one`` only where the end JOINS; its other end is
+    read as a stub's (the axis ray)."""
+    groups = [g for g in getattr(airport, "agp_groups", ()) or () if g.governor]
+    if not decks or not groups:
+        return [], []
+    from ..airport.agp_deck_join import DeckFloors
+    floors = DeckFloors(airport, law)
+    out, notes = [], []
+    for d in decks:
+        ends = _axis_ends(d)
+        if ends is None or not any(floors.near(e.stations) for e in ends):
+            continue
+        oid = str(d.id)
+        fd = FreeDeck(oid, tuple((float(x), float(y)) for x, y in _ring(d).exterior.coords[:-1]),
+                      (), ends, AXIS_STUB + oid)
+        out.append(FreeBridge(FREE_PREFIX + oid, tuple(str(q.id) for q in frame), (fd,)))
+        notes.append(f"{_name(d)}: no mapped route; an end reaches an AGP follower's floor — "
+                     "a kept candidate by its join (#2090 B2)")
+    return out, notes
+
+
+def _with_agp_groups(airport, law) -> tuple[_t.Any, list[str]]:
+    """``(airport with agp_groups, notes)`` (#2090 A1, ``airport/agp_group``);
+    a record already read is kept."""
+    import time
+    if getattr(airport, "agp_groups", ()) or law is None:
+        return airport, []
+    from ..airport.agp_group import attach_agp_groups, log_line
+    t0, notes = time.perf_counter(), []
+    airport = attach_agp_groups(airport, law, notes)
+    # #2090 C1: each governed group's plates (its followers' ground floors)
+    from ..airport.agp_plates import with_plates
+    airport = with_plates(airport, law, notes)
+    return airport, [log_line("", airport.agp_groups, time.perf_counter() - t0)
+                     .split("] ", 1)[-1]] + notes
 
 
 def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]]:
@@ -233,7 +379,10 @@ def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]
     free bridge rule 10 refuses leaves ``free_bridges`` (today's path)."""
     from ..airport.bridge_stack import bridge_stacks, log_lines
     from ..airport.deck_stack import with_bridge_stacks
-    got, kept, notes = _read_free_bridges(airport, objects, cache, law)
+    # #2090 A1: the AGP groups FIRST — the deck joins read them
+    airport, notes = _with_agp_groups(airport, law)
+    got, kept, more = _read_free_bridges(airport, objects, cache, law)
+    notes += more
     if not (got or kept or getattr(airport, "free_bridges", ())
             or getattr(airport, "kept_bridges", ())):
         return with_bridge_stacks(airport, (), law), (), notes
@@ -243,7 +392,27 @@ def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]
     if refused:
         airport = _dc.replace(airport, free_bridges=tuple(
             fb for fb in got if fb.id not in refused))
+    airport = _with_deck_joins(airport, stacks)
+    # #2062 R5 E′2: the kept reads not minted stay candidates -- a ramp the
+    # deck carries a stop over keeps one at the planar stage
+    from ..model.deck_stack import KEPT
+    minted = {s.id for s in stacks}
+    airport = _dc.replace(airport, kept_candidates=tuple(
+        s for s in every if s.kind == KEPT and s.id not in minted
+        and not str(s.bridge).startswith(OVERPASS_PREFIX)))
     return with_bridge_stacks(airport, stacks, law), every, notes
+
+
+def _with_deck_joins(airport, stacks) -> _t.Any:
+    """#2090 B1: each AGP group's ``deck_joins`` — the joins of the stacks
+    whose zero rides its datum."""
+    groups = getattr(airport, "agp_groups", ()) or ()
+    joins = [j for st in stacks for j in getattr(st, "joins", ()) or ()]
+    if not groups or not joins:
+        return airport
+    return _dc.replace(airport, agp_groups=tuple(
+        _dc.replace(g, deck_joins=tuple(j for j in joins if j.group == g.id))
+        for g in groups))
 
 
 def attach_free_bridges(airport, objects, cache, law, notes_out: "list | None" = None):
@@ -318,25 +487,52 @@ def plated(bridges: _t.Sequence[FreeBridge], basins=(), objects=()
     return tuple(out), notes
 
 
-def planar_stacks(stacks, free: _t.Sequence[FreeBridge]) -> tuple[tuple, list[str]]:
+def planar_stacks(stacks, free: _t.Sequence[FreeBridge], overpasses: _t.Collection[str] = (),
+                  candidates=(), carried: "_t.Mapping[str, tuple[str, ...]] | None" = None
+                  ) -> tuple[tuple, list[str]]:
     """``(the free / kept stacks the planar stage keeps, notes)`` (#2065 A3
     C2 N2, rule 3): a FREE stack only of a bridge in ``free`` (admitted, no
     plated deck); a stack with no graded end is dropped.  A free bridge whose
     stack is dropped here is noted ``free_stack_refused_at_planar``.  A
     graded end's path entering a lot piece is graded like any other (owner
     2026-11-14T18:12Z drops RULINGS 2026-11-14f (4)'s hold: only a standing
-    face read at the pack stage holds an end, ``airport/bridge_end_state``)."""
-    from ..model.deck_stack import FREE, TRENCH
+    face read at the pack stage holds an end, ``airport/bridge_end_state``).
+    A stack KEPT BY ITS CROSSING (#1718 B3) stands only where the planar
+    overpass read seats its deck (``overpasses``: the road overpasses'
+    placement ids): its zero is that seat.
+
+    #2062 R5 E′2: a KEPT stack -- minted, or one of the pack stage's
+    ``candidates`` (``Airport.kept_candidates``) -- whose deck a ramp
+    carries a stop under (``carried``: deck object id -> the tunnel ids,
+    ``Tunnel.carried``) is kept OVER THE FLOOR (``DeckStack.over_floor``),
+    graded end or not."""
+    from ..model.deck_stack import FREE, KEPT, TRENCH
     ok = {str(fb.id) for fb in free}
+    seated = {str(o) for o in overpasses}
+    carried = dict(carried or {})
     out, notes = [], []
-    for st in stacks:
+    minted = {st.id for st in stacks}
+    for st in (*stacks, *(c for c in candidates or () if c.id not in minted)):
         if st.kind == TRENCH:
+            continue
+        over = tuple(sorted({t for d in st.decks for t in carried.get(str(d.object_id), ())}))
+        if st.kind == KEPT and over:
+            out.append(_dc.replace(st, over_floor=over))
+            notes.append(f"{st.id}: kept over the floor of {list(over)} (#2062 R5 E′2): "
+                         f"rows its {[e.side + ' ' + e.state for e in st.ends]} ends")
+            continue
+        if st.id not in minted:
+            continue
+        if st.bridge.startswith(OVERPASS_PREFIX) \
+                and st.bridge[len(OVERPASS_PREFIX):] not in seated:
+            notes.append(f"{st.id}: kept by its crossing, but the planar stage reads no road "
+                         "overpass of its deck — no stack (#1718 B3)")
             continue
         if st.kind == FREE and st.bridge not in ok:
             notes.append(f"{st.id}: free_stack_refused_at_planar (its bridge was not admitted "
                          "or carries a plate)")
             continue
-        if not st.graded_ends():
+        if not st.graded_ends() and not getattr(st, "datum_group", ""):
             notes.append(f"{st.id}: no GRADED end at the planar stage — no stack"
                          + ("; free_stack_refused_at_planar" if st.kind == FREE else ""))
             continue

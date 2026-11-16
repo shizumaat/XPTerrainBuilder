@@ -47,10 +47,15 @@ def floor_plane(zs: _t.Sequence[float], storey_m: float = 0.0) -> "float | None"
     feet of the higher plane may sink, owner RULINGS 2026-10-22c).  KBUF's
     terminal frame: 68 feet at y -0.10 and 39 at y -1.20 on one flat pad
     — the round-5 floor stood on the y -1.20 plane and floated the west
-    half 0.9 m.  ``storey_m`` 0 keeps round 5's floor."""
-    if not zs:
+    half 0.9 m.  ``storey_m`` 0 keeps round 5's floor.
+
+    A candidate that is no number (a foot over no surface: a cold DEM's
+    NaN) states no plane and is left out; with none left there is no
+    floor (#2099: a NaN made every band comparison false and the band
+    empty -- an IndexError, not an answer)."""
+    v = sorted((float(z) for z in zs if not math.isnan(float(z))), reverse=True)
+    if not v:
         return None
-    v = sorted((float(z) for z in zs), reverse=True)
     need = max(1, int(PLANE_SHARE * len(v) + 0.999999),
                min(PLANE_MIN_FEET, int(0.5 * len(v) + 0.999999)))
     j = 0
@@ -89,7 +94,9 @@ def ground_plane(zs: _t.Sequence[float]) -> "float | None":
     floats more than the band (owner, RULINGS 2026-10-22c: "no pillars are
     floating, it's ok if some are partly submerged"); the median of every
     foot (round 4) floated KMCI's tower 1.2 m on ground falling 1.5 m
-    across its frame (owner, 1.0.421)."""
+    across its frame (owner, 1.0.421).  A NaN candidate is left out, as
+    in :func:`floor_plane`."""
+    zs = [float(z) for z in zs if not math.isnan(float(z))]
     if not zs:
         return None
     need = max(1, int(PLANE_SHARE * len(zs) + 0.999999),

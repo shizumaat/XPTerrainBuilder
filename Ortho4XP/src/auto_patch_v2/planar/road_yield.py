@@ -45,6 +45,7 @@ import dataclasses as _dc
 from shapely.geometry import LineString, Polygon
 
 from ..airport.road_ways import ribbon_half_width_m, road_ways
+from ..geom.valid_area import minus
 from ..law import Law
 from ..model.road_yield import RoadYield
 
@@ -134,7 +135,9 @@ def road_cut_pieces(carriageways, envelope, standoff_m: float, extent=None,
     for line, half in carriageways:
         if not line.intersects(reach):
             continue
-        outside = line.intersection(reach).difference(envelope)
+        # #2079: an envelope GEOS calls invalid (RJTT: a side location
+        # conflict in the band/airside union) no longer aborts the airport
+        outside = minus(line.intersection(reach), envelope)
         if outside.is_empty or outside.length <= 0.0:
             continue
         # a stretch that has just CROSSED out of a band cuts the band

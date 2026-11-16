@@ -19,7 +19,7 @@ __all__ = ["structure_vertices", "Platform", "LANDING_SEP",
            "is_landing_ref", "plateau_vertices",
            "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
-           "datum_vertices", "stage_air_vertices",
+           "datum_vertices", "stage_air_vertices", "stage_air_of",
            "HOLD_RULING", "HOLD_DATUM_RULING", "FILL_KINDS", "fill_levels", "held_levels",
            "widest_reach"]
 
@@ -233,13 +233,23 @@ def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
     ``model.islands``) — the body of ``solve/design_roles.
     airside_stage_vertices`` before the datum columns join it (one
     derivation, read here so the constraints may ask it too)."""
-    from ..law.tables import airside_stage_roles
     from .islands import courtyard_faces
+    return stage_air_of(planar.faces.values(),
+                        lambda f: (v for ring in (f.ring, *f.holes)
+                                   for v in planar.ring_vertices(ring)),
+                        law, courtyard_faces(planar, law))
+
+
+def stage_air_of(faces: _t.Iterable[_t.Any], vertices_of: _t.Callable[[_t.Any], _t.Iterable[int]],
+                 law: _t.Any, court: _t.Collection[int] = ()) -> set[int]:
+    """:func:`stage_air_vertices` over any face collection: ``vertices_of(f)``
+    gives a face's ring and hole vertices, ``court`` the courtyard face ids
+    (the planar stage asks it before its map exists, #2099 R3 A1)."""
+    from ..law.tables import airside_stage_roles
     from .planar import plane_origin_ref, platform_ref_of
     roles = airside_stage_roles(law)
-    court = courtyard_faces(planar, law)
     out: set[int] = set()
-    for f in planar.faces.values():
+    for f in faces:
         if f.role not in roles or f.id in court:
             continue
         r = platform_ref_of(f.ref)
@@ -250,8 +260,7 @@ def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
             # MEASURED KATL: in stage 1 its own-ground row was a conforming
             # row stage 1 refuses, and bending alone set it 2 m over its ground
             continue
-        for ring in (f.ring, *f.holes):
-            out.update(planar.ring_vertices(ring))
+        out.update(vertices_of(f))
     return out
 
 
@@ -321,7 +330,8 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
     two readers that pass it).  The stage split never reads it: the block
     welds nothing, so its level is stage 2's.  MEASURED HECA (lane l1088c):
     ``building6`` carried two fills with no column and tilted 0.62 % under
-    a road's ramp ceiling at its north corner."""
+    a road's ramp ceiling at its north corner.  A STOREY SHELL's block
+    (a landing carrying ``shell``) is such a carrier too (#2062 R3b A)."""
     held = planar.registries.held
     if not held:
         return {}
@@ -357,8 +367,11 @@ def _fill_datums(planar: _t.Any, own: _t.Mapping[str, set[int]],
                  struct: _t.AbstractSet[int], have: _t.Mapping[str, int]) -> dict[str, int]:
     """The STAGE-2 datum column of every held block that carries a pad fill
     and has none (:func:`datum_vertices` ``fills``)."""
+    # ... and every STOREY SHELL's block (#2062 R3b A): a block led by its
+    # structure floor or its ground welds no frontage, and its levels stand
+    # at its column + their ``y`` (``constraints/shell_datum`` holds it)
     carriers = {rec["block"] for rec in planar.registries.landings.values()
-                if rec.get("kind", "deck") in FILL_KINDS}
+                if rec.get("kind", "deck") in FILL_KINDS or rec.get("shell")}
     out: dict[str, int] = {}
     for ref in sorted(carriers - set(have)):
         vs = sorted(own.get(ref, set()) - set(struct))

@@ -48,7 +48,8 @@ from .hanging_objects import edge_wall_reading, flush_hanging
 from .obj8_clip import _bulk_polys
 from .object_cut import _face_normals_y, _plan_area
 
-__all__ = ["Portal", "across_bore", "read_portals", "portal_of", "roof_of", "roof_reading"]
+__all__ = ["Portal", "across_bore", "read_portals", "portal_of", "roof_of",
+           "roof_reading"]
 
 
 @_dc.dataclass(frozen=True)
@@ -97,6 +98,23 @@ class Portal:
     #: (MEASURED LOWS west mouth: the carriageways' midline 1.5 m off it, the
     #: cut wall over 1.5 m of the opening).  Empty with no opening.
     opening_xy: tuple = ()
+    #: #2062 R3b C: an ENTRANCE face's FRONT WALL ends across the bore
+    #: (``airport/entrance_front``; ``opening_xy`` inside it) and its width;
+    #: ``()`` / ``0.0`` with none wider than the opening
+    front_xy: tuple = ()
+    front_m: float = 0.0
+    #: owner RULINGS 2026-11-16a: the entrance reader's own opening read
+    #: under one road lane (``[tunnel] lane_width_m``) -- a misread; the
+    #: opening above is the face's jamb-to-jamb read
+    #: (``entrance_front.jamb_to_jamb``), and the object's walls are the cut's
+    #: witness (``airport/walled_trench``)
+    opening_misread: bool = False
+    #: #2099 F2 P0: a misread face its OWN read did not wall, walled and
+    #: seated by the re-read (zero = :attr:`floor_z` - :attr:`bottom_y` on the
+    #: ground its walls retain): the one witness for the retaining-wall law's
+    #: re-seat (``airport/wall_reseat``) and for the face's plan being its
+    #: wall (``trench_objects._wall_plan``)
+    wall_reseat: bool = False
     #: #1747 (Q-A 2026-11-05): an ENTRANCE object's face bottom under its
     #: zero at this end (``trench_objects.mouth_portals``) — the object stage
     #: seats that face with its bottom on :attr:`floor_z`
@@ -105,14 +123,23 @@ class Portal:
     #: RULINGS 2026-11-06c (3): an ENTRANCE face's TOP — its plan (frame
     #: metres, ``trench_objects._face_at``) and its level once seated (the
     #: ground over it): the ramp ends at its front and the ground round it
-    #: is graded up to it (``planar/entrance_skirt``); ``None`` otherwise
+    #: is graded up to it (``planar/entrance_skirt``); a TALL roofed portal's
+    #: roof and its WINGS standing at its top (``_wing_plan``, #1689 R4) and
+    #: the cover on it (#1689 R2 A3, no :attr:`bottom_y`); ``None`` otherwise
     face_plan: object = None
     face_top_z: "float | None" = None
     #: #1737: the top plan the face's cover was read over (``trench_objects.
     #: _face_at``) -- a lid's as well as a headwall's: where AIRSIDE pavement
     #: abuts it, the face's top is that pavement's level
-    #: (``constraints/airside_top``); ``None`` otherwise
+    #: (``constraints/airside_top``); a ROOFED portal's roof plan (#1689 R2
+    #: A2: the reach its seat leads its frame within); ``None`` otherwise
     top_plan: object = None
+    #: #1689 R3: a ROOFED portal's OWN FOOTPRINT -- the plan of its genuine
+    #: solids, roof, walls and wings (frame metres): the frame its seat
+    #: leads stands in it (``terrain_shaped.portal_frame_records``) and a
+    #: tall portal's host pads are cut to it (``planar/entrance_skirt.
+    #: host_blade``); ``None`` otherwise
+    footprint: object = None
     #: #1938 (RULINGS 2026-11-13h, round 2 S2/S3): an ENTRANCE object's
     #: WALL REACH -- how far its solids hanging ``shell_floor_min_m`` or more
     #: under its zero run along the approach from the end (metres; inside it
@@ -132,6 +159,17 @@ class Portal:
     #: :attr:`floor_z`, and its body is seated by its ENTRANCE record at
     #: :attr:`anchor_xy` (zero = floor - :attr:`bottom_y`)
     footed: bool = False
+    #: #1689 R5 R2 / R3: a TALL roofed portal's COVER -- the plan (frame
+    #: metres) of the highest plate of its FRAME (:func:`_frame`) standing a
+    #: road's clearance over its zero at this end (:func:`_covers`), and its
+    #: top once seated (the floor plus its top y): the cut ends under it and
+    #: the ground behind welds to its back at that top; ``None`` otherwise
+    cover_plan: object = None
+    cover_top_z: "float | None" = None
+    #: #1689 R5 R3: the plan of the frame's solids standing over the cover
+    #: (a parapet, a headwall): the ground in front of them is never its
+    #: skirt (``planar/entrance_skirt``); ``None`` with none or no cover
+    parapet_plan: object = None
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -273,18 +311,268 @@ def hanging_reading(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, law
     return top - bottom, tuple((float(x), float(y)) for x, y in ring)
 
 
-def _ground_covers_roof(roof, end_xy: XY, dem_z, law) -> "float | None":
+def _solids_plan(o: _obj8.PlacedObject, g: _obj8.ObjGeometry,
+                genuine: _t.Sequence[_obj8.Component], law):
+    """The placed plan (frame metres) of ``o``'s genuine solids -- every
+    plan-bearing triangle's plan, unioned (``frame_entry``) -- or ``None``.
+    A wall stands edge-on in plan: a reader grows the plan by its own
+    reach to take it in."""
+    if not genuine:
+        return None
+    tris = np.concatenate([c.tris for c in genuine])
+    plan = _fe.union(_bulk_polys(g.vertices, tris), "portal_objects._solids_plan")
+    return _fe.enter([plan], _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
+
+
+#: a wall's half thickness in plan: it stands edge-on, so its outline is
+#: read as a line grown by this much (#1689 R4 W1)
+_WALL_HALF_M = 0.1
+
+
+def _station(c, end_xy: XY, into: XY) -> float:
+    """``c``'s station along ``into`` from ``end_xy`` (into the bore)."""
+    return (c[0] - end_xy[0]) * into[0] + (c[1] - end_xy[1]) * into[1]
+
+
+def _wing_plan(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, roof, local, top_y: float,
+               end_xy: XY, into: "XY | None", law):
+    """The plan (frame metres) of a TALL portal's WINGS at one bore end, or
+    ``None``: the solids of its OWN object standing AT its stated top
+    ``top_y`` (highest vertex within ``[tunnel.object] cover_flush_m`` of
+    it; every still solid read, a thin cap included -- at the top it is no
+    ground decal), taken in plan (plates as polygons, every outline as a
+    line grown by :data:`_WALL_HALF_M`), less the whole ``roof`` grown by
+    twice that; a part is a wing where it stands within ``plate_bin_m`` of
+    ``local`` (the roof over this end) and runs at least
+    ``entrance_skirt_m`` OUT of the bore beyond that roof's front.
+
+    #1689 R4: the wings are part of the top the portal states, so the
+    level piece of its skirt runs along them.  MEASURED KBNA Murfreesboro
+    east: two wing walls run 15.2 and 15.6 m out of the bore at the
+    headwall's level (to 8.8 over the zero); held at the stub roof alone,
+    the ground behind them fell to the DEM."""
+    if into is None or local is None or local.is_empty:
+        return None
+    import shapely
+    ob = law.tables.structures.tunnel.object
+    v, t = g.vertices, g.solid
+    if len(t) and g.animated.shape[0]:
+        t = t[~g.animated]
+    t = t[v[t][:, :, 1].max(axis=1) >= float(top_y) - float(ob.cover_flush_m)] \
+        if len(t) else t
+    if not len(t):
+        return None
+    pts = v[t][:, :, [0, 2]]
+    lines = shapely.linestrings(np.concatenate([pts, pts[:, :1]], axis=1))
+    plan = _fe.union([*_bulk_polys(v, t), *shapely.buffer(lines, _WALL_HALF_M).tolist()],
+                     "portal_objects._wing_plan")
+    plan = _fe.enter([plan], _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
+    if plan is None or plan.is_empty:
+        return None
+    rings = [c for q in getattr(local, "geoms", [local]) if q.geom_type == "Polygon"
+             for c in q.exterior.coords]
+    if not rings:
+        return None
+    front = min(_station(c, end_xy, into) for c in rings)
+    beyond = plan.difference(roof.buffer(2.0 * _WALL_HALF_M))
+    parts = [q for q in getattr(beyond, "geoms", [beyond])
+             if q.geom_type == "Polygon" and not q.is_empty
+             and q.distance(local) <= float(ob.plate_bin_m)
+             and front - min(_station(c, end_xy, into) for c in q.exterior.coords)
+             >= float(ob.entrance_skirt_m)]
+    return _fe.union(parts, "portal_objects._wing_plan") if parts else None
+
+
+def _in_frame(v: np.ndarray, q: _obj8.PlacedObject, o: _obj8.PlacedObject) -> np.ndarray:
+    """``q``'s authored vertices ``v`` in ``o``'s authored frame (``(x, z)``
+    through the airport frame; ``y`` kept): a placement affine is its own
+    inverse (a reflection), so ``o``'s takes the frame point home."""
+    a, b, d, e, xo, yo = _obj8.placement_affine(q.xy, q.heading_deg)
+    A, B, D, E, XO, YO = _obj8.placement_affine(o.xy, o.heading_deg)
+    px, py = a * v[:, 0] + b * v[:, 2] + xo - XO, d * v[:, 0] + e * v[:, 2] + yo - YO
+    out = v.copy()
+    out[:, 0], out[:, 2] = A * px + B * py, D * px + E * py
+    return out
+
+
+def _frame(o: _obj8.PlacedObject, objects: _t.Sequence[_obj8.PlacedObject],
+           cache: _obj8.ResourceCache, foot, law) -> "tuple[np.ndarray, np.ndarray] | None":
+    """THE FRAME IS THE OBJECT (#1689 R5 R1): ``(vertices, tris)`` of the
+    still solids (``solid`` less ``animated``, every component) of the
+    portal ``o`` and of every placement its seat leads -- the test
+    ``terrain_shaped.portal_frame_records`` reads with the tol and reach
+    ``pipeline/rebake_inputs`` hands it: co-placed (``hanging_objects.
+    _co_placed``, ``cover_placement_tol_m``) and standing in the portal's
+    footprint ``foot`` (``walled_pit._in_pit``, ``bore_end_tolerance_m``)
+    -- in ``o``'s authored frame; ``None`` with no solid.  No genuine
+    filter: a deck sheet one side thick is the cover (R4 W1's reason)."""
+    from .hanging_objects import _co_placed
+    from .walled_pit import _in_pit
+    ob = law.tables.structures.tunnel.object
+    group = [o]
+    if foot is not None and not foot.is_empty:
+        tol, reach = float(ob.cover_placement_tol_m), float(ob.bore_end_tolerance_m)
+        group += [q for q in objects if q.resolved and _co_placed(o, q, tol)
+                  and _in_pit(q, foot, cache, reach)]
+    vs, ts, k = [], [], 0
+    for q in group:
+        g = cache.geometry(q.resolved) if q.resolved else None
+        if g is None or not len(g.solid):
+            continue
+        t = g.solid[~g.animated] if g.animated.shape[0] else g.solid
+        if not len(t):
+            continue
+        vs.append(g.vertices if q is o else _in_frame(g.vertices, q, o))
+        ts.append(t + k)
+        k += len(g.vertices)
+    return (np.concatenate(vs), np.concatenate(ts)) if ts else None
+
+
+def _placed_plan(o: _obj8.PlacedObject, v: np.ndarray, t: np.ndarray, law, site: str):
+    """The placed plan (frame metres) of the triangles ``t``: plates as
+    polygons, every outline as a line grown by :data:`_WALL_HALF_M` (a wall
+    stands edge-on); ``None`` when nothing is left."""
+    import shapely
+    pts = v[t][:, :, [0, 2]]
+    lines = shapely.linestrings(np.concatenate([pts, pts[:, :1]], axis=1))
+    plan = _fe.union([*_bulk_polys(v, t), *shapely.buffer(lines, _WALL_HALF_M).tolist()], site)
+    plan = _fe.enter([plan], _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
+    return None if plan is None or plan.is_empty else plan
+
+
+def _covers(frame, end_xy: XY, o: _obj8.PlacedObject, law) -> "tuple[float, object, object] | None":
+    """``(cover top y, cover plan, soffit plan)`` of a portal's ``frame``
+    (:func:`_frame`) at the bore end ``end_xy``, the plans placed (#1689 R5
+    R2), or ``None``.  The frame's near-horizontal faces whose top stands
+    ``bridge.clearance_minimum_m`` over the zero, binned by
+    ``plate_bin_m``: a COVER BIN is one whose plan union (one side, never
+    the triangle sum) is a plate's worth, a PLATE and not a wall top (it
+    survives ``wall_face_max_thickness_m / 2`` inward: #2099 W1's witness)
+    and within ``bore_end_tolerance_m`` of the end once placed.  The cover
+    is the HIGHEST cover bin, the soffit the LOWEST (``None`` with one bin:
+    no ceiling under the cover, R5 T2); ``None`` where the bins are not
+    :func:`_one_roof` (R5b: floors of a building, read as R4).
+
+    MEASURED KBNA Murfreesboro west: the parapet's 0.9 m top at 8.89 read
+    as the roof by its two-sided triangle area (#1689 R4); the deck at
+    7.43 is the cover and the ceiling at 5.95 the soffit."""
+    ob = law.tables.structures.tunnel.object
+    v, t = frame
+    horiz = _face_normals_y(v, t) >= ob.plate_normal_y_min
+    ymax = v[t][:, :, 1].max(axis=1)
+    up = horiz & (ymax >= float(law.tables.structures.bridge.clearance_minimum_m))
+    if not up.any():
+        return None
+    tu, yu = t[up], ymax[up]
+    bins = np.floor(yu / ob.plate_bin_m).astype(int)
+    mat, end, found = _obj8.placement_affine(o.xy, o.heading_deg), Point(end_xy), {}
+    for k in sorted(set(bins.tolist())):
+        plan = _fe.union(_bulk_polys(v, tu[bins == k]), "portal_objects._covers")
+        if plan is None or plan.is_empty or plan.area < ob.plate_min_area_m2 \
+                or plan.buffer(-0.5 * float(ob.wall_face_max_thickness_m)).is_empty:
+            continue
+        placed = _fe.enter([plan], mat, _fe.quantum(law))[0]
+        if placed is not None and not placed.is_empty \
+                and placed.distance(end) <= float(ob.bore_end_tolerance_m):
+            found[k] = (float(yu[bins == k].max()), placed)
+    if not found or not _one_roof([top for top, _p in found.values()], law):
+        return None
+    # one cover bin: no soffit under the cover, the opening is read as R4's
+    return (found[max(found)][0], found[max(found)][1],
+            found[min(found)][1] if len(found) > 1 else None)
+
+
+def _one_roof(plate_tops: _t.Sequence[float], law) -> bool:
+    """A frame's cover plates (their tops over the zero) state ONE ROOF
+    over its road (#1689 R5b R2, the scope witness): the highest stands at
+    most ``tunnel.roof_m + tunnel.cover_m`` over the lowest -- a roof slab
+    and its cover, the deck and its ceiling.  More is FLOORS of a building
+    (its storeys' plates), never a mouth's cover; a hard-deck box passes.
+
+    MEASURED: ENGM's terminal frames span 4.07 / 19.17 / 6.77 m; the
+    tunnel mouths ENTC 1.08 / 0.50 and KBNA 1.48 / 1.67 against 2.2."""
+    tn = law.tables.structures.tunnel
+    return not plate_tops or \
+        max(plate_tops) - min(plate_tops) <= float(tn.roof_m) + float(tn.cover_m)
+
+
+def _parapet(o: _obj8.PlacedObject, frame, top_y: float, law):
+    """The placed plan of the ``frame``'s solids whose highest vertex
+    stands more than ``plate_bin_m`` over the cover top ``top_y`` -- the
+    walls standing over the cover (#1689 R5 R3) -- or ``None``."""
+    v, t = frame
+    hi = t[v[t][:, :, 1].max(axis=1) > float(top_y) + float(
+        law.tables.structures.tunnel.object.plate_bin_m)]
+    return _placed_plan(o, v, hi, law, "portal_objects._parapet") if len(hi) else None
+
+
+def _front_wall_top(o: _obj8.PlacedObject, g: _obj8.ObjGeometry,
+                   genuine: _t.Sequence[_obj8.Component], at, law) -> "float | None":
+    """The TOP y (over the object's zero) of a tall portal's FRONT WALL at
+    a bore end: the highest of its genuine solids' WALL faces (``|normal
+    y|`` under ``plate_normal_y_min``) standing in ``at`` -- the roof
+    within that end's reach, frame metres -- grown by
+    ``bore_end_tolerance_m``: the headwall over the mouth, read at its full
+    height.  ``None`` where no wall stands there.
+
+    #1689 R3 (master ruling 2026-11-15): the top a tall portal states is
+    its headwall's own top, not the cover the survey read on its roof.
+    MEASURED KBNA Murfreesboro east portal: a hollow stub roof at 7.78
+    over the zero, the headwall in front of it to 9.17 (the survey's cover
+    176.50, the headwall top 177.88 with the zero on the 168.71 floor);
+    the west portal's headwall top is its roof top, 8.89."""
+    if not genuine or at is None or at.is_empty:
+        return None
+    import shapely
+    ob = law.tables.structures.tunnel.object
+    v = g.vertices
+    tris = np.concatenate([c.tris for c in genuine])
+    walls = tris[_face_normals_y(v, tris) < ob.plate_normal_y_min]
+    if not len(walls):
+        return None
+    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
+    p = v[walls]
+    px, py = a * p[:, :, 0] + b * p[:, :, 2] + xo, d * p[:, :, 0] + e * p[:, :, 2] + yo
+    ring = np.stack([px, py], axis=2)
+    lines = shapely.linestrings(np.concatenate([ring, ring[:, :1]], axis=1))
+    hit = shapely.intersects(lines, at.buffer(float(ob.bore_end_tolerance_m)))
+    return float(p[hit][:, :, 1].max()) if hit.any() else None
+
+
+def _ground_covers_roof(roof, end_xy: XY, dem_z, law, into: "XY | None" = None
+                       ) -> "float | None":
     """The surveyed ground over a portal's ROOF (the highest DEM sample
     over the roof plan, its vertices and an inner point) when it stands at
     least ``[channel] object_min_depth_m`` — the survey's own reading of a
     cut (RULINGS 2026-10-28k (232 a)) — over the ground at its bore end,
-    else ``None``: no cover stands on the roof."""
+    else ``None``: no cover stands on the roof.
+
+    #1689: the ground a portal holds back stands BEHIND its roof, over the
+    bore (``into``: the unit direction into it from the end).  With
+    ``into``, the bore is sampled inward every ``abutment_sample_step_m`` as
+    far as the roof reaches along it plus ``bore_end_tolerance_m``, and the
+    ground at the end is the lowest of the end and the road
+    ``bore_end_tolerance_m`` out of it (a survey cell straddling a mouth
+    blends the cut's two sides).  MEASURED KBNA Murfreesboro east portal (a
+    headwall over a primary road into a 307 m bore under a runway): the DEM
+    over its roof plan reads 175.4, 1.6 m over the end's 173.8; 5 m into
+    the bore 176.3, 5 m out along the road 170.5 -- a 5.8 m cut."""
     if dem_z is None or roof is None or roof.is_empty:
         return None
     end = float(dem_z(end_xy[0], end_xy[1]))
     pts = [roof.representative_point().coords[0]]
     for g in getattr(roof, "geoms", [roof]):
         pts.extend(g.exterior.coords)
+    if into is not None:
+        tol = float(law.tables.structures.tunnel.object.bore_end_tolerance_m)
+        out = float(dem_z(end_xy[0] - into[0] * tol, end_xy[1] - into[1] * tol))
+        end = end if math.isnan(out) else min(end, out)
+        reach = max(0.0, max((x - end_xy[0]) * into[0] + (y - end_xy[1]) * into[1]
+                             for x, y in pts)) + tol
+        step = float(law.tables.structures.bridge.abutment_sample_step_m)
+        n = max(1, int(math.ceil(reach / step)))
+        pts.extend((end_xy[0] + into[0] * reach * k / n, end_xy[1] + into[1] * reach * k / n)
+                   for k in range(1, n + 1))
     zs = [float(dem_z(x, y)) for x, y in pts]
     zs = [z for z in zs if not math.isnan(z)]
     if math.isnan(end) or not zs:
@@ -361,7 +649,7 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
     appended to ``at_grade``.  An object whose walls hang under its zero
     is read by ``airport/footed_portal`` (``roads``: the mapped non-tunnel
     roads a bore end runs on into it)."""
-    from .footed_portal import footed_parts, read_footed_portals
+    from .footed_portal import _road_under, footed_parts, read_footed_portals
     tn = law.tables.structures.tunnel
     tol = float(tn.object.bore_end_tolerance_m)
     ends = _ends(tunnel_ways)
@@ -429,8 +717,17 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
         # 400 m of scattered cabins, boxed both ends of bore -908)
         roof = _fe.enter([plan], _obj8.placement_affine(o.xy, o.heading_deg),
                          _fe.quantum(law))[0]
+        # #1689: a TALL portal (its roof over ``mouth_depth_m``, held to the
+        # survey's cover below) pins the end too where the mapped road
+        # leaving it runs under its roof within the shortest lawful ramp --
+        # the ``footed_portal`` argument: no ramp comes up to grade and goes
+        # down again in that run (KBNA Murfreesboro west portal: roof 6.8 m
+        # up the primary road from its bore's mapped end)
+        tall = depth > tn.mouth_depth_m
+        run = float(tn.mouth_depth_m) / float(tn.ramp_max_grade)
         near = [j for j in near
-                if roof is not None and roof.distance(Point(ends[j][0])) <= tol]
+                if roof is not None and (roof.distance(Point(ends[j][0])) <= tol or (
+                    tall and _road_under(ends[j][0], roof, roads, run)))]
         if not near:
             continue
         if depth < law.tables.structures.bridge.clearance_minimum_m:
@@ -450,7 +747,8 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
             continue
         if depth > tn.mouth_depth_m:
             cover = {j: z for j in near
-                     if (z := _ground_covers_roof(roof, ends[j][0], dem_z, law)) is not None}
+                     if (z := _ground_covers_roof(roof, ends[j][0], dem_z, law,
+                                                  into.get(ends[j]))) is not None}
             near = sorted(cover)
             if not near:
                 refused.append(f"{o.id} {name}: roofed over a bore end, but its roof top "
@@ -458,16 +756,53 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                                f"{tn.mouth_depth_m} and no surveyed ground stands on its "
                                f"roof: a building on the bore, not a portal")
                 continue
+        foot = _solids_plan(o, g, cache.genuine(o.resolved), law)
+        framed: list = []            # #1689 R5 R1: the frame, read once
         for j in near:
             xy, wid = ends[j]
-            width, edges = _roof_opening(roof, xy, into.get((xy, wid)), tol)
+            # an end the road pins up the open road (#1689) opens over the
+            # roof within its own reach of the end, never the whole wall top
+            # the roof is (KBNA west: an 86 m diagonal parapet, 19 m within
+            # the reach)
+            off = roof.distance(Point(xy))
+            local = roof if off <= tol else roof.intersection(Point(xy).buffer(off + tol))
             # a tall portal's floor is the ground ON ITS ROOF less its roof
             # top: the ground at the cap stands inside the surveyed cut
+            floor = (cover[j] - depth) if j in cover else None
+            # #1689 R5 R2: a tall portal's COVER and SOFFIT, read off its frame
+            if floor is not None and not framed:
+                framed.append(_frame(o, objects, cache, foot, law))
+            cov = None if floor is None or framed[0] is None else _covers(framed[0], xy, o, law)
+            # #1689 R5 R4: up the open road the opening is the soffit's
+            width, edges = (_roof_opening(cov[2], xy, into.get((xy, wid)), tol)
+                            if off > tol and cov is not None and cov[2] is not None else
+                            _roof_opening(local, xy, into.get((xy, wid)),
+                                          tol if off <= tol else off + tol))
+            # #1689 R2 A3 / R3: a TALL portal STATES ITS TOP -- its roof plan
+            # at its zero (the floor) plus its FRONT WALL's top (the cover
+            # the survey read on the roof where no wall stands at the end):
+            # the ground round it is graded to it (``planar/entrance_skirt``;
+            # no bottom: the mouth rule is a roofed portal's)
+            front = None if floor is None else _front_wall_top(
+                o, g, cache.genuine(o.resolved), local, law)
+            # #1689 R4: its WINGS standing at that top are part of the top
+            wing = None if front is None else _wing_plan(
+                o, g, roof, local, front, xy, into.get((xy, wid)), law)
+            # #1689 R5 R3: the cover, not the object's own roof, is the top
+            top = roof if cov is None else cov[1]
             out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,
                               (float(o.xy[0]), float(o.xy[1])),
-                              floor_z=(cover[j] - depth) if j in cover else None,
-                              opening_m=width, opening_xy=edges,
-                              zero_z=None if ground is None else zero_of(o, ground.msl)))
+                              floor_z=floor, opening_m=width, opening_xy=edges,
+                              face_plan=(top if wing is None else top.union(wing))
+                              if j in cover else None,
+                              face_top_z=None if floor is None else float(
+                                  cover[j] if front is None else floor + front),
+                              top_plan=roof, footprint=foot,
+                              zero_z=None if ground is None else zero_of(o, ground.msl),
+                              cover_plan=None if cov is None else cov[1],
+                              cover_top_z=None if cov is None else float(floor + cov[0]),
+                              parapet_plan=None if cov is None else _parapet(
+                                  o, framed[0], cov[0], law)))
     out.sort(key=lambda p: (p.end_xy, p.object_id))
     return out, refused
 

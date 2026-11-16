@@ -119,30 +119,69 @@ def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
 
 #: the plate kind of an EDGE BRIDGE's seat (``anchor_rule.datum_of``)
 EDGE_PLATE = "edge"
-def _kept_published(airport, pm=None) -> dict[str, dict]:
+def _kept_published(airport, pm=None, agp_report=None) -> dict[str, dict]:
     """#2065 A3 rule 9: placement id -> ``{"mode": "kept", "route_mids",
-    "graded"}`` of each KEPT stack's deck: the midpoints ``(lat, lon)`` of its
-    two route end lines and of those the pack stage GRADED
-    (``rebake_plan.with_kept`` matches them to the rectangle's ends)."""
+    "graded", "zero"}`` of each KEPT bridge's deck: the midpoints ``(lat,
+    lon)`` of its two route end lines and of those the pack stage GRADED
+    (``rebake_plan.with_kept`` matches them to the rectangle's ends), and the
+    PREDICTED seat the pack stage graded them to (``DeckStack.zero_z``).
+
+    #2090: EVERY deck of ``Airport.kept_bridges`` is published, a deck whose
+    stack was not minted (no GRADED end) or not kept by the planar stage
+    with no route ends, no graded end and no zero: the bridge class is the
+    one place its datum is decided (``with_kept`` clears the graded-face
+    datum the pack stage's predicted seat never read).
+
+    #1718 B3: a deck KEPT BY ITS CROSSING (``model/free_bridge.
+    OVERPASS_PREFIX``) is not published: the overpass plate seats it.
+
+    #2062 R5 E′5: a kept stack OVER A RAMP FLOOR (``DeckStack.over_floor``)
+    publishes both route mids, its rowed ends as ``graded`` and every other
+    land end as ``joined``, and its zero.
+
+    #2090 B6: a deck whose end JOINS an AGP follower's floor publishes the
+    joined ends' midpoints (``"joined"``) and its FINAL zero (the predicted
+    zero plus its group's stage-2 delta, ``constraints/agp_level.stack_zero``
+    — ``agp_report`` the rewrite's report), graded ends or not."""
     from ..model.deck_stack import KEPT, live_stacks
+    from ..model.free_bridge import OVERPASS_PREFIX
+    out: dict[str, dict] = {}
+    for fb in getattr(airport, "kept_bridges", ()) or ():
+        if str(getattr(fb, "id", "")).startswith(OVERPASS_PREFIX):
+            continue
+        for oid in fb.deck_ids():
+            out[str(oid)] = {"mode": "kept", "route_mids": [], "graded": []}
+    # #1718 B3: a deck kept by its crossing is seated by the overpass read
+    # (``OVERPASS_PLATE``), never by a kept record
     stacks = [s for s in live_stacks(getattr(airport, "deck_stacks", ()) or (), pm)
-              if s.kind == KEPT]
+              if s.kind == KEPT and not str(s.bridge).startswith(OVERPASS_PREFIX)]
     if not stacks:
-        return {}
+        return out
     to_ll = airport.frame.transformers()[1]
 
     def mid(line) -> list:
         x = sum(p[0] for p in line) / len(line)
         y = sum(p[1] for p in line) / len(line)
         return [round(v, 9) for v in to_ll(x, y)]
-    out: dict[str, dict] = {}
+    from ..constraints.agp_level import stack_zero
+    groups = tuple(getattr(pm, "agp_groups", ()) or getattr(airport, "agp_groups", ()) or ())
     for st in stacks:
+        # #2062 R5 E′5: a stack OVER A FLOOR publishes its rowed ends as
+        # graded and every other land end as joined: both ends flagged, the
+        # object stage takes the published zero on any mesh
+        over = bool(getattr(st, "over_floor", ()))
+        rowed = st.rowed_ends() if over else st.graded_ends()
         for d in st.decks:
             lines = [ln for ln in (d.end_a, d.end_b) if ln]
-            graded = [mid(e.stations) for e in st.graded_ends() if e.object_id == d.object_id]
-            if len(lines) == 2 and graded:
+            graded = [mid(e.stations) for e in rowed if e.object_id == d.object_id]
+            joined = [mid(e.stations) for e in (st.ends if over else st.joined_ends())
+                      if e.object_id == d.object_id and (not over or e not in rowed)]
+            if len(lines) == 2 and (graded or joined):
                 out[d.object_id] = {"mode": "kept", "route_mids": [mid(ln) for ln in lines],
-                                    "graded": graded}
+                                    "graded": graded,
+                                    "zero": round(stack_zero(st, groups, agp_report), 4)}
+                if joined:
+                    out[d.object_id]["joined"] = joined
     return out
 
 
@@ -345,6 +384,42 @@ def _keep_cut_rings(model_seats: list, floor_seats: _t.Sequence) -> list:
              if str(m["id"]) in rings and not m.get(CUT_RING) else m) for m in model_seats]
 
 
+def _portal_footprints(pm) -> dict[str, _t.Any]:
+    """Portal id -> its OWN FOOTPRINT (frame metres) of every roofed portal
+    seated at its pinned floor (``Tunnel.portal_footprint``, #1689 R2 A2 /
+    R3)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    out: dict[str, _t.Any] = {}
+    for tn in getattr(pm, "structures", ()) or ():
+        rings = getattr(tn, "portal_footprint", ()) or ()
+        polys = [Polygon(r) for r in rings if len(r) >= 3]
+        if tn.portal and polys:
+            out[str(tn.portal)] = unary_union([out[str(tn.portal)], *polys]) \
+                if str(tn.portal) in out else unary_union(polys)
+    return out
+
+
+def _mouth_wings(pm, law, airport, objects, plates, authored, excluded) -> tuple[dict, list]:
+    """#2099 (spec ``docs/specs/2099-mouth-groups.md`` §2): ``(wing plates,
+    wing records)`` -- each mouth group's wings (``airport/mouth_group``) seated
+    by the seat the mouth itself has: its plate (a hard-deck bridge's end
+    lines) or its whole-row record (a portal's floor, an entrance's face).
+    A row any other rule seats is no candidate (one authority per row)."""
+    from ..airport import mouth_group as _mg
+    from ..airport import terrain_shaped as _ts
+    taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
+    groups, notes = _mg.mouth_groups(getattr(airport, "partition", None), objects,
+                                     _mg.mouths_of(pm), _solid_cache(law), law, taken)
+    if groups or notes:
+        for line in _mg.log_lines(str(getattr(airport, "icao", "")), groups, notes):
+            print(line)
+    plated = [g for g in groups if g.mouth.object_id in plates]
+    rowed = [g for g in groups if g.mouth.object_id not in plates]
+    return (_mg.wing_plates(plated, plates),
+            _mg.wing_records(rowed, authored, _ts.PORTAL_SEAT))
+
+
 def _solid_cache(law):
     """A resource cache reading a frame's solids (the split-level reader's)."""
     from ..airport import frame_entry as _fe
@@ -352,7 +427,7 @@ def _solid_cache(law):
     return ResourceCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
 
 
-def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
+def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[str, _t.Any]:
     """THE PLANAR AND SOLVED FACTS the rebake plan reads beyond the pack
     partition — ``tunnel_objects`` (the plate seats) / ``exclude`` /
     ``below_grade`` / ``deck_datum``, the keywords ``rebake_screen.take``
@@ -392,10 +467,14 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
     # at its no-float zero -- no other seat moves a row of it
     from ..airport import ground_shell as _gs
     from ..airport import terrain_model as _tm
+    from ..airport.terrain_fill import posting_shoulder_m
     # issue #2056: airside is king -- a seated ground shell never stands
-    # over the solved airside surface
+    # over the solved airside surface (#2077: nor a fill model's rim)
+    _posting = getattr(airport.dem, "posting_m", None)
     airport = _dc.replace(airport, terrain_models=_gs.airside_capped(
-        getattr(airport, "terrain_models", ()) or (), surf, _to_xy))
+        getattr(airport, "terrain_models", ()) or (), surf, _to_xy,
+        posting_shoulder_m(_posting() if callable(_posting) else None,
+                           float(airport.frame.origin[0]))))
     model_seats = _tm.seat_records(airport)
     # #2062 R2: a storey shell's rigid set is written whole at the
     # building's zero plus each row's lift -- no other seat moves a row of it
@@ -423,13 +502,29 @@ def _rebake_inputs(pm, law, surf, airport, objects=()) -> dict[str, _t.Any]:
                     pm.structures, airport.frame.transformers()[1],
                     zeros=solved_entrance_zeros(pm, law, surf, _to_xy)))
                 + tuple(floor_seats) + tuple(adapted))
+    if objects:
+        # #1689: a roofed portal's frame rides its floor seat
+        ob = law.tables.structures.tunnel.object
+        authored += tuple(_ts.portal_frame_records(
+            authored, objects, float(ob.cover_placement_tol_m), _portal_footprints(pm),
+            _solid_cache(law), float(ob.bore_end_tolerance_m)))
+    plates = _plate_seats(pm, law, seats)
+    if objects:
+        # #2099: a mouth's WINGS ride the mouth's own seat at its floor
+        p_wings, r_wings = _mouth_wings(pm, law, airport, objects, plates, authored,
+                                        excluded | shelled | modelled)
+        plates.update(p_wings)
+        authored += tuple(r_wings)
+    # ... written WHOLE at it, like a floor's frame: a plan split hands the
+    # row to its bodies and drops the seat (``terrain_shaped.row_seats``)
+    excluded |= {str(r["id"]) for r in authored if r.get("seat") == _ts.PORTAL_SEAT}
     from ..model.free_bridge import published as _free_published
     return {
         "free_decks": {**_free_published(getattr(pm, "free_bridges", ()) or (),
                                          airport.frame.transformers()[1],
                                          float(law.tables.structures.bridge.free_end_ground_out_m)),
-                       **_kept_published(airport, pm)},
-        "tunnel_objects": _plate_seats(pm, law, seats),
+                       **_kept_published(airport, pm, agp_report)},
+        "tunnel_objects": plates,
         # one authority per row (``terrain_shaped.row_seats``): a storey
         # shell's row takes its shell's seat alone
         "authored_seats": (tuple(r for r in authored if str(r.get("id")) not in shelled)

@@ -19,6 +19,7 @@ the old ``gui`` attribute when no session exists.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import threading
 import time
@@ -44,6 +45,7 @@ from .events import (
     EngineEvent, EngineHello,
     ImageryDownloadsDone,
     Log,
+    MemoryWait,
     PackMissingArt,
     PackOldForests,
     PackOptimise,
@@ -193,7 +195,10 @@ def _offer_gateway_airports(lat: int, lon: int) -> None:
 
 
 SCAN_FLUSH_SECONDS = 0.1     # scan streaming cadence (~10 Hz)
-ETA_EMIT_SECONDS = 1.0       # RunEta cadence
+# RunEta / TileClocks / clock-step progress cadence: twice a second, so
+# the apps' clocks and bars move between step events (owner 2026-11-16);
+# the Qt window's clock timer and the parallel ticker read it too.
+ETA_EMIT_SECONDS = 0.5
 RATE_MIN_SPAN_SECONDS = 3.0  # need this much window before trusting a rate
 RATE_MIN_GAIN_PERCENT = 0.5  # ...and this much percent gained inside it
 
@@ -891,7 +896,8 @@ class EngineSession:
             self._seq += 1
             object.__setattr__(event, "seq", self._seq)
             object.__setattr__(event, "ts", time.time())
-            if (isinstance(event, (TileState, StepProgress, SlowStep))
+            if (isinstance(event, (TileState, StepProgress, SlowStep,
+                                   MemoryWait))
                     and not event.attempt):
                 object.__setattr__(event, "attempt", self._tile_attempts.get(
                     (int(event.lat), int(event.lon)), 0))
@@ -1539,7 +1545,7 @@ class EngineSession:
         self._start_eta_heartbeat()
 
     def _start_eta_heartbeat(self):
-        """Emit RunEta at ~1 Hz for as long as a run is live.
+        """Emit RunEta at ``ETA_EMIT_SECONDS`` for as long as a run is live.
 
         The other _emit_eta call sites are all event-driven (bar
         percent, auto-patch rows) — which goes silent exactly when a
@@ -1871,6 +1877,8 @@ class EngineSession:
                         degraded=FAIL.from_degraded(
                             UNPATCHED.read_degraded(tile)
                             + _mesh_order_rows(lat, lon, tile)))
+                    if not self._stepwise_run:      # a child: its parent
+                        built = self.with_paid_rebuilds(built)
                     self._emit(TileState(
                         lat=lat, lon=lon, state="done", percent=100.0,
                         label=(BUILT_WITH_WARNINGS
@@ -1959,6 +1967,7 @@ class EngineSession:
         done, errors = last_outcome_counts(last_ok)
         self._emit(RunDone(done_count=done, error_count=errors,
                            cancelled=cancelled))
+        self._announce_rebuild_pending(cancelled)
 
     # ------------------------------------------------------------------
     # Whole-tile percent/label state machine (moved from the Qt view)
@@ -2348,21 +2357,64 @@ class EngineSession:
         self._emit_known(PackAdjust, fields)
 
     def pack_adjust(self, pack_root="", action="", lat=None, lon=None,
-                    items=None, shown=None):
+                    items=None, shown=None, steps=None):
         """THE USER'S ANSWER (capability ``pack_adjust``, #1916):
         ``action`` is ``"update"`` (the rows of ``items`` applied, the rows
         of ``shown`` left unticked remembered as never), ``"never"``,
-        ``"undo"`` or ``"ask"`` (the report: the rows that apply now).
-        Replies ``{"status": "started"}`` at once and completes with a
-        ``PackAdjust`` event (``adjust_stage.adjust_choice``)."""
+        ``"undo"``, ``"ask"`` (the report: the rows that apply now), or
+        (capability ``pack_adjust_edit``, the pack row's Adjust…)
+        ``"adjust"`` (every row and Optimise step as the pack is now) and
+        ``"change"`` (only the rows of ``shown`` and the ``steps`` whose
+        tick differs are written).  Replies ``{"status": "started"}`` at
+        once and completes with a ``PackAdjust`` event
+        (``adjust_stage.adjust_choice``)."""
         from auto_patch import adjust_stage as _AS
         picked = None if items is None else [str(x) for x in items]
         seen = None if shown is None else [str(x) for x in shown]
-        return self._pack_choice_worker(
-            "o4-pack-adjust",
-            lambda r, a, la, lo: _AS.adjust_choice(r, a, la, lo, items=picked,
-                                                   shown=seen),
-            pack_root, action, lat, lon)
+        chosen = None if steps is None else [str(x) for x in steps]
+
+        def answer(r, a, la, lo):
+            # an answer the tile's mesh reads is a rebuild the tile owes
+            # until a build runs its vector step on it (tile_rebuild_pending)
+            from auto_patch import adjust_edit as _AE
+
+            from . import tile_rebuild_pending as _TRP
+            was = _AE.tile_state(r)
+            out = _AS.adjust_choice(r, a, la, lo, items=picked, shown=seen,
+                                    steps=chosen) or {}
+            if out.get("rebuild") and la is not None and lo is not None:
+                _TRP.mark(la, lo, r, out.get("pack", ""), was,
+                          _AE.tile_state(r))
+            return out
+
+        return self._pack_choice_worker("o4-pack-adjust", answer,
+                                        pack_root, action, lat, lon)
+
+    def with_paid_rebuilds(self, built):
+        """A built tile's ``BuildDone`` with a note per pack answer the
+        build caught the tile up with (``tile_rebuild_pending.resolve``:
+        "Tile X was built to match: terrain objects hidden in …")."""
+        import types
+
+        from . import tile_rebuild_pending as _TRP
+        lat, lon = int(built.lat), int(built.lon)
+        paid = _TRP.resolve(types.SimpleNamespace(
+            lat=lat, lon=lon, build_dir=self.tile_build_dir(lat, lon)))
+        if not paid:
+            return built
+        return dataclasses.replace(
+            built, notes=list(built.notes) + [_TRP.note(r) for r in paid])
+
+    def _announce_rebuild_pending(self, cancelled):
+        """After a run that was not cancelled: the tiles a pack answer
+        still owes a rebuild (``PackAdjust(state="pending")``, one item
+        per tile and pack); both apps rebuild them."""
+        if cancelled:
+            return
+        from . import tile_rebuild_pending as _TRP
+        fields = _TRP.announcement()
+        if fields:
+            self._emit_known(PackAdjust, fields)
 
     def gateway_airports_event(self, **fields):
         """Gateway airports to offer, or an answer's outcome (#1989): the

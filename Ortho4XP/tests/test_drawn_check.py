@@ -565,3 +565,84 @@ def test_predict_reads_the_same_rows_as_the_drawn_mesh(tmp_path):
 def types_dump(drawn):
     import types
     return types.SimpleNamespace(placements=drawn.rows)
+
+
+# ── #1689 A7: the mouth on its ramp's edge; the portal seat ─────────────
+
+def _box_obj(y0, y1):
+    return "I\n800\nOBJ\n\nPOINT_COUNTS 4 0 0 0\n" + "".join(
+        f"VT {x} {y} {z} 0 1 0 0 0\n" for x, y, z in ((-2, y0, -2), (2, y0, -2), (2, y1, 2),
+                                                    (-2, y1, 2)))
+
+
+def test_a_mouth_floor_reads_the_nearest_ramp_edge_not_a_far_node(tmp_path):
+    """KBNA P1: a 40 m wide ramp's nodes stand ~19 m from the mouth on its
+    edge; the floor is the patch z ON the edge, never the mesh."""
+    m = 111320.0
+    dlat = 20.0 / m
+    nodes = [(-1, LAT - dlat, LON, 95.0), (-2, LAT + dlat, LON, 97.0),
+             (-3, LAT + dlat, LON + 0.001, 99.0), (-4, LAT - dlat, LON + 0.001, 99.0)]
+    patch = tmp_path / "X_auto.patch.osm"
+    patch.write_text(
+        "<osm>" + "".join(
+            f"<node id='{i}' lat='{la}' lon='{lo}'><tag k='alt_abs' v='{z}'/></node>"
+            for i, la, lo, z in nodes)
+        + "<way id='-9'>" + "".join(f"<nd ref='{i}'/>" for i in (-1, -2, -3, -4, -1))
+        + "<tag k='role' v='tunnel_ramp'/></way></osm>", encoding="utf-8", newline="\n")
+    sidecar = {"tunnel_mouth_depths": [{"id": "tunnel:-9@0", "mouth_ll": [LAT, LON - 0.16 / (
+        m * 0.7)], "depth_m": 5.0}]}
+    mouth = [s for s in DC.read_sites(str(patch), sidecar, 15.0) if s.kind == "mouth"][0]
+    assert mouth.floor == pytest.approx(96.0, abs=0.01)
+    far = {"tunnel_mouth_depths": [{"id": "t", "mouth_ll": [LAT, LON - 0.01], "depth_m": 5.0}]}
+    import math as _m
+    assert _m.isnan([s for s in DC.read_sites(str(patch), far, 15.0) if s.kind == "mouth"][0]
+                    .floor)
+
+
+def _seat_world(tmp_path, portal_elev, feet_y0):
+    root = tmp_path / "pack"
+    (root / "objects").mkdir(parents=True)
+    # the portal row: a LINTEL over the opening, no solid under y 3
+    (root / "objects" / "lintel.obj").write_text(_box_obj(3, 6), encoding="utf-8", newline="\n")
+    (root / "objects" / "feet.obj").write_text(_box_obj(feet_y0, 6), encoding="utf-8", newline="\n")
+    dump = tmp_path / "pack.txt"
+    dump.write_text(
+        "OBJECT_DEF objects/lintel.obj\nOBJECT_DEF objects/feet.obj\n"
+        f"OBJECT_MSL 0 {LON} {LAT} {portal_elev} 90.0\n"
+        f"OBJECT_MSL 1 {LON} {LAT} {portal_elev} 90.0\n", encoding="utf-8", newline="\n")
+    patch = tmp_path / "X_auto.patch.osm"
+    patch.write_text(
+        f"<osm><node id='-1' lat='{LAT}' lon='{LON}'><tag k='alt_abs' v='95.0'/></node>"
+        f"<node id='-2' lat='{LAT + 0.0002}' lon='{LON}'><tag k='alt_abs' v='98.0'/></node>"
+        "<way id='-9'><nd ref='-1'/><nd ref='-2'/><tag k='role' v='tunnel_ramp'/></way></osm>",
+        encoding="utf-8", newline="\n")
+    sidecar = {"portal_cuts": [{"id": "tunnel:-9@0", "portal": "dsf:obj0"}],
+               "tunnel_mouth_depths": [{"id": "tunnel:-9@0", "mouth_ll": [LAT, LON],
+                                        "depth_m": 5.0}]}
+    rebake = {"authored_seats": [
+        {"id": "dsf:obj0", "seat": "portal floor", "elevation": portal_elev},
+        {"id": "dsf:obj1", "seat": "portal floor", "elevation": portal_elev,
+         "led_by": "dsf:obj0"}]}
+    written = dsf_text.read_dump(str(dump), accept_polygon=lambda _p: False)
+    mesh = DC.drawn_mesh([iter(MESH_TEXT.splitlines(True))], (10.49, 45.49, 10.51, 45.51))
+    seats = DC.portal_seats(rebake)
+    assert seats == {"dsf:obj0": ("dsf:obj1",)}
+    claims = DC.read_claims(sidecar, "+45+010", {"+45+010": {}}, {"+45+010": written}, seats)
+    drawn = DC.Drawn(written.placements, str(root), mesh)
+    zero = DM.written_zeros(drawn, {"+45+010": written}, "+45+010", DC.stem)
+    return [DC.check_site(s, drawn, claims, 15.0, 0.3, {}, zero)
+            for s in DC.read_sites(str(patch), sidecar, 15.0)]
+
+
+def test_a_portal_seat_is_judged_zero_to_floor_never_by_a_lintel(tmp_path):
+    """KBNA P2: the portal row is a lintel (no solid under y 3); its led
+    frame's feet stand on the floor.  The seat passes on its zero; the old
+    CUT bar read the lintel 3 m over the floor."""
+    rows = _seat_world(tmp_path, 95.0, 0.0)
+    assert all(r["role"] == "SEAT" and r["verdict"] == "PASS" for r in rows), rows
+    # a zero off the floor fails, and so does a frame floating over it
+    rows = _seat_world(tmp_path / "b", 96.0, 0.0)
+    assert any("zero +1.00 off the floor" in f for f in rows[0]["fails"])
+    rows = _seat_world(tmp_path / "c", 95.0, 2.0)
+    assert any("frame floats +2.00" in f for f in rows[0]["fails"])
+    assert not any("zero" in f for f in rows[0]["fails"])

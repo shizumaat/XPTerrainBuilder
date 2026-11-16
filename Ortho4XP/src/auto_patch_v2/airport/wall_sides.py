@@ -90,6 +90,11 @@ class WallSides:
     #: who witnessed the low side's ground (``WallComponent.low_side_source``):
     #: ``"sheets"`` when the pack's own sheets name the wall's foot (#1952)
     low_side: str = ""
+    #: #2099 F2 P4c: a re-seated wall's RETAINED ground -- its upper face's
+    #: band out to its reach (``model/wall_reach.wall_reach_m``), less its
+    #: lower band: what ``planar/wall_slope`` grades to its top; ``None``
+    #: for every other wall (the slope reads :attr:`upper`)
+    retained: _t.Any = None
 
     def side_of(self, xy) -> str | None:
         """``"upper"`` / ``"lower"`` for a point in one of the bands, else
@@ -213,10 +218,15 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
                 foot = _foot_retaining(foot if sheets else
                                        _foot_on_ground(dem, lf, foot, smear),
                                        lf, uf, raw, clear)
+            kept = None
+            if getattr(w, "reseated", False):
+                from ..model.wall_reach import wall_reach_m
+                kept = _face_band(uf, g, wall_reach_m(h)).difference(lo)
             out.append(WallSides(g, h, smear, up, lo, w.top_y, w.resource,
                                  None if core.is_empty else core,
                                  uf, top, lf, foot,
-                                 str(getattr(w, "low_side_source", "") or "")))
+                                 str(getattr(w, "low_side_source", "") or ""),
+                                 None if kept is None or kept.is_empty else kept))
     return tuple(out)
 
 

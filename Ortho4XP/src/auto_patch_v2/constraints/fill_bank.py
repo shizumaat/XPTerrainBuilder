@@ -27,13 +27,15 @@ from __future__ import annotations
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Pin, Row, Source
-from ..model.planar import PlanarMap, is_fill_bank_ref, is_stack_ground_ref
+from ..model.planar import PlanarMap, is_agp_bank_ref, is_fill_bank_ref, is_stack_ground_ref
 
 __all__ = ["fill_toe_pins", "GEN", "RULING", "STACK_RULING"]
 
 GEN = "fill_toe_pins"
 RULING = "zones.adjacent_ground old-DEM fill toe"
 STACK_RULING = "RULINGS 2026-11-13g / 2026-11-11b: a deck stack's ground meets the lidar at its toe"
+#: #2090 C3: an AGP plate's bank meets the lidar at its toe
+AGP_RULING = "#2090 C3: an AGP plate's bank meets the lidar at its toe"
 
 
 def _stack_toe(planar: PlanarMap, law: Law, airport: Airport):
@@ -56,12 +58,28 @@ def _stack_toe(planar: PlanarMap, law: Law, airport: Airport):
     return lambda xy: bool(shapely.contains_xy(toe, xy[0], xy[1]))
 
 
+def _agp_toe(planar: PlanarMap, law: Law, airport: Airport):
+    """``xy -> bool``: off every built AGP plate by more than the identity
+    grid (a bank vertex on the plate's own edge is no toe)."""
+    import shapely
+
+    from ..geom.agp_plate import built_plates
+    plates = built_plates(getattr(planar, "agp_groups", ()) or getattr(airport, "agp_groups", ()))
+    if not plates:
+        return lambda _xy: False
+    grid = float(law.tables.emit.identity.min_distinct_spacing_m)
+    near = shapely.union_all([poly for _g, _p, poly in plates]).buffer(2.0 * grid)
+    shapely.prepare(near)
+    return lambda xy: not bool(shapely.contains_xy(near, xy[0], xy[1]))
+
+
 def fill_toe_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """One hard pin per open-edge vertex of a bank family's toe (docstring)."""
     rows: list[Row] = []
     seen: set[int] = set()
     for is_ref, ruling, toe in ((is_fill_bank_ref, RULING, None),
-                                (is_stack_ground_ref, STACK_RULING, _stack_toe)):
+                                (is_stack_ground_ref, STACK_RULING, _stack_toe),
+                                (is_agp_bank_ref, AGP_RULING, _agp_toe)):
         bank = {f.id for f in planar.faces.values() if is_ref(f.ref)}
         if not bank:
             continue

@@ -87,6 +87,8 @@ Tile = Tuple[int, int]
 #: World-pack kinds that are a built tile (``O4_World_Pack.KINDS`` less
 #: the placeholder).
 BUILT_KINDS = frozenset({"full", "drape"})
+#: ``world_tiles``' word for a tile turned off (``O4_World_Pack_Off.OFF``).
+OFF_KIND = "off"
 #: Roles built ``full`` (graded airports, the user's settings).
 FULL_ROLES = ("departure", "destination", "alternate")
 #: Roles that ask before flying an adopted mesh (#2025).
@@ -145,7 +147,11 @@ def _job_for(role: str, have: Optional[str], intermediate: str,
     ``stale`` (``flight_job_run.STALE``): a built tile a pack's package
     changed for — a departure or destination builds again.  ``choice``
     (``flight_adopted``): an endpoint's adopted mesh waits for the pilot
-    (``ask``), stays (``keep``) or is built again (``upgrade``)."""
+    (``ask``), stays (``keep``) or is built again (``upgrade``).  A tile
+    the user turned XPTerrainBuilder off on (``off``, #2100) is always
+    X-Plane's own."""
+    if have == OFF_KIND:
+        return None
     if have == "full" and choice == ADOPTED.ASK:
         return "full", CHOICE_STATE
     if have == "full" and choice == ADOPTED.UPGRADE:
@@ -343,9 +349,14 @@ class FlightManager:
         """``flight_choose`` (#2025): the pilot's answer for an adopted
         departure or destination, remembered for the tile; the jobs are
         planned again (``keep``: ready as it is; ``upgrade``: a ``full``
-        build at the job's class)."""
+        build at the job's class; ``ask``: the answer forgotten and asked
+        again, #2095 -- not while its upgrade is building or staged)."""
         tile = (int(tile[0]), int(tile[1]))
         job = self._job(tile)
+        if choice == ADOPTED.ASK and job and job.state in ("building",
+                                                          "staged"):
+            raise ValueError("The upgrade is under way; it cannot be "
+                             "changed until it is done.")
         self.endpoints.remember(tile, job.role if job else "", choice)
         self.record.notes.append({"adopted_choice": choice,
                                   "tile": WP.tile_name(*tile),

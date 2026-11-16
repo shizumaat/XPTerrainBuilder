@@ -9,6 +9,7 @@ its ``.ter`` and textures in per-tile subfolders::
     <pack>/Earth nav data/+50-070/+53-063.dsf
     <pack>/terrain/+53-063/<name>.ter        (textures as ../../textures/+53-063/)
     <pack>/textures/+53-063/<name>.dds|png
+    <pack>/textures/_shared/<name>.dds       (one per pack, :data:`SHARED_DIR`)
 
 Building a tile later replaces its placeholder DSF in one rename
 (:func:`swap_in`); X-Plane opens it when the tile's column loads, with no
@@ -55,7 +56,7 @@ import O4_World_Imagery_Record as IREC
 
 __all__ = [
     "PACK_NAME", "MARKER", "PLACEHOLDER_AGENT", "KINDS", "PLACEHOLDER_MAX_BYTES",
-    "STAGING_DIR", "tile_name", "parse_tile",
+    "STAGING_DIR", "SHARED_DIR", "share_file", "tile_name", "parse_tile",
     "dsf_relpath", "placeholder_text", "write_placeholder",
     "write_placeholders", "is_placeholder", "kind_of", "kind_of_agent",
     "pack_dsfs", "pack_dsf_keys",
@@ -79,6 +80,11 @@ KINDS = ("placeholder", "drape", "full")
 PLACEHOLDER_MAX_BYTES = 4096
 #: Staged tiles, under the data folder (never inside Custom Scenery).
 STAGING_DIR = "World_staging"
+#: Textures many tiles name (X-Plane's own cliff textures, #2096) live ONCE
+#: per pack in ``textures/<SHARED_DIR>/`` -- a link to their source where
+#: the system makes one (:func:`share_file`), never a copy per tile.  Not a
+#: tile name, so no per-tile reader takes it for one.
+SHARED_DIR = "_shared"
 _KIND_RE = re.compile(r"world (placeholder|drape|full)\b")
 _STAMP_RE = re.compile(r"\s*\[world \w+\]$")
 
@@ -274,14 +280,30 @@ def holds_tile(scenery_dir: str, lat: int, lon: int) -> bool:
 
 def world_tiles(pack: str) -> dict:
     """``{(lat, lon): kind}`` of every DSF in ``pack`` (:func:`kind_of`;
-    placeholders by size and head only)."""
+    placeholders by size and head only); a tile the user turned off
+    (#2100, ``O4_World_Pack_Off``) reads ``off`` whatever its DSF is."""
     out = {}
     for key, path, size in pack_dsfs(pack):
         if is_placeholder(path, size):
             out[key] = "placeholder"
         else:
             out[key] = kind_of(path) or "full"
+    try:
+        import O4_World_Pack_Off as OFF
+    except ImportError:                     # a kit copy without it
+        return out
+    out.update({key: OFF.OFF for key in OFF.off_tiles(pack) if key in out})
     return out
+
+
+def _kept_home(pack: str, lat: int, lon: int) -> str:
+    """The kept folder a build of a tile turned off goes into (#2100), or
+    ``""`` (also in a kit copy without ``O4_World_Pack_Off``)."""
+    try:
+        import O4_World_Pack_Off as OFF
+    except ImportError:
+        return ""
+    return OFF.kept_home(pack, lat, lon)
 
 
 def block_tiles(lat: int, lon: int, radius: int,
@@ -292,14 +314,59 @@ def block_tiles(lat: int, lon: int, radius: int,
             if (la, lo) not in set(skip)]
 
 
-_TER_TEX = re.compile(r"(?<![\w/.])\.\./textures/")
+_TER_TEX = re.compile(r"(?<![\w/.])\.\./textures/(?!%s/)" % SHARED_DIR)
+_TER_SHARED = re.compile(r"(?<![\w/.])\.\./textures/%s/" % SHARED_DIR)
 
 
 def rewrite_ter(text: str, tile: str) -> tuple[str, int]:
     """A ``.ter`` moved from ``terrain/`` to ``terrain/<tile>/``: every
-    ``../textures/X`` becomes ``../../textures/<tile>/X``.  Returns the text
-    and the number of references rewritten."""
-    return _TER_TEX.subn(f"../../textures/{tile}/", text)
+    ``../textures/X`` becomes ``../../textures/<tile>/X``, and a shared
+    ``../textures/_shared/X`` becomes ``../../textures/_shared/X`` (the
+    pack's one copy).  Returns the text and the number of references
+    rewritten."""
+    text, n = _TER_TEX.subn(f"../../textures/{tile}/", text)
+    text, m = _TER_SHARED.subn(f"../../textures/{SHARED_DIR}/", text)
+    return text, n + m
+
+
+def share_file(src: str, dest: str, symlink: bool = False) -> str:
+    """Put the texture ``src`` at ``dest`` (a pack's ``textures/_shared/``)
+    unless a file is already there, without duplicating its bytes where
+    the system allows: a symbolic link to the file ``src`` resolves to
+    when ``symlink`` is asked or ``src`` is itself a link (a source outside
+    the pack: the user's X-Plane install), else a hard link (Windows
+    without Developer Mode, which needs no privilege on one volume), else
+    one copy.  Returns ``present``, ``symlink``, ``hardlink`` or
+    ``copy``."""
+    if os.path.isfile(dest):
+        return "present"
+    if os.path.islink(dest):        # dangling: its source has gone
+        os.remove(dest)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    target = os.path.realpath(src)
+    if symlink or os.path.islink(src):
+        try:
+            os.symlink(target, dest)
+            return "symlink"
+        except (OSError, NotImplementedError):
+            pass
+    try:
+        os.link(target, dest)
+        return "hardlink"
+    except OSError:
+        shutil.copyfile(target, dest)
+        return "copy"
+
+
+def _share_folder(src_root: str, dest_root: str) -> int:
+    """:func:`share_file` every file of ``<src_root>/textures/_shared`` into
+    ``dest_root``'s; the number of files placed or already there."""
+    folder = os.path.join(src_root, "textures", SHARED_DIR)
+    names = sorted(os.listdir(folder)) if os.path.isdir(folder) else ()
+    for name in names:
+        share_file(os.path.join(folder, name),
+                   os.path.join(dest_root, "textures", SHARED_DIR, name))
+    return len(names)
 
 
 _DEF_PATH = re.compile(r"^((?:TERRAIN|OBJECT|POLYGON|NETWORK)_DEF\s+)(\S+)",
@@ -344,10 +411,11 @@ def relayout_tile(tile_dir: str, out_dir: str, lat: int, lon: int,
                   kind: str = "full") -> dict:
     """Lay a built tile folder out as World-pack files in ``out_dir`` (a
     staging folder with the pack's own shape).  Textures are hard-linked
-    (copied across volumes); ``.ter`` references are rewritten; the DSF's
-    definitions are given the tile subfolder and its agent the ``kind``
-    stamp by a binary rewrite (a 7z DSF is read decompressed).  Returns
-    counts.  ``out_dir`` must not exist yet."""
+    (copied across volumes), shared ones placed by :func:`share_file`;
+    ``.ter`` references are rewritten; the DSF's definitions are given
+    the tile subfolder and its agent the ``kind`` stamp by a binary
+    rewrite (a 7z DSF is read decompressed).  Returns counts.  ``out_dir``
+    must not exist yet."""
     import O4_DSF_Header as DSFH
     tile = tile_name(lat, lon)
     if os.path.exists(out_dir):
@@ -360,7 +428,8 @@ def relayout_tile(tile_dir: str, out_dir: str, lat: int, lon: int,
     tex_out = os.path.join(out_dir, "textures", tile)
     os.makedirs(ter_out)
     os.makedirs(tex_out)
-    counts = {"ter": 0, "ter_refs": 0, "textures": 0, "dsf_defs": 0}
+    counts = {"ter": 0, "ter_refs": 0, "textures": 0, "dsf_defs": 0,
+              "shared": _share_folder(tile_dir, out_dir)}
     ter_in = os.path.join(tile_dir, "terrain")
     for name in sorted(os.listdir(ter_in) if os.path.isdir(ter_in) else ()):
         if not name.endswith(".ter"):
@@ -445,7 +514,8 @@ def verify_tile(root: str, lat: int, lon: int) -> dict:
             if "/" not in ref:
                 continue
             out["tex_refs"] += 1
-            if not ref.startswith(f"../../textures/{tile}/"):
+            if not ref.startswith((f"../../textures/{tile}/",
+                                   f"../../textures/{SHARED_DIR}/")):
                 out["problems"].append(f"{os.path.basename(ter)}: {ref}")
             elif not os.path.isfile(os.path.normpath(
                     os.path.join(os.path.dirname(ter), ref))):
@@ -500,10 +570,18 @@ def swap_in(pack: str, staged: str, lat: int, lon: int,
     The folders are renamed in whole (rule S5 allows that for a tile X-Plane
     has not loaded only); ``merge`` replaces file by file instead and keeps
     every old name (:func:`_merge_in`, for a loaded tile just before a
-    reload)."""
+    reload).
+
+    A tile the user turned off (#2100) goes into its kept folder instead,
+    which X-Plane never reads (``kept`` true in the reply): it is never
+    published behind the user's back, and turning it on shows it."""
+    kept = _kept_home(pack, lat, lon)
+    if kept:
+        return {**swap_in(kept, staged, lat, lon), "kept": True, "stale": []}
     if merge:
         return _merge_in(pack, staged, lat, lon)
     tile = tile_name(lat, lon)
+    _share_folder(staged, pack)
     for sub in ("terrain", "textures"):
         _place_dir(os.path.join(staged, sub, tile),
                    os.path.join(pack, sub, tile))
@@ -530,6 +608,7 @@ def _merge_in(pack: str, staged: str, lat: int, lon: int) -> dict:
     DSF.  ``{"tile", "dsf", "was_placeholder", "stale"}``."""
     tile = tile_name(lat, lon)
     stale = []
+    _share_folder(staged, pack)
     for sub in ("terrain", "textures"):
         src = os.path.join(staged, sub, tile)
         dest = os.path.join(pack, sub, tile)
@@ -633,8 +712,10 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
     S1-S4).  Nothing in the pack changes unless the staged tile verifies
     (S1); a tile ``loaded(lat, lon)`` says X-Plane may hold stays staged
     (S3/S4) for :func:`swap_staged` (:func:`held_by_xplane` lets a tile
-    with :func:`nothing_held` through).  Returns ``{"tile", "state"
-    ("swapped" | "staged" | "failed"), "problems", "counts"}``."""
+    with :func:`nothing_held` through).  A tile the user turned off goes
+    into its kept folder (``state`` ``kept``, #2100).  Returns ``{"tile",
+    "state" ("swapped" | "staged" | "kept" | "failed"), "problems",
+    "counts"}``."""
     tile = tile_name(lat, lon)
     try:
         done = _stage_tile(build_dir, staging_root, lat, lon, kind)
@@ -645,6 +726,9 @@ def publish(pack: str, build_dir: str, lat: int, lon: int, *,
     if done["problems"]:
         shutil.rmtree(done["staged"], ignore_errors=True)
         return {**out, "state": "failed"}
+    if _kept_home(pack, lat, lon):
+        _swap_staged_tile(pack, done["staged"], lat, lon)
+        return {**out, "state": "kept"}
     if loaded(lat, lon):
         return {**out, "state": "staged"}
     _swap_staged_tile(pack, done["staged"], lat, lon)
@@ -655,7 +739,8 @@ def swap_staged(pack: str, staging_root: str,
                 loaded: Callable[[int, int], bool] = lambda lat, lon: False,
                 only: "tuple[int, int] | None" = None) -> list:
     """Swap in every staged tile ``loaded`` now allows, or tile ``only``
-    alone; the tile names swapped."""
+    alone; the tile names swapped.  A staged tile the user turned off
+    goes into its kept folder at once and is not named (#2100)."""
     done = []
     try:
         names = sorted(os.listdir(staging_root))
@@ -669,8 +754,11 @@ def swap_staged(pack: str, staging_root: str,
         if only is not None and (lat, lon) != tuple(only):
             continue
         staged = os.path.join(staging_root, name)
-        if (os.path.isfile(os.path.join(staged, dsf_relpath(lat, lon)))
-                and not loaded(lat, lon)):
+        if not os.path.isfile(os.path.join(staged, dsf_relpath(lat, lon))):
+            continue
+        if _kept_home(pack, lat, lon):
+            _swap_staged_tile(pack, staged, lat, lon)
+        elif not loaded(lat, lon):
             _swap_staged_tile(pack, staged, lat, lon)
             done.append(name)
     return done

@@ -289,3 +289,35 @@ def test_show_in_finder_reveals_the_world_dsf_of_a_records_only_tile(tmp_path):
                                  {(51, 22): world}) == [QTLEGEND.STALE]
     swift = SWIFT_TEXT.read_text(encoding="utf-8", newline="\n")
     assert "func revealDSF(_ info: O4TileInfo?)" in swift and "entry[7]" in swift
+
+
+def test_a_full_tile_reads_its_mesh_whatever_drape_record_is_left(world):
+    """#2105: a full build swapped over a drape kept the drape's record
+    (``kind: drape``, provider BI) beside a USA2 mesh.  The tile is its
+    DSF's kind -- never the record's -- and its provider is its own
+    textures', not the replaced drape's; a full swap removes the record."""
+    import O4_World_Imagery_Record as IREC
+    scenery, index = world
+    pack = os.path.join(scenery, WP.PACK_NAME)
+    os.makedirs(os.path.join(pack, IREC.RECORD_DIR))
+    for key in ((10, 10), (10, 18)):
+        with open(IREC.record_path(pack, *key), "w", encoding="utf-8",
+                  newline="\n") as handle:
+            json.dump({"provider": "GO2", "zl": 16, "kind": "drape"}, handle)
+    got = WS.read_world(scenery, index_path=index)
+    assert (got[(10, 10)].state, got[(10, 10)].provider) == ("full", "BI")
+    assert (got[(10, 18)].state, got[(10, 18)].provider) == ("mesh_lowres", "")
+    assert WS.read_tile(scenery, (10, 10)).state == "full"
+    # a drape's own record is still read
+    with open(IREC.record_path(pack, 10, 14), "w", encoding="utf-8",
+              newline="\n") as handle:
+        json.dump({"provider": "GO2", "zl": 16, "kind": "drape"}, handle)
+    assert WS.read_world(scenery, index_path=index)[(10, 14)].provider == "GO2"
+    # the swap of a staged full tile (no staged record) removes the old one
+    staged = os.path.join(os.path.dirname(scenery), "staged")
+    os.makedirs(staged)
+    assert IREC.carry(staged, pack, 10, 10) is False
+    assert not os.path.exists(IREC.record_path(pack, 10, 10))
+    IREC.write_staged(staged, {"provider": "FRorth", "zl": 17, "kind": "drape"})
+    assert IREC.carry(staged, pack, 10, 10) is True
+    assert IREC.read(pack, 10, 10, kind="drape")["provider"] == "FRorth"

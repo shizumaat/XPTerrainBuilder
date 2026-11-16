@@ -179,12 +179,13 @@ def _lowered_text(text: str, drop_m: float, resource: str) -> str:
     return eol.join(out) + eol
 
 
-def _variant_resource(resource: str, text: str, drop_m: float) -> str:
-    """``<dir>/<stem>__g_<hash>.fac`` beside the original: one name per
+def _variant_resource(resource: str, text: str, drop_m: float,
+                      ext: str = ".fac") -> str:
+    """``<dir>/<stem>__g_<hash><ext>`` beside the original: one name per
     (file, drop), so polygons asking the same drop share one copy."""
     stem, _ext = os.path.splitext(resource.replace("\\", "/"))
     h = hashlib.sha256(f"{text}\0{drop_m:.2f}".encode("utf-8", "surrogateescape"))
-    return f"{stem}__g_{h.hexdigest()[:8]}.fac"
+    return f"{stem}__g_{h.hexdigest()[:8]}{ext}"
 
 
 # ── one placed polygon ───────────────────────────────────────────────────

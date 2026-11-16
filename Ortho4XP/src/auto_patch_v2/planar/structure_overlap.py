@@ -111,7 +111,7 @@ def _run_pair(ti, tj, paved=None) -> "tuple[_Run, _Run] | None":
     return _Run(tj.id, u, off, mi), _Run(ti.id, u, off, mj)
 
 
-def deck_partner(db, axis: LineString, decks: _t.Sequence, paved=None):
+def deck_partner(db, axis: LineString, decks: _t.Sequence, paved=None, width: float = 0.0):
     """The hard-deck bridge ``db``'s corridor RUNS THROUGH to (module doc):
     the next deck ``axis`` (from ``db``'s midline outward) runs into beyond
     ``db``'s own ring, the open stretch between them clear of airside
@@ -119,7 +119,10 @@ def deck_partner(db, axis: LineString, decks: _t.Sequence, paved=None):
     stand before either is built, so their pair is read off the rings —
     the same run, the same pavement test as :func:`_run_pair`'s (owner
     RULINGS 2026-10-29 Q271 b; kiahdeck: two taxiway bridges 49 m apart with
-    taxiway pavement between them are each their own cut)."""
+    taxiway pavement between them are each their own cut).  ``width``: the
+    corridor AS BUILT either side of the axis (#2099 R3 B1: half + rim
+    stand-off + gap; ``paved`` the airside cut roles the clip loop stops on)
+    -- an apron touching the corridor but not its centre line parts them."""
     s_own = max((axis.project(Point(q)) for q in db.ring), default=0.0)
     best = None
     for o in decks:
@@ -131,19 +134,20 @@ def deck_partner(db, axis: LineString, decks: _t.Sequence, paved=None):
         s0 = min(axis.project(Point(q)) for g in getattr(x, "geoms", [x]) for q in g.coords)
         if s0 >= s_own - 1e-6 and (best is None or s0 < best[0]):
             best = (s0, o)
-    if best is None or paved_over(axis, s_own, best[0], paved):
+    if best is None or paved_over(axis, s_own, best[0], paved, width):
         return None
     return best[1]
 
 
-def paved_over(line: LineString, s0: float, s1: float, paved) -> bool:
+def paved_over(line: LineString, s0: float, s1: float, paved, width: float = 0.0) -> bool:
     """Whether airside pavement lies over ``line`` strictly between ``s0``
-    and ``s1`` (a metre clear of each end): the road does not run open under
-    pavement (§34 (12) (3))."""
+    and ``s1`` (a metre clear of each end), or within ``width`` of it there:
+    the road does not run open under pavement (§34 (12) (3))."""
     if paved is None or paved.is_empty or s1 - s0 <= 2.0:
         return False
     from shapely.ops import substring
-    return paved.intersects(substring(line, s0 + 1.0, s1 - 1.0))
+    seg = substring(line, s0 + 1.0, s1 - 1.0)
+    return paved.intersects(seg.buffer(width, cap_style="flat") if width > 0.0 else seg)
 
 
 def run_stop_s(axis: LineString, run: _Run, gap: float) -> float | None:

@@ -214,6 +214,15 @@ floor_walled_min_share = 0.5
 # +0.67 off plates, concretetile +0.26 off the DEM: its neighbours cover 9 %
 # of the ring); EGLL's seven floors +3.41..+5.98 m (no plates: the DEM).
 floor_sunken_min_m = 2.0
+# ...and a WALLED PIT (``airport/walled_pit``) is sunken AS A WHOLE: at least
+# this share of the plan area of its faces under the rim stands, as
+# authored, under that ground (#2091, owner 2026-11-14T21:03Z "There's no
+# tunnel here ... this is just flat ground under a bridge object"). Measured:
+# OTHH TerminalRoads_03_002 (a road ramp from 1.8 m under its datum up to a
+# viaduct, its parapets the "walls") 0.13 -> no pit; ENTC Industrial_19 (a
+# walled pit) and OTHH TerminalRoads_02_000 (measured against the author's
+# plates round it, 9.92) still read.
+pit_sunken_min_share = 0.5
 # THE CUT LIES BENEATH THE FLOOR (owner RULINGS 2026-11-06d (4), #1921 /
 # #1936: "the cut is deep enough that it's completely below the floor so the
 # floor is visible"; 2026-11-10o (1) "fully beneath the tunnel object floor"):
@@ -309,6 +318,18 @@ entrance_bank_max_m  = 15.0
 # drawn_site "ground outside an edge" figure above: the apron vertices the
 # arrangement leaves along a face's edge stand within it (ENGM Ham3: 0.0-0.5 m).
 entrance_airside_reach_m = 1.5
+face_front_m = 5.0                 # #2062 R3b C (owner 2026-11-15T04:08Z Q1: "expose the whole headwall the object models (trimmed at airside pavement) for face_front_m in front of it"): within this of an entrance face's mouth the ramp is as wide as the face's FRONT WALL (Portal.front_xy, airport/entrance_front), fitted laterally to stand clear of what stands beside the corridor (planar/front_band.fit_halves, R4 C′ + F); beyond it the opening's width.  MEASURED KLAX Underpass_1: opening 30.0 m, front 62.2 m
+# #2099 (owner 2026-11-15T16:07Z: "tunnel mouths made of multiple touching
+# pieces need to be treated as an object group"; airport/mouth_group): a wall
+# touching a mouth is one of its WINGS only where it runs out of the mouth no
+# farther than this (a wall of a cut, never a site's whole perimeter wall).
+# MEASURED CYYZ (GlobalArt): the seven wings of its three mouths run 14.6 -
+# 195.7 m out of their box; 250 m is the longest with a quarter's margin.
+wing_reach_max_m = 250.0
+# #2099 R3 D6 (spec docs/specs/2099-R3.md): a deck mouth's GROUP walls plan its
+# ramp at their feet's least-squares slope (capped at ramp_max_grade, never
+# under 0); a foot slope under this is no witness and the design grade stands.
+group_foot_min_grade = 0.005
 
 [cutout]                            # RULINGS 2026-09-06b (1) + 2026-09-08a: every below-grade OBJECT's trench = floor + at-grade rim INSIDE the wall, NO wall band
 # The owner's law: the trench floor slightly OVERLAPS the object's inner
@@ -659,6 +680,19 @@ free_end_ground_out_m  = 1.5
 # wall (l2086's latent risk).  Lamps and kerbs stand under these values.
 end_solid_min_height_m = 2.0
 end_solid_min_area_m2  = 10.0
+# #2062 R5 THE AIRSIDE RUN-OUT (master ruling 2026-11-15 on owner 13:50Z "it should
+# be road on both ends, not apron, and we don't want a step" / 13:52Z "the road
+# appears elevated above the apron at the east end of the bridge and descends
+# down meeting at the taxiway into the apron"): a KEPT deck's rowed end whose
+# carried apt.dat ground route runs on over airside pavement mints that route's
+# road past the end line (``planar/deck_runout``): flush with the deck's end top
+# there, down at the road ramp grade until it meets the airside stage 1 solved
+# (``constraints/deck_runout``), never longer than this; the airside does not move.
+airside_run_max_m      = 40.0
+# ... with a bank this wide either side of it, the apron's edge its toe.
+# MEASURED KLAX Road_Bridge east end: the deck end top 32.83 over the apron
+# 32.10 (0.73 m), 1:2 gives 1.5 m
+airside_run_bank_m     = 2.0
 
 [building_pad]
 weld_to_touching_pavement = true   # contact = value (09-01g)
@@ -1512,6 +1546,14 @@ terrain_base_over_ground = false
 # (owner RULINGS 2026-11-14c (1): LOWS domiki_lows_13 stood 35.1 m in the air
 # on a base 1.50 m over our ground).  Above it 14a (1) stands.
 terrain_base_within_m = 2.0
+# ... and an unsupported BUILDING -- its walled parts' union plan box at least
+# this many m2 with its shorter side at least _min_side_m -- seats on our
+# terrain at ANY margin (#2077 rule C, owner 2026-11-15T05:46Z: "a building
+# with nothing carrying it but our terrain stands on our terrain however far
+# its base is from it"; airport/terrain_base.py witness (5)).  Street lights,
+# poles, signs, fences and jetway connectors stay with 14a (1).
+terrain_building_min_area_m2 = 25.0
+terrain_building_min_side_m = 4.0
 
 # ─────────────────────────────────────────────────────────────────────────
 # §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec
@@ -1664,3 +1706,18 @@ step_beyond_m     = 8.0     # witness 4: the lower DEM sample, this far beyond t
 station_m         = 5.0     # station spacing across the axis
 station_inset_m   = 2.0     # the seat's stations stand this far inside the inner edge (off the lidar smear)
 under_clearance_m = 0.05    # §5 (2): the ground under the plate stays this far below its top
+
+[agp]                               # #2090 (spec docs/specs/2090-agp-group-groundside-spec.md C1 V3): an .agp group seats on ONE datum
+connector_floor_m  = 2.5    # a floor this high over its group's ground line is a connector floor
+contact_m          = 1.5    # two connector-floor vertices this close in plan meet
+lift_tol_m         = 0.05   # a lift smaller than this writes nothing (pavement visibility bar)
+flat               = 0.9    # a face is a floor when |n_y| >= this share of its normal
+step_bin_m         = 0.05   # the join's vote bin
+flat_step_tol_m    = 0.10   # V2: a one-pair join stands only within this of a zero step
+airside_reach_m    = 60.0   # A2: the provisional governor stands within this of apt.dat airside, every other member 2x as far
+datum_slack_m      = 1.0    # G2: the stage-2 datum moves the predicted rows by at most this
+deck_join_reach_m  = 3.0    # B1: a deck end joins a floor within this of its predicted top
+deck_join_margin_m = 1.0    # B1: the next floor is at least this further
+ground_band_m      = 0.6    # C1: a plate's floors stand within this of the datum
+floor_min_area_m2  = 100.0  # C1: a smaller plate part is not built
+plate_max_off_m    = 3.0    # C1: a plate whose median level stands further from the DEM is not built

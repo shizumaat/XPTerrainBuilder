@@ -17,9 +17,17 @@ struct MapCanvasView: View {
     @ObservedObject var modes: AppModeModel
 
     private var overlays: MapOverlays { controller.mapOverlays }
-    @AppStorage("MapSceneryFilter") private var sceneryFilterRaw = MapSceneryFilter.all.rawValue
-    private var sceneryFilter: MapSceneryFilter {
-        MapSceneryFilter(rawValue: sceneryFilterRaw) ?? .all
+    @AppStorage(MapFilter.storageKey) private var mapFilterStored = ""
+    /// The Filter menu's items turned off (#2097).
+    var mapFilter: MapFilter { MapFilter(stored: mapFilterStored) }
+
+    /// `filter` (read once per frame) leaves this tile's World state, or
+    /// built tile, on.
+    func showsTile(_ coord: BuildModel.TileCoord, _ filter: MapFilter) -> Bool {
+        var state = buildModel.worldTiles[coord]?.state
+        let info = buildModel.built[coord]
+        if info != nil, state == .nothing { state = nil }
+        return filter.showsTile(state: state, pinned: info?.pinned == true)
     }
 
     @State private var cursorText: String?
@@ -101,7 +109,8 @@ struct MapCanvasView: View {
                                                let tiles = buildModel.selected.contains(coord)
                                                    ? Array(buildModel.selected) : [coord]
                                                TilePackageModel.shared.startExport(tiles, build: buildModel)
-                                           })
+                                           },
+                                           useHere: buildModel.useHereItem(coord))
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }
@@ -140,7 +149,7 @@ struct MapCanvasView: View {
                 VStack(alignment: .trailing, spacing: 6) {
                     ScanProgressChip()
                     zoomChip
-                    MapKey(buildModel: buildModel, showBuildKinds: sceneryFilter != .othersOnly,
+                    MapKey(buildModel: buildModel, showBuildKinds: mapFilter.showsAnyTile,
                            mapWidth: proxy.size.width)
                 }
                 .padding(8)
@@ -240,17 +249,16 @@ struct MapCanvasView: View {
         // DSF tile of installed ortho/mesh packs in its own color —
         // orange over half a continent for a big ortho install.
 
-        if sceneryFilter != .othersOnly {
-            drawBuildOverlays(context: context, size: size, cam: cam,
-                              minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
-        }
+        let filter = mapFilter
+        drawBuildOverlays(context: context, size: size, cam: cam, filter: filter,
+                          minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
 
         // Other installed ortho/mesh packages (SpainUHD, meshes, foreign
         // zOrtho tiles): gray boundary outlines showing their coverage and
         // overlap. Our own tiles are skipped — they are already the colored
         // squares (`SceneryRegion.isThirdParty`: our packs by name, the
         // engine scan's build dirs, links into the working dir).
-        if sceneryFilter != .builtOnly {
+        if filter.showsOtherOrtho {
             let basePath = buildModel.tileBaseFolder?.path
             let builtDirs = Set(buildModel.built.values.map(\.buildDir))
             var regionPath = Path()
@@ -278,8 +286,8 @@ struct MapCanvasView: View {
         // imagery bottom-left, each on a pill — one zoom threshold for both.
         let bounds = (minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
         drawTileLabels(context: context, size: size, cam: cam, bounds: bounds,
-                       built: sceneryFilter != .othersOnly ? buildModel.built : nil,
-                       orthoTiles: sceneryFilter != .builtOnly ? overlays.orthoTileKeys : nil,
+                       built: buildModel.built.filter { showsTile($0.key, filter) },
+                       orthoTiles: filter.showsOtherOrtho ? overlays.orthoTileKeys : nil,
                        orthoImagery: overlays.orthoImagery)
 
         // Airports by size (#817): large fields marked and labelled from
@@ -289,10 +297,11 @@ struct MapCanvasView: View {
         let overlays = self.overlays
         let plan = airportPlans.plan(
             for: .init(camera: cam, size: size, defaults: overlays.defaultAirports.count,
-                       customs: overlays.airports.count, textScale: textScale)
+                       customs: overlays.airports.count, textScale: textScale,
+                       filter: filter)
         ) {
             Self.makeAirportPlan(overlays: overlays, cam: cam, size: size, bounds: bounds,
-                                 textScale: textScale)
+                                 textScale: textScale, filter: filter)
         }
         drawAirports(plan, context: context)
         let showLabels = cam.scale > 26
@@ -445,6 +454,7 @@ struct MapCanvasView: View {
     }
 
     private func drawBuildOverlays(context: GraphicsContext, size: CGSize, cam: MapCamera,
+                                   filter: MapFilter,
                                    minLon: Double, maxLon: Double,
                                    minLat: Double, maxLat: Double) {
         func visible(_ coord: BuildModel.TileCoord) -> Bool {
@@ -460,7 +470,8 @@ struct MapCanvasView: View {
         // A stale built tile draws "Pack changed" in its place (#2031).
         MapWorldStates.draw(in: context, world: buildModel.worldTiles, visible: visible,
                             rect: rect, skip: { buildActivity.isBuilding($0)
-                                || (buildModel.staleTiles[$0] != nil && buildModel.built[$0] != nil) })
+                                || (buildModel.staleTiles[$0] != nil && buildModel.built[$0] != nil)
+                                || !showsTile($0, filter) })
 
         // Built tiles: drawn by their World state (no fill — it obscures
         // the imagery preview); installed adds the double (inset)
@@ -468,7 +479,8 @@ struct MapCanvasView: View {
         // label is drawn with the tile labels (MapCanvasLabels, #817).
         // A tile being built draws as building only (#1736): its progress
         // badge, never the border of the DSF an earlier build left.
-        for (coord, info) in buildModel.built where visible(coord) && !buildActivity.isBuilding(coord) {
+        for (coord, info) in buildModel.built
+        where visible(coord) && !buildActivity.isBuilding(coord) && showsTile(coord, filter) {
             let r = rect(coord)
             // Its World band alone when the World pack lists it, else
             // "Full" (dotted when another tool built it); purple and dashed
@@ -688,7 +700,7 @@ struct MapCanvasView: View {
                 }
                 let tile = BuildModel.TileCoord(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)))
                 // A built tile's Favorite star (#2033): the click flips it.
-                if modes.mode == .build, sceneryFilter != .othersOnly,
+                if modes.mode == .build, showsTile(tile, mapFilter),
                    let info = buildModel.built[tile], !buildActivity.isBuilding(tile),
                    FavoriteStar.hit(value.location,
                                     in: tileRect(lat: tile.lat, lon: tile.lon, cam: camera.value, size: size)) {

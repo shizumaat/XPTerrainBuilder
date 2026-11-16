@@ -52,7 +52,9 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     chain_min_height_m: float = 0.0,
                     contents_min_fraction: float = 0.0,
                     sheet_chain_min_fraction: float = 0.0,
-                    level_tol_m: float = 0.0, piece_reach_m: float = 0.0
+                    level_tol_m: float = 0.0, piece_reach_m: float = 0.0,
+                    rims: _t.Sequence[_ar.RimRing] = (),
+                    column: _t.Any = None
                     ) -> "tuple[dict[int, tuple], list[tuple[float, float, float, float, float, str]]]":
     """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
     where, source, connector ends, the HIGH end's own seat), the units'
@@ -119,7 +121,8 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
     dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2,
                            piece_reach_m,   # 19u: one building, one datum
                            chain_min_height_m, connector_span_m,
-                           counts=counts)   # #1884 r2 (A)
+                           counts=counts,   # #1884 r2 (A)
+                           rims=rims, column=column)   # #2118
     out: dict[int, tuple] = {}
     seats: list[tuple[float, float, float, float, float, str]] = []
     for un in units:

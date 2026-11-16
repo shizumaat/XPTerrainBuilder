@@ -281,6 +281,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_pit",
         "auto_patch_v2.airport.walled_plate",
+        "auto_patch_v2.airport.zero_level_seat",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -559,6 +560,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.walled_pit",
         "auto_patch_v2.airport.walled_plate",
         "auto_patch_v2.airport.walled_trench",
+        "auto_patch_v2.airport.zero_level_seat",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -968,6 +970,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_pit",
         "auto_patch_v2.airport.walled_plate",
+        "auto_patch_v2.airport.zero_level_seat",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.author_ground",
         "auto_patch_v2.geom.base_slab",
@@ -1168,6 +1171,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_pit",
         "auto_patch_v2.airport.walled_plate",
+        "auto_patch_v2.airport.zero_level_seat",
         "auto_patch_v2.constraints",
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_trend",
@@ -1411,6 +1415,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.walled_pit",
         "auto_patch_v2.airport.walled_plate",
+        "auto_patch_v2.airport.zero_level_seat",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -2253,6 +2258,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     model.stage_one
     airport.pavement_end_plate
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped
+    airport.zero_level_seat
     law.walled_plate_schema model.walled_plate
     constraints.deck_anchor
     constraints.taxi_route_yield
@@ -2331,6 +2337,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     geom.foot_planes constraints.group_level constraints.face_index
     airport.pavement_end_plate
     airport.dem airport.walled_plate law.walled_plate_schema model.walled_plate
+    airport.zero_level_seat
     constraints.taxi constraints.taxi_route_yield
     model.free_bridge
 """)
@@ -2506,6 +2513,7 @@ CODE_MODULES["solve"] = _mods("""
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low planar.group_up
     airport.pavement_end_plate
     airport.walled_plate law.walled_plate_schema model.stage_one model.walled_plate
+    airport.zero_level_seat
     planar.low_extent planar.low_fill planar.reach_after_pads planar.reach_under_covers
     constraints.deck_anchor constraints.edge_floor
     constraints.deck_lines
@@ -2702,6 +2710,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low planar.group_up
     airport.pavement_end_plate
     airport.walled_plate constraints.walled_plate constraints.terrain_shaped law.walled_plate_schema
+    airport.zero_level_seat
     model.stage_one model.walled_plate planar.low_extent planar.low_fill planar.reach_after_pads
     planar.reach_under_covers
     constraints.deck_anchor
@@ -2842,6 +2851,7 @@ CODE_MODULES["emit"] = _mods("""
     geom.foot_planes constraints.group_level constraints.face_index
     airport.pavement_end_plate
     airport.walled_plate law.walled_plate_schema model.walled_plate
+    airport.zero_level_seat
     constraints.deck_anchor
     model.stage_one
     constraints.taxi_route_yield
@@ -2960,6 +2970,7 @@ CODE_MODULES["verify"] = _mods("""
     geom.foot_planes constraints.group_level constraints.face_index
     airport.pavement_end_plate
     airport.walled_plate law.walled_plate_schema model.walled_plate
+    airport.zero_level_seat
     constraints.deck_anchor constraints.edge_floor
     constraints.deck_lines
     model.stage_one

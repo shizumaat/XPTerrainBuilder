@@ -512,7 +512,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       contents_min_fraction,  # S6
                                       sheet_chain_min_fraction,  # 27a
                                       level_tol_m=split_tol_m,  # 10n (3)
-                                      piece_reach_m=piece_reach_m)  # 19u
+                                      piece_reach_m=piece_reach_m,  # 19u
+                                      rims=rims, column=free_column)  # #2118
     # #1214 round 3, R5 (owner RULINGS 2026-10-22o): one zero per CONNECTED
     # unit — the pieces the pad-level and block passes cut put back together
     _gz_air: dict[str, tuple[float, int]] = {}           # 23e: airside wins

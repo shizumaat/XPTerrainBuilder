@@ -65,6 +65,7 @@ from ..model.placement import TOL_DEG as _TOL_DEG
 
 __all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
            "anchor_for", "roof_on_posts", "datum_of", "keep_off_row", "rim_of", "ring_of_part", "rim_anchor_point",
+           "rim_point",
            "pad_majority", "fold_pad_ref", "pad_contains",
            "water_level_under", "hangs_over_water", "box_points",
            "BUILDING", "SKIRTED", "BASIN", "LINE_SEGMENT", "DECK", "PLATE_ONLY", "OTHER"]
@@ -1380,16 +1381,24 @@ def _basin_rim_anchor(geom: BodyGeometry, surface: Surface,
     # `T4STower-SWbaume`, and the emitted ring is not level (597.14 to
     # 597.86), so a per-body nearest vertex gave the three files three
     # zeros 0.49 m apart.  One row, one rim vertex, one zero.
-    clat, clon = geom.origin_lat, geom.origin_lon
-    ml, mo = _m_per_deg(clat)
-    i = min(range(len(ring.ring)),
-            key=lambda j: (round(((ring.ring[j][0] - clat) * ml) ** 2
-                                 + ((ring.ring[j][1] - clon) * mo) ** 2, 6),
-                           ring.ring[j][0], ring.ring[j][1]))
-    la, lo = rim_anchor_point(ring.ring, i)
+    la, lo = rim_point(ring, geom.origin_lat, geom.origin_lon)
     return Anchor(BASIN, la, lo, 0.0,
                   f"basin rim ({ring.ref}): the object's zero is the rim",
                   surface(la, lo))
+
+
+def rim_point(ring: RimRing, lat: float, lon: float) -> tuple[float, float]:
+    """The point a basin object's zero is read at (§14 (2)): the ring
+    vertex nearest the placement's ORIGIN ``(lat, lon)`` (the row point,
+    so the resources of one row take one zero), stood off the wall band
+    by :func:`rim_anchor_point`.  The one reading the body's rim anchor
+    and its unit's datum (``zero_level_seat.rim_unit_zero``) share."""
+    ml, mo = _m_per_deg(lat)
+    i = min(range(len(ring.ring)),
+            key=lambda j: (round(((ring.ring[j][0] - lat) * ml) ** 2
+                                 + ((ring.ring[j][1] - lon) * mo) ** 2, 6),
+                           ring.ring[j][0], ring.ring[j][1]))
+    return rim_anchor_point(ring.ring, i)
 
 
 def rim_anchor_point(ring: _t.Sequence[tuple[float, float]], i: int,

@@ -1050,6 +1050,7 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_DDS_Cache",
         "O4_DDS_Tiers",
         "O4_Imagery_Async",
+        "O4_Imagery_Capture_Seam",
         "O4_Imagery_Certs",
         "O4_Imagery_Fetch",
         "O4_Imagery_Placeholder",
@@ -1066,6 +1067,8 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Triangle_Binary",
         "O4_Triangle_IO",
         "O4_Triangle_Run",
+        # the capture seams' mosaic (#2108): the tile's texture squares
+        "O4_World_Drape",
     ),
 }
 

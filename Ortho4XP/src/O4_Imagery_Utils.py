@@ -24,6 +24,7 @@ import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Http_Pushback as PUSHBACK
 import O4_Imagery_Async as FETCH_ASYNC
+import O4_Imagery_Capture_Seam as CAPTURE_SEAM
 import O4_Imagery_Placeholder as PLACEHOLDER
 import O4_Imagery_Provider_Blend as PROVIDER_BLEND
 import O4_Machine_Slots as MACHINE_SLOTS
@@ -3131,6 +3132,7 @@ def convert_texture(
     # The in-process encoder (default) encodes DXT1/DXT5 in this thread
     # (O4_DDS_Encode); O4_DDS_ENCODER=tool runs DDSTool / nvcompress.
     inproc = type == "dds" and DDSENC.chosen_encoder() == "inproc"
+    follow_tier = drop is not None
     if type == "dds":
         out_file_name = FNAMES.dds_file_name_from_attributes(
             til_x_left, til_y_top, zoomlevel, provider_code
@@ -3211,6 +3213,10 @@ def convert_texture(
     harmonization_field = color_harmonization_field_for_texture(
         tile, til_x_left, til_y_top, zoomlevel, provider_code
     )
+    # #2108: capture seams inside the provider's own mosaic are closed
+    # (found once per tile and provider; a follow-job tier reads the book)
+    if provider_code in providers_dict:
+        CAPTURE_SEAM.attach(tile, provider_code, measure=not follow_tier)
     # #2018: a drape beside another provider's tile blends toward it
     harmonization_field = PROVIDER_BLEND.add_field(
         tile, harmonization_field, til_x_left, til_y_top, zoomlevel)

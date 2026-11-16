@@ -23,8 +23,8 @@ measurement ``O4_Imagery_Provider_Blend`` blends with.
   ending ~0.7 km south of the line on part of it), which one value for
   the whole edge cannot follow.  None below :data:`MIN_PIXELS`.
 * :class:`CastBook` -- the knots measured, one JSON file in the data
-  folder, so both tiles of an edge read the same value whenever each is
-  made.
+  folder (a :class:`JsonBook`, also ``O4_Imagery_Capture_Seam``'s), so
+  both tiles of an edge read the same value whenever each is made.
 * :func:`fetch_square` -- the production ``image_of``: the square's
   512 px placeholder JPEG (drop :data:`CAST_DROP`, raised to the
   provider's ``min_source_zl`` by ``download_jpeg_ortho``, #2017), the
@@ -43,7 +43,7 @@ from typing import Callable, Optional, Sequence, Tuple
 import numpy
 
 __all__ = ["CAST_ZL", "CAST_DROP", "MAX_CAST", "MAX_GAIN", "MIN_PIXELS",
-           "MIN_KNOT_PIXELS", "BAND_DEG", "EdgeStats",
+           "MIN_KNOT_PIXELS", "BAND_DEG", "EdgeStats", "JsonBook",
            "fetch_square", "book"]
 
 #: Texture squares at this zoom (a drape's own) are measured...
@@ -213,14 +213,51 @@ def _measure(edge: Tuple[str, int, int], a: str, b: str,
     return knots if total >= MIN_PIXELS else None
 
 
-class CastBook:
-    """The casts measured, by edge and provider pair (module docstring).
-    ``None`` is remembered too (an edge with no common pixels)."""
+class JsonBook:
+    """One JSON object in the data folder, read once and written whole
+    (through a ``.tmp`` and a rename) at every :meth:`put`: a cache, so
+    an unreadable or unwritable file is measured again.  Thread-safe."""
 
     def __init__(self, path: str) -> None:
         self.path = path
         self._lock = threading.Lock()
-        self._casts: Optional[dict] = None
+        self._values: Optional[dict] = None
+
+    def _load(self) -> dict:
+        if self._values is None:
+            try:
+                with open(self.path, encoding="utf-8") as handle:
+                    data = json.load(handle)
+                self._values = data if isinstance(data, dict) else {}
+            except (OSError, ValueError):
+                self._values = {}
+        return self._values
+
+    def has(self, key: str) -> bool:
+        with self._lock:
+            return key in self._load()
+
+    def get(self, key: str, default=None):
+        with self._lock:
+            return self._load().get(key, default)
+
+    def put(self, key: str, value) -> None:
+        with self._lock:
+            values = self._load()
+            values[key] = value
+            try:
+                os.makedirs(os.path.dirname(self.path), exist_ok=True)
+                with open(self.path + ".tmp", "w", encoding="utf-8",
+                          newline="\n") as handle:
+                    json.dump(values, handle, sort_keys=True)
+                os.replace(self.path + ".tmp", self.path)
+            except OSError:
+                pass                        # a cache: measured again next time
+
+
+class CastBook(JsonBook):
+    """The casts measured, by edge and provider pair (module docstring).
+    ``None`` is remembered too (an edge with no common pixels)."""
 
     @staticmethod
     def key(edge, a: str, b: str, zoomlevel: int = CAST_ZL) -> str:
@@ -228,44 +265,22 @@ class CastBook:
         kind, lat, lon = edge
         return f"{kind}{lat:+03d}{lon:+04d}:{a}:{b}:{zoomlevel}:knots"
 
-    def _load(self) -> dict:
-        if self._casts is None:
-            try:
-                with open(self.path, encoding="utf-8") as handle:
-                    data = json.load(handle)
-                self._casts = data if isinstance(data, dict) else {}
-            except (OSError, ValueError):
-                self._casts = {}
-        return self._casts
-
     def cast(self, edge, a: str, b: str,
              image_of: Callable[[str, int, int], Optional[numpy.ndarray]]
              ) -> Optional[list]:
         """The knots of ``edge`` from ``a`` to ``b`` (:func:`_measure`):
         the book's, else measured now and written."""
         key = self.key(edge, a, b)
-        with self._lock:
-            casts = self._load()
-            if key in casts:
-                value = casts[key]
-                try:
-                    return None if value is None else [
-                        (float(t), EdgeStats.from_list(stats)) for t, stats in value]
-                except (TypeError, ValueError):
-                    pass                    # unreadable: measured again
-        value = _measure(edge, a, b, image_of)
-        with self._lock:
-            casts = self._load()
-            casts[key] = None if value is None else [
-                [t, stats.as_list()] for t, stats in value]
+        if self.has(key):
+            value = self.get(key)
             try:
-                os.makedirs(os.path.dirname(self.path), exist_ok=True)
-                with open(self.path + ".tmp", "w", encoding="utf-8",
-                          newline="\n") as handle:
-                    json.dump(casts, handle, sort_keys=True)
-                os.replace(self.path + ".tmp", self.path)
-            except OSError:
-                pass                        # a cache: measured again next time
+                return None if value is None else [
+                    (float(t), EdgeStats.from_list(stats)) for t, stats in value]
+            except (TypeError, ValueError):
+                pass                    # unreadable: measured again
+        value = _measure(edge, a, b, image_of)
+        self.put(key, None if value is None else [
+            [t, stats.as_list()] for t, stats in value])
         return value
 
 

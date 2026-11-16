@@ -329,27 +329,38 @@ def from_record(lat: int, lon: int, sides: dict) -> Optional[Blend]:
     return out if out.terms else None
 
 
+def _fields(tile, til_x: int, til_y: int, zoomlevel: int):
+    """The ``(offset, slope)`` fields over one texture of every colour
+    field the tile carries: its provider blend (``tile.provider_blend``,
+    a :class:`Blend`) and its capture seams (``tile.capture_seams``,
+    ``O4_Imagery_Capture_Seam.SeamField``, #2108)."""
+    out = []
+    for source in (getattr(tile, "provider_blend", None),
+                   getattr(tile, "capture_seams", None)):
+        both = None if source is None else source.fields(til_x, til_y, zoomlevel)
+        if both is not None:
+            out.append(both)
+    return out
+
+
 def add_field(tile, base: Optional[numpy.ndarray], til_x: int, til_y: int,
               zoomlevel: int) -> Optional[numpy.ndarray]:
-    """``base`` (a colour-harmonization field, or None) plus the tile's
-    provider blend's offset (``tile.provider_blend``, a :class:`Blend`)
-    over one texture: the hook ``O4_Imagery_Utils.convert_texture``
-    calls (with :func:`gain_field`)."""
-    blend = getattr(tile, "provider_blend", None)
-    if blend is None:
+    """``base`` (a colour-harmonization field, or None) plus the offsets
+    of the tile's provider blend and capture seams (:func:`_fields`) over
+    one texture: the hook ``O4_Imagery_Utils.convert_texture`` calls
+    (with :func:`gain_field`)."""
+    fields = [both[0] for both in _fields(tile, til_x, til_y, zoomlevel)]
+    if not fields:
         return base
-    both = blend.fields(til_x, til_y, zoomlevel)
-    if both is None:
-        return base
-    if base is None:
-        return both[0]
-    return (numpy.asarray(base, dtype=numpy.float32) + both[0]).astype(numpy.float32)
+    if base is not None:
+        fields.insert(0, numpy.asarray(base, dtype=numpy.float32))
+    return numpy.sum(fields, axis=0).astype(numpy.float32)
 
 
 def gain_field(tile, til_x: int, til_y: int, zoomlevel: int
                ) -> Optional[numpy.ndarray]:
     """The slope part of the tile's provider blend over one texture
     (``apply_color_field``'s ``gain``); None when it has none there."""
-    blend = getattr(tile, "provider_blend", None)
-    both = None if blend is None else blend.fields(til_x, til_y, zoomlevel)
-    return None if both is None else both[1]
+    slopes = [both[1] for both in _fields(tile, til_x, til_y, zoomlevel)
+              if both[1] is not None]
+    return numpy.sum(slopes, axis=0).astype(numpy.float32) if slopes else None

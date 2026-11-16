@@ -44,7 +44,7 @@ from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
                                _clusters, _contacts_of, _median,
                                bodies_of_plan, cluster_plane, pad_plurality,
                                union_area_m2)
-from .open_frame_seat import WALLED_SRC, unit_plate_zero
+from .open_frame_seat import WALLED_SRC, plate_leads_unit, walled_unit_zero
 # §16g (3)/(11) THE UNIT CARRY AND THE UNIT'S CONTENTS live in
 # ``footprint_carry`` (issue #303: this file passed the 1,500-line split
 # point again); re-exported here, the names every caller and test reads.
@@ -913,7 +913,9 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         where = src = ""
         # #1977: a unit holding a runway-end walled plate rides the plate
         # (#2120: a retaining plate only a unit wholly in its own frame)
-        wz = unit_plate_zero(un.pids, member_of, frame_of, surface)
+        wz = walled_unit_zero({id(member_of[q]): member_of[q] for q in un.pids
+                               if q in member_of}.values(), surface) \
+            if plate_leads_unit(un.pids, member_of, frame_of) else None
         if wz is not None:
             out[un.id] = (wz, "", WALLED_SRC)
             continue

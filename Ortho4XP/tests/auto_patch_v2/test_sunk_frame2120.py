@@ -9,7 +9,6 @@ from __future__ import annotations
 from types import SimpleNamespace as NS
 
 import numpy as np
-
 from auto_patch_v2.airport.sunk_frame import sunk_frames, sunk_shade
 from auto_patch_v2.airport.wall_shade import wall_shade
 from auto_patch_v2.classify.rules import load_rules
@@ -65,26 +64,20 @@ def test_a_frame_buried_wholly_under_its_authored_ground_is_not_sunk():
     assert sunk_frames(_airport(-6.0, 0.0, 3.0, 0.0), CFG, LAW) == ()
 
 
-def test_a_retaining_plate_leads_only_a_unit_in_its_own_frame():
+def test_a_retaining_plate_leads_only_a_unit_its_frame_dominates():
     """The plate's datum is its frame's y = 0: a terminal (AGL 0) dominating
-    a §16g unit it shares with a sunk wall (AGL -19.81) must not take it -- the closing
-    build sank KATL's terminal F 19.4 m that way.  A runway-end WALLED plate
-    still leads whatever it chains (#1977)."""
-    from auto_patch_v2.airport.open_frame_seat import unit_plate_zero
+    a §16g unit it shares with a sunk wall (AGL -19.81) must not take it --
+    the closing build sank KATL's terminal F 19.4 m that way.  A runway-end
+    WALLED plate still leads whatever it chains (#1977)."""
+    from auto_patch_v2.airport.open_frame_seat import plate_leads_unit, walled_unit_zero
     wall = NS(plate_kind="retaining", plate_y=19.81, plate_stations=((33.64, -84.42),))
     term = NS(plate_kind="", plate_y=None, plate_stations=())
-
-    def surface(la, lo):
-        return 300.0
-
     frames = {1: ((33.64, -84.42), -19.81), 2: ((33.65, -84.41), 0.0),
               3: ((33.65, -84.41), 0.0), 4: ((33.64, -84.42), -19.81)}
-    assert unit_plate_zero([1, 2, 3], {1: wall, 2: term, 3: term}, frames, surface) is None
+    assert not plate_leads_unit([1, 2, 3], {1: wall, 2: term, 3: term}, frames)
     # the wall's frame dominates (a pole of another frame on its pad): it leads
-    assert abs(unit_plate_zero([1, 4, 2], {1: wall, 4: wall, 2: term}, frames, surface)
-               - 280.19) < 1e-9
-    assert abs(unit_plate_zero([1], {1: wall}, frames, surface) - 280.19) < 1e-9
+    assert plate_leads_unit([1, 4, 2], {1: wall, 4: wall, 2: term}, frames)
+    assert abs(walled_unit_zero([wall], lambda la, lo: 300.0) - 280.19) < 1e-9
     walled = NS(plate_kind="walled", plate_y=-9.9, plate_stations=((33.64, -84.42),))
-    assert abs(unit_plate_zero([1, 2, 3], {1: walled, 2: term, 3: term}, frames, surface)
-               - 309.9) < 1e-9
-    assert unit_plate_zero([2], {2: term}, frames, surface) is None
+    assert plate_leads_unit([1, 2, 3], {1: walled, 2: term, 3: term}, frames)
+    assert not plate_leads_unit([2], {2: term}, frames)

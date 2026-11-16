@@ -5,7 +5,8 @@ A placement row's authored lift (``OBJECT_AGL``) is the author's statement of
 where his ground stands in the object's frame: ``y = -lift``
 (``below_grade_witness.row_depth_under``: "a row drawn on the ground STATES
 its own depth under the author's ground").  A frame with a NEGATIVE lift whose
-walled parts -- standing on their zero -- reach from at least ``[tunnel.object] floor_sunken_min_m`` under
+walled parts -- standing on their zero -- reach from at least
+``[tunnel.object] floor_sunken_min_m`` under
 that ground up to it -- their top within ``[basin] authored_rim_tol_m`` under
 it or ``floor_sunken_min_m`` over it (a parapet) -- is SUNK: its walls are a
 footing the author buried, and its top is his ground.  A frame standing far

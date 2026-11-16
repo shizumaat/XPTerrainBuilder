@@ -138,6 +138,7 @@ from .open_frame_seat import (  # noqa: E402
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
     rigid_open as _rigid_open, root_zeros as _root_zeros,
     unit_root as _ofs_unit_root)
+from .touch_group import touch_links as _touch_links  # noqa: E402
 from .free_bridge_seat import (  # noqa: E402
     free_bridge_seat as _free_bridge_seat, free_bridge_zeros as _free_bridge_zeros,
     free_member as _free_member)
@@ -1270,16 +1271,25 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # two units stays a lifted frame's (plan boxes of an unlifted
         # shared-datum frame overlap 20 m apart)
         _rboxes = _frame_root_boxes(u, _pw or {}) if _pw else {}
+        _rtouch: dict[int, str] = {}       # 16k: a part of no unit -> the unit it touches
         _rmerge = (_merge_frame_roots(_rboxes)
                    if len(_rboxes) > 1 and float(u.agl_m or 0.0) > 0.0 else {})
         # #1214 round 6 (22o, 23e): units an UNCHAINED part chain joins move
         # as one group, in any frame, at the airside share's zero
         if len(_rboxes) > 1:
             _rmerge = _unchained_links(u, _pw or {}, _rmerge, _gz_air, counts)
+            # 2026-11-16k (#2110): touching buildings stay grouped — units
+            # whose parts touch, or that one body holds, take one zero
+            _rmerge = _touch_links(u, staged, _pw or {}, _rmerge, _gz_air, counts,
+                                   touch_m=touch_m, touched=_rtouch)
             # 28p (2) (#1572): a unit drawn higher than its pad's largest
             # unit sinks to that group's level; never floats off the pad
             _rmerge = _pad_level_links(u, _pw or {}, _rmerge, _gz, _gz_air,
                                        counts)
+        elif _rboxes:
+            # 16k: one unit in the frame — a body of no unit touching it
+            _touch_links(u, staged, _pw or {}, _rmerge, _gz_air, counts,
+                         touch_m=touch_m, touched=_rtouch)
         if _pit_join is not None and _pw:
             _pit_join(u, _pw, _rmerge, _pit_shifts)
         written_of: dict[int, bool] = {}
@@ -1373,7 +1383,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                          adapted_zero=_az.get(m.id),
                                          surface=surface, gap_m=bind_ground_m,
                                          afloat=_afloat, solo=_gz_solo,
-                                         led=_gz_led)
+                                         led=_gz_led, touched=_rtouch)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _free_bridge_seat(_one_bridge(_cut_decks(record, m), m), m, free)
                 record, landed = _lifted(record, rows, reseated, surface,
@@ -1470,7 +1480,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                          adapted_zero=_az.get(m.id),
                                          surface=surface, gap_m=bind_ground_m,
                                          afloat=_afloat, solo=_gz_solo,
-                                         led=_gz_led)
+                                         led=_gz_led, touched=_rtouch)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _free_bridge_seat(_one_bridge(_cut_decks(record, m), m), m, free)
                 record, landed = _lifted(record, rows, reseated, surface,
@@ -1517,7 +1527,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                          adapted_zero=_az.get(m.id),
                                          surface=surface, gap_m=bind_ground_m,
                                          afloat=_afloat, solo=_gz_solo,
-                                         led=_gz_led)
+                                         led=_gz_led, touched=_rtouch)
                     record = _weld_own_ground(record, m, st.cutter, counts)  # #1146
                 record = _free_bridge_seat(_one_bridge(_cut_decks(record, m), m), m, free)
                 if record is not _pre:
@@ -1549,7 +1559,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     if _ride is not None:
                         unit_riders.append((_b, *_ride,
                                             slot_anchor.get(_ride[0])))
-                    _r = _body_root(_b, _pw or {}, _file_root)
+                    _r = _body_root(_b, _pw or {}, _file_root, touched=_rtouch)
                     if _r:
                         _file_root[_b.new_resource] = _r
                     if _applied(_b) is not None and _r:

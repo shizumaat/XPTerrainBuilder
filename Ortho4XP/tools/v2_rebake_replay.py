@@ -845,6 +845,24 @@ def _oracle_check(args, plan_) -> int:
     return 0 if not (bad_point or bad_batch) else 1
 
 
+def cmd_touch(args: argparse.Namespace) -> int:
+    """#2110: every pair of bodies of one frame whose parts touch, with the
+    step between their zeros (``airport.touching_steps``) — the bar of
+    owner RULINGS 2026-11-16k ("touching buildings need to stay grouped")."""
+    from auto_patch_v2.airport.touching_steps import census_touching_steps, touching_lines
+    from auto_patch_v2.model.rebake import RebakePlan
+    with open(args.plan) as fh:
+        plan_ = RebakePlan.from_json(fh.read())
+    with open(args.placement) as fh:
+        doc = json.load(fh)
+    got = census_touching_steps(plan_, doc.get("splits", ()))
+    print("\n".join(touching_lines(got, args.top)))
+    if args.json:
+        with open(args.json, "w") as fh:
+            json.dump(got, fh)
+    return 0
+
+
 def cmd_disk(args: argparse.Namespace) -> int:
     from auto_patch_v2.airport import obj8
     root = args.pack_root
@@ -997,6 +1015,13 @@ def _main(argv: list[str] | None = None) -> int:
     d.add_argument("pack_root")
     d.add_argument("--filter", default="")
     d.set_defaults(fn=cmd_disk)
+    t = sub.add_parser("touch", help="#2110 (RULINGS 2026-11-16k): the TOUCHING-PAIR "
+                                     "step table of a placement plan (read-only)")
+    t.add_argument("plan", help="the rebake plan o4_v2_rebake_<ICAO>.json")
+    t.add_argument("placement", help="a placement plan (the app's, or plan --plan-out)")
+    t.add_argument("--top", type=int, default=15)
+    t.add_argument("--json", default="", help="write the census here")
+    t.set_defaults(fn=cmd_touch)
     args = ap.parse_args(argv)
     return args.fn(args)
 

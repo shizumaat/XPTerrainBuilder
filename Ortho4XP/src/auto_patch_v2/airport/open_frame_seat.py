@@ -37,7 +37,7 @@ from .adapted_riders import ADAPTED_SRC, ADAPTED_ZERO_REASON
 
 __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "unit_root",
            "frame_lifts", "carried_lift",
-           "group_key", "root_zeros", "body_root",
+           "group_key", "root_zeros", "body_root", "group_keep", "resolved",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
            "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "WALLED_SRC",
            "TOUCH_M"]
@@ -466,22 +466,42 @@ def unchained_links(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
     for rs in comp.values():
         if len(rs) < 2:
             continue
-        air = sorted(r for r in rs if group_key(r, fid) in airside)
-        n_joined += len(air) > 1
-        keep = (max(air, key=lambda r: _feet_read(airside, group_key(r, fid))) if air
-                else max(sorted(rs), key=lambda r: size.get(r, 0)))
+        n_joined += sum(1 for r in rs if group_key(r, fid) in airside) > 1
+        keep = group_keep(rs, fid, airside, size)
         for r in rs:
             if r != keep:
                 out[r] = keep
+    out = resolved(out)
+    if counts is not None and n_joined:
+        k = "unchained_airside_joined"
+        counts[k] = counts.get(k, 0) + n_joined
+    return out
+
+
+def group_keep(rs: _t.Iterable[str], fid: str, airside: _t.Any,
+               size: _t.Mapping[str, int]) -> str:
+    """The root a group of connected units ``rs`` (one frame ``fid``)
+    moves with — the ONE rule every within-frame join reads (23e): its
+    AIRSIDE-SEATED unit (``airside``: ``group_key`` -> ``(zero, feet
+    read)``) whose floor the most stand-side feet read; with none, its
+    largest unit (``size``: parts per root), ties by name."""
+    rs = sorted(rs)
+    air = [r for r in rs if group_key(r, fid) in airside]
+    if air:
+        return max(air, key=lambda r: _feet_read(airside, group_key(r, fid)))
+    return max(rs, key=lambda r: size.get(r, 0))
+
+
+def resolved(links: _t.Mapping[str, str]) -> dict[str, str]:
+    """``links`` (root -> the root it moves with) followed to the end of
+    each chain, so every root names its group's final root."""
+    out = dict(links)
     for r in list(out):
         t, seen = out[r], {r}
         while t in out and t not in seen:
             seen.add(t)
             t = out[t]
         out[r] = t
-    if counts is not None and n_joined:
-        k = "unchained_airside_joined"
-        counts[k] = counts.get(k, 0) + n_joined
     return out
 
 
@@ -499,20 +519,26 @@ def _hull(boxes: _t.Sequence[tuple]) -> tuple:
 
 def body_root(b: _t.Any, plan_wide: _t.Mapping[int, tuple],
               file_root: "_t.Mapping[str, str] | None" = None,
-              root_boxes: "_t.Mapping[str, _t.Sequence[tuple]] | None" = None
+              root_boxes: "_t.Mapping[str, _t.Sequence[tuple]] | None" = None,
+              touched: "_t.Mapping[int, str] | None" = None
               ) -> "str | None":
-    """The connected unit the body's seat already names (its anchor's
-    ``family``, a §16g unit — its own, or its carrier's), else the one most
-    of its parts belong to; for a body none of whose parts is chained,
-    its CARRIER's (``merged_into``, through
-    ``file_root``: the written file -> its unit, filled as the carriers are
-    written), else the unit of its own frame whose parts its plan box
-    touches or comes within :data:`TOUCH_M` of (``root_boxes``,
-    :func:`frame_root_boxes`; the nearest)."""
-    fam = str(getattr(getattr(b, "anchor", None), "family", "") or "")
-    if fam.startswith("fu:"):
-        # seated by a unit already (its own, or its carrier's): that unit
-        return unit_root(fam)
+    """The connected unit the body's own PARTS belong to (the one most of
+    them do; owner RULINGS 2026-10-22o (1): a body whose parts belong to a
+    connected unit takes that unit's zero, whatever pass seated it), else
+    the one its seat names (its anchor's ``family``, a §16g unit — its
+    carrier's); for a body none of whose parts is chained and no unit
+    seated, its CARRIER's (``merged_into``, through ``file_root``: the
+    written file -> its unit, filled as the carriers are written), else the
+    unit of its own frame whose parts its plan box touches or comes within
+    :data:`TOUCH_M` of (``root_boxes``, :func:`frame_root_boxes`; the
+    nearest) — before that, the unit its parts TOUCH (``touched``:
+    ``touch_group.touch_links``' pid -> unit, 2026-11-16k).
+
+    Parts before the seat (#2110, RULINGS 2026-11-16k): LOWS's
+    Terminal_LOWS_41 b7, its parts all in the units Terminal_LOWS_46 b1
+    stands in (431.95), took the unit of a carrier the no-evidence
+    fallback found 29 m off (``fu:2:12243``, 431.21) — 0.74 m under the
+    body it touches."""
     n: dict[str, int] = {}
     for pid in getattr(b, "pids", ()) or ():
         seat = plan_wide.get(pid)
@@ -521,9 +547,21 @@ def body_root(b: _t.Any, plan_wide: _t.Mapping[int, tuple],
             n[r] = n.get(r, 0) + 1
     if n:
         return max(sorted(n), key=lambda r: n[r])
+    fam = str(getattr(getattr(b, "anchor", None), "family", "") or "")
+    if fam.startswith("fu:"):
+        # seated by a unit already (its carrier's): that unit
+        return unit_root(fam)
     carrier = getattr(b, "merged_into", "") or ""
     if carrier and file_root and carrier in file_root:
         return file_root[carrier]
+    if touched:
+        # 2026-11-16k (#2110): the unit its parts touch (``touch_group``)
+        n = {}
+        for pid in getattr(b, "pids", ()) or ():
+            if pid in touched:
+                n[touched[pid]] = n.get(touched[pid], 0) + 1
+        if n:
+            return max(sorted(n), key=lambda r: n[r])
     box = getattr(b, "plan_box", None) or getattr(b, "geom_box", None)
     if box and root_boxes:
         best = None
@@ -561,12 +599,14 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                surface: _t.Any = None, gap_m: float = 0.0,
                afloat: "set[str] | None" = None,
                solo: _t.AbstractSet[str] = frozenset(),
-               led: "set[str] | None" = None) -> _t.Any:
+               led: "set[str] | None" = None,
+               touched: "_t.Mapping[int, str] | None" = None) -> _t.Any:
     """R5 / 22o: every body of ``record`` (a placement of frame ``frame``,
     the plan unit id) whose parts belong to a connected unit takes the ONE
     zero of that frame's share of it (:func:`root_zeros`), whatever pass
-    seated it.  A body carried by one of the unit's files takes it too
-    (:func:`body_root`).  A body already within ``tol_m`` of its target is
+    seated it.  A body carried by one of the unit's files takes it too,
+    and a body of no unit the unit its parts touch (``touched``,
+    2026-11-16k) (:func:`body_root`).  A body already within ``tol_m`` of its target is
     left as it is.
 
     #1896: A BODY THE ZERO WOULD HANG OVER WATER KEEPS ITS SEAT
@@ -616,7 +656,7 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
         return record
     if not plan_wide or not zeros:
         return record
-    roots = {id(b): body_root(b, plan_wide, file_root, root_boxes)
+    roots = {id(b): body_root(b, plan_wide, file_root, root_boxes, touched)
              for b in record.bodies}
     if merged:
         roots = {k: (merged.get(r, r) if r else r) for k, r in roots.items()}

@@ -123,7 +123,7 @@ def test_core_wants_takes_an_extra_airport_once(monkeypatch):
     import O4_Imagery_OnDemand_Cores as CORES
     import O4_Imagery_OnDemand_Index as INDEX
     got = []
-    monkeypatch.setattr(CORES, "airport_points", lambda la, lo: [
+    monkeypatch.setattr(CORES, "airport_points", lambda la, lo, **_kw: [
         ("GRD", 1.0, 2.0)])
     monkeypatch.setattr(CORES, "base_zoom", lambda *a: 16)
     monkeypatch.setattr(INDEX, "rows", lambda conn, tile: [{"tier_px": 512}])

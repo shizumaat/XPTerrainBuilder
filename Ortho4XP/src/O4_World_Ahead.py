@@ -2,10 +2,11 @@
 place: build-ahead's planning without a route (flight manager / World spec
 2026-11-10, §8.5 free flight, §7.5 S3, §2.2).
 
-* :func:`_track_entries` runs a copy of the window tracker
-  (``O4_World_Window.WindowTracker``) along the straight track from the
-  aircraft for ``horizon_s`` seconds and returns, for every tile that
-  enters on the way, the seconds until it enters.
+* :func:`path_entries` runs a copy of the window tracker
+  (``O4_World_Window.WindowTracker``) along a timed path -- the straight
+  track (:func:`track_path`) or a route -- and returns, for every tile
+  that enters on the way, the seconds until it enters (the imagery
+  page-ahead, ``O4_Imagery_Page_Ahead``, reads the same answer).
 * :func:`ahead` adds the turn margin: while the track turns faster than
   :data:`TURN_RATE_DEG_S`, the same run along the track turned
   :data:`TURN_DEG` toward the turn (one row and column toward it).
@@ -27,7 +28,8 @@ import math
 import O4_World_Window as WINDOW
 
 __all__ = ["MARGIN_DEG", "MARGIN_S", "SWAP_S", "STEP_S", "TURN_DEG",
-           "TURN_RATE_DEG_S", "margin_km", "held", "deadline_s", "ahead", "ring"]
+           "TURN_RATE_DEG_S", "margin_km", "held", "deadline_s", "ahead",
+           "path_entries", "ring", "track_path"]
 
 #: Rule S3: a tile is swapped only this far outside the window ...
 MARGIN_DEG = 0.05
@@ -91,17 +93,32 @@ def _copy(tracker: WINDOW.WindowTracker) -> WINDOW.WindowTracker:
     return twin
 
 
-def _track_entries(tracker: WINDOW.WindowTracker, lat: float, lon: float,
-                  track_deg: float, gs_ms: float, horizon_s: float,
-                  step_s: float = STEP_S) -> dict[Tile, float]:
-    """``{tile: seconds until it enters}`` along the straight track from
-    ``(lat, lon)`` at ``gs_ms`` for ``horizon_s``.  ``tracker`` (the live
-    window) is copied, never moved; an unknown history starts from the
-    union at ``(lat, lon)``."""
+def path_entries(tracker: WINDOW.WindowTracker,
+                 path) -> dict[Tile, float]:
+    """``{tile: seconds until it enters}`` along ``path`` = ``[(t, lat,
+    lon), ...]`` (seconds from now, ascending; a straight track or a
+    route flown at the groundspeed).  ``tracker`` (the live window) is
+    copied, never moved; an unknown history starts from the union at the
+    path's first point."""
     twin = _copy(tracker)
-    if not twin.cols or not twin.rows:
-        twin.update(lat, lon)
     out: dict[Tile, float] = {}
+    points = list(path)
+    if not points:
+        return out
+    if not twin.cols or not twin.rows:
+        twin.update(points[0][1], points[0][2])
+    for t, lat, lon in points[1:]:
+        for tile in twin.update(lat, lon):
+            out.setdefault(tile, t)
+    return out
+
+
+def track_path(lat: float, lon: float, track_deg: float, gs_ms: float,
+               horizon_s: float, step_s: float = STEP_S) -> list:
+    """``[(t, lat, lon), ...]``: the straight track from ``(lat, lon)``
+    at ``gs_ms`` for ``horizon_s``, a point every ``step_s`` (the first
+    at t = 0; none further when parked)."""
+    out = [(0.0, lat, lon)]
     if gs_ms <= 0 or horizon_s <= 0:
         return out
     t = 0.0
@@ -109,9 +126,16 @@ def _track_entries(tracker: WINDOW.WindowTracker, lat: float, lon: float,
         dt = min(step_s, horizon_s - t)
         t += dt
         lat, lon = _step(lat, lon, track_deg, gs_ms * dt)
-        for tile in twin.update(lat, lon):
-            out.setdefault(tile, t)
+        out.append((t, lat, lon))
     return out
+
+
+def _track_entries(tracker: WINDOW.WindowTracker, lat: float, lon: float,
+                  track_deg: float, gs_ms: float, horizon_s: float,
+                  step_s: float = STEP_S) -> dict[Tile, float]:
+    """:func:`path_entries` along the straight :func:`track_path`."""
+    return path_entries(tracker, track_path(lat, lon, track_deg, gs_ms,
+                                            horizon_s, step_s))
 
 
 def ahead(tracker: WINDOW.WindowTracker, lat: float, lon: float,

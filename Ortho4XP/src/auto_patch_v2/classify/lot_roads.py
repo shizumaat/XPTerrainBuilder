@@ -31,15 +31,12 @@ from shapely.ops import substring, unary_union
 
 from ..model.planar import is_gap_ref
 from ..geom.parts import line_parts
+#: the groundside pavement a road along it becomes part of: the lot and the
+#: landside paved island (one definition, ``law/tables.LOT_ROLES``)
+from ..law.tables import LOT_ROLES
 from .evidence import polygon_parts
 
 __all__ = ["LOT_ROLES", "lot_cells", "lot_stretches", "split_lot_ribbon"]
-
-#: The groundside pavement a road along it becomes part of: the lot and
-#: the landside paved island (``roles.open_pavement_role`` / the demotion
-#: ladder's two landside classes).
-LOT_ROLES = ("parking_lot", "groundside_pavement")
-
 
 def lot_cells(cells) -> list[tuple[object, Polygon]]:
     """The standing lots among ``cells``: ``(cell, polygon)``."""

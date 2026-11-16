@@ -512,6 +512,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.portal_floor",
         "auto_patch_v2.airport.portal_objects",
         "auto_patch_v2.airport.ramp_feet",
+        "auto_patch_v2.airport.ramp_wing",
         "auto_patch_v2.airport.reader_work",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
@@ -2519,7 +2520,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.bridge_witness geom.centreline
     model.free_bridge planar.free_bridge airport.ground_route_ways
     planar.front_band airport.entrance_front planar.ramp_carry planar.deck_runout
-    planar.wing_cut model.wing_cut airport.mouth_group airport.wall_lines
+    planar.wing_cut model.wing_cut airport.mouth_group airport.ramp_wing airport.wall_lines
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.facade_seat
@@ -2716,11 +2717,11 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.free_bridge planar.free_bridge airport.ground_route_ways
     planar.front_band airport.entrance_front planar.ramp_carry planar.deck_runout
     planar.wing_cut model.wing_cut airport.mouth_group constraints.wing_cut
-    airport.wall_lines
+    airport.wall_lines airport.ramp_wing
 """)
 CODE_MODULES["emit"] = _mods("""
     model.wing_cut
-    airport.mouth_group airport.wall_lines
+    airport.mouth_group airport.ramp_wing airport.wall_lines
     geom.agp_plate model.agp_plate
     constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     model.deck_stack
@@ -2837,7 +2838,7 @@ CODE_MODULES["emit"] = _mods("""
     classify.reachability
     geom.slope_pad
     airport.riser_wall
-    model.road_yield pipeline.band_road_wall
+    model.road_yield pipeline.band_road_wall pipeline.wing_wall_joints
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index
     airport.pavement_end_plate
@@ -2956,7 +2957,7 @@ CODE_MODULES["verify"] = _mods("""
     verify.strips verify.structures verify.transverse verify.within
     classify.reachability
     geom.slope_pad
-    model.road_yield pipeline.band_road_wall
+    model.road_yield pipeline.band_road_wall pipeline.wing_wall_joints
     geom.foot_planes constraints.group_level constraints.face_index
     airport.pavement_end_plate
     airport.walled_plate law.walled_plate_schema model.walled_plate

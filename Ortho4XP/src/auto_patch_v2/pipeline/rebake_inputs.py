@@ -409,8 +409,10 @@ def _mouth_wings(pm, law, airport, objects, plates, authored, excluded) -> tuple
     from ..airport import mouth_group as _mg
     from ..airport import terrain_shaped as _ts
     taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
+    from ..airport.ramp_wing import mapped_roads
     groups, notes = _mg.mouth_groups(getattr(airport, "partition", None), objects,
-                                     _mg.mouths_of(pm), _solid_cache(law), law, taken)
+                                     _mg.mouths_of(pm), _solid_cache(law), law, taken,
+                                     mapped_roads(airport))
     if groups or notes:
         for line in _mg.log_lines(str(getattr(airport, "icao", "")), groups, notes):
             print(line)

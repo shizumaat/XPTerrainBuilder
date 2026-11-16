@@ -21,13 +21,16 @@ import typing as _t
 
 from .frame import XY
 
-__all__ = ["WallLine", "WingCut", "WING_CUT_REF", "WING_BACK_REF", "wing_floor_y",
-           "wing_top_y"]
+__all__ = ["WallLine", "WingCut", "WING_CUT_REF", "WING_BACK_REF", "WING_WALL_REF",
+           "wing_floor_y", "wing_top_y"]
 
 #: the ref prefix of the ground minted in a wing cut (``wing_cut:<mouth>``)
 WING_CUT_REF = "wing_cut"
 #: the ref prefix of the strip behind a wall line (``wing_back:<mouth>``, R3 D5)
 WING_BACK_REF = "wing_back"
+#: the ref prefix of a ramp wing's wall plans cut out of the ground
+#: (``wing_wall:<ramp>``, #2099 G4 W): plain ground, the step hides there
+WING_WALL_REF = "wing_wall"
 
 
 @_dc.dataclass(frozen=True)
@@ -66,11 +69,19 @@ class WingCut:
     #: how far from a wall line's face a vertex may stand and still read
     #: that line (R3b D4b; ``[tunnel] dual_carriageway_max_separation_m``)
     reach: float = math.inf
+    #: the walls' own plans (rings), cut out of the ground and pavement
+    #: drawn over them (#2099 G4 W, RULINGS 2026-11-16d): a ramp wing's
+    walls: tuple[tuple[XY, ...], ...] = ()
 
     @property
     def back_ref(self) -> str:
         """The ref of the strip behind the lines (``wing_back:<mouth>``)."""
         return f"{WING_BACK_REF}:{self.mouth}"
+
+    @property
+    def wall_ref(self) -> str:
+        """The ref of the walls' plans (``wing_wall:<ramp>``, #2099 G4 W)."""
+        return f"{WING_WALL_REF}:{self.mouth}"
 
 
 def _along(pts: _t.Sequence[XY], xy: XY) -> tuple[float, float, int]:

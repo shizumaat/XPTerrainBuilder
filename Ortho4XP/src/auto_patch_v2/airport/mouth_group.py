@@ -62,10 +62,22 @@ class Mouth:
 
 @_dc.dataclass(frozen=True)
 class MouthGroup:
-    """A mouth and its wings, ``(placement id, resource)`` each."""
+    """A mouth and its wings, ``(placement id, resource)`` each; ``offsets``
+    the RAMP WINGS among them (``airport/ramp_wing``, #2099 G4 S), ``(id,
+    Δ)`` each: a ramp wing's zero stands Δ over a wing's."""
 
     mouth: Mouth
     wings: tuple[tuple[str, str], ...]
+    offsets: tuple[tuple[str, float], ...] = ()
+
+    def offset(self, wid: str) -> float:
+        """Wing ``wid``'s zero over the group's wing zero (0 but a ramp wing)."""
+        return dict(self.offsets).get(wid, 0.0)
+
+    @property
+    def ramps(self) -> frozenset[str]:
+        """The ramp wings' ids."""
+        return frozenset(w for w, _d in self.offsets)
 
 
 def _solids(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law):
@@ -103,13 +115,10 @@ def _wing_refusal(read, mouth_top_over_floor: float, mouth_plan, law) -> "str | 
     W3 IT RUNS OUT OF THE MOUTH: it reaches ``entrance_skirt_m`` or more
     beyond the mouth's plan, and nowhere farther than ``wing_reach_max_m``."""
     ob = law.tables.structures.tunnel.object
-    if read is None:
-        return "no genuine solid"
-    plan, top, hard = read
-    if hard:
-        return "it carries a hard deck"
-    if not plan.buffer(-0.5 * float(ob.wall_face_max_thickness_m)).is_empty:
-        return f"no wall: its plan is {ob.wall_face_max_thickness_m:g} m thick somewhere"
+    why = _wall_refusal(read, law)
+    if why is not None:
+        return why
+    plan, top, _hard = read
     if top < float(ob.shell_floor_min_m):
         return f"no wall's height: its top {top:+.2f} under shell_floor_min_m"
     if top > mouth_top_over_floor + float(ob.plate_bin_m):
@@ -120,6 +129,21 @@ def _wing_refusal(read, mouth_top_over_floor: float, mouth_plan, law) -> "str | 
         return f"it runs {far:.1f} m out of the mouth, under entrance_skirt_m"
     if far > float(ob.wing_reach_max_m):
         return f"it runs {far:.1f} m out of the mouth, over wing_reach_max_m"
+    return None
+
+
+def _wall_refusal(read, law) -> "str | None":
+    """W1 (:func:`_wing_refusal`): why the piece read ``read`` is not all
+    walls -- no solid, a hard deck, or a plan ``[tunnel.object]
+    wall_face_max_thickness_m`` thick somewhere -- or ``None``."""
+    ob = law.tables.structures.tunnel.object
+    if read is None:
+        return "no genuine solid"
+    plan, _top, hard = read
+    if hard:
+        return "it carries a hard deck"
+    if not plan.buffer(-0.5 * float(ob.wall_face_max_thickness_m)).is_empty:
+        return f"no wall: its plan is {ob.wall_face_max_thickness_m:g} m thick somewhere"
     return None
 
 
@@ -151,7 +175,8 @@ def _contact_roots(partition) -> tuple[dict[str, str], dict[str, str]]:
 
 def mouth_groups(partition, objects: _t.Sequence[_obj8.PlacedObject],
                  mouths: _t.Sequence[Mouth], cache: _obj8.ResourceCache, law,
-                 taken: _t.AbstractSet[str] = frozenset()
+                 taken: _t.AbstractSet[str] = frozenset(),
+                 roads: _t.Sequence[_t.Sequence[tuple[float, float]]] = ()
                  ) -> tuple[list[MouthGroup], list[str]]:
     """THE MOUTH GROUPS (spec §1) and one note per touching piece refused.
 
@@ -163,7 +188,8 @@ def mouth_groups(partition, objects: _t.Sequence[_obj8.PlacedObject],
     wing joins one mouth, the first by id.
 
     A WALL LINING THE MOUTH'S ROAD (``Mouth.road``) joins too (#2099 R3 E,
-    :func:`_lining`)."""
+    :func:`_lining`), and a RAMP WING butting a wing's end, its zero offset
+    (``airport/ramp_wing``, #2099 G4 S; ``roads`` the mapped roads)."""
     if partition is None or not mouths:
         return [], []
     eps = float(law.tables.structures.rebake.contact_epsilon_m)
@@ -208,9 +234,18 @@ def mouth_groups(partition, objects: _t.Sequence[_obj8.PlacedObject],
                      f"reaches it through no wing" for oid in sorted(set(cand) - set(wings)))
         used.update(wings)
     notes.extend(_lining(found, objects, by_id, cache, law, mouth_ids | set(taken) | used))
+    from .ramp_wing import ramp_wings
+    ramps, rnotes = ramp_wings(found, objects, cache, law,
+                               mouth_ids | set(taken) | {w for _m, _r, ws in found for w in ws},
+                               roads)
+    notes.extend(rnotes)
     path.update({str(o.id): str(o.path) for o in objects if str(o.id) not in path})
-    out = [MouthGroup(m, tuple((w, path[w]) for w in sorted(wings)))
-           for m, _r, wings in found if wings]
+    out = []
+    for m, _r, wings in found:
+        mine = sorted((rid, j.offset) for rid, j in ramps.items() if j.mouth == m.object_id)
+        if wings:
+            ids = sorted(wings + [r for r, _d in mine])
+            out.append(MouthGroup(m, tuple((w, path[w]) for w in ids), tuple(mine)))
     return out, notes
 
 
@@ -321,17 +356,19 @@ def wing_plates(groups: _t.Sequence[MouthGroup], plates: _t.Mapping[str, tuple]
     (``pipeline/rebake_inputs._plate_seats``: ``(y, stations, clearance,
     kind[, anchor zero])``, zero = the surface at the stations less ``y``): the
     mouth's plate with its zero lowered by nothing but the mouth's floor --
-    ``y - floor_y`` and an anchor zero ``+ floor_y`` (spec §2 S1)."""
+    ``y - floor_y`` and an anchor zero ``+ floor_y`` (spec §2 S1); a ramp
+    wing's by its offset too (``MouthGroup.offset``, #2099 G4 S)."""
     out: dict[str, tuple] = {}
     for g in groups:
         p = plates.get(g.mouth.object_id)
         if p is None:
             continue
         y, st, *rest = p
-        if len(rest) > 2 and rest[2] is not None:
-            rest = [*rest[:2], float(rest[2]) + g.mouth.floor_y, *rest[3:]]
         for wid, _res in g.wings:
-            out[wid] = (float(y) - g.mouth.floor_y, st, *rest)
+            lift = g.mouth.floor_y + g.offset(wid)
+            more = [*rest[:2], float(rest[2]) + lift, *rest[3:]] \
+                if len(rest) > 2 and rest[2] is not None else rest
+            out[wid] = (float(y) - lift, st, *more)
     return out
 
 
@@ -340,9 +377,9 @@ def wing_records(groups: _t.Sequence[MouthGroup],
                  ) -> list[dict[str, _t.Any]]:
     """A whole-row seat record (``seat``, written as ``OBJECT_MSL`` by
     ``terrain_shaped.row_seats``) for each wing whose mouth's ROW is seated by
-    one (spec §2 S2): ``elevation`` the mouth's own record's plus its floor y,
-    ``led_by`` the mouth.  A mouth seated at several ends (an entrance)
-    leads at its lowest."""
+    one (spec §2 S2): ``elevation`` the mouth's own record's plus its floor y
+    (and a ramp wing's offset, #2099 G4 S), ``led_by`` the mouth.  A mouth
+    seated at several ends (an entrance) leads at its lowest."""
     zero: dict[str, float] = {}
     for r in records:
         oid = str(r.get("id", ""))
@@ -355,7 +392,7 @@ def wing_records(groups: _t.Sequence[MouthGroup],
             continue
         for wid, res in g.wings:
             out.append({"id": wid, "resource": res, "datum": MOUTH_DATUM, "seat": seat,
-                        "elevation": round(z + g.mouth.floor_y, 3),
+                        "elevation": round(z + g.mouth.floor_y + g.offset(wid), 3),
                         "led_by": g.mouth.object_id})
     return out
 

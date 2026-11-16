@@ -34,7 +34,7 @@ __all__ = [
     "ring_vertex_ids", "principal_axis", "long_axis",
     "pair_is_transverse", "station_indices", "longitudinal_runs",
     "rect_ring", "point_in_ring", "point_in_rect_ring", "project_to_chain",
-    "chains_within",
+    "chains_within", "rows_outside", "chords_outside",
     "TransectShape", "TransectAxis", "Transect", "walk_transects",
     "polyline_length", "face_cover", "chords_covered", "chord_midpoints_hit",
 ]
@@ -113,6 +113,51 @@ def chord_midpoints_hit(poly, segments: _t.Sequence[tuple[XY, XY]]):
     my = 0.5 * (seg[:, 0, 1] + seg[:, 1, 1])
     shapely.prepare(poly)
     return np.asarray(shapely.intersects_xy(poly, mx, my), dtype=bool)
+
+
+def rows_outside(cover, xy: _t.Sequence[XY], min_d: float,
+                 i0: int, i1: int) -> list[tuple[int, int]]:
+    """The index pairs ``(i, j)``, ``i0 <= i < i1`` and ``j >= i + 2``, of
+    the ring's non-adjacent chords at least ``min_d`` long that ``cover``
+    does NOT cover — in ``(i, j)`` order.  ONE ``covered_by`` over the
+    chunk's chords."""
+    n = len(xy)
+    ii: list[int] = []
+    jj: list[int] = []
+    for i in range(i0, i1):
+        xa, ya = xy[i]
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            xb, yb = xy[j]
+            if math.hypot(xa - xb, ya - yb) >= min_d:
+                ii.append(i)
+                jj.append(j)
+    if not ii:
+        return []
+    import numpy as np
+    pts = np.asarray(xy, float)
+    seg = np.stack([pts[ii], pts[jj]], axis=1)
+    # the SOUND pre-screen first (``chord_midpoints_hit``: a chord whose
+    # midpoint misses the cover is not covered); the full predicate judges
+    # the survivors alone
+    live = np.flatnonzero(chord_midpoints_hit(cover, seg))
+    inside = np.zeros(len(seg), dtype=bool)
+    inside[live] = chords_covered(cover, seg[live])
+    return [(i, j) for i, j, k in zip(ii, jj, inside.tolist(), strict=True) if not k]
+
+
+def chords_outside(xy: _t.Sequence[XY], holes: _t.Sequence[_t.Sequence[XY]],
+                   tol_m: float, min_d: float) -> list[tuple[int, int]]:
+    """Every chord of one ring that leaves its face (RULINGS 2026-09-05ae
+    (1): an apron's; #2099 G4 C: a lot's) — the serial reading, the one
+    predicate the generators, the verify stage (``verify/chord_work``) and
+    the census ask; none for a degenerate face (``face_cover`` is
+    ``None``)."""
+    cover = face_cover(xy, holes, tol_m)
+    if cover is None:
+        return []
+    return rows_outside(cover, xy, min_d, 0, len(xy))
 
 
 # ── ring walks ───────────────────────────────────────────────────────────

@@ -75,3 +75,35 @@ def test_a_slab_drawn_as_two_faces_is_one_level_its_top_the_upper():
     own = LineString([(5.0, 0.0), (60.0, 0.0)])
     (_p, _u, top), = _deck_ends(own, own, fl, STOREY)[0]
     assert top == pytest.approx(9.25, abs=0.01)
+
+
+def test_past_an_agp_deck_end_the_whole_run_is_at_grade():
+    """A mapped bridge running on 60 m past an AGP deck's graded end (run
+    45 m): the whole run is at grade (no pack deck carries it); past a
+    kept DSF deck's end only ``[bridge] free_end_run_on_max_m`` is."""
+    from auto_patch_v2.airport import deck_stack as DS
+    from auto_patch_v2.airport.agp_deck_ends import AGP_END_PREFIX
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.airport import OsmWay
+    from auto_patch_v2.model.deck_stack import KEPT, DeckStack, StackDeck, StackEnd
+    law = Law.for_airport("")
+    end = StackEnd("E", "a", ((0.0, -4.0), (0.0, 4.0)), 2.0, (1.0, 0.0), 8.0, 2.0, "graded", "",
+                   ((0.0, 0.0), (60.0, 0.0)), 45.0, 0.05)
+    deck = StackDeck("E", "", 0, ((-30.0, -6.0), (0.0, -6.0), (0.0, 6.0), (-30.0, 6.0)), 1,
+                     (-1,), (), end.stations, (), 2.0, 0.0)
+
+    def stack(bridge):
+        return DeckStack(id="stack:" + bridge, walls_id="", walls_resource="",
+                         members=(("E", ""),), zero_z=8.0, zero_spread_m=0.0, end_zeros=(),
+                         feet_y=0.0, crest_y=0.0, floor=(), rim=(), runouts=(), under_ways=(),
+                         decks=(deck,), kind=KEPT, ends=(end,), bridge=bridge)
+    ways = [OsmWay(-1, "big_roads", ((-30.0, 0.0), (60.0, 0.0)), False,
+                   {"highway": "primary", "bridge": "yes", "layer": "2"})]
+
+    def at_grade(got):
+        return sum(LineString(w.points).length for w in got if "bridge" not in w.tags)
+    run_on = float(law.tables.structures.bridge.free_end_run_on_max_m)
+    assert at_grade(DS._rewrite_ways(ways, [stack(AGP_END_PREFIX + "x")], law)) == \
+        pytest.approx(45.0, abs=0.1)
+    assert at_grade(DS._rewrite_ways(ways, [stack("kept:x")], law)) == \
+        pytest.approx(run_on, abs=0.1)

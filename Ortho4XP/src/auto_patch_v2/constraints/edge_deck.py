@@ -440,8 +440,8 @@ def release_governed(rows: list[Row], counts: dict[str, int] | None = None,
     return out
 
 
-def deck_floor(planar: PlanarMap, air_roles: "_t.AbstractSet[str]" = frozenset()
-               ) -> tuple[frozenset, frozenset]:
+def deck_floor(planar: PlanarMap, air_roles: "_t.AbstractSet[str]" = frozenset(),
+               air: "_t.AbstractSet[int]" = frozenset()) -> tuple[frozenset, frozenset]:
     """``(floor, trench)``: the vertices of a HARD-DECK BRIDGE's trench
     floor under its deck, and every vertex of a trench (its ramps and its
     void) — ``walled_plate.release_across``'s sets (owner RULINGS
@@ -463,7 +463,15 @@ def deck_floor(planar: PlanarMap, air_roles: "_t.AbstractSet[str]" = frozenset()
     floor were kept; at obj24551 a floor ceiling pulled the taxi deck 2.89 m
     under its route level (the airside bumps at both ends of #2072), and at
     the other decks the deck lifted every floor to its 5 m bound, 2.3-2.7 m
-    over the ramp's own floor (the steps along the roads of #1902)."""
+    over the ramp's own floor (the steps along the roads of #1902).
+
+    A VERTEX A STAGE-1 AIRSIDE FACE CARRIES (``air``,
+    ``model/platform.stage_air_vertices``) IS NEVER FLOOR (#2099 R3b A4):
+    it is ``trench`` only by the clause above (no airside role), so the
+    release keeps its airside rows and withdraws the rows joining it to the
+    floor.  MEASURED (lcyyz3, KBNA): R3 A1 took such a vertex out of every
+    floor row while this still called it floor; the release withdrew its
+    taxiway rows, nothing held it, and it fell 3.29 m to the floor."""
     rings = [db.ring for db in getattr(planar, "decks", ()) or ()
              if db.cut != "none" and len(db.ring) >= 3]
     if not rings:
@@ -477,7 +485,7 @@ def deck_floor(planar: PlanarMap, air_roles: "_t.AbstractSet[str]" = frozenset()
         roles = set(planar.roles_at(v))
         if roles & (_FLOOR_ROLES | {"retaining_wall"}):
             is_floor = bool(roles & _FLOOR_ROLES) and not roles & _RUNWAY_FAMILY \
-                and inside.contains(Point(vx.xy))
+                and v not in air and inside.contains(Point(vx.xy))
             if is_floor:
                 floor.add(v)
             if is_floor or not roles & (set(air_roles) - _RUNWAY_FAMILY):

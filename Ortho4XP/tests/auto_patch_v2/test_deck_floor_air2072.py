@@ -85,3 +85,22 @@ def test_the_decks_own_ground_beyond_the_trench_reach_is_spanned():
     rows = ED._span_rows(pm, "dsf:obj1", es, (), set(), ends, 0.04)
     held = {r.terms[0][0] for r in rows if r.terms[0][1] > 0.0}
     assert {7, 8} <= held
+
+
+def test_an_airside_carried_floor_vertex_is_never_floor():
+    """T8 (#2099 R3b A4): a trench floor vertex a taxiway face carries is in
+    neither set; after the release its taxiway row stands and its row to the
+    floor is withdrawn.  A runway-family vertex behaves as before."""
+    roles = {1: ("tunnel_ramp",), 2: ("retaining_wall", "junction"),
+             3: ("tunnel_ramp", "junction"), 4: ("tunnel_ramp", "runway")}
+    floor, trench = ED.deck_floor(_pm(roles), airside_stage_roles(LAW), air={3, 4})
+    assert 3 not in floor and 3 not in trench
+    assert floor == {1}
+    taxi = Diff(3, 2, 0.015, 20.0, Source("taxi", "x", ()))
+    to_floor = Diff(3, 1, 0.05, 20.0, Source("taxi", "x", ()))
+    out = WP.release_across([taxi, to_floor], None, None, {}, under=floor, inside=trench,
+                            keep=frozenset({"structures", ED.GEN}), key="k")
+    assert out == [taxi]
+    # the runway-family vertex: as without the airside set
+    assert (4 in trench) == (4 in ED.deck_floor(_pm(roles), airside_stage_roles(LAW))[1])
+    assert 4 not in floor

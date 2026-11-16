@@ -249,8 +249,11 @@ def post_passes(rows: list[Row], counts: dict[str, int], walls: dict[str, float]
     rows = walled_plate.release_across(rows, planar, airport, counts)
     # 2026-10-30a: a hard-deck bridge's floor is pulled by nothing outside
     # its trench, save the trench's own law (``edge_deck.deck_floor``) --
-    # the airside on its walls stands outside it (#2072 / #1902)
-    floor, trench = edge_deck.deck_floor(planar, airside_stage_roles(law))
+    # the airside on its walls stands outside it (#2072 / #1902), and a
+    # vertex a stage-1 airside face carries is never floor (#2099 R3b A4)
+    from ..model.platform import stage_air_vertices
+    floor, trench = edge_deck.deck_floor(planar, airside_stage_roles(law),
+                                         stage_air_vertices(planar, law))
     if floor:
         rows = walled_plate.release_across(
             rows, planar, airport, counts, under=floor, inside=trench,

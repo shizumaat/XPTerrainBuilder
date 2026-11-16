@@ -848,6 +848,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.planar.low_extent",
     "auto_patch_v2.planar.low_fill",
     "auto_patch_v2.planar.low_level",
+    "auto_patch_v2.planar.mouth_behind",
     "auto_patch_v2.planar.mouth_opening",
     "auto_patch_v2.planar.object_corridor",
     "auto_patch_v2.planar.object_floor_cells",
@@ -1049,6 +1050,7 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_DDS_Cache",
         "O4_DDS_Tiers",
         "O4_Imagery_Async",
+        "O4_Imagery_Capture_Seam",
         "O4_Imagery_Certs",
         "O4_Imagery_Fetch",
         "O4_Imagery_Placeholder",
@@ -1065,6 +1067,8 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Triangle_Binary",
         "O4_Triangle_IO",
         "O4_Triangle_Run",
+        # the capture seams' mosaic (#2108): the tile's texture squares
+        "O4_World_Drape",
     ),
 }
 

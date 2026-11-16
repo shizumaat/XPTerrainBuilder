@@ -264,7 +264,7 @@ def _feet(grade):
 def test_group_walls_set_the_ramp_grade_on_their_side():
     """T7: walls with a 3.5 % foot north of the deck: the north ramp's grade
     is 3.5 %, the south one's the design grade; a 0.2 % foot is no witness."""
-    from auto_patch_v2.planar.deck_bridge import _group_reach
+    from auto_patch_v2.planar.deck_bridge import group_reach
     tn = LAW.tables.structures.tunnel
     north, south = _site(_feet(0.035))
     assert north.design_grade == pytest.approx(0.035, abs=1e-3)
@@ -272,6 +272,6 @@ def test_group_walls_set_the_ramp_grade_on_their_side():
     flat_n, _s = _site(_feet(0.002))
     assert flat_n.design_grade == pytest.approx(tn.ramp_grade, abs=1e-6)
     import test_deck_trench2072 as T
-    reach, g = _group_reach(_dc.replace(T._deck(), group_feet=tuple(_feet(0.035))),
+    reach, g = group_reach(_dc.replace(T._deck(), group_feet=tuple(_feet(0.035))),
                             (0.0, 15.0), LAW)
     assert reach == pytest.approx(60.0, abs=0.5) and g == pytest.approx(0.035, abs=1e-6)

@@ -41,12 +41,12 @@ import typing as _t
 from shapely.geometry import LineString, Point, Polygon
 
 from ..law import Law
-from .deck_bridge import deck_polygon
+from .deck_bridge import deck_polygon, group_reach
 from .unframed_ramp import overlap_yield
 from .wall_corridor_ramps import KIND as WALL_KIND
 
-__all__ = ["resolve_overlaps", "deck_partner", "paved_over", "run_stop_s", "run_side",
-           "run_group"]
+__all__ = ["resolve_overlaps", "deck_partner", "walled_ramp", "paved_over", "run_stop_s",
+           "run_side", "run_group"]
 
 XY = tuple[float, float]
 #: two cuts face each other along one road when each one's axis heads at
@@ -137,6 +137,24 @@ def deck_partner(db, axis: LineString, decks: _t.Sequence, paved=None, width: fl
     if best is None or paved_over(axis, s_own, best[0], paved, width):
         return None
     return best[1]
+
+
+def walled_ramp(db, xy, law) -> bool:
+    """A WALLED RAMP IS NOT A RUN-THROUGH (#2099 G3 Part A, spec
+    ``docs/specs/2099-G3.md``; RULINGS 2026-11-16b where it meets 2026-10-29
+    Q271 b): whether the corridor out of the mouth at ``xy`` under the hard
+    deck ``db`` is lined by its mouth group's walls that witness a climb --
+    their run along the approach and their feet's slope
+    (``deck_bridge.group_reach``, R3 D6) over ``[tunnel.object]
+    group_foot_min_grade``.  Such a corridor is a RAMP to its walls' end and
+    is never paired with a further deck (:func:`deck_partner`'s callers):
+    no level stretch, no shared seats, no reach to that deck.  Two decks
+    with no such walls between them pair as before."""
+    if db is None or law is None:
+        return False
+    reach, grade = group_reach(db, tuple(xy), law)
+    return reach > 0.0 and grade >= float(
+        law.tables.structures.tunnel.object.group_foot_min_grade)
 
 
 def paved_over(line: LineString, s0: float, s1: float, paved, width: float = 0.0) -> bool:

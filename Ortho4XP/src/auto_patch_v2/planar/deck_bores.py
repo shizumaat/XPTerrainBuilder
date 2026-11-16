@@ -206,7 +206,7 @@ def _levels_differ(level_of, a: int, b: int, tol: float) -> bool:
 
 def road_level(approach: _t.Sequence[XY], db: DeckBridge, dem_z: _t.Callable[[float, float], float],
                gap: float, run: float, step: float, decks: _t.Sequence[DeckBridge] = (),
-               paved=None) -> "float | None":
+               paved=None, law=None) -> "float | None":
     """THE GROUND OF A MOUTH'S OWN ROAD BEYOND ITS DECK (#2072 B2): the
     median DEM along the mouth's ``approach`` (its mapped road walking out
     of the bore), from where it leaves the deck ring ``gap`` behind, over
@@ -219,7 +219,9 @@ def road_level(approach: _t.Sequence[XY], db: DeckBridge, dem_z: _t.Callable[[fl
     a lane (#1718; MEASURED KBNA Taxiway L, 2026-11-14 DEM refresh: two
     roads' ground in the 18 m stretch between the decks read 0.567 m apart
     against the 0.5 m tolerance, the split lane's mouth datum landed on the
-    taxiway edge and pulled the deck 2.3 m down)."""
+    taxiway edge and pulled the deck 2.3 m down).  A WALLED RAMP never runs
+    through (``structure_overlap.walled_ramp`` under ``law``, #2099 G3 A):
+    its road's ground is read."""
     import math
     import statistics
     if len(approach) < 2 or step <= 0.0:
@@ -238,20 +240,23 @@ def road_level(approach: _t.Sequence[XY], db: DeckBridge, dem_z: _t.Callable[[fl
             if not math.isnan(z):
                 zs.append(z)
         s += step
-    if zs and decks and _runs_through(ln, min(ln.length, start + run), db, decks, paved):
+    if zs and decks and _runs_through(ln, min(ln.length, start + run), db, decks, paved, law):
         return None
     return statistics.median(zs) if zs else None
 
 
 def _runs_through(ln: LineString, s_end: float, db: DeckBridge,
-                  decks: _t.Sequence[DeckBridge], paved) -> bool:
+                  decks: _t.Sequence[DeckBridge], paved, law=None) -> bool:
     """Whether the road ``ln`` walking out of ``db`` runs under the next
     deck (``structure_overlap.deck_partner``) before ``s_end``: the stretch
-    its level is read over (:func:`road_level`)."""
+    its level is read over (:func:`road_level`) -- never out of a walled
+    ramp (``structure_overlap.walled_ramp``)."""
     from shapely.ops import substring
 
-    from .structure_overlap import deck_partner
-    return s_end > 0.0 and deck_partner(db, substring(ln, 0.0, s_end), decks, paved) is not None
+    from .structure_overlap import deck_partner, walled_ramp
+    if s_end <= 0.0 or walled_ramp(db, ln.coords[0], law):
+        return False
+    return deck_partner(db, substring(ln, 0.0, s_end), decks, paved) is not None
 
 
 def lane_band(db: DeckBridge, centres: _t.Sequence[float], lane: int

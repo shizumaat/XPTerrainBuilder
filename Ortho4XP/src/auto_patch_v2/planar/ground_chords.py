@@ -42,7 +42,7 @@ import numpy as np
 
 from ..model.frame import XY
 
-__all__ = ["road_ground_densifier"]
+__all__ = ["road_ground_densifier", "near_any"]
 
 #: a ring vertex is a MOUTH when it stands this close to a contact face
 #: (the identity spacing is 0.5 m)
@@ -158,6 +158,22 @@ def follow_ground(points: _t.Sequence[XY], z_many: _t.Callable, tol_m: float,
     return out
 
 
+def near_any(polygons: _t.Sequence, distance: float) -> MouthOf | None:
+    """The test "this point stands within ``distance`` of one of
+    ``polygons``" (``None`` for no polygons) — the MOUTH test here and
+    the keep-off of ``chords.abeam_stations`` (#1918 R3)."""
+    polys = list(polygons)
+    if not polys:
+        return None
+    from shapely.geometry import Point
+    from shapely.strtree import STRtree
+    tree = STRtree(polys)
+
+    def near(p: XY) -> bool:
+        return len(tree.query(Point(p), predicate="dwithin", distance=distance)) > 0
+    return near
+
+
 def road_ground_densifier(airport, law, contacts: _t.Sequence = ()
                           ) -> "_t.Callable[[list[XY]], list[XY]] | None":
     """The ring densifier :func:`follow_ground` for this airport's DEM and
@@ -177,16 +193,9 @@ def road_ground_densifier(airport, law, contacts: _t.Sequence = ()
     min_piece = float(ch.road_ground_min_chord_m)
     mouth = ramp = None
     if contacts:
-        from shapely.geometry import Point
-        from shapely.strtree import STRtree
-
         from ..airport.road_descent import STAND_M
         from ..law.tables import snap_margin_m
-        tree = STRtree(list(contacts))
-        near = float(snap_margin_m(law))
+        mouth = near_any(contacts, float(snap_margin_m(law)))
         ramp = Ramp(float(law.tables.emit.road_contact.ramp_grade),
                     float(law.tables.common.road_max_grade), STAND_M)
-
-        def mouth(p: XY) -> bool:
-            return len(tree.query(Point(p), predicate="dwithin", distance=near)) > 0
     return lambda ring: follow_ground(ring, z_many, tol, sample, min_piece, mouth, ramp)

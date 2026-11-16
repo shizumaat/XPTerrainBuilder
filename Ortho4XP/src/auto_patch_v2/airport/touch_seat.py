@@ -113,13 +113,13 @@ def _mark_fixed(nodes: list, splits: _t.Sequence[_t.Any], members: _t.Mapping,
                                    group_key(n.unit, n.frame) in fixed.led) else
             "isolated" if getattr(b.anchor, "isolated", "") else
             gate if gate and not (n.kind == _tg.CONNECTOR and n.carrier) else "")
-    by_name = {n.name: n for n in nodes}
+    by_name = {(n.frame, n.name): n for n in nodes}
     for _ in range(len(nodes)):
         moved = False
         for n in nodes:
             if n.fixed or not n.carrier:
                 continue
-            c = by_name.get(n.carrier)
+            c = by_name.get((n.frame, n.carrier))
             if c is not None and c.fixed:
                 n.fixed, moved = "carrier_fixed", True
             elif c is None and n.carrier and not n.carrier.startswith("fu:"):
@@ -167,11 +167,11 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw) -> dict:
         out["pads"] = [(nodes[i].name, round(z + nodes[i].bottom(), 3)) for i in blds]
     if out["class"] != "seat":
         return out
-    by_name = {nodes[i].name: i for i in g}
+    by_name = {(nodes[i].frame, nodes[i].name): i for i in g}
     keep = set(small)
     for i in g:
         n = nodes[i]
-        rides = n.kind == _tg.CONNECTOR and n.carrier in by_name
+        rides = n.kind == _tg.CONNECTOR and (n.frame, n.carrier) in by_name
         if n.zero < z - law.tol_m:
             out["kept_low"] += 1                      # 2.2: no member rises
             keep.add(i)
@@ -181,7 +181,7 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw) -> dict:
     for _ in range(len(g)):
         # (b): a connector carried with evidence keeps with a kept carrier
         grew = {i for i in g if i not in keep and nodes[i].kind == _tg.CONNECTOR
-                and by_name.get(nodes[i].carrier) in keep}
+                and by_name.get((nodes[i].frame, nodes[i].carrier)) in keep}
         if not grew:
             break
         keep |= grew
@@ -195,30 +195,31 @@ def _zero_of(b: _t.Any) -> float:
     return float(b.anchor.surface_z) - float(b.anchor.y_zero)
 
 
-def _riders(splits: _t.Sequence[_t.Any], moved: dict[tuple[int, int], float],
-            skip: set[tuple[int, int]], tol_m: float) -> dict[tuple[int, int], float]:
+def _riders(splits: _t.Sequence[_t.Any], frames: _t.Sequence[str],
+            moved: dict[tuple[int, int], float], skip: set[tuple[int, int]],
+            tol_m: float) -> dict[tuple[int, int], float]:
     """§2.3: every body riding a moved body (``merged_into``, evidence or
     not) — a body of no group, a node or not (a carried file of orphan
     geometry has no part) — moved by the same amount, riders of riders
     too; never a body ``skip`` names (a group member, a FIXED one), a
     seat-tilted or isolated one, nor a footed one upward."""
-    name_delta: dict[str, float] = {}
+    name_delta: dict[tuple[str, str], float] = {}
     for (ri, j), z in moved.items():
         b = splits[ri].bodies[j]
-        name_delta[str(b.new_resource)] = z - _zero_of(b)
+        name_delta[(frames[ri], str(b.new_resource))] = z - _zero_of(b)
     out: dict[tuple[int, int], float] = {}
     for _ in range(64):
         grew = False
         for ri, rec in enumerate(splits):
             for j, b in enumerate(rec.bodies):
                 k = (ri, j)
-                d = name_delta.get(str(b.merged_into or ""))
+                d = name_delta.get((frames[ri], str(b.merged_into or "")))
                 if (d is None or k in moved or k in out or k in skip
                         or b.anchor.surface_z is None or getattr(b.seat, "applied", False)
                         or getattr(b.anchor, "isolated", "") or (b.feet and d > tol_m)):
                     continue
                 out[k], grew = _zero_of(b) + d, True
-                name_delta[str(b.new_resource)] = d
+                name_delta[(frames[ri], str(b.new_resource))] = d
         if not grew:
             break
     return out
@@ -242,11 +243,12 @@ def _apply(splits: list, members: _t.Mapping, targets: dict[tuple[int, int], flo
     return set(per)
 
 
-def _recut(splits: list, before: list, changed: set[int], cut_log: _t.Mapping,
-           write: bool, counts: dict) -> dict[str, str]:
-    """The changed records cut again; ``{old file: new file}`` of every
-    body that moved.  A record the cut no longer writes stays as it was."""
-    names: dict[str, str] = {}
+def _recut(splits: list, frames: _t.Sequence[str], before: list, changed: set[int],
+           cut_log: _t.Mapping, write: bool, counts: dict) -> dict[tuple[str, str], str]:
+    """The changed records cut again; ``{(frame, old file): new file}`` of
+    every body that moved.  A record the cut no longer writes stays as it
+    was."""
+    names: dict[tuple[str, str], str] = {}
     for ri in sorted(changed):
         args = cut_log.get(ri)
         new = recut(splits[ri], args, write, counts) if args is not None else None
@@ -258,16 +260,18 @@ def _recut(splits: list, before: list, changed: set[int], cut_log: _t.Mapping,
         now = {b.body_id: b.new_resource for b in new.bodies}
         for b in before[ri].bodies:
             if now.get(b.body_id, b.new_resource) != b.new_resource:
-                names[b.new_resource] = now[b.body_id]
+                names[(frames[ri], b.new_resource)] = now[b.body_id]
     return names
 
 
-def _renamed_riders(splits: list, names: _t.Mapping[str, str]) -> int:
-    """Every ``merged_into`` naming a moved file follows it; the count."""
+def _renamed_riders(splits: list, frames: _t.Sequence[str],
+                    names: _t.Mapping[tuple[str, str], str]) -> int:
+    """Every ``merged_into`` naming a moved file of its frame follows it;
+    the count."""
     n = 0
     for ri, rec in enumerate(splits):
-        bs = tuple(_dc.replace(b, merged_into=names[b.merged_into])
-                   if b.merged_into in names else b for b in rec.bodies)
+        bs = tuple(_dc.replace(b, merged_into=names[(frames[ri], b.merged_into)])
+                   if (frames[ri], b.merged_into) in names else b for b in rec.bodies)
         k = sum(1 for a, b in zip(rec.bodies, bs, strict=True) if a is not b)
         if k:
             splits[ri] = _dc.replace(rec, bodies=bs)
@@ -302,23 +306,26 @@ def seat_touching(splits: _t.Sequence[_t.Any], plan: _t.Any,
     _mark_fixed(nodes, splits, members, fixed or Fixed())
     _tg.footprint_areas(nodes)
     pairs, cross = _tg.touch_pairs(nodes, law.touch_m)
-    by_name = {n.name: i for i, n in enumerate(nodes)}
+    by_name = {(n.frame, n.name): i for i, n in enumerate(nodes)}
     groups = _tg.groups_of(nodes, pairs, by_name)
+    frames = [str(members[r.placement_id][0].id) if r.placement_id in members else ""
+              for r in splits]
     rows = [_seat(nodes, g, pairs, law) for g in groups]
     moves = {nodes[i].key: z for r in rows for i, z in r["moves"].items()}
     roots = {nodes[i].key: r["root"] for r in rows for i in r["moves"]}
     skip = {nodes[i].key for g in groups for i in g} | {n.key for n in nodes if n.fixed}
-    riders = _riders(splits, moves, skip, law.tol_m)
-    by_file = {str(splits[ri].bodies[j].new_resource): (ri, j) for ri, j in {**moves, **riders}}
+    riders = _riders(splits, frames, moves, skip, law.tol_m)
+    by_file = {(frames[ri], str(splits[ri].bodies[j].new_resource)): (ri, j)
+               for ri, j in {**moves, **riders}}
     for k in sorted(riders):
-        c = by_file.get(str(splits[k[0]].bodies[k[1]].merged_into))
+        c = by_file.get((frames[k[0]], str(splits[k[0]].bodies[k[1]].merged_into)))
         roots[k] = roots.get(c, splits[c[0]].bodies[c[1]].new_resource if c else "")
     targets = {**moves, **riders}
     node_t = {i: targets[n.key] for i, n in enumerate(nodes) if n.key in targets}
     before = list(splits)
     changed = _apply(splits, members, targets, roots)
-    names = _recut(splits, before, changed, cut_log or {}, write, counts)
-    renamed = _renamed_riders(splits, names)
+    names = _recut(splits, frames, before, changed, cut_log or {}, write, counts)
+    renamed = _renamed_riders(splits, frames, names)
     moved_units = {nodes[i].unit: z for i, z in node_t.items()
                    if nodes[i].unit and nodes[i].kind == _tg.BUILDING}
     left = _unit_rows_left(unit_seats, moved_units, law.tol_m)

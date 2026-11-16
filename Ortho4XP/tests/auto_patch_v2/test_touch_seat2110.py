@@ -288,3 +288,24 @@ def test_no_member_rises_a_connector_under_the_seat_keeps_it():
     out, table, counts = w.run()
     assert _zero(out[c]) == 425.0
     assert counts["touch_follower_kept_low"] == 1
+
+
+def test_a_shared_file_name_is_read_in_its_riders_frame():
+    """One file is shared by every placement baking the same offset (KDEN's
+    escalators): a rider follows the carrier OF ITS FRAME, never a body of
+    another frame that happens to bake the same file."""
+    w = _World()
+    w.body("a", (0, 0, 20, 20), 431.0)
+    w.body("b", (20.05, 0, 40, 20), 431.6)
+    w.body("b2", (200, 0, 220, 20), 431.6, frame="unit:2")
+    import dataclasses
+    i = len(w.records) - 1
+    rec = w.records[i]
+    w.records[i] = dataclasses.replace(rec, bodies=(dataclasses.replace(
+        rec.bodies[0], new_resource="objects/b__b0.obj"),))
+    r = w.body("sign", (260, 0, 261, 1), 433.6, feet=False, frame="unit:2",
+               merged_into="objects/b__b0.obj",
+               reason="carried by objects/b__b0.obj (nearest footed body of the unit)")
+    out, _t, _c = w.run()
+    assert _zero(out[r]) == 433.6
+    assert out[r].bodies[0].merged_into == "objects/b__b0.obj"

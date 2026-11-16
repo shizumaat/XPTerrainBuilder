@@ -224,9 +224,11 @@ def touch_pairs(nodes: _t.Sequence[Node], touch_m: float
 
 
 def groups_of(nodes: _t.Sequence[Node], pairs: _t.Iterable[tuple[int, int]],
-              by_name: _t.Mapping[str, int]) -> list[list[int]]:
+              by_name: _t.Mapping[tuple[str, str], int]) -> list[list[int]]:
     """The §1.3 groups: node indices, each group of at least two bodies
-    and at least one BUILDING; a FIXED node is in none."""
+    and at least one BUILDING; a FIXED node is in none.  ``by_name``:
+    ``(frame, file) -> node`` — one file is shared by every placement that
+    bakes the same offset, so a carrier is looked up in its rider's frame."""
     up = list(range(len(nodes)))
 
     def find(i: int) -> int:
@@ -256,7 +258,7 @@ def groups_of(nodes: _t.Sequence[Node], pairs: _t.Iterable[tuple[int, int]],
     for i, n in enumerate(nodes):
         if n.kind != CONNECTOR or not n.carrier:
             continue
-        j = by_name.get(n.carrier)                                # (b)
+        j = by_name.get((n.frame, n.carrier))                     # (b)
         if j is None:
             # a piece riding a UNIT (``merged_into`` names it, #31)
             j = first.get(f"{unit_root(n.carrier)}|{n.frame}")

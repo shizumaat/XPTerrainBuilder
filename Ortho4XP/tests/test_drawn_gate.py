@@ -225,6 +225,47 @@ def test_judge_against_the_control():
     assert DG.parse_site("m=45.5,10.5") == ("m", 45.5, 10.5, DG.SITE_RADIUS_M)
 
 
+def _trench(wid, lat, delta, verdict="FAIL", row=7):
+    return {"site": f"tunnel_trench {wid}", "lat": lat, "lon": 10.5, "verdict": verdict,
+            "delta": delta, "fails": ["bottom-floor"] if verdict == "FAIL" else [],
+            "objects": [{"row": row}]}
+
+
+def test_against_joins_object_sites_by_place_not_way_id():
+    """#2099 P5b: a re-ringed way shifts every later way id by 0/+1/+2; the
+    same sites read under new names are not MOVED.  A real +0.2 m at one
+    place is; a FAIL at a new place is."""
+    lats = [45.5 + k * 1e-3 for k in range(4)]
+    base = _rep([], [_trench(-100 - k, la, 1.0 + k) for k, la in enumerate(lats)])
+    shifted = _rep([], [_trench(-102 - k, la, 1.0 + k) for k, la in enumerate(lats)])
+    assert DG.judge(shifted, (), base)["moved"] == []
+    worse = _rep([], [_trench(-102 - k, la, 1.0 + k + (0.2 if k == 1 else 0.0))
+                      for k, la in enumerate(lats)])
+    moved = DG.judge(worse, (), base)["moved"]
+    assert len(moved) == 1 and "control tunnel_trench -101" in moved[0]
+    fresh = _rep([], [_trench(-102 - k, la, 1.0 + k) for k, la in enumerate(lats)]
+                 + [_trench(-200, 45.6, 0.5, row=9)])
+    moved = DG.judge(fresh, (), base)["moved"]
+    assert len(moved) == 1 and "new -> FAIL" in moved[0]
+
+
+def test_against_a_fail_one_node_over_on_the_same_row_is_held():
+    base = _rep([], [_trench(-100, 45.5, 1.0)])
+    nudged = _rep([], [_trench(-101, 45.5 + 3e-5, 1.02)])      # ~3 m over, same row
+    assert DG.judge(nudged, (), base)["moved"] == []
+    other_row = _rep([], [_trench(-101, 45.5 + 3e-5, 1.02, row=8)])
+    assert len(DG.judge(other_row, (), base)["moved"]) == 1
+
+
+def test_against_joins_patch_sites_by_place_not_node_id():
+    base = _rep([SITE_A], [])
+    renamed = _rep([dict(SITE_A, node="-77")], [])
+    assert DG.judge(renamed, (), base)["moved"] == []
+    worse = _rep([dict(SITE_A, node="-77", delta=0.6)], [])
+    moved = DG.judge(worse, (), base)["moved"]
+    assert len(moved) == 1 and "control node -1" in moved[0]
+
+
 def test_no_claim_read_at_a_cut_site_is_not_a_pass(monkeypatch):
     """LOWS +47+013 closing build: its two mouths are claimed by +47+012's
     entrance object, which a one-tile build never writes -- 0 of 0 claimed

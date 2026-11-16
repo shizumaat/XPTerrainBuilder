@@ -511,8 +511,9 @@ class Airport:
     entrance_shade: _t.Any = None
     #: #2099 F2 P4a: placement id -> the zero its entrance re-read seats it
     #: at (``airport/wall_reseat``): the retaining-wall law's seat for that
-    #: member (``wall_class._seat_z``).  Empty = none, or not derived.
-    wall_reseats: dict = _dc.field(default_factory=dict)
+    #: member (``wall_class._seat_z``).  ``None`` = not derived (a class
+    #: default, so a capture pickled before it reads it too); empty = none.
+    wall_reseats: _t.Any = None
     #: #1971 THE DECK STACKS (``model.deck_stack.DeckStack``, derived at the
     #: pack stage by ``airport/deck_stack``): a trench's floor and the hard
     #: decks spanning it, one zero.  Empty = none (or a capture before them).

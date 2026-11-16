@@ -5,9 +5,8 @@ vertex opposite it, so ``road_within_shape`` (vertex pairs only) never
 priced the 0.7-1.0 m step across the road.  The twin is that notch."""
 from __future__ import annotations
 
-from shapely.geometry import Point, Polygon
-
 from auto_patch_v2.planar.chords import abeam_stations
+from shapely.geometry import Point, Polygon
 
 
 def _road(notch):

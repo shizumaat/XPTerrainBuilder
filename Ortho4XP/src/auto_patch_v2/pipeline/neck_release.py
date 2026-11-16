@@ -26,13 +26,15 @@ from __future__ import annotations
 import math
 import typing as _t
 
+from ..model.planar import face_cycles
+
 #: metres beyond the identity spacing a candidate stands from a base vertex
 _IDENTITY_MARGIN_M = 0.001
 #: metres: G1's interval tolerance
 _REACH_TOL_M = 0.02
 
 
-class Neck(_t.NamedTuple):
+class _Neck(_t.NamedTuple):
     """One neck: station ``s`` facing the pad road's standing vertex ``v``."""
 
     s: int
@@ -45,7 +47,7 @@ def late_neck_release(pm_base, pm, fixed: dict[int, float], cs, law,
                       rim_edges: _t.Mapping[int, tuple[int, int]],
                       joined: _t.AbstractSet[int],
                       to_ll: _t.Callable[[float, float], tuple] | None = None
-                      ) -> tuple[dict, list[Neck]]:
+                      ) -> tuple[dict, list[_Neck]]:
     """Release the necks of the pad roads' stage (module doc), IN PLACE on
     ``fixed``.  ``rim_edges``: ``{rim node: (a, b)}``, the base edge each
     node ``late_rim_levels`` levelled stands on; ``joined``: the full map's
@@ -68,7 +70,7 @@ def late_neck_release(pm_base, pm, fixed: dict[int, float], cs, law,
         by_edge.setdefault(tuple(sorted(rim_edges[j])), []).append(j)
     polys: dict[int, _t.Any] = {}
     hard = _hard_rows(cs, law, set(cand))
-    kept: list[Neck] = []
+    kept: list[_Neck] = []
     for edge, js in sorted(by_edge.items()):
         u = _unit(pm_base, edge)
         necks = [n for s in js
@@ -137,16 +139,12 @@ def _inside(pm, fid, polys, p, q) -> bool:
     segment ON its ring is in)."""
     from shapely.geometry import LineString, Polygon
     if fid not in polys:
-        rings = [[pm.vertices[v].xy for v in r] for r in _rings(pm, pm.faces[fid])]
+        rings = [[pm.vertices[v].xy for v in r] for r in face_cycles(pm, pm.faces[fid])]
         polys[fid] = Polygon(rings[0], rings[1:]).buffer(1e-6)
     return bool(polys[fid].covers(LineString([p, q])))
 
 
-def _rings(pm, f) -> list[list[int]]:
-    return [list(pm.ring_vertices(c)) for c in (f.ring, *f.holes)]
-
-
-def _necks(pm, fixed, s, u, pads, joined, polys, ident, lateral, bar) -> list[Neck]:
+def _necks(pm, fixed, s, u, pads, joined, polys, ident, lateral, bar) -> list[_Neck]:
     """The necks at station ``s``: a joined (base) vertex of a pad-road
     face's ring at ``s`` abeam it in the base edge's frame ``u``, the
     segment between them inside the face, over the bar."""
@@ -155,7 +153,7 @@ def _necks(pm, fixed, s, u, pads, joined, polys, ident, lateral, bar) -> list[Ne
     for q in pm.vertices[s].incident_faces:
         if q not in pads:
             continue
-        for v in (v for ring in _rings(pm, pm.faces[q]) for v in ring):
+        for v in (v for ring in face_cycles(pm, pm.faces[q]) for v in ring):
             if v == s or v in seen or v not in joined or v not in fixed:
                 continue
             vx, vy = pm.vertices[v].xy
@@ -166,7 +164,7 @@ def _necks(pm, fixed, s, u, pads, joined, polys, ident, lateral, bar) -> list[Ne
             step = float(fixed[v]) - float(fixed[s])
             if abs(step) > bar and _inside(pm, q, polys, (vx, vy), (sx, sy)):
                 seen.add(v)
-                out.append(Neck(s, v, step, across))
+                out.append(_Neck(s, v, step, across))
     return out
 
 
@@ -209,7 +207,7 @@ def _own_section(pm, js, pads, polys, ident, lateral) -> bool:
         for q in pm.vertices[j].incident_faces:
             if q in pads or q not in pm.faces:
                 continue
-            rings = _rings(pm, pm.faces[q])
+            rings = face_cycles(pm, pm.faces[q])
             for ring in rings:
                 if j not in ring:
                     continue
@@ -249,7 +247,7 @@ def _where(pm, v, to_ll) -> dict:
     return {"lat": round(lat, 7), "lon": round(lon, 7)}
 
 
-def necks_over(necks: _t.Sequence[Neck], z: _t.Sequence[float], bar: float
+def necks_over(necks: _t.Sequence[_Neck], z: _t.Sequence[float], bar: float
                ) -> list[tuple[int, int, float]]:
     """``(s, v, |z[v] - z[s]|)`` of each released neck still over ``bar``
     in the solved levels ``z``."""

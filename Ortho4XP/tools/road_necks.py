@@ -119,7 +119,7 @@ def reread(rows, nodes1, ways1) -> list[dict]:
     for w in ways1:
         if w.role not in ROLES:
             continue
-        for a, b in zip(w.nids, w.nids[1:]):
+        for a, b in zip(w.nids, w.nids[1:], strict=False):
             pa, pb = nodes1[a], nodes1[b]
             if pa[2] is None or pb[2] is None or pa[:2] == pb[:2]:
                 continue
@@ -147,7 +147,7 @@ def carriers(ways0) -> tuple[dict, dict]:
     eo, no = collections.defaultdict(set), collections.defaultdict(set)
     for w in ways0:
         lab = (w.role, str(w.ref))
-        for a, b in zip(w.nids, w.nids[1:]):
+        for a, b in zip(w.nids, w.nids[1:], strict=False):
             eo[frozenset((a, b))].add(lab)
         for a in w.nids:
             no[a].add(lab)
@@ -226,7 +226,8 @@ def main(argv=None) -> int:
               f">0.5 {c['control>0.5']} -> {c['arm>0.5']} | changed {c['changed_0.05']} "
               f"worse>0.05 {c['worse_0.05']} worse>0.1 {c['worse_0.1']}")
         for w in c["worst_worse"]:
-            print(f"    WORSE {w['control']:+.2f} -> {w['arm']:+.2f} at {w['lat']},{w['lon']} {w['ref']}")
+            print(f"    WORSE {w['control']:+.2f} -> {w['arm']:+.2f} "
+                  f"at {w['lat']},{w['lon']} {w['ref']}")
     print("pad-road class (vertex | chord)                n | >0.2 ctl->arm | >0.5 ctl->arm")
     for c, r in sorted(cls.items(), key=lambda kv: -kv[1][3]):
         print(f"  {c:44s} {r[0]:5d} | {r[1]:4d} -> {r[2]:4d} | {r[3]:4d} -> {r[4]:4d}")

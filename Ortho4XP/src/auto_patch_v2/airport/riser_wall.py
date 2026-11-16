@@ -32,7 +32,7 @@ from shapely.geometry import LineString, MultiLineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..law import Law
-from ..model.planar import KERB_SUFFIX, STRIP_SUFFIX, PlanarMap
+from ..model.planar import KERB_SUFFIX, STRIP_SUFFIX, PlanarMap, face_cycles
 
 __all__ = ["riser_walls", "shell_kerbs", "LABEL_PREFIX"]
 
@@ -40,12 +40,8 @@ __all__ = ["riser_walls", "shell_kerbs", "LABEL_PREFIX"]
 LABEL_PREFIX = "fill_riser:"
 
 
-def _ring_runs(pm: PlanarMap, f) -> list[list[int]]:
-    return [list(pm.ring_vertices(c)) for c in (f.ring, *f.holes)]
-
-
 def _face_poly(pm: PlanarMap, f) -> Polygon:
-    cycles = [[pm.vertices[v].xy for v in c] for c in _ring_runs(pm, f)]
+    cycles = [[pm.vertices[v].xy for v in c] for c in face_cycles(pm, f)]
     g = Polygon(cycles[0], cycles[1:])
     return g if g.is_valid else g.buffer(0.0)
 
@@ -107,7 +103,7 @@ def riser_walls(pm: PlanarMap, law: Law, counts: dict | None = None
             lo: list[int] = []
             kerb: list[list[int]] = []
             for f in mine:
-                for cyc in _ring_runs(pm, f):
+                for cyc in face_cycles(pm, f):
                     flags = [upper_line.distance(Point(V[v].xy)) <= half for v in cyc]
                     for i, v in enumerate(cyc):
                         (up if flags[i] else lo).append(v)

@@ -1,87 +1,197 @@
-"""Twin of ``airport/sunk_frame`` (#2120): a frame its author drew DOWN from
-his ground (``OBJECT_AGL`` < 0, its walls reaching from a buried footing up
-to that ground) stands its author's ground on the ground -- its high side
-where the ground steps across it -- and is no pad there.  KATL's 2026-11
+"""Twin of ``airport/sunk_frame`` -- the wall class's FOURTH WITNESS (#2120
+R2, spec ``docs/specs/2120-R2.md`` §1-§2).  A block its author drew DOWN
+from his ground (``OBJECT_AGL`` < 0) is a retaining wall where the ground
+steps across it: its upper ground at ``y = -lift`` when its top stands
+there (R2), or at its road plate's ``y`` when a mapped road runs on a plate
+capping it (R3); a flat sunk frame (a pool) is no wall (R4).  KATL's 2026-11
 pack: ``katl126_wall`` (y 0..20, AGL -19.81) floated its road plate 20 m
-standing its walls' feet on the ground."""
+standing its walls' feet on the ground; ``katl125_wall`` (AGL -4.57, its
+origin on the LOW level) carries its road plate at y 20.
+
+W5: a retaining wall never chains a building (16k, 14a (2)): its member is
+no §16g unit member, and only a runway-end WALLED plate leads a unit."""
 from __future__ import annotations
 
 from types import SimpleNamespace as NS
 
 import numpy as np
-from auto_patch_v2.airport.sunk_frame import sunk_frames, sunk_shade
-from auto_patch_v2.airport.wall_shade import wall_shade
+import pytest
+from auto_patch_v2.airport.wall_class import wall_class_components
 from auto_patch_v2.classify.rules import load_rules
-from auto_patch_v2.law import Law
 from tests.auto_patch_v2.test_wall_class_thick import FRAME, _StepDem
 
 CFG = load_rules().service
-LAW = Law.load()
 _M_LAT = 1.0 / 111_320.0
+LAT0, LON0 = 33.64, -84.42
 
 
-def _airport(lift: float, base_y: float, height: float, step: float, width: float = 20.0):
-    lat0, lon0 = 33.64, -84.42
-    dlon = 100.0 / (111_320.0 * np.cos(np.radians(lat0)))
-    ring = [(lat0, lon0), (lat0, lon0 + dlon), (lat0 + width * _M_LAT, lon0 + dlon),
-            (lat0 + width * _M_LAT, lon0)]
-    part = NS(rings=[ring], height_m=height, base_y=base_y, comp=0, line=False)
-    m = NS(id="dsf:obj1", resource="objects/wall_000.obj", parts=[part])
-    _x, y_axis = FRAME.entry()(lon0, lat0 + 0.5 * width * _M_LAT)
-    unit = NS(id="unit:1", agl_m=lift, members=[m])
-    return NS(partition=NS(units=[unit]), frame=FRAME,
+def _ring(width: float, length: float = 100.0):
+    dlon = length / (111_320.0 * np.cos(np.radians(LAT0)))
+    return [(LAT0, LON0), (LAT0, LON0 + dlon), (LAT0 + width * _M_LAT, LON0 + dlon),
+            (LAT0 + width * _M_LAT, LON0)]
+
+
+def _airport(lift: float, height: float, step: float, *, width: float = 20.0,
+             plate: bool = False, road: dict | None = None):
+    """A block ``width`` m across (north) and 100 m long (east) placed at
+    ``lift``, its walls y 0..``height``; the ground ``step`` m higher north
+    of its axis; optionally a plate row at its top and a mapped road along
+    the block's axis."""
+    ring = _ring(width)
+    wall = NS(rings=[ring], height_m=height, base_y=0.0, comp=0, line=False, feet=(1,))
+    members = [NS(id="dsf:obj1", resource="objects/block_000.obj", parts=[wall],
+                  zero_y=0.0, deck_kind="", origin=(LAT0, LON0))]
+    if plate:
+        top = NS(rings=[ring], height_m=0.0, base_y=height, comp=0, line=False, feet=())
+        members.append(NS(id="dsf:obj2", resource="objects/block_002.obj", parts=[top],
+                          zero_y=0.0, deck_kind="candidate", origin=(LAT0, LON0)))
+    to_xy = FRAME.entry()
+    _x, y_axis = to_xy(LON0, LAT0 + 0.5 * width * _M_LAT)
+    ways = []
+    if road is not None:
+        a, b = to_xy(LON0, LAT0), to_xy(LON0 + 90.0 / (111_320.0 * np.cos(np.radians(LAT0))),
+                                         LAT0)
+        ways.append(NS(points=[(a[0] + 5.0, y_axis), (b[0], y_axis)], tags=road, closed=False))
+    unit = NS(id="unit:1", agl_m=lift, members=members, anchor=(LAT0, LON0))
+    return NS(partition=NS(units=[unit]), frame=FRAME, osm_ways=ways,
               dem=_StepDem(y_axis, 300.0, 300.0 - step), sunken_ramps=None)
 
 
-def test_a_block_sunk_to_its_top_stands_its_authored_ground_on_the_ground():
-    got = sunk_frames(_airport(-19.81, 0.0, 20.0, 0.0), CFG, LAW)
-    assert len(got) == 1
-    f = got[0]
-    assert not f.stepped and abs(f.plate_y - 19.81) < 1e-9
-    assert f.ids == ("dsf:obj1",) and len(f.stations) >= 4
-    assert sunk_shade(_airport(-19.81, 0.0, 20.0, 0.0), CFG, LAW) is None
+def _retaining(ap):
+    return [c for c in wall_class_components(ap, CFG) if c.retains]
 
 
-def test_a_sunk_wall_between_two_levels_reads_its_high_side_and_is_no_pad():
-    ap = _airport(-18.29, 0.0, 20.0, 12.0, width=1.0)
-    (f,) = sunk_frames(ap, CFG, LAW)
-    assert f.stepped and abs(f.plate_y - 18.29) < 1e-9
-    z = ap.dem.z_many([p[0] for p in f.stations], [p[1] for p in f.stations])
-    assert np.all(z == 300.0)                       # the upper level only
-    shade = wall_shade(ap, CFG, comps=[])
-    assert shade is not None and shade.area > 50.0
+def test_r2_a_stepped_block_sunk_to_its_top_retains_from_its_authored_ground():
+    (c,) = _retaining(_airport(-19.81, 20.0, 10.0))
+    assert c.low_side_source == "dem" and c.seat_z is None
+    assert c.retained_top_y == pytest.approx(19.81)     # y_up = -lift
+    assert c.top_y == pytest.approx(20.0)               # its parapet the author's 0.19 m
+    assert c.retained_m == pytest.approx(10.0)          # the step, under y_up - base
 
 
-def test_a_frame_standing_on_its_authored_ground_is_not_sunk():
-    # AGL 0, or a lift whose walls' feet are not buried floor_sunken_min_m
-    assert sunk_frames(_airport(0.0, 0.0, 20.0, 12.0), CFG, LAW) == ()
-    assert sunk_frames(_airport(-1.5, 0.0, 20.0, 12.0), CFG, LAW) == ()
-    assert sunk_frames(_airport(+4.0, 0.0, 20.0, 12.0), CFG, LAW) == ()
+def test_r3_a_plate_topped_block_carrying_a_road_retains_from_its_plate():
+    (c,) = _retaining(_airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"}))
+    assert c.retained_top_y == pytest.approx(20.0)      # the plate, whatever -lift says
+    assert c.retained_m == pytest.approx(10.0)
 
 
-def test_a_frame_buried_wholly_under_its_authored_ground_is_not_sunk():
-    # its top stands more than authored_rim_tol_m under the author's ground
-    assert sunk_frames(_airport(-6.0, 0.0, 3.0, 0.0), CFG, LAW) == ()
+@pytest.mark.parametrize("road", [
+    None,                                               # a flat-roofed building on a slope
+    {"highway": "service", "tunnel": "yes"},            # a bore under it
+    {"highway": "service", "layer": "-1"},              # a road under it
+])
+def test_r3_a_plate_topped_block_with_no_road_on_its_plate_is_no_wall(road):
+    assert _retaining(_airport(-4.57, 20.0, 10.0, plate=True, road=road)) == []
 
 
-def test_a_retaining_plate_leads_only_a_unit_its_frame_dominates():
-    """The plate's datum is its frame's y = 0: a terminal (AGL 0) dominating
-    a §16g unit it shares with a sunk wall (AGL -19.81) must not take it --
-    the closing build sank KATL's terminal F 19.4 m that way.  A runway-end
-    WALLED plate still leads whatever it chains (#1977)."""
-    from auto_patch_v2.airport.open_frame_seat import plate_leads_unit, walled_unit_zero
-    wall = NS(plate_kind="retaining", plate_y=19.81, plate_stations=((33.64, -84.42),))
-    term = NS(plate_kind="", plate_y=None, plate_stations=())
-    frames = {1: ((33.64, -84.42), -19.81), 2: ((33.65, -84.41), 0.0),
-              3: ((33.65, -84.41), 0.0), 4: ((33.64, -84.42), -19.81)}
-    parts = {1: NS(area_m2=8000.0), 2: NS(area_m2=60000.0), 3: NS(area_m2=500.0),
-             4: NS(area_m2=10.0)}
-    assert not plate_leads_unit([1, 2, 3], {1: wall, 2: term, 3: term}, frames, parts)
-    # the wall's frame dominates (two small parts of another frame on its
-    # footprint -- a pole, a sign): it leads
-    assert plate_leads_unit([1, 3, 4], {1: wall, 3: term, 4: wall}, frames,
-                            {1: NS(area_m2=1800.0), 3: NS(area_m2=5.0), 4: NS(area_m2=1.0)})
-    assert abs(walled_unit_zero([wall], lambda la, lo: 300.0) - 280.19) < 1e-9
-    walled = NS(plate_kind="walled", plate_y=-9.9, plate_stations=((33.64, -84.42),))
-    assert plate_leads_unit([1, 2, 3], {1: walled, 2: term, 3: term}, frames)
-    assert not plate_leads_unit([2], {2: term}, frames)
+def test_r4_a_flat_sunk_frame_is_no_wall():
+    assert _retaining(_airport(-19.81, 20.0, 0.0)) == []
+    assert _retaining(_airport(-2.2, 4.04, 0.0)) == []  # a pool sunk in flat ground
+
+
+class _SlopeDem:
+    """A plane rising ``grade`` northward."""
+
+    def __init__(self, grade: float):
+        self.grade = grade
+
+    def z_many(self, xs, ys):
+        return 300.0 + self.grade * np.asarray(ys, dtype=float)
+
+    def z(self, x, y):
+        return float(self.z_many([x], [y])[0])
+
+
+def test_r4_a_pool_sunk_in_a_slope_is_no_wall():
+    """ELLX ``pool_5`` (lift -2.20, rim walls 3-4 m, its block on a slope):
+    read at the wall class's own ring (its 4 m height) the ground steps
+    across no wall of it; 8 m out it would read the slope (54 %)."""
+    to_ll = FRAME.transformers()[1]
+    walls = []
+    for k, (x0, y0, x1, y1) in enumerate([(0, 0, 20, 0.3), (0, 9.7, 20, 10), (0, 0, 0.3, 10),
+                                          (19.7, 0, 20, 10)]):
+        ring = [to_ll(x, y) for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))]
+        walls.append(NS(rings=[ring], height_m=4.0, base_y=0.0, comp=k, line=False, feet=(1,)))
+    m = NS(id="dsf:pool", resource="objects/pool_5.001.obj", parts=walls, zero_y=0.0,
+           deck_kind="", origin=to_ll(0.0, 0.0))
+    ap = NS(partition=NS(units=[NS(id="unit:1", agl_m=-2.2, members=[m], anchor=m.origin)]),
+            frame=FRAME, osm_ways=[], dem=_SlopeDem(0.15), sunken_ramps=None)
+    assert _retaining(ap) == []
+
+
+@pytest.mark.parametrize("lift,height", [
+    (0.0, 20.0),        # standing on its authored ground
+    (-1.5, 20.0),       # its top far over the author's ground: a building on a slope
+    (+4.0, 20.0),       # lifted
+    (-6.0, 3.0),        # wholly buried under the author's ground
+])
+def test_a_frame_that_is_not_sunk_is_no_wall(lift, height):
+    assert _retaining(_airport(lift, height, 10.0)) == []
+
+
+def test_w5_a_retaining_plate_leads_no_unit_a_walled_plate_does():
+    from auto_patch_v2.airport.open_frame_seat import plate_led, walled_unit_zero
+    wall = NS(plate_kind="retaining", plate_y=19.81, plate_stations=((LAT0, LON0),))
+    walled = NS(plate_kind="walled", plate_y=-9.9, plate_stations=((LAT0, LON0),))
+    assert plate_led(wall) and plate_led(walled)
+    assert walled_unit_zero([walled], lambda la, lo: 300.0) == pytest.approx(309.9)
+
+
+def test_w5_a_terminal_touching_a_retaining_wall_keeps_its_own_seat():
+    """the wall's member is no §16g unit member: the buildings it touches
+    take the zero they have with no wall in the plan (#2099 P5b's fixture,
+    the plate of kind ``retaining``)"""
+    from auto_patch_v2.airport.retaining_seat import RETAINING_PLATE
+    from tests.auto_patch_v2.test_wall_top_plate2099 import _plan, _plan_ns, _units
+    counts: dict = {}
+    seats = _units(_plan(kind=RETAINING_PLATE), counts)
+    assert (2, 0, 0) not in seats and counts["unit_members_left_retaining"] == 1
+    alone = _plan_ns(_plan().units[:2])
+    assert {k: v[1] for k, v in seats.items()} == {k: v[1] for k, v in _units(alone).items()}
+
+
+def test_w3_one_seat_path_the_frame_rides_its_wall_plate():
+    """``retaining_seats`` seats the sunk block's plate ``y_up`` on its upper
+    stations, and every row of its frame (the plate row beside the walls)
+    rides the same plate"""
+    from auto_patch_v2.airport.retaining_seat import retaining_seats
+    ap = _airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"})
+    got = {s.oid: s for s in retaining_seats(ap, CFG, 0.5, 5.0)}
+    assert set(got) == {"dsf:obj1", "dsf:obj2"}
+    assert got["dsf:obj1"].top_y == got["dsf:obj2"].top_y == pytest.approx(20.0)
+    z = ap.dem.z_many([p[0] for p in got["dsf:obj1"].stations],
+                      [p[1] for p in got["dsf:obj1"].stations])
+    assert np.all(z == 300.0)                           # the upper level only
+
+
+def test_w3_a_block_with_no_two_long_faces_is_seated_on_its_high_ring():
+    """no face pair (``wall_sides._wall_faces``: here a triangle): the ring
+    round the footprint, its high side only"""
+    from auto_patch_v2.airport.retaining_seat import retaining_seats
+    from auto_patch_v2.airport.wall_class import WallComponent
+    from shapely.geometry import Polygon
+    ap = _airport(-19.81, 20.0, 10.0)
+    _x, y_axis = FRAME.entry()(LON0, LAT0 + 10.0 * _M_LAT)
+    tri = Polygon([(0.0, y_axis - 15.0), (60.0, y_axis - 15.0), (30.0, y_axis + 15.0)])
+    comp = WallComponent((tri,), 20.0, "objects/block_000.obj", 0, True, 10.0, 20.0, None,
+                         (LAT0, LON0), NS(id="dsf:obj1"), 19.81, "dem")
+    (s,) = retaining_seats(ap, CFG, 0.5, 5.0, comps=[comp])
+    z = ap.dem.z_many([p[0] for p in s.stations], [p[1] for p in s.stations])
+    assert len(s.stations) >= 4 and np.all(z == 300.0)
+
+
+def test_the_sunk_census_lists_what_the_witness_admits():
+    """``tools/sunk_census.py`` (the airport census, #2120 R2 §2) reads the
+    ONE classifier: a row per sunk-admitted wall, none for a flat frame"""
+    import importlib.util
+    from pathlib import Path
+    tool = Path(__file__).resolve().parents[2] / "tools" / "sunk_census.py"
+    spec = importlib.util.spec_from_file_location("_sunk_census", tool)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    (row,) = mod.sunk_rows(_airport(-4.57, 20.0, 10.0, plate=True,
+                                    road={"highway": "service"}), CFG)
+    assert row["id"] == "dsf:obj1" and row["rule"] == "plate" and row["y_up"] == 20.0
+    assert row["unit"] == "unit:1" and row["lift"] == -4.57
+    assert abs(row["lat"] - LAT0) < 0.001 and abs(row["lon"] - LON0) < 0.002
+    assert mod.sunk_rows(_airport(-19.81, 20.0, 0.0), CFG) == []

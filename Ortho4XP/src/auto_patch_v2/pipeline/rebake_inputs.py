@@ -440,28 +440,6 @@ def _retaining_plates(pm, law, airport, plates, authored, excluded) -> dict:
     return {w.oid: (w.top_y, list(w.stations), 0.0, RETAINING_PLATE) for w in got}
 
 
-def _sunk_plates(law, airport, plates, authored, excluded) -> dict:
-    """#2120 (``airport/sunk_frame``): placement id -> ``(the author's ground
-    y, its stations, 0.0, RETAINING_PLATE)`` for every member of a SUNK
-    frame no other rule seats -- its author's ground on the ground round it
-    (its high side where the ground steps across it), its footing buried."""
-    from ..airport.retaining_seat import RETAINING_PLATE
-    from ..airport.sunk_frame import sunk_frames
-    from ..classify.rules import load_rules
-    taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
-    out: dict = {}
-    for f in sunk_frames(airport, load_rules().service, law):
-        ids = [i for i in f.ids if i not in taken]
-        if not ids:
-            continue
-        print(f"[{getattr(airport, 'icao', '')}] sunk frame {f.unit} "
-              f"({f.resources[0].rsplit('/', 1)[-1]}): lift {f.lift:+.2f}, y {f.plate_y:+.2f} "
-              f"on its {'upper ' if f.stepped else ''}ground, {len(f.stations)} stations, "
-              f"{len(ids)} member(s)")
-        out.update({i: (f.plate_y, list(f.stations), 0.0, RETAINING_PLATE) for i in ids})
-    return out
-
-
 def _hung_wedges(pm, law, airport, plates, authored, excluded) -> dict:
     """#2099 F2 P5 (``airport/hung_wall_seat``): placement id -> ``(top y,
     airside stations, 0.0, WALL_TOP_PLATE)`` for each hung wedge wall no
@@ -580,9 +558,6 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
         # #2099 F2 P5: a hung wedge wall's top is flush with the airside
         plates.update(_hung_wedges(pm, law, airport, plates, authored,
                                    excluded | shelled | modelled))
-    # #2120: a SUNK frame's author's ground on the ground (its upper level)
-    plates.update(_sunk_plates(law, airport, plates, authored,
-                               excluded | shelled | modelled))
     # #1934 R3 (RULINGS 2026-11-16d): a retaining wall's zero on its upper ground
     plates.update(_retaining_plates(pm, law, airport, plates, authored,
                                     excluded | shelled | modelled))

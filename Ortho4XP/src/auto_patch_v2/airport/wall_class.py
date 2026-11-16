@@ -8,6 +8,11 @@ component is wall-class too where it retains its own height — slender for
 its height, standing on the ground, and the ground stepping across it by
 that height (#715, #1197, :func:`_retains_its_height`).
 
+A THICK BLOCK its author drew DOWN from his ground (a negative row lift,
+#2120 R2) is wall-class where the ground steps across it: the fourth
+witness, ``airport/sunk_frame``, tried only for a component the other three
+left retaining nothing.
+
 THE ONE implementation, read by three layers: ``classify/retaining_wall``
 (§47's wall along a road edge), ``planar/shore`` (RULINGS 2026-09-29a (2):
 a wall along the shore) and ``airport/road_ramp`` (RULINGS 2026-10-03c,
@@ -33,6 +38,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from ..model.airport import Airport
+from .sunk_frame import sunk_wall
 from .wall_sheets import airside_union, hung_wall, low_side_y, obj_top_y, paved_faces, sheets_of
 
 __all__ = ["WallComponent", "NOT_WALL_RESOURCE_WORDS", "wall_class_components",
@@ -89,6 +95,10 @@ class WallComponent:
     #: #2099 F2 P4a: its seat is the entrance re-read's
     #: (``Airport.wall_reseats``): its retained face reaches its zero
     reseated: bool = False
+    #: #2120 R2 W1: the rule the SUNK witness admitted it by
+    #: (``airport/sunk_frame``: ``"upper"`` R2, ``"plate"`` R3), ``""``
+    #: for a wall another witness admitted
+    sunk_rule: str = ""
 
 
 #: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
@@ -192,6 +202,12 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 if sheet is not None:
                     retained, top_y, sheet = sheet[0], sheet[1], sheet[2:]
                     retains, source = True, "sheets"
+                # #2120 R2 W1: THE FOURTH WITNESS -- a block its author drew
+                # down from his ground, the ground stepping across it
+                sunk = None if retains or not _stands_on_ground(p) else \
+                    sunk_wall(airport, u, p, whole, wide, cfg)
+                if sunk is not None:
+                    retained, kept_top, retains, source = sunk.retained_m, sunk.y_up, True, "dem"
                 if wide > float(cfg.retaining_wall_max_width_m) and not retains:
                     continue
                 # #2099 F2 P4a: a wall the entrance re-read seats retains its
@@ -202,9 +218,11 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                     retained, kept_top = float(_depth_under_zero(p)), 0.0
                 got.append(WallComponent(tuple(polys), float(p.height_m),
                                          m.resource, int(p.comp), retains,
-                                         float(retained), top_y, seat,
+                                         float(retained), top_y,
+                                         None if sunk is not None else seat,
                                          _origin(u, m), m, kept_top, source,
-                                         *(sheet or ()), reseated=reseated))
+                                         *(sheet or ()), reseated=reseated,
+                                         sunk_rule="" if sunk is None else sunk.rule))
         out.extend(_one_wall_per_composite(got, u, to_xy, cfg))
     return out
 

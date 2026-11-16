@@ -45,7 +45,7 @@ from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
                                bodies_of_plan, cluster_plane, pad_plurality,
                                union_area_m2)
 from .hung_wall_seat import WALL_TOP_PLATE
-from .open_frame_seat import WALLED_SRC, plate_leads_unit, walled_unit_zero
+from .open_frame_seat import UNIT_FREE_PLATES, WALLED_SRC, walled_unit_zero
 # §16g (3)/(11) THE UNIT CARRY AND THE UNIT'S CONTENTS live in
 # ``footprint_carry`` (issue #303: this file passed the 1,500-line split
 # point again); re-exported here, the names every caller and test reads.
@@ -683,11 +683,14 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
     for key, pids in sorted(bodies.items()):
         ui, mi, _gi = key
         # #2099 P5b: a WALL-TOP PLATE keeps its §16e datum and is no unit
-        # member -- a pad it touches would lend it the pad's zero
-        if getattr(plan.units[ui].members[mi], "plate_kind", "") == WALL_TOP_PLATE:
+        # member -- a pad it touches would lend it the pad's zero; #2120 R2
+        # W5: nor is a RETAINING wall's (16k, 14a (2): a wall never chains a
+        # building; its plate is never another frame's zero)
+        kind = getattr(plan.units[ui].members[mi], "plate_kind", "")
+        if kind == WALL_TOP_PLATE or kind in UNIT_FREE_PLATES:
             if counts is not None:
-                counts["unit_members_left_wall_top"] = \
-                    counts.get("unit_members_left_wall_top", 0) + 1
+                k = f"unit_members_left_{'wall_top' if kind == WALL_TOP_PLATE else kind}"
+                counts[k] = counts.get(k, 0) + 1
             continue
         live = [parts_of[q] for q in pids
                 if q in parts_of and not parts_of[q].line]
@@ -928,10 +931,8 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         zero: float | None = None
         where = src = ""
         # #1977: a unit holding a runway-end walled plate rides the plate
-        # (#2120: a retaining plate only a unit wholly in its own frame)
         wz = walled_unit_zero({id(member_of[q]): member_of[q] for q in un.pids
-                               if q in member_of}.values(), surface) \
-            if plate_leads_unit(un.pids, member_of, frame_of, parts) else None
+                               if q in member_of}.values(), surface)
         if wz is not None:
             out[un.id] = (wz, "", WALLED_SRC)
             continue

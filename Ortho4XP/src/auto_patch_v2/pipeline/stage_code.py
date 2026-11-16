@@ -2751,7 +2751,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
-    airport.relief_skin airport.retaining_seat
+    airport.relief_skin airport.retaining_seat airport.sunk_frame
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
     airport.terrain_shaped airport.pack_ground geom.terrain_deck

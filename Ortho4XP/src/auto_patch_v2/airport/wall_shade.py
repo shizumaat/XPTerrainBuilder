@@ -41,6 +41,12 @@ def wall_shade(airport, cfg, comps=None):
     # #1952 (R1): a wall the pack built from sheets is all of them
     polys = [g for c in comps if c.retains
              for g in (*c.pieces, *(getattr(c, "sheets", ()) or ()))]
+    # #2120: a SUNK frame the ground steps across is a wall between two
+    # levels (RULINGS 2026-11-16d), whatever its thickness
+    from .sunk_frame import sunk_shade
+    sunk = sunk_shade(airport, cfg)
+    if sunk is not None:
+        polys.append(sunk)
     if not polys:
         return None
     got = unary_union(polys)

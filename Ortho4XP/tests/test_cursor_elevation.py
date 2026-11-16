@@ -111,7 +111,7 @@ def _write_alt(folder, lat, lon, side, z_of):
     rows, cols = np.mgrid[0:side, 0:side]
     path = os.path.join(folder, "Data" + FNAMES.short_latlon(lat, lon) + ".alt")
     z_of(rows, cols).astype("<f4").tofile(path)
-    with open(path + ".frame.json", "w") as fh:
+    with open(path + ".frame.json", "w", encoding="utf-8", newline="\n") as fh:
         json.dump({"schema": "o4.alt.frame/1", "x0": 0.0, "x1": 1.0, "y0": 0.0,
                    "y1": 1.0, "nxdem": side, "nydem": side, "epsg": 4326,
                    "tile_lat": lat, "tile_lon": lon}, fh)
@@ -125,7 +125,7 @@ def _write_inset(lat, lon, icao, bbox, pixel_m, extra=None):
     tif = os.path.join(d, f"{icao}_prov.tif")
     with open(tif, "wb") as fh:
         fh.write(b"not read by the footprint index")
-    with open(tif[:-4] + ".json", "w") as fh:
+    with open(tif[:-4] + ".json", "w", encoding="utf-8", newline="\n") as fh:
         json.dump({"bounding_box_wgs84": list(bbox), "native_resolution_m": pixel_m,
                    **(extra or {})}, fh)
 

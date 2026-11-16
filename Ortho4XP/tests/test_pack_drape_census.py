@@ -20,7 +20,7 @@ def _load():
 def test_the_tiles_of_a_pack_cache(tmp_path):
     for name in ("+39-105.dsf.3c52346a.text", "+39-105.dsf.anchor_bak.89f.text",
                  "+40-106.dsf.text", "o4_dsf_object_positions_+39-105.cache"):
-        (tmp_path / name).write_text("", encoding="utf-8")
+        (tmp_path / name).write_text("", encoding="utf-8", newline="\n")
     assert _load()._tiles(str(tmp_path)) == {(39, -105), (40, -106)}
 
 

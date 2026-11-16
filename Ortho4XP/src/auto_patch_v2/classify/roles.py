@@ -105,6 +105,7 @@ from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbo
 from .airside_edge import airside_edge_flip
 from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
 from .blast_pad import blast_pad_end
+from .gap_stands import holds_stand as _holds_startup   # the one 1300-containment read
 from .storey_edge import ARM_PAD_KEY, STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import cover_arms, necks_of, road_arms, split_at_necks
@@ -1594,10 +1595,6 @@ def _touching(face: Polygon, tree: STRtree | None, parts, rules: Rules
                             ).length >= rules.cells.min_shared_m:
             seen[chain.id] = chain
     return list(seen.values())
-
-
-def _holds_startup(face: Polygon, tree: STRtree | None) -> bool:
-    return tree is not None and len(tree.query(face, predicate="contains")) > 0
 
 
 def _apron_named(src: SourceRecord | None, rules: Rules) -> bool:

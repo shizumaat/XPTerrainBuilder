@@ -74,9 +74,13 @@ def test_a_retaining_plate_leads_only_a_unit_its_frame_dominates():
     term = NS(plate_kind="", plate_y=None, plate_stations=())
     frames = {1: ((33.64, -84.42), -19.81), 2: ((33.65, -84.41), 0.0),
               3: ((33.65, -84.41), 0.0), 4: ((33.64, -84.42), -19.81)}
-    assert not plate_leads_unit([1, 2, 3], {1: wall, 2: term, 3: term}, frames)
-    # the wall's frame dominates (a pole of another frame on its pad): it leads
-    assert plate_leads_unit([1, 4, 2], {1: wall, 4: wall, 2: term}, frames)
+    parts = {1: NS(area_m2=8000.0), 2: NS(area_m2=60000.0), 3: NS(area_m2=500.0),
+             4: NS(area_m2=10.0)}
+    assert not plate_leads_unit([1, 2, 3], {1: wall, 2: term, 3: term}, frames, parts)
+    # the wall's frame dominates (two small parts of another frame on its
+    # footprint -- a pole, a sign): it leads
+    assert plate_leads_unit([1, 3, 4], {1: wall, 3: term, 4: wall}, frames,
+                            {1: NS(area_m2=1800.0), 3: NS(area_m2=5.0), 4: NS(area_m2=1.0)})
     assert abs(walled_unit_zero([wall], lambda la, lo: 300.0) - 280.19) < 1e-9
     walled = NS(plate_kind="walled", plate_y=-9.9, plate_stations=((33.64, -84.42),))
     assert plate_leads_unit([1, 2, 3], {1: walled, 2: term, 3: term}, frames)

@@ -915,7 +915,7 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         # (#2120: a retaining plate only a unit wholly in its own frame)
         wz = walled_unit_zero({id(member_of[q]): member_of[q] for q in un.pids
                                if q in member_of}.values(), surface) \
-            if plate_leads_unit(un.pids, member_of, frame_of) else None
+            if plate_leads_unit(un.pids, member_of, frame_of, parts) else None
         if wz is not None:
             out[un.id] = (wz, "", WALLED_SRC)
             continue

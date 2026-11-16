@@ -135,6 +135,7 @@ from .open_frame_seat import (  # noqa: E402
     carried_lift as _carried_lift, frame_lifts as _frame_lifts,
     frame_root_boxes as _frame_root_boxes, frame_zero as _frame_zero,
     group_zero as _group_zero, open_zero as _open_zero, at_zero as _at_zero,
+    plate_led as _plate_led,
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
     rigid_open as _rigid_open, root_zeros as _root_zeros,
     unit_root as _ofs_unit_root)
@@ -1349,7 +1350,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 before = len(splits)
                 record = _airside_deck(record, m, airside, counts)
                 record = _rigid_open(record, m, open_frame)
-                if not (open_frame or airside or bridge or free):
+                if not (open_frame or airside or bridge or free) or _plate_led(m):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
@@ -1446,7 +1447,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                         counts.get("footless_carrier_kept_whole", 0) + 1
                 record = _airside_deck(record, m, airside, counts)
                 record = _rigid_open(record, m, open_frame)
-                if not (open_frame or airside or bridge or free):
+                if not (open_frame or airside or bridge or free) or _plate_led(m):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,
@@ -1493,7 +1494,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 _pre = record
                 record = _airside_deck(record, m, airside, counts)
                 record = _rigid_open(record, m, open_frame)
-                if not (open_frame or airside or bridge or free):
+                if not (open_frame or airside or bridge or free) or _plate_led(m):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge,

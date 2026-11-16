@@ -40,6 +40,7 @@ __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "
            "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
            "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "plate_leads_unit",
+           "plate_led",
            "WALLED_SRC",
            "TOUCH_M"]
 
@@ -785,13 +786,23 @@ def walled_lead(record: _t.Any, m: _t.Any, surface: _t.Any = None) -> "float | N
 WALLED_SRC = "walled_plate"
 
 
+def plate_led(m: _t.Any) -> bool:
+    """Whether member ``m`` carries a LEADING plate (:data:`LEAD_PLATES`):
+    its record rides the plate's datum (:func:`walled_lead`) whatever else
+    seats it -- an airside or open-frame record too (#2120: KATL's
+    ``katl127_wall``, chained to the control tower beside the apron, stood
+    on the tower's pad 10 m over its datum)."""
+    return getattr(m, "plate_kind", "") in LEAD_PLATES
+
+
 def plate_leads_unit(pids: _t.Iterable[int], member_of: _t.Mapping[int, _t.Any],
-                     frame_of: _t.Mapping[int, tuple]) -> bool:
+                     frame_of: _t.Mapping[int, tuple],
+                     parts: "_t.Mapping[int, _t.Any] | None" = None) -> bool:
     """Whether a leading plate's datum (:func:`walled_unit_zero`) is the zero
     of the §16g unit of part ids ``pids``.  A runway-end WALLED plate leads
     its unit whatever frames it chains (#1977); any other leading plate (a
-    retaining wall's, #2120) only a unit whose DOMINANT frame (most parts,
-    :func:`root_zeros`' reading) is its plated members' own: its datum is that
+    retaining wall's, #2120) only a unit whose DOMINANT frame (the most plan
+    area over its ``parts``: part id -> Part) is its plated members' own: its datum is that
     frame's ``y = 0``.  A terminal chained to a sunk wall (KATL's terminal F
     touching ``katl126_wall``, lift -19.81) keeps its own seat -- the closing
     build sank it 19.4 m riding the wall's datum -- and the plated members
@@ -803,11 +814,12 @@ def plate_leads_unit(pids: _t.Iterable[int], member_of: _t.Mapping[int, _t.Any],
         return False
     if any(member_of[q].plate_kind == "walled" for q in plated):
         return True
-    size: dict = {}
+    area: dict = {}
     for q in pids:
-        size[frame_of.get(q)] = size.get(frame_of.get(q), 0) + 1
-    top = max(size.values())
-    return any(size.get(frame_of.get(q), 0) == top for q in plated)
+        a = max(float(getattr(parts.get(q), "area_m2", 0.0) or 0.0), 1e-6) if parts else 1.0
+        area[frame_of.get(q)] = area.get(frame_of.get(q), 0.0) + a
+    top = max(area.values())
+    return any(area.get(frame_of.get(q), 0.0) == top for q in plated)
 
 
 def walled_unit_zero(members: _t.Iterable[_t.Any], surface: _t.Any) -> "float | None":

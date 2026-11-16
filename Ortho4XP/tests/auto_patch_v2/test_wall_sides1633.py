@@ -216,3 +216,36 @@ def test_a_sheet_walls_upper_face_is_its_paved_face_not_the_dem(paved_east):
     assert ring == pytest.approx(3.81)
     assert up.symmetric_difference(w.upper).area < 1e-6
     assert lo.symmetric_difference(w.lower).area < 1e-6
+
+
+def test_a_band_at_a_retaining_wall_ends_at_its_upper_face(law):
+    """#1934 R4, owner RULINGS 2026-11-16n (2): no adjacent ground of the
+    high side crosses a retaining wall -- a band whose pavement stands AT
+    the wall's upper face ends there; across the wall is the low side's
+    (the road, the mesh).  A band whose pavement lies on the LOW side is
+    not cut."""
+    from auto_patch_v2.classify.roles import Cell
+    from auto_patch_v2.planar.zones import zone_regions
+    import dataclasses as dc
+    pav = ((-40.0, -500.0), (0.0, -500.0), (0.0, 500.0), (-40.0, 500.0))
+    cells = (Cell(0, "runway", "09/27", pav, (), 4, None, "airside", "runway", {}),)
+    probe = box(0.0, -90.0, 39.9, 90.0)
+
+    def reach(walls):
+        regs = zone_regions(cells, law, (), None, (), None,
+                            wall_setbacks=WS.band_setbacks(walls))
+        got = [r.polygon.intersection(probe) for r in regs]
+        got = [g for g in got if not g.is_empty]
+        return max(g.bounds[2] for g in got) if got else None
+    near = WS.WallSides(box(3.0, -100, 8.0, 100), 20.0, 20.0, box(0.0, -100, 3.0, 100),
+                        box(8.0, -100, 28.0, 100), 6.8, "near", None,
+                        lower_face=LineString([(8.0, -100.0), (8.0, 100.0)]))
+    assert WS.beyond_wall(near).contains(Point(20.0, 0.0))
+    assert not WS.beyond_wall(near).contains(Point(1.0, 0.0))
+    assert reach((near,)) == pytest.approx(3.0)        # ends at the upper face
+    # the wall's ends: the band runs on past them
+    regs = zone_regions(cells, law, (), None, (), None, wall_setbacks=WS.band_setbacks((near,)))
+    assert any(r.polygon.contains(Point(20.0, 150.0)) for r in regs)
+    # a wall facing the other way (the pavement on its LOW side) cuts nothing
+    flipped = dc.replace(near, lower_face=LineString([(3.0, 100.0), (3.0, -100.0)]))
+    assert reach((flipped,)) == pytest.approx(39.9)

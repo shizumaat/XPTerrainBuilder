@@ -334,3 +334,35 @@ def test_a_remainder_meeting_no_level_by_the_probe_takes_the_most_shared():
     p0, p1 = _level_plans(plan, (0.0, 6.0), runs, [(0, -1), (0, 1)], [0, 1], 3.0, 1.0)
     assert abs(p0.area - 1.0) < 1e-6
     assert abs(p1.area - (40 * 30 - 1.0)) < 1e-6
+
+
+def test_back_cut_follows_the_buildings_own_tall_walls_not_its_box():
+    """#1934 R4 (owner sim read 2026-11-16T19:41Z item 3, KLAX
+    ``Terminal_8``): the box's tall side stood 12-20 m out in the lot beside
+    walls whose feet are the upper floor, and its band sank the lot.  With
+    a plan and its run reading, the back is cut outside the runs at the
+    lowest level only; a record without runs keeps its box sides."""
+    from auto_patch_v2.airport.split_level import SplitLevel
+    from auto_patch_v2.planar.split_level_pit import _cut_region, _tall_lines
+    from shapely.geometry import Point
+    import dataclasses as dc
+    foot = box(0.0, 0.0, 40.0, 10.0)                 # the box reaches x 40
+    plan = box(0.0, 0.0, 20.0, 10.0)                 # the building stops at x 20
+    open_ = (LineString([(0.0, 10.0), (20.0, 10.0)]),)
+    east = LineString([(40.0, 10.0), (40.0, 0.0)])   # the box's tall side
+    runs = ((LineString([(0.0, 10.0), (20.0, 10.0)]), 6.0),     # north, upper
+            (LineString([(20.0, 10.0), (20.0, 0.0)]), 6.0),     # east, upper
+            (LineString([(20.0, 0.0), (0.0, 0.0)]), 0.0),       # south, LOWER
+            (LineString([(0.0, 0.0), (0.0, 10.0)]), 6.0))       # west, upper
+    sl = SplitLevel("o", ("o",), ("a.obj",), foot, 0.0, 6.0, open_, (east,), 6.0, 0.0,
+                    (5.0, 5.0), plan, runs=runs, levels=(0.0, 6.0), run_levels=(1, 1, 0, 1))
+    lines = _tall_lines(sl)
+    assert len(lines) == 1 and lines[0].equals(runs[2][0])
+    region = _cut_region(dc.replace(sl, closed_sides=lines), 5.0, None, plan)
+    assert region.contains(Point(10.0, -4.0))         # outside the lower wall
+    assert not region.contains(Point(30.0, 5.0))      # never out at the box side
+    assert not region.contains(Point(38.0, 5.0))
+    assert abs(region.area - (200.0 + 20.0 * 5.0)) < 1e-6
+    # a record without the run reading keeps its box sides
+    bare = dc.replace(sl, runs=(), run_levels=(), levels=())
+    assert _tall_lines(bare) == (east,)

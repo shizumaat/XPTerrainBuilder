@@ -545,11 +545,16 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             # 27t (#1201): the band ends at the plate — no stand-off
             z1 = fixed_difference(z1, plate_u)
             z2 = fixed_difference(z2, plate_u)
-        for wcut, foot, near_m in wall_setbacks:
+        for wcut, foot, near_m, beyond in wall_setbacks:
             # spec §3 (2): only a band whose pavement stands back from it
             if u.distance(foot) > near_m:
                 z1 = fixed_difference(z1, wcut)
                 z2 = fixed_difference(z2, wcut)
+            elif beyond is not None and u.intersection(beyond).area < 1.0:
+                # 16n (2), #1934 R4: a band whose pavement stands AT the
+                # wall on its upper side ends at the wall line
+                z1 = fixed_difference(z1, beyond)
+                z2 = fixed_difference(z2, beyond)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
             if gap_apron_u is not None and geom.intersects(gap_apron_u):

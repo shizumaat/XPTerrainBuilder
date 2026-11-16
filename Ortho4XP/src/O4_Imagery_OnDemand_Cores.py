@@ -28,6 +28,8 @@ installed.  General: no airport is named here.
 * :func:`airport_points` -- ``[(icao, lat, lon), ...]`` of a tile.
 * :func:`custom_points` -- the custom airport packs' airports of a tile.
 * :func:`base_zoom` -- the tile's own zoom level (its imagery record).
+* :func:`boundary_names` -- the squares inside an airport boundary
+  (#2107, its imagery record): made low-res last, with the favorites.
 * :func:`core_names` -- the index rows of a tile that are in a core.
 * :func:`core_tier` -- the tier (0-3, ``O4_Imagery_Tier_Plan``) a core
   square wants, or ``None`` outside every core.
@@ -42,7 +44,7 @@ import O4_Imagery_OnDemand_Index as INDEX
 import O4_Imagery_Tier_Plan as PLAN
 
 __all__ = ["CORE_RING_S", "GRADED_SUFFIX", "airport_points", "base_zoom",
-           "core_names", "core_tier"]
+           "boundary_names", "core_names", "core_tier"]
 
 #: The core's radius in units of a square's S: the 1024 px crossing.
 CORE_RING_S = PLAN.CROSSING_S[1]
@@ -120,6 +122,20 @@ def base_zoom(build_dir: str, lat: int, lon: int) -> "int | None":
         return int(value) if value else None
     except (OSError, TypeError, ValueError):
         return None
+
+
+def boundary_names(build_dir: str, lat: int, lon: int) -> "list[str]":
+    """The textures the tile build put inside an airport boundary at the
+    provider's finest level (#2107: ``airport_boundary_textures`` of its
+    imagery record, ``O4_Airport_Boundary_Zoom``); ``[]`` when the record
+    names none."""
+    import O4_Tile_Info as TINFO
+    try:
+        names = TINFO.read_imagery_record(build_dir, int(lat), int(lon)).get(
+            "airport_boundary_textures")
+    except (OSError, TypeError, ValueError):
+        return []
+    return [str(n) for n in names] if isinstance(names, list) else []
 
 
 def core_tier(row: dict, points, base_zl: "int | None" = None) -> "int | None":

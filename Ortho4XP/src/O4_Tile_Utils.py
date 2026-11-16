@@ -292,6 +292,10 @@ def _write_imagery_manifest(tile, download_stats, convert_progress):
                 else None),
             "color_field_reused": bool(
                 getattr(tile, "color_field_reused", False)),
+            # #2107: the squares inside an airport boundary, at the
+            # provider's finest level: on demand, made low-res last
+            "airport_boundary_textures": list(
+                getattr(tile, "airport_boundary_textures", None) or []),
         }
         # The Favorite is the user's (imagery_pin), set any time, a build
         # running or not (#2033): kept from the record as it stands, read

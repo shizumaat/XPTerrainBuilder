@@ -140,7 +140,8 @@ def _rebuild_rows(conn, tiles, cache_keys=None) -> None:
         tile = FNAMES.short_latlon(lat, lon)
         INDEX.set_core(conn, tile, CORES.core_names(
             INDEX.rows(conn, tile=tile), CORES.airport_points(lat, lon),
-            CORES.base_zoom(build_dir, lat, lon)))
+            CORES.base_zoom(build_dir, lat, lon)),
+            CORES.boundary_names(build_dir, lat, lon))
 
 
 def register_tiles(tiles, index: Optional[str] = None) -> int:

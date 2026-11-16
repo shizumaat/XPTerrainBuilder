@@ -123,7 +123,7 @@ def test_unknown_code_is_the_boundary_alone(monkeypatch):
     dico = {("repr", 1): {"boundary": BOUNDARY}}
     got = COVER.tile_cover_squares(_tile(0.0, 1000), dico, [("repr", 1)],
                                    xplane_root="/nowhere")
-    assert got == COVER._cover_squares(BOUNDARY, LAT, LON, 18)
+    assert got == COVER.region_squares(BOUNDARY, LAT, LON, 18)
 
 
 def test_runways_reader_abstains_without_an_install():

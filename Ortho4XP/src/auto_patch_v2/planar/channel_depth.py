@@ -53,7 +53,8 @@ import numpy as np
 import shapely
 from shapely.geometry import LineString
 
-__all__ = ["extend_axis", "rejoin", "VisibleFloor", "FLOOR", "LEDGE", "BELOW", "END", "UNMET",
+__all__ = ["extend_axis", "rejoin", "crest_through_feet", "VisibleFloor", "FLOOR", "LEDGE",
+           "BELOW", "END", "UNMET",
            "FLOOR_AT_HIGHEST_FOOT"]
 
 #: OWNER Q2 (spec ``object-gate-member-floors-20261113.md`` §9, RULINGS
@@ -203,12 +204,43 @@ def _cut_profile(feet: _t.Sequence[np.ndarray], ss: _t.Sequence[float],
     has a floor foot."""
     kinds = _classify(feet, None, flat) if kinds is None else kinds
     stat = np.max if FLOOR_AT_HIGHEST_FOOT else np.median
-    got = [(float(s), float(stat(f[k == FLOOR, 2])))
-           for s, f, k in zip(ss, feet, kinds, strict=True) if (k == FLOOR).any()]
+    got, at = [], []
+    for s, f, k in zip(ss, feet, kinds, strict=True):
+        if (k == FLOOR).any():
+            got.append((float(s), float(stat(f[k == FLOOR, 2]))))
+            at.append(f[k == FLOOR][:, :3:2])
     if not got:
         return None
+    if FLOOR_AT_HIGHEST_FOOT:
+        got = _envelope(got, at)
     z = np.interp(np.asarray(ss, float), [s for s, _ in got], [v for _, v in got])
     return tuple((float(s), float(v)) for s, v in zip(ss, z, strict=True))
+
+
+def _envelope(got: list[tuple[float, float]], feet: list[np.ndarray]
+              ) -> list[tuple[float, float]]:
+    """Each witnessed station's floor raised just enough that the line to
+    each neighbour witness stands at or over every floor foot between
+    them (#1918).  ``feet[k]``: the ``(s, z)`` floor feet of ``got[k]``.
+    A foot stands within half a station of its station, on either side
+    of it, and the floor between witnesses is linear: a foot past its
+    station towards a LOWER neighbour floated over the line (MEASURED
+    LGAV, drawn: ``Trench_07`` / ``Trench_05`` floor feet +0.37 ... +0.64
+    m).  For a foot at ``t`` of the way from its station ``j`` to the
+    neighbour ``i`` the line clears it when ``z_i >= z_j - (z_j - z_f) /
+    t``: the least raise (raising every station to its neighbours'
+    level buried 49 more feet over 0.5 m at LGAV) -- owner Q2: no wall
+    floats, a lower one is buried."""
+    z = [v for _s, v in got]
+    out = list(z)
+    for j, (sj, zj) in enumerate(got):
+        for sf, zf in feet[j]:
+            i = j + (1 if sf > sj else -1)
+            if sf == sj or not 0 <= i < len(got):
+                continue
+            t = abs(sf - sj) / abs(got[i][0] - sj)
+            out[i] = max(out[i], zj - (zj - zf) / t)
+    return [(s, v) for (s, _v), v in zip(got, out, strict=True)]
 
 
 @_dc.dataclass
@@ -221,6 +253,8 @@ class _Side:
     crest: np.ndarray
     pins: list[tuple[float, float, float]]
     ledge: np.ndarray        # the innermost ledge foot's |off| per station (nan: none)
+    #: per pinned station index, the ledge foot itself ``(s, x, y)``
+    feet: dict = _dc.field(default_factory=dict)
 
 
 def _cut_halves(points: np.ndarray, feet: _t.Sequence[np.ndarray],
@@ -244,6 +278,7 @@ def _side(points, feet, kinds, extent, ss, profile, step, flat, floor_half, cap,
     n = len(ss)
     edge_h, crest_h, ledge = np.full(n, np.nan), np.full(n, np.nan), np.full(n, np.nan)
     ledge_z = np.full(n, np.nan)
+    foot: dict[int, tuple[float, float, float]] = {}
     for i, ((s, z), f, k) in enumerate(zip(profile, feet, kinds, strict=True)):
         mine = (f[:, 1] * sign >= 0.0) if len(f) else np.zeros(0, bool)
         off = np.abs(f[:, 1]) if len(f) else np.zeros(0)
@@ -258,6 +293,7 @@ def _side(points, feet, kinds, extent, ss, profile, step, flat, floor_half, cap,
         if lm.any():
             j = int(np.argmin(np.where(lm, off, np.inf)))
             ledge[i], ledge_z[i] = off[j], f[j, 2]
+            foot[i] = (float(f[j, 0]), float(f[j, 4]), float(f[j, 5]))
         pm = (np.abs(points[:, 0] - s) <= step) & (points[:, 1] * sign >= 0.0)
         if pm.any():
             crest_h[i] = float(np.abs(points[pm, 1]).max())
@@ -272,7 +308,8 @@ def _side(points, feet, kinds, extent, ss, profile, step, flat, floor_half, cap,
     crest = np.where(held, ledge, crest)
     pins = [(float(ss[i]), float(sign * ledge[i]), float(ledge_z[i]))
             for i in np.flatnonzero(held)]
-    return _Side(edge, crest, pins, np.where(held, ledge, np.nan))
+    return _Side(edge, crest, pins, np.where(held, ledge, np.nan),
+                 {i: foot[i] for i in np.flatnonzero(held) if i in foot})
 
 
 def _fill(ss, h: np.ndarray, floor: float) -> np.ndarray:
@@ -343,21 +380,61 @@ class VisibleFloor:
     def sides(self, profile, axis_fn, floor_half: float, cap: float, band: float,
               window: float, margin: float):
         """``(left halves, right halves), (left crests, right crests),
-        ledge pins (x, y, z), member feet`` over the final ``profile``."""
+        ledge pins (x, y, z), member feet, (left, right) crest feet`` over
+        the final ``profile``; the crest feet ``{station index: (x, y)}``
+        are the ledge feet the crest RING runs through (:func:`_ring_feet`):
+        the ring takes that point for the station's crest vertex, and the
+        pin stands on it."""
         ss = self.ss
         sides = _cut_halves(self.points, self.feet, self.kinds, self.extent, ss, profile,
                            self.step, self.flat, floor_half, cap, band, window, margin)
         moved = np.array([abs(a[1] - b[1]) > 0.01 for a, b in zip(self.raw, profile, strict=True)])
-        pins = []
-        for s, off, z in sides[0].pins + sides[1].pins:
-            p = axis_fn(s)
-            u = np.subtract(axis_fn(s + 1.0), axis_fn(max(0.0, s - 1.0)))
-            u = u / (np.hypot(*u) or 1.0)
-            pins.append((float(p[0] - u[1] * off), float(p[1] + u[0] * off), float(z)))
+        pins, rings = [], []
+        for side in sides:
+            ring = _ring_feet(side, ss)
+            rings.append(ring)
+            for i, (s, off, z) in zip(np.flatnonzero(np.isfinite(side.ledge)), side.pins,
+                                      strict=True):
+                if int(i) in ring:
+                    pins.append((*ring[int(i)], float(z)))
+                    continue
+                p = axis_fn(s)
+                u = np.subtract(axis_fn(s + 1.0), axis_fn(max(0.0, s - 1.0)))
+                u = u / (np.hypot(*u) or 1.0)
+                pins.append((float(p[0] - u[1] * off), float(p[1] + u[0] * off), float(z)))
         feet = _member_feet(self.feet, self.kinds, sides, moved, self.members)
         return ((tuple(map(float, sides[0].edge)), tuple(map(float, sides[1].edge))),
                 (tuple(map(float, sides[0].crest)), tuple(map(float, sides[1].crest))),
-                tuple(pins), tuple(feet))
+                tuple(pins), tuple(feet), tuple(rings))
+
+
+def _ring_feet(side: _Side, ss: _t.Sequence[float], gap: float = 0.5) -> dict:
+    """``{station index: (x, y)}``: the pinned stations whose crest vertex
+    is the LEDGE FOOT ITSELF (#1918).  A foot is a member's lowest point
+    within half a station of its station, so the station's normal misses
+    it by up to that much along the axis -- MEASURED LGAV ``Trench_07``:
+    2-5 m, and the crest between two pins ran up to 2.7 m inside the
+    foot, which floated 1.76 m over the drawn bank.  A foot is taken only
+    while the ring stays in station order: its station ``s`` lies more
+    than ``gap`` past the previous ring vertex and short of the next
+    station by as much."""
+    out: dict[int, tuple[float, float]] = {}
+    last = -np.inf
+    n = len(ss)
+    for i in sorted(side.feet):
+        s, x, y = side.feet[i]
+        lo = max(last, ss[i - 1] if i > 0 else -np.inf)
+        hi = ss[i + 1] if i + 1 < n else np.inf
+        if lo + gap < s < hi - gap:
+            out[int(i)] = (x, y)
+            last = s
+    return out
+
+
+def crest_through_feet(line: list, ring: dict) -> list:
+    """``line`` (one side's crest points per station) with each station of
+    ``ring`` (:func:`_ring_feet`) replaced by its foot."""
+    return [ring.get(i, p) for i, p in enumerate(line)]
 
 
 def _cut_span(points: np.ndarray) -> tuple[float, float] | None:

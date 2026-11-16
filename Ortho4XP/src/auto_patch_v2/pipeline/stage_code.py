@@ -1044,6 +1044,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.bridge_axis",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bridge_ground",
+        "auto_patch_v2.airport.bridge_span",
         "auto_patch_v2.airport.bridge_witness",
         "auto_patch_v2.airport.bridged_ground",
         "auto_patch_v2.airport.bulk_geos",
@@ -1448,6 +1449,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_shelf",
         "auto_patch_v2.constraints.assembly",
+        "auto_patch_v2.constraints.bridge_span_release",
         "auto_patch_v2.constraints.ceiling",
         "auto_patch_v2.constraints.channel",
         "auto_patch_v2.constraints.cluster_pad",
@@ -2259,6 +2261,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.below_grade_witness airport.shell_ground geom.author_ground
     model.free_bridge
     constraints.wing_cut model.wing_cut
+    constraints.bridge_span_release
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport.floor_rim airport.object_floor airport.walled_pit geom.shape_class
@@ -2520,6 +2523,7 @@ CODE_MODULES["solve"] = _mods("""
     model.free_bridge planar.free_bridge airport.ground_route_ways
     planar.front_band airport.entrance_front planar.ramp_carry planar.deck_runout
     planar.wing_cut model.wing_cut airport.mouth_group airport.wall_lines
+    planar.mouth_behind
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.facade_seat
@@ -2717,6 +2721,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.front_band airport.entrance_front planar.ramp_carry planar.deck_runout
     planar.wing_cut model.wing_cut airport.mouth_group constraints.wing_cut
     airport.wall_lines
+    constraints.bridge_span_release planar.mouth_behind
 """)
 CODE_MODULES["emit"] = _mods("""
     model.wing_cut
@@ -2850,6 +2855,7 @@ CODE_MODULES["emit"] = _mods("""
     pipeline.upper_pad_publication
     airport.shell_ground
     model.free_bridge
+    airport.bridge_span constraints.bridge_span_release
 """)
 CODE_MODULES["verify"] = _mods("""
     constraints.airside_top
@@ -2968,6 +2974,7 @@ CODE_MODULES["verify"] = _mods("""
     pipeline.storey_publication pipeline.upper_pad_publication
     airport.shell_ground
     model.free_bridge
+    constraints.bridge_span_release
 """)
 
 

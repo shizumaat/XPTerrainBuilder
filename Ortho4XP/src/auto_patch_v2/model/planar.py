@@ -850,6 +850,12 @@ class PlanarMap:
     #: by ``constraints/public_road_release`` (the rows yield) and
     #: ``pipeline/publication.lifted_caps`` (the census lift)
     public_road_lifted: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: #2073 (owner 2026-11-13T22:48Z, #1939 site 3): face id -> its SPAN
+    #: vertices, for every groundside road / lot face a deckless mapped
+    #: bridge carries (``airport/bridge_span``); read by ``constraints/
+    #: bridge_span_release`` (the span's rows yield to its ground) and
+    #: ``pipeline/publication.lifted_caps`` (the census lift)
+    bridge_span: _t.Mapping[int, frozenset] = _dc.field(default_factory=dict)
     #: OWNER RULINGS 2026-10-27f / 27s (Q186 / Q197): vertex -> the ref of
     #: the PUBLIC road it stands on, for every vertex of a SIZED junction
     #: joint (the side street's mouth and transition, the main road's kerb

@@ -195,7 +195,10 @@ def _offer_gateway_airports(lat: int, lon: int) -> None:
 
 
 SCAN_FLUSH_SECONDS = 0.1     # scan streaming cadence (~10 Hz)
-ETA_EMIT_SECONDS = 1.0       # RunEta cadence
+# RunEta / TileClocks / clock-step progress cadence: twice a second, so
+# the apps' clocks and bars move between step events (owner 2026-11-16);
+# the Qt window's clock timer and the parallel ticker read it too.
+ETA_EMIT_SECONDS = 0.5
 RATE_MIN_SPAN_SECONDS = 3.0  # need this much window before trusting a rate
 RATE_MIN_GAIN_PERCENT = 0.5  # ...and this much percent gained inside it
 
@@ -1542,7 +1545,7 @@ class EngineSession:
         self._start_eta_heartbeat()
 
     def _start_eta_heartbeat(self):
-        """Emit RunEta at ~1 Hz for as long as a run is live.
+        """Emit RunEta at ``ETA_EMIT_SECONDS`` for as long as a run is live.
 
         The other _emit_eta call sites are all event-driven (bar
         percent, auto-patch rows) — which goes silent exactly when a

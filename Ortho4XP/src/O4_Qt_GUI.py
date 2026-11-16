@@ -102,7 +102,7 @@ import O4_Qt_Imagery_OnDemand as QTONDEMAND
 import O4_Qt_Core_Rows as QTCORES
 import O4_Qt_Mesh_Order as QTMESHORDER
 import O4_Qt_Missing_Textures as QTMISSING
-from o4_engine.session import EngineSession
+from o4_engine.session import ETA_EMIT_SECONDS, EngineSession
 from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
 import O4_Qt_Build_OnDemand as QTONDEMAND_BUILD
@@ -1731,7 +1731,9 @@ class MainWindow(QMainWindow):
         # "Build failed tiles again" describe.
         self._run_tiles = set()
         self._elapsed_timer = QTimer(self)
-        self._elapsed_timer.setInterval(1000)
+        # The engine's clock cadence (2 Hz): elapsed and remaining move
+        # between step events, as in the Mac app.
+        self._elapsed_timer.setInterval(int(ETA_EMIT_SECONDS * 1000))
         self._elapsed_timer.timeout.connect(self._update_build_clock)
 
         # The panel scrolls vertically instead of imposing its full

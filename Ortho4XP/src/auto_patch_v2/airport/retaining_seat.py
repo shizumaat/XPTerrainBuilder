@@ -36,14 +36,14 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["RETAINING_PLATE", "RetainingSeat", "retaining_seats"]
+__all__ = ["RETAINING_PLATE", "retaining_seats"]
 
 #: the plate kind of a retaining wall's seat (``anchor_rule.datum_of``)
 RETAINING_PLATE = "retaining"
 
 
 @_dc.dataclass(frozen=True)
-class RetainingSeat:
+class _RetainingSeat:
     """One retaining wall's plate: its placement id, the authored ``y`` its
     retained face reaches (the height put on the upper ground) and the
     stations (frame xy) on that ground."""
@@ -70,7 +70,7 @@ def _upper_stations(face, grid_m: float, step_m: float) -> list:
 
 def retaining_seats(airport, cfg, grid_m: float, step_m: float,
                     taken: _t.Container[str] = frozenset(),
-                    comps=None) -> tuple[RetainingSeat, ...]:
+                    comps=None) -> tuple[_RetainingSeat, ...]:
     """Every retaining wall of ``airport``'s pack the rule seats (module
     doc), one record per placement.  ``cfg`` is ``classify/rules.toml``'s
     ``[service]`` record (the wall-class law), supplied by the caller;
@@ -85,7 +85,7 @@ def retaining_seats(airport, cfg, grid_m: float, step_m: float,
         comps = wall_class_components(airport, cfg)
     clear = float(getattr(cfg, "retaining_wall_clear_step_m", 0.0) or 0.0)
     plated = _walled_plate_ids(airport)
-    by_id: dict[str, RetainingSeat] = {}
+    by_id: dict[str, _RetainingSeat] = {}
     for w in comps:
         oid = str(getattr(getattr(w, "member", None), "id", "") or "")
         h = float(w.retained_m or w.height_m)
@@ -100,6 +100,6 @@ def retaining_seats(airport, cfg, grid_m: float, step_m: float,
             if k is not None:
                 pts.extend(_upper_stations(faces[k], grid_m, step_m))
         if pts:
-            by_id[oid] = RetainingSeat(oid, float(w.retained_top_y), tuple(pts),
+            by_id[oid] = _RetainingSeat(oid, float(w.retained_top_y), tuple(pts),
                                        str(w.resource or ""))
     return tuple(by_id[k] for k in sorted(by_id))

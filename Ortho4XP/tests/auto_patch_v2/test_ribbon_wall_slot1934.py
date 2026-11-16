@@ -7,8 +7,8 @@ weld beside no wall is unchanged."""
 from __future__ import annotations
 
 from auto_patch_v2.law import Law
-from auto_patch_v2.planar.overlay import Region, airside_clip, build_rim
 from auto_patch_v2.model.wall_reach import wall_slot
+from auto_patch_v2.planar.overlay import Region, airside_clip, build_rim
 from shapely.geometry import Polygon, box
 
 

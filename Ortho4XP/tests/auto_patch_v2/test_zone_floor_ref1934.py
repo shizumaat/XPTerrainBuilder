@@ -41,16 +41,3 @@ def test_an_edge_ending_on_a_ramp_floor_is_no_reference():
     # the taxiway beside no ramp is untouched
     assert {(30, 31), (31, 32), (30, 32)} <= keys
 
-
-def test_the_zones_stop_at_a_pack_retaining_walls_slot():
-    """a vertex in a pack retaining wall's slot (its footprint, one grid
-    step and the snap's half-diagonal past it) carries no zone band; one
-    beyond it, or with no wall, does"""
-    from shapely.geometry import box
-    vw = _view()
-    g = float(vw.law.tables.emit.identity.min_distinct_spacing_m)
-    vw.xy = {1: (10.0, 100.2), 2: (10.0, 100.5 + g), 3: (10.0, 100.5 + 2.5 * g),
-             4: (10.0, 50.0)}
-    ap = types.SimpleNamespace(wall_shade=box(0.0, 100.0, 40.0, 100.5))
-    assert Z._slot_vertices(vw, ap) == {1, 2}
-    assert Z._slot_vertices(vw, types.SimpleNamespace(wall_shade=None)) == set()

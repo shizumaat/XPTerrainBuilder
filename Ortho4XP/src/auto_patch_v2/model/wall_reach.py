@@ -62,11 +62,11 @@ def wall_slot(walls, grid_m: float):
     the retaining walls' footprints (``Airport.wall_shade``) grown one
     identity-grid step -- where the step between a wall's two levels is
     drawn.  Nothing on one level is welded, dissolved or banded across it
-    (``planar/ribbons``, ``planar/overlay.dissolve_sliver_zones``,
-    ``constraints/zones``).  MEASURED KLAX ``Fence_Terminal_1.obj`` (0.5 m
+    (``planar/ribbons``, ``planar/overlay.dissolve_sliver_zones``).
+    MEASURED KLAX ``Fence_Terminal_1.obj`` (0.5 m
     thick, the apron rim on its upper face, ``big_roads:-1143`` 1 m off):
-    the road was welded and dissolved across it to the apron rim and held
-    by taxi F's zone band at the apron's level, 34.0-35.1 m beside 33.3 m.
+    the road was welded and dissolved across it to the apron rim, 34.8-35.1 m
+    beside 33.6 m.
     ``None`` without walls."""
     if walls is None or walls.is_empty:
         return None

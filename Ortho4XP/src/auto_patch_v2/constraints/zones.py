@@ -87,7 +87,6 @@ from ..law.tables import (
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
-from ..model.wall_reach import wall_slot
 from .end_lip import natural_bank_vertices
 from .precedence import View, view
 from .roads import road_family_roles
@@ -158,31 +157,6 @@ def _structure_floor_vertices(vw: View) -> frozenset[int]:
                   if getattr(spec, "structure", False) and getattr(spec, "value", False))
     return frozenset(v for f in vw.faces_of_role(roles)
                      for ring in [vw.rings[f.id], *vw.holes[f.id]] for v in ring)
-
-
-def _slot_vertices(vw: View, airport: Airport) -> set[int]:
-    """THE ZONES STOP AT A PACK RETAINING WALL TOO (#1934 R3; RULINGS
-    2026-11-16d): every vertex in a retaining wall's slot
-    (``model/wall_reach.wall_slot``: its footprint and one identity-grid
-    step past it, plus the snap's half-diagonal: a vertex is read where the
-    lattice put it) -- the step between its two levels is drawn there, and a
-    band toward a pavement lip on the upper side would hold the lower
-    side's ground at the upper level (KLAX taxi F zone 1 held
-    ``big_roads:-1143``'s kerb 34.3 m beside 33.3 m along
-    ``Fence_Terminal_1.obj``)."""
-    from shapely import contains_xy
-    from ..law.tables import snap_margin_m
-    slot = wall_slot(getattr(airport, "wall_shade", None),
-                     float(vw.law.tables.emit.identity.min_distinct_spacing_m)
-                     + snap_margin_m(vw.law))
-    if slot is None:
-        return set()
-    x0, y0, x1, y1 = slot.bounds
-    near = [v for v, (x, y) in vw.xy.items() if x0 <= x <= x1 and y0 <= y <= y1]
-    if not near:
-        return set()
-    hit = contains_xy(slot, [vw.xy[v][0] for v in near], [vw.xy[v][1] for v in near])
-    return {v for v, h in zip(near, hit) if h}
 
 
 def _nearest_edge(vw: View, v: int, edges: list, grid: dict, cell: float,
@@ -418,7 +392,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     # (the DEM) and no band toward a pavement lip binds it — measured
     # OTHH: an IIS of two crest pins and one mandatory-down band row
     wall_vertices = {v for f in vw.faces_of_role(("retaining_wall",))
-                     for v in vw.rings[f.id]} | _slot_vertices(vw, airport)
+                     for v in vw.rings[f.id]}
     # THE BAND BINDS REGARDLESS OF SHAPE OWNERSHIP (owner 2026-08-30,
     # "taxiway adjacent-ground band cuts groundside": zones 1-2 grade FROM
     # THE TAXIWAY and a groundside shape boundary is not an exemption).

@@ -32,7 +32,8 @@ import O4_Default_Terrain_Map as DEFTER
 import O4_UI_Utils as UI
 
 __all__ = ["MATERIAL_KEYS", "PLANES", "emit_library_overlays",
-           "install_texture", "region_cliff_textures", "scenery_dir"]
+           "install_texture", "region_cliff_textures", "region_slope_bands",
+           "scenery_dir"]
 
 #: Plane count of an overlay point on a projected terrain with a border.
 PLANES = 7
@@ -169,6 +170,33 @@ class _CliffTexture(NamedTuple):
     material: tuple = ()
 
 
+def _ter_lines(ter_path):
+    """``(lines, material)`` of a ``.ter`` file (``material``: its
+    :data:`MATERIAL_KEYS` lines), or None when it cannot be read."""
+    try:
+        lines = open(ter_path, encoding="utf-8", errors="replace").read(
+        ).splitlines()
+    except OSError:
+        return None
+    material = tuple(" ".join(f) for f in map(str.split, lines)
+                     if f[:1] and f[0] in MATERIAL_KEYS)
+    return lines, material
+
+
+def _face_texture(ter_path, row, material):
+    """The :class:`_CliffTexture` of an ``AUTO_SLOPE_* W H lo hi dds`` row
+    (split), or None when its DDS is missing: W m along the contour and
+    ``W * rows / columns`` m down the fall line (H when the DDS header
+    cannot be read)."""
+    dds = os.path.normpath(os.path.join(os.path.dirname(ter_path), row[5]))
+    if not os.path.isfile(dds):
+        return None
+    width = float(row[1])
+    size = _dds_size(dds)
+    height = width * size[1] / size[0] if size else float(row[2])
+    return _CliffTexture(dds, width, height, material)
+
+
 def _cliff_texture(ter_path):
     """The :class:`_CliffTexture` of a ``.ter`` file, or None.
 
@@ -180,24 +208,61 @@ def _cliff_texture(ter_path):
     listed at 2160 x 1080 m), so the pixels decide; H only when the DDS
     header cannot be read.  (#2096 follow-up: one W on both axes
     stretched the fall line x4 here, the owner's vertical streaks.)"""
-    try:
-        lines = open(ter_path, encoding="utf-8", errors="replace").read(
-        ).splitlines()
-    except OSError:
+    read = _ter_lines(ter_path)
+    if read is None:
         return None
-    material = tuple(" ".join(f) for f in map(str.split, lines)
-                     if f[:1] and f[0] in MATERIAL_KEYS)
+    lines, material = read
     for line in lines:
         f = line.split()
         if f[:1] == ["AUTO_SLOPE_CLIFF"] and len(f) >= 6:
-            dds = os.path.normpath(os.path.join(os.path.dirname(ter_path),
-                                                f[5]))
-            if os.path.isfile(dds):
-                width = float(f[1])
-                size = _dds_size(dds)
-                height = width * size[1] / size[0] if size else float(f[2])
-                return _CliffTexture(dds, width, height, material)
+            found = _face_texture(ter_path, f, material)
+            if found:
+                return found
     return None
+
+
+class _SlopeBands(NamedTuple):
+    """What a landclass draws by slope, below its cliff texture (#2102
+    follow-up): ``hill`` its ``AUTO_SLOPE_HILL`` texture laid on a face
+    (a :class:`_CliffTexture`) and ``hill_projected`` its ``(W, H)`` metres
+    projected from above; ``base`` its ``BASE_TEX`` at its ``PROJECTED``
+    size; ``hill_band`` / ``cliff_band`` the ``(lo, hi)`` degrees over
+    which X-Plane fades the hill and the cliff texture in.  ``hill`` or
+    ``base`` is None when its DDS is missing."""
+    hill: object
+    hill_projected: tuple
+    base: object
+    hill_band: tuple
+    cliff_band: tuple
+
+
+def _slope_bands(ter_path):
+    """The :class:`_SlopeBands` of a ``.ter`` file, or None when it has no
+    ``AUTO_SLOPE_HILL`` and ``AUTO_SLOPE_CLIFF`` rows."""
+    read = _ter_lines(ter_path)
+    if read is None:
+        return None
+    lines, material = read
+    rows = {}
+    for line in lines:
+        f = line.split()
+        if f[:1] and f[0] not in rows:
+            rows[f[0]] = f
+    hill, cliff = rows.get("AUTO_SLOPE_HILL"), rows.get("AUTO_SLOPE_CLIFF")
+    if not (hill and cliff and len(hill) >= 6 and len(cliff) >= 6):
+        return None
+    base = None
+    tex, size = rows.get("BASE_TEX"), rows.get("PROJECTED")
+    if tex and size and len(tex) >= 2 and len(size) >= 3:
+        dds = os.path.normpath(os.path.join(os.path.dirname(ter_path),
+                                            tex[1]))
+        if os.path.isfile(dds):
+            base = _CliffTexture(dds, float(size[1]), float(size[2]),
+                                 material)
+    return _SlopeBands(_face_texture(ter_path, hill, material),
+                       (float(hill[1]), float(hill[2])), base,
+                       (float(hill[3]), float(hill[4])),
+                       (float(cliff[3]), float(cliff[4])))
 
 
 def _dds_size(path):
@@ -213,30 +278,51 @@ def _dds_size(path):
     return (columns, rows) if rows and columns else None
 
 
+def _region_landclasses(tile, lonlat, region_tris, warn):
+    """Per region, the physical ``.ter`` of the landclass the default DSF
+    has under most of its triangles (None when the library lacks it); an
+    empty list when the default DSF or the X-Plane install cannot be
+    read (``warn`` then names the arm that needed it)."""
+    terrain_map = DEFTER.DefaultTerrainMap.from_tile(tile.lat, tile.lon,
+                                                     scenery_dir())
+    root = getattr(terrain_map, "_xplane_root", None)
+    if terrain_map is None or not root:
+        UI.lvprint(1, "WARNING: %s needs the default Global Scenery DSF and"
+                      " the X-Plane install; no cliff overlay." % warn)
+        return []
+    library = _world_library(root)
+    out = []
+    for tris in region_tris:
+        paths = [p for p in _triangle_terrains(terrain_map, lonlat[tris])
+                 if p]
+        path = Counter(paths).most_common(1)[0][0] if paths else ""
+        out.append(library.get(path))
+    return out
+
+
+def _per_landclass(ters, read):
+    seen = {}
+    for ter in ters:
+        if ter not in seen:
+            seen[ter] = read(ter) if ter else None
+    return [seen[ter] for ter in ters]
+
+
 def region_cliff_textures(tile, lonlat, region_tris):
     """Per region, the cliff texture of the landclass the default DSF has
     under most of its triangles (None when it has none); ``lonlat`` is
     every mesh triangle's (3, 2) lon, lat.  An empty list when the default
     DSF or the X-Plane install cannot be read."""
-    terrain_map = DEFTER.DefaultTerrainMap.from_tile(tile.lat, tile.lon,
-                                                     scenery_dir())
-    root = getattr(terrain_map, "_xplane_root", None)
-    if terrain_map is None or not root:
-        UI.lvprint(1, "WARNING: cliff_textures=xpface needs the default "
-                      "Global Scenery DSF and the X-Plane install; no "
-                      "cliff overlay.")
-        return []
-    library = _world_library(root)
-    seen, out = {}, []
-    for tris in region_tris:
-        paths = [p for p in _triangle_terrains(terrain_map, lonlat[tris])
-                 if p]
-        path = Counter(paths).most_common(1)[0][0] if paths else ""
-        if path not in seen:
-            ter = library.get(path)
-            seen[path] = _cliff_texture(ter) if ter else None
-        out.append(seen[path])
-    return out
+    return _per_landclass(_region_landclasses(
+        tile, lonlat, region_tris, "cliff_textures=xpface"), _cliff_texture)
+
+
+def region_slope_bands(tile, lonlat, region_tris):
+    """Per region, the :class:`_SlopeBands` of the same landclass as
+    :func:`region_cliff_textures` (None when it has none)."""
+    return _per_landclass(_region_landclasses(
+        tile, lonlat, region_tris, "the cliff overlay's slope bands"),
+        _slope_bands)
 
 
 def _shared_name(dds_path):

@@ -192,6 +192,18 @@ def _road_sense(road: LineString, st: _t.Sequence[Station]) -> float:
     return 1.0 if vote >= 0.0 else -1.0
 
 
+def _side_vote(wid: str, road: LineString, st: _t.Sequence[Station], sense: float) -> str:
+    """R3b D2a (print only): the share of ``st``'s stations that see the
+    road on the side ``sense`` names, and the line's length; a line whose
+    smaller share is over one in five is marked ``MIXED``."""
+    n = sum(1 for x, y, nx, ny, *_r in st
+            if sense * ((p := road.interpolate(road.project(Point(x, y)))).x - x) * nx
+            + sense * (p.y - y) * ny >= 0.0)
+    length = LineString([(q[0], q[1]) for q in st]).length if len(st) >= 2 else 0.0
+    mixed = " MIXED" if min(n, len(st) - n) > len(st) / 5.0 else ""
+    return f"{wid} {n}/{len(st)} over {length:.0f} m{mixed}"
+
+
 def _wall_line(wid: str, st: _t.Sequence[Station], sense: float) -> WallLine:
     """The record of one wall line, its face the side ``sense`` names."""
     face, back = [], []
@@ -298,9 +310,10 @@ def wing_cuts(airport, objects, cache, decks, tunnels, classification, law
         read_lines = [(wid, st) for wid, _res in gr.wings
                       for _ln, st in wall_line_feet(by_id[wid], cache, law, mplan)]
         plans = [_section_plan(st) for _w, st in read_lines]
-        lines, parts, backs = [], [], []
+        lines, parts, backs, votes = [], [], [], []
         for k, (wid, st) in enumerate(read_lines):
             sense = _road_sense(road, st)
+            votes.append(_side_vote(wid, road, st, sense))
             line = _wall_line(wid, st, sense)
             toward = [(sense * s[2], sense * s[3]) for s in st]
             ends = [_reach(p, d, road, half, rim, sep, plans[:k] + plans[k + 1:])
@@ -325,8 +338,8 @@ def wing_cuts(airport, objects, cache, decks, tunnels, classification, law
         feet = [f for ln in lines for f in ln.foot]
         notes.append(f"{gr.mouth.object_id}: wing cut over {len(gr.wings)} wing(s), "
                      f"{len(lines)} wall line(s), {sum(Polygon(q).area for q in rings):.0f} m2 "
-                     f"on the road side, feet {min(feet):+.2f}..{max(feet):+.2f} over its floor "
-                     f"(#2099 R3 D)")
+                     f"on the road side, feet {min(feet):+.2f}..{max(feet):+.2f} over its floor; "
+                     f"road side by station {', '.join(votes)} (#2099 R3 D, R3b D2a)")
     if not cuts:
         return classification, (), notes
     classification, minted = _cells(classification, cuts, law, spacing)

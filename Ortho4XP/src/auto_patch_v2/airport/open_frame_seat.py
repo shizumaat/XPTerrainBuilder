@@ -39,7 +39,8 @@ __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "
            "frame_lifts", "carried_lift",
            "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
-           "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "WALLED_SRC",
+           "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "unit_plate_zero",
+           "WALLED_SRC",
            "TOUCH_M"]
 
 #: the deck verdicts that make a member an OPEN structure — a deck
@@ -782,6 +783,27 @@ def walled_lead(record: _t.Any, m: _t.Any, surface: _t.Any = None) -> "float | N
 
 #: the §16g unit datum source of a unit holding a walled plate
 WALLED_SRC = "walled_plate"
+
+
+def unit_plate_zero(pids: _t.Iterable[int], member_of: _t.Mapping[int, _t.Any],
+                    frame_of: _t.Mapping[int, tuple], surface: _t.Any) -> "float | None":
+    """:func:`walled_unit_zero` for the §16g unit of part ids ``pids`` -- where
+    the plate's datum IS the unit's zero.  A runway-end WALLED plate leads its
+    unit whatever frames it chains (#1977); any other leading plate (a
+    retaining wall's, #2120) only a unit standing wholly in the frame of its
+    plated members: its datum is that frame's ``y = 0``, and a frame chained
+    to it (KATL's terminal F touching ``katl126_wall``, lift -19.81) stands
+    by its own lift -- the plated members still ride it (:func:`walled_lead`).
+    ``frame_of``: part id -> its frame (anchor, authored lift)."""
+    pids = [q for q in pids if q in member_of]
+    plated = [q for q in pids if getattr(member_of[q], "plate_kind", "") in LEAD_PLATES]
+    if not plated:
+        return None
+    if not any(member_of[q].plate_kind == "walled" for q in plated):
+        frames = {frame_of.get(q) for q in plated}
+        if any(frame_of.get(q) not in frames for q in pids):
+            return None
+    return walled_unit_zero({id(member_of[q]): member_of[q] for q in pids}.values(), surface)
 
 
 def walled_unit_zero(members: _t.Iterable[_t.Any], surface: _t.Any) -> "float | None":

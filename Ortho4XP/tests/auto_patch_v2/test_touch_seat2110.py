@@ -275,3 +275,16 @@ def test_a_body_seated_in_another_unit_keeps_with_it():
     pw = {3: ("fu:9:9", 0.0)}
     out, _t, _c = w.run(plan_wide=pw)
     assert (_zero(out[b]), _zero(out[c])) == (431.0, 431.0)
+
+
+def test_no_member_rises_a_connector_under_the_seat_keeps_it():
+    """§2.2: "no member rises" — a footless piece of the group seated under
+    the lowest vote is never lifted to it (LOWS domiki_lows_37 b38 would
+    have floated 6.3 m)."""
+    w = _World()
+    w.body("a", (0, 0, 20, 20), 431.0)
+    w.body("b", (20.05, 0, 40, 20), 431.6)
+    c = w.body("canopy", (0, 0, 40, 20), 425.0, h=1.0, base=7.5, feet=False)
+    out, table, counts = w.run()
+    assert _zero(out[c]) == 425.0
+    assert counts["touch_follower_kept_low"] == 1

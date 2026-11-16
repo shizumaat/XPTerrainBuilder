@@ -18,7 +18,7 @@ votes), S = max - min:
 
 * S <= ``tol_m``: nothing;
 * S <= :data:`SEAT_MAX_M`: the group takes the LOWEST vote — no building
-  rises; a footed follower under it keeps its seat (I1), and a follower
+  rises; a member under it keeps its seat (2.2, I1), and a follower
   more than :data:`SEAT_MAX_M` over it too (16v's "less than a meter"),
   with what rides it — a piece riding a group member with evidence moves
   with its carrier.  A SMALL LOW
@@ -132,6 +132,17 @@ def _mark_fixed(nodes: list, splits: _t.Sequence[_t.Any], members: _t.Mapping,
             break
 
 
+def _root(nodes: list, blds: list[int], g: list[int]) -> str:
+    """The group's name in a moved body's reason: the §16g unit of its
+    lowest building that has one (``drawn_site_plan`` reads a ``fu:N:M``
+    as a GROUP; a file name there would read as a rider), else any
+    member's, else the lowest building's file."""
+    for i in list(blds) + sorted(g):
+        if nodes[i].unit or nodes[i].family:
+            return nodes[i].unit or nodes[i].family
+    return nodes[blds[0]].name
+
+
 def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw) -> dict:
     """One group's decision (§2.2): its class, ``Z``, the members that
     move to it and the listings."""
@@ -143,8 +154,8 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw) -> dict:
                           and nodes[near[0]].area < law.min_share * total) else []
     votes = [nodes[i].zero for i in blds if i not in small]
     z, s = min(votes), max(votes) - min(votes)
-    lowest = min((i for i in blds if i not in small), key=lambda i: nodes[i].zero)
-    root = nodes[lowest].unit or nodes[lowest].name
+    root = _root(nodes, sorted((i for i in blds if i not in small),
+                               key=lambda i: nodes[i].zero), g)
     steps = [d for (i, j), d in pairs.items() if i in g and j in g]
     out = {"frame": nodes[g[0]].frame, "root": root, "S": round(s, 3), "Z": round(z, 3),
            "bodies": len(g), "buildings": len(blds), "small_low": [nodes[i].name for i in small],
@@ -161,8 +172,8 @@ def _seat(nodes: list, g: list[int], pairs: _t.Mapping, law: _TouchLaw) -> dict:
     for i in g:
         n = nodes[i]
         rides = n.kind == _tg.CONNECTOR and n.carrier in by_name
-        if n.kind == _tg.GROUND and n.zero < z - law.tol_m:
-            out["kept_low"] += 1                      # I1: never raise a foot
+        if n.zero < z - law.tol_m:
+            out["kept_low"] += 1                      # 2.2: no member rises
             keep.add(i)
         elif n.kind != _tg.BUILDING and not rides and n.zero > z + SEAT_MAX_M:
             out["kept_high"] += 1                     # 16v: past a metre, no seat

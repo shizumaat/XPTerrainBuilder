@@ -33,8 +33,9 @@ roots before the unit loop).
   its touches to buildings are edges; a connector with no evidence carrier
   joins the buildings it touches; the bodies of one §16g unit in one frame
   are one group (22o never torn) — the unit most of a body's parts are
-  seated in, and the unit its own seat names (a §16c (7) bind seats a
-  body in its cluster's unit: LOWS ``domiki_lows_20`` b150 / ``_19`` b93).
+  seated in, the unit its own seat names (a §16c (7) bind seats a body in
+  its cluster's unit: LOWS ``domiki_lows_20`` b150 / ``_19`` b93) and the
+  22o group its seat was set by (``domiki_lows_37`` b152, fu:1:1493).
 """
 from __future__ import annotations
 
@@ -73,6 +74,7 @@ class Node:
     fixed: str = ""                 # why it is no node (§1.3 FIXED), or ""
     area: float = 0.0               # plan footprint, m2 (buildings)
     family: str = ""                # the unit its SEAT names (anchor.family root)
+    grouped: str = ""               # the 22o group it was seated in (its reason)
 
     def span(self, p: _t.Any) -> tuple[float, float]:
         """A part's authored height span over the frame's one zero."""
@@ -99,6 +101,16 @@ def _majority_unit(b: _t.Any, plan_wide: _t.Mapping[int, tuple]) -> str:
             r = unit_root(seat[0])
             n[r] = n.get(r, 0) + 1
     return max(sorted(n), key=lambda r: n[r]) if n else ""
+
+
+def _grouped(reason: str) -> str:
+    """The 22o connected group a body's standing seat names
+    (``open_frame_seat.GROUP_REASON`` ``fu:N:M at``), or ""."""
+    from .open_frame_seat import GROUP_REASON
+    head = reason.split("; was:", 1)[0]
+    if not head.startswith(GROUP_REASON + " fu:"):
+        return ""
+    return unit_root(head[len(GROUP_REASON) + 1:].split(" ", 1)[0])
 
 
 def _carriers(b: _t.Any) -> tuple[str, str]:
@@ -138,7 +150,8 @@ def read_nodes(splits: _t.Sequence[_t.Any], members: _t.Mapping[str, tuple],
                             float(a.surface_z) - float(a.y_zero), kind,
                             _majority_unit(b, plan_wide), ps,
                             float(getattr(b, "lift_m", 0.0) or 0.0), ev, fb,
-                            family=unit_root(fam) if fam.startswith("fu:") else ""))
+                            family=unit_root(fam) if fam.startswith("fu:") else "",
+                            grouped=_grouped(str(a.reason))))
     return out
 
 
@@ -234,7 +247,7 @@ def groups_of(nodes: _t.Sequence[Node], pairs: _t.Iterable[tuple[int, int]],
     for i, n in enumerate(nodes):
         # (d): one unit, read by its parts or named by its seat (a §16c (7)
         # bind seats a body in the unit of the cluster it joined)
-        for unit in {n.unit, n.family} - {""} if not n.fixed else ():
+        for unit in {n.unit, n.family, n.grouped} - {""} if not n.fixed else ():
             k = f"{unit}|{n.frame}"
             if k in first:
                 join(i, first[k])

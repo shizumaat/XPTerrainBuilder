@@ -204,8 +204,8 @@ def walled_trench_floors(trenches: _t.Sequence, objects: _t.Sequence[_obj8.Place
         note = (f"{name}: a walled trench cut to its walls (#2099 F2, 15j / 19p): floor "
                 f"{floor.area:.0f} m2 between its walls (walled {100 * share:.0f} % of its "
                 f"ring, open {gap:.0f} m at most, {wide:.0f} m across); walls' top "
-                f"{top:+.2f} on the ground {ground:.2f} beside them -> zero {zero:.2f}, floor {fz:.2f}.."
-                f"{float(faces[:, :, 2].max()):.2f} (read zero "
+                f"{top:+.2f} on the ground {ground:.2f} beside them -> zero {zero:.2f}, "
+                f"floor {fz:.2f}..{float(faces[:, :, 2].max()):.2f} (read zero "
                 f"{float(o.anchor_z + o.agl_m):.2f})")
         notes.append(f"object floor {note}")
         out.append(ObjectFloor(f"{FLOOR_REF}{os.path.basename(o.path)}@trench", o.id, o.path,

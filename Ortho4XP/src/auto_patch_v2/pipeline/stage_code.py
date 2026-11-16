@@ -735,6 +735,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.low_extent",
         "auto_patch_v2.planar.low_fill",
         "auto_patch_v2.planar.low_level",
+        "auto_patch_v2.planar.mouth_behind",
         "auto_patch_v2.planar.mouth_opening",
         "auto_patch_v2.planar.object_corridor",
         "auto_patch_v2.planar.object_floor_cells",
@@ -2487,6 +2488,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_opening
+    planar.mouth_behind
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground
@@ -2683,6 +2685,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_opening
+    planar.mouth_behind pipeline.neck_release
     planar.unframed_ramp planar.viaduct_road
     planar.wall_corridor_ramps planar.wall_slope planar.weld planar.zones solve.api
     solve.design solve.design_assemble solve.design_edge solve.design_ground

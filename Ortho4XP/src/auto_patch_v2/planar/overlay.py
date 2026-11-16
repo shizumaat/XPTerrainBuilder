@@ -29,7 +29,7 @@ from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..classify.roles import Classification, is_late_cell
+from ..classify.roles import Classification, is_late_cell, is_pad_road_cell
 from . import arrangement_memo as _arr_memo
 from ..geom.containment import sets_inside_one_ring
 from ..geom.proportions import inscribed_width_m
@@ -556,12 +556,13 @@ def build_arrangement(airport: Airport, classification: Classification,
         r.polygon for r in (*base_regions, *pad_regions) if r.role in _contact])
     stated = {c.ref for c in classification.cells if c.kind == "structure"
               or (c.evidence or {}).get("pavement_deck")}
-    # #1918 R3: a road kerb vertex gains its OPPOSITE — a station at its
-    # foot on the facing chord (``chords.abeam_stations``), never on or by
-    # a contact or rigid rim
+    # #1918 R3/R4-1: a PAD ROAD's kerb vertex gains its OPPOSITE — a station
+    # at its foot on the facing chord (``chords.abeam_stations``), never on
+    # or by a contact or rigid rim; the stage-1, base and gap maps hold none
+    pad_refs = {c.ref for c in classification.cells if is_pad_road_cell(c)}
     _keep_off = near_any([r.polygon for r in (*base_regions, *pad_regions)
                           if r.role in _contact or is_rigid_role(law, r.role)],
-                         float(snap_margin_m(law)))
+                         float(snap_margin_m(law))) if pad_refs else None
     _abeam = (float(law.tables.emit.road_contact.pair_lateral_m),
               float(law.tables.emit.identity.min_distinct_spacing_m))
 
@@ -576,7 +577,7 @@ def build_arrangement(airport: Airport, classification: Classification,
                     ring = ground(ring)
                 if end_zone is not None and r.role in ROAD_ROLES:
                     ring = densify_within(ring, end_zone, end_step)
-                if r.role in ROAD_ROLES and r.ref not in stated:
+                if r.ref in pad_refs and r.role in ROAD_ROLES and r.ref not in stated:
                     ring = abeam_stations(ring, *_abeam, face=r.polygon,
                                           keep_off=_keep_off)
                 if len(ring) >= 2:

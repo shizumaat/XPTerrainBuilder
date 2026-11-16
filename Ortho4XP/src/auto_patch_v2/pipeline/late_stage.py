@@ -27,6 +27,7 @@ from shapely.strtree import STRtree
 
 from ..classify.gap_mint import _poly
 from ..classify.gap_terrace import APRON, PAD, ROAD, Station, terrace_cut
+from ..classify.roles import is_pad_road_cell
 from ..constraints.ceiling import RULING as _CEILING_RULING
 from ..constraints.gap_follow import GEN as _GAP_GEN
 from ..constraints.gap_follow import (BehindStep, PartStations,
@@ -347,11 +348,22 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     # the pad roads' arrangement notches a standing cell's node off its
     # edge (pass C, three identity cells): that node is still the cell's
     from ..constraints.pad_ramp import stand_off_m
+    joined, rim_edges = frozenset(fixed), {}
     jrep["rim"] = late_rim_levels(
         pm_base, z_base, pm, fixed, free, ident * 0.02,
         notch_m=stand_off_m(law) if roads_only else 0.0,
         rigid=frozenset(f.role for f in pm.faces.values()
-                         if is_rigid_role(law, f.role)) if roads_only else frozenset())
+                         if is_rigid_role(law, f.role)) if roads_only else frozenset(),
+        edge_of=rim_edges)
+    # #1918 R4-2: a standing road kerb's station abeam a pad road's
+    # standing vertex across a step over the bar is RELEASED where its own
+    # law lets it (``pipeline/neck_release``) — the pad roads' stage only
+    necks: list = []
+    if roads_only:
+        from .neck_release import late_neck_release
+        jrep["rim"]["necks"], necks = late_neck_release(
+            pm_base, pm, fixed, cs, law, rim_edges, joined,
+            to_ll=airport.frame.transformers()[1])
     # THE ROAD YIELDS TO THE PAD (issue #609; 13a (1), 13d): a pad road's
     # absolute road rows leave and it carries the ramp from the rim it is
     # welded to — the rim a constant of this stage
@@ -434,7 +446,7 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
         cs, fixed, yheads,
         widen_heads=frozenset(r.split("(")[0].strip()
                               for r in (_CEILING_RULING, _FALLBACK_RULING)),
-        widen_floor_m=floor_m)
+        widen_floor_m=floor_m, no_widen=frozenset(n.s for n in necks))
     out(f"LAST STAGE (§53 (9)): followers {frep}; join {jrep}; "
         f"rows with no unknown dropped {dropped}; wall release {wall_rep}")
     grows, grep = ([], {"rows": 0, "conflicts": [], "declared": []}) if roads_only \
@@ -469,6 +481,18 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     off = [abs(float(sol.z[v]) - z) for v, z in fixed.items()] if sol.z else []
     out(f"LAST STAGE: fixed vertices off their constant by > 0.02 m: "
         f"{sum(1 for d in off if d > 0.02)} of {len(off)} (worst {max(off, default=0.0):.3f} m)")
+    if necks and sol.z:
+        from .neck_release import necks_over
+        bar = float(law.tables.emit.road_contact.neck_step_m)
+        to_ll = airport.frame.transformers()[1]
+        over = necks_over(necks, sol.z, bar)
+        out(f"LAST STAGE necks (#1918 R4): {len(jrep['rim']['necks']['released'])} "
+            f"station(s) released on {jrep['rim']['necks']['released_edges']} edge(s), "
+            f"{len(jrep['rim']['necks']['walls'])} wall(s); {len(over)} released neck(s) "
+            f"still over {bar} m after the solve")
+        for s_, v_, d_ in over:
+            out("    neck over the bar: station %.7f,%.7f vs %.7f,%.7f step %.3f m"
+                % (*to_ll(*pm.vertices[s_].xy), *to_ll(*pm.vertices[v_].xy), d_))
     for r in pad_joins:                  # published with the level they took
         if sol.z:
             r["z_m"] = round(float(sol.z[r["v"]]), 4)
@@ -537,10 +561,6 @@ def _with_roads(cl_cut, roads: _t.Sequence[_t.Any]):
         _dc.replace(c, id=nid + k) for k, c in enumerate(roads)))
 
 
-def _has_pad_road(c) -> bool:
-    return bool((getattr(c, "evidence", None) or {}).get("pad_road"))
-
-
 def run_last_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
                     base_solution: _t.Mapping[str, _t.Any], *,
                     out: _t.Callable[[str], None] = print,
@@ -564,12 +584,12 @@ def run_last_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     answer used only when the real cut digests the same.  ``None``: in
     sequence, as the replay runs it."""
     from .stage_one_map import remap_row
-    roads = [c for c in cl.cells if _has_pad_road(c)]
+    roads = [c for c in cl.cells if is_pad_road_cell(c)]
     gaps = any(is_gap_ref(c.ref) for c in cl.cells)
     if not (roads and gaps):
         return run_late_stage(cl, airport, law, derive, base_solution, out=out,
                               roads_only=not gaps, **kw)
-    plain = _dc.replace(cl, cells=tuple(c for c in cl.cells if not _has_pad_road(c)))
+    plain = _dc.replace(cl, cells=tuple(c for c in cl.cells if not is_pad_road_cell(c)))
     ahead: list = []
 
     def _speculate(cut: LateCut) -> None:

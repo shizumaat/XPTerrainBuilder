@@ -925,11 +925,21 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 # must be written alone.
                 cz = (None if c.anchor.surface_z is None
                       else float(c.anchor.surface_z) - float(c.anchor.y_zero))
+                # #2110: and only a group CONTIGUOUS IN PLAN with the body
+                # (§16b (1)'s coarsen reach, ``group_at_zero``)
                 same = _pc.group_at_zero(
                     st.groups, st.raw, cz, split_tol_m, _pc.senior_of,
                     next((st.raw[i][7] for i in bi
                           if st.raw[i][7] is not None), None),
-                    memo=_gz_memo)
+                    memo=_gz_memo, near=[st.boxes[i] for i in bi if st.boxes[i]],
+                    boxes=st.boxes, reach_m=coarsen_reach_m)
+                if same < 0 and coarsen_reach_m > 0.0 and _pc.group_at_zero(
+                        st.groups, st.raw, cz, split_tol_m, _pc.senior_of,
+                        next((st.raw[i][7] for i in bi
+                              if st.raw[i][7] is not None), None),
+                        memo=_gz_memo) >= 0:
+                    counts["elevated_same_zero_beyond_reach"] = \
+                        counts.get("elevated_same_zero_beyond_reach", 0) + 1
                 if same >= 0:
                     counts["elevated_ride_own_file_same_zero"] = \
                         counts.get("elevated_ride_own_file_same_zero", 0) + 1

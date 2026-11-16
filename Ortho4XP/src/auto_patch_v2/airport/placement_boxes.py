@@ -526,7 +526,10 @@ def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
                   raw: _t.Sequence[_t.Any], zero: float | None, tol_m: float,
                   senior_of: _t.Callable[[_t.Any, _t.Sequence[int]], int],
                   ground: float | None = None,
-                  memo: dict | None = None) -> int:
+                  memo: dict | None = None,
+                  near: _t.Sequence[tuple[float, float, float, float]] = (),
+                  boxes: _t.Sequence[tuple[float, float, float, float] | None] = (),
+                  reach_m: float = 0.0) -> int:
     """The index of the member's own group standing at ``zero`` (within
     ``tol_m``), or ``-1``.
 
@@ -535,11 +538,25 @@ def group_at_zero(groups: _t.Sequence[_t.Sequence[int]],
     coarsening tolerance are one file by that rule.  So a roof whose
     carrier is another resource, but whose carrier's zero is the zero one
     of its own placement's groups already stands at, rides its own file:
-    the same height, one file fewer, and no reading changed."""
+    the same height, one file fewer, and no reading changed.
+
+    #2110: §16b (1) HOLDS HERE TOO — agreement is necessary and not
+    sufficient; the group must be CONTIGUOUS IN PLAN with the body,
+    within ``reach_m`` (``[placement] coarsen_reach_m``) of one of its
+    bodies' ``boxes`` (one hull per raw body) from one of ``near`` (the
+    joining body's).  Two zeros that agree NOW are moved apart by the
+    unit seat and the group zero later: LOWS 1.0.539's Terminal_LOWS_77
+    put 245 terminal pieces in the file of a 2-part foot 290 m east,
+    which then sank them 1.38 m under the walls they rest on.  No
+    ``near`` / ``boxes`` or ``reach_m <= 0`` is the pre-#2110 reading."""
     if zero is None or tol_m <= 0.0:
         return -1
     best, best_d = -1, tol_m
     for gi, g in enumerate(groups):
+        if reach_m > 0.0 and near and boxes and not any(
+                box_gap_m(a, boxes[i]) <= reach_m
+                for i in g if i < len(boxes) and boxes[i] for a in near):
+            continue
         # THE GROUP'S OWN READING, MEMOISED on its length: this is asked
         # once per carried piece over every group of the member, and
         # §16d (1) multiplies both (LEMD 29.6 M inner steps, 9 s of the

@@ -25,6 +25,10 @@ final class MapFilterTests: XCTestCase {
         XCTAssertTrue(MapFilter(stored: "full").showsTile(state: .drape, pinned: false))
         XCTAssertFalse(MapFilter(stored: "drape").showsTile(state: .drape, pinned: false))
         XCTAssertFalse(MapFilter(stored: "").showsTile(state: .nothing, pinned: false))
-        XCTAssertFalse(MapFilter(stored: "favorites,full,drape").showsAnyTile)
+        XCTAssertTrue(MapFilter(stored: "favorites,full,drape").showsAnyTile)
+        XCTAssertFalse(MapFilter(stored: "favorites,full,drape,off").showsAnyTile)
+        XCTAssertTrue(MapFilter(stored: "").showsTile(state: .off, pinned: false))   // #2100
+        XCTAssertFalse(MapFilter(stored: "off").showsTile(state: .off, pinned: false))
+        XCTAssertTrue(MapFilter(stored: "full").showsTile(state: .off, pinned: false))
     }
 }

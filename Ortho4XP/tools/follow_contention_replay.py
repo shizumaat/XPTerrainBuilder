@@ -27,7 +27,14 @@ lock, as before.
     cd Ortho4XP && venv/bin/python tools/follow_contention_replay.py \\
         --index COPY.sqlite --lat 53.31 --lon -113.58 --seconds 120 \\
         [--drapes 12] [--same-host] [--drapes-out] [--py-threads 1] \\
-        [--no-priority] [--base] [--slots 4] [--json OUT.jsonl]
+        [--no-priority] [--base] [--slots 4] [--host-tiles N] \\
+        [--json OUT.jsonl]
+
+``--host-tiles`` is the server's session budget in tiles
+(default ``O4_Imagery_Utils.HOST_BUDGET_TILES``; each tile ``max_threads``
+x 2 requests).  At the engine's 4 (128 requests) a dozen drapes and the
+follower never fill it and the follower's priority has nothing to win;
+at 1 (32) they contend for it, as on a busy server.
 
 ``--base`` is the tick before #2037's house: the house's work on the tick,
 the rows read one ``sqlite3`` step per row (``INDEX.rows``), the storage
@@ -162,7 +169,7 @@ def drape_worker(provider, stop, seed: int) -> None:
 
 
 def _drape_process(provider, first: int, drapes: int, py_threads: int,
-                   stop) -> None:
+                   stop, host_tiles: int) -> None:
     """Child process (``--drapes-out``): ``drapes`` drape tiles (seeds
     from ``first``) and ``py_threads`` of their Python work, until
     ``stop``."""
@@ -172,6 +179,8 @@ def _drape_process(provider, first: int, drapes: int, py_threads: int,
     UI.red_flag = False
     IMG.shared_tile_cache_dir = None
     IMG.textures_in_parallel = 2
+    if host_tiles:
+        IMG.HOST_BUDGET_TILES = host_tiles
     threads = [threading.Thread(target=drape_worker, daemon=True,
                                 args=(provider, stop, first * 2 + k))
                for k in range(drapes * 2)]
@@ -254,6 +263,8 @@ def run(args) -> dict:
     UI.red_flag = False
     IMG.shared_tile_cache_dir = None
     IMG.textures_in_parallel = 2                    # the budget: 16 x 2
+    if args.host_tiles:                             # ... x the tiles
+        IMG.HOST_BUDGET_TILES = args.host_tiles
     context = multiprocessing.get_context("spawn")
     ports, counts = context.Queue(), context.Array("i", 2)
     child = context.Process(target=_serve, args=(ports, args.latency, counts),
@@ -291,7 +302,8 @@ def run(args) -> dict:
         out_stop = context.Event()
         drapes_out = [context.Process(
             target=_drape_process, daemon=True,
-            args=(drape_p, k, 1, args.py_threads if k == 0 else 0, out_stop))
+            args=(drape_p, k, 1, args.py_threads if k == 0 else 0, out_stop,
+                  args.host_tiles))
             for k in range(args.drapes)]
         for proc in drapes_out:
             proc.start()
@@ -353,6 +365,7 @@ def run(args) -> dict:
                 "slots": args.slots, "drapes": args.drapes,
                 "same_host": args.same_host, "cpu_threads": args.cpu_threads,
                 "drapes_out": args.drapes_out,
+                "host_tiles": args.host_tiles,
                 "py_threads": args.py_threads,
                 "latency_s": args.latency},
         "seconds": round(elapsed, 1),
@@ -425,6 +438,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="seconds per request (CYEG drapes: ~0.67)")
     parser.add_argument("--warmup", type=float, default=5.0)
     parser.add_argument("--slots", type=int, default=4)
+    parser.add_argument("--host-tiles", type=int, default=None,
+                        help="the server's session budget in tiles "
+                             "(default: the engine's HOST_BUDGET_TILES)")
     parser.add_argument("--no-priority", action="store_true")
     parser.add_argument("--base", action="store_true",
                         help="the tick before the house (see above)")

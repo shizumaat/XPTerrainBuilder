@@ -382,11 +382,24 @@ def test_the_sweep_holds_the_dispatch(tmp_path, monkeypatch):
 # --- the replay: a drape run and the follower on one server ---------------
 
 
+def _share(record) -> float:
+    """The follower's fraction of the server's requests."""
+    follow, drape = record["follow_req_s"], record["drape_req_s"]
+    return follow / (follow + drape) if follow + drape else 0.0
+
+
 def test_the_replay_gives_the_camera_its_share(tmp_path, monkeypatch):
+    """The drapes and the follower contend for a server budget they fill
+    (``--host-tiles 1``: 32 requests; at the engine's 128 this replay never
+    fills it and the priority had nothing to win -- the comparison was a
+    coin flip, red on CI 2026-11-15).  The follower's SHARE of the server's
+    requests is compared, not its rate: a slow or loaded runner lowers
+    both arms' rates, not who gets the slot."""
     pytest.importorskip("curl_cffi")
     import O4_Imagery_Utils as IMG
     import O4_UI_Utils as UI
     for module, name in ((IMG, "textures_in_parallel"),
+                         (IMG, "HOST_BUDGET_TILES"),
                          (IMG, "shared_tile_cache_dir"), (UI, "red_flag")):
         monkeypatch.setattr(module, name, getattr(module, name))   # restored
     monkeypatch.delenv(S.ENV_DIR, raising=False)
@@ -400,11 +413,12 @@ def test_the_replay_gives_the_camera_its_share(tmp_path, monkeypatch):
         args = REPLAY_TOOL.build_parser().parse_args(
             ["--index", index_path, "--lat", str(lat), "--lon", str(lon),
              "--seconds", "8", "--warmup", "2", "--drapes", "8",
-             "--same-host", "--latency", "0.2", "--speed", "80",
-             "--agl", "300", "--tmp", str(tmp_path)] + ([arm] if arm else []))
+             "--same-host", "--latency", "0.5", "--host-tiles", "1",
+             "--speed", "80", "--agl", "300", "--tmp", str(tmp_path)]
+            + ([arm] if arm else []))
         records[arm or "priority"] = REPLAY_TOOL.run(args)
     base, mine = records["--no-priority"], records["priority"]
-    assert mine["follow_req_s"] > base["follow_req_s"]
+    assert _share(mine) > _share(base), (base, mine)
     assert mine["tick_gap_s"]["max"] < 3.0
 
 

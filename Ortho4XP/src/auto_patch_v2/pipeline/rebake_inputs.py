@@ -420,6 +420,24 @@ def _mouth_wings(pm, law, airport, objects, plates, authored, excluded) -> tuple
             _mg.wing_records(rowed, authored, _ts.PORTAL_SEAT))
 
 
+def _retaining_plates(pm, law, airport, plates, authored, excluded) -> dict:
+    """#1934 R3 (``airport/retaining_seat``): placement id -> ``(retained
+    top y, upper-side stations, 0.0, RETAINING_PLATE)`` for each retaining
+    wall no other rule seats."""
+    from ..airport.retaining_seat import RETAINING_PLATE, retaining_seats
+    from ..classify.rules import load_rules
+    taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
+    got = retaining_seats(airport, load_rules().service,
+                          float(law.tables.emit.identity.min_distinct_spacing_m),
+                          float(law.tables.structures.bridge.abutment_sample_step_m),
+                          taken)
+    for w in got:
+        print(f"[{getattr(airport, 'icao', '')}] retaining wall {w.oid} "
+              f"({w.resource.rsplit('/', 1)[-1]}): y {w.top_y:+.2f} on its upper "
+              f"ground, {len(w.stations)} stations")
+    return {w.oid: (w.top_y, list(w.stations), 0.0, RETAINING_PLATE) for w in got}
+
+
 def _solid_cache(law):
     """A resource cache reading a frame's solids (the split-level reader's)."""
     from ..airport import frame_entry as _fe
@@ -515,6 +533,9 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
                                         excluded | shelled | modelled)
         plates.update(p_wings)
         authored += tuple(r_wings)
+    # #1934 R3 (RULINGS 2026-11-16d): a retaining wall's zero on its upper ground
+    plates.update(_retaining_plates(pm, law, airport, plates, authored,
+                                    excluded | shelled | modelled))
     # ... written WHOLE at it, like a floor's frame: a plan split hands the
     # row to its bodies and drops the seat (``terrain_shaped.row_seats``)
     excluded |= {str(r["id"]) for r in authored if r.get("seat") == _ts.PORTAL_SEAT}

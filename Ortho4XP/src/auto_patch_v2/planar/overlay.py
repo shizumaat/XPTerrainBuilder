@@ -681,7 +681,8 @@ def build_arrangement(airport: Airport, classification: Classification,
         noded, regions, frozen, air_f, base_order = _ribbons_pass_c(
             ribbon_cells, noded, noded, [], regions, bands, law, keeps,
             float(grid), _ring_lines_of, _pad_clip, reg, air_nodes=air_nodes,
-            cut=covered_cut_taken(airport, law, pad_regions, reg))
+            cut=covered_cut_taken(airport, law, pad_regions, reg),
+            walls=getattr(airport, "wall_shade", None))
         if frozen is not None:
             _pad_clip.update({f"ribbon_{k}": v for k, v in _renode_counts(
                 nodes_b, _node_coords(noded),
@@ -695,7 +696,7 @@ def build_arrangement(airport: Airport, classification: Classification,
         air_f if frozen is not None else None,
         base_order[0] if frozen is not None else None,
         base_order[1] if frozen is not None else None, reg=reg,
-        air_nodes=air_nodes)
+        air_nodes=air_nodes, walls=getattr(airport, "wall_shade", None))
     if frozen is not None:
         # 30aa rule 10 / 30z (1) AT THE DERIVATION SITE: the airside's own
         # vertex set (aircraft pavement + pads) with the ribbons against the
@@ -931,7 +932,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
                           refuse_roles: tuple[str, ...] = (),
                           frozen: "set | None" = None,
                           hosts_seen: "dict | None" = None,
-                          air_nodes: "set | None" = None
+                          air_nodes: "set | None" = None,
+                          slot=None
                           ) -> tuple[list[tuple[Polygon, Region]], int, int,
                                      float, tuple]:
     """§41 (4) — A SLIVER ZONE STRIP IS DISSOLVED (owner RULINGS
@@ -976,7 +978,16 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
     sliver carrying a coordinate outside it never grows an aircraft-
     pavement host either — the zone's own nodes would become airside
     vertices, so a zone-width change would re-node the pavement (measured
-    CYXY: the last 9 gone / 17 new airside vertices of a 5 m change)."""
+    CYXY: the last 9 gone / 17 new airside vertices of a 5 m change).
+
+    ``slot`` (#1934 R3, RULINGS 2026-11-16d / 13x (1)): the retaining walls'
+    footprints grown one identity-grid step (``model/wall_reach.wall_slot``).  A
+    sliver lying mostly in it is the step between a wall's two levels: no
+    GROUNDSIDE host takes it (a road dissolved across the wall reaches the
+    upper side's rim and climbs to it -- KLAX ``big_roads:-1143`` took
+    taxi F's 1 m zone sliver between the apron rim and the road at the
+    ``Fence_Terminal_1.obj`` wall, 34.8 m beside 33.6 m); an airside host
+    may, else the DEM owns it and the step stands inside the slot."""
     if (area_min_m2 <= 0.0 and width_min_m <= 0.0) or not faces:
         return faces, 0, 0, 0.0, ()
     tree = STRtree([p for p, _r in faces])
@@ -1010,6 +1021,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
         best = None
         best_rank = None
         thawed = _thawed(poly)
+        stepped = slot is not None and not slot.is_empty and \
+            poly.intersection(slot).area >= 0.5 * poly.area
         key = shapely.normalize(poly).wkb if hosts_seen is not None else None
         want = hosts_seen.get(key) if (hosts_seen is not None and frozen is not None) else None
         for j in tree.query(poly, predicate="intersects"):
@@ -1017,7 +1030,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
             if j == i or keep[j] is None:
                 continue
             pj, rj = keep[j]
-            if rj.role in refused or (thawed and rj.role in hosts):
+            if rj.role in refused or (thawed and rj.role in hosts) or \
+                    (stepped and rj.side == "groundside"):
                 continue
             try:
                 shared = poly.boundary.intersection(pj.boundary).length

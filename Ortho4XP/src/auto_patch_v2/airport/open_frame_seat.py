@@ -600,7 +600,7 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
     ``cut_order`` writes carriers first — is not moved either."""
     if adapted_zero is not None:
         record = _loose_to(record, m, adapted_zero, tol_m, counts)
-    lead = walled_lead(record, m)
+    lead = walled_lead(record, m, surface)
     if lead is not None:
         # #1201 (owner sim read 2026-10-28, KSEA 16L): A WALLED PLATE'S DATUM
         # LEADS ITS GROUP — every body of its origin set rides the plate,
@@ -611,8 +611,10 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                for b in record.bodies):
             counts["walled_plate_led_groups"] = counts.get("walled_plate_led_groups", 0) + 1
             return frame_zero(record, m, lead,
-                              f"{GROUP_REASON} led by its walled plate's datum at "
-                              f"{lead:.2f} (RULINGS 2026-10-27u, #1201)")
+                              f"{GROUP_REASON} led by its {m.plate_kind} plate's datum at "
+                              f"{lead:.2f} (RULINGS "
+                              + ("2026-10-27u, #1201)" if m.plate_kind == "walled"
+                                 else "2026-11-16d, #1934)"))
         return record
     if not plan_wide or not zeros:
         return record
@@ -755,18 +757,27 @@ def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,
                     f"{zero:.2f} (#1726, RULINGS 2026-10-22o)")
 
 
-def walled_lead(record: _t.Any, m: _t.Any) -> "float | None":
-    """The zero of a RUNWAY-END WALLED PLATE's datum body (#1201, RULINGS
-    2026-10-27u: the plate sits flush with the safety area and every body of
-    its origin set rides it): the first body seated on its datum, for a
-    member marked ``plate_kind == "walled"``; ``None`` otherwise."""
-    if getattr(m, "plate_kind", "") != "walled":
+#: the plate kinds whose datum LEADS its §16g unit and its connected group:
+#: a runway-end walled plate (#1201, RULINGS 2026-10-27u) and a retaining
+#: wall's upper ground (#1934 R3, RULINGS 2026-11-16d; ``airport/retaining_seat``)
+LEAD_PLATES = frozenset({"walled", "retaining"})
+
+
+def walled_lead(record: _t.Any, m: _t.Any, surface: _t.Any = None) -> "float | None":
+    """The zero of a LEADING PLATE's datum (:data:`LEAD_PLATES`; #1201,
+    RULINGS 2026-10-27u: the plate sits flush with the safety area and every
+    body of its origin set rides it): the first body seated on its datum,
+    else -- a body the §16g unit pass re-anchored -- the plate's own datum on
+    ``surface`` (:func:`walled_unit_zero`); ``None`` for any other member.
+    #1934 R3: KLAX ``Fence_Terminal_1.obj``'s unit pass and group stood its
+    footing on the ground under its plan, 3.2 m over the apron it retains."""
+    if getattr(m, "plate_kind", "") not in LEAD_PLATES:
         return None
     for b in record.bodies:
         a = b.anchor
         if a.surface_z is not None and getattr(a, "datum", False):
             return float(a.surface_z) - float(a.y_zero)
-    return None
+    return None if surface is None else walled_unit_zero((m,), surface)
 
 
 #: the §16g unit datum source of a unit holding a walled plate
@@ -783,7 +794,7 @@ def walled_unit_zero(members: _t.Iterable[_t.Any], surface: _t.Any) -> "float | 
     member is one or no station reads a surface."""
     import statistics
     for m in members:
-        if getattr(m, "plate_kind", "") != "walled" or getattr(m, "plate_y", None) is None:
+        if getattr(m, "plate_kind", "") not in LEAD_PLATES or getattr(m, "plate_y", None) is None:
             continue
         zs = [surface(float(q[0]), float(q[1])) for q in (getattr(m, "plate_stations", ()) or ())]
         zs = [float(z) for z in zs if z is not None]

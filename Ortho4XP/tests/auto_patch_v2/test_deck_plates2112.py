@@ -54,7 +54,7 @@ def _deck(tmp_path, gap: float = 20.0) -> str:
 
 
 def test_two_plates_band_at_the_gap_middle(tmp_path):
-    p = DP.plates_of(_deck(tmp_path), 2.0)
+    p = DP._plates_of(_deck(tmp_path), 2.0)
     assert p is not None and len(p) == 2
     assert abs(abs(p.axis[0]) - 1.0) < 1e-6
     assert abs(p.cuts[0]) < 0.05 and abs(p.gaps[0] - 20.0) < 0.1
@@ -62,7 +62,7 @@ def test_two_plates_band_at_the_gap_middle(tmp_path):
 
 
 def test_plates_within_the_rigid_reach_are_one_plate(tmp_path):
-    assert DP.plates_of(_deck(tmp_path, gap=1.5), 2.0) is None
+    assert DP._plates_of(_deck(tmp_path, gap=1.5), 2.0) is None
     assert DP.census_file(_deck(tmp_path, gap=1.5), 2.0)["plates"] == 1
 
 
@@ -72,7 +72,7 @@ def test_a_wall_past_both_plates_is_clipped_at_the_band_line(tmp_path):
     v += [(-60.0, 0.0, 0.0), (60.0, 0.0, 0.0), (60.0, 6.0, 0.0), (-60.0, 6.0, 0.0)]
     wall = [(b, b + 1, b + 2), (b, b + 2, b + 3)]
     path = _write(tmp_path / "wall.obj", v, [([], wall)])
-    p = DP.Plates((1.0, 0.0), ((-60.0, -10.0), (10.0, 60.0)), (0.0,), (20.0,))
+    p = DP._Plates((1.0, 0.0), ((-60.0, -10.0), (10.0, 60.0)), (0.0,), (20.0,))
     comps = tuple(range(len(obj8.solid_components(obj8.parse_obj8(path)))))
     cuts = [OS.BodyCut(0, comps, (-30.0, 0.0, 0.0), band=p.band(0)),
             OS.BodyCut(1, comps, (30.0, 1.0, 0.0), band=p.band(1))]
@@ -108,12 +108,12 @@ class _M:
 
 
 def test_each_band_takes_its_own_end_lines_ground():
-    p = DP.Plates((1.0, 0.0), ((-60.0, -10.0), (10.0, 60.0)), (0.0,), (20.0,))
+    p = DP._Plates((1.0, 0.0), ((-60.0, -10.0), (10.0, 60.0)), (0.0,), (20.0,))
     ml, mo = AR._m_per_deg(40.0)
     # x east: band 0 stations 30 m west, band 1 30 m east; heading 0, z south
     st = ((40.0, -3.0 - 30.0 / mo), (40.0 + 5.0 / ml, -3.0 - 30.0 / mo),
           (40.0, -3.0 + 30.0 / mo), (40.0 + 5.0 / ml, -3.0 + 30.0 / mo))
-    fp = DP.FramePlates("dsf:obj1", p, (40.0, -3.0), 0.0, st)
+    fp = DP._FramePlates("dsf:obj1", p, (40.0, -3.0), 0.0, st)
 
     def surface(lat, lon):
         return 100.0 if lon < -3.0 else 101.0

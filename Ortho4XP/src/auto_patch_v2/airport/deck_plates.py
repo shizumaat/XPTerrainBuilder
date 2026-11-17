@@ -15,7 +15,7 @@ rigid_reach_m``, §16c (8): solid components of one resource that come
 within it are one rigid cluster) are one plate.  A frame is split only
 when its deck has two or more plates AND they stand in order along one
 axis with every gap along it wider than the reach: the frame is then cut
-into BANDS by lines across that axis at each gap's middle.  Plates that do
+into BANDS by lines across that axis at each gap's middle.  _Plates that do
 not band that way (an L of plates, plates overlapping along the axis) are
 left whole and counted by the census.
 
@@ -48,8 +48,7 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["Plates", "bands_of", "plates_of", "piece_plates", "FramePlates",
-           "frame_plates", "split_record", "census_file"]
+__all__ = ["piece_plates", "frame_plates", "split_record", "census_file"]
 
 #: ``Member.deck_kind`` values whose file's hard deck is the frame's deck
 _DECK_KINDS = ("flag", "signature")
@@ -60,7 +59,7 @@ _SAME_HEADING_DEG = 1e-6
 
 
 @_dc.dataclass(frozen=True)
-class Plates:
+class _Plates:
     """The bands of a deck in plates: ``axis`` the unit plan direction
     ``(ux, uz)`` in the authored frame, ``extents`` each plate's
     ``(lo, hi)`` along it in order, ``cuts`` the band lines between them
@@ -115,7 +114,7 @@ def _clusters(polys: list, reach_m: float) -> list[list[int]]:
     return list(out.values())
 
 
-def bands_of(plates: _t.Sequence[np.ndarray], reach_m: float) -> "Plates | None":
+def _bands_of(plates: _t.Sequence[np.ndarray], reach_m: float) -> "_Plates | None":
     """The bands of ``plates`` (each an ``(n, 2)`` array of its plan points
     ``(x, z)``), or None where they do not stand in order along one axis
     with every gap along it wider than ``reach_m`` (module doc)."""
@@ -133,7 +132,7 @@ def bands_of(plates: _t.Sequence[np.ndarray], reach_m: float) -> "Plates | None"
     if min(gaps) <= reach_m:
         return None
     cuts = tuple(0.5 * (a[1] + b[0]) for a, b in zip(ext, ext[1:], strict=False))
-    return Plates((float(ax[0]), float(ax[1])), tuple(ext), cuts, gaps)
+    return _Plates((float(ax[0]), float(ax[1])), tuple(ext), cuts, gaps)
 
 
 def piece_plates(rings: _t.Sequence[_t.Sequence[tuple[float, float]]],
@@ -142,7 +141,7 @@ def piece_plates(rings: _t.Sequence[_t.Sequence[tuple[float, float]]],
     outlines in plan, any one frame) -- the patch half's reading of the
     same rule (``constraints/deck_lines.plate_of``): pieces within
     ``reach_m`` are one plate, and the plates are told apart only where
-    they band (:func:`bands_of`); ``None`` otherwise (one zero for the
+    they band (:func:`_bands_of`); ``None`` otherwise (one zero for the
     object, as before)."""
     import shapely
     if len(rings) < 2 or reach_m <= 0.0:
@@ -154,7 +153,7 @@ def piece_plates(rings: _t.Sequence[_t.Sequence[tuple[float, float]]],
     if len(groups) < 2:
         return None
     pts = [np.concatenate([np.asarray(rings[i], float) for i in g]) for g in groups]
-    p = bands_of(pts, reach_m)
+    p = _bands_of(pts, reach_m)
     if p is None:
         return None
     out = [0] * len(rings)
@@ -166,7 +165,7 @@ def piece_plates(rings: _t.Sequence[_t.Sequence[tuple[float, float]]],
 
 
 @_ft.lru_cache(maxsize=512)
-def _read(path: str, reach_m: float) -> "tuple[Plates | None, int]":
+def _read(path: str, reach_m: float) -> "tuple[_Plates | None, int]":
     """``(the bands, how many plates)`` of the deck file at ``path``."""
     from . import obj8 as _obj8
     if not path or not os.path.isfile(path):
@@ -182,7 +181,7 @@ def _read(path: str, reach_m: float) -> "tuple[Plates | None, int]":
         return None, len(groups)
     pts = [np.concatenate([np.asarray(polys[i].exterior.coords) for i in grp])
            for grp in groups]
-    return bands_of(pts, reach_m), len(groups)
+    return _bands_of(pts, reach_m), len(groups)
 
 
 def _pristine(path: str) -> str:
@@ -191,7 +190,7 @@ def _pristine(path: str) -> str:
     return path
 
 
-def plates_of(path: str, reach_m: float) -> "Plates | None":
+def _plates_of(path: str, reach_m: float) -> "_Plates | None":
     """The bands of the deck file at ``path`` (its pristine ``.anchor_bak``
     when one stands beside it), or None: one plate, no hard deck, or
     plates that do not band (module doc)."""
@@ -210,13 +209,13 @@ def census_file(path: str, reach_m: float) -> dict:
 
 
 @_dc.dataclass(frozen=True)
-class FramePlates:
+class _FramePlates:
     """A frame whose deck is in plates: the deck member's ``plates``, its
     authored frame (``origin`` (lat, lon), ``heading`` degrees) and its
     seat stations ``(lat, lon)``."""
 
     deck_id: str
-    plates: Plates
+    plates: _Plates
     origin: tuple[float, float]
     heading: float
     stations: tuple[tuple[float, float], ...]
@@ -251,37 +250,33 @@ def _stations(m: _t.Any) -> tuple[tuple[float, float], ...]:
     return tuple((float(q[0]), float(q[1])) for q in st)
 
 
-def _count(counts: "dict | None", key: str) -> None:
-    if counts is not None:
-        counts[key] = counts.get(key, 0) + 1
-
-
 def frame_plates(members: _t.Sequence[_t.Any], reach_m: float,
-                 counts: "dict | None" = None) -> "FramePlates | None":
+                 counts: "dict | None" = None) -> "_FramePlates | None":
     """The frame's deck in plates (module doc), or None: no deck member or
     more than one, a deck in one plate, plates that do not band, or a band
     with no seat station."""
+    counts = {} if counts is None else counts
     decks = [m for m in members if str(getattr(m, "deck_kind", "") or "") in _DECK_KINDS]
     if len(decks) != 1 or reach_m <= 0.0:
         return None
     m = decks[0]
-    p = plates_of(str(getattr(m, "authored_path", "") or ""), reach_m)
+    p = _plates_of(str(getattr(m, "authored_path", "") or ""), reach_m)
     if p is None:
         return None
     o = getattr(m, "origin", None)
     st = _stations(m)
     if o is None or not st:
-        _count(counts, "deck_plates_no_stations")
+        counts["deck_plates_no_stations"] = counts.get("deck_plates_no_stations", 0) + 1
         return None
-    fp = FramePlates(str(getattr(m, "id", "")), p, (float(o[0]), float(o[1])),
+    fp = _FramePlates(str(getattr(m, "id", "")), p, (float(o[0]), float(o[1])),
                      float(getattr(m, "heading_deg", 0.0) or 0.0), st)
     if len({fp.band_of_ll(*q) for q in st}) < len(p):
-        _count(counts, "deck_plates_band_without_stations")
+        counts["deck_plates_unseated"] = counts.get("deck_plates_unseated", 0) + 1
         return None
     return fp
 
 
-def _band_seats(fp: FramePlates, surface: _t.Any
+def _band_seats(fp: _FramePlates, surface: _t.Any
                 ) -> "list[tuple[float, tuple[float, float, float]]] | None":
     """Per band ``(delta_k, seat (lat, lon, z))``: the band's end-line ground
     less the frame's, and its station nearest its stations' middle; None
@@ -303,11 +298,11 @@ def _band_seats(fp: FramePlates, surface: _t.Any
     return out
 
 
-def _in_band(fp: FramePlates, k: int, pts: _t.Sequence) -> tuple:
+def _in_band(fp: _FramePlates, k: int, pts: _t.Sequence) -> tuple:
     return tuple(q for q in pts if fp.band_of_ll(q[0], q[1]) == k)
 
 
-def split_record(record: _t.Any, m: _t.Any, fp: "FramePlates | None",
+def split_record(record: _t.Any, m: _t.Any, fp: "_FramePlates | None",
                  surface: _t.Any, counts: dict) -> _t.Any:
     """``record`` (one member's ``Split``) with every body cut into one body
     per band of ``fp``, each at its band's zero on its band's seat station
@@ -317,11 +312,11 @@ def split_record(record: _t.Any, m: _t.Any, fp: "FramePlates | None",
     if fp is None or not record.bodies:
         return record
     if not fp.shares_frame(m):
-        _count(counts, "deck_plates_member_off_frame")
+        counts["deck_plates_member_off_frame"] = counts.get("deck_plates_member_off_frame", 0) + 1
         return record
     seats = _band_seats(fp, surface)
     if seats is None:
-        _count(counts, "deck_plates_no_ground")
+        counts["deck_plates_no_ground"] = counts.get("deck_plates_no_ground", 0) + 1
         return record
     from .placement_file import authored_offset, named_body
     next_id = max(b.body_id for b in record.bodies) + 1
@@ -345,6 +340,6 @@ def split_record(record: _t.Any, m: _t.Any, fp: "FramePlates | None",
             out.append(named_body(m, b, body_id=bid, anchor=a2, band=fp.plates.band(k),
                                   feet=_in_band(fp, k, b.feet),
                                   geom_pts=_in_band(fp, k, b.geom_pts)))
-        _count(counts, "deck_plate_split_bodies")
-    _count(counts, "deck_plate_placements")
+        counts["deck_plate_split_bodies"] = counts.get("deck_plate_split_bodies", 0) + 1
+    counts["deck_plate_placements"] = counts.get("deck_plate_placements", 0) + 1
     return _dc.replace(record, bodies=tuple(out))

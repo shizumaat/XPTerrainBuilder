@@ -353,7 +353,8 @@ def _solved_level(a: DeckAnchor) -> DeckAnchor:
 def settle(pm: PlanarMap, z) -> PlanarMap:
     """``pm`` with every taxi or road deck's anchors at the level the solve
     built (module doc): the object's one zero -- one per PLATE (#2112) --
-    is the mean over its stations of ``z − top``, each end at ``zero + top``.  The anchor stays unpinned:
+    is the mean over its stations of ``z − top``, each end at
+    ``zero + top``.  The anchor stays unpinned:
     it publishes a level, it never held one (the census reads its stations
     off the one zero, ``verify/deck_flush``).  A map with no such deck, or
     no solved surface, is returned as is."""

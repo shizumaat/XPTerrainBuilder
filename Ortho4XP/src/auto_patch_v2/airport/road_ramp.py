@@ -1355,7 +1355,16 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     the step" — a road vertex whose way to a pavement foot crosses one (or
     starts inside one) is NOT bordered by that pavement: the road below a
     retaining wall sits at the lower ground, released from the upper level
-    (:func:`_across_retaining`)."""
+    (:func:`_across_retaining`).
+
+    ``at_mouth`` -- THE MOUTH SETS THE RAMP (owner RULINGS 2026-11-06c (5),
+    #1939): a road vertex of a piece that enters a structure's mouth (the
+    piece shares a vertex with a structure FLOOR, :func:`_mouth_floors`) and
+    stands nearer that floor than its stage-1 pavement foot is at the
+    mouth, below the pavement over it: where it carries its own ramp
+    target, that target is its terrace level in place of its foot's
+    (``constraints/road_ramp.terrace_profile``), so the runs beside it link
+    down to the mouth."""
     from ..law.tables import airside_stage_roles
     out: dict[str, dict] = {"foot": {}, "pad": {}, "station": {}, "kerb": {},
                             "meet": {}, "runway": {}, "level": {}, "rim": {}}
@@ -1466,6 +1475,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     out["own"] = {v: True for v in vs if v not in rib_v and v not in beside}
     rtree = STRtree(list(retaining)) if retaining else None
     out["below_wall"] = {}
+    out["at_mouth"] = {}
+    mouth_v, floors = _mouth_floors(pm, law, roads, decks)
     for v in vs:
         r, s_, _t_ = frame[v]
         out["station"][v] = (int(r), float(s_))
@@ -1489,6 +1500,12 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             continue
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
                       if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
+        if lev and v in mouth_v and _nearer_floor(pm, v, lev[0][0], floors):
+            # 06c (5), #1939: at the mouth the road is on the floor's ramp,
+            # never the pavement over the structure.  MEASURED ESSA
+            # ``small_roads:-291#3`` 4.5 m from the floor, 13.2 m from
+            # taxiway ``pav24#3`` (31.42 m) held its approach 4.8 m over lidar
+            out["at_mouth"][v] = True
         if lev:
             d, ref, a, b, u = lev[0]
             out["foot"][v] = (a, b, u, ref)
@@ -1623,6 +1640,49 @@ def _beside_ribbon(pm: PlanarMap, roads: _t.AbstractSet[str],
         if i >= 0 and s_ <= hi[i]:
             out.add(v)
     return out
+
+
+def _mouth_floors(pm: PlanarMap, law: Law, roads: _t.AbstractSet[str],
+                  decks: _t.AbstractSet[str]) -> tuple[set[int], tuple]:
+    """The vertices of every road piece (decks out) that shares a vertex
+    with a structure FLOOR -- a face of a structure role that carries a
+    value (a tunnel, door or garage ramp; never a wall) -- and the floors'
+    ``(polygons, STRtree)`` (:func:`road_terrace`'s ``at_mouth``)."""
+    from shapely.geometry import Polygon
+    from shapely.strtree import STRtree
+
+    from ..law.tables import is_structure_role, is_value_role
+    floor_roles = {r for r in law.tables.precedence.roles
+                   if is_structure_role(law, r) and is_value_role(law, r)}
+    floor_v: set[int] = set()
+    polys = []
+    for f in pm.faces.values():
+        if f.role in floor_roles:
+            ring = pm.ring_vertices(f.ring)
+            floor_v.update(ring)
+            if len(ring) >= 3:
+                g = Polygon([pm.vertices[v].xy for v in ring])
+                polys.append(g if g.is_valid else g.buffer(0.0))
+    out: set[int] = set()
+    if not floor_v:
+        return out, ((), None)
+    for f in pm.faces.values():
+        if f.role in roads and f.ref not in decks:
+            vs = {v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+            if vs & floor_v:
+                out |= vs
+    return out, (polys, STRtree(polys) if polys else None)
+
+
+def _nearer_floor(pm: PlanarMap, v: int, d: float, floors: tuple) -> bool:
+    """A structure floor of ``floors`` stands within ``d`` of vertex ``v``."""
+    from shapely.geometry import Point
+    polys, tree = floors
+    if tree is None:
+        return False
+    p = Point(pm.vertices[v].xy)
+    return any(polys[int(j)].distance(p) < d
+               for j in tree.query(p, predicate="dwithin", distance=d))
 
 
 def _across_retaining(pm: PlanarMap, v: int, foot: tuple,

@@ -563,6 +563,15 @@ class PlanarMap:
     #: the ground beside a grouped mouth's wings, held on their feet by
     #: ``constraints/wing_cut``
     wing_cuts: tuple = ()
+    #: #2128 round 4 THE GRADE-SEPARATED ROAD CROSSINGS (owner RULINGS
+    #: 2026-11-17d; ``planar/grade_separation``, ``model/grade_separation.
+    #: RoadCrossing``): two roads one over the other share no level (the
+    #: road ramp, ``airport/road_ramp``).  Empty: every crossing joined.
+    road_crossings: tuple = ()
+    #: #2128 round 4 (R2 spec R4) THE SURVEYED CUT beside a kept hard deck
+    #: (``planar/survey_deck_cut`` region C) as ``(exterior, holes)`` frame
+    #: rings: no road-ramp seed or target inside, the road follows its floor.
+    survey_cuts: tuple = ()
     #: THE FIT TARGET WHERE IT IS NOT THE DEM (RULINGS 2026-09-04t-4, M3c,
     #: additive): vertex id -> the elevation the objective pulls it to.
     #: A road-family vertex prefers the CORE's clamped, laterally-levelled

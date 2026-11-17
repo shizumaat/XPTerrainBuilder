@@ -46,6 +46,19 @@ itself, never from the aeroway way drawn over it:
   merged, one corridor took one lane's band and left the rest of the
   deck's share uncut over a floor.
 
+* A ROAD ON A DECK'S END BANK IS NOT UNDER IT (#2128).  Under a wall-less
+  deck the ground climbs from the floor to each end line on a bank; with
+  no wall to state its shape that bank is ``[channel] bank_slope`` (1:2,
+  §45 (5) "witness first, 1:2 default"), so a road whose centreline
+  crosses nearer an end line than the deck's depth over it (plus the
+  ring's inset) cannot pass under at the floor: it crosses on the bank, at
+  grade over the deck's end, and the deck does not bore it.  MEASURED KIAH
+  obj24614 (#2128 item 3): the airside service road -234 crossed 6.9 m
+  inside end line A (the bank needs 16.4 m), was bored and cut a second
+  300 m trench beside the trunk; the 1 m lidar reads it at grade.  The
+  trunk's carriageways stand 38 m and more inside, the nearest road of
+  obj24549 22 m.
+
 * A TRENCH NEVER ENDS ON AIRSIDE PAVEMENT (#2072 rule A; RULINGS
   2026-10-30a (2), 2026-11-03b (2)).  Where airside pavement no deck ring
   carries stops a deck trench's run-out before any ramp up to the cap can
@@ -69,7 +82,15 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..model.airport import OsmWay
-from .deck_bridge import DeckBridge, across_dir, deck_polygon, deck_side, mid_line, project_span
+from .deck_bridge import (
+    DeckBridge,
+    across_dir,
+    deck_polygon,
+    deck_side,
+    is_walled,
+    mid_line,
+    project_span,
+)
 from .structure_approach import carriageway_width_m
 
 __all__ = ["deck_bores", "deck_lanes", "lane_band", "airside_stop", "road_level"]
@@ -78,13 +99,16 @@ XY = tuple[float, float]
 
 
 def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
-               bored: _t.Sequence[OsmWay], law: Law, tag: str
+               bored: _t.Sequence[OsmWay], law: Law, tag: str, airport=None
                ) -> tuple[list[OsmWay], dict[int, LineString], list[str]]:
     """``(the bores the decks start, each one's parent road line, one note
     per deck that started one)`` (module doc).  ``roads`` are the mapped
     roads a bore may follow (``structure_underpass.bore_roads``), ``bored``
     every bore way already standing; ``tag`` marks a synthesised bore with
-    the deck's object id."""
+    the deck's object id.  ``airport``: its credible survey decides "under
+    the deck" (#2128 R5, ``planar/survey_deck_cut.survey_under``)."""
+    from .survey_deck_cut import survey_under
+    omd = float(law.tables.structures.channel.object_min_depth_m)
     tn = law.tables.structures.tunnel
     grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
     inset = tn.wall_gap_m + tn.wall_band_width_m + grid
@@ -100,7 +124,12 @@ def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
         mid = _midline(db)
         n = across_dir(db)
         u_lo, u_hi = project_span(db.ring, n)
+        # #2128: no road passes under nearer an end line than its bank needs
+        bank = 0.0 if is_walled(db, inset) else \
+            inset + db.depth_m / float(law.tables.structures.channel.bank_slope)
         got: list[str] = []
+        banked: list[str] = []
+        level: list[str] = []
         for w in roads:
             road = LineString(w.points)
             if not road.intersects(clip):
@@ -118,6 +147,13 @@ def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
                     continue                    # its carriageway meets an end line
                 if _already_bored(c, half, clip, lines, tree, tn.underpass_min_span_m):
                     continue
+                under = survey_under(db, w, airport, law)
+                if under is not None and under < omd:
+                    level.append(f"{w.id} {under:.2f} m")   # the survey reads it at grade
+                    continue
+                if under is None and min(u - u_lo, u_hi - u) < bank:
+                    banked.append(str(w.id))    # it crosses on the end bank (#2128)
+                    continue
                 pts = tuple((float(px), float(py)) for px, py in g.coords)
                 sw = OsmWay(w.id, w.kind, pts, False,
                             {**dict(w.tags), "tunnel": tn.admitted_values[0],
@@ -128,6 +164,14 @@ def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
         if got:
             notes.append(f"{db.object_id}: the deck bores {len(got)} road(s) no bore runs "
                          f"under ({', '.join(got)}; RULINGS 2026-10-30a (2) / 30f (1))")
+        if level:
+            notes.append(f"{db.object_id}: {len(level)} road(s) the survey reads less than "
+                         f"object_min_depth_m {omd:.1f} under the deck's top at a side edge "
+                         f"({', '.join(level)}): at grade over the deck, not bored (#2128 R5)")
+        if banked:
+            notes.append(f"{db.object_id}: {len(banked)} road(s) cross within {bank:.1f} m of "
+                         f"an end line, on the bank from the floor up to the deck "
+                         f"({', '.join(banked)}): at grade over the deck's end, not bored (#2128)")
     return out, parents, notes
 
 

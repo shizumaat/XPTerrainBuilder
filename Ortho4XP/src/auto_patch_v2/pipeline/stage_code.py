@@ -733,6 +733,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.floor_ground",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.free_bridge",
+        "auto_patch_v2.model.grade_separation",
         "auto_patch_v2.model.islands",
         "auto_patch_v2.model.map_memo",
         "auto_patch_v2.model.pad_terrace",
@@ -799,6 +800,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.foot_kerb",
         "auto_patch_v2.planar.free_bridge",
         "auto_patch_v2.planar.front_band",
+        "auto_patch_v2.planar.grade_separation",
         "auto_patch_v2.planar.ground_chords",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.group_up",
@@ -862,6 +864,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.structure_underpass",
         "auto_patch_v2.planar.structures",
         "auto_patch_v2.planar.survey_cut",
+        "auto_patch_v2.planar.survey_deck_cut",
         "auto_patch_v2.planar.terrain_edge",
         "auto_patch_v2.planar.underpass_mouth",
         "auto_patch_v2.planar.unframed_ramp",
@@ -1374,6 +1377,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.floor_ground",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.free_bridge",
+        "auto_patch_v2.model.grade_separation",
         "auto_patch_v2.model.islands",
         "auto_patch_v2.model.map_memo",
         "auto_patch_v2.model.placement",
@@ -2691,6 +2695,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service
+    planar.survey_deck_cut planar.grade_separation model.grade_separation
     planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_behind planar.mouth_opening
@@ -2904,6 +2909,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
     planar.structure_mouth planar.underpass_mouth planar.survey_cut planar.structure_service
+    planar.survey_deck_cut planar.grade_separation model.grade_separation
     planar.structure_stats
     planar.structure_underpass planar.structures planar.entrance_skirt planar.terrain_edge
     planar.mouth_behind planar.mouth_opening pipeline.neck_release
@@ -3024,6 +3030,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.pool airport.pool_memory airport.rebake_plan airport.rebake_screen airport.riders
     airport.plate_ground airport.public_road
     airport.road_descent airport.road_joint airport.road_profile airport.road_ramp
+    model.grade_separation
     airport.road_stations
     airport.road_ways airport.scatter airport.sheet_chain airport.skirt airport.slab_faces
     airport.ring_contact_batch

@@ -192,8 +192,10 @@ def _rim(d: np.ndarray, z: np.ndarray, floor: float, frac: float, probe: float, 
 
 def _sections(dem, bore: Bore, law: Law, rise: "float | None" = None) -> list[_Section]:
     """The bore's cut, read every ``_STATION_M`` along its covered chain.
-    ``rise``: the least cut read (default the mouth depth; a GENERATED
-    deck's own floor depth under it, spec 2123)."""
+    ``rise``: the least climb a side's DEM makes over the floor to read a
+    cut there (``None``: the mouth depth; a GENERATED deck's own floor depth
+    under it, spec 2123; a surveyed open cut beside a hard deck reads
+    ``[channel] object_min_depth_m``, ``planar/survey_deck_cut``)."""
     tn = law.tables.structures.tunnel
     reach, probe = float(tn.covered_rim_search_m), float(tn.covered_side_probe_m)
     # a DEM that sees the road FLOOR under the cover stands at least the

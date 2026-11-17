@@ -275,10 +275,11 @@ def _surround(airport, xy: XY) -> float:
     return zs[min(len(zs) - 1, int(round(_RING_Q * (len(zs) - 1))))]
 
 
-def _road(airport, axis_fn, width: float) -> float:
-    """The surveyed road at the portal (module doc)."""
+def _road(airport, axis_fn, width: float, reach_m: float = _ROAD_M) -> float:
+    """The surveyed road at the portal (module doc): the least of the survey
+    across the carriageway over the approach's first ``reach_m``."""
     zs = [_lidar_floor(airport, axis_fn, k * _ROAD_STEP_M, max(width, 1.0))
-          for k in range(int(_ROAD_M // _ROAD_STEP_M) + 1)]
+          for k in range(int(reach_m // _ROAD_STEP_M) + 1)]
     zs = [z for z in zs if not math.isnan(z)]
     return min(zs) if zs else math.nan
 

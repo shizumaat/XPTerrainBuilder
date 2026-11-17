@@ -55,7 +55,7 @@ def _steep(poly: Polygon, dem, grid: float, grade: float):
     slope = np.hypot(dzx, dzy)
     h = grid / 2.0
     cells = [box(x - h, y - h, x + h, y + h)
-             for x, y, s in zip(gx.ravel(), gy.ravel(), slope.ravel())
+             for x, y, s in zip(gx.ravel(), gy.ravel(), slope.ravel(), strict=True)
              if np.isfinite(s) and s > grade]
     if not cells:
         return Polygon(), z, xs, ys

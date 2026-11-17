@@ -13,11 +13,10 @@ from __future__ import annotations
 import types
 
 import numpy as np
-from shapely.geometry import LineString, Polygon
-from shapely.strtree import STRtree
-
 from auto_patch_v2.classify.lot_climb import climb_arms
 from auto_patch_v2.classify.rules import load_rules
+from shapely.geometry import LineString, Polygon
+from shapely.strtree import STRtree
 
 
 class _Dem:
@@ -31,9 +30,9 @@ class _Dem:
 LOT = Polygon([(0, 20), (200, 20), (200, 0), (60, 0), (60, -35), (0, -35)])
 
 
-def _arms(road: LineString, dem=_Dem()):
+def _arms(road: LineString, dem=None):
     lot = load_rules().lot
-    return climb_arms(LOT, [road], STRtree([road]), dem, lot)
+    return climb_arms(LOT, [road], STRtree([road]), dem or _Dem(), lot)
 
 
 def test_the_part_climbing_to_a_road_is_an_arm():

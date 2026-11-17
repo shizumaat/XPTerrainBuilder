@@ -66,7 +66,8 @@ def open_edge_tops(outline, frame: _t.Sequence[tuple], cache, law, scale, zero: 
     ``retaining_parapet_m`` (a wall rises that far over the high side's
     ground), never under the cut beside it (the floor less
     ``floor_clearance_m``) and never over the ground, eased along the rim
-    from the ground at each run's ends at ``[design] bank_slope``.
+    from the ground where the run's wall comes to meet it (a flush or proud
+    wall; a lip is no such end) at ``[design] bank_slope``.
     Elsewhere -- a wall standing flush or proud, a LIP (no solid of the
     frame in reach, or only the floor's own edge: a ramp running out of the
     frame) -- nothing is stated and the rim stays as accepted.  ``dz`` is
@@ -79,12 +80,14 @@ def open_edge_tops(outline, frame: _t.Sequence[tuple], cache, law, scale, zero: 
     g = np.asarray(ground(be, bn), float)
     fl = np.asarray(floor(be, bn), float)
     with np.errstate(invalid="ignore"):
-        op = np.isfinite(top) & np.isfinite(g) & (g - top > float(ob.shell_rim_ground_m)) \
-            & (top - fl >= float(ob.hollow_m))
+        wall = np.isfinite(top) & np.isfinite(g) & (top - fl >= float(ob.hollow_m))
+        op = wall & (g - top > float(ob.shell_rim_ground_m))
     if not op.any():
         return ()
     level = np.maximum(top - float(ob.retaining_parapet_m), fl - float(ob.floor_clearance_m))
-    ease = _eased(be, bn, ring, np.where(op | ~np.isfinite(g), -np.inf, g),
+    # a run eases from where its wall meets the ground (a flush or proud
+    # wall), never from a lip: no wall stands there to meet
+    ease = _eased(be, bn, ring, np.where(wall & ~op, g, -np.inf),
                   float(law.tables.emit.design.bank_slope))
     level = np.minimum(np.maximum(level, ease), g)
     z0 = zero + lift

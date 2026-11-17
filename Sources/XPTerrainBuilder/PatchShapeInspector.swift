@@ -6,7 +6,9 @@ import SceneryKit
 /// perimeter, elevation range, "Used by" (other shapes sharing its nodes),
 /// "Classification" (#1697, `PatchShapeRole.swift`),
 /// "Copy shape reference" (#1281, `PatchCopy.swift`), "Set elevation…"
-/// (#1357), "Delete shape"; several — their count and node count, "Set
+/// (#1357), its own elevation tags — one value or a sloping rectangle's
+/// high and low sides (#2137, `PatchShapeAltitudeBox.swift`), "Delete
+/// shape"; several — their count and node count, "Set
 /// elevation…", "Delete N shapes".
 struct PatchShapeInspector: View {
     @ObservedObject var model: PatchEditModel
@@ -54,6 +56,8 @@ struct PatchShapeInspector: View {
         if let lo = stats.minAlt, let hi = stats.maxAlt {
             row("Elevation", String(format: "%.2f – %.2f m", lo, hi))
         }
+        PatchShapeAltitudeBox(model: model, way: way,
+                              nodesWithElevation: stats.nodeCount - stats.nodesWithoutElevation)  // #2137
         if stats.nodesWithoutElevation > 0 {
             note("\(stats.nodesWithoutElevation.formatted()) nodes: elevation from the mesh.")
         }

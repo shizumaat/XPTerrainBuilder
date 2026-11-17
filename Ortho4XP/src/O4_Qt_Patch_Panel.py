@@ -8,8 +8,9 @@ first" when the zoomed airport has no patch.  Edit mode adds the node
 inspector (one node: lat/lon, elevation, "Used by", Delete; several: the
 range, "Set to", "Offset", Delete N; a selected shape, #759: role, ref,
 nodes, area, perimeter, elevation range, "Used by", "Copy shape reference",
-"Set elevation…" (#1357), "Delete shape").  A click on the node's lat/lon
-copies ``lat, lon`` (#1281).  The save bar shows in Edit mode and whenever
+"Set elevation…" (#1357), the shape's own elevation tags — one value or a
+sloping rectangle's high and low sides, #2137 — "Delete shape").  A click
+on the node's lat/lon copies ``lat, lon`` (#1281).  The save bar shows in Edit mode and whenever
 there is something to save or rebuild; "Undo" confirms inside the box.  The
 widgets are built once and refreshed in place, so a
 field being typed in keeps its focus.
@@ -27,6 +28,7 @@ import O4_Glossary as GLOSSARY
 import O4_Qt_Patch_Elevation_Dialog as ELEVDIALOG
 import O4_Qt_Patch_Reference as REFERENCE
 import O4_Qt_Patch_ShapePick as PICK
+import O4_Qt_Patch_Shape_Alt as SHAPEALT
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Version
 from O4_Qt_Patch_Controller import PatchController, built_date_text
@@ -246,6 +248,8 @@ class PatchPanel(QGroupBox):
             row, value = _row(key)
             self.shape_rows[key] = (row, row.layout().itemAt(0).widget(), value)
             s.addWidget(row)
+        self.shape_alt = SHAPEALT.ShapeAltBox(self.model)   # #2137
+        s.addWidget(self.shape_alt)
         self.shape_mesh_note = _note()
         self.shape_extra_note = _note()
         s.addWidget(self.shape_mesh_note)
@@ -485,7 +489,9 @@ class PatchPanel(QGroupBox):
             self.shape_mesh_note.setText("%s nodes: elevation from the mesh."
                                          % format(st.nodes_without_elevation, ","))
             self.shape_mesh_note.setVisible(st.nodes_without_elevation > 0)
+            self.shape_alt.refresh(way, st.node_count - st.nodes_without_elevation)
         else:
+            self.shape_alt.refresh(None, 0)
             self.shape_title.setText(_plural(len(ways), "shape"))
             self.shape_id.setText(_plural(len(m.shape_nodes), "node"))
         self.shape_extra_note.setText("Also %s, deleted with the shapes."

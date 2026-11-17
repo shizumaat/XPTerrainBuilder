@@ -62,7 +62,8 @@ _STAND_DOWN_VERBOSITY = 2
 # cache is refreshed and the placement plan lands beside the patch.
 
 def mesh_placement_sampler(mesh_path: str,
-                           bounds: tuple[float, float, float, float]):
+                           bounds: tuple[float, float, float, float],
+                           sampler=None):
     """The BUILT MESH as the placement stage reads it: ``sample(lat, lon)
     -> (z, is_water) | None`` with ``.many`` over the same grid index
     (RULINGS 2026-09-12g), ``None`` outside every retained triangle and
@@ -71,10 +72,13 @@ def mesh_placement_sampler(mesh_path: str,
     (``tools/obj8_split_report.py --mesh``, lane seat610): the dry run on
     the graded surface cannot see a body seated against mesh ground that
     slopes under one building (#625), so the instrument reads the same
-    mesh the app seated on, through the same adapter."""
+    mesh the app seated on, through the same adapter.  ``sampler``: a
+    ``MeshElevationSampler`` already built over ``bounds`` (a tile DSF's
+    drawn triangles, ``guest_stage``) in place of reading ``mesh_path``."""
     import math
     from .mesh_sampler import MeshElevationSampler, OutsideMeshError
-    sampler = MeshElevationSampler(mesh_path, bounds)
+    if sampler is None:
+        sampler = MeshElevationSampler(mesh_path, bounds)
 
     def _sample(lat: float, lon: float, _s=sampler):
         try:

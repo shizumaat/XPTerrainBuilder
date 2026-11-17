@@ -49,25 +49,69 @@ def _tile_mesh_path(tile, there) -> str:
         lat, lon, getattr(tile, "custom_build_dir", "") or ""), lat, lon)
 
 
+def _tile_dsf_path(tile, there) -> str:
+    """The base-mesh DSF the build of tile ``there`` wrote, beside
+    ``tile``'s build (``O4_File_Names.dsf_file``)."""
+    import O4_File_Names as FNAMES
+    lat, lon = int(there[0]), int(there[1])
+    return FNAMES.dsf_file(FNAMES.build_dir(
+        lat, lon, getattr(tile, "custom_build_dir", "") or ""), lat, lon)
+
+
+def _dsf_sampler(path: str, box):
+    """A ``MeshElevationSampler`` over the tile DSF's drawn triangles in
+    ``box`` (``dsf_mesh``, as ``tools/drawn_site.py`` reads it); a
+    raster-deferred vertex (no height of its own) is no ground."""
+    import numpy as np
+    from auto_patch_v2.airport.dsf_mesh import physical_triangles, stream_text
+
+    from .dsf_reader import _dsftool_path
+    from .mesh_sampler import MeshElevationSampler
+    with stream_text(path, _dsftool_path() or "DSFTool") as fh:
+        corners = physical_triangles(fh, box)
+    corners = np.asarray(corners, dtype=float).reshape(-1, 3, 3)
+    corners = corners[(corners[:, :, 2] > -32000.0).all(axis=1)]
+    return MeshElevationSampler.from_triangles(corners, box)
+
+
 def neighbour_meshes(tile, bounds):
     """``tile_route.neighbour_ground``'s ``meshes``: a neighbour tile's
     built mesh as the placement reads it (``object_stage.
     mesh_placement_sampler`` over ``bounds`` — ``(w, s, e, n)`` — clipped
-    to that tile) and its ground mark; ``None`` where that tile has no
-    mesh on disk."""
+    to that tile) and its ground mark — its ``.mesh``, else the DSF its
+    build wrote (a pruned rebuild cache keeps the DSF X-Plane draws);
+    ``None`` where that tile has neither on disk."""
     from auto_patch_v2.airport import tile_route as _route
 
     from .object_stage import mesh_placement_sampler
 
     def meshes(there):
-        path = _tile_mesh_path(tile, there)
-        if not os.path.isfile(path):
-            return None
         lat, lon = int(there[0]), int(there[1])
         w, s, e, n = bounds if bounds else (lon, lat, lon + 1, lat + 1)
         box = (max(w, lon), max(s, lat), min(e, lon + 1), min(n, lat + 1))
-        return mesh_placement_sampler(path, box), _route.mesh_mark(mesh_digest(path))
+        path = _tile_mesh_path(tile, there)
+        if os.path.isfile(path):
+            return (mesh_placement_sampler(path, box),
+                    _route.mesh_mark(mesh_digest(path)))
+        dsf = _tile_dsf_path(tile, there)
+        if not os.path.isfile(dsf):
+            return None
+        return (mesh_placement_sampler(dsf, box, sampler=_dsf_sampler(dsf, box)),
+                _route.mesh_mark(mesh_digest(dsf), "dsf"))
     return meshes
+
+
+def _ground_mark(tile, there) -> str:
+    """The ground mark a guest on ``there`` reads from ``tile``'s build
+    (:func:`neighbour_meshes`' order), without building a sampler."""
+    from auto_patch_v2.airport import tile_route as _route
+    path = _tile_mesh_path(tile, there)
+    if os.path.isfile(path):
+        return _route.mesh_mark(mesh_digest(path))
+    dsf = _tile_dsf_path(tile, there)
+    if os.path.isfile(dsf):
+        return _route.mesh_mark(mesh_digest(dsf), "dsf")
+    return _route.DEM_MARK
 
 
 def neighbour_marks(tile, bounds) -> dict:
@@ -75,20 +119,14 @@ def neighbour_marks(tile, bounds) -> dict:
     n)``) touch — the ground a guest body there is seated on; ``{}`` for
     an airport on one tile (its reuse key is the one it had)."""
     import math
-
-    from auto_patch_v2.airport import tile_route as _route
     if not bounds:
         return {}
     w, s, e, n = bounds
     out = {}
     for lat in range(int(math.floor(s)), int(math.floor(n)) + 1):
         for lon in range(int(math.floor(w)), int(math.floor(e)) + 1):
-            if (lat, lon) == (int(tile.lat), int(tile.lon)):
-                continue
-            path = _tile_mesh_path(tile, (lat, lon))
-            out[f"{lat:+03d}{lon:+04d}"] = (
-                _route.mesh_mark(mesh_digest(path)) if os.path.isfile(path)
-                else _route.DEM_MARK)
+            if (lat, lon) != (int(tile.lat), int(tile.lon)):
+                out[f"{lat:+03d}{lon:+04d}"] = _ground_mark(tile, (lat, lon))
     return out
 
 

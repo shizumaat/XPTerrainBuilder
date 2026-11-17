@@ -153,3 +153,24 @@ def test_the_piece_for_a_tile_that_builds_no_patch_is_laid_there(tmp_path, monke
     assert not (tmp_path / "Patches" / "+50+000" / "+54+009").exists()
     # a task that does not name its threshold tiles lays nothing
     assert EV._install_neighbour_pieces({}, "EDDH", pieces, (53, 9)) == []
+
+
+def test_the_neighbours_ground_is_its_mesh_else_its_built_dsf_else_the_dem(
+        tmp_path, monkeypatch):
+    """A pruned rebuild cache keeps the DSF X-Plane draws (LOWS +47+013 on
+    the owner's install has no .mesh): the guest reads that DSF."""
+    from auto_patch import guest_stage as GS
+    tiles = tmp_path / "Tiles"
+    tile = types.SimpleNamespace(lat=47, lon=12, custom_build_dir=str(tiles) + "/")
+    nb = tiles / "zOrtho4XP_+47+013"
+    assert GS._ground_mark(tile, B_) == TR.DEM_MARK
+    dsf = nb / "Earth nav data" / "+40+010" / "+47+013.dsf"
+    dsf.parent.mkdir(parents=True)
+    dsf.write_bytes(b"dsf")
+    assert GS._ground_mark(tile, B_) == TR.mesh_mark(GS.mesh_digest(str(dsf)), "dsf")
+    mesh = nb / "Data+47+013.mesh"
+    mesh.write_bytes(b"mesh")
+    assert GS._ground_mark(tile, B_) == TR.mesh_mark(GS.mesh_digest(str(mesh)))
+    assert GS.neighbour_marks(tile, (12.9, 47.7, 13.1, 47.8)) == {
+        "+47+013": TR.mesh_mark(GS.mesh_digest(str(mesh)))}
+    assert GS.neighbour_marks(tile, (12.1, 47.7, 12.9, 47.8)) == {}

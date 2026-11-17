@@ -168,10 +168,11 @@ def airport_ground(icao: str, here: Tile, elevation_root: str,
     return z
 
 
-def mesh_mark(digest: str) -> str:
-    """A guest record's ground mark for a built mesh whose sha256 is
-    ``digest`` (#2129)."""
-    return "mesh:" + str(digest)[:16]
+def mesh_mark(digest: str, kind: str = "mesh") -> str:
+    """A guest record's ground mark for a built mesh (``kind`` ``"mesh"``,
+    or ``"dsf"``: the tile's built DSF where its mesh is gone) whose
+    sha256 is ``digest`` (#2129)."""
+    return f"{kind}:{str(digest)[:16]}"
 
 
 def neighbour_ground(icao: str, here: Tile, elevation_root: str,

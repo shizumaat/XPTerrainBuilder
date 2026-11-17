@@ -1566,6 +1566,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             _dk.KEY_FIELD: _dk.dump_key(text),
             "engine_version": engine_version or plan.provenance.engine_version,
             "time": _bs.stamp(),
+            # #2129: a guest row's ground (``tile_route.guest_mark``)
+            **({"ground": plan.ground} if getattr(plan, "ground", "") else {}),
         }
     orphaned = sorted(set(orphaned) - set(own_bodies))
     bodies = sorted({b for a in airports.values() for b in a["body_files"]})

@@ -122,7 +122,8 @@ class StageReuse:
 
     def airport_recipe(self, plan_: _t.Any, lat: int, lon: int, patch_dir: str, *,
                        writes: tuple[bool, bool], omit: _t.Sequence,
-                       engine: str, optimise: str = "", foreign: str = "") -> dict:
+                       engine: str, optimise: str = "", foreign: str = "",
+                       neighbours: _t.Mapping[str, str] | None = None) -> dict:
         """:meth:`recipe` of one airport's rebake plan on tile ``(lat,
         lon)``: its graded surface beside the patch, its pack's pristine
         tile DSF, the OBJ of every member; ``writes`` is ``(write_enabled,
@@ -130,7 +131,9 @@ class StageReuse:
         ``optimise`` the key of the "Optimise pack" recipe the pack DSF's
         record holds (#1707; ``""`` = none), ``foreign`` the digest of the
         sibling plans' outlines an isolated share is read against (§9a;
-        ``""`` = none, the key it had)."""
+        ``""`` = none, the key it had), ``neighbours`` the ground mark of
+        every other tile its bodies may stand on (#2129; an airport on one
+        tile keeps the key it had)."""
         from ..law.tables import law_tables_digest
         from ..model.rebake import graded_surface_path
         from . import user_seats as _user_seats
@@ -152,7 +155,9 @@ class StageReuse:
                     # #1703: a hand-set object seat re-runs the stage (an
                     # airport with none keeps the key it had)
                     **({"user_seats": seats} if seats else {}),
-                    **({"isolated_foreign": foreign} if foreign else {})})
+                    **({"isolated_foreign": foreign} if foreign else {}),
+                    **({"neighbours": dict(sorted(neighbours.items()))}
+                       if neighbours else {})})
 
     # ── the run ─────────────────────────────────────────────────────────
     def run(self, icao: str, folder: str, recipe: dict,

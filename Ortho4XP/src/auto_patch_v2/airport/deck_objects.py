@@ -418,7 +418,7 @@ def _paint_overlay(pieces, joints, lights, top_y, art: _Art, g, lod, comments, s
     if not lines and not lights:
         return ""
     return overlay_obj8_text(top_y, texture=TEXTURE, lines=lines, lights=lights, lod_m=lod,
-                             comments=comments, poly_os=3)
+                             comments=comments)
 
 
 def _runway_marks(runway, R: Polygon, frame: DeckFrame, top_y, art: _Art, g, lod, comments,
@@ -443,5 +443,4 @@ def _runway_marks(runway, R: Polygon, frame: DeckFrame, top_y, art: _Art, g, lod
         return ""
     art.files[f"{GENERATED_DIR}/{atlas.name}"] = atlas.png
     return overlay_obj8_text(top_y, texture=atlas.name, decals=decals, lod_m=lod,
-                             comments=comments, poly_os=3,
-                             material=["WEATHER_TRANSPARENT", "GLOBAL_specular 1"])
+                             comments=comments, material=["GLOBAL_specular 1"])

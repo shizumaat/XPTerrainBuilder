@@ -500,11 +500,12 @@ def overlay_obj8_text(top_y: _t.Callable[[float, float], float], *, texture: str
     """The OBJ8 text of a deck's OVERLAY (#2132): the painted ``lines``
     (``texture`` the ``deck_texture`` atlas) or the ``strips`` (one
     texture's film: the rubber, X-Plane's line art) or the ``decals``
-    (the runway markings),
-    never hard, never casting a shadow, drawn over the slab under
-    ``ATTR_poly_os poly_os`` -- placed at the deck's own anchor, in its
-    frame.  ``material``: the header rows after ``TEXTURE`` (the page's
-    normal map, decal, ``WEATHER_TRANSPARENT``)."""
+    (the runway markings), never hard, never casting a shadow, standing
+    each strip's / line's / decal's lift over the slab (no ``ATTR_poly_os``
+    and no ``WEATHER_TRANSPARENT``: an OBJ is not draped, owner sim read
+    1.0.555, ``deck_objects._FILM_STEP_M``) -- placed at the deck's own
+    anchor, in its frame.  ``material``: the header rows after ``TEXTURE``
+    (the page's normal map)."""
     m = _Mesh()
     for st in strips:
         _strip(m, st, top_y)

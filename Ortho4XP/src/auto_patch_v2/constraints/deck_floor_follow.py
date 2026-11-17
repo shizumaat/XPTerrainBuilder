@@ -35,7 +35,7 @@ __all__ = ["floor_follow_rewrite"]
 def _floor_targets(pm, levels: _t.Mapping[int, float]) -> dict[str, float]:
     """Per generated deck id: ``min(end level - end depth)`` over its end
     lines' stations as stage 1 solved them."""
-    from ..planar.deck_generated import is_generated
+    from ..model.structures import is_generated
     decks = {d.object_id: d for d in getattr(pm, "decks", ()) or () if is_generated(d)}
     out: dict[str, float] = {}
     for a in getattr(pm, "deck_anchors", ()) or ():

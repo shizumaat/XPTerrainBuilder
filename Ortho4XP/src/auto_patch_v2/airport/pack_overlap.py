@@ -222,10 +222,9 @@ def _object_poly(path: str, cache, xy, hdg: float, min_area_m2: float):
     plan = _plan(path, cache, min_area_m2)
     if plan is None:
         return None
-    from shapely import affinity
-
+    from .frame_entry import transform
     from .obj8 import placement_affine
-    return affinity.affine_transform(plan, placement_affine(xy, hdg))
+    return transform(plan, placement_affine(xy, hdg))
 
 
 def _roofed(path: str | None, cache) -> bool:

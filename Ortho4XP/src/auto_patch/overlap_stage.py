@@ -91,13 +91,14 @@ def _structures(pack_root: str, lat: int, lon: int, frame, region, ctx
 
 
 def _context(xplane_root: str) -> dict:
+    from auto_patch_v2.airport import frame_entry as _fe
     from auto_patch_v2.airport import obj8 as _obj8
     from auto_patch_v2.law.model import Law
     law = Law.load()
     return {"xplane_root": xplane_root,
             "min_area_m2": float(law.tables.structures.building_pad.min_area_m2),
             "cache": _obj8.ResourceCache(
-                law.tables.structures.basin.min_solid_thickness_m)}
+                law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))}
 
 
 def default_pack(scenery_dir: str, airport: str,

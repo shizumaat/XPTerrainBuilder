@@ -310,7 +310,7 @@ def _bank_slope(law: Law, es) -> "float | None":
     if any(getattr(e.deck, "witness", "") != "generated" for e in es):
         return None
     # the bank under a generated deck: the run the cut made (one reader)
-    from ..planar.deck_generated import generated_bank_slope
+    from ..model.structures import generated_bank_slope
     return generated_bank_slope(law)
 
 

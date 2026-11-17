@@ -1419,12 +1419,14 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.basin_ring",
         "auto_patch_v2.airport.basin_witness",
         "auto_patch_v2.airport.below_grade_witness",
+        "auto_patch_v2.airport.bore_ground",
         "auto_patch_v2.airport.borrow",
         "auto_patch_v2.airport.bridge_approach",
         "auto_patch_v2.airport.bridge_axis",
         "auto_patch_v2.airport.bridge_end_state",
         "auto_patch_v2.airport.bridge_family",
         "auto_patch_v2.airport.bridge_frame",
+        "auto_patch_v2.airport.bridge_ground",
         "auto_patch_v2.airport.bridge_stack",
         "auto_patch_v2.airport.bridge_witness",
         "auto_patch_v2.airport.bridged_ground",
@@ -1440,6 +1442,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_plates",
         "auto_patch_v2.airport.deck_riders",
+        "auto_patch_v2.airport.deck_roof",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_stack",
         "auto_patch_v2.airport.deck_surface",
@@ -1455,6 +1458,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.facade_seat",
         "auto_patch_v2.airport.file_hash",
         "auto_patch_v2.airport.floor_rim",
+        "auto_patch_v2.airport.footed_portal",
         "auto_patch_v2.airport.footprint_carry",
         "auto_patch_v2.airport.footprint_connector",
         "auto_patch_v2.airport.footprint_seats",
@@ -1481,6 +1485,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.obj8_split",
         "auto_patch_v2.airport.object_cut",
         "auto_patch_v2.airport.object_floor",
+        "auto_patch_v2.airport.object_ground",
         "auto_patch_v2.airport.object_pack",
         "auto_patch_v2.airport.one_building",
         "auto_patch_v2.airport.open_frame_seat",
@@ -1521,13 +1526,19 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.placement_seams",
         "auto_patch_v2.airport.placement_seat_tilt",
         "auto_patch_v2.airport.placement_targets",
+        "auto_patch_v2.airport.plate_ground",
         "auto_patch_v2.airport.pool",
         "auto_patch_v2.airport.pool_memory",
+        "auto_patch_v2.airport.portal_objects",
+        "auto_patch_v2.airport.ramp_feet",
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.relief_skin",
         "auto_patch_v2.airport.rider_floor",
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
+        "auto_patch_v2.airport.road_bridge_ground",
+        "auto_patch_v2.airport.road_profile",
+        "auto_patch_v2.airport.road_stations",
         "auto_patch_v2.airport.road_ways",
         "auto_patch_v2.airport.runway_strip",
         "auto_patch_v2.airport.scatter",
@@ -1538,21 +1549,27 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.slab_plates",
         "auto_patch_v2.airport.split_guard",
         "auto_patch_v2.airport.split_level",
+        "auto_patch_v2.airport.split_level_forecourt",
         "auto_patch_v2.airport.split_level_wings",
         "auto_patch_v2.airport.stack_walls",
         "auto_patch_v2.airport.sunk_frame",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_base",
+        "auto_patch_v2.airport.terrain_cut",
         "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.terrain_model",
         "auto_patch_v2.airport.terrain_shaped",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.touch_graph",
         "auto_patch_v2.airport.touch_seat",
+        "auto_patch_v2.airport.tunnel_walls",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.user_roles",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.wall_corridor_probe",
+        "auto_patch_v2.airport.wall_corridors",
         "auto_patch_v2.airport.wall_geometry",
+        "auto_patch_v2.airport.wall_mouth",
         "auto_patch_v2.airport.wall_sheets",
         "auto_patch_v2.airport.wall_sides",
         "auto_patch_v2.airport.wall_top",
@@ -1640,6 +1657,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.public_road_release",
         "auto_patch_v2.constraints.ramp_runout",
         "auto_patch_v2.constraints.riser",
+        "auto_patch_v2.constraints.road_bridge_ceiling",
         "auto_patch_v2.constraints.road_ramp",
         "auto_patch_v2.constraints.roads",
         "auto_patch_v2.constraints.routes",
@@ -1682,6 +1700,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.cluster_outline",
         "auto_patch_v2.geom.containment",
         "auto_patch_v2.geom.core_clamp",
+        "auto_patch_v2.geom.coverage",
         "auto_patch_v2.geom.deck_ground",
         "auto_patch_v2.geom.diameter",
         "auto_patch_v2.geom.end_line",
@@ -1704,6 +1723,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.runway_contact",
         "auto_patch_v2.geom.shape_class",
         "auto_patch_v2.geom.slope_pad",
+        "auto_patch_v2.geom.station_runs",
         "auto_patch_v2.geom.terrain_deck",
         "auto_patch_v2.geom.trend",
         "auto_patch_v2.geom.triangulate",
@@ -1714,6 +1734,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law",
         "auto_patch_v2.law.agp_schema",
         "auto_patch_v2.law.airports_schema",
+        "auto_patch_v2.law.approach_corridor",
         "auto_patch_v2.law.base_profile_schema",
         "auto_patch_v2.law.basin_schema",
         "auto_patch_v2.law.cockpit_schema",
@@ -1757,7 +1778,9 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.pulse",
         "auto_patch_v2.model.rebake",
         "auto_patch_v2.model.registries",
+        "auto_patch_v2.model.road_yield",
         "auto_patch_v2.model.stage_one",
+        "auto_patch_v2.model.storey_shell",
         "auto_patch_v2.model.structures",
         "auto_patch_v2.model.threshold_datum",
         "auto_patch_v2.model.wall_reach",
@@ -1767,12 +1790,75 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.pipeline",
         "auto_patch_v2.pipeline.shapes",
         "auto_patch_v2.planar",
+        "auto_patch_v2.planar.basin_author_ground",
+        "auto_patch_v2.planar.basin_datum",
+        "auto_patch_v2.planar.basin_floor_width",
+        "auto_patch_v2.planar.basin_geometry",
+        "auto_patch_v2.planar.basin_rim",
+        "auto_patch_v2.planar.basins",
+        "auto_patch_v2.planar.bore_continuation",
+        "auto_patch_v2.planar.cell_knife",
+        "auto_patch_v2.planar.channel",
+        "auto_patch_v2.planar.channel_claims",
+        "auto_patch_v2.planar.channel_depth",
+        "auto_patch_v2.planar.channel_floor",
+        "auto_patch_v2.planar.channel_geometry",
+        "auto_patch_v2.planar.channel_ramp",
+        "auto_patch_v2.planar.channel_stretch",
+        "auto_patch_v2.planar.channel_strip",
+        "auto_patch_v2.planar.channel_witness",
+        "auto_patch_v2.planar.covered_cut",
+        "auto_patch_v2.planar.covered_ground",
+        "auto_patch_v2.planar.cut_runout",
+        "auto_patch_v2.planar.deck_bridge",
+        "auto_patch_v2.planar.deck_generated",
+        "auto_patch_v2.planar.deck_pack_cover",
+        "auto_patch_v2.planar.deck_route",
+        "auto_patch_v2.planar.deck_walls",
+        "auto_patch_v2.planar.door_ramps",
+        "auto_patch_v2.planar.end_witness",
+        "auto_patch_v2.planar.entrance_skirt",
+        "auto_patch_v2.planar.fill_riser",
+        "auto_patch_v2.planar.group_low",
+        "auto_patch_v2.planar.group_up",
+        "auto_patch_v2.planar.landing_runout",
+        "auto_patch_v2.planar.level_depth",
+        "auto_patch_v2.planar.level_regions",
+        "auto_patch_v2.planar.level_underside",
+        "auto_patch_v2.planar.lidar_road",
+        "auto_patch_v2.planar.low_extent",
+        "auto_patch_v2.planar.low_fill",
+        "auto_patch_v2.planar.low_level",
+        "auto_patch_v2.planar.mouth_behind",
+        "auto_patch_v2.planar.mouth_opening",
+        "auto_patch_v2.planar.object_corridor",
+        "auto_patch_v2.planar.pad_blocks",
+        "auto_patch_v2.planar.passage_court",
+        "auto_patch_v2.planar.road_bridge_clear",
+        "auto_patch_v2.planar.road_yield",
         "auto_patch_v2.planar.shape_airside",
         "auto_patch_v2.planar.shape_mouths",
         "auto_patch_v2.planar.shape_pad_corner",
         "auto_patch_v2.planar.shape_parts",
         "auto_patch_v2.planar.shapes",
+        "auto_patch_v2.planar.split_level_pit",
+        "auto_patch_v2.planar.station_level",
+        "auto_patch_v2.planar.storey_floor",
+        "auto_patch_v2.planar.storey_pad",
         "auto_patch_v2.planar.strip_keepout",
+        "auto_patch_v2.planar.structure_approach",
+        "auto_patch_v2.planar.structure_deck",
+        "auto_patch_v2.planar.structure_fence",
+        "auto_patch_v2.planar.structure_geometry",
+        "auto_patch_v2.planar.structure_mouth",
+        "auto_patch_v2.planar.structure_overlap",
+        "auto_patch_v2.planar.structure_pair",
+        "auto_patch_v2.planar.structure_service",
+        "auto_patch_v2.planar.structure_underpass",
+        "auto_patch_v2.planar.underpass_mouth",
+        "auto_patch_v2.planar.unframed_ramp",
+        "auto_patch_v2.planar.viaduct_road",
+        "auto_patch_v2.planar.wall_corridor_ramps",
     ),
 }
 
@@ -1822,6 +1908,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "airside_sliver_pairs": "proximity",
     "reach_bands": "no_step",
     "zone_bands": "zones",
+    "road_bridge_ceiling": "road_bridge_ceiling",
     "strip_transverse": "zones",
     "walled_plate_under": "walled_plate",
     "terrain_shaped_deck": "terrain_shaped",
@@ -2303,6 +2390,91 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.water_level geom.terrain_deck constraints.geometry constraints.precedence
         constraints.water model.airport
     """),
+    "road_bridge_ceiling": _mods(_GENERATOR_CORE + """
+        planar.road_bridge_clear planar.structure_approach
+    airport airport.access_road airport.adapted_riders airport.agp_deck_ends
+    airport.agp_deck_join airport.agp_floors airport.agp_gap_plates airport.agp_ground
+    airport.agp_group airport.agp_pieces airport.agp_plan airport.agp_plates
+    airport.airside_deck_seat airport.airside_floor airport.airside_group_seat
+    airport.anchor_rule airport.apt_dat airport.apt_edit airport.apt_flatten
+    airport.authored_landing airport.authored_seat airport.backup_state airport.basin_ring
+    airport.basin_witness airport.below_grade_witness airport.bore_ground airport.borrow
+    airport.bridge_approach airport.bridge_axis airport.bridge_end_state airport.bridge_family
+    airport.bridge_frame airport.bridge_ground airport.bridge_stack airport.bridge_witness
+    airport.bridged_ground airport.bulk_geos airport.cluster_profile airport.contact
+    airport.contents airport.cut_deck_seat airport.cut_portal_seat airport.deck_carry
+    airport.deck_end_read airport.deck_ends airport.deck_family_contact airport.deck_plates
+    airport.deck_riders airport.deck_roof airport.deck_signature airport.deck_stack
+    airport.deck_surface airport.dem airport.dem_witness airport.drawn_anchor airport.dsf
+    airport.dsf_heights airport.entrance_seat airport.exclusion airport.extension_cache
+    airport.facade airport.facade_seat airport.file_hash airport.floor_rim
+    airport.footed_portal airport.footprint_carry airport.footprint_connector
+    airport.footprint_seats airport.footprint_unit airport.frame_entry airport.free_bridge_seat
+    airport.free_column airport.ground_route_ways airport.ground_shell airport.hanging_objects
+    airport.hung_wall_seat airport.isolated_seat airport.jetways airport.line_object
+    airport.line_solidity airport.msl_feet airport.obj8 airport.obj8_band airport.obj8_clip
+    airport.obj8_drape airport.obj8_grade airport.obj8_rest airport.obj8_roof
+    airport.obj8_split airport.object_cut airport.object_floor airport.object_ground
+    airport.object_pack airport.one_building airport.open_frame_seat airport.pack
+    airport.pack_art airport.pack_choice airport.pack_ground airport.pack_health
+    airport.pack_health.light_records airport.pack_local airport.pack_partition
+    airport.pack_terrain airport.pack_work airport.pad_block_seat airport.pad_level_group
+    airport.partition_cache airport.partition_code airport.pavement_end_plate airport.pit_frame
+    airport.placement_atom airport.placement_body airport.placement_boxes
+    airport.placement_carrier airport.placement_census airport.placement_cockpit
+    airport.placement_contact airport.placement_cut airport.placement_deck
+    airport.placement_family airport.placement_file airport.placement_geom
+    airport.placement_leaves airport.placement_motion airport.placement_orphan
+    airport.placement_plan airport.placement_read airport.placement_record
+    airport.placement_seams airport.placement_seat_tilt airport.placement_targets
+    airport.plate_ground airport.pool airport.pool_memory airport.portal_objects
+    airport.ramp_feet airport.rebake_plan airport.relief_skin airport.rider_floor
+    airport.riders airport.ring_contact_batch airport.road_bridge_ground airport.road_profile
+    airport.road_stations airport.road_ways airport.runway_strip airport.scatter
+    airport.sheet_chain airport.shell_ground airport.skirt airport.slab_faces
+    airport.slab_plates airport.split_guard airport.split_level airport.split_level_forecourt
+    airport.split_level_wings airport.stack_walls airport.sunk_frame airport.sunken_ramp
+    airport.terrain_base airport.terrain_cut airport.terrain_feature airport.terrain_model
+    airport.terrain_shaped airport.topology_cache airport.touch_graph airport.touch_seat
+    airport.tunnel_walls airport.unit_storey airport.user_roles airport.wall_class
+    airport.wall_corridor_probe airport.wall_corridors airport.wall_geometry airport.wall_mouth
+    airport.wall_sheets airport.wall_sides airport.wall_top airport.walled_pit
+    airport.walled_plate airport.zero_level_seat classify classify.airside_edge
+    classify.apron_gate classify.apt_shoulder classify.blast_pad classify.car_lot
+    classify.edge_line_mint classify.evidence classify.facade_mint classify.fence_division
+    classify.fence_yard classify.floor_yard classify.frontage_road classify.gap_apron
+    classify.gap_mint classify.gap_stands classify.lot_roads classify.neck
+    classify.open_default classify.pad_cut_corridor classify.pad_touch classify.reachability
+    classify.retaining_wall classify.ribbon_mint classify.roles classify.rules classify.sources
+    classify.storey_edge classify.taxi_letter classify.taxi_shoulder classify.wall_clip
+    classify.wall_cutback constraints.road_bridge_ceiling geom.agp_plate geom.author_ground
+    geom.base_slab geom.capped_plane geom.centreline geom.cluster_outline geom.containment
+    geom.core_clamp geom.coverage geom.deck_ground geom.diameter geom.end_line geom.exact
+    geom.fixed_overlay geom.foot_planes geom.lens geom.lowest_face geom.pad_evidence geom.parts
+    geom.plane_groups geom.plate_bands geom.plate_heights geom.proportions geom.ramp_grade
+    geom.ramp_profile geom.shape_class geom.slope_pad geom.station_runs geom.terrain_deck
+    geom.triangulate geom.union_find geom.valid_area geom.vector law.approach_corridor
+    law.inset_class model.agp_group model.agp_plate model.airport model.deck_ends
+    model.deck_stack model.floor_ground model.free_bridge model.islands model.map_memo
+    model.placement model.platform model.pulse model.rebake model.road_yield model.stage_one
+    model.storey_shell model.wall_reach model.walled_plate planar planar.basin_author_ground
+    planar.basin_datum planar.basin_floor_width planar.basin_geometry planar.basin_rim
+    planar.basins planar.bore_continuation planar.cell_knife planar.channel
+    planar.channel_claims planar.channel_depth planar.channel_floor planar.channel_geometry
+    planar.channel_ramp planar.channel_stretch planar.channel_strip planar.channel_witness
+    planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bridge
+    planar.deck_generated planar.deck_pack_cover planar.deck_route planar.deck_walls
+    planar.door_ramps planar.end_witness planar.entrance_skirt planar.fill_riser
+    planar.group_low planar.group_up planar.landing_runout planar.level_depth
+    planar.level_regions planar.level_underside planar.lidar_road planar.low_extent
+    planar.low_fill planar.low_level planar.mouth_behind planar.mouth_opening
+    planar.object_corridor planar.pad_blocks planar.passage_court planar.road_yield
+    planar.split_level_pit planar.station_level planar.storey_floor planar.storey_pad
+    planar.structure_deck planar.structure_fence planar.structure_geometry
+    planar.structure_mouth planar.structure_overlap planar.structure_pair
+    planar.structure_service planar.structure_underpass planar.underpass_mouth
+    planar.unframed_ramp planar.viaduct_road planar.wall_corridor_ramps
+"""),
     "zones": _mods(_GENERATOR_CORE + """
         geom.exact
         constraints.contiguity constraints.end_lip constraints.geometry
@@ -2455,6 +2627,29 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.dsf_heights airport.facade_seat airport.ground_route_ways airport.stack_walls
     airport.touch_graph airport.touch_seat constraints.gap_follow law.deck_gen_schema
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands model.floor_ground
+    airport.bore_ground airport.bridge_ground airport.deck_roof airport.footed_portal
+    airport.object_ground airport.plate_ground airport.portal_objects airport.ramp_feet
+    airport.road_bridge_ground airport.road_profile airport.road_stations
+    airport.split_level_forecourt airport.terrain_cut airport.tunnel_walls
+    airport.wall_corridor_probe airport.wall_corridors airport.wall_mouth
+    constraints.road_bridge_ceiling geom.coverage geom.station_runs law.approach_corridor
+    model.road_yield model.storey_shell planar.basin_author_ground planar.basin_datum
+    planar.basin_floor_width planar.basin_geometry planar.basin_rim planar.basins
+    planar.bore_continuation planar.cell_knife planar.channel planar.channel_claims
+    planar.channel_depth planar.channel_floor planar.channel_geometry planar.channel_ramp
+    planar.channel_stretch planar.channel_strip planar.channel_witness planar.covered_cut
+    planar.covered_ground planar.cut_runout planar.deck_bridge planar.deck_generated
+    planar.deck_pack_cover planar.deck_route planar.deck_walls planar.door_ramps
+    planar.end_witness planar.entrance_skirt planar.fill_riser planar.group_low planar.group_up
+    planar.landing_runout planar.level_depth planar.level_regions planar.level_underside
+    planar.lidar_road planar.low_extent planar.low_fill planar.low_level planar.mouth_behind
+    planar.mouth_opening planar.object_corridor planar.pad_blocks planar.passage_court
+    planar.road_bridge_clear planar.road_yield planar.split_level_pit planar.station_level
+    planar.storey_floor planar.storey_pad planar.structure_approach planar.structure_deck
+    planar.structure_fence planar.structure_geometry planar.structure_mouth
+    planar.structure_overlap planar.structure_pair planar.structure_service
+    planar.structure_underpass planar.underpass_mouth planar.unframed_ramp planar.viaduct_road
+    planar.wall_corridor_ramps
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport.cut_portal_seat
@@ -2955,6 +3150,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.deck_pack_cover
     airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands
     model.floor_ground planar.road_wall_witness
+    constraints.road_bridge_ceiling planar.road_bridge_clear
 """)
 CODE_MODULES["emit"] = _mods("""
     airport.deck_roof airport.ramp_feet geom.channel_declared planar.basin_author_ground

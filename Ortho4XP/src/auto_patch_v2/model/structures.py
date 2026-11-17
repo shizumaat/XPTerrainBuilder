@@ -28,7 +28,7 @@ from .frame import XY
 __all__ = ["Deck", "Tunnel", "DeckAnchor", "DeckBridge", "Basin", "Channel", "ChannelWall",
            "ChannelRamp",
            "profile_z", "deck_z_on_faces", "deck_reach", "deck_floor_z", "DECK_GROUND_REF",
-           "CHANNEL_FLOOR_ROLE",
+           "CHANNEL_FLOOR_ROLE", "GENERATED_WITNESS", "is_generated", "generated_bank_slope",
            "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM", "SKIRT_ROLE", "OBJECT_FLOOR_REF",
            "OBJECT_FLOOR_WALL_REF"]
 
@@ -908,3 +908,27 @@ class Basin:
         if depth <= 1e-6:
             depth = float(self.rim_estimate_m) - float(self.floor_z)
         return 0.0 if depth <= 1e-6 else depth + self.clearance(clearance_m)
+
+
+#: ``DeckBridge.witness`` of a generated deck
+GENERATED_WITNESS = "generated"
+
+
+def is_generated(db) -> bool:
+    """A deck ``planar/deck_generated`` generated (no pack placement stands behind it)."""
+    return getattr(db, "witness", "") == GENERATED_WITNESS
+
+
+def generated_bank_slope(law) -> float:
+    """The bank under a GENERATED deck: 1V:1.5H, the steep engineered-fill
+    face (``zones.adjacent_ground.old_dem_fill_slope``, the one law key that
+    states it).
+    The deck hides it; ``emit.design.bank_slope`` (1:3, a slope a pilot
+    reads as ground) is the OPEN ground's.  Owner 2026-11-17 18:30Z (ESSA
+    86aefaf4 over the service road -141): "seems to be larger than it needs
+    to be" -- at 1:3 a 6 m floor ran 18 m of bank each side; the channel's
+    1:2 (``[channel] bank_slope``) next; owner sim read 19:42Z: "The
+    embankment under bridges should be a bit steeper".  ONE reader:
+    ``planar/structures`` (the cut), ``planar/deck_generated`` (the ring) and
+    ``constraints/edge_deck`` (the bank's rows)."""
+    return float(law.tables.zones.adjacent_ground.old_dem_fill_slope)

@@ -180,14 +180,17 @@ def _rim(d: np.ndarray, z: np.ndarray, floor: float, frac: float, probe: float, 
     return float(d[k]), float(beyond.max())
 
 
-def _sections(dem, bore: Bore, law: Law) -> list[_Section]:
-    """The bore's cut, read every ``_STATION_M`` along its covered chain."""
+def _sections(dem, bore: Bore, law: Law, rise: "float | None" = None) -> list[_Section]:
+    """The bore's cut, read every ``_STATION_M`` along its covered chain.
+    ``rise``: the least cut read (default the mouth depth; a GENERATED
+    deck's own floor depth under it, spec 2123)."""
     tn = law.tables.structures.tunnel
     reach, probe = float(tn.covered_rim_search_m), float(tn.covered_side_probe_m)
     # a DEM that sees the road FLOOR under the cover stands at least the
     # mouth depth (clearance + equipment + roof + cover) under the ground
     # beside it; a shallower dip is not the floor and is not read
-    frac, rise = float(tn.covered_rim_rise_frac), float(tn.mouth_depth_m)
+    frac = float(tn.covered_rim_rise_frac)
+    rise = float(tn.mouth_depth_m) if rise is None else float(rise)
     half = 0.5 * max(carriageway_width_m(w.tags, law) for w in bore.ways)
     ln = bore.line
     d = np.arange(0.0, reach + probe + 1e-9, _STEP_M)
@@ -374,6 +377,23 @@ def _cover_runs(br, cuts) -> set[int]:
     return {min(mine, key=lambda k: cuts[k][2].distance(br.cover))}
 
 
+def _generated_bores(decks, mapped: set[str]) -> list[tuple[Bore, float]]:
+    """``(bore, least cut)`` of every road a GENERATED deck covers that no
+    mapped tunnel way already is, the cut read down to the deck's floor
+    depth (``DeckBridge.covered``, spec 2123)."""
+    from ..model.airport import OsmWay
+    out = []
+    for d in decks:
+        if getattr(d, "witness", "") != "generated":
+            continue
+        for rid, tags, pts in getattr(d, "covered", ()) or ():
+            if str(rid) in mapped or len(pts) < 2:
+                continue
+            w = OsmWay(rid, "highway", tuple(pts), False, dict(tags))
+            out += [(b, float(d.floor_min_m) or None) for b in chains([w])]
+    return out
+
+
 def covered_cuts(airport, classification, law: Law, decks: _t.Sequence = ()):
     """``(cuts, pav)``: every mapped bore under airside pavement whose DEM
     reads a cut the mouth depth deep — ``(bore, sections, ribbon)`` PER RUN
@@ -386,13 +406,19 @@ def covered_cuts(airport, classification, law: Law, decks: _t.Sequence = ()):
     tn = law.tables.structures.tunnel
     ways = [w for w in getattr(airport, "osm_ways", ())
             if is_tunnel(w, tn.admitted_values) and len(w.points) >= 2]
-    if dem is None or not ways or not classification.cells:
+    # spec 2123 A3: a GENERATED deck's covered roads are covered ground --
+    # its cover is ours, never a pack's, and the DEM carries their floor
+    gen = _generated_bores(decks, {str(w.id) for w in ways})
+    if dem is None or not (ways or gen) or not classification.cells:
         return [], None
     airside = airside_cover(classification, law)
-    served = _served(chains(ways), airside, float(tn.terrain_cover_min_m), decks)
+    pack_decks = [d for d in decks if getattr(d, "witness", "") != "generated"]
+    served = [(b, None) for b in (_served(chains(ways), airside,
+                                          float(tn.terrain_cover_min_m), pack_decks)
+                                  if ways else [])] + gen
     cuts = []
-    for b in served:
-        for run in section_runs(_sections(dem, b, law)):
+    for b, rise in served:
+        for run in section_runs(_sections(dem, b, law, rise)):
             rib = _ribbon(run)
             if rib is not None:
                 cuts.append((b, run, rib))

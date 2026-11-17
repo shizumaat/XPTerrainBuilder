@@ -727,13 +727,16 @@ def apply_routed(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                  refresh_dump: _t.Callable[[str], str | None] | None = None,
                  engine_version: str = "", law_digest: str = "",
                  omit: _t.Sequence = (), plan_key: str = "",
-                 seats: _t.Mapping | None = None) -> PlacementWriteResult:
+                 seats: _t.Mapping | None = None,
+                 gen_recipe: _t.Mapping | None = None) -> PlacementWriteResult:
     """THE PLACEMENT WRITE, in the one lawful order (module doc, steps
     0-5), over this tile's DSF and every neighbour DSF of the pack that
     takes guest rows (#1884 round 2 B2: ``tile_route``).
     ``plan_key`` names the plan JSON (``o4_v2_placement_<key>.json``;
     default the ICAO — a companion pack's plan is ``ICAO~k``).
     ``seats``: the hand-set object seats (#1703, ``write_pack(seats=)``).
+    ``gen_recipe``: the generated decks / road bridges of this tile's DSF
+    (spec 2123, ``write_pack(gen_recipe=)``).
 
     Under the pack's write lock (``pack_lock``, B3), and ALL OR NOTHING:
 
@@ -768,7 +771,8 @@ def apply_routed(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                           allow_live_install=allow_live_install,
                           work_dir=work_dir, refresh_dump=refresh_dump,
                           engine_version=engine_version,
-                          law_digest=law_digest, plan_key=plan_key)
+                          law_digest=law_digest, plan_key=plan_key,
+                          gen_recipe=gen_recipe)
 
 
 def _writable(plan: PlacementPlan, files: _t.Sequence
@@ -822,7 +826,8 @@ def _write_all(writes: _t.Sequence[_Write], tool: str, *, patch_dir: str,
                allow_live_install: bool, work_dir: str | None,
                refresh_dump: _t.Callable[[str], str | None] | None,
                engine_version: str, law_digest: str,
-               plan_key: str) -> PlacementWriteResult:
+               plan_key: str, gen_recipe: _t.Mapping | None = None
+               ) -> PlacementWriteResult:
     """:func:`apply_routed`'s writes: ``writes[0]`` is this tile's DSF,
     the rest its guests in neighbour DSFs (none for :func:`apply_plan`)."""
     own = writes[0]
@@ -856,7 +861,8 @@ def _write_all(writes: _t.Sequence[_Write], tool: str, *, patch_dir: str,
                                work_dir=work_dir, engine_version=engine_version,
                                law_digest=law_digest,
                                body_files=_bodies_of(w, written), omit=w.omit,
-                               seats=w.seats, mend=False)
+                               seats=w.seats, mend=False,
+                               gen_recipe=gen_recipe if w is own else None)
                 for w in writes]
     dsf = dsfs[0]
     plan = own.plan

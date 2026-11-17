@@ -2003,6 +2003,9 @@ def _restore_v2_writes(pack_root: str, record_paths: list[str]) -> int:
             # #1978: the health check's repaired object copies
             removed += len(_ph.objects.remove(
                 pack_root, _ph.generated_of(entries[basename])))
+            # spec 2123: the generated decks and their texture
+            from auto_patch_v2.airport import generated_pack as _gen
+            removed += len(_gen.remove(pack_root, _gen.files_of(entries[basename])))
             _bs.drop_dsf_entry(dsf_path)
     return removed
 
@@ -2060,6 +2063,11 @@ def restore_detail(pack_root: str) -> dict:
             shutil.copy2(backup_path, live_path)
             _bs.invalidate_memo()
             restored += 1
+            if os.path.basename(live_path).lower() == "apt.dat":
+                # spec 2123: the region cuts' record goes with them
+                from auto_patch_v2.airport import apt_flatten as _af
+                if os.path.isfile(live_path + _af.EDITS_SUFFIX):
+                    os.remove(live_path + _af.EDITS_SUFFIX)
     bodies_removed = _restore_v2_writes(pack_root, v2_records)
     # #1707: the originals are back, and so is the question — a remembered
     # "Optimise pack" would otherwise re-optimise the next build

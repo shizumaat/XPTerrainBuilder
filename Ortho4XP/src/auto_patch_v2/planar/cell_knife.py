@@ -27,17 +27,21 @@ __all__ = ["knife_cells"]
 
 def knife_cells(cells: _t.Sequence[Cell], polys: _t.Sequence[Polygon], knife, law,
                 runway_roles: _t.Collection[str], *, cut_pads: bool, mark: str,
-                new_cells: _t.Sequence[Cell] = ()) -> tuple[list[Cell], int]:
+                new_cells: _t.Sequence[Cell] = (),
+                cuts: "_t.Callable[[Cell], bool] | None" = None) -> tuple[list[Cell], int]:
     """``(cells, number cut)``: ``cells`` (with their ``polys``) cut at
     ``knife`` (module docstring), ``new_cells`` after the standing ones and
     before the gap pieces, every id renumbered; each cut piece's evidence
-    carries ``mark``."""
+    carries ``mark``.  ``cuts``: only the cells it admits are cut (a
+    generated deck takes the airside pavement it carries, a generated road
+    bridge's span the pack pavement under it: spec 2123)."""
     out: list[Cell] = []
     n_cut = 0
 
     def _cut(c: Cell, p: Polygon, blade) -> None:
         nonlocal n_cut
         if c.role in runway_roles or c.kind == "structure" or blade is None \
+                or (cuts is not None and not cuts(c)) \
                 or not p.intersects(blade):
             out.append(c)
             return

@@ -23,7 +23,7 @@ import io
 import numpy as np
 from PIL import Image
 
-__all__ = ["SIZE", "CONCRETE_UV", "FASCIA_UV", "YELLOW_UV", "WHITE_UV",
+__all__ = ["SIZE", "CONCRETE_UV", "FASCIA_UV", "YELLOW_UV", "WHITE_UV", "BLACK_UV",
            "uv_centre", "deck_texture_png"]
 
 SIZE = 256
@@ -33,13 +33,18 @@ CONCRETE_UV = (0.0, 0.0, 0.5, 1.0)
 FASCIA_UV = (0.5, 0.0, 0.75, 1.0)
 YELLOW_UV = (0.75, 0.5, 0.875, 1.0)
 WHITE_UV = (0.875, 0.5, 1.0, 1.0)
-_BLACK_UV = (0.75, 0.0, 1.0, 0.5)
+BLACK_UV = (0.75, 0.0, 1.0, 0.5)
+_BLACK_UV = BLACK_UV
 
 _CONCRETE = (172, 170, 164)
 _FASCIA = (128, 126, 121)
-_YELLOW = (226, 178, 32)
-_WHITE = (232, 232, 228)
-_BLACK = (24, 24, 24)
+#: the paint colours: the MEAN of X-Plane's own taxi-line paint where its
+#: alpha is solid (``apt_lines/taxilines.dds`` read 2026-11-16 for spec
+#: 2123's lines answer: yellow 214,169,42; white 216,217,216; black
+#: 38,38,38) -- a colour value, never the art
+_YELLOW = (214, 169, 42)
+_WHITE = (216, 217, 216)
+_BLACK = (38, 38, 38)
 
 
 def uv_centre(region: tuple[float, float, float, float]) -> tuple[float, float]:

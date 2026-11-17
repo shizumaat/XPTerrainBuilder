@@ -2326,6 +2326,15 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         for _n in _fb_notes:
             print(f"[{icao}]   [free-bridge] {_n}")
     if resume == "classify":
+        # spec 2123 B: the generated road bridges' spans leave the pavement
+        # sources before classify, as ``pipeline/build`` does (a no-op on a
+        # capture that already carries them)
+        from auto_patch_v2.planar.road_bridge_gen import attach_road_bridges
+        _rb_notes: list = []
+        airport = attach_road_bridges(airport, law, _rb_notes)
+        for _n in _rb_notes:
+            if "GENERATED" in _n:
+                print(f"[{icao}] {_n}")
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster
         # derivation (``plan_clusters``) or the pad mint (``geom.
@@ -2351,6 +2360,11 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         if rule:
             print(f"[{icao}] REPLAY ARM [rules] {rule}")
         cl = _classify(airport, law, _crules, cache=_ocache)
+        # spec 2123 B3: the span cut, as ``pipeline/build`` makes it
+        from auto_patch_v2.planar.road_bridge_gen import span_cells as _span_cells
+        cl, _sn = _span_cells(cl, airport, law)
+        for _n in _sn:
+            print(f"[{icao}] {_n}")
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
         # spec 2068 A3: the fence yard's own read (plane, G6' ratio, region)

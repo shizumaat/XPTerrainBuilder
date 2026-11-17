@@ -26,19 +26,34 @@ stage writes a pack, its ``apt.dat`` loses every ``1302 flatten 1`` row:
   author's ORIGINAL flag after the strip, the airport's signature does
   not move, and the patch is not rebuilt for the strip.
 
+THE ONE apt.dat WRITER (spec 2123 A3, RULINGS 2026-11-16y): the live
+file is the backup plus RECORDED transforms -- the flatten strip and, for
+a generated taxiway deck or road bridge, the REGION CUT (``apt_edit``: a
+hole in each ``110`` pavement, every ``120`` line split there, the inside
+dropped) of :func:`write_regions`.  The record ``apt.dat.o4_edits.json``
+names the backup's and the live file's hashes and the regions, so
+:func:`classify` reads a cut file as ``OURS`` from the files alone, and
+every read still opens the SHIPPED backup.
+
 The Undo is the pack's "Restore originals" (``object_rebake.
 restore_detail``), which copies the backup back over a file classified
 ``OURS``.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
 
 from ..model.placement import BACKUP_SUFFIX
 from . import backup_state as _bs
 
-__all__ = ["classify", "read_path", "read_mtime", "apt_dat_of", "pack_flatten"]
+__all__ = ["classify", "read_path", "read_mtime", "apt_dat_of", "pack_flatten",
+           "write_regions", "EDITS_SUFFIX"]
+
+#: the transform record beside a region-cut apt.dat
+EDITS_SUFFIX = ".o4_edits.json"
 
 #: (path, live stat, backup stat) -> Verdict
 _MEMO: dict[tuple, _bs.Verdict] = {}
@@ -101,7 +116,86 @@ def _classify(live: str, backup: str) -> _bs.Verdict:
         return Verdict(State.PRISTINE, live, backup, backup, False, "bytes")
     if have == stripped(shipped):
         return Verdict(State.OURS, live, backup, backup, True, "flatten-strip")
+    rec = _record(live)
+    if rec and rec.get("live_sha256") == _sha(have) \
+            and rec.get("backup_sha256") == _sha(shipped):
+        return Verdict(State.OURS, live, backup, backup, True, "region-cut")
     return Verdict(State.REPLACED, live, backup, live, False, "")
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _record(apt_path: str) -> dict | None:
+    try:
+        with open(apt_path + EDITS_SUFFIX, encoding="utf-8") as fh:
+            rec = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return rec if isinstance(rec, dict) else None
+
+
+def _cut(data: bytes, icao: str, regions) -> tuple[bytes, list, list]:
+    """``data`` with every region cut out of ``icao``'s block
+    (``apt_edit.cut_block``), and the edit records and dropped lines."""
+    from . import apt_dat as _apt
+    from .apt_edit import cut_block
+    text = data.decode("utf-8", "surrogateescape")
+    eol = "\r\n" if "\r\n" in text[:4096] else "\n"
+    lines = text.split(eol)
+    start = next((i for i, ln in enumerate(lines)
+                  if _apt._is_header_for(ln.split(), icao.upper())), None)
+    if start is None or not regions:
+        return data, [], []
+    end = start + 1
+    while end < len(lines):
+        t = lines[end].split()
+        if t and (t[0] == "99" or (t[0] in ("1", "16", "17") and len(t) >= 5)):
+            break
+        end += 1
+    block = lines[start:end]
+    records, dropped = [], []
+    for region in regions:
+        res = cut_block(block, region)
+        block = res.block
+        records += list(res.record)
+        dropped += list(res.dropped)
+    lines[start:end] = block
+    return eol.join(lines).encode("utf-8", "surrogateescape"), records, dropped
+
+
+def write_regions(apt_path: str, icao: str, regions) -> tuple[str, list]:
+    """THE apt.dat WRITE of a pack the app modifies (module doc): the live
+    file becomes the shipped backup with its flatten rows stripped and
+    ``regions`` (lon/lat polygons) cut out of ``icao``'s block.  Returns
+    ``(state, dropped 120 pieces)``: ``"written"``, or ``""`` when the
+    file is not ours to write (nothing changed).  Raises ``OSError`` on a
+    failed write, the live file as it was."""
+    v = classify(apt_path)
+    if v.state in (_bs.State.REPLACED, _bs.State.UNPROVEN) and v.backup:
+        _bs.adopt(v)            # the user's newer apt.dat: retire the backup
+        v = classify(apt_path)
+    if v.state is _bs.State.LIVE_MISSING:
+        return "", []
+    backup = apt_path + BACKUP_SUFFIX
+    if not os.path.isfile(backup):
+        shutil.copy2(apt_path, backup + ".o4tmp")
+        os.replace(backup + ".o4tmp", backup)
+    shipped = _read(backup)
+    if shipped is None:
+        return "", []
+    data, records, dropped = _cut(stripped(shipped), icao, list(regions))
+    with open(apt_path + ".o4tmp", "wb") as fh:
+        fh.write(data)
+    os.replace(apt_path + ".o4tmp", apt_path)
+    rec = {"icao": icao, "backup_sha256": _sha(shipped), "live_sha256": _sha(data),
+           "regions": [r.wkt for r in regions], "edits": records}
+    with open(apt_path + EDITS_SUFFIX + ".o4tmp", "w", encoding="utf-8") as fh:
+        json.dump(rec, fh, indent=1)
+    os.replace(apt_path + EDITS_SUFFIX + ".o4tmp", apt_path + EDITS_SUFFIX)
+    _bs.invalidate_memo()
+    return "written", dropped
 
 
 def read_path(apt_path: str) -> str:

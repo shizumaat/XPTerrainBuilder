@@ -529,6 +529,11 @@ class Airport:
     #: pack stage by ``planar/free_bridge``): the pack decks the positive
     #: witness holds as free-standing road bridges.  Empty = none.
     free_bridges: tuple = ()
+    #: spec 2123 Part B (RULINGS 2026-11-16y) THE GENERATED ROAD BRIDGES
+    #: (``planar/road_bridge_gen.attach_road_bridges``, read once beside the
+    #: pack stage): plain lon/lat records the object stage writes as X-Plane
+    #: road chains; their spans have left ``pavements``.  Empty = none.
+    road_bridges: tuple = ()
     #: #2065 A3 rule 1 (RULINGS 2026-11-14d): the decks of ALL-DECK frames the
     #: same witness holds (``model/free_bridge.FreeBridge``): their seat stays
     #: 22d / 22p's, never ``plate_kind "free"``; R3 grades their ends.

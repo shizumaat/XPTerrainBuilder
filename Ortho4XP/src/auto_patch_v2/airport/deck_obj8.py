@@ -88,11 +88,14 @@ class DeckFrame:
 @_dc.dataclass(frozen=True)
 class DeckLine:
     """A painted line on the deck: ``points`` ``(x, z)``; ``colour`` is
-    ``"yellow"`` or ``"white"``."""
+    ``"yellow"``, ``"white"`` or ``"black"`` (``airport/deck_paint``)."""
 
     points: tuple[XY, ...]
     width_m: float
     colour: str = "yellow"
+    #: the stripe stands this far over the top (a ``_b`` line's black
+    #: under-stripe at 0, its colour over it), so two never z-fight
+    lift_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -188,7 +191,8 @@ def _fascia(m: _Mesh, poly: Polygon, top_y, thickness_m: float) -> None:
 
 def _paint(m: _Mesh, lines: _t.Sequence[DeckLine], top_y) -> None:
     for ln in lines:
-        uv = _tex.uv_centre(_tex.YELLOW_UV if ln.colour == "yellow" else _tex.WHITE_UV)
+        uv = _tex.uv_centre({"yellow": _tex.YELLOW_UV, "black": _tex.BLACK_UV}
+                            .get(ln.colour, _tex.WHITE_UV))
         h = ln.width_m / 2.0
         for (xa, za), (xb, zb) in zip(ln.points[:-1], ln.points[1:]):
             d = math.hypot(xb - xa, zb - za)
@@ -197,7 +201,8 @@ def _paint(m: _Mesh, lines: _t.Sequence[DeckLine], top_y) -> None:
             ox, oz = -(zb - za) / d * h, (xb - xa) / d * h
             corners = ((xa + ox, za + oz), (xb + ox, zb + oz),
                        (xb - ox, zb - oz), (xa - ox, za - oz))
-            ids = [m.vertex((x, top_y(x, z), z), (0.0, 1.0, 0.0), uv) for x, z in corners]
+            ids = [m.vertex((x, top_y(x, z) + ln.lift_m, z), (0.0, 1.0, 0.0), uv)
+                   for x, z in corners]
             m.tri(ids[0], ids[1], ids[2], (0.0, -1.0, 0.0))
             m.tri(ids[0], ids[2], ids[3], (0.0, -1.0, 0.0))
 

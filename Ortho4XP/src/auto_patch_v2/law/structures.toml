@@ -1733,3 +1733,27 @@ deck_join_margin_m = 1.0    # B1: the next floor is at least this further
 ground_band_m      = 0.6    # C1: a plate's floors stand within this of the datum
 floor_min_area_m2  = 100.0  # C1: a smaller plate part is not built
 plate_max_off_m    = 3.0    # C1: a plate whose median level stands further from the DEM is not built
+
+[deck_gen]                          # spec docs/specs/2123.md Part A (#2123; owner RULINGS 2026-11-16y): a taxiway over a road the pack draws only as pavement gets a GENERATED deck
+max_cover_m       = 100.0   # A1 (3) / Q2: a road covered longer than this is a tunnel (its covered length, not the deck's)
+bearing_m         = 2.0     # A2: the cut grows by this before the pavement over it is read
+edge_margin_m     = 1.5     # A2 / Q3: the deck ring stands this far outside the pavement
+bank_m            = 3.0     # A2: the bank each side of a carriageway (30b)
+thickness_m       = 1.0     # A2: the slab
+top_lift_m        = 0.02    # A2: the top over the solved end lines
+tilt_cap_share    = 0.8     # A2: the pre-solve tilt is clamped to this share of the family cap
+tilt_probe_m      = 6.0     # A2: the DEM read for the tilt stands this far outside each end line
+level_probe_m     = 30.0    # A2: ... out to this far: the ground beside the road's cut is the highest DEM there (a bare-earth DEM reads the cut under the bridge)
+min_area_m2       = 50.0    # a smaller deck piece is not generated
+lod_m             = 6000.0  # A2: draw distance
+light_spacing_m   = 15.0    # Q4: OBJ8 taxi_g / taxi_g_rev every this many metres on the deck
+
+[road_gen]                          # spec docs/specs/2123.md Part B (#2124; owner RULINGS 2026-11-16y): a mapped road bridge a pack only drapes as pavement gets an X-Plane road
+page_cover_frac     = 0.5   # B1 (b): a pack page / apt.dat 110 covers at least this share of the carriageway
+pack_road_near_m    = 5.0   # B1 (c): a road-pack segment this close ...
+pack_road_angle_deg = 15.0  # ... and this parallel already draws it
+span_margin_m       = 0.5   # B3: the page clip is the carriageway half width plus this
+net_def             = "lib/g10/roads.net"   # B2: the network written when the pack declares none
+subtype             = 50    # B2: #VROAD subtype (P0: SHOW_LEVEL 2 on simHeaven's roads_EU; the owner saw it draw)
+level1_inset_m      = 12.0  # B2: the level-1 junctions stand this far inside each end of the span
+abutment_keep_m     = 25.0  # owner 16y (3): the ends stand on their embankments, never cut within this of an abutment

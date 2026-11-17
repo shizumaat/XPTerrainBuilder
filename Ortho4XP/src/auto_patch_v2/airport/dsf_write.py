@@ -141,6 +141,7 @@ from . import dsf as _dsf
 from . import dsf_commands as _cmds
 from . import dsf_dump_key as _dk
 from . import dsf_heights as _dh
+from . import generated_pack as _gen
 from . import pack_art as _pa
 from . import pack_drapes as _pd
 from . import pack_forests as _pf
@@ -1298,6 +1299,7 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                seats: _us.ByAirport | None = None,
                optimise: _t.Mapping[str, _t.Any] | None = None,
                drapes: _t.Sequence[_pa.MissingDef] | None = None,
+               gen_recipe: _t.Mapping[str, _t.Any] | None = None,
                mend: bool = True) -> WriteResult:
     """Apply ``plan`` to the pack's DSF (§3.3-§3.5).
 
@@ -1352,6 +1354,13 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     every polygon drawing one leave the dump with the omission.  ``None``
     keeps the hiding the record holds for this pristine DSF, ``()``
     writes without it (Undo).  The record gains ``hidden_drapes``.
+
+    ``gen_recipe`` (spec 2123, RULINGS 2026-11-16y) is the recipe of the
+    airport's GENERATED decks and road bridges (``generated_pack.recipe``):
+    its pages clipped, its objects placed and its road chains added after
+    every other edit, its files written into the pack.  ``None`` keeps the
+    recipe the record holds for this pristine DSF; ``{}`` writes without
+    it.  The record gains ``o4_generated``.
 
     THE PACK HEALTH CHECK (issue #1978, ``pack_health``) runs on every
     write, with no keyword: the vendor defects it knows (duplicate and
@@ -1465,6 +1474,10 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         optimise = _po.recorded(prior_entry, backup_sha)
     if drapes is None:
         drapes = _pd.recorded(prior_entry, backup_sha)
+    if gen_recipe is None:
+        gen_recipe = _gen.recorded(prior_entry, backup_sha)
+    _gen.write_files(pack_root, gen_recipe)
+    gen_counts: dict = {}
     # one omission: the missing art the user accepted and the photos hidden
     gone = {(m.kind, m.index) for m in omit}
     omit_all = tuple(omit) + tuple(m for m in drapes
@@ -1490,6 +1503,8 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                          engine_version or plan.provenance.engine_version,
                          optimise, pack_root)
         edited, renamed = _pf.apply_upgrade(edited, pinned, forests, pack_root)
+        # spec 2123: the generated decks and road bridges, last
+        edited, gen_counts = _gen.apply_text(edited, gen_recipe)
         # a seat under the pinned HEIGHTS base cannot be encoded
         edited = _dh.cover_row_elevations(edited)
         # ... and a seat is stored at its nearest quantum, never floored
@@ -1614,6 +1629,10 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                          if optimise else None),
         # #678: the definitions the edit emptied and the write dropped
         "unused_defs_dropped": int(unused.get("object_defs", 0)),
+        # spec 2123: the generated decks / road bridges written, or None
+        _gen.RECORD_KEY: (_gen.record(backup_sha, gen_recipe, gen_counts, _bs.stamp())
+                          if gen_recipe and (gen_recipe.get("decks") or gen_recipe.get("chains")
+                                             or gen_recipe.get("regions")) else None),
     }
     # the top-level keys of the LAST write stay exactly as they were
     # (tools and ``v2_rebake_replay.py disk`` read them)
@@ -1647,6 +1666,9 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     # #1978: a repaired copy the new write no longer names (the vendor
     # fixed the object) goes the same way
     _ph.objects.remove(pack_root, set(_ph.generated_of(prior_entry)) - set(fixed))
+    # spec 2123: a generated deck this write no longer places goes too
+    _gen.remove(pack_root, set(_gen.files_of(prior_entry))
+                - set(_gen.files_of({_gen.RECORD_KEY: entry.get(_gen.RECORD_KEY)})))
 
     return WriteResult(dsf_path, backup, created, edited_text, prov_path,
                        report, counts, verdict.state.value,

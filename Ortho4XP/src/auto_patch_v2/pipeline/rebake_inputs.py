@@ -265,6 +265,9 @@ def _deck_plate(out: dict, oid: str, es, kept, pm, tops: dict) -> None:
     if oid in kept or not es:
         return
     deck = es[0].deck
+    if getattr(deck, "witness", "") == "generated":
+        return          # spec 2123: no pack placement to reseat; the object
+        #                 stage writes it (``pipeline/generated_publication``)
     bottom = float(deck.bottom_y)
     y, st, *rest = out.get(oid, (0.5 * (deck.top_a + deck.top_b), [], 0.0, DECK_PLATE))
     # deck-end-anchors spec §3: the zero the anchors state — the anchor's

@@ -11,7 +11,7 @@ reported as MISSING, never silently served.
 
     tools/harness/frames.py register --icao KCLT --kind capture \\
         --path /…/KCLT.pkl --base 864e7577 --lane v2roadramp [--note '…'] [--copy]
-    tools/harness/frames.py list [ICAO] [--kind capture|rebake|patch|graded|mesh|inset]
+    tools/harness/frames.py list [ICAO] [--kind capture|rebake|patch|graded|mesh|inset|drawn]
     tools/harness/frames.py latest ICAO --kind capture   # newest EXISTING entry
 
 Kinds: `capture` (v2_solve_replay --capture pickle), `rebake` (the
@@ -21,7 +21,8 @@ sidecar), `graded` (ICAO.graded.json), `mesh` (a built Data*.mesh), `inset`
 provenance sidecar `<ICAO>_<provider>.json` -- the lane-local witness
 insets of the holder-provider lanes, #154; registering one REFUSES a raster
 whose sidecar is absent, `--copy` brings the sidecar along, and the row
-names it as `sidecar`).
+names it as `sidecar`), `drawn` (a `drawn_gate.py --json` reading: the
+control a later round's `--against` is judged against, #1903 / 13g).
 
 A `capture` carries its DATA OVERLAY (issue #156): `v2_solve_replay.py
 --capture` writes `<pkl>.overlay.json` beside the pickle (the declared
@@ -67,7 +68,7 @@ import frames_prune  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 REGISTRY = os.path.join(ROOT, "docs", "frames.jsonl")
-KINDS = ("capture", "rebake", "patch", "graded", "mesh", "inset")
+KINDS = ("capture", "rebake", "patch", "graded", "mesh", "inset", "drawn")
 SIDECAR_SUFFIX = ".axes.json"     # census.py: Path(str(osm) + ".axes.json")
 #: ``Ortho4XP/tools/harness/data_overlay.SIDECAR_SUFFIX`` — the capture's
 #: overlay record (twin-pinned equal; frames.py loads no Ortho4XP module

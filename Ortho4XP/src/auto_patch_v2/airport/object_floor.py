@@ -164,6 +164,10 @@ class ObjectFloor:
     #: frame's top along the cut's rim, metres over ``zero_z``
     #: (``airport/floor_rim``): where the ground and the pavement meet it
     rim_tops: tuple = ()
+    #: #1949 R2: ``rim_tops`` are a walled pit's OPEN EDGES -- a wall lower
+    #: than the ground behind it -- each the crest of a bank
+    #: (``planar/pit_bank``); a flush or proud rim states none
+    rim_banks: bool = False
     #: #1971 (spec interchange-levels v2 §3.1): how far the cut stands under
     #: this floor; ``None`` is the law's ``[tunnel.object] floor_clearance_m``
     #: (a floor plate kept clear, 2026-11-06d (4)); a deck stack's walls have

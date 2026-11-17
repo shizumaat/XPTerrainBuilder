@@ -24,6 +24,8 @@ struct PatchMapGeometry: Sendable {
 
     let shapes: [Shape]
     let nodes: [Node]
+    /// Sloping rectangles (#2137): arrow, thick high edge, end labels.
+    let slopes: [PatchSlopeShape]
 
     /// Lower first: graded ground under pavement, buildings and roads on top.
     static let drawOrder: [PatchStyleClass] = [.ground, .groundside, .apron, .taxiway, .runway, .building, .road]
@@ -51,6 +53,7 @@ struct PatchMapGeometry: Sendable {
         let rank = Dictionary(uniqueKeysWithValues: Self.drawOrder.enumerated().map { ($1, $0) })
         self.shapes = shapes.sorted { (rank[$0.style]!, $0.way) < (rank[$1.style]!, $1.way) }
         self.nodes = nodes
+        slopes = PatchSlopeShape.all(in: document)
     }
 }
 
@@ -118,6 +121,11 @@ struct PatchOverlay: View {
                 if model.mode == .edit { PatchEditLayer(model: model, drag: model.drag, camera: camera) }
             }
             .overlay {
+                if !geometry.slopes.isEmpty {
+                    PatchSlopeLabels(model: model, camera: camera, slopes: geometry.slopes)
+                }
+            }
+            .overlay {
                 if model.mode == .edit, let inspector = model.build?.objectInspector {
                     PatchObjectInspectorLayer(inspector: inspector, camera: camera)
                     PatchObjectElevationHost(inspector: inspector)
@@ -158,6 +166,7 @@ struct PatchOverlay: View {
             paths[shape.style] = entry
         }
         paint(paths, phase: hatchPhase(camera, size: size), in: context)
+        PatchSlopeStyle.draw(geometry.slopes, camera: camera, in: context, size: size)
         drawNodes(geometry, view: view, skip: skip?.nodes ?? [], screen: screen, in: context)
     }
 

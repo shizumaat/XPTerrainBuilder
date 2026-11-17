@@ -23,6 +23,7 @@ import O4_File_Names as FNAMES
 import O4_Qt_Patch_Elevation as ELEV
 import O4_Qt_Patch_ShapePick as PICK
 from o4_engine import patch_edit as PE
+from o4_engine import patch_shape_alt as SHAPEALT
 
 __all__ = ["LoadedPatch", "PatchEditModel", "MODE_VIEW", "MODE_EDIT"]
 
@@ -408,6 +409,26 @@ class PatchEditModel(QObject):
         p = ELEV.plan(self.doc, ways)
         name = "Set Shape Elevation" if len(ways) == 1 else "Set Shapes Elevation"
         return self.perform(name, lambda doc: ELEV.apply(doc, p, alt, include_shared))
+
+    def _way(self, way_id: int):
+        return next((w for w in self.doc.ways if w.id == way_id), None) if self.doc else None
+
+    def set_shape_level(self, way_id: int, value: float) -> bool:
+        """A shape's whole-shape value under the key it uses (#2137)."""
+        way = self._way(way_id)
+        return way is not None and self.perform(
+            "Set Shape Elevation",
+            lambda doc: PE.set_way_tags(doc, way_id, put=SHAPEALT.level_tags(way.tags, value)))
+
+    def set_slope(self, way_id: int, side: str, value: float) -> bool:
+        """One side (``"high"`` / ``"low"``) of a sloping rectangle (#2137)."""
+        way = self._way(way_id)
+        if way is None:
+            return False
+        tags = SHAPEALT.slope_tags(way.tags, high=value if side == "high" else None,
+                                   low=value if side == "low" else None)
+        name = "Set High Side" if side == "high" else "Set Low Side"
+        return self.perform(name, lambda doc: PE.set_way_tags(doc, way_id, put=tags))
 
     def add_shape(self, corners: _t.Sequence[_t.Sequence],
                   tags: _t.Mapping[str, str] | None = None, name: str = "Insert Shape") -> bool:

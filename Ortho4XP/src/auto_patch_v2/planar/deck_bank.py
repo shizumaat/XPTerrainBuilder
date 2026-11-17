@@ -4,8 +4,9 @@ our generated bridges -- shares the logic just added for ESSA's
 auto-generated bridges: the cut under the bridge extends 1 m past the
 bridge, then blends back to the cut and natural terrain").
 
-A deck the pack models no wall under (``DeckBridge.walls`` empty: a
-generated deck, a wall-less pack hard deck) stands on a BANK: from each end
+A deck the pack models no walls under (``DeckBridge.walls`` empty, or a
+wall on one side only: a generated deck, a wall-less pack hard deck) stands
+on a BANK: from each end
 line down to the cut's floor at :func:`deck_bank_slope`, the bank running
 :func:`bank_past_m` beyond the deck's ring before the ground beyond blends.
 Its readers are the ONE derivation of that bank:
@@ -50,5 +51,11 @@ def bank_past_m(law) -> float:
 
 def banked(db) -> bool:
     """Whether ``db`` stands on a bank (module doc): the pack models no wall
-    under it."""
-    return not getattr(db, "walls", ())
+    on one side of the road under it or the other -- the planar cut's own
+    test (``deck_bridge._walled_trench``: a deck walled on one side only is
+    cut as a banked one, MEASURED LFPG ``H16`` obj13023), so the span rows
+    and the deck's ground read the cut the planar stage made."""
+    if not getattr(db, "walls", ()):
+        return True
+    from .deck_bridge import _walled_trench
+    return _walled_trench(db, 0.0) is None

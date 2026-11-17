@@ -98,7 +98,7 @@ def test_pads_read_off_a_hidden_placement_leave():
 
 def test_the_deck_has_straight_sides_and_a_steeper_bank():
     from auto_patch_v2.planar.deck_generated import _straight_sided as straight_sided
-    from auto_patch_v2.planar.deck_generated import generated_bank_slope
+    from auto_patch_v2.planar.deck_bank import deck_bank_slope
     from shapely.geometry import Polygon
     # an L-shaped pavement piece over a road along y: one rectangle holds it,
     # two sides along the road
@@ -116,7 +116,7 @@ def test_the_deck_has_straight_sides_and_a_steeper_bank():
     assert any(abs(dx) < 1e-9 for dx, _dy in sides)                       # along the road
     assert any(abs(dx * r[1] - dy * r[0]) < 1e-9 and dx != 0 for dx, dy in sides)  # along the route
     # owner sim read 2026-11-17T19:42Z: steeper than the channel's 1:2
-    assert generated_bank_slope(LAW) > float(LAW.tables.structures.channel.bank_slope)
+    assert deck_bank_slope(LAW) > float(LAW.tables.structures.channel.bank_slope)
 
 
 def test_the_lower_road_carries_nodes_under_the_span():
@@ -131,3 +131,69 @@ def test_the_lower_road_carries_nodes_under_the_span():
     under = [y for x, y in pts if abs(y) <= 10.0]
     assert len(under) >= 10 and all(x == 60.0 for x, _y in pts)
     assert [y for _x, y in pts] == sorted(y for _x, y in pts)
+
+
+#: a frame's walls on both sides of the road (``(r, n, faces)``, the road along y)
+_BOTH_WALLS = ((0.0, 1.0), (1.0, 0.0), ((5.0, 0.0, 20.0), (35.0, 0.0, 20.0)))
+
+
+def _pack_deck(**kw):
+    """A wall-less PACK hard deck (no generated witness) over the same ring."""
+    ring = ((0.0, 0.0), (40.0, 0.0), (40.0, 20.0), (0.0, 20.0))
+    return DeckBridge("dsf:obj7", "objects/H7.obj", ("dsf:obj7",), ring,
+                      ((0.0, 0.0), (0.0, 20.0)), ((40.0, 0.0), (40.0, 20.0)), 0.0, 0.0,
+                      -7.42, 100.0, floor_min_m=7.42, **kw)
+
+
+def test_every_wall_less_deck_stands_on_the_one_bank():
+    """RULINGS 2026-11-17p (#1717): a wall-less pack deck's span is the
+    bank, as a generated deck's -- the one slope; a WALLED pack deck keeps
+    the fill behind its walls flush (30f (3))."""
+    from auto_patch_v2.constraints.edge_deck import _bank_slope
+    from auto_patch_v2.planar.deck_bank import bank_past_m, banked, deck_bank_slope
+    pack, walled, gen = _pack_deck(), _pack_deck(walls=_BOTH_WALLS), _deck()
+    assert banked(pack) and banked(gen) and not banked(walled)
+    es = lambda d: (types.SimpleNamespace(deck=d),)    # noqa: E731
+    assert _bank_slope(LAW, es(pack)) == _bank_slope(LAW, es(gen)) == deck_bank_slope(LAW)
+    assert _bank_slope(LAW, es(walled)) is None
+    assert bank_past_m(LAW) == 1.0
+
+
+def test_a_pack_decks_ground_runs_past_its_ring():
+    """RULINGS 2026-11-17p: the ground a wall-less pack deck rests on runs
+    ``bank_past_m`` past its ring (the bank 1 m past the bridge), as a
+    generated deck's; a walled deck's stops at its reach."""
+    from auto_patch_v2.planar.deck_bridge import deck_ground
+    from shapely.geometry import Polygon
+
+    @dc.dataclass(frozen=True)
+    class _Cl:
+        cells: tuple
+    ring = _pack_deck().ring
+    tn = types.SimpleNamespace(deck_bridge="dsf:obj7", deck_ring=ring,
+                               edge_seats=(("dsf:obj7", ((0.0, 0.0), (0.0, 20.0)), 7.4),
+                                           ("dsf:obj7", ((40.0, 0.0), (40.0, 20.0)), 7.4)))
+    from auto_patch_v2.classify.roles import Cell
+    far = Cell(0, "apron", "far", ((500.0, 500.0), (510.0, 500.0), (510.0, 510.0)), (),
+               None, None, "airside", "pavement", {})
+    cl = _Cl(cells=(far,))
+
+    def area(decks):
+        out, _n = deck_ground(cl, [tn], LAW, decks)
+        return sum(Polygon(c.ring, c.holes).area for c in out.cells if c.ref != "far")
+    base, walled = area(()), area((_pack_deck(walls=_BOTH_WALLS),))
+    banked_ = area((_pack_deck(),))
+    assert abs(base - 800.0) < 1e-6 and abs(walled - base) < 1e-6
+    assert abs(banked_ - 42.0 * 22.0) < 1e-6
+
+
+def test_a_deck_walled_on_one_side_is_banked():
+    """MEASURED LFPG H16 (obj13023): a deck whose frame models a wall on one
+    side of the road only is cut as a banked deck (``deck_bridge.
+    _walled_trench`` is ``None``), so its span is the bank too."""
+    from auto_patch_v2.planar.deck_bank import banked
+    import auto_patch_v2.planar.deck_bridge as DB
+    one_side = _pack_deck(walls=(_BOTH_WALLS[0], _BOTH_WALLS[1], _BOTH_WALLS[2][:1]))
+    assert DB._walled_trench(one_side, 0.0) is None and banked(one_side)
+    both = _pack_deck(walls=_BOTH_WALLS)
+    assert DB._walled_trench(both, 0.0) is not None and not banked(both)

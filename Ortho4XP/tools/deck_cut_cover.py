@@ -1,14 +1,15 @@
 """LIBRARY of ``tools/deck_probe.py --cut-cover`` (owner 2026-11-17 18:30Z:
-"Be sure the cut goes all the way under anywhere we add a bridge"): THE
-CUT UNDER EVERY GENERATED DECK AND ROAD BRIDGE, off a ``--solved-out``
-pickle.
+"Be sure the cut goes all the way under anywhere we add a bridge"; RULINGS
+2026-11-17p: every bridge, pack or generated): THE CUT UNDER EVERY BANKED
+DECK AND GENERATED ROAD BRIDGE, off a ``--solved-out`` pickle.
 
-* A GENERATED DECK (``PlanarMap.decks``, witness ``generated``): under its
+* A BANKED DECK (``PlanarMap.decks`` with no wall under it, ``planar/
+  deck_bank.banked``: a generated deck or a wall-less pack deck): under its
   ring (``INSET_M`` inside the edge) the solved ground stands no higher than
   the bank the cut builds -- the end line's solved seat level less
   ``slope`` x the distance from that end line, at most the end's depth (the
-  floor) -- plus ``tol``.  The bank slope is the generated deck's
-  (``planar/deck_generated.generated_bank_slope``).
+  floor) -- plus ``tol``.  The bank slope is every deck's
+  (``planar/deck_bank.deck_bank_slope``).
 * A GENERATED ROAD BRIDGE (``Airport.road_bridges``): under its span, each
   lower road's carriageway stands at least its clearance
   (``structure_approach.design_clearance_m``: ``[bridge] clearance_minimum_m``
@@ -69,7 +70,8 @@ def _end_level(pm, z, deck, end: str) -> "float | None":
     import numpy as np
     from shapely.geometry import LineString, Point
     for x in getattr(pm, "deck_anchors", ()) or ():
-        if x.object_id == deck.object_id and x.end == end and x.stations:
+        # a pack deck's anchors name their ends "A" / "B"
+        if x.object_id == deck.object_id and str(x.end).lower() == end and x.stations:
             return float(np.median([z[v] for v in x.stations]))
     seats = deck.seats_a if end == "a" else deck.seats_b
     if len(seats) < 2:
@@ -81,7 +83,7 @@ def _end_level(pm, z, deck, end: str) -> "float | None":
 
 
 def deck_cover(pm, z, deck, slope: float, tol: float) -> dict:
-    """One generated deck's read (module doc): the worst sample over the
+    """One banked deck's read (module doc): the worst sample over the
     bank-or-floor ceiling and how many stand over ``tol``."""
     from shapely.geometry import LineString, Point, Polygon
     ring = Polygon(deck.ring).buffer(-INSET_M)
@@ -141,12 +143,12 @@ def road_bridge_cover(pm, z, airport, bridge: _t.Mapping, law, tol: float) -> li
 
 
 def cut_cover(pm, z, airport, law, tol: float) -> list[dict]:
-    """Every generated deck's and road bridge's read; ``ll`` on each worst
-    sample (``(lat, lon)``)."""
-    from auto_patch_v2.planar.deck_generated import GENERATED_WITNESS, generated_bank_slope
-    slope = generated_bank_slope(law)
+    """Every banked deck's and generated road bridge's read; ``ll`` on each
+    worst sample (``(lat, lon)``)."""
+    from auto_patch_v2.planar.deck_bank import banked, deck_bank_slope
+    slope = deck_bank_slope(law)
     out = [deck_cover(pm, z, d, slope, tol) for d in getattr(pm, "decks", ()) or ()
-           if getattr(d, "witness", "") == GENERATED_WITNESS]
+           if banked(d)]
     for b in getattr(airport, "road_bridges", ()) or ():
         if b.get("axis_xy") and b.get("levels"):
             out += road_bridge_cover(pm, z, airport, b, law, tol)

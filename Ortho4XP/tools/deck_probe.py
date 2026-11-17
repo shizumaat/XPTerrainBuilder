@@ -14,8 +14,9 @@ of a deck ring or on an end line — the "no NOT SETTLED row within 5 m of
 any deck" bar — and the row fingerprint (count and sha of every row).
 ``--vertex``: one vertex's roles, z, DEM, its stage-1 twin and every hard
 row on it with its violation.  ``--cut-cover TOL``: the cut under every
-GENERATED deck and road bridge (``tools/deck_cut_cover``; owner
-2026-11-17 "the cut goes all the way under"), exit 1 on a FAIL.  Writes
+BANKED deck (generated or a wall-less pack deck, RULINGS 2026-11-17p) and
+generated road bridge (``tools/deck_cut_cover``; owner 2026-11-17 "the cut
+goes all the way under"), exit 1 on a FAIL.  Writes
 nothing but ``--json``.
 
 Promoted from the deckanchor lanes' scratch probes (``deckA/probe.py``,

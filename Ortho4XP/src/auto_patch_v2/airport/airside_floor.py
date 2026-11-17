@@ -144,56 +144,101 @@ def floor_lifts(placements: _t.Sequence[tuple], path_of: _t.Callable[[str], "str
         fams.setdefault(k, []).append((oid, dpath, xy, heading))
     lifts: dict[str, float] = {}
     frames: list[FloorFrame] = []
+    memo: dict[str, "_Resource | None"] = {}
     for k in sorted(fams):
         if k in bad:
             continue
-        got = _family_floor(fams[k], path_of, cache, wit)
+        got = _family_floor(fams[k], path_of, cache, wit, memo)
         if got is not None:
             frames.append(got)
             lifts.update((i, -got.y_a) for i in got.ids)
     return lifts, frames
 
 
-def _family_floor(mem: list, path_of, cache, wit: FloorWitness) -> "FloorFrame | None":
-    """One family's :class:`FloorFrame`, or ``None`` where it is no
-    two-floor frame standing a storey up on the airside."""
-    from .contact import component_feet
-    from .obj8 import placement_affine
-    xy, heading = mem[0][2], mem[0][3]
-    geoms = []
-    reach = 0.0
-    for _oid, dpath, _xy, _h in mem:
-        phys = path_of(dpath)
-        g = cache.geometry(phys) if phys is not None else None
-        if g is not None and g.vertices.shape[0]:
-            reach = max(reach, float(np.hypot(g.vertices[:, 0], g.vertices[:, 2]).max()))
-            geoms.append((phys, g))
-    x, y = float(xy[0]), float(xy[1])
-    bx0, by0, bx1, by1 = wit.airside.bounds
-    if not geoms or x + reach < bx0 or x - reach > bx1 or y + reach < by0 or y - reach > by1:
-        return None
-    walled = [(g, c) for phys, g in geoms for c in cache.genuine(phys)
-              if c.max_y - c.min_y >= wit.wall_min_m]
-    # a foot stands within the band of its component's floor: no walled
-    # component that high, no airside floor a storey up
-    if not walled or max(c.min_y for _g, c in walled) + wit.band_m < wit.step_m - PLANE_BAND_M:
-        return None
-    feet = np.concatenate([component_feet(g, c, wit.band_m, wit.k_max) for g, c in walled])
-    a = placement_affine(xy, heading)
+class _Resource:
+    """One resource's reading, once per resource: its plan reach and its
+    walled components' feet -- those that could stand a storey up (a foot
+    stands within the band of its component's floor) read apart."""
+
+    __slots__ = ("geom", "reach", "high", "low", "_feet")
+
+    def __init__(self, geom, cache, phys: str, wit: FloorWitness) -> None:
+        self.geom = geom
+        self.reach = float(np.hypot(geom.vertices[:, 0], geom.vertices[:, 2]).max())
+        walled = [c for c in cache.genuine(phys) if c.max_y - c.min_y >= wit.wall_min_m]
+        cut = wit.step_m - PLANE_BAND_M - wit.band_m
+        self.high = [c for c in walled if c.min_y >= cut]
+        self.low = [c for c in walled if c.min_y < cut]
+        self._feet: dict[bool, np.ndarray] = {}
+
+    def feet(self, wit: FloorWitness, high: bool) -> np.ndarray:
+        """``(x, z, y)`` feet of the high (else the low) walled components,
+        authored frame."""
+        if high not in self._feet:
+            from .contact import component_feet
+            cs = self.high if high else self.low
+            self._feet[high] = (np.concatenate([component_feet(self.geom, c, wit.band_m,
+                                                               wit.k_max) for c in cs])
+                                if cs else np.zeros((0, 3)))
+        return self._feet[high]
+
+
+def _on_airside(feet: np.ndarray, a: list, wit: FloorWitness) -> np.ndarray:
+    """Which of ``feet`` (authored ``(x, z, y)``) stand on the airside."""
     fx = a[0] * feet[:, 0] + a[1] * feet[:, 1] + a[4]
     fy = a[2] * feet[:, 0] + a[3] * feet[:, 1] + a[5]
-    on = shapely.contains_xy(wit.airside, fx, fy)
-    n_on, n_off = int(on.sum()), int((~on).sum())
-    if n_on < PLANE_MIN_FEET or n_off < PLANE_MIN_FEET:
+    return shapely.contains_xy(wit.airside, fx, fy)
+
+
+def _family_floor(mem: list, path_of, cache, wit: FloorWitness, memo: dict
+                  ) -> "FloorFrame | None":
+    """One family's :class:`FloorFrame`, or ``None`` where it is no
+    two-floor frame standing a storey up on the airside."""
+    from .obj8 import placement_affine
+    xy, heading = mem[0][2], mem[0][3]
+    res = []
+    for _oid, dpath, _xy, _h in mem:
+        phys = path_of(dpath)
+        if phys is None:
+            continue
+        if phys not in memo:
+            g = cache.geometry(phys)
+            memo[phys] = _Resource(g, cache, phys, wit) if g is not None \
+                and g.vertices.shape[0] else None
+        if memo[phys] is not None:
+            res.append(memo[phys])
+    # PLANE_MIN_FEET airside feet a storey up need that many feet's worth
+    # of components that high
+    if not res or sum(len(r.high) for r in res) * wit.k_max < PLANE_MIN_FEET:
         return None
-    fa = floor_plane([-float(v) for v in feet[on, 2]], wit.storey_m)
+    reach = max(r.reach for r in res)
+    x, y = float(xy[0]), float(xy[1])
+    bx0, by0, bx1, by1 = wit.airside.bounds
+    if x + reach < bx0 or x - reach > bx1 or y + reach < by0 or y - reach > by1:
+        return None
+    a = placement_affine(xy, heading)
+    # every airside foot stands within a band of the floor (the strict
+    # clause), so the floor is read off the HIGH components' feet alone
+    # and one LOW foot on the airside refuses: the low feet are read last
+    hi = np.concatenate([r.feet(wit, True) for r in res])
+    on = _on_airside(hi, a, wit)
+    n_on = int(on.sum())
+    if n_on < PLANE_MIN_FEET:
+        return None
+    fa = floor_plane([-float(v) for v in hi[on, 2]], wit.storey_m)
     if fa is None or math.isnan(fa) or -fa < wit.step_m:
         return None
     y_a = -float(fa)
-    if float(feet[on, 2].min()) < y_a - PLANE_BAND_M:
+    if float(hi[on, 2].min()) < y_a - PLANE_BAND_M:
         return None                          # something of it is under the floor
-    fl = floor_plane([-float(v) for v in feet[~on, 2]], wit.storey_m)
+    lo = np.concatenate([r.feet(wit, False) for r in res])
+    if lo.shape[0] and bool(_on_airside(lo, a, wit).any()):
+        return None
+    off = np.concatenate([hi[~on, 2], lo[:, 2]])
+    if off.shape[0] < PLANE_MIN_FEET:
+        return None
+    fl = floor_plane([-float(v) for v in off], wit.storey_m)
     if fl is None or -float(fl) > y_a - wit.step_m:
         return None
     return FloorFrame(tuple(sorted(str(m[0]) for m in mem)), (x, y), round(y_a, 3),
-                      round(-float(fl), 3), n_on, n_off)
+                      round(-float(fl), 3), n_on, int(off.shape[0]))

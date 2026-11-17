@@ -329,9 +329,35 @@ def _zero_over(m, box, slab, origin, surface, cuts, step_m, on_fraction, counts)
     return 0.5 * ((z1 - t1) + (z2 - t2)), hull, ml, mo, z1, z2, t1, t2
 
 
+_ELEVATED: list[float] = []
+
+
+def _elevated_m() -> float:
+    """``[deck] elevated_over_ends_m`` (memoised; 0 where unread)."""
+    if not _ELEVATED:
+        from ..law import Law
+        try:
+            _ELEVATED.append(float(Law.load().tables.structures.deck.elevated_over_ends_m))
+        except Exception:
+            _ELEVATED.append(0.0)
+    return _ELEVATED[0]
+
+
+def _elevated_deck(zero: float, ends: tuple[float, float], tops: tuple[float, float],
+             over_m: float) -> bool:
+    """AN ELEVATED DECK CARRIES NOTHING AT GRADE (#2127; owner RULINGS
+    2026-11-16u): at ``zero`` (the frame's or touching group's) the deck's
+    top stands more than ``over_m`` over the surface at BOTH end lines
+    (``ends``, deck tops ``tops``), so nothing drives onto it there.  LGAV
+    ``Train4``, the station's concourse: top y +14.4 at its group's 76.46,
+    12.6 m over its end lines, was pulled 12.6 m down out of the group."""
+    return over_m > 0.0 and all(zero + t - z > over_m for z, t in zip(ends, tops, strict=True))
+
+
 def _seat_body(record, m, b, slab, origin, surface, cuts, step_m, on_fraction, counts):
     """One body: its slab's hull over the cut, its end lines on the surface
-    it carries, its zero flush there — or the body unchanged."""
+    it carries, its zero flush there — or the body unchanged (an
+    :func:`_elevated_deck` keeps its zero)."""
     box = getattr(b, "geom_box", None) or getattr(b, "plan_box", None)
     a = b.anchor
     if box is None or a.surface_z is None:
@@ -340,6 +366,9 @@ def _seat_body(record, m, b, slab, origin, surface, cuts, step_m, on_fraction, c
     if got is None:
         return b
     zero, hull, ml, mo, z1, z2, t1, t2 = got
+    if _elevated_deck(float(a.surface_z) - float(a.y_zero), (z1, z2), (t1, t2), _elevated_m()):
+        counts["cut_deck_elevated"] = counts.get("cut_deck_elevated", 0) + 1
+        return b
     c = hull.centroid
     la, lo = c.y / ml, c.x / mo
     sz = surface(la, lo)

@@ -297,3 +297,31 @@ def test_a_cuts_own_cover_frames_its_floor_but_lays_no_frame_zero(monkeypatch):
     assert got.mouth_z == 68.0                     # zero 73 + the floor 5 m under 75
     assert got.profile == ((0.0, 70.0), (10.0, 68.0))
     assert got.cut_frame == ()
+
+
+def _seat_at(tmp_path, zero, counts):
+    m = _member(_deck_obj(tmp_path))
+    return CDS.seat_cut_decks(_record(zero), m, (LAT, LON), _surface(), (_cut(),), 2.0,
+                              0.5, counts)
+
+
+def test_an_elevated_deck_keeps_its_groups_zero(tmp_path):
+    """#2127 item 4 (RULINGS 2026-11-16u): LGAV ``Train4``, the station's
+    concourse over the pack's cut, stood 12.6 m over its end lines at its
+    touching group's zero and the 26d seat pulled it 12.6 m down out of the
+    group.  A deck a storey ([deck] elevated_over_ends_m) over BOTH end
+    lines carries nothing at grade and keeps its zero; one within a storey
+    is still seated flush."""
+    counts: dict = {}
+    high = _seat_at(tmp_path, TAXI_S + 12.6, counts).bodies[0]
+    assert abs(_zero(high) - (TAXI_S + 12.6)) < 1e-6
+    assert counts == {"cut_deck_elevated": 1}
+    low = _seat_at(tmp_path, TAXI_S + 2.0, counts).bodies[0]
+    assert abs(_zero(low) - 0.5 * (TAXI_N + TAXI_S)) < 1e-6
+    assert counts["cut_deck_bodies"] == 1
+
+
+def test_elevated_needs_both_end_lines_over_a_storey():
+    assert CDS._elevated_deck(90.0, (78.0, 78.0), (0.5, 0.5), 3.0)
+    assert not CDS._elevated_deck(90.0, (78.0, 88.0), (0.5, 0.5), 3.0)
+    assert not CDS._elevated_deck(90.0, (78.0, 78.0), (0.5, 0.5), 0.0)

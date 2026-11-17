@@ -1589,6 +1589,7 @@ under_m             = 2.0          # a PIER is not a parapet: a foot whose surfa
 edge_m              = 6.0          # a parapet stands on the deck's EDGE: within this of the ring is on it (LEMD Bridge2 walls 54-94 %, the pier 7 %; bare ring 17-44 %, MEASURED)
 shear               = true         # §49 (5) — bound, NOT YET IMPLEMENTED (fallback (6) runs regardless)
 shear_max_grade     = 0.10         # §49 (5): steeper decks are not sheared
+elevated_over_ends_m = 3.0        # #2127 item 4 (RULINGS 2026-11-16u): a pack deck over the pack's cut whose top, at the zero its frame/group gave it, stands more than this (one storey) over the solved surface at BOTH end lines carries nothing at grade: no 26d cut-deck seat (airport/cut_deck_seat; LGAV Train4 +12.6 m)
 
 # ─────────────────────────────────────────────────────────────────────────
 # THE SCATTER CLASS (spec `pack-read-once-fast-spec.md` §B.2; slice S5a).

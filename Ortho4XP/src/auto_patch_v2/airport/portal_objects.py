@@ -703,7 +703,7 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
                 continue
             got = read_footed_portals(o, parts, ends, roads, law, dem_z,
                                       zero_of(o, ground.msl) if ground is not None
-                                      else float(o.anchor_z + o.agl_m))
+                                      else float(o.anchor_z + o.agl_m), into)
             if not got:
                 refused.append(f"{o.id} {name}: roofed on walls under its zero, but no part "
                                f"pins a mapped bore end (#2069)")

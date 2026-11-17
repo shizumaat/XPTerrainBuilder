@@ -32,6 +32,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tools")]
+import O4_Console_Encoding as _o4console  # noqa: E402  (#171: UTF-8 console first)
+
+_o4console.configure_console_streams()
 
 #: road roles a neck row is read on
 ROLES = frozenset({"service_road", "service_junction"})

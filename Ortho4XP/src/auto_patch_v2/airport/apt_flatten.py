@@ -188,7 +188,7 @@ def write_regions(apt_path: str, icao: str, regions) -> tuple[str, list]:
     rec = {"icao": icao, "backup_sha256": hashlib.sha256(shipped).hexdigest(),
            "live_sha256": hashlib.sha256(data).hexdigest(),
            "regions": [r.wkt for r in regions], "edits": records}
-    with open(apt_path + EDITS_SUFFIX + ".o4tmp", "w", encoding="utf-8") as fh:
+    with open(apt_path + EDITS_SUFFIX + ".o4tmp", "w", encoding="utf-8", newline="\n") as fh:
         json.dump(rec, fh, indent=1)
     os.replace(apt_path + EDITS_SUFFIX + ".o4tmp", apt_path + EDITS_SUFFIX)
     _bs.invalidate_memo()

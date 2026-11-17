@@ -27,7 +27,7 @@ def _apt(tmp_path) -> str:
     d.mkdir(parents=True)
     p = d / "apt.dat"
     p.write_text("I\n1100 test\n\n" + "\n".join(BLOCK) + "\n1302 flatten 1\n\n99\n",
-                 encoding="utf-8")
+                 encoding="utf-8", newline="\n")
     return str(p)
 
 
@@ -95,7 +95,7 @@ def test_files_record_and_remove(tmp_path):
     again = gen.recorded(entry, "sha")
     assert again["decks"] == rec["decks"] and gen.recorded(entry, "other") == {}
     other = pack / "objects" / "o4_generated" / "not_ours.obj"
-    other.write_text("I\n800\nOBJ\n", encoding="ascii")
+    other.write_text("I\n800\nOBJ\n", encoding="ascii", newline="\n")
     gone = gen.remove(str(pack), gen.files_of(entry) + ["objects/o4_generated/not_ours.obj"])
     assert len(gone) == 2 and other.is_file()        # an unmarked file stays
 
@@ -165,7 +165,7 @@ def test_drawn_roads_reads_segments_levels_and_exclusions(tmp_path):
         "SHAPE_POINT 17.02 59.01 0",
         "END_SEGMENT 2 17.03 59.01 1.0",
         "BEGIN_SEGMENT 0 50 3 18.01 59.01 0.0",
-        "END_SEGMENT 4 18.03 59.01 0.0", ""]), encoding="utf-8")
+        "END_SEGMENT 4 18.03 59.01 0.0", ""]), encoding="utf-8", newline="\n")
     segs, excl = read_segments(str(p), (17.0, 59.0, 17.05, 59.05))
     assert excl == [(17.0, 59.0, 17.1, 59.1)]
     (net, sub, pts), = segs

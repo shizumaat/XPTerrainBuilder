@@ -313,6 +313,8 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.tile_rows",
     "auto_patch_v2.airport.topology_cache",
     "auto_patch_v2.airport.torn_pack",
+    "auto_patch_v2.airport.touch_graph",
+    "auto_patch_v2.airport.touch_seat",
     "auto_patch_v2.airport.unpatched_pack",
     "auto_patch_v2.airport.user_roles",
     "auto_patch_v2.airport.user_seats",

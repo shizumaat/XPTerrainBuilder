@@ -180,6 +180,11 @@
   "reason": "reached as a package attribute (`_ph.objects.remove(...)` in airport/dsf_write.py and auto_patch/object_rebake.py), which the name scan does not follow"
  },
  {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/cut_portal.py",
+  "name": "CutPortal",
+  "reason": "return type of the module's public reader attach_cut_portals (callers read its fields, never name it); listed in __all__ (#2120 R2 P)"
+ },
+ {
   "path": "Ortho4XP/src/auto_patch_v2/airport/ramp_wing.py",
   "name": "RampJoin",
   "reason": "return type of the module's public reader (NamedTuple/dataclass callers unpack, never name); listed in __all__ (#2099 G4)"

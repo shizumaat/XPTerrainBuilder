@@ -29,7 +29,7 @@ def _deck(tmp_path, **kw):
     ring = Polygon([(-10, -20), (10, -20), (12, 20), (-10, 20)])
     text = deck_obj8_text(ring, _top, thickness_m=THICK, texture="o4_deck_concrete.png", **kw)
     path = tmp_path / "deck.obj"
-    path.write_text(text, encoding="ascii")
+    path.write_text(text, encoding="ascii", newline="\n")
     return ring, text, parse_obj8(str(path))
 
 

@@ -31,6 +31,11 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console  # noqa: E402  (#171: UTF-8 console first)
+
+_o4console.configure_console_streams()
+
 _DECAL = re.compile(r"dirt|skid|tyre|tire|rubber|oil|shadow|crack|grime|"
                     r"stain|weather|decal|patch|wear", re.I)
 

@@ -169,3 +169,11 @@ step_min_m              = 0.5  # the ground DEPARTS beyond the line - water ther
 min_run_m               = 6.0  # a run of falling stations shorter than this marks nothing
 yard_piece_min_m2       = 50.0 # #2068 F8: a floor-yard piece smaller than this (about two parking bays) terraces nothing a pilot reads; measured slivers HECA building155 3 pieces / 30 m2, LOWS building17 67 pieces of 1-13 m2; real pieces LOWS 583/177 m2, KMCI 4617, LPPI building2 forecourt
 yard_piece_min_width_m  = 3.0  # #2068 F8: a floor-yard piece nowhere this wide (one lane; under two DEM samples) is a sliver along the fence, not a terrace
+
+[car_lots]                     # owner RULINGS 2026-11-16p (#2114 KBNA, 20:08:26Z "Agreed with the rule to use cars to identify lots"): where the pack places parked cars on ground no cell holds, the ground under the group is a lot graded under lot law (classify/car_lot)
+min_cars     = 3     # a group of at least this many parked cars marks a lot (16p "≥ 3 parked-car objects")
+link_m       = 10.0  # two cars this close are one group (16p "within ~10 m of each other"; single linkage)
+car_half_m   = 2.5   # half a parked car's length: the ground UNDER a car reaches this far from its anchor
+margin_m     = 3.0   # the lot reaches this far past the cars (16p "+ ~3 m")
+road_side_m  = 3.0   # a car whose anchor stands within this of a road-family cell is parked ALONG the road (16p: does not count)
+ground_m     = 1.0   # a car seated more than this over the ground (OBJECT_AGL offset, OBJECT_MSL vs the DEM) stands on a deck or a garage storey and marks no ground (KBNA's multi-storey garage at 36.13386, -86.66671)

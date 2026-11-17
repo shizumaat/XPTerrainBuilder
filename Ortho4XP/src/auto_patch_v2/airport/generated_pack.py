@@ -139,10 +139,13 @@ def _paint_of(dropped, R_local: Polygon, frame: DeckFrame, light_step: float
 
 
 def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
-           xplane_root: "str | None" = None) -> dict:
+           xplane_root: "str | None" = None, resolve_library=None) -> dict:
     """The write recipe of an airport's generated structures (module doc):
     ``xplane_root`` the install whose art draws the decks (#2132), ``None``
-    to find it (``deck_skin.install_root``), ``""`` for none (the atlas).
+    to find it (``deck_skin.install_root``), ``""`` for none (the atlas);
+    ``resolve_library`` the install's library lookup
+    (``deck_skin.Resolver``; the object stage hands in X-Plane's merged
+    index), ``None`` for none (the atlas).
     ``{"decks": [placement rows], "regions": [WKT], "chains": [...],
     "files": {pack-relative path: bytes}, "notes": [...]}``; empty lists
     where nothing was generated."""
@@ -169,7 +172,7 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
             out["notes"].append(f"apt.dat unreadable ({exc}): no paint redrawn")
     g = law.tables.structures.deck_gen
     out["links"] = {}
-    art = _art(apt_path, g, out, xplane_root) if decks else {}
+    art = _art(apt_path, g, out, xplane_root, resolve_library) if decks else {}
     for k, d in enumerate(decks):
         frame = _deck_frame(d)
         R = transform(lambda x, y, _z=None, _f=frame: _f.to_local(x, y), _poly(d["ring"]))
@@ -205,15 +208,15 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     return out
 
 
-def _art(apt_path: str, g, out: dict, root: "str | None") -> dict:
+def _art(apt_path: str, g, out: dict, root: "str | None", resolve) -> dict:
     """#2132: X-Plane's own art for the decks (``deck_skin``): ``{"slab":
     DeckSkin, "rubber": (texture name, PageArt)}`` for what the install
     resolves, its files placed in ``out["links"]`` (pack path -> source)."""
     from . import deck_skin as _skin
     from .deck_obj8 import DeckSkin
     root = _skin.install_root(apt_path) if root is None else root
-    slab, rubber = (_skin.page_art(str(g.concrete_pol), root),
-                    _skin.page_art(str(g.rubber_pol), root))
+    slab, rubber = (_skin.page_art(str(g.concrete_pol), root, resolve),
+                    _skin.page_art(str(g.rubber_pol), root, resolve))
     art: dict = {}
     if slab is not None:
         names = [_skin.link_name(p) for p in (slab.albedo, slab.normal) if p]

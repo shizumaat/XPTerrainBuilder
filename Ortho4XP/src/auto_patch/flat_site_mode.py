@@ -209,19 +209,9 @@ def _resolve_xplane_root() -> str | None:
         import O4_Config_Utils as _CFG
     except Exception:                                # pragma: no cover
         return None
-    cifp_path = getattr(_CFG, "cifp_data_path", "") or ""
-    if cifp_path:
-        from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
+    from auto_patch_v2.airport.cifp import xplane_root_from_config
 
-        root = xplane_root_from_cifp_path(cifp_path)
-        if root:
-            return root
-    custom_scenery = getattr(_CFG, "custom_scenery_dir", "") or ""
-    if custom_scenery:
-        root = os.path.dirname(os.path.normpath(custom_scenery))
-        if os.path.isdir(root):
-            return root
-    return None
+    return xplane_root_from_config(_CFG)
 
 
 # ──────────────────────────────────────────────────────────────────────

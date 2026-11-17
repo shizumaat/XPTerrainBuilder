@@ -863,13 +863,16 @@ def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: st
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import apt_flatten as _af
     from auto_patch_v2.airport import generated_pack as _gen
+
+    from . import agp_reader as _agp
     if plan_key not in ("", icao) or not graded_doc:
         return None
     pub = (graded_doc.get("provenance") or {}).get("generated")
     if pub is None:
         return None
     try:
-        rec = _gen.recipe(pub, _af.apt_dat_of(target_root), icao, law)
+        rec = _gen.recipe(pub, _af.apt_dat_of(target_root), icao, law,
+                          resolve_library=_agp.resolve_library_path)
     except Exception as exc:                     # never fails the pack
         UI.vprint(0, f"  [v2 placement] {icao}: the generated decks / road bridges "
                      f"could not be made ({exc}); none written")

@@ -119,15 +119,18 @@ def test_page_art_and_the_recipe_link_xplanes_art(tmp_path, monkeypatch):
     root, index = _fake_install(tmp_path)
     import auto_patch.agp_reader as agp
     monkeypatch.setattr(agp, "get_library_index", lambda _r: index)
-    art = deck_skin.page_art("lib/airport/pavement/concrete_4D.pol", root)
+    look = agp.resolve_library_path          # what the object stage hands in
+    art = deck_skin.page_art("lib/airport/pavement/concrete_4D.pol", root, look)
     assert art.albedo.endswith("c_ALB.dds") and art.normal.endswith("c_NML.png")
     assert art.scale_m == (22.0, 44.0)
-    assert deck_skin.page_art("lib/nothing.pol", root) is None
-    assert deck_skin.page_art("lib/airport/pavement/concrete_4D.pol", None) is None
+    assert deck_skin.page_art("lib/nothing.pol", root, look) is None
+    assert deck_skin.page_art("lib/airport/pavement/concrete_4D.pol", None, look) is None
+    assert deck_skin.page_art("lib/airport/pavement/concrete_4D.pol", root, None) is None
     assert deck_skin.install_root(os.path.join(root, "Custom Scenery", "P", "apt.dat")) == root
     assert deck_skin.link_name(art.albedo) == "xp_c_ALB.dds"
     # the slab in the page's art; paint + lights and the rubber as overlays
-    rec = gen.recipe(_pub(), _apt(tmp_path), "TEST", LAW, xplane_root=root)
+    rec = gen.recipe(_pub(), _apt(tmp_path), "TEST", LAW, xplane_root=root,
+                     resolve_library=look)
     objs = {k: v.decode("ascii") for k, v in rec["files"].items() if k.endswith(".obj")}
     slab = objs[f"{gen.GENERATED_DIR}/deck_t.obj"]
     assert "TEXTURE xp_c_ALB.dds" in slab and "TEXTURE_NORMAL xp_c_NML.png" in slab

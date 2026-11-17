@@ -22,7 +22,7 @@ app's settings, a renamed library entry) leaves the deck on the generated
 atlas (``deck_texture``) -- named in the object stage's line, never a
 failure.  Nothing here names an airport.
 
-Build-time impact: one library-index read (cached) and two small text
+Build-time impact: one library-index lookup (the caller's, cached) and two small text
 files per object-stage write; the links cost no bytes.
 """
 from __future__ import annotations
@@ -30,7 +30,10 @@ from __future__ import annotations
 import os
 import typing as _t
 
-__all__ = ["PageArt", "install_root", "page_art", "link_name"]
+#: ``(virtual library path, X-Plane root) -> physical file | None``
+Resolver = _t.Callable[[str, str], "str | None"]
+
+__all__ = ["PageArt", "Resolver", "install_root", "page_art", "link_name"]
 
 _DEFAULT_SCENERY = ("Resources", "default scenery")
 
@@ -49,17 +52,19 @@ def install_root(apt_path: str) -> "str | None":
     """The X-Plane install whose library the deck reads: the install the
     pack stands in (an ancestor of its ``apt.dat`` holding ``Resources/
     default scenery``), else the one the app's settings name
-    (``flat_site_mode.resolve_xplane_root``: the CIFP folder's install, then
-    the Custom Scenery folder's parent) -- a pack copy in a scratch tree
-    reads the user's install so."""
+    (``cifp.xplane_root_from_config``: the CIFP folder's install, then the
+    Custom Scenery folder's parent) -- a pack copy in a scratch tree reads
+    the user's install so."""
     d = os.path.dirname(os.path.abspath(apt_path)) if apt_path else ""
     while d and os.path.dirname(d) != d:
         if os.path.isdir(os.path.join(d, *_DEFAULT_SCENERY)):
             return d
         d = os.path.dirname(d)
     try:
-        from auto_patch.flat_site_mode import resolve_xplane_root
-        root = resolve_xplane_root()
+        import O4_Config_Utils as _cfg
+
+        from .cifp import xplane_root_from_config
+        root = xplane_root_from_config(_cfg)
     except Exception:                            # never fails the pack
         return None
     return root if root and os.path.isdir(os.path.join(root, *_DEFAULT_SCENERY)) else None
@@ -75,15 +80,17 @@ def _texture_file(pol_dir: str, name: str) -> "str | None":
     return dds if os.path.isfile(dds) else None
 
 
-def page_art(library_path: str, xplane_root: "str | None") -> "PageArt | None":
+def page_art(library_path: str, xplane_root: "str | None",
+             resolve: "Resolver | None") -> "PageArt | None":
     """The :class:`PageArt` of the draped-polygon page at ``library_path``
     in ``xplane_root``'s library, or ``None`` when it does not resolve or
-    names no texture."""
-    if not library_path or not xplane_root:
+    names no texture.  ``resolve(virtual path, root)`` is the caller's
+    library-index lookup (the object stage hands in X-Plane's merged
+    ``library.txt`` index); ``None`` resolves nothing."""
+    if not library_path or not xplane_root or resolve is None:
         return None
     try:
-        from auto_patch.agp_reader import resolve_library_path
-        pol = resolve_library_path(library_path, xplane_root)
+        pol = resolve(library_path, xplane_root)
     except (OSError, ValueError):
         return None
     if not pol:

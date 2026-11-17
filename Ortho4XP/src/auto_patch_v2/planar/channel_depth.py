@@ -34,8 +34,7 @@ states nothing (:func:`_classify`; spec ``object-gate-member-floors-20261113.md`
   members span (:func:`_cut_span`) — and the AXIS itself runs on along its
   way's own continuation (the next way of its kind, rail after rail, road
   after road, sharing its end node and turning least) while that stays
-  inside the cut's bound and within the cap of a member, and straight on
-  along its end tangent where no such way continues (RULINGS 2026-11-17c)
+  inside the cut's bound and within the cap of a member
   (:func:`extend_axis`): a corridor does not stop where one OSM way does.
 
 The floor's edge is enveloped over ``corridor_min_length_m``, the crest
@@ -68,8 +67,6 @@ FLOOR, LEDGE, BELOW, END, UNMET = "floor", "ledge", "below", "end", "unmet"
 _TURN_MAX_DEG = 45.0
 #: end nodes this close are one node (the feed's own coordinates)
 _NODE_M = 1.0
-#: a guard only: the cut's bound is finite and stops the straight run first
-_RUN_MAX_STEPS = 1000
 
 
 def _cut_points(cuts: _t.Sequence, axis_ln: LineString, cap: float) -> np.ndarray:
@@ -446,16 +443,10 @@ def _cut_span(points: np.ndarray) -> tuple[float, float] | None:
 
 
 def extend_axis(line: LineString, ways: _t.Sequence, cuts: _t.Sequence, cap: float,
-                kind: _t.Callable[[object], str], step: float | None = None
-                ) -> tuple[LineString, list[int]]:
+                kind: _t.Callable[[object], str]) -> tuple[LineString, list[int]]:
     """``(axis, way ids)``: ``line`` run on at both ends along its
     continuation (module doc); ``kind(way)`` names a way's kind (``""`` for
     none), the lead's kind being that of the way whose geometry IS ``line``.
-    Where no way of that kind continues, the axis runs on STRAIGHT along its
-    end tangent in ``step`` m steps under the same two tests (RULINGS
-    2026-11-17c: the cut runs on while the pack states it; a cut that bends
-    leaves the bound and stops early — it under-reaches, never invents);
-    ``step`` ``None`` runs on along ways only.
     Unchanged where no visible cut bounds the corridor."""
     live = [c for c in cuts or () if c.bound is not None and len(c.points)]
     if not live:
@@ -483,26 +474,7 @@ def extend_axis(line: LineString, ways: _t.Sequence, cuts: _t.Sequence, cap: flo
                 break
             used.append(int(w.id))
             coords = coords + seg[1:] if end else seg[::-1][:-1] + coords
-        if step:
-            coords = _run_straight(coords, end, step, bound, near, cap)
     return LineString(coords), used
-
-
-def _run_straight(coords: list, end: int, step: float, bound, near, cap: float) -> list:
-    """``coords`` run on at its ``end`` (1 = last point) along the end
-    tangent, one ``step`` at a time, while each step stays inside ``bound``
-    and within ``cap`` of a member point (:func:`extend_axis`)."""
-    p, q = (coords[-1], coords[-2]) if end else (coords[0], coords[1])
-    u = np.subtract(p, q)
-    u = u / (np.hypot(*u) or 1.0)
-    for _ in range(_RUN_MAX_STEPS):
-        r = tuple(np.add(p, u * step))
-        run = LineString([p, r])
-        if not bound.contains(run) or float(shapely.distance(run, near).min()) > cap:
-            break
-        coords = coords + [r] if end else [r] + coords
-        p = r
-    return coords
 
 
 def _next_way(coords: list, end: int, pool: _t.Sequence, used: list[int]):

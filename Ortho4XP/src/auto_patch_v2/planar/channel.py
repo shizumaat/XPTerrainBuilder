@@ -480,12 +480,11 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # way's own continuation while the cut's members do
     # (``planar/channel_depth.extend_axis``)
     axis_ln, run_on = extend_axis(lead.line, airport.osm_ways, cuts,
-                                  ch.corridor_max_half_width_m, _kind, ch.station_m)
-    if run_on or axis_ln.length > lead.line.length + 0.5:
+                                  ch.corridor_max_half_width_m, _kind)
+    if run_on:
         stats.notes.append(f"{cid}: the axis runs on along way(s) "
-                           f"{'+'.join(str(i) for i in run_on) or '-'} and straight on "
-                           f"its end tangent — the visible cut's members continue past the "
-                           f"lead way's end (2026-11-06d (6), 2026-11-17c); "
+                           f"{'+'.join(str(i) for i in run_on)} — the visible cut's members "
+                           f"continue past the lead way's end (2026-11-06d (6)); "
                            f"{lead.line.length:.0f} -> {axis_ln.length:.0f} m")
     step = ch.station_m
     ss = [min(axis_ln.length, k * step) for k in range(int(axis_ln.length // step) + 1)]

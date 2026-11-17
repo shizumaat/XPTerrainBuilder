@@ -24,7 +24,7 @@ import math
 
 from shapely.geometry import LineString, Polygon
 
-__all__ = ["surface_page", "carried_surface"]
+__all__ = ["surface_page", "carried_surface", "carried_runway"]
 
 _SHADES: tuple[tuple[range, str], ...] = (
     (range(20, 24), "asphalt_L"), (range(24, 27), "asphalt"), (range(27, 31), "asphalt_D"),
@@ -66,29 +66,37 @@ def _runway_strip(rw) -> Polygon:
     return Polygon([(x * k_lon, y * k_lat) for x, y in strip.exterior.coords])
 
 
+def carried_runway(apt, ring_ll: Polygon):
+    """The row-100 runway (``apt_dat.AptRunway``) whose paved strip
+    covers most of ``ring_ll`` (lon, lat), ``None`` when no runway's strip
+    meets it -- the runway a deck carries, whatever its family."""
+    best = None
+    for rw in getattr(apt, "runways", ()) or ():
+        strip = _runway_strip(rw)
+        if not strip.is_valid:
+            continue
+        a = strip.intersection(ring_ll).area
+        if a > 0.0 and (best is None or a > best[0]):
+            best = (a, rw)
+    return None if best is None else best[1]
+
+
 def carried_surface(apt, ring_ll: Polygon, family: str) -> "int | None":
     """The apt.dat surface code of the pavement a deck carries: for a
     ``runway`` deck the row-100 runway covering most of ``ring_ll`` (lon,
     lat), else the row-110 polygon covering most of it; ``None`` when
     nothing paved covers it (``apt`` an ``apt_dat.AptAirport``)."""
-    best: "tuple[float, int] | None" = None
-
-    def offer(poly: Polygon, code: int) -> None:
-        nonlocal best
-        if _shade_of(code) is None or not poly.is_valid:
-            return
-        a = poly.intersection(ring_ll).area
-        if a > 0.0 and (best is None or a > best[0]):
-            best = (a, int(code))
     if family == "runway":
-        for rw in getattr(apt, "runways", ()) or ():
-            offer(_runway_strip(rw), rw.surface)
-        if best is not None:
-            return best[1]
+        rw = carried_runway(apt, ring_ll)
+        if rw is not None and _shade_of(rw.surface) is not None:
+            return int(rw.surface)
+    best: "tuple[float, int] | None" = None
     for pv in getattr(apt, "pavements", ()) or ():
-        if pv.rings and len(pv.rings[0]) >= 3:
-            p = Polygon(pv.rings[0], [r for r in pv.rings[1:] if len(r) >= 3])
-            offer(p if p.is_valid else p.buffer(0.0), pv.surface)
+        if not pv.rings or len(pv.rings[0]) < 3 or _shade_of(pv.surface) is None:
+            continue
+        p = Polygon(pv.rings[0], [r for r in pv.rings[1:] if len(r) >= 3])
+        p = p if p.is_valid else p.buffer(0.0)
+        a = p.intersection(ring_ll).area
+        if a > 0.0 and (best is None or a > best[0]):
+            best = (a, int(pv.surface))
     return None if best is None else best[1]
-
-

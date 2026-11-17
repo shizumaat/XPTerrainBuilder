@@ -99,7 +99,9 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     for k, d in enumerate(decks):
         code = _pav.carried_surface(apt, ring_polygon(d["ring"]), str(d.get("family") or "")) \
             if apt is not None else None
-        objs, st = _objs.deck_objects(d, dropped_by_deck.get(k, ()), art, g, surface_code=code)
+        runway = _pav.carried_runway(apt, ring_polygon(d["ring"])) if apt is not None else None
+        objs, st = _objs.deck_objects(d, dropped_by_deck.get(k, ()), art, g, surface_code=code,
+                                      runway=runway)
         rel = str(d["resource"])
         frame = st["frame"]
         for orel, text in objs:
@@ -117,10 +119,13 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
                             f"{st['lines']} line run(s) of {len(dropped_by_deck.get(k, ()))} "
                             f"dropped line piece(s), {st['lights']} light(s), "
                             f"{len(objs)} object(s)"
+                            + (f", {st['runway_marks']} runway mark(s)"
+                               if st.get("runway_marks") else "")
                             + (f", {st['unpainted']} line(s) of a type not painted"
                                if st["unpainted"] else ""))
     if art is not None:
         out["links"] = dict(art.links)
+        out["files"].update(art.files)
     if decks:
         out["files"][f"{GENERATED_DIR}/{TEXTURE}"] = _tex.deck_texture_png()
     for b in bridges:

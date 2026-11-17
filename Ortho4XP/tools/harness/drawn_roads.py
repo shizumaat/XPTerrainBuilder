@@ -29,6 +29,14 @@ floor that owns ground (the sidecar ``object_floors[].outline_ll``,
 ``-1335`` at ``Tx_A``'s headwall, 7.77 m).  An untagged road crossing a floor ring stays
 judged.
 
+(2120-W3 G1) A sample INSIDE a retaining wall's footprint (the sidecar
+``retaining_walls[].outline_ll``, :func:`wall_rings`) is never read: the
+wall object stands there, and the mesh under it is its fill or its slot
+(RULINGS 2026-11-13t, 16n, 16d: a road mapped into a wall is cut at its
+face).  The pair across such a ring -- the last sample before it and the
+first after it -- is that wall's face, reported as ``wall_faces``, never
+judged.
+
 The layer reads the road feeds the build read (``OSM_data``), never a
 capture, so it measures an owner install (``--tile``) and a harness build
 (``--tag``) alike.  Nothing here names an airport.
@@ -38,7 +46,7 @@ from __future__ import annotations
 import math
 
 __all__ = ["ROAD_STEP_M", "STEP_M", "UNDER_BRIDGE_M", "MOUTH_FACE_M", "road_lines",
-           "road_profile_step", "road_layer", "claimed_mouths", "floor_rings"]
+           "road_profile_step", "road_layer", "claimed_mouths", "floor_rings", "wall_rings"]
 
 #: the default FAIL bar between consecutive samples (owner ground bar)
 ROAD_STEP_M = 0.5
@@ -81,6 +89,43 @@ def floor_rings(sidecar):
             for r in (sidecar or {}).get("object_floors", []) or ()
             if r.get("owns_ground") for ring in r.get("outline_ll", ()) or ()
             if len(ring) >= 3]
+
+
+def wall_rings(sidecar):
+    """``[[(lat, lon), ...]]``: the footprint rings of every retaining wall
+    the build published (sidecar ``retaining_walls[].outline_ll``)."""
+    return [[(float(la), float(lo)) for la, lo in ring]
+            for r in (sidecar or {}).get("retaining_walls", []) or ()
+            for ring in r.get("outline_ll", ()) or () if len(ring) >= 3]
+
+
+def _in_rings(rings, lat0):
+    """``(lat, lon) -> bool``: the point stands inside one of ``rings``
+    (:func:`wall_rings`)."""
+    if not rings:
+        return lambda _la, _lo: False
+    from shapely.geometry import Point
+    kx = _M_PER_DEG * math.cos(math.radians(lat0))
+    polys = _floor_polys(rings, lat0, kx)
+    if polys is None:
+        return lambda _la, _lo: False
+    return lambda la, lo: polys.contains(Point(lo * kx, (la - lat0) * _M_PER_DEG))
+
+
+def _ring_faces(run, inside, sample, bar):
+    """``[(|dz|, (lat, lon))]``: per passage of ``run`` through a wall ring
+    (``inside``), the drawn step from the last sample before it to the first
+    after it, where over ``bar`` -- that wall's face, never judged."""
+    out, last, was_in = [], None, False
+    for la, lo in run:
+        if inside(la, lo):
+            was_in = True
+            continue
+        z = sample(lo, la)
+        if was_in and last is not None and math.isfinite(z) and abs(z - last[2]) > bar:
+            out.append((round(abs(z - last[2]), 2), (round(last[0], 6), round(last[1], 6))))
+        last, was_in = ((la, lo, z) if math.isfinite(z) else None), False
+    return out
 
 
 def _way_number(wid) -> "int | None":
@@ -256,26 +301,30 @@ def road_profile_step(samples, sample, face=None, faces=None):
     return worst
 
 
-def road_layer(sites, sample, osm_root, bar=ROAD_STEP_M, step=STEP_M, mouths=(), floors=()):
+def road_layer(sites, sample, osm_root, bar=ROAD_STEP_M, step=STEP_M, mouths=(), floors=(),
+               walls=()):
     """The layer over ``sites`` (``(name, lat, lon, r)``); ``sample(lon,
     lat)`` is the drawn mesh height (nan off it); ``mouths``
-    (:func:`claimed_mouths`) and ``floors`` (:func:`floor_rings`) the faces
-    never judged."""
+    (:func:`claimed_mouths`), ``floors`` (:func:`floor_rings`) and
+    ``walls`` (:func:`wall_rings`) the faces never judged."""
     rows, failed = [], 0
     for name, lat, lon, r in sites:
-        worst, n, bridges, faces = None, 0, [], []
+        worst, n, bridges, faces, wall_faces = None, 0, [], [], []
         roads = road_lines(osm_root, lat, lon, r, bridges)
         under = _under_bridge(bridges, lat, lon)
+        in_wall = _in_rings(walls, lat)
         straddles = _straddles(mouths, lat, floors) if mouths or floors else None
 
-        def drawn(lo, la, _u=under):
-            return float("nan") if _u(la, lo) else sample(lo, la)
+        def drawn(lo, la, _u=under, _w=in_wall):
+            return float("nan") if _u(la, lo) or _w(la, lo) else sample(lo, la)
         for wid, hw, pts, *tun in roads:
             ends = (tuple(pts[0]), tuple(pts[-1])) if pts else ()
             for run in _clip_runs(pts, lat, lon, r, step):
                 if len(run) < 2:
                     continue
                 n += 1
+                wall_faces.extend(dict(way=wid, step_m=g[0], lat=g[1][0], lon=g[1][1])
+                                  for g in _ring_faces(run, in_wall, drawn, bar))
                 face = None if straddles is None else (
                     lambda a, b, _w=wid, _s=straddles, _e=ends, _t=bool(tun and tun[0]):
                     _s(_w, a, b, _e, _t))
@@ -290,7 +339,8 @@ def road_layer(sites, sample, osm_root, bar=ROAD_STEP_M, step=STEP_M, mouths=(),
         failed += bad
         rows.append(dict({"site": name, "roads": n, "verdict": "FAIL" if bad else "PASS"
                           if n else "NOT MEASURED"}, **(worst or {}),
-                         **({"mouth_faces": faces} if faces else {})))
+                         **({"mouth_faces": faces} if faces else {}),
+                         **({"wall_faces": wall_faces} if wall_faces else {})))
     measured = any(r["verdict"] != "NOT MEASURED" for r in rows)
     return {"bar_m": bar, "step_m": step, "sites": rows, "failed": failed,
             "verdict": "FAIL" if failed else "PASS" if measured else "NOT MEASURED"}

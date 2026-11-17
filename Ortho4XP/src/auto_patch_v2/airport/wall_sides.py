@@ -95,6 +95,10 @@ class WallSides:
     #: lower band: what ``planar/wall_slope`` grades to its top; ``None``
     #: for every other wall (the slope reads :attr:`upper`)
     retained: _t.Any = None
+    #: 2120-W3 F1: a retaining block's fill drop under its upper face
+    #: (``WallComponent.fill_drop_m``): its fill is carried by that face
+    #: (``constraints/wall_zone.fill_row``); ``None``: its fill at its top
+    fill_drop_m: float | None = None
 
     def side_of(self, xy) -> str | None:
         """``"upper"`` / ``"lower"`` for a point in one of the bands, else
@@ -205,6 +209,11 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
             wide = 2.0 * g.area / g.length
             core = g.buffer(-min(0.5, wide / 4.0))
             top = top_of(w, g, uf) if top_of is not None else None
+            if top is None and getattr(w, "sunk_rule", ""):
+                # #2120 R2 (master ruling 7): a SUNK wall's top is its upper
+                # ground (its y_up stands on it, the parapet the author's):
+                # the wall slope and the fill grade to that level
+                top = _upper_ground_profile(dem, uf, smear)
             foot = foot_of(w, g, lf) if foot_of is not None else None
             raw = top
             if top is not None and not sheets:
@@ -226,7 +235,8 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
                                  None if core.is_empty else core,
                                  uf, top, lf, foot,
                                  str(getattr(w, "low_side_source", "") or ""),
-                                 None if kept is None or kept.is_empty else kept))
+                                 None if kept is None or kept.is_empty else kept,
+                                 getattr(w, "fill_drop_m", None)))
     return tuple(out)
 
 
@@ -323,6 +333,20 @@ def _foot_retaining(profile: tuple, face: LineString, upper_face: LineString,
     return tuple(out) if any(z is not None for _s, z in out) else None
 
 
+def _upper_ground_profile(dem, face: LineString, smear: float) -> tuple | None:
+    """``((s, z), ...)`` every 2 m along the upper ``face``: the DEM
+    ``smear`` out on its upper side (the hill past the lidar's smeared
+    step), ``None`` unread -- a SUNK wall's top as the solve holds it
+    (``airport/sunk_frame``: the object stage seats its ``y_up`` there)."""
+    stations = list(np.arange(0.0, face.length, 2.0)) + [face.length]
+    z = _ground_out(dem, face, stations, smear)
+    if z is None:
+        return None
+    out = tuple((float(s_), float(gz) if math.isfinite(gz) else None)
+                for s_, gz in zip(stations, z, strict=True))
+    return out if any(gz is not None for _s, gz in out) else None
+
+
 def _ground_out(dem, face: LineString, stations: _t.Sequence[float], out_m: float
                 ) -> list[float] | None:
     """The DEM ``out_m`` out on ``face``'s outer side (its right) at each
@@ -358,10 +382,11 @@ def far_side_cut(geom, walls: _t.Sequence[WallSides], judge=None, grow_m: float 
             continue
         up = judge.intersection(w.upper).area if w.upper is not None else 0.0
         lo = judge.intersection(w.lower).area if w.lower is not None else 0.0
-        cut = [w.poly.buffer(grow_m, join_style="mitre") if grow_m > 0.0 else w.poly]
+        foot = w.poly.buffer(grow_m, join_style="mitre") if grow_m > 0.0 else w.poly
+        cut = [foot]
         if up > 0.0 or lo > 0.0:
             cut.append(w.upper if up < lo else w.lower)
-        geom = geom.difference(unary_union(cut))
+        geom = geom.difference(unary_union([g for g in cut if g is not None]))
     return geom
 
 

@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from typing import Callable, Iterable, NamedTuple
 
 # Metres per degree of latitude; longitude is scaled by cos(latitude).
@@ -280,15 +281,20 @@ class ObjectGeometry(NamedTuple):
         )
 
 
-#: control bytes an exporter may leave glued to a number (KATL Orbx
-#: ``katl218_building_000.obj`` line 17: ``5.5898099\x01``); X-Plane's
-#: ``atof`` reads the number and ignores them
-_CONTROL = "".join(chr(c) for c in range(32))
+#: the numeric PREFIX of a token, as X-Plane's own reader (``atof``) takes it
+_NUMBER_PREFIX = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
 
 
 def _coord(token: str) -> float:
-    """One vertex coordinate, a glued control byte ignored."""
-    return float(token.strip(_CONTROL))
+    """A ``VT`` coordinate: the token, or its numeric prefix where a stray
+    byte follows it (#2120: KATL's 2026-11 ``katl218_building_000.obj``
+    carries ``5.5898099\\x01``) -- 0.0 for no number at all, as ``atof``.
+    The row is kept, so the ``IDX`` indices stay aligned."""
+    try:
+        return float(token)
+    except ValueError:
+        got = _NUMBER_PREFIX.match(token)
+        return float(got.group(0)) if got else 0.0
 
 
 def load_object_file(path: str) -> ObjectGeometry:

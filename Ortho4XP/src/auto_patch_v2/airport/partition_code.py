@@ -161,6 +161,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.slab_faces",
     "auto_patch_v2.airport.slab_plates",
     "auto_patch_v2.airport.split_guard",
+    "auto_patch_v2.airport.sunk_frame",
     "auto_patch_v2.airport.sunken_ramp",
     "auto_patch_v2.airport.terrain_base",
     "auto_patch_v2.airport.terrain_feature",

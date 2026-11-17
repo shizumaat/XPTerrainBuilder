@@ -428,13 +428,14 @@ def test_resolve_object_resource_missing_everywhere(tmp_path):
     )
 
 
-def test_a_control_byte_glued_to_a_vertex_coordinate_is_ignored(tmp_path):
-    """An exporter's stray control byte after a number (KATL Orbx
-    katl218_building_000.obj) reads as X-Plane's atof reads it."""
+def test_a_stray_byte_after_a_vertex_coordinate_reads_its_number(tmp_path):
+    """#2120: KATL's 2026-11 ``katl218_building_000.obj`` writes
+    ``5.5898099\\x01`` in a VT row; the reader takes the numeric prefix (as
+    X-Plane's ``atof``) and keeps the row, so the IDX indices stay aligned."""
     from auto_patch.obj8_reader import load_object_file
-    p = tmp_path / "glued.obj"
-    p.write_text("I\n800\nOBJ\nPOINT_COUNTS 3 0 0 3\n"
-                 "VT 0 0 0 0 1 0 0 0\nVT 1 5.5898099\x01 0 0 1 0 0 0\nVT 0 0 1 0 1 0 0 0\n"
-                 "IDX 0\nIDX 1\nIDX 2\nTRIS 0 3\n", encoding="utf-8", newline="\n")
+    p = tmp_path / "bad.obj"
+    p.write_bytes(b"I\n800\nOBJ\nPOINT_COUNTS 3 0 0 3\n"
+                  b"VT 0 0 0 0 1 0 0 0\nVT 1 5.5898099\x01 0 0 1 0 0 0\nVT 0 0 1 0 1 0 0 0\n"
+                  b"IDX 0\nIDX 1\nIDX 2\nTRIS 0 3\n")
     g = load_object_file(str(p))
     assert len(g.vertices) == 3 and abs(g.vertices[1][1] - 5.5898099) < 1e-9

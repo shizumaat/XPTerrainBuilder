@@ -39,7 +39,9 @@ __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "
            "frame_lifts", "carried_lift",
            "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
-           "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "WALLED_SRC",
+           "GROUP_REASON", "at_zero", "walled_lead", "walled_unit_zero", "UNIT_FREE_PLATES",
+           "plate_led",
+           "WALLED_SRC",
            "TOUCH_M"]
 
 #: the deck verdicts that make a member an OPEN structure — a deck
@@ -762,6 +764,12 @@ def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,
 #: wall's upper ground (#1934 R3, RULINGS 2026-11-16d; ``airport/retaining_seat``)
 LEAD_PLATES = frozenset({"walled", "retaining"})
 
+#: the leading plates that stay OUT of every §16g unit (#2120 R2 W5; 16k,
+#: 14a (2)): a retaining wall's -- a wall never chains a building and its
+#: plate is never another frame's zero; only a runway-end WALLED plate
+#: leads a unit (#1977, :func:`walled_unit_zero`)
+UNIT_FREE_PLATES = LEAD_PLATES - {"walled"}
+
 
 def walled_lead(record: _t.Any, m: _t.Any, surface: _t.Any = None) -> "float | None":
     """The zero of a LEADING PLATE's datum (:data:`LEAD_PLATES`; #1201,
@@ -782,6 +790,15 @@ def walled_lead(record: _t.Any, m: _t.Any, surface: _t.Any = None) -> "float | N
 
 #: the §16g unit datum source of a unit holding a walled plate
 WALLED_SRC = "walled_plate"
+
+
+def plate_led(m: _t.Any) -> bool:
+    """Whether member ``m`` carries a LEADING plate (:data:`LEAD_PLATES`):
+    its record rides the plate's datum (:func:`walled_lead`) whatever else
+    seats it -- an airside or open-frame record too (#2120: KATL's
+    ``katl127_wall``, chained to the control tower beside the apron, stood
+    on the tower's pad 10 m over its datum)."""
+    return getattr(m, "plate_kind", "") in LEAD_PLATES
 
 
 def walled_unit_zero(members: _t.Iterable[_t.Any], surface: _t.Any) -> "float | None":

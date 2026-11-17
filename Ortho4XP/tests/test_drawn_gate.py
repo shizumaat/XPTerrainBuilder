@@ -449,3 +449,33 @@ def test_a_road_ending_at_a_mouth_and_a_tunnel_at_a_floor_ring_are_faces(monkeyp
                         lambda root, la, lo, r, b=None: [(-3, "primary", short, False)])
     assert DR.road_layer([("s", lat0, lon0, 50.0)], cut, "/nowhere", 0.5,
                          floors=floors)["verdict"] == "FAIL"
+
+
+def test_a_road_inside_a_published_wall_ring_is_not_read(monkeypatch):
+    """2120-W3 G1: a sample inside a retaining wall's footprint (sidecar
+    ``retaining_walls[].outline_ll``) is never read -- the mesh there is the
+    wall's fill or slot -- and the pair across its ring is that wall's face,
+    reported as ``wall_faces``, never judged; with no ring it is judged."""
+    import drawn_roads as DR
+    lat0, lon0 = 45.5, 10.5
+    kx = DR._M_PER_DEG * math.cos(math.radians(lat0))
+    d = 1.0 / DR._M_PER_DEG
+    road = [(lat0 - 100.0 * d, lon0), (lat0 + 100.0 * d, lon0)]
+
+    def filled(lon, lat):                   # the fill 10 m up from 20 to 30 m north
+        return 100.0 + (10.0 if 20.0 < (lat - lat0) * DR._M_PER_DEG < 30.0 else 0.0)
+    monkeypatch.setattr(DR, "road_lines", lambda root, la, lo, r, b=None: [(-4, "service", road)])
+    ring = [(lat0 + 19.5 * d, lon0 - 5.0 / kx), (lat0 + 19.5 * d, lon0 + 5.0 / kx),
+            (lat0 + 30.5 * d, lon0 + 5.0 / kx), (lat0 + 30.5 * d, lon0 - 5.0 / kx)]
+    side = {"retaining_walls": [{"resource": "objects/katl126_wall.obj", "outline_ll": [ring]}]}
+    walls = DR.wall_rings(side)
+    assert len(walls) == 1
+    assert DR.road_layer([("s", lat0, lon0, 50.0)], filled, "/nowhere", 0.5)["verdict"] == "FAIL"
+    rep = DR.road_layer([("s", lat0, lon0, 50.0)], filled, "/nowhere", 0.5, walls=walls)
+    assert rep["verdict"] == "PASS" and "wall_faces" not in rep["sites"][0]
+
+    def stepped(lon, lat):                  # the low road 5 m under the far side
+        return 100.0 + (5.0 if (lat - lat0) * DR._M_PER_DEG > 25.0 else 0.0)
+    rep = DR.road_layer([("s", lat0, lon0, 50.0)], stepped, "/nowhere", 0.5, walls=walls)
+    row = rep["sites"][0]
+    assert rep["verdict"] == "PASS" and row["wall_faces"][0]["step_m"] == pytest.approx(5.0)

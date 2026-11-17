@@ -203,7 +203,9 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                    mouths: _t.Mapping[int, float],
                    frame: _t.Mapping[int, tuple[int, float, float]],
                    reach_m: float, end_m: float,
-                   gaps_out: dict[int, float] | None = None
+                   gaps_out: dict[int, float] | None = None,
+                   adj: _t.Mapping[int, _t.Sequence[tuple[int, float]]] | None = None,
+                   junctions_out: list | None = None
                    ) -> tuple[dict[int, tuple[int, int, float, float]],
                               list[dict[str, _t.Any]]]:
     """§37 (10) (1) THE CONTACT A ROAD DOES NOT TOUCH (owner RULINGS
@@ -239,13 +241,25 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     figure owner RULINGS 2026-09-27a (11) classifies by: a gap within one
     lane width seeds the ramp like a touching mouth
     (:func:`with_road_ramp`, ``PlanarMap.road_reach_seed``).
+
+    #2116 (d) (owner 2026-11-17T00:13Z): with the road's own graph ``adj``,
+    an end the road CARRIES ON from (:func:`_carries_on`, the #2090 B7 /
+    RULINGS 2026-11-14e witness) is a JUNCTION, not where a vehicle leaves
+    the road for a LOT (``[road_contact] extra_roles``, the groundside
+    members of the set): across a gap wider than one lane (``end_m``; a
+    narrower gap is a touch, 27a (11)) it takes no contact on the lot.  The
+    airside and pad contacts are unchanged (13cs).  MEASURED KDEN: the
+    junction of ridge roads -3642/-18149 was bound to the corner of lot
+    ``dsf:pol32`` 11 m away (the lot's 1639.7 against a 1645 ridge).
     """
     from shapely.geometry import LineString, Point
     from shapely.strtree import STRtree
 
     cset = contact_roles(law)
+    groundside = frozenset(law.tables.emit.road_contact.extra_roles)
     segs: list[LineString] = []
     ends: list[tuple[int, int]] = []
+    lot_seg: list[bool] = []
     for fid, f in pm.faces.items():
         if f.role not in cset:
             continue
@@ -257,6 +271,7 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                     continue
                 segs.append(LineString([pa, pb]))
                 ends.append((a, b))
+                lot_seg.append(f.role in groundside)
     out: dict[int, tuple[int, int, float, float]] = {}
     named: list[dict[str, _t.Any]] = []
     if not segs:
@@ -318,6 +333,12 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                 continue
             _key, _d, _i, at_v, _ = best
             a, b = ends[_i]
+            if (adj is not None and lot_seg[_i] and _d > end_m
+                    and _carries_on(group, r, adj, frame)):
+                if junctions_out is not None:  # #2116 (d): a junction, no end
+                    junctions_out.append({"route": r, "gap_m": round(_d, 2),
+                                          "at": pm.vertices[at_v].xy})
+                continue
             ln = segs[_i]
             p = Point(pm.vertices[at_v].xy)
             u = float((ln.project(p) / ln.length) if ln.length else 0.0)
@@ -750,10 +771,17 @@ def _carried_on_end(adj, frame, route_end, by_route, lane: float):
                 group = [w for s_, w in items if s_ - items[0][0] <= lane]
             else:
                 group = [w for s_, w in items if items[-1][0] - s_ <= lane]
-            memo[e] = not any(frame.get(u) is not None and frame[u][0] != r
-                              for w in group for u, _d in adj.get(w, ()))
+            memo[e] = not _carries_on(group, r, adj, frame)
         return e if memo[e] else None
     return end_of
+
+
+def _carries_on(group: _t.Iterable[int], r, adj, frame) -> bool:
+    """The road CARRIES ON past a route end (#2090 B7, RULINGS 2026-11-14e;
+    #2116 (d)): a vertex of the end's ``group`` has a neighbour in the
+    road's own graph ``adj`` on ANOTHER route of ``frame``."""
+    return any(frame.get(u) is not None and frame[u][0] != r
+               for w in group for u, _d in adj.get(w, ()))
 
 
 def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
@@ -903,9 +931,13 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # ``constraints/road_ramp.road_contact_rows``.
     rc = law.tables.emit.road_contact
     gaps: dict[int, float] = {}
+    adj = _graph(pm, set(owned) | set(mouths))
+    junctions: list = []
     contact, reach_named = reach_contacts(pm, law, owned, mouths, frame,
                                           rc.contact_reach_m,
-                                          prof_f.lane_width_m, gaps)
+                                          prof_f.lane_width_m, gaps, adj=adj,
+                                          junctions_out=junctions)
+    rep["reach_junction_ends"] = junctions
     # 15a (2): a reach contact ACROSS a wall that retains its height (its
     # edge on the wall's line, or the way to it through the wall) is no
     # contact — the road at the wall's foot does not meet the top edge
@@ -930,7 +962,6 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["reach_contacts"] = len(reach_named)
     rep["reach_governed"] = len(contact)
     rep["reach_ends"] = reach_named
-    adj = _graph(pm, set(owned) | set(mouths))
     by_route: dict[int, list[tuple[float, int]]] = {}
     for v in set(owned) | set(mouths):
         f_ = frame.get(v)

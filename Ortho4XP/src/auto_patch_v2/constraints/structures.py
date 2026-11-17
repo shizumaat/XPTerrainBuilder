@@ -72,6 +72,7 @@ import math
 import typing as _t
 
 from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import unary_union
 
 from ..law import Law
 from ..law.tables import is_rigid_role, pavement_roles
@@ -961,6 +962,12 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if follow and depth > 1e-6 and floor_vs:
             shared = [v for v in follow if shared_with_ground(v)]
             held = [v for v in follow if not shared_with_ground(v)] if shared else []
+            # #1934 R6: the UPPER FORECOURT's bare ground stands at the
+            # upper floor too (flat, the apron grade law); where a road or
+            # a pad shares it, the shared ground carries it
+            seen = set(held) | set(shared)
+            held += [v for v in _court_rim(planar, rim_vs, b.forecourt)
+                     if v not in seen and not shared_with_ground(v)]
             rows.extend(_split_floor_rows(sorted(floor_vs), shared or follow, held, depth,
                                           inputs))
             relative += 1
@@ -1057,6 +1064,15 @@ def _split_floor_rows(floor_vs: _t.Sequence[int], follow: _t.Sequence[int],
     rows.extend(Linear(((v, 1.0), (flat[0], -1.0)), 0.0, 0.0, src_flat, follows=(v,))
                 for v in flat[1:])
     return rows
+
+
+def _court_rim(planar: PlanarMap, rim_vs: _t.Sequence[int], rings) -> list[int]:
+    """The rim vertices on or inside a split-level pit's UPPER FORECOURT
+    ``rings`` (``Basin.forecourt``; within half a metre), ``[]`` without."""
+    if not rings or not rim_vs:
+        return []
+    g = unary_union([Polygon(r) for r in rings if len(r) >= 3]).buffer(0.5)
+    return [v for v in rim_vs if g.contains(Point(planar.vertices[v].xy))]
 
 
 def _open_rim(planar: PlanarMap, rim_vs: _t.Sequence[int], sides) -> list[int]:

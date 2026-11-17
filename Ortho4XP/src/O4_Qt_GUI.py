@@ -5919,6 +5919,9 @@ class MainWindow(QMainWindow):
             self._console_defaulted = True
             # the patch library's check when the app opens (#1699 phase 2)
             QTPATCHLIB.check_at_launch(self.working_dir())
+            # Windows: .xptb double-click opens this copy (#2143).
+            import O4_Windows_Assoc as WINASSOC
+            WINASSOC.check_at_launch()
             # No World folder at the start (#2007): made, then asked once.
             import O4_Config_Utils as CFG
             import O4_Qt_World_Onboard as QTONBOARD

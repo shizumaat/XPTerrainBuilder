@@ -31,18 +31,12 @@ import shapely
 import shapely.prepared
 from shapely.geometry import LineString, Point
 
+from ..model.floor_ground import banked_floors
 from ..model.planar import PIT_BANK_PREFIX
 from .bank_cut import bank_width, knives, pieces
 from .stack_ground import _areal
 
 __all__ = ["pit_bank_pieces", "banked_floors"]
-
-
-def banked_floors(floors: _t.Sequence) -> list:
-    """The floors that own their ground and state open-edge rims."""
-    from ..airport.object_floor import owns_ground
-    return [f for f in floors if getattr(f, "rim_banks", False) and f.rim_tops
-            and owns_ground(f)]
 
 
 def _runs(T: np.ndarray, step: float) -> list[np.ndarray]:

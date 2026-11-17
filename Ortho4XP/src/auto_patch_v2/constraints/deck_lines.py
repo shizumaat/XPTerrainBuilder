@@ -98,7 +98,7 @@ def plate_of(lines: _t.Sequence[EndLine], law: Law) -> list[int]:
     axis (``airport/deck_plates.piece_plates``, the object stage's own
     rule) -- has one zero PER PLATE, each flush at its own end lines;
     every other deck has plate 0 at every end line (one zero, 30a (1))."""
-    from ..airport.deck_plates import piece_plates
+    from ..geom.plate_bands import piece_plates
     rings: list[tuple] = []
     for e in lines:
         r = tuple(tuple(q) for q in e.deck.ring)

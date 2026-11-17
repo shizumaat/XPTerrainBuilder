@@ -100,7 +100,7 @@ def _pit_toe(planar: PlanarMap, law: Law, airport: Airport):
     identity grid (a bank vertex on the band's ring is its crest)."""
     import shapely
 
-    from ..planar.pit_bank import banked_floors
+    from ..model.floor_ground import banked_floors
     floors = banked_floors(tuple(getattr(planar, "object_floors", ()) or ()))
     if not floors:
         return lambda _xy: False

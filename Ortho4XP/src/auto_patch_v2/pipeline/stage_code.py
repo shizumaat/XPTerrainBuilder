@@ -191,6 +191,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_ends",
         "auto_patch_v2.airport.deck_family_contact",
+        "auto_patch_v2.airport.deck_plates",
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_stack",
@@ -224,6 +225,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.line_solidity",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
+        "auto_patch_v2.airport.obj8_band",
         "auto_patch_v2.airport.obj8_clip",
         "auto_patch_v2.airport.obj8_drape",
         "auto_patch_v2.airport.obj8_grade",
@@ -312,6 +314,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.zero_level_seat",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
+        "auto_patch_v2.classify.apron_gate",
         "auto_patch_v2.classify.apt_shoulder",
         "auto_patch_v2.classify.blast_pad",
         "auto_patch_v2.classify.car_lot",
@@ -358,6 +361,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
+        "auto_patch_v2.geom.plate_bands",
         "auto_patch_v2.geom.plate_heights",
         "auto_patch_v2.geom.proportions",
         "auto_patch_v2.geom.ramp_profile",
@@ -400,6 +404,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.deck_ends",
         "auto_patch_v2.model.deck_stack",
+        "auto_patch_v2.model.floor_ground",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.placement",
@@ -462,6 +467,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_ends",
         "auto_patch_v2.airport.deck_family_contact",
+        "auto_patch_v2.airport.deck_plates",
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_roof",
         "auto_patch_v2.airport.deck_signature",
@@ -504,6 +510,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.mouth_group",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
+        "auto_patch_v2.airport.obj8_band",
         "auto_patch_v2.airport.obj8_clip",
         "auto_patch_v2.airport.obj8_drape",
         "auto_patch_v2.airport.obj8_grade",
@@ -619,6 +626,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.zero_level_seat",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
+        "auto_patch_v2.classify.apron_gate",
         "auto_patch_v2.classify.apt_shoulder",
         "auto_patch_v2.classify.blast_pad",
         "auto_patch_v2.classify.car_lot",
@@ -672,6 +680,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
+        "auto_patch_v2.geom.plate_bands",
         "auto_patch_v2.geom.plate_heights",
         "auto_patch_v2.geom.proportions",
         "auto_patch_v2.geom.ramp_grade",
@@ -721,6 +730,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.deck_ends",
         "auto_patch_v2.model.deck_stack",
         "auto_patch_v2.model.end_area",
+        "auto_patch_v2.model.floor_ground",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.islands",
@@ -824,6 +834,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.ribbons",
         "auto_patch_v2.planar.ridge_reach",
         "auto_patch_v2.planar.road_shadow",
+        "auto_patch_v2.planar.road_wall_witness",
         "auto_patch_v2.planar.road_yield",
         "auto_patch_v2.planar.shape_airside",
         "auto_patch_v2.planar.shape_mouths",
@@ -934,6 +945,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_carry",
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_family_contact",
+        "auto_patch_v2.airport.deck_plates",
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_surface",
@@ -962,6 +974,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.line_solidity",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
+        "auto_patch_v2.airport.obj8_band",
         "auto_patch_v2.airport.obj8_clip",
         "auto_patch_v2.airport.obj8_drape",
         "auto_patch_v2.airport.obj8_grade",
@@ -1061,6 +1074,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
+        "auto_patch_v2.geom.plate_bands",
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.geom.shape_class",
         "auto_patch_v2.geom.station_runs",
@@ -1093,6 +1107,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.walled_plate_schema",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
+        "auto_patch_v2.model.floor_ground",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.placement",
@@ -1140,6 +1155,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_ends",
         "auto_patch_v2.airport.deck_family_contact",
+        "auto_patch_v2.airport.deck_plates",
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_surface",
@@ -1170,6 +1186,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.lot_level",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
+        "auto_patch_v2.airport.obj8_band",
         "auto_patch_v2.airport.obj8_clip",
         "auto_patch_v2.airport.obj8_drape",
         "auto_patch_v2.airport.obj8_grade",
@@ -1309,6 +1326,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
+        "auto_patch_v2.geom.plate_bands",
         "auto_patch_v2.geom.plate_heights",
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.rotated_rect",
@@ -1353,6 +1371,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.deck_ends",
         "auto_patch_v2.model.deck_stack",
+        "auto_patch_v2.model.floor_ground",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.islands",
@@ -1415,6 +1434,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_ends",
         "auto_patch_v2.airport.deck_family_contact",
+        "auto_patch_v2.airport.deck_plates",
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_stack",
@@ -1448,6 +1468,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.line_solidity",
         "auto_patch_v2.airport.msl_feet",
         "auto_patch_v2.airport.obj8",
+        "auto_patch_v2.airport.obj8_band",
         "auto_patch_v2.airport.obj8_clip",
         "auto_patch_v2.airport.obj8_drape",
         "auto_patch_v2.airport.obj8_grade",
@@ -1536,6 +1557,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.zero_level_seat",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
+        "auto_patch_v2.classify.apron_gate",
         "auto_patch_v2.classify.apt_shoulder",
         "auto_patch_v2.classify.blast_pad",
         "auto_patch_v2.classify.car_lot",
@@ -1668,6 +1690,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.plane_groups",
+        "auto_patch_v2.geom.plate_bands",
         "auto_patch_v2.geom.plate_heights",
         "auto_patch_v2.geom.proportions",
         "auto_patch_v2.geom.ramp_grade",
@@ -1716,6 +1739,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.deck_ends",
         "auto_patch_v2.model.deck_stack",
         "auto_patch_v2.model.end_area",
+        "auto_patch_v2.model.floor_ground",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.free_bridge",
         "auto_patch_v2.model.ground_fit",
@@ -1879,6 +1903,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.precedence constraints.roads constraints.strips geom.containment
         model.airport model.end_area model.islands model.map_memo model.platform
         model.threshold_datum
+    geom.plate_bands geom.union_find
     """),
     "agp_plate": _mods(_GENERATOR_CORE + """
     model.deck_stack
@@ -1891,6 +1916,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.precedence constraints.roads constraints.strips geom.containment
         model.airport model.end_area model.islands model.map_memo model.platform
         model.threshold_datum
+    geom.plate_bands geom.union_find
     """),
     "eat": _mods(_GENERATOR_CORE + """
         geom.runway_contact
@@ -1912,6 +1938,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.deck_anchor constraints.edge_floor
         constraints.deck_lines
         model.stage_one
+    geom.plate_bands
 """),
     "fill_bank": _mods(_GENERATOR_CORE + """
     geom.agp_plate
@@ -1919,6 +1946,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.deck_ground
         constraints.fill_bank model.airport
         constraints.contiguity constraints.end_lip constraints.gap_follow constraints.geometry constraints.precedence constraints.roads constraints.strips geom.containment geom.end_line geom.exact geom.lowest_face geom.plate_heights model.deck_ends model.end_area model.islands model.map_memo model.platform model.threshold_datum
+    model.floor_ground
 """),
     "flat_site": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2070,6 +2098,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.slope_pad
         constraints.group_level constraints.face_index
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+    constraints.contiguity constraints.end_lip constraints.public_road_release constraints.roads constraints.strips model.end_area model.threshold_datum
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
     constraints.deck_runout geom.deck_ground constraints.agp_level model.agp_group
@@ -2084,6 +2113,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.slope_pad
         constraints.group_level constraints.face_index
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
+    constraints.contiguity constraints.end_lip constraints.public_road_release constraints.roads constraints.strips model.end_area model.threshold_datum
     """),
     "edge_deck": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2093,6 +2123,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.precedence constraints.roads constraints.strips geom.containment
         model.airport model.end_area model.islands model.map_memo model.platform
         model.threshold_datum
+    geom.plate_bands geom.union_find
     """),
     "roads": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2121,6 +2152,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.deck_lines
         model.stage_one
         constraints.taxi constraints.taxi_route_yield
+    geom.plate_bands
 """),
     "runway_chord": _mods(_GENERATOR_CORE + """
         geom.runway_contact
@@ -2142,6 +2174,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.deck_lines
         model.stage_one
         constraints.taxi constraints.taxi_route_yield
+    geom.plate_bands
 """),
     "runway_mean_slope": _mods(_GENERATOR_CORE + """
         geom.runway_contact
@@ -2163,6 +2196,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.deck_lines
         model.stage_one
         constraints.taxi constraints.taxi_route_yield
+    geom.plate_bands
 """),
     "runway_profile": _mods(_GENERATOR_CORE + """
         geom.runway_contact
@@ -2409,6 +2443,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.bridge_frame airport.bridge_stack airport.deck_ends airport.deck_stack
     airport.dsf_heights airport.facade_seat airport.ground_route_ways airport.stack_walls
     airport.touch_graph airport.touch_seat constraints.gap_follow law.deck_gen_schema
+    airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands model.floor_ground
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport.cut_portal_seat
@@ -2489,6 +2524,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     constraints.taxi constraints.taxi_route_yield
     model.free_bridge
     airport.apt_edit airport.touch_graph airport.touch_seat law.deck_gen_schema
+    airport.deck_plates airport.obj8_band geom.plate_bands model.floor_ground
 """)
 
 #: THE SOLVE AND THE LAST STAGE (spec §4b.4, §4b.5; #843 step 9b): the solve
@@ -2689,6 +2725,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.agp_gap_plates airport.agp_plan airport.apt_edit airport.touch_graph
     airport.touch_seat law.deck_gen_schema planar.deck_generated planar.short_bore
     planar.deck_pack_cover
+    airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release geom.plate_bands model.floor_ground planar.road_wall_witness
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.channel_declared planar.channel_ramp
@@ -2901,6 +2938,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.agp_gap_plates airport.agp_plan airport.apt_edit airport.touch_graph
     airport.touch_seat law.deck_gen_schema planar.deck_generated planar.short_bore
     planar.deck_pack_cover
+    airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands model.floor_ground planar.road_wall_witness
 """)
 CODE_MODULES["emit"] = _mods("""
     airport.deck_roof airport.ramp_feet geom.channel_declared planar.basin_author_ground
@@ -3069,6 +3107,7 @@ CODE_MODULES["emit"] = _mods("""
     planar.structure_overlap planar.structure_pair planar.structure_service
     planar.structure_underpass planar.underpass_mouth planar.unframed_ramp
     planar.wall_corridor_ramps
+    airport.deck_plates airport.obj8_band airport.split_level_forecourt classify.apron_gate constraints.public_road_release geom.plate_bands model.floor_ground
 """)
 CODE_MODULES["verify"] = _mods("""
     geom.channel_declared
@@ -3203,6 +3242,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.dsf_heights airport.facade_seat airport.ground_route_ways airport.stack_walls
     airport.touch_graph airport.touch_seat geom.end_line geom.plate_heights
     geom.ramp_profile law.deck_gen_schema model.agp_plate model.deck_ends
+    airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release geom.plate_bands model.floor_ground
 """)
 
 

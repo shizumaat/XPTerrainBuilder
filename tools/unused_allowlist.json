@@ -443,5 +443,15 @@
   "path": "Ortho4XP/src/auto_patch_v2/planar/road_wall_witness.py",
   "name": "RoadWitness",
   "reason": "return type of road_witness (planar/road_shadow reads it, never names it); listed in __all__ (lshadow, test-555)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_overlap.py",
+  "name": "Frame",
+  "reason": "#2145: the metres frame airport_regions returns with each region (its public return type); the stage passes it through without naming it"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_overlap_choice.py",
+  "name": "kept_rows",
+  "reason": "#2145/#2144: the winning pack's overlapping rows, the input the overlay re-seat (#2144, lane l2144) reads to fit the kept structures to the terrain; that caller lands on its own branch"
  }
 ]

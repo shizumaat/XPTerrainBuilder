@@ -242,6 +242,20 @@ def gateway_airports(**fields):
             pass
 
 
+def pack_overlaps(**fields):
+    """Large structures two packs both draw near an airport, or the
+    outcome of the user's answer (issue #2145).
+
+    ``fields`` are the ``PackOverlaps`` event's.  No-op without an engine
+    session and never raises.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.pack_overlaps_event(**fields)
+        except Exception:
+            pass
+
+
 def pack_optimise(**fields):
     """An airport pack "Optimise pack" can lighten, or the outcome of the
     user's answer (issue #1707).

@@ -1284,6 +1284,8 @@ final class BuildModel: ObservableObject {
             packAdjust(adjust)
         case .gatewayAirports(let offer):
             gatewayAirports(offer)
+        case .packOverlaps(let offer):
+            packOverlaps(offer)
         case .packPackage(let shipped):
             packPackage(shipped)
         case .engineError(let fatal, let text):
@@ -2371,6 +2373,39 @@ final class BuildModel: ObservableObject {
         } else {
             gatewayAirportsQueue.append(offer)
         }
+    }
+
+    /// The overlapping-packs question to present, or nil (#2145).
+    @Published var packOverlapsPrompt: O4PackOverlaps?
+    /// Questions waiting behind the one on screen, in arrival order.
+    private var packOverlapsQueue: [O4PackOverlaps] = []
+    /// Every question already asked this session (one per tile and pair set).
+    private var packOverlapsSeen: Set<String> = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_pack_overlaps`).
+    /// A question with a pair in it asks once per tile and pair set (the
+    /// report asks again); an outcome asks nothing (the engine's log line
+    /// says what was hidden).
+    private func packOverlaps(_ offer: O4PackOverlaps) {
+        if offer.state == "ask" { packOverlapsSeen.remove(offer.id) }
+        guard offer.asks, !packOverlapsSeen.contains(offer.id) else { return }
+        packOverlapsSeen.insert(offer.id)
+        if packOverlapsPrompt == nil {
+            packOverlapsPrompt = offer
+        } else {
+            packOverlapsQueue.append(offer)
+        }
+    }
+
+    /// The user's answer to the question on screen: `winners` (Apply,
+    /// `[pair key: pack or "both"]`) sends `pack_overlaps` "choose"; nil
+    /// (Not now) sends nothing.
+    func answerPackOverlapsPrompt(winners: [String: String]?) {
+        if let offer = packOverlapsPrompt, let winners {
+            client?.packOverlaps(action: "choose", lat: offer.lat, lon: offer.lon,
+                                 winners: winners)
+        }
+        packOverlapsPrompt = packOverlapsQueue.isEmpty ? nil : packOverlapsQueue.removeFirst()
     }
 
     /// Packages already noticed this session (one per package and state).

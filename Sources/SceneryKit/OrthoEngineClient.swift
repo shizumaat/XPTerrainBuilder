@@ -349,6 +349,10 @@ public enum O4Event: Sendable, Equatable {
     /// the report, or a `gateway_airports` command's outcome. See
     /// `O4GatewayAirports`.
     case gatewayAirports(O4GatewayAirports)
+    /// Two installed packs drawing the same large structures near an
+    /// airport (capability `pack_overlaps`, #2145): found by the build, the
+    /// report, or a `pack_overlaps` command's outcome. See `O4PackOverlaps`.
+    case packOverlaps(O4PackOverlaps)
     /// A package an airport pack ships, applied as a tile built
     /// (capability `pack_packages`, RULINGS 2026-11-11m). See `O4PackPackage`.
     case packPackage(O4PackPackage)
@@ -667,6 +671,25 @@ public enum O4Event: Sendable, Equatable {
                         installedId: (row["installed_id"] as? NSNumber)?.intValue ?? 0,
                         latestId: (row["latest_id"] as? NSNumber)?.intValue ?? 0,
                         pack: row["pack"] as? String ?? "")
+                },
+                files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                state: object["state"] as? String ?? "found",
+                error: string("error")))
+        // Another STRING LITERAL match: `class PackOverlaps` in
+        // Ortho4XP/src/o4_engine/events.py.
+        case "PackOverlaps":
+            return .packOverlaps(O4PackOverlaps(
+                lat: int("lat"), lon: int("lon"),
+                items: ((object["items"] as? [[String: Any]]) ?? []).map { row in
+                    O4PackOverlap(
+                        key: row["key"] as? String ?? "",
+                        packs: (row["packs"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                        airport: row["airport"] as? String ?? "",
+                        defaultWinner: row["default"] as? String ?? "",
+                        winner: row["winner"] as? String ?? "",
+                        count: (row["count"] as? NSNumber)?.intValue ?? 0,
+                        rows: (row["rows"] as? [Any])?.compactMap { ($0 as? NSNumber)?.intValue } ?? [],
+                        summary: row["summary"] as? String ?? "")
                 },
                 files: (object["files"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 state: object["state"] as? String ?? "found",
@@ -1268,6 +1291,20 @@ public final class OrthoEngineClient: @unchecked Sendable {
         if let icaos { arguments["items"] = icaos }
         if let shown { arguments["shown"] = shown }
         send(command: "gateway_airports", arguments: arguments)
+    }
+
+    // MARK: - Overlapping packs (capability pack_overlaps)
+
+    /// The user's answer about packs that draw the same structures (#2145):
+    /// action "choose" with `winners` `[pair key: pack name or "both"]`,
+    /// "undo" (the answers of `winners`' keys forgotten), or "ask" (the
+    /// report). The engine replies `{"status": "started"}` and completes with
+    /// a `packOverlaps` event.
+    public func packOverlaps(action: String, lat: Int, lon: Int,
+                             winners: [String: String] = [:]) {
+        var arguments: [String: Any] = ["action": action, "lat": lat, "lon": lon]
+        arguments["items"] = winners.keys.sorted().map { ["key": $0, "winner": winners[$0] ?? ""] }
+        send(command: "pack_overlaps", arguments: arguments)
     }
 
     /// A per-pack choice command (`pack_forests`, `pack_optimise`, `pack_adjust`): the

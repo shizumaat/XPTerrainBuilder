@@ -85,7 +85,8 @@ from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
     ETA_EMIT_SECONDS,
-    _offer_gateway_airports, _predict_step_seconds, build_done, last_outcome_counts,
+    _offer_gateway_airports, _offer_pack_overlaps, _predict_step_seconds, build_done,
+    last_outcome_counts,
     plan_steps, prediction_features, reweight_plan_by_seconds, stopped_tile_state,
 )
 
@@ -670,6 +671,8 @@ _FORWARDED_EVENT_TYPES = (
     "PackAdjust",
     # #1989: ... and the tile's Gateway airports to offer.
     "GatewayAirports",
+    # #2145: ... and the large structures two packs both draw.
+    "PackOverlaps",
     # RULINGS 11m (4): ... and the packages the tile's packs ship.
     "PackPackage",
     "Log",
@@ -2443,6 +2446,7 @@ class ParallelBuildRun:
                         # #1989: the built tile's Gateway airports (the
                         # per-step children each see one step)
                         _offer_gateway_airports(*finished)
+                        _offer_pack_overlaps(*finished)
                     if rerun and self._last_ok.get(finished):
                         self._readmit_locked(finished)
             self._dispatch_locked()

@@ -28,3 +28,21 @@ def test_disk_floor_gate(monkeypatch, tmp_path, tile, free_gb, refused):
             ba.disk_floor_gate(tmp_path, tile=tile)
     else:
         ba.disk_floor_gate(tmp_path, tile=tile)
+
+
+def test_a_harness_build_is_a_lane_on_the_machine_memory_ledger(
+        monkeypatch, tmp_path):
+    """Incident 2026-11-17: concurrency is the machine memory ledger's, not
+    a build count; a harness build joins it as a lane named by worktree,
+    and a role an ancestor claimed (the app's engine) stands."""
+    import O4_Machine_Memory as MEMORY
+    root = tmp_path / ".claude" / "worktrees" / "lfoo" / "Ortho4XP"
+    root.mkdir(parents=True)
+    ba.claim_lane_memory(root)
+    assert MEMORY.role() == "lane"
+    assert MEMORY._label() == "lane lfoo"
+    monkeypatch.setenv(MEMORY.ENV_ROLE, "app")
+    ba.claim_lane_memory(root)
+    assert MEMORY.role() == "app"
+    src = (HARNESS / "build_airport.py").read_text(encoding="utf-8")
+    assert "at most 4" not in src

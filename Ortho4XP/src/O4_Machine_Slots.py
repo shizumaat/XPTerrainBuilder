@@ -30,12 +30,16 @@ spawned up front and queued for a slot at ~2 GB each).
 ``capacity`` (:func:`capacity`) is ``min(cores - reserved, memory slots)``:
 the memory the machine could hand out when the session started, less the
 headroom of :data:`BUDGET`, at :data:`BUDGET`'s per-worker estimate,
-sampled ONCE per session.  What is LIVE is the memory-pressure gate
-(:func:`memory_admits`): before a new slot is granted free memory is read
-again, and below the headroom nothing new starts until it recovers —
-unless the session holds no slot at all (one process always runs).  A
-process that finds no session (a command-line tile, the harness) opens its
-own with the same rule.
+sampled ONCE per session.  What is LIVE is the memory gate
+(:func:`memory_admits`, :func:`machine_verdict`): before a new slot is
+granted it asks the MACHINE MEMORY LEDGER (``O4_Machine_Memory``), which
+every engine session of the machine shares — free memory less what other
+builds' admitted work has still to grow into, X-Plane and the app's room —
+and each grant reserves its memory there (``worker_gb`` a slot, or the
+step's own estimate) until it is released.  Below the headroom nothing new
+starts until it recovers — unless the session holds no slot at all and the
+ledger's progress rule lets it run one.  A process that finds no session
+(a command-line tile, the harness) opens its own with the same rule.
 
 :func:`lower_priority` runs the engine below the user's applications (nice
 10 / Windows below-normal, inherited by every child).  Workers run at
@@ -81,6 +85,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+import O4_Machine_Memory as _MEM
 import O4_Parallel_Utils as _PU
 
 if sys.platform == "win32":                # module level: a freezer sees it
@@ -91,7 +96,8 @@ else:
 __all__ = ["BUDGET", "CLASS_WAIT_S", "DEMAND_TTL_S", "ENV_DIR", "ENV_CAPACITY",
            "ENV_UNGATED", "Held", "capacity", "headroom_gigabytes", "carry_net_priority",
            "ensure_session", "has_net_priority", "hold_class", "lend",
-           "background_priority", "lower_priority", "memory_admits", "net_class",
+           "background_priority", "lower_priority", "machine_verdict",
+           "memory_admits", "net_class", "note_memory_wait",
            "net_priority", "session_capacity",
            "step", "take_class", "try_take", "try_take_class", "take"]
 
@@ -158,17 +164,24 @@ def headroom_gigabytes(budget: dict = BUDGET) -> float:
 
 
 def memory_admits(budget: dict = BUDGET, need_gb: "float | None" = None) -> bool:
-    """THE LIVE GATE: may one more heavy process start now?  Free memory
-    is read afresh (``O4_Parallel_Utils`` caches it two seconds) and must
-    keep the headroom after one more process of ``need_gb`` (default: one
-    worker's estimate) — always yes in a session that set
-    :data:`ENV_UNGATED`.  The tile scheduler asks it with a step's own
-    projected peak before it starts a heavy step (#2083)."""
+    """THE LIVE GATE: may one more heavy process of ``need_gb`` (default:
+    one worker's estimate) start now?  :func:`machine_verdict`'s answer."""
+    return machine_verdict(need_gb, budget=budget).ok
+
+
+def machine_verdict(need_gb: "float | None" = None, *, idle: bool = False,
+                    budget: dict = BUDGET) -> "_MEM.Verdict":
+    """The machine memory ledger's answer (``O4_Machine_Memory.admits``)
+    for ``need_gb`` more, keeping this machine's headroom: free memory
+    (``O4_Parallel_Utils`` caches it two seconds) less every build's
+    outstanding reservations, X-Plane's and the app's room.  ``idle``: the
+    caller holds nothing (the ledger's progress rule).  Always yes in a
+    session that set :data:`ENV_UNGATED`.  The tile scheduler asks it with
+    a step's own projected peak before it starts a step (#2083)."""
     if os.environ.get(ENV_UNGATED):
-        return True
+        return _MEM.Verdict(ok=True)
     need = budget["worker_gb"] if need_gb is None else float(need_gb)
-    return (_PU.machine_available_memory_gigabytes() - need
-            >= headroom_gigabytes(budget))
+    return _MEM.admits(need, headroom_gigabytes(budget), idle=idle)
 
 
 def _measured_capacity() -> int:
@@ -200,6 +213,7 @@ def ensure_session() -> tuple[str, int]:
             cap = _measured_capacity()
         path = tempfile.mkdtemp(prefix="o4-slots-")
         atexit.register(shutil.rmtree, path, True)
+        _MEM.session_id()              # the ledger's session: this one
         os.environ[ENV_CAPACITY] = str(cap)
         os.environ[ENV_DIR] = path
         return path, cap
@@ -218,11 +232,15 @@ def session_capacity() -> int:
 
 
 class Held:
-    """Slots this process holds; :meth:`release` (or the context exit, or
-    the process's exit) gives them back."""
+    """Slots this process holds, and the memory they reserved on the
+    machine ledger (``gb`` a slot); :meth:`release` (or the context exit,
+    or the process's exit) gives both back."""
 
-    def __init__(self, fds: list) -> None:
+    def __init__(self, fds: list, gb: float = 0.0,
+                 reservation: "_MEM.Reservation | None" = None) -> None:
         self._fds = list(fds)
+        self.gb = float(gb)
+        self._reservation = reservation
 
     @property
     def count(self) -> int:
@@ -230,8 +248,11 @@ class Held:
 
     def release(self) -> None:
         fds, self._fds = self._fds, []
+        reservation, self._reservation = self._reservation, None
         for fd in fds:
             _unlock(fd)
+        if reservation is not None:
+            reservation.release()
 
     def __enter__(self) -> "Held":
         return self
@@ -277,17 +298,30 @@ def _unlock(fd) -> None:
         pass
 
 
-def try_take(n: int) -> Held:
-    """Up to ``n`` free slots, at once and never waiting (possibly none).
+def try_take(n: int, gb: "float | None" = None, what: str = "") -> Held:
+    """Up to ``n`` free slots, at once and never waiting (possibly none),
+    each reserving ``gb`` (default ``worker_gb``; 0: no memory gate, the
+    caller's parent reserved it) on the machine ledger.
 
-    Under memory pressure (:func:`memory_admits` false) nothing is granted
-    — except one slot when the whole session holds none, so the build
-    always progresses."""
+    As many are granted as the ledger has room for (:func:`machine_verdict`);
+    with no room nothing is granted — except one slot when the whole
+    session holds none and the ledger's progress rule lets it run."""
     path, cap = ensure_session()
     if n <= 0:
         return Held([])
-    pressed = not memory_admits()
-    want = cap if pressed else n           # pressed: count the free ones
+    per = BUDGET["worker_gb"] if gb is None else max(0.0, float(gb))
+    if per <= 0.0 or os.environ.get(ENV_UNGATED):
+        return _take_free(path, cap, n, per, what)
+    with _MEM.admission():                 # read and reserve as one
+        return _take_free(path, cap, n, per, what)
+
+
+def _take_free(path: str, cap: int, n: int, per: float, what: str) -> Held:
+    """:func:`try_take`'s body: the free slots the ledger has room for."""
+    want = _memory_fit(n, per)
+    pressed = want == 0
+    if pressed:
+        want = cap                         # pressed: count the free ones
     fds: list = []
     start = os.getpid() % cap              # spread the scans
     for k in range(cap):
@@ -297,24 +331,46 @@ def try_take(n: int) -> Held:
         if fd is not None:
             fds.append(fd)
     if pressed:
-        keep = 1 if len(fds) == cap else 0  # the session is idle: one runs
+        idle = len(fds) == cap             # the session holds none
+        keep = 1 if idle and machine_verdict(per, idle=True).ok else 0
         for fd in fds[keep:]:
             _unlock(fd)
         fds = fds[:keep]
-    return Held(fds)
+    return _held(fds, per, what)
+
+
+def _memory_fit(n: int, per: float) -> int:
+    """How many of ``n`` slots of ``per`` GB the machine ledger has room
+    for now (``n`` when ``per`` is 0 or the session is ungated)."""
+    if per <= 0.0 or os.environ.get(ENV_UNGATED):
+        return n
+    verdict = machine_verdict(per)
+    if not verdict.ok:
+        return 0
+    return max(1, min(n, 1 + int(verdict.spare_gb // per)))
+
+
+def _held(fds: list, per: float, what: str) -> Held:
+    """``fds`` as a :class:`Held` with their ledger reservation."""
+    if not fds or per <= 0.0 or os.environ.get(ENV_UNGATED):
+        return Held(fds, per)
+    label = what or "%d worker%s" % (len(fds), "s" if len(fds) > 1 else "")
+    return Held(fds, per, _MEM.reserve(per * len(fds), label))
 
 
 def take(n: int = 1, *, poll_s: float = POLL_S, on_wait=None,
-         give_up=None) -> Held:
-    """``min(n, capacity)`` slots, waiting until they are free — the queue
-    of every heavy process beyond the budget.  A partial take is given back
-    before the next attempt (two waiters never hold half each).
-    ``on_wait()`` is called once, when the first attempt finds no room;
-    ``give_up()`` true (a cancel) ends the wait with nothing held."""
+         give_up=None, gb: "float | None" = None, what: str = "") -> Held:
+    """``min(n, capacity)`` slots of ``gb`` each (:func:`try_take`), waiting
+    until they are free — the queue of every heavy process beyond the
+    budget.  A partial take is given back before the next attempt (two
+    waiters never hold half each).  ``on_wait()`` is called once, when the
+    first attempt finds no room; a wait for memory is also logged with who
+    holds it (``O4_Machine_Memory.note_wait``); ``give_up()`` true (a
+    cancel) ends the wait with nothing held."""
     want = max(1, min(int(n), session_capacity()))
     said = False
     while True:
-        held = try_take(want)
+        held = try_take(want, gb, what)
         if held.count >= want:
             return held
         held.release()
@@ -323,7 +379,18 @@ def take(n: int = 1, *, poll_s: float = POLL_S, on_wait=None,
         if not said and on_wait is not None:
             said = True
             on_wait()
+        note_memory_wait(want, gb, what)
         time.sleep(poll_s)
+
+
+def note_memory_wait(n: int, gb: "float | None", what: str) -> None:
+    """Log (and, for the app, mark) a wait the machine ledger causes."""
+    per = BUDGET["worker_gb"] if gb is None else max(0.0, float(gb))
+    if per <= 0.0 or os.environ.get(ENV_UNGATED):
+        return
+    verdict = machine_verdict(per * n)
+    if not verdict.ok:
+        _MEM.note_wait(what or "a build process", verdict, per * n)
 
 
 #: the slot this process's current heavy step holds (:func:`step`)
@@ -331,13 +398,17 @@ _STEP: list = []
 
 
 @contextlib.contextmanager
-def step(*, on_wait=None, give_up=None):
+def step(*, on_wait=None, give_up=None, gb: "float | None" = None,
+         what: str = ""):
     """Hold ONE slot for this process's heavy step (nested: the outer one
-    covers it).  The process waits here, light, until the slot is free."""
+    covers it), reserving ``gb`` (default ``worker_gb``; 0 when a parallel
+    run's parent reserved the step) on the machine ledger.  The process
+    waits here, light, until the slot and the memory are free."""
     if _STEP:
         yield _STEP[0]
         return
-    held = take(1, on_wait=on_wait, give_up=give_up)
+    held = take(1, on_wait=on_wait, give_up=give_up, gb=gb,
+                what=what or "this step")
     _STEP.append(held)
     try:
         yield held
@@ -360,8 +431,9 @@ def lend():
     try:
         yield
     finally:
-        again = take(1)
+        again = take(1, gb=held.gb, what="this step")
         held._fds, again._fds = again._fds, []     # the step owns it again
+        held._reservation, again._reservation = again._reservation, None
 
 
 #: the longest a :func:`take_class` waits before it goes on without a slot

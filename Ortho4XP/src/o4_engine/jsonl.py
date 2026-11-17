@@ -65,6 +65,7 @@ from typing import Any, Callable, Dict, Optional, TextIO
 
 import O4_Console_Encoding
 import O4_Edit_Cache as EDITCACHE
+import O4_Machine_Memory
 import O4_Machine_Slots
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
@@ -778,6 +779,11 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             # Below the user's applications, inherited by every tile,
             # airport and pool process this engine starts (#1225).
             O4_Machine_Slots.lower_priority()
+            # The machine memory ledger knows this engine as the app's: a
+            # lane or command-line build on the machine yields to it
+            # (inherited by its workers; a harness that started this engine
+            # already claimed ``lane``, which stands).
+            O4_Machine_Memory.claim("app")
             # The global cfg's one-time migrations run BEFORE the hello:
             # the Mac app re-reads the global cfg on the hello, so it never
             # shows pre-migration values (1.0.480: Detail "Custom").

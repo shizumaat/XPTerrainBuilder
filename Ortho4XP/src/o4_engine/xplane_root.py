@@ -15,10 +15,11 @@ __all__ = ["xplane_root_for", "xplane_root_of", "xplane_running"]
 def xplane_running() -> bool:
     """Is an X-Plane process running on this machine (best effort: macOS
     and Linux process names; ``False`` where it cannot tell)?"""
+    import O4_Machine_Memory as MEMORY
     import O4_UI_Utils as UI
     if sys.platform == "win32":
         return False
-    for name in ("X-Plane", "X-Plane-x86_64", "X-Plane-arm64"):
+    for name in sorted(MEMORY.XPLANE_NAMES):
         with contextlib.suppress(OSError):
             done = subprocess.run(["pgrep", "-x", name], capture_output=True,
                                   check=False,

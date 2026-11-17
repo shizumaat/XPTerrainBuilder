@@ -811,6 +811,19 @@ def _recall_from_tier(tile) -> None:
         print("storage tier recall failed: %r" % (error,))
 
 
+def _step_reservation_gigabytes(key, tile):
+    """What this process's step reserves on the machine memory ledger:
+    nothing in a parallel run's worker (its parent reserved the step when
+    it admitted it), else the step's default projection
+    (``parallel.step_reservation_gigabytes``)."""
+    import O4_Machine_Memory as MEMORY
+    if os.environ.get(MEMORY.ENV_STEP_RESERVED):
+        return 0.0
+    from . import parallel
+    return parallel.step_reservation_gigabytes(
+        key, getattr(tile, "elevation_level", None))
+
+
 class EngineSession:
     """One engine, many views: commands in, typed events out."""
 
@@ -1261,7 +1274,9 @@ class EngineSession:
             # ONE machine slot for this process's step (#1225): a tile
             # waits here, light, while the session's budget is in use;
             # the vector step lends it back while its airports build.
-            with SLOTS.step(give_up=lambda: UI.red_flag):
+            with SLOTS.step(give_up=lambda: UI.red_flag,
+                            gb=_step_reservation_gigabytes(key, tile),
+                            what="tile %s step" % key):
                 return self._run_step_body(function, key, tile, plan)
         finally:
             UI.is_working = False

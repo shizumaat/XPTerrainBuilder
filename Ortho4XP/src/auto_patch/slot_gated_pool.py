@@ -58,6 +58,9 @@ def run(tasks, *, width: int, start, on_done, teardown, on_tick=None,
                                    return_when=_cf.FIRST_COMPLETED)
             else:
                 done = ()
+                # Nothing of this run can start: say who holds the memory
+                # (the machine ledger; logged when its holders change).
+                _SLOTS.note_memory_wait(1, None, "an airport build")
                 time.sleep(poll_s)
             if on_tick is not None:
                 on_tick()

@@ -243,6 +243,23 @@ def machine_available_memory_gigabytes() -> float:
     return float(probed)
 
 
+def machine_memory_pressure() -> str:
+    """The kernel's memory pressure now: ``normal``, ``warn`` or
+    ``critical`` (macOS ``kern.memorystatus_vm_pressure_level`` 1/2/4, the
+    level Activity Monitor's pressure graph colours by); ``normal`` where
+    the platform does not say.  The machine memory ledger
+    (``O4_Machine_Memory``) pauses the lowest-priority builds on it."""
+    if "dar" not in sys.platform:
+        return "normal"
+    try:
+        import ctypes
+        level = _darwin_sysctl_int("kern.memorystatus_vm_pressure_level",
+                                   ctypes.c_int)
+    except Exception:
+        return "normal"
+    return {2: "warn", 4: "critical"}.get(level or 1, "normal")
+
+
 # Set by the parallel-build scheduler in every worker child's
 # environment (and refreshed by the "siblings" broadcast as tiles
 # finish): how many sibling tiles are building at once.  Since the

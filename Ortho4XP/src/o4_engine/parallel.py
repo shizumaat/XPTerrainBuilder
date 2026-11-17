@@ -68,6 +68,7 @@ from typing import Optional
 import O4_Console_Encoding
 import O4_Edit_Cache as EDITCACHE
 import O4_File_Names as FNAMES
+import O4_Machine_Memory as MEMORY
 import O4_Machine_Slots
 import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
@@ -467,6 +468,22 @@ STEP_MEMORY_ESTIMATES_GB = {
 }
 
 
+def step_reservation_gigabytes(step_key, elevation_level_value=None):
+    """What one step with no record reserves on the machine memory ledger
+    when it runs outside a parallel run's scheduler (a single in-process
+    tile, the harness): the scheduler's default projection for the step
+    (``step_memory.ledger_gigabytes``).  ``elevation_level_value`` sizes
+    the mesh step; unknown steps reserve nothing."""
+    if step_key == "mesh":
+        default = mesh_memory_estimate_gigabytes(elevation_level_value)
+    elif step_key == "vector":
+        default = step_memory.VECTOR_AIRPORT_DEFAULT_GB
+    else:
+        default = STEP_MEMORY_ESTIMATES_GB.get(step_key, 0.0)
+    return step_memory.ledger_gigabytes(
+        step_key, step_memory.charged_gigabytes(step_key, default))
+
+
 def step_memory_budget_gigabytes(run_resident_gb=0.0):
     """Gigabytes a run may PROJECT onto its concurrently admitted steps.
 
@@ -806,6 +823,9 @@ class _WorkerChild:
             # (jsonl owns_process mode), so a front end that dies without
             # collapsing the stdin pipe still takes its workers with it.
             child_environment["O4_PARENT_PROCESS_ID"] = str(os.getpid())
+            # This run reserves each step it starts on the machine memory
+            # ledger; the child's own step slot reserves nothing more.
+            child_environment[MEMORY.ENV_STEP_RESERVED] = "1"
             # The child lists its tiles' edit caches in THIS front end's
             # session and never clears it (O4_Edit_Cache, #1323).
             child_environment[EDITCACHE.LIST_ENV] = EDITCACHE.begin_session()
@@ -1024,6 +1044,9 @@ class ParallelBuildRun:
             else mesh_memory_budget_gigabytes())
         self._memory_in_use = 0.0
         self._memory_holders: dict = {}   # (tile, step) -> gigabytes
+        # the machine ledger's record of each running step (its child's
+        # process tree grows into it): (tile, step) -> Reservation
+        self._ledger_holds: dict = {}
         # #2083: each tile's recorded per-step peaks and the airports its
         # history plans, read at admission (step_memory.projected_gigabytes)
         self._recorded_peaks: dict = {}   # tile -> {step: gigabytes}
@@ -1535,6 +1558,16 @@ class ParallelBuildRun:
         slots against live memory one worker at a time
         (``O4_Machine_Slots.try_take``), so starting it shares the machine
         instead of waiting on another application without bound.
+
+        THE MACHINE LEDGER (incident 2026-11-17): the live check is the
+        machine memory ledger's (``O4_Machine_Slots.machine_verdict``) —
+        free memory less what every build on the machine (other app
+        sessions, the harness, command-line runs, this run) has admitted
+        and not yet grown into, X-Plane's room and, for a lane, the app's.
+        It holds every step, the run's first one too, when other builds,
+        X-Plane or the pressure stand in its way (``contended``); free
+        memory alone holds only the heavy ones, as before.  An admitted
+        step reserves its memory there (:meth:`_try_start_step_locked`).
         """
         estimate = self._step_memory_charge(tile, step_key)
         if estimate <= 0.0:
@@ -1551,21 +1584,27 @@ class ParallelBuildRun:
                     behind="%s %s step" % (_short_latlon(reserved[0][0]),
                                            reserved[0][1]))
                 return False
-        if not self._memory_holders:
+        idle = not self._memory_holders
+        machine = O4_Machine_Slots.machine_verdict(estimate, idle=idle)
+        held = not machine.ok and (
+            machine.contended or step_key in step_memory.LIVE_CHECKED_STEPS)
+        if idle and not held:
             return True
-        live = step_key in step_memory.LIVE_CHECKED_STEPS
-        if self._memory_in_use + estimate > self._memory_budget:
+        if not idle and self._memory_in_use + estimate > self._memory_budget:
             reason = REASON_RUN
-        elif live and not O4_Machine_Slots.memory_admits(need_gb=estimate):
+        elif held:
             reason = REASON_MACHINE
-            if (reserved is not None and reserved[0] == key
+            if (not machine.contended and reserved is not None
+                    and reserved[0] == key
                     and self._only_waiting_work_locked(key)):
                 return True
         else:
             return True
         # Every refused step is held and shown (a tile must never look
         # stalled): the first refusal prints, the row gets a MemoryWait.
-        self._hold_for_memory_locked(key, estimate, reason)
+        self._hold_for_memory_locked(
+            key, estimate, reason,
+            machine=machine if reason == REASON_MACHINE else None)
         return False
 
     #: how long one reading of the disk's free space serves the gate
@@ -1593,6 +1632,19 @@ class ParallelBuildRun:
         self._disk_waits[key] = (free, floor)
         return False
 
+    def _reserve_on_ledger_locked(self, child, step_key, charged):
+        """Reserve a started step's memory on the machine ledger, covering
+        its child's process tree (the child itself reserves nothing for
+        the step: ``O4_Machine_Memory.ENV_STEP_RESERVED``).  Not in an
+        ungated session (the suite's scheduling tests)."""
+        if os.environ.get(O4_Machine_Slots.ENV_UNGATED):
+            return
+        process = getattr(child, "process", None)
+        self._ledger_holds[(child.tile, step_key)] = MEMORY.reserve(
+            step_memory.ledger_gigabytes(step_key, charged),
+            "%s %s step" % (_short_latlon(child.tile), step_key),
+            pid=getattr(process, "pid", None))
+
     def _memory_fits_locked(self, gigabytes, live):
         """Would ``gigabytes`` more fit the budget sum (and, ``live``, the
         machine's free memory above the headroom) now?"""
@@ -1600,13 +1652,29 @@ class ParallelBuildRun:
             return False
         return not live or O4_Machine_Slots.memory_admits(need_gb=gigabytes)
 
-    def _hold_for_memory_locked(self, key, estimate, reason, behind=""):
+    def _hold_for_memory_locked(self, key, estimate, reason, behind="",
+                                machine=None):
         """Record a refused heavy step (FIFO) and log its first refusal
         with what holds it: the reserving step, the run's budget, or the
-        machine."""
+        machine — then, for the machine, who holds its memory (the
+        ledger's ``note_wait``: logged when the holders change; an app
+        run's wait also asks the lanes to leave it room)."""
         import O4_Parallel_Utils as PARALLEL_UTILS
 
         free = PARALLEL_UTILS.machine_available_memory_gigabytes()
+        if machine is not None:
+            # The ledger logs the wait, and again when its holders change.
+            MEMORY.note_wait("tile %s's %s step" % (_short_latlon(key[0]),
+                                                     key[1]),
+                             machine, estimate)
+            # The row names the holders when other builds, X-Plane or the
+            # pressure are part of it; else it says what frees memory.
+            self._memory_waits.note(
+                key, estimate, free, reason,
+                MEMORY.holders_text(MEMORY.snapshot())
+                if machine.contended else "",
+                self._memory_in_use, self._memory_budget)
+            return
         if behind:
             cause = "behind %s" % behind
         elif reason == REASON_RUN:
@@ -1806,6 +1874,13 @@ class ParallelBuildRun:
             return False
         if not self._disk_admits_locked(child.tile, step_key):
             return False
+        # One machine-wide admission: the ledger is read and the step's
+        # reservation written with no other build admitting in between.
+        with MEMORY.admission():
+            return self._admit_and_start_locked(child, step_key, step_class)
+
+    def _admit_and_start_locked(self, child, step_key, step_class):
+        """:meth:`_try_start_step_locked` past its class and disk checks."""
         if not self._memory_admits_locked(child.tile, step_key):
             return False
         arguments = dict(self._tile_arguments[child.tile],
@@ -1835,6 +1910,7 @@ class ParallelBuildRun:
             if estimate > 0.0:
                 self._memory_holders[(child.tile, step_key)] = estimate
                 self._memory_in_use += estimate
+                self._reserve_on_ledger_locked(child, step_key, estimate)
             return True
         return False
 
@@ -1989,6 +2065,9 @@ class ParallelBuildRun:
         held = self._memory_holders.pop((child.tile, step_key), None)
         if held is not None:
             self._memory_in_use = max(0.0, self._memory_in_use - held)
+        reservation = self._ledger_holds.pop((child.tile, step_key), None)
+        if reservation is not None:
+            reservation.release()
         child.running_step = None
 
     def _start_new_tile_locked(self, child):

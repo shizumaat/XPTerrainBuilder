@@ -22,10 +22,14 @@ two linked cars, grown by ``car_half_m`` (the car) plus ``margin_m`` (16p
 standing and every building; the parts that hold a counted car.
 Role ``parking_lot`` (the lot law, 5 %), ref ``carlot:<k>``; a LATE cell
 (``model.planar.is_late_ref``) like the §52 facade lot, so the cells
-standing are what they were.  It keeps every pad's set-back, as the facade
-lot does (a lot welded to a pad's rim moved the pad and its apron: KBNA
-replay, pads 1.28 m, apron 0.46 m — airside is king); touching a road it
-shares the road's edge and is graded with it.
+standing are what they were.  It stands OFF every cell standing by the
+§52 stand-off (``edge_line_mint.standing_keep_off``, the fence yard's):
+it shares no vertex with a pad, a road or another lot.  MEASURED (KBNA
+replay vs the test-550 control): welded by the touch witness, 716 nodes
+of existing cells moved > 0.1 m (pads 1.28 m, apron 0.46 m); off the
+pads' set-back only, 698 (apron 0.34 m); stood off, 198 and no airside
+node (roads still move through the §37 (10) reach contact, whose
+``[road_contact] extra_roles`` reads a lot within 15 m of a road end).
 
 Read once, after every other cell is minted (``classify/roles``)."""
 from __future__ import annotations
@@ -40,8 +44,9 @@ from shapely.ops import unary_union
 
 from ..airport.facade import is_parked_car
 from ..law import Law
-from ..law.tables import LOT_ROLES, road_family_roles, snap_margin_m
+from ..law.tables import LOT_ROLES, road_family_roles
 from ..model.planar import CAR_LOT_PREFIX
+from .edge_line_mint import standing_keep_off
 from .evidence import polygon_parts
 from .rules import Rules
 
@@ -145,11 +150,7 @@ def _lot_plan(airport, cells: _t.Sequence, law: Law, rules: Rules
     # pad's rim puts the pad's columns in the lot's rows, and the pad and the
     # apron it stands on move (MEASURED KBNA replay, welded by the touch
     # witness: 123 pad nodes up to 1.28 m, apron nodes 0.46 m)
-    knife_m = float(law.tables.structures.building_pad.groundside_cutback_m) \
-        + snap_margin_m(law)
-    held = unary_union([p for _c, p in polys] + [_structures(airport)]
-                       + [p.buffer(knife_m, join_style="mitre", mitre_limit=2.0)
-                          for c, p in polys if c.role == "building"])
+    held = unary_union([standing_keep_off(cells, law), _structures(airport)])
     ground = shapely.set_precision(core.difference(held), rules.cells.snap_grid_m)
     pts = shapely.points(free[counted])
     out = []

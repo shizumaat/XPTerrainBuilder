@@ -83,14 +83,14 @@ def test_cars_on_an_apron_along_a_road_raised_or_in_a_building_count_for_nothing
     assert stats["cars_held"] == 8 and stats["cars_along_road"] == 4 and stats["cars_raised"] == 8
 
 
-def test_the_lot_takes_only_free_ground_shares_a_road_edge_and_keeps_off_a_pad():
+def test_the_lot_takes_only_free_ground_and_stands_off_what_stands():
     pad = _cell(0, "building", _box(-20.0, 4.0, 40.0, 30.0), side="airside")
     road = _cell(1, "service_road", _box(-20.0, -14.0, 40.0, -4.5))
     plan, _s = _plan(_row(0, 0.0, 0.0, 5), [pad, road])
     part, _n = plan[0]
     assert part.intersection(Polygon(pad.ring)).area < 1e-6
     assert part.distance(Polygon(pad.ring)) > 0.5               # the pad's set-back
-    assert part.distance(Polygon(road.ring)) < 1e-6             # shares the road's edge
+    assert part.distance(Polygon(road.ring)) > 0.5              # the stand-off
 
 
 def test_the_mint_spells_a_late_lot():

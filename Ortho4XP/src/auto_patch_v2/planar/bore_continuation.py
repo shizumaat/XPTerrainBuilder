@@ -14,8 +14,17 @@ back down again.  Measured at EDDF: rail ``-27364`` continuing as
 and KCLT ``-6954`` running into ``-8739`` 19 m on.  Each built a full ramp
 along the tunnel ahead.
 
+Nor is it one where the road goes on ELEVATED (#2116): a mapped bridge way
+leaves the bore's end node — the "tunnel" is a passage through a building
+at deck level, and the road never was in the ground.  Measured at KDEN: the
+arrivals and commercial lanes run from layer-1 bridges through layer -1 /
+-2 ways under the terminal and out onto layer-1 bridges again; the bore
+-16126+-21557+-3702 opened a 0.67 m mouth at its junction with bridge
+-3706 and cut a tunnel ramp under that road's deck posts.
+
 :func:`tunnel_ends` indexes the tunnel ways' ends once per pass;
-:func:`continues_underground` names why an end is no portal (or ``None``).
+:func:`continues_underground` names why an end is no portal (or ``None``);
+:func:`bridge_ends` / :func:`continues_on_deck` the elevated case.
 """
 from __future__ import annotations
 
@@ -27,9 +36,10 @@ from shapely.geometry import LineString
 from ..law import Law
 from ..model.airport import OsmWay
 from ..model.frame import XY
-from .structure_approach import _key, is_tunnel, unit
+from .structure_approach import _key, is_bridge, is_tunnel, unit
 
-__all__ = ["tunnel_ends", "continues_underground", "walked_m"]
+__all__ = ["tunnel_ends", "continues_underground", "walked_m", "bridge_ends",
+           "continues_on_deck"]
 
 
 def tunnel_ends(osm: _t.Sequence[OsmWay], admitted: _t.Sequence[str]
@@ -99,4 +109,34 @@ def continues_underground(bore, inward: XY, path: _t.Sequence[XY], ends, law: La
             return (f"bore {ids}: its end is no portal — the road goes on underground as "
                     f"tunnel way {w.id} {walked:.0f} m out (under the shortest lawful ramp "
                     f"{tn.mouth_depth_m / tn.ramp_max_grade:.0f} m; #1028)")
+    return None
+
+
+def bridge_ends(osm: _t.Sequence[OsmWay], admitted: _t.Sequence[str]
+                ) -> dict[tuple[int, int], list[OsmWay]]:
+    """The mapped bridge ways (``structure_approach.is_bridge``, no tunnel)
+    of a highway or railway, by the node key of each of their two ends."""
+    out: dict[tuple[int, int], list[OsmWay]] = {}
+    for w in osm:
+        t = w.tags or {}
+        if len(w.points) < 2 or ("highway" not in t and "railway" not in t) \
+                or is_tunnel(w, admitted) or not is_bridge(w):
+            continue
+        for p in (w.points[0], w.points[-1]):
+            out.setdefault(_key(p), []).append(w)
+    return out
+
+
+def continues_on_deck(bore, end: XY, ends) -> str | None:
+    """Why the bore end at ``end`` is NO PORTAL because the road goes on
+    ELEVATED (module doc): a mapped bridge way (:func:`bridge_ends`) leaves
+    that node.  ``None`` otherwise."""
+    own = {id(w) for w in bore.ways}
+    for w in ends.get(_key(end), ()):
+        if id(w) in own:
+            continue
+        ids = "+".join(str(x.id) for x in bore.ways)
+        return (f"bore {ids}: its end is no portal — the road goes on elevated as bridge "
+                f"way {w.id} (layer {(w.tags or {}).get('layer', '0')}): a passage at deck "
+                "level, no cut (#2116)")
     return None

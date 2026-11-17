@@ -79,6 +79,9 @@ def agp_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: fl
                            for g in _near(ribbons)])
     out: list[tuple[str, _t.Any]] = []
     claimed = None
+    # a bank never takes another plate's ground (#2116 R2 C1b: a gap plate
+    # touches the plates it joins)
+    every = shapely.union_all([poly for _g, _p, poly in plates])
     for gid, p, poly in plates:
         base = f"{AGP_GROUND_PREFIX}{gid}:{p.member}"
         width, rise = wid[id(p)]
@@ -87,7 +90,7 @@ def agp_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: fl
                 if notes is not None:
                     notes.append(f"agp_plate_on_pad: {base}:plate {p.k} L {p.level:.2f} over "
                                  f"{ref} ({pad.intersection(poly).area:.0f} m²)")
-        bank = poly.buffer(width, join_style="mitre", mitre_limit=2.0).difference(poly)
+        bank = poly.buffer(width, join_style="mitre", mitre_limit=2.0).difference(every)
         if not rib.is_empty and bank.intersects(rib):
             gap = float(poly.exterior.distance(rib))
             if notes is not None and gap < width:

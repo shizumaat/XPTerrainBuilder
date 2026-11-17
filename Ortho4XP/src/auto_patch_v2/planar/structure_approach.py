@@ -846,8 +846,14 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
         on_field.not_terrain = []
     out: list[Mouth] = []
     dropped: list[tuple[str, XY, float]] = []
-    from .bore_continuation import continues_underground, tunnel_ends
+    from .bore_continuation import (
+        bridge_ends,
+        continues_on_deck,
+        continues_underground,
+        tunnel_ends,
+    )
     t_ends = tunnel_ends(osm, law.tables.structures.tunnel.admitted_values)
+    d_ends = bridge_ends(osm, law.tables.structures.tunnel.admitted_values)
     no_portal: list[str] = []
     under_ends: set[tuple[int, int]] = set()      # 2026-11-16h: (id(bore), end) going on below
     if on_field is not None:
@@ -872,8 +878,9 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
                             law.tables.structures.tunnel.admitted_values,
                             law.tables.structures.tunnel.approach_turn_max_deg)
             m = Mouth(b, end, inward, width, path, wids)
-            why = None if _at_deck(on_field, end, law) else \
-                continues_underground(b, inward, path, t_ends, law, reach_m)
+            why = continues_on_deck(b, end, d_ends) or (
+                None if _at_deck(on_field, end, law) else
+                continues_underground(b, inward, path, t_ends, law, reach_m))
             if why is not None:
                 no_portal.append(why)
                 under_ends.add((id(b), k))

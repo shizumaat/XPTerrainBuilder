@@ -64,9 +64,9 @@ def pit_bank_pieces(floors: _t.Sequence, airport, taken: _t.Sequence, apart: _t.
                     ) -> list[tuple[str, _t.Any]]:
     """``(ref, polygon)`` per pit-bank piece (module doc): ``taken`` the
     zone bands (welded), ``apart`` every other cell / ribbon / keep-out
-    (stood off by ``cut_m``; those inside a banked floor's void band are
-    its own), ``airside`` the airside cells, ``ribbons`` the road ribbons
-    (a bank they cut is listed)."""
+    (stood off by ``cut_m``), ``airside`` the airside cells, ``ribbons``
+    the road ribbons (a bank they cut is listed); any of them inside a
+    banked floor's void band is the pit's own and is met, not stood off."""
     from ..airport.dem import dem_z_many
     banked = banked_floors(floors)
     if not banked:
@@ -75,8 +75,19 @@ def pit_bank_pieces(floors: _t.Sequence, airport, taken: _t.Sequence, apart: _t.
     band, step = 0.5 * float(ob.wall_face_max_thickness_m), float(ob.wall_sample_m)
     outer = {f.id: f.footprint.buffer(band, join_style="mitre") for f in banked}
     own = shapely.union_all(list(outer.values()))
-    mine = shapely.prepared.prep(own.buffer(0.5))
-    apart = [g for g in apart if g is not None and not g.is_empty and not mine.contains(g)]
+    mine = shapely.prepared.prep(own)
+
+    def _not_own(gs) -> list:
+        # inside a banked pit's void band everything is the pit's own (its
+        # trench faces are airside; its keep-out, a frame's claim) and the
+        # bank meets it; only what stands outside the band is stood off
+        out = []
+        for g in gs:
+            if g is None or g.is_empty or not mine.intersects(g):
+                out.append(g)
+            elif not (rest := _areal(g.difference(own))).is_empty:
+                out.append(rest)
+        return out
     plan = []
     for f in banked:
         T = np.asarray(f.rim_tops, float)
@@ -89,7 +100,8 @@ def pit_bank_pieces(floors: _t.Sequence, airport, taken: _t.Sequence, apart: _t.
             axis = LineString(T[r, :2]) if len(r) > 1 else Point(T[r[0], :2])
             plan.append((f"{PIT_BANK_PREFIX}{f.id}:{k}", axis, w, float(rise)))
     reach = shapely.union_all([a.buffer(w) for _r, a, w, _z in plan])
-    knife, rib = knives(reach, taken, apart, airside, ribbons, cut_m, law)
+    knife, rib = knives(reach, _not_own(taken), _not_own(apart), _not_own(airside),
+                        _not_own(ribbons), cut_m, law)
     out: list[tuple[str, _t.Any]] = []
     claimed = own
     for base, axis, w, rise in plan:

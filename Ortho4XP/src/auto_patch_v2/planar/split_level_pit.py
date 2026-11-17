@@ -53,7 +53,8 @@ wall, under the building's own wall), and
   upper-footed run fronts within ``[building_pad]
   split_level_forecourt_reach_m``, clear of the lower walls' back cut, is
   the building's UPPER FORECOURT (``airport/split_level_forecourt``) with
-  the ground between it and the wall: on bare ground only, it is one more
+  the ground between it and the wall: on bare ground only, a ring apart
+  from every cell, it is one more
   void face of the pit (``<wall_ref>#court<j>``) whose bare vertices are
   held at the upper floor (``Basin.forecourt``, ``constraints/structures.
   basins``) -- flat, the apron's grade, never the survey a storey below;
@@ -130,7 +131,10 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     probe = float(bp.split_level_probe_m)
     court_reach = float(bp.split_level_forecourt_reach_m or 0.0)
     lots = [p for _i, p in parking_polys(airport)] if court_reach > 0.0 else []
-    cells_u = unary_union(list(polys)) if lots else None
+    # the forecourt stands a ring apart from every cell (``[cutout]
+    # ring_floor_m``): a pavement piece it would wrap keeps its own ground
+    # beside it, never a shared vertex the hold drags (#1934 R6)
+    cells_u = unary_union(list(polys)).buffer(band, join_style="mitre") if lots else None
     gside = frozenset(r for r in pr if role_side(law, r) == "groundside")
     roads_g = unary_union([p for p, c in zip(polys, cells, strict=True)
                            if c.role in gside]).buffer(0)

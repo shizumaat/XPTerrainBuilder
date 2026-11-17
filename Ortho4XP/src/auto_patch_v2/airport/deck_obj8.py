@@ -12,8 +12,9 @@ The object is three faces and the redrawn paint:
   plan, so the deck kind is the flag, never a plate);
 * the 1 m FASCIA round every ring (exterior and holes) and the UNDERSIDE,
   not hard;
-* each :class:`DeckLine` as a strip of quads ``width_m`` wide on the top,
-  under ``ATTR_poly_os 2`` so it never fights the concrete;
+* each :class:`DeckLine` as a strip of quads ``width_m`` wide standing
+  its ``lift_m`` over the top (never ``ATTR_poly_os``: an OBJ is not
+  draped, ``deck_objects._FILM_STEP_M``);
 * each :class:`DeckLight` as a ``LIGHT_NAMED`` a few cm above the top.
 
 FRAME.  OBJ8 is x east, y up, z SOUTH before the placement heading turns
@@ -439,7 +440,7 @@ def deck_obj8_text(ring: Polygon, top_y: _t.Callable[[float, float], float], *,
         body = [f"ATTR_LOD {lod_m[0]:g} {lod_m[1]:g}", hard, f"TRIS 0 {n_top}",
                 "ATTR_no_hard", f"TRIS {n_top} {n_solid - n_top}"]
         if n_paint:
-            body += ["ATTR_poly_os 2", f"TRIS {n_solid} {n_paint}", "ATTR_poly_os 0"]
+            body.append(f"TRIS {n_solid} {n_paint}")
         body += _light_rows(lights, top_y, light_lift_m)
         return _obj_text(m, header, body, comments)
     slab, rest = parts[0], parts[1:]
@@ -461,11 +462,11 @@ def deck_obj8_text(ring: Polygon, top_y: _t.Callable[[float, float], float], *,
     body = [f"ATTR_LOD {lod_m[0]:g} {near_lod_m:g}", hard, f"TRIS 0 {n_top}",
             "ATTR_no_hard", f"TRIS {n_top} {n_near - n_top}"]
     if n_paint:
-        body += ["ATTR_poly_os 2", f"TRIS {n_near + n_far} {n_paint}", "ATTR_poly_os 0"]
+        body.append(f"TRIS {n_near + n_far} {n_paint}")
     body += _light_rows(lights, top_y, light_lift_m)
     body += [f"ATTR_LOD {near_lod_m:g} {lod_m[1]:g}", "ATTR_no_hard", f"TRIS {n_near} {n_far}"]
     if n_paint:
-        body += ["ATTR_poly_os 2", f"TRIS {n_near + n_far} {n_paint}", "ATTR_poly_os 0"]
+        body.append(f"TRIS {n_near + n_far} {n_paint}")
     return _obj_text(m, header, body, comments)
 
 
@@ -476,21 +477,20 @@ def overlay_obj8_text(top_y: _t.Callable[[float, float], float], *, texture: str
                       light_lift_m: float = 0.05,
                       lod_m: tuple[float, float] = (0.0, 6000.0),
                       comments: _t.Sequence[str] = (),
-                      material: _t.Sequence[str] = (),
-                      poly_os: int = 2) -> str:
+                      material: _t.Sequence[str] = ()) -> str:
     """The OBJ8 text of a deck's OVERLAY (#2132): the painted ``lines``
     (``texture`` the ``deck_texture`` atlas) or the ``strips`` (one
     texture's film: the rubber, X-Plane's line art),
-    never hard, never casting a shadow, drawn over the slab under
-    ``ATTR_poly_os poly_os`` -- placed at the deck's own anchor, in its
-    frame.  ``material``: the header rows after ``TEXTURE`` (the page's
-    normal map, decal, ``WEATHER_TRANSPARENT``)."""
+    never hard, never casting a shadow, standing each strip's / line's
+    lift over the slab (no ``ATTR_poly_os``: an OBJ is not draped) --
+    placed at the deck's own anchor, in its frame.  ``material``: the
+    header rows after ``TEXTURE`` (the page's normal map)."""
     m = _Mesh()
     for st in strips:
         _strip(m, st, top_y)
     _paint(m, lines, top_y)
     body = [f"ATTR_LOD {lod_m[0]:g} {lod_m[1]:g}", "ATTR_no_hard"]
     if m.idx:
-        body += [f"ATTR_poly_os {poly_os}", f"TRIS 0 {len(m.idx)}", "ATTR_poly_os 0"]
+        body.append(f"TRIS 0 {len(m.idx)}")
     body += _light_rows(lights, top_y, light_lift_m)
     return _obj_text(m, [f"TEXTURE {texture}", *material, "GLOBAL_no_shadow"], body, comments)

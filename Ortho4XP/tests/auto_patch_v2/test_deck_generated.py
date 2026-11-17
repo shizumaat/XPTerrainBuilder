@@ -76,7 +76,7 @@ def test_paint_and_lights(tmp_path):
     lights = [DeckLight("taxi_g", 0.0, 5.0), DeckLight("taxi_g_rev", 0.0, 5.0)]
     _, text, g = _deck(tmp_path, lines=lines, lights=lights)
     rows = text.splitlines()
-    assert rows.index("ATTR_poly_os 2") > rows.index("ATTR_no_hard")
+    assert "ATTR_poly_os" not in text                  # solid film, no offset (1.0.555)
     lit = [r.split()[:2] + [float(t) for t in r.split()[2:]] for r in rows
            if r.startswith("LIGHT_NAMED")]
     assert [r[1] for r in lit] == ["taxi_g", "taxi_g_rev"]

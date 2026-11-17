@@ -169,7 +169,7 @@ def test_skinned_slab_tiles_in_metres(tmp_path):
     film = overlay_obj8_text(lambda x, z: 0.0, texture="r.dds",
                              strips=[DeckStrip(((0.0, -20.0), (0.0, 20.0)), 3.75, 3.75,
                                                (0.25, 0.5), 30.0, 0.01)])
-    assert "ATTR_poly_os 2" in film and "ATTR_hard_deck" not in film
+    assert "ATTR_poly_os" not in film and "ATTR_hard_deck" not in film   # solid film (1.0.555)
 
 
 def test_whole_cover_with_no_pavement_over_the_chain():

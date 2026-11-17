@@ -78,8 +78,8 @@ class DeckGenLaw:
     #: (``airport/deck_line_art``); unresolved -> the generated atlas
     line_lib: str = "lib/airport/lines/1_single_taxi.lin"
     #: the films over the top (m): the tire marks, then the paint over them
-    rubber_lift_m: float = 0.005
-    paint_lift_m: float = 0.012
+    rubber_lift_m: float = 0.02
+    paint_lift_m: float = 0.03
     #: #2132 THE STRUCTURE (spec 2132-design section 4; owner 2026-11-17
     #: "kerb only (0.30 x 0.40 m, side edges), no blast screen"),
     #: ``airport/deck_structure``: the slab's depth under the top (m) ...

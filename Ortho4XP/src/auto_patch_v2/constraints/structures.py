@@ -75,7 +75,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..law import Law
-from ..law.tables import is_rigid_role, pavement_roles
+from ..law.tables import family, is_rigid_role, pavement_roles, road_family_roles
 from ..model.airport import Airport
 from ..model.constraints import Band, Diff, Flat, Linear, Offset, Pin, Row, Source
 from ..model.frame import XY
@@ -927,6 +927,20 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 return True
         return False
 
+    # the lot pavement a forecourt holds with it (#1934 R6): the road family
+    # less the road cross-section, which keeps its own profile
+    lot_roles = frozenset(road_family_roles(law)) - frozenset(
+        family(law, "road_cross_section").roles)
+
+    def court_carried(v: int) -> bool:
+        """A forecourt vertex another face carries: a pad, a road, airside."""
+        for fid in vw.vertex_faces[v]:
+            f = planar.faces[fid]
+            if f.role not in structure_roles and f.role not in lot_roles \
+                    and vw.caps[fid] is not None:
+                return True
+        return False
+
     faces_by_ref: dict[str, list[Face]] = {}
     for f in planar.faces.values():
         faces_by_ref.setdefault(f.ref.split("#")[0], []).append(f)
@@ -962,12 +976,13 @@ def basins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if follow and depth > 1e-6 and floor_vs:
             shared = [v for v in follow if shared_with_ground(v)]
             held = [v for v in follow if not shared_with_ground(v)] if shared else []
-            # #1934 R6: the UPPER FORECOURT's bare ground stands at the
-            # upper floor too (flat, the apron grade law); where a road or
-            # a pad shares it, the shared ground carries it
+            # #1934 R6: the UPPER FORECOURT stands at the upper floor too
+            # (flat, the apron grade law), its bare ground and the lot
+            # pavement in it alike; where a road or a pad shares it, the
+            # shared ground carries it
             seen = set(held) | set(shared)
             held += [v for v in _court_rim(planar, rim_vs, b.forecourt)
-                     if v not in seen and not shared_with_ground(v)]
+                     if v not in seen and not court_carried(v)]
             rows.extend(_split_floor_rows(sorted(floor_vs), shared or follow, held, depth,
                                           inputs))
             relative += 1

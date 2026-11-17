@@ -4,9 +4,8 @@ sum as its fallback; Linux and Windows are unchanged.  Mocked sysctl and
 vm_stat — no reading of this machine is asserted."""
 import ctypes
 
-import pytest
-
 import O4_Parallel_Utils as PU
+import pytest
 
 _GIB = 1024.0 ** 3
 

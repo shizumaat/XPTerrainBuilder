@@ -119,8 +119,17 @@ public final class OrthoProcessRunner: @unchecked Sendable {
     /// PATH extended with the Homebrew locations the engine's optional
     /// tools (gdal, 7z) usually live in — the app's own environment won't
     /// have a login shell's PATH.
-    static func environment() -> [String: String] {
-        var env = ProcessInfo.processInfo.environment
+    ///
+    /// Every `MallocStackLogging*` variable is REMOVED (never set to 0):
+    /// macOS prints a line in each process that inherits one, and the
+    /// engine starts one process per worker — 7,216 lines in one run's
+    /// engine-stderr.log (owner 2026-11-17). The engine strips the same
+    /// family on its own side (`O4_Process_Environment`), which covers
+    /// the Qt window and terminal runs.
+    static func environment(
+        from base: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        var env = base.filter { !isMallocStackLoggingKey($0.key) }
         let extras = ["/opt/homebrew/bin", "/usr/local/bin"]
         var path = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         for extra in extras where !path.components(separatedBy: ":").contains(extra) {
@@ -133,6 +142,12 @@ public final class OrthoProcessRunner: @unchecked Sendable {
             env["ORTHO4XP_DATA_ROOT"] = dataRoot
         }
         return env
+    }
+
+    /// The variable names libmalloc's stack logging answers to; the
+    /// `__XPC_` form is how launchd forwards one into an XPC service.
+    static func isMallocStackLoggingKey(_ key: String) -> Bool {
+        key.hasPrefix("MallocStackLogging") || key.hasPrefix("__XPC_MallocStackLogging")
     }
 
     public func launch(executable: URL, arguments: [String], workingDirectory: URL,

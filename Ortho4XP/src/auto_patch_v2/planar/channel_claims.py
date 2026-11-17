@@ -354,7 +354,11 @@ def channel_cells(channels: _t.Sequence[Channel], law: Law
                 if ramps else outer.difference(floor))
         for k, part in enumerate(_parts(floor)):
             out.append((FLOOR_ROLE, c.floor_ref + (f"#{k}" if k else ""), part, c.id))
+        taken = None                      # two ends' ramps never overlap
         for ref, ring, _line in ramps:
+            if taken is not None:
+                ring = ring.difference(taken)
+            taken = ring if taken is None else unary_union([taken, ring])
             for k, part in enumerate(_parts(ring)):
                 out.append((FLOOR_ROLE, ref + (f"-{k}" if k else ""), part, c.id))
         for k, part in enumerate(_parts(void)):

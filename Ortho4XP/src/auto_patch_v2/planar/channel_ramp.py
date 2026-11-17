@@ -8,7 +8,7 @@ corridor_min_length_m`` and that leaves the corridor for good
 (``cut_runout.exits``, read within the run-out reach) through a LATERAL wall —
 an end line is ``planar/channel_depth.rejoin``'s.  Exits within
 ``cut_runout.END_M`` of each other are ONE end (``cut_runout.exit_ends``):
-parallel carriageways climb one ramp.
+parallel carriageways climb side by side, each on its own ramp.
 
 THE PROFILE (A2), the pack first (owner 16s): where one visible member's
 feet flank the route within its carriageway half-width plus ``[tunnel]
@@ -21,7 +21,7 @@ runout_profile``).  Those feet are RAMP feet (``channel_depth.RAMP``): no
 floor foot.  Without such feet the ramp is the road ramp law from the floor
 edge outward.
 
-THE CELL (A3): the ramp's plan is the exit routes' carriageways from its
+THE CELL (A3): the ramp's plan is the exit route's carriageway from its
 first station to its top, widened to the foot line where feet state it;
 ``ChannelRamp.outline`` (the ramp ⊕ the channel's wall band, flat at the
 top line) is what the main floor stands back from and the corridor's knife
@@ -74,12 +74,13 @@ def exit_ramps(airport, law, cid: str, axis_ln: LineString, ends: tuple[float, f
     rows: set[tuple[int, int]] = set()
     by_pt = {id(e.point): e for e in found}
     for _lip, _d, pts in exit_ends([(e.point, e.out) for e in found]):
-        group = sorted((by_pt[id(p)] for p in pts), key=lambda e: -e.in_floor)
-        got = _ramp(airport, law, cid, len(ramps), group, profile, axis_ln, floor, band,
-                    vis, notes)
-        if got is not None:
-            ramps.append(got[0])
-            rows |= got[1]
+        # one end: each carriageway climbs its own ramp, side by side
+        for e in sorted((by_pt[id(p)] for p in pts), key=lambda e: -e.in_floor):
+            got = _ramp(airport, law, cid, len(ramps), e, profile, axis_ln, floor, band,
+                        vis, notes)
+            if got is not None:
+                ramps.append(got[0])
+                rows |= got[1]
     return tuple(ramps), frozenset(rows), notes
 
 
@@ -125,16 +126,11 @@ def _exits(airport, law, cid, axis_ln, ends, floor, crest, band, notes) -> list[
     return out
 
 
-def _ramp(airport, law, cid, n, group, profile, axis_ln, floor, band, vis, notes):
-    """One end's ``(ChannelRamp, pack feet)`` or ``None``."""
+def _ramp(airport, law, cid, n, lead: _Exit, profile, axis_ln, floor, band, vis, notes):
+    """One exit's ``(ChannelRamp, pack feet)`` or ``None``."""
     tn = law.tables.structures.tunnel
     visual = float(law.tables.emit.cockpit.visual_m)
-    lead, run = group[0], None
-    for e in group:
-        run = _pack_run(vis, e, tn.lane_width_m, visual)
-        if run is not None:
-            lead = e
-            break
+    run = _pack_run(vis, lead, tn.lane_width_m, visual)
     route = lead.route
     t_x = route.project(lead.point)
 
@@ -164,18 +160,17 @@ def _ramp(airport, law, cid, n, group, profile, axis_ln, floor, band, vis, notes
     zs = np.interp(ts, [t for t, _z in prof], [z for _t, z in prof])
     stations = tuple((float(route.interpolate(t).x), float(route.interpolate(t).y), float(z))
                      for t, z in zip(ts, zs, strict=True))
-    ring = _plan(group, lead, t0, t_top, run)
+    ring = _plan(lead, t0, t_top, run)
     if ring is None:
         return None
     outline = _outline(ring, route, t_top, band)
     ref = f"channel_floor:{cid.split(':')[-1]}#r{n}"
     from .channel import way_key
-    notes.append(f"{cid}: exit ramp {ref} ({source}) for way(s) "
-                 f"{'+'.join(str(e.way.id) for e in group)} leaving the wall at "
+    notes.append(f"{cid}: exit ramp {ref} ({source}) for way {lead.way.id} leaving the wall at "
                  f"{_ll(airport, lead.point)}: {zs[0]:.2f} -> {zs[-1]:.2f} m over "
                  f"{t_top - t0:.0f} m, steepest {_steepest(ts, zs):.1%} (#2127 R3 A1-A3)")
     rec = ChannelRamp(ref, tuple(ring.exterior.coords)[:-1], tuple(outline.exterior.coords)[:-1],
-                      stations, source, tuple(way_key(e.way) for e in group))
+                      stations, source, (way_key(lead.way),))
     return rec, frozenset((r[0], r[1]) for r in (run or ()))
 
 
@@ -225,17 +220,11 @@ def _pack_profile(run, ground, tn) -> list[tuple[float, float]]:
     return prof + [(tb + u, z) for u, z in rise[1:]]
 
 
-def _plan(group, lead: _Exit, t0: float, t_top: float, run) -> "Polygon | None":
-    """The ramp's plan: every exit route's carriageway over the lead's span,
-    the lead's widened to its foot line (A3); one polygon."""
-    a, b = lead.route.interpolate(t0), lead.route.interpolate(t_top)
-    parts = []
-    for e in group:
-        r = e.route
-        u0, u1 = (t0, t_top) if e is lead else sorted((r.project(a), r.project(b)))
-        if u1 - u0 > 1.0:
-            parts.append(substring(r, u0, u1).buffer(e.half, cap_style="flat",
-                                                      join_style="mitre"))
+def _plan(lead: _Exit, t0: float, t_top: float, run) -> "Polygon | None":
+    """The ramp's plan: the exit route's carriageway over the ramp's span,
+    widened to its foot line (A3); one polygon."""
+    parts = [substring(lead.route, t0, t_top).buffer(lead.half, cap_style="flat",
+                                                     join_style="mitre")]
     for side in (1.0, -1.0):
         feet = [r for r in (run or ()) if _side(lead.route, r) == side]
         if len(feet) >= 2:

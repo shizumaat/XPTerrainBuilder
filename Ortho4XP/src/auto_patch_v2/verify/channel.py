@@ -161,8 +161,8 @@ def channel_floor_at_declaration(p: Patch) -> list[Row]:
             # #2127 R3 A4: the ONE declared-floor reading (a ramp part's own
             # long section, else the profile at the vertex's axis station)
             want = declared_floor_z(sh.ref, *p.to_m(lat, lon),
-                                    lambda _x, _y, _la=lat, _lo=lon: _declared_at(
-                                        p, prof, _la, _lo), ramps.get(key) or {})
+                                    lambda _x, _y, _la=lat, _lo=lon, _pr=prof: _declared_at(
+                                        p, _pr, _la, _lo), ramps.get(key) or {})
             if want is None:
                 continue
             got = float(sh.z[k])

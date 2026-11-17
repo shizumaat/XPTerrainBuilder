@@ -53,10 +53,10 @@ def station_z(stations: _t.Sequence[tuple[float, float, float]], x: float, y: fl
     if len(stations) == 1:
         return float(stations[0][2])
     ss = [0.0]
-    for a, b in zip(stations, stations[1:]):
+    for a, b in zip(stations, stations[1:], strict=False):
         ss.append(ss[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
     best_s, best_d = 0.0, math.inf
-    for i, (a, b) in enumerate(zip(stations, stations[1:])):
+    for i, (a, b) in enumerate(zip(stations, stations[1:], strict=False)):
         dx, dy = b[0] - a[0], b[1] - a[1]
         L2 = dx * dx + dy * dy
         t = 0.0 if L2 <= 1e-12 else max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / L2))

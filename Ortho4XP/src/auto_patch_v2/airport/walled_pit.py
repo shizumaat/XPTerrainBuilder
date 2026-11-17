@@ -57,6 +57,7 @@ import numpy as np
 import shapely
 from shapely import STRtree
 
+from ..geom.plane_groups import plane_groups as _plane_groups
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
 from .below_grade_witness import around as _around_ids
@@ -64,7 +65,7 @@ from .below_grade_witness import placed_all as _placed_all
 from .below_grade_witness import zero_of as _zero
 from .object_cut import _base, _face_normals_y, valid_polygon
 
-__all__ = ["read_walled_pit", "share_lift", "Walls", "hard_deck_share"]
+__all__ = ["read_walled_pit", "share_lift", "Walls", "hard_deck_share", "wall_caps"]
 
 def _floor_level(v: np.ndarray, hz: np.ndarray, min_area: float) -> "float | None":
     """The lowest level carrying a plate's worth (``min_area``) of the
@@ -232,11 +233,13 @@ _COVER_SAMPLES = 20000
 
 
 def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Walls,
-                    mate_share, notes: list[str]):
+                    mate_share, notes: list[str], own_walls: bool = False):
     """``o``'s walled pit as an ``object_floor.ObjectFloor`` (module doc),
     or ``None``; a candidate that has walls but fails a test is noted.
     ``mate_share(p)`` is the plate share of ``p``'s resource; ``walls`` the
-    read's :class:`Walls`."""
+    read's :class:`Walls`; ``own_walls`` says ``o`` is an open hollow
+    carrying its own walls (#1949 R1: their caps are no floor,
+    :func:`wall_caps`)."""
     from .object_floor import FLOOR_REF, ObjectFloor
     ob = law.tables.structures.tunnel.object
     v, t = g.vertices, g.solid
@@ -306,6 +309,12 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
         return None
     under = hz[v[hz][:, :, 1].min(axis=1) < rim_y - ob.cover_flush_m]
     F = _placed_all(o, _types.SimpleNamespace(vertices=v, solid=under), zero, scale)
+    if own_walls:
+        cap = wall_caps(F, law)
+        if cap.any():
+            notes.append(f"{what}: {int(cap.sum())} face(s) under its rim are the tops of its "
+                         f"own walls, not its floor")
+            F = F[~cap]
     pt = shapely.polygons(F[:, :, :2])
     foot = valid_polygon(_frame_entry.union(pt[shapely.area(pt) > 1e-6], "walled_pit.foot"))
     if foot is None or foot.area < ob.plate_min_area_m2:
@@ -357,6 +366,58 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
                        seats, rim_z=zero + rim_y + lift, lift=lift,
                        authored=tuple((p.id, _zero(p, msl)) for p in frame),
                        rim_proud_m=proud + lift)
+
+
+def wall_caps(faces: np.ndarray, law) -> np.ndarray:
+    """#1949 R1: which of an open hollow's under-rim ``faces`` (``(n, 3,
+    3)`` placed, z absolute) are the TOPS OF ITS OWN WALLS -- a plane
+    (``geom/plane_groups`` at ``crease_deg`` / ``hollow_m``) nowhere wider
+    than ``wall_face_max_thickness_m`` (eroding it by half that leaves
+    nothing) whose top stands more than ``hollow_m`` over the lowest face
+    beside it (within that thickness), or beside none; or one that meets
+    such a cap and stands no lower than it (one wall's top in two planes).
+    A tapered wall's cap rises from under a metre over the floor at its
+    nose (OMDB ``duong_2``'s gore: a flat 0.98 m nose, then the rise to the
+    rim).  A plate pit's walls are another object: its read never asks."""
+    ob = law.tables.structures.tunnel.object
+    tk, step = float(ob.wall_face_max_thickness_m), float(ob.hollow_m)
+    cap = np.zeros(len(faces), bool)
+    if not len(faces):
+        return cap
+    tris = shapely.polygons(faces[:, :, :2])
+    live = shapely.area(tris) > 1e-6
+    tree = STRtree(tris)
+    low, high = faces[:, :, 2].min(axis=1), faces[:, :, 2].max(axis=1)
+    narrow = []
+    for grp in _plane_groups(faces, float(ob.crease_deg), step):
+        grp = grp[live[grp]]
+        if not len(grp):
+            continue
+        poly = shapely.union_all(tris[grp])
+        if not poly.buffer(-0.5 * tk).is_empty:
+            continue
+        near = tree.query(poly, predicate="dwithin", distance=tk)
+        near = np.setdiff1d(near[live[near]], grp)
+        if not len(near) or float(high[grp].max()) > float(low[near].min()) + step:
+            cap[grp] = True
+        else:
+            narrow.append((grp, poly))
+    grew = True
+    while grew and narrow:
+        grew, rest = False, []
+        for grp, poly in narrow:
+            touch = tree.query(poly, predicate="dwithin", distance=_TOUCH_M)
+            touch = touch[cap[touch]]
+            if len(touch) and float(high[grp].max()) >= float(low[touch].min()):
+                cap[grp], grew = True, True
+            else:
+                rest.append((grp, poly))
+        narrow = rest
+    return cap
+
+
+#: two planes of one wall's top meet within this (plan metres)
+_TOUCH_M = 0.01
 
 
 def _sunken_share(faces: np.ndarray, ground: float) -> float:

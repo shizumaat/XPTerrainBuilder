@@ -58,8 +58,8 @@ from ..airport.airside_deck_seat import facing_contacts
 from ..classify.roles import TAXI_FAMILY
 from ..law.tables import role_cap
 from ..model.structures import DeckBridge
-from .deck_bridge import CellRoles, _deck_z, _end_pair, _routes_across, _taxi_at_both_ends
 from .deck_bank import deck_bank_slope
+from .deck_bridge import CellRoles, _deck_z, _end_pair, _routes_across, _taxi_at_both_ends
 from .deck_route import carried_route
 from .structure_approach import carriageway_width_m, design_clearance_m, is_tunnel, standing_cover
 from .structure_underpass import underpass_bores
@@ -234,9 +234,10 @@ def _depth_m(law, roads) -> float:
 def _bank_run_m(law, roads) -> float:
     """The run of the bank under a generated deck: its floor's depth
     (:func:`_depth_m`) over the bank slope under a generated deck
-    (``planar/deck_bank.deck_bank_slope``, every bridge's, RULINGS 2026-11-17p) -- the bank ``planar/structures`` cuts
-    from each end line down to the floor (``deck_bridge.deck_cut``), so the
-    generator and the cut read one number."""
+    (``planar/deck_bank.deck_bank_slope``, every bridge's, RULINGS
+    2026-11-17p) -- the bank ``planar/structures`` cuts from each end line
+    down to the floor (``deck_bridge.deck_cut``), so the generator and the
+    cut read one number."""
     return _depth_m(law, roads) / deck_bank_slope(law)
 
 

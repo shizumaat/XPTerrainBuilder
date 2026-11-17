@@ -97,8 +97,8 @@ def test_pads_read_off_a_hidden_placement_leave():
 
 
 def test_the_deck_has_straight_sides_and_a_steeper_bank():
-    from auto_patch_v2.planar.deck_generated import _straight_sided as straight_sided
     from auto_patch_v2.planar.deck_bank import deck_bank_slope
+    from auto_patch_v2.planar.deck_generated import _straight_sided as straight_sided
     from shapely.geometry import Polygon
     # an L-shaped pavement piece over a road along y: one rectangle holds it,
     # two sides along the road
@@ -191,8 +191,8 @@ def test_a_deck_walled_on_one_side_is_banked():
     """MEASURED LFPG H16 (obj13023): a deck whose frame models a wall on one
     side of the road only is cut as a banked deck (``deck_bridge.
     _walled_trench`` is ``None``), so its span is the bank too."""
-    from auto_patch_v2.planar.deck_bank import banked
     import auto_patch_v2.planar.deck_bridge as DB
+    from auto_patch_v2.planar.deck_bank import banked
     one_side = _pack_deck(walls=(_BOTH_WALLS[0], _BOTH_WALLS[1], _BOTH_WALLS[2][:1]))
     assert DB._walled_trench(one_side, 0.0) is None and banked(one_side)
     both = _pack_deck(walls=_BOTH_WALLS)

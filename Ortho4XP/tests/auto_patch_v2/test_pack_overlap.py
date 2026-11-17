@@ -187,16 +187,93 @@ def test_the_answer_rewrites_only_the_packs_whose_hiding_changed(stores, monkeyp
 
 
 def test_default_follows_the_ini_order_then_the_airport_pack(tmp_path):
-    """RULINGS 17o: the airport pack wins; else the pack higher in
-    scenery_packs.ini, though alphabetical order says the other; packs
-    the ini does not list rank after, alphabetically."""
+    """RULINGS 17o/17s: the pair's one airport pack wins; two airport packs
+    go by scenery_packs.ini, though alphabetical order says the other;
+    packs the ini does not list rank after, alphabetically."""
     from auto_patch import overlap_stage as OS
     (tmp_path / "scenery_packs.ini").write_text(
         "I\n1000 Version\nSCENERY\n\n"
         "SCENERY_PACK Custom Scenery/Zeta City/\n"
         "SCENERY_PACK Custom Scenery/Alpha City/\n")
     d = str(tmp_path)
-    assert OS.default_pack(d, "", ["Alpha City", "Zeta City"]) == "Zeta City"
-    assert OS.default_pack(d, "Alpha City", ["Alpha City", "Zeta City"]) == "Alpha City"
-    assert OS.default_pack(d, "", ["Beta", "Alpha City"]) == "Alpha City"
-    assert OS.default_pack(d, "", ["Delta", "Beta"]) == "Beta"
+    both = {"Alpha City", "Zeta City"}
+    assert OS.default_pack(d, both, ["Alpha City", "Zeta City"]) == "Zeta City"
+    assert OS.default_pack(d, {"Alpha City"}, ["Alpha City", "Zeta City"]) == "Alpha City"
+    assert OS.default_pack(d, {"Beta", "Alpha City"}, ["Beta", "Alpha City"]) == "Alpha City"
+    assert OS.default_pack(d, {"Delta", "Beta"}, ["Delta", "Beta"]) == "Beta"
+
+
+# --- RULINGS 17s: who is asked about (the twins) ---------------------------
+
+def _scenery(tmp_path, airports, others):
+    scenery = tmp_path / "Custom Scenery"
+    for n in airports:
+        (scenery / n / "Earth nav data").mkdir(parents=True)
+        (scenery / n / "Earth nav data" / "apt.dat").write_text(
+            "I\n1100 Version\n\n1 10 0 0 XXXX Field\n100 45 1 0 0.25 0 2 1 "
+            "09 25.25 55.36 0 0 2 0 0 0 27 25.25 55.37 0 0 2 0 0 0\n99\n")
+    for n in others:
+        (scenery / n / "Earth nav data").mkdir(parents=True)
+    return scenery
+
+
+@pytest.fixture
+def detect(tmp_path, monkeypatch):
+    """``_detect`` on a synthetic scenery folder: every pair of the tile's
+    packs is found overlapping; returns the rows."""
+    from auto_patch import overlap_stage as OS
+    monkeypatch.setattr(PC, "store_path", lambda name: str(tmp_path / "prefs" / name))
+    monkeypatch.setattr(OS, "_context", lambda root: {})
+    monkeypatch.setattr(OS, "_structures", lambda *a: [])
+    monkeypatch.setattr(PO, "airport_regions", lambda apt: [(None, None)])
+
+    def run(airports, others, folder_extra=()):
+        scenery = _scenery(tmp_path, [*airports, *folder_extra], others)
+        on_tile = [*airports, *others]
+        monkeypatch.setattr(OS, "_candidates", lambda d, la, lo: (
+            [str(scenery / a) for a in airports], [str(scenery / n) for n in on_tile]))
+        names = sorted(on_tile)
+        monkeypatch.setattr(PO, "overlaps", lambda by_pack: [
+            PO.OverlapPair((a, b), ((), ()), 1, 1.0)
+            for i, a in enumerate(names) for b in names[i + 1:]])
+        return OS._detect(str(scenery), 25, 55, str(tmp_path))
+    return run
+
+
+def test_non_airport_against_airport_is_a_row_with_the_airport_default(detect):
+    rows = detect(["c_X - 100_airport - ABCD_Field_Vendor1"], ["Vendor2_City_Autogen"])
+    assert [(sorted(r["packs"]), r["default"]) for r in rows] == [(
+        ["Vendor2_City_Autogen", "c_X - 100_airport - ABCD_Field_Vendor1"],
+        "c_X - 100_airport - ABCD_Field_Vendor1")]
+
+
+def test_two_non_airport_packs_are_not_a_row(detect):
+    rows = detect(["Field_Airport"], ["Region-05-details", "Other_City_Autogen"])
+    assert all("Field_Airport" in r["packs"] for r in rows) and len(rows) == 2
+
+
+def test_one_family_is_not_a_row(detect):
+    """A vendor's airport and its overlays, one region set of a larger
+    package: kept both, unasked."""
+    assert detect(["Vendor_Town_0_airport"], ["Vendor_Town_1_overlays"],
+                  folder_extra=["Vendor_Elsewhere_0_airport"]) == []
+
+
+def test_a_prefix_two_airports_carry_is_no_family(detect):
+    """A shared sorting prefix several airports carry (a user's own
+    ``<country> - 100_airport -`` scheme) names no product: still asked."""
+    rows = detect(["c_X - 100_airport - ABCD_Field"], ["c_X - 200_landmark - Town"],
+                  folder_extra=["c_X - 100_airport - EFGH_Other"])
+    assert len(rows) == 1
+
+
+def test_family_witness_reads_words_not_ordering_marks():
+    from auto_patch_v2.airport import pack_family as PF
+    assert PF.words("1-Vendor - Town Airport") == ("vendor", "town", "airport")
+    assert PF.shared_lead("Pub_A_KXYZ_Field", "Pub_B_KXYZ_Overlays") == ("pub", "kxyz")
+    names = ["Pub_A_KXYZ_Field", "Pub_B_KXYZ_Overlays", "Pub_A_KQRS_Field"]
+    airport = {"Pub_A_KXYZ_Field", "Pub_A_KQRS_Field"}.__contains__
+    assert PF.same_family("Pub_A_KXYZ_Field", "Pub_B_KXYZ_Overlays", names, airport)
+    assert not PF.same_family("Pub_A_KQRS_Field", "Pub_B_KXYZ_Overlays", names, airport)
+    assert not PF.same_family("Vendor2_Town_Autogen", "c_XY - 100_airport - ABCD_Town_Vendor1",
+                              names, airport)

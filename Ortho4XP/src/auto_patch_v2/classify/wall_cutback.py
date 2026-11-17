@@ -109,9 +109,7 @@ def cut_lines_at_walls(cut: _t.Sequence, walls: _t.Sequence[WallSides]
             out.append(cl)
             continue
         ln = LineString(cl.points)
-        # a ROAD BLOCK's road runs on it (#2120 R2): its line is kept
-        hit = [w.poly for w in walls if ln.intersects(w.poly)
-               and not getattr(w, "road_block", False)]
+        hit = [w.poly for w in walls if ln.intersects(w.poly)]
         if not hit:
             out.append(cl)
             continue

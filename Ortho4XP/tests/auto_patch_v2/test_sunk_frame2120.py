@@ -192,62 +192,115 @@ def test_the_sunk_census_lists_what_the_witness_admits():
     (row,) = mod.sunk_rows(_airport(-4.57, 20.0, 10.0, plate=True,
                                     road={"highway": "service"}), CFG)
     assert row["id"] == "dsf:obj1" and row["rule"] == "plate" and row["y_up"] == 20.0
+    assert row["class"] == "B"
     assert row["unit"] == "unit:1" and row["lift"] == -4.57
     assert abs(row["lat"] - LAT0) < 0.001 and abs(row["lon"] - LON0) < 0.002
     assert mod.sunk_rows(_airport(-19.81, 20.0, 0.0), CFG) == []
 
 
-def test_a_road_block_is_flagged_for_r3_and_for_an_r2_block_whose_plate_carries_a_road():
-    (c,) = _retaining(_airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"}))
-    assert c.road_block and c.sunk_rule == "plate"
-    (c,) = _retaining(_airport(-19.81, 20.0, 10.0, plate=True, road={"highway": "service"}))
-    assert c.road_block and c.sunk_rule == "upper"
-    (c,) = _retaining(_airport(-19.81, 20.0, 10.0))
-    assert not c.road_block
+def test_b1_a_deck_block_retains_only_the_strip_along_its_upper_face():
+    """2120-W3 B1 (class B, R3 with its origin on the low level): the one
+    retaining piece is the ``FILL_SLOT_M`` strip inside its plan along its
+    UPPER face; its whole plan is its ``cover`` -- no pad from any of it
+    (``wall_shade``) -- and it carries no fill of its own"""
+    from auto_patch_v2.airport.wall_shade import wall_shade
+    from auto_patch_v2.model.wall_reach import FILL_SLOT_M
+    ap = _airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"})
+    (c,) = _retaining(ap)
+    assert c.sunk_rule == "plate" and c.fill_drop_m is None
+    (plan,) = c.cover
+    (strip,) = c.pieces
+    assert strip.area == pytest.approx(FILL_SLOT_M * 100.0, rel=0.02)
+    assert strip.bounds[3] == pytest.approx(plan.bounds[3], abs=0.01)  # the upper (north) face
+    assert strip.bounds[1] == pytest.approx(plan.bounds[3] - FILL_SLOT_M, abs=0.01)
+    assert wall_shade(ap, CFG).covers(plan.buffer(-0.01))
 
 
-def test_the_cut_back_keeps_the_road_on_a_road_block_and_cuts_beyond_its_low_face():
-    """master ruling on 2120-R2 (2): a road block's plan is upper ground --
-    the road on it stays; the cut-back applies only past the low face; a
-    road of the low side still never climbs into the block"""
-    import dataclasses as dc
+def test_b1_a_road_under_the_deck_is_not_cut_and_reads_its_own_ground():
+    """under the deck the ground stays low: a road there is neither cut
+    (``far_side_cut``) nor lifted (``smear_sampler`` reads the low ground)"""
+    from auto_patch_v2.airport.wall_sides import (
+        crosses_wall,
+        far_side_cut,
+        smear_sampler,
+        wall_sides,
+    )
+    from shapely.geometry import box
+    ap = _airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"})
+    (c,) = _retaining(ap)
+    (w,) = wall_sides(ap, CFG, [c])
+    x0, y0, x1, _y1 = c.cover[0].bounds
+    road = box(x0 + 10.0, y0 + 2.0, x1 - 10.0, y0 + 8.0)              # 10+ m off the strip
+    assert far_side_cut(road, [w]).area == pytest.approx(road.area)
+    sample = smear_sampler(ap.dem.z_many, [w])
+    mid = (0.5 * (x0 + x1), y0 + 5.0)
+    assert float(sample([mid[0]], [mid[1]])[0]) == pytest.approx(290.0)
+    assert not crosses_wall((mid[0] - 20.0, mid[1]), (mid[0] + 20.0, mid[1]), [w])
 
-    from auto_patch_v2.airport.wall_sides import WallSides, far_side_cut
+
+def test_class_a_cuts_a_road_mapped_into_it_from_the_low_face_at_that_face():
+    """2120-W3 class A (R2): the block is earth behind its face; a road
+    entering from the low side ends at the low face, its line too"""
+    from auto_patch_v2.airport.wall_sides import far_side_cut, wall_sides
     from auto_patch_v2.classify.wall_cutback import cut_lines_at_walls
     from shapely.geometry import box
-    block = box(0, 0, 100, 20)                          # upper side north (y > 20)
-    w = WallSides(block, 10.0, 10.0, box(0, 20, 100, 30), box(0, -10, 100, 0),
-                  road_block=True)
-    on = box(10, 5, 90, 15)                             # the road on the plate
-    up_road = box(10, 5, 90, 25)                        # ... running on to the upper ground
-    assert far_side_cut(on, [w]).area == pytest.approx(on.area)
-    assert far_side_cut(up_road, [w]).area == pytest.approx(up_road.area)
-    spill = box(10, -5, 90, 15)                         # past the low face: cut there
-    assert far_side_cut(spill, [w]).area == pytest.approx(box(10, 0, 90, 15).area)
-    low = box(10, -10, 90, 2)                           # the low road: never on the block
-    assert far_side_cut(low, [w]).area == pytest.approx(box(10, -10, 90, 0).area)
-    # an ordinary wall still loses its footprint
-    plain = dc.replace(w, road_block=False)
-    assert far_side_cut(on, [plain]).is_empty
-    line = NS(kind="road_centerline", points=((10.0, 10.0), (90.0, 10.0)))
-    kept, _st = cut_lines_at_walls([line], [w])
-    assert kept == [line]
-    assert cut_lines_at_walls([line], [plain])[0] == []
+    ap = _airport(-19.81, 20.0, 10.0)
+    (c,) = _retaining(ap)
+    assert c.sunk_rule == "upper" and c.fill_drop_m == 0.0 and not c.cover
+    (w,) = wall_sides(ap, CFG, [c])
+    x0, y0, x1, _y1 = w.poly.bounds
+    road = box(x0 + 10.0, y0 - 10.0, x1 - 10.0, y0 + 6.0)             # 6 m into the block
+    kept = far_side_cut(road, [w])
+    assert kept.bounds[3] == pytest.approx(y0, abs=0.01)
+    assert kept.area == pytest.approx(box(x0 + 10.0, y0 - 10.0, x1 - 10.0, y0).area, rel=0.01)
+    import dataclasses as dc
+
+    @dc.dataclass(frozen=True)
+    class Cut:
+        kind: str
+        points: tuple
+    line = Cut("road_centerline", ((x0 + 20.0, y0 - 10.0), (x0 + 20.0, y0 + 6.0)))
+    (part,), _st = cut_lines_at_walls([line], [w])
+    assert max(y for _x, y in part.points) == pytest.approx(y0, abs=0.01)
 
 
-def test_rulings_6_7_a_road_block_is_upper_ground_and_its_top_is_its_upper_ground():
-    """(7) a sunk wall's top for the wall slope / fill is its upper ground
-    (the DEM ``smear`` out past its upper face); (6) a point in a ROAD
-    BLOCK's footprint reads that upper ground (``smear_sampler``), and a way
-    on the block crosses no wall"""
-    from auto_patch_v2.airport.wall_sides import crosses_wall, smear_sampler, wall_sides
-    ap = _airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"})
-    (w,) = wall_sides(ap, CFG)
-    assert w.road_block and w.top_profile
-    assert all(z == pytest.approx(300.0) for _s, z in w.top_profile if z is not None)
-    c = w.poly.centroid
-    sample = smear_sampler(ap.dem.z_many, [w])
-    lo_pt = (c.x, w.poly.bounds[1] + 1.0)                # in the block, over the LOW DEM
-    assert ap.dem.z(*lo_pt) == pytest.approx(290.0)
-    assert float(sample([lo_pt[0]], [lo_pt[1]])[0]) == pytest.approx(300.0)
-    assert not crosses_wall((c.x - 20.0, c.y), (c.x + 20.0, c.y), [w])
+def test_f1_a_retaining_block_fill_rides_its_upper_face():
+    """2120-W3 F1: a fill vertex is held RELATIVE to the upper-face vertices
+    bracketing its station, ``fill_drop_m`` under them -- one plane row, never
+    an absolute level; the drop is the rim tolerance where a plate of its
+    frame caps it within that of ``y_up``"""
+    from auto_patch_v2.constraints.wall_zone import (
+        RetainingLine,
+        face_vertices,
+        fill_row,
+        fill_top,
+        fill_wall,
+    )
+    from auto_patch_v2.model.constraints import Source
+    from shapely.geometry import LineString, box
+    poly = box(0.0, 0.0, 100.0, 20.0)
+    w = RetainingLine(poly, 40.0, 10.0, {}, LineString([(100.0, 20.0), (0.0, 20.0)]),
+                      ((0.0, 300.0), (100.0, 302.0)), LineString([(0.0, 0.0), (100.0, 0.0)]),
+                      None, fill_drop_m=1.0)
+    xy = {1: (90.0, 20.0), 2: (40.0, 20.0), 3: (10.0, 20.2), 9: (30.0, 10.0), 7: (50.0, 30.0)}
+    assert fill_wall([w], xy[9]) is w and fill_top([w], xy[9]) is None
+    face = face_vertices(w, xy)
+    assert [v for _s, v in face] == [1, 2, 3]
+    row = fill_row(w, 9, xy[9], face, Source("wall_terrace", "r", ()))
+    terms = dict(row.terms)
+    assert terms[9] == 1.0 and terms[2] == pytest.approx(-2.0 / 3.0)
+    assert terms[3] == pytest.approx(-1.0 / 3.0) and row.lo == row.hi == -1.0
+    # with no drop read the fill is the old absolute top (another wall)
+    other = w._replace(fill_drop_m=None)
+    assert fill_wall([other], xy[9]) is None and fill_top([other], xy[9]) == pytest.approx(301.4)
+    # the drop: rim tolerance under a plate capping it at y_up, else 0
+    (c,) = _retaining(_airport(-19.81, 20.0, 10.0, plate=True))
+    assert c.sunk_rule == "upper" and c.fill_drop_m == pytest.approx(1.0)
+
+
+def test_d1_no_road_block_remains():
+    """2120-W3 D1: the road block is deleted, not kept gated"""
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[2] / "src" / "auto_patch_v2"
+    hits = [p.name for p in src.rglob("*.py") if "road_block" in p.read_text(encoding="utf-8")]
+    assert hits == []

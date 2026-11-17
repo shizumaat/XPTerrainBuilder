@@ -95,10 +95,10 @@ class WallSides:
     #: lower band: what ``planar/wall_slope`` grades to its top; ``None``
     #: for every other wall (the slope reads :attr:`upper`)
     retained: _t.Any = None
-    #: #2120 R2 (master ruling): a ROAD BLOCK (``WallComponent.road_block``)
-    #: -- its plan is the UPPER side's ground, its low face its outer edge
-    #: on the low side: :func:`far_side_cut` leaves a road on it alone
-    road_block: bool = False
+    #: 2120-W3 F1: a retaining block's fill drop under its upper face
+    #: (``WallComponent.fill_drop_m``): its fill is carried by that face
+    #: (``constraints/wall_zone.fill_row``); ``None``: its fill at its top
+    fill_drop_m: float | None = None
 
     def side_of(self, xy) -> str | None:
         """``"upper"`` / ``"lower"`` for a point in one of the bands, else
@@ -236,7 +236,7 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
                                  uf, top, lf, foot,
                                  str(getattr(w, "low_side_source", "") or ""),
                                  None if kept is None or kept.is_empty else kept,
-                                 bool(getattr(w, "road_block", False))))
+                                 getattr(w, "fill_drop_m", None)))
     return tuple(out)
 
 
@@ -372,8 +372,7 @@ def far_side_cut(geom, walls: _t.Sequence[WallSides], judge=None, grow_m: float 
     """``geom`` cut back at every wall it reaches: the footprint (grown by
     ``grow_m``, the identity snap's margin, so no snapped vertex lands in
     it) out and the band of the face ``judge`` (default ``geom`` itself)
-    holds LESS of out — the road is on one side of a wall.  A ROAD BLOCK's
-    footprint is its upper side (:attr:`WallSides.road_block`).  ``geom``
+    holds LESS of out — the road is on one side of a wall.  ``geom``
     itself when no wall reaches it."""
     if geom is None or geom.is_empty or not walls:
         return geom
@@ -384,16 +383,9 @@ def far_side_cut(geom, walls: _t.Sequence[WallSides], judge=None, grow_m: float 
         up = judge.intersection(w.upper).area if w.upper is not None else 0.0
         lo = judge.intersection(w.lower).area if w.lower is not None else 0.0
         foot = w.poly.buffer(grow_m, join_style="mitre") if grow_m > 0.0 else w.poly
-        if getattr(w, "road_block", False):
-            # #2120 R2 (master ruling): a ROAD BLOCK's plan is upper ground --
-            # a road on it is the upper side's, cut back only beyond the low
-            # face; a road of the low side never climbs into the block
-            up += judge.intersection(w.poly).area
-            cut = [w.lower] if up >= lo else [foot, w.upper]
-        else:
-            cut = [foot]
-            if up > 0.0 or lo > 0.0:
-                cut.append(w.upper if up < lo else w.lower)
+        cut = [foot]
+        if up > 0.0 or lo > 0.0:
+            cut.append(w.upper if up < lo else w.lower)
         geom = geom.difference(unary_union([g for g in cut if g is not None]))
     return geom
 
@@ -407,9 +399,7 @@ def crosses_wall(a, b, walls: _t.Sequence[WallSides]) -> bool:
     seg = LineString([tuple(a), tuple(b)]) if math.dist(a, b) > 1e-9 else Point(a)
     x0, y0, x1, y1 = seg.bounds
     for w in walls:
-        # a ROAD BLOCK's plan is its upper side's ground (#2120 R2): a way
-        # on it crosses nothing
-        if w.core is None or getattr(w, "road_block", False):
+        if w.core is None:
             continue
         bx0, by0, bx1, by1 = w.core.bounds
         if x0 > bx1 or x1 < bx0 or y0 > by1 or y1 < by0:
@@ -440,11 +430,6 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
             fix, at = [], []
             for i in idx:
                 p = Point(float(xs[i]), float(ys[i]))
-                up = _block_upper(w, p)
-                if up is not None:
-                    fix.append((int(i), "upper"))
-                    at.append(up)
-                    continue
                 side = w.side_of((p.x, p.y))
                 if side is None:
                     continue
@@ -464,26 +449,6 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
                     z[i] = min(z[i], zp) if side == "lower" else max(z[i], zp)
         return z
     return _sample
-
-
-def _block_upper(w: WallSides, p) -> tuple[float, float] | None:
-    """#2120 R2 (master ruling 6): a point IN a ROAD BLOCK's footprint
-    (``WallSides.road_block``) is upper ground -- it reads the ground
-    ``smear`` out past the nearest point of the upper face (its outer side,
-    the face's right); ``None`` for any other point or wall."""
-    if not getattr(w, "road_block", False) or w.upper_face is None or not w.poly.covers(p):
-        return None
-    face = w.upper_face
-    s_ = face.project(p)
-    a = face.interpolate(max(0.0, s_ - 0.5))
-    b = face.interpolate(min(face.length, s_ + 0.5))
-    dx, dy = b.x - a.x, b.y - a.y
-    n = math.hypot(dx, dy)
-    if n <= 1e-9:
-        return None
-    q = face.interpolate(s_)
-    # the footprint lies on the face's left: outward is its right
-    return (q.x + dy / n * w.smear, q.y - dx / n * w.smear)
 
 
 def band_setbacks(walls: _t.Sequence[WallSides]) -> tuple[tuple, ...]:

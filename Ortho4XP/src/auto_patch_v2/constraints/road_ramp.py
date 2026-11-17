@@ -466,10 +466,20 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
     # #1661 (Q299 (a)) / #1662: the wall slope's face vertices at the wall's
     # top (upper face) or its foot (lower face)
     seated = _reseat_seats(planar, law, held)
+    faces: dict[int, list] = {}
     for v, (tz, ruling) in sorted(tops.items()):
         if v in beyond:
             continue
         src = Source("wall_terrace", ruling, (f"vertex:{v}",))
+        if tz is None:
+            # 2120-W3 F1: a retaining block's fill rides its upper face
+            row = _fill_row(held, v, xy, faces, src)
+            if row is None:
+                rep["fill_unanchored"] = rep.get("fill_unanchored", 0) + 1
+            else:
+                linears.append(row)
+                rep["fill_face_rows"] = rep.get("fill_face_rows", 0) + 1
+            continue
         got = _seated_top(held, seated, xy[v]) if ruling == WALL_TOP_RULING else None
         if got is None:
             bands.append(Band(v, tz, tz, src))
@@ -480,6 +490,9 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
         linears.extend(seat_pair(v, (terms, zero - tz), src))
         rep["wall_top_seated"] = rep.get("wall_top_seated", 0) + 1
     rep["wall_top_ground"] = len(bands) - len(cs.bands) - rep["beyond_wall_ground"]
+    if rep.get("fill_unanchored"):
+        print(f"[wall-zone] STOP 2120-W3 F1: {rep['fill_unanchored']} fill vertices "
+              f"of a retaining block found no upper-face vertex (no relative row)")
     return _dc.replace(cs, diffs=tuple(diffs), linears=tuple(linears),
                        bands=tuple(bands)), rep
 
@@ -515,15 +528,32 @@ def _seated_top(held: _t.Sequence, seated: _t.Mapping[str, tuple], p: tuple
     return None
 
 
+def _fill_row(held: _t.Sequence, v: int, xy: _t.Mapping[int, tuple],
+              faces: dict[int, list], src: Source) -> Linear | None:
+    """2120-W3 F1: ``v``'s row to the upper face of the retaining block
+    whose fill holds it (``wall_zone.fill_row``); ``faces`` caches each
+    block's face vertices by its index in ``held``."""
+    from .wall_zone import face_vertices, fill_row, fill_wall
+    w = fill_wall(held, xy[v])
+    if w is None:
+        return None
+    k = next(i for i, x in enumerate(held) if x is w)
+    if k not in faces:
+        faces[k] = face_vertices(w, xy)
+    return fill_row(w, v, xy[v], faces[k], src)
+
+
 def _wall_levels(planar: PlanarMap, held: _t.Sequence, xy: _t.Mapping[int, tuple]
-                 ) -> dict[int, tuple[float, str]]:
+                 ) -> dict[int, tuple[float | None, str]]:
     """#1661 (Q299 (a)) / #1662: every vertex only wall slopes hold
     (``planar/wall_slope``) that stands on a wall's upper face, -> the
     wall's top as it sits there (``wall_zone.face_top``; in its fill,
-    ``wall_zone.fill_top``, #1600), or on its lower
-    face, -> its foot (``wall_zone.face_foot``); with the row's ruling."""
+    ``wall_zone.fill_top``, #1600 -- ``None`` in a retaining block's fill,
+    which its upper face carries: ``wall_zone.fill_wall``, 2120-W3 F1), or
+    on its lower face, -> its foot (``wall_zone.face_foot``); with the
+    row's ruling."""
     from ..model.wall_reach import is_wall_slope_ref
-    from .wall_zone import face_foot, face_top, fill_top
+    from .wall_zone import face_foot, face_top, fill_top, fill_wall
     if not any(getattr(w, "top_profile", None) or getattr(w, "foot_profile", None)
                for w in held):
         return {}
@@ -533,6 +563,9 @@ def _wall_levels(planar: PlanarMap, held: _t.Sequence, xy: _t.Mapping[int, tuple
         if not inc or not all(is_wall_slope_ref(planar.faces[f].ref) for f in inc):
             continue
         z = face_top(held, p)
+        if z is None and fill_wall(held, p) is not None:
+            out[v] = (None, WALL_TOP_RULING)
+            continue
         if z is None:
             z = fill_top(held, p)
         if z is not None:

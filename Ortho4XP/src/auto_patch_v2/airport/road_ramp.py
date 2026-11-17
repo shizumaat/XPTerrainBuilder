@@ -1650,6 +1650,9 @@ class WallPiece(_t.NamedTuple):
     #: seats, that zero (``WallComponent.reseated``; ``None`` otherwise)
     placement: str = ""
     reseat_z: float | None = None
+    #: 2120-W3 F1: a retaining block's fill drop under its upper face
+    #: (``WallSides.fill_drop_m``), ``None`` for every other wall
+    fill_drop_m: float | None = None
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1686,7 +1689,8 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
                                      getattr(side, "lower", None),
                                      str(getattr(c, "low_side_source", "") or ""),
                                      str(getattr(c.member, "id", "") or ""),
-                                     c.seat_z if getattr(c, "reseated", False) else None))
+                                     c.seat_z if getattr(c, "reseated", False) else None,
+                                     getattr(side, "fill_drop_m", None)))
     return tuple(out)
 
 
@@ -1961,6 +1965,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   "low_side": str(getattr(w, "low_side", "") or ""),
                   "placement": str(getattr(w, "placement", "") or ""),
                   "reseat_z": getattr(w, "reseat_z", None),
+                  "fill_drop_m": getattr(w, "fill_drop_m", None),
                   "lower_band": [[tuple(c) for c in part.exterior.coords]
                                  for part in nonempty_polygon_parts(w.lower_band)]
                   if getattr(w, "lower_band", None) is not None else None,

@@ -99,9 +99,15 @@ class WallComponent:
     #: (``airport/sunk_frame``: ``"upper"`` R2, ``"plate"`` R3), ``""``
     #: for a wall another witness admitted
     sunk_rule: str = ""
-    #: #2120 R2: a ROAD BLOCK -- a mapped road runs on a plate capping it
-    #: (``sunk_frame.SunkReading.road_plate``): its plan is upper ground
-    road_block: bool = False
+    #: 2120-W3 B1: a DECK BLOCK's whole plan (``sunk_rule == "plate"``: its
+    #: plate a deck over the low ground) -- its :attr:`pieces` are only the
+    #: strip along its upper face; no pad on the cover
+    #: (``airport/wall_shade``); ``()`` for every other wall
+    cover: tuple = _dc.field(default=(), compare=False, repr=False)
+    #: 2120-W3 F1: a RETAINING BLOCK's fill drop under its upper face
+    #: (``sunk_frame.SunkReading.fill_drop_m``): its fill is carried by
+    #: that face, ``None`` for every other wall (its fill at its top)
+    fill_drop_m: float | None = None
 
 
 #: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
@@ -219,16 +225,45 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                     and _depth_under_zero(p) is not None
                 if reseated:
                     retained, kept_top = float(_depth_under_zero(p)), 0.0
-                got.append(WallComponent(tuple(polys), float(p.height_m),
+                strip = None if sunk is None or sunk.rule != "plate" else \
+                    _deck_strip(airport, whole, float(retained), m.resource)
+                pieces, cover = (tuple(polys), ()) if strip is None else (strip, tuple(polys))
+                got.append(WallComponent(pieces, float(p.height_m),
                                          m.resource, int(p.comp), retains,
                                          float(retained), top_y,
                                          None if sunk is not None else seat,
                                          _origin(u, m), m, kept_top, source,
                                          *(sheet or ()), reseated=reseated,
                                          sunk_rule="" if sunk is None else sunk.rule,
-                                         road_block=sunk is not None and sunk.road_plate))
+                                         cover=cover,
+                                         fill_drop_m=None if sunk is None or cover
+                                         else sunk.fill_drop_m))
         out.extend(_one_wall_per_composite(got, u, to_xy, cfg))
     return out
+
+
+def _deck_strip(airport: Airport, whole, retained: float, resource: str) -> tuple | None:
+    """2120-W3 B1, THE DECK BLOCK (``sunk_frame`` R3: its plate a deck over
+    the LOW ground): its retaining pieces are the strip
+    ``model/wall_reach.FILL_SLOT_M`` deep inside its plan along its UPPER
+    face (``wall_sides._wall_faces`` / ``_upper_index`` on the whole plan);
+    ``None`` when either is unread -- its whole plan then retains, a
+    retaining block (class A), said on the console."""
+    from ..model.wall_reach import FILL_SLOT_M, wall_smear_m
+    from .wall_sides import _upper_index, _wall_faces
+    faces = _wall_faces(whole) if whole.geom_type == "Polygon" else None
+    k = None if faces is None else _upper_index(
+        airport.dem, None, 0, faces, wall_smear_m(retained))
+    strip = None if k is None else faces[k].buffer(
+        FILL_SLOT_M, single_sided=True, cap_style="flat", join_style="mitre",
+        mitre_limit=2.0).intersection(whole)
+    parts = [] if strip is None else [g for g in getattr(strip, "geoms", [strip])
+                                      if g.geom_type == "Polygon" and g.area > 0.0]
+    if not parts:
+        print(f"[wall-class] deck block {resource}: no upper face read; "
+              f"its whole plan retains (class A)")
+        return None
+    return tuple(parts)
 
 
 _BURIED: dict[str, bool] = {}

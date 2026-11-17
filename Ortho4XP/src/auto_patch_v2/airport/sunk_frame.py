@@ -22,11 +22,14 @@ R2 UPPER ORIGIN: a walled part standing on its zero, buried at least
    ground at ``y_up = y_g``.
 R3 PLATE-TOPPED: a walled part standing on its zero, capped by a
    near-horizontal plate of its own frame at ``T`` covering at least half
-   its plan, with a mapped road (no bore, no ``covered``, no negative
-   ``layer``) running on that plate at least ``[service]
+   its plan, a mapped road at grade (no bore, no ``covered``, no negative
+   ``layer``) passing through its plan at least ``[service]
    retaining_wall_min_length_m``, holds its upper ground at the plate:
    ``y_up = T`` whatever ``y_g`` says (KATL ``katl125``: its origin on the
-   low level, lift -4.57, its road plate at y 20).
+   low level, lift -4.57, its plate at y 20).  It is a DECK BLOCK
+   (2120-W3 §2 class B): the plate is a deck over the LOW ground, the roads
+   under it run at grade, and only its UPPER face retains
+   (``airport/wall_class``: the strip along that face).
 R4 TWO LEVELS: R2 / R3 count only where the ground steps across the BLOCK
    (the union of the frame's walled parts the same rule reads) by
    ``[service] retaining_wall_clear_step_m`` on at least half the across
@@ -69,11 +72,10 @@ class SunkReading:
     retained_m: float
     y_up: float
     rule: str
-    #: a mapped road runs on a near-horizontal plate capping it (R3's
-    #: witness, read for an R2 block too): its plan is UPPER ground, its
-    #: road the upper side's (master ruling on 2120-R2, ``wall_sides.
-    #: far_side_cut``)
-    road_plate: bool = False
+    #: how far its FILL stands under its upper face (2120-W3 F1): ``[basin]
+    #: authored_rim_tol_m`` where a plate of its frame caps it within that
+    #: of ``y_up`` (the fill is under the plate), else 0
+    fill_drop_m: float = 0.0
 
 
 def _numbers(law) -> tuple[float, float]:
@@ -103,10 +105,9 @@ def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None
     y_g = -lift
     if abs(base) > rim_tol:
         return None                     # it does not stand on its zero
-    road = _road_plate(airport, unit, part, whole, top, cfg, law, rim_tol)
     if _upper(base, top, y_g, sunk_min, rim_tol):
         y_up, rule = y_g, "upper"       # R2
-    elif road:
+    elif _road_plate(airport, unit, part, whole, top, cfg, law, rim_tol):
         y_up, rule = top, "plate"       # R3
     else:
         return None
@@ -115,7 +116,9 @@ def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None
                        max(float(cfg.retaining_wall_step_ring_m), float(part.height_m)), cfg)
     if step is None:
         return None                     # R4: a flat sunk frame is no wall
-    return SunkReading(min(step, y_up - base), float(y_up), rule, road)
+    capped = _plate(airport, unit, part, whole, y_up, rim_tol) is not None
+    return SunkReading(min(step, y_up - base), float(y_up), rule,
+                       rim_tol if capped else 0.0)
 
 
 def _upper(base: float, top: float, y_g: float, sunk_min: float, rim_tol: float) -> bool:
@@ -171,10 +174,21 @@ def _two_levels(dem, whole, wide: float, ring: float, cfg) -> float | None:
 
 
 def _road_plate(airport, unit, part, whole, top: float, cfg, law, rim_tol: float) -> bool:
-    """R3: a near-horizontal plate of ``unit``'s frame at ``top`` (within
-    ``rim_tol``; flat: under ``rim_tol`` tall) covering at least half of
-    ``whole``, a mapped road running on it at least
+    """R3: a plate of ``unit``'s frame capping ``whole`` at ``top``
+    (:func:`_plate`), a mapped road at grade passing through it at least
     ``retaining_wall_min_length_m``."""
+    plate = _plate(airport, unit, part, whole, top, rim_tol)
+    if plate is None:
+        return False
+    need = float(cfg.retaining_wall_min_length_m)
+    return any(LineString(pts).intersection(plate).length >= need
+               for pts in _surface_roads(airport, law))
+
+
+def _plate(airport, unit, part, whole, top: float, rim_tol: float):
+    """The near-horizontal plate of ``unit``'s frame at ``top`` (within
+    ``rim_tol``; flat: under ``rim_tol`` tall) over ``whole``, where it
+    covers at least half of it; else ``None``."""
     to_xy = airport.frame.entry()
     plates = []
     for m in getattr(unit, "members", ()) or ():
@@ -189,13 +203,9 @@ def _road_plate(airport, unit, part, whole, top: float, cfg, law, rim_tol: float
                     if not g.is_empty:
                         plates.append(g)
     if not plates or whole.area <= 0.0:
-        return False
+        return None
     plate = unary_union(plates).intersection(whole)
-    if plate.area < 0.5 * whole.area:
-        return False
-    need = float(cfg.retaining_wall_min_length_m)
-    return any(LineString(pts).intersection(plate).length >= need
-               for pts in _surface_roads(airport, law))
+    return None if plate.area < 0.5 * whole.area else plate
 
 
 def _surface_roads(airport, law) -> list:

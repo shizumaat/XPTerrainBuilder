@@ -62,6 +62,53 @@ class DeckGenLaw:
     concrete_pol: str = "lib/airport/pavement/concrete_4D.pol"
     #: #2132: the page whose alpha art is the tire marks along the route
     rubber_pol: str = "lib/airport/default_runways/rubber.pol"
+    #: #2132 / #2141: the tire marks are ONE column of that page's atlas
+    #: (u from ``rubber_u0`` to ``rubber_u1``: the dense centre band; the
+    #: other three columns read as tiled blocks), a strip along the route
+    #: mirrored every repeat
+    rubber_u0: float = 0.25
+    rubber_u1: float = 0.5
+    #: #2141 (3): the first X-Plane line page; its folder's
+    #: ``<type>_*.lin`` pages draw the dropped apt.dat lines on the deck
+    #: (``airport/deck_line_art``); unresolved -> the generated atlas
+    line_lib: str = "lib/airport/lines/1_single_taxi.lin"
+    #: the films over the top (m): the tire marks, then the paint over them
+    rubber_lift_m: float = 0.005
+    paint_lift_m: float = 0.012
+    #: #2132 THE STRUCTURE (spec 2132-design section 4; owner 2026-11-17
+    #: "kerb only (0.30 x 0.40 m, side edges), no blast screen"),
+    #: ``airport/deck_structure``: the slab's depth under the top (m) ...
+    slab_m: float = 0.25
+    #: ... the beams along the route, one every this across it (m) ...
+    beam_spacing_m: float = 2.4
+    beam_width_m: float = 0.9
+    #: ... the full-depth edge beam round the ring (m) ...
+    edge_beam_m: float = 0.6
+    #: ... the kerb on the side edges (m) ...
+    kerb_h_m: float = 0.30
+    kerb_w_m: float = 0.40
+    #: ... a ring edge whose middle stands within this of an end line (m)
+    #: and that turns more than this off the route (deg) is an END: no
+    #: kerb, an expansion joint
+    end_tol_m: float = 4.0
+    end_angle_deg: float = 25.0
+    #: ... the expansion joint across each end: a dark strip this wide (m),
+    #: this far in from the end edge (m)
+    joint_m: float = 0.08
+    joint_inset_m: float = 0.3
+    #: ... piers only on a deck longer than this along its route (m), at
+    #: each road's floor edge: columns this wide (m) at most this far apart
+    #: (m), under a cap beam this wide and deep (m), from this far below
+    #: the floor (m)
+    pier_min_span_m: float = 30.0
+    pier_col_m: float = 1.2
+    pier_gap_m: float = 4.5
+    pier_cap_w_m: float = 1.5
+    pier_cap_h_m: float = 1.2
+    pier_foot_m: float = 1.0
+    #: ... everything drawn to this distance, then the top, the fascia and
+    #: the kerbs only, to ``lod_m`` (m)
+    near_lod_m: float = 1200.0
 
 
 @_dc.dataclass(frozen=True)

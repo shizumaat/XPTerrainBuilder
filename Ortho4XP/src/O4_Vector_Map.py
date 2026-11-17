@@ -4009,7 +4009,7 @@ PATCH_NODE_HEIGHT_TAGS = frozenset(("alt_abs", "alt_rel"))
 PATCH_ROLE_TAGS = frozenset(("role", "o4_feature"))
 
 
-def untagged_user_ring(way_tags, node_ids, node_tags):
+def _untagged_user_ring(way_tags, node_ids, node_tags):
     """True when a user patch's closed way carries no height and no role
     (:data:`PATCH_WAY_HEIGHT_TAGS`): it is IGNORED -- never inserted,
     never in ``patches_area``, never seeded, no water barrier, no wall."""
@@ -4185,7 +4185,7 @@ def include_patches(vector_map, tile):
                 [dn[nodeid] for nodeid in dw[wayid]], dtype=float
             )
             if (not is_auto and len(way) > 3 and (way[0] == way[-1]).all()
-                    and untagged_user_ring(dt["w"].get(wayid, {}),
+                    and _untagged_user_ring(dt["w"].get(wayid, {}),
                                            dw[wayid], dt["n"])):
                 _say_ignored_patch_ring(pfile_name, wayid, way)
                 continue

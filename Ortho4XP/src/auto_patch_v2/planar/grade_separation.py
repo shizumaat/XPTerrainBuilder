@@ -47,7 +47,7 @@ from ..law import Law
 from ..law.tables import family
 from ..model.deck_ends import way_of_ref
 from ..model.grade_separation import RoadCrossing, road_key
-from ..model.planar import PlanarMap
+from ..model.planar import OSM_RIBBON_FEEDS, PlanarMap
 
 __all__ = ["road_crossings"]
 
@@ -96,16 +96,17 @@ def _faces(pm: PlanarMap, law: Law) -> list[tuple[int, Polygon]]:
 def _lines(pm: PlanarMap, airport, ftree: STRtree) -> list[tuple[str, LineString, dict, str]]:
     """``(road name, centreline, tags, feed-qualified name)``: the mapped
     highway ways over a road face (named ``osm:<way>`` as the road profile
-    names them, qualified ``<feed>:<way>`` as their ribbons are: two feeds
-    reuse way ids), and the map's road centreline breaklines merged by ref
-    (no tags)."""
+    names them, qualified ``<feed>:<way>`` as their ribbons are --
+    ``model/planar.OSM_RIBBON_FEEDS`` -- for two feeds reuse way ids), and
+    the map's road centreline breaklines merged by ref (no tags)."""
     out = []
     for w in getattr(airport, "osm_ways", ()) or ():
         if len(w.points) < 2 or not (w.tags or {}).get("highway"):
             continue
         ln = LineString(w.points)
         if len(ftree.query(ln, predicate="intersects")):
-            out.append((f"osm:{w.id}", ln, dict(w.tags), f"{w.kind}:{w.id}"))
+            feed = OSM_RIBBON_FEEDS.get(w.kind, w.kind)
+            out.append((f"osm:{w.id}", ln, dict(w.tags), f"{feed}:{w.id}"))
     parts: dict[str, list] = {}
     for b in pm.breaklines.values():
         if b.kind == "road_centerline":

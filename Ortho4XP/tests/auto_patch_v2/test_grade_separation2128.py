@@ -56,9 +56,9 @@ def _arm(law, a_tags, b_y=(100.0, 300.0)):
     y 200 down the bank; road B (way -2) runs along x 100 over ``b_y``."""
     r = _rot(0.0)
     airport, _r = _airport(law, _Shelf())
-    ways = (OsmWay(-1, "small_roads", (r((-20.0, 200.0)), r((280.0, 200.0))), False,
+    ways = (OsmWay(-1, "airport_small_roads", (r((-20.0, 200.0)), r((280.0, 200.0))), False,
                    {"highway": "service", **a_tags}),
-            OsmWay(-2, "small_roads", (r((100.0, b_y[0])), r((100.0, b_y[1]))), False,
+            OsmWay(-2, "airport_small_roads", (r((100.0, b_y[0])), r((100.0, b_y[1]))), False,
                    {"highway": "service"}))
     airport = _dc.replace(airport, osm_ways=ways)
     cells = (Cell(0, "runway", "09/27", _rect(r, -RUN_LEN / 2, -HALF_WIDTH, RUN_LEN / 2,
@@ -160,3 +160,15 @@ def test_a_route_takes_the_level_of_the_mapped_bridge_it_duplicates(law):
     assert _twin_level(route, p, [(along, LineString(along.points))], 8.0, law) == 1
     assert _twin_level(route, p, [(across, LineString(across.points))], 8.0, law) == 0
     assert _twin_level(route, p, [(along, LineString(along.points))], 3.0, law) == 0
+
+
+def test_a_ribbon_is_its_own_feeds_way_only():
+    """Two OSM feeds reuse way ids (MEASURED ESSA: 405 shared ids, -260 a
+    taxiway, a service bridge and a railway): a face is a road's by its
+    feed-qualified ref, or as that way's bridge deck."""
+    from auto_patch_v2.planar.grade_separation import _is_named, _ref_key
+    assert _ref_key("big_roads:-3078#1") == ("big_roads", -3078)
+    assert _ref_key("dsf:pol200") is None and _ref_key("route52") is None
+    assert _is_named(("small_roads", -260), "small_roads:-260")
+    assert not _is_named(("big_roads", -260), "small_roads:-260")
+    assert _is_named(("bridge_deck", -260), "airport_small_roads:-260")

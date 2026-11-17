@@ -270,20 +270,26 @@ _DENSE_M = 2.0
 
 
 def _densified(ways, bridges) -> tuple:
-    """``ways`` with every LOWER road a cut ribbon follows (``ground``)
-    carrying a node every :data:`_DENSE_M` along the ribbon's axis: the
-    map's road vertices are the way's nodes, and an edge from a node
-    outside the span to one beyond it stands over the cut between them
-    (MEASURED ESSA ``-3`` over ``-80``: 3 vertices cut under a 55 m span).
-    The nodes lie on the way's own line: its shape is unchanged."""
+    """``ways`` with every LOWER road carrying a node every :data:`_DENSE_M`
+    along its cut ribbon's axis (``ground``) and its stretch under the span
+    (a node on each side of the span's edge): the map's road vertices are
+    the way's nodes, and an edge from a node outside the span to one beyond
+    it stands over the cut between them (MEASURED ESSA ``-3`` over ``-80``:
+    3 vertices cut under a 55 m span) and escapes the clearance ceiling
+    (``constraints/road_bridge_ceiling``).  The nodes lie on the way's own
+    line: its shape is unchanged."""
     import math
 
     from shapely.geometry import Point
-    axes: dict[str, list[LineString]] = {}
+    axes: dict[str, list] = {}
     for b in bridges:
-        for g in b.get("ground", ()) or ():
-            for w in b.get("over", ()) or ():
-                axes.setdefault(str(w), []).append(LineString(g["axis"]))
+        span = Polygon(b["span_xy"]).buffer(_DENSE_M) \
+            if len(b.get("span_xy") or ()) >= 3 else None
+        for w in b.get("over", ()) or ():
+            axes.setdefault(str(w), []).extend(
+                LineString(g["axis"]) for g in b.get("ground", ()) or ())
+            if span is not None:
+                axes[str(w)].append(span)
     if not axes:
         return tuple(ways)
     out = []
@@ -295,12 +301,19 @@ def _densified(ways, bridges) -> tuple:
         ln = LineString(w.points)
         extra = []
         for ax in cuts:
-            if ax.distance(ln) > 1e-3:
+            if ax.geom_type == "Polygon":           # the stretch under the span
+                x = ln.intersection(ax)
+                ends = [(ln.project(Point(g.coords[0])), ln.project(Point(g.coords[-1])))
+                        for g in getattr(x, "geoms", [x])
+                        if g.geom_type == "LineString" and g.length > 0.0]
+            elif ax.distance(ln) <= 1e-3:
+                ends = [(ln.project(Point(ax.coords[0])), ln.project(Point(ax.coords[-1])))]
+            else:
                 continue
-            a, b = ln.project(Point(ax.coords[0])), ln.project(Point(ax.coords[-1]))
-            a, b = min(a, b), max(a, b)
-            n = max(1, math.ceil((b - a) / _DENSE_M))
-            extra += [a + (b - a) * k / n for k in range(n + 1)]
+            for a, b in ends:
+                a, b = min(a, b), max(a, b)
+                n = max(1, math.ceil((b - a) / _DENSE_M))
+                extra += [a + (b - a) * k / n for k in range(n + 1)]
         if not extra:
             out.append(w)
             continue

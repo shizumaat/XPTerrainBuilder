@@ -105,5 +105,28 @@ def test_the_deck_has_straight_sides_and_a_steeper_bank():
     rect = straight_sided(piece, (0.0, 1.0))
     assert rect.contains(piece.buffer(-1e-6)) and abs(rect.area - 600.0) < 1e-6
     assert straight_sided(piece, None) is piece
+    # an oblique route: two sides along the road, two along the route
+    import math
+    r = (math.cos(math.radians(60)), math.sin(math.radians(60)))
+    par = straight_sided(piece, (0.0, 1.0), r)
+    assert par.contains(piece.buffer(-1e-6))
+    xs = list(par.exterior.coords)
+    sides = [(b[0] - a[0], b[1] - a[1]) for a, b in zip(xs[:-1], xs[1:], strict=True)]
+    assert any(abs(dx) < 1e-9 for dx, _dy in sides)                       # along the road
+    assert any(abs(dx * r[1] - dy * r[0]) < 1e-9 and dx != 0 for dx, dy in sides)  # along the route
     # owner sim read 2026-11-17T19:42Z: steeper than the channel's 1:2
     assert generated_bank_slope(LAW) > float(LAW.tables.structures.channel.bank_slope)
+
+
+def test_the_lower_road_carries_nodes_under_the_span():
+    from auto_patch_v2.model.airport import OsmWay
+    from auto_patch_v2.planar.road_bridge_gen import _densified
+    low = OsmWay(-4, "small_roads", ((60.0, -80.0), (60.0, 80.0)), False, {"highway": "service"})
+    other = OsmWay(-5, "small_roads", ((0.0, 50.0), (10.0, 50.0)), False, {"highway": "service"})
+    span = [[0.0, -8.0], [100.0, -8.0], [100.0, 8.0], [0.0, 8.0]]
+    out = _densified((low, other), ({"over": ["-4"], "span_xy": span, "ground": []},))
+    pts = out[0].points
+    assert out[1] is other and pts[0] == low.points[0] and pts[-1] == low.points[-1]
+    under = [y for x, y in pts if abs(y) <= 10.0]
+    assert len(under) >= 10 and all(x == 60.0 for x, _y in pts)
+    assert [y for _x, y in pts] == sorted(y for _x, y in pts)

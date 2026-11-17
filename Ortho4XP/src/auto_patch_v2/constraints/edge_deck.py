@@ -233,6 +233,14 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     hulls += [g if g.is_valid else g.buffer(0.0) for g in own if len(g.exterior.coords) >= 4]
     beyond = prep(unary_union(hulls).buffer(0.5)) if hulls else inside
     in_cut = _in_cut(planar, tunnels)
+    # a vertex under ANOTHER generated deck's ring is that deck's bank, never
+    # this one's flush ground (MEASURED KJFK: two decks over one road 80 m
+    # apart, the open stretch between them held db1cfe30's bank vertex
+    # 6.1 m up, flush with o4gen_0abbd35b's seat)
+    mine_rings = {tuple(d.ring) for d in decks}
+    others = [Polygon(d.ring).buffer(-0.5) for d in getattr(planar, "decks", ()) or ()
+              if getattr(d, "witness", "") == "generated" and tuple(d.ring) not in mine_rings]
+    others_in = prep(unary_union(others)) if others else None
     src = Source(GEN, RULING, (oid, oid, "deck span"))
     under = Source(GEN, RIGID, (oid, oid, "under the deck"))
     top_of = _station_tops(ends)
@@ -243,6 +251,9 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
             continue
         p = Point(vx.xy)
         if v not in air and in_cut(p):
+            continue
+        if others_in is not None and v not in air and others_in.contains(p) \
+                and not ring_in.contains(p):
             continue
         if not inside.contains(p) and not (beyond.contains(p) and _bridge_ground(planar, vx)):
             continue

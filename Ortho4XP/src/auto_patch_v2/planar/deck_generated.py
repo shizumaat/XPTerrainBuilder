@@ -472,7 +472,8 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             notes.append(f"{where}: REFUSED -- {why}")
             continue
         road_dir = _mean_dir([r.line.intersection(piece) for r in under])
-        piece = straight_sided(piece, road_dir)
+        piece = straight_sided(piece, road_dir,
+                               _route_dir(carried_route(airport, piece)[1], piece))
 
         def ends_of(pc, road_dir=road_dir):
             pairs = facing_contacts([to_ll(x, y) for x, y in pc.exterior.coords[:-1]],
@@ -484,7 +485,8 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             # #2131: the carried pavement ends inside the bank's reach (a
             # taxiway between two aprons): the longest deck short of it
             short = _shortened(piece, under, P, law, frac)
-            short = straight_sided(short, road_dir) if short is not None else None
+            short = straight_sided(short, road_dir, _route_dir(
+                carried_route(airport, short)[1], short)) if short is not None else None
             pair = ends_of(short) if short is not None else None
             if pair is not None:
                 notes.append(f"{where}: the carried pavement ends inside the bank's reach "
@@ -635,22 +637,44 @@ def _crest(stations: tuple, road_dir: "XY | None") -> tuple:
     return tuple(best) if len(best) >= 2 else stations
 
 
-def straight_sided(piece: Polygon, road_dir: "XY | None") -> Polygon:
+def straight_sided(piece: Polygon, road_dir: "XY | None",
+                   route_dir: "XY | None" = None) -> Polygon:
     """THE DECK HAS STRAIGHT SIDES (owner sim read 2026-11-17T19:42Z: "I
     think probably sticking with straight sides makes sense for now"): the
-    rectangle with two sides along the road under it (its end lines, the
-    cut's crests) and two across, that holds the whole ``piece`` -- never
-    the pavement ring's notches.  ``piece`` itself without a road
-    direction."""
+    quadrilateral that holds the whole ``piece`` with two sides along the
+    road under it (its end lines, the cut's crests) and two along the
+    carried route (``route_dir``; across the road where none is given or it
+    runs within 20 deg of the road) -- never the pavement ring's notches.
+    An oblique crossing is a parallelogram: a rectangle square to the road
+    took in the pack's service-road pavement beside the taxiway, never cut
+    (MEASURED ESSA ``o4gen_07971284``, 5.7 m).  ``piece`` itself without a
+    road direction."""
     if road_dir is None or piece.is_empty:
         return piece
     ux, uy = road_dir
-    pts = list(piece.exterior.coords)
-    us = [x * ux + y * uy for x, y in pts]
-    vs = [-x * uy + y * ux for x, y in pts]
-    u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
-    return Polygon([(u * ux - v * uy, u * uy + v * ux)
-                    for u, v in ((u0, v0), (u1, v0), (u1, v1), (u0, v1))])
+    wx, wy = -uy, ux
+    if route_dir is not None and abs(route_dir[0] * ux + route_dir[1] * uy) \
+            < math.cos(math.radians(_CREST_TURN_DEG)):
+        wx, wy = route_dir
+    det = ux * wy - uy * wx
+    ab = [((x * wy - y * wx) / det, (ux * y - uy * x) / det) for x, y in piece.exterior.coords]
+    a0, a1 = min(a for a, _b in ab), max(a for a, _b in ab)
+    b0, b1 = min(b for _a, b in ab), max(b for _a, b in ab)
+    return Polygon([(a * ux + b * wx, a * uy + b * wy)
+                    for a, b in ((a0, b0), (a1, b0), (a1, b1), (a0, b1))])
+
+
+def _route_dir(route, piece: Polygon) -> "XY | None":
+    """The carried route's direction where it crosses ``piece`` (its
+    segment nearest the centroid); ``None`` for none."""
+    if len(route) < 2:
+        return None
+    c = piece.centroid
+    seg = min(zip(route[:-1], route[1:], strict=True),
+              key=lambda st: LineString(st).distance(c))
+    dx, dy = seg[1][0] - seg[0][0], seg[1][1] - seg[0][1]
+    n = math.hypot(dx, dy)
+    return None if n <= 1e-9 else (dx / n, dy / n)
 
 
 def _mean_dir(pieces) -> "XY | None":

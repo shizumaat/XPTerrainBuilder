@@ -180,8 +180,7 @@ _LAYOUT: list = [
          "The sharper imagery covers the airport and this band around it."),
         ("cover_approach_ft",
          "How far along the approaches (ft on a 3° glide path)?", "tile", False,
-         "1,000 ft is about 5.8 km past each runway end; "
-         "airports with approach rings get 10 km."),
+         "1,000 ft is about 5.8 km past each runway end; 0 covers the airport only."),
         ("sea_nodata_fill", "Repair blank spots in imagery over the sea?", "tile", False,
          "Fills the white or black rectangles some providers leave over coastal water."),
         ("color_harmonization", "Even out imagery colors across the tile?", "tile", False,

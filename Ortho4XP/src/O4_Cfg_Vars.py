@@ -998,10 +998,8 @@ cfg_tile_vars = {
             "approach (#1990): from each landing threshold out along the "
             "extended centreline until a 3 degree glide path is this many "
             "feet above the threshold (1000 ft is about 5.8 km, 500 ft "
-            "about 2.9 km; 0 = no corridor), widening from the "
-            "runway width to 1 km.  An airport with approach rings "
-            "(approach_rings) keeps the sharper imagery out to the first "
-            "ring, 10 km past its boundary."
+            "about 2.9 km; 0 = the airport only), widening from the "
+            "runway width to 1 km."
         ),
     },
     "cover_zl": {

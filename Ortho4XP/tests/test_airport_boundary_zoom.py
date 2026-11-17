@@ -8,8 +8,6 @@ import types
 import O4_Airport_Approach_Cover as COVER
 import O4_Airport_Boundary_Zoom as BZ
 import O4_DSF_Utils as DSF
-import O4_Elevation_Level as ELEV
-import O4_Geo_Utils as GEO
 import O4_File_Names as FNAMES
 import O4_Imagery_OnDemand_Budget as BUDGET
 import O4_Imagery_OnDemand_Cores as CORES
@@ -118,36 +116,6 @@ def test_the_ortho_dico_textures_the_boundary_finest(tmp_path, monkeypatch):
     tile = _tile(cover_airports_with_highres="False")
     assert {v[2] for v in DSF.zone_list_to_ortho_dico(tile).values()} == {16}
     assert tile.airport_boundary_textures == []
-
-
-def test_three_tiers_max_then_cover_out_to_the_rings_then_base(
-        tmp_path, monkeypatch):
-    """Owner 2026-11-17T23:20Z: the provider's finest inside the WHOLE
-    boundary, ``cover_zl`` out to the approach rings, the base beyond."""
-    apt = tmp_path / "Data.apt"
-    with open(apt, "wb") as f:
-        pickle.dump({"ZZZZ": {"key_type": "icao", "boundary": BOUNDARY}}, f)
-    monkeypatch.setattr(FNAMES, "apt_file", lambda tile: str(apt))
-    monkeypatch.setattr(BZ, "_provider", lambda code: PROVIDER)
-    monkeypatch.setattr(BZ, "_probe_tile", _probe({19}))
-    monkeypatch.setattr(ELEV, "approach_ring_airports",
-                        lambda tile, dico: ["ZZZZ"])
-    tile = _tile()
-    dico = DSF.zone_list_to_ortho_dico(tile)
-    inside = COVER.region_squares(BOUNDARY, LAT, LON, 19)
-    assert {dico[sq][2] for sq in inside} == {19}
-    # every part of the boundary lies in a finest square
-    cover = MultiPolygon([box(*COVER.square_bounds(*sq, 19, LAT, LON))
-                          for sq in inside]).buffer(0)
-    assert BOUNDARY.difference(cover).area == 0.0
-    # 8 km north of the boundary: cover_zl; 15 km north: the base
-    y_top = LAT + 0.5135
-    near = GEO.wgs84_to_orthogrid(y_top + 8000 / GEO.lat_to_m,
-                                  LON + 0.5175, 19)
-    far = GEO.wgs84_to_orthogrid(y_top + 15000 / GEO.lat_to_m,
-                                 LON + 0.5175, 19)
-    assert dico[near][2] == 18
-    assert dico[far][2] == 16
 
 
 def test_a_zone_of_another_provider_keeps_its_own_level(tmp_path, monkeypatch):

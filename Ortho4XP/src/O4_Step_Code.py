@@ -357,6 +357,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.dsf_heights",
     "auto_patch_v2.airport.dsf_mesh",
     "auto_patch_v2.airport.dsf_poly_clip",
+    "auto_patch_v2.airport.dsf_row_hide",
     "auto_patch_v2.airport.dsf_rows",
     "auto_patch_v2.airport.dsf_segments",
     "auto_patch_v2.airport.end_pins",
@@ -615,6 +616,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.constraints.contiguity",
     "auto_patch_v2.constraints.cut_kerb",
     "auto_patch_v2.constraints.deck_anchor",
+    "auto_patch_v2.constraints.deck_floor_follow",
     "auto_patch_v2.constraints.deck_lines",
     "auto_patch_v2.constraints.deck_runout",
     "auto_patch_v2.constraints.deck_stack",
@@ -652,6 +654,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.constraints.public_road_release",
     "auto_patch_v2.constraints.ramp_runout",
     "auto_patch_v2.constraints.riser",
+    "auto_patch_v2.constraints.road_bridge_ceiling",
     "auto_patch_v2.constraints.road_ramp",
     "auto_patch_v2.constraints.roads",
     "auto_patch_v2.constraints.routes",
@@ -1101,6 +1104,10 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Object_Stage_Code",
         "O4_Triangle_Binary",
         "O4_Triangle_IO",
+        # the pack-overlap choice (#2145), reached outside the object
+        # stage's key
+        "auto_patch_v2.airport.pack_overlap",
+        "auto_patch_v2.airport.pack_overlap_choice",
         # the object stage's pack-author choice (RULINGS 2026-11-11m (3)),
         # outside its auto_patch-only key (#1901)
         "o4_engine.xplane_root",

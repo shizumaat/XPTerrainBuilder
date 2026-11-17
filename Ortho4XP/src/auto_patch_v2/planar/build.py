@@ -62,6 +62,7 @@ from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
 from .road_wall_witness import road_witness
 from ..airport.bridge_ground import BridgeGround, bridge_ground, bridge_runs
+from ..airport.road_bridge_ground import clearance_ground, clearance_ribbons
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
 from .structure_approach import wall_field
 from .structure_road import mouth_pair_roads
@@ -597,6 +598,14 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                 _airside_vertices(faces, face_vs),
                                                 _seam_vertices(arr, vertices_xy))
         print(f"  [planar] {stats.bridge_ground.line()}")
+    # #2141 item 5: a generated road bridge's ends stand on their
+    # embankments and the lower roads are cut to its clearance
+    # (``airport/road_bridge_ground``; ramp targets still win below)
+    cribs = clearance_ribbons(airport)
+    if cribs:
+        zs, _cg = clearance_ground(cribs, xs, ys, zs, _airside_vertices(faces, face_vs),
+                                   _seam_vertices(arr, vertices_xy))
+        print(f"  [planar] {_cg.line()}")
     # #2053 round 3: under a held object (a ground object on its bridges'
     # ends) the vertices no airside face carries read the cut ground
     if any(getattr(r[2], "seat_by", "") for r in getattr(airport, "terrain_models", ()) or ()):

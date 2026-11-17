@@ -140,3 +140,10 @@ class RoadGenLaw:
     cut_drop_m: float = 1.0
     #: ... read within this of the bridge's axis (m)
     cut_reach_m: float = 20.0
+    #: #2141 item 5 (``planar/road_bridge_clear``): an end stands on its
+    #: embankment as the survey reads its approach out to this far (m)
+    approach_probe_m: float = 30.0
+    #: ... and a bridge is generated where the survey then shows at least
+    #: this share of ``[bridge] clearance_minimum_m`` over a lower road
+    #: (16s/16t: the tag and the crossing are the witness; the rest is cut)
+    witness_share: float = 0.5

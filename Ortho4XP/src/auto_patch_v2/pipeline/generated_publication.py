@@ -75,6 +75,6 @@ def generated_records(planar, law, airport, z) -> dict[str, list[dict]]:
             # #2132 the piers: the floor under the top and each covered road
             "floor_m": round(float(db.floor_min_m), 4),
             "roads": _roads(db, law, to_ll)})
-    bridges = [{k: v for k, v in dict(b).items() if k != "span_xy"}
+    bridges = [{k: v for k, v in dict(b).items() if k not in ("span_xy", "ground")}
                for b in getattr(airport, "road_bridges", ()) or ()]
     return {"decks": decks, "road_bridges": bridges}

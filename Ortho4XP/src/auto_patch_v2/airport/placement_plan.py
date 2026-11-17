@@ -125,8 +125,8 @@ from .placement_body import isolated_raws  # noqa: E402  (§9a A1 §3.4)
 from . import cut_deck_seat as _cds  # noqa: E402
 from . import entrance_seat as _ens  # noqa: E402
 from . import split_guard as _sg  # noqa: E402
-from . import drawn_anchor as _da  # noqa: E402
 from . import deck_plates as _dpl  # noqa: E402
+from . import drawn_anchor as _da  # noqa: E402
 from . import terrain_shaped as _tsh  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
     airside_deck as _airside_deck, airside_frame as _airside_frame,

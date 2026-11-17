@@ -12,7 +12,6 @@ import dataclasses as _dc
 import math
 
 import numpy as np
-
 from auto_patch_v2.airport import anchor_rule as AR
 from auto_patch_v2.airport import deck_plates as DP
 from auto_patch_v2.airport import obj8
@@ -79,7 +78,7 @@ def test_a_wall_past_both_plates_is_clipped_at_the_band_line(tmp_path):
             OS.BodyCut(1, comps, (30.0, 1.0, 0.0), band=p.band(1))]
     res = OS.split_obj8(path, cuts, "objects/wall.obj")
     assert not res.kept_whole and len(res.files) == 2
-    for f, (lo, hi), off in zip(res.files, ((-60.0, 0.0), (0.0, 60.0)), (-30.0, 30.0)):
+    for f, (lo, hi), off in zip(res.files, ((-60.0, 0.0), (0.0, 60.0)), (-30.0, 30.0), strict=True):
         q = tmp_path / f"b{f.body_id}.obj"
         q.write_text(f.text, encoding="utf-8")
         g = obj8.parse_obj8(str(q))

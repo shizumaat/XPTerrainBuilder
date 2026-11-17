@@ -129,10 +129,10 @@ def bands_of(plates: _t.Sequence[np.ndarray], reach_m: float) -> "Plates | None"
         ax = -ax
     ext = sorted((float((np.asarray(p, float) @ ax).min()),
                   float((np.asarray(p, float) @ ax).max())) for p in plates)
-    gaps = tuple(b[0] - a[1] for a, b in zip(ext, ext[1:]))
+    gaps = tuple(b[0] - a[1] for a, b in zip(ext, ext[1:], strict=False))
     if min(gaps) <= reach_m:
         return None
-    cuts = tuple(0.5 * (a[1] + b[0]) for a, b in zip(ext, ext[1:]))
+    cuts = tuple(0.5 * (a[1] + b[0]) for a, b in zip(ext, ext[1:], strict=False))
     return Plates((float(ax[0]), float(ax[1])), tuple(ext), cuts, gaps)
 
 

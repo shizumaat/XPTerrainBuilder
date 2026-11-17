@@ -48,7 +48,7 @@ import O4_World_Pack as WP
 __all__ = ["DRAPE_AGENT", "LAYER_GROUP", "texture_squares", "drape_quad",
            "WATER_LAYER_GROUP", "pol_text", "drape_dsf_text", "write_drape",
            "verify_drape", "is_drape", "dds_width",
-           "default_dds_name"]
+           "default_dds_name", "DECLARED_PX"]
 
 #: ``sim/creation_agent`` of a draped tile (:func:`is_drape`).
 DRAPE_AGENT = "XPTerrainBuilder world drape"
@@ -100,11 +100,22 @@ def drape_quad(lat: int, lon: int, til_x: int, til_y: int,
             for x, y in corners]
 
 
+#: The width every ``.pol`` declares in ``LOAD_CENTER``: a square's FULL
+#: width (``O4_Imagery_Tier_Plan.TIER_WIDTH[-1]``), whatever the DDS on
+#: disk is now (#2142 R1).  A ``.pol`` is read once with the DSF; the
+#: follow job then lands finer tiers under the same name.  That X-Plane
+#: steps a texture up under a ``.ter`` declaring 4096 over a 512 px file
+#: is measured (local-imagery-cache spec §2.5); for a ``.pol`` declaring
+#: the file's real 512 it is not (World spec U5, open), so drapes declare
+#: what the ``.ter`` path does.
+DECLARED_PX = 4096
+
+
 def pol_text(texture_rel: str, til_x: int, til_y: int, zl: int,
              px: int, layer: str = LAYER_GROUP, alpha: bool = False) -> str:
     """The ``.pol`` of one texture square: clamped texture (an orthophoto
     sub-section, never tiled), ``LOAD_CENTER`` at the square's centre with
-    its ground size and the DDS's real width.  ``SCALE`` is ignored for a
+    its ground size and ``px`` (:data:`DECLARED_PX`).  ``SCALE`` is ignored for a
     UV-mapped polygon; it is written as the square's size, like WED.
     ``alpha`` drops ``NO_ALPHA`` (the water copy draws the DDS alpha)."""
     south, west, north, east = _bounds(til_x, til_y, zl)
@@ -212,14 +223,15 @@ def write_drape(lat: int, lon: int, zl: int, provider: str, tex_in: str,
         with open(os.path.join(ter_out, pol), "w", encoding="utf-8",
                   newline="\n") as handle:
             handle.write(pol_text(f"../../textures/{tile}/{name}",
-                                  til_x, til_y, zl, px))
+                                  til_x, til_y, zl, DECLARED_PX))
         pols.append((f"terrain/{tile}/{pol}", quad))
         if water_layer and _dds_has_alpha(src):
             wpol = os.path.splitext(name)[0] + "_water.pol"
             with open(os.path.join(ter_out, wpol), "w", encoding="utf-8",
                       newline="\n") as handle:
                 handle.write(pol_text(f"../../textures/{tile}/{name}", til_x,
-                                      til_y, zl, px, water_layer, alpha=True))
+                                      til_y, zl, DECLARED_PX, water_layer,
+                                      alpha=True))
             water.append((f"terrain/{tile}/{wpol}", quad))
     counts["polygons"] = len(pols) + len(water)
     counts["water"] = len(water)

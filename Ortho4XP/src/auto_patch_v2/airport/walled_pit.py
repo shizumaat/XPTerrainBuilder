@@ -39,6 +39,13 @@ own RIM:
    (object-placement spec §18 (3)); any other rim re-seats the WHOLE FRAME
    by ``lift = ground - rim`` (the frame is one rigid world: every
    co-placed placement, and every other floor read in it, moves with it).
+7. OPEN TRENCH (#1949 R2/R3, owner RULINGS 2026-11-17 (a)) -- only a pit
+   whose floor lies under no roof brings the ground down to a wall lower
+   than it (its open edges, ``planar/pit_bank``): the frame's solids at its
+   rim cover less than ``trench_roof_max_share`` of the floor (a building's
+   lower storey, a covered approach), and its walls do not hang under its
+   plate (a plate on walls hanging under it is a roof object's low roof,
+   :func:`open_trench`).  Any other pit keeps its rim on the ground.
 
 The floor's surface is its near-horizontal faces standing under the rim
 (the floor, the decks and ramps inside the walls), placed at ``zero +
@@ -65,7 +72,7 @@ from .below_grade_witness import placed_all as _placed_all
 from .below_grade_witness import zero_of as _zero
 from .object_cut import _base, _face_normals_y, valid_polygon
 
-__all__ = ["read_walled_pit", "share_lift", "Walls", "hard_deck_share", "wall_caps"]
+__all__ = ["read_walled_pit", "share_lift", "Walls", "hard_deck_share", "wall_caps", "open_trench"]
 
 def _floor_level(v: np.ndarray, hz: np.ndarray, min_area: float) -> "float | None":
     """The lowest level carrying a plate's worth (``min_area``) of the
@@ -354,6 +361,10 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     faces = F.copy()
     faces[:, :, 2] += lift
     fz = float(faces[:, :, 2].min())
+    # rule 7 (owner RULINGS 2026-11-17 (a)): only an OPEN TRENCH banks its open
+    # edges -- its floor under no roof
+    hung = _hung(outline, (o, *covers), walls, floor_y, law)
+    trench = open_trench(roofed, hung, law)
     inside = [p for p in mates if p not in covers and _in_pit(p, plan, cache, tk)]
     k = sum(1 for n in notes if n.startswith(f"object floor walled pit {_base(o.path)}@"))
     note = (f"object floor walled pit {_base(o.path)}@{k}: floor y {floor_y:.2f}, "
@@ -364,16 +375,49 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
             + ("its plates" if r.source == "plates" else "NO PLATES: the DEM")
             + f" {r.z:.2f}) -> frame lift {lift:+.2f}; floor {fz:.2f}, "
             f"{len(faces)} faces over {foot.area:.0f} m2; the frame's "
-            f"{len(covers) + len(inside) + 1} placements standing in it move with it")
+            f"{len(covers) + len(inside) + 1} placements standing in it move with it; "
+            f"{100 * hung:.0f} % of its outline hangs walls under it: "
+            + ("an open trench, its open edges banked" if trench
+               else "no open trench, its rim stays on the ground"))
     notes.append(note)
     seats = tuple((p.id, p.path, _zero(p, msl) + lift) for p in (o, *covers, *inside))
     tops = _open_edges(foot, frame, cache, law, msl, scale, zero, zero + rim_y, lift, ground,
-                       faces, fz)
+                       faces, fz) if trench else ()
     return ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@pit{k}", o.id, o.path,
                        tuple(p.id for p in covers), zero + lift, fz, foot, faces, (note,),
                        seats, rim_z=zero + rim_y + lift, lift=lift,
                        authored=tuple((p.id, _zero(p, msl)) for p in frame),
                        rim_proud_m=proud + lift, rim_tops=tops, rim_banks=bool(tops))
+
+
+def _hung(outline, frame, walls: Walls, floor_y: float, law) -> float:
+    """Rule 7 (a): the share of ``outline`` (every ``wall_sample_m``) along
+    which a wall of ``frame`` (the floor object and the pit's walls) hangs
+    more than ``cover_flush_m`` UNDER the floor and rises to it: the plate
+    stands on its walls -- a roof, the floor the walls stand on under it."""
+    ob = law.tables.structures.tunnel.object
+    tk = float(ob.wall_face_max_thickness_m)
+    box = shapely.box(*outline.bounds).buffer(tk)
+    best = 0.0
+    for p in frame:
+        w = walls.reaching(p, floor_y - ob.cover_flush_m, floor_y - ob.cover_flush_m, box)
+        if w is not None:
+            best = max(best, _on_ring(outline, w, tk, float(ob.wall_sample_m))[0])
+    return best
+
+
+def open_trench(roofed: float, hung: float, law) -> bool:
+    """Rule 7 (owner RULINGS 2026-11-17 (a): "an object whose floor stands
+    below the surrounding ground and which has NO ROOF over that floor"): is
+    a walled pit an OPEN TRENCH?  Not when its frame's near-horizontal solids
+    at its rim (rule 4's read) cover ``trench_roof_max_share`` of its floor
+    or more -- a building's lower storey, a covered approach -- nor when its
+    plate stands on walls hanging under it along ``floor_walled_min_share``
+    of its outline (``hung``, :func:`_hung`): the plate is a roof, the floor
+    the walls stand on lies under it.  Only an open trench brings the ground
+    down to its walls (:func:`_open_edges`, ``planar/pit_bank``)."""
+    ob = law.tables.structures.tunnel.object
+    return roofed < float(ob.trench_roof_max_share) and hung < float(ob.floor_walled_min_share)
 
 
 def _open_edges(foot, frame, cache, law, msl, scale, zero: float, rim_abs: float, lift: float,

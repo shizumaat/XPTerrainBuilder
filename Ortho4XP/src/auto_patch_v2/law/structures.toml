@@ -223,6 +223,21 @@ floor_sunken_min_m = 2.0
 # walled pit) and OTHH TerminalRoads_02_000 (measured against the author's
 # plates round it, 9.92) still read.
 pit_sunken_min_share = 0.5
+# ...and only an OPEN TRENCH brings the ground down to its walls (the open-edge
+# rim and its bank, #1949 R2/R3; owner RULINGS 2026-11-17 (a): "an object
+# whose floor stands below the surrounding ground and which has NO ROOF over
+# that floor"; ``walled_pit.open_trench``): the frame's near-horizontal solids
+# at its rim (rule 4's read, within cover_flush_m of it or over it) cover less
+# than this share of its floor, and its walls hang more than cover_flush_m
+# under its plate along less than floor_walled_min_share of its outline (a
+# plate on walls hanging under it is a roof).  Census (lane lomdb3, the
+# newest capture of 82 airports, 26 walled pits): the trenches OMDB duong_2
+# 1 %, hamnen 10 % (a rail viaduct over it), OTHH TerminalRoads_02_000 1 %;
+# the buildings 20-77 % (KBNA terminal / car rental / hangar 20-38 %, EGGW
+# 21 %, LFMN Bld6_7_16 32 %, CYYZ Terminal1 51-65 %, LEMD T4 72-77 %); the
+# roof objects read as floors (EFHK infra_*, LEMD *tej*) hang their facades
+# under the plate along 76-100 % of the outline.
+trench_roof_max_share = 0.15
 # THE CUT LIES BENEATH THE FLOOR (owner RULINGS 2026-11-06d (4), #1921 /
 # #1936: "the cut is deep enough that it's completely below the floor so the
 # floor is visible"; 2026-11-10o (1) "fully beneath the tunnel object floor"):

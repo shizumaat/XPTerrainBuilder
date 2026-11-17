@@ -244,6 +244,48 @@ def test_a_wall_lower_than_the_ground_behind_it_states_its_rim_a_parapet_under_i
     assert float(np.ptp(T[:, 1])) < 2.5, T[:, 1]
 
 
+def test_a_pit_with_a_roof_over_its_floor_is_no_open_trench_and_states_no_rim(tmp_path):
+    """#1949 rule 7 (owner RULINGS 2026-11-17 (a); lane lomdb2's census
+    brought the ground down 1-3 m to buildings' lower storeys, KBNA, CYYZ
+    ``Terminal1_Parte29``): the same low-walled trench with a roof at its rim
+    over half its floor (in the co-placed walls' object; under the basement
+    share, so it still reads as a pit) is no OPEN TRENCH: it states no open
+    edge and takes no bank; its floor and seat read as before."""
+    objs = _trench(tmp_path, low_wall=6.0, low_portal=True)
+    walls = [_box(-0.5, 0.0, 0.5, 40.0, 12.0), _box(60.0, 0.0, 0.5, 40.0, 12.0),
+             _box(0.0, -0.5, 60.0, 0.5, 12.0), _box(0.0, 40.0, 60.0, 0.5, 6.0),
+             _box(0.0, 0.0, 60.0, 20.0, 0.3, y0=12.0)]
+    objs[0].resolved = _write(tmp_path / "roofed.obj", walls)
+    floors, notes = _read_bored(objs, 105.0, [_BORE])
+    assert [f.object_id for f in floors] == ["dsf:obj2"], notes
+    f = floors[0]
+    assert f.rim_tops == () and not f.rim_banks, notes
+    assert abs(f.lift + 7.0) < 0.05 and abs(f.floor_z - 93.0) < 0.05, notes
+    assert any("no open trench" in n for n in f.notes), f.notes
+
+
+def test_a_plate_standing_on_walls_hanging_under_it_is_a_roof_and_states_no_rim(tmp_path):
+    """#1949 rule 7 (LEMD ``Cargo-tej2``: a roof object's low roof read as the
+    floor of its own facades, which hang 6 m under it; the rim brought down
+    25.7 m): a plate whose walls hang more than ``cover_flush_m`` under it
+    along its outline is a ROOF -- the floor the walls stand on lies under
+    it -- so it states no open edge, however low a wall stands."""
+    def frame(y0):
+        walls = [_box(-0.5, 0.0, 0.5, 40.0, 12.0 - y0, y0=y0),
+                 _box(60.0, 0.0, 0.5, 40.0, 12.0 - y0, y0=y0),
+                 _box(0.0, -0.5, 60.0, 0.5, 12.0 - y0, y0=y0),
+                 _box(0.0, 40.0, 60.0, 0.5, 6.0 - y0, y0=y0)]
+        floor = _write(tmp_path / f"plate{y0}.obj", [_box(0.0, 0.0, 60.0, 40.0, 0.2, y0=3.0)])
+        return [_at(_write(tmp_path / f"facades{y0}.obj", walls), "dsf:obj1"),
+                _at(floor, "dsf:obj2")]
+    open_, _ = _read(frame(3.0), 105.0)
+    assert [f.object_id for f in open_] == ["dsf:obj2"] and open_[0].rim_tops
+    floors, notes = _read(frame(-2.0), 105.0)
+    assert [f.object_id for f in floors] == ["dsf:obj2"], notes
+    assert floors[0].rim_tops == () and not floors[0].rim_banks, notes
+    assert any("no open trench" in n for n in floors[0].notes), floors[0].notes
+
+
 def test_a_flush_rim_states_no_open_edge(tmp_path):
     """A walled pit whose walls all land on the ground states no rim and
     takes no bank (the accepted rim stays)."""

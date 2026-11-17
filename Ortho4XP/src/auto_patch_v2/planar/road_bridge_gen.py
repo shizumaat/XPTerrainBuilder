@@ -91,7 +91,7 @@ def _cut_region(dem, line: LineString, reach: float, levels: tuple[float, float]
                 drop: float, step: float = 2.0):
     """The ground within ``reach`` of the bridge axis where the survey stands
     ``drop`` or more under the deck -- straight between the ends' ``levels``
-    on their embankments (``road_bridge_clear._deck_at``) -- (the lower road's
+    on their embankments (``road_bridge_clear.deck_at``) -- (the lower road's
     cutting beside the span, owner 16y (3): the pack's pavement there is
     graded into the cut and pulls the bridge's ends down with it; #2141:
     a page beside a raised end, read whole, stood 4.8 m over the lower road

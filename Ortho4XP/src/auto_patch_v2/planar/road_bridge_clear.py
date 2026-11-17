@@ -22,7 +22,7 @@ the survey shows it:
   along the approach to that crest (:func:`_chain`): its level-0 junction
   drapes on the embankment the survey already carries -- no fill is
   invented (the span is a hole the base mesh fills from the survey).
-* THE DECK runs straight between the two end levels (:func:`_deck_at`); the
+* THE DECK runs straight between the two end levels (:func:`deck_at`); the
   X-Plane chain's level-1 junctions ride over it.
 * THE LOWER ROADS ARE CUT by what is still short (:func:`span_cuts`,
   once the span is known): along each witnessed lower road's whole stretch
@@ -142,7 +142,7 @@ def _end_level(dem, approaches, cap: float) -> tuple[float, "LineString | None",
     return best
 
 
-def _deck_at(levels: tuple[float, float], length: float, s: float) -> float:
+def deck_at(levels: tuple[float, float], length: float, s: float) -> float:
     """The deck's level ``s`` along a bridge ``length`` long, straight
     between its two end levels."""
     w = 0.0 if length <= 1e-9 else min(1.0, max(0.0, s / length))
@@ -265,7 +265,7 @@ def clearance_plan(airport, law, w, line: LineString, lower) -> "ClearancePlan |
         if zq is None:
             continue
         s = line.project(q)
-        deck = _deck_at((levels[0], levels[1]), line.length, s)
+        deck = deck_at((levels[0], levels[1]), line.length, s)
         best = max(best, deck - zq)
         c = design_clearance_m(otags, law)
         crossings.append((wid, s, zq, c - (deck - zq), c))

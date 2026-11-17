@@ -35,7 +35,7 @@ def test_the_deck_spans_its_cut_floor_carries_the_road():
     run = dg._bank_run_m(LAW)
     g = LAW.tables.structures.deck_gen
     depth = float(g.thickness_m) + float(LAW.tables.structures.tunnel.clearance_m)
-    assert run == pytest.approx(depth / float(LAW.tables.emit.design.bank_slope))
+    assert run == pytest.approx(depth / float(LAW.tables.structures.channel.bank_slope))
     road = _road([(0.0, -40.0), (0.0, 40.0)])
     C = dg._cut_reach([road], LAW)
     reach = C.bounds[2]

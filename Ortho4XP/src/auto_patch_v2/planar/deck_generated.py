@@ -61,7 +61,8 @@ from .deck_route import carried_route
 from .structure_approach import carriageway_width_m, is_tunnel, standing_cover
 from .structure_underpass import underpass_bores
 
-__all__ = ["generated_bank_slope", "generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
+__all__ = ["generated_bank_slope",
+           "generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
            "carried_off", "covers_bore"]
 
 #: ``DeckBridge.witness`` of a generated deck

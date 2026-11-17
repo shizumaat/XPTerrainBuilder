@@ -178,7 +178,8 @@ def main(argv=None) -> int:
         for q in res["cut_cover"]:
             bad = q["over"] > 0
             rc |= bad
-            print(f"CUT-COVER {'FAIL' if bad else 'PASS'} {q['object']}"
+            verdict = "FAIL" if bad else ("PASS" if q["samples"] else "NOT MEASURED")
+            print(f"CUT-COVER {verdict} {q['object']}"
                   + (f" over {q['lower']}" if q.get("lower") else "")
                   + f": {q['over']}/{q['samples']} sample(s) over {a.cut_cover:g} m, worst "
                   f"{q['worst_m']} m at {q.get('ll')} {q['worst_at']} {q.get('note', '')}")

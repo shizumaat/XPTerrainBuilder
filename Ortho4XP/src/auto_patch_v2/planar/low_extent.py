@@ -85,7 +85,7 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
     pavement no aircraft reaches once the pads stand -- a piece of it the
     lower footprint meets is the footprint too (19ag, #1302).  ``frames``:
     the SEEDS of the frames read at their airside floor (``low_level.
-    frame_seeds``, spec 2120-F R3) -- hosts of no region of their own, read
+    _frame_seeds``, spec 2120-F R3) -- hosts of no region of their own, read
     by their block's polygon; the frame's conforming pads standing in its
     closed lower footprint are ABSORBED into it (:func:`_absorb`)."""
     from ..model.stage_one import deriving
@@ -194,7 +194,7 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
             rec = hosts[host]
             y = _bottom(q, lower, w)
             if y is not None and host in seeds:
-                y = float(rec["y_feet"])        # the frame's lower floor (``frame_seeds``)
+                y = float(rec["y_feet"])        # the frame's lower floor (``_frame_seeds``)
             if y is None and q.intersection(taken).area >= 0.5 * q.area:
                 # unreachable pavement cut off the footprint by a keep-off,
                 # with no lower body of its own: the group's ONE lower level
@@ -221,7 +221,7 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
                       **{str(r.ref): reg.landings[str(r.ref)] for r in made
                          if str(r.ref) in reg.landings}},
                 by_ref, made, air_all, airport, own_walls, counts)
-    gone = absorbed_refs(absorbed)
+    gone = _absorbed_refs(absorbed)
     if gone:
         # an absorbed pad is the level now: its regions and its hold go
         for ref in gone:
@@ -300,7 +300,7 @@ def _seed_key(f: dict) -> str:
     return f"{f['block']}#floor_seed"
 
 
-def absorbed_refs(absorbed: _t.Mapping[str, _t.Sequence[str]]) -> set[str]:
+def _absorbed_refs(absorbed: _t.Mapping[str, _t.Sequence[str]]) -> set[str]:
     """Every pad ref :func:`_absorb` took, over all hosts."""
     return {r for v in absorbed.values() for r in v}
 

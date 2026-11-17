@@ -914,7 +914,7 @@ class ObjReport:
     hard_deck_objects: int = 0
     msl_notes: int = 0
     #: spec 2120-F R1: one line per frame re-zeroed at its airside floor
-    #: (``airside_floor.FloorFrame.note``)
+    #: (``airside_floor._FloorFrame.note``)
     floor_frames: list[str] = _dc.field(default_factory=list)
     no_dem_at_anchor: int = 0
     buried_components: int = 0

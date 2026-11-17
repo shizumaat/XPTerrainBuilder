@@ -9,12 +9,10 @@ from __future__ import annotations
 import types
 
 import pytest
-import shapely
-from shapely.geometry import box
-from test_msl_feet import _boxes
-
 from auto_patch_v2.airport import airside_floor as AF
 from auto_patch_v2.airport import obj8 as O8
+from shapely.geometry import box
+from test_msl_feet import _boxes
 
 Z = 300.0
 #: the apt.dat airside pavement: frame x >= 100 (heading 0: frame x = x)
@@ -22,9 +20,10 @@ AIR = box(100.0, -50.0, 400.0, 50.0)
 
 
 def _witness(air=AIR):
-    g = air.buffer(1.0)
-    shapely.prepare(g)
-    return AF.FloorWitness(g, 3.0, 2.5, 1.0, 4, 3.0)
+    """``airside_floor.witness`` over one apt.dat pavement ``air``."""
+    from auto_patch_v2.law import Law
+    pv = types.SimpleNamespace(id="apt:1", outer=list(air.exterior.coords)[:-1], holes=[])
+    return AF.witness(types.SimpleNamespace(pavements=[pv]), Law.for_airport("ZZZZ"))
 
 
 def _two_floor(tmp_path, name="f.obj", under=()):
@@ -171,20 +170,19 @@ def law():
     return Law.for_airport("ZZZZ")
 
 
-def _seed_split(law, tmp_path, monkeypatch, conforming=()):
-    from test_two_pads1214 import _airport, _wall
-
+def _seed_split(law, tmp_path, monkeypatch, conforming=(), extra=()):
     from auto_patch_v2.model.registries import Registries
     from auto_patch_v2.planar import low_level as LL
     from auto_patch_v2.planar import pad_blocks
     from auto_patch_v2.planar.low_extent import AirRegion
     from auto_patch_v2.planar.overlay import Region
+    from test_two_pads1214 import _airport, _wall
     monkeypatch.setattr(pad_blocks, "unit_base", lambda P, a: ("flat", "u"))
     air = box(0.0, 100.0, 200.0, 130.0)
     blk = box(0.0, 80.0, 200.0, 100.0)               # the concourse block on the apron
     conc = [_wall(10.0 + 20.0 * i, 99.5, 25.0 + 20.0 * i, 100.0, 0.0, 30) for i in range(8)]
     hall = [_wall(0.0, 0.0, 200.0, 60.0, -15.0, 300)]
-    A = _airport(conc + hall, tmp_path)
+    A = _airport(conc + hall + [_wall(*e) for e in extra], tmp_path)
     A.partition.units[0].members[0].floor_zero = True
     reg = Registries()
     reg.held["blk"] = {"unit": "blk"}
@@ -222,3 +220,31 @@ def test_a_conforming_pad_of_the_frame_in_its_lower_footprint_is_absorbed(
     assert "conf0" not in reg.held and not any(r.ref == "conf0" for r in out)
     ext = next(r.polygon for r in out if reg.landings.get(str(r.ref)) is rec)
     assert ext.contains(inside.buffer(-1.0))
+
+
+def test_a_mezzanine_over_the_lower_floor_never_lifts_the_level(law, tmp_path, monkeypatch):
+    """The frame's lower floor is its level on every piece: walls standing
+    at -11 on the hall's structures (KATL Terminal F's curbs) cover more
+    of a piece than the hall's own at -15 and must not lift it."""
+    out, reg, _c = _seed_split(law, tmp_path, monkeypatch,
+                               extra=[(20.0, 5.0, 180.0, 55.0, -11.0, 400)])
+    recs = [v for v in reg.landings.values() if v.get("extent_of")]
+    assert recs and all(v["y_lo"] == pytest.approx(-15.0) for v in recs)
+
+
+def test_a_floor_zero_frame_mints_no_pier_fill():
+    """A frame read at its airside floor stands its zero on the apron: its
+    parts at the zero under its viaduct are no piers on the ground."""
+    from auto_patch_v2.planar import pad_fill as PFL
+    q = types.SimpleNamespace(base_y=0.0, feet=((0.5, 0.5, 0.0),) * 4, box=(0, 0, 1, 1),
+                              rings=(((0.0, 0.0), (0.0, 20.0), (20.0, 20.0), (20.0, 0.0)),))
+    deck = types.SimpleNamespace(origin=(0.0, 0.0), heading_deg=0.0, parts=(), floor_zero=True)
+    pier = types.SimpleNamespace(origin=(0.0, 0.0), heading_deg=0.0, parts=(q,), floor_zero=True)
+    part = types.SimpleNamespace(units=[types.SimpleNamespace(members=[deck, pier])])
+    prn = types.SimpleNamespace(unit=0, member=0,
+                                contains_many=lambda xs, ys: [True] * len(xs))
+    vias = {"d": ("blk", (), (0.0, 0.0, 0.0), prn)}
+    blocks = [("blk", box(100.0, 100.0, 110.0, 110.0))]
+    assert PFL.pier_fills(vias, part, lambda lon, lat: (lon, lat), blocks, 0.5, 10.0) == []
+    pier.floor_zero = deck.floor_zero = False
+    assert len(PFL.pier_fills(vias, part, lambda lon, lat: (lon, lat), blocks, 0.5, 10.0)) == 1

@@ -2188,7 +2188,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.deck_family_contact
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
-    airport.frame_entry airport.jetways airport.line_object airport.airside_floor airport.msl_feet airport.obj8
+    airport.frame_entry airport.jetways airport.line_object
+    airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
@@ -2794,7 +2795,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.deck_family_contact
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
-    airport.frame_entry airport.jetways airport.line_object airport.airside_floor airport.msl_feet airport.obj8
+    airport.frame_entry airport.jetways airport.line_object
+    airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
     airport.relief_skin airport.retaining_seat
     airport.free_column airport.rider_floor
@@ -2925,7 +2927,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.deck_family_contact airport.deck_signature airport.dem airport.dem_witness airport.dsf
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
-    airport.frame_entry airport.jetways airport.line_object airport.airside_floor airport.msl_feet airport.obj8
+    airport.frame_entry airport.jetways airport.line_object
+    airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor

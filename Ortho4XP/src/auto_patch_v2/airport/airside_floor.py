@@ -47,11 +47,10 @@ from shapely.ops import unary_union
 
 from ..geom.foot_planes import PLANE_BAND_M, PLANE_MIN_FEET, floor_plane
 
-__all__ = ["FloorWitness", "FloorFrame", "airside_union", "witness", "floor_lifts",
-           "family_key"]
+__all__ = ["airside_union", "witness", "floor_lifts"]
 
 
-class FloorWitness(_t.NamedTuple):
+class _FloorWitness(_t.NamedTuple):
     """What the reading needs, read once from the airport and the law."""
 
     #: the apt.dat airside pavement buffered by ``TOUCH_M`` (frame metres)
@@ -63,7 +62,7 @@ class FloorWitness(_t.NamedTuple):
     storey_m: float
 
 
-class FloorFrame(_t.NamedTuple):
+class _FloorFrame(_t.NamedTuple):
     """One re-zeroed family: its members, floors and foot counts."""
 
     ids: tuple[str, ...]
@@ -98,7 +97,7 @@ def airside_union(airport):
     return None if u.is_empty else u
 
 
-def witness(airport, law) -> "FloorWitness | None":
+def witness(airport, law) -> "_FloorWitness | None":
     """The airport's airside floor witness, or ``None`` where it carries
     no apt.dat airside pavement (the rule is then inert)."""
     from .airside_group_seat import TOUCH_M, storey_m
@@ -109,21 +108,21 @@ def witness(airport, law) -> "FloorWitness | None":
         return None
     g = air.buffer(TOUCH_M)
     shapely.prepare(g)
-    return FloorWitness(g, step, float(law.tables.structures.placement.chain_min_height_m),
+    return _FloorWitness(g, step, float(law.tables.structures.placement.chain_min_height_m),
                         float(law.tables.structures.basin.contact_band_m),
                         int(law.tables.structures.rebake.foot_samples_max), storey_m(law))
 
 
-def family_key(xy: _t.Sequence[float], heading_deg: float) -> tuple[float, float, float]:
+def _family_key(xy: _t.Sequence[float], heading_deg: float) -> tuple[float, float, float]:
     """One anchor at 1 cm, one heading at 0.01 deg (``split_level._families``)."""
     return (round(float(xy[0]), 2), round(float(xy[1]), 2),
             round(float(heading_deg) % 360.0, 2))
 
 
 def floor_lifts(placements: _t.Sequence[tuple], path_of: _t.Callable[[str], "str | None"],
-                cache, wit: "FloorWitness | None", skip: _t.AbstractSet[str] = frozenset(),
+                cache, wit: "_FloorWitness | None", skip: _t.AbstractSet[str] = frozenset(),
                 hidden: _t.AbstractSet[str] = frozenset()
-                ) -> tuple[dict[str, float], list[FloorFrame]]:
+                ) -> tuple[dict[str, float], list[_FloorFrame]]:
     """``({id: -y_a}, frames)``: the lift (``obj8._msl_lifts``' sign) of
     every member of every re-zeroed family (module docstring).
     ``placements`` as ``obj8.read_placed_objects`` takes them; ``skip``:
@@ -136,14 +135,14 @@ def floor_lifts(placements: _t.Sequence[tuple], path_of: _t.Callable[[str], "str
     for oid, dpath, xy, heading, elev, kind in placements:
         if is_stock_library_resource(dpath):
             continue
-        k = family_key(xy, heading)
+        k = _family_key(xy, heading)
         lifted = kind == "OBJECT_AGL" and elev is not None and float(elev) != 0.0
         if kind not in ("OBJECT", "OBJECT_AGL") or lifted or oid in skip or dpath in hidden:
             bad.add(k)
             continue
         fams.setdefault(k, []).append((oid, dpath, xy, heading))
     lifts: dict[str, float] = {}
-    frames: list[FloorFrame] = []
+    frames: list[_FloorFrame] = []
     memo: dict[str, "_Resource | None"] = {}
     for k in sorted(fams):
         if k in bad:
@@ -162,7 +161,7 @@ class _Resource:
 
     __slots__ = ("geom", "reach", "high", "low", "_feet")
 
-    def __init__(self, geom, cache, phys: str, wit: FloorWitness) -> None:
+    def __init__(self, geom, cache, phys: str, wit: _FloorWitness) -> None:
         self.geom = geom
         self.reach = float(np.hypot(geom.vertices[:, 0], geom.vertices[:, 2]).max())
         walled = [c for c in cache.genuine(phys) if c.max_y - c.min_y >= wit.wall_min_m]
@@ -171,7 +170,7 @@ class _Resource:
         self.low = [c for c in walled if c.min_y < cut]
         self._feet: dict[bool, np.ndarray] = {}
 
-    def feet(self, wit: FloorWitness, high: bool) -> np.ndarray:
+    def feet(self, wit: _FloorWitness, high: bool) -> np.ndarray:
         """``(x, z, y)`` feet of the high (else the low) walled components,
         authored frame."""
         if high not in self._feet:
@@ -183,16 +182,16 @@ class _Resource:
         return self._feet[high]
 
 
-def _on_airside(feet: np.ndarray, a: list, wit: FloorWitness) -> np.ndarray:
+def _on_airside(feet: np.ndarray, a: list, wit: _FloorWitness) -> np.ndarray:
     """Which of ``feet`` (authored ``(x, z, y)``) stand on the airside."""
     fx = a[0] * feet[:, 0] + a[1] * feet[:, 1] + a[4]
     fy = a[2] * feet[:, 0] + a[3] * feet[:, 1] + a[5]
     return shapely.contains_xy(wit.airside, fx, fy)
 
 
-def _family_floor(mem: list, path_of, cache, wit: FloorWitness, memo: dict
-                  ) -> "FloorFrame | None":
-    """One family's :class:`FloorFrame`, or ``None`` where it is no
+def _family_floor(mem: list, path_of, cache, wit: _FloorWitness, memo: dict
+                  ) -> "_FloorFrame | None":
+    """One family's :class:`_FloorFrame`, or ``None`` where it is no
     two-floor frame standing a storey up on the airside."""
     from .obj8 import placement_affine
     xy, heading = mem[0][2], mem[0][3]
@@ -240,5 +239,5 @@ def _family_floor(mem: list, path_of, cache, wit: FloorWitness, memo: dict
     fl = floor_plane([-float(v) for v in off], wit.storey_m)
     if fl is None or -float(fl) > y_a - wit.step_m:
         return None
-    return FloorFrame(tuple(sorted(str(m[0]) for m in mem)), (x, y), round(y_a, 3),
+    return _FloorFrame(tuple(sorted(str(m[0]) for m in mem)), (x, y), round(y_a, 3),
                       round(-float(fl), 3), n_on, int(off.shape[0]))

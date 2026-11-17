@@ -77,8 +77,8 @@ from ..geom.valid_area import valid_area
 from ..model.planar import STRIP_SUFFIX, plane_ref
 from ..model.registries import Registries
 
-__all__ = ["LOW_KIND", "UP_KIND", "frame_seeds", "level_cut", "low_level_split", "plan_low",
-           "plan_up", "stand_floor", "top_level", "unit_share", "walled_feet"]
+__all__ = ["LOW_KIND", "UP_KIND", "level_cut", "low_level_split", "plan_low", "plan_up",
+           "stand_floor", "top_level", "unit_share", "walled_feet"]
 
 #: the ``Registries.landings`` record kind of a lower level (a ramp
 #: landing's record carries no kind)
@@ -677,7 +677,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                                                rail=bool(counts.get("station_levels"))))
     from .low_extent import AirRegion, extend_levels
     air_all = air_all if air_all is not None else [AirRegion(g, "cell") for g in air_polys]
-    frames = frame_seeds(groups, done, held, airport, law)
+    frames = _frame_seeds(groups, done, held, airport, law)
     if not done and not seeds and not frames:
         return out
     res: list = []
@@ -713,7 +713,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     return res
 
 
-def frame_seeds(groups: _t.Mapping[str, list], done: _t.Mapping, held: _t.Mapping,
+def _frame_seeds(groups: _t.Mapping[str, list], done: _t.Mapping, held: _t.Mapping,
                 airport, law) -> list[dict]:
     """THE LOWER PAD OF A FRAME READ AT ITS AIRSIDE FLOOR (spec 2120-F R3;
     owner RULINGS 2026-11-16x): every held block, minted no level, whose
@@ -751,7 +751,7 @@ def frame_seeds(groups: _t.Mapping[str, list], done: _t.Mapping, held: _t.Mappin
 def _frame_floor(unit, step: float, law) -> "float | None":
     """The frame's LOWER FLOOR in its re-zeroed frame: the
     ``foot_planes.floor_plane`` of its walled parts' feet a storey or more
-    under its zero (:func:`frame_seeds`)."""
+    under its zero (:func:`_frame_seeds`)."""
     from ..airport.airside_group_seat import storey_m
     from ..geom.foot_planes import floor_plane
     wall_min = float(law.tables.structures.placement.chain_min_height_m)

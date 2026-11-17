@@ -33,6 +33,21 @@ struct PackOverlapsTests {
         #expect(pair.choices.map(\.winner) == ["Autogen", "Airport", "both"])
     }
 
+    /// RULINGS 17o: between two non-airport packs the engine's default is the
+    /// one higher in scenery_packs.ini, not the first alphabetically.
+    @Test func preselectsTheEnginesIniOrderDefault() {
+        var event = fullEvent
+        var row = (event["items"] as! [[String: Any]])[0]
+        row["packs"] = ["Alpha City", "Zeta City"]
+        row["default"] = "Zeta City"
+        event["items"] = [row]
+        guard case .packOverlaps(let o)? = O4Event.parse(object: event) else {
+            Issue.record("PackOverlaps did not decode")
+            return
+        }
+        #expect(o.offers[0].preselected == "Zeta City")
+    }
+
     @Test func aRememberedAnswerWins() {
         var event = fullEvent
         var row = (event["items"] as! [[String: Any]])[0]

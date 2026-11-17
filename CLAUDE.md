@@ -26,10 +26,15 @@ on demand. Canonical law: `Ortho4XP/docs/RULINGS.md`.
   `.claude/hooks/agent_guard.py`). Effort (RULINGS 2026-10-20a): low =
   landing/rebase/ratchets/census/cleanup; medium = fix with spec; high =
   geometry/solver design, specs; xhigh = architecture.
-- MODEL (RULINGS 13c): lanes/scouts run Opus for all work. Fable only after
-  the owner approves THAT launch in chat (master states the brief, why Opus
-  is not enough, and `get_usage` Weekly·Fable); its prompt carries
-  `OWNER-APPROVED-FABLE: <date> "<the owner's words>"`. Never resume a Fable lane.
+- MODEL (owner 2026-11-17T21:23Z, RULINGS 2026-11-17q; replaces 13c's
+  per-launch yes and the 11-13 standing yes): goal = best result, shortest
+  clock time, least usage. Opus for all work, specs and reviews included.
+  Fable (`scout`, never implementation, never resumed) only (a) after an
+  Opus round misses (one-miss cap below), or (b) for an especially complex
+  design: new architecture, or a new cross-cutting region/law that needs a
+  consumer census. The master names which in the launch, with `get_usage`
+  Weekly·Fable; the prompt carries
+  `OWNER-APPROVED-FABLE: 2026-11-17 "use fable only for especially complex tasks or when an opus round has failed"`.
 - ONE-MISS CAP (RULINGS 2026-11-11c): an Opus round misses → stop it, launch
   a Fable `scout` with `TWO-ROUND-CAP-REVIEW: <issue> <the failed round(s)>`
   to write a new spec (never implements; no per-launch yes); a fresh Opus

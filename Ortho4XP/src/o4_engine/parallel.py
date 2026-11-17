@@ -466,30 +466,50 @@ STEP_MEMORY_ESTIMATES_GB = {
 }
 
 
-def step_memory_budget_gigabytes():
+def step_memory_budget_gigabytes(run_resident_gb=0.0):
     """Gigabytes a run may PROJECT onto its concurrently admitted steps.
 
     ``MEMORY_CEILING_FRACTION`` (80 %, owner ruling 2026-07-30) of the
-    memory the machine can hand out, and never more than that memory less
-    the machine headroom (``O4_Machine_Slots.headroom_gigabytes``: the
-    larger of 15 % of physical memory and 8 GB, kept for the operating
-    system, the app and the user's other work — #1225, #2083).  On a
-    machine with little free at the start the headroom binds; on an idle
-    one the 80 % does.  Sampled ONCE per run, on purpose:
-    re-sampling it live would make the run's own consumption shrink its
-    own budget — a feedback loop that starves admission rather than
-    gating it — and would make the gate untestable.  Floored at one
-    default estimate so a single tile can never deadlock.
+    memory the machine could hand THIS RUN — what it can hand out now
+    plus what the run's own running steps hold (``run_resident_gb``,
+    capped at physical memory) — and never more than that less the
+    machine headroom (``O4_Machine_Slots.headroom_gigabytes``: the larger
+    of 15 % of physical memory and 8 GB, kept for the operating system,
+    the app and the user's other work — #1225, #2083).  Counting the
+    run's own memory back in is what keeps a live re-read from becoming
+    a feedback loop (the run's consumption shrinking its own budget).
+
+    Until 2026-11-17 this was sampled ONCE, at run start: app 1.0.552
+    started with 27.6 GB free (other programs held memory), took
+    min(22.1, 27.6 - 19.2) = 8.4 GB for the whole run, and held every
+    second step — an 0.5 GB overlays step "with 34 GB free" — for hours
+    after the machine had room.  The scheduler now re-sizes it from the
+    machine every sample (``ParallelBuildRun._refresh_memory_budget_locked``).
+    Floored at one default estimate so a single tile can never deadlock.
     """
     import O4_Parallel_Utils as PARALLEL_UTILS
 
-    available = PARALLEL_UTILS.machine_available_memory_gigabytes()
+    available = min(
+        PARALLEL_UTILS.machine_memory_gigabytes(),
+        PARALLEL_UTILS.machine_available_memory_gigabytes()
+        + max(0.0, float(run_resident_gb)))
     return max(
         MESH_MEMORY_DEFAULT_GB,
         min(available * PARALLEL_UTILS.MEMORY_CEILING_FRACTION,
             available - O4_Machine_Slots.headroom_gigabytes()),
     )
 
+
+# A re-read budget replaces the current one only when it moved this much
+# (gigabytes): free memory jitters by a few hundred megabytes between two
+# samples, and a budget that twitched would admit and refuse in turn.
+MEMORY_BUDGET_HYSTERESIS_GB = 1.0
+
+# A step projecting at most this much (gigabytes) is never held behind an
+# older step's reservation (#2101): it still fits the budget sum, but
+# making a 0.5 GB overlays step wait for an 8 GB vector step to fit frees
+# nothing the waiter could use (lane lmemwait, 2026-11-17).
+TINY_STEP_GB = 1.0
 
 # Seconds between two samples of the running steps' resident memory
 # (one ``ps`` for all of them; step_memory.tree_resident_gigabytes).
@@ -990,9 +1010,10 @@ class ParallelBuildRun:
         # apron-string-and-scheduling §A.2 from the mesh step to every
         # step with an estimate).  Per-tile MESH estimates come from each
         # tile's configured elevation detail level; the other steps take
-        # the flat STEP_MEMORY_ESTIMATES_GB sizing.  The budget is
-        # sampled ONCE (see step_memory_budget_gigabytes) and at least
-        # one step is always admitted, so no single tile can deadlock.
+        # the flat STEP_MEMORY_ESTIMATES_GB sizing.  The budget is sized
+        # here and re-sized from the machine on every memory sample
+        # (_refresh_memory_budget_locked); at least one step is always
+        # admitted, so no single tile can deadlock.
         self._mesh_memory_estimates: dict = {}
         self._memory_budget = (
             step_memory_budget_gigabytes()
@@ -1492,14 +1513,18 @@ class ParallelBuildRun:
         One step is always admitted (a single tile must never deadlock,
         however big its raster); beyond that, the sum of the admitted
         steps' projections stays within the budget (80 % of the memory
-        the machine could hand out when the run started, less the
-        headroom), and a heavy step (``step_memory.LIVE_CHECKED_STEPS``)
+        the machine could hand this run now, less the headroom — re-read
+        every sample), and a heavy step (``step_memory.LIVE_CHECKED_STEPS``)
         also waits until the machine has its projection free above the
         headroom NOW (#2083).  A running step is never paused or stopped.
 
         #2101: every step that is refused is held in FIFO order, and
         the oldest held step RESERVES its projection — no other step that
-        projects memory starts unless the room left still holds it.  The
+        projects more than ``TINY_STEP_GB`` starts unless the run's budget
+        left over still holds it (the budget, not the machine's live free
+        memory: the budget already follows the machine, and judging the
+        reservation live let memory other programs hold block the whole
+        run behind one waiter).  The
         run's committed memory therefore drains until the waiter fits (at
         the latest when nothing else holds memory).  When the waiter is
         the only work the run could start, the live check gives way to
@@ -1514,10 +1539,14 @@ class ParallelBuildRun:
         key = (tile, step_key)
         reserved = self._memory_waits.oldest(self._memory_wait_pending_locked)
         if (reserved is not None and reserved[0] != key
+                and estimate > TINY_STEP_GB
                 and self._memory_wait_startable_locked(reserved[0])):
             need = reserved[1].needed_gb
-            if not self._memory_fits_locked(estimate + need, live=True):
-                self._hold_for_memory_locked(key, estimate, REASON_RUN)
+            if not self._memory_fits_locked(estimate + need, live=False):
+                self._hold_for_memory_locked(
+                    key, estimate, REASON_RUN,
+                    behind="%s %s step" % (_short_latlon(reserved[0][0]),
+                                           reserved[0][1]))
                 return False
         if not self._memory_holders:
             return True
@@ -1568,15 +1597,41 @@ class ParallelBuildRun:
             return False
         return not live or O4_Machine_Slots.memory_admits(need_gb=gigabytes)
 
-    def _hold_for_memory_locked(self, key, estimate, reason):
-        """Record a refused heavy step (FIFO) and log its first refusal."""
+    def _hold_for_memory_locked(self, key, estimate, reason, behind=""):
+        """Record a refused heavy step (FIFO) and log its first refusal
+        with what holds it: the reserving step, the run's budget, or the
+        machine."""
         import O4_Parallel_Utils as PARALLEL_UTILS
 
         free = PARALLEL_UTILS.machine_available_memory_gigabytes()
-        if self._memory_waits.note(key, estimate, free, reason):
+        if behind:
+            cause = "behind %s" % behind
+        elif reason == REASON_RUN:
+            cause = ("this run's steps hold %.1f of its %.1f GB budget"
+                     % (self._memory_in_use, self._memory_budget))
+        else:
+            cause = "the machine keeps %.1f GB free" % (
+                O4_Machine_Slots.headroom_gigabytes())
+        if self._memory_waits.note(key, estimate, free, reason, behind,
+                                   self._memory_in_use, self._memory_budget):
             print("Tile %s waits for free memory before its %s step "
-                  "(needs about %.1f GB, %.1f GB free)."
-                  % (_short_latlon(key[0]), key[1], estimate, free))
+                  "(needs about %.1f GB, %.1f GB free; %s)."
+                  % (_short_latlon(key[0]), key[1], estimate, free, cause))
+
+    def _refresh_memory_budget_locked(self, run_resident_gb):
+        """Re-size the run's budget from the machine NOW (lane lmemwait,
+        2026-11-17): what it can hand out plus what this run's running
+        steps hold.  A move under ``MEMORY_BUDGET_HYSTERESIS_GB`` is
+        ignored.  Only the cache-aware gate's budget follows the machine;
+        the legacy mesh budget is physical memory, already fixed."""
+        if not cache_aware_admission_enabled():
+            return
+        budget = step_memory_budget_gigabytes(run_resident_gb)
+        if abs(budget - self._memory_budget) < MEMORY_BUDGET_HYSTERESIS_GB:
+            return
+        print("Memory budget for this build: %.1f GB (was %.1f GB)."
+              % (budget, self._memory_budget))
+        self._memory_budget = budget
 
     def _memory_wait_pending_locked(self, key):
         """Is the held step still this run's next work for its tile?"""
@@ -1636,8 +1691,8 @@ class ParallelBuildRun:
             sent = self._memory_wait_sent
             changes = []
             for key, wait in now.items():
-                shown = (round(wait.needed_gb), round(wait.free_gb),
-                         wait.reason)
+                shown = (round(wait.needed_gb, 1), round(wait.free_gb),
+                         wait.reason, wait.behind, round(wait.budget_gb))
                 if sent.get(key) != shown:
                     sent[key] = shown
                     changes.append((key, wait, False))
@@ -1653,7 +1708,8 @@ class ParallelBuildRun:
                 message="" if wait is None else (
                     FLOOR.wait_message(wait.free_gb, wait.needed_gb)
                     if wait.reason == FLOOR.REASON_DISK else wait_message(
-                        wait.needed_gb, wait.free_gb, wait.reason)),
+                        wait.needed_gb, wait.free_gb, wait.reason,
+                        wait.behind, wait.in_use_gb, wait.budget_gb)),
                 resolved=resolved))
 
     def _tile_configuration(self, tile):
@@ -2429,6 +2485,7 @@ class ParallelBuildRun:
                 child, step_key = running[pid]
                 if child.running_step == step_key:
                     child.step_peak_gb = max(child.step_peak_gb, gigabytes)
+            self._refresh_memory_budget_locked(sum(resident.values()))
             self._dispatch_locked()
 
     def _report_released_stop(self, tile, attempt, held, last_step):

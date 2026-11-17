@@ -748,6 +748,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                                                     _BS_UNRECOGNISED)
     # #1884: a body standing on a neighbour tile is written in that tile's
     # DSF of the pack (``tile_route``), in the SAME write as this one's
+    # spec 2123 (RULINGS 2026-11-16y): the GENERATED decks and road
+    # bridges the patch published, written in the same pack write
+    gen = _generated_recipe(_gd, target_root, plan_.icao, law, plan_key)
     try:
         res = _pw.apply_routed(
             plan, files, _DSFR._dsftool_path() or "DSFTool",
@@ -757,7 +760,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             allow_live_install=_copy.write_guard(target_root),
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
-            plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key))
+            plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key),
+            gen_recipe=gen)
     except (BackupUnproven, TimeoutError) as exc:
         # TimeoutError: another write of the pack held its lock (``pack_lock``)
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
@@ -789,6 +793,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                             else ""))
     if res.dsf is not None:
         _hand.say_seated(plan_.icao, res.dsf)
+    if gen is not None:
+        _generated_apt(gen, target_root, plan_.icao)
     if _adopted or _unproven:
         UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — '
                      f'{len(_adopted)} file(s) of yours were kept as installed '
@@ -825,6 +831,67 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             engine_version=_engine_version(), law_digest=digest)
         out["sibling_deck_riders"] = c["sibling_deck_riders"]
     return out
+
+
+def _generated_in(patch_dir: str, icao: str) -> bool:
+    """Did the airport's patch publish a generated deck or road bridge
+    (spec 2123: the graded surface's ``generated``)?"""
+    import json
+
+    from auto_patch_v2.model.rebake import graded_surface_path
+    try:
+        with open(graded_surface_path(patch_dir, icao), encoding="utf-8") as fh:
+            gen = (json.load(fh).get("provenance") or {}).get("generated") or {}
+    except (OSError, ValueError):
+        return False
+    return bool(gen.get("decks") or gen.get("road_bridges"))
+
+
+def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: str):
+    """The airport's generated decks / road bridges as a write recipe
+    (``generated_pack.recipe``), ``None`` for a companion plan or a patch
+    that published none (the record's recipe is then kept as it is)."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import apt_flatten as _af
+    from auto_patch_v2.airport import generated_pack as _gen
+    if plan_key not in ("", icao) or not graded_doc:
+        return None
+    pub = (graded_doc.get("provenance") or {}).get("generated")
+    if pub is None:
+        return None
+    try:
+        rec = _gen.recipe(pub, _af.apt_dat_of(target_root), icao, law)
+    except Exception as exc:                     # never fails the pack
+        UI.vprint(0, f"  [v2 placement] {icao}: the generated decks / road bridges "
+                     f"could not be made ({exc}); none written")
+        return None
+    for note in rec.get("notes") or ():
+        UI.vprint(1, f"  [v2 placement] {icao}: generated {note}")
+    return rec
+
+
+def _generated_apt(rec, target_root: str, icao: str) -> None:
+    """The apt.dat half of the generated structures: their regions cut out
+    of the airport's block (``apt_flatten.write_regions``), recorded and
+    undone by Restore originals.  One line; never raises into the build."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import apt_flatten as _af
+    from auto_patch_v2.airport import generated_pack as _gen
+    apt = _af.apt_dat_of(target_root)
+    regions = _gen.regions_of(rec)
+    if not apt or (not regions and not os.path.isfile(apt + _af.EDITS_SUFFIX)):
+        return
+    try:
+        state, dropped = _af.write_regions(apt, icao, regions)
+    except (OSError, ValueError) as exc:
+        UI.vprint(0, f"  [v2 placement] {icao}: the apt.dat could not be cut for the "
+                     f"generated structures ({exc}); it is as it was")
+        return
+    if state:
+        UI.vprint(1, f"  [v2 placement] {icao}: apt.dat: {len(regions)} region(s) cut "
+                     f"for the generated decks / road bridges, {len(dropped)} line "
+                     f"piece(s) dropped (redrawn on the decks); the original is kept as "
+                     f"apt.dat.anchor_bak")
 
 
 def _engine_version() -> str:
@@ -1115,7 +1182,9 @@ def rebake_after_mesh(tile) -> dict:
                 # repairs (every later write re-applies the repair)
                 from . import health_stage as _health
                 _health.health_stage(plan_, tile, writes=writes)
-                if not plan_.units:
+                # spec 2123: an airport whose patch generated a deck or a road
+                # bridge is written even with no pack unit to place
+                if not plan_.units and not _generated_in(patch_dir, icao):
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "
                                  f"({len(plan_.skipped)} resource(s) skipped at plan time)")
                     counts["airports"] += 1

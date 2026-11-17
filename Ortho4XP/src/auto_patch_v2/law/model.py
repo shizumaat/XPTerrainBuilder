@@ -39,6 +39,7 @@ from .basin_schema import Basin  # noqa: F401
 from .base_profile_schema import BaseProfileLaw  # noqa: F401
 from .walled_plate_schema import WalledPlateLaw  # noqa: F401
 from .agp_schema import AgpLaw  # noqa: F401
+from .deck_gen_schema import DeckGenLaw, RoadGenLaw  # noqa: F401
 # the [tunnel.object] schema (05k-1/05n/06c/06f/09w; the THIN-PLATE wall
 # class of spec §33 (2)) likewise — the 1,000-line file law
 from .tunnel_object_schema import TunnelObject  # noqa: F401
@@ -743,6 +744,10 @@ class Structures:
     #: the governor, the datum and the plates' numbers.  Defaulted like
     #: ``walled_plate``.
     agp: AgpLaw = _dc.field(default_factory=AgpLaw)
+    #: THE GENERATED TAXIWAY DECK / ROAD BRIDGE (``[deck_gen]`` /
+    #: ``[road_gen]``, spec 2123, RULINGS 2026-11-16y).  Defaulted like ``agp``.
+    deck_gen: DeckGenLaw = _dc.field(default_factory=DeckGenLaw)
+    road_gen: RoadGenLaw = _dc.field(default_factory=RoadGenLaw)
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────

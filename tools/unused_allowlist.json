@@ -130,6 +130,16 @@
   "reason": "one tile's pack dump: the build reaches it through fresh_pack_dumps (#1645, every tile the airport touches) via _pack_dump_naming_its_pack; kept public for the single-tile dump twins (test_dsf_dump_atomic, test_tile_failures)"
  },
  {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/apt_edit.py",
+  "name": "CutResult",
+  "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/apt_edit.py",
+  "name": "Dropped",
+  "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
+ },
+ {
   "path": "Ortho4XP/src/auto_patch_v2/airport/bridge_end_state.py",
   "name": "standing_plan",
   "reason": "test seam for Obstacles.standing on placed faces; pinned by test_free_bridge_seat / test_bridge_stack2065 (#2065)"
@@ -143,6 +153,11 @@
   "path": "Ortho4XP/src/auto_patch_v2/airport/deck_riders.py",
   "name": "end_tops",
   "reason": "test seam for deck-top-at-end reads; pinned by test_deck_riders2086"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/dsf_poly_clip.py",
+  "name": "ClipReport",
+  "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
  },
  {
   "path": "Ortho4XP/src/auto_patch_v2/airport/hung_wall_seat.py",

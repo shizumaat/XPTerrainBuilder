@@ -528,6 +528,10 @@ class DeckBridge:
     #: #2099 R3 E2: the road through the deck (a polyline, frame metres) --
     #: the line a wall of its mouth group LINES (``planar/wing_cut.mouth_roads``)
     road: tuple = ()
+    #: spec 2123 A3: a GENERATED deck's covered roads, ``(way id, tags,
+    #: polyline)`` each -- the ground beside their cut is the taxiway's
+    #: (``planar/covered_ground``, #714's reading); ``()`` for a pack deck
+    covered: tuple = ()
 
     @property
     def depth_a(self) -> float:

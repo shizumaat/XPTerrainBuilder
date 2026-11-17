@@ -49,6 +49,7 @@ __all__ = [
     "read_airport_block", "parse_airport_block", "find_apt_dat",
     "select_apt_dat",
     "global_candidates", "file_has_airport", "block_sha256", "airports_in",
+    "segment_points",
 ]
 
 # Row types (apt.dat 1100 / 1200).
@@ -931,6 +932,15 @@ def _tessellate(rows: list[list[str]], closed: bool) -> list[LonLat]:
         if not out or out[-1] != b:
             out.append(b)
     return _sparsify(out, closed, lon_scale)
+
+
+def segment_points(a: list[str], b: list[str]) -> list[LonLat]:
+    """One node-to-node segment of a contour, flattened: ``a`` and ``b``
+    are node rows as tokens (``111``-``116``); ``a``'s control point and
+    ``b``'s mirrored one shape it, as in :func:`_tessellate`.  The writer
+    (``apt_edit``) clips contours segment by segment with this, so a
+    segment keeps the line / light codes of the node it starts at."""
+    return _tessellate([a, b], False)
 
 
 def _sparsify(pts: list[LonLat], closed: bool,

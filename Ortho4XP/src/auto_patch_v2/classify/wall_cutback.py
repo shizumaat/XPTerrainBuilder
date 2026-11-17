@@ -24,16 +24,12 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import Polygon
 
-from ..airport.wall_sides import WallSides
-from ..geom.parts import line_parts
+from ..airport.wall_sides import WallSides, split_at_walls
 from .evidence import polygon_parts
 
 __all__ = ["cut_roads_at_walls", "cut_lines_at_walls"]
-
-#: a centreline part shorter than this left by a footprint is noise
-_MIN_LINE_M = 1.0
 
 
 def cut_roads_at_walls(cells: _t.Sequence, roles: _t.Collection[str],
@@ -104,21 +100,15 @@ def cut_lines_at_walls(cut: _t.Sequence, walls: _t.Sequence[WallSides]
     if not walls:
         return list(cut), stats
     out = []
+    polys = [w.poly for w in walls]
     for cl in cut:
-        if cl.kind != "road_centerline" or len(cl.points) < 2:
+        got = None if cl.kind != "road_centerline" or len(cl.points) < 2 else \
+            split_at_walls(cl.points, polys)
+        if got is None:
             out.append(cl)
             continue
-        ln = LineString(cl.points)
-        hit = [w.poly for w in walls if ln.intersects(w.poly)]
-        if not hit:
-            out.append(cl)
-            continue
-        rest = ln
-        for g in hit:
-            rest = rest.difference(g)
         stats["wall_cut_lines"] += 1
-        stats["wall_cut_line_m"] += ln.length - rest.length
-        out.extend(_dc.replace(cl, points=tuple(p.coords))
-                   for p in line_parts(rest) if p.length >= _MIN_LINE_M)
+        stats["wall_cut_line_m"] += got[1]
+        out.extend(_dc.replace(cl, points=pts) for pts in got[0])
     stats["wall_cut_line_m"] = round(stats["wall_cut_line_m"], 1)
     return out, stats

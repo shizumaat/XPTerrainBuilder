@@ -621,6 +621,11 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     inside = _inside_fn(airport)
     ways: list[Way] = []
     VECT = _core_vector_utils()
+    # 2120-WF3 W-B (16d, 16n): a mapped way has no ground inside a retaining
+    # piece -- split at the pieces (the cut lines' own split), each run
+    # clamped on its own side's ground
+    from .wall_sides import split_at_walls
+    pieces = [w.poly for w in walls]
     for w in airport.osm_ways:
         if _osm_levelled(w):
             # OWNER RULINGS 2026-10-22h: a PUBLIC road's in-band cap is the
@@ -628,12 +633,14 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
             # core ribbon outside it stay one profile
             cap_in = VECT.road_inside_cap(w.tags.get("highway"), cap_,
                                           rp.cap_ceiling, rp.public_classes)
-            ways.extend(clamp_way(
-                OSM, f"osm:{w.id}", w.points, sample, cap_in, rp.station_m,
-                inside, in_band=band_fn,
-                cap_class=_class_cap(w.tags, rp.class_caps, cap_),
-                runout_m=rp.runout_m, budget_m=rp.budget_m,
-                cap_ceiling=rp.cap_ceiling))
+            got = split_at_walls(w.points, pieces) if pieces and len(w.points) >= 2 else None
+            for pts in (w.points,) if got is None else got[0]:
+                ways.extend(clamp_way(
+                    OSM, f"osm:{w.id}", pts, sample, cap_in, rp.station_m,
+                    inside, in_band=band_fn,
+                    cap_class=_class_cap(w.tags, rp.class_caps, cap_),
+                    runout_m=rp.runout_m, budget_m=rp.budget_m,
+                    cap_ceiling=rp.cap_ceiling))
     for b in pm.breaklines.values():
         if b.kind != "road_centerline":
             continue

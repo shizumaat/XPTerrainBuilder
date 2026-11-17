@@ -131,7 +131,7 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
     """The pack decks' spans, station rows and rigid rows (module doc), per
     object of ``PlanarMap.decks`` (``constraints/deck_lines``) — a deck no
     corridor runs under included; ``tunnels``: the trenches under one."""
-    from .deck_lines import end_lines
+    from .deck_lines import end_lines, plate_of
     flush = float(law.tables.structures.bridge.deck_flush_m)
     lines = end_lines(planar, law)
     seats_of = {oid: {v for e in es for v, _w in e.terms} for oid, es in lines.items()}
@@ -152,10 +152,24 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
         # deck ground beside H18r's neighbour obj13020 stood 3.04 m over it
         pool = set(seats_of[oid]).union(*(seats_of.get(o, set()) for t in under
                                           for o, _s, _d in t.edge_seats))
+        # #2112: a deck in disjoint plates has one zero PER PLATE
+        # (``deck_lines.plate_of``), each held at its own end lines
+        plates = plate_of(es, law)
+        groups = sorted(set(plates))
+        tops = None
+        if len(groups) > 1:
+            tops = {}
+            for g in groups:
+                tg = _station_tops([ends[i] for i, q in enumerate(plates) if q == g])
+                tops.update({v: tg for v in tg})
         rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
-                               _FLOOR_ROLES | roads))
-        rows.extend(_station_rows(oid, ends, flush, _held_levels(planar, oid, es)))
-        rows.extend(_rigid_rows(oid, ends))
+                               _FLOOR_ROLES | roads, tops))
+        held = _held_levels(planar, oid, es)
+        for g in groups:
+            idx = [i for i, q in enumerate(plates) if q == g]
+            eg = [ends[i] for i in idx]
+            rows.extend(_station_rows(oid, eg, flush, [held[i] for i in idx]))
+            rows.extend(_rigid_rows(oid if len(groups) == 1 else f"{oid} plate {g}", eg))
     return rows
 
 
@@ -188,7 +202,8 @@ def _floor_deck_rows(planar: PlanarMap, law: Law) -> list[Row]:
 
 def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float,
                pool: "_t.Sequence[int] | None" = None, done: "set[int] | None" = None,
-               skip: "_t.AbstractSet[str]" = _FLOOR_ROLES) -> list[Row]:
+               skip: "_t.AbstractSet[str]" = _FLOOR_ROLES,
+               plate_tops: "dict[int, dict[int, float]] | None" = None) -> list[Row]:
     """The object's SPAN: every vertex inside its deck rings — or, on the
     bridge's own ground (:func:`_bridge_ground`), inside the reach of a
     trench under it (``model/structures.deck_reach``) — that is no seat and
@@ -201,7 +216,9 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     groundside road's).  NOT THE CUT (PR B round 3, LFPG H18r / H19
     0.205 / 0.283 m): a vertex off the airside inside a cut under the deck
     (:func:`_in_cut`) stands at the cut's level — pulled to the deck's, the
-    floor beside it followed and the stations moved."""
+    floor beside it followed and the stations moved.  ``plate_tops``
+    (#2112): per seat, its PLATE's station tops -- an airside vertex under
+    a deck in plates is read from its nearest seat's plate's zero."""
     from shapely.geometry import MultiPoint, Point, Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
@@ -244,7 +261,8 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
             continue
         done.add(v)
         if v in air:
-            rows.append(_from_zero(v, top_of, top_of.get(a), None, flush, under))
+            t = plate_tops.get(a, top_of) if plate_tops else top_of
+            rows.append(_from_zero(v, t, t.get(a), None, flush, under))
             continue
         rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
         rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))

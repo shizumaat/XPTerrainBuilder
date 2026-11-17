@@ -161,6 +161,8 @@ def _section_points(crossings: list, reach: float, coarse: int = 1
         across_x.append((xs[k, None] - uy * d[None, :]).ravel())
         across_y.append((ys[k, None] + ux * d[None, :]).ravel())
     m = sum(len(q) for q in along_x)
+    if not along_x:                   # a bore only touching the hull: no crossing
+        return np.empty(0), np.empty(0), 0
     return np.concatenate(along_x + across_x), np.concatenate(along_y + across_y), m
 
 

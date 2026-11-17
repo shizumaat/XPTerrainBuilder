@@ -226,7 +226,7 @@ pit_sunken_min_share = 0.5
 # ...and only an OPEN TRENCH brings the ground down to its walls (the open-edge
 # rim and its bank, #1949 R2/R3; owner RULINGS 2026-11-17 (a): "an object
 # whose floor stands below the surrounding ground and which has NO ROOF over
-# that floor"; ``walled_pit.open_trench``): the frame's near-horizontal solids
+# that floor"; ``walled_pit._open_trench``): the frame's near-horizontal solids
 # at its rim (rule 4's read, within cover_flush_m of it or over it) cover less
 # than this share of its floor, and its walls hang more than cover_flush_m
 # under its plate along less than floor_walled_min_share of its outline (a

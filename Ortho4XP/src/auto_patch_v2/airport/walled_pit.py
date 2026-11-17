@@ -45,7 +45,7 @@ own RIM:
    rim cover less than ``trench_roof_max_share`` of the floor (a building's
    lower storey, a covered approach), and its walls do not hang under its
    plate (a plate on walls hanging under it is a roof object's low roof,
-   :func:`open_trench`).  Any other pit keeps its rim on the ground.
+   :func:`_open_trench`).  Any other pit keeps its rim on the ground.
 
 The floor's surface is its near-horizontal faces standing under the rim
 (the floor, the decks and ramps inside the walls), placed at ``zero +
@@ -72,7 +72,7 @@ from .below_grade_witness import placed_all as _placed_all
 from .below_grade_witness import zero_of as _zero
 from .object_cut import _base, _face_normals_y, valid_polygon
 
-__all__ = ["read_walled_pit", "share_lift", "Walls", "hard_deck_share", "wall_caps", "open_trench"]
+__all__ = ["read_walled_pit", "share_lift", "Walls", "hard_deck_share", "wall_caps"]
 
 def _floor_level(v: np.ndarray, hz: np.ndarray, min_area: float) -> "float | None":
     """The lowest level carrying a plate's worth (``min_area``) of the
@@ -364,7 +364,7 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     # rule 7 (owner RULINGS 2026-11-17 (a)): only an OPEN TRENCH banks its open
     # edges -- its floor under no roof
     hung = _hung(outline, (o, *covers), walls, floor_y, law)
-    trench = open_trench(roofed, hung, law)
+    trench = _open_trench(roofed, hung, law)
     inside = [p for p in mates if p not in covers and _in_pit(p, plan, cache, tk)]
     k = sum(1 for n in notes if n.startswith(f"object floor walled pit {_base(o.path)}@"))
     note = (f"object floor walled pit {_base(o.path)}@{k}: floor y {floor_y:.2f}, "
@@ -406,7 +406,7 @@ def _hung(outline, frame, walls: Walls, floor_y: float, law) -> float:
     return best
 
 
-def open_trench(roofed: float, hung: float, law) -> bool:
+def _open_trench(roofed: float, hung: float, law) -> bool:
     """Rule 7 (owner RULINGS 2026-11-17 (a): "an object whose floor stands
     below the surrounding ground and which has NO ROOF over that floor"): is
     a walled pit an OPEN TRENCH?  Not when its frame's near-horizontal solids

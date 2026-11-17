@@ -241,8 +241,10 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     ring_in = prep(ring_past)
     # THE BANK BLENDS OUT (:func:`_blend_drop`): the ground the bank's
     # daylight cone reaches past the ring's run-on
-    wide = prep(ring_past.buffer(max(float(e.depth) for e in es) / bank)) \
+    wide_g = ring_past.buffer(max(float(e.depth) for e in es) / bank) \
         if bank is not None and bank > 0.0 else None
+    wide = prep(wide_g) if wide_g is not None else None
+    kerb = _kerb(planar, air, decks, wide_g) if wide_g is not None else None
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
     # THE DECK'S GROUND IS ITS OWN CELL (#2072): ``planar/deck_bridge.
     # deck_ground`` minted it from the reach the planar stage read, which can
@@ -280,7 +282,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         if not inside.contains(p) and not (beyond.contains(p) and _bridge_ground(planar, vx)):
             if wide is not None and v not in air and v not in done and wide.contains(p) \
                     and _open_ground(planar, vx):
-                rows.extend(_blend_rows(planar, v, p, es, ring_past, bank, near_vs, src))
+                rows.extend(_blend_rows(planar, v, p, es, ring_past, bank, near_vs, src, kerb))
             continue
         x, y = vx.xy
         a = min(near_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
@@ -300,7 +302,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         drop = 0.0
         if bank is not None and (_bridge_ground(planar, vx) or _open_ground(planar, vx)):
             drop = _bank_drop(es, p, bank) if ring_in.contains(p) \
-                else _blend_drop(es, p, ring_past, bank)
+                else _blend_drop(es, p, ring_past, bank, kerb)
         rows.append(Linear(((v, 1.0), (a, -1.0)), None, -drop, src))
         rows.append(Linear(((v, -1.0), (a, 1.0)), None, drop, src))
     return rows
@@ -342,7 +344,7 @@ def _bank_drop(es, p, slope: float) -> float:
     return 0.0 if best is None else max(0.0, min(best[1], slope * best[0]))
 
 
-def _blend_drop(es, p, ring_past, slope: float) -> float:
+def _blend_drop(es, p, ring_past, slope: float, kerb=None) -> float:
     """THE BANK BLENDS OUT (owner sim read 2026-11-17T22:25Z, ESSA 1.0.557:
     "just past the bridge edge the bank changes suddenly from what's under
     it to what's next to it"; RULINGS 17p: the cut runs ``past`` metres
@@ -355,11 +357,39 @@ def _blend_drop(es, p, ring_past, slope: float) -> float:
     beside it.  MEASURED ESSA (``v2_solve_replay`` of the lessa4 capture on
     test-557 721317bb0): beside o4gen_44525b99 the run-on band stood on the
     floor (30.91 at +0.85 m) and the zone ground at +1.0-1.3 m at the seat
-    (35.8-36.3), a 5 m step in 0.3 m."""
+    (35.8-36.3), a 5 m step in 0.3 m.
+
+    ``kerb`` (:func:`_kerb`): the airside pavement beside the deck -- the
+    cut never undercuts it (airside is king): the drop is at most ``slope``
+    x the distance from it, the bank rising to its edge."""
     from shapely.ops import nearest_points
     s = ring_past.distance(p)
     q = nearest_points(ring_past, p)[0]
-    return max(0.0, _bank_drop(es, q, slope) - slope * s)
+    drop = _bank_drop(es, q, slope) - slope * s
+    if kerb is not None and not kerb.is_empty:
+        drop = min(drop, slope * kerb.distance(p))
+    return max(0.0, drop)
+
+
+def _kerb(planar: PlanarMap, air, decks, region):
+    """The edges of the airside pavement beside a generated deck: every
+    edge of two airside vertices inside ``region``, less the part on the
+    deck's own ring (its carried pavement, which the slab stands over)."""
+    from shapely.geometry import LineString, MultiLineString, Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    own = unary_union([Polygon(d.ring).buffer(0.5) for d in decks])
+    reg = prep(region)
+    segs = []
+    for e in planar.edges.values():
+        if e.a not in air or e.b not in air:
+            continue
+        ln = LineString([planar.vertices[e.a].xy, planar.vertices[e.b].xy])
+        if reg.intersects(ln):
+            rest = ln.difference(own)
+            if not rest.is_empty:
+                segs.extend(getattr(rest, "geoms", [rest]))
+    return MultiLineString([g for g in segs if g.geom_type == "LineString"]) if segs else None
 
 
 def _open_ground(planar: PlanarMap, vx) -> bool:
@@ -371,12 +401,12 @@ def _open_ground(planar: PlanarMap, vx) -> bool:
 
 
 def _blend_rows(planar: PlanarMap, v: int, p, es, ring_past, slope: float, near_vs,
-                src: Source) -> list[Row]:
+                src: Source, kerb=None) -> list[Row]:
     """The ground beside a generated deck's run-on stands no higher than the
     bank blending out (:func:`_blend_drop`) under its nearest seat: a
     one-sided CEILING -- the cut takes ground away, never fills it; ground
     already under the cone keeps its own law."""
-    drop = _blend_drop(es, p, ring_past, slope)
+    drop = _blend_drop(es, p, ring_past, slope, kerb)
     if drop <= 0.0:
         return []
     x, y = p.x, p.y

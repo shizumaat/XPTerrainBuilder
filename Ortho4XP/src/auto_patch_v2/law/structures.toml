@@ -231,12 +231,13 @@ pit_sunken_min_share = 0.5
 # than this share of its floor, and its walls hang more than cover_flush_m
 # under its plate along less than floor_walled_min_share of its outline (a
 # plate on walls hanging under it is a roof).  Census (lane lomdb3, the
-# newest capture of 82 airports, 26 walled pits): the trenches OMDB duong_2
-# 1 %, hamnen 10 % (a rail viaduct over it), OTHH TerminalRoads_02_000 1 %;
-# the buildings 20-77 % (KBNA terminal / car rental / hangar 20-38 %, EGGW
-# 21 %, LFMN Bld6_7_16 32 %, CYYZ Terminal1 51-65 %, LEMD T4 72-77 %); the
-# roof objects read as floors (EFHK infra_*, LEMD *tej*) hang their facades
-# under the plate along 76-100 % of the outline.
+# newest capture of 81 airports, 24 walled pits): the trenches OMDB duong_2
+# 1 % (walls hung 19 %), hamnen 10 % (a rail viaduct over it; 0 %); the
+# buildings 20-77 % (KBNA terminal / car rental / hangar 20-38 %, EGGW 21 %,
+# LFMN Bld6_7_16 32 %, CYYZ Terminal1 51-65 %, LEMD T4 72-77 %); the roof
+# objects read as floors (EFHK infra_* 78-85 %, LEMD *tej* 86-100 %) and
+# OTHH TerminalRoads_02_000 (a road deck whose walls run 6 m under it, 74 %)
+# hang their walls under the plate.
 trench_roof_max_share = 0.15
 # THE CUT LIES BENEATH THE FLOOR (owner RULINGS 2026-11-06d (4), #1921 /
 # #1936: "the cut is deep enough that it's completely below the floor so the

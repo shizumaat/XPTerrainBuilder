@@ -113,7 +113,8 @@ def test_an_anim_body_is_refused(tmp_path):
 
 def _pier(tmp_path) -> str:
     """A 1 m square pier from y -10 to the deck soffit at y 6, at x 0."""
-    v = [(x, y, z) for y in (-10.0, 6.0) for x, z in ((-0.5, 1.5), (0.5, 1.5), (0.5, 2.5), (-0.5, 2.5))]
+    ring = ((-0.5, 1.5), (0.5, 1.5), (0.5, 2.5), (-0.5, 2.5))
+    v = [(x, y, z) for y in (-10.0, 6.0) for x, z in ring]
     t = [(0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7)]
     return _write(tmp_path / "pier.obj", v, t)
 

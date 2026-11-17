@@ -520,6 +520,7 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
             if stretch.get(k):
                 counts["warp_feet_stretched"] = (counts.get("warp_feet_stretched", 0)
                                                  + len(stretch[k]))
+                row["feet_stretched"] = row.get("feet_stretched", 0) + len(stretch[k])
             bs = list(rec.bodies)
             bs[j] = named_body(pc.member, bs[j], warp=warp)
             splits[i] = _dc.replace(rec, bodies=tuple(bs))
@@ -529,7 +530,6 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
         counts["deck_warp_groups"] = counts.get("deck_warp_groups", 0) + 1
         if surface is not None:
             row["feet_floating"] = _floating(pieces, ks, nodes, xy, surface, law, z0)
-            row["feet_stretched"] = sum(len(v) for v in stretch.values())
             row["feet_floating_before"] = sum(
                 1 for *_r, fl in _foot_floats(pieces, ks, (), xy, surface, z0)
                 if fl > law.float_tol_m)

@@ -11,6 +11,7 @@ import types
 import numpy as np
 from auto_patch_v2.airport import obj8 as O
 from auto_patch_v2.airport import object_floor as OF
+from shapely.geometry import LineString
 from test_hanging_objects1298 import LAW, THICK, _box, _write
 
 
@@ -142,3 +143,58 @@ def test_a_pit_whose_own_floor_is_hard_deck_still_reads(tmp_path):
     objs[1].deck_kind = "flag"
     floors, notes = _read(objs, 105.0)
     assert [f.object_id for f in floors] == ["dsf:obj2"], notes
+
+
+def _trench(tmp_path, roof=False):
+    """A trench authored as ONE open hollow (OMDB ``duong_2``): a 60 x 40 m
+    floor at y 0 .. 0.2 with its own side walls to y 12, and, co-placed,
+    the walls of its portals standing on the same edges (``tuner1``);
+    ``roof`` closes the hollow (a building, never a trench)."""
+    sides = [_box(-0.5, 0.0, 0.5, 40.0, 12.0), _box(60.0, 0.0, 0.5, 40.0, 12.0),
+             _box(0.0, -0.5, 60.0, 0.5, 12.0), _box(0.0, 40.0, 60.0, 0.5, 12.0)]
+    shell = [_box(0.0, 0.0, 60.0, 40.0, 0.2), *sides]
+    if roof:
+        shell.append(_box(-0.5, -0.5, 61.0, 41.0, 0.3, y0=12.0))
+    return [_at(_write(tmp_path / "portal_walls.obj", sides), "dsf:obj1"),
+            _at(_write(tmp_path / "trench.obj", shell), "dsf:obj2")]
+
+
+def _read_bored(objs, ground, bores):
+    return OF.read_object_floors(objs, O.ResourceCache(THICK), LAW, {}, ground=_flat(ground),
+                                 bores=bores)
+
+
+#: a mapped bore running into the trench from its west end
+_BORE = LineString([(-80.0, -20.0), (30.0, -20.0)])
+
+
+def test_a_trench_in_one_open_hollow_object_is_a_walled_pit(tmp_path):
+    """#1949 (owner sim read 2026-11-17, OMDB 25.242834, 55.360158: "the
+    tunnel object ... doesn't appear to be getting a cut and seat"): its
+    floor object carries its own walls, so it is no plate, but it is an
+    open hollow with its portal walls co-placed on its edges.  It reads as
+    the plate pit does: the rim lands on the ground, the floor is the cut,
+    the portal walls move with it."""
+    floors, notes = _read_bored(_trench(tmp_path), 105.0, [_BORE])
+    assert [f.object_id for f in floors] == ["dsf:obj2"], notes
+    f = floors[0]
+    assert abs(f.lift + 7.0) < 0.05 and abs(f.floor_z - 93.0) < 0.05, notes
+    assert {pid: round(z, 2) for pid, _r, z in f.seats} == {"dsf:obj2": 93.0, "dsf:obj1": 93.0}
+
+
+def test_a_closed_hollow_with_walls_beside_it_is_no_trench(tmp_path):
+    """The same object under its own roof is covered, no open hollow: a
+    building, never a pit."""
+    floors, notes = _read_bored(_trench(tmp_path, roof=True), 105.0, [_BORE])
+    assert floors == [], notes
+
+
+def test_an_open_hollow_no_mapped_bore_runs_into_is_no_trench(tmp_path):
+    """The census (lane lomdb): an open hollow with walls co-placed on its
+    edges is also a landscape block's terraces (EFHK ``infra_6_01``, 56,000
+    m2) or a loading bay (EGGW ``eggw_bays``).  A trench is a tunnel's: a
+    mapped bore runs into its floor, else nothing is read."""
+    away = LineString([(-80.0, -200.0), (30.0, -200.0)])
+    for bores in ([], [away]):
+        floors, notes = _read_bored(_trench(tmp_path), 105.0, bores)
+        assert floors == [], (bores, notes)

@@ -56,7 +56,6 @@ import types as _types
 import numpy as np
 import shapely
 from shapely import STRtree
-from shapely.ops import unary_union
 
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
@@ -247,7 +246,10 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
         return None
     px, py = _placed_plan(o, v[hz], (1.0, 1.0))
     tris = shapely.polygons(np.stack([px, py], axis=2))
-    outline = valid_polygon(unary_union(tris[shapely.area(tris) > 1e-6]))
+    # LAW B (``frame_entry.union``): an open hollow's faces (#1949) can make
+    # the exact overlay throw (LFMN, lane lomdb census)
+    outline = valid_polygon(_frame_entry.union(tris[shapely.area(tris) > 1e-6],
+                                               "walled_pit.outline"))
     if outline is None or outline.area < ob.plate_min_area_m2:
         return None
     tk = float(ob.wall_face_max_thickness_m)
@@ -280,7 +282,7 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     low = hz[v[hz][:, :, 1].mean(axis=1) <= floor_y + ob.cover_flush_m]
     fx, fy = _placed_plan(o, v[low], scale)
     ft = shapely.polygons(np.stack([fx, fy], axis=2))
-    floor_foot = valid_polygon(unary_union(ft[shapely.area(ft) > 1e-6]))
+    floor_foot = valid_polygon(_frame_entry.union(ft[shapely.area(ft) > 1e-6], "walled_pit.floor"))
     if floor_foot is None:
         return None
     zero_of = lambda p: _zero(p, msl)  # noqa: E731
@@ -305,7 +307,7 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     under = hz[v[hz][:, :, 1].min(axis=1) < rim_y - ob.cover_flush_m]
     F = _placed_all(o, _types.SimpleNamespace(vertices=v, solid=under), zero, scale)
     pt = shapely.polygons(F[:, :, :2])
-    foot = valid_polygon(unary_union(pt[shapely.area(pt) > 1e-6]))
+    foot = valid_polygon(_frame_entry.union(pt[shapely.area(pt) > 1e-6], "walled_pit.foot"))
     if foot is None or foot.area < ob.plate_min_area_m2:
         return None
     r = _around_ids(foot, {p.id for p in frame}, ag, ground, law)

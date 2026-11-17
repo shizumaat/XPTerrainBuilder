@@ -134,7 +134,17 @@ def mint_facade_cells(airport: Airport, cells: list, law: Law, rules: Rules,
         + snap_margin_m(law)
     polys = [(c, Polygon(c.ring, c.holes)) for c in cells]
     pads = [(c, p) for c, p in polys if c.role == "building"]
-    standing = unary_union([p for _c, p in polys]) if polys else Polygon()
+    # WHAT STANDS is kept snap-rounded on the cells' own noding grid: the
+    # classified cells are not noded against each other, so their float
+    # union carries sub-grid gap holes (LPPD: 17 of 212 holes under 1e-6
+    # m2) that a later float union with a pad's set-back turned into
+    # nested shells — a GEOS TopologyException that failed the airport
+    # (owner 2026-11-17).  Snap-rounding is robust by construction and
+    # moves nothing by more than the grid ``emit`` already rounds to.
+
+    def stand(*geoms):
+        return shapely.union_all(geoms, grid_size=grid)
+    standing = stand(*(p for _c, p in polys)) if polys else Polygon()
     knives = {c.ref: p.buffer(knife_m, join_style="mitre", mitre_limit=2.0)
               for c, p in pads} if knife_m > 0.0 else {}
     # A STRIP STANDS ONE IDENTITY CELL FURTHER OFF EVERY PAD than a lot
@@ -214,7 +224,7 @@ def mint_facade_cells(airport: Airport, cells: list, law: Law, rules: Rules,
                 n += 1
                 stats["facade_strips"] += 1
                 stats["facade_strip_m2"] += area
-                standing = unary_union([standing, part])
+                standing = stand(standing, part)
     k = 0
     for b in bs:
         if b.source != LOT_SOURCE:
@@ -229,5 +239,5 @@ def mint_facade_cells(airport: Airport, cells: list, law: Law, rules: Rules,
             k += 1
             stats["facade_lots"] += 1
             stats["facade_lot_m2"] += area
-            standing = unary_union([standing, geom])
+            standing = stand(standing, geom)
     return stats

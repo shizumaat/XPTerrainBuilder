@@ -122,8 +122,9 @@ def test_a_t_junction_under_a_bridge_tag_stays_joined(law):
     assert pm.road_crossings == ()
 
 
-def test_no_seed_or_target_inside_the_surveyed_cut(law):
-    """C over the mouth and the bank: no target there and no ramp beyond."""
+def test_no_seed_or_ramp_inside_the_surveyed_cut(law):
+    """C over the mouth and the bank: the road's own profile there, no ramp
+    beyond."""
     airport, pm = _arm(law, {})
     r = _rot(0.0)
     ring = _rect(r, -25.0, 150.0, 90.0, 250.0)
@@ -132,7 +133,7 @@ def test_no_seed_or_target_inside_the_surveyed_cut(law):
     assert got.report["survey_cut_vertices"] > 0
     assert got.report["mouths"] < base.report["mouths"]
     inside = [v for v in base.targets if -25.0 <= _local(pm, v)[0] <= 90.0]
-    assert inside and not any(v in got.targets for v in inside)
+    assert inside and all(got.targets[v] < base.targets[v] - 1.0 for v in inside)
     assert max(z - pm.vertices[v].dem_z for v, z in got.targets.items()) < \
         max(z - pm.vertices[v].dem_z for v, z in base.targets.items()) - 1.0
 

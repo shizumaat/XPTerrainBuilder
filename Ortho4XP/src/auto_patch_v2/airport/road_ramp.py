@@ -891,8 +891,8 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     mouths = _contacts(pm, roads, law)
     mouths = {v: z for v, z in mouths.items() if v not in owned}
     # #2128 R2 spec R4: INSIDE THE SURVEYED CUT beside a kept hard deck no
-    # road-ramp seed or target applies -- the road follows its floor there,
-    # and no level walks through it
+    # road-ramp seed, ramp or cut ceiling applies -- the target is the
+    # road's own profile there, and no level walks through it
     in_cut = _in_cuts(pm, set(owned) | set(mouths))
     mouths = {v: z for v, z in mouths.items() if v not in in_cut}
     # RULINGS 2026-10-20d (round 3 D3): a mouth on a LANDING is at its highest
@@ -1102,11 +1102,13 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
         if f_ is None or vx.dem_z is None:
             continue
         r, st, _lat = f_
-        if v not in floor_of or v in in_cut:
+        if v not in floor_of:
             continue
         floor = floor_of[v]                   # the core's clamp AT THAT STATION
-        ramp = env.get(r, {}).get(st, -math.inf)
-        cut = env_c.get(r, {}).get(st, math.inf)
+        # R2 spec R4: in the surveyed cut the target is the road's own
+        # profile, as for any groundside road -- no ramp, no cut ceiling
+        ramp = env.get(r, {}).get(st, -math.inf) if v not in in_cut else -math.inf
+        cut = env_c.get(r, {}).get(st, math.inf) if v not in in_cut else math.inf
         t = min(max(floor, ramp), cut)        # the cut ramp's ceiling wins
         targets[v] = t
         # the REPORT reads the terrain under the same station

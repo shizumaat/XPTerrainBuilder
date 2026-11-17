@@ -137,7 +137,7 @@ def _ramp(airport, law, cid, n, lead: _Exit, profile, axis_ln, floor, band, vis,
     def ground(u: float) -> float:
         return _ground(airport, route, u)
     if run is not None:
-        prof, source = _pack_profile(run, ground, tn), "pack"
+        prof, source = _pack_profile(run, ground, tn, route.length), "pack"
     else:
         lips = [route.project(q) for q in _points(route.intersection(floor.boundary))]
         lips = [t for t in lips if t <= t_x]
@@ -150,8 +150,8 @@ def _ramp(airport, law, cid, n, lead: _Exit, profile, axis_ln, floor, band, vis,
                          f"{_ll(airport, lead.point)} onto ground within {visual} m of the "
                          f"floor — no exit ramp (#2127 R3 A2)")
             return None
-        rise = runout_profile(z0, lambda u: ground(t0 + u), tn.ramp_grade, tn.ramp_max_grade,
-                              MAX_RUN_M)
+        rise = _fitted_run(z0, lambda u: ground(t0 + u), tn.ramp_grade, tn,
+                           route.length - t0)
         prof, source = [(t0 + u, z) for u, z in rise], "law"
     t0, t_top = prof[0][0], min(prof[-1][0], route.length)
     if t_top - t0 < 2.0 * STEP_M:
@@ -206,9 +206,23 @@ def _pack_run(vis, e: _Exit, lane: float, visual: float):
     return best
 
 
-def _pack_profile(run, ground, tn) -> list[tuple[float, float]]:
+def _fitted_run(z0: float, ground, g: float, tn, avail: float) -> list[tuple[float, float]]:
+    """The run-out off ``z0`` at grade ``g`` (``geom/ramp_profile.
+    runout_profile``), steepened a point at a time to ``ramp_max_grade``
+    while it would not meet its ground within the ``avail`` metres of road
+    left (a road that ends: the ramp meets its ground before it)."""
+    cap = float(tn.ramp_max_grade)
+    while True:
+        rise = runout_profile(z0, ground, g, cap, MAX_RUN_M)
+        if rise[-1][0] <= avail or g >= cap:
+            return rise
+        g = min(cap, g + 0.01)
+
+
+def _pack_profile(run, ground, tn, length: float) -> list[tuple[float, float]]:
     """The foot line (never falling) and, past its last foot, the run-out at
-    the last interval's grade to the ground (A2)."""
+    the last interval's grade to the ground (A2) within the road's
+    ``length``."""
     prof, top = [], -math.inf
     for _i, _j, t, z, _xy in run:
         top = max(top, z)
@@ -216,7 +230,7 @@ def _pack_profile(run, ground, tn) -> list[tuple[float, float]]:
             prof.append((t, top))
     (ta, za), (tb, zb) = prof[-2], prof[-1]
     g = min(max((zb - za) / max(tb - ta, 1e-6), tn.ramp_grade), tn.ramp_max_grade)
-    rise = runout_profile(zb, lambda u: ground(tb + u), g, tn.ramp_max_grade, MAX_RUN_M)
+    rise = _fitted_run(zb, lambda u: ground(tb + u), g, tn, length - tb)
     return prof + [(tb + u, z) for u, z in rise[1:]]
 
 

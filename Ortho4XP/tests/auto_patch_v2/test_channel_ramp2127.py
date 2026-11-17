@@ -116,3 +116,17 @@ def test_one_function_reads_the_declared_floor():
     # the top line hands over to the road: not declared
     assert DCL.declared_floor_z("channel_floor:0#r0-1", 19.8, 0.0, main, {0: ramp}) is None
     assert DCL.ramp_index("channel_floor:0#r12-3") == 12 and DCL.ramp_index("x#3") is None
+
+
+def test_a_road_that_ends_gets_a_ramp_that_meets_its_ground_before_it():
+    """A dead-end exit road too short for the design grade: the ramp
+    steepens (never over ramp_max_grade) to meet its ground by the road's
+    end — MEASURED LGAV -1129: at 5 % it ran 7 m past the way's end and the
+    unpinned top line stepped 1.56 m."""
+    short = _road(-1129, [(60.0, 0.0), (200.0, 0.0), (260.0, 60.0), (290.0, 100.0)])
+    ramps, _rows, _notes = _ramps(short)
+    st = np.array(ramps[0].stations)
+    assert abs(st[-1, 2] - GROUND) < 0.1
+    run = np.hypot(np.diff(st[:, 0]), np.diff(st[:, 1]))
+    g = np.diff(st[:, 2]) / run
+    assert 0.05 < g.max() <= LAW.tables.structures.tunnel.ramp_max_grade + 1e-9

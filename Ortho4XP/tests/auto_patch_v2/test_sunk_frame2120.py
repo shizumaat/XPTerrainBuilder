@@ -233,3 +233,21 @@ def test_the_cut_back_keeps_the_road_on_a_road_block_and_cuts_beyond_its_low_fac
     kept, _st = cut_lines_at_walls([line], [w])
     assert kept == [line]
     assert cut_lines_at_walls([line], [plain])[0] == []
+
+
+def test_rulings_6_7_a_road_block_is_upper_ground_and_its_top_is_its_upper_ground():
+    """(7) a sunk wall's top for the wall slope / fill is its upper ground
+    (the DEM ``smear`` out past its upper face); (6) a point in a ROAD
+    BLOCK's footprint reads that upper ground (``smear_sampler``), and a way
+    on the block crosses no wall"""
+    from auto_patch_v2.airport.wall_sides import crosses_wall, smear_sampler, wall_sides
+    ap = _airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"})
+    (w,) = wall_sides(ap, CFG)
+    assert w.road_block and w.top_profile
+    assert all(z == pytest.approx(300.0) for _s, z in w.top_profile if z is not None)
+    c = w.poly.centroid
+    sample = smear_sampler(ap.dem.z_many, [w])
+    lo_pt = (c.x, w.poly.bounds[1] + 1.0)                # in the block, over the LOW DEM
+    assert ap.dem.z(*lo_pt) == pytest.approx(290.0)
+    assert float(sample([lo_pt[0]], [lo_pt[1]])[0]) == pytest.approx(300.0)
+    assert not crosses_wall((c.x - 20.0, c.y), (c.x + 20.0, c.y), [w])

@@ -209,6 +209,11 @@ def wall_sides(airport, cfg, comps=None, top_of=None, foot_of=None
             wide = 2.0 * g.area / g.length
             core = g.buffer(-min(0.5, wide / 4.0))
             top = top_of(w, g, uf) if top_of is not None else None
+            if top is None and getattr(w, "sunk_rule", ""):
+                # #2120 R2 (master ruling 7): a SUNK wall's top is its upper
+                # ground (its y_up stands on it, the parapet the author's):
+                # the wall slope and the fill grade to that level
+                top = _upper_ground_profile(dem, uf, smear)
             foot = foot_of(w, g, lf) if foot_of is not None else None
             raw = top
             if top is not None and not sheets:
@@ -328,6 +333,20 @@ def _foot_retaining(profile: tuple, face: LineString, upper_face: LineString,
     return tuple(out) if any(z is not None for _s, z in out) else None
 
 
+def _upper_ground_profile(dem, face: LineString, smear: float) -> tuple | None:
+    """``((s, z), ...)`` every 2 m along the upper ``face``: the DEM
+    ``smear`` out on its upper side (the hill past the lidar's smeared
+    step), ``None`` unread -- a SUNK wall's top as the solve holds it
+    (``airport/sunk_frame``: the object stage seats its ``y_up`` there)."""
+    stations = list(np.arange(0.0, face.length, 2.0)) + [face.length]
+    z = _ground_out(dem, face, stations, smear)
+    if z is None:
+        return None
+    out = tuple((float(s_), float(gz) if math.isfinite(gz) else None)
+                for s_, gz in zip(stations, z, strict=True))
+    return out if any(gz is not None for _s, gz in out) else None
+
+
 def _ground_out(dem, face: LineString, stations: _t.Sequence[float], out_m: float
                 ) -> list[float] | None:
     """The DEM ``out_m`` out on ``face``'s outer side (its right) at each
@@ -388,7 +407,9 @@ def crosses_wall(a, b, walls: _t.Sequence[WallSides]) -> bool:
     seg = LineString([tuple(a), tuple(b)]) if math.dist(a, b) > 1e-9 else Point(a)
     x0, y0, x1, y1 = seg.bounds
     for w in walls:
-        if w.core is None:
+        # a ROAD BLOCK's plan is its upper side's ground (#2120 R2): a way
+        # on it crosses nothing
+        if w.core is None or getattr(w, "road_block", False):
             continue
         bx0, by0, bx1, by1 = w.core.bounds
         if x0 > bx1 or x1 < bx0 or y0 > by1 or y1 < by0:
@@ -419,6 +440,11 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
             fix, at = [], []
             for i in idx:
                 p = Point(float(xs[i]), float(ys[i]))
+                up = _block_upper(w, p)
+                if up is not None:
+                    fix.append((int(i), "upper"))
+                    at.append(up)
+                    continue
                 side = w.side_of((p.x, p.y))
                 if side is None:
                     continue
@@ -438,6 +464,26 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
                     z[i] = min(z[i], zp) if side == "lower" else max(z[i], zp)
         return z
     return _sample
+
+
+def _block_upper(w: WallSides, p) -> tuple[float, float] | None:
+    """#2120 R2 (master ruling 6): a point IN a ROAD BLOCK's footprint
+    (``WallSides.road_block``) is upper ground -- it reads the ground
+    ``smear`` out past the nearest point of the upper face (its outer side,
+    the face's right); ``None`` for any other point or wall."""
+    if not getattr(w, "road_block", False) or w.upper_face is None or not w.poly.covers(p):
+        return None
+    face = w.upper_face
+    s_ = face.project(p)
+    a = face.interpolate(max(0.0, s_ - 0.5))
+    b = face.interpolate(min(face.length, s_ + 0.5))
+    dx, dy = b.x - a.x, b.y - a.y
+    n = math.hypot(dx, dy)
+    if n <= 1e-9:
+        return None
+    q = face.interpolate(s_)
+    # the footprint lies on the face's left: outward is its right
+    return (q.x + dy / n * w.smear, q.y - dx / n * w.smear)
 
 
 def band_setbacks(walls: _t.Sequence[WallSides]) -> tuple[tuple, ...]:

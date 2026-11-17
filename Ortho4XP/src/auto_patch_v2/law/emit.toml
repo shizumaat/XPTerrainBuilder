@@ -331,6 +331,7 @@ groundside_ramp_max = 0.05    # 08d change 4 (b): the apron edge RAMPS to the gr
 # into the number (defect D2).
 straddle_perp_m     = 5.0
 straddle_pair_m     = 5.0
+car_lot_weld_step_m = 0.5    # #2114 round 2 P3 (owner RULINGS 2026-11-16p "welded to any pad or road it touches", read with 16t; spec 2112-2114-R2 §3 P3): a CAR LOT (classify/car_lot, the last stage) meets a standing pad / road / apron / band / lot with no step only where its OWN ground (the DEM under its nearest counted car) is within cap x d + this of the ring's solved level; beyond it the stand-off is a DECLARED terrace (constraints/car_lot_follow).  WORKING VALUE = the 12y ground visibility bar, pending the owner's answer to the spec's Q2; MEASURED KBNA building40 (172.40) against its lots' car ground 169-170.5: a terrace
 
 [verify]
 # THE DEFECT MATERIALITY FLOOR (owner RULINGS 2026-09-14bx).  A row of a

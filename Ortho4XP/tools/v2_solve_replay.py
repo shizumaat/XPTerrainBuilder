@@ -1146,7 +1146,7 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                strip_rep=None, late_cut: dict | None = None,
                late_stage: dict | None = None, cells=(),
                hard_conflict=(), runway_flex=(), agp_report=None, objects=None,
-               rebake_plan: bool = False) -> dict:
+               rebake_plan: bool = False, car_lot_terraces=None) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
@@ -1214,6 +1214,10 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     if late_stage is not None:
         from auto_patch_v2.pipeline.publication import late_stage as _late_stage
         pub["late_stage"] = _late_stage(late_stage)
+    if car_lot_terraces is not None:
+        # #2114 round 2 P3: as ``pipeline/emit_stage`` publishes it
+        from auto_patch_v2.pipeline.publication import car_lot_terraces as _terraces
+        pub["car_lot_terraces"] = _terraces(car_lot_terraces, airport.frame.transformers()[1])
     from auto_patch_v2.pipeline.publication import pad_touch as _pad_touch
     _touch = _pad_touch(cells, law, pm)
     if _touch:
@@ -2648,7 +2652,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         from auto_patch_v2.pipeline.stage_one_map import gap_free as _gap_free
         _n = len(cl.cells)
         cl = _gap_free(cl) or cl
-        print(f"[{icao}] --gap-free: {_n - len(cl.cells)} last-stage cell(s) (gap pieces, pad roads) dropped, "
+        print(f"[{icao}] --gap-free: {_n - len(cl.cells)} last-stage cell(s) (gap pieces, pad roads, car lots) dropped, "
               f"{len(cl.cells)} cells (the build's base map)")
     if late is None:
         return _rest(cl)
@@ -2698,7 +2702,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             _base = pickle.load(_fh)
         _late = {"base": {"pm": _base["pm"], "z": _base["z"],
                           "pin_yield": _base.get("pin_yield", ()),
-                          "hard_conflict": _base.get("hard_conflict", ())},
+                          "hard_conflict": _base.get("hard_conflict", ()),
+                          # the rows standing under the base's levels (the
+                          # car lots' stage carries them, #2114 round 2)
+                          "cs": _base.get("cs")},
                  "solve_kw": {"options": Options(verbose=verbose), "size_out": size,
                               "method": method}}
         _base_hold = _base.get("hold_report")
@@ -3083,7 +3090,11 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                      cells=cl.cells, hard_conflict=hard_conflict,
                                      runway_flex=rep.runway_flex,
                                      agp_report=(rep.reach_seed or {}).get("agp_level"),
-                                     objects=prob.get("objects"), rebake_plan=rebake_plan))
+                                     objects=prob.get("objects"), rebake_plan=rebake_plan,
+                                     car_lot_terraces=(
+                                         (prob["late"]["rep"].get("car_lots") or {})
+                                         .get("follow", {}).get("terraces")
+                                         if late_from is not None else None)))
     if emit_dir is not None or verify:
         # object-placement spec §18 (6): the seat per wall / pit placement,
         # as the build's rebake plan publishes it (``authored_seats``)

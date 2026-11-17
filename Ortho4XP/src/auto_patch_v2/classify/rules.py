@@ -205,6 +205,19 @@ class EdgeLines:
 
 
 @_dc.dataclass(frozen=True)
+class CarLots:
+    """Owner RULINGS 2026-11-16p (#2114): parked cars mark a lot
+    (``classify/car_lot``)."""
+
+    min_cars: int = 3
+    link_m: float = 10.0
+    car_half_m: float = 2.5
+    margin_m: float = 3.0
+    road_side_m: float = 3.0
+    ground_m: float = 1.0
+
+
+@_dc.dataclass(frozen=True)
 class Rules:
     """Every threshold the scorer reads."""
 
@@ -225,6 +238,7 @@ class Rules:
     surfaces: Surfaces
     buildings: Buildings
     edge_lines: EdgeLines
+    car_lots: CarLots
 
 
 def _build(cls: type, data: _t.Mapping[str, _t.Any], where: str) -> _t.Any:
@@ -286,7 +300,7 @@ def load_rules(path: str | Path | None = None) -> Rules:
              "groundside": Groundside, "taxi_subrole": TaxiSubrole,
              "leadin": Leadin, "dsf_pavement": DsfPavement,
              "surfaces": Surfaces, "buildings": Buildings,
-             "edge_lines": EdgeLines}
+             "edge_lines": EdgeLines, "car_lots": CarLots}
     for name, cls in types.items():
         if name not in data:
             raise RulesError(f"rules.toml: missing section [{name}]")

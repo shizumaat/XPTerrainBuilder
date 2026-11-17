@@ -942,6 +942,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # fence-foot plane's ground — late cells beside the edge strips
     from .fence_yard import mint_fence_yards
     stats.update(mint_fence_yards(airport, cells, law, rules, add))
+    # owner RULINGS 2026-11-16p (#2114): parked cars on ground no cell holds
+    # mark a lot, LAST — it takes only free ground, off every pad's set-back
+    from .car_lot import mint_car_lots
+    stats.update(mint_car_lots(airport, cells, law, rules, add))
     # #1697 THE HAND-SET ROLES, LAST: a pavement the user classified in the
     # patch editor is that role in every pavement cell of it — a user edit
     # no verdict above overrides (RULINGS 2026-10-15d; ``airport/user_roles``)

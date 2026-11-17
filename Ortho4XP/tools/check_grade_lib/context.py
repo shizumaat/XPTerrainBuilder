@@ -506,6 +506,10 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # gap.  EVIDENCE: ``tools/pad_edge_read.py --source`` classes by it;
     # the census prices nothing from it.
     "pad_touch",
+    # #2114 round 2 P3 (``pipeline/publication.car_lot_terraces``): each car
+    # lot held apart from a standing ring as a declared terrace, with both
+    # levels.  EVIDENCE: the census prices nothing from it.
+    "car_lot_terraces",
     # (``basin_facilities`` was here — an EVIDENCE key nothing read —
     # until the tunnel-trench declared-step law made it LAW INPUT; it now
     # lives in ``SIDECAR_LAW_KEYS`` above.  Its own spec is

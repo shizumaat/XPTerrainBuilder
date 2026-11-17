@@ -96,7 +96,7 @@ from ..law.tables import (
 )
 from ..model.airport import Airport
 from ..model.frame import rotated_rectangle
-from ..model.planar import PlanarMap
+from ..model.planar import PlanarMap, is_car_lot_ref
 from ..model.platform import fill_levels, held_levels
 from .foot_lot import foot_vertices, lots_at_foot
 from .road_descent import STAND_M, climb, descend
@@ -1827,7 +1827,14 @@ def _is_lot_page(face, lot_roles: frozenset, roads: frozenset) -> bool:
     """A LOT at a wall's foot (10-03c): a groundside lot / pavement page —
     or a page that became a road only by its SHAPE (§110
     ``road_by_proportions``; owner 2026-10-20, #1071: HECA ``dsf:objpav2``
-    at ``metal_strip_2.obj`` comp 12 still counts as the lot)."""
+    at ``metal_strip_2.obj`` comp 12 still counts as the lot).  A #2114 CAR
+    LOT never is (spec 2112-2114-R2 census row 12): it is solved alone in
+    the last stage against the wall's levels as constants, its one relation
+    to them its own follow row (``constraints/car_lot_follow``).  MEASURED
+    (KBNA replay): read as one, it declared a 160 m wall terrace at
+    ``KBNA_Terminal-part3.obj`` comp 30 the map without it does not carry."""
+    if is_car_lot_ref(getattr(face, "ref", "")):
+        return False
     if face.role in lot_roles:
         return True
     return (face.role in roads and face.side == "groundside"

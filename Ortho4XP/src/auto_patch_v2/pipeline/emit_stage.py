@@ -473,6 +473,12 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
         pub["gap_pieces"] = _gap_records
     if late_report is not None:
         pub["late_stage"] = late_stage(late_report["stage"])
+    if late_report is not None and "car_lot_terraces" in late_report:
+        # #2114 round 2 P3: each car lot held apart from a standing ring,
+        # with both levels (``constraints/car_lot_follow``)
+        from .publication import car_lot_terraces
+        pub["car_lot_terraces"] = car_lot_terraces(
+            late_report["car_lot_terraces"], airport.frame.transformers()[1])
     _touch = pad_touch(cl.cells, law, pm)
     if _touch:
         pub["pad_touch"] = _touch

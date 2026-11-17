@@ -374,14 +374,19 @@ class RoadProfiles:
         return way.at(line.project(pt)), float(line.distance(pt))
 
     def answer(self, pt: XY, dem: float,
-               through: _t.Iterable[tuple[Way, float]] = ()) -> Answer:
+               through: _t.Iterable[tuple[Way, float]] = (),
+               skip: _t.Callable[[Way], bool] | None = None) -> Answer:
         """One vertex: the nearest of the ways ``through`` its faces (each
         within ITS face's radius) and the ways within the core's radius;
         an OSM way within the core's radius outranks the rest; else the
-        DEM."""
+        DEM.  ``skip``: the ways that never answer this vertex (#2128 R4:
+        a road it crosses over or under, ``airport/road_ramp``)."""
         p = Point(pt)
         through = list(through)
         near = [self.ways[i] for i in self.ways_near(p)]
+        if skip is not None:
+            through = [(w, r) for w, r in through if not skip(w)]
+            near = [w for w in near if not skip(w)]
         cands = through + [(w, self.radius_m) for w in near]
         if not cands:
             return Answer(float(dem), None, None, math.inf)

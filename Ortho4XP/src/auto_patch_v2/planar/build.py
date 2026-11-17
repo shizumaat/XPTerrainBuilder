@@ -51,6 +51,8 @@ from .bridge_span import edge_bridges
 from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .survey_deck_cut import cut_pavement, region_union, survey_deck_cuts
+from .grade_separation import road_crossings
+from ..geom.parts import polygon_parts_with_area
 from .deck_generated import carried_off, generated_decks
 from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
@@ -668,6 +670,16 @@ def build(airport: Airport, classification: Classification, law: Law,
                    storey_shells=tuple(storeys),
                    registries=arr.registries)
     validate(pm)
+    # #2128 round 4: the grade-separated road crossings and the surveyed cut
+    # C, published for the road ramp (``planar/grade_separation``)
+    crossings, cross_notes = road_crossings(pm, airport, law)
+    sstats.hard_decks.extend(cross_notes)
+    for n in cross_notes:
+        print(f"  [planar] grade separation: {n}")
+    c_all = region_union(survey_deck)
+    pm = _dc.replace(pm, road_crossings=crossings, survey_cuts=tuple(
+        (tuple(q.exterior.coords)[:-1], tuple(tuple(h.coords)[:-1] for h in q.interiors))
+        for q in polygon_parts_with_area(c_all)) if c_all is not None else ())
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
     # touching pavement, their joints declared — the only lawful steps
     pm, stats.shapes = build_shapes(pm, law, airport, classification)

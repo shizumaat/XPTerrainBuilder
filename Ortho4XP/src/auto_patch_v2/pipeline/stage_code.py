@@ -2753,7 +2753,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.roles classify.rules classify.sources classify.taxi_letter classify.taxi_shoulder
      classify.wall_clip
     constraints
-    constraints.apron constraints.apron_shelf constraints.cut_kerb constraints.assembly constraints.ceiling
+    constraints.apron constraints.apron_shelf constraints.cut_kerb
+    constraints.assembly constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
     constraints.edge_deck
     constraints.end_lip constraints.flat_site constraints.foot_road constraints.foot_rows
@@ -3023,9 +3024,11 @@ CODE_MODULES["verify"] = _mods("""
     airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
     constraints.airside_top
-    constraints.apron_shelf constraints.cut_kerb constraints.road_ramp constraints.wall_zone geom.ramp_grade
+    constraints.apron_shelf constraints.cut_kerb constraints.road_ramp
+    constraints.wall_zone geom.ramp_grade
     geom.agp_plate
-    constraints.apron_shelf constraints.cut_kerb constraints.road_ramp constraints.wall_zone geom.ramp_grade
+    constraints.apron_shelf constraints.cut_kerb constraints.road_ramp
+    constraints.wall_zone geom.ramp_grade
     constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     geom.deck_ground model.deck_stack
     airport.split_level airport.split_level_wings

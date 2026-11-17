@@ -721,7 +721,12 @@ def frame_seeds(groups: _t.Mapping[str, list], done: _t.Mapping, held: _t.Mappin
     (``airport/airside_floor``) SEEDS its lower level -- a record of no
     region (top ``y`` 0, the frame's zero standing on the apron; ``y_hi``
     a storey down), which ``planar/low_extent.extend_levels`` extends over
-    the frame's lower footprint at the objects' bottom (27h)."""
+    the frame's own lower footprint at the frame's LOWER FLOOR ``y_feet``
+    (27h: the objects' bottom -- the lowest substantial plane of the
+    frame's walled feet a storey down, ``foot_planes.floor_plane``, the
+    plane ``airside_floor`` read as ``y_l``; KATL Terminal F: -15.00, its
+    curb and mezzanine walls at -11 / -8 stand on that floor's
+    structures)."""
     part = getattr(airport, "partition", None)
     if part is None or getattr(airport, "frame", None) is None:
         return []
@@ -735,9 +740,27 @@ def frame_seeds(groups: _t.Mapping[str, list], done: _t.Mapping, held: _t.Mappin
         if ui is None or not any(getattr(m, "floor_zero", False)
                                  for m in part.units[ui].members):
             continue
+        y = _frame_floor(part.units[ui], step, law)
+        if y is None:
+            continue
         out.append({"kind": LOW_KIND, "block": ref, "top_y": 0.0, "y_hi": -step,
-                    "witness": "airside_floor", "seed": True})
+                    "y_feet": y, "witness": "airside_floor", "seed": True})
     return out
+
+
+def _frame_floor(unit, step: float, law) -> "float | None":
+    """The frame's LOWER FLOOR in its re-zeroed frame: the
+    ``foot_planes.floor_plane`` of its walled parts' feet a storey or more
+    under its zero (:func:`frame_seeds`)."""
+    from ..airport.airside_group_seat import storey_m
+    from ..geom.foot_planes import floor_plane
+    wall_min = float(law.tables.structures.placement.chain_min_height_m)
+    ys = [-float(f[2]) for m in unit.members for p in m.parts
+          if not getattr(p, "line", False)
+          and float(getattr(p, "height_m", 0.0) or 0.0) >= wall_min
+          for f in (getattr(p, "feet", ()) or ()) if float(f[2]) <= -step]
+    got = floor_plane(ys, storey_m(law)) if ys else None
+    return None if got is None else round(-float(got), 3)
 
 
 def _shell_split(ref: str, regs: list, shell, air_polys, tree, law, grid: float,

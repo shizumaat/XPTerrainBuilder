@@ -157,12 +157,15 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
     for ui, refs in sorted(units.items()):
         rec0 = hosts[refs[0]]
         t = float(rec0["top_y"])
-        lower = feet.lower(ui, t + float(rec0["y_hi"]))
+        seeded = any(r in seeds for r in refs)
+        # a seeded frame reads its OWN lower parts: a neighbour's are in
+        # its own frame's zero, never this one's (spec 2120-F R3)
+        lower = feet.lower(ui, t + float(rec0["y_hi"]), own=seeded)
         if not lower:
             continue
         own_walls.extend(p.poly for p in lower if p.reach > 0.0)
         bodies, walls = _footprint(lower, pave, near, w, airport, law, t)
-        if any(r in seeds for r in refs) and not bodies.is_empty:
+        if seeded and not bodies.is_empty:
             took = _absorb(ui, bodies, by_ref, reg, airport, to_xy)
             if took:
                 absorbed[refs[0]] = sorted(took)
@@ -190,6 +193,8 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
             host = min(refs, key=lambda r: levels[r].distance(q))
             rec = hosts[host]
             y = _bottom(q, lower, w)
+            if y is not None and host in seeds:
+                y = float(rec["y_feet"])        # the frame's lower floor (``frame_seeds``)
             if y is None and q.intersection(taken).area >= 0.5 * q.area:
                 # unreachable pavement cut off the footprint by a keep-off,
                 # with no lower body of its own: the group's ONE lower level
@@ -205,12 +210,12 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
             made.append(_dc.replace(tmpl, ref=ext, polygon=q))
             made.extend(_dc.replace(tmpl, ref=ext + STRIP_SUFFIX, polygon=s)
                         for s in nonempty_polygon_parts(S))
-            seeded = host in seeds
+            from_seed = host in seeds
             reg.landings[ext] = {**{k: v for k, v in rec.items() if k != "seed"},
                                  "y": round(y - t, 3), "y_lo": round(y - t, 3),
                                  "y_feet": round(y, 3), "area_m2": round(q.area, 1),
-                                 "low_parts": 0, "extent_of": block if seeded else host,
-                                 **({"absorbed": absorbed.get(host, [])} if seeded else {})}
+                                 "low_parts": 0, "extent_of": block if from_seed else host,
+                                 **({"absorbed": absorbed.get(host, [])} if from_seed else {})}
             pads = unary_union([pads, q.buffer(w, join_style=2)])
     _join_walls(reg, {**{r: v for r, v in lows.items() if r in by_ref},
                       **{str(r.ref): reg.landings[str(r.ref)] for r in made
@@ -392,12 +397,12 @@ class _Feet:
                 return r
         return 0.0
 
-    def lower(self, ui: int, y_max: float) -> list[_Lower]:
-        """The group's lower parts: walled parts whose foot plane stands at
-        or under ``y_max``."""
+    def lower(self, ui: int, y_max: float, own: bool = False) -> list[_Lower]:
+        """The group's lower parts (``own``: the unit's alone): walled parts
+        whose foot plane stands at or under ``y_max``."""
         from ..airport.airside_group_seat import PLANE_BAND_M
         out = []
-        for u in self.group(ui):
+        for u in ([ui] if own else self.group(ui)):
             for m in self.airport.partition.units[u].members:
                 for p in m.parts:
                     if (getattr(p, "line", False)

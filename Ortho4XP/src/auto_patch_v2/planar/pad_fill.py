@@ -142,10 +142,14 @@ def pier_fills(vias: _t.Mapping[str, tuple], partition: _t.Any, to_xy,
         # batch (``DeckPrint.contains_many``, the SAME booleans as one
         # ``contains`` each) — one call per part ran 36 M times at EDDF,
         # 405 s of a 923 s planar stage
-        own = [q for ui, u in enumerate(partition.units)
-               for mi, m in enumerate(u.members)
-               if _bf.frame_of(m) == frame and (ui, mi) != (p.unit, p.member)
-               for q in m.parts]
+        mine = [m for ui, u in enumerate(partition.units) for mi, m in enumerate(u.members)
+                if _bf.frame_of(m) == frame and (ui, mi) != (p.unit, p.member)]
+        if any(getattr(m, "floor_zero", False) for m in mine):
+            # spec 2120-F R3: a frame read at its AIRSIDE FLOOR stands its
+            # zero on the apron, not on the ground under its viaduct: its
+            # ground is the frame's own lower pad (``low_level.frame_seeds``)
+            continue
+        own = [q for m in mine for q in m.parts]
         hit = p.contains_many([0.5 * (q.box[0] + q.box[2]) for q in own],
                               [0.5 * (q.box[1] + q.box[3]) for q in own])
         for q, inside in zip(own, hit, strict=True):

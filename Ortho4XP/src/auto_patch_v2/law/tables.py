@@ -23,7 +23,7 @@ __all__ = [
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
     "role_family", "role_side", "contact_roles", "is_value_role", "is_rigid_role",
     "is_structure_role",
-    "pavement_roles", "pavement_fallback_cap", "authority_rank",
+    "pavement_roles", "pavement_fallback_cap", "road_terrain_cap", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds", "generator_slack_m",
     "runway_zone_edge_offset_m", "zone_edge_offset_m", "runway_safety_area_length_m",
     "runway_end_zone_length_m", "EndProfile", "runway_end_profile", "end_profile_noise_m", "family", "families_for_role",
@@ -168,6 +168,18 @@ def pavement_fallback_cap(law: Law) -> float:
     read by the engine's hard row family (``constraints/pavement_cap.py``)
     and the census family ``pavement_over_road_cap`` alike."""
     return float(law.tables.common.road_max_grade)
+
+
+def road_terrain_cap(law: Law) -> float:
+    """THE ROAD ON STEEP GROUND (owner RULINGS 2026-11-17, #2122) — ONE
+    derivation site: the most a road's longitudinal cap rises to where the
+    road's own ground is steeper than the road cap (``[common]
+    road_terrain_max_grade``, never under ``road_max_grade``).  Read by the
+    core clamp's in-band cap (``O4_Vector_Utils.road_inside_cap``), the
+    lift (``airport/public_road.steep_road_lifts``) and every reader that
+    must agree with them."""
+    c = law.tables.common
+    return max(float(c.road_max_grade), float(c.road_terrain_max_grade))
 
 
 def bend_class(law: Law, role: str) -> str:

@@ -26,6 +26,7 @@ from ..model.airport import Airport
 from ..model.constraints import Band, ConstraintSet, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
 from .edge_floor import seat_pair
+from .public_road_release import steep_vertex_caps
 
 __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "CONTACT_RULING", "road_ramp_rows", "road_join_rows",
@@ -714,7 +715,8 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                     design: float | None = None, lane: float = 0.0,
                     ceil: _t.Mapping[int, float] | None = None,
                     upper: _t.Mapping[int, float] | None = None,
-                    upper_cap: float | None = None
+                    upper_cap: float | None = None,
+                    route_caps: _t.Mapping[int, float] | None = None
                     ) -> tuple[dict[int, float], dict[str, _t.Any]]:
     """OWNER RULINGS 2026-10-03b: THE RIBBON'S PROFILE, per route, from
     ``PlanarMap.road_terrace`` (``airport/road_ramp.road_terrace``) and
@@ -784,6 +786,13 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       no target: the level's landing rows hold it.  That linked run alone
       climbs at ``upper_cap`` (owner RULINGS 2026-11-14b: up to 20 %,
       ``[road_contact] upper_pad_road_grade``) when given, else ``cap``.
+
+    * THE ROAD ON STEEP GROUND (owner RULINGS 2026-11-17, #2122):
+      ``route_caps`` is ``{route: cap}`` for every route on ground steeper
+      than the road cap (``public_road_release.steep_vertex_caps``, the cap
+      its rows rise to).  On such a route ``cap`` reads that cap — the bare
+      exit steepens toward it and a join's envelope is read at it — so the
+      profile asks no more of the rows than they allow, and no less.
 
     Returns ``{v: target}`` for every vertex it governs and the report."""
     foot = terrace.get("foot") or {}
@@ -906,8 +915,13 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                 continue
             bare.setdefault((r, i == 0), (z_e, []))[1].append((d, v, float(fl)))
             rep["bare"] += 1
-    for _key, (z_e, run) in sorted(bare.items()):
-        g = _run_grade(z_e, _far_end([(d, fl) for d, _v, fl in run], lane), g0, cap, lane)
+    route_caps = route_caps or {}
+
+    def _cap(r: int) -> float:
+        return max(cap, float(route_caps.get(int(r), cap)))
+
+    for (r_b, _lo), (z_e, run) in sorted(bare.items()):
+        g = _run_grade(z_e, _far_end([(d, fl) for d, _v, fl in run], lane), g0, _cap(r_b), lane)
         rep["bare_steepened"] += g > g0 + 1e-9
         rep["bare_runs"] += 1
         rep["max_bare_grade"] = max(rep["max_bare_grade"], g)
@@ -922,9 +936,10 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     rep["anchored"] = 0
     for v in list(out):
         r, s_ = station[v]
+        cr = _cap(r)
         for sa, za in by_anchor.get(int(r), ()):
             d = abs(float(s_) - sa)
-            t = min(max(out[v], za - cap * d), za + cap * d)
+            t = min(max(out[v], za - cr * d), za + cr * d)
             if abs(t - out[v]) > 1e-9:
                 out[v] = t
                 rep["anchored"] += 1
@@ -938,6 +953,18 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
         # the ARRIVAL GAP: how far under its level the arm arrives (spec 2068 Q3)
         rep["upper_gap_m"] = round(min(gaps), 3)
     return out, rep
+
+
+def _steep_route_caps(planar: PlanarMap, law: Law,
+                      station: _t.Mapping[int, tuple[int, float]]) -> dict[int, float]:
+    """Route -> the highest cap its vertices' rows rise to on steep ground
+    (owner RULINGS 2026-11-17; ``public_road_release.steep_vertex_caps``)."""
+    out: dict[int, float] = {}
+    for v, g in steep_vertex_caps(planar, law).items():
+        if v in station:
+            r = int(station[v][0])
+            out[r] = max(out.get(r, 0.0), g)
+    return out
 
 
 def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
@@ -1001,7 +1028,8 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         design=float(law.tables.emit.road_contact.ramp_grade),
         lane=float(law.tables.emit.road_profile.lane_width_m), ceil=ceil,
         upper=_upper_levels(planar, law, terr.get("level") or {}, levels),
-        upper_cap=float(law.tables.emit.road_contact.upper_pad_road_grade))
+        upper_cap=float(law.tables.emit.road_contact.upper_pad_road_grade),
+        route_caps=_steep_route_caps(planar, law, terr["station"]))
     # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
     # row.  Inside a RUNWAY's band it gets NO terrace target: a road there
     # beats the band at or below the band's grade (owner 2026-10-19, #951 —

@@ -36,17 +36,20 @@ _ROAD_GRADE_CAP = _road_grade_cap_from_law()
 # ``auto_patch_v2/law/emit.toml`` ``[road_profile]`` and the core reads
 # them HERE — never as literals beside the clamp.
 def road_neighbourhood_law() -> dict:
-    """``{runout_m, budget_m, cap_ceiling, class_caps, public_classes}`` from the law
-    table (``O4_Vector_Utils.clamp_road_network`` / v2's
-    ``airport/road_profile``)."""
+    """``{runout_m, budget_m, cap_ceiling, class_caps, public_classes,
+    terrain_cap}`` from the law table (``O4_Vector_Utils.clamp_road_network``
+    / v2's ``airport/road_profile``).  ``terrain_cap`` is the road on steep
+    ground's cap (owner RULINGS 2026-11-17, ``tables.road_terrain_cap``)."""
     from auto_patch_v2.law import tables as _v2_tables
-    rp = _v2_tables.load_default().tables.emit.road_profile
+    law = _v2_tables.load_default()
+    rp = law.tables.emit.road_profile
     return {
         "runout_m": float(rp.runout_m),
         "budget_m": float(rp.budget_m),
         "cap_ceiling": float(rp.cap_ceiling),
         "class_caps": {str(k): float(v) for k, v in rp.class_caps.items()},
         "public_classes": tuple(str(c) for c in rp.public_classes),
+        "terrain_cap": float(_v2_tables.road_terrain_cap(law)),
     }
 
 

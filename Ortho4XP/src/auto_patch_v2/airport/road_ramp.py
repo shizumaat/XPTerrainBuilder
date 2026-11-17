@@ -2340,7 +2340,13 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     # OWNER RULINGS 2026-10-22h (#1254): the public-road faces whose own
     # target runs over the road cap — the rows yield there
     # (``constraints/public_road_release``) and the census lifts them
-    from .public_road import public_road_faces, public_road_lifts, public_routes
+    from .public_road import (
+        public_road_faces,
+        public_road_lifts,
+        public_routes,
+        steep_road_faces,
+        steep_road_lifts,
+    )
     from .road_joint import junction_joints
     # 27f (Q186): the public road each route belongs to — the junction mouth
     # between two of them is the minor road's longitudinal grade — and 27s
@@ -2355,6 +2361,14 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     if report is not None:
         report["public_road_lifted"] = len(lifted)
         report["public_road_steepest"] = max(lifted.values(), default=0.0)
+    # 2026-11-17 (#2122): the other mapped roads on ground steeper than the
+    # road cap — their cap rises with the ground, to the steep-ground cap
+    steep = steep_road_lifts(pm, law, steep_road_faces(pm, law, airport), targets)
+    if report is not None:
+        report["steep_road_lifted"] = len(steep)
+    if steep:
+        print(f"  [road_ramp] steep ground (2026-11-17): {len(steep)} road face(s) "
+              f"over the road cap take the {max(steep.values()):.0%} cap")
     # #2073: the page a deckless mapped bridge carries is not graded over
     # the span (``constraints/bridge_span_release``)
     from .bridge_span import bridge_span_faces
@@ -2378,5 +2392,6 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                        road_contact_edge=contact, road_route_merged=merged,
                        road_reach_seed=seed, preferred_z=keep,
                        road_between_levels=bl, road_terrace=terr,
-                       public_road_lifted=lifted, road_junction_road=junction_road,
+                       public_road_lifted=lifted, steep_road_lifted=steep,
+                       road_junction_road=junction_road,
                        bridge_span=bridge_span_faces(pm, law, airport))

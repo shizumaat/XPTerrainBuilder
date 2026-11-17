@@ -69,7 +69,7 @@ from ..geom.core_clamp import ENGINE_DIR, core_vector_utils
 from ..geom.coverage import coverage_polygon
 from ..law import Law
 from ..model.frame import rotated_rectangle
-from ..law.tables import road_family_roles, role_cap, senior_role
+from ..law.tables import road_family_roles, road_terrain_cap, role_cap, senior_role
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import PlanarMap
@@ -625,9 +625,11 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
         if _osm_levelled(w):
             # OWNER RULINGS 2026-10-22h: a PUBLIC road's in-band cap is the
             # core's own reading (``road_inside_cap``), so the patch and the
-            # core ribbon outside it stay one profile
+            # core ribbon outside it stay one profile; 2026-11-17: every
+            # other road's is the steep-ground cap (``road_terrain_cap``)
             cap_in = VECT.road_inside_cap(w.tags.get("highway"), cap_,
-                                          rp.cap_ceiling, rp.public_classes)
+                                          rp.cap_ceiling, rp.public_classes,
+                                          road_terrain_cap(law))
             ways.extend(clamp_way(
                 OSM, f"osm:{w.id}", w.points, sample, cap_in, rp.station_m,
                 inside, in_band=band_fn,

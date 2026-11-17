@@ -104,6 +104,12 @@ def assemble(rows: list[Row], counts: dict[str, int], walls: dict[str, float],
     rows, n_pub = public_road_release.terrain_release(rows, planar, law)
     walls[public_road_release.GEN] = time.perf_counter() - t0
     counts[public_road_release.GEN] = n_pub
+    # THE ROAD ON STEEP GROUND (owner RULINGS 2026-11-17, #2122): with the
+    # public road's — the other roads' rows rise to their ground's grade
+    t0 = time.perf_counter()
+    rows, n_steep = public_road_release.steep_release(rows, planar, law)
+    walls[public_road_release.STEEP_GEN] = time.perf_counter() - t0
+    counts[public_road_release.STEEP_GEN] = n_steep
     # THE PAGE A MAPPED BRIDGE CARRIES IS NOT GRADED OVER THE SPAN (#2073;
     # owner 2026-11-13T22:48Z): with the public road's, after every cap
     t0 = time.perf_counter()

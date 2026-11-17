@@ -627,6 +627,10 @@ class BuildingPad:
     #: ... and the pit's rim carries a vertex at least this often (the open
     #: side held flat along its length); ``0`` = the corners only
     split_level_rim_step_m: float = 0.0
+    #: ... and a surface car park within this of its upper-footed runs
+    #: stands at the upper floor (#1934 R6, RULINGS 2026-11-17h (5)); ``0``
+    #: disarms
+    split_level_forecourt_reach_m: float = 0.0
     #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
     #: ``airport/jetways.py``): ``None`` = no expansion
     jetway_root_reach_m: float | None = None

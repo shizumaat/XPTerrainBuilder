@@ -580,6 +580,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.slab_plates",
         "auto_patch_v2.airport.split_guard",
         "auto_patch_v2.airport.split_level",
+        "auto_patch_v2.airport.split_level_forecourt",
         "auto_patch_v2.airport.split_level_wings",
         "auto_patch_v2.airport.stack_walls",
         "auto_patch_v2.airport.sunk_frame",
@@ -2557,7 +2558,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
     airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
     airport.deck_roof
-    airport.split_level airport.split_level_wings
+    airport.split_level airport.split_level_forecourt airport.split_level_wings
     airport.ring_contact_batch
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
@@ -2744,7 +2745,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
     airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
     airport.deck_roof
-    airport.split_level airport.split_level_wings
+    airport.split_level airport.split_level_forecourt airport.split_level_wings
     airport.ring_contact_batch
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache

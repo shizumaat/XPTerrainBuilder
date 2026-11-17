@@ -832,6 +832,10 @@ class Basin:
     #: lon)``: the terrain outside them is cut down to the lower floor
     closed_sides_ll: tuple[tuple[tuple[float, float], ...], ...] = ()
     clearance_m: float | None = None
+    #: ... and its UPPER FORECOURT (#1934 R6, ``airport/split_level_forecourt``):
+    #: the outer rings (frame) of the car park in front of its upper walls,
+    #: void faces of ``wall_ref`` whose bare vertices stand at the upper floor
+    forecourt: tuple[tuple[XY, ...], ...] = ()
 
     def clearance(self, law_clearance_m: float) -> float:
         """The plate clearance this basin states (:attr:`clearance_m`, else

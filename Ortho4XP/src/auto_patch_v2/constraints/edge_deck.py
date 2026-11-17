@@ -281,7 +281,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
 
 
 def _bank_slope(law: Law, es) -> "float | None":
-    """``[design] bank_slope`` for a GENERATED deck's span, ``None`` (flush)
+    """``[channel] bank_slope`` for a GENERATED deck's span, ``None`` (flush)
     for a pack deck.  #2141 item 4 (owner sim read 2026-11-17: "little jags
     sticking up under the bridge preventing the cut from running smoothly
     under the deck"): a generated deck has no walls and stands on no ground
@@ -294,7 +294,9 @@ def _bank_slope(law: Law, es) -> "float | None":
     deck level), U -74 one +6.28 m, -141 one +6.25 m mid-bank."""
     if any(getattr(e.deck, "witness", "") != "generated" for e in es):
         return None
-    return float(law.tables.emit.design.bank_slope)
+    # ``planar/deck_generated.generated_bank_slope``: the bank under a
+    # generated deck is the channel's (§45 (5), 1:2), the run the cut made
+    return float(law.tables.structures.channel.bank_slope)
 
 
 def _bank_drop(es, p, slope: float) -> float:

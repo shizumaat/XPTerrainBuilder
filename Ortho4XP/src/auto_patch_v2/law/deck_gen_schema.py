@@ -122,6 +122,10 @@ class RoadGenLaw:
     pack_road_near_m: float = 5.0
     #: ... and this parallel (deg) already draws the bridge
     pack_road_angle_deg: float = 15.0
+    #: B1 (c) "the pack always wins" (``planar/road_bridge_pack``): a pack
+    #: placement's solid top this far or more over its ground (m) -- a
+    #: bridge, an overpass, a roof -- already draws the bridge
+    pack_top_min_m: float = 2.5
     #: B3: the span's page clip is the carriageway half width plus this (m)
     span_margin_m: float = 0.5
     #: B2: the road network definition written when the pack has none

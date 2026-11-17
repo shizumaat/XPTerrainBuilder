@@ -61,7 +61,8 @@ from .deck_route import carried_route
 from .structure_approach import carriageway_width_m, is_tunnel, standing_cover
 from .structure_underpass import underpass_bores
 
-__all__ = ["generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
+__all__ = ["generated_bank_slope",
+           "generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
            "carried_off", "covers_bore"]
 
 #: ``DeckBridge.witness`` of a generated deck
@@ -219,13 +220,27 @@ def _whole_cover(roads, P, max_cover: float, ways=()) -> tuple[list, list[str]]:
 
 def _bank_run_m(law) -> float:
     """The run of the bank under a generated deck: its floor's depth (the
-    slab plus ``[tunnel] clearance_m``, Q6) over ``emit.design.bank_slope``
-    -- the bank ``planar/structures`` cuts from each end line down to the
-    floor (``deck_bridge.deck_cut``), so the generator and the cut read one
+    slab plus ``[tunnel] clearance_m``, Q6) over the bank slope under a
+    generated deck (:func:`generated_bank_slope`) -- the bank
+    ``planar/structures`` cuts from each end line down to the floor
+    (``deck_bridge.deck_cut``), so the generator and the cut read one
     number."""
     g = law.tables.structures.deck_gen
     depth = float(g.thickness_m) + float(law.tables.structures.tunnel.clearance_m)
-    return depth / float(law.tables.emit.design.bank_slope)
+    return depth / generated_bank_slope(law)
+
+
+def generated_bank_slope(law) -> float:
+    """The bank under a GENERATED deck: ``[channel] bank_slope`` (§45 (5)
+    "Witness first, 1:2 default", owner RULINGS 2026-09-15i: the bank of a
+    road corridor under a stated crossing where no pack wall states its
+    shape).  The deck hides it; ``emit.design.bank_slope`` (1:3, a slope a
+    pilot reads as ground) is the OPEN ground's.  Owner 2026-11-17 18:30Z
+    (ESSA 86aefaf4 over the service road -141): "seems to be larger than it
+    needs to be" -- at 1:3 a 6 m floor ran 18 m of bank each side, the deck
+    over a 5 m service road 50 m long.  ``constraints/edge_deck`` reads the
+    same key (``constraints`` imports no ``planar``)."""
+    return float(law.tables.structures.channel.bank_slope)
 
 
 def _cut_reach(roads, law):

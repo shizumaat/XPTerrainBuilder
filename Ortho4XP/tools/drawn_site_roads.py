@@ -25,16 +25,15 @@ from __future__ import annotations
 import glob
 import math
 import os
-import re
 
 import numpy as np
+from auto_patch_v2.airport.dsf_segments import read_segments
 
 __all__ = ["STEP_M", "network_dsfs", "read_segments", "road_samples", "print_roads"]
 
 #: a road is sampled every this many metres along it
 STEP_M = 2.0
 _K_LAT = 111320.0
-_EXCL = re.compile(r"^PROPERTY\s+sim/exclude_net\s+([-\d.]+)/([-\d.]+)/([-\d.]+)/([-\d.]+)")
 
 
 def network_dsfs(custom_scenery: str, tile: str, packs=()) -> list[tuple[str, str]]:
@@ -54,38 +53,6 @@ def network_dsfs(custom_scenery: str, tile: str, packs=()) -> list[tuple[str, st
                                            f"{tile}.dsf"))):
         out.append((os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(g)))), g))
     return out
-
-
-def read_segments(text_path: str, box) -> tuple[list, list]:
-    """``(segments, exclusion boxes)`` of a DSFTool dump: each segment
-    ``(net, subtype, [(lon, lat, level), ...])`` with any point inside
-    ``box`` ``(w, s, e, n)``; the boxes ``(w, s, e, n)`` of its
-    ``sim/exclude_net`` rows."""
-    w, s, e, n = box
-    nets, segs, excl = [], [], []
-    cur = None
-    with open(text_path, encoding="utf-8", errors="replace") as fh:
-        for ln in fh:
-            if ln.startswith("NETWORK_DEF "):
-                nets.append(ln.split(None, 1)[1].strip())
-            elif ln.startswith("PROPERTY sim/exclude_net"):
-                m = _EXCL.match(ln)
-                if m:
-                    excl.append(tuple(float(v) for v in m.groups()))
-            elif ln.startswith("BEGIN_SEGMENT"):
-                t = ln.split()
-                cur = (int(t[1]), int(t[2]), [(float(t[4]), float(t[5]), float(t[6]))])
-            elif ln.startswith("SHAPE_POINT") and cur is not None:
-                t = ln.split()
-                cur[2].append((float(t[1]), float(t[2]), None))
-            elif ln.startswith("END_SEGMENT") and cur is not None:
-                t = ln.split()
-                cur[2].append((float(t[2]), float(t[3]), float(t[4])))
-                if any(w <= p[0] <= e and s <= p[1] <= n for p in cur[2]):
-                    net = nets[cur[0]] if cur[0] < len(nets) else "?"
-                    segs.append((net, cur[1], cur[2]))
-                cur = None
-    return segs, excl
 
 
 def _inside(lon: float, lat: float, boxes) -> bool:

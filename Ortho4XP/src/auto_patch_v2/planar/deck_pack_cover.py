@@ -54,13 +54,15 @@ from ..airport.object_cut import _face_normals_y
 __all__ = ["pack_decks_near", "pack_refusal", "faked_cuts"]
 
 _NONE = np.zeros(0, dtype=bool)
+_NONE_TRIS = np.zeros((0, 3), dtype=np.int64)
 
 
 @_dc.dataclass(frozen=True)
 class _PackDeck:
     """One pack placement that may stand on a generated deck: its id, its
     resource, ``kind`` ``"hard_deck"``, ``"cover"`` (its top faces),
-    ``"structure"`` (its deep vertices' hull) or ``"under"`` (the plan
+    ``"structure"`` (its deep vertices' hull), ``"over"`` (its elevated
+    tops, :func:`pack_decks_near`) or ``"under"`` (the plan
     hull of a placement drawn wholly under the terrain), its frame plan, its
     placement point (frame) and whether every solid face is drawn under
     the terrain (a faked cut when it is a structure)."""
@@ -86,18 +88,21 @@ def _placed(o, geom, law):
     return _fe.enter([geom], _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
 
 
-def _cover_plan(o, g, law, depth: float):
+def _cover_plan(o, g, law, depth: float, floor: "float | None" = None):
     """The frame plan of ``o``'s up-facing faces within ``depth`` of its
     ground (solid -- neither animated nor drawn under the terrain -- and
-    draped), or ``None``."""
+    draped), or ``None``.  With ``floor``: only its SOLID up-facing faces
+    standing at least ``floor`` over its ground (an elevated top: a deck,
+    an overpass, a roof -- never a draped face)."""
     ny_min = float(law.tables.structures.bridge.deck_plate_normal_y_min)
     v = g.vertices
     parts = [t for t in (_static_solid(g, g.animated, getattr(g, "under_terrain", _NONE)),
-                         g.draped) if t.shape[0]]
+                         g.draped if floor is None else _NONE_TRIS) if t.shape[0]]
     if not parts:
         return None
     tris = np.concatenate(parts)
-    up = (_face_normals_y(v, tris) >= ny_min) & (v[tris][:, :, 1].min(axis=1) >= -depth)
+    low = -depth if floor is None else float(floor)
+    up = (_face_normals_y(v, tris) >= ny_min) & (v[tris][:, :, 1].min(axis=1) >= low)
     if not up.any():
         return None
     polys = [p for p in shapely.polygons(v[tris[up]][:, :, [0, 2]])
@@ -119,9 +124,14 @@ def _structure_plan(o, g, law, depth: float):
     return _placed(o, hull, law) if hull.geom_type == "Polygon" else None
 
 
-def pack_decks_near(objects: _t.Sequence, cache, law, region) -> list[_PackDeck]:
+def pack_decks_near(objects: _t.Sequence, cache, law, region,
+                    over_m: "float | None" = None) -> list[_PackDeck]:
     """Every pack hard deck (a), top and structure (b) whose plan reaches
-    ``region`` (the union of the generated deck pieces, frame)."""
+    ``region`` (the union of the generated deck pieces, frame); with
+    ``over_m``, also each placement's ELEVATED top (kind ``"over"``: its
+    solid up-facing faces at least ``over_m`` over its ground, the
+    pack's own bridge or roof over a generated road bridge,
+    ``planar/road_bridge_pack``)."""
     if not objects or region is None or region.is_empty:
         return []
     depth = float(law.tables.structures.deck_gen.pack_structure_depth_m)
@@ -144,7 +154,11 @@ def pack_decks_near(objects: _t.Sequence, cache, law, region) -> list[_PackDeck]
             plan = _placed(o, hull.convex_hull, law)
             if plan is not None and not plan.is_empty and plan.intersects(region):
                 out.append(_PackDeck(str(o.id), str(o.path), "under", plan, tuple(o.xy), True))
-        for kind, read in (("cover", _cover_plan), ("structure", _structure_plan)):
+        reads = [("cover", _cover_plan), ("structure", _structure_plan)]
+        if over_m is not None:
+            reads.append(("over", lambda o_, g_, law_, d_: _cover_plan(o_, g_, law_, d_,
+                                                                       over_m)))
+        for kind, read in reads:
             plan = read(o, g, law, depth)
             if plan is not None and not plan.is_empty and plan.intersects(region):
                 out.append(_PackDeck(str(o.id), str(o.path), kind, plan,

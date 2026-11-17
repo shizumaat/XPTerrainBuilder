@@ -576,9 +576,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # the pavement sources -- read once, before the stage cache keys them
     from ..planar.road_bridge_gen import attach_road_bridges
     _rb_notes: list[str] = []
-    airport = attach_road_bridges(airport, law, _rb_notes)
+    airport = attach_road_bridges(airport, law, _rb_notes, pack_objects, ocache,
+                                  inputs.mod_cache_root)
     for _n in _rb_notes:
-        if "GENERATED" in _n:
+        if "GENERATED" in _n or "REFUSED" in _n:
             _say(f"[{icao}] {_n}", out)
     # THE STAGE CACHE (issue #843; ``pipeline/front_cache.py``): classify,
     # planar, flat_site, road_profile and the shapes are served from their

@@ -280,6 +280,17 @@ class ObjectGeometry(NamedTuple):
         )
 
 
+#: control bytes an exporter may leave glued to a number (KATL Orbx
+#: ``katl218_building_000.obj`` line 17: ``5.5898099\x01``); X-Plane's
+#: ``atof`` reads the number and ignores them
+_CONTROL = "".join(chr(c) for c in range(32))
+
+
+def _coord(token: str) -> float:
+    """One vertex coordinate, a glued control byte ignored."""
+    return float(token.strip(_CONTROL))
+
+
 def load_object_file(path: str) -> ObjectGeometry:
     """Parse an OBJ8 file.
 
@@ -310,7 +321,7 @@ def load_object_file(path: str) -> ObjectGeometry:
             keyword = tokens[0]
             if keyword == "VT":
                 vertices.append(
-                    (float(tokens[1]), float(tokens[2]), float(tokens[3]))
+                    (_coord(tokens[1]), _coord(tokens[2]), _coord(tokens[3]))
                 )
                 vertex_line_indices.append(line_index)
             elif keyword.startswith("IDX"):

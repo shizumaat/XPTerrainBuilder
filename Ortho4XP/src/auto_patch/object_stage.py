@@ -834,6 +834,7 @@ def _generated_in(patch_dir: str, icao: str) -> bool:
     """Did the airport's patch publish a generated deck or road bridge
     (spec 2123: the graded surface's ``generated``)?"""
     import json
+
     from auto_patch_v2.model.rebake import graded_surface_path
     try:
         with open(graded_surface_path(patch_dir, icao), encoding="utf-8") as fh:

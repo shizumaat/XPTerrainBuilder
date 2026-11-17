@@ -81,6 +81,10 @@ _STEP_M = 1.0
 #: the samples across (metres): the cover is a level, not a crest
 _SECTION_M = 10.0
 _ACROSS_M = 2.0
+#: the prefilter reads the plan box's crossing this many times coarser and
+#: keeps every box whose relief reaches HALF the mouth depth: a loose
+#: necessary condition, so no frame the full reading admits is lost
+_COARSE = 4
 #: the decks the witness refuses (``obj8.PlacedObject.deck_kind``)
 _DECK_KINDS = ("flag", "signature")
 
@@ -135,14 +139,16 @@ def _paved(airport):
     return unary_union(polys) if polys else Polygon()
 
 
-def _section_points(crossings: list, reach: float) -> tuple[np.ndarray, np.ndarray, int]:
+def _section_points(crossings: list, reach: float, coarse: int = 1
+                    ) -> tuple[np.ndarray, np.ndarray, int]:
     """``(xs, ys, m)``: the points along ``crossings`` (the bore axes inside
     a hull) every ``_STEP_M`` -- the first ``m`` -- then the points across
-    them within ``reach``, every ``_SECTION_M`` along."""
-    d = np.arange(-reach, reach + 1e-9, _ACROSS_M)
+    them within ``reach``, every ``_SECTION_M`` along; every spacing times
+    ``coarse`` (the prefilter's reading)."""
+    d = np.arange(-reach, reach + 1e-9, _ACROSS_M * coarse)
     along_x, along_y, across_x, across_y = [], [], [], []
     for seg in crossings:
-        n = max(2, int(np.ceil(seg.length / _STEP_M)) + 1)
+        n = max(2, int(np.ceil(seg.length / (_STEP_M * coarse))) + 1)
         pts = shapely.get_coordinates(shapely.line_interpolate_point(
             seg, np.linspace(0.0, seg.length, n)))
         xs, ys = pts[:, 0], pts[:, 1]
@@ -158,11 +164,11 @@ def _section_points(crossings: list, reach: float) -> tuple[np.ndarray, np.ndarr
     return np.concatenate(along_x + across_x), np.concatenate(along_y + across_y), m
 
 
-def _cut_levels(dem, groups: list, reach: float) -> list:
+def _cut_levels(dem, groups: list, reach: float, coarse: int = 1) -> list:
     """Per group of crossings, ``(floor, axis top, cover)`` -- the lowest
     and the highest DEM along them and the highest within ``reach`` across
     them -- or ``None``; ONE DEM call for every group."""
-    parts = [_section_points(segs, reach) for segs in groups]
+    parts = [_section_points(segs, reach, coarse) for segs in groups]
     if not parts:
         return []
     z = dem_z_many(dem, np.concatenate([p[0] for p in parts]),
@@ -226,20 +232,34 @@ def _roofed(o, g, genuine, segs, law) -> bool:
         2.0 * sum(s.intersection(roof).length for s in segs) >= total
 
 
-def _candidates(objects, cache, bores, depth_min: float, on_zero: float) -> list:
-    """``(object, genuine, geometry, crossed way ids, crossings)`` of every
-    placement the witness's tests (1), (2) and (6) admit."""
+def _near_cuts(objects, bores, dem, depth_min: float, reach: float) -> dict[int, list[int]]:
+    """``object index -> bore indices`` of every placement whose plan box
+    crosses a bore where the DEM reads a cut the mouth depth deep (the box's
+    crossing read leniently -- its lowest point against the highest ground,
+    a NECESSARY condition of test (3) on the hull inside it), before any of
+    its geometry is touched.  Decks (test 6) never enter."""
     boxes = [getattr(o, "plan_bbox", None) for o in objects]
     keep = [i for i, (o, b) in enumerate(zip(objects, boxes, strict=True))
             if b is not None and o.resolved is not None and getattr(o, "hard_deck", None) is None
             and getattr(o, "deck_kind", "") not in _DECK_KINDS]
     if not keep:
-        return []
+        return {}
     tree = STRtree([ln for _i, ln in bores])
     pairs = tree.query(np.array([boxes[i] for i in keep], dtype=object), predicate="intersects")
     near: dict[int, list[int]] = {}
     for a, j in zip(pairs[0].tolist(), pairs[1].tolist(), strict=True):
         near.setdefault(keep[a], []).append(j)
+    idx = sorted(near)
+    levels = _cut_levels(dem, [_crossings(boxes[i], [bores[j][1] for j in near[i]])
+                               for i in idx], reach, _COARSE)
+    return {i: near[i] for i, lv in zip(idx, levels, strict=True)
+            if lv is not None and lv[2] - lv[0] >= 0.5 * depth_min}
+
+
+def _candidates(objects, cache, bores, near, depth_min: float, on_zero: float) -> list:
+    """``(object, genuine, geometry, crossed way ids, crossings)`` of every
+    placement of ``near`` (:func:`_near_cuts`) the witness's tests (1) and
+    (2) admit."""
     out, hulls = [], {}
     for i in sorted(near):
         o = objects[i]
@@ -274,8 +294,11 @@ def cut_portals(airport, objects: _t.Sequence[_obj8.PlacedObject],
         return ()
     tn = law.tables.structures.tunnel
     depth_min = float(tn.mouth_depth_m)
-    cands = _candidates(objects, cache, bores, depth_min, float(tn.object.shell_floor_min_m))
-    levels = _cut_levels(dem, [c[4] for c in cands], float(tn.covered_rim_search_m))
+    reach = float(tn.covered_rim_search_m)
+    near = _near_cuts(objects, bores, dem, depth_min, reach)
+    cands = _candidates(objects, cache, bores, near, depth_min,
+                        float(tn.object.shell_floor_min_m))
+    levels = _cut_levels(dem, [c[4] for c in cands], reach)
     paved = None
     out = []
     for (o, genuine, g, ids, segs), lv in zip(cands, levels, strict=True):

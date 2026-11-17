@@ -37,8 +37,10 @@ def test_an_apron_edge_still_flips_it():
 
 
 def test_without_mapped_car_park_cover_a_taxiway_edge_still_flips_it():
+    # ...to the HOST's class (#2134, owner Q2 2026-11-17T14:34Z): beside a
+    # taxiway it becomes taxi family, never apron
     assert _flip("junction", {"source_class": "lot",
-                              "source_parking_cover": COVER - 0.01}) == (1, "apron")
+                              "source_parking_cover": COVER - 0.01}) == (1, "junction")
     # not a lot by its source (an open page, a road strip): unchanged
     assert _flip("junction", {"source_class": "open",
-                              "source_parking_cover": 1.0}) == (1, "apron")
+                              "source_parking_cover": 1.0}) == (1, "junction")

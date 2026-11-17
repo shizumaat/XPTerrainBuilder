@@ -53,7 +53,7 @@ from shapely.strtree import STRtree
 
 from ..airport.deck_signature import is_bridge_way
 from ..model.airport import Airport
-from .evidence import Evidence, apron_named, polygon_parts, taxi_name_match
+from .evidence import Evidence, apron_named, is_library_path, polygon_parts, taxi_name_match
 from .rules import Rules
 
 __all__ = ["SourceRecord", "classify_sources", "apron_union", "network_ways",
@@ -101,6 +101,7 @@ class SourceRecord:
     network_through_m: float = 0.0  # NETWORK road running through it (R1 evidence, every page)
     network_strip: bool = False     # ...re-kinded a road strip by it: touches a pad (R1, §3)
     rail_m: float = 0.0     # #1548: at-grade mapped railway length inside
+    path_taxi_name: str = ""  # #2134 Q5: a library PATH's taxiway word (the lowest rung)
 
     def as_evidence(self) -> dict[str, float | str]:
         out: dict[str, float | str] = {
@@ -112,6 +113,8 @@ class SourceRecord:
             "source_parking_cover": float(self.parking_cover)}
         if self.taxi_name:
             out["source_taxi_name"] = self.taxi_name
+        if self.path_taxi_name:
+            out["source_path_taxi_name"] = self.path_taxi_name
         return out
 
 
@@ -369,6 +372,12 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
     reach = _road_reach(poly, road_tree, roads, rules.cells.on_tol_m)
     lot = rules.lot
     named = taxi_name_match(description, rules)
+    # owner Q5 (2026-11-17T14:38Z): a LIBRARY PATH naming a taxiway is the
+    # lowest rung — recorded, read only where nothing else decides
+    # (``apron_gate``), never the 04z-1 author's word
+    path_name = named[0] if named and is_library_path(description) else ""
+    if path_name:
+        named = None
     tok, desig = named if named else ("", "")
     no_taxi = taxi_m < rules.cells.min_shared_m and named is None
     carries = road_m >= lot.min_road_fraction * half_perim
@@ -457,7 +466,7 @@ def _record(sid: str, description: str, poly: Polygon, road_tree, roads,
                                   f"no startup, width {width:.1f} m")
     return SourceRecord(sid, description, poly.area, width, road_m, osm_m, through,
                         dead_ends, pieces, reach, aisle_m, taxi_m, starts, pcov, acov,
-                        cls, reason, tok, desig)
+                        cls, reason, tok, desig, path_taxi_name=path_name)
 
 
 def _road_reach(poly: Polygon, tree: STRtree | None, lines, tol: float) -> int:

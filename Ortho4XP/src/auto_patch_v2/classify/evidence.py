@@ -30,8 +30,8 @@ from .wall_clip import clip_at_walls, cutting_walls
 from ..geom.parts import line_parts
 
 __all__ = ["Chain", "Evidence", "build_evidence", "polygon_from",
-           "polygon_parts", "chains_from_edges", "apron_named", "taxi_name_match",
-           "parking_polys"]
+           "polygon_parts", "chains_from_edges", "apron_named", "is_library_path",
+           "taxi_name_match", "parking_polys"]
 
 _LETTERS = "ABCDEF"
 
@@ -119,6 +119,15 @@ def apron_named(description: str, rules: Rules) -> bool:
     return any(t in d for t in rules.lot.apron_name_tokens)
 
 
+def is_library_path(description: str) -> bool:
+    """The description is a pack LIBRARY PATH (a DSF ``.pol`` page's or a
+    draped object's name), not an author's apt.dat 110 description.  Its
+    words weigh least (owner Q5 2026-11-17T14:38Z: "would have little
+    weight, but in the absence of other evidence could be useful")."""
+    d = description.strip().lower()
+    return "/" in d or "\\" in d or d.endswith((".pol", ".obj", ".agp", ".fac"))
+
+
 def taxi_name_match(description: str, rules: Rules) -> tuple[str, str] | None:
     """THE TAXI-NAME RULE (RULINGS 2026-09-04z(1), ``rules.taxi_name``):
     ``(token, designator)`` when the apt.dat 110 description names a
@@ -131,7 +140,9 @@ def taxi_name_match(description: str, rules: Rules) -> tuple[str, str] | None:
     carry it).  The designator is the word after the token when it is
     at most ``designator_max_len`` characters, else empty."""
     tn = rules.taxi_name
-    d = " ".join(description.lower().split())
+    # a library path's separators are word breaks (#2134: ``_`` is a word
+    # character, so ``\btaxiway\b`` never matched ``KBNA_Taxiway-TJL.pol``)
+    d = " ".join(re.sub(r"[_/\\.]+", " ", description.lower()).split())
     if not d or apron_named(d, rules):
         return None
     for u in tn.unauthored_names:

@@ -147,7 +147,7 @@ def _portal(top=20.0, bottom=0.0):
                      bottom, top + 0.5, (-1,), 280.0, 300.0)
 
 
-def _mouths(portals):
+def _mouths(portals, rep_out=None):
     ring = ((-500.0, -25.0), (500.0, -25.0), (500.0, 25.0), (-500.0, 25.0))
     cls = Classification((Cell(1, "runway", "10/28", ring, (), 4, "E", "airside", "runway",
                                {}),), (), {}, ())
@@ -156,6 +156,8 @@ def _mouths(portals):
     xs = np.array([0.0])
     _z, rep = covered_ground(ap, cls, Law.for_airport("ZZZZ"), xs, xs, np.array([280.0]),
                              portals=portals)
+    if rep_out is not None:
+        rep_out.append(rep)
     return rep.mouth_walls
 
 
@@ -168,6 +170,19 @@ def test_a_portal_walls_its_mouth_with_the_cuts_depth_capped_by_its_solid():
     assert max(y for _x, y in ring) > 25.0          # the open cut beyond the mouth
     _r, depth, _p = _mouths((_portal(top=12.0),))[0]
     assert depth == pytest.approx(12.0)             # capped by the portal's own solid
+
+
+def test_a_walled_mouth_is_published_as_the_portals_claimed_mouth():
+    """#2120 R2 item 1: the mouth a portal walls is CLAIMED -- the bore's
+    ways and the point its axis meets the walled edge (y = +25)."""
+    reps: list = []
+    _mouths((_portal(),), reps)
+    (ways, (x, y), portal), = reps[0].portal_mouths
+    assert ways == (-1,) and portal == "dsf:obj1"
+    assert x == pytest.approx(0.0, abs=0.01) and y == pytest.approx(25.0, abs=1.0)
+    reps.clear()
+    _mouths((), reps)
+    assert reps[0].portal_mouths == []
 
 
 def test_the_seat_stands_the_top_on_the_cover_beside_the_cut():

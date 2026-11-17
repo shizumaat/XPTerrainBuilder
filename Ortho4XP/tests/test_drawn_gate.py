@@ -449,3 +449,12 @@ def test_a_road_ending_at_a_mouth_and_a_tunnel_at_a_floor_ring_are_faces(monkeyp
                         lambda root, la, lo, r, b=None: [(-3, "primary", short, False)])
     assert DR.road_layer([("s", lat0, lon0, 50.0)], cut, "/nowhere", 0.5,
                          floors=floors)["verdict"] == "FAIL"
+
+
+def test_a_cut_portal_mouth_is_a_claimed_mouth():
+    """#2120 R2: a mouth a portal in a cut walls (sidecar
+    ``cut_portal_mouths``) is claimed like a pinned portal's mouth."""
+    import drawn_roads as DR
+    side = {"cut_portal_mouths": [{"ways": [-2188, -10693], "mouth_ll": [33.62, -84.43],
+                                   "portal": "dsf:obj1"}]}
+    assert DR.claimed_mouths(side) == [(frozenset({-2188, -10693}), 33.62, -84.43)]

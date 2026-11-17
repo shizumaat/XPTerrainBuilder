@@ -193,7 +193,10 @@ def _whole_cover(roads, P, max_cover: float, ways=()) -> tuple[list, list[str]]:
         chain = _road_chain(r.parent, lines, tree, max_cover)
         x = chain.intersection(P)
         mid = r.line.interpolate(0.5, normalized=True)
-        parts = [q for q in getattr(x, "geoms", [x]) if q.geom_type == "LineString"]
+        # an EMPTY LineString is a LineString too (the chain missing the
+        # pavement: KPHX's capture raised IndexError on its coords)
+        parts = [q for q in getattr(x, "geoms", [x])
+                 if q.geom_type == "LineString" and not q.is_empty]
         best = min(parts, key=lambda q: q.distance(mid), default=None)
         if best is None or best.distance(mid) > 1.0:
             out.append(r)

@@ -163,3 +163,13 @@ def test_skinned_slab_tiles_in_metres(tmp_path):
     film = overlay_obj8_text(lambda x, z: 0.0, texture="r.dds",
                              sheets=[DeckSheet(ring, lambda x, z: (x / 30.0, -z / 30.0), 0.01)])
     assert "ATTR_poly_os 2" in film and "ATTR_hard_deck" not in film
+
+
+def test_whole_cover_with_no_pavement_over_the_chain():
+    """Round-1 defect (KPHX capture b2lvl): a chain missing the pavement gave
+    an EMPTY LineString part and ``coords[0]`` raised IndexError."""
+    parent = LineString([(0.0, 0.0), (50.0, 0.0)])
+    road = _road([(10.0, 0.0), (20.0, 0.0)], parent=parent)
+    way = types.SimpleNamespace(points=[(0.0, 0.0), (50.0, 0.0)])
+    out, notes = dg._whole_cover([road], box(500.0, 500.0, 600.0, 600.0), 100.0, [way])
+    assert out == [road] and notes == []

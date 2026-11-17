@@ -95,11 +95,6 @@ from .strips import end_band_vertices, runway_groups
 __all__ = ["zone_bands", "strip_transverse"]
 
 GEN = "zones"
-#: THE BAND'S CEILING OVER A ROAD IN ITS OWN ZONE-2 CUT (#2121; owner RULINGS
-#: 2026-10-19a, 2026-10-20c (39)): HARD and one-way (``[design]
-#: hard_rulings`` / ``one_way_rulings``), its head this string to the ``(``
-ROAD_CUT_CEILING = ("zones.adjacent_ground road cut ceiling "
-                    "(2026-10-19a; 2026-10-20c (39); #2121)")
 
 #: an APRON edge's family in the reference set (:func:`_pavement_edges`):
 #: a lip reference only — it states zone 1 and no band
@@ -602,11 +597,6 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # level beneath the band's grade ("typically they are cut below") and
     # the band leads only where the road would stand above it.
     kerb = planar.band_kerb_vertices(airside_stage_roles(law))
-    # A ROAD IN ITS OWN CUT THROUGH ZONE 2 (#2121): its own-ground target
-    # reaches it (``airport/road_ramp._owned``), so the band's ceiling over
-    # it is HARD (``[design] hard_rulings``) — the road follows its ground
-    # at or below the band's grade and never contests the band above it
-    cut = kerb - planar.band_kerb_vertices(airside_stage_roles(law), cut=False)
     # THE SEAM BESIDE A ROAD (owner Q53 (1), 2026-10-20): where a runway
     # band and a taxi band meet beside a road's cut, the taxi band's lift
     # (its floor) yields to the ground; its ceiling and the runway's band
@@ -617,8 +607,7 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         cap_only = v in kerb
         if (v in own_law and not cap_only) or v in wall_vertices:
             continue
-        src = Source(GEN, ROAD_CUT_CEILING if v in cut else "zones.adjacent_ground (2026-08-01)",
-                     (f"vertex:{v}",))
+        src = Source(GEN, "zones.adjacent_ground (2026-08-01)", (f"vertex:{v}",))
         found = _found(v, classes)
         if not found:
             continue

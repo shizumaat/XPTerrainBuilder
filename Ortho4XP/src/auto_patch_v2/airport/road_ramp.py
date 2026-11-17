@@ -146,11 +146,14 @@ def deck_refs(pm: PlanarMap) -> frozenset[str]:
     return frozenset(d.ref for tn in pm.structures for d in tn.decks)
 
 
-def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str]:
+def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law,
+           own_cut: bool = False) -> dict[int, str]:
     """Vertex -> its senior role, for every vertex a road face OWNS (the
     ``road_profile.road_family_vertices`` rule, scoped to the road family:
     a vertex shared with an apron or taxiway is the AIRSIDE surface's and
-    is a CONTACT, not a road vertex)."""
+    is a CONTACT, not a road vertex).  ``own_cut``: a ribbon vertex standing
+    in a road's own zone-2 cut is owned too (the ramp TARGETS read it,
+    #2121); the terrace and the between-levels road read it as before."""
     decks = deck_refs(pm)
     out: dict[int, str] = {}
     on_deck: set[int] = set()
@@ -158,11 +161,12 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str
     # the BAND's (29r: the band leads) — no ramp target, no ceiling on it.
     # A ROAD IN ITS OWN CUT THROUGH ZONE 2 KEEPS ITS TARGET (#2121; owner
     # RULINGS 2026-10-20c (39): it follows its own ground): the band shares
-    # no vertex with it and caps it from above only (``zones.zone_bands``);
-    # untargeted, the objective alone held it — MEASURED KLAX road beside
-    # 33.94757, -118.39978, 0.89 m under its DEM with no row binding it
+    # no vertex with it and caps it from above only (``zones.zone_bands``,
+    # ``constraints/cut_kerb``); untargeted, the objective alone held it —
+    # MEASURED KLAX road beside 33.94757, -118.39978, 0.89 m under its DEM
+    # with no row binding it
     from ..law.tables import airside_stage_roles as _asr
-    kerb = pm.band_kerb_vertices(_asr(law), cut=False)   # never a pavement rim (#100 r4)
+    kerb = pm.band_kerb_vertices(_asr(law), cut=not own_cut)   # never a pavement rim (#100 r4)
     for fid, f in pm.faces.items():
         if f.role not in roads:
             continue
@@ -865,7 +869,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     vertex itself is held at the top by ``constraints/deck_stack``).
     """
     roads = _road_roles(law)
-    owned = _owned(pm, roads, law)
+    owned = _owned(pm, roads, law, own_cut=True)
     mouths = _contacts(pm, roads, law)
     mouths = {v: z for v, z in mouths.items() if v not in owned}
     # RULINGS 2026-10-20d (round 3 D3): a mouth on a LANDING is at its highest

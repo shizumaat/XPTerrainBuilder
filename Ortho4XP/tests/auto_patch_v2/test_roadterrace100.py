@@ -377,7 +377,6 @@ def test_a_ribbon_kerb_in_a_band_is_capped_by_the_band_never_lifted(law):
     the target that pulled KLAX's road 3.85 m up toward the runway end.
     Every AIRSIDE value equals the ribbon-free airport's."""
     from auto_patch_v2.constraints import generate
-    from auto_patch_v2.constraints.zones import ROAD_CUT_CEILING
     from auto_patch_v2.law.tables import airside_stage_roles
     from auto_patch_v2.solve.design_roles import airside_stage_vertices
     a1 = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_DipDem())
@@ -388,7 +387,7 @@ def test_a_ribbon_kerb_in_a_band_is_capped_by_the_band_never_lifted(law):
     assert kerb
     cs, _c, _w = generate(pm1, law, a1)
     zone = [r for r in cs.linears if r.source.generator == "zones"
-            and r.source.ruling.startswith(("zones.adjacent_ground (", ROAD_CUT_CEILING))
+            and r.source.ruling.startswith("zones.adjacent_ground (")
             and r.follows in kerb]
     assert {r.follows for r in zone} == kerb
     assert all(r.lo is None and r.hi is not None for r in zone)

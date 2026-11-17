@@ -61,11 +61,21 @@ def _samples(pm, z, region) -> _t.Iterator[tuple[float, float, float, str]]:
 
 
 def _end_level(pm, z, deck, end: str) -> "float | None":
+    """The end line's solved seat level: its anchor's stations, else the
+    map's vertices within :data:`INSET_M` of the seat line (a generated
+    deck's end lines carry no anchor)."""
     import numpy as np
+    from shapely.geometry import LineString, Point
     for x in getattr(pm, "deck_anchors", ()) or ():
         if x.object_id == deck.object_id and x.end == end and x.stations:
             return float(np.median([z[v] for v in x.stations]))
-    return None
+    seats = deck.seats_a if end == "a" else deck.seats_b
+    if len(seats) < 2:
+        return None
+    line = LineString(seats)
+    on = [float(z[v]) for v, vx in pm.vertices.items()
+          if line.distance(Point(vx.xy)) <= INSET_M]
+    return float(np.median(on)) if on else None
 
 
 def deck_cover(pm, z, deck, slope: float, tol: float) -> dict:

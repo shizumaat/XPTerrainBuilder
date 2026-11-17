@@ -23,12 +23,13 @@ is GRADE-SEPARATED where a witness says one passes over the other:
 
 EACH SIDE is the road faces near the crossing that are that road's: a
 mapped way's ribbon (and a mapped bridge's deck) by its ref,
-``<class>:<way>`` (``model/deck_ends.way_of_ref``); any other road face (an
-apt.dat route corridor, a pack road page) where it runs ALONG the
-centreline (three quarters of the face within its carriageway half width
-plus a lane of the line), so a face the other road merely crosses is not
-its.  Every other crossing is at grade and joined as before.  Nothing here
-names an airport, a pack or a resource.
+``<feed>:<way>`` (``model/deck_ends.way_of_ref``; two feeds reuse way ids);
+any other road face (an apt.dat route corridor, a pack road page) where it
+runs ALONG the centreline (three quarters of the face within its
+carriageway half width plus a lane of the line) and not along the other's
+too, so a face the other road merely crosses, or a page standing at the
+crossing along both, is not its.  Every other crossing is at grade and
+joined as before.  Nothing here names an airport, a pack or a resource.
 """
 from __future__ import annotations
 
@@ -92,16 +93,19 @@ def _faces(pm: PlanarMap, law: Law) -> list[tuple[int, Polygon]]:
     return out
 
 
-def _lines(pm: PlanarMap, airport, ftree: STRtree) -> list[tuple[str, LineString, dict]]:
-    """``(road key, centreline, tags)``: the mapped highway ways over a road
-    face, and the map's road centreline breaklines merged by ref (no tags)."""
+def _lines(pm: PlanarMap, airport, ftree: STRtree) -> list[tuple[str, LineString, dict, str]]:
+    """``(road name, centreline, tags, feed-qualified name)``: the mapped
+    highway ways over a road face (named ``osm:<way>`` as the road profile
+    names them, qualified ``<feed>:<way>`` as their ribbons are: two feeds
+    reuse way ids), and the map's road centreline breaklines merged by ref
+    (no tags)."""
     out = []
     for w in getattr(airport, "osm_ways", ()) or ():
         if len(w.points) < 2 or not (w.tags or {}).get("highway"):
             continue
         ln = LineString(w.points)
         if len(ftree.query(ln, predicate="intersects")):
-            out.append((f"osm:{w.id}", ln, dict(w.tags)))
+            out.append((f"osm:{w.id}", ln, dict(w.tags), f"{w.kind}:{w.id}"))
     parts: dict[str, list] = {}
     for b in pm.breaklines.values():
         if b.kind == "road_centerline":
@@ -110,7 +114,7 @@ def _lines(pm: PlanarMap, airport, ftree: STRtree) -> list[tuple[str, LineString
                 parts.setdefault(road_key(b.ref), []).append(LineString(pts))
     for k, ls in sorted(parts.items()):
         m = linemerge(ls) if len(ls) > 1 else ls[0]
-        out.extend((k, g, {}) for g in getattr(m, "geoms", [m]) if g.length > 0)
+        out.extend((k, g, {}, k) for g in getattr(m, "geoms", [m]) if g.length > 0)
     return out
 
 
@@ -165,28 +169,42 @@ def _half_width(tags, law: Law) -> float:
                                 tn.default_lanes)
 
 
-def _ref_key(ref: str) -> "str | None":
-    """The mapped way a face's ref names (``osm:<way>``), else ``None``."""
+def _ref_key(ref: str) -> "tuple[str, int] | None":
+    """``(feed, way)`` a mapped ribbon's (or a mapped bridge's deck) ref
+    names, else ``None``."""
     base = str(ref).split("#", 1)[0]
     w = way_of_ref(base) if ":" in base else None
-    return None if w is None else f"osm:{w}"
+    return None if w is None else (base.rsplit(":", 1)[0], int(w))
 
 
-def _side(pm: PlanarMap, faces, ftree: STRtree, key: str, line: LineString, p: Point,
-          half: float, reach: float) -> frozenset[int]:
-    """The vertices of road ``key``'s faces within ``reach`` of ``p``
-    (module doc, EACH SIDE)."""
+def _is_named(named: "tuple[str, int]", qual: str) -> bool:
+    feed, way = qual.rsplit(":", 1) if ":" in qual else (qual, "")
+    return str(named[1]) == way and named[0] in (feed, "bridge_deck")
+
+
+def _side(pm: PlanarMap, faces, ftree: STRtree, qual: str, line: LineString, p: Point,
+          half: float, reach: float) -> tuple[set[int], set[int]]:
+    """``(the faces within reach of p the road's ref names, the unnamed
+    road faces running along its line there)`` (module doc, EACH SIDE)."""
     band = line.buffer(half)
-    out: set[int] = set()
+    named_f: set[int] = set()
+    along: set[int] = set()
     for i in ftree.query(p.buffer(reach), predicate="intersects"):
         fid, poly = faces[int(i)]
+        named = _ref_key(pm.faces[fid].ref)
+        if named is not None:
+            if _is_named(named, qual):
+                named_f.add(fid)
+        elif (poly.area > 0.0 and poly.intersects(line)
+              and poly.intersection(band).area >= _ALONG_SHARE * poly.area):
+            along.add(fid)
+    return named_f, along
+
+
+def _vertices(pm: PlanarMap, fids: _t.Iterable[int]) -> frozenset[int]:
+    out: set[int] = set()
+    for fid in fids:
         f = pm.faces[fid]
-        named = _ref_key(f.ref)
-        if named is not None and named != key:
-            continue
-        if named is None and (not poly.intersects(line) or poly.area <= 0.0
-                              or poly.intersection(band).area < _ALONG_SHARE * poly.area):
-            continue
         for cyc in (f.ring, *f.holes):
             out.update(pm.ring_vertices(cyc))
     return frozenset(out)
@@ -227,12 +245,12 @@ def road_crossings(pm: PlanarMap, airport, law: Law
     mapped = [(w, LineString(w.points)) for w in getattr(airport, "osm_ways", ()) or ()
               if len(w.points) >= 2 and (w.tags or {}).get("highway")
               and _level(w.tags or {}, law) != 0]
-    ltree = STRtree([ln for _k, ln, _t in lines])
+    ltree = STRtree([ln[1] for ln in lines])
     found: dict[tuple[str, str], RoadCrossing] = {}
     for i, a in enumerate(lines):
         for j in ltree.query(a[1], predicate="intersects"):
             b = lines[int(j)]
-            if int(j) <= i or a[0] == b[0] or (a[0], b[0]) in found:
+            if int(j) <= i or a[3] == b[3] or (a[3], b[3]) in found:
                 continue
             x = a[1].intersection(b[1])
             for p in [g for g in getattr(x, "geoms", [x]) if g.geom_type == "Point"]:
@@ -243,10 +261,13 @@ def road_crossings(pm: PlanarMap, airport, law: Law
                     continue
                 ha, hb = _half_width(a[2], law), _half_width(b[2], law)
                 reach = ha + hb + 2.0 * lane
-                sa = _side(pm, faces, ftree, a[0], a[1], p, ha + lane, reach)
-                sb = _side(pm, faces, ftree, b[0], b[1], p, hb + lane, reach)
+                na, la = _side(pm, faces, ftree, a[3], a[1], p, ha + lane, reach)
+                nb, lb = _side(pm, faces, ftree, b[3], b[1], p, hb + lane, reach)
+                # an unnamed face along BOTH lines is neither road's (a pack
+                # page at the crossing): it stays joined as today
+                sa, sb = _vertices(pm, na | (la - lb)), _vertices(pm, nb | (lb - la))
                 if sa and sb:
-                    found[(a[0], b[0])] = RoadCrossing(
+                    found[(a[3], b[3])] = RoadCrossing(
                         a[0], b[0], (round(p.x, 3), round(p.y, 3)), why, sa, sb)
                     break
     out = tuple(found.values())

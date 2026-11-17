@@ -26,15 +26,10 @@ from ..geom import exact
 from ..law import Law
 from ..law.tables import role_cap
 from ..model.airport import Airport
+from ..model.grade_separation import road_key
 from ..model.planar import OSM_RIBBON_FEEDS, PlanarMap, is_osm_ribbon_ref
 
 __all__ = ["public_road_faces", "public_road_lifts", "public_routes"]
-
-
-def _way_key(ref: str) -> str:
-    """``small_roads:-1190#2`` -> ``small_roads:-1190`` (the mint's own
-    spelling, ``classify/ribbon_mint._mint_spans``)."""
-    return str(ref).split("#", 1)[0]
 
 
 def public_road_faces(pm: PlanarMap, law: Law, airport: Airport
@@ -52,9 +47,9 @@ def public_road_faces(pm: PlanarMap, law: Law, airport: Airport
             cls[f"{feed}:{w.id}"] = str(hw)
     from ..law.tables import family
     roads = frozenset(family(law, "road_cross_section").roles)
-    return {fid: cls[_way_key(f.ref)] for fid, f in pm.faces.items()
+    return {fid: cls[road_key(f.ref)] for fid, f in pm.faces.items()
             if f.role in roads and is_osm_ribbon_ref(f.ref)
-            and _way_key(f.ref) in cls}
+            and road_key(f.ref) in cls}
 
 
 def public_road_lifts(pm: PlanarMap, law: Law, faces: _t.Iterable[int],

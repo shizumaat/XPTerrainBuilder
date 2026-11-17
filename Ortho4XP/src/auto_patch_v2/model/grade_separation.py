@@ -47,8 +47,10 @@ class RoadCrossing:
 
 
 def road_key(ref: str) -> str:
-    """The centreline a profile way stands on: its ref less the breakline
-    suffix (``route<k>#<id>`` -> ``route<k>``; ``osm:<way>`` stays)."""
+    """A ref less its piece suffix: the centreline a profile way stands on
+    (``route<k>#<id>`` -> ``route<k>``; ``osm:<way>`` stays), the way a
+    ribbon face was minted from (``small_roads:-1190#2`` ->
+    ``small_roads:-1190``, ``classify/ribbon_mint._mint_spans``)."""
     return str(ref).split("#", 1)[0]
 
 

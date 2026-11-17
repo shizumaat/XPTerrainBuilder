@@ -425,8 +425,8 @@ def _in_cuts(pm: PlanarMap, vs: _t.Iterable[int]) -> frozenset[int]:
     if not rings:
         return frozenset()
     from shapely.geometry import Point, Polygon
-    from shapely.prepared import prep
     from shapely.ops import unary_union
+    from shapely.prepared import prep
     c = prep(unary_union([Polygon(e, h) for e, h in rings]))
     return frozenset(v for v in vs if c.covers(Point(pm.vertices[v].xy)))
 

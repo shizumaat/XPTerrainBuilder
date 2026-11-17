@@ -250,9 +250,12 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         if v in air:
             rows.append(_from_zero(v, top_of, top_of.get(a), None, flush, under))
             continue
-        # the bank is the ring's, inside its edge: the bridge's own ground
-        # beyond it and on it (the open stretch's rim) keeps the seat's level
-        drop = _bank_drop(es, p, bank) if bank is not None and ring_in.contains(p) else 0.0
+        # the bank is the ring's own ground, inside its edge: the bridge's
+        # ground beyond it and on it (the open stretch's rim) and a vertex of
+        # any other cell -- a building pad under the ring (KJFK building39:
+        # its edge pulled 2 m down with the bank) -- keep the seat's level
+        drop = _bank_drop(es, p, bank) if bank is not None and ring_in.contains(p) \
+            and _bridge_ground(planar, vx) else 0.0
         rows.append(Linear(((v, 1.0), (a, -1.0)), None, -drop, src))
         rows.append(Linear(((v, -1.0), (a, 1.0)), None, drop, src))
     return rows

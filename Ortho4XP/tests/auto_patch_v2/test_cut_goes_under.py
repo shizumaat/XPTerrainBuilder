@@ -13,7 +13,6 @@ import dataclasses as dc
 import types
 
 import pytest
-
 from auto_patch_v2.constraints.deck_floor_follow import floor_follow_rewrite
 from auto_patch_v2.constraints.edge_floor import DECK_FLOOR
 from auto_patch_v2.constraints.road_bridge_ceiling import road_bridge_ceiling_rows
@@ -141,9 +140,8 @@ def test_the_bank_blends_out_past_the_run_on():
     it".  Past the run-on the ground stands on the bank's face carried on
     (``edge_deck._blend_drop``): continuous at the run-on's edge, rising at
     the bank's slope, daylighting into the ground beside."""
-    from shapely.geometry import Point, box
-
     from auto_patch_v2.constraints.edge_deck import _bank_drop, _blend_drop
+    from shapely.geometry import Point, box
     # a deck 20 m across a road along y, end lines (seats) along x = 0 and x = 20
     ends = [types.SimpleNamespace(line=[(0.0, -10.0), (0.0, 10.0)], depth=6.0),
             types.SimpleNamespace(line=[(20.0, -10.0), (20.0, 10.0)], depth=6.0)]

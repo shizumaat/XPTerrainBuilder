@@ -69,6 +69,7 @@ from shapely.ops import unary_union
 from ..geom.foot_planes import PLANE_SHARE
 from . import obj8 as _obj8
 from .object_cut import _face_normals_y
+from .split_level_wings import upper_wings
 
 __all__ = ["SplitLevel", "corner_cut", "read_split_levels", "run_faces", "take_remainder"]
 
@@ -564,7 +565,9 @@ def _level_plans(plan: Polygon, levels: _t.Sequence[float], runs: _t.Sequence[tu
     runs of different levels overlap, the overlap is cut by the bisector
     through their common vertex (:func:`corner_cut`); any other overlap
     goes to the lower level (ground under the building may be too low --
-    hidden in its walls -- never too high); (c) the UNWITNESSED REMAINDER
+    hidden in its walls -- never too high); (b) THE UPPER WINGS -- the part
+    of the plan an arc of upper walls holds between itself and its chord
+    (``airport/split_level_wings``, #1934 R5); (c) the UNWITNESSED REMAINDER
     -- open downward, it takes the LOWEST level it shares ``probe`` of
     boundary with, else the level it shares most with.  FLOORS ARE NO
     WITNESS OF GROUND (A2 (1)): an upper floor over lower ground is a deck.
@@ -581,6 +584,12 @@ def _level_plans(plan: Polygon, levels: _t.Sequence[float], runs: _t.Sequence[tu
             g = unary_union(gs).buffer(0).intersection(plan).difference(taken).buffer(0)
             out[k] = unary_union([out[k], g]).buffer(0)
             taken = unary_union([taken, g])
+    # (b) THE UPPER WINGS (#1934 R5, ``airport/split_level_wings``): the
+    # part of the plan an upper arc of walls holds is that level's
+    for k, g in sorted(upper_wings(plan, runs, run_level, probe).items()):
+        g = g.difference(taken).buffer(0)
+        out[k] = unary_union([out[k], g]).buffer(0)
+        taken = unary_union([taken, g])
     return tuple(take_remainder(out, plan.difference(taken), probe))
 
 

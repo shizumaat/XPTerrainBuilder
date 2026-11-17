@@ -52,6 +52,8 @@ EXPECT = {
     "--probe-arm": {"probe-site"},
     "--late-from": REPLAY,
     "--gap-free": {"replay/classify", "replay/planar"},
+    # lane lkbna15 (#2112/#2134): named sources re-roled before the map
+    "--hand-role": {"replay/classify", "replay/planar"},
 }
 
 #: every other option of the tool, DECIDED not to be an arm: a mode
@@ -64,6 +66,8 @@ NOT_ARMS = {
     "--why-hard-stage", "--why-relax", "--why-hump", "--bank-from",
     "--probe-site", "--probe-drop", "--stage1-dump", "--stage1-diff",
     "--movers",
+    # an OUTPUT of the --emit run (the rebake plan beside the patch)
+    "--rebake-plan",
     # #1899: the route / trend derivations alone off a --solved-out pickle
     "--rederive-from",
     # spec §61 (6): a READ of the --replay arm's own solve (a second solve

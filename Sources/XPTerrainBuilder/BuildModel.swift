@@ -354,7 +354,6 @@ final class BuildModel: ObservableObject {
 
     @Published var selected: Set<TileCoord> = [] {
         didSet {
-            persistSelection()
             refreshCustomizedTiles(only: selected.subtracting(oldValue))
             searchTags.keep(only: Set(selected.map { AirportTile(lat: $0.lat, lon: $0.lon) }))
             if selected != oldValue {
@@ -372,7 +371,6 @@ final class BuildModel: ObservableObject {
             // A tile imposes no zoom until its info says so (#1539).
             zoom.adopt(nil)
             adopt(imageryAdoption.select(activeTile, info: activeTile.flatMap { built[$0] }))
-            persistSelection()
             refreshBuiltByIfMissing()
         }
     }
@@ -408,33 +406,6 @@ final class BuildModel: ObservableObject {
         imageryAdoption.userPicked()
         objectWillChange.send()
         buildProvider = code
-    }
-
-    /// Both selection keys, rewritten whole on every change. A selection is
-    /// hand-sized (the user clicks tiles), so there is nothing to debounce.
-    private func persistSelection() {
-        let defaults = UserDefaults.standard
-        defaults.set(selected.sorted().map(\.key), forKey: PrefKeys.selectedTiles)
-        defaults.set(activeTile?.key ?? "", forKey: PrefKeys.activeTile)
-    }
-
-    /// The selection outlives the app: last session's selected set and
-    /// active tile come back on launch, the same doctrine as the
-    /// built/installed squares. Runs AFTER loadCachedTileStates so the
-    /// active tile's config adoption sees `built` exactly as it does on a
-    /// user click. Keys that no longer parse are dropped silently, and an
-    /// active tile outside the restored set falls back to the set's first
-    /// tile — the deselect path's rule.
-    private func restoreSelection() {
-        let defaults = UserDefaults.standard
-        let stored = defaults.stringArray(forKey: PrefKeys.selectedTiles) ?? []
-        selected = Set(stored.compactMap(TileMath.parse)
-            .map { TileCoord(lat: $0.lat, lon: $0.lon) })
-        let active = defaults.string(forKey: PrefKeys.activeTile)
-            .flatMap(TileMath.parse)
-            .map { TileCoord(lat: $0.lat, lon: $0.lon) }
-        activeTile = active.flatMap { selected.contains($0) ? $0 : nil }
-            ?? selected.sorted().first
     }
 
     // MARK: Run state
@@ -517,7 +488,8 @@ final class BuildModel: ObservableObject {
         reloadEngine()
         loadCachedTileStates()
         loadCachedGlobalAirports()
-        restoreSelection()
+        // The selection starts empty (owner 2026-11-17, LaunchSelection).
+        LaunchSelection.start()
     }
 
     /// Optimistic launch for the build map: last session's built/installed

@@ -961,7 +961,7 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         return int(tag[7:]) if tag.startswith("vertex:") else None
 
     # a kerb in a road's own zone-2 cut carries a §37 (6) row since #2121
-    # (``airport/road_ramp._owned``); the terrace reads it as the band's
+    # (``airport/road_ramp._cut_kerb_ground``); the terrace reads it as the band's
     # kerb it always was — never a floor of its profile
     cut = _cut_kerb(planar, law)
     floor: dict[int, float] = {}

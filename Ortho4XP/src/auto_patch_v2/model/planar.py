@@ -1002,7 +1002,7 @@ class PlanarMap:
         cut back from it (``road_yield``), so it shares no vertex — its
         ribbon vertices standing in the cut are the kerb all the same.
         ``cut=False`` leaves them out: the road's own-ground target still
-        reaches them (#2121, ``airport/road_ramp._owned``) — the band holds
+        reaches them (#2121, ``airport/road_ramp._cut_kerb_ground``) — the band holds
         them under its ceiling only, so the road follows its ground below
         the band's grade instead of hanging on the objective alone."""
         rib: set[int] = set()

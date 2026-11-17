@@ -7,7 +7,7 @@ taxi band's zone 2 out of it (``planar/road_yield.BandYield``);
 the band it was cut from.  Those vertices are the band's kerb
 (``PlanarMap.band_kerb_vertices``): the zone law holds them under that
 band's ceiling only (``constraints/zones``), and the road's own-ground
-target still reaches them (#2121, ``airport/road_ramp._owned``) — the road
+target still reaches them (#2121, ``airport/road_ramp._cut_kerb_ground``) — the road
 follows its own ground below the band's grade.
 
 No shapely here: the record is ids and the band's key."""

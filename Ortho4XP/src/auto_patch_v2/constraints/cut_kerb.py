@@ -5,7 +5,7 @@ rewrite.
 A mapped carriageway through a runway or taxi band's zone 2 is cut out of
 the band (``planar/road_yield``); its ribbon vertices standing in the cut
 carry the road's own-ground target (the §37 (6) row,
-``airport/road_ramp._owned``) and the band's CEILING row only
+``airport/road_ramp._cut_kerb_ground``) and the band's CEILING row only
 (``constraints/zones``' cap-only kerb row).  Both are design rows: where the
 road's ground stands over the band's grade the target would pull the road
 up through the ceiling — and 19a lets a road beat the band only AT OR BELOW

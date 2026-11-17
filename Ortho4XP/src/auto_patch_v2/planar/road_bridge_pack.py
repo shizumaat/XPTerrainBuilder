@@ -12,11 +12,12 @@ refuses the bridge, naming what the pack draws there:
     structure under its ground and a top over the axis
     (``planar/deck_pack_cover.pack_refusal``, the reading that refuses a
     generated taxiway deck);
-(b) an ELEVATED TOP: a placement's solid up-facing faces standing at
-    least ``[road_gen] pack_top_min_m`` over its ground -- the pack's
-    bridge or overpass object, a roof -- over at least ``[deck_gen]
-    pack_cover_share`` of the bridge's axis (``pack_decks_near`` kind
-    ``"over"``);
+(b) an ELEVATED TOP: the placements' solid up-facing faces standing at
+    least ``[road_gen] pack_top_min_m`` over their ground -- the pack's
+    bridge or overpass objects, a roof -- together over at least
+    ``[deck_gen] pack_cover_share`` of the bridge's axis
+    (``pack_decks_near`` kind ``"over"``; a pack may model one bridge in
+    several pieces);
 (c) the pack's own ROAD: segments of its DSF road network (any level: a
     level of 1 or more is the pack's bridge, level 0 a road it drapes
     over the span) within ``[road_gen] pack_road_near_m`` of the axis and
@@ -41,6 +42,7 @@ import os
 import re
 import typing as _t
 
+import shapely
 from shapely.geometry import LineString
 from shapely.ops import unary_union
 
@@ -143,16 +145,23 @@ def pack_provides(span, line: LineString, objects: _t.Sequence, cache, roads: Pa
     if why:
         return why
     axis = line.intersection(span)
+    tops = []
     for p in packs:
         if p.kind != "over" or axis.length <= 0.0:
             continue
         try:
-            cov = axis.intersection(p.plan).length / axis.length
-        except Exception:                      # an invalid pack outline  # noqa: BLE001
+            got = axis.intersection(p.plan).length
+        except shapely.errors.GEOSException:       # an invalid pack outline
             continue
+        if got > 0.0:
+            tops.append((got, p))
+    if tops:
+        cov = axis.intersection(unary_union([p.plan for _g, p in tops])).length / axis.length
         if cov >= share:
-            return (f"the pack's {p.object_id} ({p.resource}) draws a top over "
-                    f"{100 * cov:.0f} % of the bridge")
+            tops.sort(key=lambda t: -t[0])
+            names = ", ".join(f"{p.object_id} ({p.resource}) {100 * g / axis.length:.0f} %"
+                              for g, p in tops[:3])
+            return f"the pack draws a top over {100 * cov:.0f} % of the bridge: {names}"
     rs, what = _road_share(line, roads, law)
     if rs >= share:
         return f"the pack's road network draws it ({what}, along {100 * rs:.0f} % of the bridge)"

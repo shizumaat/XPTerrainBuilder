@@ -32,6 +32,14 @@ def test_the_packs_bridge_object_over_the_span_refuses_it():
     assert "brg" in why and "top over 100 %" in why
 
 
+def test_a_bridge_the_pack_models_in_pieces_is_the_packs():
+    """Two elevated pieces, each over 40 % of the axis, together 80 %."""
+    a, b = _obj("a", _geom([_quad(6.0, 16.0)])), _obj("b", _geom([_quad(6.0, 16.0)]))
+    a[0].xy, b[0].xy = (-22.0, 0.0), (22.0, 0.0)
+    why = _why(a, b)
+    assert "top over 80 %" in why and "a (" in why and "b (" in why
+
+
 def test_a_pack_hard_deck_over_the_span_refuses_it():
     assert "hard deck hd" in _why(_obj("hd", _geom([_quad(0.0, 5.0)]),
                                        hard_deck=box(-30, -30, 30, 30)))

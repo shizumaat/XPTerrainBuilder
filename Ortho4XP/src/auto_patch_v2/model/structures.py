@@ -466,6 +466,9 @@ class DeckAnchor:
     #: DeckBridge.seats_a / seats_b) — stage 1's map takes the full
     #: map's anchor by it (model/stage_one.from_full)
     line: tuple[XY, ...] = ()
+    #: #2112: the deck PLATE this end line holds (``constraints/deck_lines.
+    #: plate_of``): an object in disjoint plates has one zero per plate
+    plate: int = 0
 
 
 @_dc.dataclass(frozen=True)

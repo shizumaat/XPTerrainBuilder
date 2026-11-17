@@ -48,8 +48,8 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["Plates", "bands_of", "plates_of", "FramePlates", "frame_plates",
-           "split_record", "census_file"]
+__all__ = ["Plates", "bands_of", "plates_of", "piece_plates", "FramePlates",
+           "frame_plates", "split_record", "census_file"]
 
 #: ``Member.deck_kind`` values whose file's hard deck is the frame's deck
 _DECK_KINDS = ("flag", "signature")
@@ -134,6 +134,35 @@ def bands_of(plates: _t.Sequence[np.ndarray], reach_m: float) -> "Plates | None"
         return None
     cuts = tuple(0.5 * (a[1] + b[0]) for a, b in zip(ext, ext[1:], strict=False))
     return Plates((float(ax[0]), float(ax[1])), tuple(ext), cuts, gaps)
+
+
+def piece_plates(rings: _t.Sequence[_t.Sequence[tuple[float, float]]],
+                 reach_m: float) -> "tuple[int, ...] | None":
+    """The plate of each deck PIECE (``rings``: one deck object's piece
+    outlines in plan, any one frame) -- the patch half's reading of the
+    same rule (``constraints/deck_lines.plate_of``): pieces within
+    ``reach_m`` are one plate, and the plates are told apart only where
+    they band (:func:`bands_of`); ``None`` otherwise (one zero for the
+    object, as before)."""
+    import shapely
+    if len(rings) < 2 or reach_m <= 0.0:
+        return None
+    polys = [shapely.Polygon(r).buffer(0.0) for r in rings]
+    if any(p.is_empty for p in polys):
+        return None
+    groups = _clusters(polys, reach_m)
+    if len(groups) < 2:
+        return None
+    pts = [np.concatenate([np.asarray(rings[i], float) for i in g]) for g in groups]
+    p = bands_of(pts, reach_m)
+    if p is None:
+        return None
+    out = [0] * len(rings)
+    for g, grp in zip(pts, groups, strict=True):
+        k = p.band_of(*g.mean(axis=0))
+        for i in grp:
+            out[i] = k
+    return tuple(out)
 
 
 @_ft.lru_cache(maxsize=512)

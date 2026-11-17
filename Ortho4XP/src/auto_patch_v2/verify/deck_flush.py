@@ -54,9 +54,10 @@ def deck_end_flush(p: Patch) -> list[Row]:
         return []
     by_ll = _by_ll(p)
     flush = float(p.law.tables.structures.bridge.deck_flush_m)
-    by_obj: dict[str, list] = {}
+    # #2112: one zero per object PLATE (``constraints/deck_lines.plate_of``)
+    by_obj: dict[tuple[str, int], list] = {}
     for r in recs:
-        by_obj.setdefault(str(r.get("object")), []).append(r)
+        by_obj.setdefault((str(r.get("object")), int(r.get("plate") or 0)), []).append(r)
     out: list[Row] = []
 
     def add(k, z: float, want: float, sh) -> None:

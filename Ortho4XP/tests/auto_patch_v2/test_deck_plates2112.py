@@ -148,3 +148,34 @@ def test_census_reads_every_airport_pack_deck_once(tmp_path):
     out = C.census(str(tmp_path), None, 2.0)
     assert out["totals"] == {"packs": 1, "deck_files": 1, "multi_plate": 1, "banded": 1}
     assert out["packs"][0]["files"][0]["file"] == os.path.join("objects", "bridge.obj")
+
+
+def _ring(x0: float, x1: float) -> tuple:
+    return ((x0, 0.0), (x1, 0.0), (x1, 40.0), (x0, 40.0))
+
+
+def test_the_patch_half_reads_the_same_plates_off_the_piece_rings():
+    # two deck pieces 20 m apart: two plates, each its own zero
+    assert DP.piece_plates([_ring(-60.0, -10.0), _ring(10.0, 60.0)], 2.0) == (0, 1)
+    # pieces within the rigid reach: one plate (one zero, as before)
+    assert DP.piece_plates([_ring(-60.0, -0.5), _ring(0.5, 60.0)], 2.0) is None
+    # a single piece: one plate
+    assert DP.piece_plates([_ring(-60.0, 60.0)], 2.0) is None
+
+
+def test_settle_publishes_one_zero_per_plate():
+    from auto_patch_v2.constraints.deck_anchor import settle
+    from auto_patch_v2.model.structures import DeckAnchor
+
+    @_dc.dataclass(frozen=True)
+    class _PM:
+        deck_anchors: tuple
+
+    def anchor(end, stations, plate):
+        return DeckAnchor("dsf:obj1", end, stations[0], stations, 0.0, 0.0, 0.0, "taxi", "",
+                          0.0, pinned=False, plate=plate)
+    pm = _PM((anchor("A/p0", (0, 1), 0), anchor("B/p0", (2, 3), 0),
+              anchor("A/p1", (4, 5), 1), anchor("B/p1", (6, 7), 1)))
+    z = [100.0] * 4 + [101.0] * 4
+    got = {a.end: a.z_m for a in settle(pm, z).deck_anchors}
+    assert got == {"A/p0": 100.0, "B/p0": 100.0, "A/p1": 101.0, "B/p1": 101.0}

@@ -119,6 +119,7 @@ import numpy as np
 
 from . import obj8 as _obj8
 from . import obj8_band as _band
+from . import obj8_warp as _warp
 from . import obj8_drape as _drape
 from .pack_health import light_records as _lr
 
@@ -277,6 +278,11 @@ class BodyCut:
     #: (the same ``comps`` and ``tris``) are SIBLINGS and share its
     #: geometry band by band.  None (the default) is the pre-band cut.
     band: "tuple[float, float, float, float] | None" = None
+    #: #2144 THE DECK WARP (``deck_profile``; ``obj8_warp``): the field's
+    #: nodes ``(D, rings)`` in the authored plan -- every static vertex,
+    #: line vertex and light rises by ``D(x, z)``.  Empty (the default) is
+    #: no warp; never baked together with a tilt.
+    warp: "tuple[_warp.Node, ...]" = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -299,6 +305,9 @@ class SplitFile:
     #: was ASKED FOR; this says what was written, and the two differ
     #: exactly on the refusal the counts name.
     tilt: tuple[float, float] = NO_TILT
+    #: #2144: whether this file baked its body's deck warp (False where it
+    #: has none, owns an ANIM block, or is tilted)
+    warped: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -339,7 +348,8 @@ def tilt_matrix(tilt: _t.Sequence[float]) -> np.ndarray:
 
 
 def offset_tag(offset: _t.Sequence[float],
-               tilt: _t.Sequence[float] = NO_TILT) -> str:
+               tilt: _t.Sequence[float] = NO_TILT,
+               warp: "_t.Sequence[_warp.Node]" = ()) -> str:
     """THE BAKED TRANSFORM, AS EIGHT HEX CHARACTERS (RULINGS 2026-09-14at;
     the seat tilt added by 2026-10-01k Q1).
 
@@ -363,6 +373,10 @@ def offset_tag(offset: _t.Sequence[float],
     """
     x, y, z = (float(v) for v in offset)
     gx, gz = float(tilt[0]), float(tilt[1])
+    if warp:
+        # #2144: a warped body's file is named by its nodes too
+        return hashlib.blake2s(struct.pack("<5d", x, y, z, gx, gz)
+                               + _warp.warp_digest(warp), digest_size=4).hexdigest()
     if (gx, gz) == (0.0, 0.0):
         return hashlib.blake2s(struct.pack("<3d", x, y, z),
                                digest_size=4).hexdigest()
@@ -372,7 +386,8 @@ def offset_tag(offset: _t.Sequence[float],
 
 def body_resource_name(resource: str, k: int,
                        offset: "_t.Sequence[float] | None" = None,
-                       tilt: _t.Sequence[float] = NO_TILT) -> str:
+                       tilt: _t.Sequence[float] = NO_TILT,
+                       warp: "_t.Sequence[_warp.Node]" = ()) -> str:
     """``objects/<stem>__b<k>_<tag>.obj`` beside the original (§4.5).
 
     THE FILE IS KEYED ON WHAT IT CONTAINS (owner RULINGS 2026-09-14at;
@@ -396,7 +411,7 @@ def body_resource_name(resource: str, k: int,
     stem, _ext = os.path.splitext(resource)
     if offset is None:
         return f"{stem}__b{k}.obj"
-    return f"{stem}__b{k}_{offset_tag(offset, tilt)}.obj"
+    return f"{stem}__b{k}_{offset_tag(offset, tilt, warp)}.obj"
 
 
 #: The NAME :func:`body_resource_name` mints, tagged or not.
@@ -534,6 +549,32 @@ def _retok(line: str, first: int, delta: tuple[float, float, float],
 
 
 # ── the cut ──────────────────────────────────────────────────────────────
+
+def _warp_fields(bodies: _t.Sequence[BodyCut], blocks: list, tilt_of: dict,
+                 counts: dict) -> "dict[int, _warp.Field]":
+    """#2144: each warped body's field -- never for a body owning an ANIM
+    block (its geometry moves with its pivot) nor a tilted one (tilt and
+    warp never bake together); both refusals counted.  Bodies with one
+    node list share one field."""
+    owners = {blk.get("owner") for blk in blocks}
+    fields: dict[tuple, _warp.Field] = {}
+    out: dict[int, _warp.Field] = {}
+    for b in bodies:
+        if not b.warp:
+            continue
+        if b.body_id in owners:
+            counts["warp_refused_anim"] = counts.get("warp_refused_anim", 0) + 1
+            continue
+        if tilt_of.get(b.body_id) is not None:
+            counts["warp_refused_tilt"] = counts.get("warp_refused_tilt", 0) + 1
+            continue
+        key = tuple(b.warp)
+        if key not in fields:
+            fields[key] = _warp.Field(b.warp)
+        out[b.body_id] = fields[key]
+    counts["warped"] = len(out)
+    return out
+
 
 def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
                resource: str = "", *, allow_single: bool = False,
@@ -756,6 +797,20 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
             tilt_of[_bid] = None
             counts["tilt_refused_anim"] = counts.get("tilt_refused_anim", 0) + 1
     counts["tilted"] = sum(1 for v in tilt_of.values() if v is not None)
+    warp_of = _warp_fields(bodies, blocks, tilt_of, counts)
+    warped_vt: dict[int, list[str]] = {}
+    warped_vline: dict[int, list[str]] = {}
+
+    def _wrow(body: int, v: int, table: list[str], cache: dict, normal_at: int) -> str:
+        """#2144: row ``v`` of ``table`` raised by ``body``'s warp field
+        (the source table warped once per field)."""
+        f = warp_of.get(body)
+        if f is None:
+            return table[v]
+        key = id(f)
+        if key not in cache:
+            cache[key] = _warp.warp_rows(table, 1, f, normal_at)
+        return cache[key][v]
 
     def vt_index(body: int, v: int, in_anim: bool) -> int:
         key = (v, in_anim)
@@ -765,6 +820,8 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         row = src.vt[v] if 0 <= v < len(src.vt) else src.vt[0]
         # a ``VT`` row is ``VT x y z nx ny nz s t``: the normal at token 4
         # rotates with the position (rule 5)
+        if not in_anim and 0 <= v < len(src.vt):
+            row = _wrow(body, v, src.vt, warped_vt, 4)
         vt_out[body].append(row if in_anim else
                             _retok(row, 1, offset_of[body], tilt_of[body], 4))
         vmap[body][key] = len(vt_out[body]) - 1
@@ -776,6 +833,8 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         if hit is not None:
             return hit
         row = src.vline[v] if 0 <= v < len(src.vline) else src.vline[0]
+        if not in_anim and 0 <= v < len(src.vline):
+            row = _wrow(body, v, src.vline, warped_vline, -1)
         vline_out[body].append(row if in_anim else
                                _retok(row, 1, offset_of[body], tilt_of[body]))
         lmap[body][key] = len(vline_out[body]) - 1
@@ -913,7 +972,8 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
                 start = len(vlight_out[body])
                 for v in rows:
                     vlight_out[body].append(
-                        _retok(src.vlight[v], 1, offset_of[body], tilt_of[body]))
+                        _retok(_warp.warp_rows([src.vlight[v]], 1, warp_of.get(body))[0],
+                               1, offset_of[body], tilt_of[body]))
                 out[body].append(f"LIGHTS\t{start} {len(rows)}")
             i += 1
             continue
@@ -925,7 +985,8 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
                 p = np.zeros(3)
             body = nearest(p)
             sync(body)
-            out[body].append(_retok(ln, first, offset_of[body], tilt_of[body]))
+            out[body].append(_retok(_warp.warp_rows([ln], first, warp_of.get(body))[0],
+                                    first, offset_of[body], tilt_of[body]))
             i += 1
             continue
         if is_seat_owned(ln):
@@ -987,7 +1048,8 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         body_text.append(f"# o4 split of {stem} body {k} offset "
                          f"{b.offset[0]:.3f} {b.offset[1]:.3f} {b.offset[2]:.3f}"
                          + ("" if _tl is None else
-                            f" tilt {b.tilt[0]:.6f} {b.tilt[1]:.6f}"))
+                            f" tilt {b.tilt[0]:.6f} {b.tilt[1]:.6f}")
+                         + (f" warp {len(b.warp)} nodes" if bid in warp_of else ""))
         body_text.append("")
         body_text.extend(vt_out[bid])
         body_text.extend(vline_out[bid])
@@ -1019,9 +1081,10 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         # placement's translation (OTHH's ``tunnel1``, 38.7 m).
         _baked = NO_TILT if _tl is None else (float(b.tilt[0]), float(b.tilt[1]))
         files.append(SplitFile(bid,
-                               body_resource_name(rel, bid, b.offset, _baked),
+                               body_resource_name(rel, bid, b.offset, _baked,
+                                                  b.warp if bid in warp_of else ()),
                                "\n".join(body_text) + "\n",
                                len(vt_out[bid]), tri_count[bid], b.offset,
                                tuple(lods_seen[bid]), anim_count[bid],
-                               _baked))
+                               _baked, bid in warp_of))
     return SplitResult(pristine_path, tuple(files), "", counts)

@@ -1300,6 +1300,10 @@ def main(argv=None) -> int:
         # does the drawn ground stay under one object (``tools/drawn_cover.py``)
         import drawn_cover
         return drawn_cover.main([a for a in argv if a != "--cover"])
+    if "--joints" in argv:
+        # #2144: the drawn joint steps of a pack's span decks (``drawn_site_joints``)
+        import drawn_site_joints
+        return drawn_site_joints.main(argv)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pack", action="append", default=[],

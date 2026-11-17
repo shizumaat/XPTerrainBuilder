@@ -114,6 +114,9 @@ class Body:
     #: #2112: the deck-plate band this body keeps (``deck_plates``;
     #: ``obj8_split.BodyCut.band``), None for a whole body
     band: "tuple[float, float, float, float] | None" = None
+    #: #2144: the deck warp's nodes this body bakes (``deck_profile``;
+    #: ``obj8_split.BodyCut.warp``), () for none
+    warp: tuple = ()
 
     def to_dict(self) -> dict[str, _t.Any]:
         d = self._dict()
@@ -123,6 +126,9 @@ class Body:
             d["msl_z"] = self.msl_z
         if self.band is not None:
             d["band"] = list(self.band)
+        if self.warp:
+            # #2144: the field's node values (the rings stay in the file)
+            d["warp"] = [round(float(n[0]), 3) for n in self.warp]
         if self.anchor.isolated:
             d["isolated_of"] = self.anchor.isolated      # §9a
         return d

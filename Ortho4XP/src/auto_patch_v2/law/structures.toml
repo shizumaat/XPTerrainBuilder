@@ -1751,7 +1751,7 @@ plate_gap_max_m    = 30.0   # #2116 R2 C1b: an open strip this wide or less betw
 max_cover_m       = 100.0   # A1 (3) / Q2: a road covered longer than this is a tunnel (its covered length, not the deck's)
 bearing_m         = 2.0     # A2: the cut grows by this before the pavement over it is read
 edge_margin_m     = 1.5     # A2 / Q3: the deck ring stands this far outside the pavement
-bank_m            = 3.0     # A2: the bank each side of a carriageway (30b)
+shoulder_m        = 1.5     # #2131 THE DECK SPANS ITS CUT (owner 2026-11-17 "the bridge objects need to be a bit longer, and the cuts wider"): the level floor each side of a covered road's carriageway (the drawn road's shoulders), under the deck and along its ramps; the deck then reaches the bank's run (thickness_m + [tunnel] clearance_m over emit.design.bank_slope, the bank deck_cut builds) farther, so its end line stands on the bank's crest
 thickness_m       = 1.0     # A2: the slab
 top_lift_m        = 0.02    # A2: the top over the solved end lines
 tilt_cap_share    = 0.8     # A2: the pre-solve tilt is clamped to this share of the family cap
@@ -1760,6 +1760,8 @@ level_probe_m     = 30.0    # A2: ... out to this far: the ground beside the roa
 min_area_m2       = 50.0    # a smaller deck piece is not generated
 lod_m             = 6000.0  # A2: draw distance
 light_spacing_m   = 15.0    # Q4: OBJ8 taxi_g / taxi_g_rev every this many metres on the deck
+concrete_pol      = "lib/airport/pavement/concrete_4D.pol"      # #2132 (owner 2026-11-17 "realistic concrete, with dirt and tire marks ... reference some laminar texture resources the user will already have installed"): the slab is drawn in this X-Plane pavement page's own art (its TEXTURE, TEXTURE_NORMAL and SCALE), linked from the user's install like the cliff overlay (airport/deck_skin); unresolved -> the generated atlas
+rubber_pol        = "lib/airport/default_runways/rubber.pol"    # #2132: the tire marks: this page's alpha art as a film along the carried route's centreline, one SCALE repeat wide
 
 [road_gen]                          # spec docs/specs/2123.md Part B (#2124; owner RULINGS 2026-11-16y): a mapped road bridge a pack only drapes as pavement gets an X-Plane road
 page_cover_frac     = 0.5   # B1 (b): a pack page / apt.dat 110 covers at least this share of the carriageway

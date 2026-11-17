@@ -68,7 +68,7 @@ def _pub():
 
 
 def test_recipe_builds_the_deck_paint_lights_and_chain(tmp_path):
-    rec = gen.recipe(_pub(), _apt(tmp_path), "TEST", load_default())
+    rec = gen.recipe(_pub(), _apt(tmp_path), "TEST", load_default(), xplane_root="")
     obj = rec["files"][f"{gen.GENERATED_DIR}/deck_t.obj"].decode("ascii")
     assert DECK_MARK in obj and "ATTR_hard_deck concrete" in obj
     assert "LIGHT_NAMED taxi_g " in obj and "LIGHT_NAMED taxi_g_rev " in obj
@@ -85,7 +85,7 @@ def test_recipe_builds_the_deck_paint_lights_and_chain(tmp_path):
 
 
 def test_files_record_and_remove(tmp_path):
-    rec = gen.recipe(_pub(), _apt(tmp_path), "TEST", load_default())
+    rec = gen.recipe(_pub(), _apt(tmp_path), "TEST", load_default(), xplane_root="")
     pack = tmp_path / "Pack"
     written = gen.write_files(str(pack), rec)
     assert len(written) == 2 and all(os.path.isfile(p) for p in written)

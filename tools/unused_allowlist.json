@@ -428,5 +428,10 @@
   "path": "Ortho4XP/src/patch_library/index.py",
   "name": "main",
   "reason": "entry point: `python -m patch_library.index` \u2014 the patch library repository's GitHub Actions workflow (library_template/.github/workflows/index.yml) runs it from a sparse checkout"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/deck_skin.py",
+  "name": "PageArt",
+  "reason": "return type of the module's public reader page_art (generated_pack reads its fields, never names it); listed in __all__ (#2132)"
  }
 ]

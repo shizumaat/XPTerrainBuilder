@@ -36,10 +36,10 @@ from shapely.ops import unary_union
 
 from ..geom.parts import polygon_parts_with_area
 
-__all__ = ["arcs", "upper_wings"]
+__all__ = ["upper_wings"]
 
 
-def arcs(run_levels: _t.Sequence["int | None"], lengths: _t.Sequence[float] = (),
+def _arcs(run_levels: _t.Sequence["int | None"], lengths: _t.Sequence[float] = (),
          min_arc_m: float = 0.0) -> list[tuple[int, list[int]]]:
     """The outline's ARCS: ``(level, run indices)`` per maximal cyclic chain
     of runs on one level, a run with no level taking the level of the arc
@@ -92,10 +92,10 @@ def upper_wings(plan: Polygon, runs: _t.Sequence[tuple], run_levels: _t.Sequence
     """Per level above the lowest, the part of ``plan`` its arcs hold
     (module docstring).  ``runs`` are the outline's runs in ring order, each
     a pair of end points (either orientation); arcs under ``min_arc_m``
-    join their neighbours (:func:`arcs`)."""
+    join their neighbours (:func:`_arcs`)."""
     out: dict[int, list] = {}
     lengths = [math.dist(p0, p1) for p0, p1 in runs]
-    for k, idx in arcs(run_levels, lengths, min_arc_m):
+    for k, idx in _arcs(run_levels, lengths, min_arc_m):
         if k == 0 or len(idx) < 2:
             continue
         lines = [LineString([runs[i][0], runs[i][1]]) for i in idx]

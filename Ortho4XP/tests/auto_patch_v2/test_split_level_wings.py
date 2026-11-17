@@ -8,7 +8,7 @@ arc (one open side) holds nothing.  Synthetic: no pack, no airport."""
 from __future__ import annotations
 
 from auto_patch_v2.airport.split_level import SplitLevel, _level_plans
-from auto_patch_v2.airport.split_level_wings import arcs, upper_wings
+from auto_patch_v2.airport.split_level_wings import _arcs, upper_wings
 from auto_patch_v2.planar.split_level_pit import _upper_wing, _wing_edges
 from shapely.geometry import LineString, Point, Polygon, box
 
@@ -23,11 +23,11 @@ _LEVELS = [1, 1, 0, 0, 0, 1]
 
 
 def test_arcs_fill_unread_runs_and_fold_slivers_into_their_neighbours():
-    assert sorted(arcs([0, None, 0, 1, 1, None])) == [(0, [0, 1, 2]), (1, [3, 4, 5])]
-    assert arcs([0, 0, None]) == []                   # one level: no arcs
+    assert sorted(_arcs([0, None, 0, 1, 1, None])) == [(0, [0, 1, 2]), (1, [3, 4, 5])]
+    assert _arcs([0, 0, None]) == []                   # one level: no arcs
     lengths = [20.0, 1.0, 20.0, 30.0]
     # the 1 m upper run is a corner's sliver: it joins the lower arc
-    assert sorted(arcs([0, 1, 0, 1], lengths, 3.0)) == [(0, [0, 1, 2]), (1, [3])]
+    assert sorted(_arcs([0, 1, 0, 1], lengths, 3.0)) == [(0, [0, 1, 2]), (1, [3])]
 
 
 def test_an_upper_arc_holds_the_plan_between_itself_and_its_chord():
@@ -73,7 +73,8 @@ def test_the_pit_holds_its_upper_wing_at_the_upper_floor():
     assert abs(wing.area - 550.0) < 1e-6
     edges = _wing_edges(wing, _PLAN, 0.25)
     assert len(edges) == 1
-    assert abs(edges[0].length - LineString([(0, 30), (10, 0)]).length) < 1.5   # less the grid at its ends
+    # the chord, less the grid at its ends
+    assert abs(edges[0].length - LineString([(0, 30), (10, 0)]).length) < 1.5
     assert edges[0].distance(Point(5.0, 15.0)) < 1e-6
 
 

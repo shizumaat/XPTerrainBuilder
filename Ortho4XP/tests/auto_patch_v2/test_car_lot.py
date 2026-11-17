@@ -99,6 +99,52 @@ def test_the_mint_spells_a_late_lot():
     stats = cl.mint_car_lots(ap, [], Law.for_airport("KBNA"), load_rules(),
                              lambda role, ref, poly, kind, cn=None, cl_=None, evidence=None:
                              out.append((role, ref, kind, dict(evidence or {}))))
-    assert out == [("parking_lot", "carlot:0", "parking_lot", {cl.CARS_KEY: 3})]
+    assert out == [("parking_lot", "carlot:0", "parking_lot",
+                    {cl.CARS_KEY: 3, cl.ANCHORS_KEY: ((0.0, 0.0), (4.0, 0.0), (8.0, 0.0))})]
     assert stats["car_lots"] == 1
     assert mp.is_late_ref("carlot:0") and mp.is_late_ref("carlot:3#1")
+    assert mp.is_car_lot_ref("carlot:3/1") and not mp.is_car_lot_ref("gap:3")
+
+
+def test_the_lot_outline_is_a_few_segments_per_turn():
+    """#2114 round 2 P5: 2-segment buffers simplified to the snap grid
+    (round 1's 16-segment buffers put a median 89 nodes on a lot ring)."""
+    plan, _s = _plan(_row(0, 0.0, 0.0, 4), [])
+    part, _n = plan[0]
+    assert len(part.exterior.coords) - 1 <= 16
+
+
+def _pm_faces(faces):
+    """A planar map of ``[(role, ref, ring coords)]`` faces (no shared
+    vertices): what ``cut_car_lots`` reads."""
+    verts, fs = {}, {}
+    for i, (role, ref, ring) in enumerate(faces):
+        ids = []
+        for xy in ring:
+            verts[len(verts)] = types.SimpleNamespace(xy=xy)
+            ids.append(len(verts) - 1)
+        fs[i] = types.SimpleNamespace(id=i, role=role, ref=ref, ring=tuple(ids), holes=())
+    return types.SimpleNamespace(vertices=verts, faces=fs,
+                                 ring_vertices=lambda cyc: tuple(cyc))
+
+
+def test_the_last_cut_takes_a_band_s_ground_away_and_keeps_the_parts_with_cars():
+    """P4: a car lot never takes ground a face of the solved map holds — an
+    adjacent-ground band is a face, no cell — and a part with no car or
+    under ``min_area_m2`` after the cut is dropped."""
+    ap = types.SimpleNamespace(dsf_objects=tuple(_row(0, 0.0, 0.0, 6)), buildings=(),
+                               dem=_Flat())
+    cells = []
+    cl.mint_car_lots(ap, [], Law.for_airport("KBNA"), load_rules(),
+                     lambda role, ref, poly, kind, cn=None, cl_=None, evidence=None:
+                     cells.append(Cell(0, role, ref, tuple(poly.exterior.coords)[:-1], (),
+                                       None, None, "groundside", kind, evidence)))
+    band = ("graded_strip", "taxi:default:zone1#1", _box(-20.0, 2.0, 60.0, 30.0))
+    out, rep = cl.cut_car_lots(cells, _pm_faces([band]), Law.for_airport("KBNA"), load_rules())
+    assert len(out) == 1 and rep["lots_out"] == 1
+    lot = Polygon(out[0].ring)
+    assert lot.distance(Polygon(band[2])) > 0.5
+    assert out[0].evidence[cl.CARS_KEY] == 6
+    over = ("graded_strip", "z", _box(-20.0, -30.0, 60.0, 30.0))
+    gone, rep = cl.cut_car_lots(cells, _pm_faces([over]), Law.for_airport("KBNA"), load_rules())
+    assert gone == [] and rep["dropped"] == 1

@@ -147,7 +147,8 @@ from ..solve.ground_band import ground_envelope
 from ..model.end_area import end_area_lengths
 from ..model.threshold_datum import threshold_datums
 
-__all__ = ["end_profile_yields", "gap_pieces", "pad_touch", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
+__all__ = ["end_profile_yields", "gap_pieces", "pad_touch", "late_stage", "car_lot_terraces",
+           "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
 
 #: 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
@@ -1099,6 +1100,21 @@ def late_stage(stage: _t.Mapping[str, _t.Any]) -> dict[str, _t.Any]:
     floor_m``.  Written only by a build that ran the last stage."""
     return {"floor_m": round(float(stage["floor_m"]), 6),
             "followers": sorted(str(r) for r in stage["followers"])}
+
+
+def car_lot_terraces(terraces: _t.Iterable[_t.Mapping[str, _t.Any]], to_ll
+                     ) -> list[dict[str, _t.Any]]:
+    """Sidecar ``car_lot_terraces`` (#2114 round 2 P3): each car lot the
+    car lots' stage held apart from a standing ring as a DECLARED terrace —
+    the lot, the ring, the ring's solved level and the lot's own ground at
+    the vertex where they differ most (``constraints/car_lot_follow``)."""
+    out = []
+    for t in terraces:
+        lat, lon = to_ll(*t["xy"])
+        out.append({"lot": t["lot"], "ring": t["ring"], "lat": round(float(lat), 8),
+                    "lon": round(float(lon), 8), "ring_m": t["ring_m"],
+                    "ground_m": t["ground_m"], "off_m": t["off_m"]})
+    return out
 
 
 def terrace_joints_ll(planar: PlanarMap, law: Law,

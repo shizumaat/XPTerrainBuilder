@@ -72,7 +72,7 @@ from ..model.planar import (PlanarMap, face_edge_ids as _edges,
                             gap_part_kind, is_gap_ref)
 
 __all__ = ["GEN", "RULING", "LOT_RULING", "PartStations", "BehindStep",
-           "gap_follow_rows", "reach_m"]
+           "standing_rings", "bound_row", "gap_follow_rows", "reach_m"]
 
 GEN = "gap_follow"
 RULING = "gap_piece follows its standing neighbour across the stand-off (owner 2026-10-04o)"
@@ -164,51 +164,68 @@ def reach_m(law: Law, pad: bool = False) -> float:
         + snap_margin_m(law) + 2.0 * ident
 
 
-def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
-                    part_stations: _t.Mapping[str, PartStations] | None = None,
-                    behind_step: BehindStep | None = None
-                    ) -> tuple[list[Linear], dict]:
-    """The follow rows of every gap-piece vertex that is an UNKNOWN (not in
-    ``fixed``), and the report: rows, vertices bound, conflicts (each with
-    both neighbours and their levels).  ``part_stations`` (the cut's, by
-    part ref) narrows a part's bounds to its own group's rings and the lot
-    rows to road+apron parts (module docstring); ``declared`` in the report
-    lists every bound so refused.  ``behind_step``: the roles no follower
-    follows across (R1) — floor cells bind nothing, a wall void its rim."""
+class _StandingRings(_t.NamedTuple):
+    """THE FIXED RINGS A FOLLOWER READS (:func:`standing_rings`): one line per
+    ring edge with a fixed end, its ``meta`` ``(name, z_a, z_b, cap, pad)``,
+    the indices of the road rings' lines, and the DROP edges (owner RULINGS
+    2026-10-20d) with their ring names."""
+
+    lines: _t.Any
+    meta: list
+    road_i: list[int]
+    drops: _t.Any
+    drop_names: list[str]
+    knife: float
+
+    def bounds(self, pt, reach: float, reach_pad: float,
+               tree: STRtree, drop_tree: STRtree | None) -> dict[str, tuple]:
+        """``{ring: (d, z, allow, foot)}`` for the point ``pt``: each ring
+        within its reach (a pad's covers the stand-off, R-D) at its NEAREST
+        line — the level ``z`` at the foot, the allowance ``cap x d`` (from
+        the set-back for a pad) — less the own rim and every ring whose
+        nearest edge here is its drop."""
+        best: dict[str, tuple] = {}
+        for k in tree.query(pt, predicate="dwithin", distance=max(reach, reach_pad)).tolist():
+            line = self.lines[k]
+            name, za, zb, cap, pad = self.meta[k]
+            d = float(shapely.distance(line, pt))
+            if d < _OWN_RIM_M or (not pad and d > reach):
+                continue
+            if name not in best or d < best[name][0]:
+                length = float(shapely.length(line))
+                t = float(shapely.line_locate_point(line, pt)) / length if length else 0.0
+                at = shapely.line_interpolate_point(line, t, normalized=True)
+                best[name] = (d, (1.0 - t) * za + t * zb,
+                              cap * (max(0.0, d - self.knife) if pad else d), (at.x, at.y))
+        if drop_tree is not None and best:
+            # a ring whose NEAREST edge here is its drop binds nothing here
+            # (never the next edge along it)
+            for k in drop_tree.query(pt, predicate="dwithin",
+                                     distance=max(reach, reach_pad)).tolist():
+                n_ = self.drop_names[int(k)]
+                if n_ in best and float(shapely.distance(self.drops[int(k)], pt)) < best[n_][0]:
+                    best.pop(n_)
+        return best
+
+
+def standing_rings(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
+                   cap_p: float, skip: _t.Callable[[_t.Any], bool],
+                   behind_step: BehindStep | None = None) -> _StandingRings | None:
+    """The fixed rings of every face ``skip`` does not name, each edge with
+    a fixed end bound at that end (``cap`` the tighter of ``cap_p`` and the
+    ring's own); ``None`` when there is none.  A floor cell behind a
+    declared step binds nothing, a wall void only its rim (R1)."""
     faces = planar.faces
-    gap = [f for f in faces.values() if is_gap_ref(f.ref)]
-    rep: dict = {"rows": 0, "conflicts": [], "declared": []}
-    if not gap:
-        return [], rep
-    part_of = _part_of_vertex(planar, gap) if part_stations else {}
-    own_rings = _OwnRings()
-    piece_cap = role_cap(law, gap[0].role)
-    cap_p = float(piece_cap.longitudinal) if piece_cap else 0.0
-    knife = float(law.tables.structures.building_pad.groundside_cutback_m) \
-        + snap_margin_m(law)
-    reach, reach_pad = reach_m(law), reach_m(law, pad=True)
     V = planar.vertices
-    segs, meta = [], []
-    # THE FOLLOWERS (master 2026-10-04): the pieces, and the mapped-road
-    # ribbons sharing a ring vertex with one — a ribbon is never lifted
-    # above the fixed ground it runs beside.  A ribbon beside NO piece is
-    # standing ground and binds as any ring does (spec §55 (13)).
-    _gap, ribbons = gap_follower_faces(planar)
-    follower = {f.id for f in ribbons}
-    from .roads import road_family_roles
-    road_roles = frozenset(road_family_roles(law))
-    road_i: list[int] = []
     floors = behind_step.floors if behind_step else frozenset()
     not_rim = behind_step.edges_not_rim(faces.values()) if behind_step else set()
-    # owner RULINGS 2026-10-20d (round 3 D4 (b)): a piece never follows a
-    # road's DROP edge (``model/planar.drop_edges``), nor does a
-    # lot take its level across one — the low side keeps its own ground
+    from .roads import road_family_roles
+    road_roles = frozenset(road_family_roles(law))
     from ..model.planar import drop_edges
     walled = drop_edges(planar)
-    drop_segs: list = []
-    drop_names: list[str] = []
+    segs, meta, road_i, drop_segs, drop_names = [], [], [], [], []
     for f in faces.values():
-        if is_gap_ref(f.ref) or f.id in follower or f.role in floors:
+        if skip(f) or f.role in floors:
             continue
         rc = role_cap(law, f.role)
         cap = min(cap_p, float(rc.longitudinal)) if rc and rc.longitudinal else cap_p
@@ -232,46 +249,59 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
                 if f.role in road_roles:
                     road_i.append(len(segs) - 1)
     if not segs:
+        return None
+    knife = float(law.tables.structures.building_pad.groundside_cutback_m) \
+        + snap_margin_m(law)
+    return _StandingRings(shapely.linestrings(segs), meta, road_i,
+                         shapely.linestrings(drop_segs) if drop_segs else None,
+                         drop_names, knife)
+
+
+def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
+                    part_stations: _t.Mapping[str, PartStations] | None = None,
+                    behind_step: BehindStep | None = None
+                    ) -> tuple[list[Linear], dict]:
+    """The follow rows of every gap-piece vertex that is an UNKNOWN (not in
+    ``fixed``), and the report: rows, vertices bound, conflicts (each with
+    both neighbours and their levels).  ``part_stations`` (the cut's, by
+    part ref) narrows a part's bounds to its own group's rings and the lot
+    rows to road+apron parts (module docstring); ``declared`` in the report
+    lists every bound so refused.  ``behind_step``: the roles no follower
+    follows across (R1) — floor cells bind nothing, a wall void its rim."""
+    faces = planar.faces
+    gap = [f for f in faces.values() if is_gap_ref(f.ref)]
+    rep: dict = {"rows": 0, "conflicts": [], "declared": []}
+    if not gap:
         return [], rep
-    lines = shapely.linestrings(segs)
-    tree = STRtree(lines)
-    drops = shapely.linestrings(drop_segs) if drop_segs else None
-    drop_tree = STRtree(drops) if drops is not None else None
+    part_of = _part_of_vertex(planar, gap) if part_stations else {}
+    own_rings = _OwnRings()
+    piece_cap = role_cap(law, gap[0].role)
+    cap_p = float(piece_cap.longitudinal) if piece_cap else 0.0
+    reach, reach_pad = reach_m(law), reach_m(law, pad=True)
+    V = planar.vertices
+    # THE FOLLOWERS (master 2026-10-04): the pieces, and the mapped-road
+    # ribbons sharing a ring vertex with one — a ribbon is never lifted
+    # above the fixed ground it runs beside.  A ribbon beside NO piece is
+    # standing ground and binds as any ring does (spec §55 (13)).
+    # owner RULINGS 2026-10-20d (round 3 D4 (b)): a piece never follows a
+    # road's DROP edge (``model/planar.drop_edges``), nor does a
+    # lot take its level across one — the low side keeps its own ground
+    _gap, ribbons = gap_follower_faces(planar)
+    follower = {f.id for f in ribbons}
+    rings = standing_rings(planar, law, fixed, cap_p,
+                           lambda f: is_gap_ref(f.ref) or f.id in follower, behind_step)
+    if rings is None:
+        return [], rep
+    tree = STRtree(rings.lines)
+    drop_tree = STRtree(rings.drops) if rings.drops is not None else None
     rows: list[Linear] = []
     todo = sorted({v for f in (*gap, *ribbons) for v in _vertices(planar, f)}
                   - set(fixed))
     pts = shapely.points([V[v].xy for v in todo])
-    hit = tree.query(pts, predicate="dwithin", distance=max(reach, reach_pad))
-    near: dict[int, list[int]] = {}
-    for i, k in zip(hit[0], hit[1]):
-        # each ring at its own reach: a pad's covers the stand-off (R-D)
-        if meta[int(k)][4] or reach >= reach_pad or float(
-                shapely.distance(lines[int(k)], pts[int(i)])) <= reach:
-            near.setdefault(int(i), []).append(int(k))
-    for i, ks in sorted(near.items()):
-        v = todo[i]
-        best: dict[str, tuple] = {}
-        for k in ks:
-            d = float(shapely.distance(lines[k], pts[i]))
-            if d < _OWN_RIM_M:
-                continue
-            name, za, zb, cap, pad = meta[k]
-            if name not in best or d < best[name][0]:
-                length = float(shapely.length(lines[k]))
-                t = float(shapely.line_locate_point(lines[k], pts[i])) / length \
-                    if length else 0.0
-                z = (1.0 - t) * za + t * zb
-                allow = cap * (max(0.0, d - knife) if pad else d)
-                at = shapely.line_interpolate_point(lines[k], t, normalized=True)
-                best[name] = (d, z, allow, (at.x, at.y))
-        if drop_tree is not None and best:
-            # a ring whose NEAREST edge here is its drop binds nothing here
-            # (never the next edge along it)
-            for k in drop_tree.query(pts[i], predicate="dwithin",
-                                     distance=max(reach, reach_pad)).tolist():
-                n_ = drop_names[int(k)]
-                if n_ in best and float(shapely.distance(drops[int(k)], pts[i])) < best[n_][0]:
-                    best.pop(n_)
+    near = 0
+    for i, v in enumerate(todo):
+        best = rings.bounds(pts[i], reach, reach_pad, tree, drop_tree)
+        near += bool(best) or _in_reach(tree, pts[i], reach, reach_pad, rings)
         ps = part_stations.get(part_of.get(v, "")) if part_stations else None
         if ps is not None:
             for name in sorted(best):
@@ -280,24 +310,43 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
                                             "z": round(best.pop(name)[1], 3)})
         if not best:
             continue
-        lo_n, lo = max(((z - a, n) for n, (_d, z, a, _at) in best.items()))[::-1]
-        hi_n, hi = min(((z + a, n) for n, (_d, z, a, _at) in best.items()))[::-1]
-        if lo > hi:
-            # two fixed neighbours disagree: the piece stands BETWEEN them
-            rep["conflicts"].append({
-                "v": v, "xy": tuple(V[v].xy), "gap_m": round(lo - hi, 3),
-                "upper": lo_n, "upper_m": round(best[lo_n][1], 3),
-                "lower": hi_n, "lower_m": round(best[hi_n][1], 3)})
-            lo, hi = hi, lo
-        # the row cites the two rings that bound it (the floor's, the ceiling's)
-        rows.append(Linear(((v, 1.0),), lo, hi, Source(GEN, RULING, (lo_n, hi_n))))
+        rows.append(bound_row(v, V[v].xy, best, rep["conflicts"], GEN, RULING))
     rep["rows"] = len(rows)
-    rep["vertices_in_reach"] = len(near)
+    rep["vertices_in_reach"] = near
     lot_rows, rep["lot_targets"] = _lot_rows(
         planar, [f for f in gap if _takes_lot_rows(f, part_stations)], fixed,
-        lines, meta, road_i, float(piece_cap.transverse) if piece_cap else 0.0, drops)
+        rings.lines, rings.meta, rings.road_i,
+        float(piece_cap.transverse) if piece_cap else 0.0, rings.drops)
     rep["lot_rows"] = len(lot_rows)
     return [*rows, *lot_rows], rep
+
+
+def _in_reach(tree: STRtree, pt, reach: float, reach_pad: float,
+              rings: _StandingRings) -> bool:
+    """Whether any ring line stands within its reach of ``pt`` (the
+    report's ``vertices_in_reach``, the own rim included)."""
+    for k in tree.query(pt, predicate="dwithin", distance=max(reach, reach_pad)).tolist():
+        if rings.meta[k][4] or float(shapely.distance(rings.lines[k], pt)) <= reach:
+            return True
+    return False
+
+
+def bound_row(v: int, xy, best: _t.Mapping[str, tuple], conflicts: list,
+              gen: str, ruling: str) -> Linear:
+    """THE ONE-TERM FOLLOW ROW of vertex ``v`` from its ring bounds ``best``
+    (:meth:`_StandingRings.bounds`): ``max(z - allow) <= z_v <= min(z +
+    allow)``; where two fixed neighbours disagree the vertex stands BETWEEN
+    them and the pair is appended to ``conflicts`` with both levels.  The
+    row cites the two rings that bound it (the floor's, the ceiling's)."""
+    lo_n, lo = max(((z - a, n) for n, (_d, z, a, _at) in best.items()))[::-1]
+    hi_n, hi = min(((z + a, n) for n, (_d, z, a, _at) in best.items()))[::-1]
+    if lo > hi:
+        conflicts.append({
+            "v": v, "xy": tuple(xy), "gap_m": round(lo - hi, 3),
+            "upper": lo_n, "upper_m": round(best[lo_n][1], 3),
+            "lower": hi_n, "lower_m": round(best[hi_n][1], 3)})
+        lo, hi = hi, lo
+    return Linear(((v, 1.0),), lo, hi, Source(gen, ruling, (lo_n, hi_n)))
 
 
 def _takes_lot_rows(face, part_stations) -> bool:

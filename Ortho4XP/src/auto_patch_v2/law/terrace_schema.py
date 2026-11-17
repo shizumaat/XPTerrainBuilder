@@ -64,6 +64,11 @@ class Terrace:
     #: read the same window.
     straddle_perp_m: float
     straddle_pair_m: float
+    #: #2114 round 2 P3 (owner RULINGS 2026-11-16p read with 16t): a car lot
+    #: meets a standing ring with no step only where its own ground is within
+    #: ``cap x d`` plus this of the ring's level; otherwise the stand-off is a
+    #: declared terrace (``constraints/car_lot_follow``)
+    car_lot_weld_step_m: float = 0.5
 
 
 def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -> None:
@@ -93,3 +98,5 @@ def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -
         raise err("emit.terrace: gap_cut_sample_m must be positive")
     if tr.straddle_perp_m <= 0.0 or tr.straddle_pair_m <= 0.0:
         raise err("emit.terrace: straddle_perp_m and straddle_pair_m must be positive")
+    if tr.car_lot_weld_step_m < 0.0:
+        raise err("emit.terrace: car_lot_weld_step_m must not be negative")

@@ -811,7 +811,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         pm, sol, _late = run_last_stages(
             cl_gaps, airport, law, derive,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
-             "hard_conflict": hard_conflict},
+             "hard_conflict": hard_conflict, "cs": cs},
             rules=load_rules(), options=cfg.options,
             out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records,
             speculate=speculate_roads)
@@ -836,6 +836,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                         "lot_rows": _late["follow"].get("lot_rows", 0),
                         "declared_bounds": len(_late["follow"].get("declared", ())),
                         "wall_s": _late["wall_s"]}
+        if _late.get("car_lots"):
+            # #2114 round 2: the car lots' stage — its cut, the lots that
+            # welded and every declared terrace with both levels
+            _cl_rep = _late["car_lots"]
+            _late_report["car_lots"] = {
+                "cut": _cl_rep["cut"], "rows": _cl_rep["follow"]["rows"],
+                "welded_lots": _cl_rep["follow"]["welded_lots"],
+                "terraced_lots": _cl_rep["follow"]["terraced_lots"]}
+            _late_report["car_lot_terraces"] = _cl_rep["follow"]["terraces"]
     # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS (``emit_stage``)
     pm = with_join_yield(icao, pm, law, airport, sol, _pin_yield, out)
     # OWNER RULINGS 2026-10-26b: THE TILE SEAM OUTRANKS A CIFP THRESHOLD

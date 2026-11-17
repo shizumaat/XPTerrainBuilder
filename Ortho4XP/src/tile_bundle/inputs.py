@@ -251,9 +251,9 @@ def own_files(lat: int, lon: int) -> list:
 def destination(name: str) -> str:
     """Where the member ``name`` lands on this machine.
 
-    :raises ValueError: a name outside ``data/<root>/`` and
-        ``patches/<tile>/``, a kind no package carries, or a path that
-        would leave its folder.
+    :raises ValueError: a name outside ``data/<root>/``,
+        ``patches/<tile>/`` and ``generated/<tile>/`` (#2140), a kind no
+        package carries, or a path that would leave its folder.
     """
     parts = name.split("/")
     if (not _allowed(name) or any(p in ("", ".", "..") for p in parts)
@@ -263,6 +263,9 @@ def destination(name: str) -> str:
     if parts[0] == "data" and len(parts) >= 4 and parts[1] in DATA_ROOTS:
         root = getattr(FNAMES, DATA_ROOTS[parts[1]])
         return os.path.join(root, *parts[2:])
+    if parts[0] == "generated":                  # #2140
+        from .generated import destination as _generated
+        return _generated(parts)
     tile = FNAMES.parse_tile_key(parts[1]) if len(parts) == 3 else None
     if parts[0] == "patches" and tile is not None:
         return os.path.join(FNAMES.patch_dir(*tile), parts[2])

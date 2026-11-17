@@ -759,7 +759,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     # DSF of the pack (``tile_route``), in the SAME write as this one's
     # spec 2123 (RULINGS 2026-11-16y): the GENERATED decks and road
     # bridges the patch published, written in the same pack write
-    gen = _generated_recipe(_gd, target_root, plan_.icao, law, plan_key)
+    gen = _generated_recipe(_gd, target_root, plan_.icao, law, plan_key, patch_dir)
     try:
         res = _pw.apply_routed(
             plan, files, _DSFR._dsftool_path() or "DSFTool",
@@ -856,10 +856,14 @@ def _generated_in(patch_dir: str, icao: str) -> bool:
     return bool(gen.get("decks") or gen.get("road_bridges"))
 
 
-def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: str):
+def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: str,
+                      patch_dir: str = ""):
     """The airport's generated decks / road bridges as a write recipe
     (``generated_pack.recipe``), ``None`` for a companion plan or a patch
-    that published none (the record's recipe is then kept as it is)."""
+    that published none (the record's recipe is then kept as it is).
+    #2140: an installed package's record of this very publication
+    (``generated_record.installed_recipe``) is the recipe as it is: the
+    generator does not run."""
     import O4_UI_Utils as UI
     from auto_patch_v2.airport import apt_flatten as _af
     from auto_patch_v2.airport import generated_pack as _gen
@@ -870,6 +874,13 @@ def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: st
     pub = (graded_doc.get("provenance") or {}).get("generated")
     if pub is None:
         return None
+    from auto_patch_v2.airport import generated_record as _grec
+    rec = _grec.installed_recipe(patch_dir, icao, pub, _af.apt_dat_of(target_root))
+    if rec is not None:
+        UI.vprint(1, f"  [v2 placement] {icao}: generated decks / road bridges from "
+                     f"the installed package ({len(rec.get('decks') or ())} object(s), "
+                     f"{len(rec.get('chains') or ())} road chain(s))")
+        return rec
     try:
         rec = _gen.recipe(pub, _af.apt_dat_of(target_root), icao, law,
                           resolve_library=_agp.resolve_library_path)

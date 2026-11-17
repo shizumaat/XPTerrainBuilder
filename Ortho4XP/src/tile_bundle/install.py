@@ -41,6 +41,7 @@ import time
 import O4_File_Names as FNAMES
 
 from . import FORMAT, PACKAGE_FORMAT, READ_ERRORS, BundleRefused, inputs
+from . import generated as _generated
 from . import key as _key
 from . import kinds as _kinds
 from . import pack_dev as _dev
@@ -207,6 +208,8 @@ class _Pass:
             return "same", data, ""
         if name.startswith("patches/"):
             return self._patch(name, dest, existing, data, tile_key)
+        if name.startswith(_generated.PREFIX + "/"):     # #2140: a record replaces
+            return "update", data, "the package's generated decks and road bridges"
         newer = int(entry.get("mtime_ns") or 0) > os.stat(dest).st_mtime_ns
         if name.endswith(inputs.INSET_INDEX):
             return "merge", merge_index(existing, data, newer), ""

@@ -287,6 +287,9 @@ def record(backup_sha: str, rec: _t.Mapping, counts: _t.Mapping, stamp: str) -> 
     return {"backup_sha256": backup_sha, "time": stamp,
             "decks": list(rec.get("decks") or ()), "regions": list(rec.get("regions") or ()),
             "chains": list(rec.get("chains") or ()),
+            # #2140: the faked-cut placements hidden ride the record too,
+            # so a write that keeps it (``recorded``) still hides them
+            "hides": list(rec.get("hides") or ()),
             "files": sorted(set((rec.get("files") or {}).keys())
                             | set((rec.get("links") or {}).keys())
                             | set(rec.get("kept_files") or ())),
@@ -302,4 +305,5 @@ def recorded(entry: _t.Mapping, backup_sha: str) -> dict:
     if not r or r.get("backup_sha256") != backup_sha:
         return {}
     return {"decks": r.get("decks") or [], "regions": r.get("regions") or [],
-            "chains": r.get("chains") or [], "files": {}, "kept_files": r.get("files") or []}
+            "chains": r.get("chains") or [], "hides": r.get("hides") or [],
+            "files": {}, "kept_files": r.get("files") or []}

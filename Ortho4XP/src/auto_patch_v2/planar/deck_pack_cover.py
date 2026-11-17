@@ -1,0 +1,202 @@
+"""THE PACK'S OWN CROSSING OVER A COVERED ROAD (spec ``docs/specs/2123.md``
+A1 (2) "the pack always wins"; owner 2026-11-17: "We should only be adding
+our bridges when the pack does not provide an object").
+
+A generated deck (``planar/deck_generated``) stands only where the pack
+does not model the crossing itself.  Two readings of the pack, each a
+refusal of the deck piece:
+
+(a) a HARD DECK -- an ``ATTR_hard_deck`` placement or a signature deck
+    (``PlacedObject.hard_deck``) -- overlapping the piece, whether or not
+    ``deck_bridges`` admitted it as a bridge (a co-placed bridge + tunnel
+    pair the walled-trench branch refuses is still the pack's deck);
+(b) a MODELLED CROSSING: a pack STRUCTURE -- a placement whose geometry
+    reaches more than ``[deck_gen] pack_structure_depth_m`` under its own
+    ground, its deep vertices' hull overlapping the piece by
+    ``min_area_m2`` -- AND a TOP over the road: the up-facing
+    near-horizontal faces of any placement (solid or draped) within
+    ``pack_structure_depth_m`` of its ground running over at least
+    ``pack_cover_share`` of the covered roads' axis inside the piece.
+
+Neither half of (b) refuses alone (owner 2026-11-17 14:48Z): a pack CUT
+with no top over the road (a pit, ramps, walls) supplies the trench and
+the deck is still ours, seated to the cut; pavement the pack drapes over
+the road with no structure under it is the "drawn only as pavement" case
+the deck exists for.  A face drawn BEFORE the terrain mesh
+(``ATTR_layer_group terrain`` at a negative offset, ``ObjGeometry.
+under_terrain``: a depth punch, a near-invisible quad the mesh drops out
+under over a pit drawn beneath it) is never a top.  A pit's floor is
+deeper than ``pack_structure_depth_m`` and never reads as a top.
+
+A FAKED CUT (owner 2026-11-17 14:50Z, KPHX; 14:51Z, KJFK): placements
+EVERY solid face of which is drawn under the terrain, over a generated
+deck, one of them reaching below its ground -- a pit, and the depth punch
+(in the same object or its own) the mesh drops out under -- are replaced
+by the real cut and the deck: :func:`faked_cuts` names every one of them
+and the pack copy hides them (``airport/generated_pack``).
+
+Nothing here names an airport, a pack or a resource; the faces are read
+only for placements whose plan box reaches a deck piece.
+"""
+from __future__ import annotations
+
+import dataclasses as _dc
+import typing as _t
+
+import numpy as np
+import shapely
+from shapely.geometry import Polygon
+
+from ..airport import frame_entry as _fe
+from ..airport import obj8 as _obj8
+from ..airport.object_cut import _face_normals_y
+
+__all__ = ["pack_decks_near", "pack_refusal", "faked_cuts"]
+
+_NONE = np.zeros(0, dtype=bool)
+
+
+@_dc.dataclass(frozen=True)
+class _PackDeck:
+    """One pack placement that may stand on a generated deck: its id, its
+    resource, ``kind`` ``"hard_deck"``, ``"cover"`` (its top faces),
+    ``"structure"`` (its deep vertices' hull) or ``"under"`` (the plan
+    hull of a placement drawn wholly under the terrain), its frame plan, its
+    placement point (frame) and whether every solid face is drawn under
+    the terrain (a faked cut when it is a structure)."""
+
+    object_id: str
+    resource: str
+    kind: str
+    plan: Polygon
+    xy: tuple = (0.0, 0.0)
+    under_terrain: bool = False
+
+
+def _static_solid(g, *flags) -> np.ndarray:
+    """``g``'s solid triangles less those any of ``flags`` marks."""
+    keep = np.ones(g.solid.shape[0], dtype=bool)
+    for flag in flags:
+        if flag.shape[0] == keep.shape[0]:
+            keep &= ~flag
+    return g.solid[keep]
+
+
+def _placed(o, geom, law):
+    return _fe.enter([geom], _obj8.placement_affine(o.xy, o.heading_deg), _fe.quantum(law))[0]
+
+
+def _cover_plan(o, g, law, depth: float):
+    """The frame plan of ``o``'s up-facing faces within ``depth`` of its
+    ground (solid -- neither animated nor drawn under the terrain -- and
+    draped), or ``None``."""
+    ny_min = float(law.tables.structures.bridge.deck_plate_normal_y_min)
+    v = g.vertices
+    parts = [t for t in (_static_solid(g, g.animated, getattr(g, "under_terrain", _NONE)),
+                         g.draped) if t.shape[0]]
+    if not parts:
+        return None
+    tris = np.concatenate(parts)
+    up = (_face_normals_y(v, tris) >= ny_min) & (v[tris][:, :, 1].min(axis=1) >= -depth)
+    if not up.any():
+        return None
+    polys = [p for p in shapely.polygons(v[tris[up]][:, :, [0, 2]])
+             if p.is_valid and p.area > 1e-6]
+    return _placed(o, _fe.union(polys, "deck_pack_cover.cover"), law) if polys else None
+
+
+def _structure_plan(o, g, law, depth: float):
+    """The frame hull of ``o``'s solid vertices deeper than ``depth`` under
+    its ground (animated ones aside), or ``None``."""
+    solid = _static_solid(g, g.animated)
+    if not solid.shape[0]:
+        return None
+    pts = g.vertices[np.unique(solid.reshape(-1))]
+    deep = pts[pts[:, 1] < -depth]
+    if deep.shape[0] < 3:
+        return None
+    hull = shapely.MultiPoint(deep[:, [0, 2]]).convex_hull
+    return _placed(o, hull, law) if hull.geom_type == "Polygon" else None
+
+
+def pack_decks_near(objects: _t.Sequence, cache, law, region) -> list[_PackDeck]:
+    """Every pack hard deck (a), top and structure (b) whose plan reaches
+    ``region`` (the union of the generated deck pieces, frame)."""
+    if not objects or region is None or region.is_empty:
+        return []
+    depth = float(law.tables.structures.deck_gen.pack_structure_depth_m)
+    out: list[_PackDeck] = []
+    for o in objects:
+        hd = getattr(o, "hard_deck", None)
+        if hd is not None and not hd.is_empty and hd.intersects(region):
+            out.append(_PackDeck(str(o.id), str(o.path), "hard_deck", hd))
+            continue
+        bb = getattr(o, "plan_bbox", None)
+        if cache is None or bb is None or o.resolved is None or not bb.intersects(region):
+            continue
+        g = cache.geometry(o.resolved)
+        if g is None:
+            continue
+        ut = getattr(g, "under_terrain", _NONE)
+        under = bool(g.solid.shape[0]) and ut.shape[0] == g.solid.shape[0] and bool(ut.all())
+        if under:
+            hull = shapely.MultiPoint(g.vertices[np.unique(g.solid.reshape(-1))][:, [0, 2]])
+            plan = _placed(o, hull.convex_hull, law)
+            if plan is not None and not plan.is_empty and plan.intersects(region):
+                out.append(_PackDeck(str(o.id), str(o.path), "under", plan, tuple(o.xy), True))
+        for kind, read in (("cover", _cover_plan), ("structure", _structure_plan)):
+            plan = read(o, g, law, depth)
+            if plan is not None and not plan.is_empty and plan.intersects(region):
+                out.append(_PackDeck(str(o.id), str(o.path), kind, plan,
+                                    tuple(o.xy), under))
+    return out
+
+
+def faked_cuts(piece: Polygon, packs: _t.Sequence[_PackDeck], law) -> list[_PackDeck]:
+    """The pack placements over ``piece`` that only fake its cut (module
+    doc): each drawn wholly under the terrain, its plan over the piece by
+    ``[deck_gen] min_area_m2`` -- when one of them is a structure (a pit);
+    ``[]`` otherwise."""
+    a_min = float(law.tables.structures.deck_gen.min_area_m2)
+
+    def over(p) -> bool:
+        try:
+            return p.plan.intersection(piece).area >= a_min
+        except shapely.errors.GEOSException:
+            return False
+    if not any(p.kind == "structure" and p.under_terrain and over(p) for p in packs):
+        return []
+    return [p for p in packs if p.kind == "under" and over(p)]
+
+
+def pack_refusal(piece: Polygon, axes: _t.Sequence, packs: _t.Sequence[_PackDeck],
+                 law, why_of: _t.Callable[[str], str] = lambda _i: "") -> str:
+    """Why the pack's own crossing refuses ``piece`` (module doc), or
+    ``""``.  ``axes``: the covered roads' lines; ``why_of(object id)``:
+    the reason ``deck_bridges`` refused that hard deck as a bridge."""
+    g = law.tables.structures.deck_gen
+    inside = [a.intersection(piece) for a in axes]
+    total = sum(x.length for x in inside)
+    top = structure = None
+    for p in packs:
+        try:
+            if p.kind == "hard_deck":
+                if p.plan.intersection(piece).area > 1.0:
+                    why = why_of(p.object_id)
+                    return (f"the pack's hard deck {p.object_id} ({p.resource}) stands on it"
+                            + (f" (refused as a bridge: {why})" if why else ""))
+            elif p.kind == "structure":
+                if structure is None and \
+                        p.plan.intersection(piece).area >= float(g.min_area_m2):
+                    structure = p
+            elif p.kind == "cover" and top is None and total > 0.0:
+                cov = sum(x.intersection(p.plan).length for x in inside)
+                if cov >= float(g.pack_cover_share) * total:
+                    top = (p, cov / total)
+        except shapely.errors.GEOSException:        # an invalid pack outline
+            continue
+    if structure is None or top is None:
+        return ""
+    return (f"the pack models the crossing: {structure.object_id} ({structure.resource}) "
+            f"reaches under its ground and {top[0].object_id} ({top[0].resource}) draws a "
+            f"top over {100 * top[1]:.0f} % of the covered road")

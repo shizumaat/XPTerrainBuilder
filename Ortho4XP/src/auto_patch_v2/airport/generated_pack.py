@@ -152,9 +152,13 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     from . import apt_flatten as _af
     decks = list((generated or {}).get("decks") or ())
     bridges = list((generated or {}).get("road_bridges") or ())
-    out: dict = {"decks": [], "regions": [], "chains": [], "files": {}, "notes": []}
+    out: dict = {"decks": [], "regions": [], "chains": [], "files": {}, "notes": [],
+                 "hides": []}
     if not decks and not bridges:
         return out
+    # owner 2026-11-17 (KPHX): a pack placement that only fakes the cut
+    # under a deck is hidden -- the real cut and the deck replace it
+    out["hides"] = [dict(h) for d in decks for h in d.get("hides") or ()]
     # #2131: a deck's open approaches leave the pack's pages with its ring
     regions = [_poly(d["ring"]) for d in decks] + \
         [_poly(q) for d in decks for q in d.get("approach") or () if len(q) >= 3] + \
@@ -307,6 +311,10 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "") -> tuple[str, 
         counts["pages_cut"] += rep.pages_cut
         counts["lines_cut"] += rep.lines_cut
         counts["area_removed_m2"] += rep.area_removed_m2
+    for h in rec.get("hides") or ():
+        text, n = _hide_rows(text, str(h["resource"]), float(h["lon"]),
+                                     float(h["lat"]))
+        counts["hidden"] = counts.get("hidden", 0) + n
     for d in rec.get("decks") or ():
         text, _idx = _add.add_object(text, d["resource"], float(d["lon"]), float(d["lat"]),
                                      float(d["msl"]), float(d["hdg"]))
@@ -322,6 +330,32 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "") -> tuple[str, 
             for c in chains])
         counts["chains"] = len(chains)
     return text, counts
+
+
+def _hide_rows(text: str, resource: str, lon: float, lat: float,
+                  tol_deg: float = 2e-6) -> tuple[str, int]:
+    """``text`` without the rows placing ``resource`` within ``tol_deg``
+    of ``(lon, lat)`` (its definition stays declared); returns ``(text,
+    rows removed)``."""
+    lines = text.split("\n")
+    defs = [ln.split(None, 1)[1].strip() for ln in lines if ln.startswith("OBJECT_DEF ")]
+    want = {str(k) for k, p in enumerate(defs) if p == resource}
+    if not want:
+        return text, 0
+    keep, n = [], 0
+    for ln in lines:
+        toks = ln.split()
+        if len(toks) >= 4 and toks[0] in ("OBJECT", "OBJECT_MSL", "OBJECT_AGL") \
+                and toks[1] in want:
+            try:
+                hit = abs(float(toks[2]) - lon) <= tol_deg and abs(float(toks[3]) - lat) <= tol_deg
+            except ValueError:
+                hit = False
+            if hit:
+                n += 1
+                continue
+        keep.append(ln)
+    return "\n".join(keep), n
 
 
 def write_files(pack_root: str, rec: _t.Mapping) -> list[str]:

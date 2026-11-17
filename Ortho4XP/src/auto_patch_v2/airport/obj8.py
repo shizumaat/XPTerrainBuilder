@@ -93,6 +93,12 @@ class ObjGeometry:
     #: authored file; the sim never shows it there).  Empty = none known
     #: (a geometry built by hand reads as all static).
     animated: np.ndarray = _dc.field(default_factory=lambda: np.zeros(0, dtype=bool))
+    #: per solid triangle, whether it was drawn under ``ATTR_layer_group
+    #: terrain`` at a NEGATIVE offset -- before the terrain mesh, so the
+    #: mesh draws over it (a pack's depth-punch trick: a near-invisible quad
+    #: there writes depth over the ground and the mesh drops out over a pit
+    #: drawn under it).  Empty = none known.
+    under_terrain: np.ndarray = _dc.field(default_factory=lambda: np.zeros(0, dtype=bool))
 
     def tri_animated(self, idx: np.ndarray) -> bool:
         """Whether ANY of the solid triangles ``idx`` is animated."""
@@ -171,8 +177,9 @@ def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeomet
     idx_lines = [ln.split(None, 1)[1] for ln in lines
                  if ln.startswith(b"IDX") and len(ln.split(None, 1)) == 2]
     idx = _ints(idx_lines) if idx_lines else np.zeros(0, dtype=np.int64)
-    ranges: list[tuple[int, int, bool, int, bool]] = []
+    ranges: list[tuple[int, int, bool, int, bool, bool]] = []
     draped = False
+    under = False                  # ATTR_layer_group terrain <negative>
     hard = 0
     anim = 0                       # ANIM_begin nesting depth
     stack = None
@@ -191,7 +198,7 @@ def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeomet
         if kw == b"TRIS" and len(toks) >= 3:
             try:
                 ranges.append((int(toks[1]), int(toks[2]), draped, hard,
-                               anim > 0 if stack is None else stack.moving))
+                               anim > 0 if stack is None else stack.moving, under))
             except ValueError:
                 continue
             if stack is not None:
@@ -206,6 +213,11 @@ def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeomet
                 stack.feed(toks)
         elif stack is not None and kw.startswith(b"ANIM_"):
             stack.feed(toks)
+        elif kw == b"ATTR_layer_group" and len(toks) >= 2:
+            try:
+                under = toks[1].lower() == b"terrain" and len(toks) >= 3 and int(toks[2]) < 0
+            except ValueError:
+                under = False
         elif kw == b"ATTR_draped":
             draped = True
         elif kw == b"ATTR_no_draped":
@@ -221,9 +233,10 @@ def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeomet
     solid_parts: list[np.ndarray] = []
     hard_parts: list[np.ndarray] = []
     anim_parts: list[np.ndarray] = []
+    under_parts: list[np.ndarray] = []
     draped_parts: list[np.ndarray] = []
     moved: list[np.ndarray] = []
-    for k, (off, cnt, is_draped, h, is_anim) in enumerate(ranges):
+    for k, (off, cnt, is_draped, h, is_anim, is_under) in enumerate(ranges):
         lo, hi = max(0, off), min(off + cnt, n)
         hi -= (hi - lo) % 3
         if hi <= lo:
@@ -240,13 +253,15 @@ def parse_obj8(path: str, at_rest: dict[str, float] | bool = False) -> ObjGeomet
             solid_parts.append(tri)
             hard_parts.append(np.full(tri.shape[0], h, dtype=np.int8))
             anim_parts.append(np.full(tri.shape[0], is_anim, dtype=bool))
+            under_parts.append(np.full(tri.shape[0], is_under, dtype=bool))
     solid = np.concatenate(solid_parts) if solid_parts else np.zeros((0, 3), dtype=np.int64)
     hardness = np.concatenate(hard_parts) if hard_parts else np.zeros(0, dtype=np.int8)
     animated = np.concatenate(anim_parts) if anim_parts else np.zeros(0, dtype=bool)
     drp = np.concatenate(draped_parts) if draped_parts else np.zeros((0, 3), dtype=np.int64)
     if moved:
         verts = np.concatenate([verts] + moved)
-    return ObjGeometry(path, verts, solid, hardness, drp, animated)
+    under_t = np.concatenate(under_parts) if under_parts else np.zeros(0, dtype=bool)
+    return ObjGeometry(path, verts, solid, hardness, drp, animated, under_t)
 
 
 def _posed(verts: np.ndarray, tri: np.ndarray, pose, moved: list, nv: int):

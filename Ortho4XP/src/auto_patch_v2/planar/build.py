@@ -365,7 +365,8 @@ def build(airport: Airport, classification: Classification, law: Law,
         # hard-deck consumer below (``planar/deck_generated``)
         gen, gen_notes = generated_decks(
             classification, airport, law, decks,
-            [c.footprint for c in corridors] + [f.footprint for f in floors])
+            [c.footprint for c in corridors] + [f.footprint for f in floors],
+            objects, cache, deck_notes)
         decks, deck_notes = tuple(decks) + gen, list(deck_notes) + gen_notes
     # a generated deck carries its airside pavement on both maps (A3)
     classification, cut_notes = carried_off(classification, decks, law)

@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 import types
 import typing as _t
 
@@ -293,8 +294,10 @@ def _tilt(law, ends, roles: CellRoles, at, cap_role: str) -> float:
     return max(-lim, min(lim, zb - za)) * d / span
 
 
-def _blocked(piece: Polygon, taken, blocked) -> str:
+def _blocked(piece: Polygon, taken, blocked, axes=(), packs=(), law=None,
+             why_of=lambda _i: "") -> str:
     from .deck_bridge import deck_polygon
+    from .deck_pack_cover import pack_refusal
     for db in taken:
         if deck_polygon(db).intersection(piece).area > 1.0:
             return f"the pack's deck {db.object_id} stands on it"
@@ -304,7 +307,7 @@ def _blocked(piece: Polygon, taken, blocked) -> str:
                 return "a pack trench / corridor / floor stands on it"
         except Exception:                      # an invalid pack outline
             continue
-    return ""
+    return pack_refusal(piece, axes, packs, law, why_of) if packs else ""
 
 
 def _pack_refusal(airport) -> str:
@@ -319,11 +322,15 @@ def _pack_refusal(airport) -> str:
 
 
 def generated_decks(classification, airport, law, taken: _t.Sequence = (),
-                    blocked: _t.Sequence = ()
+                    blocked: _t.Sequence = (), objects: _t.Sequence = (), cache=None,
+                    deck_notes: _t.Sequence[str] = ()
                     ) -> tuple[tuple[DeckBridge, ...], list[str]]:
     """``(every generated deck, one note per deck or refusal)`` (module
     doc).  ``taken``: the pack's own hard decks (``deck_bridges``);
-    ``blocked``: the pack's trench / corridor / floor outlines (frame)."""
+    ``blocked``: the pack's trench / corridor / floor outlines (frame);
+    ``objects`` / ``cache``: the pack read, whose own hard decks and tops
+    refuse a piece whether ``deck_bridges`` admitted them or not
+    (``planar/deck_pack_cover``); ``deck_notes``: its notes, naming why."""
     if classification is None or not classification.cells:
         return (), []
     g = law.tables.structures.deck_gen
@@ -384,6 +391,12 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     to_xy, to_ll = airport.frame.transformers()
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     refused_pack = _pack_refusal(airport)
+    from .deck_pack_cover import pack_decks_near
+    packs = pack_decks_near(objects, cache, law, R)
+
+    def why_of(oid: str) -> str:
+        own = re.compile(re.escape(oid) + r"(?![0-9])")
+        return next((n for n in deck_notes if own.search(n)), "")
     out: list[DeckBridge] = []
     for piece in sorted(getattr(R, "geoms", [R]), key=lambda q: -q.area):
         if piece.geom_type != "Polygon" or piece.area < float(g.min_area_m2):
@@ -401,7 +414,8 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             notes.append(f"{where}: REFUSED -- a tunnel, covered over max_cover_m "
                          f"{float(g.max_cover_m):g} m (A1 (3) / Q2)")
             continue
-        why = _blocked(piece, taken, blocked) or refused_pack
+        why = _blocked(piece, taken, blocked, [r.line for r in under], packs, law,
+                       why_of) or refused_pack
         if why:
             notes.append(f"{where}: REFUSED -- {why}")
             continue
@@ -445,6 +459,8 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
         main = max(under, key=lambda r: r.line.intersection(piece).length)
         x = main.line.intersection(piece)
         road = tuple(x.coords) if x.geom_type == "LineString" else ()
+        from .deck_pack_cover import faked_cuts
+        fakes = faked_cuts(piece, packs, law)
         out.append(DeckBridge(
             f"o4gen_{hid}", f"{GENERATED_DIR}/deck_{hid}.obj", (),
             tuple(piece.exterior.coords[:-1]), sa, sb, top_a, top_b,
@@ -454,11 +470,16 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             route=route, route_ref=ref, road=road,
             covered=tuple((r.id, tuple(sorted(r.tags.items())), tuple(r.line.coords))
                           for r in under),
-            approach=tuple(tuple(q.exterior.coords[:-1]) for q in approach)))
+            approach=tuple(tuple(q.exterior.coords[:-1]) for q in approach),
+            hides=tuple((f.object_id, f.resource, tuple(reversed(to_ll(*f.xy))))
+                        for f in fakes)))
         notes.append(f"{where}: GENERATED o4gen_{hid} ({family}, rise {rise:+.2f} m "
                      f"A->B, floor {depth:.1f} m under the top; spec 2123 A1)"
                      + (f"; {sum(q.area for q in approach):,.0f} m2 of pack pavement over "
-                        f"its open approaches leaves them (#2131)" if approach else ""))
+                        f"its open approaches leaves them (#2131)" if approach else "")
+                     + "".join(f"; the pack's {f.object_id} ({f.resource}) only fakes the cut "
+                               f"(drawn under the terrain): hidden in the pack copy"
+                               for f in fakes))
     return tuple(out), notes
 
 

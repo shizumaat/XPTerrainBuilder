@@ -187,6 +187,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.geom.lowest_face",
     "auto_patch_v2.geom.pad_evidence",
     "auto_patch_v2.geom.parts",
+    "auto_patch_v2.geom.plane_groups",
     "auto_patch_v2.geom.rotated_rect",
     "auto_patch_v2.geom.shape_class",
     "auto_patch_v2.geom.terrain_deck",

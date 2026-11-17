@@ -1271,7 +1271,9 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
 
 
 def reclassify(pkl: Path, rule: dict[str, object],
-               json_out: Path | None, top: int = 12) -> int:
+               json_out: Path | None, top: int = 12,
+               roles_out: Path | None = None, roles_against: Path | None = None,
+               protect: "tuple[str, ...] | list[str]" = ()) -> int:
     """THE §40 SHOULDER-BAND READING, DRY, OFF A REGISTERED CAPTURE
     (lane ``v2shoulderband`` r2; promoted on its second use per RULINGS
     ``7e90032`` — r1 hand-rolled it in a scratchpad for the HECA control
@@ -1317,6 +1319,21 @@ def reclassify(pkl: Path, rule: dict[str, object],
     cl = classify(airport, law, rules)
     print(f"[{icao}] classify {time.perf_counter() - t0:.1f} s, "
           f"{len(cl.cells)} cells")
+    # #2134 THE ROLE-FLIP CENSUS: dump this tree's cells, or read them
+    # against a dump of the base tree (``tools/role_flips.py``)
+    flips = None
+    if roles_out or roles_against:
+        if str(ROOT / "tools") not in sys.path:
+            sys.path.insert(0, str(ROOT / "tools"))
+        import role_flips
+        _to_ll = airport.frame.transformers()[1]
+        if roles_out:
+            role_flips.dump(cl.cells, _to_ll, roles_out)
+            print(f"[{icao}] roles -> {roles_out}")
+        if roles_against:
+            print(f"[{icao}] ROLE FLIPS against {roles_against}")
+            flips = role_flips.report(roles_against, cl.cells, _to_ll,
+                                      protect=protect)
 
     rw_of = {rw.id: rw for rw in airport.runways}
     def _lat_off(ring, rw) -> float:
@@ -1340,6 +1357,8 @@ def reclassify(pkl: Path, rule: dict[str, object],
         "remainder": {"faces": len(rest), "m2": sum(_area(c) for c in rest)},
         "stats": {k: v for k, v in cl.stats.items() if k.startswith("shoulder_band")},
     }
+    if flips is not None:
+        res["role_flips"] = flips
     by_role: dict[str, list[float]] = {}
     for c in rest:
         by_role.setdefault(c.role, []).append(_area(c))
@@ -3227,6 +3246,18 @@ def main() -> int:
                          "remainder by earned role, the worst lateral offset and "
                          "the vertices beyond the band).  Prices no law and counts "
                          "no defects.")
+    ap.add_argument("--roles-out", type=Path, metavar="PATH",
+                    help="with --reclassify: dump this tree's cells (role, ref, "
+                         "ring, evidence) for a later --roles-against (#2134)")
+    ap.add_argument("--roles-against", type=Path, metavar="PATH",
+                    help="with --reclassify: the ROLE-FLIP CENSUS -- read a "
+                         "--roles-out dump of the base tree against this run: "
+                         "apron area that left apron, by new role and by base "
+                         "minting rule, the largest flips with lat, lon, the "
+                         "cells that became apron (tools/role_flips.py)")
+    ap.add_argument("--protect", action="append", default=[], metavar="REF",
+                    help="with --roles-against: a ref that must stay apron "
+                         "(an owner-ruled apron); any flip of it is printed")
     ap.add_argument("--replay", type=Path, metavar="PKL")
     ap.add_argument("--from", dest="resume",
                     choices=("constraints", "shapes", "planar", "classify"),
@@ -3456,7 +3487,8 @@ def main() -> int:
         return 0
     if a.reclassify:
         rl = dict(it.split("=", 1) for it in a.rule)
-        return reclassify(a.reclassify, rl, a.json)
+        return reclassify(a.reclassify, rl, a.json, roles_out=a.roles_out,
+                          roles_against=a.roles_against, protect=a.protect)
     if a.why_from:
         from auto_patch_v2.law import Law
         with a.why_from.open("rb") as fh:

@@ -712,6 +712,12 @@ airside_run_bank_m     = 2.0
 small_road_classes     = ["service", "track", "unclassified", "living_street",
                           "residential", "road", "pedestrian", "footway", "cycleway",
                           "path", "bridleway"]
+# OWNER sim read 2026-11-17T19:42Z "that embankment needs to extend about 1m past
+# the bridge edges, then smoothly blend the natural terrain and the cut"; RULINGS
+# 2026-11-17p: EVERY bridge (pack and generated): the bank under a wall-less deck
+# runs on this far past its ring (planar/deck_bank: deck_bridge.deck_ground,
+# constraints/edge_deck)
+bank_past_edge_m       = 1.0
 
 [building_pad]
 weld_to_touching_pavement = true   # contact = value (09-01g)
@@ -1760,7 +1766,6 @@ bearing_m         = 2.0     # A2: the cut grows by this before the pavement over
 edge_margin_m     = 1.5     # A2 / Q3: the deck ring stands this far outside the pavement
 shoulder_m        = 1.5     # #2131 THE DECK SPANS ITS CUT (owner 2026-11-17 "the bridge objects need to be a bit longer, and the cuts wider"): the level floor each side of a covered road's carriageway (the drawn road's shoulders), under the deck and along its ramps; the deck then reaches the bank's run (thickness_m + [tunnel] clearance_m over emit.design.bank_slope, the bank deck_cut builds) farther, so its end line stands on the bank's crest
 thickness_m       = 1.0     # A2: the slab
-bank_past_edge_m  = 1.0     # owner sim read 2026-11-17T19:42Z "that embankment needs to extend about 1m past the bridge edges, then smoothly blend the natural terrain and the cut": the bank under a generated deck runs on this far past its ring (planar/deck_bridge.deck_ground, constraints/edge_deck)
 top_lift_m        = 0.02    # A2: the top over the solved end lines
 tilt_cap_share    = 0.8     # A2: the pre-solve tilt is clamped to this share of the family cap
 tilt_probe_m      = 6.0     # A2: the DEM read for the tilt stands this far outside each end line

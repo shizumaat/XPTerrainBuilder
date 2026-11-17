@@ -876,13 +876,14 @@ def deck_ground(classification, tunnels, law, decks=()) -> tuple:
     deck span's (``constraints/edge_deck``), so it carries no zone class.
     A piece narrower than the identity spacing is a seam of the overlay,
     not ground, and is dropped: a deck no corridor runs under mints no
-    ground.  A GENERATED deck's reach runs ``[deck_gen] bank_past_edge_m``
-    past its ring (``decks``; owner sim read 2026-11-17T19:42Z: the bank
-    under it "needs to extend about 1m past the bridge edges"): its bank
-    stands on that ground (``constraints/edge_deck``)."""
-    from .deck_generated import is_generated
-    past = float(law.tables.structures.deck_gen.bank_past_edge_m)
-    gen = {d.object_id for d in decks if is_generated(d)}
+    ground.  A BANKED deck's reach (``planar/deck_bank``: no wall under it,
+    pack or generated, RULINGS 2026-11-17p) runs ``bank_past_m`` past its
+    ring (``decks``; owner sim read 2026-11-17T19:42Z: the bank under it
+    "needs to extend about 1m past the bridge edges"): its bank stands on
+    that ground (``constraints/edge_deck``)."""
+    from .deck_bank import bank_past_m, banked
+    past = bank_past_m(law)
+    gen = {d.object_id for d in decks if banked(d)}
     rings: dict[tuple, Polygon] = {}
     for t in tunnels:
         pts = deck_reach(t)

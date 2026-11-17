@@ -586,6 +586,12 @@ class Bridge:
     #: ``clearance_minimum_m``; every other road (and rail) keeps ``[tunnel]
     #: clearance_m`` (``planar/structure_approach.design_clearance_m``)
     small_road_classes: tuple[str, ...] = ()
+    #: owner sim read 2026-11-17T19:42Z ("that embankment needs to extend
+    #: about 1m past the bridge edges, then smoothly blend the natural
+    #: terrain and the cut"), RULINGS 2026-11-17p (every bridge): the bank
+    #: under a wall-less deck runs on this far past the ring's edges before
+    #: the ground beyond blends (m; ``planar/deck_bank``)
+    bank_past_edge_m: float = 1.0
 
 
 @_dc.dataclass(frozen=True)

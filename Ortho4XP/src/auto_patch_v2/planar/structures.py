@@ -134,6 +134,7 @@ from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_
 from .deck_bridge import (deck_banks, deck_cut, deck_edge_pavement, deck_mouth, deck_pin,
                           deck_polygon, deck_seats, deck_side, deck_under)
 from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, pad_rims, road_level
+from .deck_bank import deck_bank_slope
 from .deck_generated import is_generated
 from .zones import shore_region
 from .structure_service import (airside_cover, airside_cut_roles, deck_witness_for,
@@ -1392,10 +1393,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # Q-A AS RULED: the road width, banked up to just short of the deck
             d_band = lane_band(deck, lane_cs.get((id(deck), deck_side(deck, members[0].inward)),
                                                  ()), lane_of.get(id(members[0]), 0))
-            from .deck_generated import GENERATED_WITNESS, generated_bank_slope
-            d_run = deck.depth_m / (generated_bank_slope(law)
-                                    if getattr(deck, "witness", "") == GENERATED_WITNESS
-                                    else float(law.tables.emit.design.bank_slope))
+            # RULINGS 2026-11-17p: every deck's bank is the one 1:1.5 bank
+            # (``planar/deck_bank``), a pack deck's as a generated one's
+            d_run = deck.depth_m / deck_bank_slope(law)
             # the airside the cut does not take: the runway no deck carries,
             # the pavement a dead end stops at (#2072 A2), the deck's own
             # airside edge band (#2072: the trench never touches airside) and

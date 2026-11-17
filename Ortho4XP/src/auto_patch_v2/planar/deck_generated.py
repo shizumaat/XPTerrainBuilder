@@ -59,12 +59,12 @@ from ..classify.roles import TAXI_FAMILY
 from ..law.tables import role_cap
 from ..model.structures import DeckBridge
 from .deck_bridge import CellRoles, _deck_z, _end_pair, _routes_across, _taxi_at_both_ends
+from .deck_bank import deck_bank_slope
 from .deck_route import carried_route
 from .structure_approach import carriageway_width_m, design_clearance_m, is_tunnel, standing_cover
 from .structure_underpass import underpass_bores
 
-__all__ = ["generated_bank_slope",
-           "generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
+__all__ = ["generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
            "carried_off", "covers_bore"]
 
 #: ``DeckBridge.witness`` of a generated deck
@@ -234,25 +234,10 @@ def _depth_m(law, roads) -> float:
 def _bank_run_m(law, roads) -> float:
     """The run of the bank under a generated deck: its floor's depth
     (:func:`_depth_m`) over the bank slope under a generated deck
-    (:func:`generated_bank_slope`) -- the bank ``planar/structures`` cuts
+    (``planar/deck_bank.deck_bank_slope``, every bridge's, RULINGS 2026-11-17p) -- the bank ``planar/structures`` cuts
     from each end line down to the floor (``deck_bridge.deck_cut``), so the
     generator and the cut read one number."""
-    return _depth_m(law, roads) / generated_bank_slope(law)
-
-
-def generated_bank_slope(law) -> float:
-    """The bank under a GENERATED deck: 1V:1.5H, the steep engineered-fill
-    face (``zones.adjacent_ground.old_dem_fill_slope``, the one law key that
-    states it).
-    The deck hides it; ``emit.design.bank_slope`` (1:3, a slope a pilot
-    reads as ground) is the OPEN ground's.  Owner 2026-11-17 18:30Z (ESSA
-    86aefaf4 over the service road -141): "seems to be larger than it needs
-    to be" -- at 1:3 a 6 m floor ran 18 m of bank each side; the channel's
-    1:2 (``[channel] bank_slope``) next; owner sim read 19:42Z: "The
-    embankment under bridges should be a bit steeper".  ONE reader:
-    ``planar/structures`` (the cut), this module (the ring) and
-    ``constraints/edge_deck`` (the bank's rows)."""
-    return float(law.tables.zones.adjacent_ground.old_dem_fill_slope)
+    return _depth_m(law, roads) / deck_bank_slope(law)
 
 
 def _cut_reach(roads, law, depth: "_t.Mapping[str, float] | None" = None):
@@ -267,7 +252,7 @@ def _cut_reach(roads, law, depth: "_t.Mapping[str, float] | None" = None):
     where it shares a deck with a road needing more clearance
     (:func:`_shared_depths`), else its own (:func:`_depth_m`)."""
     sh = float(law.tables.structures.deck_gen.shoulder_m)
-    slope = generated_bank_slope(law)
+    slope = deck_bank_slope(law)
     return unary_union([r.line.buffer(
         r.half_m + sh + (depth or {}).get(r.id, _depth_m(law, (r,))) / slope, cap_style="flat")
         for r in roads])

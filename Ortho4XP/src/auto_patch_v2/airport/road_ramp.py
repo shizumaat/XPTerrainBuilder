@@ -1361,8 +1361,9 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     #1939): a road vertex of a piece that enters a structure's mouth (the
     piece shares a vertex with a structure FLOOR, :func:`_mouth_floors`) and
     stands nearer that floor than its stage-1 pavement foot is at the
-    mouth, below the pavement over it: it leaves the terrace whole, as a
-    road below a retaining wall does, and keeps its own ramp target."""
+    mouth, below the pavement over it: it takes no foot, and its own ramp
+    target is its terrace level (``constraints/road_ramp.terrace_profile``),
+    so the runs beside it link down to the mouth."""
     from ..law.tables import airside_stage_roles
     out: dict[str, dict] = {"foot": {}, "pad": {}, "station": {}, "kerb": {},
                             "meet": {}, "runway": {}, "level": {}, "rim": {}}
@@ -1503,7 +1504,6 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             # never the pavement over the structure.  MEASURED ESSA
             # ``small_roads:-291#3`` 4.5 m from the floor, 13.2 m from
             # taxiway ``pav24#3`` (31.42 m) held its approach 4.8 m over lidar
-            out["station"].pop(v, None)
             out["at_mouth"][v] = True
             continue
         if lev:

@@ -325,6 +325,10 @@ class Unit:
     anchor: LL
     agl_m: float
     members: tuple[Member, ...]
+    #: #2086 / #2120 R2: the frame is a deck and the structure riding it
+    #: (``airport/deck_riders.riding_frames``), stamped at the placement
+    #: stage -- ``placement_family.frame_is_bridge`` reads it a bridge
+    rider_bridge: bool = False
 
 
 #: A ring of ``(lat, lon)`` points.

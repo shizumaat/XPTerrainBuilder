@@ -489,6 +489,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # as ONE free-standing bridge (``deck_riders``)
     _rides = _riders.riding_frames(plan, prints)
     counts["bridge_frame_riders"] = sum(1 for (ui, mi), d in _rides.items() if d != mi)
+    # #2120 R2: a riding frame IS a bridge (``frame_is_bridge``) for every
+    # reader below -- the wall chain, the contents, the free-standing datum
+    plan = _riders.with_rider_bridges(plan, _rides)
     _ride_datum = _riders.FrameDatums(plan, _rides, abutment_step_m,
                                       abutment_walk_max_m, split_tol_m)
 

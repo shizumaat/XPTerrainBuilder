@@ -38,8 +38,8 @@ import typing as _t
 from .bridge_family import CONTACT_M, DeckPrint
 from .placement_family import DECK_VERDICTS
 
-__all__ = ["FAMILY_KIND", "FrameDatums", "end_tops", "riding_frames", "objects_ride",
-           "frame_datum", "with_end_tops"]
+__all__ = ["FAMILY_KIND", "FrameDatums", "end_tops", "riding_frames", "with_rider_bridges",
+           "objects_ride", "frame_datum", "with_end_tops"]
 
 #: ``Member.deck_kind`` of a member of an accepted deck family that has no
 #: plate of its own (``deck_signature._apply``)
@@ -100,6 +100,21 @@ def riding_frames(plan: _t.Any, prints: _t.Sequence[DeckPrint]
                              lambda mi, ms=ms, own=own: _deck_ridden(ms[mi], own))
         out.update({(ui, mi): d for mi, d in seats.items()})
     return out
+
+
+def with_rider_bridges(plan: _t.Any, rides: _t.Mapping[tuple[int, int], int]) -> _t.Any:
+    """``plan`` with every frame :func:`riding_frames` reads stamped
+    ``Unit.rider_bridge`` -- so ``placement_family.frame_is_bridge`` and
+    ``member_is_bridge_deck`` read it a bridge (module doc: "a frame whose
+    every member is a deck or a rider is a bridge"): its decks stay out of
+    the §16g wall chain (10-22b) and seat on §16e's free-standing datum."""
+    import dataclasses as _dc
+    units = {ui for ui, _mi in rides}
+    if not units:
+        return plan
+    return _dc.replace(plan, units=tuple(
+        _dc.replace(u, rider_bridge=True) if ui in units else u
+        for ui, u in enumerate(plan.units)))
 
 
 def _placed(o: _t.Any, tris: _t.Any, cache: _t.Any):

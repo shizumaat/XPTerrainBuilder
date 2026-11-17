@@ -364,7 +364,11 @@ def frame_is_bridge(u: _t.Any) -> bool:
     deck then seats flush with the terrain at its ends
     (``anchor_rule.datum_of``).  A deck sharing its frame with anything
     else is a BUILDING's — its floor, its viaduct (10-03e) — and moves
-    with that building (10-22b, :func:`member_is_bridge_deck`)."""
+    with that building (10-22b, :func:`member_is_bridge_deck`).  A frame
+    whose every member is a deck or a rider of one (``deck_riders``, #2086:
+    ``Unit.rider_bridge``) is a bridge too."""
+    if getattr(u, "rider_bridge", False):
+        return True
     ms = tuple(getattr(u, "members", ()) or ())
     return bool(ms) and all(str(getattr(x, "deck_kind", "") or "") in DECK_VERDICTS
                             for x in ms)

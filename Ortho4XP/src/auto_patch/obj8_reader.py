@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from typing import Callable, Iterable, NamedTuple
 
 # Metres per degree of latitude; longitude is scaled by cos(latitude).
@@ -280,6 +281,22 @@ class ObjectGeometry(NamedTuple):
         )
 
 
+#: the numeric PREFIX of a token, as X-Plane's own reader (``atof``) takes it
+_NUMBER_PREFIX = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
+
+
+def _coord(token: str) -> float:
+    """A ``VT`` coordinate: the token, or its numeric prefix where a stray
+    byte follows it (#2120: KATL's 2026-11 ``katl218_building_000.obj``
+    carries ``5.5898099\\x01``) -- 0.0 for no number at all, as ``atof``.
+    The row is kept, so the ``IDX`` indices stay aligned."""
+    try:
+        return float(token)
+    except ValueError:
+        got = _NUMBER_PREFIX.match(token)
+        return float(got.group(0)) if got else 0.0
+
+
 def load_object_file(path: str) -> ObjectGeometry:
     """Parse an OBJ8 file.
 
@@ -310,7 +327,7 @@ def load_object_file(path: str) -> ObjectGeometry:
             keyword = tokens[0]
             if keyword == "VT":
                 vertices.append(
-                    (float(tokens[1]), float(tokens[2]), float(tokens[3]))
+                    (_coord(tokens[1]), _coord(tokens[2]), _coord(tokens[3]))
                 )
                 vertex_line_indices.append(line_index)
             elif keyword.startswith("IDX"):

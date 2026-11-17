@@ -22,7 +22,10 @@ travels as ``Airport.entrance_shade``: every pad reader takes it through
 ``geom.pad_shade_extra``, the one path, and the fallback mint refuses a
 footprint-cache ring the shade reaches into (``classify/evidence``) —
 that ring was welded from the mouth's walls and its members cannot be told
-apart.  Nothing here names a pack, a resource or an airport.
+apart.  A PORTAL IN A CUT (``airport/cut_portal``, #2120 R2 P2: walls from
+the road floor up to the cover, nothing under its zero) is a mouth too:
+its whole solid plan joins the shade.  Nothing here names a pack, a
+resource or an airport.
 """
 from __future__ import annotations
 
@@ -103,6 +106,11 @@ def entrance_shade(airport, objects: _t.Sequence[_obj8.PlacedObject],
     by_id = {o.id: o for o in objects}
     polys = [q for oid in sorted(ends) if oid in by_id
              for q in _mouth_components(by_id[oid], cache, ends[oid], law)]
+    # #2120 R2 P2: a portal in a cut is a mouth, never a pad
+    from .cut_portal import plan_union
+    cut = plan_union(getattr(airport, "cut_portals", ()) or ())
+    if cut is not None:
+        polys.append(cut)
     if not polys:
         return None
     got = unary_union(polys)

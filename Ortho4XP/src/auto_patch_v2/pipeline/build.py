@@ -403,6 +403,9 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # spec 2068 A2 F1: a unit's own fences join the one fence list
     from ..airport.unit_fence import attach_unit_fences
     airport = attach_unit_fences(airport, load_rules(), law, ocache)
+    # #2120 R2 P1: the portals in a cut, read once (the shade, the mouth walls, the seat)
+    from ..airport.cut_portal import attach_cut_portals
+    airport = attach_cut_portals(airport, pack_objects, ocache, law)
     # #1747 (RULINGS 2026-11-06b (6)): the tunnel mouths' walls, which no pad takes
     from ..airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law, _pins)

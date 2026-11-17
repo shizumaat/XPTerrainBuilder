@@ -171,6 +171,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.cut_portal_seat",
         "auto_patch_v2.airport.deck_carry",
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_family_contact",
@@ -415,6 +416,8 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.cut_portal",
+        "auto_patch_v2.airport.cut_portal_seat",
         "auto_patch_v2.airport.deck_carry",
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_ends",
@@ -870,6 +873,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.cut_portal_seat",
         "auto_patch_v2.airport.deck_carry",
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_family_contact",
@@ -1066,6 +1070,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.cut_portal_seat",
         "auto_patch_v2.airport.deck_carry",
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_ends",
@@ -1319,6 +1324,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.contact",
         "auto_patch_v2.airport.contents",
         "auto_patch_v2.airport.cut_deck_seat",
+        "auto_patch_v2.airport.cut_portal_seat",
         "auto_patch_v2.airport.deck_carry",
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_family_contact",
@@ -2156,6 +2162,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
     airport.floor_rim airport.object_floor airport.walled_pit geom.shape_class
     constraints.agp_plate geom.agp_plate model.agp_plate
@@ -2288,6 +2295,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.bridge_span_release
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
+    airport.cut_portal_seat
     airport.facade airport.hung_wall_seat airport.line_solidity airport.sunken_ramp
     airport.wall_class airport.wall_sheets airport.wall_sides airport.wall_top model.wall_reach
     airport.floor_rim airport.object_floor airport.walled_pit geom.shape_class
@@ -2375,6 +2383,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    airport.cut_portal airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
     constraints.airside_top
     airport.facade_seat
@@ -2557,6 +2566,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.mouth_behind
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    airport.cut_portal airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
     airport.facade_seat
     airport.access_road airport.agp_plates constraints.agp_plate geom.agp_plate model.agp_plate planar.agp_ground
@@ -2759,6 +2769,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.bridge_span_release planar.mouth_behind
 """)
 CODE_MODULES["emit"] = _mods("""
+    airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top planar.index
     model.wing_cut
     airport.mouth_group airport.ramp_wing airport.wall_lines
@@ -2895,6 +2906,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.bridge_span constraints.bridge_span_release
 """)
 CODE_MODULES["verify"] = _mods("""
+    airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
     constraints.airside_top
     constraints.apron_shelf constraints.road_ramp constraints.wall_zone geom.ramp_grade

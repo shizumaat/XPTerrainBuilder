@@ -509,6 +509,12 @@ class Airport:
     #: shade.  Same reader rule as ``wall_shade``; ``None`` = none, or not
     #: derived (a capture written before it).
     entrance_shade: _t.Any = None
+    #: #2120 R2 P1 THE PORTALS IN A CUT (``airport/cut_portal.CutPortal``):
+    #: the pack frames standing from a mapped road's floor up to the cover
+    #: over its bore, read ONCE at the pack stage for the shade, the planar
+    #: mouth walls and the object seat.  Empty = none, or not derived (a
+    #: capture before them: the replay derives them on an early resume).
+    cut_portals: tuple = ()
     #: #2099 F2 P4a: placement id -> the zero its entrance re-read seats it
     #: at (``airport/wall_reseat``): the retaining-wall law's seat for that
     #: member (``wall_class._seat_z``).  ``None`` = not derived (a class

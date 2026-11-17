@@ -460,6 +460,38 @@ def _hung_wedges(pm, law, airport, plates, authored, excluded) -> dict:
     return {w.oid: (w.top_y, list(w.stations), 0.0, WALL_TOP_PLATE) for w in got}
 
 
+def _portal_plates(law, airport, plates, authored, excluded) -> dict:
+    """#2120 R2 P2 (``airport/cut_portal_seat``): placement id -> ``(top y,
+    cover-side stations, 0.0, PORTAL_PLATE)`` for each portal in a cut no
+    other rule seats."""
+    from ..airport.cut_portal_seat import PORTAL_PLATE, portal_seats
+    taken = set(plates) | set(excluded) | {str(r.get("id")) for r in authored}
+    got = portal_seats(airport, float(law.tables.emit.identity.min_distinct_spacing_m),
+                       float(law.tables.structures.bridge.abutment_sample_step_m), taken)
+    for w in got:
+        print(f"[{getattr(airport, 'icao', '')}] portal in a cut {w.oid} "
+              f"({w.resource.rsplit('/', 1)[-1]}): y {w.top_y:+.2f} on the cover, "
+              f"{len(w.stations)} stations")
+    return {w.oid: (w.top_y, list(w.stations), 0.0, PORTAL_PLATE) for w in got}
+
+
+def _portal_cuts(pm, airport) -> list:
+    """#2120 R2 P2: the open cut beyond each mouth a portal in a cut walls
+    (``PlanarMap.mouth_walls``) as a below-grade region ``(polygon, owner
+    ids)`` -- a candidate deck over it spans the cut (04k), the portal itself
+    never."""
+    from shapely.geometry import Polygon
+    owners: dict[str, list[str]] = {}
+    for p in getattr(airport, "cut_portals", ()) or ():
+        owners.setdefault(p.resource, []).append(p.object_id)
+    out = []
+    for ring, _depth, path in getattr(pm, "mouth_walls", ()) or ():
+        if path in owners and len(ring) >= 3:
+            g = Polygon(ring)
+            out.append((g if g.is_valid else g.buffer(0), tuple(owners[path])))
+    return out
+
+
 def _solid_cache(law):
     """A resource cache reading a frame's solids (the split-level reader's)."""
     from ..airport import frame_entry as _fe
@@ -558,6 +590,8 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
         # #2099 F2 P5: a hung wedge wall's top is flush with the airside
         plates.update(_hung_wedges(pm, law, airport, plates, authored,
                                    excluded | shelled | modelled))
+    # #2120 R2 P2: a portal in a cut stands its top on the cover
+    plates.update(_portal_plates(law, airport, plates, authored, excluded | shelled | modelled))
     # #1934 R3 (RULINGS 2026-11-16d): a retaining wall's zero on its upper ground
     plates.update(_retaining_plates(pm, law, airport, plates, authored,
                                     excluded | shelled | modelled))
@@ -576,6 +610,7 @@ def _rebake_inputs(pm, law, surf, airport, objects=(), agp_report=None) -> dict[
         "authored_seats": (tuple(r for r in authored if str(r.get("id")) not in shelled)
                            + tuple(model_seats)),
         "exclude": excluded,
-        "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
+        "below_grade": ([(_basin_polygon(b), tuple(b.objects)) for b in pm.basins]
+                        + _portal_cuts(pm, airport)),
         # the SOLVED surface's value at every hard deck — ``emit/rebake.py``
         "deck_datum": lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy)}

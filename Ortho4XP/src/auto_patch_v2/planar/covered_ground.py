@@ -58,6 +58,10 @@ deck's edge at the pavement's end, that stretch of the edge is published
 that retains its height — ``airport/road_ramp`` reads it like a pack
 retaining wall: the road past the mouth is released from the deck's level
 and runs at its own floor, and the step across the edge is declared.
+A PORTAL IN A CUT (``airport/cut_portal``, #2120 R2 P2: walls from the road
+floor up to the cover, nothing under its zero) bounds a mouth the same way;
+its depth is the cut's at the mouth's section -- the ground beside the cover
+there less the DEM's floor at the section's foot -- capped by its own solid.
 
 AN EDGE BRIDGE'S COVER IS COVERED GROUND (owner RULINGS 2026-10-27l / 27r,
 2026-10-28d Q212 / Q213): where a pack models the bridge by its edges, the
@@ -75,7 +79,7 @@ import typing as _t
 
 import numpy as np
 from shapely.geometry import LineString, Point, Polygon
-from shapely.ops import unary_union
+from shapely.ops import nearest_points, unary_union
 from shapely.prepared import prep
 from shapely.strtree import STRtree
 
@@ -113,6 +117,12 @@ class CoveredGround:
     #: the deck edge where pack walls bound it (owner RULINGS 2026-10-15a):
     #: ``(strip ring, wall depth m, resource)`` per walled stretch
     mouth_walls: list[tuple[list[tuple[float, float]], float, str]] = \
+        _dc.field(default_factory=list)
+    #: #2120 R2: the mouths a portal in a cut walls -- ``(bore way ids,
+    #: (x, y) where the bore's axis meets the walled edge, portal object
+    #: id)`` per walled edge: the drawn cut face there is the mouth's FACE
+    #: (``pipeline/publication.cut_portal_mouths``)
+    portal_mouths: list[tuple[tuple[int, ...], tuple[float, float], str]] = \
         _dc.field(default_factory=list)
 
     def line(self) -> str:
@@ -306,7 +316,8 @@ def _bridge_piece(br, ribs, covers):
              round(br.depth_m, 2), br.resource) for g in parts]
 
 
-def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None, ribs=None):
+def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None, ribs=None,
+                 portals=(), dem=None, claimed=None):
     """The walled mouths: per mouth (the deck's edge where the pavement and
     the edge bridges' cover end) where a pack object reaching ``depth_min``
     under its own zero (a portal) stands within the cut, ONE piece — that
@@ -314,7 +325,10 @@ def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None, 
     stand in it) and the OPEN CUT beyond it off the cover, as wide as the
     cut's own section there (rim to rim, :class:`_Section`): the road in it
     runs at its floor.  An edge bridge's back is ONE piece of its own
-    (:func:`_bridge_piece`).  ``[(ring, depth, resource)]``."""
+    (:func:`_bridge_piece`).  ``portals`` (``airport/cut_portal``) wall a
+    mouth they stand at with the cut's depth there (:func:`_portal_depth`),
+    and each such mouth is appended to ``claimed`` (:func:`_claimed_mouth`).
+    ``[(ring, depth, resource)]``."""
     covered = pav if covers is None or covers.is_empty else unary_union([pav, covers])
     # ``cuts`` are clipped to the PAVEMENT (the deck): a mouth is where the
     # pavement ends and no edge bridge's cover carries the deck on
@@ -333,10 +347,10 @@ def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None, 
         depth = float(o.anchor_z) + float(getattr(o, "agl_m", 0.0) or 0.0) - float(lo)
         if depth >= depth_min:
             deep.append((box, depth, str(o.path)))
-    if not deep:
+    if not deep and not portals:
         return out
     end = covered.boundary.buffer(0.1)
-    for _b, secs, rib, _pr in cuts:
+    for b, secs, rib, _pr in cuts:
         mouth = rib.boundary.intersection(end)
         for seg in getattr(mouth, "geoms", [mouth]):
             if seg.is_empty or seg.length < 1.0:
@@ -348,6 +362,11 @@ def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None, 
             cut = seg.buffer(reach).difference(covered) if reach > 0.0 else None
             walls = [(d, p) for box, d, p in deep
                      if box.intersects(seg) or (cut is not None and box.intersects(cut))]
+            mine = [cp for cp in portals if sec is not None and (cp.plan.intersects(seg) or (
+                cut is not None and cp.plan.intersects(cut)))]
+            walls += [(_portal_depth(cp, sec, dem), cp.resource) for cp in mine]
+            if mine and claimed is not None:
+                claimed.append(_claimed_mouth(b, seg, mine[0]))
             if not walls:
                 continue
             depth, path = max(walls)
@@ -357,6 +376,26 @@ def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None, 
                     out.append(([(round(x, 2), round(y, 2)) for x, y in g.exterior.coords],
                                 round(depth, 2), path))
     return out
+
+
+def _claimed_mouth(b: Bore, seg, cp) -> tuple[tuple[int, ...], tuple[float, float], str]:
+    """``(bore way ids, mouth point, portal object id)``: the point of the
+    walled edge ``seg`` nearest the bore's axis (where the axis crosses it)."""
+    p = nearest_points(seg, b.line)[0]
+    return (tuple(int(w.id) for w in b.ways), (round(p.x, 2), round(p.y, 2)),
+            str(cp.object_id))
+
+
+def _portal_depth(cp, sec: _Section, dem) -> float:
+    """A portal in a cut's depth at the mouth read by ``sec``: the ground
+    beside the cover there less the DEM's floor at the section's foot,
+    capped by the portal's own solid (#2120 R2 P2)."""
+    solid = float(cp.top_y - cp.bottom_y)
+    floor = float(dem_z_many(dem, np.array([sec.foot[0]]), np.array([sec.foot[1]]))[0]) \
+        if dem is not None else math.nan
+    if not math.isfinite(floor):
+        return round(min(float(cp.depth_m), solid), 2)
+    return round(max(0.0, min(max(sec.zl, sec.zr) - floor, solid)), 2)
 
 
 def _bore_id(b: Bore) -> str:
@@ -402,14 +441,14 @@ def covered_cuts(airport, classification, law: Law, decks: _t.Sequence = ()):
 
 
 def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.ndarray,
-                   zs: np.ndarray, objects=(), bridges=(), decks=()
+                   zs: np.ndarray, objects=(), bridges=(), decks=(), portals=()
                    ) -> tuple[np.ndarray, CoveredGround]:
     """``zs`` with every vertex inside the covered footprint lifted to the
     ground beside the cover (never lowered), and the report (with the
     walled mouth edges, :func:`_mouth_walls`, read off ``objects`` —
     ``planar/basins.read_objects`` — and the edge ``bridges``,
     ``planar/bridge_span.edge_bridges``, whose cover is covered ground
-    too)."""
+    too, and the ``portals`` in a cut, ``airport/cut_portal``)."""
     rep = CoveredGround()
     tn = law.tables.structures.tunnel
     cuts, pav = covered_cuts(airport, classification, law, decks)
@@ -445,7 +484,8 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
                  for g in getattr(fp, "geoms", [fp]) if g.geom_type == "Polygon"]
     rep.bores = list(dict.fromkeys(_bore_id(b) for b, *_r in cuts))
     rep.mouth_walls = _mouth_walls(paved, pav, objects, float(tn.mouth_depth_m), bridges,
-                                   covers, ribs)
+                                   covers, ribs, portals, getattr(airport, "dem", None),
+                                   claimed=rep.portal_mouths)
     out = np.array(zs, dtype=float, copy=True)
     minx, miny, maxx, maxy = fp.bounds
     box = (xs >= minx) & (xs <= maxx) & (ys >= miny) & (ys <= maxy)

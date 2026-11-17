@@ -173,3 +173,25 @@ def test_a_ribbon_is_its_own_feeds_way_only():
     assert _is_named(("small_roads", -260), "small_roads:-260")
     assert not _is_named(("big_roads", -260), "small_roads:-260")
     assert _is_named(("bridge_deck", -260), "airport_small_roads:-260")
+
+
+def test_a_road_in_the_surveyed_cut_takes_no_level_from_beside_it(law):
+    """MEASURED KIAH (#2128 round 4): -5106 / -450 in the cut held 4-5 m
+    over the survey by the road terrace (feet on the apron and the lot
+    beside the cut): in C no terrace or between-levels row."""
+    from auto_patch_v2.airport.road_ramp import with_road_ramp
+    from auto_patch_v2.classify.rules import load_rules
+    airport, pm = _arm(law, {})
+    r = _rot(0.0)
+    cut = _dc.replace(pm, survey_cuts=((_rect(r, -25.0, 150.0, 90.0, 250.0), ()),))
+    svc = load_rules().service
+    base = with_road_ramp(pm, law, airport, {}, service=svc)
+    got = with_road_ramp(cut, law, airport, {}, service=svc)
+
+    owned = rr._owned(pm, rr._road_roles(law), law)
+
+    def held(p):
+        return {v for k in ("station", "foot", "pad", "kerb")
+                for v in (p.road_terrace.get(k) or {})
+                if v in owned and -25.0 <= _local(p, v)[0] <= 90.0}
+    assert held(base) and not held(got)

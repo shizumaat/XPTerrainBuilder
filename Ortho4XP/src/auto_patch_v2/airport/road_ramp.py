@@ -1144,6 +1144,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["_frame_report"] = frep
     rep["_contact_edge"] = contact
     rep["_contact_gap"] = gaps
+    rep["_in_cut"] = in_cut
     return RampTargets(targets, rep, frame)
 
 
@@ -2289,6 +2290,11 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     merged = tg.report.pop("_merged", frozenset())
     route_ways = tg.report.pop("_route_ways", {})
     on_foot = tg.report.pop("_foot", frozenset())
+    # R2 spec R4 (#2128 round 4; RULINGS 2026-11-17d): a road in the
+    # surveyed cut takes no level from the pavement beside it -- out of the
+    # terrace and the between-levels publication below
+    in_cut = tg.report.pop("_in_cut", frozenset())
+    free = {v: r for v, r in _owned(pm, _road_roles(law), law).items() if v not in in_cut}
     # §37 (10) (1) AT THE MOUTH THE LEVEL IS THE AIRSIDE'S, AND ONLY THE
     # AIRSIDE'S.  A road END that takes a reach contact carries the §37 (6)
     # ramp target too — the clamp of its own terrain, which at HECA
@@ -2336,13 +2342,13 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         report["preferred_withdrawn"] = len(pm.preferred_z) - len(keep)
     # OWNER RULINGS 2026-09-29x (Q-97 (b)): the between-levels publication
     # — geometry only; the levels are applied between §20b's stages
-    bl = between_levels(pm, law, _owned(pm, _road_roles(law), law))
+    bl = between_levels(pm, law, free)
     if report is not None:
         report["between_levels_road"] = len(bl.get("road", {}))
         report["between_levels_strip"] = len(bl.get("strip", {}))
     # OWNER RULINGS 2026-10-03b: the ribbon's bordered / bare segmentation
     # — geometry only; the levels are stage 1's, applied between the stages
-    terr = road_terrace(pm, law, _owned(pm, _road_roles(law), law), frame,
+    terr = road_terrace(pm, law, free, frame,
                         tuple(w.poly for w in walls), retaining)
     # OWNER RULINGS 2026-10-03c (#291): the wall between the airside level
     # and a lower lot is a DECLARED TERRACE — geometry only, read off the

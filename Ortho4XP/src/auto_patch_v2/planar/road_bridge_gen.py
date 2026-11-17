@@ -197,7 +197,8 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
             span = Polygon(span.exterior).simplify(0.5)
         out.append({"id": str(w.id), "highway": str(w.tags.get("highway")),
                     "_line_xy": plan.chain or line, "_span_xy": span, "half_m": half,
-                    "cover": round(cover, 3), "over": lower, "ground": plan.ground})
+                    "cover": round(cover, 3), "over": lower, "ground": plan.ground,
+                    "levels": plan.levels, "_axis_xy": line})
         notes.append(f"{where}: {100 * cover:.0f} % under pack pavement over "
                      f"{', '.join(lower[:4])} -- GENERATED as an X-Plane road (spec 2123 B); "
                      f"{plan.note()}")
@@ -237,7 +238,11 @@ def _road_bridges(airport, law, objects=(), cache=None, mod_cache_root=None
                     "net": str(rg.net_def), "cover": b["cover"], "over": b["over"],
                     "span_xy": [[round(x, 3), round(y, 3)]
                                 for x, y in b["_span_xy"].exterior.coords[:-1]],
-                    "ground": [dict(g) for g in b["ground"]]})
+                    "ground": [dict(g) for g in b["ground"]],
+                    # the deck line (``road_bridge_clear.deck_at``): the ends'
+                    # levels on their embankments along the mapped axis
+                    "levels": [round(float(v), 3) for v in b["levels"]],
+                    "axis_xy": [[round(x, 3), round(y, 3)] for x, y in b["_axis_xy"].coords]})
     return tuple(out), notes
 
 

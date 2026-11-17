@@ -2,8 +2,10 @@
 can share however they like, and whose install leaves nothing to download
 but imagery.
 
-A package is a ``tar.xz`` holding ``manifest.json``, ``ATTRIBUTION.txt``
-and the tiles' downloaded data (:mod:`.inputs`).  The manifest names the
+A package is a ``tar.xz`` holding ``manifest.json``, ``ATTRIBUTION.txt``,
+the tiles' downloaded data (:mod:`.inputs`) and its airports' generated
+decks and road bridges, so an install places them without running the
+generator (#2140, :mod:`.generated`).  The manifest names the
 tiles, the airports each grades with the pack each was built against,
 every source with its terms (``patch_library.terms``, owner Q319: a held
 source refuses the save, a non-commercial one marks the whole package),
@@ -40,6 +42,7 @@ import O4_File_Names as FNAMES
 from . import PACKAGE_FORMAT, PACKAGE_SUFFIX, BundleRefused, inputs
 from . import estimate as _estimate
 from . import export as _export
+from . import generated as _generated
 from . import key as _key
 from . import kinds as _kinds
 from . import pack_dev as _dev
@@ -63,6 +66,26 @@ def _schemas(tile) -> dict:
     out = {"osm:" + spec[0]: spec[4]
            for spec in VMAP.osm_layer_warm_specifications(tile)}
     out["insets"] = INSETS.INSET_COMPLETION_SCHEMA
+    out["generated"] = _generated_schema()
+    return out
+
+
+def _generated_schema() -> str:
+    """The generated-structure record's schema (#2140, :mod:`.generated`)."""
+    from auto_patch_v2.airport.generated_record import SCHEMA
+    return SCHEMA
+
+
+def _generated_members(loaded, chosen) -> list:
+    """``[(name, bytes, mtime_ns, tile key)]``: the generated decks and road
+    bridges of the package's airports (#2140, :mod:`.generated`) -- the
+    chosen ones, or every airport each tile grades."""
+    out = []
+    for tile in loaded:
+        icaos = chosen if chosen is not None else _key.graded_airports(tile)
+        key = FNAMES.short_latlon(tile.lat, tile.lon)
+        out += [(n, d, t, key) for n, d, t in _generated.members(tile, icaos)
+                if not _paths.leftovers(d, (), (os.path.expanduser("~"),))]
     return out
 
 
@@ -340,6 +363,10 @@ def save_package(tiles, out: str, custom_build_dir: str = "",
         files[name] = {"bytes": len(data), "tile": tile_key,
                        "sha256": hashlib.sha256(data).hexdigest(),
                        "mtime_ns": os.stat(path).st_mtime_ns}
+    for name, data, mtime_ns, tile_key in _generated_members(loaded, chosen):
+        blobs[name] = data
+        files[name] = {"bytes": len(data), "tile": tile_key,
+                       "sha256": hashlib.sha256(data).hexdigest(), "mtime_ns": mtime_ns}
     parts = key_parts(loaded)
     needs, estimate = _still_needs(loaded, chosen, kind)
     manifest = {"format": PACKAGE_FORMAT, **branding(fields),

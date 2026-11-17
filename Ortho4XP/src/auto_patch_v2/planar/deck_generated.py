@@ -34,7 +34,9 @@ is one deck.  Its END LINES are where the pavement runs onto it
 THE TOP is one plane: level across the route, tilted along it by the DEM
 just outside the end lines, clamped to ``tilt_cap_share`` of the family's
 longitudinal cap.  THE FLOOR stands ``thickness_m + [tunnel]
-clearance_m`` under the top (Q6).
+clearance_m`` under the top (Q6) -- 4.2 m (``[bridge] clearance_minimum_m``)
+over a small road (owner 2026-11-17T19:08Z, ``structure_approach.
+design_clearance_m``).
 
 Nothing here names an airport, a pack or a resource.  Build-time impact:
 one shapely union per airport and a few facing-contact reads per deck
@@ -55,26 +57,20 @@ from shapely.ops import linemerge, unary_union
 from ..airport.airside_deck_seat import facing_contacts
 from ..classify.roles import TAXI_FAMILY
 from ..law.tables import role_cap
-from ..model.structures import DeckBridge
+from ..model.structures import GENERATED_WITNESS, DeckBridge, generated_bank_slope, is_generated
 from .deck_bridge import CellRoles, _deck_z, _end_pair, _routes_across, _taxi_at_both_ends
 from .deck_route import carried_route
-from .structure_approach import carriageway_width_m, is_tunnel, standing_cover
+from .structure_approach import carriageway_width_m, design_clearance_m, is_tunnel, standing_cover
 from .structure_underpass import underpass_bores
 
-__all__ = ["generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
+__all__ = ["generated_bank_slope",
+           "generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
            "carried_off", "covers_bore"]
 
-#: ``DeckBridge.witness`` of a generated deck
-GENERATED_WITNESS = "generated"
 #: where the object stage writes the generated decks in the pack
 GENERATED_DIR = "objects/o4_generated"
 _RUNWAY_FAMILY = ("runway", "runway_crossing")
 XY = tuple[float, float]
-
-
-def is_generated(db) -> bool:
-    """A deck this module generated (no pack placement stands behind it)."""
-    return getattr(db, "witness", "") == GENERATED_WITNESS
 
 
 def covers_bore(db, line) -> bool:
@@ -217,18 +213,27 @@ def _whole_cover(roads, P, max_cover: float, ways=()) -> tuple[list, list[str]]:
     return out, notes
 
 
-def _bank_run_m(law) -> float:
-    """The run of the bank under a generated deck: its floor's depth (the
-    slab plus ``[tunnel] clearance_m``, Q6) over ``emit.design.bank_slope``
-    -- the bank ``planar/structures`` cuts from each end line down to the
-    floor (``deck_bridge.deck_cut``), so the generator and the cut read one
-    number."""
-    g = law.tables.structures.deck_gen
-    depth = float(g.thickness_m) + float(law.tables.structures.tunnel.clearance_m)
-    return depth / float(law.tables.emit.design.bank_slope)
+def _depth_m(law, roads) -> float:
+    """A generated deck's floor depth under its top: the slab plus the
+    clearance its covered ``roads`` need (Q6;
+    ``structure_approach.design_clearance_m``, owner 2026-11-17T19:08Z: 4.2 m
+    over a small road, ``[tunnel] clearance_m`` over the rest) -- the
+    largest of them."""
+    clear = max((design_clearance_m(r.tags, law) for r in roads),
+                default=float(law.tables.structures.tunnel.clearance_m))
+    return float(law.tables.structures.deck_gen.thickness_m) + clear
 
 
-def _cut_reach(roads, law):
+def _bank_run_m(law, roads) -> float:
+    """The run of the bank under a generated deck: its floor's depth
+    (:func:`_depth_m`) over the bank slope under a generated deck
+    (:func:`generated_bank_slope`) -- the bank ``planar/structures`` cuts
+    from each end line down to the floor (``deck_bridge.deck_cut``), so the
+    generator and the cut read one number."""
+    return _depth_m(law, roads) / generated_bank_slope(law)
+
+
+def _cut_reach(roads, law, depth: "_t.Mapping[str, float] | None" = None):
     """#2131 THE DECK SPANS ITS CUT (owner 2026-11-17: "the bridge objects
     need to be a bit longer, and the cuts wider"): per covered road its
     carriageway, the level floor ``shoulder_m`` beyond each edge, then the
@@ -236,9 +241,29 @@ def _cut_reach(roads, law):
     cover so the floor under it carries the whole drawn road.  Round 1 read
     a 3 m bank to a 6 m deep floor: the 1:3 bank the cut builds from the end
     lines took the whole floor and the drawn road ran up it (ESSA U -74:
-    0.58 m under the deck's edge)."""
-    reach = float(law.tables.structures.deck_gen.shoulder_m) + _bank_run_m(law)
-    return unary_union([r.line.buffer(r.half_m + reach, cap_style="flat") for r in roads])
+    0.58 m under the deck's edge).  ``depth``: a road's floor depth by id
+    where it shares a deck with a road needing more clearance
+    (:func:`_shared_depths`), else its own (:func:`_depth_m`)."""
+    sh = float(law.tables.structures.deck_gen.shoulder_m)
+    slope = generated_bank_slope(law)
+    return unary_union([r.line.buffer(
+        r.half_m + sh + (depth or {}).get(r.id, _depth_m(law, (r,))) / slope, cap_style="flat")
+        for r in roads])
+
+
+def _shared_depths(roads, law, R) -> dict[str, float]:
+    """Per road id the floor depth of the deck piece of ``R`` it runs under:
+    one deck has ONE floor, the deepest its roads need (:func:`_depth_m`) --
+    a small road beside a motorway under one deck is cut to the motorway's
+    floor, and its bank reaches as far (owner 2026-11-17T19:08Z: 4.2 m for
+    small roads, a deck over both keeps the larger)."""
+    out: dict[str, float] = {}
+    for piece in getattr(R, "geoms", [R]):
+        under = [r for r in roads if r.line.intersects(piece)]
+        d = _depth_m(law, under) if under else 0.0
+        for r in under:
+            out[r.id] = max(out.get(r.id, 0.0), d)
+    return out
 
 
 def _deck_id(ring: Polygon) -> str:
@@ -295,7 +320,7 @@ def _tilt(law, ends, roles: CellRoles, at, cap_role: str) -> float:
 
 
 def _blocked(piece: Polygon, taken, blocked, axes=(), packs=(), law=None,
-             why_of=lambda _i: "") -> str:
+             why_of=lambda _i: "", roads=()) -> str:
     from .deck_bridge import deck_polygon
     from .deck_pack_cover import pack_refusal
     for db in taken:
@@ -307,7 +332,17 @@ def _blocked(piece: Polygon, taken, blocked, axes=(), packs=(), law=None,
                 return "a pack trench / corridor / floor stands on it"
         except Exception:                      # an invalid pack outline
             continue
-    return pack_refusal(piece, axes, packs, law, why_of) if packs else ""
+    return pack_refusal(piece, axes, packs, law, why_of, roads,
+                        _approach_run_m(law)) if packs else ""
+
+
+def _approach_run_m(law) -> float:
+    """The stretch a covered road runs in the generated cut past the ring:
+    the floor's depth (the slab plus ``[tunnel] clearance_m``, Q6) over
+    ``[tunnel] ramp_grade`` -- the approach ramp's run (:func:`_approaches`)."""
+    g = law.tables.structures.deck_gen
+    tn = law.tables.structures.tunnel
+    return (float(g.thickness_m) + float(tn.clearance_m)) / float(tn.ramp_grade)
 
 
 def _pack_refusal(airport) -> str:
@@ -334,7 +369,6 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     if classification is None or not classification.cells:
         return (), []
     g = law.tables.structures.deck_gen
-    tn = law.tables.structures.tunnel
     fam = set(TAXI_FAMILY) | set(_RUNWAY_FAMILY)
     paved, refs = [], set()
     for c in classification.cells:
@@ -386,13 +420,22 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     C = _cut_reach(roads, law)
     R = P.intersection(C.buffer(float(g.bearing_m))).buffer(
         float(g.edge_margin_m), join_style="mitre")
+    shared = _shared_depths(roads, law, R)
+    if any(abs(d - _depth_m(law, (r,))) > 1e-9 for r in roads if (d := shared.get(r.id))):
+        # a deck over roads of two clearances: each bank reaches the deck's floor
+        C = _cut_reach(roads, law, shared)
+        R = P.intersection(C.buffer(float(g.bearing_m))).buffer(
+            float(g.edge_margin_m), join_style="mitre")
     roles = CellRoles(classification, airport)
     surface = types.SimpleNamespace(roles=roles)
     to_xy, to_ll = airport.frame.transformers()
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     refused_pack = _pack_refusal(airport)
     from .deck_pack_cover import pack_decks_near
-    packs = pack_decks_near(objects, cache, law, R)
+    # (c) RULINGS 2026-11-17n: a pack hard deck beside a piece, over its
+    # road within the approach run, refuses it too (``deck_pack_cover``)
+    packs = pack_decks_near(objects, cache, law, R,
+                            deck_region=R.buffer(_approach_run_m(law)))
 
     def why_of(oid: str) -> str:
         own = re.compile(re.escape(oid) + r"(?![0-9])")
@@ -415,11 +458,13 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                          f"{float(g.max_cover_m):g} m (A1 (3) / Q2)")
             continue
         why = _blocked(piece, taken, blocked, [r.line for r in under], packs, law,
-                       why_of) or refused_pack
+                       why_of, [r.parent or r.line for r in under]) or refused_pack
         if why:
             notes.append(f"{where}: REFUSED -- {why}")
             continue
         road_dir = _mean_dir([r.line.intersection(piece) for r in under])
+        piece = _straight_sided(piece, road_dir,
+                               _route_dir(carried_route(airport, piece)[1], piece))
 
         def ends_of(pc, road_dir=road_dir):
             pairs = facing_contacts([to_ll(x, y) for x, y in pc.exterior.coords[:-1]],
@@ -431,6 +476,8 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             # #2131: the carried pavement ends inside the bank's reach (a
             # taxiway between two aprons): the longest deck short of it
             short = _shortened(piece, under, P, law, frac)
+            short = _straight_sided(short, road_dir, _route_dir(
+                carried_route(airport, short)[1], short)) if short is not None else None
             pair = ends_of(short) if short is not None else None
             if pair is not None:
                 notes.append(f"{where}: the carried pavement ends inside the bank's reach "
@@ -453,7 +500,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
         rise = _tilt(law, ends, roles, sa[0], "runway" if family == "runway"
                      else "primary_parallel")
         top_a, top_b = 0.0, float(rise)
-        depth = float(g.thickness_m) + float(tn.clearance_m)
+        depth = _depth_m(law, under)
         hid = _deck_id(piece)
         approach = _approaches(piece, under, P, mapped, law)
         main = max(under, key=lambda r: r.line.intersection(piece).length)
@@ -472,7 +519,10 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                           for r in under),
             approach=tuple(tuple(q.exterior.coords[:-1]) for q in approach),
             hides=tuple((f.object_id, f.resource, tuple(reversed(to_ll(*f.xy))))
-                        for f in fakes)))
+                        for f in fakes),
+            hidden_plans=tuple(tuple(q.exterior.coords[:-1]) for f in fakes
+                               for q in getattr(f.plan, "geoms", [f.plan])
+                               if q.geom_type == "Polygon")))
         notes.append(f"{where}: GENERATED o4gen_{hid} ({family}, rise {rise:+.2f} m "
                      f"A->B, floor {depth:.1f} m under the top; spec 2123 A1)"
                      + (f"; {sum(q.area for q in approach):,.0f} m2 of pack pavement over "
@@ -488,7 +538,7 @@ def _shortened(piece: Polygon, under, P, law, frac: float) -> "Polygon | None":
     floors (:func:`_cut_reach`), as the ring is drawn (``bearing_m``,
     ``edge_margin_m``); ``None`` where nothing of a deck is left."""
     g = law.tables.structures.deck_gen
-    reach = float(g.shoulder_m) + frac * _bank_run_m(law)
+    reach = float(g.shoulder_m) + frac * _bank_run_m(law, under)
     C = unary_union([r.line.buffer(r.half_m + reach, cap_style="flat") for r in under])
     R = P.intersection(C.buffer(float(g.bearing_m))).buffer(
         float(g.edge_margin_m), join_style="mitre").intersection(piece)
@@ -517,11 +567,11 @@ def _approaches(piece: Polygon, under, P, mapped, law) -> list[Polygon]:
     from shapely.ops import substring
     g = law.tables.structures.deck_gen
     tn = law.tables.structures.tunnel
-    run = (float(g.thickness_m) + float(tn.clearance_m)) / float(tn.ramp_grade)
     out = []
     for r in under:
         if r.parent is not None:
             continue
+        run = _depth_m(law, under) / float(tn.ramp_grade)
         # the ramp's outer edge (carriageway, shoulder, rim stand-off), the
         # stand-off a stop is read at (``structures._pad_hit``'s gap) and the
         # deck's own bearing and edge margin (a sliver of the cell the ring cut
@@ -576,6 +626,46 @@ def _crest(stations: tuple, road_dir: "XY | None") -> tuple:
     runs.append(cur)
     best = max(runs, key=lambda r: math.hypot(r[-1][0] - r[0][0], r[-1][1] - r[0][1]))
     return tuple(best) if len(best) >= 2 else stations
+
+
+def _straight_sided(piece: Polygon, road_dir: "XY | None",
+                   route_dir: "XY | None" = None) -> Polygon:
+    """THE DECK HAS STRAIGHT SIDES (owner sim read 2026-11-17T19:42Z: "I
+    think probably sticking with straight sides makes sense for now"): the
+    quadrilateral that holds the whole ``piece`` with two sides along the
+    road under it (its end lines, the cut's crests) and two along the
+    carried route (``route_dir``; across the road where none is given or it
+    runs within 20 deg of the road) -- never the pavement ring's notches.
+    An oblique crossing is a parallelogram: a rectangle square to the road
+    took in the pack's service-road pavement beside the taxiway, never cut
+    (MEASURED ESSA ``o4gen_07971284``, 5.7 m).  ``piece`` itself without a
+    road direction."""
+    if road_dir is None or piece.is_empty:
+        return piece
+    ux, uy = road_dir
+    wx, wy = -uy, ux
+    if route_dir is not None and abs(route_dir[0] * ux + route_dir[1] * uy) \
+            < math.cos(math.radians(_CREST_TURN_DEG)):
+        wx, wy = route_dir
+    det = ux * wy - uy * wx
+    ab = [((x * wy - y * wx) / det, (ux * y - uy * x) / det) for x, y in piece.exterior.coords]
+    a0, a1 = min(a for a, _b in ab), max(a for a, _b in ab)
+    b0, b1 = min(b for _a, b in ab), max(b for _a, b in ab)
+    return Polygon([(a * ux + b * wx, a * uy + b * wy)
+                    for a, b in ((a0, b0), (a1, b0), (a1, b1), (a0, b1))])
+
+
+def _route_dir(route, piece: Polygon) -> "XY | None":
+    """The carried route's direction where it crosses ``piece`` (its
+    segment nearest the centroid); ``None`` for none."""
+    if len(route) < 2:
+        return None
+    c = piece.centroid
+    seg = min(zip(route[:-1], route[1:], strict=True),
+              key=lambda st: LineString(st).distance(c))
+    dx, dy = seg[1][0] - seg[0][0], seg[1][1] - seg[0][1]
+    n = math.hypot(dx, dy)
+    return None if n <= 1e-9 else (dx / n, dy / n)
 
 
 def _mean_dir(pieces) -> "XY | None":

@@ -21,6 +21,7 @@ from PySide6.QtGui import QColor, QFont, QPainterPath, QPen, QPolygonF
 
 import O4_Geo_Utils as GEO
 import O4_Qt_Map as QTMAP
+from O4_Qt_Patch_Shape_Alt import SlopeLayer
 from O4_Qt_Patch_Geometry import DRAW_ORDER, PatchScreenIndex, below_grade, scene_xy, style_class
 
 __all__ = ["PatchOverlay", "STYLES", "HATCH_BAND", "paint_styled", "paint_hatch"]
@@ -142,6 +143,7 @@ class PatchOverlay:
         self.index: PatchScreenIndex | None = None
         self._shapes: list[_Shape] = []
         self._sibling_shapes: list[tuple[str, bool, QPainterPath, bool]] = []
+        self.slopes = SlopeLayer(self)  # sloping rectangles (#2137)
         self.model.document_changed.connect(self._rebuild)
         siblings_changed = getattr(controller, "siblings_changed", None)
         if siblings_changed is not None:
@@ -164,6 +166,7 @@ class PatchOverlay:
     # ─── geometry ──────────────────────────────────────────────────────
     def _rebuild(self) -> None:
         doc = self.model.doc
+        self.slopes.rebuild(doc)
         if doc is None:
             self.index, self._shapes = None, []
             self.update()
@@ -254,6 +257,7 @@ class PatchOverlay:
                                if (skip is None or s.way not in skip.ways)
                                and s.bounds.intersects(visible)), self.hatch_phase())
         painter.restore()
+        self.slopes.paint(painter)
         self._paint_nodes(painter, vp.width(), vp.height(), skip.nodes if skip else ())
         if self.gestures is not None and self.model.mode == "Edit":
             self.gestures.paint(painter)
@@ -328,6 +332,9 @@ class PatchOverlay:
         return self.showing and self.gestures is not None and self.model.mode == "Edit"
 
     def mouse_press(self, event) -> bool:
+        if (self._editing() and event.button() == Qt.LeftButton
+                and self.slopes.press(event.position())):
+            return True     # a sloping rectangle's label: edit its side (#2137)
         return self._editing() and self.gestures.press(event)
 
     def mouse_move(self, event) -> bool:

@@ -149,6 +149,7 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
     ws = getattr(airport, "wall_shade", None)
     shade = [] if ws is None or ws.is_empty else [ws]
     made: list = []
+    frame_levels: dict[str, tuple] = {}
     n_k: dict[str, int] = {}
     for ref in lows:
         po = plane_of(ref)
@@ -224,6 +225,8 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
             made.extend(_dc.replace(tmpl, ref=ext + STRIP_SUFFIX, polygon=s)
                         for s in nonempty_polygon_parts(S))
             from_seed = host in seeds
+            if from_seed:
+                frame_levels[ext] = (q, block, round(y - t, 3))
             reg.landings[ext] = {**{k: v for k, v in rec.items() if k != "seed"},
                                  "y": round(y - t, 3), "y_lo": round(y - t, 3),
                                  "y_feet": round(y, 3), "area_m2": round(q.area, 1),
@@ -248,7 +251,33 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
         counts["low_level_extent_list"] = "; ".join(
             f"{k} of {v['extent_of']} y {v['y_feet']:+.2f} {v['area_m2']:g} m2"
             for k, v in sorted(reg.landings.items()) if v.get("extent_of"))
+    if frame_levels:
+        pieces = [w.poly for w in getattr(airport, "retaining_walls", ()) or ()]
+        _frame_runouts(regs + made, reg, frame_levels, air, pieces, airport, law, grid, counts)
     return regs + made
+
+
+def _frame_runouts(regs: list, reg: Registries, levels: dict, air, pieces: list, airport,
+                   law, grid: float, counts: dict) -> None:
+    """A MAPPED ROAD THAT ENTERS A SEEDED FRAME'S LEVEL RUNS OUT FROM IT
+    (2120-WF3 F6; 24a, 10-14c (5)): the road run-outs of a lower region
+    (``cut_runout.cut_runouts`` roads -- one mechanism: its records join
+    ``reg.landing_runouts``, its rows are ``constraints/ramp_runout.
+    landing_runout_rows`` off the level's own vertices) for every road
+    leaving a piece of ``levels`` (``{ref: (piece, block, y)}``) through an
+    OPEN edge.  Every other region -- the pieces' own riser strips among
+    them: a road across the block's riser stays as it is -- the airside and
+    the retaining PIECES take what crosses them (never a plate-capped
+    block's cover: a road under it is at grade, 2120-WF3 W-A)."""
+    from .cut_runout import cut_runouts
+    named = [(str(r.ref), r.polygon) for r in regs
+             if r.polygon is not None and str(r.ref) not in levels]
+    named += [("airside", air)] + [("retaining wall", g) for g in pieces]
+    taken = valid_area(unary_union([q for _r, q in named]))
+    got = cut_runouts(levels, reg.held, airport, law, taken, grid, counts, roads=True,
+                      named=named)
+    reg.landing_runouts.update(got)
+    counts["frame_level_runouts"] = len(got)
 
 
 def _join_walls(reg: Registries, levels: dict, by_ref: dict, made: list, air_all,

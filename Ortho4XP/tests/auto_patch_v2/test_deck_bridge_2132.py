@@ -154,7 +154,8 @@ def test_strip_mirrors_its_repeat_and_reaches_left_of_travel(tmp_path):
     assert vs == [0.0, 0.33333, 1.0]                   # 0 -> 1 at 30 m -> 0 at 60 m -> 1/3
     left = [v for v in vts if v[6] == 0.25]
     assert all(v[0] == pytest.approx(-1.0) for v in left)   # travel north (-z): left is west
-    assert "GLOBAL_no_shadow" in text and "ATTR_poly_os 2" in text
+    assert "GLOBAL_no_shadow" in text and "ATTR_poly_os" not in text
+    assert all(v[1] == pytest.approx(0.01) for v in vts)     # the strip's own lift
 
 
 def _install(tmp_path, override=False):
@@ -238,6 +239,12 @@ def test_recipe_draws_the_carried_surface_line_art_and_one_rubber_band(tmp_path)
     assert us == {float(G.rubber_u0), float(G.rubber_u1)}
     for text in objs.values():
         _check_obj8(text)
+        # owner sim read 1.0.555: an OBJ is not draped -- no film decal,
+        # weather-transparency or polygon offset (deck_objects._FILM_STEP_M)
+        for row in ("DECAL_LIB", "WEATHER_TRANSPARENT", "ATTR_poly_os"):
+            assert row not in text
+    # each film clear of the one under it at distance (cm, not mm)
+    assert float(G.paint_lift_m) - float(G.rubber_lift_m) >= 0.01 - 1e-9 <= float(G.rubber_lift_m)
     assert {f"{gen.GENERATED_DIR}/xp_a_wm.png", f"{gen.GENERATED_DIR}/xp_taxilines.dds"} \
         <= set(rec["links"])
     assert all(os.path.isabs(p) for p in rec["links"].values())

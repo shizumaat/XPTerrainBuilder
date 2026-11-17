@@ -46,6 +46,7 @@ from shapely.geometry import Polygon
 from . import deck_objects as _objs
 from . import deck_pavement as _pav
 from . import deck_texture as _tex
+from . import dsf_row_hide as _hide
 from .deck_obj8 import DECK_MARK
 from .deck_objects import GENERATED_DIR, TEXTURE, ring_polygon
 
@@ -103,7 +104,9 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     for k, d in enumerate(decks):
         code = _pav.carried_surface(apt, ring_polygon(d["ring"]), str(d.get("family") or "")) \
             if apt is not None else None
-        objs, st = _objs.deck_objects(d, dropped_by_deck.get(k, ()), art, g, surface_code=code)
+        runway = _pav.carried_runway(apt, ring_polygon(d["ring"])) if apt is not None else None
+        objs, st = _objs.deck_objects(d, dropped_by_deck.get(k, ()), art, g, surface_code=code,
+                                      runway=runway)
         rel = str(d["resource"])
         frame = st["frame"]
         for orel, text in objs:
@@ -121,10 +124,13 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
                             f"{st['lines']} line run(s) of {len(dropped_by_deck.get(k, ()))} "
                             f"dropped line piece(s), {st['lights']} light(s), "
                             f"{len(objs)} object(s)"
+                            + (f", {st['runway_marks']} runway mark(s)"
+                               if st.get("runway_marks") else "")
                             + (f", {st['unpainted']} line(s) of a type not painted"
                                if st["unpainted"] else ""))
     if art is not None:
         out["links"] = dict(art.links)
+        out["files"].update(art.files)
     if decks:
         out["files"][f"{GENERATED_DIR}/{TEXTURE}"] = _tex.deck_texture_png()
     for b in bridges:
@@ -182,10 +188,13 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "") -> tuple[str, 
         counts["pages_cut"] += rep.pages_cut
         counts["lines_cut"] += rep.lines_cut
         counts["area_removed_m2"] += rep.area_removed_m2
-    for h in rec.get("hides") or ():
-        text, n = _hide_rows(text, str(h["resource"]), float(h["lon"]),
-                                     float(h["lat"]))
-        counts["hidden"] = counts.get("hidden", 0) + n
+    hides = [(h["resource"], h["lon"], h["lat"]) for h in rec.get("hides") or ()]
+    if hides:
+        text, counts["hidden"] = _hide.hide_rows(text, hides)
+    if rec.get("overlap_hides"):
+        # #2145: the structures another pack also draws, the user's answer
+        # (``pack_overlap_choice.overlap_hides``)
+        text, counts["overlap_hidden"] = _hide.hide_rows(text, rec["overlap_hides"])
     for d in rec.get("decks") or ():
         text, _idx = _add.add_object(text, d["resource"], float(d["lon"]), float(d["lat"]),
                                      float(d["msl"]), float(d["hdg"]))
@@ -201,32 +210,6 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "") -> tuple[str, 
             for c in chains])
         counts["chains"] = len(chains)
     return text, counts
-
-
-def _hide_rows(text: str, resource: str, lon: float, lat: float,
-                  tol_deg: float = 2e-6) -> tuple[str, int]:
-    """``text`` without the rows placing ``resource`` within ``tol_deg``
-    of ``(lon, lat)`` (its definition stays declared); returns ``(text,
-    rows removed)``."""
-    lines = text.split("\n")
-    defs = [ln.split(None, 1)[1].strip() for ln in lines if ln.startswith("OBJECT_DEF ")]
-    want = {str(k) for k, p in enumerate(defs) if p == resource}
-    if not want:
-        return text, 0
-    keep, n = [], 0
-    for ln in lines:
-        toks = ln.split()
-        if len(toks) >= 4 and toks[0] in ("OBJECT", "OBJECT_MSL", "OBJECT_AGL") \
-                and toks[1] in want:
-            try:
-                hit = abs(float(toks[2]) - lon) <= tol_deg and abs(float(toks[3]) - lat) <= tol_deg
-            except ValueError:
-                hit = False
-            if hit:
-                n += 1
-                continue
-        keep.append(ln)
-    return "\n".join(keep), n
 
 
 def write_files(pack_root: str, rec: _t.Mapping) -> list[str]:
@@ -287,6 +270,9 @@ def record(backup_sha: str, rec: _t.Mapping, counts: _t.Mapping, stamp: str) -> 
     return {"backup_sha256": backup_sha, "time": stamp,
             "decks": list(rec.get("decks") or ()), "regions": list(rec.get("regions") or ()),
             "chains": list(rec.get("chains") or ()),
+            # #2140: the faked-cut placements hidden ride the record too,
+            # so a write that keeps it (``recorded``) still hides them
+            "hides": list(rec.get("hides") or ()),
             "files": sorted(set((rec.get("files") or {}).keys())
                             | set((rec.get("links") or {}).keys())
                             | set(rec.get("kept_files") or ())),
@@ -302,4 +288,5 @@ def recorded(entry: _t.Mapping, backup_sha: str) -> dict:
     if not r or r.get("backup_sha256") != backup_sha:
         return {}
     return {"decks": r.get("decks") or [], "regions": r.get("regions") or [],
-            "chains": r.get("chains") or [], "files": {}, "kept_files": r.get("files") or []}
+            "chains": r.get("chains") or [], "hides": r.get("hides") or [],
+            "files": {}, "kept_files": r.get("files") or []}

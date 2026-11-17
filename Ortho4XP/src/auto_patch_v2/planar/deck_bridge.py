@@ -873,7 +873,7 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     return unary_union(floors), unary_union(rims)
 
 
-def deck_ground(classification, tunnels, law, keep_out=None) -> tuple:
+def deck_ground(classification, tunnels, law, keep_out=None, decks=()) -> tuple:
     """``(classification with the deck-ground cells, notes)`` (module doc,
     THE GROUND THE DECK RESTS ON): for each hard deck a corridor was cut
     under, the part of its reach (``model/structures.deck_reach``: the ring,
@@ -885,12 +885,21 @@ def deck_ground(classification, tunnels, law, keep_out=None) -> tuple:
     not ground, and is dropped: a deck no corridor runs under mints no
     ground.  ``keep_out``: the survey's cut beside a kept deck
     (``planar/survey_deck_cut``, #2128 R1) -- never the deck's ground: the
-    mesh draws the survey there."""
+    mesh draws the survey there.  A GENERATED deck's reach runs
+    ``[deck_gen] bank_past_edge_m`` past its ring (``decks``; owner sim read
+    2026-11-17T19:42Z: the bank under it "needs to extend about 1m past the
+    bridge edges"): its bank stands on that ground (``constraints/edge_deck``)."""
+    from .deck_generated import is_generated
+    past = float(law.tables.structures.deck_gen.bank_past_edge_m)
+    gen = {d.object_id for d in decks if is_generated(d)}
     rings: dict[tuple, Polygon] = {}
     for t in tunnels:
         pts = deck_reach(t)
         reach = MultiPoint(pts).convex_hull if pts is not None else None
         if reach is not None and reach.geom_type == "Polygon":
+            if t.deck_bridge in gen and past > 0.0:
+                reach = reach.union(Polygon(t.deck_ring).buffer(past, join_style="mitre"))
+                reach = reach if reach.geom_type == "Polygon" else reach.convex_hull
             rings.setdefault((t.deck_bridge, tuple(reach.exterior.coords)), reach)
     if not rings:
         return classification, []

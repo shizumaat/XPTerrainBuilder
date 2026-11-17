@@ -105,9 +105,10 @@ def test_a_tile_that_cannot_be_built_in_time_is_late_and_not_started():
                              kind="drape", estimate_s={"drape": 37.0})
     drape.flight_loaded(53.3, -60.45)
     _west(drape, 0, 12)
-    assert not builder.started                      # beyond its horizon yet
-    _west(drape, 12, 60)
+    # #2142: the horizon covers a window move's five tiles on the slots
+    # (37 s x 1.5 x ceil(5 / 3) + one degree): the column is in it at once
     assert len(builder.started) == 3 and builder.started[0][1] == "drape"
+    assert {s[0][1] for s in builder.started} == {-64}
 
 
 def test_a_failed_build_is_tried_twice_never_a_third_time():
@@ -136,7 +137,8 @@ def test_s3_a_tile_in_or_near_the_window_or_witnessed_is_held():
 
 
 def test_finished_tiles_swap_when_s3_allows_spaced_unless_urgent():
-    job, builder, publisher = _job(capacity=16)
+    job, builder, publisher = _job(capacity=16,
+                                   wanted=lambda tile: tile[0] == 55)
     job.flight_loaded(*CYYR)
     job.tick(0.0, {"lat": CYYR[0], "lon": CYYR[1]})
     far = [s[0] for s in builder.started if s[0][0] == 55][:2]
@@ -266,10 +268,10 @@ def test_s5_a_merge_swap_never_removes_a_name(pack):
 class CoreBuilder(Builder):
     """``Builder`` that records a drape's ``core``."""
 
-    def start(self, tile, kind, deadline_in_s, klass, core=None):
+    def start(self, tile, kind, deadline_in_s, klass, core=None, px=None):
         if not super().start(tile, kind, deadline_in_s, klass):
             return False
-        self.started[-1] += (core,)
+        self.started[-1] += (core, px)
         return True
 
 
@@ -277,6 +279,22 @@ class MergePublisher(Publisher):
     def settle(self, tile, kind, held, merge=False, fresh=False):
         self.calls.append((tile, held, merge))
         return "staged" if held else "swapped"
+
+
+class PackPublisher(MergePublisher):
+    """``_PackPublisher``'s S4 (#2032): a held tile stays staged only
+    while the pack holds a real version; a swap makes it a drape."""
+
+    def __init__(self, kinds):
+        super().__init__()
+        self.kinds = kinds
+
+    def settle(self, tile, kind, held, merge=False, fresh=False):
+        self.calls.append((tile, held, merge))
+        if held and self.kinds.get(tile) != "placeholder":
+            return "staged"
+        self.kinds[tile] = "drape"
+        return "swapped"
 
 
 CYWG = (49.9100, -97.2399)                 # on +49-098, a placeholder
@@ -353,19 +371,46 @@ def test_here_reports_the_aircrafts_own_tile_as_it_is_built():
             here["core"]) == ("drape", "swapped", 0, 0, True)
 
 
-def test_airborne_far_away_nothing_held_is_built():
-    """In the air (AGL 3,000 m) over the same tile: no parked exception --
-    the held tile is left alone."""
-    job, builder, publisher = _parked_job({(49, -98): "placeholder"})
-    job.tick(0.0, {"lat": CYWG[0], "lon": CYWG[1], "agl_m": 3000.0})
-    assert all(s[0] != (49, -98) for s in builder.started)
-    assert job.spawn is None and not publisher.calls
+def test_airborne_a_held_placeholder_is_draped_last_and_nothing_offered():
+    """In the air (AGL 3,000 m) over the same tile: no parked exception
+    (no core, not P0) -- but the held placeholder is still draped, after
+    every other candidate (#2142 part 2), and no reload is offered in the
+    air; the one offer comes on the ground (owner Q2)."""
+    offers = []
+    kinds = {(49, -98): "placeholder", (49, -97): "placeholder",
+             (51, -98): "placeholder"}
+    builder, publisher = CoreBuilder(), PackPublisher(kinds)
+    job = JOB.WorldJob(builder=builder, publisher=publisher,
+                       wanted=lambda tile: kinds.get(tile) == "placeholder",
+                       kind_of=kinds.get, loads=lambda: {(49, -98)},
+                       capacity=16, offer=lambda: offers.append(1))
+    job.flight_loaded(*CYWG)
+    air = {"lat": CYWG[0], "lon": CYWG[1], "agl_m": 3000.0}
+    job.tick(0.0, air)
+    assert job.spawn is None
+    order = [s[0] for s in builder.started]
+    assert order == [(51, -98), (49, -98), (49, -97)]   # the ring first
+    assert all(s[3] == "P1" and s[4] is None for s in builder.started)
+    builder.finished += [(tile, True) for tile in order]
+    job.tick(1.0, air)
+    job.tick(2.0, air)
+    assert not offers and job.offers == []
+    ground = dict(air, agl_m=0.0)
+    job.tick(4.0, ground)       # landed: its own tile is re-draped with
+    assert job.jobs[(49, -98)].core is not None     # its core first ...
+    assert not offers
+    builder.finished.append(((49, -98), True))
+    job.tick(5.0, ground)
+    job.tick(6.0, ground)
+    assert offers == [1]                            # ... then ONE offer
 
 
-def test_the_merge_swap_offers_a_reload_and_keeps_old_names(pack, monkeypatch):
+def test_the_merge_swap_keeps_old_names_and_leaves_the_offer_to_the_job(
+        pack, monkeypatch):
     """``_PackPublisher.settle(merge=True)``: the held tile merged in (no
-    old name removed), staging gone, ``reload_offer`` "tiles"; nothing
-    sent."""
+    old name removed), staging gone; the reload is offered ONCE for the
+    episode by the job (``WorldJob.offer``, #2142), not by the merge;
+    nothing sent."""
     from o4_engine import reload_offer as RELOAD
     monkeypatch.setattr(RELOAD, "_STATE", {"offer": ""})
     sent = []
@@ -380,6 +425,8 @@ def test_the_merge_swap_offers_a_reload_and_keeps_old_names(pack, monkeypatch):
     assert os.path.isfile(os.path.join(path, "textures", "+53-064", "x.dds"))
     assert os.path.isfile(os.path.join(path, "textures", "+53-064", "y.dds"))
     assert not os.path.exists(root)
+    assert RELOAD.current() == "" and sent == []
+    RUN._offer_reload()                             # the job's offer
     assert RELOAD.current() == "tiles" and sent == []
 
 
@@ -511,7 +558,7 @@ def test_the_job_runs_in_the_engine_and_reports_world_status(pack,
             return "/build"
 
     monkeypatch.setattr(RUN, "drape_tile",
-                        lambda tile, provider, zl: builds.append(
+                        lambda tile, provider, zl, **_kw: builds.append(
                             (tile, provider, zl)) or False)
     assert RUN.world_job_start(Session(), scenery_dir=scenery) == {
         "status": "started"}
@@ -528,3 +575,66 @@ def test_the_job_runs_in_the_engine_and_reports_world_status(pack,
     status = events[-1]
     assert type(status).__name__ == "WorldStatus" and status.installed is False
     assert status.state == "off"                     # no ini row: the pack's own
+
+
+def test_on_the_ground_every_held_placeholder_is_draped_and_offered_once():
+    """#2142 part 2 (the ESSA 2026-11-17 case): parked beside a ``full``
+    tile, the window's placeholders X-Plane holds are all dispatched at
+    once (after the aircraft's own tile), at :data:`QUICK_PX`, and ONE
+    reload is offered when the last is in -- not one per tile."""
+    offers = []
+    window = WINDOW_TILES = {(r, c) for r in (48, 49, 50) for c in range(-99, -95)}
+    kinds = {t: "placeholder" for t in WINDOW_TILES}
+    kinds[(49, -98)] = "full"
+    builder, publisher = CoreBuilder(), PackPublisher(kinds)
+    job = JOB.WorldJob(builder=builder, publisher=publisher,
+                       wanted=lambda tile: kinds.get(tile) == "placeholder",
+                       kind_of=kinds.get, loads=lambda: set(window),
+                       capacity=16, drape_px=1024,
+                       offer=lambda: offers.append(1))
+    job.flight_loaded(*CYWG)
+    parked = {"lat": CYWG[0], "lon": CYWG[1], "agl_m": 0.0}
+    job.tick(0.0, parked)
+    started = {s[0] for s in builder.started}
+    assert started == set(window) - {(49, -98)}
+    assert all(job.jobs[t].px == JOB.QUICK_PX for t in started)
+    for i, tile in enumerate(sorted(started)):
+        builder.finished.append((tile, True))
+        job.tick(1.0 + i, parked)
+        assert len(offers) == (1 if i == len(started) - 1 else 0)
+    job.tick(30.0, parked)
+    assert offers == [1] and len(job.offers) == 1
+    job.flight_loaded(*CYWG)                        # a new episode
+    assert job._offered is False
+
+
+def test_a_placeholder_witnessed_then_left_is_wanted_again():
+    """#2142 §2's second defect: the ``Log.txt`` witness never cleared in
+    a session kept a placeholder X-Plane loaded empty and then LEFT out
+    for good.  Outside the window now, it is a candidate again."""
+    tile = (53, -59)                                # in the CYYR window
+    job, builder, _p = _job(loads=lambda: {tile}, cores=18,
+                            wanted=lambda t: t == tile)
+    job.flight_loaded(53.3, -60.45)
+    _west(job, 0, 120)                              # the window moves west
+    assert job.held(tile)                           # S3/S4 still say held
+    assert not job.in_window_now(tile)
+    assert tile in {s[0] for s in builder.started}
+
+
+def test_the_ring_is_a_candidate_at_any_speed():
+    """#2142 part 3: flying or parked, all 18 ring tiles (the window
+    widened by one column and row each side) are candidates, and the
+    tiles ahead join them with the earlier deadline kept."""
+    import O4_World_Ahead as AHEAD
+    for gs in (0.0, 60.0, 150.0, 230.0):
+        job, _b, _p = _job(wanted=lambda tile: False)
+        job.flight_loaded(53.3, -60.45)
+        _west(job, 0, 12, gs=gs)
+        ring = AHEAD.ring(job.tracker, *job.position)
+        assert len(ring) == 18
+        cands = job.candidates()
+        assert set(ring) <= set(cands), gs
+        if gs >= JOB.MOVING_MS:
+            assert job._ahead and all(cands[t] <= AHEAD.ring_deadline_s(
+                ring[t], job.gs_ms) for t in ring)

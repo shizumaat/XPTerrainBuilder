@@ -20,7 +20,8 @@ from . import (agp_plate, apron, cluster_pad, deck_anchor, eat, edge_deck, fill_
                junction_mesh,
                deck_stack, no_step, object_floor, pad_frontage_gs, pad_fronting, pads,
                platform,
-               proximity, ramp_runout, road_ramp, roads, routes, runway_chord, runway_mean_slope,
+               proximity, ramp_runout, road_bridge_ceiling, road_ramp, roads, routes,
+               runway_chord, runway_mean_slope,
                runway_profile, runway_step,
                seams, shell_datum, steep_apron, strips,
                channel,
@@ -107,6 +108,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("reach_bands", no_step.reach_bands),
     ("zone_bands", zones.zone_bands),
     ("strip_transverse", zones.strip_transverse),
+    # owner 2026-11-17 18:30Z: the lower road under a generated road bridge
+    # holds its clearance (a hard groundside ceiling)
+    ("road_bridge_ceiling", road_bridge_ceiling.road_bridge_ceiling_rows),
     # owner RULINGS 2026-10-27t/u (#1201): the ground under a runway-end
     # walled plate never rises through its top (a hard constant ceiling)
     ("walled_plate_under", walled_plate.under_plate_rows),

@@ -1,6 +1,8 @@
 @echo off
 rem Associates .xptb packages (#2014) with this copy of XPTerrainBuilder for
-rem the current user (no administrator rights; HKCU only).  The portable
+rem the current user (no administrator rights; HKCU only).  The app now does
+rem this itself at launch (O4_Windows_Assoc, #2143); this script stays for
+rem re-pointing by hand.  The portable
 rem zip has no installer, so the user runs this once from the folder that
 rem holds XPTerrainBuilder.exe; double-clicking a .xptb then opens the app,
 rem which shows the package's contents and asks before installing it

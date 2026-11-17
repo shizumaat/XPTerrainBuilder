@@ -28,9 +28,9 @@ from ..airport.deck_signature import (DEFAULT_TUNNEL_VALUES, is_bridge_way,
 from ..classify.roles import Cell
 from ..geom.union_find import find_root
 from ..airport.dem import dem_z_at
-from ..airport.road_ways import mapped_width_m
 from ..airport.wall_mouth import WallField
 from ..geom.vector import unit_vector
+from ..model.road_clearance import carriageway_width_m, design_clearance_m
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
@@ -59,14 +59,6 @@ def is_tunnel(w: OsmWay,
 def is_bridge(w: OsmWay) -> bool:
     """One predicate with the deck signature's (``airport/deck_signature``)."""
     return is_bridge_way(w.tags)
-
-
-def carriageway_width_m(tags: _t.Mapping[str, str], law: Law) -> float:
-    """The way's stated ``width``, else ``lanes × lane_width_m`` (a
-    railway counts as ``default_lanes``) — ``airport/road_ways.
-    mapped_width_m`` at the ``[tunnel]`` lane law."""
-    tn = law.tables.structures.tunnel
-    return mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
 
 
 def pavement_half_widths(axis_fn, ss: _t.Sequence[float], cells, polys, law: Law,

@@ -76,6 +76,11 @@ class SunkReading:
     #: authored_rim_tol_m`` where a plate of its frame caps it within that
     #: of ``y_up`` (the fill is under the plate), else 0
     fill_drop_m: float = 0.0
+    #: 2120-WF3 W-A: a plate of its frame caps it at ``y_up`` with a mapped
+    #: road at grade through it (R3's reader, :func:`_road_plate`, whatever
+    #: rule admitted it): its plan is read part by part
+    #: (``wall_class._plate_split``)
+    road_plate: bool = False
 
 
 def _numbers(law) -> tuple[float, float]:
@@ -117,8 +122,10 @@ def sunk_wall(airport, unit, part, whole, wide: float, cfg, law=None
     if step is None:
         return None                     # R4: a flat sunk frame is no wall
     capped = _plate(airport, unit, part, whole, y_up, rim_tol) is not None
+    roads = rule == "plate" or (capped and _road_plate(airport, unit, part, whole, y_up,
+                                                      cfg, law, rim_tol))
     return SunkReading(min(step, y_up - base), float(y_up), rule,
-                       rim_tol if capped else 0.0)
+                       rim_tol if capped else 0.0, roads)
 
 
 def _upper(base: float, top: float, y_g: float, sunk_min: float, rim_tol: float) -> bool:

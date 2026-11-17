@@ -8,8 +8,9 @@ For each ``v2_solve_replay --capture`` pickle it runs the ONE classifier,
 ``airport/wall_class.wall_class_components`` (the shipped ``[service]`` law),
 and lists every retaining component the sunk witness read: unit, placement
 id, resource, lift, rule (``upper`` R2 / ``plate`` R3), its class
-(2120-W3 §2: ``A`` a retaining block, ``B`` a deck block -- only the strip
-along its upper face retains, its plan a deck over the low ground), its upper
+(2120-W3 §2: ``A`` a retaining block, ``B`` a block with a deck part --
+2120-WF3 W-A: its plan read part by part, ``cover_m2`` the part over the low
+ground), its upper
 ground's authored ``y``, the height it retains, the plan's area and its
 lat/lon.
 Reads only; builds nothing.
@@ -55,7 +56,7 @@ def sunk_rows(airport, cfg) -> list[dict]:
         if not c.retains or not c.sunk_rule:
             continue
         oid = str(c.member.id)
-        g = unary_union(c.cover or c.pieces)
+        g = unary_union([*c.pieces, *c.cover])
         lat, lon = to_ll(g.centroid.x, g.centroid.y)
         rows.append({"unit": unit.get(oid, ""), "id": oid,
                      "resource": str(c.resource).rsplit("/", 1)[-1],
@@ -64,7 +65,10 @@ def sunk_rows(airport, cfg) -> list[dict]:
                      "y_up": round(float(c.retained_top_y), 2),
                      "retained_m": round(c.retained_m, 2),
                      "top_y": None if c.top_y is None else round(c.top_y, 2),
-                     "area_m2": int(round(g.area)), "lat": round(lat, 6), "lon": round(lon, 6)})
+                     "area_m2": int(round(g.area)),
+                     # 2120-WF3 W-A: the plan's deck part over the low ground
+                     "cover_m2": int(round(unary_union(c.cover).area)) if c.cover else 0,
+                     "lat": round(lat, 6), "lon": round(lon, 6)})
     return rows
 
 
@@ -107,7 +111,8 @@ def main(argv=None) -> int:
             print(f"   {r['unit']:10s} {r['id']:14s} lift {r['lift']:+7.2f} "
                   f"{r['rule']:5s} {r['class']} "
                   f"y_up {r['y_up']:6.2f} top {r['top_y']} retained {r['retained_m']:5.2f} "
-                  f"area {r['area_m2']:6d} @{r['lat']},{r['lon']} {r['resource']}")
+                  f"area {r['area_m2']:6d} cover {r['cover_m2']:6d} "
+                  f"@{r['lat']},{r['lon']} {r['resource']}")
     return 0
 
 

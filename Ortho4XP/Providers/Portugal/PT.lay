@@ -12,4 +12,10 @@ url_prefix=https://cartografia.dgterritorio.gov.pt/wms/ortos2021?
 layers=Ortos2021-RGB
 extent=Portugal
 imagery_dir=grouped
+# Coverage measured 2026-11-17 (provider audit): imagery north of ~40N;
+# Lisbon, the Alentejo and the Algarve answer HTTP 200 all-white tiles.
+# coverage_bounds keeps PT out of the menus for tiles south of 40N
+# (O4_Imagery_Sources.covers_tile); PTSAT covers the whole country.
+coverage_bounds=-9.6,40.0,-6.1,42.2
+sample_point=41.2481,-8.6814
 in_GUI=True

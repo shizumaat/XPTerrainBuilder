@@ -9,3 +9,7 @@ imagery_dir=code
 max_zl=18
 fake_headers={'User-Agent':user_agent_generic,'Accept':'*/*','Connection':'keep-alive','Referer':'https://hkp.maanmittauslaitos.fi','Origin':'https://hkp.maanmittauslaitos.fi'}
 # color filter : balance medium 3 3 -5 saturation 30 brightness-contrast -20 8
+# sample_point: where the launch liveness check (O4_Imagery_Sources) asks
+# for a sample; without it a global-extent provider is probed at New York
+# and a regional service reads offline (provider audit 2026-11-17).
+sample_point=60.3172,24.9633

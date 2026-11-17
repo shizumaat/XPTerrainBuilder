@@ -12,4 +12,7 @@ url_prefix=https://ortos.dgterritorio.gov.pt/wms/ortosat2023?
 layers=ortoSat2023-CorVerdadeira
 extent=Portugal
 imagery_dir=grouped
-in_GUI=False
+# Offered standalone since 2026-11-17 (provider audit): the only Portugal
+# source with imagery over Lisbon and the south (PT is north-only).
+sample_point=38.7742,-9.1342
+in_GUI=True

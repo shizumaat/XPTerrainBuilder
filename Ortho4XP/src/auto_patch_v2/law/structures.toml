@@ -721,6 +721,13 @@ airside_run_max_m      = 40.0
 # MEASURED KLAX Road_Bridge east end: the deck end top 32.83 over the apron
 # 32.10 (0.73 m), 1:2 gives 1.5 m
 airside_run_bank_m     = 2.0
+# OWNER 2026-11-17T19:08Z "Accept 4.2m clearance for small roads": a GENERATED
+# deck or road bridge over a road of these `highway` classes clears it by
+# clearance_minimum_m (4.2 m) -- its floor and banks shrink with it; every
+# other road and rail keeps [tunnel] clearance_m (5.0 m)
+small_road_classes     = ["service", "track", "unclassified", "living_street",
+                          "residential", "road", "pedestrian", "footway", "cycleway",
+                          "path", "bridleway"]
 
 [building_pad]
 weld_to_touching_pavement = true   # contact = value (09-01g)
@@ -1770,6 +1777,7 @@ bearing_m         = 2.0     # A2: the cut grows by this before the pavement over
 edge_margin_m     = 1.5     # A2 / Q3: the deck ring stands this far outside the pavement
 shoulder_m        = 1.5     # #2131 THE DECK SPANS ITS CUT (owner 2026-11-17 "the bridge objects need to be a bit longer, and the cuts wider"): the level floor each side of a covered road's carriageway (the drawn road's shoulders), under the deck and along its ramps; the deck then reaches the bank's run (thickness_m + [tunnel] clearance_m over emit.design.bank_slope, the bank deck_cut builds) farther, so its end line stands on the bank's crest
 thickness_m       = 1.0     # A2: the slab
+bank_past_edge_m  = 1.0     # owner sim read 2026-11-17T19:42Z "that embankment needs to extend about 1m past the bridge edges, then smoothly blend the natural terrain and the cut": the bank under a generated deck runs on this far past its ring (planar/deck_bridge.deck_ground, constraints/edge_deck)
 top_lift_m        = 0.02    # A2: the top over the solved end lines
 tilt_cap_share    = 0.8     # A2: the pre-solve tilt is clamped to this share of the family cap
 tilt_probe_m      = 6.0     # A2: the DEM read for the tilt stands this far outside each end line
@@ -1784,8 +1792,8 @@ rubber_pol        = "lib/airport/default_runways/rubber.pol"    # #2132: the tir
 rubber_u0         = 0.25    # #2141 (2) (owner 2026-11-17 "centreline tire textures look good; the ones on either side do not"): ONE column of the rubber atlas (u0..u1, the dense centre band), mirrored every repeat
 rubber_u1         = 0.5
 line_lib          = "lib/airport/lines/1_single_taxi.lin"        # #2141 (3) ("use X-Plane line types if possible"): the dropped apt.dat lines drawn on the deck in the install's own line pages (this page's folder, <type>_*.lin; airport/deck_line_art); unresolved -> the generated atlas
-rubber_lift_m     = 0.005   # the tire-mark film over the top
-paint_lift_m      = 0.012   # the paint over the tire marks
+rubber_lift_m     = 0.02    # the tire-mark film over the top (owner sim read 2026-11-17, 1.0.555: an OBJ film coplanar with the slab shimmered / did not draw; solid geometry, no poly_os, airport/deck_objects _FILM_STEP_M)
+paint_lift_m      = 0.03    # the paint over the tire marks (its layers 0.01 m apart)
 slab_m            = 0.25    # #2132 structure (spec 2132-design section 4; owner 2026-11-17 "kerb only (0.30 x 0.40 m, side edges), no blast screen"; airport/deck_structure): the slab under the top
 beam_spacing_m    = 2.4     # beams along the route, one every this across it
 beam_width_m      = 0.9
@@ -1808,6 +1816,7 @@ near_lod_m        = 1200.0  # everything to this distance; then the top, fascia 
 page_cover_frac     = 0.5   # B1 (b): a pack page / apt.dat 110 covers at least this share of the carriageway
 pack_road_near_m    = 5.0   # B1 (c): a road-pack segment this close ...
 pack_road_angle_deg = 15.0  # ... and this parallel already draws it
+pack_top_min_m      = 2.5   # B1 (c) "the pack always wins" (planar/road_bridge_pack): a pack placement's solid top this far or more over its ground (a bridge, an overpass, a roof) over [deck_gen] pack_cover_share of the bridge already draws it
 span_margin_m       = 0.5   # B3: the page clip is the carriageway half width plus this
 net_def             = "lib/g10/roads.net"   # B2: the network written when the pack declares none
 subtype             = 50    # B2: #VROAD subtype (P0: SHOW_LEVEL 2 on simHeaven's roads_EU; the owner saw it draw)

@@ -32,11 +32,12 @@ def test_the_deck_spans_its_cut_floor_carries_the_road():
     """#2131: the bank the cut builds from each end line (depth / bank
     slope) stands beyond the floor, which carries the carriageway and its
     shoulders: a deck spanning the reach leaves the road on the floor."""
-    run = dg._bank_run_m(LAW)
-    g = LAW.tables.structures.deck_gen
-    depth = float(g.thickness_m) + float(LAW.tables.structures.tunnel.clearance_m)
-    assert run == pytest.approx(depth / float(LAW.tables.emit.design.bank_slope))
     road = _road([(0.0, -40.0), (0.0, 40.0)])
+    run = dg._bank_run_m(LAW, (road,))
+    g = LAW.tables.structures.deck_gen
+    # a service road clears by [bridge] clearance_minimum_m (owner 2026-11-17T19:08Z)
+    depth = float(g.thickness_m) + float(LAW.tables.structures.bridge.clearance_minimum_m)
+    assert run == pytest.approx(depth / dg.generated_bank_slope(LAW))
     C = dg._cut_reach([road], LAW)
     reach = C.bounds[2]
     assert reach == pytest.approx(road.half_m + float(g.shoulder_m) + run)
@@ -87,7 +88,9 @@ def test_approach_pavement_beyond_a_mapped_tunnel_end():
     on = types.SimpleNamespace(points=[(-30.0, 0.0), (-200.0, 0.0)])
     out = dg._approaches(piece, [tunnel], P, [on], LAW)
     g, tn = LAW.tables.structures.deck_gen, LAW.tables.structures.tunnel
-    run = (float(g.thickness_m) + float(tn.clearance_m)) / float(tn.ramp_grade)
+    # the tunnel is a service road: its floor clears by [bridge] clearance_minimum_m
+    run = (float(g.thickness_m) + float(LAW.tables.structures.bridge.clearance_minimum_m)) \
+        / float(tn.ramp_grade)
     wide = 3.5 + float(g.shoulder_m) + 2 * float(tn.wall_gap_m) + float(tn.wall_band_width_m) \
         + float(g.bearing_m) + float(g.edge_margin_m)
     x0, _y0, x1, _y1 = unary_union(out).bounds
@@ -166,7 +169,7 @@ def test_skinned_slab_tiles_in_metres(tmp_path):
     film = overlay_obj8_text(lambda x, z: 0.0, texture="r.dds",
                              strips=[DeckStrip(((0.0, -20.0), (0.0, 20.0)), 3.75, 3.75,
                                                (0.25, 0.5), 30.0, 0.01)])
-    assert "ATTR_poly_os 2" in film and "ATTR_hard_deck" not in film
+    assert "ATTR_poly_os" not in film and "ATTR_hard_deck" not in film   # solid film (1.0.555)
 
 
 def test_whole_cover_with_no_pavement_over_the_chain():
@@ -177,3 +180,20 @@ def test_whole_cover_with_no_pavement_over_the_chain():
     way = types.SimpleNamespace(points=[(0.0, 0.0), (50.0, 0.0)])
     out, notes = dg._whole_cover([road], box(500.0, 500.0, 600.0, 600.0), 100.0, [way])
     assert out == [road] and notes == []
+
+
+def test_a_deck_over_a_small_road_and_a_motorway_has_one_floor():
+    """Owner 2026-11-17T19:08Z: 4.2 m over a small road, ``[tunnel]
+    clearance_m`` over the rest; one deck over both is cut to the larger,
+    and the small road's bank reaches that floor."""
+    small = _road([(0.0, -40.0), (0.0, 40.0)])
+    big = dg._Road("-2", {"highway": "motorway"}, LineString([(20.0, -40.0), (20.0, 40.0)]),
+                   80.0, 5.0)
+    th = float(LAW.tables.structures.deck_gen.thickness_m)
+    st = LAW.tables.structures
+    assert dg._depth_m(LAW, (small,)) == pytest.approx(th + float(st.bridge.clearance_minimum_m))
+    assert dg._depth_m(LAW, (small, big)) == pytest.approx(th + float(st.tunnel.clearance_m))
+    R = box(-60.0, -10.0, 80.0, 10.0)
+    shared = dg._shared_depths([small, big], LAW, R)
+    assert shared == {"-1": dg._depth_m(LAW, (big,)), "-2": dg._depth_m(LAW, (big,))}
+    assert dg._cut_reach([small], LAW, shared).area > dg._cut_reach([small], LAW).area

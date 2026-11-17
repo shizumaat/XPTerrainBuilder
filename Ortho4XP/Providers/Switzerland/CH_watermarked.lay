@@ -4,3 +4,7 @@ url_template=https://wmts100.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/
 fake_headers={'User-Agent':user_agent_generic,'Accept':'*/*','Connection':'keep-alive','Accept-Encoding':'gzip, deflate, br','Referer':'https://map.geo.admin.ch','Origin':'https://map.geo.admin.ch'}
 imagery_dir=code
 in_GUI=True
+# sample_point: where the launch liveness check (O4_Imagery_Sources) asks
+# for a sample; without it a global-extent provider is probed at New York
+# and a regional service reads offline (provider audit 2026-11-17).
+sample_point=47.4582,8.5555

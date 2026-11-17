@@ -576,9 +576,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # the pavement sources -- read once, before the stage cache keys them
     from ..planar.road_bridge_gen import attach_road_bridges
     _rb_notes: list[str] = []
-    airport = attach_road_bridges(airport, law, _rb_notes)
+    airport = attach_road_bridges(airport, law, _rb_notes, pack_objects, ocache,
+                                  inputs.mod_cache_root)
     for _n in _rb_notes:
-        if "GENERATED" in _n:
+        if "GENERATED" in _n or "REFUSED" in _n:
             _say(f"[{icao}] {_n}", out)
     # THE STAGE CACHE (issue #843; ``pipeline/front_cache.py``): classify,
     # planar, flat_site, road_profile and the shapes are served from their
@@ -684,6 +685,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
     # seeds the ramp from STAGE 1's solved level — applied between the two
     # stages, bound here because ``solve`` may not import ``constraints``
+    from ..constraints.deck_floor_follow import floor_follow_rewrite
     from ..constraints.door_pad import blend_release
     from ..constraints.road_ramp import reach_seed_rewrite
 
@@ -694,6 +696,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         lv1 = dict(lv)
         door, bands, pref = blend_release(pm, law, airport, lv, cs)
         cs2, rep = reach_seed_rewrite(pm, law, cs, lv1)
+        # a generated deck's floor follows its end lines as stage 1 solved them
+        cs2, rep["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv1)
+        if rep["deck_floor_follow"]["pins"]:
+            _say(f"[{icao}] generated deck floor follows its end lines: "
+                 f"{rep['deck_floor_follow']}", out)
         if bands:
             cs2 = _dc.replace(cs2, bands=(*cs2.bands, *bands))
         rep["door_blend"] = door

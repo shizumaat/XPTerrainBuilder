@@ -20,6 +20,9 @@ reading of a retaining wall's two sides that every reader shares:
   (KATL ``muro_27R.obj``: the §47 extension and the corridor's slivers put
   a ``service_road`` face 2-10 m beyond the wall's back, answered by the
   foot road 13 m below);
+* :func:`split_at_walls` — a line split at the footprints, the runs inside
+  dropped (2120-WF3 W-B: a mapped way has no ground inside a retaining
+  piece; ``classify/wall_cutback`` and ``airport/road_profile`` share it);
 * :func:`crosses_wall` — a segment touches a footprint (a way never answers
   a vertex across the wall; two ways across it are never one carriageway);
 * :func:`smear_sampler` — the DEM read past the smear beside a wall: the
@@ -47,7 +50,7 @@ from shapely.ops import nearest_points, unary_union
 
 from ..model.wall_reach import BEHIND_SHARE, wall_reach_m, wall_smear_m
 
-__all__ = ["WallSides", "wall_sides", "far_side_cut", "crosses_wall",
+__all__ = ["WallSides", "wall_sides", "far_side_cut", "split_at_walls", "crosses_wall",
            "smear_sampler", "band_setbacks"]
 
 
@@ -390,6 +393,28 @@ def far_side_cut(geom, walls: _t.Sequence[WallSides], judge=None, grow_m: float 
     return geom
 
 
+#: a line part shorter than this left by a footprint is noise
+MIN_LINE_M = 1.0
+
+
+def split_at_walls(points: _t.Sequence, polys: _t.Sequence) -> "tuple[list, float] | None":
+    """THE ONE SPLIT of a line at retaining pieces (2120-WF3 W-B; 16d, 16n):
+    ``(parts, dropped m)`` -- the runs of the polyline ``points`` outside
+    every footprint of ``polys`` (each at least :data:`MIN_LINE_M` long, as
+    point tuples) and the length inside them; ``None`` where no footprint
+    reaches the line."""
+    from ..geom.parts import line_parts
+    ln = LineString(points)
+    hit = [g for g in polys if ln.intersects(g)]
+    if not hit:
+        return None
+    rest = ln
+    for g in hit:
+        rest = rest.difference(g)
+    return ([tuple(p.coords) for p in line_parts(rest) if p.length >= MIN_LINE_M],
+            ln.length - rest.length)
+
+
 def crosses_wall(a, b, walls: _t.Sequence[WallSides]) -> bool:
     """The segment ``a``-``b`` runs ACROSS (or into) a wall: it reaches the
     footprint's core (:attr:`WallSides.core`) — a vertex on the wall's face
@@ -414,8 +439,10 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
     """``sample`` read past the smear (module doc): a point within a wall's
     ``smear`` of its footprint, in one of its side bands, reads also the
     ground ``smear`` out along its own perpendicular from the wall and
-    takes the lower of the two on the lower side, the higher on the upper.
-    ``sample`` itself where no wall stands."""
+    takes the lower of the two on the lower side, the higher on the upper;
+    a point ON a long face is that face's band's, read ``smear`` out along
+    the face's outward normal (2120-WF3 W-B: a way split at a piece ends on
+    its face).  ``sample`` itself where no wall stands."""
     if not walls:
         return sample
     boxes = np.array([w.poly.buffer(w.smear).bounds for w in walls], float)
@@ -430,12 +457,16 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
             fix, at = [], []
             for i in idx:
                 p = Point(float(xs[i]), float(ys[i]))
-                side = w.side_of((p.x, p.y))
-                if side is None:
-                    continue
                 q = nearest_points(w.poly, p)[0]
                 d = math.hypot(p.x - q.x, p.y - q.y)
-                if d <= 1e-6 or d >= w.smear:
+                if d <= 1e-6:
+                    got = _on_face(w, p)
+                    if got is not None:
+                        fix.append((int(i), got[0]))
+                        at.append(got[1])
+                    continue
+                side = w.side_of((p.x, p.y))
+                if side is None or d >= w.smear:
                     continue
                 f = w.smear / d
                 fix.append((int(i), side))
@@ -449,6 +480,25 @@ def smear_sampler(sample: _t.Callable[[np.ndarray, np.ndarray], np.ndarray],
                     z[i] = min(z[i], zp) if side == "lower" else max(z[i], zp)
         return z
     return _sample
+
+
+def _on_face(w: WallSides, p: Point) -> "tuple[str, tuple] | None":
+    """``(side, the point smear out)`` for ``p`` ON one of ``w``'s long faces
+    (within 1e-6 m): out along that face's outward normal (its right; the
+    footprint lies on its left); ``None`` off both faces (inside the
+    footprint, or on an end edge)."""
+    for side, face in (("upper", w.upper_face), ("lower", w.lower_face)):
+        if face is None or face.length <= 0.0 or face.distance(p) > 1e-6:
+            continue
+        s = face.project(p)
+        a = face.interpolate(max(0.0, s - 0.5))
+        b = face.interpolate(min(face.length, s + 0.5))
+        tx, ty = b.x - a.x, b.y - a.y
+        n = math.hypot(tx, ty)
+        if n <= 1e-9:
+            return None
+        return side, (p.x + ty / n * w.smear, p.y - tx / n * w.smear)
+    return None
 
 
 def band_setbacks(walls: _t.Sequence[WallSides]) -> tuple[tuple, ...]:

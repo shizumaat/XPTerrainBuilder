@@ -1012,8 +1012,8 @@ class PlanarMap:
                     air.update(self.ring_vertices(cyc))
         return frozenset(v for v in self.ribbon_vertices() if v not in air)
 
-    def band_kerb_vertices(self, airside_roles: _t.AbstractSet[str] = frozenset()
-                           ) -> frozenset[int]:
+    def band_kerb_vertices(self, airside_roles: _t.AbstractSet[str] = frozenset(),
+                           cut: bool = True) -> frozenset[int]:
         """30e (4) (spec-author RULINGS 2026-09-30e, 29r): the KERB a
         mapped-road ribbon shares with an adjacent-ground band — every
         vertex touching both an OSM ribbon face (:func:`is_osm_ribbon_ref`)
@@ -1029,7 +1029,11 @@ class PlanarMap:
 
         A ROAD THROUGH ZONE 2 (owner RULINGS 2026-10-20c, 39): the band is
         cut back from it (``road_yield``), so it shares no vertex — its
-        ribbon vertices standing in the cut are the kerb all the same."""
+        ribbon vertices standing in the cut are the kerb all the same.
+        ``cut=False`` leaves them out: the road's own-ground target still
+        reaches them (#2121, ``airport/road_ramp._cut_kerb_ground``) — the band holds
+        them under its ceiling only, so the road follows its ground below
+        the band's grade instead of hanging on the objective alone."""
         rib: set[int] = set()
         band: set[int] = set()
         air: set[int] = set()
@@ -1047,8 +1051,9 @@ class PlanarMap:
         # 39 (owner RULINGS 2026-10-20c): a ribbon vertex in a road's cut
         # out of zone 2 is the band's kerb too, across the stand-off, and so
         # is the zone-1 lip's where the road crosses it (``road_yield``)
-        cut = {v for y in (getattr(self, "road_yield", ()) or ()) for v in y.kerb}
-        return frozenset(((rib & band) | cut) - air)
+        cut_kerb = ({v for y in (getattr(self, "road_yield", ()) or ()) for v in y.kerb}
+                    if cut else set())
+        return frozenset(((rib & band) | cut_kerb) - air)
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

@@ -48,7 +48,7 @@ from o4_engine import patch_slice as _slice
 __all__ = ["Node", "Way", "PatchDoc", "move", "set_position", "set_alt",
            "offset_alt", "delete_nodes", "delete_ways", "insert_on_edge", "merge_nodes",
            "slice_shape", "add_shape", "rotate_ways", "duplicate_ways", "slice_way", "next_node_id",
-           "next_way_id", "apply_op"]
+           "next_way_id", "set_way_tags", "apply_op"]
 
 
 #: One node: ``(id, lat, lon, alt or None)`` — the §2 wire shape.
@@ -444,12 +444,29 @@ def rotate_ways(doc: PatchDoc, way_ids: _t.Iterable[int], angle_deg: float) -> P
                         for i in ids})
 
 
+def set_way_tags(doc: PatchDoc, way: int, put: _t.Mapping[str, str] | None = None,
+                 remove: _t.Iterable[str] = ()) -> PatchDoc:
+    """Change one way's tags (#2137: a shape's own elevation,
+    ``patch_shape_alt``): ``put`` adds or replaces keys, ``remove`` drops
+    them; the refs and every node are untouched."""
+    wid = int(way)
+    if not any(w.id == wid for w in doc.ways):
+        raise KeyError(f"way {wid} is not in the patch")
+    gone = frozenset(remove)
+
+    def retag(w: Way) -> Way:
+        tags = {k: v for k, v in w.tags.items() if k not in gone}
+        tags.update({str(k): str(v) for k, v in (put or {}).items()})
+        return _dc.replace(w, tags=tags)
+    return _dc.replace(doc, ways=tuple(retag(w) if w.id == wid else w for w in doc.ways))
+
+
 _OPS: dict[str, _t.Callable[..., PatchDoc]] = {
     "move": move, "set_position": set_position, "set_alt": set_alt,
     "offset_alt": offset_alt, "delete_nodes": delete_nodes, "delete_ways": delete_ways,
     "insert_on_edge": insert_on_edge, "merge_nodes": merge_nodes,
     "slice_shape": slice_shape, "add_shape": add_shape, "rotate_ways": rotate_ways,
-    "duplicate_ways": duplicate_ways,
+    "duplicate_ways": duplicate_ways, "set_way_tags": set_way_tags,
 }
 
 

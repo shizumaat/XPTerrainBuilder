@@ -2381,9 +2381,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         # capture that already carries them)
         from auto_patch_v2.planar.road_bridge_gen import attach_road_bridges
         _rb_notes: list = []
-        airport = attach_road_bridges(airport, law, _rb_notes)
+        airport = attach_road_bridges(airport, law, _rb_notes, _objs, _ocache,
+                                      inputs.mod_cache_root)
         for _n in _rb_notes:
-            if "GENERATED" in _n:
+            if "GENERATED" in _n or "REFUSED" in _n:
                 print(f"[{icao}] {_n}")
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster
@@ -2779,6 +2780,13 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             except ImportError:                   # a tree that predates it
                 pass
             cs2, rep2 = reach_seed_rewrite(pm, law, cs, lv1)
+            try:
+                from auto_patch_v2.constraints.deck_floor_follow import floor_follow_rewrite
+                cs2, rep2["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv1)
+                print(f"[{icao}] generated deck floor follows its end lines: "
+                      f"{rep2['deck_floor_follow']}")
+            except ImportError:                   # a tree that predates it
+                pass
             if bands:
                 cs2 = _dc.replace(cs2, bands=(*cs2.bands, *bands))
             rep2["preferred_z"] = pref
@@ -3164,7 +3172,12 @@ def _null_twin(_null, held: dict, trace, sol, rep, law, strips, n: int, method: 
             kw["stage1"] = s1
         else:
             cs_x = _null.with_bands(cs, bands)
-        kw["stage2_rewrite"] = lambda lv: reach_seed_rewrite(pm, law, cs_x, lv)
+        def _s2(lv, cs_x=cs_x):
+            from auto_patch_v2.constraints.deck_floor_follow import floor_follow_rewrite
+            cs2, rep2 = reach_seed_rewrite(pm, law, cs_x, lv)
+            cs2, rep2["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv)
+            return cs2, rep2
+        kw["stage2_rewrite"] = _s2
         from auto_patch_v2.constraints.taxi_trend import (
             low_hold_retarget,
             stage_one_retarget,

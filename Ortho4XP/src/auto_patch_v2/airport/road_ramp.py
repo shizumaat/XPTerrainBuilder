@@ -179,6 +179,41 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str
     return out
 
 
+#: #2121: the reach over which a zone-2 cut kerb's own ground is averaged
+#: (about a carriageway's width: both kerbs of the section)
+CUT_GROUND_M = 15.0
+
+
+def _cut_kerb_ground(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float]
+                    ) -> dict[int, float]:
+    """``{v: DEM}`` over the ribbon vertices standing in a road's own zone-2
+    cut that carry no target (#2121, the caller's comment): the zone-2 cut
+    kerb (``PlanarMap.band_kerb_vertices`` less the shared kerb), on a road
+    face that is no deck.  The ground is the mean DEM of the cut kerb within
+    :data:`CUT_GROUND_M` — both kerbs of the section and the stretch along
+    it, as the route's own DEM is read along the road and never under one
+    kerb (MEASURED KBUF ``big_roads:-6682``: kerb DEM 198.5 m among 202 m
+    neighbours, a ditch pixel, sank the road 2.5 m)."""
+    from ..law.tables import airside_stage_roles as _asr
+    cut = pm.band_kerb_vertices(_asr(law)) - pm.band_kerb_vertices(_asr(law), cut=False)
+    if not cut:
+        return {}
+    roads, decks = _road_roles(law), deck_refs(pm)
+    on_road = {v for f in pm.faces.values() if f.role in roads and f.ref not in decks
+               for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+    ground = {v: float(pm.vertices[v].dem_z) for v in cut & on_road
+              if pm.vertices[v].dem_z is not None and math.isfinite(float(pm.vertices[v].dem_z))}
+    out: dict[int, float] = {}
+    for v in sorted(ground):
+        if v in targets:
+            continue
+        x, y = pm.vertices[v].xy
+        near = [z for u, z in ground.items()
+                if exact.dist(pm.vertices[u].xy, (x, y)) <= CUT_GROUND_M]
+        out[v] = sum(near) / len(near)
+    return out
+
+
 def _airside_level(pm: PlanarMap, v: int) -> float | None:
     """THE AIRSIDE'S OWN LEVEL at one vertex: the highest of the published
     airside targets it carries (``apron_trend_z`` / ``taxi_trend_z`` /
@@ -1367,6 +1402,15 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     width (4 m) or the contact reach (15 m) would call the whole runway run
     bare.
 
+    ONLY AT A SHARED NODE (owner 2026-11-17T16:38Z, #2122 NZWN: "the road
+    is only anchored to the apron where it touches, any gap allows it to be
+    at a different level"; 17d (1)): of the pavements within that reach, a
+    vertex takes the level of one whose RING CARRIES IT (:func:`_shared_refs`)
+    — a ``foot``, ``pad`` or ``level`` is never read across a gap, so a road
+    beside pavement climbs at its own grade between the nodes it shares.
+    MEASURED NZWN: road ``-2556`` held at apron ``dsf:pol107``'s 8-8.7 m for
+    the 47 m it borders it, its ground rising to 16.5 m.
+
     * ``foot`` — the NEAREST §20b STAGE-1 pavement foot (runway family,
       taxi family, apron): ``v -> (a, b, u, ref)``.  Its level is stage 1's
       constant, so the weld is ONE-WAY by construction (airside untouched).
@@ -1385,6 +1429,9 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     * ``station`` — ``v -> (route, s)`` for every ribbon-owned vertex the
       route frame answers (bordered or bare), and every ribbon vertex the
       ribbon shares with a zone band (``kerb``, see below).
+    * ``shared`` — ``v -> (route, s)``: the SHARED NODES, a road vertex on
+      a stage-1 pavement's ring (:func:`_shared_stations`); each route's
+      road reaches their stage-1 level inside its cap.
     * ``runway`` — the ``foot`` vertices whose foot is a RUNWAY-family
       pavement: a road inside a runway's band sits at or below the band's
       grade (owner 2026-10-19, #951), so the terrace may cut it down to the
@@ -1440,6 +1487,10 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     pads = frozenset(r for r in contact_roles(law)
                      if role_side(law, r) == "airside" and r not in stage1)
     feet = _feet_index(pm, law, stage1 | pads)
+    # owner 2026-11-17T16:38Z (#2122): a road takes a pavement's level only
+    # at the nodes it SHARES with it (gap 0); across any gap it climbs on
+    # its own grade (17d (1): a road never takes a level laterally)
+    touch = _shared_refs(pm, stage1 | pads)
     from shapely.strtree import STRtree
     wtree = STRtree(list(walls)) if walls else None
     # #1071 (owner 2026-10-20): a page that is a road only by its SHAPE
@@ -1548,8 +1599,10 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             out["station"].pop(v, None)
             out["below_wall"][v] = True
             continue
+        shared = touch.get(v, frozenset())
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
-                      if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
+                      if feet.role_of.get(ref) in stage1 and ref in shared),
+                     key=lambda t: (t[0], t[1]))
         if lev and v in mouth_v and _nearer_floor(pm, v, lev[0][0], floors):
             # 06c (5), #1939: at the mouth the road is on the floor's ramp,
             # never the pavement over the structure.  MEASURED ESSA
@@ -1563,11 +1616,43 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                 out["runway"][v] = True
             continue
         pad = sorted((d, ref) for ref, (d, *_x) in fs.items()
-                     if feet.role_of.get(ref) in pads)
+                     if feet.role_of.get(ref) in pads and ref in shared)
         if pad:
             out["level" if pad[0][1] in ups else "pad"][v] = pad[0][1]
     out["rim"] = _upper_rims(pm, ups, ribbon_v)
+    out["shared"] = _shared_stations(pm, _shared_refs(pm, stage1), ribbon_v,
+                                     frame, set(vs))
     return out
+
+
+def _shared_stations(pm: PlanarMap, on_pavement: _t.Mapping[int, frozenset[str]],
+                     road_v: _t.AbstractSet[int],
+                     frame: _t.Mapping[int, tuple[int, float, float]],
+                     owned: _t.AbstractSet[int]) -> dict[int, tuple[int, float]]:
+    """``{shared node: (route, s)}`` -- every road vertex a stage-1
+    pavement's ring carries (the CONTACT, airside-owned, so never one of
+    the terrace's own vertices) on a route of the frame: where the road
+    takes the pavement's level and leaves it at its own grade (owner
+    2026-11-17T16:38Z, #2122; ``constraints/road_ramp.terrace_profile``'s
+    ``shared``)."""
+    return {v: (int(frame[v][0]), float(frame[v][1])) for v in road_v
+            if v in on_pavement and v in frame and v not in owned}
+
+
+def _shared_refs(pm: PlanarMap, roles: _t.AbstractSet[str]
+                 ) -> dict[int, frozenset[str]]:
+    """``{vertex: refs}`` -- the pavements of ``roles`` (refs normalised as
+    :func:`_feet_index` names them) whose rings carry the vertex: the NODES
+    a road SHARES with a pavement, where alone it takes that pavement's
+    level (owner 2026-11-17T16:38Z, #2122; 17d (1): never laterally)."""
+    out: dict[int, set[str]] = {}
+    for f in pm.faces.values():
+        if f.role in roles:
+            ref = f.ref.split("+")[0]
+            for cyc in (f.ring, *f.holes):
+                for v in pm.ring_vertices(cyc):
+                    out.setdefault(v, set()).add(ref)
+    return {v: frozenset(r) for v, r in out.items()}
 
 
 def _upper_levels(pm: PlanarMap) -> frozenset[str]:
@@ -2466,6 +2551,13 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         pm, law, frame, targets, route_ways, pub_routes)
     if report is not None:
         report["junction_joints"] = joint_rep
+    # #2121: a road in its own cut through zone 2 follows its own ground
+    # (owner RULINGS 2026-10-20c (39)) — its ribbon vertices there are the
+    # band's kerb, no route owns them and no target reached them, so the
+    # objective alone held them (MEASURED KLAX 33.94757, -118.39978: 0.89 m
+    # under the DEM, no row binding).  Each takes its own ground; the band's
+    # ceiling caps it between the stages (``constraints/cut_kerb``)
+    targets = {**_cut_kerb_ground(pm, law, targets), **targets}
     lifted = public_road_lifts(pm, law, public_road_faces(pm, law, airport), targets)
     if report is not None:
         report["public_road_lifted"] = len(lifted)

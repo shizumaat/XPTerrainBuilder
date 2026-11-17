@@ -18,7 +18,8 @@
   "slice_shape": "{a, b, way?}: cut the shape (closed way, no o4_feature) holding a and b (way picks it when several do) along a->b, a 0.5 m gap (o4_engine/patch_slice.py, issue #1318). a and b each become two nodes 0.25 m either side of the cut line (perpendicular, in the plane of origin = midpoint of a and b), keeping their alt; each crossing of a gap_interior_ring hole of the shape becomes two new nodes (alt interpolated along the hole edge, null if either end is null) and the hole way is removed. The half with the larger plan area (ties: the half left of a->b) keeps the way id, its place and a's and b's ids; the other half is a new way (id = min(0, min way id) - 1) right after it, same tags. Rings keep the original direction and start at a's copy. New node ids count down from min(0, min node id) - 1 along the cut: a's copy, each crossing's left then right copy, b's copy; appended in that order. Refused (no case here; tests/test_patch_slice.py and PatchSliceTests.swift): neighbours, a cut leaving or touching the outline, a cut through a hole's corner, more than two pieces.",
   "add_shape": "{corners, tags?}: a new closed way through corners ([lat, lon, alt|null] each, in ring order, the first not repeated), issue #1314 \"Insert shape\". New node ids count down from min(0, min node id) - 1, appended in corner order; the way (id = min(0, min way id) - 1, tags as given, else none) is appended after the others and repeats its first ref last. Never merges with an existing node, even one at the same place.",
   "rotate_ways": "{way_ids, angle_deg}: issue #1746 (Option-drag a shape's node). Turn every node of the ways by angle_deg, counter-clockwise seen from above with north up, about one pivot: the area-weighted centroid of the closed ways (shoelace in an east/north plane at the mean of the distinct nodes, longitude scaled by cos(lat)), or that mean when they enclose no area. Each node turns in the pivot's plane (longitude scaled by cos(pivot lat)). Elevations kept; a node shared with another way moves with it; never merges.",
-  "duplicate_ways": "{way_ids, dlat, dlon}: issue #1963 (\"Duplicate shape\"). Copy the ways dlat/dlon degrees away. Every node the ways use gets ONE new node (copies stay welded to each other, never to the original), ids counting down from min(0, min node id) - 1 in the order the copied ways (taken in file order) first use them, alt kept, appended after the existing nodes; each way becomes a new way (ids counting down from min(0, min way id) - 1, file order, same tags) appended after the others. Never merges."
+  "duplicate_ways": "{way_ids, dlat, dlon}: issue #1963 (\"Duplicate shape\"). Copy the ways dlat/dlon degrees away. Every node the ways use gets ONE new node (copies stay welded to each other, never to the original), ids counting down from min(0, min node id) - 1 in the order the copied ways (taken in file order) first use them, alt kept, appended after the existing nodes; each way becomes a new way (ids counting down from min(0, min way id) - 1, file order, same tags) appended after the others. Never merges.",
+  "set_way_tags": "{way, put, remove}: put adds or replaces the way's tags, remove drops keys (#2137, a shape's own elevation); refs and nodes untouched. An unknown way is refused."
  },
  "topology": "after every op: consecutive duplicate refs collapse (cyclically on a closed way); a closed way with < 3 distinct nodes or an open way with < 2 is removed; nodes a removed way leaves behind are kept.",
  "ui_snap_reference": "NOT exercised here (UI-only, L3): the drag snap radius is 8 pt ON SCREEN from the pointer to the node, inclusive (owner ruling 2026-10-15, spec 3.3); nearest on screen wins; ties go to the lowest survivor_key = (round(lat, identity_dp), round(lon, identity_dp)), then the lowest id. The document origin (for metric work) is the centre of the loaded nodes' bbox ((min lat + max lat) / 2, (min lon + max lon) / 2), fixed for the document's life; metres per degree lat = 111320.0, per degree lon = 111320.0 * max(cos(origin lat), 1e-6) (osm_adapter._local_metres).",
@@ -4928,6 +4929,261 @@
       ],
       "tags": {
        "o4_feature": "crown_spine"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "set_way_tags_slope_low_keeps_other_tags",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      null
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      null
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      null
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "role": "tunnel_ramp",
+       "altitude_high": "172.40",
+       "altitude_low": "170.90",
+       "profile": "plane"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -1,
+       -2
+      ],
+      "tags": {
+       "cst_alt_abs": "80"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "set_way_tags",
+     "args": {
+      "way": -101,
+      "put": {
+       "altitude_low": "168.50"
+      }
+     }
+    }
+   ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      null
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      null
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      null
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "role": "tunnel_ramp",
+       "altitude_high": "172.40",
+       "altitude_low": "168.50",
+       "profile": "plane"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -1,
+       -2
+      ],
+      "tags": {
+       "cst_alt_abs": "80"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "set_way_tags_put_and_remove_level",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      null
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      null
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      null
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "role": "tunnel_ramp",
+       "altitude_high": "172.40",
+       "altitude_low": "170.90",
+       "profile": "plane"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -1,
+       -2
+      ],
+      "tags": {
+       "cst_alt_abs": "80"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "set_way_tags",
+     "args": {
+      "way": -102,
+      "put": {
+       "cst_alt_abs": "81.25"
+      },
+      "remove": [
+       "altitude"
+      ]
+     }
+    }
+   ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      null
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      null
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      null
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "role": "tunnel_ramp",
+       "altitude_high": "172.40",
+       "altitude_low": "170.90",
+       "profile": "plane"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -1,
+       -2
+      ],
+      "tags": {
+       "cst_alt_abs": "81.25"
       }
      }
     ]

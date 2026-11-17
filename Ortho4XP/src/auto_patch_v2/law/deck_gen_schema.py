@@ -34,6 +34,11 @@ class DeckGenLaw:
     shoulder_m: float = 1.5
     #: A2: the slab's thickness (m)
     thickness_m: float = 1.0
+    #: owner sim read 2026-11-17T19:42Z ("that embankment needs to extend
+    #: about 1m past the bridge edges, then smoothly blend the natural
+    #: terrain and the cut"): the bank under a generated deck runs on this
+    #: far past the ring's edges before the ground beyond blends (m)
+    bank_past_edge_m: float = 1.0
     #: A2: the top stands this far over the solved end lines (m)
     top_lift_m: float = 0.02
     #: A2: the pre-solve tilt is clamped to this share of the family cap
@@ -73,8 +78,8 @@ class DeckGenLaw:
     #: (``airport/deck_line_art``); unresolved -> the generated atlas
     line_lib: str = "lib/airport/lines/1_single_taxi.lin"
     #: the films over the top (m): the tire marks, then the paint over them
-    rubber_lift_m: float = 0.005
-    paint_lift_m: float = 0.012
+    rubber_lift_m: float = 0.02
+    paint_lift_m: float = 0.03
     #: #2132 THE STRUCTURE (spec 2132-design section 4; owner 2026-11-17
     #: "kerb only (0.30 x 0.40 m, side edges), no blast screen"),
     #: ``airport/deck_structure``: the slab's depth under the top (m) ...
@@ -122,6 +127,10 @@ class RoadGenLaw:
     pack_road_near_m: float = 5.0
     #: ... and this parallel (deg) already draws the bridge
     pack_road_angle_deg: float = 15.0
+    #: B1 (c) "the pack always wins" (``planar/road_bridge_pack``): a pack
+    #: placement's solid top this far or more over its ground (m) -- a
+    #: bridge, an overpass, a roof -- already draws the bridge
+    pack_top_min_m: float = 2.5
     #: B3: the span's page clip is the carriageway half width plus this (m)
     span_margin_m: float = 0.5
     #: B2: the road network definition written when the pack has none

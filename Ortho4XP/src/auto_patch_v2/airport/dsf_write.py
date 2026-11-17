@@ -1287,6 +1287,18 @@ def _guests_home(pack_root: str, result: WriteResult, tool: str,
     return result
 
 
+def _with_overlap_hides(pack_root: str, dsf_path: str,
+                        gen_recipe: _t.Mapping[str, _t.Any]) -> _t.Mapping[str, _t.Any]:
+    """#2145: the generated recipe with the rows the user's pack-priority
+    answers hide in THIS DSF (``pack_overlap_choice.overlap_hides``, read
+    on every write, never recorded: Undo is the answer changing)."""
+    from . import pack_overlap_choice as _ovc  # lazy: it reads the stores
+    hides = _ovc.overlap_hides(pack_root, dsf_path)
+    if not hides:
+        return gen_recipe
+    return dict(gen_recipe or {}, overlap_hides=[tuple(h) for h in hides])
+
+
 def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                allow_live_install: bool = False,
                work_dir: str | None = None,
@@ -1476,6 +1488,7 @@ def _write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         drapes = _pd.recorded(prior_entry, backup_sha)
     if gen_recipe is None:
         gen_recipe = _gen.recorded(prior_entry, backup_sha)
+    gen_recipe = _with_overlap_hides(pack_root, dsf_path, gen_recipe)
     _gen.write_files(pack_root, gen_recipe)
     gen_counts: dict = {}
     # one omission: the missing art the user accepted and the photos hidden

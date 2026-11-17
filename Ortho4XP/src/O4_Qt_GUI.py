@@ -172,12 +172,12 @@ ACTIVITY_SETTINGS = ("XPTerrainBuilder", "Ortho4XP")
 
 # RETIRED prefs keys (owner 2026-11-17): the tile selection an earlier
 # version stored and restored at launch.  The app starts with nothing
-# selected; :func:`forget_stored_selection` removes them.
+# selected; :func:`_forget_stored_selection` removes them.
 SELECTED_TILES_KEY = "selected_tiles"
 ACTIVE_TILE_KEY = "active_tile"
 
 
-def forget_stored_selection(prefs):
+def _forget_stored_selection(prefs):
     """Drop the stored selection keys from ``prefs`` (saved when any
     was there); True when something was removed."""
     removed = [key for key in (SELECTED_TILES_KEY, ACTIVE_TILE_KEY)
@@ -1145,7 +1145,7 @@ class MainWindow(QMainWindow):
         # the Mac app's LaunchSelection): a remembered selection was easy
         # to miss and a new pick was added to it.  The map opens on the
         # last tile looked at; the keys an earlier version stored go.
-        forget_stored_selection(self.prefs)
+        _forget_stored_selection(self.prefs)
         lat = int(self.prefs.get("last_lat", 48))
         lon = int(self.prefs.get("last_lon", -6))
         self.map.center_on_tile(lat, lon, zoom=7)

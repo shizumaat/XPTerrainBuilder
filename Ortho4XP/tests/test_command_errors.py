@@ -71,10 +71,10 @@ def test_executable_changed_reads_inode_size_and_time(tmp_path):
     exe = tmp_path / "Ortho4XP"
     exe.write_bytes(b"a" * 10)
     start = CE._executable_stamp(str(exe))
-    assert not CE.executable_changed(start, CE._executable_stamp(str(exe)))
+    assert not CE._executable_changed(start, CE._executable_stamp(str(exe)))
     exe.write_bytes(b"b" * 12)              # re-signed: new size
-    assert CE.executable_changed(start, CE._executable_stamp(str(exe)))
-    assert not CE.executable_changed(None, None)     # not frozen
+    assert CE._executable_changed(start, CE._executable_stamp(str(exe)))
+    assert not CE._executable_changed(None, None)     # not frozen
 
 
 def test_failed_start_leaves_the_session_idle(monkeypatch):

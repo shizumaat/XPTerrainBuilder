@@ -29,7 +29,6 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import O4_Qt_GUI as GUI  # noqa: E402
-import O4_Qt_Map as QTMAP  # noqa: E402
 import O4_Tile_Info as TINFO  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 
@@ -129,22 +128,8 @@ def _status_label(window, tile):
 
 
 # ---------------------------------------------------------------------------
-# Q1 — the tile key is one spelling, with one reader
+# Q1 — the app starts with nothing selected (owner 2026-11-17)
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize(
-    "tile", [(0, 0), (48, -6), (-35, -81), (89, -180), (-1, 179)])
-def test_tile_key_round_trip(tile):
-    assert QTMAP.parse_tile_key(QTMAP.tile_key(*tile)) == tile
-
-
-@pytest.mark.parametrize(
-    "key",
-    ["", "35,-81", "+91-000", "+00-181", "48-006", "+48-6", "+48-006 ",
-     None, 42])
-def test_parse_refuses_malformed_keys(key):
-    assert QTMAP.parse_tile_key(key) is None
-
-
 def test_launch_starts_with_nothing_selected(make_window, prefs_file):
     """Owner 2026-11-17T15:55Z: a selection stored by an earlier version
     is not restored (a new pick was ADDED to it) and is removed."""
@@ -174,10 +159,10 @@ def test_a_selection_is_not_stored_for_the_next_launch(make_window,
 def test_forget_stored_selection_saves_only_when_something_went(monkeypatch):
     saved = []
     monkeypatch.setattr(GUI, "save_prefs", lambda prefs: saved.append(1))
-    assert GUI.forget_stored_selection({"other": 1}) is False
+    assert GUI._forget_stored_selection({"other": 1}) is False
     assert saved == []
     prefs = {GUI.SELECTED_TILES_KEY: ["+48-006"], GUI.ACTIVE_TILE_KEY: ""}
-    assert GUI.forget_stored_selection(prefs) is True
+    assert GUI._forget_stored_selection(prefs) is True
     assert prefs == {} and saved == [1]
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ selection the user makes here goes to the map (``selection_edited``,
 the item's index widget (title, bar, steps, status line and its stop /
 resume button: no standard item paints those); its margins come from the
 style's item-view metrics.  A selected row draws its bar in the
-selection's text colour (``emphasize_row``): the bar's fill IS the
+selection's text colour (``_emphasize_row``): the bar's fill IS the
 selection colour, so on a selected row it vanished (owner 2026-11-17, the
 Mac app's ``SelectedRowStyle``).  The Mac app's twin is
 ``ActivitySections`` (``ActivitySections.swift``).
@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-__all__ = ["ActivityList", "completed_title", "emphasize_row", "row_margins"]
+__all__ = ["ActivityList", "completed_title", "row_margins"]
 
 #: Extra space above and below a row's content (the Mac app's
 #: ``SelectedRowStyle.rowVerticalPadding``, owner 2026-11-17).
@@ -57,7 +57,7 @@ def row_margins(style):
     return (side, top, side, top)
 
 
-def emphasize_row(row, selected):
+def _emphasize_row(row, selected):
     """Draw ``row``'s progress bars for a selected row or not: on a
     selected row the fill takes the selection's text colour (Qt's
     ``HighlightedText``, white on the accent), else the inherited
@@ -312,7 +312,7 @@ class ActivityList(QTreeWidget):
         for item in self._items.values():
             cell = self.itemWidget(item, 0)
             if cell is not None:
-                emphasize_row(cell.row(), item.isSelected())
+                _emphasize_row(cell.row(), item.isSelected())
 
     def _selection_changed(self):
         self._emphasize_selected()

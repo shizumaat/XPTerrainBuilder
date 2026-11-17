@@ -17,7 +17,7 @@ import sys
 import traceback
 from typing import Optional, Tuple
 
-__all__ = ["DETAILED_COMMANDS", "command_error_text", "executable_changed"]
+__all__ = ["DETAILED_COMMANDS", "command_error_text"]
 
 
 def _executable_stamp(path: Optional[str] = None) -> Optional[Tuple[int, int, int]]:
@@ -39,7 +39,7 @@ def _executable_stamp(path: Optional[str] = None) -> Optional[Tuple[int, int, in
 _START_STAMP = _executable_stamp()
 
 
-def executable_changed(start=None, now=None) -> bool:
+def _executable_changed(start=None, now=None) -> bool:
     """True when the engine's executable is no longer the file it
     started from (rebuilt, re-signed or replaced on disk)."""
     start = _START_STAMP if start is None else start
@@ -88,7 +88,7 @@ def command_error_text(command: str, exc: BaseException,
         if where:
             text += " (at %s" % where
             text += "; step %s)" % step if step else ")"
-    if executable_changed() if changed is None else changed:
+    if _executable_changed() if changed is None else changed:
         text += (" -- the engine's program file changed on disk after it "
                  "started (the app was rebuilt or replaced while open): "
                  "quit the app and open it again.")

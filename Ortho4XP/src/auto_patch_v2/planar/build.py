@@ -60,6 +60,7 @@ from .free_bridge import planar_stacks as free_planar_stacks
 from ..model.deck_stack import live_stacks
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
+from .road_wall_witness import road_witness
 from ..airport.bridge_ground import BridgeGround, bridge_ground, bridge_runs
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
 from .structure_approach import wall_field
@@ -579,11 +580,13 @@ def build(airport: Airport, classification: Classification, law: Law,
     if stats.covered_ground.rings:
         print(f"  [planar] {stats.covered_ground.line()}")
     # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads
-    # the DEM past the road's cut, not the cut's slope
+    # the DEM past the road's cut, not the cut's slope -- only where a wall
+    # witness lines the road (#2122 item 3)
     through = [y for y in arr.road_yield if y.through]
     if through:
         zs, shadow = road_shadow(getattr(airport, "dem", None), law, through,
-                                 _band_only_vertices(faces, face_vs), xs, ys, zs)
+                                 _band_only_vertices(faces, face_vs), xs, ys, zs,
+                                 road_witness(airport, law))
         print(f"  [planar] {shadow.line()}")
     # #1935: under a mapped bridge the DEM's deck is not the ground — the
     # vertices no airside face carries read the ground beside the deck

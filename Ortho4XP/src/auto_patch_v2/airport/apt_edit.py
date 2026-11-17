@@ -24,27 +24,24 @@ segment's own codes on the node that starts it, which reproduces the
 original under either reading for every segment it does not cut.
 
 Coordinates are ``(lon, lat)`` degrees, as ``apt_dat`` hands them out.
-:func:`cut_block` is pure; :func:`edit_apt_dat` reads one file and writes
-another plus the transform record ``<out>.o4_edits.json``.  Build-time
+:func:`cut_block` is pure; the one apt.dat WRITER is
+``apt_flatten.write_regions`` (the backup, the transforms, the record).  Build-time
 impact: shapely on a handful of features, milliseconds.
 """
 from __future__ import annotations
 
 import dataclasses as _dc
-import json
 import math
 import typing as _t
 
-from shapely.geometry import LineString, MultiLineString, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.polygon import orient
 
 from . import apt_dat as _apt
 
-__all__ = ["Dropped", "CutResult", "cut_block", "edit_apt_dat",
-           "EDITS_SUFFIX"]
+__all__ = ["Dropped", "CutResult", "cut_block"]
 
 LonLat = tuple[float, float]
-EDITS_SUFFIX = ".o4_edits.json"
 _NODE = ("111", "112", "113", "114", "115", "116")
 _CLOSE = ("113", "114")
 _END = ("113", "114", "115", "116")
@@ -283,27 +280,3 @@ def cut_block(block: list[str], region: Polygon) -> CutResult:
         pos = f["end"]
     out += block[pos:]
     return CutResult(out, tuple(dropped), tuple(record))
-
-
-def edit_apt_dat(src: str, dst: str, icao: str, region: Polygon) -> CutResult:
-    """Cut ``region`` out of ``icao``'s block of ``src``; write the whole
-    file to ``dst`` (every other line byte-identical) and the transform
-    record to ``dst + EDITS_SUFFIX``."""
-    with open(src, "r", encoding="utf-8", errors="surrogateescape", newline="") as fh:
-        text = fh.read()
-    eol = "\r\n" if "\r\n" in text[:4096] else "\n"
-    lines = text.split(eol)
-    block = _apt.read_airport_block(src, icao)
-    if not block:
-        raise ValueError(f"{src}: no {icao} block")
-    start = next(i for i, ln in enumerate(lines) if ln.rstrip() == block[0].rstrip())
-    if [ln.rstrip() for ln in lines[start:start + len(block)]] != [b.rstrip() for b in block]:
-        raise ValueError(f"{src}: {icao} block does not match the file's lines")
-    res = cut_block(block, region)
-    lines[start:start + len(block)] = res.block
-    with open(dst, "w", encoding="utf-8", errors="surrogateescape", newline="") as fh:
-        fh.write(eol.join(lines))
-    with open(dst + EDITS_SUFFIX, "w", encoding="utf-8") as fh:
-        json.dump({"icao": icao, "region_wkt": region.wkt, "edits": list(res.record)},
-                  fh, indent=1)
-    return res

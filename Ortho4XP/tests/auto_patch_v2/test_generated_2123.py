@@ -11,14 +11,12 @@ import json
 import os
 import sys
 
-from shapely.geometry import LineString, Polygon, box
-
 from auto_patch_v2.airport import apt_dat, apt_flatten, deck_paint
 from auto_patch_v2.airport import generated_pack as gen
 from auto_patch_v2.airport.deck_obj8 import DECK_MARK
 from auto_patch_v2.law.tables import load_default
 from auto_patch_v2.model.placement import BACKUP_SUFFIX
-
+from shapely.geometry import LineString, Polygon, box
 from test_pack_edits_2123 import BLOCK, DUMP  # noqa: E402  (sibling twin, rootdir on sys.path)
 
 REGION = box(17.004, 59.003, 17.006, 59.007)          # lon, lat: across the centre line

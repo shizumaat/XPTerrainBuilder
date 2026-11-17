@@ -1757,3 +1757,5 @@ net_def             = "lib/g10/roads.net"   # B2: the network written when the p
 subtype             = 50    # B2: #VROAD subtype (P0: SHOW_LEVEL 2 on simHeaven's roads_EU; the owner saw it draw)
 level1_inset_m      = 12.0  # B2: the level-1 junctions stand this far inside each end of the span
 abutment_keep_m     = 25.0  # owner 16y (3): the ends stand on their embankments, never cut within this of an abutment
+cut_drop_m          = 1.0   # B3 / 16y (3): pack pavement over the lower road's cut beside the span (survey this far under the bridge's lower end) leaves the cells too ...
+cut_reach_m         = 20.0  # ... read within this of the bridge's axis

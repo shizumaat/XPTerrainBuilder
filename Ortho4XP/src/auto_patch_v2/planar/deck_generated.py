@@ -54,14 +54,13 @@ from ..airport.airside_deck_seat import facing_contacts
 from ..classify.roles import TAXI_FAMILY
 from ..law.tables import role_cap
 from ..model.structures import DeckBridge
-from .deck_bridge import (CellRoles, _deck_z, _end_pair, _routes_across,
-                          _taxi_at_both_ends)
+from .deck_bridge import CellRoles, _deck_z, _end_pair, _routes_across, _taxi_at_both_ends
 from .deck_route import carried_route
 from .structure_approach import carriageway_width_m, is_tunnel, standing_cover
 from .structure_underpass import underpass_bores
 
-__all__ = ["generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "covered_roads",
-           "is_generated", "carried_off"]
+__all__ = ["generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
+           "carried_off"]
 
 #: ``DeckBridge.witness`` of a generated deck
 GENERATED_WITNESS = "generated"
@@ -87,7 +86,7 @@ class _Road(_t.NamedTuple):
     parent: "LineString | None" = None
 
 
-def covered_roads(airport, law, classification) -> list[_Road]:
+def _covered_roads(airport, law, classification) -> list[_Road]:
     """The roads the structure pass reads as COVERED (A1 (1)): every
     §34 (5) underpass piece and every mapped tunnel chain, with its
     covered length (the underpass piece, the tunnel chain) and its
@@ -306,7 +305,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     P = unary_union(paved)
     notes: list[str] = []
     roads = []
-    for r in covered_roads(airport, law, classification):
+    for r in _covered_roads(airport, law, classification):
         # the classification cuts a road's own ribbon out of the pavement
         # over it: the road is under the pavement within its half width
         if r.line.distance(P) > r.half_m + 1.0:

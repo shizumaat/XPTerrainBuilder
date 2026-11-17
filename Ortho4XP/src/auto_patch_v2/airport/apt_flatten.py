@@ -117,14 +117,10 @@ def _classify(live: str, backup: str) -> _bs.Verdict:
     if have == stripped(shipped):
         return Verdict(State.OURS, live, backup, backup, True, "flatten-strip")
     rec = _record(live)
-    if rec and rec.get("live_sha256") == _sha(have) \
-            and rec.get("backup_sha256") == _sha(shipped):
+    if rec and rec.get("live_sha256") == hashlib.sha256(have).hexdigest() \
+            and rec.get("backup_sha256") == hashlib.sha256(shipped).hexdigest():
         return Verdict(State.OURS, live, backup, backup, True, "region-cut")
     return Verdict(State.REPLACED, live, backup, live, False, "")
-
-
-def _sha(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 
 def _record(apt_path: str) -> dict | None:
@@ -189,7 +185,8 @@ def write_regions(apt_path: str, icao: str, regions) -> tuple[str, list]:
     with open(apt_path + ".o4tmp", "wb") as fh:
         fh.write(data)
     os.replace(apt_path + ".o4tmp", apt_path)
-    rec = {"icao": icao, "backup_sha256": _sha(shipped), "live_sha256": _sha(data),
+    rec = {"icao": icao, "backup_sha256": hashlib.sha256(shipped).hexdigest(),
+           "live_sha256": hashlib.sha256(data).hexdigest(),
            "regions": [r.wkt for r in regions], "edits": records}
     with open(apt_path + EDITS_SUFFIX + ".o4tmp", "w", encoding="utf-8") as fh:
         json.dump(rec, fh, indent=1)

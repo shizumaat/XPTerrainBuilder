@@ -170,7 +170,7 @@ def _fascia(m: _Mesh, poly: Polygon, top_y, thickness_m: float) -> None:
         pts = list(ring.coords)
         per = max(ring.length, 1e-9)
         s = 0.0
-        for (xa, za), (xb, zb) in zip(pts[:-1], pts[1:]):
+        for (xa, za), (xb, zb) in zip(pts[:-1], pts[1:], strict=True):
             d = math.hypot(xb - xa, zb - za)
             if d < 1e-6:
                 continue
@@ -178,9 +178,8 @@ def _fascia(m: _Mesh, poly: Polygon, top_y, thickness_m: float) -> None:
             inward = (-out[0], 0.0, -out[2])
             ua, ub = s / per, (s + d) / per
             s += d
-            u0, v0, u1, v1 = _tex.FASCIA_UV
-            def uv(f: float, top: bool) -> XY:
-                return (u0 + f * (u1 - u0), v1 - 1e-3 if top else v0 + 1e-3)
+            def uv(f: float, top: bool, r=_tex.FASCIA_UV) -> XY:
+                return (r[0] + f * (r[2] - r[0]), r[3] - 1e-3 if top else r[1] + 1e-3)
             ta = m.vertex((xa, top_y(xa, za), za), out, uv(ua, True))
             tb = m.vertex((xb, top_y(xb, zb), zb), out, uv(ub, True))
             ba = m.vertex((xa, top_y(xa, za) - thickness_m, za), out, uv(ua, False))
@@ -194,7 +193,7 @@ def _paint(m: _Mesh, lines: _t.Sequence[DeckLine], top_y) -> None:
         uv = _tex.uv_centre({"yellow": _tex.YELLOW_UV, "black": _tex.BLACK_UV}
                             .get(ln.colour, _tex.WHITE_UV))
         h = ln.width_m / 2.0
-        for (xa, za), (xb, zb) in zip(ln.points[:-1], ln.points[1:]):
+        for (xa, za), (xb, zb) in zip(ln.points[:-1], ln.points[1:], strict=True):
             d = math.hypot(xb - xa, zb - za)
             if d < 1e-6:
                 continue

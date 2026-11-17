@@ -112,7 +112,7 @@ def road_samples(site, dsfs, tool: str, work: str, mesh, over=None) -> list[dict
         segs, excl = read_segments(txt, box)
         for net, sub, pts in segs:
             lv = max(pts[0][2] or 0.0, pts[-1][2] or 0.0)
-            for (lo0, la0, _a), (lo1, la1, _b) in zip(pts[:-1], pts[1:]):
+            for (lo0, la0, _a), (lo1, la1, _b) in zip(pts[:-1], pts[1:], strict=True):
                 d = math.hypot((lo1 - lo0) * kx, (la1 - la0) * _K_LAT)
                 for k in range(max(1, int(d / STEP_M)) + 1):
                     f = k / max(1, int(d / STEP_M))

@@ -95,7 +95,8 @@ def add_network(text: str, net_def: str, chains: _t.Sequence[Chain]) -> str:
     for ch in chains:
         ids = list(range(node + 1, node + 1 + len(ch.junctions)))
         node += len(ch.junctions)
-        for (a, ia), (b, ib) in zip(zip(ch.junctions, ids), zip(ch.junctions[1:], ids[1:])):
+        pairs = list(zip(ch.junctions, ids, strict=True))
+        for (a, ia), (b, ib) in zip(pairs[:-1], pairs[1:], strict=True):
             seg.append(f"BEGIN_SEGMENT 0 {ch.subtype} {ia} {a[0]:.9f} {a[1]:.9f} {float(a[2]):.9f}")
             seg.append(f"END_SEGMENT {ib} {b[0]:.9f} {b[1]:.9f} {float(b[2]):.9f}")
     tail = len(lines)

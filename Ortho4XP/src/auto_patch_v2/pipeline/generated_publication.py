@@ -15,7 +15,6 @@ Build-time impact: a few dozen coordinate conversions per airport.
 from __future__ import annotations
 
 import statistics
-import typing as _t
 
 __all__ = ["generated_records"]
 

@@ -6,13 +6,17 @@ import io
 
 import numpy as np
 import pytest
+from auto_patch_v2.airport import deck_texture as tex
+from auto_patch_v2.airport.deck_obj8 import (
+    DECK_MARK,
+    DeckFrame,
+    DeckLight,
+    DeckLine,
+    deck_obj8_text,
+)
+from auto_patch_v2.airport.obj8 import parse_obj8
 from PIL import Image
 from shapely.geometry import Polygon
-
-from auto_patch_v2.airport import deck_texture as tex
-from auto_patch_v2.airport.deck_obj8 import (DECK_MARK, DeckFrame, DeckLight, DeckLine,
-                                             deck_obj8_text)
-from auto_patch_v2.airport.obj8 import parse_obj8
 
 THICK = 1.0
 

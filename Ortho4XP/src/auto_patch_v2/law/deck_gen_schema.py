@@ -70,3 +70,9 @@ class RoadGenLaw:
     #: B3 / owner 16y (3): the ends stand on their embankments: the
     #: span's ground is never cut within this of its abutment (m)
     abutment_keep_m: float = 25.0
+    #: B3 / owner 16y (3): the pack pavement over the lower road's CUT
+    #: beside the span -- where the survey stands this far or more under the
+    #: bridge's lower end -- leaves the cells too (m) ...
+    cut_drop_m: float = 1.0
+    #: ... read within this of the bridge's axis (m)
+    cut_reach_m: float = 20.0

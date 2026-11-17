@@ -31,7 +31,7 @@ page leaves the span:
   pavement face of the page stands there to pull it -- and the chain's
   level-0 junctions are the bridge's own mapped ends.
 
-The record (:func:`road_bridges`) is plain data in lon/lat, published to
+The record (:func:`_road_bridges`) is plain data in lon/lat, published to
 the object stage on the graded surface's provenance
 (``pipeline/generated_publication``).  Nothing here names an airport.
 
@@ -49,7 +49,7 @@ from shapely.strtree import STRtree
 
 from .structure_approach import carriageway_width_m
 
-__all__ = ["road_bridges", "attach_road_bridges", "span_cells"]
+__all__ = ["attach_road_bridges", "span_cells"]
 
 
 def _layer(tags) -> int:
@@ -88,6 +88,33 @@ def _z(dem, x: float, y: float) -> "float | None":
         return None
     z = float(dem.z(float(x), float(y)))
     return z if math.isfinite(z) else None
+
+
+def _cut_region(dem, line: LineString, reach: float, below: float, step: float = 2.0):
+    """The ground within ``reach`` of the bridge axis where the survey stands
+    under ``below`` (the lower road's cutting beside the span, owner 16y (3):
+    the pack's pavement there is graded into the cut and pulls the bridge's
+    ends down with it), as one polygon touching the axis, else ``None``."""
+    import numpy as np
+
+    from ..airport.dem import dem_z_many
+    if dem is None:
+        return None
+    x0, y0, x1, y1 = line.buffer(reach).bounds
+    xs, ys = np.meshgrid(np.arange(x0, x1, step), np.arange(y0, y1, step))
+    xs, ys = xs.ravel(), ys.ravel()
+    zs = dem_z_many(dem, xs, ys)
+    zone = line.buffer(reach)
+    from shapely import contains_xy
+    m = np.isfinite(zs) & (zs < below) & contains_xy(zone, xs, ys)
+    if not m.any():
+        return None
+    h = step / 2.0 + 0.01
+    from shapely.geometry import box as _box
+    cells = unary_union([_box(x - h, y - h, x + h, y + h) for x, y in zip(xs[m], ys[m],
+                                                                          strict=True)])
+    parts = [q for q in getattr(cells, "geoms", [cells]) if q.intersects(line)]
+    return unary_union(parts).intersection(zone) if parts else None
 
 
 def _bridges(airport, law) -> tuple[list[dict], list[str]]:
@@ -146,6 +173,12 @@ def _bridges(airport, law) -> tuple[list[dict], list[str]]:
                          + ") -- not generated (B1 (a))")
             continue
         span = line.buffer(half + float(rg.span_margin_m), cap_style="flat")
+        low = _cut_region(dem, line, float(rg.cut_reach_m), min(ends) - float(rg.cut_drop_m))
+        if low is not None:
+            span = unary_union([span, low]).buffer(0.0)
+            span = max(getattr(span, "geoms", [span]), key=lambda q: q.area) \
+                if span.geom_type != "Polygon" else span
+            span = Polygon(span.exterior).simplify(0.5)
         out.append({"id": str(w.id), "highway": str(w.tags.get("highway")),
                     "_line_xy": line, "_span_xy": span, "half_m": half,
                     "cover": round(cover, 3), "over": lower})
@@ -154,7 +187,7 @@ def _bridges(airport, law) -> tuple[list[dict], list[str]]:
     return out, notes
 
 
-def road_bridges(airport, law) -> tuple[tuple[dict, ...], list[str]]:
+def _road_bridges(airport, law) -> tuple[tuple[dict, ...], list[str]]:
     """``(the generated road bridges as plain records, notes)`` (module
     doc): each ``{"id", "highway", "line", "span_wkt", "junctions",
     "subtype", "net", "cover", "over"}`` in lon/lat, the junctions
@@ -191,11 +224,11 @@ def road_bridges(airport, law) -> tuple[tuple[dict, ...], list[str]]:
 
 def attach_road_bridges(airport, law, notes: "list[str] | None" = None):
     """``airport`` with its generated road bridges read ONCE
-    (:func:`road_bridges`, on the pavement as loaded).  A second call is a
+    (:func:`_road_bridges`, on the pavement as loaded).  A second call is a
     no-op."""
     if getattr(airport, "road_bridges", ()):
         return airport
-    bs, bnotes = road_bridges(airport, law)
+    bs, bnotes = _road_bridges(airport, law)
     if notes is not None:
         notes.extend(bnotes)
     return _dc.replace(airport, road_bridges=tuple(bs)) if bs else airport

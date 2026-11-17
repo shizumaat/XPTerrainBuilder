@@ -3,12 +3,9 @@
 refusal) and ``airport/dsf_additions`` (object row, road chain)."""
 from __future__ import annotations
 
-import json
-
 import pytest
-from shapely.geometry import Polygon, box
-
 from auto_patch_v2.airport import apt_dat, apt_edit, dsf_additions, dsf_poly_clip
+from shapely.geometry import Polygon, box
 
 # a 0.01 deg square apron (CCW) with one CW hole, a centre line across it
 # carrying a yellow line and centreline lights, and an untouched sign row
@@ -80,18 +77,6 @@ def test_line_is_split_and_the_inside_returned():
     assert "120 Far line" in res.block                 # untouched feature stays raw
 
 
-def test_edit_apt_dat_writes_file_and_record(tmp_path):
-    src = tmp_path / "apt.dat"
-    src.write_text("I\n1200 test\n\n" + "\n".join(BLOCK) + "\n\n99\n", encoding="utf-8")
-    dst = tmp_path / "out.dat"
-    apt_edit.edit_apt_dat(str(src), str(dst), "TEST", box(17.004, 59.004, 17.006, 59.006))
-    text = dst.read_text(encoding="utf-8")
-    assert text.startswith("I\n1200 test\n") and text.rstrip().endswith("99")
-    rec = json.loads((tmp_path / ("out.dat" + apt_edit.EDITS_SUFFIX)).read_text())
-    assert rec["icao"] == "TEST"
-    assert {e["kind"] for e in rec["edits"]} == {"pavement_cut", "line_split"}
-
-
 DUMP = "\n".join([
     "A", "800 written by DSFTool", "DSF2TEXT", "",
     "PROPERTY sim/west 17", "PROPERTY sim/overlay 1",
@@ -137,8 +122,10 @@ def test_add_object_appends_a_def_and_an_msl_row():
                                          17.005, 59.005, 31.25, 58.5)
     lines = text.split("\n")
     assert idx == 1
-    assert lines[lines.index("OBJECT_DEF lib/a.obj") + 1] == "OBJECT_DEF objects/o4_generated/deck_x.obj"
-    assert "OBJECT_MSL 1 17.005000000 59.005000000 31.2500 58.500000" in lines
+    at = lines.index("OBJECT_DEF lib/a.obj") + 1
+    assert lines[at] == "OBJECT_DEF objects/o4_generated/deck_x.obj"
+    row = "OBJECT_MSL 1 17.005000000 59.005000000 31.2500 58.500000"
+    assert row in lines
 
 
 def test_add_network_writes_one_def_and_the_level_chain():
@@ -147,8 +134,10 @@ def test_add_network_writes_one_def_and_the_level_chain():
     text = dsf_additions.add_network(DUMP, "lib/g10/roads_EU.net", [chain])
     lines = text.split("\n")
     assert lines.count("NETWORK_DEF lib/g10/roads_EU.net") == 1
-    assert lines.index("NETWORK_DEF lib/g10/roads_EU.net") > lines.index("POLYGON_DEF lib/fac/hangar.fac")
-    segs = [ln.split() for ln in lines if ln.startswith(("BEGIN_SEGMENT", "END_SEGMENT"))]
+    net = lines.index("NETWORK_DEF lib/g10/roads_EU.net")
+    assert net > lines.index("POLYGON_DEF lib/fac/hangar.fac")
+    segs = [ln.split() for ln in lines
+            if ln.startswith(("BEGIN_SEGMENT", "END_SEGMENT"))]
     assert len(segs) == 6
     assert segs[0][-1] == "0.000000000" and segs[1][1] == "2" and segs[1][-1] == "1.000000000"
     assert segs[2][3] == "2"                             # the junction is shared

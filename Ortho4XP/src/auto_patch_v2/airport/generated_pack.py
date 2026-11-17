@@ -39,7 +39,7 @@ import os
 import typing as _t
 
 from shapely import wkt as _wkt
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, MultiPoint, Polygon
 from shapely.ops import transform
 
 from . import deck_paint as _paint
@@ -48,14 +48,14 @@ from .deck_obj8 import DECK_MARK, DeckFrame, DeckLight, DeckLine, deck_obj8_text
 
 __all__ = ["RECORD_KEY", "GENERATED_DIR", "TEXTURE", "recipe", "apply_text",
            "write_files", "remove", "files_of", "recorded", "record",
-           "regions_of", "is_generated_file"]
+           "regions_of"]
 
 RECORD_KEY = "o4_generated"
 GENERATED_DIR = "objects/o4_generated"
 TEXTURE = "o4_deck_concrete.png"
 
 
-def is_generated_file(path: str) -> bool:
+def _is_generated_file(path: str) -> bool:
     """A file this module writes (the generated-objects folder)."""
     return GENERATED_DIR in path.replace("\\", "/")
 
@@ -66,7 +66,9 @@ def _poly(ring) -> Polygon:
 
 
 def _mean(pts) -> tuple[float, float]:
-    return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+    """The centroid of the points ``pts`` (an end line's stations)."""
+    c = MultiPoint([tuple(p) for p in pts]).centroid
+    return (c.x, c.y)
 
 
 def _deck_frame(rec: _t.Mapping) -> DeckFrame:
@@ -260,7 +262,7 @@ def remove(pack_root: str, rels: _t.Iterable[str]) -> list[str]:
     folder, only an OBJ that carries the generated mark); the paths gone."""
     gone = []
     for rel in rels:
-        if not is_generated_file(rel):
+        if not _is_generated_file(rel):
             continue
         path = os.path.join(pack_root, *rel.split("/"))
         if not os.path.isfile(path):

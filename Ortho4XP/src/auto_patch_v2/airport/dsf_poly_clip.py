@@ -125,7 +125,8 @@ def clip_text(text: str, region: Polygon,
             g = LineString(pts) if len(pts) >= 2 else None
         else:
             rings = [_flatten(w, True, bezier) for w in wind]
-            g = Polygon(rings[0], [r for r in rings[1:] if len(r) >= 3]) if len(rings[0]) >= 3 else None
+            g = (Polygon(rings[0], [r for r in rings[1:] if len(r) >= 3])
+                 if len(rings[0]) >= 3 else None)
             if g is not None and not g.is_valid:
                 g = g.buffer(0)
         if g is None or not g.intersects(region):

@@ -675,7 +675,8 @@ def _walled_pit(o, cache, law, msl, ag, ground, scale, shares, near, walls, note
     if hollows is not None and not _open_hollow(o.resolved, g, law, hollows):
         return None
     return _wp.read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls,
-                               lambda p: _mate_share(p, cache, law, shares), notes)
+                               lambda p: _mate_share(p, cache, law, shares), notes,
+                               own_walls=hollows is not None)
 
 
 def _open_hollow(res: str, g: "_obj8.ObjGeometry", law, memo: dict[str, bool]) -> bool:

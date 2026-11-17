@@ -145,14 +145,17 @@ def test_a_pit_whose_own_floor_is_hard_deck_still_reads(tmp_path):
     assert [f.object_id for f in floors] == ["dsf:obj2"], notes
 
 
-def _trench(tmp_path, roof=False):
+def _trench(tmp_path, roof=False, low_wall=None):
     """A trench authored as ONE open hollow (OMDB ``duong_2``): a 60 x 40 m
     floor at y 0 .. 0.2 with its own side walls to y 12, and, co-placed,
     the walls of its portals standing on the same edges (``tuner1``);
-    ``roof`` closes the hollow (a building, never a trench)."""
+    ``roof`` closes the hollow (a building, never a trench); ``low_wall``
+    the height of the hollow's own north wall (one wall lower than the
+    rim, its 0.5 m cap under it)."""
     sides = [_box(-0.5, 0.0, 0.5, 40.0, 12.0), _box(60.0, 0.0, 0.5, 40.0, 12.0),
              _box(0.0, -0.5, 60.0, 0.5, 12.0), _box(0.0, 40.0, 60.0, 0.5, 12.0)]
-    shell = [_box(0.0, 0.0, 60.0, 40.0, 0.2), *sides]
+    own = sides if low_wall is None else [*sides[:3], _box(0.0, 40.0, 60.0, 0.5, low_wall)]
+    shell = [_box(0.0, 0.0, 60.0, 40.0, 0.2), *own]
     if roof:
         shell.append(_box(-0.5, -0.5, 61.0, 41.0, 0.3, y0=12.0))
     return [_at(_write(tmp_path / "portal_walls.obj", sides), "dsf:obj1"),
@@ -198,3 +201,18 @@ def test_an_open_hollow_no_mapped_bore_runs_into_is_no_trench(tmp_path):
     for bores in ([], [away]):
         floors, notes = _read_bored(_trench(tmp_path), 105.0, bores)
         assert floors == [], (bores, notes)
+
+
+def test_the_top_of_a_hollows_own_wall_is_no_floor(tmp_path):
+    """#1949 R1 (OMDB ``duong_2``: 27 of its 36 floor planes were the 0.4 -
+    0.8 m caps of its own walls, read as floor, and the 0.5 m lattice pinned
+    the rim alternately on the cap and the floor, a 3.16 m road step): a
+    plane under the rim nowhere wider than a wall, standing over the floor
+    beside it, is the wall's top -- it leaves the floor's faces and
+    footprint."""
+    floors, notes = _read_bored(_trench(tmp_path, low_wall=6.0), 105.0, [_BORE])
+    assert [f.object_id for f in floors] == ["dsf:obj2"], notes
+    f = floors[0]
+    assert float(f.faces[:, :, 2].max()) < f.floor_z + 1.0, notes
+    assert f.footprint.bounds[3] <= 40.0 + 1e-6, f.footprint.bounds
+    assert any("tops of its own walls" in n for n in notes), notes

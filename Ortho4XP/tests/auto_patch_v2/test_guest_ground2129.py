@@ -128,7 +128,7 @@ def test_the_later_build_of_the_guests_tile_reseats_them(tmp_path, monkeypatch):
     assert GS.reseat_guests(tile, str(mesh)) == {"guests_reseated": 1,
                                                  "guests_reseat_failed": 0}
     assert ran == [(A, frozenset({"LOWS"}))]
-    marks["LOWS@+47+012"] = TR.mesh_mark(GS.mesh_digest(str(mesh)))
+    marks["LOWS@+47+012"] = TR.mesh_mark(GS._mesh_digest(str(mesh)))
     ran.clear()
     assert GS.reseat_guests(tile, str(mesh)) == {} and ran == []
 
@@ -167,10 +167,10 @@ def test_the_neighbours_ground_is_its_mesh_else_its_built_dsf_else_the_dem(
     dsf = nb / "Earth nav data" / "+40+010" / "+47+013.dsf"
     dsf.parent.mkdir(parents=True)
     dsf.write_bytes(b"dsf")
-    assert GS._ground_mark(tile, B_) == TR.mesh_mark(GS.mesh_digest(str(dsf)), "dsf")
+    assert GS._ground_mark(tile, B_) == TR.mesh_mark(GS._mesh_digest(str(dsf)), "dsf")
     mesh = nb / "Data+47+013.mesh"
     mesh.write_bytes(b"mesh")
-    assert GS._ground_mark(tile, B_) == TR.mesh_mark(GS.mesh_digest(str(mesh)))
+    assert GS._ground_mark(tile, B_) == TR.mesh_mark(GS._mesh_digest(str(mesh)))
     assert GS.neighbour_marks(tile, (12.9, 47.7, 13.1, 47.8)) == {
-        "+47+013": TR.mesh_mark(GS.mesh_digest(str(mesh)))}
+        "+47+013": TR.mesh_mark(GS._mesh_digest(str(mesh)))}
     assert GS.neighbour_marks(tile, (12.1, 47.7, 12.9, 47.8)) == {}

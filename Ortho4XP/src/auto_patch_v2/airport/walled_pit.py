@@ -65,7 +65,7 @@ from .below_grade_witness import placed_all as _placed_all
 from .below_grade_witness import zero_of as _zero
 from .object_cut import _base, _face_normals_y, valid_polygon
 
-__all__ = ["read_walled_pit", "share_lift", "Walls", "hard_deck_share", "wall_caps"]
+__all__ = ["read_walled_pit", "share_lift", "Walls", "hard_deck_share"]
 
 def _floor_level(v: np.ndarray, hz: np.ndarray, min_area: float) -> "float | None":
     """The lowest level carrying a plate's worth (``min_area``) of the
@@ -239,7 +239,7 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     ``mate_share(p)`` is the plate share of ``p``'s resource; ``walls`` the
     read's :class:`Walls`; ``own_walls`` says ``o`` is an open hollow
     carrying its own walls (#1949 R1: their caps are no floor,
-    :func:`wall_caps`)."""
+    :func:`_wall_caps`)."""
     from .object_floor import FLOOR_REF, ObjectFloor
     ob = law.tables.structures.tunnel.object
     v, t = g.vertices, g.solid
@@ -310,7 +310,7 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     under = hz[v[hz][:, :, 1].min(axis=1) < rim_y - ob.cover_flush_m]
     F = _placed_all(o, _types.SimpleNamespace(vertices=v, solid=under), zero, scale)
     if own_walls:
-        cap = wall_caps(F, law)
+        cap = _wall_caps(F, law)
         if cap.any():
             notes.append(f"{what}: {int(cap.sum())} face(s) under its rim are the tops of its "
                          f"own walls, not its floor")
@@ -368,7 +368,7 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
                        rim_proud_m=proud + lift)
 
 
-def wall_caps(faces: np.ndarray, law) -> np.ndarray:
+def _wall_caps(faces: np.ndarray, law) -> np.ndarray:
     """#1949 R1: which of an open hollow's under-rim ``faces`` (``(n, 3,
     3)`` placed, z absolute) are the TOPS OF ITS OWN WALLS -- a plane
     (``geom/plane_groups`` at ``crease_deg`` / ``hollow_m``) nowhere wider

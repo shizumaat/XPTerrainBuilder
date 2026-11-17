@@ -2249,7 +2249,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.agp_plate geom.agp_plate model.agp_plate
     constraints.deck_runout constraints.agp_level law.agp_schema model.agp_group
     model.deck_stack
-    airport.hanging_objects airport.object_cut airport.split_level airport.split_level_wings airport.wall_geometry
+    airport.hanging_objects airport.object_cut airport.split_level airport.split_level_wings
+    airport.wall_geometry
     geom.vector
     airport.facade airport.line_solidity classify.edge_line_mint
     constraints.yard_edge model.yard_run
@@ -2992,7 +2993,8 @@ CODE_MODULES["emit"] = _mods("""
     model.stage_one
     constraints.taxi_route_yield
     airport.foot_lot
-    airport.split_level airport.split_level_wings airport.storey_seat model.storey_shell pipeline.storey_publication
+    airport.split_level airport.split_level_wings airport.storey_seat model.storey_shell
+    pipeline.storey_publication
     pipeline.upper_pad_publication
     airport.shell_ground
     model.free_bridge

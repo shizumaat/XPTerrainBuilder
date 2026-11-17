@@ -24,13 +24,13 @@ from __future__ import annotations
 import os
 import traceback
 
-__all__ = ["neighbour_meshes", "neighbour_marks", "reseat_guests", "mesh_digest"]
+__all__ = ["neighbour_meshes", "neighbour_marks", "reseat_guests"]
 
 #: (path, size, mtime_ns) -> sha256 of a mesh: one read per process
 _DIGESTS: dict = {}
 
 
-def mesh_digest(path: str) -> str:
+def _mesh_digest(path: str) -> str:
     """sha256 of the mesh at ``path``, memoised on its stat."""
     from auto_patch_v2.airport.file_hash import sha256_file
     st = os.stat(path)
@@ -92,12 +92,12 @@ def neighbour_meshes(tile, bounds):
         path = _tile_mesh_path(tile, there)
         if os.path.isfile(path):
             return (mesh_placement_sampler(path, box),
-                    _route.mesh_mark(mesh_digest(path)))
+                    _route.mesh_mark(_mesh_digest(path)))
         dsf = _tile_dsf_path(tile, there)
         if not os.path.isfile(dsf):
             return None
         return (mesh_placement_sampler(dsf, box, sampler=_dsf_sampler(dsf, box)),
-                _route.mesh_mark(mesh_digest(dsf), "dsf"))
+                _route.mesh_mark(_mesh_digest(dsf), "dsf"))
     return meshes
 
 
@@ -107,10 +107,10 @@ def _ground_mark(tile, there) -> str:
     from auto_patch_v2.airport import tile_route as _route
     path = _tile_mesh_path(tile, there)
     if os.path.isfile(path):
-        return _route.mesh_mark(mesh_digest(path))
+        return _route.mesh_mark(_mesh_digest(path))
     dsf = _tile_dsf_path(tile, there)
     if os.path.isfile(dsf):
-        return _route.mesh_mark(mesh_digest(dsf), "dsf")
+        return _route.mesh_mark(_mesh_digest(dsf), "dsf")
     return _route.DEM_MARK
 
 
@@ -173,7 +173,7 @@ def reseat_guests(tile, mesh_path: str) -> dict:
     counts: dict = {}
     try:
         here = (int(tile.lat), int(tile.lon))
-        stale = _stale(here, _route.mesh_mark(mesh_digest(mesh_path)))
+        stale = _stale(here, _route.mesh_mark(_mesh_digest(mesh_path)))
         for origin, keys in sorted(stale.items()):
             counts_one = _reseat_from(tile, origin, keys, UI)
             for k, v in counts_one.items():

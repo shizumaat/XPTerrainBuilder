@@ -211,6 +211,7 @@ def test_the_cut_back_keeps_the_road_on_a_road_block_and_cuts_beyond_its_low_fac
     the road on it stays; the cut-back applies only past the low face; a
     road of the low side still never climbs into the block"""
     import dataclasses as dc
+
     from auto_patch_v2.airport.wall_sides import WallSides, far_side_cut
     from auto_patch_v2.classify.wall_cutback import cut_lines_at_walls
     from shapely.geometry import box

@@ -617,6 +617,16 @@ class Deck:
     shear: bool = True
     #: §49 (5): a deck steeper than this is not sheared (fallback (6)).
     shear_max_grade: float = 0.10
+    #: AN ELEVATED DECK CARRIES NOTHING AT GRADE (#2127 item 4; owner
+    #: RULINGS 2026-11-16u): a pack hard deck over the pack's cut whose
+    #: authored top, at the zero its frame or touching group already gave
+    #: it, stands more than this (one storey) over the solved surface at
+    #: BOTH its end lines is not driven onto from that surface — it is no
+    #: deck the 26d cut-deck seat makes flush (``airport/cut_deck_seat``).
+    #: LGAV ``Train4`` (the station's concourse, top y +14.4) stood 12.6 m
+    #: over its end lines and was pulled 12.6 m out of its group.  0
+    #: disarms.
+    elevated_over_ends_m: float = 3.0
 
 
 @_dc.dataclass(frozen=True)

@@ -196,50 +196,39 @@ def _solve(airport, law):
     return pm, sol, rep
 
 
-def test_a_ribbon_in_the_runway_strip_on_a_hillside_stays_at_the_runway_level(law):
-    """THE NLWF CLASS, synthetic: a tertiary road 30 m south of the runway
-    (inside its strip) on a hillside rising 0.5 m per metre south of
-    y = -20 (the DEM under the road stands ~10 m above the runway).  Every
-    ribbon vertex is BORDERED by the runway (``road_terrace``) and is a
-    band kerb; the band's CEILING caps it (owner 2026-10-19, #951: a road
-    in a safety area may sit at or below its grade, never above), so on a
-    hill that rises above the band the road is solved at the band's grade
-    by the runway (the hill is the cut), and every AIRSIDE value equals the
-    ribbon-free airport's (airside is untouched by construction)."""
+def test_a_ribbon_in_the_runway_strip_shares_no_node_and_takes_no_runway_level(law):
+    """THE NLWF CLASS under owner 2026-11-17T16:38Z (#2122: "the road is
+    only anchored to the apron where it touches, any gap allows it to be at
+    a different level"; 17d (1): never laterally): a tertiary road 30 m
+    south of the runway (inside its strip) on a hillside rising 0.5 m per
+    metre south of y = -20.  The road shares no node with the runway, so
+    ``road_terrace`` gives it NO foot (nor a runway mark) — only the band's
+    CEILING (#951: at or below the safety area's grade) still cuts it into
+    the hill — and every AIRSIDE value equals the ribbon-free airport's."""
     from auto_patch_v2.model.planar import is_osm_ribbon_ref
     from auto_patch_v2.solve.design_roles import airside_stage_vertices
     a1 = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_SlopeDem())
     a0 = _dc.replace(_with(), dem=_SlopeDem())
-    pm1, sol1, rep1 = _solve(a1, law)
+    pm1, sol1, _rep1 = _solve(a1, law)
     pm0, sol0, _r0 = _solve(a0, law)
     terr = pm1.road_terrace
     rib = {v for f in pm1.faces.values() if is_osm_ribbon_ref(f.ref)
            for v in pm1.ring_vertices(f.ring)}
-    gov = set(terr["station"]) & rib
-    assert gov and set(terr["foot"]) >= {v for v in gov
-                                         if -38.0 <= pm1.vertices[v].xy[1] <= -22.0
-                                         and 600.0 < pm1.vertices[v].xy[0] < 900.0}
-    assert {terr["foot"][v][3] for v in terr["foot"]} == {"09/27"}
-    tr = rep1.reach_seed.get("terrace", {})
-    assert tr.get("bordered", 0) > 0
-    # the road is solved at the runway's level, metres under its DEM
-    z = sol1.z
-    for v in terr["foot"]:
-        a, b, u, _ref = terr["foot"][v]
-        lvl = (1 - u) * z[a] + u * z[b]
-        assert abs(z[v] - lvl) <= 0.6, (v, z[v], lvl)
-    assert max(pm1.vertices[v].dem_z - z[v] for v in terr["foot"]) > 5.0
+    assert set(terr["station"]) & rib
+    assert not terr["foot"] and not terr["runway"]
+    # the band's ceiling still holds the road under its hill
+    assert max(pm1.vertices[v].dem_z - sol1.z[v] for v in rib) > 2.0
     # airside identical with and without the ribbon
     z0 = {pm0.vertices[v].xy: sol0.z[v] for v in airside_stage_vertices(pm0, law)}
     at1 = {pm1.vertices[v].xy: v for v in range(len(pm1.vertices))}
     assert z0 and all(abs(sol1.z[at1[xy]] - zz) <= 1e-9 for xy, zz in z0.items())
 
 
-def test_a_fence_along_a_bordered_run_is_recorded_as_the_terrace_witness(law, tmp_path):
-    """10-03b's SECOND WITNESS (report only): a pack fence facade running
-    along the bordered ribbon (3 m outside its kerb) is recorded in
-    ``road_terrace_witness`` with the DEM along it and the level the terrace
-    gave the road — and a facade 60 m away, along nothing, is not."""
+def test_a_fence_along_a_road_across_a_gap_is_no_terrace_witness(law, tmp_path):
+    """10-03b's SECOND WITNESS (report only) reads BORDERED runs; a road
+    beside a runway across a gap is bordered nowhere (owner
+    2026-11-17T16:38Z, #2122: a road takes a pavement's level only at the
+    nodes it shares with it), so a fence along it records nothing."""
     from auto_patch_v2.classify import load_rules
     from auto_patch_v2.emit.osm_adapter import SIDECAR_KEYS
     from auto_patch_v2.pipeline.terrace_witness import terrace_witness
@@ -259,11 +248,7 @@ def test_a_fence_along_a_bordered_run_is_recorded_as_the_terrace_witness(law, tm
     dump = tmp_path / "x.dsf.txt"
     dump.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     wit = terrace_witness(pm1, a1, sol1.z, load_rules(), str(dump))
-    assert [w["object"] for w in wit] == ["objects/vele_fence.fac"]
-    w = wit[0]
-    assert w["along_share"] >= 0.8 and w["refs"] == ["09/27"]
-    assert w["dem_m"]["min"] == pytest.approx(108.5, abs=0.6)    # the DEM at y = -37
-    assert w["agreement_m"]["road_minus_dem_min"] < -5.0     # the road is in the cut
+    assert wit == []
     assert "road_terrace_witness" in SIDECAR_KEYS
 
 
@@ -414,25 +399,20 @@ class _EmbankmentDem:
         return (-5000.0, -5000.0, 5000.0, 5000.0)
 
 
-def test_a_road_a_runway_borders_is_never_lifted_to_the_runway(law):
-    """Owner sim read 2026-10-28T14:26Z point 6 (#951: a road inside a
-    runway band sits at or below its grade): the NLWF class's mirror — the
-    runway on an embankment, a road in its strip on the ground 5 m under
-    it.  The road is BORDERED by the runway (``road_terrace``'s
-    ``runway``) and the terrace does not lift it: it stays on its own
-    ground, metres under the runway, and airside is untouched."""
+def test_a_road_beside_a_runway_is_never_lifted_to_the_runway(law):
+    """Owner sim read 2026-10-28T14:26Z point 6 (#951): the NLWF class's
+    mirror — the runway on an embankment, a road in its strip on the ground
+    5 m under it.  It shares no node with the runway (owner
+    2026-11-17T16:38Z), so it takes no runway level and stays on its own
+    ground."""
     from auto_patch_v2.model.planar import is_osm_ribbon_ref
     a1 = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_EmbankmentDem())
-    pm1, sol1, rep1 = _solve(a1, law)
+    pm1, sol1, _rep1 = _solve(a1, law)
     terr = pm1.road_terrace
     rib = {v for f in pm1.faces.values() if is_osm_ribbon_ref(f.ref)
            for v in pm1.ring_vertices(f.ring)}
-    held = set(terr["runway"]) & rib
-    assert held and all(terr["foot"][v][3] == "09/27" for v in held)
-    z = sol1.z
-    for v in held:
-        a, b, u, _ref = terr["foot"][v]
-        assert (1 - u) * z[a] + u * z[b] - z[v] > 3.0, (v, z[v])
+    assert rib and not terr["foot"] and not terr["runway"]
+    assert max(abs(sol1.z[v] - pm1.vertices[v].dem_z) for v in rib) < 2.5
 
 
 def test_a_runway_bordered_level_is_capped_before_the_runs_beside_it():

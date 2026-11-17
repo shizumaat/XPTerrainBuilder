@@ -121,23 +121,17 @@ def test_a_1206_route_beside_an_apron_across_a_bank_keeps_its_own_target(law, so
     assert max(pm1.vertices[v].dem_z - z[v] for v in beside) <= 1.2
 
 
-def test_a_1206_route_along_a_placed_wall_rides_the_apron_level(law, solved):
-    """10-03l (the HECA #291 key): the SAME route with a wall-class piece
-    between it and a lot (10-03c's witness, ``wall_terraces``) is in the
-    terrace along the wall — ``foot`` on the apron, solved at the apron's
-    level, metres under its own DEM (the hill is the cut)."""
-    _no_wall, _free, (pm2, sol2, rep2) = solved
+def test_a_1206_route_along_a_placed_wall_takes_no_apron_level_across_its_gap(law, solved):
+    """10-03l under owner 2026-11-17T16:38Z (#2122): the SAME route with a
+    wall-class piece between it and a lot runs 10 m off the apron and shares
+    no node with it, so it takes no ``foot`` there: it is not held at the
+    apron's level metres under its own DEM."""
+    _no_wall, _free, (pm2, sol2, _rep2) = solved
     beside = _beside(pm2)
     terr = pm2.road_terrace
-    assert len(terr["wall"]) == 1
-    feet = {v: terr["foot"][v] for v in beside if v in terr["foot"]}
-    assert feet and set(feet) >= (beside & set(terr["station"]))
-    assert rep2.reach_seed.get("terrace", {}).get("bordered", 0) > 0
+    assert beside and not (beside & set(terr["foot"]))
     z = sol2.z
-    for v, (a, b, u, _ref) in feet.items():
-        lvl = (1 - u) * z[a] + u * z[b]
-        assert abs(z[v] - lvl) <= 0.6, (v, z[v], lvl)
-    assert max(pm2.vertices[v].dem_z - z[v] for v in beside) > 1.5
+    assert max(pm2.vertices[v].dem_z - z[v] for v in beside) < 1.5
 
 
 def test_the_wall_key_leaves_a_ribbon_in_the_terrace():

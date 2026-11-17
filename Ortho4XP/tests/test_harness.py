@@ -1943,6 +1943,50 @@ def test_a_pack_dsf_with_no_cached_dump_refuses_and_names_the_mod_cache(
     assert build_mod.missing_pack_dsf_dumps(tmp_path, 22, 113, None) == []
 
 
+def test_the_apps_logged_cleanup_is_external_not_a_side_effect(
+        guard_mod, tmp_path):
+    """#2093 (2026-11-17T05:29:03Z): the app's automatic cleanup deleted
+    regional extracts and moved elevation footprints out of the shared
+    corpus while lanes were building, and each build's audit called it
+    the build's SIDE EFFECT.  A delta the app logged in
+    ``logs/storage.log`` inside the build's window is labelled "external:
+    app automatic cleanup"; one logged outside the window, or not logged,
+    still contaminates."""
+    import time as _time
+    repo = tmp_path / "repo"
+    (repo / "logs").mkdir(parents=True)
+    now = _time.time()
+
+    def stamp(t):
+        return _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(t))
+
+    (repo / "logs" / "storage.log").write_text(
+        f"{stamp(now - 3600)} deleted 9 bytes {repo}/OSM_data/old.pbf "
+        f"(osm_extracts, automatic cleanup)\n"
+        f"{stamp(now)} deleted 0 bytes {repo}/OSM_data/_regional_extracts/"
+        f"a.osm.pbf (osm_extracts, automatic cleanup)\n"
+        f"{stamp(now)} moved 4096 bytes {repo}/Elevation_data/footprints/"
+        f"f.json to /Volumes/Tier/Elevation_data/footprints/f.json "
+        f"(elevation, automatic cleanup)\n", encoding="utf-8")
+    changes = {"added": [], "modified": [],
+               "removed": ["OSM_data/_regional_extracts/a.osm.pbf",
+                           "Elevation_data/footprints/f.json",
+                           "OSM_data/old.pbf", "OSM_data/b.osm.bz2"]}
+    notes = []
+    prog = type("P", (), {"note": staticmethod(notes.append)})
+    offenders = guard_mod.report_unauthorised_writes(
+        changes, set(), prog, redirected=(), window=(now - 60, now + 1),
+        repo=repo)
+    mine = {o["path"] for o in guard_mod.contaminating_writes(offenders)}
+    assert mine == {"OSM_data/old.pbf", "OSM_data/b.osm.bz2"}
+    assert any("external: app automatic cleanup — 2 path(s)" in n
+               for n in notes)
+    # No window: the pre-#2093 audit to the letter.
+    offenders = guard_mod.report_unauthorised_writes(
+        changes, set(), prog, redirected=())
+    assert len(guard_mod.contaminating_writes(offenders)) == 4
+
+
 def test_a_REDIRECTED_scope_cannot_be_this_builds_contamination(
         build_mod, guard_mod, tmp_path, monkeypatch):
     """THE VHHH MIS-ATTRIBUTION (2026-09-15, RULINGS 2026-09-15ar).

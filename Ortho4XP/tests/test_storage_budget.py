@@ -83,7 +83,7 @@ def test_tiers_go_cheapest_first_and_the_floor_stays(monkeypatch):
     dsf = _write(str(tile / "Earth nav data" / "+40+000" / "+45+007.dsf"), 4000)
     patch = _write(str(data / "Patches" / "+45+007" / "A.patch.osm"), 3000)
     tmp_old = _write(str(data / "tmp" / "old.bin"), BLOCK, age_days=20)
-    tmp_new = _write(str(data / "tmp" / "new.bin"), BLOCK, age_days=2)
+    tmp_new = _write(str(data / "tmp" / "new.bin"), BLOCK, age_days=10)
     mask = _write(str(data / "Masks" / "+45+007" / "m.png"), BLOCK, age_days=90)
     elevation = _write(str(data / "Elevation_data" / "e.hgt"), BLOCK, age_days=90)
     figures = TOTAL.status(ST.storage_scan()["stores"])

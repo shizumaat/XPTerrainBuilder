@@ -5612,6 +5612,7 @@ def main(argv=None) -> int:
         pk for inst in xplane_install_roots() + owner_install_roots()
         for pk in pack_roots_for_tile(lat, lon, inst)}))
         if lat is not None else ())
+    window_start = time.time()      # the audit's window (#2093)
     before = shared_repo_snapshot()
     before.update(install_snapshot(pack_roots))
     prog.note(f"shared-repo snapshot: {len(before)} file(s) across "
@@ -5838,9 +5839,9 @@ def main(argv=None) -> int:
         # now, in the process that did the building, which scopes this run
         # pointed outside the repo — a delta in one of those has no
         # possible author here (2026-09-15, the VHHH mis-attribution).
-        offenders = report_unauthorised_writes(changes, requested, prog,
-                                               blocked=guard.blocked,
-                                               input_scope=input_scope)
+        offenders = report_unauthorised_writes(
+            changes, requested, prog, blocked=guard.blocked,
+            input_scope=input_scope, window=(window_start, time.time()))
         unchanged = refetched_unchanged()
         for sc in sorted(requested):
             in_scope = {k: [r for r in v if scope_of(r) == sc]

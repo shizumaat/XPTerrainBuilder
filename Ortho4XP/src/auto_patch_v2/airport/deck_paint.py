@@ -101,8 +101,9 @@ def dashed_pieces(line: LineString, dash: "tuple[float, float] | None"
 def light_names(light: int) -> tuple[str, ...]:
     """The OBJ8 named lights (``lights.txt``) for an apt.dat ``120``
     light code (Q4 as ruled: kept as ``taxi_g`` / ``taxi_g_rev``): ``101``
-    the green bidirectional taxiway centreline, ``107`` the one-way one;
-    ``()`` for the rest (edge, hold, stop-bar lights: not redrawn)."""
-    return {101: ("taxi_g", "taxi_g_rev"), 107: ("taxi_g",)}.get(int(light), ())
-
-
+    the green bidirectional taxiway centreline, ``107`` the one-way one,
+    ``102`` the blue taxiway EDGE light (``taxi_b``, #2132 spec
+    2132-design section 4); ``()`` for the rest (hold and stop-bar
+    lights: not redrawn)."""
+    return {101: ("taxi_g", "taxi_g_rev"), 102: ("taxi_b",),
+            107: ("taxi_g",)}.get(int(light), ())

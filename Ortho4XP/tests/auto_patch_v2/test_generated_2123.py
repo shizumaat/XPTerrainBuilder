@@ -109,7 +109,8 @@ def test_paint_table_reads_xplane_line_specs():
     dashes = deck_paint.dashed_pieces(LineString([(0, 0), (3, 0)]), (0.375, 0.375))
     assert len(dashes) == 4 and abs(dashes[0].length - 0.375) < 1e-9
     assert deck_paint.light_names(101) == ("taxi_g", "taxi_g_rev")
-    assert deck_paint.light_names(102) == ()
+    assert deck_paint.light_names(102) == ("taxi_b",)       # #2132: blue edge lights
+    assert deck_paint.light_names(104) == ()
 
 
 def test_span_cells_cut_only_the_pack_pavement_under_the_span():

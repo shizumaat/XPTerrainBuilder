@@ -9,7 +9,7 @@ import types
 import pytest
 from auto_patch_v2.airport import deck_skin
 from auto_patch_v2.airport import generated_pack as gen
-from auto_patch_v2.airport.deck_obj8 import DeckSheet, DeckSkin, deck_obj8_text, overlay_obj8_text
+from auto_patch_v2.airport.deck_obj8 import DeckSkin, DeckStrip, deck_obj8_text, overlay_obj8_text
 from auto_patch_v2.airport.obj8 import parse_obj8
 from auto_patch_v2.law.tables import load_default
 from auto_patch_v2.model.structures import DeckBridge
@@ -164,7 +164,8 @@ def test_skinned_slab_tiles_in_metres(tmp_path):
         deck_obj8_text(ring, lambda x, z: 0.0, thickness_m=1.0, texture="a.png",
                        skin=DeckSkin("c.dds", (22.0, 44.0)), lights=[object()])
     film = overlay_obj8_text(lambda x, z: 0.0, texture="r.dds",
-                             sheets=[DeckSheet(ring, lambda x, z: (x / 30.0, -z / 30.0), 0.01)])
+                             strips=[DeckStrip(((0.0, -20.0), (0.0, 20.0)), 3.75, 3.75,
+                                               (0.25, 0.5), 30.0, 0.01)])
     assert "ATTR_poly_os 2" in film and "ATTR_hard_deck" not in film
 
 

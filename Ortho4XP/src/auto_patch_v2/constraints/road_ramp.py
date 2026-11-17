@@ -156,13 +156,24 @@ def road_ramp_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
 def road_contact_rows(planar: PlanarMap, law: Law, airport: Airport
                       ) -> list[Row]:
     """§37 (10) (1): for every road vertex whose route END contacts an
-    airside face within ``[road_contact] contact_reach_m``, ONE row
+    airside face within ``[road_contact] contact_reach_m``, TWO rows, the
+    contact read from both sides
 
-        ``z[v] - (1-u)·z[a] - u·z[b] <= cap · s``
+        ``z[v] - (1-u)·z[a] - u·z[b] <= cap · s``   (the ceiling)
+        ``z[v] - (1-u)·z[a] - u·z[b] >= -cap · s``  (its mirror, the floor)
 
-    — the road stands at most its own longitudinal cap above the AIRSIDE
+    — the road stands within its own longitudinal cap of the AIRSIDE
     EDGE's own level after ``s`` metres of route from the contact.  At the
     contact itself (``s = 0``) that is the airside's level exactly.
+
+    THE FLOOR (lane lrc37): §37 (10) C1 withdraws the §37 (6) DEM target
+    over the end group, so with the ceiling alone nothing held the end UP —
+    it hung from its neighbours and sank under both its contact and its
+    ground (test-550 replays: KBNA 29 ends > 0.5 m under both, worst
+    -3.40 m at ``small_roads:-383``; KDEN 58, -4.23 m; KMCI 58, -3.91 m).
+    The mirror is the same row read from below, at the same weight, under
+    the same ruling and the same lag; the DEM target stays withdrawn
+    (C1 arm 3, HECA ``route0``'s 0.70 m weight contest).
 
     ONE-WAY (``follows=(v,)``, the ruling registered in ``[design]
     one_way_rulings``): the road vertex keeps its column, the two airside
@@ -193,10 +204,10 @@ def road_contact_rows(planar: PlanarMap, law: Law, airport: Airport
         a, b, u, s = edges[v]
         ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
                     if planar.faces[f].ref), "")
-        rows.append(Linear(((v, 1.0), (a, -(1.0 - u)), (b, -u)),
-                           None, cap * float(s),
-                           Source(GEN, CONTACT_RULING, (f"vertex:{v}", ref)),
-                           follows=(v,)))
+        terms = ((v, 1.0), (a, -(1.0 - u)), (b, -u))
+        src = Source(GEN, CONTACT_RULING, (f"vertex:{v}", ref))
+        rows.append(Linear(terms, None, cap * float(s), src, follows=(v,)))
+        rows.append(Linear(terms, -cap * float(s), None, src, follows=(v,)))
     return rows
 
 

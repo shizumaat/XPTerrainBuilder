@@ -29,7 +29,13 @@ sys.path.append(os.path.join(Ortho4XP_dir, "src"))
 # and any non-cp1252 character in a printed string is an exception, not
 # mojibake (#171).  Parity twin: tests/test_frozen_spec_parity.py.
 import O4_Console_Encoding
+import O4_Process_Environment  # noqa: E402 - after the src path, like the line above
 O4_Console_Encoding.configure_console_streams()
+
+# No MallocStackLogging* variable reaches a child process: macOS prints a
+# line per process that inherits one (one per pool worker; owner
+# 2026-11-17).  Before the first spawn below; O4_Process_Environment.
+O4_Process_Environment.strip_malloc_stack_logging()
 
 # THEN, before any dispatch: claim the multiprocessing spawn bootstrap — the
 # same call, for the same reason, as in Ortho4XP.py.  On Windows and Linux
@@ -41,7 +47,7 @@ O4_Console_Encoding.configure_console_streams()
 # and starts the Qt application: one window per worker, a parent that never
 # hears from them (measured, lane `frozenpool`: every pool FELL BACK with
 # "a worker died" and the airport pool's Manager raised EOFError).  From
-# source it is a no-op.  After the console pin and nothing else: the
+# source it is a no-op.  After the console pin and env strip only: the
 # diverted child never returns, so its streams are pinned first.  Parity
 # twin: tests/test_frozen_spec_parity.py.
 if __name__ == "__main__":

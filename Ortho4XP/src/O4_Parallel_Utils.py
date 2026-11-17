@@ -74,7 +74,7 @@ def machine_memory_gigabytes() -> float:
 MEMORY_CEILING_FRACTION = 0.8
 
 # The available-memory probe shells out on macOS; a short cache keeps a
-# dispatch loop from spawning one ``vm_stat`` per admission decision
+# dispatch loop from re-reading the kernel on every admission decision
 # while still letting a long-lived front end see the machine change.
 _AVAILABLE_MEMORY_CACHE_SECONDS = 2.0
 _available_memory_cache = [0.0, 0.0]   # [sampled_at, gigabytes]
@@ -82,14 +82,26 @@ _available_memory_lock = threading.Lock()
 
 
 def _probe_available_memory_gigabytes():
-    """Free-plus-reclaimable physical memory, or ``None`` if unknowable.
+    """Memory the operating system would hand out now, or ``None``.
 
     Standard library only (this module is imported by core pipeline
-    code).  Linux reads ``MemAvailable``, macOS totals ``vm_stat``'s
-    free + inactive + speculative + purgeable pages (the pages the
-    kernel hands out without swapping), Windows reads
+    code).  Linux reads ``MemAvailable``, macOS asks the kernel
+    (:func:`_darwin_available_gigabytes`), Windows reads
     ``GlobalMemoryStatusEx().ullAvailPhys``.
     """
+    for probe in (_linux_available_gigabytes, _darwin_available_gigabytes,
+                  _windows_available_gigabytes):
+        try:
+            value = probe()
+        except Exception:
+            value = None
+        if value:
+            return value
+    return None
+
+
+def _linux_available_gigabytes():
+    """``MemAvailable`` from ``/proc/meminfo`` (``None`` elsewhere)."""
     try:
         with open("/proc/meminfo", "r") as handle:
             for line in handle:
@@ -97,63 +109,116 @@ def _probe_available_memory_gigabytes():
                     return int(line.split()[1]) / (1024.0 ** 2)
     except (OSError, ValueError, IndexError):
         pass
-    try:
-        if "dar" in sys.platform:
-            page_size = os.sysconf("SC_PAGE_SIZE")
-            # close_fds=False is load-bearing, not tidiness: it is what
-            # makes CPython take posix_spawn() instead of fork()+exec().
-            # This function may be called from a process that has
-            # imported the pipeline, and once GDAL has warped anything
-            # its bundled PROJ registers a pthread_atfork handler that
-            # segfaults in the forked child before exec runs (the
-            # 2026-07-16 crash class — see
-            # O4_UI_Utils.external_tool_keyword_arguments).  Python file
-            # descriptors are non-inheritable by default (PEP 446), so
-            # not sweeping them is safe.
-            output = subprocess.run(
-                ["/usr/bin/vm_stat"],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, timeout=5.0, check=True,
-                close_fds=False).stdout
-            counts = {}
-            for line in output.splitlines():
-                if ":" not in line:
-                    continue
-                name, _, value = line.partition(":")
-                digits = value.strip().rstrip(".")
-                if digits.isdigit():
-                    counts[name.strip().lower()] = int(digits)
-            pages = sum(
-                counts.get(key, 0)
-                for key in ("pages free", "pages inactive",
-                            "pages speculative", "pages purgeable")
-            )
-            if pages > 0:
-                return pages * page_size / (1024.0 ** 3)
-    except Exception:
-        pass
-    try:
-        import ctypes
+    return None
 
-        class _AvailableStatus(ctypes.Structure):
-            _fields_ = [
-                ("dwLength", ctypes.c_uint32),
-                ("dwMemoryLoad", ctypes.c_uint32),
-                ("ullTotalPhys", ctypes.c_uint64),
-                ("ullAvailPhys", ctypes.c_uint64),
-                ("ullTotalPageFile", ctypes.c_uint64),
-                ("ullAvailPageFile", ctypes.c_uint64),
-                ("ullTotalVirtual", ctypes.c_uint64),
-                ("ullAvailVirtual", ctypes.c_uint64),
-                ("ullAvailExtendedVirtual", ctypes.c_uint64),
-            ]
 
-        status = _AvailableStatus()
-        status.dwLength = ctypes.sizeof(_AvailableStatus)
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-            return status.ullAvailPhys / (1024.0 ** 3)
-    except Exception:
-        pass
+def _darwin_sysctl_int(name, ctype):
+    """One integer ``sysctl`` value through libc, or ``None``.
+
+    ``sysctlbyname`` in-process: no child is spawned (see the
+    ``vm_stat`` fallback for why spawning from here is delicate).
+    """
+    import ctypes
+    value = ctype(0)
+    size = ctypes.c_size_t(ctypes.sizeof(value))
+    libc = ctypes.CDLL(None)
+    if libc.sysctlbyname(name.encode("ascii"), ctypes.byref(value),
+                         ctypes.byref(size), None, 0) != 0:
+        return None
+    return int(value.value)
+
+
+def _darwin_available_gigabytes():
+    """What macOS itself counts as available: ``kern.memorystatus_level``
+    (percent of physical memory) times ``hw.memsize`` — #2136.
+
+    ``memorystatus_level`` is the kernel's own available-pages figure,
+    the one its memory-pressure levels (and Activity Monitor's "Memory
+    Pressure" graph) are drawn from: free, speculative and every page it
+    can reclaim by purging, dropping file cache or COMPRESSING an idle
+    anonymous page.  The old ``vm_stat`` sum (free + inactive +
+    speculative + purgeable) ignored compression, so on a busy 128 GB Mac
+    it read ~33 GB while the kernel reported ~50 % (~64 GB) available
+    and under no pressure.  Activity Monitor's "Memory Used" / "Cached
+    Files" split is NOT that figure: it treats every resident app page as
+    used, and would read lower still (~12 GB at the same moment) — that
+    is occupancy, not what a new process can get without pressure.  The
+    headroom the consumers keep (``O4_Machine_Slots.headroom_gigabytes``,
+    max(15 %, 8 GB)) sits on the kernel's own scale this way, and
+    ``pool_memory``'s live stop reads the same sysctl.  The ``vm_stat``
+    sum stays as the fallback when the sysctl is missing.
+    """
+    if "dar" not in sys.platform:
+        return None
+    import ctypes
+    level = _darwin_sysctl_int("kern.memorystatus_level", ctypes.c_int)
+    total = _darwin_sysctl_int("hw.memsize", ctypes.c_uint64)
+    if level and total and 0 < level <= 100:
+        return level / 100.0 * total / (1024.0 ** 3)
+    return _darwin_vm_stat_gigabytes()
+
+
+def _darwin_vm_stat_gigabytes():
+    """The pre-#2136 reading: ``vm_stat`` free + inactive + speculative +
+    purgeable pages.  The fallback when ``memorystatus_level`` is absent."""
+    page_size = os.sysconf("SC_PAGE_SIZE")
+    # close_fds=False is load-bearing, not tidiness: it is what makes
+    # CPython take posix_spawn() instead of fork()+exec().  This function
+    # may be called from a process that has imported the pipeline, and
+    # once GDAL has warped anything its bundled PROJ registers a
+    # pthread_atfork handler that segfaults in the forked child before
+    # exec runs (the 2026-07-16 crash class — see
+    # O4_UI_Utils.external_tool_keyword_arguments).  Python file
+    # descriptors are non-inheritable by default (PEP 446), so not
+    # sweeping them is safe.
+    output = subprocess.run(
+        ["/usr/bin/vm_stat"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, timeout=5.0, check=True,
+        close_fds=False).stdout
+    return _vm_stat_available_gigabytes(output, page_size)
+
+
+def _vm_stat_available_gigabytes(output, page_size):
+    """Free + inactive + speculative + purgeable pages of a ``vm_stat``
+    listing, in gigabytes (``None`` when it names none)."""
+    counts = {}
+    for line in output.splitlines():
+        if ":" not in line:
+            continue
+        name, _, value = line.partition(":")
+        digits = value.strip().rstrip(".")
+        if digits.isdigit():
+            counts[name.strip().lower()] = int(digits)
+    pages = sum(
+        counts.get(key, 0)
+        for key in ("pages free", "pages inactive",
+                    "pages speculative", "pages purgeable")
+    )
+    return pages * page_size / (1024.0 ** 3) if pages > 0 else None
+
+
+def _windows_available_gigabytes():
+    """``GlobalMemoryStatusEx().ullAvailPhys`` (``None`` elsewhere)."""
+    import ctypes
+
+    class _AvailableStatus(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_uint32),
+            ("dwMemoryLoad", ctypes.c_uint32),
+            ("ullTotalPhys", ctypes.c_uint64),
+            ("ullAvailPhys", ctypes.c_uint64),
+            ("ullTotalPageFile", ctypes.c_uint64),
+            ("ullAvailPageFile", ctypes.c_uint64),
+            ("ullTotalVirtual", ctypes.c_uint64),
+            ("ullAvailVirtual", ctypes.c_uint64),
+            ("ullAvailExtendedVirtual", ctypes.c_uint64),
+        ]
+
+    status = _AvailableStatus()
+    status.dwLength = ctypes.sizeof(_AvailableStatus)
+    if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        return status.ullAvailPhys / (1024.0 ** 3)
     return None
 
 

@@ -8,10 +8,8 @@ from __future__ import annotations
 import types
 from types import SimpleNamespace as NS
 
-import numpy as np
 import pytest
-from shapely.geometry import LineString, box
-
+from shapely.geometry import box
 from tests.auto_patch_v2.test_sunk_frame2120 import CFG, _airport, _retaining
 from tests.auto_patch_v2.test_wall_class_thick import FRAME, _StepDem
 

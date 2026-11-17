@@ -24,7 +24,8 @@ frees ``over_by`` bytes in two phases:
    its sharp imagery made low-res, its rebuild data -- and only then the
    next tile.
 
-PROTECTED, never cleared (:func:`_protected`): a tile built or queued in
+PROTECTED, never cleared (:func:`_protected`): a shared file written or
+read in the last :data:`RECENT_DAYS` days (#2093), a tile built or queued in
 this engine session (:func:`note_session`, from ``session.build`` /
 ``enqueue_build``), a tile used in the last :data:`RECENT_DAYS` days
 (that also covers a build another process is running: it writes its
@@ -257,10 +258,14 @@ def clear(over_by: int, sweep, now: float) -> int:
     protected = _protected(tiles, now)
     keep = _protected_inputs(protected)
     freed = 0
+    recent = now - RECENT_DAYS * _DAY
     for tier in SHARED_TIERS:
         if freed >= over_by or sweep.stopped:
             break
-        rows = [r for kind in tier for r in shared.get(kind, ())]
+        # #2093: shared data written or read in the last week stays, as a
+        # recent tile does (a running build's map extracts were cleared).
+        rows = [r for kind in tier for r in shared.get(kind, ())
+                if STORAGE._last_used(r[2]) < recent]
         freed += STORAGE._evict_rows(_rows(rows, keep), over_by - freed, sweep)
     candidates = None
     for tile in _ranked(tiles, protected):

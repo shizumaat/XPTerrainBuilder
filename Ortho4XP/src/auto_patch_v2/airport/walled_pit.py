@@ -124,10 +124,9 @@ class Walls:
                                        _obj8.placement_affine(p.xy, p.heading_deg))
         return STRtree(lines), lines, P[:, :, 1].min(axis=1)[ok], P[:, :, 1].max(axis=1)[ok]
 
-    def reaching(self, p, reach_y: float, top_y: float, near):
-        """``(tree, tops)`` of ``p``'s wall faces whose bottom reaches
-        ``reach_y`` and whose top stands at ``top_y`` or over it, within
-        the plan box ``near`` — or ``None``."""
+    def spans(self, p, near):
+        """``(lines, bottoms, tops)`` of ``p``'s wall faces within the plan
+        box ``near`` — or ``None``."""
         if p.id not in self._by_id:
             self._by_id[p.id] = self._read(p)
         got = self._by_id[p.id]
@@ -135,8 +134,18 @@ class Walls:
             return None
         tree, lines, lo, hi = got
         k = tree.query(near)
-        k = k[(lo[k] <= reach_y) & (hi[k] >= top_y)]
-        if not len(k):
+        return (lines[k], lo[k], hi[k]) if len(k) else None
+
+    def reaching(self, p, reach_y: float, top_y: float, near):
+        """``(tree, tops)`` of ``p``'s wall faces whose bottom reaches
+        ``reach_y`` and whose top stands at ``top_y`` or over it, within
+        the plan box ``near`` — or ``None``."""
+        got = self.spans(p, near)
+        if got is None:
+            return None
+        lines, lo, hi = got
+        k = (lo <= reach_y) & (hi >= top_y)
+        if not k.any():
             return None
         return STRtree(lines[k]), hi[k]
 
@@ -363,7 +372,7 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
     fz = float(faces[:, :, 2].min())
     # rule 7 (owner RULINGS 2026-11-17 (a)): only an OPEN TRENCH banks its open
     # edges -- its floor under no roof
-    hung = _hung(outline, (o, *covers), walls, floor_y, law)
+    hung = _hung(outline, (o, *covers), walls, _floor_y_at(o, v, under, floor_y, tk), law)
     trench = _open_trench(roofed, hung, law)
     inside = [p for p in mates if p not in covers and _in_pit(p, plan, cache, tk)]
     k = sum(1 for n in notes if n.startswith(f"object floor walled pit {_base(o.path)}@"))
@@ -390,20 +399,45 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
                        rim_proud_m=proud + lift, rim_tops=tops, rim_banks=bool(tops))
 
 
-def _hung(outline, frame, walls: Walls, floor_y: float, law) -> float:
-    """Rule 7 (a): the share of ``outline`` (every ``wall_sample_m``) along
+def _hung(outline, frame, walls: Walls, floor, law) -> float:
+    """Rule 7: the share of ``outline`` (every ``wall_sample_m``) along
     which a wall of ``frame`` (the floor object and the pit's walls) hangs
-    more than ``cover_flush_m`` UNDER the floor and rises to it: the plate
-    stands on its walls -- a roof, the floor the walls stand on under it."""
+    more than ``cover_flush_m`` UNDER the floor beside it (``floor(xs, ys)``,
+    OBJ y) and rises to it: there the plate stands on its walls -- a roof,
+    the floor the walls stand on lies under it.  A ramp's walls follow it
+    down: they hang under no part of it."""
     ob = law.tables.structures.tunnel.object
-    tk = float(ob.wall_face_max_thickness_m)
+    tk, flush = float(ob.wall_face_max_thickness_m), float(ob.cover_flush_m)
+    ring = outline.boundary
+    n = max(1, int(math.ceil(ring.length / float(ob.wall_sample_m))))
+    pts = shapely.line_interpolate_point(ring, (np.arange(n) + 0.5) * (ring.length / n))
+    xy = shapely.get_coordinates(pts)
+    fl = floor(xy[:, 0], xy[:, 1]) - flush
     box = shapely.box(*outline.bounds).buffer(tk)
-    best = 0.0
+    hit = np.zeros(n, bool)
     for p in frame:
-        w = walls.reaching(p, floor_y - ob.cover_flush_m, floor_y - ob.cover_flush_m, box)
-        if w is not None:
-            best = max(best, _on_ring(outline, w, tk, float(ob.wall_sample_m))[0])
-    return best
+        got = walls.spans(p, box)
+        if got is None:
+            continue
+        lines, lo, hi = got
+        si, wi = STRtree(lines).query(pts, predicate="dwithin", distance=tk)
+        ok = (lo[wi] <= fl[si]) & (hi[wi] >= fl[si])
+        hit[si[ok]] = True
+    return float(hit.mean())
+
+
+def _floor_y_at(o, v: np.ndarray, under: np.ndarray, floor_y: float, tk: float):
+    """``(xs, ys) -> OBJ y``: the lowest of ``o``'s faces ``under`` its rim
+    there (in the walls' plan, :class:`Walls`; within ``tk`` of one),
+    ``floor_y`` where none is."""
+    from ..geom.lowest_face import floor_z_at
+    px, py = _placed_plan(o, v[under], (1.0, 1.0))
+    faces = np.stack([px, py, v[under][:, :, 1]], axis=2)
+
+    def at(xs, ys):
+        y = floor_z_at(faces, xs, ys, edge_m=tk)
+        return np.where(np.isfinite(y), y, floor_y)
+    return at
 
 
 def _open_trench(roofed: float, hung: float, law) -> bool:

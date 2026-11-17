@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import typing as _t
 
+from ..geom import exact
 from ..law import Law
 from ..law.tables import pavement_roles
 from ..model.constraints import Diff, Linear, Row, Source
@@ -53,11 +54,14 @@ class _Released:
 
     def __init__(self, planar: PlanarMap, law: Law):
         spans = getattr(planar, "bridge_span", None) or {}
-        air = stage_one_vertices(planar, law) if spans else frozenset()
-        pav = set(pavement_roles(law))
         self.planar = planar
         self.faces: dict[int, tuple[frozenset, frozenset]] = {}
         self.by_v: dict[int, list[int]] = {}
+        self.held: set[int] = set()
+        if not spans:   # a map with no span reads no law
+            return
+        air = stage_one_vertices(planar, law)
+        pav = set(pavement_roles(law))
         for fid, span in spans.items():
             if fid not in planar.faces:
                 continue
@@ -127,7 +131,7 @@ def span_lifts(planar: PlanarMap, law: Law) -> dict[int, float]:
                 if not rel(a, b):
                     continue
                 bx, by = planar.vertices[b].xy
-                d = ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+                d = exact.hypot(ax - bx, ay - by)
                 if d > 0.0:
                     g = max(g, abs(_ground(planar, a) - _ground(planar, b)) / d)
         out[fid] = round(g, 6)

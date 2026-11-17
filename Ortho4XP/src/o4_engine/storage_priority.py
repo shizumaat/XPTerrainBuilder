@@ -267,6 +267,7 @@ def clear(over_by: int, sweep, now: float) -> int:
         rows = [r for kind in tier for r in shared.get(kind, ())
                 if STORAGE._last_used(r[2]) < recent]
         freed += STORAGE._evict_rows(_rows(rows, keep), over_by - freed, sweep)
+    freed += _drapes(over_by - freed, sweep, now)
     candidates = None
     for tile in _ranked(tiles, protected):
         if freed >= over_by or sweep.stopped:
@@ -312,6 +313,7 @@ def offload(over_by: int, sweep, now: float, keep_tiles=()) -> int:
             break
         rows = [r for kind in tier for r in shared.get(kind, ())]
         freed += STORAGE._evict_rows(_rows(rows, keep), over_by - freed, sweep)
+    freed += _drapes(over_by - freed, sweep, now)
     order = _ranked(tiles, protected) + sorted(
         (t for p, t in tiles.items() if p in protected),
         key=lambda t: (t.pair in session, t.favorite, t.last_used, t.pair))
@@ -324,6 +326,21 @@ def offload(over_by: int, sweep, now: float, keep_tiles=()) -> int:
         freed += _clear_tile(tile, over_by - freed, sweep, now, keep, None)
     _prune(sweep)
     return freed
+
+
+def _drapes(need: int, sweep, now: float) -> int:
+    """The World pack's drapes, least recently flown first, after the
+    shared data and before any tile's own (#2142 Q3,
+    ``world_drape_evict``: offloaded to a tier first, else reverted to
+    placeholders; an offload-only sweep only moves)."""
+    if need <= 0 or sweep.stopped:
+        return 0
+    from . import world_drape_evict as DRAPES
+    try:
+        return DRAPES.budget_step(need, sweep, now)
+    except Exception as error:              # logged; the tiles' turn
+        STORAGE.write_log("World drapes not given back: %r" % (error,))
+        return 0
 
 
 def _prune(sweep) -> None:

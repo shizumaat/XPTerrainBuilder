@@ -45,6 +45,13 @@ class DeckGenLaw:
     level_probe_m: float = 30.0
     #: a deck piece smaller than this is not generated (m2)
     min_area_m2: float = 50.0
+    #: A1 (2) "the pack always wins" (``planar/deck_pack_cover``): a pack
+    #: placement deeper than this under its own ground is a STRUCTURE; an
+    #: up-facing face within it is a TOP; both over the road refuse (m)
+    pack_structure_depth_m: float = 2.0
+    #: ... a top runs over the road at this share of the covered roads'
+    #: axis inside the piece
+    pack_cover_share: float = 0.5
     #: A2: the generated object's draw distance (m)
     lod_m: float = 6000.0
     #: A2: a centreline light every this many metres on the deck (m), Q4
@@ -115,6 +122,10 @@ class RoadGenLaw:
     pack_road_near_m: float = 5.0
     #: ... and this parallel (deg) already draws the bridge
     pack_road_angle_deg: float = 15.0
+    #: B1 (c) "the pack always wins" (``planar/road_bridge_pack``): a pack
+    #: placement's solid top this far or more over its ground (m) -- a
+    #: bridge, an overpass, a roof -- already draws the bridge
+    pack_top_min_m: float = 2.5
     #: B3: the span's page clip is the carriageway half width plus this (m)
     span_margin_m: float = 0.5
     #: B2: the road network definition written when the pack has none
@@ -133,3 +144,10 @@ class RoadGenLaw:
     cut_drop_m: float = 1.0
     #: ... read within this of the bridge's axis (m)
     cut_reach_m: float = 20.0
+    #: #2141 item 5 (``planar/road_bridge_clear``): an end stands on its
+    #: embankment as the survey reads its approach out to this far (m)
+    approach_probe_m: float = 30.0
+    #: ... and a bridge is generated where the survey then shows at least
+    #: this share of ``[bridge] clearance_minimum_m`` over a lower road
+    #: (16s/16t: the tag and the crossing are the witness; the rest is cut)
+    witness_share: float = 0.5

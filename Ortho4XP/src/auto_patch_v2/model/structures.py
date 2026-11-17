@@ -539,6 +539,12 @@ class DeckBridge:
     #: (rings, frame metres) -- cut out with its ring
     #: (``planar/deck_generated._approaches``); ``()`` for a pack deck
     approach: tuple = ()
+    #: owner 2026-11-17 (KPHX): the pack placements under a GENERATED deck
+    #: that only FAKE its cut (drawn under the terrain mesh,
+    #: ``planar/deck_pack_cover``), ``(object id, resource, (lon, lat))``
+    #: each -- the real cut and the deck replace them, so the pack copy
+    #: hides them (``airport/generated_pack.apply_text``)
+    hides: tuple = ()
 
     @property
     def depth_a(self) -> float:

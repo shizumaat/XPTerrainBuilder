@@ -2358,9 +2358,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         # capture that already carries them)
         from auto_patch_v2.planar.road_bridge_gen import attach_road_bridges
         _rb_notes: list = []
-        airport = attach_road_bridges(airport, law, _rb_notes)
+        airport = attach_road_bridges(airport, law, _rb_notes, _objs, _ocache,
+                                      inputs.mod_cache_root)
         for _n in _rb_notes:
-            if "GENERATED" in _n:
+            if "GENERATED" in _n or "REFUSED" in _n:
                 print(f"[{icao}] {_n}")
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster

@@ -1392,7 +1392,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # Q-A AS RULED: the road width, banked up to just short of the deck
             d_band = lane_band(deck, lane_cs.get((id(deck), deck_side(deck, members[0].inward)),
                                                  ()), lane_of.get(id(members[0]), 0))
-            d_run = deck.depth_m / float(law.tables.emit.design.bank_slope)
+            from .deck_generated import GENERATED_WITNESS, generated_bank_slope
+            d_run = deck.depth_m / (generated_bank_slope(law)
+                                    if getattr(deck, "witness", "") == GENERATED_WITNESS
+                                    else float(law.tables.emit.design.bank_slope))
             # the airside the cut does not take: the runway no deck carries,
             # the pavement a dead end stops at (#2072 A2), the deck's own
             # airside edge band (#2072: the trench never touches airside) and

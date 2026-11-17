@@ -4,6 +4,7 @@ launch-time liveness check (#1345, ``src/O4_Imagery_Sources.py``).
 Offline: the vendored ``Providers/`` tree, and an HTTP layer stubbed by
 monkeypatching ``SOURCES._http_get``.
 """
+import math
 import os
 import sys
 import threading
@@ -68,8 +69,9 @@ def test_previewable_flags(sources):
     for code in ("PDOK", "FIN", "QC", "PT", "AL", "BI", "OSM"):
         assert rows[code]["previewable"], code
         assert rows[code]["reason"] == ""
-    assert not rows["Govmap"]["previewable"]
-    assert "EPSG:2039" in rows["Govmap"]["reason"]
+    govmap = sources._row("Govmap")          # hidden (in_GUI=False), still listed
+    assert not govmap["previewable"]
+    assert "EPSG:2039" in govmap["reason"]
     assert not rows["Here"]["previewable"]        # custom URL code
     assert rows["EUR"]["previewable"] and rows["EUR"]["members"][-1]["bbox"] is None
     assert not rows["OSM"]["buildable"] and rows["BI"]["buildable"]
@@ -168,7 +170,7 @@ def test_status_check_streams_one_event_per_source(sources, monkeypatch):
 
     monkeypatch.setattr(sources, "_http_get", fake_get)
     events, done = [], threading.Event()
-    wanted = ["BI", "PDOK", "EUR", "Govmap"]
+    wanted = ["BI", "PDOK", "EUR", "PT"]
 
     def emit(code, status, reason):
         events.append((code, status, reason))
@@ -182,8 +184,9 @@ def test_status_check_streams_one_event_per_source(sources, monkeypatch):
     assert by_code["BI"][0] == "offline" and by_code["BI"][1]
     assert by_code["PDOK"] == ("online", "")
     assert by_code["EUR"] == ("online", "")
-    assert by_code["Govmap"] == ("online", "")      # sampled in its own grid
+    assert by_code["PT"] == ("online", "")
     assert len(events) == 4                          # members are not reported
+    assert sources._check_one("Govmap") == ("online", "")   # sampled in its own grid
 
 
 def test_session_and_transport_carry_the_commands(sources, monkeypatch):
@@ -229,9 +232,8 @@ def test_shared_fixture_rows_have_the_wire_shape(sources):
                         "Imagery", "imagery_menu.json")
     with open(path, encoding="utf-8") as handle:
         rows = json.load(handle)["rows"]
-    wire = _rows(sources)
     for row in rows:
-        assert set(row) == set(wire[row["code"]]), row["code"]
+        assert set(row) == set(sources._row(row["code"])), row["code"]
         for member in row["members"]:
             assert set(member) == {"code", "extent", "bbox", "preview"}
 
@@ -246,3 +248,29 @@ def test_preview_carries_the_providers_floor(sources):
     assert sources.preview_min_zl("BI") == 13
     assert sources.preview_min_zl("GO2") is None
     assert sources.preview_min_zl("EUR") == 14
+
+
+def test_regional_sources_are_sampled_where_they_cover(sources):
+    """Provider audit 2026-11-17: a regional source with a global extent
+    and no ``sample_point`` was probed at New York and read offline in
+    both apps (AL, ON, QC, CY, FIN, CH_watermarked).  Every offered single
+    source outside ``Global`` names where it covers."""
+    import O4_Imagery_Utils as IMG
+
+    for row in sources.imagery_sources():
+        if row["combined"] or row["region"] == "Global":
+            continue
+        provider = IMG.providers_dict[row["code"]]
+        point = sources._sample_point(provider)
+        assert point != sources._DEFAULT_SAMPLE, row["code"]
+        lat, lon = point
+        assert sources.covers_tile(row["coverage"], math.floor(lat), math.floor(lon)), row["code"]
+
+
+def test_partial_coverage_bounds_filter_the_menu(sources):
+    """PT (DGT Ortos2021) serves white south of ~40N: its ``coverage_bounds``
+    keep it off southern tiles, where PTSAT is offered instead."""
+    north = {row["code"] for row in sources.imagery_sources(tile=[41, -9])}
+    south = {row["code"] for row in sources.imagery_sources(tile=[38, -10])}
+    assert "PT" in north and "PTSAT" in north
+    assert "PT" not in south and "PTSAT" in south

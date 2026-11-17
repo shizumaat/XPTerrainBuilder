@@ -22,9 +22,14 @@ Lux          Luxembourg     none    medium
 FRorth       France         none    medium
 CH           Switzerland    none    medium
 OST          Austria        none    medium
-HU           Hungary        none    medium
+# HU and SLO are out of EUR since 2026-11-17 (provider audit,
+# sim-review/providers-20261117.md): SLO (ipi.eprostor.gov.si) answered
+# HTTP 407 / timed out on every request, twice; HU (tile.openstreetmap.hu
+# ortofoto2005) dropped connections and 404ed the airport samples down to
+# ZL11. Their tiles now build from the Arc@ base. Re-check before restoring.
+#HU           Hungary        none    medium
 PCN06        Italy          none    medium
-SLO          Slovenia       none    medium
+#SLO          Slovenia       none    medium
 CRO_2016     CRO_2016       none    medium
 CRO_2011     CRO_add2011    none    medium
 SP           Spain          none    medium

@@ -107,10 +107,10 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("airside_sliver_pairs", proximity.airside_sliver_pairs),
     ("reach_bands", no_step.reach_bands),
     ("zone_bands", zones.zone_bands),
+    ("strip_transverse", zones.strip_transverse),
     # owner 2026-11-17 18:30Z: the lower road under a generated road bridge
     # holds its clearance (a hard groundside ceiling)
     ("road_bridge_ceiling", road_bridge_ceiling.road_bridge_ceiling_rows),
-    ("strip_transverse", zones.strip_transverse),
     # owner RULINGS 2026-10-27t/u (#1201): the ground under a runway-end
     # walled plate never rises through its top (a hard constant ceiling)
     ("walled_plate_under", walled_plate.under_plate_rows),

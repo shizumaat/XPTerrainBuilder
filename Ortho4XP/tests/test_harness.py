@@ -2896,8 +2896,17 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     # ``apply_plan`` by ``sibling_stage.write``, whose only caller is
     # ``object_stage._place_objects`` right after the airport pack's own
     # write — the tile path still owns every pack write
+    # #2144 P1: the overlay packs' deck chains (``chain_stage.write``) go
+    # through the same ``apply_plan``, likewise called only from
+    # ``object_stage._place_objects`` after the airport pack's own write
     assert callers == {"auto_patch/object_stage.py",
-                       "auto_patch/sibling_stage.py"}, callers
+                       "auto_patch/sibling_stage.py",
+                       "auto_patch/chain_stage.py"}, callers
+    chain_callers = {
+        p.relative_to(src).as_posix() for p in src.rglob("*.py")
+        if "_chain.write(" in p.read_text(errors="replace", encoding="utf-8")
+        or "chain_stage.write(" in p.read_text(errors="replace", encoding="utf-8")}
+    assert chain_callers == {"auto_patch/object_stage.py"}, chain_callers
     sibling_callers = {
         p.relative_to(src).as_posix() for p in src.rglob("*.py")
         if "_sib.write(" in p.read_text(errors="replace", encoding="utf-8")

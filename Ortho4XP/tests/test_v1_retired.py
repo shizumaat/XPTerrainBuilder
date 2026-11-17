@@ -100,6 +100,8 @@ KEEP = frozenset({
     "auto_patch.terrain_cut_stage",
     # ... and the sibling packs' rows on the airport's re-seated decks (#1252)
     "auto_patch.sibling_stage",
+    # ... and the overlay packs' deck chains seated as OBJECT_MSL rows (#2144 P1)
+    "auto_patch.chain_stage",
     "auto_patch.object_terrain_features",
     "auto_patch.object_terrain_kinds",
     "auto_patch.post_mesh",

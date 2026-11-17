@@ -176,7 +176,7 @@ def witnessed(monkeypatch):
     (6) (#1738) an unwitnessed rail end is never opened, and these twins
     are about the ramp a witnessed end gets."""
     from auto_patch_v2.planar import end_witness as EW
-    monkeypatch.setattr(EW.EndWitness, "at", lambda self, end, path: "a pack hard deck over it")
+    monkeypatch.setattr(EW.EndWitness, "at", lambda self, end, path, bore=None: "a pack hard deck over it")
 
 
 def test_rail_follows_the_survey_and_is_never_deepened(law, witnessed):

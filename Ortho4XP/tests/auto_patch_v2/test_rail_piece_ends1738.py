@@ -82,7 +82,7 @@ class _Witness:
     def __init__(self, answer):
         self.answer = answer
 
-    def at(self, end, path):
+    def at(self, end, path, bore=None):
         return self.answer
 
 

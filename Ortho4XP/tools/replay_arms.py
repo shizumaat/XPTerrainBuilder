@@ -93,6 +93,10 @@ EFFECT: dict[str, tuple[tuple[str, ...], str]] = {
                    "BEFORE the map is built (the build's own base, "
                    "pipeline/stage_one_map.gap_free): a later resume re-uses "
                    "the captured map, pieces and all"),
+    "--hand-role": (("replay/classify", "replay/planar"),
+                    "named sources are re-roled in the classification BEFORE "
+                    "the map is built (tools/role_arm.py); a later resume "
+                    "re-uses the captured map and its roles"),
 }
 ARM_FLAGS: tuple[str, ...] = tuple(EFFECT)
 
@@ -145,7 +149,8 @@ def given_arms(a) -> dict[str, str]:
            "--method": None if a.method == "normal" else a.method,
            "--probe-arm": a.probe_arm,
            "--late-from": a.late_from,
-           "--gap-free": "the base map" if a.gap_free else None}
+           "--gap-free": "the base map" if a.gap_free else None,
+           "--hand-role": getattr(a, "hand_role", None)}
     out = {}
     for flag, v in raw.items():
         if v is None or v == [] or v == "":

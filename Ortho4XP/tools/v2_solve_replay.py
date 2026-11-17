@@ -2146,7 +2146,8 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                    sites: list[tuple[float, float]] | None = None,
                    pad_read_only: bool = False, shape_dump: Path | None = None,
                    rim_diagnostics: bool = False, late: dict | None = None,
-                   gap_free: bool = False, rule: dict | None = None) -> dict:
+                   gap_free: bool = False, rule: dict | None = None,
+                   hand_role: dict | None = None) -> dict:
     """THE REPLAY'S OWN PROBLEM, up to and including the constraint set —
     the prelude ``--replay`` and ``--stage1-dump`` SHARE (a second copy of
     it is the census-wrapper defect, RULINGS ``7e90032``): the capture, the
@@ -2637,6 +2638,14 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                 "law": law, "cs": cs, "counts": counts, "inputs": inputs, "t0": t0,
                 "stage1": s1, CAPTURE_OVERLAY_KEY: _overlay, "objects": _objs}
 
+    if hand_role:
+        # lane lkbna15 (#2112/#2134): named sources re-roled BEFORE the map
+        # is built (``tools/role_arm.py``), extract-only
+        from auto_patch_v2.law.tables import role_side as _role_side
+        from role_arm import force_roles as _force_roles
+        cl, _hl = _force_roles(cl, hand_role, lambda r: _role_side(law, r))
+        for _ln in _hl:
+            print(f"[{icao}] {_ln}")
     if gap_free:
         # THE BUILD'S OWN BASE (``pipeline/build``: ``gap_free(cl)``, spec §55
         # (4)): the classification without its §53 gap pieces — a piece
@@ -2685,7 +2694,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            why_hard_stage: int | None = None,
            placement: dict | None = None,
            late_from: Path | None = None, gap_free: bool = False,
-           null_change: int | None = None, rule: dict | None = None) -> int:
+           null_change: int | None = None, rule: dict | None = None,
+           hand_role: dict | None = None) -> int:
     import numpy as np
     from auto_patch_v2.pipeline.build import displacement_by_role
     from auto_patch_v2.pipeline.shapes import joint_steps
@@ -2705,7 +2715,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         del _base
     prob = replay_problem(pkl, resume, drop, design_weights, chord_fill,
                           placement=placement, sites=sites, late=_late,
-                          gap_free=gap_free, rule=rule)
+                          gap_free=gap_free, rule=rule, hand_role=hand_role)
     if late_from is not None and _base_hold:
         # the last stage re-mints the HELD registry: the base solve's hold
         # report is carried over it, as ``pipeline/build`` does — without it
@@ -3296,6 +3306,11 @@ def main() -> int:
                          "(pipeline/stage_one_map.gap_free; a piece classed apron, "
                          "\u00a759, stays) \u2014 with --solved-out, the base a --late-from "
                          "run reads.  Needs --from classify or --from planar")
+    ap.add_argument("--hand-role", action="append", default=[], metavar="SRC=ROLE",
+                    help="lane lkbna15 ARM (tools/role_arm.py): re-role the cells of "
+                         "pavement source SRC that are outside the taxi family to ROLE "
+                         "(a #1697 choosable role) before the map is built; repeat. "
+                         "Needs --from classify or --from planar")
     ap.add_argument("--solved-out", type=Path, metavar="PKL",
                     help="pickle the solved set for --why-from")
     ap.add_argument("--why-from", type=Path, metavar="PKL",
@@ -3517,7 +3532,8 @@ def main() -> int:
                       why_hard_stage=a.why_hard_stage, placement=pl,
                       late_from=a.late_from, gap_free=a.gap_free,
                       null_change=a.null_change,
-                      rule=dict(it.split("=", 1) for it in a.rule) or None)
+                      rule=dict(it.split("=", 1) for it in a.rule) or None,
+                      hand_role=dict(it.split("=", 1) for it in a.hand_role) or None)
     ap.error("one of --capture / --replay")
     return 2
 

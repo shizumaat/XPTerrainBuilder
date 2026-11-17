@@ -33,6 +33,7 @@ from shapely.geometry import LineString, MultiPoint, Polygon
 from shapely.ops import transform
 
 from . import deck_paint as _paint
+from .deck_line_art import LinePage
 from .deck_obj8 import (
     DeckFrame,
     DeckLight,
@@ -42,8 +43,9 @@ from .deck_obj8 import (
     deck_obj8_text,
     overlay_obj8_text,
 )
+from .deck_structure import Part
 
-__all__ = ["Art", "deck_frame", "top_fn", "install_art", "deck_objects"]
+__all__ = ["install_art", "deck_objects", "ring_polygon"]
 
 GENERATED_DIR = "objects/o4_generated"
 TEXTURE = "o4_deck_concrete.png"
@@ -54,7 +56,8 @@ _CENTRE_TYPES = frozenset((1, 51, 10, 60))
 _CENTRE_LIGHTS = frozenset((101, 107))
 
 
-def _poly(ring) -> Polygon:
+def ring_polygon(ring) -> Polygon:
+    """A record's ``[[lon, lat], ...]`` ring as a valid polygon."""
     p = Polygon([tuple(q) for q in ring])
     return p if p.is_valid else p.buffer(0.0)
 
@@ -80,18 +83,18 @@ def _chord(lines: _t.Sequence[_t.Sequence], R0: Polygon) -> "tuple[float, float]
     return (c[-1][0] - c[0][0], c[-1][1] - c[0][1])
 
 
-def deck_frame(rec: _t.Mapping, dropped=()) -> DeckFrame:
+def _deck_frame(rec: _t.Mapping, dropped=()) -> DeckFrame:
     """The placement frame: anchored at the ring's centroid, heading along
     the taxiway it carries -- the longest dropped CENTRELINE across the
     ring (``dropped``: the deck's dropped apt.dat lines), else the carried
     route's chord, else end A's centroid to end B's -- signed end A to
     end B, so the taxiway runs along ``-z`` (#2141 (1): X-Plane's slabs
     and the tire marks then run along it)."""
-    c = _poly(rec["ring"]).centroid
+    c = ring_polygon(rec["ring"]).centroid
     f0 = DeckFrame(c.x, c.y, 0.0)
     (ax, az), (bx, bz) = (f0.to_local(*_mean(rec["seats_a"])),
                           f0.to_local(*_mean(rec["seats_b"])))
-    R0 = transform(lambda x, y, _z=None: f0.to_local(x, y), _poly(rec["ring"]))
+    R0 = transform(lambda x, y, _z=None: f0.to_local(x, y), ring_polygon(rec["ring"]))
     centre = [[f0.to_local(lo, la) for lo, la in d.points] for d in dropped
               if int(d.line or 0) in _CENTRE_TYPES or int(d.light or 0) in _CENTRE_LIGHTS]
     route = [[f0.to_local(lo, la) for lo, la in rec.get("route") or ()]]
@@ -103,7 +106,7 @@ def deck_frame(rec: _t.Mapping, dropped=()) -> DeckFrame:
     return DeckFrame(c.x, c.y, hdg)
 
 
-def top_fn(rec: _t.Mapping, frame: DeckFrame):
+def _top_fn(rec: _t.Mapping, frame: DeckFrame):
     """``top_y(x, z)``: the deck's one plane in the object frame -- level
     across the A->B line, ``top_a`` at end A rising to ``top_b`` at end
     B, plus ``top_lift_m`` (the object's zero is the deck's zero)."""
@@ -119,7 +122,7 @@ def top_fn(rec: _t.Mapping, frame: DeckFrame):
     return top_y
 
 
-class Art(_t.NamedTuple):
+class _Art(_t.NamedTuple):
     """What the install draws decks with: ``slab(page) -> PageArt | None``
     (cached), the ``lines`` pages by apt.dat type, the ``rubber`` page,
     and ``links`` (pack path -> install file) filled as art is used."""
@@ -130,7 +133,7 @@ class Art(_t.NamedTuple):
     links: dict
 
 
-def install_art(g, root: "str | None", resolve) -> Art:
+def install_art(g, root: "str | None", resolve) -> _Art:
     """The install's art for decks (``deck_skin``, ``deck_line_art``);
     nothing resolves when ``root`` is falsy."""
     from . import deck_line_art as _lines
@@ -142,11 +145,11 @@ def install_art(g, root: "str | None", resolve) -> Art:
         if page not in cache:
             cache[page] = _skin.page_art(page, root, resolve) if root else None
         return cache[page]
-    return Art(slab, _lines.line_pages(str(g.line_lib), root, resolve) if root else {},
+    return _Art(slab, _lines.line_pages(str(g.line_lib), root, resolve) if root else {},
                _skin.page_art(str(g.rubber_pol), root, resolve) if root else None, {})
 
 
-def _link(art: Art, path: str) -> str:
+def _link(art: _Art, path: str) -> str:
     """The pack name of an install file, recorded in ``art.links``."""
     from .deck_skin import link_name
     if not path:
@@ -205,8 +208,8 @@ def _atlas_lines(pieces: _t.Sequence[_Piece], stats: dict) -> list[DeckLine]:
     return lines
 
 
-def _art_strips(pieces: _t.Sequence[_Piece], pages: dict, lift: float, stats: dict
-                ) -> list[DeckStrip]:
+def _art_strips(pieces: _t.Sequence[_Piece], pages: "dict[int, LinePage]", lift: float,
+                stats: dict) -> list[DeckStrip]:
     """The pieces in X-Plane's own line art: one strip per layer."""
     out: list[DeckStrip] = []
     for p in pieces:
@@ -265,7 +268,7 @@ def _rubber(R: Polygon, route: _t.Sequence, page, g) -> list[DeckStrip]:
             if q.geom_type == "LineString" and q.length > 1.0]
 
 
-def _structure(R: Polygon, rec: _t.Mapping, frame: DeckFrame, ends, g) -> list:
+def _structure(R: Polygon, rec: _t.Mapping, frame: DeckFrame, ends, g) -> "list[Part]":
     from .deck_structure import Road, structure_parts
     roads = [Road(tuple(frame.to_local(lo, la) for lo, la in r["line"]), float(r["half_m"]))
              for r in rec.get("roads") or () if len(r.get("line") or ()) >= 2]
@@ -275,7 +278,7 @@ def _structure(R: Polygon, rec: _t.Mapping, frame: DeckFrame, ends, g) -> list:
     return structure_parts(R, ends, g, roads=roads, floor_y=floor_y)
 
 
-def _slab_skin(rec: _t.Mapping, R: Polygon, route, art: Art, g, surface_code
+def _slab_skin(rec: _t.Mapping, R: Polygon, route, art: _Art, g, surface_code
                ) -> "DeckSkin | None":
     """The slab's skin: X-Plane's page for the carried pavement's surface
     (``deck_pavement``), else ``[deck_gen] concrete_pol``; ``None`` when
@@ -292,7 +295,7 @@ def _slab_skin(rec: _t.Mapping, R: Polygon, route, art: Art, g, surface_code
                     sum(xs) / len(xs))
 
 
-def _film_material(art: Art, page, metalness: bool) -> list[str]:
+def _film_material(art: _Art, page, metalness: bool) -> list[str]:
     out = []
     if page.normal:
         out.append(f"TEXTURE_NORMAL {_link(art, page.normal)}")
@@ -305,15 +308,15 @@ def _film_material(art: Art, page, metalness: bool) -> list[str]:
     return out + ["GLOBAL_specular 1"]
 
 
-def deck_objects(rec: _t.Mapping, dropped, art: Art, g, *, surface_code: "int | None" = None
+def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int | None" = None
                  ) -> tuple[list[tuple[str, str]], dict]:
     """``([(pack path, OBJ8 text)], stats)`` of one deck (module doc):
     ``dropped`` its dropped apt.dat lines (``apt_flatten``), ``art`` the
     install's (:func:`install_art`), ``g`` the ``[deck_gen]`` law,
     ``surface_code`` the apt.dat surface it carries."""
-    frame = deck_frame(rec, dropped)
-    R = transform(lambda x, y, _z=None: frame.to_local(x, y), _poly(rec["ring"]))
-    top_y = top_fn(rec, frame)
+    frame = _deck_frame(rec, dropped)
+    R = transform(lambda x, y, _z=None: frame.to_local(x, y), ring_polygon(rec["ring"]))
+    top_y = _top_fn(rec, frame)
     rel = str(rec["resource"])
     thick, lod = float(rec.get("thickness_m", 1.0)), (0.0, float(g.lod_m))
     comments = [f"{rec['object_id']} spec 2123 A2: zero {float(rec['zero_m']):.3f} m heading "
@@ -355,7 +358,7 @@ def deck_objects(rec: _t.Mapping, dropped, art: Art, g, *, surface_code: "int | 
     return out, stats
 
 
-def _paint_overlay(pieces, joints, lights, top_y, art: Art, g, lod, comments, stats) -> str:
+def _paint_overlay(pieces, joints, lights, top_y, art: _Art, g, lod, comments, stats) -> str:
     """The paint + lights overlay: X-Plane's line art where the install
     has it (the joints in a ``_b`` line's black border), else the atlas."""
     lift = float(g.paint_lift_m)

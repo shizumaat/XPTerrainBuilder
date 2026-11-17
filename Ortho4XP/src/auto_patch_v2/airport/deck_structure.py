@@ -36,7 +36,7 @@ import typing as _t
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
-__all__ = ["Part", "Road", "end_edges", "structure_parts", "length_along_route"]
+__all__ = ["Part", "Road", "end_edges", "structure_parts"]
 
 XY = tuple[float, float]
 
@@ -86,7 +86,7 @@ def end_edges(ring: Polygon, ends: _t.Sequence[_t.Sequence[XY]], tol_m: float,
     return out
 
 
-def length_along_route(ring: Polygon) -> float:
+def _length_along_route(ring: Polygon) -> float:
     """The deck's extent along its route (``z``: the route runs along ``-z``)."""
     _x0, z0, _x1, z1 = ring.bounds
     return z1 - z0
@@ -193,6 +193,6 @@ def structure_parts(ring: Polygon, ends: _t.Sequence[_t.Sequence[XY]], g, *,
     parts += [Part("beam", q, -slab, -depth, ("bottom", "sides")) for q in _beams(ring, g)]
     parts += [Part("kerb", q, float(g.kerb_h_m), 0.0, ("top", "sides"))
               for q in _kerbs(ring, e_edges, g)]
-    if roads and floor_y is not None and length_along_route(ring) > float(g.pier_min_span_m):
+    if roads and floor_y is not None and _length_along_route(ring) > float(g.pier_min_span_m):
         parts += _piers(ring, roads, floor_y, g)
     return parts

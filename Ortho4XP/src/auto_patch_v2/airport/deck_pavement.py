@@ -24,7 +24,7 @@ import math
 
 from shapely.geometry import LineString, Polygon
 
-__all__ = ["shade_of", "surface_page", "carried_surface"]
+__all__ = ["surface_page", "carried_surface"]
 
 _SHADES: tuple[tuple[range, str], ...] = (
     (range(20, 24), "asphalt_L"), (range(24, 27), "asphalt"), (range(27, 31), "asphalt_D"),
@@ -33,7 +33,7 @@ _SHADES: tuple[tuple[range, str], ...] = (
 )
 
 
-def shade_of(code: int) -> "str | None":
+def _shade_of(code: int) -> "str | None":
     """The ``default_runways`` folder of apt.dat surface ``code``, ``None``
     for an unpaved or unknown code (module doc)."""
     code = int(code)
@@ -48,7 +48,7 @@ def surface_page(code: int, family: str) -> "str | None":
     """The library path of X-Plane's page for ``code`` on a ``family``
     deck (``"runway"`` reads the runway page, anything else the taxiway
     page); ``None`` for an unpaved code."""
-    shade = shade_of(code)
+    shade = _shade_of(code)
     if shade is None:
         return None
     kind = "runway" if family == "runway" else "taxiway"
@@ -75,7 +75,7 @@ def carried_surface(apt, ring_ll: Polygon, family: str) -> "int | None":
 
     def offer(poly: Polygon, code: int) -> None:
         nonlocal best
-        if shade_of(code) is None or not poly.is_valid:
+        if _shade_of(code) is None or not poly.is_valid:
             return
         a = poly.intersection(ring_ll).area
         if a > 0.0 and (best is None or a > best[0]):

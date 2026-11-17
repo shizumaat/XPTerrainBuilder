@@ -44,7 +44,7 @@ from shapely.geometry.polygon import orient
 
 from . import deck_texture as _tex
 
-__all__ = ["DeckFrame", "DeckLine", "DeckLight", "DeckSkin", "DeckSheet", "DeckStrip",
+__all__ = ["DeckFrame", "DeckLine", "DeckLight", "DeckSkin", "DeckStrip",
            "DECK_MARK",
            "deck_obj8_text", "overlay_obj8_text"]
 
@@ -294,17 +294,6 @@ class DeckSkin:
 
 
 @_dc.dataclass(frozen=True)
-class DeckSheet:
-    """A textured film on the top (``airport/deck_skin``'s rubber):
-    ``poly`` in ``(x, z)``, ``uv(x, z)`` its texture coordinates, standing
-    ``lift_m`` over the top."""
-
-    poly: Polygon
-    uv: _t.Callable[[float, float], XY]
-    lift_m: float = 0.0
-
-
-@_dc.dataclass(frozen=True)
 class DeckStrip:
     """A textured band along a polyline on the top (#2141): ``points``
     ``(x, z)``; it reaches ``left_m`` / ``right_m`` either side of them
@@ -482,7 +471,6 @@ def deck_obj8_text(ring: Polygon, top_y: _t.Callable[[float, float], float], *,
 
 def overlay_obj8_text(top_y: _t.Callable[[float, float], float], *, texture: str,
                       lines: _t.Sequence[DeckLine] = (),
-                      sheets: _t.Sequence[DeckSheet] = (),
                       strips: _t.Sequence[DeckStrip] = (),
                       lights: _t.Sequence[DeckLight] = (),
                       light_lift_m: float = 0.05,
@@ -491,18 +479,13 @@ def overlay_obj8_text(top_y: _t.Callable[[float, float], float], *, texture: str
                       material: _t.Sequence[str] = (),
                       poly_os: int = 2) -> str:
     """The OBJ8 text of a deck's OVERLAY (#2132): the painted ``lines``
-    (``texture`` the ``deck_texture`` atlas), the ``sheets`` or the
-    ``strips`` (one texture's film: the rubber, X-Plane's line art),
+    (``texture`` the ``deck_texture`` atlas) or the ``strips`` (one
+    texture's film: the rubber, X-Plane's line art),
     never hard, never casting a shadow, drawn over the slab under
     ``ATTR_poly_os poly_os`` -- placed at the deck's own anchor, in its
     frame.  ``material``: the header rows after ``TEXTURE`` (the page's
     normal map, decal, ``WEATHER_TRANSPARENT``)."""
     m = _Mesh()
-    for sh in sheets:
-        for t in _tris(sh.poly):
-            ids = [m.vertex((x, top_y(x, z) + sh.lift_m, z), (0.0, 1.0, 0.0), sh.uv(x, z))
-                   for x, z in list(t.exterior.coords)[:3]]
-            m.tri(*ids, inward=(0.0, -1.0, 0.0))
     for st in strips:
         _strip(m, st, top_y)
     _paint(m, lines, top_y)

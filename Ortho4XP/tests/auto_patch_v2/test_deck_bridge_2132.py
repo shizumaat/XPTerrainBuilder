@@ -215,7 +215,8 @@ def test_surface_pages_follow_xplanes_shades():
         "lib/airport/default_runways/asphalt/taxiway.pol"
     assert deck_pavement.surface_page(52, "runway") == \
         "lib/airport/default_runways/concrete_L/runway.pol"
-    assert deck_pavement.shade_of(36) == "asphalt_D3" and deck_pavement.shade_of(3) is None
+    assert deck_pavement.surface_page(36, "taxi").split("/")[-2] == "asphalt_D3"
+    assert deck_pavement.surface_page(3, "taxi") is None             # turf: no paved page
     apt = parse_airport_block(BLOCK)
     ring = Polygon([(17.004, 59.003), (17.006, 59.003), (17.006, 59.007), (17.004, 59.007)])
     assert deck_pavement.carried_surface(apt, ring, "taxi") == 1

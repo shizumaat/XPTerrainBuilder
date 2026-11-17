@@ -47,7 +47,7 @@ from . import deck_objects as _objs
 from . import deck_pavement as _pav
 from . import deck_texture as _tex
 from .deck_obj8 import DECK_MARK
-from .deck_objects import GENERATED_DIR, TEXTURE
+from .deck_objects import GENERATED_DIR, TEXTURE, ring_polygon
 
 __all__ = ["RECORD_KEY", "GENERATED_DIR", "TEXTURE", "recipe", "apply_text",
            "write_files", "remove", "files_of", "recorded", "record",
@@ -59,11 +59,6 @@ RECORD_KEY = "o4_generated"
 def _is_generated_file(path: str) -> bool:
     """A file this module writes (the generated-objects folder)."""
     return GENERATED_DIR in path.replace("\\", "/")
-
-
-def _poly(ring) -> Polygon:
-    p = Polygon([tuple(q) for q in ring])
-    return p if p.is_valid else p.buffer(0.0)
 
 
 def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
@@ -84,8 +79,8 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     if not decks and not bridges:
         return out
     # #2131: a deck's open approaches leave the pack's pages with its ring
-    regions = [_poly(d["ring"]) for d in decks] + \
-        [_poly(q) for d in decks for q in d.get("approach") or () if len(q) >= 3] + \
+    regions = [ring_polygon(d["ring"]) for d in decks] + \
+        [ring_polygon(q) for d in decks for q in d.get("approach") or () if len(q) >= 3] + \
         [_wkt.loads(b["span_wkt"]) for b in bridges if b.get("span_wkt")]
     dropped_by_deck: dict[int, list] = {}
     if apt_path:
@@ -94,7 +89,7 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
             with open(shipped, "rb") as fh:
                 data = _af.stripped(fh.read())
             for k, d in enumerate(decks):
-                _data, _rec, dropped = _af._cut(data, icao, [_poly(d["ring"])])
+                _data, _rec, dropped = _af._cut(data, icao, [ring_polygon(d["ring"])])
                 dropped_by_deck[k] = dropped
         except OSError as exc:
             out["notes"].append(f"apt.dat unreadable ({exc}): no paint redrawn")
@@ -102,7 +97,7 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     art = _install(apt_path, g, xplane_root, resolve_library) if decks else None
     apt = _apt_block(apt_path, icao) if decks else None
     for k, d in enumerate(decks):
-        code = _pav.carried_surface(apt, _poly(d["ring"]), str(d.get("family") or "")) \
+        code = _pav.carried_surface(apt, ring_polygon(d["ring"]), str(d.get("family") or "")) \
             if apt is not None else None
         objs, st = _objs.deck_objects(d, dropped_by_deck.get(k, ()), art, g, surface_code=code)
         rel = str(d["resource"])
@@ -113,7 +108,7 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
                                  "resource": orel, "lon": frame.lon, "lat": frame.lat,
                                  "msl": round(float(d["zero_m"]), 4),
                                  "hdg": round(frame.heading_deg, 6)})
-        R = _poly(d["ring"])
+        R = ring_polygon(d["ring"])
         out["notes"].append(f"deck {d['object_id']}: {len(R.exterior.coords) - 1}-point ring, "
                             f"zero {float(d['zero_m']):.2f} m, heading {frame.heading_deg:.1f}, "
                             f"surface {code if code is not None else 'unknown'} "

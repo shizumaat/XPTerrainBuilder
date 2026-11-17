@@ -30,7 +30,9 @@ equality ``zero_i + soffit_i = zero_j + soffit_j``, solved by walking a
 spanning tree; a cycle closing by more than ``cycle_m`` (0.05) cuts its
 worst joint (listed).  Then ONE constant per chain: the median over its
 pieces of (ground under the origin - the piece's relative zero), so a hole
-under one piece cannot pull the chain; raised, where needed, until no
+under one piece cannot pull the chain; only an ELEVATED chain is seated
+(its pieces' median soffit at least ``elevated_m`` over their zeros: a
+track laid at grade keeps its drape); raised, where needed, until no
 piece authored at or over its ground stands below it.
 
 CO-ANCHORED.  A placement that is no piece whose origin lies within
@@ -75,6 +77,9 @@ class ChainLaw:
     width_m: float = 0.2
     cycle_m: float = 0.05
     scope_m: float = 1000.0
+    #: an ELEVATED chain: its pieces' median soffit at least this over
+    #: their zeros (a track laid at grade drapes, piece by piece)
+    elevated_m: float = 2.5
 
 
 @_dc.dataclass(frozen=True)
@@ -241,7 +246,11 @@ def chain_seats(placed: _t.Sequence[Placed], ground: _t.Callable[[float, float],
         chains.setdefault(ch, []).append(k)
     zero: dict[int, float] = {}
     lifted = 0
+    low = 0
     for ch, ks in chains.items():
+        if float(np.median([_soffit(placed[k]) for k in ks])) < law.elevated_m:
+            low += 1
+            continue
         g = {k: ground(placed[k].lat, placed[k].lon) for k in ks}
         offs = [g[k] - rel[k][1] for k in ks if g[k] is not None]
         if not offs:
@@ -276,4 +285,5 @@ def chain_seats(placed: _t.Sequence[Placed], ground: _t.Callable[[float, float],
     c["chain_coanchored"] = c.get("chain_coanchored", 0) + co
     c["chain_cut_joints"] = c.get("chain_cut_joints", 0) + len(cut)
     c["chain_lifted"] = c.get("chain_lifted", 0) + lifted
+    c["chain_at_grade"] = c.get("chain_at_grade", 0) + low
     return zero, {"joints": js, "cut": cut, "chains": chains, "rel": rel}

@@ -28,7 +28,7 @@ for _p in (HERE, os.path.join(os.path.dirname(HERE), "src")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-__all__ = ["joint_steps", "main"]
+__all__ = ["joint_steps", "steps_of", "main"]
 
 
 def joint_steps(pack_root: str, tile: str, mesh, tool: str, work: str) -> list[dict]:
@@ -51,7 +51,14 @@ def joint_steps(pack_root: str, tile: str, mesh, tool: str, work: str) -> list[d
         base.append(p)
     if not placed:
         return []
-    ground = mesh.z([p.lat for p in placed], [p.lon for p in placed])
+    return steps_of(placed, base, mesh.z([p.lat for p in placed], [p.lon for p in placed]))
+
+
+def steps_of(placed: list, base: list, ground) -> list[dict]:
+    """Each joint of the ``deck_chain.Placed`` pieces as drawn: ``base`` the
+    pieces' DSF rows, ``ground`` the drawn mesh under each anchor."""
+    import drawn_site as DS
+    from auto_patch_v2.airport import deck_chain as DC
     out = []
     for i, j, si, sj in DC.joints(placed, DC.ChainLaw()):
         zi, zj = DS.row_base(base[i], ground[i]), DS.row_base(base[j], ground[j])

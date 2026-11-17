@@ -154,6 +154,8 @@ class _Piece:
     walled: bool
     body: _t.Any
     member: _t.Any
+    #: its part polygons in local metres, read once (:func:`_polys_of`)
+    polys: "list | None" = None
 
 
 def _pieces(splits: _t.Sequence[_t.Any], members: _t.Mapping, walled_m: float) -> list:
@@ -254,6 +256,13 @@ def _polys(parts: _t.Sequence[_t.Any], xy: _t.Callable) -> list:
     return out
 
 
+def _polys_of(pc: _Piece, xy: _t.Callable) -> list:
+    """:func:`_polys` of a piece, read once."""
+    if pc.polys is None:
+        pc.polys = _polys(pc.parts, xy)
+    return pc.polys
+
+
 def _span(zero: float, p: _t.Any) -> tuple[float, float]:
     lo = zero + float(p.base_y)
     return lo, lo + float(p.height_m)
@@ -266,18 +275,24 @@ def _nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
     from shapely.strtree import STRtree
     from .touch_graph import VETO_M
     inside = set(ks)
-    deck = [(g, p, k) for k in ks for g, p in _polys(pieces[k].parts, xy)]
+    deck = [(g, p, k) for k in ks for g, p in _polys_of(pieces[k], xy)]
     if not deck:
         return []
     tree = STRtree([g for g, _p, _k in deck])
     z0 = float(np.median([pieces[k].zero for k in ks]))
     out = []
     frame = pieces[ks[0]].frame
+    from shapely.geometry import box as _box
+    bx = np.asarray([g.bounds for g, _p, _k in deck])
+    dbox = _box(bx[:, 0].min() - law.reach_m, bx[:, 1].min() - law.reach_m,
+                bx[:, 2].max() + law.reach_m, bx[:, 3].max() + law.reach_m)
     for c, pc in enumerate(pieces):
         if c in inside or pc.frame != frame or not (pc.footed and pc.walled) or pc.body.body_class in (
                 "deck", "basin", "line_segment") or getattr(pc.body, "merged_into", ""):
             continue
-        polys = _polys(pc.parts, xy)
+        polys = _polys_of(pc, xy)
+        if not any(dbox.intersects(g) for g, _p in polys):
+            continue
         touch = False
         for g, p in polys:
             for di in tree.query(g, predicate="dwithin", distance=law.reach_m).tolist():
@@ -328,7 +343,7 @@ def _steepest(nodes: _t.Sequence[tuple], pieces: _t.Sequence[_Piece],
     """The field's steepest gradient over the group's own plan."""
     from shapely import contains_xy
     from shapely.ops import unary_union
-    plan = unary_union([g for k in ks for g, _p in _polys(pieces[k].parts, xy)]).buffer(1.0)
+    plan = unary_union([g for k in ks for g, _p in _polys_of(pieces[k], xy)]).buffer(1.0)
     x0, y0, x1, y1 = plan.bounds
     step = max(GRID_M, math.sqrt(plan.area / GRID_MAX_PTS))
     gx, gy = np.meshgrid(np.arange(x0, x1 + step, step), np.arange(y0, y1 + step, step))

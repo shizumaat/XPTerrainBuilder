@@ -192,6 +192,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_ends",
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_plates",
+        "auto_patch_v2.airport.deck_profile",
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_stack",
@@ -232,6 +233,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.obj8_rest",
         "auto_patch_v2.airport.obj8_roof",
         "auto_patch_v2.airport.obj8_split",
+        "auto_patch_v2.airport.obj8_warp",
         "auto_patch_v2.airport.object_cut",
         "auto_patch_v2.airport.object_floor",
         "auto_patch_v2.airport.object_pack",
@@ -468,6 +470,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_ends",
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_plates",
+        "auto_patch_v2.airport.deck_profile",
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_roof",
         "auto_patch_v2.airport.deck_signature",
@@ -517,6 +520,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.obj8_rest",
         "auto_patch_v2.airport.obj8_roof",
         "auto_patch_v2.airport.obj8_split",
+        "auto_patch_v2.airport.obj8_warp",
         "auto_patch_v2.airport.object_cut",
         "auto_patch_v2.airport.object_floor",
         "auto_patch_v2.airport.object_ground",
@@ -949,6 +953,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_end_read",
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_plates",
+        "auto_patch_v2.airport.deck_profile",
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_surface",
@@ -984,6 +989,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.obj8_rest",
         "auto_patch_v2.airport.obj8_roof",
         "auto_patch_v2.airport.obj8_split",
+        "auto_patch_v2.airport.obj8_warp",
         "auto_patch_v2.airport.object_cut",
         "auto_patch_v2.airport.object_floor",
         "auto_patch_v2.airport.object_ground",
@@ -1159,6 +1165,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_ends",
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_plates",
+        "auto_patch_v2.airport.deck_profile",
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_surface",
@@ -1196,6 +1203,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.obj8_rest",
         "auto_patch_v2.airport.obj8_roof",
         "auto_patch_v2.airport.obj8_split",
+        "auto_patch_v2.airport.obj8_warp",
         "auto_patch_v2.airport.object_cut",
         "auto_patch_v2.airport.object_floor",
         "auto_patch_v2.airport.object_ground",
@@ -1439,6 +1447,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.deck_ends",
         "auto_patch_v2.airport.deck_family_contact",
         "auto_patch_v2.airport.deck_plates",
+        "auto_patch_v2.airport.deck_profile",
         "auto_patch_v2.airport.deck_riders",
         "auto_patch_v2.airport.deck_signature",
         "auto_patch_v2.airport.deck_stack",
@@ -1479,6 +1488,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.obj8_rest",
         "auto_patch_v2.airport.obj8_roof",
         "auto_patch_v2.airport.obj8_split",
+        "auto_patch_v2.airport.obj8_warp",
         "auto_patch_v2.airport.object_cut",
         "auto_patch_v2.airport.object_floor",
         "auto_patch_v2.airport.object_pack",
@@ -2350,7 +2360,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.isolated_seat airport.terrain_base geom.diameter
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
-    airport.obj8_split
+    airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
@@ -2484,7 +2494,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.isolated_seat airport.terrain_base geom.diameter
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape
-    airport.obj8_grade airport.obj8_roof airport.obj8_split
+    airport.obj8_grade airport.obj8_roof airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
     airport.pack
     airport.object_pack airport.pack_local
@@ -2594,7 +2604,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof
     airport.below_grade_witness
-    airport.obj8_split
+    airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
     airport.object_cut airport.hanging_objects
     airport.adapted_riders
@@ -2789,7 +2799,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof
     airport.below_grade_witness
-    airport.obj8_split
+    airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
     airport.object_cut airport.hanging_objects
     airport.adapted_riders
@@ -3005,7 +3015,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.below_grade_witness
-    airport.obj8_split
+    airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local
@@ -3162,7 +3172,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.isolated_seat airport.terrain_base geom.diameter
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
-    airport.obj8_split
+    airport.obj8_split airport.obj8_warp airport.deck_profile
     airport.obj8_rest airport.pack_health airport.pack_health.light_records
     airport.pack airport.pack_partition airport.adapted_riders airport.pack_work
     airport.object_pack airport.pack_local

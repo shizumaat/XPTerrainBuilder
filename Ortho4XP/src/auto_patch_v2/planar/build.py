@@ -50,6 +50,7 @@ from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
 from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
+from .survey_deck_cut import cut_pavement, region_union, survey_deck_cuts
 from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
@@ -362,6 +363,16 @@ def build(airport: Airport, classification: Classification, law: Law,
     # #2099 R3 D6: a deck mouth's group walls plan its ramps -- the groups
     # of the deck mouths are formed here, before the structure pass
     decks, group_notes = group_walled(decks, airport, objects, cache, law)
+    # #2128 R1 / R2: THE SURVEYED CUT AT A HARD DECK, read ONCE
+    # (``planar/survey_deck_cut``); its pavement is cut before the structure
+    # pass reads its stops.  Stage 1's map reads the floors, never C
+    from ..model.stage_one import deriving as _stage_one_now
+    survey_deck, sdc_notes = survey_deck_cuts(decks, airport, law, classification.cells,
+                                              level_b)
+    if _stage_one_now():
+        survey_deck = tuple(_dc.replace(r, region=None) for r in survey_deck)
+    classification, sdc_cut = cut_pavement(classification, survey_deck, airport, law)
+    group_notes = [*group_notes, *sdc_notes, *sdc_cut]
     deck_notes = [f"level B: {level_b_note}",
                   *(f"level seed: {n}" for n in seed_notes), *deck_notes, *group_notes]
     cl_read = classification   # the roles before the cuts (``planar/cut_frame``)
@@ -374,7 +385,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        level_b=level_b,
                                                        object_floors=floors,
                                                        grade_ends=tstats.grade_ends,
-                                                       level_seeds=seeds, shells=shells)
+                                                       level_seeds=seeds, shells=shells,
+                                                       survey_deck=survey_deck)
     sstats.hard_decks.extend(deck_notes)
     # a pack deck over a pack object cut frames that cut (owner 2026-11-05
     # §0.5, ``planar/cut_frame``): its floor at the deck's seated zero
@@ -387,7 +399,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     decks = with_cuts(decks, tunnels)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
-    classification, ground_notes = deck_ground(classification, tunnels, law)
+    classification, ground_notes = deck_ground(classification, tunnels, law,
+                                               region_union(survey_deck))
     sstats.hard_decks.extend(ground_notes)
     # #2099 R2: the ground beside a grouped mouth's wings stands on their
     # feet (``planar/wing_cut``), once the corridors and the deck's ground own theirs

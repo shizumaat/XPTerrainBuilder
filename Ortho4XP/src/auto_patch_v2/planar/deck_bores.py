@@ -99,13 +99,16 @@ XY = tuple[float, float]
 
 
 def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
-               bored: _t.Sequence[OsmWay], law: Law, tag: str
+               bored: _t.Sequence[OsmWay], law: Law, tag: str, airport=None
                ) -> tuple[list[OsmWay], dict[int, LineString], list[str]]:
     """``(the bores the decks start, each one's parent road line, one note
     per deck that started one)`` (module doc).  ``roads`` are the mapped
     roads a bore may follow (``structure_underpass.bore_roads``), ``bored``
     every bore way already standing; ``tag`` marks a synthesised bore with
-    the deck's object id."""
+    the deck's object id.  ``airport``: its credible survey decides "under
+    the deck" (#2128 R5, ``planar/survey_deck_cut.survey_under``)."""
+    from .survey_deck_cut import survey_under
+    omd = float(law.tables.structures.channel.object_min_depth_m)
     tn = law.tables.structures.tunnel
     grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
     inset = tn.wall_gap_m + tn.wall_band_width_m + grid
@@ -126,6 +129,7 @@ def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
             inset + db.depth_m / float(law.tables.structures.channel.bank_slope)
         got: list[str] = []
         banked: list[str] = []
+        level: list[str] = []
         for w in roads:
             road = LineString(w.points)
             if not road.intersects(clip):
@@ -143,7 +147,11 @@ def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
                     continue                    # its carriageway meets an end line
                 if _already_bored(c, half, clip, lines, tree, tn.underpass_min_span_m):
                     continue
-                if min(u - u_lo, u_hi - u) < bank:
+                under = survey_under(db, w, airport, law)
+                if under is not None and under < omd:
+                    level.append(f"{w.id} {under:.2f} m")   # the survey reads it at grade
+                    continue
+                if under is None and min(u - u_lo, u_hi - u) < bank:
                     banked.append(str(w.id))    # it crosses on the end bank (#2128)
                     continue
                 pts = tuple((float(px), float(py)) for px, py in g.coords)
@@ -156,6 +164,10 @@ def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
         if got:
             notes.append(f"{db.object_id}: the deck bores {len(got)} road(s) no bore runs "
                          f"under ({', '.join(got)}; RULINGS 2026-10-30a (2) / 30f (1))")
+        if level:
+            notes.append(f"{db.object_id}: {len(level)} road(s) the survey reads less than "
+                         f"object_min_depth_m {omd:.1f} under the deck's top at a side edge "
+                         f"({', '.join(level)}): at grade over the deck, not bored (#2128 R5)")
         if banked:
             notes.append(f"{db.object_id}: {len(banked)} road(s) cross within {bank:.1f} m of "
                          f"an end line, on the bank from the floor up to the deck "

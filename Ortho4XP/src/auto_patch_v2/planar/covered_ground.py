@@ -180,14 +180,18 @@ def _rim(d: np.ndarray, z: np.ndarray, floor: float, frac: float, probe: float, 
     return float(d[k]), float(beyond.max())
 
 
-def _sections(dem, bore: Bore, law: Law) -> list[_Section]:
-    """The bore's cut, read every ``_STATION_M`` along its covered chain."""
+def _sections(dem, bore: Bore, law: Law, rise: "float | None" = None) -> list[_Section]:
+    """The bore's cut, read every ``_STATION_M`` along its covered chain.
+    ``rise``: the least climb a side's DEM makes over the floor to read a
+    cut there (``None``: the mouth depth; a surveyed open cut beside a hard
+    deck reads ``[channel] object_min_depth_m``, ``planar/survey_deck_cut``)."""
     tn = law.tables.structures.tunnel
     reach, probe = float(tn.covered_rim_search_m), float(tn.covered_side_probe_m)
     # a DEM that sees the road FLOOR under the cover stands at least the
     # mouth depth (clearance + equipment + roof + cover) under the ground
     # beside it; a shallower dip is not the floor and is not read
-    frac, rise = float(tn.covered_rim_rise_frac), float(tn.mouth_depth_m)
+    frac = float(tn.covered_rim_rise_frac)
+    rise = float(tn.mouth_depth_m) if rise is None else float(rise)
     half = 0.5 * max(carriageway_width_m(w.tags, law) for w in bore.ways)
     ln = bore.line
     d = np.arange(0.0, reach + probe + 1e-9, _STEP_M)

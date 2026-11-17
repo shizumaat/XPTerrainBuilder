@@ -870,7 +870,7 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     return unary_union(floors), unary_union(rims)
 
 
-def deck_ground(classification, tunnels, law) -> tuple:
+def deck_ground(classification, tunnels, law, keep_out=None) -> tuple:
     """``(classification with the deck-ground cells, notes)`` (module doc,
     THE GROUND THE DECK RESTS ON): for each hard deck a corridor was cut
     under, the part of its reach (``model/structures.deck_reach``: the ring,
@@ -880,7 +880,9 @@ def deck_ground(classification, tunnels, law) -> tuple:
     deck span's (``constraints/edge_deck``), so it carries no zone class.
     A piece narrower than the identity spacing is a seam of the overlay,
     not ground, and is dropped: a deck no corridor runs under mints no
-    ground."""
+    ground.  ``keep_out``: the survey's cut beside a kept deck
+    (``planar/survey_deck_cut``, #2128 R1) -- never the deck's ground: the
+    mesh draws the survey there."""
     rings: dict[tuple, Polygon] = {}
     for t in tunnels:
         pts = deck_reach(t)
@@ -891,7 +893,9 @@ def deck_ground(classification, tunnels, law) -> tuple:
         return classification, []
     cells, notes = list(classification.cells), []
     polys = [Polygon(c.ring, c.holes) for c in cells if len(c.ring) >= 3]
-    taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys])
+    taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys]
+                            + ([q for q in getattr(keep_out, "geoms", [keep_out])
+                                if q.geom_type == "Polygon"] if keep_out is not None else []))
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
     out: list = []
     for (oid, _ring), deck in sorted(rings.items(), key=lambda kv: kv[0]):

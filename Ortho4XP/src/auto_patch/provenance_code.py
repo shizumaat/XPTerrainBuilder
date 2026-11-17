@@ -894,6 +894,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.model.pulse",
     "auto_patch_v2.model.rebake",
     "auto_patch_v2.model.registries",
+    "auto_patch_v2.model.road_clearance",
     "auto_patch_v2.model.road_yield",
     "auto_patch_v2.model.stage_one",
     "auto_patch_v2.model.storey_shell",

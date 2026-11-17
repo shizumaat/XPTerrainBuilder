@@ -9,7 +9,7 @@ Two stores beside the other pack answers (``pack_choice``):
   airport pack (owner 2026-11-17T19:15Z "Default would be to prefer the
   airport pack"), the user's answer is what writes.
 * :data:`pack_choice.OVERLAP_FOUND` — per pair, the last detection
-  (``auto_patch.overlap_stage``): the tile, the airport pack, and each
+  (``src/auto_patch/overlap_stage.py``): the tile, the airport pack, and each
   side's overlapping rows (``pack_overlap.HideRow``), so the answer works
   outside a build.
 

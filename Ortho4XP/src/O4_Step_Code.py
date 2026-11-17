@@ -794,6 +794,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.model.pulse",
     "auto_patch_v2.model.rebake",
     "auto_patch_v2.model.registries",
+    "auto_patch_v2.model.road_clearance",
     "auto_patch_v2.model.road_yield",
     "auto_patch_v2.model.stage_one",
     "auto_patch_v2.model.storey_shell",
@@ -1104,10 +1105,6 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Object_Stage_Code",
         "O4_Triangle_Binary",
         "O4_Triangle_IO",
-        # the pack-overlap choice (#2145), reached outside the object
-        # stage's key
-        "auto_patch_v2.airport.pack_overlap",
-        "auto_patch_v2.airport.pack_overlap_choice",
         # the object stage's pack-author choice (RULINGS 2026-11-11m (3)),
         # outside its auto_patch-only key (#1901)
         "o4_engine.xplane_root",

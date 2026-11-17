@@ -58,6 +58,7 @@ from shapely.ops import substring
 
 from ..law.tables import role_cap
 from .structure_approach import carriageway_width_m, design_clearance_m
+from ..model.road_clearance import deck_at
 
 __all__ = ["ClearancePlan", "clearance_plan", "deck_at", "witnessed",
            "span_cuts"]
@@ -140,13 +141,6 @@ def _end_level(dem, approaches, cap: float) -> tuple[float, "LineString | None",
     if best[1] is None or (z0 is not None and best[0] <= z0 + 1e-6):
         return (z0 if z0 is not None else best[0]), None, 0.0
     return best
-
-
-def deck_at(levels: tuple[float, float], length: float, s: float) -> float:
-    """The deck's level ``s`` along a bridge ``length`` long, straight
-    between its two end levels."""
-    w = 0.0 if length <= 1e-9 else min(1.0, max(0.0, s / length))
-    return levels[0] + w * (levels[1] - levels[0])
 
 
 def _ribbon(kind: str, axis: LineString, half: float, prof) -> dict:

@@ -28,7 +28,7 @@ THE READING (pure: dump text in, pairs out; no pack is written here):
   removes (:class:`HideRow`, the key ``dsf_row_hide`` matches).
 
 Nothing here names an airport or a pack.  Build-time impact: none (the
-offer runs after a tile is built, ``auto_patch.overlap_stage``).
+offer runs after a tile is built, ``src/auto_patch/overlap_stage.py``).
 """
 from __future__ import annotations
 

@@ -10,7 +10,7 @@ span -- MEASURED ESSA road bridge ``-260`` over ``-3078``: the road ramped
 bridge, 1.47 m into the 5.0 m clearance, its ramp ceiling at 25.70 and no
 row binding (the objective held it).  So every map vertex on a lower
 road's carriageway under the span takes ONE hard ceiling ``Band``: the deck
-line there (``road_bridge_clear.deck_at`` between the ends' levels, at the
+line there (``model/road_clearance.deck_at`` between the ends' levels, at the
 vertex's projection on the axis) less the road's clearance
 (``structure_approach.design_clearance_m``).  Groundside law (the
 ``groundside`` tier): the lower road moves, the bridge's ends never do.
@@ -33,8 +33,7 @@ RULING = "structures.road_bridge clearance under the span (owner 2026-11-17 18:3
 def road_bridge_ceiling_rows(planar, law, airport) -> list[Row]:
     """One hard ceiling per lower-road vertex under each generated road
     bridge's span (module doc)."""
-    from ..planar.road_bridge_clear import deck_at
-    from ..planar.structure_approach import carriageway_width_m, design_clearance_m
+    from ..model.road_clearance import carriageway_width_m, deck_at, design_clearance_m
     bridges = [b for b in getattr(airport, "road_bridges", ()) or ()
                if b.get("levels") and len(b.get("axis_xy") or ()) >= 2
                and len(b.get("span_xy") or ()) >= 3]

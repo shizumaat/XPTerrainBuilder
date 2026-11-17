@@ -166,7 +166,8 @@ def test_the_shadow_reads_the_ground_past_the_cut(law):
     xs = np.array([50.0, 50.0, 50.0])
     ys = np.array([-27.0 + probe - 1.5, -27.0 + probe + 0.5, -27.0 - probe + 1.5])
     zs = np.array([92.0, 92.0, 92.0])
-    out, rep = road_shadow(_PostedDem(), law, [y], [0, 1, 2], xs, ys, zs)
+    walled = _walled(law, -27.0 + 4.5, -27.0 - 4.5)
+    out, rep = road_shadow(_PostedDem(), law, [y], [0, 1, 2], xs, ys, zs, walled)
     # vertex 0 (north, inside the probe, on the 92 m slope of the cut): its
     # probe point lands at y = -27 + probe (> -21) on the 100 m ground;
     # vertex 1 is past the probe; vertex 2 (south) reads the 92 m beyond
@@ -175,8 +176,42 @@ def test_the_shadow_reads_the_ground_past_the_cut(law):
     other = BandYield(axis.buffer(5.0), LineString([(0.0, -27.0 + 1.5 * probe),
                                                    (100.0, -27.0 + 1.5 * probe)]),
                       4.0, "runway", 2, None, "09/27", True)
-    out2, _rep2 = road_shadow(_PostedDem(), law, [y, other], [0], xs, ys, zs)
+    out2, _rep2 = road_shadow(_PostedDem(), law, [y, other], [0], xs, ys, zs, walled)
     assert out2[0] == 92.0
+
+
+def _walled(law, *wall_ys: float):
+    """A RoadWitness with a wall along the road at each of ``wall_ys``."""
+    from auto_patch_v2.law.tables import snap_margin_m
+    from auto_patch_v2.planar.road_wall_witness import RoadWitness
+    from shapely.geometry import MultiLineString
+    walls = MultiLineString([[(0.0, w), (100.0, w)] for w in wall_ys]) if wall_ys else None
+    return RoadWitness(walls, None, snap_margin_m(law))
+
+
+def test_the_shadow_needs_a_wall_lining_the_road(law):
+    """#2122 item 3 (owner 2026-11-17T12:53Z, option (a)): with no wall
+    witness between the road and the vertex the band follows its own
+    ground (NZWN: 2.2-2.6 m lifts onto a natural bank); a wall beyond the
+    vertex holds nothing between it and the road; a mapped cut under the
+    road's axis is a witness."""
+    import numpy as np
+    from auto_patch_v2.law.tables import snap_margin_m
+    from auto_patch_v2.planar.road_shadow import road_shadow
+    from auto_patch_v2.planar.road_wall_witness import RoadWitness
+    from auto_patch_v2.planar.road_yield import BandYield
+    axis = LineString([(0.0, -27.0), (100.0, -27.0)])
+    y = BandYield(axis.buffer(5.0), axis, 4.0, "runway", 2, None, "09/27", True)
+    probe = 4.0 + _cut(law) + 2.0 * float(law.tables.zones.adjacent_ground.road_shadow_dem_cells)
+    xs, ys = np.array([50.0]), np.array([-27.0 + probe - 1.5])
+    zs = np.array([92.0])
+    for wit, want in ((_walled(law), 92.0),                          # no witness
+                      (_walled(law, ys[0] + 0.5), 92.0),             # wall beyond it
+                      (_walled(law, -27.0 + 4.5), 100.0),            # wall at the kerb
+                      (RoadWitness(None, axis.buffer(4.0), snap_margin_m(law)), 100.0)):
+        out, rep = road_shadow(_PostedDem(), law, [y], [0], xs, ys, zs, wit)
+        assert out[0] == want
+        assert rep.unwalled == (0 if want == 100.0 else 1)
 
 
 def test_a_road_wider_than_its_drawn_page_is_walled_at_its_lanes(law):

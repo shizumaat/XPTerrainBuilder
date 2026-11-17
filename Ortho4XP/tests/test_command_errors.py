@@ -21,8 +21,8 @@ import zlib
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
 
-from o4_engine import command_errors as CE                  # noqa: E402
-from o4_engine import session as S                          # noqa: E402
+from o4_engine import command_errors as CE  # noqa: E402
+from o4_engine import session as S  # noqa: E402
 
 
 def _raise_in_engine_step():

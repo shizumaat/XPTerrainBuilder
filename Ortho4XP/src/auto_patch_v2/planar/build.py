@@ -611,6 +611,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                                          for b in arr.seam_bands),
                    mouth_walls=tuple((tuple(r), d, p_) for r, d, p_
                                      in stats.covered_ground.mouth_walls),
+                   portal_mouths=tuple(stats.covered_ground.portal_mouths),
                    edge_kind_of_ref={r.ref: r.edge_kind for r in arr.regions
                                      if r.edge_kind != "none"},
                    zone_runway_of_ref={r.ref: r.runway_ref for r in arr.regions

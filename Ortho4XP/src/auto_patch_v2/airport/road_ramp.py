@@ -88,6 +88,7 @@ from ..law.tables import (
     family,
     is_structure_role,
     is_value_role,
+    road_terrain_cap,
     role_cap,
     role_side,
     senior_role,
@@ -812,6 +813,21 @@ def _ramp_figures(ramps: _t.Sequence[_t.Mapping[str, _t.Any]], design: float,
                                 r["why"]) for r in worst[:8]]}
 
 
+def _route_cap(items: _t.Sequence[tuple[float, int]], floor_of: _t.Mapping[int, float],
+               cap: float, follow: float) -> float:
+    """The grade a route's CUT labels are lifted onto it at (§37 (8)): the
+    road cap, or ``follow`` (the steep-ground cap, RULINGS 2026-11-17) on a
+    route whose own floor somewhere runs steeper than the road cap -- there
+    a cut follows its floor's rise (:func:`road_descent.climb`'s
+    ``follow``), and the lower envelope must not cut those labels back to
+    the cap.  ``items`` the route's sorted ``(station, vertex)``."""
+    pts = [(s_, floor_of[v]) for s_, v in items if v in floor_of]
+    for (s0, z0), (s1, z1) in zip(pts, pts[1:], strict=False):
+        if s1 - s0 >= 1.0 and abs(z1 - z0) > cap * (s1 - s0) + 1e-9:
+            return max(follow, cap)
+    return cap
+
+
 def _carried_on_end(adj, frame, route_end, by_route, lane: float):
     """#2090 B7: the road's-end reader of a DECK END's ramp — ``route_end``,
     but ``None`` (no end) where any vertex of that route end's group (the
@@ -1104,9 +1120,23 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # envelope a ceiling on the target.  The mouths' own seeds carry no
     # cone of their own (a contact the road can follow its floor from
     # builds none), so only the vertices a cut reached are lifted.
+    # owner sim read 2026-11-17T22:34Z (#2122): a cut is up on the road's
+    # floor where the road ENDS -- its far end, never the end it leaves from
+    # and (RULINGS 2026-11-17, steep ground) it follows its floor up ground
+    # steeper than the road cap at up to the steep-ground cap -- a cut
+    # climbing a hill never sinks deeper under the road's ground than it
+    # stood after leaving its contact
+    follow = road_terrain_cap(law)
+    from_ends = {_route_end(m) for m in cut_from} - {None}
+
+    def _far_end(v: int):
+        e = _route_end(v)
+        return None if e in from_ends else e
+
     cut_lab, _cw, cut_ramps, _cs = climb(adj, cut_from,
                                     lambda v: cut_from[v] if v in cut_from else floor_of.get(v),
-                                    floor_of, design, cap, lane)
+                                    floor_of, design, cap, lane, follow=follow,
+                                    end_of=_far_end)
     cut_fig = _ramp_figures(cut_ramps, design, cap)
     rep.update({"cuts": cut_fig["ramps"], "cuts_steepened": cut_fig["ramps_steepened"],
                 "cuts_at_cap": cut_fig["ramps_at_cap"], "cut_total_m": cut_fig["ramp_total_m"],
@@ -1125,10 +1155,10 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
         far = other.get(road_key(ways[r].ref), frozenset()) if r in ways else frozenset()
         # the cap-Lipschitz envelope; the LOWER one for the cut ramps'
         # ceilings (#1531, the mirror)
-        env[r] = grade_envelope(ss, [-math.inf if v in far else g.get(v, -math.inf)
-                                     for _s, v in items], cap)
-        env_c[r] = grade_envelope(ss, [cut_lab.get(v, math.inf) if v not in mouths else math.inf
-                              for _s, v in items], cap, lower=True)
+        up = [-math.inf if v in far else g.get(v, -math.inf) for _s, v in items]
+        lo = [cut_lab.get(v, math.inf) if v not in mouths else math.inf for _s, v in items]
+        env[r] = grade_envelope(ss, up, cap)
+        env_c[r] = grade_envelope(ss, lo, _route_cap(items, floor_of, cap, follow), lower=True)
     targets: dict[int, float] = {}
     rep["_deck_ramp"] = {}
     for v in sorted(owned):

@@ -1146,6 +1146,24 @@ class EngineSession:
         except Exception:                                # pragma: no cover
             pass
         self._building = True
+        try:
+            return self._start_run(
+                tiles, provider, zoomlevel, custom_build_dir, do_vector,
+                do_imagery, do_overlays, slots, steps, boundary_policy,
+                missing_art, prefetch, overrides, priority)
+        except BaseException:
+            # A run that never started must not stay "building": every
+            # later press would join a queue no worker reads and sit
+            # "queued" forever (1.0.553, an import failing mid-start).
+            self._building = False
+            self._parallel = None
+            raise
+
+    def _start_run(self, tiles, provider, zoomlevel, custom_build_dir,
+                   do_vector, do_imagery, do_overlays, slots, steps,
+                   boundary_policy, missing_art, prefetch, overrides,
+                   priority):
+        """Start the run :meth:`build` admitted (``_building`` is set)."""
         _note_storage_session(tiles)
         self._tile_overrides = {}
         self._tile_priority = {}

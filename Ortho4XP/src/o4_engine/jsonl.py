@@ -72,6 +72,7 @@ import O4_Unmounted_Links as UNMOUNTED
 
 from . import failure_report
 from . import library as _LIBRARY
+from .command_errors import command_error_text
 from .events import EngineHello, Error, ScanBatch
 from .secret_broker import SecretBroker
 from .session import EngineSession
@@ -835,7 +836,7 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
                 result = handler(**arguments)
             except Exception as exc:  # a bad command must not end the session
                 write_obj({"reply": call_id, "ok": False,
-                           "error": str(exc)})
+                           "error": command_error_text(command, exc)})
                 return
             write_obj({"reply": call_id, "ok": True,
                        "result": _json_safe(result)})

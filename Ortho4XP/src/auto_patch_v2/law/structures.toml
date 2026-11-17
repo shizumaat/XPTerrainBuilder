@@ -1543,6 +1543,16 @@ free_column_min_share = 0.5   # ... and at least this share of the placement's e
                               # canopy columns (LPHR), two 15 m roof poles (LIMC) moved 4-15 m
                               # without it; ENTC ALS 33/35, SBGL ALS-2, ENAT approach lights pass
 
+# TOUCHING BUILDINGS: ONE GROUP, ONE RIGID SEAT, AT THE LOWER (#2110 R3; owner
+# RULINGS 2026-11-16k/u/v; airport/touch_seat.py).  Two final bodies of one frame
+# touch where a non-line part ring of one comes within touch_gap_m of the other's
+# ("no visible gap" from above, 16u); a group of touching buildings spread under
+# 1 m seats at its lowest member, the others sink (16v).  A building under
+# touch_seat_min_share of the group's building footprint, alone at the lowest
+# level, keeps its seat and does not vote.  0 disarms.
+touch_gap_m         = 0.1
+touch_seat_min_share = 0.10
+
 # A WALLED BUILDING ON ITS AUTHOR'S TERRAIN STANDS ON OURS (#1884 r2 A;
 # airport/terrain_base.py).  true: one whose rigid base would CLEAR our ground
 # stands on our terrain as well (owner RULINGS 2026-11-13y (2): "A building

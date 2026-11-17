@@ -558,6 +558,15 @@ class Placement:
     #: share of them (a lone post of a building stays with its group)
     free_column_min_count: int = 0
     free_column_min_share: float = 0.0
+    #: #2110 R3 (owner RULINGS 2026-11-16k/u/v; ``airport/touch_seat``):
+    #: two final bodies of one frame TOUCH where a non-line part ring of
+    #: one comes within this of the other's; touching buildings seat as one
+    #: group at the lower.  0 disarms the pass
+    touch_gap_m: float = 0.0
+    #: ... and a building under this share of its group's building
+    #: footprint, alone at the group's lowest level, keeps its seat and
+    #: does not vote (a shed beside a terminal)
+    touch_seat_min_share: float = 0.0
     #: #1884 round 2 (A, ``airport/terrain_base``): a walled body nothing
     #: carries whose RIGID base would clear our ground by more than
     #: ``[rebake] elevated_base_m`` stands on our terrain too (owner RULINGS

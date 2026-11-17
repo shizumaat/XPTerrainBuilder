@@ -180,6 +180,26 @@
   "reason": "#2118 public reader of the walls a zero-level seat stands below, composed by unit_zero in the same module; named in the module docstring contract"
  },
  {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "base_lines",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "census_touching_steps",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "group_lines",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "touching_lines",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
   "path": "Ortho4XP/src/auto_patch_v2/planar/__main__.py",
   "name": "main",
   "reason": "entry point: `python -m auto_patch_v2.planar ICAO --stage ...` (the dry structures replay, tools/INDEX.md)"

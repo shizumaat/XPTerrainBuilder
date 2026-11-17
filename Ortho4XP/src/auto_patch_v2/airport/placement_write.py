@@ -195,6 +195,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                isolated_sheet_max_aspect: float = 0.0,
                # #1837: ``ground_frame_riders.law_of([placement])``; ``None`` disarms
                ground_rider_law: _t.Any = None,
+               # #2110 R3: ``touch_seat.law_of([placement])``; ``None`` disarms
+               touch_seat: _t.Any = None,
                ) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
@@ -251,7 +253,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           isolated_span_max_m=isolated_span_max_m,
                           isolated_foreign=isolated_foreign,
                           isolated_base_min_fraction=isolated_base_min_fraction,
-                          isolated_sheet_max_aspect=isolated_sheet_max_aspect)
+                          isolated_sheet_max_aspect=isolated_sheet_max_aspect,
+                          touch_seat=touch_seat)
     splits, kept = _pp.to_placement_records(ss)
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,

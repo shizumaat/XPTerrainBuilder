@@ -226,6 +226,16 @@ def _foreign_outlines(paths: "list[str] | None") -> tuple:
     return tuple(out)
 
 
+def _touch_law(law):
+    """#2110 R3: ``[placement] touch_gap_m`` as the touch pass's law,
+    ``None`` under a src or law that predates it (the pass stays off)."""
+    try:
+        from auto_patch_v2.airport import touch_seat as _ts
+        return _ts.law_of(law.tables.structures.placement)
+    except (ImportError, AttributeError):
+        return None
+
+
 def _ground_rider_law(law):
     """#1837: ``[placement] ground_rider_*`` as the rule's law, ``None``
     under a law that predates the keys (the rule then stays disarmed)."""
@@ -602,7 +612,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
                                            "isolated_base_min_fraction", None),
         isolated_sheet_max_aspect=getattr(law.tables.structures.placement,
                                           "isolated_sheet_max_aspect", None),
-        ground_rider_law=_ground_rider_law(law))
+        ground_rider_law=_ground_rider_law(law),
+        touch_seat=_touch_law(law))
     if args.write_pack:
         # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut
         # and written into a pack COPY by ``placement_write.apply_plan``
@@ -659,7 +670,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
                 keywords["drape"], keywords["drape_law"] = {}, None
                 print("  base-slab drape read failed (%s) — no slab drapes" % exc)
         started = time.perf_counter()
-        out_plan, files, _ = _pw.build_plan(plan_, dump, watched, **keywords)
+        out_plan, files, _ss = _pw.build_plan(plan_, dump, watched, **keywords)
         elapsed = time.perf_counter() - started
         times.append(elapsed)
         last_plan, last_files = out_plan, files
@@ -697,6 +708,11 @@ def cmd_plan(args: argparse.Namespace) -> int:
         with open(args.plan_out, "w") as fh:
             fh.write(last_plan.to_json())
         print("  plan ->", args.plan_out)
+    if args.touch_out:
+        # #2110 R3: the touch pass's group table (``SplitSet.touch_table``)
+        with open(args.touch_out, "w") as fh:
+            json.dump(getattr(_ss, "touch_table", {}) or {}, fh)
+        print("  touch table ->", args.touch_out)
     if args.oracle_write:
         with open(args.oracle_write, "wb") as fh:
             pickle.dump(oracle, fh, protocol=4)
@@ -845,6 +861,36 @@ def _oracle_check(args, plan_) -> int:
     return 0 if not (bad_point or bad_batch) else 1
 
 
+def cmd_touch(args: argparse.Namespace) -> int:
+    """#2110: every pair of bodies of one frame that touch, with the step
+    between their zeros (``airport.touching_steps``) — the bar of owner
+    RULINGS 2026-11-16k/u/v; with ``--table`` the touch pass's groups
+    (``plan --touch-out``), with ``--base`` the bodies moved against a
+    control plan (spec 2110-R3 §4)."""
+    from auto_patch_v2.airport import touching_steps as _ts
+    from auto_patch_v2.model.rebake import RebakePlan
+    with open(args.plan) as fh:
+        plan_ = RebakePlan.from_json(fh.read())
+    with open(args.placement) as fh:
+        doc = json.load(fh)
+    got = _ts.census_touching_steps(plan_, doc.get("splits", ()), args.touch_m)
+    print("\n".join(_ts.touching_lines(got, args.top)))
+    table = {}
+    if args.table:
+        with open(args.table) as fh:
+            table = json.load(fh)
+        print("\n".join(_ts.group_lines(table, args.top)))
+    if args.base:
+        with open(args.base) as fh:
+            base = json.load(fh)
+        print("\n".join(_ts.base_lines(doc.get("splits", ()), base.get("splits", ()),
+                                        table.get("moved", ()))))
+    if args.json:
+        with open(args.json, "w") as fh:
+            json.dump(got, fh)
+    return 0
+
+
 def cmd_disk(args: argparse.Namespace) -> int:
     from auto_patch_v2.airport import obj8
     root = args.pack_root
@@ -982,6 +1028,8 @@ def _main(argv: list[str] | None = None) -> int:
     pl.add_argument("--kept-from", default="", metavar="SCREEN.json",
                     help="#2090: stamp the screen's KEPT bridge decks on the plan "
                          "(rebake_plan.with_kept) before the replay")
+    pl.add_argument("--touch-out", default="",
+                    help="#2110 R3: write the touch pass's group table here")
     pl.add_argument("--plan-out", default="",
                     help="write the replayed o4_v2_placement_<ICAO>.json here "
                          "(lane-local) to diff against the shipped one")
@@ -997,6 +1045,18 @@ def _main(argv: list[str] | None = None) -> int:
     d.add_argument("pack_root")
     d.add_argument("--filter", default="")
     d.set_defaults(fn=cmd_disk)
+    t = sub.add_parser("touch", help="#2110 (RULINGS 2026-11-16k/u/v): the TOUCHING-PAIR "
+                                     "step table of a placement plan, the touch pass's "
+                                     "groups and the moves against a base (read-only)")
+    t.add_argument("plan", help="the rebake plan o4_v2_rebake_<ICAO>.json")
+    t.add_argument("placement", help="a placement plan (the app's, or plan --plan-out)")
+    t.add_argument("--top", type=int, default=15)
+    t.add_argument("--touch-m", type=float, default=0.1,
+                   help="the touch gap ([placement] touch_gap_m)")
+    t.add_argument("--table", default="", help="the touch pass's table (plan --touch-out)")
+    t.add_argument("--base", default="", help="a control placement plan: what moved")
+    t.add_argument("--json", default="", help="write the census here")
+    t.set_defaults(fn=cmd_touch)
     args = ap.parse_args(argv)
     return args.fn(args)
 

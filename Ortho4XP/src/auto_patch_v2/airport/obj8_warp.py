@@ -18,6 +18,13 @@ carried by the inverse transpose of the shear ``[[1,0,0],[Dx,1,Dz],[0,0,1]]``
 never displaced (the split writer refuses the warp for a body owning a
 block, as it refuses the seat tilt).
 
+A PIER FOOT (owner 2026-11-17T20:43Z: "a pier foot may stretch by at
+most 3 m") is a second kind of item in the same list, :data:`Foot`
+``("foot", x, z, y_max, drop)``: every static vertex within
+:data:`FOOT_REACH_M` of ``(x, z)`` in plan with authored ``y <= y_max``
+(the foot's bottom band) is lowered a further ``drop``, so the pier
+lengthens down to the ground while its top stays with the deck.
+
 With no node every function here is the identity, so an unwarped body's
 file is byte-identical to the pre-warp writer's.
 """
@@ -29,11 +36,22 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["Node", "Field", "warp_digest", "warp_rows"]
+__all__ = ["Node", "Foot", "FOOT_REACH_M", "Field", "warp_digest", "warp_rows"]
 
 #: one node: ``(D, rings)`` -- the displacement and the plan polygons,
 #: authored ``(x, z)``, inside which the field is exactly ``D``
 Node = tuple[float, tuple[tuple[tuple[float, float], ...], ...]]
+
+#: one pier foot: ``("foot", x, z, y_max, drop)`` (module doc)
+Foot = tuple[str, float, float, float, float]
+
+#: a foot's bottom vertices are those within this of its point in plan, m
+FOOT_REACH_M = 1.5
+
+
+def _is_foot(item: _t.Any) -> bool:
+    return len(item) == 5 and item[0] == "foot"
+
 
 #: the finite-difference step of the field's gradient, metres
 GRAD_STEP_M = 0.25
@@ -42,8 +60,11 @@ GRAD_STEP_M = 0.25
 class Field:
     """The displacement field of a body's nodes (module doc)."""
 
-    def __init__(self, nodes: _t.Sequence[Node]) -> None:
+    def __init__(self, items: _t.Sequence[_t.Any]) -> None:
         import shapely
+        nodes = [n for n in items if not _is_foot(n)]
+        self.feet = np.asarray([[float(v) for v in f[1:]] for f in items if _is_foot(f)],
+                               float).reshape(-1, 4)
         self.values = np.asarray([float(n[0]) for n in nodes], float)
         polys, segs = [], []
         for _d, rings in nodes:
@@ -59,7 +80,17 @@ class Field:
         self._segs = segs
 
     def __bool__(self) -> bool:
-        return bool(self._polys)
+        return bool(self._polys) or bool(self.feet.shape[0])
+
+    def drop(self, x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+        """The further lowering of each point by the pier feet: the largest
+        ``drop`` of a foot within :data:`FOOT_REACH_M` whose bottom band
+        (``y <= y_max``) holds it, else 0."""
+        out = np.zeros(np.shape(x))
+        for fx, fz, y_max, d in self.feet:
+            hit = (np.hypot(x - fx, z - fz) <= FOOT_REACH_M) & (y <= y_max)
+            out[hit] = np.maximum(out[hit], d)
+        return out
 
     def _distance(self, k: int, x: np.ndarray, z: np.ndarray) -> np.ndarray:
         """Plan distance from the points to node k (0 inside it): the
@@ -109,7 +140,11 @@ def warp_digest(nodes: _t.Sequence[Node]) -> bytes:
     """The node list as bytes (mm-rounded), for the file name's hash: two
     placements whose warps differ never share a file."""
     h = hashlib.blake2s(digest_size=8)
-    for d, rings in nodes:
+    for item in nodes:
+        if _is_foot(item):
+            h.update(b"F" + struct.pack("<4d", *(round(float(v), 3) for v in item[1:])))
+            continue
+        d, rings = item
         h.update(struct.pack("<d", round(float(d), 3)))
         for r in rings:
             for x, z in r:
@@ -130,15 +165,17 @@ def warp_rows(rows: _t.Sequence[str], first: int, field: "Field | None",
         return list(rows)
     toks = [r.split() for r in rows]
     xs = np.zeros(len(rows))
+    ys = np.zeros(len(rows))
     zs = np.zeros(len(rows))
     ok = np.zeros(len(rows), bool)
     for i, t in enumerate(toks):
         try:
-            xs[i], zs[i] = float(t[first]), float(t[first + 2])
+            xs[i], ys[i], zs[i] = (float(t[first]), float(t[first + 1]),
+                                   float(t[first + 2]))
             ok[i] = True
         except (IndexError, ValueError):
             pass
-    d = field.at(xs, zs)
+    d = field.at(xs, zs) - field.drop(xs, ys, zs)
     gx, gz = (field.grad(xs, zs) if normal_at >= 0
               else (np.zeros(len(rows)), np.zeros(len(rows))))
     out = []

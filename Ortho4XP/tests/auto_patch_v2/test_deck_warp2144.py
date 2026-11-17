@@ -109,3 +109,37 @@ def test_an_anim_body_is_refused(tmp_path):
                         allow_single=True)
     assert res.counts.get("warp_refused_anim") == 1
     assert all(not f.warped for f in res.files)
+
+
+def _pier(tmp_path) -> str:
+    """A 1 m square pier from y -10 to the deck soffit at y 6, at x 0."""
+    v = [(x, y, z) for y in (-10.0, 6.0) for x, z in ((-0.5, 1.5), (0.5, 1.5), (0.5, 2.5), (-0.5, 2.5))]
+    t = [(0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7)]
+    return _write(tmp_path / "pier.obj", v, t)
+
+
+def test_a_pier_foot_stretches_down_and_its_top_stays_with_the_deck(tmp_path):
+    """Owner 2026-11-17T20:43Z: a floating pier foot is lowered (at most
+    3 m, ``[deck] pier_foot_stretch_max_m``); the foot item lowers only
+    the bottom band within reach of its point, and names the file."""
+    path = _pier(tmp_path)
+    comps = tuple(range(len(obj8.solid_components(obj8.parse_obj8(path)))))
+    foot = ("foot", 0.0, 2.0, -9.99, 1.7)
+    res = OS.split_obj8(path, [OS.BodyCut(0, comps, warp=NODES + (foot,))], "objects/pier.obj",
+                        allow_single=True)
+    got = [tuple(float(q) for q in ln.split()[1:4]) for ln in res.files[0].text.splitlines()
+           if ln.startswith("VT")]
+    src = [tuple(float(q) for q in ln.split()[1:4]) for ln in open(path).read().splitlines()
+           if ln.startswith("VT")]
+    field = OW.Field(NODES)
+    assert len(got) == len(src) == 8
+    for (x, z, y), (x1, z1, y1) in zip(sorted((a, c, b) for a, b, c in src),
+                                       sorted((a, c, b) for a, b, c in got), strict=True):
+        want = y + float(field.at(np.asarray([x]), np.asarray([z]))[0]) - (1.7 if y < 0 else 0.0)
+        assert (x1, z1) == (x, z) and abs(y1 - want) < 2e-3
+    assert (OS.body_resource_name("objects/pier.obj", 0, (0.0, 0.0, 0.0), warp=NODES)
+            != OS.body_resource_name("objects/pier.obj", 0, (0.0, 0.0, 0.0),
+                                     warp=NODES + (foot,)))
+    # a foot alone is still a warp; far from it nothing moves
+    f = OW.Field((foot,))
+    assert bool(f) and f.drop(np.asarray([10.0]), np.asarray([-10.0]), np.asarray([2.0]))[0] == 0.0

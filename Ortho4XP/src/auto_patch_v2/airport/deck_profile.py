@@ -49,9 +49,13 @@ cap, ``[tunnel] rail_ramp_max_grade``, and never above ``[deck]
 shear_max_grade``); over it the group is not warped, keeps the zero its
 group gave it, and is listed.
 
-FEET.  After the warp a group member's ground-contact foot floating more
-than ``float_tol_m`` over the surface is counted (``warp_feet_floating``)
-and listed; the terrain is never regraded for a pier.
+FEET (owner 2026-11-17T20:43Z: "a pier foot may stretch by at most
+3 m").  After the warp a group member's ground-contact foot floating more
+than ``float_tol_m`` over the surface has its bottom vertices lowered to
+the surface by at most ``[deck] pier_foot_stretch_max_m``
+(``obj8_warp.Foot``; counted ``warp_feet_stretched``); one still floating
+past the bar is counted (``warp_feet_floating``) and listed.  Sinking is
+free; the terrain is never regraded for a pier.
 
 Nothing here names an airport, a pack or a resource.
 """
@@ -97,6 +101,9 @@ class _WarpLaw:
     walled_m: float
     tol_m: float
     float_tol_m: float
+    #: the most a floating pier foot is lowered (``[deck]
+    #: pier_foot_stretch_max_m``); 0 lists it only
+    stretch_max_m: float = 0.0
 
 
 def law_of(structures: _t.Any) -> "_WarpLaw | None":
@@ -109,7 +116,8 @@ def law_of(structures: _t.Any) -> "_WarpLaw | None":
             return None
         return _WarpLaw(min(float(tunnel.rail_ramp_max_grade), float(deck.shear_max_grade)),
                        float(TOUCH_M), float(pl.chain_min_height_m),
-                       float(pl.authored_keep_tol_m), float(pl.split_tol_m))
+                       float(pl.authored_keep_tol_m), float(pl.split_tol_m),
+                       float(getattr(deck, "pier_foot_stretch_max_m", 0.0)))
     except AttributeError:
         return None
 
@@ -413,19 +421,24 @@ def _steepest(nodes: _t.Sequence[tuple], pieces: _t.Sequence[_Piece],
     return float(np.max(np.hypot(dx, dy)))
 
 
-def _to_frame(rec: _t.Any, xy_inv: _t.Callable) -> _t.Callable:
-    """local metres -> the placement's authored ``(x, z)``
+def _ll_frame(rec: _t.Any) -> _t.Callable:
+    """``(lat, lon)`` -> the placement's authored ``(x, z)``
     (``placement_file.authored_offset``'s map)."""
     from .anchor_rule import _m_per_deg
     ml, mo = _m_per_deg(float(rec.lat))
     h = math.radians(float(rec.heading))
     s, c = math.sin(h), math.cos(h)
 
-    def f(x: float, y: float) -> tuple[float, float]:
-        la, lo = xy_inv(x, y)
+    def f(la: float, lo: float) -> tuple[float, float]:
         e, n = (lo - float(rec.lon)) * mo, (la - float(rec.lat)) * ml
         return (round(e * c - n * s, 4), round(-e * s - n * c, 4))
     return f
+
+
+def _to_frame(rec: _t.Any, xy_inv: _t.Callable) -> _t.Callable:
+    """local metres -> the placement's authored ``(x, z)``."""
+    g = _ll_frame(rec)
+    return lambda x, y: g(*xy_inv(x, y))
 
 
 def _frame_nodes(rec: _t.Any, nodes: _t.Sequence[tuple], d_off: float,
@@ -491,6 +504,8 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
             row["refused"] = why
             counts[f"warp_refused_{why}"] = counts.get(f"warp_refused_{why}", 0) + 1
             continue
+        stretch = (_stretches(pieces, ks, nodes, xy, surface, law, z0)
+                   if surface is not None else {})
         for k in ks:
             pc = pieces[k]
             out = _left_out(pc)
@@ -500,7 +515,11 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
                 continue
             i, j = pc.key
             rec = splits[i]
-            warp = _frame_nodes(rec, nodes, pc.zero - z0, xy_inv)
+            warp = (_frame_nodes(rec, nodes, pc.zero - z0, xy_inv)
+                    + _frame_feet(rec, stretch.get(k, ())))
+            if stretch.get(k):
+                counts["warp_feet_stretched"] = (counts.get("warp_feet_stretched", 0)
+                                                 + len(stretch[k]))
             bs = list(rec.bodies)
             bs[j] = named_body(pc.member, bs[j], warp=warp)
             splits[i] = _dc.replace(rec, bodies=tuple(bs))
@@ -510,7 +529,10 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
         counts["deck_warp_groups"] = counts.get("deck_warp_groups", 0) + 1
         if surface is not None:
             row["feet_floating"] = _floating(pieces, ks, nodes, xy, surface, law, z0)
-            row["feet_floating_before"] = len(_floating(pieces, ks, (), xy, surface, law, z0))
+            row["feet_stretched"] = sum(len(v) for v in stretch.values())
+            row["feet_floating_before"] = sum(
+                1 for *_r, fl in _foot_floats(pieces, ks, (), xy, surface, z0)
+                if fl > law.float_tol_m)
             if row["feet_floating"]:
                 counts["warp_feet_floating"] = (counts.get("warp_feet_floating", 0)
                                                 + len(row["feet_floating"]))
@@ -522,12 +544,11 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
     return splits, table
 
 
-def _floating(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], nodes: _t.Sequence[tuple],
-              xy: _t.Callable, surface: _t.Callable, law: _WarpLaw, z0: float) -> list:
-    """The warped members' ground-contact feet floating more than the bar:
-    ``(lat, lon, float m)``, worst first."""
+def _foot_floats(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], nodes: _t.Sequence[tuple],
+                 xy: _t.Callable, surface: _t.Callable, z0: float) -> _t.Iterator[tuple]:
+    """``(k, lat, lon, authored y, float m)`` of every ground-contact foot
+    of the members under the field of ``nodes`` (+ floats, - buried)."""
     f = _field_xy(nodes)
-    out = []
     for k in ks:
         pc = pieces[k]
         for la, lo, y in pc.body.feet or ():
@@ -536,7 +557,37 @@ def _floating(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], nodes: _t.Seque
             s = surface(float(la), float(lo))
             if s is None:
                 continue
-            fl = pc.zero + float(y) - float(pc.body.anchor.y_zero) + d - float(s)
-            if fl > law.float_tol_m:
-                out.append((round(float(la), 7), round(float(lo), 7), round(fl, 3)))
+            yield (k, float(la), float(lo), float(y),
+                   pc.zero + float(y) - float(pc.body.anchor.y_zero) + d - float(s))
+
+
+def _stretches(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], nodes: _t.Sequence[tuple],
+               xy: _t.Callable, surface: _t.Callable, law: _WarpLaw, z0: float) -> dict:
+    """``{k: ((lat, lon, authored y, drop), ...)}``: each floating foot's
+    lowering, at most ``law.stretch_max_m`` (FEET in the module doc)."""
+    out: dict[int, list] = {}
+    if law.stretch_max_m <= 0.0:
+        return out
+    for k, la, lo, y, fl in _foot_floats(pieces, ks, nodes, xy, surface, z0):
+        if fl > law.float_tol_m:
+            out.setdefault(k, []).append((la, lo, y, round(min(fl, law.stretch_max_m), 3)))
+    return out
+
+
+def _frame_feet(rec: _t.Any, feet: _t.Sequence[tuple]) -> tuple:
+    """The feet as ``obj8_warp.Foot`` items in the placement's authored
+    frame (the bottom band is the foot's own authored y, 1 cm deep)."""
+    g = _ll_frame(rec)
+    return tuple(("foot", *g(la, lo), round(y + 0.01, 4), drop) for la, lo, y, drop in feet)
+
+
+def _floating(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], nodes: _t.Sequence[tuple],
+              xy: _t.Callable, surface: _t.Callable, law: _WarpLaw, z0: float) -> list:
+    """The warped members' ground-contact feet still floating more than the
+    bar after their stretch: ``(lat, lon, float m)``, worst first."""
+    out = []
+    for _k, la, lo, _y, fl in _foot_floats(pieces, ks, nodes, xy, surface, z0):
+        left = fl - (min(fl, law.stretch_max_m) if fl > law.float_tol_m else 0.0)
+        if left > law.float_tol_m:
+            out.append((round(la, 7), round(lo, 7), round(left, 3)))
     return sorted(out, key=lambda t: -t[2])

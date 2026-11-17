@@ -349,7 +349,9 @@ def authored_crest(c, mouth_z: float, grade: float, s_top: float
 
 def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: list,
                  vxy: list[XY], dem_z: _t.Sequence[float],
-                 airside: _t.Collection[int] = ()) -> dict[int, float]:
+                 airside: _t.Collection[int] = (),
+                 axis_dem: "_t.Callable[[float, float], float] | None" = None
+                 ) -> dict[int, float]:
     """THE RAMP'S OBJECTIVE TARGET IS ITS OWN DESIGN, not the DEM: vertex
     id -> the designed profile value ``clamp(DEM, mouth_z − g·Δs, mouth_z
     + g·Δs)`` (``Δs`` from where the climb starts; ``g`` the tunnel's
@@ -362,13 +364,26 @@ def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: lis
     is the deck's floor (``model/structures.deck_floor_z``), linear along
     the open stretch to a second deck (#2072 B1).  A vertex in ``airside``
     (a stage-1 airside face carries it) takes no target: no floor stands on
-    it (#2099 R3 A1, ``constraints/airside_floor``)."""
+    it (#2099 R3 A1, ``constraints/airside_floor``).
+
+    THE GROUND A RAMP CLIMBS TO IS ITS ROAD'S, ON ITS AXIS (#2128):
+    ``axis_dem(x, y)`` given, the DEM is read where the vertex's station
+    stands on the tunnel's axis, never under the vertex.  A corridor holds
+    one level per station, and its ring vertices stand on its edges -- on a
+    survey that already carries the road down in a cutting, on the cut's
+    banks: MEASURED KIAH (#2128, 1 m lidar), the trunk under obj24615 read
+    its mouth station 21.94 (floor + ``ramp_max_grade`` x 19 m) off corner
+    vertices on the banks while the road's own ground there was 20.3, a
+    1.5 m hump against the road ribbon at 20.47; north of obj24550 the
+    ramp climbed at 10 % to 24-26 over a surveyed road at 21.2-22.9.  On
+    a coarse DEM the axis and the edge read the same ground."""
     if not tunnels:
         return {}
     from ..model.structures import deck_floor_z, profile_z
     g = law.tables.structures.tunnel.ramp_max_grade
     axes = {tn.id: LineString(tn.axis) for tn in tunnels}
     out: dict[int, float] = {}
+    cache: dict = {}
     for fid, face in faces.items():
         if face.role not in ("tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp"):
             continue
@@ -398,11 +413,22 @@ def ramp_targets(tunnels: _t.Sequence[Tunnel], law: Law, faces: dict, edges: lis
                 # a LADDER floor is pinned there at this very value (#2072 B1)
                 out[v] = base
                 continue
-            d = float(dem_z[v])
+            d = float(dem_z[v]) if axis_dem is None else _axis_ground(
+                axis_dem, axes[tid], s, cache)
             if math.isnan(d):
                 continue
             out[v] = max(base - reach, min(base + reach, d))
     return out
+
+
+def _axis_ground(axis_dem, axis: LineString, s: float, cache: dict) -> float:
+    """The DEM on ``axis`` at station ``s`` (:func:`ramp_targets`), read
+    once per decimetre station."""
+    key = (id(axis), round(s, 1))
+    if key not in cache:
+        p = axis.interpolate(min(max(s, 0.0), axis.length))
+        cache[key] = float(axis_dem(p.x, p.y))
+    return cache[key]
 
 
 def collapse_for_ramp(axis_fn, ss: _t.Sequence[float], half: float, rim_off: float,

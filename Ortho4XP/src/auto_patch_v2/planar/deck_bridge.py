@@ -86,6 +86,7 @@ from .deck_walls import inner_faces, wall_faces, wall_strip
 __all__ = ["DeckBridge", "deck_polygon", "from_full", "full_map", "with_cuts",
            "deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
            "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "group_reach",
+           "is_walled",
            "deck_ground", "DECK_GROUND_REF", "across_dir",
            "mid_line", "project_span"]
 
@@ -767,6 +768,12 @@ def deck_banks(db: DeckBridge, axis: LineString, inset: float,
         banks = banks.difference(beside)
     banks = banks.intersection(_keep(db, axis, other, band))
     return None if banks.is_empty or banks.area <= 0.0 else banks
+
+
+def is_walled(db: DeckBridge, inset: float) -> bool:
+    """Whether ``db`` is a WALLED deck: walls on both sides of its road
+    (:func:`_walled_trench`; RULINGS 2026-10-30f (3))."""
+    return _walled_trench(db, inset) is not None
 
 
 def _bank_floor(db: DeckBridge, inset: float, bank_run: float) -> "Polygon | None":

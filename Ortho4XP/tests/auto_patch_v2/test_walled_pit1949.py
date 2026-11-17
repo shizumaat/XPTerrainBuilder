@@ -325,3 +325,14 @@ def test_an_open_edge_takes_a_bank_from_its_crest_to_the_dem(tmp_path):
                           notes=clipped)
     assert any(n.startswith("pit_bank_clipped:") for n in clipped), clipped
     assert unary_union([g for _r, g in out]).intersection(road).area < 1e-6
+
+
+def test_a_sloped_wall_hangs_from_where_the_sample_stands():
+    """Rule 7's hang reads a wall face where the outline sample stands: a
+    ramp's side wall, one long sloped face (OTHH ``TerminalRoads_02_004``,
+    bottoms -6.55 .. 10 m along a climbing road), hangs under no part of the
+    road it follows -- its lowest corner 50 m away is no witness."""
+    from auto_patch_v2.airport.walled_pit import _slice
+    prof = np.array([[[0.0, 0.0], [100.0, 10.0], [100.0, 12.0]]] * 3)
+    lo, hi = _slice(prof, np.array([50.0, 0.0, 100.0]))
+    assert np.allclose(lo, [5.0, 0.0, 10.0]) and np.allclose(hi, [6.0, 0.0, 12.0]), (lo, hi)

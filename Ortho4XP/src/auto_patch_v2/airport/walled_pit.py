@@ -122,19 +122,25 @@ class Walls:
         seg = np.stack([xz[n, a], xz[n, b]], axis=1)[ok]
         lines = _frame_entry.transform(shapely.linestrings(seg),
                                        _obj8.placement_affine(p.xy, p.heading_deg))
-        return STRtree(lines), lines, P[:, :, 1].min(axis=1)[ok], P[:, :, 1].max(axis=1)[ok]
+        # each face in its own vertical plane: (along its segment, y) per vertex
+        dirs = (xz[n, b] - xz[n, a]) / np.maximum(d[n, k], 1e-9)[:, None]
+        u = np.einsum("nkj,nj->nk", xz - xz[n, a][:, None, :], dirs)
+        prof = np.stack([u, P[:, :, 1]], axis=2)[ok]
+        return (STRtree(lines), lines, P[:, :, 1].min(axis=1)[ok], P[:, :, 1].max(axis=1)[ok],
+                prof)
 
     def spans(self, p, near):
-        """``(lines, bottoms, tops)`` of ``p``'s wall faces within the plan
-        box ``near`` — or ``None``."""
+        """``(lines, bottoms, tops, profiles)`` of ``p``'s wall faces within
+        the plan box ``near`` (a face's profile: ``(along its line, y)`` per
+        vertex) — or ``None``."""
         if p.id not in self._by_id:
             self._by_id[p.id] = self._read(p)
         got = self._by_id[p.id]
         if got is None:
             return None
-        tree, lines, lo, hi = got
+        tree, lines, lo, hi, prof = got
         k = tree.query(near)
-        return (lines[k], lo[k], hi[k]) if len(k) else None
+        return (lines[k], lo[k], hi[k], prof[k]) if len(k) else None
 
     def reaching(self, p, reach_y: float, top_y: float, near):
         """``(tree, tops)`` of ``p``'s wall faces whose bottom reaches
@@ -143,7 +149,7 @@ class Walls:
         got = self.spans(p, near)
         if got is None:
             return None
-        lines, lo, hi = got
+        lines, lo, hi, _prof = got
         k = (lo <= reach_y) & (hi >= top_y)
         if not k.any():
             return None
@@ -419,11 +425,32 @@ def _hung(outline, frame, walls: Walls, floor, law) -> float:
         got = walls.spans(p, box)
         if got is None:
             continue
-        lines, lo, hi = got
+        lines, _lo, _hi, prof = got
         si, wi = STRtree(lines).query(pts, predicate="dwithin", distance=tk)
-        ok = (lo[wi] <= fl[si]) & (hi[wi] >= fl[si])
+        lo, hi = _slice(prof[wi], shapely.line_locate_point(lines[wi], pts[si]))
+        ok = (lo <= fl[si]) & (hi >= fl[si])
         hit[si[ok]] = True
     return float(hit.mean())
+
+
+def _slice(prof: np.ndarray, at: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """``(bottom, top)`` of each wall face (``prof``: ``(along, y)`` per
+    vertex) on the vertical line ``at`` along it: a sloped wall's bottom
+    where the sample stands, never its lowest corner metres away."""
+    lo = np.full(len(at), np.inf)
+    hi = np.full(len(at), -np.inf)
+    for i, j in ((0, 1), (1, 2), (2, 0)):
+        ua, ub = prof[:, i, 0], prof[:, j, 0]
+        ya, yb = prof[:, i, 1], prof[:, j, 1]
+        span = ub - ua
+        on = (at >= np.minimum(ua, ub) - 1e-6) & (at <= np.maximum(ua, ub) + 1e-6)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = np.where(np.abs(span) > 1e-9, (at - ua) / span, 0.0)
+        y0 = ya + np.clip(t, 0.0, 1.0) * (yb - ya)
+        flat = np.abs(span) <= 1e-9
+        lo = np.where(on, np.minimum(lo, np.where(flat, np.minimum(ya, yb), y0)), lo)
+        hi = np.where(on, np.maximum(hi, np.where(flat, np.maximum(ya, yb), y0)), hi)
+    return lo, hi
 
 
 def _floor_y_at(o, v: np.ndarray, under: np.ndarray, floor_y: float, tk: float):

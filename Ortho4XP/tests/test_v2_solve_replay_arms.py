@@ -68,6 +68,8 @@ NOT_ARMS = {
     "--movers",
     # an OUTPUT of the --emit run (the rebake plan beside the patch)
     "--rebake-plan",
+    # #2134: OUTPUTS / reads of the dry --reclassify (the role-flip census)
+    "--roles-out", "--roles-against", "--protect",
     # #1899: the route / trend derivations alone off a --solved-out pickle
     "--rederive-from",
     # spec §61 (6): a READ of the --replay arm's own solve (a second solve

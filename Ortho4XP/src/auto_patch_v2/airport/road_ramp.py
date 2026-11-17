@@ -1317,6 +1317,15 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     width (4 m) or the contact reach (15 m) would call the whole runway run
     bare.
 
+    ONLY AT A SHARED NODE (owner 2026-11-17T16:38Z, #2122 NZWN: "the road
+    is only anchored to the apron where it touches, any gap allows it to be
+    at a different level"; 17d (1)): of the pavements within that reach, a
+    vertex takes the level of one whose RING CARRIES IT (:func:`_shared_refs`)
+    — a ``foot``, ``pad`` or ``level`` is never read across a gap, so a road
+    beside pavement climbs at its own grade between the nodes it shares.
+    MEASURED NZWN: road ``-2556`` held at apron ``dsf:pol107``'s 8-8.7 m for
+    the 47 m it borders it, its ground rising to 16.5 m.
+
     * ``foot`` — the NEAREST §20b STAGE-1 pavement foot (runway family,
       taxi family, apron): ``v -> (a, b, u, ref)``.  Its level is stage 1's
       constant, so the weld is ONE-WAY by construction (airside untouched).
@@ -1390,6 +1399,10 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     pads = frozenset(r for r in contact_roles(law)
                      if role_side(law, r) == "airside" and r not in stage1)
     feet = _feet_index(pm, law, stage1 | pads)
+    # owner 2026-11-17T16:38Z (#2122): a road takes a pavement's level only
+    # at the nodes it SHARES with it (gap 0); across any gap it climbs on
+    # its own grade (17d (1): a road never takes a level laterally)
+    touch = _shared_refs(pm, stage1 | pads)
     from shapely.strtree import STRtree
     wtree = STRtree(list(walls)) if walls else None
     # #1071 (owner 2026-10-20): a page that is a road only by its SHAPE
@@ -1498,8 +1511,10 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             out["station"].pop(v, None)
             out["below_wall"][v] = True
             continue
+        shared = touch.get(v, frozenset())
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
-                      if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
+                      if feet.role_of.get(ref) in stage1 and ref in shared),
+                     key=lambda t: (t[0], t[1]))
         if lev and v in mouth_v and _nearer_floor(pm, v, lev[0][0], floors):
             # 06c (5), #1939: at the mouth the road is on the floor's ramp,
             # never the pavement over the structure.  MEASURED ESSA
@@ -1513,11 +1528,27 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                 out["runway"][v] = True
             continue
         pad = sorted((d, ref) for ref, (d, *_x) in fs.items()
-                     if feet.role_of.get(ref) in pads)
+                     if feet.role_of.get(ref) in pads and ref in shared)
         if pad:
             out["level" if pad[0][1] in ups else "pad"][v] = pad[0][1]
     out["rim"] = _upper_rims(pm, ups, ribbon_v)
     return out
+
+
+def _shared_refs(pm: PlanarMap, roles: _t.AbstractSet[str]
+                 ) -> dict[int, frozenset[str]]:
+    """``{vertex: refs}`` -- the pavements of ``roles`` (refs normalised as
+    :func:`_feet_index` names them) whose rings carry the vertex: the NODES
+    a road SHARES with a pavement, where alone it takes that pavement's
+    level (owner 2026-11-17T16:38Z, #2122; 17d (1): never laterally)."""
+    out: dict[int, set[str]] = {}
+    for f in pm.faces.values():
+        if f.role in roles:
+            ref = f.ref.split("+")[0]
+            for cyc in (f.ring, *f.holes):
+                for v in pm.ring_vertices(cyc):
+                    out.setdefault(v, set()).add(ref)
+    return {v: frozenset(r) for v, r in out.items()}
 
 
 def _upper_levels(pm: PlanarMap) -> frozenset[str]:

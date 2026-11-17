@@ -113,5 +113,7 @@ def test_a_unit_holding_a_walled_plate_rides_its_datum():
     other = types.SimpleNamespace(plate_kind="", plate_y=None, plate_stations=())
     def surface(la, lo):
         return {1.0: 288.5, 2.0: 288.6, 3.0: None}[la]
-    assert walled_unit_zero([other, plate], surface) == pytest.approx(288.55 - 0.12)
+    # the station the plate's own body anchors at (``anchor_rule._datum_anchor``:
+    # the upper median of an even count) -- one plate, one reading (#2120 S)
+    assert walled_unit_zero([other, plate], surface) == pytest.approx(288.6 - 0.12)
     assert walled_unit_zero([other], surface) is None

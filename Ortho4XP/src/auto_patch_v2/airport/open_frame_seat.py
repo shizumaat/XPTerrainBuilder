@@ -34,6 +34,7 @@ import dataclasses as _dc
 import typing as _t
 
 from .adapted_riders import ADAPTED_SRC, ADAPTED_ZERO_REASON
+from .cut_portal_seat import CUT_BRIDGE_PLATE
 
 __all__ = ["OPEN_KINDS", "rigid_open", "open_sets", "open_zero", "frame_zero", "unit_root",
            "frame_lifts", "carried_lift",
@@ -782,7 +783,8 @@ def _loose_to(record: _t.Any, m: _t.Any, zero: float, tol_m: float,
 #: the plate kinds whose datum LEADS its §16g unit and its connected group:
 #: a runway-end walled plate (#1201, RULINGS 2026-10-27u) and a retaining
 #: wall's upper ground (#1934 R3, RULINGS 2026-11-16d; ``airport/retaining_seat``)
-LEAD_PLATES = frozenset({"walled", "retaining"})
+#: and a bridge over a portal's cut's deck end (#2120 S; ``airport/cut_bridge``)
+LEAD_PLATES = frozenset({"walled", "retaining", CUT_BRIDGE_PLATE})
 
 #: the leading plates that stay OUT of every §16g unit (#2120 R2 W5; 16k,
 #: 14a (2)): a retaining wall's -- a wall never chains a building and its
@@ -829,12 +831,15 @@ def walled_unit_zero(members: _t.Iterable[_t.Any], surface: _t.Any) -> "float | 
     the plate instead of their walls' feet (KCRW 05's overrun deck stood
     38.6 m over the runway end on its 46 m wall's foot); ``None`` when no
     member is one or no station reads a surface."""
-    import statistics
     for m in members:
         if getattr(m, "plate_kind", "") not in LEAD_PLATES or getattr(m, "plate_y", None) is None:
             continue
         zs = [surface(float(q[0]), float(q[1])) for q in (getattr(m, "plate_stations", ()) or ())]
         zs = [float(z) for z in zs if z is not None]
         if zs:
-            return statistics.median(zs) - float(m.plate_y)
+            # the station ``anchor_rule._datum_anchor`` anchors the plate's
+            # own body at (the upper median of an even count): one plate,
+            # one reading (#2120 S: a mean of the middle two split KATL's
+            # cut bridge 0.17 m from its own plate body)
+            return sorted(zs)[len(zs) // 2] - float(m.plate_y)
     return None

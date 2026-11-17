@@ -30,10 +30,13 @@ import typing as _t
 import numpy as np
 import shapely
 
-__all__ = ["PORTAL_PLATE", "portal_seats"]
+__all__ = ["CUT_BRIDGE_PLATE", "PORTAL_PLATE", "cover_side", "portal_seats"]
 
 #: the plate kind of a portal in a cut's seat (``anchor_rule.datum_of``)
 PORTAL_PLATE = "portal_cut"
+#: the plate kind of a bridge over a portal's cut (``airport/cut_bridge``):
+#: the same datum reading, its own reason text
+CUT_BRIDGE_PLATE = "cut_bridge"
 
 
 @_dc.dataclass(frozen=True)
@@ -62,14 +65,23 @@ def _outline_points(plan, grid_m: float, step_m: float) -> np.ndarray:
 def _cover_stations(portal, dem, grid_m: float, step_m: float) -> tuple:
     """The stations of ``portal`` on the cover side (module doc): outline
     points whose DEM stands in the upper half of the cut's relief."""
-    from .dem import dem_z_many
     pts = _outline_points(portal.plan, grid_m, step_m)
     if not len(pts) or dem is None:
         return ()
+    keep = cover_side(portal, dem, pts)
+    return tuple((float(x), float(y)) for x, y in pts[keep])
+
+
+def cover_side(portal, dem, pts: np.ndarray) -> np.ndarray:
+    """Which of ``pts`` (frame xy, ``(n, 2)``) stand on ``portal``'s COVER
+    SIDE: their DEM in the upper half of the cut's relief
+    (``CutPortal.floor_z`` .. ``cover_z``), never in the cut below it."""
+    from .dem import dem_z_many
+    if not len(pts) or dem is None:
+        return np.zeros(len(pts), dtype=bool)
     z = dem_z_many(dem, pts[:, 0], pts[:, 1])
     mid = 0.5 * (float(portal.floor_z) + float(portal.cover_z))
-    keep = np.isfinite(z) & (z >= mid)
-    return tuple((float(x), float(y)) for x, y in pts[keep])
+    return np.isfinite(z) & (z >= mid)
 
 
 def portal_seats(airport, grid_m: float, step_m: float,

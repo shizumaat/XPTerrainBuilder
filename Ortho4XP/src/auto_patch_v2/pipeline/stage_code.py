@@ -1945,7 +1945,11 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     model.deck_stack
         geom.deck_ground
         constraints.fill_bank model.airport
-        constraints.contiguity constraints.end_lip constraints.gap_follow constraints.geometry constraints.precedence constraints.roads constraints.strips geom.containment geom.end_line geom.exact geom.lowest_face geom.plate_heights model.deck_ends model.end_area model.islands model.map_memo model.platform model.threshold_datum
+        constraints.contiguity constraints.end_lip constraints.gap_follow
+        constraints.geometry constraints.precedence constraints.roads constraints.strips
+        geom.containment geom.end_line geom.exact geom.lowest_face geom.plate_heights
+        model.deck_ends model.end_area model.islands model.map_memo model.platform
+        model.threshold_datum
     model.floor_ground
 """),
     "flat_site": _mods(_GENERATOR_CORE + """
@@ -2098,7 +2102,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.slope_pad
         constraints.group_level constraints.face_index
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
-    constraints.contiguity constraints.end_lip constraints.public_road_release constraints.roads constraints.strips model.end_area model.threshold_datum
+    constraints.contiguity constraints.end_lip constraints.public_road_release constraints.roads
+    constraints.strips model.end_area model.threshold_datum
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
     constraints.deck_runout geom.deck_ground constraints.agp_level model.agp_group
@@ -2113,7 +2118,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.slope_pad
         constraints.group_level constraints.face_index
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
-    constraints.contiguity constraints.end_lip constraints.public_road_release constraints.roads constraints.strips model.end_area model.threshold_datum
+    constraints.contiguity constraints.end_lip constraints.public_road_release constraints.roads
+    constraints.strips model.end_area model.threshold_datum
     """),
     "edge_deck": _mods(_GENERATOR_CORE + """
         geom.exact
@@ -2725,7 +2731,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.agp_gap_plates airport.agp_plan airport.apt_edit airport.touch_graph
     airport.touch_seat law.deck_gen_schema planar.deck_generated planar.short_bore
     planar.deck_pack_cover
-    airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release geom.plate_bands model.floor_ground planar.road_wall_witness
+    airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release
+    geom.plate_bands model.floor_ground planar.road_wall_witness
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.channel_declared planar.channel_ramp
@@ -2938,7 +2945,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.agp_gap_plates airport.agp_plan airport.apt_edit airport.touch_graph
     airport.touch_seat law.deck_gen_schema planar.deck_generated planar.short_bore
     planar.deck_pack_cover
-    airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands model.floor_ground planar.road_wall_witness
+    airport.deck_plates airport.obj8_band classify.apron_gate geom.plate_bands
+    model.floor_ground planar.road_wall_witness
 """)
 CODE_MODULES["emit"] = _mods("""
     airport.deck_roof airport.ramp_feet geom.channel_declared planar.basin_author_ground
@@ -3107,7 +3115,8 @@ CODE_MODULES["emit"] = _mods("""
     planar.structure_overlap planar.structure_pair planar.structure_service
     planar.structure_underpass planar.underpass_mouth planar.unframed_ramp
     planar.wall_corridor_ramps
-    airport.deck_plates airport.obj8_band airport.split_level_forecourt classify.apron_gate constraints.public_road_release geom.plate_bands model.floor_ground
+    airport.deck_plates airport.obj8_band airport.split_level_forecourt classify.apron_gate
+    constraints.public_road_release geom.plate_bands model.floor_ground
 """)
 CODE_MODULES["verify"] = _mods("""
     geom.channel_declared
@@ -3242,7 +3251,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.dsf_heights airport.facade_seat airport.ground_route_ways airport.stack_walls
     airport.touch_graph airport.touch_seat geom.end_line geom.plate_heights
     geom.ramp_profile law.deck_gen_schema model.agp_plate model.deck_ends
-    airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release geom.plate_bands model.floor_ground
+    airport.deck_plates airport.obj8_band classify.apron_gate constraints.public_road_release
+    geom.plate_bands model.floor_ground
 """)
 
 

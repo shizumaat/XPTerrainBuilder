@@ -423,7 +423,7 @@ def test_the_class_table_read_on_a_real_map():
     # the spec's sliver site (the census's apron|apron step, gap:30 | pav39
     # when recorded; gap:32 since the regL3 re-record) is inside the part now
     site = Point(*to_xy(31.4046286, 30.1278259))
-    assert Polygon(aprons[5].ring, aprons[5].holes).contains(site)     # (#808: 8 -> 7; #2134: 7 -> 5)
+    assert Polygon(aprons[5].ring, aprons[5].holes).contains(site)  # #808: 8 -> 7; #2134: 7 -> 5
 
 
 # ── S5: the sidecar's ``gap_pieces`` carries both kinds (§59 (4) row 17) ──

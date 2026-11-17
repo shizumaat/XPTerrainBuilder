@@ -11,7 +11,7 @@ import types
 import numpy as np
 from auto_patch_v2.airport.road_bridge_ground import clearance_ground, clearance_ribbons
 from auto_patch_v2.law.tables import load_default
-from auto_patch_v2.planar.road_bridge_clear import clearance_plan, end_level, witnessed
+from auto_patch_v2.planar.road_bridge_clear import _end_level, clearance_plan, witnessed
 from shapely.geometry import LineString, Point
 
 LAW = load_default()
@@ -61,10 +61,10 @@ def test_end_stands_on_the_embankment_beyond_a_mapped_end():
     cap = 0.1
     ap = LineString([(0, 0), (30, 0)])
     dem = _Dem(lambda x, _y: min(5.0, 0.25 * x))
-    level, on, knee = end_level(dem, [ap], cap)
+    level, on, knee = _end_level(dem, [ap], cap)
     assert on is ap and abs(knee - 20.0) < 1e-6 and abs(level - 23.0) < 1e-6
     # an approach climbing at a lawful grade raises nothing
-    level, on, _k = end_level(_Dem(lambda x, _y: 0.05 * x), [ap], cap)
+    level, on, _k = _end_level(_Dem(lambda x, _y: 0.05 * x), [ap], cap)
     assert on is None and abs(level - 20.0) < 1e-9
 
 

@@ -209,7 +209,7 @@ def _cut_kerb_ground(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float]
             continue
         x, y = pm.vertices[v].xy
         near = [z for u, z in ground.items()
-                if math.hypot(pm.vertices[u].xy[0] - x, pm.vertices[u].xy[1] - y) <= CUT_GROUND_M]
+                if exact.dist(pm.vertices[u].xy, (x, y)) <= CUT_GROUND_M]
         out[v] = sum(near) / len(near)
     return out
 

@@ -41,11 +41,15 @@ on demand. Canonical law: `Ortho4XP/docs/RULINGS.md`.
   lane runs it; a second miss goes to the owner.
 - HARD RULE 2026-11-06: ≤ 8 running lanes, ≤ 16 worktrees (reuse via
   `lane_worktree.sh up`); never raise `O4_LANE_CAP`. `df -h` ≥ 30 GB before
-  a build; ≤ 4 builds at once. On report: push, remove the worktree, delete
+  a build. Builds share memory machine-wide and yield to the owner's app
+  build and X-Plane; never a fixed one-build limit (owner 2026-11-17T22:50Z).
+  On report: push, remove the worktree, delete
   scratch builds. Briefs say "never raise the lane cap; delete your scratch
   builds when you report".
-- Lanes iterate synthetic-first, build ONE representative airport as the
-  closing test, never the five-airport sweep; the spawner merges. Reports
+- Lanes iterate synthetic-first and STOP at replay/capture evidence: no
+  closing tile build (RULINGS 2026-11-17r). The integration builds each
+  touched airport ONCE on the merged code and runs the drawn gate there at
+  every lane's `--site`s; never the five-airport sweep; the spawner merges. Reports
   give net lines ± and new public symbols, plus a "Process" line on friction.
 - Sim reads: check the app version in the build log; hand over as "quit the
   app and open XPTerrainBuilder-<v>.app". Time matters: earliest correct result.
@@ -97,7 +101,7 @@ on demand. Canonical law: `Ortho4XP/docs/RULINGS.md`.
 - A private build/census wrapper is a defect. `check_grade.py` is the library
   (`LAW_FAMILIES`, `run_checks`, `run_checks_law_true`, …); new checks
   register in `LAW_FAMILIES` (`tests/test_harness.py`).
-- Drawn gate (RULINGS 2026-11-13g): closing tile build with `--pack-copy`;
+- Drawn gate (RULINGS 2026-11-13g, run at integration per 17r): tile build with `--pack-copy`;
   bar = `drawn_gate.py` PASS at the `--site`s `--against` the control (no
   MOVED). Replay/census alone is not a pass; neighbour-tile claims need both tiles.
 - Data repo `/Users/noah/XPTerrainBuilderData` (RULINGS `e9daef5`), mounted

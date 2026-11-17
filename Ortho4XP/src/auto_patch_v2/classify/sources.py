@@ -180,10 +180,57 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules, law=None
             cands.append(len(out) - 1)
     if cands and law is not None:
         out = _network_strips(out, cands, polys, ev, airport, law)
+    out = _climb_arms(out, polys, airport, rules)
     for rec in out:
         if rec.cls in ("strip", "lot"):
             cut[rec.id] = polys[rec.id]
     return out, cut
+
+
+def _climb_arms(out: list[SourceRecord], polys: dict[str, Polygon],
+                airport: Airport, rules: Rules) -> list[SourceRecord]:
+    """#2116 (c), RULINGS 2026-11-16g (3): a LOT page's climb arm toward a
+    mapped road at another level is its own ``strip`` piece
+    (``classify/lot_climb``); ``polys`` takes the lot's remainder and the
+    arm.  The road is any at-grade mapped road (``[osm_roads] highways``
+    and ``ribbon_highways``).  Every other record is returned as it was."""
+    from .lot_climb import climb_arms
+    dem = getattr(airport, "dem", None)
+    if dem is None or not any(r.cls == "lot" for r in out):
+        return out
+    orr = rules.osm_roads
+    classes = set(orr.highways) | set(getattr(orr, "ribbon_highways", ()) or ())
+    roads = [LineString(w.points) for w in airport.osm_ways
+             if w.tags.get("highway") in classes and len(w.points) >= 2
+             and not is_bridge_way(w.tags) and w.tags.get("tunnel", "no") == "no"]
+    road_tree = STRtree(roads) if roads else None
+    res: list[SourceRecord] = []
+    for rec in out:
+        res.append(rec)
+        if rec.cls != "lot" or dem is None:
+            continue
+        arms = climb_arms(polys[rec.id], roads, road_tree, dem, rules.lot)
+        if not arms:
+            continue
+        rest = polys[rec.id].difference(unary_union([a for a, _r in arms]))
+        rest_parts = sorted(polygon_parts(rest), key=lambda g: -g.area)
+        if not rest_parts:
+            continue
+        polys[rec.id] = rest_parts[0]
+        res[-1] = _dc.replace(rec, area_m2=rest_parts[0].area)
+        for k, part in enumerate(rest_parts[1:], 1):    # the lot the arm cut in two
+            polys[f"{rec.id}#lot{k}"] = part
+            res.append(_dc.replace(rec, id=f"{rec.id}#lot{k}", area_m2=part.area))
+        for k, (arm, info) in enumerate(arms, 1):
+            sid = f"{rec.id}#climb{k}"
+            polys[sid] = arm
+            res.append(_dc.replace(
+                rec, id=sid, area_m2=arm.area, cls="strip",
+                reason=(f"climb arm of lot {rec.id} (#2116 (c), 16g (3)): "
+                        f"{info['area_m2']:.0f} m2, rise {info['rise_m']:.2f} m "
+                        f"to a mapped road {info['road_gap_m']:.1f} m off at "
+                        f"{info['road_z']:.2f}")))
+    return res
 
 
 def _rail_lines(airport: Airport, rules: Rules) -> list[LineString]:

@@ -133,6 +133,11 @@ class Lot:
     airside_edge_min_m: float
     mouth_width_factor: float
     road_airside_edge_frac: float
+    climb_min_grade: float
+    climb_reach_m: float
+    climb_min_area_m2: float
+    climb_min_rise_m: float
+    climb_grid_m: float
 
 
 @_dc.dataclass(frozen=True)

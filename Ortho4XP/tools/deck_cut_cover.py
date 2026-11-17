@@ -10,7 +10,9 @@ pickle.
   floor) -- plus ``tol``.  The bank slope is the generated deck's
   (``planar/deck_generated.generated_bank_slope``).
 * A GENERATED ROAD BRIDGE (``Airport.road_bridges``): under its span, each
-  lower road's carriageway stands at least ``[bridge] clearance_minimum_m``
+  lower road's carriageway stands at least its clearance
+  (``structure_approach.design_clearance_m``: ``[bridge] clearance_minimum_m``
+  over a small road, ``[tunnel] clearance_m`` over the rest)
   under the deck line (straight between the ends' levels on their
   embankments, ``planar/road_bridge_clear.deck_at``) less ``tol`` -- the
   cut (``airport/road_bridge_ground``) reached all the way under.
@@ -108,9 +110,8 @@ def road_bridge_cover(pm, z, airport, bridge: _t.Mapping, law, tol: float) -> li
     """One generated road bridge's read (module doc), per lower road: under
     the span, its carriageway's solved ground stands at least ``clear`` under
     the deck line (``road_bridge_clear.deck_at`` between the ends' levels)."""
-    from auto_patch_v2.planar.structure_approach import carriageway_width_m
+    from auto_patch_v2.planar.structure_approach import carriageway_width_m, design_clearance_m
     from shapely.geometry import LineString, Point, Polygon
-    clear = float(law.tables.structures.bridge.clearance_minimum_m)
     axis = LineString(bridge["axis_xy"])
     lv = bridge["levels"]
     span = Polygon(bridge["span_xy"])
@@ -120,6 +121,7 @@ def road_bridge_cover(pm, z, airport, bridge: _t.Mapping, law, tol: float) -> li
         if str(w.id) not in lower or len(w.points) < 2:
             continue
         half = carriageway_width_m(w.tags, law) / 2.0
+        clear = design_clearance_m(w.tags, law)
         region = LineString(w.points).buffer(half, cap_style="flat").intersection(span)
         if region.is_empty:
             continue

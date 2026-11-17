@@ -51,7 +51,7 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from .road_bridge_clear import clearance_plan, witnessed
+from .road_bridge_clear import clearance_plan, span_cuts, witnessed
 from .structure_approach import carriageway_width_m
 
 __all__ = ["attach_road_bridges", "span_cells"]
@@ -136,7 +136,6 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
     lines = [LineString(w.points) for w in others]
     tree = STRtree(lines)
     tn = law.tables.structures.tunnel
-    clear = float(law.tables.structures.bridge.clearance_minimum_m)
     dem = getattr(airport, "dem", None)
     from .road_bridge_pack import PackRoads, pack_provides
     roads = PackRoads(airport, mod_cache_root)
@@ -178,7 +177,7 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
                          + ("crosses no lower road" if not crossed else
                             f"over {', '.join(lower[:4])} the survey shows "
                             + ("nothing" if plan is None else f"{plan.witnessed:.1f} m")
-                            + f" of the {clear:g} m clearance with its ends on their "
+                            + " of its clearance with its ends on their "
                               f"embankments (under {float(rg.witness_share):g} of it)")
                          + " -- not generated (B1 (a), #2141)")
             continue
@@ -195,9 +194,11 @@ def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
             span = max(getattr(span, "geoms", [span]), key=lambda q: q.area) \
                 if span.geom_type != "Polygon" else span
             span = Polygon(span.exterior).simplify(0.5)
+        # the cut goes all the way under the span (owner 2026-11-17 18:30Z)
+        ground = span_cuts(airport, law, line, plan.levels, crossed, span)
         out.append({"id": str(w.id), "highway": str(w.tags.get("highway")),
                     "_line_xy": plan.chain or line, "_span_xy": span, "half_m": half,
-                    "cover": round(cover, 3), "over": lower, "ground": plan.ground,
+                    "cover": round(cover, 3), "over": lower, "ground": ground,
                     "levels": plan.levels, "_axis_xy": line})
         notes.append(f"{where}: {100 * cover:.0f} % under pack pavement over "
                      f"{', '.join(lower[:4])} -- GENERATED as an X-Plane road (spec 2123 B); "
@@ -258,7 +259,79 @@ def attach_road_bridges(airport, law, notes: "list[str] | None" = None, objects=
     bs, bnotes = _road_bridges(airport, law, objects, cache, mod_cache_root)
     if notes is not None:
         notes.extend(bnotes)
-    return _dc.replace(airport, road_bridges=tuple(bs)) if bs else airport
+    if not bs:
+        return airport
+    return _dc.replace(airport, road_bridges=tuple(bs),
+                       osm_ways=_densified(getattr(airport, "osm_ways", ()) or (), bs))
+
+
+#: a lower road under a cut ribbon carries a node at least this often (m)
+_DENSE_M = 2.0
+
+
+def _densified(ways, bridges) -> tuple:
+    """``ways`` with every LOWER road carrying a node every :data:`_DENSE_M`
+    along its cut ribbon's axis (``ground``) and its stretch under the span
+    (a node on each side of the span's edge): the map's road vertices are
+    the way's nodes, and an edge from a node outside the span to one beyond
+    it stands over the cut between them (MEASURED ESSA ``-3`` over ``-80``:
+    3 vertices cut under a 55 m span) and escapes the clearance ceiling
+    (``constraints/road_bridge_ceiling``).  The nodes lie on the way's own
+    line: its shape is unchanged."""
+    import math
+
+    from shapely.geometry import Point
+    axes: dict[str, list] = {}
+    for b in bridges:
+        span = Polygon(b["span_xy"]).buffer(_DENSE_M) \
+            if len(b.get("span_xy") or ()) >= 3 else None
+        for w in b.get("over", ()) or ():
+            axes.setdefault(str(w), []).extend(
+                LineString(g["axis"]) for g in b.get("ground", ()) or ())
+            if span is not None:
+                axes[str(w)].append(span)
+    if not axes:
+        return tuple(ways)
+    out = []
+    for w in ways:
+        cuts = axes.get(str(w.id))
+        if not cuts or len(w.points) < 2 or w.closed:
+            out.append(w)
+            continue
+        ln = LineString(w.points)
+        extra = []
+        for ax in cuts:
+            if ax.geom_type == "Polygon":           # the stretch under the span
+                x = ln.intersection(ax)
+                ends = [(ln.project(Point(g.coords[0])), ln.project(Point(g.coords[-1])))
+                        for g in getattr(x, "geoms", [x])
+                        if g.geom_type == "LineString" and g.length > 0.0]
+            elif ax.distance(ln) <= 1e-3:
+                ends = [(ln.project(Point(ax.coords[0])), ln.project(Point(ax.coords[-1])))]
+            else:
+                continue
+            for a, b in ends:
+                a, b = min(a, b), max(a, b)
+                n = max(1, math.ceil((b - a) / _DENSE_M))
+                extra += [a + (b - a) * k / n for k in range(n + 1)]
+        if not extra:
+            out.append(w)
+            continue
+        own = [ln.project(Point(p)) for p in w.points]
+        if any(b <= a for a, b in zip(own, own[1:], strict=False)):
+            out.append(w)               # a way that doubles back: left as mapped
+            continue
+        keep = sorted(set(own) | {s for s in extra
+                                  if all(abs(s - o) > 0.25 for o in own)})
+        pts = []
+        for s in keep:
+            if s in own:
+                pts.append(tuple(w.points[own.index(s)]))
+            else:
+                p = ln.interpolate(s)
+                pts.append((float(p.x), float(p.y)))
+        out.append(_dc.replace(w, points=tuple(pts)))
+    return tuple(out)
 
 
 def span_cells(classification, airport, law) -> tuple[_t.Any, list[str]]:

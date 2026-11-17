@@ -585,6 +585,11 @@ class Bridge:
     airside_run_max_m: float
     #: ... and a bank this wide either side of it down to the airside
     airside_run_bank_m: float
+    #: owner 2026-11-17T19:08Z "Accept 4.2m clearance for small roads": the
+    #: ``highway`` classes a GENERATED deck or road bridge clears by
+    #: ``clearance_minimum_m``; every other road (and rail) keeps ``[tunnel]
+    #: clearance_m`` (``planar/structure_approach.design_clearance_m``)
+    small_road_classes: tuple[str, ...] = ()
 
 
 @_dc.dataclass(frozen=True)

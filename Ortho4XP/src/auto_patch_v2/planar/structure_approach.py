@@ -69,6 +69,18 @@ def carriageway_width_m(tags: _t.Mapping[str, str], law: Law) -> float:
     return mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
 
 
+def design_clearance_m(tags: _t.Mapping[str, str], law: Law) -> float:
+    """THE CLEARANCE A GENERATED DECK OR ROAD BRIDGE HOLDS OVER A ROAD
+    (owner 2026-11-17T19:08Z "Accept 4.2m clearance for small roads"):
+    ``[bridge] clearance_minimum_m`` over a ``small_road_classes`` highway,
+    ``[tunnel] clearance_m`` over every other road and rail."""
+    st = law.tables.structures
+    hw = str((tags or {}).get("highway", "") or "")
+    if hw and hw in tuple(getattr(st.bridge, "small_road_classes", ()) or ()):
+        return float(st.bridge.clearance_minimum_m)
+    return float(st.tunnel.clearance_m)
+
+
 def pavement_half_widths(axis_fn, ss: _t.Sequence[float], cells, polys, law: Law,
                          half_default: float) -> "tuple[dict[float, tuple[float, float]], list[str]]":
     """THE RAMP WIDTH FROM THE PAVEMENT (RULINGS 2026-09-06b (2); ``tunnel.

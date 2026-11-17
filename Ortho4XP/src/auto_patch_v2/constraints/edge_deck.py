@@ -163,7 +163,8 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
                 tg = _station_tops([ends[i] for i, q in enumerate(plates) if q == g])
                 tops.update({v: tg for v in tg})
         rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
-                               _FLOOR_ROLES | roads, tops, _bank_slope(law, es)))
+                               _FLOOR_ROLES | roads, tops, _bank_slope(law, es),
+                               float(law.tables.structures.deck_gen.bank_past_edge_m)))
         held = _held_levels(planar, oid, es)
         for g in groups:
             idx = [i for i, q in enumerate(plates) if q == g]
@@ -204,7 +205,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
                pool: "_t.Sequence[int] | None" = None, done: "set[int] | None" = None,
                skip: "_t.AbstractSet[str]" = _FLOOR_ROLES,
                plate_tops: "dict[int, dict[int, float]] | None" = None,
-               bank: "float | None" = None) -> list[Row]:
+               bank: "float | None" = None, past: float = 0.0) -> list[Row]:
     """The object's SPAN: every vertex inside its deck rings — or, on the
     bridge's own ground (:func:`_bridge_ground`), inside the reach of a
     trench under it (``model/structures.deck_reach``) — that is no seat and
@@ -222,7 +223,9 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     a deck in plates is read from its nearest seat's plate's zero.
     ``bank`` (a GENERATED deck, :func:`_bank_slope`): the pair holds the
     vertex on the BANK instead of flush -- :func:`_bank_drop` under its
-    seat."""
+    seat -- and runs on ``past`` metres beyond the ring's edges on the
+    bridge's own ground (owner sim read 2026-11-17T19:42Z: "that embankment
+    needs to extend about 1m past the bridge edges")."""
     from shapely.geometry import MultiPoint, Point, Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
@@ -233,7 +236,8 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     done = set() if done is None else done
     decks = list({tuple(e.deck.ring): e.deck for e in es}.values())
     inside = prep(unary_union([Polygon(d.ring).buffer(0.5) for d in decks]))
-    ring_in = prep(unary_union([Polygon(d.ring).buffer(-0.5) for d in decks]))
+    ring_in = prep(unary_union([Polygon(d.ring).buffer(past if bank is not None else -0.5,
+                                                       join_style="mitre") for d in decks]))
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
     # THE DECK'S GROUND IS ITS OWN CELL (#2072): ``planar/deck_bridge.
     # deck_ground`` minted it from the reach the planar stage read, which can
@@ -246,6 +250,14 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     hulls += [g if g.is_valid else g.buffer(0.0) for g in own if len(g.exterior.coords) >= 4]
     beyond = prep(unary_union(hulls).buffer(0.5)) if hulls else inside
     in_cut = _in_cut(planar, tunnels)
+    # a vertex under ANOTHER generated deck's ring is that deck's bank, never
+    # this one's flush ground (MEASURED KJFK: two decks over one road 80 m
+    # apart, the open stretch between them held db1cfe30's bank vertex
+    # 6.1 m up, flush with o4gen_0abbd35b's seat)
+    mine_rings = {tuple(d.ring) for d in decks}
+    others = [Polygon(d.ring).buffer(-0.5) for d in getattr(planar, "decks", ()) or ()
+              if getattr(d, "witness", "") == "generated" and tuple(d.ring) not in mine_rings]
+    others_in = prep(unary_union(others)) if others else None
     src = Source(GEN, RULING, (oid, oid, "deck span"))
     under = Source(GEN, RIGID, (oid, oid, "under the deck"))
     top_of = _station_tops(ends)
@@ -256,6 +268,9 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
             continue
         p = Point(vx.xy)
         if v not in air and in_cut(p):
+            continue
+        if others_in is not None and v not in air and others_in.contains(p) \
+                and not ring_in.contains(p):
             continue
         if not inside.contains(p) and not (beyond.contains(p) and _bridge_ground(planar, vx)):
             continue
@@ -294,9 +309,9 @@ def _bank_slope(law: Law, es) -> "float | None":
     deck level), U -74 one +6.28 m, -141 one +6.25 m mid-bank."""
     if any(getattr(e.deck, "witness", "") != "generated" for e in es):
         return None
-    # ``planar/deck_generated.generated_bank_slope``: the bank under a
-    # generated deck is the channel's (§45 (5), 1:2), the run the cut made
-    return float(law.tables.structures.channel.bank_slope)
+    # the bank under a generated deck: the run the cut made (one reader)
+    from ..planar.deck_generated import generated_bank_slope
+    return generated_bank_slope(law)
 
 
 def _bank_drop(es, p, slope: float) -> float:

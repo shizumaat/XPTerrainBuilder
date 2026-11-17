@@ -118,6 +118,7 @@ import typing as _t
 import numpy as np
 
 from . import obj8 as _obj8
+from . import obj8_band as _band
 from . import obj8_drape as _drape
 from .pack_health import light_records as _lr
 
@@ -269,6 +270,13 @@ class BodyCut:
     #: :func:`tilt_matrix`; this names it in ONE place so the fit's
     #: residual check and the writer cannot disagree about what was baked.
     tilt: tuple[float, float] = NO_TILT
+    #: #2112 THE DECK-PLATE BAND (``deck_plates``): ``(ux, uz, lo, hi)``
+    #: in the authored plan -- this body keeps only the part of its
+    #: geometry whose ``ux·x + uz·z`` lies in ``[lo, hi)``, a triangle
+    #: across a band line CLIPPED there.  Bodies cut from one source body
+    #: (the same ``comps`` and ``tris``) are SIBLINGS and share its
+    #: geometry band by band.  None (the default) is the pre-band cut.
+    band: "tuple[float, float, float, float] | None" = None
 
 
 @_dc.dataclass(frozen=True)
@@ -608,10 +616,11 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
         return SplitResult(pristine_path, (), "no_bodies", counts)
     ids = [b.body_id for b in bodies]
     cen = np.asarray([centroid[i] for i in ids])
+    bands = _band.Bands(bodies, src.vt)
 
     def nearest(p: np.ndarray) -> int:
         d = (cen[:, 0] - p[0]) ** 2 + (cen[:, 2] - p[2]) ** 2
-        return ids[int(np.argmin(d))]
+        return bands.pick(ids[int(np.argmin(d))], p)
 
     n_idx = int(src.idx.shape[0])
     nv = verts.shape[0]
@@ -706,6 +715,10 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
                 blk["votes"][bid] = blk["votes"].get(bid, 0) + 1
         blk["owner"] = (max(blk["votes"].items(), key=lambda kv: (kv[1], -kv[0]))[0]
                         if blk["votes"] else None)
+        if blk["owner"] is not None and bands.siblings.get(blk["owner"]):
+            # #2112: a block moves whole (rule 3), to the band of its middle
+            blk["owner"] = bands.pick(blk["owner"], bands.middle(
+                src.commands, blk["lines"], src.idx))
 
     # a body whose triangles fall inside a block another body owns would
     # still be torn at block granularity (§4.4): keep the placement whole
@@ -857,11 +870,17 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
                     key = tuple(sorted((a, b_, c)))
                     if comp_of_tri.get(key, -1) in drape_set:
                         if key in drape_up:
-                            draped[tri_body(a, b_, c)].append((a, b_, c))
+                            draped[bands.pick(tri_body(a, b_, c), bands.middle_of(
+                                (a, b_, c)))].append((a, b_, c))
                         else:
                             counts["drape_dropped"] = counts.get("drape_dropped", 0) + 1
                         continue
-                per.setdefault(tri_body(a, b_, c), []).append((a, b_, c))
+                bid = tri_body(a, b_, c)
+                if bid in bands.siblings:
+                    for sb, tri in bands.clip(bid, (a, b_, c)):
+                        per.setdefault(sb, []).append(tri)
+                    continue
+                per.setdefault(bid, []).append((a, b_, c))
             for body in sorted(per):
                 sync(body)
                 emit_tris(body, per[body], False)

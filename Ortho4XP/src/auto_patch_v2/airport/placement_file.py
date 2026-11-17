@@ -561,7 +561,9 @@ def _cut_files(record: Split, m: Member, *, always_write: bool,
                            b.tris,
                            # 10-01k Q1: the seat tilt the writer bakes
                            (b.seat.grad if b.seat is not None
-                            else _split.NO_TILT))
+                            else _split.NO_TILT),
+                           # #2112: the deck-plate band it keeps
+                           getattr(b, "band", None))
             for b in record.bodies]
     try:
         res = _split.split_obj8(pristine_path(m), cuts, m.resource,

@@ -126,6 +126,7 @@ from . import cut_deck_seat as _cds  # noqa: E402
 from . import entrance_seat as _ens  # noqa: E402
 from . import split_guard as _sg  # noqa: E402
 from . import drawn_anchor as _da  # noqa: E402
+from . import deck_plates as _dpl  # noqa: E402
 from . import terrain_shaped as _tsh  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
     airside_deck as _airside_deck, airside_frame as _airside_frame,
@@ -431,8 +432,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         return _sg.on_tile(r, tile_box, lambda b: _ens.face_zero(b, mm, _entr),
                            routable)
 
-    def _drawn(r):
-        # #2075: no body anchored where X-Plane drops it (``drawn_anchor``)
+    def _drawn(r, mm=None, fp=None):
+        # #2112: a deck in plates seats each plate on its own end lines
+        # (``deck_plates``), then (#2075) no body is anchored where X-Plane
+        # drops it (``drawn_anchor``)
+        r = _dpl.split_record(r, mm, fp, surface, counts)
         return _da.drawn_as_placed(r, exclusions, surface, tile_box, counts)
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
@@ -1176,6 +1180,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
         # ── PASS 4: the cut, carriers first ──────────────────────────
         by_mi = {st.mi: st for st in staged}
+        # #2112: a frame whose deck is in disjoint plates is cut by plate
+        _plates = _dpl.frame_plates([st.m for st in staged], rigid_reach_m, counts)
         # #2077: a roof resting on a terrain-carried body takes its seat
         _terrain_u = _tb.with_hosts(_terrain, _own_ground_bodies(staged, u))
         # owner RULINGS 2026-10-22b (#1214): a frame the law seats on our
@@ -1396,7 +1402,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _on_tile(record, m)
                 record, _v = _vacated(record, st,
                                       {body.body_id: range(len(st.raw))})
-                record = _drawn(record)
+                record = _drawn(record, m, _plates)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=None if _v else landed,
                               always_write=True, tilted_whole=tilted_whole,
@@ -1492,7 +1498,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                           m, _clift)
                 record = _on_tile(record, m)
                 record, _v = _vacated(record, st, _grp_of, _carrier_of)
-                record = _drawn(record)
+                record = _drawn(record, m, _plates)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=None if _v else landed,
                               always_write=True, tilted_whole=tilted_whole,
@@ -1545,7 +1551,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _on_tile(record, m)
                 # §9a A1 §3.4: an isolated share is WRITTEN at its own anchor
                 record, _v = _vacated(record, st, _grp_of, _carrier_of)
-                record = _drawn(record)
+                record = _drawn(record, m, _plates)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=None if _v else landed,
                               always_write=off_row or _v, tilted_whole=tilted_whole,

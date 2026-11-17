@@ -28,11 +28,10 @@ import typing as _t
 
 import numpy as np
 import shapely
-import shapely.prepared
 
 from ..geom.agp_plate import built_plates
-from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..model.planar import AGP_GROUND_PREFIX
+from .bank_cut import bank_width, knives, pieces
 from .stack_ground import _areal
 
 __all__ = ["agp_ground_pieces"]
@@ -42,13 +41,12 @@ def _bank_width(airport, poly, level: float, law) -> tuple[float, float]:
     """``(width, rise)``: the bank's width round plate ``poly`` at ``level``
     (module doc) and the largest rise over the DEM along its edge."""
     from ..airport.dem import dem_z_many
-    d = law.tables.emit.design
     pts = np.asarray(shapely.segmentize(poly.exterior, 5.0).coords)[:, :2]
     dem = getattr(airport, "dem", None)
     dz = dem_z_many(dem, pts[:, 0], pts[:, 1]) if dem is not None else np.full(len(pts), np.nan)
     fin = np.isfinite(dz)
     rise = float(np.max(np.abs(level - dz[fin]))) if fin.any() else 0.0
-    return max(float(d.bank_min_width_m), rise / float(d.bank_slope)), rise
+    return bank_width(rise, law), rise
 
 
 def agp_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: float,
@@ -63,20 +61,9 @@ def agp_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: fl
     plates = built_plates(getattr(airport, "agp_groups", ())) if law is not None else []
     if not plates:
         return []
-    front = float(law.tables.emit.design.pad_frontage_m)
     wid = {id(p): _bank_width(airport, poly, float(p.level), law) for _g, p, poly in plates}
     outline = shapely.union_all([poly.buffer(wid[id(p)][0]) for _g, p, poly in plates])
-    near = shapely.prepared.prep(outline.buffer(cut_m + front + 1.0))
-
-    def _near(gs) -> list:
-        return [g for g in gs if g is not None and not g.is_empty and near.intersects(g)]
-    knife = canonical_union(_near(taken)
-                            + [g.buffer(cut_m, join_style="mitre", mitre_limit=2.0)
-                               for g in _near(apart)]
-                            + [g.buffer(front, join_style="mitre", mitre_limit=2.0)
-                               for g in _near(airside)])
-    rib = canonical_union([g.buffer(cut_m, join_style="mitre", mitre_limit=2.0)
-                           for g in _near(ribbons)])
+    knife, rib = knives(outline, taken, apart, airside, ribbons, cut_m, law)
     out: list[tuple[str, _t.Any]] = []
     claimed = None
     for gid, p, poly in plates:
@@ -100,12 +87,7 @@ def agp_ground_pieces(airport, taken: _t.Sequence, apart: _t.Sequence, cut_m: fl
                 geom = geom.difference(claimed)
             geom = _areal(geom)
             claimed = geom if claimed is None else claimed.union(geom)
-            for part in shapely.get_parts(fixed_difference(geom, knife)):
-                if part.geom_type != "Polygon" or part.area < 1.0 \
-                        or is_hairline(part, hairline_m):
-                    continue
-                for q in shapely.get_parts(shapely.segmentize(part, vertex_m)):
-                    if q.geom_type == "Polygon" and q.area >= 1.0:
-                        out.append((f"{base}:{kind}#{k[kind]}", q))
-                        k[kind] += 1
+            for q in pieces(geom, knife, hairline_m, vertex_m):
+                out.append((f"{base}:{kind}#{k[kind]}", q))
+                k[kind] += 1
     return out

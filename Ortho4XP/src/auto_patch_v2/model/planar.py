@@ -46,7 +46,7 @@ __all__ = ["BEYOND", "NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Fa
            "KERB_SUFFIX", "kerb_ref",
            "FILL_BANK_PREFIX", "is_fill_bank_ref", "STACK_GROUND_PREFIX",
            "is_stack_ground_ref", "is_stack_apron_ref", "AGP_GROUND_PREFIX",
-           "is_agp_ground_ref", "is_agp_bank_ref",
+           "is_agp_ground_ref", "is_agp_bank_ref", "PIT_BANK_PREFIX", "is_pit_bank_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
@@ -173,6 +173,17 @@ def is_agp_ground_ref(ref: object) -> bool:
 def is_agp_bank_ref(ref: object) -> bool:
     """Is this face an AGP plate's bank (``agp_ground:...:bank#k``)?"""
     return is_agp_ground_ref(ref) and ":bank#" in str(ref)
+
+
+#: #1949 R3 (spec ``sim-review/1949-R2.md``): the face ref of a walled pit's
+#: bank -- ``pit_bank:<floor>:<run>#k`` from its open edge's crest down to
+#: the lidar (``planar/pit_bank``) -- graded ground, no zone class
+PIT_BANK_PREFIX = "pit_bank:"
+
+
+def is_pit_bank_ref(ref: object) -> bool:
+    """Is this face a piece of a walled pit's bank?"""
+    return str(ref or "").startswith(PIT_BANK_PREFIX)
 
 
 def is_stack_apron_ref(ref: object) -> bool:

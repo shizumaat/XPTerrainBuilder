@@ -145,17 +145,20 @@ def test_a_pit_whose_own_floor_is_hard_deck_still_reads(tmp_path):
     assert [f.object_id for f in floors] == ["dsf:obj2"], notes
 
 
-def _trench(tmp_path, roof=False, low_wall=None):
+def _trench(tmp_path, roof=False, low_wall=None, low_portal=False):
     """A trench authored as ONE open hollow (OMDB ``duong_2``): a 60 x 40 m
     floor at y 0 .. 0.2 with its own side walls to y 12, and, co-placed,
     the walls of its portals standing on the same edges (``tuner1``);
     ``roof`` closes the hollow (a building, never a trench); ``low_wall``
     the height of the hollow's own north wall (one wall lower than the
-    rim, its 0.5 m cap under it)."""
+    rim, its 0.5 m cap under it), and with ``low_portal`` of the portal
+    walls' too (the whole north side lower than the rim)."""
     sides = [_box(-0.5, 0.0, 0.5, 40.0, 12.0), _box(60.0, 0.0, 0.5, 40.0, 12.0),
              _box(0.0, -0.5, 60.0, 0.5, 12.0), _box(0.0, 40.0, 60.0, 0.5, 12.0)]
     own = sides if low_wall is None else [*sides[:3], _box(0.0, 40.0, 60.0, 0.5, low_wall)]
     shell = [_box(0.0, 0.0, 60.0, 40.0, 0.2), *own]
+    if low_portal:
+        sides = own
     if roof:
         shell.append(_box(-0.5, -0.5, 61.0, 41.0, 0.3, y0=12.0))
     return [_at(_write(tmp_path / "portal_walls.obj", sides), "dsf:obj1"),
@@ -216,3 +219,67 @@ def test_the_top_of_a_hollows_own_wall_is_no_floor(tmp_path):
     assert float(f.faces[:, :, 2].max()) < f.floor_z + 1.0, notes
     assert f.footprint.bounds[3] <= 40.0 + 1e-6, f.footprint.bounds
     assert any("tops of its own walls" in n for n in notes), notes
+
+
+def test_a_wall_lower_than_the_ground_behind_it_states_its_rim_a_parapet_under_its_top(tmp_path):
+    """#1949 R2 (RULINGS 2026-11-16l; OMDB: the gore's walls top out up to
+    4.3 m under the DEM and the mesh drew a cliff over them): the frame
+    lands its rim (12 m) on the ground (105), so its 6 m north side stands
+    6 m under it -- an OPEN EDGE.  The pit states its rim there 1 m
+    (``retaining_parapet_m``) under the wall's top, and nowhere else."""
+    floors, notes = _read_bored(_trench(tmp_path, low_wall=6.0, low_portal=True), 105.0, [_BORE])
+    assert [f.object_id for f in floors] == ["dsf:obj2"], notes
+    f = floors[0]
+    assert f.rim_banks and f.rim_tops, notes
+    T = np.asarray(f.rim_tops, float)
+    z = f.zero_z + T[:, 2]
+    # the wall's top as seated: 100 + 6 - 7 = 99; the rim 1 m under it,
+    # eased from the ground at the run's ends at 1:3
+    mid = np.abs(T[:, 0] - 30.0) < 5.0
+    assert np.allclose(z[mid], 98.0, atol=0.05), z
+    assert float(z.max()) <= 105.0 + 1e-6 and float(z.min()) >= 98.0 - 1e-6, z
+    d = np.minimum(T[:, 0] - T[:, 0].min(), T[:, 0].max() - T[:, 0])
+    assert np.all(z <= np.maximum(98.0, 105.0 - 0.33 * d) + 0.7), z
+    # only the low side: every stated sample on one line, the north rim
+    assert float(np.ptp(T[:, 1])) < 2.5, T[:, 1]
+
+
+def test_a_flush_rim_states_no_open_edge(tmp_path):
+    """A walled pit whose walls all land on the ground states no rim and
+    takes no bank (the accepted rim stays)."""
+    floors, notes = _read_bored(_trench(tmp_path), 105.0, [_BORE])
+    assert [f.object_id for f in floors] == ["dsf:obj2"], notes
+    assert floors[0].rim_tops == () and not floors[0].rim_banks, notes
+
+
+def test_an_open_edge_takes_a_bank_from_its_crest_to_the_dem(tmp_path):
+    """#1949 R3: the open edge's run mints ``graded_strip`` bank pieces
+    outside the pit's void band, ``max(bank_min_width_m, rise /
+    bank_slope)`` wide (rise 7 m: 21 m), welded to the band's ring (its
+    crest); a road ribbon that cuts it short is listed with its grade."""
+    from auto_patch_v2.model.planar import is_pit_bank_ref
+    from auto_patch_v2.planar.pit_bank import pit_bank_pieces
+    from shapely.geometry import box
+    floors, notes = _read_bored(_trench(tmp_path, low_wall=6.0, low_portal=True), 105.0, [_BORE])
+    f = floors[0]
+    ap = types.SimpleNamespace(dem=types.SimpleNamespace(z_many=lambda xs, ys: np.full(len(xs),
+                                                                                       105.0)))
+    T = np.asarray(f.rim_tops, float)
+    side = float(np.median(T[:, 1]))
+    out = pit_bank_pieces(floors, ap, [], [], 2.0, 0.1, 5.0, LAW)
+    assert out and all(is_pit_bank_ref(r) for r, _g in out), out
+    from shapely.ops import unary_union
+    bank = unary_union([g for _r, g in out])
+    band = f.footprint.buffer(1.0, join_style="mitre")
+    assert bank.intersection(band).area < 1.0
+    assert bank.distance(band) < 1e-6
+    away = side + np.sign(side - f.footprint.centroid.y) * 21.0
+    assert abs(max(abs(y - side) for y in (bank.bounds[1], bank.bounds[3])) - 21.0) < 1.0, \
+        (bank.bounds, away)
+    road = box(-100.0, min(side, away) + 9.0, 100.0, min(side, away) + 12.0) \
+        if away > side else box(-100.0, side - 12.0, 100.0, side - 9.0)
+    clipped: list[str] = []
+    out = pit_bank_pieces(floors, ap, [], [road], 2.0, 0.1, 5.0, LAW, ribbons=[road],
+                          notes=clipped)
+    assert any(n.startswith("pit_bank_clipped:") for n in clipped), clipped
+    assert unary_union([g for _r, g in out]).intersection(road).area < 1e-6

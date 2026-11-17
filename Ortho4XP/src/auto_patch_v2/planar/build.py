@@ -478,7 +478,7 @@ def build(airport: Airport, classification: Classification, law: Law,
         types.SimpleNamespace(bridge_stacks=bridge_stacks)))
     _pulse.tick("building the planar arrangement")
     arr = build_arrangement(airport, classification, law, grid_m, level_b=level_b,
-                            level_seeds=seeds, shells=storeys)
+                            level_seeds=seeds, shells=storeys, floors=floors)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,

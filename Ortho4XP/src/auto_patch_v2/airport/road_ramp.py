@@ -203,7 +203,9 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                    mouths: _t.Mapping[int, float],
                    frame: _t.Mapping[int, tuple[int, float, float]],
                    reach_m: float, end_m: float,
-                   gaps_out: dict[int, float] | None = None
+                   gaps_out: dict[int, float] | None = None,
+                   adj: _t.Mapping[int, _t.Sequence[tuple[int, float]]] | None = None,
+                   junctions_out: list | None = None
                    ) -> tuple[dict[int, tuple[int, int, float, float]],
                               list[dict[str, _t.Any]]]:
     """§37 (10) (1) THE CONTACT A ROAD DOES NOT TOUCH (owner RULINGS
@@ -239,13 +241,25 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     figure owner RULINGS 2026-09-27a (11) classifies by: a gap within one
     lane width seeds the ramp like a touching mouth
     (:func:`with_road_ramp`, ``PlanarMap.road_reach_seed``).
+
+    #2116 (d) (owner 2026-11-17T00:13Z): with the road's own graph ``adj``,
+    an end the road CARRIES ON from (:func:`_carries_on`, the #2090 B7 /
+    RULINGS 2026-11-14e witness) is a JUNCTION, not where a vehicle leaves
+    the road for a LOT (``[road_contact] extra_roles``, the groundside
+    members of the set): across a gap wider than one lane (``end_m``; a
+    narrower gap is a touch, 27a (11)) it takes no contact on the lot.  The
+    airside and pad contacts are unchanged (13cs).  MEASURED KDEN: the
+    junction of ridge roads -3642/-18149 was bound to the corner of lot
+    ``dsf:pol32`` 11 m away (the lot's 1639.7 against a 1645 ridge).
     """
     from shapely.geometry import LineString, Point
     from shapely.strtree import STRtree
 
     cset = contact_roles(law)
+    groundside = frozenset(law.tables.emit.road_contact.extra_roles)
     segs: list[LineString] = []
     ends: list[tuple[int, int]] = []
+    lot_seg: list[bool] = []
     for fid, f in pm.faces.items():
         if f.role not in cset:
             continue
@@ -257,6 +271,7 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                     continue
                 segs.append(LineString([pa, pb]))
                 ends.append((a, b))
+                lot_seg.append(f.role in groundside)
     out: dict[int, tuple[int, int, float, float]] = {}
     named: list[dict[str, _t.Any]] = []
     if not segs:
@@ -318,6 +333,12 @@ def reach_contacts(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                 continue
             _key, _d, _i, at_v, _ = best
             a, b = ends[_i]
+            if (adj is not None and lot_seg[_i] and _d > end_m
+                    and _carries_on(group, r, adj, frame)):
+                if junctions_out is not None:  # #2116 (d): a junction, no end
+                    junctions_out.append({"route": r, "gap_m": round(_d, 2),
+                                          "at": pm.vertices[at_v].xy})
+                continue
             ln = segs[_i]
             p = Point(pm.vertices[at_v].xy)
             u = float((ln.project(p) / ln.length) if ln.length else 0.0)
@@ -750,10 +771,17 @@ def _carried_on_end(adj, frame, route_end, by_route, lane: float):
                 group = [w for s_, w in items if s_ - items[0][0] <= lane]
             else:
                 group = [w for s_, w in items if items[-1][0] - s_ <= lane]
-            memo[e] = not any(frame.get(u) is not None and frame[u][0] != r
-                              for w in group for u, _d in adj.get(w, ()))
+            memo[e] = not _carries_on(group, r, adj, frame)
         return e if memo[e] else None
     return end_of
+
+
+def _carries_on(group: _t.Iterable[int], r, adj, frame) -> bool:
+    """The road CARRIES ON past a route end (#2090 B7, RULINGS 2026-11-14e;
+    #2116 (d)): a vertex of the end's ``group`` has a neighbour in the
+    road's own graph ``adj`` on ANOTHER route of ``frame``."""
+    return any(frame.get(u) is not None and frame[u][0] != r
+               for w in group for u, _d in adj.get(w, ()))
 
 
 def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
@@ -903,9 +931,13 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # ``constraints/road_ramp.road_contact_rows``.
     rc = law.tables.emit.road_contact
     gaps: dict[int, float] = {}
+    adj = _graph(pm, set(owned) | set(mouths))
+    junctions: list = []
     contact, reach_named = reach_contacts(pm, law, owned, mouths, frame,
                                           rc.contact_reach_m,
-                                          prof_f.lane_width_m, gaps)
+                                          prof_f.lane_width_m, gaps, adj=adj,
+                                          junctions_out=junctions)
+    rep["reach_junction_ends"] = junctions
     # 15a (2): a reach contact ACROSS a wall that retains its height (its
     # edge on the wall's line, or the way to it through the wall) is no
     # contact — the road at the wall's foot does not meet the top edge
@@ -930,7 +962,6 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["reach_contacts"] = len(reach_named)
     rep["reach_governed"] = len(contact)
     rep["reach_ends"] = reach_named
-    adj = _graph(pm, set(owned) | set(mouths))
     by_route: dict[int, list[tuple[float, int]]] = {}
     for v in set(owned) | set(mouths):
         f_ = frame.get(v)
@@ -1324,7 +1355,16 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     the step" — a road vertex whose way to a pavement foot crosses one (or
     starts inside one) is NOT bordered by that pavement: the road below a
     retaining wall sits at the lower ground, released from the upper level
-    (:func:`_across_retaining`)."""
+    (:func:`_across_retaining`).
+
+    ``at_mouth`` -- THE MOUTH SETS THE RAMP (owner RULINGS 2026-11-06c (5),
+    #1939): a road vertex of a piece that enters a structure's mouth (the
+    piece shares a vertex with a structure FLOOR, :func:`_mouth_floors`) and
+    stands nearer that floor than its stage-1 pavement foot is at the
+    mouth, below the pavement over it: where it carries its own ramp
+    target, that target is its terrace level in place of its foot's
+    (``constraints/road_ramp.terrace_profile``), so the runs beside it link
+    down to the mouth."""
     from ..law.tables import airside_stage_roles
     out: dict[str, dict] = {"foot": {}, "pad": {}, "station": {}, "kerb": {},
                             "meet": {}, "runway": {}, "level": {}, "rim": {}}
@@ -1435,6 +1475,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     out["own"] = {v: True for v in vs if v not in rib_v and v not in beside}
     rtree = STRtree(list(retaining)) if retaining else None
     out["below_wall"] = {}
+    out["at_mouth"] = {}
+    mouth_v, floors = _mouth_floors(pm, law, roads, decks)
     for v in vs:
         r, s_, _t_ = frame[v]
         out["station"][v] = (int(r), float(s_))
@@ -1458,6 +1500,12 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             continue
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
                       if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
+        if lev and v in mouth_v and _nearer_floor(pm, v, lev[0][0], floors):
+            # 06c (5), #1939: at the mouth the road is on the floor's ramp,
+            # never the pavement over the structure.  MEASURED ESSA
+            # ``small_roads:-291#3`` 4.5 m from the floor, 13.2 m from
+            # taxiway ``pav24#3`` (31.42 m) held its approach 4.8 m over lidar
+            out["at_mouth"][v] = True
         if lev:
             d, ref, a, b, u = lev[0]
             out["foot"][v] = (a, b, u, ref)
@@ -1594,6 +1642,49 @@ def _beside_ribbon(pm: PlanarMap, roads: _t.AbstractSet[str],
     return out
 
 
+def _mouth_floors(pm: PlanarMap, law: Law, roads: _t.AbstractSet[str],
+                  decks: _t.AbstractSet[str]) -> tuple[set[int], tuple]:
+    """The vertices of every road piece (decks out) that shares a vertex
+    with a structure FLOOR -- a face of a structure role that carries a
+    value (a tunnel, door or garage ramp; never a wall) -- and the floors'
+    ``(polygons, STRtree)`` (:func:`road_terrace`'s ``at_mouth``)."""
+    from shapely.geometry import Polygon
+    from shapely.strtree import STRtree
+
+    from ..law.tables import is_structure_role, is_value_role
+    floor_roles = {r for r in law.tables.precedence.roles
+                   if is_structure_role(law, r) and is_value_role(law, r)}
+    floor_v: set[int] = set()
+    polys = []
+    for f in pm.faces.values():
+        if f.role in floor_roles:
+            ring = pm.ring_vertices(f.ring)
+            floor_v.update(ring)
+            if len(ring) >= 3:
+                g = Polygon([pm.vertices[v].xy for v in ring])
+                polys.append(g if g.is_valid else g.buffer(0.0))
+    out: set[int] = set()
+    if not floor_v:
+        return out, ((), None)
+    for f in pm.faces.values():
+        if f.role in roads and f.ref not in decks:
+            vs = {v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+            if vs & floor_v:
+                out |= vs
+    return out, (polys, STRtree(polys) if polys else None)
+
+
+def _nearer_floor(pm: PlanarMap, v: int, d: float, floors: tuple) -> bool:
+    """A structure floor of ``floors`` stands within ``d`` of vertex ``v``."""
+    from shapely.geometry import Point
+    polys, tree = floors
+    if tree is None:
+        return False
+    p = Point(pm.vertices[v].xy)
+    return any(polys[int(j)].distance(p) < d
+               for j in tree.query(p, predicate="dwithin", distance=d))
+
+
 def _across_retaining(pm: PlanarMap, v: int, foot: tuple,
                       retaining: _t.Sequence, rtree) -> bool:
     """Owner RULINGS 2026-10-15a (2): the way from road vertex ``v`` to its
@@ -1650,6 +1741,9 @@ class WallPiece(_t.NamedTuple):
     #: seats, that zero (``WallComponent.reseated``; ``None`` otherwise)
     placement: str = ""
     reseat_z: float | None = None
+    #: 2120-W3 F1: a retaining block's fill drop under its upper face
+    #: (``WallSides.fill_drop_m``), ``None`` for every other wall
+    fill_drop_m: float | None = None
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1686,7 +1780,8 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
                                      getattr(side, "lower", None),
                                      str(getattr(c, "low_side_source", "") or ""),
                                      str(getattr(c.member, "id", "") or ""),
-                                     c.seat_z if getattr(c, "reseated", False) else None))
+                                     c.seat_z if getattr(c, "reseated", False) else None,
+                                     getattr(side, "fill_drop_m", None)))
     return tuple(out)
 
 
@@ -1856,6 +1951,8 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
     # (owner RULINGS 2026-11-10a (2), the kerb ``planar/foot_kerb``)
     at_foot = {v for i in all_foot for v in _face_vertices(pm, i)}
     pad_v = at_foot - foot_vertices(pm, lot_f, walls, pad_roles).keys()
+    wall_polys = [w.poly for w in walls]
+    wall_tree = STRtree(wall_polys)
     for k, w in enumerate(walls):
         # THE WALL IS ITS OWN FOOTPRINT, never a chord of it: a pack wall
         # bends (HECA ``metal_strip_2.obj`` comp 117: one 262 m piece fills
@@ -1935,17 +2032,16 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         lots = [i for i in lots if i not in all_foot]
         pairs: list[tuple[int, int]] = []
         for lv in lower:
-            if lv in at_foot:
-                continue
+            if lv in at_foot or _on_road(pm, lv, roads):
+                continue          # 2120-WF2 W1: a LOT vertex pairs, never a road's
             p = Point(pm.vertices[lv].xy)
             cand = ([pad_ids[int(j)] for j in ptree.query(p, predicate="dwithin",
                                                           distance=2.0 * reach)]
                     if ptree is not None else [])
-            if not cand:
-                continue
-            pf = min(cand, key=lambda i: (pad_f[i].distance(p), i))
-            pairs.append((lv, nearest(lv, list(dict.fromkeys(
-                pm.ring_vertices(pm.faces[pf].ring))))))
+            pv = _same_side_pad(pm, lv, sorted(cand, key=lambda i: (pad_f[i].distance(p), i)),
+                                pad_f, w, wall_tree, wall_polys)
+            if pv is not None:
+                pairs.append((lv, pv))
         out[k] = {"line": [tuple(c) for c in ring], "height_m": w.height_m,
                   "label": w.label, "retains": bool(w.retains),
                   "mouth": bool(w.mouth),
@@ -1961,6 +2057,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   "low_side": str(getattr(w, "low_side", "") or ""),
                   "placement": str(getattr(w, "placement", "") or ""),
                   "reseat_z": getattr(w, "reseat_z", None),
+                  "fill_drop_m": getattr(w, "fill_drop_m", None),
                   "lower_band": [[tuple(c) for c in part.exterior.coords]
                                  for part in nonempty_polygon_parts(w.lower_band)]
                   if getattr(w, "lower_band", None) is not None else None,
@@ -1968,6 +2065,47 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   "foot_lots": {v: z for i, z in sorted(foot_lots.items())
                                 for v in _face_vertices(pm, i) if v not in pad_v}}
     return out
+
+
+def _on_road(pm: PlanarMap, v: int, roads: frozenset) -> bool:
+    """A vertex a mapped road's face carries (a road by its shape alone,
+    ``road_by_proportions``, is the lot's page: :func:`_is_lot_page`)."""
+    return any(pm.faces[g].role in roads and not pm.faces[g].road_by_proportions
+               for g in pm.vertices[v].incident_faces)
+
+
+def _same_side_pad(pm: PlanarMap, lv: int, cand: _t.Sequence[int], pad_f: _t.Mapping,
+                   w: WallPiece, wall_tree, wall_polys: _t.Sequence) -> "int | None":
+    """THE LOT'S OWN BUILDING (10-03c as 2120-WF2 W1 reads it): the ring
+    vertex, nearest the lot vertex ``lv``, of the nearest pad face of
+    ``cand`` (nearest first) on the lot's SIDE -- the segment between them
+    crosses no wall -- that is no riser strip or collar (a level's storey
+    or bank, never a building: KATL katl125's road stood 5 m over its
+    ground, held by a terminal landing's collar) and no UPPER pad (nearer
+    the wall's upper face than its lower).  ``None`` where none is."""
+    from shapely.geometry import LineString
+
+    from ..model.planar import COLLAR_SUFFIX, STRIP_SUFFIX
+    x, y = pm.vertices[lv].xy
+    for i in cand:
+        ref = str(pm.faces[i].ref)
+        if ref.endswith(STRIP_SUFFIX) or ref.endswith(COLLAR_SUFFIX):
+            continue
+        g = pad_f[i]
+        if (w.upper_face is not None and w.lower_face is not None
+                and g.distance(w.upper_face) < g.distance(w.lower_face)):
+            continue
+        ring = list(dict.fromkeys(pm.ring_vertices(pm.faces[i].ring)))
+        pv = min(ring, key=lambda q: (exact.hypot(pm.vertices[q].xy[0] - x,
+                                                 pm.vertices[q].xy[1] - y), q))
+        seg = LineString([(x, y), pm.vertices[pv].xy])
+        # ACROSS a wall is through its interior: a lot vertex on its foot's
+        # outline touches it and stays on its own side
+        if any(wall_polys[int(j)].relate_pattern(seg, "T********")
+               for j in wall_tree.query(seg)):
+            continue
+        return pv
+    return None
 
 
 def _face_vertices(pm: PlanarMap, fid: int) -> list[int]:

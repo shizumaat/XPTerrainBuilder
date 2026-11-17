@@ -32,6 +32,7 @@ whose toe meets the lidar.
 No airport is named (RULINGS 2026-10-05e)."""
 from __future__ import annotations
 
+from ..geom import exact
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Linear, Pin, Row, Source
@@ -181,7 +182,8 @@ def _bank_road_rows(planar: PlanarMap, law: Law, airport: Airport, pinned: set[i
                 if ll <= 1e-12:
                     continue
                 t = np.clip(((bxy - pa) @ ab) / ll, 0.0, 1.0)
-                d = np.hypot(*(bxy - (pa + t[:, None] * ab)).T)
+                off = bxy - (pa + t[:, None] * ab)
+                d = exact.hypot_array(off[:, 0], off[:, 1])
                 for k in np.flatnonzero((d < best) & (d <= reach)).tolist():
                     best[k] = d[k]
                     foot[k] = (a, b, float(t[k]), ref)

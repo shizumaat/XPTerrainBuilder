@@ -35,7 +35,7 @@ from ..model.frame import XY
 from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .object_cut import _face_normals_y, _plan_area
-from .portal_objects import Portal, roof_of
+from .portal_objects import Portal, _roof_opening, roof_of
 
 __all__ = ["footed_parts", "read_footed_portals", "roads_of"]
 
@@ -98,11 +98,23 @@ def _road_under(end: XY, roof, roads, reach: float) -> bool:
 
 
 def read_footed_portals(o: _obj8.PlacedObject, parts: _t.Sequence[_Part], ends,
-                        roads, law, dem_z, zero: float) -> list:
+                        roads, law, dem_z, zero: float,
+                        into: "_t.Mapping[tuple[XY, int], XY] | None" = None) -> list:
     """One ``portal_objects.Portal`` per bore end (``ends``: ``(xy, way id)``)
     a part of placement ``o`` pins (module doc).  ``roads`` are the mapped
     non-tunnel roads, ``dem_z`` the airport's DEM, ``zero`` the placement's
-    zero as its row reads (``below_grade_witness.zero_of``)."""
+    zero as its row reads (``below_grade_witness.zero_of``), ``into`` the
+    direction into each bore from each end (``portal_objects._bore_dirs``).
+
+    #2122: the part STATES ITS OPENING as a roofed portal does -- its roof's
+    extent across the bore over this end (``portal_objects._roof_opening``;
+    up the open road, the roof within the end's own reach of it) -- so the
+    ramp spans the mouth wall to wall (RULINGS 2026-11-06c (5)).  MEASURED
+    NZWN bore -199 east end: a 7 m mapped ramp inside an object opening
+    17.8 m wide, the ground left at its pad's level 5.4 m over the floor on
+    both sides of the road (owner sim read 2026-11-16, -41.336094,
+    174.807333).  An opening read under one road lane is no opening (RULINGS
+    2026-11-16a): the mapped road's width stands."""
     tn = law.tables.structures.tunnel
     tol = float(tn.object.bore_end_tolerance_m)
     reach = float(tn.mouth_depth_m) / float(tn.ramp_max_grade)
@@ -120,9 +132,16 @@ def read_footed_portals(o: _obj8.PlacedObject, parts: _t.Sequence[_Part], ends,
             if math.isnan(ground) or not 0.0 < ground - floor <= tn.mouth_depth_m:
                 continue
             c = roof.representative_point()
+            off = roof.distance(Point(xy))
+            local = roof if off <= tol else roof.intersection(Point(xy).buffer(off + tol))
+            width, edges = _roof_opening(local, xy, (into or {}).get((xy, wid)),
+                                         tol if off <= tol else off + tol)
+            if width < float(tn.lane_width_m):
+                width, edges = 0.0, ()      # RULINGS 2026-11-16a: the road's width stands
             out.append(Portal(o.id, o.path, (float(xy[0]), float(xy[1])), int(wid),
                               ground - floor, part.roof_area_m2, (float(c.x), float(c.y)),
-                              floor_z=float(floor), bottom_y=float(part.foot_y),
+                              floor_z=float(floor), opening_m=width, opening_xy=edges,
+                              bottom_y=float(part.foot_y),
                               face_plan=roof, zero_z=float(zero), footed=True))
     return out
 

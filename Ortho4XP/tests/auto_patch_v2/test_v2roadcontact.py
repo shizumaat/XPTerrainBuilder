@@ -126,26 +126,36 @@ def test_the_reach_is_the_law_key(law):
     assert _near(law, 18.0)[2]["reach_contacts"] == 0
 
 
-# ── (3) THE ROW: ONE-WAY, A CEILING, AT THE ROAD'S OWN CAP ──────────────
+# ── (3) THE ROWS: ONE-WAY, A CEILING AND ITS MIRROR, AT THE ROAD'S CAP ──
 
-def test_the_contact_row_is_a_one_way_ceiling_against_the_airside_columns(law):
-    """``z[v] - (1-u)·z[a] - u·z[b] <= cap·s``: three terms, no lower
-    bound, and ``follows`` names ONLY the road vertex, so the two airside
-    columns enter the lag as leaders and never feel the road."""
+def test_the_contact_rows_are_a_one_way_ceiling_and_floor_against_the_airside(law):
+    """``-cap·s <= z[v] - (1-u)·z[a] - u·z[b] <= cap·s``, as TWO rows of the
+    same three terms (lane lrc37: with the §37 (6) target withdrawn over
+    the end group the ceiling alone let the end sink under its contact and
+    its ground), and ``follows`` names ONLY the road vertex, so the two
+    airside columns enter the lag as leaders and never feel the road."""
     airport, pm, rep = _near(law, 4.0)
     rows = road_contact_rows(pm, law, airport)
-    assert rows and len(rows) == len(pm.road_contact_edge)
+    assert rows and len(rows) == 2 * len(pm.road_contact_edge)
     heads = one_way_rulings(law)
+    sides = {}
     for row in rows:
         assert isinstance(row, Linear)
-        assert row.lo is None and row.hi >= 0.0
         assert len(row.terms) == 3
         v, cv = row.terms[0]
         assert cv == pytest.approx(1.0)
         assert sum(c for _t, c in row.terms) == pytest.approx(0.0, abs=1e-9)
         assert row.follows == (v,)
         a, b, u, s = pm.road_contact_edge[v]
-        assert row.hi == pytest.approx(law.tables.common.road_max_grade * s)
+        bound = law.tables.common.road_max_grade * s
+        if row.lo is None:
+            assert row.hi == pytest.approx(bound)
+            sides.setdefault(v, set()).add("ceiling")
+        else:
+            assert row.hi is None and row.lo == pytest.approx(-bound)
+            sides.setdefault(v, set()).add("floor")
+    assert set(sides) == set(pm.road_contact_edge)
+    assert all(k == {"ceiling", "floor"} for k in sides.values())
     assert CONTACT_RULING.split("(")[0].strip() in heads
     # NOT HARD: ``solve/design`` carries ONE ``shift`` vector and the
     # augmented Lagrangian overwrites the one-way lag of a row in both

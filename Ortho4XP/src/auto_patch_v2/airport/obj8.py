@@ -869,6 +869,11 @@ class PlacedObject:
     #: an origin set built around its origin (geometry below it, or a
     #: member that cannot be read) — kept on-ground whole, never split.
     origin_built: bool = False
+    #: spec 2120-F R1 (owner RULINGS 2026-11-16x): this placement's frame
+    #: stands its AIRSIDE FLOOR a storey over its authored zero, over a
+    #: lower floor (``airport/airside_floor``): ``zero_y`` is that floor
+    #: and ``planar/low_level`` seeds the frame's lower pad from the flag.
+    floor_zero: bool = False
     #: owner RULINGS 2026-10-20aq (#1169): a TERRAIN FEATURE's origin set
     #: (``terrain_feature``) — kept as authored and never read: no
     #: witness, no feet, nothing the patch grades to.
@@ -908,6 +913,9 @@ class ObjReport:
     below_grade_objects: int = 0
     hard_deck_objects: int = 0
     msl_notes: int = 0
+    #: spec 2120-F R1: one line per frame re-zeroed at its airside floor
+    #: (``airside_floor._FloorFrame.note``)
+    floor_frames: list[str] = _dc.field(default_factory=list)
     no_dem_at_anchor: int = 0
     buried_components: int = 0
     #: EVERY BURIED COMPONENT NAMED (spec §24 (7) (a)): one line per
@@ -1367,7 +1375,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         dem_many: "_t.Callable | None" = None,
                         fine: "_t.Callable | None" = None,
                         water: "_t.Callable | None" = None,
-                        hidden: _t.AbstractSet[str] = frozenset()
+                        hidden: _t.AbstractSet[str] = frozenset(),
+                        airside: "_t.Any | None" = None
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -1455,6 +1464,14 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     riders = frozenset(_tm.set_members(placements, gone)) - frozenset(gone)
     models.update(gone)
     features = features | frozenset(models)
+    # spec 2120-F R1: a frame standing its airside floor a storey over its
+    # zero is read at that floor (``airside_floor``; ``airside`` its witness)
+    from . import airside_floor as _af
+    floor, frames = _af.floor_lifts(placements, path_of, cache, airside,
+                                    features | frozenset(shaped) | frozenset(shells)
+                                    | riders, hidden)
+    msl_lift.update(floor)
+    rep.floor_frames.extend(f.note() for f in frames)
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0
         if kind == "OBJECT_AGL" and elev is not None:
@@ -1529,20 +1546,24 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             obj = _dc.replace(obj, family=ids)
         out[i] = obj
         _absorb(rep, sub)
-    return [_gs.off_the_shell(_msl_frame(o, msl_lift)) if o.id in riders
-            else _msl_frame(o, msl_lift) for o in out], rep
+    return [_gs.off_the_shell(_msl_frame(o, msl_lift, floor)) if o.id in riders
+            else _msl_frame(o, msl_lift, floor) for o in out], rep
 
 
-def _msl_frame(o: PlacedObject, lifts: _t.Mapping[str, "float | None"]) -> PlacedObject:
-    """The one site ``zero_y`` / ``origin_built`` are set (#1102): the
-    zero sits at the member's lowest static y when that is above its
-    origin; a guarded set is ``origin_built``."""
+def _msl_frame(o: PlacedObject, lifts: _t.Mapping[str, "float | None"],
+               floor: _t.Collection[str] = ()) -> PlacedObject:
+    """The one site ``zero_y`` / ``origin_built`` / ``floor_zero`` are set
+    (#1102): the zero sits at the member's lowest static y when that is
+    above its origin; a guarded set is ``origin_built``; a frame read at
+    its airside floor (``floor``, spec 2120-F R1) is ``floor_zero``."""
     if o.id not in lifts:
         return o
     lift = lifts[o.id]
     if lift is None:
         return _dc.replace(o, origin_built=True)
-    return _dc.replace(o, zero_y=max(0.0, -float(lift))) if lift < 0.0 else o
+    if lift >= 0.0:
+        return o
+    return _dc.replace(o, zero_y=max(0.0, -float(lift)), floor_zero=o.id in floor)
 
 
 def area_fraction_above(v: np.ndarray, comp: Component, plane_y: float) -> float:

@@ -146,6 +146,17 @@ def _planes(fl: ObjectFloor, foot, law) -> list:
     return out + rest
 
 
+def _bores(airport, law) -> list:
+    """The mapped bores' axes (``deck_signature.is_tunnel_way`` under
+    ``[tunnel] admitted_values``) as frame ``LineString``s."""
+    from shapely.geometry import LineString
+
+    from ..airport.deck_signature import is_tunnel_way
+    adm = law.tables.structures.tunnel.admitted_values
+    return [LineString(w.points) for w in getattr(airport, "osm_ways", ()) or ()
+            if len(w.points) >= 2 and is_tunnel_way(w.tags, adm)]
+
+
 def object_floor_stage(airport, objects, cache, law, corridors, tstats,
                        classification=None) -> tuple[list, list, list]:
     """``(floors, corridors, cuts)``: every trench object's floor read ONCE
@@ -171,7 +182,8 @@ def object_floor_stage(airport, objects, cache, law, corridors, tstats,
                               lambda: read_object_floors(
                                   objects, cache, law, msl, shells=shells,
                                   ground=lambda xs, ys: dem_z_many(airport.dem, xs, ys),
-                                  scale=xplane_metre_scale(airport.frame.origin[0])))
+                                  scale=xplane_metre_scale(airport.frame.origin[0]),
+                                  bores=_bores(airport, law)))
     floors, notes = list(floors), list(notes)
     floors, deck_notes = floor_decks(floors, objects, cache, classification, airport, law)
     notes.extend(f"object floor {n}" for n in deck_notes)

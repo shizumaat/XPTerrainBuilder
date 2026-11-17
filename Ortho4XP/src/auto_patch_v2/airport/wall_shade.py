@@ -38,9 +38,11 @@ def wall_shade(airport, cfg, comps=None):
     if comps is None:
         from .wall_class import wall_class_components
         comps = wall_class_components(airport, cfg)
-    # #1952 (R1): a wall the pack built from sheets is all of them
+    # #1952 (R1): a wall the pack built from sheets is all of them; a deck
+    # block's whole plan is its cover (2120-W3 B1: no pad under the deck)
     polys = [g for c in comps if c.retains
-             for g in (*c.pieces, *(getattr(c, "sheets", ()) or ()))]
+             for g in (*c.pieces, *(getattr(c, "sheets", ()) or ()),
+                       *(getattr(c, "cover", ()) or ()))]
     if not polys:
         return None
     got = unary_union(polys)

@@ -76,9 +76,18 @@ def private_bytes(path) -> int | None:
     return size if length >= 12 else None
 
 
-def freeable_bytes(path, st: os.stat_result | None = None) -> int:
+def freeable_bytes(path, st: os.stat_result | None = None,
+                   unshared: bool = False) -> int:
     """What deleting the one name ``path`` frees, in bytes (see the module
-    docstring); 0 for a symlink or a path that cannot be read."""
+    docstring); 0 for a symlink or a path that cannot be read.
+
+    ``unshared`` (#2093, a deletion pass booking its progress): a private
+    size of 0 on an allocated single-name file means its extents are
+    shared with a CLONE elsewhere (measured 2026-11-17: the pytest
+    session's copy-on-write overlay of the regional extracts,
+    ``tests/conftest.py``, left each 520 MB extract at private 0) -- the
+    deletion frees nothing NOW, but a pass that credited 0 cleared every
+    shared tier looking for bytes.  Such a file counts its allocation."""
     try:
         st = st if st is not None else os.lstat(path)
     except OSError:
@@ -86,9 +95,9 @@ def freeable_bytes(path, st: os.stat_result | None = None) -> int:
     if stat.S_ISLNK(st.st_mode) or getattr(st, "st_nlink", 1) > 1:
         return 0
     size = private_bytes(path)
-    if size is not None:
-        return size
     blocks = getattr(st, "st_blocks", None)         # none on Windows
+    if size is not None and not (unshared and size == 0 and blocks):
+        return size
     return blocks * 512 if blocks is not None else st.st_size
 
 

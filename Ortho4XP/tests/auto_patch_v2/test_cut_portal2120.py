@@ -197,3 +197,17 @@ def test_the_seat_stands_the_top_on_the_cover_beside_the_cut():
                               plate_stations=((1.0, 2.0),))
     d = datum_of(m)
     assert d is not None and d.y == 20.0 and d.stations == ((1.0, 2.0),)
+
+
+def test_a_hull_no_bore_crosses_reads_no_cut():
+    """A bore that only touches a hull leaves no crossing: the group reads
+    ``None`` instead of failing (MEASURED KIAH replay, lkiah3: the
+    concatenation of no arrays raised in ``_cut_levels``)."""
+    from auto_patch_v2.airport import cut_portal as CP
+    xs, ys, m = CP._section_points([], 30.0)
+    assert (len(xs), len(ys), m) == (0, 0, 0)
+
+    class _Dem:
+        def z(self, x, y):
+            return 0.0
+    assert CP._cut_levels(_Dem(), [[]], 30.0) == [None]

@@ -126,7 +126,7 @@ from .lidar_road import (KEPT, NO_SIGN, is_rail_group, kept_face_shift, mouth_ve
                          survey_design_grade, survey_mouth,
                          survey_mouth_note, survey_mouth_refusal, survey_trench,
                          under_airside_pavement)
-from .dual_width import compose_half_fn, dual_half_fn
+from .dual_width import compose_half_fn, dual_half_fn, widened_half_fn
 from .covered_bores import covered_bore_ways
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
                               portal_mouth, portal_note, roof_back_mouth, strip_keepout)
@@ -134,6 +134,7 @@ from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_
 from .deck_bridge import (deck_banks, deck_cut, deck_edge_pavement, deck_mouth, deck_pin,
                           deck_polygon, deck_seats, deck_side, deck_under)
 from .deck_bores import airside_stop, deck_bores, deck_lanes, lane_band, pad_rims, road_level
+from .deck_generated import is_generated
 from .zones import shore_region
 from .structure_service import (airside_cover, airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -1202,6 +1203,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if dual_fn is not half_fn and sheared_ring(k_sk, c, axis_fn, ss, half, rim_off,
                                                        inward, grid, g, dual_fn) is not None:
                 half_fn = dual_fn
+        if deck is not None and is_generated(deck):
+            # #2131 THE CUT CARRIES THE DRAWN ROAD'S SHOULDERS: a generated
+            # deck's ramps run ``[deck_gen] shoulder_m`` wider each side, as
+            # its floor does (``deck_generated.cut_reach``)
+            shoulder = float(law.tables.structures.deck_gen.shoulder_m)
+            half_fn = widened_half_fn(half_fn, half, shoulder)
+            half += shoulder
         # §33 (6) B: an OBJECT CUT's ring is its OWN trench polygon
         def _ring(ss_try):
             return sheared_ring(k_sk, c, axis_fn, ss_try, half, rim_off, inward, grid, g,

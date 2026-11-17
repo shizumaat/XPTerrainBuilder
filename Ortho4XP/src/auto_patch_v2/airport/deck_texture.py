@@ -1,6 +1,8 @@
 """THE GENERATED DECK TEXTURE (spec 2123 §A2): one deterministic 256 x 256
-PNG painted here, so a generated taxiway deck never borrows Laminar
-library art (licensing not checked; the design avoids it).
+PNG painted here -- the paint atlas of every generated deck's overlay, and
+the slab's own texture only where the user's X-Plane install does not
+resolve the concrete page (#2132: the slab is drawn in X-Plane's own
+pavement art, linked from the install, ``airport/deck_skin``).
 
 The atlas is four regions, each a rectangle in UV space (u right, v up,
 OBJ8 convention: v = 0 is the image's BOTTOM row):

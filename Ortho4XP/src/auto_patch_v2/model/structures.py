@@ -533,6 +533,10 @@ class DeckBridge:
     #: polyline)`` each -- the ground beside their cut is the taxiway's
     #: (``planar/covered_ground``, #714's reading); ``()`` for a pack deck
     covered: tuple = ()
+    #: #2131: the pack pavement over a GENERATED deck's open approaches
+    #: (rings, frame metres) -- cut out with its ring
+    #: (``planar/deck_generated._approaches``); ``()`` for a pack deck
+    approach: tuple = ()
 
     @property
     def depth_a(self) -> float:

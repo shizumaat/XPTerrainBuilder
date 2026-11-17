@@ -26,7 +26,13 @@ sys.path.append(os.path.join(Ortho4XP_dir, 'src'))
 # and any non-cp1252 character in a printed string is an exception, not
 # mojibake (#171).  Parity twin: tests/test_frozen_spec_parity.py.
 import O4_Console_Encoding
+import O4_Process_Environment  # noqa: E402 - after the src path, like the line above
 O4_Console_Encoding.configure_console_streams()
+
+# No MallocStackLogging* variable reaches a child process: macOS prints a
+# line per process that inherits one (one per pool worker; owner
+# 2026-11-17).  Before the first spawn below; O4_Process_Environment.
+O4_Process_Environment.strip_malloc_stack_logging()
 
 # THEN, before any dispatch: claim the multiprocessing spawn bootstrap.
 # A frozen child is not a re-import — it is this executable re-exec'd as
@@ -42,7 +48,7 @@ O4_Console_Encoding.configure_console_streams()
 # From source this is a no-op: that path spawns `python -c spawn_main(...)`
 # and needs no diversion.
 #
-# It comes AFTER the console pin above and nothing else (issue #362, lane
+# It comes AFTER the console pin and the env strip above (issue #362, lane
 # `frozenpool`): the diverted child never returns from this call, so anything
 # below it does not run in a frozen pool worker.  Measured on the frozen
 # macOS engine with the call at the head of the file: a work-pool worker's

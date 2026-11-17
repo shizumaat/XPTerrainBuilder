@@ -30,20 +30,22 @@ import time
 from pathlib import Path
 
 
-def _load_flock():
+def _load_sibling(name: str, filename: str):
+    """A harness module beside this one, whatever ``sys.path`` holds."""
     import importlib.util as _ilu
     import sys as _sys
-    _m = _sys.modules.get("_o4_portable_flock")
+    _m = _sys.modules.get(name)
     if _m is None:
-        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portable_flock.py")
-        _s = _ilu.spec_from_file_location("_o4_portable_flock", _p)
+        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+        _s = _ilu.spec_from_file_location(name, _p)
         _m = _ilu.module_from_spec(_s)
-        _sys.modules["_o4_portable_flock"] = _m
+        _sys.modules[name] = _m
         _s.loader.exec_module(_m)
     return _m
 
 
-_flock = _load_flock()   # fcntl on POSIX, msvcrt on Windows (#92)
+# fcntl on POSIX, msvcrt on Windows (#92)
+_flock = _load_sibling("_o4_portable_flock", "portable_flock.py")
 
 #: THE shared data repo (owner ruling e9daef5).  Every lane mounts it; no
 #: lane redownloads or regenerates a cache into a private corpus.
@@ -1874,7 +1876,8 @@ def redirected_scopes(repo=None) -> set:
 
 def report_unauthorised_writes(changes: dict, requested: set,
                                prog=None, *, blocked=(),
-                               input_scope=None, redirected=None) -> list:
+                               input_scope=None, redirected=None,
+                               window=None, repo=None) -> list:
     """Every shared-repo write this build made outside an authorised scope.
 
     THE BACKSTOP.  :class:`SharedRepoWriteGuard` refuses these at the call
@@ -1910,8 +1913,18 @@ def report_unauthorised_writes(changes: dict, requested: set,
     passing no ``input_scope`` (and every caller that passes an EMPTY
     one) get the pre-2026-09-01 behaviour to the letter: every offender
     contaminates.  Read the split with :func:`contaminating_writes`.
+
+    THE APP'S CLEANUP (#2093, 2026-11-17).  ``window`` — the build's
+    ``(start, end)`` epoch seconds — reads the app's own ``logs/storage.log``
+    (``app_cleanup_log``): a delta whose path the app logged as deleted or
+    moved inside the window is external with reason ``app_cleanup``,
+    printed "external: app <reason>" — positive evidence from the author,
+    so the whole-run veto does not reach it.
     """
     prog = _PrintNotes if prog is None else prog
+    app_cleanup = {} if window is None else _load_sibling(
+        "_o4_app_cleanup_log", "app_cleanup_log.py").cleanup_paths(
+            Path(repo or DATA_REPO), *window)
     # A guard that blocked something is a whole-run veto on the label:
     # this build's code DID reach for the corpus, so nothing appearing in
     # its window may be handed to a hypothetical other process.
@@ -1955,6 +1968,7 @@ def report_unauthorised_writes(changes: dict, requested: set,
             off_redirect = scope in redirected and not stray
             off_python = (not any_blocked and not stray
                           and is_guarded_python_only_artifact(rel))
+            off_app = not stray and rel in app_cleanup
             offenders.append({"path": rel, "kind": kind, "scope": scope,
                               "stray_temporary": bool(stray),
                               "writer_pid": writer_pid,
@@ -1962,8 +1976,12 @@ def report_unauthorised_writes(changes: dict, requested: set,
                                   writer_pid == os.getpid()
                                   if writer_pid is not None else None),
                               "external_candidate": bool(
-                                  off_scope or off_redirect or off_python),
-                              "external_reason": ("redirected"
+                                  off_scope or off_redirect or off_python
+                                  or off_app),
+                              "app_cleanup": app_cleanup.get(rel),
+                              "external_reason": ("app_cleanup"
+                                                  if off_app else
+                                                  "redirected"
                                                   if off_redirect else
                                                   "guarded_python_only"
                                                   if off_python else
@@ -1999,7 +2017,16 @@ def report_unauthorised_writes(changes: dict, requested: set,
     # THE EXTERNAL-CANDIDATE HEADING — printed whenever there is one, and
     # printed BEFORE the verdict, because a reader who sees "UNCHANGED"
     # under a list of paths must be able to see why the paths are there.
+    app = [o for o in external if o.get("external_reason") == "app_cleanup"]
+    for reason in sorted({o["app_cleanup"] for o in app}):
+        mine_app = [o for o in app if o["app_cleanup"] == reason]
+        prog.note(f"   external: app {reason} — {len(mine_app)} path(s) the "
+                  f"app logged as deleted or moved in this build's window "
+                  f"(logs/storage.log), NOT a side effect of this build; e.g. "
+                  f"{mine_app[0]['kind']} {mine_app[0]['path']} (#2093)")
     for o in external:
+        if o in app:
+            continue
         if o.get("external_reason") == "guarded_python_only":
             prog.note(
                 f"   external-candidate delta (NAMED, not attributed to "

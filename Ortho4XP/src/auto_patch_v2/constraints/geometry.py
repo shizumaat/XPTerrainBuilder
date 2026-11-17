@@ -169,7 +169,7 @@ def rows_outside(cover, xy: _t.Sequence[XY], min_d: float,
             if i == 0 and j == n - 1:
                 continue
             xb, yb = xy[j]
-            if math.hypot(xa - xb, ya - yb) >= min_d:
+            if exact.hypot(xa - xb, ya - yb) >= min_d:
                 ii.append(i)
                 jj.append(j)
     if not ii:

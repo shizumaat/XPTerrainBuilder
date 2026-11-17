@@ -764,7 +764,8 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
                     ceil: _t.Mapping[int, float] | None = None,
                     upper: _t.Mapping[int, float] | None = None,
                     upper_cap: float | None = None,
-                    route_caps: _t.Mapping[int, float] | None = None
+                    route_caps: _t.Mapping[int, float] | None = None,
+                    shared: _t.Mapping[int, tuple[int, float]] | None = None
                     ) -> tuple[dict[int, float], dict[str, _t.Any]]:
     """OWNER RULINGS 2026-10-03b: THE RIBBON'S PROFILE, per route, from
     ``PlanarMap.road_terrace`` (``airport/road_ramp.road_terrace``) and
@@ -841,6 +842,18 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       its rows rise to).  On such a route ``cap`` reads that cap — the bare
       exit steepens toward it and a join's envelope is read at it — so the
       profile asks no more of the rows than they allow, and no less.
+
+    * THE SHARED NODE (owner 2026-11-17T16:38Z, #2122: "the road is only
+      anchored to the apron where it touches ... only the shared nodes take
+      the apron level"): ``shared`` is ``{v: (route, s)}`` for every road
+      vertex on a stage-1 pavement's ring (``road_terrace``'s ``shared``),
+      its level ``levels[v]``.  Every vertex of that route with a target
+      reaches each shared node inside ``clip(target, z_s - cap·d,
+      z_s + cap·d)`` (:func:`_shared_envelope`) — the cap's feasibility
+      envelope, as at a coverage join; a vertex it leaves alone keeps its
+      own row.  MEASURED LGAV ``small_roads:-780``: freed from apron
+      ``pav25``'s level, its own ceiling stood 3.4 m under the shared node
+      0.5 m away, and the relaxed hard set moved the apron 0.47 m.
 
     Returns ``{v: target}`` for every vertex it governs and the report."""
     foot = terrace.get("foot") or {}
@@ -975,6 +988,8 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
         rep["max_bare_grade"] = max(rep["max_bare_grade"], g)
         for d, v, fl in run:
             out[v] = min(max(fl, z_e - g * d), z_e + g * d)
+    rep["shared"] = _shared_envelope(shared or {}, levels, floor, station,
+                                     out, _cap, frozenset(rim))
     by_anchor: dict[int, list[tuple[float, float]]] = {}
     for v, za in anchors.items():
         if v in station:
@@ -1001,6 +1016,33 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
         # the ARRIVAL GAP: how far under its level the arm arrives (spec 2068 Q3)
         rep["upper_gap_m"] = round(min(gaps), 3)
     return out, rep
+
+
+def _shared_envelope(shared: _t.Mapping[int, tuple[int, float]],
+                     levels: _t.Mapping[int, float], floor: _t.Mapping[int, float],
+                     station: _t.Mapping[int, tuple[int, float]],
+                     out: dict[int, float], cap_of: _t.Callable[[int], float],
+                     skip: _t.AbstractSet[int]) -> int:
+    """Clip every target of a route with SHARED NODES into each node's
+    cap envelope (:func:`terrace_profile`'s ``shared``), in place in
+    ``out``; returns how many targets it changed."""
+    ends: dict[int, list[tuple[float, float]]] = {}
+    for v, (r, s_) in shared.items():
+        if v in levels:
+            ends.setdefault(int(r), []).append((float(s_), float(levels[v])))
+    n = 0
+    for v, (r, s_) in station.items():
+        if int(r) not in ends or v in skip or (v not in out and v not in floor):
+            continue
+        z0 = out.get(v, floor.get(v))
+        t, cr = float(z0), cap_of(r)
+        for sa, za in ends[int(r)]:
+            d = abs(float(s_) - sa)
+            t = min(max(t, za - cr * d), za + cr * d)
+        if abs(t - float(z0)) > 1e-9:
+            out[v] = t
+            n += 1
+    return n
 
 
 def _steep_route_caps(planar: PlanarMap, law: Law,
@@ -1081,7 +1123,8 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         lane=float(law.tables.emit.road_profile.lane_width_m), ceil=ceil,
         upper=_upper_levels(planar, law, terr.get("level") or {}, levels),
         upper_cap=float(law.tables.emit.road_contact.upper_pad_road_grade),
-        route_caps=_steep_route_caps(planar, law, terr["station"]))
+        route_caps=_steep_route_caps(planar, law, terr["station"]),
+        shared=terr.get("shared") or {})
     # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
     # row.  Inside a RUNWAY's band it gets NO terrace target: a road there
     # beats the band at or below the band's grade (owner 2026-10-19, #951 —

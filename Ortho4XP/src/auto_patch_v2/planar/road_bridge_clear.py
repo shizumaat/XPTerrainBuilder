@@ -13,7 +13,7 @@ the bridge's span gone, so a real bridge read as 2.3 m (ESSA ``-55``, a
 20 m to the plateau).  The clearance now comes from BOTH sides, split as
 the survey shows it:
 
-* THE ENDS STAND ON THE EMBANKMENTS THE SURVEY SHOWS (:func:`end_level`):
+* THE ENDS STAND ON THE EMBANKMENTS THE SURVEY SHOWS (:func:`_end_level`):
   along each road leaving an end (or the bridge's axis run on) out to
   ``approach_probe_m``, the end stands as high as the survey there less the
   road's grade cap back to the end -- ``max(z(t) - cap * t)`` -- so an
@@ -22,7 +22,7 @@ the survey shows it:
   along the approach to that crest (:func:`_chain`): its level-0 junction
   drapes on the embankment the survey already carries -- no fill is
   invented (the span is a hole the base mesh fills from the survey).
-* THE DECK runs straight between the two end levels (:func:`deck_at`); the
+* THE DECK runs straight between the two end levels (:func:`_deck_at`); the
   X-Plane chain's level-1 junctions ride over it.
 * THE LOWER ROADS ARE CUT by what is still short: at each crossing the
   deficit ``clearance_minimum_m - (deck - survey)`` is cut out of the lower
@@ -53,7 +53,7 @@ from shapely.ops import substring
 from ..law.tables import role_cap
 from .structure_approach import carriageway_width_m
 
-__all__ = ["ClearancePlan", "clearance_plan", "end_level", "deck_at", "witnessed"]
+__all__ = ["ClearancePlan", "clearance_plan", "witnessed"]
 
 #: the spacing of the approach probe (metres)
 _PROBE_STEP_M = 2.0
@@ -110,7 +110,7 @@ def _approaches(line: LineString, k: int, roads, reach: float) -> list[LineStrin
     return [LineString([(x1, y1), (x1 + (x1 - x0) / n * reach, y1 + (y1 - y0) / n * reach)])]
 
 
-def end_level(dem, approaches, cap: float) -> tuple[float, "LineString | None", float]:
+def _end_level(dem, approaches, cap: float) -> tuple[float, "LineString | None", float]:
     """``(level, approach, knee station)``: the end on its embankment (module
     doc) -- ``max(z(t) - cap * t)`` over every approach's probe stations
     (``t`` = 0 the mapped end) -- and the approach and station it is read
@@ -133,7 +133,7 @@ def end_level(dem, approaches, cap: float) -> tuple[float, "LineString | None", 
     return best
 
 
-def deck_at(levels: tuple[float, float], length: float, s: float) -> float:
+def _deck_at(levels: tuple[float, float], length: float, s: float) -> float:
     """The deck's level ``s`` along a bridge ``length`` long, straight
     between its two end levels."""
     w = 0.0 if length <= 1e-9 else min(1.0, max(0.0, s / length))
@@ -192,7 +192,7 @@ def clearance_plan(airport, law, w, line: LineString, lower) -> "ClearancePlan |
         if raw is None:
             return None
         aps = _approaches(line, k, roads, float(rg.approach_probe_m))
-        level, ap, knee = end_level(dem, aps, cap)
+        level, ap, knee = _end_level(dem, aps, cap)
         if ap is None or level - raw > clear:
             # a rise past the clearance it would serve is no embankment: a
             # structure or a terrace the survey carries (MEASURED EDDF: the
@@ -208,7 +208,7 @@ def clearance_plan(airport, law, w, line: LineString, lower) -> "ClearancePlan |
         if zq is None:
             continue
         s = line.project(q)
-        deck = deck_at((levels[0], levels[1]), line.length, s)
+        deck = _deck_at((levels[0], levels[1]), line.length, s)
         best = max(best, deck - zq)
         crossings.append((wid, s, zq, clear - (deck - zq)))
         if 0.0 < clear - (deck - zq) <= (1.0 - float(rg.witness_share)) * clear:

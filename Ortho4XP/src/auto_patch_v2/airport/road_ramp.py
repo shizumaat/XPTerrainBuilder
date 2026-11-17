@@ -146,27 +146,18 @@ def deck_refs(pm: PlanarMap) -> frozenset[str]:
     return frozenset(d.ref for tn in pm.structures for d in tn.decks)
 
 
-def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law,
-           own_cut: bool = False) -> dict[int, str]:
+def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str]:
     """Vertex -> its senior role, for every vertex a road face OWNS (the
     ``road_profile.road_family_vertices`` rule, scoped to the road family:
     a vertex shared with an apron or taxiway is the AIRSIDE surface's and
-    is a CONTACT, not a road vertex).  ``own_cut``: a ribbon vertex standing
-    in a road's own zone-2 cut is owned too (the ramp TARGETS read it,
-    #2121); the terrace and the between-levels road read it as before."""
+    is a CONTACT, not a road vertex)."""
     decks = deck_refs(pm)
     out: dict[int, str] = {}
     on_deck: set[int] = set()
     # 30e (4): the kerb a mapped-road ribbon shares with a zone band is
-    # the BAND's (29r: the band leads) — no ramp target, no ceiling on it.
-    # A ROAD IN ITS OWN CUT THROUGH ZONE 2 KEEPS ITS TARGET (#2121; owner
-    # RULINGS 2026-10-20c (39): it follows its own ground): the band shares
-    # no vertex with it and caps it from above only (``zones.zone_bands``,
-    # ``constraints/cut_kerb``); untargeted, the objective alone held it —
-    # MEASURED KLAX road beside 33.94757, -118.39978, 0.89 m under its DEM
-    # with no row binding it
+    # the BAND's (29r: the band leads) — no ramp target, no ceiling on it
     from ..law.tables import airside_stage_roles as _asr
-    kerb = pm.band_kerb_vertices(_asr(law), cut=not own_cut)   # never a pavement rim (#100 r4)
+    kerb = pm.band_kerb_vertices(_asr(law))      # never a pavement rim (#100 r4)
     for fid, f in pm.faces.items():
         if f.role not in roads:
             continue
@@ -184,6 +175,41 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law,
     # ring vertices ARE the corridor rim's — ``constraints/structures.py``)
     for v in on_deck:
         out.pop(v, None)
+    return out
+
+
+#: #2121: the reach over which a zone-2 cut kerb's own ground is averaged
+#: (about a carriageway's width: both kerbs of the section)
+CUT_GROUND_M = 15.0
+
+
+def _cut_kerb_ground(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float]
+                    ) -> dict[int, float]:
+    """``{v: DEM}`` over the ribbon vertices standing in a road's own zone-2
+    cut that carry no target (#2121, the caller's comment): the zone-2 cut
+    kerb (``PlanarMap.band_kerb_vertices`` less the shared kerb), on a road
+    face that is no deck.  The ground is the mean DEM of the cut kerb within
+    :data:`CUT_GROUND_M` — both kerbs of the section and the stretch along
+    it, as the route's own DEM is read along the road and never under one
+    kerb (MEASURED KBUF ``big_roads:-6682``: kerb DEM 198.5 m among 202 m
+    neighbours, a ditch pixel, sank the road 2.5 m)."""
+    from ..law.tables import airside_stage_roles as _asr
+    cut = pm.band_kerb_vertices(_asr(law)) - pm.band_kerb_vertices(_asr(law), cut=False)
+    if not cut:
+        return {}
+    roads, decks = _road_roles(law), deck_refs(pm)
+    on_road = {v for f in pm.faces.values() if f.role in roads and f.ref not in decks
+               for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+    ground = {v: float(pm.vertices[v].dem_z) for v in cut & on_road
+              if pm.vertices[v].dem_z is not None and math.isfinite(float(pm.vertices[v].dem_z))}
+    out: dict[int, float] = {}
+    for v in sorted(ground):
+        if v in targets:
+            continue
+        x, y = pm.vertices[v].xy
+        near = [z for u, z in ground.items()
+                if math.hypot(pm.vertices[u].xy[0] - x, pm.vertices[u].xy[1] - y) <= CUT_GROUND_M]
+        out[v] = sum(near) / len(near)
     return out
 
 
@@ -869,7 +895,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     vertex itself is held at the top by ``constraints/deck_stack``).
     """
     roads = _road_roles(law)
-    owned = _owned(pm, roads, law, own_cut=True)
+    owned = _owned(pm, roads, law)
     mouths = _contacts(pm, roads, law)
     mouths = {v: z for v, z in mouths.items() if v not in owned}
     # RULINGS 2026-10-20d (round 3 D3): a mouth on a LANDING is at its highest
@@ -2300,6 +2326,13 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         pm, law, frame, targets, route_ways, pub_routes)
     if report is not None:
         report["junction_joints"] = joint_rep
+    # #2121: a road in its own cut through zone 2 follows its own ground
+    # (owner RULINGS 2026-10-20c (39)) — its ribbon vertices there are the
+    # band's kerb, no route owns them and no target reached them, so the
+    # objective alone held them (MEASURED KLAX 33.94757, -118.39978: 0.89 m
+    # under the DEM, no row binding).  Each takes its own ground; the band's
+    # ceiling caps it between the stages (``constraints/cut_kerb``)
+    targets = {**_cut_kerb_ground(pm, law, targets), **targets}
     lifted = public_road_lifts(pm, law, public_road_faces(pm, law, airport), targets)
     if report is not None:
         report["public_road_lifted"] = len(lifted)

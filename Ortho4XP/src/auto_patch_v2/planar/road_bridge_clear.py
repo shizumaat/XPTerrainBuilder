@@ -57,8 +57,8 @@ from shapely.geometry import LineString, Point
 from shapely.ops import substring
 
 from ..law.tables import role_cap
-from .structure_approach import carriageway_width_m, design_clearance_m
 from ..model.road_clearance import deck_at
+from .structure_approach import carriageway_width_m, design_clearance_m
 
 __all__ = ["ClearancePlan", "clearance_plan", "deck_at", "witnessed",
            "span_cuts"]

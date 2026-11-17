@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from shapely.geometry import LineString
 
-from .deck_signature import is_bridge_way, is_tunnel_way
 from ..model.road_clearance import mapped_width_m
+from .deck_signature import is_bridge_way, is_tunnel_way
 
 __all__ = ["road_ways", "mapped_width_m", "ribbon_half_width_m"]
 

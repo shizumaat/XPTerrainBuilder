@@ -453,5 +453,10 @@
   "path": "Ortho4XP/src/auto_patch_v2/airport/pack_overlap_choice.py",
   "name": "kept_rows",
   "reason": "#2145/#2144: the winning pack's overlapping rows, the input the overlay re-seat (#2144, lane l2144) reads to fit the kept structures to the terrain; that caller lands on its own branch"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/sunk_frame.py",
+  "name": "SunkReading",
+  "reason": "return type of the module's public reader sunk_wall (wall_class reads its fields, never names it); listed in __all__ (lkatlWF2, ldeck3)"
  }
 ]

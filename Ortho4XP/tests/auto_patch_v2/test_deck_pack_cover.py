@@ -122,3 +122,34 @@ def test_a_faked_cut_under_a_deck_is_named_and_hidden_in_the_pack_copy():
     assert counts["hidden"] == 1
     assert "OBJECT_DEF Digging/Test.obj" in text and "OBJECT 1 -112.004276046" in text
     assert "OBJECT 0 -112.004276046" not in text and "OBJECT 0 -112.100000000" in text
+
+
+def _beside_refusal(deck, road=ROAD, reach=120.0) -> str:
+    """(c) RULINGS 2026-11-17n: a pack hard deck ``deck`` (frame plan) beside
+    PIECE, the covered road's mapped line ``road``."""
+    o, g = _obj("hd", _geom([_quad(0.0, 5.0)]), hard_deck=deck)
+    o.plan_bbox = deck.envelope
+    cache = types.SimpleNamespace(geometry=lambda r: g)
+    packs = pack_decks_near([o], cache, LAW, PIECE.buffer(reach))
+    return pack_refusal(PIECE, [ROAD], packs, LAW, lambda _i: "", [road], reach)
+
+
+def test_a_hard_deck_touching_the_ring_refuses_it():
+    """LPMA: the pack draws the platform beside the runway; a hard deck
+    within the ring's growth (bearing + edge margin, 3.5 m) abuts it."""
+    assert "abuts it (3.0 m" in _beside_refusal(box(23, -40, 60, 40),
+                                                LineString([(0, 30), (1, 30)]))
+
+
+def test_a_hard_deck_over_the_covered_road_within_the_approach_run_refuses_it():
+    """LPMA ``-23``: the road under the generated piece runs on 105 m under
+    ``runway23_area``'s hard deck 11.45 m beside it."""
+    why = _beside_refusal(box(31.5, -40, 200, 40), LineString([(-60, 0), (400, 0)]))
+    assert "runs 108 m on under the pack's hard deck hd" in why and "11.5 m beside" in why
+
+
+def test_a_hard_deck_beside_it_over_another_road_or_beyond_the_run_leaves_it_ours():
+    off_road = box(31.5, 10, 200, 40)                   # beside, not over the road
+    assert _beside_refusal(off_road) == ""
+    far = box(150, -40, 300, 40)                         # over the road, past the run
+    assert _beside_refusal(far, LineString([(-60, 0), (400, 0)])) == ""

@@ -15,7 +15,10 @@ lights all run along the taxiway, #2141 (1)); then:
   (``deck_line_art``), the expansion joints across the ends, and the
   named lights (``deck_paint.light_names``);
 * the RUBBER overlay: the rubber page's centre band, a strip along the
-  route.
+  route;
+* the RUNWAY MARKINGS overlay of a deck over a row-100 runway
+  (``deck_runway_marks``: the runway's marks that fall on the deck, in
+  the marking atlas of X-Plane's page for the runway's surface).
 
 Where the install resolves nothing, one object on the generated atlas
 (``deck_texture``) as before.  Nothing here names an airport.
@@ -137,28 +140,44 @@ def _top_fn(rec: _t.Mapping, frame: DeckFrame):
 class _Art(_t.NamedTuple):
     """What the install draws decks with: ``slab(page) -> PageArt | None``
     (cached), the ``lines`` pages by apt.dat type, the ``rubber`` page,
-    and ``links`` (pack path -> install file) filled as art is used."""
+    ``links`` (pack path -> install file) filled as art is used,
+    ``marks(page) -> marking atlas | None`` (cached: a runway page's marking
+    art) and ``files`` (pack path -> bytes) filled as marking art is used."""
 
     slab: _t.Callable[[str], _t.Any]
     lines: dict
     rubber: _t.Any
     links: dict
+    marks: _t.Callable[[str], _t.Any]
+    files: dict
 
 
 def install_art(g, root: "str | None", resolve) -> _Art:
     """The install's art for decks (``deck_skin``, ``deck_line_art``);
     nothing resolves when ``root`` is falsy."""
     from . import deck_line_art as _lines
+    from . import deck_runway_marks as _marks
     from . import deck_skin as _skin
     resolve = _skin.laminar_first(resolve) if root else resolve
     cache: dict = {}
+    mcache: dict = {}
 
     def slab(page: str):
         if page not in cache:
             cache[page] = _skin.page_art(page, root, resolve) if root else None
         return cache[page]
+
+    def marks(page: str):
+        if page not in mcache:
+            try:
+                pol = resolve(page, root) if root and resolve is not None else None
+            except (OSError, ValueError):
+                pol = None
+            mcache[page] = _marks.read_atlas(pol)
+        return mcache[page]
     return _Art(slab, _lines.line_pages(str(g.line_lib), root, resolve) if root else {},
-               _skin.page_art(str(g.rubber_pol), root, resolve) if root else None, {})
+               _skin.page_art(str(g.rubber_pol), root, resolve) if root else None, {},
+               marks, {})
 
 
 def _link(art: _Art, path: str) -> str:
@@ -319,12 +338,13 @@ def _film_material(art: _Art, page, metalness: bool) -> list[str]:
     return out + ["GLOBAL_specular 1"]
 
 
-def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int | None" = None
-                 ) -> tuple[list[tuple[str, str]], dict]:
+def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int | None" = None,
+                 runway=None) -> tuple[list[tuple[str, str]], dict]:
     """``([(pack path, OBJ8 text)], stats)`` of one deck (module doc):
     ``dropped`` its dropped apt.dat lines (``apt_flatten``), ``art`` the
     install's (:func:`install_art`), ``g`` the ``[deck_gen]`` law,
-    ``surface_code`` the apt.dat surface it carries."""
+    ``surface_code`` the apt.dat surface it carries, ``runway`` the row-100
+    runway under it (``apt_dat.AptRunway``) or ``None``."""
     frame = _deck_frame(rec, dropped)
     R = transform(lambda x, y, _z=None: frame.to_local(x, y), ring_polygon(rec["ring"]))
     top_y = _top_fn(rec, frame)
@@ -362,6 +382,10 @@ def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int |
         out.append((rel[:-4] + "_paint.obj", paint))
     strips = _rubber(R, _centreline(pieces) or route_xy, art.rubber, g) \
         if art.rubber is not None else []
+    marks = _runway_marks(runway, R, frame, top_y, art, g, lod, comments, stats) \
+        if runway is not None else ""
+    if marks:
+        out.append((rel[:-4] + "_marks.obj", marks))
     if strips:
         out.append((rel[:-4] + "_rubber.obj",
                     overlay_obj8_text(top_y, texture=_link(art, art.rubber.albedo), strips=strips,
@@ -394,4 +418,30 @@ def _paint_overlay(pieces, joints, lights, top_y, art: _Art, g, lod, comments, s
     if not lines and not lights:
         return ""
     return overlay_obj8_text(top_y, texture=TEXTURE, lines=lines, lights=lights, lod_m=lod,
-                             comments=comments)
+                             comments=comments, poly_os=3)
+
+
+def _runway_marks(runway, R: Polygon, frame: DeckFrame, top_y, art: _Art, g, lod, comments,
+                  stats: dict) -> str:
+    """The runway-markings overlay (``deck_runway_marks``): the marks of
+    ``runway`` that fall on the deck, in the marking art of X-Plane's page
+    for its surface; ``""`` when none falls or the install has no art."""
+    from . import deck_runway_marks as _rm
+    from .deck_pavement import surface_page
+    page = surface_page(int(runway.surface), "runway")
+    atlas = art.marks(page) if page else None
+    if atlas is None:
+        return ""
+    (_d0, la0, lo0, disp0, _o0), (_d1, la1, lo1, disp1, _o1) = runway.ends
+    e0, e1 = frame.to_local(lo0, la0), frame.to_local(lo1, la1)
+    length = math.hypot(e1[0] - e0[0], e1[1] - e0[1])
+    marks = _rm.runway_marks(float(runway.width_m), length, (float(disp0), float(disp1)),
+                             tuple(int(c) for c in runway.markings))
+    decals = _rm.deck_decals(marks, e0, e1, R, float(g.paint_lift_m))
+    stats["runway_marks"] = len(decals)
+    if not decals:
+        return ""
+    art.files[f"{GENERATED_DIR}/{atlas.name}"] = atlas.png
+    return overlay_obj8_text(top_y, texture=atlas.name, decals=decals, lod_m=lod,
+                             comments=comments, poly_os=3,
+                             material=["WEATHER_TRANSPARENT", "GLOBAL_specular 1"])

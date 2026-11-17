@@ -45,7 +45,7 @@ from shapely.geometry.polygon import orient
 
 from . import deck_texture as _tex
 
-__all__ = ["DeckFrame", "DeckLine", "DeckLight", "DeckSkin", "DeckStrip",
+__all__ = ["DeckFrame", "DeckLine", "DeckLight", "DeckSkin", "DeckStrip", "DeckDecal",
            "DECK_MARK",
            "deck_obj8_text", "overlay_obj8_text"]
 
@@ -313,6 +313,24 @@ class DeckStrip:
     mirror_v: bool = False
 
 
+@_dc.dataclass(frozen=True)
+class DeckDecal:
+    """Textured triangles on the top (a runway marking clipped to the
+    deck): ``tris`` each three ``(x, z, u, v)`` corners, standing
+    ``lift_m`` over the top."""
+
+    tris: tuple[tuple[tuple[float, float, float, float], ...], ...]
+    lift_m: float = 0.0
+
+
+def _decal(m: _Mesh, d: DeckDecal, top_y) -> None:
+    """One :class:`DeckDecal`, facing up."""
+    for tri in d.tris:
+        ids = [m.vertex((x, top_y(x, z) + d.lift_m, z), (0.0, 1.0, 0.0), (u, v))
+               for x, z, u, v in tri]
+        m.tri(ids[0], ids[1], ids[2], (0.0, -1.0, 0.0))
+
+
 def _stations(points: _t.Sequence[XY], v_scale: float, mirror: bool
               ) -> list[tuple[float, float, float]]:
     """``(x, z, s)`` along ``points``, with a station at every repeat
@@ -474,20 +492,24 @@ def overlay_obj8_text(top_y: _t.Callable[[float, float], float], *, texture: str
                       lines: _t.Sequence[DeckLine] = (),
                       strips: _t.Sequence[DeckStrip] = (),
                       lights: _t.Sequence[DeckLight] = (),
+                      decals: _t.Sequence[DeckDecal] = (),
                       light_lift_m: float = 0.05,
                       lod_m: tuple[float, float] = (0.0, 6000.0),
                       comments: _t.Sequence[str] = (),
                       material: _t.Sequence[str] = ()) -> str:
     """The OBJ8 text of a deck's OVERLAY (#2132): the painted ``lines``
     (``texture`` the ``deck_texture`` atlas) or the ``strips`` (one
-    texture's film: the rubber, X-Plane's line art),
-    never hard, never casting a shadow, standing each strip's / line's
-    lift over the slab (no ``ATTR_poly_os``: an OBJ is not draped) --
-    placed at the deck's own anchor, in its frame.  ``material``: the
-    header rows after ``TEXTURE`` (the page's normal map)."""
+    texture's film: the rubber, X-Plane's line art) or the ``decals``
+    (the runway markings),
+    never hard, never casting a shadow, drawn over the slab under
+    ``ATTR_poly_os poly_os`` -- placed at the deck's own anchor, in its
+    frame.  ``material``: the header rows after ``TEXTURE`` (the page's
+    normal map, decal, ``WEATHER_TRANSPARENT``)."""
     m = _Mesh()
     for st in strips:
         _strip(m, st, top_y)
+    for d in decals:
+        _decal(m, d, top_y)
     _paint(m, lines, top_y)
     body = [f"ATTR_LOD {lod_m[0]:g} {lod_m[1]:g}", "ATTR_no_hard"]
     if m.idx:

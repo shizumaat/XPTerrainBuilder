@@ -142,7 +142,7 @@ def _end_level(dem, approaches, cap: float) -> tuple[float, "LineString | None",
     return best
 
 
-def deck_at(levels: tuple[float, float], length: float, s: float) -> float:
+def _deck_at(levels: tuple[float, float], length: float, s: float) -> float:
     """The deck's level ``s`` along a bridge ``length`` long, straight
     between its two end levels."""
     w = 0.0 if length <= 1e-9 else min(1.0, max(0.0, s / length))
@@ -265,7 +265,7 @@ def clearance_plan(airport, law, w, line: LineString, lower) -> "ClearancePlan |
         if zq is None:
             continue
         s = line.project(q)
-        deck = deck_at((levels[0], levels[1]), line.length, s)
+        deck = _deck_at((levels[0], levels[1]), line.length, s)
         best = max(best, deck - zq)
         c = design_clearance_m(otags, law)
         crossings.append((wid, s, zq, c - (deck - zq), c))

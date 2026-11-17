@@ -20,12 +20,22 @@ from ..model.structures import Deck
 from ..airport.dem import dem_z_at
 from .channel_geometry import _lidar_floor
 
-__all__ = ["channel_floor", "DATUM_PACK", "DATUM_LIDAR", "DATUM_CLEARANCE"]
+__all__ = ["channel_floor", "visible_rejoined", "DATUM_PACK", "DATUM_LIDAR", "DATUM_CLEARANCE"]
 
 #: §45 (3): the three floor DATUM sources, in the ruled precedence.
 DATUM_PACK = "pack"            # (i)   the pack's floor plates along the axis
 DATUM_LIDAR = "lidar"          # (ii)  a CREDIBLE lidar inset's DTM floor
 DATUM_CLEARANCE = "clearance"  # (iii) deck top - bridge.clearance_m
+
+
+def visible_rejoined(airport: Airport, law: Law, axis_ln, axis_fn, visible
+                     ) -> tuple[tuple[float, float], ...]:
+    """A visible cut's floor profile with its ends rejoined to the road
+    running on (``planar/channel_depth.rejoin``, §45 (16))."""
+    from .channel_depth import rejoin
+    return rejoin(tuple(visible), axis_ln.length, lambda s: dem_z_at(airport, axis_fn(s)),
+                  law.tables.structures.tunnel.ramp_max_grade,
+                  law.tables.structures.channel.corridor_min_length_m)
 
 
 def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_ln,
@@ -61,12 +71,9 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
     crest_est = (sum(good) / len(good)) if good else float("nan")
 
     if visible:
-        from .channel_depth import rejoin
         for c in grp:
             c.witnesses.add("pack")
-        visible = rejoin(tuple(visible), axis_ln.length,
-                         lambda s: dem_z_at(airport, axis_fn(s)), tn.ramp_max_grade,
-                         ch.corridor_min_length_m)
+        visible = visible_rejoined(airport, law, axis_ln, axis_fn, visible)
         zs = [z for _s, z in visible]
         stats.notes.append(f"{cid}: floor from the visible cut (§45 (3) (i), 2026-11-06d (6)) "
                            f"— the bottoms of the pack's members lying on it, "

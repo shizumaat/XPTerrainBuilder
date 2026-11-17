@@ -1434,7 +1434,8 @@ def channel_facilities(planar: PlanarMap, law: Law,
     ``ledge_pins`` ``[[lat, lon, z], ...]`` and ``member_feet`` ``[[lat, lon,
     authored y, placement id, kind], ...]`` (spec object-gate-member-floors
     §4.6; a ledge foot whose crest vertex a governed cell shares is
-    ``unmet``) — the drawn gate's FEET row."""
+    ``unmet``) — the drawn gate's FEET row — and its exit ramps ``ramps``
+    (#2127 R3, :func:`_ramps`)."""
     out: list[dict[str, _t.Any]] = []
     chans = getattr(planar, "channels", ())
     if not chans:
@@ -1475,6 +1476,22 @@ def channel_facilities(planar: PlanarMap, law: Law,
             "notes": list(c.notes)})
         if airport is not None and getattr(c, "member_feet", ()):
             out[-1].update(_member_feet(planar, law, c, airport.frame.transformers()[1]))
+        if airport is not None and getattr(c, "ramps", ()):
+            out[-1]["ramps"] = _ramps(c, airport.frame.transformers()[1])
+    return out
+
+
+def _ramps(c, to_ll) -> list[dict]:
+    """#2127 R3 A4: a channel's exit ramps — each floor part's ``ref``, its
+    long section ``stations_ll`` ``[[lat, lon, z], ...]`` (bottom first: the
+    stations ``geom/channel_declared.declared_floor_z`` reads) and its plan."""
+    out = []
+    for r in c.ramps:
+        out.append({"ref": r.ref, "source": r.source,
+                    "ways": [[k, int(i)] for k, i in r.way_keys],
+                    "stations_ll": [[*(round(v, 8) for v in to_ll(x, y)), round(float(z), 3)]
+                                    for x, y, z in r.stations],
+                    "ring_ll": [[round(v, 8) for v in to_ll(x, y)] for x, y in r.ring]})
     return out
 
 

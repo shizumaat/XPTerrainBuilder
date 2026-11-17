@@ -57,7 +57,8 @@ from .channel_geometry import (_across, _bank_toe_half, _bank_width, _deck_ring,
                                _walls_half)
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
 from .channel_floor import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
-                            channel_floor as _floor)
+                            channel_floor as _floor, visible_rejoined)
+from .channel_ramp import crest_with_ramps, exit_ramps
 from .channel_stretch import witnessed_stretch
 from .channel_strip import strip_refusal, strips_crossed
 from .channel_depth import VisibleFloor, crest_through_feet, extend_axis
@@ -761,53 +762,74 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     else:
         stats.datum_clearance += 1
 
-    # 2026-11-06d (6): the visible cut's members state the floor's edge and
-    # the crest at every station (``planar/channel_depth.VisibleFloor.sides``)
-    halves = crests = None
-    pins = feet = rings = ()
-    if vis.feet is not None and witness_name == "visible cut":
-        halves, crests, pins, feet, rings = vis.sides(
-            profile, axis_fn, half_base, cap, tn.wall_gap_m + tn.wall_band_width_m,
-            ch.corridor_min_length_m, ch.foot_margin_m)
-        widths = tuple((float(s), max(a, b)) for s, a, b in zip(ss, *halves, strict=True))
-        half_at, width_src = max(h for _s, h in widths), "the visible cut (2026-11-06d (6))"
-    # ── (5) THE WALLS: crest = the DESIGN surface, shape witness-first ──
-    left, right = _sides(axis_fn, ss, *(halves or (half_at,)))
-    walls = (ChannelWall("left", wall_shape, CREST_DESIGN, tuple(left), tuple(left),
-                         witness_name),
-             ChannelWall("right", wall_shape, CREST_DESIGN, tuple(right), tuple(right),
-                         witness_name))
-    region = tuple(left) + tuple(reversed(right))
-    # the bank's plan run at each station: (crest − floor) / bank_slope,
-    # sized off the DEM ONLY to give the mesh room — the crest's VALUE is
-    # the solved surface (§45 (5)), stated by ``constraints/channel.py``.
-    #
-    # §45 (17) THE FLOOR AND THE AIRSIDE SURFACE NEVER SHARE A VERTEX
-    # (Fable 2026-09-16; owner RULINGS 2026-09-15bo).  The band between
-    # the floor and every airside / adjacent-ground cell is the channel's
-    # OWN, exactly as a bore's is: it is never thinner than the bore's
-    # ``[tunnel] wall_gap_m + wall_band_width_m`` stand-off, the one
-    # ``planar/structures`` mints its ``retaining_wall`` void with
-    # (``rim_off`` there).  The KDFW measurement this answers: 378
-    # ``channel_floor_at_declaration`` rows, worst 12.626 m, all
-    # ``pavement_ceiling`` on vertices the floor SHARED with an airside
-    # cell (v14070: cross_connector / retaining_wall / tunnel_trench,
-    # 169.40 against 182.28 over ~23 m) — an infeasible hard set by
-    # construction, not a solver failure.  ``channel_cells`` stands the
-    # floor back from every DECK by the same band, so a deck's airside
-    # faces meet the band's CREST and never the floor.
-    # §45 (19): where the lidar states the bank, its PLAN RUN is measured
-    # — toe to top — and not inferred from ``bank_slope``; the corridor
-    # edge (the crest ring) then lands at the top, which at KDFW is the
-    # taxiway bridges' own span.
-    bank = max(_bank_width(airport, axis_fn, ss, profile, ch.bank_slope, wall_shape,
-                           law.tables.emit.identity.min_distinct_spacing_m),
-               toe_top - half_at if wall_shape == "lidar" else 0.0,
-               tn.wall_gap_m + tn.wall_band_width_m)
-    lo, ro = _sides(axis_fn, ss, *(crests or (half_at + bank,)))
-    if rings:   # the crest runs through each pinned ledge foot (#1918)
-        lo, ro = crest_through_feet(lo, rings[0]), crest_through_feet(ro, rings[1])
-    crest_ring = tuple(lo) + tuple(reversed(ro))
+    def shape(profile, widths, half_at, width_src):
+        """The corridor over ``profile``: its edges, walls, region, bank and
+        crest (run again when an exit ramp's feet leave the floor)."""
+        # 2026-11-06d (6): the visible cut's members state the floor's edge and
+        # the crest at every station (``planar/channel_depth.VisibleFloor.sides``)
+        halves = crests = None
+        pins = feet = rings = ()
+        if vis_ok:
+            halves, crests, pins, feet, rings = vis.sides(
+                profile, axis_fn, half_base, cap, tn.wall_gap_m + tn.wall_band_width_m,
+                ch.corridor_min_length_m, ch.foot_margin_m)
+            widths = tuple((float(s), max(a, b)) for s, a, b in zip(ss, *halves, strict=True))
+            half_at, width_src = max(h for _s, h in widths), "the visible cut (2026-11-06d (6))"
+        # ── (5) THE WALLS: crest = the DESIGN surface, shape witness-first ──
+        left, right = _sides(axis_fn, ss, *(halves or (half_at,)))
+        walls = (ChannelWall("left", wall_shape, CREST_DESIGN, tuple(left), tuple(left),
+                             witness_name),
+                 ChannelWall("right", wall_shape, CREST_DESIGN, tuple(right), tuple(right),
+                             witness_name))
+        region = tuple(left) + tuple(reversed(right))
+        # the bank's plan run at each station: (crest − floor) / bank_slope,
+        # sized off the DEM ONLY to give the mesh room — the crest's VALUE is
+        # the solved surface (§45 (5)), stated by ``constraints/channel.py``.
+        #
+        # §45 (17) THE FLOOR AND THE AIRSIDE SURFACE NEVER SHARE A VERTEX
+        # (Fable 2026-09-16; owner RULINGS 2026-09-15bo).  The band between
+        # the floor and every airside / adjacent-ground cell is the channel's
+        # OWN, exactly as a bore's is: it is never thinner than the bore's
+        # ``[tunnel] wall_gap_m + wall_band_width_m`` stand-off, the one
+        # ``planar/structures`` mints its ``retaining_wall`` void with
+        # (``rim_off`` there).  The KDFW measurement this answers: 378
+        # ``channel_floor_at_declaration`` rows, worst 12.626 m, all
+        # ``pavement_ceiling`` on vertices the floor SHARED with an airside
+        # cell (v14070: cross_connector / retaining_wall / tunnel_trench,
+        # 169.40 against 182.28 over ~23 m) — an infeasible hard set by
+        # construction, not a solver failure.  ``channel_cells`` stands the
+        # floor back from every DECK by the same band, so a deck's airside
+        # faces meet the band's CREST and never the floor.
+        # §45 (19): where the lidar states the bank, its PLAN RUN is measured
+        # — toe to top — and not inferred from ``bank_slope``; the corridor
+        # edge (the crest ring) then lands at the top, which at KDFW is the
+        # taxiway bridges' own span.
+        bank = max(_bank_width(airport, axis_fn, ss, profile, ch.bank_slope, wall_shape,
+                               law.tables.emit.identity.min_distinct_spacing_m),
+                   toe_top - half_at if wall_shape == "lidar" else 0.0,
+                   tn.wall_gap_m + tn.wall_band_width_m)
+        lo, ro = _sides(axis_fn, ss, *(crests or (half_at + bank,)))
+        if rings:   # the crest runs through each pinned ledge foot (#1918)
+            lo, ro = crest_through_feet(lo, rings[0]), crest_through_feet(ro, rings[1])
+        crest_ring = tuple(lo) + tuple(reversed(ro))
+        return widths, half_at, width_src, pins, feet, walls, region, bank, crest_ring
+
+    vis_ok = vis.feet is not None and witness_name == "visible cut"
+    base = (widths, half_at, width_src)
+    widths, half_at, width_src, pins, feet, walls, region, bank, crest_ring = shape(profile, *base)
+    # #2127 R3 Part A: a road leaving through a wall climbs on a ramp part of
+    # the floor (``planar/channel_ramp``); its pack run's feet are no floor feet
+    ramps, ramp_rows, ramp_notes = exit_ramps(airport, law, cid, axis_ln, ends, profile,
+                                              region, crest_ring, bank, vis if vis_ok else None)
+    raw = vis.without_ramp_feet(ramp_rows) if ramp_rows else None
+    if raw is not None:
+        profile = visible_rejoined(airport, law, axis_ln, axis_fn, raw)
+        widths, half_at, width_src, pins, feet, walls, region, bank, crest_ring = shape(
+            profile, *base)
+        ramps, _rows, ramp_notes = exit_ramps(airport, law, cid, axis_ln, ends, profile,
+                                              region, crest_ring, bank, vis)
+    stats.notes.extend(ramp_notes)
+    crest_ring = crest_with_ramps(crest_ring, ramps)
     wits = sorted(_wits(grp))
     notes = [f"{cid}: {len(grp)} way(s) within [channel] merge_m {ch.merge_m:.0f} m share the "
              f"corridor; axis {axis_ln.length:.0f} m, ends {ends[0]:.0f}..{ends[1]:.0f} m; "
@@ -842,7 +864,8 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
         crest_ring=crest_ring,
         region_ll=tuple(ll(p) for p in region),
         profile_ll=tuple((*ll(axis_fn(s)), float(z)) for s, z in profile),
-        notes=tuple(notes), ledge_pins=pins, member_feet=feet)
+        notes=tuple(notes) + tuple(ramp_notes), ledge_pins=pins, member_feet=feet,
+        ramps=ramps)
 
 
 

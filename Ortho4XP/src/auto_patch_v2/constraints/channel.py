@@ -24,6 +24,7 @@ import typing as _t
 
 from shapely.geometry import LineString, Point
 
+from ..geom.channel_declared import declared_floor_z, ramp_index
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Offset, Pin, Row, Source
@@ -125,18 +126,34 @@ def channels(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if len(c.axis) < 2 or not c.profile:
             continue
         axis = LineString(c.axis)
-        on_floor: set[int] = set()
-        for f in floors.get(c.id, ()):
-            for v in _ring_and_holes(planar, vw, f):
-                on_floor.add(v)
         # the axis is stated from the record's FIRST station (the field-side
         # end), the profile in the corridor's own stations: one reading, the
         # verifier's ``_declared_at`` (a flat floor never showed the offset;
         # a profile does, #1918)
         s0 = float(c.profile[0][0])
+
+        def floor_at(x: float, y: float, _c=c, _ax=axis, _s0=s0) -> float:
+            return float(_c.floor_z(_s0 + _ax.project(Point(x, y))))
+        # #2127 R3 A4: a ramp part's floor is its own long section, read by
+        # the ONE declared-floor function; its top line is not pinned (it
+        # takes the design surface of the road it hands over to)
+        ramps = {i: r.stations for i, r in enumerate(getattr(c, "ramps", ()))}
+        on_floor: set[int] = set()
+        on_ramp: dict[int, "float | None"] = {}
+        for f in floors.get(c.id, ()):
+            ramp = ramp_index(getattr(f, "ref", "")) is not None
+            for v in _ring_and_holes(planar, vw, f):
+                if ramp and v not in on_floor:
+                    on_ramp.setdefault(v, declared_floor_z(f.ref, *planar.vertices[v].xy,
+                                                           floor_at, ramps))
+                else:
+                    on_floor.add(v)
+                    on_ramp.pop(v, None)
+        on_floor.update(v for v, z in on_ramp.items() if z is not None)
         for v in sorted(on_floor):
-            s = s0 + axis.project(Point(planar.vertices[v].xy))
-            rows.append(Pin(v, float(c.floor_z(s)), src_floor))
+            z = on_ramp.get(v)
+            rows.append(Pin(v, float(floor_at(*planar.vertices[v].xy) if z is None else z),
+                            src_floor))
         # ── the crest ──────────────────────────────────────────────────
         ledges = ledge_pin_vertices(planar, law, c, vw, walls, on_floor)
         src_ledge = Source(GEN, LEDGE_RULING, inputs)

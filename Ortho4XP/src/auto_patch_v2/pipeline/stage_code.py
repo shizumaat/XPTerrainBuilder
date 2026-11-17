@@ -2053,7 +2053,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
     "pad_fronting": _mods(_GENERATOR_CORE + """
-        geom.exact
+        geom.exact geom.parts model.wall_reach
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_fronting constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence geom.base_slab
@@ -2965,7 +2965,7 @@ CODE_MODULES["emit"] = _mods("""
     planar.low_extent planar.low_fill planar.low_level planar.pad_blocks
     planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
     planar.storey_floor planar.storey_pad planar.viaduct_road
-    airport.cut_portal_seat
+    airport.cut_portal_seat airport.cut_bridge airport.cut_portal
     airport.hung_wall_seat airport.wall_top planar.index
     model.wing_cut
     airport.mouth_group airport.ramp_wing airport.wall_lines

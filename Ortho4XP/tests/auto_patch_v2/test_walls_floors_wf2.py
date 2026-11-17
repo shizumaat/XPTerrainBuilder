@@ -225,3 +225,23 @@ def test_a_pad_never_fronts_an_apron_across_a_walls_fill(law):
     lot2 = _fid(pm2, "lotG")
     pm2.faces[lot2] = dc.replace(pm2.faces[lot2], role="graded_strip")
     assert pad_fronting.facing(pm2, law) != {}          # bare ground: faced
+
+
+def test_a_pad_never_fronts_an_apron_across_a_walls_cover(law):
+    """2120-WF3 W-A: a plate-capped block's COVER is no fill face, yet it is
+    the wall's plan -- a pad never fronts an apron across it
+    (``Airport.wall_shade``; MEASURED KATL K1 replay: ``building40`` took
+    ``pav4``'s 300.81 m across ``katl126_wall``'s cover, 10.7 m over its
+    own ground)."""
+    import dataclasses as dc
+    from types import SimpleNamespace as NS
+
+    from auto_patch_v2.constraints import pad_fronting
+    from auto_patch_v2.planar.index import face_polygon
+    from test_hecaroad_fronting import _built, _cells, _fid
+    pm, _a = _built(law, _cells(blocker=True))
+    lot = _fid(pm, "lotG")
+    pm.faces[lot] = dc.replace(pm.faces[lot], role="graded_strip")
+    assert pad_fronting.facing(pm, law) != {}                      # bare ground: faced
+    cover = face_polygon(pm, lot)
+    assert pad_fronting.facing(pm, law, NS(wall_shade=cover)) == {}

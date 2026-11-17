@@ -225,9 +225,12 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                     and _depth_under_zero(p) is not None
                 if reseated:
                     retained, kept_top = float(_depth_under_zero(p)), 0.0
-                strip = None if sunk is None or sunk.rule != "plate" else \
-                    _deck_strip(airport, whole, float(retained), m.resource)
-                pieces, cover = (tuple(polys), ()) if strip is None else (strip, tuple(polys))
+                # 2120-WF3 W-A: a plate-capped sunk block's plan is read
+                # part by part -- fill where it stands on the upper level,
+                # a deck over the low ground elsewhere
+                split = None if sunk is None or not sunk.road_plate else \
+                    _plate_split(airport, whole, float(retained), m.resource)
+                pieces, cover, upper = (tuple(polys), (), True) if split is None else split
                 got.append(WallComponent(pieces, float(p.height_m),
                                          m.resource, int(p.comp), retains,
                                          float(retained), top_y,
@@ -236,34 +239,96 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                                          *(sheet or ()), reseated=reseated,
                                          sunk_rule="" if sunk is None else sunk.rule,
                                          cover=cover,
-                                         fill_drop_m=None if sunk is None or cover
+                                         fill_drop_m=None if sunk is None or not upper
                                          else sunk.fill_drop_m))
         out.extend(_one_wall_per_composite(got, u, to_xy, cfg))
     return out
 
 
-def _deck_strip(airport: Airport, whole, retained: float, resource: str) -> tuple | None:
-    """2120-W3 B1, THE DECK BLOCK (``sunk_frame`` R3: its plate a deck over
-    the LOW ground): its retaining pieces are the strip
-    ``model/wall_reach.FILL_SLOT_M`` deep inside its plan along its UPPER
-    face (``wall_sides._wall_faces`` / ``_upper_index`` on the whole plan);
-    ``None`` when either is unread -- its whole plan then retains, a
-    retaining block (class A), said on the console."""
-    from ..model.wall_reach import FILL_SLOT_M, wall_smear_m
-    from .wall_sides import _upper_index, _wall_faces
+def _plate_split(airport: Airport, whole, retained: float, resource: str
+                 ) -> tuple | None:
+    """THE PLAN OF A PLATE-CAPPED SUNK BLOCK, READ PART BY PART (2120-WF3
+    W-A; replaces 2120-W3 B1's per-block class A / class B): ``(pieces,
+    cover, upper)``.  ``U`` is the part of the plan whose DEM stands on the
+    UPPER level -- at or over the midpoint of the two side medians
+    (``wall_sides._median_ground``, ``smear`` out of each long face) --
+    closed then opened by the wall's ``smear`` (a part narrower than it
+    joins its neighbour: the survey's bank along the low face stays fill,
+    the step is under the wall, 13t).  The pieces are the strip
+    ``model/wall_reach.FILL_SLOT_M`` deep along the UPPER face
+    (:func:`_face_strip`) and every part of ``U`` meeting it; the cover is
+    the rest of the plan -- a deck over the low ground (no fill, no pad,
+    roads at grade).  ``upper`` -- ``U`` gave a piece (the block's fill
+    stands under its plate, ``SunkReading.fill_drop_m``).  ``None`` when
+    either face is unread: its whole plan then retains, said on the
+    console."""
+    from ..geom.parts import nonempty_polygon_parts as _polys
+    from ..model.wall_reach import wall_smear_m
+    from .wall_sides import _median_ground, _upper_index, _wall_faces
+    dem = airport.dem
+    smear = wall_smear_m(retained)
     faces = _wall_faces(whole) if whole.geom_type == "Polygon" else None
-    k = None if faces is None else _upper_index(
-        airport.dem, None, 0, faces, wall_smear_m(retained))
-    strip = None if k is None else faces[k].buffer(
-        FILL_SLOT_M, single_sided=True, cap_style="flat", join_style="mitre",
-        mitre_limit=2.0).intersection(whole)
-    parts = [] if strip is None else [g for g in getattr(strip, "geoms", [strip])
-                                      if g.geom_type == "Polygon" and g.area > 0.0]
-    if not parts:
-        print(f"[wall-class] deck block {resource}: no upper face read; "
-              f"its whole plan retains (class A)")
+    k = None if faces is None else _upper_index(dem, None, 0, faces, smear)
+    strip = None if k is None else _face_strip(faces[k], whole)
+    if strip is None:
+        print(f"[wall-class] plate-capped block {resource}: no upper face read; "
+              f"its whole plan retains")
         return None
-    return tuple(parts)
+    mid = 0.5 * sum(_median_ground(dem, f, smear) for f in faces)
+    high = _upper_part(dem, whole, mid, smear)
+    keep = unary_union([strip, *(g for g in _polys(high) if g.intersects(strip))])
+    # the plan's own ring is not exactly the cells' grid: open the rest by a
+    # millimetre so no zero-width sliver along it is called a cover
+    rest = whole.difference(keep).buffer(-1e-3, join_style="mitre").buffer(
+        1e-3, join_style="mitre").intersection(whole)
+    cover = tuple(g for g in _polys(rest) if g.area > 0.0)
+    pieces = tuple(g for g in _polys(keep) if g.area > 0.0)
+    upper = keep.area > strip.area + 1e-6
+    if not cover:
+        return None if upper else (pieces, (), False)
+    return pieces, cover, upper
+
+
+def _face_strip(face, whole):
+    """The strip ``model/wall_reach.FILL_SLOT_M`` deep inside ``whole``
+    along its long ``face``; ``None`` when it is empty."""
+    from ..model.wall_reach import FILL_SLOT_M
+    strip = face.buffer(FILL_SLOT_M, single_sided=True, cap_style="flat",
+                        join_style="mitre", mitre_limit=2.0).intersection(whole)
+    return None if strip.is_empty or strip.area <= 0.0 else strip
+
+
+#: the DEM station the plan is read on (``_across_pairs``' 2 m)
+_PLAN_STATION_M = 2.0
+
+
+def _upper_part(dem, whole, mid: float, smear: float):
+    """``U`` of :func:`_plate_split`: the cells of ``whole`` (every
+    :data:`_PLAN_STATION_M`) whose DEM stands at or over ``mid`` (an
+    unread cell is upper: the plan retains as before), closed then opened
+    by half the ``smear`` so a part narrower than ``smear`` joins its
+    neighbour; empty geometry when none stands up."""
+    import numpy as np
+
+    from .deck_signature import _cells_polygon
+    from .dem import dem_z_many
+    x0, y0, x1, y1 = whole.bounds
+    h = _PLAN_STATION_M
+    xs = np.arange(x0, x1, h) + 0.5 * h
+    ys = np.arange(y0, y1, h) + 0.5 * h
+    X, Y = np.meshgrid(xs, ys, indexing="ij")
+    z = dem_z_many(dem, X.ravel(), Y.ravel()).reshape(X.shape)
+    got = _cells_polygon(~(z < mid), np.array([x0, y0]), h)
+    if got is None:
+        return Polygon()
+    r = 0.5 * float(smear)
+
+    def opened(g):
+        return g.buffer(-r, join_style="mitre", mitre_limit=2.0).buffer(
+            r, join_style="mitre", mitre_limit=2.0).intersection(whole)
+    up = whole.intersection(got)
+    up = opened(whole.difference(opened(whole.difference(up))))
+    return up if up.is_valid else up.buffer(0.0)
 
 
 _BURIED: dict[str, bool] = {}

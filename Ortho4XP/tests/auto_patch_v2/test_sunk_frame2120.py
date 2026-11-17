@@ -57,6 +57,16 @@ def _airport(lift: float, height: float, step: float, *, width: float = 20.0,
               dem=_StepDem(y_axis, 300.0, 300.0 - step), sunken_ramps=None)
 
 
+def _deck(lift: float = -4.57):
+    """A R3 deck block whose plan stands wholly on the LOW ground: the
+    ground steps up at its north (upper) face (2120-WF3 W-A: a deck block
+    is read part by part, so its plan must be low to be all deck)."""
+    ap = _airport(lift, 20.0, 10.0, plate=True, road={"highway": "service"})
+    _x, y_face = FRAME.entry()(LON0, LAT0 + 20.0 * _M_LAT)
+    ap.dem = _StepDem(y_face, 300.0, 290.0)
+    return ap
+
+
 def _retaining(ap):
     return [c for c in wall_class_components(ap, CFG) if c.retains]
 
@@ -189,10 +199,9 @@ def test_the_sunk_census_lists_what_the_witness_admits():
     spec = importlib.util.spec_from_file_location("_sunk_census", tool)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    (row,) = mod.sunk_rows(_airport(-4.57, 20.0, 10.0, plate=True,
-                                    road={"highway": "service"}), CFG)
+    (row,) = mod.sunk_rows(_deck(), CFG)
     assert row["id"] == "dsf:obj1" and row["rule"] == "plate" and row["y_up"] == 20.0
-    assert row["class"] == "B"
+    assert row["class"] == "B" and row["cover_m2"] > 0.9 * row["area_m2"]
     assert row["unit"] == "unit:1" and row["lift"] == -4.57
     assert abs(row["lat"] - LAT0) < 0.001 and abs(row["lon"] - LON0) < 0.002
     assert mod.sunk_rows(_airport(-19.81, 20.0, 0.0), CFG) == []
@@ -205,15 +214,16 @@ def test_b1_a_deck_block_retains_only_the_strip_along_its_upper_face():
     (``wall_shade``) -- and it carries no fill of its own"""
     from auto_patch_v2.airport.wall_shade import wall_shade
     from auto_patch_v2.model.wall_reach import FILL_SLOT_M
-    ap = _airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"})
+    ap = _deck()
     (c,) = _retaining(ap)
     assert c.sunk_rule == "plate" and c.fill_drop_m is None
-    (plan,) = c.cover
+    (cover,) = c.cover                  # 2120-WF3 W-A: the plan less the strip
     (strip,) = c.pieces
+    plan = strip.union(cover)
     assert strip.area == pytest.approx(FILL_SLOT_M * 100.0, rel=0.02)
     assert strip.bounds[3] == pytest.approx(plan.bounds[3], abs=0.01)  # the upper (north) face
     assert strip.bounds[1] == pytest.approx(plan.bounds[3] - FILL_SLOT_M, abs=0.01)
-    assert wall_shade(ap, CFG).covers(plan.buffer(-0.01))
+    assert wall_shade(ap, CFG).buffer(0.01).covers(plan)     # to the millimetre
 
 
 def test_b1_a_road_under_the_deck_is_not_cut_and_reads_its_own_ground():
@@ -226,7 +236,7 @@ def test_b1_a_road_under_the_deck_is_not_cut_and_reads_its_own_ground():
         wall_sides,
     )
     from shapely.geometry import box
-    ap = _airport(-4.57, 20.0, 10.0, plate=True, road={"highway": "service"})
+    ap = _deck()
     (c,) = _retaining(ap)
     (w,) = wall_sides(ap, CFG, [c])
     x0, y0, x1, _y1 = c.cover[0].bounds

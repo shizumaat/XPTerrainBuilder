@@ -1915,18 +1915,29 @@ def road_class_cap(way_class, class_caps, default_cap):
     return float(default_cap)
 
 
-def road_inside_cap(way_class, cap, cap_ceiling, public_classes):
+def road_inside_cap(way_class, cap, cap_ceiling, public_classes,
+                    terrain_cap=None):
     """The IN-BAND cap of one OSM way (owner RULINGS 2026-10-22h, #1254):
     a PUBLIC road (``way_class`` in ``public_classes``, the law table's
     ``[road_profile] public_classes``) follows the real terrain where it is
     steeper than the road cap, so its in-band segments take ``cap_ceiling``
     — the clamp is then the terrain itself wherever the terrain is a road.
-    Every other class (``service``, ``track``, untagged, a railway) keeps
-    ``cap``, the patch's ``road_grade_limit``.  ONE reading, called by the
-    core (:func:`clamp_road_network`) and by v2
+
+    THE ROAD ON STEEP GROUND (owner RULINGS 2026-11-17, #2122: "Raise our
+    road grade limit to 20%"): every other ROAD (a ``highway`` class:
+    ``service``, ``track`` ...) takes ``terrain_cap`` (``tables.
+    road_terrain_cap``), so it follows its terrain up to that grade and
+    no further; on ground under ``cap`` the clamp is the terrain either
+    way, so nothing there changes.  A railway (``railway:<value>``) or an
+    untagged way keeps ``cap``, the patch's ``road_grade_limit``, as does
+    every road when ``terrain_cap`` is not given.  ONE reading, called by
+    the core (:func:`clamp_road_network`) and by v2
     (``auto_patch_v2/airport/road_profile.core_profiles``)."""
     if way_class and str(way_class) in (public_classes or ()):
         return max(float(cap), float(cap_ceiling))
+    if terrain_cap is not None and way_class \
+            and not str(way_class).startswith("railway:"):
+        return max(float(cap), float(terrain_cap))
     return float(cap)
 
 
@@ -2437,7 +2448,8 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
                        coverage=None, way_classes=None, way_ids=None,
                        runout_m=None,
                        budget_m=None, cap_ceiling=None, class_caps=None,
-                       join_pins=None, public_classes=None):
+                       join_pins=None, public_classes=None,
+                       terrain_cap=None):
     """Clamp every way of a banked-road MultiLineString, INDEPENDENTLY.
 
     THE ONE SITE THAT DECIDES WHO IS CLAMPED (owner RULINGS 2026-09-18n;
@@ -2486,7 +2498,8 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
     (``Levelled_Roads.join_pins``).
     """
     if runout_m is None or budget_m is None or cap_ceiling is None \
-            or class_caps is None or public_classes is None:
+            or class_caps is None or public_classes is None \
+            or terrain_cap is None:
         law = road_neighbourhood_law()
         runout_m = law["runout_m"] if runout_m is None else runout_m
         budget_m = law["budget_m"] if budget_m is None else budget_m
@@ -2495,6 +2508,8 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
         class_caps = law["class_caps"] if class_caps is None else class_caps
         public_classes = law["public_classes"] if public_classes is None \
             else public_classes
+        terrain_cap = law["terrain_cap"] if terrain_cap is None \
+            else terrain_cap
     out = Levelled_Roads(cap, lane_width, station_m, runout_m=runout_m,
                          budget_m=budget_m, cap_ceiling=cap_ceiling,
                          class_caps=class_caps)
@@ -2603,7 +2618,8 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
         # 22h: a PUBLIC road follows its terrain inside the band
         clamped, report = neighbourhood_road_profile(
             s, dem, in_band, cap_class,
-            cap_inside=road_inside_cap(cls, cap, cap_ceiling, public_classes),
+            cap_inside=road_inside_cap(cls, cap, cap_ceiling, public_classes,
+                                       terrain_cap),
             runout_m=runout_m, budget_m=budget_m, cap_ceiling=cap_ceiling,
             pin_idx=pin_idx or None, pin_val=pin_val or None)
         if n_deck:

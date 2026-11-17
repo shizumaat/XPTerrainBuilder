@@ -207,6 +207,11 @@ def lifted_caps(planar: PlanarMap, law: "Law | None" = None) -> dict[int, float]
     for fid, g in (getattr(planar, "public_road_lifted", None) or {}).items():
         if fid in planar.faces:
             out[int(fid)] = max(out.get(int(fid), 0.0), float(g))
+    # 2026-11-17 (#2122): a road on steep ground, its rows risen to its cap
+    # (``constraints/public_road_release.steep_release``), its own faces only
+    for fid, g in (getattr(planar, "steep_road_lifted", None) or {}).items():
+        if fid in planar.faces:
+            out[int(fid)] = max(out.get(int(fid), 0.0), float(g))
     if law is not None:
         for fid, g in yard_run_lifts(planar, law).items():
             out[fid] = max(out.get(fid, 0.0), g)
@@ -274,7 +279,10 @@ def _lifted_records(planar: PlanarMap, law: "Law | None" = None) -> list[list[_t
          round(float(rec[1]), 3), round(float(rec[2]), 6)]
         for fid, rec in sorted(released.items()) if fid in planar.faces]
     # 22h: a public road's record names the TERRAIN it follows
-    public = getattr(planar, "public_road_lifted", None) or {}
+    public = dict(getattr(planar, "public_road_lifted", None) or {})
+    # 2026-11-17: a road on steep ground names its terrain too
+    for fid, g in (getattr(planar, "steep_road_lifted", None) or {}).items():
+        public[fid] = max(float(g), float(public.get(fid, 0.0)))
     out += [[int(fid), "terrain", str(planar.faces[fid].ref), 0.0,
              round(float(g), 6)]
             for fid, g in sorted(public.items())

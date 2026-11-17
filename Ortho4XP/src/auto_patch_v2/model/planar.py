@@ -868,6 +868,14 @@ class PlanarMap:
     #: by ``constraints/public_road_release`` (the rows yield) and
     #: ``pipeline/publication.lifted_caps`` (the census lift)
     public_road_lifted: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-11-17 (#2122): face id -> the cap a road ON STEEP
+    #: GROUND takes (``tables.road_terrain_cap``), for every non-public
+    #: mapped-road face whose target runs over the road cap somewhere (``airport/public_road.
+    #: steep_road_lifts``); read by ``constraints/public_road_release.
+    #: steep_release`` (the rows rise to it), ``constraints/road_ramp.
+    #: terrace_rewrite`` (its routes' runs) and ``pipeline/publication.
+    #: lifted_caps`` (the census lift)
+    steep_road_lifted: _t.Mapping[int, float] = _dc.field(default_factory=dict)
     #: #2073 (owner 2026-11-13T22:48Z, #1939 site 3): face id -> its SPAN
     #: vertices, for every groundside road / lot face a deckless mapped
     #: bridge carries (``airport/bridge_span``); read by ``constraints/

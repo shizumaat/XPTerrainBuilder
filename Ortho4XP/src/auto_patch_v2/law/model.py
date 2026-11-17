@@ -241,6 +241,10 @@ class CommonLaw:
     #: letter caps stay targets under it (``constraints/ceiling.py``)
     pavement_max_grade: float
     road_max_grade: float
+    #: THE ROAD ON STEEP GROUND (owner RULINGS 2026-11-17): the most a road's
+    #: cap rises to where its own ground is steeper than ``road_max_grade``
+    #: (``tables.road_terrain_cap``)
+    road_terrain_max_grade: float
     #: OWNER RULINGS 2026-10-27s (Q197): A PUBLIC ROAD'S JOINT AT A JUNCTION
     #: (town-street values, ~30 km/h): a grade change up to this needs no
     #: curve (``airport/road_joint``)

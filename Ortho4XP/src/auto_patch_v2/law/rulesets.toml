@@ -53,6 +53,17 @@ pavement_max_grade = 0.05           # every pavement class: airside, groundside 
 # `constraints/pavement_cap.py`; census `pavement_over_road_cap`).  It is
 # a reference to this key, never a second number.
 road_max_grade     = 0.10           # 0.08 -> 0.10 (owner RULINGS 2026-10-07b (2): roads and ramps up to 10 %); a FREE road only (road-family faces alone): the service-road standard already carried by SERVICE_ROAD_MAX_GRADE (owner 2026-08-03); a road welded into a pavement IS that pavement (free-road ruling) and takes the 5 %
+# THE ROAD ON STEEP GROUND (owner RULINGS 2026-11-17, #2122: "Looks like there
+# are real roads that go up to 20%, so when terrain demands it, we should allow
+# it. Raise our road grade limit to 20%."): a road's longitudinal cap rises
+# from `road_max_grade` to at most this ONLY where the road's own ground is
+# steeper than `road_max_grade`; on ground under it nothing changes, and the
+# design grade (`[road_contact] ramp_grade`) stands.  Read through
+# `tables.road_terrain_cap` (the core clamp's in-band cap,
+# `O4_Vector_Utils.road_inside_cap`; the lift, `airport/public_road.
+# steep_road_lifts`).  Airside pavement caps are not road caps and do not
+# change.  A public road keeps 22h's `[road_profile] cap_ceiling`.
+road_terrain_max_grade = 0.20
 # THE JUNCTION JOINT (owner RULINGS 2026-10-27s, Q197 "a"; sizes 2026-10-27f's
 # "so long as the side road connection to the main road is smooth enough for
 # cars"): where a side street leaves a main road's kerb on a hill, town-street

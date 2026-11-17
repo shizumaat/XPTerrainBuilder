@@ -17,6 +17,20 @@ runs steeper than the road cap, with that grade — published once as
 :func:`airport.road_ramp.with_road_ramp`.  Its readers:
 ``constraints/public_road_release`` (the solve's rows) and
 ``pipeline/publication.lifted_caps`` (the census, the §34 (9) lift).
+
+THE ROAD ON STEEP GROUND (owner RULINGS 2026-11-17, #2122: "Looks like
+there are real roads that go up to 20%, so when terrain demands it, we
+should allow it. Raise our road grade limit to 20%."): every OTHER mapped
+road (a ``highway`` class not public: ``service`` above all) follows its
+terrain too, up to ``tables.road_terrain_cap`` — the core's clamp takes it
+in band (``road_inside_cap``), and :func:`steep_road_lifts` names the faces
+whose own target runs over the road cap somewhere, with the cap they take:
+the steep-ground cap (the limit rises; the design grade stands).  Published as
+``PlanarMap.steep_road_lifted``; its rows rise to it
+(``constraints/public_road_release.steep_release``), the terrace's runs on
+its routes climb at it (``constraints/road_ramp.terrace_rewrite``) and the
+census lifts it (``pipeline/publication.lifted_caps``).  On ground under
+the road cap no face is named and nothing changes.
 """
 from __future__ import annotations
 
@@ -24,11 +38,17 @@ import typing as _t
 
 from ..geom import exact
 from ..law import Law
-from ..law.tables import role_cap
+from ..law.tables import road_terrain_cap, role_cap
 from ..model.airport import Airport
 from ..model.planar import OSM_RIBBON_FEEDS, PlanarMap, is_osm_ribbon_ref
 
-__all__ = ["public_road_faces", "public_road_lifts", "public_routes"]
+__all__ = ["public_road_faces", "public_road_lifts", "public_routes",
+           "steep_road_faces", "steep_road_lifts", "STEEP_SLACK"]
+
+#: a face is on steep ground only where its target runs over the road cap
+#: by more than this (a grade): a ramp built AT the cap reads a hair over it
+#: off the targets' read grid, and is not the terrain demanding more
+STEEP_SLACK = 1e-3
 
 
 def _way_key(ref: str) -> str:
@@ -37,18 +57,19 @@ def _way_key(ref: str) -> str:
     return str(ref).split("#", 1)[0]
 
 
-def public_road_faces(pm: PlanarMap, law: Law, airport: Airport
-                      ) -> dict[int, str]:
+def _road_face_classes(pm: PlanarMap, law: Law, airport: Airport,
+                       public: bool) -> dict[int, str]:
     """Face id -> ``highway`` class, for every OSM ribbon face of a road
-    family role whose way's class is in ``[road_profile] public_classes``."""
-    public = frozenset(law.tables.emit.road_profile.public_classes)
-    if not public:
+    family role whose way's class is (``public``) or is not (not
+    ``public``) in ``[road_profile] public_classes``."""
+    pub = frozenset(law.tables.emit.road_profile.public_classes)
+    if public and not pub:
         return {}
     cls: dict[str, str] = {}
     for w in getattr(airport, "osm_ways", ()) or ():
         feed = OSM_RIBBON_FEEDS.get(getattr(w, "kind", ""))
         hw = (getattr(w, "tags", None) or {}).get("highway")
-        if feed and hw in public:
+        if feed and hw and (hw in pub) == public:
             cls[f"{feed}:{w.id}"] = str(hw)
     from ..law.tables import family
     roads = frozenset(family(law, "road_cross_section").roles)
@@ -57,16 +78,26 @@ def public_road_faces(pm: PlanarMap, law: Law, airport: Airport
             and _way_key(f.ref) in cls}
 
 
-def public_road_lifts(pm: PlanarMap, law: Law, faces: _t.Iterable[int],
-                      targets: _t.Mapping[int, float]) -> dict[int, float]:
+def public_road_faces(pm: PlanarMap, law: Law, airport: Airport
+                      ) -> dict[int, str]:
+    """Face id -> ``highway`` class, for every OSM ribbon face of a road
+    family role whose way's class is in ``[road_profile] public_classes``."""
+    return _road_face_classes(pm, law, airport, True)
+
+
+def steep_road_faces(pm: PlanarMap, law: Law, airport: Airport
+                     ) -> dict[int, str]:
+    """Face id -> ``highway`` class, for every OSM ribbon face of a road
+    family role whose way is a road (a ``highway`` class) NOT in
+    ``[road_profile] public_classes`` — the roads 2026-11-17 lets climb to
+    :func:`tables.road_terrain_cap` where their ground demands it."""
+    return _road_face_classes(pm, law, airport, False)
+
+
+def _steepest(pm: PlanarMap, faces: _t.Iterable[int],
+              targets: _t.Mapping[int, float]) -> dict[int, float]:
     """Face id -> the steepest grade its own target runs at between two
-    consecutive ring vertices, for every face of ``faces`` where that grade
-    is over the road cap (``role_cap(service_road).longitudinal``).  A face
-    whose target stays under the cap is absent: nothing about it changes."""
-    rc = role_cap(law, "service_road")
-    if rc is None:
-        return {}
-    cap = float(rc.longitudinal)
+    consecutive ring vertices (0.0 where no pair carries targets)."""
     out: dict[int, float] = {}
     for fid in faces:
         f = pm.faces[fid]
@@ -81,9 +112,40 @@ def public_road_lifts(pm: PlanarMap, law: Law, faces: _t.Iterable[int],
                 d = exact.hypot(xa - xb, ya - yb)
                 if d > 0.0:
                     worst = max(worst, abs(targets[a] - targets[b]) / d)
-        if worst > cap:
-            out[int(fid)] = round(worst, 6)
+        out[int(fid)] = worst
     return out
+
+
+def public_road_lifts(pm: PlanarMap, law: Law, faces: _t.Iterable[int],
+                      targets: _t.Mapping[int, float]) -> dict[int, float]:
+    """Face id -> the steepest grade its own target runs at between two
+    consecutive ring vertices, for every face of ``faces`` where that grade
+    is over the road cap (``role_cap(service_road).longitudinal``).  A face
+    whose target stays under the cap is absent: nothing about it changes."""
+    rc = role_cap(law, "service_road")
+    if rc is None:
+        return {}
+    cap = float(rc.longitudinal)
+    return {fid: round(g, 6) for fid, g in _steepest(pm, faces, targets).items()
+            if g > cap}
+
+
+def steep_road_lifts(pm: PlanarMap, law: Law, faces: _t.Iterable[int],
+                     targets: _t.Mapping[int, float]) -> dict[int, float]:
+    """Face id -> the cap a road on steep ground takes (owner RULINGS
+    2026-11-17: "when terrain demands it, we should allow it. Raise our
+    road grade limit to 20%"): :func:`tables.road_terrain_cap`, for every
+    face of ``faces`` whose own target runs over the road cap (by more than
+    :data:`STEEP_SLACK`) somewhere.  A face whose target stays under the
+    road cap is absent: nothing about it changes."""
+    rc = role_cap(law, "service_road")
+    if rc is None:
+        return {}
+    cap, top = float(rc.longitudinal), road_terrain_cap(law)
+    if top <= cap:
+        return {}
+    return {fid: top for fid, g in _steepest(pm, faces, targets).items()
+            if g > cap + STEEP_SLACK}
 
 
 def public_routes(route_ways: _t.Mapping[int, _t.Any], law: Law,

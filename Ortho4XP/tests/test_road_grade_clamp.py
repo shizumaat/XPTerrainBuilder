@@ -862,7 +862,8 @@ def test_t10_the_class_caps_come_from_one_law_table():
 
 
 # T11 ── OWNER RULINGS 2026-10-22h (#1254): a PUBLIC road follows its
-#        terrain inside the band; a service road keeps the cap.
+#        terrain inside the band; a service road keeps the cap — up to the
+#        steep-ground cap since 2026-11-17 (#2122).
 
 def test_t11_a_public_road_inside_the_band_is_its_terrain():
     from shapely import geometry
@@ -891,6 +892,19 @@ def test_t11_a_public_road_inside_the_band_is_its_terrain():
         way_classes=["residential", "service"])
     public, service = lev.ways
     assert numpy.allclose(public["alt"], public["dem"], atol=1e-9)
+    # OWNER RULINGS 2026-11-17 (#2122): a service road follows its ground
+    # too, up to the steep-ground cap (``terrain_cap``, 20 %) — on 16 % it
+    # IS its ground; on 30 % it is held at that cap
+    assert numpy.allclose(service["alt"], service["dem"], atol=1e-9)
+
+    def steep_vec(pts):                                   # a 30 % hillside
+        return 0.30 * numpy.asarray(pts, dtype=float)[:, 1] / dlat
+
+    lev = VECT.clamp_road_network(
+        geometry.MultiLineString(lines), steep_vec, CAP, 4.0, coverage=band,
+        way_classes=["residential", "service"])
+    public, service = lev.ways
+    assert numpy.allclose(public["alt"], public["dem"], atol=1e-9)
     g = numpy.abs(numpy.diff(service["alt"])) / numpy.diff(service["s_m"])
-    assert g.max() <= CAP + 1e-9
+    assert g.max() <= law["terrain_cap"] + 1e-9
     assert not numpy.allclose(service["alt"], service["dem"], atol=0.1)

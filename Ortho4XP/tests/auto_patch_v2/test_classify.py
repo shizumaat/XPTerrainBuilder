@@ -150,7 +150,12 @@ def test_synthetic_verdicts(law):
 def test_synthetic_no_terminal_keeps_islands_airside(law):
     cl = classify(_synthetic(gate=False), law)
     roles = _roles(cl)
-    assert ("apron", "island") in roles
+    # airside (user 2026-06-11), but no stand and no building: owner Q3
+    # (#2134, 2026-11-17T14:37Z) makes the wide island a taxiway at the
+    # strictest letter, not an apron
+    assert ("junction", "island") in roles
+    isl = [c for c in cl.cells if c.ref == "island"]
+    assert all(c.evidence.get("q3_taxiway") == 1.0 and c.code_letter == "F" for c in isl)
     assert not any(r == "groundside_pavement" for r, _ in roles)
     assert cl.stats["terminal_present"] == 0.0
 
@@ -223,8 +228,11 @@ def _crossed_apron() -> Airport:
     edges = (TaxiEdge(1, 2, "A", False, False, "C"), TaxiEdge(2, 3, "A", False, False, "C"),
              TaxiEdge(4, 2, "B", False, False, "C"), TaxiEdge(2, 5, "B", False, False, "C"))
     pack = SceneryPack("synthetic", "", "", (), ())
+    # #2134: an apron is apron on a STAND — one in each quadrant
+    starts = tuple(Startup(f"Stand {k}", xy, 0.0, "gate") for k, xy in
+                   enumerate(((137.0, 100.0), (450.0, 100.0), (137.0, 300.0), (450.0, 300.0))))
     return Airport("SYNT", "Synthetic", frame, 100.0, (rw,), tuple(pav), (), nodes,
-                   edges, (), (), (), (), (), (), pack, _FlatDem(), "icao")
+                   edges, (), (), starts, (), (), (), pack, _FlatDem(), "icao")
 
 
 def test_crossed_apron_junction_is_the_bounded_route_territory(law):

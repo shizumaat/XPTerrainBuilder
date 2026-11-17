@@ -80,15 +80,24 @@ def _polys(rows):
     return polys, STRtree(polys)
 
 
+#: roles drawn OVER pavement cells (a pad stands on its apron): never a flip
+_LAYERED = ("building",)
+#: an overlay this small is a re-cut's rounding, not a flip (m2)
+_MIN_M2 = 1.0
+
+
 def _overlay(poly, tree, polys, rows) -> dict[str, float]:
-    """The area of ``poly`` each role of ``rows`` covers."""
+    """The area of ``poly`` each role of ``rows`` covers (layered roles
+    and rounding slivers left out)."""
     got: dict[str, float] = {}
     for j in tree.query(poly, predicate="intersects"):
+        role = rows[int(j)]["role"]
+        if role in _LAYERED:
+            continue
         a = poly.intersection(polys[int(j)]).area
         if a > 0.0:
-            role = rows[int(j)]["role"]
             got[role] = got.get(role, 0.0) + a
-    return got
+    return {k: v for k, v in got.items() if v >= _MIN_M2}
 
 
 def _verdict(rows, tree, polys, poly) -> str:

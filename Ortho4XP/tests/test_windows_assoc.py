@@ -36,21 +36,21 @@ EXE = r"C:\Apps\XPTB\XPTerrainBuilder.exe"
 
 def test_missing_association_is_written_once():
     reg = FakeWinreg()
-    line = WA.ensure(EXE, reg)
+    line = WA._ensure(EXE, reg)
     assert line and EXE in line
     assert reg.store[r"Software\Classes\.xptb"] == WA.PROG_ID
     assert reg.store[r"Software\Classes\.xptbundle"] == WA.PROG_ID
     assert reg.store[r"Software\Classes\XPTerrainBuilder.Package\shell\open\command"] \
         == '"%s" "%%1"' % EXE
     reg.writes.clear()
-    assert WA.ensure(EXE, reg) is None and reg.writes == []
+    assert WA._ensure(EXE, reg) is None and reg.writes == []
 
 
 def test_other_copy_is_repointed():
     reg = FakeWinreg()
-    WA.ensure(r"D:\Old\XPTerrainBuilder.exe", reg)
+    WA._ensure(r"D:\Old\XPTerrainBuilder.exe", reg)
     reg.writes.clear()
-    assert WA.ensure(EXE, reg)
+    assert WA._ensure(EXE, reg)
     assert sorted(reg.writes) == sorted([
         r"Software\Classes\XPTerrainBuilder.Package\DefaultIcon",
         r"Software\Classes\XPTerrainBuilder.Package\shell\open\command"])

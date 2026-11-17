@@ -9,9 +9,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-
 import O4_OSM_Utils as OSM  # noqa: E402
+import pytest  # noqa: E402
 from o4_engine import patch_edit as PE  # noqa: E402
 from o4_engine import patch_file as PF  # noqa: E402
 from o4_engine import patch_shape_alt as A  # noqa: E402

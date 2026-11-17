@@ -63,10 +63,10 @@ def test_least_recently_flown_first_and_never_a_kept_tile(pack, monkeypatch,
     set (window, spawn set, loaded) is never given back."""
     _tier(monkeypatch, tmp_path, 0)                     # no tier: revert
     flown = {(50, 1): 5000.0}                           # flown lately
-    rows = EVICT.order(EVICT.drapes(pack, flown), keep={(50, 2)})
+    rows = EVICT._order(EVICT._drapes(pack, flown), keep={(50, 2)})
     assert [r[2] for r in rows] == [(50, 3), (51, 1), (50, 1)]
     one = rows[0][1]
-    done = EVICT.evict(one + 1, pack, {(50, 2)}, flown=flown)
+    done = EVICT._evict(one + 1, pack, {(50, 2)}, flown=flown)
     assert done["reverted"] == ["+50+003", "+51+001"] and not done["offloaded"]
     kinds = WP.world_tiles(pack)
     assert (50, 3) not in kinds and kinds[(50, 2)] == "drape"
@@ -76,7 +76,7 @@ def test_least_recently_flown_first_and_never_a_kept_tile(pack, monkeypatch,
 
 def test_a_tier_with_room_takes_the_drape_first(pack, monkeypatch, tmp_path):
     mount = _tier(monkeypatch, tmp_path, 1)
-    done = EVICT.evict(1, pack, set(), flown={})
+    done = EVICT._evict(1, pack, set(), flown={})
     assert done["offloaded"] == ["+50+001"] and not done["reverted"]
     home = os.path.join(mount, TIERS.TIER_DIR, EVICT.TIER_SUBDIR, "+50+001")
     assert os.path.isfile(EVICT._own(home, (50, 1))[0])
@@ -93,14 +93,14 @@ def test_a_tier_with_room_takes_the_drape_first(pack, monkeypatch, tmp_path):
 def test_a_full_tier_reverts_and_an_offload_only_sweep_reverts_nothing(
         pack, monkeypatch, tmp_path):
     _tier(monkeypatch, tmp_path, 1e-9)                  # no room
-    moved = EVICT.evict(10 ** 9, pack, set(), tier_only=True, flown={})
+    moved = EVICT._evict(10 ** 9, pack, set(), tier_only=True, flown={})
     assert moved == {"freed": 0, "offloaded": [], "reverted": []}
-    done = EVICT.evict(1, pack, set(), flown={})
+    done = EVICT._evict(1, pack, set(), flown={})
     assert done["reverted"] == ["+50+001"]
 
 
 def test_a_dry_run_counts_and_moves_nothing(pack, monkeypatch, tmp_path):
     _tier(monkeypatch, tmp_path, 1)
-    done = EVICT.evict(10 ** 9, pack, set(), dry_run=True, flown={})
-    assert done["freed"] == sum(r[1] for r in EVICT.drapes(pack, {}))
-    assert len(EVICT.drapes(pack, {})) == 4
+    done = EVICT._evict(10 ** 9, pack, set(), dry_run=True, flown={})
+    assert done["freed"] == sum(r[1] for r in EVICT._drapes(pack, {}))
+    assert len(EVICT._drapes(pack, {})) == 4

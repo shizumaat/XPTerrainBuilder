@@ -14,13 +14,12 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6")
 
+import O4_Qt_Patch_Shape_Alt as SHAPEALT  # noqa: E402
+from o4_engine import patch_edit as PE  # noqa: E402
+from O4_Qt_Patch_Model import LoadedPatch, PatchEditModel  # noqa: E402
 from PySide6.QtCore import QPointF  # noqa: E402
 from PySide6.QtGui import QImage, QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
-
-import O4_Qt_Patch_Shape_Alt as SHAPEALT  # noqa: E402
-from O4_Qt_Patch_Model import LoadedPatch, PatchEditModel  # noqa: E402
-from o4_engine import patch_edit as PE  # noqa: E402
 
 NODES = [[-1, 30.0, 31.0, 5.0], [-2, 30.0007, 31.0, 5.0], [-3, 30.0007, 31.0001, None],
          [-4, 30.0, 31.0001, None], [-5, 30.001, 31.001, 9.0], [-6, 30.0012, 31.001, None],

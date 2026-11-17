@@ -25,11 +25,11 @@ def test_the_spawn_set_of_a_point_is_every_window_it_allows():
 
 def test_a_tiles_set_is_the_union_over_its_airports_and_at_most_25():
     tile = (59, 17)
-    one = SPAWN.tile_spawn_set(tile, [POINT])
+    one = SPAWN._tile_spawn_set(tile, [POINT])
     assert tile not in one and len(one) == 11
     corners = [("A", 59.02, 17.02), ("B", 59.98, 17.98), ("C", 59.5, 17.5)]
-    many = SPAWN.tile_spawn_set(tile, corners)
-    assert one <= SPAWN.tile_spawn_set(tile, [POINT] + corners)
+    many = SPAWN._tile_spawn_set(tile, corners)
+    assert one <= SPAWN._tile_spawn_set(tile, [POINT] + corners)
     assert len(many) + 1 <= 25
 
 
@@ -37,7 +37,7 @@ def test_the_plan_takes_placeholders_nearest_first_with_the_airports_core():
     kinds = {t: "placeholder" for t in SPAWN.spawn_set(POINT[1], POINT[2])}
     kinds[(59, 17)] = "full"
     kinds[(60, 16)] = "full"
-    plan = SPAWN.plan((59, 17), [POINT], kinds.get)
+    plan = SPAWN._plan((59, 17), [POINT], kinds.get)
     tiles = [t for t, _core in plan]
     assert len(tiles) == 10 and (60, 16) not in tiles
     assert tiles[0] in {(60, 17), (59, 18)}            # touching the airport
@@ -67,7 +67,7 @@ def test_run_drapes_two_at_a_time_through_the_share_and_logs_each():
 
     share = BuildShare()
     share.take("track", (58, 19), "drape")             # track mode has it
-    counts = SPAWN.run((59, 17), [POINT], kind_of=kinds.get, drape=drape,
+    counts = SPAWN._run((59, 17), [POINT], kind_of=kinds.get, drape=drape,
                        publish=publish, share=share, log=lines.append)
     assert counts["wanted"] == 11
     assert counts["draped"] == 9 and counts["failed"] == 1
@@ -78,7 +78,7 @@ def test_run_drapes_two_at_a_time_through_the_share_and_logs_each():
 
 def test_nothing_is_draped_under_the_disk_floor():
     kinds = {t: "placeholder" for t in SPAWN.spawn_set(POINT[1], POINT[2])}
-    counts = SPAWN.run((59, 17), [POINT], kind_of=kinds.get,
+    counts = SPAWN._run((59, 17), [POINT], kind_of=kinds.get,
                        drape=lambda t, c: True, publish=lambda t: "swapped",
                        floor_ok=lambda: False)
     assert counts["draped"] == 0 and counts["skipped"] == counts["wanted"]

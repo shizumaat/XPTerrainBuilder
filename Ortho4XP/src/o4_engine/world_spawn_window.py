@@ -9,16 +9,16 @@ spawn on a built tile's airports is draped BEFORE the pilot loads there:
 * :func:`spawn_set` -- the tiles of every window the hysteresis allows at
   one point (``O4_World_Window.plausible_columns`` / ``plausible_rows``:
   12 tiles, up to 20 near a column or row line);
-  :func:`tile_spawn_set` -- the union over a tile's airports
+  :func:`_tile_spawn_set` -- the union over a tile's airports
   (``O4_Imagery_OnDemand_Cores.airport_points``), the tile itself left
   out, at most 24 others.
-* :func:`plan` -- of those, the pack's placeholders the World job may
+* :func:`_plan` -- of those, the pack's placeholders the World job may
   build, nearest an airport first, each with the airport it is nearest:
   a neighbour within :data:`CORE_REACH_DEG` of one is draped with that
   airport as its core (``world_job_run.drape_tile(core=...)``: the
   squares within its full-resolution ring fetched at full width), so the
   photo a parked pilot sees across the boundary is the airport's.
-* :func:`run` -- drapes the plan at :data:`QUICK_PX` (Q1: Quick for
+* :func:`_run` -- drapes the plan at :data:`QUICK_PX` (Q1: Quick for
   every speculative tile; the follow job sharpens it live), :data:`AT_ONCE`
   at a time, each taken through ``build_share.SHARE`` as
   :data:`OWNER` (lowest priority: track mode or a flight adopts it, never
@@ -48,8 +48,7 @@ import O4_World_Window as WINDOW
 
 from . import world_job as JOB
 
-__all__ = ["QUICK_PX", "AT_ONCE", "OWNER", "CORE_REACH_DEG", "spawn_set",
-           "tile_spawn_set", "plan", "run", "start", "backfill"]
+__all__ = ["QUICK_PX", "AT_ONCE", "OWNER", "CORE_REACH_DEG", "spawn_set", "start", "backfill"]
 
 #: The photo width of every spawn-set drape (owner Q1, 2026-11-17).
 QUICK_PX = JOB.QUICK_PX
@@ -72,7 +71,7 @@ def spawn_set(lat: float, lon: float) -> set:
                                WINDOW.plausible_rows(lat))
 
 
-def tile_spawn_set(tile: Tile, points: Iterable[Point]) -> set:
+def _tile_spawn_set(tile: Tile, points: Iterable[Point]) -> set:
     """The union of :func:`spawn_set` over ``points`` ``(icao, lat,
     lon)``, ``tile`` itself left out."""
     out: set = set()
@@ -89,13 +88,13 @@ def _edge_deg(tile: Tile, lat: float, lon: float) -> float:
     return math.hypot(dlat, dlon * math.cos(math.radians(lat)))
 
 
-def plan(tile: Tile, points: list, kind_of: Callable[[Tile], Optional[str]]
+def _plan(tile: Tile, points: list, kind_of: Callable[[Tile], Optional[str]]
          ) -> list:
     """``[(tile, core)]``: the placeholders of the spawn set, nearest an
     airport first; ``core`` ``(lat, lon)`` of that airport when within
     :data:`CORE_REACH_DEG`, else None."""
     out = []
-    for other in tile_spawn_set(tile, points):
+    for other in _tile_spawn_set(tile, points):
         if kind_of(other) != "placeholder":
             continue
         near = min(points, key=lambda p: _edge_deg(other, p[1], p[2]))
@@ -105,14 +104,14 @@ def plan(tile: Tile, points: list, kind_of: Callable[[Tile], Optional[str]]
     return [(other, core) for _gap, other, core in sorted(out)]
 
 
-def run(tile: Tile, points: list, *, kind_of, drape, publish, share=None,
+def _run(tile: Tile, points: list, *, kind_of, drape, publish, share=None,
         floor_ok: Callable[[], bool] = lambda: True,
         log: Callable[[dict], None] = lambda r: None) -> dict:
     """Drape ``tile``'s spawn set (see the module): ``drape(tile, core)``
     writes a staged drape and says whether it verifies, ``publish(tile)``
     swaps it in and returns its state.  Returns the counts."""
     name = WP.tile_name(*tile)
-    todo = plan(tile, points, kind_of)
+    todo = _plan(tile, points, kind_of)
     counts = {"spawn_window": name, "wanted": len(todo), "draped": 0,
               "failed": 0, "skipped": 0}
 
@@ -162,7 +161,7 @@ def _work_one(tile: Tile, scenery_dir: str) -> None:
         return
     wanted = RUN._Wanted(scenery_dir)
     publisher = RUN._PackPublisher(scenery_dir, lambda la, lo: "")
-    run(tile, points, kind_of=wanted.kind,
+    _run(tile, points, kind_of=wanted.kind,
         drape=lambda t, core: RUN.drape_tile(t, *RUN.photo_source(t),
                                              core=core, px=QUICK_PX),
         publish=lambda t: publisher.settle(t, "drape", True),

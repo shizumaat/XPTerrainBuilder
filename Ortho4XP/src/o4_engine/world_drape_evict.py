@@ -8,15 +8,15 @@ minute and a half, so it is the first FLYABLE thing the budget gives
 back -- after the shared caches, before any built tile's own data
 (``storage_priority.clear``):
 
-* :func:`drapes` -- the pack's drape tiles with their bytes and when each
+* :func:`_drapes` -- the pack's drape tiles with their bytes and when each
   was last FLOWN: the newest ``last_near_at`` / ``fetched_at`` of its
   rows in the on-demand index (the follow job stamps a row when the
   camera comes near it), else its DSF's time (when it was swapped in).
-* :func:`keep_now` -- never given back: the tiles of X-Plane's window now
+* :func:`_keep_now` -- never given back: the tiles of X-Plane's window now
   and the spawn set around the aircraft (``world_job_run``'s running job,
   ``world_spawn_window.spawn_set``), and every tile X-Plane loaded this
   session (rule S4: it may hold the files).
-* :func:`evict` -- least recently flown first: the tile's files (DSF,
+* :func:`_evict` -- least recently flown first: the tile's files (DSF,
   ``terrain/<tile>/``, ``textures/<tile>/``, its imagery record) are
   first COPIED to a mounted storage tier with room
   (``<mount>/XPTerrainBuilder Tier/World_drapes/<tile>/``, the pack's own
@@ -44,7 +44,7 @@ import O4_World_Pack as WP
 
 from . import storage_tiers as TIERS
 
-__all__ = ["TIER_SUBDIR", "drapes", "keep_now", "order", "evict", "recall",
+__all__ = ["TIER_SUBDIR", "recall",
            "budget_step", "pack_bytes"]
 
 #: The drapes' folder in a tier (beside ``DDS_cache``).
@@ -99,7 +99,7 @@ def _flown_times() -> dict:
     return out
 
 
-def drapes(pack: str, flown: Optional[dict] = None) -> list:
+def _drapes(pack: str, flown: Optional[dict] = None) -> list:
     """``[(last flown, bytes, tile)]`` of the pack's drape tiles."""
     flown = _flown_times() if flown is None else flown
     out = []
@@ -113,13 +113,13 @@ def drapes(pack: str, flown: Optional[dict] = None) -> list:
     return out
 
 
-def order(rows: Iterable, keep: set) -> list:
-    """``rows`` (:func:`drapes`) least recently flown first, ``keep``
+def _order(rows: Iterable, keep: set) -> list:
+    """``rows`` (:func:`_drapes`) least recently flown first, ``keep``
     left out."""
     return sorted(r for r in rows if r[2] not in keep)
 
 
-def keep_now(scenery_dir: str) -> set:
+def _keep_now(scenery_dir: str) -> set:
     """The tiles never given back now (see the module)."""
     from . import world_commands as WORLD
     from . import world_job_run as RUN
@@ -188,13 +188,13 @@ def _revert(pack: str, tile: Tile) -> None:
         DRAPE_ROWS.forget(*tile)
 
 
-def evict(need: int, pack: str, keep: set, *, dry_run: bool = False,
+def _evict(need: int, pack: str, keep: set, *, dry_run: bool = False,
           tier_only: bool = False, flown: Optional[dict] = None,
           log: Callable[[dict], None] = lambda r: None) -> dict:
     """Give back drapes until ``need`` bytes are freed (see the module):
     ``{"freed", "offloaded", "reverted"}`` (tile names)."""
     done = {"freed": 0, "offloaded": [], "reverted": []}
-    for _when, size, tile in order(drapes(pack, flown), keep):
+    for _when, size, tile in _order(_drapes(pack, flown), keep):
         if done["freed"] >= need:
             break
         name = WP.tile_name(*tile)
@@ -233,7 +233,7 @@ def recall(tile: Tile, staged: str) -> bool:
 
 
 def budget_step(need: int, sweep, now: Optional[float] = None) -> int:
-    """``storage_priority``'s drape phase: :func:`evict` on the World
+    """``storage_priority``'s drape phase: :func:`_evict` on the World
     pack the app uses, as ``sweep`` asks (dry run, offload only); the
     bytes freed.  Nothing when no World pack is installed."""
     from . import world_commands as WORLD
@@ -243,7 +243,7 @@ def budget_step(need: int, sweep, now: Optional[float] = None) -> int:
         return 0
     pack = WORLD.pack_dir(scenery_dir)
     started = time.monotonic()
-    done = evict(need, pack, keep_now(scenery_dir), dry_run=sweep.dry_run,
+    done = _evict(need, pack, _keep_now(scenery_dir), dry_run=sweep.dry_run,
                  tier_only=bool(getattr(sweep, "tier_only", False)),
                  log=WORLD.write_log)
     if done["offloaded"] or done["reverted"]:
@@ -258,4 +258,4 @@ def pack_bytes() -> int:
     scenery_dir = WORLD.scenery_dir_or_default()
     if not WORLD.managed(scenery_dir):
         return 0
-    return sum(r[1] for r in drapes(WORLD.pack_dir(scenery_dir), flown={}))
+    return sum(r[1] for r in _drapes(WORLD.pack_dir(scenery_dir), flown={}))

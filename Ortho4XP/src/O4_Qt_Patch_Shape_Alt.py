@@ -21,16 +21,14 @@ from __future__ import annotations
 
 import typing as _t
 
+from o4_engine import patch_shape_alt as SA
+from O4_Qt_Patch_Elevation import parse_number
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen, QPolygonF
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout,
-                               QWidget)
-
-from O4_Qt_Patch_Elevation import parse_number
-from o4_engine import patch_shape_alt as SA
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 
 __all__ = ["ShapeAltBox", "SlopeLayer", "LEVEL_TITLE", "MEAN_OFFSET_TITLE",
-           "GROUND_OFFSET_TITLE", "SLOPE_TITLE", "HIGH_TITLE", "LOW_TITLE", "slope_shapes"]
+           "GROUND_OFFSET_TITLE", "SLOPE_TITLE", "HIGH_TITLE", "LOW_TITLE"]
 
 LEVEL_TITLE = "Shape elevation"
 MEAN_OFFSET_TITLE = "Above mean ground"
@@ -142,7 +140,7 @@ class ShapeAltBox(QWidget):
         self.notes.setText("\n".join(notes))
 
 
-def slope_shapes(doc) -> list[tuple[int, dict, float | None, float | None]]:
+def _slope_shapes(doc) -> list[tuple[int, dict, float | None, float | None]]:
     """``(way id, slope_marks, high, low)`` for every valid sloping rectangle."""
     out = []
     for way in doc.ways if doc is not None else ():
@@ -189,7 +187,7 @@ class SlopeLayer:
         self.popup: _ValuePopup | None = None
 
     def rebuild(self, doc) -> None:
-        self.shapes = slope_shapes(doc)
+        self.shapes = _slope_shapes(doc)
 
     def paint(self, painter) -> None:
         self.labels = []

@@ -36,7 +36,7 @@ import math
 import typing as _t
 
 __all__ = ["ABSOLUTE", "MEAN_OFFSET", "GROUND_OFFSET", "SLOPE", "HIGH_KEY", "LOW_KEY",
-           "shape_alt", "level_tags", "slope_tags", "format_alt", "slope_label",
+           "shape_alt", "level_tags", "slope_tags", "slope_label",
            "slope_marks"]
 
 #: The whole-shape forms.
@@ -97,7 +97,7 @@ def shape_alt(tags: _t.Mapping[str, str], refs: _t.Sequence[int] = ()) -> dict |
     return None
 
 
-def format_alt(value: float) -> str:
+def _format_alt(value: float) -> str:
     """A value as the tags carry it: metres, two decimals."""
     return "%.2f" % float(value)
 
@@ -108,7 +108,7 @@ def level_tags(tags: _t.Mapping[str, str], value: float) -> dict:
     found = shape_alt(tags)
     key = found["key"] if found and found["form"] != SLOPE else "cst_alt_abs"
     out = dict(tags)
-    out[key] = format_alt(value)
+    out[key] = _format_alt(value)
     return out
 
 
@@ -118,9 +118,9 @@ def slope_tags(tags: _t.Mapping[str, str], high: float | None = None,
     every other tag (``profile``, ``steepness``, ``cell_size``) kept."""
     out = dict(tags)
     if high is not None:
-        out[HIGH_KEY] = format_alt(high)
+        out[HIGH_KEY] = _format_alt(high)
     if low is not None:
-        out[LOW_KEY] = format_alt(low)
+        out[LOW_KEY] = _format_alt(low)
     return out
 
 

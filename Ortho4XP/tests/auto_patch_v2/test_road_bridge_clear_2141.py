@@ -12,9 +12,9 @@ import numpy as np
 from auto_patch_v2.airport.road_bridge_ground import clearance_ground, clearance_ribbons
 from auto_patch_v2.law.tables import load_default
 from auto_patch_v2.planar.road_bridge_clear import (
+    _end_level,
     clearance_plan,
     deck_at,
-    _end_level,
     span_cuts,
     witnessed,
 )

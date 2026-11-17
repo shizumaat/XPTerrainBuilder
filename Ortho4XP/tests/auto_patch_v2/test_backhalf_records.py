@@ -422,9 +422,13 @@ _ALONE_LIVE = max(1, min(4, os.cpu_count() or 1))
 #: an airport or a report — never a row kept across a record (spec §8 T6:
 #: the codec returns equal rows, not the same objects).  ``p``:
 #: ``road_ramp.pad_weld_release`` drops pins of ONE set by their identity in
-#: that same set, inside one call — never across a record.
+#: that same set, inside one call — never across a record.  #1951:
+#: ``row.source`` — ``design_assemble`` reads what a row's SOURCE decides
+#: once per source object within ONE assembly pass (every row alive, so no
+#: id is reused); ``x`` — ``design_qp`` keeps ``A1 @ x`` per ITERATE within
+#: one QP call (an array, never a row).
 _ID_OF = frozenset({"planar", "pm", "law", "airport", "airside", "ps.stations",
-                    "out[1]", "rep_y", "p"})
+                    "out[1]", "rep_y", "p", "row.source", "x"})
 
 
 def test_t6_no_reader_keys_a_row_by_its_identity():

@@ -8,8 +8,8 @@ lights all run along the taxiway, #2141 (1)); then:
 
 * the SLAB (``deck_obj8``) in X-Plane's page for the pavement it carries
   (``deck_pavement``: the apt.dat surface under the ring, runway or
-  taxiway page) with the page's normal, weather map and decal
-  (``deck_skin``), and the bridge under it (``deck_structure``: slab,
+  taxiway page) with the page's normal and weather map (``deck_skin``;
+  never the page's ``DECAL_LIB``: see :data:`_FILM_STEP_M`), and the bridge under it (``deck_structure``: slab,
   edge beam, beams, kerbs, piers; two LODs);
 * the PAINT overlay: each dropped apt.dat line in X-Plane's own line art
   (``deck_line_art``), the expansion joints across the ends, and the
@@ -54,6 +54,18 @@ TEXTURE = "o4_deck_concrete.png"
 #: apt.dat ``120`` taxiway CENTRELINE types (plain, ``_b``, wide) and lights
 _CENTRE_TYPES = frozenset((1, 51, 10, 60))
 _CENTRE_LIGHTS = frozenset((101, 107))
+
+#: THE FILMS ARE SOLID GEOMETRY (owner sim read 2026-11-17, app 1.0.555:
+#: the deck's paint did not draw, "the texture moves and changes as the
+#: view changes").  An OBJ is not draped: X-Plane draws ``ATTR_poly_os``
+#: geometry in its own pass, and Laminar puts ``DECAL_LIB`` (an airport
+#: pavement / marking decal) and ``WEATHER_TRANSPARENT`` only on DRAPED
+#: geometry (``ATTR_draped``; no non-draped default-scenery OBJ carries
+#: either).  So the overlays carry none of the three: each film stands
+#: ``[deck_gen] rubber_lift_m`` / ``paint_lift_m`` over the top, and a
+#: line's layers (a ``_b`` line's black border, then its colour) this far
+#: apart, so nothing coplanar fights at distance.
+_FILM_STEP_M = 0.01
 
 
 def ring_polygon(ring) -> Polygon:
@@ -189,8 +201,9 @@ def _lights(pieces: _t.Sequence[_Piece], step: float) -> list[DeckLight]:
     return out
 
 
-def _atlas_lines(pieces: _t.Sequence[_Piece], stats: dict) -> list[DeckLine]:
-    """The pieces as the generated atlas's stripes (``deck_paint``)."""
+def _atlas_lines(pieces: _t.Sequence[_Piece], lift: float, stats: dict) -> list[DeckLine]:
+    """The pieces as the generated atlas's stripes (``deck_paint``),
+    ``lift`` over the top (the colours a layer step over the black)."""
     lines: list[DeckLine] = []
     for p in pieces:
         stripes = _paint.stripes_of(p.line_type) if p.line_type else ()
@@ -203,7 +216,8 @@ def _atlas_lines(pieces: _t.Sequence[_Piece], stats: dict) -> list[DeckLine]:
                     continue
                 for seg in _paint.dashed_pieces(gg, dash):
                     lines.append(DeckLine(tuple(seg.coords), w, colour,
-                                          0.0 if colour == "black" else 0.004 * (k + 1)))
+                                          lift + (0.0 if colour == "black"
+                                                  else _FILM_STEP_M * (k + 1))))
             stats["lines"] += 1
     return lines
 
@@ -222,7 +236,7 @@ def _art_strips(pieces: _t.Sequence[_Piece], pages: "dict[int, LinePage]", lift:
             left, right = page.span_m(lay)
             out.append(DeckStrip(tuple(p.line.coords), left, right,
                                  (lay[0] / page.tex_width, lay[2] / page.tex_width),
-                                 page.scale_m[1], lift + 0.002 * k))
+                                 page.scale_m[1], lift + _FILM_STEP_M * k))
         stats["lines"] += 1
     return out
 
@@ -291,20 +305,17 @@ def _slab_skin(rec: _t.Mapping, R: Polygon, route, art: _Art, g, surface_code
         return None
     xs = [p[0] for p in route] or [R.centroid.x]
     return DeckSkin(_link(art, pa.albedo), pa.scale_m, _link(art, pa.normal),
-                    _link(art, pa.weather), pa.decal_lib, pa.surface or "concrete",
+                    _link(art, pa.weather), "", pa.surface or "concrete",
                     sum(xs) / len(xs))
 
 
 def _film_material(art: _Art, page, metalness: bool) -> list[str]:
+    """A film's material rows: its normal map only (:data:`_FILM_STEP_M`)."""
     out = []
     if page.normal:
         out.append(f"TEXTURE_NORMAL {_link(art, page.normal)}")
         if metalness:
             out.append("NORMAL_METALNESS")
-    if page.decal_lib:
-        out.append(f"DECAL_LIB {page.decal_lib}")
-    if page.weather_transparent:
-        out.append("WEATHER_TRANSPARENT")
     return out + ["GLOBAL_specular 1"]
 
 
@@ -337,8 +348,9 @@ def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int |
     joints = _joints(R, ends, g)
     near = float(g.near_lod_m)
     if skin is None:
-        lines = _atlas_lines(pieces, stats) + [DeckLine(j, float(g.joint_m), "black")
-                                               for j in joints]
+        lift = float(g.paint_lift_m)
+        lines = _atlas_lines(pieces, lift, stats) + \
+            [DeckLine(j, float(g.joint_m), "black", lift) for j in joints]
         return [(rel, deck_obj8_text(R, top_y, thickness_m=thick, texture=TEXTURE, lines=lines,
                                      lights=lights, lod_m=lod, comments=comments, parts=parts,
                                      near_lod_m=near))], stats
@@ -353,7 +365,7 @@ def deck_objects(rec: _t.Mapping, dropped, art: _Art, g, *, surface_code: "int |
     if strips:
         out.append((rel[:-4] + "_rubber.obj",
                     overlay_obj8_text(top_y, texture=_link(art, art.rubber.albedo), strips=strips,
-                                      lod_m=lod, comments=comments, poly_os=2,
+                                      lod_m=lod, comments=comments,
                                       material=_film_material(art, art.rubber, True))))
     return out, stats
 
@@ -375,11 +387,11 @@ def _paint_overlay(pieces, joints, lights, top_y, art: _Art, g, lod, comments, s
             return ""
         page = art.lines[min(art.lines)]
         return overlay_obj8_text(top_y, texture=_link(art, page.texture), strips=strips,
-                                 lights=lights, lod_m=lod, comments=comments, poly_os=3,
+                                 lights=lights, lod_m=lod, comments=comments,
                                  material=_film_material(art, page, False))
-    lines = _atlas_lines(pieces, stats) + [DeckLine(j, float(g.joint_m), "black")
-                                           for j in joints]
+    lines = _atlas_lines(pieces, lift, stats) + [DeckLine(j, float(g.joint_m), "black", lift)
+                                                 for j in joints]
     if not lines and not lights:
         return ""
     return overlay_obj8_text(top_y, texture=TEXTURE, lines=lines, lights=lights, lod_m=lod,
-                             comments=comments, poly_os=3)
+                             comments=comments)

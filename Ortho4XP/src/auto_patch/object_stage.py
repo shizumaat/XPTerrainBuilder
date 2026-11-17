@@ -748,7 +748,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     c["sibling_packs"] = len(siblings)
     # #2144 P1: the overlay packs' deck chains near this airport
     from . import chain_stage as _chain
-    chains = (_chain.plans(plan, lambda box: _widened(mesh_sample, box, _surface), tile)
+    chains = (_chain.plans(plan, lambda box: _widened(mesh_sample, box, _surface), tile,
+                           plan_.pack_root)
               if plan_key in ("", plan_.icao) else [])
     c["overlay_chain_packs"] = len(chains)
     c["overlay_chain_rows"] = sum(len(s.msl_seats) for s in chains)

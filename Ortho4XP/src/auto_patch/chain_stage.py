@@ -69,10 +69,15 @@ def _placed_in(dump: _t.Any, root: str, inside: _t.Callable[[float, float], bool
     return out
 
 
-def plans(plan: _t.Any, surface_over: _t.Callable, tile: _t.Any) -> list:
+def plans(plan: _t.Any, surface_over: _t.Callable, tile: _t.Any,
+          installed_root: str = "") -> list:
     """``[PlacementPlan]`` of the overlay packs whose deck chains near the
     airport ``plan`` are seated (module doc).  ``surface_over(box)``: the
-    airport's placement surface widened to ``(lon0, lat0, lon1, lat1)``."""
+    airport's placement surface widened to ``(lon0, lat0, lon1, lat1)``;
+    ``installed_root`` the airport pack where it is INSTALLED (its packs
+    beside it are the ones scanned -- with a pack copy armed ``plan``'s
+    root is the copy, which has no Custom Scenery beside it)."""
+    main_root = installed_root or plan.pack_root
     from auto_patch_v2.airport import deck_chain as _dc
     from auto_patch_v2.airport import sibling_riders as _sr
     from auto_patch_v2.airport.pack_local import ships_objects, tile_candidates
@@ -80,11 +85,11 @@ def plans(plan: _t.Any, surface_over: _t.Callable, tile: _t.Any) -> list:
     from .sibling_stage import _dump
     law = _dc.ChainLaw()
     try:
-        region = _sr.airport_region(plan.pack_root, plan.icao)
+        region = _sr.airport_region(main_root, plan.icao)
         if region is None:
             return []
         inside = _scope(region, law.scope_m)
-        roots = [r for r in tile_candidates(plan.pack_root, tile.lat, tile.lon, plan.icao)
+        roots = [r for r in tile_candidates(main_root, tile.lat, tile.lon, plan.icao)
                  if ships_objects(r)]
     except Exception as exc:
         _say(f"  [v2 placement] {plan.icao}: overlay packs not read ({exc})")

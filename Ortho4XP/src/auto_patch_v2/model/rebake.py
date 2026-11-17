@@ -313,6 +313,9 @@ class Member:
     #: frame by it (``placement_file``), so such a member is never kept
     #: whole.  0.0 for every other member (and absent from the plan).
     zero_y: float = 0.0
+    #: spec 2120-F R1 (``obj8.PlacedObject.floor_zero``): ``zero_y`` is the
+    #: frame's AIRSIDE FLOOR, a storey over a lower floor (absent when not)
+    floor_zero: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -495,6 +498,7 @@ class RebakePlan:
                     "origin": (None if m.origin is None
                                else [float(m.origin[0]), float(m.origin[1])]),
                     **({"zero_y": m.zero_y} if m.zero_y else {}),
+                    **({"floor_zero": True} if m.floor_zero else {}),
                 } for m in u.members],
             } for u in self.units],
         }
@@ -610,6 +614,7 @@ class RebakePlan:
                 origin=(None if m.get("origin") is None
                         else (float(m["origin"][0]), float(m["origin"][1]))),
                 zero_y=float(m.get("zero_y") or 0.0),
+                floor_zero=bool(m.get("floor_zero", False)),
             ) for m in u["members"])) for u in d["units"])
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,

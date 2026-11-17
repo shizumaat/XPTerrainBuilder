@@ -561,7 +561,8 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                     scatter=is_scatter, base_profile=base_prof,
                     origin=(None if origin is None
                             else (float(origin[0]), float(origin[1]))),
-                    zero_y=float(o.zero_y))
+                    zero_y=float(o.zero_y),
+                    floor_zero=bool(getattr(o, "floor_zero", False)))
     return member, (o, geom, list(comps)), bool(is_line)
 
 

@@ -77,8 +77,8 @@ from ..geom.valid_area import valid_area
 from ..model.planar import STRIP_SUFFIX, plane_ref
 from ..model.registries import Registries
 
-__all__ = ["LOW_KIND", "UP_KIND", "level_cut", "low_level_split", "plan_low", "plan_up",
-           "stand_floor", "top_level", "unit_share", "walled_feet"]
+__all__ = ["LOW_KIND", "UP_KIND", "frame_seeds", "level_cut", "low_level_split", "plan_low",
+           "plan_up", "stand_floor", "top_level", "unit_share", "walled_feet"]
 
 #: the ``Registries.landings`` record kind of a lower level (a ramp
 #: landing's record carries no kind)
@@ -677,7 +677,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                                                rail=bool(counts.get("station_levels"))))
     from .low_extent import AirRegion, extend_levels
     air_all = air_all if air_all is not None else [AirRegion(g, "cell") for g in air_polys]
-    if not done and not seeds:
+    frames = frame_seeds(groups, done, held, airport, law)
+    if not done and not seeds and not frames:
         return out
     res: list = []
     for r in out:
@@ -688,7 +689,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                 done[ref] = None
             continue
         res.append(r)
-    res = extend_levels(res, reg, air_all, airport, law, grid, counts, beyond)
+    res = extend_levels(res, reg, air_all, airport, law, grid, counts, beyond, frames)
     res = _seeded(res, reg, seeds, air_all, airport, law, grid, counts, beyond, lots)
     # one region, one depth (``planar/level_regions.region_depths``, round 4)
     from .level_regions import region_depths
@@ -710,6 +711,33 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         f"{k} on {v['block']} +{v['y']:.2f} {v['area_m2']:g} m2"
         for k, v in sorted(reg.landings.items()) if v.get("kind") == UP_KIND)
     return res
+
+
+def frame_seeds(groups: _t.Mapping[str, list], done: _t.Mapping, held: _t.Mapping,
+                airport, law) -> list[dict]:
+    """THE LOWER PAD OF A FRAME READ AT ITS AIRSIDE FLOOR (spec 2120-F R3;
+    owner RULINGS 2026-11-16x): every held block, minted no level, whose
+    plurality unit (:func:`unit_share`) is a ``floor_zero`` frame
+    (``airport/airside_floor``) SEEDS its lower level -- a record of no
+    region (top ``y`` 0, the frame's zero standing on the apron; ``y_hi``
+    a storey down), which ``planar/low_extent.extend_levels`` extends over
+    the frame's lower footprint at the objects' bottom (27h)."""
+    part = getattr(airport, "partition", None)
+    if part is None or getattr(airport, "frame", None) is None:
+        return []
+    to_xy = airport.frame.entry()
+    step = float(law.tables.structures.building_pad.low_level_min_step_m)
+    out = []
+    for ref, regs in sorted(groups.items()):
+        if ref in done or held[ref].get("conforming"):
+            continue
+        ui, _p = unit_share(unary_union([r.polygon for r in regs]), airport, to_xy)
+        if ui is None or not any(getattr(m, "floor_zero", False)
+                                 for m in part.units[ui].members):
+            continue
+        out.append({"kind": LOW_KIND, "block": ref, "top_y": 0.0, "y_hi": -step,
+                    "witness": "airside_floor", "seed": True})
+    return out
 
 
 def _shell_split(ref: str, regs: list, shell, air_polys, tree, law, grid: float,

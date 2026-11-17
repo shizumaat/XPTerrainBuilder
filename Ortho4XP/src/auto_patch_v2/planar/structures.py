@@ -285,8 +285,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     extra_groups += via_groups
     stats.viaduct_roads = via_notes
     stats.refused.extend(via_refused)
-    tunnel_ways, corridors, extra_groups = channel_yields(  # §45 (1)/(6)/(7)
-        channels, tunnel_ways, corridors, extra_groups, stats.refused)  # noqa: E501
+    tunnel_ways, corridors, extra_groups = channel_yields(  # §45 (1)/(6)/(7), 2026-11-17c
+        channels, tunnel_ways, corridors, extra_groups, stats.refused, object_floors)
     if (not tunnel_ways and not corridors and not extra_groups and not channels) or not classification.cells:
         return classification, (), stats
     cell_tree = STRtree(polys) if polys else None

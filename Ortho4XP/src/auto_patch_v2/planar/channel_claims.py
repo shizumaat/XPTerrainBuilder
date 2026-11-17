@@ -119,7 +119,7 @@ def channel_ways(channels: _t.Sequence[Channel]) -> set[WayKey]:
 
 def channel_yields(channels: _t.Sequence[Channel], tunnel_ways: _t.Sequence[OsmWay],
                    corridors: _t.Sequence, extra_groups: _t.Sequence,
-                   refused: list[str]):
+                   refused: list[str], floors: _t.Sequence = ()):
     """WHAT THE CHANNEL TAKES OUT OF THE TUNNEL PASS (§45 (1)/(6)/(7)).
 
     ``(the bore seeds that remain, the object corridors, the extra
@@ -140,7 +140,15 @@ def channel_yields(channels: _t.Sequence[Channel], tunnel_ways: _t.Sequence[OsmW
     channel's witness (1) (c) — never a tunnel-object corridor, a sunken
     road or a door well.  LGAV measured the alternative: 60 Trench
     refusals, four passes each refusing the same geometry against a DEM
-    it stands 12 m under."""
+    it stands 12 m under.
+
+    RULINGS 2026-11-17c (``floors`` the object floors): a bore seed —
+    mapped, synthesised or a deck bore — whose line lies inside a corridor
+    AND passes under a deck piece of an object floor whose cut bounds that
+    channel yields too (:func:`_under_frame_deck`): the pack states one cut
+    through its own bridge, so the channel's floor runs under the deck and
+    the tunnel pass does not build the bore.  BOTH tests: the corridor
+    alone is the geometric drop 2026-09-15aa removed (below)."""
     # §45 (13) (b) SUPERSEDES THE GEOMETRIC DROP (owner RULINGS
     # 2026-09-15aa).  Round 2 dropped a bore seed whose LINE merely lay
     # inside a channel's corridor as well as one the channel OWNED.  Under
@@ -159,6 +167,13 @@ def channel_yields(channels: _t.Sequence[Channel], tunnel_ways: _t.Sequence[OsmW
                 f"osm:{w.id}: the channel's own way — its floor governs the crossing and a "
                 f"crossing inside a channel is NEVER a bore with mouths (§45 (1)/(6))")
             continue
+        frame = _under_frame_deck(channels, w, floors)
+        if frame:
+            refused.append(
+                f"osm:{w.id}: inside {frame[0]} under deck piece {frame[1]} of its own cut's "
+                f"frame — the pack states one cut through the bridge, the channel's floor "
+                f"runs under it and the bore is not built (RULINGS 2026-11-17c)")
+            continue
         kept.append(w)
     # §45 (11): an object pass yields ONLY where its footprint lies
     # INSIDE the corridor — a structure beside it keeps its own reading
@@ -168,6 +183,32 @@ def channel_yields(channels: _t.Sequence[Channel], tunnel_ways: _t.Sequence[OsmW
             if not _within_corridor(channels,
                                     getattr(getattr(g, "corridor", None), "footprint", None))]
     return kept, cors, grps
+
+
+def _under_frame_deck(channels: _t.Sequence[Channel], way: OsmWay,
+                      floors: _t.Sequence) -> tuple[str, str] | None:
+    """``(channel id, deck piece id)`` when ``way``'s line lies inside a
+    channel's corridor and passes under a deck piece (``ObjectFloor.decks``)
+    of a floor whose cut (its footprint) bounds that channel, else ``None``
+    (RULINGS 2026-11-17c)."""
+    decked = [f for f in floors or () if getattr(f, "decks", ())]
+    if not decked or len(way.points) < 2:
+        return None
+    line = LineString(way.points)
+    cid = _within_corridor(channels, line)
+    if not cid:
+        return None
+    ch = next(c for c in channels if c.id == cid)
+    region = _poly(ch.region or ch.crest_ring)
+    for f in decked:
+        fp = getattr(f, "footprint", None)
+        if region is None or fp is None or fp.is_empty or not fp.intersects(region):
+            continue
+        for d in f.decks:
+            ring = _poly(d.ring)
+            if ring is not None and line.intersects(ring):
+                return cid, d.id
+    return None
 
 
 def _within_corridor(channels: _t.Sequence[Channel], geom) -> str:

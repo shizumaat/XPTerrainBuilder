@@ -9,9 +9,9 @@ from __future__ import annotations
 import types
 
 import numpy as np
-from shapely.geometry import LineString
 from auto_patch_v2.airport import obj8 as O
 from auto_patch_v2.airport import object_floor as OF
+from shapely.geometry import LineString
 from test_hanging_objects1298 import LAW, THICK, _box, _write
 
 

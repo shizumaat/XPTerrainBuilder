@@ -21,9 +21,12 @@ is GRADE-SEPARATED where a witness says one passes over the other:
   past the other's carriageway edge for 20 m, both sides, median) stands
   ``[bridge] clearance_minimum_m`` or more from the other.
 
-EACH SIDE is the road faces near the crossing that run ALONG its
+EACH SIDE is the road faces near the crossing that are that road's: a
+mapped way's ribbon (and a mapped bridge's deck) by its ref,
+``<class>:<way>`` (``model/deck_ends.way_of_ref``); any other road face (an
+apt.dat route corridor, a pack road page) where it runs ALONG the
 centreline (three quarters of the face within its carriageway half width
-plus a lane of the line): a face the other road merely crosses is not
+plus a lane of the line), so a face the other road merely crosses is not
 its.  Every other crossing is at grade and joined as before.  Nothing here
 names an airport, a pack or a resource.
 """
@@ -41,6 +44,7 @@ from ..airport.deck_signature import is_bridge_way, is_tunnel_way
 from ..airport.road_ways import mapped_width_m
 from ..law import Law
 from ..law.tables import family
+from ..model.deck_ends import way_of_ref
 from ..model.grade_separation import RoadCrossing, road_key
 from ..model.planar import PlanarMap
 
@@ -161,19 +165,28 @@ def _half_width(tags, law: Law) -> float:
                                 tn.default_lanes)
 
 
-def _side(pm: PlanarMap, faces, ftree: STRtree, line: LineString, p: Point,
+def _ref_key(ref: str) -> "str | None":
+    """The mapped way a face's ref names (``osm:<way>``), else ``None``."""
+    base = str(ref).split("#", 1)[0]
+    w = way_of_ref(base) if ":" in base else None
+    return None if w is None else f"osm:{w}"
+
+
+def _side(pm: PlanarMap, faces, ftree: STRtree, key: str, line: LineString, p: Point,
           half: float, reach: float) -> frozenset[int]:
-    """The vertices of the road faces within ``reach`` of ``p`` that run
-    ALONG ``line`` (module doc, EACH SIDE)."""
+    """The vertices of road ``key``'s faces within ``reach`` of ``p``
+    (module doc, EACH SIDE)."""
     band = line.buffer(half)
     out: set[int] = set()
     for i in ftree.query(p.buffer(reach), predicate="intersects"):
         fid, poly = faces[int(i)]
-        if not poly.intersects(line) or poly.area <= 0.0:
-            continue
-        if poly.intersection(band).area < _ALONG_SHARE * poly.area:
-            continue
         f = pm.faces[fid]
+        named = _ref_key(f.ref)
+        if named is not None and named != key:
+            continue
+        if named is None and (not poly.intersects(line) or poly.area <= 0.0
+                              or poly.intersection(band).area < _ALONG_SHARE * poly.area):
+            continue
         for cyc in (f.ring, *f.holes):
             out.update(pm.ring_vertices(cyc))
     return frozenset(out)
@@ -230,8 +243,8 @@ def road_crossings(pm: PlanarMap, airport, law: Law
                     continue
                 ha, hb = _half_width(a[2], law), _half_width(b[2], law)
                 reach = ha + hb + 2.0 * lane
-                sa = _side(pm, faces, ftree, a[1], p, ha + lane, reach)
-                sb = _side(pm, faces, ftree, b[1], p, hb + lane, reach)
+                sa = _side(pm, faces, ftree, a[0], a[1], p, ha + lane, reach)
+                sb = _side(pm, faces, ftree, b[0], b[1], p, hb + lane, reach)
                 if sa and sb:
                     found[(a[0], b[0])] = RoadCrossing(
                         a[0], b[0], (round(p.x, 3), round(p.y, 3)), why, sa, sb)

@@ -47,8 +47,7 @@ from shapely.ops import unary_union
 
 from ..geom.foot_planes import PLANE_BAND_M, PLANE_MIN_FEET, floor_plane
 
-__all__ = ["airside_union", "witness", "floor_lifts", "frame_floor",
-           "carried_feet"]
+__all__ = ["airside_union", "witness", "floor_lifts"]
 
 
 class _FloorWitness(_t.NamedTuple):
@@ -112,41 +111,6 @@ def witness(airport, law) -> "_FloorWitness | None":
     return _FloorWitness(g, step, float(law.tables.structures.placement.chain_min_height_m),
                         float(law.tables.structures.basin.contact_band_m),
                         int(law.tables.structures.rebake.foot_samples_max), storey_m(law))
-
-
-def frame_floor(unit, law) -> "float | None":
-    """THE FRAME'S LOWER FLOOR in its re-zeroed frame (spec 2120-F R3, the
-    ``y_l`` this module read): the ``foot_planes.floor_plane`` of its walled
-    parts' feet a storey or more under its zero (``[building_pad]
-    low_level_min_step_m``), ``None`` for a unit with none."""
-    from .airside_group_seat import storey_m
-    step = float(law.tables.structures.building_pad.low_level_min_step_m)
-    wall_min = float(law.tables.structures.placement.chain_min_height_m)
-    ys = [-float(f[2]) for m in unit.members for p in m.parts
-          if not getattr(p, "line", False)
-          and float(getattr(p, "height_m", 0.0) or 0.0) >= wall_min
-          for f in (getattr(p, "feet", ()) or ()) if float(f[2]) <= -step]
-    got = floor_plane(ys, storey_m(law)) if ys else None
-    return None if got is None else round(-float(got), 3)
-
-
-def _on_floor(y: float, y_floor: float) -> bool:
-    """A foot at ``y`` (the frame's re-zeroed ``y``) TOUCHES GROUND (spec
-    2120-WF2 F1): it stands on the frame's lower floor ``y_floor`` or under
-    it (a footing may sink, never float: 2120-F B2), or on its airside floor
-    (its zero, the apron), each within ``foot_planes.PLANE_BAND_M``.  Every
-    other foot -- a curb, a mezzanine, a podium a storey over the hall --
-    stands on the pack's own floors: it is CARRIED."""
-    y = float(y)
-    return y <= float(y_floor) + PLANE_BAND_M or abs(y) <= PLANE_BAND_M
-
-
-def carried_feet(ys: _t.Sequence[float], y_floor: "float | None") -> bool:
-    """A body of a ``floor_zero`` frame none of whose feet ``ys`` touches
-    ground (:func:`_on_floor`): carried by the frame's own floors, it takes
-    no ground pad and no ground row (spec 2120-WF2 F1).  ``False`` without a
-    lower floor or without feet."""
-    return y_floor is not None and bool(ys) and not any(_on_floor(y, y_floor) for y in ys)
 
 
 def _family_key(xy: _t.Sequence[float], heading_deg: float) -> tuple[float, float, float]:

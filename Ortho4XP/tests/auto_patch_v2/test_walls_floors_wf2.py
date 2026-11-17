@@ -16,10 +16,8 @@ from __future__ import annotations
 import types
 
 import pytest
+from auto_patch_v2.geom import foot_planes as AF
 from shapely.geometry import LineString, box
-
-from auto_patch_v2.airport import airside_floor as AF
-
 
 # ── F1: which feet touch ground ─────────────────────────────────────────
 
@@ -51,7 +49,7 @@ def test_the_foot_rows_read_a_carried_body_of_a_floor_zero_frame_only():
         units=[types.SimpleNamespace(members=[mem, plain])]))
     ff = _FrameFloors(a, law)
     feet = (types.SimpleNamespace(y=-8.0), types.SimpleNamespace(y=-7.5))
-    assert AF.frame_floor(a.partition.units[0], law) == pytest.approx(-15.0)
+    assert AF.frame_floor(a.partition.units[0], step, tall - 1.0) == pytest.approx(-15.0)
     assert -15.0 <= -step
     assert ff.carried(types.SimpleNamespace(senior=(0, 0, 0), feet=feet))
     assert not ff.carried(types.SimpleNamespace(senior=(0, 1, 0), feet=feet))
@@ -127,7 +125,8 @@ def _split(law, tmp_path, monkeypatch, extra=(), shade=None, halls=((0.0, 200.0)
     from auto_patch_v2.planar import pad_blocks
     from auto_patch_v2.planar.low_extent import AirRegion
     from auto_patch_v2.planar.overlay import Region
-    from test_two_pads1214 import _airport, _wall as _part
+    from test_two_pads1214 import _airport
+    from test_two_pads1214 import _wall as _part
     monkeypatch.setattr(pad_blocks, "unit_base", lambda P, a: ("flat", "u"))
     air = box(0.0, 100.0, 200.0, 130.0)
     blk = box(0.0, 80.0, 200.0, 100.0)
@@ -183,12 +182,13 @@ def test_a_foot_on_a_walls_fill_takes_no_ground_row(law):
     retaining wall's FILL (``model/wall_reach.WALL_FILL_MARK``): verdict
     ``wall_fill``, no row -- the fill is held by the wall's own law."""
     import dataclasses as dc
+
     from auto_patch_v2.classify.roles import Classification
     from auto_patch_v2.constraints import foot_rows as FR
     from auto_patch_v2.model.wall_reach import WALL_FILL_MARK, WALL_SLOPE_REF_PREFIX
     from auto_patch_v2.planar.build import build
-    from tests.auto_patch_v2.test_v2cutfeet import _cells, _colonnade
     from tests.auto_patch_v2.test_v2canopy6 import _FEET_X, _with_groups
+    from tests.auto_patch_v2.test_v2cutfeet import _cells, _colonnade
     from tests.auto_patch_v2.test_v2grounddem import _LawfulDem
     from tests.auto_patch_v2.test_v2smooth import _airport
     airport, r = _airport(law, _LawfulDem(), ())

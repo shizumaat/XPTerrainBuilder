@@ -13,7 +13,7 @@ import math
 import typing as _t
 
 __all__ = ["PLANE_SHARE", "PLANE_BAND_M", "PLANE_MIN_FEET", "floor_plane", "ground_plane",
-           "is_support"]
+           "is_support", "frame_floor", "carried_feet"]
 
 #: a PLANE of the airside-contact feet holds at least this share of them,
 #: within :data:`PLANE_BAND_M` ...
@@ -137,3 +137,34 @@ def is_support(part: _t.Any, law: _t.Any) -> bool:
     dy = (float(box[2]) - float(box[0])) * _M_PER_DEG
     dx = (float(box[3]) - float(box[1])) * _M_PER_DEG * math.cos(math.radians(float(box[0])))
     return max(abs(dx), abs(dy)) <= lim
+
+
+def frame_floor(unit: _t.Any, step_m: float, wall_min_m: float) -> "float | None":
+    """THE LOWER FLOOR of a frame read at its airside floor (spec 2120-F R3,
+    ``airport/airside_floor``'s ``y_l``), in its re-zeroed frame: the
+    :func:`floor_plane` of its walled parts' (``wall_min_m`` tall) feet a
+    storey (``step_m``, ``[building_pad] low_level_min_step_m``) or more
+    under its zero; ``None`` for a unit with none."""
+    ys = [-float(f[2]) for m in unit.members for p in m.parts
+          if not getattr(p, "line", False)
+          and float(getattr(p, "height_m", 0.0) or 0.0) >= wall_min_m
+          for f in (getattr(p, "feet", ()) or ()) if float(f[2]) <= -step_m]
+    got = floor_plane(ys, step_m) if ys else None
+    return None if got is None else round(-float(got), 3)
+
+
+def _on_floor(y: float, y_floor: float) -> bool:
+    """A foot at ``y`` (the frame's re-zeroed ``y``) TOUCHES GROUND (spec
+    2120-WF2 F1): on the frame's lower floor ``y_floor`` or under it (a
+    footing may sink, never float: 2120-F B2), or on its airside floor (its
+    zero, the apron), each within :data:`PLANE_BAND_M`."""
+    y = float(y)
+    return y <= float(y_floor) + PLANE_BAND_M or abs(y) <= PLANE_BAND_M
+
+
+def carried_feet(ys: _t.Sequence[float], y_floor: "float | None") -> bool:
+    """A body of a ``floor_zero`` frame none of whose feet ``ys`` touches
+    ground (:func:`_on_floor`) stands on the pack's own floors -- a curb, a
+    mezzanine, a canopy: CARRIED, it takes no ground pad and no ground row
+    (spec 2120-WF2 F1).  ``False`` without a lower floor or feet."""
+    return y_floor is not None and bool(ys) and not any(_on_floor(y, y_floor) for y in ys)

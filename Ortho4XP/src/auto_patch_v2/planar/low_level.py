@@ -730,7 +730,7 @@ def _frame_seeds(groups: _t.Mapping[str, list], done: _t.Mapping, held: _t.Mappi
     part = getattr(airport, "partition", None)
     if part is None or getattr(airport, "frame", None) is None:
         return []
-    from ..airport.airside_floor import frame_floor
+    from ..geom.foot_planes import frame_floor
     to_xy = airport.frame.entry()
     step = float(law.tables.structures.building_pad.low_level_min_step_m)
     out = []
@@ -741,7 +741,8 @@ def _frame_seeds(groups: _t.Mapping[str, list], done: _t.Mapping, held: _t.Mappi
         if ui is None or not any(getattr(m, "floor_zero", False)
                                  for m in part.units[ui].members):
             continue
-        y = frame_floor(part.units[ui], law)
+        y = frame_floor(part.units[ui], step,
+                        float(law.tables.structures.placement.chain_min_height_m))
         if y is None:
             continue
         out.append({"kind": LOW_KIND, "block": ref, "deck": None, "top_y": 0.0,

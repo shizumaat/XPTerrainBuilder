@@ -450,8 +450,8 @@ def _verdict(g, kind: str, roles: list[str | None],
 
 class _FrameFloors:
     """The lower floor of every ``floor_zero`` frame's unit
-    (``airport/airside_floor.frame_floor``), read once per unit, and whether
-    a group of one is CARRIED (``airside_floor.carried_feet``)."""
+    (``geom/foot_planes.frame_floor``), read once per unit, and whether
+    a group of one is CARRIED (``foot_planes.carried_feet``)."""
 
     def __init__(self, airport, law) -> None:
         self._part = getattr(airport, "partition", None)
@@ -469,9 +469,11 @@ class _FrameFloors:
             return False
         if not getattr(m, "floor_zero", False):
             return False
-        from ..airport.airside_floor import carried_feet, frame_floor
+        from ..geom.foot_planes import carried_feet, frame_floor
         if ui not in self._y:
-            self._y[ui] = frame_floor(unit, self._law)
+            sp = self._law.tables.structures
+            self._y[ui] = frame_floor(unit, float(sp.building_pad.low_level_min_step_m),
+                                      float(sp.placement.chain_min_height_m))
         return carried_feet([float(f.y) for f in g.feet], self._y[ui])
 
 

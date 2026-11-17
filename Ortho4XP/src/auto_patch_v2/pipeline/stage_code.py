@@ -1837,6 +1837,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.feet_graph geom.feet_mst geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.ground_fit model.islands model.map_memo model.platform
         geom.slope_pad
+        geom.foot_planes model.wall_reach
         constraints.face_index constraints.group_level
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),

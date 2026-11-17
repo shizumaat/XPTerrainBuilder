@@ -18,6 +18,22 @@ refusal of the deck piece:
     ``pack_structure_depth_m`` of its ground running over at least
     ``pack_cover_share`` of the covered roads' axis inside the piece.
 
+(c) THE PACK'S DECK BESIDE IT (owner RULINGS 2026-11-17n: "When an
+    installed pack has an object that models the deck, generate NOTHING
+    there"): a pack HARD DECK (a: the flag -- an invisible landable plane
+    is one -- or a signature deck, ``airport/deck_signature``) that ABUTS
+    the piece: within
+    ``[deck_gen] bearing_m + edge_margin_m`` of it (the ring's own growth
+    past the pavement over the cut: a pack deck there touches the ring),
+    or standing over the covered road itself within the cut's approach
+    run of the piece (``reach``: the floor's depth over ``[tunnel]
+    ramp_grade``, the stretch the road runs in the generated cut past the
+    ring) -- the road the generated deck would span runs on under the
+    pack's own deck, one crossing the pack models.  MEASURED LPMA
+    (ldeck3): ``runway23_area.obj``'s hard deck stands 11.45 m beside the
+    generated piece over trunk ``-44`` / ``-23``, and ``-23``'s mapped way
+    runs 203 m under it.
+
 Neither half of (b) refuses alone (owner 2026-11-17 14:48Z): a pack CUT
 with no top over the road (a pit, ramps, walls) supplies the trench and
 the deck is still ours, seated to the cut; pavement the pack drapes over
@@ -125,20 +141,22 @@ def _structure_plan(o, g, law, depth: float):
 
 
 def pack_decks_near(objects: _t.Sequence, cache, law, region,
-                    over_m: "float | None" = None) -> list[_PackDeck]:
+                    over_m: "float | None" = None, deck_region=None) -> list[_PackDeck]:
     """Every pack hard deck (a), top and structure (b) whose plan reaches
     ``region`` (the union of the generated deck pieces, frame); with
     ``over_m``, also each placement's ELEVATED top (kind ``"over"``: its
     solid up-facing faces at least ``over_m`` over its ground, the
     pack's own bridge or roof over a generated road bridge,
-    ``planar/road_bridge_pack``)."""
+    ``planar/road_bridge_pack``).  ``deck_region`` (wider than ``region``):
+    where a HARD DECK is read, (c); no face is read there."""
     if not objects or region is None or region.is_empty:
         return []
     depth = float(law.tables.structures.deck_gen.pack_structure_depth_m)
     out: list[_PackDeck] = []
     for o in objects:
         hd = getattr(o, "hard_deck", None)
-        if hd is not None and not hd.is_empty and hd.intersects(region):
+        if hd is not None and not hd.is_empty and hd.intersects(
+                region if deck_region is None else deck_region):
             out.append(_PackDeck(str(o.id), str(o.path), "hard_deck", hd))
             continue
         bb = getattr(o, "plan_bbox", None)
@@ -184,11 +202,17 @@ def faked_cuts(piece: Polygon, packs: _t.Sequence[_PackDeck], law) -> list[_Pack
 
 
 def pack_refusal(piece: Polygon, axes: _t.Sequence, packs: _t.Sequence[_PackDeck],
-                 law, why_of: _t.Callable[[str], str] = lambda _i: "") -> str:
+                 law, why_of: _t.Callable[[str], str] = lambda _i: "",
+                 roads: _t.Sequence = (), reach: float = 0.0) -> str:
     """Why the pack's own crossing refuses ``piece`` (module doc), or
     ``""``.  ``axes``: the covered roads' lines; ``why_of(object id)``:
-    the reason ``deck_bridges`` refused that hard deck as a bridge."""
+    the reason ``deck_bridges`` refused that hard deck as a bridge;
+    ``roads`` / ``reach``: the covered roads' MAPPED lines and the cut's
+    approach run, for (c)."""
     g = law.tables.structures.deck_gen
+    beside = _beside(piece, packs, law, roads, reach)
+    if beside:
+        return beside
     inside = [a.intersection(piece) for a in axes]
     total = sum(x.length for x in inside)
     top = structure = None
@@ -214,3 +238,32 @@ def pack_refusal(piece: Polygon, axes: _t.Sequence, packs: _t.Sequence[_PackDeck
     return (f"the pack models the crossing: {structure.object_id} ({structure.resource}) "
             f"reaches under its ground and {top[0].object_id} ({top[0].resource}) draws a "
             f"top over {100 * top[1]:.0f} % of the covered road")
+
+
+def _beside(piece: Polygon, packs: _t.Sequence[_PackDeck], law,
+            roads: _t.Sequence, reach: float) -> str:
+    """(c): the pack hard deck that abuts ``piece`` (module doc), named,
+    or ``""``.  One that overlaps it is (a)'s."""
+    g = law.tables.structures.deck_gen
+    touch = float(g.bearing_m) + float(g.edge_margin_m)
+    near = piece.buffer(reach) if reach > 0.0 else None
+    on = [r.intersection(near) for r in roads] if near is not None else []
+    for p in packs:
+        if p.kind != "hard_deck":
+            continue
+        try:
+            if p.plan.intersection(piece).area > 1.0:
+                continue
+            gap = p.plan.distance(piece)
+            run = sum(x.intersection(p.plan).length for x in on)
+        except shapely.errors.GEOSException:     # an invalid pack outline
+            continue
+        if gap <= touch:
+            return (f"the pack's hard deck {p.object_id} ({p.resource}) abuts it "
+                    f"({gap:.1f} m, within the ring's growth {touch:g} m; RULINGS 2026-11-17n)")
+        if run > 1.0:
+            return (f"the covered road runs {run:.0f} m on under the pack's hard deck "
+                    f"{p.object_id} ({p.resource}) {gap:.1f} m beside it, within the cut's "
+                    f"approach run {reach:g} m: the pack models the crossing "
+                    f"(RULINGS 2026-11-17n)")
+    return ""

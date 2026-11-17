@@ -310,7 +310,7 @@ def _tilt(law, ends, roles: CellRoles, at, cap_role: str) -> float:
 
 
 def _blocked(piece: Polygon, taken, blocked, axes=(), packs=(), law=None,
-             why_of=lambda _i: "") -> str:
+             why_of=lambda _i: "", roads=()) -> str:
     from .deck_bridge import deck_polygon
     from .deck_pack_cover import pack_refusal
     for db in taken:
@@ -322,7 +322,17 @@ def _blocked(piece: Polygon, taken, blocked, axes=(), packs=(), law=None,
                 return "a pack trench / corridor / floor stands on it"
         except Exception:                      # an invalid pack outline
             continue
-    return pack_refusal(piece, axes, packs, law, why_of) if packs else ""
+    return pack_refusal(piece, axes, packs, law, why_of, roads,
+                        _approach_run_m(law)) if packs else ""
+
+
+def _approach_run_m(law) -> float:
+    """The stretch a covered road runs in the generated cut past the ring:
+    the floor's depth (the slab plus ``[tunnel] clearance_m``, Q6) over
+    ``[tunnel] ramp_grade`` -- the approach ramp's run (:func:`_approaches`)."""
+    g = law.tables.structures.deck_gen
+    tn = law.tables.structures.tunnel
+    return (float(g.thickness_m) + float(tn.clearance_m)) / float(tn.ramp_grade)
 
 
 def _pack_refusal(airport) -> str:
@@ -407,7 +417,10 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     refused_pack = _pack_refusal(airport)
     from .deck_pack_cover import pack_decks_near
-    packs = pack_decks_near(objects, cache, law, R)
+    # (c) RULINGS 2026-11-17n: a pack hard deck beside a piece, over its
+    # road within the approach run, refuses it too (``deck_pack_cover``)
+    packs = pack_decks_near(objects, cache, law, R,
+                            deck_region=R.buffer(_approach_run_m(law)))
 
     def why_of(oid: str) -> str:
         own = re.compile(re.escape(oid) + r"(?![0-9])")
@@ -430,7 +443,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
                          f"{float(g.max_cover_m):g} m (A1 (3) / Q2)")
             continue
         why = _blocked(piece, taken, blocked, [r.line for r in under], packs, law,
-                       why_of) or refused_pack
+                       why_of, [r.parent or r.line for r in under]) or refused_pack
         if why:
             notes.append(f"{where}: REFUSED -- {why}")
             continue
@@ -532,7 +545,7 @@ def _approaches(piece: Polygon, under, P, mapped, law) -> list[Polygon]:
     from shapely.ops import substring
     g = law.tables.structures.deck_gen
     tn = law.tables.structures.tunnel
-    run = (float(g.thickness_m) + float(tn.clearance_m)) / float(tn.ramp_grade)
+    run = _approach_run_m(law)
     out = []
     for r in under:
         if r.parent is not None:

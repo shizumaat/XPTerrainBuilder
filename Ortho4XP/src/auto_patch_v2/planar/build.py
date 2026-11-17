@@ -557,8 +557,13 @@ def build(airport: Airport, classification: Classification, law: Law,
                            stage_air_of(faces.values(), lambda f: face_vs.get(f.id, ()), law))
     # #714: over a mapped bore under airside pavement the ground is the
     # ground BESIDE the cover, not the road floor a bare-earth DEM carries
+    # #2120 R2 P2: a portal in a cut walls the mouth it stands at
+    from ..airport.cut_portal import log_lines as _cp_lines
+    in_cut = tuple(getattr(airport, "cut_portals", ()) or ())
+    for _line in _cp_lines(airport.icao, in_cut):
+        print(f"  [planar] {_line}")
     zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs,
-                                              objects, bridges, decks)
+                                              objects, bridges, decks, in_cut)
     if stats.covered_ground.rings:
         print(f"  [planar] {stats.covered_ground.line()}")
     # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads

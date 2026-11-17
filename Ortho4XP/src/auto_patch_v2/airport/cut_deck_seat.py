@@ -37,7 +37,7 @@ from .placement_file import authored_offset, named_body
 
 __all__ = ["CUT_RING", "CUT_FRAME_Z", "SEAT_REASON", "seated", "cut_seats", "seat_under",
            "framed_zero", "stands_in", "cut_rings",
-           "carries_airside", "carries_road", "end_ground", "seat_cut_decks", "elevated"]
+           "carries_airside", "carries_road", "end_ground", "seat_cut_decks"]
 
 #: The ``authored_seats`` record key carrying a pack object cut's
 #: footprint ring as ``[[lat, lon], ...]``.
@@ -343,7 +343,7 @@ def _elevated_m() -> float:
     return _ELEVATED[0]
 
 
-def elevated(zero: float, ends: tuple[float, float], tops: tuple[float, float],
+def _elevated_deck(zero: float, ends: tuple[float, float], tops: tuple[float, float],
              over_m: float) -> bool:
     """AN ELEVATED DECK CARRIES NOTHING AT GRADE (#2127; owner RULINGS
     2026-11-16u): at ``zero`` (the frame's or touching group's) the deck's
@@ -357,7 +357,7 @@ def elevated(zero: float, ends: tuple[float, float], tops: tuple[float, float],
 def _seat_body(record, m, b, slab, origin, surface, cuts, step_m, on_fraction, counts):
     """One body: its slab's hull over the cut, its end lines on the surface
     it carries, its zero flush there — or the body unchanged (an
-    :func:`elevated` deck keeps its zero)."""
+    :func:`_elevated_deck` keeps its zero)."""
     box = getattr(b, "geom_box", None) or getattr(b, "plan_box", None)
     a = b.anchor
     if box is None or a.surface_z is None:
@@ -366,7 +366,7 @@ def _seat_body(record, m, b, slab, origin, surface, cuts, step_m, on_fraction, c
     if got is None:
         return b
     zero, hull, ml, mo, z1, z2, t1, t2 = got
-    if elevated(float(a.surface_z) - float(a.y_zero), (z1, z2), (t1, t2), _elevated_m()):
+    if _elevated_deck(float(a.surface_z) - float(a.y_zero), (z1, z2), (t1, t2), _elevated_m()):
         counts["cut_deck_elevated"] = counts.get("cut_deck_elevated", 0) + 1
         return b
     c = hull.centroid

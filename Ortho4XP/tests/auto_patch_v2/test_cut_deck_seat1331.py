@@ -322,6 +322,6 @@ def test_an_elevated_deck_keeps_its_groups_zero(tmp_path):
 
 
 def test_elevated_needs_both_end_lines_over_a_storey():
-    assert CDS.elevated(90.0, (78.0, 78.0), (0.5, 0.5), 3.0)
-    assert not CDS.elevated(90.0, (78.0, 88.0), (0.5, 0.5), 3.0)
-    assert not CDS.elevated(90.0, (78.0, 78.0), (0.5, 0.5), 0.0)
+    assert CDS._elevated_deck(90.0, (78.0, 78.0), (0.5, 0.5), 3.0)
+    assert not CDS._elevated_deck(90.0, (78.0, 88.0), (0.5, 0.5), 3.0)
+    assert not CDS._elevated_deck(90.0, (78.0, 78.0), (0.5, 0.5), 0.0)

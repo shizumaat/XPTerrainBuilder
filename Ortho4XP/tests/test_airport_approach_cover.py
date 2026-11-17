@@ -48,8 +48,8 @@ def test_corridor_length_follows_a_3_degree_glide_path():
 
 
 def test_one_corridor_per_runway_end_none_at_zero():
-    assert len(COVER._threshold_corridors([EW, NS], 2908.0)) == 4
-    assert COVER._threshold_corridors([EW, NS], 0.0) == []
+    assert len(COVER._threshold_corridors([EW, NS], 500)) == 4
+    assert COVER._threshold_corridors([EW, NS], 0) == []
 
 
 def test_corridor_starts_at_the_displaced_threshold_and_widens():
@@ -135,4 +135,38 @@ def test_presets_carry_the_corridor():
     import O4_Settings_Presets as PRESETS
     got = {p.key: p.as_dict()["cover_approach_ft"] for p in PRESETS.PRESETS}
     assert got == {"light_on_disk": "0", "balanced": "500",
-                   "sharper_airports": "1000"}
+                   "sharper_airports": str(COVER.EYE_RULE_FT)}
+
+
+# ── the eye rule (RULINGS 2026-11-17u) ───────────────────────────────────
+
+@pytest.mark.parametrize("lat", [37.74, 61.0])
+def test_eye_length_is_where_the_base_texel_stops_being_resolvable(lat):
+    import math
+
+    import O4_Imagery_Tier_Plan as TIER_PLAN
+    length = COVER.eye_corridor_length_m(lat, 16)
+    # the aircraft at the far end, on the 3 degree path, looking down it
+    # at the threshold: the ZL16 4096 px texel subtends exactly EYE_RAD
+    slant = length / math.cos(math.radians(COVER.GLIDE_PATH_DEG))
+    texel = (40_075_016.686 * math.cos(math.radians(lat))) / 2 ** 24
+    assert TIER_PLAN.texel_angle(3, 4096 * texel, slant) == pytest.approx(
+        TIER_PLAN.EYE_RAD[-1], rel=1e-3)
+    assert COVER._corridor_length_m(COVER.EYE_RULE_FT, lat) == length
+    # cos(lat): shorter toward the pole; a finer base halves it
+    assert length == pytest.approx(
+        COVER.eye_corridor_length_m(0.0) * math.cos(math.radians(lat)))
+    assert COVER.eye_corridor_length_m(lat, 17) == pytest.approx(length / 2)
+
+
+def test_eye_rule_sets_the_corridor_and_nothing_rings_round_it(monkeypatch):
+    eye = _squares(monkeypatch, cover_extent=0.0, approach_ft=-1)
+    length = COVER.eye_corridor_length_m(CLAT)
+    region = COVER._cover_region(BOUNDARY, [EW, NS], LAT, LON, 0.0, -1)
+    assert region.contains(_local(1500 + length - 50, 0))
+    assert not region.contains(_local(1500 + length + 50, 0))
+    # no ring reach (lzoom's 10 km, dropped): 9 km off the boundary's
+    # north edge, away from the corridors, stays at the base zoom
+    assert not hasattr(COVER, "RING_COVER_REACH_M")
+    assert GEO.wgs84_to_orthogrid(*_ll(1200, 1200 + 9000), 18) not in eye
+    assert _squares(monkeypatch, cover_extent=0.0, approach_ft=1000) < eye

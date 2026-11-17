@@ -131,7 +131,9 @@ PRESETS = (
         "ZL16, and at airports with ICAO codes ZL18 imagery and the best "
         "elevation, their approaches included.",
         "About 1.6–3.1 GB per tile, plus the sharper airports.",
-        _values(16, "0.0", "auto", "auto", "auto", 1000),
+        # RULINGS 2026-11-17u: the corridor runs as far as the eye rule
+        # (O4_Airport_Approach_Cover.EYE_RULE_FT).
+        _values(16, "0.0", "auto", "auto", "auto", -1),
     ),
 )
 

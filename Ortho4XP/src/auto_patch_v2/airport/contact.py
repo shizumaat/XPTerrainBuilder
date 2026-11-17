@@ -52,7 +52,7 @@ from . import pool as _pool
 
 __all__ = ["PlacedPart", "Partition", "partition", "BaseIndex", "Extension",
            "base_index", "extend", "PartAttrs", "part_attrs", "member_attrs",
-           "narrow_outcomes", "narrow_ahead", "narrow_block"]
+           "narrow_outcomes", "narrow_ahead", "narrow_block", "component_feet"]
 
 
 @_dc.dataclass(frozen=True)
@@ -184,6 +184,16 @@ def _feet(pts: np.ndarray, min_y: float, base_plane: float, band: float, k_max: 
     out[:, 1] = pts[pick, 2]
     out[:, 2] = auth[pick]
     return out
+
+
+def component_feet(geom: _obj8.ObjGeometry, c: _obj8.Component, band: float, k_max: int
+                   ) -> np.ndarray:
+    """:func:`_feet` of one genuine component in its AUTHORED frame (no
+    placement, zero 0): rows ``(x, z, authored y)`` -- the partition's own
+    band and sampling, read before a placement's zero is known
+    (``airport/airside_floor``, spec 2120-F R1)."""
+    ids = np.unique(np.asarray(c.tris).reshape(-1))
+    return _feet(np.asarray(geom.vertices[ids], dtype=float), float(c.min_y), 0.0, band, k_max)
 
 
 #: §16g (7) (1): how many vertices a footprint ring may carry into the

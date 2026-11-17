@@ -160,6 +160,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.agp_plan",
         "auto_patch_v2.airport.agp_plates",
         "auto_patch_v2.airport.airside_deck_seat",
+        "auto_patch_v2.airport.airside_floor",
         "auto_patch_v2.airport.airside_group_seat",
         "auto_patch_v2.airport.anchor_rule",
         "auto_patch_v2.airport.apt_dat",
@@ -290,6 +291,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.split_level",
         "auto_patch_v2.airport.split_level_wings",
         "auto_patch_v2.airport.stack_walls",
+        "auto_patch_v2.airport.sunk_frame",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_base",
         "auto_patch_v2.airport.terrain_feature",
@@ -423,6 +425,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.agp_plan",
         "auto_patch_v2.airport.agp_plates",
         "auto_patch_v2.airport.airside_deck_seat",
+        "auto_patch_v2.airport.airside_floor",
         "auto_patch_v2.airport.airside_group_seat",
         "auto_patch_v2.airport.anchor_rule",
         "auto_patch_v2.airport.apt_dat",
@@ -579,6 +582,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.split_level",
         "auto_patch_v2.airport.split_level_wings",
         "auto_patch_v2.airport.stack_walls",
+        "auto_patch_v2.airport.sunk_frame",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.sunken_roads",
         "auto_patch_v2.airport.terrain_base",
@@ -893,6 +897,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.adapted_riders",
         "auto_patch_v2.airport.airside_deck_seat",
+        "auto_patch_v2.airport.airside_floor",
         "auto_patch_v2.airport.airside_group_seat",
         "auto_patch_v2.airport.anchor_rule",
         "auto_patch_v2.airport.apt_dat",
@@ -1015,6 +1020,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.slab_faces",
         "auto_patch_v2.airport.slab_plates",
         "auto_patch_v2.airport.split_guard",
+        "auto_patch_v2.airport.sunk_frame",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_base",
         "auto_patch_v2.airport.terrain_cut",
@@ -1094,6 +1100,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.adapted_riders",
         "auto_patch_v2.airport.airside_deck_seat",
+        "auto_patch_v2.airport.airside_floor",
         "auto_patch_v2.airport.airside_group_seat",
         "auto_patch_v2.airport.anchor_rule",
         "auto_patch_v2.airport.apt_dat",
@@ -1225,6 +1232,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.slab_faces",
         "auto_patch_v2.airport.slab_plates",
         "auto_patch_v2.airport.split_guard",
+        "auto_patch_v2.airport.sunk_frame",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_base",
         "auto_patch_v2.airport.terrain_cut",
@@ -1366,6 +1374,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.agp_plan",
         "auto_patch_v2.airport.agp_plates",
         "auto_patch_v2.airport.airside_deck_seat",
+        "auto_patch_v2.airport.airside_floor",
         "auto_patch_v2.airport.airside_group_seat",
         "auto_patch_v2.airport.anchor_rule",
         "auto_patch_v2.airport.apt_dat",
@@ -1496,6 +1505,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.split_level",
         "auto_patch_v2.airport.split_level_wings",
         "auto_patch_v2.airport.stack_walls",
+        "auto_patch_v2.airport.sunk_frame",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.terrain_base",
         "auto_patch_v2.airport.terrain_feature",
@@ -1915,6 +1925,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.feet_graph geom.feet_mst geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.ground_fit model.islands model.map_memo model.platform
         geom.slope_pad
+        geom.foot_planes model.wall_reach
         constraints.face_index constraints.group_level
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),
@@ -2273,7 +2284,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.deck_family_contact
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
-    airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
+    airport.frame_entry airport.jetways airport.line_object
+    airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
@@ -2305,7 +2317,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.pool airport.pool_memory airport.rebake_plan airport.riders airport.ring_contact_batch
     airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
-    airport.topology_cache airport.sunken_ramp airport.wall_class airport.wall_sheets
+    airport.topology_cache airport.sunken_ramp airport.wall_class airport.sunk_frame
+    airport.wall_sheets
     classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles
@@ -2385,7 +2398,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
 CODE_MODULES["jetway_strip"] = _mods("""
     airport.cut_portal_seat
     airport.facade airport.hung_wall_seat airport.line_solidity airport.sunken_ramp
-    airport.wall_class airport.wall_sheets airport.wall_sides airport.wall_top model.wall_reach
+    airport.wall_class airport.sunk_frame
+    airport.wall_sheets airport.wall_sides airport.wall_top model.wall_reach
     airport.floor_rim airport.object_floor airport.walled_pit geom.shape_class geom.plane_groups
     airport.below_grade_witness airport.hanging_objects airport.object_cut
     airport.shell_ground airport.wall_geometry geom.author_ground geom.vector
@@ -2403,7 +2417,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.deck_family_contact
     airport.file_hash airport.footprint_carry airport.footprint_connector
     airport.footprint_seats airport.footprint_unit airport.one_building airport.frame_entry
-    airport.line_object airport.msl_feet airport.obj8
+    airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
@@ -2509,7 +2523,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
     airport.footprint_unit
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
-    airport.line_object airport.msl_feet airport.obj8
+    airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
@@ -2549,7 +2563,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.trench_objects
     airport.tunnel_objects airport.portal_objects airport.footed_portal
-    airport.tunnel_walls airport.wall_class
+    airport.tunnel_walls airport.wall_class airport.sunk_frame
     airport.wall_sheets
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
@@ -2696,7 +2710,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
     airport.footprint_unit
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
-    airport.line_object airport.msl_feet airport.obj8
+    airport.line_object airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
@@ -2736,7 +2750,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.trench_objects
     airport.tunnel_objects airport.portal_objects airport.footed_portal
-    airport.tunnel_walls airport.wall_class
+    airport.tunnel_walls airport.wall_class airport.sunk_frame
     airport.wall_sheets
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
@@ -2895,9 +2909,10 @@ CODE_MODULES["emit"] = _mods("""
     airport.deck_family_contact
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
-    airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
+    airport.frame_entry airport.jetways airport.line_object
+    airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
-    airport.relief_skin airport.retaining_seat
+    airport.relief_skin airport.retaining_seat airport.sunk_frame
     airport.free_column airport.rider_floor
     airport.isolated_seat airport.terrain_base geom.diameter
     airport.terrain_shaped airport.pack_ground geom.terrain_deck
@@ -3046,7 +3061,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.deck_family_contact airport.deck_signature airport.dem airport.dem_witness airport.dsf
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
-    airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
+    airport.frame_entry airport.jetways airport.line_object
+    airport.airside_floor airport.msl_feet airport.obj8
     airport.terrain_feature airport.terrain_model airport.bridged_ground airport.ground_shell
     airport.relief_skin
     airport.free_column airport.rider_floor
@@ -3078,7 +3094,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.pool airport.pool_memory airport.rebake_plan airport.riders
     airport.ring_contact_batch airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
-    airport.topology_cache airport.sunken_ramp airport.wall_class airport.wall_sheets
+    airport.topology_cache airport.sunken_ramp airport.wall_class airport.sunk_frame
+    airport.wall_sheets
     classify.airside_edge classify.evidence
     classify.apt_shoulder classify.blast_pad classify.storey_edge airport.unit_storey
     airport.user_roles

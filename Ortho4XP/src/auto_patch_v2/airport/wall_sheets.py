@@ -41,6 +41,8 @@ import numpy as np
 from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 
+from .airside_floor import airside_union
+
 __all__ = ["FOOTING_CLEAR_M", "hung_wall", "paved_faces",
            "airside_union", "sheets_of", "low_side_y", "obj_top_y"]
 
@@ -75,24 +77,6 @@ def hung_wall(part, one: bool, top_y: float | None, seat: float | None, cfg) -> 
     by = getattr(part, "base_y", None)
     return one and by is not None and float(by) < 0.0 \
         and _hangs_from_zero(top_y, seat, cfg) and _stands_on_ground(part)
-
-
-def airside_union(airport):
-    """THE APT.DAT AIRSIDE PAVEMENT: every ``Airport.pavements`` polygon
-    that is not a DSF page (a ``dsf:`` page carries no side here;
-    ``classify/evidence`` splits them the same way); ``None`` without one."""
-    polys = []
-    for pv in getattr(airport, "pavements", ()) or ():
-        if str(pv.id).startswith("dsf:") or len(pv.outer) < 3:
-            continue
-        g = Polygon(list(pv.outer), [list(h) for h in pv.holes if len(h) >= 3])
-        g = g if g.is_valid else g.buffer(0.0)
-        if not g.is_empty:
-            polys.append(g)
-    if not polys:
-        return None
-    u = unary_union(polys)
-    return None if u.is_empty else u
 
 
 def _ray_hits(face: LineString, paved, reach: float) -> tuple[int, int]:

@@ -487,3 +487,24 @@ def test_a_runway_bordered_band_kerb_never_carries_the_runway_level_into_a_link(
     got = {int(r.source.inputs[0][7:]): r.hi for r in out.linears}
     assert all(got[v] == pytest.approx(100.0) for v in range(5, 11)), got
     assert rep["governed"] == len(roads)
+
+
+# ── THE SHARED NODE (owner 2026-11-17T16:38Z, #2122) ──
+
+def test_a_road_leaves_its_shared_node_at_the_cap_and_keeps_its_own_target_beyond():
+    """A road shares node 100 (station 0) with an apron levelled at 110 m;
+    its own ground (target) is 100 m all along.  Within the cap's reach the
+    road descends from the shared node (110 - cap·d); beyond it keeps its
+    own target, which the profile does not govern.  Nothing is held at the
+    apron's level across a gap."""
+    st = {v: (7, 10.0 * (v + 1)) for v in range(20)}
+    out, rep = terrace_profile({"foot": {}, "pad": {}, "station": st}, {100: 110.0},
+                               {v: 100.0 for v in st}, CAP,
+                               shared={100: (7, 0.0)})
+    for v in st:
+        want = max(100.0, 110.0 - CAP * 10.0 * (v + 1))
+        if want > 100.0:
+            assert out[v] == pytest.approx(want)
+        else:
+            assert v not in out
+    assert rep["shared"] == sum(110.0 - CAP * 10.0 * (v + 1) > 100.0 for v in st)

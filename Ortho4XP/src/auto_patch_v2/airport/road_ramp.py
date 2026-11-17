@@ -1344,6 +1344,9 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     * ``station`` — ``v -> (route, s)`` for every ribbon-owned vertex the
       route frame answers (bordered or bare), and every ribbon vertex the
       ribbon shares with a zone band (``kerb``, see below).
+    * ``shared`` — ``v -> (route, s)``: the SHARED NODES, a road vertex on
+      a stage-1 pavement's ring (:func:`_shared_stations`); each route's
+      road reaches their stage-1 level inside its cap.
     * ``runway`` — the ``foot`` vertices whose foot is a RUNWAY-family
       pavement: a road inside a runway's band sits at or below the band's
       grade (owner 2026-10-19, #951), so the terrace may cut it down to the
@@ -1532,7 +1535,23 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
         if pad:
             out["level" if pad[0][1] in ups else "pad"][v] = pad[0][1]
     out["rim"] = _upper_rims(pm, ups, ribbon_v)
+    out["shared"] = _shared_stations(pm, _shared_refs(pm, stage1), ribbon_v,
+                                     frame, set(vs))
     return out
+
+
+def _shared_stations(pm: PlanarMap, on_pavement: _t.Mapping[int, frozenset[str]],
+                     road_v: _t.AbstractSet[int],
+                     frame: _t.Mapping[int, tuple[int, float, float]],
+                     owned: _t.AbstractSet[int]) -> dict[int, tuple[int, float]]:
+    """``{shared node: (route, s)}`` -- every road vertex a stage-1
+    pavement's ring carries (the CONTACT, airside-owned, so never one of
+    the terrace's own vertices) on a route of the frame: where the road
+    takes the pavement's level and leaves it at its own grade (owner
+    2026-11-17T16:38Z, #2122; ``constraints/road_ramp.terrace_profile``'s
+    ``shared``)."""
+    return {v: (int(frame[v][0]), float(frame[v][1])) for v in road_v
+            if v in on_pavement and v in frame and v not in owned}
 
 
 def _shared_refs(pm: PlanarMap, roles: _t.AbstractSet[str]

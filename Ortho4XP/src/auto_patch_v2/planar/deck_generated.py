@@ -481,8 +481,8 @@ def _approaches(piece: Polygon, under, P, mapped, law) -> list[Polygon]:
     lies over it) -- the tunnel's own stretch
     beyond it and, from each mapped end (OSM states the portal; the road
     runs open from there), the first stretch of every mapped road
-    leaving that end, up to the shortest lawful ramp (the floor's depth
-    over ``[tunnel] ramp_max_grade``), at the ramp's width (carriageway,
+    leaving that end, up to the design ramp's run (the floor's depth over
+    ``[tunnel] ramp_grade``), at the ramp's width (carriageway,
     ``shoulder_m``, the rim's stand-off), leaves with the deck's ring -- so
     the ramp climbs out instead of standing at a wall where the pavement
     starts (#2072 A's dead end).  MEASURED ESSA ``-141``: ``pav24``'s taxiway
@@ -493,7 +493,7 @@ def _approaches(piece: Polygon, under, P, mapped, law) -> list[Polygon]:
     from shapely.ops import substring
     g = law.tables.structures.deck_gen
     tn = law.tables.structures.tunnel
-    run = (float(g.thickness_m) + float(tn.clearance_m)) / float(tn.ramp_max_grade)
+    run = (float(g.thickness_m) + float(tn.clearance_m)) / float(tn.ramp_grade)
     out = []
     for r in under:
         if r.parent is not None:

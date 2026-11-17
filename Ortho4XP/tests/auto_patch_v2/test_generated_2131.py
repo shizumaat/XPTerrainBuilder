@@ -87,7 +87,7 @@ def test_approach_pavement_beyond_a_mapped_tunnel_end():
     on = types.SimpleNamespace(points=[(-30.0, 0.0), (-200.0, 0.0)])
     out = dg._approaches(piece, [tunnel], P, [on], LAW)
     g, tn = LAW.tables.structures.deck_gen, LAW.tables.structures.tunnel
-    run = (float(g.thickness_m) + float(tn.clearance_m)) / float(tn.ramp_max_grade)
+    run = (float(g.thickness_m) + float(tn.clearance_m)) / float(tn.ramp_grade)
     wide = 3.5 + float(g.shoulder_m) + 2 * float(tn.wall_gap_m) + float(tn.wall_band_width_m) \
         + float(g.bearing_m) + float(g.edge_margin_m)
     x0, _y0, x1, _y1 = unary_union(out).bounds

@@ -16,7 +16,7 @@ from ..law import Law
 from ..model.planar import PlanarMap
 from ..model.structures import DeckBridge
 
-__all__ = ["end_lines", "floor_end_lines", "anchor_of", "cut_faces"]
+__all__ = ["end_lines", "floor_end_lines", "anchor_of", "cut_faces", "plate_of"]
 
 XY = tuple[float, float]
 
@@ -88,6 +88,26 @@ def floor_end_lines(planar: PlanarMap, law: Law) -> dict[str, list[EndLine]]:
             if vs:
                 out.setdefault(d.id, []).append(EndLine(d, tuple(st), _mean_terms(vs), float(top)))
     return {k: v for k, v in out.items() if len(v) == 2}
+
+
+def plate_of(lines: _t.Sequence[EndLine], law: Law) -> list[int]:
+    """The PLATE of each of one object's end lines (#2112; owner
+    2026-11-17T14:57Z "(a) split them so they can better follow the
+    terrain"): a deck authored as disjoint plates -- its pieces' rings
+    further apart than ``[placement] rigid_reach_m`` and banding along one
+    axis (``airport/deck_plates.piece_plates``, the object stage's own
+    rule) -- has one zero PER PLATE, each flush at its own end lines;
+    every other deck has plate 0 at every end line (one zero, 30a (1))."""
+    from ..geom.plate_bands import piece_plates
+    rings: list[tuple] = []
+    for e in lines:
+        r = tuple(tuple(q) for q in e.deck.ring)
+        if r not in rings:
+            rings.append(r)
+    got = piece_plates(rings, float(law.tables.structures.placement.rigid_reach_m))
+    if got is None:
+        return [0] * len(lines)
+    return [got[rings.index(tuple(tuple(q) for q in e.deck.ring))] for e in lines]
 
 
 def anchor_of(planar: PlanarMap, oid: str, line: tuple) -> "_t.Any | None":

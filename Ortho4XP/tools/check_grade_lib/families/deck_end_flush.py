@@ -56,9 +56,10 @@ def check_deck_end_flush(deck_anchors, nodes, ways) -> List[Violation]:
     if not deck_anchors:
         return []
     at = _surface(nodes, ways)
-    by_obj: Dict[str, list] = {}
+    # #2112: one zero per object PLATE (``constraints/deck_lines.plate_of``)
+    by_obj: Dict[Tuple[str, int], list] = {}
     for rec in deck_anchors:
-        by_obj.setdefault(str(rec.get("object")), []).append(rec)
+        by_obj.setdefault((str(rec.get("object")), int(rec.get("plate") or 0)), []).append(rec)
     out: List[Violation] = []
     for _oid, recs in sorted(by_obj.items()):
         read = []

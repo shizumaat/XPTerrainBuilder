@@ -49,7 +49,7 @@ from shapely.ops import unary_union
 from ..geom.parts import nonempty_polygon_parts as _parts
 from ..geom.valid_area import valid_area
 
-__all__ = ["cut_runouts", "level_exit_climbs"]
+__all__ = ["cut_runouts", "level_exit_climbs", "road_routes", "exits", "exit_ends"]
 
 #: a crossing is an END only where its way runs on outside every pad this far
 CLEAR_M = 20.0
@@ -59,21 +59,24 @@ END_M = 60.0
 MAX_RUN_M = 400.0
 
 
-def _exits(L, pads, ways) -> list:
+def exits(L, pads, ways, reach: "float | None" = None) -> list:
     """``[(point, (dx, dy))]``: where a cutting way's line leaves the level
     ``L`` for good -- it never comes back into the level (a notch the level
-    keeps off a ramp or a pad is no end) -- and runs on outside ``pads`` for
-    :data:`CLEAR_M`."""
-    return [(p, d) for p, d, back, _s, _sg in _crossings(L, pads, ways) if back is None]
+    keeps off a ramp or a pad is no end; within ``reach`` metres of the
+    crossing where one is given: a long route walked through junctions can
+    run beside a corridor and come back to it a kilometre on) -- and runs on
+    outside ``pads`` for :data:`CLEAR_M`."""
+    return [(p, d) for p, d, back, _s, _sg in _crossings(L, pads, ways, reach) if back is None]
 
 
-def _crossings(L, pads, ways) -> _t.Iterator:
+def _crossings(L, pads, ways, reach: "float | None" = None) -> _t.Iterator:
     """``(point, (dx, dy), back, s, sgn)`` for every crossing of a way's
     line out of the level ``L`` that runs on outside ``pads`` for
     :data:`CLEAR_M`; ``back`` is ``None`` where it leaves for good, else the
     distance along the line to where it comes back into the level (a
-    NOTCH); ``s`` the crossing's station on the line, ``sgn`` the way out
-    along it (+1 forward)."""
+    NOTCH, read within ``reach`` of the crossing where one is given); ``s``
+    the crossing's station on the line, ``sgn`` the way out along it (+1
+    forward)."""
     from shapely.ops import substring
     ring = L.boundary
     for line in ways:
@@ -89,8 +92,10 @@ def _crossings(L, pads, ways) -> _t.Iterator:
                 seg = LineString([line.interpolate(s + sgn * 1.0), q])
                 if seg.intersects(pads):
                     continue
-                rest = (substring(line, s + 1.0, line.length) if sgn > 0
-                        else LineString(list(substring(line, 0.0, s - 1.0).coords)[::-1]))
+                far = line.length if reach is None else min(line.length, s + 1.0 + reach)
+                near = 0.0 if reach is None else max(0.0, s - 1.0 - reach)
+                rest = (substring(line, s + 1.0, far) if sgn > 0
+                        else LineString(list(substring(line, near, s - 1.0).coords)[::-1]))
                 back = None
                 if rest.length > 0.0 and rest.intersects(L):
                     back = 1.0 + min(rest.project(c) for c in _parts_points(rest.intersection(L)))
@@ -105,10 +110,11 @@ def _parts_points(g) -> list:
             for c in (q.exterior.coords if q.geom_type == "Polygon" else q.coords)]
 
 
-def _ends(exits) -> list:
-    """The exits grouped into ENDS (:data:`END_M`): ``[(lip, dir, points)]``."""
+def exit_ends(found) -> list:
+    """The exits (:func:`exits`) grouped into ENDS (:data:`END_M`):
+    ``[(lip, dir, points)]``."""
     groups: list[list] = []
-    for p, d in exits:
+    for p, d in found:
         for g in groups:
             if any(p.distance(q) <= END_M and d[0] * e[0] + d[1] * e[1] > 0.0
                    for q, e in g):
@@ -179,7 +185,7 @@ def cut_runouts(levels: _t.Mapping[str, tuple], held: _t.Mapping[str, dict], air
     for ref, (L, bref, y) in sorted(levels.items()):
         hb = held.get(bref) or {}
         datum = hb.get("datum_pred")
-        for (lx, ly), (dx, dy), pts in _ends(_exits(L, taken, ways)):
+        for (lx, ly), (dx, dy), pts in exit_ends(exits(L, taken, ways)):
             stat["ends"] += 1
             if datum is None:
                 stat["no_datum"] += 1
@@ -233,7 +239,7 @@ def _road_runouts(levels, held, airport, law, taken, grid: float, counts: dict,
     # a road is mapped in many short ways: the run is read along its ROUTE,
     # never per way (``viaduct_road._route``, R6) -- MEASURED LFPG T2: the
     # corridor's west roads, 37-177 m ways, each "ended before it cleared"
-    ways = _routes(airport, law, [L for L, _b, _y in levels.values()], grid)
+    ways = road_routes(airport, law, [L for L, _b, _y in levels.values()], grid)
     if not ways:
         return {}
     from ..law.tables import road_terrain_cap
@@ -305,7 +311,7 @@ def _road_exits(L, datum, y: float, ways, taken, grid: float, riser: float) -> _
     """``(lip, (dx, dy), half-width, corridor, z0, junction)`` for every
     ROAD EXIT of the level ``L`` (:func:`_road_runouts`' reader): each route
     of ``ways`` (``[(route, half-width, junction stations)]``,
-    :func:`_routes`) within a grid of the level, where it leaves through
+    :func:`road_routes`) within a grid of the level, where it leaves through
     the level's rim (:func:`_crossings`, off ``taken``) for good, or out to a JUNCTION
     before it comes back in (2120-F6, owner 2026-11-17T18:47Z: the road
     "may climb at 15 % to its junction" -- a notch whose road meets
@@ -361,7 +367,7 @@ def level_exit_climbs(L, datum, y: float, airport, law, taken, grid: float) -> "
     dem = getattr(airport, "dem", None)
     if dem is None or datum is None:
         return None
-    ways = _routes(airport, law, [L], grid)
+    ways = road_routes(airport, law, [L], grid)
     riser = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
     ex = list(_road_exits(L, datum, y, ways, taken, grid, riser)) if ways else []
     if not ex:
@@ -425,14 +431,16 @@ def _end(L, lip, d, pts, prof, ground, side: float, corr, taken, step: float,
             "at": (round(lat, 7), round(lon, 7))}
 
 
-def _routes(airport, law, levels, grid: float) -> list:
+def road_routes(airport, law, levels, grid: float, with_ways: bool = False) -> list:
     """``[(route, half-width, junctions)]``: the ROUTES
     (``viaduct_road._route``: through the junctions, the least turn) of
     every at-grade mapped road way of a ribbon class
     (``road_yield.road_carriageways``) crossing a level's edge, with that
     crossing way's carriageway half-width (``airport/road_ways.
     ribbon_half_width_m``) and the stations along the route of its
-    JUNCTIONS (a mapped node three or more road ways' segments meet at)."""
+    JUNCTIONS (a mapped node three or more road ways' segments meet at);
+    ``with_ways``: ``[(route, half-width, the crossing ways whose route it
+    is)]``."""
     from ..airport.road_ways import ribbon_half_width_m
     from ..classify.rules import load_rules
     from .structure_approach import is_bridge, is_tunnel
@@ -447,7 +455,7 @@ def _routes(airport, law, levels, grid: float) -> list:
              and not is_tunnel(w, tn.admitted_values) and _layer(w.tags or {}) <= 0]
     edge = unary_union([L.boundary for L in levels]).buffer(max(grid, 0.5))
     nb = _graph(roads)
-    out, seen = [], set()
+    out, seen = [], {}
     for w in roads:
         line = LineString(w.points)
         if (w.tags or {}).get("highway") not in ribbon or not line.intersects(edge):
@@ -458,8 +466,11 @@ def _routes(airport, law, levels, grid: float) -> list:
         # dropped as -8145's 2996 m one, 457 m apart, and kept its 1.44 m step)
         ends = tuple(round(c, 1) for xy in (r.coords[0], r.coords[-1]) for c in xy)
         key = (ends, round(r.length))
-        if key not in seen and (ends[2:] + ends[:2], key[1]) not in seen:
-            seen.add(key)
-            js = [r.project(Point(c)) for c in r.coords if len(nb.get(_key(c), ())) >= 3]
-            out.append((r, ribbon_half_width_m(w.tags or {}, law), js))
-    return out
+        k = seen.get(key, seen.get((ends[2:] + ends[:2], key[1])))
+        if k is not None:
+            out[k][3].append(w)
+            continue
+        seen[key] = len(out)
+        js = [r.project(Point(c)) for c in r.coords if len(nb.get(_key(c), ())) >= 3]
+        out.append((r, ribbon_half_width_m(w.tags or {}, law), js, [w]))
+    return [(r, h, tuple(ws) if with_ways else js) for r, h, js, ws in out]

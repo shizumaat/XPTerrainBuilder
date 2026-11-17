@@ -34,6 +34,11 @@ class DeckGenLaw:
     shoulder_m: float = 1.5
     #: A2: the slab's thickness (m)
     thickness_m: float = 1.0
+    #: owner sim read 2026-11-17T19:42Z ("that embankment needs to extend
+    #: about 1m past the bridge edges, then smoothly blend the natural
+    #: terrain and the cut"): the bank under a generated deck runs on this
+    #: far past the ring's edges before the ground beyond blends (m)
+    bank_past_edge_m: float = 1.0
     #: A2: the top stands this far over the solved end lines (m)
     top_lift_m: float = 0.02
     #: A2: the pre-solve tilt is clamped to this share of the family cap
@@ -45,6 +50,13 @@ class DeckGenLaw:
     level_probe_m: float = 30.0
     #: a deck piece smaller than this is not generated (m2)
     min_area_m2: float = 50.0
+    #: A1 (2) "the pack always wins" (``planar/deck_pack_cover``): a pack
+    #: placement deeper than this under its own ground is a STRUCTURE; an
+    #: up-facing face within it is a TOP; both over the road refuse (m)
+    pack_structure_depth_m: float = 2.0
+    #: ... a top runs over the road at this share of the covered roads'
+    #: axis inside the piece
+    pack_cover_share: float = 0.5
     #: A2: the generated object's draw distance (m)
     lod_m: float = 6000.0
     #: A2: a centreline light every this many metres on the deck (m), Q4
@@ -55,6 +67,53 @@ class DeckGenLaw:
     concrete_pol: str = "lib/airport/pavement/concrete_4D.pol"
     #: #2132: the page whose alpha art is the tire marks along the route
     rubber_pol: str = "lib/airport/default_runways/rubber.pol"
+    #: #2132 / #2141: the tire marks are ONE column of that page's atlas
+    #: (u from ``rubber_u0`` to ``rubber_u1``: the dense centre band; the
+    #: other three columns read as tiled blocks), a strip along the route
+    #: mirrored every repeat
+    rubber_u0: float = 0.25
+    rubber_u1: float = 0.5
+    #: #2141 (3): the first X-Plane line page; its folder's
+    #: ``<type>_*.lin`` pages draw the dropped apt.dat lines on the deck
+    #: (``airport/deck_line_art``); unresolved -> the generated atlas
+    line_lib: str = "lib/airport/lines/1_single_taxi.lin"
+    #: the films over the top (m): the tire marks, then the paint over them
+    rubber_lift_m: float = 0.02
+    paint_lift_m: float = 0.03
+    #: #2132 THE STRUCTURE (spec 2132-design section 4; owner 2026-11-17
+    #: "kerb only (0.30 x 0.40 m, side edges), no blast screen"),
+    #: ``airport/deck_structure``: the slab's depth under the top (m) ...
+    slab_m: float = 0.25
+    #: ... the beams along the route, one every this across it (m) ...
+    beam_spacing_m: float = 2.4
+    beam_width_m: float = 0.9
+    #: ... the full-depth edge beam round the ring (m) ...
+    edge_beam_m: float = 0.6
+    #: ... the kerb on the side edges (m) ...
+    kerb_h_m: float = 0.30
+    kerb_w_m: float = 0.40
+    #: ... a ring edge whose middle stands within this of an end line (m)
+    #: and that turns more than this off the route (deg) is an END: no
+    #: kerb, an expansion joint
+    end_tol_m: float = 4.0
+    end_angle_deg: float = 25.0
+    #: ... the expansion joint across each end: a dark strip this wide (m),
+    #: this far in from the end edge (m)
+    joint_m: float = 0.08
+    joint_inset_m: float = 0.3
+    #: ... piers only on a deck longer than this along its route (m), at
+    #: each road's floor edge: columns this wide (m) at most this far apart
+    #: (m), under a cap beam this wide and deep (m), from this far below
+    #: the floor (m)
+    pier_min_span_m: float = 30.0
+    pier_col_m: float = 1.2
+    pier_gap_m: float = 4.5
+    pier_cap_w_m: float = 1.5
+    pier_cap_h_m: float = 1.2
+    pier_foot_m: float = 1.0
+    #: ... everything drawn to this distance, then the top, the fascia and
+    #: the kerbs only, to ``lod_m`` (m)
+    near_lod_m: float = 1200.0
 
 
 @_dc.dataclass(frozen=True)
@@ -68,6 +127,10 @@ class RoadGenLaw:
     pack_road_near_m: float = 5.0
     #: ... and this parallel (deg) already draws the bridge
     pack_road_angle_deg: float = 15.0
+    #: B1 (c) "the pack always wins" (``planar/road_bridge_pack``): a pack
+    #: placement's solid top this far or more over its ground (m) -- a
+    #: bridge, an overpass, a roof -- already draws the bridge
+    pack_top_min_m: float = 2.5
     #: B3: the span's page clip is the carriageway half width plus this (m)
     span_margin_m: float = 0.5
     #: B2: the road network definition written when the pack has none
@@ -86,3 +149,10 @@ class RoadGenLaw:
     cut_drop_m: float = 1.0
     #: ... read within this of the bridge's axis (m)
     cut_reach_m: float = 20.0
+    #: #2141 item 5 (``planar/road_bridge_clear``): an end stands on its
+    #: embankment as the survey reads its approach out to this far (m)
+    approach_probe_m: float = 30.0
+    #: ... and a bridge is generated where the survey then shows at least
+    #: this share of ``[bridge] clearance_minimum_m`` over a lower road
+    #: (16s/16t: the tag and the crossing are the witness; the rest is cut)
+    witness_share: float = 0.5

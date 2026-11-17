@@ -227,43 +227,19 @@ def _par_cells(cl):
     return out
 
 
-def test_apron_cover_refuses_the_corridor_cell_it_covers(law, rules):
-    """The parallel taxiway's page is a CORRIDOR (`primary_parallel`).  An
-    `aeroway=apron` drawn over its WEST half makes the west cell APRON —
-    and the proximity cut does not re-mint it a junction — while the EAST
-    cell, with no apron over it, keeps the corridor.  The cover is the
-    CELL's, never the page's."""
-    assert rules.lot.apron_cover_fraction <= 0.5
+def test_apron_cover_no_longer_refuses_the_corridor(law, rules):
+    """§40 (2) WITHDRAWN (#2134, owner Q1 2026-11-17T14:33Z): an
+    `aeroway=apron` drawn over the parallel taxiway's WEST half is AIRSIDE
+    evidence only, never apron — a corridor is refused the taxi family only
+    by a stand on it.  Both cells keep the corridor."""
     base = _par_cells(classify(_synthetic(gate=True, island=False), law, rules))
     assert base and all(c.role == "primary_parallel" for c in base.values())
-
     cl = classify(_apron_over_the_parallel(100.0, 500.0), law, rules)
     cells = _par_cells(cl)
-    # the same west/east split as the base (keyed by centroid x: the west
-    # cell's moves, see below), and the west cell is now the COVERED
-    # pavement alone
-    assert len(cells) == len(base), (sorted(cells), sorted(base))
-    west = min(cells)
-    assert Polygon(cells[west].ring).bounds[0] >= 100.0 - 1e-6
-    # #1696: the base west cell also held the crossing taxi page's stub
-    # south of the parallel (x 490..500, y 15..95), which no apron covers.
-    # It leaves the covered pavement across a cross-section on its own
-    # centreline, so §43 (1)'s arm read against the cover cuts it back out
-    # as taxiway (`neck.cover_arms`) — OSM draws an apron over the apron,
-    # not over the taxiway that leaves it.
-    stub = [c for c in cl.cells if c.ref == "taxi"
-            and Polygon(c.ring).bounds[3] <= 100.0]
-    assert stub and all(c.role in TAXI_FAMILY and c.evidence.get("neck_kind") == "arm"
-                        for c in stub), [(c.role, c.evidence) for c in stub]
-    for x, c in cells.items():
-        if x == west:
-            assert c.role == "apron" and c.kind == "apron", (x, c.role)
-            assert c.evidence["apron_cover_refused_corridor"] == 1.0
-            assert c.evidence["cell_apron_cover"] >= 0.85
-            assert c.evidence.get("near_route") is None    # no proximity re-mint
-        else:
-            assert c.role == "primary_parallel", (x, c.role, c.evidence)
-    assert "apron cover refused the corridor (§40 (2))" in "\n".join(role_census(cl))
+    assert cells and all(c.role == "primary_parallel" for c in cells.values()), \
+        [(x, c.role) for x, c in cells.items()]
+    assert not any(c.evidence.get("apron_cover_refused_corridor") for c in cl.cells)
+    assert "apron cover refused the corridor (§40 (2)): 0 cell(s)" in "\n".join(role_census(cl))
 
 
 def test_apron_cover_below_the_floor_leaves_the_corridor(law, rules):

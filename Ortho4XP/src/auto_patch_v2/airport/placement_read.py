@@ -22,7 +22,7 @@ from . import anchor_rule as _ar
 
 __all__ = ["read_plan", "pads_rims_from_graded", "pads_rims_from_graded_doc",
            "decks_from_graded_doc", "decks_from_graded",
-           "PAD_FACE_ROLE", "RIM_BREAKLINE_KIND", "DECK_REF_PREFIX"]
+           "PAD_FACE_ROLE", "RIM_BREAKLINE_KIND", "DECK_REF_PREFIX", "CUT_RINGS_KEY"]
 
 
 def read_plan(path: str) -> tuple[RebakePlan, tuple[tuple[int, int], ...]]:
@@ -72,6 +72,9 @@ def plan_units_with(plan: RebakePlan, abut: tuple[tuple[int, int], ...],
 #: ``basin`` — while the tool, deriving them, classified both.
 PAD_FACE_ROLE = "building"
 RIM_BREAKLINE_KIND = "structure_rim"
+#: #2127 R4 A2: the graded provenance key of the cut OUTLINES
+#: (``emit/graded.CUT_RINGS_KEY``, the writer; this layer may not import it)
+CUT_RINGS_KEY = "cut_rings"
 #: §49 (1): the emitted DECK FACE region — every graded face whose ref
 #: starts with this, WHATEVER its role (today all 14 are ``service_road``)
 DECK_REF_PREFIX = "bridge_deck:"
@@ -133,13 +136,35 @@ def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]
                  # 14n D2 (#709): an apron-edge shelf is GROUND here
                  and not is_shelf_ref(f["ref"]))
     pads = pads + _banks_as_platform(d, by_id, z_id, pads)
-    rims = tuple(_ar.RimRing(b["ref"],
-                             tuple(by_id[i] for i in b["vertices"] if i in by_id),
-                             tuple(float(z_id[i]) for i in b["vertices"]
-                                   if i in by_id))
-                 for b in d["breaklines"]
-                 if b["kind"] == RIM_BREAKLINE_KIND and len(b["vertices"]) >= 3)
-    return pads, rims
+    return pads, _rims(d, by_id, z_id)
+
+
+def _rims(d, by_id, z_id) -> tuple[_ar.RimRing, ...]:
+    """The ``structure_rim`` breaklines as rings — and, #2127 R4 A3, where
+    the document publishes a piece's CUT OUTLINE (``provenance.cut_rings``,
+    ``emit/graded.cut_rings``), that ONE ring in place of the piece's open
+    runs (a run read alone is closed by a chord across the cut).  A document
+    without the key reads as before."""
+    def ring(ref, ids):
+        return _ar.RimRing(ref, tuple(by_id[i] for i in ids if i in by_id),
+                           tuple(float(z_id[i]) for i in ids if i in by_id))
+
+    cuts = [(c["ref"].rsplit("@", 1)[0], set(c["ring"]), c)
+            for c in ((d.get("provenance") or {}).get(CUT_RINGS_KEY) or ())]
+    out, done = [], set()
+    for b in d["breaklines"]:
+        if b["kind"] != RIM_BREAKLINE_KIND:
+            continue
+        base = str(b["ref"]).rsplit("@", 1)[0]
+        k = next((k for k, (r, vs, _c) in enumerate(cuts)
+                  if r == base and len(vs.intersection(b["vertices"])) >= 2), None)
+        if k is None:
+            if len(b["vertices"]) >= 3:
+                out.append(ring(b["ref"], b["vertices"]))
+        elif k not in done:
+            done.add(k)
+            out.append(ring(cuts[k][2]["ref"], cuts[k][2]["ring"]))
+    return tuple(out)
 
 
 def _folded(ref: object) -> bool:

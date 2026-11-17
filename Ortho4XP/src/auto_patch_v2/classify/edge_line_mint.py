@@ -58,7 +58,7 @@ from shapely.strtree import STRtree
 from ..airport.dem import dem_z_many
 from ..airport.line_solidity import ON_TOP, kind_of
 from ..law import Law
-from ..law.tables import pavement_roles, snap_margin_m
+from ..law.tables import gap_standoff_m, pavement_roles, snap_margin_m
 from ..model.planar import EDGE_STRIP_PREFIX
 from .evidence import polygon_parts
 from .rules import Rules
@@ -203,9 +203,7 @@ def standing_keep_off(cells: list, law: Law):
     strip never takes, so the cells standing are what they were BY
     CONSTRUCTION (``classify/fence_yard`` shares it)."""
     standing = unary_union([Polygon(c.ring, c.holes).buffer(0.0) for c in cells])
-    standoff = float(law.tables.structures.building_pad.groundside_cutback_m) \
-        + snap_margin_m(law) + float(law.tables.emit.identity.min_distinct_spacing_m)
-    return standing.buffer(standoff, join_style="mitre", mitre_limit=2.0)
+    return standing.buffer(gap_standoff_m(law), join_style="mitre", mitre_limit=2.0)
 
 
 def mint_edge_strips(airport, cells: list, law: Law, rules: Rules, add) -> dict[str, _t.Any]:

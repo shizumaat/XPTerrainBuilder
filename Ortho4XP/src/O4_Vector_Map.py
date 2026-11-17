@@ -2729,6 +2729,7 @@ def include_roads(vector_map, tile, apt_array, apt_area, patches_area=None):
             class_caps=_law["class_caps"],
             join_pins=_join_pins,
             public_classes=_law["public_classes"],
+            terrain_cap=_law["terrain_cap"],
         )
         _clamp_report = levelled["roads"].summary()
         UI.vprint(3, "Time for road profile clamp:", time.time() - timer)
@@ -3993,6 +3994,43 @@ def _say_dropped_patch_ring(pfile_name, wayid, dt, why):
         f"{why}; the ring is DROPPED and its interior keeps the raw DEM.")
 
 
+#: A USER patch ring with none of these says nothing about the ground
+#: (owner 2026-11-17, LPPD: an untagged 5.5 km2 closed way was seeded
+#: as patch pavement, dried 1.2 km2 of sea and lifted it up to 57 m
+#: behind a seawall; "if there were no tags it was just completely
+#: ignored, I would lean toward that handling").  The way's height tags
+#: (the altitude vocabulary :func:`include_patches` reads), the nodes'
+#: and the engine's role tags.  Auto patches always carry roles and are
+#: never asked.
+PATCH_WAY_HEIGHT_TAGS = frozenset((
+    "altitude", "cst_alt_abs", "cst_alt_rel", "var_alt_rel",
+    "altitude_high", "altitude_low", "node_altitudes"))
+PATCH_NODE_HEIGHT_TAGS = frozenset(("alt_abs", "alt_rel"))
+PATCH_ROLE_TAGS = frozenset(("role", "o4_feature"))
+
+
+def _untagged_user_ring(way_tags, node_ids, node_tags):
+    """True when a user patch's closed way carries no height and no role
+    (:data:`PATCH_WAY_HEIGHT_TAGS`): it is IGNORED -- never inserted,
+    never in ``patches_area``, never seeded, no water barrier, no wall."""
+    if any(k in way_tags for k in PATCH_WAY_HEIGHT_TAGS | PATCH_ROLE_TAGS):
+        return False
+    return not any(k in node_tags.get(nid, ()) for nid in node_ids
+                   for k in PATCH_NODE_HEIGHT_TAGS)
+
+
+def _say_ignored_patch_ring(pfile_name, wayid, way_lonlat):
+    """Name an ignored untagged ring at verbosity 0: its (reader-numbered)
+    id, where it is and its size."""
+    lon, lat = (float(v) for v in numpy.mean(way_lonlat[:-1], axis=0))
+    try:
+        km2 = geometry.Polygon(way_lonlat).area * 111.32 ** 2 * cos(lat * pi / 180)
+    except Exception:
+        km2 = float("nan")
+    UI.loud_warning(f"     {pfile_name} way {wayid} near {lat:.5f},{lon:.5f}: "
+                    f"untagged closed way, {km2:.2f} km2, ignored.")
+
+
 def _alt_abs_sources(pfile_name, node_ids, node_tags, dtype):
     """#1323 (``O4_ZProv``): per node of a patch way, the patch node whose
     ``alt_abs`` became its z — ``(patch file, node id, the dtype of the
@@ -4146,6 +4184,11 @@ def include_patches(vector_map, tile):
             way = numpy.array(
                 [dn[nodeid] for nodeid in dw[wayid]], dtype=float
             )
+            if (not is_auto and len(way) > 3 and (way[0] == way[-1]).all()
+                    and _untagged_user_ring(dt["w"].get(wayid, {}),
+                                           dw[wayid], dt["n"])):
+                _say_ignored_patch_ring(pfile_name, wayid, way)
+                continue
             way = way - numpy.array([[tile.lon, tile.lat]])
             alti_way_orig = tile.dem.alt_vec(way)
             cplx_way = False

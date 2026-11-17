@@ -72,7 +72,7 @@ def test_recipe_builds_the_deck_paint_lights_and_chain(tmp_path):
     obj = rec["files"][f"{gen.GENERATED_DIR}/deck_t.obj"].decode("ascii")
     assert DECK_MARK in obj and "ATTR_hard_deck concrete" in obj
     assert "LIGHT_NAMED taxi_g " in obj and "LIGHT_NAMED taxi_g_rev " in obj
-    assert "ATTR_poly_os 2" in obj                  # the centre line, redrawn
+    assert "ATTR_poly_os" not in obj                # the centre line, redrawn as solid film
     assert f"{gen.GENERATED_DIR}/{gen.TEXTURE}" in rec["files"]
     (d,) = rec["decks"]
     assert d["msl"] == 31.0 and 0.0 <= d["hdg"] < 360.0
@@ -109,7 +109,8 @@ def test_paint_table_reads_xplane_line_specs():
     dashes = deck_paint.dashed_pieces(LineString([(0, 0), (3, 0)]), (0.375, 0.375))
     assert len(dashes) == 4 and abs(dashes[0].length - 0.375) < 1e-9
     assert deck_paint.light_names(101) == ("taxi_g", "taxi_g_rev")
-    assert deck_paint.light_names(102) == ()
+    assert deck_paint.light_names(102) == ("taxi_b",)       # #2132: blue edge lights
+    assert deck_paint.light_names(104) == ()
 
 
 def test_span_cells_cut_only_the_pack_pavement_under_the_span():

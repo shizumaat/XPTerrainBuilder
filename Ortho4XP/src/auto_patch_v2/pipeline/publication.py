@@ -147,7 +147,8 @@ from ..solve.ground_band import ground_envelope
 from ..model.end_area import end_area_lengths
 from ..model.threshold_datum import threshold_datums
 
-__all__ = ["end_profile_yields", "gap_pieces", "pad_touch", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
+__all__ = ["end_profile_yields", "gap_pieces", "pad_touch", "late_stage", "car_lot_terraces",
+           "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
 
 #: 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
@@ -204,6 +205,11 @@ def lifted_caps(planar: PlanarMap, law: "Law | None" = None) -> dict[int, float]
     # same thing again — its rows yielded to its target
     # (``constraints/public_road_release``), on its own faces only
     for fid, g in (getattr(planar, "public_road_lifted", None) or {}).items():
+        if fid in planar.faces:
+            out[int(fid)] = max(out.get(int(fid), 0.0), float(g))
+    # 2026-11-17 (#2122): a road on steep ground, its rows risen to its cap
+    # (``constraints/public_road_release.steep_release``), its own faces only
+    for fid, g in (getattr(planar, "steep_road_lifted", None) or {}).items():
         if fid in planar.faces:
             out[int(fid)] = max(out.get(int(fid), 0.0), float(g))
     if law is not None:
@@ -273,7 +279,10 @@ def _lifted_records(planar: PlanarMap, law: "Law | None" = None) -> list[list[_t
          round(float(rec[1]), 3), round(float(rec[2]), 6)]
         for fid, rec in sorted(released.items()) if fid in planar.faces]
     # 22h: a public road's record names the TERRAIN it follows
-    public = getattr(planar, "public_road_lifted", None) or {}
+    public = dict(getattr(planar, "public_road_lifted", None) or {})
+    # 2026-11-17: a road on steep ground names its terrain too
+    for fid, g in (getattr(planar, "steep_road_lifted", None) or {}).items():
+        public[fid] = max(float(g), float(public.get(fid, 0.0)))
     out += [[int(fid), "terrain", str(planar.faces[fid].ref), 0.0,
              round(float(g), 6)]
             for fid, g in sorted(public.items())
@@ -1104,6 +1113,21 @@ def late_stage(stage: _t.Mapping[str, _t.Any]) -> dict[str, _t.Any]:
             "followers": sorted(str(r) for r in stage["followers"])}
 
 
+def car_lot_terraces(terraces: _t.Iterable[_t.Mapping[str, _t.Any]], to_ll
+                     ) -> list[dict[str, _t.Any]]:
+    """Sidecar ``car_lot_terraces`` (#2114 round 2 P3): each car lot the
+    car lots' stage held apart from a standing ring as a DECLARED terrace —
+    the lot, the ring, the ring's solved level and the lot's own ground at
+    the vertex where they differ most (``constraints/car_lot_follow``)."""
+    out = []
+    for t in terraces:
+        lat, lon = to_ll(*t["xy"])
+        out.append({"lot": t["lot"], "ring": t["ring"], "lat": round(float(lat), 8),
+                    "lon": round(float(lon), 8), "ring_m": t["ring_m"],
+                    "ground_m": t["ground_m"], "off_m": t["off_m"]})
+    return out
+
+
 def terrace_joints_ll(planar: PlanarMap, law: Law,
                       z: _t.Sequence[float] | None = None) -> list[dict[str, _t.Any]]:
     """Sidecar ``terrace_joints`` (owner RULINGS 2026-09-08k; ``planar/shapes.py``)
@@ -1437,7 +1461,8 @@ def channel_facilities(planar: PlanarMap, law: Law,
     ``ledge_pins`` ``[[lat, lon, z], ...]`` and ``member_feet`` ``[[lat, lon,
     authored y, placement id, kind], ...]`` (spec object-gate-member-floors
     §4.6; a ledge foot whose crest vertex a governed cell shares is
-    ``unmet``) — the drawn gate's FEET row."""
+    ``unmet``) — the drawn gate's FEET row — and its exit ramps ``ramps``
+    (#2127 R3, :func:`_ramps`)."""
     out: list[dict[str, _t.Any]] = []
     chans = getattr(planar, "channels", ())
     if not chans:
@@ -1478,6 +1503,22 @@ def channel_facilities(planar: PlanarMap, law: Law,
             "notes": list(c.notes)})
         if airport is not None and getattr(c, "member_feet", ()):
             out[-1].update(_member_feet(planar, law, c, airport.frame.transformers()[1]))
+        if airport is not None and getattr(c, "ramps", ()):
+            out[-1]["ramps"] = _ramps(c, airport.frame.transformers()[1])
+    return out
+
+
+def _ramps(c, to_ll) -> list[dict]:
+    """#2127 R3 A4: a channel's exit ramps — each floor part's ``ref``, its
+    long section ``stations_ll`` ``[[lat, lon, z], ...]`` (bottom first: the
+    stations ``geom/channel_declared.declared_floor_z`` reads) and its plan."""
+    out = []
+    for r in c.ramps:
+        out.append({"ref": r.ref, "source": r.source,
+                    "ways": [[k, int(i)] for k, i in r.way_keys],
+                    "stations_ll": [[*(round(v, 8) for v in to_ll(x, y)), round(float(z), 3)]
+                                    for x, y, z in r.stations],
+                    "ring_ll": [[round(v, 8) for v in to_ll(x, y)] for x, y in r.ring]})
     return out
 
 

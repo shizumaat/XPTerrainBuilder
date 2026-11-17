@@ -1,0 +1,531 @@
+{
+ "about": "Twin fixture of a patch shape's own elevation tags (issue #2137): which form the tags state (Ortho4XP's patch reader order, O4_Vector_Map), how an edit writes them back, the map label words and the sloping rectangle's drawing. Run by pytest (tests/test_patch_shape_alt.py over o4_engine/patch_shape_alt.py) and by swift test (SceneryKit/PatchShapeAltitude.swift).",
+ "compare": "recognize/level/slope/labels exactly (numbers exactly as parsed); marks: every lat/lon within tolerance.deg.",
+ "tolerance": {
+  "deg": 1e-10
+ },
+ "recognize": [
+  {
+   "name": "cst_alt_abs",
+   "tags": {
+    "cst_alt_abs": "172.4"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -4,
+    -1
+   ],
+   "expect": {
+    "form": "absolute",
+    "key": "cst_alt_abs",
+    "value": 172.4
+   }
+  },
+  {
+   "name": "cst_alt_rel",
+   "tags": {
+    "cst_alt_rel": "-2"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -4,
+    -1
+   ],
+   "expect": {
+    "form": "mean_offset",
+    "key": "cst_alt_rel",
+    "value": -2.0
+   }
+  },
+  {
+   "name": "var_alt_rel",
+   "tags": {
+    "var_alt_rel": "0.5"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3
+   ],
+   "expect": {
+    "form": "ground_offset",
+    "key": "var_alt_rel",
+    "value": 0.5
+   }
+  },
+  {
+   "name": "legacy_altitude",
+   "tags": {
+    "altitude": "55"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -4,
+    -1
+   ],
+   "expect": {
+    "form": "absolute",
+    "key": "altitude",
+    "value": 55.0
+   }
+  },
+  {
+   "name": "legacy_altitude_not_a_number",
+   "tags": {
+    "altitude": "x"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -4,
+    -1
+   ],
+   "expect": {
+    "form": "absolute",
+    "key": "altitude",
+    "value": null
+   }
+  },
+  {
+   "name": "cst_alt_abs_wins_over_slope",
+   "tags": {
+    "cst_alt_abs": "80",
+    "altitude_high": "90",
+    "altitude_low": "85"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -4,
+    -1
+   ],
+   "expect": {
+    "form": "absolute",
+    "key": "cst_alt_abs",
+    "value": 80.0
+   }
+  },
+  {
+   "name": "node_altitudes_hides_slope",
+   "tags": {
+    "node_altitudes": "1,2,3,4,1",
+    "altitude_high": "90",
+    "altitude_low": "85"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -4,
+    -1
+   ],
+   "expect": null
+  },
+  {
+   "name": "slope",
+   "tags": {
+    "altitude_high": "172.40",
+    "altitude_low": "170.90",
+    "profile": "tanh"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -4,
+    -1
+   ],
+   "expect": {
+    "form": "slope",
+    "high": 172.4,
+    "low": 170.9,
+    "valid": true
+   }
+  },
+  {
+   "name": "slope_low_missing",
+   "tags": {
+    "altitude_high": "172.40"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -4,
+    -1
+   ],
+   "expect": {
+    "form": "slope",
+    "high": 172.4,
+    "low": null,
+    "valid": true
+   }
+  },
+  {
+   "name": "slope_not_four_corners",
+   "tags": {
+    "altitude_high": "10",
+    "altitude_low": "5"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -1
+   ],
+   "expect": {
+    "form": "slope",
+    "high": 10.0,
+    "low": 5.0,
+    "valid": false
+   }
+  },
+  {
+   "name": "slope_open_way",
+   "tags": {
+    "altitude_high": "10",
+    "altitude_low": "5"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -4,
+    -5
+   ],
+   "expect": {
+    "form": "slope",
+    "high": 10.0,
+    "low": 5.0,
+    "valid": false
+   }
+  },
+  {
+   "name": "no_shape_value",
+   "tags": {
+    "role": "apron",
+    "aeroway": "apron"
+   },
+   "refs": [
+    -1,
+    -2,
+    -3,
+    -4,
+    -1
+   ],
+   "expect": null
+  }
+ ],
+ "level": [
+  {
+   "name": "legacy_key_kept",
+   "tags": {
+    "altitude": "55",
+    "role": "x"
+   },
+   "value": 60.5,
+   "expect": {
+    "altitude": "60.50",
+    "role": "x"
+   }
+  },
+  {
+   "name": "new_key_is_cst_alt_abs",
+   "tags": {
+    "role": "apron"
+   },
+   "value": 101.0,
+   "expect": {
+    "role": "apron",
+    "cst_alt_abs": "101.00"
+   }
+  },
+  {
+   "name": "cst_alt_rel_kept",
+   "tags": {
+    "cst_alt_rel": "1"
+   },
+   "value": -0.255,
+   "expect": {
+    "cst_alt_rel": "-0.26"
+   }
+  },
+  {
+   "name": "slope_shape_gets_cst_alt_abs",
+   "tags": {
+    "altitude_high": "3",
+    "altitude_low": "2"
+   },
+   "value": 7.0,
+   "expect": {
+    "altitude_high": "3",
+    "altitude_low": "2",
+    "cst_alt_abs": "7.00"
+   }
+  }
+ ],
+ "slope": [
+  {
+   "name": "high_only",
+   "tags": {
+    "altitude_high": "172.40",
+    "altitude_low": "170.90",
+    "profile": "plane"
+   },
+   "high": 173.0,
+   "low": null,
+   "expect": {
+    "altitude_high": "173.00",
+    "altitude_low": "170.90",
+    "profile": "plane"
+   }
+  },
+  {
+   "name": "low_only",
+   "tags": {
+    "altitude_high": "172.40",
+    "altitude_low": "x"
+   },
+   "high": null,
+   "low": 170.875,
+   "expect": {
+    "altitude_high": "172.40",
+    "altitude_low": "170.88"
+   }
+  },
+  {
+   "name": "both_new",
+   "tags": {
+    "role": "tunnel_ramp"
+   },
+   "high": 12.0,
+   "low": 4.5,
+   "expect": {
+    "role": "tunnel_ramp",
+    "altitude_high": "12.00",
+    "altitude_low": "4.50"
+   }
+  }
+ ],
+ "labels": [
+  {
+   "side": "high",
+   "value": 172.4,
+   "expect": "High 172.4 m"
+  },
+  {
+   "side": "low",
+   "value": 170.9,
+   "expect": "Low 170.9 m"
+  },
+  {
+   "side": "low",
+   "value": null,
+   "expect": "Low: mesh"
+  },
+  {
+   "side": "high",
+   "value": -3.06,
+   "expect": "High -3.1 m"
+  },
+  {
+   "side": "high",
+   "value": 1000.0,
+   "expect": "High 1000.0 m"
+  }
+ ],
+ "marks": [
+  {
+   "name": "north_up_75x7",
+   "corners": [
+    [
+     30.0,
+     31.0
+    ],
+    [
+     30.000673,
+     31.0
+    ],
+    [
+     30.000673,
+     31.0000727
+    ],
+    [
+     30.0,
+     31.0000727
+    ]
+   ],
+   "expect": {
+    "high_edge": [
+     [
+      30.0,
+      31.0000727
+     ],
+     [
+      30.0,
+      31.0
+     ]
+    ],
+    "low_edge": [
+     [
+      30.000673,
+      31.0
+     ],
+     [
+      30.000673,
+      31.0000727
+     ]
+    ],
+    "arrow": [
+     [
+      30.00016825,
+      31.000027625999998
+     ],
+     [
+      30.00046697409998,
+      31.000027625999998
+     ],
+     [
+      30.00046697409998,
+      31.00001454
+     ],
+     [
+      30.000504749999998,
+      31.00003635
+     ],
+     [
+      30.00046697409998,
+      31.00005816
+     ],
+     [
+      30.00046697409998,
+      31.000045074
+     ],
+     [
+      30.00016825,
+      31.000045074
+     ]
+    ],
+    "high_label": [
+     30.0000673,
+     31.00003635
+    ],
+    "low_label": [
+     30.000605699999998,
+     31.00003635
+    ]
+   }
+  },
+  {
+   "name": "rotated_quad",
+   "corners": [
+    [
+     45.1,
+     7.2
+    ],
+    [
+     45.1003,
+     7.2006
+    ],
+    [
+     45.1007,
+     7.2003
+    ],
+    [
+     45.1004,
+     7.1997
+    ]
+   ],
+   "expect": {
+    "high_edge": [
+     [
+      45.1004,
+      7.199699999999999
+     ],
+     [
+      45.1,
+      7.2
+     ]
+    ],
+    "low_edge": [
+     [
+      45.1003,
+      7.2006
+     ],
+     [
+      45.1007,
+      7.2003
+     ]
+    ],
+    "arrow": [
+     [
+      45.10031931912985,
+      7.19995552508034
+     ],
+     [
+      45.10040931912985,
+      7.2001355250803405
+     ],
+     [
+      45.100475797824636,
+      7.200068812700854
+     ],
+     [
+      45.100425,
+      7.2003
+     ],
+     [
+      45.10025420217536,
+      7.200291187299144
+     ],
+     [
+      45.10032068087014,
+      7.200224474919658
+     ],
+     [
+      45.10023068087014,
+      7.2000444749196575
+     ]
+    ],
+    "high_label": [
+     45.10023,
+     7.19991
+    ],
+    "low_label": [
+     45.100469999999994,
+     7.20039
+    ]
+   }
+  },
+  {
+   "name": "degenerate",
+   "corners": [
+    [
+     1.0,
+     1.0
+    ],
+    [
+     1.0,
+     1.0
+    ],
+    [
+     1.0,
+     1.0
+    ],
+    [
+     1.0,
+     1.0
+    ]
+   ],
+   "expect": null
+  }
+ ]
+}

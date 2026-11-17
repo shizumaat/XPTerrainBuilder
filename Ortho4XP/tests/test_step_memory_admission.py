@@ -233,6 +233,7 @@ def test_held_heavy_step_reserves_its_memory_fifo(machine):
     with run._lock:
         assert run._start_new_tile_locked(first) is True    # (12,12) runs
         machine["gb"] = 50.0      # another application holds the rest
+        run._refresh_memory_budget_locked(8.0)   # the budget follows it
         # The scan reaches big first: refused and held; `later` (8 GB,
         # which fits the machine alone) may not take big's memory.
         assert run._start_new_tile_locked(second) is False
@@ -255,6 +256,7 @@ def test_held_step_starts_when_the_run_drains(machine):
     with run._lock:
         assert run._start_new_tile_locked(first) is True
         machine["gb"] = 50.0
+        run._refresh_memory_budget_locked(8.0)
         assert run._start_new_tile_locked(second) is False
         assert first.running_step == "vector"           # never paused
         # The running step ends and gives its memory back.
@@ -303,6 +305,7 @@ def test_reservation_does_not_block_while_the_waiter_has_no_child(machine):
         run._memory_waits.note((big, "mesh"), 57.5, 50.0, "machine")
         run._memory_holders[((9, 9), "mesh")] = 2.0     # someone running
         run._memory_in_use = 2.0
+        run._refresh_memory_budget_locked(2.0)
         assert run._try_start_step_locked(only) is True
         assert only.running_step == "mesh"
         # With an idle child the same waiter does reserve its memory.
@@ -326,20 +329,22 @@ def test_single_tile_never_deadlocks(machine):
 
 
 def test_memory_wait_event_reaches_the_row_and_resolves(machine):
+    """A step short of MACHINE memory says so; a later step that fits the
+    run's budget starts beside it (the reservation is judged against the
+    run's budget, not memory another application holds)."""
     big = (10, 10)
     run, events = _events_run(1024.0, [(12, 12), big, (11, 11)])
     _heavy(run, big)
-    first, second = _give_children(run, 2)
+    first, second, third = _give_children(run, 3)
     with run._lock:
         assert run._start_new_tile_locked(first) is True
         machine["gb"] = 50.0
-        assert run._start_new_tile_locked(second) is False
+        assert run._start_new_tile_locked(second) is True
+        assert second.tile == (11, 11)
     run._announce_memory_waits()
     run._announce_memory_waits()            # unchanged: nothing re-sent
     waits = [e for e in events if type(e).__name__ == "MemoryWait"]
-    # Both refused tiles are shown waiting (#2101 follow-up); big first.
-    assert [(e.lat, e.step_key) for e in waits] == [(10, "mesh"),
-                                                    (11, "vector")]
+    assert [(e.lat, e.step_key) for e in waits] == [(10, "mesh")]
     wait = waits[0]
     assert (wait.lat, wait.lon, wait.step_key) == (10, 10, "mesh")
     assert wait.needed_gb == pytest.approx(57.5)
@@ -350,7 +355,7 @@ def test_memory_wait_event_reaches_the_row_and_resolves(machine):
                             "application frees memory.")
     machine["gb"] = 80.0      # the other application quit
     with run._lock:
-        assert run._start_new_tile_locked(second) is True
+        assert run._start_new_tile_locked(third) is True
     run._announce_memory_waits()
     done = [e for e in events if type(e).__name__ == "MemoryWait"
             and (e.lat, e.lon) == (10, 10)][-1]
@@ -380,3 +385,90 @@ def test_memory_wait_round_trips_the_wire():
     for field in payload:
         if field not in ("event", "seq", "ts"):
             assert '"%s"' % field in model, field
+
+
+# ── lane lmemwait (2026-11-17): the budget follows the machine ───────────
+
+def test_budget_follows_the_machine_not_the_run_start(machine, monkeypatch):
+    """App 1.0.552: the run started while other programs held memory and
+    sized its budget once, min(0.8 x free, free - headroom) — 8.4 GB on
+    the owner's 128 GB machine — then held every second step for hours
+    with 35 GB free.  Scaled to this 64 GB machine (headroom 9.6 GB)."""
+    monkeypatch.setattr(parallel, "print", lambda *a, **k: None,
+                        raising=False)
+    machine["gb"] = 18.0                     # other programs hold 46 GB
+    run = parallel.ParallelBuildRun(
+        SimpleNamespace(_emit=lambda e: None, _run_finished=lambda: None),
+        TILES, "P", 16, "", (True, False, False), 3)
+    assert run._memory_budget == pytest.approx(18.0 - 9.6)
+    first, second = _give_children(run, 2)
+    with run._lock:
+        assert run._start_new_tile_locked(first) is True     # 8 GB vector
+        assert run._start_new_tile_locked(second) is False   # 16 > 8.4
+        # The other programs quit; the run's own step holds 9 GB.
+        machine["gb"] = 40.0
+        run._refresh_memory_budget_locked(9.0)
+        assert run._memory_budget == pytest.approx(0.8 * 49.0)
+        assert run._start_new_tile_locked(second) is True
+
+
+def test_budget_counts_the_run_own_memory_back(machine, monkeypatch):
+    """No feedback loop: memory the run's own steps take leaves the budget
+    where it was (free falls, resident rises by the same)."""
+    monkeypatch.setattr(parallel, "print", lambda *a, **k: None,
+                        raising=False)
+    machine["gb"] = 50.0
+    run = _run(0.0)
+    with run._lock:
+        run._refresh_memory_budget_locked(0.0)
+        before = run._memory_budget
+        machine["gb"] = 30.0
+        run._refresh_memory_budget_locked(20.0)
+        assert run._memory_budget == pytest.approx(before)
+        # A jitter under the hysteresis is ignored.
+        machine["gb"] = 30.5
+        run._refresh_memory_budget_locked(20.0)
+        assert run._memory_budget == pytest.approx(before)
+        # Resident counted twice (shared pages) never exceeds the machine.
+        run._refresh_memory_budget_locked(500.0)
+        assert run._memory_budget <= 64.0 - 9.6 + 1e-9
+
+
+def test_tiny_step_never_queues_behind_a_reservation(machine):
+    """A 0.5 GB overlays step does not wait for an older 57 GB waiter to
+    fit; a bigger step still does (#2101)."""
+    big, small = (10, 10), (11, 11)
+    run, _ = _events_run(40.0, [(12, 12), big, small])
+    _heavy(run, big)
+    run._programs[small] = ["overlays"]
+    first, second, third = _give_children(run, 3)
+    with run._lock:
+        assert run._start_new_tile_locked(first) is True
+        assert run._start_new_tile_locked(second) is True
+        assert second.tile == small and second.running_step == "overlays"
+        assert (big, "mesh") in run._memory_waits
+        assert (small, "overlays") not in run._memory_waits
+
+
+def test_wait_names_what_holds_it(machine):
+    """The row says what the step waits for: the reserving step by name,
+    or the run's budget with its numbers — never "about 0 GB"."""
+    from o4_engine import memory_waits
+
+    big, later = (10, 10), (11, 11)
+    run, events = _events_run(40.0, [(12, 12), big, later])
+    _heavy(run, big)
+    first, second, third = _give_children(run, 3)
+    with run._lock:
+        assert run._start_new_tile_locked(first) is True
+        assert run._start_new_tile_locked(second) is False
+    run._announce_memory_waits()
+    rows = {(e.lat, e.step_key): e.message for e in events
+            if type(e).__name__ == "MemoryWait"}
+    assert rows[(10, "mesh")].startswith(
+        "Waiting for memory: needs about 57 GB")
+    assert "hold 8.0 of the 40 GB it may use" in rows[(10, "mesh")]
+    assert rows[(11, "vector")].startswith(
+        "Waiting behind +10+010 mesh step, which needs its memory first")
+    assert "about 0.5 GB" in memory_waits.wait_message(
+        0.5, 34.3, memory_waits.REASON_RUN)

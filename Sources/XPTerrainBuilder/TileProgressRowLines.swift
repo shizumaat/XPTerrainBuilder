@@ -28,6 +28,8 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
     /// each bar reads as its tile's when several rows run at once.
     @ViewBuilder let bar: () -> Bar
     @ViewBuilder let trailing: () -> Trailing
+    /// `.increased` while the row is selected in the focused list.
+    @Environment(\.backgroundProminence) private var prominence
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -35,7 +37,8 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
             if !compact {
                 bar()
                 if let strip {
-                    TileStepStrip(strip: strip)
+                    TileStepStrip(strip: strip,
+                                  emphasized: SelectedRowStyle.isEmphasized(prominence))
                 }
             }
             statusLine
@@ -52,6 +55,9 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
     }
 
     private var titleColor: Color {
+        if SelectedRowStyle.isEmphasized(prominence) {
+            return titleDimmed || compact ? Color.secondary : Color.primary
+        }
         if compact { return Self.completedTitle }
         return titleDimmed ? Color.secondary : Color.primary
     }
@@ -123,16 +129,18 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
 /// narrow row breaks only between steps.
 struct TileStepStrip: View {
     let strip: O4StepStrip
+    /// On a selected row (`SelectedRowStyle`): coloured steps draw white.
+    var emphasized = false
 
     var body: some View {
-        Text(Self.attributed(strip))
+        Text(Self.attributed(strip, emphasized: emphasized))
             .scaledFont(.caption2)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .help(strip.text.replacingOccurrences(of: "\u{00A0}", with: " "))
     }
 
-    static func attributed(_ strip: O4StepStrip) -> AttributedString {
+    static func attributed(_ strip: O4StepStrip, emphasized: Bool = false) -> AttributedString {
         var out = AttributedString()
         for (index, segment) in strip.segments.enumerated() {
             if index > 0 {
@@ -141,7 +149,7 @@ struct TileStepStrip: View {
                 out += separator
             }
             var part = AttributedString(segment.text)
-            part.foregroundColor = color(segment.state)
+            part.foregroundColor = emphasized ? emphasizedColor(segment.state) : color(segment.state)
             out += part
         }
         return out
@@ -149,6 +157,11 @@ struct TileStepStrip: View {
 
     /// The row's own colours: green done, red failed, orange stopped; the
     /// running step in the accent colour.
+    /// On a selected row: white, the waiting steps vibrant secondary.
+    static func emphasizedColor(_ state: O4StepStrip.State) -> Color {
+        state == .waiting || state == .skipped ? .secondary : .white
+    }
+
     static func color(_ state: O4StepStrip.State) -> Color {
         switch state {
         case .running: return .accentColor

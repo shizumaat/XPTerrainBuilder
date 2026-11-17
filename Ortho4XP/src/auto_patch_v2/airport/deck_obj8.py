@@ -12,8 +12,9 @@ The object is three faces and the redrawn paint:
   plan, so the deck kind is the flag, never a plate);
 * the 1 m FASCIA round every ring (exterior and holes) and the UNDERSIDE,
   not hard;
-* each :class:`DeckLine` as a strip of quads ``width_m`` wide on the top,
-  under ``ATTR_poly_os 2`` so it never fights the concrete;
+* each :class:`DeckLine` as a strip of quads ``width_m`` wide standing
+  its ``lift_m`` over the top (never ``ATTR_poly_os``: an OBJ is not
+  draped, ``deck_objects._FILM_STEP_M``);
 * each :class:`DeckLight` as a ``LIGHT_NAMED`` a few cm above the top.
 
 FRAME.  OBJ8 is x east, y up, z SOUTH before the placement heading turns
@@ -36,6 +37,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import math
 import typing as _t
+from dataclasses import replace as dataclass_replace
 
 import shapely
 from shapely.geometry import Polygon
@@ -43,7 +45,8 @@ from shapely.geometry.polygon import orient
 
 from . import deck_texture as _tex
 
-__all__ = ["DeckFrame", "DeckLine", "DeckLight", "DeckSkin", "DeckSheet", "DECK_MARK",
+__all__ = ["DeckFrame", "DeckLine", "DeckLight", "DeckSkin", "DeckStrip", "DeckDecal",
+           "DECK_MARK",
            "deck_obj8_text", "overlay_obj8_text"]
 
 #: the head comment every generated deck carries (the minted-file test)
@@ -146,35 +149,21 @@ def _tris(poly: Polygon) -> list[Polygon]:
             if t.area > 1e-6]
 
 
-def _plates(m: _Mesh, poly: Polygon, top_y: _t.Callable[[float, float], float],
-            thickness_m: float, tile: "XY | None" = None) -> tuple[int, int]:
-    """Top and underside triangles; returns ``(top index count, all)``.
-    ``tile``: the ``(width, height)`` metres one repeat of a TILED texture
-    covers (u across the route, v along it), else the atlas regions."""
-    box = poly.bounds
-    tris = _tris(poly)
-
-    def uv(region, x: float, z: float) -> XY:
-        return (x / tile[0], -z / tile[1]) if tile else _region_uv(region, x, z, box)
-    n0 = len(m.idx)
-    for t in tris:
-        ids = [m.vertex((x, top_y(x, z), z), (0.0, 1.0, 0.0), uv(_tex.CONCRETE_UV, x, z))
-               for x, z in list(t.exterior.coords)[:3]]
-        m.tri(*ids, inward=(0.0, -1.0, 0.0))
-    n_top = len(m.idx) - n0
-    for t in tris:
-        ids = [m.vertex((x, top_y(x, z) - thickness_m, z), (0.0, -1.0, 0.0),
-                        uv(_tex.FASCIA_UV, x, z))
-               for x, z in list(t.exterior.coords)[:3]]
-        m.tri(*ids, inward=(0.0, 1.0, 0.0))
-    return n_top, len(m.idx) - n0
+def _cap(m: _Mesh, poly: Polygon, y, up: bool, uv) -> None:
+    """One horizontal face of ``poly`` at ``y(x, z)``, facing up or down;
+    ``uv(x, z)`` its texture coordinates."""
+    n, inward = ((0.0, 1.0, 0.0), (0.0, -1.0, 0.0)) if up else \
+        ((0.0, -1.0, 0.0), (0.0, 1.0, 0.0))
+    for t in _tris(poly):
+        ids = [m.vertex((x, y(x, z), z), n, uv(x, z)) for x, z in list(t.exterior.coords)[:3]]
+        m.tri(*ids, inward=inward)
 
 
-def _fascia(m: _Mesh, poly: Polygon, top_y, thickness_m: float,
-            tile: "XY | None" = None) -> None:
-    """One quad per ring edge, facing out of the slab: rings oriented
-    counter-clockwise in ``(x, z)`` coordinates, so the solid lies LEFT of
-    each edge there and the outward normal is the edge's right normal."""
+def _sides(m: _Mesh, poly: Polygon, y_hi, y_lo, uv) -> None:
+    """One quad per ring edge from ``y_lo`` up to ``y_hi``, facing out of
+    the prism: rings oriented counter-clockwise in ``(x, z)``, so the
+    solid lies LEFT of each edge there and the outward normal is the
+    edge's right normal.  ``uv(metres along the ring, ring length, top)``."""
     poly = orient(poly, 1.0)
     for ring in (poly.exterior, *poly.interiors):
         pts = list(ring.coords)
@@ -188,18 +177,69 @@ def _fascia(m: _Mesh, poly: Polygon, top_y, thickness_m: float,
             inward = (-out[0], 0.0, -out[2])
             sa, sb = s, s + d          # metres along the ring
             s += d
-
-            def uv(at: float, top: bool, r=_tex.FASCIA_UV, per=per) -> XY:
-                if tile:                   # the slab's edge in tiled metres
-                    return (at / tile[0], (thickness_m if top else 0.0) / tile[1])
-                f = at / per
-                return (r[0] + f * (r[2] - r[0]), r[3] - 1e-3 if top else r[1] + 1e-3)
-            ta = m.vertex((xa, top_y(xa, za), za), out, uv(sa, True))
-            tb = m.vertex((xb, top_y(xb, zb), zb), out, uv(sb, True))
-            ba = m.vertex((xa, top_y(xa, za) - thickness_m, za), out, uv(sa, False))
-            bb = m.vertex((xb, top_y(xb, zb) - thickness_m, zb), out, uv(sb, False))
+            ta = m.vertex((xa, y_hi(xa, za), za), out, uv(sa, per, True))
+            tb = m.vertex((xb, y_hi(xb, zb), zb), out, uv(sb, per, True))
+            ba = m.vertex((xa, y_lo(xa, za), za), out, uv(sa, per, False))
+            bb = m.vertex((xb, y_lo(xb, zb), zb), out, uv(sb, per, False))
             m.tri(ta, tb, bb, inward)
             m.tri(ta, bb, ba, inward)
+
+
+def _uvs(tile: "XY | None", box, depth: float, origin_x: float = 0.0):
+    """``(horizontal uv(x, z), side uv(s, per, top))``: a TILED texture in
+    metres (u across the route from ``origin_x``, v along it), else the
+    atlas regions (``deck_texture``)."""
+    if tile:
+        return (lambda x, z: ((x - origin_x) / tile[0], -z / tile[1]),
+                lambda at, _per, top: (at / tile[0], (depth if top else 0.0) / tile[1]))
+    r = _tex.FASCIA_UV
+
+    def side(at: float, per: float, top: bool) -> XY:
+        f = at / per
+        return (r[0] + f * (r[2] - r[0]), r[3] - 1e-3 if top else r[1] + 1e-3)
+    return (lambda x, z: _region_uv(_tex.CONCRETE_UV, x, z, box)), side
+
+
+def _plates(m: _Mesh, poly: Polygon, top_y: _t.Callable[[float, float], float],
+            thickness_m: float, tile: "XY | None" = None, origin_x: float = 0.0
+            ) -> tuple[int, int]:
+    """Top and underside triangles; returns ``(top index count, all)``.
+    ``tile``: the ``(width, height)`` metres one repeat of a TILED texture
+    covers (u across the route, v along it), else the atlas regions."""
+    box = poly.bounds
+    hor, _side = _uvs(tile, box, thickness_m, origin_x)
+    n0 = len(m.idx)
+    _cap(m, poly, top_y, True, hor)
+    n_top = len(m.idx) - n0
+    under = hor if tile else (lambda x, z: _region_uv(_tex.FASCIA_UV, x, z, box))
+    _cap(m, poly, lambda x, z: top_y(x, z) - thickness_m, False, under)
+    return n_top, len(m.idx) - n0
+
+
+def _fascia(m: _Mesh, poly: Polygon, top_y, thickness_m: float,
+            tile: "XY | None" = None) -> None:
+    """The slab's edge faces, ``thickness_m`` deep (:func:`_sides`)."""
+    _side = _uvs(tile, poly.bounds, thickness_m)[1]
+    _sides(m, poly, top_y, lambda x, z: top_y(x, z) - thickness_m, _side)
+
+
+def _part(m: _Mesh, part, top_y, tile: "XY | None", origin_x: float) -> None:
+    """One :class:`deck_structure.Part` as a prism under ``top_y``."""
+    def y_hi(x, z):
+        return top_y(x, z) + part.top_m
+
+    def y_lo(x, z):
+        return part.floor_y if part.floor_y is not None else top_y(x, z) + part.bottom_m
+    hor, side = _uvs(tile, part.poly.bounds, part.top_m - part.bottom_m, origin_x)
+    if not tile:
+        def hor(x, z, _b=part.poly.bounds):
+            return _region_uv(_tex.FASCIA_UV, x, z, _b)
+    if "top" in part.faces:
+        _cap(m, part.poly, y_hi, True, hor)
+    if "bottom" in part.faces:
+        _cap(m, part.poly, y_lo, False, hor)
+    if "sides" in part.faces:
+        _sides(m, part.poly, y_hi, y_lo, side)
 
 
 def _paint(m: _Mesh, lines: _t.Sequence[DeckLine], top_y) -> None:
@@ -225,22 +265,136 @@ class DeckSkin:
     """A TILED texture for the slab (#2132; ``airport/deck_skin``):
     ``texture`` (and ``normal``, ``""`` for none) relative to the object
     file, one repeat covering ``tile_m`` = ``(across, along)`` metres --
-    X-Plane's own pavement page, drawn as the airport's pavement is."""
+    X-Plane's own pavement page, drawn as the airport's pavement is.  The
+    page's material rows the object repeats (spec 2132-design section 4,
+    ``""`` for none): ``weather`` (its WEATHER map, relative to the
+    object), ``decal_lib`` (verbatim) and ``surface`` (the hard deck's
+    surface name).  ``origin_x``: the ``x`` the texture's ``u = 0`` stands
+    at (the carried route's centreline, so the slabs run along it)."""
 
     texture: str
     tile_m: XY
     normal: str = ""
+    weather: str = ""
+    decal_lib: str = ""
+    surface: str = "concrete"
+    origin_x: float = 0.0
+
+    def header(self) -> list[str]:
+        """The object's material rows, in Laminar's own order
+        (``gar5_stairs_5s.obj``): texture, normal, metalness, decal,
+        weather, specular."""
+        out = [f"TEXTURE {self.texture}"]
+        if self.normal:
+            out += [f"TEXTURE_NORMAL {self.normal}", "NORMAL_METALNESS"]
+        if self.decal_lib:
+            out.append(f"DECAL_LIB {self.decal_lib}")
+        if self.weather:
+            out.append(f"WEATHER {self.weather}")
+        return out + ["GLOBAL_specular 1"]
 
 
 @_dc.dataclass(frozen=True)
-class DeckSheet:
-    """A textured film on the top (``airport/deck_skin``'s rubber):
-    ``poly`` in ``(x, z)``, ``uv(x, z)`` its texture coordinates, standing
+class DeckStrip:
+    """A textured band along a polyline on the top (#2141): ``points``
+    ``(x, z)``; it reaches ``left_m`` / ``right_m`` either side of them
+    (left of the direction of travel, as X-Plane draws a line), ``u`` =
+    ``(u at the left edge, u at the right edge)``, ``v`` = metres along
+    over ``v_scale_m`` -- mirrored every repeat when ``mirror_v`` (a
+    texture whose repeat does not meet itself then shows no seam) --
+    standing ``lift_m`` over the top."""
+
+    points: tuple[XY, ...]
+    left_m: float
+    right_m: float
+    u: XY
+    v_scale_m: float
+    lift_m: float = 0.0
+    mirror_v: bool = False
+
+
+@_dc.dataclass(frozen=True)
+class DeckDecal:
+    """Textured triangles on the top (a runway marking clipped to the
+    deck): ``tris`` each three ``(x, z, u, v)`` corners, standing
     ``lift_m`` over the top."""
 
-    poly: Polygon
-    uv: _t.Callable[[float, float], XY]
+    tris: tuple[tuple[tuple[float, float, float, float], ...], ...]
     lift_m: float = 0.0
+
+
+def _decal(m: _Mesh, d: DeckDecal, top_y) -> None:
+    """One :class:`DeckDecal`, facing up."""
+    for tri in d.tris:
+        ids = [m.vertex((x, top_y(x, z) + d.lift_m, z), (0.0, 1.0, 0.0), (u, v))
+               for x, z, u, v in tri]
+        m.tri(ids[0], ids[1], ids[2], (0.0, -1.0, 0.0))
+
+
+def _stations(points: _t.Sequence[XY], v_scale: float, mirror: bool
+              ) -> list[tuple[float, float, float]]:
+    """``(x, z, s)`` along ``points``, with a station at every repeat
+    boundary when the texture is mirrored (so v folds at a vertex)."""
+    out = [(points[0][0], points[0][1], 0.0)]
+    s = 0.0
+    for (xa, za), (xb, zb) in zip(points[:-1], points[1:], strict=True):
+        d = math.hypot(xb - xa, zb - za)
+        if d < 1e-6:
+            continue
+        if mirror:
+            k = math.floor(s / v_scale) + 1
+            while k * v_scale < s + d - 1e-6:
+                f = (k * v_scale - s) / d
+                out.append((xa + f * (xb - xa), za + f * (zb - za), k * v_scale))
+                k += 1
+        s += d
+        out.append((xb, zb, s))
+    return out
+
+
+def _strip(m: _Mesh, st: DeckStrip, top_y) -> None:
+    """One :class:`DeckStrip`: a mitred quad band, facing up."""
+    pts = _stations(st.points, st.v_scale_m, st.mirror_v)
+    if len(pts) < 2:
+        return
+
+    def left_normal(i: int) -> XY:
+        """The world-left unit normal at station ``i`` (``(x, z)`` is
+        mirrored against east/north: left of travel ``(dx, dz)`` is
+        ``(dz, -dx)``), mitred between its two segments."""
+        ns = []
+        for a, b in ((i - 1, i), (i, i + 1)):
+            if 0 <= a and b < len(pts):
+                dx, dz = pts[b][0] - pts[a][0], pts[b][1] - pts[a][1]
+                d = math.hypot(dx, dz)
+                if d > 1e-6:
+                    ns.append((dz / d, -dx / d))
+        nx, nz = sum(n[0] for n in ns), sum(n[1] for n in ns)
+        k = math.hypot(nx, nz)
+        if k < 1e-9:
+            return ns[0] if ns else (1.0, 0.0)
+        nx, nz = nx / k, nz / k
+        cos = max(0.5, nx * ns[0][0] + nz * ns[0][1]) if ns else 1.0
+        return (nx / cos, nz / cos)
+
+    def v_of(s: float) -> float:
+        t = s / st.v_scale_m
+        if not st.mirror_v:
+            return t
+        f = t % 2.0
+        return f if f <= 1.0 else 2.0 - f
+    prev = None
+    for i, (x, z, s) in enumerate(pts):
+        nx, nz = left_normal(i)
+        v = v_of(s)
+        lx, lz = x + nx * st.left_m, z + nz * st.left_m
+        rx, rz = x - nx * st.right_m, z - nz * st.right_m
+        a = m.vertex((lx, top_y(lx, lz) + st.lift_m, lz), (0.0, 1.0, 0.0), (st.u[0], v))
+        b = m.vertex((rx, top_y(rx, rz) + st.lift_m, rz), (0.0, 1.0, 0.0), (st.u[1], v))
+        if prev is not None:
+            m.tri(prev[0], prev[1], b, (0.0, -1.0, 0.0))
+            m.tri(prev[0], b, a, (0.0, -1.0, 0.0))
+        prev = (a, b)
 
 
 def _obj_text(m: _Mesh, header: _t.Sequence[str], body: _t.Sequence[str],
@@ -270,58 +424,96 @@ def deck_obj8_text(ring: Polygon, top_y: _t.Callable[[float, float], float], *,
                    light_lift_m: float = 0.05,
                    lod_m: tuple[float, float] = (0.0, 6000.0),
                    comments: _t.Sequence[str] = (),
-                   skin: "DeckSkin | None" = None) -> str:
+                   skin: "DeckSkin | None" = None,
+                   parts: _t.Sequence = (),
+                   near_lod_m: float = 1200.0) -> str:
     """The OBJ8 text of one deck.  ``ring`` is the plan polygon in the
     object frame ``(x, z)``; ``top_y(x, z)`` the deck top's ``y`` there
     (a plane for a ruled deck); ``texture`` the TEXTURE path relative to
     the object file (the atlas of ``deck_texture``).  With ``skin``
     (#2132) the slab is drawn in that tiled texture instead, and the paint
     and lights belong in :func:`overlay_obj8_text` (one texture per OBJ8):
-    ``lines`` / ``lights`` must then be empty."""
+    ``lines`` / ``lights`` must then be empty.
+
+    ``parts`` (``deck_structure.structure_parts``, the slab first): the
+    bridge drawn in two LODs -- every part up to ``near_lod_m`` (the slab's
+    top the hard deck), then to ``lod_m[1]`` the top, the full-depth
+    fascia and the kerbs only, none of it hard.  No ``parts``: today's
+    one-LOD slab."""
     if ring.is_empty or not ring.is_valid or ring.area <= 0:
         raise ValueError("deck ring must be a valid, non-empty polygon")
     if skin is not None and (lines or lights):
         raise ValueError("a skinned deck carries no paint: draw it in the overlay object")
     tile = skin.tile_m if skin is not None else None
+    ox = skin.origin_x if skin is not None else 0.0
+    header = skin.header() if skin is not None else [f"TEXTURE {texture}"]
+    hard = f"ATTR_hard_deck {skin.surface if skin is not None and skin.surface else 'concrete'}"
     m = _Mesh()
-    n_top, _ = _plates(m, ring, top_y, thickness_m, tile)
+    if not parts:
+        n_top, _ = _plates(m, ring, top_y, thickness_m, tile, ox)
+        _fascia(m, ring, top_y, thickness_m, tile)
+        n_solid = len(m.idx)
+        _paint(m, lines, top_y)
+        n_paint = len(m.idx) - n_solid
+        body = [f"ATTR_LOD {lod_m[0]:g} {lod_m[1]:g}", hard, f"TRIS 0 {n_top}",
+                "ATTR_no_hard", f"TRIS {n_top} {n_solid - n_top}"]
+        if n_paint:
+            body.append(f"TRIS {n_solid} {n_paint}")
+        body += _light_rows(lights, top_y, light_lift_m)
+        return _obj_text(m, header, body, comments)
+    slab, rest = parts[0], parts[1:]
+    hor = _uvs(tile, ring.bounds, thickness_m, ox)[0]
+    _cap(m, slab.poly, top_y, True, hor)                      # the hard deck
+    n_top = len(m.idx)
+    for p in (slab, *rest):
+        _part(m, dataclass_replace(p, faces=tuple(f for f in p.faces if f != "top"))
+              if p is slab else p, top_y, tile, ox)
+    n_near = len(m.idx)
+    _plates(m, ring, top_y, thickness_m, tile, ox)            # the far LOD
     _fascia(m, ring, top_y, thickness_m, tile)
-    n_solid = len(m.idx)
+    for p in rest:
+        if p.name == "kerb":
+            _part(m, p, top_y, tile, ox)
+    n_far = len(m.idx) - n_near
     _paint(m, lines, top_y)
-    n_paint = len(m.idx) - n_solid
-    header = [f"TEXTURE {texture if skin is None else skin.texture}"]
-    if skin is not None and skin.normal:
-        # the page's own normal map, read as the page reads it
-        header += [f"TEXTURE_NORMAL {skin.normal}", "NORMAL_METALNESS"]
-    body = [f"ATTR_LOD {lod_m[0]:g} {lod_m[1]:g}",
-            "ATTR_hard_deck concrete", f"TRIS 0 {n_top}",
-            "ATTR_no_hard", f"TRIS {n_top} {n_solid - n_top}"]
+    n_paint = len(m.idx) - n_near - n_far
+    body = [f"ATTR_LOD {lod_m[0]:g} {near_lod_m:g}", hard, f"TRIS 0 {n_top}",
+            "ATTR_no_hard", f"TRIS {n_top} {n_near - n_top}"]
     if n_paint:
-        body += ["ATTR_poly_os 2", f"TRIS {n_solid} {n_paint}", "ATTR_poly_os 0"]
+        body.append(f"TRIS {n_near + n_far} {n_paint}")
     body += _light_rows(lights, top_y, light_lift_m)
+    body += [f"ATTR_LOD {near_lod_m:g} {lod_m[1]:g}", "ATTR_no_hard", f"TRIS {n_near} {n_far}"]
+    if n_paint:
+        body.append(f"TRIS {n_near + n_far} {n_paint}")
     return _obj_text(m, header, body, comments)
 
 
 def overlay_obj8_text(top_y: _t.Callable[[float, float], float], *, texture: str,
                       lines: _t.Sequence[DeckLine] = (),
-                      sheets: _t.Sequence[DeckSheet] = (),
+                      strips: _t.Sequence[DeckStrip] = (),
                       lights: _t.Sequence[DeckLight] = (),
+                      decals: _t.Sequence[DeckDecal] = (),
                       light_lift_m: float = 0.05,
                       lod_m: tuple[float, float] = (0.0, 6000.0),
-                      comments: _t.Sequence[str] = ()) -> str:
+                      comments: _t.Sequence[str] = (),
+                      material: _t.Sequence[str] = ()) -> str:
     """The OBJ8 text of a deck's OVERLAY (#2132): the painted ``lines``
-    (``texture`` the ``deck_texture`` atlas) or the ``sheets`` (one
-    texture's film, the rubber), never hard, drawn over the slab under
-    ``ATTR_poly_os`` -- placed at the deck's own anchor, in its frame."""
+    (``texture`` the ``deck_texture`` atlas) or the ``strips`` (one
+    texture's film: the rubber, X-Plane's line art) or the ``decals``
+    (the runway markings), never hard, never casting a shadow, standing
+    each strip's / line's / decal's lift over the slab (no ``ATTR_poly_os``
+    and no ``WEATHER_TRANSPARENT``: an OBJ is not draped, owner sim read
+    1.0.555, ``deck_objects._FILM_STEP_M``) -- placed at the deck's own
+    anchor, in its frame.  ``material``: the header rows after ``TEXTURE``
+    (the page's normal map)."""
     m = _Mesh()
-    for sh in sheets:
-        for t in _tris(sh.poly):
-            ids = [m.vertex((x, top_y(x, z) + sh.lift_m, z), (0.0, 1.0, 0.0), sh.uv(x, z))
-                   for x, z in list(t.exterior.coords)[:3]]
-            m.tri(*ids, inward=(0.0, -1.0, 0.0))
+    for st in strips:
+        _strip(m, st, top_y)
+    for d in decals:
+        _decal(m, d, top_y)
     _paint(m, lines, top_y)
     body = [f"ATTR_LOD {lod_m[0]:g} {lod_m[1]:g}", "ATTR_no_hard"]
     if m.idx:
-        body += ["ATTR_poly_os 2", f"TRIS 0 {len(m.idx)}", "ATTR_poly_os 0"]
+        body.append(f"TRIS 0 {len(m.idx)}")
     body += _light_rows(lights, top_y, light_lift_m)
-    return _obj_text(m, [f"TEXTURE {texture}"], body, comments)
+    return _obj_text(m, [f"TEXTURE {texture}", *material, "GLOBAL_no_shadow"], body, comments)

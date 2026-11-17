@@ -44,12 +44,13 @@ from __future__ import annotations
 import dataclasses as _dc
 import math
 import os
+import re
 import typing as _t
 
 __all__ = ["Attachment", "Wall", "Floor", "FacadeDef", "EdgeWall",
            "parse_facade", "read_facade", "facade_class", "floor_for",
            "edge_walls", "placed_edges", "PlacedEdge", "object_variants",
-           "is_vehicle",
+           "is_vehicle", "is_parked_car",
            "LINE", "ROOFED", "LOT", "PARKING_STRUCTURE", "LOT_SOURCE",
            "is_lot_def", "is_line_def", "read_placed"]
 
@@ -67,6 +68,24 @@ def is_vehicle(obj_path: str) -> bool:
     """Whether an ``OBJ`` table entry names a vehicle."""
     p = obj_path.replace("\\", "/").lower()
     return any(t in p for t in VEHICLE_TOKENS)
+
+
+#: the FOLDER words that name a pack's own vehicle collection ("KBNA
+#: Vehicles/…", "parked_cars/…") — a folder, never a file name, so a
+#: ``carStop_1x.obj`` wheel stop or a ``cargo`` hall is not a car
+VEHICLE_FOLDER_WORDS = frozenset({"vehicles", "cars"})
+
+
+def is_parked_car(obj_path: str) -> bool:
+    """Whether a placed object is a VEHICLE (owner RULINGS 2026-11-16p,
+    #2114): :func:`is_vehicle`'s library tokens, or a folder of the
+    pack's own whose last word is :data:`VEHICLE_FOLDER_WORDS`.  Where it
+    stands (apron, road, open ground) is the reader's question."""
+    if is_vehicle(obj_path):
+        return True
+    folders = obj_path.replace("\\", "/").lower().split("/")[:-1]
+    return any((words := re.findall(r"[a-z]+", f)) and words[-1] in VEHICLE_FOLDER_WORDS
+               for f in folders)
 
 
 @_dc.dataclass(frozen=True)

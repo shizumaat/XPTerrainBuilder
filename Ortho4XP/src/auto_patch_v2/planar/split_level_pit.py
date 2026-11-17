@@ -47,6 +47,17 @@ wall, under the building's own wall), and
   wing, every wall footed on its upper floor over 35.2-35.8 m of lidar,
   had sunk 4.6 m with the block beside it.  A plan its upper walls hold
   whole is no pit at all;
+* THE CAR PARK IN FRONT OF THE UPPER WALLS STANDS AT THE UPPER FLOOR
+  (#1934 R6, owner RULINGS 2026-11-17h (5), KLAX: "It's at the floor of the
+  upper story of the split level building"): a mapped surface car park an
+  upper-footed run fronts within ``[building_pad]
+  split_level_forecourt_reach_m``, clear of the lower walls' back cut, is
+  the building's UPPER FORECOURT (``airport/split_level_forecourt``) with
+  the ground between it and the wall: on bare ground only, a ring apart
+  from every cell, it is one more
+  void face of the pit (``<wall_ref>#court<j>``) whose bare vertices are
+  held at the upper floor (``Basin.forecourt``, ``constraints/structures.
+  basins``) -- flat, the apron's grade, never the survey a storey below;
 * every member of the building is seated with its lower floor ON the
   floor (``pipeline/rebake_inputs``, ``Basin.kind`` ``split_level``: one
   frame, one seat), with no plate clearance (a floor, not a plate:
@@ -71,7 +82,9 @@ from shapely.prepared import prep
 
 from ..airport.deck_roof import read_deck_roofs
 from ..airport.split_level import BAND_M, SplitLevel, read_split_levels
+from ..airport.split_level_forecourt import upper_forecourt
 from ..airport.split_level_wings import upper_wings
+from ..classify.evidence import parking_polys
 from ..geom.parts import polygon_parts_with_area
 from ..law.tables import apron_roles, frontage_roles, pavement_roles, role_side
 from ..model.structures import Basin
@@ -116,6 +129,12 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     road_reach = float(getattr(bp, "split_level_road_reach_m", 0.0) or 0.0)
     rim_step = float(getattr(bp, "split_level_rim_step_m", 0.0) or 0.0)
     probe = float(bp.split_level_probe_m)
+    court_reach = float(bp.split_level_forecourt_reach_m or 0.0)
+    lots = [p for _i, p in parking_polys(airport)] if court_reach > 0.0 else []
+    # the forecourt stands a ring apart from every cell (``[cutout]
+    # ring_floor_m``): a pavement piece it would wrap keeps its own ground
+    # beside it, never a shared vertex the hold drags (#1934 R6)
+    cells_u = unary_union(list(polys)).buffer(band, join_style="mitre") if lots else None
     gside = frozenset(r for r in pr if role_side(law, r) == "groundside")
     roads_g = unary_union([p for p, c in zip(polys, cells, strict=True)
                            if c.role in gside]).buffer(0)
@@ -206,9 +225,21 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
                       *polygon_parts_with_area(void.intersection(up))]):
             new_cells.append((wall_role, wall_ref, part,
                               tuple(tuple(h.coords)[:-1] for h in part.interiors)))
+        # the car park in front of its upper walls stands at the upper floor
+        court = None if not lots else _forecourt(
+            sl, lots, court_reach, reach, unary_union([rim, keep, cells_u]), grid,
+            float(bp.min_area_m2))
+        if court is not None:
+            pits = pits.union(court)
+            knives.append(court)
+            for j, part in enumerate(polygon_parts_with_area(court)):
+                new_cells.append((wall_role, f"{wall_ref}#court{j}", part,
+                                  tuple(tuple(h.coords)[:-1] for h in part.interiors)))
+            notes.append(f"{sl.id} {name}: upper forecourt {court.area:.0f} m2 held at the "
+                         "upper floor")
         knives.append(rim)
         basins.append(_record(airport, sl, k, rim, floors, floor_ref, wall_ref,
-                              _wing_edges(up, rim, grid)))
+                              _wing_edges(up, rim, grid), court))
     return basins, new_cells, knives, notes, refused
 
 
@@ -288,12 +319,42 @@ def _upper_wing(sl: SplitLevel, probe: float) -> "Polygon | None":
         return None
     wings = upper_wings(sl.pit_plan, [(r.coords[0], r.coords[-1]) for r, _f in sl.runs],
                         sl.run_levels, probe)
-    step = float(sl.y_up - sl.y_lo)
-    top = [g for k, g in wings.items() if abs(sl.levels[k] - sl.levels[0] - step) <= BAND_M]
+    levels = _top_levels(sl)
+    top = [g for k, g in wings.items() if k in levels]
     if not top:
         return None
     g = unary_union(top).buffer(0)
     return None if g.is_empty else g
+
+
+def _forecourt(sl: SplitLevel, lots, reach: float, back: float, clear, grid: float,
+               min_area: float) -> "Polygon | None":
+    """The UPPER FORECOURT (``airport/split_level_forecourt``): the car
+    parks fronting the building's upper-floor runs, on bare ground only
+    (``clear``: the pit, every cell, what the back cut keeps), snapped to
+    the grid (the caller's knife cuts the cells flush at it); parts under
+    ``min_area`` dropped.  ``None``: none, or a
+    record without the storey reading."""
+    if not lots or reach <= 0.0 or sl.plan is None or len(sl.levels) < 2 or not sl.runs:
+        return None
+    top = _top_levels(sl)
+    upper = [r for (r, f), k in zip(sl.runs, sl.run_levels, strict=True)
+             if k in top and f is not None]
+    lower = list(_tall_lines(sl))
+    court = upper_forecourt(upper, lower, lots, reach, back, clear)
+    if court is None:
+        return None
+    parts = [g for g in (_rim(p, 0.0, grid) for p in polygon_parts_with_area(court, min_area))
+             if g is not None and g.area >= min_area]
+    return unary_union(parts).buffer(0) if parts else None
+
+
+def _top_levels(sl: SplitLevel) -> frozenset[int]:
+    """The levels standing at the building's UPPER floor (a level between
+    the floors is no upper storey: too low is hidden in its walls)."""
+    step = float(sl.y_up - sl.y_lo)
+    return frozenset(k for k, y in enumerate(sl.levels)
+                     if abs(y - sl.levels[0] - step) <= BAND_M)
 
 
 def _wing_edges(up, rim: Polygon, grid: float) -> list[LineString]:
@@ -330,7 +391,8 @@ def _cut_region(sl: SplitLevel, reach: float, blocked, footprint=None) -> Polygo
 
 
 def _record(airport, sl: SplitLevel, k: int, rim: Polygon, floors, floor_ref: str,
-            wall_ref: str, wing_edges: _t.Sequence[LineString] = ()) -> Basin:
+            wall_ref: str, wing_edges: _t.Sequence[LineString] = (),
+            court: "Polygon | None" = None) -> Basin:
     # the upper wing's edge inside the pit is an OPEN side of the lower
     # floor: the rim there is held at the upper floor (#1934 R5)
     opens = (*sl.open_sides, *wing_edges)
@@ -355,4 +417,5 @@ def _record(airport, sl: SplitLevel, k: int, rim: Polygon, floors, floor_ref: st
         open_sides_ll=tuple(tuple(tuple(float(q) for q in to_ll(x, y)) for x, y in s.coords)
                             for s in opens),
         closed_sides_ll=tuple(tuple(tuple(float(q) for q in to_ll(x, y)) for x, y in s.coords)
-                              for s in sl.closed_sides), clearance_m=0.0)
+                              for s in sl.closed_sides), clearance_m=0.0,
+        forecourt=tuple(tuple(g.exterior.coords)[:-1] for g in polygon_parts_with_area(court)))

@@ -585,6 +585,11 @@ class Bridge:
     airside_run_max_m: float
     #: ... and a bank this wide either side of it down to the airside
     airside_run_bank_m: float
+    #: owner 2026-11-17T19:08Z "Accept 4.2m clearance for small roads": the
+    #: ``highway`` classes a GENERATED deck or road bridge clears by
+    #: ``clearance_minimum_m``; every other road (and rail) keeps ``[tunnel]
+    #: clearance_m`` (``planar/structure_approach.design_clearance_m``)
+    small_road_classes: tuple[str, ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -631,6 +636,10 @@ class BuildingPad:
     #: ... and the pit's rim carries a vertex at least this often (the open
     #: side held flat along its length); ``0`` = the corners only
     split_level_rim_step_m: float = 0.0
+    #: ... and a surface car park within this of its upper-footed runs
+    #: stands at the upper floor (#1934 R6, RULINGS 2026-11-17h (5)); ``0``
+    #: disarms
+    split_level_forecourt_reach_m: float = 0.0
     #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
     #: ``airport/jetways.py``): ``None`` = no expansion
     jetway_root_reach_m: float | None = None

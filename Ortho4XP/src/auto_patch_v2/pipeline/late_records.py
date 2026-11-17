@@ -103,7 +103,7 @@ class LateRecords:
         #: ``None``: not cached) — how the emit record names the final map
         self.final: str | None = None
 
-    def cut(self, cl, roads_only: bool, run: _t.Callable[[_t.Callable[[str], None]], _t.Any],
+    def cut(self, cl, stage: str, run: _t.Callable[[_t.Callable[[str], None]], _t.Any],
             out: _t.Callable[[str], None]):
         """``run(out) -> LateCut`` through ``late.cut.<pass>``."""
         self.passes += 1
@@ -115,7 +115,7 @@ class LateRecords:
             return run(tee), tee.lines
         got = _bc.record(self.fc, f"late.cut.{self.passes}",
                          {**self.inputs, "cl": self.fc.digest(cl), "base": self.base,
-                          "roads_only": str(bool(roads_only))}, fn, code="late_cut",
+                          "stage": stage}, fn, code="late_cut",
                          as_served=True)     # the next pass digests its cl
         self._cut = got.digest
         cut, lines = got.value
@@ -125,7 +125,7 @@ class LateRecords:
             cut = _dc.replace(cut, wall_s=time.perf_counter() - t)
         return cut
 
-    def solve(self, cut, derive: _t.Any, derived: tuple, t_derive: float, roads_only: bool,
+    def solve(self, cut, derive: _t.Any, derived: tuple, t_derive: float, stage: str,
               run: _t.Callable[[_t.Callable[[str], None]], tuple],
               out: _t.Callable[[str], None]) -> tuple:
         """``run(out) -> (pm, sol, report)`` through ``late.solve.<pass>``;
@@ -145,7 +145,7 @@ class LateRecords:
             return _sr.refuses(o[3], o[2]["cs_full"], o[1].z, len(o[0].vertices), self.law)
         got = _bc.record(self.fc, f"late.solve.{self.passes}",
                          {**self.inputs, "base": self.base, "cut": self._cut,
-                          "derive": ident, "roads_only": str(bool(roads_only))},
+                          "derive": ident, "stage": stage},
                          fn, code="late_solve", codec=_late_codec(pm_d, cs_d, cut, strips_d),
                          check=check, bypass=_sr.bypass_of(self.options))
         pm, sol, rep, _cert, lines = got.value

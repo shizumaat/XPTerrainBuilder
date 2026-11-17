@@ -204,6 +204,16 @@ def session_budget(conn, cap_bytes: int) -> BUDGET.Budget:
     return BUDGET.measure(conn, cap_bytes)
 
 
+def _drape_bytes() -> int:
+    """The World pack's drape bytes (``world_drape_evict.pack_bytes``;
+    the pack is in Custom Scenery, outside the scanned stores)."""
+    from . import world_drape_evict as DRAPES
+    try:
+        return DRAPES.pack_bytes()
+    except Exception:                       # no pack readable: none
+        return 0
+
+
 def hold(sweep, now: float,
          scan: "_t.Callable[[], dict] | None" = None) -> "dict | None":
     """Over a budget the user SET, clear until 90 % of it is used
@@ -219,6 +229,7 @@ def hold(sweep, now: float,
     used = figures["used_bytes"]
     write_json(_last_path(), dict(_read_cache(_last_path()), budget_bytes=budget,
                                   other_bytes=used - figures["sharp_bytes"]))
+    used += _drape_bytes()          # #2142 Q3: the World pack's drapes
     over = used - int(budget * DOWNGRADE.LOW_WATER)
     if used <= budget or not figures["budget_set"]:
         return figures

@@ -428,5 +428,35 @@
   "path": "Ortho4XP/src/auto_patch_v2/airport/deck_skin.py",
   "name": "PageArt",
   "reason": "return type of the module's public reader page_art (generated_pack reads its fields, never names it); listed in __all__ (#2132)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/road_bridge_ground.py",
+  "name": "ClearanceGround",
+  "reason": "return type of the module's public clearance reader (callers read its fields, never name it); listed in __all__ (#2141 lessa4, test-555)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/planar/road_bridge_clear.py",
+  "name": "ClearancePlan",
+  "reason": "return type of clearance_plan (callers read its fields, never name it); listed in __all__ (#2141 lessa4, test-555)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/planar/road_wall_witness.py",
+  "name": "RoadWitness",
+  "reason": "return type of road_witness (planar/road_shadow reads it, never names it); listed in __all__ (lshadow, test-555)"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_overlap.py",
+  "name": "Frame",
+  "reason": "#2145: the metres frame airport_regions returns with each region (its public return type); the stage passes it through without naming it"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/pack_overlap_choice.py",
+  "name": "kept_rows",
+  "reason": "#2145/#2144: the winning pack's overlapping rows, the input the overlay re-seat (#2144, lane l2144) reads to fit the kept structures to the terrain; that caller lands on its own branch"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/sunk_frame.py",
+  "name": "SunkReading",
+  "reason": "return type of the module's public reader sunk_wall (wall_class reads its fields, never names it); listed in __all__ (lkatlWF2, ldeck3)"
  }
 ]

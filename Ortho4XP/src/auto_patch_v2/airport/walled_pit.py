@@ -39,6 +39,13 @@ own RIM:
    (object-placement spec §18 (3)); any other rim re-seats the WHOLE FRAME
    by ``lift = ground - rim`` (the frame is one rigid world: every
    co-placed placement, and every other floor read in it, moves with it).
+7. OPEN TRENCH (#1949 R2/R3, owner RULINGS 2026-11-17 (a)) -- only a pit
+   whose floor lies under no roof brings the ground down to a wall lower
+   than it (its open edges, ``planar/pit_bank``): the frame's solids at its
+   rim cover less than ``trench_roof_max_share`` of the floor (a building's
+   lower storey, a covered approach), and its walls do not hang under its
+   plate (a plate on walls hanging under it is a roof object's low roof,
+   :func:`_open_trench`).  Any other pit keeps its rim on the ground.
 
 The floor's surface is its near-horizontal faces standing under the rim
 (the floor, the decks and ramps inside the walls), placed at ``zero +
@@ -115,21 +122,36 @@ class Walls:
         seg = np.stack([xz[n, a], xz[n, b]], axis=1)[ok]
         lines = _frame_entry.transform(shapely.linestrings(seg),
                                        _obj8.placement_affine(p.xy, p.heading_deg))
-        return STRtree(lines), lines, P[:, :, 1].min(axis=1)[ok], P[:, :, 1].max(axis=1)[ok]
+        # each face in its own vertical plane: (along its segment, y) per vertex
+        dirs = (xz[n, b] - xz[n, a]) / np.maximum(d[n, k], 1e-9)[:, None]
+        u = np.einsum("nkj,nj->nk", xz - xz[n, a][:, None, :], dirs)
+        prof = np.stack([u, P[:, :, 1]], axis=2)[ok]
+        return (STRtree(lines), lines, P[:, :, 1].min(axis=1)[ok], P[:, :, 1].max(axis=1)[ok],
+                prof)
 
-    def reaching(self, p, reach_y: float, top_y: float, near):
-        """``(tree, tops)`` of ``p``'s wall faces whose bottom reaches
-        ``reach_y`` and whose top stands at ``top_y`` or over it, within
-        the plan box ``near`` — or ``None``."""
+    def spans(self, p, near):
+        """``(lines, bottoms, tops, profiles)`` of ``p``'s wall faces within
+        the plan box ``near`` (a face's profile: ``(along its line, y)`` per
+        vertex) — or ``None``."""
         if p.id not in self._by_id:
             self._by_id[p.id] = self._read(p)
         got = self._by_id[p.id]
         if got is None:
             return None
-        tree, lines, lo, hi = got
+        tree, lines, lo, hi, prof = got
         k = tree.query(near)
-        k = k[(lo[k] <= reach_y) & (hi[k] >= top_y)]
-        if not len(k):
+        return (lines[k], lo[k], hi[k], prof[k]) if len(k) else None
+
+    def reaching(self, p, reach_y: float, top_y: float, near):
+        """``(tree, tops)`` of ``p``'s wall faces whose bottom reaches
+        ``reach_y`` and whose top stands at ``top_y`` or over it, within
+        the plan box ``near`` — or ``None``."""
+        got = self.spans(p, near)
+        if got is None:
+            return None
+        lines, lo, hi, _prof = got
+        k = (lo <= reach_y) & (hi >= top_y)
+        if not k.any():
             return None
         return STRtree(lines[k]), hi[k]
 
@@ -309,17 +331,11 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
         return None
     under = hz[v[hz][:, :, 1].min(axis=1) < rim_y - ob.cover_flush_m]
     F = _placed_all(o, _types.SimpleNamespace(vertices=v, solid=under), zero, scale)
-    if own_walls:
-        cap = _wall_caps(F, law)
-        if cap.any():
-            notes.append(f"{what}: {int(cap.sum())} face(s) under its rim are the tops of its "
-                         f"own walls, not its floor")
-            F = F[~cap]
     pt = shapely.polygons(F[:, :, :2])
-    foot = valid_polygon(_frame_entry.union(pt[shapely.area(pt) > 1e-6], "walled_pit.foot"))
-    if foot is None or foot.area < ob.plate_min_area_m2:
+    plan = valid_polygon(_frame_entry.union(pt[shapely.area(pt) > 1e-6], "walled_pit.foot"))
+    if plan is None or plan.area < ob.plate_min_area_m2:
         return None
-    r = _around_ids(foot, {p.id for p in frame}, ag, ground, law)
+    r = _around_ids(plan, {p.id for p in frame}, ag, ground, law)
     if r.source == "none":
         notes.append(f"{what}: a walled pit with no ground read around it")
         return None
@@ -345,10 +361,26 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
         return None
     proud = zero + rim_y - r.z
     lift = 0.0 if 0.0 <= proud <= ob.authored_crest_max_m else -proud
+    # the pit's plan (its walls' tops among it) seats the frame; the floor
+    # is what the cut follows (#1949 R1: an open hollow's own wall caps are
+    # no floor)
+    foot = plan
+    if own_walls and (cap := _wall_caps(F, law)).any():
+        notes.append(f"{what}: {int(cap.sum())} face(s) under its rim are the tops of its "
+                     f"own walls, not its floor")
+        F = F[~cap]
+        pt = shapely.polygons(F[:, :, :2])
+        foot = valid_polygon(_frame_entry.union(pt[shapely.area(pt) > 1e-6], "walled_pit.foot"))
+        if foot is None:
+            return None
     faces = F.copy()
     faces[:, :, 2] += lift
     fz = float(faces[:, :, 2].min())
-    inside = [p for p in mates if p not in covers and _in_pit(p, foot, cache, tk)]
+    # rule 7 (owner RULINGS 2026-11-17 (a)): only an OPEN TRENCH banks its open
+    # edges -- its floor under no roof
+    hung = _hung(outline, (o, *covers), walls, _floor_y_at(o, v, under, floor_y, tk), law)
+    trench = _open_trench(roofed, hung, law)
+    inside = [p for p in mates if p not in covers and _in_pit(p, plan, cache, tk)]
     k = sum(1 for n in notes if n.startswith(f"object floor walled pit {_base(o.path)}@"))
     note = (f"object floor walled pit {_base(o.path)}@{k}: floor y {floor_y:.2f}, "
             f"rim y {rim_y:.2f} "
@@ -358,14 +390,116 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
             + ("its plates" if r.source == "plates" else "NO PLATES: the DEM")
             + f" {r.z:.2f}) -> frame lift {lift:+.2f}; floor {fz:.2f}, "
             f"{len(faces)} faces over {foot.area:.0f} m2; the frame's "
-            f"{len(covers) + len(inside) + 1} placements standing in it move with it")
+            f"{len(covers) + len(inside) + 1} placements standing in it move with it; "
+            f"{100 * hung:.0f} % of its outline hangs walls under it: "
+            + ("an open trench, its open edges banked" if trench
+               else "no open trench, its rim stays on the ground"))
     notes.append(note)
     seats = tuple((p.id, p.path, _zero(p, msl) + lift) for p in (o, *covers, *inside))
+    tops = _open_edges(foot, frame, cache, law, msl, scale, zero, zero + rim_y, lift, ground,
+                       faces, fz) if trench else ()
     return ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@pit{k}", o.id, o.path,
                        tuple(p.id for p in covers), zero + lift, fz, foot, faces, (note,),
                        seats, rim_z=zero + rim_y + lift, lift=lift,
                        authored=tuple((p.id, _zero(p, msl)) for p in frame),
-                       rim_proud_m=proud + lift)
+                       rim_proud_m=proud + lift, rim_tops=tops, rim_banks=bool(tops))
+
+
+def _hung(outline, frame, walls: Walls, floor, law) -> float:
+    """Rule 7: the share of ``outline`` (every ``wall_sample_m``) along
+    which a wall of ``frame`` (the floor object and the pit's walls) hangs
+    more than ``cover_flush_m`` UNDER the floor beside it (``floor(xs, ys)``,
+    OBJ y) and rises to it: there the plate stands on its walls -- a roof,
+    the floor the walls stand on lies under it.  A ramp's walls follow it
+    down: they hang under no part of it."""
+    ob = law.tables.structures.tunnel.object
+    tk, flush = float(ob.wall_face_max_thickness_m), float(ob.cover_flush_m)
+    ring = outline.boundary
+    n = max(1, int(math.ceil(ring.length / float(ob.wall_sample_m))))
+    pts = shapely.line_interpolate_point(ring, (np.arange(n) + 0.5) * (ring.length / n))
+    xy = shapely.get_coordinates(pts)
+    fl = floor(xy[:, 0], xy[:, 1]) - flush
+    box = shapely.box(*outline.bounds).buffer(tk)
+    hit = np.zeros(n, bool)
+    for p in frame:
+        got = walls.spans(p, box)
+        if got is None:
+            continue
+        lines, _lo, _hi, prof = got
+        si, wi = STRtree(lines).query(pts, predicate="dwithin", distance=tk)
+        lo, hi = _slice(prof[wi], shapely.line_locate_point(lines[wi], pts[si]))
+        ok = (lo <= fl[si]) & (hi >= fl[si])
+        hit[si[ok]] = True
+    return float(hit.mean())
+
+
+def _slice(prof: np.ndarray, at: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """``(bottom, top)`` of each wall face (``prof``: ``(along, y)`` per
+    vertex) on the vertical line ``at`` along it: a sloped wall's bottom
+    where the sample stands, never its lowest corner metres away."""
+    lo = np.full(len(at), np.inf)
+    hi = np.full(len(at), -np.inf)
+    for i, j in ((0, 1), (1, 2), (2, 0)):
+        ua, ub = prof[:, i, 0], prof[:, j, 0]
+        ya, yb = prof[:, i, 1], prof[:, j, 1]
+        span = ub - ua
+        on = (at >= np.minimum(ua, ub) - 1e-6) & (at <= np.maximum(ua, ub) + 1e-6)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = np.where(np.abs(span) > 1e-9, (at - ua) / span, 0.0)
+        y0 = ya + np.clip(t, 0.0, 1.0) * (yb - ya)
+        flat = np.abs(span) <= 1e-9
+        lo = np.where(on, np.minimum(lo, np.where(flat, np.minimum(ya, yb), y0)), lo)
+        hi = np.where(on, np.maximum(hi, np.where(flat, np.maximum(ya, yb), y0)), hi)
+    return lo, hi
+
+
+def _floor_y_at(o, v: np.ndarray, under: np.ndarray, floor_y: float, tk: float):
+    """``(xs, ys) -> OBJ y``: the lowest of ``o``'s faces ``under`` its rim
+    there (in the walls' plan, :class:`Walls`; within ``tk`` of one),
+    ``floor_y`` where none is."""
+    from ..geom.lowest_face import floor_z_at
+    px, py = _placed_plan(o, v[under], (1.0, 1.0))
+    faces = np.stack([px, py, v[under][:, :, 1]], axis=2)
+
+    def at(xs, ys):
+        y = floor_z_at(faces, xs, ys, edge_m=tk)
+        return np.where(np.isfinite(y), y, floor_y)
+    return at
+
+
+def _open_trench(roofed: float, hung: float, law) -> bool:
+    """Rule 7 (owner RULINGS 2026-11-17 (a): "an object whose floor stands
+    below the surrounding ground and which has NO ROOF over that floor"): is
+    a walled pit an OPEN TRENCH?  Not when its frame's near-horizontal solids
+    at its rim (rule 4's read) cover ``trench_roof_max_share`` of its floor
+    or more -- a building's lower storey, a covered approach -- nor when its
+    plate stands on walls hanging under it along ``floor_walled_min_share``
+    of its outline (``hung``, :func:`_hung`): the plate is a roof, the floor
+    the walls stand on lies under it.  Only an open trench brings the ground
+    down to its walls (:func:`_open_edges`, ``planar/pit_bank``)."""
+    ob = law.tables.structures.tunnel.object
+    return roofed < float(ob.trench_roof_max_share) and hung < float(ob.floor_walled_min_share)
+
+
+def _open_edges(foot, frame, cache, law, msl, scale, zero: float, rim_abs: float, lift: float,
+                ground, faces: np.ndarray, fz: float) -> tuple:
+    """#1949 R2: the pit's ``rim_tops`` on its OPEN EDGES
+    (``floor_rim.open_edge_tops``) along the cut's rim (the footprint grown
+    by half a wall, ``planar/object_floor_cells``' void band), the frame
+    capped at its rim; the floor beside a rim point is the pit's floor there
+    (within a wall's thickness), else its lowest ``fz``."""
+    from ..geom.lowest_face import floor_z_at
+    from .floor_rim import open_edge_tops
+    if ground is None:
+        return ()
+    tk = float(law.tables.structures.tunnel.object.wall_face_max_thickness_m)
+
+    def floor(xs, ys):
+        z = floor_z_at(faces, xs, ys, edge_m=tk)
+        return np.where(np.isfinite(z), z, fz)
+    return open_edge_tops(foot.buffer(0.5 * tk, join_style="mitre"),
+                          [(p, _zero(p, msl)) for p in frame], cache, law, scale, zero,
+                          rim_abs, lift, ground, floor)
 
 
 def _wall_caps(faces: np.ndarray, law) -> np.ndarray:

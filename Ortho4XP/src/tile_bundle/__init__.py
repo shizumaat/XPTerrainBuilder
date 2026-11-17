@@ -29,6 +29,8 @@ Package…"); opening or dropping one on the app shows what it holds and
 installs it, combining with packages already installed.
 
 * :mod:`.inputs` — which downloaded files a package carries;
+* :mod:`.generated` — the airports' generated decks and road bridges a
+  package carries, which an install places without the generator (#2140);
 * :mod:`.package` / :mod:`.install` / :mod:`.merge` — save, install,
   and combine several packages into one.
 

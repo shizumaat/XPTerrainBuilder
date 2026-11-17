@@ -26,8 +26,9 @@ import typing as _t
 from .frame import XY
 
 __all__ = ["Deck", "Tunnel", "DeckAnchor", "DeckBridge", "Basin", "Channel", "ChannelWall",
+           "ChannelRamp",
            "profile_z", "deck_z_on_faces", "deck_reach", "deck_floor_z", "DECK_GROUND_REF",
-           "CHANNEL_FLOOR_ROLE",
+           "CHANNEL_FLOOR_ROLE", "GENERATED_WITNESS", "is_generated", "generated_bank_slope",
            "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM", "SKIRT_ROLE", "OBJECT_FLOOR_REF",
            "OBJECT_FLOOR_WALL_REF"]
 
@@ -466,6 +467,9 @@ class DeckAnchor:
     #: DeckBridge.seats_a / seats_b) — stage 1's map takes the full
     #: map's anchor by it (model/stage_one.from_full)
     line: tuple[XY, ...] = ()
+    #: #2112: the deck PLATE this end line holds (``constraints/deck_lines.
+    #: plate_of``): an object in disjoint plates has one zero per plate
+    plate: int = 0
 
 
 @_dc.dataclass(frozen=True)
@@ -536,6 +540,16 @@ class DeckBridge:
     #: (rings, frame metres) -- cut out with its ring
     #: (``planar/deck_generated._approaches``); ``()`` for a pack deck
     approach: tuple = ()
+    #: owner 2026-11-17 (KPHX): the pack placements under a GENERATED deck
+    #: that only FAKE its cut (drawn under the terrain mesh,
+    #: ``planar/deck_pack_cover``), ``(object id, resource, (lon, lat))``
+    #: each -- the real cut and the deck replace them, so the pack copy
+    #: hides them (``airport/generated_pack.apply_text``)
+    hides: tuple = ()
+    #: their plans (frame rings): the pads and walls the classification read
+    #: off them are no ground once hidden (``planar/deck_pack_cover.
+    #: hidden_cells_off``)
+    hidden_plans: tuple = ()
 
     @property
     def depth_a(self) -> float:
@@ -619,6 +633,27 @@ class ChannelWall:
     path: tuple[XY, ...] = ()
     toe: tuple[XY, ...] = ()
     witness: str = ""               # the pack resource / inset that stated it
+
+
+@_dc.dataclass(frozen=True)
+class ChannelRamp:
+    """An EXIT RAMP of a channel (#2127 R3 §3 Part A): the part of its floor
+    a mapped road leaving the channel through a wall climbs on
+    (``planar/channel_ramp``).  ``ref`` its floor faces' ref
+    (``channel_floor:<k>#r<n>``), ``ring`` its plan, ``outline`` the plan
+    the main floor stands back from and the corridor's knife covers (the
+    ring ⊕ the wall band, cut off flat at the top line), ``stations`` its
+    long section ``(x, y, z)`` bottom first (``geom/channel_declared``),
+    ``source`` ``"pack"`` (a member's foot line states it, 16s) or
+    ``"law"`` (``[tunnel] ramp_grade``, never over ``ramp_max_grade``), and
+    ``way_keys`` the exit ways."""
+
+    ref: str
+    ring: tuple[XY, ...]
+    outline: tuple[XY, ...]
+    stations: tuple[tuple[float, float, float], ...]
+    source: str
+    way_keys: tuple[tuple[str, int], ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -713,6 +748,8 @@ class Channel:
     #: gate's FEET row)
     ledge_pins: tuple[tuple[float, float, float], ...] = ()
     member_feet: tuple[tuple[float, float, float, str, str], ...] = ()
+    #: #2127 R3: the exit ramps, parts of the floor (:class:`ChannelRamp`)
+    ramps: tuple[ChannelRamp, ...] = ()
 
     def floor_z(self, s: float) -> float:
         """The floor at ``s`` along the axis — :func:`profile_z`, the ONE
@@ -832,6 +869,10 @@ class Basin:
     #: lon)``: the terrain outside them is cut down to the lower floor
     closed_sides_ll: tuple[tuple[tuple[float, float], ...], ...] = ()
     clearance_m: float | None = None
+    #: ... and its UPPER FORECOURT (#1934 R6, ``airport/split_level_forecourt``):
+    #: the outer rings (frame) of the car park in front of its upper walls,
+    #: void faces of ``wall_ref`` whose bare vertices stand at the upper floor
+    forecourt: tuple[tuple[XY, ...], ...] = ()
 
     def clearance(self, law_clearance_m: float) -> float:
         """The plate clearance this basin states (:attr:`clearance_m`, else
@@ -867,3 +908,27 @@ class Basin:
         if depth <= 1e-6:
             depth = float(self.rim_estimate_m) - float(self.floor_z)
         return 0.0 if depth <= 1e-6 else depth + self.clearance(clearance_m)
+
+
+#: ``DeckBridge.witness`` of a generated deck
+GENERATED_WITNESS = "generated"
+
+
+def is_generated(db) -> bool:
+    """A deck ``planar/deck_generated`` generated (no pack placement stands behind it)."""
+    return getattr(db, "witness", "") == GENERATED_WITNESS
+
+
+def generated_bank_slope(law) -> float:
+    """The bank under a GENERATED deck: 1V:1.5H, the steep engineered-fill
+    face (``zones.adjacent_ground.old_dem_fill_slope``, the one law key that
+    states it).
+    The deck hides it; ``emit.design.bank_slope`` (1:3, a slope a pilot
+    reads as ground) is the OPEN ground's.  Owner 2026-11-17 18:30Z (ESSA
+    86aefaf4 over the service road -141): "seems to be larger than it needs
+    to be" -- at 1:3 a 6 m floor ran 18 m of bank each side; the channel's
+    1:2 (``[channel] bank_slope``) next; owner sim read 19:42Z: "The
+    embankment under bridges should be a bit steeper".  ONE reader:
+    ``planar/structures`` (the cut), ``planar/deck_generated`` (the ring) and
+    ``constraints/edge_deck`` (the bank's rows)."""
+    return float(law.tables.zones.adjacent_ground.old_dem_fill_slope)

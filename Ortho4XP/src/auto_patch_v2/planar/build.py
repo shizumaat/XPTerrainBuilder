@@ -50,7 +50,11 @@ from .covered_ground import CoveredGround, covered_cuts, covered_ground
 from .bridge_span import edge_bridges
 from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
+from .survey_deck_cut import cut_pavement, region_union, survey_deck_cuts
+from .grade_separation import road_crossings
+from ..geom.parts import polygon_parts_with_area
 from .deck_generated import carried_off, generated_decks
+from .deck_pack_cover import hidden_cells_off
 from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
@@ -60,7 +64,9 @@ from .free_bridge import planar_stacks as free_planar_stacks
 from ..model.deck_stack import live_stacks
 from .overpass_deck import road_overpasses
 from .road_shadow import road_shadow
+from .road_wall_witness import road_witness
 from ..airport.bridge_ground import BridgeGround, bridge_ground, bridge_runs
+from ..airport.road_bridge_ground import clearance_ground, clearance_ribbons
 from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
 from .structure_approach import wall_field
 from .structure_road import mouth_pair_roads
@@ -365,14 +371,27 @@ def build(airport: Airport, classification: Classification, law: Law,
         # hard-deck consumer below (``planar/deck_generated``)
         gen, gen_notes = generated_decks(
             classification, airport, law, decks,
-            [c.footprint for c in corridors] + [f.footprint for f in floors])
+            [c.footprint for c in corridors] + [f.footprint for f in floors],
+            objects, cache, deck_notes)
         decks, deck_notes = tuple(decks) + gen, list(deck_notes) + gen_notes
     # a generated deck carries its airside pavement on both maps (A3)
     classification, cut_notes = carried_off(classification, decks, law)
-    deck_notes = list(deck_notes) + cut_notes
+    # the pads and walls read off the pack placements it hides are no ground
+    classification, hid_notes = hidden_cells_off(classification, decks)
+    deck_notes = list(deck_notes) + cut_notes + hid_notes
     # #2099 R3 D6: a deck mouth's group walls plan its ramps -- the groups
     # of the deck mouths are formed here, before the structure pass
     decks, group_notes = group_walled(decks, airport, objects, cache, law)
+    # #2128 R1 / R2: THE SURVEYED CUT AT A HARD DECK, read ONCE
+    # (``planar/survey_deck_cut``); its pavement is cut before the structure
+    # pass reads its stops.  Stage 1's map reads the floors, never C
+    from ..model.stage_one import deriving as _stage_one_now
+    survey_deck, sdc_notes = survey_deck_cuts(decks, airport, law, classification.cells,
+                                              level_b)
+    if _stage_one_now():
+        survey_deck = tuple(_dc.replace(r, region=None) for r in survey_deck)
+    classification, sdc_cut = cut_pavement(classification, survey_deck, airport, law)
+    group_notes = [*group_notes, *sdc_notes, *sdc_cut]
     deck_notes = [f"level B: {level_b_note}",
                   *(f"level seed: {n}" for n in seed_notes), *deck_notes, *group_notes]
     cl_read = classification   # the roles before the cuts (``planar/cut_frame``)
@@ -385,7 +404,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                        level_b=level_b,
                                                        object_floors=floors,
                                                        grade_ends=tstats.grade_ends,
-                                                       level_seeds=seeds, shells=shells)
+                                                       level_seeds=seeds, shells=shells,
+                                                       survey_deck=survey_deck)
     sstats.hard_decks.extend(deck_notes)
     # a pack deck over a pack object cut frames that cut (owner 2026-11-05
     # §0.5, ``planar/cut_frame``): its floor at the deck's seated zero
@@ -398,7 +418,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     decks = with_cuts(decks, tunnels)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
-    classification, ground_notes = deck_ground(classification, tunnels, law)
+    classification, ground_notes = deck_ground(classification, tunnels, law,
+                                               region_union(survey_deck), decks)
     sstats.hard_decks.extend(ground_notes)
     # #2099 R2: the ground beside a grouped mouth's wings stands on their
     # feet (``planar/wing_cut``), once the corridors and the deck's ground own theirs
@@ -489,7 +510,7 @@ def build(airport: Airport, classification: Classification, law: Law,
         types.SimpleNamespace(bridge_stacks=bridge_stacks)))
     _pulse.tick("building the planar arrangement")
     arr = build_arrangement(airport, classification, law, grid_m, level_b=level_b,
-                            level_seeds=seeds, shells=storeys)
+                            level_seeds=seeds, shells=storeys, floors=floors)
     stats = BuildStats(grid_m=arr.grid_m, dropped_faces=arr.dropped_faces,
                        structures=sstats, basins=bstats, weld=arr.weld, tunnel_objects=tstats,
                        slivers_merged=arr.slivers_merged,
@@ -578,11 +599,13 @@ def build(airport: Airport, classification: Classification, law: Law,
     if stats.covered_ground.rings:
         print(f"  [planar] {stats.covered_ground.line()}")
     # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads
-    # the DEM past the road's cut, not the cut's slope
+    # the DEM past the road's cut, not the cut's slope -- only where a wall
+    # witness lines the road (#2122 item 3)
     through = [y for y in arr.road_yield if y.through]
     if through:
         zs, shadow = road_shadow(getattr(airport, "dem", None), law, through,
-                                 _band_only_vertices(faces, face_vs), xs, ys, zs)
+                                 _band_only_vertices(faces, face_vs), xs, ys, zs,
+                                 road_witness(airport, law))
         print(f"  [planar] {shadow.line()}")
     # #1935: under a mapped bridge the DEM's deck is not the ground — the
     # vertices no airside face carries read the ground beside the deck
@@ -593,6 +616,14 @@ def build(airport: Airport, classification: Classification, law: Law,
                                                 _airside_vertices(faces, face_vs),
                                                 _seam_vertices(arr, vertices_xy))
         print(f"  [planar] {stats.bridge_ground.line()}")
+    # #2141 item 5: a generated road bridge's ends stand on their
+    # embankments and the lower roads are cut to its clearance
+    # (``airport/road_bridge_ground``; ramp targets still win below)
+    cribs = clearance_ribbons(airport)
+    if cribs:
+        zs, _cg = clearance_ground(cribs, xs, ys, zs, _airside_vertices(faces, face_vs),
+                                   _seam_vertices(arr, vertices_xy))
+        print(f"  [planar] {_cg.line()}")
     # #2053 round 3: under a held object (a ground object on its bridges'
     # ends) the vertices no airside face carries read the cut ground
     if any(getattr(r[2], "seat_by", "") for r in getattr(airport, "terrain_models", ()) or ()):
@@ -655,6 +686,16 @@ def build(airport: Airport, classification: Classification, law: Law,
                    storey_shells=tuple(storeys),
                    registries=arr.registries)
     validate(pm)
+    # #2128 round 4: the grade-separated road crossings and the surveyed cut
+    # C, published for the road ramp (``planar/grade_separation``)
+    crossings, cross_notes = road_crossings(pm, airport, law)
+    sstats.hard_decks.extend(cross_notes)
+    for n in cross_notes:
+        print(f"  [planar] grade separation: {n}")
+    c_all = region_union(survey_deck)
+    pm = _dc.replace(pm, road_crossings=crossings, survey_cuts=tuple(
+        (tuple(q.exterior.coords)[:-1], tuple(tuple(h.coords)[:-1] for h in q.interiors))
+        for q in polygon_parts_with_area(c_all)) if c_all is not None else ())
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
     # touching pavement, their joints declared — the only lawful steps
     pm, stats.shapes = build_shapes(pm, law, airport, classification)

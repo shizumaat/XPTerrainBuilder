@@ -30,7 +30,8 @@ from .wall_clip import clip_at_walls, cutting_walls
 from ..geom.parts import line_parts
 
 __all__ = ["Chain", "Evidence", "build_evidence", "polygon_from",
-           "polygon_parts", "chains_from_edges", "apron_named", "taxi_name_match"]
+           "polygon_parts", "chains_from_edges", "apron_named", "is_library_path",
+           "taxi_name_match", "parking_polys"]
 
 _LETTERS = "ABCDEF"
 
@@ -85,7 +86,7 @@ class Evidence:
     #: 1206 routes (owner 2026-09-04j evidence; ``rules.osm_roads``).
     road_chains: list[Chain] = _dc.field(default_factory=list)
     #: OSM ``amenity=parking`` polygons (``rules.lot.parking_cover_fraction``),
-    #: :func:`_parking_polys` over the ``parking`` feed (#1854).
+    #: :func:`parking_polys` over the ``parking`` feed (#1854).
     parking_polys: list[tuple[str, Polygon]] = _dc.field(default_factory=list)
     #: THE SKIRTED PADS NEVER MINTED (owner RULINGS 2026-09-10ag, spec
     #: §22.2): one line per candidate pad dropped because skirted
@@ -118,6 +119,15 @@ def apron_named(description: str, rules: Rules) -> bool:
     return any(t in d for t in rules.lot.apron_name_tokens)
 
 
+def is_library_path(description: str) -> bool:
+    """The description is a pack LIBRARY PATH (a DSF ``.pol`` page's or a
+    draped object's name), not an author's apt.dat 110 description.  Its
+    words weigh least (owner Q5 2026-11-17T14:38Z: "would have little
+    weight, but in the absence of other evidence could be useful")."""
+    d = description.strip().lower()
+    return "/" in d or "\\" in d or d.endswith((".pol", ".obj", ".agp", ".fac"))
+
+
 def taxi_name_match(description: str, rules: Rules) -> tuple[str, str] | None:
     """THE TAXI-NAME RULE (RULINGS 2026-09-04z(1), ``rules.taxi_name``):
     ``(token, designator)`` when the apt.dat 110 description names a
@@ -130,7 +140,9 @@ def taxi_name_match(description: str, rules: Rules) -> tuple[str, str] | None:
     carry it).  The designator is the word after the token when it is
     at most ``designator_max_len`` characters, else empty."""
     tn = rules.taxi_name
-    d = " ".join(description.lower().split())
+    # a library path's separators are word breaks (#2134: ``_`` is a word
+    # character, so ``\btaxiway\b`` never matched ``KBNA_Taxiway-TJL.pol``)
+    d = " ".join(re.sub(r"[_/\\.]+", " ", description.lower()).split())
     if not d or apron_named(d, rules):
         return None
     for u in tn.unauthored_names:
@@ -328,7 +340,7 @@ def build_evidence(airport: Airport, rules: Rules,
                                                         law, runway_union)
     road_chains = _osm_roads(airport, truck_chains, pavement_union, rules,
                              len(taxi_chains) + len(truck_chains))
-    parking = _parking_polys(airport)
+    parking = parking_polys(airport)
 
     # main's pad set FIRST, so the module's report state is the lane's
     base_pads = None
@@ -357,7 +369,7 @@ def build_evidence(airport: Airport, rules: Rules,
                     jetway_ground=jetway_ground, wall_clip=wall_clip)
 
 
-def _parking_polys(airport: Airport) -> list[tuple[str, Polygon]]:
+def parking_polys(airport: Airport) -> list[tuple[str, Polygon]]:
     """The mapped SURFACE car parks (#1854): closed ``amenity=parking``
     ways from every feed (the ``parking`` feed fills them; an aerodrome
     feed may carry one too — a way read twice unions to itself).  An

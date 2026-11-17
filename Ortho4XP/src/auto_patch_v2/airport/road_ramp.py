@@ -96,7 +96,8 @@ from ..law.tables import (
 )
 from ..model.airport import Airport
 from ..model.frame import rotated_rectangle
-from ..model.planar import PlanarMap
+from ..model.grade_separation import crossing_vertices, far_keys, other_side, road_key
+from ..model.planar import PlanarMap, is_car_lot_ref
 from ..model.platform import fill_levels, held_levels
 from .foot_lot import foot_vertices, lots_at_foot
 from .road_descent import STAND_M, climb, descend
@@ -175,6 +176,41 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str
     # ring vertices ARE the corridor rim's — ``constraints/structures.py``)
     for v in on_deck:
         out.pop(v, None)
+    return out
+
+
+#: #2121: the reach over which a zone-2 cut kerb's own ground is averaged
+#: (about a carriageway's width: both kerbs of the section)
+CUT_GROUND_M = 15.0
+
+
+def _cut_kerb_ground(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float]
+                    ) -> dict[int, float]:
+    """``{v: DEM}`` over the ribbon vertices standing in a road's own zone-2
+    cut that carry no target (#2121, the caller's comment): the zone-2 cut
+    kerb (``PlanarMap.band_kerb_vertices`` less the shared kerb), on a road
+    face that is no deck.  The ground is the mean DEM of the cut kerb within
+    :data:`CUT_GROUND_M` — both kerbs of the section and the stretch along
+    it, as the route's own DEM is read along the road and never under one
+    kerb (MEASURED KBUF ``big_roads:-6682``: kerb DEM 198.5 m among 202 m
+    neighbours, a ditch pixel, sank the road 2.5 m)."""
+    from ..law.tables import airside_stage_roles as _asr
+    cut = pm.band_kerb_vertices(_asr(law)) - pm.band_kerb_vertices(_asr(law), cut=False)
+    if not cut:
+        return {}
+    roads, decks = _road_roles(law), deck_refs(pm)
+    on_road = {v for f in pm.faces.values() if f.role in roads and f.ref not in decks
+               for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+    ground = {v: float(pm.vertices[v].dem_z) for v in cut & on_road
+              if pm.vertices[v].dem_z is not None and math.isfinite(float(pm.vertices[v].dem_z))}
+    out: dict[int, float] = {}
+    for v in sorted(ground):
+        if v in targets:
+            continue
+        x, y = pm.vertices[v].xy
+        near = [z for u, z in ground.items()
+                if exact.dist(pm.vertices[u].xy, (x, y)) <= CUT_GROUND_M]
+        out[v] = sum(near) / len(near)
     return out
 
 
@@ -408,13 +444,38 @@ def _on_retaining(pm: PlanarMap, vs: _t.Iterable[int],
                                                      predicate="dwithin", distance=0.5)))
 
 
-def _graph(pm: PlanarMap, nodes: _t.AbstractSet[int]
+def _skip_far(far: "frozenset[str] | None"):
+    """#2128 R4 (RULINGS 2026-11-17d): the profile ways that never station
+    a vertex -- the roads its own road crosses over or under
+    (``model/grade_separation.far_keys``); ``None`` for none."""
+    if not far:
+        return None
+    return lambda w: road_key(getattr(w, "ref", "")) in far
+
+
+def _in_cuts(pm: PlanarMap, vs: _t.Iterable[int]) -> frozenset[int]:
+    """The vertices of ``vs`` inside the surveyed cut beside a kept hard
+    deck (``PlanarMap.survey_cuts``, #2128 R2 spec R4)."""
+    rings = getattr(pm, "survey_cuts", ()) or ()
+    if not rings:
+        return frozenset()
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    c = prep(unary_union([Polygon(e, h) for e, h in rings]))
+    return frozenset(v for v in vs if c.covers(Point(pm.vertices[v].xy)))
+
+
+def _graph(pm: PlanarMap, nodes: _t.AbstractSet[int],
+           apart: _t.AbstractSet[int] = frozenset()
            ) -> dict[int, list[tuple[int, float]]]:
     """The ROAD's own graph: every planar edge whose BOTH endpoints are
-    road vertices or mouths, weighted by its length."""
+    road vertices or mouths, weighted by its length -- never one at a
+    vertex in ``apart`` (#2128 R4: where two roads one over the other share
+    a vertex, ``model/grade_separation``, neither joins the other)."""
     adj: dict[int, list[tuple[int, float]]] = {}
     for e in pm.edges.values():
-        if e.a not in nodes or e.b not in nodes:
+        if e.a not in nodes or e.b not in nodes or e.a in apart or e.b in apart:
             continue
         d = exact.dist(pm.vertices[e.a].xy, pm.vertices[e.b].xy)
         adj.setdefault(e.a, []).append((e.b, d))
@@ -619,6 +680,7 @@ def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
         prof, per_face = profiles, profiles.per_face
     from shapely.geometry import Point
     roads = _road_roles(law)
+    far = far_keys(getattr(pm, "road_crossings", ()) or ())
     rid = {id(w): i for i, w in enumerate(prof.all_ways)}
     out: dict[int, tuple[int, float, float]] = {}
     xy: dict[int, tuple[float, float]] = {}
@@ -646,7 +708,7 @@ def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
                 through: list = []
                 for g in vx.incident_faces:
                     through.extend((w, math.inf) for w, _r in per_face.get(g, ()))
-                a = prof.answer(vx.xy, vx.dem_z or 0.0, through)
+                a = prof.answer(vx.xy, vx.dem_z or 0.0, through, _skip_far(far.get(v)))
                 if a.way is None:
                     continue
                 out[v] = (rid.get(id(a.way), -1), float(a.s), float(a.t))
@@ -863,6 +925,11 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     owned = _owned(pm, roads, law)
     mouths = _contacts(pm, roads, law)
     mouths = {v: z for v, z in mouths.items() if v not in owned}
+    # #2128 R2 spec R4: INSIDE THE SURVEYED CUT beside a kept hard deck no
+    # road-ramp seed, ramp or cut ceiling applies -- the target is the
+    # road's own profile there, and no level walks through it
+    in_cut = _in_cuts(pm, set(owned) | set(mouths))
+    mouths = {v: z for v, z in mouths.items() if v not in in_cut}
     # RULINGS 2026-10-20d (round 3 D3): a mouth on a LANDING is at its highest
     # predicted level, never its DEM — the road reaches the high side, and
     # the ceiling may not hold it on the ground the fill covers; the road
@@ -909,7 +976,8 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
                               "max_above_dem_m": 0.0, "max_reach_m": 0.0,
                               "max_route_off_vertex_dem_m": 0.0,
                               "max_clamp_over_dem_m": 0.0,
-                              "reach_contacts": 0, "reach_ends": []}
+                              "reach_contacts": 0, "reach_ends": [],
+                              "survey_cut_vertices": len(in_cut)}
     if not owned or cap is None:
         return RampTargets({}, rep, {})
     prof_f, per_face_f = _floor_along_route(pm, law, airport, profiles)
@@ -931,13 +999,22 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # ``constraints/road_ramp.road_contact_rows``.
     rc = law.tables.emit.road_contact
     gaps: dict[int, float] = {}
-    adj = _graph(pm, set(owned) | set(mouths))
+    # #2128 R4 (RULINGS 2026-11-17d): two roads one over the other are not
+    # joined where their faces meet, and no level crosses between them
+    crossings = tuple(getattr(pm, "road_crossings", ()) or ())
+    other, x_vs = other_side(crossings), crossing_vertices(crossings)
+    rep["grade_separated_crossings"] = len(crossings)
+    rep["grade_separated_vertices"] = len(x_vs)
+    adj = _graph(pm, (set(owned) | set(mouths)) - in_cut, x_vs)
     junctions: list = []
     contact, reach_named = reach_contacts(pm, law, owned, mouths, frame,
                                           rc.contact_reach_m,
                                           prof_f.lane_width_m, gaps, adj=adj,
                                           junctions_out=junctions)
     rep["reach_junction_ends"] = junctions
+    # R2 spec R4: no airside-contact row on a road vertex in the surveyed cut
+    contact = {v: c for v, c in contact.items() if v not in in_cut}
+    gaps = {v: g_ for v, g_ in gaps.items() if v not in in_cut}
     # 15a (2): a reach contact ACROSS a wall that retains its height (its
     # edge on the wall's line, or the way to it through the wall) is no
     # contact — the road at the wall's foot does not meet the top edge
@@ -977,7 +1054,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     lane = float(prof_f.lane_width_m)
     floor_of = _floors(pm, owned, frame, ways)
     # #1952: the road leaves a foot lot from the foot (docstring ``foot``)
-    feet = {v: float(z) for v, z in (foot or {}).items() if v in floor_of}
+    feet = {v: float(z) for v, z in (foot or {}).items() if v in floor_of and v not in in_cut}
     seeds = {**mouths, **{v: z for v, z in feet.items() if z > floor_of[v] + STAND_M}}
     cut_from = {**cut_from, **{v: z for v, z in feet.items()
                                if z < floor_of[v] - STAND_M}}
@@ -987,7 +1064,8 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     step = float(law.tables.structures.bridge.abutment_sample_step_m)
     holds = {v: float(rc.ramp_grade) * max(0.0, step - float(off))
              for v, (_z, off) in (deck_ends or {}).items() if v in floor_of}
-    ends = {v: float(z) for v, (z, _off) in (deck_ends or {}).items() if v in floor_of}
+    ends = {v: float(z) for v, (z, _off) in (deck_ends or {}).items()
+            if v in floor_of and v not in in_cut}
     seeds.update({v: z + holds[v] for v, z in ends.items() if z > floor_of[v] + STAND_M})
     cut_from.update({v: z - holds[v] for v, z in ends.items() if z < floor_of[v] - STAND_M})
     rep["deck_end_seeds"] = sum(1 for v, z in ends.items() if z > floor_of[v] + STAND_M)
@@ -1042,9 +1120,13 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     env_c: dict[int, dict[float, float]] = {}
     for r, items in by_route.items():
         ss = [s_ for s_, _v in items]
+        # #2128 R4: a vertex of a road this route crosses over or under
+        # lends it no level (RULINGS 2026-11-17d)
+        far = other.get(road_key(ways[r].ref), frozenset()) if r in ways else frozenset()
         # the cap-Lipschitz envelope; the LOWER one for the cut ramps'
         # ceilings (#1531, the mirror)
-        env[r] = grade_envelope(ss, [g.get(v, -math.inf) for _s, v in items], cap)
+        env[r] = grade_envelope(ss, [-math.inf if v in far else g.get(v, -math.inf)
+                                     for _s, v in items], cap)
         env_c[r] = grade_envelope(ss, [cut_lab.get(v, math.inf) if v not in mouths else math.inf
                               for _s, v in items], cap, lower=True)
     targets: dict[int, float] = {}
@@ -1058,8 +1140,10 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
         if v not in floor_of:
             continue
         floor = floor_of[v]                   # the core's clamp AT THAT STATION
-        ramp = env.get(r, {}).get(st, -math.inf)
-        cut = env_c.get(r, {}).get(st, math.inf)
+        # R2 spec R4: in the surveyed cut the target is the road's own
+        # profile, as for any groundside road -- no ramp, no cut ceiling
+        ramp = env.get(r, {}).get(st, -math.inf) if v not in in_cut else -math.inf
+        cut = env_c.get(r, {}).get(st, math.inf) if v not in in_cut else math.inf
         t = min(max(floor, ramp), cut)        # the cut ramp's ceiling wins
         targets[v] = t
         # the REPORT reads the terrain under the same station
@@ -1095,6 +1179,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     rep["_frame_report"] = frep
     rep["_contact_edge"] = contact
     rep["_contact_gap"] = gaps
+    rep["_in_cut"] = in_cut
     return RampTargets(targets, rep, frame)
 
 
@@ -1317,6 +1402,15 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     width (4 m) or the contact reach (15 m) would call the whole runway run
     bare.
 
+    ONLY AT A SHARED NODE (owner 2026-11-17T16:38Z, #2122 NZWN: "the road
+    is only anchored to the apron where it touches, any gap allows it to be
+    at a different level"; 17d (1)): of the pavements within that reach, a
+    vertex takes the level of one whose RING CARRIES IT (:func:`_shared_refs`)
+    — a ``foot``, ``pad`` or ``level`` is never read across a gap, so a road
+    beside pavement climbs at its own grade between the nodes it shares.
+    MEASURED NZWN: road ``-2556`` held at apron ``dsf:pol107``'s 8-8.7 m for
+    the 47 m it borders it, its ground rising to 16.5 m.
+
     * ``foot`` — the NEAREST §20b STAGE-1 pavement foot (runway family,
       taxi family, apron): ``v -> (a, b, u, ref)``.  Its level is stage 1's
       constant, so the weld is ONE-WAY by construction (airside untouched).
@@ -1335,6 +1429,9 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     * ``station`` — ``v -> (route, s)`` for every ribbon-owned vertex the
       route frame answers (bordered or bare), and every ribbon vertex the
       ribbon shares with a zone band (``kerb``, see below).
+    * ``shared`` — ``v -> (route, s)``: the SHARED NODES, a road vertex on
+      a stage-1 pavement's ring (:func:`_shared_stations`); each route's
+      road reaches their stage-1 level inside its cap.
     * ``runway`` — the ``foot`` vertices whose foot is a RUNWAY-family
       pavement: a road inside a runway's band sits at or below the band's
       grade (owner 2026-10-19, #951), so the terrace may cut it down to the
@@ -1390,6 +1487,10 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     pads = frozenset(r for r in contact_roles(law)
                      if role_side(law, r) == "airside" and r not in stage1)
     feet = _feet_index(pm, law, stage1 | pads)
+    # owner 2026-11-17T16:38Z (#2122): a road takes a pavement's level only
+    # at the nodes it SHARES with it (gap 0); across any gap it climbs on
+    # its own grade (17d (1): a road never takes a level laterally)
+    touch = _shared_refs(pm, stage1 | pads)
     from shapely.strtree import STRtree
     wtree = STRtree(list(walls)) if walls else None
     # #1071 (owner 2026-10-20): a page that is a road only by its SHAPE
@@ -1498,8 +1599,10 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             out["station"].pop(v, None)
             out["below_wall"][v] = True
             continue
+        shared = touch.get(v, frozenset())
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
-                      if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
+                      if feet.role_of.get(ref) in stage1 and ref in shared),
+                     key=lambda t: (t[0], t[1]))
         if lev and v in mouth_v and _nearer_floor(pm, v, lev[0][0], floors):
             # 06c (5), #1939: at the mouth the road is on the floor's ramp,
             # never the pavement over the structure.  MEASURED ESSA
@@ -1513,11 +1616,43 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                 out["runway"][v] = True
             continue
         pad = sorted((d, ref) for ref, (d, *_x) in fs.items()
-                     if feet.role_of.get(ref) in pads)
+                     if feet.role_of.get(ref) in pads and ref in shared)
         if pad:
             out["level" if pad[0][1] in ups else "pad"][v] = pad[0][1]
     out["rim"] = _upper_rims(pm, ups, ribbon_v)
+    out["shared"] = _shared_stations(pm, _shared_refs(pm, stage1), ribbon_v,
+                                     frame, set(vs))
     return out
+
+
+def _shared_stations(pm: PlanarMap, on_pavement: _t.Mapping[int, frozenset[str]],
+                     road_v: _t.AbstractSet[int],
+                     frame: _t.Mapping[int, tuple[int, float, float]],
+                     owned: _t.AbstractSet[int]) -> dict[int, tuple[int, float]]:
+    """``{shared node: (route, s)}`` -- every road vertex a stage-1
+    pavement's ring carries (the CONTACT, airside-owned, so never one of
+    the terrace's own vertices) on a route of the frame: where the road
+    takes the pavement's level and leaves it at its own grade (owner
+    2026-11-17T16:38Z, #2122; ``constraints/road_ramp.terrace_profile``'s
+    ``shared``)."""
+    return {v: (int(frame[v][0]), float(frame[v][1])) for v in road_v
+            if v in on_pavement and v in frame and v not in owned}
+
+
+def _shared_refs(pm: PlanarMap, roles: _t.AbstractSet[str]
+                 ) -> dict[int, frozenset[str]]:
+    """``{vertex: refs}`` -- the pavements of ``roles`` (refs normalised as
+    :func:`_feet_index` names them) whose rings carry the vertex: the NODES
+    a road SHARES with a pavement, where alone it takes that pavement's
+    level (owner 2026-11-17T16:38Z, #2122; 17d (1): never laterally)."""
+    out: dict[int, set[str]] = {}
+    for f in pm.faces.values():
+        if f.role in roles:
+            ref = f.ref.split("+")[0]
+            for cyc in (f.ring, *f.holes):
+                for v in pm.ring_vertices(cyc):
+                    out.setdefault(v, set()).add(ref)
+    return {v: frozenset(r) for v, r in out.items()}
 
 
 def _upper_levels(pm: PlanarMap) -> frozenset[str]:
@@ -1827,7 +1962,14 @@ def _is_lot_page(face, lot_roles: frozenset, roads: frozenset) -> bool:
     """A LOT at a wall's foot (10-03c): a groundside lot / pavement page —
     or a page that became a road only by its SHAPE (§110
     ``road_by_proportions``; owner 2026-10-20, #1071: HECA ``dsf:objpav2``
-    at ``metal_strip_2.obj`` comp 12 still counts as the lot)."""
+    at ``metal_strip_2.obj`` comp 12 still counts as the lot).  A #2114 CAR
+    LOT never is (spec 2112-2114-R2 census row 12): it is solved alone in
+    the last stage against the wall's levels as constants, its one relation
+    to them its own follow row (``constraints/car_lot_follow``).  MEASURED
+    (KBNA replay): read as one, it declared a 160 m wall terrace at
+    ``KBNA_Terminal-part3.obj`` comp 30 the map without it does not carry."""
+    if is_car_lot_ref(getattr(face, "ref", "")):
+        return False
     if face.role in lot_roles:
         return True
     return (face.role in roads and face.side == "groundside"
@@ -2287,6 +2429,11 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     merged = tg.report.pop("_merged", frozenset())
     route_ways = tg.report.pop("_route_ways", {})
     on_foot = tg.report.pop("_foot", frozenset())
+    # R2 spec R4 (#2128 round 4; RULINGS 2026-11-17d): a road in the
+    # surveyed cut takes no level from the pavement beside it -- out of the
+    # terrace and the between-levels publication below
+    in_cut = tg.report.pop("_in_cut", frozenset())
+    free = {v: r for v, r in _owned(pm, _road_roles(law), law).items() if v not in in_cut}
     # §37 (10) (1) AT THE MOUTH THE LEVEL IS THE AIRSIDE'S, AND ONLY THE
     # AIRSIDE'S.  A road END that takes a reach contact carries the §37 (6)
     # ramp target too — the clamp of its own terrain, which at HECA
@@ -2334,13 +2481,13 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         report["preferred_withdrawn"] = len(pm.preferred_z) - len(keep)
     # OWNER RULINGS 2026-09-29x (Q-97 (b)): the between-levels publication
     # — geometry only; the levels are applied between §20b's stages
-    bl = between_levels(pm, law, _owned(pm, _road_roles(law), law))
+    bl = between_levels(pm, law, free)
     if report is not None:
         report["between_levels_road"] = len(bl.get("road", {}))
         report["between_levels_strip"] = len(bl.get("strip", {}))
     # OWNER RULINGS 2026-10-03b: the ribbon's bordered / bare segmentation
     # — geometry only; the levels are stage 1's, applied between the stages
-    terr = road_terrace(pm, law, _owned(pm, _road_roles(law), law), frame,
+    terr = road_terrace(pm, law, free, frame,
                         tuple(w.poly for w in walls), retaining)
     # OWNER RULINGS 2026-10-03c (#291): the wall between the airside level
     # and a lower lot is a DECLARED TERRACE — geometry only, read off the
@@ -2387,7 +2534,13 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     # OWNER RULINGS 2026-10-22h (#1254): the public-road faces whose own
     # target runs over the road cap — the rows yield there
     # (``constraints/public_road_release``) and the census lifts them
-    from .public_road import public_road_faces, public_road_lifts, public_routes
+    from .public_road import (
+        public_road_faces,
+        public_road_lifts,
+        public_routes,
+        steep_road_faces,
+        steep_road_lifts,
+    )
     from .road_joint import junction_joints
     # 27f (Q186): the public road each route belongs to — the junction mouth
     # between two of them is the minor road's longitudinal grade — and 27s
@@ -2398,10 +2551,25 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         pm, law, frame, targets, route_ways, pub_routes)
     if report is not None:
         report["junction_joints"] = joint_rep
+    # #2121: a road in its own cut through zone 2 follows its own ground
+    # (owner RULINGS 2026-10-20c (39)) — its ribbon vertices there are the
+    # band's kerb, no route owns them and no target reached them, so the
+    # objective alone held them (MEASURED KLAX 33.94757, -118.39978: 0.89 m
+    # under the DEM, no row binding).  Each takes its own ground; the band's
+    # ceiling caps it between the stages (``constraints/cut_kerb``)
+    targets = {**_cut_kerb_ground(pm, law, targets), **targets}
     lifted = public_road_lifts(pm, law, public_road_faces(pm, law, airport), targets)
     if report is not None:
         report["public_road_lifted"] = len(lifted)
         report["public_road_steepest"] = max(lifted.values(), default=0.0)
+    # 2026-11-17 (#2122): the other mapped roads on ground steeper than the
+    # road cap — their cap rises with the ground, to the steep-ground cap
+    steep = steep_road_lifts(pm, law, steep_road_faces(pm, law, airport), targets)
+    if report is not None:
+        report["steep_road_lifted"] = len(steep)
+    if steep:
+        print(f"  [road_ramp] steep ground (2026-11-17): {len(steep)} road face(s) "
+              f"over the road cap take the {max(steep.values()):.0%} cap")
     # #2073: the page a deckless mapped bridge carries is not graded over
     # the span (``constraints/bridge_span_release``)
     from .bridge_span import bridge_span_faces
@@ -2425,5 +2593,6 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                        road_contact_edge=contact, road_route_merged=merged,
                        road_reach_seed=seed, preferred_z=keep,
                        road_between_levels=bl, road_terrace=terr,
-                       public_road_lifted=lifted, road_junction_road=junction_road,
+                       public_road_lifted=lifted, steep_road_lifted=steep,
+                       road_junction_road=junction_road,
                        bridge_span=bridge_span_faces(pm, law, airport))

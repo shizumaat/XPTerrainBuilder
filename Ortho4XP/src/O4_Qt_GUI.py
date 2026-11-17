@@ -115,6 +115,7 @@ import O4_Qt_Pack_Forests as QTFOREST
 import O4_Qt_Slow_Step as QTSLOW
 import O4_Qt_Pack_Adjust as QTADJ
 import O4_Qt_Gateway_Airports as QTGATE
+import O4_Qt_Pack_Overlaps as QTOVER
 import O4_Qt_Pack_Optimise as QTOPT
 import O4_Qt_Latest_Probe as QTPROBE
 import O4_Qt_Map_Legend as QTLEGEND
@@ -170,12 +171,21 @@ ACTIVITY_SPLIT_KEY = "panel/activity_split"
 ACTIVITY_HANDLE_PX = 9
 ACTIVITY_SETTINGS = ("XPTerrainBuilder", "Ortho4XP")
 
-# Prefs keys for the restored tile selection (docs/specs/qt-parity-
-# selection-stop-resume-spec.md §Q1).  The selected set is a list of
-# canonical tile keys, the active tile one key ("" = none); both live in
-# the same .qt_prefs.json the window geometry does — one store, not two.
+# RETIRED prefs keys (owner 2026-11-17): the tile selection an earlier
+# version stored and restored at launch.  The app starts with nothing
+# selected; :func:`_forget_stored_selection` removes them.
 SELECTED_TILES_KEY = "selected_tiles"
 ACTIVE_TILE_KEY = "active_tile"
+
+
+def _forget_stored_selection(prefs):
+    """Drop the stored selection keys from ``prefs`` (saved when any
+    was there); True when something was removed."""
+    removed = [key for key in (SELECTED_TILES_KEY, ACTIVE_TILE_KEY)
+               if prefs.pop(key, None) is not None]
+    if removed:
+        save_prefs(prefs)
+    return bool(removed)
 
 # Prefs key for the LIVE MAP's imagery source — the mac app's
 # ``MapImageryPreview`` (MapMainView.swift).  Deliberately NOT the
@@ -983,6 +993,7 @@ class MainWindow(QMainWindow):
             EV.PackOptimise: self._on_pack_optimise,
             EV.PackAdjust: self._on_pack_adjust,
             EV.GatewayAirports: self._on_gateway_airports,
+            EV.PackOverlaps: self._on_pack_overlaps,
             # RULINGS 2026-11-11m (4): a pack's shipped .xptb was applied.
             EV.PackPackage: self._on_pack_package,
             # Patch editor (#46): pack_objects completes through this.
@@ -1019,6 +1030,8 @@ class MainWindow(QMainWindow):
         self._rebuild_pending_ids = set()
         # #1989: the same for the Gateway airports questions
         self._gateway_seen = set()
+        # #2145: the same for the overlapping-structure questions
+        self._overlap_seen = set()
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
         # #695: fixable failures, asked one at a time as each tile fails;
@@ -1132,26 +1145,14 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        # The selection outlives the app: last session's selected set and
-        # its active tile come back on launch, the same doctrine as the
-        # built-tile overlay.  Restored LAST, so the map, the info panel
-        # and the build controls see it exactly the way they see a click.
-        selection, active = self._restore_selection()
-        # Framed once, on the first show (#1554): the viewport has no
-        # size before it, and later selection changes leave the camera.
-        self._launch_selection = list(selection)
+        # The app starts with NO tile selected (owner 2026-11-17T15:55Z,
+        # the Mac app's LaunchSelection): a remembered selection was easy
+        # to miss and a new pick was added to it.  The map opens on the
+        # last tile looked at; the keys an earlier version stored go.
+        _forget_stored_selection(self.prefs)
         lat = int(self.prefs.get("last_lat", 48))
         lon = int(self.prefs.get("last_lon", -6))
-        if active is not None:
-            lat, lon = active
         self.map.center_on_tile(lat, lon, zoom=7)
-        if selection:
-            self.map.set_selection(selection)
-            self.map.set_active(active[0], active[1], select=False)
-        else:
-            # Nothing stored (or nothing that still parses): exactly the
-            # launch this window has always had.
-            self.map.set_active(lat, lon)
         # Only now does a selection count as the USER's (#828): the
         # launch selection above must not dismiss the first-visit hint.
         self.map.selection_changed.connect(
@@ -3253,52 +3254,9 @@ class MainWindow(QMainWindow):
         }
         self._sync_build_controls_to_selection(sel)
         self._update_build_summary(sel)
-        self._persist_selection(sel)
         self.console_drawer.set_selection(sel, self.map.active_tile())
         # The run list shows the same selection, natively (#1537).
         self.activity_list.show_selected(sel)
-
-    def _persist_selection(self, selection=None):
-        """Write the selected set and the active tile to the prefs file.
-
-        A selection is hand-sized (the user clicks tiles), so there is
-        nothing to debounce.  The panel does refresh on an UNCHANGED
-        selection though — scan results streaming in, build bookkeeping —
-        so an identical write is skipped rather than re-serialising the
-        prefs file behind every one of them.
-        """
-        if selection is None:
-            selection = self.map.selection()
-        keys = [QTMAP.tile_key(*tile) for tile in sorted(selection)]
-        active = self.map.active_tile()
-        active_key = QTMAP.tile_key(*active) if active else ""
-        if (keys == self.prefs.get(SELECTED_TILES_KEY)
-                and active_key == self.prefs.get(ACTIVE_TILE_KEY)):
-            return
-        self.prefs[SELECTED_TILES_KEY] = keys
-        self.prefs[ACTIVE_TILE_KEY] = active_key
-        save_prefs(self.prefs)
-
-    def _restore_selection(self):
-        """([tiles], active) from the prefs file — the launch selection.
-
-        Keys that no longer parse are dropped silently, and an active tile
-        outside the restored set falls back to the set's first tile (the
-        deselect path's rule).  Absent keys give an empty selection: a
-        fresh install launches exactly as it always did.
-        """
-        stored = self.prefs.get(SELECTED_TILES_KEY)
-        tiles = []
-        if isinstance(stored, list):
-            for key in stored:
-                tile = QTMAP.parse_tile_key(key)
-                if tile is not None and tile not in tiles:
-                    tiles.append(tile)
-        tiles.sort()
-        active = QTMAP.parse_tile_key(self.prefs.get(ACTIVE_TILE_KEY) or "")
-        if active not in tiles:
-            active = tiles[0] if tiles else None
-        return tiles, active
 
     def _sync_build_controls_to_selection(self, selection):
         """Point the Imagery combo and the build detail level at the
@@ -5612,6 +5570,40 @@ class MainWindow(QMainWindow):
         self._session.pack_adjust(pack_root=pack["pack_path"], action="adjust",
                                   lat=int(tile[0]), lon=int(tile[1]))
 
+    def _on_pack_overlaps(self, event):
+        """#2145: two packs drawing the same large structures, as one
+        question per tile and pair set.
+
+        Parity with the mac app (``BuildModel.swift``, ``case .packOverlaps``):
+        ``state == "found"`` (or ``"ask"``, the report) with a pair asks
+        once, each picker on the remembered answer else the airport pack;
+        Apply sends ``pack_overlaps`` ``action="choose"`` with every
+        pair's pick, Not now sends nothing.  An outcome asks nothing (the
+        engine's log line says what was hidden)."""
+        state = getattr(event, "state", "found")
+        key = QTOVER.question_key(event)
+        if state == "ask":
+            self._overlap_seen.discard(key)
+        if state not in ("found", "ask") or not QTOVER.offers(event) \
+                or key in self._overlap_seen:
+            return
+        self._overlap_seen.add(key)
+        box, buttons = QTOVER.pack_overlaps_box(event, parent=self)
+        lat, lon = int(event.lat), int(event.lon)
+
+        def finished(_result, box=box, buttons=buttons):
+            for action, button in buttons.items():
+                if box.clickedButton() is button:
+                    self._session.pack_overlaps(
+                        action=action, lat=lat, lon=lon,
+                        **box.answer_extra(action))
+            if box in self._pack_art_boxes:
+                self._pack_art_boxes.remove(box)
+
+        box.finished.connect(finished)
+        self._pack_art_boxes.append(box)
+        box.show()
+
     def _on_gateway_airports(self, event):
         """#1989: graded airports X-Plane flattens, as one question.
 
@@ -5961,12 +5953,13 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
-        if getattr(self, "_launch_selection", None) is not None:
-            QTimer.singleShot(0, self._frame_launch_selection)
         if not self._console_defaulted:
             self._console_defaulted = True
             # the patch library's check when the app opens (#1699 phase 2)
             QTPATCHLIB.check_at_launch(self.working_dir())
+            # Windows: .xptb double-click opens this copy (#2143).
+            import O4_Windows_Assoc as WINASSOC
+            WINASSOC.check_at_launch()
             # No World folder at the start (#2007): made, then asked once.
             import O4_Config_Utils as CFG
             import O4_Qt_World_Onboard as QTONBOARD
@@ -5975,15 +5968,6 @@ class MainWindow(QMainWindow):
             self._sync_console_button()
             if not self._layout_restored and self.console_drawer.isVisible():
                 self._apply_console_height(self._console_default_height())
-
-    def _frame_launch_selection(self):
-        """Frame the selection restored at launch, once (#1554), so the
-        user sees which tiles came back: one tile with the Activity-row
-        margin, several as their union.  It wins over the remembered
-        last tile's centring; nothing restored leaves that view."""
-        tiles, self._launch_selection = self._launch_selection, None
-        if tiles:
-            self.map.zoom_to_tiles(tiles, margin=TILE_FRAME_MARGIN)
 
     def toggle_console(self):
         self.set_console_visible(not self.console_drawer.isVisible())

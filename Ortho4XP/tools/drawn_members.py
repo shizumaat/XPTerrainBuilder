@@ -123,7 +123,7 @@ def check_feet(rec: dict, drawn, zero, tol: float) -> dict:
         g.append(round(gap, 2))
         if gap < -GROUND_BAR_M:
             row["buried"] += 1
-        if kind in ("floor", "ledge"):
+        if kind in ("floor", "ledge", "ramp"):   # #2127 R3: a ramp foot stands on its ramp
             if gap > worst:
                 worst, at = gap, (la, lo)
             if gap > tol:

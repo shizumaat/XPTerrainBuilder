@@ -51,6 +51,7 @@ from .events import (
     PackOptimise,
     PackAdjust,
     GatewayAirports,
+    PackOverlaps,
     PackPackage,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     SlowStep,
@@ -192,6 +193,24 @@ def _offer_gateway_airports(lat: int, lon: int) -> None:
 
     threading.Thread(target=work, daemon=True,
                      name="o4-gateway-check").start()
+
+
+def _offer_pack_overlaps(lat: int, lon: int) -> None:
+    """#2145: once a tile is built, the large structures two packs both
+    draw near its airports, offered through a ``PackOverlaps`` event — on
+    a thread of its own (it reads the packs' DSFs)."""
+    def work():
+        from auto_patch import overlap_stage as _OV
+
+        from .xplane_root import xplane_root_for
+        try:
+            root = xplane_root_for(lat, lon)
+        except Exception:
+            return
+        _OV.overlap_stage(lat, lon, root)
+
+    threading.Thread(target=work, daemon=True,
+                     name="o4-overlap-check").start()
 
 
 SCAN_FLUSH_SECONDS = 0.1     # scan streaming cadence (~10 Hz)
@@ -1146,6 +1165,24 @@ class EngineSession:
         except Exception:                                # pragma: no cover
             pass
         self._building = True
+        try:
+            return self._start_run(
+                tiles, provider, zoomlevel, custom_build_dir, do_vector,
+                do_imagery, do_overlays, slots, steps, boundary_policy,
+                missing_art, prefetch, overrides, priority)
+        except BaseException:
+            # A run that never started must not stay "building": every
+            # later press would join a queue no worker reads and sit
+            # "queued" forever (1.0.553, an import failing mid-start).
+            self._building = False
+            self._parallel = None
+            raise
+
+    def _start_run(self, tiles, provider, zoomlevel, custom_build_dir,
+                   do_vector, do_imagery, do_overlays, slots, steps,
+                   boundary_policy, missing_art, prefetch, overrides,
+                   priority):
+        """Start the run :meth:`build` admitted (``_building`` is set)."""
         _note_storage_session(tiles)
         self._tile_overrides = {}
         self._tile_priority = {}
@@ -1892,6 +1929,7 @@ class EngineSession:
                     self._emit(built)
                     if not self._stepwise_run:
                         _offer_gateway_airports(lat, lon)
+                        _offer_pack_overlaps(lat, lon)
                     _record_tile_build(
                         lat, lon,
                         {"zoomlevel": zoomlevel, "provider": provider,
@@ -2448,6 +2486,38 @@ class EngineSession:
 
         threading.Thread(target=work, daemon=True,
                          name="o4-gateway-airports").start()
+        return {"status": "started"}
+
+    def pack_overlaps_event(self, **fields):
+        """Overlapping pack structures to offer, or an answer's outcome
+        (#2145): the ``PackOverlaps`` event (``UI.pack_overlaps`` hook)."""
+        self._emit_known(PackOverlaps, fields)
+
+    def pack_overlaps(self, action="", lat=None, lon=None, items=None):
+        """THE USER'S ANSWER (capability ``pack_overlaps``, #2145):
+        ``action`` is ``"choose"`` (``items``: ``{"key", "winner"}`` per
+        pack pair; the losing pack's overlapping placements are hidden in
+        its tile DSF), ``"undo"`` (forget the answers of ``items``' keys)
+        or ``"ask"`` (the tile's report).  Replies ``{"status":
+        "started"}`` at once and completes with a ``PackOverlaps`` event
+        (``overlap_stage.overlap_choice``)."""
+        from auto_patch import overlap_stage as _OV
+
+        from .xplane_root import xplane_root_for
+        picked = [dict(x) for x in (items or ()) if isinstance(x, dict)]
+        act = str(action or "")
+        la = None if lat is None else int(lat)
+        lo = None if lon is None else int(lon)
+
+        def work():
+            try:
+                root = xplane_root_for(la, lo) if la is not None else None
+            except Exception:
+                root = None
+            _OV.overlap_choice(root, act, picked, la, lo)
+
+        threading.Thread(target=work, daemon=True,
+                         name="o4-pack-overlaps").start()
         return {"status": "started"}
 
     def _emit_known(self, cls, fields):

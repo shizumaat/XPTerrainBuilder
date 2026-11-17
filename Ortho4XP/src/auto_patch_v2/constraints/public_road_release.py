@@ -31,6 +31,17 @@ tilted 42 junction sections up to 2.27 m over 4.7 m (-1276 | -1190 at
 37.95121, 23.98649), where two routes' targets meet on one face.  The
 cross-fall rows (``road_cross_section``, and every ``Linear`` hop) keep
 their 2 %; the longitudinal rows yield.
+
+THE ROAD ON STEEP GROUND (owner RULINGS 2026-11-17, #2122: "Raise our road
+grade limit to 20%"): on the faces ``PlanarMap.steep_road_lifted`` names (a
+non-public mapped road whose own target runs over the road cap,
+``airport/public_road.steep_road_lifts``), every longitudinal grade row
+between two released vertices (the same three exclusions, against that
+map) RISES TO THE FACE'S CAP — ``tables.road_terrain_cap`` — not to the
+target's own difference: a road
+the terrace holds at a pavement's level below its ground climbs back to it
+at up to that cap (:func:`steep_release`).  A row is never tightened and
+the cross-fall rows keep their 2 %.
 """
 from __future__ import annotations
 
@@ -43,9 +54,11 @@ from ..model.constraints import Diff, Row
 from ..model.planar import PlanarMap, face_vertex_set
 from .roads import stage_one_vertices
 
-__all__ = ["terrain_release", "GEN", "RELEASE_SLACK", "TRANSVERSE_HEAD"]
+__all__ = ["terrain_release", "steep_release", "steep_vertex_caps", "GEN", "STEEP_GEN",
+           "RELEASE_SLACK", "TRANSVERSE_HEAD"]
 
 GEN = "public_road_release"
+STEEP_GEN = "steep_road_release"
 #: the cross-fall rows' ruling head (``constraints/roads.road_within_shape``'s
 #: ``src_t``), which the release never touches
 TRANSVERSE_HEAD = "road_cross_section"
@@ -54,10 +67,12 @@ TRANSVERSE_HEAD = "road_cross_section"
 RELEASE_SLACK = 1e-3
 
 
-def released_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
-    """The vertices whose rows yield to the public road's target (module
-    docstring)."""
-    lifted = getattr(planar, "public_road_lifted", None) or {}
+def released_vertices(planar: PlanarMap, law: Law,
+                      lifted: _t.Mapping[int, float] | None = None) -> frozenset[int]:
+    """The vertices whose rows yield on the ``lifted`` faces (default the
+    public road's, ``PlanarMap.public_road_lifted``; module docstring)."""
+    if lifted is None:
+        lifted = getattr(planar, "public_road_lifted", None) or {}
     targets = getattr(planar, "road_ramp_z", None) or {}
     if not lifted or not targets:
         return frozenset()
@@ -72,6 +87,20 @@ def released_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     vs -= stage_one_vertices(planar, law)
     vs -= planar.band_kerb_vertices(airside_stage_roles(law))
     return frozenset(v for v in vs if v in targets)
+
+
+def steep_vertex_caps(planar: PlanarMap, law: Law) -> dict[int, float]:
+    """Released vertex -> the highest steep-ground cap of the lifted faces
+    it stands on (``PlanarMap.steep_road_lifted``); empty where no road
+    stands on ground steeper than the road cap."""
+    lifted = getattr(planar, "steep_road_lifted", None) or {}
+    rel = released_vertices(planar, law, lifted)
+    out: dict[int, float] = {}
+    for fid, g in lifted.items():
+        if fid in planar.faces:
+            for v in face_vertex_set(planar, planar.faces[fid]) & rel:
+                out[v] = max(out.get(v, 0.0), float(g))
+    return out
 
 
 def terrain_release(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
@@ -89,6 +118,28 @@ def terrain_release(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
         if isinstance(row, Diff) and row.a in rel and row.b in rel and row.d > 0.0 \
                 and not str(row.source.ruling).startswith(TRANSVERSE_HEAD):
             need = abs(t[row.a] - t[row.b]) * k / row.d
+            if need > row.cap:
+                ceil = row.ceiling if row.ceiling is None else max(row.ceiling, need)
+                row = _dc.replace(row, cap=need, ceiling=ceil)
+                n += 1
+        out.append(row)
+    return out, n
+
+
+def steep_release(rows: _t.Sequence[Row], planar: PlanarMap, law: Law
+                  ) -> tuple[list[Row], int]:
+    """``(rows, raised)``: ``rows`` with every longitudinal grade row between
+    two vertices of :func:`steep_vertex_caps` raised to the lower of their
+    two caps (2026-11-17, module docstring)."""
+    caps = steep_vertex_caps(planar, law)
+    if not caps:
+        return list(rows), 0
+    out: list[Row] = []
+    n = 0
+    for row in rows:
+        if isinstance(row, Diff) and row.a in caps and row.b in caps and row.d > 0.0 \
+                and not str(row.source.ruling).startswith(TRANSVERSE_HEAD):
+            need = min(caps[row.a], caps[row.b])
             if need > row.cap:
                 ceil = row.ceiling if row.ceiling is None else max(row.ceiling, need)
                 row = _dc.replace(row, cap=need, ceiling=ceil)

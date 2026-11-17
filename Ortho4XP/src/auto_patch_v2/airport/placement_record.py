@@ -111,6 +111,9 @@ class Body:
     lift_m: float = 0.0
     #: #1903: the row's ``OBJECT_MSL`` elevation (``model.placement.Body``)
     msl_z: float | None = None
+    #: #2112: the deck-plate band this body keeps (``deck_plates``;
+    #: ``obj8_split.BodyCut.band``), None for a whole body
+    band: "tuple[float, float, float, float] | None" = None
 
     def to_dict(self) -> dict[str, _t.Any]:
         d = self._dict()
@@ -118,6 +121,8 @@ class Body:
             d["lift_m"] = self.lift_m
         if self.msl_z is not None:
             d["msl_z"] = self.msl_z
+        if self.band is not None:
+            d["band"] = list(self.band)
         if self.anchor.isolated:
             d["isolated_of"] = self.anchor.isolated      # §9a
         return d

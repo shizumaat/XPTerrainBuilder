@@ -86,6 +86,7 @@ from .deck_walls import inner_faces, wall_faces, wall_strip
 __all__ = ["DeckBridge", "deck_polygon", "from_full", "full_map", "with_cuts",
            "deck_bridges", "deck_under", "deck_mouth", "deck_seats", "deck_side",
            "deck_cut", "deck_banks", "deck_edge_pavement", "deck_pin", "group_reach",
+           "is_walled",
            "deck_ground", "DECK_GROUND_REF", "across_dir",
            "mid_line", "project_span"]
 
@@ -772,6 +773,12 @@ def deck_banks(db: DeckBridge, axis: LineString, inset: float,
     return None if banks.is_empty or banks.area <= 0.0 else banks
 
 
+def is_walled(db: DeckBridge, inset: float) -> bool:
+    """Whether ``db`` is a WALLED deck: walls on both sides of its road
+    (:func:`_walled_trench`; RULINGS 2026-10-30f (3))."""
+    return _walled_trench(db, inset) is not None
+
+
 def _bank_floor(db: DeckBridge, inset: float, bank_run: float) -> "Polygon | None":
     """THE FLOOR A WALL-LESS DECK'S CUT TAKES (#2072 C): :func:`_floor_under`
     over the ring ``inset`` inside its edge.  The banks round it are the
@@ -866,7 +873,7 @@ def _walled_trench(db: DeckBridge, inset: float, other: "DeckBridge | None" = No
     return unary_union(floors), unary_union(rims)
 
 
-def deck_ground(classification, tunnels, law) -> tuple:
+def deck_ground(classification, tunnels, law, keep_out=None, decks=()) -> tuple:
     """``(classification with the deck-ground cells, notes)`` (module doc,
     THE GROUND THE DECK RESTS ON): for each hard deck a corridor was cut
     under, the part of its reach (``model/structures.deck_reach``: the ring,
@@ -876,18 +883,31 @@ def deck_ground(classification, tunnels, law) -> tuple:
     deck span's (``constraints/edge_deck``), so it carries no zone class.
     A piece narrower than the identity spacing is a seam of the overlay,
     not ground, and is dropped: a deck no corridor runs under mints no
-    ground."""
+    ground.  ``keep_out``: the survey's cut beside a kept deck
+    (``planar/survey_deck_cut``, #2128 R1) -- never the deck's ground: the
+    mesh draws the survey there.  A GENERATED deck's reach runs
+    ``[deck_gen] bank_past_edge_m`` past its ring (``decks``; owner sim read
+    2026-11-17T19:42Z: the bank under it "needs to extend about 1m past the
+    bridge edges"): its bank stands on that ground (``constraints/edge_deck``)."""
+    from .deck_generated import is_generated
+    past = float(law.tables.structures.deck_gen.bank_past_edge_m)
+    gen = {d.object_id for d in decks if is_generated(d)}
     rings: dict[tuple, Polygon] = {}
     for t in tunnels:
         pts = deck_reach(t)
         reach = MultiPoint(pts).convex_hull if pts is not None else None
         if reach is not None and reach.geom_type == "Polygon":
+            if t.deck_bridge in gen and past > 0.0:
+                reach = reach.union(Polygon(t.deck_ring).buffer(past, join_style="mitre"))
+                reach = reach if reach.geom_type == "Polygon" else reach.convex_hull
             rings.setdefault((t.deck_bridge, tuple(reach.exterior.coords)), reach)
     if not rings:
         return classification, []
     cells, notes = list(classification.cells), []
     polys = [Polygon(c.ring, c.holes) for c in cells if len(c.ring) >= 3]
-    taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys])
+    taken = canonical_union([p if p.is_valid else p.buffer(0.0) for p in polys]
+                            + ([q for q in getattr(keep_out, "geoms", [keep_out])
+                                if q.geom_type == "Polygon"] if keep_out is not None else []))
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
     out: list = []
     for (oid, _ring), deck in sorted(rings.items(), key=lambda kv: kv[0]):

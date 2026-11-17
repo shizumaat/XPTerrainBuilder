@@ -82,6 +82,7 @@ from ..geom import author_ground as _ag
 from ..geom import shape_class as _shape
 from ..geom.lowest_face import floor_z_at  # noqa: F401  (re-exported)
 from ..model import structures as _ms
+from ..model.floor_ground import has_footprint, owns_ground  # noqa: F401  (re-exported)
 from . import floor_rim as _floor_rim
 from . import frame_entry as _frame_entry
 from . import obj8 as _obj8
@@ -164,6 +165,10 @@ class ObjectFloor:
     #: frame's top along the cut's rim, metres over ``zero_z``
     #: (``airport/floor_rim``): where the ground and the pavement meet it
     rim_tops: tuple = ()
+    #: #1949 R2: ``rim_tops`` are a walled pit's OPEN EDGES -- a wall lower
+    #: than the ground behind it -- each the crest of a bank
+    #: (``planar/pit_bank``); a flush or proud rim states none
+    rim_banks: bool = False
     #: #1971 (spec interchange-levels v2 §3.1): how far the cut stands under
     #: this floor; ``None`` is the law's ``[tunnel.object] floor_clearance_m``
     #: (a floor plate kept clear, 2026-11-06d (4)); a deck stack's walls have
@@ -200,19 +205,8 @@ class FloorDeck:
     top_b: float
 
 
-def owns_ground(f: "ObjectFloor") -> bool:
-    """Does ``f`` own any ground — cut cells, pins, portal and mouth seats
-    (A4: a shallower surface inside a deeper one owns none; 2026-11-06d (1):
-    a HIDDEN shell owns none, it leaves the terrain solve)?"""
-    return not f.hidden and has_footprint(f)
-
-
-def has_footprint(f: "ObjectFloor") -> bool:
-    """Does ``f`` state a cut's extent — its footprint, read as a WITNESS
-    even when hidden (2026-11-06d (1): the deck pieces over it, the cut ring
-    the object stage seats them by)?"""
-    fp = f.footprint
-    return fp is not None and not fp.is_empty and fp.area > 0.0
+# owns_ground / has_footprint live in ``model/floor_ground`` (constraints
+# ask them too); re-exported here for the airport-layer readers
 
 
 #: the ring's sampling step for :func:`_walled_share` (metres): the share

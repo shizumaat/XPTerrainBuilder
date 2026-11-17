@@ -69,7 +69,7 @@ from ..geom.core_clamp import ENGINE_DIR, core_vector_utils
 from ..geom.coverage import coverage_polygon
 from ..law import Law
 from ..model.frame import rotated_rectangle
-from ..law.tables import road_family_roles, role_cap, senior_role
+from ..law.tables import road_family_roles, road_terrain_cap, role_cap, senior_role
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import PlanarMap
@@ -374,14 +374,19 @@ class RoadProfiles:
         return way.at(line.project(pt)), float(line.distance(pt))
 
     def answer(self, pt: XY, dem: float,
-               through: _t.Iterable[tuple[Way, float]] = ()) -> Answer:
+               through: _t.Iterable[tuple[Way, float]] = (),
+               skip: _t.Callable[[Way], bool] | None = None) -> Answer:
         """One vertex: the nearest of the ways ``through`` its faces (each
         within ITS face's radius) and the ways within the core's radius;
         an OSM way within the core's radius outranks the rest; else the
-        DEM."""
+        DEM.  ``skip``: the ways that never answer this vertex (#2128 R4:
+        a road it crosses over or under, ``airport/road_ramp``)."""
         p = Point(pt)
         through = list(through)
         near = [self.ways[i] for i in self.ways_near(p)]
+        if skip is not None:
+            through = [(w, r) for w, r in through if not skip(w)]
+            near = [w for w in near if not skip(w)]
         cands = through + [(w, self.radius_m) for w in near]
         if not cands:
             return Answer(float(dem), None, None, math.inf)
@@ -613,6 +618,10 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     from .bore_ground import bore_sampler, bore_spans
     bores = bore_spans(getattr(pm, "structures", ()), law, getattr(airport, "dem", None))
     sample = bored = bore_sampler(sample, bores, band_fn)
+    # #2141 item 5: a generated road bridge's embankments and the cut of the
+    # roads under it (the planar site's own reading, in band only)
+    from .road_bridge_ground import clearance_ribbons, clearance_sampler
+    sample = cleared = clearance_sampler(sample, clearance_ribbons(airport), band_fn)
     # #2053 round 3: under a held object (a ground object on its bridges'
     # ends) the core's ribbon reads the cut ground (``object_ground``)
     if any(getattr(r[2], "seat_by", "") for r in getattr(airport, "terrain_models", ()) or ()):
@@ -630,9 +639,11 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
         if _osm_levelled(w):
             # OWNER RULINGS 2026-10-22h: a PUBLIC road's in-band cap is the
             # core's own reading (``road_inside_cap``), so the patch and the
-            # core ribbon outside it stay one profile
+            # core ribbon outside it stay one profile; 2026-11-17: every
+            # other road's is the steep-ground cap (``road_terrain_cap``)
             cap_in = VECT.road_inside_cap(w.tags.get("highway"), cap_,
-                                          rp.cap_ceiling, rp.public_classes)
+                                          rp.cap_ceiling, rp.public_classes,
+                                          road_terrain_cap(law))
             got = split_at_walls(w.points, pieces) if pieces and len(w.points) >= 2 else None
             for pts in (w.points,) if got is None else got[0]:
                 ways.extend(clamp_way(
@@ -654,7 +665,7 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
         print(f"  [road_profile] bridge ground (#1935): {len(bridges)} run(s); "
               f"{getattr(bridged, 'lowered', 0)} station(s) lowered, "
               f"{getattr(bridged, 'edge_kept', 0)} kept raw outside the band")
-    if sample is not bored:
+    if sample is not cleared:
         print(f"  [road_profile] object ground (#2053): {sample.lowered} station(s) "
               "lowered to the cut ground")
     prof = RoadProfiles(cap_, rp.station_m, lw, rp.answer_radius_lane_widths * lw,

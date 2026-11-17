@@ -6,3 +6,7 @@ url_template=https://ws.lioservices.lrc.gov.on.ca/arcgis2/rest/services/LIO_Imag
 max_threads=16
 imagery_dir=grouped
 in_GUI=True
+# sample_point: where the launch liveness check (O4_Imagery_Sources) asks
+# for a sample; without it a global-extent provider is probed at New York
+# and a regional service reads offline (provider audit 2026-11-17).
+sample_point=43.6777,-79.6248

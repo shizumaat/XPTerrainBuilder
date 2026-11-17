@@ -206,6 +206,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.free_bridge_seat",
     "auto_patch_v2.airport.free_column",
     "auto_patch_v2.airport.generated_pack",
+    "auto_patch_v2.airport.generated_record",   # #2140: the installed package record
     "auto_patch_v2.airport.ground_frame_riders",
     "auto_patch_v2.airport.ground_shell",
     "auto_patch_v2.airport.hanging_objects",

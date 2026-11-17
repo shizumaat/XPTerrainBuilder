@@ -63,6 +63,6 @@ def generated_records(planar, law, airport, z) -> dict[str, list[dict]]:
             "hides": [{"object_id": h[0], "resource": h[1], "lon": h[2][0], "lat": h[2][1]}
                       for h in getattr(db, "hides", ()) or ()],
             "thickness_m": float(g.thickness_m), "top_lift_m": float(g.top_lift_m)})
-    bridges = [{k: v for k, v in dict(b).items() if k != "span_xy"}
+    bridges = [{k: v for k, v in dict(b).items() if k not in ("span_xy", "ground")}
                for b in getattr(airport, "road_bridges", ()) or ()]
     return {"decks": decks, "road_bridges": bridges}

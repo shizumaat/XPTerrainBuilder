@@ -13,8 +13,10 @@ page leaves the span:
 * WHERE (spec B1; every threshold a ``[road_gen]`` law key): a mapped
   ``highway`` way tagged ``bridge`` (not ``no``) that (a) crosses a LOWER
   mapped road or rail (a lower ``layer``, or a tunnel) where the survey
-  stands ``[bridge] clearance_minimum_m`` or more under the bridge's lower
-  end -- a road in a CUTTING, never an elevated ramp over an at-grade
+  shows a grade separation -- its ends on their embankments, at least
+  ``witness_share`` of ``[bridge] clearance_minimum_m`` over the lower
+  road, the rest cut out of it (``planar/road_bridge_clear``, #2141 item
+  5); never an elevated ramp the survey carries at grade over an at-grade
   road; (b) has at least
   ``page_cover_frac`` of its carriageway under the pack's pavement; (d) the
   airport has a pack DSF to write the chain into.  (c) -- no road pack
@@ -47,6 +49,7 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from .road_bridge_clear import clearance_plan, witnessed
 from .structure_approach import carriageway_width_m
 
 __all__ = ["attach_road_bridges", "span_cells"]
@@ -82,20 +85,17 @@ def _pack_ok(airport) -> bool:
                 and "global airports" not in apt)
 
 
-def _z(dem, x: float, y: float) -> "float | None":
-    import math
-    if dem is None:
-        return None
-    z = float(dem.z(float(x), float(y)))
-    return z if math.isfinite(z) else None
-
-
-def _cut_region(dem, line: LineString, reach: float, below: float, step: float = 2.0):
+def _cut_region(dem, line: LineString, reach: float, levels: tuple[float, float],
+                drop: float, step: float = 2.0):
     """The ground within ``reach`` of the bridge axis where the survey stands
-    under ``below`` (the lower road's cutting beside the span, owner 16y (3):
-    the pack's pavement there is graded into the cut and pulls the bridge's
-    ends down with it), as one polygon touching the axis, else ``None``."""
+    ``drop`` or more under the deck -- straight between the ends' ``levels``
+    on their embankments (``road_bridge_clear.deck_at``) -- (the lower road's
+    cutting beside the span, owner 16y (3): the pack's pavement there is
+    graded into the cut and pulls the bridge's ends down with it; #2141:
+    a page beside a raised end, read whole, stood 4.8 m over the lower road
+    2.6 m from it), as one polygon touching the axis, else ``None``."""
     import numpy as np
+    from shapely import line_locate_point, points
 
     from ..airport.dem import dem_z_many
     if dem is None:
@@ -106,6 +106,8 @@ def _cut_region(dem, line: LineString, reach: float, below: float, step: float =
     zs = dem_z_many(dem, xs, ys)
     zone = line.buffer(reach)
     from shapely import contains_xy
+    w = np.clip(line_locate_point(line, points(xs, ys)) / max(line.length, 1e-9), 0.0, 1.0)
+    below = levels[0] + w * (levels[1] - levels[0]) - drop
     m = np.isfinite(zs) & (zs < below) & contains_xy(zone, xs, ys)
     if not m.any():
         return None
@@ -145,9 +147,7 @@ def _bridges(airport, law) -> tuple[list[dict], list[str]]:
         if cover < float(rg.page_cover_frac):
             continue
         lay = max(_layer(w.tags), 1)
-        ends = [_z(dem, *line.coords[0]), _z(dem, *line.coords[-1])]
-        ends = [z for z in ends if z is not None]
-        lower, deepest = [], None
+        crossed = []
         for j in tree.query(line, predicate="crosses"):
             o = others[int(j)]
             if o.id == w.id:
@@ -156,34 +156,36 @@ def _bridges(airport, law) -> tuple[list[dict], list[str]]:
             if not (_layer(t) < lay or str(t.get("tunnel", "no")) in tn.admitted_values):
                 continue
             x = line.intersection(lines[int(j)])
-            for q in getattr(x, "geoms", [x]):
-                zq = _z(dem, q.x, q.y) if q.geom_type == "Point" else None
-                if zq is None or not ends:
-                    continue
-                drop = min(ends) - zq
-                deepest = drop if deepest is None else max(deepest, drop)
-                if drop >= clear:
-                    lower.append(str(o.id))
-                    break
+            pts = [q for q in getattr(x, "geoms", [x]) if q.geom_type == "Point"]
+            if pts:
+                crossed.append((str(o.id), lines[int(j)], pts[0], t))
+        # #2141 item 5: the clearance is the survey's ends on their
+        # embankments and the lower roads cut by the rest (road_bridge_clear)
+        plan = clearance_plan(airport, law, w, line, crossed)
+        lower = [c[0] for c in crossed]
         where = f"road bridge {w.id} {w.tags.get('highway')} {line.length:.0f} m"
-        if not lower:
-            notes.append(f"{where}: {100 * cover:.0f} % under pack pavement, crosses no "
-                         f"lower road in a cut {clear:g} m under its ends (deepest "
-                         + ("none" if deepest is None else f"{deepest:.1f} m")
-                         + ") -- not generated (B1 (a))")
+        if not witnessed(plan, law):
+            notes.append(f"{where}: {100 * cover:.0f} % under pack pavement, "
+                         + ("crosses no lower road" if not crossed else
+                            f"over {', '.join(lower[:4])} the survey shows "
+                            + ("nothing" if plan is None else f"{plan.witnessed:.1f} m")
+                            + f" of the {clear:g} m clearance with its ends on their "
+                              f"embankments (under {float(rg.witness_share):g} of it)")
+                         + " -- not generated (B1 (a), #2141)")
             continue
         span = line.buffer(half + float(rg.span_margin_m), cap_style="flat")
-        low = _cut_region(dem, line, float(rg.cut_reach_m), min(ends) - float(rg.cut_drop_m))
+        low = _cut_region(dem, line, float(rg.cut_reach_m), plan.levels, float(rg.cut_drop_m))
         if low is not None:
             span = unary_union([span, low]).buffer(0.0)
             span = max(getattr(span, "geoms", [span]), key=lambda q: q.area) \
                 if span.geom_type != "Polygon" else span
             span = Polygon(span.exterior).simplify(0.5)
         out.append({"id": str(w.id), "highway": str(w.tags.get("highway")),
-                    "_line_xy": line, "_span_xy": span, "half_m": half,
-                    "cover": round(cover, 3), "over": lower})
+                    "_line_xy": plan.chain or line, "_span_xy": span, "half_m": half,
+                    "cover": round(cover, 3), "over": lower, "ground": plan.ground})
         notes.append(f"{where}: {100 * cover:.0f} % under pack pavement over "
-                     f"{', '.join(lower[:4])} -- GENERATED as an X-Plane road (spec 2123 B)")
+                     f"{', '.join(lower[:4])} -- GENERATED as an X-Plane road (spec 2123 B); "
+                     f"{plan.note()}")
     return out, notes
 
 
@@ -218,7 +220,8 @@ def _road_bridges(airport, law) -> tuple[tuple[dict, ...], list[str]]:
                     "span_wkt": span.wkt, "junctions": js, "subtype": int(rg.subtype),
                     "net": str(rg.net_def), "cover": b["cover"], "over": b["over"],
                     "span_xy": [[round(x, 3), round(y, 3)]
-                                for x, y in b["_span_xy"].exterior.coords[:-1]]})
+                                for x, y in b["_span_xy"].exterior.coords[:-1]],
+                    "ground": [dict(g) for g in b["ground"]]})
     return tuple(out), notes
 
 

@@ -153,7 +153,7 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
         pool = set(seats_of[oid]).union(*(seats_of.get(o, set()) for t in under
                                           for o, _s, _d in t.edge_seats))
         rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
-                               _FLOOR_ROLES | roads))
+                               _FLOOR_ROLES | roads, _bank_slope(law, es)))
         rows.extend(_station_rows(oid, ends, flush, _held_levels(planar, oid, es)))
         rows.extend(_rigid_rows(oid, ends))
     return rows
@@ -188,7 +188,8 @@ def _floor_deck_rows(planar: PlanarMap, law: Law) -> list[Row]:
 
 def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float,
                pool: "_t.Sequence[int] | None" = None, done: "set[int] | None" = None,
-               skip: "_t.AbstractSet[str]" = _FLOOR_ROLES) -> list[Row]:
+               skip: "_t.AbstractSet[str]" = _FLOOR_ROLES,
+               bank: "float | None" = None) -> list[Row]:
     """The object's SPAN: every vertex inside its deck rings — or, on the
     bridge's own ground (:func:`_bridge_ground`), inside the reach of a
     trench under it (``model/structures.deck_reach``) — that is no seat and
@@ -201,7 +202,9 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     groundside road's).  NOT THE CUT (PR B round 3, LFPG H18r / H19
     0.205 / 0.283 m): a vertex off the airside inside a cut under the deck
     (:func:`_in_cut`) stands at the cut's level — pulled to the deck's, the
-    floor beside it followed and the stations moved."""
+    floor beside it followed and the stations moved.  ``bank`` (a
+    GENERATED deck, :func:`_bank_slope`): the pair holds the vertex on the
+    BANK instead of flush -- :func:`_bank_drop` under its seat."""
     from shapely.geometry import MultiPoint, Point, Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
@@ -212,6 +215,7 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     done = set() if done is None else done
     decks = list({tuple(e.deck.ring): e.deck for e in es}.values())
     inside = prep(unary_union([Polygon(d.ring).buffer(0.5) for d in decks]))
+    ring_in = prep(unary_union([Polygon(d.ring).buffer(-0.5) for d in decks]))
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
     # THE DECK'S GROUND IS ITS OWN CELL (#2072): ``planar/deck_bridge.
     # deck_ground`` minted it from the reach the planar stage read, which can
@@ -246,9 +250,46 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
         if v in air:
             rows.append(_from_zero(v, top_of, top_of.get(a), None, flush, under))
             continue
-        rows.append(Linear(((v, 1.0), (a, -1.0)), None, 0.0, src))
-        rows.append(Linear(((v, -1.0), (a, 1.0)), None, 0.0, src))
+        # the bank is the ring's, inside its edge: the bridge's own ground
+        # beyond it and on it (the open stretch's rim) keeps the seat's level
+        drop = _bank_drop(es, p, bank) if bank is not None and ring_in.contains(p) else 0.0
+        rows.append(Linear(((v, 1.0), (a, -1.0)), None, -drop, src))
+        rows.append(Linear(((v, -1.0), (a, 1.0)), None, drop, src))
     return rows
+
+
+def _bank_slope(law: Law, es) -> "float | None":
+    """``[design] bank_slope`` for a GENERATED deck's span, ``None`` (flush)
+    for a pack deck.  #2141 item 4 (owner sim read 2026-11-17: "little jags
+    sticking up under the bridge preventing the cut from running smoothly
+    under the deck"): a generated deck has no walls and stands on no ground
+    between its end lines -- the ground its cut leaves under the ring is the
+    BANK, from each end line down to the floor (``planar/deck_bridge.
+    deck_cut``, #2072 C).  Held flush with the seats, every vertex of it the
+    cut's knife left behind stood a spike at deck level under the deck:
+    MEASURED ESSA (``v2_solve_replay`` capture on e7b8406f0): W 7 vertices of
+    the bank's toe +6.0-7.0 m over the floor (a cliff, the bank a shelf at
+    deck level), U -74 one +6.28 m, -141 one +6.25 m mid-bank."""
+    if any(getattr(e.deck, "witness", "") != "generated" for e in es):
+        return None
+    return float(law.tables.emit.design.bank_slope)
+
+
+def _bank_drop(es, p, slope: float) -> float:
+    """How far under its seat a span vertex at ``p`` stands on a generated
+    deck's bank: ``slope`` x its distance from the nearest end line, at
+    most that line's depth (its top over the frame's bottom, the floor) --
+    the bank's head on the end line, its toe on the floor and the floor
+    beyond."""
+    from shapely.geometry import LineString
+    best = None
+    for e in es:
+        if len(e.line) < 2:
+            continue
+        d = LineString(e.line).distance(p)
+        if best is None or d < best[0]:
+            best = (d, float(e.depth))
+    return 0.0 if best is None else max(0.0, min(best[1], slope * best[0]))
 
 
 def _in_cut(planar: PlanarMap, tunnels) -> "_t.Callable[[_t.Any], bool]":

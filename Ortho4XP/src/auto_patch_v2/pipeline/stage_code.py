@@ -567,6 +567,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.rider_floor",
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
+        "auto_patch_v2.airport.road_bridge_ground",
         "auto_patch_v2.airport.road_descent",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_stations",
@@ -1011,6 +1012,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.relief_skin",
         "auto_patch_v2.airport.rider_floor",
         "auto_patch_v2.airport.ring_contact_batch",
+        "auto_patch_v2.airport.road_bridge_ground",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_stations",
         "auto_patch_v2.airport.road_ways",
@@ -1220,6 +1222,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.rider_floor",
         "auto_patch_v2.airport.ring_contact_batch",
         "auto_patch_v2.airport.riser_wall",
+        "auto_patch_v2.airport.road_bridge_ground",
         "auto_patch_v2.airport.road_descent",
         "auto_patch_v2.airport.road_joint",
         "auto_patch_v2.airport.road_profile",
@@ -2612,7 +2615,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.channel_strip
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
-    geom.station_runs airport.bridge_ground airport.bore_ground airport.object_ground
+    geom.station_runs airport.bridge_ground airport.road_bridge_ground
+    airport.bore_ground airport.object_ground
     airport.terrain_cut
     planar.cut_frame planar.deck_bridge planar.deck_walls
     planar.deck_route
@@ -2818,7 +2822,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.channel_strip
     planar.bridge_span planar.channel_witness planar.chords planar.covered_bores
     planar.covered_cut planar.covered_ground planar.cut_runout planar.deck_bores
-    geom.station_runs airport.bridge_ground airport.bore_ground airport.object_ground
+    geom.station_runs airport.bridge_ground airport.road_bridge_ground
+    airport.bore_ground airport.object_ground
     airport.terrain_cut
     planar.cut_frame planar.deck_bridge planar.deck_walls
     planar.deck_route
@@ -2894,7 +2899,8 @@ CODE_MODULES["emit"] = _mods("""
     geom.lowest_face geom.plate_heights
     airport.walled_pit airport.pit_frame constraints.airside_top geom.plane_groups
     geom.runway_contact airport.centreline_seat
-    geom.station_runs airport.bridge_ground airport.bore_ground airport.object_ground
+    geom.station_runs airport.bridge_ground airport.road_bridge_ground
+    airport.bore_ground airport.object_ground
     airport.terrain_cut airport.terrain_fill
     geom.shape_class
     airport.hanging_objects airport.object_cut airport.object_floor airport.floor_rim

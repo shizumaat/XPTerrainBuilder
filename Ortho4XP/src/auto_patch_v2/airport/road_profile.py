@@ -613,6 +613,10 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     from .bore_ground import bore_sampler, bore_spans
     bores = bore_spans(getattr(pm, "structures", ()), law, getattr(airport, "dem", None))
     sample = bored = bore_sampler(sample, bores, band_fn)
+    # #2141 item 5: a generated road bridge's embankments and the cut of the
+    # roads under it (the planar site's own reading, in band only)
+    from .road_bridge_ground import clearance_ribbons, clearance_sampler
+    sample = cleared = clearance_sampler(sample, clearance_ribbons(airport), band_fn)
     # #2053 round 3: under a held object (a ground object on its bridges'
     # ends) the core's ribbon reads the cut ground (``object_ground``)
     if any(getattr(r[2], "seat_by", "") for r in getattr(airport, "terrain_models", ()) or ()):
@@ -647,7 +651,7 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
         print(f"  [road_profile] bridge ground (#1935): {len(bridges)} run(s); "
               f"{getattr(bridged, 'lowered', 0)} station(s) lowered, "
               f"{getattr(bridged, 'edge_kept', 0)} kept raw outside the band")
-    if sample is not bored:
+    if sample is not cleared:
         print(f"  [road_profile] object ground (#2053): {sample.lowered} station(s) "
               "lowered to the cut ground")
     prof = RoadProfiles(cap_, rp.station_m, lw, rp.answer_radius_lane_widths * lw,

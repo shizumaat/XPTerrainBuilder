@@ -59,7 +59,7 @@ from ..model.constraints import Linear
 from ..model.wall_reach import BEHIND_SHARE, FILL_SLOT_M, wall_reach_m, wall_smear_m
 
 __all__ = ["RetainingLine", "retaining_lines", "split", "flat", "foot_ground",
-           "face_top", "face_foot", "fill_top", "fill_wall", "fill_row",
+           "face_top", "face_foot", "fill_top", "fill_wall", "face_vertices", "fill_row",
            "BEHIND_SHARE", "TOP_FACE_M"]
 
 #: how near the upper face a vertex stands ON it: the identity grid's snap

@@ -207,6 +207,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "object_cuts",
     # #1903: the trench objects' own floors (REPORT ONLY; tools/drawn_check)
     "object_floors",
+    # 2120-W3 G1: each retaining wall's footprint (``publication.
+    # retaining_walls``; tools/harness/drawn_roads reads no road inside it)
+    "retaining_walls",
     # #2065 A3: the free / kept bridge stacks' land ends (``publication.bridge_rows``)
     "free_bridges",
     # #2090 A5: the AGP groups' published datum (``constraints/agp_level.

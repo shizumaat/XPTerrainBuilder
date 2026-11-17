@@ -18,10 +18,12 @@ page leaves the span:
   road, the rest cut out of it (``planar/road_bridge_clear``, #2141 item
   5); never an elevated ramp the survey carries at grade over an at-grade
   road; (b) has at least
-  ``page_cover_frac`` of its carriageway under the pack's pavement; (d) the
-  airport has a pack DSF to write the chain into.  (c) -- no road pack
-  already draws it -- is NOT read here (the road packs are not read at
-  planar time; spec 2123 §10, listed in the lane report);
+  ``page_cover_frac`` of its carriageway under the pack's pavement; (c)
+  the pack draws no crossing of its own there -- no hard deck, modelled
+  crossing, elevated top or road segment of its own over the span ("the
+  pack always wins", ``planar/road_bridge_pack``; other installed road
+  packs are not read); (d) the airport has a pack DSF to write the chain
+  into;
 * THE SPAN (B3): the bridge's axis buffered by its carriageway half width
   plus ``span_margin_m``; the pack's pavement there leaves the
   classification's sources (:func:`clip_spans`, upstream of every role
@@ -119,7 +121,8 @@ def _cut_region(dem, line: LineString, reach: float, levels: tuple[float, float]
     return unary_union(parts).intersection(zone) if parts else None
 
 
-def _bridges(airport, law) -> tuple[list[dict], list[str]]:
+def _bridges(airport, law, objects=(), cache=None, mod_cache_root=None
+             ) -> tuple[list[dict], list[str]]:
     rg = law.tables.structures.road_gen
     ways = [w for w in getattr(airport, "osm_ways", ()) or () if len(w.points) >= 2]
     cands = [w for w in ways if _is_road_bridge(w.tags)]
@@ -135,6 +138,9 @@ def _bridges(airport, law) -> tuple[list[dict], list[str]]:
     tn = law.tables.structures.tunnel
     clear = float(law.tables.structures.bridge.clearance_minimum_m)
     dem = getattr(airport, "dem", None)
+    from .road_bridge_pack import PackRoads, pack_provides
+    roads = PackRoads(airport, mod_cache_root)
+    _to_xy, to_ll = airport.frame.transformers()
     out: list[dict] = []
     notes: list[str] = []
     for w in cands:
@@ -163,7 +169,10 @@ def _bridges(airport, law) -> tuple[list[dict], list[str]]:
         # embankments and the lower roads cut by the rest (road_bridge_clear)
         plan = clearance_plan(airport, law, w, line, crossed)
         lower = [c[0] for c in crossed]
-        where = f"road bridge {w.id} {w.tags.get('highway')} {line.length:.0f} m"
+        mid = line.interpolate(0.5, normalized=True)
+        la, lo = to_ll(mid.x, mid.y)
+        where = (f"road bridge {w.id} {w.tags.get('highway')} {line.length:.0f} m "
+                 f"at {la:.6f},{lo:.6f}")
         if not witnessed(plan, law):
             notes.append(f"{where}: {100 * cover:.0f} % under pack pavement, "
                          + ("crosses no lower road" if not crossed else
@@ -174,6 +183,12 @@ def _bridges(airport, law) -> tuple[list[dict], list[str]]:
                          + " -- not generated (B1 (a), #2141)")
             continue
         span = line.buffer(half + float(rg.span_margin_m), cap_style="flat")
+        provided = pack_provides(span, line, objects, cache, roads, law)
+        if provided:
+            notes.append(f"{where}: {100 * cover:.0f} % under pack pavement over "
+                         f"{', '.join(lower[:4])} -- REFUSED: {provided} (B1 (c), the pack "
+                         f"always wins)")
+            continue
         low = _cut_region(dem, line, float(rg.cut_reach_m), plan.levels, float(rg.cut_drop_m))
         if low is not None:
             span = unary_union([span, low]).buffer(0.0)
@@ -189,14 +204,15 @@ def _bridges(airport, law) -> tuple[list[dict], list[str]]:
     return out, notes
 
 
-def _road_bridges(airport, law) -> tuple[tuple[dict, ...], list[str]]:
+def _road_bridges(airport, law, objects=(), cache=None, mod_cache_root=None
+                  ) -> tuple[tuple[dict, ...], list[str]]:
     """``(the generated road bridges as plain records, notes)`` (module
     doc): each ``{"id", "highway", "line", "span_wkt", "junctions",
     "subtype", "net", "cover", "over"}`` in lon/lat, the junctions
     ``[lon, lat, level]``: level 0 at the mapped ends, level 1 at
     ``level1_inset_m`` inside each."""
     rg = law.tables.structures.road_gen
-    bs, notes = _bridges(airport, law)
+    bs, notes = _bridges(airport, law, objects, cache, mod_cache_root)
     if not bs:
         return (), notes
     _to_xy, to_ll = airport.frame.transformers()
@@ -225,13 +241,16 @@ def _road_bridges(airport, law) -> tuple[tuple[dict, ...], list[str]]:
     return tuple(out), notes
 
 
-def attach_road_bridges(airport, law, notes: "list[str] | None" = None):
+def attach_road_bridges(airport, law, notes: "list[str] | None" = None, objects=(),
+                        cache=None, mod_cache_root: "str | None" = None):
     """``airport`` with its generated road bridges read ONCE
-    (:func:`_road_bridges`, on the pavement as loaded).  A second call is a
+    (:func:`_road_bridges`, on the pavement as loaded; ``objects`` /
+    ``cache`` the pack read and ``mod_cache_root`` its DSF dumps, which
+    refuse a bridge the pack draws itself, B1 (c)).  A second call is a
     no-op."""
     if getattr(airport, "road_bridges", ()):
         return airport
-    bs, bnotes = _road_bridges(airport, law)
+    bs, bnotes = _road_bridges(airport, law, objects, cache, mod_cache_root)
     if notes is not None:
         notes.extend(bnotes)
     return _dc.replace(airport, road_bridges=tuple(bs)) if bs else airport

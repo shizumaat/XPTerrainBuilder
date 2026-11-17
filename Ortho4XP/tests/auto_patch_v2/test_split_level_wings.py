@@ -84,3 +84,14 @@ def test_a_building_its_upper_walls_hold_whole_has_no_pit():
     ground (the pit pass refuses it by name)."""
     wing = _upper_wing(_record([1, 1, 1, 1, 0, 1]), 3.0)
     assert _PLAN.difference(wing).area < 1e-6
+
+
+def test_split_pits_number_after_the_highest_basin_held():
+    """A region basin is numbered by its ring, refused rings included: the
+    split-level pits start after the highest number held, never at
+    ``len(basins)`` (#1934 R5: ELLX had two ``basin_floor:4``)."""
+    import types
+
+    from auto_patch_v2.planar.basins import _next_number
+    held = [types.SimpleNamespace(id="basin:1"), types.SimpleNamespace(id="basin:4")]
+    assert _next_number(held) == 5 and _next_number([]) == 0

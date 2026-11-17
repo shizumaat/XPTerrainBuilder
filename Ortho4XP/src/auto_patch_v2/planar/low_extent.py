@@ -142,6 +142,12 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
     pave = valid_area(unary_union([r.polygon for r in air_all if r.source != "zone"
                                    and not is_structure_role(law, getattr(r, "role", ""))]))
     feet = _Feet(airport, law, to_xy)
+    # A RETAINING WALL IS NEVER A LEVEL (spec 2120-WF2 W3; #1633, RULINGS
+    # 2026-11-16 R2 master ruling "no pad of any kind on a retaining wall's
+    # footprint"): its footprint and a deck block's cover
+    # (``airport/wall_shade``) keep every piece off, as they keep every pad
+    ws = getattr(airport, "wall_shade", None)
+    shade = [] if ws is None or ws.is_empty else [ws]
     made: list = []
     n_k: dict[str, int] = {}
     for ref in lows:
@@ -158,13 +164,20 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
         rec0 = hosts[refs[0]]
         t = float(rec0["top_y"])
         seeded = any(r in seeds for r in refs)
-        # a seeded frame reads its OWN lower parts: a neighbour's are in
-        # its own frame's zero, never this one's (spec 2120-F R3)
-        lower = feet.lower(ui, t + float(rec0["y_hi"]), own=seeded)
-        if not lower:
-            continue
+        if seeded:
+            # a seeded frame's level is its OWN PLAN where it touches ground
+            # (spec 2120-WF2 F1, F3, F5): :func:`_frame_plan`
+            y_floor = float(hosts[next(r for r in refs if r in seeds)]["y_feet"])
+            lower = feet.lower(ui, y_floor + _plane_band(), own=True)
+            if not lower:
+                continue
+            bodies, walls = _frame_plan(feet, ui, lower, y_floor, near), Polygon()
+        else:
+            lower = feet.lower(ui, t + float(rec0["y_hi"]))
+            if not lower:
+                continue
+            bodies, walls = _footprint(lower, pave, near, w, airport, law, t)
         own_walls.extend(p.poly for p in lower if p.reach > 0.0)
-        bodies, walls = _footprint(lower, pave, near, w, airport, law, t)
         if seeded and not bodies.is_empty:
             took = _absorb(ui, bodies, by_ref, reg, airport, to_xy)
             if took:
@@ -172,14 +185,14 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
                 bodies = valid_area(unary_union([bodies, *took.values()]))
                 pads = valid_area(pads.difference(unary_union(list(took.values()))))
         taken = Polygon()
-        if beyond and not bodies.is_empty:
+        if beyond and not bodies.is_empty and not seeded:
             reach = bodies.buffer(near, join_style=2)
             taken = valid_area(unary_union([g for g in beyond if g.intersects(reach)]))
             bodies = valid_area(unary_union([bodies, taken]))
         levels = {ref: unary_union([r.polygon for r in own(ref)]) for ref in refs}
         qs = []
         keep_off = valid_area(unary_union([pads.buffer(w, join_style=2),
-                                           air.buffer(near, join_style=2)]))
+                                           air.buffer(near, join_style=2), *shade]))
         for A in (bodies, walls):
             if not A.is_empty:
                 A = valid_area(_overlay(A, keep_off, "difference", grid))
@@ -192,9 +205,10 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
                 continue
             host = min(refs, key=lambda r: levels[r].distance(q))
             rec = hosts[host]
-            y = _bottom(q, lower, w)
-            if y is not None and host in seeds:
-                y = float(rec["y_feet"])        # the frame's lower floor (``_frame_seeds``)
+            # a seeded frame's piece -- its own plan or a pad it absorbed --
+            # stands on the plane through its ground-contact feet, the
+            # frame's lower floor (``_frame_seeds``; 2120-WF2 F4)
+            y = float(rec["y_feet"]) if host in seeds else _bottom(q, lower, w)
             if y is None and q.intersection(taken).area >= 0.5 * q.area:
                 # unreachable pavement cut off the footprint by a keep-off,
                 # with no lower body of its own: the group's ONE lower level
@@ -419,6 +433,41 @@ class _Feet:
                         continue
                     out.append(_Lower(g, ys, self.reach(g), y))
         return out
+
+
+def _plane_band() -> float:
+    """The foot-plane band (``foot_planes.PLANE_BAND_M``)."""
+    from ..geom.foot_planes import PLANE_BAND_M
+    return float(PLANE_BAND_M)
+
+
+def _frame_plan(feet: "_Feet", ui: int, lower: list[_Lower], y_floor: float, near: float):
+    """THE LOWER LEVEL OF A FRAME READ AT ITS AIRSIDE FLOOR is the frame's
+    OWN PLAN where it touches ground (spec 2120-WF2): the ground-contact
+    parts ``lower`` (walled parts whose foot plane stands on the frame's
+    lower floor ``y_floor``, ``airport/airside_floor._on_floor``; F1) closed
+    by ``pad_frontage_m`` -- no road, no retaining wall's low side and no
+    unreachable pavement beyond it (F3: the 2120-F closing build minted
+    20.1 k m2 of level no part of the frame stood on) -- less the plan of
+    the frame's CARRIED and concourse parts beyond it (F5: no ground level
+    under a part the pack's own floors carry, nor under the concourse on
+    the apron -- every part with no foot on the lower floor)."""
+    band = _plane_band()
+    gc = valid_area(unary_union([p.poly for p in lower]))
+    if gc.is_empty:
+        return Polygon()
+    B = valid_area(gc.buffer(near, join_style=2).buffer(-near, join_style=2))
+    up = []
+    for m in feet.airport.partition.units[ui].members:
+        for p in m.parts:
+            if getattr(p, "line", False):
+                continue
+            ys = [float(f[2]) for f in (getattr(p, "feet", ()) or ())]
+            if not any(y <= y_floor + band for y in ys):
+                up.extend(feet._rings(p))      # off the lower floor
+    if up:
+        B = valid_area(B.difference(valid_area(unary_union(up)).difference(gc)))
+    return B
 
 
 def _riser(q, pads, air, w: float, open_m: "float | None", smalls: list):

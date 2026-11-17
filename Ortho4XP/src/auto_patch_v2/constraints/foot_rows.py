@@ -117,6 +117,7 @@ from ..model.constraints import Linear, Row, Source
 from ..geom.feet_graph import neighbour_pairs_fast as _pairs_fast
 from ..model.ground_fit import Foot, GroundFit, ground_fit
 from ..model.planar import PlanarMap
+from ..model.wall_reach import is_wall_fill_ref
 from .structures import WALL_ROLE
 
 #: the ref prefix ``planar/basins`` mints for a pit's void face — with
@@ -236,7 +237,9 @@ class BodyVerdict:
     #: on no face of the sheet), ``infeasible``, ``basin`` (§14's, 11x
     #: (3)), ``cut`` (a foot on a STRUCTURE-CUT face — §11b (7), 13bs),
     #: ``pavement``, ``padded``, ``no_dem`` (a foot the DEM does
-    #: not sample)
+    #: not sample), ``carried`` (a body of a frame read at its airside
+    #: floor on neither of its floors, 2120-WF2 F1), ``wall_fill`` (a foot
+    #: on a retaining wall's fill, 2120-WF2 W2)
     verdict: str
     feet: int
     rows: int
@@ -265,7 +268,8 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
     groups = getattr(airport, "groups", None)
     dem = getattr(airport, "dem", None)
     counts = {"bodies": 0, "bare": 0, "off_sheet": 0, "infeasible": 0,
-              "basin": 0, "cut": 0, "cut_feet": 0, "pavement": 0,
+              "basin": 0, "cut": 0, "cut_feet": 0, "carried": 0, "wall_fill": 0,
+              "pavement": 0,
               "padded": 0, "no_dem": 0,
               "rows": 0, "feet_off_sheet": 0, "partial": 0}
     if groups is None or not getattr(groups, "groups", ()) or dem is None:
@@ -279,6 +283,7 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
     # production feet, not a fixture exposure) — so the ENTRY projection
     to_xy = airport.frame.entry()
     index = _FaceIndex(planar, law)
+    floors = _FrameFloors(airport, law)
 
     rows: list[FootTarget] = []
     verdicts: list[BodyVerdict] = []
@@ -304,6 +309,20 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
             verdicts.append(_verdict(g, "cut", roles, None, 0))
             counts["cut"] += 1
             counts["cut_feet"] += len(g.feet)
+            continue
+        if floors.carried(g):
+            # 2120-WF2 F1: a body of a frame read at its airside floor
+            # standing on neither of its floors stands on the pack's own
+            # (a curb, a mezzanine, a canopy): carried, no ground row
+            verdicts.append(_verdict(g, "carried", roles, None, 0))
+            counts["carried"] += 1
+            continue
+        if any(index.on_wall_fill(p) for p in pts):
+            # 2120-WF2 W2: a foot on a retaining wall's FILL stands on a
+            # surface the wall's own law holds at its top
+            # (``constraints/wall_zone``); the object rides it
+            verdicts.append(_verdict(g, "wall_fill", roles, None, 0))
+            counts["wall_fill"] += 1
             continue
         if "pavement" in kinds:
             verdicts.append(_verdict(g, "pavement", roles, None, 0))
@@ -429,6 +448,33 @@ def _verdict(g, kind: str, roles: list[str | None],
         feet_off_sheet=off_sheet)
 
 
+class _FrameFloors:
+    """The lower floor of every ``floor_zero`` frame's unit
+    (``airport/airside_floor.frame_floor``), read once per unit, and whether
+    a group of one is CARRIED (``airside_floor.carried_feet``)."""
+
+    def __init__(self, airport, law) -> None:
+        self._part = getattr(airport, "partition", None)
+        self._law = law
+        self._y: dict[int, float | None] = {}
+
+    def carried(self, g) -> bool:
+        if self._part is None:
+            return False
+        ui, mi, _b = g.senior
+        try:
+            unit = self._part.units[ui]
+            m = unit.members[mi]
+        except (IndexError, TypeError):
+            return False
+        if not getattr(m, "floor_zero", False):
+            return False
+        from ..airport.airside_floor import carried_feet, frame_floor
+        if ui not in self._y:
+            self._y[ui] = frame_floor(unit, self._law)
+        return carried_feet([float(f.y) for f in g.feet], self._y[ui])
+
+
 class _FaceIndex(FaceIndex):
     """Point -> (face role, the triangle's barycentric row)
     (``constraints/face_index.FaceIndex``) with the foot classes
@@ -482,6 +528,12 @@ class _FaceIndex(FaceIndex):
                 if self._rims[int(j)].covers(pt):
                     return True
         return False
+
+    def on_wall_fill(self, p: tuple[float, float]) -> bool:
+        """``p`` stands on a retaining wall's FILL face
+        (``model/wall_reach.is_wall_fill_ref``)."""
+        fid = self._face_at(p)
+        return fid is not None and is_wall_fill_ref(str(self.pm.faces[fid].ref))
 
     def kind(self, role: str | None) -> str:
         if role is None:

@@ -26,7 +26,9 @@ to take priority."
 
 A row: ``{"key", "packs": [a, b], "airport", "default", "winner",
 "count", "rows": [n_a, n_b], "summary"}`` — ``default`` is the airport
-pack (the picker's pre-selection), ``winner`` the stored answer ("" when
+pack, else the pack higher in the user's ``scenery_packs.ini`` (owner
+2026-11-17T20:24Z, RULINGS 17o; alphabetical only among packs the ini
+does not list) — the picker's pre-selection; ``winner`` the stored answer ("" when
 unanswered).  Nothing here names an airport or a pack.
 """
 from __future__ import annotations
@@ -98,9 +100,24 @@ def _context(xplane_root: str) -> dict:
                 law.tables.structures.basin.min_solid_thickness_m)}
 
 
-def _row(key: str, airport: str, pair: _po.OverlapPair) -> dict:
+def default_pack(scenery_dir: str, airport: str,
+                 packs: _t.Sequence[str]) -> str:
+    """The pre-selected winner of a pair: the airport pack, else the pack
+    X-Plane loads first (higher in ``scenery_packs.ini``); packs the ini
+    does not list rank after the listed ones, alphabetically (RULINGS 17o)."""
+    if airport in packs:
+        return airport
+    import O4_Scenery_Packs as _SP
+    ordered, _disabled = _SP.parse_ini(
+        os.path.join(scenery_dir or "", _SP.INI_FILENAME))
+    rank = {name: i for i, name in enumerate(ordered)}
+    return min(packs, key=lambda p: (rank.get(p, len(rank)), p))
+
+
+def _row(key: str, airport: str, pair: _po.OverlapPair,
+         scenery_dir: str = "") -> dict:
     return {"key": key, "packs": list(pair.packs), "airport": airport,
-            "default": airport if airport in pair.packs else pair.packs[0],
+            "default": default_pack(scenery_dir, airport, pair.packs),
             "winner": _ovc.winner(key), "count": pair.count,
             "rows": [len(r) for r in pair.rows], "summary": pair.summary()}
 
@@ -123,7 +140,7 @@ def _detect(scenery_dir: str, lat: int, lon: int, xplane_root: str) -> list[dict
                 if key in rows:
                     continue
                 _ovc.remember_found(key, lat, lon, aname, pair.packs, pair.rows)
-                rows[key] = _row(key, aname, pair)
+                rows[key] = _row(key, aname, pair, scenery_dir)
     return list(rows.values())
 
 

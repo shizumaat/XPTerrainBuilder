@@ -184,3 +184,19 @@ def test_the_answer_rewrites_only_the_packs_whose_hiding_changed(stores, monkeyp
     assert written == ["Airport"] and OVC.winner(key) == ""
     with pytest.raises(ValueError):
         OV._answer(scenery, "choose", [{"key": key, "winner": "Elsewhere"}])
+
+
+def test_default_follows_the_ini_order_then_the_airport_pack(tmp_path):
+    """RULINGS 17o: the airport pack wins; else the pack higher in
+    scenery_packs.ini, though alphabetical order says the other; packs
+    the ini does not list rank after, alphabetically."""
+    from auto_patch import overlap_stage as OS
+    (tmp_path / "scenery_packs.ini").write_text(
+        "I\n1000 Version\nSCENERY\n\n"
+        "SCENERY_PACK Custom Scenery/Zeta City/\n"
+        "SCENERY_PACK Custom Scenery/Alpha City/\n")
+    d = str(tmp_path)
+    assert OS.default_pack(d, "", ["Alpha City", "Zeta City"]) == "Zeta City"
+    assert OS.default_pack(d, "Alpha City", ["Alpha City", "Zeta City"]) == "Alpha City"
+    assert OS.default_pack(d, "", ["Beta", "Alpha City"]) == "Alpha City"
+    assert OS.default_pack(d, "", ["Delta", "Beta"]) == "Beta"

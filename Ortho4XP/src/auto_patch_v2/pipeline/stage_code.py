@@ -2009,7 +2009,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.pads constraints.platform constraints.precedence geom.base_slab
         geom.cluster_outline geom.containment geom.pad_evidence geom.triangulate
         geom.union_find model.airport model.islands model.map_memo model.platform
-        geom.slope_pad
+        geom.slope_pad model.wall_reach
         constraints.group_level constraints.face_index
         constraints.routes constraints.stretches constraints.taxi constraints.taxi_route_yield
     """),

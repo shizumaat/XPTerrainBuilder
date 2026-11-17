@@ -34,6 +34,7 @@ import math
 import typing as _t
 
 import numpy as np
+import shapely
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import substring, unary_union
 
@@ -139,7 +140,8 @@ def _ramp(airport, law, cid, n, lead: _Exit, profile, axis_ln, floor, band, vis,
     if run is not None:
         prof, source = _pack_profile(run, ground, tn, route.length), "pack"
     else:
-        lips = [route.project(q) for q in _points(route.intersection(floor.boundary))]
+        lips = [route.project(q) for q in shapely.get_parts(route.intersection(floor.boundary))
+                if q.geom_type == "Point"]
         lips = [t for t in lips if t <= t_x]
         if not lips:
             return None
@@ -299,14 +301,6 @@ def _ground(airport, route: LineString, u: float) -> float:
 def _steepest(ts, zs) -> float:
     return max((abs(zs[k + 1] - zs[k]) / max(ts[k + 1] - ts[k], 1e-6)
                 for k in range(len(ts) - 1)), default=0.0)
-
-
-def _points(g) -> list[Point]:
-    if g.is_empty:
-        return []
-    if g.geom_type == "Point":
-        return [g]
-    return [q for q in getattr(g, "geoms", ()) if q.geom_type == "Point"]
 
 
 def _ll(airport, p) -> str:

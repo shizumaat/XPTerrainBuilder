@@ -6,7 +6,7 @@ EXIT RAMP — the part of the floor a road leaving the channel through its wall
 climbs on (``planar/channel_ramp``).  A ramp face carries the floor's ref with
 :data:`RAMP_MARK` and its number (``channel_floor:<k>#r<n>``), and its floor
 is the ramp's own long section: ``(x, y, z)`` stations along its axis, read
-at a point's station on that polyline (:func:`station_z`).  The ramp's TOP
+at a point's station on that polyline (:func:`_station_z`).  The ramp's TOP
 end line is not declared — it meets the road it hands over to and takes the
 design surface there (:data:`TOP_M`).
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 import typing as _t
 
-__all__ = ["RAMP_MARK", "TOP_M", "ramp_index", "station_z", "declared_floor_z"]
+__all__ = ["RAMP_MARK", "TOP_M", "ramp_index", "declared_floor_z"]
 
 #: the ref mark of a ramp part of a channel's floor
 RAMP_MARK = "#r"
@@ -43,7 +43,7 @@ def ramp_index(ref: str) -> "int | None":
     return int(digits) if digits else None
 
 
-def station_z(stations: _t.Sequence[tuple[float, float, float]], x: float, y: float,
+def _station_z(stations: _t.Sequence[tuple[float, float, float]], x: float, y: float,
               top_m: "float | None" = TOP_M) -> "float | None":
     """``z`` of the station line ``stations`` (``(x, y, z)``, bottom first) at
     the point's own station: its nearest segment, linear along it, the end
@@ -78,9 +78,9 @@ def declared_floor_z(ref: str, x: float, y: float,
                      ramps: _t.Mapping[int, _t.Sequence[tuple[float, float, float]]]
                      ) -> "float | None":
     """The declared floor of the face ``ref`` at ``(x, y)``: on a ramp part
-    its long section (:func:`station_z`), else ``floor_at(x, y)`` — the
+    its long section (:func:`_station_z`), else ``floor_at(x, y)`` — the
     caller's own axis-profile reading.  ``None``: not declared there."""
     k = ramp_index(ref)
     if k is None or k not in ramps:
         return floor_at(x, y)
-    return station_z(ramps[k], x, y)
+    return _station_z(ramps[k], x, y)

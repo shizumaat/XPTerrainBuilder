@@ -14,7 +14,7 @@ from auto_patch_v2.airport import deck_chain as DC  # noqa: E402
 
 
 def test_draped_rows_step_and_msl_rows_meet():
-    pc = DC.Piece((0.0, -32.6, 10.4, 8.0), (0.0, 0.0, 10.4, 8.0))
+    pc = DC._Piece((0.0, -32.6, 10.4, 8.0), (0.0, 0.0, 10.4, 8.0))
     placed = [DC.Placed(0, "s.obj", 0.0, 0.0, 0.0, (0.0, 0.0), pc),
               DC.Placed(1, "s.obj", 0.0, 0.0, 0.0, (0.0, 33.2), pc)]
     row = types.SimpleNamespace

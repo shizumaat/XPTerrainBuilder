@@ -23,15 +23,12 @@ import os
 import traceback
 import typing as _t
 
+from .sibling_stage import _say
+
 __all__ = ["CHAIN_KEY", "plans", "write"]
 
 #: the placement plan's key beside the patch, per airport and pack
 CHAIN_KEY = "{icao}~chain{k}"
-
-
-def _say(msg: str, level: int = 1) -> None:
-    import O4_UI_Utils as UI
-    UI.vprint(level, msg)
 
 
 def _scope(region: _t.Any, scope_m: float) -> _t.Callable[[float, float], bool]:
@@ -47,7 +44,7 @@ def _scope(region: _t.Any, scope_m: float) -> _t.Callable[[float, float], bool]:
     return lambda la, lo: near.contains(Point((lo - lo0) * mo, (la - la0) * ml))
 
 
-def placed_in(dump: _t.Any, root: str, inside: _t.Callable[[float, float], bool]) -> list:
+def _placed_in(dump: _t.Any, root: str, inside: _t.Callable[[float, float], bool]) -> list:
     """The pack's on-ground ``OBJECT`` rows of its own ``.obj`` files inside
     the scope, as ``deck_chain.Placed`` (a deck piece read where it is one)."""
     from auto_patch_v2.airport import deck_chain as _dc
@@ -79,6 +76,7 @@ def plans(plan: _t.Any, surface_over: _t.Callable, tile: _t.Any) -> list:
     from auto_patch_v2.airport import deck_chain as _dc
     from auto_patch_v2.airport import sibling_riders as _sr
     from auto_patch_v2.airport.pack_local import ships_objects, tile_candidates
+
     from .sibling_stage import _dump
     law = _dc.ChainLaw()
     try:
@@ -112,7 +110,7 @@ def _plan_one(plan, root, dump, inside, surface_over, tile, law):
     if dump is None:
         return None
     try:
-        placed = placed_in(dump, root, inside)
+        placed = _placed_in(dump, root, inside)
         if not any(p.piece is not None for p in placed):
             return None
         surface = surface_over((min(p.lon for p in placed), min(p.lat for p in placed),

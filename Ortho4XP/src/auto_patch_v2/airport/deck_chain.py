@@ -49,12 +49,11 @@ from __future__ import annotations
 import dataclasses as _dc
 import functools as _ft
 import math
-import os
 import typing as _t
 
 import numpy as np
 
-__all__ = ["ChainLaw", "Piece", "piece_of", "Placed", "joints", "solve", "chain_seats",
+__all__ = ["ChainLaw", "piece_of", "Placed", "joints", "chain_seats",
            "ELONGATION", "EDGE_EPS_M", "WHY"]
 
 #: a piece is at least this many times as long (z) as it is wide (x)
@@ -83,7 +82,7 @@ class ChainLaw:
 
 
 @_dc.dataclass(frozen=True)
-class Piece:
+class _Piece:
     """A deck piece's two end edges in its authored frame: ``(x, z, width,
     soffit)`` each, ``lo`` at its least z, ``hi`` at its greatest."""
 
@@ -102,7 +101,7 @@ def _edge(v: np.ndarray, at: float, width: float) -> "tuple[float, float, float,
 
 
 @_ft.lru_cache(maxsize=4096)
-def piece_of(path: str) -> "Piece | None":
+def piece_of(path: str) -> "_Piece | None":
     """The deck piece ``path`` draws (module doc), or None."""
     from . import obj8 as _obj8
     from .msl_feet import static_vertices
@@ -122,7 +121,7 @@ def piece_of(path: str) -> "Piece | None":
     lo, hi = _edge(v, z0, width), _edge(v, z1, width)
     if lo is None or hi is None:
         return None
-    return Piece(lo, hi)
+    return _Piece(lo, hi)
 
 
 @_dc.dataclass(frozen=True)
@@ -136,7 +135,7 @@ class Placed:
     lon: float
     heading: float
     xy: tuple[float, float]
-    piece: "Piece | None" = None
+    piece: "_Piece | None" = None
 
 
 def _world(p: Placed, x: float, z: float) -> tuple[float, float]:
@@ -185,7 +184,8 @@ def joints(placed: _t.Sequence[Placed], law: ChainLaw) -> list[tuple]:
             continue
         d = np.asarray(pts[b]) - np.asarray(pts[a])
         ax = _axis(pa)
-        if abs(float(d @ ax)) > law.gap_m or abs(float(d[0] * ax[1] - d[1] * ax[0])) > law.lateral_m:
+        lateral = abs(float(d[0] * ax[1] - d[1] * ax[0]))
+        if abs(float(d @ ax)) > law.gap_m or lateral > law.lateral_m:
             continue
         found.setdefault(a, []).append(b)
         found.setdefault(b, []).append(a)
@@ -199,7 +199,7 @@ def joints(placed: _t.Sequence[Placed], law: ChainLaw) -> list[tuple]:
     return out
 
 
-def solve(n: int, js: _t.Sequence[tuple], law: ChainLaw
+def _solve(n: int, js: _t.Sequence[tuple], law: ChainLaw
           ) -> tuple[dict[int, tuple[int, float]], list[tuple]]:
     """``({piece: (chain id, relative zero)}, cut joints)``: each chain's
     pieces' zeros relative to its first piece, the joints keeping their
@@ -240,7 +240,7 @@ def chain_seats(placed: _t.Sequence[Placed], ground: _t.Callable[[float, float],
     co-anchored placement seated (module doc)."""
     c = counts if counts is not None else {}
     js = joints(placed, law)
-    rel, cut = solve(len(placed), js, law)
+    rel, cut = _solve(len(placed), js, law)
     chains: dict[int, list[int]] = {}
     for k, (ch, _z) in rel.items():
         chains.setdefault(ch, []).append(k)

@@ -119,8 +119,8 @@ import numpy as np
 
 from . import obj8 as _obj8
 from . import obj8_band as _band
-from . import obj8_warp as _warp
 from . import obj8_drape as _drape
+from . import obj8_warp as _warp
 from .pack_health import light_records as _lr
 
 __all__ = ["BodyCut", "SplitFile", "SplitResult", "split_obj8",

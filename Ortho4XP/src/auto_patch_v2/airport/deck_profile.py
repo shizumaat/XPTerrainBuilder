@@ -11,7 +11,10 @@ WHO.  The ELEVATED DECK of a CONNECTED GROUP (owner RULINGS 2026-10-22o/q:
 the bodies a 22o group zero seated, ``open_frame_seat.GROUP_REASON``): its
 members of class ``deck``, flagged ``elevated``, or standing more than half
 of their sampled plan (``geom_pts``) at least ``walled_m`` over their zero --
-a deck on piers -- with what rides them (``merged_into``).  Refused whole,
+a deck on piers -- with what rides them (``merged_into``), when their
+sampled plan together is LONG: at least :data:`DECK_MIN_LENGTH_M` along its
+principal axis and :data:`DECK_ELONGATION` times its spread across it (a
+raised door or a sign on a wall is no deck).  Refused whole,
 and counted: a deck holding a class-A airside hard deck (22n: flush, banded
 by #2112), a deck-plate band or a basin.  A member whose seat tilt is baked
 or whose file holds an ``ANIM`` block is left out of the warp (counted).
@@ -23,14 +26,18 @@ outside the deck, with a part at least ``walled_m`` tall, whose part ring
 comes within ``reach_m`` of a deck part's ring in plan with the two parts'
 DRAWN height spans no more than ``touch_graph.VETO_M`` apart (a deck
 passing over a roof touches nothing).  Its value ``D = its zero - the
-deck's zero``; its polygons are its part rings.  GROUND CONTACT: each
-ground-contact FOOT of a deck member (``Body.feet``: a pier's foot, a ramp
-end that lands) on the surface under it, ``D = surface - (deck zero +
-authored y)`` -- the deck keeps its authored height over the ground it
-stands on, wherever our ground differs from the author's; feet are pooled
-per :data:`FOOT_CELL_M` cell (the median), each a node of
-:data:`FOOT_CELL_M` square.  A deck whose nodes do not differ by more than
-``float_tol_m`` is left alone.
+deck's zero``; its polygons are its part rings.  THE DECK'S TWO ENDS
+(spec P2 (ii)): the ends of the deck's plan along its principal axis, each
+read over the deck's own sampled plan (``geom_pts``) and ground-contact
+feet (``Body.feet``) within :data:`END_M` of it.  An end that LANDS -- its
+feet at the authored ground (within ``walled_m`` of the deck's zero) and
+the deck's own surface there no more than ``walled_m`` over them (a ramp
+that comes down to the ground; never a roof strip's lowest points) -- is a
+GRADED END, ``D = surface under its
+feet - (deck zero + their authored y)`` (median); an end standing higher
+(on piers, or abutting another structure) is HELD where it is, ``D = 0``,
+so the field never drifts past the last node.  A deck whose nodes do not
+differ by more than ``float_tol_m`` is left alone.
 
 FIELD.  ``obj8_warp.Field``: exactly ``D_k`` inside node k, the
 inverse-distance blend between, so the deck is flat inside every building
@@ -52,22 +59,27 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import math
-import os
 import typing as _t
 
 import numpy as np
 
 from .open_frame_seat import GROUP_REASON, unit_root
 from .placement_file import named_body
+from .placement_targets import _zero
 
-__all__ = ["WarpLaw", "law_of", "warp_decks", "GRID_M", "FOOT_CELL_M"]
+__all__ = ["law_of", "warp_decks", "GRID_M", "END_M", "DECK_MIN_LENGTH_M",
+           "DECK_ELONGATION"]
 
 #: the grade cap's sampling step over the group's plan, metres
 GRID_M = 2.0
 #: at most about this many grade samples per deck (the step widens)
 GRID_MAX_PTS = 20000
-#: the feet of one deck pooled per cell of this side, metres
-FOOT_CELL_M = 2.0
+#: a deck end is read over what lies within this of it along the axis, m
+END_M = 6.0
+#: a deck is at least this long along its principal axis, m ...
+DECK_MIN_LENGTH_M = 30.0
+#: ... and this many times as long as its spread across it
+DECK_ELONGATION = 3.0
 #: the classes that never warp (a basin's members are its pit's)
 _REFUSED_CLASSES = ("basin",)
 #: a class-A airside hard deck's reason (22n: flush; ``airside_deck_seat``)
@@ -75,7 +87,7 @@ _AIRSIDE = "airside deck"
 
 
 @_dc.dataclass(frozen=True)
-class WarpLaw:
+class _WarpLaw:
     """``grade_max`` (the rail ramp cap, no steeper than ``[deck]
     shear_max_grade``), the contact ``reach_m``, ``walled_m`` (what makes
     a BUILDING), the materiality ``tol_m`` and the foot float bar."""
@@ -87,7 +99,7 @@ class WarpLaw:
     float_tol_m: float
 
 
-def law_of(structures: _t.Any) -> "WarpLaw | None":
+def law_of(structures: _t.Any) -> "_WarpLaw | None":
     """The warp law of ``law.tables.structures``; ``None`` (disarmed) where
     ``[deck] shear`` is off or a key predates this rule."""
     from .open_frame_seat import TOUCH_M
@@ -95,7 +107,7 @@ def law_of(structures: _t.Any) -> "WarpLaw | None":
         deck, tunnel, pl = structures.deck, structures.tunnel, structures.placement
         if not bool(deck.shear):
             return None
-        return WarpLaw(min(float(tunnel.rail_ramp_max_grade), float(deck.shear_max_grade)),
+        return _WarpLaw(min(float(tunnel.rail_ramp_max_grade), float(deck.shear_max_grade)),
                        float(TOUCH_M), float(pl.chain_min_height_m),
                        float(pl.authored_keep_tol_m), float(pl.split_tol_m))
     except AttributeError:
@@ -103,11 +115,6 @@ def law_of(structures: _t.Any) -> "WarpLaw | None":
 
 
 # ── reading the bodies ──────────────────────────────────────────────────
-
-def _zero(b: _t.Any) -> "float | None":
-    a = b.anchor
-    return None if a.surface_z is None else float(a.surface_z) - float(a.y_zero)
-
 
 def _root(reason: str) -> str:
     """The 22o group a body's standing seat names, or ""."""
@@ -214,6 +221,20 @@ def _groups(pieces: _t.Sequence[_Piece], walled_m: float) -> dict[str, list[int]
     return groups
 
 
+def _is_long(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable) -> bool:
+    """The deck's sampled plan is long (module doc)."""
+    pts = np.asarray([xy(float(q[0]), float(q[1])) for k in ks
+                      for q in getattr(pieces[k].body, "geom_pts", ()) or ()])
+    if pts.shape[0] < 3:
+        return False
+    c = pts - pts.mean(axis=0)
+    _u, _s, vt = np.linalg.svd(c, full_matrices=False)
+    along, across = c @ vt[0], c @ vt[1]
+    length = float(along.max() - along.min())
+    spread = float(across.max() - across.min())
+    return length >= DECK_MIN_LENGTH_M and length >= DECK_ELONGATION * spread
+
+
 def _refusal(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int]) -> str:
     """Why the whole deck is refused, or ""."""
     for k in ks:
@@ -269,10 +290,11 @@ def _span(zero: float, p: _t.Any) -> tuple[float, float]:
 
 
 def _nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
-           law: WarpLaw) -> list:
+           law: _WarpLaw) -> list:
     """The group's BUILDING CONTACTS: ``(D relative to the group zero,
     shapely footprint, piece index)``."""
     from shapely.strtree import STRtree
+
     from .touch_graph import VETO_M
     inside = set(ks)
     deck = [(g, p, k) for k in ks for g, p in _polys_of(pieces[k], xy)]
@@ -287,8 +309,9 @@ def _nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
     dbox = _box(bx[:, 0].min() - law.reach_m, bx[:, 1].min() - law.reach_m,
                 bx[:, 2].max() + law.reach_m, bx[:, 3].max() + law.reach_m)
     for c, pc in enumerate(pieces):
-        if c in inside or pc.frame != frame or not (pc.footed and pc.walled) or pc.body.body_class in (
-                "deck", "basin", "line_segment") or getattr(pc.body, "merged_into", ""):
+        if (c in inside or pc.frame != frame or not (pc.footed and pc.walled)
+                or pc.body.body_class in ("deck", "basin", "line_segment")
+                or getattr(pc.body, "merged_into", "")):
             continue
         polys = _polys_of(pc, xy)
         if not any(dbox.intersects(g) for g, _p in polys):
@@ -309,26 +332,60 @@ def _nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
     return out
 
 
-def _foot_nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
-                surface: _t.Callable, z0: float) -> list:
-    """The deck's GROUND CONTACTS: ``(D, footprint, -1)`` per foot cell."""
-    from shapely.geometry import box as _box
-    cells: dict[tuple[int, int], list] = {}
+def _end_nodes(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], xy: _t.Callable,
+               surface: _t.Callable, z0: float, walled_m: float) -> list:
+    """The deck's two ENDS (module doc): ``(D, footprint, -1)`` each."""
+    from shapely.geometry import MultiPoint
+    cells, feet = [], []
     for k in ks:
-        for la, lo, y in pieces[k].body.feet or ():
-            s = surface(float(la), float(lo))
-            if s is None:
-                continue
-            x, yy = xy(float(la), float(lo))
-            cells.setdefault((int(x // FOOT_CELL_M), int(yy // FOOT_CELL_M)), []).append(
-                (x, yy, float(s) - float(y) - z0))
+        pc = pieces[k]
+        dz = pc.zero - z0 - float(pc.body.anchor.y_zero)
+        cells += [(*xy(float(q[0]), float(q[1])), float(q[2]) + dz)
+                  for q in getattr(pc.body, "geom_pts", ()) or ()]
+        feet += [(*xy(float(la), float(lo)), float(y) + dz, float(la), float(lo))
+                 for la, lo, y in pc.body.feet or ()]
+    if len(cells) < 2:
+        return []
+    c = np.asarray(cells)
+    mid = c[:, :2].mean(axis=0)
+    _u, _s, vt = np.linalg.svd(c[:, :2] - mid, full_matrices=False)
+    ax = vt[0]
+    sc = (c[:, :2] - mid) @ ax
     out = []
-    h = FOOT_CELL_M / 4.0
-    for pts in cells.values():
-        a = np.asarray(pts)
-        cx, cy = float(a[:, 0].mean()), float(a[:, 1].mean())
-        out.append((float(np.median(a[:, 2])), _box(cx - h, cy - h, cx + h, cy + h), -1))
+    for end in (sc.min(), sc.max()):
+        near = np.abs(sc - end) <= END_M
+        top = float(np.max(c[near, 2]))
+        fe = [f for f in feet if abs((np.asarray(f[:2]) - mid) @ ax - end) <= END_M]
+        foot = [(f, surface(f[3], f[4])) for f in fe]
+        foot = [(f, g) for f, g in foot if g is not None]
+        # it LANDS: its feet there stand at the authored ground (within
+        # ``walled_m`` of the deck's zero) and its surface comes down to them
+        foot = [(f, g) for f, g in foot if abs(f[2]) <= walled_m]
+        if foot and top - min(f[2] for f, _g in foot) <= walled_m:
+            d = float(np.median([g - z0 - f[2] for f, g in foot]))
+            pts = [f[:2] for f, _g in foot]
+        else:
+            d = 0.0
+            pts = [tuple(p) for p in c[near, :2]]
+        out.append((d, MultiPoint(pts).convex_hull.buffer(0.5), -1))
     return out
+
+
+def _merged(nodes: _t.Sequence[tuple], tol_m: float) -> list:
+    """Nodes of one value (within ``tol_m``) as ONE node, their footprints
+    unioned: an inverse-distance blend counts every node, so a cluster of
+    touching buildings on one level would otherwise outweigh a single end
+    and bunch the grade at it; one node per level keeps the blend between
+    two levels the straight grade."""
+    from shapely.ops import unary_union
+    out: list[list] = []
+    for d, g, c in sorted(nodes, key=lambda n: n[0]):
+        if out and abs(d - out[-1][0]) <= tol_m:
+            out[-1][1].append(g)
+            out[-1][2].append(c)
+            continue
+        out.append([d, [g], [c]])
+    return [(float(np.median([d])), unary_union(gs), cs[0]) for d, gs, cs in out]
 
 
 def _field_xy(nodes: _t.Sequence[tuple]) -> _t.Any:
@@ -385,7 +442,7 @@ def _frame_nodes(rec: _t.Any, nodes: _t.Sequence[tuple], d_off: float,
 # ── the pass ────────────────────────────────────────────────────────────
 
 def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
-               law: WarpLaw, surface: "_t.Callable | None" = None,
+               law: _WarpLaw, surface: "_t.Callable | None" = None,
                cut_log: "_t.Mapping[int, tuple] | None" = None,
                write: bool = False) -> tuple[list, list]:
     """``(splits, table)``: every connected group touching buildings at two
@@ -408,13 +465,16 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
     table: list = []
     changed: set[int] = set()
     for gid, ks in sorted(_groups(pieces, law.walled_m).items()):
+        if not _is_long(pieces, ks, xy):
+            continue
         z0 = float(np.median([pieces[k].zero for k in ks]))
         nodes = _nodes(pieces, ks, xy, law)
-        feet = _foot_nodes(pieces, ks, xy, surface, z0) if surface is not None else []
+        feet = (_end_nodes(pieces, ks, xy, surface, z0, law.walled_m)
+                if surface is not None else [])
         ds = [d for d, _g, _c in nodes + feet]
         if len(ds) < 2 or max(ds) - min(ds) <= law.float_tol_m:
             continue
-        nodes = nodes + feet
+        nodes = _merged(nodes + feet, law.tol_m)
         row = {"group": gid, "bodies": len(ks), "zero": round(z0, 3),
                "nodes": [[round(d, 3), pieces[c].name] for d, _g, c in nodes if c >= 0],
                "feet": len(feet),
@@ -445,10 +505,12 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
             bs[j] = named_body(pc.member, bs[j], warp=warp)
             splits[i] = _dc.replace(rec, bodies=tuple(bs))
             changed.add(i)
-        counts["deck_warped"] = counts.get("deck_warped", 0) + len(ks) - len(row.get("left_out", ()))
+        n_out = len(row.get("left_out", ()))
+        counts["deck_warped"] = counts.get("deck_warped", 0) + len(ks) - n_out
         counts["deck_warp_groups"] = counts.get("deck_warp_groups", 0) + 1
         if surface is not None:
             row["feet_floating"] = _floating(pieces, ks, nodes, xy, surface, law, z0)
+            row["feet_floating_before"] = len(_floating(pieces, ks, (), xy, surface, law, z0))
             if row["feet_floating"]:
                 counts["warp_feet_floating"] = (counts.get("warp_feet_floating", 0)
                                                 + len(row["feet_floating"]))
@@ -461,7 +523,7 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
 
 
 def _floating(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], nodes: _t.Sequence[tuple],
-              xy: _t.Callable, surface: _t.Callable, law: WarpLaw, z0: float) -> list:
+              xy: _t.Callable, surface: _t.Callable, law: _WarpLaw, z0: float) -> list:
     """The warped members' ground-contact feet floating more than the bar:
     ``(lat, lon, float m)``, worst first."""
     f = _field_xy(nodes)
@@ -474,7 +536,7 @@ def _floating(pieces: _t.Sequence[_Piece], ks: _t.Sequence[int], nodes: _t.Seque
             s = surface(float(la), float(lo))
             if s is None:
                 continue
-            fl = pc.zero + float(y) + d - float(s)
+            fl = pc.zero + float(y) - float(pc.body.anchor.y_zero) + d - float(s)
             if fl > law.float_tol_m:
                 out.append((round(float(la), 7), round(float(lo), 7), round(fl, 3)))
-    return sorted(out, key=lambda t: -t[2])[:50]
+    return sorted(out, key=lambda t: -t[2])

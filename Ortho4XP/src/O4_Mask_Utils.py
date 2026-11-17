@@ -1104,13 +1104,21 @@ def build_custom_pre_mask(til_x, til_y, sea_level, tile, extent_code):
 ################################################################################
 
 ################################################################################
+#: The orthophoto's opacity over the SEA at the shoreline (1.0 = the
+#: historic fully opaque start); the sea fade (``blur_mask``) is scaled by
+#: it, so its reach (``masks_width``) is unchanged.
+SEA_SHORE_OPACITY = 0.65
+
+
 def compose_water_mask(pre_mask, blured_full, sea_level, feather_pixels,
                        crop_margin=1024):
     """Final mask from the pre-mask classes and the blurred fade.
 
     * LAND pixels (255 in the pre-mask) return to full opacity — the
       blur must never thin them.
-    * SEA pixels (0) keep the blurred distance fade untouched.
+    * SEA pixels (0) keep the blurred distance fade, scaled by
+      :data:`SEA_SHORE_OPACITY` (the photo starts part-transparent at the
+      shoreline and still fades out over ``masks_width``).
     * INLAND-water pixels (the ``sea_level`` grey) get the SHORE
       FEATHER (2026-07-17): opaque at the land shoreline, easing down
       to the constant inland grey over ``feather_pixels``, and FLOORED
@@ -1129,10 +1137,19 @@ def compose_water_mask(pre_mask, blured_full, sea_level, feather_pixels,
     """
     crop = slice(crop_margin, pre_mask.shape[0] - crop_margin)
     land_full = pre_mask == 255
+    sea_fade = blured_full[crop, crop]
+    sea = (pre_mask == 0)[crop, crop]
+    if SEA_SHORE_OPACITY < 1.0 and sea.any():
+        # the photo is never fully opaque over the sea: the whole fade is
+        # scaled, so it starts at SEA_SHORE_OPACITY at the shoreline and
+        # still reaches out masks_width before it is gone (owner
+        # 2026-11-17: "some transparency much closer to the shore line,
+        # but still extend out the settings distance")
+        sea_fade = sea_fade.copy()
+        sea_fade[sea] = (sea_fade[sea].astype(numpy.float32)
+                         * SEA_SHORE_OPACITY + 0.5).astype(numpy.uint8)
     composed = numpy.maximum(
-        land_full[crop, crop].astype(numpy.uint8) * 255,
-        blured_full[crop, crop],
-    )
+        land_full[crop, crop].astype(numpy.uint8) * 255, sea_fade)
     inland = ((pre_mask > 0) & ~land_full)[crop, crop]
     if not inland.any():
         return composed

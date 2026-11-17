@@ -47,7 +47,24 @@ class TestComposeWaterMask:
         land = (pre_mask == 255)[crop, crop]
         sea = (pre_mask == 0)[crop, crop]
         assert (composed[land] == 255).all()
-        assert (composed[sea] == 40).all()
+        assert (composed[sea] == round(40 * MASK.SEA_SHORE_OPACITY)).all()
+
+    def test_sea_starts_part_transparent_and_keeps_its_reach(self):
+        # owner 2026-11-17: the photo is not opaque at the sea's shoreline,
+        # and still fades out over the same distance (scaled, not cut)
+        size, margin = 96, 16
+        pre_mask = numpy.zeros((size, size), dtype=numpy.uint8)
+        pre_mask[:, : size // 2] = 255
+        ramp = numpy.clip(255 - (numpy.arange(size) - size // 2) * 10, 0, 255)
+        blured = numpy.tile(ramp, (size, 1)).astype(numpy.uint8)
+        composed = MASK.compose_water_mask(
+            pre_mask, blured, 0, feather_pixels=0, crop_margin=margin)
+        row = composed[size // 2].astype(int)
+        shore = size // 2 - margin
+        assert row[shore - 1] == 255
+        assert row[shore] == round(255 * MASK.SEA_SHORE_OPACITY) < 255
+        reach = numpy.nonzero(blured[0, margin:size - margin])[0].max()
+        assert numpy.nonzero(row)[0].max() == reach
 
     def test_inland_feathers_from_shore_down_to_grey(self):
         (pre_mask, blured, margin) = _scene()

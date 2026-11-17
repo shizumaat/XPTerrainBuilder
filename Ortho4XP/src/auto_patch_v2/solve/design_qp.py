@@ -79,7 +79,7 @@ import scipy.sparse as sp
 # solver below is the module's own — see the docstring's deviation.
 import highspy  # noqa: F401
 
-from .linear import _linear_solve, _objective
+from .linear import RowBlocks, _linear_solve, _objective
 
 __all__ = ["SOLVERS", "DEFAULT_SOLVER", "QPResult", "solve_one_sided"]
 
@@ -169,19 +169,36 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
     sw = np.sqrt(w_row)
     eye = sp.identity(nc, format="csr")
 
+    #: ``A1 @ x`` of the iterates ``F`` read, by the iterate's identity
+    #: (#1951): the accepted iterate's product is the one the next round's
+    #: active set and the final gradient read, so it is taken once.  ``F``
+    #: runs on the speculation threads; a dict store is atomic.
+    a1x_of: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+
+    A1_rows = RowBlocks(A1)          # ``A1 @ x`` on threads, bit for bit
+
+    def a1x(x: np.ndarray) -> np.ndarray:
+        got = a1x_of.get(id(x))
+        return got[1] if got is not None and got[0] is x else A1_rows @ x
+
     def F(x: np.ndarray) -> float:
-        return _objective(A0, b0, A1, b1, w_row, shift, x, U, c)
+        r, pen = A1_rows.penalty(x, bb, w_row)
+        a1x_of[id(x)] = (x, r)
+        return _objective(A0, b0, A1, b1, w_row, shift, x, U, c, pen=pen)
 
     def grad(x: np.ndarray) -> np.ndarray:
         g = 2.0 * (A0T @ (A0 @ x - b0))
         if UT is not None and c is not None:
             g += 2.0 * (UT @ (U @ x - c))
-        r = np.maximum(A1 @ x - bb, 0.0)
+        r = np.maximum(a1x(x) - bb, 0.0)
         return g + 2.0 * (A1T @ (w_row * r))
 
     def active(x: np.ndarray | None) -> np.ndarray:
-        return (np.flatnonzero(A1 @ x - bb > active_tol) if x is not None
-                else np.zeros(0, dtype=np.int64))
+        if x is None:
+            return np.zeros(0, dtype=np.int64)
+        sel = A1_rows.above(a1x(x), bb, active_tol)
+        a1x_of.clear()       # the next products are the next round's
+        return sel
 
     def step(x: np.ndarray | None, lam: float,
              sel: np.ndarray | None = None) -> tuple[np.ndarray, int]:
@@ -241,8 +258,12 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
     finally:
         if pool is not None:
             pool.shutdown(wait=True)
+    try:
+        g_end = float(np.linalg.norm(grad(x)))
+    finally:
+        A1_rows.close()
     return QPResult(x=x, status=status, rounds=rnd, solves=solves,
-                    objective=float(f), grad_norm=float(np.linalg.norm(grad(x))),
+                    objective=float(f), grad_norm=g_end,
                     wall_s=time.perf_counter() - t0)
 
 

@@ -917,15 +917,22 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     if x is not None and A1_lead is not None:
         viol_all = viol_all + np.asarray(A1_lead @ x).ravel()
     tol = float(d.active_set_tol_m)
-    for k, (_terms, _hi, row) in enumerate(one):
+    # #1951: the rows counted per generator in one pass, the MISSED rows
+    # read in row order off the violation vector — the same records, never
+    # a Python pass over every side's violation (18 M sides at KMCI)
+    viol_np = np.asarray(viol_all, dtype=float)
+    for _terms, _hi, row in one:
         g = row.source.generator
-        rec = fam.setdefault(g, {"rows": 0, "missed": 0, "max_m": 0.0, "energy": 0.0})
+        rec = fam.get(g)
+        if rec is None:
+            rec = fam[g] = {"rows": 0, "missed": 0, "max_m": 0.0, "energy": 0.0}
         rec["rows"] += 1
-        v = float(viol_all[k])
-        if v > tol:
-            rec["missed"] += 1
-            rec["max_m"] = max(rec["max_m"], v)
-            rec["energy"] += d.law * v * v
+    for k in np.flatnonzero(viol_np > tol).tolist():
+        rec = fam[one[k][2].source.generator]
+        v = float(viol_np[k])
+        rec["missed"] += 1
+        rec["max_m"] = max(rec["max_m"], v)
+        rec["energy"] += d.law * v * v
     for terms, hi, row in eqs:
         g = row.source.generator
         rec = fam.setdefault(g, {"rows": 0, "missed": 0, "max_m": 0.0, "energy": 0.0})
@@ -945,10 +952,9 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # 2026-09-08t: "a target missed is a row, the census counts it")
     mat = float(law.tables.emit.materiality.elevation_m)
     tgt: list[dict[str, _t.Any]] = []
-    for k, (terms, _hi, row) in enumerate(one):
-        v = float(viol_all[k])
-        if v <= mat:
-            continue
+    for k in np.flatnonzero(~(viol_np <= mat)).tolist():   # #1951: misses only
+        terms, _hi, row = one[k]
+        v = float(viol_np[k])
         tgt.append({"family": row.source.generator, "miss_m": round(v, 4),
                     "ll": [[planar.vertices[vid].key[0], planar.vertices[vid].key[1]]
                            for vid, _c in terms]})

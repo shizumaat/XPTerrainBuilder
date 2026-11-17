@@ -12,6 +12,8 @@ from __future__ import annotations
 import dataclasses as dc
 import types
 
+import pytest
+
 from auto_patch_v2.constraints.deck_floor_follow import floor_follow_rewrite
 from auto_patch_v2.constraints.edge_floor import DECK_FLOOR
 from auto_patch_v2.constraints.road_bridge_ceiling import road_bridge_ceiling_rows
@@ -131,3 +133,25 @@ def test_the_lower_road_carries_nodes_under_the_span():
     under = [y for x, y in pts if abs(y) <= 10.0]
     assert len(under) >= 10 and all(x == 60.0 for x, _y in pts)
     assert [y for _x, y in pts] == sorted(y for _x, y in pts)
+
+
+def test_the_bank_blends_out_past_the_run_on():
+    """Owner sim read 2026-11-17T22:25Z (ESSA 1.0.557): "just past the bridge
+    edge the bank changes suddenly from what's under it to what's next to
+    it".  Past the run-on the ground stands on the bank's face carried on
+    (``edge_deck._blend_drop``): continuous at the run-on's edge, rising at
+    the bank's slope, daylighting into the ground beside."""
+    from shapely.geometry import Point, box
+
+    from auto_patch_v2.constraints.edge_deck import _bank_drop, _blend_drop
+    # a deck 20 m across a road along y, end lines (seats) along x = 0 and x = 20
+    ends = [types.SimpleNamespace(line=[(0.0, -10.0), (0.0, 10.0)], depth=6.0),
+            types.SimpleNamespace(line=[(20.0, -10.0), (20.0, 10.0)], depth=6.0)]
+    slope, past = 2.0 / 3.0, 1.0
+    run_on = box(0.0, -10.0, 20.0, 10.0).buffer(past, join_style="mitre")
+    edge = Point(4.0, 11.0)                                   # on the run-on's edge, beside
+    assert _blend_drop(ends, edge, run_on, slope) == \
+        pytest.approx(_bank_drop(ends, edge, slope))          # no step at the edge line
+    out = [_blend_drop(ends, Point(4.0, 11.0 + s), run_on, slope) for s in (0.0, 1.5, 3.0)]
+    assert out[0] > out[1] > out[2] and out[0] - out[1] == pytest.approx(slope * 1.5)
+    assert _blend_drop(ends, Point(10.0, 11.0 + 9.5), run_on, slope) == 0.0   # daylit

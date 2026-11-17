@@ -6,8 +6,9 @@ modified if needed").
 WHERE.  Inside ``object_stage._place_objects``, for the airport pack's own
 plan only, after the airport pack itself was written: every pack beside it
 on the tile that ships objects of its own (``pack_local.tile_candidates``,
-``ships_objects``) is read within ``deck_chain.ChainLaw.scope_m`` of the
-airport's boundary (``sibling_riders.airport_region``); its deck chains are
+``ships_objects``) is read within ``deck_chain.ChainLaw.scope_m`` (and,
+for a chain reaching into it, ``reach_m`` beyond) of the airport's
+boundary (``sibling_riders.airport_region``); its deck chains are
 seated on the surface the airport's own bodies were seated on and written
 as ``OBJECT_MSL`` rows (``placement_write.apply_plan``, the pristine DSF
 kept as ``.anchor_bak``).  With a pack copy armed (``--pack-copy``) the
@@ -89,6 +90,7 @@ def plans(plan: _t.Any, surface_over: _t.Callable, tile: _t.Any,
         if region is None:
             return []
         inside = _scope(region, law.scope_m)
+        near = _scope(region, law.scope_m + law.reach_m)
         roots = [r for r in tile_candidates(main_root, tile.lat, tile.lon, plan.icao)
                  if ships_objects(r)]
     except Exception as exc:
@@ -97,8 +99,8 @@ def plans(plan: _t.Any, surface_over: _t.Callable, tile: _t.Any,
         return []
     out = []
     for root in roots:
-        sp = _plan_one(plan, root, _dump(plan.icao, root, tile, make=True), inside,
-                       surface_over, tile, law)
+        sp = _plan_one(plan, root, _dump(plan.icao, root, tile, make=True),
+                       (inside, near), surface_over, tile, law)
         if sp is not None:
             out.append(sp)
     return out
@@ -115,7 +117,8 @@ def _plan_one(plan, root, dump, inside, surface_over, tile, law):
     if dump is None:
         return None
     try:
-        placed = _placed_in(dump, root, inside)
+        inside, near = inside
+        placed = _placed_in(dump, root, near)
         if not any(p.piece is not None for p in placed):
             return None
         surface = surface_over((min(p.lon for p in placed), min(p.lat for p in placed),
@@ -125,7 +128,8 @@ def _plan_one(plan, root, dump, inside, surface_over, tile, law):
             s = surface(la, lo)
             return None if s is None else float(s)
         counts: dict[str, int] = {}
-        zero, rep = _dc.chain_seats(placed, ground, law, counts)
+        zero, rep = _dc.chain_seats(placed, ground, law, counts,
+                                    admit=lambda p: inside(p.lat, p.lon))
         if not zero:
             return None
         seats = tuple(MslSeat(placed[k].index, placed[k].resource, placed[k].lon,

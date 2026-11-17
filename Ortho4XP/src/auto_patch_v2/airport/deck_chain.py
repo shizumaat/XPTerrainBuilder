@@ -41,8 +41,11 @@ piece's zero, so its authored relation to the span holds.
 
 WRITE.  Each seated placement becomes an ``OBJECT_MSL`` row at its solved
 zero (``model.placement.MslSeat``; ``dsf_write`` writes it, the pristine
-DSF kept as ``.anchor_bak``).  No OBJ is rewritten.  Only placements
-within ``scope_m`` (1 km) of an airport boundary are read.
+DSF kept as ``.anchor_bak``).  No OBJ is rewritten.  SCOPE: a chain with at
+least one piece within ``scope_m`` (1 km) of an airport boundary is seated
+WHOLE -- its pieces are read up to ``reach_m`` past the scope -- because a
+chain cut at the scope line would step there (lane l2144 measured 0.33 ->
+5.01 m at such a joint); a chain with no piece in the scope is not read.
 """
 from __future__ import annotations
 
@@ -79,6 +82,9 @@ class ChainLaw:
     #: an ELEVATED chain: its pieces' median soffit at least this over
     #: their zeros (a track laid at grade drapes, piece by piece)
     elevated_m: float = 2.5
+    #: a chain is read this far past the scope: a chain with ANY piece in
+    #: the scope is seated WHOLE (cut at the scope line it would step there)
+    reach_m: float = 6000.0
 
 
 @_dc.dataclass(frozen=True)
@@ -235,9 +241,12 @@ def _soffit(p: Placed) -> float:
 
 
 def chain_seats(placed: _t.Sequence[Placed], ground: _t.Callable[[float, float], "float | None"],
-                law: ChainLaw, counts: "dict | None" = None) -> tuple[dict[int, float], dict]:
+                law: ChainLaw, counts: "dict | None" = None,
+                admit: "_t.Callable[[Placed], bool] | None" = None
+                ) -> tuple[dict[int, float], dict]:
     """``({placed index: absolute zero}, report)``: every chain piece and
-    co-anchored placement seated (module doc)."""
+    co-anchored placement seated (module doc); with ``admit``, only the
+    chains holding at least one admitted piece (seated whole)."""
     c = counts if counts is not None else {}
     js = joints(placed, law)
     rel, cut = _solve(len(placed), js, law)
@@ -247,6 +256,8 @@ def chain_seats(placed: _t.Sequence[Placed], ground: _t.Callable[[float, float],
     zero: dict[int, float] = {}
     lifted = 0
     low = 0
+    if admit is not None:
+        chains = {ch: ks for ch, ks in chains.items() if any(admit(placed[k]) for k in ks)}
     for ch, ks in chains.items():
         if float(np.median([_soffit(placed[k]) for k in ks])) < law.elevated_m:
             low += 1
@@ -279,9 +290,10 @@ def chain_seats(placed: _t.Sequence[Placed], ground: _t.Callable[[float, float],
             if d <= law.gap_m:
                 zero[k] = zero[keys[int(i)]]
                 co += 1
-    c["chain_joints"] = c.get("chain_joints", 0) + len(js)
+    seated = {k for ks in chains.values() for k in ks}
+    c["chain_joints"] = c.get("chain_joints", 0) + sum(1 for j in js if j[0] in seated)
     c["chain_chains"] = c.get("chain_chains", 0) + len(chains)
-    c["chain_pieces"] = c.get("chain_pieces", 0) + len(rel)
+    c["chain_pieces"] = c.get("chain_pieces", 0) + sum(len(ks) for ks in chains.values())
     c["chain_coanchored"] = c.get("chain_coanchored", 0) + co
     c["chain_cut_joints"] = c.get("chain_cut_joints", 0) + len(cut)
     c["chain_lifted"] = c.get("chain_lifted", 0) + lifted

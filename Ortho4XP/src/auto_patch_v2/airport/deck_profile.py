@@ -175,8 +175,8 @@ def _pieces(splits: _t.Sequence[_t.Any], members: _t.Mapping, walled_m: float) -
         for j, b in enumerate(rec.bodies):
             z = _zero(b)
             ps = _parts(m, b)
-            if z is None or not ps:
-                continue
+            if z is None:
+                continue          # a SEGMENT body names no whole part: still a piece
             out.append(_Piece((i, j), str(u.id), str(b.new_resource), z, ps, bool(b.feet),
                               any(float(p.height_m) >= walled_m and not p.line for p in ps),
                               b, m))
@@ -455,8 +455,8 @@ def warp_decks(splits: _t.Sequence[_t.Any], plan: _t.Any, counts: dict, *,
     pieces = _pieces(splits, members, law.walled_m)
     if not pieces:
         return splits, []
-    p0 = pieces[0].parts[0]
-    la0, lo0 = float(p0.lat), float(p0.lon)
+    a0 = pieces[0].body.anchor
+    la0, lo0 = float(a0.lat), float(a0.lon)
     xy = local_metres(la0, lo0)
     ml, mo = 111132.0, 111320.0 * math.cos(math.radians(la0))
 

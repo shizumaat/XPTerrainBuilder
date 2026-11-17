@@ -923,9 +923,9 @@ def rebake_after_mesh(tile) -> dict:
 
 
 def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
-    """:func:`rebake_after_mesh`'s stage.  ``only``: the plan keys
-    (``ICAO`` / ``ICAO~k``) a neighbour's build re-seats (#2129,
-    ``guest_stage.reseat_guests``) — those plans alone run, never served from the
+    """:func:`rebake_after_mesh`'s stage.  ``only``: the airports a
+    neighbour's build re-seats (#2129, ``guest_stage.reseat_guests``) —
+    their plans (main and companions) alone run, never served from the
     reuse, with no unpatched-airport restore, no re-seat of its own and no
     tile-wide adjust step (they are the build that asked's)."""
     import glob
@@ -996,7 +996,9 @@ def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
         plans = sorted({p for p in found
                         if _PLAN_NAME_RE.match(os.path.basename(p))} | set(screens))
         if only is not None:
-            plans = [p for p in plans if _plan_key(p) in only]
+            # every plan of the airport (main + companions, whose outlines
+            # block each other's isolated share, §9a): one decomposition
+            plans = [p for p in plans if _plan_icao(p) in only]
         if not plans:
             return counts
         mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)

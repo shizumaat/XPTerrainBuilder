@@ -131,7 +131,7 @@ def neighbour_marks(tile, bounds) -> dict:
 
 
 def _stale(here, now: str) -> dict:
-    """``{origin tile: {plan key}}``: every placement plan of a neighbour
+    """``{origin tile: {ICAO}}``: the airport of every placement plan of a neighbour
     tile (``o4_v2_placement_<key>.json`` beside its patches) whose guest
     record in ``here``'s DSF of its pack is seated on another ground than
     ``now``."""
@@ -160,7 +160,7 @@ def _stale(here, now: str) -> dict:
                     str(doc.get("pack_root") or ""), here,
                     _dsf.guest_key(str(doc.get("icao") or key), origin))
                 if mark is not None and mark != now:
-                    stale.setdefault(origin, set()).add(key)
+                    stale.setdefault(origin, set()).add(key.split("~", 1)[0])
     return stale
 
 
@@ -186,7 +186,7 @@ def reseat_guests(tile, mesh_path: str) -> dict:
 
 
 def _reseat_from(tile, origin, keys, UI) -> dict:
-    """Run ``origin``'s placement of the plans ``keys`` again."""
+    """Run ``origin``'s placement of the airports ``keys`` again."""
     import O4_Config_Utils as CFG
     import O4_File_Names as FNAMES
 

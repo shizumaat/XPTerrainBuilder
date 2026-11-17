@@ -37,25 +37,23 @@ rings, one OBJ8 of a few thousand vertices per deck.
 from __future__ import annotations
 
 import hashlib
-import math
 import os
 import typing as _t
 
 from shapely import wkt as _wkt
-from shapely.geometry import LineString, MultiPoint, Polygon
-from shapely.ops import transform
+from shapely.geometry import Polygon
 
-from . import deck_paint as _paint
+from . import deck_objects as _objs
+from . import deck_pavement as _pav
 from . import deck_texture as _tex
-from .deck_obj8 import DECK_MARK, DeckFrame, DeckLight, DeckLine, deck_obj8_text
+from .deck_obj8 import DECK_MARK
+from .deck_objects import GENERATED_DIR, TEXTURE
 
 __all__ = ["RECORD_KEY", "GENERATED_DIR", "TEXTURE", "recipe", "apply_text",
            "write_files", "remove", "files_of", "recorded", "record",
            "regions_of"]
 
 RECORD_KEY = "o4_generated"
-GENERATED_DIR = "objects/o4_generated"
-TEXTURE = "o4_deck_concrete.png"
 
 
 def _is_generated_file(path: str) -> bool:
@@ -66,76 +64,6 @@ def _is_generated_file(path: str) -> bool:
 def _poly(ring) -> Polygon:
     p = Polygon([tuple(q) for q in ring])
     return p if p.is_valid else p.buffer(0.0)
-
-
-def _mean(pts) -> tuple[float, float]:
-    """The centroid of the points ``pts`` (an end line's stations)."""
-    c = MultiPoint([tuple(p) for p in pts]).centroid
-    return (c.x, c.y)
-
-
-def _deck_frame(rec: _t.Mapping) -> DeckFrame:
-    """The placement frame: anchored at the ring's centroid, heading along
-    the carried route (end A to end B), so the route runs along ``-z``."""
-    c = _poly(rec["ring"]).centroid
-    f0 = DeckFrame(c.x, c.y, 0.0)
-    (ax, az), (bx, bz) = (f0.to_local(*_mean(rec["seats_a"])),
-                          f0.to_local(*_mean(rec["seats_b"])))
-    hdg = math.degrees(math.atan2(bx - ax, -(bz - az))) % 360.0
-    return DeckFrame(c.x, c.y, hdg)
-
-
-def _top_fn(rec: _t.Mapping, frame: DeckFrame):
-    """``top_y(x, z)``: the deck's one plane in the object frame -- level
-    across the route, ``top_a`` at end A rising to ``top_b`` at end B,
-    plus ``top_lift_m`` (the object's zero is the deck's zero)."""
-    a = frame.to_local(*_mean(rec["seats_a"]))
-    b = frame.to_local(*_mean(rec["seats_b"]))
-    dx, dz = b[0] - a[0], b[1] - a[1]
-    n2 = dx * dx + dz * dz or 1.0
-    ta, tb, lift = float(rec["top_a"]), float(rec["top_b"]), float(rec.get("top_lift_m", 0.02))
-
-    def top_y(x: float, z: float) -> float:
-        t = ((x - a[0]) * dx + (z - a[1]) * dz) / n2
-        return ta + t * (tb - ta) + lift
-    return top_y
-
-
-def _paint_of(dropped, R_local: Polygon, frame: DeckFrame, light_step: float
-              ) -> tuple[list[DeckLine], list[DeckLight], dict]:
-    """The dropped apt.dat ``120`` pieces inside the deck, as X-Plane's
-    own stripes (``deck_paint``) and named lights."""
-    lines: list[DeckLine] = []
-    lights: list[DeckLight] = []
-    stats = {"lines": 0, "unpainted": 0, "lights": 0}
-    inner = R_local.buffer(-0.05)
-    for d in dropped:
-        g = LineString([frame.to_local(lo, la) for lo, la in d.points])
-        g = g.intersection(inner)
-        for piece in getattr(g, "geoms", [g]):
-            if piece.is_empty or piece.geom_type != "LineString" or piece.length < 0.2:
-                continue
-            stripes = _paint.stripes_of(int(d.line)) if d.line else ()
-            if d.line and not stripes:
-                stats["unpainted"] += 1
-            for k, (off, w, colour, dash) in enumerate(stripes):
-                ln = piece.parallel_offset(off, "left") if abs(off) > 1e-6 else piece
-                for gg in getattr(ln, "geoms", [ln]):
-                    if gg.is_empty or gg.length < 0.05:
-                        continue
-                    for seg in _paint.dashed_pieces(gg, dash):
-                        lines.append(DeckLine(tuple(seg.coords), w, colour,
-                                              0.0 if colour == "black" else 0.004 * (k + 1)))
-                stats["lines"] += 1
-            names = _paint.light_names(int(d.light)) if d.light else ()
-            if names:
-                s = light_step / 2.0
-                while s < piece.length:
-                    p = piece.interpolate(s)
-                    lights += [DeckLight(n, p.x, p.y) for n in names]
-                    stats["lights"] += 1
-                    s += light_step
-    return lines, lights, stats
 
 
 def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
@@ -171,31 +99,33 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
         except OSError as exc:
             out["notes"].append(f"apt.dat unreadable ({exc}): no paint redrawn")
     g = law.tables.structures.deck_gen
-    out["links"] = {}
-    art = _art(apt_path, g, out, xplane_root, resolve_library) if decks else {}
+    art = _install(apt_path, g, xplane_root, resolve_library) if decks else None
+    apt = _apt_block(apt_path, icao) if decks else None
     for k, d in enumerate(decks):
-        frame = _deck_frame(d)
-        R = transform(lambda x, y, _z=None, _f=frame: _f.to_local(x, y), _poly(d["ring"]))
-        top_y = _top_fn(d, frame)
-        lines, lights, st = _paint_of(dropped_by_deck.get(k, ()), R, frame,
-                                      float(g.light_spacing_m))
+        code = _pav.carried_surface(apt, _poly(d["ring"]), str(d.get("family") or "")) \
+            if apt is not None else None
+        objs, st = _objs.deck_objects(d, dropped_by_deck.get(k, ()), art, g, surface_code=code)
         rel = str(d["resource"])
-        head = [f"{d['object_id']} spec 2123 A2: zero {float(d['zero_m']):.3f} m heading "
-                f"{frame.heading_deg:.3f}"]
-        objs = _deck_objects(rel, R, top_y, d, frame, lines, lights, art, g, head)
+        frame = st["frame"]
         for orel, text in objs:
             out["files"][orel] = text.encode("ascii")
             out["decks"].append({"object_id": d["object_id"] + orel[len(rel) - 4:-4],
                                  "resource": orel, "lon": frame.lon, "lat": frame.lat,
                                  "msl": round(float(d["zero_m"]), 4),
                                  "hdg": round(frame.heading_deg, 6)})
-        out["notes"].append(f"deck {d['object_id']}: {len(R.exterior.coords) - 1}-point ring "
-                            f"{R.area:,.0f} m2, zero {float(d['zero_m']):.2f} m, "
-                            f"{st['lines']} stripe run(s) of {len(dropped_by_deck.get(k, ()))} "
+        R = _poly(d["ring"])
+        out["notes"].append(f"deck {d['object_id']}: {len(R.exterior.coords) - 1}-point ring, "
+                            f"zero {float(d['zero_m']):.2f} m, heading {frame.heading_deg:.1f}, "
+                            f"surface {code if code is not None else 'unknown'} "
+                            f"({st.get('slab') or 'generated atlas'}), {st['parts']} part(s) "
+                            f"({st.get('piers', 0)} column(s)), "
+                            f"{st['lines']} line run(s) of {len(dropped_by_deck.get(k, ()))} "
                             f"dropped line piece(s), {st['lights']} light(s), "
                             f"{len(objs)} object(s)"
                             + (f", {st['unpainted']} line(s) of a type not painted"
                                if st["unpainted"] else ""))
+    if art is not None:
+        out["links"] = dict(art.links)
     if decks:
         out["files"][f"{GENERATED_DIR}/{TEXTURE}"] = _tex.deck_texture_png()
     for b in bridges:
@@ -208,78 +138,24 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
     return out
 
 
-def _art(apt_path: str, g, out: dict, root: "str | None", resolve) -> dict:
-    """#2132: X-Plane's own art for the decks (``deck_skin``): ``{"slab":
-    DeckSkin, "rubber": (texture name, PageArt)}`` for what the install
-    resolves, its files placed in ``out["links"]`` (pack path -> source)."""
+def _install(apt_path: str, g, root: "str | None", resolve):
+    """#2132: X-Plane's own art for the decks (``deck_objects.install_art``)
+    from the install the pack stands in, else the app's (``deck_skin``)."""
     from . import deck_skin as _skin
-    from .deck_obj8 import DeckSkin
     root = _skin.install_root(apt_path) if root is None else root
-    slab, rubber = (_skin.page_art(str(g.concrete_pol), root, resolve),
-                    _skin.page_art(str(g.rubber_pol), root, resolve))
-    art: dict = {}
-    if slab is not None:
-        names = [_skin.link_name(p) for p in (slab.albedo, slab.normal) if p]
-        for name, src in zip(names, (slab.albedo, slab.normal), strict=False):
-            out["links"][f"{GENERATED_DIR}/{name}"] = src
-        art["slab"] = DeckSkin(names[0], slab.scale_m, names[1] if len(names) > 1 else "")
-    if rubber is not None:
-        name = _skin.link_name(rubber.albedo)
-        out["links"][f"{GENERATED_DIR}/{name}"] = rubber.albedo
-        art["rubber"] = (name, rubber)
-    out["notes"].append(
-        "deck art: " + (f"slab {os.path.basename(slab.albedo)} ({g.concrete_pol}, "
-                        f"{slab.scale_m[0]:g} x {slab.scale_m[1]:g} m)" if slab else
-                        f"slab on the generated atlas ({g.concrete_pol} not in the install "
-                        f"{root or '(none found)'})")
-        + (f", tire marks {os.path.basename(rubber.albedo)}" if rubber else ", no tire marks"))
-    return art
+    return _objs.install_art(g, root, resolve)
 
 
-def _rubber_sheet(R: Polygon, d: _t.Mapping, frame: DeckFrame, art) -> list:
-    """#2132: the tire marks as one film along the carried route's
-    centreline (its mean ``x`` in the deck frame, the route running along
-    ``-z``), one ``SCALE`` repeat wide, its densest wheel band (u 0.375) on
-    the centreline, clipped to the deck."""
-    from .deck_obj8 import DeckSheet
-    _name, page = art
-    w, h = page.scale_m
-    route = [frame.to_local(lo, la) for lo, la in d.get("route") or ()]
-    inside = LineString(route).intersection(R) if len(route) >= 2 else None
-    pts = list(getattr(inside, "coords", ())) if inside is not None and \
-        inside.geom_type == "LineString" else []
-    x0 = sum(p[0] for p in pts) / len(pts) if pts else R.centroid.x
-    strip = Polygon([(x0 - 0.375 * w, -1e5), (x0 + 0.625 * w, -1e5),
-                     (x0 + 0.625 * w, 1e5), (x0 - 0.375 * w, 1e5)])
-    film = strip.intersection(R.buffer(-0.05))
-    return [DeckSheet(q, lambda x, z, _x0=x0: ((x - _x0) / w + 0.375, -z / h), 0.01)
-            for q in getattr(film, "geoms", [film]) if q.geom_type == "Polygon" and q.area > 1.0]
-
-
-def _deck_objects(rel: str, R: Polygon, top_y, d: _t.Mapping, frame: DeckFrame,
-                  lines, lights, art: dict, g, head: list) -> list[tuple[str, str]]:
-    """``[(pack path, OBJ8 text)]`` of one deck: the slab (in X-Plane's
-    concrete where the install has it, #2132) and, as the slab's texture
-    then cannot carry them, the paint + lights and the tire marks as
-    overlay objects at the same anchor; else one object on the atlas."""
-    from .deck_obj8 import overlay_obj8_text
-    thick, lod = float(d.get("thickness_m", 1.0)), (0.0, float(g.lod_m))
-    slab = art.get("slab")
-    if slab is None:
-        return [(rel, deck_obj8_text(R, top_y, thickness_m=thick, texture=TEXTURE,
-                                     lines=lines, lights=lights, lod_m=lod, comments=head))]
-    out = [(rel, deck_obj8_text(R, top_y, thickness_m=thick, texture=TEXTURE, lod_m=lod,
-                                comments=head, skin=slab))]
-    if lines or lights:
-        out.append((rel[:-4] + "_paint.obj",
-                    overlay_obj8_text(top_y, texture=TEXTURE, lines=lines, lights=lights,
-                                      lod_m=lod, comments=head)))
-    sheets = _rubber_sheet(R, d, frame, art["rubber"]) if "rubber" in art else []
-    if sheets:
-        out.append((rel[:-4] + "_rubber.obj",
-                    overlay_obj8_text(top_y, texture=art["rubber"][0], sheets=sheets,
-                                      lod_m=lod, comments=head)))
-    return out
+def _apt_block(apt_path: str, icao: str):
+    """The airport's apt.dat block as shipped (``apt_dat.AptAirport``), or
+    ``None`` (the decks then keep ``[deck_gen] concrete_pol``)."""
+    from . import apt_dat as _apt
+    from . import apt_flatten as _af
+    try:
+        block = _apt.read_airport_block(_af.read_path(apt_path), icao) if apt_path else None
+        return _apt.parse_airport_block(block) if block else None
+    except (OSError, ValueError):
+        return None
 
 
 def regions_of(rec: _t.Mapping) -> list[Polygon]:

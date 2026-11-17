@@ -449,3 +449,54 @@ def test_a_road_ending_at_a_mouth_and_a_tunnel_at_a_floor_ring_are_faces(monkeyp
                         lambda root, la, lo, r, b=None: [(-3, "primary", short, False)])
     assert DR.road_layer([("s", lat0, lon0, 50.0)], cut, "/nowhere", 0.5,
                          floors=floors)["verdict"] == "FAIL"
+
+
+def test_the_lidar_layer_reads_drawn_ground_against_the_survey(monkeypatch):
+    """#2128 R2 step 1: the drawn ground inside a site's radius against the
+    airport's inset -- the share off by more than 2 m outside the deck rings
+    and the airside pavement, and every mapped road farther than 25 m from a
+    deck within 0.5 m of it."""
+    import drawn_lidar as DL
+    import numpy as np
+    lat0, lon0 = 45.5, 10.5
+    kx = DL._M_PER_DEG * math.cos(math.radians(lat0))
+    # a flat survey at 20 m on a 1 m-ish grid round the site
+    gt = (lon0 - 200.0 / kx, 1.0 / kx, 0.0, lat0 + 200.0 / DL._M_PER_DEG, 0.0,
+          -1.0 / DL._M_PER_DEG)
+    lidar = DL.Lidar(array=np.full((400, 400), 20.0), geotransform=gt)
+
+    def box(x0, x1, y0, y1):            # metres east / north of the site
+        return [(lat0 + y / DL._M_PER_DEG, lon0 + x / kx)
+                for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0))]
+    slab = box(-20.0, 20.0, -20.0, 20.0)     # 40 x 40 m held 7 m over the survey
+
+    def drawn(lats, lons):
+        x, y = (np.asarray(lons) - lon0) * kx, (np.asarray(lats) - lat0) * DL._M_PER_DEG
+        return np.where((np.abs(x) <= 20.0) & (np.abs(y) <= 20.0), 27.0, 20.0)
+    site = [("s", lat0, lon0, 50.0)]
+    rep = DL.lidar_layer(site, drawn, lidar)
+    row = rep["sites"][0]
+    # the 40 m slab: 39-41 grid rows a side of the ~7,850 samples in 50 m
+    assert rep["verdict"] == "FAIL" and 1521 <= row["share_pct"] * row["samples"] / 100.0 \
+        <= 1681 and row["below_pct"] == 0.0
+    # the slab is a deck ring (or kept airside pavement): not read
+    assert DL.lidar_layer(site, drawn, lidar, decks=[slab])["verdict"] == "PASS"
+    assert DL.lidar_layer(site, drawn, lidar, paved=[slab])["sites"][0]["share_pct"] == 0.0
+    # roads: one across the slab, a deck ring at its middle -- a road
+    # sample within 25 m of the deck is its trench's, farther it is judged
+    road = [(lat0, lon0 - 49.0 / kx), (lat0, lon0 + 49.0 / kx)]
+    import drawn_roads as DR
+    monkeypatch.setattr(DR, "road_lines", lambda root, la, lo, r, b=None:
+                        [(-1, "primary", road, False)])
+    deck = box(-5.0, 5.0, -5.0, 5.0)
+    got = DL.lidar_layer(site, drawn, lidar, decks=[deck], paved=[slab], osm_root="/x")
+    assert got["sites"][0]["road_dev_m"] == pytest.approx(0.0) and got["verdict"] == "PASS"
+    far = DL.lidar_layer(site, drawn, lidar, decks=[box(40.0, 45.0, 40.0, 45.0)],
+                         paved=[slab], osm_root="/x")
+    assert far["verdict"] == "FAIL" and far["sites"][0]["road_dev_m"] == pytest.approx(7.0)
+    # the deck ring as drawn: the hull of its end lines' stations
+    side = {"deck_anchors": [{"object": "o", "stations": [[0.0, 0.0], [0.0, 1.0]]},
+                             {"object": "o", "stations": [[1.0, 0.0], [1.0, 1.0]]},
+                             {"object": "p", "stations": [[5.0, 5.0]]}]}
+    rings = DL.deck_rings(side)
+    assert len(rings) == 1 and len(rings[0]) == 5

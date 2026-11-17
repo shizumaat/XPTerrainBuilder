@@ -36,6 +36,12 @@ wall, under the building's own wall), and
   12-20 m out in the lot beside walls whose feet are the upper floor, and
   its 10 m band sank the lot 1.2 m under the lidar; a record with no runs
   keeps its box sides;
+* THE UPPER WINGS STAND ON THE UPPER GROUND (#1934 R5, owner sim read
+  2026-11-17T05:18Z, KLAX: "There's no pit there, terminal 8, sitting on
+  the apron"): the part of the plan an arc of upper-footed walls holds
+  (``airport/split_level_wings``) is no part of the pit -- KLAX
+  ``Terminal_8``'s concourse wing, every wall footed on its upper floor
+  over 35.2-35.8 m of lidar, sank 4.6 m with the block beside it;
 * every member of the building is seated with its lower floor ON the
   floor (``pipeline/rebake_inputs``, ``Basin.kind`` ``split_level``: one
   frame, one seat), with no plate clearance (a floor, not a plate:
@@ -60,6 +66,7 @@ from shapely.prepared import prep
 
 from ..airport.deck_roof import read_deck_roofs
 from ..airport.split_level import SplitLevel, read_split_levels
+from ..airport.split_level_wings import upper_wings
 from ..geom.parts import polygon_parts_with_area
 from ..law.tables import apron_roles, frontage_roles, pavement_roles, role_side
 from ..model.structures import Basin
@@ -103,6 +110,7 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
     reach = float(getattr(bp, "split_level_back_cut_m", 0.0) or 0.0)
     road_reach = float(getattr(bp, "split_level_road_reach_m", 0.0) or 0.0)
     rim_step = float(getattr(bp, "split_level_rim_step_m", 0.0) or 0.0)
+    probe = float(bp.split_level_probe_m)
     gside = frozenset(r for r in pr if role_side(law, r) == "groundside")
     roads_g = unary_union([p for p, c in zip(polys, cells, strict=True)
                            if c.role in gside]).buffer(0)
@@ -141,7 +149,14 @@ def split_level_pits(airport, cells, polys, law, objects, cache, k0: int,
         # airside"): its plan is what the building covers
         # (``SplitLevel.pit_plan``), never the apron its rotated box holds
         # between piers -- the box only screens the refusals above
-        under = _rim(sl.pit_plan, 0.0, grid) or box
+        # ... less its UPPER WINGS (#1934 R5): the plan its upper walls
+        # hold stands on the upper ground, no pit under it
+        low = _lower_plan(sl, probe)
+        if low is None:
+            refused.append(f"{sl.id} {name}: its upper walls hold the whole plan -- it "
+                           "stands on its upper ground")
+            continue
+        under = _rim(low, 0.0, grid) or box
         own = under if pits is None else _largest(under.difference(pits))
         if own is None or own.area < 0.5 * under.area:
             refused.append(f"{sl.id} {name}: the split-level box is taken by another pit")
@@ -248,6 +263,21 @@ def _tall_lines(sl: SplitLevel) -> tuple:
         return tuple(sl.closed_sides)
     return tuple(r for (r, f), k in zip(sl.runs, sl.run_levels, strict=True)
                  if k == 0 and f is not None)
+
+
+def _lower_plan(sl: SplitLevel, probe: float) -> "Polygon | None":
+    """The plan the pit is cut under: :attr:`SplitLevel.pit_plan` less the
+    part its upper walls hold (``airport/split_level_wings``; the largest
+    part left), or ``None`` when they hold all of it.  A record without
+    the storey reading keeps the whole plan."""
+    plan = sl.pit_plan
+    if sl.plan is None or len(sl.levels) < 2 or not sl.runs:
+        return plan
+    wings = upper_wings(plan, [(r.coords[0], r.coords[-1]) for r, _f in sl.runs],
+                        sl.run_levels, probe)
+    if not wings:
+        return plan
+    return _largest(plan.difference(unary_union(list(wings.values()))))
 
 
 def _cut_region(sl: SplitLevel, reach: float, blocked, footprint=None) -> Polygon:

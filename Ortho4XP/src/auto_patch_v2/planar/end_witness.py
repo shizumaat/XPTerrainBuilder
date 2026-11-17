@@ -32,6 +32,10 @@ object] bore_end_tolerance_m``):
    runway and the parking lot carry ``Road_Tunnel.obj`` /
    ``KBUF_Terminal_Parking_Underpass.obj`` and were refused here).
 
+7. a GENERATED deck over the bore (``planar/deck_generated.covers_bore``,
+   #2131) -- at EITHER end, however far it stands past the ring: the
+   generator spans a road only where its whole cover is a bridge's.
+
 With none the end is not opened -- no ramp, no trench -- and the refusal is
 named beside #1028's.  MEASURED ENGM: the six switch ends R1 already
 refuses; the four rail underpasses 2-6 km out read no witness; the north
@@ -79,7 +83,7 @@ def needs_witness(bore, end, law: Law, fence, surfaces: bool = True) -> str | No
 
 
 class EndWitness:
-    """The six per-end witnesses over one structures pass (module doc)."""
+    """The per-end witnesses over one structures pass (module doc)."""
 
     def __init__(self, on_field, law: Law) -> None:
         from .structure_fence import _LidarCut, _Portals
@@ -89,12 +93,24 @@ class EndWitness:
         self._prints = [p for p in (getattr(on_field, "corridor_prints", ()) or ())
                         if p is not None and not p.is_empty]
         self._pins = list(getattr(on_field, "portal_ends", ()) or ())
+        self._generated = list(getattr(on_field, "generated_decks", ()) or ())
         self._portals = _Portals(airport, law, ()) if airport is not None else None
         self._lidar = _LidarCut(airport, law) if airport is not None else None
         # read at load (``pipeline/build.pack_stage``), never here
         self._mesh = getattr(airport, "terrain_mesh", None)
         self._reach = 2.0 * float(law.tables.structures.tunnel.mouth_depth_m) \
             / float(law.tables.structures.tunnel.ramp_max_grade)
+
+    def over(self, bore) -> str | None:
+        """Witness 7 (module doc): the generated deck over ``bore``, named."""
+        from .deck_generated import covers_bore
+        line = getattr(bore, "line", None)
+        if line is None:
+            return None
+        for db in self._generated:
+            if covers_bore(db, line):
+                return f"the generated deck {db.object_id} over it"
+        return None
 
     def at(self, end, path: _t.Sequence) -> str | None:
         """The witness standing at ``end`` (its approach ``path``), named,

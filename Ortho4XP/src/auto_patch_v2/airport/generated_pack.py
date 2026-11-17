@@ -13,7 +13,10 @@ applies it in the same write as every other placement edit
   stripes, ``deck_paint``; the green centreline lights kept as
   ``taxi_g`` / ``taxi_g_rev``) under ``objects/o4_generated/`` with its
   texture (``deck_texture``), placed by one ``OBJECT_MSL`` row at the
-  deck's solved zero;
+  deck's solved zero; where the user's X-Plane install resolves them
+  (#2132, ``deck_skin``) the slab is drawn in X-Plane's own concrete
+  page and the paint + lights and the tire marks (the runway rubber page)
+  are overlay objects at the same anchor, the art LINKED into the folder;
 * every pack ``.pol`` / ``.lin`` page is clipped by the deck's ring and by
   each bridge's span corridor (``dsf_poly_clip``; a UV-mapped page under
   one refuses that structure by name);
@@ -135,8 +138,11 @@ def _paint_of(dropped, R_local: Polygon, frame: DeckFrame, light_step: float
     return lines, lights, stats
 
 
-def recipe(generated: _t.Mapping, apt_path: str, icao: str, law) -> dict:
+def recipe(generated: _t.Mapping, apt_path: str, icao: str, law,
+           xplane_root: "str | None" = None) -> dict:
     """The write recipe of an airport's generated structures (module doc):
+    ``xplane_root`` the install whose art draws the decks (#2132), ``None``
+    to find it (``deck_skin.install_root``), ``""`` for none (the atlas).
     ``{"decks": [placement rows], "regions": [WKT], "chains": [...],
     "files": {pack-relative path: bytes}, "notes": [...]}``; empty lists
     where nothing was generated."""
@@ -146,7 +152,9 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law) -> dict:
     out: dict = {"decks": [], "regions": [], "chains": [], "files": {}, "notes": []}
     if not decks and not bridges:
         return out
+    # #2131: a deck's open approaches leave the pack's pages with its ring
     regions = [_poly(d["ring"]) for d in decks] + \
+        [_poly(q) for d in decks for q in d.get("approach") or () if len(q) >= 3] + \
         [_wkt.loads(b["span_wkt"]) for b in bridges if b.get("span_wkt")]
     dropped_by_deck: dict[int, list] = {}
     if apt_path:
@@ -160,6 +168,8 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law) -> dict:
         except OSError as exc:
             out["notes"].append(f"apt.dat unreadable ({exc}): no paint redrawn")
     g = law.tables.structures.deck_gen
+    out["links"] = {}
+    art = _art(apt_path, g, out, xplane_root) if decks else {}
     for k, d in enumerate(decks):
         frame = _deck_frame(d)
         R = transform(lambda x, y, _z=None, _f=frame: _f.to_local(x, y), _poly(d["ring"]))
@@ -167,21 +177,20 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law) -> dict:
         lines, lights, st = _paint_of(dropped_by_deck.get(k, ()), R, frame,
                                       float(g.light_spacing_m))
         rel = str(d["resource"])
-        text = deck_obj8_text(R, top_y, thickness_m=float(d.get("thickness_m", 1.0)),
-                              texture=TEXTURE, lines=lines, lights=lights,
-                              lod_m=(0.0, float(g.lod_m)),
-                              comments=[f"{d['object_id']} spec 2123 A2: zero "
-                                        f"{float(d['zero_m']):.3f} m heading "
-                                        f"{frame.heading_deg:.3f}"])
-        out["files"][rel] = text.encode("ascii")
-        out["decks"].append({"object_id": d["object_id"], "resource": rel,
-                             "lon": frame.lon, "lat": frame.lat,
-                             "msl": round(float(d["zero_m"]), 4),
-                             "hdg": round(frame.heading_deg, 6)})
+        head = [f"{d['object_id']} spec 2123 A2: zero {float(d['zero_m']):.3f} m heading "
+                f"{frame.heading_deg:.3f}"]
+        objs = _deck_objects(rel, R, top_y, d, frame, lines, lights, art, g, head)
+        for orel, text in objs:
+            out["files"][orel] = text.encode("ascii")
+            out["decks"].append({"object_id": d["object_id"] + orel[len(rel) - 4:-4],
+                                 "resource": orel, "lon": frame.lon, "lat": frame.lat,
+                                 "msl": round(float(d["zero_m"]), 4),
+                                 "hdg": round(frame.heading_deg, 6)})
         out["notes"].append(f"deck {d['object_id']}: {len(R.exterior.coords) - 1}-point ring "
                             f"{R.area:,.0f} m2, zero {float(d['zero_m']):.2f} m, "
                             f"{st['lines']} stripe run(s) of {len(dropped_by_deck.get(k, ()))} "
-                            f"dropped line piece(s), {st['lights']} light(s)"
+                            f"dropped line piece(s), {st['lights']} light(s), "
+                            f"{len(objs)} object(s)"
                             + (f", {st['unpainted']} line(s) of a type not painted"
                                if st["unpainted"] else ""))
     if decks:
@@ -193,6 +202,80 @@ def recipe(generated: _t.Mapping, apt_path: str, icao: str, law) -> dict:
         out["notes"].append(f"road bridge {b.get('id')}: {len(b['junctions'])} junction(s), "
                             f"subtype {b['subtype']}")
     out["regions"] = [r.wkt for r in regions]
+    return out
+
+
+def _art(apt_path: str, g, out: dict, root: "str | None") -> dict:
+    """#2132: X-Plane's own art for the decks (``deck_skin``): ``{"slab":
+    DeckSkin, "rubber": (texture name, PageArt)}`` for what the install
+    resolves, its files placed in ``out["links"]`` (pack path -> source)."""
+    from . import deck_skin as _skin
+    from .deck_obj8 import DeckSkin
+    root = _skin.install_root(apt_path) if root is None else root
+    slab, rubber = (_skin.page_art(str(g.concrete_pol), root),
+                    _skin.page_art(str(g.rubber_pol), root))
+    art: dict = {}
+    if slab is not None:
+        names = [_skin.link_name(p) for p in (slab.albedo, slab.normal) if p]
+        for name, src in zip(names, (slab.albedo, slab.normal), strict=False):
+            out["links"][f"{GENERATED_DIR}/{name}"] = src
+        art["slab"] = DeckSkin(names[0], slab.scale_m, names[1] if len(names) > 1 else "")
+    if rubber is not None:
+        name = _skin.link_name(rubber.albedo)
+        out["links"][f"{GENERATED_DIR}/{name}"] = rubber.albedo
+        art["rubber"] = (name, rubber)
+    out["notes"].append(
+        "deck art: " + (f"slab {os.path.basename(slab.albedo)} ({g.concrete_pol}, "
+                        f"{slab.scale_m[0]:g} x {slab.scale_m[1]:g} m)" if slab else
+                        f"slab on the generated atlas ({g.concrete_pol} not in the install "
+                        f"{root or '(none found)'})")
+        + (f", tire marks {os.path.basename(rubber.albedo)}" if rubber else ", no tire marks"))
+    return art
+
+
+def _rubber_sheet(R: Polygon, d: _t.Mapping, frame: DeckFrame, art) -> list:
+    """#2132: the tire marks as one film along the carried route's
+    centreline (its mean ``x`` in the deck frame, the route running along
+    ``-z``), one ``SCALE`` repeat wide, its densest wheel band (u 0.375) on
+    the centreline, clipped to the deck."""
+    from .deck_obj8 import DeckSheet
+    _name, page = art
+    w, h = page.scale_m
+    route = [frame.to_local(lo, la) for lo, la in d.get("route") or ()]
+    inside = LineString(route).intersection(R) if len(route) >= 2 else None
+    pts = list(getattr(inside, "coords", ())) if inside is not None and \
+        inside.geom_type == "LineString" else []
+    x0 = sum(p[0] for p in pts) / len(pts) if pts else R.centroid.x
+    strip = Polygon([(x0 - 0.375 * w, -1e5), (x0 + 0.625 * w, -1e5),
+                     (x0 + 0.625 * w, 1e5), (x0 - 0.375 * w, 1e5)])
+    film = strip.intersection(R.buffer(-0.05))
+    return [DeckSheet(q, lambda x, z, _x0=x0: ((x - _x0) / w + 0.375, -z / h), 0.01)
+            for q in getattr(film, "geoms", [film]) if q.geom_type == "Polygon" and q.area > 1.0]
+
+
+def _deck_objects(rel: str, R: Polygon, top_y, d: _t.Mapping, frame: DeckFrame,
+                  lines, lights, art: dict, g, head: list) -> list[tuple[str, str]]:
+    """``[(pack path, OBJ8 text)]`` of one deck: the slab (in X-Plane's
+    concrete where the install has it, #2132) and, as the slab's texture
+    then cannot carry them, the paint + lights and the tire marks as
+    overlay objects at the same anchor; else one object on the atlas."""
+    from .deck_obj8 import overlay_obj8_text
+    thick, lod = float(d.get("thickness_m", 1.0)), (0.0, float(g.lod_m))
+    slab = art.get("slab")
+    if slab is None:
+        return [(rel, deck_obj8_text(R, top_y, thickness_m=thick, texture=TEXTURE,
+                                     lines=lines, lights=lights, lod_m=lod, comments=head))]
+    out = [(rel, deck_obj8_text(R, top_y, thickness_m=thick, texture=TEXTURE, lod_m=lod,
+                                comments=head, skin=slab))]
+    if lines or lights:
+        out.append((rel[:-4] + "_paint.obj",
+                    overlay_obj8_text(top_y, texture=TEXTURE, lines=lines, lights=lights,
+                                      lod_m=lod, comments=head)))
+    sheets = _rubber_sheet(R, d, frame, art["rubber"]) if "rubber" in art else []
+    if sheets:
+        out.append((rel[:-4] + "_rubber.obj",
+                    overlay_obj8_text(top_y, texture=art["rubber"][0], sheets=sheets,
+                                      lod_m=lod, comments=head)))
     return out
 
 
@@ -239,8 +322,16 @@ def apply_text(text: str, rec: _t.Mapping, net_default: str = "") -> tuple[str, 
 
 
 def write_files(pack_root: str, rec: _t.Mapping) -> list[str]:
-    """Write the recipe's files into the pack; the paths written."""
+    """Write the recipe's files into the pack, and place its LINKS to the
+    user's X-Plane art (#2132, ``O4_World_Pack.share_file``: a symbolic
+    link, else a hard link, else one copy); the paths written."""
+    import O4_World_Pack as _wp
     out = []
+    for rel, src in sorted(((rec or {}).get("links") or {}).items()):
+        path = os.path.join(pack_root, *rel.split("/"))
+        if os.path.isfile(src):
+            _wp.share_file(src, path, symlink=True)
+            out.append(path)
     for rel, data in sorted(((rec or {}).get("files") or {}).items()):
         path = os.path.join(pack_root, *rel.split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -265,7 +356,7 @@ def remove(pack_root: str, rels: _t.Iterable[str]) -> list[str]:
         if not _is_generated_file(rel):
             continue
         path = os.path.join(pack_root, *rel.split("/"))
-        if not os.path.isfile(path):
+        if not (os.path.isfile(path) or os.path.islink(path)):   # a link to X-Plane's art
             continue
         if path.endswith(".obj"):
             try:
@@ -289,6 +380,7 @@ def record(backup_sha: str, rec: _t.Mapping, counts: _t.Mapping, stamp: str) -> 
             "decks": list(rec.get("decks") or ()), "regions": list(rec.get("regions") or ()),
             "chains": list(rec.get("chains") or ()),
             "files": sorted(set((rec.get("files") or {}).keys())
+                            | set((rec.get("links") or {}).keys())
                             | set(rec.get("kept_files") or ())),
             "sha256": {k: hashlib.sha256(v).hexdigest()
                        for k, v in sorted((rec.get("files") or {}).items())},

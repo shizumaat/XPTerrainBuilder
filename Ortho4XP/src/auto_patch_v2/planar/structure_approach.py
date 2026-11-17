@@ -492,6 +492,8 @@ def field_region_for(airport, law: Law, polys: _t.Sequence[Polygon],
     region.deck_objects = {i for d in decks for i in d.members}
     from .deck_bridge import deck_polygon
     region.deck_polys = [deck_polygon(d) for d in decks]
+    from .deck_generated import is_generated
+    region.generated_decks = [d for d in decks if is_generated(d)]
     region.portal_ends = [(tuple(p.end_xy), p.object_id, p.resource) for p in portals]
     region.grade_ends = list(grade_ends)
     region.airside = list(airside)
@@ -798,7 +800,7 @@ def _unwitnessed(bore: Bore, end: XY, path, law: Law, fence, witness) -> str | N
     # a mapped way comes out of the end: the approach walked one (``approach``
     # appends a lone straight extension where none continues)
     kind = needs_witness(bore, end, law, fence, surfaces=len(path) > 2)
-    if kind is None or witness.at(end, path):
+    if kind is None or witness.over(bore) or witness.at(end, path):
         return None
     ids = "+".join(str(w.id) for w in bore.ways)
     return (f"bore {ids}: its {kind} end at {end[0]:.0f},{end[1]:.0f} has no portal "

@@ -59,6 +59,7 @@ def generated_records(planar, law, airport, z) -> dict[str, list[dict]]:
             "top_a": round(float(db.top_a), 4), "top_b": round(float(db.top_b), 4),
             "zero_m": round(float(zero), 4), "family": db.family,
             "route": _ll(to_ll, db.route), "road": _ll(to_ll, db.road),
+            "approach": [_ll(to_ll, q) for q in getattr(db, "approach", ()) or ()],
             "thickness_m": float(g.thickness_m), "top_lift_m": float(g.top_lift_m)})
     bridges = [{k: v for k, v in dict(b).items() if k != "span_xy"}
                for b in getattr(airport, "road_bridges", ()) or ()]

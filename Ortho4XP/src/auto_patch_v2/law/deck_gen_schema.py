@@ -26,8 +26,12 @@ class DeckGenLaw:
     bearing_m: float = 2.0
     #: A2 / Q3: the deck ring stands this far outside the pavement (m)
     edge_margin_m: float = 1.5
-    #: A2: the bank each side of a road's carriageway inside C (m), 30b
-    bank_m: float = 3.0
+    #: #2131 THE DECK SPANS ITS CUT: the level floor each side of a
+    #: covered road's carriageway -- the drawn road's shoulders -- under
+    #: the deck and along its ramps (m); the bank's run (the slab plus the
+    #: clearance over ``emit.design.bank_slope``) stands beyond it, under
+    #: the deck
+    shoulder_m: float = 1.5
     #: A2: the slab's thickness (m)
     thickness_m: float = 1.0
     #: A2: the top stands this far over the solved end lines (m)
@@ -45,6 +49,12 @@ class DeckGenLaw:
     lod_m: float = 6000.0
     #: A2: a centreline light every this many metres on the deck (m), Q4
     light_spacing_m: float = 15.0
+    #: #2132: the X-Plane pavement page whose art (TEXTURE, TEXTURE_NORMAL,
+    #: SCALE) draws the slab, linked from the user's install
+    #: (``airport/deck_skin``); unresolved -> the generated atlas
+    concrete_pol: str = "lib/airport/pavement/concrete_4D.pol"
+    #: #2132: the page whose alpha art is the tire marks along the route
+    rubber_pol: str = "lib/airport/default_runways/rubber.pol"
 
 
 @_dc.dataclass(frozen=True)

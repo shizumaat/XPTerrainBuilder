@@ -72,7 +72,7 @@ from . import obj8 as _obj8
 from .deck_signature import is_tunnel_way
 from .dem import dem_z_many
 
-__all__ = ["CutPortal", "cut_portals", "attach_cut_portals", "plan_union", "log_lines"]
+__all__ = ["CutPortal", "attach_cut_portals", "plan_union", "log_lines"]
 
 #: sampling step along a bore axis inside a frame's hull (metres): the
 #: DEM's own metre posting -- the floor is the lowest of these
@@ -281,7 +281,7 @@ def _candidates(objects, cache, bores, near, depth_min: float, on_zero: float) -
     return out
 
 
-def cut_portals(airport, objects: _t.Sequence[_obj8.PlacedObject],
+def _cut_portals(airport, objects: _t.Sequence[_obj8.PlacedObject],
                 cache: _obj8.ResourceCache, law) -> tuple[CutPortal, ...]:
     """Every placement of ``objects`` the witness reads as a portal in a cut
     (module doc), in ``objects`` order; ``()`` with no bore, DEM or cache."""
@@ -323,7 +323,7 @@ def attach_cut_portals(airport, objects, cache, law):
     replay); every reader takes them from there."""
     if getattr(airport, "frame", None) is None:
         return airport
-    return _dc.replace(airport, cut_portals=cut_portals(airport, objects, cache, law))
+    return _dc.replace(airport, cut_portals=_cut_portals(airport, objects, cache, law))
 
 
 def plan_union(portals: _t.Sequence[CutPortal]):

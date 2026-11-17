@@ -30,14 +30,14 @@ import typing as _t
 import numpy as np
 import shapely
 
-__all__ = ["PORTAL_PLATE", "PortalSeat", "portal_seats", "cover_stations"]
+__all__ = ["PORTAL_PLATE", "portal_seats"]
 
 #: the plate kind of a portal in a cut's seat (``anchor_rule.datum_of``)
 PORTAL_PLATE = "portal_cut"
 
 
 @_dc.dataclass(frozen=True)
-class PortalSeat:
+class _PortalSeat:
     """One portal's plate: its placement id, the authored ``y`` put on the
     cover and the stations (frame xy) the cover is read at."""
 
@@ -59,7 +59,7 @@ def _outline_points(plan, grid_m: float, step_m: float) -> np.ndarray:
     return np.concatenate(out) if out else np.zeros((0, 2))
 
 
-def cover_stations(portal, dem, grid_m: float, step_m: float) -> tuple:
+def _cover_stations(portal, dem, grid_m: float, step_m: float) -> tuple:
     """The stations of ``portal`` on the cover side (module doc): outline
     points whose DEM stands in the upper half of the cut's relief."""
     from .dem import dem_z_many
@@ -73,7 +73,7 @@ def cover_stations(portal, dem, grid_m: float, step_m: float) -> tuple:
 
 
 def portal_seats(airport, grid_m: float, step_m: float,
-                 taken: _t.Container[str] = frozenset()) -> tuple[PortalSeat, ...]:
+                 taken: _t.Container[str] = frozenset()) -> tuple[_PortalSeat, ...]:
     """Every portal in a cut of ``airport`` (``Airport.cut_portals``) the
     rule seats (module doc), one record per placement."""
     dem = getattr(airport, "dem", None)
@@ -81,7 +81,7 @@ def portal_seats(airport, grid_m: float, step_m: float,
     for p in getattr(airport, "cut_portals", ()) or ():
         if p.object_id in taken:
             continue
-        st = cover_stations(p, dem, grid_m, step_m)
+        st = _cover_stations(p, dem, grid_m, step_m)
         if st:
-            out.append(PortalSeat(p.object_id, float(p.top_y), st, p.resource))
+            out.append(_PortalSeat(p.object_id, float(p.top_y), st, p.resource))
     return tuple(out)

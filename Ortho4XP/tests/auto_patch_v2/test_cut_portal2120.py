@@ -18,8 +18,8 @@ import numpy as np
 import pytest
 from auto_patch_v2.airport import obj8
 from auto_patch_v2.airport.anchor_rule import datum_of
-from auto_patch_v2.airport.cut_portal import CutPortal, attach_cut_portals, cut_portals
-from auto_patch_v2.airport.cut_portal_seat import PORTAL_PLATE, cover_stations, portal_seats
+from auto_patch_v2.airport.cut_portal import CutPortal, attach_cut_portals
+from auto_patch_v2.airport.cut_portal_seat import PORTAL_PLATE, portal_seats
 from auto_patch_v2.airport.entrance_shade import entrance_shade
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.law import Law
@@ -81,6 +81,10 @@ def objs(tmp_path_factory):
     _slab(vt, tris, -60.0, 60.0, -10.0, 10.0, -8.0, 12.0)
     return {"dir": d, "portal": portal, "short": short, "walls": walls,
             "shell": _write(d / "shell.obj", vt, tris)}
+
+
+def cut_portals(ap, objects, cache, law):
+    return attach_cut_portals(ap, objects, cache, law).cut_portals
 
 
 def _read(objs, law, name="portal", depth=20.0, runways=None):
@@ -169,10 +173,10 @@ def test_a_portal_walls_its_mouth_with_the_cuts_depth_capped_by_its_solid():
 def test_the_seat_stands_the_top_on_the_cover_beside_the_cut():
     p = _portal()
     ap = types.SimpleNamespace(dem=_CutDem(), cut_portals=(p,))
-    st = cover_stations(p, ap.dem, 0.5, 5.0)
-    assert st and all(abs(x) >= 40.0 for x, _y in st)   # never in the cut
     got = portal_seats(ap, 0.5, 5.0)
-    assert len(got) == 1 and got[0].top_y == 20.0 and got[0].stations == st
+    assert len(got) == 1 and got[0].top_y == 20.0
+    st = got[0].stations
+    assert st and all(abs(x) >= 40.0 for x, _y in st)   # never in the cut
     assert portal_seats(ap, 0.5, 5.0, taken={"dsf:obj1"}) == ()
     m = types.SimpleNamespace(plate_y=20.0, plate_kind=PORTAL_PLATE,
                               plate_stations=((1.0, 2.0),))

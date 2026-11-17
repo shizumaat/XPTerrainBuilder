@@ -80,11 +80,14 @@ def test_an_at_mouth_vertex_is_levelled_at_its_own_target_and_the_run_links_down
     lv = {1020: 31.0, 1000: 31.0}
     over = {"foot": {20: (1020, 1020, 0.0, "apron"), 0: (1000, 1000, 0.0, "apron")},
             "pad": {}, "station": st}
-    mouth = {"foot": {20: (1020, 1020, 0.0, "apron")}, "pad": {}, "station": st,
-             "at_mouth": {0: True}}
+    mouth = dict(over, at_mouth={0: True})
     held, _r = terrace_profile(over, lv, floor, 0.10, design=0.05, lane=4.0)
     out, rep = terrace_profile(mouth, lv, floor, 0.10, design=0.05, lane=4.0)
     assert rep["at_mouth"] == 1 and out[0] == 25.0
     assert held[2] > 29.0                      # bordered: ridden 4 m over its ground
     assert out[2] == 25.0                      # at the mouth: on its ground
     assert all(out[v] <= out[v + 1] + 1e-9 for v in range(20))
+    # an at-mouth vertex with no target of its own keeps its foot's level
+    bare = {v: z for v, z in floor.items() if v != 0}
+    kept, _r = terrace_profile(mouth, lv, bare, 0.10, design=0.05, lane=4.0)
+    assert kept[0] == 31.0

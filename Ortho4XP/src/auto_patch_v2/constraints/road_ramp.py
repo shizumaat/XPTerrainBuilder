@@ -743,8 +743,8 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
       and then by the least grade that does (RULINGS 2026-10-09c (2b),
       :func:`_run_grade`);
     * an ``at_mouth`` vertex (a road at a structure mouth, 06c (5), #1939)
-      is levelled at its own ``floor`` target, as a bordered vertex at its
-      foot's;
+      with its own ``floor`` target is levelled there in place of its
+      foot's level (one without a target keeps its foot's);
     * a route with no levelled foot keeps its targets;
     * an ``anchors`` vertex — a §37 (9) COVERAGE-EDGE JOIN, where the core's
       levelled road takes over — is never governed, and every vertex of its
@@ -820,8 +820,9 @@ def terrace_profile(terrace: _t.Mapping[str, _t.Mapping],
     # 06c (5), #1939: a road vertex AT A STRUCTURE MOUTH (``road_terrace``'s
     # ``at_mouth``) is levelled at its own §37 (6) target, the mouth's ramp
     for v in terrace.get("at_mouth") or {}:
-        if v in floor and v not in lev:
+        if v in floor:
             lev[v] = float(floor[v])
+            capped.discard(v)
             rep["at_mouth"] = rep.get("at_mouth", 0) + 1
     by_route: dict[int, list[tuple[float, int]]] = {}
     for v, (r, s_) in station.items():

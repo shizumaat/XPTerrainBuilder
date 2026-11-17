@@ -105,8 +105,10 @@ def pit_bank_pieces(floors: _t.Sequence, airport, taken: _t.Sequence, apart: _t.
     out: list[tuple[str, _t.Any]] = []
     claimed = own
     for base, axis, w, rise in plan:
-        bank = axis.buffer(w, cap_style="flat" if axis.geom_type == "LineString" else "round",
-                           join_style="mitre", mitre_limit=2.0).difference(claimed)
+        # round at the run's ends: the bank wraps a convex corner (a gore's
+        # nose) and meets the rim just past the run, which eases to the DEM
+        bank = axis.buffer(w, cap_style="round", join_style="mitre",
+                           mitre_limit=2.0).difference(claimed)
         bank = _areal(bank)
         if bank.is_empty:
             continue

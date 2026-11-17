@@ -63,7 +63,7 @@ from .deck_route import carried_route
 from .structure_approach import carriageway_width_m, design_clearance_m, is_tunnel, standing_cover
 from .structure_underpass import underpass_bores
 
-__all__ = ["generated_bank_slope", "straight_sided",
+__all__ = ["generated_bank_slope",
            "generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
            "carried_off", "covers_bore"]
 
@@ -472,7 +472,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             notes.append(f"{where}: REFUSED -- {why}")
             continue
         road_dir = _mean_dir([r.line.intersection(piece) for r in under])
-        piece = straight_sided(piece, road_dir,
+        piece = _straight_sided(piece, road_dir,
                                _route_dir(carried_route(airport, piece)[1], piece))
 
         def ends_of(pc, road_dir=road_dir):
@@ -485,7 +485,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             # #2131: the carried pavement ends inside the bank's reach (a
             # taxiway between two aprons): the longest deck short of it
             short = _shortened(piece, under, P, law, frac)
-            short = straight_sided(short, road_dir, _route_dir(
+            short = _straight_sided(short, road_dir, _route_dir(
                 carried_route(airport, short)[1], short)) if short is not None else None
             pair = ends_of(short) if short is not None else None
             if pair is not None:
@@ -637,7 +637,7 @@ def _crest(stations: tuple, road_dir: "XY | None") -> tuple:
     return tuple(best) if len(best) >= 2 else stations
 
 
-def straight_sided(piece: Polygon, road_dir: "XY | None",
+def _straight_sided(piece: Polygon, road_dir: "XY | None",
                    route_dir: "XY | None" = None) -> Polygon:
     """THE DECK HAS STRAIGHT SIDES (owner sim read 2026-11-17T19:42Z: "I
     think probably sticking with straight sides makes sense for now"): the

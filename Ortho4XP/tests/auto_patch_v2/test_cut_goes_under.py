@@ -97,7 +97,8 @@ def test_pads_read_off_a_hidden_placement_leave():
 
 
 def test_the_deck_has_straight_sides_and_a_steeper_bank():
-    from auto_patch_v2.planar.deck_generated import generated_bank_slope, straight_sided
+    from auto_patch_v2.planar.deck_generated import _straight_sided as straight_sided
+    from auto_patch_v2.planar.deck_generated import generated_bank_slope
     from shapely.geometry import Polygon
     # an L-shaped pavement piece over a road along y: one rectangle holds it,
     # two sides along the road

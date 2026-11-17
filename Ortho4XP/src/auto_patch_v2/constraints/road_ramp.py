@@ -653,6 +653,10 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # 10-03b BEFORE 29x: a ribbon vertex between two pavements at different
     # levels still takes the LOWER one (rule 8 of 30aa: 29x stands)
     cs, rep["terrace"] = terrace_rewrite(planar, law, cs, levels)
+    # #2121: a road in its own zone-2 cut follows its ground under the
+    # band's ceiling (``constraints/cut_kerb``)
+    from .cut_kerb import cut_kerb_rewrite
+    cs, rep["cut_kerb"] = cut_kerb_rewrite(planar, law, cs, levels)
     cs, rep["wall_release"] = wall_release(planar, law, cs)
     cs, rep["between_levels"] = between_levels_rewrite(planar, law, cs, levels)
     cs, rep["welded_join"] = welded_join_release(planar, law, cs, levels)
@@ -1037,11 +1041,15 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         tag = src.inputs[0] if src.inputs else ""
         return int(tag[7:]) if tag.startswith("vertex:") else None
 
+    # a kerb in a road's own zone-2 cut carries a §37 (6) row since #2121
+    # (``airport/road_ramp._cut_kerb_ground``); the terrace reads it as the band's
+    # kerb it always was — never a floor of its profile
+    cut = _cut_kerb(planar, law)
     floor: dict[int, float] = {}
     for r in cs.linears:
         if r.source.generator == GEN and r.source.ruling == RULING:
             v = _vertex(r.source)
-            if v is not None and r.hi is not None:
+            if v is not None and r.hi is not None and v not in cut:
                 floor[v] = float(r.hi)
     joins = {p.v: float(p.z) for p in cs.pins
              if p.source.generator == GEN and p.source.ruling == JOIN_RULING}
@@ -1112,6 +1120,8 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
             if v in rim:
                 rep["rim_dropped"] += 1
                 continue
+            if v in add:
+                continue             # the kerb's terrace level supersedes it (below)
             if v in prof:
                 r = _dc.replace(r, lo=prof[v], hi=prof[v])
         linears.append(r)
@@ -1127,6 +1137,8 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
             if v in rim:
                 rep["rim_dropped"] += 1
                 continue
+            if v in add:
+                continue             # no ceiling on a terrace kerb (as before #2121)
             if v in prof and r.hi is not None:
                 r = _dc.replace(r, hi=prof[v] + vis)
         bands.append(r)
@@ -1485,3 +1497,14 @@ def between_levels_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     rep["max_step_m"] = round(rep["max_step_m"], 3)
     rep["max_bank_slope"] = round(rep["max_bank_slope"], 3)
     return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands)), rep
+
+
+def _cut_kerb(planar: PlanarMap, law: Law) -> frozenset[int]:
+    """The ribbon vertices standing in a road's own zone-2 cut (#2121): the
+    band kerb less the kerb a ribbon shares with a band face."""
+    kerb = getattr(planar, "band_kerb_vertices", None)
+    if kerb is None:
+        return frozenset()
+    from ..law.tables import airside_stage_roles
+    stage1 = airside_stage_roles(law)
+    return kerb(stage1) - kerb(stage1, cut=False)

@@ -179,6 +179,41 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str
     return out
 
 
+#: #2121: the reach over which a zone-2 cut kerb's own ground is averaged
+#: (about a carriageway's width: both kerbs of the section)
+CUT_GROUND_M = 15.0
+
+
+def _cut_kerb_ground(pm: PlanarMap, law: Law, targets: _t.Mapping[int, float]
+                    ) -> dict[int, float]:
+    """``{v: DEM}`` over the ribbon vertices standing in a road's own zone-2
+    cut that carry no target (#2121, the caller's comment): the zone-2 cut
+    kerb (``PlanarMap.band_kerb_vertices`` less the shared kerb), on a road
+    face that is no deck.  The ground is the mean DEM of the cut kerb within
+    :data:`CUT_GROUND_M` — both kerbs of the section and the stretch along
+    it, as the route's own DEM is read along the road and never under one
+    kerb (MEASURED KBUF ``big_roads:-6682``: kerb DEM 198.5 m among 202 m
+    neighbours, a ditch pixel, sank the road 2.5 m)."""
+    from ..law.tables import airside_stage_roles as _asr
+    cut = pm.band_kerb_vertices(_asr(law)) - pm.band_kerb_vertices(_asr(law), cut=False)
+    if not cut:
+        return {}
+    roads, decks = _road_roles(law), deck_refs(pm)
+    on_road = {v for f in pm.faces.values() if f.role in roads and f.ref not in decks
+               for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+    ground = {v: float(pm.vertices[v].dem_z) for v in cut & on_road
+              if pm.vertices[v].dem_z is not None and math.isfinite(float(pm.vertices[v].dem_z))}
+    out: dict[int, float] = {}
+    for v in sorted(ground):
+        if v in targets:
+            continue
+        x, y = pm.vertices[v].xy
+        near = [z for u, z in ground.items()
+                if math.hypot(pm.vertices[u].xy[0] - x, pm.vertices[u].xy[1] - y) <= CUT_GROUND_M]
+        out[v] = sum(near) / len(near)
+    return out
+
+
 def _airside_level(pm: PlanarMap, v: int) -> float | None:
     """THE AIRSIDE'S OWN LEVEL at one vertex: the highest of the published
     airside targets it carries (``apron_trend_z`` / ``taxi_trend_z`` /
@@ -2466,6 +2501,13 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         pm, law, frame, targets, route_ways, pub_routes)
     if report is not None:
         report["junction_joints"] = joint_rep
+    # #2121: a road in its own cut through zone 2 follows its own ground
+    # (owner RULINGS 2026-10-20c (39)) — its ribbon vertices there are the
+    # band's kerb, no route owns them and no target reached them, so the
+    # objective alone held them (MEASURED KLAX 33.94757, -118.39978: 0.89 m
+    # under the DEM, no row binding).  Each takes its own ground; the band's
+    # ceiling caps it between the stages (``constraints/cut_kerb``)
+    targets = {**_cut_kerb_ground(pm, law, targets), **targets}
     lifted = public_road_lifts(pm, law, public_road_faces(pm, law, airport), targets)
     if report is not None:
         report["public_road_lifted"] = len(lifted)

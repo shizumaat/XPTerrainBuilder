@@ -202,3 +202,26 @@ def test_a_foot_on_a_walls_fill_takes_no_ground_row(law):
     rows, verdicts, counts = FR.foot_targets(pm, law, airport)
     assert counts["wall_fill"] == 1 and counts["rows"] == 0, counts
     assert [v.verdict for v in verdicts if v.gid == "onfill"] == ["wall_fill"]
+
+
+# ── a pad never fronts an apron across a retaining wall ─────────────────
+
+def test_a_pad_never_fronts_an_apron_across_a_walls_fill(law):
+    """``constraints/pad_fronting``: the fronting twin's gap holds a
+    retaining wall's FILL face -- the wall is the step between two levels,
+    never bare ground (KATL ``building44`` took ``pav4``'s level 10.6 m over
+    its own ground across ``katl126_wall``'s fill)."""
+    import dataclasses as dc
+
+    from auto_patch_v2.constraints import pad_fronting
+    from auto_patch_v2.model.wall_reach import WALL_FILL_MARK, WALL_SLOPE_REF_PREFIX
+    from test_hecaroad_fronting import _built, _cells, _fid
+    pm, _a = _built(law, _cells(blocker=True))
+    lot = _fid(pm, "lotG")
+    pm.faces[lot] = dc.replace(pm.faces[lot], role="graded_strip",
+                               ref=f"{WALL_SLOPE_REF_PREFIX}w.obj{WALL_FILL_MARK}0")
+    assert pad_fronting.facing(pm, law) == {}
+    pm2, _a = _built(law, _cells(blocker=True))
+    lot2 = _fid(pm2, "lotG")
+    pm2.faces[lot2] = dc.replace(pm2.faces[lot2], role="graded_strip")
+    assert pad_fronting.facing(pm2, law) != {}          # bare ground: faced

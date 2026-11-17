@@ -57,7 +57,7 @@ from .channel_geometry import (_across, _bank_toe_half, _bank_width, _deck_ring,
                                _walls_half)
 from .structure_approach import carriageway_width_m, is_bridge, is_tunnel, unit
 from .channel_floor import (DATUM_CLEARANCE, DATUM_LIDAR, DATUM_PACK,
-                            channel_floor as _floor, visible_rejoined)
+                            channel_floor as _floor, held_ends, visible_rejoined)
 from .channel_ramp import crest_with_ramps, exit_ramps
 from .channel_stretch import witnessed_stretch
 from .channel_strip import strip_refusal, strips_crossed
@@ -481,12 +481,13 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # way's own continuation while the cut's members do
     # (``planar/channel_depth.extend_axis``)
     axis_ln, run_on = extend_axis(lead.line, airport.osm_ways, cuts,
-                                  ch.corridor_max_half_width_m, _kind)
-    if run_on:
+                                  ch.corridor_max_half_width_m, _kind, ch.station_m)
+    if run_on or axis_ln.length > lead.line.length + 0.5:
         stats.notes.append(f"{cid}: the axis runs on along way(s) "
-                           f"{'+'.join(str(i) for i in run_on)} — the visible cut's members "
-                           f"continue past the lead way's end (2026-11-06d (6)); "
-                           f"{lead.line.length:.0f} -> {axis_ln.length:.0f} m")
+                           f"{'+'.join(str(i) for i in run_on) or '-'} and straight on its "
+                           f"end tangent — the visible cut's members and the hidden shell's "
+                           f"floor plates continue past the lead way's end (2026-11-06d (6), "
+                           f"2026-11-17c); {lead.line.length:.0f} -> {axis_ln.length:.0f} m")
     step = ch.station_m
     ss = [min(axis_ln.length, k * step) for k in range(int(axis_ln.length // step) + 1)]
     if not ss or ss[-1] < axis_ln.length - 1e-6:
@@ -647,8 +648,13 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # stations its members span
     vis = VisibleFloor(cuts, axis_ln, cap)
     span = vis.span
+    climbs, held = (), ()
     if span is not None:
         ends = (max(0.0, min(ends[0], span[0])), min(axis_ln.length, max(ends[1], span[1])))
+        # #2127 R4 B3 (RULINGS 2026-11-17c): under a deck piece of the cut's
+        # own frame the floor is held; the climb out starts beyond it
+        ends, climbs, held = held_ends(airport, law, cid, axis_ln, axis_fn, ends, vis, ss,
+                                       step, stats)
     elif packs and _lidar_credible(airport, law):
         # RULINGS 2026-11-09a (6): a pack witness counts only along its own
         # stretch; beyond it a credible survey reading no cut stops the
@@ -677,7 +683,8 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
     # ── (3) THE FLOOR DATUM, in the ruled precedence ───────────────────
     profile, datum, wall_shape, witness_name = _floor(
         airport, law, cid, grp, axis_ln, axis_fn, ss, decks, half_at, objects, stats,
-        packs, lidar, visible=vis.profile(ss, step, tn.object.shell_flat_m))
+        packs, lidar, visible=vis.profile(ss, step, tn.object.shell_flat_m),
+        climbs=climbs, held=held)
     if profile is None:
         return None
     # §45 (13) (a) A BRIDGE-ONLY WITNESS IS §34 (5)'s UNDERPASS (owner
@@ -823,7 +830,7 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
                                               region, crest_ring, bank, vis if vis_ok else None)
     raw = vis.without_ramp_feet(ramp_rows) if ramp_rows else None
     if raw is not None:
-        profile = visible_rejoined(airport, law, axis_ln, axis_fn, raw)
+        profile = visible_rejoined(airport, law, axis_ln, axis_fn, raw, climbs, held)
         widths, half_at, width_src, pins, feet, walls, region, bank, crest_ring = shape(
             profile, *base)
         ramps, _rows, ramp_notes = exit_ramps(airport, law, cid, axis_ln, ends, profile,

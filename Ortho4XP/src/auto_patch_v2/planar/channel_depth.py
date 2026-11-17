@@ -34,8 +34,12 @@ states nothing (:func:`_classify`; spec ``object-gate-member-floors-20261113.md`
   members span (:func:`_cut_span`) — and the AXIS itself runs on along its
   way's own continuation (the next way of its kind, rail after rail, road
   after road, sharing its end node and turning least) while that stays
-  inside the cut's bound and within the cap of a member
-  (:func:`extend_axis`): a corridor does not stop where one OSM way does.
+  inside the cut's bound and within the cap of a member, and straight on
+  along its end tangent where no such way continues, while each step stays
+  inside the bound and within the cap of a member or of a floor-plate point
+  of the hidden shell (RULINGS 2026-11-17c, #2127 R4 B1 — the plates say
+  WHERE the floor lies, never how deep) (:func:`extend_axis`): a corridor
+  does not stop where one OSM way does.
 
 The floor's edge is enveloped over ``corridor_min_length_m``, the crest
 enveloped and smoothed (a bank does not jump from one station to the next).
@@ -54,6 +58,7 @@ import shapely
 from shapely.geometry import LineString
 
 __all__ = ["extend_axis", "rejoin", "crest_through_feet", "VisibleFloor", "FLOOR", "LEDGE",
+           "held_intervals", "climb_out", "climbed",
            "BELOW", "END", "UNMET", "RAMP",
            "FLOOR_AT_HIGHEST_FOOT"]
 
@@ -70,6 +75,10 @@ RAMP = "ramp"
 _TURN_MAX_DEG = 45.0
 #: end nodes this close are one node (the feed's own coordinates)
 _NODE_M = 1.0
+#: a guard only: the cut's bound is finite and stops the straight run first
+_RUN_MAX_STEPS = 1000
+#: a run-out within this of its ground has met it (``geom/ramp_profile``)
+_MEET_M = 0.05
 
 
 def _cut_points(cuts: _t.Sequence, axis_ln: LineString, cap: float) -> np.ndarray:
@@ -371,6 +380,8 @@ class VisibleFloor:
         self.extent = _cut_extent(cuts, axis_ln, cap)
         self.members = _cut_members(cuts)
         self.span = _cut_span(self.points)
+        #: #2127 R4 B3: the deck pieces of the cuts' own frames (plan rings)
+        self.decks = tuple(r for c in cuts or () for r in getattr(c, "decks", ()))
         self.feet = self.kinds = self.raw = self.level = None
         self.ramp: frozenset[tuple[int, int]] = frozenset()
 
@@ -466,11 +477,16 @@ def _cut_span(points: np.ndarray) -> tuple[float, float] | None:
 
 
 def extend_axis(line: LineString, ways: _t.Sequence, cuts: _t.Sequence, cap: float,
-                kind: _t.Callable[[object], str]) -> tuple[LineString, list[int]]:
+                kind: _t.Callable[[object], str], step: float | None = None
+                ) -> tuple[LineString, list[int]]:
     """``(axis, way ids)``: ``line`` run on at both ends along its
     continuation (module doc); ``kind(way)`` names a way's kind (``""`` for
     none), the lead's kind being that of the way whose geometry IS ``line``.
-    Unchanged where no visible cut bounds the corridor."""
+    Where no way of that kind continues, the axis runs on STRAIGHT along its
+    end tangent in ``step`` m steps while each stays inside the bound and
+    within ``cap`` of a member point or a hidden-shell floor-plate point
+    (:func:`_run_straight`; #2127 R4 B1); ``step`` ``None`` runs on along
+    ways only.  Unchanged where no visible cut bounds the corridor."""
     live = [c for c in cuts or () if c.bound is not None and len(c.points)]
     if not live:
         return line, []
@@ -497,7 +513,37 @@ def extend_axis(line: LineString, ways: _t.Sequence, cuts: _t.Sequence, cap: flo
                 break
             used.append(int(w.id))
             coords = coords + seg[1:] if end else seg[::-1][:-1] + coords
+        if step:
+            coords = _run_straight(coords, end, step, bound, _plates_near(live, near), cap)
     return LineString(coords), used
+
+
+def _plates_near(live: _t.Sequence, near):
+    """The member points ``near`` with every hidden-shell floor-plate point
+    (``VisibleCut.extent``) of the cuts ``live`` (#2127 R4 B1)."""
+    ext = [np.asarray(c.extent, float)[:, :2] for c in live
+           if len(getattr(c, "extent", ()))]
+    if not ext:
+        return near
+    e = np.concatenate(ext)
+    return np.concatenate([near, shapely.points(e[:, 0], e[:, 1])])
+
+
+def _run_straight(coords: list, end: int, step: float, bound, near, cap: float) -> list:
+    """``coords`` run on at its ``end`` (1 = last point) along the end
+    tangent, one ``step`` at a time, while each step stays inside ``bound``
+    and within ``cap`` of a point of ``near`` (:func:`extend_axis`)."""
+    p, q = (coords[-1], coords[-2]) if end else (coords[0], coords[1])
+    u = np.subtract(p, q)
+    u = u / (np.hypot(*u) or 1.0)
+    for _ in range(_RUN_MAX_STEPS):
+        r = tuple(map(float, np.add(p, u * step)))
+        run = LineString([p, r])
+        if not bound.contains(run) or float(shapely.distance(run, near).min()) > cap:
+            break
+        coords = coords + [r] if end else [r] + coords
+        p = r
+    return coords
 
 
 def _next_way(coords: list, end: int, pool: _t.Sequence, used: list[int]):
@@ -524,7 +570,8 @@ def _next_way(coords: list, end: int, pool: _t.Sequence, used: list[int]):
 
 
 def rejoin(profile: tuple[tuple[float, float], ...], length: float,
-           ground_at: _t.Callable[[float], float], grade: float, run_on: float
+           ground_at: _t.Callable[[float], float], grade: float, run_on: float,
+           held: _t.Sequence[tuple[float, float]] = ()
            ) -> tuple[tuple[float, float], ...]:
     """§45 (16) "beyond the ends §37 governs and the floor rejoins the road's
     own profile at ≤ ``ramp_max_grade``": where the axis runs on at least
@@ -532,7 +579,9 @@ def rejoin(profile: tuple[tuple[float, float], ...], length: float,
     outside), the floor
     within ramp reach of that end stays within ``grade`` of the ground
     there — the road it hands over to.  An end that is the axis's own end
-    hands over to nothing and is left as the members state it."""
+    hands over to nothing and is left as the members state it.  Inside a
+    ``held`` interval (#2127 R4 B3: the stations under a deck piece of the
+    cut's own frame) it never raises the floor."""
     out = list(profile)
     for k, beyond in ((0, profile[0][0] >= run_on), (-1, profile[-1][0] <= length - run_on)):
         g = ground_at(profile[k][0]) if beyond else float("nan")
@@ -540,5 +589,133 @@ def rejoin(profile: tuple[tuple[float, float], ...], length: float,
             continue
         s_end = profile[k][0]
         out = [(s, min(max(z, g - grade * abs(s - s_end)), g + grade * abs(s - s_end)))
+               if not _in(s, held) else (s, min(z, g + grade * abs(s - s_end)))
                for s, z in out]
     return tuple((float(s), float(z)) for s, z in out)
+
+
+def _in(s: float, held: _t.Sequence[tuple[float, float]]) -> bool:
+    return any(a <= s <= b for a, b in held)
+
+
+@_dc.dataclass(frozen=True)
+class _Climb:
+    """#2127 R4 B3: one end's climb out beyond a deck of the cut's own
+    frame — ``end`` 0 (the axis's start) or 1, ``foot`` the station it
+    leaves the level floor at (the held stretch's outer edge), ``rise`` the
+    run-out ``[(u, z)]`` ``u`` metres on from the foot."""
+
+    end: int
+    foot: float
+    rise: tuple[tuple[float, float], ...]
+
+    def at(self, s: float) -> float | None:
+        """The run-out's ``z`` at station ``s``, or ``None`` short of the foot."""
+        u = (s - self.foot) * (1.0 if self.end else -1.0)
+        if u <= 0.0:
+            return None
+        return float(np.interp(u, [a for a, _z in self.rise], [z for _a, z in self.rise]))
+
+
+def held_intervals(axis_ln: LineString, rings: _t.Sequence, band: float
+                   ) -> tuple[tuple[float, float], ...]:
+    """#2127 R4 B3: the axis stations under each deck piece ``rings`` (plan
+    rings, frame xy) widened by ``band``, as merged ``(s0, s1)`` intervals."""
+    from shapely.geometry import Polygon
+    got: list[list[float]] = []
+    for r in rings or ():
+        if len(r) < 3:
+            continue
+        poly = Polygon(r)
+        if not poly.is_valid:
+            poly = poly.buffer(0.0)
+        hit = axis_ln.intersection(poly.buffer(band))
+        for g in getattr(hit, "geoms", [hit]):
+            if g.is_empty or g.geom_type != "LineString":
+                continue
+            ss = [float(axis_ln.project(shapely.Point(c))) for c in g.coords]
+            got.append([min(ss), max(ss)])
+    got.sort()
+    out: list[list[float]] = []
+    for a, b in got:
+        if out and a <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return tuple((a, b) for a, b in out)
+
+
+def climb_out(ends: tuple[float, float], end_z: tuple[float, float], length: float,
+              ground_at: _t.Callable[[float], float],
+              held: _t.Sequence[tuple[float, float]], tn, run_on: float
+              ) -> tuple[tuple[float, float], tuple[_Climb, ...], list[str]]:
+    """#2127 R4 B3 (RULINGS 2026-11-17c): ``(ends, climbs, notes)``.  At an
+    end where the axis runs on (:func:`rejoin`'s test), if the rejoin's
+    climb — the window ``(ground - floor) / ramp_max_grade`` back from the
+    end — would touch a ``held`` interval, the climb's FOOT moves to that
+    interval's outer edge and the floor runs out to the ground from there
+    (``channel_ramp._fitted_run``: ``ramp_grade`` steepened a point at a
+    time to ``ramp_max_grade`` to fit the axis left); the END moves to where
+    the run-out meets the ground.  A run-out that cannot meet the ground
+    inside the axis is NOT built: the end stays and a note names the
+    shortfall.  An end with no held interval in reach is unchanged."""
+    from ..geom.ramp_profile import runout_profile  # noqa: F401  (the law _fitted_run reads)
+    from .channel_ramp import _fitted_run
+    out, climbs, notes = list(ends), [], []
+    cap = float(tn.ramp_max_grade)
+    for k, sign in ((0, -1.0), (1, 1.0)):
+        s_end = float(ends[k])
+        if not (s_end >= run_on if k == 0 else s_end <= length - run_on):
+            continue
+        z, g = float(end_z[k]), float(ground_at(s_end))
+        if g != g:
+            continue
+        reach = max(0.0, g - z) / cap
+        lo, hi = (s_end, s_end + reach) if k == 0 else (s_end - reach, s_end)
+        touch = [(a, b) for a, b in held if b >= lo and a <= hi]
+        if not touch:
+            continue
+        foot = min(a for a, _b in touch) if k == 0 else max(b for _a, b in touch)
+        foot = min(max(foot, 0.0), length)
+        avail = foot if k == 0 else length - foot
+        along = _along(ground_at, foot, sign)
+        rise = _fitted_run(z, along, tn.ramp_grade, tn, avail)
+        u, zt = rise[-1]
+        miss = abs(zt - float(along(u)))
+        if u > avail or miss > _MEET_M:
+            notes.append(f"the climb out beyond the frame deck at s {foot:.0f} cannot meet the "
+                         f"ground inside the axis at {cap:.0%} ({avail:.0f} m left, "
+                         f"{miss:.2f} m short): the end stays at s {s_end:.0f} (#2127 R4 B3 STOP)")
+            continue
+        out[k] = foot + sign * u
+        climbs.append(_Climb(k, foot, tuple((float(a), float(b)) for a, b in rise)))
+        notes.append(f"held under the frame deck s {touch[0][0]:.0f}..{touch[-1][1]:.0f} level at "
+                     f"{z:.2f}; climb from s {foot:.0f} to the ground {rise[-1][1]:.2f} over "
+                     f"{u:.0f} m, steepest {_steepest(rise):.1%}; end {s_end:.0f} -> "
+                     f"{out[k]:.0f} (#2127 R4 B3)")
+    return (float(out[0]), float(out[1])), tuple(climbs), notes
+
+
+def _along(ground_at, foot: float, sign: float):
+    """``u -> `` the ground ``u`` metres on from ``foot`` along the axis."""
+    return lambda u: ground_at(foot + sign * u)
+
+
+def _steepest(rise) -> float:
+    return max((abs(b[1] - a[1]) / max(b[0] - a[0], 1e-9)
+                for a, b in zip(rise, rise[1:], strict=False)), default=0.0)
+
+
+def climbed(profile: tuple[tuple[float, float], ...], climbs: _t.Sequence[_Climb]
+            ) -> tuple[tuple[float, float], ...]:
+    """``profile`` with each climb's run-out laid past its foot (B3)."""
+    if not climbs:
+        return tuple(profile)
+    out = []
+    for s, z in profile:
+        for c in climbs:
+            v = c.at(s)
+            if v is not None:
+                z = v
+        out.append((float(s), float(z)))
+    return tuple(out)

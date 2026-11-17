@@ -20,7 +20,8 @@ from ..model.structures import Deck
 from ..airport.dem import dem_z_at
 from .channel_geometry import _lidar_floor
 
-__all__ = ["channel_floor", "visible_rejoined", "DATUM_PACK", "DATUM_LIDAR", "DATUM_CLEARANCE"]
+__all__ = ["channel_floor", "visible_rejoined", "held_ends", "DATUM_PACK", "DATUM_LIDAR",
+           "DATUM_CLEARANCE"]
 
 #: §45 (3): the three floor DATUM sources, in the ruled precedence.
 DATUM_PACK = "pack"            # (i)   the pack's floor plates along the axis
@@ -28,20 +29,51 @@ DATUM_LIDAR = "lidar"          # (ii)  a CREDIBLE lidar inset's DTM floor
 DATUM_CLEARANCE = "clearance"  # (iii) deck top - bridge.clearance_m
 
 
-def visible_rejoined(airport: Airport, law: Law, axis_ln, axis_fn, visible
+def visible_rejoined(airport: Airport, law: Law, axis_ln, axis_fn, visible,
+                     climbs: _t.Sequence = (), held: _t.Sequence = ()
                      ) -> tuple[tuple[float, float], ...]:
     """A visible cut's floor profile with its ends rejoined to the road
-    running on (``planar/channel_depth.rejoin``, §45 (16))."""
-    from .channel_depth import rejoin
-    return rejoin(tuple(visible), axis_ln.length, lambda s: dem_z_at(airport, axis_fn(s)),
+    running on (``planar/channel_depth.rejoin``, §45 (16)); an end that
+    climbs out beyond a frame deck (#2127 R4 B3) takes its run-out first
+    and the ``held`` stations under the deck are never raised."""
+    from .channel_depth import climbed, rejoin
+    return rejoin(climbed(tuple(visible), climbs), axis_ln.length,
+                  lambda s: dem_z_at(airport, axis_fn(s)),
                   law.tables.structures.tunnel.ramp_max_grade,
-                  law.tables.structures.channel.corridor_min_length_m)
+                  law.tables.structures.channel.corridor_min_length_m, held)
+
+
+def held_ends(airport: Airport, law: Law, cid: str, axis_ln, axis_fn,
+              ends: tuple[float, float], vis, ss: _t.Sequence[float], step: float, stats):
+    """#2127 R4 B3 (RULINGS 2026-11-17c), where the ends are set: ``(ends,
+    climbs, held)`` — the axis stations under each deck piece of the cut's
+    own frame (``VisibleFloor.decks``) widened by the wall band are HELD,
+    and an end whose rejoin would climb into them climbs out beyond them
+    instead (``planar/channel_depth.climb_out``) over the floor the visible
+    cut states at that end.  Unchanged with no deck piece on the axis."""
+    import numpy as np
+
+    from .channel_depth import climb_out, held_intervals
+    tn = law.tables.structures.tunnel
+    held = held_intervals(axis_ln, getattr(vis, "decks", ()),
+                          tn.wall_gap_m + tn.wall_band_width_m)
+    pre = vis.profile(ss, step, tn.object.shell_flat_m) if held else None
+    if not pre:
+        return ends, (), held
+    s_, z_ = [s for s, _z in pre], [z for _s, z in pre]
+    end_z = (float(np.interp(ends[0], s_, z_)), float(np.interp(ends[1], s_, z_)))
+    ends, climbs, notes = climb_out(ends, end_z, axis_ln.length,
+                                    lambda s: dem_z_at(airport, axis_fn(s)), held, tn,
+                                    law.tables.structures.channel.corridor_min_length_m)
+    stats.notes.extend(f"{cid}: {n}" for n in notes)
+    return ends, climbs, held
 
 
 def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_ln,
                   axis_fn, ss: list[float], decks: list[Deck], half: float,
                   objects: _t.Sequence, stats, packs: _t.Sequence[str] = (),
-                  lidar: bool = False, visible=None):
+                  lidar: bool = False, visible=None, climbs: _t.Sequence = (),
+                  held: _t.Sequence = ()):
     """§45 (3) THE FLOOR DATUM — precedence, then "Cut the road down".
 
     (i) the pack's floor plates along the axis; (ii) a CREDIBLE lidar
@@ -73,7 +105,7 @@ def channel_floor(airport: Airport, law: Law, cid: str, grp: _t.Sequence, axis_l
     if visible:
         for c in grp:
             c.witnesses.add("pack")
-        visible = visible_rejoined(airport, law, axis_ln, axis_fn, visible)
+        visible = visible_rejoined(airport, law, axis_ln, axis_fn, visible, climbs, held)
         zs = [z for _s, z in visible]
         stats.notes.append(f"{cid}: floor from the visible cut (§45 (3) (i), 2026-11-06d (6)) "
                            f"— the bottoms of the pack's members lying on it, "

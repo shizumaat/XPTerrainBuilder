@@ -67,6 +67,9 @@ class VisibleCut:
     extent: np.ndarray = _dc.field(default_factory=lambda: np.zeros((0, 4)), repr=False,
                                    compare=False)
     members: tuple[tuple[str, float], ...] = ()
+    #: #2127 R4 B3: the plan rings of the deck pieces (``ObjectFloor.decks``)
+    #: of the floors standing over the shell's footprint — its frame's decks
+    decks: tuple = ()
 
 
 def _read_visible_cut(f: ObjectFloor, objects: _t.Mapping[str, _obj8.PlacedObject],
@@ -184,5 +187,19 @@ def visible_cuts(floors: _t.Sequence[ObjectFloor], objects, cache, law,
     """Each HIDDEN shell's :class:`VisibleCut` — the channels' depth, width
     and reach witness (``planar/channel_depth``)."""
     by_id = {str(o.id): o for o in objects or ()}
-    return [_read_visible_cut(f, by_id, cache, law, scale) for f in floors
+    return [_dc.replace(_read_visible_cut(f, by_id, cache, law, scale),
+                        decks=_frame_decks(floors, f.footprint))
+            for f in floors
             if f.hidden and f.footprint is not None and not f.footprint.is_empty]
+
+
+def _frame_decks(floors: _t.Sequence[ObjectFloor], footprint) -> tuple:
+    """The plan rings of every floor's deck pieces standing over ``footprint``
+    (#2127 R4 B3: the deck pieces of the cut's own frame)."""
+    from shapely.geometry import Polygon
+    out = []
+    for g in floors:
+        for d in getattr(g, "decks", ()) or ():
+            if len(d.ring) >= 3 and Polygon(d.ring).buffer(0.0).intersects(footprint):
+                out.append(tuple(map(tuple, d.ring)))
+    return tuple(out)

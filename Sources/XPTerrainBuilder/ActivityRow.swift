@@ -12,6 +12,8 @@ struct ActivityRow: View {
     let coord: BuildModel.TileCoord
     /// A built tile, in Completed (#1542): no bar, no steps.
     let compact: Bool
+    /// `.increased` while this row is selected in the focused list.
+    @Environment(\.backgroundProminence) private var prominence
 
     /// Point size of the per-tile stop / resume glyphs. Shared so the two
     /// buttons stay the same size as each other beside the row's small text.
@@ -32,7 +34,7 @@ struct ActivityRow: View {
                                       hasIssues: hasIssues)
         VStack(alignment: .leading) {
             TileProgressRowLines(
-                text: text, statusColor: Self.color(tone),
+                text: text, statusColor: SelectedRowStyle.tint(Self.color(tone), prominence),
                 titleDimmed: BuildActivityModel.isFinished(progress),
                 compact: compact,
                 onStatusTap: hasIssues ? { buildModel.reopenIssues(coord) } : nil,
@@ -40,7 +42,8 @@ struct ActivityRow: View {
             ) {
                 ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
                     .controlSize(.small)
-                    .tint(tone == .live ? Color.accentColor : Self.color(tone))
+                    .tint(SelectedRowStyle.tint(
+                        tone == .live ? Color.accentColor : Self.color(tone), prominence))
             } trailing: {
                 // Stop sign / resume. Deliberately NOT gated on isBuilding:
                 // a stopped row keeps its resume button after the run ends,
@@ -89,6 +92,7 @@ struct ActivityRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .padding(.vertical, SelectedRowStyle.rowVerticalPadding)
     }
 
     /// The per-row stop sign (also `ImageryCoresRow`'s). The octagon IS

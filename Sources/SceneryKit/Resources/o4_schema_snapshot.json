@@ -418,7 +418,7 @@
   },
   "cover_approach_ft": {
    "default": 1000,
-   "hint": "The sharper airport imagery also follows each runway's approach (#1990): from each landing threshold out along the extended centreline until a 3 degree glide path is this many feet above the threshold (1000 ft is about 5.8 km, 500 ft about 2.9 km; 0 = the airport only), widening from the runway width to 1 km.",
+   "hint": "The sharper airport imagery also follows each runway's approach (#1990): from each landing threshold out along the extended centreline until a 3 degree glide path is this many feet above the threshold (1000 ft is about 5.8 km, 500 ft about 2.9 km; 0 = no corridor), widening from the runway width to 1 km.  An airport with approach rings (approach_rings) keeps the sharper imagery out to the first ring, 10 km past its boundary.",
    "name": "cover_approach_ft",
    "type": "int"
   },
@@ -827,7 +827,7 @@
   },
   "global_cover_approach_ft": {
    "default": 1000,
-   "hint": "The sharper airport imagery also follows each runway's approach (#1990): from each landing threshold out along the extended centreline until a 3 degree glide path is this many feet above the threshold (1000 ft is about 5.8 km, 500 ft about 2.9 km; 0 = the airport only), widening from the runway width to 1 km.",
+   "hint": "The sharper airport imagery also follows each runway's approach (#1990): from each landing threshold out along the extended centreline until a 3 degree glide path is this many feet above the threshold (1000 ft is about 5.8 km, 500 ft about 2.9 km; 0 = no corridor), widening from the runway width to 1 km.  An airport with approach rings (approach_rings) keeps the sharper imagery out to the first ring, 10 km past its boundary.",
    "name": "global_cover_approach_ft",
    "type": "int"
   },

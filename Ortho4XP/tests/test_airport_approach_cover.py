@@ -6,6 +6,7 @@ from __future__ import annotations
 import types
 
 import O4_Airport_Approach_Cover as COVER
+import O4_Elevation_Level as ELEV
 import O4_Geo_Utils as GEO
 import pytest
 from auto_patch_v2.airport.apt_dat import AptRunway
@@ -87,9 +88,11 @@ def _tile(cover_extent=1.0, approach_ft=1000, zl=18):
                                  cover_approach_ft=approach_ft)
 
 
-def _squares(monkeypatch, **kw):
+def _squares(monkeypatch, ringed=(), **kw):
     monkeypatch.setattr(COVER, "_airport_runways",
                         lambda code, root: (EW, NS) if code == "ZZZZ" else ())
+    monkeypatch.setattr(ELEV, "approach_ring_airports",
+                        lambda tile, dico: list(ringed))
     dico = {"ZZZZ": {"boundary": BOUNDARY}}
     return COVER.tile_cover_squares(_tile(**kw), dico, ["ZZZZ"],
                                     xplane_root="/nowhere")
@@ -120,6 +123,7 @@ def test_squares_are_not_the_bounding_box(monkeypatch):
 
 def test_unknown_code_is_the_boundary_alone(monkeypatch):
     monkeypatch.setattr(COVER, "_airport_runways", lambda code, root: ())
+    monkeypatch.setattr(ELEV, "approach_ring_airports", lambda tile, dico: [])
     dico = {("repr", 1): {"boundary": BOUNDARY}}
     got = COVER.tile_cover_squares(_tile(0.0, 1000), dico, [("repr", 1)],
                                    xplane_root="/nowhere")
@@ -136,3 +140,59 @@ def test_presets_carry_the_corridor():
     got = {p.key: p.as_dict()["cover_approach_ft"] for p in PRESETS.PRESETS}
     assert got == {"light_on_disk": "0", "balanced": "500",
                    "sharper_airports": "1000"}
+
+
+# ── out to the approach rings (owner 2026-11-17T23:20Z) ──────────────────
+
+def _square_of(east_m, north_m):
+    return GEO.wgs84_to_orthogrid(*_ll(east_m, north_m), 18)
+
+
+def test_a_ringed_airport_keeps_cover_zl_out_to_the_first_ring(monkeypatch):
+    ringed = _squares(monkeypatch, ringed=("ZZZZ",), cover_extent=0.0,
+                      approach_ft=1000)
+    plain = _squares(monkeypatch, cover_extent=0.0, approach_ft=1000)
+    assert plain < ringed
+    reach = COVER.RING_COVER_REACH_M
+    assert reach == ELEV.APPROACH_RING_1_REACH_M     # the ladder, not a copy
+    # 9 km off the boundary's north edge, away from every corridor: in
+    assert _square_of(0, 1200 + reach - 1000) in ringed
+    assert _square_of(0, 1200 + reach - 1000) not in plain
+    # 9 km off its NE corner diagonal: in; 5 km beyond the reach: out
+    assert _square_of(1700 + 6000, 1200 + 6000) in ringed
+    assert _square_of(0, 1200 + reach + 5000) not in ringed
+    assert _square_of(-(1700 + reach + 5000), 0) not in ringed
+
+
+def test_a_wider_cover_extent_still_wins(monkeypatch):
+    wide = _squares(monkeypatch, ringed=("ZZZZ",), cover_extent=15.0,
+                    approach_ft=0)
+    assert _square_of(0, 1200 + 13000) in wide
+
+
+def test_the_ring_reach_follows_the_ring_airports_only(monkeypatch):
+    monkeypatch.setattr(COVER, "_airport_runways", lambda code, root: ())
+    monkeypatch.setattr(ELEV, "approach_ring_airports",
+                        lambda tile, dico: ["AAAA"])
+    far = box(0.1, 0.1, 0.11, 0.11)
+    dico = {"AAAA": {"boundary": BOUNDARY}, "BBBB": {"boundary": far}}
+    got = COVER.tile_cover_squares(_tile(0.0, 0), dico, ["BBBB"],
+                                   xplane_root="/nowhere")
+    assert got == COVER.region_squares(far, LAT, LON, 18)
+
+
+def test_ring_airports_are_the_inset_holders(monkeypatch):
+    import O4_Airport_Elevation_Insets as INSETS
+    monkeypatch.setattr(ELEV, "has_gdal", True)
+    monkeypatch.setattr(INSETS, "cached_inset_paths_for_icao",
+                        lambda lat, lon, code, cfg: ["x.tif"]
+                        if code == "AAAA" else [])
+    dico = {"AAAA": {"key_type": "icao", "boundary": BOUNDARY},
+            "BBBB": {"key_type": "icao", "boundary": BOUNDARY}}
+    tile = types.SimpleNamespace(lat=LAT, lon=LON, approach_rings="auto",
+                                 airport_elevation_insets="ICAO")
+    assert ELEV.approach_ring_airports(tile, dico) == ["AAAA"]
+    tile.approach_rings = "off"
+    assert ELEV.approach_ring_airports(tile, dico) == []
+    tile.approach_rings, tile.custom_dem = "auto", "my.tif"
+    assert ELEV.approach_ring_airports(tile, dico) == []

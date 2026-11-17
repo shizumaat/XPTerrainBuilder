@@ -14,9 +14,18 @@ that meet the airport's COVER REGION:
   2.9 km, 0 = no corridor), widening from the runway width at the
   threshold to :data:`CORRIDOR_FAR_WIDTH_M` at its far end.
 
-Every number comes from the cfg and apt.dat: nothing here knows which
-airport it is reading.  Coordinates leave this module tile-local
-(``x = lon - tile.lon``, ``y = lat - tile.lat``) like the boundary.
+* out to the APPROACH RINGS (owner 2026-11-17T23:20Z: "ZL18 around the
+  airport area out to the approach rings, before dropping to ZL16"): an
+  airport the elevation approach rings are drawn round
+  (``O4_Elevation_Level.approach_ring_airports``) has its boundary
+  widened by :data:`RING_COVER_REACH_M` -- the first ring's reach,
+  measured from the boundary like the rings -- whatever ``cover_extent``
+  says below it.  No rings (``approach_rings`` off, no inset): no reach.
+
+Every number comes from the cfg, apt.dat and the ring ladder: nothing
+here knows which airport it is reading.  Coordinates leave this module
+tile-local (``x = lon - tile.lon``, ``y = lat - tile.lat``) like the
+boundary.
 """
 from __future__ import annotations
 
@@ -24,19 +33,24 @@ import math
 from typing import Iterable, Optional, Sequence
 
 import O4_Airport_Elevation_Insets as INSETS
+import O4_Elevation_Level as ELEV
 import O4_Geo_Utils as GEO
 from auto_patch_v2.airport import apt_dat as APT_DAT
 from shapely import affinity, ops
 from shapely.geometry import Polygon, box
 from shapely.prepared import prep
 
-__all__ = ["GLIDE_PATH_DEG", "CORRIDOR_FAR_WIDTH_M", "region_squares", "square_bounds",
-           "tile_cover_squares"]
+__all__ = ["GLIDE_PATH_DEG", "CORRIDOR_FAR_WIDTH_M", "RING_COVER_REACH_M",
+           "region_squares", "square_bounds", "tile_cover_squares"]
 
 #: The glide path the corridor length is read on (owner: "3° glide path").
 GLIDE_PATH_DEG = 3.0
 #: The corridor's width at its far end (owner: "to ~1 km").
 CORRIDOR_FAR_WIDTH_M = 1000.0
+#: How far past the boundary an airport with approach rings keeps
+#: ``cover_zl``: the first ring's reach (``O4_Elevation_Level``, RULINGS
+#: 2026-10-01g), read from the ladder, never restated here.
+RING_COVER_REACH_M = ELEV.APPROACH_RING_1_REACH_M
 _FT_TO_M = 0.3048
 
 
@@ -155,18 +169,22 @@ def _airport_runways(code, xplane_root: Optional[str]) -> tuple:
 def tile_cover_squares(tile, dico_airports: dict, airports: Iterable,
                        xplane_root: Optional[str] = None) -> set:
     """Every ``tile.cover_zl`` texture square the ``airports`` of
-    ``dico_airports`` cover: boundary (+ ``tile.cover_extent`` km) and,
-    with ``tile.cover_approach_ft`` above 0, their approach corridors."""
+    ``dico_airports`` cover: boundary (+ ``tile.cover_extent`` km, or
+    out to the approach rings for an airport that has them) and, with
+    ``tile.cover_approach_ft`` above 0, their approach corridors."""
     approach_ft = float(getattr(tile, "cover_approach_ft", 0) or 0)
     extent_km = float(getattr(tile, "cover_extent", 0) or 0)
     if approach_ft > 0 and xplane_root is None:
         xplane_root = INSETS._xplane_root_for_package_footprints()
+    ringed = set(ELEV.approach_ring_airports(tile, dico_airports))
+    ring_km = max(extent_km, RING_COVER_REACH_M / 1000.0)
     squares = set()
     for airport in airports:
         runways = (_airport_runways(airport, xplane_root)
                    if approach_ft > 0 else ())
         region = _cover_region(dico_airports[airport].get("boundary"),
-                              runways, tile.lat, tile.lon, extent_km,
+                              runways, tile.lat, tile.lon,
+                              ring_km if airport in ringed else extent_km,
                               approach_ft)
         squares |= region_squares(region, tile.lat, tile.lon, tile.cover_zl)
     return squares

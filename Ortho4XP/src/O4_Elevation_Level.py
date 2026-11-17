@@ -1843,6 +1843,37 @@ def _neighbour_boundary_polygons(lat, lon, reach_m):
     return polygons, sorted(unknown)
 
 
+def approach_ring_airports(tile, dico_airports):
+    """The tile's own aerodromes the approach rings are drawn round: the
+    string-keyed ones the inset MODE admits whose inset is on disk
+    (:func:`resolve_approach_ring_plan`'s ``holders``); ``[]`` when the
+    rings are off, GDAL is missing or ``custom_dem`` pins the raster.
+
+    Offline and cheap (a disk check per admitted aerodrome): the imagery
+    planner reads it too (``O4_Airport_Approach_Cover``, owner
+    2026-11-17T23:20Z: the sharper imagery reaches out to the rings).
+    """
+    if not approach_rings_enabled(tile) or not has_gdal:
+        return []
+    if getattr(tile, "custom_dem", ""):
+        return []
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_Airport_Modes as MODES
+
+    lat, lon = int(tile.lat), int(tile.lon)
+    providers_config = getattr(tile, "airport_elevation_providers", "auto")
+    selected = MODES.inset_keys(
+        dico_airports or {}, MODES.resolved_inset_mode(tile)
+    )
+    return [
+        airport
+        for airport in selected
+        if INSETS.cached_inset_paths_for_icao(
+            lat, lon, airport, providers_config
+        )
+    ]
+
+
 def resolve_approach_ring_plan(tile, dico_airports):
     """THE one derivation of the tile's ring cells, classes and regions.
 
@@ -1883,22 +1914,13 @@ def resolve_approach_ring_plan(tile, dico_airports):
 
     import O4_Airport_Elevation_Insets as INSETS
     from elevation_access import las_tiles as ea_las_tiles
-    import O4_Airport_Modes as MODES
     from shapely.ops import unary_union
 
     lat, lon = int(tile.lat), int(tile.lon)
     providers_config = getattr(tile, "airport_elevation_providers", "auto")
     level_m = parse_elevation_level(getattr(tile, "elevation_level", "auto"))
 
-    mode = MODES.resolved_inset_mode(tile)
-    selected = MODES.inset_keys(dico_airports or {}, mode)
-    holders = [
-        airport
-        for airport in selected
-        if INSETS.cached_inset_paths_for_icao(
-            lat, lon, airport, providers_config
-        )
-    ]
+    holders = approach_ring_airports(tile, dico_airports)
     boundaries = INSETS.airport_boundary_polygons(
         tile, dico_airports or {}, only=holders
     )

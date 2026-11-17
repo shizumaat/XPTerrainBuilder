@@ -481,10 +481,7 @@ def _portal_plates(law, airport, plates, authored, excluded) -> dict:
 def _cut_bridge_plates(law, airport, objects, regions, taken) -> dict:
     """#2120 S (``airport/cut_bridge``): placement id -> ``(deck top y at
     the cover-side end, its stations, 0.0, CUT_BRIDGE_PLATE)`` for every
-    member of each bridge over a portal's cut no other rule seats: one
-    plate, so every record of the frame is led by it
-    (``open_frame_seat.LEAD_PLATES``) -- a rider holding none took its
-    connected group's median on the cut floor (KATL build, 293.54)."""
+    plated member of each bridge over a portal's cut no other rule seats."""
     import time
 
     from ..airport.cut_bridge import cut_bridges
@@ -499,7 +496,7 @@ def _cut_bridge_plates(law, airport, objects, regions, taken) -> dict:
               f"{w.portal}): deck top y {w.top_y:+.2f} at its cover-side end, "
               f"{len(w.stations)} stations ({time.perf_counter() - t0:.2f} s)")
     return {oid: (w.top_y, list(w.stations), 0.0, CUT_BRIDGE_PLATE)
-            for w in got for oid in w.members}
+            for w in got for oid in w.plated}
 
 
 def _portal_cuts(pm, airport) -> list:

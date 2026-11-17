@@ -32,12 +32,12 @@ def test_the_deck_spans_its_cut_floor_carries_the_road():
     """#2131: the bank the cut builds from each end line (depth / bank
     slope) stands beyond the floor, which carries the carriageway and its
     shoulders: a deck spanning the reach leaves the road on the floor."""
-    run = dg.bank_run_m(LAW)
+    run = dg._bank_run_m(LAW)
     g = LAW.tables.structures.deck_gen
     depth = float(g.thickness_m) + float(LAW.tables.structures.tunnel.clearance_m)
     assert run == pytest.approx(depth / float(LAW.tables.emit.design.bank_slope))
     road = _road([(0.0, -40.0), (0.0, 40.0)])
-    C = dg.cut_reach([road], LAW)
+    C = dg._cut_reach([road], LAW)
     reach = C.bounds[2]
     assert reach == pytest.approx(road.half_m + float(g.shoulder_m) + run)
     # a deck whose end lines stand on the reach: the floor holds the road + shoulders

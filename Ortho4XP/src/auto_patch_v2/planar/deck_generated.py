@@ -27,7 +27,7 @@ WHERE (spec A1; every threshold a ``[deck_gen]`` law key):
 
 THE RING (spec A2; #2131): ``C`` = the covered roads' carriageways, a
 level floor ``shoulder_m`` beyond each edge and the bank's run to the crest
-(:func:`cut_reach`); ``R`` = (``P`` ∩ ``C`` ⊕ ``bearing_m``) ⊕ ``edge_margin_m``
+(:func:`_cut_reach`); ``R`` = (``P`` ∩ ``C`` ⊕ ``bearing_m``) ⊕ ``edge_margin_m``
 (mitred), ``P`` the taxi/runway pavement.  Each connected piece of ``R``
 is one deck.  Its END LINES are where the pavement runs onto it
 (``airside_deck_seat.facing_contacts``, the pack deck's own reading).
@@ -61,7 +61,7 @@ from .structure_approach import carriageway_width_m, is_tunnel, standing_cover
 from .structure_underpass import underpass_bores
 
 __all__ = ["generated_decks", "GENERATED_WITNESS", "GENERATED_DIR", "is_generated",
-           "carried_off", "bank_run_m", "cut_reach", "covers_bore"]
+           "carried_off", "covers_bore"]
 
 #: ``DeckBridge.witness`` of a generated deck
 GENERATED_WITNESS = "generated"
@@ -213,7 +213,7 @@ def _whole_cover(roads, P, max_cover: float, ways=()) -> tuple[list, list[str]]:
     return out, notes
 
 
-def bank_run_m(law) -> float:
+def _bank_run_m(law) -> float:
     """The run of the bank under a generated deck: its floor's depth (the
     slab plus ``[tunnel] clearance_m``, Q6) over ``emit.design.bank_slope``
     -- the bank ``planar/structures`` cuts from each end line down to the
@@ -224,16 +224,16 @@ def bank_run_m(law) -> float:
     return depth / float(law.tables.emit.design.bank_slope)
 
 
-def cut_reach(roads, law):
+def _cut_reach(roads, law):
     """#2131 THE DECK SPANS ITS CUT (owner 2026-11-17: "the bridge objects
     need to be a bit longer, and the cuts wider"): per covered road its
     carriageway, the level floor ``shoulder_m`` beyond each edge, then the
-    bank's run (:func:`bank_run_m`) to the crest -- the plan the deck must
+    bank's run (:func:`_bank_run_m`) to the crest -- the plan the deck must
     cover so the floor under it carries the whole drawn road.  Round 1 read
     a 3 m bank to a 6 m deep floor: the 1:3 bank the cut builds from the end
     lines took the whole floor and the drawn road ran up it (ESSA U -74:
     0.58 m under the deck's edge)."""
-    reach = float(law.tables.structures.deck_gen.shoulder_m) + bank_run_m(law)
+    reach = float(law.tables.structures.deck_gen.shoulder_m) + _bank_run_m(law)
     return unary_union([r.line.buffer(r.half_m + reach, cap_style="flat") for r in roads])
 
 
@@ -373,7 +373,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
     notes += long_notes
     if not roads:
         return (), notes
-    C = cut_reach(roads, law)
+    C = _cut_reach(roads, law)
     R = P.intersection(C.buffer(float(g.bearing_m))).buffer(
         float(g.edge_margin_m), join_style="mitre")
     roles = CellRoles(classification, airport)
@@ -404,7 +404,7 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
             continue
         road_dir = _mean_dir([r.line.intersection(piece) for r in under])
 
-        def ends_of(pc):
+        def ends_of(pc, road_dir=road_dir):
             pairs = facing_contacts([to_ll(x, y) for x, y in pc.exterior.coords[:-1]],
                                     surface, step, every=True)
             return _end_pair(pairs, road_dir, to_xy, _routes_across(airport, pc)) \
@@ -461,10 +461,10 @@ def generated_decks(classification, airport, law, taken: _t.Sequence = (),
 
 def _shortened(piece: Polygon, under, P, law, frac: float) -> "Polygon | None":
     """``piece`` reaching only ``frac`` of the bank's run past its roads'
-    floors (:func:`cut_reach`), as the ring is drawn (``bearing_m``,
+    floors (:func:`_cut_reach`), as the ring is drawn (``bearing_m``,
     ``edge_margin_m``); ``None`` where nothing of a deck is left."""
     g = law.tables.structures.deck_gen
-    reach = float(g.shoulder_m) + frac * bank_run_m(law)
+    reach = float(g.shoulder_m) + frac * _bank_run_m(law)
     C = unary_union([r.line.buffer(r.half_m + reach, cap_style="flat") for r in under])
     R = P.intersection(C.buffer(float(g.bearing_m))).buffer(
         float(g.edge_margin_m), join_style="mitre").intersection(piece)
@@ -531,7 +531,7 @@ _CREST_TURN_DEG = 20.0
 
 def _crest(stations: tuple, road_dir: "XY | None") -> tuple:
     """#2131: a generated deck's END LINE is its cut's crest -- parallel to
-    the road by construction (:func:`cut_reach`) -- so of the stations where
+    the road by construction (:func:`_cut_reach`) -- so of the stations where
     the pavement runs onto the ring, the longest run along edges within
     ``_CREST_TURN_DEG`` of the road.  The rest turn the ring's mitred corner
     (MEASURED ESSA -3077: the corner stations tilted the end line 30 deg and

@@ -828,6 +828,9 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # the cut over its footprint — REPORT ONLY (``tools/drawn_check``
             # claims its objects as CUT sites)
             "object_floors": object_floors(planar, airport, law),
+            # 2120-W3 G1: each retaining wall's footprint -- the drawn gate
+            # reads no road sample inside it (its fill or slot, 13t / 16n)
+            "retaining_walls": retaining_walls(airport),
             "free_bridges": bridge_rows(planar, airport, law, agp_report),
             # THE JETWAY STRIPS (owner RULINGS 2026-09-18t Q3; jetway-strip
             # spec §2 (6)): per strip its pad, its ONE level, its riders,
@@ -1568,9 +1571,23 @@ def object_floors(planar: PlanarMap, airport: Airport,
     return out
 
 
+def retaining_walls(airport: Airport) -> list[dict[str, _t.Any]]:
+    """Per retaining wall piece (``Airport.retaining_walls``: a retaining
+    block's whole footprint, a deck block's strip along its upper face --
+    2120-W3 §2): its resource and its outline (``tools/harness/drawn_roads.
+    wall_rings``: the gate reads no road inside it)."""
+    walls = tuple(getattr(airport, "retaining_walls", ()) or ())
+    if not walls or getattr(airport, "frame", None) is None:
+        return []
+    to_ll = airport.frame.transformers()[1]
+    return [{"resource": str(w.resource or ""), "outline_ll": _outline_ll(w.poly, to_ll)}
+            for w in walls]
+
+
 def _outline_ll(footprint, to_ll) -> list:
     """``[[[lat, lon], ...]]``: the exterior ring of each part of an object
-    floor's footprint (``tools/harness/drawn_roads.floor_rings``)."""
+    floor's or a retaining wall's footprint (``tools/harness/drawn_roads.
+    floor_rings`` / ``wall_rings``)."""
     from ..geom.parts import polygon_parts_with_area
     if footprint is None or footprint.is_empty or to_ll is None:
         return []

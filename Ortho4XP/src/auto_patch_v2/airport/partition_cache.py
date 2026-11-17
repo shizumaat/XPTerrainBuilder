@@ -44,6 +44,10 @@ THE FINGERPRINT covers everything the reading is a function of:
   (``deck_signature.classify``) reads which placed plates span a mapped
   bridge, so the ways it is handed are part of the reading
   (:func:`_bridge_digest`);
+* the APT.DAT AIRSIDE PAVEMENT (spec 2120-F R1): a frame standing its
+  airside floor a storey over its zero is read at that floor
+  (``airside_floor``), so the pavement it is read against is part of the
+  reading (:func:`_airside_digest`);
 * the LAW TABLES (``law_tables_digest``'s sha256) and the ruleset key;
 * the FRAME the geometry is placed in (its CRS and origin) — every
   coordinate in the result is in it;
@@ -111,7 +115,11 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
-CACHE_VERSION = 11  # #1201 (lane l1201): every PlacedObject carries ``walled_plate``
+CACHE_VERSION = 12  # spec 2120-F R1 (lane lkatlF): every PlacedObject carries
+                    # ``floor_zero`` and the report ``floor_frames``; the key
+                    # carries the apt.dat airside the reading is a function of
+                    # (:func:`_airside_digest`).  A v11 payload has neither.
+# was 11:           # #1201 (lane l1201): every PlacedObject carries ``walled_plate``
                     # (RULINGS 2026-10-27t/u) and a walled plate's MSL set is
                     # no longer ``origin_built``; a v10 payload has neither.
 # was 10:           # issue #382 (lane key382): the header carries the DEM
@@ -277,6 +285,19 @@ def _bridge_digest(airport) -> str:
         from .deck_signature import bridge_lines
         for wid, line in bridge_lines(ways):
             h.update(repr((wid, tuple(line.coords))).encode()); h.update(b"\n")
+    return h.hexdigest()
+
+
+def _airside_digest(airport) -> str:
+    """sha256 of the apt.dat airside pavement ``airside_floor`` reads
+    (``airside_floor.airside_union``'s polygons): each one's id and rings."""
+    h = hashlib.sha256()
+    for pv in getattr(airport, "pavements", ()) or ():
+        if str(pv.id).startswith("dsf:"):
+            continue
+        h.update(repr((str(pv.id), tuple(map(tuple, pv.outer)),
+                       tuple(tuple(map(tuple, r)) for r in pv.holes))).encode())
+        h.update(b"\n")
     return h.hexdigest()
 
 
@@ -527,6 +548,7 @@ def fingerprint(airport, law, *, dump_path: str | None,
     rd = resolved_digest(airport)
     h.update(f"resolved:{rd[0]}:{rd[1]}|".encode())
     h.update(f"bridges:{_bridge_digest(airport)}|".encode())
+    h.update(f"airside:{_airside_digest(airport)}|".encode())
     fp = h.hexdigest()
     _STAMPS[fp] = list(ents)
     _RESOLVED[fp] = rd

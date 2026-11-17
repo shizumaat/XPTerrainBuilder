@@ -1741,6 +1741,9 @@ class WallPiece(_t.NamedTuple):
     #: seats, that zero (``WallComponent.reseated``; ``None`` otherwise)
     placement: str = ""
     reseat_z: float | None = None
+    #: 2120-W3 F1: a retaining block's fill drop under its upper face
+    #: (``WallSides.fill_drop_m``), ``None`` for every other wall
+    fill_drop_m: float | None = None
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1777,7 +1780,8 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
                                      getattr(side, "lower", None),
                                      str(getattr(c, "low_side_source", "") or ""),
                                      str(getattr(c.member, "id", "") or ""),
-                                     c.seat_z if getattr(c, "reseated", False) else None))
+                                     c.seat_z if getattr(c, "reseated", False) else None,
+                                     getattr(side, "fill_drop_m", None)))
     return tuple(out)
 
 
@@ -1947,6 +1951,8 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
     # (owner RULINGS 2026-11-10a (2), the kerb ``planar/foot_kerb``)
     at_foot = {v for i in all_foot for v in _face_vertices(pm, i)}
     pad_v = at_foot - foot_vertices(pm, lot_f, walls, pad_roles).keys()
+    wall_polys = [w.poly for w in walls]
+    wall_tree = STRtree(wall_polys)
     for k, w in enumerate(walls):
         # THE WALL IS ITS OWN FOOTPRINT, never a chord of it: a pack wall
         # bends (HECA ``metal_strip_2.obj`` comp 117: one 262 m piece fills
@@ -2026,17 +2032,16 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         lots = [i for i in lots if i not in all_foot]
         pairs: list[tuple[int, int]] = []
         for lv in lower:
-            if lv in at_foot:
-                continue
+            if lv in at_foot or _on_road(pm, lv, roads):
+                continue          # 2120-WF2 W1: a LOT vertex pairs, never a road's
             p = Point(pm.vertices[lv].xy)
             cand = ([pad_ids[int(j)] for j in ptree.query(p, predicate="dwithin",
                                                           distance=2.0 * reach)]
                     if ptree is not None else [])
-            if not cand:
-                continue
-            pf = min(cand, key=lambda i: (pad_f[i].distance(p), i))
-            pairs.append((lv, nearest(lv, list(dict.fromkeys(
-                pm.ring_vertices(pm.faces[pf].ring))))))
+            pv = _same_side_pad(pm, lv, sorted(cand, key=lambda i: (pad_f[i].distance(p), i)),
+                                pad_f, w, wall_tree, wall_polys)
+            if pv is not None:
+                pairs.append((lv, pv))
         out[k] = {"line": [tuple(c) for c in ring], "height_m": w.height_m,
                   "label": w.label, "retains": bool(w.retains),
                   "mouth": bool(w.mouth),
@@ -2052,6 +2057,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   "low_side": str(getattr(w, "low_side", "") or ""),
                   "placement": str(getattr(w, "placement", "") or ""),
                   "reseat_z": getattr(w, "reseat_z", None),
+                  "fill_drop_m": getattr(w, "fill_drop_m", None),
                   "lower_band": [[tuple(c) for c in part.exterior.coords]
                                  for part in nonempty_polygon_parts(w.lower_band)]
                   if getattr(w, "lower_band", None) is not None else None,
@@ -2059,6 +2065,47 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   "foot_lots": {v: z for i, z in sorted(foot_lots.items())
                                 for v in _face_vertices(pm, i) if v not in pad_v}}
     return out
+
+
+def _on_road(pm: PlanarMap, v: int, roads: frozenset) -> bool:
+    """A vertex a mapped road's face carries (a road by its shape alone,
+    ``road_by_proportions``, is the lot's page: :func:`_is_lot_page`)."""
+    return any(pm.faces[g].role in roads and not pm.faces[g].road_by_proportions
+               for g in pm.vertices[v].incident_faces)
+
+
+def _same_side_pad(pm: PlanarMap, lv: int, cand: _t.Sequence[int], pad_f: _t.Mapping,
+                   w: WallPiece, wall_tree, wall_polys: _t.Sequence) -> "int | None":
+    """THE LOT'S OWN BUILDING (10-03c as 2120-WF2 W1 reads it): the ring
+    vertex, nearest the lot vertex ``lv``, of the nearest pad face of
+    ``cand`` (nearest first) on the lot's SIDE -- the segment between them
+    crosses no wall -- that is no riser strip or collar (a level's storey
+    or bank, never a building: KATL katl125's road stood 5 m over its
+    ground, held by a terminal landing's collar) and no UPPER pad (nearer
+    the wall's upper face than its lower).  ``None`` where none is."""
+    from shapely.geometry import LineString
+
+    from ..model.planar import COLLAR_SUFFIX, STRIP_SUFFIX
+    x, y = pm.vertices[lv].xy
+    for i in cand:
+        ref = str(pm.faces[i].ref)
+        if ref.endswith(STRIP_SUFFIX) or ref.endswith(COLLAR_SUFFIX):
+            continue
+        g = pad_f[i]
+        if (w.upper_face is not None and w.lower_face is not None
+                and g.distance(w.upper_face) < g.distance(w.lower_face)):
+            continue
+        ring = list(dict.fromkeys(pm.ring_vertices(pm.faces[i].ring)))
+        pv = min(ring, key=lambda q: (exact.hypot(pm.vertices[q].xy[0] - x,
+                                                 pm.vertices[q].xy[1] - y), q))
+        seg = LineString([(x, y), pm.vertices[pv].xy])
+        # ACROSS a wall is through its interior: a lot vertex on its foot's
+        # outline touches it and stays on its own side
+        if any(wall_polys[int(j)].relate_pattern(seg, "T********")
+               for j in wall_tree.query(seg)):
+            continue
+        return pv
+    return None
 
 
 def _face_vertices(pm: PlanarMap, fid: int) -> list[int]:

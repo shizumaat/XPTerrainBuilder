@@ -736,6 +736,12 @@ def read_split_levels(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Res
     out: list[SplitLevel] = []
     notes: list[str] = []
     for fam in _families(objects):
+        if any(getattr(o, "floor_zero", False) for o in fam):
+            # spec 2120-F R4: a frame read at its AIRSIDE FLOOR
+            # (``airside_floor``) is never a storey shell; its lower floor
+            # is its pad's lower level (``planar/low_level``)
+            notes.append(f"{fam[0].id}: floor_zero frame, never a split level")
+            continue
         got = _solids(fam, cache)
         if got is None:
             continue

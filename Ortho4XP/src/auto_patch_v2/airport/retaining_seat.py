@@ -25,6 +25,16 @@ crest, a basin, an authored seat, a walled plate, a mouth wing, a re-read
 entrance face) is never entered, and a wall too low to be read as two
 levels (``[service] retaining_wall_clear_step_m``) keeps its seat.
 
+THE ONE SEAT PATH (#2120 R2 W3).  A block too thick or too bent for
+``wall_sides._wall_faces`` to name two long faces (an L or U block, a road
+block 20 m wide) is seated on the ring round its footprint
+(``[service] retaining_wall_step_ring_m`` out), its HIGH side only: the
+stations whose ground stands within ``retaining_wall_clear_step_m`` of the
+ring's 90th percentile.  Every member of the wall's placement FRAME (its
+partition unit: one origin, one lift -- a road block's plate and parapet
+rows beside its walls) rides the same plate: the author drew them in one
+frame, so one seat moves them together (16u).
+
 NO LAW CONSTANT LIVES HERE: the grid and the step are the caller's
 (``emit.identity.min_distinct_spacing_m``,
 ``structures.bridge.abutment_sample_step_m`` -- the crest plate's own
@@ -68,6 +78,43 @@ def _upper_stations(face, grid_m: float, step_m: float) -> list:
     return out
 
 
+def _ring_points(whole, ring: float) -> np.ndarray:
+    """Points every ``ring`` metres round ``whole`` grown by ``ring``."""
+    grown = whole.buffer(ring)
+    pts: list = []
+    for g in getattr(grown, "geoms", [grown]):
+        n = max(4, int(np.ceil(g.exterior.length / ring)))
+        pts.extend(g.exterior.interpolate(float(t)).coords[0]
+                   for t in np.linspace(0.0, g.exterior.length, n, endpoint=False))
+    return np.asarray(pts, dtype=float).reshape(-1, 2)
+
+
+def _high_ring(dem, pieces, ring: float, clear: float) -> list:
+    """The ring stations round ``pieces`` (:func:`_ring_points`) on the
+    HIGH side: ground within ``clear`` of the ring's 90th percentile."""
+    from shapely.ops import unary_union
+
+    from .dem import dem_z_many
+    xy = _ring_points(unary_union(list(pieces)), ring)
+    if not len(xy):
+        return []
+    z = dem_z_many(dem, xy[:, 0], xy[:, 1])
+    ok = np.isfinite(z)
+    if not ok.any():
+        return []
+    hi = float(np.percentile(z[ok], 90.0))
+    return [tuple(p) for p in xy[ok & (z >= hi - clear)]]
+
+
+def _frame_of(airport) -> dict:
+    """Placement id -> the ids of every member of its partition unit."""
+    out: dict = {}
+    for u in getattr(getattr(airport, "partition", None), "units", ()) or ():
+        ids = tuple(str(m.id) for m in getattr(u, "members", ()) or ())
+        out.update({i: ids for i in ids})
+    return out
+
+
 def retaining_seats(airport, cfg, grid_m: float, step_m: float,
                     taken: _t.Container[str] = frozenset(),
                     comps=None) -> tuple[_RetainingSeat, ...]:
@@ -84,6 +131,7 @@ def retaining_seats(airport, cfg, grid_m: float, step_m: float,
     if comps is None:
         comps = wall_class_components(airport, cfg)
     clear = float(getattr(cfg, "retaining_wall_clear_step_m", 0.0) or 0.0)
+    ring = getattr(cfg, "retaining_wall_step_ring_m", None)
     plated = _walled_plate_ids(airport)
     by_id: dict[str, _RetainingSeat] = {}
     for w in comps:
@@ -99,7 +147,16 @@ def retaining_seats(airport, cfg, grid_m: float, step_m: float,
             k = None if faces is None else _upper_index(dem, w, i, faces, smear)
             if k is not None:
                 pts.extend(_upper_stations(faces[k], grid_m, step_m))
+        if not pts and ring is not None:
+            pts = _high_ring(dem, w.pieces, float(ring), clear)
         if pts:
             by_id[oid] = _RetainingSeat(oid, float(w.retained_top_y), tuple(pts),
                                        str(w.resource or ""))
+    # the wall's frame rides its plate: every other member of its placement
+    # unit no other rule seats (one origin, one lift: one seat)
+    frame = _frame_of(airport)
+    for oid, seat in list(by_id.items()):
+        for k in frame.get(oid, ()):
+            if k not in by_id and k not in taken and k not in plated:
+                by_id[k] = _dc.replace(seat, oid=k)
     return tuple(by_id[k] for k in sorted(by_id))

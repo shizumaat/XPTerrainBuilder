@@ -165,13 +165,12 @@ def extend_levels(regs: list, reg: Registries, air_all: _t.Sequence, airport, la
         t = float(rec0["top_y"])
         seeded = any(r in seeds for r in refs)
         if seeded:
-            # a seeded frame's level is its OWN PLAN where it touches ground
-            # (spec 2120-WF2 F1, F3, F5): :func:`_frame_plan`
-            y_floor = float(hosts[next(r for r in refs if r in seeds)]["y_feet"])
-            lower = feet.lower(ui, y_floor + _plane_band(), own=True)
+            # a seeded frame's level is its OWN PLAN
+            # (spec 2120-WF2 F3, F5): :func:`_frame_plan`
+            lower = feet.lower(ui, t + float(rec0["y_hi"]), own=True)
             if not lower:
                 continue
-            bodies, walls = _frame_plan(feet, ui, lower, y_floor, near), Polygon()
+            bodies, walls = _frame_plan(feet, ui, lower, t + float(rec0["y_hi"]), near), Polygon()
         else:
             lower = feet.lower(ui, t + float(rec0["y_hi"]))
             if not lower:
@@ -435,38 +434,33 @@ class _Feet:
         return out
 
 
-def _plane_band() -> float:
-    """The foot-plane band (``foot_planes.PLANE_BAND_M``)."""
-    from ..geom.foot_planes import PLANE_BAND_M
-    return float(PLANE_BAND_M)
-
-
-def _frame_plan(feet: "_Feet", ui: int, lower: list[_Lower], y_floor: float, near: float):
+def _frame_plan(feet: "_Feet", ui: int, lower: list[_Lower], y_hi: float, near: float):
     """THE LOWER LEVEL OF A FRAME READ AT ITS AIRSIDE FLOOR is the frame's
-    OWN PLAN where it touches ground (spec 2120-WF2): the ground-contact
-    parts ``lower`` (walled parts whose foot plane stands on the frame's
-    lower floor ``y_floor``, ``airport/airside_floor._on_floor``; F1) closed
-    by ``pad_frontage_m`` -- no road, no retaining wall's low side and no
-    unreachable pavement beyond it (F3: the 2120-F closing build minted
-    20.1 k m2 of level no part of the frame stood on) -- less the plan of
-    the frame's CARRIED and concourse parts beyond it (F5: no ground level
-    under a part the pack's own floors carry, nor under the concourse on
-    the apron -- every part with no foot on the lower floor)."""
-    band = _plane_band()
-    gc = valid_area(unary_union([p.poly for p in lower]))
-    if gc.is_empty:
+    OWN PLAN (spec 2120-WF2 F3): its lower storey -- the walled parts whose
+    foot plane stands a storey or more under its zero (``y_hi``): the hall
+    on its floor and the podium its columns carry (owner 2026-11-17 Q2: the
+    ground stays under the podium) -- closed by ``pad_frontage_m``, with no
+    road, no retaining wall's low side and no unreachable pavement beyond it
+    (the 2120-F closing build minted 20.1 k m2 of level no part of the frame
+    stood on, and held the walls' roads 4-9 m under their ground), less the
+    plan of the CONCOURSE beyond it (F5: no ground level under the parts
+    standing at the frame's airside floor or over it -- footless ones by
+    their base)."""
+    B = valid_area(unary_union([p.poly for p in lower]))
+    if B.is_empty:
         return Polygon()
-    B = valid_area(gc.buffer(near, join_style=2).buffer(-near, join_style=2))
+    own = B
+    B = valid_area(B.buffer(near, join_style=2).buffer(-near, join_style=2))
     up = []
     for m in feet.airport.partition.units[ui].members:
         for p in m.parts:
             if getattr(p, "line", False):
                 continue
             ys = [float(f[2]) for f in (getattr(p, "feet", ()) or ())]
-            if not any(y <= y_floor + band for y in ys):
-                up.extend(feet._rings(p))      # off the lower floor
+            if min(ys, default=float(getattr(p, "base_y", 0.0) or 0.0)) > y_hi:
+                up.extend(feet._rings(p))      # the concourse
     if up:
-        B = valid_area(B.difference(valid_area(unary_union(up)).difference(gc)))
+        B = valid_area(B.difference(valid_area(unary_union(up)).difference(own)))
     return B
 
 

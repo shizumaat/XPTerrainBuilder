@@ -1,10 +1,10 @@
 """Spec 2120-WF2 (KATL #2120 combined round): the rules as general rules.
 
-F1  a part of a frame read at its airside floor touches ground only on one
+F1  a body of a frame read at its airside floor touches ground only on one
     of its two floors; one standing on the pack's own floors is CARRIED --
-    no ground row (``constraints/foot_rows``) and no level under it.
+    no ground row (``constraints/foot_rows``).
 F3  the frame's lower level is its own plan (no unwitnessed extension).
-F5  no lower level under the frame's concourse or carried parts.
+F5  no lower level under the frame's concourse.
 W1  a wall terrace pairs a LOT vertex with the nearest pad on its own side:
     never a road vertex, never across a wall, never a strip / collar, never
     an upper pad.
@@ -120,7 +120,8 @@ def law():
     return Law.for_airport("ZZZZ")
 
 
-def _split(law, tmp_path, monkeypatch, extra=(), shade=None, halls=((0.0, 200.0),)):
+def _split(law, tmp_path, monkeypatch, extra=(), shade=None, halls=((0.0, 200.0),),
+           beyond=()):
     from auto_patch_v2.model.registries import Registries
     from auto_patch_v2.planar import low_level as LL
     from auto_patch_v2.planar import pad_blocks
@@ -140,18 +141,18 @@ def _split(law, tmp_path, monkeypatch, extra=(), shade=None, halls=((0.0, 200.0)
     regions = [Region(role="building", ref="blk", polygon=blk, code_number=None,
                       code_letter=None, side="airside", source="cell")]
     out = LL.low_level_split(regions, [air], A, law, 0.5, {}, reg=reg,
-                             air_all=[AirRegion(air, "cell")])
+                             air_all=[AirRegion(air, "cell")], beyond=beyond)
     ext = [r for r in out if reg.landings.get(str(r.ref), {}).get("extent_of")]
     return ext, reg
 
 
-def test_a_carried_part_beyond_the_hall_mints_no_level(law, tmp_path, monkeypatch):
-    """F1 / F3: walls at -11 (a curb on the frame's own structures) beyond
-    the hall's plan are carried; the level is the hall's plan alone."""
-    ext, _reg = _split(law, tmp_path, monkeypatch,
-                       extra=[(0.0, -80.0, 200.0, -20.0, -11.0, 300)])
+def test_the_frame_level_is_its_own_plan(law, tmp_path, monkeypatch):
+    """F3: unreachable pavement beside the hall (``beyond``) is no part of
+    a seeded frame's level -- the level is the frame's own plan."""
+    far = box(0.0, -60.0, 200.0, -2.0)
+    ext, _reg = _split(law, tmp_path, monkeypatch, beyond=(far,))
     assert ext
-    assert all(r.polygon.bounds[1] >= -1.0 for r in ext)
+    assert all(r.polygon.intersection(far).area < 1.0 for r in ext)
 
 
 def test_no_level_under_the_concourse(law, tmp_path, monkeypatch):

@@ -206,6 +206,7 @@ def test_the_frame_seeds_its_lower_pad_at_the_objects_bottom(law, tmp_path, monk
     (ref, rec), = ext.items()
     assert rec["extent_of"] == "blk" and rec["witness"] == "airside_floor"
     assert "seed" not in rec and rec["y_lo"] == pytest.approx(-15.0)
+    assert rec["deck"] is None                     # every landing record carries it
     g = next(r.polygon for r in out if r.ref == ref)
     assert g.area > 0.8 * 200.0 * 60.0
     assert not any(k.endswith("#floor_seed") for k in reg.landings)

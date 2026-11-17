@@ -743,8 +743,8 @@ def _frame_seeds(groups: _t.Mapping[str, list], done: _t.Mapping, held: _t.Mappi
         y = _frame_floor(part.units[ui], step, law)
         if y is None:
             continue
-        out.append({"kind": LOW_KIND, "block": ref, "top_y": 0.0, "y_hi": -step,
-                    "y_feet": y, "witness": "airside_floor", "seed": True})
+        out.append({"kind": LOW_KIND, "block": ref, "deck": None, "top_y": 0.0,
+                    "y_hi": -step, "y_feet": y, "witness": "airside_floor", "seed": True})
     return out
 
 

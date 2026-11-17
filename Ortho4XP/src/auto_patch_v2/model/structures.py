@@ -26,6 +26,7 @@ import typing as _t
 from .frame import XY
 
 __all__ = ["Deck", "Tunnel", "DeckAnchor", "DeckBridge", "Basin", "Channel", "ChannelWall",
+           "ChannelRamp",
            "profile_z", "deck_z_on_faces", "deck_reach", "deck_floor_z", "DECK_GROUND_REF",
            "CHANNEL_FLOOR_ROLE",
            "CHANNEL_WALL_ROLE", "CREST_DESIGN", "CREST_DEM", "SKIRT_ROLE", "OBJECT_FLOOR_REF",
@@ -631,6 +632,27 @@ class ChannelWall:
 
 
 @_dc.dataclass(frozen=True)
+class ChannelRamp:
+    """An EXIT RAMP of a channel (#2127 R3 §3 Part A): the part of its floor
+    a mapped road leaving the channel through a wall climbs on
+    (``planar/channel_ramp``).  ``ref`` its floor faces' ref
+    (``channel_floor:<k>#r<n>``), ``ring`` its plan, ``outline`` the plan
+    the main floor stands back from and the corridor's knife covers (the
+    ring ⊕ the wall band, cut off flat at the top line), ``stations`` its
+    long section ``(x, y, z)`` bottom first (``geom/channel_declared``),
+    ``source`` ``"pack"`` (a member's foot line states it, 16s) or
+    ``"law"`` (``[tunnel] ramp_grade``, never over ``ramp_max_grade``), and
+    ``way_keys`` the exit ways."""
+
+    ref: str
+    ring: tuple[XY, ...]
+    outline: tuple[XY, ...]
+    stations: tuple[tuple[float, float, float], ...]
+    source: str
+    way_keys: tuple[tuple[str, int], ...] = ()
+
+
+@_dc.dataclass(frozen=True)
 class Channel:
     """THE OPEN CHANNEL (spec §45; owner RULINGS 2026-09-15i) — a road /
     rail corridor under a STATED CROSSING that keeps its own floor
@@ -722,6 +744,8 @@ class Channel:
     #: gate's FEET row)
     ledge_pins: tuple[tuple[float, float, float], ...] = ()
     member_feet: tuple[tuple[float, float, float, str, str], ...] = ()
+    #: #2127 R3: the exit ramps, parts of the floor (:class:`ChannelRamp`)
+    ramps: tuple[ChannelRamp, ...] = ()
 
     def floor_z(self, s: float) -> float:
         """The floor at ``s`` along the axis — :func:`profile_z`, the ONE

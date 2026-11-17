@@ -758,6 +758,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.channel_depth",
         "auto_patch_v2.planar.channel_floor",
         "auto_patch_v2.planar.channel_geometry",
+        "auto_patch_v2.planar.channel_ramp",
         "auto_patch_v2.planar.channel_stretch",
         "auto_patch_v2.planar.channel_strip",
         "auto_patch_v2.planar.channel_witness",
@@ -1647,6 +1648,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.capped_plane",
         "auto_patch_v2.geom.centreline",
+        "auto_patch_v2.geom.channel_declared",
         "auto_patch_v2.geom.cluster_outline",
         "auto_patch_v2.geom.containment",
         "auto_patch_v2.geom.core_clamp",
@@ -1852,6 +1854,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.triangulate geom.union_find model.islands model.map_memo model.platform
     """),
     "channel": _mods(_GENERATOR_CORE + """
+        geom.channel_declared
         geom.exact
         constraints.channel constraints.geometry constraints.precedence model.airport
     """),
@@ -2261,6 +2264,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
+    geom.channel_declared
     airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
     airport.floor_rim airport.object_floor airport.walled_pit geom.shape_class geom.plane_groups
@@ -2494,6 +2498,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
+    planar.channel_ramp
     airport.cut_portal airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
     constraints.airside_top
@@ -2682,6 +2687,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.deck_pack_cover
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    geom.channel_declared planar.channel_ramp
     airport.cut_portal airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
     airport.facade_seat
@@ -2892,6 +2898,14 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.deck_pack_cover
 """)
 CODE_MODULES["emit"] = _mods("""
+    airport.deck_roof airport.ramp_feet geom.channel_declared planar.basin_author_ground
+    planar.basin_datum planar.basin_floor_width planar.basin_geometry planar.basin_rim
+    planar.basins planar.channel_claims planar.channel_ramp planar.covered_cut
+    planar.cut_runout planar.door_ramps planar.fill_riser planar.group_low planar.group_up
+    planar.landing_runout planar.level_depth planar.level_regions planar.level_underside
+    planar.low_extent planar.low_fill planar.low_level planar.pad_blocks
+    planar.passage_court planar.road_yield planar.split_level_pit planar.station_level
+    planar.storey_floor planar.storey_pad planar.viaduct_road
     airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top planar.index
     model.wing_cut
@@ -3051,6 +3065,7 @@ CODE_MODULES["emit"] = _mods("""
     planar.wall_corridor_ramps
 """)
 CODE_MODULES["verify"] = _mods("""
+    geom.channel_declared
     airport.cut_portal_seat
     airport.hung_wall_seat airport.wall_top
     constraints.airside_top

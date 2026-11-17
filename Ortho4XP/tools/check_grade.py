@@ -7382,7 +7382,38 @@ def _hav_m(lat0: float, lon0: float, lat1: float, lon1: float) -> float:
                       math.radians(lat1 - lat0) * 6378137.0)
 
 
-def _check_channel_floor_at_declaration(ways, nodes, channel_declared) -> List[Violation]:
+def _channel_ramps_declared(channel_facilities) -> dict:
+    """Sidecar rows -> ``{channel id: {ramp number: [(lat, lon, z), ...]}}``:
+    each exit ramp's long section (#2127 R3 A4); empty before it."""
+    from auto_patch_v2.geom.channel_declared import ramp_index
+    out: dict = {}
+    for rec in (channel_facilities or []):
+        if not isinstance(rec, dict):
+            continue
+        for r in rec.get("ramps") or ():
+            k = ramp_index(str(r.get("ref") or ""))
+            if k is not None:
+                out.setdefault(str(rec.get("id") or ""), {})[k] = [
+                    (float(a), float(b), float(z)) for a, b, z in r.get("stations_ll") or ()]
+    return out
+
+
+def _channel_ramp_declared_at(ref: str, ramps: dict, prof, lat: float, lon: float
+                              ) -> Optional[float]:
+    """The ONE declared-floor reading (``auto_patch_v2.geom.channel_declared``)
+    on the sidecar: a ramp part's own long section in local metres about the
+    point, else :func:`_channel_declared_at`."""
+    from auto_patch_v2.geom.channel_declared import declared_floor_z
+    m = 6378137.0 * math.radians(1.0)
+    kx = m * math.cos(math.radians(lat))
+    local = {n: [((lo - lon) * kx, (la - lat) * m, z) for la, lo, z in st]
+             for n, st in (ramps or {}).items()}
+    return declared_floor_z(ref, 0.0, 0.0, lambda _x, _y: _channel_declared_at(prof, lat, lon),
+                            local)
+
+
+def _check_channel_floor_at_declaration(ways, nodes, channel_declared,
+                                        ramps=None) -> List[Violation]:
     """§45 (3): every emitted channel-floor vertex stands at the record's
     own declared profile, within ``_CHANNEL_TOL_M``.
 
@@ -7402,7 +7433,7 @@ def _check_channel_floor_at_declaration(ways, nodes, channel_declared) -> List[V
                 if z is None or nid not in nodes:
                     continue
                 lat, lon = nodes[nid]
-                want = _channel_declared_at(prof, lat, lon)
+                want = _channel_ramp_declared_at(w.ref, (ramps or {}).get(cid), prof, lat, lon)
                 if want is None or abs(z - want) <= _CHANNEL_TOL_M:
                     continue
                 v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
@@ -13645,7 +13676,8 @@ def run_checks(
 
     channel_floor = _fam(
         "channel_floor_at_declaration",
-        _check_channel_floor_at_declaration(ways, nodes, channel_declared))
+        _check_channel_floor_at_declaration(ways, nodes, channel_declared,
+                                            _channel_ramps_declared(channel_facilities)))
     _pv("CHANNEL FLOOR off its own declared profile (§45 (3): the pack's "
         "floor plate, a credible lidar inset's DTM floor, or the deck top "
         "less bridge.clearance_m — whichever the record declares)",

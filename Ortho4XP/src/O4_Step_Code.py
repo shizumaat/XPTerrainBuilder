@@ -841,6 +841,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.planar.channel_depth",
     "auto_patch_v2.planar.channel_floor",
     "auto_patch_v2.planar.channel_geometry",
+    "auto_patch_v2.planar.channel_ramp",
     "auto_patch_v2.planar.channel_stretch",
     "auto_patch_v2.planar.channel_strip",
     "auto_patch_v2.planar.channel_witness",

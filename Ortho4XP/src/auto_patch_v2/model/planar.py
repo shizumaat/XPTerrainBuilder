@@ -49,7 +49,6 @@ __all__ = ["BEYOND", "NO_SHAPE", "drop_edges", "EdgeKind", "Vertex", "Edge", "Fa
            "is_agp_ground_ref", "is_agp_bank_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX", "CAR_LOT_PREFIX",
-           "is_car_lot_ref",
            "is_facade_ref", "is_facade_strip_ref", "facade_strip_host",
            "EDGE_STRIP_PREFIX", "is_edge_strip_ref", "edge_strip_host",
            "FENCE_YARD_PREFIX", "fence_yard_pad",
@@ -1248,11 +1247,6 @@ def is_facade_ref(ref) -> bool:
 CAR_LOT_PREFIX = "carlot"
 
 
-def is_car_lot_ref(ref) -> bool:
-    """A lot a group of parked cars marks (``classify/car_lot``)."""
-    return str(ref or "").split(":", 1)[0] == CAR_LOT_PREFIX
-
-
 def fence_yard_pad(ref) -> "str | None":
     """The upper pad a fence yard (spec 2068 A2) is read beside, else ``None``."""
     parts = str(ref or "").split(":", 2)
@@ -1444,4 +1438,4 @@ def is_late_ref(ref) -> bool:
     ARRANGEMENT asks this (a #2114 car lot is one too); the road laws keep asking
     :func:`is_osm_ribbon_ref`."""
     return (is_osm_ribbon_ref(ref) or is_facade_ref(ref) or is_gap_ref(ref)
-            or is_car_lot_ref(ref))
+            or str(ref or "").split(":", 1)[0] == CAR_LOT_PREFIX)

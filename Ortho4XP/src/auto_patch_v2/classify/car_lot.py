@@ -12,18 +12,20 @@ CAR.  A car counts only SEATED ON THE GROUND (a plain ``OBJECT``, or an
 ``OBJECT_AGL`` / ``OBJECT_MSL`` within ``[car_lots] ground_m`` of it: a car
 on a garage storey or a deck marks no ground), on ground no classified cell
 and no building footprint holds (a car on an apron is a ground vehicle; one
-inside a lot, a road or a pad is already graded) and not ALONG A ROAD (its anchor within ``[car_lots] road_side_m``
-of a road-cross-section cell).  Cars within ``link_m`` of each other are
+inside a lot, a road or a pad is already graded) and not ALONG A ROAD
+(its anchor within ``[car_lots] road_side_m`` of a road-cross-section
+cell).  Cars within ``link_m`` of each other are
 one group (single linkage); a group of at least ``min_cars`` marks a lot.
 THE LOT is the ground under the group — every car and every link between
 two linked cars, grown by ``car_half_m`` (the car) plus ``margin_m`` (16p
-"+ ~3 m") — minus every cell standing and every building; the parts that hold a counted car.
+"+ ~3 m"), the ground its cars enclose included — minus every cell
+standing and every building; the parts that hold a counted car.
 Role ``parking_lot`` (the lot law, 5 %), ref ``carlot:<k>``; a LATE cell
 (``model.planar.is_late_ref``) like the §52 facade lot, so the cells
-standing are what they were.  Touching a pad it is WELDED to the pad's rim
-by the one touch witness (``classify/roles`` reads the new cells through
-``_cut_back_groundside``, as it reads the pad roads); touching a road it
-shares the road's edge.
+standing are what they were.  It keeps every pad's set-back, as the facade
+lot does (a lot welded to a pad's rim moved the pad and its apron: KBNA
+replay, pads 1.28 m, apron 0.46 m — airside is king); touching a road it
+shares the road's edge and is graded with it.
 
 Read once, after every other cell is minted (``classify/roles``)."""
 from __future__ import annotations
@@ -38,12 +40,12 @@ from shapely.ops import unary_union
 
 from ..airport.facade import is_parked_car
 from ..law import Law
-from ..law.tables import LOT_ROLES, road_family_roles
+from ..law.tables import LOT_ROLES, road_family_roles, snap_margin_m
 from ..model.planar import CAR_LOT_PREFIX
 from .evidence import polygon_parts
 from .rules import Rules
 
-__all__ = ["car_lot_plan", "mint_car_lots", "LOT_ROLE", "CARS_KEY"]
+__all__ = ["mint_car_lots", "LOT_ROLE", "CARS_KEY"]
 
 LOT_ROLE = "parking_lot"
 #: the cell evidence: how many counted cars stand in the lot
@@ -118,7 +120,7 @@ def _counted_cars(airport, polys, law: Law, cfg, stats) -> np.ndarray:
     return cars[~on_held & ~by_road]
 
 
-def car_lot_plan(airport, cells: _t.Sequence, law: Law, rules: Rules
+def _lot_plan(airport, cells: _t.Sequence, law: Law, rules: Rules
                  ) -> tuple[list[tuple[Polygon, int]], dict[str, float]]:
     """The lots the parked cars mark: ``[(part, cars in it)]`` over the
     ground no cell of ``cells`` holds, and the counts."""
@@ -139,7 +141,15 @@ def car_lot_plan(airport, cells: _t.Sequence, law: Law, rules: Rules
                         MultiLineString(links).buffer(reach) if links else Polygon()])
     # ground a group's cars ENCLOSE is the lot's (the aisle inside a ring)
     core = unary_union([Polygon(p.exterior) for p in polygon_parts(core)])
-    held = unary_union([p for _c, p in polys] + [_structures(airport)])
+    # every PAD's set-back stands (the §52 facade lot's knife): a lot sharing a
+    # pad's rim puts the pad's columns in the lot's rows, and the pad and the
+    # apron it stands on move (MEASURED KBNA replay, welded by the touch
+    # witness: 123 pad nodes up to 1.28 m, apron nodes 0.46 m)
+    knife_m = float(law.tables.structures.building_pad.groundside_cutback_m) \
+        + snap_margin_m(law)
+    held = unary_union([p for _c, p in polys] + [_structures(airport)]
+                       + [p.buffer(knife_m, join_style="mitre", mitre_limit=2.0)
+                          for c, p in polys if c.role == "building"])
     ground = shapely.set_precision(core.difference(held), rules.cells.snap_grid_m)
     pts = shapely.points(free[counted])
     out = []
@@ -157,7 +167,7 @@ def car_lot_plan(airport, cells: _t.Sequence, law: Law, rules: Rules
 def mint_car_lots(airport, cells: list, law: Law, rules: Rules, add) -> dict[str, float]:
     """Mint the car lots onto ``cells`` through ``add`` (the classifier's
     own cell constructor); returns the counts."""
-    plan, stats = car_lot_plan(airport, cells, law, rules)
+    plan, stats = _lot_plan(airport, cells, law, rules)
     for k, (part, n) in enumerate(plan):
         add(LOT_ROLE, f"{CAR_LOT_PREFIX}:{k}", part, "parking_lot", None, None, {CARS_KEY: n})
     return stats

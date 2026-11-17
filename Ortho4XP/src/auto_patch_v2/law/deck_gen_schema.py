@@ -34,6 +34,11 @@ class DeckGenLaw:
     shoulder_m: float = 1.5
     #: A2: the slab's thickness (m)
     thickness_m: float = 1.0
+    #: owner sim read 2026-11-17T19:42Z ("that embankment needs to extend
+    #: about 1m past the bridge edges, then smoothly blend the natural
+    #: terrain and the cut"): the bank under a generated deck runs on this
+    #: far past the ring's edges before the ground beyond blends (m)
+    bank_past_edge_m: float = 1.0
     #: A2: the top stands this far over the solved end lines (m)
     top_lift_m: float = 0.02
     #: A2: the pre-solve tilt is clamped to this share of the family cap

@@ -153,7 +153,8 @@ def _deck_rows(planar: PlanarMap, law: Law, tunnels, air) -> list[Row]:
         pool = set(seats_of[oid]).union(*(seats_of.get(o, set()) for t in under
                                           for o, _s, _d in t.edge_seats))
         rows.extend(_span_rows(planar, oid, es, under, air, ends, flush, sorted(pool), done,
-                               _FLOOR_ROLES | roads, _bank_slope(law, es)))
+                               _FLOOR_ROLES | roads, _bank_slope(law, es),
+                               float(law.tables.structures.deck_gen.bank_past_edge_m)))
         rows.extend(_station_rows(oid, ends, flush, _held_levels(planar, oid, es)))
         rows.extend(_rigid_rows(oid, ends))
     return rows
@@ -189,7 +190,7 @@ def _floor_deck_rows(planar: PlanarMap, law: Law) -> list[Row]:
 def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float,
                pool: "_t.Sequence[int] | None" = None, done: "set[int] | None" = None,
                skip: "_t.AbstractSet[str]" = _FLOOR_ROLES,
-               bank: "float | None" = None) -> list[Row]:
+               bank: "float | None" = None, past: float = 0.0) -> list[Row]:
     """The object's SPAN: every vertex inside its deck rings — or, on the
     bridge's own ground (:func:`_bridge_ground`), inside the reach of a
     trench under it (``model/structures.deck_reach``) — that is no seat and
@@ -204,7 +205,10 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     (:func:`_in_cut`) stands at the cut's level — pulled to the deck's, the
     floor beside it followed and the stations moved.  ``bank`` (a
     GENERATED deck, :func:`_bank_slope`): the pair holds the vertex on the
-    BANK instead of flush -- :func:`_bank_drop` under its seat."""
+    BANK instead of flush -- :func:`_bank_drop` under its seat -- and runs
+    on ``past`` metres beyond the ring's edges on the bridge's own ground
+    (owner sim read 2026-11-17T19:42Z: "that embankment needs to extend
+    about 1m past the bridge edges")."""
     from shapely.geometry import MultiPoint, Point, Polygon
     from shapely.ops import unary_union
     from shapely.prepared import prep
@@ -215,7 +219,8 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     done = set() if done is None else done
     decks = list({tuple(e.deck.ring): e.deck for e in es}.values())
     inside = prep(unary_union([Polygon(d.ring).buffer(0.5) for d in decks]))
-    ring_in = prep(unary_union([Polygon(d.ring).buffer(-0.5) for d in decks]))
+    ring_in = prep(unary_union([Polygon(d.ring).buffer(past if bank is not None else -0.5,
+                                                       join_style="mitre") for d in decks]))
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
     # THE DECK'S GROUND IS ITS OWN CELL (#2072): ``planar/deck_bridge.
     # deck_ground`` minted it from the reach the planar stage read, which can
@@ -275,9 +280,9 @@ def _bank_slope(law: Law, es) -> "float | None":
     deck level), U -74 one +6.28 m, -141 one +6.25 m mid-bank."""
     if any(getattr(e.deck, "witness", "") != "generated" for e in es):
         return None
-    # ``planar/deck_generated.generated_bank_slope``: the bank under a
-    # generated deck is the channel's (§45 (5), 1:2), the run the cut made
-    return float(law.tables.structures.channel.bank_slope)
+    # the bank under a generated deck: the run the cut made (one reader)
+    from ..planar.deck_generated import generated_bank_slope
+    return generated_bank_slope(law)
 
 
 def _bank_drop(es, p, slope: float) -> float:

@@ -51,6 +51,7 @@ from .bridge_span import edge_bridges
 from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .deck_generated import carried_off, generated_decks
+from .deck_pack_cover import hidden_cells_off
 from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
@@ -371,7 +372,9 @@ def build(airport: Airport, classification: Classification, law: Law,
         decks, deck_notes = tuple(decks) + gen, list(deck_notes) + gen_notes
     # a generated deck carries its airside pavement on both maps (A3)
     classification, cut_notes = carried_off(classification, decks, law)
-    deck_notes = list(deck_notes) + cut_notes
+    # the pads and walls read off the pack placements it hides are no ground
+    classification, hid_notes = hidden_cells_off(classification, decks)
+    deck_notes = list(deck_notes) + cut_notes + hid_notes
     # #2099 R3 D6: a deck mouth's group walls plan its ramps -- the groups
     # of the deck mouths are formed here, before the structure pass
     decks, group_notes = group_walled(decks, airport, objects, cache, law)
@@ -400,7 +403,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     decks = with_cuts(decks, tunnels)
     # the ground each hard deck rests on, once its corridors are cut
     # (RULINGS 2026-10-30b / 30f (4), ``deck_bridge.deck_ground``)
-    classification, ground_notes = deck_ground(classification, tunnels, law)
+    classification, ground_notes = deck_ground(classification, tunnels, law, decks)
     sstats.hard_decks.extend(ground_notes)
     # #2099 R2: the ground beside a grouped mouth's wings stands on their
     # feet (``planar/wing_cut``), once the corridors and the deck's ground own theirs

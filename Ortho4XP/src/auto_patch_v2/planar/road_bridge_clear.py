@@ -24,9 +24,15 @@ the survey shows it:
   invented (the span is a hole the base mesh fills from the survey).
 * THE DECK runs straight between the two end levels (:func:`deck_at`); the
   X-Plane chain's level-1 junctions ride over it.
-* THE LOWER ROADS ARE CUT by what is still short: at each crossing the
-  deficit ``clearance_minimum_m - (deck - survey)`` is cut out of the lower
-  road under the span, ramped back at ``[tunnel] ramp_grade``.
+* THE LOWER ROADS ARE CUT by what is still short (:func:`span_cuts`,
+  once the span is known): along each witnessed lower road's whole stretch
+  under the span (its carriageway's reach into it) the road stands
+  ``clearance_minimum_m`` under the deck line at its own projection on the
+  axis -- the cut goes all the way under (owner 2026-11-17 18:30Z) --
+  ramped back to its survey at ``[tunnel] ramp_grade`` BEYOND the span.
+  MEASURED ESSA ``-3`` over ``-80`` (a deck rising 2.4 m over 55 m): the
+  cut planned at the crossing alone, 1.0 m for a half width each side,
+  left the road 1.5 m short under the span's low end.
 * WITNESS (16s/16t, :func:`witnessed`): the survey must show at least
   ``witness_share`` of the clearance at some crossing once the ends stand
   on their embankments -- a terminal ramp the survey carries at grade over
@@ -51,9 +57,10 @@ from shapely.geometry import LineString, Point
 from shapely.ops import substring
 
 from ..law.tables import role_cap
-from .structure_approach import carriageway_width_m
+from .structure_approach import carriageway_width_m, design_clearance_m
 
-__all__ = ["ClearancePlan", "clearance_plan", "end_level", "deck_at", "witnessed"]
+__all__ = ["ClearancePlan", "clearance_plan", "end_level", "deck_at", "witnessed",
+           "span_cuts"]
 
 #: the spacing of the approach probe (metres)
 _PROBE_STEP_M = 2.0
@@ -68,12 +75,14 @@ class ClearancePlan:
     ends: tuple[float, float]             # surveyed z at the mapped ends
     levels: tuple[float, float]           # the ends on their embankments
     witnessed: float                      # the best crossing's survey clearance
-    crossings: tuple[tuple[str, float, float, float], ...]   # (way, s, survey z, deficit)
+    #: ``(way, s, survey z, deficit, the road's clearance)`` per crossing
+    crossings: tuple[tuple[str, float, float, float, float], ...]
     ground: tuple[dict, ...]              # ribbons (module doc)
     chain: "LineString | None" = None     # the axis run on to the crests
 
     def note(self) -> str:
-        cr = ", ".join(f"{w} short {max(0.0, d):.1f} m" for w, _s, _z, d in self.crossings)
+        cr = ", ".join(f"{w} short {max(0.0, d):.1f} m of {c:g}"
+                       for w, _s, _z, d, c in self.crossings)
         return (f"ends {self.ends[0]:.1f}/{self.ends[1]:.1f} m stand on their embankments "
                 f"at {self.levels[0]:.1f}/{self.levels[1]:.1f} m, survey clearance "
                 f"{self.witnessed:.1f} m; {cr}")
@@ -159,17 +168,68 @@ def _chain(line: LineString, reach: list) -> LineString:
     return LineString(pts)
 
 
-def _cut_ribbon(road: LineString, q: Point, floor: float, survey: float, flat: float,
-                half: float, grade: float) -> dict:
-    """The lower road cut to ``floor`` for ``flat`` metres each side of the
-    crossing ``q``, ramped back to its survey at ``grade``."""
-    s = road.project(q)
-    run = max(0.0, survey - floor) / grade
-    a, b = max(0.0, s - flat - run), min(road.length, s + flat + run)
-    axis = substring(road, a, b)
-    s -= a
-    return _ribbon("cut", axis, half, [(s - flat - run, survey), (s - flat, floor),
-                                       (s + flat, floor), (s + flat + run, survey)])
+def _under(road: LineString, span, q: Point, reach: float) -> "tuple[float, float] | None":
+    """``(s0, s1)``: the stretch of ``road`` around its crossing ``q`` whose
+    carriageway (``reach``, its half width) reaches under ``span``."""
+    x = road.intersection(span.buffer(reach))
+    best = None
+    for g in getattr(x, "geoms", [x]):
+        if g.geom_type == "LineString" and g.length > 0.0 and g.distance(q) <= 1e-6 + reach:
+            ss = sorted(road.project(Point(c)) for c in g.coords)
+            if best is None or g.distance(q) < best[0]:
+                best = (g.distance(q), ss[0], ss[-1])
+    return None if best is None else (best[1], best[2])
+
+
+def span_cuts(airport, law, line: LineString, levels: tuple[float, float], lower,
+              span) -> tuple[dict, ...]:
+    """THE LOWER ROADS CUT ALL THE WAY UNDER THE SPAN (module doc): per
+    witnessed crossing of ``lower`` (``[(way id, way line, crossing point,
+    way tags)]``) a ``cut`` ribbon whose floor stands ``clearance_minimum_m``
+    under the deck line (:func:`deck_at` at each station's projection on
+    the axis ``line``) along the road's whole stretch under ``span``, ramped
+    back to its survey at ``[tunnel] ramp_grade`` beyond it; none where the
+    survey already clears it.  A crossing the survey does not show under
+    the deck (``witness_share``) is never cut."""
+    dem = getattr(airport, "dem", None)
+    if dem is None or span is None or span.is_empty:
+        return ()
+    rg = law.tables.structures.road_gen
+    shoulder = float(law.tables.structures.deck_gen.shoulder_m)
+    grade = float(law.tables.structures.tunnel.ramp_grade)
+    out = []
+    for _wid, road, q, otags in lower:
+        clear = design_clearance_m(otags, law)
+        zq = _dem(dem, q.x, q.y)
+        if zq is None or clear - (deck_at(levels, line.length, line.project(q)) - zq) \
+                > (1.0 - float(rg.witness_share)) * clear:
+            # an at-grade road, a lower tag the survey contradicts: no cut
+            continue
+        oh = carriageway_width_m(otags, law) / 2.0 + shoulder
+        st = _under(road, span, q, oh)
+        if st is None:
+            continue
+        s0, s1 = st
+        n = max(1, math.ceil((s1 - s0) / _PROBE_STEP_M))
+        prof, short = [], False
+        for k in range(n + 1):
+            s = s0 + (s1 - s0) * k / n
+            p = road.interpolate(s)
+            need = deck_at(levels, line.length, line.project(p)) - clear
+            z = _dem(dem, p.x, p.y)
+            short |= z is not None and z > need
+            prof.append((s, need))
+        if not short:
+            continue
+        z0 = _dem(dem, *road.interpolate(s0).coords[0])
+        z1 = _dem(dem, *road.interpolate(s1).coords[0])
+        r0 = max(0.0, (z0 if z0 is not None else prof[0][1]) - prof[0][1]) / grade
+        r1 = max(0.0, (z1 if z1 is not None else prof[-1][1]) - prof[-1][1]) / grade
+        a, b = max(0.0, s0 - r0), min(road.length, s1 + r1)
+        full = ([(a, prof[0][1] + r0 * grade)] if s0 - a > 1e-6 else []) + prof + \
+            ([(b, prof[-1][1] + r1 * grade)] if b - s1 > 1e-6 else [])
+        out.append(_ribbon("cut", substring(road, a, b), oh, [(s - a, z) for s, z in full]))
+    return tuple(out)
 
 
 def clearance_plan(airport, law, w, line: LineString, lower) -> "ClearancePlan | None":
@@ -182,11 +242,9 @@ def clearance_plan(airport, law, w, line: LineString, lower) -> "ClearancePlan |
     rg = law.tables.structures.road_gen
     clear = float(law.tables.structures.bridge.clearance_minimum_m)
     cap = float(role_cap(law, "service_road").longitudinal)
-    shoulder = float(law.tables.structures.deck_gen.shoulder_m)
-    half = carriageway_width_m(w.tags, law) / 2.0 + shoulder
     roads = [LineString(o.points) for o in getattr(airport, "osm_ways", ()) or ()
              if len(o.points) >= 2 and (o.tags or {}).get("highway")]
-    ends, levels, ribbons, reach = [], [], [], []
+    ends, levels, reach = [], [], []
     for k in (0, -1):
         raw = _dem(dem, *line.coords[k])
         if raw is None:
@@ -202,32 +260,25 @@ def clearance_plan(airport, law, w, line: LineString, lower) -> "ClearancePlan |
         levels.append(level)
         reach.append(substring(ap, 0.0, knee) if ap is not None and knee > 0.0 else None)
     crossings, best = [], -math.inf
-    flat = half + float(rg.span_margin_m)
-    for wid, oline, q, otags in lower:
+    for wid, _oline, q, otags in lower:
         zq = _dem(dem, q.x, q.y)
         if zq is None:
             continue
         s = line.project(q)
         deck = deck_at((levels[0], levels[1]), line.length, s)
         best = max(best, deck - zq)
-        crossings.append((wid, s, zq, clear - (deck - zq)))
-        if 0.0 < clear - (deck - zq) <= (1.0 - float(rg.witness_share)) * clear:
-            # a crossing the survey shows under the deck takes the rest as a
-            # cut; one it does not (an at-grade road, a lower tag the survey
-            # contradicts) is never cut deeper than the witness allows
-            oh = carriageway_width_m(otags, law) / 2.0 + shoulder
-            ribbons.append(_cut_ribbon(oline, q, deck - clear, zq, flat, oh,
-                                       float(law.tables.structures.tunnel.ramp_grade)))
+        c = design_clearance_m(otags, law)
+        crossings.append((wid, s, zq, c - (deck - zq), c))
     if not crossings:
         return None
     return ClearancePlan((ends[0], ends[1]), (levels[0], levels[1]), best,
-                         tuple(crossings), tuple(ribbons), _chain(line, reach))
+                         tuple(crossings), (), _chain(line, reach))
 
 
 def witnessed(plan: "ClearancePlan | None", law) -> bool:
     """The survey shows the grade separation (module doc, WITNESS)."""
     if plan is None:
         return False
-    rg = law.tables.structures.road_gen
-    clear = float(law.tables.structures.bridge.clearance_minimum_m)
-    return plan.witnessed >= float(rg.witness_share) * clear
+    ws = float(law.tables.structures.road_gen.witness_share)
+    # each crossing against its own road's clearance (``design_clearance_m``)
+    return any(c - d >= ws * c for _w, _s, _z, d, c in plan.crossings)

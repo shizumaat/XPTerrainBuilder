@@ -685,6 +685,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
     # seeds the ramp from STAGE 1's solved level — applied between the two
     # stages, bound here because ``solve`` may not import ``constraints``
+    from ..constraints.deck_floor_follow import floor_follow_rewrite
     from ..constraints.door_pad import blend_release
     from ..constraints.road_ramp import reach_seed_rewrite
 
@@ -695,6 +696,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         lv1 = dict(lv)
         door, bands, pref = blend_release(pm, law, airport, lv, cs)
         cs2, rep = reach_seed_rewrite(pm, law, cs, lv1)
+        # a generated deck's floor follows its end lines as stage 1 solved them
+        cs2, rep["deck_floor_follow"] = floor_follow_rewrite(pm, cs2, lv1)
+        if rep["deck_floor_follow"]["pins"]:
+            _say(f"[{icao}] generated deck floor follows its end lines: "
+                 f"{rep['deck_floor_follow']}", out)
         if bands:
             cs2 = _dc.replace(cs2, bands=(*cs2.bands, *bands))
         rep["door_blend"] = door

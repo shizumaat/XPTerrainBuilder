@@ -542,6 +542,10 @@ class DeckBridge:
     #: each -- the real cut and the deck replace them, so the pack copy
     #: hides them (``airport/generated_pack.apply_text``)
     hides: tuple = ()
+    #: their plans (frame rings): the pads and walls the classification read
+    #: off them are no ground once hidden (``planar/deck_pack_cover.
+    #: hidden_cells_off``)
+    hidden_plans: tuple = ()
 
     @property
     def depth_a(self) -> float:

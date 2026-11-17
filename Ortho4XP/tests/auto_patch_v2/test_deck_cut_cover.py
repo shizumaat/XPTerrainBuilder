@@ -19,7 +19,8 @@ C = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(C)
 
 LAW = load_default()
-SLOPE = 0.5
+#: the bank under a generated deck (``deck_generated.generated_bank_slope``)
+SLOPE = float(LAW.tables.zones.adjacent_ground.old_dem_fill_slope)
 # a deck 40 m along x (end lines x = 0 and x = 40), 20 m wide, 6 m deep
 DECK = types.SimpleNamespace(object_id="o4gen_t", witness="generated",
                              ring=((0, -10), (40, -10), (40, 10), (0, 10)),
@@ -40,7 +41,7 @@ ENDS = [((0.0, 0.0), 10.0), ((40.0, 0.0), 10.0)]
 
 
 def test_a_cut_floor_and_banks_pass():
-    pm, z = _pm(ENDS + [((20.0, 0.0), 4.0), ((4.0, 5.0), 8.0)])
+    pm, z = _pm(ENDS + [((20.0, 0.0), 4.0), ((4.0, 5.0), 10.0 - SLOPE * 4.0)])
     (q,) = C.cut_cover(pm, z, None, LAW, 0.5)
     assert q["over"] == 0 and q["samples"] == 2
 

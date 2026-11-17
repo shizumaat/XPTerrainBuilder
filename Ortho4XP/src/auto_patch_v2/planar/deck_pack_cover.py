@@ -51,7 +51,7 @@ from ..airport import frame_entry as _fe
 from ..airport import obj8 as _obj8
 from ..airport.object_cut import _face_normals_y
 
-__all__ = ["pack_decks_near", "pack_refusal", "faked_cuts"]
+__all__ = ["hidden_cells_off", "pack_decks_near", "pack_refusal", "faked_cuts"]
 
 _NONE = np.zeros(0, dtype=bool)
 _NONE_TRIS = np.zeros((0, 3), dtype=np.int64)
@@ -214,3 +214,41 @@ def pack_refusal(piece: Polygon, axes: _t.Sequence, packs: _t.Sequence[_PackDeck
     return (f"the pack models the crossing: {structure.object_id} ({structure.resource}) "
             f"reaches under its ground and {top[0].object_id} ({top[0].resource}) draws a "
             f"top over {100 * top[1]:.0f} % of the covered road")
+
+
+#: a pad or wall cell this share inside a hidden placement's plan was read off it
+HIDDEN_CELL_SHARE = 0.5
+
+
+def hidden_cells_off(classification, decks) -> tuple[_t.Any, list[str]]:
+    """``classification`` less the building pads and retaining walls the
+    classification read off a placement a GENERATED deck hides (its
+    ``hidden_plans``: the pack's faked cut, drawn under the terrain and
+    hidden in the pack copy) -- a cell at least :data:`HIDDEN_CELL_SHARE`
+    inside one.  The placement is not drawn, so what was read off it is no
+    ground: left in, its pad stood at the faked floor's rim and stopped the
+    real cut (MEASURED KJFK ``o4gen_0abbd35b`` / ``o4gen_db1cfe30`` over the
+    motorways under ``deprimido_jetblue.obj``: the ground under the decks
+    6.2 m over their floors).  No hidden plan, no change."""
+    import dataclasses as _dc
+
+    from shapely.ops import unary_union
+    plans = [Polygon(r) for d in decks for r in getattr(d, "hidden_plans", ()) or ()
+             if len(r) >= 3]
+    if not plans or classification is None:
+        return classification, []
+    hid = unary_union([p if p.is_valid else p.buffer(0.0) for p in plans])
+    keep, gone = [], []
+    for c in classification.cells:
+        if c.role in ("building", "retaining_wall") and len(c.ring) >= 3:
+            p = Polygon(c.ring, c.holes)
+            p = p if p.is_valid else p.buffer(0.0)
+            if p.area > 0.0 and p.intersection(hid).area >= HIDDEN_CELL_SHARE * p.area:
+                gone.append(f"{c.role} {c.ref}")
+                continue
+        keep.append(c)
+    if not gone:
+        return classification, []
+    return (_dc.replace(classification, cells=tuple(keep)),
+            [f"generated decks: {len(gone)} cell(s) read off hidden pack placements dropped "
+             f"({', '.join(gone[:6])})"])

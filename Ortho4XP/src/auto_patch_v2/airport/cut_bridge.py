@@ -37,8 +37,8 @@ any vertex) on the ground at that end's cover-side stations; with two
 cover-side ends, the end whose ``ground - top`` is higher (22m), the
 ground read on the airport DEM (the solved surface carries no vertex off
 the graded airside).  ONE plate ``(top_y, stations, 0.0, CUT_BRIDGE_PLATE)``
-for every plated member -- one authored zero; the riders take it through
-``deck_riders.FrameDatums``, and the plate LEADS its §16g unit and its
+for every member, plated or riding (``rebake_inputs._cut_bridge_plates``)
+-- one authored zero, and the plate LEADS its §16g unit and its
 connected group (``open_frame_seat.LEAD_PLATES``) -- the frame moves as
 one at its deck's zero (22c/d).  MEASURED (replay): the
 ``airside_deck_seat.refused_bridge`` route took the frame zero off the lead

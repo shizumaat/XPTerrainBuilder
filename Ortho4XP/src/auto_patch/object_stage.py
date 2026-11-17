@@ -830,6 +830,19 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     return out
 
 
+def _generated_in(patch_dir: str, icao: str) -> bool:
+    """Did the airport's patch publish a generated deck or road bridge
+    (spec 2123: the graded surface's ``generated``)?"""
+    import json
+    from auto_patch_v2.model.rebake import graded_surface_path
+    try:
+        with open(graded_surface_path(patch_dir, icao), encoding="utf-8") as fh:
+            gen = (json.load(fh).get("provenance") or {}).get("generated") or {}
+    except (OSError, ValueError):
+        return False
+    return bool(gen.get("decks") or gen.get("road_bridges"))
+
+
 def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: str):
     """The airport's generated decks / road bridges as a write recipe
     (``generated_pack.recipe``), ``None`` for a companion plan or a patch
@@ -1165,7 +1178,9 @@ def rebake_after_mesh(tile) -> dict:
                 # repairs (every later write re-applies the repair)
                 from . import health_stage as _health
                 _health.health_stage(plan_, tile, writes=writes)
-                if not plan_.units:
+                # spec 2123: an airport whose patch generated a deck or a road
+                # bridge is written even with no pack unit to place
+                if not plan_.units and not _generated_in(patch_dir, icao):
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "
                                  f"({len(plan_.skipped)} resource(s) skipped at plan time)")
                     counts["airports"] += 1

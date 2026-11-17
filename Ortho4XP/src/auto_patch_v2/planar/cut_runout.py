@@ -319,7 +319,11 @@ def _road_exits(L, datum, y: float, ways, taken, grid: float, riser: float) -> _
     for wy, h, js in [w for w in ways if w[0].distance(L) <= max(grid, 0.5)]:
         corr = wy.buffer(h, cap_style="flat")
         for p, d, back, s, sgn in _crossings(L, taken, [wy]):
-            ahead = sorted(sgn * (sj - s) for sj in js if sgn * (sj - s) > 1.0)
+            # a junction within half the carriageway of the lip stands on the
+            # level's edge (its other road meets the level there): no fixed
+            # point ahead (MEASURED LOWW, RJTT: junctions 1.0-1.4 m off the lip
+            # steepened 5 % run-outs to 20 %)
+            ahead = sorted(sgn * (sj - s) for sj in js if sgn * (sj - s) > h)
             fix = ahead[0] if ahead else None
             if back is not None and (fix is None or fix >= back):
                 continue                   # a notch: the road comes back first
@@ -449,8 +453,12 @@ def _routes(airport, law, levels, grid: float) -> list:
         if (w.tags or {}).get("highway") not in ribbon or not line.intersects(edge):
             continue
         r = _route(w, nb, law)
-        key = tuple(round(c, 1) for xy in (r.coords[0], r.coords[-1]) for c in xy)
-        if key not in seen and key[2:] + key[:2] not in seen:
+        # one route is one PATH: two routes between the same two ends by
+        # different ways are two (MEASURED KATL: -4174's 2061 m route was
+        # dropped as -8145's 2996 m one, 457 m apart, and kept its 1.44 m step)
+        ends = tuple(round(c, 1) for xy in (r.coords[0], r.coords[-1]) for c in xy)
+        key = (ends, round(r.length))
+        if key not in seen and (ends[2:] + ends[:2], key[1]) not in seen:
             seen.add(key)
             js = [r.project(Point(c)) for c in r.coords if len(nb.get(_key(c), ())) >= 3]
             out.append((r, ribbon_half_width_m(w.tags or {}, law), js))

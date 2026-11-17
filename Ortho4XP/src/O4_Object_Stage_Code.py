@@ -103,6 +103,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch.dsf_reader",
     "auto_patch.forest_stage",
     "auto_patch.geom_safe",
+    "auto_patch.guest_stage",
     "auto_patch.health_stage",
     "auto_patch.mesh_sampler",
     "auto_patch.obj8_partition",

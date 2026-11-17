@@ -727,13 +727,18 @@ def apply_routed(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                  refresh_dump: _t.Callable[[str], str | None] | None = None,
                  engine_version: str = "", law_digest: str = "",
                  omit: _t.Sequence = (), plan_key: str = "",
-                 seats: _t.Mapping | None = None) -> PlacementWriteResult:
+                 seats: _t.Mapping | None = None,
+                 guest_ground: "_t.Callable[[_route.Tile], str] | None" = None
+                 ) -> PlacementWriteResult:
     """THE PLACEMENT WRITE, in the one lawful order (module doc, steps
     0-5), over this tile's DSF and every neighbour DSF of the pack that
     takes guest rows (#1884 round 2 B2: ``tile_route``).
     ``plan_key`` names the plan JSON (``o4_v2_placement_<key>.json``;
     default the ICAO — a companion pack's plan is ``ICAO~k``).
     ``seats``: the hand-set object seats (#1703, ``write_pack(seats=)``).
+    ``guest_ground(tile)``: the ground mark the guest bodies standing on
+    ``tile`` were seated on (#2129, ``tile_route.neighbour_ground``), kept
+    in their record row.
 
     Under the pack's write lock (``pack_lock``, B3), and ALL OR NOTHING:
 
@@ -754,7 +759,7 @@ def apply_routed(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
         # a body the pack cannot hold (a read-only folder) is written
         # whole, decided BEFORE anything is routed or restored
         plan, files = _writable(plan, files)
-        plan, guests = _routed(plan, here, say)
+        plan, guests = _routed(plan, here, say, guest_ground)
         gone = {r for gp in guests for r in gp.new_resources()}
         by_res = {f.resource.replace("\\", "/"): f for f in files}
         writes = [_Write(plan, tuple(f for f in files
@@ -786,7 +791,8 @@ def _writable(plan: PlacementPlan, files: _t.Sequence
 
 
 def _routed(plan: PlacementPlan, here: "_route.Tile | None",
-            say: _t.Callable[[str], None]
+            say: _t.Callable[[str], None],
+            ground: "_t.Callable[[_route.Tile], str] | None" = None
             ) -> tuple[PlacementPlan, list[PlacementPlan]]:
     """``(plan for this DSF, guest plans)`` — ``tile_route.route`` over
     the neighbour DSFs that may be written (:func:`apply_routed` step 1)."""
@@ -814,7 +820,8 @@ def _routed(plan: PlacementPlan, here: "_route.Tile | None",
         say(f"{sum(len(s.bodies) for s in splits)} body(ies) of "
             f"{len(splits)} placement(s) stand on "
             f"{_dsf.on_tile('', there)[1:]}: written in its DSF")
-    return routed, [_route.guest_plan(plan, here, t, sp)
+    return routed, [_route.guest_plan(plan, here, t, sp,
+                                      ground(t) if ground is not None else "")
                     for t, sp in guests.items()]
 
 

@@ -34,13 +34,24 @@ THE NEIGHBOUR'S GROUND FOR THE SPLIT.  This tile's mesh ends at its edge,
 so a body past it had no ground at all: the split lumped every such body
 into one file (all of them "at no ground") and anchored it at its lowest
 component — a body of houses kilometres apart, drawn 30 m over the hill
-of one of them.  The split now reads the neighbour's ground from the
-AIRPORT'S OWN DEM (:func:`airport_ground`: its base tiles and inset, the
-DEM the one solve reads; :func:`with_neighbour_ground`), so bodies there
-are cut and anchored as on this tile; the row then puts each on the mesh
-that tile draws.  ``split_guard.on_tile`` leaves such a body for the
-route (:func:`routable`) instead of seating it by an ``OBJECT_MSL`` row
-at that DEM's height.
+of one of them.  The split reads the neighbour's ground there
+(:func:`with_neighbour_ground`), so bodies there are cut and anchored as
+on this tile; ``split_guard.on_tile`` leaves such a body for the route
+(:func:`routable`) instead of seating it by an ``OBJECT_MSL`` row.
+
+A GUEST BODY IS SEATED ON THE GROUND THE TILE THAT DRAWS IT DRAWS (#2129).
+Its row is an on-ground ``OBJECT`` row, so X-Plane puts its anchor on the
+neighbour's DRAWN mesh; a body cut against any other ground is drawn off
+its plan by the difference (EDDH: the terminal's guest bodies baked on
+the airport DEM, drawn on the ``+53+010`` mesh, −11.7..+3.0 m apart, the
+rigid group split).  :func:`neighbour_ground` therefore answers from that
+tile's BUILT mesh when one is on disk, and from the AIRPORT'S OWN DEM
+(:func:`airport_ground`: its base tiles and inset, the DEM the one solve
+reads) only where none is.  The guest record says which
+(``ground``: :func:`mesh_mark` or :data:`DEM_MARK`, written by
+``dsf_write.write_pack``); a later build of that tile re-seats every
+guest record whose mark is not its new mesh's (:func:`guest_mark`, read
+by ``object_stage``'s re-seat).
 
 A body is NOT routed — it stays for ``split_guard``'s undo, as before —
 when the tile it stands on has no DSF in the pack, or one whose write
@@ -60,14 +71,19 @@ from ..model.placement import PlacementPlan, Provenance, Split
 from . import dsf as _dsf
 
 __all__ = ["Tile", "route", "routable", "guest_plan", "recorded_omit",
-           "with_neighbour_ground", "airport_ground", "tile_of_dsf",
-           "tile_of_key", "guest_dsfs", "EDGE_MARGIN_DEG"]
+           "with_neighbour_ground", "airport_ground", "neighbour_ground",
+           "mesh_mark", "guest_mark", "tile_of_dsf", "tile_of_key",
+           "guest_dsfs", "EDGE_MARGIN_DEG", "DEM_MARK"]
 
 Tile = tuple[int, int]
 
 #: an anchor this close to a tile edge is never routed (deg, ~1 m) — the
 #: margin ``split_guard`` keeps an anchor inside its tile by
 EDGE_MARGIN_DEG = 1e-5
+
+#: a guest record's ground when the tile it stands on had no built mesh:
+#: the airport's DEM (#2129) — that tile's next build re-seats it
+DEM_MARK = "dem"
 
 
 def _tile_of(lat: float, lon: float) -> Tile | None:
@@ -152,6 +168,76 @@ def airport_ground(icao: str, here: Tile, elevation_root: str,
     return z
 
 
+def mesh_mark(digest: str) -> str:
+    """A guest record's ground mark for a built mesh whose sha256 is
+    ``digest`` (#2129)."""
+    return "mesh:" + str(digest)[:16]
+
+
+def neighbour_ground(icao: str, here: Tile, elevation_root: str,
+                     feather_m: float = 60.0,
+                     meshes: "_t.Callable[[Tile], tuple | None] | None" = None
+                     ) -> _t.Callable[[_t.Any, _t.Any], _t.Any]:
+    """``(lats, lons) -> z array`` off ``here``: the ground the tile that
+    DRAWS each point draws (module doc, #2129).  ``meshes(tile)`` is
+    ``(sampler, mark)`` for a tile whose built mesh is on disk — the
+    sampler ``(lat, lon) -> (z, water) | None`` with ``.many`` — or
+    ``None``; a point no mesh answers reads :func:`airport_ground`.
+    ``.mark(tile)`` is the ground the tile's points read (:func:`mesh_mark`
+    or :data:`DEM_MARK`), what its guest record keeps."""
+    import numpy as _np
+    dem = airport_ground(icao, here, elevation_root, feather_m)
+    got: dict[Tile, tuple | None] = {}
+
+    def mesh(t: Tile) -> "tuple | None":
+        if t not in got:
+            try:
+                got[t] = meshes(t) if meshes is not None else None
+            except (OSError, ValueError):
+                got[t] = None
+        return got[t]
+
+    def z(lats, lons):
+        la = _np.asarray(lats, dtype=float).reshape(-1)
+        lo = _np.asarray(lons, dtype=float).reshape(-1)
+        out = _np.full(la.shape, _np.nan)
+        keys = list(zip(_np.floor(la).astype(int).tolist(),
+                        _np.floor(lo).astype(int).tolist(), strict=True))
+        for t in sorted(set(keys)):
+            m = mesh(t)
+            if m is None:
+                continue
+            idx = [i for i, k in enumerate(keys) if k == t]
+            many = getattr(m[0], "many", None)
+            ans = (many([float(la[i]) for i in idx], [float(lo[i]) for i in idx])
+                   if many is not None
+                   else [m[0](float(la[i]), float(lo[i])) for i in idx])
+            for i, a in zip(idx, ans, strict=True):
+                if a is not None:
+                    out[i] = float(a[0])
+        rest = ~_np.isfinite(out)
+        if rest.any():
+            out[rest] = dem(la[rest], lo[rest])
+        return out
+
+    z.mark = lambda t: (DEM_MARK if mesh((int(t[0]), int(t[1]))) is None
+                        else str(mesh((int(t[0]), int(t[1])))[1]))
+    return z
+
+
+def guest_mark(pack_root: str, there: Tile, key: str) -> "str | None":
+    """The ground the guest rows ``key`` (``EDDH@+53+009``) in ``there``'s
+    DSF of the pack were seated on (#2129): ``None`` when that DSF records
+    no such rows, :data:`DEM_MARK` for rows written before the mark."""
+    from . import backup_state as _bs
+    dsf = _dsf.dsf_path_in_pack(pack_root, int(there[0]), int(there[1]))
+    entry = _bs.dsf_entry(_bs.read_record(dsf), os.path.basename(dsf))
+    row = (entry.get("airports") or {}).get(key)
+    if not isinstance(row, dict):
+        return None
+    return str(row.get("ground") or DEM_MARK)
+
+
 def with_neighbour_ground(mesh_sample: _t.Callable, here: Tile,
                           ground: _t.Callable | None) -> _t.Callable:
     """``mesh_sample`` (``(lat, lon) -> (z, water) | None``, with or
@@ -202,9 +288,10 @@ def with_neighbour_ground(mesh_sample: _t.Callable, here: Tile,
 
 
 def guest_plan(plan: PlacementPlan, here: Tile, there: Tile,
-               guests: _t.Sequence[Split]) -> PlacementPlan:
+               guests: _t.Sequence[Split], ground: str = "") -> PlacementPlan:
     """The write of ``guests`` into ``there``'s DSF of the same pack: no
-    edit of its own rows, recorded under ``dsf.guest_key(icao, here)``."""
+    edit of its own rows, recorded under ``dsf.guest_key(icao, here)``
+    with the ``ground`` its bodies were seated on (#2129, module doc)."""
     dsf_path = _dsf.dsf_path_in_pack(plan.pack_root, there[0], there[1])
     return PlacementPlan(
         icao=_dsf.guest_key(plan.icao, here), pack_name=plan.pack_name,
@@ -212,7 +299,7 @@ def guest_plan(plan: PlacementPlan, here: Tile, there: Tile,
         dsf_backup_path=dsf_path + ".anchor_bak",
         provenance=Provenance("", plan.provenance.engine_version,
                               plan.provenance.law_digest, {}),
-        guests=tuple(guests))
+        guests=tuple(guests), ground=str(ground or ""))
 
 
 def _pack_has_dsf(pack_root: str) -> _t.Callable[[Tile], bool]:

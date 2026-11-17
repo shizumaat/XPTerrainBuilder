@@ -250,24 +250,39 @@ def _also_sampler(path: str, bounds):
         _DS.tile_triangles(path, bounds, _DS.dsftool(), None), bounds)
 
 
-#: ``--mesh-also airport``: off the tile, the airport's own DEM — what
-#: the APP reads there (``object_stage``: ``tile_route.with_neighbour_ground``
-#: over ``tile_route.airport_ground``), not a neighbour mesh.  #2110: the
-#: installed neighbour .dsf did not reproduce LOWS 1.0.539's plan (5,393
-#: files against the app's 5,864); the airport ground did, file for file.
+#: ``--mesh-also airport``: off the tile, what the APP reads there
+#: (``object_stage``: ``tile_route.with_neighbour_ground`` over
+#: ``tile_route.neighbour_ground``) — the neighbour tile's BUILT mesh where
+#: its build folder has one (#2129), else the airport's own DEM.  #2110:
+#: before #2129 the app read the DEM alone, and the installed neighbour
+#: .dsf did not reproduce LOWS 1.0.539's plan (5,393 files against the
+#: app's 5,864); the airport ground did, file for file.
 AIRPORT_GROUND = "airport"
 
 
-def _airport_ground_sampler(icao: str, tile):
+def _airport_ground_sampler(icao: str, tile, bounds=None):
     """``--mesh-also airport`` as a sampler: ``sample_at`` answers the
-    airport DEM's height (never water; NaN where nothing covers)."""
+    app's neighbour ground (never water; NaN where nothing covers)."""
+    import types
+
     import numpy as np
     import O4_File_Names as FNAMES
     from auto_patch_v2.airport import tile_route
+    here = (int(tile[0]), int(tile[1]))
+    stub = types.SimpleNamespace(lat=here[0], lon=here[1], custom_build_dir="")
     # the tile cfg's ``airport_elevation_inset_feather_m`` default, as
     # ``object_stage`` falls back to it
-    ground = tile_route.airport_ground(icao, (int(tile[0]), int(tile[1])),
-                                       FNAMES.Elevation_dir, 60.0)
+    if not hasattr(tile_route, "neighbour_ground"):      # a --src before #2129
+        ground = tile_route.airport_ground(icao, here, FNAMES.Elevation_dir, 60.0)
+        print("  --mesh-also airport: the airport DEM (a src before #2129)")
+    else:
+        from auto_patch import guest_stage
+        ground = tile_route.neighbour_ground(
+            icao, here, FNAMES.Elevation_dir, 60.0,
+            meshes=guest_stage.neighbour_meshes(stub, bounds))
+        print("  --mesh-also airport: " + (", ".join(
+            f"{k} {m}" for k, m in guest_stage.neighbour_marks(stub, bounds).items())
+            or "no other tile"))
     point = collections.namedtuple("point", "elevation_metres terrain_type is_water")
 
     class _Ground:
@@ -425,7 +440,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
         # #1884: a plan whose bodies stand on the NEIGHBOUR tile (guest
         # rows) reads that tile's drawn mesh there (``--mesh-also``)
-        also = (_airport_ground_sampler(plan_.icao, args.tile)
+        also = (_airport_ground_sampler(plan_.icao, args.tile, plan_.bounds())
                 if getattr(args, "mesh_also", "") == AIRPORT_GROUND
                 else _also_sampler(getattr(args, "mesh_also", ""), plan_.bounds()))
 

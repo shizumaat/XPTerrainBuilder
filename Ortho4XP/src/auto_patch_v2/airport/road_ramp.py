@@ -155,9 +155,14 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str
     out: dict[int, str] = {}
     on_deck: set[int] = set()
     # 30e (4): the kerb a mapped-road ribbon shares with a zone band is
-    # the BAND's (29r: the band leads) — no ramp target, no ceiling on it
+    # the BAND's (29r: the band leads) — no ramp target, no ceiling on it.
+    # A ROAD IN ITS OWN CUT THROUGH ZONE 2 KEEPS ITS TARGET (#2121; owner
+    # RULINGS 2026-10-20c (39): it follows its own ground): the band shares
+    # no vertex with it and caps it from above only (``zones.zone_bands``);
+    # untargeted, the objective alone held it — MEASURED KLAX road beside
+    # 33.94757, -118.39978, 0.89 m under its DEM with no row binding it
     from ..law.tables import airside_stage_roles as _asr
-    kerb = pm.band_kerb_vertices(_asr(law))      # never a pavement rim (#100 r4)
+    kerb = pm.band_kerb_vertices(_asr(law), cut=False)   # never a pavement rim (#100 r4)
     for fid, f in pm.faces.items():
         if f.role not in roads:
             continue

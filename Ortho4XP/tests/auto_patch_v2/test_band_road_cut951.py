@@ -5,7 +5,8 @@ lanes or drawn edge, whichever is larger."
 A mapped carriageway through a band's zone 2 is CUT out of zone 2 by its
 half-width plus the groundside stand-off (``planar/zones``,
 ``planar/road_yield``); its ribbon vertices are the band's kerb, held under
-the band's ceiling only (``constraints/zones``); the band beside it reads
+the band's ceiling only (``constraints/zones``) and on the road's own-ground
+target (#2121); the band beside it reads
 the DEM past the road's cut (``planar/road_shadow``); the step across the
 stand-off is a declared wall (``pipeline/band_road_wall``).
 
@@ -47,6 +48,16 @@ class _PostedDem(_StepDem):
 
     def posting_m(self) -> float:
         return 2.0
+
+
+class _HumpDem(_StepDem):
+    """The step DEM with a 3 m hump under the road (x 690..810, crest at
+    x = 750), below the band's grade: the road's own ground in its cut."""
+
+    def z(self, x: float, y: float) -> float:
+        if y > -21.0:
+            return 100.0
+        return 92.0 + 3.0 * max(0.0, 1.0 - abs(x - 750.0) / 60.0)
 
 
 @pytest.fixture(scope="module")
@@ -238,3 +249,19 @@ def test_the_seam_beside_a_road_is_where_a_runway_and_a_taxi_band_meet():
                   "runway", 4, None, "06L/24R", True)
     assert _seam_beside([y], faces, face_vs, edges, xy, 0.35) == {0: frozenset({1})}
     assert _seam_beside([_dc.replace(y, through=False)], faces, face_vs, edges, xy, 0.35) == {}
+
+
+def test_a_road_in_its_cut_follows_a_hump_in_its_ground(law):
+    """#2121: every road vertex standing in a zone-2 cut keeps the road's
+    own-ground target (``road_ramp_z``) — untargeted, the objective alone
+    held it and the road sagged through the hump (measured KLAX beside
+    33.94757, -118.39978: 0.89 m under its DEM, no row binding it).  The
+    band still caps it from above only (cap-only rows)."""
+    a = _dc.replace(_with(_way(-3, ROAD, highway="tertiary")), dem=_HumpDem())
+    pm, sol, _rep = _solve(a, law)
+    road = _road(pm)
+    assert road and road <= set(pm.road_ramp_z)
+    crest = [v for v in road if abs(pm.vertices[v].xy[0] - 750.0) <= 15.0]
+    assert crest
+    dem = _HumpDem()
+    assert max(abs(sol.z[v] - dem.z(*pm.vertices[v].xy)) for v in crest) <= 0.3

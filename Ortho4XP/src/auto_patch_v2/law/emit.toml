@@ -929,6 +929,7 @@ hard_rulings = [
   "door airside give",                                   # #798 round 3 (owner RULINGS 2026-10-19ac): an airside vertex a door pad's hard rows reach is solved in stage 2 within door_airside_give_m of its stage-1 level (constraints/door_pad.blend_release)
   "structures.walled_plate under-plate cap",            # owner RULINGS 2026-10-27t/u (#1201): the ground under a runway-end walled plate never rises through its top (constraints/walled_plate)
   "rulesets.runway.first_hold",                          # owner RULINGS 2026-11-02a (4) (#1742): each runway column within runway_first_slack_m of its stage-0 value (solve/runway_first) - the LAST conflict tier, so it yields to every airside hard law
+  "zones.adjacent_ground road cut ceiling",             # #2121 (owner RULINGS 2026-10-19a / 2026-10-20c (39)): a road in its own zone-2 cut follows its own ground (its §37 (6) target) at or below the band's grade - the band's ceiling over it is hard, one-way
 ]
 # THE APRON'S PLANE ROW IS HARD ON THE APRON ONLY (flat-pad spec v2 §5, owner
 # RULINGS 2026-09-30be/30bf): ``plane_gradient`` is minted on EVERY governed
@@ -978,6 +979,7 @@ hard_conflict_ranks = [
    "tunnel.survey_floor",                                             # #1939 R2: with the mouth depth
    "roads.edge bridge deck level with the airside abeam",             # 28d Q211 (#1138)
    "roads.ramp_runout landing run-out at road grade",                 # #711: groundside, with the road ramp ceiling
+   "zones.adjacent_ground road cut ceiling",                          # #2121: groundside, with the road ramp ceiling
    "gap_piece follows its standing neighbour across the stand-off",    # §53 (13): groundside, the last stage's own
    "gap lot terrace holds the road's level across",                    # §55 (3) 4
    "gap slab welds to the pavement beside it across the stand-off",   # #712: with the follow rows
@@ -1145,6 +1147,7 @@ one_way_rulings = [
   "structures.wing_cut floor",                            # #2099 R2: the ground beside a grouped mouth's wings FOLLOWS the mouth's seat, never pulls the deck
   "roads.groundside_road ramp from the pad",                # owner RULINGS 2026-10-13a (1) (#609): a ribbon welded to a building pad FOLLOWS the pad's rim at the design grade; the rim leads, the road never pulls it (`constraints/pad_ramp.pad_ramp_rewrite`)
   "zones.adjacent_ground",                                  # the zone-1 lip / zone-2 corridor bands
+  "zones.adjacent_ground road cut ceiling",                 # #2121: the band's ceiling over a road in its own zone-2 cut - the road follows, the pavement foot leads
   "zones.adjacent_ground between-levels bank",              # owner RULINGS 2026-09-29x (Q-97 (b)): the ONE bank from a between-levels road's far kerb to the higher pavement - the strip vertex follows, the road and the pavement foot lead
   "zones.adjacent_ground.runway.band_max_down strip tie",   # the strip tie (06b law 2 / 06p / 06q)
   "structures.building_pad flat airside-led",               # §16g (10) (11) (a) / RULINGS 2026-09-15z: the pad's own FLATNESS row over a pair with ONE end on airside - the AIRSIDE vertex leads and never moves for a pad.  ATTRIBUTED at HECA's worst airside mover (+3.61 m, roles apron+building): `--why-at` named this plate, two-sided at cap 0 with dual 3.61, as the ONE row binding it; a shared vertex is one unknown (09-01g) and the plate outweighs the apron's own target there

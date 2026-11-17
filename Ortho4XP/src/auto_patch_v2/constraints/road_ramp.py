@@ -1013,7 +1013,14 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     runway = terr.get("runway") or {}
     add = {v: z for v, z in prof.items()
            if v in kerb and v not in floor and v not in runway}
-    prof = {v: z for v, z in prof.items() if v in floor}
+    # a kerb in a road's own cut through a RUNWAY's zone 2 carries its §37 (6)
+    # own-ground row since #2121 (``airport/road_ramp._owned``): the terrace
+    # rewrites it no more than it targeted it before (20c (39), 19k)
+    from ..law.tables import airside_stage_roles
+    kerb_of = getattr(planar, "band_kerb_vertices", None)
+    band_kerb = kerb_of(airside_stage_roles(law)) if runway and kerb_of else ()
+    prof = {v: z for v, z in prof.items()
+            if v in floor and not (v in runway and v in band_kerb)}
     rep["runway_not_lifted"] = rep.pop("ceiled")
     rep["governed"] = len(prof) + len(add)
     rep["kerb"] = len(add)

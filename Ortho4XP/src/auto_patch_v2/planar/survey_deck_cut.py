@@ -13,14 +13,14 @@ KIAH, #2128: ground held 6-7 m over the survey beside five decks).  The
 owner (17a (1)): the floor and the banks follow the lidar.  This module is
 the ONE reading, computed once in ``planar/build`` after the decks and
 before the structure pass; every consumer reads its record
-(:class:`SurveyDeckCut`):
+(:class:`_SurveyDeckCut`):
 
 * APPLIES to a wall-less hard deck (``deck_bridge.is_walled`` false) whose
   floor is the ladder's (``DeckBridge.floor_min_m`` > 0: no object states
   it) and not the airport's level B (a level-B airport's decks keep their
   floor: LFPG's owner-ruled A1 trench), on a credible survey.  Every other
   deck keeps today's path whole.
-* THE EDGE READING (:func:`edge_roads`): every mapped road passing under
+* THE EDGE READING (:func:`_edge_roads`): every mapped road passing under
   the deck (through its ring across its midline) is read at each SIDE edge
   outward along its own line -- ``lidar_road.surveyed_road``, the least of
   the survey across the carriageway over its first metres -- never under
@@ -35,7 +35,7 @@ before the structure pass; every consumer reads its record
   mouth at its lane's F (:func:`deck_survey_mouth`, ``planar/structures``);
   the B1 pin holds the floor there (``constraints/structures``).  A lane
   clearing less than the clearance at an edge keeps the ladder's floor.
-* THE REGION C (:func:`cut_region`): the survey's cut along each road from
+* THE REGION C (:func:`_cut_region`): the survey's cut along each road from
   the deck's side edge out to where the road comes within ``[channel]
   object_min_depth_m`` of the cover, rim to rim (``planar/covered_ground``'s
   sections with ``rise=object_min_depth_m``), never a hard-deck ring, a
@@ -73,8 +73,8 @@ from .deck_bridge import DeckBridge, deck_polygon, is_walled
 from .lidar_road import _COVER_M, surveyed_road
 from .structure_approach import Bore, carriageway_width_m, chains
 
-__all__ = ["SurveyDeckCut", "survey_deck_cuts", "edge_roads", "cut_region", "cut_pavement",
-           "region_union", "cut_of", "survey_under", "deck_survey_mouth"]
+__all__ = ["survey_deck_cuts", "cut_pavement", "region_union", "survey_under",
+           "deck_survey_mouth"]
 
 #: roles R2 never cuts: a road ribbon stays (it follows the survey), a pad
 #: is a building
@@ -84,7 +84,7 @@ _GAP_M = 10.0
 
 
 @_dc.dataclass(frozen=True)
-class SurveyDeckCut:
+class _SurveyDeckCut:
     """One deck's surveyed cut (module doc): the deck (object, ring), its
     cover, every road under it ``(way id, edge a xy, road there, edge b xy,
     road there, F)``, the deck's floor (the least F) and the region C (frame
@@ -161,7 +161,7 @@ def _ray(p: XY, d: XY):
     return lambda s: (p[0] + d[0] * s, p[1] + d[1] * s)
 
 
-def edge_roads(db: DeckBridge, line: LineString, width: float, airport
+def _edge_roads(db: DeckBridge, line: LineString, width: float, airport
                ) -> "tuple[XY, XY, XY, float, float] | None":
     """``(edge a, edge b, the road's direction a -> b, road at a, road at b)``
     (module doc, THE EDGE READING) of ``line``'s road under ``db``; ``None``
@@ -189,7 +189,7 @@ def survey_under(db: DeckBridge, way, airport, law: Law) -> "float | None":
     from ..law import inset_class
     if airport is None or not inset_class.lidar_credible(airport, law) or len(way.points) < 2:
         return None
-    got = edge_roads(db, LineString(way.points), carriageway_width_m(way.tags, law), airport)
+    got = _edge_roads(db, LineString(way.points), carriageway_width_m(way.tags, law), airport)
     return None if got is None else float(db.deck_z) - max(got[3], got[4])
 
 
@@ -199,7 +199,7 @@ def _applies(db: DeckBridge, level_b, inset: float) -> bool:
 
 def survey_deck_cuts(decks: _t.Sequence[DeckBridge], airport, law: Law, cells=(),
                      level_b: "float | None" = None
-                     ) -> tuple[tuple[SurveyDeckCut, ...], list[str]]:
+                     ) -> tuple[tuple[_SurveyDeckCut, ...], list[str]]:
     """``(one record per deck with a kept lane, notes)`` (module doc).  A
     road read under ``object_min_depth_m`` at an edge crosses at grade (R5)
     and is no lane; a lane clearing less than ``clearance_m`` at an edge
@@ -213,7 +213,7 @@ def survey_deck_cuts(decks: _t.Sequence[DeckBridge], airport, law: Law, cells=()
     grid = max(float(law.tables.emit.identity.min_distinct_spacing_m), 0.1)
     inset = float(tn.wall_gap_m) + float(tn.wall_band_width_m) + grid
     roads = None
-    found: list[tuple[SurveyDeckCut, list]] = []
+    found: list[tuple[_SurveyDeckCut, list]] = []
     notes: list[str] = []
     for db in decks:
         if not _applies(db, level_b, inset):
@@ -224,7 +224,7 @@ def survey_deck_cuts(decks: _t.Sequence[DeckBridge], airport, law: Law, cells=()
         rows, reads, short = [], [], []
         for b in roads:
             width = max(carriageway_width_m(w.tags, law) for w in b.ways)
-            got = edge_roads(db, b.line, width, airport)
+            got = _edge_roads(db, b.line, width, airport)
             if got is None:
                 continue
             pa, pb, t, za, zb = got
@@ -243,7 +243,7 @@ def survey_deck_cuts(decks: _t.Sequence[DeckBridge], airport, law: Law, cells=()
         if not rows:
             continue
         f_deck = min(r[5] for r in rows)
-        found.append((SurveyDeckCut(db.object_id, tuple(db.ring), cover, tuple(rows), f_deck),
+        found.append((_SurveyDeckCut(db.object_id, tuple(db.ring), cover, tuple(rows), f_deck),
                       reads))
         seen: set = set()
         lanes = []
@@ -261,7 +261,7 @@ def survey_deck_cuts(decks: _t.Sequence[DeckBridge], airport, law: Law, cells=()
     keep = _kept_parts(cells, airport, law)
     recs = []
     for rec, reads in found:
-        c = cut_region(rec.cover, reads, airport, law)
+        c = _cut_region(rec.cover, reads, airport, law)
         if c is not None:
             c = c.difference(rings)
             if keep is not None:
@@ -306,7 +306,7 @@ def _sections_out(line: LineString, bore: Bore, law: Law, airport, cover: float)
     return kept
 
 
-def cut_region(cover: float, reads, airport, law: Law):
+def _cut_region(cover: float, reads, airport, law: Law):
     """THE REGION C of one deck before its exclusions (module doc): the
     ribbon of the cut's sections out of each side edge of each road
     (``reads``: ``(chain, edge a, edge b, direction a -> b)``)."""
@@ -344,13 +344,13 @@ def _kept_parts(cells, airport, law: Law):
     return unary_union(keep) if keep else None
 
 
-def region_union(recs: _t.Sequence[SurveyDeckCut]):
+def region_union(recs: _t.Sequence[_SurveyDeckCut]):
     """Every record's C as one geometry (``None`` for none)."""
     parts = [r.region for r in recs or () if r.region is not None]
     return unary_union(parts) if parts else None
 
 
-def cut_of(recs: _t.Sequence[SurveyDeckCut], db) -> "SurveyDeckCut | None":
+def _cut_of(recs: _t.Sequence[_SurveyDeckCut], db) -> "_SurveyDeckCut | None":
     """The record of deck ``db`` (by object and ring), ``None`` for none."""
     for r in recs or ():
         if r.object_id == db.object_id and tuple(r.ring) == tuple(db.ring):
@@ -358,7 +358,7 @@ def cut_of(recs: _t.Sequence[SurveyDeckCut], db) -> "SurveyDeckCut | None":
     return None
 
 
-def deck_survey_mouth(recs: _t.Sequence[SurveyDeckCut], db, members, law: Law):
+def deck_survey_mouth(recs: _t.Sequence[_SurveyDeckCut], db, members, law: Law):
     """The ``lidar_road.SurveyMouth`` a mouth under ``db`` is built as
     (module doc, THE FLOOR): KEPT at its lane's floor F, the cover the deck's
     top, the road the surveyed road at the deck edge nearest the mouth (F
@@ -366,7 +366,7 @@ def deck_survey_mouth(recs: _t.Sequence[SurveyDeckCut], db, members, law: Law):
     other, ``lidar_road.survey_design_grade``).  ``None`` where the deck
     has no record or the mouth's roads are none of its lanes."""
     from .lidar_road import KEPT, SurveyMouth
-    rec = cut_of(recs, db)
+    rec = _cut_of(recs, db)
     if rec is None or not members:
         return None
     ids = [w.id for m in members for w in (getattr(getattr(m, "bore", None), "ways", None) or ())]
@@ -379,7 +379,7 @@ def deck_survey_mouth(recs: _t.Sequence[SurveyDeckCut], db, members, law: Law):
                        True, False, KEPT if road - f <= tol else "")
 
 
-def cut_pavement(classification, recs: _t.Sequence[SurveyDeckCut], airport, law: Law
+def cut_pavement(classification, recs: _t.Sequence[_SurveyDeckCut], airport, law: Law
                  ) -> tuple[_t.Any, list[str]]:
     """R2 (module doc): ``(classification with the pavement over C cut away,
     notes)``.  A part is cut where the survey's median under it stands below

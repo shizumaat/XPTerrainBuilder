@@ -159,8 +159,8 @@ def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: Lin
         airside = role_side(law, c.role) == "airside"
         at_mouth = p.distance(mp) <= grid
         if airside and not at_mouth:
-            if c.role in cut_roles and not (on_floor is not None and on_floor(p, mouth)):
-                out.append((p, c.ref))                # §34 (12) (3); #2128: not the cut's floor
+            if c.role in cut_roles:
+                out.append((p, c.ref))                # §34 (12) (3), unchanged
             continue
         if at_mouth and _host_run_m(axis, p, grid) >= min_run:
             # clause 3: the ramp's host — cut, but never crossed out of
@@ -532,9 +532,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         got = _pinned(group, axis, cells, polys, pads, law, cut_roles, half, rim_off,
                       decked, grid, crossing, ring_of(0.0), taxi_yields=slide,
                       own_lines=own_lines, own_area=own_area, own_cut=own_cut,
-                      airport=airport, entrance=entrance,
-                      on_floor=None if cutting is None or own_cut is None else (
-                          lambda p, m, _r=2.0 * (half + rim_off): cutting.floor_face(p, m, _r)))
+                      airport=airport, entrance=entrance)
         if isinstance(got, tuple) and len(got) > 7:
             # #2099 F2 P1b: the cap held short of the taxiway behind the
             # mouth line -- or, where it cannot stand wall_gap_m, the yield
@@ -704,8 +702,7 @@ PORTAL_YIELDS = "the pack portal yields to taxiway"
 
 def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, half: float,
             rim_off: float, decked, grid: float, crossing, mouth_ring, taxi_yields: bool = True,
-            own_lines=(), own_area=None, own_cut=None, airport=None, entrance: bool = False,
-            on_floor=None):
+            own_lines=(), own_area=None, own_cut=None, airport=None, entrance: bool = False):
     """:func:`mouth_at_pavement` for a mouth a pack PORTAL pins: never
     slid.  The stops are read at the mapped mouth; those the mouth's own
     end (its cap and first spacing of ramp, ``mouth_ring``) stands in are
@@ -719,13 +716,11 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     ``taxi_yields`` is false (an edge bridge's pin is never slid).  An
     ``entrance`` face's ring meeting taxiway faces only BEHIND its mouth
     line keeps them as stops and returns them as an eighth element
-    (``mouth_behind.Behind``; #2099 F2 P1b).  ``on_floor`` (a HARD-DECK
-    trench's surveyed cutting, ``survey_cut.deck_cutting``, #2128): pavement
-    the survey reads on the cutting's floor is no stop (:func:`mouth_stops`)."""
+    (``mouth_behind.Behind``; #2099 F2 P1b)."""
     behind = None
     mouth = tuple(axis.coords[0])            # the portal's own mouth (``portal_mouth``)
     stops = mouth_stops(cells, polys, law, cut_roles, axis, mouth, half, rim_off,
-                        decked, grid, _routes(group), on_floor=on_floor) + list(crossing)
+                        decked, grid, _routes(group)) + list(crossing)
     if own_cut is not None:
         stops = [(q, r) for q, r in ((p.difference(own_cut), r) for p, r in stops)
                  if not q.is_empty and q.area > 0.0]

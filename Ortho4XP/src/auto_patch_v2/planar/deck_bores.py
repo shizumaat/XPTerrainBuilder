@@ -141,10 +141,10 @@ def deck_bores(decks: _t.Sequence[DeckBridge], roads: _t.Sequence[OsmWay],
                 u = c.x * n[0] + c.y * n[1]
                 if u - half - tn.wall_gap_m < u_lo or u + half + tn.wall_gap_m > u_hi:
                     continue                    # its carriageway meets an end line
+                if _already_bored(c, half, clip, lines, tree, tn.underpass_min_span_m):
+                    continue
                 if min(u - u_lo, u_hi - u) < bank:
                     banked.append(str(w.id))    # it crosses on the end bank (#2128)
-                    continue
-                if _already_bored(c, half, clip, lines, tree, tn.underpass_min_span_m):
                     continue
                 pts = tuple((float(px), float(py)) for px, py in g.coords)
                 sw = OsmWay(w.id, w.kind, pts, False,

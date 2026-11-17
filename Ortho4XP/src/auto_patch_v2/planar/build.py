@@ -554,9 +554,7 @@ def build(airport: Airport, classification: Classification, law: Law,
     # never on a vertex a stage-1 airside face carries (#2099 R3 A1)
     face_vs = _face_vertices(edge_list)
     targets = ramp_targets(tunnels, law, faces, edge_list, vertices_xy, zs,
-                           stage_air_of(faces.values(), lambda f: face_vs.get(f.id, ()), law),
-                           axis_dem=lambda x, y: float(_sample(airport, np.array([x]),
-                                                               np.array([y]))[0]))
+                           stage_air_of(faces.values(), lambda f: face_vs.get(f.id, ()), law))
     # #714: over a mapped bore under airside pavement the ground is the
     # ground BESIDE the cover, not the road floor a bare-earth DEM carries
     zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs,

@@ -798,7 +798,7 @@ def _unwitnessed(bore: Bore, end: XY, path, law: Law, fence, witness) -> str | N
     # a mapped way comes out of the end: the approach walked one (``approach``
     # appends a lone straight extension where none continues)
     kind = needs_witness(bore, end, law, fence, surfaces=len(path) > 2)
-    if kind is None or witness.at(end, path):
+    if kind is None or witness.at(end, path, bore.line):
         return None
     ids = "+".join(str(w.id) for w in bore.ways)
     return (f"bore {ids}: its {kind} end at {end[0]:.0f},{end[1]:.0f} has no portal "

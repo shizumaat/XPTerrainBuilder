@@ -150,7 +150,7 @@ from .entrance_skirt import (entrance_skirt, entrance_top, face_front_mouth, is_
                              host_blade,
                              skirt_refs)
 from .mouth_opening import group_opening, opening_halves
-from .survey_cut import cutting_of, deck_cutting
+from .survey_cut import cutting_of
 from .underpass_mouth import (k_deck_ref, member_roads, place_mouth, ring_stations,
                               sheared_ring, survey_floor, under_deck_band, under_deck_blade)
 from .structure_underpass import (aeroway_decks, underpass_bores as _underpass_bores,
@@ -721,9 +721,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 axis_ln, roads_ix, law, [m.approach for m in members if hasattr(m, "approach")]),
             pinned=pin is not None, road_floor=road_f,
             road_extra=0.0 if road_rd is None else road_rd.extra,
-            cutting=cutting_of(airport, law, road_rd, width) if deck is None else  # #1939
-            deck_cutting(airport, law, credible, deck.deck_z, axis_ln,      # #2128
-                         deck_polygon(deck), width),
+            cutting=cutting_of(airport, law, road_rd, width),      # #1939
             skew=k_sk, entrance=pin is not None and is_entrance_face(pin),
             slide=edge is None and deck is None,
             own_lines=() if edge is None and deck is None else [

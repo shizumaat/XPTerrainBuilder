@@ -17,7 +17,12 @@ is a mouth only where one of these stands AT THAT END (within ``[tunnel.
 object] bore_end_tolerance_m``):
 
 1. a pack HARD DECK (``planar/deck_bridge``, ``on_field.deck_polys``) -- the
-   ground under a hard-deck bridge is open (11-03b (1));
+   ground under a hard-deck bridge is open (11-03b (1)) -- at the end, or
+   over the bore within the approach's reach of it (#2128: the region under
+   the deck runs out along its road, 11-03b (1); MEASURED KIAH, the service
+   bore -3337+-2214 under obj24551 mapped 23-24 m past the deck's edges both
+   ways, refused here, held at grade 4-5 m over its surveyed road beside the
+   -47918 trench: a 2.6 m drawn step at the mouth);
 2. a pack TUNNEL CORRIDOR's footprint (``on_field.corridor_prints``; the
    object then takes the mouth by precedence);
 3. a pack part standing below grade (``structure_fence._Portals``, 27z
@@ -95,14 +100,19 @@ class EndWitness:
         self._mesh = getattr(airport, "terrain_mesh", None)
         self._reach = 2.0 * float(law.tables.structures.tunnel.mouth_depth_m) \
             / float(law.tables.structures.tunnel.ramp_max_grade)
+        self._span = float(law.tables.structures.tunnel.underpass_min_span_m)
 
-    def at(self, end, path: _t.Sequence) -> str | None:
-        """The witness standing at ``end`` (its approach ``path``), named,
-        or ``None``."""
+    def at(self, end, path: _t.Sequence, bore: "LineString | None" = None) -> str | None:
+        """The witness standing at ``end`` (its approach ``path``; ``bore``
+        the bore's own line), named, or ``None``."""
         pt = Point(end)
         for p in self._decks:
             if p.distance(pt) <= self._tol:
                 return "a pack hard deck over it"
+        near = _from_end(bore, pt, self._reach)
+        for p in self._decks:
+            if near is not None and near.intersection(p.buffer(-1.0)).length >= self._span:
+                return "a pack hard deck over the bore near it"
         for p in self._prints:
             if p.distance(pt) <= self._tol:
                 return "a pack tunnel corridor"
@@ -123,3 +133,14 @@ class EndWitness:
             if c is not None:
                 return f"the companion terrain mesh's cut {c.depth_m:.1f} m under its field"
         return None
+
+
+def _from_end(bore: "LineString | None", end: Point, reach: float) -> "LineString | None":
+    """The stretch of ``bore`` from its end at ``end`` inward over ``reach``
+    metres (the approach's own reach, :class:`EndWitness`), or ``None``."""
+    if bore is None or bore.length <= 0.0:
+        return None
+    from shapely.ops import substring
+    s0 = bore.project(end)
+    return substring(bore, 0.0, min(reach, bore.length)) if s0 <= 0.5 * bore.length \
+        else substring(bore, max(0.0, bore.length - reach), bore.length)

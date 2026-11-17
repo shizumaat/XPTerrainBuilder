@@ -17,13 +17,6 @@ does not:
   level beside the mouth under the MID-HEIGHT of the portal face (half way
   from the surveyed road to the cover) is the cutting's; above it, the
   ground's, and it still stops.
-* **A hard-deck trench's run-out** (#2128, :func:`deck_cutting`): the
-  same reading at a deck's mouth -- the road surveyed where the trench
-  leaves the deck, the deck's top the cover.  Non-taxi airside pavement
-  the survey reads down in the cutting (an apron polygon's edge drawn over
-  the road) is the cutting's floor too, never the stop #2072 A ends the
-  trench at: a 1 m survey that reads the road through it is the witness
-  (RULINGS 2026-11-16t) that the pavement is not standing over the road.
 * **#1028's "surfaces under the pavement"** refuses a slid mouth whose road
   reaches grade before the mouth stands clear: the DEM was read as ground.
   On a credible survey the road stands at its own surveyed level the whole
@@ -57,7 +50,7 @@ from ..law import Law
 from ..model.frame import XY
 from .lidar_road import KEPT, SurveyMouth, surround_level, surveyed_road
 
-__all__ = ["Cutting", "cutting_of", "deck_cutting"]
+__all__ = ["Cutting", "cutting_of"]
 
 #: Plan step (m) of the survey samples a face is read with beside the mouth.
 _SAMPLE_M = 2.0
@@ -115,34 +108,6 @@ def cutting_of(airport, law: Law, sm: SurveyMouth | None, width: float) -> Cutti
     if sm is None or sm.verdict != KEPT or sm.rail:
         return None
     return Cutting(airport, law, float(sm.road), float(sm.cover), float(width))
-
-
-def deck_cutting(airport, law: Law, credible: bool, deck_z: float, axis: LineString,
-                 under: Polygon, width: float) -> Cutting | None:
-    """THE CUTTING A HARD-DECK TRENCH RUNS OUT INTO (#2128): on a credible
-    survey, the surveyed road where the trench's ``axis`` (from the deck's
-    midline outward) leaves the deck plan ``under`` -- the survey reads the
-    deck itself, never the road, over it -- under the deck's top ``deck_z``
-    as the cover.  ``None`` on a coarse DEM, where the axis never leaves the
-    deck, or where the survey reads no cut ``[channel] object_min_depth_m``
-    deep: then no pavement is read as the cutting's floor.  MEASURED KIAH
-    obj24551 (#2128 item 4, 1 m lidar): the road -47918 surveyed at 21.5-22
-    west of the deck, under ``dsf:pol153`` pieces the trench stopped at
-    (#2072 A) and the solve held at 24.3 -- a 2.6 m drawn step at the mouth."""
-    if not credible or axis.length <= 0.0:
-        return None
-    inside = axis.intersection(under).length
-    if inside >= axis.length:
-        return None
-
-    def fn(s: float) -> XY:
-        q = axis.interpolate(min(inside + s, axis.length))
-        return (q.x, q.y)
-    road = surveyed_road(airport, fn, width)
-    depth = float(law.tables.structures.channel.object_min_depth_m)
-    if math.isnan(road) or float(deck_z) - road < depth:
-        return None
-    return Cutting(airport, law, float(road), float(deck_z), float(width))
 
 
 def _samples(airport, region) -> list[float]:

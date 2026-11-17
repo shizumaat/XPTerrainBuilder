@@ -496,7 +496,8 @@ def overlay_obj8_text(top_y: _t.Callable[[float, float], float], *, texture: str
                       light_lift_m: float = 0.05,
                       lod_m: tuple[float, float] = (0.0, 6000.0),
                       comments: _t.Sequence[str] = (),
-                      material: _t.Sequence[str] = ()) -> str:
+                      material: _t.Sequence[str] = (),
+                      layer: int = 1) -> str:
     """The OBJ8 text of a deck's OVERLAY (#2132): the painted ``lines``
     (``texture`` the ``deck_texture`` atlas) or the ``strips`` (one
     texture's film: the rubber, X-Plane's line art) or the ``decals``
@@ -505,7 +506,19 @@ def overlay_obj8_text(top_y: _t.Callable[[float, float], float], *, texture: str
     and no ``WEATHER_TRANSPARENT``: an OBJ is not draped, owner sim read
     1.0.555, ``deck_objects._FILM_STEP_M``) -- placed at the deck's own
     anchor, in its frame.  ``material``: the header rows after ``TEXTURE``
-    (the page's normal map)."""
+    (the page's normal map).
+
+    DRAWN AFTER THE SLAB (owner sim read 2026-11-17T22:25Z, ESSA 1.0.557:
+    "the tire-marks texture ... lets you see through the whole bridge"):
+    the film is alpha-blended and writes depth, and X-Plane draws separate
+    objects of one layer group in no set order -- drawn before the slab, a
+    film pixel blended over the ground UNDER the deck and its depth then
+    hid the slab there.  ``layer``: the film's ``ATTR_layer_group objects
+    <layer>``, Laminar's own way to lay an alpha overlay OBJ on solid
+    geometry (the default autogen's ``retail_signage_*.obj``: a separate
+    film object over its facade, ``ATTR_layer_group objects 1``,
+    ``GLOBAL_no_shadow``) -- the slab (group ``objects``, offset 0) is in
+    the depth buffer before any film blends over it."""
     m = _Mesh()
     for st in strips:
         _strip(m, st, top_y)
@@ -516,4 +529,5 @@ def overlay_obj8_text(top_y: _t.Callable[[float, float], float], *, texture: str
     if m.idx:
         body.append(f"TRIS 0 {len(m.idx)}")
     body += _light_rows(lights, top_y, light_lift_m)
-    return _obj_text(m, [f"TEXTURE {texture}", *material, "GLOBAL_no_shadow"], body, comments)
+    return _obj_text(m, [f"ATTR_layer_group objects {int(layer)}", f"TEXTURE {texture}",
+                         *material, "GLOBAL_no_shadow"], body, comments)

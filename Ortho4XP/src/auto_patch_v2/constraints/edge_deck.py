@@ -236,8 +236,13 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
     done = set() if done is None else done
     decks = list({tuple(e.deck.ring): e.deck for e in es}.values())
     inside = prep(unary_union([Polygon(d.ring).buffer(0.5) for d in decks]))
-    ring_in = prep(unary_union([Polygon(d.ring).buffer(past if bank is not None else -0.5,
-                                                       join_style="mitre") for d in decks]))
+    ring_past = unary_union([Polygon(d.ring).buffer(past if bank is not None else -0.5,
+                                                    join_style="mitre") for d in decks])
+    ring_in = prep(ring_past)
+    # THE BANK BLENDS OUT (:func:`_blend_drop`): the ground the bank's
+    # daylight cone reaches past the ring's run-on
+    wide = prep(ring_past.buffer(max(float(e.depth) for e in es) / bank)) \
+        if bank is not None and bank > 0.0 else None
     hulls = [MultiPoint(pts).convex_hull for t in tunnels if (pts := deck_reach(t)) is not None]
     # THE DECK'S GROUND IS ITS OWN CELL (#2072): ``planar/deck_bridge.
     # deck_ground`` minted it from the reach the planar stage read, which can
@@ -273,6 +278,9 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
                 and not ring_in.contains(p):
             continue
         if not inside.contains(p) and not (beyond.contains(p) and _bridge_ground(planar, vx)):
+            if wide is not None and v not in air and v not in done and wide.contains(p) \
+                    and _open_ground(planar, vx):
+                rows.extend(_blend_rows(planar, v, p, es, ring_past, bank, near_vs, src))
             continue
         x, y = vx.xy
         a = min(near_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
@@ -284,12 +292,15 @@ def _span_rows(planar: PlanarMap, oid: str, es, tunnels, air, ends, flush: float
             t = plate_tops.get(a, top_of) if plate_tops else top_of
             rows.append(_from_zero(v, t, t.get(a), None, flush, under))
             continue
-        # the bank is the ring's own ground, inside its edge: the bridge's
-        # ground beyond it and on it (the open stretch's rim) and a vertex of
-        # any other cell -- a building pad under the ring (KJFK building39:
-        # its edge pulled 2 m down with the bank) -- keep the seat's level
-        drop = _bank_drop(es, p, bank) if bank is not None and ring_in.contains(p) \
-            and _bridge_ground(planar, vx) else 0.0
+        # the bank is the ring's own ground, inside its edge; past it the
+        # bridge's ground blends out on the bank's daylight cone
+        # (:func:`_blend_drop`); a vertex of any other cell -- a building pad
+        # under the ring (KJFK building39: its edge pulled 2 m down with the
+        # bank) -- keeps the seat's level
+        drop = 0.0
+        if bank is not None and (_bridge_ground(planar, vx) or _open_ground(planar, vx)):
+            drop = _bank_drop(es, p, bank) if ring_in.contains(p) \
+                else _blend_drop(es, p, ring_past, bank)
         rows.append(Linear(((v, 1.0), (a, -1.0)), None, -drop, src))
         rows.append(Linear(((v, -1.0), (a, 1.0)), None, drop, src))
     return rows
@@ -329,6 +340,49 @@ def _bank_drop(es, p, slope: float) -> float:
         if best is None or d < best[0]:
             best = (d, float(e.depth))
     return 0.0 if best is None else max(0.0, min(best[1], slope * best[0]))
+
+
+def _blend_drop(es, p, ring_past, slope: float) -> float:
+    """THE BANK BLENDS OUT (owner sim read 2026-11-17T22:25Z, ESSA 1.0.557:
+    "just past the bridge edge the bank changes suddenly from what's under
+    it to what's next to it"; RULINGS 17p: the cut runs ``past`` metres
+    beyond the bridge, then blends back to the cut and the natural
+    terrain).  How far under its seat the ground at ``p``, beyond the
+    ring's run-on ``ring_past``, stands on the cut: the bank's drop at the
+    nearest point of the run-on's edge (:func:`_bank_drop`) less ``slope``
+    x the distance out -- the bank's own face carried on past the edge
+    line, so the surface is continuous there and daylights into the ground
+    beside it.  MEASURED ESSA (``v2_solve_replay`` of the lessa4 capture on
+    test-557 721317bb0): beside o4gen_44525b99 the run-on band stood on the
+    floor (30.91 at +0.85 m) and the zone ground at +1.0-1.3 m at the seat
+    (35.8-36.3), a 5 m step in 0.3 m."""
+    from shapely.ops import nearest_points
+    s = ring_past.distance(p)
+    q = nearest_points(ring_past, p)[0]
+    return max(0.0, _bank_drop(es, q, slope) - slope * s)
+
+
+def _open_ground(planar: PlanarMap, vx) -> bool:
+    """A vertex every face of which is open ground (``graded_strip``: a
+    zone band, the bridge's own ground) -- never a pavement's, a wall's or
+    a building pad's, which keep their own law."""
+    faces = [planar.faces.get(f) for f in vx.incident_faces]
+    return bool(faces) and all(f is not None and f.role == "graded_strip" for f in faces)
+
+
+def _blend_rows(planar: PlanarMap, v: int, p, es, ring_past, slope: float, near_vs,
+                src: Source) -> list[Row]:
+    """The ground beside a generated deck's run-on stands no higher than the
+    bank blending out (:func:`_blend_drop`) under its nearest seat: a
+    one-sided CEILING -- the cut takes ground away, never fills it; ground
+    already under the cone keeps its own law."""
+    drop = _blend_drop(es, p, ring_past, slope)
+    if drop <= 0.0:
+        return []
+    x, y = p.x, p.y
+    a = min(near_vs, key=lambda s: (planar.vertices[s].xy[0] - x) ** 2
+            + (planar.vertices[s].xy[1] - y) ** 2)
+    return [Linear(((v, 1.0), (a, -1.0)), None, -drop, src)]
 
 
 def _in_cut(planar: PlanarMap, tunnels) -> "_t.Callable[[_t.Any], bool]":

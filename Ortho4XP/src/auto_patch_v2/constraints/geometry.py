@@ -70,19 +70,58 @@ def face_cover(ring: _t.Sequence[XY], holes: _t.Sequence[_t.Sequence[XY]],
         return None
 
 
+#: THE SOUND SCREENS' SAMPLE POINTS along a chord (#1951 part 2), the
+#: midpoint among them: the accept screen below needs one point of the
+#: chord inside the cover.
+_SAMPLES = (0.5, 0.125, 0.25, 0.375, 0.625, 0.75, 0.875)
+
+
 def chords_covered(poly, segments: _t.Sequence[tuple[XY, XY]]) -> list[bool]:
     """Which of ``segments`` (``((x0, y0), (x1, y1))`` each, or the same as
-    one ``(n, 2, 2)`` array) ``poly`` covers — one vectorised GEOS
-    predicate for the whole list; every chord when ``poly`` is ``None``."""
+    one ``(n, 2, 2)`` array) ``poly`` covers; every chord when ``poly`` is
+    ``None``.
+
+    THE SAME PREDICATE, ANSWERED IN THREE STEPS (#1951 part 2: the lot
+    chords of #2099 G4 C put ~1 M chords per airport through it, 243 of
+    road_within_shape's 266 s at KMCI, and the verify stage and the census
+    ask it again):
+
+    * REJECT — a sample point of the chord (:data:`_SAMPLES`) that misses
+      ``poly`` refutes the cover (the midpoint screen's argument, at seven
+      points);
+    * ACCEPT — a chord with a point inside that meets no point of
+      ``poly``'s boundary lies in its interior;
+    * the rest (a chord touching the boundary) — ``covers`` on the PREPARED
+      polygon.  ``covered_by(lines, poly)`` was never prepared: GEOS
+      prepares the predicate's first operand, here the chord.
+
+    MEASURED: KMCI's 72 large lots, 958,447 chords, 0 answers differ from
+    ``covered_by``; 250 s -> 1.1 s."""
     if len(segments) == 0:
         return []
     if poly is None:
         return [True] * len(segments)
     import numpy as np
     import shapely
-    lines = shapely.linestrings(np.asarray(segments, float))
+    seg = np.asarray(segments, float)
     shapely.prepare(poly)
-    return [bool(b) for b in shapely.covered_by(lines, poly)]
+    a, d = seg[:, 0, :], seg[:, 1, :] - seg[:, 0, :]
+    live = np.ones(len(seg), dtype=bool)
+    for fr in _SAMPLES:
+        k = np.flatnonzero(live)
+        if not k.size:
+            break
+        live[k] = shapely.intersects_xy(poly, a[k, 0] + fr * d[k, 0], a[k, 1] + fr * d[k, 1])
+    out = np.zeros(len(seg), dtype=bool)
+    k = np.flatnonzero(live)
+    if k.size:
+        lines = shapely.linestrings(seg[k])
+        rim = poly.boundary
+        shapely.prepare(rim)
+        touch = np.asarray(shapely.intersects(rim, lines), dtype=bool)
+        out[k[~touch]] = True
+        out[k[touch]] = shapely.covers(poly, lines[touch])
+    return out.tolist()
 
 
 def chord_midpoints_hit(poly, segments: _t.Sequence[tuple[XY, XY]]):
@@ -130,7 +169,7 @@ def rows_outside(cover, xy: _t.Sequence[XY], min_d: float,
             if i == 0 and j == n - 1:
                 continue
             xb, yb = xy[j]
-            if math.hypot(xa - xb, ya - yb) >= min_d:
+            if exact.hypot(xa - xb, ya - yb) >= min_d:
                 ii.append(i)
                 jj.append(j)
     if not ii:

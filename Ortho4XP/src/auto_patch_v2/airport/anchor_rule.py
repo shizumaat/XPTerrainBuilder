@@ -62,6 +62,7 @@ import math
 import typing as _t
 
 from ..model.placement import TOL_DEG as _TOL_DEG
+from .cut_portal_seat import PORTAL_PLATE
 from .hung_wall_seat import WALL_TOP_PLATE
 
 __all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
@@ -660,6 +661,12 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
             and getattr(m, "plate_stations", ())):
         return Datum(float(plate_y), tuple(m.plate_stations),
                      "retaining wall (RULINGS 2026-11-16d)")
+    # a PORTAL IN A CUT stands its top on the cover beside the cut (#2120 R2
+    # P2; ``airport/cut_portal_seat``): its foot goes where that puts it
+    if (plate_y is not None and getattr(m, "plate_kind", "") == PORTAL_PLATE
+            and getattr(m, "plate_stations", ())):
+        return Datum(float(plate_y), tuple(m.plate_stations),
+                     "portal in a cut (#2120)")
     if plate_y is not None and float(plate_y) > 0.0:
         st = tuple(getattr(m, "plate_stations", ()) or ())
         if st:

@@ -311,8 +311,13 @@ def _run_on(path: _t.Sequence[XY], out: XY, length: float) -> tuple[XY, ...]:
 
 
 def _hits_on_path(line: LineString, run: float, corridor, own, mid: XY, top_at,
-                  obs: Obstacles, clear: float) -> tuple[list, list[str]]:
-    """``([(s, state, why)], decks passed under)`` along ``line``."""
+                  obs: Obstacles, clear: float, route: "LineString | None" = None
+                  ) -> tuple[list, list[str], list[str]]:
+    """``([(s, state, why)], decks passed under, route solids)`` along
+    ``line``.  ``route``: the part of ``line`` that follows the carried
+    mapped route (never the straight stub or run-on) — a pack solid it
+    crosses is part of the route whatever its width and holds nothing
+    (#2116 R2 H, owner RULINGS 2026-11-16q)."""
     hits: list[tuple[float, str, str]] = []
     ss = np.arange(_SAMPLE_M, line.length + 1e-9, _SAMPLE_M)
     pts = [line.interpolate(s) for s in ss]
@@ -334,9 +339,13 @@ def _hits_on_path(line: LineString, run: float, corridor, own, mid: XY, top_at,
     if air is not None:
         hits.append((air, "listed", "end_on_airside"))
     decks, solids = obs.near(corridor, own)
+    through: list[str] = []
     for o in solids:
         fp = obs.standing(o)
         if fp is None or not fp.intersects(line):
+            continue
+        if route is not None and route.length > 0.0 and fp.intersects(route):
+            through.append(str(o.id))
             continue
         meet = fp.intersection(line)
         s = min((line.project(Point(c)) for g in getattr(meet, "geoms", [meet])
@@ -356,7 +365,7 @@ def _hits_on_path(line: LineString, run: float, corridor, own, mid: XY, top_at,
                 hits.append((s, "listed", f"end_under_low_deck: {o.id} {room:.2f} m over "
                                           "the ramp < clearance_m"))
             break
-    return hits, sorted(set(under))
+    return hits, sorted(set(under)), through
 
 
 def access_ways(stations: _t.Sequence[XY], out: XY, carried: _t.Sequence[int],
@@ -419,9 +428,10 @@ def end_state(*, oid: str, side: str, stations: _t.Sequence[XY], top: float, out
                                     "fill_road_reach_m"))
     corridor = (line.buffer(0.5 * max(line_len, 1.0), cap_style="flat")
                 if line.length > 0 else Point(mid).buffer(1.0))
-    more, under = _hits_on_path(line, run, corridor, own, mid,
-                                lambda s: end.profile(zero, s, step), obs,
-                                float(br.clearance_m))
+    route = cut(line.coords, min(routed, line.length)) if not stub and routed > 0.0 else None
+    more, under, through = _hits_on_path(line, run, corridor, own, mid,
+                                         lambda s: end.profile(zero, s, step), obs,
+                                         float(br.clearance_m), route)
     hits += [h for h in more if h[0] <= reach + 1e-6]
     crossing = []
     seg = cut(line.coords, run)
@@ -439,6 +449,8 @@ def end_state(*, oid: str, side: str, stations: _t.Sequence[XY], top: float, out
           if not stub and routed + 1e-6 < run else "")
     if access:
         on = f"; the access road {list(access)} passes the end line: the slab alone (#2090 B4)"
+    if through:
+        on += f"; end_through_route_solid: {', '.join(through)}"
     return _dc.replace(end, why=f"graded: gap {gap:.2f} m over {run:.0f} m at {g:.2%}{on}",
                        crossings=tuple(crossing), under=tuple(under))
 

@@ -130,6 +130,16 @@
   "reason": "one tile's pack dump: the build reaches it through fresh_pack_dumps (#1645, every tile the airport touches) via _pack_dump_naming_its_pack; kept public for the single-tile dump twins (test_dsf_dump_atomic, test_tile_failures)"
  },
  {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/apt_edit.py",
+  "name": "CutResult",
+  "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/apt_edit.py",
+  "name": "Dropped",
+  "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
+ },
+ {
   "path": "Ortho4XP/src/auto_patch_v2/airport/bridge_end_state.py",
   "name": "standing_plan",
   "reason": "test seam for Obstacles.standing on placed faces; pinned by test_free_bridge_seat / test_bridge_stack2065 (#2065)"
@@ -143,6 +153,11 @@
   "path": "Ortho4XP/src/auto_patch_v2/airport/deck_riders.py",
   "name": "end_tops",
   "reason": "test seam for deck-top-at-end reads; pinned by test_deck_riders2086"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/dsf_poly_clip.py",
+  "name": "ClipReport",
+  "reason": "spec 2123: the return type of this module's public writer (named in its signature and docstring); its readers take the value, never the class name"
  },
  {
   "path": "Ortho4XP/src/auto_patch_v2/airport/hung_wall_seat.py",
@@ -165,6 +180,11 @@
   "reason": "reached as a package attribute (`_ph.objects.remove(...)` in airport/dsf_write.py and auto_patch/object_rebake.py), which the name scan does not follow"
  },
  {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/cut_portal.py",
+  "name": "CutPortal",
+  "reason": "return type of the module's public reader attach_cut_portals (callers read its fields, never name it); listed in __all__ (#2120 R2 P)"
+ },
+ {
   "path": "Ortho4XP/src/auto_patch_v2/airport/ramp_wing.py",
   "name": "RampJoin",
   "reason": "return type of the module's public reader (NamedTuple/dataclass callers unpack, never name); listed in __all__ (#2099 G4)"
@@ -178,6 +198,26 @@
   "path": "Ortho4XP/src/auto_patch_v2/airport/zero_level_seat.py",
   "name": "walls_below_zero",
   "reason": "#2118 public reader of the walls a zero-level seat stands below, composed by unit_zero in the same module; named in the module docstring contract"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "base_lines",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "census_touching_steps",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "group_lines",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/touching_steps.py",
+  "name": "touching_lines",
+  "reason": "#2110 R3 \u00a74 instrument: read-only touching-pair / touch-group / base-plan tables printed by tools/v2_rebake_replay.py touch (the lane bar), never by the engine"
  },
  {
   "path": "Ortho4XP/src/auto_patch_v2/planar/__main__.py",
@@ -388,5 +428,10 @@
   "path": "Ortho4XP/src/patch_library/index.py",
   "name": "main",
   "reason": "entry point: `python -m patch_library.index` \u2014 the patch library repository's GitHub Actions workflow (library_template/.github/workflows/index.yml) runs it from a sparse checkout"
+ },
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/airport/deck_skin.py",
+  "name": "PageArt",
+  "reason": "return type of the module's public reader page_art (generated_pack reads its fields, never names it); listed in __all__ (#2132)"
  }
 ]

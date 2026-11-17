@@ -451,6 +451,15 @@ def test_a_road_ending_at_a_mouth_and_a_tunnel_at_a_floor_ring_are_faces(monkeyp
                          floors=floors)["verdict"] == "FAIL"
 
 
+def test_a_cut_portal_mouth_is_a_claimed_mouth():
+    """#2120 R2: a mouth a portal in a cut walls (sidecar
+    ``cut_portal_mouths``) is claimed like a pinned portal's mouth."""
+    import drawn_roads as DR
+    side = {"cut_portal_mouths": [{"ways": [-2188, -10693], "mouth_ll": [33.62, -84.43],
+                                   "portal": "dsf:obj1"}]}
+    assert DR.claimed_mouths(side) == [(frozenset({-2188, -10693}), 33.62, -84.43)]
+
+
 def test_the_lidar_layer_reads_drawn_ground_against_the_survey(monkeypatch):
     """#2128 R2 step 1: the drawn ground inside a site's radius against the
     airport's inset -- the share off by more than 2 m outside the deck rings

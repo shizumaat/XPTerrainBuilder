@@ -172,25 +172,48 @@ def _connector_floors(m: _Member, lat0: float, lon0: float, memo: dict,
     ``(east, north, y)`` in the frame at ``(lat0, lon0)``, ``y`` over the
     member's datum.  Given ``band`` (#2090 C1) its GROUND floors instead:
     every corner within ``band`` of the datum."""
+    def keep(y: np.ndarray) -> np.ndarray:
+        return (y.min(axis=1) >= float(law.connector_floor_m) if band is None
+                else np.abs(y).max(axis=1) <= float(band))
+    return _placed(m, lat0, lon0, lambda obj: _piece_floors(obj, memo, float(law.flat)), keep, 3)
+
+
+def _placed(m: _Member, lat0: float, lon0: float, read, keep, corners: int) -> np.ndarray:
+    """``(k, corners, 3)`` — every piece's ``read(obj)`` shapes (authored
+    frame) that ``keep(y over the datum)`` keeps, placed as X-Plane places
+    the piece: ``(east, north, y)`` in the frame at ``(lat0, lon0)``."""
     from .anchor_rule import _m_per_deg
     ml, mo = _m_per_deg(lat0)
     rows = []
     for pc in _ap.placed_pieces(m.agp, m.lon, m.lat, m.heading_deg):
-        f = _piece_floors(pc.obj, memo, float(law.flat))
+        f = read(pc.obj)
         if not f.shape[0]:
             continue
         y = f[:, :, 1] + pc.height
-        keep = (y.min(axis=1) >= float(law.connector_floor_m) if band is None
-                else np.abs(y).max(axis=1) <= float(band))
-        if not keep.any():
+        ok = keep(y)
+        if not ok.any():
             continue
         h = math.radians(pc.heading_deg)
         s, c = math.sin(h), math.cos(h)
-        x, z = f[keep, :, 0], f[keep, :, 2]
+        x, z = f[ok, :, 0], f[ok, :, 2]
         e0, n0 = (pc.lon - lon0) * mo, (pc.lat - lat0) * ml
-        rows.append(np.stack([e0 + x * c - z * s, n0 - (x * s + z * c), y[keep]],
-                             axis=2))
-    return np.concatenate(rows) if rows else np.zeros((0, 3, 3))
+        rows.append(np.stack([e0 + x * c - z * s, n0 - (x * s + z * c), y[ok]], axis=2))
+    return np.concatenate(rows) if rows else np.zeros((0, corners, 3))
+
+
+def member_feet(m: _Member, lat0: float, lon0: float, memo: dict, band: float) -> np.ndarray:
+    """``(k, 1, 3)`` — member ``m``'s FEET (``agp_floors.feet_of``: the
+    bottoms of its pieces' solids) standing within ``band`` of its datum,
+    corners ``(east, north, y)`` in the frame at ``(lat0, lon0)`` (#2116 R2
+    C1b)."""
+    from .agp_floors import feet_of
+
+    def read(obj: str) -> np.ndarray:
+        if ("feet", obj) not in memo:
+            memo[("feet", obj)] = feet_of(obj, float(_LAW.flat)).astype(np.float64)
+        return memo[("feet", obj)]
+    return _placed(m, lat0, lon0, read,
+                   lambda y: np.abs(y).max(axis=1) <= float(band), 1)
 
 
 #: a floor triangle this small (circumradius about its centroid, m) is

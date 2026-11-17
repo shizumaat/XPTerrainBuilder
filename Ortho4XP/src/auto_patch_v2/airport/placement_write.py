@@ -195,6 +195,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                isolated_sheet_max_aspect: float = 0.0,
                # #1837: ``ground_frame_riders.law_of([placement])``; ``None`` disarms
                ground_rider_law: _t.Any = None,
+               # #2110 R3: ``touch_seat.law_of([placement])``; ``None`` disarms
+               touch_seat: _t.Any = None,
                ) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
@@ -251,7 +253,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           isolated_span_max_m=isolated_span_max_m,
                           isolated_foreign=isolated_foreign,
                           isolated_base_min_fraction=isolated_base_min_fraction,
-                          isolated_sheet_max_aspect=isolated_sheet_max_aspect)
+                          isolated_sheet_max_aspect=isolated_sheet_max_aspect,
+                          touch_seat=touch_seat)
     splits, kept = _pp.to_placement_records(ss)
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,
@@ -727,13 +730,21 @@ def apply_routed(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                  refresh_dump: _t.Callable[[str], str | None] | None = None,
                  engine_version: str = "", law_digest: str = "",
                  omit: _t.Sequence = (), plan_key: str = "",
-                 seats: _t.Mapping | None = None) -> PlacementWriteResult:
+                 seats: _t.Mapping | None = None,
+                 gen_recipe: _t.Mapping | None = None,
+                 guest_ground: "_t.Callable[[_route.Tile], str] | None" = None
+                 ) -> PlacementWriteResult:
     """THE PLACEMENT WRITE, in the one lawful order (module doc, steps
     0-5), over this tile's DSF and every neighbour DSF of the pack that
     takes guest rows (#1884 round 2 B2: ``tile_route``).
     ``plan_key`` names the plan JSON (``o4_v2_placement_<key>.json``;
     default the ICAO — a companion pack's plan is ``ICAO~k``).
     ``seats``: the hand-set object seats (#1703, ``write_pack(seats=)``).
+    ``gen_recipe``: the generated decks / road bridges of this tile's DSF
+    (spec 2123, ``write_pack(gen_recipe=)``).
+    ``guest_ground(tile)``: the ground mark the guest bodies standing on
+    ``tile`` were seated on (#2129, ``tile_route.neighbour_ground``), kept
+    in their record row.
 
     Under the pack's write lock (``pack_lock``, B3), and ALL OR NOTHING:
 
@@ -754,7 +765,7 @@ def apply_routed(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
         # a body the pack cannot hold (a read-only folder) is written
         # whole, decided BEFORE anything is routed or restored
         plan, files = _writable(plan, files)
-        plan, guests = _routed(plan, here, say)
+        plan, guests = _routed(plan, here, say, guest_ground)
         gone = {r for gp in guests for r in gp.new_resources()}
         by_res = {f.resource.replace("\\", "/"): f for f in files}
         writes = [_Write(plan, tuple(f for f in files
@@ -768,7 +779,8 @@ def apply_routed(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                           allow_live_install=allow_live_install,
                           work_dir=work_dir, refresh_dump=refresh_dump,
                           engine_version=engine_version,
-                          law_digest=law_digest, plan_key=plan_key)
+                          law_digest=law_digest, plan_key=plan_key,
+                          gen_recipe=gen_recipe)
 
 
 def _writable(plan: PlacementPlan, files: _t.Sequence
@@ -786,7 +798,8 @@ def _writable(plan: PlacementPlan, files: _t.Sequence
 
 
 def _routed(plan: PlacementPlan, here: "_route.Tile | None",
-            say: _t.Callable[[str], None]
+            say: _t.Callable[[str], None],
+            ground: "_t.Callable[[_route.Tile], str] | None" = None
             ) -> tuple[PlacementPlan, list[PlacementPlan]]:
     """``(plan for this DSF, guest plans)`` — ``tile_route.route`` over
     the neighbour DSFs that may be written (:func:`apply_routed` step 1)."""
@@ -814,7 +827,8 @@ def _routed(plan: PlacementPlan, here: "_route.Tile | None",
         say(f"{sum(len(s.bodies) for s in splits)} body(ies) of "
             f"{len(splits)} placement(s) stand on "
             f"{_dsf.on_tile('', there)[1:]}: written in its DSF")
-    return routed, [_route.guest_plan(plan, here, t, sp)
+    return routed, [_route.guest_plan(plan, here, t, sp,
+                                      ground(t) if ground is not None else "")
                     for t, sp in guests.items()]
 
 
@@ -822,7 +836,8 @@ def _write_all(writes: _t.Sequence[_Write], tool: str, *, patch_dir: str,
                allow_live_install: bool, work_dir: str | None,
                refresh_dump: _t.Callable[[str], str | None] | None,
                engine_version: str, law_digest: str,
-               plan_key: str) -> PlacementWriteResult:
+               plan_key: str, gen_recipe: _t.Mapping | None = None
+               ) -> PlacementWriteResult:
     """:func:`apply_routed`'s writes: ``writes[0]`` is this tile's DSF,
     the rest its guests in neighbour DSFs (none for :func:`apply_plan`)."""
     own = writes[0]
@@ -856,7 +871,8 @@ def _write_all(writes: _t.Sequence[_Write], tool: str, *, patch_dir: str,
                                work_dir=work_dir, engine_version=engine_version,
                                law_digest=law_digest,
                                body_files=_bodies_of(w, written), omit=w.omit,
-                               seats=w.seats, mend=False)
+                               seats=w.seats, mend=False,
+                               gen_recipe=gen_recipe if w is own else None)
                 for w in writes]
     dsf = dsfs[0]
     plan = own.plan

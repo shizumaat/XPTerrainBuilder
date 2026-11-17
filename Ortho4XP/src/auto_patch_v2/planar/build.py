@@ -51,6 +51,7 @@ from .bridge_span import edge_bridges
 from .cut_frame import frame_cuts
 from .deck_bridge import deck_bridges, deck_ground, full_map, with_cuts
 from .survey_deck_cut import cut_pavement, region_union, survey_deck_cuts
+from .deck_generated import carried_off, generated_decks
 from .wing_cut import group_walled, wing_cuts
 from .level_depth import airport_level_b
 from .level_regions import level_seeds
@@ -360,6 +361,16 @@ def build(airport: Airport, classification: Classification, law: Law,
                                          cache, classification, airport, law,
                                          tstats.trench_objects, level_b=level_b,
                                          ground=ground_of(airport, objects, cache, law))
+        # spec 2123 A3 (RULINGS 2026-11-16y): a taxiway over a road the
+        # pack draws only as pavement gets a GENERATED deck, read by every
+        # hard-deck consumer below (``planar/deck_generated``)
+        gen, gen_notes = generated_decks(
+            classification, airport, law, decks,
+            [c.footprint for c in corridors] + [f.footprint for f in floors])
+        decks, deck_notes = tuple(decks) + gen, list(deck_notes) + gen_notes
+    # a generated deck carries its airside pavement on both maps (A3)
+    classification, cut_notes = carried_off(classification, decks, law)
+    deck_notes = list(deck_notes) + cut_notes
     # #2099 R3 D6: a deck mouth's group walls plan its ramps -- the groups
     # of the deck mouths are formed here, before the structure pass
     decks, group_notes = group_walled(decks, airport, objects, cache, law)
@@ -570,8 +581,13 @@ def build(airport: Airport, classification: Classification, law: Law,
                            stage_air_of(faces.values(), lambda f: face_vs.get(f.id, ()), law))
     # #714: over a mapped bore under airside pavement the ground is the
     # ground BESIDE the cover, not the road floor a bare-earth DEM carries
+    # #2120 R2 P2: a portal in a cut walls the mouth it stands at
+    from ..airport.cut_portal import log_lines as _cp_lines
+    in_cut = tuple(getattr(airport, "cut_portals", ()) or ())
+    for _line in _cp_lines(airport.icao, in_cut):
+        print(f"  [planar] {_line}")
     zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs,
-                                              objects, bridges, decks)
+                                              objects, bridges, decks, in_cut)
     if stats.covered_ground.rings:
         print(f"  [planar] {stats.covered_ground.line()}")
     # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads
@@ -619,6 +635,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                                          for b in arr.seam_bands),
                    mouth_walls=tuple((tuple(r), d, p_) for r, d, p_
                                      in stats.covered_ground.mouth_walls),
+                   portal_mouths=tuple(stats.covered_ground.portal_mouths),
                    edge_kind_of_ref={r.ref: r.edge_kind for r in arr.regions
                                      if r.edge_kind != "none"},
                    zone_runway_of_ref={r.ref: r.runway_ref for r in arr.regions

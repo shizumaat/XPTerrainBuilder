@@ -62,7 +62,8 @@ _STAND_DOWN_VERBOSITY = 2
 # cache is refreshed and the placement plan lands beside the patch.
 
 def mesh_placement_sampler(mesh_path: str,
-                           bounds: tuple[float, float, float, float]):
+                           bounds: tuple[float, float, float, float],
+                           sampler=None):
     """The BUILT MESH as the placement stage reads it: ``sample(lat, lon)
     -> (z, is_water) | None`` with ``.many`` over the same grid index
     (RULINGS 2026-09-12g), ``None`` outside every retained triangle and
@@ -71,10 +72,13 @@ def mesh_placement_sampler(mesh_path: str,
     (``tools/obj8_split_report.py --mesh``, lane seat610): the dry run on
     the graded surface cannot see a body seated against mesh ground that
     slopes under one building (#625), so the instrument reads the same
-    mesh the app seated on, through the same adapter."""
+    mesh the app seated on, through the same adapter.  ``sampler``: a
+    ``MeshElevationSampler`` already built over ``bounds`` (a tile DSF's
+    drawn triangles, ``guest_stage``) in place of reading ``mesh_path``."""
     import math
     from .mesh_sampler import MeshElevationSampler, OutsideMeshError
-    sampler = MeshElevationSampler(mesh_path, bounds)
+    if sampler is None:
+        sampler = MeshElevationSampler(mesh_path, bounds)
 
     def _sample(lat: float, lon: float, _s=sampler):
         try:
@@ -504,6 +508,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     from auto_patch_v2.airport import ground_frame_riders as _gfr
     from auto_patch_v2.airport import placement_write as _pw
     from auto_patch_v2.airport import free_column as _fcol
+    from auto_patch_v2.airport import touch_seat as _tseat
     from . import dsf_reader as _DSFR
 
     from . import pack_copy as _copy
@@ -524,14 +529,19 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         return {}
     dump = _dsf2.read_dump(dump_path)
 
-    # #1884: past this tile's edge the split reads the airport's own DEM
-    # (``tile_route``: the bodies there are written in that tile's DSF)
+    # #1884 / #2129: past this tile's edge the split reads the ground the
+    # neighbour tile draws (its built mesh, else the airport's own DEM) —
+    # the bodies there are written in that tile's DSF (``tile_route``)
     from auto_patch_v2.airport import tile_route as _route
+
+    from . import guest_stage as _guests
     _here = (tile.lat, tile.lon)
+    _ground = _route.neighbour_ground(
+        plan_.icao, _here, FNAMES.Elevation_dir,
+        float(getattr(tile, "airport_elevation_inset_feather_m", 60.0) or 60.0),
+        meshes=_guests.neighbour_meshes(tile, getattr(mesh_sample, "bounds", None)))
     _surface = _placement_surface(_route.with_neighbour_ground(
-        mesh_sample, _here, _route.airport_ground(
-            plan_.icao, _here, FNAMES.Elevation_dir,
-            float(getattr(tile, "airport_elevation_inset_feather_m", 60.0) or 60.0))))
+        mesh_sample, _here, _ground))
 
     # §6's CLASS RULE reads the emitted surface (lane v2planfix): without
     # the pads and rims ``classify_body`` can never answer ``building`` or
@@ -717,7 +727,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             isolated_sheet_max_aspect=float(
                 law.tables.structures.placement.isolated_sheet_max_aspect),
             # #1837: a stock MSL row on an OBJECT / AGL frame rides it
-            ground_rider_law=_gfr.law_of(law.tables.structures.placement))
+            ground_rider_law=_gfr.law_of(law.tables.structures.placement),
+            # #2110 R3 (RULINGS 2026-11-16k/u/v): touching buildings, one seat
+            touch_seat=_tseat.law_of(law.tables.structures.placement))
     _pulse.clear()
     c = dict(plan.counts())
     # §6's CLASSES ride out with the counts (lane v2planfix): they are the
@@ -745,6 +757,9 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                                                     _BS_UNRECOGNISED)
     # #1884: a body standing on a neighbour tile is written in that tile's
     # DSF of the pack (``tile_route``), in the SAME write as this one's
+    # spec 2123 (RULINGS 2026-11-16y): the GENERATED decks and road
+    # bridges the patch published, written in the same pack write
+    gen = _generated_recipe(_gd, target_root, plan_.icao, law, plan_key)
     try:
         res = _pw.apply_routed(
             plan, files, _DSFR._dsftool_path() or "DSFTool",
@@ -754,7 +769,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             allow_live_install=_copy.write_guard(target_root),
             refresh_dump=lambda p, _c=cache: _DSFR.ensure_dsf_text_path(p, _c),
             engine_version=_engine_version(), law_digest=digest, omit=omit,
-            plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key))
+            plan_key=plan_key, seats=_hand.file_seats(patch_dir, plan.icao, plan_key),
+            gen_recipe=gen, guest_ground=_ground.mark)
     except (BackupUnproven, TimeoutError) as exc:
         # TimeoutError: another write of the pack held its lock (``pack_lock``)
         # §12a (4): ONE line, at verbosity 0.  NOTHING in the pack was
@@ -786,6 +802,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
                             else ""))
     if res.dsf is not None:
         _hand.say_seated(plan_.icao, res.dsf)
+    if gen is not None:
+        _generated_apt(gen, target_root, plan_.icao)
     if _adopted or _unproven:
         UI.vprint(0, f'  [v2 placement] PACK UPDATED: "{pack_name}" — '
                      f'{len(_adopted)} file(s) of yours were kept as installed '
@@ -822,6 +840,70 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
             engine_version=_engine_version(), law_digest=digest)
         out["sibling_deck_riders"] = c["sibling_deck_riders"]
     return out
+
+
+def _generated_in(patch_dir: str, icao: str) -> bool:
+    """Did the airport's patch publish a generated deck or road bridge
+    (spec 2123: the graded surface's ``generated``)?"""
+    import json
+
+    from auto_patch_v2.model.rebake import graded_surface_path
+    try:
+        with open(graded_surface_path(patch_dir, icao), encoding="utf-8") as fh:
+            gen = (json.load(fh).get("provenance") or {}).get("generated") or {}
+    except (OSError, ValueError):
+        return False
+    return bool(gen.get("decks") or gen.get("road_bridges"))
+
+
+def _generated_recipe(graded_doc, target_root: str, icao: str, law, plan_key: str):
+    """The airport's generated decks / road bridges as a write recipe
+    (``generated_pack.recipe``), ``None`` for a companion plan or a patch
+    that published none (the record's recipe is then kept as it is)."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import apt_flatten as _af
+    from auto_patch_v2.airport import generated_pack as _gen
+
+    from . import agp_reader as _agp
+    if plan_key not in ("", icao) or not graded_doc:
+        return None
+    pub = (graded_doc.get("provenance") or {}).get("generated")
+    if pub is None:
+        return None
+    try:
+        rec = _gen.recipe(pub, _af.apt_dat_of(target_root), icao, law,
+                          resolve_library=_agp.resolve_library_path)
+    except Exception as exc:                     # never fails the pack
+        UI.vprint(0, f"  [v2 placement] {icao}: the generated decks / road bridges "
+                     f"could not be made ({exc}); none written")
+        return None
+    for note in rec.get("notes") or ():
+        UI.vprint(1, f"  [v2 placement] {icao}: generated {note}")
+    return rec
+
+
+def _generated_apt(rec, target_root: str, icao: str) -> None:
+    """The apt.dat half of the generated structures: their regions cut out
+    of the airport's block (``apt_flatten.write_regions``), recorded and
+    undone by Restore originals.  One line; never raises into the build."""
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import apt_flatten as _af
+    from auto_patch_v2.airport import generated_pack as _gen
+    apt = _af.apt_dat_of(target_root)
+    regions = _gen.regions_of(rec)
+    if not apt or (not regions and not os.path.isfile(apt + _af.EDITS_SUFFIX)):
+        return
+    try:
+        state, dropped = _af.write_regions(apt, icao, regions)
+    except (OSError, ValueError) as exc:
+        UI.vprint(0, f"  [v2 placement] {icao}: the apt.dat could not be cut for the "
+                     f"generated structures ({exc}); it is as it was")
+        return
+    if state:
+        UI.vprint(1, f"  [v2 placement] {icao}: apt.dat: {len(regions)} region(s) cut "
+                     f"for the generated decks / road bridges, {len(dropped)} line "
+                     f"piece(s) dropped (redrawn on the decks); the original is kept as "
+                     f"apt.dat.anchor_bak")
 
 
 def _engine_version() -> str:
@@ -909,6 +991,15 @@ def rebake_after_mesh(tile) -> dict:
     """Run the PLACEMENT stage for every airport v2 patched on ``tile``
     against the mesh just built (see the section comment).  Never raises
     (the mesh hook wraps it too); returns the counts for the summary."""
+    return _object_stage(tile)
+
+
+def _object_stage(tile, only: "frozenset[str] | None" = None) -> dict:
+    """:func:`rebake_after_mesh`'s stage.  ``only``: the airports a
+    neighbour's build re-seats (#2129, ``guest_stage.reseat_guests``) —
+    their plans (main and companions) alone run, never served from the
+    reuse, with no unpatched-airport restore, no re-seat of its own and no
+    tile-wide adjust step (they are the build that asked's)."""
     import glob
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
@@ -924,7 +1015,8 @@ def rebake_after_mesh(tile) -> dict:
     # the placement loop would otherwise RE-APPLY the unpatched airport's
     # recorded edits when it writes a sibling served by the same DSF.
     # Silent and read-free when the tile has no unpatched airport.
-    restored = restore_unpatched_packs(tile)
+    restored = (restore_unpatched_packs(tile) if only is None
+                else {"restored": 0, "recomposed": 0})
     if restored["restored"] or restored["recomposed"]:
         counts["packs_restored"] = restored["restored"] + restored["recomposed"]
     # THE USER'S SWITCH IS A STAND-DOWN, NOT A MEASURE-ONLY ARM (owner
@@ -975,6 +1067,10 @@ def rebake_after_mesh(tile) -> dict:
                    if _oplan.SCREEN_NAME_RE.match(os.path.basename(p))}
         plans = sorted({p for p in found
                         if _PLAN_NAME_RE.match(os.path.basename(p))} | set(screens))
+        if only is not None:
+            # every plan of the airport (main + companions, whose outlines
+            # block each other's isolated share, §9a): one decomposition
+            plans = [p for p in plans if _plan_icao(p) in only]
         if not plans:
             return counts
         mesh_path = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
@@ -1022,10 +1118,11 @@ def rebake_after_mesh(tile) -> dict:
         written_packs: set[str] = set()
         ran_packs: set[str] = set()
         t_stage = time.monotonic()
+        from . import guest_stage as _guests
         from . import pack_copy as _pack_copy
         # a pack-copy build always writes its copy (never served)
         reuse = (_stage_reuse(tile, mesh_path)
-                 if _pack_copy.copy_dir() is None else None)
+                 if _pack_copy.copy_dir() is None and only is None else None)
         if _pack_copy.copy_dir() is not None:
             UI.vprint(0, f"  [v2 rebake] PACK COPY (O4_PACK_WRITES="
                          f"{os.environ.get('O4_PACK_WRITES')}): placement writes "
@@ -1112,7 +1209,9 @@ def rebake_after_mesh(tile) -> dict:
                 # repairs (every later write re-applies the repair)
                 from . import health_stage as _health
                 _health.health_stage(plan_, tile, writes=writes)
-                if not plan_.units:
+                # spec 2123: an airport whose patch generated a deck or a road
+                # bridge is written even with no pack unit to place
+                if not plan_.units and not _generated_in(patch_dir, icao):
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "
                                  f"({len(plan_.skipped)} resource(s) skipped at plan time)")
                     counts["airports"] += 1
@@ -1145,7 +1244,7 @@ def rebake_after_mesh(tile) -> dict:
                 # the airport's record when nothing it reads changed (#879)
                 # ``ICAO`` or ``ICAO~k`` (a companion pack's plan): names the
                 # placement plan written beside it
-                key = os.path.basename(plan_path)[len("o4_v2_rebake_"):-len(".json")]
+                key = _plan_key(plan_path)
 
                 foreign = tuple(o for p, ol in sorted(
                     sib_outlines.get(_plan_icao(plan_path), {}).items())
@@ -1164,7 +1263,9 @@ def rebake_after_mesh(tile) -> dict:
                 try:
                     recipe = _reuse_recipe(reuse, plan_, tile, patch_dir,
                                            writes=(write_enabled, measure_only),
-                                           omit=omit, foreign=foreign)
+                                           omit=omit, foreign=foreign,
+                                           neighbours=_guests.neighbour_marks(
+                                               tile, _sampler_bounds(plan_, patch_dir)))
                     pc = (reuse.run(icao, _reuse_folder(plan_), recipe, _compute)
                           if recipe is not None else _compute())
                 finally:
@@ -1187,6 +1288,11 @@ def rebake_after_mesh(tile) -> dict:
                 UI.vprint(0, f"  [v2 rebake] {icao}: placement failed ({exc}); "
                             f"continuing (a failed write leaves the pack as it was)")
                 UI.vprint(2, traceback.format_exc())
+        if only is None and write_enabled and not measure_only:
+            # #2129: the guest rows other tiles' builds seated on another
+            # ground than this mesh are re-seated by those tiles' plans
+            for k, v in _guests.reseat_guests(tile, mesh_path).items():
+                counts[k] = counts.get(k, 0) + v
         counts["packs_written"] = len(written_packs)
         if reuse is not None:
             reuse.finish()
@@ -1201,10 +1307,11 @@ def rebake_after_mesh(tile) -> dict:
         UI.vprint(1, f"  [v2 rebake] failed: {exc}")
         UI.vprint(2, traceback.format_exc())
     finally:
-        from . import adjust_stage as _adjust
-        from . import pack_copy as _pack_copy
-        _adjust.tile_stage(tile, asked=asked, writes=(
-            not _pack_stand_down(tile) and _pack_copy.copy_dir() is None))
+        if only is None:
+            from . import adjust_stage as _adjust
+            from . import pack_copy as _pack_copy
+            _adjust.tile_stage(tile, asked=asked, writes=(
+                not _pack_stand_down(tile) and _pack_copy.copy_dir() is None))
     return counts
 
 
@@ -1250,10 +1357,12 @@ def _reuse_folder(plan_) -> str:
 
 
 def _reuse_recipe(reuse, plan_, tile, patch_dir: str, *, writes: tuple,
-                  omit: _t.Sequence, foreign: _t.Sequence = ()) -> "dict | None":
+                  omit: _t.Sequence, foreign: _t.Sequence = (),
+                  neighbours: _t.Mapping | None = None) -> "dict | None":
     """One airport's reuse key (``object_stage_reuse.airport_recipe``), or
     ``None``: no reuse, or a key that could not be taken (it runs).  The
-    sibling plans' outlines (§9a) key it too."""
+    sibling plans' outlines (§9a) key it too, and the ground of every
+    neighbour tile its bodies may stand on (#2129, :func:`_neighbour_marks`)."""
     if reuse is None:
         return None
     try:
@@ -1263,9 +1372,16 @@ def _reuse_recipe(reuse, plan_, tile, patch_dir: str, *, writes: tuple,
                                     engine=_engine_version(),
                                     optimise=recorded_key(plan_.pack_root,
                                                           tile.lat, tile.lon),
-                                    foreign=_outlines_key(foreign))
+                                    foreign=_outlines_key(foreign),
+                                    neighbours=neighbours)
     except Exception:
         return None
+
+
+def _plan_key(plan_path: str) -> str:
+    """A plan file's key, ``ICAO`` or ``ICAO~k`` (``o4_v2_rebake_<key>.json``):
+    the name its placement plan JSON is written under."""
+    return os.path.basename(plan_path)[len("o4_v2_rebake_"):-len(".json")]
 
 
 def _plan_icao(plan_path: str) -> str:

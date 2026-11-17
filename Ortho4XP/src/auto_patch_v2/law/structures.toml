@@ -1543,6 +1543,16 @@ free_column_min_share = 0.5   # ... and at least this share of the placement's e
                               # canopy columns (LPHR), two 15 m roof poles (LIMC) moved 4-15 m
                               # without it; ENTC ALS 33/35, SBGL ALS-2, ENAT approach lights pass
 
+# TOUCHING BUILDINGS: ONE GROUP, ONE RIGID SEAT, AT THE LOWER (#2110 R3; owner
+# RULINGS 2026-11-16k/u/v; airport/touch_seat.py).  Two final bodies of one frame
+# touch where a non-line part ring of one comes within touch_gap_m of the other's
+# ("no visible gap" from above, 16u); a group of touching buildings spread under
+# 1 m seats at its lowest member, the others sink (16v).  A building under
+# touch_seat_min_share of the group's building footprint, alone at the lowest
+# level, keeps its seat and does not vote.  0 disarms.
+touch_gap_m         = 0.1
+touch_seat_min_share = 0.10
+
 # A WALLED BUILDING ON ITS AUTHOR'S TERRAIN STANDS ON OURS (#1884 r2 A;
 # airport/terrain_base.py).  true: one whose rigid base would CLEAR our ground
 # stands on our terrain as well (owner RULINGS 2026-11-13y (2): "A building
@@ -1579,6 +1589,7 @@ under_m             = 2.0          # a PIER is not a parapet: a foot whose surfa
 edge_m              = 6.0          # a parapet stands on the deck's EDGE: within this of the ring is on it (LEMD Bridge2 walls 54-94 %, the pier 7 %; bare ring 17-44 %, MEASURED)
 shear               = true         # §49 (5) — bound, NOT YET IMPLEMENTED (fallback (6) runs regardless)
 shear_max_grade     = 0.10         # §49 (5): steeper decks are not sheared
+elevated_over_ends_m = 3.0        # #2127 item 4 (RULINGS 2026-11-16u): a pack deck over the pack's cut whose top, at the zero its frame/group gave it, stands more than this (one storey) over the solved surface at BOTH end lines carries nothing at grade: no 26d cut-deck seat (airport/cut_deck_seat; LGAV Train4 +12.6 m)
 
 # ─────────────────────────────────────────────────────────────────────────
 # THE SCATTER CLASS (spec `pack-read-once-fast-spec.md` §B.2; slice S5a).
@@ -1732,4 +1743,34 @@ deck_join_reach_m  = 3.0    # B1: a deck end joins a floor within this of its pr
 deck_join_margin_m = 1.0    # B1: the next floor is at least this further
 ground_band_m      = 0.6    # C1: a plate's floors stand within this of the datum
 floor_min_area_m2  = 100.0  # C1: a smaller plate part is not built
-plate_max_off_m    = 3.0    # C1: a plate whose median level stands further from the DEM is not built
+plate_max_off_m    = 3.0    # C1: a plate whose median level stands further from the DEM is not built (read only on credible lidar, #2116 R2 G2)
+pad_cover_min      = 0.5    # #2116 R2 G1: a footprint this share inside a governed group's follower plan mints no pad
+plate_gap_max_m    = 30.0   # #2116 R2 C1b: an open strip this wide or less between two ground-floor parts of one follower is a plate part
+
+[deck_gen]                          # spec docs/specs/2123.md Part A (#2123; owner RULINGS 2026-11-16y): a taxiway over a road the pack draws only as pavement gets a GENERATED deck
+max_cover_m       = 100.0   # A1 (3) / Q2: a road covered longer than this is a tunnel (its covered length, not the deck's)
+bearing_m         = 2.0     # A2: the cut grows by this before the pavement over it is read
+edge_margin_m     = 1.5     # A2 / Q3: the deck ring stands this far outside the pavement
+shoulder_m        = 1.5     # #2131 THE DECK SPANS ITS CUT (owner 2026-11-17 "the bridge objects need to be a bit longer, and the cuts wider"): the level floor each side of a covered road's carriageway (the drawn road's shoulders), under the deck and along its ramps; the deck then reaches the bank's run (thickness_m + [tunnel] clearance_m over emit.design.bank_slope, the bank deck_cut builds) farther, so its end line stands on the bank's crest
+thickness_m       = 1.0     # A2: the slab
+top_lift_m        = 0.02    # A2: the top over the solved end lines
+tilt_cap_share    = 0.8     # A2: the pre-solve tilt is clamped to this share of the family cap
+tilt_probe_m      = 6.0     # A2: the DEM read for the tilt stands this far outside each end line
+level_probe_m     = 30.0    # A2: ... out to this far: the ground beside the road's cut is the highest DEM there (a bare-earth DEM reads the cut under the bridge)
+min_area_m2       = 50.0    # a smaller deck piece is not generated
+lod_m             = 6000.0  # A2: draw distance
+light_spacing_m   = 15.0    # Q4: OBJ8 taxi_g / taxi_g_rev every this many metres on the deck
+concrete_pol      = "lib/airport/pavement/concrete_4D.pol"      # #2132 (owner 2026-11-17 "realistic concrete, with dirt and tire marks ... reference some laminar texture resources the user will already have installed"): the slab is drawn in this X-Plane pavement page's own art (its TEXTURE, TEXTURE_NORMAL and SCALE), linked from the user's install like the cliff overlay (airport/deck_skin); unresolved -> the generated atlas
+rubber_pol        = "lib/airport/default_runways/rubber.pol"    # #2132: the tire marks: this page's alpha art as a film along the carried route's centreline, one SCALE repeat wide
+
+[road_gen]                          # spec docs/specs/2123.md Part B (#2124; owner RULINGS 2026-11-16y): a mapped road bridge a pack only drapes as pavement gets an X-Plane road
+page_cover_frac     = 0.5   # B1 (b): a pack page / apt.dat 110 covers at least this share of the carriageway
+pack_road_near_m    = 5.0   # B1 (c): a road-pack segment this close ...
+pack_road_angle_deg = 15.0  # ... and this parallel already draws it
+span_margin_m       = 0.5   # B3: the page clip is the carriageway half width plus this
+net_def             = "lib/g10/roads.net"   # B2: the network written when the pack declares none
+subtype             = 50    # B2: #VROAD subtype (P0: SHOW_LEVEL 2 on simHeaven's roads_EU; the owner saw it draw)
+level1_inset_m      = 12.0  # B2: the level-1 junctions stand this far inside each end of the span
+abutment_keep_m     = 25.0  # owner 16y (3): the ends stand on their embankments, never cut within this of an abutment
+cut_drop_m          = 1.0   # B3 / 16y (3): pack pavement over the lower road's cut beside the span (survey this far under the bridge's lower end) leaves the cells too ...
+cut_reach_m         = 20.0  # ... read within this of the bridge's axis

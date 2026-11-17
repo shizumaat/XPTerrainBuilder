@@ -37,7 +37,7 @@ from .design_stage import _groundside_minter, _welded_faces
 from .design_roles import (airside_stage_vertices, bend_class, bend_roles,
                            conforming_rulings,
                            datum_roles, foot_row_rulings, hard_rulings,
-                           is_hard, one_way_rulings, pad_flat_rulings,
+                           one_way_rulings, pad_flat_rulings,
                            pad_level_rulings, pavement_roles, ruling_head,
                            runway_led_rulings, yielded_preference_rulings)
 
@@ -371,8 +371,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     runway_led = runway_led_rulings(law) if drop_f else frozenset()
     led_v = airside_stage_vertices(planar, law) if runway_led else frozenset()
 
-    def _conforms(row) -> bool:
-        head = ruling_head(row)
+    def _conforms(row, head: str | None = None) -> bool:
+        head = ruling_head(row) if head is None else head
         fv = getattr(row, "follows", None)
         if head in runway_led and isinstance(fv, int) and fv in led_v:
             return False
@@ -394,19 +394,32 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # on two rim vertices has only airside columns, and stage 1 took it by
     # column (30aa (b)).  The minting face is the row's own ``face:N``.
     gs_minted = _groundside_minter(planar, law) if drop_f else None
+    # #1951: what a row's SOURCE decides — its ruling head, whether a welded
+    # road face minted it, whether the apron cap makes it hard — is read
+    # ONCE per source (every chord row of one road face shares one), not
+    # per side: 18 M sides per KMCI stage, the head read up to seven times
+    # each.  The three are pure functions of ``row.source``; the sources
+    # live in ``cs`` for the whole loop, so their ids are stable keys.
+    by_source: dict[int, tuple[str, bool, bool]] = {}
+    dem_fixed = red.dem_fixed
     for side in one_t:
         terms, hi, row = side
+        src_reading = by_source.get(id(row.source))
+        if src_reading is None:
+            src_reading = by_source[id(row.source)] = (
+                ruling_head(row), gs_minted is not None and gs_minted(row), ap_hard(row))
+        head, gs_row, ap_row = src_reading
         vs = {v for v, _c in terms}
-        if vs & drop_f:               # §20b: not this stage's problem
+        if drop_f and vs & drop_f:    # §20b: not this stage's problem
             stage_dropped += 1
             continue
-        if _conforms(row):
+        if _conforms(row, head):
             stage_dropped += 1        # §20b (1b): a conforming row is stage 2's
             continue
-        if gs_minted is not None and gs_minted(row):
+        if gs_row:
             stage_dropped += 1        # 30aa rule 1: a groundside face's row
             continue
-        if vs & red.dem_fixed and not vs <= red.dem_fixed:
+        if dem_fixed and vs & dem_fixed and not vs <= dem_fixed:
             dropped_bank += 1
             continue
         # THE HARD ROWS (RULINGS 2026-09-08v): the runway family's transverse,
@@ -434,12 +447,13 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # The test is the REDUCED row's, not the raw terms': two feet of one
         # rigid ``Flat`` group share a column and a ±1 pair cancels to
         # nothing, which is the same constant by another route.
-        promoted = bool(front_heads) and ruling_head(row) in front_heads \
+        promoted = bool(front_heads) and head in front_heads \
             and vs <= front and _held_at_ref(terms, hi, front_ref, tol_ref)
-        if (is_hard(heads, row) or promoted or ap_hard(row)) and _carries_a_column(red, terms):
-            if promoted and not is_hard(heads, row):
+        hard_head = head in heads           # ``is_hard(heads, row)``
+        if (hard_head or promoted or ap_row) and _carries_a_column(red, terms):
+            if promoted and not hard_head:
                 rep.fronting_promoted += 1
-                rep.fronting_promoted_by[ruling_head(row)] = rep.fronting_promoted_by.get(ruling_head(row), 0) + 1  # noqa: E501
+                rep.fronting_promoted_by[head] = rep.fronting_promoted_by.get(head, 0) + 1
             hi_hard = hi
             ceil = getattr(row, "ceiling", None)
             if getattr(row, "soft", None) is not None and ceil is not None:
@@ -458,7 +472,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         fv = getattr(row, "follows", None)
         fvs = ((int(fv),) if isinstance(fv, int)
                else tuple(int(v) for v in fv) if fv is not None else ())
-        if fvs and ruling_head(row) in ow_heads:
+        if fvs and head in ow_heads:
             # THE FOLLOWER MAY BE A SET (owner RULINGS 2026-09-10y): a pad
             # PLANE has three degrees of freedom, so the row that levels it
             # keeps three columns.  A follower with no column of its own is
@@ -467,7 +481,6 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                                  if red.col[v] >= 0}))
             if cols:
                 one_way[len(one)] = cols
-        head = ruling_head(row)
         (pad_flat_i if head in pf_heads
          else foot_i if head in fr_heads
          else yp_i if head in yp_heads else []).append(len(one))
@@ -477,7 +490,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         # pavement's edge, so §9b drops it from every body's mean.  The
         # register (``pad_level_rulings``) is what makes that a LAW read and
         # not a second derivation of "which pad fronts what".
-        if fvs and ruling_head(row) in pl_heads:
+        if fvs and head in pl_heads:
             pad_follow.update(fvs)
         one.append(side)
     for side in eqs_t:
@@ -536,11 +549,19 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
         col = int(red.col[vid])
         if col >= 0:
             anchored.add(comp[col])
-    for p_ in cs.pins:                                # a pin fixes its class
+    # a pin fixes its class: the class's members are read off ONE pass of
+    # the reduction's roots (#1951: the pass per pin was O(pins x vertices),
+    # 39 M ``find`` calls per KMCI assembly)
+    by_root: dict[int, list[int]] | None = None
+    for p_ in cs.pins:
         col = int(red.col[p_.v])
         if col < 0:
-            for vid in range(n):
-                if red.find(vid) == red.find(p_.v) and red.col[vid] >= 0:
+            if by_root is None:
+                by_root = {}
+                for vid in range(n):
+                    by_root.setdefault(red.find(vid), []).append(vid)
+            for vid in by_root[red.find(p_.v)]:
+                if red.col[vid] >= 0:
                     anchored.add(comp[int(red.col[vid])])
     for f_ in cs.flats:                               # a rigid group is one sheet
         cols = {int(red.col[v]) for v in f_.group if red.col[v] >= 0}

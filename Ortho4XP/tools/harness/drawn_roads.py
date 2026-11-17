@@ -57,8 +57,9 @@ _M_PER_DEG = 111320.0
 
 def claimed_mouths(sidecar):
     """``[(tunnel way ids, lat, lon)]``: every sidecar tunnel mouth
-    (``tunnel_mouth_depths``) a pack portal claims (``portal_cuts``); the
-    way ids read off the tunnel id (``tunnel:<w>[+<w>...]@<k>``)."""
+    (``tunnel_mouth_depths``) a pack portal claims (``portal_cuts``) -- the
+    way ids read off the tunnel id (``tunnel:<w>[+<w>...]@<k>``) -- and every
+    mouth a portal in a cut walls (``cut_portal_mouths``, #2120 R2)."""
     claimed = {r["id"] for r in (sidecar or {}).get("portal_cuts", []) or ()}
     out = []
     for r in (sidecar or {}).get("tunnel_mouth_depths", []) or ():
@@ -70,6 +71,9 @@ def claimed_mouths(sidecar):
         except ValueError:
             continue
         out.append((ways, float(r["mouth_ll"][0]), float(r["mouth_ll"][1])))
+    for r in (sidecar or {}).get("cut_portal_mouths", []) or ():
+        out.append((frozenset(int(w) for w in r["ways"]),
+                    float(r["mouth_ll"][0]), float(r["mouth_ll"][1])))
     return out
 
 

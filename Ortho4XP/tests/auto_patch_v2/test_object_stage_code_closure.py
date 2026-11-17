@@ -78,7 +78,7 @@ def test_the_stage_keys_each_airport_through_the_reuse(tmp_path):
     patch, the pristine DSF and the plan's OBJs; and the reuse wraps the
     placement call (the sampler is built only when it runs)."""
     from auto_patch_v2.model.rebake import RebakePlan
-    src = inspect.getsource(STAGE.rebake_after_mesh)
+    src = inspect.getsource(STAGE._object_stage)  # #2129: its body
     assert src.index("_reuse_recipe(") < src.index("reuse.run(") < src.index("reuse.finish()")
     assert "mesh_placement_sampler(mesh_path" in src[src.index("def _compute"):
                                                       src.index("reuse.run(")]

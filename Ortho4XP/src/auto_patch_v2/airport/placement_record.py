@@ -262,6 +262,10 @@ class SplitSet:
     #: (``placement_write.dump_rows``).  Not serialised.
     pit_shifts: _t.Mapping[str, float] = _dc.field(default_factory=dict,
                                                    repr=False, compare=False)
+    #: #2110 R3: ``touch_seat.seat_touching``'s table — the touching groups
+    #: by class, what moved, what was fixed and why.  Not serialised.
+    touch_table: _t.Mapping[str, _t.Any] = _dc.field(default_factory=dict,
+                                                     repr=False, compare=False)
 
     @property
     def all(self) -> tuple[Split, ...]:

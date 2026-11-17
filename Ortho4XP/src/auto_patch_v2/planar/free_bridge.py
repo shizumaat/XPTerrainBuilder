@@ -358,8 +358,14 @@ def _with_agp_groups(airport, law) -> tuple[_t.Any, list[str]]:
     """``(airport with agp_groups, notes)`` (#2090 A1, ``airport/agp_group``);
     a record already read is kept."""
     import time
-    if getattr(airport, "agp_groups", ()) or law is None:
+    if law is None:
         return airport, []
+    if getattr(airport, "agp_groups", ()):
+        # a capture's record keeps its groups; its plates are re-read under
+        # the current tree (#2116 R2: a replay iterates on the plate rules)
+        from ..airport.agp_plates import with_plates
+        notes: list[str] = []
+        return with_plates(airport, law, notes), notes
     from ..airport.agp_group import attach_agp_groups, log_line
     t0, notes = time.perf_counter(), []
     airport = attach_agp_groups(airport, law, notes)
@@ -384,7 +390,7 @@ def read_bridges(airport, objects, cache, law) -> tuple[_t.Any, tuple, list[str]
     got, kept, more = _read_free_bridges(airport, objects, cache, law)
     notes += more
     if not (got or kept or getattr(airport, "free_bridges", ())
-            or getattr(airport, "kept_bridges", ())):
+            or getattr(airport, "kept_bridges", ()) or getattr(airport, "agp_groups", ())):
         return with_bridge_stacks(airport, (), law), (), notes
     airport = _dc.replace(airport, free_bridges=got, kept_bridges=kept)
     stacks, every, refused, more = bridge_stacks(airport, objects, cache, law)

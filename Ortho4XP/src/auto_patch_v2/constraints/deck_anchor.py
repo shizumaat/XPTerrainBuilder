@@ -308,8 +308,14 @@ def derive(pm: PlanarMap, law: Law, airport: Airport, chords: "dict | None" = No
                            round(z, 6), round(depth, 6), round(depth - d0, 6),
                            family, rwid, round(p, 6), note=gov[1] if gov else "",
                            cut=cut.get(line, "none"), line=line)
-            out.append(_solved_level(_judge(a, rows, vw, law, rws.get(rwid), senior,
-                                            yielding)))
+            a = _judge(a, rows, vw, law, rws.get(rwid), senior, yielding)
+            # spec 2123: a GENERATED deck keeps its pin on the window-blind
+            # profile (the runway deck's reading): a bare-earth DEM reads
+            # the road's cut under it, and the free level sank into it
+            # (MEASURED ESSA replay l2123a/a3: U2 deck 3.6 m under its
+            # taxiway's trend, its floor 3 m under the deck)
+            out.append(a if any(getattr(e[3], "witness", "") == "generated"
+                                 for e in ends) else _solved_level(a))
     return tuple(_one_per_vertex(out))
 
 

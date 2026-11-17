@@ -82,6 +82,8 @@ KEEP = frozenset({
     "auto_patch.gateway_api",
     "auto_patch.gateway_stage",
     "auto_patch.forest_stage",
+    # ... the ground a guest body stands on, and its re-seat (#2129)
+    "auto_patch.guest_stage",
     # ... the pack health check's repairs (#1978)
     "auto_patch.health_stage",
     # ... "Optimise pack" (#1707), and the per-pack answer store and

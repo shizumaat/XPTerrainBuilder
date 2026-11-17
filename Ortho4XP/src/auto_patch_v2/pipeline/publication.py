@@ -814,6 +814,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # RULINGS 2026-10-26k (#1343): the cuts a pack PORTAL pins — the
             # runway strip keep-out families exempt them, nothing else
             "portal_cuts": portal_cuts(planar, airport),
+            "cut_portal_mouths": cut_portal_mouths(planar, airport),
             # THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i):
             # one record per channel the map carries — the FLOOR the
             # record declares per station and the CREST the design
@@ -1313,6 +1314,21 @@ def portal_cuts(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
         out.append({"id": tn.id, "portal": tn.portal,
                     "outline_ll": [[round(la, 8), round(lo, 8)]
                                    for la, lo in (to_ll(x, y) for x, y in tn.wall_path)]})
+    return out
+
+
+def cut_portal_mouths(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
+    """THE MOUTHS A PORTAL IN A CUT CLAIMS (#2120 R2, ``airport/cut_portal``):
+    per walled mouth edge (``PlanarMap.portal_mouths``), the bore's way ids,
+    the point where its axis meets the edge (lat/lon) and the portal.  The
+    drawn cut face there is that mouth's FACE, never a road step
+    (``tools/harness/drawn_roads.claimed_mouths``).  Empty where none."""
+    to_ll = airport.frame.transformers()[1]
+    out: list[dict[str, _t.Any]] = []
+    for ways, (x, y), portal in getattr(planar, "portal_mouths", ()) or ():
+        la, lo = to_ll(x, y)
+        out.append({"ways": [int(w) for w in ways], "mouth_ll": [round(la, 8), round(lo, 8)],
+                    "portal": portal})
     return out
 
 

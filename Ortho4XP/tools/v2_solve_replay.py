@@ -696,6 +696,8 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     airport = attach_wall_shade(airport, _load_rules().service)   # issue #1633
     from auto_patch_v2.airport.unit_fence import attach_unit_fences
     airport = attach_unit_fences(airport, _load_rules(), law)      # spec 2068 A2 F1
+    from auto_patch_v2.airport.cut_portal import attach_cut_portals
+    airport = attach_cut_portals(airport, pack_objects, ocache, law)      # #2120 R2 P1
     from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
     airport = attach_entrance_shade(airport, pack_objects, ocache, law, _epins)   # #1747
     from auto_patch_v2.airport.deck_routes import attach_deck_routes
@@ -1143,7 +1145,8 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
 def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                strip_rep=None, late_cut: dict | None = None,
                late_stage: dict | None = None, cells=(),
-               hard_conflict=(), runway_flex=(), agp_report=None, objects=None) -> dict:
+               hard_conflict=(), runway_flex=(), agp_report=None, objects=None,
+               rebake_plan: bool = False) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
@@ -1155,7 +1158,14 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     patch as ``<ICAO>.authored_seats.json`` (#1689).
 
     The patch-boundary bank pass that once ran here is deleted (owner
-    RULINGS 2026-10-04c (3))."""
+    RULINGS 2026-10-04c (3)).
+
+    ``rebake_plan`` (``--rebake-plan``, #2120 R2): ALSO the object stage's
+    plan, ``o4_v2_rebake_<ICAO>.json``, built by ``rebake_plan.plan`` from
+    these same rebake inputs over the capture's LOAD partition (the build's
+    call, ``rebake_screen.build_plan``'s inputs) -- for
+    ``tools/v2_rebake_replay.py plan`` over a built mesh, so an object seat
+    is replayed before a tile build."""
     from auto_patch_v2.emit.graded import graded_surface
     from auto_patch_v2.emit.osm_adapter import write_patch
     from auto_patch_v2.emit.terrain_edge import with_terrain_edges
@@ -1243,6 +1253,20 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
             {k: {"y": v[0], "stations": len(v[1]), "rest": list(v[2:])}
              for k, v in sorted((got.get("tunnel_objects") or {}).items())},
             indent=0, default=str), encoding="utf-8")
+        if rebake_plan:
+            from auto_patch_v2.airport import frame_entry as _fe
+            from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
+            from auto_patch_v2.airport.rebake_plan import plan as _rplan
+            from auto_patch_v2.model.rebake import PLAN_FILENAME
+            _c = _RCache(law.tables.structures.basin.min_solid_thickness_m, _fe.quantum(law))
+            _p = _rplan(airport, objects, _c, law, got["deck_datum"], exclude=got["exclude"],
+                        below_grade=got["below_grade"], tunnel_objects=got["tunnel_objects"],
+                        partition=getattr(airport, "partition", None),
+                        authored_seats=got.get("authored_seats", ()),
+                        free_decks=got.get("free_decks"))
+            _out = emit_dir / PLAN_FILENAME.format(icao=icao)
+            _out.write_text(_p.to_json(), encoding="utf-8")
+            print(f"    rebake plan -> {_out}")
     return {"patch": str(paths.patch), "surface": surf_out}
 
 
@@ -2295,11 +2319,13 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         airport = attach_wall_reseats(airport, _epins)
         airport = attach_wall_shade(airport, _load_rules().service)
         airport = attach_unit_fences(airport, _load_rules(), law)
-        # #1747: a capture written before ``Airport.entrance_shade`` derives
-        # it here, off the pack read the classify / planar stages take
-        if getattr(airport, "entrance_shade", None) is None:
-            from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
-            airport = attach_entrance_shade(airport, _objs, _ocache, law, _epins)
+        # #2120 R2 P1: the portals in a cut, and with them the entrance
+        # shade (#1747), re-derived under the current tree on every early
+        # resume, off the pack read the classify / planar stages take
+        from auto_patch_v2.airport.cut_portal import attach_cut_portals
+        from auto_patch_v2.airport.entrance_shade import attach_entrance_shade
+        airport = attach_cut_portals(airport, _objs, _ocache, law)
+        airport = attach_entrance_shade(airport, _objs, _ocache, law, _epins)
         # #1971: the deck stacks, RE-DERIVED every replay from the ways as
         # mapped (``Airport.osm_ways_mapped``), so ``--from classify``
         # iterates on the derivation without a new capture
@@ -2326,6 +2352,15 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         for _n in _fb_notes:
             print(f"[{icao}]   [free-bridge] {_n}")
     if resume == "classify":
+        # spec 2123 B: the generated road bridges' spans leave the pavement
+        # sources before classify, as ``pipeline/build`` does (a no-op on a
+        # capture that already carries them)
+        from auto_patch_v2.planar.road_bridge_gen import attach_road_bridges
+        _rb_notes: list = []
+        airport = attach_road_bridges(airport, law, _rb_notes)
+        for _n in _rb_notes:
+            if "GENERATED" in _n:
+                print(f"[{icao}] {_n}")
         # §16g (10) (2)'s pad is MINTED AT CLASSIFY TIME off ``Airport.
         # clusters`` — and BOTH are captured, so a change in the cluster
         # derivation (``plan_clusters``) or the pad mint (``geom.
@@ -2351,6 +2386,11 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         if rule:
             print(f"[{icao}] REPLAY ARM [rules] {rule}")
         cl = _classify(airport, law, _crules, cache=_ocache)
+        # spec 2123 B3: the span cut, as ``pipeline/build`` makes it
+        from auto_patch_v2.planar.road_bridge_gen import span_cells as _span_cells
+        cl, _sn = _span_cells(cl, airport, law)
+        for _n in _sn:
+            print(f"[{icao}] {_n}")
         print(f"[{icao}] classify re-run: {len(cl.cells)} cells "
               f"({time.perf_counter() - _ct:.0f} s); cluster pads {dict(_CP)}")
         # spec 2068 A3: the fence yard's own read (plane, G6' ratio, region)
@@ -2638,6 +2678,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
            z_out: Path | None, method: str = "normal",
            design_weights: dict[str, float] | None = None, verbose: bool = False,
            sites: list[tuple[float, float]] | None = None, emit_dir: Path | None = None,
+           rebake_plan: bool = False,
            why_hump: tuple[str, float, float] | None = None, verify: bool = False,
            solved_out: Path | None = None, chord_fill: tuple[str, ...] = (),
            site_radius_m: float = 12.0, why_hard_limit: int | None = None,
@@ -3042,7 +3083,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                      cells=cl.cells, hard_conflict=hard_conflict,
                                      runway_flex=rep.runway_flex,
                                      agp_report=(rep.reach_seed or {}).get("agp_level"),
-                                     objects=prob.get("objects")))
+                                     objects=prob.get("objects"), rebake_plan=rebake_plan))
     if emit_dir is not None or verify:
         # object-placement spec §18 (6): the seat per wall / pit placement,
         # as the build's rebake plan publishes it (``authored_seats``)
@@ -3234,6 +3275,10 @@ def main() -> int:
     ap.add_argument("--site-radius", type=float, default=12.0, metavar="M",
                     help="the --site horizon in metres (default 12; the owner's step horizon is 60)")
     ap.add_argument("--emit", type=Path, metavar="DIR", help="write the patch of the solved surface")
+    ap.add_argument("--rebake-plan", action="store_true",
+                    help="with --emit: also write the object stage's plan "
+                         "(o4_v2_rebake_<ICAO>.json, rebake_plan.plan over the capture's load "
+                         "partition) for tools/v2_rebake_replay.py plan (#2120 R2)")
     ap.add_argument("--verify", action="store_true",
                     help="run the v2 verify census on the solved surface and print the rows "
                          "per family and the DEFECT families (the app's gate)")
@@ -3466,7 +3511,8 @@ def main() -> int:
                       design_weights={k.strip(): _design_value(v)
                                       for k, v in (it.split("=") for it in a.design_weight)},
                       verbose=a.design_verbose, sites=sites, site_radius_m=a.site_radius,
-                      emit_dir=a.emit, why_hump=wh, verify=a.verify, solved_out=a.solved_out,
+                      emit_dir=a.emit, rebake_plan=a.rebake_plan, why_hump=wh, verify=a.verify,
+                      solved_out=a.solved_out,
                       chord_fill=tuple(a.chord_fill), why_hard_limit=a.why_hard,
                       why_hard_stage=a.why_hard_stage, placement=pl,
                       late_from=a.late_from, gap_free=a.gap_free,

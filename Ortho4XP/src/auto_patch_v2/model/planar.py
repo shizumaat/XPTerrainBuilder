@@ -885,6 +885,11 @@ class PlanarMap:
     #: ``planar/covered_ground``; ``airport/road_ramp`` reads each as a wall
     #: that retains its height (the road past the mouth at its own floor).
     mouth_walls: tuple[tuple[tuple[tuple[float, float], ...], float, str], ...] = ()
+    #: THE MOUTHS A PORTAL IN A CUT WALLS (#2120 R2): ``(bore way ids,
+    #: (x, y) on the walled edge, portal object id)`` -- derived with
+    #: ``mouth_walls`` (``planar/covered_ground``); published as claimed
+    #: mouths (``pipeline/publication.cut_portal_mouths``).
+    portal_mouths: tuple[tuple[tuple[int, ...], tuple[float, float], str], ...] = ()
     #: THE JETWAY GROUND (issue #802; owner RULINGS 2026-10-16b (1)): the
     #: exterior rings of the PAVEMENT a terminal pad took in when it grew
     #: over its jetways — derived ONCE in ``classify/evidence._with_jetways``.

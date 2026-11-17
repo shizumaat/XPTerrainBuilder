@@ -163,6 +163,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "tunnel_mouth_depths",
     # RULINGS 2026-10-26k: the cuts a pack portal pins (``publication.portal_cuts``)
     "portal_cuts",
+    # #2120 R2: the mouths a portal in a cut walls (``publication.cut_portal_mouths``)
+    "cut_portal_mouths",
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
     # #1777: {shapeID: side} where a face's census side is not its role's
     "face_sides",

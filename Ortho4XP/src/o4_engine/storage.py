@@ -378,8 +378,10 @@ class _Sweep:
         self.stopped = False
         #: #2103, ``storage_floor``: move to a tier only, never delete
         self.tier_only = False
-        #: #2103: folders whose files this pass never touches (the corpus)
-        self.spare: tuple = ()
+        #: #2093/#2103: folders whose files this pass never touches -- the
+        #: dev corpus, by default for EVERY pass (the automatic cleanup and
+        #: a clear by hand too: ``storage_floor.corpus_roots``)
+        self.spare: tuple = _corpus_roots()
         self._log = None
         self._first = None
 
@@ -401,7 +403,7 @@ class _Sweep:
         a moved file lays back with its tile's next build)."""
         if self.spare and _spared(path, self.spare):
             return 0
-        size = DISK.freeable_bytes(path, st)
+        size = DISK.freeable_bytes(path, st, unshared=True)
         if self.tier_only:
             return self._offload(store, path, st, size)
         written = self.first.before_delete(store.kind, path)
@@ -464,6 +466,16 @@ class _Sweep:
         return {"freed_bytes": sum(self.freed.values()), "files": self.files,
                 "kinds": dict(self.freed), "dry_run": self.dry_run,
                 "stopped": self.stopped}
+
+
+def _corpus_roots() -> tuple:
+    """The dev corpus folders of the current data root (#2093), ``()``
+    when they cannot be read."""
+    from .storage_floor import corpus_roots
+    try:
+        return corpus_roots()
+    except (OSError, AttributeError):
+        return ()
 
 
 def _spared(path: str, roots: tuple) -> bool:

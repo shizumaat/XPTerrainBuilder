@@ -47,3 +47,9 @@ class AgpLaw:
     #: C1: a plate whose median level stands further than this from the
     #: DEM is not built (m)
     plate_max_off_m: float = 3.0
+    #: #2116 R2 G1: a building footprint lying at least this share inside
+    #: a governed group's FOLLOWER plan mints no pad
+    pad_cover_min: float = 0.5
+    #: #2116 R2 C1b: an open strip between two ground-floor parts of one
+    #: follower at most this wide is a plate part (m)
+    plate_gap_max_m: float = 30.0

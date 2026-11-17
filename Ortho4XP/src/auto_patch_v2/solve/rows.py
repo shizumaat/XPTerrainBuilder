@@ -351,13 +351,14 @@ def _one_matrix(one: _t.Sequence[_Side], red: _Reduction
     c: list[int] = []
     v: list[float] = []
     b = np.zeros(len(one))
+    col_of, value_of = red.col.tolist(), red.value.tolist()   # #1951: list reads
     for k, (terms, hi, _row) in enumerate(one):
         rhs = float(hi)
         acc: dict[int, float] = {}
         for vid, coef in terms:
-            col = int(red.col[vid])
+            col = col_of[vid]
             if col < 0:
-                rhs -= coef * float(red.value[vid])
+                rhs -= coef * value_of[vid]
             else:
                 acc[col] = acc.get(col, 0.0) + coef
         for col, coef in acc.items():
@@ -424,9 +425,12 @@ def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
     and, when it is an absolute bound, levels them.  Passing it keeps the
     belt from claiming a vertex that a band already holds.
     """
-    parent: dict[int, int] = {c: c for c in range(red.n_cols)}
-
-
+    # a LIST forest over the columns and the reduction's columns as a list
+    # (#1951: this runs over every one-sided side — 18 M at KMCI — up to
+    # twice per stage solve; numpy scalar reads and a dict forest were most
+    # of its cost).  The roots, and so the answer, are the dict forest's.
+    parent: list[int] = list(range(red.n_cols))
+    col_of: list[int] = red.col.tolist()
     has_level: set[int] = set()
 
     def take(cols: _t.Sequence[int], coefs: _t.Sequence[float]) -> None:
@@ -451,7 +455,7 @@ def _level_free_columns(rows: "_Rows", body: "_Rows | None", red: _Reduction,
         cols: list[int] = []
         coefs: list[float] = []
         for vid, coef in terms:
-            col = int(red.col[vid])
+            col = col_of[vid]
             if col >= 0:
                 cols.append(col)
                 coefs.append(float(coef))

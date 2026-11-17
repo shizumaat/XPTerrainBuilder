@@ -309,17 +309,11 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
         return None
     under = hz[v[hz][:, :, 1].min(axis=1) < rim_y - ob.cover_flush_m]
     F = _placed_all(o, _types.SimpleNamespace(vertices=v, solid=under), zero, scale)
-    if own_walls:
-        cap = wall_caps(F, law)
-        if cap.any():
-            notes.append(f"{what}: {int(cap.sum())} face(s) under its rim are the tops of its "
-                         f"own walls, not its floor")
-            F = F[~cap]
     pt = shapely.polygons(F[:, :, :2])
-    foot = valid_polygon(_frame_entry.union(pt[shapely.area(pt) > 1e-6], "walled_pit.foot"))
-    if foot is None or foot.area < ob.plate_min_area_m2:
+    plan = valid_polygon(_frame_entry.union(pt[shapely.area(pt) > 1e-6], "walled_pit.foot"))
+    if plan is None or plan.area < ob.plate_min_area_m2:
         return None
-    r = _around_ids(foot, {p.id for p in frame}, ag, ground, law)
+    r = _around_ids(plan, {p.id for p in frame}, ag, ground, law)
     if r.source == "none":
         notes.append(f"{what}: a walled pit with no ground read around it")
         return None
@@ -345,10 +339,22 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
         return None
     proud = zero + rim_y - r.z
     lift = 0.0 if 0.0 <= proud <= ob.authored_crest_max_m else -proud
+    # the pit's plan (its walls' tops among it) seats the frame; the floor
+    # is what the cut follows (#1949 R1: an open hollow's own wall caps are
+    # no floor)
+    foot = plan
+    if own_walls and (cap := wall_caps(F, law)).any():
+        notes.append(f"{what}: {int(cap.sum())} face(s) under its rim are the tops of its "
+                     f"own walls, not its floor")
+        F = F[~cap]
+        pt = shapely.polygons(F[:, :, :2])
+        foot = valid_polygon(_frame_entry.union(pt[shapely.area(pt) > 1e-6], "walled_pit.foot"))
+        if foot is None:
+            return None
     faces = F.copy()
     faces[:, :, 2] += lift
     fz = float(faces[:, :, 2].min())
-    inside = [p for p in mates if p not in covers and _in_pit(p, foot, cache, tk)]
+    inside = [p for p in mates if p not in covers and _in_pit(p, plan, cache, tk)]
     k = sum(1 for n in notes if n.startswith(f"object floor walled pit {_base(o.path)}@"))
     note = (f"object floor walled pit {_base(o.path)}@{k}: floor y {floor_y:.2f}, "
             f"rim y {rim_y:.2f} "
@@ -361,11 +367,34 @@ def read_walled_pit(o, g, mates, cache, law, msl, ag, ground, scale, walls: Wall
             f"{len(covers) + len(inside) + 1} placements standing in it move with it")
     notes.append(note)
     seats = tuple((p.id, p.path, _zero(p, msl) + lift) for p in (o, *covers, *inside))
+    tops = _open_edges(foot, frame, cache, law, msl, scale, zero, zero + rim_y, lift, ground,
+                       faces, fz)
     return ObjectFloor(f"{FLOOR_REF}{_base(o.path)}@pit{k}", o.id, o.path,
                        tuple(p.id for p in covers), zero + lift, fz, foot, faces, (note,),
                        seats, rim_z=zero + rim_y + lift, lift=lift,
                        authored=tuple((p.id, _zero(p, msl)) for p in frame),
-                       rim_proud_m=proud + lift)
+                       rim_proud_m=proud + lift, rim_tops=tops, rim_banks=bool(tops))
+
+
+def _open_edges(foot, frame, cache, law, msl, scale, zero: float, rim_abs: float, lift: float,
+                ground, faces: np.ndarray, fz: float) -> tuple:
+    """#1949 R2: the pit's ``rim_tops`` on its OPEN EDGES
+    (``floor_rim.open_edge_tops``) along the cut's rim (the footprint grown
+    by half a wall, ``planar/object_floor_cells``' void band), the frame
+    capped at its rim; the floor beside a rim point is the pit's floor there
+    (within a wall's thickness), else its lowest ``fz``."""
+    from ..geom.lowest_face import floor_z_at
+    from .floor_rim import open_edge_tops
+    if ground is None:
+        return ()
+    tk = float(law.tables.structures.tunnel.object.wall_face_max_thickness_m)
+
+    def floor(xs, ys):
+        z = floor_z_at(faces, xs, ys, edge_m=tk)
+        return np.where(np.isfinite(z), z, fz)
+    return open_edge_tops(foot.buffer(0.5 * tk, join_style="mitre"),
+                          [(p, _zero(p, msl)) for p in frame], cache, law, scale, zero,
+                          rim_abs, lift, ground, floor)
 
 
 def wall_caps(faces: np.ndarray, law) -> np.ndarray:
